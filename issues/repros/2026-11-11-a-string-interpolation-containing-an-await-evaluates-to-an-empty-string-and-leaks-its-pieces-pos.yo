@@ -1,0 +1,19 @@
+// expect: accept
+// Positive control: the await is bound first and the interpolation has no await (OUT: n=7, no leak).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+num :: (fn(io : Io) -> Impl(Future(usize, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    usize(7)
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  f := io.async((io : Io) => {
+    n := io.await(num(io), io);
+    `n=${n}`
+  });
+  println(`OUT: ${io.await(f, io)}`);
+});
+export(main);

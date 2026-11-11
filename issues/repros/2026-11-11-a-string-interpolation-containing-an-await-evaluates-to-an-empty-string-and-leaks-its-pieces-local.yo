@@ -1,0 +1,20 @@
+// expect: accept
+// A body local interpolated before the awaiting piece: `OUT: ` again, and the copy of `s` leaks.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+num :: (fn(io : Io) -> Impl(Future(usize, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    usize(7)
+  })
+);
+make :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+main :: (fn(io : Io) -> unit)({
+  f := io.async((io : Io) => {
+    s := make();
+    `${s} ${io.await(num(io), io).to_string()}`
+  });
+  println(`OUT: ${io.await(f, io)}`);
+});
+export(main);

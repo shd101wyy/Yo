@@ -1,0 +1,12 @@
+// expect: reject ("Cannot assign to …": a tuple literal is not a place)
+// With move-only elements the left side is evaluated as a value: it moves `a`
+// and `b`, so the later read is E0901 "value moved here" at the left side.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(a) := String.from("payload-A-0123456789abcdefghijklmnop");
+  mut(b) := String.from("payload-B-0123456789abcdefghijklmnop");
+  (a, b) = (String.from("new-a"), String.from("new-b"));
+  println(`OUT a=${a} b=${b}`);
+});
+export(main);

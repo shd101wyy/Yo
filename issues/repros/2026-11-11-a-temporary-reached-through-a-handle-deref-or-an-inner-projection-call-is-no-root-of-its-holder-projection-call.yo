@@ -4,17 +4,18 @@
 { String } :: import("std/string");
 { println } :: import("std/fmt");
 X :: struct(s : String, n : i32);
+longs :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
 V :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(String, p)));
 mkv :: (fn(r : &String) -> V(r))(V(r)(r : r));
 impl(X, get : (fn(self : &Self) -> &String)(&self.s));
-mkx :: (fn() -> X)(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"), n : i32(0)));
+mkx :: (fn() -> X)(X(s : longs(), n : i32(0)));
 main :: (fn() -> unit)({
-  k := String.from("k");
+  k := longs();
   mut(v) := mkv(&k);
   {
     v = mkv(mkx().get());
   };
-  z := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
-  println(`OUT: ${v.r.*} ${z.len().to_string()}`);
+  z := longs();
+  println(`OUT: ${v.r.len().to_string()} ${z.len().to_string()}`);
 });
 export(main);

@@ -1,6 +1,6 @@
 // expect: E0911
-// The unsound shape the C failure hides: a store through the field re-points `r` at a block-local
-// `inner`, and `r` is read after `inner` dies. `yo check` accepts it.
+// A holder of `&mut r` (a `&mut &Rc(X)` field): the store `m.rp.* = ri` re-points `r` at the
+// block-local `inner`, `r`'s flow set is not widened, and `r` is read after `inner` dies.
 { String } :: import("std/string");
 { println } :: import("std/fmt");
 X :: struct(s : String);

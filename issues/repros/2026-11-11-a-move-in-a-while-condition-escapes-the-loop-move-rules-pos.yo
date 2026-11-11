@@ -1,0 +1,15 @@
+// expect: accept
+// The condition only reads `a`; `a` is moved once, after the loop.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+take :: (fn(s : String) -> usize)(s.len());
+main :: (fn() -> unit)({
+  a := String.from("payload-0123456789abcdefghijklmnop");
+  mut(i) := usize(0);
+  while(i < a.len(), {
+    i = (i + usize(10));
+  });
+  k := take(a);
+  println(`OUT i=${i.to_string()} k=${k.to_string()}`);
+});
+export(main);

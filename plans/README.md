@@ -32,6 +32,9 @@ Only VALUES_BY_DEFAULT is in progress (until v0.2.79). Everything else is in
       43's design;
     - [`BORROW_CHECKER_COMPLETENESS`](backlog/BORROW_CHECKER_COMPLETENESS.md),
       decision 50's plan: O-1…O-6 and parity P1–P16;
+    - [`OWNERSHIP_BORROWING_ORIGINS_AUDIT`](backlog/OWNERSHIP_BORROWING_ORIGINS_AUDIT.md),
+      the 2026-11-11 audit of both against the built checker: findings,
+      design corrections, the patch for the two docs above;
     - [`ALLOCATOR_PLACEMENT`](backlog/ALLOCATOR_PLACEMENT.md), the `Box` layout
       L1–L3;
     - [`MACRO_AND_ISO_REMOVAL`](backlog/MACRO_AND_ISO_REMOVAL.md), Part C;

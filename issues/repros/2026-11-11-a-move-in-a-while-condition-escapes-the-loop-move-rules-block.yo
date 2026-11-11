@@ -1,0 +1,17 @@
+// expect: E0901
+// A block condition moves `a` into a condition-local each time it is tested.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+take_empty :: (fn(s : String) -> bool)(s.len() == usize(0));
+main :: (fn() -> unit)({
+  a := String.from("payload-0123456789abcdefghijklmnop");
+  mut(i) := i32(0);
+  while({
+    t := a;
+    !(take_empty(t)) && (i < i32(2))
+  }, {
+    i = (i + i32(1));
+  });
+  println(`OUT i=${i.to_string()}`);
+});
+export(main);

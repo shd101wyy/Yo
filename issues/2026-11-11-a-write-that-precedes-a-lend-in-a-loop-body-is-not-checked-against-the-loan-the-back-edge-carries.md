@@ -1,8 +1,8 @@
 # A write that precedes a lend in a loop body is not checked against the loan the back edge carries
 
-**Severity:** S1. In `while(…, { if(i == 2, { x = …; }); if(i == 1, { h = .Some(&x); }); … })` with `h` read after
-the loop, `yo check` accepts the write of `x` on iteration 2 although `h` still holds the loan of `x` that iteration 1
-made: the old value is dropped and the read of `h` after the loop is a heap-use-after-free. Pre-existing: v0.2.76
+**Severity:** S1. In `while(…, { if(i == 2, { x = …; }); if(i == 1, { h = .Some(&x.*); }); … })` with `h` read
+after the loop, `yo check` accepts the write of `x` on iteration 2 although `h` still holds the loan of `x` that
+iteration 1 made: the old Box is dropped and the read of `h` after the loop is a heap-use-after-free. Pre-existing: v0.2.76
 accepts it too. Writing the same two statements in the other order (lend, then write) is E0911.
 
 Found 2026-11-11 by the ownership / borrowing / origin audit
@@ -19,12 +19,12 @@ differ, so a fix of one does not fix the other.
 ```yo
 L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
 main :: (fn() -> unit)({
-  mut(x) := L();
+  mut(x) := Box.new(L());
   mut(h) := Option(&String).None;
   mut(i) := 0;
   while(i < 3, {
-    if(i == 2, { x = String.from("q"); });
-    if(i == 1, { h = .Some(&x); });
+    if(i == 2, { x = Box.new(String.from("q")); });
+    if(i == 1, { h = .Some(&x.*); });
     i = (i + 1);
   });
   match(h, .Some(r) => println(`OUT: ${r.*}`), .None => ());
@@ -38,6 +38,8 @@ $ yo compile repro.yo --optimize 1 --sanitize address --allocator system -o t &&
 ==…==ERROR: AddressSanitizer: heap-use-after-free
 ```
 
+- `…-string.yo` (negative, E0911): the ledger's minimal j06b, `h = .Some(&x)` over the `String` itself. No memory
+  error — `x`'s slot is rewritten in place — but the frozen `h` reads the value written on iteration 2 (`OUT: q`).
 - `…-holder.yo` (negative, E0911): a struct holder; `b = mk()` at the top of every iteration frees the Box the previous
   iteration's `h = H(r : &b.*, …)` points into, and `h` is read after the loop: heap-use-after-free.
 - `…-pos.yo` (positive control): the holder is read at the top of the body, then the root is written, then the holder
@@ -48,7 +50,8 @@ $ yo compile repro.yo --optimize 1 --sanitize address --allocator system -o t &&
 
 | Shape | Verdict | Correct |
 | --- | --- | --- |
-| write of `x`, then a conditional `h = .Some(&x)` later in the body, `h` read after the loop | accepted, heap-use-after-free | E0911 |
+| write of the Box `x`, then a conditional `h = .Some(&x.*)` later in the body, `h` read after the loop | accepted, heap-use-after-free | E0911 |
+| the same over the `String` `x` itself, `h = .Some(&x)` (ledger j06b, `…-string.yo`) | accepted; reads the new value | E0911 |
 | the same through a borrowed match, `h = match(&x, Box(s) => Option(&String).Some(s))` (ledger j06) | accepted, heap-use-after-free | E0911 |
 | a struct holder over `&b.*` (holders j03b); over `&b` with an `Rc` payload (j03, reads a live value) | accepted | E0911 |
 | the lend first, then the write, in one body (ledger j05, l03; l04 with a `continue` between) | E0911 | E0911 |
@@ -72,7 +75,7 @@ joins move states, never loans.
 
 ## Expected
 
-E0911 at `x = String.from("q")`: the loans live at the end of the body (and at each `continue`) are live at the loop
+E0911 at `x = Box.new(String.from("q"))`: the loans live at the end of the body (and at each `continue`) are live at the loop
 head, so they are checked against every access the body makes before re-pointing their holder. `BORROW_CHECKER_COMPLETENESS.md`
 §3: "a holder's loans are the join over reaching definitions (loops to a fixpoint)"; `REFERENCES_AND_ORIGINS.md` §4:
 the per-body set is "joined at control-flow merges and iterated to a fixpoint over loops". The reference checker

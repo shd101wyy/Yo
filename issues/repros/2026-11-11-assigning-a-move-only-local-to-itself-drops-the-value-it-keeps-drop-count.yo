@@ -1,0 +1,24 @@
+// expect: accept (drops=1)
+// No heap payload: the destructor of one `D` runs twice, once at `x = x`
+// and once at the scope end (prints drops=1 after the assignment, 2 at the end).
+{ println } :: import("std/fmt");
+(mut(g_drops) : i32) = i32(0);
+nd :: (fn() -> i32)(g_drops);
+D :: struct(n : i32);
+impl(
+  D,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_drops = (g_drops + i32(1));
+    })
+  )
+);
+main :: (fn() -> unit)({
+  {
+    mut(x) := D(n : i32(1));
+    x = x;
+    println(`OUT after-assign drops=${nd().to_string()} expect 0`);
+  };
+  println(`OUT drops=${nd().to_string()} expect 1`);
+});
+export(main);

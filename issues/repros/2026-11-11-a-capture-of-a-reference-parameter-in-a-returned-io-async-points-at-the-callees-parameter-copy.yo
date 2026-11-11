@@ -1,0 +1,17 @@
+// expect: accept
+// A `{ s }` capture of a `&String` parameter in an `io.async` returned from `mk`: the capture record
+// stores `&` of mk's C parameter copy, so the future reads mk's dead frame (stack-use-after-scope).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+mk :: (fn(s : &String, io : Io) -> Impl(Future(usize, Io)))(
+  io.async({ s }(io : Io) => {
+    io.await(yield(io), io);
+    s.len()
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  x := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+  println(`OUT: ${io.await(mk(&x, io), io).to_string()}`);
+});
+export(main);

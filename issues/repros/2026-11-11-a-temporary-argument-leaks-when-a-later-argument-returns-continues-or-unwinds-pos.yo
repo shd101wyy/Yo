@@ -1,0 +1,36 @@
+// expect: accept (drops=3, no leak)
+// The same call with the first argument bound to a named local: the exit in
+// the later argument drops it (fixed 2026-10-23 for a named local).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+(mut(g_drops) : i32) = i32(0);
+nd :: (fn() -> i32)(g_drops);
+D :: struct(s : String);
+impl(
+  D,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_drops = (g_drops + i32(1));
+    })
+  )
+);
+mk :: (fn() -> D)(D(s : String.from("payload-0123456789abcdefghijklmnop")));
+two :: (fn(a : D, b : D) -> usize)(a.s.len() + b.s.len());
+run :: (fn(c : bool) -> usize)({
+  x := mk();
+  two(
+    x,
+    cond(
+      c => {
+        return(usize(0));
+      },
+      true => mk()
+    )
+  )
+});
+main :: (fn() -> unit)({
+  r1 := run(true);
+  r2 := run(false);
+  println(`OUT r2=${r2.to_string()} drops=${nd().to_string()} expect 3`);
+});
+export(main);

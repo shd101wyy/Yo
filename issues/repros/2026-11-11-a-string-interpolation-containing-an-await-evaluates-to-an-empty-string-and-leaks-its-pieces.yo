@@ -1,0 +1,17 @@
+// expect: accept
+// An interpolation whose piece awaits: the builder is pushed through a C copy of its state-machine
+// slot, so the result is the slot's empty string (prints `OUT: `, not `OUT: n=7`) and the pieces leak.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+num :: (fn(io : Io) -> Impl(Future(usize, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    usize(7)
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  f := io.async((io : Io) => `n=${io.await(num(io), io)}`);
+  println(`OUT: ${io.await(f, io)}`);
+});
+export(main);

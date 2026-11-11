@@ -45,7 +45,7 @@ $ yo compile repro.yo --optimize 1 --sanitize address --allocator system -o t &&
 | `r := h.as_ref(); consume(h); r.*` (`Rc`) | accepted, UAF | E0911 |
 | `for(&xs, x => { slot = .Some(x); }); consume(xs);` then `slot` read | accepted, UAF | E0911 |
 | `r := &s; consume(s); r.*` (`String`) | accepted; prints `OUT: ` with an empty string, no ASan report | E0911 |
-| DROP_ROW
+| `drop(xs)` (the prelude's `drop :: (fn(generic(T : Type), sink(x) : T) -> unit)`) while `r` lives | E0911 "Cannot move `xs` here" | — |
 | `eat(h)` with `eat :: (fn(h : Rc(String)) -> unit)` while `r := h.as_ref()` lives | E0911 "Cannot move `h` here" | — |
 | a generic by-value `eat(xs)` while `r := xs.index(…)` lives | E0911 (ledger) | — |
 | `consume(xs)` while `y := &mut xs` lives | E0911 "Cannot read `xs` here" | E0911 (a move, not a read) |
@@ -60,7 +60,8 @@ and then marks the variable moved with `set_variable_as_consumed`, which records
 The by-value argument path goes through `set_expr_as_consumed` (`src/evaluator/utils.yo`) instead, which, when
 `local_borrows_active()`, calls `local_borrow_access(local_borrow_place_of_variable(&v), LocalBorrowAccess.Move, …)`
 — the E0911 "Cannot move `h` here" of the user-function row — and `check_capture_freeze_access`. `consume` skips
-both, so no live loan ever sees the move. DROP_ROOT
+both, so no live loan ever sees the move. The prelude's `drop` is a by-value function and takes the checked path;
+the internal `___drop` builtin (`src/evaluator/builtins/drop.yo`) calls `set_variable_as_consumed` the same way.
 
 ## Expected
 

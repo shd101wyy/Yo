@@ -37,6 +37,11 @@ $ yo compile repro.yo --optimize 1 --sanitize address --allocator system -o t &&
 
 `…-pos.yo` (positive control): the impl spells the trait's origin and returns `&self.h`; the result survives `b`.
 
+- `…-parameters.yo` (negative, expects E0923 at the impl): the parameter direction. The trait has
+  `put(self : &mut Self, v : &Rc(X))`; the impl over `Slot(p)` narrows `v` to `&(Rc(X), p)` and stores it into
+  `self`. Called directly with a block-local argument: heap-use-after-free. v0.2.76 accepts it too.
+- `…-parameters-pos.yo` (positive control): an impl that keeps the trait's parameter origins and only reads `v`.
+
 ## The family (develop `64f33c710`)
 
 | Shape | v0.2.76 | develop | Correct |

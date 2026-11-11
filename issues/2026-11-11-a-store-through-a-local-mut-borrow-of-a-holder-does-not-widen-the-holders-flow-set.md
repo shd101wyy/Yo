@@ -3,8 +3,9 @@
 **Severity:** S1. `p := &mut slot; p.* = .Some(&y);` with `slot : Option(&T)` re-points the holder `slot` at
 `y`, but the store's join lands on the borrow `p`, not on `slot`. `slot` keeps its old flow set, so a read of `slot`
 after `y`'s block ends passes `yo check` (ASan: stack-use-after-scope; heap-use-after-free once the referent owns
-heap). The same holds for a field write through the borrow (`p.o = …`) and for a borrow of a sub-place
-(`p := &mut w.h`). Pre-existing: v0.2.76 accepts the same programs.
+heap). The same holds for a field write through the borrow (`p.o = …`), for a borrow of a sub-place
+(`p := &mut w.h`), and for a store through a HOLDER of a `&mut &T` (`m := M(rp : &mut r); m.rp.* = ri`). The first
+three are pre-existing (v0.2.76 accepts them); the `&mut &T` holder form is new with P3 (#1841).
 
 Found 2026-11-11 by the ownership / borrowing / origin audit
 (`plans/backlog/OWNERSHIP_BORROWING_ORIGINS_AUDIT.md` §3 A25). Confirmed on develop `64f33c710`. The fix of
@@ -43,6 +44,10 @@ $ YO_DEBUG_N2B=1 yo check repro.yo
 
 - `…-field.yo` (negative, E0911): `p := &mut h; p.o = .Some(&y);` with `H :: struct(o : Option(&Rc(X)), n : i32)`.
 - `…-subplace.yo` (negative, E0911): `p := &mut w.h; p.* = H(r : &y, n : i32(1));`, then `w.h.r` is read.
+- `…-ref-ref-field.yo` (negative, E0911): `M :: struct(rp : &mut &Rc(X))`, `m := M(rp : &mut r); m.rp.* = ri;`
+  with `ri := &inner` block-local, then `r` is read: stack-use-after-scope. The fixed issue's shape with the
+  `&mut &T` held in a struct field instead of a local borrow (a `&mut &String` field does not compile yet:
+  `issues/2026-11-11-a-struct-with-a-mut-ref-ref-field-passes-check-and-its-c-names-an-undeclared-type.md`).
 - `…-pos.yo` (positive control): the same store through `p := &mut slot`, with `y` declared before `slot`.
 
 ## The family (develop `64f33c710`)
@@ -53,6 +58,7 @@ $ YO_DEBUG_N2B=1 yo check repro.yo
 | `p.o = .Some(&y)` through `p := &mut h` | accepted, stack-use-after-scope | E0911 |
 | `p.* = H(r : &y, …)` through `p := &mut h` or `p := &mut w.h`; through `ri := &inner` | accepted, stack-use-after-scope | E0911 |
 | the same with a holder whose user `Drop` reads the field | accepted, stack-use-after-scope in `drop` | E0911 |
+| `m.rp.* = ri` through `m := M(rp : &mut r)`, `rp : &mut &Rc(X)` | accepted, stack-use-after-scope | E0911 |
 | `p.* = .Some(&y)` in one scope, then `y = mk()` while `slot` is live (ledger) | accepted, reads the new value | E0911 at the write |
 | the holder's type spells its origin (`H(z)`, `Option(&(Rc(X), (a, b)))`), store through `p` | E0923 | E0923 |
 | the same writes without the borrow: `h = H(r : &y, …)`, `h.o = .Some(&y)` | E0911 | E0911 |
@@ -72,18 +78,19 @@ because the subset check reads the declared origin off `p`'s pointee type.
 
 The `&mut` capture of a closure already has the right mechanism: `bind_join_roots_for` sends a store through a
 `&mut` capture to the outer place (`borrow_capture_outer`, `_capture_store`). A local `&mut` borrow has no such
-redirect.
+redirect. The same holds one level further out: `m.rp.* = ri` writes `r` through a `&mut` held in `m`'s field,
+and the join again lands on the variable the place is rooted at (`m`), not on the lent place `r`.
 
 ## Expected
 
 E0911 at the store (or at the read of `slot`): `y`'s scope ends while `slot` is live. A `&mut` borrow is a path to
 its place, so a write through it is a write of that place: `BORROW_CHECKER_COMPLETENESS.md` §5's place-write row
 ("`p.* = v`, `p.f = v` … the target holder's set grows by `origin_of(v)`") and `REFERENCES_AND_ORIGINS.md` O3's
-place writes. The holder whose set grows is the borrow's lent place's root (`slot`, `h`, `w`), for a whole-value
+place writes. The holder whose set grows is the borrow's lent place's root (`slot`, `h`, `w`, `r`), for a whole-value
 store through the borrow a GEN on that root (the borrow may point at a sub-place, so nothing of the root is killed).
 
 ## Test
 
-With the fix: the three negative programs and the positive control move to `tests/origins/unsound/` beside
+With the fix: the four negative programs and the positive control move to `tests/origins/unsound/` beside
 `p3-mut-ref-store-inner.yo`; corpus rows `store-through-local-mut-borrow-of-holder` (E0911) and its `-field` and
 `-subplace` twins.

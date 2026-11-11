@@ -1,0 +1,22 @@
+// expect: accept
+// `&make()` is an earlier argument, `io.await(...)` a later one. The temporary is evaluated into a
+// C local before the suspension; after `__yo_resume_1` the call reads that dead local (ASan).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+make :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+num :: (fn(io : Io) -> Impl(Future(usize, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    usize(7)
+  })
+);
+use2 :: (fn(a : &String, b : usize) -> usize)({
+  println(`OUT: ${a.*}`);
+  (a.len() + b)
+});
+main :: (fn(io : Io) -> unit)({
+  f := io.async((io : Io) => use2(&make(), io.await(num(io), io)));
+  println(`OUT: ${io.await(f, io).to_string()}`);
+});
+export(main);

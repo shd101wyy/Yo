@@ -1,0 +1,22 @@
+// expect: accept
+// Positive control: the state keeps an owned copy (`Option(Rc(X))`), not the per-call reference.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+each :: (fn(f : &mut Impl(FnMut(v : &Rc(X)) -> unit)) -> unit)({
+  {
+    k := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+    f(&k);
+  };
+  k2 := Rc.new(X(s : String.from("z")));
+  f(&k2);
+});
+main :: (fn() -> unit)({
+  each(
+    &mut ({ last : Option(Rc(X)).None }(v : &Rc(X)) => {
+      match(&last, .Some(r) => println(`OUT: ${r.*.s.len().to_string()}`), .None => ());
+      last = .Some(Rc.clone(v));
+    })
+  );
+});
+export(main);

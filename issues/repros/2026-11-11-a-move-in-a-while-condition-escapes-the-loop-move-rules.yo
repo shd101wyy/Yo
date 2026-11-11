@@ -1,0 +1,18 @@
+// expect: E0901
+// The condition moves `a` on its first test; the second test passes the freed
+// `a` again (double free). A move in the loop BODY is E0901.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+take :: (fn(s : String) -> bool)(s.len() > usize(0));
+main :: (fn() -> unit)({
+  a := String.from("payload-0123456789abcdefghijklmnop");
+  mut(i) := i32(0);
+  while(take(a), {
+    i = (i + i32(1));
+    if(i == i32(2), {
+      break;
+    });
+  });
+  println(`OUT i=${i.to_string()}`);
+});
+export(main);
