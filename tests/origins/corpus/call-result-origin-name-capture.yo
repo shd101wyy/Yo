@@ -1,0 +1,22 @@
+// O-6 corpus row `call-result-origin-name-capture` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §6 G-E;
+// manifest tests/origins/corpus.tsv): `_mk`'s result type names its parameter `a`, the caller's holder its local `a`;
+// `h` holds the inner block's box (issues/fixed/2026-11-09-a-call-results-type-keeps-its-callees-origin-names.md).
+// Expected: rejected: E0923 at `h`.
+{ println } :: import("std/fmt");
+_H :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(i32, p)));
+_store :: (fn(generic(p : Origin), dst : &mut Option(&(i32, p)), v : _H(p)) -> unit)({
+  dst.* = .Some(v.r);
+});
+_mk :: (fn(a : &i32) -> _H(a))(_H(a)(r : a));
+main :: (fn() -> unit)({
+  a := i32(1);
+  (mut(slot) : Option(&(i32, a))) = .Some(&a);
+  {
+    yb := Box.new(i32(2));
+    h := _mk(&yb.*);
+    _store(&mut slot, h);
+  };
+  match(slot, .Some(r) => println(&r.*), .None => ());
+  ()
+});
+export(main);

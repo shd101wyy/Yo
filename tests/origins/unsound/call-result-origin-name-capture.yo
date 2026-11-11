@@ -1,0 +1,21 @@
+// expect: E0923
+// G-E's call-argument sink: `_mk`'s result type names its own parameter `a`, so `h : _H(a)`; the caller's local is
+// also `a`, so a type-name comparison read `h` as within the `&mut` holder's `a`. `h` holds the inner block's box.
+{ println } :: import("std/fmt");
+_H :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(i32, p)));
+_store :: (fn(generic(p : Origin), dst : &mut Option(&(i32, p)), v : _H(p)) -> unit)({
+  dst.* = .Some(v.r);
+});
+_mk :: (fn(a : &i32) -> _H(a))(_H(a)(r : a));
+main :: (fn() -> unit)({
+  a := i32(1);
+  (mut(slot) : Option(&(i32, a))) = .Some(&a);
+  {
+    yb := Box.new(i32(2));
+    h := _mk(&yb.*);
+    _store(&mut slot, h);
+  };
+  match(slot, .Some(r) => println(&r.*), .None => ());
+  ()
+});
+export(main);

@@ -82,7 +82,7 @@ pragma(Pragma.AllowUnsafe);
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
 { type_key } :: import("../../types/type_key.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_place_of, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, variable_is_reference_binding, variable_is_mut_borrow, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, local_borrow_write_expr, origin_of, bind_join_roots_for, origin_param_names_of, param_declared_origin_slot, is_rigid_origin_name, origin_name_phrase, OriginRootPlace, check_capture_freeze_access, reference_field_read_mode, deref_operand_is_raw_pointer, local_borrow_place_text, FutureRoot, note_future_roots, future_roots_of, holder_future_roots, is_reference_read, n2b_roots_text, deref_rule_applies, is_reference_deref_site, note_binder_value_read, forget_binder_value_read } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_place_of, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, variable_is_reference_binding, variable_is_mut_borrow, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, local_borrow_write_expr, origin_of, bind_join_roots_for, origin_param_names_of, param_declared_origin_slot, is_rigid_origin_name, origin_name_phrase, OriginRootPlace, check_capture_freeze_access, reference_field_read_mode, deref_operand_is_raw_pointer, local_borrow_place_text, FutureRoot, note_future_roots, future_roots_of, holder_future_roots, is_reference_read, n2b_roots_text, deref_rule_applies, is_reference_deref_site, note_binder_value_read, forget_binder_value_read, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -9331,8 +9331,12 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
                   while(fi < fixed_names.len(), {
                     if(match(fixed_names.get_cloned(fi), .Some(fnm) => (fnm == n), .None => false), {
                       bound := match(fixed_sets.get_cloned(fi), .Some(fs) => fs, .None => shared_list(ArrayList(String).new()));
+                      // A position whose type spells the origin is that
+                      // origin; an elided one (a flow-inferred holder, a
+                      // call's result) is judged by what the argument holds
+                      // (G-E: `origin_of`, never a type name).
                       match(
-                        t_origin_spelled_names(&a_os(k)),
+                        match(t_origin_spelled_names(&a_os(k)), .Some(sn) => Option(SharedList(String)).Some(sn), .None => Option(SharedList(String)).Some(value_origin_names(&arg, env, ctx))),
                         .Some(an) => {
                           (ni : usize) = usize(0);
                           while(ni < an.len(), {
@@ -9520,6 +9524,40 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
     });
   });
 });
+/// G-E at a call (`YO_AUDIT_ORIGIN_TOTALITY`): a call with a `&mut`
+/// parameter whose pointee carries an origin may store any other
+/// origin-carrying argument into it, so `lend_through` must have computed
+/// the origin of every such argument whose type leaves it elided (a spelled
+/// type is its own record). Slots as `lend_through` reads them.
+_audit_lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext) -> unit)({
+  au_callee := match(call, .FnCall(_, c, _, _, _) => c, .Atom(_, _) => return(()));
+  au_args := match(call, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => return(()));
+  au_slots := match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&au_callee)),
+    .Some(ci) => _callee_param_slots(&ci.ty()),
+    .None => return(())
+  );
+  (wi : usize) = usize(0);
+  while(wi < au_args.len(), {
+    match(
+      au_slots.get(wi),
+      .Some(w_slot) => if(t_slot_is_mut_ref(&w_slot) && (type_carries_origin(&t_slot_pointee(&w_slot)) || _arg_type_carries_origin(match(au_args.get(wi), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr()), ctx)), {
+        (xj : usize) = usize(0);
+        while(xj < au_args.len(), {
+          // Another holder is lent, not stored; a value is stored.
+          if((xj != wi) && !match(au_slots.get(xj), .Some(x_slot) => t_slot_is_mut_ref(&x_slot), .None => false), {
+            x_arg := _unlabeled_argument(match(au_args.get(xj), .Some(a) => a, .None => make_err_expr()));
+            audit_origin_totality_elided("call-argument", &x_arg, ctx);
+          });
+          xj = (xj + usize(1));
+        });
+        return(());
+      }),
+      .None => ()
+    );
+    wi = (wi + usize(1));
+  });
+});
 /// The identities of the type variables (`generic(T : Type)`'s `SomeT`s) a
 /// definition's slot type mentions, through references, type arguments and
 /// tuple fields — the flow write-back's shared-`T` case.
@@ -9655,7 +9693,11 @@ evaluate_function_call :: (
       _check_call_value_root_overlap(&lends, env, ctx, exn);
       _check_call_cell_root_overlap(&lends, env, ctx, exn);
       _check_call_global_lends(expr, &lends, &r, env, ctx, exn);
+      elide_callee_origin_names(expr, &r, ctx);
       lend_through(expr, env, ctx, exn);
+      if(origin_totality_audit_on(), {
+        _audit_lend_through(expr, env, ctx);
+      });
       if(local_borrows_active(), {
         _local_borrow_note_call_site(&r, &call_tok, ctx, exn);
       });
