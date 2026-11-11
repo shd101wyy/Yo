@@ -8947,7 +8947,7 @@ run_update_cmd :: (
 ///            [--build-file <path>] [--list-steps] [--list-options] [--dry-run] [--verbose|-v]
 /// One watch-mode build round: a full `run_build` whose failure is reported
 /// but never exits the loop (`unwind` returns `false` from THIS fn).
-_build_round_watch :: (fn(opts : &BuildOptions, io : Io) -> bool)({
+_build_round_watch :: (fn(opts : &mut BuildOptions, io : Io) -> bool)({
   // §7 step 2: this round's artifact compiles run IN PROCESS against the
   // warm universe (the flag rides on opts into run_build's context).
   opts.watch_in_process = true;
@@ -9191,7 +9191,7 @@ run_build_cmd :: (
       })
     );
   });
-  opts := BuildOptions(
+  mut(opts) := BuildOptions(
     steps : steps,
     c_compiler : c_compiler,
     target_triple : target_triple,
@@ -9221,7 +9221,7 @@ run_build_cmd :: (
   // and `run_compile`'s self-containment invariant (fresh ExprInfoTable per
   // compile) is exactly what a warm parent would violate. A failing round
   // does not exit the loop.
-  _first := _build_round_watch(&opts, io);
+  _first := _build_round_watch(&mut opts, io);
   // §7 item 4, applied at the EDIT-ROUND boundaries: report RSS per round
   // under --profile, and past --max-rss-mb re-exec the whole watch process
   // (see the flag's parse arm). Round 1's universe is the BASELINE, not
@@ -9246,7 +9246,7 @@ run_build_cmd :: (
     // from the cache and the rebuilt binary keeps the old code.
     _dropped := invalidate_changed_files(&changed, resolve_std_path());
     round_t0 := Instant.now();
-    _ok := _build_round_watch(&opts, io);
+    _ok := _build_round_watch(&mut opts, io);
     round_no = (round_no + usize(1));
     if(profile, {
       eprintln(`profile: watch round ${round_no.to_string()} ${_fmt_profile_ms(round_t0.elapsed().as_nanos())} rss=${_current_rss_mb().to_string()}MB`);
