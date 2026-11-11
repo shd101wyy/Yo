@@ -1,0 +1,23 @@
+// expect: E0911
+// The write walk inside a `&mut self` method: its summary sets `lends_mut` for `self`, so the receiver is a write
+// against the live loan `r`.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+Bag :: struct(items : ArrayList(ArrayList(String)));
+impl(Bag, reset_all : (fn(self : &mut Self) -> unit)({
+  for(&mut self.items, x => {
+    x.* = ArrayList(String).new();
+  });
+}));
+main :: (fn() -> unit)({
+  mut(inner) := ArrayList(String).new();
+  inner.push(String.from("hello-world-hello-world-hello-world"));
+  mut(b) := Bag(items : ArrayList(ArrayList(String)).new());
+  b.items.push(inner);
+  r := b.items.index(usize(0)).index(usize(0));
+  b.reset_all();
+  println(`OUT: ${r.*}`);
+  ()
+});
+export(main);

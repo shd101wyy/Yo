@@ -1,0 +1,16 @@
+// expect: E0911
+// v57-for-mut-live-loan over a `HashMap`: the write walk replaces the value `r` points into.
+{ String } :: import("std/string");
+{ HashMap } :: import("std/collections/hash_map");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(m) := HashMap(i32, String).new();
+  m.insert(i32(1), String.from("hello-world-hello-world-hello-world"));
+  r := m.index(i32(1));
+  for(&mut m, (k, v) => {
+    v.* = String.from("x");
+  });
+  println(`OUT: ${r.*}`);
+  ()
+});
+export(main);

@@ -831,33 +831,6 @@ _msp_mask_add_root :: (fn(m : &ParamMutationMask, r : _MspRoot, deep : bool) -> 
 /// The body makes a `&mut` reference value of storage rooted in parameter
 /// `i` (`ParamMutationMask.lends_mut`).
 param_mutation_mask_lends_mut :: (fn(m : &ParamMutationMask, i : usize) -> bool)(_msp_bits_get(&m.lends_mut, i));
-/// The `&mut` markers the walk met as the argument of a `&mut` parameter:
-/// the callee's own summary judges those (`_MsP.lends_through_call`), so the
-/// marker itself is no lend of this body.
-(g_msp_slot_markers : RefCell(HashSet(ExprId))) = RefCell(HashSet(ExprId)).new(HashSet(ExprId).new());
-_msp_set_lends_all :: (fn(m : &ParamMutationMask, ctx : &_MspCtx) -> unit)({
-  (i : usize) = usize(0);
-  while(i < ctx.labels.len(), i = (i + usize(1)), {
-    _msp_bits_set(&mut m.lends_mut, i);
-  });
-});
-/// Record a `&mut` reference value made of `place` (`lends_mut`): the `&mut`
-/// parameter it is rooted in, else the parameter its storage is
-/// (`classify`); unknown storage may be any parameter's.
-_msp_note_lend :: (fn(m : &ParamMutationMask, place : &AstExpr, ctx : &_MspCtx) -> unit)(
-  match(
-    _msp_inout_param_of_place(place, ctx),
-    .Some(pi) => _msp_bits_set(&mut m.lends_mut, pi),
-    .None => {
-      r := _MsP.classify(&ast_expr_strip_borrow_marker(place), ctx);
-      cond(
-        (r.kind == MSP_PARAM) => _msp_bits_set(&mut m.lends_mut, r.param),
-        (r.kind == MSP_ROOTED) => _msp_set_lends_all(m, ctx),
-        true => ()
-      );
-    }
-  )
-);
 param_mutation_mask_hits :: (fn(m : &ParamMutationMask, i : usize) -> bool)(
   m.all || _msp_bits_get(&m.deep, i) || _msp_bits_get(&m.shallow, i)
 );
@@ -1492,6 +1465,33 @@ _MspAnalysis :: struct(mask : ParamMutationMask, ret : _MspRoot);
 _MspMemo :: struct(body_id : ExprId, analysis : _MspAnalysis);
 (g_msp_by_fid : RefCell(HashMap(String, _MspMemo))) = RefCell(HashMap(String, _MspMemo)).new(HashMap(String, _MspMemo).new());
 (g_msp_in_progress : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
+/// The `&mut` markers the walk met as the argument of a `&mut` parameter:
+/// the callee's own summary judges those (`_MsP.lends_through_call`), so the
+/// marker itself is no lend of this body.
+(g_msp_slot_markers : RefCell(HashSet(ExprId))) = RefCell(HashSet(ExprId)).new(HashSet(ExprId).new());
+_msp_set_lends_all :: (fn(m : &ParamMutationMask, ctx : &_MspCtx) -> unit)({
+  (i : usize) = usize(0);
+  while(i < ctx.labels.len(), i = (i + usize(1)), {
+    _msp_bits_set(&mut m.lends_mut, i);
+  });
+});
+/// Record a `&mut` reference value made of `place` (`lends_mut`): the `&mut`
+/// parameter it is rooted in, else the parameter its storage is
+/// (`classify`); unknown storage may be any parameter's.
+_msp_note_lend :: (fn(m : &ParamMutationMask, place : &AstExpr, ctx : &_MspCtx) -> unit)(
+  match(
+    _msp_inout_param_of_place(place, ctx),
+    .Some(pi) => _msp_bits_set(&mut m.lends_mut, pi),
+    .None => {
+      r := _MsP.classify(&ast_expr_strip_borrow_marker(place), ctx);
+      cond(
+        (r.kind == MSP_PARAM) => _msp_bits_set(&mut m.lends_mut, r.param),
+        (r.kind == MSP_ROOTED) => _msp_set_lends_all(m, ctx),
+        true => ()
+      );
+    }
+  )
+);
 _MsP :: struct(_d : i32);
 impl(
   _MsP,

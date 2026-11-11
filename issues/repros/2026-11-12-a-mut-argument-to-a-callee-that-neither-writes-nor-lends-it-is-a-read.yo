@@ -1,0 +1,19 @@
+// expect: E0911
+// Two callees that differ only in their BODY, each called with `&mut xs` while `r`, a `&` loan into `xs`, is live.
+// `grow` writes its parameter (E0911 today); `peek` neither writes it nor makes a `&mut` reference value of it, so
+// v0.2.77 judges its argument a read and accepts the call. Rust's rule (and the plan's P9 row) makes every `&mut`
+// argument an exclusive access whatever the body does: both calls are E0911 at G (v0.2.78).
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+grow :: (fn(b : &mut ArrayList(String)) -> unit)(b.push(String.from("x")));
+peek :: (fn(b : &mut ArrayList(String)) -> usize)(b.len());
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("hello-world-hello-world-hello-world"));
+  r := xs.index(usize(0));
+  n := peek(&mut xs);
+  println(`OUT: ${r.*} ${n.to_string()}`);
+  ()
+});
+export(main);

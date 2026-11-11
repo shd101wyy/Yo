@@ -1,0 +1,16 @@
+// expect: E0911
+// v57-for-mut-live-loan over a `Deque`: the write walk replaces the element `r` points into.
+{ String } :: import("std/string");
+{ Deque } :: import("std/collections/deque");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(d) := Deque(String).new();
+  d.push_back(String.from("hello-world-hello-world-hello-world"));
+  r := d.index(usize(0));
+  for(&mut d, x => {
+    x.* = String.from("x");
+  });
+  println(`OUT: ${r.*}`);
+  ()
+});
+export(main);
