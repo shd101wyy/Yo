@@ -141,7 +141,7 @@ json :: import("std/encoding/json");
 } :: import("./module_manager.yo");
 { record_input_file, reset_input_files, input_files, input_file_entries, set_input_hashing, input_hashing_enabled } :: import("./input_record.yo");
 { YoError, ExitWith, render_any_error, take_error_diagnostics } :: import("./error.yo");
-{ DerefSite, set_migrate_deref, take_deref_sites, take_deref_migrated_files, take_deref_clean_sites, take_deref_dead_arm_files } :: import("./expr_info.yo");
+{ set_migrate_unsized, take_unsized_sites, DerefSite, set_migrate_deref, take_deref_sites, take_deref_migrated_files, take_deref_clean_sites, take_deref_dead_arm_files } :: import("./expr_info.yo");
 { Diagnostic, Span, Severity } :: import("./diagnostics.yo");
 { set_strict_test_bodies } :: import("./evaluator/exprs/test.yo");
 {
@@ -1865,13 +1865,51 @@ _unsized_sites_expr :: (fn(e : &AstExpr, parent : &String, idx : usize, out : &m
 /// that does not print back on one line is listed, and so are
 /// `Rc(Dyn(T)).new(...)` (two ways to write it) and `impl(Dyn(...), ...)`
 /// (the owning value today, the unsized object after v0.2.78).
-_run_migrate_unsized :: (fn(files : &ArrayList(String), dry_run : bool, io : Io, exn : Exception) -> unit)({
+_run_migrate_unsized :: (fn(files : &ArrayList(String), std_path : &String, dry_run : bool, io : Io, exn : Exception) -> unit)({
   (failed : usize) = usize(0);
   (n_done : usize) = usize(0);
+  (n_dyn : usize) = usize(0);
   (n_listed : usize) = usize(0);
+  // The evaluation, with the recorder on (`record_unsized_site`), as
+  // `yo check` evaluates each file.
+  (ei : usize) = usize(0);
+  while(ei < files.len(), ei = (ei + usize(1)), {
+    efile := files(ei).clone();
+    targets := ArrayList(String).new();
+    targets.push(efile.clone());
+    targets.push(mm_resolve_entry_abs(efile.clone(), std_path.clone()));
+    set_verify_target_paths(&targets);
+    outcome := mm_load_file(efile.clone(), std_path.clone(), false, io, exn);
+    _tasks := take_verify_tasks();
+    if(!outcome.ok, {
+      _drop := _take_load_error();
+      _drop_diags := take_error_diagnostics();
+      failed = (failed + usize(1));
+      println(`fix: ${efile} does not evaluate; its \`dyn\` sites are migrated only as far as evaluation reached`);
+    });
+  });
+  set_migrate_unsized(false);
+  recorded := take_unsized_sites();
+  recorded_paths := ArrayList(String).new();
+  for(&recorded, st => {
+    recorded_paths.push(canonical_module_path(st.path.clone()));
+  });
+  // A file whose platform-gated `cond` left an arm this target does not
+  // evaluate: its `dyn` sites there are not seen (VERDICTS-55: listed; the
+  // evaluation for every target is `--migrate deref`'s, not this mode's).
+  dead := HashSet(String).new();
+  dead_raw := take_deref_dead_arm_files();
+  for(&dead_raw, dp => {
+    _new := dead.insert(canonical_module_path(dp.clone()));
+  });
   (fi : usize) = usize(0);
   while(fi < files.len(), fi = (fi + usize(1)), {
     file := files(fi).clone();
+    canon := canonical_module_path(file.clone());
+    if(dead.contains(&canon), {
+      n_listed = (n_listed + usize(1));
+      println(`fix: ${file}: a platform-gated \`cond\` arm this target does not evaluate keeps its \`dyn\` sites as written; run again with \`--target <triple>\` for that target`);
+    });
     src := String.from_bytes(io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn)));
     syn := ArrayList(_UnsizedSyntax).new();
     match(
@@ -1926,6 +1964,61 @@ _run_migrate_unsized :: (fn(files : &ArrayList(String), dry_run : bool, io : Io,
         }
       );
     });
+    (ri : usize) = usize(0);
+    while(ri < recorded.len(), ri = (ri + usize(1)), {
+      st := recorded(ri).clone();
+      if((recorded_paths(ri) != canon) || !seen.insert(`r${st.kind.to_string()}:${st.row.to_string()}:${st.col.to_string()}`), {
+        continue;
+      });
+      at := `${file}:${(st.row + usize(1)).to_string()}:${(st.col + usize(1)).to_string()}`;
+      pos := `${_deref_pad(st.row)}\t${_deref_pad(st.col)}\t`;
+      line := match(lines.get_cloned(st.row), .Some(l) => l, .None => String.new());
+      runes := _line_runes(line);
+      cond(
+        (st.kind == u8(1)) => listed.push(`${pos}fix: ${at}: \`dyn(${st.text})\` boxes the raw pointer \`${st.text}\` today, and in v0.2.78 \`dyn\` over a raw pointer unsizes it to a \`*Dyn(...)\` instead: write \`dyn(Box.new(${st.text}))\` to keep the box, or keep \`dyn(${st.text})\` for the unsized pointer; left as written`),
+        (st.kind == u8(5)) => listed.push(`${pos}fix: ${at}: \`dyn(${st.text})\` erases a named \`Rc\`/\`Arc\` handle, which v0.2.77 rejects: write \`dyn(Rc.new(v))\` to build the shared object where it is made, or \`dyn(Box.new(v))\` to own it; left as written`),
+        (st.kind == u8(6)) => listed.push(`${pos}fix: ${at}: \`downcast(${st.text}, ...)\` copies the payload out of an owned Dyn; v0.2.78's owning form is \`Result(Box(V), Box(Dyn(...)))\`: write \`downcast(&${st.text}.*, ...)\` where only the payload is read; left as written`),
+        (st.kind == u8(3)) => {
+          // `Rc`/`Arc` of a fresh `dyn(Rc.new(...))` against an owning Dyn.
+          k := st.col;
+          written := String.new();
+          (wk : usize) = k;
+          while((wk < runes.len()) && (wk < (k + st.text.len())), wk = (wk + usize(1)), {
+            written.push_rune(runes(wk));
+          });
+          matches := (written == st.text);
+          if(matches, {
+            n_dyn = (n_dyn + usize(1));
+            checked.push(_PendingFix(row : st.row, col : k, len : st.text.len(), replacement : String.from("Box"), description : at));
+          }, {
+            listed.push(`${pos}fix: ${at}: \`${st.text}.new(...)\` under \`dyn\` builds an owned Dyn: write it \`Box.new(...)\` by hand; left as written`);
+          });
+        },
+        (st.kind == u8(2)) => {
+          // `dyn(<arg>)`: the argument starts after the `(` that follows
+          // `dyn`, and must print back as recorded on this line.
+          (k : usize) = (st.col + usize(3));
+          while((k < runes.len()) && runes(k).is_whitespace(), k = (k + usize(1)), ());
+          (arg_start : Option(usize)) = Option(usize).None;
+          if((k < runes.len()) && (runes(k).char == u32(0x28)), {
+            (a : usize) = (k + usize(1));
+            while((a < runes.len()) && runes(a).is_whitespace(), a = (a + usize(1)), ());
+            arg_start = Option(usize).Some(a);
+          });
+          span := match(arg_start, .Some(a) => match(_expr_span_end(&runes, a, a, &st.text, &file), .Some(e) => Option(Tuple(usize, usize)).Some((a, e)), .None => Option(Tuple(usize, usize)).None), .None => Option(Tuple(usize, usize)).None);
+          match(
+            span,
+            .Some((a, e)) => {
+              n_dyn = (n_dyn + usize(1));
+              checked.push(_PendingFix(row : st.row, col : e, len : usize(0), replacement : String.from(")"), description : at));
+              checked.push(_PendingFix(row : st.row, col : a, len : usize(0), replacement : String.from("Box.new("), description : at));
+            },
+            .None => listed.push(`${pos}fix: ${at}: \`dyn(${st.text})\` does not print back on one line; write it \`dyn(Box.new(${st.text}))\` by hand; left as written`)
+          );
+        },
+        true => ()
+      );
+    });
     listed.sort();
     for(&listed, le => {
       parts := le.split(String.from("\t"));
@@ -1942,9 +2035,9 @@ _run_migrate_unsized :: (fn(files : &ArrayList(String), dry_run : bool, io : Io,
     });
   });
   verb := if(dry_run, String.from("would rewrite"), String.from("rewrote"));
-  println(`fix: ${verb} ${n_done.to_string()} \`Dyn(...)\` spelling(s) to \`Box(Dyn(...))\`; ${n_listed.to_string()} site(s) listed for a hand rewrite; ${failed.to_string()} file(s) did not parse`);
+  println(`fix: ${verb} ${n_done.to_string()} \`Dyn(...)\` spelling(s) to \`Box(Dyn(...))\` and ${n_dyn.to_string()} \`dyn(...)\` site(s) to \`dyn(Box.new(...))\`; ${n_listed.to_string()} site(s) listed for a hand rewrite; ${failed.to_string()} file(s) did not evaluate or parse`);
   if(failed > usize(0), {
-    exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not parse`));
+    exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate or parse — run \`yo check\` on them; what evaluation did not reach was not migrated`));
   });
 });
 /// `yo fix <path> [--dry-run]` — apply the mechanical repairs the compiler
@@ -2063,15 +2156,15 @@ run_fix :: (
   if(migrate == "deref", {
     set_migrate_deref(true);
   });
+  if(migrate == "unsized", {
+    set_migrate_unsized(true);
+  });
   // Purely syntactic: no prelude, no evaluation.
   if(migrate == "record-literal", {
     _run_migrate_record_literal(&files, dry_run, io, exn);
     return(());
   });
-  if(migrate == "unsized", {
-    _run_migrate_unsized(&files, dry_run, io, exn);
-    return(());
-  });
+
   // Bootstrap the prelude ONCE, exactly as `run_check` does. An earlier
   // version called `mm_reset()` per file, which threw away the cached prelude
   // env: the reload then failed before reaching the target file, so the only
@@ -2081,6 +2174,10 @@ run_fix :: (
     exn.throw(dyn(`fix: could not load the prelude from ${std_path}`));
   });
   _index_std_exports(std_path.clone(), io, exn);
+  if(migrate == "unsized", {
+    _run_migrate_unsized(&files, &std_path, dry_run, io, exn);
+    return(());
+  });
   if(migrate == "deref", {
     _run_migrate_deref(&files, std_path.clone(), dry_run, target_triple.len() > usize(0), io, exn);
     return(());

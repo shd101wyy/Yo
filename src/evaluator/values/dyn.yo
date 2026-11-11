@@ -9,7 +9,7 @@ pragma(Pragma.AllowUnsafe);
 { replace } :: import("std/mem");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id, alloc_global_expr_id, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_is_atom_of, BF_DOT, BK_BORROW_MUT, BF_ADDRESS_OF, ast_rewritten_node, note_rewritten_node } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, alloc_global_expr_id, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_is_atom_of, BF_DOT, BK_BORROW_MUT, BF_ADDRESS_OF, ast_rewritten_node, note_rewritten_node, ast_expr_to_string } :: import("../../expr.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -20,7 +20,9 @@ pragma(Pragma.AllowUnsafe);
   note_dyn_lend,
   expr_info_adopt_env,
   mark_node_preevaluated,
-  unmark_node_preevaluated
+  unmark_node_preevaluated,
+  migrate_unsized_on,
+  record_unsized_site
 } :: import("../../expr_info.yo");
 { Environment, Variable, synthetic_token, get_variables_from_env, add_variable_to_env, by_value_param_owns, snapshot_env, variable_value_type, variable_set_is_ref, variable_set_is_imm_borrow } :: import("../../env.yo");
 { Token, TokenKind, intern_token_str } :: import("../../token.yo");
@@ -32,7 +34,7 @@ pragma(Pragma.AllowUnsafe);
 { create_specialized_function_inline, try_to_call_function_with_arguments } :: import("../calls/helper.yo");
 { t_refine_inner, some_t_bounds, TypeValue, TypeValueNode, no_types, no_levels, slot_pointee_at, fn_param_by_value_at, fn_param_mut_ref_flags, no_flags, shared_list, no_labels, t_slot_pointee, fn_trait_base_serves, fn_trait_call_contract, fn_trait_slot_contract } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_dyn, t_dyn_payload_wrapper } :: import("../../types/creators.yo");
-{ is_dyn_type, is_some_type, is_function_type, is_reference_struct_type, is_boxed_type, is_shared_cell_type_name, shared_cell_canonical_names, cell_handle_view, is_atomic_counted_handle_type } :: import("../../types/guards.yo");
+{ is_dyn_type, is_some_type, is_function_type, is_reference_struct_type, is_boxed_type, is_shared_cell_type_name, shared_cell_canonical_names, cell_handle_view, is_atomic_counted_handle_type, is_pointer_type, can_optimize_as_nullable_pointer } :: import("../../types/guards.yo");
 { resolve_cell_chain, is_closure_capture_struct, type_contains_some_type_deep, get_all_some_types, type_is_move_only, move_only_reason, dyn_member_is_method, dyn_member_unsafe_reason, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, is_future_value_type, is_clone_trait_type } :: import("../../types/utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { get_value_of_some_type_from_env, get_trait_type_from_env } :: import("../../types/env_lookup.yo");
@@ -1405,6 +1407,53 @@ _evaluate_dyn_over_lend :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut E
   });
   call
 });
+/// `yo fix --migrate unsized` (decision 49 S1f; VERDICTS-40 §5, VERDICTS-43
+/// §4, VERDICTS-55): what the evaluation of one `dyn(arg)` tells the
+/// migration, recorded at the `dyn` callee's token with `arg` as written:
+/// kind 1, `arg` is a raw pointer (`*V`/`?*V`), listed and never rewritten (it
+/// boxes the pointer today, and `dyn(p)` unsizes it after v0.2.78); kind 2,
+/// the legacy auto-box of a plain value, rewritten `dyn(Box.new(arg))`; kind
+/// 3, a fresh `Rc.new(...)`/`Arc.new(...)` against an owning `Dyn`, whose
+/// `Rc`/`Arc` is rewritten `Box` (recorded at that token); kind 5, a named
+/// `Rc`/`Arc` handle, listed (it is rejected in v0.2.77). `written` is the
+/// argument before `dyn(Box.new(v))` reads as `dyn(Rc.new(v))`.
+_record_unsized_dyn_site :: (fn(expr : &AstExpr, written : &AstExpr, value_ty : &TypeValue, fresh : bool, expected : &Option(ExpectedTypeCtx)) -> unit)({
+  if(!migrate_unsized_on(), {
+    return(());
+  });
+  tok := match(expr, .FnCall(_, callee, _, _, _) => ast_expr_token(callee), .Atom(_, t) => t.clone());
+  text := ast_expr_to_string(written);
+  raw := (is_pointer_type(value_ty) || match(can_optimize_as_nullable_pointer(value_ty), .Some(p) => is_pointer_type(&p), .None => false));
+  cond(
+    raw => record_unsized_site(&tok, u8(1), &text),
+    (!is_reference_struct_type(value_ty) && !is_dyn_type(value_ty) && cell_handle_view(value_ty).is_none()) => record_unsized_site(&tok, u8(2), &text),
+    (!fresh && cell_handle_view(value_ty).is_some()) => record_unsized_site(&tok, u8(5), &text),
+    true => {
+      owning_dyn := match(expected, .Some(et) => match(t_refine_inner(&et.ty), Rc(.DynT(_, _, _, _)) => true, _ => false), .None => false);
+      if(owning_dyn, {
+        match(
+          written,
+          .FnCall(_, w_callee, _, _, _) => match(
+            _dyn_cell_constructor_of(w_callee),
+            .Some(_) => match(
+              w_callee,
+              .FnCall(_, _, Rc(w_dot), _, _) => match(
+                w_dot.get(usize(0)),
+                .Some(.Atom(_, rc_tok)) => if((rc_tok.value.* == "Rc") || (rc_tok.value.* == "Arc"), {
+                  record_unsized_site(&rc_tok, u8(3), &rc_tok.value.*.clone());
+                }),
+                _ => ()
+              ),
+              .Atom(_, _) => ()
+            ),
+            .None => ()
+          ),
+          .Atom(_, _) => ()
+        );
+      });
+    }
+  );
+});
 evaluate_dyn_value :: (
   fn(
     expr : &AstExpr,
@@ -1458,6 +1507,7 @@ evaluate_dyn_value :: (
     }
   );
   // `dyn(Box.new(v))` is `dyn(Rc.new(v))` here, the legacy owning Dyn.
+  written_arg := value_arg.clone();
   value_arg = _box_new_as_cell_new(&value_arg, env);
   // A fresh cell (`dyn(Rc.new(v))`) is the only handle `dyn` takes: erasing a
   // NAMED shared handle (a variable or a field) in place waits for the
@@ -1642,6 +1692,9 @@ evaluate_dyn_value :: (
     // the trait bound against it would report "unit does not implement …" on top
     // of whatever really failed inside the inner.
     ne_have_inner_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&inner_ne)), .Some(_) => true, .None => false);
+    if(ne_have_inner_ty, {
+      _record_unsized_dyn_site(expr, &written_arg, &ne_value_type, value_is_fresh_cell, &ctx.expected_type);
+    });
     _reject_dyn_of_dyn(ne_value_type.clone(), &expr_tok, exn);
     _reject_dyn_of_named_handle(&ne_value_type, value_is_fresh_cell, &expr_tok, exn);
     // The Dyn to build must be NAMED by something. The expected type supplies
@@ -1822,6 +1875,7 @@ evaluate_dyn_value :: (
     }
   );
   (value_type : TypeValue) = Rc.clone(inner_info.ty());
+  _record_unsized_dyn_site(expr, &written_arg, &value_type, value_is_fresh_cell, &ctx.expected_type);
   _reject_dyn_of_dyn(value_type.clone(), &expr_tok, exn);
   _reject_dyn_of_named_handle(&value_type, value_is_fresh_cell, &expr_tok, exn);
   _reject_weaker_closure_into_dyn(&ctx.expected_type, &value_type, &expr_tok, ctx, exn);

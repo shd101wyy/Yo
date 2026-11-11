@@ -24,7 +24,8 @@ pragma(Pragma.AllowUnsafe);
   expect_expr_to_be_fn_call_of,
   BF_DOWNCAST,
   BF_UPCAST,
-  ast_expr_is_atom
+  ast_expr_is_atom,
+  ast_expr_to_string
 } :: import("../../expr.yo");
 {
   ExprInfo,
@@ -34,7 +35,9 @@ pragma(Pragma.AllowUnsafe);
   expr_info_adopt_env,
   note_downcast_reference,
   note_unsize_reference,
-  note_dyn_lend
+  note_dyn_lend,
+  migrate_unsized_on,
+  record_unsized_site
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
 { TypeValue, TypeValueNode, no_types, t_refine_inner, t_reference } :: import("../../types/definitions.yo");
@@ -159,6 +162,14 @@ evaluate_downcast :: (
     }),
     .None => ()
   );
+  // `yo fix --migrate unsized` lists a downcast of an owned Dyn (kind 6): the
+  // owning form, `Result(Box(V), Box(Dyn(T)))`, comes with the `?Sized`
+  // prelude, and a site that only reads the payload is `downcast(&d.*, V)`
+  // (VERDICTS-40 §5).
+  if(migrate_unsized_on(), {
+    dc_tok := match(expr, .FnCall(_, dc_callee, _, _, _) => ast_expr_token(dc_callee), .Atom(_, t) => t.clone());
+    record_unsized_site(&dc_tok, u8(6), &ast_expr_to_string(&dyn_expr));
+  });
   // A downcast copies the payload out and the Dyn keeps its own. A move-only
   // payload has no implicit copy, so it is copied through its `Clone`, which
   // codegen reads from the Dyn's evidence: the Dyn must list `Clone`.
