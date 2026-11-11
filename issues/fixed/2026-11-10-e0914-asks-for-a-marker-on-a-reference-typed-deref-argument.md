@@ -30,15 +30,26 @@ a `.Place`, so `lhs.*` (type `&i32`) was a place to lend. Only a reference FIELD
 
 ## Fix
 
-Two layers, both stated by type:
+Two parts, both stated by type:
 
-1. `_marker_place_of` (`src/evaluator/calls/helper.yo`) tests the argument's `ExprInfo.ty` first: a `&T` reference is
-   `.Borrow` (a `&mut` reference only as a reference-field read, as before; a `&mut T` below a `&` is not `Copy`, so
-   its bare read stays E0901 and `&lhs.*.*` is the spelling there); the syntactic arms follow
-   (`_marker_place_of_syntax`), and the old reference-field arm folds into the type test.
-2. `_projection_result_as_reference` (`src/evaluator/exprs/_expr.yo`) records the reference read for a `.*` whose own
-   type is already a reference where the position expects one. Without it the marker check passed but the slot saw
-   E0601 "`i32` vs `&i32`": the read was never noted, so the argument was matched as the place, not the reference.
+1. **The marker check.** `_marker_place_of` (`src/evaluator/calls/helper.yo`) tests the argument's `ExprInfo.ty`
+   first: a shared `&U` reference is `.Borrow`, whatever its syntax; the syntactic arms follow
+   (`_marker_place_of_syntax`, which keeps the reference-FIELD arm: a field read is typed as its pointee, so the
+   type test does not see it). A `&mut U` below a `&` is not `Copy`, so it stays with the syntactic arms, and
+   `&mut lhs.*.*` is its spelling.
+2. **The binding.** A `&U` parameter's slot type is its pointee `U`: the slot takes a place of type `U`. So the
+   argument `lhs.*` (a `&U` value) binds as the place it refers to, `lhs.*.*`, which is exactly what `&lhs.*.*`
+   spells once the call-site marker is peeled. `reference_argument_as_referent` does that rewrite at both
+   argument binders (`check_if_function_parameter_matches_argument` and the inline `FuncVal` loop in
+   `src/evaluator/calls/function.yo`), for a shared reference at a concrete, non-owning, non-`&mut` slot whose
+   pointee is the reference's referent. A receiver (evaluated before its call), a `& &U` slot and a generic slot
+   are left alone. The callee receives the pointer the reference holds (`*lhs`), never `lhs`.
 
-Test: `tests/origins/reference_read_rule.test.yo` (a run-time canary that the callee receives the loaded pointer
-`*lhs`, not `lhs`; `i32.(==)(lhs.*, rhs.*)` on equal and unequal referents; `&lhs.*.*` stays legal).
+A first attempt recorded the reference read in `_projection_result_as_reference` instead; it never applied,
+because the read rule fires only where the expected type is itself a reference, and a `&U` parameter's
+expected type is `U`. With only the marker check fixed, the argument check reported E0601
+"Expected `i32`, Given `&i32`".
+
+Test: `tests/origins/reference_read_rule.test.yo`. It is a run-time canary that the callee reads the referent
+through the loaded pointer. It also checks `i32.(==)(lhs.*, rhs.*)` on equal and unequal referents, and that
+`&lhs.*.*` stays legal.
