@@ -93,6 +93,6 @@ for `{ s : &s.* }`, and the caller's R-CALL freezes `x`.
 
 ## Test
 
-With the fix: the two positives (`…`, `…-self.yo`), the negative `…-caller-write.yo` and the control `…-pos.yo` move to
-`tests/origins/unsound/`; `async-captures-ref-param` in `tests/origins/corpus.tsv` gains a run (ASan) check; a
-`{ s }` case beside the `{ s : &s.* }` ones in `tests/async_await.test.yo`.
+With the fix: the two positives (the main repro and `…-self.yo`), the negative `…-caller-write.yo` and the control
+`…-pos.yo` move to `tests/origins/unsound/`; `async-captures-ref-param` in `tests/origins/corpus.tsv` gains a run
+(ASan) check; a `{ s }` case goes into `tests/async_await.test.yo`.

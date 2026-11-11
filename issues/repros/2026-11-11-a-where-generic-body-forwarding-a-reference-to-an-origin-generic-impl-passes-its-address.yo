@@ -1,0 +1,27 @@
+// expect: accept
+// `via` forwards its `v : &Rc(X)` to `t.put(v)` at `T := Slot(x)`, whose impl is generic over an origin: the C
+// passes `&v` (one indirection too many) and the C compiler rejects it.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+Store :: trait(put : (fn(self : &mut Self, v : &Rc(X)) -> unit));
+Slot :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(dst : Option(&(Rc(X), p)), n : usize));
+impl(
+  generic(p : Origin),
+  Slot(p),
+  Store(
+    put : (fn(self : &mut Self, v : &Rc(X)) -> unit)({
+      self.n = v.*.s.len();
+    })
+  )
+);
+via :: (fn(generic(T : Type), t : &mut T, v : &Rc(X), where(T <: Store)) -> unit)(t.put(v));
+main :: (fn() -> unit)({
+  x := Rc.new(X(s : String.from("x")));
+  mut(s) := Slot(x)(dst : .Some(&x), n : usize(0));
+  b := Rc.new(X(s : String.from("bbb")));
+  via(&mut s, &b);
+  println(`OUT: ${s.n.to_string()}`);
+  ()
+});
+export(main);

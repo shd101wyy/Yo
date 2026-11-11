@@ -266,7 +266,14 @@ impl(MyHandle, !Sync()); // 也不是 Sync
 
 ## 已知缺口
 
-目前没有已知缺口。2026-09-25 的并行性可靠性审计测得上述保证有十一处被违反，已全部关闭（`plans/archive/PARALLELISM_SOUNDNESS.md`）；收尾时发现的函数值途径也已由规则 D9 关闭。之后发现的违反会记录在 `issues/` 下，并在修复之前列在这里。
+有两处，由 2026-11-11 的所有权与借用审计发现（`plans/backlog/OWNERSHIP_BORROWING_ORIGINS_AUDIT.md`）。两者都是线程闭包在规则 D1 看不到的情况下到达非 `Send` 模块级全局变量的途径，在 ThreadSanitizer 下都是数据竞争：
+
+- **析构函数。** 一个被移动进线程的值，其 `Drop` 写入 `mut(G)` 全局变量：drop 在另一个线程上运行，而可达性遍历不检查 drop 代码（`issues/2026-11-11-the-d1-thread-reach-walk-does-not-see-drop-so-a-value-dropped-on-another-thread-races-on-a-global.md`）。
+- **被标准库回调的用户 impl。** 线程体调用一个泛型标准库函数（`xs.contains(&k)`、对用户类型的 `println`），而用户的 `Eq` 或 `ToString` impl 写入该全局变量：遍历在标准库中定义的函数体处停止（`issues/2026-11-11-the-d1-thread-reach-walk-trusts-every-std-body-including-the-user-impls-a-std-generic-calls.md`）。
+
+在修复之前，请让跨线程使用的类型的 `Drop` impl 和 trait impl 不写入模块级状态。
+
+2026-09-25 的并行性可靠性审计测得上述保证有十一处被违反，已全部关闭（`plans/archive/PARALLELISM_SOUNDNESS.md`）；收尾时发现的函数值途径也已由规则 D9 关闭。之后发现的违反会记录在 `issues/` 下，并在修复之前列在这里。
 
 ## 参见
 

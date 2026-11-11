@@ -377,7 +377,23 @@ Non-`_`-prefixed fields (like `arc.*`) are readable but not writable in safe cod
 
 ## Known Holes
 
-None known. The 2026-09-25 parallelism-soundness audit measured eleven violations of the
+Two, found by the 2026-11-11 ownership and borrowing audit
+(`plans/backlog/OWNERSHIP_BORROWING_ORIGINS_AUDIT.md`). Both are routes by which a thread's
+closure reaches a non-`Send` module-level global without rule D1 seeing it, and both are data
+races under ThreadSanitizer:
+
+- **A destructor.** A value moved into a thread whose `Drop` writes a `mut(G)` global: the
+  drop runs on the other thread, and the reach walk does not look at drop glue
+  (`issues/2026-11-11-the-d1-thread-reach-walk-does-not-see-drop-so-a-value-dropped-on-another-thread-races-on-a-global.md`).
+- **A user impl called back by std.** A thread body that calls a generic std function
+  (`xs.contains(&k)`, `println` of a user type) whose user `Eq` or `ToString` impl writes
+  the global: the walk stops at a body defined in std
+  (`issues/2026-11-11-the-d1-thread-reach-walk-trusts-every-std-body-including-the-user-impls-a-std-generic-calls.md`).
+
+Until they are fixed, keep `Drop` impls and the trait impls of types used across threads free
+of writes to module-level state.
+
+The 2026-09-25 parallelism-soundness audit measured eleven violations of the
 guarantee above. All of them are closed (`plans/archive/PARALLELISM_SOUNDNESS.md`), as is the
 function-value route found while closing it (rule D9). A violation found later is filed under
 `issues/` and listed here until it is fixed.

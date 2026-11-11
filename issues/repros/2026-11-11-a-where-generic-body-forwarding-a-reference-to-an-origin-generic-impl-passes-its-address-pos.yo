@@ -1,0 +1,24 @@
+// expect: accept
+// Positive control: the same `via` at `T := S`, a plain struct whose impl has no origin parameter (`OUT: 3`).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+Store :: trait(put : (fn(self : &mut Self, v : &Rc(X)) -> unit));
+S :: struct(n : usize);
+impl(
+  S,
+  Store(
+    put : (fn(self : &mut Self, v : &Rc(X)) -> unit)({
+      self.n = v.*.s.len();
+    })
+  )
+);
+via :: (fn(generic(T : Type), t : &mut T, v : &Rc(X), where(T <: Store)) -> unit)(t.put(v));
+main :: (fn() -> unit)({
+  mut(s) := S(n : usize(0));
+  b := Rc.new(X(s : String.from("bbb")));
+  via(&mut s, &b);
+  println(`OUT: ${s.n.to_string()}`);
+  ()
+});
+export(main);

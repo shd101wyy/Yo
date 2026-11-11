@@ -58,7 +58,11 @@ thread of the process. In a file without the pragma:
   a walk over the evaluated closure body and its statically resolved callees (memoized by
   function id and body; a verdict taken under a recursive call to a function still being walked
   is held until that walk finishes, `issues/fixed/d1-reach-memo-caches-a-verdict-taken-inside-a-call-cycle.md`);
-  a body defined in a pragma'd file is the audited base and is not descended into. `check`,
+  a body defined in a pragma'd file is the audited base and is not descended into (two known
+  gaps, 2026-11-11 audit: the walk sees neither the drop glue of a value moved into the task nor
+  the user trait impls a generic std body calls back —
+  `issues/2026-11-11-the-d1-thread-reach-walk-does-not-see-drop-so-a-value-dropped-on-another-thread-races-on-a-global.md`,
+  `issues/2026-11-11-the-d1-thread-reach-walk-trusts-every-std-body-including-the-user-impls-a-std-generic-calls.md`). `check`,
   which drops each module's ExprInfo table when the module finishes, takes these verdicts for a
   module's functions before the table goes
   (`issues/fixed/check-cannot-see-function-bodies-from-other-modules.md`).
