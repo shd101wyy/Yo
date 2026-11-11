@@ -1,0 +1,17 @@
+// expect: accept
+// Positive control: the closure over the reference parameter is called inside the
+// function and never leaves it.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+S :: struct(a : String);
+apply :: (fn(f : &Impl(Fn() -> usize)) -> usize)(f());
+len_of :: (fn(p : &Rc(S)) -> usize)(
+  apply(
+    &({ p }() => p.*.*.a.len())
+  )
+);
+main :: (fn() -> unit)({
+  h := Rc.new(S(a : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+  println(`OUT: ${len_of(&h).to_string()}`);
+});
+export(main);
