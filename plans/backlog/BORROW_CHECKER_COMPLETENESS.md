@@ -302,3 +302,10 @@ Filed 2026-11-07 from VERDICTS-30/31; each names its repro under `issues/repros/
   with a local stays E0912. Any other name is evaluated as written. `effect-resume-param` is green, and
   `effect-result-holder` is a new positive row
   (`issues/fixed/2026-11-07-a-ctl-operation-returning-its-reference-parameter-is-rejected-with-e0605.md`).
+- 2026-11-11: P3b gap 3 landed (VERDICTS-49; independent of R3). The declaration wall on a receiver slot `&&C` is deleted
+  (`self : &Self` at `Self = &C`: a trait that fixes `&Self` leaves an `impl(&C, Tr)` no other spelling). At a call whose
+  winner has such a slot, a receiver that is a reference BINDING `r : &C` lends its own storage (the forced self place
+  `(&r).m()` already used, the receiver re-read once the notes are made, since a receiver is evaluated before the winner
+  is known); any other receiver (an owned place, a call result, a field, an explicit `(&c)`) has no storage to lend and
+  is an error at the call naming the repair, never the mis-passed C. Open (the rest of P3b): an owned or temporary
+  receiver at `&&C` through an O-5 hidden local, and gap 1 (operator operands).
