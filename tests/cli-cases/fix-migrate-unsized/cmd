@@ -6,10 +6,12 @@
 # `impl(Dyn(...), ...)` and a spelling over several lines (multi.yo). The
 # evaluation writes `dyn(v)` as `dyn(Box.new(v))` and `dyn(Rc.new(v))` into
 # an owning Dyn as `dyn(Box.new(v))`, and lists `dyn(p)` over a raw pointer
-# and an owned `downcast`. The second run rewrites nothing, and both files
-# still type-check (check only: `dyn(p)` over a raw pointer emits invalid C,
+# and an owned `downcast`, and a file whose platform-gated `cond` leaves an
+# arm unevaluated (arms.yo). The second run rewrites nothing, and every file
+# still type-checks (check only: `dyn(p)` over a raw pointer emits invalid C,
 # issues/2026-11-11-dyn-over-a-raw-pointer-emits-invalid-c.md).
 fix . --migrate unsized
 fix . --migrate unsized
 check main.yo
 check multi.yo
+check arms.yo
