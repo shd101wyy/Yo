@@ -32,7 +32,7 @@ pragma(Pragma.AllowUnsafe);
   alloc_global_expr_id,
   ast_rewritten_node
 } :: import("../../expr.yo");
-{ ExprInfo, ComptimeRef, new_expr_info, record_macro_expansion, expr_info_set_macro_expansion, expr_info_table_set, expr_info_table_get, ControlFlowFlags, has_any_control_flow, control_flow_to_string, record_branch_init, has_dominating_branch_init, path_collection_of_name, expr_info_set_converted_runtime_type, register_thread_local, is_thread_local, register_mut_global, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_trait_ptr_type, expr_info_set_is_compile_time_only_assignment, some_resolution, is_reference_self_place, expr_info_converted_runtime_type } :: import("../../expr_info.yo");
+{ ExprInfo, ComptimeRef, new_expr_info, record_macro_expansion, expr_info_set_macro_expansion, expr_info_table_set, expr_info_table_get, ControlFlowFlags, has_any_control_flow, control_flow_to_string, record_branch_init, has_dominating_branch_init, path_collection_of_name, expr_info_set_converted_runtime_type, register_thread_local, is_thread_local, register_mut_global, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_trait_ptr_type, expr_info_set_is_compile_time_only_assignment, some_resolution, is_reference_self_place, expr_info_converted_runtime_type, is_mut_lend_value } :: import("../../expr_info.yo");
 {
   Environment,
   Variable,
@@ -51,7 +51,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { EvalContext, ExpectedTypeCtx, CaptureUsage, track_variable_usage, call_rerun_pending_def_evals, fn_ctx_returns_comptime } :: import("../context.yo");
-{ function_param_mutation_mask, param_mutation_mask_hits, ParamMutationMask, d1_record_global_write } :: import("../effects/mutation_summary.yo");
+{ function_param_mutation_mask, param_mutation_mask_hits, param_mutation_mask_lends_mut, ParamMutationMask, d1_record_global_write } :: import("../effects/mutation_summary.yo");
 {
   EvalValue,
   is_struct_val,
@@ -799,10 +799,51 @@ require_no_inout_write_through_borrow :: (
           })
         );
       });
+    }, {
+      // VERDICTS-57 §3.1: a `&mut` reference VALUE made of a place for a
+      // by-value slot (`(&mut xs).into_iter()`, whose `self : Self` is a
+      // `&mut` reference; a `&mut` binding read into such a slot) is a write
+      // of the place whatever the callee's body does. Two-phase, as a `&mut`
+      // argument the callee writes (`d3_check_pending`).
+      if(local_borrows_active(), {
+        ml_arg := _d3_unlabeled_arg(match(args.get(i), .Some(a) => a, .None => make_err_expr()));
+        if(is_mut_lend_value(ast_expr_id(&ml_arg)), {
+          match(
+            local_borrow_place_of(&ml_arg, env, ctx),
+            .Some(ml_lbp) => {
+              ml_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ml_arg)), .Some(mi) => Rc.clone(mi.ty()), .None => t_unit());
+              pending.push(
+                D3PendingInout(
+                  param_index : i,
+                  place : ml_arg,
+                  how : `borrow \`${_place_source_text(&ml_arg)}\` with \`&mut\``,
+                  noun : String.from("local borrow"),
+                  root_text : ml_lbp.root_name.clone(),
+                  root_type : type_to_string(&ml_ty),
+                  global : Option(Variable).None,
+                  borrow_error : Option(String).None,
+                  lb_place : Option(LocalBorrowPlace).Some(ml_lbp.clone()),
+                  lb_read_only : (local_borrow_root_is_shared_reference(&ml_lbp, env) && !is_reference_self_place(ast_expr_id(&ml_arg))),
+                  lends_mut : true
+                )
+              );
+            },
+            .None => ()
+          );
+        });
+      });
     });
     i = (i + usize(1));
   });
 });
+/// A call argument without its `label :` (the argument rules read the value).
+_d3_unlabeled_arg :: (fn(arg : AstExpr) -> AstExpr)(
+  if(
+    ast_expr_is_fn_call_of(&arg, BK_COLON, Option(usize).Some(usize(2))),
+    match(&arg, .FnCall(_, _, Rc(la), _, _) => match(la.get(usize(1)), .Some(v) => v, .None => arg.clone()), .Atom(_, _) => arg.clone()),
+    arg
+  )
+);
 /// A write at `tok` inside a `Drop.drop` body, to its receiver `v`.
 /// The runtime calls `drop` when the last handle goes away, so `self` is
 /// the owner there, not a borrowed copy, and its writes are the object's own
@@ -900,7 +941,11 @@ D3PendingInout :: struct(
   /// The root is not an atomic object, but an inner hop may be one
   /// (`s.a.*`, `t.0.*`): decided by `d3_check_pending` on the evaluated
   /// place's types, where `root_text`/`root_type` are filled in.
-  (atomic_hop : bool) ?= false
+  (atomic_hop : bool) ?= false,
+  /// A `&mut` reference value the caller made of the place for a by-value
+  /// slot (VERDICTS-57 §3.1, `require_no_inout_write_through_borrow`): an
+  /// exclusive access whatever the callee's body does.
+  (lends_mut : bool) ?= false
 );
 derive(D3PendingInout, Clone);
 /// The module-level (non-thread-local, runtime) global a place is rooted in,
@@ -1051,6 +1096,58 @@ _d3_judge_borrow_errors :: (
     bi = (bi + usize(1));
   });
 });
+/// The local-borrow half of `d3_check_pending` (decision 18): a place the
+/// callee writes is a write at the call, and so is a `&mut` reference value
+/// made of the place for a by-value slot (`lends_mut` entries, VERDICTS-57
+/// §3.1), whatever the callee does. The callee's mask decides for a `&mut`
+/// parameter: it writes the parameter, or makes a `&mut` reference value of
+/// storage rooted in it (its `lends_mut` bit: a cursor, a holder or a write
+/// walk the body builds over it). Not trusted by file either: std's
+/// mutators are the writes at stake. Two-phase
+/// (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P9): the `&mut`
+/// argument is RESERVED where it is written, a read, and ACTIVATED when the
+/// call begins, a write judged against the borrows still live then: a `&`
+/// loan whose last use is a later argument has ended
+/// (`r := &xs; xs.push(i32(r.len()))`), one used after the call has not,
+/// and neither has one an operand's value carries into the callee
+/// (`f(&mut x, h)` with `h := H(x)(r : &x)`, `call_origin_operands`). With
+/// no mask (`.None`: an unresolved callee) only the `lends_mut` entries are
+/// judged.
+_d3_judge_local_borrows :: (
+  fn(pending : &ArrayList(D3PendingInout), borrow_mask : Option(ParamMutationMask), call : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit
+)({
+  (carriers : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
+  (carriers_ready : bool) = false;
+  (li : usize) = usize(0);
+  while(li < pending.len(), {
+    match(
+      pending.get_cloned(li),
+      .Some(entry) => match(
+        &entry.lb_place,
+        .Some(lbp) => if(entry.lends_mut || match(borrow_mask, .Some(bm) => (param_mutation_mask_hits(&bm, entry.param_index) || param_mutation_mask_lends_mut(&bm, entry.param_index)), .None => false), {
+          local_borrow_require_writable(&lbp, entry.lb_read_only, entry.how.clone(), ast_expr_token(&entry.place), ctx, exn);
+          if(!carriers_ready, {
+            carriers = call_origin_operands(call, ctx);
+            carriers_ready = true;
+          });
+          local_borrow_access_at(
+            &lbp,
+            if(entry.lends_mut, LocalBorrowAccess.Exclusive, LocalBorrowAccess.Write),
+            ast_expr_token(&entry.place),
+            &call_activation_token(call, ast_expr_token(&entry.place)),
+            &carriers,
+            ctx,
+            exn
+          );
+          local_borrow_access(&lbp, LocalBorrowAccess.Read, ast_expr_token(&entry.place), ctx, exn);
+        }),
+        .None => ()
+      ),
+      .None => ()
+    );
+    li = (li + usize(1));
+  });
+});
 /// `d3_check_pending` for a callee with no body to read: a `Dyn(Fn)` value or
 /// a function pointer. Its mutation mask is unknown, which counts as `all`, as
 /// an unresolvable body does, so a borrowed value lent to one of its `&mut`
@@ -1058,13 +1155,15 @@ _d3_judge_borrow_errors :: (
 /// borrowed copy, and the write is lost. Only the borrowed-value entries are
 /// judged; the D3 atomic and local-borrow entries keep needing a body.
 d3_check_pending_unresolved_callee :: (
-  fn(pending : &ArrayList(D3PendingInout), callee_text : &String, ctx : &EvalContext, exn : Exception) -> unit
+  fn(pending : &ArrayList(D3PendingInout), callee_text : &String, call : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit
 )({
   if((pending.len() == usize(0)) || ctx.is_in_function_call_checking_phase, {
     return(());
   });
-  all_mask := ParamMutationMask(all : true, deep : ArrayList(bool).new(), shallow : ArrayList(bool).new());
+  all_mask := ParamMutationMask(all : true, deep : ArrayList(bool).new(), shallow : ArrayList(bool).new(), lends_mut : ArrayList(bool).new());
   _d3_judge_borrow_errors(pending, Option(ParamMutationMask).Some(all_mask), callee_text, ctx, exn);
+  // A by-value `&mut` lend is a write whatever the callee is (VERDICTS-57 §3.1).
+  _d3_judge_local_borrows(pending, Option(ParamMutationMask).None, call, ctx, exn);
 });
 /// D3 (`plans/reference/PARALLELISM_RULES.md`): an `inout` binding rooted in an
 /// atomic object is a data race iff the callee may WRITE through that
@@ -1094,7 +1193,8 @@ d3_check_pending :: (
   while(hb < pending.len(), {
     match(
       pending.get_cloned(hb),
-      .Some(pe) => if(pe.borrow_error.is_some() || pe.lb_place.is_some(), {
+      // A by-value `&mut` lend's entry needs no mask (`lends_mut`).
+      .Some(pe) => if(pe.borrow_error.is_some() || (pe.lb_place.is_some() && !pe.lends_mut), {
         has_borrow = true;
       }),
       .None => ()
@@ -1111,46 +1211,7 @@ d3_check_pending :: (
   // resolve (`all`) counts as a write, as it does for D3: `push_str` writes
   // through `ArrayList`'s raw pointers, which the analysis does not follow.
   _d3_judge_borrow_errors(pending, borrow_mask, callee_fid, ctx, exn);
-  // Local borrows (decision 18): a place the callee writes is a write at the
-  // call. Not trusted by file either: std's mutators are the writes at stake.
-  // Two-phase (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P9): the
-  // `&mut` argument is RESERVED where it is written, a read, and ACTIVATED
-  // when the call begins, a write judged against the borrows still live
-  // then: a `&` loan whose last use is a later argument has ended
-  // (`r := &xs; xs.push(i32(r.len()))`), one used after the call has not,
-  // and neither has one an operand's value carries into the callee
-  // (`f(&mut x, h)` with `h := H(x)(r : &x)`, `call_origin_operands`).
-  (carriers : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
-  (carriers_ready : bool) = false;
-  (li : usize) = usize(0);
-  while(li < pending.len(), {
-    match(
-      pending.get_cloned(li),
-      .Some(entry) => match(
-        &entry.lb_place,
-        .Some(lbp) => if(match(borrow_mask, .Some(bm) => param_mutation_mask_hits(&bm, entry.param_index), .None => false), {
-          local_borrow_require_writable(&lbp, entry.lb_read_only, entry.how.clone(), ast_expr_token(&entry.place), ctx, exn);
-          if(!carriers_ready, {
-            carriers = call_origin_operands(call, ctx);
-            carriers_ready = true;
-          });
-          local_borrow_access_at(
-            &lbp,
-            LocalBorrowAccess.Write,
-            ast_expr_token(&entry.place),
-            &call_activation_token(call, ast_expr_token(&entry.place)),
-            &carriers,
-            ctx,
-            exn
-          );
-          local_borrow_access(&lbp, LocalBorrowAccess.Read, ast_expr_token(&entry.place), ctx, exn);
-        }),
-        .None => ()
-      ),
-      .None => ()
-    );
-    li = (li + usize(1));
-  });
+  _d3_judge_local_borrows(pending, borrow_mask, call, ctx, exn);
   // An `atomic_hop` entry is a candidate only: it counts when its evaluated
   // place passes through an atomic object. Resolve those first, so a call
   // whose candidates all fall away computes no mutation mask.
