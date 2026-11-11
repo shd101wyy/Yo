@@ -473,7 +473,7 @@ _link_store_trees :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
-)(
+)({
   owned_manifest := manifest.clone();
   io.async((e : IoExn) => {
     if(platform == Platform.Windows, {
@@ -524,7 +524,7 @@ _link_store_trees :: (
     });
     ()
   })
-);
+});
 /// Is `name` a symbolic link among `entries`?
 _names_a_symlink :: (fn(entries : &ArrayList(DirEntry), name : &String) -> bool)({
   (i : usize) = usize(0);
@@ -1204,7 +1204,7 @@ _split_member_pattern :: (fn(pattern : &String) -> _MemberSplit)(
 );
 expand_workspace_members :: (
   fn(manifest : &Manifest, io : Io) -> Impl(Future(ArrayList(String), IoExn))
-)(
+)({
   owned_patterns := manifest.workspace_members.clone();
   owned_dir := manifest.dir.clone();
   io.async((e : IoExn) => {
@@ -1264,7 +1264,7 @@ expand_workspace_members :: (
     });
     out
   })
-);
+});
 /// Resolve `-p <name>` to that member's build file (§4.6), or `.None` when no
 /// `-p` was given.
 ///
@@ -3325,7 +3325,7 @@ run_build :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
-)(
+)({
   owned_options := options.clone();
   io.async((e : IoExn) => {
     // §4.6: `-p <name>` names a WORKSPACE MEMBER. Resolving it to that member's
@@ -3502,7 +3502,7 @@ run_build :: (
       i = (i + usize(1));
     });
   })
-);
+});
 // ---------------------------------------------------------------------------
 export(BuildOptions);
 export(artifact_input_stamp, set_compiler_identity);
