@@ -10,13 +10,15 @@ main :: (fn() -> unit)({
   xs.push(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
   xs.push(String.from("b"));
   for(&xs, e => {
-    run(&mut ({ m : &mut xs }() => {
-      mut(i) := i32(0);
-      while(i < i32(1000), {
-        m.push(String.from("z"));
-        i = (i + i32(1));
-      });
-    }));
+    run(
+      &mut ({ m : &mut xs }() => {
+        mut(i) := i32(0);
+        while(i < i32(1000), {
+          m.push(String.from("z"));
+          i = (i + i32(1));
+        });
+      })
+    );
     println(`OUT: ${e.len().to_string()}`);
   });
 });

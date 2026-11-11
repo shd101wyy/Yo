@@ -4,7 +4,7 @@
 `{ v = mkv(mkx().get()); }` (`get(self : &Self) -> &String`), the holder `v` outlives the statement while the `Rc`
 or the struct its reference points into is a temporary of that statement; both pass `yo check` and `v.r` is read
 after the temporary is gone (ASan: heap-use-after-free; stack-use-after-scope). The plain field form
-`v = mkv(&mkx().s)` is rejected. SEED_VERDICT
+`v = mkv(&mkx().s)` is rejected. Pre-existing: v0.2.76 accepts both reproducers.
 
 Found 2026-11-11 by the ownership / borrowing / origin audit
 (`plans/backlog/OWNERSHIP_BORROWING_ORIGINS_AUDIT.md` §3 A23). Confirmed on develop `64f33c710`. The `.*` half
@@ -35,13 +35,14 @@ export(main);
 ```
 
 ```text
-$ yo check repro.yo        # develop 64f33c710: accepted.  v0.2.76: SEED_MAIN
+$ yo check repro.yo        # develop 64f33c710: accepted.  v0.2.76: accepted
 $ yo compile repro.yo --optimize 1 --sanitize address --allocator system -o t && ./t
 ==…==ERROR: AddressSanitizer: heap-use-after-free
 ```
 
 - `…-projection-call.yo` (negative, E0911): `v = mkv(mkx().get())` in an inner block, `mkx() -> X` by value;
-  stack-use-after-scope. SEED_PROJ
+  stack-use-after-scope. v0.2.76: accepted. (A variant that builds `X` from an inline literal instead of
+  `longs()` reads a stale `0` with no ASan report.)
 - `…-pos.yo` (positive control): the `Rc` and the struct are bound to locals that outlive the holders
   (`v := mkv(&h.*.s)`, `w := mkv(x.get())`). Accepted, runs clean.
 
@@ -67,9 +68,14 @@ structural, and it returns `false` in exactly the two shapes above:
 - for a projection call it returns `false` ("not a projection's or a subscript's place (those lie in their own
   roots)"), so `mkx().get()` and `long().as_ref()` are not temporaries.
 
-The second exit relies on the caller to recurse: `origin_of`'s R-CALL loop and `_bind_projection_result` both test
-each root argument with `is_temporary_operand` and then recurse into it, and the inner call's own root (`mkx()`) is
-a temporary. ROOT_CAUSE_PROJ
+The second exit relies on the caller to recurse: `origin_of`'s R-CALL loop tests each root argument with
+`is_temporary_operand` and then recurses into it (`_origin_of_into`), where the inner call's own root (`mkx()`) is a
+temporary. That recursion does not produce the entry. Measured with `YO_DEBUG_N2B=1`: for the plain field form
+`bind_join` (`src/evaluator/utils.yo`) prints `join v: roots=[#temporary(imm)]` and rejects; for
+`v = mkv(mkx().get())` it prints nothing, i.e. `origin_of(mkv(mkx().get()))` is EMPTY — `v` keeps no loan at all
+after the assignment, not even the temporary. Which branch of `_origin_of_into` drops the inner call's roots is not
+identified (hypothesis: a reference-typed call result is read as a recorded lend and handed to the place walk,
+which finds no named root).
 
 ## Expected
 

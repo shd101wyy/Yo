@@ -1,0 +1,21 @@
+// expect: E0911 (decision 18 rule 3: the `Drop` at the inner block's end is a call inside `y`'s live range)
+// `y := &G` is live from `w` to `v`; the destructor of `d` writes `G` in between, so the two reads
+// through one live `&` disagree.
+{ println } :: import("std/fmt");
+mut(G) := i64(1);
+_bump :: (fn() -> unit)({
+  G = (G + i64(100));
+});
+D :: struct(n : i64);
+impl(D, Drop(drop : (fn(self : &mut Self) -> unit)(_bump())));
+main :: (fn() -> unit)({
+  y := &G;
+  w := y.*;
+  {
+    d := D(n : i64(1));
+    _ := d.n;
+  };
+  v := y.*;
+  println(`OUT: before=${w.to_string()} after=${v.to_string()} (expect equal)`);
+});
+export(main);

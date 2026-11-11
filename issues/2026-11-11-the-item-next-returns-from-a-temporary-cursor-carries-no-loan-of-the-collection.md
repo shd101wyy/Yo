@@ -3,12 +3,15 @@
 **Severity:** S1. `a := (&xs).into_iter().next()` passes `yo check` with `a` carrying no loan of `xs`: the list is
 then grown (reallocated) and `a`'s `&String` is read (ASan: heap-use-after-free). The same with a user cursor
 built through `impl(&(Bag, p), IntoIterator)`, through the `skip`/`take` adapters, and through an identity
-function. A BOUND cursor (`it := (&xs).into_iter(); a := it.next()`) is rejected with E0911. SEED_VERDICT
+function. A BOUND cursor (`it := (&xs).into_iter(); a := it.next()`) is rejected with E0911. The std form is
+not expressible on v0.2.76 (its `ArrayList.into_iter` takes the list by value: E0901); the user-cursor form is
+accepted by v0.2.76 too, so the defect predates the new `impl(&C, IntoIterator)` API.
 
 Found 2026-11-11 by the ownership / borrowing / origin audit
 (`plans/backlog/OWNERSHIP_BORROWING_ORIGINS_AUDIT.md` §3 A14). Confirmed on develop `64f33c710`. Lane o6
 ("call-result origin naming + method-lend", branch in `Yo-wt/o6-m`) was checked on 2026-11-11 and does not cover it:
-its binary accepts all five programs of the family below.
+its binary accepts all five programs the ledger lists as accepted (the std form, the user cursor, `skip`, `take`
+and the identity-function form).
 
 ## Reproducers
 
@@ -39,7 +42,7 @@ $ yo compile repro.yo --optimize 1 --sanitize address --allocator system -o t &&
 ```
 
 - `…-user-cursor.yo` (negative, E0911): the same with `BagCursor(p)` and `impl(&(Bag, p), IntoIterator)`;
-  heap-use-after-free. The same cursor made by a free function, `cur(&b).next()`, is E0911.
+  heap-use-after-free; v0.2.76 accepts it. The same cursor made by a free function, `cur(&b).next()`, is E0911.
 - `…-pos.yo` (positive control): the item's last use is before the list grows. Accepted, runs clean.
 
 ## The family (develop `64f33c710`)
@@ -55,7 +58,6 @@ $ yo compile repro.yo --optimize 1 --sanitize address --allocator system -o t &&
 | bound adapter `mut(it) := (&xs).into_iter().skip(…)`; `c := …; mut(it) := c.skip(…)`; `mut(d) := c` | E0911 (ledger) | — |
 | `a := (&xs).index(usize(0))` | E0911 (ledger) | — |
 
-The temporary cursor of a `for` is not affected: the walk binds a hidden cursor.
 
 ## Root cause
 

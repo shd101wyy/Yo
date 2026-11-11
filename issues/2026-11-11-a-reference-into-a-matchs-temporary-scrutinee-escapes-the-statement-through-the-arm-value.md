@@ -32,7 +32,8 @@ $ yo compile repro.yo --optimize 1 --sanitize address --allocator system -o t &&
 ```
 
 - `…-list.yo` (negative, E0911): `p := match(&mkl(), xs => Option(&ArrayList(String)).Some(xs));`, an element read
-  through `p` afterwards.
+  through `p` afterwards. No ASan report: the dropped list reads as empty, and the read aborts with "ArrayList: index
+  out of bounds".
 - `…-pos.yo` (positive control): the scrutinee is bound first (`t := mkb(); p := match(&t, …)`).
 
 ## The family (develop `64f33c710`)
@@ -41,7 +42,7 @@ $ yo compile repro.yo --optimize 1 --sanitize address --allocator system -o t &&
 | --- | --- | --- |
 | `match(&mkb(), .Some(Box(s)) => Option(&String).Some(s), …)` bound with `:=`, read after | accepted, heap-use-after-free | E0911 |
 | `match(&mk(), .Some(s) => Option(&String).Some(s), …)` over an `Option(String)` temporary (ledger v07: `OUT:` prints an empty string) | accepted | E0911 |
-| `match(&mkl(), xs => Option(&ArrayList(String)).Some(xs))` (ledger v07c; `…-list.yo` reads an element) | accepted | E0911 |
+| `match(&mkl(), xs => Option(&ArrayList(String)).Some(xs))` (ledger v07c: length 0; `…-list.yo`: index out of bounds) | accepted | E0911 |
 | the same over a bound scrutinee `t` (`…-pos.yo`) | accepted | accept |
 
 ## Root cause

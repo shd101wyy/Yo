@@ -21,11 +21,14 @@ same missing origin for a `{ p }` capture of a reference PARAMETER, A9) and
 ```yo
 main :: (fn() -> unit)({
   mut(b) := Box.new(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
-  match(&b, Box(s) => {
-    (f : Impl(Fn() -> usize)) = ({ y : &s.* }() => y.len());
-    b = Box.new(String.from("q"));
-    println(`OUT: ${f().to_string()}`);
-  });
+  match(
+    &b,
+    Box(s) => {
+      (f : Impl(Fn() -> usize)) = ({ y : &s.* }() => y.len());
+      b = Box.new(String.from("q"));
+      println(`OUT: ${f().to_string()}`);
+    }
+  );
   ()
 });
 ```

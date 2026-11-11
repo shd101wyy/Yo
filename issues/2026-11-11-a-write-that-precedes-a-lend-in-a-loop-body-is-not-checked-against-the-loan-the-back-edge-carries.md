@@ -23,8 +23,12 @@ main :: (fn() -> unit)({
   mut(h) := Option(&String).None;
   mut(i) := 0;
   while(i < 3, {
-    if(i == 2, { x = Box.new(String.from("q")); });
-    if(i == 1, { h = .Some(&x.*); });
+    if(i == 2, {
+      x = Box.new(String.from("q"));
+    });
+    if(i == 1, {
+      h = .Some(&x.*);
+    });
     i = (i + 1);
   });
   match(h, .Some(r) => println(`OUT: ${r.*}`), .None => ());

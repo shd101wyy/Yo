@@ -18,9 +18,13 @@ L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz012345678
 main :: (fn() -> unit)({
   mut(slot) := Option(&String).None;
   o := Option(Box(String)).Some(Box.new(L()));
-  match(o, .Some(bx) => {
-    slot = match(&bx, Box(s) => Option(&String).Some(s));
-  }, .None => ());
+  match(
+    o,
+    .Some(bx) => {
+      slot = match(&bx, Box(s) => Option(&String).Some(s));
+    },
+    .None => ()
+  );
   match(slot, .Some(r) => println(`OUT: ${r.*}`), .None => ());
   ()
 });
@@ -32,7 +36,8 @@ $ yo compile repro.yo --optimize 1 --sanitize address --allocator system -o t &&
 ==…==ERROR: AddressSanitizer: heap-use-after-free
 ```
 
-- `…-direct.yo` (negative, E0911): `slot = .Some(&v)` with `v` the owned `String` arm binding.
+- `…-direct.yo` (negative, E0911): `slot = .Some(&v)` with `v` the owned `String` arm binding. It runs without an
+  ASan report but prints `OUT:` with an empty string: the read sees the dropped `String`.
 - `…-pos.yo` (positive control): the slot is read inside the arm while `v` is alive and never after it.
 
 ## The family (develop `64f33c710`)
@@ -41,7 +46,7 @@ $ yo compile repro.yo --optimize 1 --sanitize address --allocator system -o t &&
 | --- | --- | --- |
 | a reference into the owned arm binding's Box stored in an outer slot, read after the `match` | accepted, heap-use-after-free | E0911 |
 | the scrutinee a call result, `match(mko(), .Some(x) => { slot = match(&x, …); })` (ledger sh01) | accepted, heap-use-after-free | E0911 |
-| `slot = .Some(&v)` directly (`…-direct.yo`, ledger sh21) | accepted | E0911 |
+| `slot = .Some(&v)` directly (`…-direct.yo`, ledger sh21) | accepted; prints the dropped `String` as empty | E0911 |
 | `w := v; slot = .Some(&w)` (ledger sh22) | E0911 "Cannot store a reference to `w` in `slot` here: `w`'s scope ends with its block" | E0911 |
 
 ## Root cause

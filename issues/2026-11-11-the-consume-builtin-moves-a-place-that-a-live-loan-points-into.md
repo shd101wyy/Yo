@@ -3,7 +3,8 @@
 **Severity:** S1. `r := xs.index(usize(0)); consume(xs); println(r.*)` passes `yo check`: `consume(xs)` releases
 the list while `r` still points into it, and `r` is read (ASan: heap-use-after-free). The same holds for an `Rc`
 handle (`r := h.as_ref(); consume(h)`), a read-walk element stored in a slot, and a plain `r := &s`. Passing the
-same value to a user by-value function is E0911. SEED_VERDICT
+same value to a user by-value function is E0911. Pre-existing: v0.2.76 accepts the list form (it has no
+`Rc.as_ref`).
 
 Found 2026-11-11 by the ownership / borrowing / origin audit
 (`plans/backlog/OWNERSHIP_BORROWING_ORIGINS_AUDIT.md` §3 A13). Confirmed on develop `64f33c710`.
@@ -28,7 +29,7 @@ export(main);
 ```
 
 ```text
-$ yo check repro.yo        # develop 64f33c710: accepted.  v0.2.76: SEED_MAIN
+$ yo check repro.yo        # develop 64f33c710: accepted.  v0.2.76: accepted
 $ yo compile repro.yo --optimize 1 --sanitize address --allocator system -o t && ./t
 ==…==ERROR: AddressSanitizer: heap-use-after-free
 ```

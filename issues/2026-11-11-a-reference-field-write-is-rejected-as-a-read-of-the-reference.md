@@ -5,7 +5,7 @@ E0926 "`h.r` is a reference (`&Rc(X)`): reading the value it refers to is spelle
 side. The text describes a read, and its suggested repair `h.r.* = …` writes the referent, a different program.
 `t.0 = &y`, `a.b.r = &y`, `p.r = &y` and `h.r = v` with `v` a reference parameter (no `&` expression at all) are
 rejected the same way. Workaround: rebuild the whole holder (`h = H(r : &y, n : h.n)`), which is accepted.
-Pre-existing / new: see the seed line below.
+Pre-existing: v0.2.76 rejects the field, parameter and tuple forms with the same E0926.
 
 Found 2026-11-11 by the ownership / borrowing / origin audit
 (`plans/backlog/OWNERSHIP_BORROWING_ORIGINS_AUDIT.md` §3 C6). Confirmed on develop `64f33c710`. Not P2: see Root
@@ -33,7 +33,7 @@ export(main);
 ```
 
 ```text
-$ yo check repro.yo        # develop 64f33c710
+$ yo check repro.yo        # develop 64f33c710 and v0.2.76 alike
 error[E0926]: `h.r` is a reference (`&Rc(X)`): reading the value it refers to is spelled `h.r.*`
    |
    |   h.r = &y;

@@ -6,12 +6,17 @@
 { yield } :: import("std/async");
 Show :: trait(show : (fn(self : &Self, io : Io) -> Impl(Future(unit, Io))));
 W :: struct(s : String);
-impl(W, Show(show : (fn(self : &Self, io : Io) -> Impl(Future(unit, Io)))(
-  io.async({ self : &self.* }(io : Io) => {
-    io.await(yield(io), io);
-    println(`OUT: ${self.*.s}`);
-  })
-)));
+impl(
+  W,
+  Show(
+    show : (fn(self : &Self, io : Io) -> Impl(Future(unit, Io)))(
+      io.async({ self : &self.* }(io : Io) => {
+        io.await(yield(io), io);
+        println(`OUT: ${self.*.s}`);
+      })
+    )
+  )
+);
 consume_t :: (fn(generic(T : Type), v : T) -> unit)(());
 run :: (fn(generic(T : Type), t : T, io : Io, where(T <: Show)) -> unit)({
   f := t.show(io);

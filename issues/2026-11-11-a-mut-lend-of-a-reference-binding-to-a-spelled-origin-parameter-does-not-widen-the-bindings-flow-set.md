@@ -4,8 +4,8 @@
 called as `set(&mut r, &inner)` re-points the reference binding `r` at `inner`. `lend_through` solves `p` over
 `inner` but never writes it back to `r`, so a read of `r` after `inner`'s block ends passes `yo check` (ASan:
 heap-use-after-free). The `swap` shape (`sw(&mut r, &mut q)`) is the same. New this cycle: v0.2.76 cannot express the
-parameter type (`dst : &mut &(Rc(X), p)` is rejected, "a reference to a reference … arrives with references as
-binding types"); P3 (#1841, merged 2026-11-09, after v0.2.76) deleted that wall.
+parameter type ("`&(Rc(X), p)` cannot be this parameter's type: a reference to a reference (`&mut &(T, p)`) arrives
+with references as binding types"); P3 (#1841, merged 2026-11-09, after v0.2.76) deleted that wall.
 
 Found 2026-11-11 by the ownership / borrowing / origin audit
 (`plans/backlog/OWNERSHIP_BORROWING_ORIGINS_AUDIT.md` §3 A28). Confirmed on develop `64f33c710`. Related: the
@@ -23,7 +23,9 @@ call form of the same store.
 { println } :: import("std/fmt");
 X :: struct(s : String);
 mk :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
-set :: (fn(generic(p : Origin), dst : &mut &(Rc(X), p), v : &(Rc(X), p)) -> unit)({ dst.* = v; });
+set :: (fn(generic(p : Origin), dst : &mut&(Rc(X), p), v : &(Rc(X), p)) -> unit)({
+  dst.* = v;
+});
 main :: (fn() -> unit)({
   outer := mk();
   mut(r) := &outer;
@@ -37,7 +39,7 @@ export(main);
 ```
 
 ```text
-$ yo check repro.yo        # develop 64f33c710: accepted.  v0.2.76: rejected, the parameter type is not expressible
+$ yo check repro.yo        # develop 64f33c710: accepted.  v0.2.76: error, "a reference to a reference … arrives with references as binding types"
 $ yo compile repro.yo --optimize 1 --sanitize address --allocator system -o t && ./t
 ==…==ERROR: AddressSanitizer: heap-use-after-free
 $ YO_DEBUG_N2B=1 yo check repro.yo
@@ -50,6 +52,8 @@ $ YO_DEBUG_N2B=1 yo check repro.yo
   `r` with a block-local `q := &inner`, the corpus row `swap-inferred-locals` with a referent that dies.
 - `…-pos.yo` (positive control): the re-pointed `r` is read while `inner` is live.
 
+- `…-through-mut-binding.yo` (negative, E0911): `rp := &mut r; set(&mut rp.*, &inner);`. Accepted; heap-use-after-free.
+
 ## The family (develop `64f33c710`)
 
 | Shape | Verdict | Correct |
@@ -59,6 +63,8 @@ $ YO_DEBUG_N2B=1 yo check repro.yo
 | `set(&mut r, &inner)`, then `inner = mk()` while `r` is live | accepted, reads the new value | E0911 at the write |
 | `set :: (fn(dst : &mut &Rc(X), v : &Rc(X)) …)` (origins elided) | E0923 in the callee | E0923 |
 | `rp := &mut r; rp.* = ri` (local borrow, no call) | E0911 | E0911 |
+| `rp := &mut r; set(&mut rp.*, &inner)` (VERDICTS-58 probe 1: the binding lent through a local `&mut` borrow of it and reborrowed at the call) | accepted, heap-use-after-free | E0911: the write-back reaches `r`, the place `rp` borrows |
+| `rp := &mut r; set(rp, &inner)` (the bare binding) | E0601, a wrong rejection: `issues/2026-11-11-a-mut-binding-of-a-reference-cannot-be-passed-bare-to-a-mut-reference-to-a-reference-parameter.md` | as the row above |
 | `swap-inferred-locals`, `swap-declared-union` (corpus, both referents outlive the reads) | accepted | accept |
 
 ## Root cause

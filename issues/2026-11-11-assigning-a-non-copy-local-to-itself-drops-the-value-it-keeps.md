@@ -1,4 +1,4 @@
-# Assigning a move-only local to itself drops the value it keeps
+# Assigning a non-`Copy` local to itself drops the value it keeps
 
 **Severity:** S1. `x = x` on a local that is not `Copy` (`String`, `ArrayList`, `Rc`, a struct holding one, a `Drop` type) is
 accepted and emitted as "save the old bytes, store `x` into itself, drop the saved bytes": `x` keeps a value whose
@@ -10,7 +10,7 @@ Found 2026-11-11 by the ownership / borrowing / origin audit
 
 ## Reproducers
 
-`issues/repros/2026-11-11-assigning-a-move-only-local-to-itself-drops-the-value-it-keeps.yo` (negative: expects
+`issues/repros/2026-11-11-assigning-a-non-copy-local-to-itself-drops-the-value-it-keeps.yo` (negative: expects
 `accept` with no drop at the assignment; today it is a use-after-free):
 
 ```yo

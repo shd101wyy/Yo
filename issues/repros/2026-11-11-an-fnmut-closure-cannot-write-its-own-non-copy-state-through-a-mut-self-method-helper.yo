@@ -1,0 +1,14 @@
+// expect: accept
+// The same state lent `&mut` to a helper function instead of a method receiver; also E0908 today.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+grow :: (fn(s : &mut String) -> unit)(s.push_str("0123456789"));
+main :: (fn() -> unit)({
+  (mut(f) : Impl(FnMut() -> usize)) = ({ acc : String.from("") }() => {
+    grow(&mut acc);
+    acc.len()
+  });
+  _a := f();
+  println(`OUT: ${f().to_string()}`);
+});
+export(main);

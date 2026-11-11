@@ -37,7 +37,7 @@ $ yo compile repro.yo --optimize 1 --sanitize address --allocator system -o t &&
 ==…==ERROR: AddressSanitizer: heap-use-after-free
 $ YO_DEBUG_N2B=1 yo check repro.yo
 [n2b] join a: roots=[a(imm)] value=S(x : big(), y : (Option(&(Box(X))).Some)(&((a.x))))
-[n2b] join-register a: site=yes end_char=717 ground=[z(imm)]
+[n2b] join-register a: site=yes end_char=649 ground=[z(imm)]
 [n2b] bind b: roots=[z(imm)] rhs=a
 ```
 

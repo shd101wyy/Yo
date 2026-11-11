@@ -2,8 +2,10 @@
 
 **Severity:** S1. `get :: (fn(a : &String) -> &String)({ b := Box.new(…); &b.* })` and
 `get :: (fn(h : Rc(X)) -> &String)(&h.s)` pass `yo check`: the function frees the box (drops its last handle)
-when it returns, and the caller reads the payload through the result (ASan: heap-use-after-free). Pre-existing:
-v0.2.76 accepts both.
+when it returns, and the caller reads the payload through the result (ASan: heap-use-after-free). The local-handle
+form is pre-existing (v0.2.76 accepts it). The by-value parameter form is new since v0.2.76, which rejects it only by
+accident: an E0910 ("This argument moves `h`, which an earlier argument of the same call lends") at the callee's
+synthesized `___drop(h)`.
 
 Found 2026-11-11 by the ownership / borrowing / origin audit
 (`plans/backlog/OWNERSHIP_BORROWING_ORIGINS_AUDIT.md` §3 A30). Confirmed on develop `64f33c710`. The design side
@@ -36,9 +38,9 @@ $ yo compile repro.yo --optimize 1 --sanitize address --allocator system -o t &&
 ```
 
 - `…-by-value-rc.yo` (negative, E0912): `get :: (fn(h : Rc(X)) -> &String)(&h.s)` — auto-deref writes `h.*.s`;
-  the callee drops the only handle at its end: heap-use-after-free.
+  the callee drops the only handle at its end: heap-use-after-free. v0.2.76: the accidental E0910 above.
 - `…-pos.yo` (positive control): `&b.*.*` / `&h.*.*.s` through a `&Box(String)` / `&Rc(X)` PARAMETER, which lie
-  in the caller's storage. POS_VERDICT
+  in the caller's storage. Accepted, runs clean.
 
 ## The family (develop `64f33c710`)
 

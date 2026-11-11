@@ -1,0 +1,14 @@
+// expect: accept
+// An `FnMut` closure grows its own by-value `String` state through `push_str` (`self : &mut Self`).
+// Decision 37 / VERDICTS-15 Q1 make the entry writable; develop rejects it with E0908.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  (mut(f) : Impl(FnMut() -> usize)) = ({ acc : String.from("") }() => {
+    acc.push_str("0123456789");
+    acc.len()
+  });
+  _a := f();
+  println(`OUT: ${f().to_string()}`);
+});
+export(main);

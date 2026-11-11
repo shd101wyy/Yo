@@ -6,10 +6,14 @@ L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz012345678
 main :: (fn() -> unit)({
   mut(slot) := Option(&String).None;
   o := Option(String).Some(L());
-  match(o, .Some(v) => {
-    slot = .Some(&v);
-    match(slot, .Some(r) => println(`OUT: ${r.*}`), .None => ());
-  }, .None => ());
+  match(
+    o,
+    .Some(v) => {
+      slot = .Some(&v);
+      match(slot, .Some(r) => println(`OUT: ${r.*}`), .None => ());
+    },
+    .None => ()
+  );
   ()
 });
 export(main);

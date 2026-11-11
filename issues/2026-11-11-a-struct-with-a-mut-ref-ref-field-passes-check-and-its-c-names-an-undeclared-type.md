@@ -3,7 +3,8 @@
 **Severity:** S2. `M :: struct(rp : &mut &String)` with `m := M(rp : &mut r)` passes `yo check`, and `yo compile`
 fails in the C compiler: `error: unknown type name '__yo_t_…'` at the field. The build stops, so nothing runs
 wrongly, but a program the checker accepts cannot be built. Only a newtype referent (`String`) fails; the same holder
-over `&mut &Rc(X)` compiles. New this cycle: v0.2.76 rejects the type itself; P3 (#1841, `&&T` and
+over `&mut &Rc(X)` compiles. New this cycle: v0.2.76 rejects the type itself ("`&mut(&(String))` is a reference to a reference: it arrives
+with references as binding types"); P3 (#1841, `&&T` and
 `&mut &T`) made it expressible.
 
 Found 2026-11-11 by the ownership / borrowing / origin audit
@@ -17,7 +18,7 @@ Found 2026-11-11 by the ownership / borrowing / origin audit
 ```yo
 { String } :: import("std/string");
 { println } :: import("std/fmt");
-M :: struct(rp : &mut &String);
+M :: struct(rp : &mut&String);
 main :: (fn() -> unit)({
   a := String.from("a");
   mut(r) := &a;

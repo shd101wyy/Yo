@@ -41,8 +41,8 @@ $ yo compile repro.yo --optimize 1 --sanitize address --allocator system -o t &&
   stack-use-after-scope.
 - `…-for.yo` (negative, E0911): a struct holder `h = H(r : &y.*, n : i)` re-pointed at a `for` body's local and read at
   the top of the next iteration: heap-use-after-free.
-- `…-pos.yo` (positive control): the slot is read in the iteration that stored it and overwritten before any later
-  read, so no dead local is reached over the back edge.
+- `…-pos.yo` (positive control): the slot is read in the iteration that stored it and reset (`slot = .None`) before
+  the back edge, so no dead local is reached over it.
 
 ## The family (develop `64f33c710`)
 
@@ -53,7 +53,7 @@ $ yo compile repro.yo --optimize 1 --sanitize address --allocator system -o t &&
 | the lend through a borrowed match, `match(&b, Box(s) => { slot = .Some(s); })` (ledger l07) | accepted, heap-use-after-free | E0911 |
 | a struct holder over a body-local Box in a `while` (holders j06b) or a `for` body (j12); a typed `Option(&Rc(X))` slot (j08) | accepted, UAF / stack-use-after-scope | E0911 |
 | the slot read AFTER the loop instead (holders j05, j13) | E0911 "`y`'s scope ends with its block, while `h` is live to its last use" | E0911 |
-| the slot read only inside the storing iteration (`…-pos.yo`) | accepted | accept |
+| the slot read only inside the storing iteration, reset before the back edge (`…-pos.yo`) | accepted | accept |
 
 ## Root cause
 

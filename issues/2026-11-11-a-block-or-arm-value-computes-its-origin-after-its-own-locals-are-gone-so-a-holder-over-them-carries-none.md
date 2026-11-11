@@ -73,8 +73,8 @@ block's (k07 freezes `x`). `BORROW_CHECKER_COMPLETENESS.md` §3, R-ARM: "`match`
 over the arms"; R-COMP: "an origin is never smaller than its sources' union".
 
 P2 (`BORROW_CHECKER_COMPLETENESS.md` §7 row P2) makes `&place` an expression of type `&(T, place)` "wherever a value
-may stand", block tails included, with R-LEND giving its origin. That covers a BARE `&y` tail (rejected today as
-not an expression of its own) and gives it the same origin a constructor field gets today; it does not change where
+may stand", block tails included, with R-LEND giving its origin. That covers a BARE `&y` tail (rejected today and by
+v0.2.76: "`&y` lends a borrow: it is written as a call argument to a `&T` parameter, …") and gives it the same origin a constructor field gets today; it does not change where
 R-ARM evaluates the tail. A holder constructor in the tail is already expressible, and P2 makes more such tails
 expressible, so P2 widens the exposure unless R-ARM's evaluation point is fixed first (§7: "P1 and P2 are UNSAFE
 before A … a `&x` arm tail would be exactly H5/H1-class programs").

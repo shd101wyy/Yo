@@ -50,6 +50,10 @@ $ YO_DEBUG_N2B=1 yo check repro.yo
   `issues/2026-11-11-a-struct-with-a-mut-ref-ref-field-passes-check-and-its-c-names-an-undeclared-type.md`).
 - `…-pos.yo` (positive control): the same store through `p := &mut slot`, with `y` declared before `slot`.
 
+- `…-callee.yo` (negative, E0911): the callee form, VERDICTS-58 probe 2. `sp := &mut slot; _store(sp, &y);` with
+  `_store :: (fn(generic(r : Origin), dst : &mut Option(&(Rc(X), r)), v : &(Rc(X), r)) -> unit)`. Accepted on develop and
+  on v0.2.76; heap-use-after-free. `_store(&mut slot, &y)` written directly is E0911.
+
 ## The family (develop `64f33c710`)
 
 | Shape | Verdict | Correct |
@@ -79,7 +83,8 @@ because the subset check reads the declared origin off `p`'s pointee type.
 The `&mut` capture of a closure already has the right mechanism: `bind_join_roots_for` sends a store through a
 `&mut` capture to the outer place (`borrow_capture_outer`, `_capture_store`). A local `&mut` borrow has no such
 redirect. The same holds one level further out: `m.rp.* = ri` writes `r` through a `&mut` held in `m`'s field,
-and the join again lands on the variable the place is rooted at (`m`), not on the lent place `r`.
+and the join again lands on the variable the place is rooted at, not on the lent place `r` (`YO_DEBUG_N2B`:
+`place-write m: roots=[inner(imm)] value=ri`).
 
 ## Expected
 

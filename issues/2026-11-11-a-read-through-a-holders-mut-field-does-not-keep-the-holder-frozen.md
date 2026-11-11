@@ -4,7 +4,8 @@
 `first(self : &Self) -> &String = &self.m(0)`, `r := h.first()` takes only the field's origin (`xs`), not its union
 with the holder `h`; `h.m.push(…)` then reallocates the list while `r` lives, and `r` is read (ASan:
 heap-use-after-free). The same hole makes any user guard type (a `borrow_mut()` returning a holder of a `&mut`)
-unsound. The plain-holder form is pre-existing (v0.2.76 accepts it); SEED_GUARD_VERDICT
+unsound. The plain-holder form is pre-existing (v0.2.76 accepts it); the guard form is a regression since v0.2.76,
+which rejects it with E0911 "Cannot write `g.c.xs` here: `r` borrows `g` with `&`".
 
 Found 2026-11-11 by the ownership / borrowing / origin audit
 (`plans/backlog/OWNERSHIP_BORROWING_ORIGINS_AUDIT.md` §3 A31). Confirmed on develop `64f33c710`. Consequence for
@@ -38,14 +39,14 @@ export(main);
 ```
 
 ```text
-$ yo check repro.yo        # develop 64f33c710: accepted.  v0.2.76: SEED_MAIN_VERDICT
+$ yo check repro.yo        # develop 64f33c710: accepted.  v0.2.76: accepted
 $ yo compile repro.yo --optimize 1 --sanitize address --allocator system -o t && ./t
 ==…==ERROR: AddressSanitizer: heap-use-after-free
 ```
 
 - `…-guard.yo` (negative, E0911): a user guard `Guard(p) :: struct(c : &mut(Cell, p))` returned by
   `Cell.borrow_mut(&mut self)`; `r := g.get()` reads through `g.c`, then `g.c.xs.push(…)` ×100 while `r` lives:
-  heap-use-after-free.
+  heap-use-after-free. v0.2.76 rejects it at the write (E0911, `r` borrows `g`): a regression.
 - `…-pos.yo` (positive control): `r`'s last use is before the writes through `h.m`. Accepted, runs clean.
 
 ## The family (develop `64f33c710`)
@@ -75,6 +76,8 @@ right for a `&` field and wrong for a `&mut` one: `h` itself is never frozen, so
 holder's own `&mut` loan of `xs` and not an access of `xs` by name, conflicts with nothing. `origin_of`'s R-DEREF
 step (`_lend_crossed_reference`, `src/evaluator/utils.yo`) has the same shape: a lend through a crossed reference
 takes that reference's origin alone. Hypothesis for the free-function and `Drop` rows: the same two sites.
+v0.2.76's E0911 on the guard form names `g` ("`r` borrows `g`"), so the older rule froze the receiver; the
+regression is consistent with the holder-root branch above, not bisected.
 
 ## Expected
 

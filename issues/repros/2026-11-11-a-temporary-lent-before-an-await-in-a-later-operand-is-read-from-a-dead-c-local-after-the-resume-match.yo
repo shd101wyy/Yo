@@ -14,10 +14,14 @@ num :: (fn(io : Io) -> Impl(Future(usize, Io)))(
 mk_opt :: (fn() -> Option(String))(.Some(make()));
 main :: (fn(io : Io) -> unit)({
   f := io.async((io : Io) => {
-    match(&mk_opt(), .Some(r) => {
-      io.await(yield(io), io);
-      println(`OUT: ${r.*}`);
-    }, .None => ());
+    match(
+      &mk_opt(),
+      .Some(r) => {
+        io.await(yield(io), io);
+        println(`OUT: ${r.*}`);
+      },
+      .None => ()
+    );
   });
   io.await(f, io);
 });

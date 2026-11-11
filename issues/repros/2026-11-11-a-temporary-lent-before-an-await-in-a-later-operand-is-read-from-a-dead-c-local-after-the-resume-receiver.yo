@@ -11,10 +11,13 @@ num :: (fn(io : Io) -> Impl(Future(usize, Io)))(
   })
 );
 W :: struct(s : String);
-impl(W, plus : (fn(self : &Self, n : usize) -> usize)({
-  println(`OUT: ${self.s}`);
-  (self.s.len() + n)
-}));
+impl(
+  W,
+  plus : (fn(self : &Self, n : usize) -> usize)({
+    println(`OUT: ${self.s}`);
+    (self.s.len() + n)
+  })
+);
 mkw :: (fn() -> W)(W(s : make()));
 main :: (fn(io : Io) -> unit)({
   f := io.async((io : Io) => mkw().plus(io.await(num(io), io)));
