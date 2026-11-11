@@ -285,33 +285,31 @@ test("(xi) (head, method) on an owned receiver: a reference impl's member and a 
   assert(g.hm1() == i32(31), "a generic reference impl's member, receiver G");
   assert(g.hmd() == i32(40), "a generic reference impl's trait default, receiver G");
 });
-||||||| parent of 4217765fc (P3b WIP gap 3: delete the &&T receiver declaration wall; tests (xi), (vii))
 
 // (xi) P3b gap 3 (VERDICTS-49): a receiver slot `self : &Self` at `Self = &C`
 // is a `&&C` slot and is accepted; the trait fixes the receiver mode, so an
 // impl over a reference type has no other spelling.
 _PbTr :: trait(pb : (fn(self : &Self) -> i32));
 _PbC :: struct(n : i32);
-impl(&_PbC, _PbTr(pb : (fn(self : &Self) -> i32)(self.*.n)));
-_pb_qualified :: (fn(r : &_PbC) -> i32)({
-  rr := &r;
-  _PbTr.pb(rr)
-});
-test("(xi) a `self : &Self` receiver over impl(&C, Tr): a reference binding, an explicit borrow, a qualified call", {
+impl(&_PbC, _PbTr(pb : (fn(self : &Self) -> i32)(self.*.*.n)));
+_pb_qualified :: (fn(r : &_PbC) -> i32)((&_PbC <: _PbTr).pb(&r));
+test("(iii) a `self : &Self` receiver over impl(&C, Tr): a reference binding, an explicit borrow, a qualified call", {
   c := _PbC(n : i32(4));
   r := &c;
   assert(r.pb() == i32(4), "step 1 on a reference binding lends the binding's own storage");
-  assert((&c).pb() == i32(4), "step 1 on an explicit borrow of the owned value");
-  assert(c.pb() == i32(4), "an owned receiver reaches the same impl");
   assert(_pb_qualified(r) == i32(4), "a `&&C` argument to the qualified call");
+  // A reference TEMPORARY or an owned place has no storage of its own to lend
+  // as a `&&C`: an error at the call naming the repair, never the mis-passed C.
+  comptime_expect_error((&c).pb(), "is not a reference binding whose own storage the call could lend");
+  comptime_expect_error(c.pb(), "is not a reference binding whose own storage the call could lend");
 });
 // (vii) the std blanket's shape before std spells it: a trait with a
 // `self : &Self` receiver over `impl(&T, …)` whose body forwards to `T`'s impl.
 _PbShow :: trait(show : (fn(self : &Self) -> i32));
 impl(_PbC, _PbShow(show : (fn(self : &Self) -> i32)(self.n)));
-impl(generic(T), where(T <: _PbShow), &T, _PbShow(show : (fn(self : &Self) -> i32)(T.show(self.*))));
-_pb_show_generic :: (fn(generic(T : Type), where(T <: _PbShow), v : &T) -> i32)(v.show());
-test("(vii) a blanket impl(&T, Show) with a `self : &Self` receiver, called through a generic bound", {
+impl(generic(T), where(T <: _PbShow), &T, _PbShow(show : (fn(self : &Self) -> i32)(T.show(&self.*.*))));
+_pb_show_generic :: (fn(generic(T : Type), v : &T, where(T <: _PbShow)) -> i32)(v.show());
+test("(vii-b) a blanket impl(&T, Show) with a `self : &Self` receiver, called through a generic bound", {
   c := _PbC(n : i32(9));
   r := &c;
   assert(_pb_show_generic(r) == i32(9), "T := _PbC");
