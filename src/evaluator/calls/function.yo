@@ -9565,14 +9565,45 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
                 });
                 xj = (xj + usize(1));
               });
+              // A reference binding's value type is its pointee, which carries no
+              // origin: the binding itself is the holder, and its slot type spells
+              // (or infers) the origin the solved set widens (`dst : &mut &(T, p)`).
               if(solved.len() > usize(0), {
                 match(
                   get_variables_from_env(env, ast_expr_token(&w_place).value.*.clone()).last_cloned(),
-                  .Some(hv) => if(!hv.is_module_level() && !hv.is_compile_time_only() && type_carries_origin(&variable_value_type(&hv)), {
+                  .Some(hv) => if(!hv.is_module_level() && !hv.is_compile_time_only() && (type_carries_origin(&variable_value_type(&hv)) || (variable_is_reference_binding(&hv) && type_carries_origin(&variable_slot_type(&hv)))), {
                     if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
                       eprintln(`[n2b] write-back ${hv.name}: roots=[${n2b_roots_text(&solved)}] at ${ast_expr_token(&w_arg).module_path.*.clone()}:${(ast_expr_token(&w_arg).row + u32(1)).to_string()}`);
                     });
-                    bind_join_roots_for(&hv, &solved, ast_expr_token(&w_arg), env, ctx, exn);
+                    // A re-borrow `rp := &mut r` lent as `&mut rp.*`: the
+                    // holder whose flow set the store widens is the local `rp`
+                    // points at, not `rp`.
+                    holders := ArrayList(Variable).new();
+                    if(variable_is_reference_binding(&hv) && t_slot_is_borrow(&t_slot_pointee(&variable_slot_type(&hv))), {
+                      rb_roots := origin_of(&w_place, env, ctx);
+                      (rbi : usize) = usize(0);
+                      while(rbi < rb_roots.len(), {
+                        rb := rb_roots(rbi).clone();
+                        if((rb.place.steps.len() == usize(0)) && !rb.place.module_root, {
+                          match(
+                            get_variables_from_env(env, rb.place.root_name.clone()).last_cloned(),
+                            .Some(rv) => if(variable_is_reference_binding(&rv) && (rv.name != hv.name), {
+                              holders.push(rv);
+                            }),
+                            .None => ()
+                          );
+                        });
+                        rbi = (rbi + usize(1));
+                      });
+                    });
+                    if(holders.len() == usize(0), {
+                      holders.push(hv.clone());
+                    });
+                    (hi : usize) = usize(0);
+                    while(hi < holders.len(), {
+                      match(holders.get_cloned(hi), .Some(hh) => bind_join_roots_for(&hh, &solved, ast_expr_token(&w_arg), env, ctx, exn), .None => ());
+                      hi = (hi + usize(1));
+                    });
                   }),
                   .None => ()
                 );

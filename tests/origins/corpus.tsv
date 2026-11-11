@@ -141,3 +141,7 @@ qualified-method-store-widen-named-holder	O-6, §5 call row: a qualified method 
 fn-value-store-widen-named-holder	O-6, §5 call row: a local bound to a fn value remembers its definition	neg	N1	ORIGIN_MISMATCH	E0923|outside `a`
 bare-reference-store-widen	O-6 G-E, a reference binding passed bare to a store	neg	N1	ORIGIN_MISMATCH	accept
 impl-origin-name-collides-with-local	O-6, #1846 impl origin vs a caller local of the same name	pos	N1	ACCEPT	-|the projection borrows no argument
+ref-mut-ref-store-narrower	O-6 (d), O3-3 flow write-back through `&mut &(T, p)`	neg	N1	E0911	E0911|PENDING
+ref-mut-ref-store-narrower-declared	O-6 (d), O3-3 step 2 through `&mut &(T, p)`	neg	N1	ORIGIN_MISMATCH	E0923|`&inner` carries origin `inner`, outside `outer`
+ref-mut-ref-store-same-scope	O-6 (d), a widened `r` within one scope	pos	N1	ACCEPT	accept
+ref-mut-ref-store-reborrow	O-6 (d), O3-3 through a `&mut` re-borrow of the holder	neg	N1	E0911	E0911|PENDING
