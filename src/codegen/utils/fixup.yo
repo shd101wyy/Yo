@@ -9,7 +9,7 @@
 { HashMap } :: import("std/collections/hash_map");
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue, TypeValueNode, no_types } :: import("../../types/definitions.yo");
-{ CodeGenContext, DynImplEntry, type_key, dyn_concrete_c_name } :: import("./index.yo");
+{ CodeGenContext, DynImplEntry, type_key, dyn_concrete_c_name, dyn_impl_key_suffix } :: import("./index.yo");
 { extract_fn_trait_from_type } :: import("../../evaluator/trait_checking.yo");
 { EvalValue } :: import("../../value.yo");
 { are_types_compatible_exact } :: import("../../types/compatibility.yo");
@@ -50,8 +50,9 @@ _upcast_trait_values :: (fn(entry : &DynImplEntry, tgt : &TypeValue) -> ArrayLis
   out
 });
 /// For every `upcast(src, tgt)` the program contains and every (concrete,
-/// src) impl, register the (concrete, tgt) impl: the target vtable the
-/// source vtable's `__yo_up_<Tgt>` slot points at
+/// src) impl, register the (concrete, tgt) impl in the source impl's own
+/// convention (`dyn_impl_key_suffix`): the target vtable the source vtable's
+/// `__yo_up_<Tgt>` slot points at, which reads the data word the same way
 /// (plans/backlog/TYPE_SYSTEM_SOUNDNESS.md Phase 2.8). Runs before
 /// `fixup_dyn_impl_keys`, on the id-keyed map, so the new entries are
 /// re-keyed with the rest. Iterates until no entry is added, so a chain
@@ -77,7 +78,7 @@ register_dyn_upcast_targets :: (fn(context : &mut CodeGenContext) -> unit)({
           (t : usize) = usize(0);
           while(t < targets.len(), {
             tgt := match(targets.get_cloned(t), .Some(x) => x, .None => Rc.new(TypeValueNode.Unit));
-            tkey := `${type_key(entry.concrete_type.clone())}_${type_key(tgt.clone())}`;
+            tkey := `${type_key(entry.concrete_type.clone())}_${type_key(tgt.clone())}${dyn_impl_key_suffix(entry.payload_convention, &entry.data_type)}`;
             if(context.dyn_impls.get(tkey.clone()).is_none(), {
               context.register_dyn_impl(
                 &tkey,
@@ -127,7 +128,7 @@ fixup_dyn_impl_keys :: (fn(context : &mut CodeGenContext) -> unit)({
             .None => `unknown_${concrete_key}`
           )
         );
-        new_key := if(impl_entry.payload_convention, `${concrete_c}_${dyn_c}_P`, `${concrete_c}_${dyn_c}`);
+        new_key := `${concrete_c}_${dyn_c}${dyn_impl_key_suffix(impl_entry.payload_convention, &impl_entry.data_type)}`;
         new_map.insert(new_key, impl_entry);
       },
       .None => ()
