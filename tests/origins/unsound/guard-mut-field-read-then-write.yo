@@ -1,0 +1,24 @@
+// expect: E0911
+// A31's guard form (found by the borrow/ownership audit, yo-6c; a regression from #1846, which v0.2.76
+// rejects): `g.get()` reads through the guard's `&mut` field, so `r` borrows `g` too, and `g.c.xs.push`
+// while `r` lives is E0911.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array_list");
+Cell :: struct(xs : ArrayList(String));
+Guard :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(c : &mut(Cell, p)));
+impl(Cell, borrow_mut : (fn(self : &mut Self) -> Guard(self))(Guard(self)(c : self)));
+impl(generic(p : Origin), Guard(p), get : (fn(self : &Self) -> &String)(&self.c.xs(usize(0))));
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+  mut(c) := Cell(xs : xs);
+  g := c.borrow_mut();
+  r := g.get();
+  mut(i) := i32(0);
+  while(i < i32(100), i = (i + i32(1)), {
+    g.c.xs.push(String.from("grow"));
+  });
+  println(`OUT: ${r.*}`);
+});
+export(main);

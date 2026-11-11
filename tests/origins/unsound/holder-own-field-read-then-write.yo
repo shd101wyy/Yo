@@ -1,0 +1,23 @@
+// expect: E0911
+// A31's by-value-field form: the elided result of `name(self : &Self)` borrows `self` (O2), here a holder
+// whose `&` field gives `r` the place `xs` too. `r` points into `h.n`, so `h.n.push` while `r` lives is
+// E0911 (v0.2.76 accepted it).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array_list");
+H :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(m : &(ArrayList(String), p), n : ArrayList(String)));
+impl(generic(p : Origin), H(p), name : (fn(self : &Self) -> &String)(&self.n(usize(0))));
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+  mut(ns) := ArrayList(String).new();
+  ns.push(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+  mut(h) := H(xs)(m : &xs, n : ns);
+  r := h.name();
+  mut(i) := i32(0);
+  while(i < i32(100), i = (i + i32(1)), {
+    h.n.push(String.from("grow"));
+  });
+  println(`OUT: ${r.*}`);
+});
+export(main);
