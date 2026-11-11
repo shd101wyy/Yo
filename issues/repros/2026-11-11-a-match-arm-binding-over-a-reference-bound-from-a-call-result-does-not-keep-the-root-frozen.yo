@@ -5,7 +5,8 @@
 // frozen for `p`, the payload `Rc` is released by the write, and the read is a
 // use-after-free (ASan: SEGV through the freed cell).
 //   yo compile <this> --optimize 1 --sanitize address --allocator system -o t && ./t
-// Rejected correctly (E0911) when `b` is a direct lend: `b := &x`.
+// With a direct lend (`b := &x`) this exact program is E0911, but only because the `match`
+// initializes `n`; as a statement `match` the direct-lend form is accepted too (the doc's wider family).
 { String } :: import("std/string");
 { println } :: import("std/fmt");
 X :: struct(s : String);

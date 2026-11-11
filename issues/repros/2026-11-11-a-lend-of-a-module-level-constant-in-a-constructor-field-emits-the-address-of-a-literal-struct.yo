@@ -1,0 +1,11 @@
+// expect: accept
+// A struct constant lent into a `static` slot: the C is `(&(/* skip generating struct value */))`.
+{ println } :: import("std/fmt");
+Pt :: struct(n : i32, m : i32);
+G :: Pt(n : i32(42), m : i32(1));
+main :: (fn() -> unit)({
+  o := Option(&(Pt, static)).Some(&G);
+  match(o, .Some(r) => println(`OUT: ${r.n.to_string()}`), .None => println("none"));
+  ()
+});
+export(main);
