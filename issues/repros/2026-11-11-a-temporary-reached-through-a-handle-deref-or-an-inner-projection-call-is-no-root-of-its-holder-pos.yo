@@ -1,0 +1,17 @@
+// expect: accept
+// Positive control: the handle and the struct are bound to locals that outlive the holders, so nothing the
+// holders point into is a temporary.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String, n : i32);
+V :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(String, p)));
+mkv :: (fn(r : &String) -> V(r))(V(r)(r : r));
+impl(X, get : (fn(self : &Self) -> &String)(&self.s));
+main :: (fn() -> unit)({
+  h := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"), n : i32(0)));
+  x := X(s : String.from("abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789"), n : i32(1));
+  v := mkv(&h.*.s);
+  w := mkv(x.get());
+  println(`OUT: ${v.r.*} ${w.r.*}`);
+});
+export(main);

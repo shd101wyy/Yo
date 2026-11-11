@@ -1,0 +1,17 @@
+// expect: E0911
+// `a := (&xs).into_iter().next()`: the item of `next()` on a TEMPORARY cursor carries no loan of `xs` (a bound
+// cursor's item does), so the list grows and reallocates while `a` points into its old buffer.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("hello-world-hello-world-hello-world"));
+  a := (&xs).into_iter().next();
+  mut(i) := usize(0);
+  while(i < usize(1000), i = (i + usize(1)), {
+    xs.push(String.from("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"));
+  });
+  match(a, .Some(s) => println(`OUT: ${s.*}`), .None => ());
+});
+export(main);

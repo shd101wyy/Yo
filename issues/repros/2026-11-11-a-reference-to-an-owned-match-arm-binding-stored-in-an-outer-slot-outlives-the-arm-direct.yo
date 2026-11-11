@@ -1,0 +1,15 @@
+// expect: E0911
+// The direct form: `slot = .Some(&v)` with `v` the owned arm binding. The same store through `w := v` is E0911.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+main :: (fn() -> unit)({
+  mut(slot) := Option(&String).None;
+  o := Option(String).Some(L());
+  match(o, .Some(v) => {
+    slot = .Some(&v);
+  }, .None => ());
+  match(slot, .Some(r) => println(`OUT: ${r.*}`), .None => ());
+  ()
+});
+export(main);

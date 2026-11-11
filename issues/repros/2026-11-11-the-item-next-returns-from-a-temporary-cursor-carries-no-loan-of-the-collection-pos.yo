@@ -1,0 +1,17 @@
+// expect: accept
+// Positive control: the item's last use is before the list grows.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("hello-world-hello-world-hello-world"));
+  a := (&xs).into_iter().next();
+  match(a, .Some(s) => println(`OUT: ${s.*}`), .None => ());
+  mut(i) := usize(0);
+  while(i < usize(1000), i = (i + usize(1)), {
+    xs.push(String.from("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"));
+  });
+  println(`OUT: ${xs.len().to_string()}`);
+});
+export(main);

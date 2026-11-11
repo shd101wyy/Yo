@@ -1,0 +1,37 @@
+// expect: reject (rule D1: values received from the channel are dropped on the thread, and `S`'s `Drop` writes `mut(G)`)
+// The receiver discards each `S`; its destructor races with the sender's own writes to `G`.
+{ Thread } :: import("std/thread");
+{ Channel } :: import("std/sync/channel");
+{ println } :: import("std/fmt");
+(mut(G) : i64) = i64(0);
+S :: struct(n : i64);
+impl(
+  S,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      G = (G + i64(1));
+    })
+  )
+);
+main :: (fn() -> unit)({
+  ch := Channel(S).new(usize(16));
+  rx := ch;
+  t := Thread(unit).spawn({ rx }(io : Io) => {
+    mut(i) := i64(0);
+    while(i < i64(200000), {
+      _ := rx.recv();
+      i = (i + i64(1));
+    });
+    ()
+  });
+  mut(j) := i64(0);
+  while(j < i64(200000), {
+    _ := ch.send(S(n : j));
+    G = (G + i64(1));
+    j = (j + i64(1));
+  });
+  t.join();
+  v := G;
+  println(`OUT: ${v.to_string()} (expect 400000)`);
+});
+export(main);

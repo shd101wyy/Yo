@@ -1,0 +1,18 @@
+// expect: E0911
+// R-TEMP misses the temporary `long()` because it is reached through the owning handle's `.*`: the holder `v`
+// outlives the statement, and the `Rc` it points into is freed at the end of that statement.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+V :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(String, p)));
+mkv :: (fn(r : &String) -> V(r))(V(r)(r : r));
+long :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+main :: (fn() -> unit)({
+  k := String.from("k");
+  mut(v) := mkv(&k);
+  {
+    v = mkv(&long().*.s);
+  };
+  println(`OUT: ${v.r.*}`);
+});
+export(main);

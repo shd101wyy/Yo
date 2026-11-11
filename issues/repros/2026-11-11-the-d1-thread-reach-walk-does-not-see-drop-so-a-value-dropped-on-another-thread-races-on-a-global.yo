@@ -1,0 +1,35 @@
+// expect: reject (rule D1: the thread closure's capture `s` is dropped on the thread, and `S`'s `Drop` writes `mut(G)`)
+// Both threads add 1000000 to `G`; the spawned one only through the destructor of the value it owns.
+// Lost updates print OUT below 2000000; TSan reports a data race on `G`.
+{ Thread } :: import("std/thread");
+{ println } :: import("std/fmt");
+(mut(G) : i64) = i64(0);
+S :: struct(n : i64);
+impl(
+  S,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      mut(i) := i64(0);
+      while(i < i64(1000000), {
+        G = (G + i64(1));
+        i = (i + i64(1));
+      });
+    })
+  )
+);
+main :: (fn() -> unit)({
+  s := S(n : i64(1));
+  t := Thread(unit).spawn({ s }(io : Io) => {
+    _ := s.n;
+    ()
+  });
+  mut(i) := i64(0);
+  while(i < i64(1000000), {
+    G = (G + i64(1));
+    i = (i + i64(1));
+  });
+  t.join();
+  v := G;
+  println(`OUT: ${v.to_string()} (expect 2000000)`);
+});
+export(main);

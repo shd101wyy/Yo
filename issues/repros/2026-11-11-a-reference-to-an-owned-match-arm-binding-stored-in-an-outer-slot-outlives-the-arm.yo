@@ -1,0 +1,16 @@
+// expect: E0911
+// `bx` is an OWNED binding of a by-value `match`; it drops at the arm's end, but `slot` keeps a reference into
+// its Box and is read after the match.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+main :: (fn() -> unit)({
+  mut(slot) := Option(&String).None;
+  o := Option(Box(String)).Some(Box.new(L()));
+  match(o, .Some(bx) => {
+    slot = match(&bx, Box(s) => Option(&String).Some(s));
+  }, .None => ());
+  match(slot, .Some(r) => println(`OUT: ${r.*}`), .None => ());
+  ()
+});
+export(main);

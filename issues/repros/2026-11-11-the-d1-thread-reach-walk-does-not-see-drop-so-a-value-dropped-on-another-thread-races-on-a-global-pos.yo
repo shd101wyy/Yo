@@ -1,0 +1,36 @@
+// expect: accept
+// Positive control: the thread captures a copy of the field; `s` stays on the main thread and is
+// dropped there after `join`, so its destructor's writes to `G` race with nothing.
+{ Thread } :: import("std/thread");
+{ println } :: import("std/fmt");
+(mut(G) : i64) = i64(0);
+S :: struct(n : i64);
+impl(
+  S,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      mut(i) := i64(0);
+      while(i < i64(1000000), {
+        G = (G + i64(1));
+        i = (i + i64(1));
+      });
+    })
+  )
+);
+main :: (fn() -> unit)({
+  s := S(n : i64(1));
+  n := s.n;
+  t := Thread(unit).spawn({ n }(io : Io) => {
+    _ := n;
+    ()
+  });
+  mut(i) := i64(0);
+  while(i < i64(1000000), {
+    G = (G + i64(1));
+    i = (i + i64(1));
+  });
+  t.join();
+  v := G;
+  println(`OUT: ${v.to_string()} (expect 1000000)`);
+});
+export(main);

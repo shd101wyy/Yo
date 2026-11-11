@@ -1,0 +1,14 @@
+// expect: accept
+// Positive control: the handle is reached through a REFERENCE parameter, so `&b.*.*` and `&h.*.*.s` lie in
+// the caller's storage, which outlives the call.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+get :: (fn(b : &Box(String)) -> &String)(&b.*.*);
+field :: (fn(h : &Rc(X)) -> &String)(&h.*.*.s);
+main :: (fn() -> unit)({
+  b := Box.new(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+  h := Rc.new(X(s : String.from("abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789")));
+  println(`OUT: ${get(&b)} ${field(&h)}`);
+});
+export(main);

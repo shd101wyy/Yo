@@ -1,0 +1,12 @@
+// expect: accept
+// `match(id(&k), r => r.len())`: the scrutinee is a `&String` a projection call returns, so the match should
+// follow its mode and bind `r` as a `&` borrow (decision 26); it is rejected as a copy of a move-only `String`.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+id :: (fn(a : &String) -> &String)(a);
+main :: (fn() -> unit)({
+  k := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+  n := match(id(&k), r => r.len());
+  println(`OUT: ${n.to_string()}`);
+});
+export(main);

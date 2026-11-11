@@ -1,0 +1,19 @@
+// expect: E0908
+// `derive(M, Clone)` over a `&mut` field builds `M(r : self.r, …)` from `self : &Self`: the clone
+// is a second `&mut x`. A write through it frees the Box a reference taken through `m` reads.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+M :: struct(r : &mut Box(X), n : i32);
+H :: struct(p : &X);
+big :: (fn() -> Box(X))(Box.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+derive(M, Clone);
+main :: (fn() -> unit)({
+  mut(x) := big();
+  m := M(r : &mut x, n : i32(0));
+  m2 := m.clone();
+  h := H(p : &m.r.*.*);
+  m2.r.* = Box.new(X(s : String.from("b")));
+  println(`OUT: ${h.p.*.s.len().to_string()}`);
+});
+export(main);

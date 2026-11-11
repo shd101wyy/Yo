@@ -1,0 +1,20 @@
+// expect: E0911
+// The unsound shape the C failure hides: a store through the field re-points `r` at a block-local
+// `inner`, and `r` is read after `inner` dies. `yo check` accepts it.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+mk :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+M :: struct(rp : &mut &Rc(X));
+main :: (fn() -> unit)({
+  outer := mk();
+  mut(r) := &outer;
+  {
+    inner := mk();
+    m := M(rp : &mut r);
+    ri := &inner;
+    m.rp.* = ri;
+  };
+  println(`OUT: ${r.*.*.s.len().to_string()}`);
+});
+export(main);
