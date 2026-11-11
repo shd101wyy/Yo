@@ -35,6 +35,7 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_to_string,
   make_err_expr,
   clone_expr_fresh_ids,
+  rewrite_value_reference_tails,
   wrap_body_in_begin,
   ast_expr_strip_borrow_marker,
   ast_place_text,
@@ -87,8 +88,7 @@ pragma(Pragma.AllowUnsafe);
 // imports nothing from calls/, so this is acyclic.
 { reject_dyn_place_by_value, dyn_lend_return_error, set_expr_as_consumed, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc, _owning_param_binding_for_capture_move, reference_field_read_type, reject_write_through_shared_reference_field, is_reference_read, projection_body_mismatch_message, lend_place_reference_type } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
-{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_slot_origin_names, is_origin_kind, t_origin_kind, t_origin_named, t_reference_with_origin, fn_trait_base_serves, fn_trait_call_contract, fn_trait_slot_contract, t_slot_is_borrow, t_slot_is_mut_ref } :: import("../../types/definitions.yo");
-{ Token, TokenKind, intern_token_str } :: import("../../token.yo");
+{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_slot_origin_names, is_origin_kind, t_origin_kind, t_origin_named, t_reference_with_origin, fn_trait_base_serves, fn_trait_call_contract, fn_trait_slot_contract, t_slot_is_borrow, t_slot_is_mut_ref, t_slot_is_binder_slot, t_value_slot, fn_result_slot } :: import("../../types/definitions.yo");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 { t_unit, t_type, t_ptr, t_usize, clone_some_fresh } :: import("../../types/creators.yo");
@@ -4805,7 +4805,16 @@ create_specialized_function_inline :: (
           // A fresh-id clone gives each specialization independent nodes. The
           // specialized FuncVal below carries this clone so codegen walks the
           // right nodes.
-          cloned_body := clone_expr_fresh_ids(&body);
+          // A result declared by value (`-> T`) that specializes to a reference
+          // type (`T := &U`, VERDICTS-23 R3) is a reference VALUE: a bare name
+          // in a result position reads as that reference
+          // (`rewrite_value_reference_tails`), as a projection's body reads it.
+          cloned_body_plain := clone_expr_fresh_ids(&body);
+          cloned_body := if(
+            t_slot_is_binder_slot(&fn_result_slot(&func_type)) && t_slot_is_borrow(&spec_ret_ty),
+            rewrite_value_reference_tails(&cloned_body_plain, t_slot_is_mut_ref(&spec_ret_ty)),
+            cloned_body_plain
+          );
           // Set `ctx.self_type` to the concrete receiver so `Self` — and
           // especially `Self.static_method` like HashMap's
           // `Self._find_bucket(self, ...)` — resolves inside the specialized
@@ -5863,7 +5872,12 @@ create_specialized_function_inline :: (
                       match(
                         t_slot_origin_names(match(sp_slot_f.get_cloned(sp_si), .Some(s) => s, .None => Rc.new(TypeValueNode.Unit))),
                         .Some(_) => t_slot_with_pointee(match(sp_slot_f.get_cloned(sp_si), .Some(s) => s, .None => Rc.new(TypeValueNode.Unit)), &sp_st),
-                        .None => t_slot(&sp_st, match(sp_pir_f.get(sp_si), .Some(b) => b, .None => false), match(sp_pio_f.get(sp_si), .Some(b) => b, .None => false))
+                        .None => cond(
+                          // A binder-typed by-value slot keeps its mode at the
+                          // specialization (`v : T` at `T := &U`, R3).
+                          match(sp_slot_f.get_cloned(sp_si), .Some(os) => t_slot_is_binder_slot(&os), .None => false) => t_value_slot(&sp_st),
+                          true => t_slot(&sp_st, match(sp_pir_f.get(sp_si), .Some(b) => b, .None => false), match(sp_pio_f.get(sp_si), .Some(b) => b, .None => false))
+                        )
                       )
                     ),
                     .None => ()

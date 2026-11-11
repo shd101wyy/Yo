@@ -44,13 +44,39 @@ test("A reference read into a reference payload is the reference", {
   assert(rr_payload(rr_wrap(&x)) == i32(7), "`.Some(r)` of a reference binding");
 });
 // An unbound type binder binds the reference itself: `id(r)` binds
-// `T := &i32`, so the read is no whole-value read (E0926) of `r` — the
-// definition below type-checks (outside the exempt trees E0926 fired here).
-// Lowering the specialization at `T := &U` (its result is a reference VALUE,
-// not a projection) is VERDICTS-23 R3's, N2c's, which calls it.
+// `T := &i32`, so the read is no whole-value read (E0926) of `r`. The
+// specialization keeps the declared shape of its slots (VERDICTS-23 R3): a
+// `-> T` and a `v : T` at `T := &U` are by-value slots holding a reference, so
+// the result is a reference VALUE (a pointer), not a projection, and the
+// parameter is the pointer, not a borrow of it.
 rr_id :: (fn(generic(T : Type), v : T) -> T)(v);
 rr_id_of_reference :: (fn(r : &i32) -> unit)({
   _s := rr_id(r);
+});
+rr_store_g :: (fn(generic(T : Type), dst : &mut Option(T), v : T) -> unit)({
+  dst.* = .Some(v);
+});
+rr_some_ref :: (fn(r : &i32) -> Option(&i32))(.Some(r));
+test("a generic result at T := &U is a reference value", {
+  y := i32(6);
+  r := &y;
+  s := rr_id(r);
+  assert(s.* == i32(6), "the reference comes back from `-> T`");
+  s2 := rr_id(s);
+  assert(s2.* == i32(6), "and again from a by-value reference");
+});
+test("a generic function stores its by-value reference parameter", {
+  y := i32(7);
+  mut(slot) := Option(&i32).None;
+  ry := &y;
+  rr_store_g(&mut slot, ry);
+  match(slot, .Some(r) => assert(r.* == i32(7), "the stored reference reads the place"), .None => assert(false, "stored"));
+});
+test("Option(&T).unwrap returns the reference", {
+  x := i32(4);
+  o := rr_some_ref(&x);
+  v := o.unwrap();
+  assert(v.* == i32(4), "unwrap of a reference payload");
 });
 // A holder of a reference with a Drop impl is dropped like any value: at
 // its STATEMENT's end as a temporary (Rust's temporary lifetime,
@@ -681,4 +707,23 @@ test("A reference-typed `lhs.*` passes bare to a `&T` slot and the callee receiv
   assert(rr_pass_relend(&rx) == i32(7), "`&lhs.*.*` relends the referent and stays legal");
   assert(rr_eq_deref(&rx, &rx), "i32.(==)(lhs.*, rhs.*) on equal referents");
   assert(!rr_eq_deref(&rx, &ry), "i32.(==)(lhs.*, rhs.*) compares referents, not addresses");
+});
+// VERDICTS-23 R3 / VERDICTS-49 gap 2 (VERDICTS-54: a bound's method on a
+// by-value reference parameter is a separate, pinned class, `issues/2026-11-11-a-bound-method-on-a-by-value-reference-parameter-is-rejected.md`):
+// a generic taking `a : T` / `b : T` is instantiated at `T := &i32` and at
+// `T := i32` in one program. The reference instance picks a pointer VALUE (not
+// the pointee: it was emitted as `(int32_t, int32_t)` and crashed) and is a
+// separate instance from the by-value one.
+_sm_pick :: (fn(generic(T : Type), a : T, b : T, first : bool) -> T)(if(first, a, b));
+test("a generic over a by-value slot is instantiated at a reference type and at its referent type", {
+  x := i32(1);
+  y := i32(2);
+  rx := &x;
+  ry := &y;
+  picked := _sm_pick(rx, ry, false);
+  assert(picked.* == i32(2), "the reference instance returns the second reference");
+  first := _sm_pick(rx, ry, true);
+  assert(first.* == i32(1), "and the first");
+  assert(_sm_pick(i32(3), i32(4), false) == i32(4), "the by-value instance beside it");
+  assert(_sm_pick(i32(3), i32(4), true) == i32(3), "and it still differs");
 });

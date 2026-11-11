@@ -879,6 +879,7 @@ _type_may_reach_any_of :: (
     Rc(.Array(element : elem, length : _)) => recur(&elem, via_ref, targets, seen),
     Rc(.SliceT(elem)) => recur(&elem, via_ref, targets, seen),
     Rc(.Reference(pointee : rp)) => recur(&rp, true, targets, seen),
+    Rc(.ValueSlot(vs_inner)) => recur(&vs_inner, via_ref, targets, seen),
     Rc(.Pointer(pointee : p)) => match(
       t_refine_inner(&p),
       Rc(.Void) => true,

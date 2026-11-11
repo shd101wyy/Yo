@@ -2916,6 +2916,10 @@ PROJECTION_MUT_TAIL_PATH :: "auto-generated://projection-mut";
 /// as it was written (`evaluate_address_call`).
 PROJECTION_REF_READ_PATH :: "auto-generated://projection-ref-read";
 PROJECTION_MUT_READ_PATH :: "auto-generated://projection-mut-read";
+/// The marker paths of the same node in a by-value reference result
+/// (`rewrite_value_reference_tails`): no projection, so no root rule.
+VALUE_REF_READ_PATH :: "auto-generated://value-ref-read";
+VALUE_MUT_READ_PATH :: "auto-generated://value-mut-read";
 /// The marker module path of the callee token of an `addr_of(receiver)` the
 /// evaluator synthesizes for a method whose receiver is a raw pointer
 /// (`self : *Self`, `self : &*Self`) called on a value (`x.m()`): the pointer
@@ -2945,12 +2949,25 @@ projection_tail_mode :: (fn(e : &AstExpr) -> Option(bool))(
     .Atom(_, _) => Option(bool).None
   )
 );
+/// The mode of a by-value reference result's read node
+/// (`VALUE_*_READ_PATH`): `Some(true)` for `&mut`.
+value_tail_mode :: (fn(e : &AstExpr) -> Option(bool))(
+  match(
+    e,
+    .FnCall(_, _, _, _, vtm_tok) => cond(
+      (vtm_tok.module_path.* == VALUE_MUT_READ_PATH) => Option(bool).Some(true),
+      (vtm_tok.module_path.* == VALUE_REF_READ_PATH) => Option(bool).Some(false),
+      true => Option(bool).None
+    ),
+    .Atom(_, _) => Option(bool).None
+  )
+);
 /// The projection result node `e` was written as a bare name
 /// (`PROJECTION_REF_READ_PATH` / `PROJECTION_MUT_READ_PATH`).
 projection_tail_is_read :: (fn(e : &AstExpr) -> bool)(
   match(
     e,
-    .FnCall(_, _, _, _, ptr_tok) => ((ptr_tok.module_path.* == PROJECTION_REF_READ_PATH) || (ptr_tok.module_path.* == PROJECTION_MUT_READ_PATH)),
+    .FnCall(_, _, _, _, ptr_tok) => ((ptr_tok.module_path.* == PROJECTION_REF_READ_PATH) || ((ptr_tok.module_path.* == PROJECTION_MUT_READ_PATH) || ((ptr_tok.module_path.* == VALUE_REF_READ_PATH) || (ptr_tok.module_path.* == VALUE_MUT_READ_PATH)))),
     .Atom(_, _) => false
   )
 );
@@ -2977,7 +2994,7 @@ projection_tail_diag_token :: (fn(e : &AstExpr) -> Token)(
 );
 /// `addr_of(name.*)` marked as a projection result written as the bare
 /// name `name` (`PROJECTION_*_READ_PATH`).
-_projection_read_tail :: (fn(name : &AstExpr, is_mut : bool) -> AstExpr)({
+_projection_read_tail :: (fn(name : &AstExpr, is_mut : bool, value : bool) -> AstExpr)({
   at := ast_expr_token(name);
   dtok := _synth_desugar_tok(TokenKind.Dot, ".", &at);
   dargs := ArrayList(AstExpr).new();
@@ -2989,7 +3006,7 @@ _projection_read_tail :: (fn(name : &AstExpr, is_mut : bool) -> AstExpr)({
   star_tok.byte_offset = (at.byte_offset + u32(at.value.*.len()));
   dargs.push(AstExpr.Atom(alloc_global_expr_id(), star_tok));
   deref := AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), dtok), Rc.new(dargs), true, dtok);
-  mark := _synth_desugar_tok(TokenKind.Identifier, cond(is_mut => PROJECTION_MUT_READ_PATH, true => PROJECTION_REF_READ_PATH), &at);
+  mark := _synth_desugar_tok(TokenKind.Identifier, cond(value => cond(is_mut => VALUE_MUT_READ_PATH, true => VALUE_REF_READ_PATH), is_mut => PROJECTION_MUT_READ_PATH, true => PROJECTION_REF_READ_PATH), &at);
   mark.module_path = Rc.new(mark.value.*.clone());
   head := _synth_desugar_tok(TokenKind.Identifier, BF_ADDR_OF, &at);
   one := ArrayList(AstExpr).new();
@@ -3025,9 +3042,9 @@ _is_arm :: (fn(e : &AstExpr) -> bool)(
 /// call, or in a `pragma(AllowUnsafe)` file a raw `*(T)` to the place) and
 /// is searched for a nested `return(...)`. A sigil whose mode differs from
 /// the declared result's is recorded in `mismatches`.
-_projection_tail :: (fn(e : &AstExpr, is_mut : bool, mismatches : &mut ArrayList(Token)) -> AstExpr)(
+_projection_tail :: (fn(e : &AstExpr, is_mut : bool, value : bool, mismatches : &mut ArrayList(Token)) -> AstExpr)(
   match(
-    _borrow_sigil_of(e),
+    if(value, Option(_BorrowSigil).None, _borrow_sigil_of(e)),
     .Some(bs) => {
       if(bs.is_mut != is_mut, {
         mismatches.push(bs.tok);
@@ -3049,7 +3066,7 @@ _projection_tail :: (fn(e : &AstExpr, is_mut : bool, mismatches : &mut ArrayList
           while(k < last, {
             stmt := pb_args(k);
             match(
-              _projection_returns(&stmt, is_mut, mismatches),
+              _projection_returns(&stmt, is_mut, value, mismatches),
               .Some(r) => {
                 out = _with_arg(&out, k, &r);
               },
@@ -3058,7 +3075,7 @@ _projection_tail :: (fn(e : &AstExpr, is_mut : bool, mismatches : &mut ArrayList
             k = (k + usize(1));
           });
           last_arg := pb_args(last);
-          new_last := _projection_tail(&last_arg, is_mut, mismatches);
+          new_last := _projection_tail(&last_arg, is_mut, value, mismatches);
           _with_arg(&out, last, &new_last)
         }),
         .Atom(_, _) => e
@@ -3072,12 +3089,12 @@ _projection_tail :: (fn(e : &AstExpr, is_mut : bool, mismatches : &mut ArrayList
             a := pc_args(k);
             if(_is_arm(&a), {
               arm_body := _bs_arg(&a, usize(1));
-              new_body := _projection_tail(&arm_body, is_mut, mismatches);
+              new_body := _projection_tail(&arm_body, is_mut, value, mismatches);
               new_arm := _with_arg(&a, usize(1), &new_body);
               out = _with_arg(&out, k, &new_arm);
             }, {
               match(
-                _projection_returns(&a, is_mut, mismatches),
+                _projection_returns(&a, is_mut, value, mismatches),
                 .Some(r) => {
                   out = _with_arg(&out, k, &r);
                 },
@@ -3092,27 +3109,27 @@ _projection_tail :: (fn(e : &AstExpr, is_mut : bool, mismatches : &mut ArrayList
       ),
       ast_expr_is_fn_call_of(e, BK_RETURN, Option(usize).Some(usize(1))) => {
         ret_arg := _bs_arg(e, usize(0));
-        new_ret := _projection_tail(&ret_arg, is_mut, mismatches);
+        new_ret := _projection_tail(&ret_arg, is_mut, value, mismatches);
         _with_arg(e, usize(0), &new_ret)
       },
-      (match(e, .Atom(_, pa_tok) => (pa_tok.kind == TokenKind.Identifier), _ => false)) => _projection_read_tail(e, is_mut),
-      true => match(_projection_returns(e, is_mut, mismatches), .Some(r) => r, .None => e)
+      (match(e, .Atom(_, pa_tok) => (pa_tok.kind == TokenKind.Identifier), _ => false)) => _projection_read_tail(e, is_mut, value),
+      true => match(_projection_returns(e, is_mut, value, mismatches), .Some(r) => r, .None => e)
     )
   )
 );
 /// Rewrite every `return(x)` inside a non-result expression of a projection
 /// body (never crossing a nested function boundary); `.None` when there is none.
-_projection_returns :: (fn(e : &AstExpr, is_mut : bool, mismatches : &mut ArrayList(Token)) -> Option(AstExpr))(
+_projection_returns :: (fn(e : &AstExpr, is_mut : bool, value : bool, mismatches : &mut ArrayList(Token)) -> Option(AstExpr))(
   cond(
     is_function_boundary_arrow(e) => Option(AstExpr).None,
-    ast_expr_is_fn_call_of(e, BK_RETURN, Option(usize).Some(usize(1))) => Option(AstExpr).Some(_projection_tail(e, is_mut, mismatches)),
+    ast_expr_is_fn_call_of(e, BK_RETURN, Option(usize).Some(usize(1))) => Option(AstExpr).Some(_projection_tail(e, is_mut, value, mismatches)),
     true => match(
       e,
       .FnCall(_, pr_f, Rc(pr_args), _, _) => {
         // A `cond`/`match` arm is a branch, not a closure: walk its body.
         in_branch := (ast_expr_is_fn_call_of(e, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None));
         (out : Option(AstExpr)) = match(
-          _projection_returns(&pr_f, is_mut, mismatches),
+          _projection_returns(&pr_f, is_mut, value, mismatches),
           .Some(nf) => match(
             e,
             .FnCall(pf_id, _, Rc(pf_args), pf_infix, pf_tok) => Option(AstExpr).Some(AstExpr.FnCall(pf_id, nf, Rc.new(pf_args.clone()), pf_infix, pf_tok)),
@@ -3125,8 +3142,8 @@ _projection_returns :: (fn(e : &AstExpr, is_mut : bool, mismatches : &mut ArrayL
           a := pr_args(k);
           ra := if(in_branch && _is_arm(&a), {
             arm_rhs := _bs_arg(&a, usize(1));
-            match(_projection_returns(&arm_rhs, is_mut, mismatches), .Some(rb) => Option(AstExpr).Some(_with_arg(&a, usize(1), &rb)), .None => Option(AstExpr).None)
-          }, _projection_returns(&a, is_mut, mismatches));
+            match(_projection_returns(&arm_rhs, is_mut, value, mismatches), .Some(rb) => Option(AstExpr).Some(_with_arg(&a, usize(1), &rb)), .None => Option(AstExpr).None)
+          }, _projection_returns(&a, is_mut, value, mismatches));
           match(
             ra,
             .Some(r) => {
@@ -3152,9 +3169,20 @@ _projection_returns :: (fn(e : &AstExpr, is_mut : bool, mismatches : &mut ArrayL
 /// where it evaluates the marker (`evaluate_address_call`). Returns the new
 /// body and the sigils whose mode differs from the declared result's.
 rewrite_projection_tails :: (fn(body : &AstExpr, is_mut : bool, mismatches : &mut ArrayList(Token)) -> AstExpr)(
-  _projection_tail(body, is_mut, mismatches)
+  _projection_tail(body, is_mut, false, mismatches)
 );
-export(PROJECTION_REF_TAIL_PATH, PROJECTION_MUT_TAIL_PATH, PROJECTION_REF_READ_PATH, PROJECTION_MUT_READ_PATH, projection_tail_mode, projection_tail_is_read, projection_tail_diag_token, rewrite_projection_tails, AUTO_REF_RECEIVER_PATH, ast_expr_is_auto_ref_receiver);
+/// The result positions of a by-value reference result (VERDICTS-23 R3: a
+/// generic `-> T` specialized at `T := &U`): a bare name becomes the marked
+/// `addr_of(name.*)` (`VALUE_*_READ_PATH`), so a reference binding in a
+/// result position is the reference VALUE the result is, in the `return`,
+/// block, `cond` and `match` positions a projection's body is rewritten in.
+/// The root rule of decision 24 does not apply: the result is a value, and
+/// its origin is the type's.
+rewrite_value_reference_tails :: (fn(body : &AstExpr, is_mut : bool) -> AstExpr)({
+  mismatches := ArrayList(Token).new();
+  _projection_tail(body, is_mut, true, &mut mismatches)
+});
+export(PROJECTION_REF_TAIL_PATH, PROJECTION_MUT_TAIL_PATH, PROJECTION_REF_READ_PATH, PROJECTION_MUT_READ_PATH, VALUE_REF_READ_PATH, VALUE_MUT_READ_PATH, projection_tail_mode, value_tail_mode, projection_tail_is_read, projection_tail_diag_token, rewrite_projection_tails, rewrite_value_reference_tails, AUTO_REF_RECEIVER_PATH, ast_expr_is_auto_ref_receiver);
 /// `?Sized` as written in a binder's kind slot (`generic(T : ?Sized)`,
 /// `comptime(V) : ?Sized`; plans/VALUES_BY_DEFAULT.md decision 49): the
 /// prefix `?` applied to the bare name `Sized`. Read as one kind, never as

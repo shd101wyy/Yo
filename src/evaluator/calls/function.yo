@@ -1289,7 +1289,13 @@ _receiver_reference_mode :: (fn(callee_id : usize, receiver : &AstExpr, receiver
 /// `&mut C`: `&mut C` 0, `&&mut C` 1, `&mut &mut C` 2, `C` 3, `&C` 4. A slot
 /// none of these is last.
 _r_probe_rank :: (fn(e : &MethodEntry, ref_mode : Option(bool)) -> usize)({
-  slot := match(fn_param_slots(&e.ty).get(usize(0)), .Some(s) => s, .None => return(usize(9)));
+  // A by-value `self : Self` at `Self = &C` (`ValueSlot(&C)`, R3) takes its
+  // probe step from the reference it carries, as the slot `&C` always did.
+  slot := match(
+    fn_param_slots(&e.ty).get(usize(0)),
+    .Some(s) => match(&s, Rc(.ValueSlot(vs_inner)) => Rc.clone(vs_inner), _ => s),
+    .None => return(usize(9))
+  );
   // 0: by value; 1: `&`; 2: `&mut`; 3: `& &`; 4: `&mut &`; 5: `& &mut`;
   // 6: `&mut &mut`; 7: deeper.
   shape := match(
@@ -3030,6 +3036,12 @@ _select_matching_overload :: (
   // Call-path's placement.
   smo_checking_was := ctx.is_in_function_call_checking_phase;
   ctx.is_in_function_call_checking_phase = true;
+  // A trial that throws while it evaluates an argument unwinds past the code
+  // that restores `ctx.expected_type`: the next trial, and the real call after
+  // the loop, would see the failed candidate's parameter type as the type the
+  // position expects. Each trial starts from, and leaves, the expectation the
+  // call had.
+  smo_expected_was := ctx.expected_type.clone();
   (hi : usize) = usize(0);
   while(hi < base.all_hits.len(), {
     match(
@@ -3040,6 +3052,7 @@ _select_matching_overload :: (
           trial_args := _build_receiver_call_args(base.is_static, cand.needs_pointer_conversion, base.receiver_expr.clone(), args);
           ok := ArrayList(bool).new();
           _trial_call_overload_candidate(&cv, &cand.ty, func_expr.clone(), func_expr.clone(), &trial_args, env, ctx, &mut ok);
+          ctx.expected_type = smo_expected_was.clone();
           if(ok.len() > usize(0), {
             matching.push(hi);
           });
@@ -9520,6 +9533,7 @@ _type_var_ids_of :: (fn(ty : &TypeValue, out : &mut ArrayList(String), depth : u
       out.push(tv_id.clone());
     }),
     Rc(.Reference(tv_p, _, _)) => _type_var_ids_of(&tv_p, out, (depth + u32(1))),
+    Rc(.ValueSlot(tv_vs)) => _type_var_ids_of(&tv_vs, out, (depth + u32(1))),
     Rc(.Struct({ type_arguments : tv_sargs })) => {
       (si : usize) = usize(0);
       while(si < tv_sargs.len(), {

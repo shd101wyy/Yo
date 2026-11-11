@@ -21,6 +21,7 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_id,
   ast_expr_to_string,
   ast_expr_is_atom,
+  ast_expr_is_atom_of,
   ast_expr_is_fn_call,
   ast_expr_is_fn_call_of,
   make_err_expr,
@@ -49,7 +50,7 @@ pragma(Pragma.AllowUnsafe);
 { Environment, make_environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, snapshot_env, copy_env_frames, env_adopt, variable_value_type } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing, call_function_value_marker } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_runtime_only_unknown_val } :: import("../../value.yo");
-{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, SharedList, t_maybe_sized_kind, is_maybe_sized_kind, t_slot, t_slot_pointee, slot_pointee_at, t_origin_named, t_origin_elided, t_origin_kind, t_reference_with_origin, is_origin_kind, t_reference, t_slot_is_borrow, type_spells_origin } :: import("../../types/definitions.yo");
+{ t_binder_slot, some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, SharedList, t_maybe_sized_kind, is_maybe_sized_kind, t_slot, t_slot_pointee, slot_pointee_at, t_origin_named, t_origin_elided, t_origin_kind, t_reference_with_origin, is_origin_kind, t_reference, t_slot_is_borrow, type_spells_origin } :: import("../../types/definitions.yo");
 { t_some_t, t_some_t_with_kind, t_some_t_of_kind, t_type, t_type_1, t_unit, t_expr_t, t_comptime_list, type_has_computed_array_len } :: import("../../types/creators.yo");
 { type_key } :: import("../../types/type_key.yo");
 { is_some_type, is_trait_type, is_function_type, is_type_0, is_type_kind, is_unit_type } :: import("../../types/guards.yo");
@@ -1032,7 +1033,7 @@ derive(FuncParam, Clone);
 /// The `FuncParam.ty` of a parameter: a regular parameter's slot (its mode is
 /// its type, `t_slot`); a `generic`/`using` parameter's plain type (their
 /// lists carry no mode).
-_param_slot :: (fn(ty : &TypeValue, is_param_ref : bool, is_owning : bool, is_comptime_by_default : bool, origin : &Option(TypeValue)) -> TypeValue)(
+_param_slot :: (fn(ty : &TypeValue, is_param_ref : bool, is_owning : bool, is_comptime_by_default : bool, origin : &Option(TypeValue), type_expr : &Option(AstExpr)) -> TypeValue)(
   cond(
     is_comptime_by_default => ty.clone(),
     true => match(
@@ -1041,9 +1042,20 @@ _param_slot :: (fn(ty : &TypeValue, is_param_ref : bool, is_owning : bool, is_co
       // borrow slot carries the origin; every reader of the slot sees the
       // same mode and pointee as the elided form.
       .Some(o) => t_reference_with_origin(ty, is_param_ref, &o),
-      .None => t_slot(ty, is_param_ref, is_owning)
+      .None => cond(
+        // `v : T` for a binder `T` (not `Self`): a by-value slot that keeps its
+        // mode when `T` becomes a reference (VERDICTS-23 R3, VERDICTS-54).
+        (!is_param_ref && is_owning && _is_binder_declared(ty, type_expr)) => t_binder_slot(ty),
+        true => t_slot(ty, is_param_ref, is_owning)
+      )
     )
   )
+);
+/// The declared type is a type BINDER written as itself, not `Self` (whose
+/// slot is what `impl(&C, …)` / `impl(generic(T), T, …)` give a receiver, and
+/// stays what it declares at every specialization).
+_is_binder_declared :: (fn(ty : &TypeValue, type_expr : &Option(AstExpr)) -> bool)(
+  is_some_type(ty) && match(type_expr, .Some(te) => !ast_expr_is_atom_of(&te, "Self"), .None => true)
 );
 /// `&(T, o)` / `&mut(T, o)`: the two-argument (operator-call) form of the
 /// borrow sigils, an origin-qualified reference type in type position
@@ -2737,7 +2749,7 @@ use_id :: (fn(generic(T : Type),
       .None => return(
         FuncParam(
           label_str,
-          _param_slot(&final_param_type, is_param_ref, is_owning_rc_value, is_parameter_comptime_by_default, &spelled_origin),
+          _param_slot(&final_param_type, is_param_ref, is_owning_rc_value, is_parameter_comptime_by_default, &spelled_origin, &type_expr),
           is_compile_time_only,
           is_quote,
           false,
@@ -2925,7 +2937,7 @@ use_id :: (fn(generic(T : Type),
   );
   FuncParam(
     label_str,
-    _param_slot(&actual_param_type, is_param_ref, is_owning_rc_value, is_parameter_comptime_by_default, &spelled_origin),
+    _param_slot(&actual_param_type, is_param_ref, is_owning_rc_value, is_parameter_comptime_by_default, &spelled_origin, &type_expr),
     is_compile_time_only,
     is_quote,
     false,
@@ -5435,6 +5447,9 @@ evaluate_function_type :: (
           .Some(ro) => t_reference_with_origin(&return_type, is_return_type_mut_ref, &ro),
           .None => t_reference(&return_type, is_return_type_mut_ref)
         ),
+        // `-> T` for a binder `T` (not `Self`): a by-value result that stays a
+        // pointer VALUE when `T` becomes a reference (VERDICTS-23 R3).
+        (is_some_type(&return_type) && !ast_expr_is_atom_of(&return_type_expr, "Self")) => t_binder_slot(&return_type),
         true => return_type
       ),
       Rc.new(

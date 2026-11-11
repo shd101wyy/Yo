@@ -1,0 +1,14 @@
+// Q2: a generic body calls a bound method on its by-value `v : T`, at T := &Bag.
+{ println } :: import("std/fmt");
+Bag :: struct(n : usize);
+Named :: trait(nl : (fn(self : Self) -> usize));
+impl(&Bag, Named(nl : (fn(self : Self) -> usize)(self.n)));
+use_it :: (fn(generic(T : Type), v : T, where(T <: Named)) -> usize)(v.nl());
+use_q :: (fn(generic(T : Type), v : T, where(T <: Named)) -> usize)(T.nl(v));
+main :: (fn() -> unit)({
+  b := Bag(n : usize(3));
+  r := &b;
+  println(use_it(r));
+  println(use_q(r));
+});
+export(main);

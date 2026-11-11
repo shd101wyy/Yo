@@ -1701,7 +1701,13 @@ _generate_runtime_enum_construct :: (
                   rt_args.get(i),
                   .Some(a) => {
                     f_code := emit_deferred_dup_or_code(&a, _call_generate_expr(&a, indent.clone(), context), indent.clone(), context);
-                    sequence_operand(&a, if(f_is_ref, `(&(${f_code}))`, f_code), rt_args, i, f_is_ref, indent, context)
+                    // A reference VALUE (a by-value binding of type `&U`, a
+                    // call's result: VERDICTS-23 R3) is the pointer the field
+                    // holds; only a place, or a read the evaluator recorded as
+                    // a lend (`_is_recorded_lend`), has its address taken.
+                    f_is_value_ref := (f_is_ref && (!_is_recorded_lend(&a, context) && match(context.base.get_expr_info(&a), .Some(aei) => t_slot_is_borrow(&aei.ty()), .None => false)));
+                    f_takes_addr := (f_is_ref && !f_is_value_ref);
+                    sequence_operand(&a, if(f_takes_addr, `(&(${f_code}))`, f_code), rt_args, i, f_takes_addr, indent, context)
                   },
                   .None => String.from("")
                 );
