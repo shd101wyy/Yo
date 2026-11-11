@@ -1145,6 +1145,75 @@ comptime_expect_error(
   }),
   "a `&mut` borrow is exclusive"
 );
+// Two-phase does not end a loan an operand of the call carries into the callee:
+// the reference passed bare (in either order), a holder of it, an `Option(&T)`
+// of it, or a nested call's reference result over it. Only a loan whose last use
+// is an operand that carries no origin (`i32(r.len())`, `h.r.len()`) has ended
+// (issues/fixed/2026-11-11-two-phase-ends-a-loan-a-later-argument-carries-into-the-callee.md).
+_TpHolder :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(ArrayList(i32), p)));
+_tp_push_holder :: (fn(generic(p : Origin), a : &mut ArrayList(i32), h : _TpHolder(p)) -> unit)(a.push(i32(h.r.len())));
+_tp_push_opt :: (fn(a : &mut ArrayList(i32), h : Option(&ArrayList(i32))) -> unit)(a.push(i32(match(h, .Some(r) => r.len(), .None => usize(0)))));
+_tp_push_list :: (fn(a : &mut ArrayList(i32), r : &ArrayList(i32)) -> unit)(a.push(i32(r.len())));
+_tp_list_push :: (fn(r : &ArrayList(i32), a : &mut ArrayList(i32)) -> unit)(a.push(i32(r.len())));
+_tp_push_ref :: (fn(a : &mut ArrayList(i32), r : &i32) -> unit)(a.push(r.*));
+_tp_first :: (fn(xs : &ArrayList(i32)) -> &i32)(&xs(usize(0)));
+_tp_id :: (fn(xs : &ArrayList(i32)) -> &ArrayList(i32))(xs);
+comptime_expect_error(
+  two_phase_reference_argument_rejected :: (fn() -> unit)({
+    mut(xs) := ArrayList(i32).new();
+    r := &xs;
+    _tp_push_list(&mut xs, r);
+  }),
+  "Cannot write `xs` here: `r` borrows `xs`"
+);
+comptime_expect_error(
+  two_phase_reference_argument_before_rejected :: (fn() -> unit)({
+    mut(xs) := ArrayList(i32).new();
+    r := &xs;
+    _tp_list_push(r, &mut xs);
+  }),
+  "Cannot write `xs` here: `r` borrows `xs`"
+);
+comptime_expect_error(
+  two_phase_call_result_reference_argument_rejected :: (fn() -> unit)({
+    mut(xs) := ArrayList(i32).new();
+    a := _tp_id(&xs);
+    _tp_list_push(a, &mut xs);
+  }),
+  "Cannot write `xs` here: `a` borrows `xs`"
+);
+comptime_expect_error(
+  two_phase_holder_argument_rejected :: (fn() -> unit)({
+    mut(xs) := ArrayList(i32).new();
+    h := _TpHolder(xs)(r : &xs);
+    _tp_push_holder(&mut xs, h);
+  }),
+  "Cannot write `xs` here: `h` borrows `xs`"
+);
+comptime_expect_error(
+  two_phase_option_argument_rejected :: (fn() -> unit)({
+    mut(xs) := ArrayList(i32).new();
+    h := Option(&ArrayList(i32)).Some(&xs);
+    _tp_push_opt(&mut xs, h);
+  }),
+  "Cannot write `xs` here: `h` borrows `xs`"
+);
+comptime_expect_error(
+  two_phase_reference_result_argument_rejected :: (fn() -> unit)({
+    mut(xs) := ArrayList(i32).new();
+    xs.push(i32(1));
+    q := &xs;
+    _tp_push_ref(&mut xs, _tp_first(q));
+  }),
+  "Cannot write `xs` here: `q` borrows `xs`"
+);
+test("a holder read for a value in a later argument does not conflict with the &mut argument", {
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  h := _TpHolder(xs)(r : &xs);
+  _tp_push_len(&mut xs, h.r.len());
+  assert(xs(usize(1)) == i32(1), "pushed h.r.len() before the push");
+});
 // --- A move-only element lent for a call while its container is touched through another name ---
 // issues/2026-10-23-a-move-only-element-borrowed-for-a-call-is-freed-when-an-argument-clears-its-container-through-another-handle.md
 // (VERDICTS-42): the value language rejects every second name; the shared-cell twin panics at the outer cell

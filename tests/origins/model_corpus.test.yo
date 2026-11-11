@@ -475,6 +475,35 @@ test("two-phase-mut-relend", {
   main := entry(al2(let_(XS, Rc.new(NodeE.NewList(int()))), use_(call(usize(1), al2(Rc.new(NodeE.Borrow(true, XS)), Rc.new(NodeE.Borrow(true, XS)))))));
   verdict("two-phase-mut-relend", case2(main, both), "E0910");
 });
+// An operand whose VALUE carries the loan's origin into the callee keeps the
+// loan live at the activation, wherever its last use is: a holder of it, an
+// `Option(&T)` of it, a nested call's reference result over it
+// (issues/fixed/2026-11-11-two-phase-ends-a-loan-a-later-argument-carries-into-the-callee.md).
+/// `push_carried(generic(), a : &mut List(int), h : <carrier>)`.
+push_carried :: (fn(carrier : Ty) -> FnDef)(sig(u64(0), al2(prm(A, exc(list(int()), ELIDED)), prm(B, carrier)), int()));
+/// `two_phase_main`'s shape with `H := init` and the later argument `arg`.
+two_phase_carrier_main :: (fn(init : Node, arg : Node) -> FnDef)(
+  entry(al3(let_(XS, Rc.new(NodeE.NewList(int()))), let_(H, init), use_(call(usize(1), al2(Rc.new(NodeE.Borrow(true, XS)), arg)))))
+);
+test("two-phase-holder-arg", {
+  main := two_phase_carrier_main(Rc.new(NodeE.MakeTup(al1(Rc.new(NodeE.Borrow(false, XS))))), Rc.new(NodeE.Var(H)));
+  verdict("two-phase-holder-arg", case2(main, push_carried(Rc.new(TyE.Tup(al1(shr(list(int()), ELIDED)))))), "E0911");
+});
+test("two-phase-option-arg", {
+  main := two_phase_carrier_main(Rc.new(NodeE.Make(Kind.Some, Rc.new(NodeE.Borrow(false, XS)))), Rc.new(NodeE.Var(H)));
+  verdict("two-phase-option-arg", case2(main, push_carried(wrap(Kind.Some, shr(list(int()), ELIDED)))), "E0911");
+});
+test("two-phase-ref-result-arg", {
+  // `first(generic(r), v : &(List(int), r)) -> &(int, r)`.
+  first := sig(P, al1(prm(V, shr(list(int()), P))), shr(int(), P));
+  main := two_phase_carrier_main(Rc.new(NodeE.Borrow(false, XS)), call(usize(2), al1(Rc.new(NodeE.Var(H)))));
+  verdict("two-phase-ref-result-arg", case3(main, push_carried(shr(int(), ELIDED)), first), "E0911");
+});
+test("two-phase-holder-value-arg", {
+  // The later argument reads a value through the holder: `len(h.0)`.
+  main := two_phase_carrier_main(Rc.new(NodeE.MakeTup(al1(Rc.new(NodeE.Borrow(false, XS))))), call(usize(2), al1(Rc.new(NodeE.Field(H, usize(0))))));
+  verdict("two-phase-holder-value-arg", case3(main, push_n(), list_len()), "ACCEPT");
+});
 // ---------------------------------------------------------------------------
 // Containers: declared unions (O6)
 // ---------------------------------------------------------------------------

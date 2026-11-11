@@ -1,0 +1,13 @@
+// N0 corpus row `two-phase-holder-arg` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P9;
+// manifest tests/origins/corpus.tsv): a holder `h` of `&xs` passed by value beside `&mut xs`: its last use is the call's own argument, but the argument hands the loan to the callee, so it is live when the `&mut` activates.
+// Expected: rejected: E0911.
+{ ArrayList } :: import("std/collections/array_list");
+H :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(ArrayList(i32), p)));
+_push_len :: (fn(generic(p : Origin), a : &mut ArrayList(i32), h : H(p)) -> unit)(a.push(i32(h.r.len())));
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(i32).new();
+  h := H(xs)(r : &xs);
+  _push_len(&mut xs, h);
+  ()
+});
+export(main);

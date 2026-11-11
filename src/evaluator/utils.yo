@@ -80,6 +80,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_deferred_dup_expressions,
   expr_info_index_trait_ptr_type,
   lookup_method_callee_type,
+  lookup_method_callee_value,
   mark_call_scoped_share_dup,
   mark_call_scoped_share_drop,
   expr_info_converted_runtime_type,
@@ -4096,40 +4097,41 @@ _first_token_of :: (fn(e : &AstExpr, root : &Token) -> Token)({
 /// (`local_borrow_access_at` with `after_live`).
 call_activation_token :: (fn(call : &AstExpr, at : &Token) -> Token)(_last_token_of(call, at));
 /// The operands of `call` whose VALUE carries an origin into the callee: an
-/// argument that is a `&`/`&mut` lend or whose type, as passed, carries an
-/// origin (a reference, a holder `H(x)`, an `Option(&T)`, a reference
-/// result `first(q)`), a method call's receiver, and a callee that is itself
-/// a value (a closure local). A `&` loan mentioned in one of them is live for
-/// the whole callee, so P9's activation does not end it at the call
+/// argument (the receiver included) passed to a `&`/`&mut` parameter, or
+/// that is a lend, or whose type carries an origin (a reference, a holder
+/// `H(x)`, an `Option(&T)`, a reference result `first(q)`), and a callee that
+/// is itself a value (a closure local). A `&` loan mentioned in one of them is
+/// live for the whole callee, so P9's activation does not end it at the call
 /// (`_lb_live_at_activation`;
 /// issues/fixed/2026-11-11-two-phase-ends-a-loan-a-later-argument-carries-into-the-callee.md).
+/// The arguments are read in parameter order (`runtime_arg_exprs_in_order`)
+/// beside the callee's slots; a call without that record falls back to the
+/// written receiver and arguments.
 call_origin_operands :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(AstExpr))({
   out := ArrayList(AstExpr).new();
+  (callee : AstExpr) = match(call, .FnCall(_, c, _, _, _) => c, .Atom(_, _) => return(out));
+  written := match(call, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => return(out));
+  // A method call's receiver binds slot 0 and its written arguments slot 1
+  // on; any other callee (a closure local, a closure-valued field) is itself
+  // an operand.
+  is_method := (ast_expr_is_fn_call_of(&callee, BF_DOT, Option(usize).Some(usize(2))) && (lookup_method_callee_value(ast_expr_id(call)).is_some() || lookup_method_callee_type(ast_expr_id(call)).is_some()));
+  if(!is_method && _operand_carries_origin(&callee, ctx), {
+    out.push(callee.clone());
+  });
+  slots := match(projection_call_callee_type(call, ctx), .Some(ft) => fn_param_slots(&ft), .None => no_types());
+  ordered := match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(call)),
+    .Some(ci) => ci.runtime_arg_exprs_in_order(),
+    .None => Option(ArrayList(AstExpr)).None
+  );
   match(
-    call,
-    .FnCall(_, callee, Rc(args), _, _) => {
-      if(ast_expr_is_fn_call_of(&callee, BF_DOT, Option(usize).Some(usize(2))), {
-        match(
-          callee,
-          .FnCall(_, _, Rc(dot_args), _, _) => match(
-            dot_args.get(usize(0)),
-            .Some(recv) => if(_operand_carries_origin(&recv, ctx), {
-              out.push(recv);
-            }),
-            .None => ()
-          ),
-          .Atom(_, _) => ()
-        );
-      }, {
-        if(_operand_carries_origin(&callee, ctx), {
-          out.push(callee.clone());
-        });
-      });
+    ordered,
+    .Some(ra) => {
       (i : usize) = usize(0);
-      while(i < args.len(), {
+      while(i < ra.len(), {
         match(
-          args.get(i),
-          .Some(a) => if(_operand_carries_origin(&a, ctx), {
+          ra.get(i),
+          .Some(a) => if(match(slots.get(i), .Some(sl) => t_slot_is_borrow(&sl), .None => false) || _operand_carries_origin(&a, ctx), {
             out.push(a);
           }),
           .None => ()
@@ -4137,24 +4139,54 @@ call_origin_operands :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(As
         i = (i + usize(1));
       });
     },
-    .Atom(_, _) => ()
+    .None => {
+      if(is_method, {
+        match(
+          callee,
+          .FnCall(_, _, Rc(dot_args), _, _) => match(
+            dot_args.get(usize(0)),
+            .Some(recv) => if(match(slots.get(usize(0)), .Some(sl) => t_slot_is_borrow(&sl), .None => false) || _operand_carries_origin(&recv, ctx), {
+              out.push(recv);
+            }),
+            .None => ()
+          ),
+          .Atom(_, _) => ()
+        );
+      });
+      (offset : usize) = if(is_method, usize(1), usize(0));
+      (i : usize) = usize(0);
+      while(i < written.len(), {
+        match(
+          written.get(i),
+          .Some(a) => if(match(slots.get(i + offset), .Some(sl) => t_slot_is_borrow(&sl), .None => false) || _operand_carries_origin(&a, ctx), {
+            out.push(a);
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    }
   );
   out
 });
 /// `e`, an operand of a call, passes a value that carries an origin: a lend
-/// marker always does; otherwise its type or its converted (as-passed) type
-/// carries one. An operand with no recorded type counts as a carrier.
+/// (`&x`, `&mut x`, a receiver's `addr_of(x)`) always does; otherwise its
+/// type or its converted (as-passed) type is a reference or carries an
+/// origin. An operand with no recorded type counts as a carrier.
 _operand_carries_origin :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)({
-  stripped := ast_expr_strip_borrow_marker(e);
-  if(ast_expr_id(&stripped) != ast_expr_id(e), {
+  if((ast_expr_id(&ast_expr_strip_borrow_marker(e)) != ast_expr_id(e)) || ast_expr_is_fn_call_of(e, BF_ADDR_OF, Option(usize).Some(usize(1))), {
     return(true);
   });
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)),
-    .Some(info) => (type_carries_origin(&info.ty()) || match(expr_info_converted_runtime_type(&info), .Some(ct) => type_carries_origin(&ct), .None => false)),
+    .Some(info) => (_type_hands_origin(&info.ty()) || match(expr_info_converted_runtime_type(&info), .Some(ct) => _type_hands_origin(&ct), .None => false)),
     .None => true
   )
 });
+/// A value of `ty` hands an origin to whoever receives it: a reference, or a
+/// type that carries an origin (`type_carries_origin`, whose fast path
+/// answers `false` for a program that spells no origin type outside a slot).
+_type_hands_origin :: (fn(ty : &TypeValue) -> bool)(t_slot_is_borrow(ty) || type_carries_origin(ty));
 /// The latest token of `e`'s own source: the end of an arm.
 _last_token_of :: (fn(e : &AstExpr, root : &Token) -> Token)({
   (best : Token) = root;

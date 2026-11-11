@@ -1,0 +1,14 @@
+// N0 corpus row `two-phase-ref-result-arg` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P9;
+// manifest tests/origins/corpus.tsv): the later argument is a nested call's reference result over the loan `q` (`first(q)`), which carries `q`'s origin into the callee.
+// Expected: rejected: E0911.
+{ ArrayList } :: import("std/collections/array_list");
+_first :: (fn(xs : &ArrayList(i32)) -> &i32)(&xs(usize(0)));
+_push_ref :: (fn(a : &mut ArrayList(i32), r : &i32) -> unit)(a.push(r.*));
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  q := &xs;
+  _push_ref(&mut xs, _first(q));
+  ()
+});
+export(main);

@@ -1,0 +1,12 @@
+// N0 corpus row `two-phase-option-arg` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P9;
+// manifest tests/origins/corpus.tsv): `two-phase-holder-arg` with an `Option(&T)` of the loan as the later argument.
+// Expected: rejected: E0911.
+{ ArrayList } :: import("std/collections/array_list");
+_push_len :: (fn(a : &mut ArrayList(i32), h : Option(&ArrayList(i32))) -> unit)(a.push(i32(match(h, .Some(r) => r.len(), .None => usize(0)))));
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(i32).new();
+  h := Option(&ArrayList(i32)).Some(&xs);
+  _push_len(&mut xs, h);
+  ()
+});
+export(main);
