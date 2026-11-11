@@ -1,0 +1,19 @@
+// expect: E0911
+// An `io.async` body copies the `&String` parameter (`{ s }`): returning the future forwards `s`'s origin to
+// the caller (O8), so the caller's argument is frozen until the await. Accepted, the write frees the String the
+// future reads (found by the borrow/ownership audit, yo-6c).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+LONG :: "0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz";
+mk :: (fn(s : &String, io : Io) -> Impl(Future(unit, Io)))(
+  io.async({ s }(io : Io) => {
+    println(`OUT: ${s.*.len().to_string()}`);
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  mut(x) := String.from(LONG);
+  fut := mk(&x, io);
+  x = String.from("b");
+  io.await(fut, io);
+});
+export(main);

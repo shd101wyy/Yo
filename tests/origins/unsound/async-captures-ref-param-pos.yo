@@ -1,7 +1,7 @@
 // expect: accept
-// An `io.async` body copies the `&P` parameter (`{ p }`, VERDICTS-44): the future borrows the
-// parameter, so returning it forwards the parameter's origin to the caller, which awaits it while
-// `n` lives (the corpus row async-captures-ref-param, run).
+// The corpus row async-captures-ref-param (no `main` there), run: an `io.async` body copies the `&P`
+// parameter (`{ p }`), the future forwards the parameter's origin, and the caller awaits it. Before the
+// fix the capture record pointed at `probe`'s C parameter copy (an ASan stack-use-after-scope).
 { String } :: import("std/string");
 { println } :: import("std/fmt");
 P :: struct(s : String);

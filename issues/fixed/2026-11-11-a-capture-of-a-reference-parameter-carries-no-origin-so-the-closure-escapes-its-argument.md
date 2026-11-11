@@ -70,8 +70,25 @@ label.
 
 `_evaluate_capture_list` resolves the origin borrows of a reference-copy entry and of an origin-carrying by-value
 entry where it evaluates the initializer, in the enclosing scope (the entry field `origin_borrows`); the registration
-pushes them as they are. An `io.async` body's `{ p }` now borrows the parameter too, so its future forwards `p`'s
-origin to the caller (the return rule accepts it) and keeps its own copy of the lent parameter, as `{ &p }` does.
+pushes them as they are.
+
+## The `io.async` half (reported by yo-6c through the coordinator; VERDICTS-58 §2–3)
+
+An `io.async` body's `{ p }` / `{ self }` hit the same skipped root, with two effects on develop `64f33c710`:
+
+- **Caller not frozen.** `fut := mk(&x, io); x = String.from("b"); io.await(fut, io)` was accepted (the future had no
+  origin). Returning the future is correct (O8 forwarding); what was missing is the caller-side freeze, E0911.
+- **Codegen: stack-use-after-scope with no write at all.** A `&String` parameter is a by-value C parameter, and the
+  capture record took `&(__yo_v_s)`, the address of the callee's parameter copy. The §3.13 A2 machinery that gives a
+  returned future its own copy of a lent `&T` parameter (`_lent_param_capture_fields` in
+  `src/codegen/exprs/async.yo`) keys on the capture borrow (`root_is_value_param`, the entry's own label), which the
+  skipped root never registered. The corpus positive `async-captures-ref-param` has no `main`, so the crash was never
+  run. The v0.2.76 seed rejects `{ p }` (E0926) and runs its spelling `{ q : &p.* }` clean: new with #1891.
+
+With the borrow registered, both are fixed by the same change: the future roots at the caller's argument in `&` mode
+(E0911 at a write while it is live, E0912 when returned over a caller's local), and codegen installs the future's
+own copy (`sm->__yo_lent___yo_v_s = *(sm->__capture.__yo_v_s); sm->__capture.__yo_v_s = &sm->__yo_lent___yo_v_s;`),
+exactly as for `{ &p }`. No codegen edit.
 
 ## Expected
 
@@ -84,7 +101,9 @@ origin still rejects it (its payload must be `Escapable`).
 
 `tests/origins/unsound/` (G-B, ASan): `closure-ref-param-capture-dyn-returned` and `closure-ref-param-capture-returned`
 (this doc's two reproducers), `closure-self-ref-capture-dyn-returned` (`{ self }`), `closure-ref-capture-label-shadows-root`
-(`{ s : y }`), each with an accepted `-pos` twin, plus `async-ref-param-capture-returned-pos` (the returned `io.async`
-future over `{ p }`, awaited). `tests/closure_capture_list.test.yo`: "a label that names the reference's own root still
-borrows it" and "a `&T` parameter's copy borrows the parameter (R-CAP-2)". All negative rows are accepted by develop
-`64f33c710` and rejected with the fix.
+(`{ s : y }`), `async-ref-capture-caller-writes-arg` and `async-self-ref-capture-root-written` (E0911),
+`async-ref-capture-local-returned` (E0912), each with an accepted `-pos` twin, plus `async-captures-ref-param-pos` (the
+corpus row with a `main`, run under ASan). Corpus rows `async-ref-capture-caller-writes-arg` (E0911) and
+`async-ref-capture-local-returned` (E0912). `tests/closure_capture_list.test.yo`: "a label that names the reference's
+own root still borrows it" and "a `&T` parameter's copy borrows the parameter (R-CAP-2)". Develop `64f33c710` accepts
+every negative closure/caller row and crashes `async-captures-ref-param-pos` under ASan; the fix rejects and runs them.

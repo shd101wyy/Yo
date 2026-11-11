@@ -1,0 +1,9 @@
+// An `io.async` body copies the local reference `y := &x`: the future's origin is the local `x`,
+// so returning it is E0912 (VERDICTS-58).
+{ String } :: import("std/string");
+mk :: (fn(io : Io) -> Impl(Future(usize, Io)))({
+  x := String.from("abc");
+  y := &x;
+  io.async({ y }(io : Io) => y.len())
+});
+export(mk);
