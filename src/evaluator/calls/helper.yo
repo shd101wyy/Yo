@@ -41,7 +41,8 @@ pragma(Pragma.AllowUnsafe);
   BF_ADDRESS_OF,
   BF_DOT,
   BK_BORROW_MUT,
-  projection_tail_diag_token
+  projection_tail_diag_token,
+  alloc_global_expr_id
 } :: import("../../expr.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 {
@@ -203,7 +204,6 @@ pragma(Pragma.AllowUnsafe);
   unmark_node_preevaluated,
   node_is_preevaluated
 } :: import("../../expr_info.yo");
-{ make_deref_expr } :: import("../exprs/property_access.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { call_promote_index_places_for_write } :: import("../context.yo");
 {
@@ -849,6 +849,11 @@ reference_argument_as_referent :: (fn(evaled_arg : AstExpr, resolved_pt : &TypeV
   if(is_some_type(resolved_pt) || (get_all_some_types(resolved_pt).len() > usize(0)) || are_types_compatible(&ra_ty, resolved_pt) || !are_types_compatible(&t_slot_pointee(&ra_ty), resolved_pt), {
     return(evaled_arg);
   });
+  // The node `arg.*` as a user's `lhs.*.*` reads: a written star (not
+  // `make_deref_expr`'s synthesized one, which the deref evaluator reads as a
+  // `Deref` payload step), so the evaluator's `.*`-on-a-reference-place arm
+  // yields the referent. The star sits just past the argument's token, never
+  // AT a recorded deref site.
   ra_at := ast_expr_token(&evaled_arg);
   ra_dot := Token(
     kind : TokenKind.Dot,
@@ -860,7 +865,20 @@ reference_argument_as_referent :: (fn(evaled_arg : AstExpr, resolved_pt : &TypeV
     module_path : Rc.clone(ra_at.module_path),
     input : Rc.clone(ra_at.input)
   );
-  ra_deref := make_deref_expr(&evaled_arg, &ra_dot, &ra_at);
+  ra_star := Token(
+    kind : TokenKind.Operator,
+    value : intern_token_str(String.from("*")),
+    row : ra_at.row,
+    column : ra_at.column,
+    character : ra_at.character,
+    byte_offset : (ra_at.byte_offset + u32(ra_at.value.*.len())),
+    module_path : Rc.clone(ra_at.module_path),
+    input : Rc.clone(ra_at.input)
+  );
+  ra_args := ArrayList(AstExpr).new();
+  ra_args.push(evaled_arg.clone());
+  ra_args.push(AstExpr.Atom(alloc_global_expr_id(), ra_star));
+  ra_deref := AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), ra_dot.clone()), Rc.new(ra_args), true, ra_dot);
   ra_saved_exp := ctx.expected_type.clone();
   ctx.expected_type = Option(ExpectedTypeCtx).None;
   mark_node_preevaluated(ast_expr_id(&evaled_arg));
