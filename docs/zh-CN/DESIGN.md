@@ -453,7 +453,24 @@ begin(
 #### 静态/动态分派类型：
 
 - `Impl(Trait)`（实现了 Trait 的静态分派类型）
-- `Dyn(Trait)`（实现了 Trait 的动态分派类型）
+- `Dyn(Trait)`（动态分派：非定长的 trait 对象，放在 `Box(Dyn(Trait))`、`Rc(Dyn(Trait))` 或 `&Dyn(Trait)` 这样的指针后面使用；见 [DYN_DESIGN.md](./DYN_DESIGN.md)）
+
+#### 非定长类型
+
+没有自身大小的类型只能放在指针后面：`&T`、`&mut T`、`*T`，或者 `Box(T)` 这样的拥有型句柄（决策 49，见 [`plans/VALUES_BY_DEFAULT.md`](../../plans/VALUES_BY_DEFAULT.md)）。共有三种：
+
+- `[T]`（`Slice(T)`），一段 `T`，其长度由指针携带。`unsize(&a)` 把 `&Array(T, N)` 变成 `&[T]`（`&mut a` 和 `*Array(T, N)` 同理），而 `&xs(a..b)` 是对容器一部分的视图，不做复制，该容器的 `Index(Range(usize))` impl 的 `Output : [T]`。`size_of_val(s)` 和 `align_of_val(s)` 通过指针测量。
+- `Dyn(Trait, ...)`，trait 对象，其指针携带虚表（[DYN_DESIGN.md](./DYN_DESIGN.md)）。
+- 最后一个字段是非定长的结构体。
+
+指向非定长类型的指针是两个字：地址，以及长度或虚表。按值使用非定长类型（局部变量、按值参数或结果、非结构体最后一个字段的字段、元素、`size_of(T)`）是 E0619，对非定长位置赋值也是。`unsize` 和 `dyn` 改变的是指针的类型，从不是值的类型，所以对值写 `unsize(a)` 是 E0620。`generic(T : Type)` 绑定器带有隐含约束 `where(T <: Sized)`；函数体只在指针后面使用 `T` 的泛型写作 `generic(T : ?Sized)`，同样接受非定长类型，其函数体在定义处检查：
+
+```yo
+Show :: trait(show : (fn(self : &Self) -> i32));
+show :: (fn(generic(T : ?Sized), x : &T, where(T <: Show)) -> i32)(x.show());
+```
+
+标准库中 `[T]` 上的方法（`len`、索引、迭代）随 v0.2.78 提供。
 
 #### 值类型 vs 引用语义类型
 
@@ -738,7 +755,7 @@ second_of :: (fn(s : &mut Pair) -> &mut(i32, s))(&mut s.b);
 
 旧的关键字写法（`imm(x) : T`、`mut(x) : T`、`inout(x) : T`、`imm(self) : Self`、`mut(self) : Self`、`imm(y) := place`、`for(xs, mut(x) => ...)`）已在[值默认计划](../../plans/VALUES_BY_DEFAULT.md)的 Generation B 中删除（决定 42）：它是错误 E0009，错误信息给出借用符号写法；旧代码请在最后携带这些迁移的版本（[ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md)“已退役的迁移”）上升级。`imm` 是普通标识符；`mut` 仍是保留字，只出现在 `&` 之后。
 
-运算符 trait 也以同样方式写出操作数的模式，每个 impl 都必须完全照写这些模式（决定 34）。比较 trait `Eq` 与 `Ord` 借用操作数，即 `(==) : (fn(lhs : &Self, rhs : &Rhs) -> bool)`，因此 `a == b` 之后两个操作数都仍可使用。算术、位运算与一元 trait（`Add` 到 `BitRightShift`、`Negate`、`LogicalNot`、`BitNot` 及其 `Comptime*` 对应版本）与 Rust 一样按值接收操作数：`(+) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)`。按值操作数遵循上面的参数规则：`Copy` 操作数被复制，`String` 被共享，仅可移动的操作数被移动进运算符。trait 按值接收而 impl 借用的操作数（反之亦然）会以 "as written" 被拒绝。`Dyn(LogicalNot)` 把载荷的副本交给其 impl，因此仅可移动的载荷不能装箱到其中（E0614）。
+运算符 trait 也以同样方式写出操作数的模式，每个 impl 都必须完全照写这些模式（决定 34）。比较 trait `Eq` 与 `Ord` 借用操作数，即 `(==) : (fn(lhs : &Self, rhs : &Rhs) -> bool)`，因此 `a == b` 之后两个操作数都仍可使用。算术、位运算与一元 trait（`Add` 到 `BitRightShift`、`Negate`、`LogicalNot`、`BitNot` 及其 `Comptime*` 对应版本）与 Rust 一样按值接收操作数：`(+) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)`。按值操作数遵循上面的参数规则：`Copy` 操作数被复制，`String` 被共享，仅可移动的操作数被移动进运算符。trait 按值接收而 impl 借用的操作数（反之亦然）会以 "as written" 被拒绝。`Dyn` 没有可交给按值操作数的值，所以方法按值接收 `self` 的 trait（`LogicalNot`、`Negate`、`Add` 等）无论载荷是什么都不能放到 `Dyn` 后面（E0614）。
 
 ```yo
 Money :: struct(cents : i64);
@@ -3041,7 +3058,7 @@ Yo 支持闭包（捕获其所在环境的匿名函数）。
 闭包会被编译成一个保存所捕获变量的**捕获结构体**。它如何存储与调用，取决于所标注的类型：
 
 - **`Impl(Fn(...))` —— 静态分发，不做引用计数。** 编译器会将闭包单态化为独立函数，捕获结构体**按值传递**，并生成直接调用：没有堆分配、没有虚表、也没有引用计数。每个闭包都有各自不同的类型（参见 [Closure Type Restrictions](#closure-type-restrictions)），因此这种形式无法用同一个变量持有两个不同的闭包。
-- **`Dyn(Fn(...))` —— 动态分发，进行引用计数。** 捕获结构体被装箱到堆上，其前部带有引用计数头，值本身是 `{data, vtable}` 的胖指针。当不同类型的闭包需要共享同一类型时使用它——例如存入集合、从不同分支返回，或接受任意可调用对象。擦除总是要写出来：`dyn(f)` 把闭包、具名 `fn` 或 `Impl(Fn(...))` 值装箱为 `Dyn(Fn(...))`，绑定、字段、实参和结果都一样。把可调用值裸传入 `Dyn(Fn(...))` 位置（`(d : Dyn(Fn() -> i32)) = f`、`run(f)`、`S(cb : f)`、以 `f` 结尾的函数体）是错误 E0618，其提示会给出 `dyn(f)`；`yo fix <path>` 会给具名可调用值加上 `dyn(...)`。`Impl(Fn(...))` 位置不是擦除，闭包可以直接传入。
+- **`Box(Dyn(Fn(...)))` 和 `&Dyn(Fn(...))` —— 动态分发。** 值是 `{data, vtable}` 的胖指针（[DYN_DESIGN.md](./DYN_DESIGN.md)）：`dyn(Box.new(f))` 把捕获结构体移入由 `Box` 拥有的堆 box，`dyn(&f)` 则就地借用闭包，不做分配。当不同类型的闭包需要共享同一类型时使用它——例如存入集合、从不同分支返回，或接受任意可调用对象。擦除总是要写出来，绑定、字段、实参和结果都一样；在 v0.2.77 中，对闭包、具名 `fn` 或 `Impl(Fn(...))` 值写 `dyn(f)` 仍是 `dyn(Box.new(f))` 的写法。把可调用值裸传入 `Dyn(Fn(...))` 位置（`(d : Dyn(Fn() -> i32)) = f`、`run(f)`、`S(cb : f)`、以 `f` 结尾的函数体）是错误 E0618，其提示会给出 `dyn(f)`；`yo fix <path>` 会给具名可调用值加上 `dyn(...)`。`Impl(Fn(...))` 位置不是擦除，闭包可以直接传入。
 
 两种形式下，**被捕获的值**都遵循一般规则：被捕获的引用语义值由该捕获结构体持有，并在其销毁时释放。
 
@@ -3204,7 +3221,7 @@ run_once(add); // `Fn` 也能用于一次调用
   在 `cond`/`match` 部分分支中被调用的 `sink` 闭包，会在其余分支末尾不经调用地被 drop。
 - **把捕获移出需要 `FnOnce` 和捕获列表。** `Fn(...)` 的调用借用捕获，以便闭包能再次运行，因此在其中移出
   捕获是 E0913，指向移出的那一行。本版本中隐式捕获也不能被移出（E0913 会给出捕获列表的写法）。
-- `Dyn(FnOnce(...) -> R)` 可以容纳任何只调用一次的闭包；它的调用同样会消耗它。
+- `Box(Dyn(FnOnce(...) -> R))` 可以容纳任何只调用一次的闭包；它的调用同样会消耗它。
 
 ### 可重复调用的闭包：`FnMut`
 
@@ -3229,16 +3246,16 @@ twice({ n : i32(10) }() => {
 ```
 
 - **调用独占借用闭包**，就像 `xs.push(v)`。因此闭包要通过 `mut(f)` 绑定、`f : &mut Impl(FnMut(...))`
-  形参、`(mut(d) : Dyn(FnMut(...)))` 或临时值来调用。通过未标记的绑定或按值形参调用是 E0917
+  形参、`(mut(d) : Box(Dyn(FnMut(...))))` 或临时值来调用。通过未标记的绑定或按值形参调用是 E0917
   （把形参重新绑定：`mut(g) := f;`），通过 `f : &Impl(FnMut(...))` 或 `&Dyn(FnMut(...))` 调用是
   E0908，在它的借用仍然存活时调用是 E0911。
 - **`Fn` 蕴含 `FnMut`。** 任何要求 `FnMut(...)` 的地方都接受 `Fn(...)` 闭包。把类型为 `FnMut(...)`
-  的闭包传给要求 `Fn(...)` 的地方，或装箱为 `Dyn(Fn(...))`，是 E0913：那个位置可能通过共享借用再次
+  的闭包传给要求 `Fn(...)` 的地方，或擦除为 `Dyn(Fn(...))`，是 E0913：那个位置可能通过共享借用再次
   调用它。`FnOnce` 闭包不是 `FnMut`（E0913）。
 - **按值条目只有在 `FnMut` 下才可写。** 同样的函数体若类型为 `Fn(...)` 或 `FnOnce(...)`，写入条目是
   E0917：那里的写入只会到达每次调用的副本。在 `FnOnce` 下，请重新绑定该条目（`mut(m) := n;`）。
 - **`FnMut` 闭包只能移动。** 无论捕获是什么，它都不派生 `Copy` 或 `Clone`：副本会把状态一分为二。
-  `Dyn(FnMut(...))` 同样只能移动。
+  `Box(Dyn(FnMut(...)))` 同样只能移动。
 - **`Sync` 位置拒绝它。** `Impl(Fn(...), Sync)` 可能从多个线程同时调用闭包，因此写入 `&mut` 捕获或
   自身状态的闭包在那里被拒绝，错误会指出 `FnMut`。
 - **把持有 `&mut` 捕获的字面量传给 `Fn(...)` 位置是 E0913。** 持有 `&mut` 捕获的字面量仅凭其捕获
@@ -3294,7 +3311,7 @@ l1.push(k1); // OK
 l1.push(k2); // 错误：k2 是另一种闭包类型
 ```
 
-要把不同的闭包放进同一个集合，请将它们存为 `Dyn(Fn(...))`。
+要把不同的闭包放进同一个集合，请将它们存为 `Box(Dyn(Fn(...)))`。
 
 ### 闭包与引用语义类型
 
@@ -3427,8 +3444,8 @@ Rc :: (fn(comptime(V) : Type) -> comptime(Type))(
 的新单元；计数用 `ref_count(x)` 读取。`Rc.new(v)` 从实参推断 `T`，`Box.new(v)` 和
 `Arc.new(v)` 也一样；实参不携带类型时（例如枚举简写 `.None`、闭包字面量）写出类型：
 `Rc(T).new(...)`。`alloc : .Some(a)` 把单元放到分配器 `a` 中；默认值 `.None` 把它放到
-全局分配器（[EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)）。`dyn(v)` 通过
-`Rc(T).new`（`Send` 目标则是 `Arc(T).new`）构造它的单元。
+全局分配器（[EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)）。`dyn(Rc.new(v))`
+在一个新的单元之上构造 `Rc(Dyn(Trait))`（[DYN_DESIGN.md](./DYN_DESIGN.md)）。
 
 ### 使用示例
 
@@ -3578,18 +3595,16 @@ assert(w.upgrade().is_none(), "the last Rc dropped the payload");
 
 - **堆分配**：当你需要将值类型放在堆上时
 - **共享所有权**：同一个值的多个句柄；共享修改通过 `Rc(RefCell(T))` 进行
-- **动态分发**：将值类型包装起来以便与 `Dyn` 一起使用（对值类型调用 `dyn(v)` 会自动完成这一步：把 `v` 包装成 `Rc.new(v)`）
+- **共享的动态分发**：`dyn(Rc.new(v))` 构造一个 `Rc(Dyn(Trait))`，即多个句柄共享的一个 trait 对象；唯一所有的则是 `dyn(Box.new(v))`
 - **递归类型**：仅当节点被共享时；唯一所有的节点组成的树使用 `Box`
 
 ```yo
-// 动态分发需要引用语义类型
 impl(i32, SomeTrait(...));
+use_dyn :: (fn(value : &Dyn(SomeTrait)) -> unit)({ ... });
 
-// 值类型通过 Rc 才能用于 Dyn
-use_dyn :: (fn(value : Dyn(SomeTrait)) -> unit)({ ... });
-
-// 将 i32 包装进 Rc 以用于 Dyn
-use_dyn(dyn(Rc.new(i32(42))));
+// 一个 i32 放在共享的 trait 对象后面
+(shared : Rc(Dyn(SomeTrait))) = dyn(Rc.new(i32(42)));
+use_dyn(&shared.*);
 ```
 
 ## Impl 类型
@@ -3641,10 +3656,20 @@ RetI32 :: trait(
   return_i32 : (fn(self : &mut Self) -> i32)
 );
 
+// `Impl(Trait)` 是静态分发：每条路径必须返回同一个具体类型，由编译器推断。
+// 一个分支返回 `bool`、另一个返回 `i32` 无法通过编译。
 get_value :: (fn(use_bool : bool) -> Impl(RetI32))({
   cond(
     use_bool => return(i32(1)),
     true => return(i32(42))
+  );
+});
+
+// 要从不同分支返回不同的具体类型，请擦除为 `Dyn`：
+get_any :: (fn(use_bool : bool) -> Box(Dyn(RetI32)))({
+  cond(
+    use_bool => return(dyn(Box.new(true))),
+    true => return(dyn(Box.new(i32(42))))
   );
 });
 ```
@@ -3681,69 +3706,41 @@ perform :: (
 
 ### `Dyn` 和 `dyn`
 
-使用 `Dyn` 定义动态分发类型，该类型可以持有任何实现了指定 trait 的对象。使用 `dyn()` 函数从对象创建 `Dyn` 实例。
+`Dyn(Trait, ...)` 是 trait 对象：任何实现了所列 trait 的具体类型，被擦除后通过虚表调用它的方法。它是非定长的，所以放在指针后面使用，由指针决定谁拥有它：`Box(Dyn(Trait))` 拥有它，`Rc(Dyn(Trait))` 共享它，`&Dyn(Trait)` 借用它。`dyn(...)` 是唯一的入口：`dyn(Box.new(v))`、`dyn(Rc.new(v))`、`dyn(Arc.new(v))`、`dyn(&v)` 和 `dyn(&mut v)` 擦除的是该指针的指向类型。
 
-`dyn(v)` 所在的位置必须能指明要构造哪一个 `Dyn(...)` —— `Dyn(...)` 类型的参数、带标注的绑定 `(x : Dyn(Trait)) = dyn(v)`、声明的返回类型、结构体字段或集合元素槽位。在没有这类期望类型的位置直接写裸 `dyn(v)`（例如 `downcast(dyn(v), T)` 的第一个参数 —— 它接受任意 `Dyn`）是编译错误：`cannot infer the Dyn type of dyn(...) here — annotate the value or bind it first`。
-
-Yo 中的 `Dyn` 类型是引用计数的，与其他引用语义类型一样，它们通过 trait 对象实现动态分发。闭包同样如此：`Dyn(Fn(...))` 闭包会被装箱到堆上并进行引用计数，而 `Impl(Fn(...))` 形式则被单态化、按值传递，自身不带引用计数。
+`dyn(...)` 所在的位置必须能指明要构造哪一个 `Dyn(...)` —— 参数、带标注的绑定 `(x : Box(Dyn(Trait))) = dyn(Box.new(v))`、声明的返回类型、结构体字段或集合元素槽位。在没有这类期望类型的位置直接写裸 `dyn(...)`（例如 `downcast(dyn(...), T)` 的第一个参数）是编译错误：`cannot infer the Dyn type of dyn(...) here — annotate the value or bind it first`。
 
 **主要特性：**
 
-- 自动引用计数
-- 无需 `addr_of` — 它们就是对象
-- 自动内存管理
-- 支持多个 trait 约束
+- 所有权属于指针：`Box` 独占，`Rc`/`Arc` 共享且只读，`&`/`&mut` 借用
+- `dyn(&v)` 不分配任何内存
+- `downcast` 和 `upcast` 保持指针的种类
+- 一个 `Dyn` 中可以有多个 trait：`Dyn(Speak, Run)`
+
+在 v0.2.77 中，较早的写法仍然可以编译：裸的 `Dyn(Trait)` 值类型表示 `Box(Dyn(Trait))`，对普通值写 `dyn(v)` 表示 `dyn(Box.new(v))`。`yo fix <path> --migrate unsized` 会把类型的写法改写成新写法。v0.2.78 中还有哪些变化，见 [DYN_DESIGN.md](./DYN_DESIGN.md)。
 
 ### 示例
 
 ```yo
-Speak :: trait(
-  speak : (fn(self : Self) -> i32)
-);
+{ println } :: import("std/fmt");
+Speak :: trait(speak : (fn(self : &Self) -> i32));
+Run :: trait(run : (fn(self : &Self) -> i32));
+Dog :: struct(legs : i32);
+impl(Dog, Speak(speak : ((self : &Self) -> i32(1))));
+impl(Dog, Run(run : ((self : &Self) -> self.legs)));
 
-Run :: trait(
-  run : (fn(self : Self) -> i32)
-);
-
-// 必须是引用语义类型才能与 Dyn 配合使用
-Dog :: ref(struct());
-
-DogSpeak :: impl(
-  Dog,
-  Speak(
-    speak : (
-      (self : Self) -> {
-        printf("Woof!\n");
-        return(1);
-      }
-    )
-  )
-);
-
-DogRun :: impl(
-  Dog,
-  Run(
-    run : (
-      (self : Self) -> {
-        printf("The dog is running!\n");
-        return(2);
-      }
-    )
-  )
-);
-
-// Dyn 类型是引用计数的 — 不需要 &
-act :: (fn(s : Dyn(Speak, Run)) -> i32)(s.speak() + s.run());
+act :: (fn(s : &Dyn(Speak, Run)) -> i32)(s.speak() + s.run());
 
 main :: (fn() -> unit)({
-  dog := Dog();
-  // dyn() 创建一个引用计数的 trait 对象
-  result := act(dyn(dog));
-  printf("%d\n", result);
+  dog := Dog(legs : i32(4));
+  a := act(dyn(&dog)); // 借用的 trait 对象：不分配
+  (owned : Box(Dyn(Speak, Run))) = dyn(Box.new(Dog(legs : i32(3)))); // 拥有的 trait 对象
+  b := act(&owned.*);
+  total := (a + b);
+  println(&total);
 });
+export(main);
 ```
-
-**注意：** `Dyn` 类型内部是引用计数的对象，提供自动内存管理，无需手动处理指针。
 
 ## 存在类型
 
@@ -3752,24 +3749,25 @@ main :: (fn() -> unit)({
 
 | 你想要…… | 用 | 藏的是什么，怎么藏 |
 | --- | --- | --- |
-| 把**不同**具体类型的值放进同一个变量、字段或集合，并对它们调用 trait 方法 | `Dyn(Trait)` + `dyn(v)` | 类型被**擦除**：一个胖指针 `{data, vtable}`；使用者只能用到 vtable。只能通过 `downcast(d, T)` 找回具体类型。 |
+| 把**不同**具体类型的值放进同一个变量、字段或集合，并对它们调用 trait 方法 | `Box(Dyn(Trait))` + `dyn(Box.new(v))`，或 `&Dyn(Trait)` + `dyn(&v)` | 类型被**擦除**：一个胖指针 `{data, vtable}`；使用者只能用到 vtable。只能通过 `downcast(&d.*, T)` 找回具体类型。 |
 | 返回**一个**具体类型但不点名它（闭包、迭代器、future） | 返回位置的 `Impl(Trait)`、`Impl(Fn(...))`、`Impl(Future(T, E))` | 类型是**不透明的，但没有被擦除**：每条返回路径必须产出同一个具体类型，编译器对调用方做单态化，不装箱。 |
 | 隐藏类型所依赖的**长度**或其他值（ATS / DML 里的 `[n:nat] list(a, n)`） | 一个普通的运行时值加上契约：`ensures(r.len() == ...)`、`requires(i < xs.len())`、`refine(T, p)` | 见证是验证器推理的**幽灵值**（[FORMAL_VERIFICATION.md](./FORMAL_VERIFICATION.md)）；运行时什么都不存在。 |
 
 ### 打包形式：`Dyn(Trait)`
 
 ```yo
-Shape :: trait(area : (fn(self : Self) -> f64));
+Shape :: trait(area : (fn(self : &Self) -> f64));
 
 // 异构列表：每个元素的具体类型已经消失，只剩 `Shape`。
-mut(shapes) := ArrayList(Dyn(Shape)).new();
-shapes.push(dyn(Circle(r : f64(1.0))));
-shapes.push(dyn(Square(side : f64(2.0))));
-for(shapes, s => println(s.area()));
+mut(shapes) := ArrayList(Box(Dyn(Shape))).new();
+shapes.push(dyn(Box.new(Circle(r : f64(1.0)))));
+shapes.push(dyn(Box.new(Square(side : f64(2.0)))));
+for(&shapes, s => println(s.area()));
 ```
 
-trait 必须是对象安全的（`self` 在首位、签名中没有其他 `Self`、没有
-`generic(...)` 参数），载荷是引用计数的，向更小的 trait 集合上转型必须显式写出：
+trait 必须是对象安全的（接收者是 `&Self` 或 `&mut Self`、签名中没有其他
+`Self`、没有 `generic(...)` 参数），每个元素通过它的 `Box` 拥有自己的载荷，
+向更小的 trait 集合上转型必须显式写出：
 `upcast(d, Dyn(Sub))`。详见 [DYN_DESIGN.md](./DYN_DESIGN.md)。
 
 ### 不透明形式：`Impl(Trait)` 与闭包
@@ -3804,7 +3802,7 @@ use_mk :: (fn(mk : &Impl(Fn(x : i32) -> Impl(Fn() -> i32)), v : i32) -> i32)(mk(
 use_mk :: (fn(generic(G : Type), mk : &Impl(Fn(x : i32) -> G), v : i32, where(G <: (Fn() -> i32))) -> i32)(mk(v)());
 ```
 
-要在一个槽里存放闭包结果各不相同的函数，请返回 `Dyn(Fn(...))`（一种装箱
+要在一个槽里存放闭包结果各不相同的函数，请返回 `Box(Dyn(Fn(...)))`（一种装箱
 表示）。不被拒绝的情形：`Impl(Future(...))`（每个 future 都是指向状态机的
 同一种指针，所以 `fn(x : i32, io : Io) -> Impl(Future(i32, Io))` 是合法的参数
 类型）；`comptime(f)` 参数（按值特化）；局部标注
@@ -3823,7 +3821,7 @@ Showable :: enum(
 
 这是 ML 风格的 `pack`。在一个把一切单态化的编译器里，它的降级恰好就是一个
 `Dyn`：没有 vtable 的隐藏 `T` 无法被操作，有了 vtable 它就是 trait 对象。它仍
-是非目标（见 [GADTS.md](./GADTS.md#限制)）；请改写为 `Dyn(Show)`。
+是非目标（见 [GADTS.md](./GADTS.md#限制)）；请改写为 `Box(Dyn(Show))`。
 
 因此 Yo 在类型层面没有 `exists`。标识符 `exists` 是验证器对值的幽灵量词，如
 `ensures(exists(k : i32, xs(k) == target))`。
@@ -3831,7 +3829,7 @@ Showable :: enum(
 ## Impl 与 Dyn 的对比
 
 - **Impl**：静态分发，编译时多态，无运行时开销
-- **Dyn**：动态分发，运行时多态，需要引用语义类型
+- **Dyn**：动态分发，运行时多态，放在指针后面使用（`Box(Dyn(...))`、`&Dyn(...)`）
 
 ```yo
 // Impl — 静态分发（单态化）
@@ -3840,7 +3838,7 @@ use_impl :: (fn(generic(T : Type), value : T, where(T <: SomeTrait)) -> unit)({
 });
 
 // Dyn — 动态分发（虚函数表）
-use_dyn :: (fn(value : Dyn(SomeTrait)) -> unit)({
+use_dyn :: (fn(value : &Dyn(SomeTrait)) -> unit)({
   value.method(); // 动态分发
 });
 ```
@@ -3933,15 +3931,14 @@ derive(MathError, Clone);
 // 字段可以按名字插值：
 //   .NotFound(path : String)  =>  `not found: ${path}`
 // 手写这两个 impl 依然可用；当消息不是简单的「每个变体一条字符串」时，就该那么写。
-// AnyError 是 Dyn(Error, Clone) — 任何实现了 Error 和 Clone 的类型都可以被包装。
-// Dyn 独占其载荷，而 `throw` 按值传递错误，所以处理器通过移动来保留捕获的错误。
-// （Clone 约束是 v0.2.73 的临时方案：从 v0.2.74 起 AnyError 恢复为 Dyn(Error)，
-// `Error.source` 以借用方式给出原因，不再要求 Clone。）
-(err : AnyError) = dyn(MathError.DivisionByZero);
+// AnyError 是拥有型的 Dyn(Error, Clone) — 任何实现了 Error 和 Clone 的类型都
+// 可以被包装（v0.2.78 把它写作 Box(Dyn(Error))）。它独占其载荷，而 `throw`
+// 按值传递错误，所以处理器通过移动来保留捕获的错误。
+(err : AnyError) = dyn(Box.new(MathError.DivisionByZero));
 
-// 向下转型回具体类型：
+// 向下转型回具体类型，借用它：
 match(
-  downcast(err, MathError),
+  downcast(&err.*, MathError),
   .Some(math_err) => printf("Got MathError\n"),
   .None => printf("Not a MathError\n")
 );

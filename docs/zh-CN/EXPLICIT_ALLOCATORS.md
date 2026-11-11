@@ -97,8 +97,8 @@ make_node :: (fn(name : i32, (alloc : Option(Allocator)) ?= .None) -> Rc(Node))(
 
 - `ref` struct 和 `ref` enum 的构造（要放置它，把它改成值结构体再包装：
   `Rc.new(v, alloc : .Some(a))`），
-- `dyn` 为值创建的单元（`dyn(Rc.new(v, alloc : .Some(a)))` 放置的是 `Dyn` 的数据对象：
-  `Rc` 单元被原样使用，不会再建第二个单元），
+- trait 对象的 box（`dyn(Box.new(v, alloc : .Some(a)))` 放置一个拥有型的
+  `Box(Dyn(...))`，`dyn(Rc.new(v, alloc : .Some(a)))` 放置一个共享的 `Rc(Dyn(...))`），
 - 插值字符串（用 `StringBuilder.new(alloc : .Some(a))` 构建一个被放置的字符串），
 - 闭包环境，
 - `io.async` 任务的状态机，

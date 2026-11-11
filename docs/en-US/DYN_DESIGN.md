@@ -30,7 +30,7 @@ main :: (fn() -> unit)({
   (b : Box(Dyn(Speak))) = dyn(Box.new(Cat(n : i32(4)))); // owned
   m := speak_via(&b.*); // lend the boxed object
   (s : Rc(Dyn(Speak))) = dyn(Rc.new(Cat(n : i32(5)))); // shared
-  total := (((a + m) + s.speak()) + c.n);
+  total := (a + m + s.speak() + c.n);
   println(&total);
 });
 export(main);
@@ -181,7 +181,7 @@ A closure literal inside `Box.new`, `Rc.new` or `Arc.new` under `dyn` is typed f
 run :: (fn(d : &Dyn(Fn(x : i32) -> i32)) -> i32)(d(i32(2)));
 main :: (fn() -> unit)({
   k := i32(3);
-  (f : Box(Dyn(Fn(x : i32) -> i32))) = dyn(Box.new((x) => (x * k)));
+  (f : Box(Dyn(Fn(x : i32) -> i32))) = dyn(Box.new(x => (x * k)));
   _n := run(&f.*);
 });
 export(main);
