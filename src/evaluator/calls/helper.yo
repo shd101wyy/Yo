@@ -837,11 +837,18 @@ _marker_place_of :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) ->
 /// borrow by its type). The slot takes a place of type `U`, and the argument
 /// is the reference to that place, so it binds as `arg.*`: what `&lhs.*.*`
 /// spells once its marker is peeled. The callee receives the pointer the
-/// reference holds (`*lhs`), never the reference's own address. A slot whose
+/// reference holds (`*lhs`), never the reference's own address. Only a BARE
+/// argument: `written_arg` (label stripped, before evaluation) whose marker
+/// was peeled is a lend of that place (`g_peeled_lend_ids`). A slot whose
 /// pointee is itself that reference (`& &U`, §7 P3), a generic one, a
 /// receiver (evaluated before its call, `node_is_preevaluated`) and a
 /// `&mut U` argument (not `Copy` below a `&`, E0901) keep `evaled_arg`.
-reference_argument_as_referent :: (fn(evaled_arg : AstExpr, resolved_pt : &TypeValue, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
+reference_argument_as_referent :: (fn(written_arg : &AstExpr, evaled_arg : AstExpr, resolved_pt : &TypeValue, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
+  // `&r` / `&lhs.*` written with its marker lends that place (a `&&U`):
+  // nothing coerces it to the referent (§7 P3's E0601 stays).
+  if((g_peeled_lend_ids.with(m => m.len()) > usize(0)) && g_peeled_lend_ids.with({ id : ast_expr_id(written_arg) }(m) => m.contains(&id)), {
+    return(evaled_arg);
+  });
   ra_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaled_arg)), .Some(ra_info) => ra_info.ty(), .None => return(evaled_arg));
   if(!t_slot_is_borrow(&ra_ty) || t_slot_is_mut_ref(&ra_ty) || node_is_preevaluated(ast_expr_id(&evaled_arg)), {
     return(evaled_arg);
@@ -1110,6 +1117,12 @@ _t9_reference_param_takes_lend :: (fn(p_ty : &TypeValue, is_mut_marker : bool, p
     _ => false
   )
 );
+/// The place nodes of peeled call-site markers (`&x` / `&mut x` lent to a
+/// reference parameter): the argument was written with its marker, so it is
+/// a lend of that place, never a bare reference read
+/// (`reference_argument_as_referent`). Keyed by node id; idempotent across
+/// the candidate trials, which peel the same nodes.
+(g_peeled_lend_ids : RefCell(HashSet(usize))) = RefCell(HashSet(usize)).new(HashSet(usize).new());
 apply_call_site_borrow_markers :: (
   fn(
     args : &ArrayList(AstExpr),
@@ -1258,6 +1271,7 @@ apply_call_site_borrow_markers :: (
     });
     if(peel, {
       place := ast_expr_strip_borrow_marker(&bare);
+      _pl := g_peeled_lend_ids.with_mut({ id : ast_expr_id(&place) }(m) => m.insert(id));
       // `&r` / `&mut r` over a bare name: on a reference binding it lends
       // `r`'s own storage (§7 P3), which the identifier evaluator decides.
       if(ast_expr_is_atom(&place), {
@@ -1918,7 +1932,7 @@ check_if_function_parameter_matches_argument :: (
   ctx.expected_type = saved_exp;
   // A shared reference passed bare to a `&U` slot binds as the place it
   // refers to (VERDICTS-49 gap 4).
-  evaled_arg := if(is_ct_only || param_is_owning || param_is_ref || slot_of_reference, evaled_arg0, reference_argument_as_referent(evaled_arg0, &resolved_pt, caller_env, ctx, exn));
+  evaled_arg := if(is_ct_only || param_is_owning || param_is_ref || slot_of_reference, evaled_arg0, reference_argument_as_referent(&actual_arg, evaled_arg0, &resolved_pt, caller_env, ctx, exn));
   // A `comptime(V) : Type` parameter carries `where(V <: Sized)` (decision
   // 49): an unsized type argument is E0619 at the call; `comptime(V) : ?Sized`
   // takes it.
