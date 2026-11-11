@@ -1259,3 +1259,18 @@ test("an auto-boxed dyn evaluated again in a loop", {
   assert(total == i32(15), "boxed on every iteration");
   assert(_generic_show(i32(6)) == `6`, "a generic body boxes per specialization");
 });
+
+// A type constructor's CTFE memo compares its arguments by identity, and
+// `Fn` serving `FnOnce` is flow, not identity: `ArrayList(Dyn(Fn() -> i32))`
+// after `ArrayList(Dyn(FnOnce() -> i32))` was the FnOnce instance, so a
+// second call through it was E0901; `Box(...)` of the two the same
+// (issues/2026-11-11-a-dyn-fn-and-a-dyn-fnonce-share-one-type-constructor-instance.md).
+test("a Dyn(Fn) after a Dyn(FnOnce) is its own constructor instance", {
+  comptime_assert(!Type.eq(ArrayList(Dyn(FnOnce() -> i32)), ArrayList(Dyn(Fn() -> i32))), "two element types");
+  comptime_assert(!Type.eq(Box(Dyn(FnMut() -> i32)), Box(Dyn(Fn() -> i32))), "two boxes");
+  (o : Box(Dyn(FnOnce() -> i32))) = dyn(_dnf_nine);
+  (f : Box(Dyn(Fn() -> i32))) = dyn(_dnf_nine);
+  mut(fs) := ArrayList(Dyn(Fn() -> i32)).new();
+  fs.push(dyn(() => i32(1)));
+  assert((f() + f() + fs(usize(0))() + fs(usize(0))() + o()) == i32(29), "the Fn instances call twice");
+});
