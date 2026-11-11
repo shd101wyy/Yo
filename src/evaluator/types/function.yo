@@ -1051,11 +1051,14 @@ _param_slot :: (fn(ty : &TypeValue, is_param_ref : bool, is_owning : bool, is_co
     )
   )
 );
-/// The declared type is a type BINDER written as itself, not `Self` (whose
-/// slot is what `impl(&C, …)` / `impl(generic(T), T, …)` give a receiver, and
-/// stays what it declares at every specialization).
+/// The declared type is a type BINDER written as an identifier, not `Self`
+/// (whose slot is what `impl(&C, …)` / `impl(generic(T), T, …)` give a
+/// receiver, and stays what it declares at every specialization). An opaque
+/// `Impl(Trait)` is a type variable too, but it is written as a call: its
+/// slot is the future / closure value it resolves to, never a by-value
+/// reference slot.
 _is_binder_declared :: (fn(ty : &TypeValue, type_expr : &Option(AstExpr)) -> bool)(
-  is_some_type(ty) && match(type_expr, .Some(te) => !ast_expr_is_atom_of(&te, "Self"), .None => true)
+  is_some_type(ty) && match(type_expr, .Some(te) => (ast_expr_is_atom(&te) && !ast_expr_is_atom_of(&te, "Self")), .None => false)
 );
 /// `&(T, o)` / `&mut(T, o)`: the two-argument (operator-call) form of the
 /// borrow sigils, an origin-qualified reference type in type position
@@ -5449,7 +5452,7 @@ evaluate_function_type :: (
         ),
         // `-> T` for a binder `T` (not `Self`): a by-value result that stays a
         // pointer VALUE when `T` becomes a reference (VERDICTS-23 R3).
-        (is_some_type(&return_type) && !ast_expr_is_atom_of(&return_type_expr, "Self")) => t_binder_slot(&return_type),
+        _is_binder_declared(&return_type, &Option(AstExpr).Some(return_type_expr.clone())) => t_binder_slot(&return_type),
         true => return_type
       ),
       Rc.new(
