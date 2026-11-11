@@ -4095,6 +4095,66 @@ _first_token_of :: (fn(e : &AstExpr, root : &Token) -> Token)({
 /// P9), so a `&` loan whose last use is a later argument has ended
 /// (`local_borrow_access_at` with `after_live`).
 call_activation_token :: (fn(call : &AstExpr, at : &Token) -> Token)(_last_token_of(call, at));
+/// The operands of `call` whose VALUE carries an origin into the callee: an
+/// argument that is a `&`/`&mut` lend or whose type, as passed, carries an
+/// origin (a reference, a holder `H(x)`, an `Option(&T)`, a reference
+/// result `first(q)`), a method call's receiver, and a callee that is itself
+/// a value (a closure local). A `&` loan mentioned in one of them is live for
+/// the whole callee, so P9's activation does not end it at the call
+/// (`_lb_live_at_activation`;
+/// issues/fixed/2026-11-11-two-phase-ends-a-loan-a-later-argument-carries-into-the-callee.md).
+call_origin_operands :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(AstExpr))({
+  out := ArrayList(AstExpr).new();
+  match(
+    call,
+    .FnCall(_, callee, Rc(args), _, _) => {
+      if(ast_expr_is_fn_call_of(&callee, BF_DOT, Option(usize).Some(usize(2))), {
+        match(
+          callee,
+          .FnCall(_, _, Rc(dot_args), _, _) => match(
+            dot_args.get(usize(0)),
+            .Some(recv) => if(_operand_carries_origin(&recv, ctx), {
+              out.push(recv);
+            }),
+            .None => ()
+          ),
+          .Atom(_, _) => ()
+        );
+      }, {
+        if(_operand_carries_origin(&callee, ctx), {
+          out.push(callee.clone());
+        });
+      });
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get(i),
+          .Some(a) => if(_operand_carries_origin(&a, ctx), {
+            out.push(a);
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .Atom(_, _) => ()
+  );
+  out
+});
+/// `e`, an operand of a call, passes a value that carries an origin: a lend
+/// marker always does; otherwise its type or its converted (as-passed) type
+/// carries one. An operand with no recorded type counts as a carrier.
+_operand_carries_origin :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)({
+  stripped := ast_expr_strip_borrow_marker(e);
+  if(ast_expr_id(&stripped) != ast_expr_id(e), {
+    return(true);
+  });
+  match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)),
+    .Some(info) => (type_carries_origin(&info.ty()) || match(expr_info_converted_runtime_type(&info), .Some(ct) => type_carries_origin(&ct), .None => false)),
+    .None => true
+  )
+});
 /// The latest token of `e`'s own source: the end of an arm.
 _last_token_of :: (fn(e : &AstExpr, root : &Token) -> Token)({
   (best : Token) = root;
@@ -6846,11 +6906,38 @@ _lb_live_at :: (fn(info : &LocalBorrowInfo, tok : &Token) -> bool)(
     (tok.character > info.start.character) || (info.macro_site.is_some() && (tok.character == info.start.character) && for_desugar_site_of(tok).is_some())
   ) && (tok.character <= info.end.character)
 );
-/// `_lb_live_at` at `tok`, or (`after`) just past it: live past a call's last
-/// token means the range ends after the call (two-phase, P9).
-_lb_live_past :: (fn(info : &LocalBorrowInfo, tok : &Token, after : bool) -> bool)(
-  if(after, (tok.module_path == info.start.module_path) && ((tok.character >= info.start.character) && (tok.character < info.end.character)), _lb_live_at(info, tok))
+/// `_lb_live_at` just past `tok`: live past a call's last token means the
+/// range ends after the call (two-phase, P9).
+_lb_live_past :: (fn(info : &LocalBorrowInfo, tok : &Token) -> bool)(
+  (tok.module_path == info.start.module_path) && ((tok.character >= info.start.character) && (tok.character < info.end.character))
 );
+/// A borrow live at a `&mut` argument's activation (two-phase, P9): live
+/// past the call's last token `live_tok`, or live where the argument is
+/// written (`tok`) and mentioned in an operand that carries an origin into
+/// the callee (`call_origin_operands`). Only a loan whose last use is an
+/// operand that does not carry it (`xs.push(i32(r.len()))`) has ended there:
+/// `f(&mut x, h)` with `h := H(x)(r : &x)` hands the callee the loan
+/// (issues/fixed/2026-11-11-two-phase-ends-a-loan-a-later-argument-carries-into-the-callee.md).
+_lb_live_at_activation :: (fn(info : &LocalBorrowInfo, tok : &Token, live_tok : &Token, carriers : &ArrayList(AstExpr)) -> bool)({
+  if(_lb_live_past(info, live_tok), {
+    return(true);
+  });
+  if(!_lb_live_at(info, tok), {
+    return(false);
+  });
+  (ci : usize) = usize(0);
+  while(ci < carriers.len(), {
+    match(
+      carriers.get(ci),
+      .Some(c) => if(_lb_mentions(&c, info.name.clone()), {
+        return(true);
+      }),
+      .None => ()
+    );
+    ci = (ci + usize(1));
+  });
+  false
+});
 _lb_place_text :: (fn(p : &LocalBorrowPlace) -> String)(p.text.clone());
 _lb_mode :: (fn(info : &LocalBorrowInfo) -> str)(cond(info.is_mut => "&mut", true => "&"));
 _lb_verb :: (fn(kind : &LocalBorrowAccess) -> str)(
@@ -7066,23 +7153,31 @@ _lb_tok_after :: (fn(a : &Token, b : &Token) -> bool)((a.module_path == b.module
 /// borrow (decision 18, rule 2). A read conflicts with a live `mut` borrow;
 /// a write, a move or an exclusive borrow with any live borrow.
 local_borrow_access :: (fn(place : &LocalBorrowPlace, kind : &LocalBorrowAccess, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)(
-  _local_borrow_access_live(place, kind, tok, tok, false, ctx, exn)
+  _local_borrow_access_live(place, kind, tok, tok, Option(ArrayList(AstExpr)).None, ctx, exn)
 );
 /// `local_borrow_access` of an access reported at `tok` whose borrows are
 /// judged live just past `live_tok`: a call's `&mut` argument is activated
 /// when the call begins (`call_activation_token`), not where it is written
 /// (two-phase, plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P9). A borrow
-/// whose range ends at `live_tok`, the call's last token, has ended there.
-local_borrow_access_at :: (fn(place : &LocalBorrowPlace, kind : &LocalBorrowAccess, tok : &Token, live_tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)(
-  _local_borrow_access_live(place, kind, tok, live_tok, true, ctx, exn)
+/// whose range ends at `live_tok`, the call's last token, has ended there,
+/// unless an operand in `carriers` (`call_origin_operands`) hands its loan to
+/// the callee (`_lb_live_at_activation`).
+local_borrow_access_at :: (
+  fn(place : &LocalBorrowPlace, kind : &LocalBorrowAccess, tok : &Token, live_tok : &Token, carriers : &ArrayList(AstExpr), ctx : &EvalContext, exn : Exception) -> unit
+)(
+  _local_borrow_access_live(place, kind, tok, live_tok, Option(ArrayList(AstExpr)).Some(carriers.clone()), ctx, exn)
 );
-_local_borrow_access_live :: (fn(place : &LocalBorrowPlace, kind : &LocalBorrowAccess, tok : &Token, live_tok : &Token, after_live : bool, ctx : &EvalContext, exn : Exception) -> unit)({
+/// `activation`: `.None` judges the borrows live at `tok`; `.Some(carriers)`
+/// those live at a call's activation (`_lb_live_at_activation`).
+_local_borrow_access_live :: (
+  fn(place : &LocalBorrowPlace, kind : &LocalBorrowAccess, tok : &Token, live_tok : &Token, activation : Option(ArrayList(AstExpr)), ctx : &EvalContext, exn : Exception) -> unit
+)({
   (i : usize) = g_local_borrows.with(_c_len_5);
   while(i > usize(0), {
     i = (i - usize(1));
     match(
       g_local_borrows.with(xs => xs.get(i)),
-      .Some(info) => if((info.is_mut || !_lb_is_read(kind)) && _lb_live_past(&info, live_tok, after_live), {
+      .Some(info) => if((info.is_mut || !_lb_is_read(kind)) && match(&activation, .Some(cs) => _lb_live_at_activation(&info, tok, live_tok, cs), .None => _lb_live_at(&info, tok)), {
         (pi : usize) = usize(0);
         while(pi < info.places.len(), {
           match(
@@ -7105,7 +7200,7 @@ _local_borrow_access_live :: (fn(place : &LocalBorrowPlace, kind : &LocalBorrowA
     j = (j - usize(1));
     match(
       g_local_borrow_joins.with(xs => xs.get(j)),
-      .Some(jinfo) => if((jinfo.is_mut || !_lb_is_read(kind)) && _lb_live_past(&jinfo, live_tok, after_live), {
+      .Some(jinfo) => if((jinfo.is_mut || !_lb_is_read(kind)) && match(&activation, .Some(cs) => _lb_live_at_activation(&jinfo, tok, live_tok, cs), .None => _lb_live_at(&jinfo, tok)), {
         (pj : usize) = usize(0);
         while(pj < jinfo.places.len(), {
           match(
@@ -11128,6 +11223,7 @@ export(
   local_borrow_access_expr,
   local_borrow_access_at,
   call_activation_token,
+  call_origin_operands,
   local_borrow_require_writable,
   local_borrow_root_is_shared_reference,
   local_borrow_write_expr,
