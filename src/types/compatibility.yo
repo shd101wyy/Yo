@@ -1589,10 +1589,16 @@ _compat_impl :: (
     // result. `Fn` implies `FnMut`, which implies `FnOnce`
     // (plans/VALUES_BY_DEFAULT.md decision 37, `fn_trait_base_serves`): a
     // borrowing call also serves an exclusive one, and either serves for one
-    // call; never the other way round.
+    // call; never the other way round. Identity is not flow: `Fn` and
+    // `FnOnce` are two traits, so the CTFE memo keeps
+    // `ArrayList(Dyn(Fn() -> R))` and `ArrayList(Dyn(FnOnce() -> R))` apart
+    // (issues/2026-11-11-a-dyn-fn-and-a-dyn-fnonce-share-one-type-constructor-instance.md).
     Rc(.FnTraitT(base_name : abn, call_param_types : apts, call_result : aret)) => match(
       expected,
       Rc(.FnTraitT(base_name : ebn, call_param_types : epts, call_result : eret)) => {
+        if(_is_identity_mode(mode) && (abn != ebn), {
+          return(false);
+        });
         if(!fn_trait_base_serves(&abn, &ebn), {
           return(false);
         });
