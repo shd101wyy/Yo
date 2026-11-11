@@ -65,7 +65,7 @@ argument is the C local, which a resume through the dispatch switch jumps past.
 | --- | --- |
 | `use2(&make(), io.await(…))` | accepted, garbage read after the resume (ASan) |
 | `mkw().plus(io.await(…))`, temporary receiver | accepted, the same |
-| `match(&mk_opt(), .Some(r) => { await; r.* })` | accepted, the same (ledger: allocation-size-too-big) |
+| `match(&mk_opt(), .Some(r) => { await; r.* })` | accepted, the same (ASan allocation-size-too-big) |
 | `P2(a : make(), b : io.await(…))`, an OWNED temporary before the await (probe `l03`) | runs clean |
 | `(make(), io.await(…))` tuple (probe `l07`); `make() == io.await(fs(io), io)` (probe `l13`) | runs clean |
 | `for(&mk_list(), s => { await; s.* })` (probe `l06`) | runs clean |

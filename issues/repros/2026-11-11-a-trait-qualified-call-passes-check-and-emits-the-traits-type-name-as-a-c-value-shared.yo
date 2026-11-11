@@ -1,0 +1,13 @@
+// expect: accept
+// The same with a `&Self` receiver and a result: `Get.get(&s)`.
+{ println } :: import("std/fmt");
+Get :: trait(get : (fn(self : &Self) -> usize));
+S :: struct(n : usize);
+impl(S, Get(get : (fn(self : &Self) -> usize)(self.n)));
+main :: (fn() -> unit)({
+  s := S(n : usize(7));
+  k := Get.get(&s);
+  println(`OUT: ${k.to_string()}`);
+  ()
+});
+export(main);
