@@ -5083,8 +5083,20 @@ and in git, not a silent edit.
       S2). A tail struct's `[T]` is a C flexible
       array member. `static` is the empty origin, and `Escapable` holds when
       the pointee is. An assignment to an unsized place is E0619, and
-      `unsize` of a value is E0620 (`yo explain E0620`). (S1d–S1g, S2, S3:
-      to come.)
+      `unsize` of a value is E0620 (`yo explain E0620`). S1f, first half
+      (2026-11-11, `vbd/d49-s1-migrate`; VERDICTS-55): `yo fix <path>
+      --migrate unsized` rewrites every bare `Dyn(...)` type spelling to
+      `Box(Dyn(...))`, `*Dyn`/`?*Dyn`, alias bodies and `Type.impls`/
+      `Type.eq`/`size_of` arguments included, and skips a `Dyn` that is the
+      immediate argument of `Box`/`Rc`/`Arc`/`Weak`/`ArcWeak`/`&`/`&mut` or
+      `upcast`'s target; it reads the parse only, and lists
+      `Rc(Dyn(T)).new(...)`, `impl(Dyn(...), ...)` and multi-line spellings.
+      The evaluator-recorded rewrites (`dyn(v)` → `dyn(Box.new(v))`, the
+      `dyn(Rc.new(e))` exception, `&d` → `&d.*`) and their lists are the
+      second half. The `str`/`RawSlice`/range-copy rewrites of VERDICTS-27
+      Q2b(d) move to S2, and S3's `str`/`slice_copy` deletions ship one
+      release after them. (S1d and S1e merged as #1890 and #1886; their
+      as-built notes, S1g, S2 and S3: to come.)
     - **Tests** (`tests/sized.test.yo`, `tests/dyn.test.yo`,
       `tests/slice.test.yo`, `tests/str_view.test.yo`,
       `tests/explicit_allocators.test.yo`, the cli case
