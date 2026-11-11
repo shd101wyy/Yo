@@ -2015,7 +2015,7 @@ _run_migrate_unsized :: (fn(files : &ArrayList(String), std_path : &String, dry_
             span,
             .Some((a, e)) => {
               n_dyn = (n_dyn + usize(1));
-              checked.push(_PendingFix(row : st.row, col : e, len : usize(0), replacement : String.from(")"), description : at));
+              checked.push(_PendingFix(row : st.row, col : e, len : usize(0), replacement : String.from(")"), description : at.clone()));
               checked.push(_PendingFix(row : st.row, col : a, len : usize(0), replacement : String.from("Box.new("), description : at));
             },
             .None => listed.push(`${pos}fix: ${at}: \`dyn(${st.text})\` does not print back on one line; write it \`dyn(Box.new(${st.text}))\` by hand; left as written`)
