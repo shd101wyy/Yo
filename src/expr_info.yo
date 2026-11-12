@@ -2190,6 +2190,27 @@ note_lent_temporary :: (fn(lent_in : &AstExpr) -> unit)({
   _i := g_lent_temp_tokens.with_mut(s => s.insert(lent_temp_token_key(&tok)));
   ()
 });
+/// The `:=` bindings R-TAIL bound as references (VERDICTS-41 Q1; the
+/// evaluator's `_bind_projection_result` chain path), by the bound name's
+/// token, and the reference-binding-read leaves of their result chains, by
+/// the leaf's. Codegen reads them (`init_assignment`, `chain_leaf_pointer_code`):
+/// a reference-typed initializer is not a bound chain by its type alone —
+/// `t := a.*` on `a : &mut &i32` copies the reference value `a.*` holds.
+(g_chain_ref_bindings : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+(g_chain_ref_binding_leaves : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+note_chain_ref_binding :: (fn(name_tok : &Token, leaves : &ArrayList(AstExpr)) -> unit)({
+  _b := g_chain_ref_bindings.with_mut(s => s.insert(lent_temp_token_key(name_tok)));
+  (i : usize) = usize(0);
+  while(i < leaves.len(), i = (i + usize(1)), {
+    _l := g_chain_ref_binding_leaves.with_mut(s => s.insert(lent_temp_token_key(&ast_expr_token(&leaves(i)))));
+  });
+});
+is_chain_ref_binding :: (fn(name_tok : &Token) -> bool)(
+  g_chain_ref_bindings.with({ &name_tok }(s) => s.contains(&lent_temp_token_key(name_tok)))
+);
+is_chain_ref_binding_leaf :: (fn(tok : &Token) -> bool)(
+  g_chain_ref_binding_leaves.with({ &tok }(s) => s.contains(&lent_temp_token_key(tok)))
+);
 /// True iff `note_lent_temporary` marked the token (a statement lends what it
 /// built there).
 is_lent_temp_token :: (fn(tok : &Token) -> bool)(
@@ -3291,7 +3312,7 @@ export(expr_info_closure_function_value, expr_info_set_closure_function_value);
 export(ExprInfoTable, expr_info_table_new, expr_info_table_set, expr_info_table_get, codegen_read_log_set, codegen_read_keys, expr_info_table_retain_keys);
 export(record_method_callee_type, lookup_method_callee_type, record_generic_callee_type, lookup_generic_callee_type);
 export(record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, lookup_io_builtin_call);
-export(record_method_callee_value, lookup_method_callee_value, record_local_borrow_step_pin, lookup_local_borrow_step_pin, record_immediate_old_value_drop, lookup_immediate_old_value_drop, record_skipped_operand_drops, clear_skipped_operand_drops, lookup_skipped_operand_drops, note_lent_temporary, lent_temp_token_key, is_lent_temp_token, record_consume_release, is_consume_release);
+export(record_method_callee_value, lookup_method_callee_value, record_local_borrow_step_pin, lookup_local_borrow_step_pin, record_immediate_old_value_drop, lookup_immediate_old_value_drop, record_skipped_operand_drops, clear_skipped_operand_drops, lookup_skipped_operand_drops, note_lent_temporary, lent_temp_token_key, is_lent_temp_token, note_chain_ref_binding, is_chain_ref_binding, is_chain_ref_binding_leaf, record_consume_release, is_consume_release);
 export(register_extern_c_global, is_extern_c_global, get_extern_c_global_types);
 export(register_extern_c_global_alias, extern_c_global_c_name, register_extern_c_module_id, is_extern_c_module_id);
 export(register_module_level_global, is_module_level_global, module_global_c_suffix);

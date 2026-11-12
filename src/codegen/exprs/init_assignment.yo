@@ -9,7 +9,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_text, BK_COMPTIME, BK_BEGIN, BK_COND, BK_MATCH, BK_ARRAY_VAL, ast_expr_is_local_borrow_mode_call, BF_DOT, ast_call_is_deref_read } :: import("../../expr.yo");
-{ RuntimeDestructuring, expr_info_converted_runtime_type, expr_info_runtime_destructurings, expr_info_deferred_dup_expressions, expr_info_macro_expansion, scope_variables, lookup_local_borrow_step_pin } :: import("../../expr_info.yo");
+{ RuntimeDestructuring, expr_info_converted_runtime_type, expr_info_runtime_destructurings, expr_info_deferred_dup_expressions, expr_info_macro_expansion, scope_variables, lookup_local_borrow_step_pin, is_chain_ref_binding } :: import("../../expr_info.yo");
 { Variable, Environment, variable_value_type } :: import("../../env.yo");
 { is_array_type, is_unit_type, is_struct_type, is_reference_struct_type, is_tuple_type, is_newtype_type } :: import("../../types/guards.yo");
 { TypeValue, TypeValueNode, t_slot_is_borrow } :: import("../../types/definitions.yo");
@@ -445,9 +445,13 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
   // written `.*` reads (`n := f(x).*`) binds its value instead.
   // A block/`cond`/`match` initializer typed as a reference binds the
   // reference (R-TAIL, VERDICTS-41 Q1): its C value is the chain's pointer.
-  rhs_is_ref_chain := ((ast_expr_is_fn_call_of(&rhs, BK_BEGIN, Option(usize).None) || ast_expr_is_fn_call_of(&rhs, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(&rhs, BK_MATCH, Option(usize).None)) && match(context.base.get_expr_info(&rhs), .Some(rci) => t_slot_is_borrow(&rci.ty()), .None => false));
+  // Only a chain the evaluator bound so (`note_chain_ref_binding`): a
+  // reference-typed initializer that copies a reference value (`t := a.*` on
+  // `a : &mut &i32`) is a plain `T* t = …` value binding.
+  chain_bound := (ast_expr_is_atom(&lhs) && is_chain_ref_binding(ast_expr_token(&lhs)));
+  rhs_is_ref_chain := (chain_bound && ((ast_expr_is_fn_call_of(&rhs, BK_BEGIN, Option(usize).None) || ast_expr_is_fn_call_of(&rhs, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(&rhs, BK_MATCH, Option(usize).None)) && match(context.base.get_expr_info(&rhs), .Some(rci) => t_slot_is_borrow(&rci.ty()), .None => false)));
   // `r := k` with `k` a reference binding read as the reference (VERDICTS-45 §11): `k`'s own pointer.
-  rhs_is_ref_atom := (ast_expr_is_atom(&rhs) && match(context.base.get_expr_info(&rhs), .Some(rai) => t_slot_is_borrow(&rai.ty()), .None => false));
+  rhs_is_ref_atom := (chain_bound && (ast_expr_is_atom(&rhs) && match(context.base.get_expr_info(&rhs), .Some(rai) => t_slot_is_borrow(&rai.ty()), .None => false)));
   if(ast_expr_is_atom(&lhs) && ((call_projection_mode(&rhs, context).is_some() && !ast_call_is_deref_read(&rhs)) || rhs_is_ref_chain || rhs_is_ref_atom), {
     return(_generate_inout_local_binding(&lhs, &rhs, ast_expr_id(&lhs), Option(Environment).Some(ei.env()), indent.clone(), context));
   });

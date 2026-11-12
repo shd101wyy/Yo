@@ -6267,7 +6267,7 @@ ref_chain_leaves_of :: (fn(rhs : &AstExpr, env : &Environment, atoms_ok : bool) 
         (ti : usize) = usize(0);
         while(ti < t_args.len(), ti = (ti + usize(1)), {
           comp := t_args(ti).clone();
-          if(ast_expr_is_atom(&comp), {
+          if(ast_expr_is_atom(&comp) && !is_reference_deref_site(ast_expr_token(&comp)), {
             match(
               get_variables_from_env(env, ast_expr_token(&comp).value.*.clone()).last_cloned(),
               .Some(tv) => if(variable_is_reference_binding(&tv), {
@@ -6333,6 +6333,9 @@ _ref_chain_collect :: (fn(e : &AstExpr, env : &Environment, out : &mut ArrayList
     ),
     ast_expr_is_atom(e) => cond(
       !atoms_ok => false,
+      // A rewritten `r.*`'s receiver (N1e-1) reads the value `r` refers to:
+      // on `a : &mut &i32`, `t := a.*` copies the reference `a.*` holds.
+      is_reference_deref_site(ast_expr_token(e)) => false,
       true => match(
         get_variables_from_env(env, ast_expr_token(e).value.*.clone()).last_cloned(),
         .Some(av) => if(variable_is_reference_binding(&av), {

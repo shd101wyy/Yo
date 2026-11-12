@@ -1,0 +1,22 @@
+// expect: E0911
+// A12 at a `match` arm tail (VERDICTS-58 decision 12): the arm block's value is a holder over its own local `y`.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+H :: struct(r : &Rc(X), n : i32);
+mk :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+main :: (fn() -> unit)({
+  z := mk();
+  k := i32(1);
+  h := match(
+    k,
+    1 => {
+      y := mk();
+      H(r : &y, n : i32(1))
+    },
+    _ => H(r : &z, n : i32(0))
+  );
+  println(`OUT: ${h.r.*.*.s.len().to_string()}`);
+  ()
+});
+export(main);

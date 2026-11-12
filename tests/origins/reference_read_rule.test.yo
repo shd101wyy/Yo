@@ -939,3 +939,63 @@ test("a tuple of by-value reference parameters holds the references", {
   assert(v.0 == i32(6), "the by-value instance beside it");
   assert(v.1 == i32(5), "swaps the values");
 });
+// `t := a.*` on `a : &mut &i32` copies the reference `a.*` holds: the
+// rewritten `a.*`'s receiver is no reference-binding leaf of R-TAIL when the
+// generic body is evaluated again per call, and the C binding is `T* t = *a`,
+// not `T** t = a` (tests/ref_of_ref.test.yo's `rr_swap`).
+_rt_swap_refs_g :: (fn(generic(r : Origin), a : &mut&(i32, r), b : &mut&(i32, r)) -> unit)({
+  t := a.*;
+  a.* = b.*;
+  b.* = t;
+});
+test("R-TAIL: `t := a.*` through a `&mut &i32` copies the reference", {
+  x := i32(1);
+  y := i32(2);
+  mut(ra) := &x;
+  mut(rb) := &y;
+  _rt_swap_refs_g(&mut ra, &mut rb);
+  assert(ra.* == i32(2), "ra refers to y");
+  assert(rb.* == i32(1), "rb refers to x");
+});
+// A12 at a block or arm tail (VERDICTS-58 decision 12): a holder over the
+// block's own local is E0911 at the block's end, as a reference is.
+_RtH :: struct(r : &String, n : i32);
+comptime_expect_error({
+  _rt_holder_block_local :: (fn() -> usize)({
+    h := {
+      y := String.from("abc");
+      _RtH(r : &y, n : i32(1))
+    };
+    h.r.len()
+  });
+  _rt_holder_block_local();
+}, "Cannot end this block while its result borrows `y`");
+comptime_expect_error({
+  _rt_holder_arm_local :: (fn(c : bool) -> usize)({
+    z := String.from("z");
+    h := cond(
+      c => {
+        y := String.from("abc");
+        _RtH(r : &y, n : i32(1))
+      },
+      true => _RtH(r : &z, n : i32(0))
+    );
+    h.r.len()
+  });
+  _rt_holder_arm_local(true);
+}, "Cannot end this block while its result borrows `y`");
+_rt_holder_outer :: (fn(c : bool) -> usize)({
+  z := String.from("zz");
+  h := cond(
+    c => {
+      y := String.from("abc");
+      _ := y.len();
+      _RtH(r : &z, n : i32(1))
+    },
+    true => _RtH(r : &z, n : i32(0))
+  );
+  h.r.len()
+});
+test("A12: a block-tail holder over an outer local is accepted", {
+  assert(_rt_holder_outer(true) == usize(2), "the holder reads z");
+});

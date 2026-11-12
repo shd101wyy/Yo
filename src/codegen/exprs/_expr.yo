@@ -11,8 +11,8 @@
 //! dispatch module registers the real `_generate_expr` via `set_generate_expr_fn`
 //! at init.
 { String } :: import("std/string");
-{ AstExpr, ast_expr_id, ast_expr_is_atom, ast_rewritten_view } :: import("../../expr.yo");
-{ expr_info_index_trait_ptr_type, lookup_method_callee_type, unsize_reference_mode } :: import("../../expr_info.yo");
+{ AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_token, ast_rewritten_view } :: import("../../expr.yo");
+{ expr_info_index_trait_ptr_type, lookup_method_callee_type, unsize_reference_mode, is_chain_ref_binding_leaf } :: import("../../expr_info.yo");
 { TypeValue, fn_result_is_ref, fn_result_is_mut_ref, t_slot_is_borrow } :: import("../../types/definitions.yo");
 { is_function_type } :: import("../../types/guards.yo");
 { fn_trait_call_func_type } :: import("../../types/utils.yo");
@@ -76,6 +76,12 @@ call_projection_mode :: (fn(expr : &AstExpr, context : &FunctionGenerationContex
 /// (`generate_address_of`), as is a nested chain's temp.
 chain_leaf_pointer_code :: (fn(leaf : &AstExpr, code : String, context : &FunctionGenerationContext) -> String)({
   if(call_projection_mode(leaf, context).is_none() && !ast_expr_is_atom(leaf), {
+    return(code);
+  });
+  // A reference binding read is a leaf only of a chain the evaluator bound
+  // as a reference (`note_chain_ref_binding`); elsewhere a reference-typed
+  // atom (`a.*`'s rewritten receiver on `a : &&T`) is the value it reads.
+  if(ast_expr_is_atom(leaf) && !is_chain_ref_binding_leaf(ast_expr_token(leaf)), {
     return(code);
   });
   is_ref := match(context.base.get_expr_info(leaf), .Some(li) => t_slot_is_borrow(&li.ty()), .None => false);
