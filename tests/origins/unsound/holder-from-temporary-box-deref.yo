@@ -1,0 +1,17 @@
+// expect: E0911
+// A `.*` on an owning handle is a field step (O3's return rule, audit A23/A30): `&Box.new(longs()).*` lends the
+// temporary box, which ends with the statement, while the holder `v` is read after the block.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+V :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(String, p)));
+mkv :: (fn(r : &String) -> V(r))(V(r)(r : r));
+longs :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+main :: (fn() -> unit)({
+  k := String.from("k");
+  mut(v) := mkv(&k);
+  {
+    v = mkv(&Box.new(longs()).*);
+  };
+  println(`OUT: ${v.r.*}`);
+});
+export(main);

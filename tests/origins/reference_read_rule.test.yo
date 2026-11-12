@@ -619,6 +619,85 @@ comptime_expect_error(
   }),
   "`c` is a local: its storage ends with the call"
 );
+// A `.*` on an OWNING handle (`Box`, `Rc`, `Arc`) is a field step, not a way
+// out of the frame (REFERENCES_AND_ORIGINS.md O3's return rule, made precise
+// 2026-11-11; audit A30): `&b.*` and `&h.*.s` / `&h.s` are rooted at the
+// handle, so a local or by-value handle is E0912 like `&x.s` of a by-value
+// struct (issues/fixed/2026-11-11-a-projection-may-return-a-reference-into-a-local-or-by-value-box-rc-or-arc-handle.md).
+// Only a `.*` through a reference or a raw pointer leaves the frame.
+RrHandled :: struct(s : String);
+RrHandleW :: struct(h : Rc(RrHandled));
+comptime_expect_error(
+  rr_owning_local_box :: (fn(a : &String) -> &String)({
+    b := Box.new(String.from("b"));
+    &b.*
+  }),
+  "`b` is a local: its storage ends with the call"
+);
+comptime_expect_error(
+  rr_owning_local_box_return :: (fn(a : &String) -> &String)({
+    b := Box.new(String.from("b"));
+    return(&b.*);
+  }),
+  "`b` is a local: its storage ends with the call"
+);
+comptime_expect_error(
+  rr_owning_local_box_mut :: (fn(a : &mut String) -> &mut String)({
+    mut(b) := Box.new(String.from("b"));
+    &mut b.*
+  }),
+  "`b` is a local: its storage ends with the call"
+);
+comptime_expect_error(
+  rr_owning_local_rc :: (fn(a : &String) -> &String)({
+    h := Rc.new(RrHandled(s : String.from("h")));
+    &h.*.s
+  }),
+  "`h` is a local: its storage ends with the call"
+);
+comptime_expect_error(
+  rr_owning_local_rc_auto :: (fn(a : &String) -> &String)({
+    h := Rc.new(RrHandled(s : String.from("h")));
+    &h.s
+  }),
+  "`h` is a local: its storage ends with the call"
+);
+comptime_expect_error(
+  rr_owning_byvalue_rc :: (fn(h : Rc(RrHandled)) -> &String)(&h.s),
+  "`h` is a by-value parameter: its storage ends with the call"
+);
+comptime_expect_error(
+  rr_owning_byvalue_rc_star :: (fn(h : Rc(RrHandled)) -> &String)(&h.*.s),
+  "`h` is a by-value parameter: its storage ends with the call"
+);
+comptime_expect_error(
+  rr_owning_byvalue_box :: (fn(b : Box(RrHandled)) -> &String)(&b.*.s),
+  "`b` is a by-value parameter: its storage ends with the call"
+);
+comptime_expect_error(
+  rr_owning_byvalue_arc :: (fn(a : Arc(i32)) -> &i32)(&a.*),
+  "`a` is a by-value parameter: its storage ends with the call"
+);
+comptime_expect_error(
+  impl(RrHandleW, rr_owning_self_field : (fn(self : Self) -> &String)(&self.h.*.s)),
+  "`self` is a by-value parameter: its storage ends with the call"
+);
+rr_owning_ref_box :: (fn(b : &Box(String)) -> &String)(&b.*.*);
+rr_owning_ref_rc :: (fn(h : &Rc(RrHandled)) -> &String)(&h.*.*.s);
+rr_owning_ref_rc_auto :: (fn(h : &Rc(RrHandled)) -> &String)(&h.s);
+rr_owning_mut_box :: (fn(b : &mut Box(String)) -> &mut String)(&mut b.*.*);
+impl(RrHandleW, rr_owning_ref_self : (fn(self : &Self) -> &String)(&self.h.*.s));
+test("a `.*` on a handle reached through a reference parameter stays in the caller's storage", {
+  mut(b) := Box.new(String.from("box"));
+  assert(rr_owning_ref_box(&b).len() == usize(3), "`&b.*.*` through `&Box`");
+  rr_owning_mut_box(&mut b).push_str("ed");
+  assert(b.*.len() == usize(5), "`&mut b.*.*` through `&mut Box` writes the caller's payload");
+  h := Rc.new(RrHandled(s : String.from("rc")));
+  assert(rr_owning_ref_rc(&h).len() == usize(2), "`&h.*.*.s` through `&Rc`");
+  assert(rr_owning_ref_rc_auto(&h).len() == usize(2), "`&h.s` through `&Rc`");
+  w := RrHandleW(h : Rc.new(RrHandled(s : String.from("self"))));
+  assert(w.rr_owning_ref_self().len() == usize(4), "`&self.h.*.s` through `self : &Self`");
+});
 // VERDICTS-45 (R-RESULT): the result position is a reference slot, and each
 // result leaf is `&place` or a reference binding read. Both spellings stay
 // legal (`&x.*` is `&place` with the place `x.*`).

@@ -1913,6 +1913,14 @@ jobs:
         run: |
           chmod +x yo-stage1
           mv yo-stage1 /tmp/yo-stage1
+      # G-E's totality audit checks ./src, and src/doc/render_html.yo imports
+      # the `markdown-yo` DEPENDENCY: `check` resolves import roots but never
+      # fetches, so without the store every file in that closure failed
+      # (`./src: rc=1`, battery 43142204182) and went unaudited.
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
+        with:
+          yo: /tmp/yo-stage1
       - name: G-E sink grep gate
         run: bash scripts/check-origin-sinks.sh
       - name: G-A corpus (today)
