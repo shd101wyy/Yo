@@ -148,6 +148,23 @@ _spawn_send_dyn :: (fn() -> i32)({
 test("a Dyn(Trait, Send) crosses Thread.spawn", {
   assert(_spawn_send_dyn() == i32(4), "the spawned thread called the trait object");
 });
+// `dyn(Box.new(v))` into a `Dyn(..., Send)` boxes with `Arc`, as the auto-box
+// does: it read as `dyn(Rc.new(v))` and was rejected, so `yo fix --migrate
+// unsized`'s rewrite of `dyn(v)` stopped this file evaluating
+// (issues/fixed/2026-11-12-dyn-box-new-into-a-send-dyn-is-rejected.md).
+_spawn_send_dyn_box :: (fn() -> i32)({
+  (d : Box(Dyn(SsSpeak, Send))) = dyn(Box.new(SsDog(n : i32(5))));
+  hits := AtomicI32.new(i32(0));
+  t := Thread(unit).spawn(io => {
+    hits.fetch_add(d.speak(), MemoryOrder.AcqRel);
+    ()
+  });
+  t.join();
+  hits.load(MemoryOrder.Acquire)
+});
+test("dyn(Box.new(v)) into a Dyn(Trait, Send) crosses Thread.spawn", {
+  assert(_spawn_send_dyn_box() == i32(5), "an Arc-boxed payload");
+});
 // A manual Sync impl needs pragma(Pragma.AllowUnsafe), as a manual Send does.
 comptime_expect_error({
   _SsClaimsSync :: struct(n : i32);

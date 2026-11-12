@@ -4,8 +4,9 @@
 //! spellings and `upcast`'s target are left alone; `Rc(Dyn(T)).new(...)` and
 //! `impl(Dyn(...), ...)` are listed. The evaluation writes `dyn(v)` as
 //! `dyn(Box.new(v))` (a closure too) and a `dyn(Rc.new(v))` into an owning
-//! `Dyn` as `dyn(Box.new(v))`, and lists `dyn(p)` over a raw pointer and a
-//! `downcast` of an owned `Dyn`.
+//! `Dyn` as `dyn(Box.new(v))`, keeps a `dyn(Rc.new(v))` that builds an
+//! `Rc(Dyn(T))` handle, rewrites a generic body's `dyn(v.*)` once, and lists
+//! `dyn(p)` over a raw pointer and a `downcast` of an owned `Dyn`.
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { println } :: import("std/fmt");
@@ -28,6 +29,7 @@ _lent_mut :: (fn(d : &mut Dyn(Bump)) -> i32)(d.bump());
 _through_ptr :: (fn(p : *Dyn(Speak)) -> i32)(p.*.speak());
 _through_opt :: (fn(o : ?*Dyn(Speak)) -> i32)(match(o, .Some(p) => p.*.speak(), .None => i32(0)));
 _make :: (fn(n : i32) -> Dyn(Speak))(dyn(Cat(n : n)));
+_gen_speak :: (fn(generic(T : Type), v : &T, where(T <: Speak)) -> i32)(_owned(dyn(v.*)));
 main :: (fn() -> unit)({
   z := Zoo(pet : _make(i32(1)), spare : .None);
   mut(pets) := ArrayList(Dyn(Speak)).new();
@@ -35,6 +37,7 @@ main :: (fn() -> unit)({
   (both : Dyn(Speak, Loud)) = dyn(Cat(n : i32(3)));
   (one : Dyn(Speak)) = upcast(both, Dyn(Speak));
   shared := Rc(Dyn(Speak)).new(_make(i32(4)));
+  (handle : Rc(Dyn(Speak))) = dyn(Rc.new(Cat(n : i32(12))));
   (pet : Pet) = _make(i32(5));
   (mut(b) : Dyn(Bump)) = dyn(Cat(n : i32(6)));
   (d : Dyn(Speak)) = _make(i32(7));
@@ -45,7 +48,7 @@ main :: (fn() -> unit)({
   back := match(downcast(fresh, Cat), .Some(k) => k.n, .None => i32(0));
   comptime_assert(size_of(Dyn(Speak)) == (usize(2) * size_of(*u8)), "a fat pointer");
   comptime_assert(Type.eq(Dyn(Speak, Loud), Dyn(Loud, Speak)), "one type");
-  total := (z.pet.speak() + pets(usize(0)).speak() + one.speak() + shared.speak() + pet.speak() + _lent_mut(&mut b) + _lent(&d) + _through_ptr(addr_of(d)) + _through_opt(.None) + _owned(_make(i32(8))) + t.tag() + add(back));
+  total := (z.pet.speak() + pets(usize(0)).speak() + one.speak() + shared.speak() + handle.speak() + pet.speak() + _lent_mut(&mut b) + _lent(&d) + _through_ptr(addr_of(d)) + _through_opt(.None) + _owned(_make(i32(8))) + t.tag() + add(back) + _gen_speak(&c));
   println(&total);
 });
 export(main);

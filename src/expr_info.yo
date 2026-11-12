@@ -3800,6 +3800,11 @@ derive(UnsizedSite, Clone);
 (mut(g_migrate_unsized) : bool) = false;
 (g_unsized_sites : RefCell(ArrayList(UnsizedSite))) = RefCell(ArrayList(UnsizedSite)).new(ArrayList(UnsizedSite).new());
 (g_unsized_site_keys : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+/// The inner `dyn(Rc.new(v))` node the shared-handle arm synthesizes for an
+/// expected `Rc(Dyn(T))`/`Arc(Dyn(T, ...))` (`evaluate_dyn_value`). Its
+/// expected type is the handle's `Dyn` payload, but the `dyn` the user wrote
+/// builds a shared handle, so the migration records nothing there.
+(g_unsized_handle_dyn_nodes : RefCell(HashSet(usize))) = RefCell(HashSet(usize)).new(HashSet(usize).new());
 set_migrate_unsized :: (fn(on : bool) -> unit)({
   g_migrate_unsized = on;
 });
@@ -3816,6 +3821,14 @@ record_unsized_site :: (fn(tok : &Token, kind : u8, text : &String) -> unit)({
 });
 take_unsized_sites :: (fn() -> ArrayList(UnsizedSite))({
   g_unsized_site_keys.with_mut(s => s.clear());
+  g_unsized_handle_dyn_nodes.with_mut(s => s.clear());
   g_unsized_sites.with_mut(xs => xs.split_off(usize(0)))
 });
-export(UnsizedSite, set_migrate_unsized, migrate_unsized_on, record_unsized_site, take_unsized_sites);
+/// Mark `id` as such a synthesized node.
+note_unsized_handle_dyn_node :: (fn(id : usize) -> unit)({
+  _new := g_unsized_handle_dyn_nodes.with_mut({ id }(s) => s.insert(id));
+});
+unsized_handle_dyn_node :: (fn(id : usize) -> bool)(
+  g_unsized_handle_dyn_nodes.with_mut({ id }(s) => s.contains(&id))
+);
+export(UnsizedSite, set_migrate_unsized, migrate_unsized_on, record_unsized_site, take_unsized_sites, note_unsized_handle_dyn_node, unsized_handle_dyn_node);

@@ -22,7 +22,9 @@ pragma(Pragma.AllowUnsafe);
   mark_node_preevaluated,
   unmark_node_preevaluated,
   migrate_unsized_on,
-  record_unsized_site
+  record_unsized_site,
+  note_unsized_handle_dyn_node,
+  unsized_handle_dyn_node
 } :: import("../../expr_info.yo");
 { Environment, Variable, synthetic_token, get_variables_from_env, add_variable_to_env, by_value_param_owns, snapshot_env, variable_value_type, variable_set_is_ref, variable_set_is_imm_borrow } :: import("../../env.yo");
 { Token, TokenKind, intern_token_str } :: import("../../token.yo");
@@ -1331,15 +1333,16 @@ _dyn_pointee_of_expected :: (fn(t : &TypeValue) -> Option(TypeValue))({
 /// `unsized_legacy_spellings` holds (VERDICTS-40 amendment 2): the call is
 /// rewritten to the inline `Rc.new(v[, alloc])` the recognizer already
 /// adopts, a fresh cell whose one count is the Dyn's. The `Box.new` call is
-/// never evaluated as a `Box`.
-_box_new_as_cell_new :: (fn(arg : &AstExpr, env : &Environment) -> AstExpr)(
+/// never evaluated as a `Box`. Against a `Dyn(..., Send)` the cell is `Arc`,
+/// the box the auto-boxed `dyn(v)` picks there.
+_box_new_as_cell_new :: (fn(arg : &AstExpr, env : &Environment, send : bool) -> AstExpr)(
   match(
     arg,
     .FnCall(a_id, a_fn, a_args, a_infix, a_tok) => match(
       a_fn,
       .FnCall(f_id, f_fn, Rc(f_args), f_infix, f_tok) => if(ast_expr_is_fn_call_of(a_fn, BF_DOT, Option(usize).Some(usize(2))) && match(f_args.get(usize(1)), .Some(.Atom(_, m_tok)) => (m_tok.value.* == "new"), _ => false) && match(f_args.get(usize(0)), .Some(.Atom(_, r_tok)) => (r_tok.value.* == "Box"), _ => false), {
         rc_args := ArrayList(AstExpr).new();
-        rc_args.push(AstExpr.Atom(alloc_global_expr_id(), synthetic_token(String.from("Rc"), &env.module_path().*)));
+        rc_args.push(AstExpr.Atom(alloc_global_expr_id(), synthetic_token(if(send, String.from("Arc"), String.from("Rc")), &env.module_path().*)));
         match(f_args.get(usize(1)), .Some(m) => rc_args.push(m), .None => ());
         AstExpr.FnCall(a_id.*, AstExpr.FnCall(f_id.*, f_fn.clone(), Rc.new(rc_args), f_infix.*, f_tok.clone()), Rc.clone(a_args), a_infix.*, a_tok.clone())
       }, arg.clone()),
@@ -1417,8 +1420,24 @@ _evaluate_dyn_over_lend :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut E
 /// `Rc`/`Arc` is rewritten `Box` (recorded at that token); kind 5, a named
 /// `Rc`/`Arc` handle, listed (it is rejected in v0.2.77). `written` is the
 /// argument before `dyn(Box.new(v))` reads as `dyn(Rc.new(v))`.
+/// Whether `written` is `Box.new(...)`, `Rc.new(...)` or `Arc.new(...)`.
+_written_cell_new :: (fn(written : &AstExpr) -> bool)(
+  match(
+    written,
+    .FnCall(_, w_callee, _, _, _) => if(
+      ast_expr_is_fn_call_of(w_callee, BF_DOT, Option(usize).Some(usize(2))),
+      match(
+        w_callee,
+        .FnCall(_, _, Rc(w_dot), _, _) => (match(w_dot.get(usize(1)), .Some(.Atom(_, m_tok)) => (m_tok.value.* == "new"), _ => false) && match(w_dot.get(usize(0)), .Some(.Atom(_, r_tok)) => ((r_tok.value.* == "Box") || (r_tok.value.* == "Rc") || (r_tok.value.* == "Arc")), _ => false)),
+        .Atom(_, _) => false
+      ),
+      false
+    ),
+    .Atom(_, _) => false
+  )
+);
 _record_unsized_dyn_site :: (fn(expr : &AstExpr, written : &AstExpr, value_ty : &TypeValue, fresh : bool, expected : &Option(ExpectedTypeCtx)) -> unit)({
-  if(!migrate_unsized_on(), {
+  if(!migrate_unsized_on() || unsized_handle_dyn_node(ast_expr_id(expr)), {
     return(());
   });
   tok := match(expr, .FnCall(_, callee, _, _, _) => ast_expr_token(callee), .Atom(_, t) => t.clone());
@@ -1426,7 +1445,9 @@ _record_unsized_dyn_site :: (fn(expr : &AstExpr, written : &AstExpr, value_ty : 
   raw := (is_pointer_type(value_ty) || match(can_optimize_as_nullable_pointer(value_ty), .Some(p) => is_pointer_type(&p), .None => false));
   cond(
     raw => record_unsized_site(&tok, u8(1), &text),
-    (!is_reference_struct_type(value_ty) && !is_dyn_type(value_ty) && cell_handle_view(value_ty).is_none()) => record_unsized_site(&tok, u8(2), &text),
+    // An open payload's `dyn(Box.new(v))` evaluates through the prelude cell
+    // with `v`'s type: the written box is there already.
+    (!is_reference_struct_type(value_ty) && !is_dyn_type(value_ty) && cell_handle_view(value_ty).is_none() && !_written_cell_new(written)) => record_unsized_site(&tok, u8(2), &text),
     (!fresh && cell_handle_view(value_ty).is_some()) => record_unsized_site(&tok, u8(5), &text),
     true => {
       owning_dyn := match(expected, .Some(et) => match(t_refine_inner(&et.ty), Rc(.DynT(_, _, _, _)) => true, _ => false), .None => false);
@@ -1509,7 +1530,7 @@ evaluate_dyn_value :: (
   );
   // `dyn(Box.new(v))` is `dyn(Rc.new(v))` here, the legacy owning Dyn.
   written_arg := value_arg.clone();
-  value_arg = _box_new_as_cell_new(&value_arg, env);
+  value_arg = _box_new_as_cell_new(&value_arg, env, _dyn_target_requires_send(&ctx.expected_type, &t_unit()));
   // A fresh cell (`dyn(Rc.new(v))`) is the only handle `dyn` takes: erasing a
   // NAMED shared handle (a variable or a field) in place waits for the
   // `?Sized` prelude.
@@ -1535,15 +1556,21 @@ evaluate_dyn_value :: (
       .FnCall(_, sh_callee, _, _, _) => match(
         _dyn_cell_constructor_of(&sh_callee),
         .Some(sh_cell) => {
+          sh_inner_id := alloc_global_expr_id();
           sh_inner := match(
             expr,
             .FnCall(_, sh_dyn_fn, _, sh_infix, sh_tok) => {
               sh_args := ArrayList(AstExpr).new();
               sh_args.push(value_arg.clone());
-              AstExpr.FnCall(alloc_global_expr_id(), sh_dyn_fn.clone(), Rc.new(sh_args), sh_infix.*, sh_tok.clone())
+              AstExpr.FnCall(sh_inner_id, sh_dyn_fn.clone(), Rc.new(sh_args), sh_infix.*, sh_tok.clone())
             },
             _ => expr.clone()
           );
+          // The inner `dyn` is not one the user wrote over an owning `Dyn`:
+          // `yo fix --migrate unsized` keeps this shared handle as written.
+          if(migrate_unsized_on(), {
+            note_unsized_handle_dyn_node(sh_inner_id);
+          });
           (sh_call, sh_recv) := _synthesized_cell_call(&handle_ty, &sh_cell.type_name, &dyn_payload_ty, sh_inner, &expr_tok, env, ctx);
           // The handle call takes this node's id, so the tree reads it where
           // the `dyn(...)` call was written (`note_rewritten_node`, as the
