@@ -1,0 +1,13 @@
+// N0 corpus row `o7-composite-impl-narrower` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): POSITIVE: an impl spelling its composite result over `self` against a trait over `(self, other)` (O7 narrower; VERDICTS-57 §2).
+// Expected once decision 43's rules land: accepted.
+_Pick :: trait(pick : (fn(self : &Self, other : &i32) -> Option(&(i32, (self, other)))));
+_P :: struct(v : i32);
+impl(_P, _Pick(pick : (fn(self : &Self, other : &i32) -> Option(&(i32, self)))(.Some(&self.v))));
+main :: (fn() -> unit)({
+  p := _P(v : i32(1));
+  o := i32(2);
+  _ := p.pick(&o);
+  ()
+});
+export(main);

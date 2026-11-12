@@ -82,3 +82,32 @@ origins (the trait's signature is the contract every `Dyn` and generic caller se
 
 With the fix: the pair moves to `tests/origins/unsound/`; rows in `tests/origins/impl_origin_result.test.yo`
 (elided impl against a spelled trait, both directions) and a corpus row beside `impl-wider-than-trait`.
+
+## Fix
+
+Fixed at the impl (`~/Workspace/Yo-wt/v0273/fable/VERDICTS-57.md` §2, lane v57a). The regressing PR is #1841: its
+`projection_call_root_args` reads a composite spelled result origin, and the seed did not. O7's existing check,
+`_impl_result_origin_wider` (`src/evaluator/values/impl.yo`), returned unless both results were references. It now
+compares the roots of any result that carries an origin (`_result_origin_roots`):
+
+- A reference result keeps its parameter set (`_result_origin_params`).
+- A by-value result with spelled origins (`-> Option(&(T, self))`, `-> V(a)`) names the parameters whose slot or
+  pointee spells one of them. A name that no parameter spells (an impl's origin parameter) is compared by name.
+- An elided by-value result is O2's union: every reference parameter, plus every by-value parameter whose type
+  carries an origin.
+
+If the impl's roots are not a subset of the trait's, the impl is E0923 at registration, with the existing message.
+That covers the `Dyn` call and the `where(T <: Pk)` form at once, so callers keep trusting the trait.
+
+The parameter direction in the table above is out of scope: v0.2.76 accepts it too, and it is not this regression. It is
+`issues/2026-11-12-an-impl-whose-parameter-origins-are-narrower-than-its-traits-is-accepted.md` (S1, open). The repros `…-parameters.yo` and `…-parameters-pos.yo` keep
+their names under `issues/repros/`.
+
+Tests in `tests/origins/unsound/` (G-B):
+
+- E0923 rows: `o7-composite-impl-wider` (the program above), `o7-composite-generic-wider` (the `where` form) and
+  `o7-holder-result-wider` (`-> V(other)` against `-> V(self)`). Each is accepted on develop `64f33c710`.
+- Accepted controls: `o7-composite-impl-equal` (the `-pos` program, run under ASan), `o7-composite-impl-narrower` and
+  `o7-composite-trait-elided`.
+
+Corpus and model rows for the three shapes the model encodes sit beside `impl-wider-than-trait`.

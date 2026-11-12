@@ -10,7 +10,7 @@ fails the same way.
 Found 2026-11-11 by the ownership / borrowing / origin audit
 (`plans/backlog/OWNERSHIP_BORROWING_ORIGINS_AUDIT.md` §3 B5, ledger X-B1). Confirmed on develop `64f33c710`.
 It is also why the `static` positive control drafted for
-`issues/2026-11-11-a-reference-typed-over-the-static-origin-accepts-any-reference-and-freezes-nothing.md`
+`issues/fixed/2026-11-11-a-reference-typed-over-the-static-origin-accepts-any-reference-and-freezes-nothing.md`
 (`Option(&(i32, static)).Some(&G)`) does not compile.
 
 ## Reproducers

@@ -923,6 +923,18 @@ test("impl-wider-than-trait", {
 test("impl-narrower-than-trait", {
   verdict("impl-narrower-than-trait", case2(entry(none()), pick(shr(int(), ELIDED), SELF)), "ACCEPT");
 });
+/// `pick` with a composite result `Option(&(i32, o))`, returning `.Some(returned)`
+/// (VERDICTS-57 §2: O7 over a by-value result that carries an origin).
+pick_some :: (fn(result : Ty, returned : usize) -> FnDef)(fun(u64(0), al2(prm(SELF, shr(int(), ELIDED)), prm(OTHER, shr(int(), ELIDED))), wrap(Kind.Some, result), al1(Rc.new(NodeE.Return(Rc.new(NodeE.Make(Kind.Some, Rc.new(NodeE.Var(returned)))))))));
+test("o7-composite-impl-wider", {
+  verdict("o7-composite-impl-wider", case2(entry(none()), pick_some(shr(int(), o(SELF)), OTHER)), "ORIGIN_MISMATCH");
+});
+test("o7-composite-impl-narrower", {
+  verdict("o7-composite-impl-narrower", case2(entry(none()), pick_some(shr(int(), o(SELF) | o(OTHER)), SELF)), "ACCEPT");
+});
+test("o7-composite-trait-elided", {
+  verdict("o7-composite-trait-elided", case2(entry(none()), pick_some(shr(int(), ELIDED), OTHER)), "ACCEPT");
+});
 /// The trait method `pick(self : &Self, other : &i32) -> result` that a
 /// `Dyn(_Pick)` call dispatches on: the caller sees only this signature.
 pick_sig :: (fn(result : Ty) -> FnDef)(sig(u64(0), al2(prm(SELF, shr(int(), ELIDED)), prm(OTHER, shr(int(), ELIDED))), result));

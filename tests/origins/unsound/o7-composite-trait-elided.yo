@@ -1,0 +1,18 @@
+// expect: accept
+// The trait elides its composite result (O2: self and other); the impl elides too and returns other, read while b lives. VERDICTS-57 §2.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+Pk :: trait(pick : (fn(self : &Self, other : &Rc(X)) -> Option(&Rc(X))));
+P :: struct(n : i32);
+impl(P, Pk(pick : (fn(self : &Self, other : &Rc(X)) -> Option(&Rc(X)))(.Some(other))));
+main :: (fn() -> unit)({
+  (d : Dyn(Pk)) = dyn(P(n : i32(1)));
+  {
+    b := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+    o := d.pick(&b);
+    match(o, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => println("none"));
+  };
+  ()
+});
+export(main);

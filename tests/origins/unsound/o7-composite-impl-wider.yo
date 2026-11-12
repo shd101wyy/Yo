@@ -1,0 +1,19 @@
+// expect: E0923
+// The trait spells its composite result over self; the impl elides it (O2: self and other) and returns other; a Dyn call maps through the trait. VERDICTS-57 §2. Found by the borrow/ownership audit (yo-6c).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+Pk :: trait(pick : (fn(self : &Self, other : &Rc(X)) -> Option(&(Rc(X), self))));
+P :: struct(n : i32);
+impl(P, Pk(pick : (fn(self : &Self, other : &Rc(X)) -> Option(&Rc(X)))(.Some(other))));
+main :: (fn() -> unit)({
+  (d : Dyn(Pk)) = dyn(P(n : i32(1)));
+  mut(o) := Option(&Rc(X)).None;
+  {
+    b := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+    o = d.pick(&b);
+  };
+  match(o, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => println("none"));
+  ()
+});
+export(main);

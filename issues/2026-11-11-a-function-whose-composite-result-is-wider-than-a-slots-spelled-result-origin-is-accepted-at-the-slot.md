@@ -8,7 +8,7 @@ value returns a reference into another: heap-use-after-free under ASan. Pre-exis
 Found 2026-11-11 by the ownership / borrowing / origin audit
 (`plans/backlog/OWNERSHIP_BORROWING_ORIGINS_AUDIT.md` §3 A48), as probe (b) of VERDICTS-57. Confirmed on develop
 `64f33c710`. The impl-against-trait twin is
-`issues/2026-11-11-an-impl-whose-result-origin-is-wider-than-its-traits-is-accepted-and-dyn-callers-trust-the-trait.md`.
+`issues/fixed/2026-11-11-an-impl-whose-result-origin-is-wider-than-its-traits-is-accepted-and-dyn-callers-trust-the-trait.md`.
 
 ## Reproducers
 

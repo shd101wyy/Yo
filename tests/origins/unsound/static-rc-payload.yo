@@ -1,0 +1,17 @@
+// expect: E0922
+// Launder a parameter reference into &(T, static) (Escapable), then into an Rc payload that outlives the root.
+// VERDICTS-57 §1: the v0.2.77 wall (E0923 once v0.2.78 checks `static`; P12). Found by the borrow/ownership audit (yo-6c).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+mk :: (fn(x : &Rc(X)) -> Option(&(Rc(X), static)))(.Some(x));
+main :: (fn() -> unit)({
+  mut(keep) := Option(Rc(Option(&(Rc(X), static)))).None;
+  {
+    b := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+    keep = .Some(Rc.new(mk(&b)));
+  };
+  match(&keep, .Some(h) => match(&h.*.*, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => ()), .None => println("none"));
+  ()
+});
+export(main);
