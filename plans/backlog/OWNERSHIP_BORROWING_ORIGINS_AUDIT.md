@@ -128,7 +128,7 @@ basename), or the fix lane that owns it. Severity is `issues/README.md`'s scale.
 | A52 | A borrow of a by-value parameter of a generic body freezes nothing | S1 | pre | `issues/2026-11-11-a-borrow-of-a-by-value-parameter-of-a-generic-body-freezes-nothing.md` |
 | A53 | A temporary lent before an await in a later operand is read from a dead C local after the resume | S1 | pre | `issues/2026-11-11-a-temporary-lent-before-an-await-in-a-later-operand-is-read-from-a-dead-c-local-after-the-resume.md` |
 | A54 | A string interpolation containing an await evaluates to an empty string and leaks its pieces | S1 | pre | `issues/2026-11-11-a-string-interpolation-containing-an-await-evaluates-to-an-empty-string-and-leaks-its-pieces.md` |
-| A55 | A generic by-value result at a reference type (`_sm_pick(rx, ry, c)` at `T := &i32`, `Option(T)`, three arguments) carries only its first argument's origin | S1 | new (R3, #1904; v0.2.76 rejects with E0601) | fix lane `fix/generic-ref-result-origins` |
+| A55 | A generic by-value result at a reference type (`_sm_pick(rx, ry, c)` at `T := &i32`, `Option(T)`, three arguments) carries only its first argument's origin | S1 | new (R3, #1904; v0.2.76 rejects with E0601); fixed by #1921 | `issues/fixed/2026-11-12-a-generic-by-value-result-at-a-reference-type-drops-its-second-arguments-origin.md` |
 | A56 | A local closure returning a reference borrows only its first reference argument | S1 | pre | `issues/2026-11-12-a-local-closure-returning-a-reference-borrows-only-its-first-reference-argument.md` |
 
 ### 3.2 Compiler failures
@@ -142,7 +142,8 @@ basename), or the fix lane that owns it. Severity is `issues/README.md`'s scale.
 | B5 | A lend of a module-level constant in a constructor field emits the address of a literal | S2 | pre | `issues/2026-11-11-a-lend-of-a-module-level-constant-in-a-constructor-field-emits-the-address-of-a-literal.md` |
 | B6 | `RefCell.with(&mut pick)` with `pick :: (fn(v : &String) -> &String)(v)` passes check and the C does not compile | S2 | pre | the R3 family: add the row to `issues/fixed/2026-11-06-a-generic-result-at-t-reference-is-lowered-as-a-projection.md`'s tests |
 | B7 | A closure that returns an `io.async` future passes check and the C does not compile (`void *` initialized with a struct) | S2 | pre | already open: `issues/an-impl-fn-local-returning-a-future-is-declared-as-a-void-pointer.md` (the closure-capture form is one more row for it) |
-| B8 | A generic `-> Tuple(T, T)` whose body is `(b, a)` at `T := &i32` emits invalid C | S2 | new (R3, #1904; v0.2.76 rejects with E0901) | `issues/2026-11-12-a-tuple-of-by-value-reference-parameters-emits-invalid-c.md` |
+| B8 | A generic `-> Tuple(T, T)` whose body is `(b, a)` at `T := &i32` emits invalid C | S2 | new (R3, #1904; v0.2.76 rejects with E0901); fixed by #1920 | `issues/fixed/2026-11-12-a-tuple-of-by-value-reference-parameters-emits-invalid-c.md` |
+| B9 | A non-generic `Array(&i32, 2)(rx, rx)` passes check and emits `*rx` into a pointer slot; the lend spelling `Array(&i32, 2)(&x, &x)` is rejected | S2 | pre (v0.2.76 fails it in the evaluator) | `issues/2026-11-12-an-array-constructor-over-a-reference-element-type-emits-invalid-c.md` |
 
 ### 3.3 Wrongly rejected, and diagnostics
 
