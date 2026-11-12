@@ -1,0 +1,34 @@
+// expect: E0911
+// A method whose result elides its origin (`get(self : &mut Self) -> Option(&i32)`, O2: the receiver's place) keeps
+// freezing the receiver when it is called inside a generic body whose specialization erased the holder's origin
+// (`T := _Lend(<elided>)`): only a DEFINITION that spells the result's origin frees the receiver's place. `a` points
+// into `t.v`'s buffer, which `clear_v` frees.
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array_list");
+_Getter :: trait(get : (fn(self : &mut Self) -> Option(&i32)), clear_v : (fn(self : &mut Self) -> unit));
+_Lend :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(i32, p), v : ArrayList(i32)));
+impl(
+  generic(p : Origin),
+  _Lend(p),
+  _Getter(
+    get : (fn(self : &mut Self) -> Option(&i32))(
+      cond((self.v.len() > usize(0)) => .Some(&self.v(usize(0))), true => .None)
+    ),
+    clear_v : (fn(self : &mut Self) -> unit)({
+      self.v = ArrayList(i32).new();
+    })
+  )
+);
+_use :: (fn(generic(T : Type), t : &mut T, where(T <: _Getter)) -> i32)({
+  a := t.get();
+  t.clear_v();
+  match(a, .Some(r) => r.*, .None => i32(0))
+});
+main :: (fn() -> unit)({
+  x := i32(1);
+  mut(l) := _Lend(x)(r : &x, v : ArrayList(i32).new());
+  l.v.push(i32(7));
+  println(&_use(&mut l));
+  ()
+});
+export(main);

@@ -54,7 +54,8 @@ pragma(Pragma.AllowUnsafe);
   BF_ADDRESS_OF,
   is_mut_binding,
   ast_rewritten_node,
-  for_desugar_site_of
+  for_desugar_site_of,
+  value_tail_mode
 } :: import("../expr.yo");
 {
   ExprInfo,
@@ -8876,6 +8877,24 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
     );
     return(());
   });
+  // R3's value tail (`VALUE_*_READ_PATH`, `rewrite_value_reference_tails`):
+  // a by-value `-> T` result specialized at `T := &U` reads a reference
+  // binding `name` in a result position as the marked `addr_of(name.*)`,
+  // which is the reference VALUE `name` holds — so its origin is `name`'s
+  // (R-READ), never the `name.*` place's (an untyped node: the evaluator
+  // reads the argument under another id).
+  if(value_tail_mode(e).is_some(), {
+    match(
+      e,
+      .FnCall(_, _, Rc(vt_args), _, _) => match(
+        vt_args.get(usize(0)),
+        .Some(.FnCall(_, _, Rc(vt_deref_args), _, _)) => match(vt_deref_args.get(usize(0)), .Some(vt_name) => _origin_of_into(&vt_name, env, ctx, out, (depth + u32(1))), .None => ()),
+        _ => ()
+      ),
+      .Atom(_, _) => ()
+    );
+    return(());
+  });
   stripped := ast_expr_strip_borrow_marker(e);
   // A macro expansion is checked in the caller's coordinates: its origin is
   // the expansion's.
@@ -9072,7 +9091,9 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
             if(!ra.by_value && is_temporary_operand(&ra.arg, env, ctx), {
               _origin_push(origin_temporary_entry(&ra.arg, ra.is_mut), out);
             });
-            _origin_of_into(&ra.arg, env, ctx, out, (depth + u32(1)));
+            // A by-value root: the result points where the argument's
+            // references point, never into the argument (`_origin_held_into`).
+            if(ra.by_value, _origin_held_into(&ra.arg, env, ctx, out, (depth + u32(1))), _origin_of_into(&ra.arg, env, ctx, out, (depth + u32(1))));
           },
           .None => ()
         );
@@ -9121,6 +9142,33 @@ origin_held_by :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> A
     );
   });
   origin_of(e, env, ctx)
+});
+/// What the VALUE of the argument `e` holds, for a call result rooted at it
+/// by value (`ProjectionRootArg.by_value`: a holder parameter, or an impl's
+/// origin parameter its type carries): the result points where `e`'s
+/// references point, never into `e` — `origin_held_by` read through a
+/// place's field and deref steps. A place rooted at a parameter or at a
+/// by-value holder holds that root's registered entries: none for a
+/// parameter's (`self._inner` under `self : &mut Self` holds what the caller
+/// lent, outside this function), so a write to `self.n` while the result is
+/// live is no conflict, as Rust's `Iterator::next(&mut self) ->
+/// Option<Self::Item>` (issues/fixed/2026-11-12-a-call-result-in-an-origin-erased-specialization-borrows-the-receiver.md).
+/// Any other argument (a reference binding's place, a temporary) holds its
+/// origin (`origin_of`).
+_origin_held_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(OriginRootPlace), depth : u32) -> unit)({
+  match(
+    _place_chain_root_atom(e),
+    .Some(root) => match(
+      get_variables_from_env(env, ast_expr_token(&root).value.*.clone()).last_cloned(),
+      .Some(rv) => if(rv.is_parameter() || !variable_is_reference_binding(&rv), {
+        _holder_roots_into(&root, env, ctx, out);
+        return(());
+      }),
+      .None => ()
+    ),
+    .None => ()
+  );
+  _origin_of_into(e, env, ctx, out, depth);
 });
 /// R-FIELD's push for the field read `node` (`recv.field`): the field
 /// type's spelled origin names (`_origin_names_into`), else the receiver's
@@ -9237,6 +9285,21 @@ _origin_push_lend :: (fn(operand : &AstExpr, is_mut : bool, env : &Environment, 
     }
   );
 });
+/// Whether `.*` on `base` is a step INTO an owning handle (`Box`, `Rc`,
+/// `Arc`: `unique_box_payload_type`, `cell_handle_view`) rather than a way
+/// out of the place's frame: the handle owns its payload, so a place reached
+/// through it is rooted where the handle is (REFERENCES_AND_ORIGINS.md O3's
+/// return rule as made precise 2026-11-11, audit A30; O9 gives `&h.*.x` the
+/// handle's place as its origin). A `.*` on a reference or a raw pointer
+/// leaves the frame: the pointee is wherever it points.
+deref_is_owning_handle_step :: (fn(base : &AstExpr, ctx : &EvalContext) -> bool)({
+  doh_ty := match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(base)),
+    .Some(bi) => Option(TypeValue).Some(Rc.clone(bi.ty())),
+    .None => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ast_rewritten_node(base))), .Some(bri) => Option(TypeValue).Some(Rc.clone(bri.ty())), .None => Option(TypeValue).None)
+  );
+  match(doh_ty, .Some(t) => (unique_box_payload_type(&t).is_some() || cell_handle_view(&t).is_some()), .None => false)
+});
 /// R-TEMP (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3, O-5): the
 /// root name of a temporary's entry — a hidden statement local, never a
 /// user name (`#`), so it overlaps no place and names no binding.
@@ -9246,7 +9309,9 @@ ORIGIN_TEMPORARY_ROOT :: "#temporary";
 /// field of one — not a binding's place, not a reference value (a reference
 /// passed on is its own origin, R-READ/R-CALL), not a projection's or a
 /// subscript's place (those lie in their own roots), and not a deref
-/// (`p.*` is a place behind a reference). Structural on purpose:
+/// through a reference or a raw pointer (`p.*` is a place behind it). A `.*`
+/// on an OWNING handle is a field step (`deref_is_owning_handle_step`):
+/// `long().*.s` is a field of the temporary `long()`. Structural on purpose:
 /// `local_borrow_place_of` reads a call as its callee's place, so a method
 /// call's receiver (`c.borrow()`) would pass for `c`.
 is_temporary_operand :: (fn(operand : &AstExpr, env : &Environment, ctx : &EvalContext) -> bool)({
@@ -9257,7 +9322,11 @@ is_temporary_operand :: (fn(operand : &AstExpr, env : &Environment, ctx : &EvalC
     .FnCall(_, _, Rc(t_args), _, _) => cond(
       ast_expr_is_fn_call_of(&s, BF_DOT, Option(usize).Some(usize(2))) => match(
         t_args.get(usize(1)),
-        .Some(member) => if(ast_expr_is_atom(&member) && (ast_expr_token(&member).value.* == "*"), false, match(t_args.get(usize(0)), .Some(recv) => is_temporary_operand(&recv, env, ctx), .None => false)),
+        .Some(member) => match(
+          t_args.get(usize(0)),
+          .Some(recv) => if(ast_expr_is_atom(&member) && ((ast_expr_token(&member).value.* == "*") && !deref_is_owning_handle_step(&recv, ctx)), false, is_temporary_operand(&recv, env, ctx)),
+          .None => false
+        ),
         .None => false
       ),
       ast_expr_is_fn_call_of(&s, BK_COLON, Option(usize).Some(usize(2))) => match(t_args.get(usize(1)), .Some(v) => is_temporary_operand(&v, env, ctx), .None => false),
@@ -11561,7 +11630,7 @@ _origin_through_match_bindings :: (fn(roots : &ArrayList(OriginRootPlace), env :
   });
   out
 });
-export(projection_call_mode_of, unsize_root_args, projection_body_mismatch_message, ProjectionRootArg, is_temporary_operand, origin_temporary_entry, origin_temporary_root, ORIGIN_TEMPORARY_ROOT, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, variable_holder_roots, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, note_ref_payload_source, ref_payload_source, note_ref_payload_held, note_borrow_match_source, borrow_match_source, n2b_roots_text, audit_origin_totality, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, note_fn_value_definition, fn_value_definition);
+export(projection_call_mode_of, unsize_root_args, projection_body_mismatch_message, ProjectionRootArg, is_temporary_operand, deref_is_owning_handle_step, origin_temporary_entry, origin_temporary_root, ORIGIN_TEMPORARY_ROOT, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, variable_holder_roots, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, note_ref_payload_source, ref_payload_source, note_ref_payload_held, note_borrow_match_source, borrow_match_source, n2b_roots_text, audit_origin_totality, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, note_fn_value_definition, fn_value_definition);
 export(drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions);
 export(
   LocalBorrowPlace,

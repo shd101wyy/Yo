@@ -1,6 +1,6 @@
 // expect: E0912
-// A projection returns `&b.*` of a LOCAL `Box`: the root rule treats every `.*` as a raw-pointer deref
-// and stops, so the result points into the box the function frees when it returns.
+// A projection returns `&b.*` of a LOCAL `Box`: a `.*` on an owning handle is a field step, so the place is
+// rooted at `b`, which the function frees when it returns (O3's return rule, audit A30).
 { String } :: import("std/string");
 { println } :: import("std/fmt");
 get :: (fn(a : &String) -> &String)({

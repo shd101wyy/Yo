@@ -37,7 +37,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue, TypeValueNode, SharedList, fn_param_is_mut_ref, fn_param_is_by_value, fn_result_origin_names, fn_param_in_result_origin, t_slot_origin_names, origin_names_contain, t_slot_is_mut_ref, t_reference } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
-{ DYN_LEND_HELP, attach_temp_variable_to_expr, projection_call_mode_of, projection_call_root_args, reference_field_read_type, ref_payload_source, borrow_match_source, origin_of, OriginRootPlace, variable_is_reference_binding, local_borrow_info_of_variable, lend_place_reference_type } :: import("../utils.yo");
+{ DYN_LEND_HELP, attach_temp_variable_to_expr, projection_call_mode_of, projection_call_root_args, reference_field_read_type, ref_payload_source, borrow_match_source, origin_of, OriginRootPlace, variable_is_reference_binding, local_borrow_info_of_variable, lend_place_reference_type, deref_is_owning_handle_step } :: import("../utils.yo");
 { evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { call_promote_index_places_for_write } :: import("../context.yo");
@@ -259,8 +259,10 @@ _projection_root_name_error :: (fn(name : &String, is_mut : bool, env : &Environ
 );
 /// Decision 24's root rule (the first cut of `REFERENCES_AND_ORIGINS.md` O3's return rule; R3 before 2026-10-20): the
 /// place a projection yields is reached from one of its own borrow
-/// parameters, through field steps, element accesses and raw-pointer derefs
-/// (`p.*`, which only a `pragma(AllowUnsafe)` file can write). A `&mut place`
+/// parameters, through field steps, element accesses, an owning handle's
+/// `.*` (a field step: `&h.*.s` is rooted at `h`) and derefs through a
+/// reference or a raw pointer (`p.*`, which only a `pragma(AllowUnsafe)` file
+/// can write; the place is wherever it points). A `&mut place`
 /// result needs a `&mut` parameter. A place whose storage ends with the call
 /// (a local, a by-value parameter, a temporary) is E0912; a root outside a
 /// spelled result origin is E0923. Returns the error, or `.None`.
@@ -278,8 +280,14 @@ _projection_root_error :: (fn(place : &AstExpr, is_mut : bool, env : &Environmen
     .FnCall(_, pr_callee, Rc(pr_args), _, _) => cond(
       ast_expr_is_fn_call_of(place, BF_DOT, Option(usize).Some(usize(2))) => match(
         pr_args.get(usize(1)),
-        // A raw-pointer deref: the place is wherever the pointer points.
-        .Some(f) => if(ast_expr_is_atom_of(&f, "*"), Option(_ProjRootError).None, {
+        // A `.*` through a reference or a raw pointer: the place is wherever
+        // it points. A `.*` on an OWNING handle (`Box`, `Rc`, `Arc`) is a
+        // field step: the payload lives as long as the handle, so the place
+        // is rooted where the handle is (O3's return rule, A30).
+        .Some(f) => if(ast_expr_is_atom_of(&f, "*"), {
+          star_base := match(pr_args.get(usize(0)), .Some(b) => b, .None => make_err_expr());
+          if(deref_is_owning_handle_step(&star_base, ctx), _projection_root_error(&star_base, is_mut, env, ctx), Option(_ProjRootError).None)
+        }, {
           base := match(pr_args.get(usize(0)), .Some(b) => b, .None => make_err_expr());
           // A reference field of a holder parameter (N1e-2: `v.r` with
           // `v : _View(p)`, `r : &(T, p)`) is a place OUTSIDE the holder,

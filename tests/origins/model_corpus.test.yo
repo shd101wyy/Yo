@@ -425,6 +425,55 @@ test("swap-inferred-locals", {
   );
   verdict("swap-inferred-locals", case2(main, swap()), "ACCEPT");
 });
+set_s :: (fn() -> FnDef)(sig(P, al2(prm(A, exc(shr(int(), P), ELIDED)), prm(B, shr(int(), P))), int()));
+test("ref-mut-ref-store-narrower", {
+  // `set(&mut r, &inner)` through `dst : &mut &(T, p)`: the solved origin {inner} is written back into the inferred `r`, which is read after `inner` dies.
+  main := entry(
+    al4(
+      let_(X, lit()),
+      let_(R, Rc.new(NodeE.Borrow(false, X))),
+      Rc.new(NodeE.Block(al2(let_(Y, lit()), use_(call(usize(1), al2(Rc.new(NodeE.Borrow(true, R)), Rc.new(NodeE.Borrow(false, Y)))))))),
+      use_(Rc.new(NodeE.Var(R)))
+    )
+  );
+  verdict("ref-mut-ref-store-narrower", case2(main, set_s()), "E0911");
+});
+test("ref-mut-ref-store-narrower-declared", {
+  main := entry(
+    al4(
+      let_(X, lit()),
+      let_d(R, Rc.new(NodeE.Borrow(false, X)), shr(int(), o(X))),
+      Rc.new(NodeE.Block(al2(let_(Y, lit()), use_(call(usize(1), al2(Rc.new(NodeE.Borrow(true, R)), Rc.new(NodeE.Borrow(false, Y)))))))),
+      use_(Rc.new(NodeE.Var(R)))
+    )
+  );
+  verdict("ref-mut-ref-store-narrower-declared", case2(main, set_s()), "ORIGIN_MISMATCH");
+});
+test("ref-mut-ref-store-reborrow", {
+  // The re-borrow `rp := &mut r` is a `&mut` lend of `r`; storing through it widens `r`.
+  main := entry(
+    al5(
+      let_(X, lit()),
+      let_(R, Rc.new(NodeE.Borrow(false, X))),
+      let_(RP, Rc.new(NodeE.Borrow(true, R))),
+      Rc.new(NodeE.Block(al2(let_(Y, lit()), use_(call(usize(1), al2(Rc.new(NodeE.Borrow(true, R)), Rc.new(NodeE.Borrow(false, Y)))))))),
+      use_(Rc.new(NodeE.Var(R)))
+    )
+  );
+  verdict("ref-mut-ref-store-reborrow", case2(main, set_s()), "E0911");
+});
+test("ref-mut-ref-store-same-scope", {
+  main := entry(
+    al5(
+      let_(X, lit()),
+      let_(Y, lit()),
+      let_(R, Rc.new(NodeE.Borrow(false, X))),
+      use_(call(usize(1), al2(Rc.new(NodeE.Borrow(true, R)), Rc.new(NodeE.Borrow(false, Y))))),
+      use_(Rc.new(NodeE.Var(R)))
+    )
+  );
+  verdict("ref-mut-ref-store-same-scope", case2(main, set_s()), "ACCEPT");
+});
 test("swap-declared-union", {
   verdict("swap-declared-union", case2(swap_main(o(X) | o(Y), o(X) | o(Y)), swap()), "ACCEPT");
 });
