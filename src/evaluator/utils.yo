@@ -11017,6 +11017,11 @@ flow_write_back_through :: (fn(targets : &ArrayList(OriginRootPlace), own : &Str
     ti = (ti + usize(1));
   });
 });
+/// `e` is a `&mut` reference VALUE: a `&mut` projection call, or a node typed
+/// `&mut T` (a call result, a reference field read whole).
+expr_is_mut_reference_value :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
+  match(projection_call_mode_of(e, ctx), .Some(m) => m, .None => false) || match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)), .Some(ci) => match(&ci.ty(), Rc(.Reference(_, true, _)) => true, _ => false), .None => false)
+);
 /// The local `&mut` borrow `v` points into a holder (`sp := &mut slot`), not
 /// at a reference (`rp := &mut r`, the re-borrow chain's case).
 local_mut_borrow_of_holder :: (fn(v : &Variable) -> bool)(
@@ -12254,7 +12259,7 @@ _origin_through_match_bindings :: (fn(roots : &ArrayList(OriginRootPlace), env :
   });
   out
 });
-export(projection_call_mode_of, unsize_root_args, projection_body_mismatch_message, ProjectionRootArg, is_temporary_operand, deref_is_owning_handle_step, origin_temporary_entry, origin_temporary_root, ORIGIN_TEMPORARY_ROOT, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, variable_holder_roots, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, store_through_mut_join, store_via_mut_reference, store_via_targets, flow_write_back_through, local_mut_borrow_of_holder, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, note_ref_payload_source, ref_payload_source, note_ref_payload_held, note_borrow_match_source, borrow_match_source, n2b_roots_text, audit_origin_totality, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, note_fn_value_definition, fn_value_definition, type_var_ids_of, deref_chain_atom, deref_chain_depth, ReborrowLink, reference_reborrow_chain);
+export(projection_call_mode_of, unsize_root_args, projection_body_mismatch_message, ProjectionRootArg, is_temporary_operand, deref_is_owning_handle_step, origin_temporary_entry, origin_temporary_root, ORIGIN_TEMPORARY_ROOT, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, variable_holder_roots, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, store_through_mut_join, store_via_mut_reference, store_via_targets, flow_write_back_through, local_mut_borrow_of_holder, expr_is_mut_reference_value, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, note_ref_payload_source, ref_payload_source, note_ref_payload_held, note_borrow_match_source, borrow_match_source, n2b_roots_text, audit_origin_totality, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, note_fn_value_definition, fn_value_definition, type_var_ids_of, deref_chain_atom, deref_chain_depth, ReborrowLink, reference_reborrow_chain);
 export(drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions);
 export(
   LocalBorrowPlace,
