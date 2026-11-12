@@ -11232,7 +11232,7 @@ derive(LbLoopAccess, Clone);
 /// A runtime loop being evaluated: the flow sequence at its start and the
 /// index of its first recorded access.
 LbLoopRecord :: struct(start_seq : usize, access_start : usize);
-derive(LbLoopRecord, Clone);
+derive(LbLoopRecord, Copy, Clone);
 _c_len_lb_loops :: (fn(xs : &ArrayList(LbLoopRecord)) -> usize)(xs.len());
 _c_len_lb_loop_accesses :: (fn(xs : &ArrayList(LbLoopAccess)) -> usize)(xs.len());
 _lb_access_code :: (fn(kind : &LocalBorrowAccess) -> u8)(match(kind, .Read => u8(0), .Write => u8(1), .Move => u8(2), .Exclusive => u8(3)));
