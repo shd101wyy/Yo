@@ -4073,23 +4073,37 @@ _evaluate_begin_expression_impl :: (
     &current_frame_opt,
     .Some(fr2) => {
       begin_tok := ast_expr_token(expr);
+      // The block's earliest token, computed on first need: a block's own
+      // token is not always its first one. A one-statement body that is a
+      // method call carries the call's token, after its receiver, whose
+      // temporary is the block's too
+      // (issues/fixed/2026-11-11-a-temporary-argument-leaks-when-a-later-argument-returns-continues-or-unwinds.md).
+      (mut(block_start) : Option(Token)) = .None;
       (evi : usize) = usize(0);
       while(evi < fr2.variables_len(), {
         match(
           fr2.variable_at(evi),
           .Some(ev) => {
             eligible := (ev.consumed_at_token().is_some() && ev.initialized_at_token().is_some() && (!_variable_is_captured_by_current_function(&ev, ctx) && _variable_can_need_drop_ignoring_consumed(&ev)));
-            init_ok := match(ev.initialized_at_token(), .Some(it) => _m3_token_is_at_or_before(&begin_tok, &it), .None => false);
+            init_ok := match(
+              ev.initialized_at_token(),
+              .Some(it) => cond(
+                _m3_token_is_at_or_before(&begin_tok, &it) => true,
+                !eligible => false,
+                true => {
+                  if(block_start.is_none(), {
+                    block_start = .Some(ast_comparable_token_bounds(expr, &begin_tok).0);
+                  });
+                  match(&block_start, .Some(bs) => _m3_token_is_at_or_before(bs, &it), .None => false)
+                }
+              ),
+              .None => false
+            );
             if(eligible && init_ok, {
               drop_code := `___drop(${ev.name})`;
               drop_expr := generate_expr_from_code(&drop_code, exn);
               evaluated := evaluate_expression_raw(&drop_expr, &env, ctx, exn);
               consumed_escape_drops.push(evaluated);
-              if(g_debug_scope_drops, {
-                it_dbg := match(ev.initialized_at_token(), .Some(t) => `${t.row.to_string()}:${t.column.to_string()}`, .None => String.from("-"));
-                ct_dbg := match(ev.consumed_at_token(), .Some(t) => `${t.row.to_string()}:${t.column.to_string()}`, .None => String.from("-"));
-                eprintln(`[m3dbg] var=${ev.name} init=${it_dbg} ct=${ct_dbg}`);
-              });
               _m3_note_arg_move_region_in(&begin_args, &ev, ctx);
               (dai : usize) = usize(0);
               ev_init := match(ev.initialized_at_token(), .Some(it) => it, .None => begin_tok);
