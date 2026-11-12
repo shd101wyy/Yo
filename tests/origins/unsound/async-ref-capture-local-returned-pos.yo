@@ -1,0 +1,19 @@
+// expect: accept
+// Positive twin of async-ref-capture-local-returned: the future over the local is awaited where
+// `x` lives.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+mk :: (fn(io : Io) -> usize)({
+  x := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+  y := &x;
+  fut := io.async({ y }(io : Io) => {
+    io.await(yield(io), io);
+    y.len()
+  });
+  io.await(fut, io)
+});
+main :: (fn(io : Io) -> unit)({
+  println(`OUT: ${mk(io).to_string()}`);
+});
+export(main);

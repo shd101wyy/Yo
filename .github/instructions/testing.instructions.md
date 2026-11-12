@@ -623,7 +623,8 @@ PHASES=N1 YO=... bash scripts/origins-corpus.sh target                          
   manifest's `expect` column. A new row needs the fixture, the manifest row
   and a `verdict("<id>", …, "<expect>");` call; the script cross-checks all
   three.
-- The runner is not wired into CI.
+- CI runs `today` mode in the `origins-corpus` job of `test.yml` (on
+  `merge-gate`'s list), with the `target` count printed for the record.
 - `tests/origins/unsound/` is the G-B must-reject directory
   (`plans/backlog/BORROW_CHECKER_COMPLETENESS.md` §6): each program carries a
   `// expect: E09xx` (or `// expect: accept`) header, and a negative's
@@ -631,8 +632,20 @@ PHASES=N1 YO=... bash scripts/origins-corpus.sh target                          
   `YO=<binary> bash scripts/origins-unsound.sh`, run inside the nix shell
   (clang on PATH). A negative that passes `yo check` is compiled under ASan
   and run, so the use-after-free a missing rejection ships is printed. Every
-  positive twin must compile and run clean under ASan. Not wired into CI
-  either.
+  positive twin must compile and run clean under ASan. CI runs it in the same
+  `origins-corpus` job.
+- G-E, the totality and sink audit, is `scripts/check-origin-sinks.sh`. With
+  no argument it is a grep gate (no binary): `local_borrow_register` is
+  called only from the binding sites it lists, the conflict check only from
+  `local_borrow_access`, and every lowering of the plan's §5 table calls its
+  sink in the file that lowers it. A new lowering adds a line to its
+  `LOWERINGS` table. `YO=<binary> bash scripts/check-origin-sinks.sh
+  --totality` runs `YO_AUDIT_ORIGIN_TOTALITY=1 yo check` over `./src`,
+  `./std`, the corpus and the reference language tests; every
+  `[origin-totality]` line is a value a sink stored without its origin
+  computed (`sink`), an `origin_of` recursion into an untyped node
+  (`untyped`) or a cut at its depth bound (`depth`). The count must be 0; CI
+  runs both halves in `origins-corpus`.
 
 ## Build system tests
 

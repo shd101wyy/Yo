@@ -1,0 +1,14 @@
+// expect: E0909
+// The same capture returned as `Impl(Fn)`: the caller reassigns the argument's root while
+// the closure lives (heap-use-after-free). Once P4 lands the result is legal and the root stays frozen (E0911).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+S :: struct(a : String);
+mk :: (fn(p : &Rc(S)) -> Impl(Fn() -> usize))({ p }() => p.*.*.a.len());
+main :: (fn() -> unit)({
+  mut(h) := Rc.new(S(a : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+  g := mk(&h);
+  h = Rc.new(S(a : String.from("z")));
+  println(`OUT: ${g().to_string()}`);
+});
+export(main);

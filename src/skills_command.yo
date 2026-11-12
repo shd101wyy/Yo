@@ -34,11 +34,9 @@ SkillsInstallResult :: struct(
 /// Journal totals for one recursive copy. Replaces the module globals the
 /// first version counted into, so `yo skills install` and `yo init` report
 /// their own run instead of sharing process-wide state.
-SkillCopyCounters :: ref(
-  struct(
-    created : usize,
-    overwritten : usize
-  )
+SkillCopyCounters :: struct(
+  created : usize,
+  overwritten : usize
 );
 /// Files report `  create ` / `  overwrite `; skills are plain directories
 /// of text files, so a recursive walk plus `std/fs` `copy` is the whole
@@ -48,7 +46,7 @@ _copy_skills_file :: (
     src : &Path,
     dest : &Path,
     display : &String,
-    counters : &SkillCopyCounters,
+    counters : &mut SkillCopyCounters,
     io : Io,
     exn : Exception
   ) -> unit
@@ -89,7 +87,7 @@ _copy_skills_dir :: (
     src : &Path,
     dest : &Path,
     display_prefix : &String,
-    counters : &SkillCopyCounters,
+    counters : &mut SkillCopyCounters,
     io : Io,
     exn : Exception
   ) -> unit
@@ -339,9 +337,9 @@ install_skills_into :: (
       display := `${parent}/skills/${name}`;
       md := io.await(metadata(src_entry.clone(), io), IoExn(io : io, exn : exn));
       if(md.is_dir(), {
-        _copy_skills_dir(&src_entry, &dest_entry, &display, &counters, io, exn);
+        _copy_skills_dir(&src_entry, &dest_entry, &display, &mut counters, io, exn);
       }, {
-        _copy_skills_file(&src_entry, &dest_entry, &display, &counters, io, exn);
+        _copy_skills_file(&src_entry, &dest_entry, &display, &mut counters, io, exn);
       });
       e = (e + usize(1));
     });

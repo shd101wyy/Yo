@@ -1,0 +1,19 @@
+// G-E's call-argument sink, a reference binding passed bare: `r` is a reference to `yb`, so storing it through
+// `&mut slot` (whose origin is fixed to `x`) widens `slot` past `yb`'s scope. `lend_through` reads a bare reference
+// binding's origin as nothing (issues/2026-11-09-a-reference-binding-passed-bare-to-a-store-is-not-checked.md).
+{ println } :: import("std/fmt");
+_store :: (fn(generic(q : Origin), dst : &mut Option(&(i32, q)), v : &(i32, q)) -> unit)({
+  dst.* = .Some(v);
+});
+main :: (fn() -> unit)({
+  x := i32(1);
+  (mut(slot) : Option(&(i32, x))) = .Some(&x);
+  {
+    yb := i32(2);
+    r := &yb;
+    _store(&mut slot, r);
+  };
+  match(slot, .Some(r) => println(&r.*), .None => ());
+  ()
+});
+export(main);

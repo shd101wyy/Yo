@@ -319,7 +319,7 @@ _pick_next :: (fn(generic(p : Origin), c : &mut _Ints(p)) -> Option(&(i32, p)))(
 test("ref payload: a by-value match's payload read holds the scrutinee's roots", {
   x := i32(3);
   // Matched, not unwrapped: `Option(&T).unwrap()` is E0601 for now
-  // (issues/2026-11-09-option-unwrap-over-a-reference-payload-is-e0601.md).
+  // (issues/fixed/2026-11-09-option-unwrap-over-a-reference-payload-is-e0601.md).
   assert(match(_pick_param(.Some(&x)), .Some(r) => (r.* == i32(3)), .None => false), "a parameter scrutinee");
   assert(match(_pick_local(.Some(&x)), .Some(r) => (r.* == i32(3)), .None => false), "a local holder scrutinee");
   mut(xs) := ArrayList(i32).new();

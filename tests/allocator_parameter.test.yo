@@ -55,3 +55,19 @@ test("the handle's raw words stay gated in a safe file", {
     "carries a raw pointer in its representation"
   );
 });
+// The same rooting rule at an assignment (`is_flowable_expr`, the one rule
+// that judges a raw-pointer handle, which carries no origin): an inner block's
+// handle stored into an outer binding is rejected. Pinned at module level, so
+// `yo check` evaluates it and deleting the rule is a visible change
+// (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §11, O-6).
+comptime_expect_error(
+  (fn() -> unit)({
+    mut(outer) := counting_allocator();
+    {
+      inner := counting_allocator();
+      outer = inner;
+    };
+    _ := outer;
+  }),
+  "carries a raw pointer in its representation"
+);

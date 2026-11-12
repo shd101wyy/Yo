@@ -1,0 +1,11 @@
+// expect: accept
+// Positive twin of closure-ref-capture-label-shadows-root: the closure is called where `s` lives.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  s := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+  y := &s;
+  (g : Impl(Fn() -> usize)) = ({ s : y }() => s.clone().len());
+  println(`OUT: ${g().to_string()}`);
+});
+export(main);

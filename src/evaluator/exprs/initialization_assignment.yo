@@ -138,6 +138,7 @@
   is_temporary_operand,
   projection_call_callee_type,
   bind,
+  audit_origin_totality,
   origin_of,
   OriginRootPlace,
   LocalBorrowElidedOrigin
@@ -782,6 +783,10 @@ _bind_projection_result :: (
   roots := if(view_lhs_id.is_some(), _subscript_root_args(rhs), projection_call_root_args(rhs, ctx));
   root_labels := ArrayList(String).new();
   root_names := ArrayList(String).new();
+  // The holders' own places the union adds (below): the same parameter as
+  // its holder places, so not one more argument the elided-origin note
+  // lists.
+  (holder_self_roots : usize) = usize(0);
   (ri : usize) = usize(0);
   while(ri < roots.len(), {
     root := match(
@@ -813,6 +818,30 @@ _bind_projection_result :: (
         places.push(hr.place.clone());
         held_places.push(true);
       });
+    });
+    // A holder lent to a `&` slot (`self : &Self`, `h : &H(p)`) is a
+    // reborrow through a `&` path: the result's origin is the UNION of the
+    // places its references point into and the holder's own place (O3
+    // "Reborrows"), so `r := g.get()` keeps `g` frozen while `r` lives — a
+    // write through `g`'s `&mut` field (`g.c.xs.push(…)`), a write of a
+    // by-value field the result may point into, a move or a `drop(g)` is
+    // E0911. A holder passed BY VALUE (N1e-2, or a root only through an
+    // impl's origin parameter) is not borrowed: the result points where its
+    // references do, never into the argument.
+    if((holder_roots.len() > usize(0)) && (!is_mut && !root.by_value), {
+      match(
+        local_borrow_place_of(&root.arg, env, ctx),
+        .Some(hp) => {
+          match(get_variables_from_env(env, hp.root_name.clone()).last_cloned(), .Some(rv) => root_vars.push(rv), .None => ());
+          root_labels.push(root.label.clone());
+          root_names.push(hp.root_name.clone());
+          places.push(hp);
+          held_places.push(false);
+          holder_self_roots = (holder_self_roots + usize(1));
+        },
+        // A temporary holder was rejected above (R-TEMP).
+        .None => ()
+      );
     });
     if((holder_roots.len() == usize(0)) && (!is_mut || root.is_mut), {
       match(
@@ -876,7 +905,7 @@ _bind_projection_result :: (
   // 43 step 2, N1c; Q2's verdict). `YO_AUDIT_ELIDED_ROOTS=1` lists every
   // such binding whose roots are more than one place (the Q2 census).
   elided := match(projection_call_callee_type(rhs, ctx), .Some(ct) => fn_result_origin_names(&ct).is_none(), .None => false);
-  if(elided && (root_labels.len() > usize(1)), {
+  if(elided && ((root_labels.len() - holder_self_roots) > usize(1)), {
     info.elided_origin = Option(LocalBorrowElidedOrigin).Some(LocalBorrowElidedOrigin(call_text : call_text.clone(), labels : root_labels.clone(), roots : root_names.clone()));
     if(_g_audit_elided_roots, {
       eprintln(`[elided-roots] ${name_tok.module_path.*}:${(name_tok.row + u32(1)).to_string()}:${(name_tok.column + u32(1)).to_string()} ${call_text} params=${_join_labels(&root_labels)}`);
@@ -2003,6 +2032,9 @@ Use \`::\` for compile-time definitions inside impl.`
     if(!effective_is_compile_time_only && ctx.is_evaluating_function_body_or_async_block.is_some() && type_carries_origin(&final_lhs_type), {
       bind(expr, &rhs, &var_name, &actual_lhs_tok, &env, ctx, exn);
     });
+    if(!effective_is_compile_time_only && type_carries_origin(&final_lhs_type), {
+      audit_origin_totality(":=", &rhs, ctx);
+    });
     // Patch mutable fields not supported by add_variable_to_env.
     match(
       new_var_opt,
@@ -2135,6 +2167,9 @@ Use \`::\` for compile-time definitions inside impl.`
         },
         .None => ()
       );
+    });
+    if(!effective_is_compile_time_only && match(&destr_result.runtime_destructurings, .Some(rds) => (rds.len() > usize(0)), .None => false), {
+      audit_origin_totality("destructuring", &rhs, ctx);
     });
     expr_info := new_expr_info(&env, t_unit());
     expr_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));

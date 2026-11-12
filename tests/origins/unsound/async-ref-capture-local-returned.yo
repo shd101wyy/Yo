@@ -1,0 +1,19 @@
+// expect: E0912
+// An `io.async` body copies the local reference `y := &x` (`{ y }`): the future's origin is the
+// local `x`, so returning it is E0912 (VERDICTS-58). Accepted, the awaited body reads `x` after
+// `mk` freed it.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+mk :: (fn(io : Io) -> Impl(Future(usize, Io)))({
+  x := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+  y := &x;
+  io.async({ y }(io : Io) => {
+    io.await(yield(io), io);
+    y.len()
+  })
+});
+main :: (fn(io : Io) -> unit)({
+  println(`OUT: ${io.await(mk(io), io).to_string()}`);
+});
+export(main);

@@ -1886,6 +1886,45 @@ jobs:
           { sudo timeout 300 apt-get $APT_OPTS update -q || sudo timeout 300 apt-get $APT_OPTS update -q || sudo timeout 300 apt-get $APT_OPTS update -q; } && sudo apt-get $APT_OPTS install -y -q libuv1-dev
           YO="$PWD/yo-stage1" YO_STD="$PWD/std" REPS=5 bash scripts/bench-vs-libuv.sh
 
+  origins-corpus:
+    # The borrow checker's gates (plans/backlog/BORROW_CHECKER_COMPLETENESS.md
+    # §6) on the tree binary: G-A's corpus in `today` mode (every row of
+    # tests/origins/corpus.tsv behaves as recorded; a changed row is progress
+    # to re-record or a regression), G-B (every program in
+    # tests/origins/unsound/ is rejected with its code, the positive controls
+    # run clean under ASan) and G-E (the sink grep gate, and the totality
+    # audit `YO_AUDIT_ORIGIN_TOTALITY`, whose count is 0). The corpus `target`
+    # set is printed for the record: its open rows are the parity items.
+    name: Origins corpus, unsound programs, origin totality (G-A, G-B, G-E)
+    needs: [changes, tree-hygiene, stage1]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Download stage 1
+        uses: actions/download-artifact@v8
+        with:
+          name: yo-stage1
+      - name: Install the stage-1 binary
+        run: |
+          chmod +x yo-stage1
+          mv yo-stage1 /tmp/yo-stage1
+      - name: G-E sink grep gate
+        run: bash scripts/check-origin-sinks.sh
+      - name: G-A corpus (today)
+        run: YO=/tmp/yo-stage1 bash scripts/origins-corpus.sh today
+      - name: G-B unsound programs (ASan)
+        run: YO=/tmp/yo-stage1 YO_CC=clang bash scripts/origins-unsound.sh
+      - name: G-E origin totality (count 0)
+        run: YO=/tmp/yo-stage1 bash scripts/check-origin-sinks.sh --totality
+      - name: G-A corpus target set (informational)
+        continue-on-error: true
+        run: YO=/tmp/yo-stage1 bash scripts/origins-corpus.sh target | tail -1
+
   epoll-corpus:
     # DROP_LIBURING Phase 5's forced-epoll corpus: the async, I/O, network and
     # thread suites with YO_IO_BACKEND=epoll pinned, so the fallback's parked-op
@@ -3275,6 +3314,7 @@ jobs:
       - test-native
       - stage1
       - io-budgets
+      - origins-corpus
       - epoll-corpus
       - docker-seccomp-epoll
       - bootstrap-fixpoint

@@ -582,6 +582,7 @@ _acy_expand :: (fn(t_in : &TypeValue, nodes : &mut ArrayList(TypeValue), leaves 
     Rc(.Pointer(pointee)) => recur(&pointee, nodes, leaves),
     Rc(.RefineT(inner, _)) => recur(&inner, nodes, leaves),
     Rc(.Reference({ pointee : rp })) => recur(&rp, nodes, leaves),
+    Rc(.ValueSlot(vs_inner)) => recur(&vs_inner, nodes, leaves),
     Rc(.SomeT(name : _)) => cond(
       is_bound_closure_identity(&t) => recur(resolve_cell_chain(&t), nodes, leaves),
       true => leaves.push(t.clone())

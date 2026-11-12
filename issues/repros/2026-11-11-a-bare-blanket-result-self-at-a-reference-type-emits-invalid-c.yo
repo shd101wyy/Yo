@@ -1,0 +1,15 @@
+// Q4: `-> Self` through a bare-variable blanket, at T := &Bag.
+{ println } :: import("std/fmt");
+Bag :: struct(n : usize);
+Named :: trait(nl : (fn(self : Self) -> usize));
+impl(&Bag, Named(nl : (fn(self : Self) -> usize)(self.n)));
+Dup :: trait(dup : (fn(self : Self) -> Self));
+impl(generic(T), where(T <: Named), T, Dup(dup : (fn(self : Self) -> Self)(self)));
+main :: (fn() -> unit)({
+  b := Bag(n : usize(3));
+  r := &b;
+  q := r.dup();
+  qn := q.n;
+  println(&qn);
+});
+export(main);

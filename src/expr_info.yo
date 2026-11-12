@@ -3785,3 +3785,37 @@ take_deref_migrated_files :: (fn() -> HashSet(String))(
   })
 );
 export(DerefSite, set_migrate_deref, migrate_deref_on, audit_deref_on, record_deref_site, record_deref_edit_site, note_deref_migrated_file, note_deref_dead_arm_file, record_deref_clean_site, note_reference_read_copied, take_deref_sites, take_deref_migrated_files, take_deref_dead_arm_files, take_deref_clean_sites);
+/// `yo fix <path> --migrate unsized` (plans/VALUES_BY_DEFAULT.md decision 49
+/// S1f; VERDICTS-40 §5, VERDICTS-43 §4, VERDICTS-55): a site the evaluation
+/// records. At a `dyn` callee's token, with `text` its argument as it prints:
+/// `kind` 1, a raw pointer (`*V`/`?*V`), listed and never rewritten (it boxes
+/// the pointer today, and unsizes it after the `?Sized` prelude); `kind` 2,
+/// the legacy auto-box of a plain value, written `dyn(Box.new(...))`; `kind`
+/// 5, a named `Rc`/`Arc` handle, listed. `kind` 3 is at the `Rc`/`Arc` token
+/// of a fresh `dyn(Rc.new(...))` against an owning `Dyn`, written `Box`
+/// (`text` is the token). `kind` 6 is at a `downcast` callee's token, a
+/// downcast of an owned `Dyn` (`text` its operand), listed.
+UnsizedSite :: struct(path : String, row : usize, col : usize, kind : u8, text : String);
+derive(UnsizedSite, Clone);
+(mut(g_migrate_unsized) : bool) = false;
+(g_unsized_sites : RefCell(ArrayList(UnsizedSite))) = RefCell(ArrayList(UnsizedSite)).new(ArrayList(UnsizedSite).new());
+(g_unsized_site_keys : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+set_migrate_unsized :: (fn(on : bool) -> unit)({
+  g_migrate_unsized = on;
+});
+/// Whether `yo fix --migrate unsized` is recording.
+migrate_unsized_on :: (fn() -> bool)(g_migrate_unsized);
+/// Record one site at `tok`, once per position and kind.
+record_unsized_site :: (fn(tok : &Token, kind : u8, text : &String) -> unit)({
+  key := `${kind.to_string()}:${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`;
+  if(!g_unsized_site_keys.with_mut(s => s.insert(key.clone())), {
+    return(());
+  });
+  site := UnsizedSite(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), kind : kind, text : text.clone());
+  g_unsized_sites.with_mut({ site }(xs) => xs.push(site));
+});
+take_unsized_sites :: (fn() -> ArrayList(UnsizedSite))({
+  g_unsized_site_keys.with_mut(s => s.clear());
+  g_unsized_sites.with_mut(xs => xs.split_off(usize(0)))
+});
+export(UnsizedSite, set_migrate_unsized, migrate_unsized_on, record_unsized_site, take_unsized_sites);

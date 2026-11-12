@@ -1,0 +1,16 @@
+// expect: accept
+// The corpus row async-captures-ref-param (no `main` there), run: an `io.async` body copies the `&P`
+// parameter (`{ p }`), the future forwards the parameter's origin, and the caller awaits it. Before the
+// fix the capture record pointed at `probe`'s C parameter copy (an ASan stack-use-after-scope).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+P :: struct(s : String);
+probe :: (fn(p : &P, io : Io) -> Impl(Future(usize, Io)))(
+  io.async({ p }(io : Io) => p.s.len())
+);
+main :: (fn(io : Io) -> unit)({
+  n := P(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+  fut := probe(&n, io);
+  println(`OUT: ${io.await(fut, io).to_string()}`);
+});
+export(main);

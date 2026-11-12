@@ -1,6 +1,6 @@
 # The borrow checker's completeness: one enforcement point, five gates, Rust parity
 
-**Status: ACTIVE, O-1 and O-2 landed (2026-11-07; VERDICTS-30, VERDICTS-31; §11).** The design of references and origins is
+**Status: ACTIVE: O-1 … O-5 and P3 landed, and O-6's audit half: G-E runs in CI at 0 (2026-11-09; VERDICTS-30, VERDICTS-31; §11).** The design of references and origins is
 `plans/backlog/REFERENCES_AND_ORIGINS.md` (O1–O10). This file states how the compiler enforces it in ONE place, what
 "complete, without holes" means, the gates that prove it, and the items that bring origins to Rust's expressiveness.
 Nothing here changes what the design accepts; it changes where the compiler decides.
@@ -113,6 +113,7 @@ Adopt all five. "Done" for a release means G-A, G-B and G-E green on the tip, G-
 - **G-C — the rustc differential corpus.** Each corpus row gains a `.rs` twin in `tests/origins/rust/` where the models coincide (holders, lends, calls, arms, closures, drops; NOT `Rc` handle origins, effects, async, `mut(G)` lends, `.*`-only reads). `scripts/origins-diff-rustc.sh` runs `rustc --edition 2021 --emit=metadata` on each twin and compares accept/reject with the Yo verdict; `tests/origins/rust/DIVERGENCES.tsv` lists every row where the verdicts differ with its reason (an over-freeze Yo accepts as a design position, a shape Yo rejects pending a parity item, Polonius cases Rust rejects). An unexplained divergence fails the job. Rust is the oracle only where the design says the models coincide — the file states that. CI: a job `origins-rustc-diff` on the Linux runner with rustc pinned (the version in `rust-toolchain`-style pin, `1.97`), weekly on `develop` plus on any PR that edits `tests/origins/`. Not Tier 1.
 - **G-D — a generator of borrow programs.** An enumerative generator (`scripts/origins-gen.py`, Python, ~400 lines) over a grammar of: 2–3 roots (`i32`, `String`, `Rc(X)`), holders (`Option(&T)`, a 1-field `H(p)`, a 2-field `S(p)`, `Box`), creation sites (lend, constructor, arm, call result, closure call, `for` element, projection), sinks (`:=`, `=`, place write, `&mut`-lend to a `store`/`put`, capture store), an invalidating event (write, reassign, drop, scope end, growth, `Rc` reassign), and a read-after. It emits the Yo program AND its rustc twin from one template; for each: Yo's verdict, rustc's verdict, and when Yo accepts, an ASan run. A disagreement or a UAF is minimized by dropping template dimensions and written to `tests/origins/gen-findings/` as a candidate corpus row. Budget: 10 minutes nightly (a few hundred programs), `YO_GEN_SEED` for reproduction. CI: a scheduled workflow `origins-generator.yml` on `develop`, nightly, with the findings directory as an artifact and an issue opened by the workflow on a new finding. Not Tier 1; the finding becomes a corpus row (G-A/G-B) by a PR.
 - **G-E — the totality and sink audit.** Two mechanical checks, both Tier 1 for the files of G-A and both in the `origins-corpus` job: (1) `YO_AUDIT_ORIGIN_TOTALITY=1 yo check` over `./src`, `./std`, `tests/origins/corpus` and the language tests that name a reference (the `ref_*`, `local_borrows`, `impl_ref`, `origin_*`, `for_macro_borrow*`, `async_await` files): the evaluator aborts on any node whose type carries an origin and whose `ExprInfo.origin` is `.None`, and on any `bind`/`access` reached with a `.None` set; the count must be 0. (2) `scripts/check-origin-sinks.sh`: a grep gate that the only callers of `local_borrow_register` are `bind`, the only callers of the conflict check are `access`, and that every node-kind file in §5's table calls `access`/`bind`/`lend_through` at least once (a table in the script, one line per lowering). Adding a lowering means adding its line.
+  *As built (O-6, 2026-11-09):* `origin_of` is computed on demand and memoized in `ExprInfo.origin`, not filled at every node, so the audit sits at the SINKS: `:=`, a destructuring, `=`, a typed declaration, a place write, `return` and a body's result, a borrowed `match`'s bindings, and a call argument that a `&mut` holder parameter may store. An origin-carrying value stored there without its origin computed prints a `sink` line; an `origin_of` recursion that reaches an untyped node prints `untyped`, and one cut at its depth bound prints `depth`. A position whose type SPELLS its origin is its own record (O3 step 1 reads the type), so the typed-declaration, match-binding and call-argument sinks audit elided positions only. The script's registrar list is `bind` plus the three binding forms that still register their own entry (`y := &x` with decision 25's pins, a projection's binding, a borrowed `match` arm's place); folding them into `bind` is the deletion half of O-6. CI: the `origins-corpus` job runs the grep gate, the corpus `today` set, G-B and the totality count.
 
 How a hole found later is handled: it is a G-B program first (failing), then a corpus row, then the fix; never a fix without the row. This is the "corpus before rules" discipline of N0 applied to every bug.
 
@@ -158,7 +159,7 @@ For each shape: the exact Yo design (all binding; the two positions marked "appr
 | **O-3** closure, `io.async` AND named-function bodies: every elided `&` written in a parameter type is a fresh rigid origin (O2), read by `bind`'s `=` join and `lend_through` like a spelled one; a store through a `&mut` capture is E0923 when rooted at a per-call parameter, E0912 at a body local, and otherwise joins the outer holder's flow set at the literal, per store (VERDICTS-37); the capture-struct type registration for an origin-carrying captured local (the ICE) | **H2**, the named-body twin (`fn-param-through-param`), the ICE | the closure half of `g_capture_borrows`, `note_second_class_binding`'s closure branch, `fn_slot_admits_capture_fnmut` (if G1 has not already) |
 | **O-4** liveness: a holder whose type transitively reaches a user `Drop` is live to its scope-end drop; `access(drop)` at scope end in reverse declaration order sees it | **H6** | — (adds the D1 criterion `type_reaches_user_drop`) |
 | **O-5** temporaries: R-TEMP hidden statement locals; `bind` of a holder whose set names a temporary past the statement is rejected (the projection message generalized); then P2's extension rule in the same or the next PR together with the statement-end drop fix | **L1**, the open S2 `issues/2026-11-06-a-borrowed-temporary…` | the projection-only temporary check |
-| **O-6** the deletions and the totality audit: the three binding flags, `g_reference_reads`, `g_local_borrow_step_pins` (entries with a deref flag), `flowability.yo` reduced to the `Rc`-path marks; `YO_AUDIT_ORIGIN_TOTALITY`, `check-origin-sinks.sh` | — (G-E) | ~1,500 lines |
+| **O-6** the deletions and the totality audit: the three binding flags, `g_reference_reads`, `g_local_borrow_step_pins` (entries with a deref flag), `flowability.yo` reduced to the `Rc`-path marks; `YO_AUDIT_ORIGIN_TOTALITY`, `check-origin-sinks.sh` | — (G-E); the audit's first run found two S1 holes at the call-argument sink (§11, 2026-11-09) | measured 2026-11-09: none of the four is dead yet (§11) |
 
 Order: O-1 → O-2 → O-3 → O-4 → O-5 → O-6; O-1 and O-2 are one stack (O-2 needs `origin_of`), O-3/O-4 can proceed in parallel after O-1, O-5 after O-1, O-6 last. Each PR adds its corpus rows (G-A) and its G-B programs first (failing), then the code; each is Gen A (rules only reject, no std spelling changes), empty emit-diff over `src/main.yo` except O-3's capture-struct registration (a positive emit change for programs that previously ICE'd) and O-5 (temporary drop placement — the S2's own emit change).
 
@@ -216,7 +217,7 @@ Filed 2026-11-07 from VERDICTS-30/31; each names its repro under `issues/repros/
 - `issues/fixed/2026-11-07-a-holder-returned-over-a-borrowed-temporary-is-accepted-when-bound.md` — S1 (latent when filed; a live UAF on v0.2.76 once the statement-end drop landed first)
 - `issues/fixed/2026-11-07-a-closure-capturing-an-origin-carrying-local-crashes-codegen.md` — S1
 - `issues/fixed/2026-11-07-reassigning-a-mut-holder-of-a-named-origin-struct-is-a-false-e0908.md` — S2
-- `issues/2026-11-07-a-generic-function-storing-a-by-value-reference-parameter-emits-invalid-c.md` — S2
+- `issues/fixed/2026-11-07-a-generic-function-storing-a-by-value-reference-parameter-emits-invalid-c.md` — S2
 - `issues/fixed/2026-11-07-a-ctl-operation-returning-its-reference-parameter-is-rejected-with-e0605.md` — S2
 - `issues/fixed/2026-11-07-a-closure-literal-returning-its-reference-parameter-fails-to-evaluate.md` — S2
 - `issues/2026-11-07-yo-explain-e0911-e0912-e0910-teach-the-pre-decision-43-model.md` — S3
@@ -309,3 +310,35 @@ Filed 2026-11-07 from VERDICTS-30/31; each names its repro under `issues/repros/
   is known); any other receiver (an owned place, a call result, a field, an explicit `(&c)`) has no storage to lend and
   is an error at the call naming the repair, never the mis-passed C. Open (the rest of P3b): an owned or temporary
   receiver at `&&C` through an O-5 hidden local, and gap 1 (operator operands).
+- 2026-11-09: R3 landed (VERDICTS-23: a specialization keeps the declared shape of its slots). A by-value slot whose
+  type becomes a reference at a specialization (`-> T` / `v : T` at `T := &U`) is `ValueSlot(&U)`, a node of its own
+  next to the borrow `Reference` slot, so `-> T` is a reference VALUE (a pointer), no longer lowered as a projection,
+  and `v : T` is the pointer, no longer a borrowed place. A specialization with such a result rewrites its result
+  positions with `rewrite_value_reference_tails`, so `Option(&T).unwrap`'s `.Some(value) => value` reads the payload
+  binding as the reference; the decision-24 root rule does not apply to a value. The enum-literal C addresses only a
+  place or a recorded lend, not a reference value. Closes `Option(&T).unwrap` (E0601), the result half and the
+  by-value-parameter half of the same root
+  (`issues/fixed/2026-11-09-option-unwrap-over-a-reference-payload-is-e0601.md`,
+  `issues/fixed/2026-11-06-a-generic-result-at-t-reference-is-lowered-as-a-projection.md`,
+  `issues/fixed/2026-11-07-a-generic-function-storing-a-by-value-reference-parameter-emits-invalid-c.md`).
+- 2026-11-09: O-6's audit half landed. `YO_AUDIT_ORIGIN_TOTALITY` reports every origin-carrying value a sink stores
+  without its origin computed (§6 G-E, "as built"), and `scripts/check-origin-sinks.sh` is the grep gate plus
+  `--totality`. Both run in the new `origins-corpus` CI job, with the corpus `today` set and G-B; the count over
+  `./src`, `./std`, the corpus and the reference tests is 0. The audit's first run found two S1 holes on develop and
+  the v0.2.76 seed, both at the call-argument sink and both heap-use-after-free under ASan. First, a call's result
+  type kept its callee's origin names (`_mk(&y)` typed `_H(a)`), and `lend_through` compared spelled names, so a
+  caller local named `a` captured them. A user call's result now has those origins elided, and an elided position is
+  judged by `origin_of`
+  (`issues/fixed/2026-11-09-a-call-results-type-keeps-its-callees-origin-names.md`). Second, a method call skipped
+  `lend_through` altogether (`issues/2026-11-09-a-method-call-skips-lend-through.md`, fixed in the stacked
+  follow-up). The deletions were measured, and none of the four listed items is dead as the code stands. `is_ref`
+  is the C representation (a `x : &T` parameter is passed by value unless the callee is a projection), and
+  `is_imm_borrow` also marks a by-value re-bind. `g_reference_reads` is not the ExprInfo type since P3: `r`
+  (`r : &i32`) and `rr.*` (`rr : &&i32`) at one `&i32` slot are both typed `&i32`, and only the first one's C is a
+  place whose address the consumer takes. The step pin is a runtime Rc count that codegen declares, and P1 keeps it.
+  `is_flowable_expr` is the only rule that rejects an `Allocator` handle escaping its scope, and a handle carries no
+  origin; the rest of `flowability.yo` is decision 28's handle and container rules, which the plan keeps. With each
+  rule disabled in turn, the `yo check` verdicts of the first 160 `tests/*.test.yo` files did not change, except that
+  removing `origin_of`'s shallow walk broke `borrow_spelling`. `yo check` evaluates only module-level expectations,
+  not a `test(...)` body's, so this measures less than the rules reject: the `Allocator` rule had no module-level pin,
+  and `allocator_parameter.test.yo` now has one.

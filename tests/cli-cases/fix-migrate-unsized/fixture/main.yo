@@ -2,7 +2,10 @@
 //! spelling is written `Box(Dyn(...))`, `*Dyn(...)`, `?*Dyn(...)`, an alias
 //! body and a `size_of`/`Type.eq` argument included; the wrapped and reference
 //! spellings and `upcast`'s target are left alone; `Rc(Dyn(T)).new(...)` and
-//! `impl(Dyn(...), ...)` are listed.
+//! `impl(Dyn(...), ...)` are listed. The evaluation writes `dyn(v)` as
+//! `dyn(Box.new(v))` (a closure too) and a `dyn(Rc.new(v))` into an owning
+//! `Dyn` as `dyn(Box.new(v))`, and lists `dyn(p)` over a raw pointer and a
+//! `downcast` of an owned `Dyn`.
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { println } :: import("std/fmt");
@@ -10,6 +13,9 @@ Speak :: trait(speak : (fn(self : &Self) -> i32));
 Loud :: trait(loud : (fn(self : &Self) -> i32));
 Bump :: trait(bump : (fn(self : &mut Self) -> i32));
 Cat :: struct(n : i32);
+derive(Cat, Copy, Clone);
+Tag :: trait(tag : (fn(self : &Self) -> i32));
+impl(generic(T : Type), *T, Tag(tag : ((self : &Self) -> i32(7))));
 impl(Cat, Speak(speak : ((self : &Self) -> self.n)));
 impl(Cat, Loud(loud : ((self : &Self) -> (self.n * i32(10)))));
 impl(Cat, Bump(bump : ((self : &mut Self) -> self.n)));
@@ -32,9 +38,14 @@ main :: (fn() -> unit)({
   (pet : Pet) = _make(i32(5));
   (mut(b) : Dyn(Bump)) = dyn(Cat(n : i32(6)));
   (d : Dyn(Speak)) = _make(i32(7));
+  (fresh : Dyn(Speak)) = dyn(Rc.new(Cat(n : i32(9))));
+  c := Cat(n : i32(11));
+  (t : Dyn(Tag)) = dyn(addr_of(c));
+  (add : Dyn(Fn(x : i32) -> i32)) = dyn(x => (x + i32(1)));
+  back := match(downcast(fresh, Cat), .Some(k) => k.n, .None => i32(0));
   comptime_assert(size_of(Dyn(Speak)) == (usize(2) * size_of(*u8)), "a fat pointer");
   comptime_assert(Type.eq(Dyn(Speak, Loud), Dyn(Loud, Speak)), "one type");
-  total := (z.pet.speak() + pets(usize(0)).speak() + one.speak() + shared.speak() + pet.speak() + _lent_mut(&mut b) + _lent(&d) + _through_ptr(addr_of(d)) + _through_opt(.None) + _owned(_make(i32(8))));
+  total := (z.pet.speak() + pets(usize(0)).speak() + one.speak() + shared.speak() + pet.speak() + _lent_mut(&mut b) + _lent(&d) + _through_ptr(addr_of(d)) + _through_opt(.None) + _owned(_make(i32(8))) + t.tag() + add(back));
   println(&total);
 });
 export(main);

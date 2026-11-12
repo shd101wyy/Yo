@@ -116,7 +116,7 @@ get_target_pointer_size_bytes :: (fn() -> u32)(
 // Integer range result type
 // ---------------------------------------------------------------------------
 /// Integer value range: `min` (signed) and `max` (unsigned).
-IntRange :: ref(struct(min : i64, max : u64));
+IntRange :: struct(min : i64, max : u64);
 // ---------------------------------------------------------------------------
 // Integer utilities
 // ---------------------------------------------------------------------------
@@ -984,6 +984,7 @@ _carries_origin_inner :: (fn(ty : &TypeValue, seen : &mut ArrayList(String), dep
     ty,
     // A `static` reference borrows nothing: only its pointee can carry one.
     Rc(.Reference(co_pointee, _, co_origin)) => (!is_static_origin(&co_origin) || _carries_origin_inner(&co_pointee, seen, depth + u32(1))),
+    Rc(.ValueSlot(co_vs)) => _carries_origin_inner(&co_vs, seen, depth + u32(1)),
     Rc(.OriginSet(_, _)) => !is_static_origin(ty),
     Rc(.Pointer(inner)) => _carries_origin_inner(&inner, seen, depth + u32(1)),
     Rc(.SliceT(elem)) => _carries_origin_inner(&elem, seen, depth + u32(1)),
@@ -2575,6 +2576,9 @@ _collect_some_types_into :: (
     Rc(.Reference(pointee : rpt)) => {
       recur(&rpt, acc, visited_ids);
     },
+    Rc(.ValueSlot(vs_inner)) => {
+      recur(&vs_inner, acc, visited_ids);
+    },
     Rc(.Func({ forall_types : ftys, param_types : ptys, result : res })) => {
       (i : usize) = usize(0);
       while(i < ftys.len(), {
@@ -2739,6 +2743,7 @@ _mentions_some_type_into :: (fn(ty_in : &TypeValue, name : &Option(String), visi
     },
     Rc(.Pointer(pt)) => recur(&pt, name, visited_ids),
     Rc(.Reference(pointee : rpt)) => recur(&rpt, name, visited_ids),
+    Rc(.ValueSlot(vs_inner)) => recur(&vs_inner, name, visited_ids),
     Rc(.SliceT(el)) => recur(&el, name, visited_ids),
     Rc(.Array(element : el, _, _)) => recur(&el, name, visited_ids),
     Rc(.TypeAppT(constructor : con, args : cargs)) => {
@@ -4541,6 +4546,7 @@ _type_mentions_generic_length :: (fn(ty : &TypeValue, depth : u32) -> bool)(
       Rc(.Array(element : el, length : _, length_var : lv)) => ((lv.len() > usize(0)) || _type_mentions_generic_length(&el, depth + u32(1))),
       Rc(.Pointer(pointee : p)) => _type_mentions_generic_length(&p, depth + u32(1)),
       Rc(.Reference(pointee : rp)) => _type_mentions_generic_length(&rp, depth + u32(1)),
+      Rc(.ValueSlot(vs_inner)) => _type_mentions_generic_length(&vs_inner, depth + u32(1)),
       Rc(.Tuple(_, fts)) => _any_mentions_generic_length(&fts.items, depth),
       Rc(.Struct({ field_types : sfts })) => _any_mentions_generic_length(&sfts.items, depth),
       Rc(.TypeAppT(_, args)) => _any_mentions_generic_length(&args.items, depth),

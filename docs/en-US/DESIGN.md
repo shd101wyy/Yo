@@ -3285,7 +3285,10 @@ count := i32(0);
   it would move the reference. A closure that captures any value carrying an
   origin by value (a holder `h`, a reference copy) carries that origin: it
   cannot be returned over the local the origin names, and that local is frozen
-  while the closure lives.
+  while the closure lives. A copied `&T` parameter (`{ p }`, `{ self }`) carries
+  the parameter's origin, so until a closure's type carries its origin the
+  closure is second-class: it is called where it is made, and returning it or
+  boxing it into a `Dyn(Fn(...))` is E0909.
 - **The list is exhaustive.** With a list the body may read only the listed
   captures and module-level items; `{}()` captures nothing. Without a list,
   capture stays implicit.

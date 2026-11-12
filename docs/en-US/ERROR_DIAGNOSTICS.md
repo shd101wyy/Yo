@@ -144,12 +144,21 @@ argument, and `*Dyn(...)`/`?*Dyn(...)`, which point at an owned box. A
 `ArcWeak`, `&` or `&mut` (with or without an origin) already names the
 unsized object and is left alone, and so is `upcast`'s target, so a second
 run changes nothing. Under v0.2.77 the two spellings are one type, so a
-`yo check` verdict does not change. It reads the parse and does not
-evaluate, like `record-literal`. It lists, with their positions and without
-rewriting them, a spelling that does not print back on one line,
-`Rc(Dyn(T)).new(...)` (write `dyn(Rc.new(v))` for one shared object, or keep
-the box with `Rc(Box(Dyn(T))).new(...)`), and `impl(Dyn(...), ...)` (the
-owning value today, the unsized object in v0.2.78).
+`yo check` verdict does not change. The type spellings are read from the
+parse, so every platform arm is reached. The migration also evaluates every
+file, as `yo check` does, with a recorder on: `dyn(v)` of a plain value
+becomes `dyn(Box.new(v))`, and `dyn(Rc.new(e))`/`dyn(Arc.new(e))` evaluated
+against an owning `Dyn` becomes `dyn(Box.new(e))` (`alloc` kept as written).
+It lists, with their positions and without rewriting them, a spelling that
+does not print back on one line, `Rc(Dyn(T)).new(...)` (write
+`dyn(Rc.new(v))` for one shared object, or keep the box with
+`Rc(Box(Dyn(T))).new(...)`), `impl(Dyn(...), ...)` (the owning value today,
+the unsized object in v0.2.78), `dyn(p)` over a raw pointer (it boxes the
+pointer today and unsizes it in v0.2.78), `dyn(h)` over a named `Rc`/`Arc`
+handle, a `downcast` of an owned `Dyn` (its owning form arrives in v0.2.78),
+and a file with a platform-gated `cond` arm the target does not evaluate
+(run it again with `--target`). A file that does not evaluate is named and
+`fix` exits non-zero.
 
 A module-level or `thread_local` runtime binding is immutable (Rust's
 `static`) unless its name is wrapped in `mut(...)` (`static mut`, decision

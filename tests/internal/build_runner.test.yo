@@ -53,7 +53,7 @@ _mk_artifact :: (fn(kind : ArtifactKind, name : &String, root : &String) -> Buil
 _dag_find :: (fn(dag : &ArrayList(DAGNode), name : &String) -> Option(DAGNode))({
   (mut(i) : usize) = usize(0);
   while(i < dag.len(), {
-    node := dag(i);
+    node := dag(i).clone();
     if(node.name == name.*, {
       return(Option(DAGNode).Some(node));
     });
@@ -98,7 +98,7 @@ test("build_dag: empty step produces a single-node DAG", {
   assert(reg.register_step(String.from("install"), String.from("Build all")).is_none(), "unexpected registry error");
   dag := build_dag(&reg, String.from("install"));
   assert(dag.len() == usize(1), "root step only");
-  node := dag(usize(0));
+  node := dag(usize(0)).clone();
   assert(node.name == `install`, "root name");
   assert(node.depends_on.len() == usize(0), "no deps");
 });
@@ -207,7 +207,7 @@ test("build_dag: a verify step is a leaf Verify node a step can depend on", {
   (mut(found) : bool) = false;
   (mut(i) : usize) = usize(0);
   while(i < dag.len(), {
-    node := dag(i);
+    node := dag(i).clone();
     if(node.name == `proofs`, {
       found = true;
       assert(match(node.kind, .Verify => true, _ => false), "Verify kind");
@@ -257,7 +257,7 @@ test("build_dag: deduplicates shared dependencies", {
   (mut(common_count) : usize) = usize(0);
   (mut(i) : usize) = usize(0);
   while(i < dag.len(), {
-    node := dag(i);
+    node := dag(i).clone();
     if(node.name == `common`, {
       common_count = (common_count + usize(1));
     });

@@ -6,7 +6,7 @@
 import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
-{ TypeValue, SharedList, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_slot_is_borrow } :: import("./definitions.yo");
+{ TypeValue, SharedList, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_slot_is_borrow, t_slot_is_value_ref } :: import("./definitions.yo");
 { RefCell } :: import("std/sync/refcell");
 
 // ---------------------------------------------------------------------------
@@ -242,7 +242,10 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
             body = `${body}, `;
           });
           label := match(plabels.get(i), .Some(s) => s, .None => `""`);
-          ts := match(ptypes.get(i), .Some(t2) => recur(t_slot_pointee(&t2), _d + usize(1), visited), .None => `?`);
+          ts_bare := match(ptypes.get(i), .Some(t2) => recur(t_slot_pointee(&t2), _d + usize(1), visited), .None => `?`);
+          // A by-value reference type (R3) prints parenthesized, so it never
+          // prints as the borrow `v : &U` it is not.
+          ts := cond(match(ptypes.get(i), .Some(t2) => t_slot_is_value_ref(&t2), .None => false) => `(${ts_bare})`, true => ts_bare);
           // The parameter mode is part of the type
           // (plans/reference/TYPE_IDENTITY.md), and this rendering is also
           // the codegen key of a fn type (`type_key`'s fallback), so an
@@ -279,7 +282,7 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
         using_suffix := if(ibody.len() > usize(0), ` ${ibody}`, String.from(""));
         // The result slot prints its sigil bare (`-> &fn(...)`), never the
         // parenthesized `&(fn(...))` a reference elsewhere takes.
-        ret_s := recur(&t_slot_pointee(&ret), _d + usize(1), visited);
+        ret_s := cond(t_slot_is_value_ref(&ret) => `(${recur(&t_slot_pointee(&ret), _d + usize(1), visited)})`, true => recur(&t_slot_pointee(&ret), _d + usize(1), visited));
         // A control function prints as written: `ctl(...)`, not `fn(...)`.
         `${if(__fm1.is_control, "ctl", "fn")}(${forall_prefix}${body}) -> ${cond(!t_slot_is_borrow(&ret) => ret_s, t_slot_is_mut_ref(&ret) => `&mut ${ret_s}`, true => `&${ret_s}`)}${using_suffix}`
       },
@@ -487,6 +490,11 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
       Rc(.ExternOpaqueT(eo_nm, _)) => eo_nm.clone(),
       // A reference prints without its origin: `type_key` falls back to this
       // rendering, and origins are kept out of every key (decision 43 step 1).
+      // A by-value reference type (R3), as a slot printed whole.
+      Rc(.ValueSlot(vs_inner)) => cond(
+        t_slot_is_borrow(&vs_inner) => `(${recur(&vs_inner, _d + usize(1), visited)})`,
+        true => recur(&vs_inner, _d + usize(1), visited)
+      ),
       Rc(.Reference(r_pointee, r_mut, _)) => {
         r_ts := recur(&r_pointee, _d + usize(1), visited);
         r_sig := if(r_ts.starts_with("fn(") || r_ts.starts_with("ctl("), `(${r_ts})`, r_ts);

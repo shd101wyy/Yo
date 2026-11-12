@@ -30,6 +30,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { Path } :: import("std/path");
+{ RefCell } :: import("std/sync/refcell");
 { Exception, IoExn } :: import("std/error");
 { DirEntry, read_dir } :: import("std/fs/dir");
 { platform, Platform, arch, Arch : ProcessArch } :: import("std/process");
@@ -48,17 +49,16 @@ Abi :: enum(Gnu, Musl, Msvc, P1);
 derive(Abi, Copy, Clone);
 derive(Abi, Eq(Abi));
 // ── Target info ───────────────────────────────────────────────────────
-TargetInfo :: ref(
-  struct(
-    arch : Arch,
-    os : Os,
-    abi : Option(Abi),
-    pointer_size_bits : u32,
-    /// The canonical triple, e.g. `aarch64-apple-darwin`. Always the
-    /// normalized spelling, whatever the user typed.
-    triple : String
-  )
+TargetInfo :: struct(
+  arch : Arch,
+  os : Os,
+  abi : Option(Abi),
+  pointer_size_bits : u32,
+  /// The canonical triple, e.g. `aarch64-apple-darwin`. Always the
+  /// normalized spelling, whatever the user typed.
+  triple : String
 );
+derive(TargetInfo, Clone);
 // ── Host info ─────────────────────────────────────────────────────────
 HostInfo :: struct(
   platform : Os,
@@ -307,16 +307,19 @@ host_target :: (fn() -> TargetInfo)({
 // (issues/fixed/yo-self-cross-emit-host-constants.md) — and, under
 // `--target wasm32-wasip1`/`--cc emcc` on Linux, std/crypto/random.yo took its
 // Linux arm and the link failed with `undefined symbol: getrandom`.
-(mut(g_current_target) : Option(TargetInfo)) = Option(TargetInfo).None;
+(g_current_target : RefCell(Option(TargetInfo))) = RefCell(Option(TargetInfo)).new(Option(TargetInfo).None);
 /// Set the target for the current compilation.
 set_current_target :: (fn(t : &TargetInfo) -> unit)({
-  g_current_target = Option(TargetInfo).Some(t);
+  t_owned := t.clone();
+  g_current_target.with_mut({ t_owned }(slot) => {
+    slot.* = Option(TargetInfo).Some(t_owned);
+  });
   ()
 });
 /// The current compilation target, falling back to the host when a caller
 /// (e.g. `check`) never set one.
 get_current_target :: (fn() -> TargetInfo)(
-  match(g_current_target, .Some(t) => t, .None => host_target())
+  g_current_target.with(o => match(o, .Some(t) => t.clone(), .None => host_target()))
 );
 // ── Parse target triple ───────────────────────────────────────────────
 /// `parse_os` plus the two cfg names a user is likely to type into a triple

@@ -139,7 +139,8 @@ is_prelude_allocator_struct :: (fn(t : &TypeValue) -> bool)(
 // from the evaluator).
 // ---------------------------------------------------------------------------
 /// The C name a Yo type was adopted under, and the header that defines it.
-AdoptedExternCType :: ref(struct(c_name : String, c_header : String));
+AdoptedExternCType :: struct(c_name : String, c_header : String);
+derive(AdoptedExternCType, Clone);
 (g_adopted_extern_c_types : RefCell(HashMap(String, AdoptedExternCType))) = RefCell(HashMap(String, AdoptedExternCType)).new(HashMap(String, AdoptedExternCType).new());
 register_adopted_extern_c_type :: (
   fn(decl_id : &String, c_name : &String, header : &String) -> unit
@@ -167,7 +168,7 @@ type_decl_id :: (fn(t : &TypeValue) -> Option(String))(
 get_adopted_extern_c_type :: (fn(t : &TypeValue) -> Option(AdoptedExternCType))(
   match(
     type_decl_id(t),
-    .Some(did) => g_adopted_extern_c_types.with(m => m.get(&did)),
+    .Some(did) => g_adopted_extern_c_types.with(m => m.get_cloned(&did)),
     .None => Option(AdoptedExternCType).None
   )
 );

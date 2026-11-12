@@ -129,6 +129,7 @@ pragma(Pragma.AllowUnsafe);
   local_borrow_reject_result_borrow,
   LocalBorrowInfo,
   return_check,
+  audit_origin_totality,
   reject_bare_callable_into_dyn_fn,
   deref_exempt_mark,
   deref_exempt_clear,
@@ -2956,6 +2957,7 @@ _evaluate_begin_expression_impl :: (
             .None => ()
           );
           return_check(&evaluated_ret_arg, &env, ctx, exn);
+          audit_origin_totality("return", &evaluated_ret_arg, ctx);
           ret_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_ret_arg));
           if(ret_info_opt.is_none(), {
             exn.throw(
@@ -3365,6 +3367,7 @@ _evaluate_begin_expression_impl :: (
         );
         if(is_result_chain_block && is_last_in_loop, {
           return_check(&evaluated, &env, ctx, exn);
+          audit_origin_totality("result", &evaluated, ctx);
         });
         if(chain_tail_armed, {
           ctx.local_borrow_result_chain_tail = Option(ExprId).None;

@@ -233,9 +233,10 @@ install_dependencies :: (
   ) -> Impl(Future(LockFile, IoExn))
 )({
   owned_mode := mode.clone();
+  owned_manifest := manifest.clone();
   io.async((e : IoExn) => {
     options := ResolveOptions(mode : owned_mode.clone(), locked : locked, offline : offline, verbose : verbose);
-    lock := e.io.await(resolve_and_fetch(manifest, options, e.io, e.exn), e);
+    lock := e.io.await(resolve_and_fetch(&owned_manifest, options, e.io, e.exn), e);
     for(&lock.packages, p => {
       where_ := cond(
         p.is_git() => `${p.ref()} (${p.commit.substring(usize(0), usize(12))})`,
@@ -536,14 +537,15 @@ _bump_ranges_to_latest :: (
   ) -> Impl(Future(Manifest, IoExn))
 )({
   owned_names := names.clone();
-  io.async((e : IoExn) => {
-    text := e.io.await(read_to_string(Path.new(manifest.path.clone()), e.io), e);
+  owned_manifest := manifest.clone();
+  io.async({ owned_manifest, owned_names, verbose }(e : IoExn) => {
+    text := e.io.await(read_to_string(Path.new(owned_manifest.path.clone()), e.io), e);
     (edited : String) = text;
     (changed : bool) = false;
-    deps := manifest.git_dependencies();
+    deps := owned_manifest.git_dependencies();
     (i : usize) = usize(0);
     while(i < deps.len(), {
-      dep := deps(i);
+      dep := deps(i).clone();
       i = (i + usize(1));
       // Decide everything about this dependency in ONE match on its source
       // (seed: two matches on one async local redeclare its C copy).
@@ -583,7 +585,7 @@ _bump_ranges_to_latest :: (
           parse_version_req(range_text.clone()),
           .Ok(r) => r,
           .Err(msg) => {
-            e.exn.throw(dyn(`Error: ${manifest.path}: dependency "${dep.name}": version requirement "${range_text}": ${msg}`));
+            e.exn.throw(dyn(`Error: ${owned_manifest.path}: dependency "${dep.name}": version requirement "${range_text}": ${msg}`));
             // unreachable — the throw unwinds; "*" always parses, and the
             // diverging arm satisfies the type without an unwrap (safe-mode D7)
             __yo_panic("install: unreachable — exn.throw above unwinds")
@@ -604,7 +606,7 @@ _bump_ranges_to_latest :: (
               set_entry(edited.clone(), &table, dep.name.clone(), &value),
               .Ok(t) => t,
               .Err(msg) => {
-                e.exn.throw(dyn(`Error: ${manifest.path}: ${msg}`));
+                e.exn.throw(dyn(`Error: ${owned_manifest.path}: ${msg}`));
                 String.new()
               }
             );
@@ -615,15 +617,15 @@ _bump_ranges_to_latest :: (
       });
     });
     if(!changed, {
-      return(manifest);
+      return(owned_manifest);
     });
-    e.io.await(write_string(Path.new(manifest.path.clone()), &edited, e.io), e);
+    e.io.await(write_string(Path.new(owned_manifest.path.clone()), &edited, e.io), e);
     match(
-      load_manifest(manifest.path.clone(), e.exn),
+      load_manifest(owned_manifest.path.clone(), e.exn),
       .Ok(m) => m,
       .Err(msg) => {
         e.exn.throw(dyn(`Error: ${msg}`));
-        manifest
+        owned_manifest
       }
     )
   })
@@ -664,7 +666,7 @@ run_install :: (
     });
     (i : usize) = usize(0);
     while(i < manifest.dependencies.len(), {
-      d := manifest.dependencies(i);
+      d := manifest.dependencies(i).clone();
       match(
         &d.source,
         .Git(url, req, _) => {

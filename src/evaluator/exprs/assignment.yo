@@ -126,6 +126,8 @@ pragma(Pragma.AllowUnsafe);
   bind,
   bind_join,
   place_write_join,
+  audit_origin_totality,
+  audit_origin_totality_elided,
   local_borrow_info_of_variable,
   local_borrow_mark_receiver,
   local_borrow_clear_receiver,
@@ -1744,6 +1746,9 @@ evaluate_assignment :: (
         .None => ()
       );
     });
+    if(type_carries_origin(&prop_rhs_info.ty()), {
+      audit_origin_totality("place-write", &prop_rhs, ctx);
+    });
     // Step 4 — Type compatibility check
     (prop_rhs_type : TypeValue) = Rc.clone(prop_rhs_info.ty());
     if(!(is_comptime_int_type(&expected_ty) || is_comptime_float_type(&expected_ty) || is_comptime_string_type(&expected_ty)), {
@@ -2441,6 +2446,13 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // binding freeze registers what `v` lends, live to `h`'s last use.
   if(is_typed_binding_lhs && !variable.is_module_level() && !variable.is_compile_time_only() && ctx.is_evaluating_function_body_or_async_block.is_some() && type_carries_origin(&variable_value_type(&variable)), {
     bind(expr, &rhs_evaled, &variable_name, &variable.token, &env, ctx, exn);
+  });
+  if(!variable.is_compile_time_only() && type_carries_origin(&variable_value_type(&variable)), {
+    if(is_typed_binding_lhs, {
+      audit_origin_totality_elided("typed-declaration", &rhs_evaled, ctx);
+    }, {
+      audit_origin_totality("=", &rhs_evaled, ctx);
+    });
   });
   // Under the new ownership model, all assignments transfer ownership, so we
   // always need to call dup on the RHS. Without this, codegen emits the

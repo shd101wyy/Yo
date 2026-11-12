@@ -871,16 +871,19 @@ _CapListEntry :: struct(
   /// VERDICTS-37 Q3: a store through a `&mut` capture joins it).
   outer : Option(BorrowCaptureOuter),
   /// R-CLOSURE-LIT's by-value clause (plans/backlog/BORROW_CHECKER_COMPLETENESS.md
-  /// §3, VERDICTS-44 R-CAP-2): the places the captured VALUE's origin names,
-  /// each with its mode, when its type carries an origin (a `&T` copied from a
-  /// reference binding, a holder, a borrowing closure). They become the
-  /// closure's capture borrows, so the escape, freeze and exclusivity checks
-  /// read them.
-  origin_roots : ArrayList(OriginRootPlace),
+  /// §3, VERDICTS-44 R-CAP-2): one capture borrow per place the captured
+  /// VALUE's origin names, each with its mode, when its type carries an origin
+  /// (a `&T` copied from a reference binding, a holder, a borrowing closure).
+  /// They become the closure's capture borrows, so the escape, freeze and
+  /// exclusivity checks read them. Resolved where the entry is evaluated, in
+  /// the scope that writes the literal: once the capture frame binds the
+  /// labels, a label naming its own root (`{ p }` of a `&T` parameter, whose
+  /// origin is `p`; `{ s : y }` with `y := &s`) shadows that root.
+  origin_borrows : ArrayList(CaptureBorrow),
   /// `root_*` and `path` are the entry's capture place, not its borrows: the
-  /// closure's capture borrows are `origin_roots` (a reference copy `{ y }`,
+  /// closure's capture borrows are `origin_borrows` (a reference copy `{ y }`,
   /// whose pointer field points at what `y` refers to).
-  uses_origin_roots : bool
+  uses_origin_borrows : bool
 );
 derive(_CapListEntry, Clone);
 _cap_list_error :: (fn(ctx : &EvalContext, exn : Exception, tok : &Token, msg : &String) -> unit)(
@@ -1115,8 +1118,8 @@ _evaluate_capture_list :: (
             .Some(op) => Option(BorrowCaptureOuter).Some(BorrowCaptureOuter(outer : root_var.clone(), text : `${cap_label_text} : ${if(is_mut, String.from("&mut "), String.from("&"))}${op.text}`, place : op, is_mut : is_mut)),
             .None => Option(BorrowCaptureOuter).None
           ),
-          origin_roots : ArrayList(OriginRootPlace).new(),
-          uses_origin_roots : false
+          origin_borrows : ArrayList(CaptureBorrow).new(),
+          uses_origin_borrows : false
         )
       );
     }, if(ref_copy_var.is_some(), {
@@ -1141,6 +1144,8 @@ _evaluate_capture_list :: (
       binder_read_clear();
       ctx.expected_type = saved_rexp;
       require_expr_not_consumed(&ev_ref, env, ctx, exn);
+      ref_borrows := ArrayList(CaptureBorrow).new();
+      _capture_origin_borrows(&label, &origin_of(&ev_ref, env, ctx), &name_tok, env, &mut ref_borrows);
       out.push(
         _CapListEntry(
           label : label,
@@ -1154,8 +1159,8 @@ _evaluate_capture_list :: (
           path : ArrayList(String).new(),
           root_is_value_param : rv.is_imm_borrow(),
           outer : Option(BorrowCaptureOuter).None,
-          origin_roots : origin_of(&ev_ref, env, ctx),
-          uses_origin_roots : true
+          origin_borrows : ref_borrows,
+          uses_origin_borrows : true
         )
       );
     }, {
@@ -1169,7 +1174,10 @@ _evaluate_capture_list :: (
       // R-CLOSURE-LIT's by-value clause: a captured value whose type carries
       // an origin (a holder, a borrowing closure) puts that origin in the
       // closure (VERDICTS-44 R-CAP-2).
-      val_roots := if(type_carries_origin(&val_ty), origin_of(&ev_val, env, ctx), ArrayList(OriginRootPlace).new());
+      val_borrows := ArrayList(CaptureBorrow).new();
+      if(type_carries_origin(&val_ty), {
+        _capture_origin_borrows(&label, &origin_of(&ev_val, env, ctx), &name_tok, env, &mut val_borrows);
+      });
       // The field must OWN its reference. An owning temp is consumed by the
       // call above (the store moves it) and a move-only atom read moves at
       // the read; but an ATOM read of an RC-typed binding has no temp, so
@@ -1235,8 +1243,8 @@ _evaluate_capture_list :: (
           path : ArrayList(String).new(),
           root_is_value_param : false,
           outer : Option(BorrowCaptureOuter).None,
-          origin_roots : val_roots,
-          uses_origin_roots : false
+          origin_borrows : val_borrows,
+          uses_origin_borrows : false
         )
       );
     }));
@@ -1246,9 +1254,12 @@ _evaluate_capture_list :: (
 });
 /// The capture borrows of a by-value capture `label` whose type carries an
 /// origin: one per place `roots` names, in the mode of the reference that put
-/// it there (R-CLOSURE-LIT's by-value clause, VERDICTS-44 R-CAP-2). A root
-/// that names no binding of this scope (a temporary, an origin parameter)
-/// is skipped: `bind` already judged it where the holder was made.
+/// it there (R-CLOSURE-LIT's by-value clause, VERDICTS-44 R-CAP-2). `env` is
+/// the scope that writes the literal, before the capture frame binds the
+/// entries' labels (a label may name its own root: a `&T` parameter's origin
+/// is the parameter, R-CAP-2's parameter-rooted case). A root that names no
+/// binding of this scope (a temporary, an origin parameter) is skipped:
+/// `bind` already judged it where the holder was made.
 _capture_origin_borrows :: (
   fn(label : &String, roots : &ArrayList(OriginRootPlace), tok : &Token, env : &Environment, out : &mut ArrayList(CaptureBorrow)) -> unit
 )({
@@ -3227,11 +3238,16 @@ Result type: ${type_to_string(&decl_result_ty)}`
           while(cb_i < cap_entries.len(), {
             match(
               cap_entries.get_cloned(cb_i),
-              .Some(ce) => if(ce.uses_origin_roots || (ce.origin_roots.len() > usize(0)), {
+              .Some(ce) => if(ce.uses_origin_borrows || (ce.origin_borrows.len() > usize(0)), {
                 // The value's origin is the closure's (R-CLOSURE-LIT's
                 // by-value clause): one capture borrow per place, in the
-                // mode the reference holding it has.
-                _capture_origin_borrows(&ce.label, &ce.origin_roots, &ce.label_tok, env, &mut cbs);
+                // mode the reference holding it has, resolved where the
+                // entry was evaluated.
+                (ob_i : usize) = usize(0);
+                while(ob_i < ce.origin_borrows.len(), {
+                  cbs.push(ce.origin_borrows(ob_i).clone());
+                  ob_i = (ob_i + usize(1));
+                });
               }, if(ce.is_borrow, {
                 cbs.push(
                   CaptureBorrow(
