@@ -153,13 +153,14 @@ basename), or the fix lane that owns it. Severity is `issues/README.md`'s scale.
 | C3 | A `match` over a reference-returning call is rejected as a copy of a move-only value | S2 | pre | `issues/2026-11-11-a-match-over-a-reference-returning-call-is-rejected-as-a-copy-of-a-move-only-value.md` |
 | C4 | Decision 18 rule 3 rejects a call while a local borrows an unmarked module-level binding | S2 | pre | `issues/2026-11-11-decision-18-rule-3-rejects-a-call-while-a-local-borrows-an-unmarked-module-level-binding.md` |
 | C5 | An `FnMut` closure cannot write its own non-Copy state through a `&mut self` method | S2 | pre | `issues/2026-11-11-an-fnmut-closure-cannot-write-its-own-non-copy-state-through-a-mut-self-method.md` |
-| C6 | A reference-field write is rejected as a read of the reference | S2 | pre | `issues/2026-11-11-a-reference-field-write-is-rejected-as-a-read-of-the-reference.md` |
+| C6 | A reference-field write is rejected as a read of the reference (also a `&mut` lend of a `&`-typed field or tuple slot, `set(&mut s.r, &inner)`, re-probe 2026-11-12) | S2 | pre | `issues/2026-11-11-a-reference-field-write-is-rejected-as-a-read-of-the-reference.md` |
 | C7 | A reference carried in by a by-value parameter cannot be returned | S2 | n/a (the spelling is new) | `issues/2026-11-11-a-reference-carried-in-by-a-by-value-parameter-cannot-be-returned.md` |
 | C8 | Borrow and ownership diagnostics name the wrong place, mode or rule | S3 | pre | `issues/2026-11-11-borrow-and-ownership-diagnostics-name-the-wrong-place-mode-or-rule.md` |
 | C9 | A borrowing future bound with a spelled type is rejected as second-class | S3 | pre | `issues/2026-11-11-a-borrowing-future-bound-with-a-spelled-type-is-rejected-as-second-class.md` |
 | C10 | A non-generic `Impl(Future(...))` parameter rejects a borrowing future operand | S3 | pre | `issues/2026-11-11-a-non-generic-impl-future-parameter-rejects-a-borrowing-future-operand.md` |
 | C11 | A `&mut` binding of a reference cannot be passed bare to a `&mut` reference-to-a-reference parameter | S2 | new (P3) | `issues/2026-11-11-a-mut-binding-of-a-reference-cannot-be-passed-bare-to-a-mut-reference-to-a-reference-parameter.md` |
 | C12 | A closure capturing `&x` cannot return a future that captures `x` (E0912) | S2 | n/a (v0.2.76 cannot spell it; the audit tip accepted it, #1905 suspected) | `issues/2026-11-12-a-closure-capturing-a-reference-cannot-return-a-future-that-captures-the-reference.md` |
+| C13 | A `zip` or `enumerate` of borrowed cursors followed by `filter` is E0923 inside std | S2 | n/a (v0.2.76 cannot spell a borrowed cursor; the audit tip rejects it too) | `issues/2026-11-12-a-zip-or-enumerate-of-borrowed-cursors-followed-by-filter-is-e0923-inside-std.md` |
 
 The diagnostics that name the wrong place, rule or mode are rolled up in one document (C8): they do not change a
 verdict, and they share causes with the findings above (a method name printed as the place, a `&` capture called a
