@@ -127,6 +127,10 @@ pragma(Pragma.AllowUnsafe);
   bind,
   bind_join,
   place_write_join,
+  store_through_mut_join,
+  store_via_mut_reference,
+  store_via_targets,
+  variable_holder_roots,
   audit_origin_totality,
   audit_origin_totality_elided,
   local_borrow_info_of_variable,
@@ -626,26 +630,31 @@ _is_v2_value_collection_type :: (fn(t : &TypeValue) -> bool)(
 _join_through_mut_self_lend :: (fn(lender : &Variable, rhs : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)(
   match(
     local_borrow_info_of_variable(lender),
-    // `rp`'s referent is the reference itself (`rp : &mut &T`): under the
-    // older reading (std, src) `&mut r` lends the referent, never `r`.
-    .Some(js_info) => if(js_info.is_mut && (js_info.places.len() == usize(1)) && t_slot_is_borrow(&variable_value_type(lender)), {
-      match(
-        js_info.places.get_cloned(usize(0)),
-        .Some(js_place) => if((js_place.steps.len() == usize(0)) && !js_place.through_cell, {
-          match(
-            get_variables_from_env(env, js_place.root_name.clone()).last_cloned(),
-            .Some(js_r) => if(variable_is_reference_binding(&js_r) && js_r.is_ref() && (js_r.name != lender.name), {
-              bind_join(&js_r, rhs, env, ctx, exn);
-            }),
-            .None => ()
-          );
-        }),
-        .None => ()
-      );
+    // A local `&mut` borrow writes what it points to: the target holders'
+    // sets grow (`store_through_mut_join`, A25), a whole reference binding's
+    // is replaced (§7 P3).
+    .Some(js_info) => if(js_info.is_mut, {
+      _ := store_through_mut_join(&variable_holder_roots(lender), &lender.name, rhs, env, ctx, exn);
     }),
     .None => ()
   )
 );
+/// The root binding name of the reference expression `via` (no target of a
+/// store through it), or an empty name.
+_via_root_name :: (fn(via : &AstExpr) -> String)({
+  (cur : AstExpr) = via.clone();
+  while(!ast_expr_is_atom(&cur), {
+    cur = match(
+      cur,
+      .FnCall(_, callee, Rc(args), _, _) => cond(
+        ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))) => match(args.get(usize(0)), .Some(a) => a, .None => return(String.new())),
+        true => callee
+      ),
+      .Atom(_, _) => return(String.new())
+    );
+  });
+  ast_expr_token(&cur).value.*.clone()
+});
 _note_reference_value_store :: (fn(rhs : &AstExpr, rhs_info : &ExprInfo, ctx : &EvalContext) -> unit)({
   if(t_slot_is_borrow(&rhs_info.ty()) && is_reference_read(ast_expr_id(rhs)) && expr_info_converted_runtime_type(rhs_info).is_none(), {
     rv_ty := Option(TypeValue).Some(rhs_info.ty());
@@ -1816,13 +1825,23 @@ evaluate_assignment :: (
     // §5): the root holder's flow set grows by the value's origin, or the
     // written place's spelled origins check the subset (`place_write_join`).
     if(ctx.is_evaluating_function_body_or_async_block.is_some() && type_carries_origin(&prop_rhs_info.ty()), {
-      match(
-        _place_root_variable(&evaluated_lhs, &env, ctx, true),
-        .Some(pj_root) => if(!pj_root.is_module_level() && !pj_root.is_compile_time_only(), {
-          place_write_join(&pj_root, &prop_rhs, &env, ctx, exn);
-        }),
-        .None => ()
+      // A store through a `&mut` (a local borrow, a reference field, a
+      // projection's result) grows the set of the place it points into
+      // (A25, A11; `store_through_mut_join`).
+      through := match(
+        store_via_mut_reference(&evaluated_lhs, &env, ctx),
+        .Some(via) => store_through_mut_join(&store_via_targets(&via, &env, ctx), &_via_root_name(&via), &prop_rhs, &env, ctx, exn),
+        .None => false
       );
+      if(!through, {
+        match(
+          _place_root_variable(&evaluated_lhs, &env, ctx, true),
+          .Some(pj_root) => if(!pj_root.is_module_level() && !pj_root.is_compile_time_only(), {
+            place_write_join(&pj_root, &prop_rhs, &env, ctx, exn);
+          }),
+          .None => ()
+        );
+      });
     });
     if(type_carries_origin(&prop_rhs_info.ty()), {
       audit_origin_totality("place-write", &prop_rhs, ctx);
