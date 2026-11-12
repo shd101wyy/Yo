@@ -1,0 +1,25 @@
+// expect: E0923
+// The fn-value form `f := _Slot(a).put; f(&mut s, &yb.*)` of method-store-widen-named-holder: the local remembers the
+// definition of the fn value it is bound to.
+{ println } :: import("std/fmt");
+_Slot :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(dst : &mut Option(&(i32, p))));
+impl(
+  generic(p : Origin),
+  _Slot(p),
+  put : (fn(self : &mut Self, v : &(i32, p)) -> unit)({
+    self.dst.* = .Some(v);
+  })
+);
+main :: (fn() -> unit)({
+  a := i32(1);
+  mut(slot) := Option(&(i32, a)).Some(&a);
+  mut(s) := _Slot(a)(dst : &mut slot);
+  f := _Slot(a).put;
+  {
+    yb := Box.new(i32(2));
+    f(&mut s, &yb.*);
+  };
+  match(slot, .Some(r) => println(`OUT: ${r.*.to_string()}`), .None => println("none"));
+  ()
+});
+export(main);

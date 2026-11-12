@@ -340,7 +340,7 @@ Filed 2026-11-07 from VERDICTS-30/31; each names its repro under `issues/repros/
   caller local named `a` captured them. A user call's result now has those origins elided, and an elided position is
   judged by `origin_of`
   (`issues/fixed/2026-11-09-a-call-results-type-keeps-its-callees-origin-names.md`). Second, a method call skipped
-  `lend_through` altogether (`issues/2026-11-09-a-method-call-skips-lend-through.md`, fixed in the stacked
+  `lend_through` altogether (`issues/fixed/2026-11-09-a-method-call-skips-lend-through.md`, fixed in the stacked
   follow-up). The deletions were measured, and none of the four listed items is dead as the code stands. `is_ref`
   is the C representation (a `x : &T` parameter is passed by value unless the callee is a projection), and
   `is_imm_borrow` also marks a by-value re-bind. `g_reference_reads` is not the ExprInfo type since P3: `r`

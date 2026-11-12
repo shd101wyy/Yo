@@ -1,0 +1,24 @@
+// expect: E0923
+// The method-call twin of h4r (issues/fixed/2026-11-09-a-method-call-skips-lend-through.md): the receiver counts as an
+// argument, so `s : _Slot(a)` fixes `p := a` and `&yb.*` is outside it.
+{ println } :: import("std/fmt");
+_Slot :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(dst : &mut Option(&(i32, p))));
+impl(
+  generic(p : Origin),
+  _Slot(p),
+  put : (fn(self : &mut Self, v : &(i32, p)) -> unit)({
+    self.dst.* = .Some(v);
+  })
+);
+main :: (fn() -> unit)({
+  a := i32(1);
+  mut(slot) := Option(&(i32, a)).Some(&a);
+  mut(s) := _Slot(a)(dst : &mut slot);
+  {
+    yb := Box.new(i32(2));
+    s.put(&yb.*);
+  };
+  match(slot, .Some(r) => println(`OUT: ${r.*.to_string()}`), .None => println("none"));
+  ()
+});
+export(main);
