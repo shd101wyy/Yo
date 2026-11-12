@@ -1,0 +1,20 @@
+// expect: accept
+// The control for ref-mut-ref-store-fn-value.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+mk :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+set :: (fn(generic(p : Origin), dst : &mut&(Rc(X), p), v : &(Rc(X), p)) -> unit)({
+  dst.* = v;
+});
+S :: struct(n : i32);
+main :: (fn() -> unit)({
+  outer := mk();
+  s := S(n : i32(0));
+  inner := mk();
+  mut(r) := &outer;
+  f := set;
+  f(&mut r, &inner);
+  println(`OUT: ${r.*.*.s.len().to_string()}`);
+});
+export(main);

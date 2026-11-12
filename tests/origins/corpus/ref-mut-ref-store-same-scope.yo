@@ -1,0 +1,16 @@
+// N0 corpus row `ref-mut-ref-store-same-scope` (manifest tests/origins/corpus.tsv): POSITIVE: `inner` and `outer` share a scope, so the widened `r` outlives neither.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+mk :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+set :: (fn(generic(p : Origin), dst : &mut&(Rc(X), p), v : &(Rc(X), p)) -> unit)({
+  dst.* = v;
+});
+main :: (fn() -> unit)({
+  outer := mk();
+  inner := mk();
+  mut(r) := &outer;
+  set(&mut r, &inner);
+  println(`OUT: ${r.*.*.s.len().to_string()}`);
+});
+export(main);

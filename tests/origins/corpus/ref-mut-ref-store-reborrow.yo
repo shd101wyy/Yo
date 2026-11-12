@@ -1,0 +1,19 @@
+// N0 corpus row `ref-mut-ref-store-reborrow` (manifest tests/origins/corpus.tsv): NEGATIVE: `rp := &mut r; set(&mut rp.*, &inner)` widens `r` through its re-borrow.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+mk :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+set :: (fn(generic(p : Origin), dst : &mut&(Rc(X), p), v : &(Rc(X), p)) -> unit)({
+  dst.* = v;
+});
+main :: (fn() -> unit)({
+  outer := mk();
+  mut(r) := &outer;
+  {
+    inner := mk();
+    rp := &mut r;
+    set(&mut rp.*, &inner);
+  };
+  println(`OUT: ${r.*.*.s.len().to_string()}`);
+});
+export(main);
