@@ -8327,24 +8327,18 @@ projection_call_root_args :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayLi
   // specialized result is read off the call (`find` over a reference `Item`
   // returns `Option(&(T, p))`, whose roots are the parameters naming `p`, not
   // the closure lent to `pred : &mut F`).
-  //
-  // A specialized callee whose instance erased the origin its definition
-  // spells reads the definition's names and slots (`_call_definition_origin_type`).
-  res_names_spec := match(
+  res_names := match(
     fn_result_origin_names(&meta_ty),
     .Some(rn) => Option(SharedList(String)).Some(rn),
     .None => match(fn_result_composite_origin_names(&meta_ty), .Some(cn) => Option(SharedList(String)).Some(cn), .None => _generic_call_result_origin_names(call, &meta_ty, ctx))
   );
-  def_ty := match(&res_names_spec, .Some(_) => Option(TypeValue).None, .None => _call_definition_origin_type(call, &meta_ty));
-  names_ty := match(&def_ty, .Some(dt) => Rc.clone(dt), .None => Rc.clone(&meta_ty));
-  res_names := match(&def_ty, .Some(dt) => _fn_result_spelled_origin_names(dt), .None => res_names_spec);
   // An impl's origin parameter (`impl(generic(p : Origin), H(p), …)`, Rust's
   // `fn or_insert(self) -> &'p mut V`) is bound at the call from the
   // arguments' types, as the impl's type parameters are: the receiver's
   // `H(o)` gives `p := o`. The specialized parameter slots no longer spell
   // it (origins never specialize), so a result origin no parameter matches
   // is carried by every argument whose type carries an origin.
-  unmatched := match(&res_names, .Some(rn) => _result_names_unmatched(&names_ty, &rn, args.len()), .None => false);
+  unmatched := match(&res_names, .Some(rn) => _result_names_unmatched(&meta_ty, &rn, args.len()), .None => false);
   (i : usize) = usize(0);
   while(i < args.len(), {
     p_ref := match(param_is_ref.get(i), .Some(b) => b, .None => false);
@@ -8356,7 +8350,7 @@ projection_call_root_args :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayLi
       .Some(ha) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&_strip_lend(&ha))), .Some(hai) => type_carries_origin(&hai.ty()), .None => false),
       .None => false
     );
-    p_named := match(&res_names, .Some(rn) => fn_param_in_result_origin(&names_ty, i, &rn), .None => true);
+    p_named := match(&res_names, .Some(rn) => fn_param_in_result_origin(&meta_ty, i, &rn), .None => true);
     // Carried only through the impl's origin: the result points where the
     // argument's references do, never into the argument itself, so a
     // temporary holder (`H(x)(r : &x).get()`) is no root (R-TEMP).
@@ -8415,33 +8409,6 @@ _generic_call_result_origin_names :: (fn(call : &AstExpr, meta_ty : &TypeValue, 
   // is matched by no parameter slot, and `projection_call_root_args` binds it
   // from the arguments whose types carry an origin (`_result_names_unmatched`).
   names
-});
-/// The origin names a function type's result spells: a reference result's
-/// (`-> &(T, p)`), else a by-value result's (`-> Option(&(T, p))`).
-_fn_result_spelled_origin_names :: (fn(ft : &TypeValue) -> Option(SharedList(String)))(
-  match(fn_result_origin_names(ft), .Some(rn) => Option(SharedList(String)).Some(rn), .None => fn_result_composite_origin_names(ft))
-);
-/// The DEFINITION type of a recorded method call whose specialized callee
-/// type `meta_ty` spells no result origin while the definition does
-/// (`.None` otherwise). Origins never specialize: an instance over
-/// `I := RrCursor(<elided>)` reads the impl's `next(self : &mut RrCursor(p))
-/// -> Option(&(i32, p))` as `-> Option(&(i32, <elided>))`. That `<elided>`
-/// is not an elision WRITTEN in a signature (O2's union of the reference
-/// parameters, which roots the result at the receiver's place): it is the
-/// impl's `p`, which the receiver's pointee carries and the impl body was
-/// checked against (the return rule), so the definition's names and slots
-/// decide the roots (mode 2: the receiver's holder, never its place) —
-/// as `lend_through` reads a method call's slots off the definition
-/// (`_method_slots`). A definition that spells nothing keeps O2's default.
-_call_definition_origin_type :: (fn(call : &AstExpr, meta_ty : &TypeValue) -> Option(TypeValue))({
-  if(_fn_result_spelled_origin_names(meta_ty).is_some(), {
-    return(Option(TypeValue).None);
-  });
-  dt := match(lookup_method_callee_value(ast_expr_id(call)), .Some(.FuncVal(dfv, _)) => get_func_type(&dfv.*.func_id), _ => return(Option(TypeValue).None));
-  if(debug_knob(`YO_DEBUG_ORIGIN`).is_some(), {
-    eprintln(`[origin-def] ${ast_expr_to_string(call)}: callee ${type_to_string(meta_ty)} definition ${type_to_string(&dt)}`);
-  });
-  if(_fn_result_spelled_origin_names(&dt).is_some() && (fn_param_slots(&dt).len() == fn_param_slots(meta_ty).len()), Option(TypeValue).Some(dt), Option(TypeValue).None)
 });
 /// The origin names the by-value type `t` spells, its type binders read
 /// through their resolution chains (`Option(A)` at `A := &(T, p)` lists `p`).
@@ -8981,7 +8948,9 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
             if(!ra.by_value && is_temporary_operand(&ra.arg, env, ctx), {
               _origin_push(origin_temporary_entry(&ra.arg, ra.is_mut), out);
             });
-            _origin_of_into(&ra.arg, env, ctx, out, (depth + u32(1)));
+            // A by-value root: the result points where the argument's
+            // references point, never into the argument (`_origin_held_into`).
+            if(ra.by_value, _origin_held_into(&ra.arg, env, ctx, out, (depth + u32(1))), _origin_of_into(&ra.arg, env, ctx, out, (depth + u32(1))));
           },
           .None => ()
         );
@@ -9030,6 +8999,33 @@ origin_held_by :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> A
     );
   });
   origin_of(e, env, ctx)
+});
+/// What the VALUE of the argument `e` holds, for a call result rooted at it
+/// by value (`ProjectionRootArg.by_value`: a holder parameter, or an impl's
+/// origin parameter its type carries): the result points where `e`'s
+/// references point, never into `e` — `origin_held_by` read through a
+/// place's field and deref steps. A place rooted at a parameter or at a
+/// by-value holder holds that root's registered entries: none for a
+/// parameter's (`self._inner` under `self : &mut Self` holds what the caller
+/// lent, outside this function), so a write to `self.n` while the result is
+/// live is no conflict, as Rust's `Iterator::next(&mut self) ->
+/// Option<Self::Item>` (issues/fixed/2026-11-12-a-call-result-in-an-origin-erased-specialization-borrows-the-receiver.md).
+/// Any other argument (a reference binding's place, a temporary) holds its
+/// origin (`origin_of`).
+_origin_held_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(OriginRootPlace), depth : u32) -> unit)({
+  match(
+    _place_chain_root_atom(e),
+    .Some(root) => match(
+      get_variables_from_env(env, ast_expr_token(&root).value.*.clone()).last_cloned(),
+      .Some(rv) => if(rv.is_parameter() || !variable_is_reference_binding(&rv), {
+        _holder_roots_into(&root, env, ctx, out);
+        return(());
+      }),
+      .None => ()
+    ),
+    .None => ()
+  );
+  _origin_of_into(e, env, ctx, out, depth);
 });
 /// R-FIELD's push for the field read `node` (`recv.field`): the field
 /// type's spelled origin names (`_origin_names_into`), else the receiver's
@@ -9309,11 +9305,7 @@ _origin_carrying_roots_shallow :: (fn(e : &AstExpr, env : &Environment, ctx : &E
   // parameter they do not name contributes nothing; one whose pointee
   // carries them (`self : &mut Cursor(p)`, O3 step 2) contributes the
   // places its holder froze, not its own place.
-  // A specialization that erased the definition's spelled origin reads the
-  // definition (`_call_definition_origin_type`), as R-CALL does.
-  oc_ft_spec := projection_call_callee_type(&stripped, ctx);
-  oc_def := match(&oc_ft_spec, .Some(oc_s) => if(fn_result_composite_origin_names(oc_s).is_none(), _call_definition_origin_type(&stripped, oc_s), Option(TypeValue).None), .None => Option(TypeValue).None);
-  oc_ft := match(&oc_def, .Some(_) => oc_def.clone(), .None => oc_ft_spec);
+  oc_ft := projection_call_callee_type(&stripped, ctx);
   oc_names := match(&oc_ft, .Some(oc_t) => fn_result_composite_origin_names(&oc_t), .None => Option(SharedList(String)).None);
   // A method call's receiver is its first parameter (`m.entry(k)` with
   // `entry(self : &mut Self, key : K) -> HashMapEntry(K, V, self)`): the
