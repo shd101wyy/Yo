@@ -93,7 +93,8 @@ P2 (VERDICTS-41 Q1 item 3, VERDICTS-58 decision 12) reads a `:=` initializer's b
 OWN environment (`_chain_leaf_origins`, `src/evaluator/exprs/initialization_assignment.yo`), so a block or arm tail
 whose value carries an origin over a local declared inside it is now E0911 ("Cannot end this block while its result
 borrows `y`"): the main reproducer, `…-arm.yo`, and a `cond` arm. The G-B rows are
-`tests/origins/unsound/{block-tail,cond-arm-tail,match-arm-tail}-holder-over-*-local{,-pos}.yo`; the
+`tests/origins/unsound/block-tail-holder-over-block-local.yo`, `tests/origins/unsound/cond-arm-tail-holder-over-arm-local.yo`
+and `tests/origins/unsound/match-arm-tail-holder-over-arm-local.yo`, each with its `-pos` twin; the
 `reference_read_rule` test pins the message.
 
 Still open: an outer root reached through a block-local holder binding (`…-outer-root.yo`, k07/k12/k09: `x` is not
