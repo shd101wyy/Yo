@@ -53,7 +53,8 @@ pragma(Pragma.AllowUnsafe);
   BF_ADDRESS_OF,
   is_mut_binding,
   ast_rewritten_node,
-  for_desugar_site_of
+  for_desugar_site_of,
+  value_tail_mode
 } :: import("../expr.yo");
 {
   ExprInfo,
@@ -8733,6 +8734,24 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
     );
     return(());
   });
+  // R3's value tail (`VALUE_*_READ_PATH`, `rewrite_value_reference_tails`):
+  // a by-value `-> T` result specialized at `T := &U` reads a reference
+  // binding `name` in a result position as the marked `addr_of(name.*)`,
+  // which is the reference VALUE `name` holds — so its origin is `name`'s
+  // (R-READ), never the `name.*` place's (an untyped node: the evaluator
+  // reads the argument under another id).
+  if(value_tail_mode(e).is_some(), {
+    match(
+      e,
+      .FnCall(_, _, Rc(vt_args), _, _) => match(
+        vt_args.get(usize(0)),
+        .Some(.FnCall(_, _, Rc(vt_deref_args), _, _)) => match(vt_deref_args.get(usize(0)), .Some(vt_name) => _origin_of_into(&vt_name, env, ctx, out, (depth + u32(1))), .None => ()),
+        _ => ()
+      ),
+      .Atom(_, _) => ()
+    );
+    return(());
+  });
   stripped := ast_expr_strip_borrow_marker(e);
   // A macro expansion is checked in the caller's coordinates: its origin is
   // the expansion's.
@@ -8929,7 +8948,9 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
             if(!ra.by_value && is_temporary_operand(&ra.arg, env, ctx), {
               _origin_push(origin_temporary_entry(&ra.arg, ra.is_mut), out);
             });
-            _origin_of_into(&ra.arg, env, ctx, out, (depth + u32(1)));
+            // A by-value root: the result points where the argument's
+            // references point, never into the argument (`_origin_held_into`).
+            if(ra.by_value, _origin_held_into(&ra.arg, env, ctx, out, (depth + u32(1))), _origin_of_into(&ra.arg, env, ctx, out, (depth + u32(1))));
           },
           .None => ()
         );
@@ -8978,6 +8999,33 @@ origin_held_by :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> A
     );
   });
   origin_of(e, env, ctx)
+});
+/// What the VALUE of the argument `e` holds, for a call result rooted at it
+/// by value (`ProjectionRootArg.by_value`: a holder parameter, or an impl's
+/// origin parameter its type carries): the result points where `e`'s
+/// references point, never into `e` — `origin_held_by` read through a
+/// place's field and deref steps. A place rooted at a parameter or at a
+/// by-value holder holds that root's registered entries: none for a
+/// parameter's (`self._inner` under `self : &mut Self` holds what the caller
+/// lent, outside this function), so a write to `self.n` while the result is
+/// live is no conflict, as Rust's `Iterator::next(&mut self) ->
+/// Option<Self::Item>` (issues/fixed/2026-11-12-a-call-result-in-an-origin-erased-specialization-borrows-the-receiver.md).
+/// Any other argument (a reference binding's place, a temporary) holds its
+/// origin (`origin_of`).
+_origin_held_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(OriginRootPlace), depth : u32) -> unit)({
+  match(
+    _place_chain_root_atom(e),
+    .Some(root) => match(
+      get_variables_from_env(env, ast_expr_token(&root).value.*.clone()).last_cloned(),
+      .Some(rv) => if(rv.is_parameter() || !variable_is_reference_binding(&rv), {
+        _holder_roots_into(&root, env, ctx, out);
+        return(());
+      }),
+      .None => ()
+    ),
+    .None => ()
+  );
+  _origin_of_into(e, env, ctx, out, depth);
 });
 /// R-FIELD's push for the field read `node` (`recv.field`): the field
 /// type's spelled origin names (`_origin_names_into`), else the receiver's

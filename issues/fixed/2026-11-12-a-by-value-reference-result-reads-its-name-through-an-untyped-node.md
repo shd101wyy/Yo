@@ -14,3 +14,14 @@ at `_sm_pick :: (fn(generic(T : Type), a : T, b : T, first : bool) -> T)(if(firs
 ## Fix direction
 
 Either the rewrite records an `ExprInfo` for the nodes it synthesizes (the owner of R3), or `origin_of` reads the `VALUE_*_READ_PATH` marker the way it reads a lend marker and never descends into the synthesized operand. Not an exemption in the audit: the point of G-E is that a node `origin_of` reaches has a record.
+
+## Fix
+
+The second direction: `_origin_of_into` (`src/evaluator/utils.yo`) reads a `VALUE_*_READ_PATH` node as R-READ of its name
+and never descends into the synthesized `name.*`. The marked `addr_of(name.*)` is the reference VALUE `name` holds, so
+its origin is `name`'s; `addr_of` is not the `&` lend marker R-LEND reads, so before this the node fell through to
+R-CALL's constructor fallback and recursed into the operand, which `evaluate_address_call` evaluates under another id.
+G-E's totality count for `tests/origins/reference_read_rule.test.yo` is 0 again (fixdev lane, develop battery
+43142204182's `origins-corpus` failure). The same job's `./src: rc=1` was a missing `yo install`: the job now runs
+`install-deps` before the audit, and `scripts/check-origin-sinks.sh --totality` fails on a target that does not check
+(an unchecked file is an unaudited one; the corpus, whose rows are rejected programs, is the one exception).

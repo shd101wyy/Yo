@@ -644,8 +644,11 @@ PHASES=N1 YO=... bash scripts/origins-corpus.sh target                          
   `./std`, the corpus and the reference language tests; every
   `[origin-totality]` line is a value a sink stored without its origin
   computed (`sink`), an `origin_of` recursion into an untyped node
-  (`untyped`) or a cut at its depth bound (`depth`). The count must be 0; CI
-  runs both halves in `origins-corpus`.
+  (`untyped`) or a cut at its depth bound (`depth`). The count must be 0, and
+  every target except the corpus (rejected programs by design) must check
+  cleanly: an unchecked file is an unaudited one. `./src` imports the
+  `markdown-yo` dependency, so a fresh clone needs `yo install` first (CI
+  runs `install-deps`). CI runs both halves in `origins-corpus`.
 
 ## Build system tests
 

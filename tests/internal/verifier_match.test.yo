@@ -148,7 +148,7 @@ test("the SMT encoding of a match query declares the datatype (solver-free)", {
   tasks := take_verify_tasks();
   assert(tasks.len() == usize(2), `two tasks, got ${tasks.len().to_string()}`);
   t := match(
-    tasks.get(usize(0)),
+    tasks.get_cloned(usize(0)),
     .Some(x) => x,
     .None => {
       assert(false, "task missing");
@@ -218,7 +218,7 @@ test("the match walk has its arms under check's settings (codegen-only tables of
   assert(tasks.len() == usize(2), `two tasks, got ${tasks.len().to_string()}`);
   (mut(ti) : usize) = usize(0);
   while(ti < tasks.len(), {
-    t := tasks.get(ti).unwrap();
+    t := tasks.get_cloned(ti).unwrap();
     res := verify_function_body(
       VerifyFnInput(
         fn_name : t.fn_id.clone(),
