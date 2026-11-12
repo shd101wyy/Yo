@@ -115,6 +115,38 @@ test("an adapter closure over a reference Item takes a &&T", {
   found := rr_cursor(&xs).find(v => (v.*.* == i32(3)));
   assert(match(found, .Some(f) => (f.* == i32(3)), .None => false), "find's bound result");
 });
+/// A generic holder of an iterator, specialized at `I := RrCursor(<elided>)`
+/// (origins never specialize): `self._inner.next()` reads the impl's
+/// DEFINITION, `next(self : &mut RrCursor(p)) -> Option(&(i32, p))`, so `item`
+/// holds what the cursor holds and never borrows `self`, and `self.n` may be
+/// written while `item` is live
+/// (issues/fixed/2026-11-12-a-call-result-in-an-origin-erased-specialization-borrows-the-receiver.md).
+RrWrap :: (fn(comptime(I) : Type) -> comptime(Type))(struct(_inner : I, n : i32));
+impl(
+  generic(I : Type, A : Type),
+  where(I <: Iterator(Item := A)),
+  RrWrap(I),
+  step : (fn(self : &mut Self) -> Option(A))(
+    match(
+      self._inner.next(),
+      .Some(item) => {
+        self.n = (self.n + i32(1));
+        .Some(item)
+      },
+      .None => .None
+    )
+  )
+);
+rr_drive :: (fn(generic(I : Type, A : Type), it : I, where(I <: Iterator(Item := A))) -> i32)({
+  mut(w) := RrWrap(I)(_inner : it, n : i32(0));
+  _ := w.step();
+  _ := w.step();
+  w.n
+});
+test("a generic holder writes itself while an item of its inner iterator is live", {
+  xs := rr_list();
+  assert(rr_drive(rr_cursor(&xs)) == i32(2), "two steps, each writes self.n under a live item");
+});
 comptime_expect_error(
   rr_no_deref_coercion :: (fn(s : &String) -> usize)({
     r := &s.*;
