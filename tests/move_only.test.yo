@@ -2051,7 +2051,37 @@ _mo_tmp_unwind :: (fn(c : bool) -> i32)({
   );
   _mo_tmp_inner(c, raise)
 });
-test("move-only: a temporary argument is dropped when a later argument returns, continues, breaks or unwinds", {
+// The named-local shape of the same exit gate: `k` passed by value (to a
+// call, to a struct literal's field) is still owned when a later argument
+// unwinds
+// (issues/fixed/2026-11-03-an-unwind-out-of-a-later-argument-leaks-an-earlier-moved-argument.md).
+_MoTmpRaiseI :: (ctl(code : i32) -> i32);
+_mo_named_call_inner :: (fn(c : bool, raise : _MoTmpRaise) -> i32)({
+  k := _mo_make(i32(1));
+  _mo_add2(k, _mo_tmp_raise(c, raise))
+});
+_mo_named_call_unwind :: (fn(c : bool) -> i32)({
+  (raise : _MoTmpRaise) = (
+    code -> {
+      unwind(i32(-1));
+    }
+  );
+  _mo_named_call_inner(c, raise)
+});
+_mo_named_struct_inner :: (fn(c : bool, raise : _MoTmpRaiseI) -> i32)({
+  k := _mo_make(i32(1));
+  h := _MoHolder(fd : k, tag : cond(c => raise(i32(1)), true => i32(5)));
+  h.tag
+});
+_mo_named_struct_unwind :: (fn(c : bool) -> i32)({
+  (raise : _MoTmpRaiseI) = (
+    code -> {
+      unwind(i32(-1));
+    }
+  );
+  _mo_named_struct_inner(c, raise)
+});
+test("move-only: a temporary or named argument is dropped when a later argument returns, continues, breaks or unwinds", {
   d0 := _mo_counts_reset();
   assert(_mo_shape(_mo_tmp_return(true), i32(0), d0, i32(1), i32(1)), "return: the temporary dropped once");
   d1 := _mo_counts_reset();
@@ -2070,6 +2100,12 @@ test("move-only: a temporary argument is dropped when a later argument returns, 
   assert(_mo_shape(_mo_tmp_unwind(true), i32(-1), d7, i32(1), i32(1)), "unwind: the temporary dropped");
   d8 := _mo_counts_reset();
   assert(_mo_shape(_mo_tmp_unwind(false), i32(3), d8, i32(2), i32(3)), "no unwind: both moved");
+  d9 := _mo_counts_reset();
+  assert(_mo_shape(_mo_named_call_unwind(true), i32(-1), d9, i32(1), i32(1)), "unwind: the named argument dropped");
+  d10 := _mo_counts_reset();
+  assert(_mo_shape(_mo_named_struct_unwind(true), i32(-1), d10, i32(1), i32(1)), "unwind: the named struct field dropped");
+  d11 := _mo_counts_reset();
+  assert(_mo_shape(_mo_named_struct_unwind(false), i32(5), d11, i32(1), i32(1)), "no unwind: the holder drops the field once");
 });
 // A `match` with one arm that moves and another that always leaves (`break`,
 // `continue`, `return`): the join keeps the moving arm's move, so the local is
