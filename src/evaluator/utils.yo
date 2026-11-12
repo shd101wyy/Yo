@@ -83,6 +83,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_deferred_dup_expressions,
   expr_info_index_trait_ptr_type,
   lookup_method_callee_type,
+  lookup_generic_callee_type,
   lookup_method_callee_value,
   mark_call_scoped_share_dup,
   mark_call_scoped_share_drop,
@@ -8482,6 +8483,9 @@ projection_call_root_args :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayLi
   // it (origins never specialize), so a result origin no parameter matches
   // is carried by every argument whose type carries an origin.
   unmatched := match(&res_names, .Some(rn) => _result_names_unmatched(&meta_ty, &rn, args.len()), .None => false);
+  // A generic callee's by-value result holds what every argument typed over
+  // its binders holds, whatever the specialization spells (O-3).
+  binder_modes := generic_result_binder_modes(call, fn_param_slots(&meta_ty).len());
   (i : usize) = usize(0);
   while(i < args.len(), {
     p_ref := match(param_is_ref.get(i), .Some(b) => b, .None => false);
@@ -8493,7 +8497,7 @@ projection_call_root_args :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayLi
       .Some(ha) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&_strip_lend(&ha))), .Some(hai) => type_carries_origin(&hai.ty()), .None => false),
       .None => false
     );
-    p_named := match(&res_names, .Some(rn) => fn_param_in_result_origin(&meta_ty, i, &rn), .None => true);
+    p_named := (match(&res_names, .Some(rn) => fn_param_in_result_origin(&meta_ty, i, &rn), .None => true) || (_binder_mode_at(&binder_modes, i) == u8(1)));
     // Carried only through the impl's origin: the result points where the
     // argument's references do, never into the argument itself, so a
     // temporary holder (`H(x)(r : &x).get()`) is no root (R-TEMP).
@@ -8553,6 +8557,91 @@ _generic_call_result_origin_names :: (fn(call : &AstExpr, meta_ty : &TypeValue, 
   // from the arguments whose types carry an origin (`_result_names_unmatched`).
   names
 });
+/// The identities of the type variables (`generic(T : Type)`'s `SomeT`s) a
+/// definition's slot type mentions, through type arguments and tuple fields,
+/// and through references when `through_refs`. A by-value result holds the
+/// binders it mentions outside every reference (`-> Option(T)` holds `T`'s
+/// references; `-> Option(&(T, p))` points where `p` says).
+type_var_ids_of :: (fn(ty : &TypeValue, out : &mut ArrayList(String), depth : u32, through_refs : bool) -> unit)({
+  if(depth > u32(16), {
+    return(());
+  });
+  match(
+    ty,
+    Rc(.SomeT({ id : tv_id })) => if(!out.contains(&tv_id), {
+      out.push(tv_id.clone());
+    }),
+    Rc(.Reference(tv_p, _, _)) => if(through_refs, type_var_ids_of(&tv_p, out, (depth + u32(1)), through_refs)),
+    Rc(.ValueSlot(tv_vs)) => type_var_ids_of(&tv_vs, out, (depth + u32(1)), through_refs),
+    Rc(.Struct({ type_arguments : tv_sargs })) => {
+      (si : usize) = usize(0);
+      while(si < tv_sargs.len(), si = (si + usize(1)), {
+        match(tv_sargs.get(si), .Some(sa) => type_var_ids_of(&sa, out, (depth + u32(1)), through_refs), .None => ());
+      });
+    },
+    Rc(.EnumT({ type_arguments : tv_eargs })) => {
+      (ei : usize) = usize(0);
+      while(ei < tv_eargs.len(), ei = (ei + usize(1)), {
+        match(tv_eargs.get(ei), .Some(ea) => type_var_ids_of(&ea, out, (depth + u32(1)), through_refs), .None => ());
+      });
+    },
+    Rc(.Tuple({ field_types : tv_fields })) => {
+      (fi : usize) = usize(0);
+      while(fi < tv_fields.len(), fi = (fi + usize(1)), {
+        match(tv_fields.get(fi), .Some(ft) => type_var_ids_of(&ft, out, (depth + u32(1)), through_refs), .None => ());
+      });
+    },
+    _ => ()
+  );
+});
+/// How each parameter of the generic callee of `call` (`n` parameters after
+/// its specialization) reaches the type binders its by-value result holds
+/// (O-3: a type parameter's instantiation carries one origin into all its
+/// occurrences, so `pick(a : T, b : T) -> T` at `T := &U` holds what BOTH
+/// arguments hold): 1 a by-value parameter typed over one of them (its
+/// argument's references are the result's), 2 a reference whose pointee is
+/// (the references the pointee holds are), 0 neither. `.None` when the callee
+/// was not specialized for this call (`record_generic_callee_type`) or its
+/// result holds no binder. The specialization cannot answer this itself: its
+/// types are the arguments' own, so its result spells only the origin the
+/// first argument bound the binder to
+/// (issues/fixed/2026-11-12-a-generic-by-value-result-at-a-reference-type-drops-its-second-arguments-origin.md).
+generic_result_binder_modes :: (fn(call : &AstExpr, n : usize) -> Option(ArrayList(u8)))({
+  decl := match(lookup_generic_callee_type(ast_expr_id(call)), .Some(t) => t, .None => return(Option(ArrayList(u8)).None));
+  res_vars := ArrayList(String).new();
+  type_var_ids_of(&fn_result_slot(&decl), &mut res_vars, u32(0), false);
+  slots := fn_param_slots(&decl);
+  if((res_vars.len() == usize(0)) || (slots.len() != n), {
+    return(Option(ArrayList(u8)).None);
+  });
+  modes := ArrayList(u8).new();
+  (i : usize) = usize(0);
+  while(i < slots.len(), i = (i + usize(1)), {
+    slot := match(slots.get(i), .Some(sl) => sl, .None => Rc.new(TypeValueNode.Unit));
+    p_vars := ArrayList(String).new();
+    type_var_ids_of(&slot, &mut p_vars, u32(0), true);
+    (shares : bool) = false;
+    (j : usize) = usize(0);
+    while(j < p_vars.len(), j = (j + usize(1)), {
+      if(res_vars.contains(&p_vars(j)), {
+        shares = true;
+      });
+    });
+    modes.push(
+      cond(
+        !shares => u8(0),
+        t_slot_is_borrow(&slot) => u8(2),
+        true => u8(1)
+      )
+    );
+  });
+  Option(ArrayList(u8)).Some(modes)
+});
+/// Parameter `i`'s binder mode (`generic_result_binder_modes`); 0 past the
+/// end or for a callee that has none.
+_binder_mode_at :: (fn(modes : &Option(ArrayList(u8)), i : usize) -> u8)(
+  match(modes, .Some(ms) => match(ms.get(i), .Some(m) => m, .None => u8(0)), .None => u8(0))
+);
 /// The origin names the by-value type `t` spells, its type binders read
 /// through their resolution chains (`Option(A)` at `A := &(T, p)` lists `p`).
 /// False when one is elided or a binder is unresolved: then it names any.
@@ -9471,6 +9560,9 @@ _origin_carrying_roots_shallow :: (fn(e : &AstExpr, env : &Environment, ctx : &E
   // places its holder froze, not its own place.
   oc_ft := projection_call_callee_type(&stripped, ctx);
   oc_names := match(&oc_ft, .Some(oc_t) => fn_result_composite_origin_names(&oc_t), .None => Option(SharedList(String)).None);
+  // A generic callee's by-value result holds what every argument typed over
+  // its binders holds (O-3), whatever its specialization spells.
+  oc_binder_modes := generic_result_binder_modes(&stripped, match(&oc_ft, .Some(oc_t) => fn_param_slots(oc_t).len(), .None => usize(0)));
   // A method call's receiver is its first parameter (`m.entry(k)` with
   // `entry(self : &mut Self, key : K) -> HashMapEntry(K, V, self)`): the
   // place it lends is a root like a written `&mut m`, and the written
@@ -9480,7 +9572,7 @@ _origin_carrying_roots_shallow :: (fn(e : &AstExpr, env : &Environment, ctx : &E
     _method_call_receiver(&stripped, ctx),
     .Some(recv) => {
       oc_offset = usize(1);
-      (recv_mode : u8) = _call_origin_mode(&oc_ft, &oc_names, usize(0));
+      (recv_mode : u8) = _with_binder_mode(&oc_binder_modes, usize(0), _call_origin_mode(&oc_ft, &oc_names, usize(0)));
       recv_slot := match(&oc_ft, .Some(oc_t) => fn_param_slots(oc_t).get(usize(0)), .None => Option(TypeValue).None);
       recv_place := ast_expr_strip_borrow_marker(&recv);
       cond(
@@ -9503,7 +9595,7 @@ _origin_carrying_roots_shallow :: (fn(e : &AstExpr, env : &Environment, ctx : &E
       (i : usize) = usize(0);
       while(i < fc_args.len(), {
         arg := match(fc_args.get(i), .Some(a) => a, .None => make_err_expr());
-        (oc_mode : u8) = _call_origin_mode(&oc_ft, &oc_names, i + oc_offset);
+        (oc_mode : u8) = _with_binder_mode(&oc_binder_modes, i + oc_offset, _call_origin_mode(&oc_ft, &oc_names, i + oc_offset));
         if(oc_mode == u8(1), {
           i = (i + usize(1));
           continue;
@@ -9610,6 +9702,19 @@ _origin_carrying_roots_shallow :: (fn(e : &AstExpr, env : &Environment, ctx : &E
     .Atom(_, _) => ()
   );
   ()
+});
+/// `_call_origin_mode`'s `mode` for parameter `i`, widened by the generic
+/// callee's binder modes (`generic_result_binder_modes`): a by-value
+/// parameter typed over a binder the result holds is a root like a named one
+/// (0); a reference whose pointee is reaches the result through the pointee's
+/// holder (2).
+_with_binder_mode :: (fn(modes : &Option(ArrayList(u8)), i : usize, mode : u8) -> u8)({
+  bm := _binder_mode_at(modes, i);
+  cond(
+    (bm == u8(1)) => u8(0),
+    ((bm == u8(2)) && (mode == u8(1))) => u8(2),
+    true => mode
+  )
 });
 /// How parameter `i` of the callee `oc_ft` reaches the origins `oc_names`
 /// its composite result spells: 0 the argument's own place or holder (or
@@ -11630,7 +11735,7 @@ _origin_through_match_bindings :: (fn(roots : &ArrayList(OriginRootPlace), env :
   });
   out
 });
-export(projection_call_mode_of, unsize_root_args, projection_body_mismatch_message, ProjectionRootArg, is_temporary_operand, deref_is_owning_handle_step, origin_temporary_entry, origin_temporary_root, ORIGIN_TEMPORARY_ROOT, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, variable_holder_roots, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, note_ref_payload_source, ref_payload_source, note_ref_payload_held, note_borrow_match_source, borrow_match_source, n2b_roots_text, audit_origin_totality, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, note_fn_value_definition, fn_value_definition);
+export(projection_call_mode_of, unsize_root_args, projection_body_mismatch_message, ProjectionRootArg, is_temporary_operand, deref_is_owning_handle_step, origin_temporary_entry, origin_temporary_root, ORIGIN_TEMPORARY_ROOT, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, variable_holder_roots, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, note_ref_payload_source, ref_payload_source, note_ref_payload_held, note_borrow_match_source, borrow_match_source, n2b_roots_text, audit_origin_totality, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, note_fn_value_definition, fn_value_definition, type_var_ids_of);
 export(drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions);
 export(
   LocalBorrowPlace,

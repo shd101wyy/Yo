@@ -908,3 +908,34 @@ test("A method-call projection leaf of a block tail reads as its value today", {
   };
   assert(z == i32(5), "the value of the projection");
 });
+// A tuple element that is a reference VALUE (a by-value `a : T` at
+// `T := &i32`, a `-> T` call's result there) is the pointer the element
+// holds: the literal took its address, `&(b)` on a `const int32_t *`
+// parameter and `&(call())` on a C rvalue
+// (issues/fixed/2026-11-12-a-tuple-of-by-value-reference-parameters-emits-invalid-c.md).
+_tr_swap :: (fn(generic(T : Type), a : T, b : T) -> Tuple(T, T))((b, a));
+_tr_with_one :: (fn(generic(T : Type), a : T) -> Tuple(T, i32))((a, i32(1)));
+_tr_first_of_pair :: (fn(generic(T : Type), a : T, b : T) -> i32)({
+  p := (a, b);
+  (v : i32) = p.0.*;
+  v
+});
+test("a tuple of by-value reference parameters holds the references", {
+  x := i32(1);
+  y := i32(2);
+  rx := &x;
+  ry := &y;
+  p := _tr_swap(rx, ry);
+  assert(p.0.* == i32(2), "the swapped first element reads y");
+  assert(p.1.* == i32(1), "the swapped second element reads x");
+  m := _tr_with_one(ry);
+  assert(m.0.* == i32(2), "a reference element beside a value");
+  assert(m.1 == i32(1), "and the value");
+  assert(_tr_first_of_pair(rx, ry) == i32(1), "a local tuple of the parameters");
+  c := (rr_id(ry), i32(3));
+  assert(c.0.* == i32(2), "a `-> T` call's reference result as an element");
+  assert(c.1 == i32(3), "beside a value");
+  v := _tr_swap(i32(5), i32(6));
+  assert(v.0 == i32(6), "the by-value instance beside it");
+  assert(v.1 == i32(5), "swaps the values");
+});

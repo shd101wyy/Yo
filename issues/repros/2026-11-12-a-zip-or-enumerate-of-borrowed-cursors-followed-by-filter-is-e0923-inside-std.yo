@@ -1,0 +1,19 @@
+// expect: accept (prints OUT: 2). develop 4f8f975b3: E0923 inside std's `filter`
+// ("Cannot assign a value holding origin `item` to `loop_result` ... `Option(IterPair(A, B))`").
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array_list");
+mk :: (fn() -> ArrayList(String))({
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("alpha-0123456789abcdefghijklmnopqrstuvwxyz"));
+  xs.push(String.from("bb"));
+  xs.push(String.from("gamma-0123456789"));
+  xs
+});
+main :: (fn() -> unit)({
+  xs := mk();
+  ys := mk();
+  n := (&xs).into_iter().zip((&ys).into_iter()).filter(p => (p.*._0.*.len() == p.*._1.*.len())).count();
+  println(`OUT: ${n.to_string()}`);
+});
+export(main);
