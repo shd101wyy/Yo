@@ -19,9 +19,15 @@ clone", which stays open here.
 { println } :: import("std/fmt");
 X :: struct(n : i32);
 E :: enum(V(r : &mut X), Z);
-poke :: (fn(e : &E) -> unit)(match(e, .V(r) => {
-  r.n = i32(5);
-}, .Z => ()));
+poke :: (fn(e : &E) -> unit)(
+  match(
+    e,
+    .V(r) => {
+      r.n = i32(5);
+    },
+    .Z => ()
+  )
+);
 main :: (fn() -> unit)({
   mut(x) := X(n : i32(1));
   e := E.V(r : &mut x);
