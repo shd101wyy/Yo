@@ -96,7 +96,7 @@ pragma(Pragma.AllowUnsafe);
 { type_representation_contains_raw_ptr, type_contains_rc_type, dyn_upcast_note, type_is_control_bound, mark_generic_independent, type_carries_origin, no_origin_position_error, type_is_sized, unsized_by_value_error } :: import("../../types/utils.yo");
 { format_error_message, format_error_message_with_help, format_error_messages, format_error_messages_with_help, TokenAndError, with_code } :: import("../../error.yo");
 { E_VARIABLE_NOT_FOUND, E_WRITE_THROUGH_BORROW, E_COMPTIME_BINDING_RUNTIME_WRITE } :: import("../../diagnostics.yo");
-{ call_promote_index_places_for_write } :: import("../context.yo");
+{ call_promote_index_places_for_write, call_is_index_place } :: import("../context.yo");
 { comptime_numeric_slot_type } :: import("../values/integer.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
 { evaluate_binding, set_defer_generic_fn_type_check } :: import("./binding.yo");
@@ -637,6 +637,21 @@ _join_through_mut_self_lend :: (fn(lender : &Variable, rhs : &AstExpr, env : &En
       _ := store_through_mut_join(&variable_holder_roots(lender), &lender.name, rhs, env, ctx, exn);
     }),
     .None => ()
+  )
+);
+/// The root binding of an element place `recv(i)` of a type that dispatches
+/// `Index` (an `IndexMut` write): the receiver's own root.
+_index_place_root :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(Variable))(
+  cond(
+    (!ast_expr_is_atom(lhs) && !ast_expr_is_fn_call_of(lhs, BF_DOT, Option(usize).Some(usize(2))) && call_is_index_place(lhs, env, ctx)) => match(
+      lhs,
+      .FnCall(_, ip_callee, _, _, _) => cond(
+        ast_expr_is_atom(&ip_callee) => get_variables_from_env(env, ast_expr_token(&ip_callee).value.*.clone()).last_cloned(),
+        true => _place_root_variable(&ip_callee, env, ctx, true)
+      ),
+      .Atom(_, _) => Option(Variable).None
+    ),
+    true => Option(Variable).None
   )
 );
 /// The root binding name of the reference expression `via` (no target of a
@@ -1835,7 +1850,9 @@ evaluate_assignment :: (
       );
       if(!through, {
         match(
-          _place_root_variable(&evaluated_lhs, &env, ctx, true),
+          // An element of a user `IndexMut` type (`s(i) = v`) lies in the
+          // receiver, which `index_mut` lends `&mut` (A11).
+          match(_place_root_variable(&evaluated_lhs, &env, ctx, true), .Some(pr) => Option(Variable).Some(pr), .None => _index_place_root(&evaluated_lhs, &env, ctx)),
           .Some(pj_root) => if(!pj_root.is_module_level() && !pj_root.is_compile_time_only(), {
             place_write_join(&pj_root, &prop_rhs, &env, ctx, exn);
           }),

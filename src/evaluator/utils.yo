@@ -10908,6 +10908,11 @@ store_via_mut_reference :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalCo
   if(!ast_expr_is_atom(lhs) && !ast_expr_is_fn_call_of(lhs, BF_DOT, Option(usize).Some(usize(2))) && match(projection_call_mode_of(lhs, ctx), .Some(m) => m, .None => false), {
     return(Option(AstExpr).Some(lhs.clone()));
   });
+  // A `&mut` reference field read as the place it refers to (`m.rp.*`,
+  // N1e-2): the store lands in its referent.
+  if(match(reference_field_read_mode(ast_expr_id(lhs)), .Some(m) => m, .None => false), {
+    return(Option(AstExpr).Some(lhs.clone()));
+  });
   (cur : AstExpr) = lhs.clone();
   while(true, {
     (next : Option(AstExpr)) = match(
@@ -10931,7 +10936,7 @@ store_via_mut_reference :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalCo
         )
       );
     });
-    if(match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&n)), .Some(ci) => match(&ci.ty(), Rc(.Reference(_, true, _)) => true, _ => false), .None => false), {
+    if(match(reference_field_read_mode(ast_expr_id(&n)), .Some(m) => m, .None => false) || match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&n)), .Some(ci) => match(&ci.ty(), Rc(.Reference(_, true, _)) => true, _ => false), .None => false), {
       return(Option(AstExpr).Some(n));
     });
     cur = n;
