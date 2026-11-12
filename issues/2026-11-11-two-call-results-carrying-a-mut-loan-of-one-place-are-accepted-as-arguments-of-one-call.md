@@ -50,6 +50,19 @@ $ yo compile repro.yo --optimize 1 --sanitize address --allocator system -o t &&
 | `a := idm(&mut x); both(a, idm(&mut x))` | E0911 | E0911 | E0911 |
 | `P(x)(a : &mut x, b : &mut x)`, `P(p)(a : &mut r.*, b : &mut r.*)` (constructor fields) | — | E0910 | E0910 |
 
+## Re-measured on develop `4f8f975b3` (2026-11-12, after P9's fix #1910)
+
+#1910 fixed the P9 two-phase rows of the wider family below; it does not reach this document's own rows, which
+stay accepted on the v0.2.77 tip (`yo check`, audit probes under `tmp/probes/`):
+
+| Probe | Call | v0.2.76 | develop `4f8f975b3` |
+| --- | --- | --- | --- |
+| `a/q2a` | `both(idm(&mut x), idm(&mut x))` (row 1 above) | accepted (spelled `q2a_seed`) | accepted |
+| `a/q2c` | `both(idm(&mut x), &mut x)` (row 2 above) | accepted (spelled `q2c_seed`) | accepted |
+| `calls/c59`-shape | an inline lend in a constructor argument, `f(&mut xs, Option(&i32).Some(&xs(usize(0))))` | not expressible | accepted |
+| `iteration/w01` | a `for(&mut xs, …)` element stored through a helper into a `&mut`-lent holder slot, the list grown after | accepted | E0911 (fixed) |
+| `iteration/w02` | a read-walk element of `c.items` stored into the sibling field `c.last`, `c.items` grown after | E0901 (not expressible) | E0911 (correct) |
+
 ## Root cause
 
 Decision 28's argument check is by NAME: it records the places an argument lends when the argument is written as

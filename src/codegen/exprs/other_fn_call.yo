@@ -1386,6 +1386,13 @@ _is_recorded_lend :: (fn(a : &AstExpr, context : &FunctionGenerationContext) -> 
     .None => false
   )
 );
+/// The argument `a` of a reference field, payload or element is a reference
+/// VALUE (a by-value binding of type `&U` or a call's result, VERDICTS-23 R3):
+/// its C code is the pointer the field holds. Only a place, or a read the
+/// evaluator recorded as a lend (`_is_recorded_lend`), has its address taken.
+reference_operand_is_value :: (fn(a : &AstExpr, context : &FunctionGenerationContext) -> bool)(
+  !_is_recorded_lend(a, context) && match(context.base.get_expr_info(a), .Some(aei) => t_slot_is_borrow(&aei.ty()), .None => false)
+);
 /// N2b (decision 43 step 3, T9): the field's argument is a recorded LEND
 /// (its converted runtime type is a `Reference` — the marker was peeled out
 /// of the tree), so the C field takes the PLACE'S ADDRESS.
@@ -1701,12 +1708,7 @@ _generate_runtime_enum_construct :: (
                   rt_args.get(i),
                   .Some(a) => {
                     f_code := emit_deferred_dup_or_code(&a, _call_generate_expr(&a, indent.clone(), context), indent.clone(), context);
-                    // A reference VALUE (a by-value binding of type `&U`, a
-                    // call's result: VERDICTS-23 R3) is the pointer the field
-                    // holds; only a place, or a read the evaluator recorded as
-                    // a lend (`_is_recorded_lend`), has its address taken.
-                    f_is_value_ref := (f_is_ref && (!_is_recorded_lend(&a, context) && match(context.base.get_expr_info(&a), .Some(aei) => t_slot_is_borrow(&aei.ty()), .None => false)));
-                    f_takes_addr := (f_is_ref && !f_is_value_ref);
+                    f_takes_addr := (f_is_ref && !reference_operand_is_value(&a, context));
                     sequence_operand(&a, if(f_takes_addr, `(&(${f_code}))`, f_code), rt_args, i, f_takes_addr, indent, context)
                   },
                   .None => String.from("")
@@ -3687,4 +3689,4 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   });
   Option(String).Some(out)
 });
-export(_is_addressable_c_expr, _apply_ref_amp, bind_owning_result_temp, _split_top_level_args_list, _resolve_var_name_in_context, _store_temp_var_to_state_machine_if_needed, _get_interior_ref_container_code, _emit_borrow_acquires, _emit_borrow_releases, _is_inside_object_method, _maybe_emit_auto_borrow_assert, generate_other_function_call, ref_spill_counter_reset, sequence_operand, operand_hold_type, operand_hold_field);
+export(_is_addressable_c_expr, _apply_ref_amp, bind_owning_result_temp, _split_top_level_args_list, _resolve_var_name_in_context, _store_temp_var_to_state_machine_if_needed, _get_interior_ref_container_code, _emit_borrow_acquires, _emit_borrow_releases, _is_inside_object_method, _maybe_emit_auto_borrow_assert, generate_other_function_call, ref_spill_counter_reset, sequence_operand, reference_operand_is_value, operand_hold_type, operand_hold_field);
