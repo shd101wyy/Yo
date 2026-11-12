@@ -52,6 +52,7 @@ an empty string at `--optimize 1`; ASan proves it only at `--optimize 0` with
 | a closure literal, a `ctl` handler, a `&self` method with a by-value parameter (ledger r15, r16, r17) | accepted | E0912 |
 | `-> &String` returning `&s` (ledger r03b) | E0912 | E0912 |
 | a spelled origin, `-> Option(&(String, a))` / `-> H(a)` (ledger r08, r03c) | E0923 | E0912 (either rejects) |
+| a spelled origin naming the by-value parameter itself, `-> V(x)` with `V(x)(r : &x.s)`; also over a by-value handle, `-> V(b)` with `V(b)(r : &b.*.s)`, `b : Box(X)` (moved here from A30, develop `d638ddd0a`) | accepted | E0912 |
 | the value first bound to a typed local `(o : Option(&String)) = .Some(&s); o` (ledger r09) | E0912 | E0912 |
 
 ## Root cause
