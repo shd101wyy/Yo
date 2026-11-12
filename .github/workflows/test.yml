@@ -1899,7 +1899,11 @@ jobs:
     needs: [changes, tree-hygiene, stage1]
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # G-A today ~9 min, G-B ~28 min, G-E totality ~15 min since it checks
+    # ./src (#1918): 52 min of gates before the informational target set, so
+    # the old 60-minute cap cancelled the job in that last step (battery
+    # 43204313320, issues/fixed/2026-11-12-the-origins-job-is-cancelled-at-its-60-minute-cap.md).
+    timeout-minutes: 100
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -1931,6 +1935,7 @@ jobs:
         run: YO=/tmp/yo-stage1 bash scripts/check-origin-sinks.sh --totality
       - name: G-A corpus target set (informational)
         continue-on-error: true
+        timeout-minutes: 20
         run: YO=/tmp/yo-stage1 bash scripts/origins-corpus.sh target | tail -1
 
   epoll-corpus:
