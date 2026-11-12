@@ -3918,7 +3918,7 @@ ast_comparable_token_bounds :: (fn(node : &AstExpr, reference : &Token) -> Tuple
 /// `var_id` (`ArgMoveRegion`): there the call that moves it has not run yet.
 arg_move_region_holds :: (fn(var_id : usize, node : &AstExpr) -> bool)(
   match(
-    g_arg_move_regions.with({ var_id }(m) => m.get_cloned(var_id)),
+    g_arg_move_regions.with({ var_id }(m) => m.get_cloned(&var_id)),
     .Some(r) => {
       b := ast_comparable_token_bounds(node, &r.start);
       _amr_comparable(&b.0, &r.start) && ((r.start.character <= b.0.character) && (b.1.character <= r.end.character))

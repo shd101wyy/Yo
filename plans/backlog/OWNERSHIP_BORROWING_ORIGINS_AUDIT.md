@@ -88,7 +88,7 @@ basename), or the fix lane that owns it. Severity is `issues/README.md`'s scale.
 | A13 | The `consume` builtin moves a place that a live `&` loan points into | S1 | pre | `issues/2026-11-11-the-consume-builtin-moves-a-place-that-a-live-loan-points-into.md` |
 | A14 | The item `next()` returns from a temporary cursor carries no loan of the collection | S1 | pre (a user cursor); n/a (std's borrowed cursors are new) | `issues/2026-11-11-the-item-next-returns-from-a-temporary-cursor-carries-no-loan-of-the-collection.md` |
 | A15 | A `Box` sub-pattern of a `&mut` match records no loan, so the arm can replace the box under its binding | S1 | pre | `issues/2026-11-11-a-box-sub-pattern-of-a-mut-match-records-no-loan-so-the-arm-can-replace-the-box-under-its-binding.md` |
-| A16 | A call argument naming a match arm binding that shadows a local passes the outer local in C | S1 | pre | `issues/2026-11-11-a-call-argument-naming-a-match-arm-binding-that-shadows-a-local-passes-the-outer-local-in-c.md` |
+| A16 | A call argument naming a match arm binding that shadows a local passes the outer local in C | S1 | pre | `issues/fixed/2026-11-11-a-call-argument-naming-a-match-arm-binding-that-shadows-a-local-passes-the-outer-local-in-c.md` |
 | A17 | A tuple literal that lends a place and moves or relends it gets no decision-28 overlap check | S1 | pre | `issues/2026-11-11-a-tuple-literal-that-lends-a-place-and-moves-or-relends-it-gets-no-decision-28-overlap-check.md` |
 | A18 | A reference slot assigned in every arm of a branch keeps only the last arm's loan | S1 | pre | `issues/2026-11-11-a-reference-slot-assigned-in-every-arm-of-a-branch-keeps-only-the-last-arms-loan.md` |
 | A19a | A reference to a per-iteration local stored in an outer slot survives into the next iteration | S1 | pre | `issues/2026-11-11-a-reference-to-a-per-iteration-local-stored-in-an-outer-slot-survives-into-the-next-iteration.md` |
@@ -126,8 +126,8 @@ basename), or the fix lane that owns it. Severity is `issues/README.md`'s scale.
 | A50 | A body may store a reference to its own by-value capture through a `&mut` capture | S1 | pre | `issues/2026-11-11-a-body-may-store-a-reference-to-its-own-by-value-capture-through-a-mut-capture.md` |
 | A51 | A future made over a by-value origin-carrying parameter does not freeze the caller's argument | S1 | pre | `issues/2026-11-11-a-future-made-over-a-by-value-origin-carrying-parameter-does-not-freeze-the-callers-argument.md` |
 | A52 | A borrow of a by-value parameter of a generic body freezes nothing | S1 | pre | `issues/2026-11-11-a-borrow-of-a-by-value-parameter-of-a-generic-body-freezes-nothing.md` |
-| A53 | A temporary lent before an await in a later operand is read from a dead C local after the resume | S1 | pre | `issues/2026-11-11-a-temporary-lent-before-an-await-in-a-later-operand-is-read-from-a-dead-c-local-after-the-resume.md` |
-| A54 | A string interpolation containing an await evaluates to an empty string and leaks its pieces | S1 | pre | `issues/2026-11-11-a-string-interpolation-containing-an-await-evaluates-to-an-empty-string-and-leaks-its-pieces.md` |
+| A53 | A temporary lent before an await in a later operand is read from a dead C local after the resume | S1 | pre | `issues/fixed/2026-11-11-a-temporary-lent-before-an-await-in-a-later-operand-is-read-from-a-dead-c-local-after-the-resume.md` |
+| A54 | A string interpolation containing an await evaluates to an empty string and leaks its pieces | S1 | pre | `issues/fixed/2026-11-11-a-string-interpolation-containing-an-await-evaluates-to-an-empty-string-and-leaks-its-pieces.md` |
 
 ### 3.2 Compiler failures
 
