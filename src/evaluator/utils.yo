@@ -71,6 +71,7 @@ pragma(Pragma.AllowUnsafe);
   sibling_first_flow_records,
   record_branch_consume,
   first_flow_records_in,
+  is_mut_lend_value,
   first_flow_record_in,
   last_flow_record_in,
   record_flow_event,
@@ -8871,6 +8872,16 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
   // type's — each spelled name a runtime place, an origin parameter the
   // caller's (none) — never the field's own place (R-DEREF's base case).
   if(ast_expr_is_fn_call_of(&stripped, BF_DOT, Option(usize).Some(usize(2))) && (match(&fi.ty(), Rc(.Reference(_, _, _)) => true, _ => false) || reference_field_read_type(ast_expr_id(&stripped)).is_some()), {
+    // A `&mut` reference field read bare into a `&mut` slot (`M(r : m.r,
+    // …)`, `f(m.r)`) is the reborrow `&mut m.r.*` (REFERENCES_AND_ORIGINS.md
+    // O3 "Reborrows"; a `&mut` is move-only, so the read never copies the
+    // exclusive loan): its origin is the reborrowed place, as the spelled
+    // lend's is (R-LEND), and a holder of it freezes `m`
+    // (issues/fixed/2026-11-11-a-mut-reference-field-read-by-value-is-copied-so-two-holders-share-one-exclusive-borrow.md).
+    if(is_mut_lend_value(ast_expr_id(&stripped)) && match(reference_field_read_mode(ast_expr_id(&stripped)), .Some(rf_mut) => rf_mut, .None => false), {
+      _origin_push_lend(&stripped, true, env, ctx, out);
+      return(());
+    });
     _origin_field_into(&stripped, &fi, env, ctx, out, depth);
     return(());
   });
