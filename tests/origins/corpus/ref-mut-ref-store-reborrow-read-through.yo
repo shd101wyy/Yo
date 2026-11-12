@@ -1,0 +1,19 @@
+// N0 corpus row `ref-mut-ref-store-reborrow-read-through` (manifest tests/origins/corpus.tsv): NEGATIVE: after `set(&mut rp.*, &inner)` the re-borrow `rp` reaches `inner` too; it is read after `inner` dies.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+mk :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+set :: (fn(generic(p : Origin), dst : &mut&(Rc(X), p), v : &(Rc(X), p)) -> unit)({
+  dst.* = v;
+});
+main :: (fn() -> unit)({
+  outer := mk();
+  mut(r) := &outer;
+  mut(rp) := &mut r;
+  {
+    inner := mk();
+    set(&mut rp.*, &inner);
+  };
+  println(`OUT: ${rp.*.*.s.len().to_string()}`);
+});
+export(main);
