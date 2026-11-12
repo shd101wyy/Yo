@@ -94,7 +94,9 @@ argument). The mutation mask feeds only D3 and the runtime asserts.
 v0.2.77 takes VERDICTS-57 §3.1's narrow rule: **making a `&mut` reference VALUE of a place is a write of that
 place.** The general rule (every `&mut` argument is a write whatever the callee's body does, unresolved callees
 included) is v0.2.78's G, filed open as
-`issues/2026-11-12-a-mut-argument-to-a-callee-that-neither-writes-nor-lends-it-is-a-read.md`.
+`issues/2026-11-12-a-mut-argument-to-a-callee-that-neither-writes-nor-lends-it-is-a-read.md`. The bodyless half
+of the family (`…-fn-value.yo`, `…-dyn-trait.yo`: a callee with no body to summarize) is pre-existing, out of
+v0.2.77's rule, and stays open there.
 
 - **The record.** The evaluator notes every node it makes a `&mut` reference value at
   (`note_mut_lend_value`, `src/expr_info.yo`): a `&mut` lend into a by-value slot whose type is `&mut T`

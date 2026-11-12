@@ -18,7 +18,10 @@ write. What that leaves:
    `&mut` argument to a `Dyn(Fn)` value, an `Impl(Fn)` parameter, a function pointer or a `Dyn(Trait)` method is
    never a write against a live loan
    (`issues/repros/2026-11-12-a-mut-argument-to-a-callee-that-neither-writes-nor-lends-it-is-a-read-unresolved.yo`:
-   the callee clears the list `r` points into). Pre-existing: the v0.2.76 seed accepts it too. A by-value `&mut`
+   the callee clears the list `r` points into; the audit's
+   `issues/repros/2026-11-11-a-mut-argument-is-an-exclusive-access-only-when-the-callees-body-writes-it-fn-value.yo`
+   and `…-dyn-trait.yo` are the function-value and `Dyn(Trait)` forms). Pre-existing: the v0.2.76 seed accepts it
+   too. A by-value `&mut`
    lend to such a callee is judged since the v0.2.77 fix (it needs no body).
 
 ## Expected (G)
