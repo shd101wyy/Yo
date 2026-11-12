@@ -1,0 +1,23 @@
+// expect: E0911
+// The same with `h` pointing at the String `x` itself: no memory error (the slot is rewritten in place), but `h`,
+// frozen-`&` since iteration 1, reads the value written on iteration 2 (`OUT: q`).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+main :: (fn() -> unit)({
+  mut(x) := L();
+  mut(h) := Option(&String).None;
+  mut(i) := 0;
+  while(i < 3, {
+    if(i == 2, {
+      x = String.from("q");
+    });
+    if(i == 1, {
+      h = .Some(&x);
+    });
+    i = (i + 1);
+  });
+  match(h, .Some(r) => println(`OUT: ${r.*}`), .None => ());
+  ()
+});
+export(main);

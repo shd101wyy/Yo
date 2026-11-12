@@ -1,0 +1,17 @@
+// expect: E0911
+// The same with the String itself as the loop-body local: the next iteration reads `b`'s dead stack slot.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+main :: (fn() -> unit)({
+  mut(slot) := Option(&String).None;
+  mut(i) := 0;
+  while(i < 3, {
+    match(slot, .Some(r) => println(`OUT: ${r.*}`), .None => ());
+    b := L();
+    slot = .Some(&b);
+    i = (i + 1);
+  });
+  ()
+});
+export(main);
