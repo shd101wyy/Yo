@@ -1,0 +1,22 @@
+// expect: E0911
+// a pick over three by-value `T` parameters returning the third, whose list grows before the result is read (the first two arguments are the same reference).
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+_sm_pick :: (fn(generic(T : Type), a : T, b : T, c : T, k : i32) -> T)(cond((k == i32(0)) => a, (k == i32(1)) => b, true => c));
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(i32).new();
+  mut(ys) := ArrayList(i32).new();
+  xs.push(i32(1));
+  ys.push(i32(2));
+  rx := xs.index(usize(0));
+  ry := ys.index(usize(0));
+  picked := _sm_pick(rx, rx, ry, i32(2));
+  mut(i) := i32(0);
+  while(i < i32(1000), {
+    ys.push(i);
+    i = (i + i32(1));
+  });
+  (v : i32) = picked.*;
+  println(&v);
+});
+export(main);

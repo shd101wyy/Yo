@@ -1,0 +1,18 @@
+// expect: E0911
+// a generic `-> T` returning its second argument, an element reference of `ys`, which is dropped before the result is read.
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+_sm_pick :: (fn(generic(T : Type), a : T, b : T) -> T)(b);
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(i32).new();
+  mut(ys) := ArrayList(i32).new();
+  xs.push(i32(1));
+  ys.push(i32(2));
+  rx := xs.index(usize(0));
+  ry := ys.index(usize(0));
+  picked := _sm_pick(rx, ry);
+  drop(ys);
+  (v : i32) = picked.*;
+  println(&v);
+});
+export(main);
