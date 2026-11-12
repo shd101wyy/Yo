@@ -2,7 +2,7 @@
 
 **Severity:** S2 — valid std code is rejected: `rr_cursor(&xs).map(f).filter(p).count()` over an iterator whose `Item` is a reference fails with E0911 inside `std/prelude.yo` (`IterMap.next`), so every `tests/ref_of_ref.test.yo` test fails to compile on every OS (develop red since #1913).
 
-- Filed: 2026-11-12 (fixdev lane; develop battery 43142204182 on `4f93d3507`). Design consult: Fable, 2026-11-12 (the definition-signature rule below).
+- Filed: 2026-11-12 (fixdev lane; develop battery 43142204182 on `4f93d3507`). Design consult: Fable, 2026-11-12 (a written elision keeps O2's default; only an origin the receiver's pointee carries frees the receiver).
 - Regression since #1913 (a fn-value call `(self._f)(&item)` now lends `&mut self._f`); the hole itself is older: v0.2.76 rejects the minimal shape below.
 
 ## Reproducer
@@ -38,22 +38,25 @@ accepted (`-> []`).
 
 ## Root cause
 
-Origins never specialize: `drive`'s instance is keyed by `I := RrCursor(<elided>)`, so the impl's `next` called inside it has
-the specialized type `fn(self : &mut RrCursor(<elided>)) -> Option(&(i32, <elided>))`. R-CALL
-(`projection_call_root_args`, `_origin_carrying_roots_shallow`) found no result origin name in that type and took O2's
-elided-result default, the union of the reference parameters: the receiver's place. But that `<elided>` is not an elision
-written in a signature; it is the impl's `p`, which the receiver's POINTEE carries and against which the impl body was
-checked (the return rule). With `p` spelled, the existing mode-2 rule applies: the result points where the receiver's
-references point, never into the receiver (`issues/fixed/2026-11-08-a-call-whose-composite-result-spells-its-origin-freezes-the-receiver.md`).
+Origins never specialize: `drive`'s instance is keyed by `I := RrCursor(<elided>)`. Inside it the call
+`self._inner.next()` is dispatched through the bound `I <: Iterator(Item := A)`, so R-CALL
+(`projection_call_root_args`) reads its result off the call's specialized type, `Option(A)` at `A := &(i32, p)`: the
+impl's origin parameter `p`, which no parameter slot of the specialized signature spells. That is the "impl origin
+parameter" case: the receiver is a root BY VALUE (`ProjectionRootArg.by_value`, "the result points where the argument's
+references point, never into the argument itself"). But R-CALL then computed that root's contribution with `origin_of`
+of the argument, and `origin_of(self._inner)` is R-FIELD over the reference parameter `self`: `[self]`, the receiver's
+own place. So `item` froze `self`, exactly what the by-value root promises it does not.
 
 ## Fix
 
-`_call_definition_origin_type` (`src/evaluator/utils.yo`): when a recorded method call's specialized callee type spells no
-result origin and the method's DEFINITION type (the recorded method FuncVal's, as `lend_through`'s `_method_slots` reads it)
-does, R-CALL and the shallow walk read the definition's names and slots. Erasure is recognized only by "the definition
-spells, the specialization does not", never guessed: a definition that spells nothing (a written-elided lending
-`get(self : &mut Self) -> Option(&i32)`) keeps O2's default and keeps freezing the receiver — the new G-B pair
-`tests/origins/unsound/generic-erased-lending-result-receiver-written.yo` (E0911, with its `-pos` twin) pins that.
+A by-value root contributes what the argument HOLDS (`_origin_held_into`, `src/evaluator/utils.yo`): `origin_held_by`
+read through a place's field and deref steps. A place rooted at a parameter or at a by-value holder holds that root's
+registered entries (none for a parameter, whose references are the caller's); any other argument (a reference binding's
+place, a temporary) keeps `origin_of`. Only the by-value roots change, so an elided result (O2's union of the reference
+parameters) still freezes the receiver — the new G-B pair
+`tests/origins/unsound/generic-erased-lending-result-receiver-written.yo` (a written-elided lending
+`get(self : &mut Self) -> Option(&i32)` called in a generic body, then a write to the receiver: E0911, with its `-pos`
+twin) pins that.
 
 Regression tests: `tests/ref_of_ref.test.yo` ("an adapter closure over a reference Item takes a &&T", and the new
 "a generic holder writes itself while an item of its inner iterator is live").

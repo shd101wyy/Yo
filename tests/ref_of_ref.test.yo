@@ -116,10 +116,10 @@ test("an adapter closure over a reference Item takes a &&T", {
   assert(match(found, .Some(f) => (f.* == i32(3)), .None => false), "find's bound result");
 });
 /// A generic holder of an iterator, specialized at `I := RrCursor(<elided>)`
-/// (origins never specialize): `self._inner.next()` reads the impl's
-/// DEFINITION, `next(self : &mut RrCursor(p)) -> Option(&(i32, p))`, so `item`
-/// holds what the cursor holds and never borrows `self`, and `self.n` may be
-/// written while `item` is live
+/// (origins never specialize): `self._inner.next()` returns `Option(A)` at
+/// `A := &(i32, p)`, the cursor's origin, so `item` holds what the cursor
+/// holds (the caller's references) and never borrows `self`, and `self.n`
+/// may be written while `item` is live
 /// (issues/fixed/2026-11-12-a-call-result-in-an-origin-erased-specialization-borrows-the-receiver.md).
 RrWrap :: (fn(comptime(I) : Type) -> comptime(Type))(struct(_inner : I, n : i32));
 impl(
