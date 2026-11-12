@@ -538,6 +538,70 @@ test("move-only: a loop moves on every way out or none", {
   }, "is moved inside the loop");
   assert(_mo_peek(&a) == i32(1), "a stays");
 });
+test("move-only: a move in a `while` condition is E0901", {
+  // issues/fixed/2026-11-11-a-move-in-a-while-condition-escapes-the-loop-move-rules.md:
+  // the condition runs at the start of every iteration, so a move in it
+  // reaches the next test on every back edge, as a move in the body does.
+  a := _MoFd(n : i32(1));
+  b := _MoFd(n : i32(2));
+  c := _MoFd(n : i32(3));
+  comptime_expect_error({
+    mut(i) := i32(0);
+    while(_mo_take(b) > i32(0), {
+      i = (i + i32(1));
+    });
+  }, "is moved inside the loop");
+  comptime_expect_error({
+    mut(i) := i32(0);
+    while({
+      t := c;
+      (t.n > i32(0)) && (i < i32(2))
+    }, {
+      i = (i + i32(1));
+    });
+  }, "is moved inside the loop");
+  assert(_mo_peek(&a) == i32(1), "a stays");
+});
+// A condition that moves the value the body gives back: every test moves what
+// the iteration before left, and every way out leaves it moved.
+_mo_cond_moves_body_refills :: (fn(stop : i32) -> i32)({
+  mut(a) := _MoFd(n : i32(5));
+  mut(k) := i32(0);
+  while(_mo_take(a) > i32(0), {
+    k = (k + i32(1));
+    if(k == stop, {
+      break;
+    });
+    a = _MoFd(n : (i32(5) - k));
+  });
+  k
+});
+test("move-only: a `while` condition may move a value the body gives back", {
+  before := g_mo_disposed;
+  assert(_mo_cond_moves_body_refills(i32(10)) == i32(5), "5, 4, 3, 2, 1 pass the test, 0 ends the loop");
+  assert(g_mo_disposed == (before + i32(6)), "each of the six values is disposed once, by the condition");
+  assert(_mo_cond_moves_body_refills(i32(2)) == i32(2), "the break leaves after the second test");
+  assert(g_mo_disposed == (before + i32(8)), "the two values the condition took, nothing at the break");
+});
+test("move-only: `x = x` keeps the value and runs no drop", {
+  // issues/fixed/2026-11-11-assigning-a-non-copy-local-to-itself-drops-the-value-it-keeps.md:
+  // the right side moves the old value into the store, so nothing is saved
+  // and dropped.
+  before := g_mo_disposed;
+  {
+    mut(x) := _MoFd(n : i32(4));
+    x = x;
+    assert(g_mo_disposed == before, "the assignment disposes nothing");
+    assert(x.n == i32(4), "x keeps its value");
+    mut(i) := i32(0);
+    while(i < i32(3), {
+      x = (x);
+      i = (i + i32(1));
+    });
+    assert(g_mo_disposed == before, "nor does it in a loop");
+  };
+  assert(g_mo_disposed == (before + i32(1)), "disposed once, at the scope end");
+});
 test("move-only: the E0901 note names why the type is move-only", {
   h := _MoHolder(fd : _MoFd(n : i32(1)), tag : i32(2));
   g := h;

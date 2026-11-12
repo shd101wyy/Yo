@@ -109,10 +109,10 @@ basename), or the fix lane that owns it. Severity is `issues/README.md`'s scale.
 | A33 | A capture-list `&mut` entry is accepted while a local `&` loan of the same place is live | S1 | pre | `issues/2026-11-11-a-capture-list-mut-entry-is-accepted-while-a-local-loan-of-the-same-place-is-live.md` |
 | A34 | An implicit capture that moves a place is accepted while a loan of that place is live | S1 | pre | `issues/2026-11-11-an-implicit-capture-that-moves-a-place-is-accepted-while-a-loan-of-that-place-is-live.md` |
 | A35 | An `FnMut` closure's by-value state can store a per-call reference parameter or a body local | S1 | pre | `issues/2026-11-11-an-fnmut-closures-by-value-state-can-store-a-per-call-reference-parameter-or-a-body-local.md` |
-| A36 | A value moved inside a match guard is never recorded as moved | S1 | pre | `issues/2026-11-11-a-value-moved-inside-a-match-guard-is-never-recorded-as-moved.md` |
-| A37 | A move in a `while` condition escapes the loop move rules | S1 | pre | `issues/2026-11-11-a-move-in-a-while-condition-escapes-the-loop-move-rules.md` |
-| A38 | Assigning a non-`Copy` local to itself drops the value it keeps | S1 | pre | `issues/2026-11-11-assigning-a-non-copy-local-to-itself-drops-the-value-it-keeps.md` |
-| A39 | A tuple or array literal on the left of an assignment is accepted and assigns nothing | S1 | pre | `issues/2026-11-11-a-tuple-or-array-literal-on-the-left-of-an-assignment-is-accepted-and-assigns-nothing.md` |
+| A36 | A value moved inside a match guard is never recorded as moved | S1 | pre | `issues/fixed/2026-11-11-a-value-moved-inside-a-match-guard-is-never-recorded-as-moved.md` |
+| A37 | A move in a `while` condition escapes the loop move rules | S1 | pre | `issues/fixed/2026-11-11-a-move-in-a-while-condition-escapes-the-loop-move-rules.md` |
+| A38 | Assigning a non-`Copy` local to itself drops the value it keeps | S1 | pre | `issues/fixed/2026-11-11-assigning-a-non-copy-local-to-itself-drops-the-value-it-keeps.md` |
+| A39 | A tuple or array literal on the left of an assignment is accepted and assigns nothing | S1 | pre | `issues/fixed/2026-11-11-a-tuple-or-array-literal-on-the-left-of-an-assignment-is-accepted-and-assigns-nothing.md` |
 | A40 | An untyped module-level binding may carry an origin, so a global holds a reference to a dead local | S1 | pre | `issues/2026-11-11-an-untyped-module-level-binding-may-carry-an-origin-so-a-global-holds-a-reference-to-a-dead-local.md` |
 | A41 | The D1 thread reach walk does not see `Drop`, so a value dropped on another thread races on a global | S1 | pre | `issues/2026-11-11-the-d1-thread-reach-walk-does-not-see-drop-so-a-value-dropped-on-another-thread-races-on-a-global.md` |
 | A42 | The D1 thread reach walk trusts every std body, including the user impls a std generic calls | S1 | pre | `issues/2026-11-11-the-d1-thread-reach-walk-trusts-every-std-body-including-the-user-impls-a-std-generic-calls.md` |
