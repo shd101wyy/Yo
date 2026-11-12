@@ -1,0 +1,17 @@
+// expect: E0922
+// A type constructor's origin parameter given static: H(static).
+// VERDICTS-57 §1: the v0.2.77 wall (E0923 once v0.2.78 checks `static`; P12). Found by the borrow/ownership audit (yo-6c).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+H :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(Rc(X), p)));
+main :: (fn() -> unit)({
+  mut(o) := Option(H(static)).None;
+  {
+    b := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+    o = .Some(H(static)(r : &b));
+  };
+  match(o, .Some(h) => println(`OUT: ${h.r.*.s.len().to_string()}`), .None => println("none"));
+  ()
+});
+export(main);

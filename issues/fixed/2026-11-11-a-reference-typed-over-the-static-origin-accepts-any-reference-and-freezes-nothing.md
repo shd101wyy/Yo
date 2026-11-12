@@ -68,3 +68,42 @@ E0923 wherever a value whose origin is not empty is stored into, returned as, or
 
 With the fix: the two negative programs and the positive control move to `tests/origins/unsound/`; corpus rows
 `static-slot-given-local` (E0923) and `static-into-rc` (E0923) beside P12's `global-static-ref`.
+
+## Fix
+
+Fixed for safe code by a wall (`~/Workspace/Yo-wt/v0273/fable/VERDICTS-57.md` §1, lane v57a). The real rule waits
+for v0.2.78. The three readers that build an origin set from a spelling (`_origin_names_into`,
+`_type_origin_names_into` and `_result_origin_names_into` in `src/evaluator/types/function.yo`) now raise E0922 on
+the empty origin unless the spelling's file is a std module or unsafe-capable (`_reject_empty_origin_in_safe_code`).
+The empty origin covers `static`, `static` inside a union, and the empty union `()`. The six callers of those readers
+all get the wall. `static` is reserved in origin position, so a binding named `static` does not lift it.
+`Future(T, E, static)` now reaches the origin reader (`_is_origin_operand`, `src/evaluator/types/future_trait.yo`)
+instead of being misread as an effect.
+
+```text
+error[E0922]: The empty origin `static` is not available in safe code in v0.2.77 (decision 49): it is unchecked until v0.2.78, so a reference typed over it would accept a reference to any place and freeze nothing.
+```
+
+The other 12 `t_origin_named(` sites each push a name first, so they never build an empty set from a spelling.
+
+Tests: eleven E0922 rows in `tests/origins/unsound/` (G-B, `scripts/origins-unsound.sh`):
+
+- `static-variant-payload` (the program above)
+- `static-result-returns-param`
+- `static-typed-local`
+- `static-struct-field`
+- `static-param-given-lend`
+- `static-alias`
+- `static-rc-payload` (the `…-into-rc` program)
+- `static-type-ctor-arg` (`H(static)`)
+- `static-future-origin`
+- `static-empty-union`
+- `static-shadowed-by-local`
+
+Each is accepted on develop `64f33c710`, except `static-type-ctor-arg` (E0911) and `static-future-origin` (an uncoded
+"is an origin" error). The positive control is the `Escapable` row in the pragma'd `tests/unsized_places.test.yo:91`,
+which is unchanged.
+
+Still open: std and pragma'd files keep the unchecked reading. That residue is
+`issues/2026-11-11-a-static-origin-in-a-pragmad-file-is-an-unchecked-assertion-until-v0278.md` (S2). When v0.2.78
+checks `static`, these rows expect E0923.

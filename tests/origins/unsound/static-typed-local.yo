@@ -1,0 +1,16 @@
+// expect: E0922
+// A typed local over static assigned a block-local's reference.
+// VERDICTS-57 §1: the v0.2.77 wall (E0923 once v0.2.78 checks `static`; P12). Found by the borrow/ownership audit (yo-6c).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+main :: (fn() -> unit)({
+  mut(o) := Option(&(Rc(X), static)).None;
+  {
+    b := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+    o = .Some(&b);
+  };
+  match(o, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => println("none"));
+  ()
+});
+export(main);

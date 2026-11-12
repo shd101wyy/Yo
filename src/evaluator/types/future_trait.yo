@@ -144,10 +144,14 @@ _resolve_effect_arg :: (
 /// type (decision 43 step 4, N3-1): `origin(...)`, a tuple of places
 /// `(x, y)`, or a name bound to a value or an origin parameter. An effect is
 /// a type (a bundle struct, `Io`, a `generic(E : Type.Struct)` variable).
+/// `static`, the empty origin, is reserved in origin position (decision 49),
+/// so `Future(T, E, static)` reaches the origin reader and its wall
+/// (VERDICTS-57 §1).
 _is_origin_operand :: (fn(e : &AstExpr, env : &Environment) -> bool)(
   cond(
     ast_expr_is_fn_call_of(e, "origin", .None) => true,
     ast_expr_is_fn_call_of(e, BK_TUPLE, .None) => true,
+    (ast_expr_is_atom(e) && (ast_expr_token(e).value.* == "static")) => true,
     ast_expr_is_atom(e) => match(
       get_variables_from_env(env, &ast_expr_token(e).value.*).last_cloned(),
       .Some(v) => !is_type_hierarchy_type(&variable_value_type(&v)),
