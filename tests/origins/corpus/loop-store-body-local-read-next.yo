@@ -1,0 +1,18 @@
+// Cluster 4 corpus row `loop-store-body-local-read-next`
+// (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3 `bind`, the loop back edge; audit A19a; manifest
+// tests/origins/corpus.tsv): a holder declared before the loop stores a reference to a body local and is read
+// at the top of the next iteration, after that local was dropped.
+// Expected: rejected: E0911 at `slot = .Some(&y)`.
+probe :: (fn(n : i32) -> unit)({
+  z := i32(0);
+  mut(slot) := Option(&i32).Some(&z);
+  mut(i) := i32(0);
+  while(i < n, {
+    _ := slot.is_some();
+    y := i32(1);
+    slot = .Some(&y);
+    i = (i + i32(1));
+  });
+  ()
+});
+export(probe);

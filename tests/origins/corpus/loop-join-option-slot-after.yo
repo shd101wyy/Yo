@@ -1,0 +1,19 @@
+// Cluster 4 corpus row `loop-join-option-slot-after` (POSITIVE; audit A19b's control; manifest
+// tests/origins/corpus.tsv): the holder is read at the top of the body, then the root is written, then the
+// holder is re-pointed: the loan carried around the back edge is dead at the write.
+// Expected: accepted (as Rust accepts it).
+probe :: (fn(n : i32) -> unit)({
+  z := i32(0);
+  mut(x) := i32(1);
+  mut(h) := Option(&i32).Some(&z);
+  mut(i) := i32(0);
+  while(i < n, {
+    _ := h.is_some();
+    x = i32(5);
+    h = .Some(&x);
+    i = (i + i32(1));
+  });
+  _ := h.is_some();
+  ()
+});
+export(probe);

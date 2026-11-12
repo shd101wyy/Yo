@@ -1385,6 +1385,61 @@ test("ablation: a user Drop keeps its roots live", {
 test("ablation: a &mut capture grows the container's flow set", {
   flips("closure-push-capture-then-write", case2(closure_push_main(X), each()), ABLATE_CAPTURE_WIDEN, "ACCEPT");
 });
+// Cluster 4 (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3 `bind`: the join over
+// reaching definitions, including the loop back edge; audit A18, A19a, A19b).
+some_lend :: (fn(p : usize) -> Node)(Rc.new(NodeE.Make(Kind.Some, Rc.new(NodeE.Borrow(false, p)))));
+test("holder-assigned-in-both-arms-then-first-root-written", {
+  main := entry(
+    al7(
+      let_(Z, lit()),
+      let_(X, lit()),
+      let_(Y, lit()),
+      let_(H, some_lend(Z)),
+      Rc.new(NodeE.Branch(al1(Rc.new(NodeE.Assign(H, some_lend(X)))), al1(Rc.new(NodeE.Assign(H, some_lend(Y)))))),
+      Rc.new(NodeE.Assign(X, lit())),
+      use_(Rc.new(NodeE.Var(H)))
+    )
+  );
+  verdict("holder-assigned-in-both-arms-then-first-root-written", case1(main), "E0911");
+});
+test("loop-store-body-local-read-next", {
+  main := entry(al3(let_(Z, lit()), let_(SLOT, some_lend(Z)), Rc.new(NodeE.Loop(al1(Rc.new(NodeE.Block(al3(use_(Rc.new(NodeE.Var(SLOT))), let_(Y, lit()), Rc.new(NodeE.Assign(SLOT, some_lend(Y)))))))))));
+  verdict("loop-store-body-local-read-next", case1(main), "E0911");
+});
+test("loop-store-body-local-read-same", {
+  main := entry(
+    al3(
+      let_(Z, lit()),
+      let_(SLOT, some_lend(Z)),
+      Rc.new(NodeE.Loop(al1(Rc.new(NodeE.Block(al5(use_(Rc.new(NodeE.Var(SLOT))), let_(Y, lit()), Rc.new(NodeE.Assign(SLOT, some_lend(Y))), use_(Rc.new(NodeE.Var(SLOT))), Rc.new(NodeE.Assign(SLOT, some_lend(Z)))))))))
+    )
+  );
+  verdict("loop-store-body-local-read-same", case1(main), "ACCEPT");
+});
+test("loop-join-option-slot", {
+  main := entry(
+    al5(
+      let_(Z, lit()),
+      let_(X, lit()),
+      let_(H, some_lend(Z)),
+      Rc.new(NodeE.Loop(al2(Rc.new(NodeE.Branch(al1(Rc.new(NodeE.Assign(X, lit()))), none())), Rc.new(NodeE.Branch(al1(Rc.new(NodeE.Assign(H, some_lend(X)))), none()))))),
+      use_(Rc.new(NodeE.Var(H)))
+    )
+  );
+  verdict("loop-join-option-slot", case1(main), "E0911");
+});
+test("loop-join-option-slot-after", {
+  main := entry(
+    al5(
+      let_(Z, lit()),
+      let_(X, lit()),
+      let_(H, some_lend(Z)),
+      Rc.new(NodeE.Loop(al3(use_(Rc.new(NodeE.Var(H))), Rc.new(NodeE.Assign(X, lit())), Rc.new(NodeE.Assign(H, some_lend(X)))))),
+      use_(Rc.new(NodeE.Var(H)))
+    )
+  );
+  verdict("loop-join-option-slot-after", case1(main), "ACCEPT");
+});
 test("ablation: a borrow through an Rc deref carries the handle's place (O9)", {
   flips("rc-handle-dropped", rc_handle_dropped(), ABLATE_HANDLE_ORIGIN, "ACCEPT");
   flips("rc-guard-handle-dropped", case2(rc_guard_main(H), borrow_mut()), ABLATE_HANDLE_ORIGIN, "ACCEPT");
