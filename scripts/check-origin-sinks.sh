@@ -20,6 +20,10 @@
 # reference; every `[origin-totality]` line is a value a sink stored without
 # its origin computed, an `origin_of` recursion into an untyped node, or a
 # cut at the recursion bound. The distinct lines are counted; the gate is 0.
+# A target that does not check cleanly is a failure too: an unchecked file is
+# an unaudited one. tests/origins/corpus is the one exception, since its rows
+# are rejected programs by design. Run `yo install` first: ./src imports the
+# `markdown-yo` dependency, and `check` never fetches.
 #
 # Usage (from the repository root):
 #   bash scripts/check-origin-sinks.sh
@@ -58,7 +62,7 @@ totality() {
            tests/origins/*.test.yo; do
     [ -f "$t" ] && targets+=("$t")
   done
-  local i=0 rc
+  local i=0 rc unchecked=0
   for t in "${targets[@]}"; do
     i=$((i + 1))
     YO_MAIN_STACK_MB=${YO_MAIN_STACK_MB:-4096} YO_AUDIT_ORIGIN_TOTALITY=1 \
@@ -66,6 +70,10 @@ totality() {
     rc=$?
     grep -h '^\[origin-totality\]' "$out/$i.log" >>"$out/all.txt"
     echo "  $t: rc=$rc, $(grep -c '^\[origin-totality\]' "$out/$i.log") line(s)"
+    if [ "$rc" -ne 0 ] && [ "$t" != tests/origins/corpus ]; then
+      unchecked=$((unchecked + 1))
+      grep -m 5 -E '^(error|yo: error)' "$out/$i.log" | sed 's/^/    /'
+    fi
   done
   touch "$out/all.txt"
   local n
@@ -73,6 +81,10 @@ totality() {
   if [ "$n" -gt 0 ]; then
     sort -u "$out/all.txt" | sed 's/^/  /'
     echo "origin totality: $n distinct finding(s); the gate is 0"
+    return 1
+  fi
+  if [ "$unchecked" -gt 0 ]; then
+    echo "origin totality: $unchecked target(s) failed to check, so they were not audited"
     return 1
   fi
   echo "origin totality: 0"
