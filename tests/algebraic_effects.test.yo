@@ -2253,7 +2253,7 @@ test("Test escape path does not drop the unwound call's result temp", {
         l.push(7);
         l
       },
-      true => exn.throw(dyn(String.from("boom")))
+      true => exn.throw(dyn(Box.new(String.from("boom"))))
     )
   );
   outcome :: (fn() -> i32)({
@@ -2611,7 +2611,7 @@ _uw_local_operand :: (fn() -> i32)({
   );
   _uw_use_ask(ask)
 });
-_uw_fail :: (fn(exn : Exception) -> i32)(exn.throw(dyn(String.from("a fairly long error message to allocate"))));
+_uw_fail :: (fn(exn : Exception) -> i32)(exn.throw(dyn(Box.new(String.from("a fairly long error message to allocate")))));
 _uw_error_operand :: (fn() -> String)({
   exn := Exception(throw : (e -> unwind(e.to_string())));
   _x := _uw_fail(exn);

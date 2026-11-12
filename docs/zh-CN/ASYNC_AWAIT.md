@@ -364,7 +364,7 @@ export(main);
 
 通过函数值（函数类型的局部变量或参数）进行的调用无法显示其 Future 借用了什么，因此假定它的 Future 借用了该调用用 `&`/`&mut` 借出的每个位置：`fp := bump; f := fp(&mut c, io);` 与直接调用一样，在 `f` 最后一次使用之前冻结 `c`。
 
-通过 `Dyn` 的调用经由虚表进行，而虚表中的 Future 类型不携带任何借用，所以如果某个类型的 trait 方法返回借用的 Future，这个类型就不能转换为该 trait 的 `Dyn`：此时 `dyn(v)` 是 E0909。请在具体类型上调用该方法，或通过泛型 `Impl(Trait)` 参数调用，或者让方法里的 `io.async` 按值捕获所需的值；这样通过 `Dyn` 得到的 Future 就是一等值，可以绑定或 spawn。
+通过 `Dyn` 的调用经由虚表进行，而虚表中的 Future 类型不携带任何借用，所以如果某个类型的 trait 方法返回借用的 Future，这个类型就不能转换为该 trait 的 `Dyn`：此时 `dyn(...)` 是 E0909。请在具体类型上调用该方法，或通过泛型 `Impl(Trait)` 参数调用，或者让方法里的 `io.async` 按值捕获所需的值；这样通过 `Dyn` 得到的 Future 就是一等值，可以绑定或 spawn。
 
 ```yo
 { assert } :: import("std/assert");

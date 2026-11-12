@@ -84,22 +84,22 @@ add :: (fn(x : i32, y : i32) -> i32)({
   return(x + y);
 });
 test("Test simple dynamic dispatch with `box`", {
-  assert(use_test_dyn(dyn(Rc.new(i32(42)))) == 42);
-  assert(use_test_dyn(dyn(Rc.new(true))) == 1);
+  assert(use_test_dyn(dyn(Box.new(i32(42)))) == 42);
+  assert(use_test_dyn(dyn(Box.new(true))) == 1);
   bi := MyBox(100);
-  assert(use_test_dyn(dyn(bi)) == 200);
+  assert(use_test_dyn(dyn(Box.new(bi))) == 200);
 });
 test("Test simple dynamic dispatch with `Rc(T)`", {
   assert(use_test_dyn(dyn(Rc(i32).new(i32(42)))) == 42);
   assert(use_test_dyn(dyn(Rc(bool).new(true))) == 1);
   bi := MyBox(100);
-  assert(use_test_dyn(dyn(bi)) == 200);
+  assert(use_test_dyn(dyn(Box.new(bi))) == 200);
 });
 test("Test simple dynamic dispatch with automatic `box` call on value types", {
-  assert(use_test_dyn(dyn(i32(42))) == 42);
-  assert(use_test_dyn(dyn(true)) == 1);
+  assert(use_test_dyn(dyn(Box.new(i32(42)))) == 42);
+  assert(use_test_dyn(dyn(Box.new(true))) == 1);
   bi := MyBox(100);
-  assert(use_test_dyn(dyn(bi)) == 200);
+  assert(use_test_dyn(dyn(Box.new(bi))) == 200);
 });
 test("Test Dyn with multiple traits", {
   Speak :: trait(
@@ -134,7 +134,7 @@ test("Test Dyn with multiple traits", {
   );
   act :: (fn(s : &Dyn(Speak, Run)) -> i32)(s.speak() + s.run());
   dog := Dog();
-  result := act(dyn(dog));
+  result := act(dyn(Box.new(dog)));
   assert(result == 3, "Expected result to be 3");
   assert(dog.speak() == 1, "Expected dog.speak() to return 1");
 });
@@ -144,7 +144,7 @@ test("Test downcast success", {
   Cat :: struct(name : String);
   derive(Cat, Clone);
   impl(Cat, ToString(to_string : (self -> self.name.clone())));
-  Animal :: Dyn(ToString, Clone);
+  Animal :: Box(Dyn(ToString, Clone));
   (animal : Animal) = dyn(Cat(`whiskers`));
   maybe_cat := downcast(animal, Cat);
   match(
@@ -164,7 +164,7 @@ test("Test downcast failure", {
   Dog :: struct(name : String);
   derive(Dog, Clone);
   impl(Dog, ToString(to_string : (self -> self.name.clone())));
-  Animal :: Dyn(ToString, Clone);
+  Animal :: Box(Dyn(ToString, Clone));
   (animal : Animal) = dyn(Cat(`whiskers`));
   maybe_dog := downcast(animal, Dog);
   match(
@@ -184,7 +184,7 @@ test("Test downcast type check via is_some", {
   Dog :: struct(name : String);
   derive(Dog, Clone);
   impl(Dog, ToString(to_string : (self -> self.name.clone())));
-  Animal :: Dyn(ToString, Clone);
+  Animal :: Box(Dyn(ToString, Clone));
   (animal : Animal) = dyn(Cat(`whiskers`));
   assert(downcast(animal, Cat).is_some(), "Expected animal to be a Cat");
   assert(downcast(animal, Dog).is_none(), "Expected animal to not be a Dog");
@@ -207,7 +207,7 @@ test("Test downcast to a value type that no dyn() in the program wraps", {
   // failing loudly. The struct-shaped variants are what the C compiler rejects.
   NeverDynnedValue :: enum(Boom(code : i32), Bang);
   impl(NeverDynnedValue, ToString(to_string : (self -> `never`)));
-  Animal :: Dyn(ToString, Clone);
+  Animal :: Box(Dyn(ToString, Clone));
   (animal : Animal) = dyn(Cat(`whiskers`));
   assert(downcast(animal, NeverDynnedValue).is_none(), "a never-dyn'd value enum can never be inside a Dyn");
   NeverDynnedPoint :: struct(x : i32, y : i32);
@@ -232,7 +232,7 @@ test("Test downcast rejects a bare dyn() operand it cannot infer a Dyn for", {
   Cat :: struct(name : String);
   derive(Cat, Clone);
   impl(Cat, ToString(to_string : (self -> self.name.clone())));
-  Animal :: Dyn(ToString, Clone);
+  Animal :: Box(Dyn(ToString, Clone));
   comptime_expect_error(downcast(dyn(Cat(`shadow`)), Cat), "cannot infer the Dyn type");
   // The two accepted spellings from the issue, as over-rejection canaries in
   // the same batch:
@@ -248,7 +248,7 @@ test("Test downcast with multiple concrete types", {
   Dog :: struct(name : String);
   derive(Dog, Clone);
   impl(Dog, ToString(to_string : (self -> self.name.clone())));
-  Animal :: Dyn(ToString, Clone);
+  Animal :: Box(Dyn(ToString, Clone));
   (cat_animal : Animal) = dyn(Cat(`kitty`));
   (dog_animal : Animal) = dyn(Dog(`buddy`));
   // Downcast cat_animal
@@ -291,7 +291,7 @@ impl(
     )
   )
 );
-DynReader :: struct(inner : Dyn(AsyncRead));
+DynReader :: struct(inner : Box(Dyn(AsyncRead)));
 impl(
   DynReader,
   read_twice : (fn(self : &Self, io : Io) -> Impl(Future(usize, IoExn)))(
@@ -310,7 +310,7 @@ test("Dyn(trait) with a Future-returning method dispatches through the vtable", 
       }
     )
   );
-  r := DynReader(inner : dyn(FixedSrc(n : usize(21))));
+  r := DynReader(inner : dyn(Box.new(FixedSrc(n : usize(21)))));
   b := IoExn(io : io, exn : exn);
   v := io.await(r.read_twice(io), b);
   assert(v == usize(42), "two dynamic async reads of 21");
@@ -380,7 +380,7 @@ impl(
 test("a value STRUCT boxed into Dyn releases its payload", {
   before := g_dyn_payload_disposed;
   {
-    (d : Dyn(TestDyn)) = dyn(DynStructPayload(r : _dpr(i32(7))));
+    (d : Box(Dyn(TestDyn))) = dyn(Box.new(DynStructPayload(r : _dpr(i32(7)))));
     assert(d.return_i32() == i32(7), "the boxed value is reachable through the vtable");
     assert(g_dyn_payload_disposed == before, "nothing is released while the Dyn is live");
   };
@@ -392,7 +392,7 @@ test("a value STRUCT boxed into Dyn releases its payload", {
 test("a value ENUM boxed into Dyn releases its payload", {
   before := g_dyn_payload_disposed;
   {
-    (d : Dyn(TestDyn)) = dyn(DynEnumPayload.Held(r : _dpr(i32(8))));
+    (d : Box(Dyn(TestDyn))) = dyn(Box.new(DynEnumPayload.Held(r : _dpr(i32(8)))));
     assert(g_dyn_payload_disposed == before, "nothing is released while the Dyn is live");
   };
   assert(
@@ -409,7 +409,7 @@ test("a value ENUM boxed into Dyn releases its payload", {
 test("downcasting a value payload out of a Dyn dups it", {
   before := g_dyn_payload_disposed;
   {
-    (d : Dyn(TestDyn, Clone)) = dyn(DynStructPayload(r : _dpr(i32(11))));
+    (d : Box(Dyn(TestDyn, Clone))) = dyn(Box.new(DynStructPayload(r : _dpr(i32(11)))));
     match(
       downcast(d, DynStructPayload),
       .Some(p) => {
@@ -428,7 +428,7 @@ test("downcasting a value payload out of a Dyn dups it", {
 test("a Dyn payload that owns heap memory releases it", {
   before := g_dyn_payload_disposed;
   {
-    (d : Dyn(TestDyn)) = dyn(DynHeapPayload(name : `a string on the heap`, r : _dpr(i32(9))));
+    (d : Box(Dyn(TestDyn))) = dyn(DynHeapPayload(name : `a string on the heap`, r : _dpr(i32(9))));
     assert(g_dyn_payload_disposed == before, "nothing is released while the Dyn is live");
   };
   assert(
@@ -455,11 +455,11 @@ test("Test dyn rejects a type that implements none of the Dyn's traits", {
   // No `impl(NoImpls, TestDyn(...))` anywhere: neither `print` nor `return_i32`
   // resolves, so this is symptom 1 — the undeclared-wrapper C failure.
   NoImpls :: struct();
-  comptime_expect_error(use_test_dyn(dyn(NoImpls())));
+  comptime_expect_error(use_test_dyn(dyn(Box.new(NoImpls()))));
   // The same hole through the AUTO-BOX path: a value enum with no impls at all.
   NoImplsValue :: enum(Boom);
   derive(NoImplsValue, Copy, Clone);
-  comptime_expect_error(use_test_dyn(dyn(NoImplsValue.Boom)));
+  comptime_expect_error(use_test_dyn(dyn(Box.new(NoImplsValue.Boom))));
 });
 test("Test dyn rejects a type that satisfies only PART of the Dyn's traits", {
   // `AnyError` is `Dyn(Error)` and `Error` carries `where(Self <: ToString)`, so
@@ -470,7 +470,7 @@ test("Test dyn rejects a type that satisfies only PART of the Dyn's traits", {
   derive(ToStringOnly, Copy, Clone);
   impl(ToStringOnly, ToString(to_string : (self -> `boom`)));
   comptime_expect_error({
-    (e : AnyError) = dyn(ToStringOnly.Boom);
+    (e : AnyError) = dyn(Box.new(ToStringOnly.Boom));
     e
   });
 });
@@ -512,13 +512,13 @@ test("Test Dyn(Error) over a trait default the implementor omits", {
   assert(`${re}` == `ref-err`, "Dyn(Error) from a ref struct");
   assert(`e: ${re}!` == `e: ref-err!`, "a Dyn(Error) as a later template part (ToString's append_to)");
   match(re.source(), .Some(_) => assert(false, "default source must be None"), .None => ());
-  (ve : AnyError) = dyn(ValErr.Bust);
+  (ve : AnyError) = dyn(Box.new(ValErr.Bust));
   assert(`${ve}` == `bust`, "Dyn(Error) from a value enum (auto-box)");
   match(ve.source(), .Some(_) => assert(false, "default source must be None (enum)"), .None => ());
 });
 _use_to_string_dyn :: (fn(v : &Dyn(ToString)) -> String)(v.to_string());
 _generic_show :: (fn(generic(T : Type), v : &T, where(T <: ToString)) -> String)(
-  _use_to_string_dyn(dyn(v.*))
+  _use_to_string_dyn(dyn(Box.new(v.*)))
 );
 test("Test dyn inside a generic body whose concrete is still a type variable", {
   // At DEFINITION time `T` is an unbound `SomeT`, so the bound is undecidable —
@@ -548,11 +548,11 @@ _dyn_def_use :: (fn(v : &Dyn(_DynDefShow)) -> i32)({
   v.show_into(&mut acc);
   acc
 });
-_dyn_def_generic :: (fn(generic(T : Type), v : &T, where(T <: _DynDefShow)) -> i32)(_dyn_def_use(dyn(v.*)));
+_dyn_def_generic :: (fn(generic(T : Type), v : &T, where(T <: _DynDefShow)) -> i32)(_dyn_def_use(dyn(Box.new(v.*))));
 test("a dyn of a type variable binds every parameter of a trait default", {
   p := _DynDefP(x : i32(41));
   assert(_dyn_def_generic(&p) == i32(42), "through a dyn of the type variable");
-  assert(_dyn_def_use(dyn(p)) == i32(42), "through a concrete dyn (which moves `p`)");
+  assert(_dyn_def_use(dyn(Box.new(p))) == i32(42), "through a concrete dyn (which moves `p`)");
   // ToString's own `append_to` default is one: a later template part calls it.
   assert(`[${_generic_show(i32(7))}]` == `[7]`, "a Dyn(ToString) rendered inside a template");
 });
@@ -567,7 +567,7 @@ test("a dyn of a type variable binds every parameter of a trait default", {
 _file_sink :: (fn(x : *FILE) -> usize)(usize(0));
 _widget_sink :: (fn(x : *String) -> usize)(usize(0));
 test("Test a trait object is not accepted where an extern opaque is expected", {
-  comptime_expect_error((fn(p : *Dyn(ToString)) -> usize)(_file_sink(p)));
+  comptime_expect_error((fn(p : *Box(Dyn(ToString))) -> usize)(_file_sink(p)));
   assert(true, "a *(Dyn(ToString)) is rejected for a *(FILE) parameter");
 });
 test("Test an Option of a pointer-to-trait-object keeps its payload type", {
@@ -580,7 +580,7 @@ test("Test an Option of a pointer-to-trait-object keeps its payload type", {
   // unified with anything. Either way this `comptime_expect_error` would NOT
   // have fired, because the payload was not `*(Dyn(ToString))`.
   comptime_expect_error(
-    (fn(o : ?*Dyn(ToString)) -> usize)(
+    (fn(o : ?*Box(Dyn(ToString))) -> usize)(
       match(o, .Some(p) => _widget_sink(p), .None => usize(0))
     )
   );
@@ -600,11 +600,11 @@ derive(_OsCat, Copy, Clone);
 impl(_OsCat, _OsSp(speak : (self -> self.n), me : (self -> self.*), same : ((self, other) -> (self.n == other.n))));
 impl(_OsCat, _OsGen(conv : (fn(generic(B : Type), self : &mut Self, b : &B) -> i32)(self.n)));
 test("Dyn: a method a Dyn cannot call is E0614, the rest stay callable", {
-  (d : Dyn(_OsSp)) = dyn(_OsCat(n : i32(3)));
+  (d : Box(Dyn(_OsSp))) = dyn(Box.new(_OsCat(n : i32(3))));
   assert(d.speak() == i32(3), "a Self-only-as-receiver method dispatches");
   comptime_expect_error(d.me(), "cannot be called through a Dyn receiver");
   comptime_expect_error(d.same(d), "has type Self, which the Dyn erases");
-  (g : Dyn(_OsGen)) = dyn(_OsCat(n : i32(4)));
+  (g : Box(Dyn(_OsGen))) = dyn(Box.new(_OsCat(n : i32(4))));
   comptime_expect_error(g.conv(i32(1)), "takes generic(...) parameters");
 });
 // A blanket INHERENT method over a trait bound resolves for a Dyn receiver; it
@@ -619,7 +619,7 @@ impl(
 );
 impl(_OsCat, _OsNamed(name : (self -> String.from("cat"))));
 test("Dyn: a blanket inherent method on a Dyn receiver is a direct call", {
-  (d : Dyn(_OsNamed)) = dyn(_OsCat(n : i32(1)));
+  (d : Box(Dyn(_OsNamed))) = dyn(Box.new(_OsCat(n : i32(1))));
   assert(d._os_shout() == String.from("cat!"), "the blanket method, whose self.name() goes through the vtable");
 });
 // A trait implemented through a GENERIC impl can be put behind a Dyn: the
@@ -630,8 +630,8 @@ test("Dyn: a trait from a generic impl builds its vtable", {
   mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   xs.push(i32(2));
-  assert(_os_show(dyn(xs)) == String.from("[1, 2]"), "ArrayList(T)'s blanket ToString");
-  assert(_os_show(dyn(Option(i32).Some(i32(5)))) == String.from("Some(5)"), "Option(T)'s blanket ToString");
+  assert(_os_show(dyn(Box.new(xs))) == String.from("[1, 2]"), "ArrayList(T)'s blanket ToString");
+  assert(_os_show(dyn(Box.new(Option(i32).Some(i32(5))))) == String.from("Some(5)"), "Option(T)'s blanket ToString");
 });
 // No upcasting: a Dyn with more traits is not a Dyn with fewer
 // (docs/en-US/DYN_DESIGN.md, Phase 2.7 decision).
@@ -639,7 +639,7 @@ _OsOt :: trait(other_n : (fn(self : &Self) -> i32));
 impl(_OsCat, _OsOt(other_n : (self -> i32(1))));
 _os_takes_sp :: (fn(s : &Dyn(_OsSp)) -> i32)(s.speak());
 test("Dyn: no upcast from Dyn(A, B) to Dyn(A), with a note saying so", {
-  (both : Dyn(_OsSp, _OsOt)) = dyn(_OsCat(n : i32(3)));
+  (both : Box(Dyn(_OsSp, _OsOt))) = dyn(Box.new(_OsCat(n : i32(3))));
   comptime_expect_error(_os_takes_sp(&both), "write upcast(value, Dyn(...))");
   assert(both.speak() == i32(3), "the value itself is fine");
 });
@@ -650,15 +650,15 @@ _UpDog :: struct(n : i32);
 derive(_UpDog, Copy, Clone);
 impl(_UpDog, _OsSp(speak : (self -> (self.n * i32(10))), me : (self -> self.*), same : ((self, other) -> (self.n == other.n))));
 impl(_UpDog, _OsOt(other_n : (self -> i32(2))));
-_up_both :: (fn(k : i32) -> Dyn(_OsSp, _OsOt))(
-  cond((k == i32(0)) => dyn(_OsCat(n : i32(3))), true => dyn(_UpDog(n : i32(4))))
+_up_both :: (fn(k : i32) -> Box(Dyn(_OsSp, _OsOt)))(
+  cond((k == i32(0)) => dyn(Box.new(_OsCat(n : i32(3)))), true => dyn(Box.new(_UpDog(n : i32(4)))))
 );
 test("Dyn: upcast drops traits and keeps each payload's impls", {
-  (cat : Dyn(_OsSp, _OsOt)) = _up_both(i32(0));
-  (dog : Dyn(_OsSp, _OsOt)) = _up_both(i32(1));
-  (cs : Dyn(_OsSp)) = upcast(cat, Dyn(_OsSp));
-  (ds : Dyn(_OsSp)) = upcast(dog, Dyn(_OsSp));
-  (dot : Dyn(_OsOt)) = upcast(dog, Dyn(_OsOt));
+  (cat : Box(Dyn(_OsSp, _OsOt))) = _up_both(i32(0));
+  (dog : Box(Dyn(_OsSp, _OsOt))) = _up_both(i32(1));
+  (cs : Box(Dyn(_OsSp))) = upcast(cat, Dyn(_OsSp));
+  (ds : Box(Dyn(_OsSp))) = upcast(dog, Dyn(_OsSp));
+  (dot : Box(Dyn(_OsOt))) = upcast(dog, Dyn(_OsOt));
   assert(_os_takes_sp(&cs) == i32(3), "the cat's speak");
   assert(_os_takes_sp(&ds) == i32(40), "the dog's speak");
   assert(dot.other_n() == i32(2), "the dog's other_n");
@@ -667,7 +667,7 @@ test("Dyn: upcast drops traits and keeps each payload's impls", {
   assert(downcast(ds, _UpDog).is_some(), "the payload behind the upcast Dyn");
   assert(downcast(cs, _UpDog).is_none(), "a cat is not a dog");
   // A call operand is evaluated once.
-  (tmp_s : Dyn(_OsSp)) = upcast(_up_both(i32(1)), Dyn(_OsSp));
+  (tmp_s : Box(Dyn(_OsSp))) = upcast(_up_both(i32(1)), Dyn(_OsSp));
   assert(tmp_s.speak() == i32(40), "upcast of a call result");
 });
 // Regression (issues/fixed/2026-10-16-a-downcast-result-used-as-a-method-receiver-is-never-released.md):
@@ -695,7 +695,7 @@ test("Dyn: a downcast or upcast used as a receiver or discarded releases its pay
   before := g_dc_disposed;
   (mut(hits) : i32) = i32(0);
   {
-    (animal : Dyn(ToString, Clone)) = dyn(_DcCat(h : Rc.new(_DcCatVal(n : i32(1)))));
+    (animal : Box(Dyn(ToString, Clone))) = dyn(Box.new(_DcCat(h : Rc.new(_DcCatVal(n : i32(1))))));
     (mut(i) : i32) = i32(0);
     while(i < i32(3), {
       if(downcast(animal, _DcCat).is_some(), {
@@ -713,14 +713,14 @@ test("Dyn: a downcast or upcast used as a receiver or discarded releases its pay
   // A value target is extracted from its box and dup'd: the copy is released too.
   payload_before := g_dyn_payload_disposed;
   {
-    (d : Dyn(TestDyn)) = dyn(DynStructPayload(r : _dpr(i32(9))));
+    (d : Box(Dyn(TestDyn))) = dyn(Box.new(DynStructPayload(r : _dpr(i32(9)))));
     assert(downcast(d, DynStructPayload).is_some(), "the boxed struct");
   };
   assert((g_dyn_payload_disposed - payload_before) == i32(1), "the boxed struct's payload is released");
 });
 test("Dyn: upcast of an AnyError to its ToString supertrait", {
-  (e : AnyError) = dyn(_UpErr.Bad);
-  (ts : Dyn(ToString)) = upcast(e, Dyn(ToString));
+  (e : AnyError) = dyn(Box.new(_UpErr.Bad));
+  (ts : Box(Dyn(ToString))) = upcast(e, Dyn(ToString));
   assert(ts.to_string() == String.from("bad"), "the supertrait's slot");
 });
 _UpErr :: enum(Bad);
@@ -728,10 +728,10 @@ derive(_UpErr, Copy, Clone);
 impl(_UpErr, ToString(to_string : (self -> String.from("bad"))));
 impl(_UpErr, Error());
 test("Dyn: an upcast cannot add a trait, and dyn() of a Dyn is rejected", {
-  (one : Dyn(_OsSp)) = dyn(_OsCat(n : i32(3)));
+  (one : Box(Dyn(_OsSp))) = dyn(Box.new(_OsCat(n : i32(3))));
   comptime_expect_error(upcast(one, Dyn(_OsSp, _OsOt)), "upcast cannot add a trait");
   comptime_expect_error({
-    (again : Dyn(_OsSp)) = dyn(one);
+    (again : Box(Dyn(_OsSp))) = dyn(one);
   }, "already a Dyn");
   assert(one.speak() == i32(3), "the value itself is fine");
 });
@@ -739,7 +739,7 @@ test("Dyn: an upcast cannot add a trait, and dyn() of a Dyn is rejected", {
 _ClA :: trait(get : (fn(self : &Self) -> i32));
 _ClB :: trait(get : (fn(self : &Self) -> i32));
 test("Dyn: two traits with a same-named method cannot share one Dyn (E0616)", {
-  comptime_expect_error(Dyn(_ClA, _ClB), "cannot hold two methods named");
+  comptime_expect_error(Box(Dyn(_ClA, _ClB)), "cannot hold two methods named");
   assert(true, "rejected");
 });
 // issues/fixed/arraylist-of-a-trait-object-cannot-be-indexed.md: this module
@@ -747,9 +747,9 @@ test("Dyn: two traits with a same-named method cannot share one Dyn (E0616)", {
 // to hand `ArrayList(Dyn(T))._ptr`, so reading an element back did not compile.
 { ToString : _AlToString } :: import("std/fmt/to_string");
 test("Test an ArrayList of trait objects reads its elements back", {
-  (mut(xs) : ArrayList(Dyn(_AlToString))) = ArrayList(Dyn(_AlToString)).new();
-  xs.push(dyn(i32(7), _AlToString));
-  xs.push(dyn(i32(9), _AlToString));
+  (mut(xs) : ArrayList(Box(Dyn(_AlToString)))) = ArrayList(Box(Dyn(_AlToString))).new();
+  xs.push(dyn(Box.new(i32(7)), _AlToString));
+  xs.push(dyn(Box.new(i32(9)), _AlToString));
   got := xs(usize(1)).to_string();
   assert(got == String.from("9"), "index 1 reads back the second trait object");
   assert(xs.len() == usize(2), "both elements are held");
@@ -764,9 +764,9 @@ impl(_OrdC, _OrdA(a : (self -> self.n)));
 impl(_OrdC, _OrdB(b : (self -> (self.n + i32(100)))));
 _ord_take :: (fn(d : &Dyn(_OrdB, _OrdA)) -> i32)(d.a() + (d.b() * i32(1000)));
 test("Dyn: the trait order is not part of the type", {
-  (x : Dyn(_OrdA, _OrdB)) = dyn(_OrdC(n : i32(1)));
+  (x : Box(Dyn(_OrdA, _OrdB))) = dyn(Box.new(_OrdC(n : i32(1))));
   assert(_ord_take(&x) == i32(101001), "both slots dispatch to their own impl");
-  assert(Type.eq(Dyn(_OrdA, _OrdB), Dyn(_OrdB, _OrdA)), "one type");
+  assert(Type.eq(Box(Dyn(_OrdA, _OrdB)), Box(Dyn(_OrdB, _OrdA))), "one type");
 });
 // issues/fixed/a-method-call-two-trait-impls-supply-silently-picks-one.md:
 // an unqualified call two trait impls both supply is E0616; the qualified
@@ -784,8 +784,8 @@ test("an unqualified call two trait impls supply is ambiguous (E0616)", {
 // parameter of a Dyn vtable slot is `T*` in the slot, the wrapper and every
 // call site, as it is for a plain fn or an `Impl(Fn)` (the slot and wrapper
 // spelled it `T`, the closure and the call site `T*`: a clang error).
-_DioHolder :: struct(cb : Dyn(Fn(n : &mut i32) -> unit));
-_DioPusher :: struct(push : Dyn(Fn(xs : &mut ArrayList(i32)) -> unit));
+_DioHolder :: struct(cb : Box(Dyn(Fn(n : &mut i32) -> unit)));
+_DioPusher :: struct(push : Box(Dyn(Fn(xs : &mut ArrayList(i32)) -> unit)));
 _dio_bump_twice :: (fn(y : &mut i32, h : &_DioHolder) -> unit)({
   h.cb(y);
   h.cb(y);
@@ -834,7 +834,7 @@ _dio_trait_bump :: (fn(y : &mut i32, d : &Dyn(_DioBump)) -> unit)({
   d.bump(y);
 });
 test("Dyn(trait) method with an inout parameter writes through to the caller's place", {
-  (d : Dyn(_DioBump)) = dyn(_DioStep(k : i32(2)));
+  (d : Box(Dyn(_DioBump))) = dyn(Box.new(_DioStep(k : i32(2))));
   (mut(x) : i32) = i32(40);
   d.bump(&mut x);
   assert(x == i32(42), "a local i32 is updated in place");
@@ -853,14 +853,14 @@ _dfs_call :: (fn(f : &Dyn(Fn(s : &String) -> usize), s : &String) -> usize)(f(s)
 test("dyn of a function value checks its signature against the Dyn's `Fn`", {
   s := String.from("four");
   comptime_expect_error({
-    (h : Dyn(Fn(s : &String) -> usize)) = dyn(_dfs_by_value);
+    (h : Box(Dyn(Fn(s : &String) -> usize))) = dyn(Box.new(_dfs_by_value));
   }, "a parameter's mode is part of the function type");
   comptime_expect_error({
-    (h : Dyn(Fn(x : i32) -> i32)) = dyn(_dfs_by_value);
+    (h : Box(Dyn(Fn(x : i32) -> i32))) = dyn(Box.new(_dfs_by_value));
   }, "Incompatible types");
-  (by_value : Dyn(Fn(t : String) -> usize)) = dyn(t => t.len());
+  (by_value : Box(Dyn(Fn(t : String) -> usize))) = dyn(Box.new(t => t.len()));
   comptime_expect_error(_dfs_call(&by_value, &s), "a parameter's mode is part of the function type");
-  (c : Dyn(Fn(t : &String) -> usize)) = dyn(t => t.len());
+  (c : Box(Dyn(Fn(t : &String) -> usize))) = dyn(Box.new(t => t.len()));
   assert(_dfs_call(&c, &s) == usize(4), "a closure literal adopts the Dyn's modes");
   assert(s.len() == usize(4), "s was only ever lent");
 });
@@ -882,25 +882,25 @@ _dnf_bump :: (fn(x : &mut i32) -> unit)({
 });
 _dnf_nine :: (fn() -> i32)(i32(9));
 _dnf_double :: (fn(x : i32) -> i32)(x * i32(2));
-_dnf_box :: (fn(f : Impl(Fn(x : i32) -> i32)) -> Dyn(Fn(x : i32) -> i32))(dyn(f));
+_dnf_box :: (fn(f : Impl(Fn(x : i32) -> i32)) -> Box(Dyn(Fn(x : i32) -> i32)))(dyn(Box.new(f)));
 _dnf_call :: (fn(f : &Dyn(Fn(s : &String) -> usize), s : &String) -> usize)(f(s));
 test("dyn of a named function calls the function", {
   s := String.from("four");
-  (a : Dyn(Fn(s : &String) -> usize)) = dyn(_dnf_len);
-  (b : Dyn(Fn(s : &String) -> usize)) = dyn(_dnf_twice_len);
+  (a : Box(Dyn(Fn(s : &String) -> usize))) = dyn(Box.new(_dnf_len));
+  (b : Box(Dyn(Fn(s : &String) -> usize))) = dyn(Box.new(_dnf_twice_len));
   assert(a(&s) == usize(4), "the first named fn");
   assert(b(&s) == usize(8), "a second fn of the same signature calls its own code");
   assert(_dnf_call(&a, &s) == usize(4), "a Dyn of a named fn passed by reference");
-  (c : Dyn(Fn(x : &mut i32) -> unit)) = dyn(_dnf_bump);
+  (c : Box(Dyn(Fn(x : &mut i32) -> unit))) = dyn(Box.new(_dnf_bump));
   (mut(x) : i32) = i32(40);
   c(&mut x);
   c(&mut x);
   assert(x == i32(42), "a &mut parameter writes through to the caller's place");
-  (o : Dyn(FnOnce() -> i32)) = dyn(_dnf_nine);
+  (o : Box(Dyn(FnOnce() -> i32))) = dyn(Box.new(_dnf_nine));
   assert(o() == i32(9), "a Dyn(FnOnce) of a named fn");
-  (mut(fs) : ArrayList(Dyn(Fn() -> i32))) = ArrayList(Dyn(Fn() -> i32)).new();
-  fs.push(dyn(_dnf_nine));
-  fs.push(dyn(() => i32(1)));
+  (mut(fs) : ArrayList(Box(Dyn(Fn() -> i32)))) = ArrayList(Box(Dyn(Fn() -> i32))).new();
+  fs.push(dyn(Box.new(_dnf_nine)));
+  fs.push(dyn(Box.new(() => i32(1))));
   assert((fs(usize(0))() + fs(usize(1))()) == i32(10), "a named fn and a closure share one Dyn type");
 });
 // A `unit` result lowers to C `void`: a `Dyn(FnOnce(...) -> unit)` call slot
@@ -910,22 +910,22 @@ test("dyn of a named function calls the function", {
 // (issues/fixed/a-unit-returning-dyn-fnonce-call-slot-declares-a-void-temp.md).
 _dnf_noop :: (fn() -> unit)(());
 test("a unit-returning Dyn(FnOnce) of a named fn and of a closure", {
-  (n : Dyn(FnOnce() -> unit)) = dyn(_dnf_noop);
+  (n : Box(Dyn(FnOnce() -> unit))) = dyn(Box.new(_dnf_noop));
   n();
   (mut(x) : i32) = i32(1);
-  (b : Dyn(FnOnce(x : &mut i32) -> unit)) = dyn(_dnf_bump);
+  (b : Box(Dyn(FnOnce(x : &mut i32) -> unit))) = dyn(Box.new(_dnf_bump));
   b(&mut x);
   assert(x == i32(2), "a unit-returning named fn called once through a Dyn");
-  (c : Dyn(FnOnce(x : &mut i32) -> unit)) = dyn(x => {
+  (c : Box(Dyn(FnOnce(x : &mut i32) -> unit))) = dyn(x => {
     x.* = (x.* + i32(10));
   });
   c(&mut x);
   assert(x == i32(12), "a unit-returning closure called once through a Dyn");
-  (d : Dyn(FnOnce() -> unit)) = dyn(() => _dnf_noop());
+  (d : Box(Dyn(FnOnce() -> unit))) = dyn(Box.new(() => _dnf_noop()));
   d();
 });
 test("dyn of another module's function and of an Impl(Fn) parameter", {
-  (pj : Dyn(Fn(base : &String, name : &String) -> String)) = dyn(path_join);
+  (pj : Box(Dyn(Fn(base : &String, name : &String) -> String))) = dyn(Box.new(path_join));
   base := String.from("a");
   name := String.from("b");
   assert(pj(&base, &name) == path_join(&base, &name), "a function imported from another module");
@@ -951,27 +951,27 @@ impl(
     count : (fn(self : &Self) -> i32)(self.n + i32(self.label.len()))
   )
 );
-_ud_tally :: (fn(n : i32) -> Dyn(_UdCounter, Clone))(dyn(_UdTally(n : n, label : String.from("t"))));
+_ud_tally :: (fn(n : i32) -> Box(Dyn(_UdCounter, Clone)))(dyn(Box.new(_UdTally(n : n, label : String.from("t")))));
 test("d.clone() on a Dyn with Clone copies the payload", {
-  (d : Dyn(_UdCounter, Clone)) = _ud_tally(i32(1));
-  (mut(e) : Dyn(_UdCounter, Clone)) = d.clone();
+  (d : Box(Dyn(_UdCounter, Clone))) = _ud_tally(i32(1));
+  (mut(e) : Box(Dyn(_UdCounter, Clone))) = d.clone();
   e.bump();
   e.bump();
   assert(d.count() == i32(2), "the source keeps its own payload");
   assert(e.count() == i32(4), "the clone is written on its own");
-  (o : Option(Dyn(_UdCounter, Clone))) = Option(Dyn(_UdCounter, Clone)).Some(d.clone());
-  (p : Option(Dyn(_UdCounter, Clone))) = o.clone();
+  (o : Option(Box(Dyn(_UdCounter, Clone)))) = Option(Box(Dyn(_UdCounter, Clone))).Some(d.clone());
+  (p : Option(Box(Dyn(_UdCounter, Clone)))) = o.clone();
   assert(match(p, .Some(x) => (x.count() == i32(2)), .None => false), "an Option of a Dyn with Clone clones it");
   assert(match(o, .Some(x) => (x.count() == i32(2)), .None => false), "the original Option keeps its Dyn");
 });
 test("the last use of a Dyn moves it", {
-  (d : Dyn(_UdCounter)) = dyn(_UdTally(n : i32(5), label : String.from("")));
+  (d : Box(Dyn(_UdCounter))) = dyn(Box.new(_UdTally(n : i32(5), label : String.from(""))));
   e := d;
   assert(e.count() == i32(5), "a copy at the source's last use is a move");
-  (mut(f) : Dyn(_UdCounter)) = dyn(_UdTally(n : i32(6), label : String.from("")));
-  (mut(g) : Dyn(_UdCounter)) = dyn(_UdTally(n : i32(0), label : String.from("")));
+  (mut(f) : Box(Dyn(_UdCounter))) = dyn(Box.new(_UdTally(n : i32(6), label : String.from(""))));
+  (mut(g) : Box(Dyn(_UdCounter))) = dyn(Box.new(_UdTally(n : i32(0), label : String.from(""))));
   g = f;
-  f = dyn(_UdTally(n : i32(7), label : String.from("")));
+  f = dyn(Box.new(_UdTally(n : i32(7), label : String.from(""))));
   assert((f.count() + g.count()) == i32(13), "a source assigned again after the copy holds a new value");
 });
 // The scan follows each path through the copy: a `break` leaves the loop
@@ -979,7 +979,7 @@ test("the last use of a Dyn moves it", {
 // `continue` reaches the next iteration.
 test("a Dyn copy on a path that breaks out of its loop is its last use", {
   d := _ud_tally(i32(1));
-  mut(xs) := ArrayList(Dyn(_UdCounter, Clone)).new();
+  mut(xs) := ArrayList(Box(Dyn(_UdCounter, Clone))).new();
   while(true, {
     xs.push(d);
     break;
@@ -993,7 +993,7 @@ test("a Dyn copy on a path that breaks out of its loop is its last use", {
     });
     i = ((i + e.count()) - i32(1));
   });
-  (mut(f) : Dyn(_UdCounter, Clone)) = _ud_tally(i32(0));
+  (mut(f) : Box(Dyn(_UdCounter, Clone))) = _ud_tally(i32(0));
   (mut(j) : i32) = i32(0);
   while(j < i32(2), {
     f = _ud_tally(j);
@@ -1004,9 +1004,9 @@ test("a Dyn copy on a path that breaks out of its loop is its last use", {
 });
 test("a Dyn copy reached again on another path is E0901", {
   comptime_expect_error({
-    (mut(d) : Dyn(_UdCounter, Clone)) = _ud_tally(i32(1));
+    (mut(d) : Box(Dyn(_UdCounter, Clone))) = _ud_tally(i32(1));
     c := runtime(true);
-    mut(xs) := ArrayList(Dyn(_UdCounter, Clone)).new();
+    mut(xs) := ArrayList(Box(Dyn(_UdCounter, Clone))).new();
     xs.push(d);
     if(c, {
       d = _ud_tally(i32(2));
@@ -1014,9 +1014,9 @@ test("a Dyn copy reached again on another path is E0901", {
     d.count()
   }, "use of moved value");
   comptime_expect_error({
-    (mut(d) : Dyn(_UdCounter, Clone)) = _ud_tally(i32(1));
+    (mut(d) : Box(Dyn(_UdCounter, Clone))) = _ud_tally(i32(1));
     c := runtime(true);
-    mut(xs) := ArrayList(Dyn(_UdCounter, Clone)).new();
+    mut(xs) := ArrayList(Box(Dyn(_UdCounter, Clone))).new();
     while(c, {
       xs.push(d);
       if(c, {
@@ -1027,9 +1027,9 @@ test("a Dyn copy reached again on another path is E0901", {
     d.count()
   }, "use of moved value");
   comptime_expect_error({
-    (mut(d) : Dyn(_UdCounter, Clone)) = _ud_tally(i32(1));
+    (mut(d) : Box(Dyn(_UdCounter, Clone))) = _ud_tally(i32(1));
     c := runtime(true);
-    mut(xs) := ArrayList(Dyn(_UdCounter, Clone)).new();
+    mut(xs) := ArrayList(Box(Dyn(_UdCounter, Clone))).new();
     while(c, {
       xs.push(d);
       if(c, {
@@ -1038,9 +1038,9 @@ test("a Dyn copy reached again on another path is E0901", {
     });
   }, "the loop runs this copy again");
   comptime_expect_error({
-    (mut(d) : Dyn(_UdCounter, Clone)) = _ud_tally(i32(1));
+    (mut(d) : Box(Dyn(_UdCounter, Clone))) = _ud_tally(i32(1));
     c := runtime(true);
-    mut(xs) := ArrayList(Dyn(_UdCounter, Clone)).new();
+    mut(xs) := ArrayList(Box(Dyn(_UdCounter, Clone))).new();
     while(c, {
       xs.push(d);
       if(c, {
@@ -1053,33 +1053,33 @@ test("a Dyn copy reached again on another path is E0901", {
 });
 test("a by-value match moves a local holding a Dyn", {
   comptime_expect_error({
-    o := Option(Dyn(_UdCounter, Clone)).Some(_ud_tally(i32(1)));
+    o := Option(Box(Dyn(_UdCounter, Clone))).Some(_ud_tally(i32(1)));
     x := match(o, .Some(d) => d.count(), .None => i32(0));
     y := match(o, .Some(d) => d.count(), .None => i32(0));
     x + y
   }, "a `match` takes its scrutinee by value");
-  o := Option(Dyn(_UdCounter, Clone)).Some(_ud_tally(i32(1)));
+  o := Option(Box(Dyn(_UdCounter, Clone))).Some(_ud_tally(i32(1)));
   x := match(&o, .Some(d) => d.count(), .None => i32(0));
   y := match(o, .Some(d) => d.count(), .None => i32(0));
   assert((x + y) == i32(4), "a borrowing match leaves the local to a later by-value one");
 });
-_UdHolder :: struct(d : Dyn(_UdCounter, Clone));
-(g_ud_held : Dyn(_UdCounter, Clone)) = _ud_tally(i32(0));
+_UdHolder :: struct(d : Box(Dyn(_UdCounter, Clone)));
+(g_ud_held : Box(Dyn(_UdCounter, Clone))) = _ud_tally(i32(0));
 test("a Dyn copy whose source is used again is E0901", {
   comptime_expect_error({
-    (d : Dyn(_UdCounter)) = dyn(_UdTally(n : i32(1), label : String.from("")));
+    (d : Box(Dyn(_UdCounter))) = dyn(Box.new(_UdTally(n : i32(1), label : String.from(""))));
     e := d;
     d.count() + e.count()
   }, "use of moved value");
   comptime_expect_error({
     d := _ud_tally(i32(1));
-    (o : Option(Dyn(_UdCounter, Clone))) = Option(Dyn(_UdCounter, Clone)).Some(d);
+    (o : Option(Box(Dyn(_UdCounter, Clone)))) = Option(Box(Dyn(_UdCounter, Clone))).Some(d);
     d.count()
   }, "use of moved value");
   comptime_expect_error({
     d := _ud_tally(i32(1));
     (mut(i) : usize) = usize(0);
-    mut(xs) := ArrayList(Dyn(_UdCounter, Clone)).new();
+    mut(xs) := ArrayList(Box(Dyn(_UdCounter, Clone))).new();
     while(i < usize(2), {
       xs.push(d);
       i = (i + usize(1));
@@ -1093,7 +1093,7 @@ test("a Dyn copy whose source is used again is E0901", {
   assert(true, "rejected");
 });
 test("a Dyn copy out of storage that cannot give it away is E0901 at once", {
-  comptime_expect_error((fn(d : &Dyn(_UdCounter, Clone)) -> Dyn(_UdCounter, Clone))(d.*), "it is a `&T` parameter");
+  comptime_expect_error((fn(d : &Dyn(_UdCounter, Clone)) -> Box(Dyn(_UdCounter, Clone)))(d.*), "it is a `&T` parameter");
   comptime_expect_error({
     h := _UdHolder(d : _ud_tally(i32(1)));
     e := h.d;
@@ -1104,7 +1104,7 @@ test("a Dyn copy out of storage that cannot give it away is E0901 at once", {
     e.count()
   }, "it is a module-level binding");
   comptime_expect_error({
-    (d : Dyn(_UdCounter)) = dyn(_UdTally(n : i32(1), label : String.from("")));
+    (d : Box(Dyn(_UdCounter))) = dyn(Box.new(_UdTally(n : i32(1), label : String.from(""))));
     e := d;
     d.count() + e.count()
   }, "list `Clone` in the `Dyn`");
@@ -1126,22 +1126,22 @@ test("a closure that borrows its captures copies no Dyn", {
 _ud_borrowed :: (fn(d : &Dyn(_UdCounter, Clone)) -> i32)(d.count());
 _UdCloneLike :: trait(clone : (fn(self : &Self) -> i32));
 test("Clone's slot clashes with a trait method named clone", {
-  comptime_expect_error(Dyn(_UdCloneLike, Clone), "two methods named");
+  comptime_expect_error(Box(Dyn(_UdCloneLike, Clone)), "two methods named");
   assert(true, "rejected");
 });
 test("a Dyn(Fn(...), Clone) clones its closure", {
   s := String.from("abc");
-  (f : Dyn(Fn(x : i32) -> i32, Clone)) = dyn((x : i32) => (x + i32(s.len())));
+  (f : Box(Dyn(Fn(x : i32) -> i32, Clone))) = dyn(Box.new((x : i32) => (x + i32(s.len()))));
   g := f.clone();
   assert((f(i32(1)) + g(i32(2))) == i32(9), "the clone calls its own copy of the closure");
   n := i32(3);
-  (h : Dyn(Fn(x : i32) -> i32, Clone)) = dyn((x : i32) => (x + n));
+  (h : Box(Dyn(Fn(x : i32) -> i32, Clone))) = dyn(Box.new((x : i32) => (x + n)));
   k := h.clone();
   assert((h(i32(1)) + k(i32(2))) == i32(9), "a closure of Copy captures clones by copy");
   // `s` moved into `f`'s closure (a `String` is a value since B8).
   t := String.from("abc");
   (b : Impl(Fn(x : i32) -> i32)) = ((x : i32) => (x + i32(t.len())));
-  (e : Dyn(Fn(x : i32) -> i32, Clone)) = dyn(b);
+  (e : Box(Dyn(Fn(x : i32) -> i32, Clone))) = dyn(Box.new(b));
   e2 := e.clone();
   assert((e(i32(1)) + e2(i32(2))) == i32(9), "a typed closure binding clones too");
 });
@@ -1150,8 +1150,8 @@ test("a Dyn(Fn(...), Clone) clones its closure", {
 // (issues/fixed/2026-10-24-a-dyn-listing-two-marker-traits-emits-a-duplicate-vtable-member.md).
 test("a Dyn listing Send and Sync compiles one member per name", {
   (k : Impl(Fn() -> i32)) = (() => i32(4));
-  (d : Dyn(Fn() -> i32, Send, Sync)) = dyn(k);
-  (a : Arc(Dyn(Fn() -> i32, Send, Sync))) = Arc(Dyn(Fn() -> i32, Send, Sync)).new(dyn(() => i32(5)));
+  (d : Box(Dyn(Fn() -> i32, Send, Sync))) = dyn(Box.new(k));
+  (a : Arc(Dyn(Fn() -> i32, Send, Sync))) = Arc(Dyn(Fn() -> i32, Send, Sync)).new(dyn(Box.new(() => i32(5))));
   b := Arc.clone(a);
   assert((d() + (a.*() + b.*())) == i32(14), "a Send and Sync Dyn calls through its vtable, and through an Arc");
 });
@@ -1159,11 +1159,11 @@ test("a Dyn listing Send and Sync compiles one member per name", {
 // types with two vtables: the slot mode is part of the `Fn` type's key
 // (issues/fixed/2026-10-27-dyn-fn-types-differing-only-in-a-parameter-mode-share-one-vtable.md).
 test("Dyn(Fn(...)) types differing only in a parameter mode get their own vtables", {
-  (a : Dyn(Fn(x : &mut i32) -> unit)) = dyn((x : &mut i32) => {
+  (a : Box(Dyn(Fn(x : &mut i32) -> unit))) = dyn((x : &mut i32) => {
     x.* = (x.* + i32(1));
   });
-  (b : Dyn(Fn(x : i32) -> i32)) = dyn((x : i32) => (x + i32(10)));
-  (c : Dyn(Fn(x : &i32) -> i32)) = dyn((x : &i32) => (x.* + i32(100)));
+  (b : Box(Dyn(Fn(x : i32) -> i32))) = dyn(Box.new((x : i32) => (x + i32(10))));
+  (c : Box(Dyn(Fn(x : &i32) -> i32))) = dyn(Box.new((x : &i32) => (x.* + i32(100))));
   (mut(v) : i32) = i32(1);
   a(&mut v);
   assert(v == i32(2), "the &mut slot writes through to the caller");
@@ -1173,7 +1173,7 @@ test("Dyn(Fn(...)) types differing only in a parameter mode get their own vtable
 _DmA :: struct(n : i32);
 impl(
   _DmA,
-  apply : (fn(self : &Self, f : Dyn(Fn(x : &mut i32) -> unit)) -> i32)({
+  apply : (fn(self : &Self, f : Box(Dyn(Fn(x : &mut i32) -> unit))) -> i32)({
     (mut(v) : i32) = self.n;
     f(&mut v);
     v
@@ -1182,7 +1182,7 @@ impl(
 _DmB :: struct(n : i32);
 impl(
   _DmB,
-  apply : (fn(self : &Self, f : Dyn(Fn(x : i32) -> unit)) -> i32)({
+  apply : (fn(self : &Self, f : Box(Dyn(Fn(x : i32) -> unit))) -> i32)({
     f(self.n);
     self.n
   })
@@ -1231,7 +1231,7 @@ impl(_DcFd, ToString(to_string : (fn(self : &Self) -> String)(String.from("fd"))
 impl(_DcFd, Error());
 test("a downcast copies a move-only payload with its clone, each copy dropped once", {
   {
-    (err : AnyError) = dyn(_DcFd(n : i32(3)));
+    (err : AnyError) = dyn(Box.new(_DcFd(n : i32(3))));
     n := match(downcast(err, _DcFd), .Some(f) => f.n, .None => i32(0));
     assert(n == i32(3), "the downcast reads the payload");
     assert(g_dc_clones == i32(1), "the payload is copied with its clone");
@@ -1241,7 +1241,7 @@ test("a downcast copies a move-only payload with its clone, each copy dropped on
 });
 test("a downcast to a move-only type needs a Dyn that lists Clone", {
   comptime_expect_error({
-    (d : Dyn(ToString)) = dyn(_DcFd(n : i32(1)));
+    (d : Box(Dyn(ToString))) = dyn(Box.new(_DcFd(n : i32(1))));
     downcast(d, _DcFd)
   }, "the Dyn must list `Clone`");
 });
@@ -1253,7 +1253,7 @@ test("an auto-boxed dyn evaluated again in a loop", {
   (mut(total) : i32) = i32(0);
   (mut(i) : i32) = i32(0);
   while(i < i32(3), {
-    total = (total + use_test_dyn(dyn(i32(5))));
+    total = (total + use_test_dyn(dyn(Box.new(i32(5)))));
     i = (i + i32(1));
   });
   assert(total == i32(15), "boxed on every iteration");
@@ -1266,11 +1266,11 @@ test("an auto-boxed dyn evaluated again in a loop", {
 // second call through it was E0901; `Box(...)` of the two the same
 // (issues/2026-11-11-a-dyn-fn-and-a-dyn-fnonce-share-one-type-constructor-instance.md).
 test("a Dyn(Fn) after a Dyn(FnOnce) is its own constructor instance", {
-  comptime_assert(!Type.eq(ArrayList(Dyn(FnOnce() -> i32)), ArrayList(Dyn(Fn() -> i32))), "two element types");
+  comptime_assert(!Type.eq(ArrayList(Box(Dyn(FnOnce() -> i32))), ArrayList(Box(Dyn(Fn() -> i32)))), "two element types");
   comptime_assert(!Type.eq(Box(Dyn(FnMut() -> i32)), Box(Dyn(Fn() -> i32))), "two boxes");
-  (o : Box(Dyn(FnOnce() -> i32))) = dyn(_dnf_nine);
-  (f : Box(Dyn(Fn() -> i32))) = dyn(_dnf_nine);
-  mut(fs) := ArrayList(Dyn(Fn() -> i32)).new();
-  fs.push(dyn(() => i32(1)));
+  (o : Box(Dyn(FnOnce() -> i32))) = dyn(Box.new(_dnf_nine));
+  (f : Box(Dyn(Fn() -> i32))) = dyn(Box.new(_dnf_nine));
+  mut(fs) := ArrayList(Box(Dyn(Fn() -> i32))).new();
+  fs.push(dyn(Box.new(() => i32(1))));
   assert((f() + f() + fs(usize(0))() + fs(usize(0))() + o()) == i32(29), "the Fn instances call twice");
 });

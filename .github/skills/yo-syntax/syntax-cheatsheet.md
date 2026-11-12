@@ -260,11 +260,11 @@ transform :: (fn(list : ArrayList(i32), f : Impl(Fn(x : i32) -> i32)) -> unit)({
 
 - `(params) => expr` — lambda / closure syntax
 - `Impl(Fn(params) -> ReturnType)` — STATIC closure type: monomorphized, capture struct passed BY VALUE, direct call, no heap allocation / vtable / refcount on the closure itself
-- `Dyn(Fn(params) -> ReturnType)` — TYPE-ERASED closure type: capture struct heap-boxed behind a refcount header, called through a `{data, vtable}` fat pointer. Wrap the value with `dyn(...)`: `(f : Dyn(Fn(y : i32) -> i32)) = dyn((y) => (y + 1));`. ALWAYS spelled (decision 44): a named closure, a named `fn`, an `Impl(Fn(...))` parameter or a closure literal passed BARE into a `Dyn(Fn(...))` binding, field, argument or result is E0618 (`run(f)` → `run(dyn(f))`, `S(cb : f)` → `S(cb : dyn(f))`, a body tail `g` → `dyn(g)`); `yo fix <path>` wraps a named callable. `dyn` moves its argument, so one closure fills one `Dyn` slot
+- `Box(Dyn(Fn(params) -> ReturnType))` — owned TYPE-ERASED closure type: the capture struct moves into a heap box, called through a `{data, vtable}` fat pointer: `(f : Box(Dyn(Fn(y : i32) -> i32))) = dyn(Box.new((y) => (y + 1)));`. `&Dyn(Fn(...))` borrows one with no allocation (`run(dyn(&f))`). In v0.2.77 `dyn(f)` is the older spelling of `dyn(Box.new(f))`. ALWAYS spelled (decision 44): a named closure, a named `fn`, an `Impl(Fn(...))` parameter or a closure literal passed BARE into a `Dyn(Fn(...))` binding, field, argument or result is E0618 (`run(f)` → `run(dyn(f))`, `S(cb : f)` → `S(cb : dyn(f))`, a body tail `g` → `dyn(g)`); `yo fix <path>` wraps a named callable. `dyn` moves its argument, so one closure fills one `Dyn` slot
 - `FnOnce(params) -> ReturnType` — the call-once trait: the call CONSUMES the closure (a second call is E0901). A capture-list closure typed `Impl(FnOnce(...))` owns its by-value captures and may move one out: `(send : Impl(FnOnce() -> i32)) = ({ t }() => take(t));`. `Fn` fills any `FnOnce` slot, never the reverse (E0913); an API calls it once only through `sink(f) : Impl(FnOnce(...))`
 - `FnMut(params) -> ReturnType` — the call-repeatedly trait: the call borrows the closure EXCLUSIVELY, so the body may write its capture-list by-value entries (state kept across calls) and `&mut` captures: `(mut(tick) : Impl(FnMut() -> i32)) = ({ n : i32(0) }() => { n = (n + i32(1)); n });`. Call it through `mut(f)` / `f : &mut Impl(FnMut(...))` / a temporary (E0917 unmarked, E0908 through `&`). `Fn` ⇒ `FnMut` ⇒ `FnOnce` (E0913 the other way); move-only
 - Value types are captured by copy; reference-semantics types by reference. In BOTH forms the captured value is what carries the refcount — the `Impl` closure itself has none
-- Each closure has a unique anonymous type, so one `Impl(Fn(...))` variable cannot hold two different closures. Use `Dyn(Fn(...))` to store heterogeneous closures in one variable, field or collection
+- Each closure has a unique anonymous type, so one `Impl(Fn(...))` variable cannot hold two different closures. Use `Box(Dyn(Fn(...)))` to store heterogeneous closures in one variable, field or collection
 - `Impl(Fn(...))` is REJECTED as a struct/enum/union field type (capture-dependent size — the error names `Dyn(Fn(...))` as the fix). Either use `Dyn(Fn(...))`, or make the containing type generic over the closure type: `MyStruct :: (fn(comptime(F) : Type) -> comptime(Type))(struct(cb : F));`
 
 ## Imports and modules
@@ -410,13 +410,14 @@ show :: (fn(value : Impl(ToString)) -> unit)(
   println(&value)
 );
 
-(erased : Dyn(ToString)) = dyn(i32(42));
-println(&erased);
+(erased : Box(Dyn(ToString))) = dyn(Box.new(i32(42)));
+s := erased.to_string();
 ```
 
 - `Impl(Trait)` — static dispatch; concrete type chosen at compile time
-- `Dyn(Trait)` — dynamic dispatch via trait object
-- `dyn(expr)` wraps a concrete value into its `Dyn(Trait)` form
+- `Dyn(Trait)` — dynamic dispatch via an UNSIZED trait object behind a pointer (decision 49): `Box(Dyn(T))` owns, `Rc(Dyn(T))` shares, `&Dyn(T)` borrows
+- `dyn(...)` erases the pointee of a pointer: `dyn(Box.new(v))`, `dyn(Rc.new(v))`, `dyn(&v)`, `dyn(&mut v)`
+- In v0.2.77 a bare `Dyn(T)` value type and `dyn(v)` of a plain value are the older spellings of `Box(Dyn(T))` and `dyn(Box.new(v))`; `src/`/`std/` keep them until v0.2.78 because the seed compiles them (`yo fix <path> --migrate unsized` writes the types the new way). A `dyn(&v)` reference is a call argument only until v0.2.78
 
 ## Naming conventions
 

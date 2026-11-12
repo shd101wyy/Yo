@@ -40,7 +40,7 @@ test("Test single-hop forwarded closure param", {
   assert(match(r.get(usize(1)), .Some(v) => v, .None => i32(0)) == i32(101), "second push is get_info(1) = 100 + 1");
 });
 test("Test two-hop forwarded closure param with dyn-capturing detector", {
-  Detector :: struct(detect : Dyn(Fn(k : i32) -> i32));
+  Detector :: struct(detect : Box(Dyn(Fn(k : i32) -> i32)));
   walk2 :: (
     fn(depth : i32, get_info : &Impl(Fn(k : i32) -> i32), det : &Detector, acc : &mut ArrayList(i32)) -> unit
   )({
@@ -61,7 +61,7 @@ test("Test two-hop forwarded closure param with dyn-capturing detector", {
     // the shape suspension-analysis uses (get_info captured by the detect
     // callback while ALSO being forwarded onward).
     det := Detector(
-      detect : dyn((k : i32) => (get_info(k) + match(extras.get(usize(0)), .Some(v) => v, .None => i32(0))))
+      detect : dyn(Box.new((k : i32) => (get_info(k) + match(extras.get(usize(0)), .Some(v) => v, .None => i32(0)))))
     );
     walk2(depth, get_info, &det, &mut out);
     out

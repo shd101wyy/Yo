@@ -420,7 +420,7 @@ impl(
 );
 comptime_expect_error({
   _d1_send_dyn_reaches_global :: (fn() -> unit)({
-    (d : Dyn(_GlobalPusher, Send)) = dyn(_PushesToGlobal(unused : i32(0)));
+    (d : Box(Dyn(_GlobalPusher, Send))) = dyn(Box.new(_PushesToGlobal(unused : i32(0))));
     d.push_one();
   });
   _d1_send_dyn_reaches_global();
@@ -661,7 +661,7 @@ comptime_expect_error({
         g_items.with_mut(l => l.push(i32(9)));
       }
     );
-    (d : Dyn(Fn() -> unit, Send)) = dyn(k);
+    (d : Box(Dyn(Fn() -> unit, Send))) = dyn(Box.new(k));
     d;
   });
   _d9_dyn_fn_send();
@@ -678,7 +678,7 @@ comptime_expect_error({
         ();
       }
     );
-    (d : Dyn(Fn() -> unit, Send)) = dyn(Rc.new(k));
+    (d : Box(Dyn(Fn() -> unit, Send))) = dyn(Rc.new(k));
     d;
   });
   _dsend_box();
@@ -738,7 +738,7 @@ test("D9 canary: function values that reach only atomics are Send by every route
       ();
     }
   );
-  (d : Dyn(Fn() -> unit, Send)) = dyn(kd);
+  (d : Box(Dyn(Fn() -> unit, Send))) = dyn(Box.new(kd));
   t4 := Thread(unit).spawn((io : Io) => {
     d();
     ()
@@ -797,7 +797,7 @@ test("an Arc(Dyn(Fn, Send, Sync)) shared by two threads and the spawner", {
       ();
     }
   );
-  (d : Arc(Dyn(Fn() -> unit, Send, Sync))) = Arc(Dyn(Fn() -> unit, Send, Sync)).new(dyn(k));
+  (d : Arc(Dyn(Fn() -> unit, Send, Sync))) = Arc(Dyn(Fn() -> unit, Send, Sync)).new(dyn(Box.new(k)));
   ta := Thread(unit).spawn({ d : Arc.clone(d) }(io : Io) => {
     d.*();
     ()

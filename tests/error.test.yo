@@ -102,7 +102,7 @@ test("Test Exception with custom MathError enum", {
   impl(MathError, Error());
   safe_divide :: (fn(x : i32, y : i32, exn : Exception) -> i32)(
     cond(
-      (y == i32(0)) => exn.throw(dyn(MathError.DivisionByZero)),
+      (y == i32(0)) => exn.throw(dyn(Box.new(MathError.DivisionByZero))),
       true => (x / y)
     )
   );
@@ -175,7 +175,7 @@ test("Test ResumableException with custom MathError enum", {
   impl(MathError, Error());
   safe_divide :: (fn(x : i32, y : i32, exn : ResumableException(i32)) -> i32)(
     cond(
-      (y == i32(0)) => exn.throw(dyn(MathError.DivisionByZero)),
+      (y == i32(0)) => exn.throw(dyn(Box.new(MathError.DivisionByZero))),
       true => (x / y)
     )
   );

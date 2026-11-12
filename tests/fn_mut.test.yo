@@ -53,7 +53,7 @@ test("FnMut: own state through a `&mut Impl(FnMut(...))` parameter", {
   assert(g() == i32(15), "the state persisted in `g` past the callee");
 });
 test("FnMut: own state through a `Dyn(FnMut(...))`", {
-  (mut(d) : Dyn(FnMut() -> i32)) = dyn({ n : i32(0) }() => {
+  (mut(d) : Box(Dyn(FnMut() -> i32))) = dyn({ n : i32(0) }() => {
     n = (n + i32(2));
     n
   });
@@ -170,7 +170,7 @@ comptime_expect_error(
 comptime_expect_error(
   _fm_fnmut_literal_dyn_fn :: (fn() -> unit)({
     mut(z) := i32(0);
-    (d : Dyn(Fn() -> i32)) = dyn({ &mut z }() => {
+    (d : Box(Dyn(Fn() -> i32))) = dyn({ &mut z }() => {
       z.* = (z.* + i32(1));
       z.*
     });
@@ -258,7 +258,7 @@ comptime_expect_error(
       n = (n + i32(1));
       n
     });
-    (d : Dyn(Fn() -> i32)) = dyn(f);
+    (d : Box(Dyn(Fn() -> i32))) = dyn(f);
     _r := d();
   }),
   "Cannot box an `FnMut(...)` closure as a `Dyn(Fn(...))`"
@@ -267,7 +267,7 @@ comptime_expect_error(
   _fm_dyn_fnmut_rejects_fnonce :: (fn() -> unit)({
     k := i32(1);
     (f : Impl(FnOnce() -> i32)) = ({ k }() => k);
-    (mut(d) : Dyn(FnMut() -> i32)) = dyn(f);
+    (mut(d) : Box(Dyn(FnMut() -> i32))) = dyn(f);
     _r := d();
   }),
   "Cannot box an `FnOnce(...)` closure as a `Dyn(FnMut(...))`"
@@ -311,7 +311,7 @@ comptime_expect_error(
 );
 _fm_call_through_mut_dyn :: (fn(d : &mut Dyn(FnMut() -> i32)) -> i32)(d() + d());
 test("FnMut: a `&mut Dyn(FnMut(...))` parameter calls it", {
-  (mut(d) : Dyn(FnMut() -> i32)) = dyn({ n : i32(0) }() => {
+  (mut(d) : Box(Dyn(FnMut() -> i32))) = dyn({ n : i32(0) }() => {
     n = (n + i32(3));
     n
   });
@@ -355,7 +355,7 @@ test("FnMut: a closure typed FnMut is not Copy, even over Copy captures", {
 });
 comptime_expect_error(
   _fm_dyn_fnmut_move_only :: (fn() -> unit)({
-    (d : Dyn(FnMut() -> i32)) = dyn({ n : i32(0) }() => {
+    (d : Box(Dyn(FnMut() -> i32))) = dyn({ n : i32(0) }() => {
       n = (n + i32(1));
       n
     });

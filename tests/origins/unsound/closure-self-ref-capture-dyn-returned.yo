@@ -7,7 +7,7 @@
 S :: struct(a : String);
 impl(
   S,
-  reader : (fn(self : &Self) -> Dyn(Fn() -> usize))(dyn({ self }() => self.a.len()))
+  reader : (fn(self : &Self) -> Box(Dyn(Fn() -> usize)))(dyn(Box.new({ self }() => self.a.len())))
 );
 main :: (fn() -> unit)({
   mut(h) := Rc.new(S(a : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));

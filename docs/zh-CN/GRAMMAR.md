@@ -179,10 +179,11 @@ ArrayExpression ::=
   | '[' ']'                                           ;; 空数组值
   | '[' Expression (',' Expression)* ','? ']'         ;; 数组值（逗号分隔）
   | '[' Expression ';' Expression ']'                 ;; 数组类型 [T; N]
+  | '[' Expression ']'                                ;; 切片类型 [T]
 
-;; 旧的切片类型形式 `[T]` 和 `[T;]` 已移除 —— 内建 Slice 类型已删除
-;; （plans/archive/SLICE_REWORK.md），两者都是解析错误，提示改写为
-;; `RawSlice(T)`。单元素数组值用尾随逗号书写：`[expr,]`。
+;; `[T]` 是非定长切片类型 `Slice(T)`（plans/VALUES_BY_DEFAULT.md 决策 49），
+;; 只能位于指针之后：`&[T]`、`&mut [T]`、`*[T]`。`[T;]` 没有给出长度，
+;; 是解析错误。单元素数组值用尾随逗号书写：`[expr,]`。
 
 ;; 花括号表达式
 ;; 花括号组在没有分号时是记录（RECORD）—— 这条规则在所有位置一致：

@@ -2,414 +2,272 @@
 
 ## 概述
 
-`Dyn(Trait)` 通过类型擦除的动态分派实现运行时多态。
+`Dyn(Trait, ...)` 是 trait 对象，即 Rust 的 `dyn Trait`：具体类型被擦除，每次方法调用都经由虚表。`Dyn` 是**非定长**类型（决策 49，见 [`plans/VALUES_BY_DEFAULT.md`](../../plans/VALUES_BY_DEFAULT.md)）。不同具体类型的载荷大小不同，所以 `Dyn` 自身没有大小，只能放在指针后面。由指针决定谁拥有这个对象：
 
-**重要说明**：`Dyn` 是一个**值类型**（包含数据指针和虚表的结构体）。其 `data` 字段**必须**指向一个 `ref(struct(...))` 类型（引用计数类型）。
+| 形式 | 拥有对象 | 构造方式 |
+| --- | --- | --- |
+| `Box(Dyn(T))` | 独占：销毁 box 就销毁载荷 | `dyn(Box.new(v))`、`dyn(Box.new(v, alloc : a))` |
+| `Rc(Dyn(T))` | 共享，通过句柄只读 | `dyn(Rc.new(v))` |
+| `Arc(Dyn(T, Send, Sync))` | 跨线程共享，只读 | `dyn(Arc.new(v))` |
+| `&Dyn(T)` / `&mut Dyn(T)` | 不拥有：借用一个留在原处的位置 | `dyn(&v)` / `dyn(&mut v)`；`&b.*` / `&mut b.*` |
 
-```typescript
-Id :: trait(id : (fn(self : &mut Self) -> i32));
+`dyn(...)` 是唯一的入口。它擦除所给指针的指向类型，并返回同一种指针，只是指向 `Dyn`，trait 列表取自该位置所期望的类型。
 
-impl(i32, Id(id : ((self) -> { printf("i32: %d\n", self.*); return self.*; })));
-impl(bool, Id(id : ((self) -> { printf("bool\n"); return cond(self.* => 1, true => 0); })));
-
-use_id :: (fn(value : Dyn(Id)) -> unit) { x := value.id(); };
-
-main :: (fn() -> unit) {
-  // 值类型必须装箱
-  use_id(dyn(Rc.new(42)));
-  use_id(dyn(Rc.new(true)));
-
-  // 引用语义类型可以直接使用
-  point := Point(x: 3, y: 4);
-  use_id(dyn(point));
-};
+```yo
+{ println } :: import("std/fmt");
+Speak :: trait(speak : (fn(self : &Self) -> i32));
+Cat :: struct(n : i32);
+impl(Cat, Speak(speak : ((self : &Self) -> self.n)));
+speak_via :: (fn(d : &Dyn(Speak)) -> i32)(d.speak());
+main :: (fn() -> unit)({
+  c := Cat(n : i32(3));
+  a := speak_via(dyn(&c)); // borrowed: nothing is allocated, and `c` stays usable
+  (b : Box(Dyn(Speak))) = dyn(Box.new(Cat(n : i32(4)))); // owned
+  m := speak_via(&b.*); // lend the boxed object
+  (s : Rc(Dyn(Speak))) = dyn(Rc.new(Cat(n : i32(5)))); // shared
+  total := (a + m + s.speak() + c.n);
+  println(&total);
+});
+export(main);
 ```
+
+### 发布状态（v0.2.77）
+
+决策 49 的编译器部分（S1）随 v0.2.77 发布，而 prelude 的 `Box`、`Rc` 和 `Arc` 要到 v0.2.78（S2）才对非定长类型泛型化。在此之前：
+
+- **`Box(Dyn(T))` 是较早的拥有型 `Dyn` 值。** 在 v0.2.77 中，用作值类型的裸写法 `Dyn(T)` 表示 `Box(Dyn(T))`，普通的 `dyn(v)` 表示 `dyn(Box.new(v))`，而把这种值的 `&d` 传入 `&Dyn` 槽位时，其借出方式与 `&d.*` 相同。`yo fix <path> --migrate unsized` 会把裸写法改写成新写法；在 v0.2.78 中它们变成错误（E0619、E0620）。
+- **在 v0.2.78 之前，`Rc(Dyn(T))` 是两次分配**：`dyn(Rc.new(v))` 把一个装箱的 `Dyn` 放进计数单元。它的类型和共享规则已经是最终形态。
+- **在 v0.2.78 之前，对拥有型对象的 `downcast` 写在 `&d.*` 上。** 与任何引用一样，`downcast(&d.*, V)` 得到 `Option(&V)`。失败时交还 box 的拥有型形式随 prelude 一起到来；对拥有型 `d` 写 `downcast(d, V)` 仍是下文所述的复制形式。
+- **在 v0.2.78 之前，`dyn(&v)` 引用只能用作调用实参。** 它不能被命名、存储或返回：把它绑定到局部变量或存储起来是 E0911，而返回它（包括经由投影或放在 `Option` 里返回）是 E0912。请直接传递，或者用 `dyn(Box.new(v))` 拥有该对象。
+
+在 v0.2.78 之前，裸指针 `*Dyn(T)`/`?*Dyn(T)` 同样是指向拥有型 `Box(Dyn(T))` 的指针；迁移会把它写成 `*Box(Dyn(T))`。
 
 ## 核心设计
 
-### 1. Dyn 类型（值类型 — 胖指针）
+### 1. 胖指针
 
-`Dyn(Trait)` 是一个**值类型结构体**（无 ref_header）。它是一个包含数据和虚表的胖指针。
-
-```c
-typedef struct {
-  void* data;                    // 必须指向引用语义类型（具有 ref_header）
-  const TraitVtable* vtable;    // 静态虚表指针
-} __yo_dyn_trait_id;
-```
-
-**要点：**
-
-- `Dyn` 是**值类型** — 像结构体一样按值复制
-- `data` **必须**指向引用语义类型（始终具有 ref_header）
-- 所有权规则接受的 `Dyn` 复制（源值的最后一次使用）仍会 retain `data` 指针，并由源值的销毁 release 它；销毁 `Dyn` 时 release 它。两者都经由虚表的 `__yo_retain` / `__yo_release` 槽位（位于 `__yo_type_id` 之后），由具体的载荷类型填写：原子引用对象（`Arc`、`atomic` 结构体）使用原子引用计数操作，其余使用普通操作
-- 前缀的第三个槽位 `__yo_clone` 为 `Dyn(Trait, Clone)` 上的 `d.clone()` 生成一份独立的载荷；不含 `Clone` 的 `Dyn` 中它是 `NULL`。程序只能通过它复制 `Dyn`（见[所有权](#所有权dyn-独占其载荷)）
-- `Dyn` 结构体本身不在堆上分配
-
-### 2. 数据存储（引用语义类型约束）
-
-`data` 字段**必须**指向引用语义类型（引用计数类型）。值类型必须用 `Rc(T)` 包装。
-
-```c
-// 对于值类型 — 必须使用 Rc(T)
-Box_i32* boxed = /* Rc.new(42) */;  // Rc(i32) 是引用语义类型
-void* data = boxed;               // 存储 Box 指针
-
-// 对于引用语义类型 — 直接使用
-Point* point = /* Point(3, 4) */;  // Point 是引用语义类型
-void* data = point;                // 存储 Point 指针
-```
-
-**Rc 类型定义：**
-
-```yo
-Rc :: (fn(comptime(V) : Type) -> comptime(Type))(
-  ref(
-    struct(
-      (*) : V
-    )
-  )
-);
-rc :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None) -> Rc(V))(
-  ...
-);
-```
-
-**为什么有此约束？**
-
-- 简化 `Dyn`：无需 ref_header
-- 单层引用计数：只有 `data` 是引用计数的
-- 统一处理：所有 `data` 指针具有相同的内存布局
-- 类型安全：在编译时强制检查
-
-### 3. 虚表结构（统一签名）
+每个指向 `Dyn` 的指针都是两个字：载荷的地址，以及载荷具体类型的虚表：
 
 ```c
 typedef struct {
-  int32_t (*return_i32)(void*);    // 所有返回类型必须是具体类型（不能是 Self）
-  void (*print)(void*);            // unit 返回类型
-} __yo_dyn_trait_TestDyn_vtable;
+  void* data;                 // the payload
+  const TraitVtable* vtable;  // one static vtable per (concrete type, trait list)
+} __yo_dyn_trait_Speak;
 ```
 
-**包装函数：**
+`&Dyn(T)` 以这一对值按值传递，所以 `dyn(&v)` 不分配任何内存：`data` 就是 `&v`。
 
-- **引用语义类型**：直接类型转换（无需包装函数）
-- **装箱的值类型**：生成包装函数，在调用 impl 前先解包 `Rc(T)`
+### 2. 虚表
+
+虚表描述的是具体类型而不是指针，所以同一个具体类型之上的每一种指针共用它。它以固定的前缀开头，然后是每个可调用方法一个槽位：
+
+| 槽位 | 含义 |
+| --- | --- |
+| `__yo_type_id` | 具体类型的 id，`downcast` 用它比较 |
+| `size`、`align` | 载荷的大小和对齐，由 `size_of_val(d)` 和 `align_of_val(d)` 读取 |
+| `drop_in_place` | 就地销毁载荷 |
+| `clone_into` | 把载荷克隆到调用方提供的存储中；trait 列表不含 `Clone` 时为 `NULL` |
+| `payload_of`、`retain`、`release`、`clone` | v0.2.77 拥有型值的槽位；`Box(Dyn)` 成为 prelude 的 `Box` 后移除 |
+
+```c
+typedef struct {
+  uintptr_t __yo_type_id;
+  size_t size, align;
+  void (*drop_in_place)(void*);
+  void (*clone_into)(const void*, void*);
+  /* legacy suffix: payload_of, retain, release, clone */
+  int32_t (*speak)(const void*);  // the method slots
+} __yo_dyn_trait_Speak_vtable;
+```
+
+每个方法槽位都是一个包装函数，把 `data` 转回具体类型并调用 impl。一次方法调用是一次加载加一次间接调用：
+
+```c
+int32_t r = d.vtable->speak(d.data);
+```
 
 ## 对象安全约束（遵循 Rust）
 
 一个方法满足以下条件时，可以通过 `Dyn(Trait)` 接收者调用：
 
-1. 第一个参数是 `self`（`self : Self`、`self : &mut Self` 或 `self : *(Self)`，因为 vtable 包装函数会为接收者拆箱）；
+1. 它的接收者是引用，`self : &Self` 或 `self : &mut Self`；
 2. `Self` 不出现在签名的其他位置：既不是其他参数，也不是结果，也不在其中出现（`Option(Self)`、`Result(Self, E)`）；
 3. 不带 `generic(...)` 参数。
 
 原因如下：
 
 - `Dyn` 擦除了具体类型，因此 `Self` 参数或结果在调用处没有唯一的 C 类型：同一个 `Dyn` 背后的两个具体类型大小和表示都不同。
-- 泛型方法是一族函数（每个实例化一个），而一个 vtable 槽位只能放一个。
+- 泛型方法是一族函数（每个实例化一个），而一个虚表槽位只能放一个。
+- 按值的 `self` 会把载荷从拥有它的指针里移出来，而非定长的载荷没有可供移动的值形式。
 
-只有这些方法拥有 vtable 槽位。trait 仍可以声明其他方法，也可以构造它的 `Dyn` 并使用可调用的方法；通过 `Dyn` 调用其他方法会在调用处报错 E0614（`yo explain E0614`）：
+只有这些方法拥有虚表槽位。通过 `Dyn` 调用其他方法会在调用处报错 E0614（`yo explain E0614`）。带有按值 `self` 方法的 trait 完全不能放到 `Dyn` 后面，无论载荷是什么：按值接收操作数的运算符 trait（`LogicalNot`、`Negate`、`Add` 等）都在此列。
 
-```yo
-Sp :: trait(speak : (fn(self : Self) -> i32), me : (fn(self : Self) -> Self));
-(d : Dyn(Sp)) = dyn(Cat(n : i32(3)));
-d.speak(); // OK：`Self` 只作为接收者
+```yo ignore
+Sp :: trait(speak : (fn(self : &Self) -> i32), me : (fn(self : &Self) -> Self));
+(d : Box(Dyn(Sp))) = dyn(Box.new(Cat(n : i32(3))));
+d.speak(); // OK: `Self` only as the receiver
 d.me(); // error[E0614]: Method "me" of trait Sp cannot be called through a Dyn receiver (dyn(Sp)): it returns Self, which the Dyn erases.
 ```
 
-基于 trait 约束的一揽子固有方法（`impl(generic(E), where(E <: Named), E, shout : ...)`）同样接受 `Dyn(Named)` 接收者。它不是 trait 成员，没有 vtable 槽位：这个调用是对该方法（针对 `Dyn` 特化）的普通调用，而方法内部的 `self.name()` 通过 vtable 分派。
+基于 trait 约束的一揽子固有方法（`impl(generic(E), where(E <: Named), E, shout : ...)`）同样接受 `Dyn(Named)` 接收者。它不是 trait 成员，没有虚表槽位：这个调用是对该方法（针对 `Dyn` 特化）的普通调用，而方法内部的 `self.name()` 通过虚表分派。
 
 直接写在 `Dyn` 类型上的固有 impl 会为这个 `Dyn` 添加方法，就像 Rust 的 `impl dyn Error`：
 `std/error.yo` 的 `impl(AnyError, is : ...)` 让 `err.is(NotFound)` 可以用在 `AnyError` 上。
 
-通过泛型 impl 实现的 trait（`T <: ToString` 时 `ArrayList(T)` 的 `ToString`）可以放进 `Dyn`：`dyn(xs)` 会针对具体类型特化泛型 impl 的方法。
+通过泛型 impl 实现的 trait（`T <: ToString` 时 `ArrayList(T)` 的 `ToString`）可以放到 `Dyn` 后面：`dyn(&xs)` 会针对具体类型特化泛型 impl 的方法。
 
-**没有隐式的向上转换。** `Dyn(Sp, Ot)` 不会流入 `Dyn(Sp)` 形参或绑定：两者的 vtable 布局不同，因此这种转换改变了表示方式，需要用 `upcast`（见下文）显式写出。trait 列表是一个集合：`Dyn(Sp, Ot)` 和 `Dyn(Ot, Sp)` 是同一个类型。
+**没有隐式的向上转换。** `Dyn(Sp, Ot)` 不会流入 `Dyn(Sp)` 槽位：两者的虚表布局不同，因此这种转换需要用 `upcast`（见下文）显式写出。trait 列表是一个集合：`Dyn(Sp, Ot)` 和 `Dyn(Ot, Sp)` 是同一个类型。
 
 **同一个 `Dyn` 中的两个 trait 不能有同名方法**（E0616）。`Dyn` 按名字调用方法，因此当 `A` 和 `B` 都声明了可调用的 `get` 时，`Dyn(A, B)` 会在写出该类型的地方被拒绝：`d.get()` 无法说明它指的是哪个 trait 的方法。
 
-## dyn(...) 的引用语义类型要求
+## 构造：`dyn(...)`
 
-**规则**：`dyn(value)` 要求 `value` 具有**引用语义类型**（指向引用计数数据的指针）。如果是值类型，则会自动包装进由 `Rc(T).new(value)` 构造的单元。
+`dyn(p)` 接收一个指向具体值的指针，返回同一种指针，只是指向 `Dyn`：
 
-**原因**：`Dyn` 中的 `data` 字段必须指向引用计数的内存。这确保了安全的内存管理，而无需为 `Dyn` 本身添加 ref_header。
+| 写法 | 类型 | 说明 |
+| --- | --- | --- |
+| `dyn(Box.new(v))` | `Box(Dyn(T))` | `v` 移入一个新的 box；`alloc : a` 把它放进 `a` |
+| `dyn(Rc.new(v))` | `Rc(Dyn(T))` | 一个新的共享单元 |
+| `dyn(Arc.new(v))` | `Arc(Dyn(T, Send, Sync))` | 一个新的原子单元；载荷必须是 `Send` 和 `Sync` |
+| `dyn(&v)` | `&Dyn(T)` | `v` 被只读借出，调用之后仍可使用 |
+| `dyn(&mut v)` | `&mut Dyn(T)` | `v` 被独占借出：同一次调用中再次借出 `v` 是 E0910 |
 
-**示例：**
+trait 列表取自期望的类型：形参、带标注的绑定或字段。具体类型必须实现列出的每个 trait。对已经是 `Dyn` 的值写 `dyn(d)` 是一个错误，并会提示使用 `upcast`：载荷的类型已被擦除，没有东西可以用来构造新的虚表。
 
-```yo
-// 值类型必须装箱
-dyn(Rc.new(42)); // OK：Rc.new(42) 返回 Rc(i32)，这是一个引用语义类型
-dyn(Rc.new(true)); // OK：Rc.new(true) 返回 Rc(bool)
-// 引用语义类型可以直接使用
-point := Point(x : 3, y : 4); // point : Point，Point 是引用语义类型
-dyn(point); // OK：point 是引用语义类型
-// 直接传值会自动装箱
-dyn(42); // 42 自动变为 Rc.new(42)
-dyn(true); // true 自动变为 Rc.new(true)
-```
+对具名的 `Rc`/`Arc` 句柄写 `dyn(h)` 会被拒绝：句柄的单元可能是共享的，就地在其上构造的 `Dyn` 不会知道其他句柄。请写 `dyn(Rc.new(v))`，在创建共享对象的地方构造它；或写 `dyn(Box.new(v))` 来独占它。
 
-**`Send` Dyn 的载荷是原子的。** `Dyn(Trait, Send)` 的每个副本都可能位于另一个线程，并在那里 retain 和 release 同一个 `data` 对象，因此其引用计数必须是原子的。对于 `Send` 目标，`dyn(v)` 用 `Arc(T).new` 而不是 `Rc(T).new` 装箱值类型。非原子的引用载荷是错误：
+`dyn` 之下 `Box.new`、`Rc.new` 或 `Arc.new` 内的闭包字面量，其类型取自期望的 `Dyn(Fn(...))`，因此它的参数不需要标注：
 
 ```yo
-(d : Dyn(Fn() -> unit, Send)) = dyn(k); // OK：k 用 arc 装箱
-(e : Dyn(Fn() -> unit, Send)) = dyn(Rc.new(k)); // 错误：其载荷必须是原子引用计数的
-```
-
-### 4. 静态虚表和包装函数
-
-**对于值类型（装箱后）：**
-
-```c
-// i32 的原始方法实现
-int32_t fn_i32_id(int32_t* self) {
-  return *self;
-}
-
-// 解包 Rc(i32) 的包装函数
-int32_t wrapper_Box_i32_id(void* self_ptr) {
-  Box_i32* box = (Box_i32*)self_ptr;
-  return fn_i32_id(&box->value);  // 提取值，调用原始方法
-}
-
-// Rc(i32) 上 Dyn 的静态虚表
-static const __yo_dyn_trait_Id_vtable __yo_vtable_Box_i32_Id = {
-  .id = wrapper_Box_i32_id  // 指向包装函数
-};
-```
-
-**对于引用语义类型：**
-
-```c
-// Point 的原始方法实现
-void fn_Point_print(Point* self) {
-  printf("(%d, %d)", self->x, self->y);
-}
-
-// dyn(point) 的静态虚表 — 无需包装函数！
-static const __yo_dyn_trait_Printer_vtable __yo_vtable_Point_Printer = {
-  .print = (void(*)(void*))fn_Point_print  // 直接类型转换
-};
-```
-
-## 构造：`dyn(value)`
-
-构造 `Dyn` 时，值必须是引用语义类型。`Dyn` 结构体在栈上创建，并存储数据指针。
-
-```c
-// 对于 dyn(Rc.new(42))：
-Box_i32* boxed = /* Rc.new(42) 的结果 */;  // 已经 RC = 1
-
-__yo_dyn_trait_id result = {
-  .data = boxed,
-  .vtable = &__yo_vtable_Box_i32_Id
-};
-// 注意：此处不执行 dup，所有权从 Rc.new(42) 转移到 dyn
-```
-
-```c
-// 对于 dyn(point)，其中 point : Point：
-Point* point = /* Point(3, 4) */;  // 已经 RC = 1
-
-__yo_dyn_trait_Printer result = {
-  .data = point,
-  .vtable = &__yo_vtable_Point_Printer
-};
-// 注意：此处不执行 dup，所有权从 point 转移到 dyn
-```
-
-**要点**：由于 `Dyn` 是值类型，它在栈上创建。`data` 指针的所有权被转移（构造时不执行 dup）。
-
-### `dyn(...)` 是唯一入口
-
-只有程序写出 `dyn(...)` 的地方，值才会变成 `Dyn`（`plans/VALUES_BY_DEFAULT.md`
-决策 44）。带类型的位置不做隐式转换：名义类型的值不会（把 `point` 传给
-`Dyn(Id)` 形参 `use_id(point)` 是类型错误，应写 `use_id(dyn(point))`），可调用值
-也不会。在 `Dyn(Fn(...))` 绑定、字段、实参或结果中直接使用具名闭包、具名 `fn`、
-`Impl(Fn(...))` 形参或闭包字面量是错误 E0618，其提示会给出写法：
-
-```yo
-run :: (fn(d : Dyn(Fn() -> i32)) -> i32)(d());
-nine :: (fn() -> i32)(i32(9));
+run :: (fn(d : &Dyn(Fn(x : i32) -> i32)) -> i32)(d(i32(2)));
 main :: (fn() -> unit)({
-  n := i32(3);
-  (f : Impl(Fn() -> i32)) = (() => n);
-  _x := run(dyn(f)); // `run(f)` 是 E0618：应写 `dyn(f)`
-  _y := run(dyn(nine)); // 具名 `fn` 也一样：`run(nine)` 是 E0618
+  k := i32(3);
+  (f : Box(Dyn(Fn(x : i32) -> i32))) = dyn(Box.new(x => (x * k)));
+  _n := run(&f.*);
 });
 export(main);
 ```
 
-对具名 `fn` 写 `dyn(f)` 会把该函数的代码指针装箱，`Dyn` 的调用经由它进行：
-顶层函数、导入的函数，或绑定到具名函数的 `Impl(Fn(...))` 形参都可以。它不捕获任何东西，所以不会有内容
-被复制进箱子。`Impl(Fn(...))` 位置是闭包自身的静态类型，不是擦除，闭包可以直接传入。
+### `dyn(...)` 是唯一入口
 
-## 方法分派
-
-对 `Dyn` 的方法调用通过虚表进行。由于 `Dyn` 是值类型，`value` 是结构体本身。
-
-```c
-// value 的类型为 __yo_dyn_trait_TestDyn（结构体，非指针）
-int32_t result = value.vtable->return_i32(value.data);
-value.vtable->print(value.data);
-```
-
-## 运行时类型检查：`downcast(value, T)`
-
-`Dyn` 擦除了具体类型，而 `downcast` 是把它取回来的方式：
+只有程序写出 `dyn(...)` 的地方，值才会变成 `Dyn`（决策 44）。带类型的槽位不做隐式转换，无论是名义类型的值还是可调用值。把具名闭包、具名 `fn`、`Impl(Fn(...))` 形参或闭包字面量放进拥有型 `Dyn(Fn(...))` 的绑定、字段、实参或结果是错误 E0618，其附注给出 `dyn(f)`，即 v0.2.77 中 `dyn(Box.new(f))` 的写法。`&Dyn(Fn(...))` 形参用 `dyn(&f)` 借用闭包，不做任何分配。
 
 ```yo
-downcast(dyn_value, T) -> Option(T)
+run :: (fn(d : &Dyn(Fn() -> i32)) -> i32)(d());
+main :: (fn() -> unit)({
+  n := i32(3);
+  (f : Impl(Fn() -> i32)) = (() => n);
+  _x := run(dyn(&f)); // a borrowed closure: no allocation
+  (g : Box(Dyn(Fn() -> i32))) = dyn(Box.new(f)); // `= f` is E0618
+  _y := run(&g.*);
+});
+export(main);
 ```
 
-这是从 `Dyn` 安全恢复具体类型的唯一途径，`std/error.yo` 里 `AnyError` 的 `err.is(T)`
-就是用它实现的。两个参数的形式是固定的：第一个必须是 `Dyn` 类型，第二个必须是一个
-**类型**（在编译期求值，所以 `T` 永远不是运行时值）。
+`Impl(Fn(...))` 槽位是闭包自身的静态类型，不是擦除，所以闭包可以直接流入其中。
 
-```yo
-Animal :: trait(speak : (fn(self : Self) -> unit));
-// ... impl(Cat, Animal(...)); impl(Dog, Animal(...));
-animal := dyn(Cat.new());
+## 位置：`b.*` 与 `size_of_val`
 
+对 `b : Box(Dyn(T))` 的 `b.*`，以及对 `Rc`/`Arc` 句柄的 `h.*`，是类型为 `Dyn(T)` 的位置。它可以被借用（`&b.*`，通过 `Box` 还可以 `&mut b.*`），也可以通过它调用方法，但绝不能按值绑定、移动、赋值或匹配：`x := b.*` 是 E0619，因为该位置没有自己的大小。通过 `Rc` 或 `Arc`，载荷是只读的，所以 `&mut h.*` 和 `&mut Self` 方法是 E0919。
+
+`size_of_val(d)` 和 `align_of_val(d)` 从虚表读取载荷的大小和对齐；`size_of(Box(Dyn(T)))` 是两个指针。
+
+## 运行时类型检查：`downcast(d, V)`
+
+`downcast` 取回具体类型。通过引用时，它借用载荷，不做复制：
+
+```yo ignore
+downcast(r : &Dyn(T), V) -> Option(&V)
+downcast(r : &mut Dyn(T), V) -> Option(&mut V)
+```
+
+```yo ignore
+(animal : Box(Dyn(Animal))) = dyn(Box.new(Cat.new()));
 match(
-  downcast(animal, Cat),
-  .Some(cat) => cat.purr(),
-  // 具体的 Cat，已计数且被拥有
+  downcast(&animal.*, Cat),
+  .Some(cat) => cat.purr(), // `cat : &Cat`, borrowed from the box
   .None => println(`not a cat`)
 );
-
-// 只做判断、不使用值：
-if(downcast(animal, Dog).is_some(), {
-  println(`a dog`);
-});
 ```
 
-**检查是怎么做的。** 每个 `Dyn` 虚表都带一个 `__yo_type_id` 字段，每个具体类型都有
-一个静态变量，其**地址**就是它的规范类型 id。检查就是一次指针比较——
-`value.vtable->__yo_type_id == (uintptr_t)&__yo_typeid_Cat`——一次加载加一次比较，
-没有字符串比较，也没有 RTTI 表。
+第二个参数是一个**类型**，在编译期求值。`std/error.yo` 里 `AnyError` 的 `err.is(T)` 就是用 `downcast` 构建的。
 
-**结果是被拥有的。** `Dyn` 只持有引用计数数据，所以成功的 downcast 会增加引用计数并
-返回一个被拥有的引用：`Dyn` 保留自己那一份，两者各自独立释放。
+对拥有型 `d` 写 `downcast(d, V)` 保留 v0.2.77 的形式：它返回 `Option(V)`，即载荷的一份拷贝，所以仅移动的 `V` 需要列出 `Clone` 的 `Dyn`。在 v0.2.78 中，拥有型形式变为 `Result(Box(V), Box(Dyn(T)))`，失败时交还 box；在此之前，只读载荷时请写 `downcast(&d.*, V)`。
 
-**值类型会从单元里取出来。** `dyn(42)` 会自动装箱（见
-[dyn(...) 的引用语义类型要求](#dyn-的引用语义类型要求)），所以 `dyn.data` 指向的是
-一个 `Rc` 单元而不是值本身。downcast 到值类型或 newtype 目标时，会从那个单元里把值
-读出来并 dup——把 `data` 直接转成值结构体连合法的 C 都算不上。
+**检查是怎么做的。** 每个具体类型都有一个静态变量，其**地址**就是它的类型 id，每个虚表都在 `__yo_type_id` 中带着它。检查就是一次指针比较，`d.vtable->__yo_type_id == (uintptr_t)&__yo_typeid_Cat`，没有字符串比较，也没有 RTTI 表。
 
-**永远不可能成功的 downcast 是编译期的 `.None`。** 编译器知道程序中每一个
-`dyn(...)` 的创建点。如果没有任何地方把 `T` 包进这个 `Dyn`，二进制里就没有任何虚表
-携带 `T` 的类型 id，比较永远不可能成立，于是整个表达式被降级为常量 `.None`，而不是
-一个永远为假的检查。
+**永远不可能成功的 downcast 是编译期的 `.None`。** 编译器能看到程序中每一个 `dyn(...)` 的创建点。如果没有任何地方把 `V` 擦除进这个 `Dyn`，就没有任何虚表携带 `V` 的类型 id，于是该表达式被降级为常量 `.None`。
 
-**没有非检查式的强制转换。** `downcast` 始终返回 `Option(T)`；如果你想在不匹配时
-panic，那就是 `downcast(v, T).unwrap()`，写在调用点上因此是可见的。`type_id` 是另一个
-内建，它接受一个**类型**而不是值——不能用来在运行时判断 `Dyn`。
+**没有非检查式的强制转换。** 不匹配时 panic 写作 `downcast(&d.*, V).unwrap()`。`type_id` 接受一个**类型**而不是值；不能用来在运行时判断 `Dyn`。
 
-## 向上转换：`upcast(value, Dyn(...))`
+## 向上转换：`upcast(p, Dyn(...))`
 
-`upcast` 把同一个载荷放到 trait 更少的 `Dyn` 后面：
+`upcast` 把同一个载荷放到 trait 更少的 `Dyn` 后面，并保持指针的种类：
 
-```yo
-(both : Dyn(Speak, Run)) = dyn(Dog());
-(s : Dyn(Speak)) = upcast(both, Dyn(Speak)); // Dyn(Speak)
-(e : AnyError) = dyn(ParseError.Bad);
-(t : Dyn(ToString)) = upcast(e, Dyn(ToString)); // AnyError 是 Dyn(Error, Clone)；Error 要求 ToString
+```yo ignore
+c := Cat(n : i32(1));
+speak_via(upcast(dyn(&c), Dyn(Speak))); // &Dyn(Speak, Run) -> &Dyn(Speak)
+(b : Box(Dyn(Speak, Run))) = dyn(Box.new(Dog()));
+(s : Box(Dyn(Speak))) = upcast(b, Dyn(Speak)); // the box moves into the result
 ```
 
-它在编译期检查，因此返回 `Dyn` 而不是 `Option`：目标要求的每个 trait 都必须是源携带的（包括展开后的父 trait），目标排除的每个 trait（`!Send`）都必须是源也排除的。从 `Dyn(Speak)` 做 `upcast(one, Dyn(Speak, Run))` 会报 E0602。对已经是 `Dyn` 的值调用 `dyn(d)` 是一个错误，并会提示使用 `upcast`：载荷的类型已被擦除，没有东西可以用来构造新的 vtable。
+目标写的是 `Dyn`，而不是指针。它在编译期检查，因此返回指针而不是 `Option`：目标要求的每个 trait 都必须是源携带的（包括展开后的父 trait），目标排除的每个 trait（`!Send`）都必须是源也排除的。从 `Dyn(Speak)` 做 `upcast(one, Dyn(Speak, Run))` 会报 E0602。
 
-**实现方式。** 具体类型在 upcast 处已被擦除，但在构造源值的 `dyn(...)` 处并没有，而且编译器能看到整个程序。对源 `Dyn(Src)` 的每个 `upcast(_, Dyn(Tgt))`，每个 `Dyn(Src)` vtable 都多带一个指针 `__yo_up_<Tgt>`，指向同一具体类型的 `Dyn(Tgt)` vtable（由编译器为它生成）。于是 upcast 只是一次读取加一次 retain：
+**实现方式。** 具体类型在 upcast 处已被擦除，但在构造源值的 `dyn(...)` 处并没有，而且编译器能看到整个程序。对源 `Dyn(Src)` 的每个 `upcast(_, Dyn(Tgt))`，每个 `Dyn(Src)` 虚表都多带一个指针 `__yo_up_<Tgt>`，指向同一具体类型的 `Dyn(Tgt)` 虚表。upcast 替换虚表那个字：
 
 ```c
-(Tgt){ .data = __yo_dyn_retain(d.data, d.vtable), .vtable = d.vtable->__yo_up_Tgt }
+(Tgt){ .data = d.data, .vtable = d.vtable->__yo_up_Tgt }
 ```
 
-Rust 也是这样实现 `dyn Sub -> dyn Super` 的。载荷是共享的而不是复制的：结果是一个拥有所有权的 `Dyn`，它通过源 vtable 的 RC 槽位 retain 载荷，对它做 `downcast` 能找回原来的具体类型。不含 `upcast` 的程序生成的代码与以前完全相同。
+Rust 也是这样实现 `dyn Sub -> dyn Super` 的，对结果做 `downcast` 仍能找回原来的具体类型。不含 `upcast` 的程序不会生成任何额外的指针。
 
-## 所有权：`Dyn` 独占其载荷
+## 所有权
 
-`Dyn` 独自拥有它的载荷（`plans/VALUES_BY_DEFAULT.md` 决策 7）。`Dyn(Trait, Clone)` 是显式复制类型：`d.clone()` 得到一份独立的副本。其他 `Dyn` 都是仅移动类型。按值持有 `Dyn` 的值也是如此，例如 `Option(Dyn(Trait))`、元组，或含 `Dyn` 字段的结构体与闭包。共享同一份载荷要写 `Rc(Dyn(Trait))`，跨线程则写 `Arc(Dyn(Trait, Send, Sync))`。
+`Dyn` 自身没有所有权，适用的是它的指针的所有权（决策 7，经决策 49 修订）：
+
+- **`Box(Dyn(T))`** 独占其载荷。除非 trait 列表含有 `Clone`，否则它是仅移动的；含 `Clone` 时，`b.clone()` 会在放置源值的分配器中生成一份独立的载荷（决策 12）。
+- **`Rc(Dyn(T))` 和 `Arc(Dyn(T, Send, Sync))`** 共享同一份载荷；`Rc.clone(h)` 递增计数，通过句柄载荷是只读的（决策 46）。
+- **`&Dyn(T)` 和 `&mut Dyn(T)`** 借用，遵循决策 43 的引用规则。
 
 ```yo
 { println } :: import("std/fmt");
 Speak :: trait(speak : (fn(self : &Self) -> i32));
 Cat :: struct(n : i32);
 derive(Cat, Clone);
-impl(Cat, Speak(speak : (self -> self.n)));
+impl(Cat, Speak(speak : ((self : &Self) -> self.n)));
 main :: (fn() -> unit)({
-  (d : Dyn(Speak, Clone)) = dyn(Cat(n : i32(3)));
-  e := d.clone(); // 独立的载荷：d 与 e 不共享任何东西
-  println(d.speak() + e.speak());
-  f := d; // d 的最后一次使用：移动
-  println(f.speak());
+  (d : Box(Dyn(Speak, Clone))) = dyn(Box.new(Cat(n : i32(3))));
+  e := d.clone(); // an independent payload: d and e share nothing
+  both := (d.speak() + e.speak());
+  println(&both);
+  f := d; // the last use of d: a move
+  one := f.speak();
+  println(&one);
 });
 export(main);
 ```
 
-特征列表中的 `Clone` 不会给 `Dyn` 增加自己的方法槽位，因为它的 `clone` 返回被擦除的 `Self`。它改为把实现对应的 `__yo_dyn_clone_<impl>` 填入虚表前缀的 `__yo_clone` 槽位。该函数调用载荷自己的 `clone`，并把结果放进一个新的盒子。新盒子以及载荷的 `clone` 分配的一切，都落在放置源值的分配器中（决策 12）。`d.clone()` 降级为
+trait 列表中的 `Clone` 不会给 `Dyn` 增加自己的方法槽位，因为它的 `clone` 返回被擦除的 `Self`；它填的是 `clone_into` 槽位。因此，同时含有 `Clone` 和另一个声明了可调用 `clone` 方法的 trait 的 `Dyn` 会报 E0616，与其他方法名冲突相同。
 
-```c
-(Dyn){ .data = __yo_dyn_clone(d.data, d.vtable), .vtable = d.vtable }
-```
-
-由于 `Clone` 占用了名为 `clone` 的槽位，同时含有 `Clone` 和另一个声明了可调用 `clone` 方法的特征的 `Dyn` 会报 E0616，与其他方法名冲突相同。
-
-**源值之后仍被使用的复制是 E0901。** 复制 `Dyn` 会移动它，因此之后再使用源值就是使用已移动的值：
+**源值之后仍被使用的复制是 E0901。** 复制 `Box(Dyn(T))` 会移动它，因此之后再使用源值就是使用已移动的值：
 
 ```yo ignore
-(d : Dyn(Speak)) = dyn(Cat(n : i32(3)));
-e := d; // 值在此处被移动
+(d : Box(Dyn(Speak))) = dyn(Box.new(Cat(n : i32(3))));
+e := d; // value moved here
 d.speak(); // error[E0901]: use of moved value: `d`
 ```
 
-从无法交出值的存储中复制，会在复制处直接被拒绝。这类存储包括字段或元素、解引用、模块级绑定、`&mut` 借用、`&T` 参数以及闭包的捕获。附注会说明适用的修复：若 `Dyn` 列出了 `Clone`，就用 `d.clone()`；否则建议移动该值、用 `&` 借出、在特征列表中加入 `Clone`，或通过 `Rc(Dyn(...))` 共享。捕获 `Dyn` 的逃逸闭包同样会移动它；传给 `&Impl(Fn(...))` 参数的闭包只借用其捕获。按值 `match` 一个持有 `Dyn` 的局部变量也会移动该变量（决策 26），之后再读取它同样是 E0901；`match(&o, …)` 则只借用。
+从无法交出值的存储中复制，会在复制处直接被拒绝。这类存储包括字段或元素、解引用、模块级绑定、`&mut` 借用、`&T` 参数以及闭包的捕获。附注会说明适用的修复：若 `Dyn` 列出了 `Clone`，就用 `d.clone()`；否则建议移动该值、借出它、在 trait 列表中加入 `Clone`，或通过 `Rc(Dyn(...))` 共享。在不含 `Clone` 的拥有型 `Dyn` 集合上调用复制型访问器（`xs.get(i)`、`xs.last()`）会在调用处报 E0901：请通过下标读取元素（`xs(i).m()`），或把它移出（`xs.pop()`）。
 
-**第 A 代与第 B 代（Generation A / B）。** 第 A 代（B12）让该规则作用于 std 和编译器之外的程序。第 B 代（B13）移除了这一例外：std 和编译器像其他程序一样，用 `.clone()` 复制 `Dyn` 或移动它。该规则只会拒绝程序。它接受的每次复制都是源值的最后一次使用，并保持计数共享的表示，因此生成的 C 代码只在某次复制改成 `.clone()` 的地方变化。让移动成为类型本身的语义（显式复制与仅移动的谓词）是之后的一步。由于 std 也受该规则约束，在不含 `Clone` 的 `Dyn` 集合上调用复制型访问器（`xs.get(i)`、`xs.last()`）会在调用处报 E0901：请通过下标读取元素（`xs(i).m()`），或把它移出（`xs.pop()`）。
+**`Send` 和 `Sync` 来自 trait 列表。** `Box(Dyn(T, Send))` 可以移动到另一个线程。`Arc(Dyn(...))` 需要写明 `Send, Sync` 的列表。`Rc(Dyn(...))` 两者都不是。
 
-**错误按值抛出。** `Exception.throw` 和 `ResumableException(T).throw` 按值接收 `error : AnyError`，所以处理器拥有它捕获的错误，并通过移动来保留它（存储、返回、包进 `Context`）；只读取该错误的函数用 `&e` 借用它。**`AnyError` 在 v0.2.73 仍列出 `Clone`：这是临时方案，并非定论。** 在决策 43 第 3 步之前，`Error.source` 无法返回借用，只能返回原因的克隆，因此 `AnyError` 是 `Dyn(Error, Clone)`，被擦除进它的类型必须实现 `Clone`（`derive(MyError, Clone)`）。在 v0.2.74（第 3 步），`AnyError` 恢复为仅可移动的 `Dyn(Error)`（即 Rust 的 `Box<dyn Error>`），`Error.source` 返回 `Option(&Dyn(...))`，因此不再要求 `Clone`。
-
-## Dyn 的引用计数
-
-由于 `Dyn` 是值类型，我们需要对 `data` 指针进行操作的 dup/drop 函数。
-
-### Dup 函数
-
-复制 `Dyn` 时，递增 `data` 指针的引用计数：
-
-```c
-__yo_dyn_trait_id __yo_dup_dyn_trait_Id(__yo_dyn_trait_id dyn) {
-  if (dyn.data) {
-    __yo_incr_rc(dyn.data);  // data 始终是引用语义类型
-  }
-  return dyn;  // 返回复制的结构体
-}
-```
-
-### Drop 函数
-
-销毁 `Dyn` 时，递减 `data` 指针的引用计数：
-
-```c
-void __yo_drop_dyn_trait_Id(__yo_dyn_trait_id dyn) {
-  if (dyn.data) {
-    __yo_decr_rc(dyn.data);  // data 始终是引用语义类型
-  }
-}
-```
-
-**要点：**
-
-- 无需类型特定的 dup/drop — `data` 始终是引用语义类型指针
-- `data` 引用语义类型的 dispose 函数负责清理（无论是 `Rc` 单元还是普通引用语义类型）
-- `Dyn` 本身从不在堆上分配，因此不需要 dispose 函数
+**错误按值抛出。** `Exception.throw` 和 `ResumableException(T).throw` 按值接收 `error : AnyError`，所以处理器拥有它捕获的错误，并通过移动来保留它（存储、返回、包进 `Context`），只读取该错误的函数则借用它。`AnyError` 在 v0.2.77 中是拥有型的 `Dyn(Error, Clone)`；v0.2.78 把它写作 `Box(Dyn(Error))`。
 
 ## 设计总结
 
-1. **`Dyn` 是值类型**：简单结构体 `{ void* data, vtable* }`，无 ref_header。它独占其载荷：`Dyn(Trait, Clone)` 通过虚表的 `__yo_clone` 槽位用 `.clone()` 复制，其他 `Dyn` 都是仅移动类型
-2. **`data` 必须是引用语义类型**：确保数据始终是引用计数的
-3. **值类型使用 `Rc.new()`**：`dyn(Rc.new(42))` 将值包装在 `Rc(T)` 引用语义类型中
-4. **引用语义类型直接使用**：`dyn(Point(3, 4))` 直接使用 Point 指针
-5. **Rc 的包装函数**：生成的包装函数在调用 impl 方法前先解包 `Rc(T)`
-6. **简单的引用计数**：只有 `data` 是引用计数的，`Dyn` 结构体按值复制
-7. **Dup/Drop 函数**：标准函数，对 `data` 指针执行 dup/drop 操作
+1. **`Dyn` 是非定长的。** 它放在指针后面，由指针拥有它：`Box` 独占，`Rc` 和 `Arc` 共享且只读，`&`/`&mut` 借用。
+2. **每个指向 `Dyn` 的指针都是胖指针**：`{ data, vtable }`，所以借用不需要分配。
+3. **每个具体类型和 trait 列表一个虚表**，由各种指针共用：前缀 `{ type_id, size, align, drop_in_place, clone_into }`，然后是方法槽位。
+4. **`dyn(...)` 是唯一显式写出的非定长化**：`dyn(Box.new(v))`、`dyn(Rc.new(v))`、`dyn(Arc.new(v))`、`dyn(&v)`、`dyn(&mut v)`。
+5. **`downcast` 和 `upcast` 保持指针的种类**：通过引用时，`downcast` 把载荷借用为 `Option(&V)`；`upcast` 替换虚表那个字。
+6. **在 v0.2.77 中**，`Box(Dyn(T))` 是较早的拥有型值，`Rc(Dyn(T))` 需要两次分配，拥有型 `downcast` 写在 `&d.*` 上，而 `dyn(&v)` 引用只能用作调用实参；`yo fix --migrate unsized` 会把较早的写法改写成新写法。

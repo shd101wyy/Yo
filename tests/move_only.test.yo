@@ -1194,7 +1194,7 @@ test("Drop: a destructor that takes a field out runs once on every drop path", {
   };
   assert((g_md_calls == (c0 + i32(4))) && (g_md_inner == (i0 + i32(4))), "Box payload: once");
   {
-    (d : Dyn(_MdShow)) = dyn(_md_make(i32(5)));
+    (d : Box(Dyn(_MdShow))) = dyn(Box.new(_md_make(i32(5))));
     assert(d.n_of() == i32(5), "Dyn object: live");
   };
   assert((g_md_calls == (c0 + i32(5))) && (g_md_inner == (i0 + i32(5))), "Dyn object: once");
@@ -1235,7 +1235,7 @@ impl(
   )
 );
 test("Drop: a trait method named drop or dispose keeps its Dyn vtable slot", {
-  (d : Dyn(_MoStack)) = dyn(_MoStackImpl(top : i32(10)));
+  (d : Box(Dyn(_MoStack))) = dyn(Box.new(_MoStackImpl(top : i32(10))));
   assert(d.drop(i32(3)) == i32(7), "a user trait's drop is called through Dyn");
   assert(d.dispose() == i32(7), "a user trait's dispose is called through Dyn");
 });
@@ -3464,7 +3464,7 @@ _mo_take_then_throw :: (fn(io : Io, exn : Exception) -> Impl(Future(i32, IoExn))
       .None => i32(0),
       .Some(fd) => {
         e.io.await(yield(e.io), e.io);
-        e.exn.throw(dyn(String.from("abort after the move")))
+        e.exn.throw(dyn(Box.new(String.from("abort after the move"))))
       }
     )
   })
@@ -3519,7 +3519,7 @@ _mo_res :: (fn(n : i32) -> Result(_MoFd, i32))(
 );
 _mo_fused_match :: (fn(n : i32, io : Io) -> Impl(Future(i32, IoExn)))(
   io.async(e => {
-    fd := match(_mo_res(n), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(String.from("not positive"))));
+    fd := match(_mo_res(n), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(Box.new(String.from("not positive")))));
     e.io.await(yield(e.io), e.io);
     fd.n
   })
@@ -3544,10 +3544,10 @@ test("move-only: a wrapper's consuming match fused at two awaits of one task", {
 // the task died in is released by the dispose once.
 _mo_fused_exit :: (fn(n : i32, fail : bool, io : Io) -> Impl(Future(i32, IoExn)))(
   io.async(e => {
-    fd := match(_mo_res(n), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(String.from("not positive"))));
+    fd := match(_mo_res(n), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(Box.new(String.from("not positive")))));
     e.io.await(yield(e.io), e.io);
     if(fail, {
-      e.exn.throw(dyn(String.from("inside the site")));
+      e.exn.throw(dyn(Box.new(String.from("inside the site"))));
     });
     fd.n
   })
@@ -3556,7 +3556,7 @@ _mo_fused_once :: (fn(n : i32, fail_in : bool, fail_after : bool, io : Io) -> Im
   io.async(e => {
     a := e.io.await(_mo_fused_exit(n, fail_in, e.io), e);
     if(fail_after, {
-      e.exn.throw(dyn(String.from("after the site")));
+      e.exn.throw(dyn(Box.new(String.from("after the site"))));
     });
     a
   })
@@ -3595,7 +3595,7 @@ test("move-only: a task that dies after a fused site finished does not drop the 
 _mo_make_or_throw :: (fn(fail : bool, io : Io) -> Impl(Future(_MoFd, IoExn)))(
   io.async(e => {
     if(fail, {
-      e.exn.throw(dyn(String.from("boom")));
+      e.exn.throw(dyn(Box.new(String.from("boom"))));
     });
     _MoFd(n : i32(7))
   })

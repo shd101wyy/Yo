@@ -183,15 +183,15 @@ _Area :: trait(area : (fn(self : &Self) -> i32));
 _Sq :: struct(s : i32);
 impl(_Sq, _Area(area : (fn(self : &Self) -> i32)(self.s * self.s)));
 test("S20-S22: dyn of a cell handle dispatches to its payload", {
-  (d : Dyn(_Area)) = dyn(trc(_Sq(s : i32(2))));
+  (d : Box(Dyn(_Area))) = dyn(trc(_Sq(s : i32(2))));
   assert(d.area() == i32(4), "dispatched to _Sq through the handle");
   match(downcast(d, _Sq), .Some(sq) => assert(sq.s == i32(2), "the payload"), .None => assert(false, "a _Sq"));
-  (e : Dyn(_Area, Send)) = dyn(tarc(_Sq(s : i32(3))));
+  (e : Box(Dyn(_Area, Send))) = dyn(tarc(_Sq(s : i32(3))));
   assert(e.area() == i32(9), "an atomic handle in a Send Dyn");
   t := Thread(i32).spawn(io => e.area());
   assert(t.join() == i32(9), "dispatched on another thread");
   comptime_expect_error({
-    (f : Dyn(_Area, Send)) = dyn(trc(_Sq(s : i32(1))));
+    (f : Box(Dyn(_Area, Send))) = dyn(trc(_Sq(s : i32(1))));
     f
   }, "must be atomically reference counted");
 });
@@ -202,12 +202,12 @@ _Tile :: struct(s : i32);
 derive(_Tile, Clone);
 impl(_Tile, _Area(area : (fn(self : &Self) -> i32)(self.s * self.s)));
 test("S20: a Clone Dyn over a cell handle clones into a fresh cell", {
-  (d : Dyn(_Area, Clone)) = dyn(trc(_Tile(s : i32(2))));
-  (e : Dyn(_Area, Clone)) = d.clone();
+  (d : Box(Dyn(_Area, Clone))) = dyn(trc(_Tile(s : i32(2))));
+  (e : Box(Dyn(_Area, Clone))) = d.clone();
   assert(e.area() == i32(4), "the clone dispatches to its own payload");
   assert(d.area() == i32(4), "the source still dispatches");
-  (f : Dyn(_Area, Clone, Send)) = dyn(tarc(_Tile(s : i32(3))));
-  (g : Dyn(_Area, Clone, Send)) = f.clone();
+  (f : Box(Dyn(_Area, Clone, Send))) = dyn(tarc(_Tile(s : i32(3))));
+  (g : Box(Dyn(_Area, Clone, Send))) = f.clone();
   assert(g.area() == i32(9), "an atomic handle's clone");
   assert(f.area() == i32(9), "the atomic source still dispatches");
 });
@@ -226,9 +226,9 @@ test("a list of optional cell handles orders its struct after the handle's typed
 _AE :: atomic(ref(enum(A(n : i32), B)));
 impl(_AE, _Area(area : (fn(self : &Self) -> i32)(match(self, .A(n) => n.*, .B => i32(0)))));
 test("S2: an atomic handle of an atomic ref enum is a box in a Send Dyn, as an Arc of one is", {
-  (d : Dyn(_Area, Send)) = dyn(tarc(_AE.A(n : i32(7))));
+  (d : Box(Dyn(_Area, Send))) = dyn(tarc(_AE.A(n : i32(7))));
   assert(d.area() == i32(7), "dispatched through the atomic handle");
-  (e : Dyn(_Area, Send)) = dyn(Arc.new(_AE.A(n : i32(8))));
+  (e : Box(Dyn(_Area, Send))) = dyn(Box.new(_AE.A(n : i32(8))));
   assert(e.area() == i32(8), "and through the Arc");
 });
 test("D2: a handle auto-dereferences to its payload whatever Target its Deref impl names", {

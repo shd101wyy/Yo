@@ -40,7 +40,7 @@ _Link :: trait(
 );
 _Leaf :: struct(code : i32);
 impl(_Leaf, _Link(code : (fn(self : &Self) -> i32)(self.code)));
-_Wrap :: struct(code : i32, cause : Dyn(_Link));
+_Wrap :: struct(code : i32, cause : Box(Dyn(_Link)));
 impl(
   _Wrap,
   _Link(
@@ -158,7 +158,7 @@ test("ref payload: an arrow method's receiver of an origin-carrying result", {
   c := _Cell(n : i32(8));
   v := match(c.peek(), .Some(r) => r.*, .None => i32(0));
   assert(v == i32(8), "c.peek()");
-  (d : Dyn(_Peek)) = dyn(_Cell(n : i32(9)));
+  (d : Box(Dyn(_Peek))) = dyn(Box.new(_Cell(n : i32(9))));
   w := match(d.peek(), .Some(r) => r.*, .None => i32(0));
   assert(w == i32(9), "d.peek() through the vtable");
 });
@@ -168,14 +168,14 @@ test("ref payload: a variant with a reference and a later operand", {
   assert(v == i32(10), "r points at `c`, k read it");
 });
 test("ref payload: a `&Dyn(Trait)` payload dispatches through its vtable", {
-  (d : Dyn(_Shape)) = dyn(_Sq(s : i32(3)));
+  (d : Box(Dyn(_Shape))) = dyn(Box.new(_Sq(s : i32(3))));
   a := match(_first(&d), .Some(r) => r.area(), .None => i32(0));
   b := match(_first(&d), .Some(r) => _area(r), .None => i32(0));
   assert(a == i32(9), "r.area()");
   assert(b == i32(9), "_area(r)");
 });
 test("ref payload: a borrowing `source` chain walks without cloning", {
-  (e : Dyn(_Link)) = dyn(_Wrap(code : i32(1), cause : dyn(_Wrap(code : i32(2), cause : dyn(_Leaf(code : i32(3)))))));
+  (e : Box(Dyn(_Link))) = dyn(Box.new(_Wrap(code : i32(1), cause : dyn(Box.new(_Wrap(code : i32(2), cause : dyn(Box.new(_Leaf(code : i32(3))))))))));
   assert(_root_code(&e) == i32(3), "the innermost link's code");
   assert(_depth(&e) == i32(2), "two causes below the head");
   r := _root(&e);

@@ -96,7 +96,7 @@ impl(
 );
 impl(_GuardTok, peek : (fn(self : &Self) -> i32)(self.n));
 _guard_tok :: (fn(x : i32) -> _GuardTok)(_GuardTok(n : x));
-_GuardHolder :: struct(mk : Dyn(Fn(x : i32) -> _GuardTok), ms : Dyn(Fn(x : i32) -> String));
+_GuardHolder :: struct(mk : Box(Dyn(Fn(x : i32) -> _GuardTok)), ms : Box(Dyn(Fn(x : i32) -> String)));
 test("a guard over an object it builds", {
   k := i32(3);
   r := match(k, (n && (Rc.new(n).* > i32(1))) => i32(2), _ => i32(3));
@@ -105,7 +105,7 @@ test("a guard over an object it builds", {
   assert(r2 == i32(3), "rc object, guard fails");
 });
 test("a guard's temporary receiver is released once on either path", {
-  h := _GuardHolder(mk : dyn((x : i32) => _GuardTok(n : x)), ms : dyn((x : i32) => `s${x}`));
+  h := _GuardHolder(mk : dyn(Box.new((x : i32) => _GuardTok(n : x))), ms : dyn((x : i32) => `s${x}`));
   before := g_guard_tok_drops;
   (mut(i) : i32) = i32(0);
   (mut(hits) : i32) = i32(0);

@@ -131,7 +131,7 @@ test("Test closure with Dyn", {
   mut(x) := 1;
   (closure : Rc(Dyn(Fn(y : i32) -> i32))) = Rc(Dyn(Fn(y : i32) -> i32)).new(
     dyn(
-      Rc.new(y => {
+      Box.new(y => {
         x = (x + y);
         return(x);
       })
@@ -227,7 +227,7 @@ test("Test anonymous closure value with Dyn that captures Rc object", {
   xc := Rc.clone(&x);
   (closure : Rc(Dyn(Fn(y : i32) -> i32))) = Rc(Dyn(Fn(y : i32) -> i32)).new(
     dyn(
-      Rc.new(y => {
+      Box.new(y => {
         return(_mb_add(&xc, y));
       })
     )
@@ -482,9 +482,9 @@ _cap_rewrap :: (fn(sink(get) : Impl(Fn(x : i32) -> i32)) -> i32)({
   (again : Impl(Fn(x : i32) -> i32)) = ((x : i32) => get(x));
   again(i32(3))
 });
-_CapBox :: struct(f : Dyn(Fn(x : i32) -> i32));
+_CapBox :: struct(f : Box(Dyn(Fn(x : i32) -> i32)));
 _cap_boxed :: (fn(sink(get) : Impl(Fn(x : i32) -> i32)) -> i32)({
-  b := _CapBox(f : dyn(x => get(x)));
+  b := _CapBox(f : dyn(Box.new(x => get(x))));
   b.f(i32(3))
 });
 test("a closure local releases its captures at scope end", {
@@ -830,12 +830,12 @@ test("a closure's clone outlives the original", {
 // `dyn(f)`; bare it is E0618, whose note names `dyn(f)`. Before the rule a
 // named closure passed `check` at all four sites and three emitted invalid C
 // (issues/fixed/a-named-closure-flowing-bare-into-a-dyn-fn-slot-passes-check-and-emits-invalid-c.md).
-_d44_value_hold :: struct(f : Dyn(Fn() -> i32));
-_d44_take :: (fn(d : Dyn(Fn() -> i32)) -> i32)(d());
+_d44_value_hold :: struct(f : Box(Dyn(Fn() -> i32)));
+_d44_take :: (fn(d : Box(Dyn(Fn() -> i32))) -> i32)(d());
 _d44_nine :: (fn() -> i32)(i32(9));
-_d44_ret :: (fn() -> Dyn(Fn() -> i32))({
+_d44_ret :: (fn() -> Box(Dyn(Fn() -> i32)))({
   (g : Impl(Fn() -> i32)) = (() => i32(9));
-  dyn(g)
+  dyn(Box.new(g))
 });
 // Each case has its own closure: a rejected site may still have moved it.
 test("decision 44: a named closure bare in a Dyn(Fn) slot is E0618 naming dyn(f)", {
@@ -844,19 +844,19 @@ test("decision 44: a named closure bare in a Dyn(Fn) slot is E0618 naming dyn(f)
   (f3 : Impl(Fn() -> i32)) = (() => n);
   (f4 : Impl(Fn() -> i32)) = (() => n);
   (f5 : Impl(Fn() -> i32)) = (() => n);
-  comptime_expect_error((d : Dyn(Fn() -> i32)) = f1, "Write `dyn(f1)`");
+  comptime_expect_error((d : Box(Dyn(Fn() -> i32))) = f1, "Write `dyn(f1)`");
   comptime_expect_error(_d44_value_hold(f : f3), "Write `dyn(f3)`");
   comptime_expect_error(_d44_take(f4), "Write `dyn(f4)`");
-  comptime_expect_error(Option(Dyn(Fn() -> i32)).Some(f5), "Write `dyn(f5)`");
+  comptime_expect_error(Option(Box(Dyn(Fn() -> i32))).Some(f5), "Write `dyn(f5)`");
   comptime_expect_error(
-    (fn() -> Dyn(Fn() -> i32))({
+    (fn() -> Box(Dyn(Fn() -> i32)))({
       (g : Impl(Fn() -> i32)) = (() => i32(9));
       g
     }),
     "Write `dyn(g)`"
   );
   comptime_expect_error(
-    (fn(b : bool) -> Dyn(Fn() -> i32))({
+    (fn(b : bool) -> Box(Dyn(Fn() -> i32)))({
       (g : Impl(Fn() -> i32)) = (() => i32(9));
       if(b, return(g));
       dyn(() => i32(1))
@@ -864,7 +864,7 @@ test("decision 44: a named closure bare in a Dyn(Fn) slot is E0618 naming dyn(f)
     "Write `dyn(g)`"
   );
   comptime_expect_error(
-    (fn() -> Impl(Fn() -> Dyn(Fn() -> i32)))(() => {
+    (fn() -> Impl(Fn() -> Box(Dyn(Fn() -> i32))))(() => {
       (g : Impl(Fn() -> i32)) = (() => i32(9));
       g
     }),
@@ -875,15 +875,15 @@ test("decision 44: a reassignment or field write of a bare closure into Dyn(Fn) 
   n := i32(3);
   (f1 : Impl(Fn() -> i32)) = (() => n);
   (f2 : Impl(Fn() -> i32)) = (() => n);
-  (mut(d) : Dyn(Fn() -> i32)) = dyn(() => i32(1));
+  (mut(d) : Box(Dyn(Fn() -> i32))) = dyn(Box.new(() => i32(1)));
   comptime_expect_error(d = f1, "Write `dyn(f1)`");
-  mut(h) := _d44_value_hold(f : dyn(() => i32(1)));
+  mut(h) := _d44_value_hold(f : dyn(Box.new(() => i32(1))));
   comptime_expect_error(h.f = f2, "Write `dyn(f2)`");
   assert((d() + h.f()) == i32(2), "the Dyn slots keep their values");
 });
 test("decision 44: a named fn or a closure literal bare in a Dyn(Fn) slot is E0618", {
   comptime_expect_error(_d44_take(_d44_nine), "Write `dyn(_d44_nine)`");
-  comptime_expect_error((d : Dyn(Fn() -> i32)) = _d44_nine, "Write `dyn(_d44_nine)`");
+  comptime_expect_error((d : Box(Dyn(Fn() -> i32))) = _d44_nine, "Write `dyn(_d44_nine)`");
   comptime_expect_error(_d44_take(() => i32(4)), "is a closure literal");
   comptime_expect_error(_d44_value_hold(f : (() => i32(4))), "is a closure literal");
   comptime_expect_error(_d44_take(() -> i32(4)), "is a function literal");
@@ -893,21 +893,21 @@ test("decision 44: dyn(f) at the binding, field, argument and result compiles an
   (f1 : Impl(Fn() -> i32)) = (() => n);
   (f2 : Impl(Fn() -> i32)) = (() => n);
   (f3 : Impl(Fn() -> i32)) = (() => n);
-  (d : Dyn(Fn() -> i32)) = dyn(f1);
-  h := _d44_value_hold(f : dyn(f2));
-  r := _d44_take(dyn(f3));
+  (d : Box(Dyn(Fn() -> i32))) = dyn(Box.new(f1));
+  h := _d44_value_hold(f : dyn(Box.new(f2)));
+  r := _d44_take(dyn(Box.new(f3)));
   q := _d44_ret();
   (s : i32) = (d() + h.f() + r + q());
   assert(s == i32(18), `sum ${s}`);
 });
 // A named `fn` takes the same spelling at every site, and `dyn(f)` boxes its
 // code pointer (issues/fixed/dyn-of-a-named-function-value-emits-invalid-c.md).
-_d44_ret_named :: (fn() -> Dyn(Fn() -> i32))(dyn(_d44_nine));
+_d44_ret_named :: (fn() -> Box(Dyn(Fn() -> i32)))(dyn(Box.new(_d44_nine)));
 test("decision 44: dyn(named_fn) at the binding, field, argument and result compiles and runs", {
-  (d : Dyn(Fn() -> i32)) = dyn(_d44_nine);
-  h := _d44_value_hold(f : dyn(_d44_nine));
-  v := _d44_value_hold(f : dyn(_d44_nine));
-  r := _d44_take(dyn(_d44_nine));
+  (d : Box(Dyn(Fn() -> i32))) = dyn(Box.new(_d44_nine));
+  h := _d44_value_hold(f : dyn(Box.new(_d44_nine)));
+  v := _d44_value_hold(f : dyn(Box.new(_d44_nine)));
+  r := _d44_take(dyn(Box.new(_d44_nine)));
   q := _d44_ret_named();
   (s : i32) = (d() + h.f() + v.f() + r + q());
   assert(s == i32(45), `sum ${s}`);

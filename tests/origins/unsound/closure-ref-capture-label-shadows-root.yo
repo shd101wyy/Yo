@@ -5,11 +5,11 @@
 { String } :: import("std/string");
 { println } :: import("std/fmt");
 main :: (fn() -> unit)({
-  (mut(d) : Dyn(Fn() -> usize)) = dyn({}() => usize(0));
+  (mut(d) : Box(Dyn(Fn() -> usize))) = dyn(Box.new({}() => usize(0)));
   {
     s := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
     y := &s;
-    d = dyn({ s : y }() => s.clone().len());
+    d = dyn(Box.new({ s : y }() => s.clone().len()));
   };
   println(`OUT: ${d().to_string()}`);
 });
