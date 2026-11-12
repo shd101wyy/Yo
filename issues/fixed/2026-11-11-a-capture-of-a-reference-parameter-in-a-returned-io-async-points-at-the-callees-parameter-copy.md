@@ -9,7 +9,7 @@ spelled `s.*`").
 Found 2026-11-11 by the ownership / borrowing / origin audit
 (`plans/backlog/OWNERSHIP_BORROWING_ORIGINS_AUDIT.md` §3 A49). Confirmed on develop `64f33c710`. Fix lane:
 `fix/capture-param-origin`. This doc is the CODEGEN half and the future-specific verdict; the checker half shares
-its root cause with `issues/2026-11-11-a-capture-of-a-reference-parameter-carries-no-origin-so-the-closure-escapes-its-argument.md`
+its root cause with `issues/fixed/2026-11-11-a-capture-of-a-reference-parameter-carries-no-origin-so-the-closure-escapes-its-argument.md`
 (A9), with one difference stated under Expected.
 
 ## Reproducers
@@ -96,3 +96,14 @@ for `{ s : &s.* }`, and the caller's R-CALL freezes `x`.
 With the fix: the two positives (the main repro and `…-self.yo`), the negative `…-caller-write.yo` and the control
 `…-pos.yo` move to `tests/origins/unsound/`; `async-captures-ref-param` in `tests/origins/corpus.tsv` gains a run
 (ASan) check; a `{ s }` case goes into `tests/async_await.test.yo`.
+
+## Fix
+
+Fixed by #1905 (`fix/capture-param-origin`, 2026-11-12) together with the checker half
+(`issues/fixed/2026-11-11-a-capture-of-a-reference-parameter-carries-no-origin-so-the-closure-escapes-its-argument.md`).
+`_evaluate_capture_list` now resolves a capture entry's origin borrows in the enclosing scope before the capture frame
+binds the labels, so `{ s }` registers the parameter borrow. With the borrow registered, the async lowering installs
+the lent-parameter copy (A2) and the future no longer points at the callee's dead frame: `b07` and `corp_acrp` run
+clean under ASan (develop before the fix: stack-use-after-scope on both). Per VERDICTS-58 the returned future is
+accepted, a caller write while it lives is E0911, and returning it over a local is E0912. The G-B row
+`async-captures-ref-param` is in `tests/origins/unsound/`.

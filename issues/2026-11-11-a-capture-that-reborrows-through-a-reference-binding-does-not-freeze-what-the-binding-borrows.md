@@ -9,7 +9,7 @@ still accepted on develop after #1891 (capture PR1).
 Found 2026-11-11 by the ownership / borrowing / origin audit
 (`plans/backlog/OWNERSHIP_BORROWING_ORIGINS_AUDIT.md` §3 A20). Confirmed on develop `64f33c710`. Lane: capture PR2
 (scheduled v0.2.78, branch `capture-lane`). Related:
-`issues/2026-11-11-a-capture-of-a-reference-parameter-carries-no-origin-so-the-closure-escapes-its-argument.md` (the
+`issues/fixed/2026-11-11-a-capture-of-a-reference-parameter-carries-no-origin-so-the-closure-escapes-its-argument.md` (the
 same missing origin for a `{ p }` capture of a reference PARAMETER, A9) and
 `issues/2026-11-06-a-user-closure-cannot-capture-a-reference-binding.md` (the spelling this entry form came from).
 

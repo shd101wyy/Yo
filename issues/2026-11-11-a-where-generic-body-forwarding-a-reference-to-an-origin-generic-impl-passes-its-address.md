@@ -79,7 +79,7 @@ generic body, the impl method is specialized over `p` (its `FuncVal` comes from 
 argument's recorded type or the parameter slot read for the auto-borrow decision is not the one the emitted
 signature uses. Not located further.
 
-This is not the R3 family (`issues/2026-11-06-a-generic-result-at-t-reference-is-lowered-as-a-projection.md`):
+This is not the R3 family (`issues/fixed/2026-11-06-a-generic-result-at-t-reference-is-lowered-as-a-projection.md`):
 no type parameter is bound to a reference here (`T := Slot(x)`), the result is `unit`, and `v`'s type is a spelled
 `&Rc(X)` in both signatures.
 
