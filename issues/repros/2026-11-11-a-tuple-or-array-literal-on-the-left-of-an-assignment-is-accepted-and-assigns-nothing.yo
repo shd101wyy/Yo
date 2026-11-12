@@ -1,0 +1,11 @@
+// expect: reject ("Cannot assign to …": a tuple literal is not a place)
+// `(a, b) = (b, a)` stores into a temporary tuple built from `a` and `b`;
+// prints a=1 b=2, not a swap.
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(a) := i32(1);
+  mut(b) := i32(2);
+  (a, b) = (b, a);
+  println(`OUT a=${a.to_string()} b=${b.to_string()}`);
+});
+export(main);

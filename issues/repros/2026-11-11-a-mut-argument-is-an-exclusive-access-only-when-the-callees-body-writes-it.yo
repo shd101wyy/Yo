@@ -1,0 +1,20 @@
+// expect: E0911
+// `r := xs.index(0)` live across a write walk `for(&mut xs, x => …)` that overwrites each element:
+// the loop's `(&mut xs).into_iter()` lend is judged a read (into_iter writes nothing), so the
+// element r points to is replaced under it. Nested list so the freed inner buffer is an ASan report.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(inner) := ArrayList(String).new();
+  inner.push(String.from("hello-world-hello-world-hello-world"));
+  mut(xs) := ArrayList(ArrayList(String)).new();
+  xs.push(inner);
+  r := xs.index(usize(0)).index(usize(0));
+  for(&mut xs, x => {
+    x.* = ArrayList(String).new();
+  });
+  println(`OUT: ${r.*}`);
+  ()
+});
+export(main);

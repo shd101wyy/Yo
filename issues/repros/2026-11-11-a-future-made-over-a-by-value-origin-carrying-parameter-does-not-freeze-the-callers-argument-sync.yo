@@ -1,0 +1,17 @@
+// expect: E0911
+// Control (rejected today, E0911): the non-async twin. A generic fn returns its by-value holder
+// parameter; the result's origin `p` maps to `x` and `g` freezes it.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+H :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(String, p)));
+pass :: (fn(generic(p : Origin), h : H(p)) -> H(p))(h);
+sink :: (fn(v : String) -> unit)({
+  println(`sink ${v.len().to_string()}`);
+});
+main :: (fn() -> unit)({
+  x := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+  g := pass(H(x)(r : &x));
+  sink(x);
+  println(`OUT: ${g.r.*}`);
+});
+export(main);

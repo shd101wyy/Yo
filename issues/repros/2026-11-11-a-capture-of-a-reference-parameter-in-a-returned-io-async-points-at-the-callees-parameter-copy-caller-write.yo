@@ -1,0 +1,17 @@
+// expect: E0911
+// The checker half: the caller reassigns the argument's root while the future that forwards
+// its `&` parameter is live. Accepted today; O8 forwarding freezes `x` (E0911 at the write).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+mk :: (fn(s : &String, io : Io) -> Impl(Future(unit, Io)))(
+  io.async({ s }(io : Io) => {
+    println(`OUT: ${s.*.len().to_string()}`);
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  mut(x) := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+  fut := mk(&x, io);
+  x = String.from("b");
+  io.await(fut, io);
+});
+export(main);

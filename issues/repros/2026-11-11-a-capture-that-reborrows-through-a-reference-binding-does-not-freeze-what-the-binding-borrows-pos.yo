@@ -1,0 +1,18 @@
+// expect: accept
+// Positive control: the closure that reborrows `s.*` is called and dies inside the arm; `b` is written after it.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(b) := Box.new(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+  match(
+    &b,
+    Box(s) => {
+      (f : Impl(Fn() -> usize)) = ({ y : &s.* }() => y.len());
+      println(`OUT: ${f().to_string()}`);
+    }
+  );
+  b = Box.new(String.from("q"));
+  println(`OUT: ${b.*}`);
+  ()
+});
+export(main);

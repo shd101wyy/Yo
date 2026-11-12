@@ -1,0 +1,17 @@
+// expect: E0911 (decision 18 rule 3: reassigning `d` runs the old value's `Drop` inside `y`'s live range)
+{ println } :: import("std/fmt");
+mut(G) := i64(1);
+_bump :: (fn() -> unit)({
+  G = (G + i64(100));
+});
+D :: struct(n : i64);
+impl(D, Drop(drop : (fn(self : &mut Self) -> unit)(_bump())));
+main :: (fn() -> unit)({
+  y := &G;
+  w := y.*;
+  mut(d) := D(n : i64(1));
+  d = D(n : i64(2));
+  v := y.*;
+  println(`OUT: before=${w.to_string()} after=${v.to_string()} (expect equal)`);
+});
+export(main);

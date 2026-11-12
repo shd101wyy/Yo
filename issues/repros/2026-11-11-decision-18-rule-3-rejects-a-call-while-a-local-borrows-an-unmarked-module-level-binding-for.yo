@@ -1,0 +1,10 @@
+// expect: accept (decision 47; today E0911 at the call in the body: the loop cursor is exempt, its element binding is not)
+// A borrowed walk over an unmarked module-level list whose body makes a call.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+H := ArrayList(String).from([`ab`, `cd`]);
+main :: (fn() -> unit)({
+  for(&H, x => println(`OUT: ${x.*}`));
+});
+export(main);

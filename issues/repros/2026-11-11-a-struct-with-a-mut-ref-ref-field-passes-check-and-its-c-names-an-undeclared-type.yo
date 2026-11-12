@@ -1,0 +1,13 @@
+// expect: accept
+// A holder of a `&mut &T` (P3's type in a field) passes `yo check`; the emitted C declares the field with
+// a type name it never defines (`unknown type name '__yo_t_…'`).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+M :: struct(rp : &mut&String);
+main :: (fn() -> unit)({
+  a := String.from("a");
+  mut(r) := &a;
+  m := M(rp : &mut r);
+  println(`OUT: ${m.rp.*.*.len().to_string()}`);
+});
+export(main);

@@ -1,0 +1,10 @@
+// expect: E0405 (MaybeUninit's payload field private to the prelude; today accepted)
+// A file with no pragma reads the never-written `value` of `MaybeUninit(Dyn(Fn() -> i64)).new()`:
+// the zero-filled `Dyn` is called through a null vtable (SEGV).
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  m := MaybeUninit(Dyn(Fn() -> i64)).new();
+  v := (m.value)();
+  println(`OUT: ${v.to_string()}`);
+});
+export(main);

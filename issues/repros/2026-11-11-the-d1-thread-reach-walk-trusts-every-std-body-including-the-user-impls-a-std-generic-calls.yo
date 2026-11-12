@@ -1,0 +1,38 @@
+// expect: reject (rule D1: `ArrayList.contains` calls `K`'s `Eq`, which writes `mut(G)`)
+// The direct `a == b` form is rejected; reached through a std generic body it is accepted and races.
+{ Thread } :: import("std/thread");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+(mut(G) : i64) = i64(0);
+K :: struct(n : i64);
+derive(K, Copy, Clone);
+impl(
+  K,
+  Eq(K)(
+    (==) : (fn(lhs : &Self, rhs : &Self) -> bool)({
+      G = (G + i64(1));
+      lhs.n == rhs.n
+    })
+  )
+);
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(K).new();
+  xs.push(K(n : i64(1)));
+  t := Thread(unit).spawn({ xs }(io : Io) => {
+    mut(i) := i64(0);
+    while(i < i64(1000000), {
+      _ := xs.contains(&K(n : i64(2)));
+      i = (i + i64(1));
+    });
+    ()
+  });
+  mut(j) := i64(0);
+  while(j < i64(1000000), {
+    G = (G + i64(1));
+    j = (j + i64(1));
+  });
+  t.join();
+  v := G;
+  println(`OUT: ${v.to_string()} (expect 2000000)`);
+});
+export(main);

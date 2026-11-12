@@ -1,0 +1,24 @@
+// expect: E0911
+// Minimal form: `h = .Some(&x)` / `h = .Some(&y)` in the two arms, then `x` is overwritten
+// while `h` still points at it. Prints "OUT: q" (the new value through a stale borrow).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+flag :: (fn() -> bool)(String.from("a").len() == usize(1));
+main :: (fn() -> unit)({
+  mut(x) := L();
+  mut(y) := L();
+  mut(h) := Option(&String).None;
+  cond(
+    flag() => {
+      h = .Some(&x);
+    },
+    true => {
+      h = .Some(&y);
+    }
+  );
+  x = String.from("q");
+  match(h, .Some(r) => println(`OUT: ${r.*}`), .None => ());
+  ()
+});
+export(main);

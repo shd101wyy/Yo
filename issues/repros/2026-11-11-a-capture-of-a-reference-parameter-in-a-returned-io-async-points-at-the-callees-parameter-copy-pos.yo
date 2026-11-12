@@ -1,0 +1,17 @@
+// expect: accept
+// Positive control: the borrow-entry spelling `{ s : &s.* }` of the same future. Codegen copies
+// the lent parameter into the future (`__yo_lent_s`) and the program runs clean (OUT: 72).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+mk :: (fn(s : &String, io : Io) -> Impl(Future(usize, Io)))(
+  io.async({ s : &s.* }(io : Io) => {
+    io.await(yield(io), io);
+    s.*.len()
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  x := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+  println(`OUT: ${io.await(mk(&x, io), io).to_string()}`);
+});
+export(main);

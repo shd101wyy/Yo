@@ -1,0 +1,45 @@
+// expect: E0911
+// The same with a user cursor: `(&b).into_iter()` builds `BagCursor(p)` through `impl(&(Bag, p), IntoIterator)`,
+// and the item of `next()` on that temporary carries no loan of `b`. `cur(&b).next()` (a free fn) is E0911.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+Bag :: struct(items : ArrayList(String));
+BagCursor :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(bag : &(Bag, p), i : usize));
+impl(
+  generic(p : Origin),
+  BagCursor(p),
+  Iterator(
+    Item : &(String, p),
+    next : (fn(self : &mut Self) -> Option(&(String, p)))(
+      cond(
+        (self.i >= self.bag.items.len()) => .None,
+        true => {
+          at := self.i;
+          self.i = (at + usize(1));
+          .Some(self.bag.items.index(at))
+        }
+      )
+    )
+  )
+);
+impl(
+  generic(p : Origin),
+  &(Bag, p),
+  IntoIterator(
+    Item : &(String, p),
+    IntoIter : BagCursor(p),
+    into_iter : (fn(self : Self) -> BagCursor(p))(BagCursor(p)(bag : self, i : usize(0)))
+  )
+);
+main :: (fn() -> unit)({
+  mut(b) := Bag(items : ArrayList(String).new());
+  b.items.push(String.from("hello-world-hello-world-hello-world"));
+  a := (&b).into_iter().next();
+  mut(i) := usize(0);
+  while(i < usize(1000), i = (i + usize(1)), {
+    b.items.push(String.from("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"));
+  });
+  match(a, .Some(s) => println(`OUT: ${s.*}`), .None => ());
+});
+export(main);

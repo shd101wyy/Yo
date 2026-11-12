@@ -1,0 +1,14 @@
+// expect: accept
+// The same self-assignment through a block: the right side's move is recorded
+// before the store, so no old value is dropped.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(x) := String.from("payload-0123456789abcdefghijklmnop");
+  x = {
+    y := x;
+    y
+  };
+  println(`OUT ${x}`);
+});
+export(main);

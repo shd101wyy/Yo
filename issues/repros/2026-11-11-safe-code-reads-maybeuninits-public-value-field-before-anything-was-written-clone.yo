@@ -1,0 +1,9 @@
+// expect: reject (no `Clone` for `MaybeUninit(T)`, as in Rust only for `Copy` payloads; today accepted)
+// The derived `Clone` reads the never-written payload: it clones a zeroed `Box`.
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  m := MaybeUninit(Box(i64)).new();
+  c := m.clone();
+  println("OUT: cloned");
+});
+export(main);

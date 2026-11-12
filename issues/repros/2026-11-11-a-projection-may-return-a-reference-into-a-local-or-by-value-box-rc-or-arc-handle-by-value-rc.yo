@@ -1,0 +1,11 @@
+// expect: E0912
+// A projection returns `&h.s` (auto-deref: `&h.*.s`) of a BY-VALUE `Rc` parameter: the callee drops its
+// handle, the last one, when it returns, so the result points into a freed payload.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+get :: (fn(h : Rc(X)) -> &String)(&h.s);
+main :: (fn() -> unit)({
+  println(`OUT: ${get(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))))}`);
+});
+export(main);

@@ -1,0 +1,15 @@
+// expect: accept
+// `(f : Impl(Future(unit, Io))) = io.async({ &x } ...)` is E0909 "cannot be bound to a local";
+// the same binding without the type annotation is accepted and freezes `x` until `f`'s last use.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+main :: (fn(io : Io) -> unit)({
+  x := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+  (f : Impl(Future(unit, Io))) = io.async({ &x }(io : Io) => {
+    io.await(yield(io), io);
+    println(`OUT: ${x.*}`);
+  });
+  io.await(f, io);
+});
+export(main);

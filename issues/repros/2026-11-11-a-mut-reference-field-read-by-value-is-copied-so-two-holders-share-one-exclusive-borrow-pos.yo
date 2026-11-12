@@ -1,0 +1,17 @@
+// expect: accept
+// Positive control: the holder is moved whole, and only the new owner of the `&mut` writes and reads.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+M :: struct(r : &mut Box(X), n : i32);
+H :: struct(p : &X);
+big :: (fn() -> Box(X))(Box.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+main :: (fn() -> unit)({
+  mut(x) := big();
+  m := M(r : &mut x, n : i32(0));
+  m2 := m;
+  m2.r.* = Box.new(X(s : String.from("bb")));
+  h := H(p : &m2.r.*.*);
+  println(`OUT: ${h.p.*.s.len().to_string()}`);
+});
+export(main);

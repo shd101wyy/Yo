@@ -1,0 +1,16 @@
+// expect: E0909
+// A by-value capture `{ p }` of a `&T` PARAMETER, boxed into `Dyn(Fn)` and returned: the
+// closure outlives the argument's root. New with #1891; v0.2.76 and develop before it answer E0926.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+S :: struct(a : String);
+mkd :: (fn(p : &Rc(S)) -> Dyn(Fn() -> usize))(dyn({ p }() => p.*.*.a.len()));
+main :: (fn() -> unit)({
+  (mut(d) : Dyn(Fn() -> usize)) = dyn({}() => usize(0));
+  {
+    h := Rc.new(S(a : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+    d = mkd(&h);
+  };
+  println(`OUT: ${d().to_string()}`);
+});
+export(main);

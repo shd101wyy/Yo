@@ -1,0 +1,15 @@
+// expect: accept
+// `&i32` is `Copy` and the prelude makes `Option(T)` `Copy` where `T <: Copy`, so `slot` copies;
+// today the second copy is E0901 "use of moved value".
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  b := i32(4);
+  slot := Option(&i32).Some(&b);
+  a := slot;
+  c := slot;
+  match(a, .Some(r) => println(`OUT: ${r.*.to_string()}`), .None => ());
+  match(c, .Some(r) => println(`OUT: ${r.*.to_string()}`), .None => ());
+  ()
+});
+export(main);

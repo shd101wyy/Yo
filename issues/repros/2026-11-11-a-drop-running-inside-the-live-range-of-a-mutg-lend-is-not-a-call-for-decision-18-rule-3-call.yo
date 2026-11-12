@@ -1,0 +1,15 @@
+// expect: E0911 (decision 18 rule 3; rejected today: the control for the main repro)
+// The same write spelled as a call inside the live range.
+{ println } :: import("std/fmt");
+mut(G) := i64(1);
+_bump :: (fn() -> unit)({
+  G = (G + i64(100));
+});
+main :: (fn() -> unit)({
+  y := &G;
+  w := y.*;
+  _bump();
+  v := y.*;
+  println(`OUT: before=${w.to_string()} after=${v.to_string()} (expect equal)`);
+});
+export(main);

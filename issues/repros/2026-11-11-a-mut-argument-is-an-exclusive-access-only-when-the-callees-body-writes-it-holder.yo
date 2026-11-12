@@ -1,0 +1,22 @@
+// expect: E0911
+// A free fn that only builds a holder of its `&mut` parameter (writes nothing) is called while `r`, a `&` loan into
+// the same bag, is live: the `&mut b` argument is judged a read (callee mutation summary: no write), and the caller
+// clears through the returned holder.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+Bag :: struct(items : ArrayList(ArrayList(String)));
+Handle :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(bag : &mut(Bag, p)));
+handle :: (fn(b : &mut Bag) -> Handle(b))(Handle(b)(bag : b));
+main :: (fn() -> unit)({
+  mut(inner) := ArrayList(String).new();
+  inner.push(String.from("hello-world-hello-world-hello-world"));
+  mut(b) := Bag(items : ArrayList(ArrayList(String)).new());
+  b.items.push(inner);
+  r := b.items.index(usize(0)).index(usize(0));
+  h := handle(&mut b);
+  h.bag.items.clear();
+  println(`OUT: ${r.*}`);
+  ()
+});
+export(main);

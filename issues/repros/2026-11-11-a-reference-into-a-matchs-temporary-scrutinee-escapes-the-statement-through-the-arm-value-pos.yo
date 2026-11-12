@@ -1,0 +1,13 @@
+// expect: accept
+// Positive control: the scrutinee is bound first, so `p` points into `t`, which outlives every read of `p`.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+mkb :: (fn() -> Option(Box(String)))(.Some(Box.new(L())));
+main :: (fn() -> unit)({
+  t := mkb();
+  p := match(&t, .Some(Box(s)) => Option(&String).Some(s), .None => Option(&String).None);
+  match(p, .Some(s) => println(`OUT: ${s.*}`), .None => ());
+  ()
+});
+export(main);

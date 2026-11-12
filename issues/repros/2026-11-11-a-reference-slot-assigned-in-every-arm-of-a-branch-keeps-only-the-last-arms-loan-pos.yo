@@ -1,0 +1,23 @@
+// expect: accept
+// Positive control: `x` is written after `h`'s last use.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+flag :: (fn() -> bool)(String.from("a").len() == usize(1));
+main :: (fn() -> unit)({
+  mut(x) := Box.new(L());
+  mut(y) := Box.new(L());
+  mut(h) := Option(&String).None;
+  cond(
+    flag() => {
+      h = match(&x, Box(s) => Option(&String).Some(s));
+    },
+    true => {
+      h = match(&y, Box(s) => Option(&String).Some(s));
+    }
+  );
+  match(h, .Some(r) => println(`OUT: ${r.*}`), .None => ());
+  x = Box.new(String.from("q"));
+  ()
+});
+export(main);

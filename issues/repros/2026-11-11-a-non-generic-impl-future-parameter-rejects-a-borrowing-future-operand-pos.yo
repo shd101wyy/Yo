@@ -1,0 +1,24 @@
+// expect: accept
+// Positive control (accepted today): the generic combinator over the same operand.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+mk :: (fn(s : &String, io : Io) -> Impl(Future(i32, Io)))(
+  io.async({ s : &s.* }(io : Io) => {
+    io.await(yield(io), io);
+    println(`OUT: ${s.*}`);
+    i32(1)
+  })
+);
+wrap :: (fn(generic(T : Type), f : Impl(Future(T, Io)), io : Io) -> Impl(Future(T, Io)))(
+  io.async({ f }(io : Io) => {
+    io.await(yield(io), io);
+    io.await(f, io)
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  x := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+  t := wrap(mk(&x, io), io);
+  println(`OUT: ${io.await(t, io).to_string()}`);
+});
+export(main);

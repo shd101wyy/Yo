@@ -1,0 +1,20 @@
+// expect: accept
+// The `{ self }` form: a `self : &Self` method returns an `io.async` capturing `self`; the caller
+// binds the future and awaits it with nothing written in between (stack-use-after-scope).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+W :: struct(s : String);
+impl(
+  W,
+  show : (fn(self : &Self, io : Io) -> Impl(Future(unit, Io)))(
+    io.async({ self }(io : Io) => {
+      println(`OUT: ${self.*.s.len().to_string()}`);
+    })
+  )
+);
+main :: (fn(io : Io) -> unit)({
+  w := W(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+  fut := w.show(io);
+  io.await(fut, io);
+});
+export(main);

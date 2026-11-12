@@ -1,0 +1,12 @@
+// expect: E0901
+// The guard moves `a` and fails; the next arm reads the freed `a`
+// (heap-use-after-free), and the scope end drops it again.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+take_empty :: (fn(s : String) -> bool)(s.len() == usize(0));
+main :: (fn() -> unit)({
+  a := String.from("payload-0123456789abcdefghijklmnop");
+  r := match(i32(3), (n && (take_empty(a))) => usize(0), _ => a.len());
+  println(`OUT r=${r.to_string()} a=${a}`);
+});
+export(main);

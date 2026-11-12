@@ -1,0 +1,28 @@
+// expect: E0911
+// `y := &G` over a `mut(G)` module-level binding: the arm binding `xs` escapes decision 18 rule 3,
+// so the arm may call `_reset()` (which writes `G`) while `e` points into `G`: heap-use-after-free.
+{ ArrayList } :: import("std/collections/array_list");
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+mut(G) := Option(ArrayList(String)).None;
+_reset :: (fn() -> unit)({
+  G = .None;
+});
+_first :: (fn(xs : &ArrayList(String)) -> &String)(&xs(usize(0)));
+main :: (fn() -> unit)({
+  mut(l) := ArrayList(String).new();
+  l.push(L());
+  G = .Some(l);
+  y := &G;
+  match(
+    y,
+    .Some(xs) => {
+      e := _first(xs);
+      _reset();
+      println(`OUT: ${e.*}`);
+    },
+    .None => ()
+  );
+});
+export(main);

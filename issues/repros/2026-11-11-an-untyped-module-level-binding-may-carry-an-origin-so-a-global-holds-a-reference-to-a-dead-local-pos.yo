@@ -1,0 +1,14 @@
+// expect: accept
+// Positive control: the global holds the value, not a reference to the local.
+{ println } :: import("std/fmt");
+mut(G) := Option(i64).None;
+_set :: (fn() -> unit)({
+  s := i64(1234567);
+  G = .Some(s);
+});
+main :: (fn() -> unit)({
+  _set();
+  v := match(G, .Some(r) => r, .None => i64(0));
+  println(`OUT: ${v.to_string()}`);
+});
+export(main);

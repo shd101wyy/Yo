@@ -1,0 +1,17 @@
+// expect: E0911
+// The same over a whole temporary list: `xs` is the temporary itself.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array_list");
+L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+mkl :: (fn() -> ArrayList(String))({
+  mut(xs) := ArrayList(String).new();
+  xs.push(L());
+  xs
+});
+main :: (fn() -> unit)({
+  p := match(&mkl(), xs => Option(&ArrayList(String)).Some(xs));
+  match(p, .Some(l) => match(&l.*(usize(0)), e => println(`OUT: ${e.*}`)), .None => ());
+  ()
+});
+export(main);

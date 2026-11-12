@@ -1,0 +1,21 @@
+// expect: accept
+// `Bump.bump(&mut s)` names the TRAIT, not the type: `yo check` accepts it, the C names the trait type as a
+// value (`__yo_t_N.__yo_v_bump`) and fails with "use of undeclared identifier".
+{ println } :: import("std/fmt");
+Bump :: trait(bump : (fn(self : &mut Self) -> unit));
+S :: struct(n : usize);
+impl(
+  S,
+  Bump(
+    bump : (fn(self : &mut Self) -> unit)({
+      self.n = (self.n + usize(1));
+    })
+  )
+);
+main :: (fn() -> unit)({
+  mut(s) := S(n : usize(7));
+  Bump.bump(&mut s);
+  println(`OUT: ${s.n.to_string()}`);
+  ()
+});
+export(main);

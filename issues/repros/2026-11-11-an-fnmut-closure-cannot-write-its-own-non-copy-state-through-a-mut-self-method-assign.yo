@@ -1,0 +1,13 @@
+// expect: accept
+// Control, accepted today: the same state replaced by assignment (no `&mut` lend) persists across calls.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  (mut(f) : Impl(FnMut() -> usize)) = ({ acc : String.from("") }() => {
+    acc = String.from("0123456789");
+    acc.len()
+  });
+  _a := f();
+  println(`OUT: ${f().to_string()}`);
+});
+export(main);

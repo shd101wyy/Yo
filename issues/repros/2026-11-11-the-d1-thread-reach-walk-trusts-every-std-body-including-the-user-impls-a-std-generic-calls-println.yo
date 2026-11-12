@@ -1,0 +1,37 @@
+// expect: reject (rule D1: std's `println` calls `K`'s `ToString`, which writes `mut(G)`)
+// The interpolation form `${a}` is rejected; `println(&a)` reaches the same impl through std and is accepted.
+{ Thread } :: import("std/thread");
+{ String } :: import("std/string");
+{ println, ToString } :: import("std/fmt");
+(mut(G) : i64) = i64(0);
+K :: struct(n : i64);
+derive(K, Copy, Clone);
+impl(
+  K,
+  ToString(
+    to_string : (fn(self : &Self) -> String)({
+      G = (G + i64(1));
+      String.new()
+    })
+  )
+);
+main :: (fn() -> unit)({
+  a := K(n : i64(1));
+  t := Thread(unit).spawn({ a }(io : Io) => {
+    mut(i) := i64(0);
+    while(i < i64(300000), {
+      println(&a);
+      i = (i + i64(1));
+    });
+    ()
+  });
+  mut(j) := i64(0);
+  while(j < i64(300000), {
+    G = (G + i64(1));
+    j = (j + i64(1));
+  });
+  t.join();
+  v := G;
+  println(`OUT: ${v.to_string()} (expect 600000)`);
+});
+export(main);

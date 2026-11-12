@@ -1,0 +1,11 @@
+// expect: accept
+// Control: `&G` as a call argument to a `&i32` parameter compiles and prints `OUT: 42` (the parameter is
+// lowered by value, so no address is taken).
+{ println } :: import("std/fmt");
+G :: i32(42);
+show :: (fn(r : &i32) -> unit)(println(`OUT: ${r.*.to_string()}`));
+main :: (fn() -> unit)({
+  show(&G);
+  ()
+});
+export(main);

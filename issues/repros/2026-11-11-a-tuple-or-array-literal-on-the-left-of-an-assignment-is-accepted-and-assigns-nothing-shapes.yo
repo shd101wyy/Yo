@@ -1,0 +1,15 @@
+// expect: reject ("Cannot assign to …": none of the three targets is a place)
+// An array literal, a struct literal and a tuple naming a field: each store
+// goes into a temporary, so every value prints unchanged.
+{ println } :: import("std/fmt");
+P :: struct(x : i32, y : i32);
+main :: (fn() -> unit)({
+  mut(a) := i32(1);
+  mut(b) := i32(2);
+  mut(t) := (i32(1), i32(2));
+  [a, b] = [i32(5), i32(6)];
+  P(x : a, y : b) = P(x : i32(7), y : i32(8));
+  (a, t.0) = (i32(9), i32(9));
+  println(`OUT a=${a.to_string()} b=${b.to_string()} t0=${t.0.to_string()}`);
+});
+export(main);

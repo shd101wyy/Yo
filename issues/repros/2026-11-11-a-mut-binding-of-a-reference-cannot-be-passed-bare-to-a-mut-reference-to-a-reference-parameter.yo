@@ -1,0 +1,19 @@
+// expect: accept
+// `rp : &mut &Rc(X)` passed bare to `dst : &mut &(Rc(X), p)` is a reborrow (decision 43); today it is E0601.
+// The stored reference outlives nothing: `other` lives as long as `r`.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+mk :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+set :: (fn(generic(p : Origin), dst : &mut&(Rc(X), p), v : &(Rc(X), p)) -> unit)({
+  dst.* = v;
+});
+main :: (fn() -> unit)({
+  outer := mk();
+  other := mk();
+  mut(r) := &outer;
+  rp := &mut r;
+  set(rp, &other);
+  println(`OUT: ${r.*.*.s.len().to_string()}`);
+});
+export(main);

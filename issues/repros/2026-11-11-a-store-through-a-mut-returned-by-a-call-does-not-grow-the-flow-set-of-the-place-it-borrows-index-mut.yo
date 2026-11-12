@@ -1,0 +1,22 @@
+// expect: E0911
+// The same store through a user `IndexMut`: `s(usize(0)) = .Some(...)` writes through the
+// `&mut` that `index_mut` returns. Heap-use-after-free after the block.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+long :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+S2 :: struct(o : Option(&String), n : i32);
+slot :: (fn(s : &mut S2) -> &mut Option(&String))(&mut s.o);
+impl(S2, Index(usize)(Output : Option(&String), index : (fn(self : &Self, idx : usize) -> &Self.Output)(&self.o)));
+impl(S2, IndexMut(usize)(Output : Option(&String), index_mut : (fn(self : &mut Self, idx : usize) -> &mut Self.Output)(&mut self.o)));
+main :: (fn() -> unit)({
+  x := long();
+  mut(s) := S2(o : .Some(&x), n : i32(0));
+  {
+    mut(ys) := ArrayList(String).new();
+    ys.push(long());
+    s(usize(0)) = .Some(ys.index(usize(0)));
+  };
+  match(&s.o, .Some(r) => println(`OUT: ${r.*.clone()}`), .None => ());
+});
+export(main);

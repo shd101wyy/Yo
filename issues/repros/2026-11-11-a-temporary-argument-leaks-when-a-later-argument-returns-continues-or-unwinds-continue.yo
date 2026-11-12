@@ -1,0 +1,37 @@
+// expect: accept (drops=3, no leak)
+// The same temporary first argument when the second argument `continue`s.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+(mut(g_drops) : i32) = i32(0);
+nd :: (fn() -> i32)(g_drops);
+D :: struct(s : String);
+impl(
+  D,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_drops = (g_drops + i32(1));
+    })
+  )
+);
+mk :: (fn() -> D)(D(s : String.from("payload-0123456789abcdefghijklmnop")));
+two :: (fn(a : D, b : D) -> usize)(a.s.len() + b.s.len());
+main :: (fn() -> unit)({
+  mut(i) := i32(0);
+  mut(t) := usize(0);
+  while(i < i32(2), {
+    i = (i + i32(1));
+    t = (
+      t + two(
+        mk(),
+        cond(
+          (i == i32(1)) => {
+            continue;
+          },
+          true => mk()
+        )
+      )
+    );
+  });
+  println(`OUT t=${t.to_string()} drops=${nd().to_string()} expect 3`);
+});
+export(main);

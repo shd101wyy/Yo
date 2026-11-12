@@ -1,0 +1,20 @@
+// expect: accept
+// Positive control: the spelled trait-qualified form `(S <: Bump).bump(&mut s)` compiles and runs (`OUT: 8`).
+{ println } :: import("std/fmt");
+Bump :: trait(bump : (fn(self : &mut Self) -> unit));
+S :: struct(n : usize);
+impl(
+  S,
+  Bump(
+    bump : (fn(self : &mut Self) -> unit)({
+      self.n = (self.n + usize(1));
+    })
+  )
+);
+main :: (fn() -> unit)({
+  mut(s) := S(n : usize(7));
+  (S <: Bump).bump(&mut s);
+  println(`OUT: ${s.n.to_string()}`);
+  ()
+});
+export(main);

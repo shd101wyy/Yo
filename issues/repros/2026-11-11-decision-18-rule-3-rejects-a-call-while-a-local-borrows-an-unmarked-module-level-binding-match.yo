@@ -1,0 +1,9 @@
+// expect: accept (decision 47: an unmarked module-level binding may be lent freely)
+// The same through a `match(&G, …)` arm binding: today E0911 at the call in the arm.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+G := Option(String).Some(String.from("0123456789abcdefghijklmnopqrstuvwxyz"));
+main :: (fn() -> unit)({
+  match(&G, .Some(s) => println(`OUT: ${s}`), .None => ());
+});
+export(main);

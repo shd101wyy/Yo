@@ -1,0 +1,13 @@
+// expect: accept
+// A generic function that calls itself at the same instantiation: `yo check` re-specializes `deep` at
+// `T := i32` inside its own specialization until the stack overflows (SIGSEGV, rc 139).
+{ println } :: import("std/fmt");
+deep :: (fn(generic(T : Type), n : usize, v : T) -> T)(
+  cond((n == usize(0)) => v, true => deep(n - usize(1), v))
+);
+main :: (fn() -> unit)({
+  x := deep(usize(3), i32(5));
+  println(`OUT: ${x.to_string()}`);
+  ()
+});
+export(main);

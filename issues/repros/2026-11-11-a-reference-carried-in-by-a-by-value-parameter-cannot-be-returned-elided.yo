@@ -1,0 +1,12 @@
+// expect: accept
+// The elided spelling: the result `&String` is the union of the reference-holding parameters, `o` included.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+inner :: (fn(o : Option(&String), d : &String) -> &String)(match(o, .Some(s) => s, .None => d));
+main :: (fn() -> unit)({
+  a := String.from("hello-world-hello-world-hello-world");
+  r := inner(.Some(&a), &a);
+  println(`OUT: ${r.*}`);
+  ()
+});
+export(main);

@@ -1,0 +1,11 @@
+// expect: accept
+// `&G` for a `G :: i32(42)` constant, as an `Option` payload: check passes, the C is `.__yo_v_value = (&(42))`,
+// "cannot take the address of an rvalue". `r := &G` is rejected at check time ("no runtime storage").
+{ println } :: import("std/fmt");
+G :: i32(42);
+main :: (fn() -> unit)({
+  o := Option(&i32).Some(&G);
+  match(o, .Some(r) => println(`OUT: ${r.*.to_string()}`), .None => println("none"));
+  ()
+});
+export(main);

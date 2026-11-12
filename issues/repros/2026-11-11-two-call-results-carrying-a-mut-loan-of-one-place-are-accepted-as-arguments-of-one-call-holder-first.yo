@@ -1,0 +1,27 @@
+// expect: E0911
+// A holder of a `&` into `xs` is passed FIRST, `&mut xs` second. The holder is a by-value
+// argument, so no call lend records it; `f` grows the list (reallocating it) and then reads
+// through the holder: heap-use-after-free. v0.2.76 rejects it (E0911: `h` is live across
+// the call); develop accepts it through the P9 two-phase rule (lane fix/p9-holder-arg).
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+H :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(i32, p)));
+grow :: (fn(xs : &mut ArrayList(i32)) -> unit)({
+  mut(i) := usize(0);
+  while(i < usize(1000), {
+    xs.push(i32(7));
+    i = (i + usize(1));
+  });
+});
+f :: (fn(generic(p : Origin), h : H(p), xs : &mut ArrayList(i32)) -> i32)({
+  grow(xs);
+  h.r.*
+});
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  h := H(xs)(r : xs.index(usize(0)));
+  v := f(h, &mut xs);
+  println(`OUT: ${v.to_string()}`);
+});
+export(main);

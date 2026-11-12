@@ -1,0 +1,13 @@
+// expect: accept
+// No move at all: `show(&x)` in the arm reads the OUTER `x` (a `&String` parameter is passed by
+// value in C, through the same argument path). Correct output: "OUT: INNER"; observed: "OUT: OUTER".
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+show :: (fn(b : &String) -> unit)(println(`OUT: ${b.*}`));
+main :: (fn() -> unit)({
+  x := String.from("OUTER");
+  o := Option(String).Some(String.from("INNER"));
+  match(o, .Some(x) => show(&x), .None => ());
+  ()
+});
+export(main);

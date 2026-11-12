@@ -1,0 +1,21 @@
+// expect: E0911
+// VERDICTS-58 probe 1: the reference binding is lent through a local `&mut` binding of it and reborrowed
+// at the call. The write-back must reach `r`, the place `rp` borrows.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+mk :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+set :: (fn(generic(p : Origin), dst : &mut&(Rc(X), p), v : &(Rc(X), p)) -> unit)({
+  dst.* = v;
+});
+main :: (fn() -> unit)({
+  outer := mk();
+  mut(r) := &outer;
+  {
+    inner := mk();
+    rp := &mut r;
+    set(&mut rp.*, &inner);
+  };
+  println(`OUT: ${r.*.*.s.len().to_string()}`);
+});
+export(main);

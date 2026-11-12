@@ -1,0 +1,18 @@
+// expect: accept
+// Positive control: the function returns its first parameter and spells it, as the slot does.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+mkr :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+pick_first :: (fn(a : &Rc(X), b : &Rc(X)) -> Option(&(Rc(X), a)))(.Some(a));
+apply :: (fn(f : (fn(a : &Rc(X), b : &Rc(X)) -> Option(&(Rc(X), a))), x : &Rc(X), y : &Rc(X)) -> Option(&(Rc(X), x)))(f(x, y));
+main :: (fn() -> unit)({
+  a := mkr();
+  mut(o) := Option(&Rc(X)).None;
+  {
+    b := mkr();
+    o = apply(pick_first, &a, &b);
+  };
+  match(o, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => println("none"));
+});
+export(main);

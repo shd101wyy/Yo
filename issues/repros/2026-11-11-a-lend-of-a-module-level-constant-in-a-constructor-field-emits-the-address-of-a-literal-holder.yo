@@ -1,0 +1,11 @@
+// expect: accept
+// The same lend in a struct field, `H(r : &G)`: `.__yo_v_r = (&(42))`.
+{ println } :: import("std/fmt");
+G :: i32(42);
+H :: struct(r : &i32);
+main :: (fn() -> unit)({
+  h := H(r : &G);
+  println(`OUT: ${h.r.*.to_string()}`);
+  ()
+});
+export(main);

@@ -1,0 +1,13 @@
+// expect: E0909 (a module-level binding requires an `Escapable` type)
+// The initializer's block local `s` dies with the block, yet `G` keeps `&s`: `yo check` accepts
+// it and the emitted C names `s` outside its scope (clang: undeclared identifier).
+{ println } :: import("std/fmt");
+G := {
+  s := i64(1234567);
+  Option(&i64).Some(&s)
+};
+main :: (fn() -> unit)({
+  v := match(&G, .Some(r) => r.*, .None => i64(0));
+  println(`OUT: ${v.to_string()}`);
+});
+export(main);

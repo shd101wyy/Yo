@@ -1,0 +1,12 @@
+// expect: accept
+// The guard only reads `a`; the move happens after the match.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+take :: (fn(s : String) -> usize)(s.len());
+main :: (fn() -> unit)({
+  a := String.from("payload-0123456789abcdefghijklmnop");
+  r := match(i32(3), (n && (a.len() > usize(0))) => i32(1), _ => i32(2));
+  k := take(a);
+  println(`OUT r=${r.to_string()} k=${k.to_string()}`);
+});
+export(main);
