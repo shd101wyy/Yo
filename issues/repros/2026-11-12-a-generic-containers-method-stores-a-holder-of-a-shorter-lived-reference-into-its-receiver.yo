@@ -1,0 +1,26 @@
+// expect: E0911 at `st.push(H(r : &b))` (`b` dies at the block end while `st` lives).
+// A user generic container Stack(T) at T := H (a & holder): push of a block-local's holder; read after the block.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+H :: struct(r : &Rc(X));
+Stack :: (fn(comptime(T) : Type) -> comptime(Type))(struct(top : Option(T), n : usize));
+impl(
+  generic(T : Type),
+  Stack(T),
+  push : (fn(self : &mut Self, v : T) -> unit)({
+    self.top = .Some(v);
+    self.n = (self.n + usize(1));
+  })
+);
+main :: (fn() -> unit)({
+  x := Rc.new(X(s : String.from("x")));
+  mut(st) := Stack(H)(top : .Some(H(r : &x)), n : usize(1));
+  {
+    b := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+    st.push(H(r : &b));
+  };
+  match(&st.top, .Some(h) => println(`OUT: ${h.r.*.s.len().to_string()}`), .None => println("none"));
+  ()
+});
+export(main);
