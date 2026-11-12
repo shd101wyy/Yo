@@ -214,7 +214,7 @@ impl(
 // Throws once the inner counter reaches `limit`.
 _sb_check :: (fn(k : usize, limit : usize, exn : Exception) -> bool)({
   if(k >= limit, {
-    exn.throw(dyn(String.from("limit")));
+    exn.throw(dyn(Box.new(String.from("limit"))));
   });
   true
 });
@@ -275,7 +275,7 @@ test("the same function without an unwind balances every key", {
 // later local's drop resolved by name.
 _sb_mk :: (fn(fail : bool, exn : Exception) -> usize)({
   if(fail, {
-    exn.throw(dyn(String.from("x")));
+    exn.throw(dyn(Box.new(String.from("x"))));
   });
   usize(1)
 });
@@ -431,7 +431,7 @@ test("an early return from a nested shadowing arm drops every value once", {
 // An unwind out of a shadowing arm drops the binding and the enclosing local.
 _sh_check :: (fn(fail : bool, exn : Exception) -> i32)({
   if(fail, {
-    exn.throw(dyn(String.from("unwind")));
+    exn.throw(dyn(Box.new(String.from("unwind"))));
   });
   i32(0)
 });

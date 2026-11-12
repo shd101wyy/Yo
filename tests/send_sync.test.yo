@@ -125,7 +125,7 @@ comptime_expect_error({
 // A Dyn without Send cannot cross Thread.spawn.
 comptime_expect_error({
   _spawn_plain_dyn :: (fn() -> unit)({
-    (d : Box(Dyn(SsSpeak))) = dyn(SsDog(n : i32(3)));
+    (d : Box(Dyn(SsSpeak))) = dyn(Box.new(SsDog(n : i32(3))));
     t := Thread(unit).spawn(io => {
       _n := d.speak();
       ()
@@ -136,7 +136,7 @@ comptime_expect_error({
 }, "does not implement Send");
 // Over-rejection canary: a Dyn(Trait, Send) does cross it.
 _spawn_send_dyn :: (fn() -> i32)({
-  (d : Box(Dyn(SsSpeak, Send))) = dyn(SsDog(n : i32(4)));
+  (d : Box(Dyn(SsSpeak, Send))) = dyn(Box.new(SsDog(n : i32(4))));
   hits := AtomicI32.new(i32(0));
   t := Thread(unit).spawn(io => {
     hits.fetch_add(d.speak(), MemoryOrder.AcqRel);

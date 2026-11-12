@@ -156,7 +156,7 @@ test("arc alloc : .Some(a) shared across a thread is released into a", {
 // unbound `Arc(V)` (issues/fixed/2026-10-22-a-dyn-closure-in-a-generic-fn-boxes-through-a-cell-typed-by-the-unbound-return.md).
 _ArcDynDetector :: struct(detect : Box(Dyn(Fn(x : i32) -> i32, Send)));
 _arc_dyn_run :: (fn(get : Impl(Fn(x : i32) -> i32, Send, Sync)) -> i32)({
-  d := _ArcDynDetector(detect : dyn((x : i32) => (get(x) + i32(1))));
+  d := _ArcDynDetector(detect : dyn(Box.new((x : i32) => (get(x) + i32(1)))));
   d.detect(i32(2))
 });
 test("a Send dyn of a closure capturing a generic fn's Impl(Fn) parameter boxes through arc", {

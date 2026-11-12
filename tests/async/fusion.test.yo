@@ -447,7 +447,7 @@ _throws_taking :: (fn(sink(name) : String, io : Io) -> Impl(Future(usize, IoExn)
   io.async(e => {
     r := e.io.await(_leaf(i32(1), e.io), e.io);
     cond(
-      (r > i32(0)) => e.exn.throw(dyn(Boom(msg : name.clone()))),
+      (r > i32(0)) => e.exn.throw(dyn(Box.new(Boom(msg : name.clone())))),
       true => name.len()
     )
   })
@@ -538,7 +538,7 @@ _is_blank :: (fn(s : &String, io : Io) -> Impl(Future(bool, IoExn)))({
 });
 _raise_for :: (fn(text : &String, exn : Exception) -> unit)({
   if(text.len() > usize(0), {
-    exn.throw(dyn(Boom(msg : text.clone())));
+    exn.throw(dyn(Box.new(Boom(msg : text.clone()))));
   });
 });
 _throws_lent :: (fn(s : &String, io : Io) -> Impl(Future(unit, IoExn)))({
@@ -586,7 +586,7 @@ test("a throw after a real suspension in a fused block reaches the caller's hand
 _throws_in_prologue :: (fn(sink(name) : String, io : Io, exn : Exception) -> Impl(Future(usize, IoExn)))({
   n := name.len();
   if(n > usize(3), {
-    exn.throw(dyn(Boom(msg : name.clone())));
+    exn.throw(dyn(Box.new(Boom(msg : name.clone()))));
   });
   io.async(e => {
     r := e.io.await(_leaf(i32(1), e.io), e.io);

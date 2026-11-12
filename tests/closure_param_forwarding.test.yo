@@ -61,7 +61,7 @@ test("Test two-hop forwarded closure param with dyn-capturing detector", {
     // the shape suspension-analysis uses (get_info captured by the detect
     // callback while ALSO being forwarded onward).
     det := Detector(
-      detect : dyn((k : i32) => (get_info(k) + match(extras.get(usize(0)), .Some(v) => v, .None => i32(0))))
+      detect : dyn(Box.new((k : i32) => (get_info(k) + match(extras.get(usize(0)), .Some(v) => v, .None => i32(0)))))
     );
     walk2(depth, get_info, &det, &mut out);
     out

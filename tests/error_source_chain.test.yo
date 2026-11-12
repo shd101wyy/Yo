@@ -24,7 +24,7 @@ _Inner :: enum(Boom);
 derive(_Inner, Copy, Clone);
 derive(_Inner, Error(.Boom => `boom`));
 test("an Error.source() result re-erases as AnyError, so a chain can be walked", {
-  (base : AnyError) = dyn(_Inner.Boom);
+  (base : AnyError) = dyn(Box.new(_Inner.Boom));
   (top : AnyError) = dyn(Context.new(`while loading`, base));
   (mut(cur) : AnyError) = top;
   (mut(links) : usize) = usize(1);
@@ -47,7 +47,7 @@ test("an Error.source() result re-erases as AnyError, so a chain can be walked",
   assert(cur.to_string() == `boom`, `the root cause is the inner error, got ${cur.to_string()}`);
 });
 test("a one-link error reports no source", {
-  (c : AnyError) = dyn(_Inner.Boom);
+  (c : AnyError) = dyn(Box.new(_Inner.Boom));
   assert(c.source().is_none(), "an error with nothing underneath has no source");
 });
 // The defect was never std-specific: ANY user trait declaring a member that
@@ -67,7 +67,7 @@ impl(_Root, _Node());
 // of a `Dyn` field it only borrows.
 _Child :: ref(struct(tag : String, up_tag : String));
 impl(_Child, ToString(to_string : (fn(self : &Self) -> String)(`child(${self.tag})`)));
-impl(_Child, _Node(parent : (fn(self : &mut Self) -> Option(_AnyNode))(Option(_AnyNode).Some(dyn(_Root(tag : self.up_tag.clone()))))));
+impl(_Child, _Node(parent : (fn(self : &mut Self) -> Option(_AnyNode))(Option(_AnyNode).Some(dyn(Box.new(_Root(tag : self.up_tag.clone())))))));
 _handle :: (fn(n : &_AnyNode) -> String)(n.to_string());
 test("a user trait's Dyn(SelfTrait) payload binds and passes as Dyn(ThatTrait)", {
   (c : _AnyNode) = dyn(_Child(tag : `C`, up_tag : `R`));
@@ -107,12 +107,12 @@ impl(_ChainLink, ToString(to_string : (fn(self : &Self) -> String)(`link`)));
 impl(
   _ChainLink,
   _Chain(
-    link : (fn(self : &Self) -> Option(_AnyChain))(Option(_AnyChain).Some(dyn(_ChainLeaf(w : self.leaf_w)))),
+    link : (fn(self : &Self) -> Option(_AnyChain))(Option(_AnyChain).Some(dyn(Box.new(_ChainLeaf(w : self.leaf_w))))),
     weight : (fn(self : &Self) -> i32)(self.w)
   )
 );
 test("a Dyn(SelfTrait) member's payload dispatches the members and constraints declared after it", {
-  (c : _AnyChain) = dyn(_ChainLink(w : i32(2), leaf_w : i32(5)));
+  (c : _AnyChain) = dyn(Box.new(_ChainLink(w : i32(2), leaf_w : i32(5))));
   (w : i32) = match(c.link(), .Some(p) => p.weight(), .None => i32(0));
   assert(w == i32(5), `the payload dispatched the last member wrongly, got ${w.to_string()}`);
   (s : String) = match(c.link(), .Some(p) => p.to_string(), .None => String.new());
@@ -127,7 +127,7 @@ test("a trait's where(Self <: X), declared after a Dyn(SelfTrait) member, is che
 test("root_cause returns the innermost error, and is identity on a lone error", {
   // Scored at RUNTIME on the rendered value, not on a comptime assertion:
   // a comptime_assert here could hold vacuously.
-  (base : AnyError) = dyn(_Inner.Boom);
+  (base : AnyError) = dyn(Box.new(_Inner.Boom));
   (top : AnyError) = dyn(Context.new(`while loading`, base));
   assert(
     root_cause(&top).to_string() == `boom`,
@@ -135,7 +135,7 @@ test("root_cause returns the innermost error, and is identity on a lone error", 
   );
   // An error with nothing underneath is its own root cause — never .None, so
   // callers need no unwrapping.
-  (lone : AnyError) = dyn(_Inner.Boom);
+  (lone : AnyError) = dyn(Box.new(_Inner.Boom));
   assert(
     root_cause(&lone).to_string() == `boom`,
     "root_cause of a lone error is that error"
@@ -147,7 +147,7 @@ test("root_cause returns the innermost error, and is identity on a lone error", 
 // is a step past what `root_cause` needs (a local) — the field has to survive
 // `source()`'s re-erasure across a method boundary.
 test("error_chain yields every link, outermost first", {
-  (base : AnyError) = dyn(_Inner.Boom);
+  (base : AnyError) = dyn(Box.new(_Inner.Boom));
   (top : AnyError) = dyn(Context.new(`while loading`, base));
   mut(it) := error_chain(&top);
   (mut(links) : usize) = usize(0);
@@ -169,7 +169,7 @@ test("error_chain yields every link, outermost first", {
   assert(last == `boom`, `the last link is the root cause, got ${last}`);
 });
 test("error_chain of a lone error yields exactly one link", {
-  mut(it) := error_chain(dyn(_Inner.Boom));
+  mut(it) := error_chain(dyn(Box.new(_Inner.Boom)));
   (mut(links) : usize) = usize(0);
   (mut(going) : bool) = true;
   while(going, {

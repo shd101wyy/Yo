@@ -1417,7 +1417,7 @@ test("a local stored into a temporary Dyn passed by value outlives the call", {
 test("a temporary Dyn passed by value is dropped exactly once", {
   before := g_nested_disposed;
   {
-    _take_dyn_tag(dyn(Rc.new(_NestedSinkVal(tag : i32(11)))));
+    _take_dyn_tag(dyn(Box.new(_NestedSinkVal(tag : i32(11)))));
   };
   assert(g_nested_disposed == (before + i32(1)), "disposed exactly once: no leak, no double drop");
 });
@@ -2939,7 +2939,7 @@ test("rc alloc : .Some(a) shared by several handles is released into a once, and
 // (issues/fixed/2026-10-22-a-dyn-closure-in-a-generic-fn-boxes-through-a-cell-typed-by-the-unbound-return.md).
 _RcDynDetector :: struct(detect : Box(Dyn(Fn(x : i32) -> i32)));
 _rc_dyn_run :: (fn(get : &Impl(Fn(x : i32) -> i32)) -> i32)({
-  d := _RcDynDetector(detect : dyn((x : i32) => (get(x) + i32(1))));
+  d := _RcDynDetector(detect : dyn(Box.new((x : i32) => (get(x) + i32(1)))));
   d.detect(i32(2))
 });
 test("a dyn of a closure capturing a generic fn's Impl(Fn) parameter boxes through rc", {

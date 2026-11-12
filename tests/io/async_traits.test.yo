@@ -325,7 +325,7 @@ _take_dyn_reader :: (fn(r : Box(Dyn(Reader))) -> bool)(true);
 test("no reader is a Dyn(Reader): the Reader defaults borrow it", {
   text := `dyn-reader-ok\nline two\n`.to_string();
   m := mem_source(&text);
-  comptime_expect_error(_take_dyn_reader(dyn(m)), "cannot be made a");
+  comptime_expect_error(_take_dyn_reader(dyn(Box.new(m))), "cannot be made a");
 });
 test("BufReader wraps a user Reader through its generic parameter", {
   t_exn := Exception(

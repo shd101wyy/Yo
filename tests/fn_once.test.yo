@@ -165,7 +165,7 @@ test("FnOnce: Dyn(FnOnce(...)) is called once", {
   before := g_once_disposed;
   {
     t := _OnceTok(n : i32(9));
-    (d : Box(Dyn(FnOnce() -> i32))) = dyn({ t }() => _once_take(t));
+    (d : Box(Dyn(FnOnce() -> i32))) = dyn(Box.new({ t }() => _once_take(t)));
     assert(d() == i32(9), "the dyn call moved the capture out");
     comptime_expect_error(d(), "use of moved value");
   };
@@ -176,7 +176,7 @@ test("Dyn(Fn(...)) of a closure capturing a move-only value", {
   before := g_once_disposed;
   {
     t := _OnceTok(n : i32(3));
-    (d : Box(Dyn(Fn() -> i32))) = dyn(() => t.n);
+    (d : Box(Dyn(Fn() -> i32))) = dyn(Box.new(() => t.n));
     assert(d() == i32(3), "the closure reads its own capture");
     assert(d() == i32(3), "an Fn call borrows it");
   };
@@ -311,14 +311,14 @@ test("FnOnce: an Fn closure boxed as Dyn(FnOnce(...)) drops its captures when ca
   {
     t := _OnceTok(n : i32(5));
     (c : Impl(Fn() -> i32)) = ({ t }() => t.n);
-    (d : Box(Dyn(FnOnce() -> i32))) = dyn(c);
+    (d : Box(Dyn(FnOnce() -> i32))) = dyn(Box.new(c));
     assert(d() == i32(5), "the Fn body borrows its capture");
   };
   assert(g_once_disposed == (before + i32(1)), "the call's release disposed the capture");
 });
 test("FnOnce: Dyn(FnOnce(...)) is move-only", {
   k := i32(1);
-  (d : Box(Dyn(FnOnce() -> i32))) = dyn({ k }() => k);
+  (d : Box(Dyn(FnOnce() -> i32))) = dyn(Box.new({ k }() => k));
   d2 := d;
   comptime_expect_error(d(), "use of moved value");
   assert(d2() == i32(1), "the moved-to handle calls once");
@@ -403,10 +403,10 @@ test("FnOnce: a one-argument call of an FnOnce local is either operand of ==", {
     (f : Impl(FnOnce(go : bool) -> i32)) = ({ t }(go : bool) => _once_take(t));
     assert(i32(5) == f(true), "the right operand consumed f");
     u := _OnceTok(n : i32(6));
-    (d : Box(Dyn(FnOnce(go : bool) -> i32))) = dyn({ u }(go : bool) => _once_take(u));
+    (d : Box(Dyn(FnOnce(go : bool) -> i32))) = dyn(Box.new({ u }(go : bool) => _once_take(u)));
     assert(d(true) == i32(6), "a Dyn(FnOnce) call as the left operand");
     w := _OnceTok(n : i32(7));
-    (e : Box(Dyn(FnOnce(go : bool) -> i32))) = dyn({ w }(go : bool) => _once_take(w));
+    (e : Box(Dyn(FnOnce(go : bool) -> i32))) = dyn(Box.new({ w }(go : bool) => _once_take(w)));
     assert(i32(7) == e(true), "a Dyn(FnOnce) call as the right operand");
   };
   assert(g_once_disposed == (before + i32(3)), "each capture disposed exactly once");
@@ -418,7 +418,7 @@ test("FnOnce: an Fn closure's call result is a temporary a later argument may mo
     (g : Impl(Fn(x : i32) -> i32)) = ({ t }(x : i32) => (x + t.n));
     assert(g(i32(1)) == _once_eat_fn(g), "the operand lends nothing of g");
     u := _OnceTok(n : i32(3));
-    (dg : Box(Dyn(Fn(x : i32) -> i32))) = dyn({ u }(x : i32) => (x + u.n));
+    (dg : Box(Dyn(Fn(x : i32) -> i32))) = dyn(Box.new({ u }(x : i32) => (x + u.n)));
     assert(dg(i32(1)) == _once_eat_dyn_fn(dg), "the same through Dyn(Fn)");
   };
   assert(g_once_disposed == (before + i32(2)), "each moved closure released its capture once");
@@ -456,10 +456,10 @@ _once_eat_logged :: (fn(sink(h) : _OnceCbHolder) -> i32)(_once_log(h.tag + i32(1
 _once_holder :: (fn() -> _OnceCbHolder)({
   t := _OnceTok(n : i32(1));
   _OnceCbHolder(
-    cb0 : dyn({ t }() => _once_log(t.n)),
-    cb1 : dyn((x : i32) => _once_log(x)),
-    cb2 : dyn((x : i32, y : i32) => _once_log(x + y)),
-    mk : dyn((x : i32) => _OnceSum(n : _once_log(x))),
+    cb0 : dyn(Box.new({ t }() => _once_log(t.n))),
+    cb1 : dyn(Box.new((x : i32) => _once_log(x))),
+    cb2 : dyn(Box.new((x : i32, y : i32) => _once_log(x + y))),
+    mk : dyn(Box.new((x : i32) => _OnceSum(n : _once_log(x)))),
     tag : i32(1)
   )
 });
@@ -554,7 +554,7 @@ _OnceTokHolder :: struct(mk : Box(Dyn(Fn(x : i32) -> _OnceTok)));
 test("FnOnce: a closure-field call's owned result as a borrowed receiver is released once", {
   before := g_once_disposed;
   {
-    h := _OnceTokHolder(mk : dyn((x : i32) => _OnceTok(n : x)));
+    h := _OnceTokHolder(mk : dyn(Box.new((x : i32) => _OnceTok(n : x))));
     assert(h.mk(i32(5)).peek_n() == i32(5), "Dyn(Fn) field");
   };
   {

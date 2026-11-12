@@ -262,12 +262,12 @@ test("Test Dyn closure callback", {
     return(cb(v));
   });
   a := 2;
-  x := use_cb(10, dyn(u => (u + 1 + a))); // capture variable 'a'
+  x := use_cb(10, dyn(Box.new(u => (u + 1 + a)))); // capture variable 'a'
   assert(x == 13);
-  y := use_cb(20, dyn(u => (u * 2))); // capture nothing
+  y := use_cb(20, dyn(Box.new(u => (u * 2)))); // capture nothing
   assert(y == 40);
   b := Rc(i32).new(5);
-  z := use_cb(10, dyn(u => (u + 1 + b.*))); // capture variable 'b'
+  z := use_cb(10, dyn(Box.new(u => (u + 1 + b.*)))); // capture variable 'b'
   assert(z == 16);
 });
 test("Test Dyn closure callback with manual boxing", {
@@ -275,12 +275,12 @@ test("Test Dyn closure callback with manual boxing", {
     return(cb(v));
   });
   a := 2;
-  x := use_cb(10, dyn(Rc.new(u => (u + 1 + a)))); // capture variable 'a'
+  x := use_cb(10, dyn(Box.new(u => (u + 1 + a)))); // capture variable 'a'
   assert(x == 13);
-  y := use_cb(20, dyn(Rc.new(u => (u * 2)))); // capture nothing
+  y := use_cb(20, dyn(Box.new(u => (u * 2)))); // capture nothing
   assert(y == 40);
   b := Rc(i32).new(5);
-  z := use_cb(10, dyn(Rc.new(u => (u + 1 + b.*)))); // capture variable 'b'
+  z := use_cb(10, dyn(Box.new(u => (u + 1 + b.*)))); // capture variable 'b'
   assert(z == 16);
 });
 test("Test the `where` scoping in functions", {

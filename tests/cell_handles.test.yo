@@ -228,7 +228,7 @@ impl(_AE, _Area(area : (fn(self : &Self) -> i32)(match(self, .A(n) => n.*, .B =>
 test("S2: an atomic handle of an atomic ref enum is a box in a Send Dyn, as an Arc of one is", {
   (d : Box(Dyn(_Area, Send))) = dyn(tarc(_AE.A(n : i32(7))));
   assert(d.area() == i32(7), "dispatched through the atomic handle");
-  (e : Box(Dyn(_Area, Send))) = dyn(Arc.new(_AE.A(n : i32(8))));
+  (e : Box(Dyn(_Area, Send))) = dyn(Box.new(_AE.A(n : i32(8))));
   assert(e.area() == i32(8), "and through the Arc");
 });
 test("D2: a handle auto-dereferences to its payload whatever Target its Deref impl names", {

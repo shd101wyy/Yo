@@ -68,7 +68,7 @@ test("level_from_string rejects anything else", {
 test("a Sink receives the record's parts", {
   log.set_level(log.Level.Trace);
   r := Recorder.new();
-  log.set_sink(dyn(r.clone()));
+  log.set_sink(dyn(Box.new(r.clone())));
   log.info(`plain message`);
   log.log_target(log.Level.Warn, "mymod", `targeted message`);
   log.clear_sink();
@@ -80,7 +80,7 @@ test("a Sink receives the record's parts", {
 test("the level filter still applies with a sink installed", {
   log.set_level(log.Level.Warn);
   r := Recorder.new();
-  log.set_sink(dyn(r.clone()));
+  log.set_sink(dyn(Box.new(r.clone())));
   log.debug(`suppressed`);
   log.info(`also suppressed`);
   log.warn(`kept`);
@@ -94,7 +94,7 @@ test("the level filter still applies with a sink installed", {
 test("Off silences a sink completely", {
   log.set_level(log.Level.Off);
   r := Recorder.new();
-  log.set_sink(dyn(r.clone()));
+  log.set_sink(dyn(Box.new(r.clone())));
   log.error(`not delivered`);
   log.clear_sink();
   log.set_level(log.Level.Info);
@@ -103,7 +103,7 @@ test("Off silences a sink completely", {
 test("clear_sink stops delivery to the old sink", {
   log.set_level(log.Level.Trace);
   r := Recorder.new();
-  log.set_sink(dyn(r.clone()));
+  log.set_sink(dyn(Box.new(r.clone())));
   log.info(`before`);
   log.clear_sink();
   log.info(`after`);

@@ -225,7 +225,7 @@ test("capture list: a `&T` parameter's copy borrows the parameter (R-CAP-2)", {
     "cannot be returned"
   );
   comptime_expect_error(
-    (fn(p : &_ClNamed) -> Dyn(Fn() -> usize))(dyn({ p }() => p.s.len())),
+    (fn(p : &_ClNamed) -> Box(Dyn(Fn() -> usize)))(dyn({ p }() => p.s.len())),
     "second-class"
   );
   comptime_expect_error(
@@ -515,7 +515,7 @@ test("escape: every route into a `Dyn` keeps the value second-class", {
     (d : Box(Dyn(Fn() -> i32))) = dyn(f);
     _cl_keep_dyn(d)
   }, "second-class");
-  (outer : Box(Dyn(Fn() -> i32))) = dyn({}() => i32(0));
+  (outer : Box(Dyn(Fn() -> i32))) = dyn(Box.new({}() => i32(0)));
   comptime_expect_error({
     v := i32(1);
     (g : Impl(Fn() -> i32)) = ({ &v }() => v.*);
@@ -633,7 +633,7 @@ test("a function literal rejects an Impl(Fn(...)) parameter", {
   );
   // The boxed spelling remains a literal's way to take a closure argument.
   (d : Impl(Fn(k : &Dyn(Fn() -> i32)) -> i32)) = ((k : Box(Dyn(Fn() -> i32))) => (k() + n));
-  assert(d(dyn(() => i32(2))) == i32(3), "a Dyn(Fn(...)) parameter works");
+  assert(d(dyn(Box.new(() => i32(2)))) == i32(3), "a Dyn(Fn(...)) parameter works");
 });
 // ---------------------------------------------------------------------------
 // Decision 38 D: what a borrow capture may name

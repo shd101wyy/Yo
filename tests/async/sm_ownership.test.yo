@@ -630,7 +630,7 @@ _move_into_throw :: (fn(sink(t) : Thing, io : Io) -> Impl(Future(i32, IoExn)))(
     e.io.await(yield(e.io), e.io);
     match(
       _classify(&t),
-      .Err(o) => e.exn.throw(dyn(o)),
+      .Err(o) => e.exn.throw(dyn(Box.new(o))),
       .Ok(v) => v
     )
   })
@@ -752,7 +752,7 @@ _bound_then_moved :: (fn(bad : bool, io : Io) -> Impl(Future(Option(String), IoE
       r,
       .Err(msg) => {
         e.io.await(yield(e.io), e.io);
-        e.exn.throw(dyn(msg))
+        e.exn.throw(dyn(Box.new(msg)))
       },
       .Ok(v) => .Some(v)
     )
@@ -1340,7 +1340,7 @@ impl(
 impl(_DcThing, ToString(to_string : (self -> String.from("thing"))));
 _downcast_across_awaits :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((io2 : Io) => {
-    (d : Box(Dyn(ToString, Clone))) = dyn(_DcThing(h : Rc.new(_DcVal(n : i32(1)))));
+    (d : Box(Dyn(ToString, Clone))) = dyn(Box.new(_DcThing(h : Rc.new(_DcVal(n : i32(1))))));
     (mut(hits) : i32) = i32(0);
     if(downcast(d, _DcThing).is_some(), {
       hits = (hits + i32(1));

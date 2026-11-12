@@ -105,7 +105,7 @@ test("a guard over an object it builds", {
   assert(r2 == i32(3), "rc object, guard fails");
 });
 test("a guard's temporary receiver is released once on either path", {
-  h := _GuardHolder(mk : dyn((x : i32) => _GuardTok(n : x)), ms : dyn((x : i32) => `s${x}`));
+  h := _GuardHolder(mk : dyn(Box.new((x : i32) => _GuardTok(n : x))), ms : dyn((x : i32) => `s${x}`));
   before := g_guard_tok_drops;
   (mut(i) : i32) = i32(0);
   (mut(hits) : i32) = i32(0);
