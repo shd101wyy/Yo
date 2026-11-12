@@ -119,6 +119,9 @@ pragma(Pragma.AllowUnsafe);
   local_borrows_mark,
   local_borrows_truncate,
   local_borrow_joins_truncate,
+  local_borrow_flow_restore,
+  local_borrow_flow_region_begin,
+  local_borrow_flow_note_exit,
   local_borrows_active,
   local_borrow_is_binding_stmt,
   local_borrow_may_bind_projection_stmt,
@@ -2690,6 +2693,11 @@ evaluate_begin_expression :: (
   // The local borrows a block declares are listed while it evaluates
   // (plans/VALUES_BY_DEFAULT.md decision 18).
   lb_mark := local_borrows_mark();
+  // A function body runs on the paths that call it (cluster 4's regions),
+  // and its end drops the flow state it pushed (`local_borrow_flow_restore`).
+  if(is_evaluating_function_body_begin_block, {
+    _ := local_borrow_flow_region_begin();
+  });
   if(scope_release_active() && is_evaluating_function_body_begin_block && (ctx.ctfe_depth == usize(0)), {
     sr_saved_depth := scope_release_depth();
     sr_mark := scope_release_mark();
@@ -2703,12 +2711,14 @@ evaluate_begin_expression :: (
     local_borrows_truncate(lb_mark);
     // The flow sets (O-2 §7) die with the function body, not the block.
     local_borrow_joins_truncate(lb_mark);
+    local_borrow_flow_restore(lb_mark);
     return(sr_r);
   });
   lb_r := _evaluate_begin_expression_impl(expr, env_in, ctx, variables_to_add, is_evaluating_function_body_begin_block, exn);
   local_borrows_truncate(lb_mark);
   if(is_evaluating_function_body_begin_block, {
     local_borrow_joins_truncate(lb_mark);
+    local_borrow_flow_restore(lb_mark);
   });
   lb_r
 });
@@ -2856,6 +2866,10 @@ _evaluate_begin_expression_impl :: (
     is_break_atom := (ast_expr_is_atom(&expr_to_eval) && ast_expr_is_atom_of(&expr_to_eval, "break"));
     is_continue_atom := (ast_expr_is_atom(&expr_to_eval) && ast_expr_is_atom_of(&expr_to_eval, "continue"));
     is_escape_call := ast_expr_is_fn_call_of(&expr_to_eval, BF_UNWIND, .None);
+    // An exit: an entry GEN'd before it may leave on it (cluster 4's kill).
+    if(is_return_expr || is_break_atom || is_continue_atom || is_escape_call, {
+      local_borrow_flow_note_exit();
+    });
     cond(
       // -------------------------------------------------------------------
       // return / return(val)

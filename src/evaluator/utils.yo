@@ -34,6 +34,9 @@ pragma(Pragma.AllowUnsafe);
   BK_COND,
   BK_WHILE,
   BK_MATCH,
+  BK_RETURN,
+  BK_BREAK,
+  BF_UNWIND,
   BK_COLON,
   BK_ASSIGN,
   BK_INIT_ASSIGN,
@@ -6029,7 +6032,15 @@ LocalBorrowInfo :: ref(
     /// A projection result bound with an ELIDED result origin over several
     /// arguments (O2's union; decision 43 step 2, N1c): what the E0911 note
     /// names when one of those arguments is accessed.
-    (elided_origin : Option(LocalBorrowElidedOrigin)) ?= Option(LocalBorrowElidedOrigin).None
+    (elided_origin : Option(LocalBorrowElidedOrigin)) ?= Option(LocalBorrowElidedOrigin).None,
+    /// A join entry's GEN (cluster 4, `local_borrow_flow_region_begin`): the
+    /// flow sequence number it took, the exit count when it was made, and the
+    /// store. A KILL removes only the entries every path to it passed through
+    /// (`local_borrow_joins_clear`); the loop's back-edge check reads the
+    /// store. Zero and `.None` for a binding's own record.
+    (gen_seq : usize) ?= usize(0),
+    (gen_exits : usize) ?= usize(0),
+    (gen_tok : Option(Token)) ?= Option(Token).None
   )
 );
 /// The call a projection-result borrow came from and the parameters its
@@ -6074,12 +6085,15 @@ derive(LocalBorrowMacroSite, Clone);
 /// How an access touches a place.
 LocalBorrowAccess :: enum(Read, Write, Move, Exclusive);
 /// Any local borrow in scope: the fast gate every access hook checks first.
-local_borrows_active :: (fn() -> bool)((g_local_borrows.with(_c_len_5) > usize(0)) || (g_local_borrow_joins.with(_c_len_5) > usize(0)));
+/// Inside a runtime loop every access is recorded for the back edge (cluster 4).
+local_borrows_active :: (fn() -> bool)((g_local_borrows.with(_c_len_5) > usize(0)) || (g_local_borrow_joins.with(_c_len_5) > usize(0)) || (g_lb_loops.with(_c_len_lb_loops) > usize(0)));
 /// The lengths a begin block restores when it ends (`local_borrows_truncate`),
 /// and the flow-set table's length a FUNCTION BODY restores when it ends
 /// (`local_borrow_joins_truncate`: a holder is a local or a parameter of the
 /// body that joined it, so its entries die with the body, not the block).
-LocalBorrowMark :: struct(borrows : usize, patterns : usize, match_places : usize, macro_sites : usize, joins : usize);
+/// The last three are cluster 4's flow state (`local_borrow_flow_restore`):
+/// the region stack, the loop stack and the loops' recorded accesses.
+LocalBorrowMark :: struct(borrows : usize, patterns : usize, match_places : usize, macro_sites : usize, joins : usize, regions : usize, loops : usize, loop_accesses : usize);
 derive(LocalBorrowMark, Copy, Clone);
 local_borrows_mark :: (fn() -> LocalBorrowMark)(
   LocalBorrowMark(
@@ -6087,9 +6101,26 @@ local_borrows_mark :: (fn() -> LocalBorrowMark)(
     patterns : g_local_borrow_patterns.with(_c_len_6),
     match_places : g_local_borrow_match_places.with(_c_len_7),
     macro_sites : g_lb_macro_sites.with(_c_len_8),
-    joins : g_local_borrow_joins.with(_c_len_5)
+    joins : g_local_borrow_joins.with(_c_len_5),
+    regions : g_lb_flow_regions.with(_c_len_usizes),
+    loops : g_lb_loops.with(_c_len_lb_loops),
+    loop_accesses : g_lb_loop_accesses.with(_c_len_lb_loop_accesses)
   )
 );
+/// Restore cluster 4's flow state to `mark` (a function body's end, or a
+/// caught error that unwound through regions and loops): what the body or
+/// the failed evaluation pushed is dropped.
+local_borrow_flow_restore :: (fn(mark : LocalBorrowMark) -> unit)({
+  local_borrow_flow_region_end(mark.regions);
+  while(g_lb_loops.with(_c_len_lb_loops) > mark.loops, {
+    g_lb_loops.with_mut(xs => xs.pop());
+    ()
+  });
+  while(g_lb_loop_accesses.with(_c_len_lb_loop_accesses) > mark.loop_accesses, {
+    g_lb_loop_accesses.with_mut(xs => xs.pop());
+    ()
+  });
+});
 derive(LocalBorrowMatchPlace, Clone);
 derive(LocalBorrowPatternBinding, Clone);
 derive(LocalBorrowMacroSite, Clone);
@@ -7212,6 +7243,8 @@ local_borrow_access_at :: (
 _local_borrow_access_live :: (
   fn(place : &LocalBorrowPlace, kind : &LocalBorrowAccess, tok : &Token, live_tok : &Token, activation : Option(ArrayList(AstExpr)), ctx : &EvalContext, exn : Exception) -> unit
 )({
+  // A runtime loop's back edge re-judges it at the loop's end (cluster 4).
+  _lb_loop_note_access(place, kind, tok);
   (i : usize) = g_local_borrows.with(_c_len_5);
   while(i > usize(0), {
     i = (i - usize(1));
@@ -9786,21 +9819,31 @@ _lb_join_root_end :: (fn(variable : &Variable, root_name : &String, end : &Token
               while(k < frame.stmts.len(), {
                 match(
                   frame.stmts.get(k),
-                  .Some(st) => if(ast_expr_is_fn_call_of(&st, BK_ASSIGN, Option(usize).Some(usize(2))), {
+                  .Some(st) => {
                     st_tok := ast_expr_token(&st);
                     first := _first_token_of(&st, &st_tok);
-                    is_holder := match(
-                      st,
-                      .FnCall(_, _, Rc(sargs), _, _) => match(sargs.get(usize(0)), .Some(l) => (ast_expr_is_atom(&l) && (ast_expr_token(&l).value.* == variable.name)), .None => false),
-                      .Atom(_, _) => false
-                    );
-                    if(is_holder && (first.module_path == at.module_path) && (first.character > at.character), {
-                      stop := _last_token_of(&st, &st_tok);
-                      if(!_lb_tok_after(&stop, &root_site.scope_end), {
-                        return(stop);
+                    if(ast_expr_is_fn_call_of(&st, BK_ASSIGN, Option(usize).Some(usize(2))), {
+                      is_holder := match(
+                        st,
+                        .FnCall(_, _, Rc(sargs), _, _) => match(sargs.get(usize(0)), .Some(l) => (ast_expr_is_atom(&l) && (ast_expr_token(&l).value.* == variable.name)), .None => false),
+                        .Atom(_, _) => false
+                      );
+                      if(is_holder && (first.module_path == at.module_path) && (first.character > at.character), {
+                        stop := _last_token_of(&st, &st_tok);
+                        if(!_lb_tok_after(&stop, &root_site.scope_end), {
+                          return(stop);
+                        });
                       });
                     });
-                  }),
+                    // A statement at or after the store that may leave the
+                    // block (`break`, `continue`, `return`) is a path that
+                    // skips any later reassignment: no shortening
+                    // (issues/2026-11-13-the-joins-kill-precision-ends-an-entry-at-a-reassignment-an-exit-skips.md).
+                    st_last := _last_token_of(&st, &st_tok);
+                    if(_lb_tok_after(&st_last, at) && _lb_may_exit(&st), {
+                      return(end.clone());
+                    });
+                  },
                   .None => ()
                 );
                 k = (k + usize(1));
@@ -10928,7 +10971,10 @@ bind_join_roots_for :: (fn(variable : &Variable, roots : &ArrayList(OriginRootPl
   });
   // Register into the persistent joins table (`local_borrow_access` scans
   // it beside `g_local_borrows`): the holder freezes each ground place from
-  // the join to its last use.
+  // the join to its last use. The GEN's sequence number and exit count say
+  // which later kill lies on every path from it (cluster 4).
+  gen_seq := _lb_flow_next_seq();
+  gen_exits := g_lb_flow_exits;
   (ri : usize) = usize(0);
   while(ri < ground.len(), {
     match(
@@ -10968,7 +11014,10 @@ bind_join_roots_for :: (fn(variable : &Variable, roots : &ArrayList(OriginRootPl
           parents : ArrayList(LocalBorrowInfo).new(),
           crosses_cell : root.place.through_cell,
           module_root : root.place.module_root,
-          step_pin : Option(Variable).None
+          step_pin : Option(Variable).None,
+          gen_seq : gen_seq,
+          gen_exits : gen_exits,
+          gen_tok : Option(Token).Some(at.clone())
         );
         g_local_borrow_joins.with_mut(xs => {
           xs.push(entry);
@@ -10982,23 +11031,367 @@ bind_join_roots_for :: (fn(variable : &Variable, roots : &ArrayList(OriginRootPl
 });
 /// Drop the holder's flow-set entries (a whole-holder assignment replaced
 /// its value — kill, before the new set's gen).
+///
+/// Only the entries every path to this kill passed through are removed
+/// (cluster 4, BCC §3 `bind`: the set is the join over reaching definitions):
+/// those GEN'd since the innermost region that runs on some paths only began,
+/// with no exit since (`local_borrow_flow_region_begin`). An entry GEN'd before
+/// an enclosing arm or loop body reaches the code after it on the paths that
+/// skip this assignment (A18), and one GEN'd before a `break`, `continue` or
+/// `return` leaves on that exit. Order is kept: a function body's truncation
+/// pops by length.
 local_borrow_joins_clear :: (fn(name : &String, decl : &Token) -> unit)({
   clear_name := name.clone();
   clear_path := decl.module_path.*.clone();
+  since := local_borrow_flow_region_start();
+  exits := g_lb_flow_exits;
   g_local_borrow_joins.with_mut(xs => {
     (i : usize) = xs.len();
     while(i > usize(0), {
       i = (i - usize(1));
       match(
         xs.get(i),
-        .Some(info) => if((info.name == clear_name) && (info.decl.module_path.* == clear_path), {
-          _ := xs.swap_remove(i);
+        .Some(info) => if((info.name == clear_name) && (info.decl.module_path.* == clear_path) && (info.gen_seq >= since) && (info.gen_exits == exits), {
+          _ := xs.remove(i);
           ()
         }, ()),
         .None => ()
       );
     });
     ()
+  });
+});
+/// Cluster 4's path state (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3
+/// `bind`, "the join over reaching definitions, including the loop back
+/// edge"). The joins table is one list per function body, filled in
+/// evaluation order, so a kill needs to know which of a holder's entries lie
+/// on every path to it. Each GEN takes the next sequence number
+/// (`g_lb_flow_seq`); each region that runs on some paths only (an arm of a
+/// `cond` or `match`, a short-circuit operand, a loop, a function literal's
+/// body) records the sequence at which it began (`g_lb_flow_regions`); each
+/// exit (`break`, `continue`, `return`, `unwind`) bumps `g_lb_flow_exits`.
+(mut(g_lb_flow_seq) : usize) = usize(0);
+(mut(g_lb_flow_exits) : usize) = usize(0);
+(g_lb_flow_regions : RefCell(ArrayList(usize))) = RefCell(ArrayList(usize)).new(ArrayList(usize).new());
+_c_len_usizes :: (fn(xs : &ArrayList(usize)) -> usize)(xs.len());
+_c_last_usize :: (fn(xs : &ArrayList(usize)) -> Option(usize))(xs.last_cloned());
+/// Enter a region that runs on some paths only; returns the depth to restore
+/// (`local_borrow_flow_region_end`), so a throw through the region is
+/// repaired by the enclosing one's end.
+local_borrow_flow_region_begin :: (fn() -> usize)({
+  depth := g_lb_flow_regions.with(_c_len_usizes);
+  seq := g_lb_flow_seq;
+  g_lb_flow_regions.with_mut({ seq }(xs) => xs.push(seq));
+  depth
+});
+local_borrow_flow_region_end :: (fn(depth : usize) -> unit)({
+  while(g_lb_flow_regions.with(_c_len_usizes) > depth, {
+    g_lb_flow_regions.with_mut(xs => xs.pop());
+    ()
+  });
+});
+/// The sequence at which the innermost region began (0 outside every region).
+local_borrow_flow_region_start :: (fn() -> usize)(
+  match(g_lb_flow_regions.with(_c_last_usize), .Some(s) => s, .None => usize(0))
+);
+/// An exit was evaluated: entries GEN'd before it may leave on it.
+local_borrow_flow_note_exit :: (fn() -> unit)({
+  g_lb_flow_exits = (g_lb_flow_exits + usize(1));
+});
+/// The next GEN's sequence number.
+_lb_flow_next_seq :: (fn() -> usize)({
+  seq := g_lb_flow_seq;
+  g_lb_flow_seq = (seq + usize(1));
+  seq
+});
+/// Cluster 4, the loop's back edge (A19a, A19b). The evaluator walks a loop's
+/// condition and body once, in text order, so an entry its body GENs late in
+/// the text is unknown to the accesses made earlier in the text, and a root
+/// declared in the body looks alive to the end of the loop. Both are what the
+/// back edge carries: while a runtime loop evaluates, every access is recorded
+/// (`g_lb_loop_accesses`), and at its end (`local_borrow_loop_end`) each entry
+/// the loop GEN'd is judged against the accesses before its store and against
+/// the body's own locals.
+LbLoopAccess :: struct(place : LocalBorrowPlace, kind : u8, tok : Token);
+derive(LbLoopAccess, Clone);
+/// A runtime loop being evaluated: the flow sequence at its start and the
+/// index of its first recorded access.
+LbLoopRecord :: struct(start_seq : usize, access_start : usize);
+derive(LbLoopRecord, Clone);
+(g_lb_loops : RefCell(ArrayList(LbLoopRecord))) = RefCell(ArrayList(LbLoopRecord)).new(ArrayList(LbLoopRecord).new());
+(g_lb_loop_accesses : RefCell(ArrayList(LbLoopAccess))) = RefCell(ArrayList(LbLoopAccess)).new(ArrayList(LbLoopAccess).new());
+_c_len_lb_loops :: (fn(xs : &ArrayList(LbLoopRecord)) -> usize)(xs.len());
+_c_len_lb_loop_accesses :: (fn(xs : &ArrayList(LbLoopAccess)) -> usize)(xs.len());
+_lb_access_code :: (fn(kind : &LocalBorrowAccess) -> u8)(match(kind, .Read => u8(0), .Write => u8(1), .Move => u8(2), .Exclusive => u8(3)));
+_lb_access_of :: (fn(code : u8) -> LocalBorrowAccess)(
+  cond((code == u8(0)) => LocalBorrowAccess.Read, (code == u8(1)) => LocalBorrowAccess.Write, (code == u8(2)) => LocalBorrowAccess.Move, true => LocalBorrowAccess.Exclusive)
+);
+/// Record an access made while a runtime loop evaluates.
+_lb_loop_note_access :: (fn(place : &LocalBorrowPlace, kind : &LocalBorrowAccess, tok : &Token) -> unit)({
+  if(g_lb_loops.with(_c_len_lb_loops) > usize(0), {
+    rec := LbLoopAccess(place : place.clone(), kind : _lb_access_code(kind), tok : tok.clone());
+    g_lb_loop_accesses.with_mut({ rec }(xs) => xs.push(rec));
+  });
+});
+/// A runtime loop begins (before its condition): returns the depth that
+/// `local_borrow_loop_end` takes.
+local_borrow_loop_begin :: (fn() -> usize)({
+  depth := g_lb_loops.with(_c_len_lb_loops);
+  rec := LbLoopRecord(start_seq : g_lb_flow_seq, access_start : g_lb_loop_accesses.with(_c_len_lb_loop_accesses));
+  g_lb_loops.with_mut({ rec }(xs) => xs.push(rec));
+  depth
+});
+/// The body's top-level statements.
+_lb_body_stmts :: (fn(body : &AstExpr) -> ArrayList(AstExpr))(
+  cond(
+    ast_expr_is_fn_call_of(body, BK_BEGIN, Option(usize).None) => match(body, .FnCall(_, _, Rc(b_args), _, _) => b_args.clone(), .Atom(_, _) => ArrayList(AstExpr).new()),
+    true => {
+      one := ArrayList(AstExpr).new();
+      one.push(body.clone());
+      one
+    }
+  )
+);
+/// `st` assigns the whole holder `name` on every path through it, from a value
+/// that does not read `name`: `name = v`, or a re-point `name = &place`.
+_lb_is_whole_reassign :: (fn(st : &AstExpr, name : &String) -> bool)(
+  ast_expr_is_fn_call_of(st, BK_ASSIGN, Option(usize).Some(usize(2))) && match(
+    st,
+    .FnCall(_, _, Rc(wr_args), _, _) => match(
+      wr_args.get(usize(0)),
+      .Some(wr_lhs) => {
+        target := cond(
+          ast_expr_is_local_borrow_mode_call(&wr_lhs, Option(usize).Some(usize(1))) => match(wr_lhs, .FnCall(_, _, Rc(m_args), _, _) => match(m_args.get(usize(0)), .Some(a) => a, .None => wr_lhs.clone()), .Atom(_, _) => wr_lhs.clone()),
+          true => wr_lhs.clone()
+        );
+        ast_expr_is_atom(&target) && (ast_expr_token(&target).value.* == name) && match(wr_args.get(usize(1)), .Some(wr_rhs) => !_lb_mentions(&wr_rhs, name.clone()), .None => false)
+      },
+      .None => false
+    ),
+    .Atom(_, _) => false
+  )
+);
+/// `e` may leave the block it is a statement of (`break`, `continue`,
+/// `return`, `unwind`). Conservative: it also looks inside closure literals.
+_lb_may_exit :: (fn(e : &AstExpr) -> bool)(
+  match(
+    e,
+    .Atom(_, t) => ((t.value.* == BK_BREAK) || (t.value.* == "continue") || (t.value.* == BK_RETURN)),
+    .FnCall(_, callee, Rc(args), _, _) => {
+      if(ast_expr_is_fn_call_of(e, BK_RETURN, Option(usize).None) || ast_expr_is_fn_call_of(e, BF_UNWIND, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_BREAK, Option(usize).None) || ast_expr_is_fn_call_of(e, "continue", Option(usize).None), {
+        return(true);
+      });
+      if(_lb_may_exit(&callee), {
+        return(true);
+      });
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        if(match(args.get(i), .Some(a) => _lb_may_exit(&a), .None => false), {
+          return(true);
+        });
+        i = (i + usize(1));
+      });
+      false
+    }
+  )
+);
+/// Scan `stmts[from..to)` for what decides whether the holder `name` is live
+/// at a point before them: `.Some(false)` at a whole reassignment (dead),
+/// `.Some(true)` at any other mention or at an exit (live), `.None` when none
+/// of them mentions it.
+_lb_scan_liveness :: (fn(stmts : &ArrayList(AstExpr), from : usize, to : usize, name : &String) -> Option(bool))({
+  (k : usize) = from;
+  while(k < to, {
+    match(
+      stmts.get(k),
+      .Some(st) => {
+        if(_lb_is_whole_reassign(&st, name), {
+          return(Option(bool).Some(false));
+        });
+        if(_lb_mentions(&st, name.clone()) || _lb_may_exit(&st), {
+          return(Option(bool).Some(true));
+        });
+      },
+      .None => ()
+    );
+    k = (k + usize(1));
+  });
+  Option(bool).None
+});
+/// The holder `name` is live at the loop's head: the condition (or the step)
+/// reads it, or the body mentions it before it reassigns it whole.
+_lb_live_at_loop_head :: (fn(name : &String, head : &ArrayList(AstExpr), stmts : &ArrayList(AstExpr)) -> bool)({
+  (hi : usize) = usize(0);
+  while(hi < head.len(), {
+    if(match(head.get(hi), .Some(h) => _lb_mentions(&h, name.clone()), .None => false), {
+      return(true);
+    });
+    hi = (hi + usize(1));
+  });
+  match(_lb_scan_liveness(stmts, usize(0), stmts.len(), name), .Some(live) => live, .None => false)
+});
+/// The holder `name` is live at the access `at` of the loop body `stmts`
+/// through the back edge: from `at` on, some path reads it before it is
+/// reassigned whole — the rest of the body, the loop's exit (`live_after`:
+/// the holder is used after the loop), the head, and the body again up to
+/// `at`. Conservative at the access's own statement and at any exit.
+_lb_live_via_back_edge :: (fn(name : &String, at : &Token, head : &ArrayList(AstExpr), stmts : &ArrayList(AstExpr), live_after : bool) -> bool)({
+  (ia : usize) = stmts.len();
+  (k : usize) = usize(0);
+  while(k < stmts.len(), {
+    if(match(stmts.get(k), .Some(st) => _span_holds(&st, at), .None => false), {
+      ia = k;
+      k = stmts.len();
+    }, {
+      k = (k + usize(1));
+    });
+  });
+  // An access in the head: the body runs next, from its start.
+  if(ia == stmts.len(), {
+    return(match(_lb_scan_liveness(stmts, usize(0), stmts.len(), name), .Some(live) => live, .None => live_after));
+  });
+  if(match(stmts.get(ia), .Some(st) => _lb_mentions(&st, name.clone()), .None => true), {
+    return(true);
+  });
+  match(
+    _lb_scan_liveness(stmts, ia + usize(1), stmts.len(), name),
+    .Some(live) => return(live),
+    .None => ()
+  );
+  if(live_after, {
+    return(true);
+  });
+  (hi : usize) = usize(0);
+  while(hi < head.len(), {
+    if(match(head.get(hi), .Some(h) => _lb_mentions(&h, name.clone()), .None => false), {
+      return(true);
+    });
+    hi = (hi + usize(1));
+  });
+  match(_lb_scan_liveness(stmts, usize(0), ia, name), .Some(live) => live, .None => true)
+});
+/// A runtime loop's evaluation ended (`depth` from `local_borrow_loop_begin`):
+/// judge what its back edge carries. `head` holds the condition (and the
+/// step), `body` the body, `loop_expr` the whole loop.
+///
+/// - A19a: an entry the body GEN'd that stores a root declared inside the loop
+///   into a holder declared outside it, still live at the end of the body (no
+///   kill since), reaches the next iteration, where the root is a fresh
+///   binding: when the holder is read there before it is reassigned, E0911 at
+///   the store.
+/// - A19b: an entry the loop GEN'd is live at every access the loop made
+///   earlier in the text that the back edge reaches with the holder still
+///   live: each such access is checked against it, E0911 at the access.
+///
+/// `check` is false for a loop that is not a runtime loop (unrolled at compile
+/// time, or never entered): its record is dropped unjudged.
+local_borrow_loop_end :: (fn(depth : usize, loop_expr : &AstExpr, head : &ArrayList(AstExpr), body : &AstExpr, ctx : &EvalContext, exn : Exception, (check : bool) ?= true) -> unit)({
+  rec := match(
+    g_lb_loops.with(xs => xs.get_cloned(depth)),
+    .Some(r) => r,
+    .None => return(())
+  );
+  while(g_lb_loops.with(_c_len_lb_loops) > depth, {
+    g_lb_loops.with_mut(xs => xs.pop());
+    ()
+  });
+  if(!check, {
+    if(depth == usize(0), {
+      g_lb_loop_accesses.with_mut({ rec }(xs) => {
+        while(xs.len() > rec.access_start, {
+          xs.pop();
+          ()
+        });
+      });
+    });
+    return(());
+  });
+  loop_tok := ast_expr_token(loop_expr);
+  loop_first := _first_token_of(loop_expr, &loop_tok);
+  loop_last := _last_token_of(loop_expr, &loop_tok);
+  body_last := _last_token_of(body, &loop_tok);
+  stmts := _lb_body_stmts(body);
+  entries := ArrayList(LocalBorrowInfo).new();
+  (ji : usize) = usize(0);
+  while(ji < g_local_borrow_joins.with(_c_len_5), {
+    match(
+      g_local_borrow_joins.with(xs => xs.get_cloned(ji)),
+      .Some(je) => if((je.gen_seq >= rec.start_seq) && je.gen_tok.is_some() && _lb_tok_after(&loop_first, &je.decl), {
+        entries.push(je);
+      }),
+      .None => ()
+    );
+    ji = (ji + usize(1));
+  });
+  accesses := g_lb_loop_accesses.with(xs => {
+    out := ArrayList(LbLoopAccess).new();
+    (ai : usize) = rec.access_start;
+    while(ai < xs.len(), {
+      match(xs.get_cloned(ai), .Some(a) => out.push(a), .None => ());
+      ai = (ai + usize(1));
+    });
+    out
+  });
+  if(depth == usize(0), {
+    g_lb_loop_accesses.with_mut({ rec }(xs) => {
+      while(xs.len() > rec.access_start, {
+        xs.pop();
+        ()
+      });
+    });
+  });
+  (ei : usize) = usize(0);
+  while(ei < entries.len(), {
+    e := entries(ei).clone();
+    gen_tok := match(e.gen_tok.clone(), .Some(t) => t, .None => loop_tok.clone());
+    live_after := _lb_tok_after(&e.end, &loop_last);
+    // A19a: the entry outlives the body (no kill shortened it inside), and its
+    // root is the body's.
+    if(!_lb_tok_after(&body_last, &e.end), {
+      (pi : usize) = usize(0);
+      while(pi < e.places.len(), {
+        match(
+          e.places.get_cloned(pi),
+          .Some(fp) => if(!fp.module_root && _lb_tok_after(&fp.root_decl, &loop_first) && !_lb_tok_after(&fp.root_decl, &loop_last) && _lb_live_at_loop_head(&e.name, head, &stmts), {
+            raise_flow_violation(
+              with_code(
+                format_error_message_with_help(
+                  &gen_tok,
+                  `Cannot store a reference to \`${fp.root_name}\` in \`${e.name}\` here: \`${fp.root_name}\` is declared inside the loop, so each iteration drops it at the end of the body, while \`${e.name}\` is read at the next iteration before it is reassigned, so the reference would outlive the storage it points into (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O3; plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3, the loop back edge).`,
+                  Option(String).Some(`reassign \`${e.name}\` before the end of the body (\`${e.name} = .None\`), or declare \`${fp.root_name}\` before the loop`)
+                ),
+                E_LOCAL_BORROW_CONFLICT
+              ),
+              ctx,
+              exn
+            );
+          }),
+          .None => ()
+        );
+        pi = (pi + usize(1));
+      });
+    });
+    // A19b: the accesses before the store, reached around the back edge.
+    (ak : usize) = usize(0);
+    while(ak < accesses.len(), {
+      a := accesses(ak).clone();
+      kind := _lb_access_of(a.kind);
+      if((e.is_mut || !_lb_is_read(&kind)) && _lb_tok_after(&gen_tok, &a.tok) && _lb_tok_after(&a.tok, &loop_first), {
+        (qi : usize) = usize(0);
+        while(qi < e.places.len(), {
+          match(
+            e.places.get_cloned(qi),
+            .Some(fp) => if(local_borrow_places_overlap(&fp, &a.place) && _lb_live_via_back_edge(&e.name, &a.tok, head, &stmts, live_after), {
+              _lb_raise_conflict(&e, &fp, &a.place, &kind, &a.tok, ctx, exn);
+            }),
+            .None => ()
+          );
+          qi = (qi + usize(1));
+        });
+      });
+      ak = (ak + usize(1));
+    });
+    ei = (ei + usize(1));
   });
 });
 /// The GROUND places behind join `roots` (see `bind_join_roots_for`).
@@ -11500,6 +11893,12 @@ export(
   local_borrows_mark,
   local_borrows_truncate,
   local_borrow_joins_truncate,
+  local_borrow_flow_restore,
+  local_borrow_flow_region_begin,
+  local_borrow_flow_region_end,
+  local_borrow_flow_note_exit,
+  local_borrow_loop_begin,
+  local_borrow_loop_end,
   local_borrow_mark_receiver,
   local_borrow_clear_receiver,
   local_borrow_take_receiver,
