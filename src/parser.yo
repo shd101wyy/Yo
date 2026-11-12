@@ -208,13 +208,22 @@ _advance_body_origin :: (fn(pos : _TemplateBodyOrigin, b : u8) -> _TemplateBodyO
     true => _TemplateBodyOrigin(byte : (pos.byte + usize(1)), row : pos.row, col : pos.col, ch : pos.ch)
   )
 );
+/// What `_template_scan` reads off a template token's raw source.
+_TemplateScan :: struct(
+  /// The file origin of every `${...}` body, in order.
+  bodies : ArrayList(_TemplateBodyOrigin),
+  /// The closing backtick's origin.
+  close : Option(_TemplateBodyOrigin)
+);
 /// The file origin of every `${...}` body of the template token `tok`, in
-/// order, read from the RAW source at `tok.byte_offset` (the token value has
-/// its literal escapes decoded, so offsets into it are not file offsets).
-/// Empty when `tok` has no backtick in its source — a synthetic token — and
-/// the caller lexes the body text on its own.
-_template_body_origins :: (fn(tok : &Token) -> ArrayList(_TemplateBodyOrigin))({
+/// order, and of its closing backtick, read from the RAW source at
+/// `tok.byte_offset` (the token value has its literal escapes decoded, so
+/// offsets into it are not file offsets). Empty when `tok` has no backtick in
+/// its source — a synthetic token — and the caller lexes the body text on its
+/// own.
+_template_scan :: (fn(tok : &Token) -> _TemplateScan)({
   out := ArrayList(_TemplateBodyOrigin).new();
+  (close : Option(_TemplateBodyOrigin)) = .None;
   n := tok.input.*.len();
   if((usize(tok.byte_offset) < n) && (tok.input.*.byte_at(usize(tok.byte_offset)) == u8(0x60)), {
     (pos : _TemplateBodyOrigin) = _TemplateBodyOrigin(byte : (usize(tok.byte_offset) + usize(1)), row : usize(tok.row), col : (usize(tok.column) + usize(1)), ch : (usize(tok.character) + usize(1)));
@@ -224,6 +233,7 @@ _template_body_origins :: (fn(tok : &Token) -> ArrayList(_TemplateBodyOrigin))({
       nb := cond(((pos.byte + usize(1)) < n) => tok.input.*.byte_at(pos.byte + usize(1)), true => u8(0));
       cond(
         (b == u8(0x60)) => {
+          close = .Some(pos);
           done = true;
         },
         (b == u8(0x5C)) => {
@@ -249,7 +259,7 @@ _template_body_origins :: (fn(tok : &Token) -> ArrayList(_TemplateBodyOrigin))({
       );
     });
   });
-  out
+  _TemplateScan(bodies : out, close : close)
 });
 Parser :: struct(
   /// The module's source and path cells, shared with every token it lexes
@@ -741,7 +751,8 @@ impl(
     tpl_append_tok := _template_syn_tok(tok, TokenKind.Identifier, &String.from("append_to"));
     tpl_stmts := ArrayList(AstExpr).new();
     (result_expr_opt : Option(AstExpr)) = .None;
-    body_origins := _template_body_origins(tok);
+    scan := _template_scan(tok);
+    body_origins := scan.bodies;
     (expr_ordinal : usize) = usize(0);
     pi := usize(0);
     while(pi < num_parts, {
@@ -889,7 +900,28 @@ impl(
           match(tpl_stmts.get(si), .Some(st) => block_args.push(st), .None => ());
           si = (si + usize(1));
         });
-        block_args.push(.Atom(self.alloc_id(), tpl_name_tok));
+        // The block's value, the read that moves the local out, sits at the
+        // closing backtick: every other `__yo_tpl_N` atom shares the opening
+        // one, and a move is recognized by its read's position, so a tail at
+        // that position made every `push_str`/`append_to` receiver a move too.
+        // In a task the receivers then lent a copy of the local's slot, and
+        // the template evaluated to the empty string
+        // (issues/fixed/2026-11-11-a-string-interpolation-containing-an-await-evaluates-to-an-empty-string-and-leaks-its-pieces.md).
+        tpl_tail_tok := match(
+          scan.close,
+          .Some(c) => Token(
+            kind : TokenKind.Identifier,
+            value : Rc.clone(tpl_name_tok.value),
+            row : u32(c.row),
+            column : u32(c.col),
+            character : u32(c.ch),
+            byte_offset : u32(c.byte),
+            module_path : Rc.clone(tok.module_path),
+            input : Rc.clone(tok.input)
+          ),
+          .None => tpl_name_tok.clone()
+        );
+        block_args.push(.Atom(self.alloc_id(), tpl_tail_tok));
         begin_tok := _template_syn_tok(tok, TokenKind.Identifier, &String.from(BK_BEGIN));
         .FnCall(self.alloc_id(), .Atom(self.alloc_id(), begin_tok), Rc.new(block_args), false, begin_tok)
       }
