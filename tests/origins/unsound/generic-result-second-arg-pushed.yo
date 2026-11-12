@@ -1,0 +1,22 @@
+// expect: E0911
+// a generic `-> T` over two by-value `T` parameters, called at `T := &i32` with element references of two lists: the result is the second one, and its list grows (reallocates) before the result is read. The result holds what both arguments hold (O-3), so the push is a write of a borrowed place.
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+_sm_pick :: (fn(generic(T : Type), a : T, b : T, first : bool) -> T)(if(first, a, b));
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(i32).new();
+  mut(ys) := ArrayList(i32).new();
+  xs.push(i32(1));
+  ys.push(i32(2));
+  rx := xs.index(usize(0));
+  ry := ys.index(usize(0));
+  picked := _sm_pick(rx, ry, false);
+  mut(i) := i32(0);
+  while(i < i32(1000), {
+    ys.push(i);
+    i = (i + i32(1));
+  });
+  (v : i32) = picked.*;
+  println(&v);
+});
+export(main);

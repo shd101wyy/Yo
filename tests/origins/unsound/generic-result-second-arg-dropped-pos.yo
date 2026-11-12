@@ -1,0 +1,18 @@
+// expect: accept
+// generic-result-second-arg-dropped's positive twin: the result is read before the event.
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+_sm_pick :: (fn(generic(T : Type), a : T, b : T) -> T)(b);
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(i32).new();
+  mut(ys) := ArrayList(i32).new();
+  xs.push(i32(1));
+  ys.push(i32(2));
+  rx := xs.index(usize(0));
+  ry := ys.index(usize(0));
+  picked := _sm_pick(rx, ry);
+  (v : i32) = picked.*;
+  drop(ys);
+  println(&v);
+});
+export(main);

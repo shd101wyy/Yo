@@ -2066,6 +2066,22 @@ record_method_callee_type :: (fn(call_id : ExprId, ty : &TypeValue) -> unit)({
 lookup_method_callee_type :: (fn(call_id : ExprId) -> Option(TypeValue))(
   g_method_callee_types.with(m => m.get_cloned(&call_id))
 );
+/// The DECLARED (generic) `Func` type of a call whose callee was specialized
+/// for it (`pick(rx, ry)` over `pick :: fn(generic(T : Type), a : T, b : T) ->
+/// T`), keyed by the call's expr id. The callee node carries the
+/// specialization, whose types are the arguments' own: an instantiation's
+/// origins are the call's, not the declaration's, so the origin walks read
+/// which parameters share a type binder with the result here (O-3,
+/// issues/fixed/2026-11-12-a-generic-by-value-result-at-a-reference-type-drops-its-second-arguments-origin.md).
+(g_generic_callee_types : RefCell(HashMap(ExprId, TypeValue))) = RefCell(HashMap(ExprId, TypeValue)).new(HashMap(ExprId, TypeValue).new());
+record_generic_callee_type :: (fn(call_id : ExprId, ty : &TypeValue) -> unit)({
+  record_owned_expr_id(call_id);
+  g_generic_callee_types.with_mut({ call_id, ty : Rc.clone(ty) }(m) => m.insert(call_id, Rc.clone(ty)));
+  ()
+});
+lookup_generic_callee_type :: (fn(call_id : ExprId) -> Option(TypeValue))(
+  g_generic_callee_types.with(m => m.get_cloned(&call_id))
+);
 // ---------------------------------------------------------------------------
 // Io-builtin marker side-tables.
 //
@@ -3273,7 +3289,7 @@ export(expr_info_await_analysis, expr_info_set_await_analysis);
 export(expr_info_effect_analysis, expr_info_set_effect_analysis);
 export(expr_info_closure_function_value, expr_info_set_closure_function_value);
 export(ExprInfoTable, expr_info_table_new, expr_info_table_set, expr_info_table_get, codegen_read_log_set, codegen_read_keys, expr_info_table_retain_keys);
-export(record_method_callee_type, lookup_method_callee_type);
+export(record_method_callee_type, lookup_method_callee_type, record_generic_callee_type, lookup_generic_callee_type);
 export(record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, lookup_io_builtin_call);
 export(record_method_callee_value, lookup_method_callee_value, record_local_borrow_step_pin, lookup_local_borrow_step_pin, record_immediate_old_value_drop, lookup_immediate_old_value_drop, record_skipped_operand_drops, clear_skipped_operand_drops, lookup_skipped_operand_drops, note_lent_temporary, lent_temp_token_key, is_lent_temp_token, record_consume_release, is_consume_release);
 export(register_extern_c_global, is_extern_c_global, get_extern_c_global_types);
@@ -3602,6 +3618,7 @@ purge_expr_side_tables :: (fn(ids : &ArrayList(usize)) -> unit)({
 });
 _purge_expr_side_tables_at :: (fn(id : usize) -> unit)({
   _t := g_method_callee_types.with_mut(m => m.remove(&id));
+  _g := g_generic_callee_types.with_mut(m => m.remove(&id));
   _b := g_io_builtin_calls.with_mut(m => m.remove(&id));
   _v := g_method_callee_values.with_mut(m => m.remove(&id));
   _m := g_macro_expansions.with_mut(m => m.remove(&id));
@@ -3655,7 +3672,7 @@ purge_executed_clone_metadata :: (fn(table : &ExprInfoTable, root : &AstExpr, lo
 });
 /// Total entries across those tables (the B2 plateau test's probe).
 expr_side_table_entry_count :: (fn() -> usize)(
-  g_method_callee_types.with(_c_len_8) + g_io_builtin_calls.with(_c_len_16) + g_method_callee_values.with(_c_len_13) + g_macro_expansions.with(_c_len_14) + g_immediate_old_value_drops.with(_c_len_14) + g_skipped_operand_drops.with(_c_len_17) + g_consume_releases.with(_c_len_15)
+  g_method_callee_types.with(_c_len_8) + g_generic_callee_types.with(_c_len_8) + g_io_builtin_calls.with(_c_len_16) + g_method_callee_values.with(_c_len_13) + g_macro_expansions.with(_c_len_14) + g_immediate_old_value_drops.with(_c_len_14) + g_skipped_operand_drops.with(_c_len_17) + g_consume_releases.with(_c_len_15)
 );
 export(record_module_level_init_expr, get_module_level_init_exprs);
 export(purge_expr_side_tables, purge_executed_clone_metadata, expr_side_table_entry_count);
