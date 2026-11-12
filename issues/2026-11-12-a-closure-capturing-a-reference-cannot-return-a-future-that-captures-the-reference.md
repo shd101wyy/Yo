@@ -14,7 +14,9 @@ Found 2026-11-12 by the audit re-probe (`plans/backlog/OWNERSHIP_BORROWING_ORIGI
 LONG :: "0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz";
 main :: (fn(io : Io) -> unit)({
   x := String.from(LONG);
-  (mk : Impl(Fn() -> Impl(Future(unit, Io)))) = ({ &x, io }() => io.async({ x }(io : Io) => { println(`OUT: ${x.*}`); }));
+  (mk : Impl(Fn() -> Impl(Future(unit, Io)))) = ({ &x, io }() => io.async({ x }(io : Io) => {
+    println(`OUT: ${x.*}`);
+  }));
   f := mk();
   io.await(f, io);
 });

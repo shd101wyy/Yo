@@ -14,10 +14,14 @@ Found 2026-11-11 by the ownership / borrowing / origin audit (`plans/backlog/OWN
 X :: struct(s : String);
 H :: struct(r : &Rc(X));
 Stack :: (fn(comptime(T) : Type) -> comptime(Type))(struct(top : Option(T), n : usize));
-impl(generic(T : Type), Stack(T), push : (fn(self : &mut Self, v : T) -> unit)({
-  self.top = .Some(v);
-  self.n = (self.n + usize(1));
-}));
+impl(
+  generic(T : Type),
+  Stack(T),
+  push : (fn(self : &mut Self, v : T) -> unit)({
+    self.top = .Some(v);
+    self.n = (self.n + usize(1));
+  })
+);
 main :: (fn() -> unit)({
   x := Rc.new(X(s : String.from("x")));
   mut(st) := Stack(H)(top : .Some(H(r : &x)), n : usize(1));
