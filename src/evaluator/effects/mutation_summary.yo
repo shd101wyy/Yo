@@ -54,11 +54,12 @@
   expr_info_index_method_value,
   expr_info_is_anonymous_function_definition,
   expr_info_macro_expansion,
-  scope_variables
+  scope_variables,
+  is_mut_lend_value
 } :: import("../../expr_info.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, value_contains_unknown, is_module_val, is_type_value } :: import("../../value.yo");
-{ TypeValue, no_labels, SharedList, no_types, slot_pointee_at, t_slot_is_mut_ref } :: import("../../types/definitions.yo");
+{ TypeValue, no_labels, SharedList, no_types, slot_pointee_at, t_slot_is_mut_ref, fn_param_mut_ref_flags } :: import("../../types/definitions.yo");
 { get_func_type, is_control_fn, is_closure_fn } :: import("../../function_value.yo");
 { is_function_type, is_pointer_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, cell_handle_view, is_atomic_counted_handle_type, is_prelude_allocator_struct } :: import("../../types/guards.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
@@ -774,9 +775,18 @@ _msp_extract :: (fn(r : _MspRoot, hop_is_rc : bool) -> _MspRoot)(
 /// The per-parameter verdict codegen consumes: `all` (unknown effects, every
 /// parameter), `deep(i)` (storage reached through parameter i's contents),
 /// `shallow(i)` (parameter i's own storage). Either bit means "asserts i".
-ParamMutationMask :: ref(struct(all : bool, deep : ArrayList(bool), shallow : ArrayList(bool)));
+/// `lends_mut(i)`: the body makes a `&mut` reference VALUE of storage rooted
+/// in parameter i (a `&mut` lend that is not a `&mut` parameter's argument:
+/// `(&mut b.*).into_iter()`, `ys := &mut b.*`, a `&mut` field or payload; a
+/// `&mut` reference read into a by-value slot, `Handle(b)(bag : b)`), or
+/// passes it to a callee's `&mut` parameter whose bit is set (VERDICTS-57
+/// §3.1). Only the local-borrow judge of a call reads it
+/// (`d3_check_pending`): the cursor, holder or walk such a value is lets the
+/// caller write the place, so the argument is a write. Codegen, D3 and the
+/// runtime asserts never read it.
+ParamMutationMask :: ref(struct(all : bool, deep : ArrayList(bool), shallow : ArrayList(bool), lends_mut : ArrayList(bool)));
 param_mutation_mask_new :: (fn() -> ParamMutationMask)(
-  ParamMutationMask(all : false, deep : ArrayList(bool).new(), shallow : ArrayList(bool).new())
+  ParamMutationMask(all : false, deep : ArrayList(bool).new(), shallow : ArrayList(bool).new(), lends_mut : ArrayList(bool).new())
 );
 derive(ParamMutationMask, Clone);
 _msp_bits_get :: (fn(bits : &ArrayList(bool), i : usize) -> bool)(match(bits.get(i), .Some(b) => b, .None => false));
@@ -801,6 +811,7 @@ _msp_mask_or :: (fn(dst : &ParamMutationMask, src : &ParamMutationMask) -> unit)
   });
   _msp_bits_or(&mut dst.deep, &src.deep);
   _msp_bits_or(&mut dst.shallow, &src.shallow);
+  _msp_bits_or(&mut dst.lends_mut, &src.lends_mut);
 });
 /// Record a mutation of the storage `r` names.
 _msp_mask_add_root :: (fn(m : &ParamMutationMask, r : _MspRoot, deep : bool) -> unit)({
@@ -817,6 +828,9 @@ _msp_mask_add_root :: (fn(m : &ParamMutationMask, r : _MspRoot, deep : bool) -> 
     true => ()
   );
 });
+/// The body makes a `&mut` reference value of storage rooted in parameter
+/// `i` (`ParamMutationMask.lends_mut`).
+param_mutation_mask_lends_mut :: (fn(m : &ParamMutationMask, i : usize) -> bool)(_msp_bits_get(&m.lends_mut, i));
 param_mutation_mask_hits :: (fn(m : &ParamMutationMask, i : usize) -> bool)(
   m.all || _msp_bits_get(&m.deep, i) || _msp_bits_get(&m.shallow, i)
 );
@@ -1451,6 +1465,33 @@ _MspAnalysis :: struct(mask : ParamMutationMask, ret : _MspRoot);
 _MspMemo :: struct(body_id : ExprId, analysis : _MspAnalysis);
 (g_msp_by_fid : RefCell(HashMap(String, _MspMemo))) = RefCell(HashMap(String, _MspMemo)).new(HashMap(String, _MspMemo).new());
 (g_msp_in_progress : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
+/// The `&mut` markers the walk met as the argument of a `&mut` parameter:
+/// the callee's own summary judges those (`_MsP.lends_through_call`), so the
+/// marker itself is no lend of this body.
+(g_msp_slot_markers : RefCell(HashSet(ExprId))) = RefCell(HashSet(ExprId)).new(HashSet(ExprId).new());
+_msp_set_lends_all :: (fn(m : &ParamMutationMask, ctx : &_MspCtx) -> unit)({
+  (i : usize) = usize(0);
+  while(i < ctx.labels.len(), i = (i + usize(1)), {
+    _msp_bits_set(&mut m.lends_mut, i);
+  });
+});
+/// Record a `&mut` reference value made of `place` (`lends_mut`): the `&mut`
+/// parameter it is rooted in, else the parameter its storage is
+/// (`classify`); unknown storage may be any parameter's.
+_msp_note_lend :: (fn(m : &ParamMutationMask, place : &AstExpr, ctx : &_MspCtx) -> unit)(
+  match(
+    _msp_inout_param_of_place(place, ctx),
+    .Some(pi) => _msp_bits_set(&mut m.lends_mut, pi),
+    .None => {
+      r := _MsP.classify(&ast_expr_strip_borrow_marker(place), ctx);
+      cond(
+        (r.kind == MSP_PARAM) => _msp_bits_set(&mut m.lends_mut, r.param),
+        (r.kind == MSP_ROOTED) => _msp_set_lends_all(m, ctx),
+        true => ()
+      );
+    }
+  )
+);
 _MsP :: struct(_d : i32);
 impl(
   _MsP,
@@ -2783,6 +2824,63 @@ impl(
       i = (i + usize(1));
     });
   }),
+  /// `lends_mut` through a resolved call (VERDICTS-57 §3.1): the `&mut`
+  /// marker of a `&mut` parameter's argument is the callee's to judge (kept
+  /// out of the walk's own lends, `g_msp_slot_markers`), and a parameter the
+  /// callee's summary says it makes a `&mut` reference value of lends what
+  /// our argument names. With the arguments unmapped, a callee that lends
+  /// any parameter may lend any of ours.
+  lends_through_call : (
+    fn(m : &ParamMutationMask, fid : &String, callee_mask : &ParamMutationMask, e : &AstExpr, func_expr : &AstExpr, args : &ArrayList(AstExpr), labels_len : usize, ctx : &_MspCtx) -> unit
+  )({
+    match(
+      _MsP.argv(e, func_expr, args, labels_len, &ctx.table),
+      .None => {
+        (li : usize) = usize(0);
+        while(li < labels_len, li = (li + usize(1)), {
+          if(param_mutation_mask_lends_mut(callee_mask, li), {
+            _msp_set_lends_all(m, ctx);
+          });
+        });
+      },
+      .Some(av) => {
+        flags := fn_param_mut_ref_flags(&get_func_type(fid.clone()));
+        off := if(av.len() > args.len(), av.len() - args.len(), usize(0));
+        (j : usize) = usize(0);
+        while(j < av.len(), j = (j + usize(1)), {
+          if(match(flags.get(j), .Some(f) => f, .None => false), {
+            (raw : Option(AstExpr)) = if(
+              j < off,
+              match(
+                func_expr,
+                .FnCall(_, _, Rc(dargs), _, _) => if(ast_expr_is_fn_call_of(func_expr, BF_DOT, Option(usize).Some(usize(2))), dargs.get(usize(0)), Option(AstExpr).None),
+                .Atom(_, _) => Option(AstExpr).None
+              ),
+              args.get(j - off)
+            );
+            match(
+              raw,
+              .Some(ra) => {
+                ru := if(
+                  ast_expr_is_fn_call_of(&ra, BK_COLON, Option(usize).Some(usize(2))),
+                  match(&ra, .FnCall(_, _, Rc(la), _, _) => match(la.get(usize(1)), .Some(v) => v, .None => ra.clone()), .Atom(_, _) => ra.clone()),
+                  ra
+                );
+                if(ast_expr_is_fn_call_of(&ru, BK_BORROW_MUT, Option(usize).Some(usize(1))), {
+                  ru_id := ast_expr_id(&ru);
+                  g_msp_slot_markers.with_mut({ ru_id }(s) => s.insert(ru_id));
+                });
+              },
+              .None => ()
+            );
+            if(param_mutation_mask_lends_mut(callee_mask, j), {
+              match(av.get(j), .Some(aj) => _msp_note_lend(m, &aj, ctx), .None => ());
+            });
+          });
+        });
+      }
+    );
+  }),
   walk_children : (fn(func_expr : &AstExpr, args : &ArrayList(AstExpr), ctx : &_MspCtx) -> ParamMutationMask)({
     m := _MsP.walk(func_expr, ctx);
     (i : usize) = usize(0);
@@ -3107,6 +3205,12 @@ impl(
       },
       .None => ()
     );
+    // A `&mut` reference value the evaluator made of a place here (a lend
+    // into a by-value `&mut` slot, field or element; a `&mut` reference read
+    // passed on): `lends_mut` of the parameter it is rooted in.
+    if(is_mut_lend_value(ast_expr_id(e)), {
+      _msp_note_lend(&m, e, ctx);
+    });
     if(ast_expr_is_atom(e), {
       return(m);
     });
@@ -3130,8 +3234,24 @@ impl(
     );
     // A call-site borrow marker is not a call: what it lends is walked as
     // the place itself (decision 33).
+    // A `&mut` marker anywhere but at a `&mut` parameter (a binding, a
+    // `match` scrutinee, a field, a by-value slot) makes a `&mut` reference
+    // value of its place (`lends_mut`, VERDICTS-57 §3.1).
     if(_msp_is_borrow_marker(head.clone(), args.len()), {
-      return(match(args.get(usize(0)), .Some(mo) => _MsP.walk(&mo, ctx), .None => m));
+      return(
+        match(
+          args.get(usize(0)),
+          .Some(mo) => {
+            mm := _MsP.walk(&mo, ctx);
+            mk_id := ast_expr_id(e);
+            if((head == BK_BORROW_MUT) && !g_msp_slot_markers.with(s => s.contains(&mk_id)), {
+              _msp_note_lend(&mm, &mo, ctx);
+            });
+            mm
+          },
+          .None => m
+        )
+      );
     });
     // A projection TAIL (decision 24, `rewrite_projection_tails`) hands the
     // caller a borrow of its operand's place: a `&mut` tail lets the caller
@@ -3524,6 +3644,7 @@ impl(
               });
             }
           );
+          _MsP.lends_through_call(&m, &fid, &an.mask, e, &func_expr, &args, labels.len(), ctx);
           _msp_mask_or(&m, _MsP.walk_children(&func_expr, &args, ctx));
           return(m);
         },
@@ -4659,4 +4780,4 @@ mutation_summary_entry_count :: (fn() -> usize)(
 d1_reach_memo :: (fn(fid : &String) -> Option(Option(String)))(
   match(g_gr_by_fid.with({ &fid }(m) => m.get_cloned(fid)), .Some(m) => Option(Option(String)).Some(m.reach.clone()), .None => Option(Option(String)).None)
 );
-export(summarize_function_bodies, purge_mutation_summaries, rc_write_audit_enabled, audit_rc_writes, mutation_summary_entry_count, function_may_mutate_rc_storage, function_param_mutation_mask, ParamMutationMask, param_mutation_mask_hits, param_mutation_mask_is_empty, strict_borrow_violations, function_reaches_non_send_global, d1_record_global_write, d1_reach_memo, d1_note_thread_reach);
+export(summarize_function_bodies, purge_mutation_summaries, rc_write_audit_enabled, audit_rc_writes, mutation_summary_entry_count, function_may_mutate_rc_storage, function_param_mutation_mask, ParamMutationMask, param_mutation_mask_hits, param_mutation_mask_lends_mut, param_mutation_mask_is_empty, strict_borrow_violations, function_reaches_non_send_global, d1_record_global_write, d1_reach_memo, d1_note_thread_reach);

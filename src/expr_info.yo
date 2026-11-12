@@ -1372,6 +1372,31 @@ emitted_block_statements :: (fn(stmts : ArrayList(AstExpr)) -> ArrayList(AstExpr
   });
   kept
 });
+/// The nodes the evaluator made a `&mut` reference VALUE of a place at
+/// (VERDICTS-57 §3.1): a `&mut` lend, or a read of a `&mut` reference
+/// binding, into a by-value slot whose type is `&mut T` (a parameter typed by
+/// `Self` or a binder: `(&mut xs).into_iter()`), a `&mut` field of a struct
+/// constructor or a `&mut` tuple element. Making one is a write of the
+/// place: the caller judges it as one where it is made, and a callee's
+/// mutation summary records it per parameter (`lends_mut`,
+/// evaluator/effects/mutation_summary.yo).
+(g_mut_lend_values : RefCell(HashSet(ExprId))) = RefCell(HashSet(ExprId)).new(HashSet(ExprId).new());
+/// Record whether the node `id` was made a `&mut` reference value
+/// (`g_mut_lend_values`); a later evaluation of the node overrides.
+note_mut_lend_value :: (fn(id : ExprId, is_mut_lend : bool) -> unit)({
+  if(is_mut_lend, {
+    g_mut_lend_values.with_mut(s => s.insert(id));
+  }, {
+    if(!g_mut_lend_values.with(_c_is_empty_1), {
+      g_mut_lend_values.with_mut(s => s.remove(&id));
+    });
+  });
+  ()
+});
+/// Whether the evaluator made the node `id` a `&mut` reference value.
+is_mut_lend_value :: (fn(id : ExprId) -> bool)(
+  !g_mut_lend_values.with(_c_is_empty_1) && g_mut_lend_values.with(s => s.contains(&id))
+);
 /// Local borrow binding's `imm(y)`/`mut(y)` node id → the hidden owning local
 /// that holds the reference cell its re-points step into (plans/VALUES_BY_DEFAULT.md
 /// decision 25; see `record_local_borrow_step_pin`).
@@ -3185,7 +3210,7 @@ scope_variables :: (fn(key : ExprId, env : &Environment, name : &String) -> Arra
   )
 );
 export(scope_variables);
-export(note_stripped_statement, is_stripped_statement, emitted_block_statements);
+export(note_stripped_statement, is_stripped_statement, emitted_block_statements, note_mut_lend_value, is_mut_lend_value);
 export(Path, PathCollection, path_collection_new, expr_info_paths_for_write, path_collection_of_name, set_name_path_sharing);
 export(path_contains_path, path_conflicts_with_path, path_collection_conflicts_with_path_collection);
 export(ControlFlowKind, ControlFlowFlags);
@@ -3584,6 +3609,7 @@ _purge_expr_side_tables_at :: (fn(id : usize) -> unit)({
   _d := g_immediate_old_value_drops.with_mut(m => m.remove(&id));
   _s := g_skipped_operand_drops.with_mut(m => m.remove(&id));
   _c := g_consume_releases.with_mut(s => s.remove(&id));
+  _l := g_mut_lend_values.with_mut(s => s.remove(&id));
 });
 /// Drop the metadata an EXECUTED fresh-id clone left behind: every node of
 /// `root`'s tree whose id lies in `[lo, hi)` (the ids the clone minted, see

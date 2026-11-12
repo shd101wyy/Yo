@@ -1,0 +1,23 @@
+// expect: E0911
+// An explicit write cursor `(&mut xs).into_iter()` beside a live `&` loan of `xs` (VERDICTS-57 §3.1).
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(inner) := ArrayList(String).new();
+  inner.push(String.from("hello-world-hello-world-hello-world"));
+  mut(xs) := ArrayList(ArrayList(String)).new();
+  xs.push(inner);
+  r := xs.index(usize(0)).index(usize(0));
+  mut(it) := (&mut xs).into_iter();
+  match(
+    it.next(),
+    .Some(x) => {
+      x.* = ArrayList(String).new();
+    },
+    .None => ()
+  );
+  println(`OUT: ${r.*}`);
+  ()
+});
+export(main);

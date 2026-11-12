@@ -203,7 +203,8 @@ pragma(Pragma.AllowUnsafe);
   is_dyn_lend,
   mark_node_preevaluated,
   unmark_node_preevaluated,
-  node_is_preevaluated
+  node_is_preevaluated,
+  note_mut_lend_value
 } :: import("../../expr_info.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { call_promote_index_places_for_write } :: import("../context.yo");
@@ -2028,6 +2029,15 @@ check_if_function_parameter_matches_argument :: (
     rv_ty := Option(TypeValue).Some(arg_info.ty());
     expr_info_set_converted_runtime_type(&arg_info, &rv_ty);
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&evaled_arg), &arg_info);
+  });
+  // VERDICTS-57 §3.1: a by-value slot given a `&mut` reference VALUE — the
+  // `&mut` lend above (`(&mut xs).into_iter()`, a `Self`-typed `&mut` slot)
+  // or a `&mut` reference read passed on — is made a `&mut` reference of the
+  // place: a write of it at the call (`require_no_inout_write_through_borrow`)
+  // and, in a callee's body, the `lends_mut` bit of the parameter it is
+  // rooted in (evaluator/effects/mutation_summary.yo).
+  if(!param_is_ref && !is_ct_only && !slot_of_reference, {
+    note_mut_lend_value(ast_expr_id(&evaled_arg), (t9_lend_ty.is_some() && t_slot_is_mut_ref(&resolved_pt)) || (t9_lend_ty.is_none() && t_slot_is_mut_ref(&arg_info.ty())));
   });
   // Steps 3a–3c and the comptime-argument gate: the shared rule
   // (`check_argument_for_parameter`), which also lowers a comptime literal to
@@ -10087,7 +10097,7 @@ try_to_call_function_with_arguments :: (
           .Some(.FuncVal(d3_fvd, _)) => d3_check_pending(&d3_pending, d3_fvd.*.func_id.clone(), &d3_fvd.*.body, expr, ctx, exn),
           // No body to read (a `Dyn(Fn)` value, a function pointer): an
           // unknown mask is a write.
-          _ => d3_check_pending_unresolved_callee(&d3_pending, &ast_expr_to_string(callee_expr), ctx, exn)
+          _ => d3_check_pending_unresolved_callee(&d3_pending, &ast_expr_to_string(callee_expr), expr, ctx, exn)
         );
       });
       // Aliasing Stage 1 (mutation summaries, evaluator/effects/

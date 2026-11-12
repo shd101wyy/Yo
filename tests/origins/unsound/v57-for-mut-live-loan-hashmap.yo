@@ -1,0 +1,19 @@
+// expect: E0911
+// v57-for-mut-live-loan over a `HashMap`: the write walk replaces the list `r` points into.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(inner) := ArrayList(String).new();
+  inner.push(String.from("hello-world-hello-world-hello-world"));
+  mut(m) := HashMap(i32, ArrayList(String)).new();
+  m.insert(i32(1), inner);
+  r := m.index(i32(1)).index(usize(0));
+  for(&mut m, (k, v) => {
+    v.* = ArrayList(String).new();
+  });
+  println(`OUT: ${r.*}`);
+  ()
+});
+export(main);

@@ -1,0 +1,19 @@
+// expect: E0911
+// v57-for-mut-live-loan over a `Deque`: the write walk replaces the list `r` points into.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ Deque } :: import("std/collections/deque");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(inner) := ArrayList(String).new();
+  inner.push(String.from("hello-world-hello-world-hello-world"));
+  mut(d) := Deque(ArrayList(String)).new();
+  d.push_back(inner);
+  r := d.index(usize(0)).index(usize(0));
+  for(&mut d, x => {
+    x.* = ArrayList(String).new();
+  });
+  println(`OUT: ${r.*}`);
+  ()
+});
+export(main);

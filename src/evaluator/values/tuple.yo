@@ -37,7 +37,8 @@ import("std/fmt");
   new_expr_info,
   expr_info_table_set,
   expr_info_table_get,
-  note_self_lend_operand
+  note_self_lend_operand,
+  note_mut_lend_value
 } :: import("../../expr_info.yo");
 { Environment, Variable, env_adopt } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
@@ -59,7 +60,11 @@ import("std/fmt");
   deref_rule_applies,
   is_reference_deref_site,
   reject_reference_without_deref,
-  deref_rule_recording
+  deref_rule_recording,
+  local_borrows_active,
+  local_borrow_place_of,
+  local_borrow_access,
+  LocalBorrowAccess
 } :: import("../utils.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
@@ -252,6 +257,17 @@ evaluate_tuple_element_value :: (
           `\`${if(lend_is_mut, "&mut ", "&")}${l_place}\` cannot be lent into a tuple: a tuple's reference element lends a binding's place (\`&x\`, \`&x.f\`) or a raw pointer's referent (\`&p.*\`). Bind the place to a local first.`
         )
       )
+    );
+  });
+  // VERDICTS-57 §3.1: a `&mut` lend makes a `&mut` reference value of the
+  // place, a write of it (E0911 against a live borrow), and in a callee's
+  // body the `lends_mut` bit of the parameter it is rooted in.
+  note_mut_lend_value(ast_expr_id(&evaluated_rhs), is_lend && lend_is_mut);
+  if(is_lend && lend_is_mut && local_borrows_active(), {
+    match(
+      local_borrow_place_of(&evaluated_rhs, &env, ctx),
+      .Some(ml_lp) => local_borrow_access(&ml_lp, LocalBorrowAccess.Exclusive, ast_expr_token(expr), ctx, exn),
+      .None => ()
     );
   });
   child_type := match(
