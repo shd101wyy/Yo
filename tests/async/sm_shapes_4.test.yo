@@ -1773,14 +1773,16 @@ test("a temporary lent before an await in a later operand is read after the resu
   b := io.await(io.async((io : Io) => _lt_mkw().plus(io.await(_lt_num(io), io))), io);
   assert(b == usize(79), "receiver: the lent temporary survives the await");
   c := io.await(
-    io.async((io : Io) => match(
-      &_lt_mk_opt(),
-      .Some(r) => {
-        io.await(yield(io), io);
-        r.len()
-      },
-      .None => usize(0)
-    )),
+    io.async(
+      (io : Io) => match(
+        &_lt_mk_opt(),
+        .Some(r) => {
+          io.await(yield(io), io);
+          r.len()
+        },
+        .None => usize(0)
+      )
+    ),
     io
   );
   assert(c == usize(72), "scrutinee: the arm's binding survives the await");
