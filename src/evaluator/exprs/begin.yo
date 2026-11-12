@@ -34,6 +34,7 @@ pragma(Pragma.AllowUnsafe);
   BF_DOT,
   BK_COND,
   BK_MATCH,
+  BK_COLON,
   BK_FN,
   BK_CTL,
   BK_UNSAFE_FN,
@@ -73,7 +74,7 @@ pragma(Pragma.AllowUnsafe);
   record_branch_consume,
   lookup_method_callee_type
 } :: import("../../expr_info.yo");
-{ scope_release_active, scope_release_depth, scope_release_set_depth, scope_release_mark, scope_release_body, is_call_once_capture_dup, is_moved_container_dup, mark_fnonce_capture_drop, record_immediate_old_value_drop, is_by_value_param_share_dup, is_call_scoped_share_dup } :: import("../../expr_info.yo");
+{ scope_release_active, scope_release_depth, scope_release_set_depth, scope_release_mark, scope_release_body, is_call_once_capture_dup, is_moved_container_dup, mark_fnonce_capture_drop, record_immediate_old_value_drop, is_by_value_param_share_dup, is_call_scoped_share_dup, note_arg_move_region, ast_comparable_token_bounds } :: import("../../expr_info.yo");
 { Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_is_inout_borrow_root, variable_keep_alias_dups, variable_mark_keep_alias_dups, variable_moved_at_cleanup_point, variable_undone_moves, snapshot_env, is_fnonce_capture_frame, env_adopt, variable_value_type } :: import("../../env.yo");
 {
   EvalContext,
@@ -94,7 +95,7 @@ pragma(Pragma.AllowUnsafe);
 :: import("../../types/flowability.yo");
 { throw_unwind_type_mismatch, UNWIND_WITHOUT_ENCLOSING_FN } :: import("./unwind.yo");
 { type_representation_contains_raw_ptr, type_contains_rc_type, type_requires_explicit_copy, type_is_second_class, is_future_value_type } :: import("../../types/utils.yo");
-{ is_temp_variable_name, debug_knob } :: import("../../utils.yo");
+{ is_temp_variable_name, is_any_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
 { generate_expr_from_code } :: import("../../parser.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
@@ -786,27 +787,142 @@ _m3_is_flow_logged_move :: (fn(variable : &Variable, t : &Token) -> bool)({
 /// argument is evaluated, so an exit in a later argument still owns it:
 /// `.None`
 /// (issues/fixed/2026-10-23-a-break-in-a-later-argument-skips-the-drop-of-a-by-value-argument.md).
+/// The same holds for a TEMPORARY passed by value (`g(mk(), …)`), a struct or
+/// tuple literal's earlier field and a by-value receiver (`T(…).eat(…)`)
+/// (issues/fixed/2026-11-11-a-temporary-argument-leaks-when-a-later-argument-returns-continues-or-unwinds.md).
 _m3_consumed_for_call_arg :: (fn(call : &AstExpr, args : &ArrayList(AstExpr), i : usize, variable : &Variable, consumed : &Option(Token)) -> Option(Token))({
   ct := match(consumed, .Some(t) => t, .None => return(Option(Token).None));
   // A block's statements run one by one: an earlier one is not an argument.
   if(ast_expr_is_fn_call_of(call, BK_BEGIN, Option(usize).None), {
     return(consumed);
   });
-  (j : usize) = usize(0);
-  while(j < i, {
+  match(_m3_first_arg_after_move(call, args, variable, &ct), .Some(k) => if(i >= k, return(Option(Token).None)), .None => ());
+  consumed
+});
+/// Whether the call argument `a` is the by-value use that moved `variable` at
+/// `ct`: an atom spelling the variable's name at its move token, or the
+/// expression a temporary was minted for and moved at (a labeled field's
+/// value, `S(f : mk(), …)`, included).
+_m3_arg_moves_variable :: (fn(a : &AstExpr, variable : &Variable, ct : &Token) -> bool)({
+  if(ast_expr_is_atom(a), {
+    at := ast_expr_token(a);
+    return((at.value.* == variable.name) && _m3_tokens_comparable(&at, ct) && (at.character == ct.character));
+  });
+  if(!is_any_temp_variable_name(&variable.name), {
+    return(false);
+  });
+  init := match(variable.initialized_at_token(), .Some(t) => t, .None => return(false));
+  _m3_is_temp_site(a, &init, ct) || match(
+    a,
+    .FnCall(_, _, Rc(la), _, _) => (ast_expr_is_fn_call_of(a, BK_COLON, Option(usize).Some(usize(2))) && match(la.get(usize(1)), .Some(v) => _m3_is_temp_site(&v, &init, ct), .None => false)),
+    .Atom(_, _) => false
+  )
+});
+/// `node` is where a temporary was minted (`init`) and moved (`ct`).
+_m3_is_temp_site :: (fn(node : &AstExpr, init : &Token, ct : &Token) -> bool)({
+  t := ast_expr_token(node);
+  _m3_tokens_comparable(&t, ct) && ((t.character == ct.character) && (_m3_tokens_comparable(&t, init) && (t.character == init.character)))
+});
+/// The index of the first argument of the plain call `call` that runs after
+/// one of its by-value operands moved `variable` at `ct` (an earlier argument,
+/// or the receiver of a method call, which precedes them all), or `.None`.
+_m3_first_arg_after_move :: (fn(call : &AstExpr, args : &ArrayList(AstExpr), variable : &Variable, ct : &Token) -> Option(usize))({
+  receiver_moves := match(
+    call,
+    .FnCall(_, func, _, _, _) => (
+      ast_expr_is_fn_call_of(&func, BF_DOT, Option(usize).Some(usize(2))) && match(
+        func,
+        .FnCall(_, _, Rc(fargs), _, _) => match(fargs.get(usize(0)), .Some(r) => _m3_arg_moves_variable(&r, variable, ct), .None => false),
+        .Atom(_, _) => false
+      )
+    ),
+    .Atom(_, _) => false
+  );
+  if(receiver_moves, {
+    return(Option(usize).Some(usize(0)));
+  });
+  (mut(j) : usize) = usize(0);
+  while(j < args.len(), {
     match(
       args.get(j),
-      .Some(a) => if(ast_expr_is_atom(&a), {
-        at := ast_expr_token(&a);
-        if((at.value.* == variable.name) && _m3_tokens_comparable(&at, &ct) && (at.character == ct.character), {
-          return(Option(Token).None);
-        });
+      .Some(a) => if(_m3_arg_moves_variable(&a, variable, ct), {
+        return(Option(usize).Some(j + usize(1)));
       }),
       .None => ()
     );
     j = (j + usize(1));
   });
-  consumed
+  Option(usize).None
+});
+/// Record, for codegen's exit gate, the span of the arguments that run
+/// after a by-value operand of a plain call moved `variable` and before the
+/// call itself (`ArgMoveRegion`, expr_info.yo): an effect escape there still
+/// owns the value. The walk visits what the M3 walks visit: no function
+/// boundary, a macro call through its expansion, and the operands of plain
+/// calls only (a block's statements, a `cond`/`match` and a loop are not
+/// argument lists).
+_m3_note_arg_move_region :: (fn(expr : &AstExpr, variable : &Variable, ct : &Token, ctx : &EvalContext) -> bool)(
+  match(
+    expr,
+    .Atom(_, _) => false,
+    .FnCall(_, func, Rc(args), _, _) => {
+      if(_is_function_boundary_for_early_drop(expr, ctx), {
+        return(false);
+      });
+      match(
+        expr_info_table_get(&ctx.expr_info_table, ast_expr_id(expr)),
+        .Some(ei) => match(expr_info_macro_expansion(&ei), .Some(mx) => return(recur(&mx, variable, ct, ctx)), .None => ()),
+        .None => ()
+      );
+      plain := !(ast_expr_is_fn_call_of(expr, BK_BEGIN, Option(usize).None) || (ast_expr_is_fn_call_of(expr, BK_COND, Option(usize).None) || (ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None) || (ast_expr_is_fn_call_of(expr, BK_WHILE, Option(usize).None) || ast_expr_is_fn_call_of(expr, "=>", Option(usize).None)))));
+      if(plain, {
+        match(
+          _m3_first_arg_after_move(expr, &args, variable, ct),
+          .Some(k) => match(
+            args.get(k),
+            .Some(later) => {
+              first := ast_comparable_token_bounds(&later, ct);
+              whole := ast_comparable_token_bounds(expr, ct);
+              note_arg_move_region(variable.id(), first.0, whole.1);
+              return(true);
+            },
+            .None => ()
+          ),
+          .None => ()
+        );
+      });
+      if(recur(&func, variable, ct, ctx), {
+        return(true);
+      });
+      (mut(ai) : usize) = usize(0);
+      while(ai < args.len(), {
+        match(
+          args.get(ai),
+          .Some(a) => if(recur(&a, variable, ct, ctx), {
+            return(true);
+          }),
+          .None => ()
+        );
+        ai = (ai + usize(1));
+      });
+      false
+    }
+  )
+);
+/// `_m3_note_arg_move_region` over a block's statements.
+_m3_note_arg_move_region_in :: (fn(stmts : &ArrayList(AstExpr), variable : &Variable, ctx : &EvalContext) -> unit)({
+  ct := match(variable.consumed_at_token(), .Some(t) => t, .None => return(()));
+  (mut(si) : usize) = usize(0);
+  while(si < stmts.len(), {
+    match(
+      stmts.get(si),
+      .Some(st) => if(_m3_note_arg_move_region(&st, variable, &ct, ctx), {
+        return(());
+      }),
+      .None => ()
+    );
+    si = (si + usize(1));
+  });
 });
 /// Whether `stmt` is the binding statement that initializes, at `init_tok`, a
 /// variable it declares (`x := …`, `(x : T) = …`). An exit inside its right
@@ -3970,6 +4086,7 @@ _evaluate_begin_expression_impl :: (
               drop_expr := generate_expr_from_code(&drop_code, exn);
               evaluated := evaluate_expression_raw(&drop_expr, &env, ctx, exn);
               consumed_escape_drops.push(evaluated);
+              _m3_note_arg_move_region_in(&begin_args, &ev, ctx);
               (dai : usize) = usize(0);
               ev_init := match(ev.initialized_at_token(), .Some(it) => it, .None => begin_tok);
               while(dai < begin_args.len(), {
@@ -4015,6 +4132,7 @@ _evaluate_begin_expression_impl :: (
                 p_drop_expr := generate_expr_from_code(&p_drop_code, exn);
                 p_evaluated := evaluate_expression_raw(&p_drop_expr, &env, ctx, exn);
                 consumed_escape_drops.push(p_evaluated);
+                _m3_note_arg_move_region_in(&begin_args, &pev, ctx);
                 // An early `return` that precedes the parameter's move must
                 // release it too, as the M3 driver above does for locals: the
                 // scope-end list skips a consumed parameter, so nothing else
