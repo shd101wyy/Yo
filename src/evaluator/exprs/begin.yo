@@ -801,27 +801,26 @@ _m3_consumed_for_call_arg :: (fn(call : &AstExpr, args : &ArrayList(AstExpr), i 
 });
 /// Whether the call argument `a` is the by-value use that moved `variable` at
 /// `ct`: an atom spelling the variable's name at its move token, or the
-/// expression a temporary was minted for and moved at (a labeled field's
-/// value, `S(f : mk(), …)`, included).
-_m3_arg_moves_variable :: (fn(a : &AstExpr, variable : &Variable, ct : &Token) -> bool)({
+/// expression a temporary was minted for (its value is the argument's, so
+/// the call is what moves it, wherever the move is recorded: a receiver's at
+/// the method call). A labeled field's value (`S(f : x, …)`) counts as the
+/// argument.
+_m3_arg_moves_variable :: (fn(a : &AstExpr, variable : &Variable, ct : &Token) -> bool)(
+  _m3_operand_moves_variable(a, variable, ct) || match(
+    a,
+    .FnCall(_, _, Rc(la), _, _) => (ast_expr_is_fn_call_of(a, BK_COLON, Option(usize).Some(usize(2))) && match(la.get(usize(1)), .Some(v) => _m3_operand_moves_variable(&v, variable, ct), .None => false)),
+    .Atom(_, _) => false
+  )
+);
+_m3_operand_moves_variable :: (fn(a : &AstExpr, variable : &Variable, ct : &Token) -> bool)({
+  t := ast_expr_token(a);
   if(ast_expr_is_atom(a), {
-    at := ast_expr_token(a);
-    return((at.value.* == variable.name) && _m3_tokens_comparable(&at, ct) && (at.character == ct.character));
+    return((t.value.* == variable.name) && _m3_tokens_comparable(&t, ct) && (t.character == ct.character));
   });
   if(!is_any_temp_variable_name(&variable.name), {
     return(false);
   });
-  init := match(variable.initialized_at_token(), .Some(t) => t, .None => return(false));
-  _m3_is_temp_site(a, &init, ct) || match(
-    a,
-    .FnCall(_, _, Rc(la), _, _) => (ast_expr_is_fn_call_of(a, BK_COLON, Option(usize).Some(usize(2))) && match(la.get(usize(1)), .Some(v) => _m3_is_temp_site(&v, &init, ct), .None => false)),
-    .Atom(_, _) => false
-  )
-});
-/// `node` is where a temporary was minted (`init`) and moved (`ct`).
-_m3_is_temp_site :: (fn(node : &AstExpr, init : &Token, ct : &Token) -> bool)({
-  t := ast_expr_token(node);
-  _m3_tokens_comparable(&t, ct) && ((t.character == ct.character) && (_m3_tokens_comparable(&t, init) && (t.character == init.character)))
+  match(variable.initialized_at_token(), .Some(init) => (_m3_tokens_comparable(&t, &init) && (t.character == init.character)), .None => false)
 });
 /// The index of the first argument of the plain call `call` that runs after
 /// one of its by-value operands moved `variable` at `ct` (an earlier argument,
@@ -4086,6 +4085,11 @@ _evaluate_begin_expression_impl :: (
               drop_expr := generate_expr_from_code(&drop_code, exn);
               evaluated := evaluate_expression_raw(&drop_expr, &env, ctx, exn);
               consumed_escape_drops.push(evaluated);
+              if(g_debug_scope_drops, {
+                it_dbg := match(ev.initialized_at_token(), .Some(t) => `${t.row.to_string()}:${t.column.to_string()}`, .None => String.from("-"));
+                ct_dbg := match(ev.consumed_at_token(), .Some(t) => `${t.row.to_string()}:${t.column.to_string()}`, .None => String.from("-"));
+                eprintln(`[m3dbg] var=${ev.name} init=${it_dbg} ct=${ct_dbg}`);
+              });
               _m3_note_arg_move_region_in(&begin_args, &ev, ctx);
               (dai : usize) = usize(0);
               ev_init := match(ev.initialized_at_token(), .Some(it) => it, .None => begin_tok);

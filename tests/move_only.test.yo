@@ -1951,9 +1951,9 @@ test("move-only: a `break` in a later argument than a by-value argument drops it
 // `unwind`) drops it, for a call's argument, a struct or tuple literal's
 // earlier field and a temporary receiver
 // (issues/fixed/2026-11-11-a-temporary-argument-leaks-when-a-later-argument-returns-continues-or-unwinds.md).
-_mo_two :: (fn(sink(a) : _MoFd, sink(b) : _MoFd) -> i32)(a.n + b.n);
+_mo_add2 :: (fn(sink(a) : _MoFd, sink(b) : _MoFd) -> i32)(a.n + b.n);
 _mo_tmp_return :: (fn(c : bool) -> i32)(
-  _mo_two(
+  _mo_add2(
     _mo_make(i32(1)),
     cond(
       c => {
@@ -1969,7 +1969,7 @@ _mo_tmp_continue :: (fn() -> i32)({
   while(i < i32(2), {
     i = (i + i32(1));
     t = (
-      t + _mo_two(
+      t + _mo_add2(
         _mo_make(i),
         cond(
           (i == i32(1)) => {
@@ -1988,7 +1988,7 @@ _mo_tmp_break :: (fn() -> i32)({
   while(i < i32(2), {
     i = (i + i32(1));
     t = (
-      t + _mo_two(
+      t + _mo_add2(
         _mo_make(i),
         cond(
           (i == i32(2)) => {
@@ -2040,11 +2040,11 @@ _mo_tmp_receiver :: (fn(c : bool) -> i32)(
     )
   )
 );
-_MoRaise :: (ctl(code : i32) -> _MoFd);
-_mo_tmp_raise :: (fn(c : bool, raise : _MoRaise) -> _MoFd)(cond(c => raise(i32(1)), true => _mo_make(i32(2))));
-_mo_tmp_inner :: (fn(c : bool, raise : _MoRaise) -> i32)(_mo_two(_mo_make(i32(1)), _mo_tmp_raise(c, raise)));
+_MoTmpRaise :: (ctl(code : i32) -> _MoFd);
+_mo_tmp_raise :: (fn(c : bool, raise : _MoTmpRaise) -> _MoFd)(cond(c => raise(i32(1)), true => _mo_make(i32(2))));
+_mo_tmp_inner :: (fn(c : bool, raise : _MoTmpRaise) -> i32)(_mo_add2(_mo_make(i32(1)), _mo_tmp_raise(c, raise)));
 _mo_tmp_unwind :: (fn(c : bool) -> i32)({
-  (raise : _MoRaise) = (
+  (raise : _MoTmpRaise) = (
     code -> {
       unwind(i32(-1));
     }
