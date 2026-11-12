@@ -1,0 +1,18 @@
+// expect: accept
+// The trait's composite result names (self, other); the impl spells self alone, a subset (O7). VERDICTS-57 §2.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+Pk :: trait(pick : (fn(self : &Self, other : &Rc(X)) -> Option(&(Rc(X), (self, other)))));
+P :: struct(h : Rc(X));
+impl(P, Pk(pick : (fn(self : &Self, other : &Rc(X)) -> Option(&(Rc(X), self)))(.Some(&self.h))));
+main :: (fn() -> unit)({
+  (d : Dyn(Pk)) = dyn(P(h : Rc.new(X(s : String.from("kept")))));
+  {
+    b := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+    o := d.pick(&b);
+    match(o, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => println("none"));
+  };
+  ()
+});
+export(main);

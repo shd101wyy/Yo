@@ -91,14 +91,14 @@ pragma(Pragma.AllowUnsafe);
   visibility_report_enabled
 } :: import("./type_trait_methods.yo");
 { register_impl_inheritance_task, register_impl_variance_task } :: import("../builtins/contracts.yo");
-{ some_t_bounds, FuncMeta, TypeValue, TypeValueNode, no_types, no_flags, shared_list, SharedList, fn_param_mut_ref_at, fn_param_by_value_at, slot_pointee_at, t_slot_pointee, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_result_is_ref, fn_result_origin_names, fn_param_slots, fn_param_in_result_origin, t_slot_is_borrow, t_origin_kind, t_origin_named, t_maybe_sized_kind, is_maybe_sized_kind } :: import("../../types/definitions.yo");
+{ some_t_bounds, FuncMeta, TypeValue, TypeValueNode, no_types, no_flags, shared_list, SharedList, fn_param_mut_ref_at, fn_param_by_value_at, slot_pointee_at, t_slot_pointee, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_result_is_ref, fn_result_origin_names, fn_param_slots, fn_param_in_result_origin, t_slot_is_borrow, t_origin_kind, t_origin_named, t_maybe_sized_kind, is_maybe_sized_kind, fn_result_slot, fn_result_composite_origin_names, fn_param_pointee_in_result_origin, t_slot_is_by_value } :: import("../../types/definitions.yo");
 { type_to_string, type_key_epoch } :: import("../../types/string.yo");
 { t_unit, t_type, t_some_t, t_some_t_of_kind, t_usize, register_some_binder_kind, clear_some_binder_kind, generate_some_type_id, enum_phantom_positions } :: import("../../types/creators.yo");
 { is_some_type, is_function_type, is_expr_type, is_type_hierarchy_type, is_future_trait_type, is_fn_trait_type, cell_handle_view } :: import("../../types/guards.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { is_implicitly_unsafe_capable_file, is_prelude_or_generated_file, is_std_module_path } :: import("../memory_safety.yo");
 { Substitution, subst_new, subst_add, subst_add_len_var, subst_set_self, substitute } :: import("../../types/substitution.yo");
-{ get_all_some_types, type_mentions_some_type, is_bound_closure_identity, resolve_cell_chain, is_value_nominal_type, note_move_only_possible, bump_trait_impl_epoch, trait_impl_epoch, fn_param_is_ptr_borrow, type_is_sized } :: import("../../types/utils.yo");
+{ get_all_some_types, type_mentions_some_type, is_bound_closure_identity, resolve_cell_chain, is_value_nominal_type, note_move_only_possible, bump_trait_impl_epoch, trait_impl_epoch, fn_param_is_ptr_borrow, type_is_sized, type_carries_origin } :: import("../../types/utils.yo");
 { type_key, _tk_resolve_arg_slot, TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_identity_cacheable, type_key_memo_check_enabled } :: import("../../types/type_key.yo");
 { stable_func_id, debug_knob, display_module_path, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take, parse_raw_int } :: import("../../utils.yo");
 { register_func_type } :: import("../../function_value.yo");
@@ -4222,33 +4222,93 @@ _result_origin_params :: (fn(ft : &TypeValue) -> ArrayList(usize))({
   });
   out
 });
-/// O7's impl rule: an impl member's result origin is a subset of its trait
-/// member's (decision 43 step 2, N1c). `.None` when it is; otherwise the
-/// parameters (by the impl's labels) the impl's result may point into that
-/// the trait's does not name.
-_impl_result_origin_wider :: (fn(actual : &TypeValue, expected : &TypeValue) -> Option(String))({
-  if(!fn_result_is_ref(actual) || !fn_result_is_ref(expected), {
-    return(Option(String).None);
+/// What a member's result may point into (O7's impl rule): parameter
+/// indices, and the spelled names no parameter matches (an impl's origin
+/// parameter, compared by name).
+_ResultOriginRoots :: struct(params : ArrayList(usize), names : ArrayList(String));
+/// The roots of `ft`'s result; `.None` when it carries no origin. A
+/// reference result names its parameters as a projection call roots them
+/// (`_result_origin_params`). A by-value result that carries an origin
+/// (`-> Option(&(T, self))`, `-> V(a)`; decision 43 N2b) names the
+/// parameters whose slot or pointee spells an origin it lists, plus the
+/// names none spells; an elided one is O2's union, every reference
+/// parameter and every by-value parameter whose type carries an origin.
+_result_origin_roots :: (fn(ft : &TypeValue) -> Option(_ResultOriginRoots))({
+  if(fn_result_is_ref(ft), {
+    return(Option(_ResultOriginRoots).Some(_ResultOriginRoots(params : _result_origin_params(ft), names : ArrayList(String).new())));
   });
-  a_set := _result_origin_params(actual);
-  e_set := _result_origin_params(expected);
+  if(!type_carries_origin(&fn_result_slot(ft)), {
+    return(Option(_ResultOriginRoots).None);
+  });
+  params := ArrayList(usize).new();
+  names := ArrayList(String).new();
+  slots := fn_param_slots(ft);
+  match(
+    fn_result_composite_origin_names(ft),
+    .Some(rn) => {
+      (i : usize) = usize(0);
+      while(i < slots.len(), i = (i + usize(1)), {
+        if(fn_param_in_result_origin(ft, i, &rn) || fn_param_pointee_in_result_origin(ft, i, &rn), {
+          params.push(i);
+        });
+      });
+      (ni : usize) = usize(0);
+      while(ni < rn.len(), ni = (ni + usize(1)), {
+        name := match(rn.get_cloned(ni), .Some(n) => n, .None => String.new());
+        one := ArrayList(String).new();
+        one.push(name.clone());
+        one_list := shared_list(one);
+        (matched : bool) = false;
+        (pi : usize) = usize(0);
+        while(pi < slots.len(), pi = (pi + usize(1)), {
+          if(fn_param_in_result_origin(ft, pi, &one_list) || fn_param_pointee_in_result_origin(ft, pi, &one_list), {
+            matched = true;
+          });
+        });
+        if(!matched, {
+          names.push(name);
+        });
+      });
+    },
+    .None => {
+      (i : usize) = usize(0);
+      while(i < slots.len(), i = (i + usize(1)), {
+        if(match(slots.get(i), .Some(s) => (t_slot_is_borrow(&s) || (t_slot_is_by_value(&s) && type_carries_origin(&s))), .None => false), {
+          params.push(i);
+        });
+      });
+    }
+  );
+  Option(_ResultOriginRoots).Some(_ResultOriginRoots(params : params, names : names))
+});
+/// O7's impl rule: an impl member's result origin is a subset of its trait
+/// member's (decision 43 step 2, N1c), for a reference result and for a
+/// by-value one that carries an origin (VERDICTS-57 §2). `.None` when it is;
+/// otherwise the parameters (by the impl's labels) and the origin names the
+/// impl's result may point into that the trait's does not name.
+_impl_result_origin_wider :: (fn(actual : &TypeValue, expected : &TypeValue) -> Option(String))({
+  a_roots := match(_result_origin_roots(actual), .Some(r) => r, .None => return(Option(String).None));
+  e_roots := match(_result_origin_roots(expected), .Some(r) => r, .None => return(Option(String).None));
   labels := match(actual, Rc(.Func({ meta : ir_m })) => Rc.clone(ir_m.param_labels), _ => return(Option(String).None));
   extra := String.new();
   (ai : usize) = usize(0);
-  while(ai < a_set.len(), ai = (ai + usize(1)), {
-    idx := a_set(ai);
-    (found : bool) = false;
-    (ei : usize) = usize(0);
-    while(ei < e_set.len(), ei = (ei + usize(1)), {
-      if(e_set(ei) == idx, {
-        found = true;
-      });
-    });
-    if(!found, {
+  while(ai < a_roots.params.len(), ai = (ai + usize(1)), {
+    idx := a_roots.params(ai);
+    if(!e_roots.params.contains(&idx), {
       if(extra.len() > usize(0), {
         extra.push_str(", ");
       });
       extra.push_string(`\`${match(labels.get_cloned(idx), .Some(l) => l, .None => String.from("?"))}\``);
+    });
+  });
+  (an : usize) = usize(0);
+  while(an < a_roots.names.len(), an = (an + usize(1)), {
+    nm := match(a_roots.names.get_cloned(an), .Some(n) => n, .None => String.new());
+    if(!e_roots.names.contains(&nm), {
+      if(extra.len() > usize(0), {
+        extra.push_str(", ");
+      });
+      extra.push_string(`\`${nm}\``);
     });
   });
   if(extra.len() == usize(0), Option(String).None, Option(String).Some(extra))

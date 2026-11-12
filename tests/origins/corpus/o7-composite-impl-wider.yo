@@ -1,0 +1,13 @@
+// N0 corpus row `o7-composite-impl-wider` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): an impl whose composite result elides its origin (O2: self and other) against a trait that spells `self` (O7 over a by-value result; VERDICTS-57 §2).
+// Expected once decision 43's rules land: rejected in the impl: `other` is not within `self`.
+_Pick :: trait(pick : (fn(self : &Self, other : &i32) -> Option(&(i32, self))));
+_P :: struct(v : i32);
+impl(_P, _Pick(pick : (fn(self : &Self, other : &i32) -> Option(&i32))(.Some(other))));
+main :: (fn() -> unit)({
+  p := _P(v : i32(1));
+  o := i32(2);
+  _ := p.pick(&o);
+  ()
+});
+export(main);

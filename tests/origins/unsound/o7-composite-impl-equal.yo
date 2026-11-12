@@ -1,0 +1,19 @@
+// expect: accept
+// Positive twin of o7-composite-impl-wider: the impl spells the trait's origin and returns &self.h, so the Dyn call's result survives b. VERDICTS-57 §2.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+Pk :: trait(pick : (fn(self : &Self, other : &Rc(X)) -> Option(&(Rc(X), self))));
+P :: struct(h : Rc(X));
+impl(P, Pk(pick : (fn(self : &Self, other : &Rc(X)) -> Option(&(Rc(X), self)))(.Some(&self.h))));
+main :: (fn() -> unit)({
+  (d : Dyn(Pk)) = dyn(P(h : Rc.new(X(s : String.from("kept")))));
+  mut(o) := Option(&Rc(X)).None;
+  {
+    b := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+    o = d.pick(&b);
+  };
+  match(o, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => println("none"));
+  ()
+});
+export(main);
