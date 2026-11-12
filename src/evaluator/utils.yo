@@ -6342,14 +6342,18 @@ _ref_chain_collect :: (fn(e : &AstExpr, env : &Environment, out : &mut ArrayList
     ),
     ast_expr_is_fn_call(e) => match(
       e,
-      .FnCall(_, callee, _, infix, _) => if(infix || !ast_expr_is_atom(&callee), false, match(
-        get_variables_from_env(env, ast_expr_token(&callee).value.*.clone()).last_cloned(),
-        .Some(fv) => if(is_function_type(&variable_value_type(&fv)) && fn_result_is_ref(&variable_value_type(&fv)), {
-          out.push(e.clone());
-          true
-        }, false),
-        .None => false
-      )),
+      .FnCall(_, callee, _, infix, _) => if(
+        infix || !ast_expr_is_atom(&callee),
+        false,
+        match(
+          get_variables_from_env(env, ast_expr_token(&callee).value.*.clone()).last_cloned(),
+          .Some(fv) => if(is_function_type(&variable_value_type(&fv)) && fn_result_is_ref(&variable_value_type(&fv)), {
+            out.push(e.clone());
+            true
+          }, false),
+          .None => false
+        )
+      ),
       .Atom(_, _) => false
     ),
     true => false
