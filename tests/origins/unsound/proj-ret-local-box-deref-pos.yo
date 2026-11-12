@@ -1,0 +1,11 @@
+// expect: accept
+// proj-ret-local-box-deref's positive twin: the `Box` is reached through a REFERENCE parameter, so
+// `&b.*.*` lies in the caller's box, which outlives the call.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+get :: (fn(b : &Box(String)) -> &String)(&b.*.*);
+main :: (fn() -> unit)({
+  b := Box.new(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+  println(`OUT: ${get(&b)}`);
+});
+export(main);

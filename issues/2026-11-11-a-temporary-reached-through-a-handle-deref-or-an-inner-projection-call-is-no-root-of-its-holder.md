@@ -9,11 +9,22 @@ after the temporary is gone (ASan: heap-use-after-free; stack-use-after-scope). 
 Found 2026-11-11 by the ownership / borrowing / origin audit
 (`plans/backlog/OWNERSHIP_BORROWING_ORIGINS_AUDIT.md` §3 A23). Confirmed on develop `64f33c710`. The `.*` half
 shares its cause with
-`issues/2026-11-11-a-projection-may-return-a-reference-into-a-local-or-by-value-box-rc-or-arc-handle.md` (A30).
+`issues/fixed/2026-11-11-a-projection-may-return-a-reference-into-a-local-or-by-value-box-rc-or-arc-handle.md` (A30).
+
+## Status
+
+The `.*` half is fixed with A30
+(`issues/fixed/2026-11-11-a-projection-may-return-a-reference-into-a-local-or-by-value-box-rc-or-arc-handle.md`):
+`is_temporary_operand` reads a `.*` on an owning handle as a field step (`deref_is_owning_handle_step`), so
+`long().*.s` and `Box.new(…).*` are temporaries. G-B rows `holder-from-temporary-rc-deref`,
+`holder-from-temporary-box-deref` and `holder-from-temporary-rc-deref-pos` in `tests/origins/unsound/`. This doc
+stays open for the inner-projection-call half (`…-projection-call.yo`, `mkv2(long().as_ref())`), which the fix does
+not touch.
 
 ## Reproducers
 
-`issues/repros/2026-11-11-a-temporary-reached-through-a-handle-deref-or-an-inner-projection-call-is-no-root-of-its-holder.yo`
+`tests/origins/unsound/holder-from-temporary-rc-deref.yo` (filed under `issues/repros/` with this doc's name; it
+moved with the `.*` half's fix, see Status)
 (negative, expects E0911):
 
 ```yo
@@ -50,11 +61,11 @@ $ yo compile repro.yo --optimize 1 --sanitize address --allocator system -o t &&
 
 | Shape | Verdict | Correct |
 | --- | --- | --- |
-| `v = mkv(&long().*.s)` in an inner block (also in a `while` body) | accepted, UAF | E0911 |
-| `v = mkv(&Box.new(longs()).*)` in an inner block | accepted, UAF (ledger) | E0911 |
+| `v = mkv(&long().*.s)` in an inner block (also in a `while` body) | accepted, UAF; E0911 since the A30 fix | E0911 |
+| `v = mkv(&Box.new(longs()).*)` in an inner block | accepted, UAF (ledger); E0911 since the A30 fix | E0911 |
 | `v = mkv2(long().as_ref())` (the `Rc`'s projection `as_ref`) | accepted, UAF (ledger) | E0911 |
 | `v = mkv(mkx().get())`, `v = mkv(id(&longs()))` in an inner block | accepted, stack-use-after-scope | E0911 |
-| `v := mkv(&long().*.s)` / `v := mkv(mkx().get())`, read later in the same block | accepted; runs print `72 72` / a stale `0` (ledger) | E0911 |
+| `v := mkv(&long().*.s)` / `v := mkv(mkx().get())`, read later in the same block | accepted; runs print `72 72` / a stale `0` (ledger); the `.*` form E0911 since the A30 fix | E0911 |
 | `v = mkv(&mkx().s)` (a field of the temporary, no `.*`, no inner call) | E0911 "Cannot store a reference into `(mkx().s)` in `v` here: it is a temporary" | — |
 | `r := c.borrow_mut().get()` (projection result bound directly) | E0911 (R-TEMP) | — |
 

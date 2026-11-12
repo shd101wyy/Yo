@@ -14,8 +14,8 @@ rule on 2026-11-11.
 
 ## Reproducers
 
-`issues/repros/2026-11-11-a-projection-may-return-a-reference-into-a-local-or-by-value-box-rc-or-arc-handle.yo`
-(negative, expects E0912):
+`tests/origins/unsound/proj-ret-local-box-deref.yo` (negative, expects E0912; filed under `issues/repros/` with
+this doc's name, moved with the fix):
 
 ```yo
 { String } :: import("std/string");
@@ -37,9 +37,9 @@ $ yo compile repro.yo --optimize 1 --sanitize address --allocator system -o t &&
 ==…==ERROR: AddressSanitizer: heap-use-after-free
 ```
 
-- `…-by-value-rc.yo` (negative, E0912): `get :: (fn(h : Rc(X)) -> &String)(&h.s)` — auto-deref writes `h.*.s`;
+- `tests/origins/unsound/proj-ret-byvalue-rc-field.yo` (filed as `…-by-value-rc.yo`; negative, E0912): `get :: (fn(h : Rc(X)) -> &String)(&h.s)` — auto-deref writes `h.*.s`;
   the callee drops the only handle at its end: heap-use-after-free. v0.2.76: the accidental E0910 above.
-- `…-pos.yo` (positive control): `&b.*.*` / `&h.*.*.s` through a `&Box(String)` / `&Rc(X)` PARAMETER, which lie
+- `tests/origins/unsound/proj-ret-byvalue-rc-field-pos.yo` (filed as `…-pos.yo`; positive control): `&b.*.*` / `&h.*.*.s` through a `&Box(String)` / `&Rc(X)` PARAMETER, which lie
   in the caller's storage. Accepted, runs clean.
 
 ## The family (develop `64f33c710`)
@@ -50,7 +50,7 @@ $ yo compile repro.yo --optimize 1 --sanitize address --allocator system -o t &&
 | `&h.*.s` / `&h.s` of a local `Rc` returned | accepted, UAF | E0912 |
 | `&h.*.s`, `&h.s` of a by-value `h : Rc(X)` / `b : Box(X)` / `a : Arc(Y)` parameter | accepted, UAF | E0912 |
 | a `self : Self` method returning `&self.h.*.s` (a struct with an `Rc` field, by value) | accepted, UAF | E0912 |
-| a spelled holder over a by-value box, `-> V(b)` with `V(b)(r : &b.*.s)` | accepted, UAF (ledger) | E0912 |
+| a spelled holder over a by-value box, `-> V(b)` with `V(b)(r : &b.*.s)` | accepted, UAF (ledger) | E0912 — not this rule: see Fix |
 | `.Some(&h.*.s)` of a local `Rc` returned as `Option(&String)` | E0912 | — |
 | `V(a)(r : &h.*.s)` over a local `Rc`, returned as `V(a)` | E0912 (ledger) | — |
 | `&x.s` of a by-value plain struct `x : X` | E0912 | — |
@@ -85,8 +85,41 @@ continue to the base when the dereferenced value is a `Box`, `Rc` or `Arc` (a `D
 reference or a raw pointer. The same reading belongs to R-LEND and R-TEMP (see
 `issues/2026-11-11-a-temporary-reached-through-a-handle-deref-or-an-inner-projection-call-is-no-root-of-its-holder.md`).
 
+## Fix
+
+`deref_is_owning_handle_step` (`src/evaluator/utils.yo`) answers whether a `.*` steps INTO an owning handle: the
+dereferenced value's type is a `Box` (`unique_box_payload_type`) or an `Rc` / `Arc` (`cell_handle_view`). Both
+checker walks the audit named (§5 item 6) now read such a `.*` as a field step and continue to its base; a `.*` on
+anything else (a reference, a raw pointer) keeps its old meaning, the place is wherever it points.
+
+- **The projection root rule** (`_projection_root_error`, `src/evaluator/builtins/ptr_fns.yo`): `&b.*`,
+  `&mut b.*`, `&h.*.s`, `&h.s` and `&self.h.*.s` are rooted at `b` / `h` / `self`, so a local or a by-value
+  parameter is E0912 with the existing "`b` is a local" / "`h` is a by-value parameter: its storage ends with the
+  call" message. Through a `&` / `&mut` parameter (`&b.*.*`, `&h.*.*.s`, `&h.s` with `h : &Rc(X)`, `self : &Self`)
+  the root is that parameter, as before, and the result is accepted.
+- **R-TEMP** (`is_temporary_operand`, the same file as the predicate): `long().*.s` and `Box.new(…).*` are fields
+  of the temporaries `long()` / `Box.new(…)`, so `v = mkv(&long().*.s)` past the statement is E0911. This is the
+  `.*` half of `issues/2026-11-11-a-temporary-reached-through-a-handle-deref-or-an-inner-projection-call-is-no-root-of-its-holder.md`
+  (A23); its inner-projection-call half (`mkv(mkx().get())`) is a different exit and stays open there.
+
+Every row of the family table with a reference result (`-> &T` / `-> &mut T`) now gives E0912. The spelled-holder
+row (`-> V(b)` over a by-value `b : Box(X)`) does not change, and it is not this rule: `return_check` already roots
+`b.*.s` at `b` (the composite rows were rejected before this fix for a LOCAL handle), and then lets the by-value
+parameter `b` through because the result's spelled origin names it. The plain-struct form `-> V(x)` with
+`V(x)(r : &x.s)` over a by-value `x : X` is accepted the same way, with no handle in it. That is
+`issues/2026-11-11-a-composite-result-that-holds-a-reference-into-a-by-value-parameter-is-accepted.md` (A10),
+whose family table now carries the row.
+
 ## Test
 
-With the fix: the two negative programs and the positive control move to `tests/origins/unsound/`; corpus rows in
-`tests/origins/corpus.tsv` for the local `Box`, the by-value `Rc` parameter and the `self : Self` method form,
-beside the existing `rc-handle-dropped` row.
+`tests/origins/unsound/` (G-B, `scripts/origins-unsound.sh`): `proj-ret-local-box-deref` (the local `Box`),
+`proj-ret-byvalue-rc-field` (the by-value `Rc` parameter), `proj-ret-byvalue-self-rc-field` (the by-value `self`
+with an `Rc` field), each E0912 and each with a `-pos` twin through a reference parameter that runs ASan-clean; the
+R-TEMP half adds `holder-from-temporary-rc-deref` / `holder-from-temporary-box-deref` (E0911) and
+`holder-from-temporary-rc-deref-pos`. `tests/origins/reference_read_rule.test.yo` carries a `comptime_expect_error`
+row per shape (a local `Box` as a tail, through `return(…)` and as `&mut`; a local `Rc` with and without the
+written `.*`; by-value `Rc`, `Box` and `Arc` parameters; a by-value `self`) and a runtime test of the
+reference-parameter positives. The negative rows are accepted by develop `64f33c710` (the audit's measurement);
+v0.2.76 accepts the local forms and rejects the by-value forms only through the accidental E0910. No
+`tests/origins/corpus.tsv` rows were added: each corpus row is also encoded for the reference checker in
+`tests/origins/model_corpus.test.yo`, and the G-B pairs above already pin the shapes.
