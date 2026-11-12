@@ -126,11 +126,16 @@ pragma(Pragma.AllowUnsafe);
   local_borrow_write_expr,
   bind,
   bind_join,
+  bind_join_roots_for,
+  origin_of,
   place_write_join,
   store_through_mut_join,
   store_via_mut_reference,
   store_via_targets,
   variable_holder_roots,
+  deref_chain_atom,
+  deref_chain_depth,
+  reference_reborrow_chain,
   audit_origin_totality,
   audit_origin_totality_elided,
   local_borrow_info_of_variable,
@@ -669,6 +674,56 @@ _via_root_name :: (fn(via : &AstExpr) -> String)({
     );
   });
   ast_expr_token(&cur).value.*.clone()
+});
+/// `rpp.*.* = v` where `rpp := &mut rp` and `rp := &mut r` re-borrow the
+/// reference binding `r` (a chain of k ≥ 2 `.*` over `&mut` re-borrows of
+/// references, `reference_reborrow_chain`): the place written is `r`'s whole
+/// value, so the store is `r = v`'s holder join on `r` (`bind_join`: KILL +
+/// GEN, the subset check of a spelled `r`, the §7 scope check), and every
+/// holder above it (`rpp`, `rp`), whose type names the same invariant
+/// origin, may reach `v`'s referent too (GEN only: each still points where
+/// it pointed). A chain cut short (a parameter's referent, a field place)
+/// widens the holders it reached. Without it `r` keeps its old
+/// flow set and a read of `r` (or of `rp.*.*`) after `v`'s referent dies
+/// goes unchecked.
+_join_through_reborrow_chain :: (fn(lhs : &AstExpr, rhs : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+  jc_k := deref_chain_depth(lhs);
+  if(jc_k < usize(2), {
+    return(());
+  });
+  jc_base := match(deref_chain_atom(lhs), .Some(b) => b, .None => return(()));
+  jc_start := match(get_variables_from_env(env, ast_expr_token(&jc_base).value.*.clone()).last_cloned(), .Some(v) => v, .None => return(()));
+  if(!variable_is_reference_binding(&jc_start) || !t_slot_is_borrow(&variable_value_type(&jc_start)), {
+    return(());
+  });
+  jc_chain := reference_reborrow_chain(&jc_start, jc_k, env);
+  // The binding the store replaces is the one `k` links down. More than one
+  // (a re-pointed link) is a join on each, never a kill; none (a chain cut
+  // short) leaves every holder on the way a GEN.
+  (n_targets : usize) = usize(0);
+  (ti : usize) = usize(0);
+  while(ti < jc_chain.len(), {
+    if(match(jc_chain.get_cloned(ti), .Some(tl) => (tl.depth == jc_k), .None => false), {
+      n_targets = (n_targets + usize(1));
+    });
+    ti = (ti + usize(1));
+  });
+  jc_roots := origin_of(rhs, env, ctx);
+  (ci : usize) = usize(0);
+  while(ci < jc_chain.len(), {
+    match(
+      jc_chain.get_cloned(ci),
+      .Some(link) => if(!link.holder.is_module_level() && !link.holder.is_compile_time_only(), {
+        cond(
+          ((link.depth == jc_k) && (n_targets == usize(1))) => bind_join(&link.holder, rhs, env, ctx, exn),
+          (jc_roots.len() > usize(0)) => bind_join_roots_for(&link.holder, &jc_roots, ast_expr_token(rhs), env, ctx, exn, kill : false),
+          true => ()
+        );
+      }),
+      .None => ()
+    );
+    ci = (ci + usize(1));
+  });
 });
 _note_reference_value_store :: (fn(rhs : &AstExpr, rhs_info : &ExprInfo, ctx : &EvalContext) -> unit)({
   if(t_slot_is_borrow(&rhs_info.ty()) && is_reference_read(ast_expr_id(rhs)) && expr_info_converted_runtime_type(rhs_info).is_none(), {
@@ -1843,10 +1898,14 @@ evaluate_assignment :: (
       // A store through a `&mut` (a local borrow, a reference field, a
       // projection's result) grows the set of the place it points into
       // (A25, A11; `store_through_mut_join`).
-      through := match(
-        store_via_mut_reference(&evaluated_lhs, &env, ctx),
-        .Some(via) => store_through_mut_join(&store_via_targets(&via, &env, ctx), &_via_root_name(&via), &prop_rhs, &env, ctx, exn),
-        .None => false
+      // A re-borrow chain `rpp.*.* = v` is `_join_through_reborrow_chain`'s.
+      through := cond(
+        (deref_chain_depth(&evaluated_lhs) >= usize(2)) => false,
+        true => match(
+          store_via_mut_reference(&evaluated_lhs, &env, ctx),
+          .Some(via) => store_through_mut_join(&store_via_targets(&via, &env, ctx), &_via_root_name(&via), &prop_rhs, &env, ctx, exn),
+          .None => false
+        )
       );
       if(!through, {
         match(
@@ -1859,6 +1918,13 @@ evaluate_assignment :: (
           .None => ()
         );
       });
+    });
+    // A store through a `&mut` re-borrow chain (`rpp.*.* = v`, `rpp := &mut
+    // rp`, `rp := &mut r`): the place is `r`'s whole value
+    // (`_join_through_reborrow_chain`). The one-`.*` form is the atom
+    // assignment's (`_join_through_mut_self_lend`).
+    if(ctx.is_evaluating_function_body_or_async_block.is_some(), {
+      _join_through_reborrow_chain(&evaluated_lhs, &prop_rhs, &env, ctx, exn);
     });
     if(type_carries_origin(&prop_rhs_info.ty()), {
       audit_origin_totality("place-write", &prop_rhs, ctx);

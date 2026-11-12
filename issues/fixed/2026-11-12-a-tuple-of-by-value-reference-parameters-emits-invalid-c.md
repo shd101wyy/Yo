@@ -2,7 +2,7 @@
 
 **Severity:** S2 — a program the evaluator accepts fails in the C compiler: `(b, a)` built from by-value `T` parameters specialized at `T := &i32` (R3) takes the parameters' addresses, `const int32_t **` where the tuple's fields are `const int32_t *`.
 
-- Filed: 2026-11-12 (smpick lane, probing the tuple shape of the generic by-value result whose second argument's origin was dropped, branch `fix/generic-ref-result-origins`).
+- Filed: 2026-11-12 (smpick lane, probing the tuple shape of the generic by-value result whose second argument's origin was dropped, `issues/fixed/2026-11-12-a-generic-by-value-result-at-a-reference-type-drops-its-second-arguments-origin.md`).
 - New since #1904 (R3): the v0.2.76 seed rejected the program with E0901 (the tuple was a move-only borrow).
 
 ## Reproducer
@@ -40,7 +40,7 @@ place.
 ## Status
 
 Fixed 2026-11-12 (tuplec lane). The result's origins are right through `generic_result_binder_modes` (the smpick
-fix, branch `fix/generic-ref-result-origins`).
+fix, `issues/fixed/2026-11-12-a-generic-by-value-result-at-a-reference-type-drops-its-second-arguments-origin.md`).
 
 ## Fix
 

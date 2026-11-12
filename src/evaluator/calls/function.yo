@@ -46,7 +46,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr.yo");
 { is_auto_generated_expansion, is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_std_module_path } :: import("../memory_safety.yo");
 { D3PendingInout, d3_record_inout_place, d3_check_pending, d3_check_pending_unresolved_callee, require_no_inout_write_through_borrow, shared_borrow_param_root_of_place, reject_write_through_shared_borrow_param } :: import("../exprs/assignment.yo");
-{ ExprInfo, is_dyn_lend, is_thread_local, is_mut_global, new_expr_info, expr_info_closure_function_value, expr_info_table_get, expr_info_table_set, record_method_callee_type, lookup_method_callee_type, record_method_callee_value, lookup_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, lookup_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution, purge_executed_clone_metadata, mark_fnonce_post_call_release, expr_info_converted_runtime_type, expr_info_set_converted_runtime_type, is_reference_self_place, note_self_lend_operand, note_self_lend_forced } :: import("../../expr_info.yo");
+{ ExprInfo, is_dyn_lend, is_thread_local, is_mut_global, new_expr_info, expr_info_closure_function_value, expr_info_table_get, expr_info_table_set, record_method_callee_type, lookup_method_callee_type, record_generic_callee_type, record_method_callee_value, lookup_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, lookup_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution, purge_executed_clone_metadata, mark_fnonce_post_call_release, expr_info_converted_runtime_type, expr_info_set_converted_runtime_type, is_reference_self_place, note_self_lend_operand, note_self_lend_forced } :: import("../../expr_info.yo");
 {
   Variable,
   Environment,
@@ -82,7 +82,7 @@ pragma(Pragma.AllowUnsafe);
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
 { type_key } :: import("../../types/type_key.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_place_of, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, variable_is_reference_binding, variable_is_mut_borrow, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, local_borrow_write_expr, origin_of, bind_join_roots_for, origin_param_names_of, param_declared_origin_slot, is_rigid_origin_name, origin_name_phrase, OriginRootPlace, check_capture_freeze_access, reference_field_read_mode, deref_operand_is_raw_pointer, local_borrow_place_text, FutureRoot, note_future_roots, future_roots_of, holder_future_roots, is_reference_read, n2b_roots_text, deref_rule_applies, is_reference_deref_site, note_binder_value_read, forget_binder_value_read, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, fn_value_definition } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_place_of, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, variable_is_reference_binding, variable_is_mut_borrow, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, local_borrow_write_expr, origin_of, bind_join_roots_for, origin_param_names_of, param_declared_origin_slot, is_rigid_origin_name, origin_name_phrase, OriginRootPlace, check_capture_freeze_access, reference_field_read_mode, deref_operand_is_raw_pointer, local_borrow_place_text, FutureRoot, note_future_roots, future_roots_of, holder_future_roots, is_reference_read, n2b_roots_text, deref_rule_applies, is_reference_deref_site, note_binder_value_read, forget_binder_value_read, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, fn_value_definition, type_var_ids_of, deref_chain_atom, reference_reborrow_chain, flow_write_back_through, local_mut_borrow_of_holder, variable_holder_roots } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -8247,6 +8247,9 @@ _evaluate_funcval_runtime_call :: (
     );
     spec_fv := create_specialization_at_call(cv, &spec_ct, &spec_av, fresh_env, env, ast_expr_token(expr), ast_expr_to_string(func_expr), fa_bound_names.clone(), ctx, exn);
     rt_s1_spec_fv = Option(EvalValue).Some(spec_fv);
+    // The declared signature, for the origin walks: the specialization's
+    // types are the arguments' own (O-3, `generic_result_binder_modes`).
+    record_generic_callee_type(ast_expr_id(expr), &spec_ct);
     spec_fid := match(spec_fv, .FuncVal(__fvd1, _) => __fvd1.*.func_id.clone(), _ => String.from(""));
     // A resolved_ret still carrying an Array LENGTH VAR (a value-generic
     // stamped return, e.g. `-> _ArrayIter(T, N)`) is a def-era instance
@@ -9467,12 +9470,17 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
           w_arg := _unlabeled_argument(match(op_args.get(wi), .Some(a) => a, .None => make_err_expr()));
           // A holder re-lent through its reference (`&mut s.*`): the
           // reference binding `s` (a parameter, or a `&mut` capture whose
-          // store joins the outer place, VERDICTS-37 Q3).
-          w_place := match(_deref_atom_of(&ast_expr_strip_borrow_marker(&w_arg)), .Some(wd) => wd, .None => ast_expr_strip_borrow_marker(&w_arg));
+          // store joins the outer place, VERDICTS-37 Q3). Through a chain
+          // of re-borrows (`&mut rpp.*.*`), the chain's first binding: the
+          // write-back below walks the chain from it.
+          w_place := match(deref_chain_atom(&ast_expr_strip_borrow_marker(&w_arg)), .Some(wd) => wd, .None => ast_expr_strip_borrow_marker(&w_arg));
           if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
             eprintln(`[n2b] lend-through &mut arg ${ast_expr_to_string(&w_arg)}: place=${ast_expr_to_string(&w_place)} atom=${ast_expr_is_atom(&w_place).to_string()} fixed=${fixed_names.len().to_string()}`);
           });
-          if(ast_expr_is_atom(&w_place), {
+          // A `&mut` projection's result (`put(slot(&mut s), v)`, A11) is a
+          // path into its lent argument: its write-back lands there.
+          w_projection := (!ast_expr_is_atom(&w_place) && match(projection_call_mode_of(&w_place, ctx), .Some(m) => m, .None => false));
+          if(ast_expr_is_atom(&w_place) || w_projection, {
             // The origin parameters the pointee names, and its TYPE
             // parameters: `dst : &mut Option(T)` with `T := &S` is as much an
             // inference variable as a spelled `r` (the row
@@ -9481,7 +9489,7 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
             w_names := ArrayList(String).new();
             origin_param_names_of(&t_slot_pointee(&w_slot), &mut w_names, u32(0));
             w_tvars := ArrayList(String).new();
-            _type_var_ids_of(&t_slot_pointee(&w_slot), &mut w_tvars, u32(0));
+            type_var_ids_of(&t_slot_pointee(&w_slot), &mut w_tvars, u32(0), true);
             // Only the flow case: every named parameter the argument spelled
             // is already fixed exactly by step 1.
             (unfixed : bool) = (w_tvars.len() > usize(0));
@@ -9524,7 +9532,7 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
                       });
                       if(!names_it && (w_tvars.len() > usize(0)), {
                         x_tvars := ArrayList(String).new();
-                        _type_var_ids_of(&x_slot, &mut x_tvars, u32(0));
+                        type_var_ids_of(&x_slot, &mut x_tvars, u32(0), true);
                         (ti : usize) = usize(0);
                         while(ti < x_tvars.len(), {
                           if(w_tvars.contains(match(x_tvars.get_cloned(ti), .Some(tv) => tv, .None => String.new())), {
@@ -9568,43 +9576,53 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
               // A reference binding's value type is its pointee, which carries no
               // origin: the binding itself is the holder, and its slot type spells
               // (or infers) the origin the solved set widens (`dst : &mut &(T, p)`).
-              if(solved.len() > usize(0), {
+              // Through a `&mut` re-borrow chain (`rp := &mut r`, `rpp := &mut rp`,
+              // lent as `&mut rpp.*.*` or `&mut rp.*`) the callee's store lands in
+              // the binding the chain ends at (`r`), and every holder on the way
+              // names the same invariant origin, so each one's set widens: a read
+              // of `rp.*.*` after the referent dies is the same use-after-free.
+              // Only the end is KILLed (the store replaced its value), and only
+              // when the chain has one end; the holders above it still point
+              // where they pointed.
+              if((solved.len() > usize(0)) && w_projection, {
+                flow_write_back_through(&origin_of(&w_place, env, ctx), &String.new(), &solved, ast_expr_token(&w_arg), env, ctx, exn);
+              });
+              if((solved.len() > usize(0)) && !w_projection, {
                 match(
                   get_variables_from_env(env, ast_expr_token(&w_place).value.*.clone()).last_cloned(),
-                  .Some(hv) => if(!hv.is_module_level() && !hv.is_compile_time_only() && (type_carries_origin(&variable_value_type(&hv)) || (variable_is_reference_binding(&hv) && type_carries_origin(&variable_slot_type(&hv)))), {
-                    if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
-                      eprintln(`[n2b] write-back ${hv.name}: roots=[${n2b_roots_text(&solved)}] at ${ast_expr_token(&w_arg).module_path.*.clone()}:${(ast_expr_token(&w_arg).row + u32(1)).to_string()}`);
-                    });
-                    // A re-borrow `rp := &mut r` lent as `&mut rp.*`: the
-                    // holder whose flow set the store widens is the local `rp`
-                    // points at, not `rp`.
-                    holders := ArrayList(Variable).new();
-                    if(variable_is_reference_binding(&hv) && t_slot_is_borrow(&t_slot_pointee(&variable_slot_type(&hv))), {
-                      rb_roots := origin_of(&w_place, env, ctx);
-                      (rbi : usize) = usize(0);
-                      while(rbi < rb_roots.len(), {
-                        rb := rb_roots(rbi).clone();
-                        if((rb.place.steps.len() == usize(0)) && !rb.place.module_root, {
-                          match(
-                            get_variables_from_env(env, rb.place.root_name.clone()).last_cloned(),
-                            .Some(rv) => if(variable_is_reference_binding(&rv) && (rv.name != hv.name), {
-                              holders.push(rv);
-                            }),
-                            .None => ()
-                          );
-                        });
-                        rbi = (rbi + usize(1));
+                  .Some(hv) => {
+                    chain := reference_reborrow_chain(&hv, usize(64), env);
+                    (n_ends : usize) = usize(0);
+                    (ci : usize) = usize(0);
+                    while(ci < chain.len(), {
+                      if(match(chain.get_cloned(ci), .Some(cl) => cl.is_end, .None => false), {
+                        n_ends = (n_ends + usize(1));
                       });
-                    });
-                    if(holders.len() == usize(0), {
-                      holders.push(hv.clone());
+                      ci = (ci + usize(1));
                     });
                     (hi : usize) = usize(0);
-                    while(hi < holders.len(), {
-                      match(holders.get_cloned(hi), .Some(hh) => bind_join_roots_for(&hh, &solved, ast_expr_token(&w_arg), env, ctx, exn), .None => ());
+                    while(hi < chain.len(), {
+                      match(
+                        chain.get_cloned(hi),
+                        .Some(link) => {
+                          hh := link.holder.clone();
+                          if(!hh.is_module_level() && !hh.is_compile_time_only() && (type_carries_origin(&variable_value_type(&hh)) || (variable_is_reference_binding(&hh) && type_carries_origin(&variable_slot_type(&hh)))), {
+                            if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
+                              eprintln(`[n2b] write-back ${hh.name} (chain depth ${link.depth.to_string()}): roots=[${n2b_roots_text(&solved)}] at ${ast_expr_token(&w_arg).module_path.*.clone()}:${(ast_expr_token(&w_arg).row + u32(1)).to_string()}`);
+                            });
+                            bind_join_roots_for(&hh, &solved, ast_expr_token(&w_arg), env, ctx, exn, kill : (link.is_end && (n_ends == usize(1))));
+                            // A local `&mut` borrow of a holder (`sp := &mut
+                            // slot`): the store lands in the holder (A25).
+                            if(local_mut_borrow_of_holder(&hh), {
+                              flow_write_back_through(&variable_holder_roots(&hh), &hh.name, &solved, ast_expr_token(&w_arg), env, ctx, exn);
+                            });
+                          });
+                        },
+                        .None => ()
+                      );
                       hi = (hi + usize(1));
                     });
-                  }),
+                  },
                   .None => ()
                 );
               });
@@ -9645,44 +9663,6 @@ _audit_lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalConte
     );
     wi = (wi + usize(1));
   });
-});
-/// The identities of the type variables (`generic(T : Type)`'s `SomeT`s) a
-/// definition's slot type mentions, through references, type arguments and
-/// tuple fields — the flow write-back's shared-`T` case.
-_type_var_ids_of :: (fn(ty : &TypeValue, out : &mut ArrayList(String), depth : u32) -> unit)({
-  if(depth > u32(16), {
-    return(());
-  });
-  match(
-    ty,
-    Rc(.SomeT({ id : tv_id })) => if(!out.contains(&tv_id), {
-      out.push(tv_id.clone());
-    }),
-    Rc(.Reference(tv_p, _, _)) => _type_var_ids_of(&tv_p, out, (depth + u32(1))),
-    Rc(.ValueSlot(tv_vs)) => _type_var_ids_of(&tv_vs, out, (depth + u32(1))),
-    Rc(.Struct({ type_arguments : tv_sargs })) => {
-      (si : usize) = usize(0);
-      while(si < tv_sargs.len(), {
-        match(tv_sargs.get(si), .Some(sa) => _type_var_ids_of(&sa, out, (depth + u32(1))), .None => ());
-        si = (si + usize(1));
-      });
-    },
-    Rc(.EnumT({ type_arguments : tv_eargs })) => {
-      (ei : usize) = usize(0);
-      while(ei < tv_eargs.len(), {
-        match(tv_eargs.get(ei), .Some(ea) => _type_var_ids_of(&ea, out, (depth + u32(1))), .None => ());
-        ei = (ei + usize(1));
-      });
-    },
-    Rc(.Tuple({ field_types : tv_fields })) => {
-      (fi : usize) = usize(0);
-      while(fi < tv_fields.len(), {
-        match(tv_fields.get(fi), .Some(ft) => _type_var_ids_of(&ft, out, (depth + u32(1))), .None => ());
-        fi = (fi + usize(1));
-      });
-    },
-    _ => ()
-  );
 });
 /// The argument's own type carries an origin (a definition slot over a type
 /// variable does not say; the instantiation does).
