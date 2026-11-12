@@ -51,8 +51,8 @@ each of these is accepted by `check` on develop `a40824a3e` and the binary repor
 
 The checker already rejected two shapes: the method form (`impl(Picker, pick : (fn(generic(T : Type), self : &Self, a : T, b : T) -> T)(...))`,
 `pk.pick(rx, ry)`), whose receiver dispatch records the generic signature, and the fn-value form (`f := _sm_pick; f(rx, ry)`).
-The tuple form (`-> Tuple(T, T)` with the body `(b, a)`) does not reach the C compiler:
-`issues/2026-11-12-a-tuple-of-by-value-reference-parameters-emits-invalid-c.md` (S2). A local closure
+The tuple form (`-> Tuple(T, T)` with the body `(b, a)`) is E0911 now, like the others; building the tuple itself emitted
+invalid C: `issues/fixed/2026-11-12-a-tuple-of-by-value-reference-parameters-emits-invalid-c.md` (S2, fixed by #1920). A local closure
 `(fn(a : &i32, b : &i32) -> &i32)(&b.*)` drops its second argument too, by another path, and v0.2.76 already had that hole:
 `issues/2026-11-12-a-local-closure-returning-a-reference-borrows-only-its-first-reference-argument.md` (S1).
 
