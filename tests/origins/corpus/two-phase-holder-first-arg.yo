@@ -1,0 +1,13 @@
+// N0 corpus row `two-phase-holder-first-arg` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P9;
+// manifest tests/origins/corpus.tsv): `two-phase-holder-arg` with the holder FIRST and the `&mut` second: the holder's last use precedes the `&mut` argument, and it still hands the loan to the callee.
+// Expected: rejected: E0911.
+{ ArrayList } :: import("std/collections/array_list");
+H :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(ArrayList(i32), p)));
+_len_push :: (fn(generic(p : Origin), h : H(p), a : &mut ArrayList(i32)) -> unit)(a.push(i32(h.r.len())));
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(i32).new();
+  h := H(xs)(r : &xs);
+  _len_push(h, &mut xs);
+  ()
+});
+export(main);

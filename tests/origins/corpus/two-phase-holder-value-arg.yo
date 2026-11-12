@@ -1,0 +1,13 @@
+// N0 corpus row `two-phase-holder-value-arg` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P9;
+// manifest tests/origins/corpus.tsv): `two-phase-holder-arg`'s control: the later argument reads a value through the holder (`h.r.len()`, no origin), so `h` has ended when the `&mut` activates.
+// Expected: accepted.
+{ ArrayList } :: import("std/collections/array_list");
+H :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(ArrayList(i32), p)));
+_push_n :: (fn(a : &mut ArrayList(i32), n : usize) -> unit)(a.push(i32(n)));
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(i32).new();
+  h := H(xs)(r : &xs);
+  _push_n(&mut xs, h.r.len());
+  ()
+});
+export(main);

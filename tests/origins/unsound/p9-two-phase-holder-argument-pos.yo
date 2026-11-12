@@ -1,0 +1,22 @@
+// expect: accept
+// p9-two-phase-holder-argument's positive twin: the later argument reads the element through `h` (an `i32`, no origin), so `h` has ended when the growing call begins.
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+H :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(i32, p)));
+grow_then_add :: (fn(xs : &mut ArrayList(i32), n : i32) -> i32)({
+  mut(i) := usize(0);
+  while(i < usize(1000), {
+    xs.push(i32(7));
+    i = (i + usize(1));
+  });
+  n + xs(usize(1000))
+});
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  h := H(xs)(r : &xs(usize(0)));
+  v := grow_then_add(&mut xs, h.r.*);
+  println(`OUT: ${v.to_string()}`);
+  ()
+});
+export(main);

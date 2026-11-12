@@ -1,0 +1,22 @@
+// expect: E0911
+// Two-phase (§7 P9) must not end a loan a later argument carries into the callee: `h` holds `&xs(0)`, its last use is the call's own argument, and the callee grows `xs` before it reads through `h`.
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+H :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(i32, p)));
+grow_then_read :: (fn(generic(p : Origin), xs : &mut ArrayList(i32), h : H(p)) -> i32)({
+  mut(i) := usize(0);
+  while(i < usize(1000), {
+    xs.push(i32(7));
+    i = (i + usize(1));
+  });
+  h.r.*
+});
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  h := H(xs)(r : &xs(usize(0)));
+  v := grow_then_read(&mut xs, h);
+  println(`OUT: ${v.to_string()}`);
+  ()
+});
+export(main);

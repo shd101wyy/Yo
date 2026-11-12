@@ -1097,13 +1097,25 @@ eval_call :: (fn(ck : &mut Ck, env : &mut Env, f : usize, args : &ArrayList(Node
     i = (i + usize(1));
   });
   ck.call_after = outer_after;
+  // The activation's live set adds every operand whose VALUE carries an
+  // origin into the callee (a reference, a holder, a reference result): a
+  // `&` loan such an operand mentions is live for the whole callee, wherever
+  // its last use is (issues/fixed/2026-11-11-two-phase-ends-a-loan-a-later-argument-carries-into-the-callee.md).
+  mut(carried) := u64(0);
+  i = usize(0);
+  while(i < args.len(), {
+    if(orig(&types(i), usize(0)) != u64(0), {
+      carried = (carried | uses(&args(i)));
+    });
+    i = (i + usize(1));
+  });
   i = usize(0);
   while(i < args.len(), {
     aa := Rc.clone(&args(i));
     match(
       &aa.*,
       .Borrow(m, p) => if(m.*, {
-        access(ck, env, p.*, ACCESS_WRITE, outer_after);
+        access(ck, env, p.*, ACCESS_WRITE, outer_after | carried);
       }),
       _ => ()
     );
