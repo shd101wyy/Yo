@@ -1,0 +1,19 @@
+// expect: E0923
+// `r` declared over `outer` alone: `&inner` is outside it (VERDICTS-58 (d); issues/fixed/2026-11-12-a-mut-ref-ref-lend-does-not-write-back-its-solved-origin.md; found by the borrow audit).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+mk :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+set :: (fn(generic(p : Origin), dst : &mut&(Rc(X), p), v : &(Rc(X), p)) -> unit)({
+  dst.* = v;
+});
+main :: (fn() -> unit)({
+  outer := mk();
+  (mut(r) : &(Rc(X), outer)) = &outer;
+  {
+    inner := mk();
+    set(&mut r, &inner);
+  };
+  println(`OUT: ${r.*.*.s.len().to_string()}`);
+});
+export(main);

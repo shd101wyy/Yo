@@ -320,6 +320,7 @@ Filed 2026-11-07 from VERDICTS-30/31; each names its repro under `issues/repros/
   is known); any other receiver (an owned place, a call result, a field, an explicit `(&c)`) has no storage to lend and
   is an error at the call naming the repair, never the mis-passed C. Open (the rest of P3b): an owned or temporary
   receiver at `&&C` through an O-5 hidden local, and gap 1 (operator operands).
+- 2026-11-12 (VERDICTS-58 (d)): the flow write-back of a `&mut` lend covers a reference binding. `set(&mut r, &inner)` through `dst : &mut &(T, p)` joined nothing into the flow-inferred `r` (a reference binding's value type is its pointee, which carries no origin), a use-after-free P3 introduced; the join now tests the binding's slot type, and a `&mut` re-borrow `rp` redirects it to the local `rp` points at. Rows `ref-mut-ref-store-narrower`, `-narrower-declared`, `-same-scope`, `ref-mut-ref-store-reborrow` (`issues/fixed/2026-11-12-a-mut-ref-ref-lend-does-not-write-back-its-solved-origin.md`).
 - 2026-11-09: R3 landed (VERDICTS-23: a specialization keeps the declared shape of its slots). A by-value slot whose
   type becomes a reference at a specialization (`-> T` / `v : T` at `T := &U`) is `ValueSlot(&U)`, a node of its own
   next to the borrow `Reference` slot, so `-> T` is a reference VALUE (a pointer), no longer lowered as a projection,
