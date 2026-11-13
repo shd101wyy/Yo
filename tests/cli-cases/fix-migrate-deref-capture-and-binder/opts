@@ -1,0 +1,11 @@
+# `yo fix --migrate deref` reads source written before the deref rule, where a
+# capture-list entry `{ r }` of a reference binding copied the referent and a
+# bare `r` at an unbound type binder (`first(r)`) bound the referent's type.
+# Since #1891 (R-CAP-1) and R1 the rule reads both as the reference, and the
+# recorder read them that way too: the closure became a borrowing one (E0909
+# into the sink parameter, the file did not evaluate) and the binder silently
+# bound `T := &i32`. The migration now writes `{ r : r.* }` and `first(r.*)`,
+# and the migrated file checks
+# (issues/fixed/2026-11-13-migrate-deref-reads-a-capture-pun-and-a-binder-read-the-new-way.md).
+stdout_keep=^(fix:|error|check:.*(OK|passed|failed))
+timeout=240

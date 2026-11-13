@@ -1,0 +1,12 @@
+keep :: (fn(sink(f) : Impl(Fn() -> i32)) -> i32)(f());
+first :: (fn(generic(T : Type), v : T) -> T)(v);
+show :: (fn(r : &i32) -> i32)({
+  n := keep({ r }() => r);
+  m := first(r);
+  (n + m)
+});
+main :: (fn() -> unit)({
+  x := i32(3);
+  _s := show(&x);
+});
+export(main);
