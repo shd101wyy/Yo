@@ -1,0 +1,22 @@
+// expect: E0911
+// the same pick returning `Option(T)`: the payload is the second argument's reference, read after its list grows.
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+_sm_pick :: (fn(generic(T : Type), a : T, b : T, first : bool) -> Option(T))(.Some(if(first, a, b)));
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(i32).new();
+  mut(ys) := ArrayList(i32).new();
+  xs.push(i32(1));
+  ys.push(i32(2));
+  rx := xs.index(usize(0));
+  ry := ys.index(usize(0));
+  picked := _sm_pick(rx, ry, false);
+  mut(i) := i32(0);
+  while(i < i32(1000), {
+    ys.push(i);
+    i = (i + i32(1));
+  });
+  (v : i32) = match(picked, .Some(p) => p.*, .None => i32(0));
+  println(&v);
+});
+export(main);

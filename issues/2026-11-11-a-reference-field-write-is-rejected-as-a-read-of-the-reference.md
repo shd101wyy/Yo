@@ -75,6 +75,25 @@ error is at the left side, `r = &y` on a binding is accepted today (`bind_join` 
 expression at all. Whether `&y` on the right of a FIELD write then type-checks cannot be measured until the left side
 is accepted.
 
+## A `&mut` lend of a `&`-typed field or tuple slot (added 2026-11-12, audit re-probe pass 2)
+
+The same misreading rejects a `&mut` LEND of a reference-typed field: passing the field to a
+`dst : &mut &(T, p)` parameter is a write of the place `s.r` (A28's shape, one step down), not a write through the
+`&` it holds. Measured on develop `4f8f975b3` (re-probe `probes2/e_field_direct_pos`, `e_tuple_field_pos`; their
+negative twins, where `inner` dies first, get the same E0908, so no hole hides behind it); v0.2.76 cannot spell
+`&mut &(T, p)`:
+
+```yo ignore
+S :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(Rc(X), p), n : i32));
+mut(s) := S(outer)(r : &outer, n : i32(0));
+set(&mut s.r, &inner);   // E0908 "Cannot write through `s.r`: it is a `&` reference field"
+set(&mut t.0, &inner);   // `t : (&Rc(X), i32)`: the same E0908
+```
+
+The deeper forms `&mut pp.*.r` and `&mut w.0.r` are rejected the same way. Expected: accepted, with `s`'s flow set
+joined by `inner`'s origin exactly as A28's fix (#1916) does for `set(&mut r, &inner)`; E0911 when `inner` dies
+before `s` is used.
+
 ## Expected
 
 Accepted. `REFERENCES_AND_ORIGINS.md` O3, "Place writes": "`v.xs = &y` requires `y`'s origin ⊆ `v`'s declared origin
