@@ -1210,7 +1210,7 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
     // value type is its pointee's, so its `Drop` is not `cur`'s.
     roots := ArrayList(OriginRootPlace).new();
     roots.push(OriginRootPlace(place : place.clone(), is_mut : is_mut));
-    bind_join_roots_for(&cur_var, &roots, ast_expr_token(&rhs), &env, ctx, exn, holder_may_drop : false);
+    bind_join_roots_for(&cur_var, &roots, ast_expr_token(&rhs), &env, ctx, exn, kill : true, holder_may_drop : false);
   });
   variable_mark_inout_borrow_root(&root_var);
   lhs_info := new_expr_info(&env, t_unit());
