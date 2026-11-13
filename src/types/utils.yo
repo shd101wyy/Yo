@@ -966,6 +966,100 @@ _type_is_sized_d :: (fn(ty : &TypeValue, depth : u32) -> bool)(
     )
   )
 );
+/// True if the struct or enum `ty` has a HIDDEN origin: it carries an origin
+/// that none of its type arguments supplies, because its definition leaves a
+/// `&` field's origin to elision (`H :: struct(r : &T)`), directly or through
+/// a field of another such nominal (`W :: struct(h : H)`). Named in a
+/// signature, such a type gets one fresh rigid origin per occurrence, Rust's
+/// `H<'_>` (plans/backlog/REFERENCES_AND_ORIGINS.md O2, the nominal row; audit
+/// A29). A type argument is opaque here: `Option(&T)`'s origin is its
+/// argument's, so it has no hidden one, and neither has `G(p)`, whose field
+/// spells `p`. An instance's fields are its definition's with the arguments
+/// substituted, so a field whose type IS one of the arguments is read as that
+/// argument.
+nominal_has_hidden_origin :: (fn(ty : &TypeValue) -> bool)(
+  cond(
+    !g_origin_types_exist => false,
+    true => {
+      seen := ArrayList(String).new();
+      _nominal_hidden_inner(ty, &mut seen, u32(0))
+    }
+  )
+);
+_nominal_hidden_inner :: (fn(ty : &TypeValue, seen : &mut ArrayList(String), depth : u32) -> bool)(
+  cond(
+    (depth > u32(24)) => false,
+    true => match(
+      ty,
+      Rc(.Struct({ id : nh_sid, field_types : nh_fields, type_arguments : nh_targs, is_source_namespace : nh_sns })) => cond(
+        nh_sns => false,
+        ((nh_sid.len() > usize(0)) && seen.contains(&nh_sid)) => false,
+        true => {
+          if(nh_sid.len() > usize(0), {
+            seen.push(nh_sid.clone());
+          });
+          _any_hidden_origin(&nh_fields, &nh_targs, seen, depth)
+        }
+      ),
+      Rc(.EnumT({ id : nh_eid, variant_fields : nh_vfields, type_arguments : nh_etargs })) => cond(
+        ((nh_eid.len() > usize(0)) && seen.contains(&nh_eid)) => false,
+        true => {
+          if(nh_eid.len() > usize(0), {
+            seen.push(nh_eid.clone());
+          });
+          (vi : usize) = usize(0);
+          while(vi < nh_vfields.len(), vi = (vi + usize(1)), {
+            if(match(nh_vfields.get(vi), .Some(vf) => _any_hidden_origin(&vf, &nh_etargs, seen, depth), .None => false), {
+              return(true);
+            });
+          });
+          false
+        }
+      ),
+      _ => false
+    )
+  )
+);
+_any_hidden_origin :: (fn(ts : &SharedList(TypeValue), args : &SharedList(TypeValue), seen : &mut ArrayList(String), depth : u32) -> bool)({
+  (i : usize) = usize(0);
+  while(i < ts.len(), i = (i + usize(1)), {
+    if(match(ts.get(i), .Some(t) => _field_hidden_origin(&t, args, seen, depth + u32(1)), .None => false), {
+      return(true);
+    });
+  });
+  false
+});
+/// `ty`, a field type of a nominal whose type arguments are `args`, carries
+/// an origin that is not one of `args`'.
+_field_hidden_origin :: (fn(ty : &TypeValue, args : &SharedList(TypeValue), seen : &mut ArrayList(String), depth : u32) -> bool)({
+  if((depth > u32(24)) || !type_carries_origin(ty), {
+    return(false);
+  });
+  shown := type_to_string(ty);
+  (ai : usize) = usize(0);
+  while(ai < args.len(), ai = (ai + usize(1)), {
+    if(match(args.get(ai), .Some(a) => (type_to_string(&a) == shown), .None => false), {
+      return(false);
+    });
+  });
+  match(
+    ty,
+    Rc(.Reference(fh_p, _, fh_o)) => (match(&fh_o, Rc(.OriginSet(_, fh_el)) => fh_el, _ => false) || _field_hidden_origin(&fh_p, args, seen, depth + u32(1))),
+    Rc(.OriginSet(_, fh_el2)) => fh_el2,
+    Rc(.ValueSlot(fh_vs)) => _field_hidden_origin(&fh_vs, args, seen, depth + u32(1)),
+    Rc(.Pointer(fh_in)) => _field_hidden_origin(&fh_in, args, seen, depth + u32(1)),
+    Rc(.SliceT(fh_el3)) => _field_hidden_origin(&fh_el3, args, seen, depth + u32(1)),
+    Rc(.Array(element : fh_el4)) => _field_hidden_origin(&fh_el4, args, seen, depth + u32(1)),
+    Rc(.RefineT(fh_ri, _)) => _field_hidden_origin(&fh_ri, args, seen, depth + u32(1)),
+    Rc(.SomeT({ resolution : fh_res })) => match(fh_res, .Some(r) => _field_hidden_origin(&r, args, seen, depth + u32(1)), .None => false),
+    Rc(.Tuple({ field_types : fh_tf })) => _any_hidden_origin(&fh_tf, args, seen, depth),
+    // A nested nominal: an argument of it that carries an origin of its own,
+    // or a hidden origin of its definition.
+    Rc(.Struct({ type_arguments : fh_sta })) => (_any_hidden_origin(&fh_sta, args, seen, depth) || _nominal_hidden_inner(ty, seen, depth + u32(1))),
+    Rc(.EnumT({ type_arguments : fh_eta })) => (_any_hidden_origin(&fh_eta, args, seen, depth) || _nominal_hidden_inner(ty, seen, depth + u32(1))),
+    _ => false
+  )
+});
 _any_carries_origin :: (fn(ts : &SharedList(TypeValue), seen : &mut ArrayList(String), depth : u32) -> bool)({
   (i : usize) = usize(0);
   while(i < ts.len(), {
@@ -4102,7 +4196,7 @@ type_may_provide_slice_source :: (fn(ty : &TypeValue) -> bool)({
 export(enum_phantom_type_arg_somes, enum_phantom_type_args_masked);
 export(CaptureBorrow, register_capture_borrows, capture_struct_borrows, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, type_is_second_class, type_first_mut_borrow, type_pointee_second_class);
 export(future_origin_names, note_future_origins_exist, note_unreturnable_future, future_unreturnable_borrow);
-export(type_carries_origin, type_reaches_user_drop, type_nominal_drop_uses_roots, DropUsesRootsFn, set_drop_uses_roots_fn, type_is_escapable, type_is_sized, unsized_by_value_error, escapable_bound_error, note_origin_types_exist, origin_value_phase_message, reject_origin_carrying_signature, no_origin_position_error, origin_beyond_n2b, origin_beyond_n2b_message);
+export(type_carries_origin, nominal_has_hidden_origin, type_reaches_user_drop, type_nominal_drop_uses_roots, DropUsesRootsFn, set_drop_uses_roots_fn, type_is_escapable, type_is_sized, unsized_by_value_error, escapable_bound_error, note_origin_types_exist, origin_value_phase_message, reject_origin_carrying_signature, no_origin_position_error, origin_beyond_n2b, origin_beyond_n2b_message);
 export(set_target_pointer_size);
 export(is_drop_trait_name, is_drop_method_name, is_destructor_trait_member, is_clone_trait_type, dyn_type_lists_clone, type_holds_dyn_by_value);
 export(get_target_pointer_size_bits);

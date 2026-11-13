@@ -1,0 +1,24 @@
+// expect: accept
+// Positive control for the elided-holder rows: a by-value holder passed through (returned, stored in a
+// body local, read) relates no two origins, and a method that rebuilds `self` from its own field is sound.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+mk :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+H :: struct(r : &Rc(X), n : i32);
+W :: struct(h : H, m : i32);
+impl(W, bump : (fn(self : &mut Self) -> unit)({
+  self.h = H(r : self.h.r, n : (self.h.n + i32(1)));
+}));
+pass :: (fn(h : H) -> H)({
+  mut(o) := Option(H).None;
+  o = .Some(h);
+  match(o, .Some(k) => k, .None => panic("unreachable"))
+});
+main :: (fn() -> unit)({
+  a := mk();
+  mut(w) := W(h : pass(H(r : &a, n : i32(0))), m : i32(0));
+  w.bump();
+  println(`OUT: ${w.h.r.*.*.s.len().to_string()} ${w.h.n.to_string()}`);
+});
+export(main);

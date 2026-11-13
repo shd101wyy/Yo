@@ -1,0 +1,22 @@
+// expect: E0923
+// A method of a holder's container stores a by-value holder into `self`: `W`'s and `H`'s hidden origins
+// are two fresh origins (O2's nominal row), so the body's place write is E0923.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+mk :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+H :: struct(r : &Rc(X), n : i32);
+W :: struct(h : H, m : i32);
+impl(W, put : (fn(self : &mut Self, h : H) -> unit)({
+  self.h = h;
+}));
+main :: (fn() -> unit)({
+  a := mk();
+  mut(w) := W(h : H(r : &a, n : i32(0)), m : i32(0));
+  {
+    y := mk();
+    w.put(H(r : &y, n : i32(0)));
+  };
+  println(`OUT: ${w.h.r.*.*.s.len().to_string()}`);
+});
+export(main);

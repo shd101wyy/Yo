@@ -1,0 +1,18 @@
+// expect: E0923
+// A GENERIC holder whose `&` field is elided (`V(T) :: struct(xs : &T)`) has a hidden origin beside its
+// type argument: named twice in a signature it is two origins.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+V :: (fn(comptime(T) : Type) -> comptime(Type))(struct(xs : &T, n : i32));
+stash :: (fn(dst : &mut Option(V(String)), v : V(String)) -> unit)({
+  dst.* = .Some(v);
+});
+main :: (fn() -> unit)({
+  mut(o) := Option(V(String)).None;
+  {
+    y := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+    stash(&mut o, V(String)(xs : &y, n : i32(0)));
+  };
+  match(&o, .Some(v) => println(`OUT: ${v.xs.len().to_string()}`), .None => ());
+});
+export(main);

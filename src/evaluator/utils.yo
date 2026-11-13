@@ -150,7 +150,7 @@ pragma(Pragma.AllowUnsafe);
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string, type_to_string_for_message } :: import("../types/string.yo");
-{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, type_reaches_user_drop, type_nominal_drop_uses_roots, note_origin_types_exist, type_is_typed_fnmut_closure, capture_struct_is_fnmut, future_unreturnable_borrow, future_origin_names, get_all_some_types } :: import("../types/utils.yo");
+{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, nominal_has_hidden_origin, type_reaches_user_drop, type_nominal_drop_uses_roots, note_origin_types_exist, type_is_typed_fnmut_closure, capture_struct_is_fnmut, future_unreturnable_borrow, future_origin_names, get_all_some_types } :: import("../types/utils.yo");
 { expr_info_table_set, is_mut_global, is_thread_local, migrate_deref_on, audit_deref_on, record_deref_site, record_deref_edit_site, note_reference_read_copied, lookup_macro_expansion, is_reference_self_place, unsize_reference_mode } :: import("../expr_info.yo");
 { is_global_mut_rule_exempt, is_deref_rule_exempt } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
@@ -10138,20 +10138,45 @@ _rigidify_elided_origins :: (fn(ty : &TypeValue, pname : &String, prefix : &Stri
       t_origin_named(&shared_list(names))
     }, ty.clone()),
     Rc(.Struct(rs_id, rs_n, rs_fl, rs_ft, rs_rs, rs_ar, rs_nt, rs_ctor, rs_tas, rs_ns)) => {
-      if(rs_tas.len() == usize(0), {
+      rs_hidden := nominal_has_hidden_origin(ty);
+      if((rs_tas.len() == usize(0)) && !rs_hidden, {
         return(ty.clone());
       });
-      Rc.new(TypeValueNode.Struct(rs_id.clone(), rs_n.clone(), Rc.clone(rs_fl), Rc.clone(rs_ft), rs_rs, rs_ar, rs_nt, rs_ctor.clone(), _rigidify_elided_list(&rs_tas, pname, prefix, next, depth), rs_ns))
+      Rc.new(TypeValueNode.Struct(rs_id.clone(), rs_n.clone(), Rc.clone(rs_fl), Rc.clone(rs_ft), rs_rs, rs_ar, rs_nt, rs_ctor.clone(), _rigidify_nominal_args(&rs_tas, rs_hidden, pname, prefix, next, depth), rs_ns))
     },
     Rc(.EnumT(re_id, re_n, re_vn, re_vf, re_sel, re_vfl, re_ds, re_rs, re_ar, re_tas)) => {
-      if(re_tas.len() == usize(0), {
+      re_hidden := nominal_has_hidden_origin(ty);
+      if((re_tas.len() == usize(0)) && !re_hidden, {
         return(ty.clone());
       });
-      Rc.new(TypeValueNode.EnumT(re_id.clone(), re_n.clone(), Rc.clone(re_vn), Rc.clone(re_vf), re_sel.clone(), Rc.clone(re_vfl), Rc.clone(re_ds), re_rs, re_ar, _rigidify_elided_list(&re_tas, pname, prefix, next, depth)))
+      Rc.new(TypeValueNode.EnumT(re_id.clone(), re_n.clone(), Rc.clone(re_vn), Rc.clone(re_vf), re_sel.clone(), Rc.clone(re_vfl), Rc.clone(re_ds), re_rs, re_ar, _rigidify_nominal_args(&re_tas, re_hidden, pname, prefix, next, depth)))
     },
     Rc(.Tuple(rt_fl, rt_ft)) => Rc.new(TypeValueNode.Tuple(Rc.clone(rt_fl), _rigidify_elided_list(&rt_ft, pname, prefix, next, depth))),
     _ => ty.clone()
   )
+});
+/// A nominal's type arguments with their elided origins rigid, and, when the
+/// nominal has a hidden origin (`nominal_has_hidden_origin`: an elided `&`
+/// field of its definition, `H :: struct(r : &T)`), one more fresh rigid
+/// origin for this occurrence of its name: the origin argument its definition
+/// leaves unnamed, spelled here as if `H(h#v1)` had been written (O2's
+/// nominal row, Rust's `H<'_>`; audit A29). Only the origin walks
+/// (`origin_param_names_of`, the subset checks) read the rigid slot.
+_rigidify_nominal_args :: (fn(tas : &SharedList(TypeValue), hidden : bool, pname : &String, prefix : &String, next : &mut u32, depth : u32) -> SharedList(TypeValue))({
+  args := _rigidify_elided_list(tas, pname, prefix, next, depth);
+  if(!hidden, {
+    return(args);
+  });
+  out := ArrayList(TypeValue).new();
+  (i : usize) = usize(0);
+  while(i < args.len(), i = (i + usize(1)), {
+    match(args.get(i), .Some(a) => out.push(a), .None => ());
+  });
+  names := ArrayList(String).new();
+  names.push(`${pname}#${prefix}${next.to_string()}`);
+  next = (next + u32(1));
+  out.push(t_origin_named(&shared_list(names)));
+  shared_list(out)
 });
 _rigidify_elided_list :: (fn(tys : &SharedList(TypeValue), pname : &String, prefix : &String, next : &mut u32, depth : u32) -> SharedList(TypeValue))({
   out := ArrayList(TypeValue).new();
