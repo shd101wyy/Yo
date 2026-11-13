@@ -449,3 +449,29 @@ test("FnMut: an `FnMut` closure called through a `&` capture is E0908", {
   (mut(h) : Impl(FnMut() -> i32)) = ({ r : &mut f }() => r());
   assert(h() == i32(1), "a `&mut` capture calls the FnMut closure");
 });
+// Audit A35: an `FnMut` closure's by-value state is kept across calls, so
+// its body may not store a per-call reference parameter (E0923) or a
+// reference to one of its own locals (E0912) into it.
+test("FnMut: by-value state may not keep a per-call parameter or a body local", {
+  comptime_expect_error({
+    (mut(f) : Impl(FnMut(v : &String) -> unit)) = ({ last : Option(&String).None }(v : &String) => {
+      last = .Some(v);
+    });
+    f(&String.from("a"))
+  }, "a later call cannot name");
+  comptime_expect_error({
+    (mut(f) : Impl(FnMut() -> unit)) = ({ last : Option(&String).None }() => {
+      k := String.from("a");
+      last = .Some(&k);
+    });
+    f()
+  }, "a local of this literal's body");
+  b := String.from("b");
+  (mut(g) : Impl(FnMut() -> usize)) = ({ rb : &b, last : Option(&String).None }() => {
+    n := match(last, .Some(r) => r.len(), .None => usize(0));
+    last = .Some(rb);
+    n
+  });
+  assert(g() == usize(0), "the first call sees no state");
+  assert(g() == usize(1), "the state keeps the borrow capture");
+});
