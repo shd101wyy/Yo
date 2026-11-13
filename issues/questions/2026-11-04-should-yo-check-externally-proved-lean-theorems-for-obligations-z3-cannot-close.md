@@ -36,7 +36,7 @@ Cost:
 
 **C. Never.** Delete the ITP route from §8. Cost: it closes off a route whose LLM economics are improving fast. Agentic Lean reached 96.2% end-to-end on CLEVER (arXiv 2605.23772, rev. 2026-10-30), and Vermilion left 9 of 40 Verus obligations to interactive Lean (2026-10-18). Under the no-backward-compatibility rule, the route would have to be re-argued from scratch later.
 
-**D. A Lean semantics of Yo, i.e. a foundational VCG.** This would also remove `vc.yo` from the trusted base, where every recorded false proof originated. Cost: it is the semantic-preservation project, which is a binding non-goal.
+**D. A Lean semantics of Yo, i.e. a foundational VCG.** This would also remove `vc.yo` from the trusted base, where every recorded false proof originated. Cost: it is the semantic-preservation project, which is a binding non-goal. *Note 2026-11-13:* that non-goal was lifted the same day; D is now rung P3 of `plans/backlog/PROVEN_CORE.md`, scheduled after VBD. It cross-checks the verifier and does not open the obligation hatch this question is about, so the recommendation below is unchanged.
 
 ## Recommendation
 
