@@ -807,8 +807,8 @@ outcome after the guarded call instead (e.g. a result the handler unwinds past).
                         if(v.is_ref() && !in_cap_frame && !v.is_borrow_match_binding(), {
                           // A judged tree names the reference itself (VERDICTS-44
                           // R-CAP-1): `{ y }` copies a `&T`, `{ m : &mut m.* }`
-                          // reborrows a `&mut T`. The trees that keep the old
-                          // reading name a borrow of the place.
+                          // reborrows a `&mut T`. Compiler-synthesized code, which
+                          // keeps the old reading, names a borrow of the place.
                           how := cond(
                             deref_rule_applies(&ci.token, ctx) => `Name it in the capture list: \`{ ${k} }(...) => ...\` copies a \`&T\` reference (the closure then refers to what \`${k}\` refers to), and \`{ ${k} : &mut ${k}.* }(...) => ...\` reborrows a \`&mut T\`.`,
                             true => `Name it in a capture list (\`{ &${k} }(...) => ...\` or \`{ &mut ${k} }(...) => ...\`), which keeps the closure second-class, or read the value into a local first.`
@@ -999,8 +999,8 @@ _evaluate_capture_list :: (
       _cap_list_error(ctx, exn, ast_expr_token(&init_e), `A borrow capture's initializer is a place under its sigil (\`${label} : ${want}place\`, or the pun \`${want}${label}\`); got \`${ast_expr_to_string(&init_e)}\`.`);
     });
     // The entry `y` / `r : y` whose initializer is a reference binding of a
-    // judged tree reads the reference (R-CAP-1); the trees that keep the old
-    // reading (`deref_rule_applies`) copy the referent as before.
+    // judged file reads the reference (R-CAP-1); compiler-synthesized code,
+    // which keeps the old reading (`deref_rule_applies`), copies the referent.
     (ref_copy_var : Option(Variable)) = Option(Variable).None;
     if(!is_borrow && ast_expr_is_atom(&init_e) && is_valid_variable_name(&init_e) && deref_rule_applies(ast_expr_token(&init_e), ctx) && !is_reference_deref_site(ast_expr_token(&init_e)), {
       match(

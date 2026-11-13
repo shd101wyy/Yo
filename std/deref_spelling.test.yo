@@ -1,15 +1,14 @@
-// SIBLING TEST: the `.*` spelling inside std (N3 deref Generation A',
-// plans/backlog/SEED_VERSION_AUTOMATION.md). std and src keep the old
-// reading of a BARE reference binding until v0.2.78 migrates them: a bare
-// `r` reads the value it refers to. A WRITTEN `r.*` on a reference binding
-// is the reference's own deref here as everywhere else, whatever the
-// referent: `r.*` on `r : &Rc(T)` is the handle, and `a.*` on `a : &T` in a
-// generic body is the `T` at every specialization (Generation A, v0.2.76,
-// read it as the payload or pointee whenever the specialization made `T` a
-// `Box`/`Rc`/`Arc`/pointer). This file lives under std so it is judged by
-// std's reading. The v0.2.76 seed compiles std but never runs this file's
-// tests, because `check` and builds treat `test(...)` as a no-op and release
-// bundles drop `*.test.yo`. `yo test ./std` runs it with the tree compiler.
+// SIBLING TEST: the `.*` spelling inside std (N3 deref Generation B,
+// plans/backlog/SEED_VERSION_AUTOMATION.md). Since v0.2.78 std and src read
+// a reference binding as every other file does: a written `r.*` on a
+// reference binding is the reference's own deref, whatever the referent
+// (`r.*` on `r : &Rc(T)` is the handle, and `a.*` on `a : &T` in a generic
+// body is the `T` at every specialization), and a bare `r` used as a whole
+// value is E0926, so `&r` lends the reference itself. This file lives under
+// std so it is judged by std's reading. The seed compiles std but never runs
+// this file's tests, because `check` and builds treat `test(...)` as a no-op
+// and release bundles drop `*.test.yo`. `yo test ./std` runs it with the
+// tree compiler.
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 
@@ -22,12 +21,11 @@ test("a written r.* reads the referent of a reference binding", {
   v := r.*;
   assert(v == i32(3), "r.* binds the referent's value");
 });
-test("a bare read keeps the old reading beside it", {
+test("&r lends the reference itself, a &&T", {
   x := i32(4);
   r := &x;
-  v := r;
-  assert(v == i32(4), "a bare r still reads the referent in std");
-  assert(r == r.*, "both spellings read the same value");
+  q := &r;
+  assert(q.*.* == i32(4), "q.* is r, q.*.* the referent");
 });
 test("r.* = x writes through a &mut reference binding", {
   mut(y) := i32(1);

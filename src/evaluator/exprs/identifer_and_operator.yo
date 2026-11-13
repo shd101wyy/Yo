@@ -529,8 +529,8 @@ evaluate_identifier_and_operator :: (
   // `&r` / `&mut r` on a reference binding (plans/backlog/BORROW_CHECKER_COMPLETENESS.md
   // §7 P3): the operand is `r`'s OWN storage, a place whose type is the
   // reference itself, so the lend is a `&&T` / `&mut &T`. Codegen emits the
-  // binding's storage there (`is_reference_self_place`). The trees that keep
-  // the old reading (std, src) lend the referent until N3 Generation B.
+  // binding's storage there (`is_reference_self_place`). Compiler-synthesized
+  // code, which keeps the old reading (`deref_rule_applies`), lends the referent.
   // `yo fix --migrate deref` reads code written before the deref rule, where
   // `&r` lent the referent: it records the `.*` (E0926's edit) instead.
   self_lend_mode := self_lend_operand_mode(ast_expr_id(expr));
@@ -559,8 +559,8 @@ evaluate_identifier_and_operator :: (
   if(variable_is_reference_binding(&variable), {
     note_reference_read(ast_expr_id(expr), reads_reference);
   });
-  // Decision 43 step 2 N1e-1 (VERDICTS-13 §11): outside std and the compiler
-  // tree a reference binding read as a whole value is spelled `r.*` (E0926);
+  // Decision 43 step 2 N1e-1 (VERDICTS-13 §11): a reference binding read as a
+  // whole value is spelled `r.*` (E0926);
   // the receiver, reference-slot and re-point positions marked it exempt.
   if(variable_is_reference_binding(&variable) && deref_rule_applies(&token, ctx), {
     if(!reads_reference && !is_self_place && !deref_is_exempt && !is_reference_deref_site(&token), {

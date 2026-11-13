@@ -3396,8 +3396,8 @@ mark_call_scoped_share_dup :: (fn(id : usize) -> unit)({
 is_call_scoped_share_dup :: (fn(id : usize) -> bool)(g_call_scoped_share_dup_ids.with(s => s.contains(&id)));
 /// The operands of a written `&r` / `&mut r` (a lend marker over a bare
 /// name), recorded before the operand is evaluated
-/// (`note_self_lend_operand`). Where `r` is a reference binding outside the
-/// trees that keep the old reading, the lend is of `r`'s OWN storage, a
+/// (`note_self_lend_operand`). Where `r` is a reference binding (outside
+/// compiler-synthesized code, `deref_rule_applies`), the lend is of `r`'s OWN storage, a
 /// `&&T` / `&mut &T` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P3):
 /// the identifier evaluator types the read as the reference itself and
 /// records it as a SELF PLACE (`mark_reference_self_place`), whose C is the
@@ -3415,9 +3415,9 @@ self_lend_operand_mode :: (fn(id : usize) -> Option(bool))(
 );
 /// A lend operand whose slot takes a reference to a REFERENCE (a `&A` /
 /// `&mut A` parameter with `A` a reference type): its `&r` lends `r` itself
-/// in every tree, the ones that keep the old reading of `&r` (std, src)
-/// included, since the referent cannot be what such a slot takes (an adapter's
-/// `(self._f)(&item)` over a reference `Item`).
+/// in every file, compiler-synthesized code included, since the referent
+/// cannot be what such a slot takes (an adapter's `(self._f)(&item)` over a
+/// reference `Item`).
 (g_self_lend_forced_ids : RefCell(HashSet(usize))) = RefCell(HashSet(usize)).new(HashSet(usize).new());
 note_self_lend_forced :: (fn(id : usize) -> unit)({
   _m := g_self_lend_forced_ids.with_mut(s => s.insert(id));
@@ -3677,8 +3677,7 @@ expr_side_table_entry_count :: (fn() -> usize)(
 export(record_module_level_init_expr, get_module_level_init_exprs);
 export(purge_expr_side_tables, purge_executed_clone_metadata, expr_side_table_entry_count);
 /// One `.*` `yo fix --migrate deref` inserts (decision 43 step 2, N1e-1;
-/// step-2 consultation Q7, VERDICTS-13 §11): outside std and the compiler
-/// tree, a reference binding read or written as a whole value (`n + 1`,
+/// step-2 consultation Q7, VERDICTS-13 §11): a reference binding read or written as a whole value (`n + 1`,
 /// `r = v`, `&r`) reads its referent with `.*` (E0926), and a `v.*` that
 /// meant the `Box`/`Rc`/field-`*` deref through a reference becomes
 /// `v.*.*`. Every site is one insertion of `.*` right after the expression
@@ -3703,7 +3702,7 @@ set_migrate_deref :: (fn(on : bool) -> unit)({
 migrate_deref_on :: (fn() -> bool)(g_migrate_deref);
 /// `YO_AUDIT_DEREF=1`: the census of N1e-1's sites, printed as
 /// `[deref] <file>:<row>:<col> <expr>` at each one (print-only, every file,
-/// the exempt trees included), so the PR states the real count.
+/// compiler-synthesized code included), so the PR states the real count.
 (g_audit_deref : bool) = debug_knob(`YO_AUDIT_DEREF`).is_some();
 audit_deref_on :: (fn() -> bool)(g_audit_deref);
 /// Record one site: `tok` is the expression's leftmost token. Recorded
