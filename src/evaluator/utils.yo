@@ -10710,6 +10710,68 @@ _bind_join_reject :: (fn(variable : &Variable, holder_is_param : bool, holder_ty
     )
   );
 });
+/// The origins a value holds through BY-VALUE parameters of the body being
+/// evaluated (audit A29): `.Some(h)`, `H(r : src.r)`, `W(h : h)` and a call
+/// over `h` carry `h`'s declared origins, rigid when elided (O-3,
+/// `param_declared_origin_slot`). `origin_of` gives a by-value parameter no
+/// root (its own place is no root of its value), so without these names a
+/// store of it into a holder whose type spells origins compared nothing. A
+/// subtree whose type carries no origin (`h.n`) and a lend (`&h`, R-LEND's)
+/// add none.
+byvalue_param_origin_names :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  _byvalue_param_origin_names_into(e, env, ctx, &mut out, u32(0));
+  out
+});
+_byvalue_param_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(String), depth : u32) -> unit)({
+  if((depth > u32(32)) || ctx.is_evaluating_function_body_or_async_block.is_none(), {
+    return(());
+  });
+  if(ast_expr_is_fn_call_of(e, BF_ADDRESS_OF, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(e, BK_BORROW_MUT, Option(usize).Some(usize(1))), {
+    return(());
+  });
+  carries := match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)),
+    .Some(bi) => (type_carries_origin(&bi.ty()) || reference_field_read_type(ast_expr_id(e)).is_some()),
+    .None => false
+  );
+  if(!carries, {
+    return(());
+  });
+  match(
+    e,
+    .Atom(_, bp_tok) => match(
+      get_variables_from_env(env, bp_tok.value.*.clone()).last_cloned(),
+      .Some(bp_v) => if(is_body_parameter(&bp_v, env) && !variable_is_reference_binding(&bp_v) && !t_slot_is_borrow(&variable_slot_type(&bp_v)), {
+        match(
+          param_declared_origin_slot(&bp_v, env, ctx),
+          .Some(bp_ds) => origin_param_names_of(&bp_ds, out, u32(0)),
+          .None => ()
+        );
+      }),
+      .None => ()
+    ),
+    .FnCall(_, _, Rc(bp_args), _, _) => {
+      // A field read reads its receiver; the label is no value.
+      bp_n := if(ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))), usize(1), bp_args.len());
+      (bi : usize) = usize(0);
+      while(bi < bp_n, bi = (bi + usize(1)), {
+        match(bp_args.get(bi), .Some(ba) => _byvalue_param_origin_names_into(&ba, env, ctx, out, depth + u32(1)), .None => ());
+      });
+    }
+  );
+});
+/// `_bind_join_subset_check` for the names `byvalue_param_origin_names`
+/// found: each must be one the holder's type names.
+_byvalue_param_subset_check :: (fn(variable : &Variable, holder_ty : &TypeValue, holder_names : &ArrayList(String), pv_names : &ArrayList(String), value : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+  (i : usize) = usize(0);
+  while(i < pv_names.len(), i = (i + usize(1)), {
+    n := pv_names(i).clone();
+    if(!holder_names.contains(&n), {
+      _bind_join_reject(variable, is_body_parameter(variable, env), holder_ty, holder_names, &n, &_rigid_origin_param(&n), false, value, ctx, exn);
+    });
+  });
+});
 /// O-1's `=` join (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3, §5's
 /// place-write row): after a whole-holder assignment `h = v` succeeds, the
 /// holder's loan set becomes the join over reaching definitions — the value's
@@ -10728,7 +10790,8 @@ bind_join :: (fn(variable : &Variable, value : &AstExpr, env : &Environment, ctx
     return(());
   });
   roots := origin_of(value, env, ctx);
-  if(roots.len() == usize(0), {
+  pv_names := byvalue_param_origin_names(value, env, ctx);
+  if((roots.len() == usize(0)) && (pv_names.len() == usize(0)), {
     local_borrow_joins_clear(variable.name.clone(), &variable.token);
     return(());
   });
@@ -10752,6 +10815,11 @@ bind_join :: (fn(variable : &Variable, value : &AstExpr, env : &Environment, ctx
   origin_param_names_of(&holder_ty, &mut holder_names, u32(0));
   if(holder_names.len() > usize(0), {
     _bind_join_subset_check(variable, &holder_ty, &holder_names, &roots, value, env, ctx, exn);
+    _byvalue_param_subset_check(variable, &holder_ty, &holder_names, &pv_names, value, env, ctx, exn);
+  });
+  if(roots.len() == usize(0), {
+    local_borrow_joins_clear(variable.name.clone(), &variable.token);
+    return(());
   });
   // The flow join: register each root not already in the holder's set, with
   // the holder's live range recomputed from its binding statement.
@@ -10902,7 +10970,8 @@ apply_capture_store_joins :: (fn(cap_ids : &ArrayList(usize), env : &Environment
 /// capture is the outer place (VERDICTS-37 Q3, `_capture_store`).
 place_write_join :: (fn(root : &Variable, value : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   roots := origin_of(value, env, ctx);
-  if(roots.len() == usize(0), {
+  pv_names := byvalue_param_origin_names(value, env, ctx);
+  if((roots.len() == usize(0)) && (pv_names.len() == usize(0)), {
     return(());
   });
   if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
@@ -10916,6 +10985,10 @@ place_write_join :: (fn(root : &Variable, value : &AstExpr, env : &Environment, 
   origin_param_names_of(&holder_ty, &mut holder_names, u32(0));
   if(holder_names.len() > usize(0), {
     _bind_join_subset_check(root, &holder_ty, &holder_names, &roots, value, env, ctx, exn);
+    _byvalue_param_subset_check(root, &holder_ty, &holder_names, &pv_names, value, env, ctx, exn);
+  });
+  if(roots.len() == usize(0), {
+    return(());
   });
   bind_join_roots_for(root, &roots, ast_expr_token(value), env, ctx, exn, kill : false);
 });

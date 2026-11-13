@@ -44,7 +44,7 @@ pragma(Pragma.AllowUnsafe);
 (mut(g_future_origins_exist) : bool) = false;
 /// Capture-list borrow entries by capture-struct id (`register_capture_borrows`).
 (g_capture_borrows : RefCell(HashMap(String, ArrayList(CaptureBorrow)))) = RefCell(HashMap(String, ArrayList(CaptureBorrow))).new(HashMap(String, ArrayList(CaptureBorrow)).new());
-{ TypeValue, TypeValueNode, FuncMeta, no_labels, t_refine_inner, no_types, SharedList, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_borrow, fn_result_is_ref, t_origin_spelled_names, is_maybe_sized_kind, is_static_origin, fn_param_slots } :: import("./definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, no_labels, t_refine_inner, no_types, SharedList, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_borrow, fn_result_is_ref, t_origin_spelled_names, is_maybe_sized_kind, is_static_origin, fn_param_slots, is_origin_kind } :: import("./definitions.yo");
 { type_intern_key } :: import("./intern.yo");
 { type_to_string, type_to_string_for_message } :: import("./string.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell, enum_phantom_positions } :: import("./creators.yo");
@@ -1074,6 +1074,15 @@ _spelled_origin_names_into :: (fn(ty : &TypeValue, out : &mut ArrayList(String),
       _spelled_origin_names_into(&sn_p, out, depth + u32(1));
     },
     Rc(.OriginSet(_, _)) => _push_spelled_names(ty, out),
+    // An origin parameter of a generic impl or signature still unbound
+    // (`impl(generic(p : Origin), Slot(p), …)`'s `p`): its name.
+    Rc(.SomeT({ name : sn_n, parent_type : sn_k, resolution : sn_r })) => match(
+      sn_r,
+      .Some(r) => _spelled_origin_names_into(&r, out, depth + u32(1)),
+      .None => if(is_origin_kind(&sn_k) && !out.contains(&sn_n), {
+        out.push(sn_n.clone());
+      })
+    ),
     Rc(.Struct({ type_arguments : sn_sta })) => _spelled_origin_names_list(&sn_sta, out, depth),
     Rc(.EnumT({ type_arguments : sn_eta })) => _spelled_origin_names_list(&sn_eta, out, depth),
     Rc(.Tuple({ field_types : sn_tf })) => _spelled_origin_names_list(&sn_tf, out, depth),
