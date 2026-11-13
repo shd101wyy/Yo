@@ -164,6 +164,12 @@ with at most four running at once:
   Lean, and a small proved checker that re-validates what the compiler
   produced ([`backlog/PROVEN_CORE.md`](backlog/PROVEN_CORE.md), decided
   2026-11-13, after VBD).
+
+  Verification becomes the default in two steps (decided 2026-11-13,
+  `issues/questions/2026-11-13-should-verification-be-on-by-default.md`):
+  `yo init` scaffolds `pragma(Pragma.VerifyOrAssert);` first, and the
+  language default flips from `runtime` to `verify+` once std bodies are
+  proved, incremental verification has landed and its other gates hold.
 - **F. std and reach.**
   - HTTP keep-alive and `lines()`.
   - Raw string literals.
