@@ -1,0 +1,25 @@
+// expect: accept
+// Positive control: `r`'s last use is before the closure takes `&mut xs`; the closure lives in a
+// block that ends before `xs` is read again.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array_list");
+first :: (fn(xs : &ArrayList(String)) -> &String)(&xs(usize(0)));
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+  r := first(&xs);
+  println(`OUT: ${r.len().to_string()}`);
+  {
+    (mut(c) : Impl(FnMut() -> unit)) = ({ m : &mut xs }() => {
+      mut(i) := i32(0);
+      while(i < i32(1000), {
+        m.push(String.from("z"));
+        i = (i + i32(1));
+      });
+    });
+    c();
+  };
+  println(`OUT: ${xs.len().to_string()}`);
+});
+export(main);
