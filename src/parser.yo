@@ -46,7 +46,7 @@ pragma(Pragma.AllowUnsafe);
   desugar_program_if_calls
 } :: import("./expr.yo");
 /// `yo fix --migrate record-literal` parses source written before Generation B
-/// of plans/backlog/BRACE_BLOCKS.md, where a bare brace group of fields is a
+/// of plans/reference/BRACE_BLOCKS.md, where a bare brace group of fields is a
 /// record value: while set, `_brace_pass` does not run.
 (mut(g_brace_legacy_records) : bool) = false;
 set_brace_legacy_records :: (fn(on : bool) -> unit)({
@@ -287,7 +287,7 @@ Parser :: struct(
   /// The bare brace groups parsed as field lists (`{ a, b }`, `{ x }`,
   /// `{}`), by node id, with whether a `,` separated them. A field list is a
   /// binder; in expression position `_brace_pass` makes it a block or
-  /// rejects it (plans/backlog/BRACE_BLOCKS.md, Generation B).
+  /// rejects it (plans/reference/BRACE_BLOCKS.md, Generation B).
   bare_groups : HashMap(usize, bool),
   /// The `.{ … }` record values, by node id: a dot in a binder is rejected.
   dotted_groups : HashSet(usize)
@@ -1302,7 +1302,7 @@ impl(
       exn.throw(dyn(make_parse_error(&tok, `expected {`)));
     });
     // `.{` — a dot written right before the brace: the group is a record
-    // value (plans/backlog/BRACE_BLOCKS.md).
+    // value (plans/reference/BRACE_BLOCKS.md).
     (dot_before : Option(Token)) = cond(
       (index > usize(0)) => match(
         self.tokens.get(index - usize(1)),
@@ -1397,7 +1397,7 @@ impl(
     // A `;` makes a block; otherwise a group whose items are all fields is a
     // field list (a record value after `.`, a binder's field list, or, in
     // expression position, a block or an error: `_brace_pass`), and one item
-    // that is no field is a block yielding it (plans/backlog/BRACE_BLOCKS.md).
+    // that is no field is a block yielding it (plans/reference/BRACE_BLOCKS.md).
     is_comma := match(
       separator_is_comma,
       .None => true,
@@ -1827,7 +1827,7 @@ impl(
           true => dot_tok
         );
         // `.{ … }` — a prefix dot ADJACENT to a record brace group IS that
-        // record value (plans/backlog/BRACE_BLOCKS.md, Generation A): the
+        // record value (plans/reference/BRACE_BLOCKS.md, Generation A): the
         // dot marks "the type comes from context", exactly as `.Some(x)`
         // does, so the node is the record `_(…)` itself and coerces to an
         // expected struct like today's bare brace. A block group `.{ a; b }`
@@ -2319,7 +2319,7 @@ impl(
     });
     self.program = exprs;
   }),
-  /// Brace groups, Generation B (plans/backlog/BRACE_BLOCKS.md): `.{ … }`
+  /// Brace groups, Generation B (plans/reference/BRACE_BLOCKS.md): `.{ … }`
   /// builds a record, `{ names }` on a binding side picks fields, every other
   /// `{ … }` is a block. The parse builds a bare group of fields as a field
   /// list; this walk decides by position. `mode` 0 is an expression, 1 a
