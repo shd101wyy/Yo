@@ -87,3 +87,19 @@ recognized by the read's own node (its id), not by a source position that synthe
 With the fix: the two positives and the control become cases in `tests/async/sm_shapes_4.test.yo` asserting the
 string's value (`assert(s == "n=7", …)`), so the wrong result fails without a sanitizer; the leak is covered by the
 sanitizer job.
+
+## Fix
+
+Fixed 2026-11-13 (branch `fix/c8-codegen-ownership`). The hypothesis held: every `__yo_tpl_N` atom of the template
+desugar (`src/parser.yo`) carried the opening backtick's token, so the block's tail, the read that moves the local
+out, shared its position with every `push_str`/`append_to` receiver, and `_sm_consuming_read` rendered each receiver
+as a move of the slot. The tail atom now sits at the closing backtick (`_template_scan` reads that position from the
+raw source beside the interpolation bodies' origins; a synthetic template with no source keeps the old token). The
+receivers are plain slot reads again, lent by address.
+
+**Regression tests:** `tests/origins/unsound/template-await-piece.yo`, `template-await-after-local.yo` (the body
+local and the temporary forms) and the control `template-await-pos.yo`, each asserting the string's value, run by
+`scripts/origins-unsound.sh` under ASan (they abort on the assert before the fix). They are standalone programs
+because `yo test` re-serializes a test file's desugared template into its batch source, which gives each synthesized
+atom its own position and hides the defect; `tests/async/sm_shapes_4.test.yo`, "a string interpolation containing an
+await evaluates to its pieces", keeps the same shapes in the test suite.

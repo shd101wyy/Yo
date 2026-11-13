@@ -81,3 +81,18 @@ enclosing scope, to a compile-time-only value"), in every C use of the name.
 With the fix: the three programs and the positive control as cases of
 `tests/shadowed_binding_early_return_drop.test.yo` (or a new `tests/match_shadowed_binding_argument.test.yo`),
 run under `--sanitize address` and comparing the output.
+
+## Fix
+
+Fixed 2026-11-13 (branch `fix/c8-codegen-ownership`). `_materialize_arg` (`src/codegen/exprs/other_fn_call.yo`)
+resolves the argument's source name through `shadow_binding_c_name` before it asks whether the name is declared in
+an open C scope, and the in-scope reuse passes that resolved C name (`__yo_v_x_s0`), not the source name. Without a
+shadowing pattern binding the resolved name is the sanitized source name, so every other argument emits the same C as
+before.
+
+All four reproducers run clean under ASan (`OUT: OUTER-…` for the three moving forms, `OUT: INNER` for `show(&x)`).
+
+**Regression test:** `tests/shadowed_binding_early_return_drop.test.yo`, "a call argument naming a shadowing arm
+binding passes the arm's value": the `String`, `Box(String)`, enum-payload, parameter and `&x` forms, each asserting
+the value the callee received and that the outer binding is intact (the moving forms are a heap-use-after-free under
+the runner's ASan before the fix).

@@ -8,7 +8,7 @@ on the exit path only, with no use-after-free or double free. Pre-existing: v0.2
 
 Found 2026-11-11 by the ownership / borrowing / origin audit
 (`plans/backlog/OWNERSHIP_BORROWING_ORIGINS_AUDIT.md` §3 A45). Confirmed on develop `64f33c710`. Related: the open
-`issues/2026-11-03-an-unwind-out-of-a-later-argument-leaks-an-earlier-moved-argument.md` (a NAMED local and
+`issues/fixed/2026-11-03-an-unwind-out-of-a-later-argument-leaks-an-earlier-moved-argument.md` (a NAMED local and
 `unwind` only) and the fixed `issues/fixed/2026-10-23-a-break-in-a-later-argument-skips-the-drop-of-a-by-value-argument.md`
 (a named local and `break`; its fix also covers `return` and `continue` for a named local, measured below).
 
@@ -102,3 +102,26 @@ already evaluated and not yet moved.
 With the fix, the four programs move to `tests/origins/unsound/` (all `// expect: accept`, run with LSan), and
 `tests/move_only.test.yo` gains "a temporary argument is dropped when a later argument returns / continues /
 unwinds" beside the 2026-10-23 row, with the struct literal, tuple literal and receiver forms.
+
+## Fix
+
+Fixed 2026-11-13 (branch `fix/c8-codegen-ownership`). The hypotheses held, and one more step was missing.
+
+- `return` / `break` / `continue`: `_m3_consumed_for_call_arg` (`src/evaluator/exprs/begin.yo`) asks
+  `_m3_first_arg_after_move` which operands run after a by-value operand moved the variable. An operand moves it when it
+  is an atom spelling a named local at its move token (as before), or the expression a TEMPORARY was minted for (its
+  `initialized_at_token`; the move is the call's whatever token records it, a receiver's at the method call), and a
+  labeled field counts as its value. A method call's receiver precedes every argument.
+- The M3 driver skipped a temporary whose minting site precedes its block's own token: a one-statement body that is a
+  method call carries the call's token, after its receiver. The driver now compares against the block's earliest token.
+- effect escapes and `unwind`: the driver records the span of the operands after the moving one (`ArgMoveRegion`,
+  `src/expr_info.yo`), and codegen's exit gate (`_variable_moved_before_cleanup_point`, `src/codegen/exprs/return.yo`)
+  treats a cleanup point wholly inside it as before the move. This also fixes the named-local unwind doc,
+  `issues/fixed/2026-11-03-an-unwind-out-of-a-later-argument-leaks-an-earlier-moved-argument.md`.
+
+All four reproducers print `drops=3` and run clean under LeakSanitizer.
+
+**Regression test:** `tests/move_only.test.yo`, "move-only: a temporary or named argument is dropped when a later
+argument returns, continues, breaks or unwinds": the `return`, `continue`, `break` and `unwind` exits with a temporary
+first argument, the struct literal, tuple literal and temporary receiver forms, and the named call and struct-literal
+unwind cases, each counting the drops and their payload sum.
