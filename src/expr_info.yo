@@ -3898,3 +3898,72 @@ unsized_handle_dyn_node :: (fn(id : usize) -> bool)(
   g_unsized_handle_dyn_nodes.with_mut({ id }(s) => s.contains(&id))
 );
 export(UnsizedSite, set_migrate_unsized, migrate_unsized_on, record_unsized_site, take_unsized_sites, note_unsized_handle_dyn_node, unsized_handle_dyn_node);
+// ---------------------------------------------------------------------------
+// The arguments that run before a call moves an earlier argument
+// ---------------------------------------------------------------------------
+/// The source span of a call's arguments after the one that moves a variable
+/// by value (`f(x, g())`, `f(mk(), g())` for the temporary of `mk()`, a
+/// struct or tuple literal's earlier field, a by-value receiver): the
+/// variable's `consumed_at_token` is the moving argument's own position, but
+/// the call moves it only once every argument is evaluated, so an exit inside
+/// the span (an effect escape, an `unwind`) still owns it. The evaluator's M3
+/// driver records the span (`exprs/begin.yo`); codegen's exit gate consults
+/// it (`codegen/exprs/return.yo`)
+/// (issues/fixed/2026-11-11-a-temporary-argument-leaks-when-a-later-argument-returns-continues-or-unwinds.md).
+ArgMoveRegion :: struct(start : Token, end : Token);
+derive(ArgMoveRegion, Clone);
+(g_arg_move_regions : RefCell(HashMap(usize, ArgMoveRegion))) = RefCell(HashMap(usize, ArgMoveRegion)).new(HashMap(usize, ArgMoveRegion).new());
+note_arg_move_region :: (fn(var_id : usize, start : Token, end : Token) -> unit)({
+  region := ArgMoveRegion(start : start, end : end);
+  _m := g_arg_move_regions.with_mut({ var_id, region }(m) => m.insert(var_id, region));
+});
+_amr_comparable :: (fn(left : &Token, right : &Token) -> bool)(
+  (left.module_path == right.module_path) && (left.input == right.input)
+);
+/// The earliest and the latest token of `node`'s tree comparable with
+/// `reference` (the same source stream), starting from `lo` and `hi`.
+_amr_bounds :: (fn(node : &AstExpr, reference : &Token, lo : Token, hi : Token) -> Tuple(Token, Token))({
+  tok := ast_expr_token(node);
+  ok := _amr_comparable(&tok, reference);
+  lo2 := if(ok && (tok.character < lo.character), tok.clone(), lo);
+  hi2 := if(ok && (tok.character > hi.character), tok.clone(), hi);
+  match(
+    node,
+    .FnCall(_, func, Rc(args), _, _) => {
+      (mut(acc) : Tuple(Token, Token)) = recur(&func, reference, lo2, hi2);
+      (mut(i) : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get(i),
+          .Some(a) => {
+            acc = recur(&a, reference, acc.0, acc.1);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      acc
+    },
+    .Atom(_, _) => (lo2, hi2)
+  )
+});
+/// The earliest and the latest token of `node`'s tree in `reference`'s
+/// source stream (`reference` itself when the tree has none).
+ast_comparable_token_bounds :: (fn(node : &AstExpr, reference : &Token) -> Tuple(Token, Token))({
+  tok := ast_expr_token(node);
+  init := if(_amr_comparable(&tok, reference), tok.clone(), reference.clone());
+  _amr_bounds(node, reference, init.clone(), init)
+});
+/// Whether the whole of `node` lies inside the recorded span of the variable
+/// `var_id` (`ArgMoveRegion`): there the call that moves it has not run yet.
+arg_move_region_holds :: (fn(var_id : usize, node : &AstExpr) -> bool)(
+  match(
+    g_arg_move_regions.with({ var_id }(m) => m.get_cloned(&var_id)),
+    .Some(r) => {
+      b := ast_comparable_token_bounds(node, &r.start);
+      _amr_comparable(&b.0, &r.start) && ((r.start.character <= b.0.character) && (b.1.character <= r.end.character))
+    },
+    .None => false
+  )
+);
+export(ArgMoveRegion, note_arg_move_region, ast_comparable_token_bounds, arg_move_region_holds);

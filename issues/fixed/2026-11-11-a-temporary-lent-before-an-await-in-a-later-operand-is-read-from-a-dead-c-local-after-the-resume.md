@@ -97,3 +97,21 @@ instead of from its C local.
 
 With the fix: the three positives and the control become cases in `tests/async/sm_shapes_4.test.yo`, beside "an
 operand before an await in a later operand is read before the await", each run under ASan in CI's sanitizer job.
+
+## Fix
+
+Fixed 2026-11-13 (branch `fix/c8-codegen-ownership`), the doc's second direction: a temporary that has a task slot is
+read from the slot.
+
+- A call argument passed by value (a small `&T` or `&Self` parameter takes its referent's bits) goes through
+  `_sm_lent_temp_slot` in `_apply_ref_amp`'s by-value branch, as the address branch already did for a pointer
+  parameter. Every call path (plain calls, method dispatch, receivers) renders its arguments there.
+- A borrowing `match` over a temporary (any mode but the consuming one) switches on, and binds into, the temporary's
+  slot (`src/codegen/exprs/match.yo`), so an arm binding read after an await points into the task, not into the
+  resume function's dead C local.
+
+The slot holds the value the C local was initialized with (`_store_temp_var_to_state_machine_if_needed` stores it
+right after the declaration), so reading it is equivalent where no await intervenes.
+
+**Regression test:** `tests/async/sm_shapes_4.test.yo`, "a temporary lent before an await in a later operand is read
+after the resume": the argument, receiver and scrutinee forms and the control (an ASan failure before the fix).

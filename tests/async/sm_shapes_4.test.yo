@@ -1747,3 +1747,78 @@ test("an operand before an await in a later operand is read before the await", {
   );
   assert(t == i32(2), "operator: z is read before the await that writes it");
 });
+// A temporary lent before an await in a later operand: by a `&T` argument, as
+// a `self : &Self` receiver, and as a `&` match scrutinee whose arm awaits.
+// Each is read from the temporary's task slot after the resume, never from
+// the C local it was first evaluated into
+// (issues/fixed/2026-11-11-a-temporary-lent-before-an-await-in-a-later-operand-is-read-from-a-dead-c-local-after-the-resume.md).
+_lt_make :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+_lt_num :: (fn(io : Io) -> Impl(Future(usize, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    usize(7)
+  })
+);
+_lt_use2 :: (fn(a : &String, b : usize) -> usize)(a.len() + b);
+_LtW :: struct(s : String);
+impl(
+  _LtW,
+  plus : (fn(self : &Self, n : usize) -> usize)(self.s.len() + n)
+);
+_lt_mkw :: (fn() -> _LtW)(_LtW(s : _lt_make()));
+_lt_mk_opt :: (fn() -> Option(String))(.Some(_lt_make()));
+test("a temporary lent before an await in a later operand is read after the resume", {
+  a := io.await(io.async((io : Io) => _lt_use2(&_lt_make(), io.await(_lt_num(io), io))), io);
+  assert(a == usize(79), "argument: the lent temporary survives the await");
+  b := io.await(io.async((io : Io) => _lt_mkw().plus(io.await(_lt_num(io), io))), io);
+  assert(b == usize(79), "receiver: the lent temporary survives the await");
+  c := io.await(
+    io.async(
+      (io : Io) => match(
+        &_lt_mk_opt(),
+        .Some(r) => {
+          io.await(yield(io), io);
+          r.len()
+        },
+        .None => usize(0)
+      )
+    ),
+    io
+  );
+  assert(c == usize(72), "scrutinee: the arm's binding survives the await");
+  // The control: the await bound first.
+  d := io.await(
+    io.async((io : Io) => {
+      n := io.await(_lt_num(io), io);
+      _lt_use2(&_lt_make(), n)
+    }),
+    io
+  );
+  assert(d == usize(79), "control");
+});
+// A string interpolation containing an await builds its string in the task's
+// slot: each piece is appended to the slot itself, not to a copy of it
+// (issues/fixed/2026-11-11-a-string-interpolation-containing-an-await-evaluates-to-an-empty-string-and-leaks-its-pieces.md).
+test("a string interpolation containing an await evaluates to its pieces", {
+  s1 := io.await(io.async((io : Io) => `n=${io.await(_lt_num(io), io)}`), io);
+  assert(s1 == "n=7", "an awaiting piece");
+  s2 := io.await(
+    io.async((io : Io) => {
+      s := _lt_make();
+      `${s} ${io.await(_lt_num(io), io).to_string()}`
+    }),
+    io
+  );
+  assert(s2 == "0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz 7", "a body local before an awaiting piece");
+  s3 := io.await(io.async((io : Io) => `${_lt_make()} ${io.await(_lt_num(io), io).to_string()}`), io);
+  assert(s3 == "0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz 7", "a temporary before an awaiting piece");
+  // The control: the await bound first.
+  s4 := io.await(
+    io.async((io : Io) => {
+      n := io.await(_lt_num(io), io);
+      `n=${n}`
+    }),
+    io
+  );
+  assert(s4 == "n=7", "control");
+});

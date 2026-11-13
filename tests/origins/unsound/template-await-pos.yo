@@ -1,0 +1,21 @@
+// expect: accept
+// The control for template-await-piece: the await is bound first, so the template's string is a
+// plain C local.
+{ String } :: import("std/string");
+{ assert } :: import("std/assert");
+{ yield } :: import("std/async");
+num :: (fn(io : Io) -> Impl(Future(usize, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    usize(7)
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  f := io.async((io : Io) => {
+    n := io.await(num(io), io);
+    `n=${n}`
+  });
+  s := io.await(f, io);
+  assert(s == "n=7", "control");
+});
+export(main);

@@ -1,0 +1,26 @@
+// expect: accept
+// A body local interpolated before an awaiting piece: both pieces reach the template's string,
+// and nothing leaks
+// (issues/fixed/2026-11-11-a-string-interpolation-containing-an-await-evaluates-to-an-empty-string-and-leaks-its-pieces.md).
+{ String } :: import("std/string");
+{ assert } :: import("std/assert");
+{ yield } :: import("std/async");
+num :: (fn(io : Io) -> Impl(Future(usize, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    usize(7)
+  })
+);
+make :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+main :: (fn(io : Io) -> unit)({
+  f := io.async((io : Io) => {
+    s := make();
+    `${s} ${io.await(num(io), io).to_string()}`
+  });
+  g := io.async((io : Io) => `${make()} ${io.await(num(io), io).to_string()}`);
+  a := io.await(f, io);
+  b := io.await(g, io);
+  assert(a == "0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz 7", "a body local before an awaiting piece");
+  assert(b == "0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz 7", "a temporary before an awaiting piece");
+});
+export(main);
