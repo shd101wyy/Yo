@@ -9356,11 +9356,15 @@ ORIGIN_SCOPED_ROOT :: "#scoped";
 /// `match` arm) that is about to close, with each root DECLARED inside
 /// `scope` — a binding that dies when it closes — replaced by its
 /// `ORIGIN_SCOPED_ROOT` entry. A reference binding declared inside is no
-/// storage of its own: its entries (the places it borrows) stand for it.
+/// storage of its own: its entries (the places it borrows) stand for it, and
+/// a borrowed `match`'s binding stands for its scrutinee's roots.
 /// Computed before the scope's frame and its borrow entries go, so a
 /// block-local holder's entries (`{ t := HL(r : &x); t }` holds `x`) are
 /// still there (A12; BORROW_CHECKER_COMPLETENESS.md §3 R-ARM).
-origin_scope_close :: (fn(roots : &ArrayList(OriginRootPlace), scope : &AstExpr, env : &Environment) -> ArrayList(OriginRootPlace))({
+origin_scope_close :: (fn(roots_in : &ArrayList(OriginRootPlace), scope : &AstExpr, env : &Environment, ctx : &EvalContext) -> ArrayList(OriginRootPlace))({
+  // A binding of a borrowed `match` is a place inside the scrutinee: its
+  // storage is the scrutinee's, which outlives the arm.
+  roots := _origin_through_match_bindings(roots_in, env, ctx, u32(0));
   out := ArrayList(OriginRootPlace).new();
   (i : usize) = usize(0);
   while(i < roots.len(), i = (i + usize(1)), {
