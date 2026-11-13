@@ -80,7 +80,7 @@ per the ratchet, #1742.
 | **B** | Runtime and platform | `IO_INTERFACE_AND_STD_RUNTIME.md`, `THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md`, `ALLOCATOR_PLACEMENT.md` step C, `ZIG_STYLE_ALLOCATORS.md`, `NO_LIBC_BY_DEFAULT.md` |
 | **C** | Performance | P-PERF (§3.3): `EVALUATOR_MEMORY_REDUCTION.md`, `CODEGEN_MEMORY_REDUCTION.md`, `PARALLEL_COMPILATION.md`, `CODEGEN_PERFORMANCE.md` |
 | **D** | Docs and the agent loop | `AGENT_KNOWLEDGE_CONSOLIDATION.md` (K2–K7), `OWNERSHIP_AND_BORROWING_DOC_DRAFT.md`, `RUST_REFERENCE_PATTERNS.md` (the porting guide), `BEND_LAWS_AND_AGENT_LOOP_LESSONS.md` (B4 evals, B5, `yo gate`) |
-| **E** | Verification | `SAFE_MODE.md`, `SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md`, `SELF_VERIFICATION.md`, `FORMAL_VERIFICATION.md` (open tail), `THEOREM_PROVING_DIRECTION.md` (ranking), `ADA_SPARK_LESSONS.md` |
+| **E** | Verification | `SAFE_MODE.md`, `SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md`, `SELF_VERIFICATION.md`, `FORMAL_VERIFICATION.md` (open tail), `THEOREM_PROVING_DIRECTION.md` (ranking), `ADA_SPARK_LESSONS.md`, `PROVEN_CORE.md` (its own track) |
 | **F** | std features and ecosystem | `ASYNC_DEADLINE_COMBINATOR.md`, `ASYNC_LINES_NEEDS_A_NONTHROWING_READ.md`, `RAW_AND_FENCED_STRING_LITERALS.md`, `MODULE_PREFIX_STUTTER_REMAINDER.md`, `LANGUAGE_FEATURE_CANDIDATES.md`, `PACKAGE_MANAGER_DISTRIBUTION.md`, `SEED_VERSION_AUTOMATION.md` (ledger) |
 
 Lane F is the filler lane: an agent whose own lane is waiting on a seed or a
@@ -218,6 +218,12 @@ battery takes the next lane-F item.
   once lane C drains.
 
 ### Phase 4 — verification as the flagship (overlaps phase 3)
+
+> **Added 2026-11-13:** [`PROVEN_CORE.md`](PROVEN_CORE.md) is a separate
+> lane-E track (end-to-end correctness by a checked core, specified in
+> Lean). Its first rung, P0, needs the origin rules frozen and no compiler
+> change, so it may start at v0.2.80. It shares no bottleneck with the list
+> below and must not displace it.
 
 There is one shared bottleneck, and it is attacked first: **std bodies that
 the verifier walks instead of `assumed()`.** SAFE_MODE 5b Phase 3, SAFE_MODE

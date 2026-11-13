@@ -50,10 +50,16 @@ that re-spells the compiler), [`backlog/REFERENCES_AND_ORIGINS.md`](REFERENCES_A
 
 What no milestone claims: **semantic preservation** (the emitted C means
 what the Yo source means). That is CompCert's theorem, it needs a formal
-semantics of Yo and of C11 in a proof assistant, and it stays a non-goal
-(`FORMAL_VERIFICATION.md` §Non-goals). "Verified" on this ladder means what
+semantics of Yo and of C11 in a proof assistant, and it is not a rung of
+this ladder. "Verified" on this ladder means what
 it means for Dafny, SPARK and Prusti programs: no runtime errors on any
 input, and every stated contract holds. Say exactly that.
+
+**Amended 2026-11-13:** semantic preservation is no longer a non-goal of
+the project. It is the goal of a separate plan,
+[`PROVEN_CORE.md`](PROVEN_CORE.md), which reaches it by a checked core and
+never by annotating `src/`. Nothing on this ladder changes: its sentences,
+its gates and its Z3-only proof path stand as written.
 
 One rule governs every number that ever appears in those sentences:
 **re-derived, never copied.** A claim sentence that cites a count ("the N
@@ -605,11 +611,16 @@ Each is a `law` or an `ensures`, each a separate PR.
 
 ## Non-goals
 
-- Semantic preservation; verifying the emitted C or the runtime C
+- Semantic preservation **on this ladder** (it is
+  [`PROVEN_CORE.md`](PROVEN_CORE.md)'s goal since 2026-11-13); verifying
+  the emitted C or the runtime C
   templates; verifying Z3; verifying the async state machines (FV Open
   Question 7); verifying `Io`-taking functions (they are the effect
   boundary by design).
-- An external oracle for the self-verification claim (D5).
+- An external oracle for the self-verification claim (D5). The Lean
+  reference evaluator of [`PROVEN_CORE.md`](PROVEN_CORE.md) P1 is an oracle
+  for the compiler's output, not for this ladder's verdicts; its P3 is the
+  first thing that would check them from outside.
 - Making `Pragma.Verify` mandatory for contributors' *user* code. `src/`
   opts in module by module; `runtime` stays the default for everyone else.
 

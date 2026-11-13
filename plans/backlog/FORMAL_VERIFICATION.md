@@ -113,7 +113,10 @@ pipeline, and LLM-author focus.
   initial phases — loop invariants only. Type invariants interact with
   every constructor and `inout` method; deferred (Open Question 6).
 - **No verified compiler.** The Yo→C lowering stays unverified; proofs
-  are at the Yo source level.
+  are at the Yo source level. (Amended 2026-11-13: this is a non-goal of
+  the verifier and of this plan. Checking the lowering is
+  [`PROVEN_CORE.md`](PROVEN_CORE.md)'s P4, a separate plan that starts
+  after VBD.)
 - **No float reasoning.** `f32`/`f64` are outside the verifiable subset
   (Open Question 4).
 - **No mandatory verification.** Code without contract annotations and
