@@ -1001,12 +1001,22 @@ _evaluate_capture_list :: (
     // The entry `y` / `r : y` whose initializer is a reference binding of a
     // judged file reads the reference (R-CAP-1); compiler-synthesized code,
     // which keeps the old reading (`deref_rule_applies`), copies the referent.
+    // `yo fix --migrate deref` reads source written before the rule, where
+    // the entry copied the referent: it evaluates the entry that way, the
+    // initializer's E0926 records its `.*`, and the pun `{ r }` gains its
+    // label, `{ r : r.* }`.
     (ref_copy_var : Option(Variable)) = Option(Variable).None;
     if(!is_borrow && ast_expr_is_atom(&init_e) && is_valid_variable_name(&init_e) && deref_rule_applies(ast_expr_token(&init_e), ctx) && !is_reference_deref_site(ast_expr_token(&init_e)), {
       match(
         get_variables_from_env(env, ast_expr_token(&init_e).value.*.clone()).last_cloned(),
         .Some(rcv) => if(variable_is_reference_binding(&rcv), {
-          ref_copy_var = Option(Variable).Some(rcv);
+          if(deref_rule_recording(), {
+            if(ast_expr_is_atom(&label_e) && (ast_expr_token(&label_e).byte_offset == ast_expr_token(&init_e).byte_offset), {
+              record_deref_edit_site(&name_tok, &label, u8(1));
+            });
+          }, {
+            ref_copy_var = Option(Variable).Some(rcv);
+          });
         }),
         .None => ()
       );

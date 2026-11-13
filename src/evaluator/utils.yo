@@ -6190,8 +6190,9 @@ _some_type_is_callable :: (fn(ty : &TypeValue) -> bool)(
 /// `binder_read_mark`). A type parameter of the function being checked is
 /// not a binder there: in `_h :: (fn(generic(T), t : &T) -> T)(t)` the
 /// result position expects the rigid `T`, and `t` reads as its value. In
-/// code that keeps the old reading (`deref_rule_applies`), an unbound binder
-/// takes the value.
+/// code that keeps the old reading (`deref_rule_applies`), and under `yo fix
+/// --migrate deref`, which reads source written before the rule, an unbound
+/// binder takes the value (the migration records its `.*`).
 reference_read_wanted :: (fn(tok : &Token, at_binder : bool, ctx : &EvalContext) -> bool)({
   match(
     &ctx.expected_type,
@@ -6206,7 +6207,7 @@ reference_read_wanted :: (fn(tok : &Token, at_binder : bool, ctx : &EvalContext)
     ),
     .None => ()
   );
-  (at_binder && deref_rule_applies(tok, ctx) && !is_binder_value_read(tok))
+  (at_binder && deref_rule_applies(tok, ctx) && !deref_rule_recording() && !is_binder_value_read(tok))
 });
 /// The reference binding at `tok` is an operator module's argument that no
 /// `Call` candidate accepts as a reference, but one accepts as its referent
