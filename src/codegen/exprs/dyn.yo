@@ -116,7 +116,7 @@ generate_dyn_call :: (fn(expr : &AstExpr, indent : &String, context : &mut Funct
   // declaration's converted type): the Dyn is its pointee.
   // An owning erasure is typed `Box(Dyn(...))` (decision 49 S2): the Dyn is
   // the box's payload.
-  dyn_type := match(t_refine_inner(&ei.ty()), Rc(.Reference(rp, _, _)) => Rc.clone(rp), _ => match(unique_box_payload_type(&ei.ty()), .Some(bp) => bp, .None => Rc.clone(ei.ty())));
+  dyn_type := match(t_refine_inner(&ei.ty()), Rc(.Reference(rp, _, _)) => Rc.clone(rp), _ => match(unique_box_payload_type(&ei.ty()), .Some(bp) => bp, .None => match(cell_handle_view(&ei.ty()), .Some(hv) => Rc.clone(hv.payload), .None => Rc.clone(ei.ty()))));
   if(!is_dyn_type(&dyn_type), {
     return(String.from("/* Error: dyn() result type is not DynType */"));
   });

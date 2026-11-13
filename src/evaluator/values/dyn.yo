@@ -9,7 +9,7 @@ pragma(Pragma.AllowUnsafe);
 { replace } :: import("std/mem");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id, alloc_global_expr_id, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_is_atom_of, BF_DOT, BK_BORROW_MUT, BF_ADDRESS_OF, ast_rewritten_node, note_rewritten_node, ast_expr_to_string } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, alloc_global_expr_id, ast_expr_is_fn_call_of, ast_expr_is_atom, BF_DOT, BK_BORROW_MUT, BF_ADDRESS_OF, ast_rewritten_node, note_rewritten_node, ast_expr_to_string } :: import("../../expr.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -23,7 +23,6 @@ pragma(Pragma.AllowUnsafe);
   unmark_node_preevaluated,
   migrate_unsized_on,
   record_unsized_site,
-  note_unsized_handle_dyn_node,
   unsized_handle_dyn_node,
   unsize_reference_mode
 } :: import("../../expr_info.yo");
@@ -37,10 +36,10 @@ pragma(Pragma.AllowUnsafe);
 { create_specialized_function_inline, try_to_call_function_with_arguments } :: import("../calls/helper.yo");
 { t_refine_inner, some_t_bounds, TypeValue, TypeValueNode, no_types, no_levels, slot_pointee_at, fn_param_by_value_at, fn_param_mut_ref_flags, no_flags, shared_list, no_labels, t_slot_pointee, fn_trait_base_serves, fn_trait_call_contract, fn_trait_slot_contract } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_dyn, t_dyn_payload_wrapper } :: import("../../types/creators.yo");
-{ is_dyn_type, is_some_type, is_function_type, is_reference_struct_type, is_boxed_type, is_shared_cell_type_name, shared_cell_canonical_names, cell_handle_view, is_atomic_counted_handle_type, is_pointer_type, can_optimize_as_nullable_pointer, is_unique_box_type, unique_box_payload_type } :: import("../../types/guards.yo");
+{ is_dyn_type, is_some_type, is_function_type, is_reference_struct_type, is_boxed_type, is_shared_cell_type_name, cell_handle_view, is_atomic_counted_handle_type, is_pointer_type, can_optimize_as_nullable_pointer, is_unique_box_type, unique_box_payload_type } :: import("../../types/guards.yo");
 { resolve_cell_chain, is_closure_capture_struct, type_contains_some_type_deep, get_all_some_types, type_is_move_only, move_only_reason, dyn_member_is_method, dyn_member_unsafe_reason, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, is_future_value_type, is_clone_trait_type } :: import("../../types/utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
-{ get_value_of_some_type_from_env, get_trait_type_from_env } :: import("../../types/env_lookup.yo");
+{ get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
 { type_implements_trait_bool, extract_fn_trait_from_type, function_value_slot_mismatch } :: import("../trait_checking.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
@@ -1428,12 +1427,27 @@ _record_unsized_dyn_site :: (fn(expr : &AstExpr, written : &AstExpr, value_ty : 
     }
   );
 });
-/// The `Dyn` an expected `Box(Dyn(...))` erases into (decision 49 S2).
-_expected_box_dyn :: (fn(expected : &Option(ExpectedTypeCtx)) -> Option(ExpectedTypeCtx))(
+/// The `Dyn` an expected owning `Box(Dyn(...))`, `Rc(Dyn(...))` or
+/// `Arc(Dyn(...))` erases into (decision 49 S2).
+_expected_handle_dyn :: (fn(expected : &Option(ExpectedTypeCtx)) -> Option(ExpectedTypeCtx))(
   match(
     expected,
-    .Some(et) => match(unique_box_payload_type(&et.ty), .Some(bp) => if(is_dyn_type(&bp), Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t_refine_inner(&bp), env : Rc.clone(et.env))), Option(ExpectedTypeCtx).None), .None => Option(ExpectedTypeCtx).None),
+    .Some(et) => match(
+      match(unique_box_payload_type(&et.ty), .Some(bp) => Option(TypeValue).Some(bp), .None => match(cell_handle_view(&et.ty), .Some(hv) => Option(TypeValue).Some(Rc.clone(hv.payload)), .None => Option(TypeValue).None)),
+      .Some(p) => if(is_dyn_type(&p), Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t_refine_inner(&p), env : Rc.clone(et.env))), Option(ExpectedTypeCtx).None),
+      .None => Option(ExpectedTypeCtx).None
+    ),
     .None => Option(ExpectedTypeCtx).None
+  )
+);
+/// The handle an owning erasure keeps (decision 49 S2): the runtime payload's
+/// own `Rc` or `Arc` (`dyn(Rc.new(v))` adopts its counted block), else `Box`
+/// (`dyn(Box.new(v))`, and the plain `dyn(v)` the alias boxes).
+_erasure_handle_name :: (fn(payload : &Option(TypeValue)) -> String)(
+  match(
+    payload,
+    .Some(pt) => match(cell_handle_view(pt), .Some(hv) => String.from(if(hv.is_atomic, "Arc", "Rc")), .None => String.from("Box")),
+    .None => String.from("Box")
   )
 );
 /// `dyn(p)` (plans/VALUES_BY_DEFAULT.md decision 49 S2): the unsizing of a
@@ -1449,7 +1463,7 @@ evaluate_dyn_value :: (
     exn : Exception
   ) -> AstExpr
 )({
-  box_et := _expected_box_dyn(&ctx.expected_type);
+  box_et := _expected_handle_dyn(&ctx.expected_type);
   saved_et := if(box_et.is_some(), Option(Option(ExpectedTypeCtx)).Some(replace(&mut ctx.expected_type, box_et)), Option(Option(ExpectedTypeCtx)).None);
   out := _evaluate_dyn_erasure(expr, env, ctx, exn);
   match(
@@ -1459,13 +1473,15 @@ evaluate_dyn_value :: (
     },
     .None => ()
   );
-  // An owning erasure is the `Box(Dyn(...))` of the payload's block.
+  // An owning erasure is the `Box(Dyn(...))`, `Rc(Dyn(...))` or
+  // `Arc(Dyn(...))` of the payload's block.
   if(unsize_reference_mode(ast_expr_id(&out)).is_none(), {
     match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&out)),
       .Some(oi) => if(is_dyn_type(&oi.ty()), {
+        rt_payload := match(oi.runtime_arg_exprs_in_order(), .Some(ra) => match(ra.get(usize(0)), .Some(r0) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&r0)), .Some(ri) => Option(TypeValue).Some(Rc.clone(ri.ty())), .None => Option(TypeValue).None), .None => Option(TypeValue).None), .None => Option(TypeValue).None);
         match(
-          _create_box_type_via(&String.from("Box"), &t_refine_inner(&oi.ty()), &expr_info_adopt_env(&oi), ctx, exn),
+          _create_box_type_via(&_erasure_handle_name(&rt_payload), &t_refine_inner(&oi.ty()), &expr_info_adopt_env(&oi), ctx, exn),
           .Some(bt) => oi.set_ty(bt),
           .None => ()
         );
@@ -1484,16 +1500,6 @@ _evaluate_dyn_erasure :: (
   ) -> AstExpr
 )({
   expr_tok := ast_expr_token(expr);
-  // A `dyn(Rc.new(v))` the shared-handle arm below rewrote reads as the
-  // handle call (`Rc(Dyn(T)).new(dyn(Rc.new(v)))`): a re-evaluation evaluates
-  // that call again.
-  match(
-    ast_rewritten_node(expr),
-    .FnCall(sr_id, sr_callee, _, _, _) => if((sr_id == ast_expr_id(expr)) && !ast_expr_is_atom_of(&sr_callee, "dyn"), {
-      return(evaluate_expression_raw(&ast_rewritten_node(expr), env, ctx, exn));
-    }),
-    .Atom(_, _) => ()
-  );
   // Extract the args ArrayList and the single value argument. A `dyn(v)` the
   // auto-box below rewrote reads as rewritten (`ast_rewritten_node`), so a
   // re-evaluation does not box it again.
@@ -1533,63 +1539,6 @@ _evaluate_dyn_erasure :: (
   // NAMED shared handle (a variable or a field) in place waits for the
   // `?Sized` prelude.
   value_is_fresh_cell := !(ast_expr_is_atom(&value_arg) || ast_expr_is_fn_call_of(&value_arg, BF_DOT, Option(usize).Some(usize(2))));
-  // `dyn(Rc.new(v[, alloc]))` / `dyn(Arc.new(v[, alloc]))` against an expected
-  // `Rc(Dyn(T))` / `Arc(Dyn(T, Send, Sync))` (VERDICTS-40 amendment 3): the
-  // shared handle of the owning Dyn of `v`, `Rc(Dyn(T)).new(dyn(Rc.new(v)))`.
-  // While `Rc(Dyn(T))` is `Rc(Box(Dyn(T)))` by the alias this is two cells with
-  // the final type and the final ownership rules.
-  shared_dyn_handle := match(
-    ctx.expected_type.clone(),
-    .Some(et) => match(
-      cell_handle_view(&et.ty),
-      .Some(hv) => if(is_dyn_type(&hv.payload) && value_is_fresh_cell, Option(Tuple(TypeValue, TypeValue)).Some((Rc.clone(et.ty), Rc.clone(hv.payload))), Option(Tuple(TypeValue, TypeValue)).None),
-      .None => Option(Tuple(TypeValue, TypeValue)).None
-    ),
-    .None => Option(Tuple(TypeValue, TypeValue)).None
-  );
-  match(
-    shared_dyn_handle,
-    .Some((handle_ty, dyn_payload_ty)) => match(
-      value_arg,
-      .FnCall(_, sh_callee, _, _, _) => match(
-        _dyn_cell_constructor_of(&sh_callee),
-        .Some(sh_cell) => {
-          sh_inner_id := alloc_global_expr_id();
-          sh_inner := match(
-            expr,
-            .FnCall(_, sh_dyn_fn, _, sh_infix, sh_tok) => {
-              sh_args := ArrayList(AstExpr).new();
-              sh_args.push(value_arg.clone());
-              AstExpr.FnCall(sh_inner_id, sh_dyn_fn.clone(), Rc.new(sh_args), sh_infix.*, sh_tok.clone())
-            },
-            _ => expr.clone()
-          );
-          // The inner `dyn` is not one the user wrote over an owning `Dyn`:
-          // `yo fix --migrate unsized` keeps this shared handle as written.
-          if(migrate_unsized_on(), {
-            note_unsized_handle_dyn_node(sh_inner_id);
-          });
-          (sh_call, sh_recv) := _synthesized_cell_call(&handle_ty, &sh_cell.type_name, &dyn_payload_ty, sh_inner, &expr_tok, env, ctx);
-          // The handle call takes this node's id, so the tree reads it where
-          // the `dyn(...)` call was written (`note_rewritten_node`, as the
-          // auto-box does) and the ExprInfo side table keys it there.
-          sh_call_here := match(
-            &sh_call,
-            .FnCall(_, sh_c0, sh_a0, sh_i0, sh_t0) => AstExpr.FnCall(ast_expr_id(expr), sh_c0.clone(), Rc.clone(sh_a0), sh_i0.*, sh_t0.clone()),
-            .Atom(_, _) => sh_call.clone()
-          );
-          mark_node_preevaluated(sh_recv);
-          sh_out := evaluate_expression_raw(&sh_call_here, env, ctx, exn);
-          unmark_node_preevaluated(sh_recv);
-          note_rewritten_node(&sh_out);
-          return(sh_out);
-        },
-        .None => ()
-      ),
-      _ => ()
-    ),
-    .None => ()
-  );
   // `dyn(&v)` / `dyn(&mut v)`: the reference kinds (decision 49) take no
   // box and no expected-type plumbing of their own.
   if(ast_expr_is_fn_call_of(&value_arg, BF_ADDRESS_OF, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(&value_arg, BK_BORROW_MUT, Option(usize).Some(usize(1))), {
@@ -2074,6 +2023,9 @@ _evaluate_dyn_erasure :: (
   // the ordered trait values for C codegen vtable emission.
   out_info := new_expr_info(&cur_env, &dyn_type);
   expr_info_set_dyn_call_trait_values(&out_info, Option(ArrayList(EvalValue)).Some(trait_vals));
+  rt_args_ex := ArrayList(AstExpr).new();
+  rt_args_ex.push(final_value_expr_ex.clone());
+  out_info.set_runtime_arg_exprs_in_order(.Some(rt_args_ex));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   // Attach the temp variable C codegen reads for the fat-pointer struct.
   attach_temp_variable_to_expr(expr, true, ctx);

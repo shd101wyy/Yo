@@ -577,6 +577,13 @@ is_cell_primitive_type :: (fn(t : &TypeValue) -> bool)(
     _ => false
   )
 );
+/// A cell primitive whose payload is a `Dyn(...)` (decision 49 S2): the cell
+/// of an `Rc(Dyn(T))`/`Arc(Dyn(T, ...))`. Its C value is the fat pointer
+/// `{ data, vtable }` over the counted block `dyn(Rc.new(v))` built, so its
+/// count, retain and release go through the vtable.
+is_dyn_cell_type :: (fn(t : &TypeValue) -> bool)(
+  is_cell_primitive_type(t) && match(t_refine_inner(t), Rc(.Struct({ field_types : dc_fts })) => match(dc_fts.get(usize(0)), .Some(dp) => match(t_refine_inner(&dp), Rc(.DynT(_, _, _, _)) => true, _ => false), .None => false), _ => false)
+);
 /// A cell handle: what V5 makes `Rc` and `Arc` (plans/VALUES_BY_DEFAULT.md
 /// §3.5), a newtype whose one field `_cell` is a cell primitive
 /// (`newtype(_cell : __yo_cell(V))`, `newtype(_cell : __yo_atomic_cell(V))`).
@@ -1056,7 +1063,8 @@ _is_boxed_cell_object_type :: (fn(t : &TypeValue) -> bool)(
 /// the tagged layout.
 _is_nullable_payload_type :: (fn(t : &TypeValue) -> bool)(
   cond(
-    is_pointer_type(t) => true,
+    // A pointer to an unsized pointee is fat (decision 49), a struct in C.
+    is_pointer_type(t) => match(t_refine_inner(t), Rc(.Pointer(np)) => !_is_fat_pointee(&np), _ => true),
     // A `Box` is a C-transparent newtype over its never-NULL cell pointer
     // (§3.2: `Option(Box(T))` keeps the one-pointer niche). A box of an
     // unsized payload is a fat pointer (decision 49 S2), a struct in C, and
@@ -1066,7 +1074,7 @@ _is_nullable_payload_type :: (fn(t : &TypeValue) -> bool)(
     // one folds as a `ref` object does, the atomic one stays tagged as an
     // atomic object does. Only cell handles: another newtype over a pointer
     // keeps its tagged layout.
-    cell_handle_view(t).is_some() => !is_atomic_counted_handle_type(t),
+    cell_handle_view(t).is_some() => (!is_atomic_counted_handle_type(t) && match(cell_handle_view(t), .Some(chv) => !is_dyn_cell_type(&chv.cell), .None => true)),
     is_atomic_reference_struct_type(t) => false,
     is_atomic_reference_enum_type(t) => false,
     is_reference_struct_type(t) => true,
@@ -1269,6 +1277,7 @@ export(
   is_arc_type,
   is_counted_handle_value_type,
   is_cell_primitive_type,
+  is_dyn_cell_type,
   CellHandleView,
   cell_handle_view,
   is_counted_handle_type,

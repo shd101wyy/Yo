@@ -21,7 +21,7 @@
 { AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_token, ast_expr_text } :: import("../../expr.yo");
 { EvalValue, is_func_val, is_struct_val, is_unknown_val, value_contains_unknown } :: import("../../value.yo");
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
-{ is_unit_type, is_struct_type, is_enum_type, is_pointer_type, is_tuple_type, is_dyn_type, is_reference_struct_type, is_reference_enum_type, is_newtype_type, is_module_type, is_unique_box_type, cell_handle_view } :: import("../../types/guards.yo");
+{ is_unit_type, is_struct_type, is_enum_type, is_pointer_type, is_tuple_type, is_dyn_type, is_reference_struct_type, is_reference_enum_type, is_newtype_type, is_module_type, is_unique_box_type, cell_handle_view, is_dyn_cell_type } :: import("../../types/guards.yo");
 { Environment } :: import("../../env.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
@@ -461,6 +461,15 @@ _generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &
   // C-transparent newtype over its cell, so its value is the cell pointer and
   // the payload is the cell's `*` field behind it.
   if(field_name == "*", {
+    match(
+      cell_handle_view(&object_type),
+      // The cell of an `Rc(Dyn(T))` is the fat pointer itself (decision 49
+      // S2): its payload is the unsized place `(*F)`.
+      .Some(dhv) => if(is_dyn_cell_type(&dhv.cell), {
+        return(`(*${object_code.clone()})`);
+      }),
+      .None => ()
+    );
     match(
       cell_handle_view(&object_type),
       .Some(hv) => {

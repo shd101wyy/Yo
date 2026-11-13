@@ -72,7 +72,7 @@
 { is_target_windows, is_target_wasm } :: import("../../target.yo");
 { stable_label_id } :: import("../../utils.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
-{ get_type_string, can_optimize_as_simple_enum, _checked_index_expr, _checked_fixed_array_subscript, _idx_c_string_literal, _is_decimal_literal, _parse_decimal } :: import("../utils/index.yo");
+{ get_type_string, can_optimize_as_simple_enum, _checked_index_expr, _checked_fixed_array_subscript, _idx_c_string_literal, _is_decimal_literal, _parse_decimal, fat_address_member } :: import("../utils/index.yo");
 /// Argument code at index `i` (empty if absent).
 _a :: (fn(args : &ArrayList(String), i : usize) -> String)(
   match(args.get_cloned(i), .Some(s) => s, .None => String.from(""))
@@ -601,6 +601,20 @@ generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayLi
       .Some(sat) => sat,
       .None => {
         target_c_type := get_type_string(ei_ty(expr, context), &mut context.base);
+        // A fat pointer source (decision 49): to the same fat type it is
+        // itself, and to a thin type it is its address word.
+        src_ty := match(expr, .FnCall(_, _, Rc(sa), _, _) => match(sa.get(usize(0)), .Some(sa0) => match(context.base.get_expr_info(&sa0), .Some(sei) => Option(TypeValue).Some(Rc.clone(sei.ty())), .None => Option(TypeValue).None), .None => Option(TypeValue).None), .Atom(_, _) => Option(TypeValue).None);
+        src_fat := match(&src_ty, .Some(st) => fat_address_member(st), .None => Option(String).None);
+        if(src_fat.is_some() && match(&src_ty, .Some(st) => (get_type_string(st, &mut context.base) == target_c_type), .None => false), {
+          return(`(${_a(args, usize(0))})`);
+        });
+        match(
+          src_fat,
+          .Some(fm) => if(fat_address_member(ei_ty(expr, context)).is_none(), {
+            return(`((${target_c_type})(${_a(args, usize(0))}).${fm})`);
+          }),
+          .None => ()
+        );
         if(_as_source_is_tagged_enum(expr, context), {
           out := String.from("((");
           out.push_string(&target_c_type);

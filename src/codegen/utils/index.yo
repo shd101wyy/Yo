@@ -41,7 +41,9 @@
   get_adopted_extern_c_type,
   is_atomic_counted_handle_type,
   is_dyn_type,
-  unique_box_payload_type
+  unique_box_payload_type,
+  is_dyn_cell_type,
+  cell_handle_view
 } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { fn_abi_param_is_ptr, type_is_sized } :: import("../../types/utils.yo");
@@ -1800,6 +1802,18 @@ get_type_string :: (fn(t : &TypeValue, context : &mut CodeGenContext) -> String)
     Rc(.Str) => String.from("__yo_str"),
     Rc(.Tuple(_, _)) => _lookup_named_c_type(t, context),
     Rc(.Union(_, _, _)) => _lookup_named_c_type(t, context),
+    // The cell of an `Rc(Dyn(T))`/`Arc(Dyn(T, ...))` is the fat pointer over
+    // its counted block (decision 49 S2).
+    (dc_t := Rc(.Struct({ field_types : dc_fts }))) => if(is_dyn_cell_type(&dc_t), get_type_string(match(dc_fts.get(usize(0)), .Some(dp) => dp, .None => Rc.new(TypeValueNode.Unit)), context), {
+      base := _lookup_named_c_type(t, context);
+      // Reference-semantics structs (object/atomic object) are pointers in C.
+      if(match(&dc_t, Rc(.Struct({ is_reference_semantics : is_ref })) => is_ref, _ => false), {
+        mut(ptr) := base.clone();
+        ptr.push_str("*");
+        return(ptr);
+      });
+      base
+    }),
     Rc(.Struct({ is_reference_semantics : is_ref })) => {
       base := _lookup_named_c_type(t, context);
       // Reference-semantics structs (object/atomic object) are pointers in C.
@@ -2623,6 +2637,31 @@ dyn_slot_result_abi_string :: (fn(ft : &TypeValue, context : &mut CodeGenContext
 unsized_place_fat_code :: (fn(code : &String) -> String)(
   if(code.starts_with("(*") && code.ends_with(")"), code.substring(usize(2), code.len() - usize(1)), code.clone())
 );
+/// The member of the fat C value of type `t` that holds its address word
+/// (decision 49): `data` for a pointer to a `Dyn` (a `*Dyn`, a `&Dyn`, a
+/// `Box(Dyn(...))`), `ptr` for one to a slice or a tail struct; `.None` for a
+/// thin value. A cast to a thin pointer reads that word, as Rust's
+/// `p as *const u8` drops the metadata.
+fat_address_member :: (fn(t : &TypeValue) -> Option(String))({
+  if(is_dyn_cell_type(t) || match(cell_handle_view(t), .Some(fv) => is_dyn_cell_type(&fv.cell), .None => false), {
+    return(.Some(String.from("data")));
+  });
+  pointee := match(
+    t_refine_inner(t),
+    Rc(.Pointer(pp)) => Option(TypeValue).Some(Rc.clone(pp)),
+    Rc(.Reference(rp, _, _)) => Option(TypeValue).Some(Rc.clone(rp)),
+    _ => unique_box_payload_type(t)
+  );
+  match(
+    pointee,
+    .Some(p) => cond(
+      type_is_sized(&p) => .None,
+      is_dyn_type(&p) => .Some(String.from("data")),
+      true => .Some(String.from("ptr"))
+    ),
+    .None => .None
+  )
+});
 /// The payload place of a unique `Box`, given the C code of its handle.
 /// `Box(T) :: newtype(_cell : *T)` is C-transparent, and bit 0 of the cell
 /// pointer is the handle's "placed" bit (`Box`'s layout L1,
@@ -2689,6 +2728,7 @@ export(
   get_type_string,
   box_payload_place_code,
   unsized_place_fat_code,
+  fat_address_member,
   pointer_c_type_string,
   is_unsized_pointee,
   erased_future_result_type_string,
