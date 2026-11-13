@@ -9577,7 +9577,13 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
                               }),
                               .None => ()
                             );
-                          });
+                          }, if(t_slot_is_borrow(&x_slot), {
+                            // A projection call's result at a reference
+                            // slot (`ys.index(usize(0))`) is typed as its
+                            // place, so it carries no origin of its own: the
+                            // value passed is a lend of that place.
+                            match(local_borrow_place_of(&x_bare, env, ctx), .Some(xlp) => x_roots.push(OriginRootPlace(place : xlp, is_mut : t_slot_is_mut_ref(&x_slot))), .None => ());
+                          }));
                         });
                         if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
                           eprintln(`[n2b] lend-through solve ${ast_expr_to_string(&x_arg)}: roots=[${n2b_roots_text(&x_roots)}]`);
