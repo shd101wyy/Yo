@@ -1173,6 +1173,9 @@ fn_param_origin_links :: (fn(ft : &TypeValue) -> ArrayList(usize))({
 fn_param_origins_narrower :: (fn(actual : &TypeValue, expected : &TypeValue) -> Option(String))({
   a_links := fn_param_origin_links(actual);
   e_links := fn_param_origin_links(expected);
+  if(debug_knob(`YO_DEBUG_IMPL_ORIGINS`).is_some(), {
+    eprintln(`[impl-origins] links actual=${a_links.len().to_string()} expected=${e_links.len().to_string()}`);
+  });
   labels := match(actual, Rc(.Func({ meta : pn_m })) => Rc.clone(pn_m.param_labels), _ => return(Option(String).None));
   (i : usize) = usize(0);
   while((i + usize(1)) < a_links.len(), i = (i + usize(2)), {

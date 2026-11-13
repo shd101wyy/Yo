@@ -4519,8 +4519,13 @@ _c3_eval_colon_pair :: (
               },
               .None => ()
             );
+            // The member's own `Self` read as the receiver, as the trait's is.
+            po_actual := _substitute_self_in_method_ty(&fi.ty(), &st.receiver_ty);
+            if(debug_knob(`YO_DEBUG_IMPL_ORIGINS`).is_some(), {
+              eprintln(`[impl-origins] ${method_name}: actual=${type_to_string(&po_actual)} expected=${type_to_string(&conf_exp)}`);
+            });
             match(
-              fn_param_origins_narrower(&fi.ty(), &conf_exp),
+              fn_param_origins_narrower(&po_actual, &conf_exp),
               .Some(po_msg) => {
                 exn.throw(
                   dyn(
