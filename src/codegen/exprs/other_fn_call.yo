@@ -14,7 +14,7 @@
 { type_is_control_bound, dyn_type_has_vtable_slot, dyn_vtable_slot_param_is_ref, dyn_vtable_slot_result_is_ref, type_contains_rc_cell_or_move_only, fn_abi_param_is_ptr, dyn_type_lists_clone } :: import("../../types/utils.yo");
 { Environment, get_variables_from_env, find_innermost_frame_with_given_variable, Variable, new_environment } :: import("../../env.yo");
 { is_builtin_yo_inline_function, codegen_fatal_expr } :: import("../constants.yo");
-{ record_declared_temp_var, FunctionGenerationContext } :: import("../functions/context.yo");
+{ record_declared_temp_var, FunctionGenerationContext, shadow_binding_c_name } :: import("../functions/context.yo");
 { sm_local_field_name, is_await_consumed_temp } :: import("../async/state_machine_naming.yo");
 { is_any_temp_variable_name } :: import("../../utils.yo");
 { declare_c_var_name, get_type_string, pointer_c_type_string, get_storage_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, c_field_name, c_variant_member_name, is_function_value_with_only_builtin_yo_inline_function_call, type_key, get_runtime_struct_fields, RuntimeStructField, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, ImplClosureCallInfo, scope_stack_contains, _checked_fixed_array_subscript, get_variable_name_for_codegen_at, erased_future_result_type_string, fresh_local_name } :: import("../utils/index.yo");
@@ -342,7 +342,8 @@ _store_temp_var_to_state_machine_if_needed :: (fn(temp_var : &String, indent : &
     }
   );
 });
-/// §3.13 A2: the task slot of a temporary lent by `&`/`&mut` inside an
+/// §3.13 A2: the task slot of a temporary lent by `&`/`&mut` (or passed by
+/// value, `_apply_ref_amp`; or matched by borrow) inside an
 /// `io.async` state machine. The temporary lives to the end of its statement,
 /// and a borrowing future made in that statement can hold its address across
 /// a suspension, after the resume function's C local is gone. The slot holds
@@ -646,7 +647,12 @@ _materialize_arg :: (fn(arg : &AstExpr, param_is_ref : bool, expr : &AstExpr, in
         // liveness signal (declared_c_var_names is monotonic across closed
         // sibling blocks — see scope_stack_contains); the in-scope
         // local/param holds the same value, so reuse it.
-        vname_c := sanitize_for_c_identifier(vname.clone(), false);
+        // The name is the C name the source name resolves to HERE: a match
+        // arm binding that shadows a local of the same name is declared under
+        // its own C name (`shadow_binding_decl_name`), and the outer local's
+        // name, though declared in an open scope, holds a different value
+        // (issues/fixed/2026-11-11-a-call-argument-naming-a-match-arm-binding-that-shadows-a-local-passes-the-outer-local-in-c.md).
+        vname_c := shadow_binding_c_name(context, &sanitize_for_c_identifier(vname.clone(), false));
         already_in_scope := context.base.declared_scopes.with({ &vname_c }(ds_s) => scope_stack_contains(ds_s, vname_c.clone()));
         (mut(emitted) : bool) = false;
         if(!(arg_code == vname_c) && !is_comptime_only && !is_sm && !param_is_ref && !is_deref_read && !already_in_scope, {
@@ -660,7 +666,11 @@ _materialize_arg :: (fn(arg : &AstExpr, param_is_ref : bool, expr : &AstExpr, in
             emitted = true;
           });
         });
-        final_name := if(emitted || already_in_scope, vname.clone(), arg_code.clone());
+        final_name := cond(
+          emitted => sanitize_for_c_identifier(vname.clone(), false),
+          already_in_scope => vname_c.clone(),
+          true => arg_code.clone()
+        );
         // dup-on-store for an owned param: emit the arg's deferred `___dup` (set by
         // helper.yo's move-ownership branch) before the call uses it. Only in the
         // value-pass case — ref/`inout`/comptime/sm args transfer no ownership.
@@ -1309,12 +1319,19 @@ _apply_ref_amp :: (fn(args : &ArrayList(String), param_is_ref : &ArrayList(bool)
       ),
       .None => false
     );
+    // A temporary passed by value (a small `&T` or `&Self` parameter takes
+    // its referent's bits, a by-value parameter its value) is read from its
+    // task slot when it has one, as the address branch below does: the slot
+    // holds the same value (`_store_temp_var_to_state_machine_if_needed`), and
+    // the resume function's C local is garbage once a later operand's await
+    // has suspended the task
+    // (issues/fixed/2026-11-11-a-temporary-lent-before-an-await-in-a-later-operand-is-read-from-a-dead-c-local-after-the-resume.md).
     transformed := if(
       pref && arg_is_unit,
       String.from("((void*)0)"),
       if(
         !pref,
-        c,
+        match(_sm_lent_temp_slot(&c, context), .Some(slot) => slot, .None => c.clone()),
         if(
           c.starts_with("(*") && c.ends_with(")"),
           c.substring(usize(2), c.len() - usize(1)),
@@ -3689,4 +3706,4 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   });
   Option(String).Some(out)
 });
-export(_is_addressable_c_expr, _apply_ref_amp, bind_owning_result_temp, _split_top_level_args_list, _resolve_var_name_in_context, _store_temp_var_to_state_machine_if_needed, _get_interior_ref_container_code, _emit_borrow_acquires, _emit_borrow_releases, _is_inside_object_method, _maybe_emit_auto_borrow_assert, generate_other_function_call, ref_spill_counter_reset, sequence_operand, reference_operand_is_value, operand_hold_type, operand_hold_field);
+export(_is_addressable_c_expr, _apply_ref_amp, _sm_lent_temp_slot, bind_owning_result_temp, _split_top_level_args_list, _resolve_var_name_in_context, _store_temp_var_to_state_machine_if_needed, _get_interior_ref_container_code, _emit_borrow_acquires, _emit_borrow_releases, _is_inside_object_method, _maybe_emit_auto_borrow_assert, generate_other_function_call, ref_spill_counter_reset, sequence_operand, reference_operand_is_value, operand_hold_type, operand_hold_field);
