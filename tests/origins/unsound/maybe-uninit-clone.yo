@@ -1,5 +1,8 @@
-// expect: E0610
-// `MaybeUninit` is not `Clone`: a derived `clone` would read the never-written payload, a zeroed `Box`.
+// expect: E0901
+// `MaybeUninit(T)` is `Clone` only for a `Copy` payload: a derived `clone` would run `Box`'s `clone`
+// on the never-written payload. The rejection is the bitwise `clone` body's E0901 for a `Box` payload
+// rather than E0610, because a method call ignores the `where(T <: Copy)` of the impl it dispatches to
+// (issues/2026-11-13-a-method-call-ignores-a-generic-impls-where-clause.md).
 { println } :: import("std/fmt");
 main :: (fn() -> unit)({
   m := MaybeUninit(Box(i64)).new();

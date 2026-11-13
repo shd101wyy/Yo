@@ -50,3 +50,6 @@ not appear to consult them.
 ## Test
 
 With the fix: the reproducer as an `E0610` case beside the generic-impl tests, and the hand-written impl form.
+The fix also moves `tests/origins/unsound/maybe-uninit-clone.yo` from E0901 to E0610: `std/prelude.yo` writes
+`MaybeUninit(T)`'s `Clone` as the bitwise copy under `where(T <: Copy)`, and today a `MaybeUninit(Box(i64))` reaches
+that body, whose `self.*` raises E0901.
