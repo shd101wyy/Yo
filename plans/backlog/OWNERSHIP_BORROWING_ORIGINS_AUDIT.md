@@ -200,6 +200,16 @@ Corrections to `REFERENCES_AND_ORIGINS.md` were made in place, dated 2026-11-11,
 The coordinator asked that these files not be edited before the cut. Each item is the text to change and the
 replacement.
 
+**Applied 2026-11-13 (the records PR after the v0.2.77 cut).** Every item below is in place except
+`tests/move_only.test.yo:111`, which is a test edit and stays with the tests lane. Where the text differs from the
+patch: the P9/decision 28 correction (item 1) says the shapes are rejected with E0910 or E0911 by what holds the loan
+(on v0.2.77 `f(&mut xs, r)` with a named `r` is E0911, as the audit's own §11 row records); the cheatsheet's `&mut`
+field line is stated against the measured behaviour (`derive(T, Copy, Clone)` on a `&mut`-holding type is already
+rejected; the open hole is A26's by-value read of a `&mut` field); the `ALGEBRAIC_EFFECTS` pages were re-measured
+(`io.spawn` aborts the task and the installer continues, `JoinHandle.await` is `.None`) and say so, with the
+`&Raise` parameter acceptance in rule 8, in both languages. The audit's own status line stays "open follow-ups" until
+§3's open column is empty.
+
 **`plans/VALUES_BY_DEFAULT.md`**
 
 1. Decision 28, "Extended 2026-11-07 (VERDICTS-31 P9; v0.2.77)". Append: "**Corrected 2026-11-11 (audit D1):** the
