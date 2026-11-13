@@ -169,6 +169,9 @@ battery takes the next lane-F item.
   - BEND Z2: pin Z3 by sha256.
   - Z1: close the machine-load unknown flip.
   - File ADA §7's two `issues/questions/` entries.
+  - `yo init` scaffolds `pragma(Pragma.VerifyOrAssert);` in the source modules
+    it generates (verdict of 2026-11-13,
+    `issues/questions/2026-11-13-should-verification-be-on-by-default.md`).
 
   Each is S-sized.
 

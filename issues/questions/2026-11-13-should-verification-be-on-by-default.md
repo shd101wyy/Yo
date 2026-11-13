@@ -61,6 +61,11 @@ Two standing texts say no:
 - **`unknown` exists.** Nonlinear bit-vector goals stay `unknown` after about 44 s
   (`plans/backlog/THEOREM_PROVING_DIRECTION.md` §2). Under `verify` an `unknown` is a
   compile error; under `verify+` it falls back to a runtime check.
+- **An obligation the solver cannot decide is slow in both modes.** One nonlinear
+  `ensures(r <= (a * c))` over `u32` made a cold `yo compile` take 102 s under
+  `Pragma.Verify` (which then failed: `UNPROVEN unknown: rlimit exhausted`) and 108 s
+  under `Pragma.VerifyOrAssert` (which succeeded: "verify+ fallback: the runtime assert
+  stays"). A default-on build pays that for every such obligation it cannot cache.
 - **`yo init` already scaffolds a verified `spec/`** (`src/init.yo`: the claims wall,
   `yo verify ./spec --strict`).
 
@@ -104,3 +109,18 @@ right default mode when the flip comes, because a solver limit must never fail a
 
 If accepted, step 1 is a small `src/init.yo` change with a cli-case golden, after VBD.
 Step 2 amends the two standing texts quoted above in the PR that flips the default.
+
+## Verdict (maintainer, 2026-11-13)
+
+**D, accepted.** Nothing starts before VBD closes.
+
+- Step 1 (`yo init` scaffolds `pragma(Pragma.VerifyOrAssert);`) is a lane-E quick win in
+  `plans/backlog/POST_VBD_PLAN.md` phase 1.
+- Step 2 (the language default becomes `verify+`) waits for its four gates. The PR that
+  flips it amends the two standing texts quoted at the top.
+- `verify` and `--strict` stay opt-in.
+
+One consequence to settle in the flip PR, not before: once `verify+` is the default,
+`pragma(Pragma.VerifyOrAssert);` says nothing, and the two pragmas a module can still
+need are the strict one (an `unknown` fails the build, no runtime fallback) and the
+opt-out. Whether `Pragma.Verify` keeps its name then is part of that PR.
