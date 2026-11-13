@@ -223,6 +223,12 @@ generate_drop :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionG
 _emit_unsized_place_drop :: (fn(ty : &TypeValue, fat : &String, indent : &String, context : &mut FunctionGenerationContext) -> unit)(
   match(
     t_refine_inner(ty),
+    // A `Dyn` place drops through its vtable's `drop_in_place` slot, which
+    // drops the payload and frees nothing (decision 49 S2).
+    Rc(.DynT({})) => {
+      dft := get_type_string(ty, &mut context.base);
+      context.base.emitter.emit_string_line(`${indent.clone()}{ ${dft} __yo_dip_f = ${fat.clone()}; __yo_dip_f.vtable->__yo_drop_in_place(__yo_dip_f.data); }`);
+    },
     Rc(.SliceT(ds_elem)) => {
       sv := fresh_local_name(String.from("__yo_drop_slice_"), &context.base.current_function_name);
       iv := fresh_local_name(String.from("__yo_drop_i_"), &context.base.current_function_name);

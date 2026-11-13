@@ -16,7 +16,7 @@
 { AstExpr, ast_expr_id, ast_expr_to_string } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue, t_refine_inner } :: import("../../types/definitions.yo");
-{ is_dyn_type, is_boxed_type, is_counted_handle_type, cell_handle_view } :: import("../../types/guards.yo");
+{ is_dyn_type, is_boxed_type, is_counted_handle_type, cell_handle_view, unique_box_payload_type, is_unique_box_type } :: import("../../types/guards.yo");
 { extract_fn_trait_from_type } :: import("../../evaluator/trait_checking.yo");
 { type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
 { Environment } :: import("../../env.yo");
@@ -114,7 +114,9 @@ generate_dyn_call :: (fn(expr : &AstExpr, indent : &String, context : &mut Funct
   value_expr := match(&ei.runtime_arg_exprs_in_order(), .Some(rargs) => match(rargs.get(usize(0)), .Some(v) => v, .None => match(args0, .Some(a) => a, .None => return(String.from("/* Error: dyn() requires a value argument */")))), .None => match(args0, .Some(a) => a, .None => return(String.from("/* Error: dyn() requires a value argument */"))));
   // A `dyn(&v)` result may carry the reference it was read as (a `&Dyn`
   // declaration's converted type): the Dyn is its pointee.
-  dyn_type := match(t_refine_inner(&ei.ty()), Rc(.Reference(rp, _, _)) => Rc.clone(rp), _ => Rc.clone(ei.ty()));
+  // An owning erasure is typed `Box(Dyn(...))` (decision 49 S2): the Dyn is
+  // the box's payload.
+  dyn_type := match(t_refine_inner(&ei.ty()), Rc(.Reference(rp, _, _)) => Rc.clone(rp), _ => match(unique_box_payload_type(&ei.ty()), .Some(bp) => bp, .None => Rc.clone(ei.ty())));
   if(!is_dyn_type(&dyn_type), {
     return(String.from("/* Error: dyn() result type is not DynType */"));
   });
@@ -125,6 +127,40 @@ generate_dyn_call :: (fn(expr : &AstExpr, indent : &String, context : &mut Funct
   });
   value_ei := match(context.base.get_expr_info(&value_expr), .Some(e) => e, .None => return(String.from("/* Error: dyn() value has no type */")));
   value_type := Rc.clone(value_ei.ty());
+  // `dyn(Box.new(v))` (decision 49 S2): the box's own block becomes the
+  // `Box(Dyn(...))`'s, so the fat pointer is `{ .data = <the box's cell
+  // word>, .vtable }` over a payload-convention (`_P`) instance. The cell
+  // word keeps the box's placed bit; every reader masks it.
+  match(
+    unique_box_payload_type(&value_type),
+    .Some(bv) => if(is_unique_box_type(&ei.ty()), {
+      resolved_bv := resolve_some_type_to_concrete(bv.clone());
+      b_dyn_c := _dyn_c_name(&dyn_type, context);
+      b_key := _concrete_c_name(&resolved_bv, context);
+      b_key.push_str("_");
+      b_key.push_string(b_dyn_c.clone());
+      b_key.push_string(dyn_impl_key_suffix(true, &resolved_bv));
+      context.base.register_dyn_impl(b_key.clone(), DynImplEntry(dyn_type : Rc.clone(dyn_type), concrete_type : bv, data_type : Rc.clone(resolved_bv), trait_values : trait_values.clone(), payload_convention : true));
+      b_code := _call_generate_expr(&value_expr, indent.clone(), context);
+      if(b_code.starts_with("// Failed to transpile"), {
+        context.base.emitter.emit_string_line(&`${indent.clone()}${b_code}`);
+        return(`// Failed to transpile ${ast_expr_to_string(expr)}`);
+      });
+      b_out := `((${b_dyn_c}){ .data = (void*)(${b_code}), .vtable = &__yo_vtable_${b_key} })`;
+      return(match(
+        &ei.variable_name(),
+        .Some(b_tv) => {
+          already_b := match(&context.declared_temp_vars, .Some(ds) => ds.contains(b_tv.clone()), .None => false);
+          if(!already_b, record_declared_temp_var(context, b_tv.clone()));
+          context.base.emitter.emit_string_line(&`${indent.clone()}${b_dyn_c} ${b_tv.clone()} = ${b_out};`);
+          _store_temp_var_to_state_machine_if_needed(b_tv.clone(), indent.clone(), context);
+          b_tv.clone()
+        },
+        .None => b_out
+      ));
+    }),
+    .None => ()
+  );
   // dyn() requires an object type (value types must use Rc.new()). Box is not
   // modeled (is_boxed_type ≡ false), so the Box branch is dead.
   if(!is_counted_handle_type(&value_type) && !is_boxed_type(&value_type), {

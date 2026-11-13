@@ -542,6 +542,11 @@ unique_box_payload_type :: (fn(t : &TypeValue) -> Option(TypeValue))(
 );
 /// True if `t` is the prelude's unique cell `Box(V)` (`unique_box_payload_type`).
 is_unique_box_type :: (fn(t : &TypeValue) -> bool)(unique_box_payload_type(t).is_some());
+/// A pointer to `p` is fat: `p` is a `Dyn(...)` or a slice `[T]` (decision
+/// 49). A tail struct is fat too; no handle stores one yet.
+_is_fat_pointee :: (fn(p : &TypeValue) -> bool)(
+  match(t_refine_inner(p), Rc(.DynT(_, _, _, _)) => true, Rc(.SliceT(_)) => true, _ => false)
+);
 /// True if `t` is one of the prelude's non-owning handles, `Weak(V)` or its
 /// atomic twin `ArcWeak(V)` (plans/archive/WEAK_AND_UNCOLLECTED_RC.md §3): a
 /// newtype over `?*V`, its one field `_cell`, stamped with its constructor's
@@ -1053,8 +1058,10 @@ _is_nullable_payload_type :: (fn(t : &TypeValue) -> bool)(
   cond(
     is_pointer_type(t) => true,
     // A `Box` is a C-transparent newtype over its never-NULL cell pointer
-    // (§3.2: `Option(Box(T))` keeps the one-pointer niche).
-    is_unique_box_type(t) => true,
+    // (§3.2: `Option(Box(T))` keeps the one-pointer niche). A box of an
+    // unsized payload is a fat pointer (decision 49 S2), a struct in C, and
+    // keeps the tagged layout.
+    is_unique_box_type(t) => match(unique_box_payload_type(t), .Some(bp) => !_is_fat_pointee(&bp), .None => false),
     // So is a cell handle (`cell_handle_view`) over its cell: the non-atomic
     // one folds as a `ref` object does, the atomic one stays tagged as an
     // atomic object does. Only cell handles: another newtype over a pointer

@@ -13899,6 +13899,19 @@ __yo_rc_cell :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocato
   cell := Rc(V)(__yo_cell(V)(value, alloc));
   cell
 });
+/// `dyn(...)`'s owning box constructor (decision 49 S2): `dyn(v)` and
+/// `dyn(Box.new(<closure>, alloc : a))` box a payload whose type is a type
+/// variable (a closure literal, an `Impl(Fn(...))` value) with
+/// `__yo_box_cell(v)`, `__yo_rc_cell`'s twin for `Box(Dyn(...))`.
+/// Compiler-internal, not exported; `Box.new` is the spelling to write. It goes
+/// with `__yo_rc_cell` when a generic constructor's specialization adopts its
+/// result type over the `Dyn` payload wrapper
+/// (issues/2026-10-23-a-generic-constructors-specialization-keeps-its-declared-return-for-a-capture-struct-argument.md).
+__yo_box_cell :: (fn(generic(V : Type), value : V, (alloc : Option(Allocator)) ?= .None) -> Box(V))({
+  // `Box.new`'s body is the prelude's; the box is bound for `Rc.new`'s reason.
+  b := Box(V).new(value, alloc : alloc);
+  b
+});
 /// `dyn(...)`'s atomically counted cell constructor, for a `Dyn(..., Send)`
 /// target (and a recognized `dyn(Arc.new(<closure>, alloc : a))`):
 /// `__yo_rc_cell`'s twin. Compiler-internal, not exported. The `Escapable`

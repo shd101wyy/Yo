@@ -23,10 +23,11 @@
 { AstExpr, ast_expr_id, ast_expr_strip_borrow_marker } :: import("../../expr.yo");
 { downcast_reference_mode, unsize_reference_mode } :: import("../../expr_info.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
-{ is_dyn_type, is_enum_type, is_reference_struct_type, cell_handle_view, is_pointer_type } :: import("../../types/guards.yo");
+{ is_dyn_type, is_enum_type, is_reference_struct_type, cell_handle_view, is_pointer_type, unique_box_payload_type } :: import("../../types/guards.yo");
+{ _arg_is_reference_binding } :: import("./sizeof.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ type_key, get_type_string, sanitize_for_c_identifier, c_symbol_name, c_variant_member_name, get_enum_variant_c_name, can_optimize_as_nullable_pointer, get_runtime_struct_fields, fresh_local_name, CodegenFunctionEntry } :: import("../utils/index.yo");
+{ type_key, get_type_string, sanitize_for_c_identifier, c_symbol_name, c_variant_member_name, get_enum_variant_c_name, can_optimize_as_nullable_pointer, get_runtime_struct_fields, fresh_local_name, CodegenFunctionEntry, unsized_place_fat_code, box_payload_place_code } :: import("../utils/index.yo");
 { get_dup_function_for_type, generate_dup_code_for_value } :: import("./drop_dup.yo");
 { type_contains_rc_cell_or_move_only, type_is_move_only, is_clone_trait_type } :: import("../../types/utils.yo");
 { get_func_type } :: import("../../function_value.yo");
@@ -48,11 +49,22 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
   // First argument: the dyn value (runtime).
   dyn_ei := match(context.base.get_expr_info(&dyn_arg), .Some(e) => e, .None => return(String.from("/* ERROR: downcast dyn arg not evaluated */")));
   // A reference binding's type may be the reference: the Dyn is its pointee.
-  dyn_ty := match(t_refine_inner(&dyn_ei.ty()), Rc(.Reference(drp, _, _)) => Rc.clone(drp), _ => Rc.clone(dyn_ei.ty()));
+  arg_ty := match(t_refine_inner(&dyn_ei.ty()), Rc(.Reference(drp, _, _)) => Rc.clone(drp), _ => Rc.clone(dyn_ei.ty()));
+  arg_code := _call_generate_expr(&dyn_arg, indent.clone(), context);
+  // Through an owning `Box(Dyn(...))` (decision 49 S2: `downcast(&b, V)`,
+  // `downcast(err, V)` with `err : &AnyError`): the box's payload place. A
+  // reference binding's code is the box's address.
+  (dyn_ty, dyn_code) := match(
+    unique_box_payload_type(&arg_ty),
+    .Some(bp) => {
+      box_code := if(match(t_refine_inner(&dyn_ei.ty()), Rc(.Reference(_, _, _)) => true, _ => false) || _arg_is_reference_binding(&dyn_arg, context), `(*${arg_code})`, arg_code.clone());
+      (bp, unsized_place_fat_code(&box_payload_place_code(&arg_ty, &box_code, &mut context.base)))
+    },
+    .None => (arg_ty, unsized_place_fat_code(&arg_code))
+  );
   if(!is_dyn_type(&dyn_ty), {
     return(String.from("/* ERROR: downcast expected Dyn type as first argument */"));
   });
-  dyn_code := _call_generate_expr(&dyn_arg, indent.clone(), context);
   // Second argument: the target type T (comptime).
   target_type := match(context.base.get_expr_info(&type_arg), .Some(tei) => match(tei.value(), .Some(v) => match(v, .TypeVal(t) => Rc.clone(t), _ => return(String.from("/* ERROR: downcast expected TypeValue as second argument */"))), .None => return(String.from("/* ERROR: downcast expected TypeValue as second argument */"))), .None => return(String.from("/* ERROR: downcast type arg not evaluated */")));
   target_type_c_name := get_type_string(&target_type, &mut context.base);
@@ -332,7 +344,7 @@ _upcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionG
   args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   dyn_arg := match(args.get(usize(0)), .Some(x) => ast_expr_strip_borrow_marker(&x), .None => return(String.from("/* ERROR: upcast requires 2 arguments */")));
   dyn_ei := match(context.base.get_expr_info(&dyn_arg), .Some(e) => e, .None => return(String.from("/* ERROR: upcast dyn arg not evaluated */")));
-  dyn_code := _call_generate_expr(&dyn_arg, indent.clone(), context);
+  dyn_code := unsized_place_fat_code(&_call_generate_expr(&dyn_arg, indent.clone(), context));
   tgt_c := get_type_string(&ei.ty(), &mut context.base);
   // Name the source once: a call operand must not run twice.
   src := if(_is_plain_c_identifier(dyn_code.clone()), dyn_code.clone(), {

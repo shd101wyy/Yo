@@ -24,7 +24,8 @@ pragma(Pragma.AllowUnsafe);
   migrate_unsized_on,
   record_unsized_site,
   note_unsized_handle_dyn_node,
-  unsized_handle_dyn_node
+  unsized_handle_dyn_node,
+  unsize_reference_mode
 } :: import("../../expr_info.yo");
 { Environment, Variable, synthetic_token, get_variables_from_env, add_variable_to_env, by_value_param_owns, snapshot_env, variable_value_type, variable_set_is_ref, variable_set_is_imm_borrow } :: import("../../env.yo");
 { Token, TokenKind, intern_token_str } :: import("../../token.yo");
@@ -36,7 +37,7 @@ pragma(Pragma.AllowUnsafe);
 { create_specialized_function_inline, try_to_call_function_with_arguments } :: import("../calls/helper.yo");
 { t_refine_inner, some_t_bounds, TypeValue, TypeValueNode, no_types, no_levels, slot_pointee_at, fn_param_by_value_at, fn_param_mut_ref_flags, no_flags, shared_list, no_labels, t_slot_pointee, fn_trait_base_serves, fn_trait_call_contract, fn_trait_slot_contract } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_dyn, t_dyn_payload_wrapper } :: import("../../types/creators.yo");
-{ is_dyn_type, is_some_type, is_function_type, is_reference_struct_type, is_boxed_type, is_shared_cell_type_name, shared_cell_canonical_names, cell_handle_view, is_atomic_counted_handle_type, is_pointer_type, can_optimize_as_nullable_pointer } :: import("../../types/guards.yo");
+{ is_dyn_type, is_some_type, is_function_type, is_reference_struct_type, is_boxed_type, is_shared_cell_type_name, shared_cell_canonical_names, cell_handle_view, is_atomic_counted_handle_type, is_pointer_type, can_optimize_as_nullable_pointer, is_unique_box_type, unique_box_payload_type } :: import("../../types/guards.yo");
 { resolve_cell_chain, is_closure_capture_struct, type_contains_some_type_deep, get_all_some_types, type_is_move_only, move_only_reason, dyn_member_is_method, dyn_member_unsafe_reason, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, is_future_value_type, is_clone_trait_type } :: import("../../types/utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { get_value_of_some_type_from_env, get_trait_type_from_env } :: import("../../types/env_lookup.yo");
@@ -124,7 +125,7 @@ _create_box_type_via :: (fn(ctor : &String, inner_type : &TypeValue, env : &Envi
       cenv.pop_frame();
       // The cell is a `ref` object, or a cell handle (`cell_handle_view`): V5's
       // `Rc`/`Arc`, a newtype over `__yo_cell`/`__yo_atomic_cell`.
-      match(bres.value, .TypeVal(bt) => if(is_reference_struct_type(&bt) || cell_handle_view(&bt).is_some(), Option(TypeValue).Some(Rc.clone(bt)), Option(TypeValue).None), _ => Option(TypeValue).None)
+      match(bres.value, .TypeVal(bt) => if(is_reference_struct_type(&bt) || cell_handle_view(&bt).is_some() || is_unique_box_type(&bt), Option(TypeValue).Some(Rc.clone(bt)), Option(TypeValue).None), _ => Option(TypeValue).None)
     }
   )
 });
@@ -146,7 +147,7 @@ _dyn_cell_constructor_of :: (fn(callee : &AstExpr) -> Option(DynCellConstructor)
       (ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))) && match(dot_args.get(usize(1)), .Some(.Atom(_, m_tok)) => (m_tok.value.* == "new"), _ => false)) => match(
         dot_args.get(usize(0)),
         .Some(.Atom(r_id, r_tok)) => cond(
-          (is_shared_cell_type_name(&r_tok.value.*) || (r_tok.value.* == "Arc")) => .Some(DynCellConstructor(type_name : r_tok.value.*.clone(), unapplied_receiver : r_id)),
+          (is_shared_cell_type_name(&r_tok.value.*) || (r_tok.value.* == "Arc") || (r_tok.value.* == "Box")) => .Some(DynCellConstructor(type_name : r_tok.value.*.clone(), unapplied_receiver : r_id)),
           true => .None
         ),
         _ => .None
@@ -294,7 +295,7 @@ _prelude_cell_callee :: (fn(cell_name : &String, env : &Environment, ctx : &Eval
 /// (issues/2026-10-23-a-generic-constructors-specialization-keeps-its-declared-return-for-a-capture-struct-argument.md;
 /// Fable consultation #7).
 _prelude_cell_constructor :: (fn(cell_name : &String, env : &Environment) -> Option(Variable))({
-  ctor_name := cond((cell_name == "Arc") => String.from("__yo_arc_cell"), true => String.from("__yo_rc_cell"));
+  ctor_name := cond((cell_name == "Arc") => String.from("__yo_arc_cell"), (cell_name == "Box") => String.from("__yo_box_cell"), true => String.from("__yo_rc_cell"));
   vars := get_variables_from_env(env, &ctor_name);
   (vi : usize) = usize(0);
   while(vi < vars.len(), vi = (vi + usize(1)), {
@@ -307,29 +308,6 @@ _prelude_cell_constructor :: (fn(cell_name : &String, env : &Environment) -> Opt
     );
   });
   .None
-});
-/// Does a `dyn(...)` build a `Dyn(..., Send)` or a `Dyn(..., Sync)`? From the
-/// expected Dyn type, or from the value's own `Impl(..., Send)` wrapper when
-/// nothing is expected. Either one crosses threads, so its payload is boxed
-/// atomically.
-_dyn_target_requires_send :: (fn(expected : &Option(ExpectedTypeCtx), value_type : &TypeValue) -> bool)({
-  from_expected := match(
-    expected,
-    .Some(et) => match(&et.ty, Rc(.DynT(required_trait_types : ert)) => Option(bool).Some(_traits_name_send(&ert.items)), _ => Option(bool).None),
-    .None => Option(bool).None
-  );
-  match(
-    from_expected,
-    .Some(b) => b,
-    .None => match(
-      value_type,
-      Rc(.SomeT({ bounds : vrt_bnd })) => {
-        vrt := vrt_bnd.required();
-        _traits_name_send(&vrt)
-      },
-      _ => false
-    )
-  )
 });
 _traits_name_send :: (fn(tys : &ArrayList(TypeValue)) -> bool)(!_thread_marker_named_in(tys).is_empty());
 /// The thread marker a trait list names: "Send" when it lists `Send`, else
@@ -357,6 +335,8 @@ _thread_marker_named_in :: (fn(tys : &ArrayList(TypeValue)) -> String)({
 });
 _unwrap_box_for_method_lookup :: (fn(t : &TypeValue) -> TypeValue)({
   (result : TypeValue) = Rc.clone(t);
+  // A `Box(V)` erased by `dyn(Box.new(v))` (decision 49 S2): the payload `V`.
+  match(unique_box_payload_type(t), .Some(bp) => return(bp), .None => ());
   if(is_boxed_type(t), {
     // A cell handle's payload is its cell's (`cell_handle_view`).
     match(cell_handle_view(t), .Some(v) => return(Rc.clone(v.payload)), .None => ());
@@ -572,18 +552,6 @@ _require_dyn_traits_implemented :: (
         });
         i = (i + usize(1));
       });
-      // Until V2b makes a `Dyn` uniquely owned (decision 7), every copy of a
-      // `Dyn(..., Send)` shares its one payload, so a copy kept on the sending
-      // thread reads it concurrently with the receiver: the payload must be
-      // `Sync` as well (plans/VALUES_BY_DEFAULT.md §3.8).
-      match(
-        get_trait_type_from_env(env, String.from("Sync")),
-        .Some(sync_tt) => if((_thread_marker_named_in(&rtt.items) == "Send") && !_traits_name(&rtt.items, "Sync") && !_name_in(&fv_judged_names, String.from("Send")) && !type_implements_trait_bool(check_ty.clone(), &sync_tt, env), {
-          sync_msg := `Type ${type_to_string(check_ty.clone())} does not implement Sync, which ${type_to_string(dyn_type.clone())} requires of its payload: every copy of a Dyn shares that payload until Dyn becomes uniquely owned (plans/VALUES_BY_DEFAULT.md decision 7).`;
-          raise_flow_violation(format_error_message(token, &sync_msg), ctx, exn);
-        }),
-        .None => ()
-      );
       // A method that takes `self` BY VALUE (`LogicalNot`'s `(!)`, decision
       // 34 as amended 2026-10-11) is no vtable slot (decision 49, E0614 for
       // every payload): a `Dyn` is unsized and lives behind the pointer that
@@ -1329,28 +1297,6 @@ _dyn_pointee_of_expected :: (fn(t : &TypeValue) -> Option(TypeValue))({
     _ => if(is_dyn_type(&r), Option(TypeValue).Some(Rc.clone(&r)), Option(TypeValue).None)
   )
 });
-/// `dyn(Box.new(v[, alloc]))` builds the legacy owning Dyn of `v` while
-/// `unsized_legacy_spellings` holds (VERDICTS-40 amendment 2): the call is
-/// rewritten to the inline `Rc.new(v[, alloc])` the recognizer already
-/// adopts, a fresh cell whose one count is the Dyn's. The `Box.new` call is
-/// never evaluated as a `Box`. Against a `Dyn(..., Send)` the cell is `Arc`,
-/// the box the auto-boxed `dyn(v)` picks there.
-_box_new_as_cell_new :: (fn(arg : &AstExpr, env : &Environment, send : bool) -> AstExpr)(
-  match(
-    arg,
-    .FnCall(a_id, a_fn, a_args, a_infix, a_tok) => match(
-      a_fn,
-      .FnCall(f_id, f_fn, Rc(f_args), f_infix, f_tok) => if(ast_expr_is_fn_call_of(a_fn, BF_DOT, Option(usize).Some(usize(2))) && match(f_args.get(usize(1)), .Some(.Atom(_, m_tok)) => (m_tok.value.* == "new"), _ => false) && match(f_args.get(usize(0)), .Some(.Atom(_, r_tok)) => (r_tok.value.* == "Box"), _ => false), {
-        rc_args := ArrayList(AstExpr).new();
-        rc_args.push(AstExpr.Atom(alloc_global_expr_id(), synthetic_token(if(send, String.from("Arc"), String.from("Rc")), &env.module_path().*)));
-        match(f_args.get(usize(1)), .Some(m) => rc_args.push(m), .None => ());
-        AstExpr.FnCall(a_id.*, AstExpr.FnCall(f_id.*, f_fn.clone(), Rc.new(rc_args), f_infix.*, f_tok.clone()), Rc.clone(a_args), a_infix.*, a_tok.clone())
-      }, arg.clone()),
-      _ => arg.clone()
-    ),
-    _ => arg.clone()
-  )
-);
 /// `dyn(h)` over a named `Rc`/`Arc` handle: rejected (VERDICTS-40 amendment
 /// 3). The legacy adoption of a shared cell cannot make `get_mut` sound over a
 /// cell whose count lives elsewhere.
@@ -1359,6 +1305,12 @@ _reject_dyn_of_named_handle :: (fn(value_ty : &TypeValue, fresh : bool, tok : &T
     exn.throw(dyn(format_error_message(tok, String.from("`dyn(h)` over a named `Rc`/`Arc` handle is not available: erasing a shared handle in place arrives with the `?Sized` prelude; write `dyn(Rc.new(v))` to build the shared object here or `dyn(Box.new(v))` to own it"))));
   });
 });
+/// A `dyn(v)` payload that is neither a pointer kind nor a handle: the legacy
+/// alias boxes it, `dyn(Box.new(v))` (decision 49; E0620 once S3 deletes the
+/// alias).
+_dyn_payload_is_plain_value :: (fn(t : &TypeValue) -> bool)(
+  !is_reference_struct_type(t) && !is_dyn_type(t) && cell_handle_view(t).is_none() && !is_unique_box_type(t)
+);
 /// `dyn(&v)` / `dyn(&mut v)` (plans/VALUES_BY_DEFAULT.md decision 49, S1d):
 /// the `&Dyn(...)` / `&mut Dyn(...)` over the lent place `v`, which stays where
 /// it is. Nothing is allocated, boxed or retained: the Dyn is the fat pointer
@@ -1476,7 +1428,54 @@ _record_unsized_dyn_site :: (fn(expr : &AstExpr, written : &AstExpr, value_ty : 
     }
   );
 });
+/// The `Dyn` an expected `Box(Dyn(...))` erases into (decision 49 S2).
+_expected_box_dyn :: (fn(expected : &Option(ExpectedTypeCtx)) -> Option(ExpectedTypeCtx))(
+  match(
+    expected,
+    .Some(et) => match(unique_box_payload_type(&et.ty), .Some(bp) => if(is_dyn_type(&bp), Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t_refine_inner(&bp), env : Rc.clone(et.env))), Option(ExpectedTypeCtx).None), .None => Option(ExpectedTypeCtx).None),
+    .None => Option(ExpectedTypeCtx).None
+  )
+);
+/// `dyn(p)` (plans/VALUES_BY_DEFAULT.md decision 49 S2): the unsizing of a
+/// pointer kind. `dyn(&v)`/`dyn(&mut v)` give `&Dyn(...)`/`&mut Dyn(...)`;
+/// `dyn(Box.new(v))` (and the legacy alias `dyn(v)`, which boxes `v`) gives
+/// `Box(Dyn(...))`, the payload's own block with the vtable beside it. The
+/// `Dyn` is named by the expected type, or by the payload's own bounds.
 evaluate_dyn_value :: (
+  fn(
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &mut EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)({
+  box_et := _expected_box_dyn(&ctx.expected_type);
+  saved_et := if(box_et.is_some(), Option(Option(ExpectedTypeCtx)).Some(replace(&mut ctx.expected_type, box_et)), Option(Option(ExpectedTypeCtx)).None);
+  out := _evaluate_dyn_erasure(expr, env, ctx, exn);
+  match(
+    saved_et,
+    .Some(se) => {
+      ctx.expected_type = se;
+    },
+    .None => ()
+  );
+  // An owning erasure is the `Box(Dyn(...))` of the payload's block.
+  if(unsize_reference_mode(ast_expr_id(&out)).is_none(), {
+    match(
+      expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&out)),
+      .Some(oi) => if(is_dyn_type(&oi.ty()), {
+        match(
+          _create_box_type_via(&String.from("Box"), &t_refine_inner(&oi.ty()), &expr_info_adopt_env(&oi), ctx, exn),
+          .Some(bt) => oi.set_ty(bt),
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
+  });
+  out
+});
+_evaluate_dyn_erasure :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
@@ -1530,7 +1529,6 @@ evaluate_dyn_value :: (
   );
   // `dyn(Box.new(v))` is `dyn(Rc.new(v))` here, the legacy owning Dyn.
   written_arg := value_arg.clone();
-  value_arg = _box_new_as_cell_new(&value_arg, env, _dyn_target_requires_send(&ctx.expected_type, &t_unit()));
   // A fresh cell (`dyn(Rc.new(v))`) is the only handle `dyn` takes: erasing a
   // NAMED shared handle (a variable or a field) in place waits for the
   // `?Sized` prelude.
@@ -1824,14 +1822,12 @@ evaluate_dyn_value :: (
     );
     (ne_final_expr : AstExpr) = inner_ne;
     // A cell handle (`cell_handle_view`) is a box already, as an `Rc` is.
-    if(!is_reference_struct_type(&ne_value_type) && !is_dyn_type(&ne_value_type) && cell_handle_view(&ne_value_type).is_none(), {
-      // The same box the executing path below picks: `Arc` for a Send Dyn.
-      ne_send := _dyn_target_requires_send(&ctx.expected_type, &ne_value_type);
-      ne_cell := shared_cell_canonical_names();
+    if(_dyn_payload_is_plain_value(&ne_value_type), {
+      // The legacy alias (decision 49): a plain `dyn(v)` is `dyn(Box.new(v))`.
       match(
-        _create_box_type_via(if(ne_send, String.from("Arc"), String.from(ne_cell.type_name)), &ne_box_inner_ty, env, ctx, exn),
+        _create_box_type_via(&String.from("Box"), &ne_box_inner_ty, env, ctx, exn),
         .Some(box_ty) => {
-          (ne_box_call, ne_box_recv) := _synthesized_cell_call(&box_ty, if(ne_send, String.from("Arc"), String.from(ne_cell.type_name)), &ne_box_inner_ty, inner_ne, &expr_tok, env, ctx);
+          (ne_box_call, ne_box_recv) := _synthesized_cell_call(&box_ty, &String.from("Box"), &ne_box_inner_ty, inner_ne, &expr_tok, env, ctx);
           saved_bet := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : box_ty, env : Rc.clone(env))));
           // The inner value is evaluated once: as the box call's argument it
           // is pre-evaluated, so a closure's capture moves do not run again
@@ -1918,8 +1914,9 @@ evaluate_dyn_value :: (
   // (issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md).
   (final_value_expr_ex : AstExpr) = eval_inner;
   // A cell handle (`cell_handle_view`) is a box already, as an `Rc` is.
-  if(!is_reference_struct_type(&value_type) && !is_dyn_type(&value_type) && cell_handle_view(&value_type).is_none(), {
-    box_cell_name := if(_dyn_target_requires_send(&ctx.expected_type, &value_type), String.from("Arc"), String.from(shared_cell_canonical_names().type_name));
+  if(_dyn_payload_is_plain_value(&value_type), {
+    // The legacy alias (decision 49): a plain `dyn(v)` is `dyn(Box.new(v))`.
+    box_cell_name := String.from("Box");
     // `Rc(value_type).new(value)` (`Arc` for a Send Dyn), the cell type the
     // generic `rc(value)` this once synthesized bound from its argument. The
     // synthesized nodes take fresh ids, as the non-executing path above mints

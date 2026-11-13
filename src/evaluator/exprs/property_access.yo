@@ -37,7 +37,8 @@ pragma(Pragma.AllowUnsafe);
   unmark_node_preevaluated,
   record_deref_edit_site,
   note_deref_migrated_file,
-  note_dyn_place
+  note_dyn_place,
+  note_dyn_clone_into_witness
 } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env, get_receiver_methods_by_name_from_env, get_pointer_own_methods_by_name_from_env, env_adopt } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, record_module_member_read, sns_module_of, is_dot_callee } :: import("../context.yo");
@@ -70,7 +71,7 @@ pragma(Pragma.AllowUnsafe);
 { get_gadt_variant_args } :: import("../types/gadt_registry.yo");
 { Exception } :: import("std/error");
 { raise_flow_violation } :: import("../../types/flowability.yo");
-{ find_methods_from_generic_impls, MethodCandidate, get_base_trait_key }
+{ find_methods_from_generic_impls, MethodCandidate, get_base_trait_key, _substitute_self_in_method_ty }
 :: import("../values/impl.yo");
 { get_type_trait_methods_by_name, type_id_or_empty, get_assoc_type_entries }
 :: import("../values/type_trait_methods.yo");
@@ -1899,10 +1900,30 @@ Raw pointer operations may dereference invalid memory.`
         _ => ArrayList(TypeValue).new()
       );
       fidx_tt := find_first_field_index(&tt_labels, prop_name_tt.clone());
+      // `(T <: CloneInto).clone_into` at `T = Dyn(..., Clone)` (decision 49
+      // S2): the vtable's `clone_into` slot, with `Self` the `Dyn`.
+      dyn_ci_recv := match(
+        &type_val_inner,
+        Rc(.TraitT(ci_tn, _, _, .Some(ci_recv), _, _)) => if((ci_tn == "CloneInto") && (prop_name_tt == "clone_into") && is_dyn_type(&ci_recv), Option(TypeValue).Some(Rc.clone(ci_recv)), Option(TypeValue).None),
+        _ => Option(TypeValue).None
+      );
       match(
         fidx_tt,
         .Some(fi_tt) => {
           ft_tt := match(tt_types.get_cloned(fi_tt), .Some(t) => t, .None => t_unit());
+          match(
+            dyn_ci_recv,
+            .Some(ci_dyn) => {
+              ci_ft := _substitute_self_in_method_ty(&ft_tt, &ci_dyn);
+              out_ci := new_expr_info(&env, &ci_ft);
+              out_ci.set_is_accessing_property(Option(bool).Some(true));
+              note_dyn_clone_into_witness(ast_expr_id(expr));
+              expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_ci);
+              expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_ci);
+              return(expr);
+            },
+            .None => ()
+          );
           out_tt := new_expr_info(&env, &ft_tt);
           out_tt.set_value(Option(EvalValue).Some(create_unknown_val(&ft_tt)));
           out_tt.set_is_accessing_property(Option(bool).Some(true));

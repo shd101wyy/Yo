@@ -7,7 +7,7 @@
 { EvalValue } :: import("../../value.yo");
 { ExprInfo, scope_variables } :: import("../../expr_info.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
-{ get_type_string, pointer_c_type_string, c_field_name } :: import("../utils/index.yo");
+{ get_type_string, pointer_c_type_string, c_field_name, unsized_place_fat_code } :: import("../utils/index.yo");
 { _call_generate_expr, call_projection_mode } :: import("./_expr.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 /// `sizeof(<arg>)` — the C sizeof operator on the argument.
@@ -184,7 +184,7 @@ generate_unsized_builtin :: (fn(expr : &AstExpr, indent : &String, context : &mu
       match(
         t_refine_inner(&pointee),
         // A `Dyn`'s size and alignment are its vtable's (decision 49).
-        Rc(.DynT({})) => `((${_call_generate_expr(&ast_expr_strip_borrow_marker(&arg0), indent.clone(), context)}).vtable->${if(is_size, "__yo_size", "__yo_align")})`,
+        Rc(.DynT({})) => `((${unsized_place_fat_code(&_call_generate_expr(&ast_expr_strip_borrow_marker(&arg0), indent.clone(), context))}).vtable->${if(is_size, "__yo_size", "__yo_align")})`,
         Rc(.SliceT(sv_e)) => {
           et := get_type_string(&sv_e, &mut context.base);
           if(is_size, `((${_pointer_arg_code(&arg0, indent, context)}).len * ${_c_elem_size(&et)})`, if(et == "void", String.from("((size_t)1)"), `_Alignof(${et})`))
@@ -231,4 +231,4 @@ generate_unsized_builtin :: (fn(expr : &AstExpr, indent : &String, context : &mu
     true => codegen_fatal_expr(String.from("an unknown unsized builtin reached codegen"))
   )
 });
-export(generate_sizeof, generate_alignof, generate_unsized_builtin, _pointer_arg_code);
+export(generate_sizeof, generate_alignof, generate_unsized_builtin, _pointer_arg_code, _arg_is_reference_binding);

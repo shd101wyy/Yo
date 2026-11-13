@@ -929,9 +929,10 @@ type_is_escapable :: (fn(ty : &TypeValue) -> bool)(!type_carries_origin(ty) && !
 /// unsized ones, which live only behind a pointer. Derived structurally, as
 /// `Escapable` is, and never implemented by hand. Unsized: `[T]`, an open
 /// type variable declared `?Sized`, and a value struct or newtype whose LAST
-/// field is unsized (a tail struct). `Dyn(...)` and `str` are sized here
-/// while `unsized_legacy_spellings` holds (S1): a value `Dyn(...)` and a
-/// value `str` are still the legacy fat values; S2 moves them onto pointers.
+/// field is unsized (a tail struct), and `Dyn(...)` (decision 49 S2: a `Dyn`
+/// lives behind a pointer, `Box(Dyn(T))`, `&Dyn(T)`, `Rc(Dyn(T))`). `str` is
+/// sized here while `unsized_legacy_spellings` holds: a value `str` is still
+/// the legacy view.
 type_is_sized :: (fn(ty : &TypeValue) -> bool)(_type_is_sized_d(ty, u32(0)));
 /// One of `bounds` is the prelude's `Sized` marker.
 _bounds_name_sized :: (fn(bounds : &ArrayList(TypeValue)) -> bool)({
@@ -949,6 +950,7 @@ _type_is_sized_d :: (fn(ty : &TypeValue, depth : u32) -> bool)(
     true => match(
       t_refine_inner(ty),
       Rc(.SliceT(_)) => false,
+      Rc(.DynT(_, _, _, _)) => false,
       // A `?Sized` variable is unsized unless a `where(T <: Sized)` bound
       // re-tightens it (one method of a `?Sized` impl).
       Rc(.SomeT({ parent_type : st_kind, bounds : st_bounds, resolution : st_res })) => match(

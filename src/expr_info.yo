@@ -2893,6 +2893,17 @@ note_dyn_place :: (fn(id : usize) -> unit)({
 is_dyn_place :: (fn(id : usize) -> bool)(
   if(g_dyn_places.with(_vh_unsize_modes_len) == usize(0), false, g_dyn_places.with({ id }(m) => m.get(&id)).is_some())
 );
+/// The `(T <: CloneInto).clone_into` witness nodes evaluated at a `Dyn`
+/// receiver (decision 49 S2): a `Dyn` whose list names `Clone` implements
+/// `CloneInto` through its vtable's `clone_into` slot, so the call lowers to
+/// that slot and names no impl.
+(g_dyn_clone_into_witnesses : RefCell(HashMap(usize, bool))) = RefCell(HashMap(usize, bool)).new(HashMap(usize, bool).new());
+note_dyn_clone_into_witness :: (fn(id : usize) -> unit)({
+  _m := g_dyn_clone_into_witnesses.with_mut({ id }(m) => m.insert(id, true));
+});
+is_dyn_clone_into_witness :: (fn(id : usize) -> bool)(
+  if(g_dyn_clone_into_witnesses.with(_vh_unsize_modes_len) == usize(0), false, g_dyn_clone_into_witnesses.with({ id }(m) => m.get(&id)).is_some())
+);
 /// The constructor funcId stamped for `struct_id`, if any.
 lookup_struct_ctor_fid :: (fn(struct_id : &String) -> Option(String))(
   g_struct_ctor_fids.with({ &struct_id }(m) => m.get_cloned(struct_id))
@@ -3306,6 +3317,8 @@ export(
   downcast_reference_mode,
   note_dyn_place,
   is_dyn_place,
+  note_dyn_clone_into_witness,
+  is_dyn_clone_into_witness,
   note_dyn_lend,
   is_dyn_lend,
   unsize_reference_mode,

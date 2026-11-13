@@ -25,7 +25,7 @@
 { Environment } :: import("../../env.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ sanitize_for_c_identifier, c_field_name, c_variant_member_name, get_variable_name_for_codegen, get_enum_variant_c_name, can_optimize_as_nullable_pointer, type_key, extern_c_global_matches, get_variable_name_for_codegen_at, get_type_string, box_payload_place_code } :: import("../utils/index.yo");
+{ sanitize_for_c_identifier, c_field_name, c_variant_member_name, get_variable_name_for_codegen, get_enum_variant_c_name, can_optimize_as_nullable_pointer, type_key, extern_c_global_matches, get_variable_name_for_codegen_at, get_type_string, box_payload_place_code, unsized_place_fat_code } :: import("../utils/index.yo");
 { generate_comptime_value } :: import("./comptime_value.yo");
 { lookup_io_builtin_struct_field, expr_info_deferred_dup_expressions, is_call_scoped_share_dup } :: import("../../expr_info.yo");
 { emit_deferred_dup_or_code } :: import("./drop_dup.yo");
@@ -372,7 +372,7 @@ _generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &
   // Only a vtable SLOT: a blanket inherent method has none (see the call
   // site in other_fn_call.yo) and takes the static path below.
   if(is_dyn_type(&object_type) && dyn_type_has_vtable_slot(&object_type, field_name.clone()), {
-    out := object_code.clone();
+    out := unsized_place_fat_code(&object_code);
     out.push_str(".vtable->");
     out.push_string(sanitize_for_c_identifier(&field_name, false));
     return(out);
@@ -507,7 +507,7 @@ _generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &
     is_pointer_type(&object_type) => _ptr_field_access(&object_type, &object_code, &field_name),
     is_tuple_type(&object_type) => _tuple_field_access(&object_type, &object_code, &field_name),
     is_dyn_type(&object_type) => {
-      out := object_code.clone();
+      out := unsized_place_fat_code(&object_code);
       out.push_str(".vtable->");
       out.push_string(sanitize_for_c_identifier(&field_name, false));
       out

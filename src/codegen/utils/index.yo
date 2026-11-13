@@ -39,7 +39,9 @@
   can_optimize_as_nullable_pointer,
   is_some_type,
   get_adopted_extern_c_type,
-  is_atomic_counted_handle_type
+  is_atomic_counted_handle_type,
+  is_dyn_type,
+  unique_box_payload_type
 } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { fn_abi_param_is_ptr, type_is_sized } :: import("../../types/utils.yo");
@@ -1726,12 +1728,15 @@ pointer_c_type_string :: (fn(pointee : &TypeValue, context : &mut CodeGenContext
   match(
     t_refine_inner(pointee),
     Rc(.SliceT(_)) => String.from("__yo_slice_t"),
+    // A pointer to a `Dyn` is its registered fat struct `{ data, vtable }`
+    // (decision 49 S2); the data word is the payload's address.
+    Rc(.DynT({})) => get_type_string(pointee, context),
     // A specialized type variable is its resolution (`r : &T` at `T = [E]`):
     // fat when the resolution is unsized, `T*` (spelled through the variable,
     // as `get_type_string` resolves it) otherwise.
     (pc_v := Rc(.SomeT({ id : _ }))) => match(
       _some_resolution_chain(&pc_v),
-      .Some(pc_r) => if(!type_is_sized(&pc_r), String.from("__yo_slice_t"), {
+      .Some(pc_r) => if(!type_is_sized(&pc_r), pointer_c_type_string(&pc_r, context), {
         mut(rbase) := get_type_string(pointee, context);
         rbase.push_str("*");
         rbase
@@ -2612,6 +2617,12 @@ dyn_slot_result_abi_string :: (fn(ft : &TypeValue, context : &mut CodeGenContext
   rp := match(ft, Rc(.FnTraitT({ call_result : dsr_cr })) => t_slot_pointee(&dsr_cr), _ => fn_result_pointee(ft));
   if(fn_result_is_ref(ft), pointer_c_type_string(&rp, context), get_type_string(&rp, context))
 });
+/// The fat pointer `F` of an unsized place whose C code is `code`
+/// (decision 49): a place reached through a pointer is spelled `(*F)`, and a
+/// reference binding's read (`r.*` on `r : &Dyn(T)`) is `F` itself.
+unsized_place_fat_code :: (fn(code : &String) -> String)(
+  if(code.starts_with("(*") && code.ends_with(")"), code.substring(usize(2), code.len() - usize(1)), code.clone())
+);
 /// The payload place of a unique `Box`, given the C code of its handle.
 /// `Box(T) :: newtype(_cell : *T)` is C-transparent, and bit 0 of the cell
 /// pointer is the handle's "placed" bit (`Box`'s layout L1,
@@ -2620,8 +2631,22 @@ dyn_slot_result_abi_string :: (fn(ft : &TypeValue, context : &mut CodeGenContext
 /// with that bit cleared. Every projection of the payload (`b.*`, `b.field`,
 /// `&b.*`, `addr_of(b.*)`, a `Box` pattern) masks it once; a place that takes
 /// the address back strips the outer `(*…)` and keeps the masked pointer.
+///
+/// At an unsized payload (`Box(Dyn(T))`, `Box([T])`, decision 49 S2) the
+/// handle is the fat pointer and the placed bit sits in its address word:
+/// the place is `(*F)` over the fat pointer with that word masked.
 box_payload_place_code :: (fn(box_ty : &TypeValue, cell_code : &String, context : &mut CodeGenContext) -> String)(
-  `(*((${get_type_string(box_ty, context)})((uintptr_t)(${cell_code.clone()}) & ~(uintptr_t)1)))`
+  match(
+    unique_box_payload_type(box_ty),
+    .Some(bp) => if(type_is_sized(&bp), `(*((${get_type_string(box_ty, context)})((uintptr_t)(${cell_code.clone()}) & ~(uintptr_t)1)))`, {
+      fat_c := pointer_c_type_string(&bp, context);
+      cond(
+        is_dyn_type(&bp) => `(*((${fat_c}){ .data = (void*)((uintptr_t)(${cell_code.clone()}).data & ~(uintptr_t)1), .vtable = (${cell_code.clone()}).vtable }))`,
+        true => `(*((${fat_c}){ .ptr = (void*)((uintptr_t)(${cell_code.clone()}).ptr & ~(uintptr_t)1), .len = (${cell_code.clone()}).len }))`
+      )
+    }),
+    .None => `(*((${get_type_string(box_ty, context)})((uintptr_t)(${cell_code.clone()}) & ~(uintptr_t)1)))`
+  )
 );
 /// [`#line` directives, plans/reference/LINE_DIRECTIVES.md] The statement
 /// flush point helper: attribute the C about to be emitted for `expr` to the
@@ -2663,6 +2688,7 @@ export(
   type_key,
   get_type_string,
   box_payload_place_code,
+  unsized_place_fat_code,
   pointer_c_type_string,
   is_unsized_pointee,
   erased_future_result_type_string,

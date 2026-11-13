@@ -41,7 +41,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
 { TypeValue, TypeValueNode, no_types, t_refine_inner, t_reference } :: import("../../types/definitions.yo");
-{ is_dyn_type, is_reference_struct_type } :: import("../../types/guards.yo");
+{ is_dyn_type, is_reference_struct_type, unique_box_payload_type } :: import("../../types/guards.yo");
 { projection_call_mode_of, variable_is_reference_binding } :: import("../utils.yo");
 { _eval_builtin_args } :: import("./sizeof.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -103,6 +103,17 @@ evaluate_downcast :: (
     Rc(.Reference(dr_p, dr_m, _)) => if(is_dyn_type(&dr_p), {
       ref_mode = Option(bool).Some(dr_m);
       dyn_type = Rc.clone(&dr_p);
+    }, {
+      // A reference to an owning `Box(Dyn(...))` (decision 49 S2): the view of
+      // its payload, as through `&b.*` (`downcast(&err, V)`, `err : &AnyError`).
+      match(
+        unique_box_payload_type(&dr_p),
+        .Some(hp) => if(is_dyn_type(&hp), {
+          ref_mode = Option(bool).Some(dr_m);
+          dyn_type = t_refine_inner(&hp);
+        }),
+        .None => ()
+      );
     }),
     _ => if(is_dyn_type(&dyn_type), {
       ref_mode = match(

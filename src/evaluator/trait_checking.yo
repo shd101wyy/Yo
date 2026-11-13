@@ -78,7 +78,8 @@ pragma(Pragma.AllowUnsafe);
   is_drop_trait_name,
   buffer_element_types,
   type_is_escapable,
-  type_is_sized
+  type_is_sized,
+  dyn_type_lists_clone
 } :: import("../types/utils.yo");
 { type_to_string, type_key_epoch } :: import("../types/string.yo");
 { force_pending_impls_for_type_name, type_head_name_for_impl_forcing, EvalContext, call_function_value_marker, call_closure_capture_marker, set_copy_trait_blockers_fn } :: import("./context.yo");
@@ -2095,6 +2096,12 @@ type_implements_trait :: (
   match(
     &target,
     Rc(.DynT(required_trait_types, _, negative_trait_types, _)) => {
+      // A `Dyn` whose list names `Clone` implements `CloneInto` through its
+      // vtable's `clone_into` slot (decision 49 S2): `Box(Dyn(T, Clone))` is
+      // `Clone` by the prelude's one `CloneInto` impl.
+      if(match(trait_type, Rc(.TraitT({ name : ci_name })) => (ci_name == "CloneInto"), _ => false) && dyn_type_lists_clone(&target), {
+        return(TraitCheckResult(implemented : true, env : Rc.clone(env)));
+      });
       n := required_trait_types.len();
       (i : usize) = usize(0);
       while(i < n, {
@@ -2753,6 +2760,8 @@ extract_fn_trait_from_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
   match(
     ty,
     Rc(.FnTraitT(base_name : _)) => Option(TypeValue).Some(Rc.clone(ty)),
+    // A `Box(Dyn(Fn(...)))` is called through its payload (decision 49 S2).
+    (eb_ty := Rc(.Struct({ id : _ }))) => match(unique_box_payload_type(&eb_ty), .Some(eb_p) => if(is_dyn_type(&eb_p), extract_fn_trait_from_type(&eb_p), Option(TypeValue).None), .None => Option(TypeValue).None),
     Rc(.SomeT(_, _, _, _, _, _, _)) => {
       // Walk the SomeT and its `resolution` chain: a where-clause `F`
       // whose Fn bound was
