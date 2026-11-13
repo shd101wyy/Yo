@@ -153,9 +153,9 @@ pragma(Pragma.AllowUnsafe);
 { create_function_body_evaluation_context, hard_swallow_diagnostic, hard_swallow_diagnostic_in_generic_trial, forcing_depths, truncate_forcing_depths, publish_pending_member_phase_a, closure_literal_is_borrowed } :: import("../context.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep, type_requires_explicit_copy, type_is_bitwise_copy, mark_fnmut_capture_struct } :: import("../../types/utils.yo");
-{ attach_temp_variable_to_expr, local_borrow_place_of, BorrowCaptureOuter, note_borrow_capture_outer, apply_capture_store_joins, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording, reject_reference_without_deref, is_reference_deref_site, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, projection_body_mismatch_message, reject_closure_literal_into_dyn_fn, place_require_mut, audit_copy_trait_enabled } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, local_borrow_place_of, access_expr, LocalBorrowAccess, set_closure_writes_captures, BorrowCaptureOuter, note_borrow_capture_outer, apply_capture_store_joins, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording, reject_reference_without_deref, is_reference_deref_site, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, projection_body_mismatch_message, reject_closure_literal_into_dyn_fn, place_require_mut, audit_copy_trait_enabled } :: import("../utils.yo");
 { CaptureBorrow, register_capture_borrows, type_is_second_class, fn_param_is_ptr_borrow, reject_origin_carrying_signature } :: import("../../types/utils.yo");
-{ OriginRootPlace, origin_of, variable_holder_roots, binder_read_mark, binder_read_clear, reference_binding_read_type, variable_is_mut_borrow, note_reference_read } :: import("../utils.yo");
+{ OriginRootPlace, origin_of, variable_holder_roots, reference_binding_referents, binder_read_mark, binder_read_clear, reference_binding_read_type, variable_is_mut_borrow, note_reference_read } :: import("../utils.yo");
 { type_carries_origin } :: import("../../types/utils.yo");
 { with_code } :: import("../../error.yo");
 { E_USE_OF_MOVED_VALUE } :: import("../../diagnostics.yo");
@@ -1100,6 +1100,55 @@ _evaluate_capture_list :: (
           _cap_list_error(ctx, exn, ast_expr_token(&place_e), `A \`&mut\` capture needs a writable place, and \`${ast_expr_to_string(&place_e)}\` is not: \`${root_tok.value.*}\` is a read-only binding (a by-value parameter, a \`match\`/\`for\` binding or a \`&\` borrow). Borrow it read-only with \`${label} : &${ast_expr_to_string(&place_e)}\`, or take the parameter \`${root_tok.value.*} : &mut T\`.`);
         });
       });
+      // The entry is R-LEND of its place, taken when the literal is
+      // evaluated: an access in the entry's mode against every live loan
+      // (audit A33: a `&mut` entry beside a live `&` loan is E0911, beside a
+      // live closure's capture borrow E0910).
+      access_expr(&ev_place, if(is_mut, LocalBorrowAccess.Exclusive, LocalBorrowAccess.Read), ast_expr_token(&place_e), env, ctx, exn);
+      // A reborrow through a reference binding (`{ y : &s.* }`, R-DEREF):
+      // the closure borrows the places `s` refers to, `origin_of(s)`, beside
+      // `s` itself, so a write of what `s` borrows while the closure lives
+      // conflicts with it as `{ y : &x }` does (audit A20).
+      (reborrow_borrows : ArrayList(CaptureBorrow)) = ArrayList(CaptureBorrow).new();
+      (is_reborrow : bool) = (cap_root_is_reference && !deref_rule_recording());
+      if(is_reborrow, {
+        reborrow_borrows.push(
+          CaptureBorrow(
+            label : label.clone(),
+            is_mut : is_mut,
+            root_id : root_var.id(),
+            root_name : root_tok.value.*.clone(),
+            path : fields.clone(),
+            root_is_value_param : root_var.is_imm_borrow(),
+            through_value : false,
+            assumed : false,
+            site : `${name_tok.module_path.*}:${(name_tok.row + u32(1)).to_string()}:${(name_tok.column + u32(1)).to_string()}`
+          )
+        );
+        {
+          through := ArrayList(CaptureBorrow).new();
+          _capture_origin_borrows(&label, &reference_binding_referents(&root_var, env, ctx), &name_tok, env, &mut through);
+          (ti : usize) = usize(0);
+          while(ti < through.len(), ti = (ti + usize(1)), {
+            tb := through(ti).clone();
+            // The reborrow's mode bounds the entry's: `&s.*` of a `&mut`
+            // binding borrows the referent shared.
+            reborrow_borrows.push(
+              CaptureBorrow(
+                label : tb.label.clone(),
+                is_mut : (tb.is_mut && is_mut),
+                root_id : tb.root_id,
+                root_name : tb.root_name.clone(),
+                path : tb.path.clone(),
+                root_is_value_param : tb.root_is_value_param,
+                through_value : tb.through_value,
+                assumed : tb.assumed,
+                site : tb.site.clone()
+              )
+            );
+          });
+        };
+      });
       cap_label_text := label.clone();
       out.push(
         _CapListEntry(
@@ -1118,8 +1167,8 @@ _evaluate_capture_list :: (
             .Some(op) => Option(BorrowCaptureOuter).Some(BorrowCaptureOuter(outer : root_var.clone(), text : `${cap_label_text} : ${if(is_mut, String.from("&mut "), String.from("&"))}${op.text}`, place : op, is_mut : is_mut)),
             .None => Option(BorrowCaptureOuter).None
           ),
-          origin_borrows : ArrayList(CaptureBorrow).new(),
-          uses_origin_borrows : false
+          origin_borrows : reborrow_borrows,
+          uses_origin_borrows : is_reborrow
         )
       );
     }, if(ref_copy_var.is_some(), {
@@ -2128,6 +2177,10 @@ evaluate_anonymous_function_implementation :: (
   // generations (see function_value.yo g_closure_fid_source).
   if(is_creating_closure, {
     register_closure_fid_source(func_id.clone(), `${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`);
+    // Audit A46: the body may write an implicit capture only when the
+    // closure owns its record (not a literal lent to a borrowing parameter)
+    // and its call takes the record exclusively or consumes it.
+    set_closure_writes_captures(&func_id, ((expected_fn_base == "FnMut") || (expected_fn_base == "FnOnce")) && !closure_literal_is_borrowed(expr));
   });
   // Clone taken BEFORE `body_expr` below moves the body into the
   // FuncVal; the definition-time body evaluation further down needs it.

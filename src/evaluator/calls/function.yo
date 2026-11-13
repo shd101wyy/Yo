@@ -83,7 +83,7 @@ pragma(Pragma.AllowUnsafe);
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
 { type_key } :: import("../../types/type_key.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_place_of, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, variable_is_reference_binding, variable_is_mut_borrow, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, local_borrow_write_expr, origin_of, bind_join_roots_for, origin_param_names_of, param_declared_origin_slot, is_rigid_origin_name, origin_name_phrase, OriginRootPlace, check_capture_freeze_access, reference_field_read_mode, deref_operand_is_raw_pointer, local_borrow_place_text, FutureRoot, note_future_roots, future_roots_of, holder_future_roots, is_reference_read, n2b_roots_text, deref_rule_applies, is_reference_deref_site, note_binder_value_read, forget_binder_value_read, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, fn_value_definition, type_var_ids_of, deref_chain_atom, reference_reborrow_chain, call_activation_token, projection_call_root_args, ProjectionRootArg } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_place_of, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, variable_is_reference_binding, variable_is_mut_borrow, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, local_borrow_write_expr, origin_of, bind_join_roots_for, origin_param_names_of, param_declared_origin_slot, is_rigid_origin_name, origin_name_phrase, OriginRootPlace, check_capture_freeze_access, reference_field_read_mode, deref_operand_is_raw_pointer, local_borrow_place_text, FutureRoot, note_future_roots, future_roots_of, holder_future_roots, is_reference_read, n2b_roots_text, deref_rule_applies, deref_rule_recording, is_reference_deref_site, note_binder_value_read, forget_binder_value_read, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, fn_value_definition, type_var_ids_of, deref_chain_atom, reference_reborrow_chain, call_activation_token, projection_call_root_args, ProjectionRootArg } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -8870,6 +8870,88 @@ _evaluate_funcval_runtime_call :: (
   });
   expr
 });
+/// The reference binding a bare operand `e` names, where the deref rule judges
+/// it (a written `r`, not `r.*`).
+_operand_reference_binding :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(Variable))({
+  if(!ast_expr_is_atom(e), {
+    return(.None);
+  });
+  e_tok := ast_expr_token(e);
+  match(
+    get_variables_from_env(env, &e_tok.value.*).last_cloned(),
+    .Some(v) => if(variable_is_reference_binding(&v) && deref_rule_applies(&e_tok, ctx) && !deref_rule_recording() && !is_reference_deref_site(&e_tok), Option(Variable).Some(v), Option(Variable).None),
+    .None => Option(Variable).None
+  )
+});
+/// An infix operator whose left operand is a reference binding `r : &T`
+/// (P3b gap 1, VERDICTS-49): the operand takes part in trait selection with
+/// its reference type, so `ra == rb` is `Eq(&T)` (Rust's
+/// `impl PartialEq<&B> for &A`), never an auto-deref. An impl over `&T` is
+/// selected when its operator autorefs both operands into `&&T` slots
+/// (`lhs : &Self`, `rhs : &Rhs` at `Self = &T`): those are filled by the
+/// bindings' OWN storage (P3's self place, forced as at a `&&T` receiver),
+/// so the right operand must be a reference binding too. Returns whether
+/// the lends were noted; otherwise the left operand stays a whole-value read
+/// (E0926 kind 0). An impl whose slot is the `&T` itself (`lhs : Self`) is
+/// not selected here
+/// (issues/2026-11-13-an-operator-impl-over-a-reference-with-by-value-operands-is-not-selected-for-reference-bindings.md).
+_operator_reference_operand :: (
+  fn(op_name : &String, args : &ArrayList(AstExpr), env : &Environment, ctx : &mut EvalContext) -> bool
+)({
+  if(args.len() != usize(2), {
+    return(false);
+  });
+  lhs := match(args.get(usize(0)), .Some(a) => a, .None => return(false));
+  rhs := match(args.get(usize(1)), .Some(a) => a, .None => return(false));
+  lhs_v := match(_operand_reference_binding(&lhs, env, ctx), .Some(v) => v, .None => return(false));
+  lhs_ty := variable_slot_type(&lhs_v);
+  if(!t_slot_is_borrow(&lhs_ty), {
+    return(false);
+  });
+  // The lookup on `&T` runs only where a reference impl can answer it, as
+  // R-PROBE's does (VERDICTS-50 invariant I); a pending one is forced first.
+  head := type_head_name_for_impl_forcing(&t_slot_pointee(&lhs_ty));
+  if(reference_impl_head_noted(&head), {
+    match(
+      force_pending_impls_for_type_name(&head, Option(String).Some(op_name.clone())),
+      .Error({ msg : orf_msg }) => flag_pending_impl_force_error(&orf_msg),
+      _ => ()
+    );
+  });
+  if(!reference_impl_method_noted(&head, op_name) && !reference_blanket_method_noted(op_name), {
+    return(false);
+  });
+  (cands : ArrayList(MethodEntry)) = get_receiver_methods_by_name_from_env(env, op_name.clone(), &lhs_ty, true);
+  if(cands.len() == usize(0), {
+    return(false);
+  });
+  // Only a reference binding has storage of its own to lend to a `&&T` slot.
+  rhs_v := match(_operand_reference_binding(&rhs, env, ctx), .Some(v) => v, .None => return(false));
+  rhs_ty := variable_slot_type(&rhs_v);
+  (ci : usize) = usize(0);
+  while(ci < cands.len(), ci = (ci + usize(1)), {
+    c_slots := match(cands.get(ci), .Some(c) => fn_param_slots(&c.ty), .None => return(false));
+    match(
+      (c_slots.get(usize(0)), c_slots.get(usize(1))),
+      (.Some(lhs_slot), .Some(rhs_slot)) => {
+        rhs_pointee := t_slot_pointee(&rhs_slot);
+        lends := (t_slot_is_borrow(&lhs_slot) && t_slot_is_borrow(&t_slot_pointee(&lhs_slot)) && t_slot_is_borrow(&rhs_slot) && (is_some_type(&rhs_pointee) || (t_slot_is_borrow(&rhs_pointee) && are_types_compatible(&rhs_ty, &rhs_pointee))));
+        if(lends, {
+          // The slot's mode is the lend's: a `&mut &T` lend needs a local
+          // `&mut` reference's own storage, which the identifier evaluator
+          // judges.
+          note_self_lend_operand(ast_expr_id(&lhs), t_slot_is_mut_ref(&lhs_slot));
+          note_self_lend_forced(ast_expr_id(&lhs));
+          note_self_lend_operand(ast_expr_id(&rhs), t_slot_is_mut_ref(&rhs_slot));
+          note_self_lend_forced(ast_expr_id(&rhs));
+          return(true);
+        });
+      },
+      _ => ()
+    );
+  });
+  false
+});
 /// Evaluate an operator's 2nd operand under a capture-free swallow `Exception`
 /// to read its type for overload selection, WITHOUT aborting the caller on
 /// failure. The selection eval clears the expected type to read the operand's
@@ -10608,6 +10690,10 @@ _evaluate_function_call_unanchored :: (
   op_is_operator := string_is_operator(op_name.clone());
   if(is_infix_call && op_is_operator && (args.len() >= usize(1)), {
     first_arg := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+    // A reference binding operand selects with its reference type when an
+    // impl over `&T` takes the operands (P3b gap 1, VERDICTS-49): its read is
+    // then the binding's own storage, not E0926.
+    _ref_operand := _operator_reference_operand(&op_name, &args, env, ctx);
     // Evaluate the first operand with `expected_type` cleared — the
     // operand type must come from the operand itself, not from the
     // bool/etc. type the outer context expects of the operator result.

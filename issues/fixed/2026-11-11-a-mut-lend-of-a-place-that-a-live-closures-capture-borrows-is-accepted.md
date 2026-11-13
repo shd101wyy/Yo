@@ -83,3 +83,24 @@ With the fix: the three negative programs and the positive control move to `test
 `closure-ref-capture-then-mut-lend` (E0910) and `closure-ref-capture-then-mut-receiver` (E0910) in
 `tests/origins/corpus.tsv`; `tests/closure_capture_list.test.yo` gains the `reset(&mut h)` and second-closure cases
 beside its direct-write E0910 test.
+
+## Fix
+
+The cluster-2 fix (audit §9: "an access reaches the loan table weaker than its mode, or not at all") adds one
+helper, `access_place` / `access_variable` / `access_move` (`src/evaluator/utils.yo`): an access of a place in the
+mode the operation declares (read, write, move, `&mut` lend) checked against every loan table the checker holds — the
+local borrows and flow sets (E0911, `local_borrow_access`) and the closures' capture borrows (E0910,
+`capture_freeze_access`, which now takes the access kind and compares the capture's field path with the accessed
+place's).
+
+Every `&mut` lend now reaches the capture borrows: a local `w := &mut h` and a `&mut` projection result
+(`exprs/initialization_assignment.yo`), a `match(&mut s, …)` scrutinee (`exprs/match.yo`), a `&mut` tuple element
+(`values/tuple.yo`) and struct field (`calls/type.yo`) call `access_place(…, Exclusive)`; a capture-list `&mut` entry
+calls `access_expr`; a `&mut` argument, a `&mut self` receiver and the by-value `&mut` lend of `for(&mut xs, …)` carry
+the conflict in their pending entry (`D3PendingInout.cap_conflict`, `exprs/assignment.yo`), judged at the call whatever
+the callee's body does (the declared mode; the local-borrow half of that rule for summarized callees is still
+`issues/2026-11-12-a-mut-argument-to-a-callee-that-neither-writes-nor-lends-it-is-a-read.md`).
+
+Tests: `tests/origins/unsound/c2-ref-capture-then-mut-arg.yo`, `-local-mut.yo`, `-mut-capture.yo`, `-mut-receiver.yo`,
+`-mut-scrutinee.yo`, `-mut-walk.yo` (E0910), `c2-ref-capture-then-mut-arg-pos.yo`, `-mut-receiver-pos.yo` (accept, ASan
+clean); `tests/closure_capture_list.test.yo` "a `&mut` lend of a place a live closure's `&` capture borrows is E0910".

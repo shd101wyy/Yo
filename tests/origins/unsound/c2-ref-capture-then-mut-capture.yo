@@ -1,0 +1,16 @@
+// expect: E0910
+// The same lend through a second closure's capture-list entry `{ m : &mut h }` while the first
+// closure's `&h.*.a` capture is live.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+S :: struct(a : String);
+main :: (fn() -> unit)({
+  mut(h) := Rc.new(S(a : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+  (g : Impl(Fn() -> usize)) = ({ t : &h.*.a }() => t.clone().len());
+  (mut(c) : Impl(FnMut() -> unit)) = ({ m : &mut h }() => {
+    m.* = Rc.new(S(a : String.from("z")));
+  });
+  c();
+  println(`OUT: ${g().to_string()}`);
+});
+export(main);
