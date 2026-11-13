@@ -140,7 +140,7 @@ _sz_hash :: (fn(s : &[i32]) -> u64)({
   s.hash(&mut h);
   h.finish()
 });
-_sz_eq :: (fn(a : &[i32], b : &[i32]) -> bool)(Eq([i32]).(==)(a, b));
+_sz_eq :: (fn(a : &[i32], b : &[i32]) -> bool)(a.* == b.*);
 test("the slice's own impls: len, is_empty, contains, Eq, Hash", {
   a := Array(i32, 3)(1, 2, 3);
   b := Array(i32, 3)(1, 2, 3);
@@ -156,4 +156,26 @@ test("the slice's own impls: len, is_empty, contains, Eq, Hash", {
   assert(!_sz_eq(unsize(&a), unsize(&c)), "a different length is unequal");
   assert(_sz_hash(unsize(&a)) == _sz_hash(unsize(&b)), "equal slices hash alike");
   assert(_sz_hash(unsize(&a)) != _sz_hash(unsize(&c)), "the length is hashed");
+});
+
+mut(_SZ_CLONED) := i32(0);
+_SzCl :: struct(n : i32);
+impl(
+  _SzCl,
+  Clone(
+    clone : (fn(self : &Self) -> Self)({
+      _SZ_CLONED = (_SZ_CLONED + i32(1));
+      _SzCl(n : self.n)
+    })
+  )
+);
+test("CloneInto clones each element of a slice into an uninitialized run", {
+  a := Array(_SzCl, 3)(_SzCl(n : i32(4)), _SzCl(n : i32(5)), _SzCl(n : i32(6)));
+  mut(b) := Array(_SzCl, 3)(_SzCl(n : i32(0)), _SzCl(n : i32(0)), _SzCl(n : i32(0)));
+  before := _SZ_CLONED;
+  dst := unsafe(__yo_slice_from_raw_parts(addr_of(b(usize(0))), usize(3)));
+  // The run is overwritten without a drop: its old elements own nothing.
+  ([_SzCl] <: CloneInto).clone_into(unsize(&a), dst);
+  assert(_SZ_CLONED == (before + i32(3)), "one clone per element");
+  assert(((b(usize(0)).n + b(usize(1)).n) + b(usize(2)).n) == i32(15), "the clones landed in order");
 });

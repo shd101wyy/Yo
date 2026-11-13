@@ -1,0 +1,10 @@
+{ assert } :: import("std/assert");
+W :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T));
+impl(generic(T : Type), where(T <: Eq(T)), W(T), Eq(W(T))((==) : (fn(lhs : &Self, rhs : &W(T)) -> bool)(lhs.v == rhs.v)));
+_e :: (fn(a : &W(i32), b : &W(i32)) -> bool)(Eq(W(i32)).(==)(a, b));
+main :: (fn() -> unit)({
+  x := W(i32)(v : i32(1));
+  y := W(i32)(v : i32(1));
+  assert(_e(&x, &y), "eq");
+});
+export(main);
