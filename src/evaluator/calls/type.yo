@@ -53,7 +53,7 @@ pragma(Pragma.AllowUnsafe);
 { is_std_module_path } :: import("../memory_safety.yo");
 { EvalValue, value_to_string } :: import("../../value.yo");
 { TypeField } :: import("../types/field.yo");
-{ set_expr_as_needs_to_call_dup, reject_second_class_escape, reject_bare_callable_into_dyn_fn, is_reference_read, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref, lend_place_reference_type, deref_rule_recording, local_borrows_active, local_borrow_place_of, local_borrow_access, LocalBorrowAccess, local_borrow_place_text, local_borrow_require_writable, local_borrow_root_is_shared_reference } :: import("../utils.yo");
+{ set_expr_as_needs_to_call_dup, reject_second_class_escape, reject_bare_callable_into_dyn_fn, is_reference_read, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref, lend_place_reference_type, deref_rule_recording, local_borrows_active, loans_active, local_borrow_place_of, access_place, LocalBorrowAccess, local_borrow_place_text, local_borrow_require_writable, local_borrow_root_is_shared_reference } :: import("../utils.yo");
 { shared_borrow_param_root_of_place, reject_write_through_shared_borrow_param } :: import("../exprs/assignment.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { format_error_message, with_code } :: import("../../error.yo");
@@ -418,10 +418,10 @@ try_to_call_type_with_arguments :: (
         );
       });
     });
-    if(t9w_made_mut && local_borrows_active(), {
+    if(t9w_made_mut && loans_active(), {
       match(
         local_borrow_place_of(&evaluated_arg, &env, ctx),
-        .Some(ml_lp) => local_borrow_access(&ml_lp, LocalBorrowAccess.Exclusive, ast_expr_token(&actual_arg_expr), ctx, exn),
+        .Some(ml_lp) => access_place(&ml_lp, LocalBorrowAccess.Exclusive, ast_expr_token(&actual_arg_expr), &env, ctx, exn),
         .None => ()
       );
     });
