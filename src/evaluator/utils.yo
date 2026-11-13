@@ -72,6 +72,7 @@ pragma(Pragma.AllowUnsafe);
   sibling_first_flow_records,
   record_branch_consume,
   first_flow_records_in,
+  is_mut_lend_value,
   first_flow_record_in,
   last_flow_record_in,
   record_flow_event,
@@ -4448,6 +4449,17 @@ _keep_body_end_move :: (fn(v : &Variable, ct : &Token, loc : &Token, after : boo
   });
   _record_kept_move(v, UndoneMove(moved_at : ct.clone(), until : _last_token_of(&region, ct), inclusive : true, after : after));
 });
+/// Whether a loop-flow snapshot carries the variable `id`'s state.
+_snapshot_holds :: (fn(snap : &LoopFlowSnapshot, id : usize) -> bool)({
+  (si : usize) = usize(0);
+  while(si < snap.var_ids.len(), {
+    if(match(snap.var_ids.get_cloned(si), .Some(x) => (x == id), .None => false), {
+      return(true);
+    });
+    si = (si + usize(1));
+  });
+  false
+});
 /// A variable's move state at a `break`/`continue` snapshot (`pre` when the
 /// body had not touched it yet there).
 _snapshot_state_of :: (fn(snap : &LoopFlowSnapshot, id : usize, pre : &Option(Token)) -> Option(Token))({
@@ -4471,10 +4483,17 @@ _snapshot_state_of :: (fn(snap : &LoopFlowSnapshot, id : usize, pre : &Option(To
 ///   compile-time `true`, and each `break`) must agree on whether the value is
 ///   moved: its drop after the loop is decided statically (E0907).
 ///
+/// The condition is part of every iteration: `lc.log_start` is taken before
+/// it is evaluated, so a move it makes is judged as the body's are (a move
+/// in the condition reaches the next test on every back edge, E0901), and
+/// `cond_exit` is the state the condition leaves, which is the state the
+/// normal way out sees
+/// (issues/fixed/2026-11-11-a-move-in-a-while-condition-escapes-the-loop-move-rules.md).
+///
 /// Afterwards the variable is in the state the ways out agree on, and a join
 /// record gives an enclosing branch or loop the loop's net effect.
 check_loop_flow :: (
-  fn(lc : &LoopBodyCtx, body_completes : bool, has_normal_exit : bool, env : &Environment, loop_expr : &AstExpr, exn : Exception) -> unit
+  fn(lc : &LoopBodyCtx, cond_exit : &LoopFlowSnapshot, body_completes : bool, has_normal_exit : bool, env : &Environment, loop_expr : &AstExpr, exn : Exception) -> unit
 )({
   recs := first_flow_records_in(lc.log_start, branch_init_log_len());
   for(&recs, r => {
@@ -4514,13 +4533,20 @@ check_loop_flow :: (
         exit_moved := ArrayList(Token).new();
         exit_live := ArrayList(Token).new();
         if(has_normal_exit, {
-          // The condition reads the state an iteration left: the state at
-          // entry, or one a back edge left (the same, when it was live; a
-          // value moved before the loop and given a new value inside is
-          // moved or not depending on the iteration count).
-          match(pre, .Some(t) => exit_moved.push(t), .None => exit_live.push(v.token));
-          if(pre.is_some() && (back_live.len() > usize(0)), {
-            exit_live.push(match(back_live.get(usize(0)), .Some(t) => t, .None => v.token));
+          if(_snapshot_holds(cond_exit, v.id()), {
+            // The condition itself moved or assigned the value: every test
+            // leaves the state it left on the first one (a back edge brings
+            // the value back live, or the rule above already failed).
+            match(_snapshot_state_of(cond_exit, v.id(), &pre), .Some(t) => exit_moved.push(t), .None => exit_live.push(v.token));
+          }, {
+            // The condition reads the state an iteration left: the state at
+            // entry, or one a back edge left (the same, when it was live; a
+            // value moved before the loop and given a new value inside is
+            // moved or not depending on the iteration count).
+            match(pre, .Some(t) => exit_moved.push(t), .None => exit_live.push(v.token));
+            if(pre.is_some() && (back_live.len() > usize(0)), {
+              exit_live.push(match(back_live.get(usize(0)), .Some(t) => t, .None => v.token));
+            });
           });
         });
         (bi : usize) = usize(0);
@@ -4567,6 +4593,47 @@ check_loop_flow :: (
           match(final, .Some(ft) => _mark_moved_at_loop_end(&v, &ft, loop_expr), .None => ());
         });
         record_flow_event(v.id(), Rc.new(TypeValueNode.Unit), Option(TypeValue).None, FlowEventKind.Join, &v.token, &r.before_init, &pre, &v.initialized_at_token(), match(v.consumed_at_token(), .Some(jc) => Option(Token).Some(jc), .None => Option(Token).None));
+      }),
+      .None => ()
+    );
+  });
+});
+/// A match guard runs on a path that can still reach the later arms: a guard
+/// that fails hands every value on to them and to the code after the match.
+/// So a guard may read or lend a value declared outside its arm, never move
+/// it (VBD decision 26 gives the same reason for the pattern's own bindings;
+/// a conditional move joined across the later arms would need drop flags).
+/// `log_start` is the flow log's length before the guard and `arm_frame` the
+/// arm frame's index: a variable of an enclosing frame that the guard's
+/// records leave moved, and that was not moved before it, is E0901 at the
+/// guard's move
+/// (issues/fixed/2026-11-11-a-value-moved-inside-a-match-guard-is-never-recorded-as-moved.md).
+reject_guard_moves :: (fn(log_start : usize, arm_frame : usize, env : &Environment, exn : Exception) -> unit)({
+  if(branch_init_log_len() <= log_start, {
+    return(());
+  });
+  recs := first_flow_records_in(log_start, branch_init_log_len());
+  for(&recs, r => {
+    match(
+      find_variable_by_id(env, r.var_id),
+      .Some(v) => if((v.frame_level < arm_frame) && r.before_consumed.is_none(), {
+        match(
+          v.consumed_at_token(),
+          .Some(ct) => {
+            mv_tok := variable_move_note(&v, &ct);
+            entries := ArrayList(TokenAndError).new();
+            entries.push(
+              TokenAndError(
+                token : mv_tok,
+                error_message : `use of moved value: \`${v.name}\` is moved in a match guard, and a guard that fails hands it on to the later arms and to the code after the \`match\`.`
+              )
+            );
+            entries.push(TokenAndError(token : v.token, error_message : String.from("declared outside the arm here")));
+            help := `a guard may read \`${v.name}\` or lend it (\`&${v.name}\`); move it in the arm's body instead`;
+            exn.throw(dyn(with_code(format_error_messages_with_help(&entries, Option(String).Some(help)), E_USE_OF_MOVED_VALUE)));
+          },
+          .None => ()
+        );
       }),
       .None => ()
     );
@@ -5956,7 +6023,7 @@ export(variable_is_borrow_parameter, variable_is_future_operand_parameter, varia
 export(capture_place_crosses_cell, is_cell_handle_deref_step, place_rc_handle, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, reject_bare_callable_into_dyn_fn, reject_closure_literal_into_dyn_fn, reject_bare_callable_result, reject_second_class_escape, reject_second_class_return, note_second_class_binding, reject_second_class_result_outliving, check_capture_freeze_access, require_capture_borrow_exclusivity);
 export(doc_comment_lookup_key_from_token);
 export(_last_token_of);
-export(consume_case_body_temp_var, merge_and_check_envs, reject_mixed_closure_arms, reset_sibling_flow_state, keep_last_arm_moves, snapshot_loop_flow, check_loop_flow, drop_moves_of_skippable_operand);
+export(consume_case_body_temp_var, merge_and_check_envs, reject_mixed_closure_arms, reset_sibling_flow_state, keep_last_arm_moves, snapshot_loop_flow, check_loop_flow, reject_guard_moves, drop_moves_of_skippable_operand);
 export(are_values_equal);
 /// Render an f64 with ROUND-TRIP precision (`%.17g`) for a FloatLit raw.
 /// The naive `v.to_string()` is C `%g` — SIX significant digits — and
@@ -9040,6 +9107,16 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
   // type's — each spelled name a runtime place, an origin parameter the
   // caller's (none) — never the field's own place (R-DEREF's base case).
   if(ast_expr_is_fn_call_of(&stripped, BF_DOT, Option(usize).Some(usize(2))) && (match(&fi.ty(), Rc(.Reference(_, _, _)) => true, _ => false) || reference_field_read_type(ast_expr_id(&stripped)).is_some()), {
+    // A `&mut` reference field read bare into a `&mut` slot (`M(r : m.r,
+    // …)`, `f(m.r)`) is the reborrow `&mut m.r.*` (REFERENCES_AND_ORIGINS.md
+    // O3 "Reborrows"; a `&mut` is move-only, so the read never copies the
+    // exclusive loan): its origin is the reborrowed place, as the spelled
+    // lend's is (R-LEND), and a holder of it freezes `m`
+    // (issues/fixed/2026-11-11-a-mut-reference-field-read-by-value-is-copied-so-two-holders-share-one-exclusive-borrow.md).
+    if(is_mut_lend_value(ast_expr_id(&stripped)) && match(reference_field_read_mode(ast_expr_id(&stripped)), .Some(rf_mut) => rf_mut, .None => false), {
+      _origin_push_lend(&stripped, true, env, ctx, out);
+      return(());
+    });
     _origin_field_into(&stripped, &fi, env, ctx, out, depth);
     return(());
   });
