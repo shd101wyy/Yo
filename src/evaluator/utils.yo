@@ -8354,11 +8354,20 @@ projection_call_root_args :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayLi
       .Some(ha) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&_strip_lend(&ha))), .Some(hai) => type_carries_origin(&hai.ty()), .None => false),
       .None => false
     );
-    p_named := (match(&res_names, .Some(rn) => fn_param_in_result_origin(&meta_ty, i, &rn), .None => true) || (_binder_mode_at(&binder_modes, i) == u8(1)));
+    // A raw pointer is outside the model (BORROW_CHECKER_COMPLETENESS.md §5:
+    // `addr_of(p)` is `access(p, lend-&)` for the statement and nothing
+    // after): what `__yo_ptr_read(p)` returns is a `T` whose origins are
+    // `T`'s, never a borrow of the place `p` was taken from (audit C2).
+    p_raw := match(
+      args.get(i),
+      .Some(ra) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ra)), .Some(rai) => match(&rai.ty(), Rc(.Pointer(_)) => true, _ => false), .None => false),
+      .None => false
+    );
+    p_named := (!p_raw && (match(&res_names, .Some(rn) => fn_param_in_result_origin(&meta_ty, i, &rn), .None => true) || (_binder_mode_at(&binder_modes, i) == u8(1))));
     // Carried only through the impl's origin: the result points where the
     // argument's references do, never into the argument itself, so a
     // temporary holder (`H(x)(r : &x).get()`) is no root (R-TEMP).
-    p_via_impl_origin := (!p_named && (unmatched && p_carries));
+    p_via_impl_origin := (!p_raw && (!p_named && (unmatched && p_carries)));
     p_in := (p_named || p_via_impl_origin);
     p_holder := ((p_own && !p_ref) && p_carries);
     if((p_ref || (!p_own || p_holder)) && p_in, {

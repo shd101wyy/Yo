@@ -1,0 +1,16 @@
+// expect: accept
+// `mem.replace` over a holder whose references both outlive it: sound, but rejected with E0912 inside
+// std/mem.yo ("Cannot return the local borrow `old`: it borrows `dst`").
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ replace } :: import("std/mem");
+H :: struct(r : &String);
+main :: (fn() -> unit)({
+  a := String.from("aaaa");
+  c := String.from("cccccc");
+  mut(h) := H(r : &a);
+  old := replace(&mut h, H(r : &c));
+  println(`OUT: ${h.r.len().to_string()} ${old.r.len().to_string()}`);
+  ()
+});
+export(main);
