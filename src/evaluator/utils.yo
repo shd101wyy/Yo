@@ -11040,6 +11040,111 @@ place_write_join :: (fn(root : &Variable, value : &AstExpr, env : &Environment, 
   });
   bind_join_roots_for(root, &roots, ast_expr_token(value), env, ctx, exn, kill : false);
 });
+/// The bare name `r` under a chain of written `.*` (`r.*`, `r.*.*`, ...),
+/// or `.None` for any other expression.
+deref_chain_atom :: (fn(e : &AstExpr) -> Option(AstExpr))(
+  cond(
+    !_is_deref_place(e) => Option(AstExpr).None,
+    true => match(
+      e,
+      .FnCall(_, _, Rc(dc_args), _, _) => match(
+        dc_args.get(usize(0)),
+        .Some(dc_base) => if(ast_expr_is_atom(&dc_base), Option(AstExpr).Some(dc_base), deref_chain_atom(&dc_base)),
+        .None => Option(AstExpr).None
+      ),
+      .Atom(_, _) => Option(AstExpr).None
+    )
+  )
+);
+/// The number of `.*` written over `deref_chain_atom(e)`'s name.
+deref_chain_depth :: (fn(e : &AstExpr) -> usize)(
+  cond(
+    !_is_deref_place(e) => usize(0),
+    true => match(
+      e,
+      .FnCall(_, _, Rc(dd_args), _, _) => match(dd_args.get(usize(0)), .Some(dd_base) => (deref_chain_depth(&dd_base) + usize(1)), .None => usize(1)),
+      .Atom(_, _) => usize(0)
+    )
+  )
+);
+/// One holder of a `&mut` re-borrow chain (`reference_reborrow_chain`): the
+/// binding, how many links below the chain's start it is, and whether the
+/// chain ends at it (no link leaves it).
+ReborrowLink :: struct(holder : Variable, depth : usize, is_end : bool);
+derive(ReborrowLink, Clone);
+/// The `&mut` re-borrow chain a binding starts (A28 at any depth,
+/// plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P3). A link is a local
+/// borrow whose referent is itself a reference (`rp := &mut r` with
+/// `r : &T`, so `rp`'s slot is `&mut &T`): it lends the whole reference
+/// binding `r`, and `rp.*` IS `r`. `rpp := &mut rp` links to `rp`, and so
+/// on. `start` first, then each binding the links reach, breadth-first, at
+/// most `max_links` links down (a re-pointed link reaches each place it
+/// lent). Every holder on the chain names the same origin (a `&mut`
+/// pointee is invariant, decision 43 O3), so a store through the chain may
+/// reach each of them. A parameter's referent is the caller's, and a field
+/// or element place is `place_write_join`'s: neither is a link, and the
+/// chain ends there.
+reference_reborrow_chain :: (fn(start : &Variable, max_links : usize, env : &Environment) -> ArrayList(ReborrowLink))({
+  holders := ArrayList(Variable).new();
+  depths := ArrayList(usize).new();
+  ends := ArrayList(bool).new();
+  holders.push(start.clone());
+  depths.push(usize(0));
+  (i : usize) = usize(0);
+  while(i < holders.len(), {
+    (linked : bool) = false;
+    match(
+      holders.get_cloned(i),
+      .Some(cur) => {
+        d := match(depths.get_cloned(i), .Some(x) => x, .None => usize(0));
+        if((d < max_links) && variable_is_reference_binding(&cur) && t_slot_is_borrow(&t_slot_pointee(&variable_slot_type(&cur))), {
+          places := ArrayList(OriginRootPlace).new();
+          _holder_roots_named_into(cur.name.clone(), &cur.token, &mut places);
+          (pi : usize) = usize(0);
+          while(pi < places.len(), {
+            pl := places(pi).place.clone();
+            if((pl.steps.len() == usize(0)) && !pl.through_cell && !pl.module_root, {
+              match(
+                get_variables_from_env(env, pl.root_name.clone()).last_cloned(),
+                .Some(nv) => if(variable_is_reference_binding(&nv) && (nv.name != cur.name), {
+                  linked = true;
+                  (seen : bool) = false;
+                  (si : usize) = usize(0);
+                  while(si < holders.len(), {
+                    if(holders(si).name == nv.name, {
+                      seen = true;
+                    });
+                    si = (si + usize(1));
+                  });
+                  if(!seen, {
+                    holders.push(nv);
+                    depths.push((d + usize(1)));
+                  });
+                }),
+                .None => ()
+              );
+            });
+            pi = (pi + usize(1));
+          });
+        });
+      },
+      .None => ()
+    );
+    ends.push(!linked);
+    i = (i + usize(1));
+  });
+  out := ArrayList(ReborrowLink).new();
+  (oi : usize) = usize(0);
+  while(oi < holders.len(), {
+    match(
+      holders.get_cloned(oi),
+      .Some(oh) => out.push(ReborrowLink(holder : oh, depth : match(depths.get_cloned(oi), .Some(x) => x, .None => usize(0)), is_end : match(ends.get_cloned(oi), .Some(x) => x, .None => true))),
+      .None => ()
+    );
+    oi = (oi + usize(1));
+  });
+  out
+});
 /// `bind_join`'s registration core, shared with `lend_through`'s flow
 /// write-back: each root not already in the holder's set is registered with
 /// the holder's live range recomputed from its binding statement.
@@ -11738,7 +11843,7 @@ _origin_through_match_bindings :: (fn(roots : &ArrayList(OriginRootPlace), env :
   });
   out
 });
-export(projection_call_mode_of, unsize_root_args, projection_body_mismatch_message, ProjectionRootArg, is_temporary_operand, deref_is_owning_handle_step, origin_temporary_entry, origin_temporary_root, ORIGIN_TEMPORARY_ROOT, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, variable_holder_roots, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, note_ref_payload_source, ref_payload_source, note_ref_payload_held, note_borrow_match_source, borrow_match_source, n2b_roots_text, audit_origin_totality, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, note_fn_value_definition, fn_value_definition, type_var_ids_of);
+export(projection_call_mode_of, unsize_root_args, projection_body_mismatch_message, ProjectionRootArg, is_temporary_operand, deref_is_owning_handle_step, origin_temporary_entry, origin_temporary_root, ORIGIN_TEMPORARY_ROOT, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, variable_holder_roots, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, note_ref_payload_source, ref_payload_source, note_ref_payload_held, note_borrow_match_source, borrow_match_source, n2b_roots_text, audit_origin_totality, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, note_fn_value_definition, fn_value_definition, type_var_ids_of, deref_chain_atom, deref_chain_depth, ReborrowLink, reference_reborrow_chain);
 export(drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions);
 export(
   LocalBorrowPlace,

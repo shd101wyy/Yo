@@ -8,7 +8,7 @@ parameter type itself is new this cycle).
 Found 2026-11-11 by the ownership / borrowing / origin audit
 (`plans/backlog/OWNERSHIP_BORROWING_ORIGINS_AUDIT.md` §3 C11), as probe 1 of VERDICTS-58. Measured on develop
 `64f33c710`. The soundness side of the same parameter type is
-`issues/2026-11-11-a-mut-lend-of-a-reference-binding-to-a-spelled-origin-parameter-does-not-widen-the-bindings-flow-set.md`.
+`issues/fixed/2026-11-11-a-mut-lend-of-a-reference-binding-to-a-spelled-origin-parameter-does-not-widen-the-bindings-flow-set.md`.
 
 ## Reproducer
 

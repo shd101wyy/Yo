@@ -1,0 +1,26 @@
+// expect: E0911
+// The qualified form of the depth-2 chain store (A28 q3b at depth 2).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+mk :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+S :: struct(n : i32);
+impl(
+  S,
+  set : (fn(generic(p : Origin), self : &Self, dst : &mut&(Rc(X), p), v : &(Rc(X), p)) -> unit)({
+    dst.* = v;
+  })
+);
+main :: (fn() -> unit)({
+  outer := mk();
+  s := S(n : i32(0));
+  mut(r) := &outer;
+  mut(rp) := &mut r;
+  {
+    inner := mk();
+    rpp := &mut rp;
+    S.set(&s, &mut rpp.*.*, &inner);
+  };
+  println(`OUT: ${r.*.*.s.len().to_string()}`);
+});
+export(main);
