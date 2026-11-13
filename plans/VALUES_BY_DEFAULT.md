@@ -276,7 +276,7 @@ Unique ownership removes the question instead of answering it.
 | Kind | Which types | A copy is | Example |
 | --- | --- | --- | --- |
 | **implicitly copyable** (`Copy`, decision 36) | implements `Copy`: integers, floats, `bool`, `char`, `unit`, raw pointers, `str` views and `fn` pointers (prelude impls); a struct, enum or newtype that opts in with `derive(T, Copy, Clone)` (`std/string/rune.yo`'s `rune` newtype is one) (`Copy` requires `Clone`); and tuples, arrays, anonymous records and closures whose parts are all `Copy`. Exempt, copying implicitly without `Copy`: unions, C opaque types and control-bound records (`Exception`, effect bundles; a `ctl` handler cannot be `Clone`), per `type_lacks_copy_for_flip` | a bitwise copy | `p2 := p` for `p : Point` with `derive(Point, Copy, Clone)` |
-| **explicit-copy** | owns a buffer: `String`, the collections, `Box(T)`, `Dyn(Trait)`, `Rc(T)`/`Arc(T)` handles (decision 17), and any type containing one (unless it is move-only) | an error unless it is the value's last use (then a move); an independent copy is `x.clone()` | `t := s.clone()` |
+| **explicit-copy** | owns a buffer: `String`, the collections, `Box(T)` (move-only instead iff `T` is, §3.4), `Dyn(Trait)`, `Rc(T)`/`Arc(T)` handles (decision 17), and any type containing one (unless it is move-only) | an error unless it is the value's last use (then a move); an independent copy is `x.clone()` | `t := s.clone()` |
 | **move-only** (§3.4) | implements neither `Copy` nor `Clone` (decision 36); a `Dispose` type is never `Copy` | an error unless it is the last use; with `Clone` it is explicit-copy instead (`Sender`) | `f2 := f` moves the `File` |
 
 - **Moves are implicit at the last use, and copies are never implicit**
@@ -1989,6 +1989,9 @@ and in git, not a silent edit.
          may be lent freely; a `mut(G)` binding may not be lent to a call
          (E0916) or across an `await` (E0909)
          (`issues/fixed/2026-10-15-a-module-level-global-lent-to-a-call-can-be-reassigned-while-the-callee-holds-it.md`).
+         A `Drop` that runs inside the live range, whether a scope-end drop,
+         the drop of a reassigned value or a temporary's drop, counts as a
+         call (audit A44).
     4. **`await`:** a borrow is an error across a suspension if its
        declaration or any re-point passes through an `Rc`/`Arc` deref or a
        module-level place. It is allowed when the whole path stays in
@@ -2302,6 +2305,9 @@ and in git, not a silent edit.
       - This reverses TYPE_SYSTEM_SOUNDNESS Phase 5.2's forced +1
         (`src/types/flowability.yo`, `docs/*/FLOWABILITY.md`), which would
         be a hidden deep copy.
+      - **Corrected 2026-11-11 (audit A6):** a `&mut` argument is an
+        exclusive access at the call's activation whatever the callee's body
+        does; the mutation summary feeds D3 and the runtime asserts only.
     - **Through an `Rc`/`Arc`.** A `&` argument projected through `Rc`
       cells (`f(&node, &node.name)`, where `f` writes `name` through
       the other handle) marks every cell on its path shared-borrowed for the
@@ -2332,6 +2338,13 @@ and in git, not a silent edit.
       stated for loans, not only for by-name places. `r := &xs;
       xs.push(i32(r.len()))` is accepted; a use of `r` after the call is
       E0911.
+      - **Corrected 2026-11-11 (audit D1):** the loan has ended at the
+        activation only if the later argument's VALUE does not carry the
+        loan's origin. `r := &xs; xs.push(i32(r.len()))` is accepted because
+        `r.len()` is an integer; `f(&mut xs, r)`, `f(&mut xs, first(&xs))`
+        and `f(&mut xs, h)` with `h` holding `&xs(0)` are rejected (E0910
+        or E0911, by what holds the loan), in either argument order. An argument's value is a loan the call holds until
+        it returns (`REFERENCES_AND_ORIGINS.md` O3 step 2).
     - **As built (2026-10-14): the two-phase borrow rule.** A `&x.f`
       argument is read before the later arguments run, so an overwrite or a
       `&mut` relend of `x` in a later argument dropped what the callee read.
@@ -4266,9 +4279,11 @@ and in git, not a silent edit.
       through a handle's deref carries the HANDLE's place as its origin
       (O9, Rust's `&*rc`, relaxed 2026-10-20 from R5's "re-derive at each
       use"), a `&mut` through one stays E0919, and an `Rc`/`Arc` payload
-      stays `Escapable` because the collector runs drops at an unbounded
-      later time. No region variables, no outlives, no
-      variance, no HRTB — after substitution an origin is a ground set of
+      stays `Escapable` (the bound is kept until origin propagation through
+      counted cells lands; the collector that was its first reason is
+      deleted, decision 48 W6b; O9). No region variables, no outlives, no
+      variance lattice beyond O3-3's invariance under a `&mut` pointee or
+      an interior-mutable cell, no HRTB — after substitution an origin is a ground set of
       places, so the Polonius class of accept problems does not arise
       (`REFERENCES_AND_ORIGINS.md` §4 has the cost table; §2 O7 the clause
       mapping; §8 the phases N0–N3).
