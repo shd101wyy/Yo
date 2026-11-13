@@ -584,7 +584,10 @@ future_unreturnable_borrow :: (fn(ty : &TypeValue) -> Option(CaptureBorrow))({
         match(
           fu_res,
           .Some(r) => {
-            cur = Rc.clone(r);
+            // `r` borrows `cur` (a binding of a match on `&cur`'s
+            // reference binding): end the borrow before the write.
+            next := Rc.clone(r);
+            cur = next;
           },
           .None => return(Option(CaptureBorrow).None)
         );
