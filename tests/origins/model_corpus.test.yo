@@ -937,6 +937,13 @@ test("closure-push-capture-then-clear", {
   );
   verdict("closure-push-capture-then-clear", case2(main, each()), "ACCEPT");
 });
+test("closure-mut-capture-last-use", {
+  // P4-0 (VERDICTS-59 decision 12): the closure's `&mut` capture of `out` is a loan whose range ends at the closure's
+  // last use (the call), so `out` is usable after it; the shape of `closure-push-capture`, whose written root is the
+  // unrelated `y`. The compiler still holds the capture to the binding's scope end (C14): the manifest's `today`
+  // column records E0910.
+  verdict("closure-mut-capture-last-use", case2(closure_push_main(Y), each()), "ACCEPT");
+});
 test("closure-param-into-capture-inline", {
   // The per-call parameter stored into a captured flow-inferred container
   // (the compiler row's `Option` slot; the toy language spells a flow slot

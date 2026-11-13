@@ -2805,6 +2805,24 @@ test("assignment to the result of a function call is a check error", {
   assert(arr(0) == i32(5), "an Index-trait place must still be assignable");
 });
 
+BasicLitPlace :: struct(x : i32, y : i32);
+test("a tuple, array or struct literal on the left of `=` is not a place", {
+  // issues/fixed/2026-11-11-a-tuple-or-array-literal-on-the-left-of-an-assignment-is-accepted-and-assigns-nothing.md:
+  // each target was a temporary built from the values, so the store went
+  // nowhere. Yo has no destructuring assignment.
+  mut(a) := i32(1);
+  mut(b) := i32(2);
+  mut(t) := (i32(1), i32(2));
+  comptime_expect_error((a, b) = (b, a), "it is not a place");
+  comptime_expect_error([a, b] = [i32(5), i32(6)], "it is not a place");
+  comptime_expect_error(BasicLitPlace(x : a, y : b) = BasicLitPlace(x : i32(7), y : i32(8)), "it is not a place");
+  comptime_expect_error((a, t.0) = (i32(9), i32(9)), "it is not a place");
+  tmp := a;
+  a = b;
+  b = tmp;
+  t.0 = i32(5);
+  assert((a == i32(2)) && (b == i32(1)) && (t.0 == i32(5)), "the swap through a temporary and a tuple field write");
+});
 test("a plain-named builtin cannot be bound: consume as a function", {
   // `consume(...)` dispatches to the builtin in the evaluator AND codegen — a
   // user definition would be silently hijacked (its argument was also marked
