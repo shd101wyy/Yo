@@ -67,7 +67,6 @@
   BK_ARRAY_VAL,
   BF_RECUR,
   BF_RUNTIME,
-  BF_YO_BORROW_CHECK,
   ast_expr_is_size_of_call,
   ast_expr_is_align_of_call,
   ast_expr_is_type_id_call,
@@ -929,9 +928,6 @@ generate_func_call :: (fn(expr : &AstExpr, indent : &String, context : &mut Func
   });
   if(ast_expr_is_fn_call_of(expr, BF_RECUR, Option(usize).None), return(generate_recur(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_RUNTIME, Option(usize).Some(usize(1))), return(match(expr, .FnCall(_, _, Rc(a), _, _) => match(a.get(usize(0)), .Some(inner) => _call_generate_expr(&inner, indent.clone(), context), .None => String.from("")), .Atom(_, _) => String.from(""))));
-  // `__yo_borrow_check(coll, loop)`: the strict-mode check ran in the
-  // evaluator; only the loop is emitted.
-  if(ast_expr_is_fn_call_of(expr, BF_YO_BORROW_CHECK, Option(usize).Some(usize(2))), return(match(expr, .FnCall(_, _, Rc(a), _, _) => match(a.get(usize(1)), .Some(inner) => _call_generate_expr(&inner, indent.clone(), context), .None => String.from("")), .Atom(_, _) => String.from(""))));
   if(ast_expr_is_size_of_call(expr, Option(usize).Some(usize(1))), return(generate_sizeof(expr, indent.clone(), context)));
   if(ast_expr_is_align_of_call(expr, Option(usize).Some(usize(1))), return(generate_alignof(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_SIZE_OF_VAL, .None) || ast_expr_is_fn_call_of(expr, BF_ALIGN_OF_VAL, .None) || ast_expr_is_fn_call_of(expr, BF_UNSIZE, .None) || ast_expr_is_fn_call_of(expr, BF_SLICE_LEN, .None) || ast_expr_is_fn_call_of(expr, BF_SLICE_PTR, .None) || ast_expr_is_fn_call_of(expr, BF_SLICE_FROM_RAW_PARTS, .None), return(generate_unsized_builtin(expr, indent.clone(), context)));

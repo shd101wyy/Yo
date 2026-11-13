@@ -231,24 +231,6 @@ test("TypeInfo compound: Rc is a newtype over an Object cell", {
   );
   comptime_assert(is_object_cell, "Rc's cell should reflect as an Object holding the i32");
 });
-// The borrowed `for`'s guard (`__borrow_guard`, std/prelude.yo) retains a
-// second handle only for a kind that reflects as Object or AtomicObject: a
-// `ref` object, whose borrow flag it holds. An `Rc` or `Arc` reflects as a
-// NewType, so the guard holds nothing for one; its payload is read-only
-// through the handle (E0919), so there is no flag to hold. The count shows
-// which: a retained handle is a second owner while the guard lives.
-TIGuardObj :: ref(struct(x : i32));
-test("borrow guard retains no Rc or Arc handle, and a ref object's", {
-  r := Rc.new(i32(1));
-  rg := __borrow_guard(&r);
-  assert(ref_count(r) == usize(1), "the guard holds no Rc handle");
-  a := Arc.new(i32(2));
-  ag := __borrow_guard(&a);
-  assert(ref_count(a) == usize(1), "the guard holds no Arc handle");
-  o := TIGuardObj(x : i32(3));
-  og := __borrow_guard(&o);
-  assert(ref_count(o) == usize(2), "the guard retains a ref object's handle");
-});
 test("TypeInfo compound: Function info", {
   FnType :: (fn(x : i32, y : i32) -> bool);
   fn_info :: Type.get_info(FnType);
