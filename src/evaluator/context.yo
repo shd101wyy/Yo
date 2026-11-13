@@ -172,7 +172,10 @@ LoopBodyCtx :: struct(
   // length — a live read of the current length makes the while-loop init
   // gate false-fire on body-locals.
   entry_frame_count : usize,
-  /// The flow log's length when the body began: the body's events follow it.
+  /// The flow log's length when the loop's window opened: the events after it
+  /// are the loop's. A runtime `while` takes it before its condition, which
+  /// runs on every iteration (`check_loop_flow` judges the condition's moves
+  /// with the body's); a comptime-unrolled iteration takes it at its body.
   log_start : usize,
   /// The move state at each `break` (a way out of the loop) and each
   /// `continue` (a way back to its condition).

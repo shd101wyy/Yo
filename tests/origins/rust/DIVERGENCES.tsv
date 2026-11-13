@@ -3,3 +3,4 @@
 # id	yo	rustc	kind	reason
 corpus-swap-different-origins	REJECT	ACCEPT	design	declared origins are rigid: `(mut(ra) : &(i32, x))` and `(mut(rb) : &(i32, y))` name two origins and `swap` needs one (E0923); rustc unifies both references to one region that both `x` and `y` outlive
 unsound-p9-two-phase-holder-argument-pos	ACCEPT	REJECT	design	decision 28's two-phase extension (P9) applies to every `&mut` argument: the loan `h` ends at its last use, the second argument's `*h.r`, before the call activates `&mut xs`; rustc grants two-phase borrows only to autoref receivers, so an explicit `&mut xs` argument conflicts with the earlier read
+corpus-closure-mut-capture-last-use	REJECT	ACCEPT	parity	held to the binding's scope end by the capture side table (C14, issues/2026-11-13-a-closures-capture-borrow-lasts-to-the-bindings-scope-end-not-its-last-use.md); P4-0 closes it, and by VERDICTS-58 decision 2 this row must be gone before the Rust-parity claim
