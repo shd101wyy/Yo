@@ -12,7 +12,7 @@
 { Token } :: import("../../token.yo");
 { Variable, Environment, variable_moved_at_cleanup_point, get_variables_from_env } :: import("../../env.yo");
 { is_unit_type, is_some_type } :: import("../../types/guards.yo");
-{ expr_info_deferred_dup_expressions, expr_info_early_return_only_deferred_drop_expressions, some_resolution, scope_variables, scope_release_mode, scope_release_note_mismatch, is_fnonce_capture_drop, is_call_scoped_share_drop } :: import("../../expr_info.yo");
+{ expr_info_deferred_dup_expressions, expr_info_early_return_only_deferred_drop_expressions, some_resolution, scope_variables, scope_release_mode, scope_release_note_mismatch, is_fnonce_capture_drop, is_call_scoped_share_drop, arg_move_region_holds } :: import("../../expr_info.yo");
 { TypeValue, t_slot_pointee, fn_result_pointee, fn_result_is_ref } :: import("../../types/definitions.yo");
 { FunctionGenerationContext, resolve_var_name_in_context, sm_owns_fnonce_captures } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
@@ -162,8 +162,13 @@ _variable_was_consumed_before_cleanup_point :: (fn(consumed_at_token : &Token, c
 /// (or escapes) after the move, so the value is already gone there
 /// (plans/backlog/TYPE_SYSTEM_SOUNDNESS.md Phase 5.1,
 /// issues/fixed/a-move-in-a-returning-arm-is-released-again-at-the-return.md).
+///
+/// A cleanup point inside the later arguments of the call that moves `v` by
+/// value (`arg_move_region_holds`) comes before the move: the call runs after
+/// every argument
+/// (issues/fixed/2026-11-11-a-temporary-argument-leaks-when-a-later-argument-returns-continues-or-unwinds.md).
 _variable_moved_before_cleanup_point :: (fn(v : &Variable, cleanup_expr : &AstExpr) -> bool)({
-  if(match(v.consumed_at_token(), .Some(ct) => _variable_was_consumed_before_cleanup_point(&ct, cleanup_expr), .None => false), {
+  if(match(v.consumed_at_token(), .Some(ct) => (_variable_was_consumed_before_cleanup_point(&ct, cleanup_expr) && !arg_move_region_holds(v.id(), cleanup_expr)), .None => false), {
     return(true);
   });
   variable_moved_at_cleanup_point(v, _get_last_comparable_token_in_expr(cleanup_expr, ast_expr_token(cleanup_expr)))

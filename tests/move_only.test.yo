@@ -2010,6 +2010,167 @@ test("move-only: a `break` in a later argument than a by-value argument drops it
   assert(g_mo_disposed == (before + i32(2)), "1 by the callee, 2 at the break");
   assert(g_mo_sum == i32(3), "nothing disposed twice");
 });
+// A TEMPORARY passed by value moves when the call runs too: an exit in a
+// later argument (`return`, `continue`, `break`, an effect handler's
+// `unwind`) drops it, for a call's argument, a struct or tuple literal's
+// earlier field and a temporary receiver
+// (issues/fixed/2026-11-11-a-temporary-argument-leaks-when-a-later-argument-returns-continues-or-unwinds.md).
+_mo_add2 :: (fn(sink(a) : _MoFd, sink(b) : _MoFd) -> i32)(a.n + b.n);
+_mo_tmp_return :: (fn(c : bool) -> i32)(
+  _mo_add2(
+    _mo_make(i32(1)),
+    cond(
+      c => {
+        return(i32(0));
+      },
+      true => _mo_make(i32(2))
+    )
+  )
+);
+_mo_tmp_continue :: (fn() -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(t) : i32) = i32(0);
+  while(i < i32(2), {
+    i = (i + i32(1));
+    t = (
+      t + _mo_add2(
+        _mo_make(i),
+        cond(
+          (i == i32(1)) => {
+            continue;
+          },
+          true => _mo_make(i32(10))
+        )
+      )
+    );
+  });
+  t
+});
+_mo_tmp_break :: (fn() -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(t) : i32) = i32(0);
+  while(i < i32(2), {
+    i = (i + i32(1));
+    t = (
+      t + _mo_add2(
+        _mo_make(i),
+        cond(
+          (i == i32(2)) => {
+            break;
+          },
+          true => _mo_make(i32(10))
+        )
+      )
+    );
+  });
+  t
+});
+_mo_tmp_struct :: (fn(c : bool) -> i32)({
+  h := _MoHolder(
+    fd : _mo_make(i32(1)),
+    tag : cond(
+      c => {
+        return(i32(0));
+      },
+      true => i32(5)
+    )
+  );
+  h.tag
+});
+_mo_tmp_tuple :: (fn(c : bool) -> i32)({
+  t := (
+    _mo_make(i32(1)),
+    cond(
+      c => {
+        return(i32(0));
+      },
+      true => i32(5)
+    )
+  );
+  t.1
+});
+_MoEater :: struct(fd : _MoFd);
+impl(
+  _MoEater,
+  eat : (fn(sink(self) : Self, m : i32) -> i32)(self.fd.n + m)
+);
+_mo_tmp_receiver :: (fn(c : bool) -> i32)(
+  _MoEater(fd : _mo_make(i32(1))).eat(
+    cond(
+      c => {
+        return(i32(0));
+      },
+      true => i32(5)
+    )
+  )
+);
+_MoTmpRaise :: (ctl(code : i32) -> _MoFd);
+_mo_tmp_raise :: (fn(c : bool, raise : _MoTmpRaise) -> _MoFd)(cond(c => raise(i32(1)), true => _mo_make(i32(2))));
+_mo_tmp_inner :: (fn(c : bool, raise : _MoTmpRaise) -> i32)(_mo_add2(_mo_make(i32(1)), _mo_tmp_raise(c, raise)));
+_mo_tmp_unwind :: (fn(c : bool) -> i32)({
+  (raise : _MoTmpRaise) = (
+    code -> {
+      unwind(i32(-1));
+    }
+  );
+  _mo_tmp_inner(c, raise)
+});
+// The named-local shape of the same exit gate: `k` passed by value (to a
+// call, to a struct literal's field) is still owned when a later argument
+// unwinds
+// (issues/fixed/2026-11-03-an-unwind-out-of-a-later-argument-leaks-an-earlier-moved-argument.md).
+_MoTmpRaiseI :: (ctl(code : i32) -> i32);
+_mo_named_call_inner :: (fn(c : bool, raise : _MoTmpRaise) -> i32)({
+  k := _mo_make(i32(1));
+  _mo_add2(k, _mo_tmp_raise(c, raise))
+});
+_mo_named_call_unwind :: (fn(c : bool) -> i32)({
+  (raise : _MoTmpRaise) = (
+    code -> {
+      unwind(i32(-1));
+    }
+  );
+  _mo_named_call_inner(c, raise)
+});
+_mo_named_struct_inner :: (fn(c : bool, raise : _MoTmpRaiseI) -> i32)({
+  k := _mo_make(i32(1));
+  h := _MoHolder(fd : k, tag : cond(c => raise(i32(1)), true => i32(5)));
+  h.tag
+});
+_mo_named_struct_unwind :: (fn(c : bool) -> i32)({
+  (raise : _MoTmpRaiseI) = (
+    code -> {
+      unwind(i32(-1));
+    }
+  );
+  _mo_named_struct_inner(c, raise)
+});
+test("move-only: a temporary or named argument is dropped when a later argument returns, continues, breaks or unwinds", {
+  d0 := _mo_counts_reset();
+  assert(_mo_shape(_mo_tmp_return(true), i32(0), d0, i32(1), i32(1)), "return: the temporary dropped once");
+  d1 := _mo_counts_reset();
+  assert(_mo_shape(_mo_tmp_return(false), i32(3), d1, i32(2), i32(3)), "return not taken: both moved");
+  d2 := _mo_counts_reset();
+  assert(_mo_shape(_mo_tmp_continue(), i32(12), d2, i32(3), i32(13)), "continue: the first iteration's temporary dropped");
+  d3 := _mo_counts_reset();
+  assert(_mo_shape(_mo_tmp_break(), i32(11), d3, i32(3), i32(13)), "break: the second iteration's temporary dropped");
+  d4 := _mo_counts_reset();
+  assert(_mo_shape(_mo_tmp_struct(true), i32(0), d4, i32(1), i32(1)), "struct literal: the earlier field dropped");
+  d5 := _mo_counts_reset();
+  assert(_mo_shape(_mo_tmp_tuple(true), i32(0), d5, i32(1), i32(1)), "tuple literal: the earlier element dropped");
+  d6 := _mo_counts_reset();
+  assert(_mo_shape(_mo_tmp_receiver(true), i32(0), d6, i32(1), i32(1)), "receiver: the temporary receiver dropped");
+  d7 := _mo_counts_reset();
+  assert(_mo_shape(_mo_tmp_unwind(true), i32(-1), d7, i32(1), i32(1)), "unwind: the temporary dropped");
+  d8 := _mo_counts_reset();
+  assert(_mo_shape(_mo_tmp_unwind(false), i32(3), d8, i32(2), i32(3)), "no unwind: both moved");
+  d9 := _mo_counts_reset();
+  assert(_mo_shape(_mo_named_call_unwind(true), i32(-1), d9, i32(1), i32(1)), "unwind: the named argument dropped");
+  d10 := _mo_counts_reset();
+  assert(_mo_shape(_mo_named_struct_unwind(true), i32(-1), d10, i32(1), i32(1)), "unwind: the named struct field dropped");
+  d11 := _mo_counts_reset();
+  assert(_mo_shape(_mo_named_struct_unwind(false), i32(5), d11, i32(1), i32(1)), "no unwind: the holder drops the field once");
+});
 // A `match` with one arm that moves and another that always leaves (`break`,
 // `continue`, `return`): the join keeps the moving arm's move, so the local is
 // not dropped again after the match, and a nested branch's move covers only
