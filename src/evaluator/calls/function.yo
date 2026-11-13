@@ -9478,8 +9478,13 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
             eprintln(`[n2b] lend-through &mut arg ${ast_expr_to_string(&w_arg)}: place=${ast_expr_to_string(&w_place)} atom=${ast_expr_is_atom(&w_place).to_string()} fixed=${fixed_names.len().to_string()}`);
           });
           // A `&mut` projection's result (`put(slot(&mut s), v)`, A11) is a
-          // path into its lent argument: its write-back lands there.
-          w_projection := (!ast_expr_is_atom(&w_place) && expr_is_mut_reference_value(&w_place, ctx));
+          // path into its lent argument: its write-back lands there. The
+          // call's annotations sit on the node the evaluator rewrote it to.
+          w_node := ast_rewritten_node(&w_place);
+          w_projection := (!ast_expr_is_atom(&w_place) && expr_is_mut_reference_value(&w_node, ctx));
+          if(debug_knob(`YO_DEBUG_N2B`).is_some() && !ast_expr_is_atom(&w_place), {
+            eprintln(`[n2b] lend-through &mut value ${ast_expr_to_string(&w_node)}: projection=${w_projection.to_string()} roots=[${n2b_roots_text(&origin_of(&w_node, env, ctx))}]`);
+          });
           if(ast_expr_is_atom(&w_place) || w_projection, {
             // The origin parameters the pointee names, and its TYPE
             // parameters: `dst : &mut Option(T)` with `T := &S` is as much an
@@ -9585,7 +9590,7 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
               // when the chain has one end; the holders above it still point
               // where they pointed.
               if((solved.len() > usize(0)) && w_projection, {
-                flow_write_back_through(&origin_of(&w_place, env, ctx), &String.new(), &solved, ast_expr_token(&w_arg), env, ctx, exn);
+                flow_write_back_through(&origin_of(&w_node, env, ctx), &String.new(), &solved, ast_expr_token(&w_arg), env, ctx, exn);
               });
               if((solved.len() > usize(0)) && !w_projection, {
                 match(

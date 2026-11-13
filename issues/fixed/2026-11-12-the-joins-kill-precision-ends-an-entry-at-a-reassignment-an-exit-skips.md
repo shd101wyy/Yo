@@ -54,7 +54,10 @@ to its last use". The shortening is sound only when no statement between the sto
 can leave the block (BCC §3: a kill is a strong update on the paths through it, and an exit is a path
 that skips it).
 
+## Fix
+
+Fixed by the cluster-4 branch `fix/c4-flow-join`. `_lb_join_root_end` (`src/evaluator/utils.yo`) keeps the block's end as the entry's end when any statement from the store up to the reassignment may leave the block (`_lb_may_exit`: a `break`, `continue`, `return` or `unwind` anywhere inside it, conservatively), so §7's scope check sees the path that skips the reassignment. The flow join counts exits the same way: an entry GENed before an exit is not removed by a KILL after it.
+
 ## Test
 
-`tests/origins/unsound/c4-kill-across-break.yo` (E0911) and `c4-kill-across-break-pos.yo` (accept), with
-the fix.
+`tests/origins/unsound/c4-kill-across-break.yo` (E0911) and `c4-kill-across-break-pos.yo` (accept), G-B.

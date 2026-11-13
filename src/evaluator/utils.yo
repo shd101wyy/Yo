@@ -9949,7 +9949,7 @@ _lb_join_root_end :: (fn(variable : &Variable, root_name : &String, end : &Token
                     // A statement at or after the store that may leave the
                     // block (`break`, `continue`, `return`) is a path that
                     // skips any later reassignment: no shortening
-                    // (issues/2026-11-12-the-joins-kill-precision-ends-an-entry-at-a-reassignment-an-exit-skips.md).
+                    // (issues/fixed/2026-11-12-the-joins-kill-precision-ends-an-entry-at-a-reassignment-an-exit-skips.md).
                     st_last := _last_token_of(&st, &st_tok);
                     if(_lb_tok_after(&st_last, at) && _lb_may_exit(&st), {
                       return(end.clone());
@@ -10955,8 +10955,8 @@ place_write_join :: (fn(root : &Variable, value : &AstExpr, env : &Environment, 
 /// replaced whole (`bind_join`, KILL + GEN); any other target GENs the
 /// value's origin and checks the subset its type spells (`place_write_join`),
 /// since the store may reach only a part of it. Returns whether a target took
-/// the store (issues/2026-11-11-a-store-through-a-local-mut-borrow-of-a-holder-does-not-widen-the-holders-flow-set.md,
-/// issues/2026-11-11-a-store-through-a-mut-returned-by-a-call-does-not-grow-the-flow-set-of-the-place-it-borrows.md).
+/// the store (issues/fixed/2026-11-11-a-store-through-a-local-mut-borrow-of-a-holder-does-not-widen-the-holders-flow-set.md,
+/// issues/fixed/2026-11-11-a-store-through-a-mut-returned-by-a-call-does-not-grow-the-flow-set-of-the-place-it-borrows.md).
 store_through_mut_join :: (fn(targets : &ArrayList(OriginRootPlace), own : &String, value : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> bool)({
   holders := ArrayList(Variable).new();
   whole := ArrayList(bool).new();
@@ -11781,7 +11781,7 @@ _origin_ground_roots :: (fn(roots : &ArrayList(OriginRootPlace), env : &Environm
 /// holder's entries (what the place holds is reached through it): grounding
 /// it to the entries alone lost the lend, so a holder storing a lend of its
 /// own field was not frozen by it (A27,
-/// issues/2026-11-11-a-lend-of-a-holders-own-field-stored-into-the-holder-is-recorded-as-the-holders-earlier-loans.md).
+/// issues/fixed/2026-11-11-a-lend-of-a-holders-own-field-stored-into-the-holder-is-recorded-as-the-holders-earlier-loans.md).
 _origin_ground_root :: (fn(root : OriginRootPlace, out : &mut ArrayList(OriginRootPlace), depth : u32, env : &Environment) -> unit)({
   if(depth > u32(8), {
     _origin_push(root, out);
