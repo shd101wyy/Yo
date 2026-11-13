@@ -12,7 +12,7 @@ contradicts `issues/fixed/2026-11-05-derive-clone-over-a-reference-field-clones-
 
 ## Reproducers
 
-`issues/repros/2026-11-11-a-mut-reference-field-read-by-value-is-copied-so-two-holders-share-one-exclusive-borrow.yo`
+`tests/origins/unsound/mut-field-copied-by-derive-clone.yo` (was `issues/repros/2026-11-11-…`)
 (negative, expects a rejection at the derive, E0908):
 
 ```yo
@@ -40,9 +40,9 @@ $ yo compile repro.yo --optimize 1 --sanitize address --allocator system -o t &&
 ==…==ERROR: AddressSanitizer: heap-use-after-free
 ```
 
-- `…-shared-param.yo` (negative, E0908): no derive, `dup :: (fn(m : &M) -> M)(M(r : m.r, n : m.n));`.
-- `…-owned.yo` (negative, E0911): `m2 := M(r : m.r, n : i32(1));` straight out of the local `m`, which stays usable.
-- `…-pos.yo` (positive control): `m2 := m;` moves the holder whole; only `m2` is used afterwards.
+- `mut-field-copied-through-shared-param.yo` (negative, E0908): no derive, `dup :: (fn(m : &M) -> M)(M(r : m.r, n : m.n));`.
+- `mut-field-reborrowed-from-owned.yo` (negative, E0911): `m2 := M(r : m.r, n : i32(1));` straight out of the local `m`, which stays usable.
+- `mut-field-holder-moved-whole-pos.yo` (positive control): `m2 := m;` moves the holder whole; only `m2` is used afterwards.
 
 ## The family (develop `64f33c710`)
 
@@ -95,3 +95,43 @@ move-only, so a copy never duplicates an exclusive loan". So:
 With the fix: the three negative programs and the positive control move to `tests/origins/unsound/`;
 `tests/origin_holder_derive.test.yo` gains `derive(M, Clone)` over a `&mut` field (rejected) beside the `&` field
 case the fixed issue added; corpus rows `clone-mut-holder` (E0908), `mut-field-copied-through-shared` (E0908) and `mut-field-reborrowed-from-owned` (E0911).
+
+## Fix
+
+The two rules the Expected section states (lane c8e, VERDICTS-58 #18). A `&mut` reference field read bare into a
+`&mut` slot is the reborrow `&mut m.r.*`.
+
+- **Through a `&` path: E0908.** A struct or enum-variant constructor's `&mut` field
+  (`src/evaluator/calls/type.yo`, after `note_mut_lend_value`) now runs the write-through-borrow checks a field write
+  runs, whenever the value it is given is a `&mut` (the lend `&mut p`, or a `&mut` reference value: a reference field
+  read, a reference binding):
+  - `shared_borrow_param_root_of_place` reports a `&T` parameter root (`m : &M`, `self : &Self`). The error is "Cannot
+    store `m.r` in the `&mut` field `r`: `m` is a `&T` parameter, a read-only borrow of the caller's value."
+  - `local_borrow_require_writable` reports a `&` local borrow root (`mm := &m`).
+
+  `derive(M, Clone)` over a `&mut` field therefore fails at the derive: "derive on "M" failed: Cannot store
+  `self.r` …". A call argument (`f(m.r)` with `x : &mut X`) was E0908 already, through
+  `require_no_inout_write_through_borrow`. A lend of a place inside a `&T` parameter into a `&mut` field
+  (`M2(p : &mut m.n)`) goes through the same check.
+- **Out of an owned holder: the reborrow's freeze.** `origin_of`'s R-FIELD (`src/evaluator/utils.yo`) gives a `&mut`
+  reference field read that a slot took as a `&mut` value (`is_mut_lend_value`) the spelled lend's origin,
+  `_origin_push_lend`: the place `m.r`, mode `&mut`. The field type's origin it gave before was `x`, which the holder
+  already freezes. The new holder therefore freezes `m` while it lives, and `h := H(p : &m.r.*.*)` before its last
+  use is E0911, exactly as `M(r : &mut m.r.*, …)` is. A lend that only crosses the field (`&m.r.*.*`) still reads the
+  field type's origin.
+
+Not fixed here: the enum row. A `&mut` payload bound by a `match` over a `&E` is still a writable `&mut`, so
+`derive(Clone)` over such an enum is still accepted. It is
+`issues/2026-11-13-a-mut-payload-bound-through-a-shared-scrutinee-is-writable.md` (S1, open). The cause is the
+pattern binding, which is its own variable with no path back to the `&` root.
+
+Tests:
+
+- `tests/origins/unsound/` (G-B): `mut-field-copied-by-derive-clone` and `mut-field-copied-through-shared-param`
+  (E0908), `mut-field-reborrowed-from-owned` (E0911), and the controls `mut-field-holder-moved-whole-pos` and
+  `mut-field-reborrowed-from-owned-pos` (the reborrow used and dropped before `m` is read again), clean under ASan.
+- `tests/origin_holder_derive.test.yo`, "origin holder derive: a `&mut` field read into a `&mut` field reborrows it":
+  the write through the reborrow reaches `x`, and the `&M` copy is E0908.
+
+The corpus rows the Test section names are not added: each needs its encoding in the model's toy language
+(`tests/origins/model_corpus.test.yo`), and the G-B rows above gate the same three shapes.

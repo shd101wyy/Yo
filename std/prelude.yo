@@ -8689,8 +8689,8 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
           // wrapper/payload clash (E0616) when the payload is `Clone` too.
           part :: cond(
             // A reference field (decision 43 step 3): the clone lends the
-            // same referent (`&T` is `Copy`; a `&mut T` field makes the
-            // holder move-only, and its lend is the type error).
+            // same referent (`&T` is `Copy`; a `&mut T` field read through
+            // `self : &Self` is a `&` reborrow, E0908 at the derive).
             __derive_field_is_reference(fields.get(fi).field_type) => __s2("self.", fname),
             Type.impls(fields.get(fi).field_type, Deref) => __s5("(type_of(self.", fname, ") <: Clone).clone(&self.", fname, ")"),
             true => __s3("self.", fname, ".clone()")

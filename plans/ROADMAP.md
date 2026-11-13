@@ -159,6 +159,18 @@ with at most four running at once:
     ([`backlog/THEOREM_PROVING_DIRECTION.md`](backlog/THEOREM_PROVING_DIRECTION.md));
   - the compiler as the verifier's flagship user
     ([`backlog/SELF_VERIFICATION.md`](backlog/SELF_VERIFICATION.md)).
+
+  A separate track aims at end-to-end correctness: a core IR specified in
+  Lean, and a small proved checker that re-validates what the compiler
+  produced ([`backlog/PROVEN_CORE.md`](backlog/PROVEN_CORE.md), decided
+  2026-11-13, after VBD).
+
+  Verification becomes the default in two steps, and this is lane E's first
+  track after VBD (decided 2026-11-13,
+  [`backlog/DEFAULT_ON_VERIFICATION.md`](backlog/DEFAULT_ON_VERIFICATION.md)):
+  `yo init` scaffolds `pragma(Pragma.VerifyOrAssert);` first, and the
+  language default flips from `runtime` to `verify+` once std bodies are
+  proved, incremental verification has landed and its other gates hold.
 - **F. std and reach.**
   - HTTP keep-alive and `lines()`.
   - Raw string literals.
