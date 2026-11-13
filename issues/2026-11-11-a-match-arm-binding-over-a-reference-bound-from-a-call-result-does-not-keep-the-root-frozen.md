@@ -149,8 +149,9 @@ G-B rows: `tests/origins/unsound/a3-match-ref-binding-from-call.yo`, `a3-match-r
 `a3-match-local-reference-binding.yo`, `a3-match-reference-binding-of-global.yo` (E0911), with `-pos` twins for the
 first and third.
 
-Still open: a `&mut` REFERENCE BINDING matched bare (m20, m04, m03e; G-B row
-`tests/origins/unsound/a3-match-mut-local-reference-binding.yo`, failing). Its bindings are recorded
+Still open: a `&mut` REFERENCE BINDING matched bare (m20, m04, m03e; reproducer
+`issues/repros/2026-11-11-a-match-arm-binding-over-a-reference-bound-from-a-call-result-does-not-keep-the-root-frozen-mut-local-reference-binding.yo`,
+not a G-B row while it fails). Its bindings are recorded
 (`local_borrow_note_match_place`) and not registered, because the place model cuts a place at `.*`: `r.* = .None`
 (a write through `r`) and `r = &mut n.next` (decision 25's re-point, which must stay legal while `n` lives) are the
 same place `r`. Closing it needs a deref step in `LocalBorrowPlace` (a write of `r.*` overlaps a loan of `r.*`, a
