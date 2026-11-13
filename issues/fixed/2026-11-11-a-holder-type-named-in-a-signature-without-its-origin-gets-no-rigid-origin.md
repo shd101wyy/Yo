@@ -87,3 +87,27 @@ widens `o` by `y`: E0911 at the read after `y`'s block.
 
 With the fix: the two negative programs and the positive control move to `tests/origins/unsound/`; corpus rows
 `elided-holder-param-store` (E0923), `elided-holder-field-store` (E0923) and `spelled-holder-param-store` (accept).
+
+## Fix (2026-11-13, lane `sig`, branch `fix/sig-1`)
+
+Two gaps, both closed:
+
+1. **The rigid binder skipped the nominal's hidden origin.** `nominal_has_hidden_origin` (`src/types/utils.yo`)
+   answers whether a struct or enum carries an origin that none of its type arguments supplies (an elided `&` field
+   of its definition, directly or through a field of another such nominal; a generic holder `V(T) :: struct(xs : &T)`
+   included). `_rigidify_elided_origins` (`src/evaluator/utils.yo`) then gives each OCCURRENCE of such a type in a
+   parameter one more fresh rigid origin, as if `H(h#v1)` had been written (O2's nominal row). Only the origin walks
+   read the rigid slot.
+2. **A by-value parameter's origins never reached the store check.** `origin_of` gives a by-value parameter no root,
+   so even spelled origins compared nothing: `dst : &mut Option(&(X, q)), o : Option(&(X, p))` with `dst.* = o` was
+   accepted. `byvalue_param_origin_names` collects the declared (rigid when elided) origins of every by-value
+   parameter a stored value holds, and `bind_join` / `place_write_join` check them against the holder's names
+   (`_byvalue_param_subset_check`), with the rigid-origin E0923 and its shared-origin repair.
+
+A field type that is one of the nominal's type arguments is read as that argument (an instance's fields are its
+definition's with the arguments substituted), so `Pair(T) :: struct(a : T, r : &i32)` at `T := &i32` is read as
+having no hidden origin: its hidden `r` is missed. No such type exists in std or src.
+
+The G-B rows (`tests/origins/unsound/`): `elided-holder-param-store`, `elided-holder-field-store`,
+`elided-holder-method-store`, `elided-holder-copy-through-ref`, `elided-holder-generic-store` (E0923), with the
+positive controls `elided-holder-param-store-pos` (the spelled `G(p)` form) and `elided-holder-method-store-pos`.
