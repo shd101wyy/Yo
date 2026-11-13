@@ -1272,7 +1272,7 @@ impl(
   is_valid_struct_field_arg : (fn(self : &mut Self, expr : &AstExpr) -> bool)(
     match(
       expr,
-      .Atom(_, _) => true,
+      .Atom(_, field_tok) => (field_tok.kind == TokenKind.Identifier),
       .FnCall(_, func_box, _, is_infix, _) => cond(
         is_infix => match(
           func_box,
