@@ -79,6 +79,30 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
     context.base.emit_typeid_static(static_var_name.clone(), String.new());
   });
   context.base.add_c_include(String.from("<stdint.h>"));
+  // The owning downcast of a `Box(Dyn(...))` (decision 49 S2), typed
+  // `Result(Box(V), Box(Dyn(...)))`: the box is moved in; on a match its data
+  // word, the payload address with L1's placed bit, IS a `Box(V)`, so the
+  // block is handed back retyped; otherwise the fat box comes back as `.Err`.
+  match(
+    &ei.ty(),
+    Rc(.EnumT({ name : res_name, type_arguments : res_targs })) => if(res_name == "Result", {
+      ok_box_ty := match(res_targs.get(usize(0)), .Some(t) => t, .None => return(String.from("/* ERROR: downcast Result without type arguments */")));
+      res_c := get_type_string(&ei.ty(), &mut context.base);
+      ok_c := get_type_string(&ok_box_ty, &mut context.base);
+      fat_c := get_type_string(&arg_ty, &mut context.base);
+      uid_o := fresh_local_name(String.from("u"), &context.base.current_function_name);
+      src_var := `__yo_dco_src_${uid_o}`;
+      context.base.emitter.emit_string_line(`${indent.clone()}${fat_c} ${src_var} = ${arg_code};`);
+      ok_tag := get_enum_variant_c_name(&ei.ty(), String.from("Ok"), &context.base);
+      err_tag := get_enum_variant_c_name(&ei.ty(), String.from("Err"), &context.base);
+      ok_m := c_variant_member_name(String.from("Ok"));
+      err_m := c_variant_member_name(String.from("Err"));
+      val_f := sanitize_for_c_identifier(String.from("value"), false);
+      err_f := sanitize_for_c_identifier(String.from("error"), false);
+      return(`((${src_var}.vtable->__yo_type_id == (uintptr_t)&${static_var_name}) ? (${res_c}){ .tag = ${ok_tag}, .data = { .${ok_m} = { .${val_f} = (${ok_c})(${src_var}.data) } } } : (${res_c}){ .tag = ${err_tag}, .data = { .${err_m} = { .${err_f} = ${src_var} } } })`);
+    }),
+    _ => ()
+  );
   // is-check: the Dyn's vtable type-id equals this target's static address.
   is_check := dyn_code.clone();
   is_check.push_str(".vtable->__yo_type_id == (uintptr_t)&");

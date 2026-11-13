@@ -41,16 +41,17 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
 { TypeValue, TypeValueNode, no_types, t_refine_inner, t_reference } :: import("../../types/definitions.yo");
-{ is_dyn_type, is_reference_struct_type, unique_box_payload_type } :: import("../../types/guards.yo");
+{ is_dyn_type, is_reference_struct_type, unique_box_payload_type, cell_handle_view } :: import("../../types/guards.yo");
 { projection_call_mode_of, variable_is_reference_binding } :: import("../utils.yo");
 { _eval_builtin_args } :: import("./sizeof.yo");
 { type_to_string } :: import("../../types/string.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_unknown_val, is_type_value } :: import("../../value.yo");
 { create_option_type } :: import("./rc_fns.yo");
-{ attach_temp_variable_to_expr } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, set_expr_as_needs_to_call_dup } :: import("../utils.yo");
+{ apply_type_ctor_via } :: import("../values/dyn.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ format_error_message, format_eval_failure, with_code } :: import("../../error.yo");
+{ format_error_message, format_error_message_with_help, format_eval_failure, with_code } :: import("../../error.yo");
 { E_TRAIT_NOT_IMPLEMENTED, E_USE_OF_MOVED_VALUE } :: import("../../diagnostics.yo");
 { type_is_move_only, dyn_type_lists_clone } :: import("../../types/utils.yo");
 { are_types_compatible_exact } :: import("../../types/compatibility.yo");
@@ -98,6 +99,8 @@ evaluate_downcast :: (
   // the payload (decision 49): `Option(&V)` / `Option(&mut V)`.
   (dyn_type : TypeValue) = Rc.clone(dyn_info.ty());
   (ref_mode : Option(bool)) = Option(bool).None;
+  // An owned `Box(Dyn(...))` argument: the owning downcast (decision 49 S2).
+  (owned_box : Option(TypeValue)) = Option(TypeValue).None;
   match(
     t_refine_inner(&dyn_type),
     Rc(.Reference(dr_p, dr_m, _)) => if(is_dyn_type(&dr_p), {
@@ -115,8 +118,8 @@ evaluate_downcast :: (
         .None => ()
       );
     }),
-    _ => if(is_dyn_type(&dyn_type), {
-      ref_mode = match(
+    _ => {
+      place_mode := match(
         projection_call_mode_of(&dyn_expr, ctx),
         .Some(pm) => Option(bool).Some(pm),
         .None => match(
@@ -125,7 +128,47 @@ evaluate_downcast :: (
           .None => Option(bool).None
         )
       );
-    })
+      if(is_dyn_type(&dyn_type), {
+        ref_mode = place_mode;
+      }, {
+        match(
+          unique_box_payload_type(&dyn_type),
+          // An owning `Box(Dyn(...))`: read through a place it is the view of
+          // the payload; owned, the box itself is handed back retyped (below).
+          .Some(hp) => if(is_dyn_type(&hp), {
+            match(
+              place_mode,
+              .Some(pm) => {
+                ref_mode = Option(bool).Some(pm);
+                dyn_type = t_refine_inner(&hp);
+              },
+              .None => {
+                owned_box = Option(TypeValue).Some(Rc.clone(&dyn_type));
+                dyn_type = t_refine_inner(&hp);
+              }
+            );
+          }),
+          .None => match(
+            cell_handle_view(&dyn_type),
+            .Some(hv) => if(is_dyn_type(&hv.payload) && place_mode.is_none(), {
+              // The interim `Rc(Dyn)`/`Arc(Dyn)` cell holds the payload in a
+              // block that cannot be retyped, so there is no owning downcast
+              // of a shared handle (VERDICTS-61 decision 2).
+              exn.throw(
+                dyn(
+                  format_error_message_with_help(
+                    ast_expr_token(&dyn_expr),
+                    &`an owning \`downcast\` of a shared \`${type_to_string(&dyn_type)}\` handle is not available: the cell's block cannot be retyped while another handle may share it`,
+                    &Option(String).Some(`downcast a view of the payload instead: \`downcast(&${ast_expr_to_string(&dyn_expr)}.*, V)\` returns \`Option(&V)\``)
+                  )
+                )
+              );
+            }),
+            .None => ()
+          )
+        );
+      });
+    }
   );
   if(!is_dyn_type(&dyn_type), {
     exn.throw(
@@ -171,6 +214,32 @@ evaluate_downcast :: (
       attach_temp_variable_to_expr(expr, true, ctx);
       return(dc_call);
     }),
+    .None => ()
+  );
+  // The owning downcast of a `Box(Dyn(...))` (decision 49 S2): the box is
+  // consumed and comes back as `.Ok(Box(V))` (the same block, retyped) when
+  // its payload is a `V`, or as `.Err(box)` unchanged.
+  match(
+    owned_box,
+    .Some(ob) => {
+      vb_targs := ArrayList(TypeValue).new();
+      vb_targs.push(Rc.clone(&target_type));
+      vbox := match(apply_type_ctor_via(&String.from("Box"), &vb_targs, &cur_env, ctx, exn), .Some(t) => t, .None => return(dc_call));
+      res_targs := ArrayList(TypeValue).new();
+      res_targs.push(vbox);
+      res_targs.push(Rc.clone(&ob));
+      res_ty := match(apply_type_ctor_via(&String.from("Result"), &res_targs, &cur_env, ctx, exn), .Some(t) => t, .None => return(dc_call));
+      match(
+        dc_call,
+        .FnCall(_, _, Rc(oargs), _, _) => match(oargs.get(usize(0)), .Some(oa) => set_expr_as_needs_to_call_dup(&oa, ctx, exn, "downcast"), .None => ()),
+        _ => ()
+      );
+      out_info_o := new_expr_info(&cur_env, &res_ty);
+      out_info_o.set_value(Option(EvalValue).Some(create_unknown_val(&res_ty)));
+      expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info_o);
+      attach_temp_variable_to_expr(expr, true, ctx);
+      return(dc_call);
+    },
     .None => ()
   );
   // `yo fix --migrate unsized` lists a downcast of an owned Dyn (kind 6): the

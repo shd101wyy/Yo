@@ -71,6 +71,21 @@ pragma(Pragma.AllowUnsafe);
 /// pre-bound to inner_type in the callee env (evaluate_comptime_fn_call evals
 /// the body in the passed callee_env and does NOT bind params).
 _create_box_type_via :: (fn(ctor : &String, inner_type : &TypeValue, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> Option(TypeValue))({
+  targs := ArrayList(TypeValue).new();
+  targs.push(Rc.clone(inner_type));
+  // The cell is a `ref` object, or a cell handle (`cell_handle_view`): V5's
+  // `Rc`/`Arc`, a newtype over `__yo_cell`/`__yo_atomic_cell`.
+  match(
+    apply_type_ctor_via(ctor, &targs, env, ctx, exn),
+    .Some(bt) => if(is_reference_struct_type(&bt) || cell_handle_view(&bt).is_some() || is_unique_box_type(&bt), Option(TypeValue).Some(bt), Option(TypeValue).None),
+    .None => Option(TypeValue).None
+  )
+});
+/// `ctor(types...)` for the type constructor named `ctor` in `env` (the
+/// prelude's `Box`, `Rc`, `Result`), as the type checker would build it from
+/// source: `.None` when `ctor` names no function there or the call does not
+/// return a type.
+apply_type_ctor_via :: (fn(ctor : &String, types : &ArrayList(TypeValue), env : &Environment, ctx : &mut EvalContext, exn : Exception) -> Option(TypeValue))({
   vars := get_variables_from_env(env, ctor.clone());
   (box_fv : Option(EvalValue)) = Option(EvalValue).None;
   (box_ft : TypeValue) = t_unit();
@@ -95,36 +110,39 @@ _create_box_type_via :: (fn(ctor : &String, inner_type : &TypeValue, env : &Envi
     box_fv,
     .None => Option(TypeValue).None,
     .Some(bfv) => {
-      param0_ty := match(&box_ft, Rc(.Func({ param_types : pts })) => match(slot_pointee_at(&pts, usize(0)), .Some(p) => p, .None => t_type()), _ => t_type());
-      param0_label := match(&box_ft, Rc(.Func({ meta : bm })) => match(bm.param_labels.get(usize(0)), .Some(l) => l, .None => String.from("V")), _ => String.from("V"));
       (cenv : Environment) = Rc.clone(env);
       _cfr := cenv.push_frame(false);
-      vtok := synthetic_token(param0_label.clone(), &cenv.module_path().*);
-      add_variable_to_env(&cenv, param0_label.clone(), t_type(), Option(EvalValue).Some(create_type_value(inner_type)), true, false, false, false, &vtok);
       bargs := ArrayList(ArgEntry).new();
-      bargs.push(ArgEntry(value : Option(EvalValue).Some(create_type_value(inner_type)), parameter_type : param0_ty, arg_type : t_type()));
+      (ai : usize) = usize(0);
+      while(ai < types.len(), {
+        ty_i := match(types.get(ai), .Some(t) => t, .None => t_unit());
+        param_ty := match(&box_ft, Rc(.Func({ param_types : pts })) => match(slot_pointee_at(&pts, ai), .Some(p) => p, .None => t_type()), _ => t_type());
+        param_label := match(&box_ft, Rc(.Func({ meta : bm })) => match(bm.param_labels.get(ai), .Some(l) => l, .None => String.from("V")), _ => String.from("V"));
+        vtok := synthetic_token(param_label.clone(), &cenv.module_path().*);
+        add_variable_to_env(&cenv, param_label.clone(), t_type(), Option(EvalValue).Some(create_type_value(&ty_i)), true, false, false, false, &vtok);
+        bargs.push(ArgEntry(value : Option(EvalValue).Some(create_type_value(&ty_i)), parameter_type : param_ty, arg_type : t_type()));
+        ai = (ai + usize(1));
+      });
       bav := ArgValues(
         forall_args : ArrayList(ArgEntry).new(),
         args : bargs,
         implicit_args : Option(ArrayList(ArgEntry)).None,
         variadic_args : ArrayList(VarArgEntry).new()
       );
-      // The callee expr must be a synthetic `Rc` atom, not `.None`: the
-      // `Rc(arg)` display-name stamp in comptime_fn.yo reads the constructor
-      // NAME off the callee expr token (FuncVals carry no funcName),
-      // and `is_boxed_type` keys off that `Rc(`-prefixed name. With `.None`
-      // this site minted the MEMOIZED canonical `Rc(T)` instance UNSTAMPED,
-      // so any consumer handed the canonical (the era-repair return re-eval)
-      // failed is_boxed_type and the boxed-dyn path registered the impl
-      // against the Box pointer itself (dyn_dispatch_autobox_value printed
+      // The callee expr must be a synthetic atom naming the constructor, not
+      // `.None`: the `Rc(arg)` display-name stamp in comptime_fn.yo reads the
+      // constructor NAME off the callee expr token (FuncVals carry no
+      // funcName), and `is_boxed_type` keys off that `Rc(`-prefixed name. With
+      // `.None` this site minted the MEMOIZED canonical `Rc(T)` instance
+      // UNSTAMPED, so any consumer handed the canonical (the era-repair return
+      // re-eval) failed is_boxed_type and the boxed-dyn path registered the
+      // impl against the Box pointer itself (dyn_dispatch_autobox_value printed
       // a blank instead of 'Q').
       b_callee_tok := synthetic_token(ctor.clone(), &cenv.module_path().*);
       b_callee := AstExpr.Atom(alloc_global_expr_id(), b_callee_tok);
       bres := evaluate_comptime_fn_call(Option(AstExpr).Some(b_callee), &box_ft, &bfv, &bav, env, &cenv, ctx, exn);
       cenv.pop_frame();
-      // The cell is a `ref` object, or a cell handle (`cell_handle_view`): V5's
-      // `Rc`/`Arc`, a newtype over `__yo_cell`/`__yo_atomic_cell`.
-      match(bres.value, .TypeVal(bt) => if(is_reference_struct_type(&bt) || cell_handle_view(&bt).is_some() || is_unique_box_type(&bt), Option(TypeValue).Some(Rc.clone(bt)), Option(TypeValue).None), _ => Option(TypeValue).None)
+      match(bres.value, .TypeVal(bt) => Option(TypeValue).Some(Rc.clone(bt)), _ => Option(TypeValue).None)
     }
   )
 });
@@ -2031,4 +2049,4 @@ _evaluate_dyn_erasure :: (
   attach_temp_variable_to_expr(expr, true, ctx);
   expr
 });
-export(evaluate_dyn_value);
+export(evaluate_dyn_value, apply_type_ctor_via);
