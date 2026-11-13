@@ -1,0 +1,12 @@
+// expect: accept
+// `x = x` moves the old value into the store: nothing is saved and dropped,
+// so `x` keeps a live buffer (it was a heap-use-after-free: the saved copy
+// was dropped).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(x) := String.from("payload-0123456789abcdefghijklmnop");
+  x = x;
+  println(`OUT ${x}`);
+});
+export(main);

@@ -65,6 +65,11 @@ LONG2 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ012345678
 BORROW_CODES_YO = {"E0901", "E0909", "E0910", "E0911", "E0912", "E0919", "E0923", "E0924", "E0922"}
 # diagnostics without a code that are the language's documented walls, not generator bugs
 WALL_TEXTS = ("carries an origin inside a container or a cell", "Cannot re-point")
+# precision (Yo rejects, rustc accepts) patterns that are recorded rows, tagged "known: <row>" in the summary so an
+# over-freeze nobody has explained stands out in precision.tsv
+PRECISION_KNOWN = (
+    ("the borrow lasts until", "C14"),  # a bound capture-list closure holds its captures to the binding's scope end
+)
 BORROW_CODES_RS = {
     "E0499", "E0502", "E0503", "E0505", "E0506", "E0507", "E0515", "E0521", "E0597", "E0716",
     "E0382", "E0381", "E0373", "E0713", "E0594", "E0596", "E0384", "E0505", "E0510", "E0712",
@@ -903,7 +908,7 @@ def parse_check(out, names):
             if w:
                 name = os.path.basename(w.group(1))
                 if name not in res:
-                    res[name] = ("ERR", m.group(1) or "-", m.group(2)[:140])
+                    res[name] = ("ERR", m.group(1) or "-", m.group(2)[:400])
                 break
     return {n: res[n] for n in names if n in res}
 
@@ -977,6 +982,12 @@ def asan(path):
         return ("CLEAN",)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def precision_tag(r):
+    """'known: C14' for a precision row of a recorded pattern, else '' (message is yo's first error line)."""
+    msg = r["yo"][2] if len(r["yo"]) > 2 else ""
+    return next((f"known: {tag}" for text, tag in PRECISION_KNOWN if text in msg), "")
 
 
 def classify(yo, rs, asn):
@@ -1229,16 +1240,17 @@ def main():
                 f.write("\t".join(row) + "\n")
         prec = [r for r in rows if r["cls"] == "precision"]
         with open(os.path.join(a.out, "precision.tsv"), "w") as f:
-            f.write("# signature\tyo code\tfirst yo message\n")
+            f.write("# signature\tyo code\tfirst yo message\tknown\n")
             for r in sorted(prec, key=lambda r: (r["yo"][1], sig(r["fam"], r["d"]))):
-                f.write(f"{sig(r['fam'], r['d'])}\t{r['yo'][1]}\t{r['yo'][2]}\n")
+                f.write(f"{sig(r['fam'], r['d'])}\t{r['yo'][1]}\t{r['yo'][2]}\t{precision_tag(r)}\n")
         tmpl = [r for r in rows if r["cls"] == "TEMPLATE"]
         log(f"precision divergences (yo rejects, rustc accepts): {len(prec)}")
         hist = {}
         for r in prec:
-            hist[(r["fam"], r["yo"][1])] = hist.get((r["fam"], r["yo"][1]), 0) + 1
+            key = (r["fam"], r["yo"][1], precision_tag(r))
+            hist[key] = hist.get(key, 0) + 1
         for k, v in sorted(hist.items(), key=lambda kv: -kv[1])[:8]:
-            log(f"    {k[0]} {k[1]}: {v}")
+            log(f"    {k[0]} {k[1]}: {v}" + (f" [{k[2]}]" if k[2] else ""))
         if tmpl:
             log(f"TEMPLATE failures (generator bugs or compiler ICEs): {len(tmpl)}")
             for r in tmpl[:12]:

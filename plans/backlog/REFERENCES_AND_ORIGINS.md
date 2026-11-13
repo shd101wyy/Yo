@@ -585,7 +585,7 @@ parameter):
   `{ y : &(T, y), z : &mut(T, z) }` — the closure's type carries them; a
   lent `Impl(Fn(...))` slot's own origin parameters must subsume the
   literal's (the coercion rule, O3-3). A closure's parameters are fresh
-  origins like any function's.
+  origins like any function's. As built until P4-0 (`BORROW_CHECKER_COMPLETENESS.md` §7, audit C14): a bound capture-list closure holds its captures to the binding's scope end, not to its last use (E0910); the rule above is last use.
   A BY-VALUE entry whose type holds a reference (`{ last : Option(&T).None }`)
   has its origins fixed at the literal, from the initializer (the empty
   origin for `.None`); an `FnMut` body's write to the entry is a store

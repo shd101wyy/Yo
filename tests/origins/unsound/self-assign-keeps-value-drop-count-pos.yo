@@ -1,7 +1,8 @@
-// expect: accept (drops=1)
-// No heap payload: the destructor of one `D` runs twice, once at `x = x`
-// and once at the scope end (prints drops=1 after the assignment, 2 at the end).
+// expect: accept
+// No heap payload: the destructor of the one `D` runs once, at the scope end,
+// not at `x = x` too (it ran twice).
 { println } :: import("std/fmt");
+{ assert } :: import("std/assert");
 (mut(g_drops) : i32) = i32(0);
 nd :: (fn() -> i32)(g_drops);
 D :: struct(n : i32);
@@ -18,7 +19,9 @@ main :: (fn() -> unit)({
     mut(x) := D(n : i32(1));
     x = x;
     println(`OUT after-assign drops=${nd().to_string()} expect 0`);
+    assert(nd() == i32(0), "x = x runs no destructor");
   };
   println(`OUT drops=${nd().to_string()} expect 1`);
+  assert(nd() == i32(1), "the scope end runs it once");
 });
 export(main);
