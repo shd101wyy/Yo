@@ -771,6 +771,21 @@ Eq ::
     )
   );
 export(Eq);
+/// `Eq` over a shared reference (Rust's `impl PartialEq<&B> for &A`): two
+/// references are equal when their referents are, so `ra == rb` on
+/// `ra, rb : &T` and generic code at `T := &U` (a `HashMap` key, a `sort`)
+/// compare the referents. Only the same shape: `&T == T` has no impl. The
+/// bodies are the type-qualified calls, never `lhs.*.(==)(…)`, whose probe
+/// would select this impl again (VERDICTS-49).
+impl(
+  generic(T : Type),
+  where(T <: Eq(T)),
+  &T,
+  Eq(&T)(
+    (==) : (fn(lhs : &Self, rhs : &Self) -> bool)(T.(==)(lhs.*, rhs.*)),
+    (!=) : (fn(lhs : &Self, rhs : &Self) -> bool)(T.(!=)(lhs.*, rhs.*))
+  )
+);
 ComptimeEq ::
   (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Trait))(
     trait(
@@ -829,6 +844,20 @@ Ord :: (
   )
 );
 export(Ord);
+/// `Ord` over a shared reference: the order of the referents, `cmp`
+/// included (a float's total `cmp` stays its own).
+impl(
+  generic(T : Type),
+  where(T <: Ord(T)),
+  &T,
+  Ord(&T)(
+    (<) : (fn(lhs : &Self, rhs : &Self) -> bool)(T.(<)(lhs.*, rhs.*)),
+    (<=) : (fn(lhs : &Self, rhs : &Self) -> bool)(T.(<=)(lhs.*, rhs.*)),
+    (>) : (fn(lhs : &Self, rhs : &Self) -> bool)(T.(>)(lhs.*, rhs.*)),
+    (>=) : (fn(lhs : &Self, rhs : &Self) -> bool)(T.(>=)(lhs.*, rhs.*)),
+    cmp : (fn(lhs : &Self, rhs : &Self) -> Ordering)(T.cmp(lhs.*, rhs.*))
+  )
+);
 /**
 * `Reverse(T)` — a wrapper whose `Ord` is `T`'s, inverted (Rust's
 * `core::cmp::Reverse`).

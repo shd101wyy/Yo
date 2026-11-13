@@ -58,6 +58,16 @@ ToString :: trait(
     ((self, out) -> out.push_string(&self.to_string()))
 );
 export(ToString);
+/// `ToString` over a shared reference renders the referent.
+impl(
+  generic(T : Type),
+  where(T <: ToString),
+  &T,
+  ToString(
+    to_string : (fn(self : &Self) -> String)(T.to_string(self.*)),
+    append_to : (fn(self : &Self, out : &mut String) -> unit)(T.append_to(self.*, out))
+  )
+);
 /// `Debug` — the STRUCTURAL render of a value (Rust's `std::fmt::Debug`), split
 /// from `ToString` by D15.
 ///
