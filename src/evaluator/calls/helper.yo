@@ -130,6 +130,7 @@ pragma(Pragma.AllowUnsafe);
   fn_constrained_param_requires_callable,
   fn_argument_not_callable_message,
   function_value_slot_mismatch,
+  function_value_origin_mismatch,
   impl_param_unmet_trait,
   impl_argument_unmet_trait_message,
   judge_function_argument_markers,
@@ -247,7 +248,7 @@ pragma(Pragma.AllowUnsafe);
 { generate_expr_from_code } :: import("../../parser.yo");
 { format_error_message, format_error_message_with_help, with_code, YoError, note_diagnostic_of_token } :: import("../../error.yo");
 { is_std_module_path, is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
-{ E_ARGUMENT_LABEL_MISMATCH, E_CLOSURE_TRAIT_TOO_WEAK, E_BORROW_MARKER_MISMATCH, E_INCOMPATIBLE_TYPES } :: import("../../diagnostics.yo");
+{ E_ARGUMENT_LABEL_MISMATCH, E_CLOSURE_TRAIT_TOO_WEAK, E_BORROW_MARKER_MISMATCH, E_INCOMPATIBLE_TYPES, E_ORIGIN_MISMATCH } :: import("../../diagnostics.yo");
 { require_ref_own_argument_exclusivity, require_valid_ref_argument_places, flag_flow_violation, flow_violation_pending, flow_violation_error, propagate_def_time_errors, raise_flow_violation } :: import("../../types/flowability.yo");
 {
   mark_as_control_fn,
@@ -1668,6 +1669,12 @@ _arg_rule_throw :: (fn(tok : &Token, msg : &String, ctx : &EvalContext, exn : Ex
 _arg_rule_throw_types :: (fn(tok : &Token, msg : &String, a : &TypeValue, b : &TypeValue, ctx : &EvalContext, exn : Exception) -> unit)({
   raise_flow_violation(mark_generic_independent(format_error_message(tok, msg), a, b), ctx, exn);
 });
+/// `e` (under a `&` / `&mut` marker) is a closure or arrow literal, which
+/// adopts the slot's signature where it is typed.
+_arg_is_arrow_literal :: (fn(e : &AstExpr) -> bool)({
+  bare := ast_expr_strip_borrow_marker(e);
+  (ast_expr_is_fn_call_of(&bare, "=>", Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(&bare, "->", Option(usize).Some(usize(2))))
+});
 /// The argument-side value/type rule. Returns the argument's type as this
 /// parameter's value: a comptime literal is lowered to a runtime type unless
 /// the parameter (or its type) is comptime — to the DECLARED type when the
@@ -1770,6 +1777,28 @@ check_argument_for_parameter :: (
     .Some(fv_note) => _arg_rule_throw_types(arg_tok, `Incompatible types:\n- Expected: ${type_to_string(resolved_pt)}\n- Given   : ${type_to_string(&lowered)}${fv_note}`, resolved_pt, &lowered, ctx, exn),
     .None => ()
   );
+  // O7 for the same route (audit A48): the value's result origin within the
+  // slot's, its parameters' origins related no more than the slot's. A
+  // closure LITERAL adopts the slot's signature, so only a value whose type
+  // is its own definition's is judged here.
+  if(!param_is_ct && !_arg_is_arrow_literal(arg_expr), {
+    match(
+      function_value_origin_mismatch(resolved_pt, &lowered),
+      .Some(fo_msg) => raise_flow_violation(
+        with_code(
+          format_error_message_with_help(
+            arg_tok,
+            `Argument for parameter "${param_label}": ${fo_msg}`,
+            Option(String).Some(String.from("spell the function's result origin within the slot's (e.g. `-> Option(&(T, a))` for a slot whose result names `a`), or widen the slot's"))
+          ),
+          E_ORIGIN_MISMATCH
+        ),
+        ctx,
+        exn
+      ),
+      .None => ()
+    );
+  });
   // Decision 37: `Fn` implies `FnMut`, which implies `FnOnce`, never the
   // reverse (`fn_trait_base_serves`). A closure typed `FnOnce(...)` may be
   // called once, and an `Fn(...)`/`FnMut(...)` parameter's callee may call it

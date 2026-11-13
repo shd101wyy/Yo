@@ -44,7 +44,7 @@ pragma(Pragma.AllowUnsafe);
 (mut(g_future_origins_exist) : bool) = false;
 /// Capture-list borrow entries by capture-struct id (`register_capture_borrows`).
 (g_capture_borrows : RefCell(HashMap(String, ArrayList(CaptureBorrow)))) = RefCell(HashMap(String, ArrayList(CaptureBorrow))).new(HashMap(String, ArrayList(CaptureBorrow)).new());
-{ TypeValue, TypeValueNode, FuncMeta, no_labels, t_refine_inner, no_types, SharedList, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_borrow, fn_result_is_ref, t_origin_spelled_names, is_maybe_sized_kind, is_static_origin } :: import("./definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, no_labels, t_refine_inner, no_types, SharedList, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_borrow, fn_result_is_ref, t_origin_spelled_names, is_maybe_sized_kind, is_static_origin, fn_param_slots } :: import("./definitions.yo");
 { type_intern_key } :: import("./intern.yo");
 { type_to_string, type_to_string_for_message } :: import("./string.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell, enum_phantom_positions } :: import("./creators.yo");
@@ -1059,6 +1059,128 @@ _field_hidden_origin :: (fn(ty : &TypeValue, args : &SharedList(TypeValue), seen
     Rc(.EnumT({ type_arguments : fh_eta })) => (_any_hidden_origin(&fh_eta, args, seen, depth) || _nominal_hidden_inner(ty, seen, depth + u32(1))),
     _ => false
   )
+});
+/// The origin names `ty` SPELLS, in order: a reference's (`&(T, p)`), a type
+/// constructor's origin argument (`S(p)`), through pointees, type arguments
+/// and tuple components. An elided origin spells none.
+_spelled_origin_names_into :: (fn(ty : &TypeValue, out : &mut ArrayList(String), depth : u32) -> unit)({
+  if(depth > u32(16), {
+    return(());
+  });
+  match(
+    ty,
+    Rc(.Reference(sn_p, _, sn_o)) => {
+      _push_spelled_names(&sn_o, out);
+      _spelled_origin_names_into(&sn_p, out, depth + u32(1));
+    },
+    Rc(.OriginSet(_, _)) => _push_spelled_names(ty, out),
+    Rc(.Struct({ type_arguments : sn_sta })) => _spelled_origin_names_list(&sn_sta, out, depth),
+    Rc(.EnumT({ type_arguments : sn_eta })) => _spelled_origin_names_list(&sn_eta, out, depth),
+    Rc(.Tuple({ field_types : sn_tf })) => _spelled_origin_names_list(&sn_tf, out, depth),
+    _ => ()
+  );
+});
+_push_spelled_names :: (fn(o : &TypeValue, out : &mut ArrayList(String)) -> unit)(
+  match(
+    t_origin_spelled_names(o),
+    .Some(ns) => {
+      (ni : usize) = usize(0);
+      while(ni < ns.len(), ni = (ni + usize(1)), {
+        match(
+          ns.get_cloned(ni),
+          .Some(n) => if(!out.contains(&n), {
+            out.push(n);
+          }),
+          .None => ()
+        );
+      });
+    },
+    .None => ()
+  )
+);
+_spelled_origin_names_list :: (fn(ts : &SharedList(TypeValue), out : &mut ArrayList(String), depth : u32) -> unit)({
+  (i : usize) = usize(0);
+  while(i < ts.len(), i = (i + usize(1)), {
+    match(ts.get(i), .Some(t) => _spelled_origin_names_into(&t, out, depth + u32(1)), .None => ());
+  });
+});
+/// The pairs of parameters of the function type `ft` whose declared types
+/// RELATE their origins: both spell one origin name (`v : &(T, p)` and
+/// `self : &mut Slot(p)`), or one spells the other's label (`b : &(T, a)`).
+/// An elided origin is fresh and relates nothing (O2). Each pair is `(i, j)`
+/// with `i < j`, flattened.
+fn_param_origin_links :: (fn(ft : &TypeValue) -> ArrayList(usize))({
+  out := ArrayList(usize).new();
+  slots := fn_param_slots(ft);
+  labels := match(ft, Rc(.Func({ meta : pl_m })) => Rc.clone(pl_m.param_labels), _ => return(out));
+  sets := ArrayList(ArrayList(String)).new();
+  (i : usize) = usize(0);
+  while(i < slots.len(), i = (i + usize(1)), {
+    names := ArrayList(String).new();
+    match(slots.get(i), .Some(sl) => _spelled_origin_names_into(&sl, &mut names, u32(0)), .None => ());
+    // A name that is a parameter's label is that parameter's place.
+    keyed := ArrayList(String).new();
+    (ni : usize) = usize(0);
+    while(ni < names.len(), ni = (ni + usize(1)), {
+      nm := names(ni).clone();
+      (li : usize) = usize(0);
+      (key : String) = nm.clone();
+      while(li < labels.len(), li = (li + usize(1)), {
+        if(match(labels.get(li), .Some(l) => (l == nm), .None => false), {
+          key = `#${li.to_string()}`;
+        });
+      });
+      keyed.push(key);
+    });
+    keyed.push(`#${i.to_string()}`);
+    sets.push(keyed);
+  });
+  (a : usize) = usize(0);
+  while(a < sets.len(), a = (a + usize(1)), {
+    (b : usize) = (a + usize(1));
+    while(b < sets.len(), b = (b + usize(1)), {
+      (linked : bool) = false;
+      (k : usize) = usize(0);
+      while((k < sets(a).len()) && !linked, k = (k + usize(1)), {
+        if(sets(b).contains(&sets(a)(k)), {
+          linked = true;
+        });
+      });
+      if(linked, {
+        out.push(a);
+        out.push(b);
+      });
+    });
+  });
+  out
+});
+/// O3-3 for a function type standing in for another (an impl member for its
+/// trait's, a function value at a function-typed slot, O7): parameters are
+/// invariant, so `actual` may not relate two parameters' origins that
+/// `expected` leaves independent — a caller through `expected` passes
+/// unrelated arguments, and the body would store one into the other.
+/// `.None` when it does not; otherwise the first such pair, by `actual`'s
+/// labels.
+fn_param_origins_narrower :: (fn(actual : &TypeValue, expected : &TypeValue) -> Option(String))({
+  a_links := fn_param_origin_links(actual);
+  e_links := fn_param_origin_links(expected);
+  labels := match(actual, Rc(.Func({ meta : pn_m })) => Rc.clone(pn_m.param_labels), _ => return(Option(String).None));
+  (i : usize) = usize(0);
+  while((i + usize(1)) < a_links.len(), i = (i + usize(2)), {
+    (found : bool) = false;
+    (j : usize) = usize(0);
+    while((j + usize(1)) < e_links.len(), j = (j + usize(2)), {
+      if((e_links(j) == a_links(i)) && (e_links(j + usize(1)) == a_links(i + usize(1))), {
+        found = true;
+      });
+    });
+    if(!found, {
+      l1 := match(labels.get_cloned(a_links(i)), .Some(l) => l, .None => String.from("?"));
+      l2 := match(labels.get_cloned(a_links(i + usize(1))), .Some(l) => l, .None => String.from("?"));
+      return(Option(String).Some(`\`${l1}\` and \`${l2}\``));
+    });
+  });
+  Option(String).None
 });
 _any_carries_origin :: (fn(ts : &SharedList(TypeValue), seen : &mut ArrayList(String), depth : u32) -> bool)({
   (i : usize) = usize(0);
@@ -4196,7 +4318,7 @@ type_may_provide_slice_source :: (fn(ty : &TypeValue) -> bool)({
 export(enum_phantom_type_arg_somes, enum_phantom_type_args_masked);
 export(CaptureBorrow, register_capture_borrows, capture_struct_borrows, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, type_is_second_class, type_first_mut_borrow, type_pointee_second_class);
 export(future_origin_names, note_future_origins_exist, note_unreturnable_future, future_unreturnable_borrow);
-export(type_carries_origin, nominal_has_hidden_origin, type_reaches_user_drop, type_nominal_drop_uses_roots, DropUsesRootsFn, set_drop_uses_roots_fn, type_is_escapable, type_is_sized, unsized_by_value_error, escapable_bound_error, note_origin_types_exist, origin_value_phase_message, reject_origin_carrying_signature, no_origin_position_error, origin_beyond_n2b, origin_beyond_n2b_message);
+export(type_carries_origin, nominal_has_hidden_origin, fn_param_origin_links, fn_param_origins_narrower, type_reaches_user_drop, type_nominal_drop_uses_roots, DropUsesRootsFn, set_drop_uses_roots_fn, type_is_escapable, type_is_sized, unsized_by_value_error, escapable_bound_error, note_origin_types_exist, origin_value_phase_message, reject_origin_carrying_signature, no_origin_position_error, origin_beyond_n2b, origin_beyond_n2b_message);
 export(set_target_pointer_size);
 export(is_drop_trait_name, is_drop_method_name, is_destructor_trait_member, is_clone_trait_type, dyn_type_lists_clone, type_holds_dyn_by_value);
 export(get_target_pointer_size_bits);
