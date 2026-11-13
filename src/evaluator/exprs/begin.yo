@@ -817,7 +817,10 @@ _m3_operand_moves_variable :: (fn(a : &AstExpr, variable : &Variable, ct : &Toke
   if(ast_expr_is_atom(a), {
     return((t.value.* == variable.name) && _m3_tokens_comparable(&t, ct) && (t.character == ct.character));
   });
-  if(!is_any_temp_variable_name(&variable.name), {
+  // The minting-site test first: it allocates nothing, and the walks ask it
+  // of every operand of every call in a block, for each consumed variable.
+  minted_here := match(variable.initialized_at_token(), .Some(init) => (_m3_tokens_comparable(&t, &init) && (t.character == init.character)), .None => false);
+  if(!minted_here || !is_any_temp_variable_name(&variable.name), {
     return(false);
   });
   // A call-scoped share (Aliasing Stage 0's caller-owned +1 of a borrowed
@@ -826,10 +829,7 @@ _m3_operand_moves_variable :: (fn(a : &AstExpr, variable : &Variable, ct : &Toke
   // codegen already keeps pending for every exit in the later arguments: the
   // call does not move it, and an exit drop here released it a second time
   // (issues/fixed/2026-11-13-a-receivers-call-scoped-rc-share-is-released-twice-by-an-exit-in-a-later-argument.md).
-  if(_m3_operand_carries_call_scoped_share(a, ctx), {
-    return(false);
-  });
-  match(variable.initialized_at_token(), .Some(init) => (_m3_tokens_comparable(&t, &init) && (t.character == init.character)), .None => false)
+  !_m3_operand_carries_call_scoped_share(a, ctx)
 });
 /// Whether the operand `a` carries a call-scoped share dup
 /// (`is_call_scoped_share_dup`): its temporary is the share, not a value the
