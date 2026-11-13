@@ -9,15 +9,16 @@ description: a Yo program and its rustc twin. For each program the harness recor
   * rustc's verdict (`rustc --edition 2021 --emit=metadata`; optional: skipped when rustc is absent),
   * when Yo accepts: an ASan run (`yo compile --sanitize address --allocator system`, then the binary).
 
-Classes (the first four are findings, written to tests/origins/gen-findings/ after minimization):
+Classes (the first three are findings, written to tests/origins/gen-findings/ after minimization):
 
   UAF             Yo accepted and the binary tripped AddressSanitizer: a hole, whatever rustc says.
   ACCEPT-VS-RUST  Yo accepted, rustc rejected with a borrow-check error, ASan stayed quiet: a candidate hole
                   (the program may only be unsound in a way this one run does not execute).
   CRASH           Yo accepted, rustc accepted, and the binary failed to compile or run for another reason.
   TEMPLATE        Yo failed with a non-borrow diagnostic: a bug of this generator (or an ICE: a compiler bug).
-  precision       Yo rejected, rustc accepted: an over-freeze. Counted and summarized, never a finding (the
-                  corpus rows that record the design positions live in tests/origins/rust/DIVERGENCES.tsv).
+  precision       Yo rejected, rustc accepted: an over-freeze. Counted and summarized (precision.tsv), never a
+                  finding.
+  wall            Yo rejected by a documented wall (`Cannot re-point`, a container of references): not a verdict.
 
 Families (dimensions in FAMILIES below):
   slot   root x holder x creation site x sink x invalidating event x read position      (§6 G-D grammar)
@@ -25,14 +26,23 @@ Families (dimensions in FAMILIES below):
   valpos a holder over a local of the position that yields it                            (audit §6 axis 3)
   join   every-arm assignment, loop back edge                                            (audit §6 axis 4)
 
-Reproduce a run with YO_GEN_SEED=<n> (printed first). Usage, from the repository root:
+Not generated yet (audit §6): the callee forms UFCS, `Dyn(Fn)`, `Dyn(Trait)`, a generic bound and an effect
+operation; the value positions guard, loop condition, capture-list entry and by-value capture; the early-exit join.
+
+Reproduce a run with YO_GEN_SEED=<n> (printed first), or one program with --sig <signature> (a finding's
+`// signature:` header). A signature is a function of the program alone, so a finding replays on any tree.
+Usage, from the repository root:
 
   YO=<yo binary> python3 -I scripts/origins-gen.py [--count N] [--budget SECONDS] [--jobs J] [--family F]
       [--known tests/origins/gen-known.tsv] [--out tests/origins/gen-findings] [--no-asan] [--no-rustc]
-      [--exhaustive] [--list]
+      [--exhaustive] [--list] [--table FILE] [--sig SIGNATURE] [--verify-known] [--walls]
 
-The C compiler for the ASan leg is `clang` on PATH (inside `nix develop` locally). rc: 0 = no unknown
-finding, 1 = at least one finding whose signature is not in --known, 2 = usage / environment error.
+  --verify-known   run every program each pattern of gen-known.tsv matches and report, per pattern, how many of
+                   the programs rustc rejects Yo still accepts (STILL-OPEN) or none (FIXED: delete the row)
+  --walls          also generate programs behind a documented wall (`Box(&T)`, until N2c); every one is rejected
+
+The C compiler for the ASan leg is `clang` on PATH (inside `nix develop` locally). rc: 0 = no finding outside
+--known, 1 = at least one finding whose signature matches no known pattern, 2 = usage / environment error.
 Python standard library only.
 """
 
@@ -259,7 +269,9 @@ class OptH(Holder):
     def read(self, tg, h, b):
         y, r = tg["rd"]("r", "r")
         py, pyr = pr(y, r)
-        b.emit(f'match({h[0]}, .Some(r) => {py.rstrip(";")}, .None => println("none"));', f"if let Some(r) = {h[1]} {{ {pyr} }}")
+        # `match(&h, …)`: an `Option(&T)` is not implicitly copyable, so a by-value match moves a place or a loop's slot
+        # (issues/2026-11-11-a-composite-holding-a-shared-reference-is-not-copy-although-the-reference-is.md)
+        b.emit(f'match(&{h[0]}, .Some(r) => {py.rstrip(";")}, .None => println("none"));', f"if let Some(r) = &{h[1]} {{ {pyr} }}")
 
 
 class H1(Holder):  # the spelled-origin 1-field holder V(p)
@@ -351,7 +363,7 @@ def create(d, tg, ho, b, roots, outer_z, bare=False):
         other = mk([z], outer_z)
         mine = mk(refs)
         if site == "armc":
-            b.emit("c := flag(i32(1));", "let c = flag(1);")
+            b.emit("c := flag(i32(3));", "let c = flag(3);")
             return (f"cond(c => {mine[0]}, true => {other[0]})", f"if c {{ {mine[1]} }} else {{ {other[1]} }}")
         b.emit("o := Option(i32).Some(i32(1));", "let o = Some(1);")
         return (
@@ -469,7 +481,7 @@ def gen_slot(d):
         ho.read(tg, hname, b)
     if d["event"] not in ("none", "scope_end"):
         ey, er = tg["ev"][d["event"]](vn)
-        for ly, lr in zip(ey.split("\n  "), er.split("\n    ")):
+        for ly, lr in itertools.zip_longest(ey.split("\n  "), er.split("\n    "), fillvalue=""):
             b.emit(ly, lr)
     if inner:
         b.ind -= 1
@@ -496,7 +508,7 @@ def gen_elem(d, tg, ho, b):
         ho.read(tg, ("h", "h"), b)
     if d["event"] != "none":
         ey, er = tg["ev"][d["event"]]("xs")
-        for ly, lr in zip(ey.split("\n  "), er.split("\n    ")):
+        for ly, lr in itertools.zip_longest(ey.split("\n  "), er.split("\n    "), fillvalue=""):
             b.emit(ly, lr)
     if d["readpos"] == "after":
         ho.read(tg, ("h", "h"), b)
@@ -671,13 +683,13 @@ def gen_valpos(d):
             if pos == "blocktail":
                 b.emit(f"_u := {blk_y};", f"let _u = {blk_r};")
             else:
-                b.emit("c := flag(i32(1));", "let c = flag(1);")
+                b.emit("c := flag(i32(3));", "let c = flag(3);")
                 b.emit(f"_u := cond(c => {blk_y}, true => ());", f"let _u = if c {blk_r} else {{ () }};")
             return b.render()
         if pos == "blocktail":
             b.emit(f"h := {{ {decl[0]} {hv[0]} }};", f"let h = {{ {decl[1]} {hv[1]} }};")
         elif pos == "condarm":
-            b.emit("c := flag(i32(1));", "let c = flag(1);")
+            b.emit("c := flag(i32(3));", "let c = flag(3);")
             b.emit(
                 f"h := cond(c => {{ {decl[0]} {hv[0]} }}, true => {other[0]});",
                 f"let h = if c {{ {decl[1]} {hv[1]} }} else {{ {other[1]} }};",
@@ -755,7 +767,7 @@ def gen_join(d):
     b.emit(f"mut(h) := {initv[0]};", f"let mut h = {initv[1]};")
     if shape.startswith("arms"):
         hx, hy = ho.mk(T, [tg["ref"]("x")], "x"), ho.mk(T, [tg["ref"]("y")], "y")
-        b.emit("c := flag(i32(1));", "let c = flag(1);")
+        b.emit("c := flag(i32(3));", "let c = flag(3);")
         b.emit(
             f"cond(c => {{ h = {hx[0]}; }}, true => {{ h = {hy[0]}; }});",
             f"if c {{ h = {hx[1]}; }} else {{ h = {hy[1]}; }}",
@@ -1105,6 +1117,8 @@ def main():
     ap.add_argument("--verify-known", action="store_true",
                     help="run exactly the signatures of --known and report which still reproduce (FIXED = no longer a finding)")
     ap.add_argument("--no-minimize", action="store_true")
+    ap.add_argument("--sig", action="append", default=[], metavar="SIGNATURE",
+                    help="run exactly this program (repeatable): the reproduction of a finding")
     ap.add_argument("--table", metavar="FILE", help="write every program's verdicts (signature, class, yo, rustc, asan) to FILE")
     ap.add_argument("--asan-controls", type=int, default=8, help="ASan runs on this many programs both Yo and rustc accept")
     ap.add_argument("--walls", action="store_true", help="also generate programs behind documented walls (Box(&T))")
@@ -1127,13 +1141,19 @@ def main():
     pool = {f: list(all_programs(f)) for f in fams}
     log("valid programs: " + ", ".join(f"{f}={len(pool[f])}" for f in fams))
     items = []
-    if a.verify_known:
+    if a.sig:
+        for g in a.sig:
+            item = from_sig(g)
+            if not item:
+                print(f"{g}: not a valid signature", file=sys.stderr)
+                return 2
+            items.append(item)
+    elif a.verify_known:
         for pat, _ in load_known(a.known):
             hits = [(f, d) for f in fams for d in pool[f] if fnmatch.fnmatchcase(sig(f, d), pat)]
             if not hits:
                 log(f"known pattern {pat} matches no valid program (the grammar changed)")
-            # a few representatives per pattern: the first, the middle and the last program it matches
-            items += [hits[i] for i in sorted({0, len(hits) // 2, len(hits) - 1})] if hits else []
+            items += [h for h in hits if h not in items]
     elif a.exhaustive:
         items = [(f, d) for f in fams for d in pool[f]]
     else:
@@ -1164,10 +1184,14 @@ def main():
                     f.write(f"{sig(r['fam'], r['d'])}\t{r['cls']}\t{describe(r)}\n".replace(" rustc=", "\trustc=").replace(" asan=", "\tasan="))
         known = load_known(a.known)
         if a.verify_known:
-            for r in rows:
-                s = sig(r["fam"], r["d"])
-                state = "STILL-OPEN" if r["cls"] in ("UAF", "ACCEPT-VS-RUST", "CRASH") else "FIXED"
-                log(f"known {s}: {state} ({r['cls']}; {describe(r)}) {' '.join(known_for(known, s) or [])}")
+            # per pattern: of the programs rustc rejects (the buggy shapes: the controls it accepts prove nothing),
+            # how many does Yo still accept
+            for pat, fields in known:
+                hit = [r for r in rows if fnmatch.fnmatchcase(sig(r["fam"], r["d"]), pat) and r["rs"][0] == "ERR"]
+                open_ = [r for r in hit if r["cls"] in ("UAF", "ACCEPT-VS-RUST", "CRASH")]
+                uaf = sum(r["cls"] == "UAF" for r in open_)
+                state = "STILL-OPEN" if open_ else "FIXED" if hit else "NO-RUSTC-REJECTS"
+                log(f"known {pat}: {state} ({len(open_)}/{len(hit)} rustc-rejected programs accepted, {uaf} under ASan UAF) {' '.join(fields[:1])}")
             return 0
         findings = [r for r in rows if r["cls"] in ("UAF", "ACCEPT-VS-RUST", "CRASH")]
         # one family after another, so a few minimization slots cover every family before one fills them

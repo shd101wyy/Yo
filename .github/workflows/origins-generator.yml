@@ -97,6 +97,18 @@ jobs:
           # rc 1 is "a finding this tree does not know yet": the artifact and the issue below report it, the
           # job does not fail on it. rc 2 (environment) is a real failure.
           [ "$rc" -le 1 ]
+      # Sundays and manual dispatches also re-run every known pattern (tests/origins/gen-known.tsv): a pattern none of
+      # whose rustc-rejected programs Yo still accepts is FIXED, and its row is deleted in a follow-up PR.
+      - name: Verify the known findings (Sundays, dispatch)
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: |
+          if [ "$(date -u +%u)" = 7 ] || [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            python3 -I scripts/origins-gen.py --yo /tmp/yo-stage1 --std-path ./std --jobs 3 --verify-known \
+              --asan-controls 0 --budget 1500 --out /tmp/origins-gen-known 2>&1 | tee /tmp/origins-gen-known.log
+          else
+            echo "not Sunday and not a manual dispatch: skipped"
+          fi
       - name: Upload the findings
         if: always()
         uses: actions/upload-artifact@v4
@@ -105,6 +117,7 @@ jobs:
           path: |
             tests/origins/gen-findings/
             /tmp/origins-gen.log
+            /tmp/origins-gen-known.log
           if-no-files-found: ignore
           retention-days: 30
       - name: Open an issue for a new finding
@@ -115,7 +128,7 @@ jobs:
         run: |
           # One issue per distinct signature: a signature already named by an open issue is not filed twice.
           grep -v '^#' tests/origins/gen-findings/findings.tsv | awk -F'\t' '$4 == "NEW"' | while IFS=$'\t' read -r cls sig verdicts _status file; do
-            if gh issue list --state open --search "\"$sig\" in:title" --json number --jq '.[0].number' | grep -q .; then
+            if gh issue list --state open --search "\"$sig\" in:title" --json number --jq '.[0].number // empty' | grep -q .; then
               echo "an open issue already names $sig"
               continue
             fi
