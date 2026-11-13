@@ -111,7 +111,7 @@ pragma(Pragma.AllowUnsafe);
   note_rprobe_call,
   rprobe_stats_on
 } :: import("../context.yo");
-{ is_pointer_type, is_dyn_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, is_type_kind, type_decl_module, is_module_type, is_cell_primitive_type, is_counted_handle_type } :: import("../../types/guards.yo");
+{ is_pointer_type, is_dyn_type, is_type_hierarchy_type, is_type_parameter_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, is_type_kind, type_decl_module, is_module_type, is_cell_primitive_type, is_counted_handle_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
 { is_drop_method_name, is_clone_trait_type, type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, resolve_cell_chain, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type, note_future_origins_exist, note_unreturnable_future, future_origin_names, type_is_second_class, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message, type_lacks_clone } :: import("../../types/utils.yo");
@@ -12192,7 +12192,7 @@ Fix: wrap the call:
                 while((vs_ci < vs_ct_flags.len()) && !vs_has_ct_type, {
                   vs_is_ct := match(vs_ct_flags.get(vs_ci), .Some(b) => b, .None => false);
                   vs_pt := match(slot_pointee_at(&fv_param_types, vs_ci), .Some(t) => t, .None => t_unit());
-                  if(vs_is_ct && is_type_hierarchy_type(&vs_pt), {
+                  if(vs_is_ct && is_type_parameter_type(&vs_pt), {
                     vs_has_ct_type = true;
                   });
                   vs_ci = (vs_ci + usize(1));
@@ -12377,7 +12377,7 @@ Fix: wrap the call:
                   // declared type is available, an abstract expected mis-resolves
                   // enum-variant shorthands (".Table(...)" looked up in
                   // SomeT-T → "variant not found").
-                  is_type_hierarchy_type(&apt) => Option(ExpectedTypeCtx).None,
+                  is_type_parameter_type(&apt) => Option(ExpectedTypeCtx).None,
                   // Abstract SomeTs (bare type-param `T`) are skipped — an abstract
                   // expected mis-resolves enum-variant shorthands. EXCEPTION: a
                   // SomeT wrapping an Fn trait (`cb : Impl(Fn(...), Send)`) MUST be
@@ -12501,7 +12501,7 @@ Fix: wrap the call:
             fv_p_sink := match(fv_param_is_sink.get(ai), .Some(o) => o, .None => false);
             fv_p_is_ct := (
               match(fv_param_ct.get(ai), .Some(c) => c, .None => false)
-              || match(slot_pointee_at(&resolved_param_types, ai), .Some(apt2) => is_type_hierarchy_type(&apt2), .None => false)
+              || match(slot_pointee_at(&resolved_param_types, ai), .Some(apt2) => is_type_parameter_type(&apt2), .None => false)
             );
             fv_p_is_ref := match(fv_param_is_ref.get(ai), .Some(r) => r, .None => false);
             // D3: an `inout` argument rooted in an atomic object — recorded
@@ -12690,7 +12690,7 @@ Fix: wrap the call:
                 ctx.expected_type = match(
                   slot_pointee_at(&resolved_param_types, dpi),
                   .Some(apt) => cond(
-                    is_type_hierarchy_type(&apt) => Option(ExpectedTypeCtx).None,
+                    is_type_parameter_type(&apt) => Option(ExpectedTypeCtx).None,
                     is_some_type(&apt) => match(
                       extract_fn_trait_from_type(&apt),
                       .Some(_) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : apt, env : Rc.clone(def_env))),

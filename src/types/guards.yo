@@ -701,6 +701,12 @@ is_type_0 :: (fn(t : &TypeValue) -> bool)(
 is_type_kind :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), Rc(.TypeUni(level)) => (level == usize(0)), Rc(.MaybeSizedKind) => true, _ => false)
 );
+/// A parameter of this type takes a type as its argument: the `Type`,
+/// `Type(1)`, … universe or the `?Sized` kind (decision 49). `&T` written as
+/// its argument is a reference TYPE, never a lend.
+is_type_parameter_type :: (fn(t : &TypeValue) -> bool)(
+  match(t_refine_inner(t), Rc(.TypeUni(_)) => true, Rc(.MaybeSizedKind) => true, _ => false)
+);
 // ---------------------------------------------------------------------------
 // Pointer / reference / dyn guards
 // ---------------------------------------------------------------------------

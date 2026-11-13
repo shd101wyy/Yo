@@ -187,3 +187,21 @@ test("a ?Sized constructor parameter prints with no mode", {
     (a : i32) = _SzPrintK;
   }, "Given   : fn(V : ?Sized) -> Type");
 });
+// A reference type passed to a `?Sized` parameter keeps its `&`, as at a
+// `Type` one: `Eq(&C)` is the trait over `&C`, not `Eq(C)`
+// (issues/fixed/2026-11-14-a-reference-type-argument-at-a-sized-kinded-parameter-loses-its-reference.md).
+_SzId :: (fn(comptime(V) : ?Sized) -> comptime(Type))(V);
+_SzRc :: struct(n : i32);
+impl(
+  &_SzRc,
+  Eq(&_SzRc)(
+    (==) : (fn(lhs : &Self, rhs : &Self) -> bool)(lhs.*.*.n == rhs.*.*.n),
+    (!=) : (fn(lhs : &Self, rhs : &Self) -> bool)(lhs.*.*.n != rhs.*.*.n)
+  )
+);
+test("a reference type argument at a ?Sized parameter keeps its reference", {
+  comptime_assert(Type.eq(_SzId(&i32), &i32), "`&i32` stays `&i32`");
+  comptime_assert(Type.eq(_SzId(&mut i32), &mut i32), "`&mut i32` stays `&mut i32`");
+  comptime_assert(!Type.eq(Eq(&_SzRc), Eq(_SzRc)), "`Eq(&C)` is not `Eq(C)`");
+  comptime_assert(Type.impls(&_SzRc, Eq(&_SzRc)), "the impl over `&C` is `Eq(&C)`");
+});
