@@ -7,7 +7,7 @@ closure twice ends in a double free. Pre-existing: v0.2.76 accepts both.
 
 Found 2026-11-11 by the ownership / borrowing / origin audit
 (`plans/backlog/OWNERSHIP_BORROWING_ORIGINS_AUDIT.md` §3 A46). Confirmed on develop `64f33c710`. A sibling of the
-open `issues/2026-10-23-an-fn-closure-that-reassigns-a-capture-releases-the-old-value-twice.md` (the assignment
+open `issues/fixed/2026-10-23-an-fn-closure-that-reassigns-a-capture-releases-the-old-value-twice.md` (the assignment
 form, with an `Rc`), whose B8 note already records that a method write through a by-value capture is LOST; this
 doc records that with an owned heap value it is also memory-unsafe, and what a fix of that doc must add.
 

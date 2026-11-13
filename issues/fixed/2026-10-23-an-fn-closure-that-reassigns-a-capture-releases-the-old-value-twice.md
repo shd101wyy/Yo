@@ -2,7 +2,7 @@
 
 **Severity:** S1 — memory unsafety in accepted safe code: the capture's old `Rc` is released by the closure and again by the caller (ASan heap-use-after-free), and the new value leaks.
 
-**Status:** OPEN — found 2026-10-23 while triaging
+**Status:** FIXED by `fix/c2-access-modes` (fix direction 1, generalized to every write: E0913; see `issues/fixed/2026-11-11-an-fn-closure-that-writes-a-capture-releases-the-old-value-twice-also-through-a-mut-self-method.md` § Fix). Originally OPEN — found 2026-10-23 while triaging
 `issues/fixed/2026-10-23-a-receiver-reached-through-an-rc-auto-deref-is-not-kept-alive-across-its-closure-argument.md`
 (it confounded that issue's probes whose closure writes the receiver's root). Not fixed there.
 
@@ -75,3 +75,10 @@ end. The write never reaches `r` either: `println(&r.s)` prints the old
 
 A fix adds the reproducer as a test (a negative test under 1, an ASan-clean
 run under 2).
+
+## Fix
+
+Fix direction 1, generalized (audit A46, `fix/c2-access-modes`): a closure's body may write an implicit capture only
+when the closure is typed `FnMut(...)` or `FnOnce(...)` and owns its record; any other write — `r = …` here, a `&mut
+self` call, a `&mut` argument — is E0913 (`reject_implicit_capture_write`, `src/evaluator/utils.yo`). The reproducer is
+`tests/origins/unsound/c2-fn-closure-assigns-capture.yo` (E0913).

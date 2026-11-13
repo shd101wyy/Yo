@@ -8,7 +8,7 @@ Pre-existing: v0.2.76 accepts it too. The plain argument `grow(&mut xs)` in the 
 Found 2026-11-11 by the ownership / borrowing / origin audit
 (`plans/backlog/OWNERSHIP_BORROWING_ORIGINS_AUDIT.md` §3 A33). Confirmed on develop `64f33c710`. The mirror image
 (a closure's `&` capture live, then a `&mut` lend) is
-`issues/2026-11-11-a-mut-lend-of-a-place-that-a-live-closures-capture-borrows-is-accepted.md`.
+`issues/fixed/2026-11-11-a-mut-lend-of-a-place-that-a-live-closures-capture-borrows-is-accepted.md`.
 
 ## Reproducers
 
