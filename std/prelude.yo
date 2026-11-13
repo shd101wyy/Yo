@@ -7423,6 +7423,103 @@ impl(
     })
   )
 );
+/// === Slices ===
+/// `[T]` (`Slice(T)`), the unsized run of `T`s behind a pointer
+/// (plans/VALUES_BY_DEFAULT.md decision 49): `&[T]`, `&mut [T]` and `*[T]`
+/// carry the length. `unsize(&a)` lends one from a fixed-size array.
+impl(
+  generic(T : Type),
+  [T],
+  /// The number of elements.
+  len : (fn(self : &Self) -> usize)(__yo_slice_len(self)),
+  /// Whether there are no elements.
+  is_empty : (fn(self : &Self) -> bool)(__yo_slice_len(self) == usize(0)),
+  /// Whether any element equals `value`: a linear scan, stopping at the
+  /// first match. Rust's `<[T]>::contains`.
+  contains : (fn(self : &Self, value : &T, where(T <: Eq(T))) -> bool)({
+    n := __yo_slice_len(self);
+    p := unsafe(__yo_slice_ptr(self));
+    mut(i) := usize(0);
+    while(i < n, i = (i + usize(1)), {
+      // SAFETY: `i < n`, so the element is inside the slice.
+      cond(
+        unsafe(__yo_ptr_add(&p, i).* == value.*) => {
+          return(true);
+        },
+        true => ()
+      );
+    });
+    false
+  })
+);
+/// Two slices are equal when their lengths are and each element is.
+impl(
+  generic(T : Type),
+  where(T <: Eq(T)),
+  [T],
+  Eq([T])(
+    (==) : (fn(lhs : &Self, rhs : &[T]) -> bool)({
+      n := __yo_slice_len(lhs);
+      cond(
+        (n != __yo_slice_len(rhs)) => false,
+        true => {
+          a := unsafe(__yo_slice_ptr(lhs));
+          b := unsafe(__yo_slice_ptr(rhs));
+          mut(i) := usize(0);
+          while(i < n, i = (i + usize(1)), {
+            // SAFETY: `i` is inside both slices, which have length `n`.
+            cond(
+              unsafe(__yo_ptr_add(&a, i).* != __yo_ptr_add(&b, i).*) => {
+                return(false);
+              },
+              true => ()
+            );
+          });
+          true
+        }
+      )
+    })
+  )
+);
+/// Hash the length, then the elements in index order: the length makes a
+/// slice's hash prefix-free, as Rust's.
+impl(
+  generic(T : Type),
+  where(T <: Hash),
+  [T],
+  Hash(
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)({
+      n := __yo_slice_len(self);
+      n.hash(hasher);
+      p := unsafe(__yo_slice_ptr(self));
+      mut(i) := usize(0);
+      while(i < n, i = (i + usize(1)), {
+        // SAFETY: `i < n`, so the element is inside the slice.
+        unsafe(__yo_ptr_add(&p, i).*).hash(hasher);
+      });
+    })
+  )
+);
+/// `CloneInto` — each element cloned into the uninitialized run `dst`,
+/// which has the slice's length: how `Box([T])` clones.
+impl(
+  generic(T : Type),
+  where(T <: Clone),
+  [T],
+  CloneInto(
+    clone_into : (fn(self : &Self, dst : *Self) -> unit)({
+      n := __yo_slice_len(self);
+      src := unsafe(__yo_slice_ptr(self));
+      out := unsafe(__yo_slice_ptr(dst));
+      mut(i) := usize(0);
+      while(i < n, i = (i + usize(1)), {
+        // SAFETY: `dst` has room for `n` elements and none is initialized;
+        // the write drops nothing.
+        unsafe(__yo_ptr_write(__yo_ptr_add(&out, i), __yo_ptr_add(&src, i).*.clone()));
+      });
+    })
+  )
+);
 // array. Sending a slice across threads copies the header; both threads
 // can independently read the backing array. The backing array's lifetime
 // is managed by its owning collection (which must itself be Send to cross
