@@ -359,11 +359,12 @@ A creation without an `alloc` argument (a `ref` constructor, a `dyn` box, an
 allocator directly, with no thread-local to check. Containers keep their size,
 because the allocator lives in the buffer's prefix rather than in a new field.
 
-Only a placed block pays for its owner. A global `Box` cell carries an 8-byte
-flags word in front of its payload, as an `Rc` cell carries its count; a
-placed one carries the 16-byte owner prefix in front of that word as well. A
-placed `Rc`/`Arc` cell's prefix is 32 bytes (the owner and the cell's extent),
-and a placed container buffer's is 16.
+Only a placed block pays for its owner. A global `Box` cell is its payload
+alone, as Rust's is, and a zero-sized payload allocates nothing; a placed one
+carries the 16-byte owner prefix in front of the payload, and the handle marks
+it placed in bit 0 of its pointer. A placed `Rc`/`Arc` cell's prefix is 32
+bytes (the owner and the cell's extent), and a placed container buffer's is
+16.
 
 ## Limits
 

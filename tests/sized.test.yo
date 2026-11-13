@@ -7,6 +7,7 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
+{ Fnv1aHasher } :: import("std/hash");
 
 Show :: trait(show : (fn(self : &Self) -> i32));
 _SzPoint :: struct(x : i32, y : i32);
@@ -112,4 +113,47 @@ test("a blanket over a Type binder covers the sized types only", {
   // `[i32]` has its own `_CoMark` impl beside the Type blanket (module
   // level: no overlap error). The overlap row for a `?Sized` blanket waits on
   // issues/2026-11-11-a-generic-blanket-impl-does-not-overlap-an-impl-on-an-array-or-slice.md.
+});
+
+// A method call on a `&[T]` finds the slice's own impl: `[T]` registers its
+// impls under its element's id (decision 49 S2,
+// issues/fixed/2026-11-10-a-method-call-on-a-reference-to-a-slice-does-not-find-an-impl-on-the-slice.md).
+test("a method call on a &[T] finds the impl on the slice", {
+  a := Array(i32, 2)(1, 2);
+  s := unsize(&a);
+  assert(s.co() == i32(2), "the slice's own impl, not the sized blanket");
+  assert(s.co_all() == i32(3), "the ?Sized blanket");
+});
+
+// A `where` on a `?Sized` type-constructor binder (decision 49 S2): the
+// binder is bound to its type variable, so the bound attaches.
+_SzBound :: (fn(comptime(V) : ?Sized, where(V <: Show)) -> comptime(Type))(struct(p : *V));
+impl([i32], Show(show : (fn(self : &Self) -> i32)(i32(__yo_slice_len(self)))));
+test("a where on a ?Sized type-constructor binder", {
+  comptime_assert(Type.impls(_SzBound(i32), Sized), "a sized argument meets the bound");
+  comptime_assert(Type.impls(_SzBound([i32]), Sized), "an unsized argument meets the bound");
+  comptime_expect_error(_SzBound(bool), "Show");
+});
+
+_sz_hash :: (fn(s : &[i32]) -> u64)({
+  mut(h) := Fnv1aHasher.new();
+  s.hash(&mut h);
+  h.finish()
+});
+_sz_eq :: (fn(a : &[i32], b : &[i32]) -> bool)(Eq([i32]).(==)(a, b));
+test("the slice's own impls: len, is_empty, contains, Eq, Hash", {
+  a := Array(i32, 3)(1, 2, 3);
+  b := Array(i32, 3)(1, 2, 3);
+  c := Array(i32, 2)(1, 2);
+  s := unsize(&a);
+  assert(s.len() == usize(3), "len");
+  assert(!s.is_empty(), "is_empty");
+  two := i32(2);
+  nine := i32(9);
+  assert(s.contains(&two), "contains a member");
+  assert(!s.contains(&nine), "not a non-member");
+  assert(_sz_eq(unsize(&a), unsize(&b)), "equal slices");
+  assert(!_sz_eq(unsize(&a), unsize(&c)), "a different length is unequal");
+  assert(_sz_hash(unsize(&a)) == _sz_hash(unsize(&b)), "equal slices hash alike");
+  assert(_sz_hash(unsize(&a)) != _sz_hash(unsize(&c)), "the length is hashed");
 });
