@@ -322,6 +322,16 @@ Filed 2026-11-07 from VERDICTS-30/31; each names its repro under `issues/repros/
   receiver at `&&C` through an O-5 hidden local, and gap 1 (operator operands).
 - 2026-11-12 (VERDICTS-58 (d)): the flow write-back of a `&mut` lend covers a reference binding. `set(&mut r, &inner)` through `dst : &mut &(T, p)` joined nothing into the flow-inferred `r` (a reference binding's value type is its pointee, which carries no origin), a use-after-free P3 introduced; the join now tests the binding's slot type, and a `&mut` re-borrow `rp` redirects it to the local `rp` points at. Rows `ref-mut-ref-store-narrower`, `-narrower-declared`, `-same-scope`, `ref-mut-ref-store-reborrow` (`issues/fixed/2026-11-12-a-mut-ref-ref-lend-does-not-write-back-its-solved-origin.md`).
 - 2026-11-12 (A28 at any depth, the audit re-probe): the write-back follows the whole `&mut` re-borrow chain. `set(&mut rpp.*.*, &inner)` with `rpp := &mut rp`, `rp := &mut r` (and its method, qualified, fn-value and depth-3 forms, and `set2(&mut rpp.*, …)` through `&mut &mut &(T, p)`) skipped it: the redirect resolved one `.*` and one link, so `rpp.*.*` was no atom and `r` was never widened. `reference_reborrow_chain` walks the links (`rp := &mut r` whose slot's pointee is itself a reference) from the lent binding to the end; every holder on the chain names the same invariant origin, so each one's set GENs the solved roots and only a single end is KILLed. A read of `rp.*.*` after `set(&mut rp.*, &inner)` was a hole at depth 1 too (the redirect skipped `rp`). The local store `rpp.*.* = ri` is `r = ri`'s join plus a GEN on `rpp` and `rp` (`_join_through_reborrow_chain`). Rows `ref-mut-ref-store-chain2`, `-chain3`, `-chain2-same-scope`, `ref-mut-ref-store-reborrow-read-through`; nine G-B pairs (`issues/fixed/2026-11-11-a-mut-lend-of-a-reference-binding-to-a-spelled-origin-parameter-does-not-widen-the-bindings-flow-set.md`).
+- 2026-11-13 (audit §9 cluster 2, `fix/c2-access-modes`): one `access(place, mode)` entry for every loan table.
+  `access_place` / `access_variable` / `access_move` (`src/evaluator/utils.yo`) check an access in its declared mode
+  against the local borrows and flow sets (E0911) and the closures' capture borrows (E0910, now kind- and path-aware).
+  `consume(x)` and an implicit capture's move are moves (A13, A34); every `&mut` lend — local, projection, scrutinee,
+  tuple element, struct field, capture entry, argument, receiver, `for(&mut …)` — reaches the capture borrows (A32), a
+  capture entry is R-LEND of its place (A33), a reborrow entry `{ y : &s.* }` borrows what `s` refers to (A20), an
+  implicit capture is written only in an `FnMut`/`FnOnce` closure that owns its record (A46, E0913), a `&` capture is
+  read-only to an `FnMut` call (A47, E0908), and a `&mut` argument to a callee with no body is a write (A6's bodyless
+  half). The `&mut` argument to a summarized callee that neither writes nor lends stays a read against a local `&`
+  loan (rule G, open).
 - 2026-11-09: R3 landed (VERDICTS-23: a specialization keeps the declared shape of its slots). A by-value slot whose
   type becomes a reference at a specialization (`-> T` / `v : T` at `T := &U`) is `ValueSlot(&U)`, a node of its own
   next to the borrow `Reference` slot, so `-> T` is a reference VALUE (a pointer), no longer lowered as a projection,
