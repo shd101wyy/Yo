@@ -2200,11 +2200,11 @@ note_lent_temporary :: (fn(lent_in : &AstExpr) -> unit)({
 (g_chain_ref_binding_leaves : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 note_chain_ref_binding :: (fn(name_tok : &Token, leaves : &ArrayList(AstExpr)) -> unit)({
   name_key := lent_temp_token_key(name_tok);
-  _b := g_chain_ref_bindings.with_mut(s => s.insert(name_key));
+  _b := g_chain_ref_bindings.with_mut({ name_key }(s) => s.insert(name_key));
   (i : usize) = usize(0);
   while(i < leaves.len(), i = (i + usize(1)), {
     leaf_key := lent_temp_token_key(&ast_expr_token(&leaves(i)));
-    _l := g_chain_ref_binding_leaves.with_mut(s => s.insert(leaf_key));
+    _l := g_chain_ref_binding_leaves.with_mut({ leaf_key }(s) => s.insert(leaf_key));
   });
 });
 is_chain_ref_binding :: (fn(name_tok : &Token) -> bool)(
