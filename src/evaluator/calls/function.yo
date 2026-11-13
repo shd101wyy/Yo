@@ -28,6 +28,7 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_is_atom_of,
   BF_DOT,
   BF_ADDRESS_OF,
+  BF_ADDR_OF,
   BK_BORROW_MUT,
   BK_DYN_LOWER,
   BK_TUPLE,
@@ -82,7 +83,7 @@ pragma(Pragma.AllowUnsafe);
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
 { type_key } :: import("../../types/type_key.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_place_of, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, variable_is_reference_binding, variable_is_mut_borrow, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, local_borrow_write_expr, origin_of, bind_join_roots_for, origin_param_names_of, param_declared_origin_slot, is_rigid_origin_name, origin_name_phrase, OriginRootPlace, check_capture_freeze_access, reference_field_read_mode, deref_operand_is_raw_pointer, local_borrow_place_text, FutureRoot, note_future_roots, future_roots_of, holder_future_roots, is_reference_read, n2b_roots_text, deref_rule_applies, is_reference_deref_site, note_binder_value_read, forget_binder_value_read, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, fn_value_definition, type_var_ids_of, deref_chain_atom, reference_reborrow_chain, call_activation_token } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_place_of, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, variable_is_reference_binding, variable_is_mut_borrow, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, local_borrow_write_expr, origin_of, bind_join_roots_for, origin_param_names_of, param_declared_origin_slot, is_rigid_origin_name, origin_name_phrase, OriginRootPlace, check_capture_freeze_access, reference_field_read_mode, deref_operand_is_raw_pointer, local_borrow_place_text, FutureRoot, note_future_roots, future_roots_of, holder_future_roots, is_reference_read, n2b_roots_text, deref_rule_applies, is_reference_deref_site, note_binder_value_read, forget_binder_value_read, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, fn_value_definition, type_var_ids_of, deref_chain_atom, reference_reborrow_chain, call_activation_token, projection_call_root_args, ProjectionRootArg } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -5299,9 +5300,10 @@ _call_value_loans :: (fn(slots : &ArrayList(Option(AstExpr)), env : &Environment
       slots.get_cloned(si),
       .Some(.Some(arg)) => {
         (value : AstExpr) = match(_lent_argument_place(&arg), .Some(p) => p, .None => arg.clone());
-        if(_operand_value_hands_origin(&value, ctx), {
+        entries := ArrayList(OriginRootPlace).new();
+        _value_loan_entries_into(&value, env, ctx, &mut entries, u32(0));
+        if(entries.len() > usize(0), {
           own := if(_is_unmarked_lent_place(&value, ctx), local_borrow_place_of(&value, env, ctx), Option(LocalBorrowPlace).None);
-          entries := origin_of(&value, env, ctx);
           (ei : usize) = usize(0);
           while(ei < entries.len(), ei = (ei + usize(1)), {
             entry := entries(ei).clone();
@@ -5315,6 +5317,60 @@ _call_value_loans :: (fn(slots : &ArrayList(Option(AstExpr)), env : &Environment
     );
   });
   out
+});
+/// The loans the value of `value`, an operand of a call, carries: a
+/// projection call's result (decision 24, `first(&xs)`, `idm(&mut x)`,
+/// `xs.index(usize(0))`) is a place inside its root arguments (R-CALL with
+/// the result origin naming the lent parameter), so it holds each root's
+/// place in the root's mode — and, for a root that is itself a reference or
+/// a holder, what that root holds; a root passed by value contributes only
+/// what it holds. Any other origin-carrying value contributes its
+/// `origin_of`.
+_value_loan_entries_into :: (fn(value : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(OriginRootPlace), depth : u32) -> unit)({
+  if(depth > u32(8), {
+    return(());
+  });
+  if(projection_call_mode_of(value, ctx).is_some(), {
+    roots := projection_call_root_args(value, ctx);
+    (ri : usize) = usize(0);
+    while(ri < roots.len(), ri = (ri + usize(1)), {
+      root := roots(ri).clone();
+      (inner : AstExpr) = cond(
+        ast_expr_is_fn_call_of(&root.arg, BF_ADDR_OF, Option(usize).Some(usize(1))) => match(&root.arg, .FnCall(_, _, Rc(ia), _, _) => match(ia.get(usize(0)), .Some(a) => a, .None => root.arg.clone()), .Atom(_, _) => root.arg.clone()),
+        true => ast_expr_strip_borrow_marker(&root.arg)
+      );
+      cond(
+        root.by_value => {
+          if(_operand_value_hands_origin(&inner, ctx), {
+            held := origin_of(&inner, env, ctx);
+            (hi : usize) = usize(0);
+            while(hi < held.len(), hi = (hi + usize(1)), {
+              out.push(held(hi).clone());
+            });
+          });
+        },
+        projection_call_mode_of(&inner, ctx).is_some() => recur(&inner, env, ctx, out, (depth + u32(1))),
+        true => {
+          match(local_borrow_place_of(&inner, env, ctx), .Some(rp) => out.push(OriginRootPlace(place : rp, is_mut : root.is_mut)), .None => ());
+          if(_operand_value_hands_origin(&inner, ctx), {
+            held := origin_of(&inner, env, ctx);
+            (hi : usize) = usize(0);
+            while(hi < held.len(), hi = (hi + usize(1)), {
+              out.push(held(hi).clone());
+            });
+          });
+        }
+      );
+    });
+    return(());
+  });
+  if(_operand_value_hands_origin(value, ctx), {
+    held := origin_of(value, env, ctx);
+    (hi : usize) = usize(0);
+    while(hi < held.len(), hi = (hi + usize(1)), {
+      out.push(held(hi).clone());
+    });
+  });
 });
 /// `target` names a place overlapping `lp`, an entry of an argument value's
 /// origin: the same root binding (the one the evaluator recorded on the
