@@ -37,6 +37,7 @@ Python standard library only.
 """
 
 import argparse
+import fnmatch
 import hashlib
 import itertools
 import os
@@ -270,7 +271,7 @@ class H1(Holder):  # the spelled-origin 1-field holder V(p)
             "struct V<'a> { r: &'a " + T[1] + " }",
         )
 
-    def ty(self, T): return ("V(?)", "V<'_>")
+    def ty(self, T): return ("V(z)", "V<'_>")  # the slot's type names the long-lived root `z`
     def ty_p(self, T, p): return (f"V({p})", f"V<'{p}>")
     def mk(self, T, refs, origin): return (f"V({origin})(r : {refs[0][0]})", f"V {{ r: {refs[0][1]} }}")
     def refs(self, h): return [(f"{h[0]}.r", f"{h[1]}.r")]
@@ -430,7 +431,7 @@ def gen_slot(d):
     initv = ho.mk(T, [tg["ref"]("z")] * ho.nrefs, "z")
     if sink == "field":
         b.pre("W :: (fn(comptime(U) : Type) -> comptime(Type))(struct(f : U));", "struct W<U> { f: U }")
-        hty_w = ho.ty(T) if ho.name != "h1" else ("V(z)", "V<'_>")
+        hty_w = ho.ty(T)
         b.emit(f"mut(w) := W({hty_w[0]})(f : {initv[0]});", f"let mut w = W {{ f: {initv[1]} }};")
         hname = ("w.f", "w.f")
     elif sink != "same" or inner:
@@ -486,7 +487,7 @@ def gen_elem(d, tg, ho, b):
         b.emit("mut(h) := Option(&String).None;", "let mut h = None;")
     else:
         # the other holders have no empty value: seed the slot from a second long-lived list's loan
-        b.emit(*tg["decl"]("w0", 1))
+        b.emit(*TARGETS["str"]["decl"]("w0", 1))
         seed = ho.mk(T, [("&w0", "&w0")], "w0")
         b.emit(f"mut(h) := {seed[0]};", f"let mut h = {seed[1]};")
     mkv = ho.mk(T, [("e", "e")], "e")
@@ -521,7 +522,6 @@ def gen_args(d):
         return gen_args_method(d)
     b = Builder()
     value, other, callee, order = d["value"], d["other"], d["callee"], d["order"]
-    T = ("String", "String")
     tg = TARGETS["str"]
     b.emit(*tg["decl"]("x", 0))
     b.emit(*tg["decl"]("w", 1))
@@ -663,7 +663,6 @@ def gen_valpos(d):
         hv = ho.mk(T, [tg["ref"](name)], name)
         return decl, hv
 
-    hty = ho.ty(T)
     if pos in ("blocktail", "condarm", "matcharm"):
         decl, hv = local_and_value("t")
         if inside:
@@ -803,7 +802,7 @@ BASE["slot"].update(event="none", create="ctor", sink="same", holder="ref", targ
 
 
 def all_programs(family):
-    dims, valid, gen = FAMILIES[family]
+    dims, valid, _ = FAMILIES[family]
     keys = list(dims)
     for vals in itertools.product(*(dims[k] for k in keys)):
         d = dict(zip(keys, vals))
@@ -815,21 +814,41 @@ def sig(family, d):
     return family + ":" + "/".join(d[k] for k in FAMILIES[family][0])
 
 
+def from_sig(s):
+    """The inverse of sig(): ('slot', dims) or None when the signature does not name a valid program."""
+    fam, _, rest = s.partition(":")
+    if fam not in FAMILIES:
+        return None
+    dims, valid, _ = FAMILIES[fam]
+    vals = rest.split("/")
+    if len(vals) != len(dims):
+        return None
+    d = dict(zip(dims, vals))
+    return (fam, d) if all(d[k] in dims[k] for k in dims) and valid(d) else None
+
+
 def pid(family, d):
     return family + "-" + hashlib.sha1(sig(family, d).encode()).hexdigest()[:8]
 
 
 def simplifications(family, d):
-    """One dimension at a time set to its base value (the minimizer's moves)."""
+    """The minimizer's moves: one dimension at a time set to a value listed before its current one (the lists run
+    from simple to complex) or to its base value."""
     dims, valid, _ = FAMILIES[family]
     out = []
     for k in dims:
-        for alt in (BASE[family][k], dims[k][0]):
+        for alt in dict.fromkeys([BASE[family][k]] + dims[k][: dims[k].index(d[k])]):
             if d[k] != alt:
                 e = dict(d, **{k: alt})
                 if valid(e) and e not in out:
                     out.append(e)
     return out
+
+
+def cost(family, d):
+    """How far a program is from the base program: the minimizer keeps the cheapest candidate."""
+    dims = FAMILIES[family][0]
+    return sum(dims[k].index(d[k]) for k in dims)
 
 
 # --------------------------------------------------------------------------------------------------
@@ -1025,7 +1044,7 @@ def minimize(row, use_asan, log, tmp_root):
             break
         rows = evaluate(write_progs([(fam, c) for c in cands], tmp_root), False, log)
         same = [r for r in rows if r["yo"][0] == "OK" and (r["rs"][0] == "ERR") == (cls != "CRASH")]
-        same.sort(key=lambda r: sum(r["d"][k] != BASE[fam][k] for k in r["d"]))
+        same.sort(key=lambda r: cost(fam, r["d"]))
         if cls in ("UAF", "CRASH") and use_asan and Env.cc:
             want = "ASAN" if cls == "UAF" else "FAIL"
             nxt = None
@@ -1049,13 +1068,23 @@ def minimize(row, use_asan, log, tmp_root):
 
 
 def load_known(path):
-    known = {}
+    """gen-known.tsv: `pattern<TAB>audit row or issue<TAB>note`, the pattern a signature with `*` wildcards (a
+    root cause reached through different dimension values minimizes to different signatures)."""
+    known = []
     if path and os.path.exists(path):
         for ln in open(path):
             if ln.strip() and not ln.startswith("#"):
                 parts = ln.rstrip("\n").split("\t")
-                known[parts[0]] = parts[1:]
+                known.append((parts[0], parts[1:]))
     return known
+
+
+def known_for(known, s):
+    """The fields of the first known pattern matching signature s, or None."""
+    for pat, fields in known:
+        if fnmatch.fnmatchcase(s, pat):
+            return fields
+    return None
 
 
 def main():
@@ -1072,8 +1101,11 @@ def main():
     ap.add_argument("--no-rustc", action="store_true")
     ap.add_argument("--exhaustive", action="store_true", help="every valid program of the chosen families")
     ap.add_argument("--list", action="store_true", help="print the sampled programs' dimensions and exit")
-    ap.add_argument("--max-minimize", type=int, default=10)
+    ap.add_argument("--max-minimize", type=int, default=6)
+    ap.add_argument("--verify-known", action="store_true",
+                    help="run exactly the signatures of --known and report which still reproduce (FIXED = no longer a finding)")
     ap.add_argument("--no-minimize", action="store_true")
+    ap.add_argument("--table", metavar="FILE", help="write every program's verdicts (signature, class, yo, rustc, asan) to FILE")
     ap.add_argument("--asan-controls", type=int, default=8, help="ASan runs on this many programs both Yo and rustc accept")
     ap.add_argument("--walls", action="store_true", help="also generate programs behind documented walls (Box(&T))")
     a = ap.parse_args()
@@ -1095,7 +1127,14 @@ def main():
     pool = {f: list(all_programs(f)) for f in fams}
     log("valid programs: " + ", ".join(f"{f}={len(pool[f])}" for f in fams))
     items = []
-    if a.exhaustive:
+    if a.verify_known:
+        for pat, _ in load_known(a.known):
+            hits = [(f, d) for f in fams for d in pool[f] if fnmatch.fnmatchcase(sig(f, d), pat)]
+            if not hits:
+                log(f"known pattern {pat} matches no valid program (the grammar changed)")
+            # a few representatives per pattern: the first, the middle and the last program it matches
+            items += [hits[i] for i in sorted({0, len(hits) // 2, len(hits) - 1})] if hits else []
+    elif a.exhaustive:
         items = [(f, d) for f in fams for d in pool[f]]
     else:
         weights = {"slot": 0.55, "args": 0.15, "valpos": 0.15, "join": 0.15}
@@ -1118,11 +1157,29 @@ def main():
         log("classes: " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
         acc = sum(r["yo"][0] == "OK" for r in rows)
         log(f"yo accepted {acc}/{len(rows)}; asan ran on {sum(1 for r in rows if r['asan'] and r['asan'][0] != 'SKIP')}")
+        if a.table:
+            with open(a.table, "w") as f:
+                f.write("# signature\tclass\tyo\trustc\tasan\n")
+                for r in rows:
+                    f.write(f"{sig(r['fam'], r['d'])}\t{r['cls']}\t{describe(r)}\n".replace(" rustc=", "\trustc=").replace(" asan=", "\tasan="))
         known = load_known(a.known)
+        if a.verify_known:
+            for r in rows:
+                s = sig(r["fam"], r["d"])
+                state = "STILL-OPEN" if r["cls"] in ("UAF", "ACCEPT-VS-RUST", "CRASH") else "FIXED"
+                log(f"known {s}: {state} ({r['cls']}; {describe(r)}) {' '.join(known_for(known, s) or [])}")
+            return 0
         findings = [r for r in rows if r["cls"] in ("UAF", "ACCEPT-VS-RUST", "CRASH")]
+        # one family after another, so a few minimization slots cover every family before one fills them
+        order = ("UAF", "CRASH", "ACCEPT-VS-RUST")
+        findings.sort(key=lambda r: order.index(r["cls"]))
+        byfam = {}
+        for r in findings:
+            byfam.setdefault(r["fam"], []).append(r)
+        findings = [r for grp in itertools.zip_longest(*byfam.values()) for r in grp if r]
         os.makedirs(a.out, exist_ok=True)
         seen, new, summary = set(), 0, []
-        for r in sorted(findings, key=lambda r: ("UAF", "CRASH", "ACCEPT-VS-RUST").index(r["cls"])):
+        for r in findings:
             if len(seen) >= a.max_minimize:
                 break
             m = r if a.no_minimize else minimize(r, not a.no_asan, log, workdir)
@@ -1130,11 +1187,12 @@ def main():
             if s in seen:
                 continue
             seen.add(s)
-            isnew = s not in known
+            kn = known_for(known, s)
+            isnew = kn is None
             new += isnew
             base = os.path.join(a.out, m["id"])
             hdr = f"// gen-finding: {m['cls']} {describe(m)}\n// signature: {s}\n// YO_GEN_SEED={seed} reproduces the run; the program is a function of its signature alone\n"
-            hdr += f"// known: {' '.join(known[s])}\n" if not isnew else "// known: NEW\n"
+            hdr += f"// known: {' '.join(kn)}\n" if kn else "// known: NEW\n"
             with open(base + ".yo", "w") as f:
                 f.write(hdr + open(m["yp"]).read())
             with open(base + ".rs", "w") as f:
@@ -1146,6 +1204,10 @@ def main():
             for row in summary:
                 f.write("\t".join(row) + "\n")
         prec = [r for r in rows if r["cls"] == "precision"]
+        with open(os.path.join(a.out, "precision.tsv"), "w") as f:
+            f.write("# signature\tyo code\tfirst yo message\n")
+            for r in sorted(prec, key=lambda r: (r["yo"][1], sig(r["fam"], r["d"]))):
+                f.write(f"{sig(r['fam'], r['d'])}\t{r['yo'][1]}\t{r['yo'][2]}\n")
         tmpl = [r for r in rows if r["cls"] == "TEMPLATE"]
         log(f"precision divergences (yo rejects, rustc accepts): {len(prec)}")
         hist = {}
@@ -1156,7 +1218,6 @@ def main():
         if tmpl:
             log(f"TEMPLATE failures (generator bugs or compiler ICEs): {len(tmpl)}")
             for r in tmpl[:12]:
-                msg = r["yo"][2] if len(r["yo"]) > 2 else r["rs"]
                 log(f"    {sig(r['fam'], r['d'])}: yo={r['yo'][1:]} rs={r['rs']} ({r['id']})")
             with open(os.path.join(a.out, "templates.tsv"), "w") as f:
                 for r in tmpl:
