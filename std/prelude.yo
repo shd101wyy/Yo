@@ -10791,19 +10791,16 @@ extern(
 /// timer := uninitialized_timer.assume_init(ptr);
 /// ```
 ///
-/// The payload field `_value` is private to the prelude (E0405 elsewhere), and
-/// `Clone`/`Copy` are derived only for a `Copy` payload, as Rust's
-/// `impl<T: Copy> Clone for MaybeUninit<T>`: a bitwise copy of an unwritten
-/// slot reads no handle, while a derived `clone` of a `Box` or a `String`
-/// would run its `clone` on zeroed bytes
+/// The payload field `_value` is private to the prelude (E0405 elsewhere),
+/// and `MaybeUninit` is neither `Clone` nor `Copy`: a derived `clone` reads
+/// the payload, and of an unwritten `Box` or `String` that runs `clone` on
+/// zeroed bytes
 /// (issues/fixed/2026-11-11-safe-code-reads-maybeuninits-public-value-field-before-anything-was-written.md).
 MaybeUninit :: (fn(comptime(BaseType) : Type) -> comptime(Type))(
   newtype(
     _value : BaseType
   )
 );
-derive(generic(T : Type), where(T <: Copy), MaybeUninit(T), Clone);
-derive(generic(T : Type), where(T <: Copy), MaybeUninit(T), Copy);
 impl(
   generic(BaseType : Type),
   MaybeUninit(BaseType),
