@@ -32,17 +32,21 @@ Positive control: `tests/origins/unsound/c4-put-projection-arg-pos.yo` (`ys` dec
 ## Root cause
 
 `lend_through`'s flow write-back (`src/evaluator/calls/function.yo`, step 3) solves an unfixed `&mut` holder from
-the call's other arguments "whose parameters name the same origin parameters". It decided that an argument's
-parameter names them from `_argument_origin_pairs`, which pairs the parameter's origin positions with the
-argument's TYPE. A projection call's result is typed as its place (`String`), not as a reference, so it paired no
-position, the argument was taken to name nothing, and its roots (`origin_of`, which does give `ys`) were never
-read.
+the call's other arguments "whose parameters name the same origin parameters", in two steps, and a projection
+call's result failed both. A projection result is typed as its place (`String`), not as a reference:
+
+- whether the argument's parameter names the holder's origin parameters was read from `_argument_origin_pairs`,
+  which pairs the parameter's origin positions with the argument's TYPE, so it paired none;
+- its roots were `origin_of`'s, whose R-NONE rule gives a value whose type carries no origin the empty set.
 
 ## Fix
 
-The solve also reads the parameter's own spelling: when the pairs name none of the holder's origin parameters,
-`origin_param_names_of` over the argument's slot type decides. `put`'s `v : &(String, r)` names `r`, so
-`ys.index(usize(0))`'s roots join `o`, and the read after the block is E0911.
+- When the pairs name none of the holder's origin parameters, the parameter's own spelling decides
+  (`origin_param_names_of` over the slot type): `put`'s `v : &(String, r)` names `r`.
+- When `origin_of` gives nothing for a non-atom argument at a reference slot, the value passed is a lend of the
+  place the argument names (`local_borrow_place_of`: `ys`), with the slot's mode.
+
+`ys` therefore joins `o`'s set at the call, and the read after the block is E0911.
 
 ## Test
 
