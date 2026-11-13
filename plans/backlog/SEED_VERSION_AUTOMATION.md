@@ -553,6 +553,14 @@ at zero with the v0.2.76 seed) and then **Generation A'**
 std/src is always the reference's own deref). `--migrate deref` retires in
 v0.2.79, so v0.2.77's retirement PR keeps it.
 
+**Landed 2026-11 (v0.2.78, Generation B):** `is_deref_rule_exempt` is deleted and
+`deref_spelling_applies` folded into `deref_rule_applies`, which now exempts only
+compiler-synthesized `auto-generated://` code and a desugared `for`'s machinery. std,
+src, `scripts/` and `build.yo` were migrated by `yo fix std src scripts build.yo
+--migrate deref` run with a local deletion binary (the tip plus the deletion), and the
+v0.2.77 seed builds the result. The recording mode's `v.*` → `v.*.*` rewrite (edit 3) stays
+until the mode retires in v0.2.79.
+
 ## Seed-gated follow-up (2026-11-02): V5 cells — `Rc`/`Arc` become views over `__yo_cell`
 
 V5 Generation A completion (`plans/VALUES_BY_DEFAULT.md` §V5 and §3.5 "Left to V5") retypes the two counted
