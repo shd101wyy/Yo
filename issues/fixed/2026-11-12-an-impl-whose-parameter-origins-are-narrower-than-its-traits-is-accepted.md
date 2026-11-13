@@ -31,3 +31,19 @@ check (`are_types_compatible`) cannot see them either.
 E0923 at the impl. Parameters are invariant, per O3-3's function-type rule. After renaming, an impl's parameter
 origins must equal its trait's: an impl may not require a relation between two parameters' origins that the trait
 leaves independent.
+
+## Fix (2026-11-13, lane `sig`, branch `fix/sig-1`)
+
+`src/types/utils.yo` gains `fn_param_origin_links` (the pairs of a function type's parameters whose spelled origins
+share a name, with each parameter's own slot) and `fn_param_origins_narrower(actual, expected)`: after the trait's
+`Self` is substituted, an impl member that links two parameters the trait keeps apart is E0923. The check runs in
+`_impl_member_origin_checks` (`src/evaluator/values/impl.yo`) beside the result check (`fn_result_origin_wider`,
+renamed from `_impl_result_origin_wider` and exported), on both conformance routes: the direct impl
+(`_c3_eval_colon_pair`) and the generic impl over a type constructor (`_c2_eval_inner_field`), which had no
+member-signature comparison at all. The same comparison serves O7's fn-value slot
+(`function_value_origin_mismatch`, `src/evaluator/trait_checking.yo`).
+
+G-B rows (`tests/origins/unsound/`): `impl-param-origins-narrower.yo`, `impl-param-origins-narrower-generic-caller.yo`
+(E0923, a direct and a generic-impl spelling) with the positive control `impl-param-origins-narrower-pos.yo`, and
+`o7-composite-generic-impl-wider.yo` (the result half through the generic-impl route). The repros above now give E0923
+and accept.

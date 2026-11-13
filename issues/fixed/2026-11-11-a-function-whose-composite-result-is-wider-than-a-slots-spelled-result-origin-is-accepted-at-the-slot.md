@@ -91,7 +91,7 @@ With the fix: the two negative programs and the positive control move to `tests/
 - **A closure literal** adopts the slot's signature, so the declaration comparison cannot see it; its body is
   checked instead (`_closure_result_origin_check`, `src/evaluator/values/anonymous_function.yo`): each root of the
   body's value at one of the literal's parameters must be a parameter the adopted result origin names.
-- **The impl twin** (`issues/2026-11-12-an-impl-whose-parameter-origins-are-narrower-than-its-traits-is-accepted.md`)
+- **The impl twin** (`issues/fixed/2026-11-12-an-impl-whose-parameter-origins-are-narrower-than-its-traits-is-accepted.md`)
   uses the same parameter comparison at the impl.
 
 Not covered here: a binding `(f : fn(...) -> ...) = pick_other` (`src/evaluator/exprs/assignment.yo`, the `c8e`
