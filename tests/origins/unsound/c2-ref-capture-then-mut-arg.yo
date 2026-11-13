@@ -1,0 +1,16 @@
+// expect: E0910
+// A closure borrows `h.*.a` through the capture `{ t : &h.*.a }`; `reset(&mut h)` lends `h` exclusively and
+// replaces the `Rc`, freeing the `S` the capture points into; the closure then reads it.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+S :: struct(a : String);
+reset :: (fn(x : &mut Rc(S)) -> unit)({
+  x.* = Rc.new(S(a : String.from("z")));
+});
+main :: (fn() -> unit)({
+  mut(h) := Rc.new(S(a : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+  (g : Impl(Fn() -> usize)) = ({ t : &h.*.a }() => t.clone().len());
+  reset(&mut h);
+  println(`OUT: ${g().to_string()}`);
+});
+export(main);
