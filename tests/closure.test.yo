@@ -17,15 +17,18 @@ _mb_add :: (fn(b : &MyBox, y : i32) -> i32)(
   })
 );
 _mb_get :: (fn(b : &MyBox) -> i32)(b.with(v => v.*));
+// A closure that writes its own copy of a capture keeps state across calls:
+// it is typed `FnMut(...)`, whose call borrows the closure exclusively (an
+// `Fn` closure writing an implicit capture is E0913, audit A46). An `FnMut`
+// closure is move-only, so it is not duplicated.
 test("Test ClosureType({...}) to create closure value", {
   mut(x) := 1;
-  ClosureType :: Impl(Fn(y : i32) -> i32);
+  ClosureType :: Impl(FnMut(y : i32) -> i32);
   T :: Type.to_comptime_string(ClosureType);
-  closure := ClosureType({
+  mut(closure) := ClosureType({
     x = (x + y);
     return(x);
   });
-  closure2 := closure; // Test dup on closure
   closure(1); // 2
   closure(1); // 3
   result := closure(2); // 5
@@ -34,14 +37,11 @@ test("Test ClosureType({...}) to create closure value", {
   assert(result == 5, "Expected final result to be 5");
 });
 test("Test anonymous closure value =>", {
-  mut(x) := 1;
-  (closure : Impl(Fn(y : i32) -> i32)) = (
-    y => {
-      x = (x + y);
-      return(x);
-    }
-  );
-  closure2 := closure; // Test dup on closure
+  x := 1;
+  (mut(closure) : Impl(FnMut(y : i32) -> i32)) = ({ x }(y) => {
+    x = (x + y);
+    return(x);
+  });
   closure(1); // 2
   closure(1); // 3
   result := closure(2); // 5
@@ -127,22 +127,18 @@ test("Test multiple expected errors", {
     closure = (y => (y + a));
   }, "Cannot reassign variable \"closure\" of type Impl");
 });
+// The `Dyn` form of a closure with its own state: `Box(Dyn(FnMut(...)))`.
+// Two handles sharing one closure through an `Rc` call it through a shared
+// borrow, so they need `Fn` and a cell for the state (the tests below).
 test("Test closure with Dyn", {
-  mut(x) := 1;
-  (closure : Rc(Dyn(Fn(y : i32) -> i32))) = Rc(Dyn(Fn(y : i32) -> i32)).new(
-    dyn(
-      Box.new(y => {
-        x = (x + y);
-        return(x);
-      })
-    )
-  );
-  // A Dyn owns its payload (plans/VALUES_BY_DEFAULT.md decision 7): the
-  // two handles share one closure through an Rc.
-  closure2 := Rc.clone(closure);
-  closure.*(1); // 2
-  closure2.*(1); // 3
-  result := closure.*(2); // 5
+  x := 1;
+  (mut(closure) : Box(Dyn(FnMut(y : i32) -> i32))) = dyn({ x }(y : i32) => {
+    x = (x + y);
+    return(x);
+  });
+  closure(1); // 2
+  closure(1); // 3
+  result := closure(2); // 5
   unsafe(printf("Final result: %d\n", result));
   assert(x == 1, "Captured variable x should remain unchanged outside closure");
   assert(result == 5, "Expected final result to be 5");
