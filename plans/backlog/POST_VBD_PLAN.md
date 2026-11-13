@@ -101,6 +101,10 @@ battery takes the next lane-F item.
     P6 and P7 to lane A below.
 - **Lane A, first items (v0.2.80–v0.2.81; VERDICTS-58 decision 9):** the
   walls the campaign dropped, in this order.
+  0. **P4-0** (VERDICTS-59 decisions 10–12), ahead of N2c: a bound capture-list closure's captures become ordinary loans with a
+     last-use range and the capture side table (`g_capture_freezes`) is deleted
+     (`issues/2026-11-13-a-closures-capture-borrow-lasts-to-the-bindings-scope-end-not-its-last-use.md`, audit C14). It needs no N2d, and
+     waits only for clusters 2 and 7 and the A6 closure rows leaving `gen-known.tsv`. v0.2.80, first PR of P4.
   1. **N2c–N2f, P4 and P5.** N2c–N2f never landed (the container/cell wall,
      E0909), and P4 and P5 depend on N2d. They wait for the retype to finish
      because each multiplies the positions of the audit's clusters, and
