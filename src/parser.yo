@@ -43,7 +43,8 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_is_atom_and_operator,
   ast_expr_is_infix_op_fn_call,
   ast_expr_token,
-  desugar_program_if_calls
+  desugar_program_if_calls,
+  note_brace_block
 } :: import("./expr.yo");
 /// `yo fix --migrate record-literal` parses source written before Generation B
 /// of plans/reference/BRACE_BLOCKS.md, where a bare brace group of fields is a
@@ -2393,6 +2394,7 @@ impl(
     body := ArrayList(AstExpr).new();
     if(args.len() == usize(0), {
       body.push(self.make_unit_call(tok));
+      note_brace_block(tok, String.new());
     });
     // `{ x }`: the parse wrote the pun as `x : x` with its `:` at the `{`.
     if(!had_comma && (args.len() == usize(1)), {
@@ -2400,6 +2402,7 @@ impl(
         &args(usize(0)),
         .FnCall(_, .Atom(_, pc_tok), Rc(pargs), true, _) => if((pc_tok.value.* == ":") && (pc_tok.byte_offset == tok.byte_offset) && (pargs.len() == usize(2)) && ast_expr_is_atom(&pargs(usize(0))), {
           body.push(pargs(usize(0)).clone());
+          note_brace_block(tok, ast_expr_token(&pargs(usize(0))).value.*.clone());
         }),
         _ => ()
       );

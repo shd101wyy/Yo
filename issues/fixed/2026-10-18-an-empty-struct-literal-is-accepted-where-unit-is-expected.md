@@ -15,8 +15,8 @@ give error"; the correct arm is `true => ()`.
 export(main);
 m :: (fn(b : bool) -> unit)({
   cond(
-    b => {},
-    true => {}
+    b => .{},
+    true => .{}
   );
 });
 main :: (fn() -> unit)({

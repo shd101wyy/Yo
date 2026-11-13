@@ -286,8 +286,8 @@ labeled `Fn(...)` / `fn(...)` slot, including inside `Impl(...)` and `Dyn(...)`
 not accepted.
 
 ```yo
-swap :: (fn(a : &mut i32, b : &mut i32) -> unit)({ ... });
-sink :: (fn(sink(victim) : Holder) -> unit)({ ... });
+swap :: (fn(a : &mut i32, b : &mut i32) -> unit)(.{ ... });
+sink :: (fn(sink(victim) : Holder) -> unit)(.{ ... });
 ```
 
 A local borrow binds a name to a place, and a re-point moves an existing

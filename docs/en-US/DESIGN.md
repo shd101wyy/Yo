@@ -1232,19 +1232,25 @@ MyString :: ref(
 impl(
   MyString,
   // Methods
-  from : (fn(s : str) -> Self)({
-    // Implementation...
-  }),
-  length : (fn(self : Self) -> usize)({
-    // Implementation...
-  })
+  from : (fn(s : str) -> Self)(
+    .{
+      // Implementation...
+    }
+  ),
+  length : (fn(self : Self) -> usize)(
+    .{
+      // Implementation...
+    }
+  )
 );
 impl(
   MyString,
   Drop(
-    drop : (fn(self : &mut Self) -> unit)({
-      // `drop` runs when the reference count reaches zero
-    })
+    drop : (fn(self : &mut Self) -> unit)(
+      .{
+        // `drop` runs when the reference count reaches zero
+      }
+    )
   )
 );
 
@@ -1965,7 +1971,7 @@ The `for` macro provides syntactic sugar for iterating. It calls `.next()` in a 
 
 ```yo
 // for loop syntax
-for(iter_expr, variable => {
+for(iter_expr, variable => .{
   // body
 });
 ```
@@ -3834,7 +3840,7 @@ assert(w.upgrade().is_none(), "the last Rc dropped the payload");
 
 ```yo
 impl(i32, SomeTrait(...));
-use_dyn :: (fn(value : &Dyn(SomeTrait)) -> unit)({ ... });
+use_dyn :: (fn(value : &Dyn(SomeTrait)) -> unit)(.{ ... });
 
 // One i32 behind a shared trait object
 (shared : Rc(Dyn(SomeTrait))) = dyn(Rc.new(i32(42)));

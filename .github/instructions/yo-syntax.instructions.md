@@ -695,11 +695,17 @@ errors). Casts DO emit correctly, so bind through a cast at the call site:
 ```yo
 // WRONG — may emit "// Failed to transpile n <= isize(0)":
 n := unsafe(write(int(fd), (*void)(p), count)); // n : ssize_t
-if(n <= isize(0), { ... });
+if(
+  n <= isize(0),
+  .{ ... }
+);
 
 // CORRECT — cast to a Yo integer at the binding:
 n := i64(unsafe(write(int(fd), (*void)(p), count)));
-if(n <= i64(0), { ... });
+if(
+  n <= i64(0),
+  .{ ... }
+);
 ```
 
 See `issues/cinclude-int-comparison-fails-to-transpile.md`.

@@ -209,14 +209,14 @@ run :: (
   ) -> T
 )(f(e));
 
-effects := { raise : my_raise, log : my_log };
+effects := .{ raise : my_raise, log : my_log };
 result := run(might_fail, effects);
 ```
 
 No effects → empty struct `{}`:
 
 ```yo
-result := run(pure_func, {});
+result := run(pure_func, .{});
 ```
 
 ### Async + effects
@@ -229,7 +229,7 @@ containing the actual handlers:
 ```yo
 // Single bundle (most common)
 fut1 : Impl(Future(i32, IoExn)); // IoExn = { io, exn }
-y := io.await(fut1, { io, exn });
+y := io.await(fut1, .{ io, exn });
 
 // Single-effect future — pass the effect value directly
 fut2 : Impl(Future(i32, Io));
@@ -242,7 +242,7 @@ at top-level call sites, or rely on the enclosing function's annotated
 return type when the closure is inside a function body:
 
 ```yo
-effects := { raise, log };
+effects := .{ raise, log };
 
 // Top-level: annotate e with type_of(effects).
 fut := io.async((e : type_of(effects)) => {

@@ -722,9 +722,11 @@ Pair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(first : T, second : T)
 derive(forall(T), Pair(T), where(T <: Eq(T)), Eq(Pair(T)));
 
 // User-defined derive function:
-derive_Default :: (fn(comptime(T) : Type) -> comptime(unit))({
-  // Use type reflection + comptime_eval to generate impl
-});
+derive_Default :: (fn(comptime(T) : Type) -> comptime(unit))(
+  .{
+    // Use type reflection + comptime_eval to generate impl
+  }
+);
 derive(Point, Eq(Point), derive_Default); // Mix built-in and user-defined
 ```
 

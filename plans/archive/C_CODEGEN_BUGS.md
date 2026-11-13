@@ -66,7 +66,7 @@ io.async(using(io) => {
       n := io.await(IO_file.read(fd, buf, len)); // 'n' not added to state struct
       // ...
     },
-    true => {
+    true => .{
       // another branch
     }
   );

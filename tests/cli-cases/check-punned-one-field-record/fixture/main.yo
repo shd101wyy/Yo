@@ -1,10 +1,10 @@
 { println } :: import("std/fmt");
+P :: struct(y : i32);
 main :: (fn() -> unit)({
   y := i32(7);
-  // `{ y }` is a one-field RECORD, not a block — braces mean "record unless
-  // `;`", uniformly. Every other language reads this as a block, so the error
-  // has to say so rather than surfacing as a bare type mismatch.
-  (x : i32) = { y };
-  println(x.to_string());
+  // `{ y }` is a block that yields `y`, an `i32`; the one-field record is
+  // `.{ y }`. The error says so rather than surfacing as a bare mismatch.
+  (p : P) = { y };
+  println(p.y.to_string());
 });
 export(main);

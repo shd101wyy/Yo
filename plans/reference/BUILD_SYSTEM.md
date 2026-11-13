@@ -412,11 +412,13 @@ Like Zig's `b.option()`, `build.yo` can declare user-configurable options via `y
 
 ```yo
 // In build.yo:
-strip :: build.option({
-  name : "strip",
-  description : "Strip debug symbols",
-  default : "false"
-});
+strip :: build.option(
+  .{
+    name : "strip",
+    description : "Strip debug symbols",
+    default : "false"
+  }
+);
 ```
 
 The `option()` function returns a `comptime_string` value. At evaluation time, if the CLI provides `-Dstrip=true`, the function returns `"true"`; otherwise it returns the default `"false"`.
@@ -444,11 +446,13 @@ Register system libraries via `build.system_library()` and link them using the `
 
 ```yo
 // Register system libraries (returns Step)
-openssl :: build.system_library({
-  name : "openssl"
-});
+openssl :: build.system_library(
+  .{
+    name : "openssl"
+  }
+);
 
-exe :: build.executable({ name : "my-app", root : "./src/main.yo" });
+exe :: build.executable(.{ name : "my-app", root : "./src/main.yo" });
 
 // Link using Step method
 exe.link(openssl);
@@ -717,12 +721,12 @@ The Yo-side naming also changes to avoid Node.js conventions:
 
 ```yo
 // Current (Node.js naming)
-Platform :: {
+Platform :: .{
   Darwin : "darwin",
   Win32 : "win32",
   // ...
 };
-Arch :: {
+Arch :: .{
   X64 : "x64",
   Arm64 : "arm64",
   Ia32 : "ia32",
@@ -1093,15 +1097,17 @@ This section documents features the build system does not yet support, organized
 
 ```yo
 // Run an arbitrary shell command as a build step
-cmd := build.system_command({
-  name : "generate-proto",
-  program : "protoc",
-  args : ComptimeList("--yo_out=src/gen", "proto/api.proto"),
-  cwd : "."
-});
+cmd := build.system_command(
+  .{
+    name : "generate-proto",
+    program : "protoc",
+    args : ComptimeList("--yo_out=src/gen", "proto/api.proto"),
+    cwd : "."
+  }
+);
 
 // Wire it as a dependency
-exe := build.executable({ name : "server", root : "./src/main.yo" });
+exe := build.executable(.{ name : "server", root : "./src/main.yo" });
 exe.depend_on(cmd);
 ```
 
@@ -1139,7 +1145,7 @@ yo build --watch --run        # Rebuild and re-run on change
 **Proposed API**:
 
 ```yo
-exe := build.executable({ name : "my-app", root : "./src/main.yo" });
+exe := build.executable(.{ name : "my-app", root : "./src/main.yo" });
 build.install(exe); // Marks artifact for installation
 
 // yo build --prefix /usr/local   → copies to /usr/local/bin/my-app
@@ -1165,11 +1171,11 @@ build.install(exe); // Marks artifact for installation
 
 ```yo
 // In library's build.yo:
-build.feature({ name : "tls", description : "Enable TLS support", default : false });
-build.feature({ name : "json", description : "Enable JSON parsing", default : true });
+build.feature(.{ name : "tls", description : "Enable TLS support", default : false });
+build.feature(.{ name : "json", description : "Enable JSON parsing", default : true });
 
 // In consumer's build.yo:
-dep := build.dependency({ name : "http", url : "...", ref : "main" });
+dep := build.dependency(.{ name : "http", url : "...", ref : "main" });
 dep.enable_feature("tls");
 dep.disable_feature("json");
 ```
@@ -1190,11 +1196,11 @@ Profile :: struct(
   sanitize : Sanitize
 );
 
-dev :: Profile({ optimize : .Debug, allocator : .Libc, sanitize : .Address });
-release :: Profile({ optimize : .ReleaseFast, allocator : .Mimalloc, sanitize : .None });
+dev :: Profile(.{ optimize : .Debug, allocator : .Libc, sanitize : .Address });
+release :: Profile(.{ optimize : .ReleaseFast, allocator : .Mimalloc, sanitize : .None });
 
 // Apply to artifact
-exe := build.executable({ name : "app", root : "./src/main.yo", profile : dev });
+exe := build.executable(.{ name : "app", root : "./src/main.yo", profile : dev });
 ```
 
 Or simpler: `--profile dev` / `--profile release` CLI flag.
@@ -1288,11 +1294,13 @@ yo build --check                  # Type-check and evaluate, skip C codegen + cl
 #### 11.3.1 Link-Time Optimization (LTO)
 
 ```yo
-exe := build.executable({
-  name : "app",
-  root : "./src/main.yo",
-  lto : true // Pass -flto to clang
-});
+exe := build.executable(
+  .{
+    name : "app",
+    root : "./src/main.yo",
+    lto : true // Pass -flto to clang
+  }
+);
 ```
 
 - **Thin LTO**: `-flto=thin` for parallel LTO (faster builds)
@@ -1301,10 +1309,12 @@ exe := build.executable({
 #### 11.3.2 Benchmarking
 
 ```yo
-bench := build.benchmark({
-  name : "perf-tests",
-  root : "./benchmarks/main.yo"
-});
+bench := build.benchmark(
+  .{
+    name : "perf-tests",
+    root : "./benchmarks/main.yo"
+  }
+);
 ```
 
 - `yo build bench` command
@@ -1350,11 +1360,13 @@ Uses `lipo` to merge two single-arch binaries.
 For dependencies, allow version ranges instead of exact refs:
 
 ```yo
-dep := build.dependency({
-  name : "json-parser",
-  url : "https://github.com/user/json-parser.git",
-  version : "^1.2.0" // Any 1.x.y where x >= 2
-});
+dep := build.dependency(
+  .{
+    name : "json-parser",
+    url : "https://github.com/user/json-parser.git",
+    version : "^1.2.0" // Any 1.x.y where x >= 2
+  }
+);
 ```
 
 Requires a version resolver that maps `^1.2.0` to the best matching git tag.
@@ -1363,17 +1375,19 @@ Requires a version resolver that maps `^1.2.0` to the best matching git tag.
 
 ```yo
 // Only needed during build, not linked into final artifact
-build.dev_dependency({ name : "test-utils", path : "../test-utils" });
+build.dev_dependency(.{ name : "test-utils", path : "../test-utils" });
 ```
 
 #### 11.3.9 Debug Info Levels
 
 ```yo
-exe := build.executable({
-  name : "app",
-  root : "./src/main.yo",
-  debug_info : .Full // .Full | .LineOnly | .None
-});
+exe := build.executable(
+  .{
+    name : "app",
+    root : "./src/main.yo",
+    debug_info : .Full // .Full | .LineOnly | .None
+  }
+);
 ```
 
 Maps to clang's `-g`, `-gline-tables-only`, or no debug flag.
@@ -1383,11 +1397,13 @@ Maps to clang's `-g`, `-gline-tables-only`, or no debug flag.
 For shared library consumers, control where the runtime linker searches:
 
 ```yo
-exe := build.executable({
-  name : "app",
-  root : "./src/main.yo",
-  rpath : ComptimeList("$ORIGIN/../lib", "/opt/mylibs")
-});
+exe := build.executable(
+  .{
+    name : "app",
+    root : "./src/main.yo",
+    rpath : ComptimeList("$ORIGIN/../lib", "/opt/mylibs")
+  }
+);
 ```
 
 ---

@@ -80,7 +80,7 @@ main :: (fn(io : Io, exn : __yo_test_exn.Exception) -> unit)({
   match(
     __yo_batch_env.env.get(`YO_TEST_INDEX`),
     .Some(__yo_test_idx) => cond(
-      (__yo_test_idx == `0`) => { /* test body 0 */ },
+      (__yo_test_idx == `0`) => .{ /* test body 0 */ },
       ...
     ),
     .None => ()

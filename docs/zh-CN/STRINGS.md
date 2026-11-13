@@ -99,7 +99,7 @@ s := String.from("aé中𝄞");
 // 不是）。
 n := s.chars().count(); // usize(4)
 // 携带字节偏移遍历 rune：p._0 = 字节偏移，p._1 = rune。
-for(s.char_indices(), p => { ... });
+for(s.char_indices(), p => .{ ... });
 
 // 截断到至多 n 个 rune：第 n 个 rune 的起始字节偏移就是切点；
 // 不足 n+1 个 rune 时保留整个字符串。
