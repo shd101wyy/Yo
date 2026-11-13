@@ -1,0 +1,18 @@
+// expect: E0912
+// The tail form of the same value: the `match`'s origin, closed over each arm's scope, maps the arm binding `h`
+// through the lend `&o` to `o`, a local of `f`.
+{ println } :: import("std/fmt");
+P :: struct(v : i32);
+f :: (fn() -> Option(&i32))({
+  o := Option(P).Some(P(v : i32(1)));
+  match(
+    &o,
+    .Some(h) => Option(&i32).Some(&h.*.v),
+    .None => Option(&i32).None
+  )
+});
+main :: (fn() -> unit)({
+  match(f(), .Some(p) => println(&p.*), .None => ());
+  ()
+});
+export(main);

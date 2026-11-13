@@ -12234,7 +12234,11 @@ borrow_match_source :: (fn(var_id : usize) -> Option(AstExpr))({
 });
 /// `roots` with every root that names a binding of a `&` match
 /// (`is_borrow_match_binding`, `note_borrow_match_source`) replaced by the
-/// scrutinee's own roots: the binding is a place inside the scrutinee's place.
+/// roots of a lend of the scrutinee's place: the binding is a place inside
+/// that place. The lend is the scrutinee as written (`&o`, or a reference
+/// `r`), not the place under its marker: over an owned local `o` the binding
+/// is rooted at `o` itself, which `o`'s own (empty) origin would lose, so a
+/// value or `return` holding `&h.*.v` would carry no root.
 _origin_through_match_bindings :: (fn(roots : &ArrayList(OriginRootPlace), env : &Environment, ctx : &EvalContext, depth : u32) -> ArrayList(OriginRootPlace))({
   out := ArrayList(OriginRootPlace).new();
   (ri : usize) = usize(0);
@@ -12248,7 +12252,7 @@ _origin_through_match_bindings :: (fn(roots : &ArrayList(OriginRootPlace), env :
     match(
       scr,
       .Some(scr_e) => {
-        inner := _origin_through_match_bindings(&origin_of(&ast_expr_strip_borrow_marker(&scr_e), env, ctx), env, ctx, (depth + u32(1)));
+        inner := _origin_through_match_bindings(&origin_of(&scr_e, env, ctx), env, ctx, (depth + u32(1)));
         (ii : usize) = usize(0);
         while(ii < inner.len(), {
           _origin_push(inner(ii).clone(), &mut out);

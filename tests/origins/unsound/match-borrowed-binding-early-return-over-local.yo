@@ -1,0 +1,21 @@
+// expect: E0912
+// `h` is a binding of `match(&o, ...)` over the local `o`; the early `return` hands back a reference into `o`,
+// which dies with `f`'s frame. The origin of `h` must be the lend of `o`, not `o`'s own empty origin.
+{ println } :: import("std/fmt");
+P :: struct(v : i32);
+f :: (fn() -> Option(&i32))({
+  o := Option(P).Some(P(v : i32(1)));
+  match(
+    &o,
+    .Some(h) => {
+      return(Option(&i32).Some(&h.*.v));
+    },
+    .None => ()
+  );
+  Option(&i32).None
+});
+main :: (fn() -> unit)({
+  match(f(), .Some(p) => println(&p.*), .None => ());
+  ()
+});
+export(main);

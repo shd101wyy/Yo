@@ -1,0 +1,21 @@
+// expect: accept
+// Positive twin: the scrutinee is a place behind a `&` parameter, so the binding is rooted at `a` and the
+// early `return` is a result the signature names.
+{ println } :: import("std/fmt");
+P :: struct(v : i32);
+f :: (fn(a : &Option(P)) -> Option(&i32))({
+  match(
+    a,
+    .Some(h) => {
+      return(Option(&i32).Some(&h.*.v));
+    },
+    .None => ()
+  );
+  Option(&i32).None
+});
+main :: (fn() -> unit)({
+  o := Option(P).Some(P(v : i32(1)));
+  match(f(&o), .Some(p) => println(&p.*), .None => ());
+  ()
+});
+export(main);
