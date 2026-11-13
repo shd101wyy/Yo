@@ -354,3 +354,52 @@ test("(R3) an owned temporary receiver picks the by-value impl: `.clone().into_i
   assert(count == usize(3), "the clone's three elements");
   assert(xs.len() == usize(3), "the original is untouched");
 });
+
+// (P3b gap 1, VERDICTS-49) An infix operator's operand that is a reference
+// binding selects with its reference type: `ra == rb` on `ra, rb : &C` is
+// `Eq(&C)` (Rust's `impl PartialEq<&B> for &A`), whose `lhs : &Self` slot is
+// the `&&C` the binding's own storage fills. It is never an auto-deref: with
+// no impl over `&C` that takes the operands, the operand stays a whole-value
+// read (E0926, spelled `ra.*`).
+_PgC :: struct(n : i32);
+impl(
+  &_PgC,
+  Eq(&_PgC)(
+    (==) : (fn(lhs : &Self, rhs : &Self) -> bool)(lhs.*.*.n == rhs.*.*.n),
+    (!=) : (fn(lhs : &Self, rhs : &Self) -> bool)(lhs.*.*.n != rhs.*.*.n)
+  )
+);
+// A by-value `Self` slot at `Self = &C` takes the reference value itself.
+impl(
+  &_PgC,
+  Add(&_PgC)(
+    Output : i32,
+    (+) : (fn(lhs : Self, rhs : Self) -> Self.Output)(lhs.n + rhs.n)
+  )
+);
+_PgNoEq :: struct(n : i32);
+test("(P3b gap 1) `ra == rb` on two reference bindings is the impl over `&C`", {
+  a := _PgC(n : i32(1));
+  b := _PgC(n : i32(1));
+  d := _PgC(n : i32(2));
+  ra := &a;
+  rb := &b;
+  rd := &d;
+  assert(ra == rb, "two referents holding 1 are equal, through Eq(&_PgC)");
+  assert(!(ra == rd), "1 and 2 differ");
+  assert(ra != rd, "the impl's `!=`");
+  assert((ra + rd) == i32(3), "a by-value `Self` slot takes the reference value");
+});
+test("(P3b gap 1) an operand no impl over `&C` takes stays E0926", {
+  b := _PgC(n : i32(1));
+  ra := &b;
+  // `&C == C`: the impl over `&C` takes a `&C` right operand only.
+  comptime_expect_error(ra == b, "reading the value it refers to is spelled");
+  x := i32(1);
+  rx := &x;
+  comptime_expect_error(rx + i32(1), "reading the value it refers to is spelled");
+  e := _PgNoEq(n : i32(1));
+  re := &e;
+  re2 := &e;
+  comptime_expect_error(re == re2, "reading the value it refers to is spelled");
+});
