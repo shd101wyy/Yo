@@ -1,0 +1,49 @@
+name: Origins rustc differential (G-C)
+
+# plans/backlog/BORROW_CHECKER_COMPLETENESS.md §6 G-C: every Rust twin in tests/origins/rust/ is run through
+# rustc (pinned, below) and its accept/reject is compared with the Yo program's verdict recorded in
+# tests/origins/corpus.tsv (corpus rows) or the `// expect:` header (tests/origins/unsound rows). A divergence
+# must be listed, with its reason, in tests/origins/rust/DIVERGENCES.tsv; an unexplained one fails the job, and
+# so does a listed one that no longer diverges. Rust is the oracle only where the design says the models
+# coincide (scripts/origins-diff-rustc.sh's header).
+#
+# Weekly on develop, and on a PR that edits the twins, the manifest, the unsound directory or the script. It
+# needs no Yo build: the recorded verdicts are guarded by the origins corpus jobs (G-A, G-B), and
+# `LIVE=1 YO=<binary> bash scripts/origins-diff-rustc.sh` re-derives them locally. It is NOT a `merge-gate`
+# need (not Tier 1; AGENTS.md): an unlisted job does not gate.
+
+on:
+  schedule:
+    # Weekly, Sundays 04:41 UTC.
+    - cron: "41 4 * * 0"
+  pull_request:
+    paths:
+      - "tests/origins/**"
+      - "scripts/origins-diff-rustc.sh"
+      - ".github/workflows/origins-rustc-diff.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: origins-rustc-diff-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The oracle's version is part of the corpus: a new rustc may move a verdict, which is a ledger edit made on
+  # purpose, never a silent change.
+  RUST_VERSION: "1.97"
+
+jobs:
+  origins-rustc-diff:
+    name: Origins rustc differential (Linux, rustc pinned)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install the pinned rustc
+        run: |
+          rustup toolchain install "$RUST_VERSION" --profile minimal --no-self-update
+          rustup default "$RUST_VERSION"
+          rustc --version
+      - name: Compare every twin with its Yo verdict
+        run: bash scripts/origins-diff-rustc.sh
