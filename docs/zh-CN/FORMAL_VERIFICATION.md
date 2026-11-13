@@ -263,7 +263,7 @@ append :: (
     requires((a.len() + b.len()) >= a.len()),
     ensures(seq_of(r) == seq_append(seq_of(a), seq_of(b)))
   ) -> (r : ArrayList(i32))
-)(.{ ... });
+)({ ... });
 ```
 
 以列表为载体的 Seq 留在列表域中，即 contents 数组加长度。两个列表（或两个以列表为载体的 Seq）之间的相等是外延的：长度相等，且长度以内的每个元素相等。Z3 自带的 `Seq` 理论对这个目标给出 `unknown`，换到数组上就能证出。把以列表为载体的 Seq 与字面 Seq 混用（`seq_append(seq_of(xs), seq_unit(x))`）是子集错误。

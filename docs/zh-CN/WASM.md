@@ -184,15 +184,13 @@ yo compile src/wasm_api.yo --target wasm32-unknown-emscripten --optimize 2 \
 ```yo
 build :: import("std/build");
 
-wasm_api :: build.executable(
-  .{
-    name : "my_lib_wasm_api",
-    root : "./src/wasm_api.yo",
-    target : build.CompilationTarget.Wasm32_Unknown_Emscripten,
-    optimize : build.Optimize.ReleaseSmall,
-    allocator : build.AllocatorKind.System
-  }
-);
+wasm_api :: build.executable(.{
+  name : "my_lib_wasm_api",
+  root : "./src/wasm_api.yo",
+  target : build.CompilationTarget.Wasm32_Unknown_Emscripten,
+  optimize : build.Optimize.ReleaseSmall,
+  allocator : build.AllocatorKind.System
+});
 wasm_api.add_c_flags("-sMODULARIZE=1 -sEXPORT_NAME=createModule -sENVIRONMENT=web,node -sALLOW_MEMORY_GROWTH=1 -sEXPORTED_FUNCTIONS=_wasm_alloc,_wasm_free,_transform -sEXPORTED_RUNTIME_METHODS=HEAPU8,HEAPU32");
 
 install :: build.step("install", "Build the WASM module");

@@ -301,7 +301,7 @@ append :: (
     requires((a.len() + b.len()) >= a.len()),
     ensures(seq_of(r) == seq_append(seq_of(a), seq_of(b)))
   ) -> (r : ArrayList(i32))
-)(.{ ... });
+)({ ... });
 ```
 
 A list-backed Seq stays in the list domain, a contents array plus a length.

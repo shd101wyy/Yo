@@ -1192,25 +1192,19 @@ MyString :: ref(
 impl(
   MyString,
   // 方法
-  from : (fn(s : str) -> Self)(
-    .{
-      // 实现...
-    }
-  ),
-  length : (fn(self : Self) -> usize)(
-    .{
-      // 实现...
-    }
-  )
+  from : (fn(s : str) -> Self)(.{
+    // 实现...
+  }),
+  length : (fn(self : Self) -> usize)(.{
+    // 实现...
+  })
 );
 impl(
   MyString,
   Drop(
-    drop : (fn(self : &mut Self) -> unit)(
-      .{
-        // 当引用计数降为零时运行 `drop`
-      }
-    )
+    drop : (fn(self : &mut Self) -> unit)(.{
+      // 当引用计数降为零时运行 `drop`
+    })
   )
 );
 
@@ -3610,7 +3604,7 @@ assert(w.upgrade().is_none(), "the last Rc dropped the payload");
 
 ```yo
 impl(i32, SomeTrait(...));
-use_dyn :: (fn(value : &Dyn(SomeTrait)) -> unit)(.{ ... });
+use_dyn :: (fn(value : &Dyn(SomeTrait)) -> unit)({ ... });
 
 // 一个 i32 放在共享的 trait 对象后面
 (shared : Rc(Dyn(SomeTrait))) = dyn(Rc.new(i32(42)));

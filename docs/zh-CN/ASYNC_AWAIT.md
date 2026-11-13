@@ -39,8 +39,8 @@ export(main);
 ```yo
 // 并发：同一线程，交替执行
 main :: (fn(io : Io) -> unit)({
-  a := io.async((io : Io) => .{ /* ... */ });
-  b := io.async((io : Io) => .{ /* ... */ });
+  a := io.async((io : Io) => { /* ... */ });
+  b := io.async((io : Io) => { /* ... */ });
   ha := io.spawn(a, io); // 启动 a 但不等待（消耗 a，返回它的 JoinHandle）
   hb := io.spawn(b, io); // 启动 b 但不等待
   _ra := ha.await(io);
@@ -172,7 +172,7 @@ export(main);
 
 // 测试块自动提供 `io : Io`
 test("my test", {
-  task := io.async((io : Io) => .{ /* ... */ });
+  task := io.async((io : Io) => { /* ... */ });
   io.await(task, io);
 });
 ```
@@ -211,9 +211,9 @@ yield()                       // 创建预完成的 Future（将控制权让给�
 // 三个任务全部运行在同一线程上
 main :: (fn(io : Io) -> unit)({
   // 惰性——任务为冷状态，尚未运行
-  t1 := io.async((io : Io) => .{ /* task1 的函数体 */ });
-  t2 := io.async((io : Io) => .{ /* task2 的函数体 */ });
-  t3 := io.async((io : Io) => .{ /* task3 的函数体 */ });
+  t1 := io.async((io : Io) => { /* task1 的函数体 */ });
+  t2 := io.async((io : Io) => { /* task2 的函数体 */ });
+  t3 := io.async((io : Io) => { /* task3 的函数体 */ });
 
   // spawn 启动每个任务但不等待：
   // - t1 运行到第一个 yield，挂起
@@ -598,18 +598,15 @@ cond(
   },
   true => ()
 );
-if(
-  !io.await(exists(p, io), io),
-  .{ ... }
-); // 在条件内部
+if(!io.await(exists(p, io), io), { ... }); // 在条件内部
 cond(c1 => ..., io.await(f, io) => ..., true => ...); // 位于后面的 cond 分支
 match(io.await(num(io), io), 42 => ..., _ => ...); // 作为 match 的被匹配值
 x := add(io.await(a, io), io.await(b, io)); // 同一个表达式中的两个 await
-while(io.await(more(io), io), .{ ... });
+while(io.await(more(io), io), { ... });
 while(c, {
   t := io.await(f, io);
   i = t;
-}, .{ ... }); // 三参数 while 的 step
+}, { ... }); // 三参数 while 的 step
 ```
 
 求值顺序就是源代码顺序。在 `add(g(), io.await(f, io))` 中，`g()` 在任务挂起之前运行。

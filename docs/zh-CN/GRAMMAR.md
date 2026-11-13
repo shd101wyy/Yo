@@ -265,8 +265,8 @@ ParameterType ::=
 标签：不接受 `Fn(&T)`。
 
 ```yo
-swap :: (fn(a : &mut i32, b : &mut i32) -> unit)(.{ ... });
-sink :: (fn(sink(victim) : Holder) -> unit)(.{ ... });
+swap :: (fn(a : &mut i32, b : &mut i32) -> unit)({ ... });
+sink :: (fn(sink(victim) : Holder) -> unit)({ ... });
 ```
 
 局部借用把一个名字绑定到某个位置，重指向则把已有的借用移到另一个位置：

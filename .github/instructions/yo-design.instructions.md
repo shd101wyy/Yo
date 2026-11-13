@@ -1106,7 +1106,7 @@ go through `e.io` and `e.exn`. The closure body must NOT capture `io` or
 
 ```yo
 // WRONG — two parameters:
-io.async((io, exn) => .{ ... });
+io.async((io, exn) => { ... });
 
 // WRONG — captures enclosing io (CTL capture error):
 io.async((e : IoExn) => {

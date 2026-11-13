@@ -1272,7 +1272,7 @@ impl(
   is_valid_struct_field_arg : (fn(self : &mut Self, expr : &AstExpr) -> bool)(
     match(
       expr,
-      .Atom(_, field_tok) => (field_tok.kind == TokenKind.Identifier),
+      .Atom(_, field_tok) => ((field_tok.kind == TokenKind.Identifier) || (field_tok.value.* == "...")),
       .FnCall(_, func_box, _, is_infix, _) => cond(
         is_infix => match(
           func_box,
@@ -2403,6 +2403,16 @@ impl(
         .FnCall(_, .Atom(_, pc_tok), Rc(pargs), true, _) => if((pc_tok.value.* == ":") && (pc_tok.byte_offset == tok.byte_offset) && (pargs.len() == usize(2)) && ast_expr_is_atom(&pargs(usize(0))), {
           body.push(pargs(usize(0)).clone());
           note_brace_block(tok, ast_expr_token(&pargs(usize(0))).value.*.clone());
+        }),
+        _ => ()
+      );
+    });
+    // `{ ... }`: the documentation's placeholder body, a block holding `...`.
+    if((body.len() == usize(0)) && !had_comma && (args.len() == usize(1)), {
+      match(
+        &args(usize(0)),
+        .Atom(_, dots_tok) => if(dots_tok.value.* == "...", {
+          body.push(args(usize(0)).clone());
         }),
         _ => ()
       );

@@ -70,19 +70,15 @@ The build file is a regular Yo source file that imports the `std/build` module. 
 build :: import("std/build");
 
 // Define artifacts — each returns a Step for dependency wiring
-exe :: build.executable(
-  .{
-    name : "my-project",
-    root : "./src/main.yo"
-  }
-);
+exe :: build.executable(.{
+  name : "my-project",
+  root : "./src/main.yo"
+});
 
-lib :: build.static_library(
-  .{
-    name : "my-project-lib",
-    root : "./src/lib.yo"
-  }
-);
+lib :: build.static_library(.{
+  name : "my-project-lib",
+  root : "./src/lib.yo"
+});
 
 tests :: build.test(.{ name : "tests", root : "./tests/" });
 
@@ -368,12 +364,10 @@ shapes  = "src/shapes.yo"
 ```yo
 build :: import("std/build");
 
-raylib :: build.system_library(
-  .{
-    name : "raylib",
-    defines : "NOMINMAX NOGDI NOUSER"
-  }
-);
+raylib :: build.system_library(.{
+  name : "raylib",
+  defines : "NOMINMAX NOGDI NOUSER"
+});
 
 // Name a [modules] entry of yo.toml and link the system libraries it needs
 mod :: build.module(.{ name : "default" });
@@ -419,26 +413,20 @@ Use `step.link()` to link any library to an artifact — works with static, shar
 build :: import("std/build");
 
 // Yo libraries
-lib :: build.shared_library(
-  .{
-    name : "mylib",
-    root : "./src/lib.yo"
-  }
-);
+lib :: build.shared_library(.{
+  name : "mylib",
+  root : "./src/lib.yo"
+});
 
 // System libraries (via pkg-config)
-openssl :: build.system_library(
-  .{
-    name : "openssl"
-  }
-);
+openssl :: build.system_library(.{
+  name : "openssl"
+});
 
-exe :: build.executable(
-  .{
-    name : "my-app",
-    root : "./src/main.yo"
-  }
-);
+exe :: build.executable(.{
+  name : "my-app",
+  root : "./src/main.yo"
+});
 
 // Link libraries using Step method
 exe.link(lib);
@@ -489,19 +477,15 @@ export(main);
 ```yo
 build :: import("std/build");
 
-lib :: build.static_library(
-  .{
-    name : "add",
-    root : "./add.yo"
-  }
-);
+lib :: build.static_library(.{
+  name : "add",
+  root : "./add.yo"
+});
 
-exe :: build.executable(
-  .{
-    name : "demo",
-    root : "./demo.yo"
-  }
-);
+exe :: build.executable(.{
+  name : "demo",
+  root : "./demo.yo"
+});
 
 exe.link(lib);
 
@@ -542,21 +526,17 @@ Like Zig's `b.option()`, declare user-configurable build options that can be set
 build :: import("std/build");
 
 // Declare a build option with a default value
-strip :: build.option(
-  .{
-    name : "strip",
-    description : "Strip debug symbols",
-    default : "false"
-  }
-);
+strip :: build.option(.{
+  name : "strip",
+  description : "Strip debug symbols",
+  default : "false"
+});
 
-opt_level :: build.option(
-  .{
-    name : "opt",
-    description : "Optimization level",
-    default : "debug"
-  }
-);
+opt_level :: build.option(.{
+  name : "opt",
+  description : "Optimization level",
+  default : "debug"
+});
 ```
 
 CLI usage:
@@ -608,27 +588,23 @@ Yo supports targeting WASM via target triples. Specify the target in `build.yo` 
 ### In `build.yo`
 
 ```yo
-build.executable(
-  .{
-    name : "my-app-wasm",
-    root : "./src/main.yo",
-    target : build.CompilationTarget.Wasm32_Unknown_Emscripten,
-    optimize : build.Optimize.ReleaseSmall
-  }
-);
+build.executable(.{
+  name : "my-app-wasm",
+  root : "./src/main.yo",
+  target : build.CompilationTarget.Wasm32_Unknown_Emscripten,
+  optimize : build.Optimize.ReleaseSmall
+});
 ```
 
 You can also use raw target strings if preferred:
 
 ```yo
-build.executable(
-  .{
-    name : "my-app-wasm",
-    root : "./src/main.yo",
-    target : "wasm32-unknown-emscripten",
-    optimize : build.Optimize.ReleaseSmall
-  }
-);
+build.executable(.{
+  name : "my-app-wasm",
+  root : "./src/main.yo",
+  target : "wasm32-unknown-emscripten",
+  optimize : build.Optimize.ReleaseSmall
+});
 ```
 
 ### On the command line
@@ -702,11 +678,11 @@ Use `std/process` to write platform-aware code:
 { platform, arch, Platform, Arch } :: import("std/process");
 
 cond(
-  (platform == Platform.Linux) => .{ /* Linux-specific */ },
-  (platform == Platform.Macos) => .{ /* macOS-specific */ },
-  (platform == Platform.Emscripten) => .{ /* Emscripten WASM */ },
-  (platform == Platform.Wasi) => .{ /* Standalone WASI */ },
-  true => .{ /* fallback */ }
+  (platform == Platform.Linux) => { /* Linux-specific */ },
+  (platform == Platform.Macos) => { /* macOS-specific */ },
+  (platform == Platform.Emscripten) => { /* Emscripten WASM */ },
+  (platform == Platform.Wasi) => { /* Standalone WASI */ },
+  true => { /* fallback */ }
 );
 ```
 
@@ -885,24 +861,20 @@ build :: import("std/build");
 
 // Module definition
 // Native build
-native :: build.executable(
-  .{
-    name : "my-app",
-    root : "./src/main.yo",
-    optimize : build.Optimize.ReleaseFast
-  }
-);
+native :: build.executable(.{
+  name : "my-app",
+  root : "./src/main.yo",
+  optimize : build.Optimize.ReleaseFast
+});
 
 // WASM build (Emscripten)
-wasm :: build.executable(
-  .{
-    name : "my-app-wasm",
-    root : "./src/main.yo",
-    target : build.CompilationTarget.Wasm32_Unknown_Emscripten,
-    optimize : build.Optimize.ReleaseSmall,
-    allocator : build.AllocatorKind.System
-  }
-);
+wasm :: build.executable(.{
+  name : "my-app-wasm",
+  root : "./src/main.yo",
+  target : build.CompilationTarget.Wasm32_Unknown_Emscripten,
+  optimize : build.Optimize.ReleaseSmall,
+  allocator : build.AllocatorKind.System
+});
 
 // Per-artifact C flags — useful for Emscripten-specific linker settings
 wasm.add_c_flags("-sASYNCIFY -DPLATFORM_WEB");
@@ -1262,15 +1234,13 @@ integrity = "sha256-9a0b2e..."
 Link against system C libraries discovered via `pkg-config`:
 
 ```yo
-build.system_library(
-  .{
-    name : "openssl",
-    fallback_include : "/usr/include/openssl",
-    fallback_lib : "/usr/lib",
-    fallback_link : "ssl crypto",
-    defines : "OPENSSL_API_COMPAT=0x10100000L"
-  }
-);
+build.system_library(.{
+  name : "openssl",
+  fallback_include : "/usr/include/openssl",
+  fallback_lib : "/usr/lib",
+  fallback_link : "ssl crypto",
+  defines : "OPENSSL_API_COMPAT=0x10100000L"
+});
 ```
 
 When `pkg-config` is available (Linux, macOS), it automatically resolves include paths and link flags using the `name` as the pkg-config package name. The fallback fields are used when `pkg-config` is not found (common on Windows).
@@ -1280,12 +1250,10 @@ When `pkg-config` is available (Linux, macOS), it automatically resolves include
 For example, `raylib` on Windows needs a few Win32 macros defined before including `raylib.h`:
 
 ```yo
-raylib :: build.system_library(
-  .{
-    name : "raylib",
-    defines : "NOMINMAX NOGDI NOUSER"
-  }
-);
+raylib :: build.system_library(.{
+  name : "raylib",
+  defines : "NOMINMAX NOGDI NOUSER"
+});
 ```
 
 ## `yo add` Reference
@@ -1433,16 +1401,14 @@ For advanced projects, configure documentation generation in `build.yo`:
 build :: import("std/build");
 
 // Define doc config
-docs :: build.doc(
-  .{
-    name : "docs",
-    root : "./src",
-    output : "yo-out/doc",
-    format : build.DocFormat.Html,
-    title : "My Project API",
-    version : "v1.0.0"
-  }
-);
+docs :: build.doc(.{
+  name : "docs",
+  root : "./src",
+  output : "yo-out/doc",
+  format : build.DocFormat.Html,
+  title : "My Project API",
+  version : "v1.0.0"
+});
 
 // Wire into the build DAG
 doc_step :: build.step("doc", "Generate documentation");

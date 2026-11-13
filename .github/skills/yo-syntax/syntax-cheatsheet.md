@@ -444,8 +444,8 @@ directory to test the rejection (`tests/member_visibility.test.yo`).
 ## `main` returns `unit`
 
 ```yo
-main :: (fn() -> unit)(.{ ... }); // the only legal result type
-main :: (fn(io : Io) -> unit)(.{ ... }); // effect params are fine
+main :: (fn() -> unit)({ ... }); // the only legal result type
+main :: (fn(io : Io) -> unit)({ ... }); // effect params are fine
 export(main);
 ```
 
@@ -471,12 +471,9 @@ while(true, {
 });
 
 // Compile-time loop unrolling — requires comptime() modifier
-while(
-  comptime(i < 10),
-  .{
-    // body evaluated/unrolled at compile time
-  }
-);
+while(comptime(i < 10), .{
+  // body evaluated/unrolled at compile time
+});
 
 // for loop — 2-arg prelude macro iterating BY VALUE (implicit
 // .into_iter(), which CONSUMES the collection). ref(struct(...))
@@ -1742,17 +1739,17 @@ the two-stage form below still works.
 // Both are fine:
 match(
   opt_value,
-  .Some(.TypeVal(box)) => .{ ... },
-  _ => .{ ... }
+  .Some(.TypeVal(box)) => { ... },
+  _ => { ... }
 );
 match(
   opt_value,
   .Some(v) => match(
     v,
-    .TypeVal(box) => .{ ... },
-    _ => .{ ... }
+    .TypeVal(box) => { ... },
+    _ => { ... }
   ),
-  .None => .{ ... }
+  .None => { ... }
 );
 ```
 

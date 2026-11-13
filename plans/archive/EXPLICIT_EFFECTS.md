@@ -192,8 +192,8 @@ result := run(might_fail, effects);
 
 ```yo
 // Before (two styles — inline declaration or call-site resolution)
-traverse(arr, (v, using(yield : Yield, log : Log)) => .{ ... });
-traverse(arr, (v, using(_yield, _log)) => .{ ... }, using(yield, log));
+traverse(arr, (v, using(yield : Yield, log : Log)) => { ... });
+traverse(arr, (v, using(_yield, _log)) => { ... }, using(yield, log));
 
 // After — effects are an explicit parameter, one consistent pattern
 traverse(arr, (v, e) => {

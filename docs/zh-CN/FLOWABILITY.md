@@ -151,7 +151,7 @@ h := xs.get(i); // `ref(struct(...))` 元素：指向对象的句柄，
 xs(i) = v; // 索引写：就地替换元素
 t := xs.get(i).unwrap(); // Copy 的 struct 元素：拷出 ……
 xs(i) = t2; //   …… 再写回
-for(xs, x => .{ ... }); // 迭代是值形式（into_iter）
+for(xs, x => { ... }); // 迭代是值形式（into_iter）
 ```
 
 元素也可以被**借用**，但只在一个地方：借用形式的 `for`。

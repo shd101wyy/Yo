@@ -380,7 +380,7 @@ thread.join();
 
 // 线程池任务
 pool := ThreadPool.new(usize(4));
-spawn(pool, (io : Io) => .{ /* 工作 */ });
+spawn(pool, (io : Io) => { /* 工作 */ });
 pool.join_all();
 
 // 通信

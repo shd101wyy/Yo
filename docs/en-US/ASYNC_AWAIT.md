@@ -39,8 +39,8 @@ export(main);
 ```yo
 // Concurrency: Same thread, interleaved execution
 main :: (fn(io : Io) -> unit)({
-  a := io.async((io : Io) => .{ /* ... */ });
-  b := io.async((io : Io) => .{ /* ... */ });
+  a := io.async((io : Io) => { /* ... */ });
+  b := io.async((io : Io) => { /* ... */ });
   ha := io.spawn(a, io); // Start a without waiting (consumes a, returns its JoinHandle)
   hb := io.spawn(b, io); // Start b without waiting
   _ra := ha.await(io);
@@ -174,7 +174,7 @@ export(main);
 
 // Test blocks automatically have `io : Io` available
 test("my test", {
-  task := io.async((io : Io) => .{ /* ... */ });
+  task := io.async((io : Io) => { /* ... */ });
   io.await(task, io);
 });
 ```
@@ -217,9 +217,9 @@ yield(io)                     // Create a pending Future completed by the next l
 // All three tasks run on the SAME thread
 main :: (fn(io : Io) -> unit)({
   // LAZY — tasks are cold, nothing runs yet
-  t1 := io.async((io : Io) => .{ /* task1 body */ });
-  t2 := io.async((io : Io) => .{ /* task2 body */ });
-  t3 := io.async((io : Io) => .{ /* task3 body */ });
+  t1 := io.async((io : Io) => { /* task1 body */ });
+  t2 := io.async((io : Io) => { /* task2 body */ });
+  t3 := io.async((io : Io) => { /* task3 body */ });
 
   // spawn starts each task without waiting:
   // - t1 runs until first yield, suspends
@@ -704,18 +704,15 @@ cond(
   },
   true => ()
 );
-if(
-  !io.await(exists(p, io), io),
-  .{ ... }
-); // inside a condition
+if(!io.await(exists(p, io), io), { ... }); // inside a condition
 cond(c1 => ..., io.await(f, io) => ..., true => ...); // a later cond branch
 match(io.await(num(io), io), 42 => ..., _ => ...); // a scrutinee
 x := add(io.await(a, io), io.await(b, io)); // two in one expression
-while(io.await(more(io), io), .{ ... });
+while(io.await(more(io), io), { ... });
 while(c, {
   t := io.await(f, io);
   i = t;
-}, .{ ... }); // the step of a 3-arg while
+}, { ... }); // the step of a 3-arg while
 ```
 
 Evaluation order is the source order. In `add(g(), io.await(f, io))`, `g()`
