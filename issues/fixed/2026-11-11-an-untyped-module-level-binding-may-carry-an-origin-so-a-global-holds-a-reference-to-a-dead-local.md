@@ -87,3 +87,16 @@ belongs where both spellings meet (the new variable's type at module level), not
 With the fix: the three negative programs and the positive control move to `tests/origins/unsound/`. The corpus
 row `global-refcell-origin` (`tests/origins/corpus.tsv`) uses only the typed spelling; add its `:=` twin
 (`global-option-ref-untyped`, `mut(G) := Option(&i64).None`, `neg`, E0909) so both paths stay covered.
+
+## Fix (2026-11-13, lane `sig`, branch `fix/sig-2`)
+
+`evaluate_initialization_assignment` (`src/evaluator/exprs/initialization_assignment.yo`) raises the same E0909 as the
+typed path (`no_origin_position_error`, "A module-level binding requires an `Escapable` type") when a module-level
+`:=` binding's type, the initializer's, carries an origin. It sits beside the module-level control-bound check, so
+the untyped holder, the `Option(&T)` form and the initializer block are all rejected at the declaration; the emitted
+C of the initializer block is never reached.
+
+The G-B rows are `tests/origins/unsound/global-option-ref-untyped.yo`, `global-holder-ref-untyped.yo` and
+`global-init-block-ref.yo` (E0909), with the positive control `global-option-ref-untyped-pos.yo`. P12's `static`
+admission (BORROW_CHECKER_COMPLETENESS.md §7) is not part of this fix: a module-level binding whose only origin is ∅
+waits for the `static` rule.
