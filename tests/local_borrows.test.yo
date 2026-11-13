@@ -194,7 +194,7 @@ test("a re-point to a sibling local's place reads and writes that place (P1)", {
   mut(b) := i32(2);
   cur := &mut a;
   cur = &mut b;
-  cur = i32(5);
+  cur.* = i32(5);
   assert(b == i32(5), "the write went to b");
   assert(a == i32(1), "a is untouched");
 });
@@ -451,7 +451,7 @@ comptime_expect_error(
     c := &mut x;
     c = &mut g_count;
     noop();
-    c = i32(2);
+    c.* = i32(2);
   }),
   "Cannot call `noop` while `c` is live: `c` borrows `g_count`"
 );
