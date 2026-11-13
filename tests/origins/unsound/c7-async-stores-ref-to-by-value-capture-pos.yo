@@ -1,0 +1,15 @@
+// expect: accept
+// Positive control: the body stores a reference to a place it BORROWS (`o : &owned`), which
+// joins `slot`'s holder at the literal; `owned` outlives `slot`'s read (OUT: the string).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+main :: (fn(io : Io) -> unit)({
+  owned := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+  mut(slot) := Option(&String).None;
+  fut := io.async({ s : &mut slot, o : &owned }(io : Io) => {
+    s.* = .Some(o);
+  });
+  io.await(fut, io);
+  match(slot, .Some(r) => println(`OUT: ${r.*}`), .None => println("none"));
+});
+export(main);

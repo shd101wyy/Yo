@@ -1,0 +1,18 @@
+// expect: E0911
+// `t` is a by-value parameter of a generic body. `r := t.get()` borrows it, `consume_t(t)` moves
+// and drops it, `r` is read after: accepted, heap-use-after-free. The concrete twin is E0911.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+Get :: trait(get : (fn(self : &Self) -> &String));
+W :: struct(s : String);
+impl(W, Get(get : (fn(self : &Self) -> &String)(&self.s)));
+consume_t :: (fn(generic(T : Type), v : T) -> unit)(());
+run :: (fn(generic(T : Type), t : T, where(T <: Get)) -> unit)({
+  r := t.get();
+  consume_t(t);
+  println(`OUT: ${r.*}`);
+});
+main :: (fn() -> unit)({
+  run(W(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+});
+export(main);
