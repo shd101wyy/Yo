@@ -53,7 +53,8 @@ pragma(Pragma.AllowUnsafe);
 { is_std_module_path } :: import("../memory_safety.yo");
 { EvalValue, value_to_string } :: import("../../value.yo");
 { TypeField } :: import("../types/field.yo");
-{ set_expr_as_needs_to_call_dup, reject_second_class_escape, reject_bare_callable_into_dyn_fn, is_reference_read, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref, lend_place_reference_type, deref_rule_recording, loans_active, local_borrow_place_of, access_place, LocalBorrowAccess } :: import("../utils.yo");
+{ set_expr_as_needs_to_call_dup, reject_second_class_escape, reject_bare_callable_into_dyn_fn, is_reference_read, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref, lend_place_reference_type, deref_rule_recording, local_borrows_active, loans_active, local_borrow_place_of, access_place, LocalBorrowAccess, local_borrow_place_text, local_borrow_require_writable, local_borrow_root_is_shared_reference } :: import("../utils.yo");
+{ shared_borrow_param_root_of_place, reject_write_through_shared_borrow_param } :: import("../exprs/assignment.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { format_error_message, with_code } :: import("../../error.yo");
 { E_INCOMPATIBLE_TYPES, E_ARGUMENT_COUNT_MISMATCH, E_BORROW_MARKER_MISMATCH } :: import("../../diagnostics.yo");
@@ -389,6 +390,30 @@ try_to_call_type_with_arguments :: (
     // callee's body the `lends_mut` bit of the parameter it is rooted in.
     t9w_made_mut := (t_slot_is_mut_ref(&member_element.ty) && (t9w_lend_ty.is_some() || t_slot_is_mut_ref(&arg_info.ty())));
     note_mut_lend_value(ast_expr_id(&evaluated_arg), t9w_made_mut);
+    // The `&mut` the field takes is exclusive: not through a `&` path. A
+    // `&mut` reference field read bare (`M(r : m.r, …)`) is the reborrow
+    // `&mut m.r.*` (REFERENCES_AND_ORIGINS.md O3 "Reborrows"), and through
+    // `m : &M`, `self : &Self` or `mm := &m` it is only a `&` reborrow, as a
+    // lend `&mut m.n` of a place there is a write through a `&` borrow
+    // (E0908; `derive(Clone)` over a `&mut` field fails here). Out of an
+    // owned holder the reborrow freezes the holder while the new one lives
+    // (`origin_of`, R-FIELD)
+    // (issues/fixed/2026-11-11-a-mut-reference-field-read-by-value-is-copied-so-two-holders-share-one-exclusive-borrow.md).
+    if(t9w_made_mut, {
+      t9w_what := `store \`${local_borrow_place_text(&evaluated_arg)}\` in the \`&mut\` field \`${member_element.label}\``;
+      match(
+        shared_borrow_param_root_of_place(&evaluated_arg, &env, ctx),
+        .Some(t9w_sbv) => reject_write_through_shared_borrow_param(&t9w_sbv, &t9w_what, &ast_expr_token(&actual_arg_expr), ctx, exn),
+        .None => ()
+      );
+      if(local_borrows_active(), {
+        match(
+          local_borrow_place_of(&evaluated_arg, &env, ctx),
+          .Some(t9w_lp) => local_borrow_require_writable(&t9w_lp, local_borrow_root_is_shared_reference(&t9w_lp, &env), &t9w_what, &ast_expr_token(&actual_arg_expr), ctx, exn),
+          .None => ()
+        );
+      });
+    });
     if(t9w_made_mut && loans_active(), {
       match(
         local_borrow_place_of(&evaluated_arg, &env, ctx),

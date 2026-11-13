@@ -1,0 +1,25 @@
+// expect: E0908
+// `derive(E, Clone)` over a `&mut` payload: the clone's match binds `__v_r` through `self : &Self`
+// and stores it in the new value's `&mut` slot, a second `&mut x`. A write through the clone frees
+// the Box a reference taken through `e` reads.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+E :: enum(V(r : &mut Box(X)), Z);
+derive(E, Clone);
+big :: (fn() -> Box(X))(Box.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+len_of :: (fn(e : &E) -> usize)(match(e, .V(r) => r.*.*.s.len(), .Z => usize(0)));
+main :: (fn() -> unit)({
+  mut(x) := big();
+  e := E.V(r : &mut x);
+  e2 := e.clone();
+  match(
+    e2,
+    .V(r) => {
+      r.* = Box.new(X(s : String.from("b")));
+    },
+    .Z => ()
+  );
+  println(`OUT: ${len_of(&e).to_string()}`);
+});
+export(main);

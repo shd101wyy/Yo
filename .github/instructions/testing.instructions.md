@@ -634,6 +634,20 @@ PHASES=N1 YO=... bash scripts/origins-corpus.sh target                          
   and run, so the use-after-free a missing rejection ships is printed. Every
   positive twin must compile and run clean under ASan. CI runs it in the same
   `origins-corpus` job.
+- G-D, the borrow-program generator: `YO=<binary> python3 -I scripts/origins-gen.py` renders enumerated borrow
+  programs (families `slot`, `args`, `valpos`, `join`) as a Yo program and a rustc twin, takes the `yo check` verdict,
+  rustc's verdict and, when Yo accepts, an ASan run, and minimizes each use-after-free or accept-versus-rustc
+  disagreement into `tests/origins/gen-findings/`. `YO_GEN_SEED=<n>` replays a run, `--sig <signature>` one program,
+  `--verify-known` reports which patterns of `tests/origins/gen-known.tsv` still reproduce (delete a row in the PR that
+  fixes it). Needs `clang` on PATH (inside the nix shell) and optionally `rustc`.
+  `.github/workflows/origins-generator.yml` runs it nightly on develop (artifact plus an issue per new signature); it is
+  not a `merge-gate` need.
+- G-C, the rustc differential corpus: `bash scripts/origins-diff-rustc.sh` compares `rustc --edition 2021
+  --emit=metadata` on every twin in `tests/origins/rust/` (`corpus-<id>.rs`, `unsound-<id>.rs`) with the Yo program's
+  recorded verdict (`LIVE=1 YO=<binary>` runs `yo check` instead). Every divergence is a row of
+  `tests/origins/rust/DIVERGENCES.tsv` (kind `design`, `parity`, `polonius` or `hole`); an unexplained one, or a listed
+  one that no longer diverges, fails. A new corpus row with a Rust analogue gets its twin in the same PR. CI:
+  `origins-rustc-diff.yml` (rustc pinned, weekly and on PRs that edit `tests/origins/`).
 - G-E, the totality and sink audit, is `scripts/check-origin-sinks.sh`. With
   no argument it is a grep gate (no binary): `local_borrow_register` is
   called only from the binding sites it lists, the conflict check only from
