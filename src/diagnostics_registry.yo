@@ -234,16 +234,16 @@ registry_entries :: (fn() -> ArrayList(Explain))({
   out.push(
     _mk_explain(
       E_STRUCT_LITERAL_VS_BLOCK,
-      "{ ... } without semicolons is a struct literal",
-      "无分号的 { ... } 是结构体字面量",
-      "A braced single expression is parsed as a struct value, not a block.",
-      "花括号内的单个表达式会被解析为结构体值，而不是语句块。",
-      "This is Yo's most distinctive brace rule: `{ expr }` (no semicolons) constructs an anonymous struct; `{ stmt; stmt; }` is a block. Wrap the expression in `begin`-style braces with semicolons, or — better — drop the braces and let the expression stand alone.",
-      "这是 Yo 最特别的 braces 规则：`{ expr }`（无分号）构造匿名结构体；`{ stmt; stmt; }` 才是语句块。请为语句加分号，或者更好的做法是去掉花括号，直接写表达式。",
-      "helper :: (fn() -> unit)(());\nmain :: (fn() -> unit)({ helper() });\nexport(main);\n",
-      "helper :: (fn() -> unit)(());\nmain :: (fn() -> unit)({\n  helper();\n});\nexport(main);\n",
-      "Without a `;` the braces are a record literal, and `helper()` is not a field. `yo fix` inserts the `;` for the single-expression shape.",
-      "没有 `;` 时花括号是记录字面量，而 `helper()` 不是字段。对单表达式形状，`yo fix` 会补上 `;`。"
+      "a bare { ... } in expression position is a block",
+      "表达式位置的裸 { ... } 是块",
+      "A brace group with a `,` or a `label : value` pair is not a record value; a record literal is written `.{ ... }`.",
+      "带 `,` 或 `label : value` 对的花括号组不是记录值；记录字面量写作 `.{ ... }`。",
+      "`.{ ... }` builds a record, `{ names }` on a binding side picks fields, and every other `{ ... }` is a block: `{ e }` yields `e` and `{}` is unit (plans/reference/BRACE_BLOCKS.md, since v0.2.78). A `,` or a `label : value` pair directly inside a bare expression brace is this error, and `yo fix` inserts the dot. A dot on the binding side (`.{ a } := s`, `.V(.{ x })` in a pattern) is this error too, and `yo fix` deletes it; `.{ a; b }` (a dotted block) and `.{ 1, 2 }` (a tuple is `(1, 2)`) are as well. Source written before v0.2.78 migrates with `yo fix <path> --migrate record-literal`.",
+      "`.{ ... }` 构造记录，绑定一侧的 `{ names }` 选取字段，其余所有 `{ ... }` 都是块：`{ e }` 的值是 `e`，`{}` 是 unit（plans/reference/BRACE_BLOCKS.md，自 v0.2.78 起）。裸表达式花括号内直接出现 `,` 或 `label : value` 对就是这个错误，`yo fix` 会补上点。绑定一侧带点（`.{ a } := s`、模式中的 `.V(.{ x })`）也是这个错误，`yo fix` 会删掉点；带点的块 `.{ a; b }` 和 `.{ 1, 2 }`（元组写作 `(1, 2)`）同样如此。v0.2.78 之前写成的源码用 `yo fix <path> --migrate record-literal` 迁移。",
+      "main :: (fn() -> unit)({\n  p := { x : i32(1), y : i32(2) };\n  _x := p.x;\n});\nexport(main);\n",
+      "main :: (fn() -> unit)({\n  p := .{ x : i32(1), y : i32(2) };\n  _x := p.x;\n});\nexport(main);\n",
+      "Without the dot the braces are a block, and a block separates statements with `;`. `yo fix` inserts the dot: the record `.{ x : i32(1), y : i32(2) }`.",
+      "没有点时花括号是块，而块用 `;` 分隔语句。`yo fix` 会补上点：记录 `.{ x : i32(1), y : i32(2) }`。"
     )
   );
   out.push(
