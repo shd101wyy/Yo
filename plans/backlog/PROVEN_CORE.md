@@ -234,8 +234,8 @@ states (P3). The only way Lean could ever reach an author is the parked hatch fo
 obligation Z3 cannot close, which is optional, unbuilt and behind its own trigger
 (`issues/questions/2026-11-04-should-yo-check-externally-proved-lean-theorems-for-obligations-z3-cannot-close.md`).
 
-Whether verification should be *on by default* is a separate open decision:
-`issues/questions/2026-11-13-should-verification-be-on-by-default.md`.
+Whether verification should be *on by default* is a separate decision, taken the same
+day: [`DEFAULT_ON_VERIFICATION.md`](DEFAULT_ON_VERIFICATION.md).
 
 ## 6. The ladder
 

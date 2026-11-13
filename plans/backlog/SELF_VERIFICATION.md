@@ -623,6 +623,9 @@ Each is a `law` or an `ensures`, each a separate PR.
   first thing that would check them from outside.
 - Making `Pragma.Verify` mandatory for contributors' *user* code. `src/`
   opts in module by module; `runtime` stays the default for everyone else.
+  (Amended 2026-11-13: until the flip of
+  [`DEFAULT_ON_VERIFICATION.md`](DEFAULT_ON_VERIFICATION.md), whose S6
+  rewrites this bullet.)
 
 ## Decisions (2026-09-18 — the maintainer asked for the recommended call on each open question)
 

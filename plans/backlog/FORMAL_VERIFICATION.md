@@ -120,7 +120,10 @@ pipeline, and LLM-author focus.
 - **No float reasoning.** `f32`/`f64` are outside the verifiable subset
   (Open Question 4).
 - **No mandatory verification.** Code without contract annotations and
-  without a verification pragma compiles exactly as today.
+  without a verification pragma compiles exactly as today. (Amended
+  2026-11-13: this holds until the default flips. The decision to make
+  `verify+` the default, and its gates, are
+  [`DEFAULT_ON_VERIFICATION.md`](DEFAULT_ON_VERIFICATION.md).)
 
 ## Current state — audited 2026-09-04
 
