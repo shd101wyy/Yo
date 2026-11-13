@@ -33,7 +33,7 @@
   format_error_message
 } :: import("../../error.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ is_own_fnonce_capture } :: import("../utils.yo");
+{ is_own_fnonce_capture, access_move } :: import("../utils.yo");
 { Exception } :: import("std/error");
 /// Mark the variable identified by `variable_name` in `env` as consumed at `token`.
 /// If the variable is already consumed and `allow_consume_again` is false, throws.
@@ -212,6 +212,13 @@ evaluate_consume :: (
       // scope-end drop the mark suppresses would have released it.
       if(!is_tv && !_is_init_assignment(&arg_expr) && _consume_releases_variable(&vname, &cur_env, ctx), {
         record_consume_release(ast_expr_id(expr));
+      });
+      // `consume(x)` moves `x` and releases it: a move access of its place,
+      // judged against every live loan exactly as passing `x` to a by-value
+      // parameter is (BORROW_CHECKER_COMPLETENESS.md §5: a consumed argument
+      // is `access(place, drop)`; audit A13).
+      if(!is_tv, {
+        match(get_variables_from_env(&cur_env, &vname).last_cloned(), .Some(cv) => access_move(&cv, ast_expr_token(&arg_expr), &cur_env, ctx, exn), .None => ());
       });
       set_variable_as_consumed(&vname, ast_expr_token(&arg_expr), &cur_env, false, is_tv, exn);
     },

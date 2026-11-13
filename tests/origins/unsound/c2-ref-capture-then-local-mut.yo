@@ -1,0 +1,14 @@
+// expect: E0910
+// The same lend through a local `&mut` borrow: `w := &mut h; w.* = ...` replaces the `Rc` while the
+// closure's `&h.*.a` capture is live.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+S :: struct(a : String);
+main :: (fn() -> unit)({
+  mut(h) := Rc.new(S(a : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+  (g : Impl(Fn() -> usize)) = ({ t : &h.*.a }() => t.clone().len());
+  w := &mut h;
+  w.* = Rc.new(S(a : String.from("z")));
+  println(`OUT: ${g().to_string()}`);
+});
+export(main);
