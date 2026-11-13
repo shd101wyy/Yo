@@ -6733,7 +6733,8 @@ deref_rule_applies :: (fn(tok : &Token, ctx : &EvalContext) -> bool)(
 /// (v0.2.76) admitted only referents `.*` does not read through, judged on
 /// the specialized type, so a generic body read the old way at a `Box`/`Rc`/
 /// pointer specialization; v0.2.77's std/src text spells no `.*` whose
-/// reading that changes. Generation B (v0.2.78) deletes the exemption.
+/// reading that changes. The deref flip (v0.2.79, VERDICTS-60) deletes the
+/// exemption.
 deref_spelling_applies :: (fn(tok : &Token, ctx : &EvalContext) -> bool)(
   deref_rule_applies(tok, ctx) || (!tok.module_path.*.starts_with(String.from("auto-generated://")) && for_desugar_site_of(tok).is_none())
 );
