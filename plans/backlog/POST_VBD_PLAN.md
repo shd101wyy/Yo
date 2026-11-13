@@ -20,9 +20,15 @@ are already decided in their docs (VERDICTS-29 to -33 and earlier).
 - **Ownership.** Values by default with unique ownership. `Rc`/`Arc` handle
   sharing, `Weak`/`ArcWeak` handle back edges, and there is no collector
   (decision 48, landed #1763).
-- **References.** `&T`/`&mut T` carry origins (decision 43), and the checker
-  is complete by construction with Rust-parity expressiveness (decision 50,
-  `BORROW_CHECKER_COMPLETENESS.md`).
+- **References.** `&T`/`&mut T` carry origins (decision 43). The checker is
+  sound on what it accepts (the claim (S), asserted by the release-candidate
+  tests of VERDICTS-58 decision 7; `BORROW_CHECKER_COMPLETENESS.md`).
+  Rust-parity expressiveness (decision 50) is a target, not a v0.2.79 fact:
+  it is claimed when `DIVERGENCES.tsv` has no row "rejected pending a parity
+  item". Until lane A's first items land, the container/cell wall (E0909,
+  N2c–N2f), second-class closures (P4), `Rc(&T)` (P5), scoped threads (P6)
+  and lending iterators through a trait (P7) are walls, listed as such in
+  the v0.2.79 notes.
 - **Unsized types:** `?Sized`, `str`, `[T]` (`Slice(T)`) and `Dyn`, with fat
   pointers (decision 49).
 - **Allocators** are placed by argument. Kebab-case module names are in.
@@ -89,8 +95,23 @@ battery takes the next lane-F item.
   - `Box` L3;
   - brace groups Generation B and the `record-literal` retirement, if the
     schedule's §5f decision 38 fallback was taken;
-  - VERDICTS-31's parity close-out (P6 scoped threads, P7 std half, the
-    G-D generator).
+  - VERDICTS-31's parity close-out, if its remaining part (G-C, the
+    completeness close-out) slipped. P6, P7 and the G-D generator are not
+    slips: VERDICTS-58 (schedule §5g) moved G-D to the start of v0.2.78 and
+    P6 and P7 to lane A below.
+- **Lane A, first items (v0.2.80–v0.2.81; VERDICTS-58 decision 9):** the
+  walls the campaign dropped, in this order.
+  1. **N2c–N2f, P4 and P5.** N2c–N2f never landed (the container/cell wall,
+     E0909), and P4 and P5 depend on N2d. They wait for the retype to finish
+     because each multiplies the positions of the audit's clusters, and
+     v0.2.79's evaluator is reserved for the three-tree retype.
+  2. **A41 and A42,** the D1 thread reach walk
+     (`issues/2026-11-11-the-d1-thread-reach-walk-does-not-see-drop-so-a-value-dropped-on-another-thread-races-on-a-global.md`,
+     `issues/2026-11-11-the-d1-thread-reach-walk-trusts-every-std-body-including-the-user-impls-a-std-generic-calls.md`).
+  3. **P6** (scoped threads, Generation A compiler marker then Generation B
+     std), behind A41/A42 because it widens thread surface over that walk.
+  4. **P7** (lending iterators through a trait), unless its Generation A
+     landed in v0.2.78 (decision 11).
 - **P-PERF-0 (lane C, no code):** re-baseline on the v0.2.79 tree.
   - Measure `check`/`compile`/`build` RSS and wall time on the 64 GB Linux
     box (stage-2, mimalloc verified).
@@ -171,7 +192,7 @@ battery takes the next lane-F item.
   final shape.
 - **Lane A:**
   - BORROW_CHECKER_COMPLETENESS's standing gates (G-A–G-E) stay green.
-  - Its generator (G-D) runs on a schedule.
+  - Its generator (G-D, running since v0.2.78) runs on a schedule.
   - New holes found by G-C/G-D are fixed here.
 - **Lane F, as filler:**
   - HTTP server keep-alive over `timeout`;
@@ -223,14 +244,18 @@ The order is the one THEOREM_PROVING_DIRECTION §4 ranks:
 
 | Release | Lane A | Lane B | Lane C | Lane D / E / F |
 | --- | --- | --- | --- | --- |
-| v0.2.80 | VBD slips; G-D generator scheduled | IO-1a, TP-1 | P-PERF-0 baselines | Ownership guide promoted; issue-date rename; K7 list fixed |
-| v0.2.81 | TSS Phase 6 step 4 | IO-1b (Gen B on v0.2.80) | merge the memory plans | K2–K4 (skills deleted); B4 evals corpus |
+| v0.2.80 | VBD slips; N2c–N2f + P4 + P5 (Gen A) first | IO-1a, TP-1 | P-PERF-0 baselines | Ownership guide promoted; issue-date rename; K7 list fixed |
+| v0.2.81 | N2c–N2f + P4 + P5 (Gen B); A41/A42; then TSS Phase 6 step 4 | IO-1b (Gen B on v0.2.80) | merge the memory plans | K2–K4 (skills deleted); B4 evals corpus |
 | v0.2.82 | `Comptime` exclusion; C5 | IO-1c; ALLOCATOR step C Gen A | evaluator step 1 | K5 gate; Z2 sha pin; Z1 |
 | v0.2.83 | TSS Phase 3 step 9 | step C Gen B; NO_LIBC P3 | evaluator step 2 | K6–K7 docs sweep |
 | v0.2.84 | REFERENCES_AND_ORIGINS → `reference/` | NO_LIBC P7; P0 | PARALLEL_COMPILATION P2 | keep-alive |
 | v0.2.85 | TSS kept-swallow kinds | NO_LIBC P0b | P3; P4 step 2 | `try_read`/`lines()` |
 | v0.2.86 | C6 `source_location` | NO_LIBC P1 | CODEGEN_PERFORMANCE CP0 | raw strings |
 | v0.2.87 | G-C/G-D findings | NO_LIBC P2 | CP2f | registry design refresh |
+
+Lane A's order from 2026-11-13 is N2c–N2f + P4 + P5, A41/A42, P6, P7 (§3,
+Phase 0); every later Lane A cell above slides right by the releases those
+items occupy.
 
 Cadence stays patch releases, as in VBD: a release cuts when develop's battery
 is green on the tip. A row is a target, not a gate. An item that is not ready
