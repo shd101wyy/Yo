@@ -369,7 +369,7 @@ format_error_message_with_repair :: (
 )({
   d := _diagnostic_of_token(token, Severity.Error, error_message);
   if(help.is_some(), {
-    d.help = Option(String).Some(match(&help, .Some(hh) => hh.clone(), .None => String.new()));
+    d.help = Option(String).Some(match(help, .Some(hh) => hh.clone(), .None => String.new()));
   });
   d.repair = Option(Repair).Some(
     Repair(span : _span_of_token(token), replacement : replacement.clone(), description : repair_description.clone())
@@ -392,7 +392,7 @@ format_error_message_with_repair_at :: (
 )({
   d := _diagnostic_of_token(token, Severity.Error, error_message);
   if(help.is_some(), {
-    d.help = Option(String).Some(match(&help, .Some(hh) => hh.clone(), .None => String.new()));
+    d.help = Option(String).Some(match(help, .Some(hh) => hh.clone(), .None => String.new()));
   });
   d.repair = Option(Repair).Some(
     Repair(span : span.clone(), replacement : replacement.clone(), description : repair_description.clone())
@@ -686,7 +686,7 @@ with_code :: (fn(err : &YoError, code : str) -> YoError)(_with_primary_code(err,
 /// generated body) carries that error's code over with this; `.None` leaves
 /// `err` as it is.
 with_code_carried :: (fn(err : &YoError, code : &Option(String)) -> YoError)(
-  match(code, .Some(_) => _with_primary_code(err, code), .None => err)
+  match(code, .Some(_) => _with_primary_code(err, code), .None => err.*)
 );
 /// `err` with a mechanical repair on its PRIMARY diagnostic: replace
 /// `token`'s own text with `replacement` (`yo fix` applies it,

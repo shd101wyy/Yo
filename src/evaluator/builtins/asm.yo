@@ -28,7 +28,7 @@ _str_in :: (fn(names : &ArrayList(String), s : &String) -> bool)({
   while(i < n, {
     match(
       names.get_cloned(i),
-      .Some(x) => if(x == s, {
+      .Some(x) => if(x == s.*, {
         return(true);
       }),
       .None => ()
@@ -48,13 +48,13 @@ _register_classes :: (fn() -> ArrayList(String))({
   l.push(String.from("mem"));
   l
 });
-_is_input_kind :: (fn(k : &String) -> bool)(k == "in");
-_is_output_kind :: (fn(k : &String) -> bool)((k == "out") || (k == "lateout"));
-_is_inout_kind :: (fn(k : &String) -> bool)((k == "inout") || (k == "inlateout") || (k == "ref"));
-_is_special_kind :: (fn(k : &String) -> bool)((k == "const_val") || (k == "sym"));
+_is_input_kind :: (fn(k : &String) -> bool)(k.* == "in");
+_is_output_kind :: (fn(k : &String) -> bool)((k.* == "out") || (k.* == "lateout"));
+_is_inout_kind :: (fn(k : &String) -> bool)((k.* == "inout") || (k.* == "inlateout") || (k.* == "ref"));
+_is_special_kind :: (fn(k : &String) -> bool)((k.* == "const_val") || (k.* == "sym"));
 _is_asm_subcall_name :: (fn(k : &String) -> bool)(
-  _is_input_kind(k) || _is_output_kind(k) || _is_inout_kind(k) || _is_special_kind(k) || (k == "clobber") ||
-    (k == "clobber_abi") || (k == "asm_options")
+  _is_input_kind(k) || _is_output_kind(k) || _is_inout_kind(k) || _is_special_kind(k) || (k.* == "clobber") ||
+    (k.* == "clobber_abi") || (k.* == "asm_options")
 );
 _asm_option_flags :: (fn() -> ArrayList(String))({
   l := ArrayList(String).new();
@@ -98,7 +98,7 @@ _is_asm_subcall :: (fn(e : &AstExpr) -> bool)({
   });
   fname := match(
     e,
-    .FnCall(_, f, _, _, _) => _atom_value(&f),
+    .FnCall(_, f, _, _, _) => _atom_value(&f.*),
     .Atom(_, _) => String.from("")
   );
   (fname.len() > usize(0)) && _is_asm_subcall_name(&fname)
@@ -232,7 +232,7 @@ _parse_operand :: (
   fn(operand_expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, kind_in : &String, exn : Exception) -> AsmOperand
 )({
   // Normalize the `ref` alias to `inout`.
-  kind := cond((kind_in == String.from("ref")) => String.from("inout"), true => kind_in.clone());
+  kind := cond((kind_in.* == String.from("ref")) => String.from("inout"), true => kind_in.clone());
   args := _fn_call_args_of(operand_expr);
   if(_is_special_kind(&kind), {
     return(_parse_special_operand(operand_expr, env, ctx, &kind, exn));
@@ -670,7 +670,7 @@ evaluate_asm :: (
         )
       )
     );
-    return(expr);
+    return(expr.*);
   });
   // asm can only be called inside a function body or test block.
   in_fn_or_test := match(
@@ -687,7 +687,7 @@ evaluate_asm :: (
         )
       )
     );
-    return(expr);
+    return(expr.*);
   });
   // Block CTFE.
   if(ctx.is_analyzing_ctfe_capability, {
@@ -699,7 +699,7 @@ evaluate_asm :: (
         )
       )
     );
-    return(expr);
+    return(expr.*);
   });
   args := _fn_call_args_of(expr);
   if(args.len() == usize(0), {
@@ -711,7 +711,7 @@ evaluate_asm :: (
         )
       )
     );
-    return(expr);
+    return(expr.*);
   });
   // --- Parse template strings ---
   template_parts := ArrayList(String).new();
@@ -758,7 +758,7 @@ evaluate_asm :: (
         )
       )
     );
-    return(expr);
+    return(expr.*);
   });
   // --- Parse operands and options ---
   operands := ArrayList(AsmOperand).new();
@@ -774,7 +774,7 @@ evaluate_asm :: (
           )
         )
       );
-      return(expr);
+      return(expr.*);
     });
     call_name := match(
       arg,
@@ -790,7 +790,7 @@ evaluate_asm :: (
           )
         )
       );
-      return(expr);
+      return(expr.*);
     });
     cond(
       (_is_input_kind(&call_name) || _is_output_kind(&call_name) || _is_inout_kind(&call_name) || _is_special_kind(&call_name)) => {
@@ -835,7 +835,7 @@ evaluate_asm :: (
             )
           )
         );
-        return(expr);
+        return(expr.*);
       }
     );
     arg_idx = (arg_idx + usize(1));
@@ -904,7 +904,7 @@ evaluate_asm :: (
           fab.kind,
           .FunctionBody => match(
             &fab.func_type,
-            .Some(ft) => match(ft, Rc(.Func({ result : r })) => t_slot_pointee(&r), _ => t_unit()),
+            .Some(ft) => match(ft, Rc(.Func({ result : r })) => t_slot_pointee(&r.*), _ => t_unit()),
             .None => t_unit()
           ),
           _ => t_unit()
@@ -953,7 +953,7 @@ evaluate_asm :: (
   // Stamp: asm is always a runtime expression.
   out_info := new_expr_info(env, &return_type);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr
+  expr.*
 });
 /// Evaluate the `global_asm(...)` builtin.
 evaluate_global_asm :: (
@@ -976,7 +976,7 @@ evaluate_global_asm :: (
         )
       )
     );
-    return(expr);
+    return(expr.*);
   });
   args := _fn_call_args_of(expr);
   if(args.len() == usize(0), {
@@ -988,7 +988,7 @@ evaluate_global_asm :: (
         )
       )
     );
-    return(expr);
+    return(expr.*);
   });
   template_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   evaluated := evaluate_expression_raw(&template_expr, env, ctx, exn);
@@ -1017,10 +1017,10 @@ evaluate_global_asm :: (
         )
       )
     );
-    return(expr);
+    return(expr.*);
   });
   out_info := new_expr_info(env, t_unit());
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr
+  expr.*
 });
 export(evaluate_asm, evaluate_global_asm);

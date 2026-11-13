@@ -746,7 +746,7 @@ _evaluate_expression :: (
           // the deleted spellings of `cur = &place` / `cur = &mut place`, E0009.
           _is_deleted_borrow_word(ast_expr_get_arg0(expr), true) => {
             exn.throw(dyn(deleted_mode_spelling_error(ast_expr_token(ast_expr_get_arg0(expr)), _deleted_word(ast_expr_get_arg0(expr)))));
-            expr
+            expr.*
           },
           // `cur = &place` / `cur = &mut place`: a re-point (decision 25).
           ast_expr_is_local_borrow_mode_call(ast_expr_get_arg0(expr), .Some(usize(1))) => evaluate_local_borrow_repoint(expr, env, ctx, exn),
@@ -838,7 +838,7 @@ _evaluate_expression :: (
             // fallback.
             expected_is_anon_struct := match(
               &et_ty,
-              Rc(.Struct({ is_source_namespace : et_sns })) => !et_sns,
+              Rc(.Struct({ is_source_namespace : et_sns })) => !et_sns.*,
               // Patch D: an expected FUNC type reroutes too — `is_even =
               // _(cond(...))` under `comptime(is_even) : (fn(n : i32) ->
               // bool)` is a function DEFINITION call (fn arm 14).
@@ -1219,7 +1219,7 @@ _evaluate_expression :: (
               )
             )
           );
-          expr
+          expr.*
         },
         // `addr_of(x)` is today's address-of `&x` (decision 33).
         ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_ADDR_OF, .Some(usize(1)))) =>
@@ -1230,7 +1230,7 @@ _evaluate_expression :: (
         // function; an `asm(...)` operand `inout(reg, v)` has two arguments.
         (((__dk_len == usize(3)) || (__dk_len == usize(5))) && _is_deleted_borrow_word(expr, false)) => {
           exn.throw(dyn(deleted_mode_spelling_error(ast_expr_token(expr), _deleted_word(expr))));
-          expr
+          expr.*
         },
         // `&mut x` is a call-site marker, consumed where it is legal (a call
         // argument bound to a `mut`/`inout` parameter, a `match` scrutinee).
@@ -1260,7 +1260,7 @@ _evaluate_expression :: (
               )
             )
           );
-          expr
+          expr.*
         },
         ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_TUPLE_TYPE, .None)) =>
           evaluate_tuple_type(expr, env, ctx, exn),
@@ -1746,7 +1746,7 @@ _evaluate_expression_raw_wrapper :: (
   // `mark_node_preevaluated`). Re-evaluating it here doubled the work of
   // every level of a call chain below.
   if(node_is_preevaluated(ast_expr_id(expr)) && expr_info_table_get(&ctx.expr_info_table, ast_expr_id(expr)).is_some(), {
-    return(expr);
+    return(expr.*);
   });
   record_node_eval(ast_expr_id(expr), ast_expr_token(expr));
   result := _evaluate_expression(expr, env, ctx, exn);

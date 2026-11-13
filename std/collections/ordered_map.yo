@@ -140,7 +140,7 @@ impl(
       pos := positions(i);
       ep := self._entries_ptr().add(pos);
       cond(
-        (ep.*.key == key) => {
+        (ep.*.key == key.*) => {
           found = Option(usize).Some(pos);
         },
         true => ()
@@ -565,14 +565,14 @@ impl(
     WalkCursor : usize,
     WalkElem : MapEntry(K, V),
     walk_start : (fn(self : &Self) -> usize)(usize(0)),
-    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self._entries.len()),
+    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur.* < self._entries.len()),
     walk_ref : (fn(self : &Self, cur : &usize) -> &MapEntry(K, V))({
-      if(cur >= self._entries.len(), {
+      if(cur.* >= self._entries.len(), {
         __yo_panic("OrderedMap: walk cursor out of bounds");
       });
-      self._entries.ptr().unwrap().add(cur)
+      self._entries.ptr().unwrap().add(cur.*)
     }),
-    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur + usize(1))
+    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur.* + usize(1))
   )
 );
 impl(
@@ -581,10 +581,10 @@ impl(
   OrderedMap(K, V),
   BorrowedWalkMut(
     walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut MapEntry(K, V))({
-      if(cur >= self._entries.len(), {
+      if(cur.* >= self._entries.len(), {
         __yo_panic("OrderedMap: walk cursor out of bounds");
       });
-      self._entries.ptr().unwrap().add(cur)
+      self._entries.ptr().unwrap().add(cur.*)
     })
   )
 );

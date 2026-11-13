@@ -76,7 +76,7 @@ evaluate_comptime_print :: (
       .Some(a) => a,
       .None => {
         i = args.len();
-        return(expr);
+        return(expr.*);
       }
     );
     evaluated := evaluate_expression_raw(&arg_expr, &cur_env, ctx, exn);
@@ -132,6 +132,6 @@ evaluate_comptime_print :: (
   info := new_expr_info(&cur_env, t_unit());
   info.set_value(.Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
-  expr
+  expr.*
 });
 export(evaluate_comptime_print);

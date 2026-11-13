@@ -119,7 +119,7 @@ _lv_span_end :: (fn(e : &AstExpr, w : &_LiveWalk) -> u64)({
     e,
     .Atom(_, _) => (),
     .FnCall(_, func_box, Rc(args), _, _) => {
-      fe := recur(&func_box, w);
+      fe := recur(&func_box.*, w);
       if(fe > m, {
         m = fe;
       });
@@ -200,9 +200,9 @@ _lv_use :: (fn(id : &String, at : u64, w : &_LiveWalk) -> unit)(
 _lv_place_root :: (fn(e : &AstExpr) -> AstExpr)(
   match(
     e.clone(),
-    .Atom(_, _) => e,
+    .Atom(_, _) => e.*,
     .FnCall(_, func_box, Rc(args), _, _) => cond(
-      ast_expr_is_fn_call_of(e.clone(), ".", Option(usize).Some(usize(2))) => match(args.get(usize(0)), .Some(obj) => recur(&obj), .None => e),
+      ast_expr_is_fn_call_of(e.clone(), ".", Option(usize).Some(usize(2))) => match(args.get(usize(0)), .Some(obj) => recur(&obj), .None => e.*),
       true => recur(&func_box)
     )
   )
@@ -752,7 +752,7 @@ _find_captured_by_id :: (
   while((i < eligible.len()) && found.is_none(), {
     match(
       eligible.get(i),
-      .Some(v) => if(v.base.id == id, {
+      .Some(v) => if(v.base.id == id.*, {
         found = Option(CapturedVariable).Some(v);
       }),
       .None => ()
@@ -1072,12 +1072,12 @@ emit_future_effect_injection_line :: (
 resolve_effect_field_from_sm_scope :: (
   fn(field_label : &String, context : &FunctionGenerationContext, _expr : &AstExpr) -> Option(String)
 )({
-  _expr;
+  _expr.*;
   match(
     &context.current_evidence_params,
     .Some(eps) => {
       for(&eps, (_k, ep) => {
-        if(ep.field_label == field_label, {
+        if(ep.field_label == field_label.*, {
           return(Option(String).Some(ep.c_param_name.clone()));
         });
       });
@@ -1089,7 +1089,7 @@ resolve_effect_field_from_sm_scope :: (
     .Some(svm) => {
       for(&svm, (_k, cv) => {
         is_outer := match(cv.kind, .Outer => true, .Local => false);
-        if((cv.base.name == field_label) && is_outer, {
+        if((cv.base.name == field_label.*) && is_outer, {
           s := `sm->${context.sm_capture_slot}.`;
           s.push_string(sanitize_for_c_identifier(field_label.clone(), false));
           return(Option(String).Some(s));
@@ -1126,7 +1126,7 @@ _build_combined_sm_variables :: (
   match(
     capture_type,
     .Some(ct) => {
-      flabels := match(&ct, Rc(.Struct({ field_labels : fl })) => Rc.clone(fl), _ => no_labels());
+      flabels := match(ct, Rc(.Struct({ field_labels : fl })) => Rc.clone(fl), _ => no_labels());
       ftypes := match(ct, Rc(.Struct({ field_types : ft })) => Rc.clone(ft), _ => no_types());
       (j : usize) = usize(0);
       while(j < flabels.len(), {
@@ -1589,9 +1589,9 @@ inline_await_result_fields :: (fn(analysis : &AwaitAnalysisResult, context : &Fu
   out := ArrayList(InlineAwaitResultField).new();
   seen := HashSet(usize).new();
   add := (fn(e : &AstExpr, t : &TypeValue, out : &mut ArrayList(InlineAwaitResultField), seen : &mut HashSet(usize), prefix : &String) -> unit)({
-    if(!seen.contains(ast_expr_id(e)) && !_inline_result_is_unit(t) && !g_local_await_results.with({ &e }(s) => s.contains(_site_of(ast_expr_token(e.clone())))), {
+    if(!seen.contains(ast_expr_id(e)) && !_inline_result_is_unit(t) && !g_local_await_results.with({ e : &e.* }(s) => s.contains(_site_of(ast_expr_token(e.clone())))), {
       seen.insert(ast_expr_id(e));
-      out.push(InlineAwaitResultField(name : `${prefix}__yo_await_result_${out.len().to_string()}`, ty : Rc.clone(t), expr : e));
+      out.push(InlineAwaitResultField(name : `${prefix}__yo_await_result_${out.len().to_string()}`, ty : Rc.clone(t), expr : e.*));
     });
   });
   (i : usize) = usize(0);
@@ -1620,10 +1620,10 @@ inline_await_result_fields :: (fn(analysis : &AwaitAnalysisResult, context : &Fu
 /// suspension between the await and its statement's use of it); `.None` when
 /// it is unit or lives in the task.
 inline_await_local_result_type :: (fn(expr : &AstExpr, analysis : &AwaitAnalysisResult, context : &FunctionGenerationContext) -> Option(TypeValue))({
-  rty := _inline_await_result_type(expr, Option(AwaitAnalysisResult).Some(analysis), context);
+  rty := _inline_await_result_type(expr, Option(AwaitAnalysisResult).Some(analysis.*), context);
   cond(
     _inline_result_is_unit(&rty) => Option(TypeValue).None,
-    g_local_await_results.with({ &expr }(s) => s.contains(_site_of(ast_expr_token(expr.clone())))) => Option(TypeValue).Some(rty),
+    g_local_await_results.with({ expr : &expr.* }(s) => s.contains(_site_of(ast_expr_token(expr.clone())))) => Option(TypeValue).Some(rty),
     true => Option(TypeValue).None
   )
 });
@@ -1741,7 +1741,7 @@ emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &mut Funct
     .Some(fei) => match(
       &fei.variable_name(),
       .Some(fvn) => {
-        sm_lowering_note_moved_into_slot(context, get_variable_name_for_codegen_at(ast_expr_id(&future_arg), &fvn, Option(Environment).Some(fei.env())));
+        sm_lowering_note_moved_into_slot(context, get_variable_name_for_codegen_at(ast_expr_id(&future_arg), &fvn.*, Option(Environment).Some(fei.env())));
       },
       .None => ()
     ),
@@ -1818,7 +1818,7 @@ _bind_await_result_to_temp :: (fn(expr : &AstExpr, out : &String, out_is_c_local
   (code : String) = out.clone();
   if(out_is_c_local && type_contains_rc_cell_or_move_only(&ei.ty()), {
     cname := get_variable_name_for_codegen_at(ast_expr_id(expr), &vn, Option(Environment).Some(ei.env()));
-    if(!(cname == out), {
+    if(!(cname == out.*), {
       emit_text2 := `${indent}${get_variable_type_string(&ei.ty(), &cname, &mut context.base)} = ${out};`;
       context.base.emitter.emit_string_line(&emit_text2);
       code = cname;
@@ -1827,7 +1827,7 @@ _bind_await_result_to_temp :: (fn(expr : &AstExpr, out : &String, out_is_c_local
   match(
     &context.state_machine_variables,
     .Some(smv) => match(
-      sm_slot_of(ast_expr_id(expr), &ei.env(), &vn, &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),
+      sm_slot_of(ast_expr_id(expr), &ei.env(), &vn, &smv.*, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),
       .Some(slot) => if(!(slot == code), {
         context.base.emitter.emit_string_line(`${indent}${slot} = ${code};`);
       }),
@@ -1877,14 +1877,14 @@ generate_async_block_resume_function_inline :: (
     async_block_id : async_block_id.clone(),
     resume_function_name : resume_function_name.clone(),
     next_state : usize(1),
-    analysis : analysis,
+    analysis : analysis.*,
     suspensions : ArrayList(InlineSuspension).new(),
     emitted : HashSet(usize).new(),
     moved_into_slot : HashSet(String).new(),
     moved_reads : HashMap(usize, String).new(),
     binding_sources : HashMap(String, String).new(),
     rc_operand : false,
-    owns_fnonce_captures : match(capture_type, .Some(Rc(.Struct({ id : cs_id }))) => is_fnonce_capture_struct(&cs_id), _ => false)
+    owns_fnonce_captures : match(capture_type, .Some(Rc(.Struct({ id : cs_id }))) => is_fnonce_capture_struct(&cs_id.*), _ => false)
   );
   p_low := replace(&mut context.sm_inline_lowering, Option(InlineSmLowering).Some(low));
   p_in := context.in_async_state_machine.clone();
@@ -1895,14 +1895,14 @@ generate_async_block_resume_function_inline :: (
   context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping.clone());
   context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
   pdd := ArrayList(AstExpr).new();
-  match(context.base.get_expr_info(body_expr), .Some(ei) => match(&ei.deferred_drop_expressions(), .Some(d) => _append_exprs(&mut pdd, &d), .None => ()), .None => ());
+  match(context.base.get_expr_info(body_expr), .Some(ei) => match(&ei.deferred_drop_expressions(), .Some(d) => _append_exprs(&mut pdd, &d.*), .None => ()), .None => ());
   context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(pdd);
   // The body's OWN scope-end drops: the only ones a statement-end flush may
   // release (`_flush_stmt_lent_temp_drops`).
   body_own_drops := match(context.base.get_expr_info(body_expr), .Some(bod_ei) => bod_ei.deferred_drop_expressions(), .None => Option(ArrayList(AstExpr)).None);
   body_exprs := if(ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), emitted_block_statements(match(body_expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new())), {
     single := ArrayList(AstExpr).new();
-    single.push(body_expr);
+    single.push(body_expr.*);
     single
   });
   // The body, once: its statements, the final value into sm->result, the

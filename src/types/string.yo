@@ -40,7 +40,7 @@ type_key_epoch :: (fn() -> u64)(g_type_key_epoch);
 /// Record `display` (`Ctor(Arg, …)`) for the type with id `type_id`. The
 /// first registration wins — one id is minted by one constructor call.
 register_type_display_name :: (fn(type_id : &String, display : &String) -> unit)({
-  if(!g_type_display_names.with({ &type_id }(m) => m.contains_key(type_id.clone())), {
+  if(!g_type_display_names.with({ type_id : &type_id.* }(m) => m.contains_key(type_id.clone())), {
     // Owned captures (`with_mut`'s callback is a sink parameter).
     tdn_key := type_id.clone();
     tdn_val := display.clone();
@@ -50,7 +50,7 @@ register_type_display_name :: (fn(type_id : &String, display : &String) -> unit)
 });
 /// The registered display name for `type_id`, if any.
 type_display_name :: (fn(type_id : &String) -> Option(String))(
-  g_type_display_names.with({ &type_id }(m) => m.get_cloned(type_id))
+  g_type_display_names.with({ type_id : &type_id.* }(m) => m.get_cloned(type_id))
 );
 /// One id serves every origin of a constructor instance (decision 43 step 3,
 /// N2a T3: the memo erases origins), so the first call's display names the
@@ -60,7 +60,7 @@ type_display_name :: (fn(type_id : &String) -> Option(String))(
 DISPLAY_ORIGIN_MARK :: "<<origin>>";
 (g_type_display_origin_templates : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 register_type_display_origin_template :: (fn(type_id : &String, template : &String) -> unit)({
-  if(!g_type_display_origin_templates.with({ &type_id }(m) => m.contains_key(type_id)), {
+  if(!g_type_display_origin_templates.with({ type_id : &type_id.* }(m) => m.contains_key(type_id)), {
     key_owned := type_id.clone();
     tpl_owned := template.clone();
     _prev := g_type_display_origin_templates.with_mut({ key_owned, tpl_owned }(m) => m.insert(key_owned, tpl_owned));
@@ -70,7 +70,7 @@ register_type_display_origin_template :: (fn(type_id : &String, template : &Stri
 /// The display of the instance `id` with its own origin arguments `tas`, when
 /// its constructor registered an origin template.
 _display_with_own_origins :: (fn(id : &String, tas : &SharedList(TypeValue)) -> Option(String))({
-  tpl := match(g_type_display_origin_templates.with({ &id }(m) => m.get_cloned(id)), .Some(t) => t, .None => return(Option(String).None));
+  tpl := match(g_type_display_origin_templates.with({ id : &id.* }(m) => m.get_cloned(id)), .Some(t) => t, .None => return(Option(String).None));
   mark := String.from(DISPLAY_ORIGIN_MARK);
   (out : String) = tpl;
   (ti : usize) = usize(0);
@@ -106,7 +106,7 @@ _tts_seen :: (fn(xs : &ArrayList(String), s : &String) -> bool)({
     // shape required — the bool-valued match form miscompiles self-hosted).
     match(
       xs.get_cloned(i),
-      .Some(e) => if(e == s, {
+      .Some(e) => if(e == s.*, {
         found = true;
       }),
       .None => ()
@@ -156,21 +156,21 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
       Rc(.Void) => `void`,
       Rc(.Never) => `never`,
       Rc(.Int(bits, signed)) => cond(
-        signed => cond(
-          (bits == u8(8)) => `i8`,
-          (bits == u8(16)) => `i16`,
-          (bits == u8(32)) => `i32`,
+        signed.* => cond(
+          (bits.* == u8(8)) => `i8`,
+          (bits.* == u8(16)) => `i16`,
+          (bits.* == u8(32)) => `i32`,
           true => `i64`
         ),
         true => cond(
-          (bits == u8(8)) => `u8`,
-          (bits == u8(16)) => `u16`,
-          (bits == u8(32)) => `u32`,
+          (bits.* == u8(8)) => `u8`,
+          (bits.* == u8(16)) => `u16`,
+          (bits.* == u8(32)) => `u32`,
           true => `u64`
         )
       ),
       Rc(.Float(bits)) => cond(
-        (bits == u8(32)) => `f32`,
+        (bits.* == u8(32)) => `f32`,
         true => `f64`
       ),
       Rc(.Usize) => `usize`,
@@ -189,14 +189,14 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
       Rc(.CULongLong) => `ulonglong`,
       Rc(.CLongDouble) => `longdouble`,
       Rc(.TypeUni(level)) => cond(
-        (level == usize(0)) => `Type`,
+        (level.* == usize(0)) => `Type`,
         true => `Type(${level})`
       ),
-      Rc(.Pointer(inner)) => `*(${recur(&inner, _d + usize(1), visited)})`,
+      Rc(.Pointer(inner)) => `*(${recur(&inner.*, _d + usize(1), visited)})`,
       Rc(.Str) => String.from("str"),
       Rc(.Array(inner, n, lv)) => cond(
-        (lv.len() > usize(0)) => `Array(${recur(&inner, _d + usize(1), visited)}, ${lv})`,
-        true => `Array(${recur(&inner, _d + usize(1), visited)}, ${n})`
+        (lv.len() > usize(0)) => `Array(${recur(&inner.*, _d + usize(1), visited)}, ${lv})`,
+        true => `Array(${recur(&inner.*, _d + usize(1), visited)}, ${n})`
       ),
       Rc(.Tuple(labels, types)) => {
         body := String.from("");
@@ -282,14 +282,14 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
         using_suffix := if(ibody.len() > usize(0), ` ${ibody}`, String.from(""));
         // The result slot prints its sigil bare (`-> &fn(...)`), never the
         // parenthesized `&(fn(...))` a reference elsewhere takes.
-        ret_s := cond(t_slot_is_value_ref(&ret) => `(${recur(&t_slot_pointee(&ret), _d + usize(1), visited)})`, true => recur(&t_slot_pointee(&ret), _d + usize(1), visited));
+        ret_s := cond(t_slot_is_value_ref(&ret.*) => `(${recur(&t_slot_pointee(&ret.*), _d + usize(1), visited)})`, true => recur(&t_slot_pointee(&ret.*), _d + usize(1), visited));
         // A control function prints as written: `ctl(...)`, not `fn(...)`.
-        `${if(__fm1.is_control, "ctl", "fn")}(${forall_prefix}${body}) -> ${cond(!t_slot_is_borrow(&ret) => ret_s, t_slot_is_mut_ref(&ret) => `&mut ${ret_s}`, true => `&${ret_s}`)}${using_suffix}`
+        `${if(__fm1.is_control, "ctl", "fn")}(${forall_prefix}${body}) -> ${cond(!t_slot_is_borrow(&ret.*) => ret_s, t_slot_is_mut_ref(&ret.*) => `&mut ${ret_s}`, true => `&${ret_s}`)}${using_suffix}`
       },
       Rc(.Struct({ id, name, field_labels : s_fls, field_types : s_fts, type_arguments : s_tas, is_source_namespace : s_sns })) => cond(
         // Source-namespace structs (anonymous modules / imports) keep the
         // legacy `module (...)` rendering for error-message continuity.
-        s_sns => {
+        s_sns.* => {
           if(s_fls.len() == usize(0), {
             return(`module ${name}`);
           });
@@ -319,13 +319,13 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
           mod_name := name.clone();
           `module ${mod_name}(${body})`
         },
-        true => if(name.len() > usize(0), name.clone(), match(_display_with_own_origins(&id, &s_tas), .Some(od) => od, .None => match(type_display_name(id.clone()), .Some(d) => d, .None => `<struct:${id}>`)))
+        true => if(name.len() > usize(0), name.clone(), match(_display_with_own_origins(&id.*, &s_tas.*), .Some(od) => od, .None => match(type_display_name(id.clone()), .Some(d) => d, .None => `<struct:${id}>`)))
       ),
       Rc(.EnumT(id, name, _, _, _, _, _, _, _, e_tas)) => if(
         name.len() > usize(0),
         name.clone(),
         match(
-          match(_display_with_own_origins(&id, &e_tas), .Some(od) => Option(String).Some(od), .None => type_display_name(id.clone())),
+          match(_display_with_own_origins(&id.*, &e_tas.*), .Some(od) => Option(String).Some(od), .None => type_display_name(id.clone())),
           .Some(d) => d,
           // An anonymous recursive enum's self-shell: the enum being defined.
           .None => cond(id.ends_with(`__self_shell`) => String.from("Self"), true => `<enum:${id}>`)
@@ -403,12 +403,12 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
         // `Impl(...)` is the reserved SomeT name of an `Impl(Trait)` type:
         // print it as written, not as a bounded type variable.
         cond(
-          (n == "Impl") => `Impl(${body})`,
+          (n.* == "Impl") => `Impl(${body})`,
           true => `${n} : (${body})`
         )
       },
       Rc(.ExprT) => `Expr`,
-      Rc(.ComptimeListT(child)) => `ComptimeList(${recur(&child, _d + usize(1), visited)})`,
+      Rc(.ComptimeListT(child)) => `ComptimeList(${recur(&child.*, _d + usize(1), visited)})`,
       Rc(.TypeAppT(constructor, args)) => {
         body := String.from("");
         i := usize(0);
@@ -420,7 +420,7 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
           body = `${body}${ts}`;
           i = (i + usize(1));
         });
-        `TypeApp(${recur(&constructor, _d + usize(1), visited)}, [${body}])`
+        `TypeApp(${recur(&constructor.*, _d + usize(1), visited)}, [${body}])`
       },
       Rc(.DynT(required_trait_types : rtt, required_trait_levels : _, negative_trait_types : ntt, negative_trait_levels : _)) => {
         body := String.from("");
@@ -461,11 +461,11 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
           body = `${body}${ts}`;
           i = (i + usize(1));
         });
-        `${bn}(${body}) -> ${recur(&cr, _d + usize(1), visited)}`
+        `${bn}(${body}) -> ${recur(&cr.*, _d + usize(1), visited)}`
       },
       // As written: `Future(T, E)` — the output, then the effect types.
       Rc(.FutureTraitT(base_name : bn, output : out, effect_labels : _, effect_types : ets)) => {
-        body := recur(&out, _d + usize(1), visited);
+        body := recur(&out.*, _d + usize(1), visited);
         i := usize(0);
         while(i < ets.len(), {
           ts := match(ets.get(i), .Some(t2) => recur(&t2, _d + usize(1), visited), .None => `?`);
@@ -485,27 +485,27 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
           (slen > usize(8)) => tag.push_string(pfid.substring(slen - usize(8), slen)),
           true => tag.push_string(pfid.clone())
         );
-        `refine(${recur(&inner, _d + usize(1), visited)}, ${tag})`
+        `refine(${recur(&inner.*, _d + usize(1), visited)}, ${tag})`
       },
       Rc(.ExternOpaqueT(eo_nm, _)) => eo_nm.clone(),
       // A reference prints without its origin: `type_key` falls back to this
       // rendering, and origins are kept out of every key (decision 43 step 1).
       // A by-value reference type (R3), as a slot printed whole.
       Rc(.ValueSlot(vs_inner)) => cond(
-        t_slot_is_borrow(&vs_inner) => `(${recur(&vs_inner, _d + usize(1), visited)})`,
-        true => recur(&vs_inner, _d + usize(1), visited)
+        t_slot_is_borrow(&vs_inner.*) => `(${recur(&vs_inner.*, _d + usize(1), visited)})`,
+        true => recur(&vs_inner.*, _d + usize(1), visited)
       ),
       Rc(.Reference(r_pointee, r_mut, _)) => {
-        r_ts := recur(&r_pointee, _d + usize(1), visited);
+        r_ts := recur(&r_pointee.*, _d + usize(1), visited);
         r_sig := if(r_ts.starts_with("fn(") || r_ts.starts_with("ctl("), `(${r_ts})`, r_ts);
-        if(r_mut, `&mut ${r_sig}`, `&${r_sig}`)
+        if(r_mut.*, `&mut ${r_sig}`, `&${r_sig}`)
       },
       Rc(.OriginKind) => `Origin`,
       Rc(.MaybeSizedKind) => `?Sized`,
       // Printed in the named form, as `Array(T, N)` prints for `[T; N]`.
-      Rc(.SliceT(s_elem)) => `Slice(${recur(&s_elem, _d + usize(1), visited)})`,
+      Rc(.SliceT(s_elem)) => `Slice(${recur(&s_elem.*, _d + usize(1), visited)})`,
       Rc(.OriginSet(o_places, o_elided)) => cond(
-        o_elided => `origin(_)`,
+        o_elided.* => `origin(_)`,
         (o_places.len() == usize(0)) => `static`,
         true => {
           o_body := String.from("");
@@ -529,7 +529,7 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
 format_param_with_mode :: (fn(label : &String, ts : &String, is_ref : bool, is_owning : bool) -> String)({
   sig_ts := if(ts.starts_with("fn(") || ts.starts_with("ctl("), `(${ts})`, ts.clone());
   // A `Type`-valued parameter (`ArrayList`'s `T`) has no mode to speak of.
-  is_type_param := ((ts == "Type") || ts.starts_with("Type("));
+  is_type_param := ((ts.* == "Type") || ts.starts_with("Type("));
   cond(
     is_ref => `${label} : &mut ${sig_ts}`,
     (is_owning || is_type_param) => `${label} : ${ts}`,
@@ -556,7 +556,7 @@ type_to_string_for_message :: (fn(t : &TypeValue) -> String)({
   shown := match(
     t,
     Rc(.Struct({ id : tfm_id, name : tfm_name, field_labels : tfm_fls, field_types : tfm_fts, is_source_namespace : tfm_sns })) => cond(
-      (tfm_sns || (tfm_name.len() > usize(0)) || type_display_name(&tfm_id).is_some()) => type_to_string(t),
+      (tfm_sns.* || (tfm_name.len() > usize(0)) || type_display_name(&tfm_id.*).is_some()) => type_to_string(t),
       true => {
         body := String.new();
         (tfm_i : usize) = usize(0);

@@ -393,7 +393,7 @@ impl(
           // Compared in place: a copy of the bucket would be E0901 for a
           // move-only `K` or `V`.
           cond(
-            ((data_ptr.add(probe_index)).*.key == key) => {
+            ((data_ptr.add(probe_index)).*.key == key.*) => {
               return(.Some(probe_index));
             },
             true => ()
@@ -446,7 +446,7 @@ impl(
         },
         (ctrl_byte == h2) => {
           cond(
-            ((data_ptr.add(probe_index)).*.key == key) => {
+            ((data_ptr.add(probe_index)).*.key == key.*) => {
               return(BucketProbe.Occupied(index : probe_index));
             },
             true => ()
@@ -993,7 +993,7 @@ impl(
   entry : (fn(generic(R : Type), self : &mut Self, key : &K, sink(body) : Impl(FnOnce(e : &mut HashMapEntry(K, V)) -> R), where(K <: Clone)) -> R)({
     hash := self._hash(key);
     (mut(e) : HashMapEntry(K, V)) = HashMapEntry(K, V)(
-      _map : addr_of(self),
+      _map : addr_of(self.*),
       _key : key.clone(),
       _hash : hash,
       _slot : Self._probe(self, key, hash)
@@ -1386,14 +1386,14 @@ impl(
     WalkCursor : usize,
     WalkElem : MapEntry(K, V),
     walk_start : (fn(self : &Self) -> usize)(self._walk_from(usize(0))),
-    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self.capacity),
+    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur.* < self.capacity),
     walk_ref : (fn(self : &Self, cur : &usize) -> &MapEntry(K, V))({
-      if(cur >= self.capacity, {
+      if(cur.* >= self.capacity, {
         __yo_panic("HashMap: walk cursor out of bounds");
       });
-      Self._data_ptr(self).add(cur)
+      Self._data_ptr(self).add(cur.*)
     }),
-    walk_next : (fn(self : &Self, cur : &usize) -> usize)(self._walk_from(cur + usize(1)))
+    walk_next : (fn(self : &Self, cur : &usize) -> usize)(self._walk_from(cur.* + usize(1)))
   )
 );
 impl(
@@ -1402,10 +1402,10 @@ impl(
   HashMap(K, V),
   BorrowedWalkMut(
     walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut MapEntry(K, V))({
-      if(cur >= self.capacity, {
+      if(cur.* >= self.capacity, {
         __yo_panic("HashMap: walk cursor out of bounds");
       });
-      Self._data_ptr(self).add(cur)
+      Self._data_ptr(self).add(cur.*)
     })
   )
 );

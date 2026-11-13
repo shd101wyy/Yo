@@ -87,7 +87,7 @@ _is_dot_access :: (fn(expr : &AstExpr, obj_name : str, method_name : str) -> boo
       outer_func_box,
       .Atom(_, _) => false,
       .FnCall(_, dot_func_box, Rc(dot_args), is_infix, _) => cond(
-        (is_infix == false) => false,
+        (is_infix.* == false) => false,
         (dot_args.len() != usize(2)) => false,
         true => match(
           dot_func_box,
@@ -196,7 +196,7 @@ is_join_handle_await_call :: (fn(expr : &AstExpr) -> bool)({
       outer_func_box,
       .Atom(_, _) => false,
       .FnCall(_, dot_func_box, Rc(dot_args), is_infix, _) => cond(
-        (is_infix == false) => false,
+        (is_infix.* == false) => false,
         (dot_args.len() != usize(2)) => false,
         true => match(
           dot_func_box,
@@ -437,7 +437,7 @@ analyze_await_points :: (
     body.clone(),
     get_info,
     SuspensionPointDetector(
-      detect : dyn({ await_extras : Rc.clone(await_extras), get_info }(expr, parent_expr) =>
+      detect : dyn({ await_extras : Rc.clone(await_extras), get_info : get_info.* }(expr, parent_expr) =>
         await_extras.with_mut(extras => {
           found := ArrayList(SuspensionPoint).new();
           detect_await_expr_(expr, parent_expr, &mut found, extras, &get_info);
@@ -669,7 +669,7 @@ collect_variable_bindings_ :: (
         );
       });
       // Always recurse into the function expression
-      recur(&func_box, variables, seen, get_info);
+      recur(&func_box.*, variables, seen, get_info);
       // Always recurse into each argument
       n_args := args.len();
       (ai : usize) = usize(0);
@@ -730,12 +730,12 @@ register_closure_await_analysis :: (fn(func_id : &String, result : &AwaitAnalysi
   });
   func_id_owned := func_id.clone();
   // A handle copy: the analysis is a `ref` object shared with codegen.
-  result_handle := result;
+  result_handle := result.*;
   g_closure_await_analysis.with_mut({ func_id_owned, result_handle }(m) => m.insert(func_id_owned, result_handle));
 });
 /// The await analysis recorded for `func_id`, if any.
 get_closure_await_analysis :: (fn(func_id : &String) -> Option(AwaitAnalysisResult))(
-  g_closure_await_analysis.with({ &func_id }(m) => m.get(func_id.clone()))
+  g_closure_await_analysis.with({ func_id : &func_id.* }(m) => m.get(func_id.clone()))
 );
 export(
   // Types (re-exported for convenience — canonical home is await_analysis_types.yo)

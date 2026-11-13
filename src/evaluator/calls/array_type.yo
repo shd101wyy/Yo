@@ -65,7 +65,7 @@ try_to_implement_array_by_array_type :: (
   );
   expected_len := match(
     array_type,
-    Rc(.Array(_, len, _)) => len,
+    Rc(.Array(_, len, _)) => len.*,
     _ => usize(0)
   );
   // A non-empty `length_var` means the length is an UNRESOLVED inference
@@ -86,8 +86,8 @@ try_to_implement_array_by_array_type :: (
   if((n_args != expected_len) && !len_var_present, {
     func_tok := match(
       expr,
-      .FnCall(_, func_box, _, _, _) => ast_expr_token(&func_box),
-      .Atom(_, tok) => tok
+      .FnCall(_, func_box, _, _, _) => ast_expr_token(&func_box.*),
+      .Atom(_, tok) => tok.*
     );
     exn.throw(
       dyn(
@@ -110,7 +110,7 @@ try_to_implement_array_by_array_type :: (
       arg_exprs.get(i),
       .Some(a) => a,
       .None => {
-        return(expr);
+        return(expr.*);
       }
     );
     // Evaluate with expected element type set in context.
@@ -193,6 +193,6 @@ try_to_implement_array_by_array_type :: (
     // array-literal path does.
     attach_temp_variable_to_expr(expr, true, ctx);
   });
-  expr
+  expr.*
 });
 export(try_to_implement_array_by_array_type);

@@ -188,7 +188,7 @@ evaluate_cond :: (
       .Some(s) => s,
       .None => {
         done_eval = true;
-        return(expr);
+        return(expr.*);
       }
     );
     cond_expr := pstmt.cond_expr;
@@ -221,7 +221,7 @@ evaluate_cond :: (
       cond_info_opt,
       .Some(ci) => Rc.clone(ci),
       .None => {
-        return(expr);
+        return(expr.*);
       }
     );
     // Require bool type — but tolerate `unit` (from an `UnknownVal`
@@ -297,7 +297,7 @@ evaluate_cond :: (
       .Some(c) => c,
       .None => {
         fti_done = true;
-        return(expr);
+        return(expr.*);
       }
     );
     is_comptime_true_here := match(ec_here.cond_value, .Some(v) => match(v, .BoolVal(b) => b, _ => false), .None => false);
@@ -343,7 +343,7 @@ evaluate_cond :: (
         evaluated_conds.get_cloned(fti_idx),
         .Some(c) => c,
         .None => {
-          return(expr);
+          return(expr.*);
         }
       );
       cond_expr_true := ec_true.cond_expr;
@@ -370,7 +370,7 @@ evaluate_cond :: (
           body_info_opt,
           .Some(bi) => Rc.clone(bi),
           .None => {
-            return(expr);
+            return(expr.*);
           }
         );
         // The arm's value leaves with the control flow (`return(x)` moves
@@ -389,7 +389,7 @@ evaluate_cond :: (
         out_info.set_path_collection(body_info.path_collection());
         out_info.set_control_flow(body_info.control_flow());
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-        return(expr);
+        return(expr.*);
       }, {
         // No control flow — use this body's type and value.
         body_info := match(
@@ -404,7 +404,7 @@ evaluate_cond :: (
                 )
               )
             );
-            return(expr);
+            return(expr.*);
           }
         );
         bodies.push(evaluated_body);
@@ -423,7 +423,7 @@ evaluate_cond :: (
         if(body_info.variable_name().is_none(), {
           attach_temp_variable_to_expr(expr, true, ctx);
         });
-        return(expr);
+        return(expr.*);
       });
     },
     // ---------------------------------------------------------------------
@@ -571,7 +571,7 @@ evaluate_cond :: (
                     is_ptr_relaxed_match := cond(
                       (is_pointer_type(&et.ty) && !is_pointer_type(&body_einfo.ty())) => match(
                         &et.ty,
-                        Rc(.Pointer(child_box)) => are_types_compatible(&body_einfo.ty(), &child_box),
+                        Rc(.Pointer(child_box)) => are_types_compatible(&body_einfo.ty(), &child_box.*),
                         _ => false
                       ),
                       true => false
@@ -706,7 +706,7 @@ evaluate_cond :: (
           fb_i = (fb_i + usize(1));
         });
         reject_mixed_closure_arms(&filtered_bodies, ctx, exn);
-        env = merge_and_check_envs(&env, &filtered_bodies, group_log_start, &arm_ranges, ctx, exn, Option(AstExpr).Some(expr));
+        env = merge_and_check_envs(&env, &filtered_bodies, group_log_start, &arm_ranges, ctx, exn, Option(AstExpr).Some(expr.*));
         // A runtime condition cannot select a compile-time-only value: a
         // `Type`, a module or a trait has no runtime representation, so
         // `T :: cond(b => i32, true => i64)` with a runtime `b` has no
@@ -744,7 +744,7 @@ evaluate_cond :: (
         out_info.set_value(result_val);
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
         attach_temp_variable_to_expr(expr, true, ctx);
-        return(expr);
+        return(expr.*);
       }, {
         // All arms have control flow — determine what kind.
         if(control_flows.len() == usize(0), {
@@ -799,7 +799,7 @@ evaluate_cond :: (
                           match(
                             ft,
                             Rc(.Func({ result : result_slot })) => {
-                              return_type = Option(TypeValue).Some(if(t_slot_is_borrow(&result_slot), t_ptr(&t_slot_pointee(&result_slot)), Rc.clone(t_slot_pointee(&result_slot))));
+                              return_type = Option(TypeValue).Some(if(t_slot_is_borrow(&result_slot.*), t_ptr(&t_slot_pointee(&result_slot.*)), Rc.clone(t_slot_pointee(&result_slot.*))));
 
                             },
                             _ => ()
@@ -846,7 +846,7 @@ evaluate_cond :: (
                     .Some(fctx) => match(
                       &fctx.func_type,
                       .None => false,
-                      .Some(ft) => is_function_type_and_returns_comptime_value(&ft)
+                      .Some(ft) => is_function_type_and_returns_comptime_value(&ft.*)
                     )
                   ),
                   true => false
@@ -923,10 +923,10 @@ evaluate_cond :: (
         // temp and the function's own tail `expr` return closes it
         // (issues/fixed/2026-10-18-a-match-in-statement-position-falls-off-the-end-of-a-non-void-function.md).
         // Keep this spelling until SEED_VERSION carries the emitter fix.
-        expr
+        expr.*
       });
     }
   );
-  expr
+  expr.*
 });
 export(evaluate_cond);

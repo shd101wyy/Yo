@@ -95,7 +95,7 @@ _ascii_lower :: (fn(b : u8) -> u8)(
 //   - trailing OWS is stripped too.
 _header_values :: (fn(data : &ArrayList(u8), header_end : usize, name : &String) -> ArrayList(String))({
   mut(out) := ArrayList(String).new();
-  key := &name;
+  key := &name.*;
   klen := key.len();
   mut(line_start) := usize(0);
   mut(on_start_line) := true;
@@ -181,7 +181,7 @@ _MAX_CONTENT_LENGTH :: (usize.MAX >> usize(4));
 // collapses every other rejection into the same `.None`, so the digits are
 // walked here instead.
 _parse_content_length :: (fn(value : &String) -> Option(usize))({
-  bytes := &value;
+  bytes := &value.*;
   cond(
     (bytes.len() == usize(0)) => {
       return(Option(usize).None);
@@ -618,7 +618,7 @@ read_http_message_buffered :: (
 )(
   // The future borrows `stream` (a `File`/`TcpStream` is move-only); await it
   // where it is made.
-  io.async({ &stream, max_bytes, kind, &carry }(e : IoExn) => {
+  io.async({ stream : &stream.*, max_bytes, kind, carry : &carry.* }(e : IoExn) => {
     buf_size := usize(8192);
     // An OWNED buffer, not a raw malloc. The future can be ABORTED mid-read
     // (a `fetch` deadline wins `timeout`'s race and aborts the exchange parked
@@ -810,7 +810,7 @@ read_http_message :: (
   fn(generic(R : Type), stream : &R, max_bytes : usize, kind : MessageKind, io : Io, where(R <: Reader)) ->
     Impl(Future(Result(String, HttpError), IoExn))
 )(
-  io.async({ &stream, max_bytes, kind }(e : IoExn) => {
+  io.async({ stream : &stream.*, max_bytes, kind }(e : IoExn) => {
     framed := e.io.await(read_http_message_buffered(stream, max_bytes, kind, Rc.new(RefCell(ArrayList(u8)).new(ArrayList(u8).new())), e.io), e);
     framed
   })

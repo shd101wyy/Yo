@@ -104,7 +104,7 @@ is_effect_call_ :: (
     .Atom(_, _) => {
       return(false);
     },
-    .FnCall(_, fb, _, _, _) => fb
+    .FnCall(_, fb, _, _, _) => fb.*
   );
   // Dispatch: None or empty field path → Case 1 (direct call)
   //           non-empty field path     → Case 2 (module member)
@@ -119,7 +119,7 @@ is_effect_call_ :: (
           return(false);
         }
       );
-      if(func_name != effect_param_name, {
+      if(func_name != effect_param_name.*, {
         return(false);
       });
       func_type_opt := match(
@@ -131,7 +131,7 @@ is_effect_call_ :: (
       if(!allow_missing_type, {
         ok := match(
           &func_type_opt,
-          .Some(ty) => is_function_type(&ty),
+          .Some(ty) => is_function_type(&ty.*),
           .None => false
         );
         if(!ok, {
@@ -161,7 +161,7 @@ is_effect_call_ :: (
             return(false);
           }
         );
-        if(func_name != effect_param_name, {
+        if(func_name != effect_param_name.*, {
           return(false);
         });
         func_type_opt := match(
@@ -172,7 +172,7 @@ is_effect_call_ :: (
         if(!allow_missing_type, {
           ok := match(
             &func_type_opt,
-            .Some(ty) => is_function_type(&ty),
+            .Some(ty) => is_function_type(&ty.*),
             .None => false
           );
           if(!ok, {
@@ -248,7 +248,7 @@ is_effect_call_ :: (
           return(false);
         }
       );
-      if(root_name != effect_param_name, {
+      if(root_name != effect_param_name.*, {
         return(false);
       });
       // Path length check
@@ -288,7 +288,7 @@ is_effect_call_ :: (
       if(!allow_missing_type, {
         ok := match(
           &outer_func_type_opt,
-          .Some(ty) => is_function_type(&ty),
+          .Some(ty) => is_function_type(&ty.*),
           .None => false
         );
         if(!ok, {
@@ -336,7 +336,7 @@ is_transitive_effect_call_ :: (
     .Atom(_, _) => {
       return(Option(bool).None);
     },
-    .FnCall(_, fb, _, _, _) => fb
+    .FnCall(_, fb, _, _, _) => fb.*
   );
   func_info := match(
     &get_info(func_expr.clone()),
@@ -359,7 +359,7 @@ is_transitive_effect_call_ :: (
           label := match(implicit_labels.get_cloned(i), .Some(l) => l, .None => String.from(""));
           ty := match(implicit_types.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
           // Direct match: label matches and type is Func or effect record
-          if((label == effect_param_name) && (is_function_type(ty.clone()) || is_module_type(ty.clone()) || is_struct_type(ty.clone())), {
+          if((label == effect_param_name.*) && (is_function_type(ty.clone()) || is_module_type(ty.clone()) || is_struct_type(ty.clone())), {
             found = Option(bool).Some(false);
             break;
           });
@@ -388,7 +388,7 @@ is_transitive_effect_call_ :: (
           while(i2 < n2, {
             label := match(implicit_labels.get_cloned(i2), .Some(l) => l, .None => String.from(""));
             ty := match(implicit_types.get(i2), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
-            if((label == effect_param_name) && (is_function_type(ty.clone()) || is_module_type(ty.clone()) || is_struct_type(ty.clone())), {
+            if((label == effect_param_name.*) && (is_function_type(ty.clone()) || is_module_type(ty.clone()) || is_struct_type(ty.clone())), {
               return(Option(bool).Some(true));
             });
             i2 = (i2 + usize(1));
@@ -675,8 +675,8 @@ analyze_effect_call_points :: (
     body.clone(),
     get_info,
     SuspensionPointDetector(
-      detect : dyn({ effect_extras : Rc.clone(effect_extras), effect_field_path : effect_field_path.clone(), effect_param_fn_type : effect_param_fn_type.clone(), effect_parameter_name : effect_parameter_name.clone(), get_info, include_transitive_calls }(expr, parent_expr) =>
-        effect_extras.with_mut({ effect_field_path : effect_field_path.clone(), effect_param_fn_type : effect_param_fn_type.clone(), effect_parameter_name : effect_parameter_name.clone(), expr, get_info, include_transitive_calls, parent_expr }(extras) => {
+      detect : dyn({ effect_extras : Rc.clone(effect_extras), effect_field_path : effect_field_path.clone(), effect_param_fn_type : effect_param_fn_type.clone(), effect_parameter_name : effect_parameter_name.clone(), get_info : get_info.*, include_transitive_calls }(expr, parent_expr) =>
+        effect_extras.with_mut({ effect_field_path : effect_field_path.clone(), effect_param_fn_type : effect_param_fn_type.clone(), effect_parameter_name : effect_parameter_name.clone(), expr : expr.*, get_info, include_transitive_calls, parent_expr : parent_expr.* }(extras) => {
           found := ArrayList(SuspensionPoint).new();
           detect_effect_expr_(
             &expr,

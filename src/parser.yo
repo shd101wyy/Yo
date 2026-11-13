@@ -98,7 +98,7 @@ _is_prefix_op_token :: (fn(t : &Token) -> bool)(
 /// The BINDING operators for E0003's canonical-grouping hint (`= := :: ?=`),
 /// the lowest tier of the structural lattice `_e0003_tier` encodes.
 _is_binding_group_op :: (fn(v : &String) -> bool)(
-  (v == "=") || (v == ":=") || (v == "::") || (v == "?=")
+  (v.* == "=") || (v.* == ":=") || (v.* == "::") || (v.* == "?=")
 );
 /// The tier of `v` in the structural lattice E0003's grouping hint follows
 /// (issues/retired/2026-10-22-should-the-structural-operators-carry-precedence.md):
@@ -109,9 +109,9 @@ _is_binding_group_op :: (fn(v : &String) -> bool)(
 _e0003_tier :: (fn(v : &String) -> u8)(
   cond(
     _is_binding_group_op(v) => u8(0),
-    (v == "=>") => u8(1),
-    (v == ":") => u8(2),
-    (v == "->") => u8(3),
+    (v.* == "=>") => u8(1),
+    (v.* == ":") => u8(2),
+    (v.* == "->") => u8(3),
     true => u8(4)
   )
 );
@@ -123,7 +123,7 @@ _e0003_fn_type_head :: (fn(e : &AstExpr) -> String)(
   match(
     e,
     .FnCall(_, hf, _, h_infix, _) => cond(
-      h_infix => String.new(),
+      h_infix.* => String.new(),
       true => match(
         hf,
         .Atom(_, ht) => cond(
@@ -144,7 +144,7 @@ _is_capture_sigil_pun :: (fn(expr : &AstExpr) -> bool)(
   match(
     expr,
     .FnCall(_, pf, Rc(pargs), p_infix, _) => (
-      !p_infix && (pargs.len() == usize(1)) && match(pf, .Atom(_, pt) => ((pt.value.* == "&") || (pt.value.* == "&mut")), .FnCall(_, _, _, _, _) => false) && match(
+      !p_infix.* && (pargs.len() == usize(1)) && match(pf, .Atom(_, pt) => ((pt.value.* == "&") || (pt.value.* == "&mut")), .FnCall(_, _, _, _, _) => false) && match(
         pargs.get(usize(0)),
         .Some(a) => match(a, .Atom(_, at) => (at.kind == TokenKind.Identifier), .FnCall(_, _, _, _, _) => false),
         .None => false
@@ -162,7 +162,7 @@ _is_old_capture_mode_pun :: (fn(expr : &AstExpr) -> bool)(
     .Some(w) => (
       (w != "own") && match(
         expr,
-        .FnCall(_, _, Rc(pargs), p_infix, _) => (!p_infix && match(pargs.get(usize(0)), .Some(a) => match(a, .Atom(_, at) => (at.kind == TokenKind.Identifier), .FnCall(_, _, _, _, _) => false), .None => false)),
+        .FnCall(_, _, Rc(pargs), p_infix, _) => (!p_infix.* && match(pargs.get(usize(0)), .Some(a) => match(a, .Atom(_, at) => (at.kind == TokenKind.Identifier), .FnCall(_, _, _, _, _) => false), .None => false)),
         .Atom(_, _) => false
       )
     ),
@@ -505,9 +505,9 @@ impl(
   )({
     prop_args := ArrayList(AstExpr).new();
     prop_args.push(recv);
-    prop_args.push(.Atom(self.alloc_id(), m_tok));
-    (prop : AstExpr) = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), d_tok), Rc.new(prop_args), true, d_tok);
-    .FnCall(self.alloc_id(), prop, Rc.new(args), false, outer_tok)
+    prop_args.push(.Atom(self.alloc_id(), m_tok.*));
+    (prop : AstExpr) = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), d_tok.*), Rc.new(prop_args), true, d_tok.*);
+    .FnCall(self.alloc_id(), prop, Rc.new(args), false, outer_tok.*)
   }),
   /// `part.append_to(&mut <name_tok>)`: one interpolated part of a template
   /// appended to the builder local (D10).
@@ -515,10 +515,10 @@ impl(
     fn(self : &mut Self, part : &AstExpr, d_tok : &Token, append_tok : &Token, borrow_tok : &Token, name_tok : &Token, outer_tok : &Token) -> AstExpr
   )({
     borrow_args := ArrayList(AstExpr).new();
-    borrow_args.push(.Atom(self.alloc_id(), name_tok));
+    borrow_args.push(.Atom(self.alloc_id(), name_tok.*));
     call_args := ArrayList(AstExpr).new();
-    call_args.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), borrow_tok), Rc.new(borrow_args), false, borrow_tok));
-    self._template_method_call(part, d_tok, append_tok, call_args, outer_tok)
+    call_args.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), borrow_tok.*), Rc.new(borrow_args), false, borrow_tok.*));
+    self._template_method_call(part.*, d_tok, append_tok, call_args, outer_tok)
   }),
   parse_template_string : (fn(self : &mut Self, tok : &Token, index : usize, exn : Exception) -> ParseResult)({
     self.has_template_string = true;
@@ -618,10 +618,10 @@ impl(
       ) -> AstExpr
     )({
       prop_args := ArrayList(AstExpr).new();
-      prop_args.push(e);
-      prop_args.push(.Atom(id_ts_atom, ts_tok));
-      (prop : AstExpr) = .FnCall(id_prop, .Atom(id_dot_atom, d_tok), Rc.new(prop_args), true, d_tok);
-      .FnCall(id_outer, prop, Rc.new(ArrayList(AstExpr).new()), false, outer_tok)
+      prop_args.push(e.*);
+      prop_args.push(.Atom(id_ts_atom, ts_tok.*));
+      (prop : AstExpr) = .FnCall(id_prop, .Atom(id_dot_atom, d_tok.*), Rc.new(prop_args), true, d_tok.*);
+      .FnCall(id_outer, prop, Rc.new(ArrayList(AstExpr).new()), false, outer_tok.*)
     });
     // Twin of `make_ts_call` for a spec'd interpolation: emits
     // `e.format("<spec>")` instead of `e.to_string()`. The spec text can never
@@ -642,12 +642,12 @@ impl(
       ) -> AstExpr
     )({
       prop_args := ArrayList(AstExpr).new();
-      prop_args.push(e);
-      prop_args.push(.Atom(id_fmt_atom, fmt_tok));
-      (prop : AstExpr) = .FnCall(id_prop, .Atom(id_dot_atom, d_tok), Rc.new(prop_args), true, d_tok);
+      prop_args.push(e.*);
+      prop_args.push(.Atom(id_fmt_atom, fmt_tok.*));
+      (prop : AstExpr) = .FnCall(id_prop, .Atom(id_dot_atom, d_tok.*), Rc.new(prop_args), true, d_tok.*);
       outer_args := ArrayList(AstExpr).new();
-      outer_args.push(.Atom(id_spec_atom, spec_tok));
-      .FnCall(id_outer, prop, Rc.new(outer_args), false, outer_tok)
+      outer_args.push(.Atom(id_spec_atom, spec_tok.*));
+      .FnCall(id_outer, prop, Rc.new(outer_args), false, outer_tok.*)
     });
     // `${expr:spec}` (STD_API_AUDIT D3.10). The spec is peeled off the RIGHT
     // END by walking backward over a CLOSED character set that deliberately
@@ -1022,7 +1022,7 @@ impl(
     fn_tok := ast_expr_token(func);
     fa := self.parse_fn_args(index, has_whitespace, exn);
     ParseResult(
-      expr : .FnCall(self.alloc_id(), func, Rc.new(fa.args.clone()), false, fn_tok),
+      expr : .FnCall(self.alloc_id(), func.*, Rc.new(fa.args.clone()), false, fn_tok),
       index : fa.index
     )
   }),
@@ -1252,7 +1252,7 @@ impl(
       expr,
       .Atom(_, _) => true,
       .FnCall(_, func_box, _, is_infix, _) => cond(
-        is_infix => match(
+        is_infix.* => match(
           func_box,
           .Atom(_, func_tok) => (func_tok.value.* == ":"),
           .FnCall(_, _, _, _, _) => false
@@ -1545,7 +1545,7 @@ impl(
     rhs_is_infix_non_dot := match(
       rhs,
       .FnCall(_, rfb, _, ris_infix, _) => cond(
-        (ris_infix == false) => false,
+        (ris_infix.* == false) => false,
         true => match(
           rfb,
           .Atom(_, ft) => (ft.kind != TokenKind.Dot),
@@ -1577,10 +1577,10 @@ impl(
         rhs,
         .FnCall(_, rfb, _, _, _) => match(
           rfb,
-          .Atom(_, ft) => ft,
-          .FnCall(_, _, _, _, ft) => ft
+          .Atom(_, ft) => ft.*,
+          .FnCall(_, _, _, _, ft) => ft.*
         ),
-        .Atom(_, t) => t
+        .Atom(_, t) => t.*
       );
       // Splice at the BOTTOM of the rhs's left spine, not one level below
       // the top. The rhs of a FOUR-or-more-operand same-operator chain
@@ -1660,9 +1660,9 @@ impl(
       // bottom operand, then the tail from the innermost (last collected)
       // outward, every level keeping its own operator token.
       spine_args := ArrayList(AstExpr).new();
-      spine_args.push(primary);
+      spine_args.push(primary.*);
       spine_args.push(cur);
-      (acc : AstExpr) = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), op_tok), Rc.new(spine_args), true, op_tok);
+      (acc : AstExpr) = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), op_tok.*), Rc.new(spine_args), true, op_tok.*);
       i := tail.len();
       while(i > usize(0), {
         i = (i - usize(1));
@@ -1676,9 +1676,9 @@ impl(
       self.parse_primary_end(&acc, index, exn)
     }, {
       simple_args := ArrayList(AstExpr).new();
-      simple_args.push(primary);
-      simple_args.push(rhs);
-      (simple_call : AstExpr) = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), op_tok), Rc.new(simple_args), true, op_tok);
+      simple_args.push(primary.*);
+      simple_args.push(rhs.*);
+      (simple_call : AstExpr) = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), op_tok.*), Rc.new(simple_args), true, op_tok.*);
       self.parse_primary_end(&simple_call, index, exn)
     })
   }),
@@ -1723,12 +1723,12 @@ impl(
       self.tokens.get(idx),
       .Some(t) => t,
       .None => {
-        return(ParseResult(expr : primary_expr, index : idx));
+        return(ParseResult(expr : primary_expr.*, index : idx));
       }
     );
     // Terminators: stop parsing the current expression
     if((tok.kind == TokenKind.Semicolon) || (tok.kind == TokenKind.Comma) || (tok.kind == TokenKind.RParen) || (tok.kind == TokenKind.RBracket) || (tok.kind == TokenKind.RCurlyBracket), {
-      return(ParseResult(expr : primary_expr, index : idx));
+      return(ParseResult(expr : primary_expr.*, index : idx));
     });
     primary_is_dot := match(
       primary_expr,
@@ -1782,7 +1782,7 @@ impl(
         rhs_idx := rhs_pr.index;
         dot_fn_tok := cond(
           primary_is_dot =>
-            match(primary_expr, .Atom(_, pt) => pt, .FnCall(_, _, _, _, pt) => pt),
+            match(primary_expr, .Atom(_, pt) => pt.*, .FnCall(_, _, _, _, pt) => pt.*),
           true => dot_tok
         );
         // `.{ … }` — a prefix dot ADJACENT to a record brace group IS that
@@ -1800,7 +1800,7 @@ impl(
         );
         init_args := ArrayList(AstExpr).with_capacity(usize(2));
         if(!primary_is_dot, {
-          init_args.push(primary_expr);
+          init_args.push(primary_expr.*);
         });
         init_args.push(rhs_expr.clone());
         init_infix := (primary_is_dot == false);
@@ -1875,7 +1875,7 @@ impl(
             (tok.value.* == rhs_op_value) =>
               self.parse_left_assoc_op(primary_expr, &tok, &rhs, rhs_start, rhs_end, exn),
             true => {
-              hint := self.e0003_grouping_hint(&tok, &primary_expr, &rhs_op_value, &rhs, rhs_start, rhs_end);
+              hint := self.e0003_grouping_hint(&tok, &primary_expr.*, &rhs_op_value, &rhs, rhs_start, rhs_end);
               (msg : String) = `Adjacent different operators need parentheses to clarify grouping (near ${tok.value.*}).`;
               if(hint.len() > usize(0), {
                 msg = `${msg} ${hint}`;
@@ -1888,12 +1888,12 @@ impl(
                   )
                 )
               );
-              ParseResult(expr : primary_expr, index : idx)
+              ParseResult(expr : primary_expr.*, index : idx)
             }
           )
         }, {
           rhs_args := ArrayList(AstExpr).new();
-          rhs_args.push(primary_expr);
+          rhs_args.push(primary_expr.*);
           rhs_args.push(rhs);
           recur(
             self,
@@ -1910,11 +1910,11 @@ impl(
       },
       ((has_ws_fwd == true) && (tok.kind == TokenKind.LParen)) => {
         exn.throw(dyn(make_parse_error(&tok, `whitespace before '(' is not allowed in function calls`)));
-        ParseResult(expr : primary_expr, index : idx)
+        ParseResult(expr : primary_expr.*, index : idx)
       },
       true => {
         exn.throw(dyn(make_parse_error(&tok, `paren-less function and operator calls are not supported; use parentheses`)));
-        ParseResult(expr : primary_expr, index : idx)
+        ParseResult(expr : primary_expr.*, index : idx)
       }
     )
   }),
@@ -2030,12 +2030,12 @@ impl(
     outer := tok.value.*.clone();
     outer_tier := _e0003_tier(&outer);
     rhs_tier := _e0003_tier(rhs_op);
-    rhs_is_assign := ((rhs_op == "=") || (rhs_op == "?="));
-    rhs_is_arm := (rhs_op == "=>");
+    rhs_is_assign := ((rhs_op.* == "=") || (rhs_op.* == "?="));
+    rhs_is_arm := (rhs_op.* == "=>");
     // The fn-type head of `->`'s left operand (`fn`, `ctl`, ...), "" for a lambda arrow.
     outer_fn_head := cond((outer == "->") => _e0003_fn_type_head(lhs), true => String.new());
     rhs_fn_head := cond(
-      (rhs_op == "->") => match(
+      (rhs_op.* == "->") => match(
         rhs,
         .FnCall(_, _, Rc(rargs), _, _) => match(rargs.get(usize(0)), .Some(rl) => _e0003_fn_type_head(&rl), .None => String.new()),
         .Atom(_, _) => String.new()
@@ -2044,10 +2044,10 @@ impl(
     );
     outer_is_fn_type := (outer_fn_head.len() > usize(0));
     wrap_rhs := cond(
-      (outer_tier == u8(0)) => ((rhs_tier != u8(0)) && (rhs_op != ":")),
-      (outer == "=>") => ((rhs_op == "->") || (rhs_tier == u8(4))),
-      (outer == ":") => ((rhs_tier == u8(4)) || ((rhs_op == "->") && (rhs_fn_head.len() > usize(0)))),
-      (outer == "->") => ((rhs_tier == u8(4)) || (outer_is_fn_type && (rhs_op == ":"))),
+      (outer_tier == u8(0)) => ((rhs_tier != u8(0)) && (rhs_op.* != ":")),
+      (outer == "=>") => ((rhs_op.* == "->") || (rhs_tier == u8(4))),
+      (outer == ":") => ((rhs_tier == u8(4)) || ((rhs_op.* == "->") && (rhs_fn_head.len() > usize(0)))),
+      (outer == "->") => ((rhs_tier == u8(4)) || (outer_is_fn_type && (rhs_op.* == ":"))),
       true => false
     );
     cond(
@@ -2064,7 +2064,7 @@ impl(
       },
       ((outer == ":") && rhs_is_assign) =>
         `Parenthesize the annotated binding: (name : Type) ${rhs_op} value.`,
-      ((outer == ":") && (rhs_is_arm || (rhs_op == "->"))) =>
+      ((outer == ":") && (rhs_is_arm || (rhs_op.* == "->"))) =>
         `Parenthesize the annotated parameter: (name : Type) ${rhs_op} body.`,
       (outer_is_fn_type && (rhs_is_assign || rhs_is_arm)) =>
         `Parenthesize the function type: (${outer_fn_head}(...) -> T) ${rhs_op} value.`,

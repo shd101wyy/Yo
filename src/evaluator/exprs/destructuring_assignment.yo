@@ -68,7 +68,7 @@ _label_already_seen :: (fn(seen : &ArrayList(String), label : &String) -> bool)(
     match(
       seen.get_cloned(i),
       .Some(s) => {
-        if(s == label, {
+        if(s == label.*, {
           found = true;
         });
       },
@@ -95,7 +95,7 @@ _get_eval_value_field :: (fn(v : &EvalValue, index : usize) -> Option(EvalValue)
 _record_destructured_read :: (fn(env : &Environment, rhs_type : &TypeValue, label : &String) -> unit)({
   match(
     rhs_type,
-    Rc(.Struct({ id : dr_sns, is_source_namespace : dr_flag })) => if(dr_flag, {
+    Rc(.Struct({ id : dr_sns, is_source_namespace : dr_flag })) => if(dr_flag.*, {
       match(
         sns_module_of(dr_sns.clone()),
         .Some(dr_target) => record_module_member_read(&env.module_path().*, &dr_target, label),
@@ -117,7 +117,7 @@ _reject_private_destructure :: (
 )({
   pv_type_id := match(
     rhs_type,
-    Rc(.Struct({ id : pv_sid, is_source_namespace : pv_sns })) => cond(pv_sns => String.new(), true => pv_sid.clone()),
+    Rc(.Struct({ id : pv_sid, is_source_namespace : pv_sns })) => cond(pv_sns.* => String.new(), true => pv_sid.clone()),
     Rc(.Union(pv_uid, _, _)) => pv_uid.clone(),
     _ => String.new()
   );
@@ -140,7 +140,7 @@ _reject_private_destructure :: (
 /// and a `c_include` re-declaring a Yo name were all silently accepted
 /// (plans/reference/C_INCLUDE_EXTERN_MODULE_VALUE.md §1).
 _reject_shadowing :: (fn(env : &Environment, var_name : &String, at : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
-  if(var_name == String.from("__yo_self"), {
+  if(var_name.* == String.from("__yo_self"), {
     return(());
   });
   // Plain-named BUILTIN dispatch names cannot be destructured into (or
@@ -168,7 +168,7 @@ _reject_shadowing :: (fn(env : &Environment, var_name : &String, at : &Token, ct
       mut(sh_entries) := ArrayList(TokenAndError).new();
       sh_entries.push(
         TokenAndError(
-          token : at,
+          token : at.*,
           error_message : `Failed to define variable "${var_name}":`
         )
       );
@@ -190,12 +190,12 @@ _reject_shadowing :: (fn(env : &Environment, var_name : &String, at : &Token, ct
 /// codegen still emits `stdout` for `{ stdout : out } :: c_include(...)`
 /// (plans/reference/C_INCLUDE_EXTERN_MODULE_VALUE.md §3.4).
 _record_extern_c_alias :: (fn(rhs_type : &TypeValue, label : &String, var_name : &String, ty : &TypeValue) -> unit)({
-  if(var_name == label, {
+  if(var_name.* == label.*, {
     return(());
   });
   match(
     rhs_type,
-    Rc(.Struct({ id : sid, is_source_namespace : sns })) => if(sns && is_extern_c_module_id(sid.clone()) && is_extern_c_global(label.clone()), {
+    Rc(.Struct({ id : sid, is_source_namespace : sns })) => if(sns.* && is_extern_c_module_id(sid.clone()) && is_extern_c_global(label.clone()), {
       register_extern_c_global_alias(var_name, label, ty);
     }),
     _ => ()
@@ -212,10 +212,10 @@ _is_adopted_extern_c_field :: (fn(rhs_type : &TypeValue, fval_opt : &Option(Eval
   match(
     rhs_type,
     Rc(.Struct({ id : sid, is_source_namespace : sns })) => (
-      sns && is_extern_c_module_id(sid.clone()) &&
+      sns.* && is_extern_c_module_id(sid.clone()) &&
         match(
           fval_opt,
-          .Some(fv) => match(fv, .TypeVal(t) => get_adopted_extern_c_type(&t).is_some(), _ => false),
+          .Some(fv) => match(fv, .TypeVal(t) => get_adopted_extern_c_type(&t.*).is_some(), _ => false),
           .None => false
         )
     ),
@@ -231,7 +231,7 @@ _find_field_index :: (fn(field_labels : &ArrayList(String), label : &String) -> 
     match(
       field_labels.get_cloned(i),
       .Some(s) => {
-        if(s == label, {
+        if(s == label.*, {
           result = Option(usize).Some(i);
         });
       },
@@ -383,7 +383,7 @@ handle_member_destructuring :: (
           };
           fval_opt := match(
             rhs_value,
-            .Some(rv) => _get_eval_value_field(&rv, j),
+            .Some(rv) => _get_eval_value_field(&rv.*, j),
             .None => Option(EvalValue).None
           );
           if(match(fval_opt, .None => true, _ => false) && is_compile_time_only, {
@@ -468,7 +468,7 @@ handle_member_destructuring :: (
         // Get field value at the resolved index.
         field_value_opt = match(
           rhs_value,
-          .Some(rv) => _get_eval_value_field(&rv, field_index),
+          .Some(rv) => _get_eval_value_field(&rv.*, field_index),
           .None => Option(EvalValue).None
         );
         _record_destructured_read(env, rhs_type, rhs_field_label.clone());
@@ -564,7 +564,7 @@ handle_member_destructuring :: (
         };
         field_value_opt = match(
           rhs_value,
-          .Some(rv) => _get_eval_value_field(&rv, field_index),
+          .Some(rv) => _get_eval_value_field(&rv.*, field_index),
           .None => Option(EvalValue).None
         );
         _record_destructured_read(env, rhs_type, rhs_field_label.clone());
@@ -615,7 +615,7 @@ handle_member_destructuring :: (
             // through it.
             (ref_elem : Option(bool)) = cond(
               is_compile_time_only => Option(bool).None,
-              true => match(&rhs_field_type, Rc(.Reference(_, re_mut, _)) => Option(bool).Some(re_mut), _ => Option(bool).None)
+              true => match(&rhs_field_type, Rc(.Reference(_, re_mut, _)) => Option(bool).Some(re_mut.*), _ => Option(bool).None)
             );
             bind_field_type := match(&ref_elem, .Some(_) => t_slot_pointee(&rhs_field_type), .None => Rc.clone(rhs_field_type));
             added_var_opt := add_variable_to_env(
@@ -740,7 +740,7 @@ evaluate_destructuring_assignment :: (
     );
     field_labels := match(field_labels_opt, .Some(l) => Rc.clone(l), .None => no_labels());
     field_types := match(field_types_opt, .Some(t) => Rc.clone(t), .None => no_types());
-    lhs_func := match(lhs, .FnCall(_, fb, _, _, _) => fb, .Atom(_, tok) => AstExpr.Atom(ast_expr_id(lhs), tok));
+    lhs_func := match(lhs, .FnCall(_, fb, _, _, _) => fb.*, .Atom(_, tok) => AstExpr.Atom(ast_expr_id(lhs), tok.*));
     lhs_args := match(lhs, .FnCall(_, _, Rc(args), _, _) => args.clone(), _ => ArrayList(AstExpr).new());
     return(
       handle_member_destructuring(
@@ -765,7 +765,7 @@ evaluate_destructuring_assignment :: (
   if(is_tuple_type(&rhs_type) && ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_TUPLE, Option(usize).None), {
     field_labels := match(&rhs_type, Rc(.Tuple(fl, _)) => Rc.clone(fl), _ => no_labels());
     field_types := match(&rhs_type, Rc(.Tuple(_, ft)) => Rc.clone(ft), _ => no_types());
-    lhs_func := match(lhs, .FnCall(_, fb, _, _, _) => fb, .Atom(_, tok) => AstExpr.Atom(ast_expr_id(lhs), tok));
+    lhs_func := match(lhs, .FnCall(_, fb, _, _, _) => fb.*, .Atom(_, tok) => AstExpr.Atom(ast_expr_id(lhs), tok.*));
     lhs_args := match(lhs, .FnCall(_, _, Rc(args), _, _) => args.clone(), _ => ArrayList(AstExpr).new());
     return(
       handle_member_destructuring(
@@ -842,7 +842,7 @@ evaluate_destructuring_assignment :: (
       field_labels.push(fi.to_string());
       fi = (fi + usize(1));
     });
-    lhs_func := match(lhs, .FnCall(_, fb, _, _, _) => fb, .Atom(_, tok) => AstExpr.Atom(ast_expr_id(lhs), tok));
+    lhs_func := match(lhs, .FnCall(_, fb, _, _, _) => fb.*, .Atom(_, tok) => AstExpr.Atom(ast_expr_id(lhs), tok.*));
     lhs_args := match(lhs, .FnCall(_, _, Rc(args), _, _) => args.clone(), _ => ArrayList(AstExpr).new());
     return(
       handle_member_destructuring(

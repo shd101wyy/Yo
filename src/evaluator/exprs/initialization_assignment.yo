@@ -168,12 +168,12 @@ _InoutPlaceHop :: struct(node : AstExpr, field : AstExpr);
 _is_subscript_shape :: (fn(e : &AstExpr) -> bool)(
   match(
     e,
-    .FnCall(_, ss_callee, Rc(ss_args), ss_infix, _) => ((!ss_infix && (ss_args.len() == usize(1))) && (ast_expr_is_atom(&ss_callee) || ast_expr_is_fn_call_of(&ss_callee, BF_DOT, Option(usize).Some(usize(2))))),
+    .FnCall(_, ss_callee, Rc(ss_args), ss_infix, _) => ((!ss_infix.* && (ss_args.len() == usize(1))) && (ast_expr_is_atom(&ss_callee.*) || ast_expr_is_fn_call_of(&ss_callee.*, BF_DOT, Option(usize).Some(usize(2))))),
     .Atom(_, _) => false
   )
 );
 _inout_place_chain :: (fn(place : &AstExpr, hops : &mut ArrayList(_InoutPlaceHop)) -> Option(AstExpr))({
-  (cur : AstExpr) = place;
+  (cur : AstExpr) = place.*;
   (walking : bool) = true;
   while(walking, {
     if(ast_expr_is_fn_call(&cur) && ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
@@ -422,7 +422,7 @@ _evaluate_inout_local_binding :: (
       new_expr_info(env, t_unit())
     }
   );
-  env_adopt(&env, &rhs_info.env());
+  env_adopt(&env.*, &rhs_info.env());
   prohibit_void_type(&rhs_info.ty(), ast_expr_token(rhs), exn);
   require_expr_not_consumed(&evaluated_rhs, env, ctx, exn);
   // Outside privileged code a `*` hop is legal only as the deref of a handle
@@ -580,8 +580,8 @@ _evaluate_inout_local_binding :: (
       .Some(lp) => {
         // `&mut r` of a reference binding (§7 P3) writes `r` itself (a
         // re-point through the `&mut &T`), never its referent.
-        local_borrow_require_writable(&lp, local_borrow_root_is_shared_reference(&lp, env) && !is_reference_self_place(ast_expr_id(&evaluated_rhs)), `borrow \`${local_borrow_place_text(rhs)}\` with \`&mut\``, ast_expr_token(rhs), ctx, exn);
-        local_borrow_access(&lp, LocalBorrowAccess.Exclusive, ast_expr_token(rhs), ctx, exn);
+        local_borrow_require_writable(&lp.*, local_borrow_root_is_shared_reference(&lp.*, env) && !is_reference_self_place(ast_expr_id(&evaluated_rhs)), `borrow \`${local_borrow_place_text(rhs)}\` with \`&mut\``, ast_expr_token(rhs), ctx, exn);
+        local_borrow_access(&lp.*, LocalBorrowAccess.Exclusive, ast_expr_token(rhs), ctx, exn);
       },
       .None => ()
     );
@@ -632,7 +632,7 @@ _evaluate_inout_local_binding :: (
     .Some(bound) => {
       variable_set_is_ref(&bound, true);
       variable_set_reference_mut(&bound, is_mut);
-      match(&declared_origin, .Some(dor) => bound.set_bound_ty(t_reference_with_origin(&place_type, is_mut, &dor)), .None => ());
+      match(&declared_origin, .Some(dor) => bound.set_bound_ty(t_reference_with_origin(&place_type, is_mut, &dor.*)), .None => ());
       variable_set_inout_borrow_root_id(&bound, root_var.id());
       if(hops.len() == usize(0), {
         // Whole-variable place: alias the root's value cell so compile-time
@@ -656,7 +656,7 @@ _evaluate_inout_local_binding :: (
       if(range.has_repoint, {
         sp_name := generate_new_temp_variable_name(&env.module_path().*, usize(name_tok.row), usize(name_tok.column), .None, .Some(name_tok.module_path.*.clone()));
         step_pin = add_variable_to_env(env, &sp_name, t_unit(), Option(EvalValue).None, false, true, true, false, &name_tok);
-        match(&step_pin, .Some(spv) => record_local_borrow_step_pin(ast_expr_id(lhs), &spv), .None => ());
+        match(&step_pin, .Some(spv) => record_local_borrow_step_pin(ast_expr_id(lhs), &spv.*), .None => ());
       });
       _info := local_borrow_register(var_name.clone(), &name_tok, is_mut, &lp, &range, &step_pin);
     },
@@ -683,7 +683,7 @@ _evaluate_inout_local_binding :: (
   expr_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
   expr_info_set_is_compile_time_only_assignment(&expr_info, Option(bool).Some(false));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
-  expr
+  expr.*
 });
 _join_labels :: (fn(xs : &ArrayList(String)) -> String)({
   out := String.new();
@@ -892,7 +892,7 @@ _bind_projection_result :: (
   if(range.has_repoint, {
     sp_name := generate_new_temp_variable_name(&env.module_path().*, usize(name_tok.row), usize(name_tok.column), .None, .Some(name_tok.module_path.*.clone()));
     step_pin = add_variable_to_env(env, &sp_name, t_unit(), Option(EvalValue).None, false, true, true, false, &name_tok);
-    match(&step_pin, .Some(spv) => record_local_borrow_step_pin(match(view_lhs_id, .Some(vid) => vid, .None => ast_expr_id(name_expr)), &spv), .None => ());
+    match(&step_pin, .Some(spv) => record_local_borrow_step_pin(match(view_lhs_id, .Some(vid) => vid, .None => ast_expr_id(name_expr)), &spv.*), .None => ());
   });
   info := local_borrow_register(var_name.clone(), &name_tok, is_mut, &places(usize(0)), &range, &step_pin);
   // An elided result origin is the union of the reference parameters (O2):
@@ -920,7 +920,7 @@ _bind_projection_result :: (
   expr_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
   expr_info_set_is_compile_time_only_assignment(&expr_info, Option(bool).Some(false));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
-  expr
+  expr.*
 });
 /// The root of the range projection `xs(a..b)`: the collection `xs`, lent
 /// read-only.
@@ -1199,7 +1199,7 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
   expr_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
   expr_info_set_is_compile_time_only_assignment(&expr_info, Option(bool).Some(false));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
-  expr
+  expr.*
 });
 /// `.V` or `.V(…)` on the right of `:=` — see `local_variant_hint`.
 _rhs_is_bare_variant_literal :: (fn(e : &AstExpr) -> bool)({
@@ -1214,7 +1214,7 @@ _rhs_is_bare_variant_literal :: (fn(e : &AstExpr) -> bool)({
     head_ok(e) => true,
     true => match(
       e,
-      .FnCall(_, func, _, _, _) => head_ok(&func),
+      .FnCall(_, func, _, _, _) => head_ok(&func.*),
       .Atom(_, _) => false
     )
   )
@@ -2019,7 +2019,7 @@ Use \`::\` for compile-time definitions inside impl.`
     match(
       &new_var_opt,
       .Some(bound_var) => {
-        record_pending_def_variable(var_name.clone(), &actual_lhs_tok, &bound_var);
+        record_pending_def_variable(var_name.clone(), &actual_lhs_tok, &bound_var.*);
         note_fn_value_definition(bound_var.id(), &rhs, ctx);
       },
       .None => ()
@@ -2125,7 +2125,7 @@ Use \`::\` for compile-time definitions inside impl.`
     expr_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
     expr_info_set_is_compile_time_only_assignment(&expr_info, Option(bool).Some(effective_is_compile_time_only));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
-    expr
+    expr.*
   }, {
     // -------------------------------------------------------------------
     // Destructuring LHS: `{x, y} := rhs`
@@ -2175,7 +2175,7 @@ Use \`::\` for compile-time definitions inside impl.`
     expr_info_set_runtime_destructurings(&expr_info, &destr_result.runtime_destructurings);
     expr_info_set_is_compile_time_only_assignment(&expr_info, Option(bool).Some(effective_is_compile_time_only));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
-    expr
+    expr.*
   })
 });
 export(evaluate_initialization_assignment, evaluate_local_borrow_repoint);

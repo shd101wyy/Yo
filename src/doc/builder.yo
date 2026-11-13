@@ -76,7 +76,7 @@ extract_doc_sections :: (fn(doc : &Option(String)) -> DocSections)(
     doc,
     .None => DocSections(deprecated : Option(String).None, examples : Option(String).None),
     .Some(text) => {
-      parsed := parse_doc_comment(&text);
+      parsed := parse_doc_comment(&text.*);
       DocSections(
         deprecated : parsed.sections.get_cloned(String.from("deprecated")),
         examples : parsed.sections.get_cloned(String.from("examples"))
@@ -99,7 +99,7 @@ module_stability :: (fn(doc : &Option(String)) -> Option(String))(
     doc,
     .None => Option(String).None,
     .Some(text) => match(
-      parse_doc_comment(&text).sections.get_cloned(String.from("stability")),
+      parse_doc_comment(&text.*).sections.get_cloned(String.from("stability")),
       .None => Option(String).None,
       .Some(sec) => {
         (collapsed : String) = String.from("");
@@ -1696,9 +1696,9 @@ TokenDeclStructure :: struct(
 /// to keep them OUT of the top-level emission.
 _token_member_head :: (fn(head : &String) -> Option(String))(
   cond(
-    ((head == `struct`) || (head == `union`)) => Option(String).Some(`struct`),
-    (head == `enum`) => Option(String).Some(`enum`),
-    (head == `trait`) => Option(String).Some(`trait`),
+    ((head.* == `struct`) || (head.* == `union`)) => Option(String).Some(`struct`),
+    (head.* == `enum`) => Option(String).Some(`enum`),
+    (head.* == `trait`) => Option(String).Some(`trait`),
     true => Option(String).None
   )
 );
@@ -2914,7 +2914,7 @@ _function_params_to_doc_params :: (
       while((i < labels.len()) && (i < param_types.len()), {
         label := match(labels.get_cloned(i), .Some(l) => l, .None => String.new());
         ty := match(
-          slot_pointee_at(&param_types, i),
+          slot_pointee_at(&param_types.*, i),
           .Some(t) => t,
           .None => {
             i = (i + usize(1));
@@ -3037,7 +3037,7 @@ build_doc_function :: (
   match(
     doc,
     .Some(text) => {
-      parsed := parse_doc_comment(&text);
+      parsed := parse_doc_comment(&text.*);
       returns = parsed.sections.get_cloned(String.from("returns"));
       errors = parsed.sections.get_cloned(String.from("errors"));
       deprecated = parsed.sections.get_cloned(String.from("deprecated"));
@@ -3061,7 +3061,7 @@ build_doc_function :: (
       match(
         func_type,
         Rc(.Func({ result, meta })) => {
-          return_type = type_to_string(&t_slot_pointee(&result));
+          return_type = type_to_string(&t_slot_pointee(&result.*));
           if(meta.forall_labels.len() > usize(0), {
             type_params = Option(ArrayList(DocParam)).Some(_forall_params_to_doc_params(func_type, doc_lookup));
           });
@@ -3125,7 +3125,7 @@ _extract_methods :: (
       match(
         &entry.self_type,
         .Some(st) => {
-          st_name := _doc_type_name(&st);
+          st_name := _doc_type_name(&st.*);
           if(st_name.len() > usize(0), {
             receiver_name = st_name;
           });
@@ -3178,7 +3178,7 @@ _extract_generic_impl_info :: (
     );
     match(
       &entry.trait_name,
-      .Some(tn) => if(!trait_impls.contains(&tn), {
+      .Some(tn) => if(!trait_impls.contains(&tn.*), {
         trait_impls.push(tn.clone());
       }),
       .None => ()
@@ -3229,9 +3229,9 @@ _get_type_kind :: (fn(t : &TypeValue) -> DocItemKind)({
       match(
         t,
         Rc(.Struct({ is_reference_semantics, is_atomic_rc, is_newtype })) => cond(
-          is_newtype => DocItemKind.Newtype,
-          is_atomic_rc => DocItemKind.AtomicObject,
-          is_reference_semantics => DocItemKind.Object,
+          is_newtype.* => DocItemKind.Newtype,
+          is_atomic_rc.* => DocItemKind.AtomicObject,
+          is_reference_semantics.* => DocItemKind.Object,
           true => DocItemKind.Struct
         ),
         _ => DocItemKind.Struct
@@ -4073,7 +4073,7 @@ build_doc_module :: (
             // to the unresolvable generic type constructor.
             is_hierarchy := match(
               &field_type,
-              Rc(.Func({ result : fn_result })) => match(t_slot_pointee(&fn_result), Rc(.TypeUni(lvl)) => (lvl >= usize(1)), _ => false),
+              Rc(.Func({ result : fn_result })) => match(t_slot_pointee(&fn_result.*), Rc(.TypeUni(lvl)) => (lvl >= usize(1)), _ => false),
               _ => false
             );
             if(is_hierarchy, {

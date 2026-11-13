@@ -106,7 +106,7 @@ record_input_file :: (fn(path : &String, content_sha256 : &String) -> unit)({
   // A replay's records are already named by the `@<key>` entry that
   // triggered it.
   if(g_input_hashing && !g_replaying, {
-    g_touches.with_mut({ &content_sha256, &fs }(xs) => xs.push(`${_hash_marker(content_sha256)} ${fs}`));
+    g_touches.with_mut({ content_sha256 : &content_sha256.*, &fs }(xs) => xs.push(`${_hash_marker(content_sha256)} ${fs}`));
   });
   (i : usize) = usize(0);
   while(i < g_input_files.with(_c_len_1), {
@@ -193,13 +193,13 @@ module_cache_hit :: (fn(key : &String) -> unit)({
   g_replaying = false;
 });
 _replay_module :: (fn(key : &String) -> unit)({
-  if(g_replayed_modules.with({ &key }(s) => s.contains(key)), {
+  if(g_replayed_modules.with({ key : &key.* }(s) => s.contains(key)), {
     return(());
   });
   key_owned := key.clone();
   g_replayed_modules.with_mut({ key_owned }(s) => s.insert(key_owned.clone()));
   match(
-    g_module_touches.with({ &key }(m) => m.get_cloned(key)),
+    g_module_touches.with({ key : &key.* }(m) => m.get_cloned(key)),
     .Some(list) => {
       (i : usize) = usize(0);
       while(i < list.len(), {

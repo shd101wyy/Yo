@@ -218,7 +218,7 @@ _trait_type_id :: (fn(ty : &TypeValue) -> String)(
 /// mutually compatible — wrongly reporting e.g. a plain object as `Send`.
 is_type_registered_as_trait :: (fn(type_id : &String, query_trait : &TypeValue, env : &Environment) -> bool)(
   match(
-    g_type_trait_registry.with({ &type_id }(m) => m.get_cloned(type_id)),
+    g_type_trait_registry.with({ type_id : &type_id.* }(m) => m.get_cloned(type_id)),
     .None => false,
     .Some(list) => {
       n := list.len();
@@ -313,7 +313,7 @@ _ondemand_guard_contains :: (fn(key : &String) -> bool)({
   while((i < g_ondemand_marker_guard.with(_c_len_1)) && !found, {
     match(
       g_ondemand_marker_guard.with({ i }(xs) => xs.get_cloned(i)),
-      .Some(k) => if(k == key, {
+      .Some(k) => if(k == key.*, {
         found = true;
       }),
       .None => ()
@@ -369,8 +369,8 @@ type_implements_comptime_builtin :: (fn(ty : &TypeValue) -> Option(bool))(
     // Source-namespace structs (modules) — always comptime. Object types
     // (reference semantics) — always runtime, never comptime.
     Rc(.Struct({ is_reference_semantics : is_ref, is_source_namespace : t_sns })) => cond(
-      t_sns => Option(bool).Some(true),
-      is_ref => Option(bool).Some(false),
+      t_sns.* => Option(bool).Some(true),
+      is_ref.* => Option(bool).Some(false),
       true => Option(bool).None
     ),
     // Comptime-only types — always comptime.
@@ -555,7 +555,7 @@ _acy_memo_get :: (fn(key : &String) -> Option(bool))({
     g_acy_memo.with_mut(m => m.clear());
     g_acy_memo_epoch = trait_impl_epoch();
   });
-  g_acy_memo.with({ &key }(m) => m.get(key))
+  g_acy_memo.with({ key : &key.* }(m) => m.get(key))
 });
 /// The nominal types and leaves `t` holds, seen through the structural types.
 _acy_expand :: (fn(t_in : &TypeValue, nodes : &mut ArrayList(TypeValue), leaves : &mut ArrayList(TypeValue)) -> unit)({
@@ -578,11 +578,11 @@ _acy_expand :: (fn(t_in : &TypeValue, nodes : &mut ArrayList(TypeValue), leaves 
         match(ufs.get(i), .Some(ft) => recur(&ft, nodes, leaves), .None => ());
       });
     },
-    Rc(.Array({ element : el })) => recur(&el, nodes, leaves),
-    Rc(.Pointer(pointee)) => recur(&pointee, nodes, leaves),
-    Rc(.RefineT(inner, _)) => recur(&inner, nodes, leaves),
-    Rc(.Reference({ pointee : rp })) => recur(&rp, nodes, leaves),
-    Rc(.ValueSlot(vs_inner)) => recur(&vs_inner, nodes, leaves),
+    Rc(.Array({ element : el })) => recur(&el.*, nodes, leaves),
+    Rc(.Pointer(pointee)) => recur(&pointee.*, nodes, leaves),
+    Rc(.RefineT(inner, _)) => recur(&inner.*, nodes, leaves),
+    Rc(.Reference({ pointee : rp })) => recur(&rp.*, nodes, leaves),
+    Rc(.ValueSlot(vs_inner)) => recur(&vs_inner.*, nodes, leaves),
     Rc(.SomeT(name : _)) => cond(
       is_bound_closure_identity(&t) => recur(resolve_cell_chain(&t), nodes, leaves),
       true => leaves.push(t.clone())
@@ -631,8 +631,8 @@ _acy_visit :: (fn(t : &TypeValue, key : &String, st : &mut _AcyWalk, at : &TypeV
   st.is_cell.push(
     match(
       t,
-      Rc(.Struct({ is_reference_semantics : sr })) => sr,
-      Rc(.EnumT({ is_reference_semantics : er })) => er,
+      Rc(.Struct({ is_reference_semantics : sr })) => sr.*,
+      Rc(.EnumT({ is_reference_semantics : er })) => er.*,
       _ => false
     )
   );
@@ -1011,7 +1011,7 @@ _check_associated_type_constraints :: (
 /// trait is stamped with its binding name), so the identity lookup runs only
 /// for a trait that could be it.
 is_copy_trait :: (fn(trait_type : &TypeValue, env : &Environment) -> bool)(
-  match(trait_type, Rc(.TraitT({ name : ct_name })) => (ct_name == "Copy"), _ => false) && _is_prelude_trait_named(trait_type, "Copy", env)
+  match(trait_type, Rc(.TraitT({ name : ct_name })) => (ct_name.* == "Copy"), _ => false) && _is_prelude_trait_named(trait_type, "Copy", env)
 );
 /// An anonymous record: a value struct with no name, no binding, no
 /// constructor and no namespace role (`_(a : i32(1))`, or an inline
@@ -1023,7 +1023,7 @@ _is_anonymous_record_type :: (fn(ty : &TypeValue) -> bool)(
     Rc(.Struct({ id : ar_id, name : ar_name, is_reference_semantics : ar_ref, is_newtype : ar_new, constructor_func_id : ar_cfid, is_source_namespace : ar_sns })) => (
       // A type rebuilt from a value carries no id at all, and is not
       // known to be anonymous.
-      !ar_ref && !ar_new && (!ar_sns && ar_name.is_empty()) && ar_cfid.is_empty() && !ar_id.is_empty() && type_binding_name(&ar_id).is_none()
+      !ar_ref.* && !ar_new.* && (!ar_sns.* && ar_name.is_empty()) && ar_cfid.is_empty() && !ar_id.is_empty() && type_binding_name(&ar_id.*).is_none()
     ),
     _ => false
   )
@@ -1062,7 +1062,7 @@ copy_structural_parts :: (fn(ty_in : &TypeValue) -> Option(SharedList(TypeValue)
 /// True for the prelude `Clone` trait, by the same cheap name test first as
 /// `is_copy_trait`.
 _is_clone_trait :: (fn(trait_type : &TypeValue, env : &Environment) -> bool)(
-  match(trait_type, Rc(.TraitT({ name : cl_name })) => (cl_name == "Clone"), _ => false) && _is_prelude_trait_named(trait_type, "Clone", env)
+  match(trait_type, Rc(.TraitT({ name : cl_name })) => (cl_name.* == "Clone"), _ => false) && _is_prelude_trait_named(trait_type, "Clone", env)
 );
 /// The first part of the value nominal type `target` that is not `Copy`,
 /// as "its field `x` has type `T`" ("its variant `V`" for an enum
@@ -1450,7 +1450,7 @@ type_lacks_copy_for_flip :: (fn(ty_in : &TypeValue) -> bool)({
     if(g_lacks_copy_fast.with({ &ty, slot }(xs) => type_identity_slot_holds(xs, slot, ty)), {
       fast := match(g_lacks_copy_fast_answers.with({ slot }(xs) => xs.get(slot)), .Some(a) => a, .None => false);
       if(type_key_memo_check_enabled(), {
-        slow := g_lacks_copy_memo.with({ &ty }(m) => m.get(type_key(&ty)));
+        slow := g_lacks_copy_memo.with({ &ty }(m) => m.get(type_key(&ty.*)));
         if(match(slow, .Some(m) => (m != fast), .None => true), {
           panic(`YO_DEBUG_TYPE_KEY_MEMO_CHECK: type_lacks_copy_for_flip(${type_to_string(&ty)}): the identity cache answers ${if(fast, "true", "false")}, the type_key memo ${match(slow, .Some(m) => if(m, "answers true", "answers false"), .None => "has no entry")}`);
         });
@@ -1524,8 +1524,8 @@ _record_lacks_copy_fast :: (fn(ty : &TypeValue, key_epoch : u64, answer : bool) 
     g_lacks_copy_fast.with_mut(xs => xs.clear());
     g_lacks_copy_fast_answers.with_mut(xs => xs.clear());
   });
-  (slot : usize) = g_lacks_copy_fast.with({ &ty }(xs) => type_identity_slot(xs, ty));
-  if(!g_lacks_copy_fast.with({ &ty, slot }(xs) => type_identity_slot_holds(xs, slot, ty)), {
+  (slot : usize) = g_lacks_copy_fast.with({ ty : &ty.* }(xs) => type_identity_slot(xs, ty));
+  if(!g_lacks_copy_fast.with({ ty : &ty.*, slot }(xs) => type_identity_slot_holds(xs, slot, ty)), {
     g_lacks_copy_fast.with_mut({ slot, ty : Rc.clone(ty) }(xs) => xs.insert(slot, Rc.clone(ty)));
     g_lacks_copy_fast_answers.with_mut(xs => xs.insert(slot, answer));
   });
@@ -1976,7 +1976,7 @@ type_implements_trait :: (
         &target,
         Rc(.Struct({ field_types : fts, is_reference_semantics : is_ref, is_atomic_rc : is_atomic })) => cond(
           // Runtime: objects always; value structs need all fields Runtime.
-          (tn == "Runtime") => if(is_ref, {
+          (tn == "Runtime") => if(is_ref.*, {
             direct_true = true;
           }, {
             fields_opt = Option(SharedList(TypeValue)).Some(Rc.clone(fts));
@@ -1986,10 +1986,10 @@ type_implements_trait :: (
           // object (a cell another copy may share) holds neither — leave it
           // to impls (fall through).
           is_thread_marker => cond(
-            !is_ref => {
+            !is_ref.* => {
               fields_opt = Option(SharedList(TypeValue)).Some(Rc.clone(fts));
             },
-            is_atomic => match(
+            is_atomic.* => match(
               sync_trait,
               .Some(st) => {
                 fields_opt = Option(SharedList(TypeValue)).Some(Rc.clone(fts));
@@ -2000,7 +2000,7 @@ type_implements_trait :: (
             true => ()
           ),
           // Comptime: objects never; value structs need all fields Comptime.
-          (tn == "Comptime") => if(!is_ref, {
+          (tn == "Comptime") => if(!is_ref.*, {
             fields_opt = Option(SharedList(TypeValue)).Some(Rc.clone(fts));
           }),
           true => ()
@@ -2023,13 +2023,13 @@ type_implements_trait :: (
             vi = (vi + usize(1));
           });
           cond(
-            !e_is_ref => {
+            !e_is_ref.* => {
               fields_opt = Option(SharedList(TypeValue)).Some(shared_list(flat));
             },
             (tn == "Runtime") => {
               direct_true = true;
             },
-            (is_thread_marker && e_is_atomic) => match(
+            (is_thread_marker && e_is_atomic.*) => match(
               sync_trait,
               .Some(st) => {
                 fields_opt = Option(SharedList(TypeValue)).Some(shared_list(flat));
@@ -2468,7 +2468,7 @@ check_self_constraints_violation_msg :: (
           );
         });
         if(!sc_implemented, {
-          msg := `Type "`.concat(type_to_string(target_type)).concat(`" does not implement required constraint "`).concat(type_to_string(&constraint)).concat(`" from trait "`).concat(&name).concat(`"'s where clause.`);
+          msg := `Type "`.concat(type_to_string(target_type)).concat(`" does not implement required constraint "`).concat(type_to_string(&constraint)).concat(`" from trait "`).concat(&name.*).concat(`"'s where clause.`);
           return(Option(String).Some(msg));
         });
         ip = (ip + usize(1));
@@ -2486,7 +2486,7 @@ check_self_constraints_violation_msg :: (
           }
         );
         if(type_implements_trait_bool(target_type, &constraint, env), {
-          msg := `Type "`.concat(type_to_string(target_type)).concat(`" implements "`).concat(type_to_string(&constraint)).concat(`" but the trait "`).concat(&name).concat(`"'s where clause requires it to NOT implement this trait.`);
+          msg := `Type "`.concat(type_to_string(target_type)).concat(`" implements "`).concat(type_to_string(&constraint)).concat(`" but the trait "`).concat(&name.*).concat(`"'s where clause requires it to NOT implement this trait.`);
           return(Option(String).Some(msg));
         });
         in_ = (in_ + usize(1));
@@ -2579,7 +2579,7 @@ end_send_derivation :: (fn(type_id : &String) -> unit)({
         continue;
       }
     );
-    if(entry == type_id, {
+    if(entry == type_id.*, {
       found_idx = Option(usize).Some(i);
     });
     i = (i + usize(1));
@@ -2937,14 +2937,14 @@ _sig_modes_of :: (fn(ty : &TypeValue) -> Option(_SigModes))(
   match(
     ty,
     Rc(.Func({ param_types : sm_pts, meta : sm_meta })) => Option(_SigModes).Some(
-      _SigModes(labels : sm_meta.param_labels.clone(), types : shared_list(slot_pointees(&sm_pts)), refs : fn_param_mut_ref_flags(ty), owns : fn_param_by_value_flags(ty), n : sm_pts.len(), complete : true)
+      _SigModes(labels : sm_meta.param_labels.clone(), types : shared_list(slot_pointees(&sm_pts.*)), refs : fn_param_mut_ref_flags(ty), owns : fn_param_by_value_flags(ty), n : sm_pts.len(), complete : true)
     ),
     _ => match(
       extract_fn_trait_from_type(ty),
       .Some(sm_ft) => match(
         &sm_ft,
         Rc(.FnTraitT({ call_param_labels : sm_l, call_param_types : sm_t })) => Option(_SigModes).Some(
-          _SigModes(labels : sm_l.clone(), types : shared_list(slot_pointees(&sm_t)), refs : fn_param_mut_ref_flags(&sm_ft), owns : fn_param_by_value_flags(&sm_ft), n : sm_t.len(), complete : true)
+          _SigModes(labels : sm_l.clone(), types : shared_list(slot_pointees(&sm_t.*)), refs : fn_param_mut_ref_flags(&sm_ft), owns : fn_param_by_value_flags(&sm_ft), n : sm_t.len(), complete : true)
         ),
         _ => Option(_SigModes).None
       ),
@@ -2955,7 +2955,7 @@ _sig_modes_of :: (fn(ty : &TypeValue) -> Option(_SigModes))(
 /// `x : &mut T`, `x : &T` or the by-value `x : T`: how a parameter is
 /// written (decision 42).
 _param_mode_spelling :: (fn(label : &String, ty : &Option(TypeValue), is_ref : bool, is_owning : bool) -> String)({
-  ts := match(ty, .Some(t) => type_to_string(&t), .None => String.from("T"));
+  ts := match(ty, .Some(t) => type_to_string(&t.*), .None => String.from("T"));
   cond(
     is_ref => `${label} : &mut ${ts}`,
     is_owning => `${label} : ${ts}`,
@@ -3040,7 +3040,7 @@ impl_param_unmet_trait :: (fn(param_type : &TypeValue, arg_type : &TypeValue, en
     Rc(.SomeT({ name : ip_nm, bounds : ip_req_bnd })) => {
       ip_req := ip_req_bnd.required();
       cond(
-        ((ip_nm != "Impl") || (get_all_some_types(arg_type).len() > usize(0))) => Option(TypeValue).None,
+        ((ip_nm.* != "Impl") || (get_all_some_types(arg_type).len() > usize(0))) => Option(TypeValue).None,
         true => {
           (ip_miss : Option(TypeValue)) = Option(TypeValue).None;
           (ip_i : usize) = usize(0);
@@ -3075,7 +3075,7 @@ judge_function_argument_markers :: (
     param_type,
     Rc(.SomeT({ name : pn, bounds : prtts_bnd })) => {
       prtts := prtts_bnd.required();
-      if(pn == "Impl", {
+      if(pn.* == "Impl", {
         (pi : usize) = usize(0);
         while(pi < prtts.len(), {
           match(
@@ -3248,8 +3248,8 @@ type_contains_some_type_for_codegen_param :: (
   });
   match(
     ty,
-    Rc(.Array(element, _, _)) => recur(&element, checked_ids),
-    Rc(.Pointer(pointee)) => recur(&pointee, checked_ids),
+    Rc(.Array(element, _, _)) => recur(&element.*, checked_ids),
+    Rc(.Pointer(pointee)) => recur(&pointee.*, checked_ids),
     Rc(.Tuple(_, field_types)) => {
       (found : bool) = false;
       (i : usize) = usize(0);
@@ -3344,14 +3344,14 @@ type_contains_some_type_for_codegen_param :: (
       (found : bool) = (forall_labels.len() > usize(0));
       (i : usize) = usize(0);
       while((i < param_types.len()) && !found, {
-        pt := match(slot_pointee_at(&param_types, i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+        pt := match(slot_pointee_at(&param_types.*, i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         if(recur(&pt, checked_ids), {
           found = true;
         });
         i = (i + usize(1));
       });
       if(!found, {
-        found = recur(&t_slot_pointee(&result_box), checked_ids);
+        found = recur(&t_slot_pointee(&result_box.*), checked_ids);
       });
       found
     },
@@ -3556,7 +3556,7 @@ find_some_type_missing_comptime_constraint :: (
     match(
       ty,
       Rc(.Pointer(inner)) => {
-        return(recur(&inner, env));
+        return(recur(&inner.*, env));
       },
       _ => ()
     );

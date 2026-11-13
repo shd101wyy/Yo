@@ -45,7 +45,7 @@ export(Refine);
 /// `NonZero(T)` — values of `T` that are not zero. The predicate is a
 /// ghost spelled INSIDE this alias body: each `NonZero(i32)` evaluation
 /// binds `T := i32` there, creating a fully concrete predicate.
-NonZero :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(x : &T) -> bool)(x != T(0)))));
+NonZero :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(x : &T) -> bool)(x.* != T(0)))));
 export(NonZero);
 
 /// `Bounded(T, lo, hi)` — values of `T` in the closed range `[lo, hi]`.
@@ -59,7 +59,7 @@ Bounded :: (
     comptime(hi) : T,
     where(T <: Comptime)
   ) -> comptime(Type)
-)(refine(T, ghost_fn((fn(x : &T) -> bool)((x >= lo) && (x <= hi)))));
+)(refine(T, ghost_fn((fn(x : &T) -> bool)((x.* >= lo) && (x <= hi)))));
 export(Bounded);
 /// `NonEmpty(T)` — a value of `T` that carries at least one element.
 ///
@@ -98,7 +98,7 @@ unchecked :: (
     x : &T,
     witness : &*T
   ) -> Refine(T, p)
-)(x);
+)(x.*);
 export(unchecked);
 
 /// `check_non_zero(x)` — the `NonZero` family's runtime gate, spelled with
@@ -109,8 +109,8 @@ check_non_zero :: (
   fn(generic(T : Type), x : &T) -> Option(NonZero(T))
 )(
   if(
-    x != T(0),
-    Option(NonZero(T)).Some(x),
+    x.* != T(0),
+    Option(NonZero(T)).Some(x.*),
     Option(NonZero(T)).None
   )
 );
@@ -120,7 +120,7 @@ export(check_non_zero);
 /// `witness` pointer is the privilege token; see `unchecked`.
 unchecked_non_zero :: (
   fn(generic(T : Type), x : &T, witness : &*T) -> NonZero(T)
-)(x);
+)(x.*);
 export(unchecked_non_zero);
 
 /// `check_bounded(x, lo, hi)` — the `Bounded` family's runtime gate.
@@ -133,7 +133,7 @@ check_bounded :: (
   ) -> Option(Bounded(T, lo, hi))
 )(
   if(
-    (x >= lo) && (x <= hi),
+    (x.* >= lo) && (x <= hi),
     Option(Bounded(T, lo, hi)).Some(x),
     Option(Bounded(T, lo, hi)).None
   )
@@ -150,5 +150,5 @@ unchecked_bounded :: (
     comptime(hi) : T,
     witness : &*T
   ) -> Bounded(T, lo, hi)
-)(x);
+)(x.*);
 export(unchecked_bounded);

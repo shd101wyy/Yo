@@ -45,7 +45,7 @@ pragma(Pragma.AllowUnsafe);
 /// A fresh single-element PtrVal cell.
 _cell1 :: (fn(v : &EvalValue) -> ValueCell)({
   mut(c) := ArrayList(EvalValue).new();
-  c.push(v);
+  c.push(v.*);
   value_cell_new(c)
 });
 { panic, assert } :: import("std/assert");
@@ -58,7 +58,7 @@ _aggregate_type_of :: (fn(place : &AstExpr, ctx : &EvalContext) -> Option(TypeVa
     .FnCall(_, callee, Rc(args), _, _) => {
       mut(candidates) := ArrayList(AstExpr).new();
       if(!ast_expr_is_fn_call_of(place, BF_DOT, Option(usize).None), {
-        candidates.push(callee);
+        candidates.push(callee.*);
       });
       match(args.get(usize(0)), .Some(a0) => candidates.push(a0), .None => ());
       (mut(found) : Option(TypeValue)) = .None;
@@ -103,7 +103,7 @@ _spelled_origin_error :: (fn(name : &String, ctx : &EvalContext) -> Option(_Proj
   labels := match(&ft, Rc(.Func({ meta : so_m })) => Rc.clone(so_m.param_labels), _ => return(Option(_ProjRootError).None));
   (mut(i) : usize) = usize(0);
   while(i < labels.len(), {
-    if(match(labels.get_cloned(i), .Some(l) => (l == name), .None => false), {
+    if(match(labels.get_cloned(i), .Some(l) => (l == name.*), .None => false), {
       if(fn_param_in_result_origin(&ft, i, &names), {
         return(Option(_ProjRootError).None);
       });
@@ -181,7 +181,7 @@ _place_root_is_closure_capture :: (fn(name : &String, v : &Variable, env : &Envi
       (mut(own) : bool) = false;
       (mut(i) : usize) = usize(0);
       while(i < labels.len(), {
-        if(match(labels.get_cloned(i), .Some(l) => (l == name), .None => false), {
+        if(match(labels.get_cloned(i), .Some(l) => (l == name.*), .None => false), {
           own = true;
         });
         i = (i + usize(1));
@@ -485,7 +485,7 @@ _is_by_value_borrow_param :: (fn(v : &Variable, ctx : &EvalContext) -> bool)({
             while(i < n, {
               if(match(bp_m.param_labels.get_cloned(i), .Some(l) => (l == v.name), .None => false), {
                 return(
-                  !fn_param_is_mut_ref(&ft, i) && !fn_param_is_by_value(&ft, i) && !fn_param_is_ptr_borrow(&ft, i)
+                  !fn_param_is_mut_ref(&ft.*, i) && !fn_param_is_by_value(&ft.*, i) && !fn_param_is_ptr_borrow(&ft.*, i)
                 );
               });
               i = (i + usize(1));
@@ -557,11 +557,11 @@ evaluate_address_call :: (
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
-        return(expr);
+        return(expr.*);
       }
     ),
     _ => {
-      return(expr);
+      return(expr.*);
     }
   );
   // A projection result written as a bare name (`return(key)`,
@@ -673,7 +673,7 @@ evaluate_address_call :: (
     arg_info_opt,
     .Some(i) => Rc.clone(i),
     .None => {
-      return(expr);
+      return(expr.*);
     }
   );
   (cur_env : Environment) = expr_info_adopt_env(&arg_info);
@@ -753,14 +753,14 @@ evaluate_address_call :: (
       match(
         cref,
         .ArrayRef(elements, index) =>
-          EvalValue.PtrVal(_cell1(EvalValue.ArrayVal(Rc.clone(elements))), index, agg_ty),
+          EvalValue.PtrVal(_cell1(EvalValue.ArrayVal(Rc.clone(elements))), index.*, agg_ty),
         .ComptimeListRef(elements, index) =>
-          EvalValue.PtrVal(_cell1(EvalValue.ComptimeListVal(Rc.clone(elements))), index, agg_ty),
+          EvalValue.PtrVal(_cell1(EvalValue.ComptimeListVal(Rc.clone(elements))), index.*, agg_ty),
         .StructRef(field_values, field_index) =>
           // Treat field_values as an array to enable indexed access.
-          EvalValue.PtrVal(_cell1(EvalValue.ArrayVal(Rc.clone(field_values))), field_index, agg_ty),
+          EvalValue.PtrVal(_cell1(EvalValue.ArrayVal(Rc.clone(field_values))), field_index.*, agg_ty),
         .TupleRef(fields, field_index) =>
-          EvalValue.PtrVal(_cell1(EvalValue.ArrayVal(Rc.clone(fields))), field_index, agg_ty)
+          EvalValue.PtrVal(_cell1(EvalValue.ArrayVal(Rc.clone(fields))), field_index.*, agg_ty)
       )
     ),
     .None => Option(EvalValue).None
@@ -815,7 +815,7 @@ evaluate_address_call :: (
       vt_info.set_path_collection(arg_info.path_collection());
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &vt_info);
       attach_temp_variable_to_expr(expr, false, ctx);
-      return(expr);
+      return(expr.*);
     },
     .None => ()
   );
@@ -853,6 +853,6 @@ evaluate_address_call :: (
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   // Attach a temp variable name (for ownership tracking / codegen).
   attach_temp_variable_to_expr(expr, false, ctx);
-  expr
+  expr.*
 });
 export(evaluate_address_call);

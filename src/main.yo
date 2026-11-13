@@ -199,7 +199,7 @@ extract_bare_import_path :: (fn(e : &AstExpr) -> Option(String))(
     e,
     .Atom(_, _) => Option(String).None,
     .FnCall(_, func_box, Rc(fn_imp_args), is_infix, _) => cond(
-      is_infix => Option(String).None,
+      is_infix.* => Option(String).None,
       (fn_imp_args.len() != usize(1)) => Option(String).None,
       !match(
         func_box,
@@ -242,7 +242,7 @@ extract_import_path :: (fn(expr : &AstExpr) -> Option(String))(
       );
       cond(
         // Pattern: { Names } :: import("path") (infix ::)
-        ((fval == "::") && is_infix && (fn_imp_args.len() >= usize(2))) =>
+        ((fval == "::") && is_infix.* && (fn_imp_args.len() >= usize(2))) =>
           match(
             fn_imp_args.get(usize(1)),
             .None => Option(String).None,
@@ -281,7 +281,7 @@ collect_import_paths_recursive :: (
     expr,
     .Atom(_, _) => (),
     .FnCall(_, fb, Rc(walk_args), _, _) => {
-      recur(&fb, out);
+      recur(&fb.*, out);
       (i : usize) = usize(0);
       while(i < walk_args.len(), {
         match(
@@ -352,7 +352,7 @@ extract_test_name :: (fn(expr : &AstExpr) -> Option(String))(
     expr,
     .Atom(_, _) => Option(String).None,
     .FnCall(_, func_box, Rc(fn_args), is_infix, _) => cond(
-      is_infix => Option(String).None,
+      is_infix.* => Option(String).None,
       (fn_args.len() < usize(2)) => Option(String).None,
       !match(
         func_box,
@@ -914,15 +914,15 @@ _run_contract_verification :: (
   });
   (all_ok : bool) = true;
   for(&reports, rp => {
-    _print_verify_fn_report(&rp, false);
+    _print_verify_fn_report(&rp.*, false);
     // The pass/fail rule lives in the driver so this site, `yo verify`
     // and the self-verification sweep cannot disagree. `check`/`compile`
     // pass no deny set: `--strict` belongs to `yo verify`, and silently
     // hardening every build would change what today's code compiles.
-    if(verify_report_is_failure(&rp, ArrayList(String).new()), {
+    if(verify_report_is_failure(&rp.*, ArrayList(String).new()), {
       all_ok = false;
     }, {
-      if(verify_report_is_degraded(&rp, ArrayList(String).new()), {
+      if(verify_report_is_degraded(&rp.*, ArrayList(String).new()), {
         eprintln(`           (verify+ fallback: the runtime assert stays)`);
       });
     });
@@ -1118,7 +1118,7 @@ _expr_span_end :: (fn(runes : &ArrayList(rune), col : usize, scan_from : usize, 
       });
       match(
         _parse_or_none(&cand, file.clone()),
-        .Some(asts) => if((asts.len() == usize(1)) && (ast_expr_to_string(&asts(usize(0))) == expect), {
+        .Some(asts) => if((asts.len() == usize(1)) && (ast_expr_to_string(&asts(usize(0))) == expect.*), {
           return(.Some(end));
         }),
         .None => ()
@@ -1781,7 +1781,7 @@ derive(_UnsizedSyntax, Clone);
 /// in the mode form (`x : &T` is `__yo_imm(x) : T`, `-> &T` is
 /// `-> __yo_imm(T)`), so a mode head is a reference too.
 _unsized_dyn_is_wrapped :: (fn(head : &String, idx : usize) -> bool)(
-  (head == "Box") || (head == "Rc") || (head == "Arc") || (head == "Weak") || (head == "ArcWeak") || (head == BF_ADDRESS_OF) || (head == BK_BORROW_MUT) || (head == BK_IMM) || (head == BK_MUT) || ((head == BF_UPCAST) && (idx == usize(1)))
+  (head.* == "Box") || (head.* == "Rc") || (head.* == "Arc") || (head.* == "Weak") || (head.* == "ArcWeak") || (head.* == BF_ADDRESS_OF) || (head.* == BK_BORROW_MUT) || (head.* == BK_IMM) || (head.* == BK_MUT) || ((head.* == BF_UPCAST) && (idx == usize(1)))
 );
 /// Whether `e`, the left side of a `:`, is a parameter or binding the parse
 /// wrote in the mode form, `__yo_imm(x)`/`__yo_mut(x)` (also under
@@ -1820,7 +1820,7 @@ _unsized_sites_expr :: (fn(e : &AstExpr, parent : &String, idx : usize, out : &m
     .FnCall(_, callee, _, _, _) => {
       if(head == "Dyn", {
         cond(
-          ((parent == "impl") && (idx == usize(0))) => out.push(_UnsizedSyntax(tok : ast_expr_token(callee), expect : ast_expr_to_string(e), kind : u8(8))),
+          ((parent.* == "impl") && (idx == usize(0))) => out.push(_UnsizedSyntax(tok : ast_expr_token(callee), expect : ast_expr_to_string(e), kind : u8(8))),
           !_unsized_dyn_is_wrapped(parent, idx) => out.push(_UnsizedSyntax(tok : ast_expr_token(callee), expect : ast_expr_to_string(e), kind : u8(0))),
           true => ()
         );
@@ -2838,7 +2838,7 @@ run_verify_cmd :: (
     &explain_fn,
     .Some(pat) => {
       n_all := all_reports.len();
-      all_reports.retain({ &pat }(rp) => rp.fn_id.contains(pat.clone()));
+      all_reports.retain({ pat : &pat.* }(rp) => rp.fn_id.contains(pat.clone()));
       reports = all_reports;
       if(reports.len() == usize(0), {
         exn.throw(dyn(`verify: --explain '${pat}' matched no verified function (of ${n_all.to_string()})`));
@@ -2853,7 +2853,7 @@ run_verify_cmd :: (
   (refuted_n : usize) = usize(0);
   for(&reports, rp => {
     // Same driver-side rule, now consulting `--deny` / `--strict`.
-    if(verify_report_is_failure(&rp, denied.clone()), {
+    if(verify_report_is_failure(&rp.*, denied.clone()), {
       bad = (bad + usize(1));
       if(rp.outcome == "refuted", {
         refuted_n = (refuted_n + usize(1));
@@ -2863,7 +2863,7 @@ run_verify_cmd :: (
   if(format_json, {
     fn_entries := ArrayList(JsonValue).new();
     for(&reports, rp => {
-      fn_entries.push(_verify_fn_report_json(&rp));
+      fn_entries.push(_verify_fn_report_json(&rp.*));
     });
     ks2 := ArrayList(String).new();
     ks2.push(String.from("solver"));
@@ -2895,7 +2895,7 @@ run_verify_cmd :: (
       `verify: target: ${target_path} (${files.len().to_string()} .yo file(s), mode ${mode_str})`
     );
     for(&reports, rp => {
-      _print_verify_fn_report(&rp, explain_fn.is_some());
+      _print_verify_fn_report(&rp.*, explain_fn.is_some());
     });
     if(reports.len() == usize(0), {
       println(
@@ -3013,7 +3013,7 @@ _verify_fn_report_json :: (fn(rp : &VerifyFnReport) -> JsonValue)({
   for(&rp.obligations, obl => {
     model := match(
       &obl.verdict,
-      .Refuted(ce) => _verify_json_strs(&ce),
+      .Refuted(ce) => _verify_json_strs(&ce.*),
       _ => JsonValue.Array(ArrayList(JsonValue).new())
     );
     verdict_str := match(
@@ -3097,7 +3097,7 @@ _verify_self_test_json :: (fn(results : &ArrayList(VerifyResult)) -> ArrayList(J
     verdict_json := match(
       &r.verdict,
       .Proved(_) => JsonValue.Str(String.from("proved")),
-      .Refuted(ce) => _verify_json_strs(&ce),
+      .Refuted(ce) => _verify_json_strs(&ce.*),
       .Unproven(reason) => JsonValue.Str(`unproven: ${reason}`),
       .SolverError(msg) => JsonValue.Str(`solver-error: ${msg}`)
     );
@@ -3186,7 +3186,7 @@ _print_verify_fn_report :: (fn(rp : &VerifyFnReport, detailed : bool) -> unit)(
             .Refuted(ce) => if(
               ce.len() == usize(0),
               String.from("REFUTED"),
-              `REFUTED  counter-example: ${_verify_join_strs(&ce, String.from(", "))}`
+              `REFUTED  counter-example: ${_verify_join_strs(&ce.*, String.from(", "))}`
             ),
             .Unproven(reason) => `UNPROVEN  ${reason}`,
             .SolverError(msg) => `SOLVER-ERROR  ${msg}`
@@ -3257,7 +3257,7 @@ _opt_step :: (fn(attached : &Option(String)) -> usize)(
 _opt_value :: (
   fn(argv : &ArrayList(String), i : usize, flag : &String, attached : &Option(String), exn : Exception) -> String
 )(
-  match(&attached, .Some(v) => v.clone(), .None => _arg_val_req(argv, i, flag, exn))
+  match(attached, .Some(v) => v.clone(), .None => _arg_val_req(argv, i, flag, exn))
 );
 /// `--heap-size <n>[K|M|G]` (suffix case-insensitive) -> bytes, validated:
 /// 64 KiB minimum (the TLSF control block alone needs ~8 KiB), 4 GiB maximum
@@ -8688,7 +8688,7 @@ _effect_kinds_of_type :: (fn(t : &TypeValue, depth : usize) -> ArrayList(String)
             // The prelude `Io` is the struct whose primitives are named
             // `async`/`await`/`spawn`; naming the type alone would also match
             // a user struct called Io.
-            if(((flabel == "async") || (flabel == "await")) && (name == "Io"), {
+            if(((flabel == "async") || (flabel == "await")) && (name.* == "Io"), {
               has_async = true;
             });
           },
@@ -8744,7 +8744,7 @@ _collect_future_effects :: (
 _push_unique :: (fn(xs : &mut ArrayList(String), x : &String) -> unit)({
   (i : usize) = usize(0);
   while(i < xs.len(), {
-    if(xs(i) == x, {
+    if(xs(i) == x.*, {
       return(());
     });
     i = (i + usize(1));

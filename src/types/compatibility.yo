@@ -46,7 +46,7 @@ _is_in_used :: (fn(used : &ArrayList(usize), idx : usize) -> bool)({
 /// level)? Looks inside a trait's member types and an Fn trait's signature,
 /// which `get_all_some_types` does not enter.
 _bound_mentions_some :: (fn(req : &TypeValue, self_var : &TypeValue) -> bool)({
-  (sv_n, sv_l) := match(self_var, Rc(.SomeT({ name : n, frame_level : l })) => (n.clone(), l), _ => (String.new(), usize(0)));
+  (sv_n, sv_l) := match(self_var, Rc(.SomeT({ name : n, frame_level : l })) => (n.clone(), l.*), _ => (String.new(), usize(0)));
   if(sv_n.len() == usize(0), {
     return(false);
   });
@@ -181,12 +181,12 @@ derive(AlphaPair, Clone);
 (g_alpha_pairs : RefCell(ArrayList(AlphaPair))) = RefCell(ArrayList(AlphaPair)).new(ArrayList(AlphaPair).new());
 /// Read in place, newest first: a `get_cloned` per probe copies both names.
 _alpha_pair_active :: (fn(a_name : &String, a_level : usize, e_name : &String, e_level : usize) -> bool)(
-  g_alpha_pairs.with({ &a_name, a_level, &e_name, e_level }(xs) => {
+  g_alpha_pairs.with({ a_name : &a_name.*, a_level, e_name : &e_name.*, e_level }(xs) => {
     (mut(i) : usize) = xs.len();
     (mut(found) : bool) = false;
     while((i > usize(0)) && !found, {
       i = (i - usize(1));
-      found = ((xs(i).a_name == a_name) && (xs(i).a_level == a_level) && (xs(i).e_name == e_name) && (xs(i).e_level == e_level));
+      found = ((xs(i).a_name == a_name.*) && (xs(i).a_level == a_level) && (xs(i).e_name == e_name.*) && (xs(i).e_level == e_level));
     });
     found
   })
@@ -202,7 +202,7 @@ _binder_level :: (fn(types : &ArrayList(TypeValue), label : &String) -> Option(u
     while(j < somes.len(), {
       match(
         somes.get_cloned(j),
-        .Some(Rc(.SomeT({ name : nm, frame_level : lv }))) => if(nm == label, {
+        .Some(Rc(.SomeT({ name : nm, frame_level : lv }))) => if(nm == label.*, {
           return(Option(usize).Some(lv));
         }),
         .Some(_) => (),
@@ -409,8 +409,8 @@ _compat_impl :: (
             expected,
             Rc(.Str) => true,
             Rc(.Pointer(einner)) => cond(
-              is_u8_type(&einner) => true,
-              is_char_type(&einner) => true,
+              is_u8_type(&einner.*) => true,
+              is_char_type(&einner.*) => true,
               true => false
             ),
             _ => false
@@ -719,20 +719,20 @@ _compat_impl :: (
     Rc(.ComptimeString) => match(expected, Rc(.ComptimeString) => true, _ => false),
     Rc(.Int(abits, asigned)) => match(
       expected,
-      Rc(.Int(ebits, esigned)) => ((abits == ebits) && (asigned == esigned)),
+      Rc(.Int(ebits, esigned)) => ((abits.* == ebits.*) && (asigned.* == esigned.*)),
       _ => false
     ),
     Rc(.Float(abits)) => match(
       expected,
-      Rc(.Float(ebits)) => (abits == ebits),
+      Rc(.Float(ebits)) => (abits.* == ebits.*),
       _ => false
     ),
     Rc(.TypeUni(alvl)) => match(
       expected,
-      Rc(.TypeUni(elvl)) => (alvl == elvl),
+      Rc(.TypeUni(elvl)) => (alvl.* == elvl.*),
       // `Type` is the sized sub-kind of `?Sized` (decision 49): a type
       // argument fits a `?Sized` binder.
-      Rc(.MaybeSizedKind) => (alvl == usize(0)),
+      Rc(.MaybeSizedKind) => (alvl.* == usize(0)),
       _ => false
     ),
     // A `?Sized` variable's kind fits only a `?Sized` binder; at a `Type`
@@ -741,13 +741,13 @@ _compat_impl :: (
     // `[T]`: the element compared exactly, as a pointer's pointee is.
     Rc(.SliceT(as_elem)) => match(
       expected,
-      Rc(.SliceT(es_elem)) => recur(&as_elem, &es_elem, _exact_mode(mode), visited),
+      Rc(.SliceT(es_elem)) => recur(&as_elem.*, &es_elem.*, _exact_mode(mode), visited),
       _ => false
     ),
     // Pointer children always use require_exact=true
     Rc(.Pointer(ainner)) => match(
       expected,
-      Rc(.Pointer(einner)) => recur(&ainner, &einner, _exact_mode(mode), visited),
+      Rc(.Pointer(einner)) => recur(&ainner.*, &einner.*, _exact_mode(mode), visited),
       _ => false
     ),
     // A reference: same mode, and the pointee compared exactly through a
@@ -757,7 +757,7 @@ _compat_impl :: (
     // and `FnTraitT` arms compare slot modes and pointees themselves.
     Rc(.Reference(ar_pointee, ar_mut, _)) => match(
       expected,
-      Rc(.Reference(er_pointee, er_mut, _)) => ((ar_mut == er_mut) && recur(&ar_pointee, &er_pointee, if(ar_mut, _exact_mode(mode), mode), visited)),
+      Rc(.Reference(er_pointee, er_mut, _)) => ((ar_mut.* == er_mut.*) && recur(&ar_pointee.*, &er_pointee.*, if(ar_mut.*, _exact_mode(mode), mode), visited)),
       _ => false
     ),
     // The `Origin` kind, and an origin argument of a type constructor's
@@ -773,9 +773,9 @@ _compat_impl :: (
         // length-compatible with anything; concrete lengths must match.
         len_ok := cond(
           ((alvar.len() > usize(0)) || (elvar.len() > usize(0))) => true,
-          true => (alen == elen)
+          true => (alen.* == elen.*)
         );
-        len_ok && recur(&ainner, &einner, mode, visited)
+        len_ok && recur(&ainner.*, &einner.*, mode, visited)
       },
       _ => false
     ),
@@ -829,7 +829,7 @@ _compat_impl :: (
         // issues/fixed/inout-call-through-a-fn-value-loses-the-mutation.md).
         // The result's `&`/`&mut` is its slot's type, compared here as the
         // parameter modes are; the pointees unify below.
-        if((t_slot_is_borrow(&aret) != t_slot_is_borrow(&eret)) || (t_slot_is_mut_ref(&aret) != t_slot_is_mut_ref(&eret)), {
+        if((t_slot_is_borrow(&aret.*) != t_slot_is_borrow(&eret.*)) || (t_slot_is_mut_ref(&aret.*) != t_slot_is_mut_ref(&eret.*)), {
           return(false);
         });
         (mi : usize) = usize(0);
@@ -875,8 +875,8 @@ _compat_impl :: (
           match(epts.get(si), .Some(v) => e_sig.push(t_slot_pointee(&v)), .None => ());
           si = (si + usize(1));
         });
-        a_sig.push(t_slot_pointee(&aret));
-        e_sig.push(t_slot_pointee(&eret));
+        a_sig.push(t_slot_pointee(&aret.*));
+        e_sig.push(t_slot_pointee(&eret.*));
         n_alpha := _push_alpha_pairs(&ameta.forall_labels.items, &a_sig, &emeta.forall_labels.items, &e_sig);
         (func_ok : bool) = true;
         i = usize(0);
@@ -889,7 +889,7 @@ _compat_impl :: (
           i = (i + usize(1));
         });
         if(func_ok, {
-          func_ok = recur(&t_slot_pointee(&aret), &t_slot_pointee(&eret), mode, visited);
+          func_ok = recur(&t_slot_pointee(&aret.*), &t_slot_pointee(&eret.*), mode, visited);
         });
         _pop_alpha_pairs(n_alpha);
         func_ok
@@ -981,14 +981,14 @@ _compat_impl :: (
         // Types that still carry a SomeT keep the old rule (a def-time
         // placeholder may be either).
         (
-          (aid != eid) && (get_all_some_types(actual).len() == usize(0)) && (get_all_some_types(expected).len() == usize(0)) && (
-            ((acfid.len() > usize(0)) && (ecfid.len() > usize(0)) && (acfid != ecfid)) || ((acfid.len() > usize(0)) && (ecfid.len() == usize(0)) && (ename.len() > usize(0)))
+          (aid.* != eid.*) && (get_all_some_types(actual).len() == usize(0)) && (get_all_some_types(expected).len() == usize(0)) && (
+            ((acfid.len() > usize(0)) && (ecfid.len() > usize(0)) && (acfid.* != ecfid.*)) || ((acfid.len() > usize(0)) && (ecfid.len() == usize(0)) && (ename.len() > usize(0)))
             || ((ecfid.len() > usize(0)) && (acfid.len() == usize(0)) && (aname.len() > usize(0)))
           )
         ) => false,
         // One declaration (or an era of it): the type-argument check above
         // already told its instantiations apart.
-        ((aid.len() > usize(0)) && (aid == eid)) => true,
+        ((aid.len() > usize(0)) && (aid.* == eid.*)) => true,
         // Two instantiations of ONE generic constructor where a side is
         // still generic: its fields are the constructor's fields at the
         // type arguments, and the type-argument check above already
@@ -1000,7 +1000,7 @@ _compat_impl :: (
         // which a placeholder cannot answer. The empty-name wildcard this
         // replaces accepted such pairs by accident; this accepts them
         // because the constructor says so (plans/reference/TYPE_IDENTITY.md).
-        ((acfid.len() > usize(0)) && (acfid == ecfid) && (ata.len() == eta.len()) && ((get_all_some_types(actual).len() > usize(0)) || (get_all_some_types(expected).len() > usize(0)))) => true,
+        ((acfid.len() > usize(0)) && (acfid.* == ecfid.*) && (ata.len() == eta.len()) && ((get_all_some_types(actual).len() > usize(0)) || (get_all_some_types(expected).len() > usize(0)))) => true,
         // Two DIFFERENT declarations are one type under the lenient rule
         // only when their shapes agree. An empty name used to be a
         // wildcard and an equal name a pass, so an anonymous record with
@@ -1011,8 +1011,8 @@ _compat_impl :: (
         // atomic object and a `newtype` are four different things. A side
         // still carrying a SomeT is a def-time placeholder and keeps the
         // structural comparison below.
-        (((aname == ename) || (aname.len() == usize(0)) || (ename.len() == usize(0))) && ((aref != eref) || (aatomic != eatomic) || (anew != enew))) => (type_contains_some_type(actual) || type_contains_some_type(expected)),
-        (!type_contains_some_type(actual) && !type_contains_some_type(expected) && ((aname != ename) && (aname.len() > usize(0)) && (ename.len() > usize(0)) && !((acfid.len() > usize(0)) && (acfid == ecfid)))) => false,
+        (((aname.* == ename.*) || (aname.len() == usize(0)) || (ename.len() == usize(0))) && ((aref.* != eref.*) || (aatomic.* != eatomic.*) || (anew.* != enew.*))) => (type_contains_some_type(actual) || type_contains_some_type(expected)),
+        (!type_contains_some_type(actual) && !type_contains_some_type(expected) && ((aname.* != ename.*) && (aname.len() > usize(0)) && (ename.len() > usize(0)) && !((acfid.len() > usize(0)) && (acfid.* == ecfid.*)))) => false,
         (alabels.len() != elabels.len()) => false,
         true => {
           vkey_ne := (aid.clone() + String.from("=>ne") + eid.clone());
@@ -1062,7 +1062,7 @@ _compat_impl :: (
           });
         });
         ta_differ
-      } => false, ((aid.len() > usize(0)) && (aid == eid)) => true, 
+      } => false, ((aid.len() > usize(0)) && (aid.* == eid.*)) => true, 
       // Self-SHELL identity (exact only): a struct self-shell is an
       // EMPTY-FIELDS, empty-name struct sharing its FINAL's struct_id
       // (struct.yo:76-95) — "distinguished from the final purely by its
@@ -1088,7 +1088,7 @@ _compat_impl :: (
       // them — e.g. `Type.impls(AtomicPoint, Send)` and
       // `Type.impls(RegularPoint, Send)` over `object(x:i32,y:i32)` share a cache
       // entry, so the second query returns the first's result.
-      ((aref != eref) || (aatomic != eatomic) || (anew != enew)) => false, 
+      ((aref.* != eref.*) || (aatomic.* != eatomic.*) || (anew.* != enew.*)) => false, 
       // NOMINAL distinctness by CONSTRUCTOR (the same signal the non-exact
       // arm above already uses): two instantiations stamped with DIFFERENT non-empty
       // constructor_func_ids come from DIFFERENT generic declarations and are
@@ -1102,7 +1102,7 @@ _compat_impl :: (
       // ("passing __yo_t32 to __yo_t28", the collections identity-split;
       // issues/repros/deque-identity-split-2arm.yo). SomeT-bearing sides and
       // cfid-empty copies fall through exactly as before.
-      ((acfid.len() != usize(0)) && (ecfid.len() != usize(0)) && (acfid != ecfid) && !type_contains_some_type(actual) && !type_contains_some_type(expected)) => false, 
+      ((acfid.len() != usize(0)) && (ecfid.len() != usize(0)) && (acfid.* != ecfid.*) && !type_contains_some_type(actual) && !type_contains_some_type(expected)) => false, 
       // NOMINAL distinctness: two structs
       // with DIFFERENT non-empty names are DISTINCT types under exact match,
       // UNLESS either contains a SomeT (a specialization placeholder). The
@@ -1113,7 +1113,7 @@ _compat_impl :: (
       // vs CodegenExternFnEntry (identical fields, distinct names) collided in the
       // comptime-fn CTFE cache, collapsing HashMap(_, CodegenTypeEntry).values()
       // and HashMap(_, CodegenExternFnEntry).values() to one instantiation.
-      ((aname.len() != usize(0)) && (ename.len() != usize(0)) && (aname != ename) && (!type_contains_some_type(actual) && !type_contains_some_type(expected))) => false, 
+      ((aname.len() != usize(0)) && (ename.len() != usize(0)) && (aname.* != ename.*) && (!type_contains_some_type(actual) && !type_contains_some_type(expected))) => false, 
       // SAME-NAMED DISTINCT DECLARATIONS: reaching here means
       // aid != eid (the id-equality arm above returned true otherwise). Two
       // structs with the SAME non-empty stamped name, different ids, no
@@ -1126,7 +1126,7 @@ _compat_impl :: (
       // instantiations carry type_arguments, and cfid-empty copies SHARE
       // their original's id (caught by the id-equality arm). See
       // issues/fixed/yo-self-same-name-local-struct-spec-cache-collision.md.
-      ((aname.len() != usize(0)) && (aname == ename) && (ata.len() == usize(0)) && (eta.len() == usize(0)) && (!type_contains_some_type(actual) && !type_contains_some_type(expected))) => false, 
+      ((aname.len() != usize(0)) && (aname.* == ename.*) && (ata.len() == usize(0)) && (eta.len() == usize(0)) && (!type_contains_some_type(actual) && !type_contains_some_type(expected))) => false, 
       // CAPTURE-STRUCT nominal identity (exact only): each closure's capture
       // struct is minted ONCE under a deterministic `capture_<id>` struct id
       // (utils/closure.yo g_capture_struct_ids) and is never re-minted as an
@@ -1139,7 +1139,7 @@ _compat_impl :: (
       // second `rc(<closure>)`'s `Rc(V)(value)` ctor hit the FIRST
       // closure's cached Rc instantiation ("passing __yo_t32 to parameter
       // of incompatible type __yo_t26", the fn dyn-manual-boxing batch).
-      (aid.starts_with("capture_") && eid.starts_with("capture_")) => (aid == eid), 
+      (aid.starts_with("capture_") && eid.starts_with("capture_")) => (aid.* == eid.*), 
       // A NAMED declaration is never the same type as a different,
       // anonymous one, however alike their fields: `A :: struct(x : i32)`
       // and a `struct(x : i32)` expression. Treating them as one let the
@@ -1356,7 +1356,7 @@ _compat_impl :: (
     Rc(.Union(aname, alabels, atypes)) => match(
       expected,
       Rc(.Union(ename, elabels, etypes)) => cond(
-        !((aname == ename) || (aname.len() == usize(0)) || (ename.len() == usize(0))) => false,
+        !((aname.* == ename.*) || (aname.len() == usize(0)) || (ename.len() == usize(0))) => false,
         (alabels.len() != elabels.len()) => false,
         true => {
           (u_ok : bool) = true;
@@ -1397,8 +1397,8 @@ _compat_impl :: (
       expected,
       Rc(.TraitT(name : ename, id : eid)) => if(
         (aid.len() > usize(0)) && (eid.len() > usize(0)),
-        aid == eid,
-        aname == ename
+        aid.* == eid.*,
+        aname.* == ename.*
       ),
       _ => false
     ),
@@ -1433,9 +1433,9 @@ _compat_impl :: (
             // and the key `type_key` gives such a wrapper in an argument slot.
             (is_bound_closure_identity(actual) && is_bound_closure_identity(expected)) =>
               recur(resolve_cell_chain(actual), resolve_cell_chain(expected), mode, visited),
-            ((aname == ename) && (alvl == elvl)) => true,
+            ((aname.* == ename.*) && (alvl.* == elvl.*)) => true,
             // Corresponding binders of the two `Func` types being compared.
-            _alpha_pair_active(aname.clone(), alvl, ename.clone(), elvl) => true,
+            _alpha_pair_active(aname.clone(), alvl.*, ename.clone(), elvl.*) => true,
             // Definition-time-trial acceptance: two distinct type
             // parameters are compatible when the GIVEN side satisfies every
             // constraint the EXPECTED side carries — trivially true for an
@@ -1451,7 +1451,7 @@ _compat_impl :: (
             (!require_exact && trial_flag_get() && (ertt.len() == usize(0))) => true,
             true => {
               (xw_ok : bool) = (
-                (aname == ename) && (artt.len() == ertt.len())
+                (aname.* == ename.*) && (artt.len() == ertt.len())
                 &&
                   (artt.len() > usize(0))
                   && _wrapper_carrier_args_concrete(&artt) && _wrapper_carrier_args_concrete(&ertt)
@@ -1479,10 +1479,10 @@ _compat_impl :: (
     Rc(.ExprT) => match(expected, Rc(.ExprT) => true, _ => false),
     // An extern opaque type is nominal: it is only the type that lowers to
     // the same C spelling (plans/reference/TYPE_IDENTITY.md).
-    Rc(.ExternOpaqueT(_, eo_ac)) => match(expected, Rc(.ExternOpaqueT(_, eo_ec)) => (eo_ac == eo_ec), _ => false),
+    Rc(.ExternOpaqueT(_, eo_ac)) => match(expected, Rc(.ExternOpaqueT(_, eo_ec)) => (eo_ac.* == eo_ec.*), _ => false),
     Rc(.ComptimeListT(achild)) => match(
       expected,
-      Rc(.ComptimeListT(echild)) => recur(&achild, &echild, mode, visited),
+      Rc(.ComptimeListT(echild)) => recur(&achild.*, &echild.*, mode, visited),
       _ => false
     ),
     Rc(.TypeAppT(constructor : acon, args : aargs)) => match(
@@ -1596,10 +1596,10 @@ _compat_impl :: (
     Rc(.FnTraitT(base_name : abn, call_param_types : apts, call_result : aret)) => match(
       expected,
       Rc(.FnTraitT(base_name : ebn, call_param_types : epts, call_result : eret)) => {
-        if(_is_identity_mode(mode) && (abn != ebn), {
+        if(_is_identity_mode(mode) && (abn.* != ebn.*), {
           return(false);
         });
-        if(!fn_trait_base_serves(&abn, &ebn), {
+        if(!fn_trait_base_serves(&abn.*, &ebn.*), {
           return(false);
         });
         if(apts.len() != epts.len(), {
@@ -1628,7 +1628,7 @@ _compat_impl :: (
           });
           i = (i + usize(1));
         });
-        recur(&aret, &eret, mode, visited)
+        recur(&aret.*, &eret.*, mode, visited)
       },
       _ => false
     ),
@@ -1637,10 +1637,10 @@ _compat_impl :: (
       match(
         expected,
         Rc(.FutureTraitT(base_name : ebn, output : eout, effect_types : flat_e_types)) => {
-          if(abn != ebn, {
+          if(abn.* != ebn.*, {
             return(false);
           });
-          if(!recur(&aout, &eout, mode, visited), {
+          if(!recur(&aout.*, &eout.*, mode, visited), {
             return(false);
           });
           // A bundle-less future (a raw `IoFuture`, `yield`) is compatible with
