@@ -1902,11 +1902,13 @@ find_multiline_paren_indices :: (
                 first_inner := next_meaningful_token(tokens, i, right_idx);
                 (fi_idx : usize) = (i + usize(1));
                 while((fi_idx < right_idx) && match(tokens.get(fi_idx), .Some(fc) => is_comment_token(fc.kind), .None => false), fi_idx = (fi_idx + usize(1)), ());
-                first_is_curly := (match(
-                  first_inner,
-                  .None => false,
-                  .Some(fi) => (fi.kind == TokenKind.LCurlyBracket)
-                ) || is_record_dot_at(tokens, fi_idx));
+                first_is_curly := (
+                  match(
+                    first_inner,
+                    .None => false,
+                    .Some(fi) => (fi.kind == TokenKind.LCurlyBracket)
+                  ) || is_record_dot_at(tokens, fi_idx)
+                );
                 skip := (
                   first_is_curly ||
                     has_top_level_curly_argument(tokens, i, right_idx) ||

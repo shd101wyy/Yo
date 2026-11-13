@@ -46,22 +46,18 @@ host_allocator :: cond(
   true => build.AllocatorKind.System
 );
 
-yo_exe :: build.executable(
-  .{
-    name : "yo",
-    root : "./src/main.yo",
-    optimize : build.Optimize.ReleaseSafe,
-    allocator : host_allocator
-  }
-);
+yo_exe :: build.executable(.{
+  name : "yo",
+  root : "./src/main.yo",
+  optimize : build.Optimize.ReleaseSafe,
+  allocator : host_allocator
+});
 
-tests :: build.test(
-  .{
-    name : "language-tests",
-    root : "./tests/",
-    exclude : "tests/internal,tests/cli-cases"
-  }
-);
+tests :: build.test(.{
+  name : "language-tests",
+  root : "./tests/",
+  exclude : "tests/internal,tests/cli-cases"
+});
 
 install :: build.step("install", "Build the self-hosted compiler");
 install.depend_on(yo_exe);
