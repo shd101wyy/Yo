@@ -23,6 +23,7 @@
   BK_BEGIN,
   BK_COND,
   BK_MATCH,
+  BK_TUPLE,
   BK_INIT_ASSIGN,
   BK_GIVEN,
   BK_COMPTIME,
@@ -51,7 +52,8 @@
   note_self_lend_operand,
   is_reference_self_place,
   expr_info_index_trait_ptr_type,
-  note_chain_ref_binding
+  note_chain_ref_binding,
+  note_chain_ref_leaves
 } :: import("../../expr_info.yo");
 {
   Environment,
@@ -1665,6 +1667,11 @@ Bound type: ${type_to_string(&rhs_info.ty())}`
   chain_binds_reference := (chain_leaves.is_some() && match(&rhs_info_opt, .Some(cri) => t_slot_is_borrow(&cri.ty()), .None => false));
   if(chain_binds_reference && (ast_expr_is_atom(&actual_lhs) && !ctx.force_compile_time_bindings), {
     match(&chain_leaves, .Some(cbr_leaves) => note_chain_ref_binding(ast_expr_token(&actual_lhs), cbr_leaves), .None => ());
+  });
+  // An untyped tuple literal's reference-binding components (`(k, i32(3))`)
+  // read as the reference, which codegen emits as the place `(*k)`.
+  if(chain_leaves.is_some() && ast_expr_is_fn_call_of(&rhs, BK_TUPLE, Option(usize).None), {
+    match(&chain_leaves, .Some(tup_leaves) => note_chain_ref_leaves(tup_leaves), .None => ());
   });
   if(ast_expr_is_atom(&actual_lhs) && !ctx.force_compile_time_bindings && (projection_call_mode_of(&rhs, ctx).is_some() || chain_binds_reference), {
     return(_bind_projection_result(expr, &actual_lhs, &rhs, is_const || (is_implicit || (is_comptime_wrapped || is_thread_local_decl)), &env, ctx, exn));

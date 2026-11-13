@@ -2201,6 +2201,13 @@ note_lent_temporary :: (fn(lent_in : &AstExpr) -> unit)({
 note_chain_ref_binding :: (fn(name_tok : &Token, leaves : &ArrayList(AstExpr)) -> unit)({
   name_key := lent_temp_token_key(name_tok);
   _b := g_chain_ref_bindings.with_mut({ name_key }(s) => s.insert(name_key));
+  note_chain_ref_leaves(leaves);
+});
+/// The reference-binding-read leaves alone: a chain's, and an untyped tuple
+/// literal's components that read as the reference (`t := (k, i32(3))`).
+/// Such a leaf is typed `&U` but emitted as its place `(*k)`, so a tuple
+/// element takes its address (`_build_tuple`, codegen/exprs/tuple_fn.yo).
+note_chain_ref_leaves :: (fn(leaves : &ArrayList(AstExpr)) -> unit)({
   (i : usize) = usize(0);
   while(i < leaves.len(), i = (i + usize(1)), {
     leaf_key := lent_temp_token_key(&ast_expr_token(&leaves(i)));
@@ -3314,7 +3321,7 @@ export(expr_info_closure_function_value, expr_info_set_closure_function_value);
 export(ExprInfoTable, expr_info_table_new, expr_info_table_set, expr_info_table_get, codegen_read_log_set, codegen_read_keys, expr_info_table_retain_keys);
 export(record_method_callee_type, lookup_method_callee_type, record_generic_callee_type, lookup_generic_callee_type);
 export(record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, lookup_io_builtin_call);
-export(record_method_callee_value, lookup_method_callee_value, record_local_borrow_step_pin, lookup_local_borrow_step_pin, record_immediate_old_value_drop, lookup_immediate_old_value_drop, record_skipped_operand_drops, clear_skipped_operand_drops, lookup_skipped_operand_drops, note_lent_temporary, lent_temp_token_key, is_lent_temp_token, note_chain_ref_binding, is_chain_ref_binding, is_chain_ref_binding_leaf, record_consume_release, is_consume_release);
+export(record_method_callee_value, lookup_method_callee_value, record_local_borrow_step_pin, lookup_local_borrow_step_pin, record_immediate_old_value_drop, lookup_immediate_old_value_drop, record_skipped_operand_drops, clear_skipped_operand_drops, lookup_skipped_operand_drops, note_lent_temporary, lent_temp_token_key, is_lent_temp_token, note_chain_ref_binding, note_chain_ref_leaves, is_chain_ref_binding, is_chain_ref_binding_leaf, record_consume_release, is_consume_release);
 export(register_extern_c_global, is_extern_c_global, get_extern_c_global_types);
 export(register_extern_c_global_alias, extern_c_global_c_name, register_extern_c_module_id, is_extern_c_module_id);
 export(register_module_level_global, is_module_level_global, module_global_c_suffix);
