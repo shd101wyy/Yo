@@ -438,11 +438,13 @@ read_dir :: (fn(path : &Path, io : Io) -> Impl(Future(ArrayList(DirEntry), IoExn
             cond(
               ((name == String.from(".")) || (name == String.from(".."))) => (),
               true => {
-                raw.push({
-                  name : name,
-                  dt : IO_dir.dirent_type(entry_ptr),
-                  ino : IO_dir.dirent_ino(entry_ptr)
-                });
+                raw.push(
+                  .{
+                    name : name,
+                    dt : IO_dir.dirent_type(entry_ptr),
+                    ino : IO_dir.dirent_ino(entry_ptr)
+                  }
+                );
               }
             );
             offset = (offset + usize(IO_dir.dirent_reclen(entry_ptr)));

@@ -141,19 +141,19 @@ get_integer_type_range :: (fn(ty : &TypeValue) -> Option(IntRange))(
     ty,
     Rc(.Int(bits : b, signed : s)) => cond(
       // signed variants
-      (s && (b == u8(8))) => .Some({ min : i64(-128), max : u64(127) }),
-      (s && (b == u8(16))) => .Some({ min : i64(-32768), max : u64(32767) }),
-      (s && (b == u8(32))) => .Some({ min : i64(-2147483648), max : u64(2147483647) }),
-      (s && (b == u8(64))) => .Some({ min : i64(-9223372036854775808), max : u64(9223372036854775807) }),
+      (s && (b == u8(8))) => .Some(.{ min : i64(-128), max : u64(127) }),
+      (s && (b == u8(16))) => .Some(.{ min : i64(-32768), max : u64(32767) }),
+      (s && (b == u8(32))) => .Some(.{ min : i64(-2147483648), max : u64(2147483647) }),
+      (s && (b == u8(64))) => .Some(.{ min : i64(-9223372036854775808), max : u64(9223372036854775807) }),
       // unsigned variants
-      (!s && (b == u8(8))) => .Some({ min : i64(0), max : u64(255) }),
-      (!s && (b == u8(16))) => .Some({ min : i64(0), max : u64(65535) }),
-      (!s && (b == u8(32))) => .Some({ min : i64(0), max : u64(4294967295) }),
-      (!s && (b == u8(64))) => .Some({ min : i64(0), max : u64(18446744073709551615) }),
+      (!s && (b == u8(8))) => .Some(.{ min : i64(0), max : u64(255) }),
+      (!s && (b == u8(16))) => .Some(.{ min : i64(0), max : u64(65535) }),
+      (!s && (b == u8(32))) => .Some(.{ min : i64(0), max : u64(4294967295) }),
+      (!s && (b == u8(64))) => .Some(.{ min : i64(0), max : u64(18446744073709551615) }),
       true => .None
     ),
-    Rc(.Usize) => .Some({ min : i64(0), max : u64(18446744073709551615) }),
-    Rc(.Isize) => .Some({ min : i64(-9223372036854775808), max : u64(9223372036854775807) }),
+    Rc(.Usize) => .Some(.{ min : i64(0), max : u64(18446744073709551615) }),
+    Rc(.Isize) => .Some(.{ min : i64(-9223372036854775808), max : u64(9223372036854775807) }),
     _ => .None
   )
 );
@@ -164,8 +164,8 @@ get_integer_type_range :: (fn(ty : &TypeValue) -> Option(IntRange))(
 target_integer_type_range :: (fn(ty : &TypeValue) -> Option(IntRange))(
   match(
     ty,
-    Rc(.Usize) => if(g_target_pointer_size_bits == u32(32), Option(IntRange).Some({ min : i64(0), max : u64(4294967295) }), get_integer_type_range(ty)),
-    Rc(.Isize) => if(g_target_pointer_size_bits == u32(32), Option(IntRange).Some({ min : i64(-2147483648), max : u64(2147483647) }), get_integer_type_range(ty)),
+    Rc(.Usize) => if(g_target_pointer_size_bits == u32(32), Option(IntRange).Some(.{ min : i64(0), max : u64(4294967295) }), get_integer_type_range(ty)),
+    Rc(.Isize) => if(g_target_pointer_size_bits == u32(32), Option(IntRange).Some(.{ min : i64(-2147483648), max : u64(2147483647) }), get_integer_type_range(ty)),
     _ => get_integer_type_range(ty)
   )
 );

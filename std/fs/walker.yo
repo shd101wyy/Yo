@@ -209,7 +209,7 @@ walk_with :: (fn(root : &Path, options : &WalkOptions, io : Io) -> Impl(Future(A
     mut(pending_links) := ArrayList(String).new();
     // Stack of (path, depth) pairs to process
     mut(stack) := ArrayList(struct(path : String, depth : u32)).new();
-    stack.push({ path : root_s.clone(), depth : u32(0) });
+    stack.push(.{ path : root_s.clone(), depth : u32(0) });
     while(stack.len() > usize(0), {
       item := stack.pop().unwrap();
       cur_depth := item.depth;
@@ -243,7 +243,7 @@ walk_with :: (fn(root : &Path, options : &WalkOptions, io : Io) -> Impl(Future(A
                   true => ()
                 );
                 // Push subdirectory for processing
-                stack.push({ path : entry_path, depth : (cur_depth + u32(1)) });
+                stack.push(.{ path : entry_path, depth : (cur_depth + u32(1)) });
               },
               .Symlink => {
                 // WalkOptions.follow_symlinks was declared and never read
@@ -289,7 +289,7 @@ walk_with :: (fn(root : &Path, options : &WalkOptions, io : Io) -> Impl(Future(A
             cond(
               (!canon_s.is_empty() && !followed.contains(&canon_s)) => {
                 followed.insert(canon_s);
-                stack.push({ path : lp, depth : (cur_depth + u32(1)) });
+                stack.push(.{ path : lp, depth : (cur_depth + u32(1)) });
               },
               true => ()
             );
@@ -357,9 +357,9 @@ _glob_split :: (fn(pattern : &String) -> struct(base : String, rest : String))({
         base0.is_empty() => `/`.to_string(),
         true => base0
       );
-      { base : base, rest : pattern.substring(at + usize(1), n) }
+      .{ base : base, rest : pattern.substring(at + usize(1), n) }
     },
-    .None => { base : `.`.to_string(), rest : pattern.clone() }
+    .None => .{ base : `.`.to_string(), rest : pattern.clone() }
   )
 });
 /// Expand a glob pattern against the filesystem — the Python/Node meaning:
