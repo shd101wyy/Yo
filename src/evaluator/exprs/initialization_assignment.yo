@@ -1124,7 +1124,7 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
     );
     call_promote_index_places_for_write(&evaluated_rhs, &env, ctx, exn);
     local_borrow_require_writable(&place, local_borrow_root_is_shared_reference(&place, &env), `borrow \`${local_borrow_place_text(&rhs)}\` with \`&mut\``, ast_expr_token(&rhs), ctx, exn);
-    local_borrow_access(&place, LocalBorrowAccess.Exclusive, ast_expr_token(&rhs), ctx, exn);
+    access_place(&place, LocalBorrowAccess.Exclusive, ast_expr_token(&rhs), &env, ctx, exn);
   });
   // A binding of a bare `match` over `cur` is a reference into `cur`'s
   // target (VERDICTS-13 §14), so every place below it is reached; a binding
