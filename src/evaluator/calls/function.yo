@@ -72,7 +72,7 @@ pragma(Pragma.AllowUnsafe);
   variable_value_type,
   variable_slot_type
 } :: import("../../env.yo");
-{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, t_refine_inner, shared_list, no_types, no_labels, no_levels, SharedList, no_flags, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_reference, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, t_slot_is_borrow, fn_param_slots, is_origin_kind, t_origin_kind, t_origin_named, t_origin_spelled_names, fn_result_slot } :: import("../../types/definitions.yo");
+{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, t_refine_inner, shared_list, no_types, no_labels, no_levels, SharedList, no_flags, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_slot_is_value_ref, t_reference, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, t_slot_is_borrow, fn_param_slots, is_origin_kind, t_origin_kind, t_origin_named, t_origin_spelled_names, fn_result_slot } :: import("../../types/definitions.yo");
 { get_func_param_defaults, get_func_param_default_exprs, default_param_eval_env, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, get_func_where_clause_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep, collect_wrapper_trait_somes, evaluate_origin_argument } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call, is_io_state_call, is_io_spawn_call, is_join_handle_await_call, IO_BUILTIN_NONE } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
@@ -8602,15 +8602,19 @@ _operator_reference_operand :: (
     match(
       (c_slots.get(usize(0)), c_slots.get(usize(1))),
       (.Some(lhs_slot), .Some(rhs_slot)) => {
-        lhs_lends := t_slot_is_borrow(&lhs_slot);
+        // A `&&T` slot (`lhs : &Self` at `Self = &T`) lends the binding's own
+        // storage; any other slot that takes `&T` (`lhs : Self`, whose slot
+        // is the `&T` itself) takes the reference value.
+        lhs_lends := (t_slot_is_borrow(&lhs_slot) && t_slot_is_borrow(&t_slot_pointee(&lhs_slot)));
+        lhs_ok := (lhs_lends || are_types_compatible(&lhs_ty, &lhs_slot) || (t_slot_is_value_ref(&lhs_slot) && are_types_compatible(&lhs_ty, &t_slot_pointee(&lhs_slot))));
         rhs_pointee := t_slot_pointee(&rhs_slot);
         rhs_lends := (t_slot_is_borrow(&rhs_slot) && t_slot_is_borrow(&rhs_pointee));
         rhs_ok := cond(
           (rhs_lends && rhs_v.is_none()) => false,
           is_some_type(&rhs_pointee) => true,
-          true => match(&rhs_ty, .Some(rt) => are_types_compatible(rt, &rhs_pointee), .None => true)
+          true => match(&rhs_ty, .Some(rt) => (are_types_compatible(rt, &rhs_pointee) || are_types_compatible(rt, &rhs_slot)), .None => true)
         );
-        if(rhs_ok, {
+        if(lhs_ok && rhs_ok, {
           // The slot's mode is the lend's: a `&mut &T` lend needs a local
           // `&mut` reference's own storage, which the identifier evaluator
           // judges.
