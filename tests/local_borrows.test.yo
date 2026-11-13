@@ -741,16 +741,22 @@ comptime_expect_error(
   (fn(r : &String) -> String)(r.*),
   "pass `r` itself to a `&String` parameter or read through it where the value is used (`r.field`, `r.method()`), or copy it explicitly with `r.*.clone()`"
 );
+// A reference compared with an owned value has no impl over the reference:
+// the bare operand is a whole-value read.
 comptime_expect_error({
-  _compare_refs_bare :: (fn(r : &String, o : &String) -> bool)(r == o);
+  _compare_ref_to_value :: (fn(r : &String, o : String) -> bool)(r == o);
   s := String.from("a");
-  _compare_refs_bare(&s, &s);
+  _compare_ref_to_value(&s, String.from("a"));
 }, "reading the value it refers to is spelled `r.*`");
 _compare_string_refs :: (fn(r : &String, o : &String) -> bool)(r.* == o.*);
+// Two references compare through the prelude's `Eq(&T)` (G2 piece 3): the
+// bare operands select the impl over `&String`, which compares the referents.
+_compare_refs_bare :: (fn(r : &String, o : &String) -> bool)(r == o);
 test("local borrows: `r.*` of a move-only referent is an operand, not a copy", {
   a := String.from("a");
   b := String.from("a");
   assert(_compare_string_refs(&a, &b), "the operands read through the references");
+  assert(_compare_refs_bare(&a, &b), "`r == o` on two references is `Eq(&String)`");
   assert(a.len() == usize(1), "a is untouched");
 });
 comptime_expect_error({
