@@ -9535,6 +9535,22 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
                         );
                         pk = (pk + usize(1));
                       });
+                      // The parameter's own spelling: an argument whose
+                      // type reads as no reference (a projection call's
+                      // result `ys.index(i)` is typed as its place) pairs
+                      // no position above, and still carries what the
+                      // parameter names.
+                      if(!names_it, {
+                        x_names := ArrayList(String).new();
+                        origin_param_names_of(&x_slot, &mut x_names, u32(0));
+                        (xn : usize) = usize(0);
+                        while(xn < x_names.len(), {
+                          if(w_names.contains(match(x_names.get_cloned(xn), .Some(n) => n, .None => String.new())), {
+                            names_it = true;
+                          });
+                          xn = (xn + usize(1));
+                        });
+                      });
                       if(!names_it && (w_tvars.len() > usize(0)), {
                         x_tvars := ArrayList(String).new();
                         type_var_ids_of(&x_slot, &mut x_tvars, u32(0), true);
