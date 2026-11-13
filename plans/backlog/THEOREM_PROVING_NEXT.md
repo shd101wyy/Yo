@@ -303,7 +303,7 @@ for recursive spec functions (F7).
 | Idea | The cheaper route, when it triggers | Trigger |
 | --- | --- | --- |
 | **Proof certificates** — remove Z3 from the trusted base | Z3 proof logs + a small independent checker, itself written and verified in Yo ([`../reference/MATCHING_LOGIC_RESEARCH.md`](../reference/MATCHING_LOGIC_RESEARCH.md) §8; SELF_VERIFICATION D5) | a certification customer needing independent assurance ("V8+ at the earliest") |
-| **An external audit oracle** — a K semantics of Yo, or exporting the deterministic SMT-LIB VCs to an external ITP (Lean/Isabelle) for a semantic-preservation-scale claim | build nothing inside Yo; export only (the SMT-LIB emitter is already golden-tested) | a semantic-preservation-scale claim anyone actually needs to make |
+| **An external audit oracle** — a K semantics of Yo, or exporting the deterministic SMT-LIB VCs to an external ITP (Lean/Isabelle) for a semantic-preservation-scale claim | build nothing inside Yo; export only (the SMT-LIB emitter is already golden-tested) | a semantic-preservation-scale claim anyone actually needs to make. **Fired 2026-11-13** by the maintainer's goal; the route taken is [`PROVEN_CORE.md`](PROVEN_CORE.md), which specifies a core IR in Lean and exports from it, never SMT-LIB text |
 | **Verified unsafe std** — prove `ArrayList`'s raw-buffer bodies instead of `assumed()` | a raw-buffer model for `ArrayList` alone, not a general heap model (ATS_LESSONS §4, decided 2026-10-02) | a std bug traced to a wrong `assumed()` clause |
 
 **Design rules for the certificate route** (recorded 2026-10-18, so the
@@ -360,6 +360,11 @@ tier-2 items above must not creep toward them:
   needs a formal semantics of Yo and of C11 in a proof assistant
   (SELF_VERIFICATION: "What no milestone claims"). The parked external
   oracle (§8) is the only route, and only on demand.
+  **Amended 2026-11-13:** the maintainer made it a goal. It stays a
+  non-goal *of the theorem-proving tiers in this document*: the route is
+  [`PROVEN_CORE.md`](PROVEN_CORE.md) (a Lean specification of a core IR and
+  a proved checker, after VBD), which adds no tactic, no second solver and
+  no proof obligation for a Yo author.
 - **Importing external theorems as trusted axioms** — anything
   `assumed()`-shaped that vouches for a proof made outside this
   compilation breaks the self-contained soundness story (a green `yo
