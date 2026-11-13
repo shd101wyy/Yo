@@ -1096,7 +1096,7 @@ _evaluate_capture_list :: (
       // (C receives the parameter by value, in the frame the future may
       // outlive), so it borrows the parameter whole, not a place inside it.
       if(ctx.is_inside_io_async_call && root_var.is_imm_borrow() && (fields.len() > usize(0)), {
-        _cap_list_error(ctx, exn, ast_expr_token(&place_e), `An \`io.async\` body borrows a \`&\` parameter whole: \`${ast_expr_to_string(&place_e)}\` is a place inside the parameter \`${root_tok.value.*}\`, which the future copies when it is made (plans/VALUES_BY_DEFAULT.md §3.13 A2). Borrow the parameter, \`{ &${root_tok.value.*} }\`, and read \`${ast_expr_to_string(&place_e)}\` in the body.`);
+        _cap_list_error(ctx, exn, ast_expr_token(&place_e), `An \`io.async\` body borrows a \`&\` parameter whole: \`${ast_expr_to_string(&place_e)}\` is a place inside the parameter \`${root_tok.value.*}\`, which the future copies when it is made (plans/VALUES_BY_DEFAULT.md §3.13 A2). Borrow what the parameter refers to whole, \`{ ${root_tok.value.*} : &${root_tok.value.*}.* }\`, and read \`${ast_expr_to_string(&place_e)}\` in the body.`);
       });
       if(is_mut, {
         // Decision 38 D: a `mut` capture's place must be writable.
