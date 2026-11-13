@@ -1,0 +1,24 @@
+// expect: E0910
+// Audit A2 (row 2): the call result carrying `&mut x` comes first and a by-name `&mut x` second. The first argument's value is a loan the call holds, so the second argument's lend is an access against it.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+idm :: (fn(r : &mut Option(Rc(X))) -> &mut Option(Rc(X)))(&mut r.*);
+both :: (fn(a : &mut Option(Rc(X)), b : &mut Option(Rc(X))) -> usize)(
+  match(
+    a,
+    .Some(p) => {
+      b.* = .None;
+      p.*.s.len()
+    },
+    .None => usize(0)
+  )
+);
+mk :: (fn() -> Option(Rc(X)))(.Some(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")))));
+main :: (fn() -> unit)({
+  mut(x) := mk();
+  n := both(idm(&mut x), &mut x);
+  println(`OUT: ${n.to_string()}`);
+  ()
+});
+export(main);
