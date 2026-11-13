@@ -2452,8 +2452,13 @@ Bound type: ${type_to_string(&variable_value_type(&mcb_v))}`
   );
   check_capture_freeze_access(&variable, true, ast_expr_token(&lhs_resolved), &env, ctx, exn);
   // An implicit capture is written only where the closure owns its record
-  // and is `FnMut`/`FnOnce` (audit A46, E0913).
-  reject_implicit_capture_write(&variable, ast_expr_token(&lhs_resolved), &String.from("assign to"), &env, ctx, exn);
+  // and is `FnMut`/`FnOnce` (audit A46, E0913). A binding declared without a
+  // value (`x : i32;`) holds nothing to copy or release: assigning it is its
+  // initialization, which the gate below judges ("defined outside the
+  // function body"; issues/fixed/2026-11-14-an-uninitialized-binding-assigned-in-a-closure-reports-e0913-instead-of-the-initialization-error.md).
+  if(variable.initialized_at_token().is_some(), {
+    reject_implicit_capture_write(&variable, ast_expr_token(&lhs_resolved), &String.from("assign to"), &env, ctx, exn);
+  });
   // Check reassignability. A pattern or destructuring binding is immutable
   // unless declared `mut(name)` there (decision 47): E0917 names the marker.
   if(!variable.is_reassignable() && !variable.is_parameter() && !variable.is_implicit(), {
