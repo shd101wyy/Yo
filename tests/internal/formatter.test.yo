@@ -110,7 +110,7 @@ test("fmt comma frames: multiline call inside a multiline array is unchanged", {
 });
 test("fmt comma frames: struct-literal field commas at the curly's own depth still break", {
   src := String.from(
-    "P :: struct(x : i32, y : i32);\nmain :: (fn() -> unit)({\n  p := {\n    x : i32(1),\n    y : i32(2)\n  };\n});\nexport(main);\n"
+    "P :: struct(x : i32, y : i32);\nmain :: (fn() -> unit)({\n  p := .{\n    x : i32(1),\n    y : i32(2)\n  };\n});\nexport(main);\n"
   );
   out := _fmt(src.clone());
   assert(out == src, "per-field breaks at the curly's own depth are stable");
@@ -634,10 +634,11 @@ test("fmt: the `&T` / `&mut T` spelling is stable in every slot", {
 });
 // Brace groups Generation A (plans/reference/BRACE_BLOCKS.md): a record value
 // `.{ ... }` and the empty record `.{}` are laid out with no space after the
-// dot, however the source spaced them, and the layout is a fixed point.
+// dot and one space inside a non-empty brace, however the source spaced them,
+// and the layout is a fixed point.
 test("fmt: `.{ a, b }` and `.{}` take no space after the dot", {
   src := String.from(
-    "main :: (fn() -> unit)({\n  r := . { x : 1, y : 2 };\n  e := .{};\n  s := .{x};\n  f(.{a, b}, . {});\n  t := .{x:1,y:.{z:2}};\n  c := Foo.V(.{ x : 1 });\n  { a, b } := r;\n  ()\n});\n"
+    "main :: (fn() -> unit)({\n  r := .{x : 1,y : 2};\n  e := .{ };\n  s := .{x};\n  f(.{a, b}, .{  });\n  t := .{x:1,y:.{z:2}};\n  c := Foo.V(.{ x : 1 });\n  { a, b } := r;\n  ()\n});\n"
   );
   want := "main :: (fn() -> unit)({\n  r := .{ x : 1, y : 2 };\n  e := .{};\n  s := .{ x };\n  f(.{ a, b }, .{});\n  t := .{ x : 1, y : .{ z : 2 } };\n  c := Foo.V(.{ x : 1 });\n  { a, b } := r;\n  ()\n});\n";
   once := _fmt(src.clone());

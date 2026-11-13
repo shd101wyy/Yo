@@ -139,7 +139,7 @@ run :: (
   ) -> T
 )(f(e));
 
-effects := { yield : my_yield, log : my_log };
+effects := .{ yield : my_yield, log : my_log };
 result := run(might_fail, effects);
 ```
 
@@ -163,7 +163,7 @@ result := run(might_fail, effects);
 - Effect records are constructed with ordinary anonymous struct syntax:
 
   ```yo
-  effects := { raise : my_raise, log : my_log };
+  effects := .{ raise : my_raise, log : my_log };
   // Shorthand (existing Yo syntax): { raise, log } ≡ { raise : raise, log : log }
   ```
 
@@ -171,7 +171,7 @@ result := run(might_fail, effects);
   with zero fields). No special "empty row" concept. At the call site:
 
   ```yo
-  result := io.await(fut, {}); // or: result := run(f, {});
+  result := io.await(fut, .{}); // or: result := run(f, {});
   ```
 
 - Combining rows (today's `using(...(E1), ...(E2))`) becomes record spread:
@@ -192,8 +192,8 @@ result := run(might_fail, effects);
 
 ```yo
 // Before (two styles — inline declaration or call-site resolution)
-traverse(arr, (v, using(yield : Yield, log : Log)) => { ... });
-traverse(arr, (v, using(_yield, _log)) => { ... }, using(yield, log));
+traverse(arr, (v, using(yield : Yield, log : Log)) => .{ ... });
+traverse(arr, (v, using(_yield, _log)) => .{ ... }, using(yield, log));
 
 // After — effects are an explicit parameter, one consistent pattern
 traverse(arr, (v, e) => {
@@ -245,7 +245,7 @@ create_dir :: (
 )(
   io.async(e => {
     e.exn.throw(...);
-  }, { io, exn })
+  }, .{ io, exn })
 );
 ```
 
@@ -259,13 +259,13 @@ x := io.await(fut1, io);
 
 // Combined bundle — Future(T, IoExn), E = IoExn, e = { io, exn }
 fut2 : Impl(Future(i32, IoExn));
-y := io.await(fut2, { io, exn });
+y := io.await(fut2, .{ io, exn });
 
 // No effects — Future(T, struct()), e = {}
 fut3 := io.async(e => {
   return(42);
 });
-result := io.await(fut3, {});
+result := io.await(fut3, .{});
 ```
 
 ## 3. Bare fn-Typed Effects — Both Shapes Supported
@@ -1070,7 +1070,7 @@ Listed in the original numbering for cross-reference continuity.
    // Future carries Io + Exception — E is a named or anonymous struct
    IoExn :: struct(io : Io, exn : Exception);
    fut2 : Impl(Future(i32, IoExn));
-   y := io.await(fut2, { io, exn });
+   y := io.await(fut2, .{ io, exn });
    ```
 
    Single-effect calls pass the effect value directly (`io`), because

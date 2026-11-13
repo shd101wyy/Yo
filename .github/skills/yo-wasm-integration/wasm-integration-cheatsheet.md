@@ -98,13 +98,15 @@ Emscripten-specific flags go in `add_c_flags(...)` after creating the step.
 ```yo
 build :: import("std/build");
 
-wasm_api :: build.executable({
-  name : "my_lib_wasm_api",
-  root : "./src/wasm_api.yo",
-  target : build.CompilationTarget.Wasm32_Unknown_Emscripten,
-  optimize : build.Optimize.ReleaseSmall,
-  allocator : build.AllocatorKind.System
-});
+wasm_api :: build.executable(
+  .{
+    name : "my_lib_wasm_api",
+    root : "./src/wasm_api.yo",
+    target : build.CompilationTarget.Wasm32_Unknown_Emscripten,
+    optimize : build.Optimize.ReleaseSmall,
+    allocator : build.AllocatorKind.System
+  }
+);
 wasm_api.add_c_flags("-O3 -flto -mbulk-memory -sALLOW_MEMORY_GROWTH -sENVIRONMENT=web,node -sMODULARIZE=1 -sEXPORT_NAME=createModule -sEXPORTED_FUNCTIONS=_wasm_alloc,_wasm_free,_render -sEXPORTED_RUNTIME_METHODS=HEAPU8");
 
 install :: build.step("install", "Build WASM module");

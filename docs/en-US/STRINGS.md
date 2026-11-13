@@ -106,7 +106,7 @@ s := String.from("aé中𝄞");
 // for ExactSizeIterator, which a chars iterator is not).
 n := s.chars().count(); // usize(4)
 // Walk runes with their byte offsets: p._0 = byte offset, p._1 = rune.
-for(s.char_indices(), p => { ... });
+for(s.char_indices(), p => .{ ... });
 
 // Truncate to at most n runes: the byte offset where rune n starts is the
 // cut point; fewer than n+1 runes means keep the whole string.

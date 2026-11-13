@@ -69,17 +69,21 @@ yo-out/
 build :: import("std/build");
 
 // 定义产物——每个都返回一个 Step 用于依赖连接
-exe :: build.executable({
-  name : "my-project",
-  root : "./src/main.yo"
-});
+exe :: build.executable(
+  .{
+    name : "my-project",
+    root : "./src/main.yo"
+  }
+);
 
-lib :: build.static_library({
-  name : "my-project-lib",
-  root : "./src/lib.yo"
-});
+lib :: build.static_library(
+  .{
+    name : "my-project-lib",
+    root : "./src/lib.yo"
+  }
+);
 
-tests :: build.test({ name : "tests", root : "./tests/" });
+tests :: build.test(.{ name : "tests", root : "./tests/" });
 
 // 注册运行步骤（编译 + 执行）
 run_exe :: build.run(exe);
@@ -227,9 +231,9 @@ libc 堆（嵌入式/裸机方向的第一块基石）。区域大小由可执�
 
 ```yo
 // 每个构建函数都返回一个 Step
-exe :: build.executable({ name : "my-app", root : "./src/main.yo" });
-lib :: build.static_library({ name : "my-lib", root : "./src/lib.yo" });
-tests :: build.test({ name : "tests", root : "./tests/" });
+exe :: build.executable(.{ name : "my-app", root : "./src/main.yo" });
+lib :: build.static_library(.{ name : "my-lib", root : "./src/lib.yo" });
+tests :: build.test(.{ name : "tests", root : "./tests/" });
 run_exe :: build.run(exe);
 
 // 创建命名步骤并连接依赖
@@ -356,16 +360,18 @@ shapes  = "src/shapes.yo"
 ```yo
 build :: import("std/build");
 
-raylib :: build.system_library({
-  name : "raylib",
-  defines : "NOMINMAX NOGDI NOUSER"
-});
+raylib :: build.system_library(
+  .{
+    name : "raylib",
+    defines : "NOMINMAX NOGDI NOUSER"
+  }
+);
 
 // 指名 yo.toml [modules] 中的一项，并链接它需要的系统库
-mod :: build.module({ name : "default" });
+mod :: build.module(.{ name : "default" });
 mod.link(raylib);
 
-exe :: build.executable({ name : "raylib-yo", root : "./src/main.yo" });
+exe :: build.executable(.{ name : "raylib-yo", root : "./src/main.yo" });
 exe.link(raylib);
 
 install :: build.step("install", "Build all artifacts");
@@ -405,20 +411,26 @@ raylib :: import("raylib-yo"); // 依赖的 [modules] default
 build :: import("std/build");
 
 // Yo 库
-lib :: build.shared_library({
-  name : "mylib",
-  root : "./src/lib.yo"
-});
+lib :: build.shared_library(
+  .{
+    name : "mylib",
+    root : "./src/lib.yo"
+  }
+);
 
 // 系统库（通过 pkg-config）
-openssl :: build.system_library({
-  name : "openssl"
-});
+openssl :: build.system_library(
+  .{
+    name : "openssl"
+  }
+);
 
-exe :: build.executable({
-  name : "my-app",
-  root : "./src/main.yo"
-});
+exe :: build.executable(
+  .{
+    name : "my-app",
+    root : "./src/main.yo"
+  }
+);
 
 // 使用 Step 方法链接库
 exe.link(lib);
@@ -469,15 +481,19 @@ export(main);
 ```yo
 build :: import("std/build");
 
-lib :: build.static_library({
-  name : "add",
-  root : "./add.yo"
-});
+lib :: build.static_library(
+  .{
+    name : "add",
+    root : "./add.yo"
+  }
+);
 
-exe :: build.executable({
-  name : "demo",
-  root : "./demo.yo"
-});
+exe :: build.executable(
+  .{
+    name : "demo",
+    root : "./demo.yo"
+  }
+);
 
 exe.link(lib);
 
@@ -518,17 +534,21 @@ yo compile demo.yo --extern libadd.a -o demo
 build :: import("std/build");
 
 // 声明带有默认值的构建选项
-strip :: build.option({
-  name : "strip",
-  description : "Strip debug symbols",
-  default : "false"
-});
+strip :: build.option(
+  .{
+    name : "strip",
+    description : "Strip debug symbols",
+    default : "false"
+  }
+);
 
-opt_level :: build.option({
-  name : "opt",
-  description : "Optimization level",
-  default : "debug"
-});
+opt_level :: build.option(
+  .{
+    name : "opt",
+    description : "Optimization level",
+    default : "debug"
+  }
+);
 ```
 
 CLI 用法：
@@ -578,23 +598,27 @@ Yo 通过目标三元组支持 WASM 目标。可以在 `build.yo` 中或命令�
 ### 在 `build.yo` 中
 
 ```yo
-build.executable({
-  name : "my-app-wasm",
-  root : "./src/main.yo",
-  target : build.CompilationTarget.Wasm32_Unknown_Emscripten,
-  optimize : build.Optimize.ReleaseSmall
-});
+build.executable(
+  .{
+    name : "my-app-wasm",
+    root : "./src/main.yo",
+    target : build.CompilationTarget.Wasm32_Unknown_Emscripten,
+    optimize : build.Optimize.ReleaseSmall
+  }
+);
 ```
 
 也可以使用原始目标字符串：
 
 ```yo
-build.executable({
-  name : "my-app-wasm",
-  root : "./src/main.yo",
-  target : "wasm32-unknown-emscripten",
-  optimize : build.Optimize.ReleaseSmall
-});
+build.executable(
+  .{
+    name : "my-app-wasm",
+    root : "./src/main.yo",
+    target : "wasm32-unknown-emscripten",
+    optimize : build.Optimize.ReleaseSmall
+  }
+);
 ```
 
 ### 在命令行上
@@ -668,11 +692,11 @@ exe_wasm.add_c_flags("-sNODERAWFS=1");
 { platform, arch, Platform, Arch } :: import("std/process");
 
 cond(
-  (platform == Platform.Linux) => { /* Linux 专用 */ },
-  (platform == Platform.Macos) => { /* macOS 专用 */ },
-  (platform == Platform.Emscripten) => { /* Emscripten WASM */ },
-  (platform == Platform.Wasi) => { /* 独立 WASI */ },
-  true => { /* 回退 */ }
+  (platform == Platform.Linux) => .{ /* Linux 专用 */ },
+  (platform == Platform.Macos) => .{ /* macOS 专用 */ },
+  (platform == Platform.Emscripten) => .{ /* Emscripten WASM */ },
+  (platform == Platform.Wasi) => .{ /* 独立 WASI */ },
+  true => .{ /* 回退 */ }
 );
 ```
 
@@ -828,20 +852,24 @@ build :: import("std/build");
 
 // 模块定义
 // 原生构建
-native :: build.executable({
-  name : "my-app",
-  root : "./src/main.yo",
-  optimize : build.Optimize.ReleaseFast
-});
+native :: build.executable(
+  .{
+    name : "my-app",
+    root : "./src/main.yo",
+    optimize : build.Optimize.ReleaseFast
+  }
+);
 
 // WASM 构建（Emscripten）
-wasm :: build.executable({
-  name : "my-app-wasm",
-  root : "./src/main.yo",
-  target : build.CompilationTarget.Wasm32_Unknown_Emscripten,
-  optimize : build.Optimize.ReleaseSmall,
-  allocator : build.AllocatorKind.System
-});
+wasm :: build.executable(
+  .{
+    name : "my-app-wasm",
+    root : "./src/main.yo",
+    target : build.CompilationTarget.Wasm32_Unknown_Emscripten,
+    optimize : build.Optimize.ReleaseSmall,
+    allocator : build.AllocatorKind.System
+  }
+);
 
 // 每个产物的 C 标志——适用于 Emscripten 特定的链接器设置
 wasm.add_c_flags("-sASYNCIFY -DPLATFORM_WEB");
@@ -910,9 +938,9 @@ build :: import("std/build");
 
 // mode：build.VerifyMode.Verify（默认）或 build.VerifyMode.VerifyOrAssert；
 // strict 传递 `--strict`（零义务的空洞 `ok` 视为失败）。
-proofs :: build.verify({ name : "proofs", root : "./src", mode : build.VerifyMode.Verify, strict : false });
+proofs :: build.verify(.{ name : "proofs", root : "./src", mode : build.VerifyMode.Verify, strict : false });
 
-exe :: build.executable({ name : "app", root : "./src/main.yo" });
+exe :: build.executable(.{ name : "app", root : "./src/main.yo" });
 
 install :: build.step("install", "Build and prove");
 install.depend_on(exe);
@@ -974,7 +1002,7 @@ snapshot  = { git = "https://github.com/user/snapshot-yo", version = "^0.4" }
 ```yo
 build :: import("std/build");
 
-exe :: build.executable({ name : build.manifest().name, root : "./src/main.yo" });
+exe :: build.executable(.{ name : build.manifest().name, root : "./src/main.yo" });
 
 install :: build.step("install", build.manifest().version);
 install.depend_on(exe);
@@ -1102,7 +1130,7 @@ build :: import("std/build");
 
 dep :: build.dependency("dep_lib");
 add_lib :: dep.artifact("add"); // dep_lib 的 build.yo 中的一个 build.static_library
-exe :: build.executable({ name : "demo", root : "./src/main.yo" });
+exe :: build.executable(.{ name : "demo", root : "./src/main.yo" });
 exe.link(add_lib);
 ```
 
@@ -1195,13 +1223,15 @@ integrity = "sha256-9a0b2e..."
 通过 `pkg-config` 链接系统 C 库：
 
 ```yo
-build.system_library({
-  name : "openssl",
-  fallback_include : "/usr/include/openssl",
-  fallback_lib : "/usr/lib",
-  fallback_link : "ssl crypto",
-  defines : "OPENSSL_API_COMPAT=0x10100000L"
-});
+build.system_library(
+  .{
+    name : "openssl",
+    fallback_include : "/usr/include/openssl",
+    fallback_lib : "/usr/lib",
+    fallback_link : "ssl crypto",
+    defines : "OPENSSL_API_COMPAT=0x10100000L"
+  }
+);
 ```
 
 当 `pkg-config` 可用时（Linux、macOS），它会自动使用 `name` 作为 pkg-config 包名来解析头文件路径和链接标志。当 `pkg-config` 不可用时（常见于 Windows），使用 fallback 字段。
@@ -1211,10 +1241,12 @@ build.system_library({
 例如，`raylib` 在 Windows 上需要在包含 `raylib.h` 之前定义几个 Win32 宏：
 
 ```yo
-raylib :: build.system_library({
-  name : "raylib",
-  defines : "NOMINMAX NOGDI NOUSER"
-});
+raylib :: build.system_library(
+  .{
+    name : "raylib",
+    defines : "NOMINMAX NOGDI NOUSER"
+  }
+);
 ```
 
 ## `yo add` 参考
@@ -1360,14 +1392,16 @@ yo doc --allow-token-only   # 对求值器无法加载的模块接受仅词法�
 build :: import("std/build");
 
 // 定义文档配置
-docs :: build.doc({
-  name : "docs",
-  root : "./src",
-  output : "yo-out/doc",
-  format : build.DocFormat.Html,
-  title : "My Project API",
-  version : "v1.0.0"
-});
+docs :: build.doc(
+  .{
+    name : "docs",
+    root : "./src",
+    output : "yo-out/doc",
+    format : build.DocFormat.Html,
+    title : "My Project API",
+    version : "v1.0.0"
+  }
+);
 
 // 接入构建 DAG
 doc_step :: build.step("doc", "Generate documentation");

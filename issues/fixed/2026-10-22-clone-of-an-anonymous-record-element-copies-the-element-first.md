@@ -26,7 +26,7 @@ impl(B, Drop(drop : (fn(self : &mut Self) -> unit)(())));
 impl(B, Clone(clone : (fn(self : &Self) -> Self)(B(n : self.n))));
 main :: (fn() -> unit)({
   mut(raw) := ArrayList(struct(b : B, k : i32)).new();
-  raw.push({ b : B(n : i32(4)), k : i32(1) });
+  raw.push(.{ b : B(n : i32(4)), k : i32(1) });
   s := raw(usize(0)).clone();
   println(&s.b.n);
 });

@@ -61,17 +61,21 @@ my-project/
 ```yo
 build :: import("std/build");
 
-mod :: build.module({ name : "my-project", root : "./src/lib.yo" });
+mod :: build.module(.{ name : "my-project", root : "./src/lib.yo" });
 
-exe :: build.executable({
-  name : "my-project",
-  root : "./src/main.yo"
-});
+exe :: build.executable(
+  .{
+    name : "my-project",
+    root : "./src/main.yo"
+  }
+);
 
-tests :: build.test({
-  name : "tests",
-  root : "./tests/"
-});
+tests :: build.test(
+  .{
+    name : "tests",
+    root : "./tests/"
+  }
+);
 
 run_exe :: build.run(exe);
 
@@ -84,7 +88,7 @@ run_step.depend_on(run_exe);
 test_step :: build.step("test", "Run the tests");
 test_step.depend_on(tests);
 
-docs :: build.doc({ name : "my-project", root : "./src" });
+docs :: build.doc(.{ name : "my-project", root : "./src" });
 doc_step :: build.step("doc", "Generate documentation");
 doc_step.depend_on(docs);
 ```
@@ -243,13 +247,15 @@ For projects that compile to WASM npm packages, use `target: build.CompilationTa
 ```yo
 build :: import("std/build");
 
-wasm_api :: build.executable({
-  name : "my_lib_wasm_api",
-  root : "./src/wasm_api.yo",
-  target : build.CompilationTarget.Wasm32_Unknown_Emscripten,
-  optimize : build.Optimize.ReleaseSmall,
-  allocator : build.AllocatorKind.System
-});
+wasm_api :: build.executable(
+  .{
+    name : "my_lib_wasm_api",
+    root : "./src/wasm_api.yo",
+    target : build.CompilationTarget.Wasm32_Unknown_Emscripten,
+    optimize : build.Optimize.ReleaseSmall,
+    allocator : build.AllocatorKind.System
+  }
+);
 wasm_api.add_c_flags("-O3 -flto -mbulk-memory -sALLOW_MEMORY_GROWTH -sENVIRONMENT=web,node -sMODULARIZE=1 -sEXPORT_NAME=createModule -sEXPORTED_FUNCTIONS=_my_func,_wasm_alloc,_wasm_free -sEXPORTED_RUNTIME_METHODS=HEAPU8");
 
 wasm_step :: build.step("wasm_api", "Build WASM module");
@@ -286,7 +292,7 @@ In `build.yo`:
 ```yo
 build :: import("std/build");
 
-docs :: build.doc({ name : "docs", root : "./src" });
+docs :: build.doc(.{ name : "docs", root : "./src" });
 doc_step :: build.step("doc", "Generate documentation");
 doc_step.depend_on(docs);
 ```
@@ -296,7 +302,7 @@ Then run: `yo build doc`
 ### Verification build step — proofs as part of the build
 
 ```yo
-proofs :: build.verify({ name : "proofs", root : "./src" }); // mode : build.VerifyMode.Verify (default) | .VerifyOrAssert; strict : bool
+proofs :: build.verify(.{ name : "proofs", root : "./src" }); // mode : build.VerifyMode.Verify (default) | .VerifyOrAssert; strict : bool
 install.depend_on(proofs);
 ```
 
