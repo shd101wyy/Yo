@@ -7,7 +7,7 @@ test("Test String as Error via AnyError", {
   (err : AnyError) = dyn(`something went wrong`);
   // Downcast back to String and check the message
   match(
-    downcast(err, String),
+    downcast(&err.*, String),
     .Some(s) => assert(s == `something went wrong`, "Expected error message to match"),
     .None => assert(false, "Expected Some(String), got None")
   );
@@ -15,7 +15,7 @@ test("Test String as Error via AnyError", {
 test("Test downcast AnyError back to String", {
   (err : AnyError) = dyn(`file not found`);
   match(
-    downcast(err, String),
+    downcast(&err.*, String),
     .Some(s) => assert(s == `file not found`, "Expected 'file not found'"),
     .None => assert(false, "Expected Some(String), got None")
   );
@@ -31,19 +31,19 @@ test("Test downcast AnyError to an error type this program never throws", {
   impl(NeverThrownError, ToString(to_string : (self -> `never thrown`)));
   impl(NeverThrownError, Error());
   is_never_thrown :: (fn(candidate : &AnyError) -> bool)(
-    match(downcast(candidate.*, NeverThrownError), .Some(_) => true, .None => false)
+    match(downcast(candidate, NeverThrownError), .Some(_) => true, .None => false)
   );
   (err : AnyError) = dyn(`plain message`);
   assert(!is_never_thrown(&err), "a never-thrown error type can never be inside an AnyError");
   match(
-    downcast(err, NeverThrownError),
+    downcast(&err.*, NeverThrownError),
     .Some(_) => assert(false, "Expected None for a never-thrown error type"),
     .None => assert(true)
   );
   // Over-rejection canary: the value target this file DOES wrap must still be
   // extracted out of its box.
   match(
-    downcast(err, String),
+    downcast(&err.*, String),
     .Some(s) => assert(s == `plain message`, "Expected the String payload back"),
     .None => assert(false, "Expected Some(String), got None")
   );
@@ -68,7 +68,7 @@ test("Test Exception throwing and catching with String", {
       err -> {
         println(`Error: ${err}`);
         match(
-          downcast(err, String),
+          downcast(&err.*, String),
           .Some(msg) => assert(msg == `division by zero`, "Expected error message to be 'division by zero'"),
           .None => assert(false, "Expected error to be a String")
         );
@@ -111,7 +111,7 @@ test("Test Exception with custom MathError enum", {
       err -> {
         println(`Error: ${err}`);
         match(
-          downcast(err, MathError),
+          downcast(&err.*, MathError),
           .Some(math_err) =>
             match(
               math_err,
@@ -141,7 +141,7 @@ test("Test ResumableException throwing and catching with String", {
       err -> {
         println(`Error: ${err}`);
         match(
-          downcast(err, String),
+          downcast(&err.*, String),
           .Some(msg) => assert(msg == `division by zero`, "Expected error message to be 'division by zero'"),
           .None => assert(false, "Expected error to be a String")
         );
@@ -184,7 +184,7 @@ test("Test ResumableException with custom MathError enum", {
       err -> {
         println(`Error: ${err}`);
         match(
-          downcast(err, MathError),
+          downcast(&err.*, MathError),
           .Some(math_err) =>
             match(
               math_err,

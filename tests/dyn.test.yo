@@ -146,7 +146,7 @@ test("Test downcast success", {
   impl(Cat, ToString(to_string : (self -> self.name.clone())));
   Animal :: Box(Dyn(ToString, Clone));
   (animal : Animal) = dyn(Cat(`whiskers`));
-  maybe_cat := downcast(animal, Cat);
+  maybe_cat := downcast(&animal.*, Cat);
   match(
     maybe_cat,
     .Some(cat) => {
@@ -166,7 +166,7 @@ test("Test downcast failure", {
   impl(Dog, ToString(to_string : (self -> self.name.clone())));
   Animal :: Box(Dyn(ToString, Clone));
   (animal : Animal) = dyn(Cat(`whiskers`));
-  maybe_dog := downcast(animal, Dog);
+  maybe_dog := downcast(&animal.*, Dog);
   match(
     maybe_dog,
     .Some(d) => {
@@ -186,8 +186,8 @@ test("Test downcast type check via is_some", {
   impl(Dog, ToString(to_string : (self -> self.name.clone())));
   Animal :: Box(Dyn(ToString, Clone));
   (animal : Animal) = dyn(Cat(`whiskers`));
-  assert(downcast(animal, Cat).is_some(), "Expected animal to be a Cat");
-  assert(downcast(animal, Dog).is_none(), "Expected animal to not be a Dog");
+  assert(downcast(&animal.*, Cat).is_some(), "Expected animal to be a Cat");
+  assert(downcast(&animal.*, Dog).is_none(), "Expected animal to not be a Dog");
 });
 // Regression (issues/fixed/downcast-to-a-never-dyned-value-type-emits-invalid-c.md):
 // a downcast whose TARGET is a VALUE type that no `dyn()` in the program ever
@@ -209,16 +209,16 @@ test("Test downcast to a value type that no dyn() in the program wraps", {
   impl(NeverDynnedValue, ToString(to_string : (self -> `never`)));
   Animal :: Box(Dyn(ToString, Clone));
   (animal : Animal) = dyn(Cat(`whiskers`));
-  assert(downcast(animal, NeverDynnedValue).is_none(), "a never-dyn'd value enum can never be inside a Dyn");
+  assert(downcast(&animal.*, NeverDynnedValue).is_none(), "a never-dyn'd value enum can never be inside a Dyn");
   NeverDynnedPoint :: struct(x : i32, y : i32);
-  assert(downcast(animal, NeverDynnedPoint).is_none(), "a never-dyn'd value struct can never be inside a Dyn");
+  assert(downcast(&animal.*, NeverDynnedPoint).is_none(), "a never-dyn'd value struct can never be inside a Dyn");
   // Over-rejection canary in the same batch: the target that IS wrapped here
   // must still be found.
-  assert(downcast(animal, Cat).is_some(), "Expected animal to still be a Cat");
+  assert(downcast(&animal.*, Cat).is_some(), "Expected animal to still be a Cat");
   // The operand of a statically-`.None` downcast is still evaluated — here it is
   // a CALL that builds a fresh Dyn, not a plain local.
   make_animal :: (fn() -> Animal)(dyn(Cat(`shadow`)));
-  assert(downcast(make_animal(), NeverDynnedValue).is_none(), "Expected None from a freshly built Dyn too");
+  assert(downcast(make_animal(), NeverDynnedValue).is_err(), "Expected None from a freshly built Dyn too");
 });
 // Regression (issues/fixed/dyn-as-a-direct-downcast-argument-reports-got-option.md):
 // a bare `dyn(...)` as downcast's FIRST argument has nothing to say WHICH Dyn
@@ -237,9 +237,9 @@ test("Test downcast rejects a bare dyn() operand it cannot infer a Dyn for", {
   // The two accepted spellings from the issue, as over-rejection canaries in
   // the same batch:
   (animal : Animal) = dyn(Cat(`shadow`));
-  assert(downcast(animal, Cat).is_some(), "the annotated-binding spelling supplies the Dyn");
+  assert(downcast(&animal.*, Cat).is_some(), "the annotated-binding spelling supplies the Dyn");
   make_animal :: (fn() -> Animal)(dyn(Cat(`shadow`)));
-  assert(downcast(make_animal(), Cat).is_some(), "the declared-return spelling supplies the Dyn");
+  assert(downcast(make_animal(), Cat).is_ok(), "the declared-return spelling supplies the Dyn");
 });
 test("Test downcast with multiple concrete types", {
   Cat :: struct(name : String);
@@ -253,23 +253,23 @@ test("Test downcast with multiple concrete types", {
   (dog_animal : Animal) = dyn(Dog(`buddy`));
   // Downcast cat_animal
   match(
-    downcast(cat_animal, Cat),
+    downcast(&cat_animal.*, Cat),
     .Some(cat) => assert(cat.name == `kitty`, "Expected kitty"),
     .None => assert(false, "Expected Some(Cat)")
   );
   match(
-    downcast(cat_animal, Dog),
+    downcast(&cat_animal.*, Dog),
     .Some(d) => assert(false, "cat_animal should not be Dog"),
     .None => assert(true)
   );
   // Downcast dog_animal
   match(
-    downcast(dog_animal, Dog),
+    downcast(&dog_animal.*, Dog),
     .Some(dog) => assert(dog.name == `buddy`, "Expected buddy"),
     .None => assert(false, "Expected Some(Dog)")
   );
   match(
-    downcast(dog_animal, Cat),
+    downcast(&dog_animal.*, Cat),
     .Some(c) => assert(false, "dog_animal should not be Cat"),
     .None => assert(true)
   );
@@ -406,15 +406,15 @@ test("a value ENUM boxed into Dyn releases its payload", {
 // leaked a reference that over-count masked it; with the refcount exact, the
 // caller's scope-end drop and the Box's dispose released the same allocation —
 // a heap-use-after-free ASan caught on both Linux legs.
-test("downcasting a value payload out of a Dyn dups it", {
+test("a view downcast of a value payload copies nothing", {
   before := g_dyn_payload_disposed;
   {
     (d : Box(Dyn(TestDyn, Clone))) = dyn(Box.new(DynStructPayload(r : _dpr(i32(11)))));
     match(
-      downcast(d, DynStructPayload),
+      downcast(&d.*, DynStructPayload),
       .Some(p) => {
-        assert(p.r.tag == i32(11), "the downcast copy carries the payload");
-        assert(ref_count(p.r) == 2, "the downcast copy and the Dyn's box each hold a reference");
+        assert(p.r.tag == i32(11), "the view reads the payload");
+        assert(ref_count(p.r) == 1, "a view copies nothing: the Dyn's box holds the only reference");
       },
       .None => assert(false, "expected the downcast to succeed")
     );
@@ -656,16 +656,16 @@ _up_both :: (fn(k : i32) -> Box(Dyn(_OsSp, _OsOt)))(
 test("Dyn: upcast drops traits and keeps each payload's impls", {
   (cat : Box(Dyn(_OsSp, _OsOt))) = _up_both(i32(0));
   (dog : Box(Dyn(_OsSp, _OsOt))) = _up_both(i32(1));
+  // A view upcast leaves the source in place; an owned one moves it.
+  assert(upcast(&dog.*, Dyn(_OsOt)).other_n() == i32(2), "the dog's other_n");
+  assert(cat.other_n() == i32(1), "the source is still usable after a view");
   (cs : Box(Dyn(_OsSp))) = upcast(cat, Dyn(_OsSp));
   (ds : Box(Dyn(_OsSp))) = upcast(dog, Dyn(_OsSp));
-  (dot : Box(Dyn(_OsOt))) = upcast(dog, Dyn(_OsOt));
-  assert(_os_takes_sp(&cs) == i32(3), "the cat's speak");
-  assert(_os_takes_sp(&ds) == i32(40), "the dog's speak");
-  assert(dot.other_n() == i32(2), "the dog's other_n");
-  assert(cat.other_n() == i32(1), "the source is still usable");
-  // The payload is shared: the upcast Dyn downcasts back to it.
-  assert(downcast(ds, _UpDog).is_some(), "the payload behind the upcast Dyn");
-  assert(downcast(cs, _UpDog).is_none(), "a cat is not a dog");
+  assert(_os_takes_sp(&cs.*) == i32(3), "the cat's speak");
+  assert(_os_takes_sp(&ds.*) == i32(40), "the dog's speak");
+  // The same payload: the upcast Dyn downcasts back to it.
+  assert(downcast(&ds.*, _UpDog).is_some(), "the payload behind the upcast Dyn");
+  assert(downcast(&cs.*, _UpDog).is_none(), "a cat is not a dog");
   // A call operand is evaluated once.
   (tmp_s : Box(Dyn(_OsSp))) = upcast(_up_both(i32(1)), Dyn(_OsSp));
   assert(tmp_s.speak() == i32(40), "upcast of a call result");
@@ -698,14 +698,14 @@ test("Dyn: a downcast or upcast used as a receiver or discarded releases its pay
     (animal : Box(Dyn(ToString, Clone))) = dyn(Box.new(_DcCat(h : Rc.new(_DcCatVal(n : i32(1))))));
     (mut(i) : i32) = i32(0);
     while(i < i32(3), {
-      if(downcast(animal, _DcCat).is_some(), {
+      if(downcast(&animal.*, _DcCat).is_some(), {
         hits = (hits + i32(1));
       });
       i = (i + i32(1));
     });
-    downcast(animal, _DcCat);
-    assert(upcast(animal, Dyn(ToString)).to_string() == String.from("cat"), "the upcast receiver");
-    upcast(animal, Dyn(ToString));
+    downcast(&animal.*, _DcCat);
+    assert(upcast(&animal.*, Dyn(ToString)).to_string() == String.from("cat"), "the upcast receiver");
+    upcast(&animal.*, Dyn(ToString));
     assert(g_dc_disposed == before, "nothing is released while the Dyn is live");
   };
   assert(hits == i32(3), "every downcast saw the cat");
@@ -714,7 +714,7 @@ test("Dyn: a downcast or upcast used as a receiver or discarded releases its pay
   payload_before := g_dyn_payload_disposed;
   {
     (d : Box(Dyn(TestDyn))) = dyn(Box.new(DynStructPayload(r : _dpr(i32(9)))));
-    assert(downcast(d, DynStructPayload).is_some(), "the boxed struct");
+    assert(downcast(&d.*, DynStructPayload).is_some(), "the boxed struct");
   };
   assert((g_dyn_payload_disposed - payload_before) == i32(1), "the boxed struct's payload is released");
 });
@@ -1204,9 +1204,11 @@ test("one closure literal boxed at a &mut slot and at a by-value slot", {
   assert(_dm_run(_DmA(n : i32(1)), i32(5)) == i32(1), "the &mut mint");
   assert(_dm_run(_DmB(n : i32(2)), i32(5)) == i32(2), "the by-value mint");
 });
-// A downcast copies a move-only payload with its `clone`, never bitwise: the
-// Dyn's box and the result each own one value, each dropped once
-// (issues/fixed/2026-10-31-a-downcast-to-a-move-only-type-drops-the-payload-twice.md).
+// The owning downcast of a `Box(Dyn)` hands back the same block as a `Box(V)`
+// (decision 49 S2): nothing is cloned, and the payload is dropped once. A
+// mismatch hands the box back as `.Err`, dropped once too. (Before the flip a
+// downcast copied a move-only payload with its `clone`:
+// issues/fixed/2026-10-31-a-downcast-to-a-move-only-type-drops-the-payload-twice.md.)
 (mut(g_dc_drops) : i32) = i32(0);
 (mut(g_dc_clones) : i32) = i32(0);
 _DcFd :: struct(n : i32);
@@ -1229,21 +1231,25 @@ impl(
 );
 impl(_DcFd, ToString(to_string : (fn(self : &Self) -> String)(String.from("fd"))));
 impl(_DcFd, Error());
-test("a downcast copies a move-only payload with its clone, each copy dropped once", {
+test("an owning downcast moves the box, its payload dropped once", {
   {
     (err : AnyError) = dyn(Box.new(_DcFd(n : i32(3))));
-    n := match(downcast(err, _DcFd), .Some(f) => f.n, .None => i32(0));
+    n := match(downcast(&err.*, _DcFd), .Ok(f) => f.n, .Err(_) => i32(0));
     assert(n == i32(3), "the downcast reads the payload");
-    assert(g_dc_clones == i32(1), "the payload is copied with its clone");
+    assert(g_dc_clones == i32(0), "nothing is cloned");
   };
-  drops := g_dc_drops;
-  assert(drops == i32(2), `the Dyn's payload and the downcast copy dropped once each, got ${drops.to_string()}`);
+  assert(g_dc_drops == i32(1), `the payload dropped once, got ${g_dc_drops.to_string()}`);
+  {
+    (other : AnyError) = dyn(Box.new(_UpErr.Bad));
+    back := match(downcast(other, _DcFd), .Ok(_) => i32(-1), .Err(e) => if(downcast(&e.*, _UpErr).is_some(), i32(1), i32(0)));
+    assert(back == i32(1), "a mismatch hands the box back");
+  };
+  assert(g_dc_drops == i32(1), "a mismatch drops no _DcFd");
 });
-test("a downcast to a move-only type needs a Dyn that lists Clone", {
-  comptime_expect_error({
-    (d : Box(Dyn(ToString))) = dyn(Box.new(_DcFd(n : i32(1))));
-    downcast(d, _DcFd)
-  }, "the Dyn must list `Clone`");
+test("a view downcast of a move-only payload needs no Clone", {
+  (d : Box(Dyn(ToString))) = dyn(Box.new(_DcFd(n : i32(1))));
+  assert(match(downcast(&d.*, _DcFd), .Some(f) => f.n, .None => i32(0)) == i32(1), "viewed in place");
+  assert(g_dc_clones == i32(0), "nothing is cloned");
 });
 
 // The auto-box does not write the tree: it records `dyn(v)` as

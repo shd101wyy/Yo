@@ -852,7 +852,7 @@ test("Reject adjacent different operators without parentheses", {
     throw : (
       err -> {
         match(
-          downcast(err, YoError),
+          downcast(&err.*, YoError),
           .Some(ye) => assert(
             ye.to_string().contains(`Adjacent different operators need parentheses`),
             "wrong error message"
@@ -876,7 +876,7 @@ _parse_error_text :: (fn(src : &String) -> String)({
     throw : (
       err -> {
         match(
-          downcast(err, YoError),
+          downcast(&err.*, YoError),
           .Some(ye) => unwind(ye.to_string()),
           .None => unwind(String.from("<not a YoError>"))
         );
@@ -1063,7 +1063,7 @@ test("decision 42: `&&T` is rejected: a borrow of a borrow does not exist", {
     throw : (
       err -> {
         match(
-          downcast(err, YoError),
+          downcast(&err.*, YoError),
           .Some(ye) => assert(ye.to_string().contains(`a borrow of a borrow does not exist`), "wrong error message"),
           .None => assert(false, "expected a YoError diagnostic")
         );

@@ -124,8 +124,8 @@ test("A dyn over a placed Rc reuses the Rc's cell: no second cell", {
     assert(ref_count(r) == usize(2), `the dyn holds a count on the Rc's cell: ${ref_count(r)}`);
     assert(counts.live == usize(1), `one placed cell: ${counts.live}`);
     assert(d.speak() == i32(6), "dispatched to the Rc's payload");
-    assert(downcast(d, _Dog).is_some(), "the data object's payload is the _Dog");
-    assert(downcast(d, Rc(_Dog)).is_none(), "not an Rc(_Dog) boxed again");
+    assert(downcast(&d.*, _Dog).is_some(), "the data object's payload is the _Dog");
+    assert(downcast(&d.*, Rc(_Dog)).is_none(), "not an Rc(_Dog) boxed again");
   };
   assert(counts.live == usize(0), `the one cell went back: ${counts.live}`);
 });

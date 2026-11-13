@@ -202,8 +202,10 @@ derive_rule(Error, __derive_error);
 /// );
 /// ```
 ///
-/// To use the value and not just test for it, reach for the `downcast(err, T)`
-/// builtin this is written over — it returns `Option(T)`.
+/// To use the value and not just test for it, reach for the `downcast` builtin
+/// this is written over: `downcast(&err.*, T)` views the payload as
+/// `Option(&T)`, and `downcast(err, T)` moves the box into
+/// `Result(Box(T), AnyError)`.
 impl(
   AnyError,
   is : (fn(self : &Self, comptime(T) : Type) -> bool)(

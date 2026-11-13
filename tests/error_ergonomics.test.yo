@@ -36,8 +36,8 @@ test("AnyError.is over a second error type", {
 });
 test("downcast recovers the value, which is what is(T) tests for", {
   (e : AnyError) = dyn(NotFound(path : `/etc/hosts`));
-  assert(match(downcast(e, NotFound), .Some(nf) => (nf.path == `/etc/hosts`), .None => false), "the payload survives");
-  assert(match(downcast(e, Denied), .Some(_) => false, .None => true), "and the wrong type gives None");
+  assert(match(downcast(&e.*, NotFound), .Some(nf) => (nf.path == `/etc/hosts`), .None => false), "the payload survives");
+  assert(match(downcast(&e.*, Denied), .Some(_) => false, .None => true), "and the wrong type gives None");
 });
 test("Context renders its message ahead of the cause", {
   (inner : AnyError) = dyn(NotFound(path : `cfg.toml`));

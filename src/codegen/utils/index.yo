@@ -1804,16 +1804,7 @@ get_type_string :: (fn(t : &TypeValue, context : &mut CodeGenContext) -> String)
     Rc(.Union(_, _, _)) => _lookup_named_c_type(t, context),
     // The cell of an `Rc(Dyn(T))`/`Arc(Dyn(T, ...))` is the fat pointer over
     // its counted block (decision 49 S2).
-    (dc_t := Rc(.Struct({ field_types : dc_fts }))) => if(is_dyn_cell_type(&dc_t), get_type_string(match(dc_fts.get(usize(0)), .Some(dp) => dp, .None => Rc.new(TypeValueNode.Unit)), context), {
-      base := _lookup_named_c_type(t, context);
-      // Reference-semantics structs (object/atomic object) are pointers in C.
-      if(match(&dc_t, Rc(.Struct({ is_reference_semantics : is_ref })) => is_ref, _ => false), {
-        mut(ptr) := base.clone();
-        ptr.push_str("*");
-        return(ptr);
-      });
-      base
-    }),
+    (Rc(.Struct({ field_types : dc_fts })) && (is_dyn_cell_type(t))) => get_type_string(match(dc_fts.get(usize(0)), .Some(dp) => dp, .None => Rc.new(TypeValueNode.Unit)), context),
     Rc(.Struct({ is_reference_semantics : is_ref })) => {
       base := _lookup_named_c_type(t, context);
       // Reference-semantics structs (object/atomic object) are pointers in C.

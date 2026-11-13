@@ -369,6 +369,12 @@ _upcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionG
   dyn_arg := match(args.get(usize(0)), .Some(x) => ast_expr_strip_borrow_marker(&x), .None => return(String.from("/* ERROR: upcast requires 2 arguments */")));
   dyn_ei := match(context.base.get_expr_info(&dyn_arg), .Some(e) => e, .None => return(String.from("/* ERROR: upcast dyn arg not evaluated */")));
   dyn_code := unsized_place_fat_code(&_call_generate_expr(&dyn_arg, indent.clone(), context));
+  // An owned `Box`/`Rc`/`Arc` over a `Dyn` is moved into the result handle
+  // (decision 49 S2): its fat word is reused, nothing is retained.
+  (src_ty_u : TypeValue) = match(t_refine_inner(&dyn_ei.ty()), Rc(.Reference(urp0, _, _)) => Rc.clone(urp0), _ => Rc.clone(dyn_ei.ty()));
+  moves_handle := (unsize_reference_mode(ast_expr_id(expr)).is_none() && (match(unique_box_payload_type(&src_ty_u), .Some(bp) => is_dyn_type(&bp), .None => false) || match(cell_handle_view(&src_ty_u), .Some(hv) => is_dyn_type(&hv.payload), .None => false)));
+  // The target `Dyn`'s fat struct names the `__yo_up_` slot; a handle over it
+  // lowers to the same struct.
   tgt_c := get_type_string(&ei.ty(), &mut context.base);
   // Name the source once: a call operand must not run twice.
   src := if(_is_plain_c_identifier(dyn_code.clone()), dyn_code.clone(), {
@@ -380,7 +386,7 @@ _upcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionG
     src_var
   });
   // Through a reference the payload is borrowed, not retained.
-  data_expr := if(unsize_reference_mode(ast_expr_id(expr)).is_some(), `(void*)${src}.data`, `__yo_dyn_retain((void*)${src}.data, (const void*)${src}.vtable)`);
+  data_expr := if(unsize_reference_mode(ast_expr_id(expr)).is_some() || moves_handle, `(void*)${src}.data`, `__yo_dyn_retain((void*)${src}.data, (const void*)${src}.vtable)`);
   `((${tgt_c}){ .data = ${data_expr}, .vtable = ${src}.vtable->__yo_up_${tgt_c} })`
 });
 /// The function id of the `clone` in a Dyn impl's `Clone` evidence (the

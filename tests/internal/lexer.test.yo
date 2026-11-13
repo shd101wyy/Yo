@@ -690,7 +690,7 @@ test("Unterminated string (real newline) raises a lexer diagnostic", {
     throw : (
       err -> {
         match(
-          downcast(err, YoError),
+          downcast(&err.*, YoError),
           .Some(ye) => {
             s := ye.to_string();
             assert(s.contains(`unterminated string literal`), "wrong error message");
@@ -711,7 +711,7 @@ test("Unterminated string at EOF raises the same diagnostic", {
     throw : (
       err -> {
         match(
-          downcast(err, YoError),
+          downcast(&err.*, YoError),
           .Some(ye) => {
             s := ye.to_string();
             assert(s.contains(`unterminated string literal`), "wrong error message");
@@ -731,7 +731,7 @@ test("Unterminated block comment raises a lexer diagnostic", {
     throw : (
       err -> {
         match(
-          downcast(err, YoError),
+          downcast(&err.*, YoError),
           .Some(ye) => {
             s := ye.to_string();
             assert(s.contains(`unterminated block comment`), "wrong error message");
@@ -751,7 +751,7 @@ test("Unterminated template string raises a lexer diagnostic", {
     throw : (
       err -> {
         match(
-          downcast(err, YoError),
+          downcast(&err.*, YoError),
           .Some(ye) => assert(ye.to_string().contains(`unterminated template string`), "wrong error message"),
           .None => assert(false, "expected a YoError diagnostic")
         );
@@ -836,7 +836,7 @@ test("∀ is rejected with the ASCII-spelling hint", {
     throw : (
       err -> {
         match(
-          downcast(err, YoError),
+          downcast(&err.*, YoError),
           .Some(ye) => assert(ye.to_string().contains(`\`∀\` is not part of the language — the ASCII spellings are \`forall(...)\` and \`exists(...)\``), "wrong error message"),
           .None => assert(false, "expected a YoError diagnostic")
         );
@@ -852,7 +852,7 @@ test("∃ is rejected with the ASCII-spelling hint", {
     throw : (
       err -> {
         match(
-          downcast(err, YoError),
+          downcast(&err.*, YoError),
           .Some(ye) => assert(ye.to_string().contains(`\`∃\` is not part of the language — the ASCII spellings are \`forall(...)\` and \`exists(...)\``), "wrong error message"),
           .None => assert(false, "expected a YoError diagnostic")
         );
@@ -1154,7 +1154,7 @@ test("A non-hex digit in a unicode escape is a lexer error", {
     throw : (
       err -> {
         match(
-          downcast(err, YoError),
+          downcast(&err.*, YoError),
           .Some(ye) => assert(ye.to_string().contains(String.from("invalid unicode escape")), "wrong error message: four-digit form rejects a non-hex rune"),
           .None => assert(false, "expected a YoError diagnostic")
         );
@@ -1170,7 +1170,7 @@ test("A braced unicode escape with no digits is a lexer error", {
     throw : (
       err -> {
         match(
-          downcast(err, YoError),
+          downcast(&err.*, YoError),
           .Some(ye) => assert(ye.to_string().contains(String.from("empty unicode escape")), "wrong error message: empty braces are rejected"),
           .None => assert(false, "expected a YoError diagnostic")
         );
@@ -1186,7 +1186,7 @@ test("A braced unicode escape above 10FFFF is a lexer error", {
     throw : (
       err -> {
         match(
-          downcast(err, YoError),
+          downcast(&err.*, YoError),
           .Some(ye) => assert(ye.to_string().contains(String.from("out of range")), "wrong error message: beyond the largest code point"),
           .None => assert(false, "expected a YoError diagnostic")
         );
@@ -1202,7 +1202,7 @@ test("A braced unicode escape naming a surrogate is a lexer error", {
     throw : (
       err -> {
         match(
-          downcast(err, YoError),
+          downcast(&err.*, YoError),
           .Some(ye) => assert(ye.to_string().contains(String.from("surrogate")), "wrong error message: a lone surrogate is not a scalar value"),
           .None => assert(false, "expected a YoError diagnostic")
         );
@@ -1218,7 +1218,7 @@ test("A braced unicode escape with more than six digits is a lexer error", {
     throw : (
       err -> {
         match(
-          downcast(err, YoError),
+          downcast(&err.*, YoError),
           .Some(ye) => assert(ye.to_string().contains(String.from("at most six hex digits")), "wrong error message: seven digits are rejected"),
           .None => assert(false, "expected a YoError diagnostic")
         );
@@ -1234,7 +1234,7 @@ test("A braced unicode escape closed by the string delimiter is a lexer error", 
     throw : (
       err -> {
         match(
-          downcast(err, YoError),
+          downcast(&err.*, YoError),
           .Some(ye) => assert(ye.to_string().contains(String.from("takes hex digits only")), "wrong error message: the closing quote is not a hex digit and not a closing brace"),
           .None => assert(false, "expected a YoError diagnostic")
         );
@@ -1250,7 +1250,7 @@ test("A non-hex digit in a TEMPLATE unicode escape is a lexer error", {
     throw : (
       err -> {
         match(
-          downcast(err, YoError),
+          downcast(&err.*, YoError),
           .Some(ye) => assert(ye.to_string().contains(String.from("invalid unicode escape")), "wrong error message: the template path validates too"),
           .None => assert(false, "expected a YoError diagnostic")
         );
@@ -1314,7 +1314,7 @@ test("A lone surrogate escape in a template is a lex error", {
       throw : (
         err -> {
           match(
-            downcast(err, YoError),
+            downcast(&err.*, YoError),
             .Some(ye) => assert(
               ye.to_string().contains(`unicode escape names a surrogate`),
               "wrong error message"
@@ -1345,7 +1345,7 @@ test("A lone surrogate escape in a double-quoted literal is a lex error", {
       throw : (
         err -> {
           match(
-            downcast(err, YoError),
+            downcast(&err.*, YoError),
             .Some(ye) => assert(
               ye.to_string().contains(`unicode escape names a surrogate`),
               "wrong error message"
@@ -1393,7 +1393,7 @@ test("A run of four dots is a closed-set lex error", {
     throw : (
       err -> {
         match(
-          downcast(err, YoError),
+          downcast(&err.*, YoError),
           .Some(ye) => {
             s := ye.to_string();
             assert(s.contains(`unknown operator in '....'`), "names the run");
@@ -1415,7 +1415,7 @@ test("`#(x)` is a lex error naming unquote(x)", {
     throw : (
       err -> {
         match(
-          downcast(err, YoError),
+          downcast(&err.*, YoError),
           .Some(ye) => {
             s := ye.to_string();
             assert(s.contains(`write \`unquote(x)\` instead of \`#(x)\``), "names the word");
@@ -1434,7 +1434,7 @@ test("`...#(xs)` is a lex error naming unquote_splicing(xs)", {
     throw : (
       err -> {
         match(
-          downcast(err, YoError),
+          downcast(&err.*, YoError),
           .Some(ye) => {
             s := ye.to_string();
             assert(s.contains(`write \`unquote_splicing(xs)\` instead of \`...#(xs)\``), "names the word");

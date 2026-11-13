@@ -325,14 +325,16 @@ evaluate_upcast :: (
   // `unsize`'s.
   (src_type : TypeValue) = Rc.clone(dyn_info.ty());
   (uc_ref : Option(bool)) = Option(bool).None;
+  // An owned `Box`/`Rc`/`Arc` over a `Dyn`: its constructor's name.
+  (uc_owned_handle : Option(String)) = Option(String).None;
   match(
     t_refine_inner(&src_type),
     Rc(.Reference(ur_p, ur_m, _)) => if(is_dyn_type(&ur_p), {
       uc_ref = Option(bool).Some(ur_m);
       src_type = Rc.clone(&ur_p);
     }),
-    _ => if(is_dyn_type(&src_type), {
-      uc_ref = match(
+    _ => {
+      uc_place := match(
         projection_call_mode_of(&dyn_expr, ctx),
         .Some(pm) => Option(bool).Some(pm),
         .None => match(
@@ -341,7 +343,35 @@ evaluate_upcast :: (
           .None => Option(bool).None
         )
       );
-    })
+      if(is_dyn_type(&src_type), {
+        uc_ref = uc_place;
+      }, {
+        // An owning handle over a `Dyn` (decision 49 S2): read through a place
+        // it is a reference upcast of the payload; owned, the handle is moved
+        // into the same handle over the target `Dyn`.
+        (uc_payload : Option(TypeValue)) = match(
+          unique_box_payload_type(&src_type),
+          .Some(bp) => Option(TypeValue).Some(bp),
+          .None => match(cell_handle_view(&src_type), .Some(hv) => Option(TypeValue).Some(Rc.clone(hv.payload)), .None => Option(TypeValue).None)
+        );
+        match(
+          uc_payload,
+          .Some(up) => if(is_dyn_type(&up), {
+            match(
+              uc_place,
+              .Some(pm) => {
+                uc_ref = Option(bool).Some(pm);
+              },
+              .None => {
+                uc_owned_handle = Option(String).Some(match(cell_handle_view(&src_type), .Some(hv) => if(hv.is_atomic, String.from("Arc"), String.from("Rc")), .None => String.from("Box")));
+              }
+            );
+            src_type = t_refine_inner(&up);
+          }),
+          .None => ()
+        );
+      });
+    }
   );
   if(!is_dyn_type(&src_type), {
     exn.throw(
@@ -410,8 +440,24 @@ evaluate_upcast :: (
     });
     ni = (ni + usize(1));
   });
-  result_value := create_unknown_val(&target_type);
-  out_info := new_expr_info(&cur_env, &target_type);
+  // An owned handle is moved into the same handle over the target `Dyn`.
+  (uc_result_ty : TypeValue) = Rc.clone(&target_type);
+  match(
+    uc_owned_handle,
+    .Some(hname) => {
+      ht := ArrayList(TypeValue).new();
+      ht.push(Rc.clone(&target_type));
+      uc_result_ty = match(apply_type_ctor_via(&hname, &ht, &cur_env, ctx, exn), .Some(t) => t, .None => return(uc_call));
+      match(
+        uc_call,
+        .FnCall(_, _, Rc(uargs), _, _) => match(uargs.get(usize(0)), .Some(ua) => set_expr_as_needs_to_call_dup(&ua, ctx, exn, "upcast"), .None => ()),
+        _ => ()
+      );
+    },
+    .None => ()
+  );
+  result_value := create_unknown_val(&uc_result_ty);
+  out_info := new_expr_info(&cur_env, &uc_result_ty);
   out_info.set_value(Option(EvalValue).Some(result_value));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   match(

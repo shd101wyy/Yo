@@ -124,7 +124,7 @@ test("dyn over an Rc dispatches on its payload", {
   (d : Box(Dyn(Probe))) = dyn(Box.new(Square(side : i32(3))));
   assert(probe(&d) == i32(9), "a struct payload");
   match(
-    downcast(d, Square),
+    downcast(&d.*, Square),
     .Some(s) => assert(s.side == i32(3), "the downcast reads the payload"),
     .None => assert(false, "a dyn over Rc.new(Square) downcasts to Square")
   );

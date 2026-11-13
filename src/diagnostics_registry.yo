@@ -1005,8 +1005,8 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "`Dyn(Trait)` 值会擦除具体类型，并通过 vtable（每个方法一个函数）调用方法。签名中除接收者外还提到 `Self` 的方法（`Self` 参数、`Self` 或 `Option(Self)` 结果）在具体类型被擦除后，在调用处没有唯一的 C 类型；带 `generic(...)` 参数的方法也没有唯一的函数可以放进 vtable。这类方法没有 vtable 槽位，因此通过 `Dyn` 调用它们是错误。构造该 `Dyn` 并调用其他方法不受影响。按值接收 `self` 的方法同样没有槽位，并且无论载荷是什么，都不能在包含它的 trait 上构造 `Dyn`（plans/VALUES_BY_DEFAULT.md 决策 49）：`Dyn` 是非定长的，只能位于拥有它的指针之后，因此没有可以交给该方法的值，调用会把载荷从那个指针中移出。",
       "Call the method on a concrete value instead, or declare it so that `Self` appears only as the receiver and it takes no `generic(...)` parameters. Before this was an error the call passed `check` and failed inside the C compiler.",
       "改为在具体值上调用该方法，或把它声明为 `Self` 只作为接收者出现、且不带 `generic(...)` 参数。在这成为错误之前，这种调用能通过 `check`，却在 C 编译器中失败。",
-      "Sp :: trait(speak : (fn(self : &Self) -> i32), me : (fn(self : &Self) -> Self));\nCat :: struct(n : i32);\nderive(Cat, Copy, Clone);\nimpl(Cat, Sp(speak : (fn(self : &Self) -> i32)(self.n), me : (fn(self : &Self) -> Self)(self.*)));\nmain :: (fn() -> unit)({\n  (d : Dyn(Sp)) = dyn(Cat(n : i32(3)));\n  c := d.me();\n});\n",
-      "Sp :: trait(speak : (fn(self : &Self) -> i32), me : (fn(self : &Self) -> Self));\nCat :: struct(n : i32);\nderive(Cat, Copy, Clone);\nimpl(Cat, Sp(speak : (fn(self : &Self) -> i32)(self.n), me : (fn(self : &Self) -> Self)(self.*)));\nmain :: (fn() -> unit)({\n  (d : Dyn(Sp)) = dyn(Cat(n : i32(3)));\n  n := d.speak();\n});\n",
+      "Sp :: trait(speak : (fn(self : &Self) -> i32), me : (fn(self : &Self) -> Self));\nCat :: struct(n : i32);\nderive(Cat, Copy, Clone);\nimpl(Cat, Sp(speak : (fn(self : &Self) -> i32)(self.n), me : (fn(self : &Self) -> Self)(self.*)));\nmain :: (fn() -> unit)({\n  (d : Box(Dyn(Sp))) = dyn(Cat(n : i32(3)));\n  c := d.me();\n});\n",
+      "Sp :: trait(speak : (fn(self : &Self) -> i32), me : (fn(self : &Self) -> Self));\nCat :: struct(n : i32);\nderive(Cat, Copy, Clone);\nimpl(Cat, Sp(speak : (fn(self : &Self) -> i32)(self.n), me : (fn(self : &Self) -> Self)(self.*)));\nmain :: (fn() -> unit)({\n  (d : Box(Dyn(Sp))) = dyn(Cat(n : i32(3)));\n  n := d.speak();\n});\n",
       "`me` returns `Self`, whose concrete type the `Dyn(Sp)` erased; `speak` returns `i32` and is callable.",
       "`me` 返回 `Self`，而它的具体类型已被 `Dyn(Sp)` 擦除；`speak` 返回 `i32`，可以调用。"
     )
@@ -1035,8 +1035,8 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "两个 trait，或者一个包装类型和它的载荷，都提供了这个名字的成员，而代码没有说明指的是哪一个。",
       "When a type implements two traits that both declare `get`, an unqualified `x.get()` could mean either, and which impl ran used to depend on the order the impls were registered. Name the trait with the qualified form `(T <: Trait).get(x)`, or call it inside a function whose `where(T <: Trait)` bound selects one. A type's own inherent method is never ambiguous with a trait method. A `Dyn` calls its methods through a vtable by name, so a `Dyn` may not carry two traits that both declare a method it can call under one name at all: keep only one of the two traits in the `Dyn`, or rename one of the methods. A `Deref` wrapper (`Box`, `Rc`, `Arc`) forwards a member it lacks to its payload, so when the wrapper and its payload both have the member, `w.clone()` could mean the wrapper's or the payload's: write `Rc.clone(w)` for the wrapper's own member, or `w.*.clone()` for the payload's. `yo fix` rewrites the call to `Rc.clone(w)`, the meaning it had before this was an error.",
       "当一个类型实现了两个都声明了 `get` 的 trait 时，不加限定的 `x.get()` 可能指其中任何一个，以前实际运行哪个 impl 取决于 impl 的注册顺序。请用限定形式 `(T <: Trait).get(x)` 指明 trait，或在由 `where(T <: Trait)` 约束选定其一的函数中调用。类型自身的固有方法永远不会与 trait 方法产生歧义。`Dyn` 通过 vtable 按名字调用方法，因此一个 `Dyn` 根本不能同时带有两个都声明了同名可调用方法的 trait：请在 `Dyn` 中只保留其中一个 trait，或者给其中一个方法改名。`Deref` 包装类型（`Rc`、`Arc`）会把自身没有的成员转发给载荷，因此当包装类型和载荷都有这个成员时，`w.clone()` 既可能指包装类型的成员，也可能指载荷的：用 `Rc.clone(w)` 调用包装类型自己的成员，用 `w.*.clone()` 调用载荷的。`yo fix` 会把调用改写为 `Rc.clone(w)`，即它在成为错误之前的含义。",
-      "A :: trait(get : (fn(self : Self) -> i32));\nB :: trait(get : (fn(self : Self) -> i32));\nf :: (fn(d : Dyn(A, B)) -> i32)(i32(0));\n",
-      "A :: trait(get : (fn(self : Self) -> i32));\nB :: trait(get_b : (fn(self : Self) -> i32));\nf :: (fn(d : Dyn(A, B)) -> i32)(i32(0));\n",
+      "A :: trait(get : (fn(self : Self) -> i32));\nB :: trait(get : (fn(self : Self) -> i32));\nf :: (fn(d : &Dyn(A, B)) -> i32)(i32(0));\n",
+      "A :: trait(get : (fn(self : Self) -> i32));\nB :: trait(get_b : (fn(self : Self) -> i32));\nf :: (fn(d : &Dyn(A, B)) -> i32)(i32(0));\n",
       "`A` and `B` both give `Dyn(A, B)` a `get` slot; renaming `B`'s method removes the clash.",
       "`A` 和 `B` 都给 `Dyn(A, B)` 提供了 `get` 槽位；给 `B` 的方法改名即可消除冲突。"
     )
@@ -1065,10 +1065,10 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "在需要 `Dyn(Fn(...))` 的位置直接使用了具名闭包、具名 `fn` 或闭包字面量，没有写 `dyn(...)`。",
       "Every erasure into a `Dyn` is spelled (plans/VALUES_BY_DEFAULT.md decision 44): a value becomes a `Dyn` only where the program writes `dyn(...)`, which moves it into the `Dyn`'s heap cell. A trait object over a nominal value is already written `dyn(point)`; a callable follows the same rule, so a closure or a named `fn` in a `Dyn(Fn(...))` binding, field, argument or result is written `dyn(f)`. An `Impl(Fn(...))` slot is not an erasure: it is the closure's own static type, and a closure flows into it bare. Older code is upgraded on the last release that ships its migration: `yo version install 0.2.76 && yo fix <path> --migrate dyn-spelling`, then step to the next release.",
       "每一次擦除为 `Dyn` 都要写出来（plans/VALUES_BY_DEFAULT.md 决策 44）：只有程序写出 `dyn(...)` 的地方，值才会变成 `Dyn`，它把值移入 `Dyn` 的堆单元。名义类型值的 trait 对象已经写作 `dyn(point)`；可调用值遵循同一规则，因此 `Dyn(Fn(...))` 绑定、字段、实参或结果中的闭包或具名 `fn` 写作 `dyn(f)`。`Impl(Fn(...))` 位置不是擦除：它是闭包自身的静态类型，闭包可以直接流入。旧代码请在最后一个携带其迁移的版本上升级：`yo version install 0.2.76 && yo fix <path> --migrate dyn-spelling`，之后再升级到下一个版本。",
-      "run :: (fn(d : Dyn(Fn() -> i32)) -> i32)(d());\nmain :: (fn() -> unit)({\n  n := i32(3);\n  (f : Impl(Fn() -> i32)) = (() => n);\n  _x := run(f);\n});\nexport(main);\n",
-      "run :: (fn(d : Dyn(Fn() -> i32)) -> i32)(d());\nmain :: (fn() -> unit)({\n  n := i32(3);\n  (f : Impl(Fn() -> i32)) = (() => n);\n  _x := run(dyn(f));\n});\nexport(main);\n",
-      "`dyn(f)` boxes the closure as the `Dyn(Fn() -> i32)` the parameter takes.",
-      "`dyn(f)` 把闭包装箱为形参所需的 `Dyn(Fn() -> i32)`。"
+      "run :: (fn(d : Box(Dyn(Fn() -> i32))) -> i32)(d());\nmain :: (fn() -> unit)({\n  n := i32(3);\n  (f : Impl(Fn() -> i32)) = (() => n);\n  _x := run(f);\n});\nexport(main);\n",
+      "run :: (fn(d : Box(Dyn(Fn() -> i32))) -> i32)(d());\nmain :: (fn() -> unit)({\n  n := i32(3);\n  (f : Impl(Fn() -> i32)) = (() => n);\n  _x := run(dyn(f));\n});\nexport(main);\n",
+      "`dyn(f)` boxes the closure as the `Box(Dyn(Fn() -> i32))` the parameter takes.",
+      "`dyn(f)` 把闭包装箱为形参所需的 `Box(Dyn(Fn() -> i32))`。"
     )
   );
   out.push(

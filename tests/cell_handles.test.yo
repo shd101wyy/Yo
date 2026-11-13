@@ -185,7 +185,7 @@ impl(_Sq, _Area(area : (fn(self : &Self) -> i32)(self.s * self.s)));
 test("S20-S22: dyn of a cell handle dispatches to its payload", {
   (d : Box(Dyn(_Area))) = dyn(trc(_Sq(s : i32(2))));
   assert(d.area() == i32(4), "dispatched to _Sq through the handle");
-  match(downcast(d, _Sq), .Some(sq) => assert(sq.s == i32(2), "the payload"), .None => assert(false, "a _Sq"));
+  match(downcast(&d.*, _Sq), .Some(sq) => assert(sq.s == i32(2), "the payload"), .None => assert(false, "a _Sq"));
   (e : Box(Dyn(_Area, Send))) = dyn(tarc(_Sq(s : i32(3))));
   assert(e.area() == i32(9), "an atomic handle in a Send Dyn");
   t := Thread(i32).spawn(io => e.area());
