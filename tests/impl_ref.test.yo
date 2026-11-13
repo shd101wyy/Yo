@@ -361,15 +361,10 @@ test("(R3) an owned temporary receiver picks the by-value impl: `.clone().into_i
 // `Eq(&C)` (Rust's `impl PartialEq<&B> for &A`), whose `lhs : &Self` slot is
 // the `&&C` the binding's own storage fills. It is never an auto-deref: with
 // no impl over `&C` that takes the operands, the operand stays a whole-value
-// read (E0926, spelled `ra.*`).
+// read (E0926, spelled `ra.*`). Since G2 piece 3 the impl over `&_PgC` is the
+// prelude's blanket `Eq(&T)`, and a user impl over `&_PgC` beside it is E0612.
 _PgC :: struct(n : i32);
-impl(
-  &_PgC,
-  Eq(&_PgC)(
-    (==) : (fn(lhs : &Self, rhs : &Self) -> bool)(lhs.*.*.n == rhs.*.*.n),
-    (!=) : (fn(lhs : &Self, rhs : &Self) -> bool)(lhs.*.*.n != rhs.*.*.n)
-  )
-);
+derive(_PgC, Eq);
 // A by-value `Self` slot at `Self = &C` takes the reference value itself.
 impl(
   &_PgC,
@@ -403,6 +398,10 @@ test("(P3b gap 1) an operand no impl over `&C` takes stays E0926", {
   re := &e;
   re2 := &e;
   comptime_expect_error(re == re2, "reading the value it refers to is spelled");
+  comptime_expect_error(
+    impl(&_PgC, Eq(&_PgC)((==) : (fn(lhs : &Self, rhs : &Self) -> bool)(lhs.*.*.n == rhs.*.*.n))),
+    "is already implemented"
+  );
 });
 
 // (G2 piece 3, VERDICTS-49) The prelude's blanket `Eq`/`Ord` over a sized `&T`
