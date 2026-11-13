@@ -870,8 +870,10 @@ test("access modes: a capture-list `&mut` entry beside a live `&` loan is E0911"
   }, "Cannot borrow with `&mut` `xs` here: `r` borrows");
   r := _cl_first(&xs);
   assert(r.len() == usize(1), "the loan's last use precedes the entry");
-  (mut(c) : Impl(FnMut() -> unit)) = ({ m : &mut xs }() => m.push(String.from("b")));
-  c();
+  {
+    (mut(c) : Impl(FnMut() -> unit)) = ({ m : &mut xs }() => m.push(String.from("b")));
+    c();
+  };
   assert(xs.len() == usize(2), "the `&mut` entry wrote the list");
 });
 test("access modes: an implicit capture that moves a place is checked against live loans", {
