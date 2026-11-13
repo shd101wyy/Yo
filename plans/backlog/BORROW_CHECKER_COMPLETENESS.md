@@ -321,12 +321,14 @@ Filed 2026-11-07 from VERDICTS-30/31; each names its repro under `issues/repros/
   is an error at the call naming the repair, never the mis-passed C. Open (the rest of P3b): an owned or temporary
   receiver at `&&C` through an O-5 hidden local, and gap 1 (operator operands).
 - 2026-11-13: P3b gap 1 (VERDICTS-49, the `g2` lane). An infix operator whose left operand is a reference binding
-  `ra : &T` looks up the operator on `&T` (gated like R-PROBE's reference lookups); an impl is selected when its right
-  slot takes the right operand (a reference binding as its reference type). A `&&T` slot (`lhs : &Self` at `Self = &T`)
-  is filled by the binding's own storage (the forced self place, both operands); a slot that is the `&T` itself (`lhs :
-  Self`) takes the place the reference names, as it takes an owned operand's. With no impl selected, E0926 kind 0 at the
-  operand is unchanged; `rr.* == ss.*` on `& &C` bindings already selected it (a place of type `&C`). Not in gap 1: an operand that is a reference field read or a
-  reference temporary, which has no storage to lend
+  `ra : &T` looks up the operator on `&T` (gated like R-PROBE's reference lookups); an impl is selected when both its
+  slots are `&&T` (`lhs : &Self`, `rhs : &Rhs` at `Self = &T`) and the right operand is a reference binding of the
+  right type. Both slots are filled by the bindings' own storage (the forced self place). With no impl selected, E0926
+  kind 0 at the operand is unchanged; an impl whose slots are the `&T` itself (`impl(&C, Add(&C))`, `lhs : Self`) is not
+  selected yet
+  (`issues/2026-11-13-an-operator-impl-over-a-reference-with-by-value-operands-is-not-selected-for-reference-bindings.md`).
+  `rr.* == ss.*` on `& &C` bindings already selected the impl (a place of type `&C`). Not in gap 1: an operand that is a
+  reference field read or a reference temporary, which has no storage to lend
   (`issues/2026-11-13-an-operator-operand-that-is-a-reference-field-or-a-reference-temporary-does-not-select-an-impl-over-the-reference.md`,
   an O-5 hidden local), and the trait default `!=` over `&C`, which fails on a separate bug
   (`issues/2026-11-13-a-reference-to-a-reference-binding-passed-on-to-a-named-callees-reference-to-a-reference-parameter-is-e0601.md`).
