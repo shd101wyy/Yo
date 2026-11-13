@@ -35,3 +35,17 @@ test("origin holder derive: a lend beside a later operand is the place's address
   assert(t.r.* == i32(7), "r points at `x`");
   assert(t.n == i32(8), "n read it");
 });
+// A `&mut` field read bare into a `&mut` field is the reborrow `&mut m.r.*`:
+// out of an owned holder it freezes the holder while the new one lives, and
+// through `&` it is a `&` reborrow, which cannot fill a `&mut` field (E0908;
+// `derive(Clone)` over such a holder fails the same way)
+// (issues/fixed/2026-11-11-a-mut-reference-field-read-by-value-is-copied-so-two-holders-share-one-exclusive-borrow.md).
+_MutHold :: struct(r : &mut i32, n : i32);
+test("origin holder derive: a `&mut` field read into a `&mut` field reborrows it", {
+  mut(x) := i32(1);
+  m := _MutHold(r : &mut x, n : i32(0));
+  m2 := _MutHold(r : m.r, n : i32(1));
+  m2.r.* = i32(2);
+  assert(m.r.* == i32(2), "the reborrow wrote through to `x`");
+  comptime_expect_error(_mh_dup :: (fn(h : &_MutHold) -> _MutHold)(_MutHold(r : h.r, n : h.n)), "a `&T` parameter");
+});
