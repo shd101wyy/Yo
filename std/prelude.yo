@@ -323,7 +323,7 @@ export(drop);
 /// it (`consume(p.* = v)`) or free it. This is how a collection destroys an
 /// element it owns through a raw pointer. Like every raw-pointer operation it
 /// needs `pragma(Pragma.AllowUnsafe)`; safe code ends a value with `drop(x)`.
-drop_in_place :: (fn(generic(T : Type), p : *T) -> unit)(
+drop_in_place :: (fn(generic(T : ?Sized), p : *T) -> unit)(
   // SAFETY: the caller owns the live value at `p` and gives it up here.
   unsafe(___drop(p.*))
 );
@@ -760,7 +760,7 @@ impl(
 /// Eq trait — enables `==` and `!=` comparison operators.
 /// The `!=` method has a default implementation that negates `==`.
 Eq ::
-  (fn(comptime(Rhs) : Type) -> comptime(Trait))(
+  (fn(comptime(Rhs) : ?Sized) -> comptime(Trait))(
     trait(
       (==) : (fn(lhs : &Self, rhs : &Rhs) -> bool),
       ((!=) : (fn(lhs : &Self, rhs : &Rhs) -> bool)) ?=
@@ -804,7 +804,7 @@ export(Ordering);
 /// total order instead of splitting the trait.
 Ord :: (
   fn(
-    comptime(Rhs) : Type
+    comptime(Rhs) : ?Sized
   ) -> comptime(Trait)
 )(
   trait(
@@ -976,6 +976,36 @@ Clone :: trait(
     )
 );
 export(Clone);
+/// CloneInto trait — write an independent clone of `self` into the
+/// uninitialized slot `dst`: Rust's `CloneToUninit`
+/// (plans/VALUES_BY_DEFAULT.md decision 49). `Self` may be unsized, so this
+/// is how `Box(T).clone()` and `Rc.make_mut` clone a payload whose size is
+/// known only at run time: `dst` points at `size_of_val(self)` fresh bytes
+/// (with `self`'s length or vtable), and the clone is written there, never
+/// dropping what `dst` held.
+///
+/// Every sized `Clone` type implements it through the prelude's blanket
+/// impl; `[T]` does where `T` is `Clone`, and a `Dyn` whose trait list names
+/// `Clone` does through its vtable.
+CloneInto :: trait(
+  id := "CloneInto",
+  /// Write a clone of `self` into the uninitialized slot `dst`, which has
+  /// room for `size_of_val(self)` bytes at `align_of_val(self)`.
+  clone_into : (fn(self : &Self, dst : *Self) -> unit)
+);
+export(CloneInto);
+impl(
+  generic(T : Type),
+  where(T <: Clone),
+  T,
+  CloneInto(
+    clone_into : (fn(self : &Self, dst : *Self) -> unit)(
+      // SAFETY: `dst` is an uninitialized slot for one `T`; the write drops
+      // nothing.
+      unsafe(__yo_ptr_write(dst, self.clone()))
+    )
+  )
+);
 /// Copy trait - a value whose copy is a bitwise copy
 /// (plans/VALUES_BY_DEFAULT.md decision 36).
 ///
@@ -9717,15 +9747,16 @@ export(Result);
 /// b := Rc.clone(a); // a second handle to the same value
 /// assert(b.* == a.*, "a and b name the same value");
 /// ```
-Rc :: (fn(comptime(V) : Type, where(V <: Escapable)) -> comptime(Type))(
+Rc :: (fn(comptime(V) : ?Sized) -> comptime(Type))(
   newtype(_cell : __yo_cell(V))
 );
 /// The constructor of `Rc` (plans/archive/STATIC_ARGUMENT_INFERENCE.md):
 /// `Rc.new(value)`, or `Rc(T).new(value)` with the type written. It replaced
 /// the prelude's `rc(value)`, deleted by static-argument inference B3.
 impl(
-  generic(T : Type),
-  Rc(T),
+  generic(V : Type),
+  where(V <: Escapable),
+  Rc(V),
   /// Move `value` into a fresh reference-counted cell whose `ref_count` is 1.
   /// `alloc : .Some(a)` places the cell in `a`; the default, `.None`, places
   /// it on the global allocator. The last handle's drop frees the cell through
@@ -9736,7 +9767,7 @@ impl(
   /// a := Rc(i32).new(i32(42));
   /// assert(ref_count(a) == usize(1), "a fresh cell has one owner");
   /// ```
-  new : (fn(sink(value) : T, (alloc : Option(Allocator)) ?= .None) -> Rc(T))({
+  new : (fn(sink(value) : V, (alloc : Option(Allocator)) ?= .None) -> Rc(V))({
     // The result is written `Rc(T)`, not `Self`: a specialization evaluates a
     // written return type again, which gives `dyn(...)`'s synthesized
     // `Rc(T).new(<closure>)` the concrete cell over the closure's capture
@@ -9752,12 +9783,12 @@ impl(
     // declared result as its type, and for a `dyn(...)` closure that captures
     // a parameter of a generic function that type is unbound, a second C type
     // for the result (issues/fixed/2026-10-22-a-dyn-closure-in-a-generic-fn-boxes-through-a-cell-typed-by-the-unbound-return.md).
-    cell := Rc(T)(__yo_cell(T)(value, alloc));
+    cell := Rc(V)(__yo_cell(V)(value, alloc));
     cell
   })
 );
 impl(
-  generic(T : Type),
+  generic(T : ?Sized),
   where(T <: Hash),
   Rc(T),
   Hash(
@@ -9765,7 +9796,7 @@ impl(
   )
 );
 impl(
-  generic(T : Type),
+  generic(T : ?Sized),
   where(T <: Eq(T)),
   Rc(T),
   Eq(Rc(T))(
@@ -9782,7 +9813,7 @@ impl(
 /// shadows it, decision 32); an implicit copy whose source is used again is
 /// E0901. A deep copy is `Rc.new(h.*.clone())`.
 impl(
-  generic(T : Type),
+  generic(T : ?Sized),
   Rc(T),
   Clone(
     clone : (fn(self : &Self) -> Self)(___dup(self))
@@ -9802,7 +9833,7 @@ impl(
 /// assert(byte_len(h.as_ref()) == usize(2), "the payload is lent");
 /// ```
 impl(
-  generic(T : Type),
+  generic(T : ?Sized),
   Rc(T),
   as_ref : (fn(self : &Self) -> &T)(unsafe(addr_of(self._cell.*)))
 );
@@ -9855,7 +9886,11 @@ impl(
       },
       true => .Err(self)
     )
-  ),
+  )
+);
+impl(
+  generic(T : ?Sized),
+  Rc(T),
   /// The payload, written in place, when `self` is the only handle of
   /// either kind to its cell: `.Some` of a `&mut` reference into the cell.
   /// `.None` while another `Rc` or a `Weak` shares it, and nothing moves or
@@ -9977,7 +10012,7 @@ extern(
 /// consume(a);
 /// assert(w.upgrade().is_none(), "the last Rc dropped the payload");
 /// ```
-Weak :: (fn(comptime(V) : Type) -> comptime(Type))(
+Weak :: (fn(comptime(V) : ?Sized) -> comptime(Type))(
   // The cell's address, `.None` for `Weak.new()`. It points at the cell's
   // header, not at a `V`, and is never dereferenced here; it is typed by the
   // payload so that a `Weak(RefCell(Self))` field's `Self` is fixed up with
@@ -9986,7 +10021,7 @@ Weak :: (fn(comptime(V) : Type) -> comptime(Type))(
   newtype(_cell : ?*V)
 );
 impl(
-  generic(T : Type),
+  generic(T : ?Sized),
   Rc(T),
   /// A `Weak` handle to `self`'s cell: Rust's `Rc::downgrade`. Spelled
   /// `Rc.downgrade(&h)`, as `Rc.try_unwrap` is, so a payload method of the
@@ -10003,7 +10038,11 @@ impl(
   Weak(T),
   /// A `Weak` that names no cell: `upgrade` is always `.None`. Rust's
   /// `Weak::new`.
-  new : (fn() -> Self)(Weak(T)(.None)),
+  new : (fn() -> Self)(Weak(T)(.None))
+);
+impl(
+  generic(T : ?Sized),
+  Weak(T),
   /// A new `Rc` to the cell while its payload is alive, else `.None`.
   upgrade : (fn(self : &Self) -> Option(Rc(T)))(
     match(
@@ -10039,7 +10078,7 @@ impl(
 );
 /// `Clone` — a second `Weak` to the same cell (the weak count rises).
 impl(
-  generic(T : Type),
+  generic(T : ?Sized),
   Weak(T),
   Clone(
     clone : (fn(self : &Self) -> Self)({
@@ -10057,7 +10096,7 @@ impl(
   )
 );
 impl(
-  generic(T : Type),
+  generic(T : ?Sized),
   Weak(T),
   Drop(
     /// One `Weak` fewer; the cell is freed when its payload is gone and this
@@ -10083,16 +10122,23 @@ export(Weak);
 /// auto-dereference (`Deref`). Sharing is `Rc`; a `Box` is never counted, so
 /// `ref_count` rejects it.
 ///
-/// The cell is one allocation: an 8-byte flags word, then the payload, as an
-/// `Rc` cell is its count header, then the payload. The word sits in the
-/// `max(8, align_of(V))` bytes in front of the payload, so a global cell
-/// carries 8 bytes of header for a payload aligned to 8 or less. A cell placed
-/// by an `alloc` argument has the flags word's placed bit set and carries the
-/// owner prefix in front of its header: the one `std/allocator.yo`'s
-/// `Allocator.alloc` writes, recording the allocator, so the drop frees the
-/// cell through it (§3.11), telling it the cell's size and alignment. Only a
-/// placed cell pays for the prefix (plans/backlog/ALLOCATOR_PLACEMENT.md,
-/// "Related: `Box`'s layout").
+/// The cell is the payload and nothing else: a global `Box(T)` allocates
+/// exactly `size_of(T)` bytes, as Rust's does, and a zero-sized payload
+/// allocates nothing. A cell placed by an `alloc` argument sits behind
+/// `Allocator.alloc`'s owner prefix (`std/allocator.yo`), which records the
+/// allocator so the drop frees the cell through it, telling it the cell's
+/// size and alignment. Whether the cell is placed is bit 0 of the handle's
+/// cell pointer — free, because every cell is at least 16-byte aligned — so
+/// the handle is one word and the cell carries no header. The cell pointer
+/// is private: the payload's address is `addr_of(b.*)`, never a cast of
+/// the handle (plans/backlog/ALLOCATOR_PLACEMENT.md, "Related: `Box`'s
+/// layout").
+///
+/// `V` is `?Sized` (plans/VALUES_BY_DEFAULT.md decision 49): `Box([T])`,
+/// `Box(str)` and `Box(Dyn(T))` are the one `Box` at an unsized payload, a
+/// two-word handle whose second word is the payload's length or vtable.
+/// `new`, `into_inner` and `Default` need a sized payload; the drop, `Clone`
+/// (through `CloneInto`), `allocator`, `as_ref` and the trait impls do not.
 ///
 /// ```yo
 /// a := Box.new(i32(41));
@@ -10100,7 +10146,7 @@ export(Weak);
 /// b.* = i32(42);
 /// assert(a.* == i32(41), "the clone is a new cell");
 /// ```
-Box :: (fn(comptime(V) : Type) -> comptime(Type))(
+Box :: (fn(comptime(V) : ?Sized) -> comptime(Type))(
   newtype(_cell : *V)
 );
 // The allocator hooks a `Box` cell uses, which `std/allocator.yo` uses too
@@ -10120,7 +10166,7 @@ extern(
 );
 // A placed `Box` cell's owner record: `{ctx, vtable}`, the layout of
 // `std/allocator.yo`'s `_AllocPrefix` and codegen's `__yo_alloc_prefix_t`, in
-// the 16 bytes in front of the cell's header.
+// the 16 bytes in front of the payload.
 _BoxOwner :: struct(
   ctx : ?*void,
   vtable : *AllocatorVTable
@@ -10129,13 +10175,17 @@ derive(_BoxOwner, Copy, Clone);
 // The owner record's size, and the least prefix and alignment
 // `Allocator.alloc` gives a block (`ALLOC_PREFIX_SIZE`).
 _BOX_OWNER_SIZE :: usize(16);
-// The flags word's size, the least header in front of a payload.
-_BOX_FLAGS_SIZE :: usize(8);
-// The flags word's bit for a cell an `alloc` argument placed.
-_BOX_PLACED :: u64(1);
+// Bit 0 of the handle's cell pointer: the cell was placed by an `alloc`
+// argument. Every cell is at least 16-byte aligned, so the bit is free.
+_BOX_PLACED :: usize(1);
 // The alignment `__yo_malloc` guarantees: a payload aligned above it takes
 // the aligned family.
 _BOX_MALLOC_ALIGN :: usize(16);
+// The handle of a global zero-sized payload: no allocation, a non-null
+// address with bit 0 clear, aligned for every zero-sized type (Rust's
+// dangling pointer). A zero-sized store writes nothing, so nothing reads or
+// writes through it, and the drop frees nothing.
+_BOX_DANGLING :: usize(16);
 // A payload's alignment, read without `align_of`: a seed before the
 // `generate_alignof` fix leaves `align_of(V)` untranspiled when `V` holds an
 // extern type, as `std/thread.yo`'s boxed state does
@@ -10147,6 +10197,11 @@ _BoxAlignProbe :: (fn(comptime(V) : Type) -> comptime(Type))(
     _pad : u8,
     _v : V
   )
+);
+// The prefix in front of a placed payload, and the alignment its block is
+// asked for: `max(16, align)`, `Allocator.alloc`'s span.
+_box_owner_span :: (fn(align : usize) -> usize)(
+  cond((align > _BOX_OWNER_SIZE) => align, true => _BOX_OWNER_SIZE)
 );
 /// The constructor of `Box` (plans/archive/STATIC_ARGUMENT_INFERENCE.md):
 /// `Box.new(value)`, or `Box(T).new(value)` with the type written. It replaced
@@ -10169,86 +10224,135 @@ impl(
     // `Self` there resolved to the CALLER's impl receiver for an inferred
     // `Box.new(v)` inside another type's impl (issues/2026-10-30-self-in-a-static-methods-signature-resolves-to-the-callers-impl-receiver-under-inference.md).
     al := Self._align();
-    h := Self._header();
-    cell := match(
+    (placed : bool) = alloc.is_some();
+    (addr : usize) = match(
       alloc,
       .Some(a) => {
         // `Allocator.alloc`'s layout: the owner record ends a
-        // `max(16, al)`-byte prefix, and the header follows it.
-        span := Self._owner_span();
+        // `max(16, al)`-byte prefix, and the payload follows it. A
+        // zero-sized payload still takes the prefix, so that `allocator`
+        // can answer.
+        span := _box_owner_span(al);
         raw := match(
-          a.vtable.*.alloc(a.ctx, span + h + size_of(T), span),
+          a.vtable.*.alloc(a.ctx, span + size_of(T), span),
           .Some(b) => b,
           .None => __yo_panic("Box.new: out of memory")
         );
-        hdr := unsafe((*u8)(raw).add(span));
-        // SAFETY: `raw` is a fresh block of `span + h + size_of(T)` bytes
-        // aligned to `span`, so the record, the header and the payload lie
-        // inside it, each aligned.
-        unsafe(consume((*_BoxOwner)(hdr.sub(_BOX_OWNER_SIZE)).* = _BoxOwner(ctx : a.ctx, vtable : a.vtable)));
-        unsafe(consume((*u64)(hdr.add(h - _BOX_FLAGS_SIZE)).* = _BOX_PLACED));
-        (*T)(hdr.add(h))
+        payload := unsafe((*u8)(raw).add(span));
+        // SAFETY: `raw` is a fresh block of `span + size_of(T)` bytes
+        // aligned to `span`, so the record and the payload lie inside it,
+        // each aligned.
+        unsafe(consume((*_BoxOwner)(payload.sub(_BOX_OWNER_SIZE)).* = _BoxOwner(ctx : a.ctx, vtable : a.vtable)));
+        unsafe(unsafe.cast(addr_of(payload), *usize).*)
       },
-      .None => {
-        raw := match(
-          cond(
-            (al > _BOX_MALLOC_ALIGN) => __yo_aligned_alloc(al, (((h + size_of(T) + al) - usize(1)) / al) * al),
-            true => __yo_malloc(h + size_of(T))
-          ),
-          .Some(b) => b,
-          .None => __yo_panic("Box.new: out of memory")
-        );
-        // SAFETY: `raw` is a fresh block of at least `h + size_of(T)` bytes
-        // aligned to `max(16, al)` (the aligned family's size is rounded up
-        // to a multiple of `al`, as C11's `aligned_alloc` requires).
-        unsafe(consume((*u64)(unsafe((*u8)(raw).add(h - _BOX_FLAGS_SIZE))).* = u64(0)));
-        (*T)(unsafe((*u8)(raw).add(h)))
-      }
+      .None => cond(
+        (size_of(T) == usize(0)) => _BOX_DANGLING,
+        true => {
+          raw := match(
+            cond(
+              (al > _BOX_MALLOC_ALIGN) => __yo_aligned_alloc(al, (((size_of(T) + al) - usize(1)) / al) * al),
+              true => __yo_malloc(size_of(T))
+            ),
+            .Some(b) => b,
+            .None => __yo_panic("Box.new: out of memory")
+          );
+          // SAFETY: `raw` is a fresh block of at least `size_of(T)` bytes
+          // aligned to `max(16, al)` (the aligned family's size is rounded
+          // up to a multiple of `al`, as C11's `aligned_alloc` requires).
+          unsafe(unsafe.cast(addr_of(raw), *usize).*)
+        }
+      )
     );
-    unsafe(consume(cell.* = value));
-    Box(T)(cell)
+    // SAFETY: `addr` is the payload's address (aligned, `size_of(T)` bytes
+    // owned by this cell, or the dangling address of a zero-sized payload,
+    // which a store does not touch).
+    (cell : *T) = unsafe(unsafe.cast(&addr, *T));
+    unsafe(__yo_ptr_write(cell, value));
+    mut(b) := Box(T)(cell);
+    if(placed, {
+      // SAFETY: the handle is one word, the cell pointer; its bit 0 is free.
+      unsafe(consume(unsafe.cast(addr_of(b), *usize).* = (addr | _BOX_PLACED)));
+    });
+    b
   }),
   // The payload's alignment.
   _align : (fn() -> usize)(size_of(_BoxAlignProbe(T)) - size_of(T)),
-  // The header in front of the payload: the flags word, padded to the
-  // payload's alignment, `max(8, align_of(T))` bytes.
-  _header : (fn() -> usize)(
-    cond((Self._align() > _BOX_FLAGS_SIZE) => Self._align(), true => _BOX_FLAGS_SIZE)
-  ),
-  // A placed cell's prefix in front of the header, and the alignment its
-  // block is asked for: `max(16, align_of(T))`, `Allocator.alloc`'s span.
-  _owner_span : (fn() -> usize)(
-    cond((Self._align() > _BOX_OWNER_SIZE) => Self._align(), true => _BOX_OWNER_SIZE)
-  ),
-  // The flags word of a live cell.
-  _flags : (fn(cell : *T) -> u64)(
-    // SAFETY: every `Box` cell's flags word ends 8 bytes before its payload.
-    unsafe((*u64)(unsafe((*u8)(cell).sub(_BOX_FLAGS_SIZE))).*)
-  ),
-  // The owner record of a placed cell.
-  _owner_of : (fn(cell : *T) -> _BoxOwner)(
-    // SAFETY: a placed cell's record is the 16 bytes before its header.
-    unsafe((*_BoxOwner)(unsafe((*u8)(cell).sub(Self._header() + _BOX_OWNER_SIZE))).*)
-  )
+  /// Move the payload out and free the cell — Rust's `*b` move, or
+  /// `Box::into_inner`. The payload moves bitwise, so a move-only `T` works
+  /// (issues/fixed/2026-10-23-a-move-only-payload-cannot-move-out-of-a-box.md).
+  into_inner : (fn(self : Self) -> T)({
+    mut(b) := self;
+    cell := Box(T)._payload(&b);
+    placed := Box(T)._is_placed(&b);
+    // SAFETY: the box is the cell's only owner. The payload moves out
+    // bitwise and the cell is freed without dropping it; the box is then
+    // overwritten (dropping nothing) with the zeroed box, whose drop is a
+    // no-op, so the payload is neither dropped nor freed twice.
+    value := unsafe(__yo_ptr_read(cell));
+    Box(T)._free_cell(cell, placed);
+    unsafe(__yo_ptr_write(unsafe.cast(addr_of(b), *usize), usize(0)));
+    value
+  })
 );
 impl(
-  generic(T : Type),
+  generic(T : ?Sized),
   Box(T),
+  // The handle's first word: the cell pointer, its bit 0 the placed bit.
+  _word : (fn(self : &Self) -> usize)({
+    c := self._cell;
+    // SAFETY: a pointer, thin or fat, starts with its address word.
+    unsafe(unsafe.cast(addr_of(c), *usize).*)
+  }),
+  // The cell was placed by an `alloc` argument.
+  _is_placed : (fn(self : &Self) -> bool)(
+    (Self._word(self) & _BOX_PLACED) != usize(0)
+  ),
+  // The payload's address: the cell pointer with its placed bit cleared,
+  // its length or vtable kept.
+  _payload : (fn(self : &Self) -> *T)({
+    (mut(p) : *T) = self._cell;
+    // SAFETY: `p` is a copy of the handle's pointer; only its address word
+    // changes.
+    unsafe(consume(unsafe.cast(addr_of(p), *usize).* = (Self._word(self) & ~(_BOX_PLACED))));
+    p
+  }),
   /// The allocator the cell belongs to: the one `Box.new` placed it in, or
   /// `.None` for the global allocator. Spelled `Box.allocator(b)`: a payload
   /// with its own `allocator` makes `b.allocator()` ambiguous (E0616).
   allocator : (fn(self : &Self) -> Option(Allocator))(
     cond(
-      ((Self._flags(self._cell) & _BOX_PLACED) != u64(0)) => {
-        owner := Self._owner_of(self._cell);
+      Self._is_placed(self) => {
+        // SAFETY: a placed payload's owner record is the 16 bytes before it.
+        owner := unsafe((*_BoxOwner)(unsafe((*u8)(Self._payload(self)).sub(_BOX_OWNER_SIZE))).*);
         .Some(Allocator(ctx : owner.ctx, vtable : owner.vtable))
       },
       true => .None
     )
-  )
+  ),
+  /// Free a cell whose payload is already dropped or moved out: a placed one
+  /// through the allocator its owner prefix records, telling it the block's
+  /// size and alignment; a global one to the global heap. A global
+  /// zero-sized payload owns no block.
+  _free_cell : (fn(cell : *T, placed : bool) -> unit)({
+    sz := size_of_val(cell);
+    al := align_of_val(cell);
+    payload := (*u8)(cell);
+    cond(
+      placed => {
+        span := _box_owner_span(al);
+        // SAFETY: a placed payload's owner record is the 16 bytes before it,
+        // at the end of the block's `span`-byte prefix.
+        owner := unsafe((*_BoxOwner)(unsafe(payload.sub(_BOX_OWNER_SIZE))).*);
+        owner.vtable.*.free(owner.ctx, .Some((*void)(unsafe(payload.sub(span)))), span + sz, span);
+      },
+      (sz == usize(0)) => (),
+      (al > _BOX_MALLOC_ALIGN) => __yo_aligned_free(.Some((*void)(payload))),
+      true => __yo_free(.Some((*void)(payload)))
+    );
+  })
 );
 impl(
-  generic(T : Type),
+  generic(T : ?Sized),
   Box(T),
   Drop(
     /// Drops the payload, then frees the cell: a placed one through the
@@ -10262,83 +10366,91 @@ impl(
     /// address below null
     /// (issues/fixed/2026-10-23-an-aborted-task-drops-a-box-local-it-never-stored.md).
     drop : (fn(self : &mut Self) -> unit)(
-      match(
-        // SAFETY: a `*T` and an `Option(*T)` share one representation, the
-        // null pointer being `.None`.
-        unsafe(unsafe.cast(&self._cell, Option(*T))),
-        .None => (),
-        .Some(cell) => {
+      cond(
+        (Self._word(self) == usize(0)) => (),
+        true => {
+          cell := Self._payload(self);
           // SAFETY: the box is the cell's only owner, and this runs once.
           unsafe(drop_in_place(cell));
-          Self._free_cell(cell);
+          Self._free_cell(cell, Self._is_placed(self));
         }
       )
     )
   )
 );
+/// `Clone` — a new cell holding a clone of the payload, written in place by
+/// `CloneInto` (so an unsized payload clones too), placed where the source
+/// lives (decision 12): a box placed by an explicit allocator clones into
+/// that allocator.
 impl(
-  generic(T : Type),
-  Box(T),
-  /// Free a cell whose payload is already dropped or moved out: a placed one
-  /// through the allocator its owner prefix records, a global one to the
-  /// global heap.
-  _free_cell : (fn(cell : *T) -> unit)({
-    h := Self._header();
-    hdr := unsafe((*u8)(cell).sub(h));
-    cond(
-      ((Self._flags(cell) & _BOX_PLACED) != u64(0)) => {
-        owner := Self._owner_of(cell);
-        span := Self._owner_span();
-        owner.vtable.*.free(owner.ctx, .Some((*void)(unsafe(hdr.sub(span)))), span + h + size_of(T), span);
-      },
-      (Self._align() > _BOX_MALLOC_ALIGN) => __yo_aligned_free(.Some((*void)(hdr))),
-      true => __yo_free(.Some((*void)(hdr)))
-    );
-  }),
-  /// Move the payload out and free the cell — Rust's `*b` move, or
-  /// `Box::into_inner`. The payload moves bitwise, so a move-only `T` works
-  /// (issues/fixed/2026-10-23-a-move-only-payload-cannot-move-out-of-a-box.md).
-  into_inner : (fn(self : Self) -> T)({
-    mut(b) := self;
-    cell := b._cell;
-    // SAFETY: the box is the cell's only owner. The payload moves out
-    // bitwise and the cell is freed without dropping it; the box is then
-    // overwritten (dropping nothing) with the zeroed box, whose drop is a
-    // no-op, so the payload is neither dropped nor freed twice.
-    value := unsafe(__yo_ptr_read(cell));
-    Self._free_cell(cell);
-    unsafe(__yo_ptr_write(unsafe.cast(addr_of(b), *Option(*T)), Option(*T).None));
-    value
-  })
-);
-/// `Clone` — a new cell holding a clone of the payload, placed where the
-/// source lives (decision 12): a box placed by an explicit allocator clones
-/// into that allocator.
-impl(
-  generic(T : Type),
-  where(T <: Clone),
+  generic(T : ?Sized),
+  where(T <: CloneInto),
   Box(T),
   Clone(
-    clone : (fn(self : &Self) -> Self)(
-      Box.new(unsafe(self._cell.*).clone(), alloc : Box(T).allocator(self))
-    )
+    clone : (fn(self : &Self) -> Self)({
+      src := Box(T)._payload(self);
+      sz := size_of_val(src);
+      al := align_of_val(src);
+      (placed : bool) = Box(T)._is_placed(self);
+      (addr : usize) = match(
+        Box(T).allocator(self),
+        .Some(a) => {
+          span := _box_owner_span(al);
+          raw := match(
+            a.vtable.*.alloc(a.ctx, span + sz, span),
+            .Some(b) => b,
+            .None => __yo_panic("Box.clone: out of memory")
+          );
+          payload := unsafe((*u8)(raw).add(span));
+          // SAFETY: `raw` is a fresh block of `span + sz` bytes aligned to
+          // `span`.
+          unsafe(consume((*_BoxOwner)(payload.sub(_BOX_OWNER_SIZE)).* = _BoxOwner(ctx : a.ctx, vtable : a.vtable)));
+          unsafe(unsafe.cast(addr_of(payload), *usize).*)
+        },
+        .None => cond(
+          (sz == usize(0)) => _BOX_DANGLING,
+          true => {
+            raw := match(
+              cond(
+                (al > _BOX_MALLOC_ALIGN) => __yo_aligned_alloc(al, (((sz + al) - usize(1)) / al) * al),
+                true => __yo_malloc(sz)
+              ),
+              .Some(b) => b,
+              .None => __yo_panic("Box.clone: out of memory")
+            );
+            unsafe(unsafe.cast(addr_of(raw), *usize).*)
+          }
+        )
+      );
+      // The new cell's pointer: the source's, its address word replaced.
+      (mut(dst) : *T) = src;
+      // SAFETY: `dst` is a copy of the source pointer; only its address word
+      // changes, to a fresh block of `size_of_val(src)` bytes.
+      unsafe(consume(unsafe.cast(addr_of(dst), *usize).* = addr));
+      // SAFETY: the source payload is live for the call; `dst` is fresh.
+      unsafe((T <: CloneInto).clone_into(&src.*, dst));
+      (mut(out) : *T) = dst;
+      (tagged : usize) = cond(placed => (addr | _BOX_PLACED), true => addr);
+      unsafe(consume(unsafe.cast(addr_of(out), *usize).* = tagged));
+      Box(T)(out)
+    })
   )
 );
 impl(
-  generic(T : Type),
+  generic(T : ?Sized),
   where(T <: Hash),
   Box(T),
   Hash(
-    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(unsafe(self._cell.*).hash(hasher))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(unsafe(Box(T)._payload(self).*).hash(hasher))
   )
 );
 impl(
-  generic(T : Type),
+  generic(T : ?Sized),
   where(T <: Eq(T)),
   Box(T),
   Eq(Box(T))(
     // SAFETY: both cells are live for the comparison.
-    (==) : ((lhs, rhs) -> unsafe(lhs._cell.* == rhs._cell.*))
+    (==) : ((lhs, rhs) -> unsafe(Box(T)._payload(lhs).* == Box(T)._payload(rhs).*))
   )
 );
 /// `Default` — a cell holding `T`'s default.
@@ -10366,15 +10478,15 @@ impl(
 /// assert(byte_len(h.as_ref()) == usize(2), "the payload is lent");
 /// ```
 impl(
-  generic(T : Type),
+  generic(T : ?Sized),
   Box(T),
-  as_ref : (fn(self : &Self) -> &T)(unsafe(addr_of(self._cell.*)))
+  as_ref : (fn(self : &Self) -> &T)(unsafe(addr_of(Box(T)._payload(self).*)))
 );
 // The box is its payload's only owner, so moving the box moves the payload
 // (§3.8): it is `Send`/`Sync` exactly when the payload is. The raw `_cell`
 // field derives neither (decision 38 E); `Acyclic` derives from the pointee.
-impl(generic(T : Type), where(T <: Send), Box(T), Send());
-impl(generic(T : Type), where(T <: Sync), Box(T), Sync());
+impl(generic(T : ?Sized), where(T <: Send), Box(T), Send());
+impl(generic(T : ?Sized), where(T <: Sync), Box(T), Sync());
 export(Box);
 /// === Arc ===
 /// Arc — an atomically reference-counted, thread-safe container for a single value.
@@ -10393,16 +10505,16 @@ export(Box);
 /// a := Arc.new(i32(42));
 /// assert(a.* == i32(42), "inner value is 42");
 /// ```
-Arc :: (fn(comptime(V) : Type, where(V <: (Send, Sync)), where(V <: Escapable)) -> comptime(Type))(
+Arc :: (fn(comptime(V) : ?Sized) -> comptime(Type))(
   newtype(_cell : __yo_atomic_cell(V))
 );
 /// The constructor of `Arc` (plans/archive/STATIC_ARGUMENT_INFERENCE.md):
 /// `Arc.new(value)`, or `Arc(T).new(value)` with the type written. It replaced
 /// the prelude's `arc(value)`, deleted by static-argument inference B3.
 impl(
-  generic(T : Type),
-  where(T <: (Send, Sync)),
-  Arc(T),
+  generic(V : Type),
+  where(V <: (Send, Sync, Escapable)),
+  Arc(V),
   /// Move `value` into a new atomically counted cell, returning a handle
   /// whose `ref_count` is 1. `alloc : .Some(a)` places the cell in `a`; the
   /// default, `.None`, places it on the global allocator. The last handle's
@@ -10414,12 +10526,12 @@ impl(
   /// a := Arc(i32).new(i32(42));
   /// assert(a.* == i32(42), "the payload");
   /// ```
-  new : (fn(sink(value) : T, (alloc : Option(Allocator)) ?= .None) -> Arc(T))({
-    // `Arc(T)`, not `Self`, for `Rc.new`'s reason. The atomic cell takes the
+  new : (fn(sink(value) : V, (alloc : Option(Allocator)) ?= .None) -> Arc(V))({
+    // `Arc(V)`, not `Self`, for `Rc.new`'s reason. The atomic cell takes the
     // allocator itself, as `Rc.new`'s does, and the handle is bound, not the
     // body's tail, for `Rc.new`'s reason
     // (issues/fixed/2026-10-22-a-dyn-closure-in-a-generic-fn-boxes-through-a-cell-typed-by-the-unbound-return.md).
-    cell := Arc(T)(__yo_atomic_cell(T)(value, alloc));
+    cell := Arc(V)(__yo_atomic_cell(V)(value, alloc));
     cell
   })
 );
@@ -10431,8 +10543,8 @@ impl(
 // impls are explicit because the atomic-object derivation asks the payload
 // TYPE for `Sync`, and an `Impl(Fn(...))` payload answers only by value
 // (its captures), so `Arc(Impl(Fn() -> unit))` would not derive `Send`.
-impl(generic(T : Type), where(T <: (Send, Sync)), Arc(T), Send());
-impl(generic(T : Type), where(T <: (Send, Sync)), Arc(T), Sync());
+impl(generic(T : ?Sized), where(T <: (Send, Sync)), Arc(T), Send());
+impl(generic(T : ?Sized), where(T <: (Send, Sync)), Arc(T), Sync());
 /// `Clone` — a second handle to the same cell, as Rust's `Arc::clone`: an
 /// atomic count bump (plans/VALUES_BY_DEFAULT.md decision 17). A copy of a
 /// handle is a new owner, so it is spelled where it is made, `Arc.clone(a)`;
@@ -10440,7 +10552,7 @@ impl(generic(T : Type), where(T <: (Send, Sync)), Arc(T), Sync());
 /// a spawned thread's closure is cloned in its capture list,
 /// `{ a : Arc.clone(a) }() => ...`, when the spawner reads it again.
 impl(
-  generic(T : Type),
+  generic(T : ?Sized),
   where(T <: (Send, Sync)),
   Arc(T),
   Clone(
@@ -10461,7 +10573,7 @@ impl(
 /// assert(byte_len(h.as_ref()) == usize(2), "the payload is lent");
 /// ```
 impl(
-  generic(T : Type),
+  generic(T : ?Sized),
   where(T <: (Send, Sync)),
   Arc(T),
   as_ref : (fn(self : &Self) -> &T)(unsafe(addr_of(self._cell.*)))
@@ -10517,7 +10629,12 @@ impl(
       },
       true => .Err(self)
     )
-  }),
+  })
+);
+impl(
+  generic(T : ?Sized),
+  where(T <: (Send, Sync)),
+  Arc(T),
   /// The payload, written in place, when `self` is the only handle of
   /// either kind to its cell on any thread: `.Some` of a `&mut` reference
   /// into the cell. `.None` while another `Arc` or an `ArcWeak` shares it,
@@ -10630,7 +10747,7 @@ extern(
 /// consume(a);
 /// assert(w.upgrade().is_none(), "the last Arc dropped the payload");
 /// ```
-ArcWeak :: (fn(comptime(V) : Type, where(V <: (Send, Sync))) -> comptime(Type))(
+ArcWeak :: (fn(comptime(V) : ?Sized) -> comptime(Type))(
   // The cell's address, `.None` for `ArcWeak.new()`. As for `Weak`, it points
   // at the cell's header, is never dereferenced here, and is typed by the
   // payload so that an `ArcWeak(Mutex(Self))` field's `Self` is fixed up with
@@ -10640,10 +10757,10 @@ ArcWeak :: (fn(comptime(V) : Type, where(V <: (Send, Sync))) -> comptime(Type))(
 // The counts are atomic and the payload is `Send` and `Sync`, so any thread
 // may hold, upgrade or drop the handle. The raw `_cell` field derives
 // neither, so the impls are stated.
-impl(generic(T : Type), where(T <: (Send, Sync)), ArcWeak(T), Send());
-impl(generic(T : Type), where(T <: (Send, Sync)), ArcWeak(T), Sync());
+impl(generic(T : ?Sized), where(T <: (Send, Sync)), ArcWeak(T), Send());
+impl(generic(T : ?Sized), where(T <: (Send, Sync)), ArcWeak(T), Sync());
 impl(
-  generic(T : Type),
+  generic(T : ?Sized),
   where(T <: (Send, Sync)),
   Arc(T),
   /// An `ArcWeak` handle to `self`'s cell: Rust's `Arc::downgrade`. Spelled
@@ -10660,7 +10777,12 @@ impl(
   where(T <: (Send, Sync)),
   ArcWeak(T),
   /// An `ArcWeak` that names no cell: `upgrade` is always `.None`.
-  new : (fn() -> Self)(ArcWeak(T)(.None)),
+  new : (fn() -> Self)(ArcWeak(T)(.None))
+);
+impl(
+  generic(T : ?Sized),
+  where(T <: (Send, Sync)),
+  ArcWeak(T),
   /// A new `Arc` to the cell while its payload is alive, else `.None`.
   upgrade : (fn(self : &Self) -> Option(Arc(T)))(
     match(
@@ -10696,7 +10818,7 @@ impl(
 );
 /// `Clone` — a second `ArcWeak` to the same cell (the weak count rises).
 impl(
-  generic(T : Type),
+  generic(T : ?Sized),
   where(T <: (Send, Sync)),
   ArcWeak(T),
   Clone(
@@ -10716,7 +10838,7 @@ impl(
   )
 );
 impl(
-  generic(T : Type),
+  generic(T : ?Sized),
   where(T <: (Send, Sync)),
   ArcWeak(T),
   Drop(
@@ -10752,9 +10874,9 @@ Deref :: trait(
   Target : Type
 );
 export(Deref);
-impl(generic(T : Type), Rc(T), Deref(Target : T));
-impl(generic(T : Type), Box(T), Deref(Target : T));
-impl(generic(T : Type), where(T <: (Send, Sync)), Arc(T), Deref(Target : T));
+impl(generic(T : ?Sized), Rc(T), Deref(Target : T));
+impl(generic(T : ?Sized), Box(T), Deref(Target : T));
+impl(generic(T : ?Sized), where(T <: (Send, Sync)), Arc(T), Deref(Target : T));
 /// === MaybeUninit ===
 extern(
   "Yo",
