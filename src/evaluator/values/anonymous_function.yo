@@ -1129,24 +1129,24 @@ _evaluate_capture_list :: (
           through := ArrayList(CaptureBorrow).new();
           _capture_origin_borrows(&label, &reference_binding_referents(&root_var, env, ctx), &name_tok, env, &mut through);
           (ti : usize) = usize(0);
-            while(ti < through.len(), ti = (ti + usize(1)), {
-              tb := through(ti).clone();
-              // The reborrow's mode bounds the entry's: `&s.*` of a `&mut`
-              // binding borrows the referent shared.
-              reborrow_borrows.push(
-                CaptureBorrow(
-                  label : tb.label.clone(),
-                  is_mut : (tb.is_mut && is_mut),
-                  root_id : tb.root_id,
-                  root_name : tb.root_name.clone(),
-                  path : tb.path.clone(),
-                  root_is_value_param : tb.root_is_value_param,
-                  through_value : tb.through_value,
-                  assumed : tb.assumed,
-                  site : tb.site.clone()
-                )
-              );
-            });
+          while(ti < through.len(), ti = (ti + usize(1)), {
+            tb := through(ti).clone();
+            // The reborrow's mode bounds the entry's: `&s.*` of a `&mut`
+            // binding borrows the referent shared.
+            reborrow_borrows.push(
+              CaptureBorrow(
+                label : tb.label.clone(),
+                is_mut : (tb.is_mut && is_mut),
+                root_id : tb.root_id,
+                root_name : tb.root_name.clone(),
+                path : tb.path.clone(),
+                root_is_value_param : tb.root_is_value_param,
+                through_value : tb.through_value,
+                assumed : tb.assumed,
+                site : tb.site.clone()
+              )
+            );
+          });
         };
       });
       cap_label_text := label.clone();

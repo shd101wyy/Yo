@@ -385,24 +385,50 @@ _fm_grow :: (fn(t : &mut String) -> unit)({
 });
 test("FnMut: an `Fn` closure may not write an implicit capture (E0913)", {
   mut(s) := String.from("abc");
-  comptime_expect_error(_fm_call_fn(&(() => {
-    s.push_str("d");
-    i32(0)
-  })), "the closure captures it implicitly");
-  comptime_expect_error(_fm_call_fn(&(() => {
-    _fm_grow(&mut s);
-    i32(0)
-  })), "the closure captures it implicitly");
+  comptime_expect_error(
+    _fm_call_fn(
+      &(
+        () => {
+          s.push_str("d");
+          i32(0)
+        }
+      )
+    ),
+    "the closure captures it implicitly"
+  );
+  comptime_expect_error(
+    _fm_call_fn(
+      &(
+        () => {
+          _fm_grow(&mut s);
+          i32(0)
+        }
+      )
+    ),
+    "the closure captures it implicitly"
+  );
   mut(n) := i32(0);
-  comptime_expect_error(_fm_call_fn(&(() => {
-    n = (n + i32(1));
-    n
-  })), "the closure captures it implicitly");
+  comptime_expect_error(
+    _fm_call_fn(
+      &(
+        () => {
+          n = (n + i32(1));
+          n
+        }
+      )
+    ),
+    "the closure captures it implicitly"
+  );
   // The write that reaches the caller borrows the place.
-  assert(_fm_twice(&mut ({ &mut n }() => {
-    n.* = (n.* + i32(1));
-    n.*
-  })) == i32(3), "a `&mut` entry writes the caller's binding");
+  assert(
+    _fm_twice(
+      &mut ({ &mut n }() => {
+        n.* = (n.* + i32(1));
+        n.*
+      })
+    ) == i32(3),
+    "a `&mut` entry writes the caller's binding"
+  );
   assert(n == i32(2), "the caller sees both writes");
 });
 // Audit A47: calling an `FnMut` closure through a `&` capture is a `&mut self`

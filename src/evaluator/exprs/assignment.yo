@@ -1207,21 +1207,21 @@ _d3_judge_local_borrows :: (
           // (`cap_conflict`, audit A32).
           match(&entry.cap_conflict, .Some(cc) => raise_capture_freeze_conflict(cc, LocalBorrowAccess.Exclusive, ast_expr_token(&entry.place), ctx, exn), .None => ());
           if(entry.lends_mut || match(borrow_mask, .Some(bm) => (param_mutation_mask_hits(&bm, entry.param_index) || param_mutation_mask_lends_mut(&bm, entry.param_index)), .None => false), {
-          local_borrow_require_writable(&lbp, entry.lb_read_only, entry.how.clone(), ast_expr_token(&entry.place), ctx, exn);
-          if(!carriers_ready, {
-            carriers = call_origin_operands(call, ctx);
-            carriers_ready = true;
-          });
-          local_borrow_access_at(
-            &lbp,
-            if(entry.lends_mut, LocalBorrowAccess.Exclusive, LocalBorrowAccess.Write),
-            ast_expr_token(&entry.place),
-            &call_activation_token(call, ast_expr_token(&entry.place)),
-            &carriers,
-            ctx,
-            exn
-          );
-          local_borrow_access(&lbp, LocalBorrowAccess.Read, ast_expr_token(&entry.place), ctx, exn);
+            local_borrow_require_writable(&lbp, entry.lb_read_only, entry.how.clone(), ast_expr_token(&entry.place), ctx, exn);
+            if(!carriers_ready, {
+              carriers = call_origin_operands(call, ctx);
+              carriers_ready = true;
+            });
+            local_borrow_access_at(
+              &lbp,
+              if(entry.lends_mut, LocalBorrowAccess.Exclusive, LocalBorrowAccess.Write),
+              ast_expr_token(&entry.place),
+              &call_activation_token(call, ast_expr_token(&entry.place)),
+              &carriers,
+              ctx,
+              exn
+            );
+            local_borrow_access(&lbp, LocalBorrowAccess.Read, ast_expr_token(&entry.place), ctx, exn);
           });
         },
         .None => ()

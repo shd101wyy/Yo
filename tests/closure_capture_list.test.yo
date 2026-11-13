@@ -862,11 +862,13 @@ test("access modes: a capture-list `&mut` entry beside a live `&` loan is E0911"
   }, "Cannot borrow with `&mut` `xs` here: `r` borrows");
   comptime_expect_error({
     r := _cl_first(&xs);
-    n := _cl_eat(&mut ({ m : &mut xs }() => {
-      m.push(String.from("b"));
-      m.len()
-    }));
-    (n + r.len())
+    n := _cl_eat(
+      &mut ({ m : &mut xs }() => {
+        m.push(String.from("b"));
+        m.len()
+      })
+    );
+    n + r.len()
   }, "Cannot borrow with `&mut` `xs` here: `r` borrows");
   r := _cl_first(&xs);
   assert(r.len() == usize(1), "the loan's last use precedes the entry");
@@ -882,12 +884,12 @@ test("access modes: an implicit capture that moves a place is checked against li
   comptime_expect_error({
     r := _cl_first(&xs);
     n := _cl_eat(&mut (() => xs.len()));
-    (n + r.len())
+    n + r.len()
   }, "Cannot move `xs` here: `r` borrows");
   comptime_expect_error({
     (g : Impl(Fn() -> usize)) = ({ r : &xs }() => r.len());
     n := _cl_eat(&mut (() => xs.len()));
-    (n + g())
+    n + g()
   }, "cannot be moved here: the closure `g` borrows");
 });
 test("access modes: a capture that reborrows through a reference binding freezes what it borrows", {
