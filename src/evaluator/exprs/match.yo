@@ -104,7 +104,7 @@ pragma(Pragma.AllowUnsafe);
 { origin_of, variable_holder_roots, origin_scope_close, origin_scrutinee_temporary_place, origin_close_scrutinee_temporary, is_temporary_operand, local_borrow_place_of_variable, local_borrow_access_at, _last_token_of } :: import("../utils.yo");
 { reject_dyn_place_by_value, reject_guard_moves, merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, dyn_copy_pending_exists, dyn_copy_rule_applies, note_dyn_copy_pending, audit_note_match_binding, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding, note_second_class_binding, reject_malformed_pattern_mut_markers, reject_malformed_mut_marker, place_require_mut, reject_write_through_rc, _lb_arrow_shadows, _lb_fn_literal_binds } :: import("../utils.yo");
 { throw_if_mut_lend_through_atomic_object } :: import("./assignment.yo");
-{ set_expr_as_consumed, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, reject_reference_without_deref, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, LocalBorrowPlace, LocalBorrowAccess, local_borrow_place_of, local_borrow_access, local_borrow_require_writable, local_borrow_root_is_shared_reference, variable_is_mut_borrow, variable_is_imm_borrow, local_borrow_info_of_variable, deref_operand_is_raw_pointer } :: import("../utils.yo");
+{ set_expr_as_consumed, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, reject_reference_without_deref, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, LocalBorrowPlace, LocalBorrowAccess, local_borrow_place_of, access_place, local_borrow_require_writable, local_borrow_root_is_shared_reference, variable_is_mut_borrow, variable_is_imm_borrow, local_borrow_info_of_variable, deref_operand_is_raw_pointer } :: import("../utils.yo");
 { evaluate_begin_expression, attach_consumed_binding_exit_drops, reject_empty_record_arm, audit_judge_arm_copies, audit_commit_arm_copies, judge_dyn_copies, discard_dyn_copies } :: import("./begin.yo");
 { evaluate_expression, evaluate_expression_raw, evaluate_expression_guarded } :: import("./expr.yo");
 {
@@ -1299,7 +1299,7 @@ evaluate_match :: (
       &mut_place,
       .Some(lp) => {
         local_borrow_require_writable(&lp, local_borrow_root_is_shared_reference(&lp, &env), `match \`${ast_expr_to_string(&scrutinee_expr)}\` with \`&mut\``, ast_expr_token(&scrutinee_expr), ctx, exn);
-        local_borrow_access(&lp, LocalBorrowAccess.Exclusive, ast_expr_token(&scrutinee_expr), ctx, exn);
+        access_place(&lp, LocalBorrowAccess.Exclusive, ast_expr_token(&scrutinee_expr), &env, ctx, exn);
       },
       .None => ()
     );
