@@ -316,6 +316,15 @@ next_meaningful_token :: (fn(tokens : &ArrayList(Token), index : usize, end_excl
   });
   result
 });
+/// The `.` of a record value `.{ … }` (plans/reference/BRACE_BLOCKS.md): a
+/// dot written right before a `{`. Layout treats the pair as the brace.
+is_record_dot_at :: (fn(tokens : &ArrayList(Token), index : usize) -> bool)(
+  match(
+    tokens.get(index),
+    .Some(d) => ((d.kind == TokenKind.Dot) && match(tokens.get(index + usize(1)), .Some(c) => ((c.kind == TokenKind.LCurlyBracket) && (c.byte_offset == (d.byte_offset + u32(1)))), .None => false)),
+    .None => false
+  )
+);
 /// True iff any token in `[start_inclusive, end_exclusive)` is a comment.
 token_range_has_comment :: (fn(tokens : &ArrayList(Token), start_inclusive : usize, end_exclusive : usize) -> bool)({
   (i : usize) = start_inclusive;
@@ -700,7 +709,7 @@ has_top_level_curly_argument :: (
             },
             true => ()
           );
-          if(at_top_level, {
+          if(at_top_level && !is_record_dot_at(tokens, i), {
             previous_top_level = Option(Token).Some(t);
           });
         }
@@ -1891,11 +1900,13 @@ find_multiline_paren_indices :: (
               (!force_multiline && !spans_rows) => (),
               true => {
                 first_inner := next_meaningful_token(tokens, i, right_idx);
-                first_is_curly := match(
+                (fi_idx : usize) = (i + usize(1));
+                while((fi_idx < right_idx) && match(tokens.get(fi_idx), .Some(fc) => is_comment_token(fc.kind), .None => false), fi_idx = (fi_idx + usize(1)), ());
+                first_is_curly := (match(
                   first_inner,
                   .None => false,
                   .Some(fi) => (fi.kind == TokenKind.LCurlyBracket)
-                );
+                ) || is_record_dot_at(tokens, fi_idx));
                 skip := (
                   first_is_curly ||
                     has_top_level_curly_argument(tokens, i, right_idx) ||
