@@ -8949,8 +8949,12 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
     // G-E's third check (VERDICTS-58 decision 16): a name this origin does
     // not resolve was computed outside its scope, so the set it yields is a
     // default, not a rule's.
-    if(g_audit_origin_totality && (out.len() == before) && (get_variables_from_env(env, ast_expr_token(&stripped).value.*.clone()).len() == usize(0)), {
-      _audit_origin_totality_report("lost", "origin_of", &stripped);
+    if((out.len() == before) && _origin_name_is_lost(&stripped, &fi, env), {
+      if(g_audit_origin_totality, {
+        _audit_origin_totality_report("lost", "origin_of", &stripped);
+      });
+      _origin_push(_origin_lost_entry(&stripped), out);
+      return(());
     });
     // A by-value parameter holder (`o : Option(&(T, p))`) holds the
     // caller's references: its own place is no root of its value (a lend
@@ -9219,8 +9223,11 @@ _origin_push_lend :: (fn(operand : &AstExpr, is_mut : bool, env : &Environment, 
         .Some(root_atom) => {
           entry_roots := ArrayList(OriginRootPlace).new();
           _holder_roots_into(&root_atom, env, ctx, &mut entry_roots);
-          if(g_audit_origin_totality && (entry_roots.len() == usize(0)) && (get_variables_from_env(env, ast_expr_token(&root_atom).value.*.clone()).len() == usize(0)), {
-            _audit_origin_totality_report("lost", "origin_of", operand);
+          if((entry_roots.len() == usize(0)) && (get_variables_from_env(env, ast_expr_token(&root_atom).value.*.clone()).len() == usize(0)), {
+            if(g_audit_origin_totality, {
+              _audit_origin_totality_report("lost", "origin_of", operand);
+            });
+            _origin_push(_origin_lost_entry(&root_atom), out);
           });
           (pi : usize) = usize(0);
           while(pi < entry_roots.len(), {
@@ -9310,7 +9317,7 @@ origin_temporary_entry :: (fn(operand : &AstExpr, is_mut : bool) -> OriginRootPl
 origin_temporary_root :: (fn(roots : &ArrayList(OriginRootPlace)) -> Option(OriginRootPlace))({
   (i : usize) = usize(0);
   while(i < roots.len(), i = (i + usize(1)), {
-    if((roots(i).place.root_name == ORIGIN_TEMPORARY_ROOT) || (roots(i).place.root_name == ORIGIN_SCOPED_ROOT), {
+    if((roots(i).place.root_name == ORIGIN_TEMPORARY_ROOT) || ((roots(i).place.root_name == ORIGIN_SCOPED_ROOT) || (roots(i).place.root_name == ORIGIN_LOST_ROOT)), {
       return(Option(OriginRootPlace).Some(roots(i).clone()));
     });
   });
@@ -9403,6 +9410,41 @@ _origin_scoped_entry :: (fn(r : &OriginRootPlace) -> OriginRootPlace)(
     is_mut : r.is_mut
   )
 );
+/// G-E's third check, "empty is not a default" (VERDICTS-58 decision 16;
+/// plans/backlog/BORROW_CHECKER_COMPLETENESS.md §6): the root name of an
+/// entry `origin_of` pushes where a runtime binding the value names does not
+/// resolve in the environment the origin is computed in — the set was built
+/// outside the binding's scope, so an empty result would be a default, not a
+/// rule's. Every sink that keeps the value rejects it (E0923): the backstop
+/// for a value position whose origin is not computed where its names live.
+ORIGIN_LOST_ROOT :: "#lost";
+_origin_lost_entry :: (fn(atom : &AstExpr) -> OriginRootPlace)(
+  OriginRootPlace(
+    place : LocalBorrowPlace(root_name : String.from(ORIGIN_LOST_ROOT), root_decl : ast_expr_token(atom), steps : ArrayList(String).new(), through_cell : false, module_root : false, text : ast_expr_token(atom).value.*.clone()),
+    is_mut : false
+  )
+);
+/// The atom `a` (typed `fi`) names a runtime binding `env` does not hold: a
+/// value read (no compile-time value: a `.None` literal or a constant is no
+/// binding) whose name has no variable in scope.
+_origin_name_is_lost :: (fn(a : &AstExpr, fi : &ExprInfo, env : &Environment) -> bool)(
+  match(fi.value(), .None => true, .Some(v) => is_unknown_val(&v)) && (get_variables_from_env(env, ast_expr_token(a).value.*.clone()).len() == usize(0))
+);
+/// `bind`/`=` of a holder over a `ORIGIN_LOST_ROOT` entry (G-E's third check).
+_reject_lost_root :: (fn(holder : &String, lr : &OriginRootPlace, at : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
+  raise_flow_violation(
+    with_code(
+      format_error_message_with_help(
+        at,
+        `Cannot keep this value in \`${holder}\`: its origin names \`${lr.place.text}\`, which is not in scope where the origin is computed, so the checker cannot tell what the value borrows (G-E's "empty is not a default", plans/backlog/BORROW_CHECKER_COMPLETENESS.md §6; this is a checker gap, not a verdict on the program).`,
+        Option(String).Some(`bind the borrowed value inside \`${lr.place.text}\`'s scope, or report the shape: the position that computed this origin needs R-ARM's in-scope rule`)
+      ),
+      E_ORIGIN_MISMATCH
+    ),
+    ctx,
+    exn
+  );
+});
 /// `bind`/`=` of a holder past its statement over a temporary (R-TEMP, O-5;
 /// the projection binding's temporary message generalized): the temporary
 /// is dropped at the statement's end, the holder outlives it. An R-ARM scoped
@@ -9410,6 +9452,10 @@ _origin_scoped_entry :: (fn(r : &OriginRootPlace) -> OriginRootPlace)(
 _reject_temporary_root :: (fn(holder : &String, tmp : &OriginRootPlace, rhs_text : &String, is_store : bool, at : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
   if(tmp.place.root_name == ORIGIN_SCOPED_ROOT, {
     _reject_scoped_root(holder, tmp, rhs_text, is_store, at, ctx, exn);
+    return(());
+  });
+  if(tmp.place.root_name == ORIGIN_LOST_ROOT, {
+    _reject_lost_root(holder, tmp, at, ctx, exn);
     return(());
   });
   head := if(is_store, `Cannot store a reference into \`${tmp.place.text}\` in \`${holder}\` here: it is a temporary`, `Cannot bind \`${holder}\` to \`${rhs_text}\`: its value holds a reference into \`${tmp.place.text}\`, a temporary`);
@@ -11696,7 +11742,9 @@ return_check :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : 
           ),
           // R-ARM's scope rule: a result over a binding of the block or arm
           // that produced it (its own local, gone before the caller reads).
-          .None => if(roots(oi).place.root_name == ORIGIN_SCOPED_ROOT, {
+          .None => if(roots(oi).place.root_name == ORIGIN_LOST_ROOT, {
+            _reject_lost_root(&String.from("the result"), &roots(oi), ast_expr_token(e), ctx, exn);
+          }, if(roots(oi).place.root_name == ORIGIN_SCOPED_ROOT, {
             raise_flow_violation(
               with_code(
                 format_error_message_with_help(
@@ -11722,7 +11770,7 @@ return_check :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : 
               ctx,
               exn
             );
-          }))
+          })))
         );
         oi = (oi + usize(1));
       });
@@ -11832,7 +11880,7 @@ _origin_through_match_bindings :: (fn(roots : &ArrayList(OriginRootPlace), env :
   });
   out
 });
-export(projection_call_mode_of, unsize_root_args, projection_body_mismatch_message, ProjectionRootArg, is_temporary_operand, deref_is_owning_handle_step, origin_temporary_entry, origin_temporary_root, ORIGIN_TEMPORARY_ROOT, ORIGIN_SCOPED_ROOT, origin_scope_close, ORIGIN_SCRUTINEE_ROOT, origin_scrutinee_temporary_place, origin_close_scrutinee_temporary, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, variable_holder_roots, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, note_ref_payload_source, ref_payload_source, note_ref_payload_held, note_borrow_match_source, borrow_match_source, n2b_roots_text, audit_origin_totality, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, note_fn_value_definition, fn_value_definition, type_var_ids_of, deref_chain_atom, deref_chain_depth, ReborrowLink, reference_reborrow_chain);
+export(projection_call_mode_of, unsize_root_args, projection_body_mismatch_message, ProjectionRootArg, is_temporary_operand, deref_is_owning_handle_step, origin_temporary_entry, origin_temporary_root, ORIGIN_TEMPORARY_ROOT, ORIGIN_SCOPED_ROOT, ORIGIN_LOST_ROOT, origin_scope_close, ORIGIN_SCRUTINEE_ROOT, origin_scrutinee_temporary_place, origin_close_scrutinee_temporary, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, variable_holder_roots, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, note_ref_payload_source, ref_payload_source, note_ref_payload_held, note_borrow_match_source, borrow_match_source, n2b_roots_text, audit_origin_totality, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, note_fn_value_definition, fn_value_definition, type_var_ids_of, deref_chain_atom, deref_chain_depth, ReborrowLink, reference_reborrow_chain);
 export(drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions);
 export(
   LocalBorrowPlace,
