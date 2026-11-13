@@ -10,7 +10,7 @@ Found 2026-11-11 by the ownership / borrowing / origin audit
 
 ## Reproducers
 
-`issues/repros/2026-11-11-a-value-moved-inside-a-match-guard-is-never-recorded-as-moved.yo` (negative, expects
+`tests/origins/unsound/guard-moves-outer-local.yo` (was `issues/repros/2026-11-11-…`; negative, expects
 E0901):
 
 ```yo
@@ -31,9 +31,9 @@ $ yo compile repro.yo --optimize 1 --sanitize address --allocator system -o t &&
 ==…==ERROR: AddressSanitizer: attempting double-free
 ```
 
-- `…-next-arm.yo` (negative, E0901): the guard `take_empty(a)` moves `a` and returns false; the fallback arm
+- `guard-moves-outer-local-next-arm.yo` (negative, E0901): the guard `take_empty(a)` moves `a` and returns false; the fallback arm
   reads `a.len()` and the println reads `a`: heap-use-after-free.
-- `…-pos.yo` (positive control): the guard reads `a.len()`, and `a` is moved once after the match.
+- `guard-moves-outer-local-pos.yo` (positive control): the guard reads `a.len()`, and `a` is moved once after the match.
 
 ## The family (develop `64f33c710`)
 
@@ -79,3 +79,23 @@ conditional move joined across the later arms, needs drop flags, which Yo does n
 With the fix, the two negative programs and the positive control move to `tests/origins/unsound/`;
 `tests/match_guards.test.yo` gains a `comptime_expect_error` row for the
 guard move of a local, a by-value parameter and a guard-local, plus the g02 shape, which now reports E0901 at the guard.
+
+## Fix
+
+The rule the Expected section states, as a check at the guard (lane c8e, VERDICTS-58 #18).
+`reject_guard_moves` (`src/evaluator/utils.yo`) reads the flow records the guard made: the match evaluator takes
+`branch_init_log_len()` before the guard and calls it right after (`src/evaluator/exprs/match.yo`). A variable of an
+enclosing frame (`frame_level` below the arm frame) that was live before the guard and is moved after it is E0901 at
+the move site (`variable_move_note`, so a move inside a `cond` arm of the guard points at the user's move), with a
+"declared outside the arm" note and the help "a guard may read `a` or lend it (`&a`); move it in the arm's body
+instead". A guard-local (`{ t := a; … }`) is gone with its frame, and `a` is still the outer variable the check sees.
+The pattern's own bindings sit in the arm frame and keep their existing rule (decision 26). g02's shape now reports
+E0901 at the guard, not E0907 at the arm.
+
+Tests:
+
+- `tests/origins/unsound/` (G-B): `guard-moves-outer-local` and `guard-moves-outer-local-next-arm` (E0901), and
+  `guard-moves-outer-local-pos` (accepted, clean under ASan).
+- `tests/match_guards.test.yo`, "a guard may read or lend an outer value, never move it": a local, a guard-local
+  block, g02's later arm and a by-value parameter are each E0901, and a guard that reads an outer value is accepted.
+  The file fails to compile on develop `ece5e5cfd`.

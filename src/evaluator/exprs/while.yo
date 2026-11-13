@@ -31,7 +31,7 @@
   expr_info_set_comptime_unrolled_bodies,
   branch_init_log_len
 } :: import("../../expr_info.yo");
-{ check_loop_flow } :: import("../utils.yo");
+{ check_loop_flow, snapshot_loop_flow } :: import("../utils.yo");
 { expr_contains_loop_terminator } :: import("../../expr_traversal.yo");
 { Environment, snapshot_env, env_adopt, variable_value_type } :: import("../../env.yo");
 { get_variables_from_env } :: import("../../env.yo");
@@ -373,6 +373,12 @@ evaluate_while :: (
     ),
     true => raw_cond_expr
   );
+  // The condition runs at the start of every iteration, so its moves are
+  // judged with the body's (`check_loop_flow`): the loop's window into the
+  // flow log opens before it
+  // (issues/fixed/2026-11-11-a-move-in-a-while-condition-escapes-the-loop-move-rules.md).
+  loop_log_start := branch_init_log_len();
+  loop_entry_frame_count := env.frames_len();
   // NOTE: Use evaluateBeginExpression here so RC values in the condition are
   // properly managed by the begin-block frame.
   // Evaluate the inner condition expression (without the comptime() wrapper).
@@ -509,11 +515,13 @@ evaluate_while :: (
   mut(loop_ctx) := LoopBodyCtx(
     kind : LoopKind.While,
     env : Rc.clone(env),
-    entry_frame_count : env.frames_len(),
-    log_start : branch_init_log_len(),
+    entry_frame_count : loop_entry_frame_count,
+    log_start : loop_log_start,
     break_states : ArrayList(LoopFlowSnapshot).new(),
     continue_states : ArrayList(LoopFlowSnapshot).new()
   );
+  // The state the condition leaves: the normal way out sees it.
+  cond_exit := snapshot_loop_flow(&loop_ctx, &env, ast_expr_token(&inner_cond_expr));
   ctx.is_evaluating_loop_body = Option(LoopBodyCtx).Some(loop_ctx.clone());
   evaluated_body := evaluate_begin_expression(&body_expr, &env, ctx, ArrayList(Variable).new(), false, exn);
   // The body's `break`/`continue` recorded their move states in the context's
@@ -554,7 +562,7 @@ evaluate_while :: (
   if(has_any_control_flow(body_info.control_flow()), {
     // The body never completes normally: its back edges are the `continue`s.
     if(is_runtime_loop, {
-      check_loop_flow(&loop_ctx, false, loop_has_normal_exit, &env, expr, exn);
+      check_loop_flow(&loop_ctx, &cond_exit, false, loop_has_normal_exit, &env, expr, exn);
     });
     // --- return / unwind ---
     if(has_control_flow(body_info.control_flow(), .Return) || has_control_flow(body_info.control_flow(), .Unwind), {
@@ -702,7 +710,7 @@ evaluate_while :: (
     if(!guaranteed && possible, {
       // Conditional terminator exists — emit as a runtime loop.
       if(is_runtime_loop, {
-        check_loop_flow(&loop_ctx, true, loop_has_normal_exit, &env, expr, exn);
+        check_loop_flow(&loop_ctx, &cond_exit, true, loop_has_normal_exit, &env, expr, exn);
       });
       out_info := new_expr_info(&body_info.env(), t_unit());
       out_info.set_value(Option(EvalValue).None);
@@ -747,7 +755,7 @@ evaluate_while :: (
     }
   );
   if(is_runtime_loop, {
-    check_loop_flow(&loop_ctx, true, loop_has_normal_exit, &env, expr, exn);
+    check_loop_flow(&loop_ctx, &cond_exit, true, loop_has_normal_exit, &env, expr, exn);
   });
   // Comptime while loop unrolling with a RUNTIME body. When the condition is
   // compile-time TRUE but the body
