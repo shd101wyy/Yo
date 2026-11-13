@@ -11602,12 +11602,9 @@ impl(
     next : (fn(self : &mut Self) -> Option(A))({
       (mut(loop_result) : Option(A)) = .None;
       while(true, {
-        // The call is the scrutinee, as in `find`: an item bound out of a
-        // named local was rooted at that local, and storing it into
-        // `loop_result` (typed over the item's origins) was E0923 for a
-        // composite item such as `zip`'s `IterPair` (audit C13).
+        candidate := self._inner.next();
         match(
-          self._inner.next(),
+          candidate,
           .None => {
             break;
           },

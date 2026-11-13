@@ -46,3 +46,14 @@ Accepted, printing `OUT: 2` for the reproducer: `loop_result`'s type is the inst
 ## Test
 
 With the fix: the zip and enumerate pipelines as positive tests beside the iterator-adapter tests over borrowed cursors, and a corpus row.
+
+## Cause, narrowed (2026-11-13, lane `sig`)
+
+Not `filter`'s named `candidate` local: with the call itself as the scrutinee (`match(self._inner.next(), …)`, the
+shape `find` uses) the same E0923 is raised. The value stored is `.Some(item)`, and `origin_of` gives the BY-VALUE
+match binding `item` of an owned temporary scrutinee its own place as its root (the atom branch of `_origin_of_into`,
+`src/evaluator/utils.yo`: no registered entries, not a parameter, so `_origin_push_place`). The subset check then
+names `item`, which no holder type can. A reference item passes only because the read rule (R1) reads it back to the
+scrutinee. The fix belongs to the binding: a by-value binding of a temporary scrutinee holds what the scrutinee
+holds (R-CALL's roots), which is audit cluster 3's "a scrutinee that is a temporary" (lane `arms`, `match.yo` and
+`origin_of`'s value positions). `find` over `zip` is very likely the same E0923 (same shape, not measured).
