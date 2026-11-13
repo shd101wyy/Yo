@@ -28,6 +28,7 @@ becomes how a module leaves it.
 | D3 | **`verify` and `--strict` stay opt-in**, for CI gates, `spec/` directories and modules that claim to be fully proved |
 | D4 | **The two pragmas collapse to one at the flip.** Until then both stay exactly as they are |
 | D5 | **This track leads lane E after VBD** ([`POST_VBD_PLAN.md`](POST_VBD_PLAN.md) phase 0) |
+| D6 | **The default keeps the runtime guard of an unannotated partial operation and reports it; the strict pragma rejects it** (§2.1) |
 
 Both behaviours survive the flip. Only one spelling goes, because its behaviour becomes
 what a module gets with no pragma:
@@ -65,8 +66,8 @@ The two modes differ in one case only:
   ```
 
   Flipped as it stands, every partial operation must be proved safe or guarded in the
-  source, and every existing program breaks. §5 question 1 asks whether that is the
-  rule wanted.
+  source, and every existing program breaks. D6 settles it (§2.1): that rule is the
+  strict pragma's, not the default's.
 - **Most code is outside the subset.** On the compiler's own tree, 3,992 of 4,049 verify
   targets were `outside-subset` and 57 were `ok`, 50 of those vacuous
   ([`SELF_VERIFICATION.md`](SELF_VERIFICATION.md), baseline of 2026-09-18, before VBD).
@@ -89,6 +90,40 @@ What is *not* an obstacle: solver time on ordinary code. A three-function module
 in about 7 s with or without the pragma; the time is the prelude, and its three queries
 take 91 ms.
 
+### 2.1 An unannotated partial operation under the default (D6)
+
+The question was what a default-on build does with an index, a division or a shift in
+a function that carries no contract. The two answers considered:
+
+- **(a) A compile error**, as both pragmas behave today: every such operation is proved
+  or guarded in the source. It turns the flip into a migration of every program.
+- **(b) Keep the runtime guard and report it.** A refuted automatic obligation in an
+  uncontracted function means "some caller could pass a bad value", which is not a bug
+  in that function.
+
+**Verdict (maintainer, 2026-11-13): (b) for the default, (a) for the strict pragma.**
+
+| | Default (`verify+`) | Strict pragma (`verify`) |
+| --- | --- | --- |
+| Automatic obligation, proved | guard erased | guard erased |
+| Automatic obligation, refuted, function has no contract | guard kept, site reported | build fails |
+| Automatic obligation, refuted, function has a contract | build fails | build fails |
+| A written `requires` / `ensures` / `invariant` / `assert`, refuted | build fails | build fails |
+| Any obligation the solver gives up on | check kept, reported | build fails |
+
+- The flip then changes no accepted program's behaviour: it erases the checks it can
+  prove away and gives a counter-example for every contract the author wrote.
+- The tree has this treatment already for overflow obligations, which are
+  elision-only: "the compile still succeeds, the function is still `ok`, and the
+  overflow guard stays" (`tests/spec/fixtures/elision/add_unbounded_kept.yo`). D6
+  extends it to the other automatic obligations of an uncontracted function.
+- "Has a contract" means the function writes at least one `requires`, `ensures` or
+  refinement. An author who states a precondition has said what callers may pass, so a
+  bad index under that precondition is a bug in the function.
+- The kept guards are what the per-site report of
+  [`PROVEN_CORE.md`](PROVEN_CORE.md) §8 item 4 lists, and the strict pragma is how a
+  module claims it has none.
+
 ## 3. The steps
 
 In order. S1 and S2 need nothing else and start at v0.2.80.
@@ -104,7 +139,7 @@ In order. S1 and S2 need nothing else and start at v0.2.80.
 
 What the flip PR (S6) contains:
 
-- the default mode becomes `verify+`;
+- the default mode becomes `verify+`, with D6's treatment of uncontracted functions;
 - `Pragma.VerifyOrAssert` is deleted, with no alias and no deprecation window;
 - an opt-out pragma back to `runtime` is added (none exists today);
 - the strict pragma is renamed: `Verify` reads as the ordinary choice and is the strict
@@ -131,27 +166,10 @@ Each is a number or a verdict a CI job re-derives. None is asserted in prose.
 
 ## 5. Open questions
 
-1. **What does default-on do with an unannotated partial operation?** Two answers:
-   - **(a) A compile error**, as both pragmas behave today. This is "no hidden traps":
-     every index, division and shift is proved or guarded in the source. It suits an
-     author who never tires of writing `requires`, and it turns the flip into a
-     migration of every program.
-   - **(b) Keep the runtime guard and report it**, when the function carries no
-     contract. A refuted automatic obligation in an uncontracted function means "some
-     caller could pass a bad value", which is not a bug in that function. The tree has
-     this treatment already for overflow obligations, which are elision-only: "the
-     compile still succeeds, the function is still `ok`, and the overflow guard stays"
-     (`tests/spec/fixtures/elision/add_unbounded_kept.yo`). Written contracts stay hard
-     obligations in both answers.
-
-   *Judgment:* (b) for the default and (a) for the strict pragma. Then the flip changes
-   no accepted program's behaviour, erases the checks it can prove away, and still gives
-   a counter-example for every contract the author wrote. Needs the maintainer's
-   verdict before S6 is designed; S1–S5 do not depend on it.
-2. **The names** of the strict pragma and of the opt-out pragma.
-3. **Do `*.test.yo` files default too?** *Judgment:* yes, with the same rule; a test
+1. **The names** of the strict pragma and of the opt-out pragma.
+2. **Do `*.test.yo` files default too?** *Judgment:* yes, with the same rule; a test
    body that indexes with a literal proves trivially.
-4. **G3's and G4's numbers.** Set by measurement, as the table says.
+3. **G3's and G4's numbers.** Set by measurement, as the table says.
 
 ## 6. What does not change
 
