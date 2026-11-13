@@ -1,0 +1,18 @@
+// expect: E0910
+// `{ y : &s.* }` reborrows through the arm binding `s`, a reference into `b`'s Box. The closure is live across
+// `b = …`, which frees that Box: the capture freezes `s` the binding, not `b`.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(b) := Box.new(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+  match(
+    &b,
+    Box(s) => {
+      (f : Impl(Fn() -> usize)) = ({ y : &s.* }() => y.len());
+      b = Box.new(String.from("q"));
+      println(`OUT: ${f().to_string()}`);
+    }
+  );
+  ()
+});
+export(main);
