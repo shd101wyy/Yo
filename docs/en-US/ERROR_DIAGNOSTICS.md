@@ -99,7 +99,7 @@ The repairs the compiler computes today:
 | E0618 a named callable passed bare into a `Dyn(Fn(...))` slot | wrap the name: `run(f)` → `run(dyn(f))` (a longer value gives help only) |
 
 `yo fix <path> --migrate deref` runs a migration rather than a repair, for
-decision 43 step 2 (N1e-1): outside std and the compiler's own source, a
+decision 43 step 2 (N1e-1): a
 reference binding reads and writes the value it refers to with `.*`. It
 evaluates every file with E0926 recording instead of rejecting, and appends
 `.*` where a reference is read or written as a whole value (`n + 1` →
