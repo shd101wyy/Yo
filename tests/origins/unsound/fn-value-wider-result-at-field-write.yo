@@ -1,0 +1,22 @@
+// expect: E0923
+// The field-write twin of `fn-value-wider-result-at-field`: `h.g = pick_other` over a field whose type
+// names only the first parameter in its result.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+mkr :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+pick_other :: (fn(a : &Rc(X), b : &Rc(X)) -> Option(&Rc(X)))(.Some(b));
+pick_first :: (fn(a : &Rc(X), b : &Rc(X)) -> Option(&(Rc(X), a)))(.Some(a));
+Hook :: struct(g : (fn(a : &Rc(X), b : &Rc(X)) -> Option(&(Rc(X), a))));
+main :: (fn() -> unit)({
+  a := mkr();
+  mut(h) := Hook(g : pick_first);
+  h.g = pick_other;
+  mut(o) := Option(&Rc(X)).None;
+  {
+    b := mkr();
+    o = (h.g)(&a, &b);
+  };
+  match(o, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => println("none"));
+});
+export(main);

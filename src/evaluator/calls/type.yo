@@ -48,6 +48,7 @@ pragma(Pragma.AllowUnsafe);
 { same_name_note, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message } :: import("../../types/utils.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
+{ raise_function_value_origin_mismatch } :: import("../trait_checking.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { EvalContext, ExpectedTypeCtx, TypeCallResult, in_def_time_trial } :: import("../context.yo");
 { is_std_module_path } :: import("../memory_safety.yo");
@@ -477,6 +478,10 @@ try_to_call_type_with_arguments :: (
         )
       );
     });
+    // O7 at a struct field (audit A48): a function value stored in a
+    // function-typed field fits its result and parameter origins, which a
+    // call through the field trusts.
+    raise_function_value_origin_mismatch(&member_element.ty, &arg_type, &actual_arg_expr, &ast_expr_token(&actual_arg_expr), &`Field "${member_element.label}"`, ctx, exn);
     // Store the result.
     values(member_element_position_index) = arg_info.value();
     runtime_arg_exprs_in_order(member_element_position_index) = evaluated_arg;

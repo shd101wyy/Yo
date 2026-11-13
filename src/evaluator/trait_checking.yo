@@ -87,7 +87,10 @@ pragma(Pragma.AllowUnsafe);
 { Environment, get_where_clause_constraints_for_some_type, new_environment } :: import("../env.yo");
 { Token } :: import("../token.yo");
 { EvalValue } :: import("../value.yo");
-{ YoError, format_error_message } :: import("../error.yo");
+{ YoError, format_error_message, format_error_message_with_help, with_code } :: import("../error.yo");
+{ AstExpr, ast_expr_is_fn_call_of, ast_expr_strip_borrow_marker } :: import("../expr.yo");
+{ raise_flow_violation } :: import("../types/flowability.yo");
+{ E_ORIGIN_MISMATCH } :: import("../diagnostics.yo");
 {
   find_matching_generic_impl,
   find_matching_negative_generic_impl,
@@ -3061,6 +3064,34 @@ function_value_origin_mismatch :: (fn(expected : &TypeValue, given : &TypeValue)
     .None => Option(String).None
   )
 });
+/// Raises `function_value_origin_mismatch` as E0923 at `at`, for a function
+/// value `value` filling a slot of type `slot`: a call argument, a struct
+/// field in a constructor, a field write `h.g = f`, a variable write. `what`
+/// names the slot (`Argument for parameter "f"`). A closure LITERAL adopts
+/// the slot's signature, so its own type says nothing here; its body is
+/// judged instead (`_closure_result_origin_check`).
+raise_function_value_origin_mismatch :: (fn(slot : &TypeValue, given : &TypeValue, value : &AstExpr, at : &Token, what : &String, ctx : &EvalContext, exn : Exception) -> unit)({
+  bare := ast_expr_strip_borrow_marker(value);
+  if(ast_expr_is_fn_call_of(&bare, "=>", Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(&bare, "->", Option(usize).Some(usize(2))), {
+    return(());
+  });
+  match(
+    function_value_origin_mismatch(slot, given),
+    .Some(fo_msg) => raise_flow_violation(
+      with_code(
+        format_error_message_with_help(
+          at,
+          `${what}: ${fo_msg}`,
+          Option(String).Some(String.from("spell the function's result origin within the slot's (e.g. `-> Option(&(T, a))` for a slot whose result names `a`), or widen the slot's"))
+        ),
+        E_ORIGIN_MISMATCH
+      ),
+      ctx,
+      exn
+    ),
+    .None => ()
+  );
+});
 // ---------------------------------------------------------------------------
 // impl_param_unmet_trait / impl_argument_unmet_trait_message
 // ---------------------------------------------------------------------------
@@ -3684,7 +3715,7 @@ export(set_flip_prelude_env, push_copy_pending, clear_copy_pending);
 export(type_implements_fn);
 export(resolve_assoc_type_for_target);
 export(extract_fn_trait_from_type);
-export(type_is_callable_shaped, fn_constrained_param_requires_callable, fn_argument_not_callable_message, function_value_slot_mismatch, function_value_origin_mismatch);
+export(type_is_callable_shaped, fn_constrained_param_requires_callable, fn_argument_not_callable_message, function_value_slot_mismatch, function_value_origin_mismatch, raise_function_value_origin_mismatch);
 export(impl_param_unmet_trait, impl_argument_unmet_trait_message, FunctionArgMarkers, judge_function_argument_markers);
 export(type_implements_future);
 export(type_contains_some_type_for_codegen_param);

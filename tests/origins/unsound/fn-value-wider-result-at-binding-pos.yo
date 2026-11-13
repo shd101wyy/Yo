@@ -1,0 +1,18 @@
+// expect: accept
+// Positive control: a function whose result origin is the first parameter fits the local's type.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+mkr :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+pick_other :: (fn(a : &Rc(X), b : &Rc(X)) -> Option(&(Rc(X), a)))(.Some(a));
+main :: (fn() -> unit)({
+  a := mkr();
+  mut(o) := Option(&Rc(X)).None;
+  {
+    b := mkr();
+    (f : (fn(a : &Rc(X), b : &Rc(X)) -> Option(&(Rc(X), a)))) = pick_other;
+    o = f(&a, &b);
+  };
+  match(o, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => println("none"));
+});
+export(main);

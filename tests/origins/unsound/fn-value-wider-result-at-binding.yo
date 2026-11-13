@@ -1,0 +1,20 @@
+// expect: E0923
+// The binding twin of `fn-value-wider-result-at-slot`: a local typed by a function-pointer type whose
+// result names only the first parameter is bound to a function that returns its second. A call through
+// the local freezes only `a`; the function returns `b`, which dies first.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+mkr :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+pick_other :: (fn(a : &Rc(X), b : &Rc(X)) -> Option(&Rc(X)))(.Some(b));
+main :: (fn() -> unit)({
+  a := mkr();
+  mut(o) := Option(&Rc(X)).None;
+  {
+    b := mkr();
+    (f : (fn(a : &Rc(X), b : &Rc(X)) -> Option(&(Rc(X), a)))) = pick_other;
+    o = f(&a, &b);
+  };
+  match(o, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => println("none"));
+});
+export(main);
