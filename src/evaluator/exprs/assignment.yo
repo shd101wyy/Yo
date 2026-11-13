@@ -93,7 +93,7 @@ pragma(Pragma.AllowUnsafe);
 { judge_function_argument_markers, function_value_slot_mismatch } :: import("../trait_checking.yo");
 { is_flowable_expr, FlowOptions, flag_flow_violation, raise_flow_violation }
 :: import("../../types/flowability.yo");
-{ type_representation_contains_raw_ptr, type_contains_rc_type, dyn_upcast_note, type_is_control_bound, mark_generic_independent, type_carries_origin, no_origin_position_error, type_is_sized, unsized_by_value_error } :: import("../../types/utils.yo");
+{ type_representation_contains_raw_ptr, type_contains_rc_type, dyn_upcast_note, type_is_control_bound, mark_generic_independent, type_carries_origin, type_spells_static_origin, no_origin_position_error, type_is_sized, unsized_by_value_error } :: import("../../types/utils.yo");
 { format_error_message, format_error_message_with_help, format_error_messages, format_error_messages_with_help, TokenAndError, with_code } :: import("../../error.yo");
 { E_VARIABLE_NOT_FOUND, E_WRITE_THROUGH_BORROW, E_COMPTIME_BINDING_RUNTIME_WRITE } :: import("../../diagnostics.yo");
 { call_promote_index_places_for_write } :: import("../context.yo");
@@ -129,6 +129,7 @@ pragma(Pragma.AllowUnsafe);
   bind_join_roots_for,
   origin_of,
   place_write_join,
+  require_static_fit,
   deref_chain_atom,
   deref_chain_depth,
   reference_reborrow_chain,
@@ -2579,8 +2580,13 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // whole-holder assignment whose target's type carries an origin makes the
   // holder's loan set the join over reaching definitions — the value's
   // origin joins it (`bind_join`; a spelled target checks the subset).
-  if(!variable.is_module_level() && !variable.is_compile_time_only() && !is_typed_binding_lhs && ctx.is_evaluating_function_body_or_async_block.is_some() && type_carries_origin(&variable_value_type(&variable)), {
+  if(!variable.is_module_level() && !variable.is_compile_time_only() && !is_typed_binding_lhs && ctx.is_evaluating_function_body_or_async_block.is_some() && (type_carries_origin(&variable_value_type(&variable)) || type_spells_static_origin(&variable_slot_type(&variable))), {
     bind_join(&variable, &rhs_evaled, &env, ctx, exn);
+  });
+  // P12: a typed declaration over `static` (`(r : &(T, static)) = v`) takes
+  // a `static` value only.
+  if(is_typed_binding_lhs && !variable.is_compile_time_only() && ctx.is_evaluating_function_body_or_async_block.is_some(), {
+    require_static_fit(&variable_slot_type(&variable), &rhs_evaled, &env, ctx, ast_expr_token(&rhs_evaled), exn);
   });
   // A typed declaration `(h : T) = v` binds `h` as `h := v` does: N2b's
   // binding freeze registers what `v` lends, live to `h`'s last use.

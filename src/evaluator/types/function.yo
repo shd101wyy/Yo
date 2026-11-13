@@ -78,7 +78,7 @@ pragma(Pragma.AllowUnsafe);
   unsized_by_value_error
 }
 :: import("../../types/utils.yo");
-{ is_implicitly_unsafe_capable_file, is_macro_def_capable_file, is_std_module_path } :: import("../memory_safety.yo");
+{ is_implicitly_unsafe_capable_file, is_macro_def_capable_file } :: import("../memory_safety.yo");
 { subst_new, subst_add, subst_adopt_own_resolution, substitute, Substitution } :: import("../../types/substitution.yo");
 {
   get_value_of_some_type_from_env,
@@ -1092,30 +1092,6 @@ _origin_operand_is_type :: (fn(e : &AstExpr, env : &Environment, ctx : &mut Eval
 /// place, as a literal's `&(str, static)`. It adds no name to an origin set,
 /// and the set it leaves is `static` (`t_origin_static`).
 _is_static_origin_spelling :: (fn(e : &AstExpr) -> bool)(ast_expr_is_atom(e) && (ast_expr_text(e).* == "static"));
-/// E0922 for the empty origin spelled outside std and unsafe-capable files:
-/// `static`, a union holding it, or the empty union `()` (VERDICTS-57 §1).
-/// Until v0.2.78's rule (P12) no check compares a value's origin with a
-/// `static` position, so a reference typed over it would accept a reference
-/// to any place and freeze nothing; there it is an unchecked assertion
-/// (issues/2026-11-11-a-static-origin-in-a-pragmad-file-is-an-unchecked-assertion-until-v0278.md).
-/// `static` is reserved in origin position: a binding named `static` does
-/// not lift the wall.
-_reject_empty_origin_in_safe_code :: (fn(e : &AstExpr, std_path : &String, exn : Exception) -> unit)({
-  mp := ast_expr_token(e).module_path.*.clone();
-  if(is_implicitly_unsafe_capable_file(Option(String).Some(mp.clone())) || is_std_module_path(&mp, std_path), {
-    return(());
-  });
-  subject := if(_is_static_origin_spelling(e), String.from("The empty origin `static` is"), `\`${ast_expr_to_string(e)}\` is the empty origin \`static\`, which is`);
-  exn.throw(
-    dyn(
-      _origin_error(
-        e,
-        `${subject} not available in safe code in v0.2.77 (decision 49): it is unchecked until v0.2.78, so a reference typed over it would accept a reference to any place and freeze nothing.`,
-        String.from("elide the origin (`&T`) or name the place the reference points into (`&(T, x)`); only std and a file that declares `pragma(Pragma.AllowUnsafe);` may spell `static`, as an unchecked assertion")
-      )
-    )
-  );
-});
 /// Collect the origin names `e` spells into `out`: an origin parameter
 /// declared by the signature's `generic(o : Origin)`, or a union `(o1, o2)`
 /// of them (decision 43 step 2, N1a). In a PARAMETER type an origin names
@@ -1124,9 +1100,6 @@ _reject_empty_origin_in_safe_code :: (fn(e : &AstExpr, std_path : &String, exn :
 _origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut EvalContext, out : &mut ArrayList(String), exn : Exception) -> unit)({
   if(ast_expr_is_fn_call_of(e, BK_TUPLE, Option(usize).None), {
     o_args := _fn_call_args(e);
-    if(o_args.len() == usize(0), {
-      _reject_empty_origin_in_safe_code(e, &ctx.std_path, exn);
-    });
     (oi : usize) = usize(0);
     while(oi < o_args.len(), {
       match(o_args.get(oi), .Some(oa) => _origin_names_into(&oa, env, ctx, out, exn), .None => ());
@@ -1135,7 +1108,6 @@ _origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut EvalConte
     return(());
   });
   if(_is_static_origin_spelling(e), {
-    _reject_empty_origin_in_safe_code(e, &ctx.std_path, exn);
     return(());
   });
   o_text := ast_expr_to_string(e);
@@ -1231,9 +1203,6 @@ _origin_place_root :: (fn(e : &AstExpr) -> Option(AstExpr))({
 _type_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut EvalContext, out : &mut ArrayList(String), exn : Exception) -> unit)({
   if(ast_expr_is_fn_call_of(e, BK_TUPLE, Option(usize).None), {
     o_args := _fn_call_args(e);
-    if(o_args.len() == usize(0), {
-      _reject_empty_origin_in_safe_code(e, &ctx.std_path, exn);
-    });
     (oi : usize) = usize(0);
     while(oi < o_args.len(), {
       match(o_args.get(oi), .Some(oa) => _type_origin_names_into(&oa, env, ctx, out, exn), .None => ());
@@ -1242,7 +1211,6 @@ _type_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut Eval
     return(());
   });
   if(_is_static_origin_spelling(e), {
-    _reject_empty_origin_in_safe_code(e, &ctx.std_path, exn);
     return(());
   });
   o_text := ast_place_text(e);
@@ -1467,9 +1435,6 @@ evaluate_reference_type :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut E
 _result_origin_names_into :: (fn(e : &AstExpr, params : &FuncParamsResult, env : &Environment, std_path : &String, out : &mut ArrayList(String), exn : Exception) -> unit)({
   if(ast_expr_is_fn_call_of(e, BK_TUPLE, Option(usize).None), {
     r_args := _fn_call_args(e);
-    if(r_args.len() == usize(0), {
-      _reject_empty_origin_in_safe_code(e, std_path, exn);
-    });
     (ri : usize) = usize(0);
     while(ri < r_args.len(), {
       match(r_args.get(ri), .Some(ra) => _result_origin_names_into(&ra, params, env, std_path, out, exn), .None => ());
@@ -1478,7 +1443,6 @@ _result_origin_names_into :: (fn(e : &AstExpr, params : &FuncParamsResult, env :
     return(());
   });
   if(_is_static_origin_spelling(e), {
-    _reject_empty_origin_in_safe_code(e, std_path, exn);
     return(());
   });
   r_text := ast_expr_to_string(e);

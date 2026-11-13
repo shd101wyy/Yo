@@ -1,0 +1,18 @@
+// expect: accept
+// P12's introduction form: a reference into an immutable module-level binding is `static`, so a parameter,
+// a payload and a result typed over `static` take it, and it outlives every frame.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+mk :: (fn() -> X)(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+G := mk();
+keep :: (fn(v : &(X, static)) -> Option(&(X, static)))(.Some(v));
+main :: (fn() -> unit)({
+  mut(o) := Option(&(X, static)).None;
+  {
+    o = keep(&G);
+  };
+  match(o, .Some(r) => println(`OUT: ${r.s.len().to_string()}`), .None => println("none"));
+  ()
+});
+export(main);

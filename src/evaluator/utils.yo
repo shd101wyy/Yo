@@ -150,7 +150,7 @@ pragma(Pragma.AllowUnsafe);
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string, type_to_string_for_message } :: import("../types/string.yo");
-{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, nominal_has_hidden_origin, type_reaches_user_drop, type_nominal_drop_uses_roots, note_origin_types_exist, type_is_typed_fnmut_closure, capture_struct_is_fnmut, future_unreturnable_borrow, future_origin_names, get_all_some_types } :: import("../types/utils.yo");
+{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, type_spells_static_origin, nominal_has_hidden_origin, type_reaches_user_drop, type_nominal_drop_uses_roots, note_origin_types_exist, type_is_typed_fnmut_closure, capture_struct_is_fnmut, future_unreturnable_borrow, future_origin_names, get_all_some_types } :: import("../types/utils.yo");
 { expr_info_table_set, is_mut_global, is_thread_local, migrate_deref_on, audit_deref_on, record_deref_site, record_deref_edit_site, note_reference_read_copied, lookup_macro_expansion, is_reference_self_place, unsize_reference_mode } :: import("../expr_info.yo");
 { is_global_mut_rule_exempt, is_deref_rule_exempt } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
@@ -10761,6 +10761,62 @@ _byvalue_param_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : 
     }
   );
 });
+/// P12, the `static` rule (decision 49; plans/backlog/BORROW_CHECKER_COMPLETENESS.md
+/// §7; VERDICTS-57 §1.4): a value stored where `ty` spells the empty origin
+/// `static` must have origin `static` itself (`o ⊆ static` iff `o = static`).
+/// Its roots may be immutable module-level bindings (`&G`) and parameters
+/// whose declared type is `static` too; a literal has none. Any other root,
+/// a mutable module-level binding, a local, a temporary, or a parameter
+/// whose origin is elided or spelled `p` (by value too,
+/// `byvalue_param_origin_names`), is E0923 at `at`. A type mixing a
+/// `static` position with others is judged as a whole.
+require_static_fit :: (fn(ty : &TypeValue, value : &AstExpr, env : &Environment, ctx : &EvalContext, at : &Token, exn : Exception) -> unit)({
+  if(!type_spells_static_origin(ty), {
+    return(());
+  });
+  (offending : Option(String)) = Option(String).None;
+  roots := origin_of(value, env, ctx);
+  (ri : usize) = usize(0);
+  while((ri < roots.len()) && offending.is_none(), ri = (ri + usize(1)), {
+    rp := roots(ri).place.clone();
+    offending = match(
+      get_variables_from_env(env, rp.root_name.clone()).last_cloned(),
+      .Some(rv) => cond(
+        rv.is_module_level() => if(is_mut_binding(&rv.token, &rv.name), Option(String).Some(`the mutable module-level binding \`${rv.name}\``), Option(String).None),
+        is_body_parameter(&rv, env) => {
+          ds := match(param_declared_origin_slot(&rv, env, ctx), .Some(d) => d, .None => variable_slot_type(&rv));
+          names := ArrayList(String).new();
+          origin_param_names_of(&ds, &mut names, u32(0));
+          if((names.len() == usize(0)) && type_spells_static_origin(&ds), Option(String).None, Option(String).Some(`the parameter \`${rv.name}\``))
+        },
+        true => Option(String).Some(`\`${_lb_place_text(&rp)}\``)
+      ),
+      .None => Option(String).Some(`\`${_lb_place_text(&rp)}\``)
+    );
+  });
+  if(offending.is_none(), {
+    pv := byvalue_param_origin_names(value, env, ctx);
+    if(pv.len() > usize(0), {
+      offending = Option(String).Some(`the parameter \`${_rigid_origin_param(&pv(usize(0)))}\``);
+    });
+  });
+  match(
+    offending,
+    .Some(what) => raise_flow_violation(
+      with_code(
+        format_error_message_with_help(
+          at,
+          `\`${ast_expr_to_string(value)}\` points into ${what}, but its type here is \`${type_to_string(ty)}\`, whose origin is \`static\`: a \`static\` reference borrows no place, so it may point only into an immutable module-level binding or a literal (decision 49; plans/backlog/REFERENCES_AND_ORIGINS.md O3).`,
+          Option(String).Some(String.from("elide the origin (`&T`) or name the place the reference points into (`&(T, x)`), or store a reference to an immutable module-level binding"))
+        ),
+        E_ORIGIN_MISMATCH
+      ),
+      ctx,
+      exn
+    ),
+    .None => ()
+  );
+});
 /// `_bind_join_subset_check` for the names `byvalue_param_origin_names`
 /// found: each must be one the holder's type names.
 _byvalue_param_subset_check :: (fn(variable : &Variable, holder_ty : &TypeValue, holder_names : &ArrayList(String), pv_names : &ArrayList(String), value : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
@@ -10780,6 +10836,10 @@ _byvalue_param_subset_check :: (fn(variable : &Variable, holder_ty : &TypeValue,
 /// value holding a place the spelled origin does not name is E0923 at the
 /// assignment (O3's place writes).
 bind_join :: (fn(variable : &Variable, value : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+  // P12: a holder typed over `static` takes a `static` value only, a bare
+  // re-point (`r = &y`) included.
+  sf_hv := match(param_declared_origin_slot(variable, env, ctx), .Some(ds) => ds, .None => variable_slot_type(variable));
+  require_static_fit(&cond(t_slot_is_borrow(&sf_hv) => t_slot_pointee(&sf_hv), true => variable_value_type(variable)), value, env, ctx, ast_expr_token(value), exn);
   // A bare lend RHS (`r = &y`, `r = &mut y`) is the RE-POINT, which has its
   // own machinery (decision 25: the declared place stays frozen, the set is
   // the union over re-points) — not a holder join. Either way the holder's
@@ -11602,6 +11662,13 @@ return_check :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : 
     eprintln(`[n2b] return-check ${ast_expr_to_string(e)}`);
   });
   stripped := ast_expr_strip_borrow_marker(e);
+  // P12: a result declared over `static` (`-> &(T, static)`, `-> Option(&(T,
+  // static))`, `-> Impl(Future(T, E, static))`) carries a `static` value only.
+  match(
+    &ctx.is_evaluating_function_body_or_async_block,
+    .Some(sf_fb) => match(sf_fb.kind, .FunctionBody => match(&sf_fb.func_type, .Some(sf_t) => require_static_fit(&fn_result_slot(sf_t), &stripped, env, ctx, ast_expr_token(e), exn), .None => ()), _ => ()),
+    .None => ()
+  );
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&stripped)),
     .Some(ri) => if(type_carries_origin(&ri.ty()), {
@@ -11795,7 +11862,7 @@ _origin_through_match_bindings :: (fn(roots : &ArrayList(OriginRootPlace), env :
   });
   out
 });
-export(projection_call_mode_of, unsize_root_args, projection_body_mismatch_message, ProjectionRootArg, is_temporary_operand, deref_is_owning_handle_step, origin_temporary_entry, origin_temporary_root, ORIGIN_TEMPORARY_ROOT, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, variable_holder_roots, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, note_ref_payload_source, ref_payload_source, note_ref_payload_held, note_borrow_match_source, borrow_match_source, n2b_roots_text, audit_origin_totality, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, note_fn_value_definition, fn_value_definition, type_var_ids_of, deref_chain_atom, deref_chain_depth, ReborrowLink, reference_reborrow_chain);
+export(require_static_fit, byvalue_param_origin_names, projection_call_mode_of, unsize_root_args, projection_body_mismatch_message, ProjectionRootArg, is_temporary_operand, deref_is_owning_handle_step, origin_temporary_entry, origin_temporary_root, ORIGIN_TEMPORARY_ROOT, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, variable_holder_roots, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, note_ref_payload_source, ref_payload_source, note_ref_payload_held, note_borrow_match_source, borrow_match_source, n2b_roots_text, audit_origin_totality, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, note_fn_value_definition, fn_value_definition, type_var_ids_of, deref_chain_atom, deref_chain_depth, ReborrowLink, reference_reborrow_chain);
 export(drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions);
 export(
   LocalBorrowPlace,
