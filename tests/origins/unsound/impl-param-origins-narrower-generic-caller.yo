@@ -1,0 +1,29 @@
+// expect: E0923
+// O7's parameter half through a generic caller: `run(t : &mut T, v : &Rc(X), where(T <: Store))` keeps `t`
+// and `v` apart as the trait does, and the generic impl over `Slot(p)` stores `v` into `self`.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+Store :: trait(put : (fn(self : &mut Self, v : &Rc(X)) -> unit));
+Slot :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(dst : Option(&(Rc(X), p))));
+impl(
+  generic(p : Origin),
+  Slot(p),
+  Store(
+    put : (fn(self : &mut Self, v : &(Rc(X), p)) -> unit)({
+      self.dst = .Some(v);
+    })
+  )
+);
+run :: (fn(generic(T : Type), t : &mut T, v : &Rc(X), where(T <: Store)) -> unit)(t.put(v));
+main :: (fn() -> unit)({
+  x := Rc.new(X(s : String.from("x")));
+  mut(s) := Slot(x)(dst : .Some(&x));
+  {
+    b := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+    run(&mut s, &b);
+  };
+  match(&s.dst, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => println("none"));
+  ()
+});
+export(main);
