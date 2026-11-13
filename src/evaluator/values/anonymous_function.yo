@@ -155,7 +155,7 @@ pragma(Pragma.AllowUnsafe);
 { get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep, type_requires_explicit_copy, type_is_bitwise_copy, mark_fnmut_capture_struct } :: import("../../types/utils.yo");
 { attach_temp_variable_to_expr, local_borrow_place_of, access_expr, LocalBorrowAccess, set_closure_writes_captures, BorrowCaptureOuter, note_borrow_capture_outer, apply_capture_store_joins, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording, reject_reference_without_deref, is_reference_deref_site, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, projection_body_mismatch_message, reject_closure_literal_into_dyn_fn, place_require_mut, audit_copy_trait_enabled } :: import("../utils.yo");
 { CaptureBorrow, register_capture_borrows, type_is_second_class, fn_param_is_ptr_borrow, reject_origin_carrying_signature } :: import("../../types/utils.yo");
-{ OriginRootPlace, origin_of, variable_holder_roots, binder_read_mark, binder_read_clear, reference_binding_read_type, variable_is_mut_borrow, note_reference_read } :: import("../utils.yo");
+{ OriginRootPlace, origin_of, variable_holder_roots, reference_binding_referents, binder_read_mark, binder_read_clear, reference_binding_read_type, variable_is_mut_borrow, note_reference_read } :: import("../utils.yo");
 { type_carries_origin } :: import("../../types/utils.yo");
 { with_code } :: import("../../error.yo");
 { E_USE_OF_MOVED_VALUE } :: import("../../diagnostics.yo");
@@ -1125,12 +1125,10 @@ _evaluate_capture_list :: (
             site : `${name_tok.module_path.*}:${(name_tok.row + u32(1)).to_string()}:${(name_tok.column + u32(1)).to_string()}`
           )
         );
-        match(
-          _cap_place_root(&ev_place, &mut ArrayList(String).new()),
-          .Some(ev_root) => {
-            through := ArrayList(CaptureBorrow).new();
-            _capture_origin_borrows(&label, &origin_of(&ev_root, env, ctx), &name_tok, env, &mut through);
-            (ti : usize) = usize(0);
+        {
+          through := ArrayList(CaptureBorrow).new();
+          _capture_origin_borrows(&label, &reference_binding_referents(&root_var, env, ctx), &name_tok, env, &mut through);
+          (ti : usize) = usize(0);
             while(ti < through.len(), ti = (ti + usize(1)), {
               tb := through(ti).clone();
               // The reborrow's mode bounds the entry's: `&s.*` of a `&mut`
@@ -1149,9 +1147,7 @@ _evaluate_capture_list :: (
                 )
               );
             });
-          },
-          .None => ()
-        );
+        };
       });
       cap_label_text := label.clone();
       out.push(

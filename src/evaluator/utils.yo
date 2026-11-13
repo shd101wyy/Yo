@@ -1311,7 +1311,11 @@ _current_closure_fid :: (fn(ctx : &EvalContext) -> String)(
 /// worst; a write that should reach the caller borrows the place `{ &mut x }`,
 /// one that keeps state across calls types the closure `FnMut(...)`.
 reject_implicit_capture_write :: (fn(v : &Variable, tok : &Token, how : &String, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
-  if(!_is_implicit_closure_capture(v, env, ctx), {
+  // A capture-list entry is not implicit: a by-value entry is written under
+  // decision 47 (writable in an `FnMut` closure, E0917 otherwise), a borrow
+  // entry through its mode (`reject_write_through_shared_capture`). An
+  // implicitly captured reference binding is written through, not written.
+  if(!_is_implicit_closure_capture(v, env, ctx) || v.is_ref() || is_capture_list_value_binding(v.id()), {
     return(());
   });
   fid := _current_closure_fid(ctx);
@@ -6161,7 +6165,7 @@ export(get_dup_use_site_token);
 export(attach_temp_variable_to_expr);
 export(variable_is_borrow_parameter, variable_is_future_operand_parameter, variable_id_in_scope);
 export(capture_place_crosses_cell, is_cell_handle_deref_step, place_rc_handle, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, reject_bare_callable_into_dyn_fn, reject_closure_literal_into_dyn_fn, reject_bare_callable_result, reject_second_class_escape, reject_second_class_return, note_second_class_binding, reject_second_class_result_outliving, check_capture_freeze_access, require_capture_borrow_exclusivity);
-export(set_closure_writes_captures, reject_implicit_capture_write, reject_write_through_shared_capture);
+export(set_closure_writes_captures, reject_implicit_capture_write, reject_write_through_shared_capture, reference_binding_referents);
 export(CaptureFreezeConflict, local_borrow_root_variable, capture_freeze_conflict, raise_capture_freeze_conflict, capture_freeze_access_at, capture_freeze_access, capture_freezes_active, loans_active, access_place, access_variable, access_move, access_expr);
 export(doc_comment_lookup_key_from_token);
 export(_last_token_of);
@@ -9828,6 +9832,36 @@ _holder_roots_into :: (fn(a : &AstExpr, env : &Environment, ctx : &EvalContext, 
   h_name := ast_expr_token(a).value.*.clone();
   h_tok := ast_expr_token(a);
   _holder_roots_of_name(h_name, &h_tok, out);
+});
+/// The places the reference binding `v` refers to, `origin_of(v)` read as a
+/// reference value (R-READ): a lend binding's or holder's entries
+/// (`variable_holder_roots`), a reference payload binding's held set, or a
+/// borrowed `match` binding's scrutinee origin (decision 26). What a capture
+/// that reborrows through `v` (`{ y : &v.* }`, R-DEREF) borrows (audit A20).
+reference_binding_referents :: (fn(v : &Variable, env : &Environment, ctx : &EvalContext) -> ArrayList(OriginRootPlace))({
+  out := variable_holder_roots(v);
+  if(out.len() > usize(0), {
+    return(out);
+  });
+  v_id := v.id();
+  match(
+    g_ref_payload_held.with({ v_id }(m) => m.get_cloned(&v_id)),
+    .Some(held) => {
+      (hi : usize) = usize(0);
+      while(hi < held.len(), hi = (hi + usize(1)), {
+        _origin_push(held(hi).clone(), &mut out);
+      });
+    },
+    .None => ()
+  );
+  if(out.len() > usize(0), {
+    return(out);
+  });
+  match(
+    borrow_match_source(v_id),
+    .Some(scr) => origin_of(&scr, env, ctx),
+    .None => out
+  )
 });
 /// The frozen places of the binding `v` (a holder: `_holder_roots_into` by
 /// the variable's own name and declaration), for a capture the closure takes
