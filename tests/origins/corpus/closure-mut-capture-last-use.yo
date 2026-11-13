@@ -1,0 +1,13 @@
+// Corpus row `closure-mut-capture-last-use` (VERDICTS-59 decision 12, audit C14): POSITIVE: a bound capture-list closure's `&mut` capture of `n` is a loan that ends at the closure's last call, so `n` is readable after it (decision 18: the range ends at the last use).
+// Rejected today with E0910: the capture side table holds the borrow to the binding's scope end (P4-0 closes it). The twin is tests/origins/rust/corpus-closure-mut-capture-last-use.rs; the divergence is a `parity` row of DIVERGENCES.tsv.
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(n) := i32(0);
+  (mut(bump) : Impl(FnMut() -> unit)) = ({ &mut n }() => {
+    n.* = (n.* + i32(1));
+  });
+  bump();
+  bump();
+  println(&n);
+});
+export(main);
