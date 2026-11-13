@@ -102,6 +102,36 @@ Hardening (branch `ci/release-tail-hardening`): bump moved to its own
 lever added, v0.2.14→v0.2.15 pins bumped manually via PR. Remaining USER
 ACTION: add the Workflows permission to `RELEASE_PAT`.
 
+## Seed-gated follow-up (2026-11-13): decision 49 S2's two prelude spellings the v0.2.77 seed cannot read
+
+Measured on the S2 draft (`vbd/d49-s2`) with the installed v0.2.77 seed,
+`yo check --std-path ./std` on a probe:
+
+- **A `where` on a `?Sized` type-constructor binder.** `Rc :: (fn(comptime(V)
+  : ?Sized, where(V <: Escapable)) -> comptime(Type))` fails in the prelude
+  with "Expected type for left-hand side of where clause constraint, got
+  variable "V"": the signature's comptime pre-scan evaluated the kind `?Sized`
+  as `Option(Sized)` and bound `V` to an unknown value, not to its SomeT.
+  **Generation A (S2, v0.2.78):** the pre-scan reads the `?Sized` kind as the
+  parameter pass does (`src/evaluator/types/function.yo`, Pass 3). Until the
+  seed carries it, `Rc`, `Arc` and `ArcWeak` declare `comptime(V) : ?Sized`
+  with no `where`: `Rc.new` carries `where(V <: Escapable)` and `Arc.new`
+  `where(V <: (Send, Sync, Escapable))` (their binder is named `V`, so E0909's
+  text does not change), and every other `Arc`/`ArcWeak` impl already states
+  `where(T <: (Send, Sync))`. A type spelled `Rc(&T)` is accepted until then;
+  no safe constructor builds one. **Generation B (once `SEED_VERSION` carries
+  S2):** the three bounds go back on the declarations.
+- **`Deref` outside the prelude.** `impl(generic(T : Type), ArrayList(T),
+  Deref(Target : [T]))` in `std/collections/array_list.yo` (and `String`'s
+  `Deref(Target : str)`) is rejected: "Cannot implement Deref here: only the
+  prelude's Box, Rc and Arc implement it" (`_throw_if_deref_impl_outside_prelude`,
+  `src/evaluator/values/impl.yo`), and `deref_target_type` forwards only
+  through cells. **Generation A:** the compiler admits the std collections'
+  impls and lowers their `.*` (the design question is open: a `deref`
+  method on `Deref` for a non-cell type, or a compiler-known projection).
+  **Generation B:** the std impls, one release later. `Array(T, N)`'s impl
+  lives in the prelude and is not seed-gated.
+
 ## Seed-gated follow-up (2026-11-02): the json `insert` moves its old value out
 
 The element-borrow sibling rule stopped rejecting a value sibling that only OWNS a list of the
