@@ -1655,6 +1655,11 @@ evaluate_match :: (
           .Some(av) => {
             if(consuming, {
               owned_vars.push(Rc.clone(av));
+              // C13: the part holds what the moved scrutinee held (R-READ
+              // reads it back), never its own place.
+              if(!b_ct_known && type_carries_origin(&bind_ty), {
+                note_ref_payload_held(av.id(), &origin_held_by(&scrutinee_expr, &env, ctx));
+              });
             });
             if(mut_places, {
               // A `mut` place: the binding aliases the part, so reads and
