@@ -149,8 +149,8 @@ impl(
   /// safe code exactly as it keeps out `ptr()`. Claiming memory initialized
   /// needs this token, which safe code cannot obtain (ATS's view of the region;
   /// issues/fixed/safe-code-reaches-freed-memory-through-arraylist-set-len.md).
-  /// A struct that merely CONTAINS a pointer, such as `RawSlice(T)`, would not
-  /// be gated: safe code may hold `String.raw_bytes()`. The pointer is valid
+  /// A struct that merely CONTAINS a pointer would not be gated. The pointer
+  /// is valid
   /// until the next reallocation, like `ptr()`.
   spare_capacity : (fn(self : &mut Self) -> Option(*T))(
     match(

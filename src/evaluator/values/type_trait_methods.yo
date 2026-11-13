@@ -163,6 +163,17 @@ type_id_or_empty :: (fn(t : &TypeValue) -> String)(
     // registers under `Dyn(Error)` and `err.is(T)` resolves. Without an id the
     // registration was silently skipped and the method was unreachable.
     Rc(.DynT({ required_trait_types : rtt, negative_trait_types : ntt })) => _dyn_type_id(&rtt.items, &ntt.items),
+    // A slice `[T]` (decision 49) is keyed by its element's id, so
+    // `impl([u8], …)` registers apart from `impl(u8, …)` and a call on a
+    // `&[u8]` finds it
+    // (issues/2026-11-10-a-method-call-on-a-reference-to-a-slice-does-not-find-an-impl-on-the-slice.md).
+    Rc(.SliceT(sl_elem)) => {
+      sl_eid := type_id_or_empty(&sl_elem);
+      cond(
+        (sl_eid.len() == usize(0)) => String.from(""),
+        true => `[${sl_eid}]`
+      )
+    },
     // A reference receiver (`impl(&C, …)`, `impl(&mut C, …)`; decision 43,
     // N1f-2): keyed by its mode and its pointee's id, origin erased, so
     // `impl(&C, Tr)`, `impl(&mut C, Tr)` and `impl(C, Tr)` register apart.

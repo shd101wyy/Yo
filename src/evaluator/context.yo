@@ -3566,6 +3566,9 @@ type_head_name_for_impl_forcing :: (fn(ty : &TypeValue) -> String)({
     Rc(.Union(un, _, _)) => un.clone(),
     Rc(.TraitT(tn, _, _, _, _, _)) => tn.clone(),
     Rc(.Pointer(pointee)) => recur(&pointee),
+    // `[T]` is `Slice(T)`, the head an `impl([T], …)` is pending under
+    // (decision 49).
+    Rc(.SliceT(_)) => String.from("Slice"),
     _ => String.new()
   );
   match(
