@@ -49,8 +49,9 @@ export(Error);
 /// Type-erased dynamic error type. Wraps any type implementing `Error` and
 /// `Clone`.
 ///
-/// A `Dyn` owns its payload uniquely (plans/VALUES_BY_DEFAULT.md decision 7).
-/// `throw` passes the error BY VALUE, so a handler owns what it catches and
+/// It is a `Box` of the unsized trait object (plans/VALUES_BY_DEFAULT.md
+/// decision 49): the box owns its payload uniquely, as Rust's
+/// `Box<dyn Error>` does, and `dyn(Box.new(e))` builds one. `throw` passes the error BY VALUE, so a handler owns what it catches and
 /// keeps it by moving it (`e -> unwind(Option(AnyError).Some(e))`); a thrower
 /// that wants to keep its error clones it before throwing.
 ///
@@ -60,7 +61,7 @@ export(Error);
 /// (decision 43 step 3) `AnyError` becomes a move-only `Dyn(Error)` and
 /// `Error.source` returns a borrow. Until then a payload must be `Clone`;
 /// `derive(MyError, Clone)` gives it one.
-AnyError :: Dyn(Error, Clone);
+AnyError :: Box(Dyn(Error, Clone));
 export(AnyError);
 /// Allows using `String` directly as an error type.
 impl(String, Error());

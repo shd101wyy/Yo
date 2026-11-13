@@ -754,8 +754,11 @@ The builtin `Slice(T)` and the view methods `String.as_str()` /
 - There is no aliasing view type: `ListView(T)` was deleted (no `Index`, no
   iteration, no consumers — superseded by the copying range forms above). If a
   real view type is ever needed it comes back with iteration and `Index`.
-- Privileged ptr+len plumbing uses `RawSlice(T)` (prelude). Naming it —
-  or any type whose representation carries a raw pointer — in a
+- Privileged ptr+len plumbing is a raw slice pointer `*[T]` (decision 49;
+  `RawSlice(T)` was deleted in S2), read with `__yo_slice_ptr`/`__yo_slice_len`
+  and built with `__yo_slice_from_raw_parts`. A safe buffer parameter is a
+  borrowed slice, `buf : &mut [u8]`, passed as `unsize(&mut arr)`. Naming a
+  raw pointer type — or any type whose representation carries one — in a
   parameter annotation requires `pragma(Pragma.AllowUnsafe);` (a
   representation-based gate, not just the `*(T)` syntax gate).
 - `name : &mut T` flowability (rules R1–R4) is unchanged. See
@@ -906,7 +909,7 @@ A bare named place to a `&T`/`&mut T` parameter is E0914, always on (std include
 
 ### Public stdlib boundary — no raw pointer leaks
 
-Every public top-level `fn(...)` in `std/` should take and return value types or take `&`/`&mut` parameters. Raw `*(T)` in a public signature is allowed only when (a) the function lives in an FFI directory (`libc/`, `linux/`, `darwin/`, `cuda/`, `sys/`, `sync/`), or (b) the function name signals raw-pointer use by contract (`*_cstr`, `*_ptr`, `from_raw_parts`, `as_ptr`, names starting with `raw_`). Anything else is a leak — migrate to owned collections (`ArrayList(u8)`/`String`) for buffers, `name : &mut T` for in-place mutation, or a higher-level safe type (`RawSlice(T)` for pragma'd internals).
+Every public top-level `fn(...)` in `std/` should take and return value types or take `&`/`&mut` parameters. Raw `*(T)` in a public signature is allowed only when (a) the function lives in an FFI directory (`libc/`, `linux/`, `darwin/`, `cuda/`, `sys/`, `sync/`), or (b) the function name signals raw-pointer use by contract (`*_cstr`, `*_ptr`, `from_raw_parts`, `as_ptr`, names starting with `raw_`). Anything else is a leak — migrate to owned collections (`ArrayList(u8)`/`String`) for buffers, `name : &mut T` for in-place mutation, or a borrowed slice (`buf : &mut [u8]`; `*[T]` for pragma'd internals).
 
 Verify with `yo public-safe-report ./std` (or `./src`). It scans every top-level public `fn(...)` declaration, skips `extern(...)` blocks and the directories/name patterns above, and reports any remaining raw-pointer leak. A parameter NAMED `witness` / `written` / `spare` is exempt — a pointer-typed parameter with one of those names is a safe-mode privilege token (the gate itself: only unsafe-capable code can produce it), not API surface. Source: `src/public_safe_report.yo`. Keep the finding count from growing when adding new stdlib surface.
 
@@ -991,11 +994,11 @@ Better yet, if the entire function body is just a match/cond expression, use the
 
 ```yo
 // BEST — expression form, no return needed:
-raw_bytes : (fn(self : Self) -> RawSlice(u8))(
+first_or_zero : (fn(self : &Self) -> u8)(
   match(
-    self._bytes._ptr,
-    .Some(p) => RawSlice(u8)(ptr : p, len : self._bytes._length),
-    .None => RawSlice(u8)(ptr : (*u8)(""), len : usize(0))
+    self._bytes.first(),
+    .Some(b) => b.*,
+    .None => u8(0)
   )
 )
 ```
