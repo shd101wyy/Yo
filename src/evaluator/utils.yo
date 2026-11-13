@@ -7248,8 +7248,30 @@ local_borrow_access_at :: (
 /// `activation`: `.None` judges the borrows live at `tok`; `.Some(carriers)`
 /// those live at a call's activation (`_lb_live_at_activation`).
 _local_borrow_access_live :: (
-  fn(place : &LocalBorrowPlace, kind : &LocalBorrowAccess, tok : &Token, live_tok : &Token, activation : Option(ArrayList(AstExpr)), ctx : &EvalContext, exn : Exception) -> unit
+  fn(place : &LocalBorrowPlace, kind : &LocalBorrowAccess, tok : &Token, live_tok : &Token, activation : Option(ArrayList(AstExpr)), ctx : &EvalContext, exn : Exception, (back_edge : Option(LocalBorrowInfo)) ?= Option(LocalBorrowInfo).None) -> unit
 )({
+  // `back_edge`: a runtime loop's end re-judging an access made earlier in
+  // the body against one entry the back edge carries (A19b,
+  // `local_borrow_loop_end`); the entry's liveness there is the caller's
+  // verdict, and the access was recorded when it ran.
+  match(
+    back_edge,
+    .Some(be) => {
+      (bi : usize) = usize(0);
+      while(bi < be.places.len(), {
+        match(
+          be.places.get_cloned(bi),
+          .Some(bfp) => if(local_borrow_places_overlap(&bfp, place), {
+            _lb_raise_conflict(&be, &bfp, place, kind, tok, ctx, exn);
+          }),
+          .None => ()
+        );
+        bi = (bi + usize(1));
+      });
+      return(());
+    },
+    .None => ()
+  );
   // A runtime loop's back edge re-judges it at the loop's end (cluster 4).
   _lb_loop_note_access(place, kind, tok);
   (i : usize) = g_local_borrows.with(_c_len_5);
@@ -11739,16 +11761,20 @@ local_borrow_loop_end :: (fn(depth : usize, loop_expr : &AstExpr, head : &ArrayL
       a := accesses(ak).clone();
       kind := _lb_access_of(a.kind);
       if((e.is_mut || !_lb_is_read(&kind)) && _lb_tok_after(&gen_tok, &a.tok) && _lb_tok_after(&a.tok, &loop_first), {
+        (overlaps : bool) = false;
         (qi : usize) = usize(0);
         while(qi < e.places.len(), {
           match(
             e.places.get_cloned(qi),
-            .Some(fp) => if(local_borrow_places_overlap(&fp, &a.place) && _lb_live_via_back_edge(&e.name, &a.tok, head, &stmts, live_after), {
-              _lb_raise_conflict(&e, &fp, &a.place, &kind, &a.tok, ctx, exn);
+            .Some(fp) => if(local_borrow_places_overlap(&fp, &a.place), {
+              overlaps = true;
             }),
             .None => ()
           );
           qi = (qi + usize(1));
+        });
+        if(overlaps && _lb_live_via_back_edge(&e.name, &a.tok, head, &stmts, live_after), {
+          _local_borrow_access_live(&a.place, &kind, &a.tok, &a.tok, Option(ArrayList(AstExpr)).None, ctx, exn, back_edge : Option(LocalBorrowInfo).Some(e.clone()));
         });
       });
       ak = (ak + usize(1));
