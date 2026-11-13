@@ -12235,10 +12235,9 @@ borrow_match_source :: (fn(var_id : usize) -> Option(AstExpr))({
 /// `roots` with every root that names a binding of a `&` match
 /// (`is_borrow_match_binding`, `note_borrow_match_source`) replaced by the
 /// roots of a lend of the scrutinee's place: the binding is a place inside
-/// that place. The lend is the scrutinee as written (`&o`, or a reference
-/// `r`), not the place under its marker: over an owned local `o` the binding
-/// is rooted at `o` itself, which `o`'s own (empty) origin would lose, so a
-/// value or `return` holding `&h.*.v` would carry no root.
+/// that place. Over an owned local `o` the binding is rooted at `o` itself,
+/// which `o`'s own (empty) origin would lose, so a value or `return` holding
+/// `&h.*.v` would carry no root.
 _origin_through_match_bindings :: (fn(roots : &ArrayList(OriginRootPlace), env : &Environment, ctx : &EvalContext, depth : u32) -> ArrayList(OriginRootPlace))({
   out := ArrayList(OriginRootPlace).new();
   (ri : usize) = usize(0);
@@ -12252,7 +12251,17 @@ _origin_through_match_bindings :: (fn(roots : &ArrayList(OriginRootPlace), env :
     match(
       scr,
       .Some(scr_e) => {
-        inner := _origin_through_match_bindings(&origin_of(&scr_e, env, ctx), env, ctx, (depth + u32(1)));
+        // The parser drops a borrowed `match`'s `&`, so `scr_e` is the bare
+        // scrutinee. A reference (`a : &T`) is read as written; a place that
+        // is not a reference is lent (R-LEND: `o` gives `[o]`, which its own
+        // origin, empty for an owned local, would lose).
+        scr_is_ref := (match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&scr_e)), .Some(si) => match(&si.ty(), Rc(.Reference(_, _, _)) => true, _ => false), .None => false) || (ast_expr_is_atom(&scr_e) && match(get_variables_from_env(env, ast_expr_token(&scr_e).value.*.clone()).last_cloned(), .Some(sv) => (sv.is_ref() || variable_is_reference_binding(&sv)), .None => false)));
+        scr_lend := if(!scr_is_ref && local_borrow_place_of(&scr_e, env, ctx).is_some(), {
+          lent := ArrayList(OriginRootPlace).new();
+          _origin_push_lend(&scr_e, false, env, ctx, &mut lent);
+          lent
+        }, origin_of(&scr_e, env, ctx));
+        inner := _origin_through_match_bindings(&scr_lend, env, ctx, (depth + u32(1)));
         (ii : usize) = usize(0);
         while(ii < inner.len(), {
           _origin_push(inner(ii).clone(), &mut out);
