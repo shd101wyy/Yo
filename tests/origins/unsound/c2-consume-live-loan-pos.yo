@@ -1,0 +1,13 @@
+// expect: accept
+// Positive control: the `&` loan's last use is before the consume.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("hello-world-hello-world-hello-world"));
+  r := xs.index(usize(0));
+  println(`OUT: ${r.*}`);
+  consume(xs);
+});
+export(main);

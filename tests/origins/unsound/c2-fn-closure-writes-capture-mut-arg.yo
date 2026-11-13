@@ -1,0 +1,15 @@
+// expect: E0913
+// An `Fn` closure lent as `&(() => …)` passes its implicit capture `s` to a `&mut` parameter that grows it: the
+// literal borrows `s` as a bitwise copy, so the growth frees the buffer the outer `s` still owns.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+grow :: (fn(t : &mut String) -> unit)({
+  t.push_str("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+});
+run :: (fn(f : &Impl(Fn() -> unit)) -> unit)(f());
+main :: (fn() -> unit)({
+  mut(s) := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+  run(&(() => grow(&mut s)));
+  println(`OUT: ${s.len().to_string()} ${s}`);
+});
+export(main);

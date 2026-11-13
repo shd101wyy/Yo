@@ -1,0 +1,15 @@
+// expect: E0910
+// The loan is a closure's capture `{ r : &xs }`; a second literal implicitly captures (moves) `xs` and
+// drops it; the first closure is called afterwards.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array_list");
+eat :: (fn(f : &mut Impl(FnMut() -> usize)) -> usize)(f());
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+  (g : Impl(Fn() -> usize)) = ({ r : &xs }() => r(usize(0)).clone().len());
+  n := eat(&mut (() => xs.len()));
+  println(`OUT: ${n.to_string()} ${g().to_string()}`);
+});
+export(main);
