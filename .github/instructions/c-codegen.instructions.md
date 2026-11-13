@@ -412,6 +412,12 @@ source order.
   set by `_rc_operand` in `rc_fns.yo`): the evaluator records a deferred
   drop's operand as the consuming read, and the drop is emitted again on
   every exit path.
+  Because the move is recognized by POSITION, a desugar that synthesizes
+  several reads of one local must not give them all one token: the template
+  literal's `__yo_tpl_N` reads all carried the opening backtick, so every
+  `push_str` receiver rendered as a move of the slot and lent a copy; its
+  tail now sits at the closing backtick
+  (issues/fixed/2026-11-11-a-string-interpolation-containing-an-await-evaluates-to-an-empty-string-and-leaks-its-pieces.md).
 - **In an SM, a C local renders by its source token** (`_generate_sm_atom`
   step 5 uses `_var_read_code`), for the reason in the next section.
 - **Nested blocks are ordinary C blocks.** A `goto` into one is legal; do not
@@ -976,6 +982,11 @@ value leaks on every iteration of a loop body: `read_dir` leaked every entry's
 name, 2,060 blocks per 20 calls
 (`issues/fixed/async-loop-body-temp-drops-leak-one-allocation-per-iteration.md`).
 Every temp-declaring site in `other_fn_call.yo` does this; a new one must too.
+A consumer that reads such a temp after a later operand's await must read the
+slot, never the C local: `_sm_lent_temp_slot` maps the temp's name to its slot
+for a by-value argument (`_apply_ref_amp`), a pointer argument and a borrowing
+`match` subject
+(`issues/fixed/2026-11-11-a-temporary-lent-before-an-await-in-a-later-operand-is-read-from-a-dead-c-local-after-the-resume.md`).
 
 ### An arm emitter must emit the rendered code of a unit arm
 

@@ -1,0 +1,22 @@
+// expect: accept
+// A string interpolation containing an await builds its string in the task's slot: every
+// `push_str`/`append_to` of the desugared template appends to the slot, not to a copy of it.
+// Before the fix the template evaluated to "" and leaked its pieces
+// (issues/fixed/2026-11-11-a-string-interpolation-containing-an-await-evaluates-to-an-empty-string-and-leaks-its-pieces.md).
+// Not a `.test.yo` case: `yo test` re-serializes the desugared template, which gives each
+// synthesized atom its own position and hides the defect.
+{ String } :: import("std/string");
+{ assert } :: import("std/assert");
+{ yield } :: import("std/async");
+num :: (fn(io : Io) -> Impl(Future(usize, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    usize(7)
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  f := io.async((io : Io) => `n=${io.await(num(io), io)}`);
+  s := io.await(f, io);
+  assert(s == "n=7", "the awaiting piece is appended to the template's own string");
+});
+export(main);

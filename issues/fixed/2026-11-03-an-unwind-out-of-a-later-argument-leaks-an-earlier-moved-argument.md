@@ -61,3 +61,19 @@ On develop `ce827ae52` both lines print `drops=0`; the expected value is `drops=
 ## Fix direction
 
 Order an argument's consumption at its enclosing call (the end of the call's argument list), not at the argument token. In other words, when the escape point lies inside a later argument of the same call that consumes the variable, the variable is not moved yet. The test goes in `tests/shadowed_binding_early_return_drop.test.yo` next to the shadowed-drop cases. Before 2026-11-03, one compiler site (`_compile_const_expr`'s `return(Pattern.Const(ty : const_ty, ..., subject : _test_subject(&test), ...))`) was balanced only by the separate S1 bug, `issues/fixed/2026-11-03-an-unwind-drop-names-a-shadowing-local-of-another-type.md`. After that fix, this leak shows there as well.
+
+## Fix
+
+Fixed 2026-11-13 with `issues/fixed/2026-11-11-a-temporary-argument-leaks-when-a-later-argument-returns-continues-or-unwinds.md`
+(branch `fix/c8-codegen-ownership`), along the direction above. The evaluator's M3 driver records, for a consumed
+local, temporary or parameter that a plain call, struct literal, tuple or method receiver moves by value, the source
+span of the operands that run after the moving one (`ArgMoveRegion`, `src/expr_info.yo`, recorded by
+`_m3_note_arg_move_region` in `src/evaluator/exprs/begin.yo`). Codegen's exit gate
+(`_variable_moved_before_cleanup_point`, `src/codegen/exprs/return.yo`) treats a cleanup point lying wholly inside that
+span as before the move, so the escape releases the value; the consuming call's own escape check starts before the span
+and still sees the value moved. A labeled field (`_Pair(key : k, …)`) counts as its value.
+
+Both lines of the reproducer print `drops=1`.
+
+**Regression test:** `tests/move_only.test.yo`, "move-only: a temporary or named argument is dropped when a later
+argument returns, continues, breaks or unwinds" (the named call and struct-literal cases).

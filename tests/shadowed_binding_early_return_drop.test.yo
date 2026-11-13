@@ -533,3 +533,50 @@ test("nested same-named borrowed and by-value bindings each read their own way",
   );
   assert(got == i32(110), `inner reads 9, outer reads 1, got=${got}`);
 });
+
+// A call argument naming a match arm binding that shadows a local passes the
+// arm's binding, not the outer local (the C argument materializer compared
+// the SOURCE name against the open C scopes, which hold the outer local)
+// (issues/fixed/2026-11-11-a-call-argument-naming-a-match-arm-binding-that-shadows-a-local-passes-the-outer-local-in-c.md).
+// The callees return what they were given, so a wrong argument is a wrong
+// value; a moved outer local is also a use after free under ASan.
+_a16_eat :: (fn(b : String) -> String)(b);
+_a16_eat_box :: (fn(b : Box(String)) -> String)(b.*.clone());
+_a16_show :: (fn(b : &String) -> String)(b.*.clone());
+_A16E :: enum(A(s : String), B);
+_a16_param :: (fn(x : String) -> Tuple(String, String))({
+  o := Option(String).Some(String.from("INNER-param-0123456789abcdefghijklmnopqrstuvwxyz"));
+  got := match(o, .Some(x) => _a16_eat(x), .None => String.from(""));
+  (x, got)
+});
+
+test("a call argument naming a shadowing arm binding passes the arm's value", {
+  // Moved into a by-value parameter: the outer local stays alive and intact.
+  x := String.from("OUTER-move-0123456789abcdefghijklmnopqrstuvwxyz");
+  o := Option(String).Some(String.from("INNER-move-0123456789abcdefghijklmnopqrstuvwxyz"));
+  got := match(o, .Some(x) => _a16_eat(x), .None => String.from(""));
+  assert(got == "INNER-move-0123456789abcdefghijklmnopqrstuvwxyz", "the moved argument is the arm's");
+  assert(x == "OUTER-move-0123456789abcdefghijklmnopqrstuvwxyz", "the outer local is untouched");
+  // A `Box` payload.
+  bx := Box.new(String.from("OUTER-box"));
+  ob := Option(Box(String)).Some(Box.new(String.from("INNER-box")));
+  got_b := match(ob, .Some(bx) => _a16_eat_box(bx), .None => String.from(""));
+  assert(got_b == "INNER-box", "the box argument is the arm's");
+  assert(bx.* == "OUTER-box", "the outer box is untouched");
+  // An enum payload.
+  s := String.from("OUTER-enum");
+  e := _A16E.A(s : String.from("INNER-enum"));
+  got_e := match(e, .A(s) => _a16_eat(s), .B => String.from(""));
+  assert(got_e == "INNER-enum", "the enum argument is the arm's");
+  assert(s == "OUTER-enum", "the outer local is untouched by the enum arm");
+  // The shadowed name is a parameter.
+  pr := _a16_param(String.from("OUTER-param"));
+  assert(pr.1 == "INNER-param-0123456789abcdefghijklmnopqrstuvwxyz", "the parameter-shadowing argument is the arm's");
+  assert(pr.0 == "OUTER-param", "the parameter is untouched");
+  // A read through `&`.
+  r := String.from("OUTER-read");
+  orr := Option(String).Some(String.from("INNER-read"));
+  got_r := match(orr, .Some(r) => _a16_show(&r), .None => String.from(""));
+  assert(got_r == "INNER-read", "the read argument is the arm's");
+  assert(r == "OUTER-read", "the outer local is untouched by the read");
+});
