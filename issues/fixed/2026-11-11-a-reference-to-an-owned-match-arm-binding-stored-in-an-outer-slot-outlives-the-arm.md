@@ -73,3 +73,14 @@ other binder that owns its value and has no `:=` statement (a by-value `for` ele
 With the fix: both negative programs and the positive control move to `tests/origins/unsound/`; corpus rows
 `store-owned-arm-binding-past-arm` (neg, E0911) and `store-owned-arm-binding-in-arm` (pos) in
 `tests/origins/corpus.tsv`.
+
+## Fix (2026-11-13, branch `fix/c3-value-origins`)
+
+The arm-end drop of an owned binding is now an access of its place (`_access_owned_at_arm_end`,
+`src/evaluator/exprs/match.yo`; `BORROW_CHECKER_COMPLETENESS.md` §3: "a root's scope-end drop … is an `access(root,
+drop)` conflict"), judged just past the arm's last token (`local_borrow_access_at`), so a loan whose last use is the
+arm's last token has ended. The `slot` join entry over `v`/`bx` is live past the arm, so the store is E0911 ("Cannot
+move `v` here: `slot` borrows `v` with `&` and is still live"). G-B rows:
+`tests/origins/unsound/a21-store-owned-arm-binding-past-arm.yo`, `…-direct.yo` (E0911) and `…-pos.yo` (accept).
+The message says "move" because `LocalBorrowAccess` has no drop kind; a `Drop` variant (`_lb_verb` → "drop") is a
+one-line change in the access region (the `modes` lane's).

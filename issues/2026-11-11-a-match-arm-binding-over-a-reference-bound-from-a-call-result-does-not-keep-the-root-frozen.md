@@ -115,7 +115,7 @@ So `r`'s loan ends at its last mention, the scrutinee, and the arm bindings hold
 reference-binding scrutinee. This supersedes the direct-lend explanation in "Root cause" below; the call-result
 rows are the same gap. The message of probe cu01 ("`n` is a binding of a by-value `match`") comes from a
 different mechanism: a binding below a `Box` in a `&mut` match is classified as a copy
-(`issues/2026-11-11-a-box-sub-pattern-of-a-mut-match-records-no-loan-so-the-arm-can-replace-the-box-under-its-binding.md`).
+(`issues/fixed/2026-11-11-a-box-sub-pattern-of-a-mut-match-records-no-loan-so-the-arm-can-replace-the-box-under-its-binding.md`).
 
 With the fix, the three reproducers above join the `tests/origins/unsound/` pairs, and the rejected rows stay as
 controls in `tests/match_binding_lend.test.yo`.
@@ -138,3 +138,20 @@ E0911 at the write, naming the arm binding (as the `match(a, …)` row does) or 
 
 With the fix: both reproducers as `tests/origins/unsound/` pairs (positive controls: the write after the `match`),
 and rows in `tests/match_binding_lend.test.yo`.
+
+## Partial fix (2026-11-13, branch `fix/c3-value-origins`)
+
+A reference binding matched bare with a `&` loan now gives each by-place arm binding the reference's own loan
+entries (`variable_holder_roots`; `origin_of` for any other scrutinee), registered like a `match(&x, …)` binding's,
+live to the binding's last use (`src/evaluator/exprs/match.yo`). Rejected now: the call-result row (statement form),
+`b := &a.*` over a `&mut` parameter, m25 (`r := &o`), g04l (`y := &G`: rule 3 at the first call while `xs` is live).
+G-B rows: `tests/origins/unsound/a3-match-ref-binding-from-call.yo`, `a3-match-reborrow-of-mut-parameter.yo`,
+`a3-match-local-reference-binding.yo`, `a3-match-reference-binding-of-global.yo` (E0911), with `-pos` twins for the
+first and third.
+
+Still open: a `&mut` REFERENCE BINDING matched bare (m20, m04, m03e; G-B row
+`tests/origins/unsound/a3-match-mut-local-reference-binding.yo`, failing). Its bindings are recorded
+(`local_borrow_note_match_place`) and not registered, because the place model cuts a place at `.*`: `r.* = .None`
+(a write through `r`) and `r = &mut n.next` (decision 25's re-point, which must stay legal while `n` lives) are the
+same place `r`. Closing it needs a deref step in `LocalBorrowPlace` (a write of `r.*` overlaps a loan of `r.*`, a
+write of `r` does not) — a change to the place model shared with the `modes` and `flow` lanes.

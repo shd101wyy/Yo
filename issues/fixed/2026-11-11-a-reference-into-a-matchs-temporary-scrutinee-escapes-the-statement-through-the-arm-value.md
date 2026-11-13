@@ -7,7 +7,7 @@ temporary of the `:=` statement, the arm value points into it, and `p` is read a
 
 Found 2026-11-11 by the ownership / borrowing / origin audit
 (`plans/backlog/OWNERSHIP_BORROWING_ORIGINS_AUDIT.md` §3 A22). Confirmed on develop `64f33c710`. Related:
-`issues/2026-11-11-a-block-or-arm-value-computes-its-origin-after-its-own-locals-are-gone-so-a-holder-over-them-carries-none.md`
+`issues/fixed/2026-11-11-a-block-or-arm-value-computes-its-origin-after-its-own-locals-are-gone-so-a-holder-over-them-carries-none.md`
 (A12): the arm value's origin is computed after the arm binding `s` left scope.
 
 ## Reproducers
@@ -72,3 +72,15 @@ of the initializer"; a `match` scrutinee is not one, so this stays an error afte
 With the fix: both negative programs and the positive control move to `tests/origins/unsound/`; corpus rows
 `match-temporary-scrutinee-arm-escapes` (neg, E0911) and `match-bound-scrutinee-arm` (pos) in
 `tests/origins/corpus.tsv`, beside `holder-from-temporary`.
+
+## Fix (2026-11-13, branch `fix/c3-value-origins`)
+
+Both steps. (1) A borrowed `match` over a temporary (`is_temporary_operand`) gives its by-place bindings (not a
+reference payload, which points where the temporary's references point) a loan of the pseudo-place
+`ORIGIN_SCRUTINEE_ROOT` (`origin_scrutinee_temporary_place`, `src/evaluator/utils.yo`): inside the arms the temporary
+is alive and a binding stored there is judged like any place, and at the `match`'s end the temporary's drop is an
+access of that place (a store into an outer slot that is still live is E0911). (2) The `match`'s value carries the
+union of its arms' values' origins computed at each arm's end (A12's R-ARM fix), and
+`origin_close_scrutinee_temporary` turns the pseudo-place into R-TEMP's entry there, so `bind` rejects `p` through
+`_reject_temporary_root`: "its value holds a reference into `mkb()`, a temporary that ends with this statement". G-B
+rows: `tests/origins/unsound/a22-match-temporary-scrutinee-arm-escapes.yo`, `…-list.yo` (E0911), `…-pos.yo` (accept).
