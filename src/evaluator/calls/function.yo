@@ -9869,6 +9869,20 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
                         );
                         pk = (pk + usize(1));
                       });
+                      // A projection call's result passed inline is typed as
+                      // the place it projects (`pick(&x.*.s)` : `String`), so
+                      // the pairs above see no reference: its slot's own
+                      // origin names say what it may store.
+                      if(!names_it && projection_call_mode_of(&ast_expr_strip_borrow_marker(&x_arg), ctx).is_some(), {
+                        xs_names := ArrayList(String).new();
+                        origin_param_names_of(&x_slot, &mut xs_names, u32(0));
+                        (xn : usize) = usize(0);
+                        while(xn < xs_names.len(), xn = (xn + usize(1)), {
+                          if(w_names.contains(match(xs_names.get_cloned(xn), .Some(n) => n, .None => String.new())), {
+                            names_it = true;
+                          });
+                        });
+                      });
                       if(!names_it && (w_tvars.len() > usize(0)), {
                         x_tvars := ArrayList(String).new();
                         type_var_ids_of(&x_slot, &mut x_tvars, u32(0), true);
