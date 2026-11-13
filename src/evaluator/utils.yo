@@ -1111,6 +1111,11 @@ move_captured_explicit_copy_variable :: (fn(v : &Variable, tok : &Token, env : &
         .Some(o) => Rc.clone(o),
         .None => Rc.clone(v)
       );
+      // The capture is a move, so it is an access of the place, as the
+      // explicit entry `{ x }` is through `set_expr_as_consumed`: E0911
+      // against a live local borrow, E0910 against a live closure's capture
+      // borrow (audit A34).
+      access_variable(&moved, LocalBorrowAccess.Move, tok, env, ctx, exn);
       _log_user_move(&moved, tok, env);
       moved.set_consumed_at_token(Option(Token).Some(tok.clone()));
       // Mark the shadow too, so a re-evaluation of the same site against the
@@ -1267,6 +1272,91 @@ _closure_binding_site :: (fn(v : &Variable, env : &Environment, ctx : &EvalConte
 _is_implicit_closure_capture :: (fn(v : &Variable, env : &Environment, ctx : &EvalContext) -> bool)(
   _closure_binding_site(v, env, ctx) == u8(1)
 );
+/// The closures whose body may write an implicit capture, by `func_id`: a
+/// closure typed `FnMut(...)` or `FnOnce(...)` that owns its captures (not a
+/// literal lent to a borrowing parameter, whose record holds bitwise copies of
+/// the caller's values, decision 22). An `Fn(...)` call borrows its record
+/// shared, and a borrowed literal's record aliases the caller's storage, so a
+/// write there releases or reallocates what the caller still owns (audit A46).
+(g_capture_writing_closures : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
+/// Record whether the closure `func_id`'s body may write an implicit capture
+/// (`g_capture_writing_closures`); set where the literal is typed, before its
+/// body is evaluated.
+set_closure_writes_captures :: (fn(func_id : &String, writes : bool) -> unit)({
+  fid := func_id.clone();
+  g_capture_writing_closures.with_mut({ fid, writes }(m) => {
+    if(writes, {
+      m.insert(fid, true);
+    }, {
+      m.remove(&fid);
+    });
+    ()
+  });
+});
+/// The `func_id` of the closure whose body is being evaluated (empty outside
+/// a closure body).
+_current_closure_fid :: (fn(ctx : &EvalContext) -> String)(
+  match(
+    &ctx.is_evaluating_function_body_or_async_block,
+    .Some(sub) => match(sub.func_value, .Some(.FuncVal(fvd, _)) => fvd.*.func_id.clone(), _ => String.new()),
+    .None => String.new()
+  )
+);
+/// Audit A46: the binding `v` is written at `tok` (`how`: "assign to", "lend
+/// `&mut` (...)", "call the `FnMut(...)` closure") inside a closure body that
+/// captures it implicitly, and the closure may not write its captures
+/// (`g_capture_writing_closures`): E0913. The capture is the closure's own
+/// copy (or, in a borrowed literal, a bitwise alias of the caller's value), so
+/// the write is lost at best and releases storage the caller still owns at
+/// worst; a write that should reach the caller borrows the place `{ &mut x }`,
+/// one that keeps state across calls types the closure `FnMut(...)`.
+reject_implicit_capture_write :: (fn(v : &Variable, tok : &Token, how : &String, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+  if(!_is_implicit_closure_capture(v, env, ctx), {
+    return(());
+  });
+  fid := _current_closure_fid(ctx);
+  if(g_capture_writing_closures.with({ &fid }(m) => m.contains_key(&fid)), {
+    return(());
+  });
+  name := v.name.clone();
+  raise_flow_violation(
+    with_code(
+      format_error_message_with_help(
+        tok,
+        `Cannot ${how} \`${name}\` here: the closure captures it implicitly, by value, and its call borrows the captures shared (an \`Fn(...)\` closure, or a literal lent to a borrowing parameter, whose record holds a copy of \`${name}\` the caller still owns). The write would change the closure's copy and release storage \`${name}\` still owns.`,
+        Option(String).Some(`borrow the place in a capture list and type the closure \`FnMut(...)\`: \`{ &mut ${name} }(...) => ...\` at a \`&mut Impl(FnMut(...))\` slot; or, to keep state across calls, give the closure its own copy, \`{ ${name} }(...) => ...\`, typed \`FnMut(...)\``)
+      ),
+      E_CLOSURE_TRAIT_TOO_WEAK
+    ),
+    ctx,
+    exn
+  );
+});
+/// Audit A47: a write of the binding `v` at `tok` (`how`: "call the
+/// `FnMut(...)` closure", a `&mut` lend, a field store) where `v` is a `&`
+/// capture-list entry (`{ r : &f }`, `variable_slot_type` a shared
+/// reference): E0908, as through a local `&` borrow or a `&T` parameter.
+reject_write_through_shared_capture :: (fn(v : &Variable, tok : &Token, how : &String, ctx : &EvalContext, exn : Exception) -> unit)({
+  if(!v.is_ref() || borrow_capture_outer(v.id()).is_none(), {
+    return(());
+  });
+  if(!match(variable_slot_type(v), Rc(.Reference(_, rs_mut, _)) => !rs_mut, _ => false), {
+    return(());
+  });
+  bco := match(borrow_capture_outer(v.id()), .Some(b) => b, .None => return(()));
+  raise_flow_violation(
+    with_code(
+      format_error_message_with_help(
+        tok,
+        `Cannot ${how} \`${v.name}\`: it is the \`&\` capture \`${bco.text}\`, a read-only borrow.`,
+        Option(String).Some(`capture it with \`&mut\` (\`{ ${v.name} : &mut ${bco.place.text} }\`) and type the closure \`FnMut(...)\``)
+      ),
+      E_WRITE_THROUGH_BORROW
+    ),
+    ctx,
+    exn
+  );
+});
 /// `v` is a by-value entry of the capture list of the `FnOnce(...)` closure
 /// whose body is being evaluated: the body owns it (decision 37), so it is
 /// released where the body moves or consumes it, like a local.
@@ -2045,48 +2135,163 @@ reject_second_class_result_outliving :: (
   });
 });
 /// An access to the binding `v` (a read, or with `is_write` a write or a
-/// move) while a live closure borrows it: a `mut` capture freezes every
-/// access, an `imm` capture freezes writes and moves (decision 18 rule 2).
-/// A field of `v` is the same root. A no-op unless some capture-list closure
-/// borrows `v`.
-check_capture_freeze_access :: (fn(v : &Variable, is_write : bool, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
-  if(g_capture_freezes.with(_c_len_1) == usize(0), {
-    return(());
+/// move) while a live closure borrows it: `capture_freeze_access` with the
+/// kind `is_write` names.
+check_capture_freeze_access :: (fn(v : &Variable, is_write : bool, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)(
+  capture_freeze_access(v, if(is_write, LocalBorrowAccess.Write, LocalBorrowAccess.Read), tok, env, ctx, exn)
+);
+/// Some capture-list closure borrows a place (`g_capture_freezes`).
+capture_freezes_active :: (fn() -> bool)(g_capture_freezes.with(_c_len_1) > usize(0));
+/// A live capture-list closure's borrow that an access conflicts with
+/// (`capture_freeze_conflict`): the accessed binding, the closure and the
+/// borrowed place.
+CaptureFreezeConflict :: struct(root_name : String, holder_name : String, borrow : CaptureBorrow);
+derive(CaptureFreezeConflict, Clone);
+/// The capture path `path` and the access steps `steps` (both from the root
+/// outward) overlap: one is a prefix of the other (decision 28's rule).
+_capture_path_overlaps :: (fn(path : &ArrayList(String), steps : &ArrayList(String)) -> bool)({
+  n := cond((path.len() < steps.len()) => path.len(), true => steps.len());
+  (i : usize) = usize(0);
+  while(i < n, i = (i + usize(1)), {
+    if(path(i) != steps(i), {
+      return(false);
+    });
   });
+  true
+});
+/// The first live closure borrow an access of kind `kind` to the place
+/// `v`.`steps` conflicts with (decision 18 rule 2): a `&mut` capture freezes
+/// every access, a `&` capture every access but a read — a write, a move and
+/// a `&mut` lend. `steps` empty is `v` whole.
+capture_freeze_conflict :: (fn(v : &Variable, kind : LocalBorrowAccess, steps : &ArrayList(String), env : &Environment) -> Option(CaptureFreezeConflict))({
+  if(!capture_freezes_active(), {
+    return(Option(CaptureFreezeConflict).None);
+  });
+  is_read := _lb_is_read(&kind);
   match(
     g_capture_freezes.with({ &v }(m) => m.get_cloned(&v.id())),
     .Some(list) => {
       (fi : usize) = usize(0);
-      while(fi < list.len(), {
-        fz := match(list.get_cloned(fi), .Some(x) => x, .None => return(()));
-        if(fz.borrow.is_mut || is_write, {
+      while(fi < list.len(), fi = (fi + usize(1)), {
+        fz := match(list.get_cloned(fi), .Some(x) => x, .None => return(Option(CaptureFreezeConflict).None));
+        if((fz.borrow.is_mut || !is_read) && _capture_path_overlaps(&fz.borrow.path, steps), {
           live := match(
             _find_var_by_id(env, fz.holder_id),
             .Some(h_at) => h_at.0.consumed_at_token().is_none(),
             .None => false
           );
           if(live, {
-            what := if(is_write, String.from("written or moved"), String.from("used"));
-            raise_flow_violation(
-              with_code(
-                format_error_message_with_help(
-                  tok,
-                  `\`${v.name}\` cannot be ${what} here: the closure \`${fz.holder_name}\` borrows ${_capture_borrow_note(&fz.borrow)}, and the borrow lasts until \`${fz.holder_name}\`'s scope ends.`,
-                  Option(String).Some(`end \`${fz.holder_name}\`'s scope first (put the closure and its calls in a block), or reach \`${v.name}\` through the closure`)
-                ),
-                E_BORROW_CONFLICT
-              ),
-              ctx,
-              exn
-            );
+            return(Option(CaptureFreezeConflict).Some(CaptureFreezeConflict(root_name : v.name.clone(), holder_name : fz.holder_name.clone(), borrow : fz.borrow.clone())));
           });
         });
-        fi = (fi + usize(1));
       });
     },
     .None => ()
   );
+  Option(CaptureFreezeConflict).None
 });
+/// E0910 for the access `kind` at `tok` that `c` conflicts with.
+raise_capture_freeze_conflict :: (fn(c : &CaptureFreezeConflict, kind : LocalBorrowAccess, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
+  what := match(
+    kind,
+    .Read => "used",
+    .Write => "written",
+    .Move => "moved",
+    .Exclusive => "borrowed with `&mut`"
+  );
+  raise_flow_violation(
+    with_code(
+      format_error_message_with_help(
+        tok,
+        `\`${c.root_name}\` cannot be ${what} here: the closure \`${c.holder_name}\` borrows ${_capture_borrow_note(&c.borrow)}, and the borrow lasts until \`${c.holder_name}\`'s scope ends.`,
+        Option(String).Some(`end \`${c.holder_name}\`'s scope first (put the closure and its calls in a block), or reach \`${c.root_name}\` through the closure`)
+      ),
+      E_BORROW_CONFLICT
+    ),
+    ctx,
+    exn
+  );
+});
+/// An access of kind `kind` to the binding `v` whole while a live closure
+/// borrows it: E0910 (`capture_freeze_conflict`). A no-op unless some
+/// capture-list closure borrows `v`.
+capture_freeze_access :: (fn(v : &Variable, kind : LocalBorrowAccess, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)(
+  capture_freeze_access_at(v, kind, &ArrayList(String).new(), tok, env, ctx, exn)
+);
+/// `capture_freeze_access` of the place `v`.`steps`.
+capture_freeze_access_at :: (fn(v : &Variable, kind : LocalBorrowAccess, steps : &ArrayList(String), tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)(
+  match(capture_freeze_conflict(v, kind, steps, env), .Some(c) => raise_capture_freeze_conflict(&c, kind, tok, ctx, exn), .None => ())
+);
+// ---------------------------------------------------------------------------
+// `access(place, mode)`: one entry for every loan table (audit §9 cluster 2)
+// ---------------------------------------------------------------------------
+/// Some loan is in scope: a local borrow or flow set (`local_borrows_active`)
+/// or a closure's capture borrow (`capture_freezes_active`). The fast gate
+/// before computing a place for `access_place`.
+loans_active :: (fn() -> bool)(local_borrows_active() || capture_freezes_active());
+/// The binding `place` is rooted at, by its name and declaration token.
+local_borrow_root_variable :: (fn(place : &LocalBorrowPlace, env : &Environment) -> Option(Variable))({
+  vars := get_variables_from_env(env, &place.root_name);
+  (i : usize) = vars.len();
+  while(i > usize(0), {
+    i = (i - usize(1));
+    match(
+      vars.get_cloned(i),
+      .Some(v) => if(_lb_same_decl(v.name.clone(), &v.token, place.root_name.clone(), &place.root_decl), {
+        return(Option(Variable).Some(v));
+      }),
+      .None => ()
+    );
+  });
+  Option(Variable).None
+});
+/// `access(place, kind)` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3):
+/// an access of `place` in the mode the operation declares, checked against
+/// every loan the checker holds — the local borrows and flow sets (E0911,
+/// `local_borrow_access`) and the closures' capture borrows (E0910,
+/// `capture_freeze_access`). A move (`consume`, a by-value argument, an
+/// implicit capture), a `&mut` lend (an argument, a receiver, a local
+/// borrow, a scrutinee, a capture entry) and a capture entry's `&` lend
+/// come here with their declared mode, so no site judges a write as a read
+/// or skips one table (audit §9 cluster 2: A13, A32, A33, A34).
+access_place :: (fn(place : &LocalBorrowPlace, kind : LocalBorrowAccess, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+  if(local_borrows_active(), {
+    local_borrow_access(place, &kind, tok, ctx, exn);
+  });
+  if(capture_freezes_active(), {
+    match(local_borrow_root_variable(place, env), .Some(rv) => capture_freeze_access_at(&rv, kind, &place.steps, tok, env, ctx, exn), .None => ());
+  });
+});
+/// `access_place` of the binding `v` whole.
+access_variable :: (fn(v : &Variable, kind : LocalBorrowAccess, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+  if(local_borrows_active(), {
+    local_borrow_access(local_borrow_place_of_variable(v), &kind, tok, ctx, exn);
+  });
+  capture_freeze_access(v, kind, tok, env, ctx, exn);
+});
+/// The move of the binding `v` at `tok` (a by-value argument, `consume(v)`,
+/// the `___drop` builtin): `access_variable` with `Move`. Code the compiler
+/// generates (`auto-generated://`: scope-end drops, desugared moves) is
+/// judged against the local borrows only — its moves are the closure's own
+/// teardown, not a user's access of a place a capture freezes.
+access_move :: (fn(v : &Variable, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)(
+  if(!tok.module_path.*.starts_with(String.from("auto-generated://")), {
+    access_variable(v, LocalBorrowAccess.Move, tok, env, ctx, exn);
+  }, if(local_borrows_active(), {
+    local_borrow_access(local_borrow_place_of_variable(v), LocalBorrowAccess.Move, tok, ctx, exn);
+  }))
+);
+/// `access_place` of the place `e` names (no-op when it is not rooted at a
+/// variable or no loan is in scope).
+access_expr :: (fn(e : &AstExpr, kind : LocalBorrowAccess, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)(
+  if(loans_active(), {
+    match(
+      local_borrow_place_of(e, env, ctx),
+      .Some(p) => access_place(&p, kind, tok, env, ctx, exn),
+      .None => ()
+    );
+  })
+);
 /// One place an argument reaches, for decision 28's overlap test: its root
 /// binding and its field path, how a message names it, and whether it comes
 /// from a capture-list borrow the argument's type carries (decision 38 B)
@@ -2356,23 +2561,18 @@ set_expr_as_consumed :: (
           if(v.is_compile_time_only() && match(info.value(), .Some(cfv) => is_func_val(&cfv), .None => false), {
             return(());
           });
-          // A place a live capture-list closure borrows cannot be moved
-          // (decision 18 rule 2).
-          if(!ast_expr_token(expr).module_path.*.starts_with(String.from("auto-generated://")), {
-            check_capture_freeze_access(&v, true, ast_expr_token(expr), env, ctx, exn);
-          });
+          // A move is an access (decision 18 rule 2): E0910 against a live
+          // capture-list closure that borrows the place, E0911 against a live
+          // local borrow, which is live until its last use (a move of a place
+          // it freezes is free after it). Only a binding outside the
+          // local-borrow model (none in safe code) keeps the scope-wide
+          // `inout` gate below.
+          access_move(&v, ast_expr_token(expr), env, ctx, exn);
           // `inout` local bindings (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §8 B2):
           // a live binding aliases this variable's SLOT; moving the slot's
           // count out (an `own` argument) would leave the alias reading a
           // handle it does not own, and a later write through the alias
           // would over-release it (§2.1). Reject while any borrower is live.
-          // A local borrow (decision 18) is live until its last use: a move of
-          // a place it freezes is E0911 inside that range, and free after it.
-          // Only a binding outside the local-borrow model (none in safe code)
-          // keeps the scope-wide gate below.
-          if(local_borrows_active(), {
-            local_borrow_access(local_borrow_place_of_variable(&v), LocalBorrowAccess.Move, ast_expr_token(expr), ctx, exn);
-          });
           borrowers := _untracked_inout_borrowers(find_live_inout_borrowers(env, v.id()));
           if(borrowers.len() > usize(0), {
             b := match(borrowers.get_cloned(usize(0)), .Some(x) => x, .None => make_err_variable(env));
@@ -2985,10 +3185,21 @@ reject_write_through_shared_reference_field :: (fn(place : &AstExpr, tok : &Toke
 /// sites, and a compile-time root holds no runtime storage to lend.
 place_require_mut :: (fn(place : &AstExpr, tok : &Token, how : &String, handle_ok : bool, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   reject_write_through_shared_reference_field(place, tok, ctx, exn);
+  root := place_root_binding(place, env, ctx);
+  // Memory safety, not decision 47's marker, so every tree: a write of an
+  // implicit capture where the closure may not write it (A46), and a write
+  // through a `&` capture-list entry (A47).
+  match(
+    &root,
+    .Some(wv) => {
+      reject_implicit_capture_write(wv, tok, how, env, ctx, exn);
+      reject_write_through_shared_capture(wv, tok, how, ctx, exn);
+    },
+    .None => ()
+  );
   if(!g_audit_mut_bindings && !global_mut_rule_applies(tok, ctx), {
     return(());
   });
-  root := place_root_binding(place, env, ctx);
   rv := match(root, .Some(v) => Rc.clone(v), .None => return(()));
   if(rv.is_module_level() || (handle_ok && rv.is_compile_time_only()), {
     return(());
@@ -5950,6 +6161,8 @@ export(get_dup_use_site_token);
 export(attach_temp_variable_to_expr);
 export(variable_is_borrow_parameter, variable_is_future_operand_parameter, variable_id_in_scope);
 export(capture_place_crosses_cell, is_cell_handle_deref_step, place_rc_handle, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, reject_bare_callable_into_dyn_fn, reject_closure_literal_into_dyn_fn, reject_bare_callable_result, reject_second_class_escape, reject_second_class_return, note_second_class_binding, reject_second_class_result_outliving, check_capture_freeze_access, require_capture_borrow_exclusivity);
+export(set_closure_writes_captures, reject_implicit_capture_write, reject_write_through_shared_capture);
+export(CaptureFreezeConflict, local_borrow_root_variable, capture_freeze_conflict, raise_capture_freeze_conflict, capture_freeze_access_at, capture_freeze_access, capture_freezes_active, loans_active, access_place, access_variable, access_move, access_expr);
 export(doc_comment_lookup_key_from_token);
 export(_last_token_of);
 export(consume_case_body_temp_var, merge_and_check_envs, reject_mixed_closure_arms, reset_sibling_flow_state, keep_last_arm_moves, snapshot_loop_flow, check_loop_flow, drop_moves_of_skippable_operand);
@@ -6074,6 +6287,7 @@ LocalBorrowMacroSite :: struct(site : Token, end : Token, await_ids : ArrayList(
 derive(LocalBorrowMacroSite, Clone);
 /// How an access touches a place.
 LocalBorrowAccess :: enum(Read, Write, Move, Exclusive);
+derive(LocalBorrowAccess, Copy, Clone);
 /// Any local borrow in scope: the fast gate every access hook checks first.
 local_borrows_active :: (fn() -> bool)((g_local_borrows.with(_c_len_5) > usize(0)) || (g_local_borrow_joins.with(_c_len_5) > usize(0)));
 /// The lengths a begin block restores when it ends (`local_borrows_truncate`),

@@ -111,6 +111,12 @@ pragma(Pragma.AllowUnsafe);
   reject_write_through_rc,
   note_second_class_binding,
   check_capture_freeze_access,
+  reject_implicit_capture_write,
+  CaptureFreezeConflict,
+  capture_freeze_conflict,
+  raise_capture_freeze_conflict,
+  local_borrow_root_variable,
+  loans_active,
   LocalBorrowPlace,
   LocalBorrowAccess,
   local_borrows_active,
@@ -743,8 +749,9 @@ require_no_inout_write_through_borrow :: (
       arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
       arg_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&arg)), .Some(ai) => Rc.clone(ai.ty()), .None => t_unit());
       // A local borrow may be watching the place: judged once the callee's
-      // mutation mask is known (`d3_check_pending`).
-      if(local_borrows_active(), {
+      // mutation mask is known (`d3_check_pending`). A capture borrow is
+      // judged whatever the callee is (`cap_conflict`).
+      if(loans_active(), {
         match(
           local_borrow_place_of(&arg, env, ctx),
           .Some(lbp) => {
@@ -766,7 +773,8 @@ require_no_inout_write_through_borrow :: (
                 lb_place : Option(LocalBorrowPlace).Some(lbp.clone()),
                 // `&mut r` of a reference binding (§7 P3) writes `r` itself
                 // (a re-point through the `&mut &T`), never its referent.
-                lb_read_only : (local_borrow_root_is_shared_reference(&lbp, env) && !is_reference_self_place(ast_expr_id(&arg)))
+                lb_read_only : (local_borrow_root_is_shared_reference(&lbp, env) && !is_reference_self_place(ast_expr_id(&arg))),
+                cap_conflict : _d3_capture_conflict(&lbp, env)
               )
             );
           },
@@ -860,7 +868,7 @@ require_no_inout_write_through_borrow :: (
       // `&mut` reference; a `&mut` binding read into such a slot) is a write
       // of the place whatever the callee's body does. Two-phase, as a `&mut`
       // argument the callee writes (`d3_check_pending`).
-      if(local_borrows_active(), {
+      if(loans_active(), {
         ml_arg := _d3_unlabeled_arg(match(args.get(i), .Some(a) => a, .None => make_err_expr()));
         if(is_mut_lend_value(ast_expr_id(&ml_arg)), {
           match(
@@ -879,7 +887,8 @@ require_no_inout_write_through_borrow :: (
                   borrow_error : Option(String).None,
                   lb_place : Option(LocalBorrowPlace).Some(ml_lbp.clone()),
                   lb_read_only : (local_borrow_root_is_shared_reference(&ml_lbp, env) && !is_reference_self_place(ast_expr_id(&ml_arg))),
-                  lends_mut : true
+                  lends_mut : true,
+                  cap_conflict : _d3_capture_conflict(&ml_lbp, env)
                 )
               );
             },
@@ -891,6 +900,15 @@ require_no_inout_write_through_borrow :: (
     i = (i + usize(1));
   });
 });
+/// The live capture borrow a `&mut` argument of the place `lbp` conflicts
+/// with: an exclusive access of the place (audit §9 cluster 2).
+_d3_capture_conflict :: (fn(lbp : &LocalBorrowPlace, env : &Environment) -> Option(CaptureFreezeConflict))(
+  match(
+    local_borrow_root_variable(lbp, env),
+    .Some(rv) => capture_freeze_conflict(&rv, LocalBorrowAccess.Exclusive, &lbp.steps, env),
+    .None => Option(CaptureFreezeConflict).None
+  )
+);
 /// A call argument without its `label :` (the argument rules read the value).
 _d3_unlabeled_arg :: (fn(arg : AstExpr) -> AstExpr)(
   if(
@@ -1000,7 +1018,11 @@ D3PendingInout :: struct(
   /// A `&mut` reference value the caller made of the place for a by-value
   /// slot (VERDICTS-57 §3.1, `require_no_inout_write_through_borrow`): an
   /// exclusive access whatever the callee's body does.
-  (lends_mut : bool) ?= false
+  (lends_mut : bool) ?= false,
+  /// A live capture-list closure borrows the place (`capture_freeze_conflict`,
+  /// found where the argument is): a `&mut` argument or receiver is an
+  /// exclusive access of it whatever the callee is (audit A32), E0910.
+  (cap_conflict : Option(CaptureFreezeConflict)) ?= Option(CaptureFreezeConflict).None
 );
 derive(D3PendingInout, Clone);
 /// The module-level (non-thread-local, runtime) global a place is rooted in,
@@ -1179,7 +1201,12 @@ _d3_judge_local_borrows :: (
       pending.get_cloned(li),
       .Some(entry) => match(
         &entry.lb_place,
-        .Some(lbp) => if(entry.lends_mut || match(borrow_mask, .Some(bm) => (param_mutation_mask_hits(&bm, entry.param_index) || param_mutation_mask_lends_mut(&bm, entry.param_index)), .None => false), {
+        .Some(lbp) => {
+          // A `&mut` argument or receiver is an exclusive access of a place
+          // a live closure borrows, whatever the callee's body does
+          // (`cap_conflict`, audit A32).
+          match(&entry.cap_conflict, .Some(cc) => raise_capture_freeze_conflict(cc, LocalBorrowAccess.Exclusive, ast_expr_token(&entry.place), ctx, exn), .None => ());
+          if(entry.lends_mut || match(borrow_mask, .Some(bm) => (param_mutation_mask_hits(&bm, entry.param_index) || param_mutation_mask_lends_mut(&bm, entry.param_index)), .None => false), {
           local_borrow_require_writable(&lbp, entry.lb_read_only, entry.how.clone(), ast_expr_token(&entry.place), ctx, exn);
           if(!carriers_ready, {
             carriers = call_origin_operands(call, ctx);
@@ -1195,7 +1222,8 @@ _d3_judge_local_borrows :: (
             exn
           );
           local_borrow_access(&lbp, LocalBorrowAccess.Read, ast_expr_token(&entry.place), ctx, exn);
-        }),
+          });
+        },
         .None => ()
       ),
       .None => ()
@@ -1207,8 +1235,11 @@ _d3_judge_local_borrows :: (
 /// a function pointer. Its mutation mask is unknown, which counts as `all`, as
 /// an unresolvable body does, so a borrowed value lent to one of its `&mut`
 /// parameters is E0908: the callee writes through the pointer into the
-/// borrowed copy, and the write is lost. Only the borrowed-value entries are
-/// judged; the D3 atomic and local-borrow entries keep needing a body.
+/// borrowed copy, and the write is lost. A `&mut` argument is an exclusive
+/// access of its place against the live local borrows too: with no body to
+/// summarize, the callee may write it (audit A6, the bodyless half; the
+/// unknown mask is `all`, two-phase as any written `&mut` argument). The D3
+/// atomic entries keep needing a body.
 d3_check_pending_unresolved_callee :: (
   fn(pending : &ArrayList(D3PendingInout), callee_text : &String, call : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit
 )({
@@ -1216,9 +1247,8 @@ d3_check_pending_unresolved_callee :: (
     return(());
   });
   all_mask := ParamMutationMask(all : true, deep : ArrayList(bool).new(), shallow : ArrayList(bool).new(), lends_mut : ArrayList(bool).new());
-  _d3_judge_borrow_errors(pending, Option(ParamMutationMask).Some(all_mask), callee_text, ctx, exn);
-  // A by-value `&mut` lend is a write whatever the callee is (VERDICTS-57 §3.1).
-  _d3_judge_local_borrows(pending, Option(ParamMutationMask).None, call, ctx, exn);
+  _d3_judge_borrow_errors(pending, Option(ParamMutationMask).Some(all_mask.clone()), callee_text, ctx, exn);
+  _d3_judge_local_borrows(pending, Option(ParamMutationMask).Some(all_mask), call, ctx, exn);
 });
 /// D3 (`plans/reference/PARALLELISM_RULES.md`): an `inout` binding rooted in an
 /// atomic object is a data race iff the callee may WRITE through that
@@ -2384,6 +2414,9 @@ Bound type: ${type_to_string(&variable_value_type(&mcb_v))}`
     ctx
   );
   check_capture_freeze_access(&variable, true, ast_expr_token(&lhs_resolved), &env, ctx, exn);
+  // An implicit capture is written only where the closure owns its record
+  // and is `FnMut`/`FnOnce` (audit A46, E0913).
+  reject_implicit_capture_write(&variable, ast_expr_token(&lhs_resolved), &String.from("assign to"), &env, ctx, exn);
   // Check reassignability. A pattern or destructuring binding is immutable
   // unless declared `mut(name)` there (decision 47): E0917 names the marker.
   if(!variable.is_reassignable() && !variable.is_parameter() && !variable.is_implicit(), {
