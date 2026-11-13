@@ -3807,3 +3807,23 @@ test("move-only: an aborted task does not drop a local it moved", {
   _r := h.await(io);
   assert(g_mo_disposed == (before + i32(1)), `the moved local is dropped once, by its new owner, dropped ${(g_mo_disposed - before).to_string()}`);
 });
+// Audit A13: `consume(x)` moves `x`, so it is a move access of `x`'s place
+// against every live loan, as passing `x` to a by-value parameter is.
+test("move-only: `consume` of a place a live `&` loan points into is E0911", {
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("abc"));
+  comptime_expect_error({
+    r := xs.index(usize(0));
+    consume(xs);
+    r.len()
+  }, "Cannot move `xs` here: `r` borrows");
+  s := String.from("abc");
+  comptime_expect_error({
+    r := &s;
+    consume(s);
+    r.len()
+  }, "Cannot move `s` here: `r` borrows");
+  r := xs.index(usize(0));
+  assert(r.len() == usize(3), "the loan's last use precedes the consume");
+  consume(xs);
+});

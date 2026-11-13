@@ -810,3 +810,113 @@ test("a closure literal returning its reference parameter is a projection", {
   y := i32(2);
   comptime_expect_error(_cl_project({ c : &y }(v : &i32) => &c.*, &x), "reached from one of its own");
 });
+// Audit §9 cluster 2: a `&mut` lend, a move and a capture entry are accesses
+// in their declared mode against every loan the checker holds, a closure's
+// capture borrows included (A20, A32, A33, A34).
+_cl_reset :: (fn(x : &mut ArrayList(String)) -> unit)({
+  x.* = ArrayList(String).new();
+});
+_cl_first :: (fn(xs : &ArrayList(String)) -> &String)(&xs(usize(0)));
+_cl_eat :: (fn(f : &mut Impl(FnMut() -> usize)) -> usize)(f());
+test("access modes: a `&mut` lend of a place a live closure's `&` capture borrows is E0910", {
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("a"));
+  comptime_expect_error({
+    (g : Impl(Fn() -> usize)) = ({ r : &xs }() => r.len());
+    _cl_reset(&mut xs);
+    g()
+  }, "cannot be borrowed with `&mut` here: the closure `g` borrows");
+  comptime_expect_error({
+    (g : Impl(Fn() -> usize)) = ({ r : &xs }() => r.len());
+    xs.clear();
+    g()
+  }, "cannot be borrowed with `&mut` here: the closure `g` borrows");
+  comptime_expect_error({
+    (g : Impl(Fn() -> usize)) = ({ r : &xs }() => r.len());
+    w := &mut xs;
+    w.clear();
+    g()
+  }, "cannot be borrowed with `&mut` here: the closure `g` borrows");
+  comptime_expect_error({
+    (g : Impl(Fn() -> usize)) = ({ r : &xs }() => r.len());
+    (mut(c) : Impl(FnMut() -> unit)) = ({ m : &mut xs }() => m.clear());
+    c();
+    g()
+  }, "cannot be borrowed with `&mut` here: the closure `g` borrows");
+  // The closure's scope ended: the lend is free.
+  {
+    (g : Impl(Fn() -> usize)) = ({ r : &xs }() => r.len());
+    assert(g() == usize(1), "the closure reads the list");
+  };
+  _cl_reset(&mut xs);
+  assert(xs.len() == usize(0), "the lend after the closure's scope writes the list");
+});
+test("access modes: a capture-list `&mut` entry beside a live `&` loan is E0911", {
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("a"));
+  comptime_expect_error({
+    r := _cl_first(&xs);
+    (mut(c) : Impl(FnMut() -> unit)) = ({ m : &mut xs }() => m.push(String.from("b")));
+    c();
+    r.len()
+  }, "Cannot borrow with `&mut` `xs` here: `r` borrows");
+  comptime_expect_error({
+    r := _cl_first(&xs);
+    n := _cl_eat(&mut ({ m : &mut xs }() => {
+      m.push(String.from("b"));
+      m.len()
+    }));
+    (n + r.len())
+  }, "Cannot borrow with `&mut` `xs` here: `r` borrows");
+  r := _cl_first(&xs);
+  assert(r.len() == usize(1), "the loan's last use precedes the entry");
+  (mut(c) : Impl(FnMut() -> unit)) = ({ m : &mut xs }() => m.push(String.from("b")));
+  c();
+  assert(xs.len() == usize(2), "the `&mut` entry wrote the list");
+});
+test("access modes: an implicit capture that moves a place is checked against live loans", {
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("a"));
+  comptime_expect_error({
+    r := _cl_first(&xs);
+    n := _cl_eat(&mut (() => xs.len()));
+    (n + r.len())
+  }, "Cannot move `xs` here: `r` borrows");
+  comptime_expect_error({
+    (g : Impl(Fn() -> usize)) = ({ r : &xs }() => r.len());
+    n := _cl_eat(&mut (() => xs.len()));
+    (n + g())
+  }, "cannot be moved here: the closure `g` borrows");
+});
+test("access modes: a capture that reborrows through a reference binding freezes what it borrows", {
+  mut(x) := i32(1);
+  comptime_expect_error({
+    y := &x;
+    (g : Impl(Fn() -> i32)) = ({ z : &y.* }() => z.*);
+    x = i32(3);
+    g()
+  }, "the closure `g` borrows");
+  mut(o) := Option(String).Some(String.from("abc"));
+  comptime_expect_error(
+    match(
+      &o,
+      .Some(s) => {
+        (f : Impl(Fn() -> usize)) = ({ t : &s.* }() => t.len());
+        o = .None;
+        f()
+      },
+      .None => usize(0)
+    ),
+    "the closure `f` borrows"
+  );
+  n := match(
+    &o,
+    .Some(s) => {
+      (f : Impl(Fn() -> usize)) = ({ t : &s.* }() => t.len());
+      f()
+    },
+    .None => usize(0)
+  );
+  o = .None;
+  assert(n == usize(3), "the reborrowing closure dies inside the arm");
+});

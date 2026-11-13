@@ -2163,11 +2163,11 @@ _capture_path_overlaps :: (fn(path : &ArrayList(String), steps : &ArrayList(Stri
 /// `v`.`steps` conflicts with (decision 18 rule 2): a `&mut` capture freezes
 /// every access, a `&` capture every access but a read — a write, a move and
 /// a `&mut` lend. `steps` empty is `v` whole.
-capture_freeze_conflict :: (fn(v : &Variable, kind : LocalBorrowAccess, steps : &ArrayList(String), env : &Environment) -> Option(CaptureFreezeConflict))({
+capture_freeze_conflict :: (fn(v : &Variable, kind : &LocalBorrowAccess, steps : &ArrayList(String), env : &Environment) -> Option(CaptureFreezeConflict))({
   if(!capture_freezes_active(), {
     return(Option(CaptureFreezeConflict).None);
   });
-  is_read := _lb_is_read(&kind);
+  is_read := _lb_is_read(kind);
   match(
     g_capture_freezes.with({ &v }(m) => m.get_cloned(&v.id())),
     .Some(list) => {
@@ -2191,7 +2191,7 @@ capture_freeze_conflict :: (fn(v : &Variable, kind : LocalBorrowAccess, steps : 
   Option(CaptureFreezeConflict).None
 });
 /// E0910 for the access `kind` at `tok` that `c` conflicts with.
-raise_capture_freeze_conflict :: (fn(c : &CaptureFreezeConflict, kind : LocalBorrowAccess, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
+raise_capture_freeze_conflict :: (fn(c : &CaptureFreezeConflict, kind : &LocalBorrowAccess, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
   what := match(
     kind,
     .Read => "used",
@@ -2215,11 +2215,11 @@ raise_capture_freeze_conflict :: (fn(c : &CaptureFreezeConflict, kind : LocalBor
 /// An access of kind `kind` to the binding `v` whole while a live closure
 /// borrows it: E0910 (`capture_freeze_conflict`). A no-op unless some
 /// capture-list closure borrows `v`.
-capture_freeze_access :: (fn(v : &Variable, kind : LocalBorrowAccess, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)(
+capture_freeze_access :: (fn(v : &Variable, kind : &LocalBorrowAccess, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)(
   capture_freeze_access_at(v, kind, &ArrayList(String).new(), tok, env, ctx, exn)
 );
 /// `capture_freeze_access` of the place `v`.`steps`.
-capture_freeze_access_at :: (fn(v : &Variable, kind : LocalBorrowAccess, steps : &ArrayList(String), tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)(
+capture_freeze_access_at :: (fn(v : &Variable, kind : &LocalBorrowAccess, steps : &ArrayList(String), tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)(
   match(capture_freeze_conflict(v, kind, steps, env), .Some(c) => raise_capture_freeze_conflict(&c, kind, tok, ctx, exn), .None => ())
 );
 // ---------------------------------------------------------------------------
@@ -2254,18 +2254,18 @@ local_borrow_root_variable :: (fn(place : &LocalBorrowPlace, env : &Environment)
 /// borrow, a scrutinee, a capture entry) and a capture entry's `&` lend
 /// come here with their declared mode, so no site judges a write as a read
 /// or skips one table (audit §9 cluster 2: A13, A32, A33, A34).
-access_place :: (fn(place : &LocalBorrowPlace, kind : LocalBorrowAccess, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+access_place :: (fn(place : &LocalBorrowPlace, kind : &LocalBorrowAccess, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   if(local_borrows_active(), {
-    local_borrow_access(place, &kind, tok, ctx, exn);
+    local_borrow_access(place, kind, tok, ctx, exn);
   });
   if(capture_freezes_active(), {
     match(local_borrow_root_variable(place, env), .Some(rv) => capture_freeze_access_at(&rv, kind, &place.steps, tok, env, ctx, exn), .None => ());
   });
 });
 /// `access_place` of the binding `v` whole.
-access_variable :: (fn(v : &Variable, kind : LocalBorrowAccess, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+access_variable :: (fn(v : &Variable, kind : &LocalBorrowAccess, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   if(local_borrows_active(), {
-    local_borrow_access(local_borrow_place_of_variable(v), &kind, tok, ctx, exn);
+    local_borrow_access(local_borrow_place_of_variable(v), kind, tok, ctx, exn);
   });
   capture_freeze_access(v, kind, tok, env, ctx, exn);
 });
@@ -2283,7 +2283,7 @@ access_move :: (fn(v : &Variable, tok : &Token, env : &Environment, ctx : &EvalC
 );
 /// `access_place` of the place `e` names (no-op when it is not rooted at a
 /// variable or no loan is in scope).
-access_expr :: (fn(e : &AstExpr, kind : LocalBorrowAccess, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)(
+access_expr :: (fn(e : &AstExpr, kind : &LocalBorrowAccess, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)(
   if(loans_active(), {
     match(
       local_borrow_place_of(e, env, ctx),
@@ -6287,7 +6287,6 @@ LocalBorrowMacroSite :: struct(site : Token, end : Token, await_ids : ArrayList(
 derive(LocalBorrowMacroSite, Clone);
 /// How an access touches a place.
 LocalBorrowAccess :: enum(Read, Write, Move, Exclusive);
-derive(LocalBorrowAccess, Copy, Clone);
 /// Any local borrow in scope: the fast gate every access hook checks first.
 local_borrows_active :: (fn() -> bool)((g_local_borrows.with(_c_len_5) > usize(0)) || (g_local_borrow_joins.with(_c_len_5) > usize(0)));
 /// The lengths a begin block restores when it ends (`local_borrows_truncate`),
