@@ -69,3 +69,19 @@ two access checks `set_expr_as_consumed` does.
 With the fix: the two negative programs and the positive control move to `tests/origins/unsound/`; a corpus row
 `closure-implicit-move-while-shared` (E0911) in `tests/origins/corpus.tsv`; `tests/closure_capture_list.test.yo`
 gains the implicit form beside the explicit `{ xs }` E0911 case.
+
+## Fix
+
+The cluster-2 fix (audit §9: "an access reaches the loan table weaker than its mode, or not at all") adds one
+helper, `access_place` / `access_variable` / `access_move` (`src/evaluator/utils.yo`): an access of a place in the
+mode the operation declares (read, write, move, `&mut` lend) checked against every loan table the checker holds — the
+local borrows and flow sets (E0911, `local_borrow_access`) and the closures' capture borrows (E0910,
+`capture_freeze_access`, which now takes the access kind and compares the capture's field path with the accessed
+place's).
+
+`move_captured_explicit_copy_variable` (`src/evaluator/utils.yo`) calls `access_variable(…, Move)` on the moved
+binding before marking it consumed, the two checks `set_expr_as_consumed` makes for the explicit `{ xs }` entry.
+
+Tests: `tests/origins/unsound/c2-implicit-capture-move-live-loan.yo` (E0911), `c2-implicit-capture-move-ref-capture.yo`
+(E0910), `c2-implicit-capture-move-live-loan-pos.yo` (accept, ASan clean); `tests/closure_capture_list.test.yo` "an
+implicit capture that moves a place is checked against live loans".
