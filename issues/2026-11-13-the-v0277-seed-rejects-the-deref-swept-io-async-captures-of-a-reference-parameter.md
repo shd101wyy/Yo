@@ -67,13 +67,41 @@ rejected with the borrow-the-referent hint") pins the hint and runs the hinted s
 
 ## Decision
 
-VERDICTS-60 (2026-11-14) took option 3, refined: no spelling bridges the two compilers
-and no extra release is cut. The deref sweep is split. Its text (every edit the v0.2.77
-seed accepts) lands in v0.2.78, with every `io.async` capture list still spelled
-`{ &p }`. The flip (those capture lists, the `MaybeUninit.as_ptr` body and the deletion
-of `is_deref_rule_exempt`) is the first PR of v0.2.79, built by v0.2.78 as the seed.
+**Decided: split; the flip is in v0.2.79** (VERDICTS-60, 2026-11-14, option 3 refined). No
+spelling means "the future holds the `&Self`" under both compilers; 19 candidates were
+probed (`v0273/fable/probe-60/`), each `check`ed by the seed in `src/` beside its std and
+by the deletion binary on the swept std (`Res` is move-only, so a copy of `Self` is
+E0901):
 
-## Fix
+| # | hoisted statement | capture list | seed v0.2.77 | Generation B |
+| --- | --- | --- | --- | --- |
+| c0 | | `{ &self }` | **ok** | E0926 |
+| c1 | | `{ self : &self.* }` | A2 | **ok** |
+| c2 | | `{ self }` | E0901 (copies `Res`) | ok (copies the `&Res`) |
+| c3 | | `{ self : self }` | E0901 | ok |
+| c3b | | `{ s : self }` | E0901 | ok |
+| c4 | `p := self;` | `{ p }` | E0901 | E0926 |
+| c5 | `p := &self.*;` | `{ p }` | E0901 (copies `Res`) | ok |
+| c6 | `p := &self.*;` | `{ p : &p.* }` | E0912 | E0912 |
+| c7 | `p := &self.*;` | `{ &p }` | E0912 | E0926 |
+| c8 | | `{ s : (&self.*) }` | A2 | ok |
+| c9 | | `{ s : &Self = self }` | E0003 (parse) | E0003 |
+| c9b | | `{ (s : &Self) : self }` | "entry is named by an identifier" | same |
+| c10 | | `{ self : &(self.*) }` | A2 | ok |
+| c11 | | `{ s : _same(&self.*) }` | E0901 | E0901 |
+| c11b | | `{ s : _same(self) }` | E0901 | E0901 |
+| c12 | | none (implicit capture) | E0901 | E0901 |
+| c13 | `(p : &Self) = self;` | `{ p }` | E0610 | E0610 |
+| c14 | `(p : &Self) = &self.*;` | `{ p : p }` | E0901 | ok |
+| c15 | | `{ s : { &self.* } }` | E0007 (parse) | E0007 |
+
+No extra release is cut. The deref sweep is split: its text (every edit the v0.2.77 seed
+accepts) lands in v0.2.78, with every `io.async` capture list still spelled `{ &p }`. The
+flip (those capture lists, the `MaybeUninit.as_ptr` body and the deletion of
+`is_deref_rule_exempt`) is the first PR of v0.2.79, built by v0.2.78 as the seed. This
+doc stays open until the flip lands and moves to `issues/fixed/` with it.
+
+## Partial fix (v0.2.78 rider)
 
 v0.2.78 carries the seed rider, so it is the seed that accepts the flip's spelling.
 
@@ -85,12 +113,13 @@ v0.2.78 carries the seed rider, so it is the seed that accepts the flip's spelli
   its own copy of the parameter (`__yo_lent_<label>`, `src/codegen/exprs/async.yo`,
   which keys on the label and an empty path). `{ &p }` keeps working in std and src
   until the flip. The by-value entry `{ r }` is unchanged in those trees; its meaning
-  changes with the flip.
+  changes with the flip. The flip, which folds `deref_spelling_applies` into
+  `deref_rule_applies`, spells this test with `deref_rule_applies`.
 - The A2 hint names `{ p : &p.* }` (the second defect above).
-- The other compile-time gap the flip needs, found while deciding this, is
+- The other gap the flip needs, found while deciding this, is
   `issues/fixed/2026-11-14-an-inline-builtin-alias-that-derefs-its-reference-parameter-emits-a-type-as-the-operand.md`.
 
 Tests: `std/deref_spelling.test.yo` ("an io.async capture `{ b : &b.* }` of a & parameter
-borrows the parameter whole", failing before the fix with the A2 error above, and "a
+borrows the parameter whole", failing before the rider with the A2 error above, and "a
 closure's `{ r : &mut r.* }` borrows the referent whole while it lives");
 `tests/async_await.test.yo` (the hint).

@@ -45,15 +45,19 @@ test("a straight pass-through alias still computes correctly", {
 // emitted as a function, and the builtin's direct emission printed its
 // operand 0, the type argument, as the pointer: `return ((int32_t*)(__yo_t_…));`
 // failed in the C compiler.
+_AliasMu :: MaybeUninit(i32);
+/// A pass-through alias: the type arguments are bare names, as the prelude's
+/// `Self`/`BaseType` are.
 _uninit_ptr :: (fn(m : &mut MaybeUninit(i32)) -> *i32)(
-  __yo_maybe_uninit_as_ptr(MaybeUninit(i32), i32, addr_of(m.*))
+  __yo_maybe_uninit_as_ptr(_AliasMu, i32, addr_of(m.*))
 );
 /// Not an alias (`k` is not forwarded): the builtin is emitted directly, with
 /// the type arguments as its first operands.
 _uninit_ptr_direct :: (fn(m : &mut MaybeUninit(i32), k : i32) -> *i32)(
-  __yo_maybe_uninit_as_ptr(MaybeUninit(i32), i32, addr_of(m.*))
+  __yo_maybe_uninit_as_ptr(_AliasMu, i32, addr_of(m.*))
 );
-/// The `Array` index alias in the same spelling.
+/// A projection alias in the same spelling: the call is the element's place
+/// (issues/fixed/2026-11-14-a-reference-returning-inline-builtin-alias-call-reads-the-address-as-the-value.md).
 _arr_at :: (fn(a : &Array(i32, 4), i : usize) -> &i32)(
   __yo_array_index(addr_of(a.*), i)
 );
@@ -66,7 +70,16 @@ test("an inline-builtin alias over `addr_of(p.*)` of a reference parameter compi
   q := _uninit_ptr_direct(&mut w, i32(0));
   unsafe(q.* = i32(7));
   assert(w.assume_init(q) == i32(7));
+});
+test("a reference-returning inline-builtin alias call is the element's place", {
   arr := Array(i32, 4)(i32(1), i32(2), i32(3), i32(4));
   (j : usize) = usize(2);
   assert(_arr_at(&arr, j).* == i32(3));
+  assert(arr.index(j).* == i32(3));
+  assert((arr.index(j).* + i32(1)) == i32(4));
+  c := arr.index(j).*;
+  assert(c == i32(3));
+  mut(m) := Array(i32, 4)(i32(1), i32(2), i32(3), i32(4));
+  m.index_mut(j).* = i32(9);
+  assert(m(j) == i32(9));
 });

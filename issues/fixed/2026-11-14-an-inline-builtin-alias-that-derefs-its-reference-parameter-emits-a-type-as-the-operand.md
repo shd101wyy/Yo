@@ -73,7 +73,16 @@ emission happens to be valid C, so they only stopped being inlined.
 - The direct emission of `__yo_maybe_uninit_as_ptr` prints its last operand, which is the
   pointer in both forms (a wrapper that is not a pass-through alias still compiles).
 
-Test: `tests/inline_builtin_alias.test.yo` ("an inline-builtin alias over `addr_of(p.*)`
-of a reference parameter compiles and writes through"): the alias, a non-alias wrapper
-that calls the builtin directly, and the `Array` index alias. Before the fix the batch
-failed in the C compiler with two `expected expression` errors.
+Making the swept `index`/`index_mut` bodies aliases again exposed a third defect, which
+v0.2.77 already has for `arr.index(j).*`: an alias call whose result is a reference was
+emitted as the element's address, not the place `(*…)`. The rider's first Tier 1 run
+failed on it: the test's `_arr_at(&arr, j).* == i32(3)` compared an address and aborted
+(exit 6). It is filed and fixed in the same change as
+`issues/fixed/2026-11-14-a-reference-returning-inline-builtin-alias-call-reads-the-address-as-the-value.md`.
+
+Test: `tests/inline_builtin_alias.test.yo`, "an inline-builtin alias over `addr_of(p.*)` of
+a reference parameter compiles and writes through". It covers the alias (bare type
+arguments, as the prelude's `Self`/`BaseType` are) and a non-alias wrapper that calls the
+builtin directly. Before the fix the batch failed in the C compiler with two
+`expected expression` errors. The next test, "a reference-returning inline-builtin alias
+call is the element's place", covers the `Array` index alias in the swept spelling.
