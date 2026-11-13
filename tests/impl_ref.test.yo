@@ -406,14 +406,14 @@ test("(P3b gap 1) an operand no impl over `&C` takes stays E0926", {
 });
 
 // (G2 piece 3, VERDICTS-49) The prelude's blanket `Eq`/`Ord` over a sized `&T`
-// and std/fmt's `ToString` over `&T` (Rust's `impl PartialEq<&B> for &A`,
-// `impl Ord for &A`, `impl Display for &T`): a reference compares, orders and
-// renders as its referent, so generic code at `T := &U` has the bounds. A
-// move-only referent (`String`) shows nothing is copied. `Hash(&T)` is not in
-// std yet (issues/2026-11-13-a-blanket-hash-impl-over-a-reference-rebinds-a-generic-impls-key-to-a-reference-of-itself.md).
+// (Rust's `impl PartialEq<&B> for &A`, `impl Ord for &A`): a reference
+// compares and orders as its referent, so generic code at `T := &U` has the
+// bounds. A move-only referent (`String`) shows nothing is copied. `Hash(&T)`
+// and `ToString(&T)` are not in std yet
+// (issues/2026-11-13-a-blanket-hash-impl-over-a-reference-rebinds-a-generic-impls-key-to-a-reference-of-itself.md,
+// issues/2026-11-13-a-blanket-tostring-impl-over-a-reference-answers-an-rc-receiver-whose-payload-has-the-method.md).
 _g3_same :: (fn(generic(T : Type), a : T, b : T, where(T <: Eq(T))) -> bool)(a == b);
 _g3_less :: (fn(generic(T : Type), a : T, b : T, where(T <: Ord(T))) -> bool)(a < b);
-_g3_show :: (fn(generic(T : Type), v : T, where(T <: ToString)) -> String)(v.to_string());
 test("(G2 piece 3) `==`, `!=`, `<` and `cmp` on two references compare the referents", {
   a := String.from("apple");
   b := String.from("apple");
@@ -433,7 +433,7 @@ test("(G2 piece 3) `==`, `!=`, `<` and `cmp` on two references compare the refer
   assert(rx == ry, "two places holding 3");
   assert(rx >= ry, "3 >= 3");
 });
-test("(G2 piece 3) generic code at `T := &U` has `Eq`, `Ord` and `ToString`", {
+test("(G2 piece 3) generic code at `T := &U` has `Eq` and `Ord`", {
   a := String.from("x");
   b := String.from("x");
   c := String.from("y");
@@ -441,10 +441,6 @@ test("(G2 piece 3) generic code at `T := &U` has `Eq`, `Ord` and `ToString`", {
   assert(!_g3_same(&a, &c), "different referents through a bound");
   assert(_g3_less(&a, &c), "Ord(&String) through a bound");
   assert(_g3_same(i32(3), i32(3)), "the owned instance beside it");
-  assert(_g3_show(&c) == "y", "ToString(&String) renders the referent");
-  n := i32(42);
-  rn := &n;
-  assert(rn.to_string() == "42", "a reference binding's to_string");
 });
 test("(G2 piece 3) a list of references sorts by its referents", {
   a := String.from("b");
