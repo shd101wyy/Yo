@@ -4315,6 +4315,55 @@ fn_result_origin_wider :: (fn(actual : &TypeValue, expected : &TypeValue) -> Opt
   });
   if(extra.len() == usize(0), Option(String).None, Option(String).Some(extra))
 });
+/// O7 for an impl member against its trait member (`expected`, `Self`
+/// already the receiver): the member's result origin within the trait's
+/// (decision 43 step 2, N1c; VERDICTS-57 §2), and its parameters' origins
+/// related no more than the trait's (O3-3, parameters are invariant). Both
+/// the concrete and the generic impl path call it: a generic impl's member
+/// is reached through a `Dyn` or a generic body as surely as a concrete one's.
+_impl_member_origin_checks :: (fn(actual : &TypeValue, expected : &TypeValue, receiver_ty : &TypeValue, trait_ty : &TypeValue, method_name : &String, name_tok : &Token, exn : Exception) -> unit)({
+  // The member's own `Self` read as the receiver, as the trait's is.
+  po_actual := _substitute_self_in_method_ty(actual, receiver_ty);
+  match(
+    fn_result_origin_wider(&po_actual, expected),
+    .Some(ro_msg) => {
+      exn.throw(
+        dyn(
+          with_code(
+            format_error_message_with_help(
+              name_tok,
+              `Type "${type_to_string(receiver_ty)}" does not implement required trait "${type_to_string(trait_ty)}" as written: member "${method_name}"'s result may point into ${ro_msg}, which the trait's result origin does not name. An impl may declare a narrower result origin than its trait, never a wider one: a call through the trait (a \`Dyn\`, or a generic body) frees the arguments the trait's origin leaves out (decision 43, O7).`,
+              Option(String).Some(`spell the member's result origin within the trait's, e.g. \`-> &(T, self)\` when the trait's is \`self\``)
+            ),
+            E_ORIGIN_MISMATCH
+          )
+        )
+      );
+    },
+    .None => ()
+  );
+  if(debug_knob(`YO_DEBUG_IMPL_ORIGINS`).is_some(), {
+    eprintln(`[impl-origins] ${method_name}: actual=${type_to_string(&po_actual)} expected=${type_to_string(expected)}`);
+  });
+  match(
+    fn_param_origins_narrower(&po_actual, expected),
+    .Some(po_msg) => {
+      exn.throw(
+        dyn(
+          with_code(
+            format_error_message_with_help(
+              name_tok,
+              `Type "${type_to_string(receiver_ty)}" does not implement required trait "${type_to_string(trait_ty)}" as written: member "${method_name}" relates the origins of ${po_msg}, which the trait's signature leaves independent. Parameters are invariant: a call through the trait (a \`Dyn\`, or a generic body) passes arguments whose origins are unrelated, so the member could store one into the other past its scope (decision 43, O3 step 3, O7).`,
+              Option(String).Some(`declare the member's parameters as the trait does (each elided \`&\` its own origin), or relate them in the trait's signature`)
+            ),
+            E_ORIGIN_MISMATCH
+          )
+        )
+      );
+    },
+    .None => ()
+  );
+});
 /// True when an impl member writes its receiver (`self : &mut Self`) where
 /// the trait lends it read-only (`self : &Self`). Receiver forms are otherwise
 /// free (`_with_receiver_mode_of`): a direct call adapts to the impl's own
@@ -4501,47 +4550,7 @@ _c3_eval_colon_pair :: (
                 )
               );
             });
-            match(
-              fn_result_origin_wider(&fi.ty(), &conf_exp),
-              .Some(ro_msg) => {
-                exn.throw(
-                  dyn(
-                    with_code(
-                      format_error_message_with_help(
-                        &name_tok,
-                        `Type "${type_to_string(&st.receiver_ty)}" does not implement required trait "${type_to_string(&conf_tt)}" as written: member "${method_name}"'s result may point into ${ro_msg}, which the trait's result origin does not name. An impl may declare a narrower result origin than its trait, never a wider one: a call through the trait (a \`Dyn\`, or a generic body) frees the arguments the trait's origin leaves out (decision 43, O7).`,
-                        Option(String).Some(`spell the member's result origin within the trait's, e.g. \`-> &(T, self)\` when the trait's is \`self\``)
-                      ),
-                      E_ORIGIN_MISMATCH
-                    )
-                  )
-                );
-              },
-              .None => ()
-            );
-            // The member's own `Self` read as the receiver, as the trait's is.
-            po_actual := _substitute_self_in_method_ty(&fi.ty(), &st.receiver_ty);
-            if(debug_knob(`YO_DEBUG_IMPL_ORIGINS`).is_some(), {
-              eprintln(`[impl-origins] ${method_name}: actual=${type_to_string(&po_actual)} expected=${type_to_string(&conf_exp)}`);
-            });
-            match(
-              fn_param_origins_narrower(&po_actual, &conf_exp),
-              .Some(po_msg) => {
-                exn.throw(
-                  dyn(
-                    with_code(
-                      format_error_message_with_help(
-                        &name_tok,
-                        `Type "${type_to_string(&st.receiver_ty)}" does not implement required trait "${type_to_string(&conf_tt)}" as written: member "${method_name}" relates the origins of ${po_msg}, which the trait's signature leaves independent. Parameters are invariant: a call through the trait (a \`Dyn\`, or a generic body) passes arguments whose origins are unrelated, so the member could store one into the other past its scope (decision 43, O3 step 3, O7).`,
-                        Option(String).Some(`declare the member's parameters as the trait does (each elided \`&\` its own origin), or relate them in the trait's signature`)
-                      ),
-                      E_ORIGIN_MISMATCH
-                    )
-                  )
-                );
-              },
-              .None => ()
-            );
+            _impl_member_origin_checks(&fi.ty(), &conf_exp, &st.receiver_ty, &conf_tt, &method_name, &name_tok, exn);
             if(_receiver_writes_where_trait_reads(&fi.ty(), &conf_exp), {
               exn.throw(
                 dyn(
@@ -4928,6 +4937,17 @@ _c2_eval_inner_field :: (
       }, {
         g_to_push = _stamp_impl_forall_on_method(&g_mval, &st.forall_names);
       });
+      match(
+        &st.current_trait_ty,
+        .Some(g_tt) => match(
+          &g_expected,
+          .Some(g_exp) => if(is_function_type(&gfi.ty()) && is_function_type(g_exp), {
+            _impl_member_origin_checks(&gfi.ty(), g_exp, &st.receiver_ty, g_tt, &g_mname, ast_expr_token(&g_name_expr), exn);
+          }),
+          .None => ()
+        ),
+        .None => ()
+      );
       pf.result_ty = Option(TypeValue).Some(Rc.clone(gfi.ty()));
       pf.result_value = Option(EvalValue).Some(g_to_push);
       // Tagged with the trait's id (Case 3's fresh-registration semantics:
