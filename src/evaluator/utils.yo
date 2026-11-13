@@ -7511,7 +7511,13 @@ local_borrow_note_call :: (fn(tok : &Token, callee_text : &String, ctx : &EvalCo
         (rti : usize) = info.places.len();
         while(rti > usize(0), {
           rti = (rti - usize(1));
-          match(info.places.get_cloned(rti), .Some(rp) => if(rp.module_root, { root_text = _lb_place_text(&rp); }), .None => ());
+          match(
+            info.places.get_cloned(rti),
+            .Some(rp) => if(rp.module_root, {
+              root_text = _lb_place_text(&rp);
+            }),
+            .None => ()
+          );
         });
         // A call a desugared `for` makes (macro plan B1) is the loop's: the
         // loop's cursor holds the lend over the whole loop (R-FOR).
