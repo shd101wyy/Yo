@@ -158,7 +158,6 @@ pragma(Pragma.AllowUnsafe);
   deref_exempt_clear,
   variable_is_reference_binding,
   deref_rule_applies,
-  deref_spelling_applies,
   deref_rule_recording,
   reject_reference_without_deref,
   ref_payload_source,
@@ -1470,7 +1469,7 @@ get_atomic_object_root_type :: (
 // evaluate_assignment
 // ---------------------------------------------------------------------------
 /// The name `r` of an assignment target `r.*` when `r` is a reference
-/// binding whose written `.*` is its own deref (`deref_spelling_applies`),
+/// binding whose written `.*` is its own deref (`deref_rule_applies`),
 /// outside the recording mode (decision 43 step 2): the target is the
 /// referent, the place a bare `r = v` wrote.
 _reference_deref_write_target :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(AstExpr))({
@@ -1485,7 +1484,7 @@ _reference_deref_write_target :: (fn(lhs : &AstExpr, env : &Environment, ctx : &
   });
   match(
     get_variables_from_env(env, ast_expr_token(&rw_recv).value.*.clone()).last_cloned(),
-    .Some(rw_v) => if(variable_is_reference_binding(&rw_v) && deref_spelling_applies(ast_expr_token(&rw_recv), ctx), Option(AstExpr).Some(rw_recv), Option(AstExpr).None),
+    .Some(rw_v) => if(variable_is_reference_binding(&rw_v) && deref_rule_applies(ast_expr_token(&rw_recv), ctx), Option(AstExpr).Some(rw_recv), Option(AstExpr).None),
     .None => Option(AstExpr).None
   )
 });

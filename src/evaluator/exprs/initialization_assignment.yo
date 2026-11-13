@@ -118,7 +118,6 @@
   deref_exempt_clear,
   variable_is_reference_binding,
   deref_rule_applies,
-  deref_spelling_applies,
   deref_rule_recording,
   reject_reference_without_deref,
   local_borrow_access,
@@ -394,7 +393,7 @@ _evaluate_inout_local_binding :: (
       )
     );
   });
-  // `y := &r` on a reference binding `r` outside std and src lends `r`'s
+  // `y := &r` on a reference binding `r` lends `r`'s
   // OWN storage: `y` is a `&&T` (`&mut r`, a `&mut &T`;
   // plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P3). The identifier
   // evaluator types the operand as the reference itself. The referent is
@@ -402,10 +401,6 @@ _evaluate_inout_local_binding :: (
   // `yo fix --migrate deref` reads code written before the rule, where `&r`
   // lent the referent, and records its `.*` (E0926's edit).
   root_is_reference := (variable_is_reference_binding(&root_var) && deref_rule_applies(&root_tok, ctx));
-  // A written `&r.*` names the referent wherever the spelling reads
-  // (`deref_spelling_applies`, N3 deref Generation A'), including the trees
-  // that keep the old reading of a bare `r`.
-  root_deref_spelled := (variable_is_reference_binding(&root_var) && deref_spelling_applies(&root_tok, ctx));
   if(hops.len() == usize(0), {
     if(root_is_reference && deref_rule_recording(), {
       reject_reference_without_deref(&root_var, &root_tok, u8(2), ctx, exn);
@@ -450,7 +445,7 @@ _evaluate_inout_local_binding :: (
           // the referent: the place `r` already borrows, not a pointer.
           // The recorder reads such a `*` the old way only through a `Box`, a
           // handle or a pointer (`deref_reads_through_pointee`).
-          d_is_reference_deref := (root_deref_spelled && (!deref_rule_recording() || !deref_reads_through_pointee(&d_recv_ty)) && ((dk + usize(1)) == hops.len()));
+          d_is_reference_deref := (root_is_reference && (!deref_rule_recording() || !deref_reads_through_pointee(&d_recv_ty)) && ((dk + usize(1)) == hops.len()));
           if(!d_is_reference_deref && !handle_payload_is_read_only(&d_recv_ty), {
             exn.throw(
               dyn(
