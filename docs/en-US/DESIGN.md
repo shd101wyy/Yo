@@ -1554,8 +1554,7 @@ read :: (fn(p : *i32) -> i32)(unsafe(p.*));
 // Pointer arithmetic likewise:
 advance :: (fn(p : *i32, n : usize) -> *i32)(unsafe(p.add(n)));
 
-// Multi-statement unsafe with begin-block (semicolons required —
-// `{ ... }` without semicolons is a struct literal, not a block):
+// Multi-statement unsafe with a block:
 write_and_read :: (fn(p : *i32, v : i32) -> i32)(
   unsafe({
     p.* = v;
@@ -3269,7 +3268,7 @@ test_capture :: (fn() -> unit)({
 
 ### Capture lists
 
-A closure may list its captures in a record literal before its parameters
+A closure may list its captures in a field list before its parameters
 (`plans/VALUES_BY_DEFAULT.md` decisions 35 and 38):
 
 ```yo

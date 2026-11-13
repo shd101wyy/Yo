@@ -1,0 +1,76 @@
+{ assert } :: import("std/assert");
+// Brace groups, Generation B (plans/reference/BRACE_BLOCKS.md): `.{ ... }`
+// builds a record, `{ names }` on a binding side picks fields, every other
+// `{ ... }` is a block. A bare brace group in expression position with a `,`
+// or a `label : value` pair is E0007 (tests/cli-cases/check-struct-literal-vs-block).
+Point :: struct(x : i32, y : i32);
+Shape :: enum(At(p : Point), Gone);
+test("`{}` is the empty block, the unit value", {
+  noop :: (fn() -> unit)({});
+  noop();
+  arm :: (fn(b : bool) -> unit)(
+    cond(
+      b => {},
+      true => ()
+    )
+  );
+  arm(true);
+  arm(false);
+  in_match :: (fn(n : i32) -> unit)(
+    match(
+      n,
+      i32(1) => {},
+      _ => ()
+    )
+  );
+  in_match(i32(1));
+  in_match(i32(2));
+});
+test("`{ x }` is the block yielding `x`, `.{ x }` the one-field record", {
+  x := i32(3);
+  v := { x };
+  assert(v == i32(3), "{ x } yields x");
+  r := .{ x };
+  assert(r.x == i32(3), ".{ x } is the record");
+  twice :: (fn(n : i32) -> i32)({ (n * i32(2)) });
+  assert(twice(i32(4)) == i32(8), "{ e } as a body yields e");
+  pick :: (fn(b : bool) -> i32)(
+    cond(
+      b => { x },
+      true => { i32(0) }
+    )
+  );
+  assert(pick(true) == i32(3), "an arm { x } yields x");
+  assert(pick(false) == i32(0), "an arm { e } yields e");
+});
+test("a block with statements is unchanged", {
+  w := {
+    a := i32(1);
+    b := i32(2);
+    (a + b)
+  };
+  assert(w == i32(3));
+});
+test("binders keep their bare braces", {
+  p := Point(x : i32(1), y : i32(2));
+  { x, y } := p;
+  assert((x + y) == i32(3));
+  { x : px } := p;
+  assert(px == i32(1));
+  n := match(
+    p,
+    { x : i32(1), y } => y,
+    _ => i32(0)
+  );
+  assert(n == i32(2));
+  s := Shape.At(.{ x : i32(4), y : i32(5) });
+  m := match(
+    s,
+    .At({ p }) => (p.x + p.y),
+    .Gone => i32(0)
+  );
+  assert(m == i32(9));
+  k := i32(7);
+  f := { k }() => k;
+  assert(f() == i32(7));
+});

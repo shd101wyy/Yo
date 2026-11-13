@@ -139,7 +139,7 @@ _classify_message :: (fn(error_message : &String) -> Option(String))({
   if(msg.starts_with(String.from("unknown operator in")), {
     return(_coded(E_UNKNOWN_OPERATOR));
   });
-  // Brace groups (plans/backlog/BRACE_BLOCKS.md): `.{ … }` builds a record,
+  // Brace groups (plans/reference/BRACE_BLOCKS.md): `.{ … }` builds a record,
   // `{ names }` on a binding side picks fields, every other `{ … }` is a block.
   if(msg.contains(String.from("is a block, and a block separates statements with")) || (msg.contains(String.from("a record's fields are named")) || (msg.contains(String.from("a field list on the binding side is written without the dot")) || msg.contains(String.from("builds a record; a block has no dot")))), {
     return(_coded(E_STRUCT_LITERAL_VS_BLOCK));
