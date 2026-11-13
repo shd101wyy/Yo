@@ -9882,6 +9882,14 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
                       });
                       if(names_it, {
                         x_roots := origin_of(&x_arg, env, ctx);
+                        // A projection call's result passed inline
+                        // (`put(&mut h, pick(&x.*.s))`) is a place inside its
+                        // root arguments, which `origin_of` does not read off
+                        // the call (G-D's 2026-11-13 finding; G-B row
+                        // `gd-inline-ref-result-store`).
+                        if((x_roots.len() == usize(0)) && projection_call_mode_of(&ast_expr_strip_borrow_marker(&x_arg), ctx).is_some(), {
+                          _value_loan_entries_into(&ast_expr_strip_borrow_marker(&x_arg), env, ctx, &mut x_roots, u32(0));
+                        });
                         // A reference binding passed bare whose read carries
                         // no recorded origin (a capture `rx : &x`): the
                         // binding itself, which its own entries resolve.
