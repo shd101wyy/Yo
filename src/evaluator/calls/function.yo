@@ -8544,27 +8544,26 @@ _operand_reference_binding :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalC
 /// (P3b gap 1, VERDICTS-49): the operand takes part in trait selection with
 /// its reference type, so `ra == rb` is `Eq(&T)` (Rust's
 /// `impl PartialEq<&B> for &A`), never an auto-deref. An impl over `&T` is
-/// selected when its operator's right slot takes the right operand: a
-/// reference binding as its reference type, any other operand as its own
-/// type. A `&Self` slot is the `&&T` that the binding's OWN storage fills
-/// (P3's self place, forced as at a `&&T` receiver); a by-value `Self` slot
-/// takes the reference value (the read rule). Only a reference binding has
-/// storage to lend, so a right operand at a `&&T` slot must be one too.
-/// `.Some(true)`: read the left operand as the reference value;
-/// `.Some(false)`: both lends are noted; `.None`: no impl over `&T` takes the
-/// operands, and the left operand stays a whole-value read (E0926 kind 0).
+/// selected when its operator autorefs both operands into `&&T` slots
+/// (`lhs : &Self`, `rhs : &Rhs` at `Self = &T`): those are filled by the
+/// bindings' OWN storage (P3's self place, forced as at a `&&T` receiver),
+/// so the right operand must be a reference binding too. Returns whether
+/// the lends were noted; otherwise the left operand stays a whole-value read
+/// (E0926 kind 0). An impl whose slot is the `&T` itself (`lhs : Self`) is
+/// not selected here
+/// (issues/2026-11-13-an-operator-impl-over-a-reference-with-by-value-operands-is-not-selected-for-reference-bindings.md).
 _operator_reference_operand :: (
-  fn(op_name : &String, args : &ArrayList(AstExpr), env : &Environment, ctx : &mut EvalContext) -> Option(bool)
+  fn(op_name : &String, args : &ArrayList(AstExpr), env : &Environment, ctx : &mut EvalContext) -> bool
 )({
   if(args.len() != usize(2), {
-    return(.None);
+    return(false);
   });
-  lhs := match(args.get(usize(0)), .Some(a) => a, .None => return(.None));
-  rhs := match(args.get(usize(1)), .Some(a) => a, .None => return(.None));
-  lhs_v := match(_operand_reference_binding(&lhs, env, ctx), .Some(v) => v, .None => return(.None));
+  lhs := match(args.get(usize(0)), .Some(a) => a, .None => return(false));
+  rhs := match(args.get(usize(1)), .Some(a) => a, .None => return(false));
+  lhs_v := match(_operand_reference_binding(&lhs, env, ctx), .Some(v) => v, .None => return(false));
   lhs_ty := variable_slot_type(&lhs_v);
   if(!t_slot_is_borrow(&lhs_ty), {
-    return(.None);
+    return(false);
   });
   // The lookup on `&T` runs only where a reference impl can answer it, as
   // R-PROBE's does (VERDICTS-50 invariant I); a pending one is forced first.
@@ -8577,57 +8576,38 @@ _operator_reference_operand :: (
     );
   });
   if(!reference_impl_method_noted(&head, op_name) && !reference_blanket_method_noted(op_name), {
-    return(.None);
+    return(false);
   });
   (cands : ArrayList(MethodEntry)) = get_receiver_methods_by_name_from_env(env, op_name.clone(), &lhs_ty, true);
   if(cands.len() == usize(0), {
-    return(.None);
+    return(false);
   });
-  rhs_v := _operand_reference_binding(&rhs, env, ctx);
-  rhs_ty := match(
-    &rhs_v,
-    .Some(rv) => Option(TypeValue).Some(variable_slot_type(&rv)),
-    .None => {
-      rhs_holder := ArrayList(TypeValue).new();
-      saved_et := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
-      _try_eval_operand_type(&rhs, env, ctx, &mut rhs_holder);
-      ctx.expected_type = saved_et;
-      rhs_holder.get_cloned(usize(0))
-    }
-  );
+  // Only a reference binding has storage of its own to lend to a `&&T` slot.
+  rhs_v := match(_operand_reference_binding(&rhs, env, ctx), .Some(v) => v, .None => return(false));
+  rhs_ty := variable_slot_type(&rhs_v);
   (ci : usize) = usize(0);
   while(ci < cands.len(), ci = (ci + usize(1)), {
-    c_slots := match(cands.get(ci), .Some(c) => fn_param_slots(&c.ty), .None => return(.None));
+    c_slots := match(cands.get(ci), .Some(c) => fn_param_slots(&c.ty), .None => return(false));
     match(
       (c_slots.get(usize(0)), c_slots.get(usize(1))),
       (.Some(lhs_slot), .Some(rhs_slot)) => {
-        lhs_lends := t_slot_is_borrow(&lhs_slot);
         rhs_pointee := t_slot_pointee(&rhs_slot);
-        rhs_lends := (t_slot_is_borrow(&rhs_slot) && t_slot_is_borrow(&rhs_pointee));
-        rhs_ok := cond(
-          (rhs_lends && rhs_v.is_none()) => false,
-          is_some_type(&rhs_pointee) => true,
-          true => match(&rhs_ty, .Some(rt) => are_types_compatible(rt, &rhs_pointee), .None => true)
-        );
-        if(rhs_ok, {
+        lends := (t_slot_is_borrow(&lhs_slot) && t_slot_is_borrow(&t_slot_pointee(&lhs_slot)) && t_slot_is_borrow(&rhs_slot) && (is_some_type(&rhs_pointee) || (t_slot_is_borrow(&rhs_pointee) && are_types_compatible(&rhs_ty, &rhs_pointee))));
+        if(lends, {
           // The slot's mode is the lend's: a `&mut &T` lend needs a local
           // `&mut` reference's own storage, which the identifier evaluator
           // judges.
-          if(lhs_lends, {
-            note_self_lend_operand(ast_expr_id(&lhs), t_slot_is_mut_ref(&lhs_slot));
-            note_self_lend_forced(ast_expr_id(&lhs));
-          });
-          if(rhs_lends, {
-            note_self_lend_operand(ast_expr_id(&rhs), t_slot_is_mut_ref(&rhs_slot));
-            note_self_lend_forced(ast_expr_id(&rhs));
-          });
-          return(.Some(!lhs_lends));
+          note_self_lend_operand(ast_expr_id(&lhs), t_slot_is_mut_ref(&lhs_slot));
+          note_self_lend_forced(ast_expr_id(&lhs));
+          note_self_lend_operand(ast_expr_id(&rhs), t_slot_is_mut_ref(&rhs_slot));
+          note_self_lend_forced(ast_expr_id(&rhs));
+          return(true);
         });
       },
       _ => ()
     );
   });
-  .None
+  false
 });
 /// Evaluate an operator's 2nd operand under a capture-free swallow `Exception`
 /// to read its type for overload selection, WITHOUT aborting the caller on
@@ -10219,19 +10199,13 @@ _evaluate_function_call_unanchored :: (
     first_arg := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     // A reference binding operand selects with its reference type when an
     // impl over `&T` takes the operands (P3b gap 1, VERDICTS-49): its read is
-    // then the binding's own storage or the reference value, not E0926.
-    reads_reference_value := match(_operator_reference_operand(&op_name, &args, env, ctx), .Some(by_value) => by_value, .None => false);
+    // then the binding's own storage, not E0926.
+    _ref_operand := _operator_reference_operand(&op_name, &args, env, ctx);
     // Evaluate the first operand with `expected_type` cleared — the
     // operand type must come from the operand itself, not from the
     // bool/etc. type the outer context expects of the operator result.
     saved_et := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
-    if(reads_reference_value, {
-      binder_read_mark(&first_arg);
-    });
     evaluated_first := evaluate_expression_raw(&first_arg, env, ctx, exn);
-    if(reads_reference_value, {
-      binder_read_clear();
-    });
     ctx.expected_type = saved_et.clone();
     // Evaluated once here to pick the overload; argument matching below must
     // reuse that (see `mark_node_preevaluated`). Unmarked after the call. The
