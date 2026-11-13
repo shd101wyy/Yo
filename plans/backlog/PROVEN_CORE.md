@@ -179,6 +179,64 @@ shipped in a release bundle, and not needed to build, install or use the compile
   ([`THEOREM_PROVING_NEXT.md`](THEOREM_PROVING_NEXT.md) §8: a separately versioned
   binary, exact-match pinning, fail closed).
 
+### 5.4 What does a Yo user do to verify their own program?
+
+They use `yo verify`, and nothing else. This works today and this plan does not change
+it. No rung adds a step, a file or an install for a Yo author.
+
+1. **Write the specification in the source:** `requires(...)` and `ensures(...)` on
+   functions, `invariant(...)` on loops, ghost lemmas for inductive facts.
+2. **Opt the module in** with `pragma(Pragma.Verify);` (or
+   `pragma(Pragma.VerifyOrAssert);`, which keeps a runtime check for what the solver
+   cannot decide within its budget).
+3. **Run `yo verify <path>`.** `yo check` and `yo compile` run the same proofs for a
+   module that carries the pragma. The pinned Z3 is downloaded on first use.
+
+Measured 2026-11-13 with `yo 0.2.77`:
+
+```yo
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+
+get_unchecked :: (fn(xs : &ArrayList(i32), i : usize) -> (r : i32))(xs(i));
+
+get :: (fn(xs : &ArrayList(i32), i : usize, requires(i < xs.len())) -> (r : i32))(xs(i));
+
+first :: (fn(xs : &ArrayList(i32), requires(!xs.is_empty())) -> (r : i32))(get(xs, usize(0)));
+```
+
+```text
+  refuted  fn@user_demo.yo:3 [verify]
+    fn@user_demo.yo:3/index-in-bounds@4:69: REFUTED  counter-example: i = #xffffffffffffffff, xs = (List_bv32_mk …)
+  ok       fn@user_demo.yo:5 [verify] — 1 obligation(s) proved
+  ok       fn@user_demo.yo:7 [verify] — 1 obligation(s) proved
+```
+
+- **Safety obligations need no annotation.** Bounds, division by zero and shift widths
+  are generated automatically: `get_unchecked` carries no contract and is still caught.
+- **A failure is a counter-example**, which the author or their agent acts on.
+- **Callers are checked against callees:** `first` is proved because its precondition
+  implies `get`'s.
+- **`--strict` is the gate that means what it says:** it also fails on `assumed`,
+  `unproven` and `outside-subset`.
+
+What the author meets today, and which plan owns it:
+
+| Limit | Owner |
+| --- | --- |
+| Closures, `RefCell`, `Io` and async are `outside-subset` | [`SELF_VERIFICATION.md`](SELF_VERIFICATION.md) levers L1–L6 |
+| Most std bodies are `assumed()`, so a proof that calls std rests on those contracts | [`POST_VBD_PLAN.md`](POST_VBD_PLAN.md) phase 4, item 1 |
+| Nonlinear arithmetic and un-lemma'd inductive facts come back `unknown` | [`THEOREM_PROVING_DIRECTION.md`](THEOREM_PROVING_DIRECTION.md) §4 |
+
+What this plan gives that author is indirect: a green `yo verify` then rests on rules
+proved sound, and on a definition of "contract" that something other than the verifier
+states (P3). The only way Lean could ever reach an author is the parked hatch for an
+obligation Z3 cannot close, which is optional, unbuilt and behind its own trigger
+(`issues/questions/2026-11-04-should-yo-check-externally-proved-lean-theorems-for-obligations-z3-cannot-close.md`).
+
+Whether verification should be *on by default* is a separate open decision:
+`issues/questions/2026-11-13-should-verification-be-on-by-default.md`.
+
 ## 6. The ladder
 
 Each rung is useful if the work stops there. Each has a sentence it licenses and an
