@@ -9458,10 +9458,18 @@ origin_scope_close :: (fn(roots_in : &ArrayList(OriginRootPlace), scope : &AstEx
   // storage is the scrutinee's, which outlives the arm.
   roots := _origin_through_match_bindings(roots_in, env, ctx, u32(0));
   out := ArrayList(OriginRootPlace).new();
+  if(roots.len() == usize(0), {
+    return(out);
+  });
+  // The scope's extent, walked once (`_span_holds` per root would walk the
+  // whole block for each).
+  sc_tok := ast_expr_token(scope);
+  sc_lo := _first_token_of(scope, sc_tok);
+  sc_hi := _last_token_of(scope, sc_tok);
   (i : usize) = usize(0);
   while(i < roots.len(), i = (i + usize(1)), {
     r := roots(i).clone();
-    if(r.place.root_name.starts_with("#") || r.place.module_root || !_span_holds(scope, &r.place.root_decl), {
+    if(r.place.root_name.starts_with("#") || r.place.module_root || !_tok_in_span(&r.place.root_decl, &sc_lo, &sc_hi), {
       _origin_push(r, &mut out);
     }, {
       is_ref_binding := match(
@@ -9477,7 +9485,7 @@ origin_scope_close :: (fn(roots_in : &ArrayList(OriginRootPlace), scope : &AstEx
         (hi : usize) = usize(0);
         while(hi < held.len(), hi = (hi + usize(1)), {
           h := held(hi).clone();
-          if(h.place.root_name.starts_with("#") || h.place.module_root || !_span_holds(scope, &h.place.root_decl), {
+          if(h.place.root_name.starts_with("#") || h.place.module_root || !_tok_in_span(&h.place.root_decl, &sc_lo, &sc_hi), {
             _origin_push(h, &mut out);
           }, {
             _origin_push(_origin_scoped_entry(&h), &mut out);
@@ -9520,6 +9528,10 @@ origin_close_scrutinee_temporary :: (fn(roots : &ArrayList(OriginRootPlace), scr
   });
   out
 });
+/// `t` lies between `lo` and `hi` (one module's character offsets).
+_tok_in_span :: (fn(t : &Token, lo : &Token, hi : &Token) -> bool)(
+  (t.module_path == lo.module_path) && ((lo.character <= t.character) && (t.character <= hi.character))
+);
 _origin_scoped_entry :: (fn(r : &OriginRootPlace) -> OriginRootPlace)(
   OriginRootPlace(
     place : LocalBorrowPlace(root_name : String.from(ORIGIN_SCOPED_ROOT), root_decl : r.place.root_decl.clone(), steps : ArrayList(String).new(), through_cell : false, module_root : false, text : r.place.root_name.clone()),
