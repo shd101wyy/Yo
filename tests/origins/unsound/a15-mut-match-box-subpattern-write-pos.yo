@@ -1,0 +1,17 @@
+// expect: accept
+// Positive control: the box is replaced after the arm's last use of `s`.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+main :: (fn() -> unit)({
+  mut(b) := Box.new(L());
+  match(
+    &mut b,
+    Box(s) => {
+      println(`OUT: ${s}`);
+      b = Box.new(String.from("q"));
+    }
+  );
+  ()
+});
+export(main);

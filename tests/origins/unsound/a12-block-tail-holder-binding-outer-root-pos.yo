@@ -1,0 +1,24 @@
+// expect: accept
+// Positive control of a12-block-tail-holder-binding-outer-root: `x` is written after the last use of `h`.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array_list");
+L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+mkl :: (fn() -> ArrayList(String))({
+  mut(xs) := ArrayList(String).new();
+  xs.push(L());
+  xs
+});
+HL :: struct(r : &ArrayList(String));
+main :: (fn() -> unit)({
+  mut(x) := mkl();
+  h := {
+    t := HL(r : &x);
+    t
+  };
+  match(&h.r.*(usize(0)), e => println(`OUT: ${e.*}`));
+  x = ArrayList(String).new();
+  println(`OUT: ${x.len().to_string()}`);
+  ()
+});
+export(main);

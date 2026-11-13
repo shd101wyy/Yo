@@ -57,6 +57,7 @@ pragma(Pragma.AllowUnsafe);
   ExprInfo,
   note_lent_temporary
 } :: import("../../expr_info.yo");
+{ expr_info_set_origin, OriginRootPlace } :: import("../../expr_info.yo");
 { Environment, Variable, pop_env_frame, snapshot_env, env_adopt, variable_set_is_ref, variable_set_is_imm_borrow, variable_set_is_borrow_match_binding, variable_set_reference_mut } :: import("../../env.yo");
 { Token, TokenKind, intern_token_str } :: import("../../token.yo");
 { add_variable_to_env, get_variables_from_env, find_variable_in_env, variable_set_inout_borrow_root_id, variable_mark_inout_borrow_root, mark_macro_pattern_binding } :: import("../../env.yo");
@@ -100,6 +101,7 @@ pragma(Pragma.AllowUnsafe);
 { format_error_message, format_error_message_with_help, warning_diagnostic_of_token } :: import("../../error.yo");
 { emit_warning } :: import("../../diagnostics.yo");
 { owning_param_binding_beside, move_through_sink_shadow, note_ref_payload_source, note_ref_payload_held, note_borrow_match_source, origin_held_by, audit_copy_trait_enabled, audit_origin_totality_elided } :: import("../utils.yo");
+{ origin_of, origin_scope_close, origin_scrutinee_temporary_place, origin_close_scrutinee_temporary, is_temporary_operand, local_borrow_place_of_variable, _last_token_of } :: import("../utils.yo");
 { reject_dyn_place_by_value, merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, dyn_copy_pending_exists, dyn_copy_rule_applies, note_dyn_copy_pending, audit_note_match_binding, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding, note_second_class_binding, reject_malformed_pattern_mut_markers, reject_malformed_mut_marker, place_require_mut, reject_write_through_rc, _lb_arrow_shadows, _lb_fn_literal_binds } :: import("../utils.yo");
 { throw_if_mut_lend_through_atomic_object } :: import("./assignment.yo");
 { set_expr_as_consumed, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, reject_reference_without_deref, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, LocalBorrowPlace, LocalBorrowAccess, local_borrow_place_of, local_borrow_access, local_borrow_require_writable, local_borrow_root_is_shared_reference, variable_is_mut_borrow, variable_is_imm_borrow, local_borrow_info_of_variable, deref_operand_is_raw_pointer } :: import("../utils.yo");
@@ -992,6 +994,24 @@ _drop_owned_at_arm_end :: (fn(vs : &ArrayList(Variable), body : &AstExpr, env : 
     i = (i + usize(1));
   });
 });
+/// A21: a binding a consuming arm still owns is dropped at the arm's end, an
+/// access of its place there — a loan of it still live at that point (a
+/// `&v` stored in a slot declared outside the arm) is E0911
+/// (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3 `bind`: "a root's
+/// scope-end drop before that drop is an `access(root, drop)` conflict").
+_access_owned_at_arm_end :: (fn(vs : &ArrayList(Variable), arm : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit)({
+  end_tok := _last_token_of(arm, ast_expr_token(arm));
+  (i : usize) = usize(0);
+  while(i < vs.len(), i = (i + usize(1)), {
+    match(
+      vs.get_cloned(i),
+      .Some(v) => if(v.consumed_at_token().is_none(), {
+        local_borrow_access(&local_borrow_place_of_variable(&v), &LocalBorrowAccess.Move, &end_tok, ctx, exn);
+      }),
+      .None => ()
+    );
+  });
+});
 /// Evaluate a `match(...)` expression.
 evaluate_match :: (
   fn(
@@ -1281,6 +1301,19 @@ evaluate_match :: (
       .None => ()
     );
   });
+  // R-TEMP for a borrowed `match` over a temporary (`match(&mk(), …)`, A22):
+  // its bindings point into the temporary, a pseudo-place alive while the
+  // `match` runs and dropped at its end.
+  (scr_temp_place : Option(LocalBorrowPlace)) = if(
+    (borrowed_match_scrutinee_kind(ast_expr_token(expr)) == u8(1)) && is_temporary_operand(&scrutinee_expr, &env, ctx),
+    Option(LocalBorrowPlace).Some(origin_scrutinee_temporary_place(&scrutinee_expr)),
+    Option(LocalBorrowPlace).None
+  );
+  // R-ARM's scope rule (A12, A22): the `match`'s value has the union of its
+  // arms' values' origins, each computed at its arm's end, where the arm's
+  // bindings still exist (`origin_scope_close`).
+  arm_value_roots := ArrayList(OriginRootPlace).new();
+  (arm_value_roots_computed : bool) = false;
   // Arm loop state
   arms := ArrayList(Arm).new();
   bodies := ArrayList(AstExpr).new();
@@ -1407,6 +1440,11 @@ evaluate_match :: (
     });
     owned_vars := ArrayList(Variable).new();
     place_vars := ArrayList(Variable).new();
+    // A15: a `&mut` match's bindings below a `Box` (or another cell) are
+    // bitwise copies of the part, not places: they borrow the scrutinee's
+    // place exclusively while live, so the arm cannot replace the box under
+    // them.
+    cell_copy_vars := ArrayList(Variable).new();
     for(&pc.binds, b => {
       // A binding whose part of a known scrutinee has no compile-time value
       // (`.Some(entry)` over `Option(Rc(T)).Some(Rc.clone(&r))`: the variant
@@ -1550,6 +1588,23 @@ evaluate_match :: (
         .Some(ip) => local_borrow_register_match_place(b.name.clone(), ast_expr_token(&b.atom), &ip, &body_ast, false),
         .None => ()
       );
+      // A22: a binding into a temporary scrutinee points into the temporary
+      // (a reference payload points where the temporary's references do).
+      if(!b_ct_known && ref_binds && ref_payload.is_none() && !is_mut_binding(&b_tok, &b.name), {
+        match(&scr_temp_place, .Some(tp) => local_borrow_register_match_place(b.name.clone(), ast_expr_token(&b.atom), tp, &body_ast, false), .None => ());
+        // A3: a reference binding matched bare (`r := &o; match(r, …)`, or
+        // `b := idr(&x)`): the binding is a place in the referent, so it
+        // borrows what the reference borrows (R-ARM: "the arm bindings of
+        // a borrowed scrutinee carry the scrutinee's origin"), live to its
+        // last use, after the reference's own last use, the scrutinee.
+        if(imm_place.is_none() && scr_temp_place.is_none(), {
+          a3_roots := origin_of(&scrutinee_expr, &env, ctx);
+          (a3i : usize) = usize(0);
+          while(a3i < a3_roots.len(), a3i = (a3i + usize(1)), {
+            local_borrow_register_match_place(b.name.clone(), ast_expr_token(&b.atom), &a3_roots(a3i).place, &body_ast, false);
+          });
+        });
+      });
       // A reference payload binding points where the scrutinee's
       // references do (decision 43 step 3, O3 step 2): those places are
       // frozen — exclusively for a `&mut` payload — while it is live in
@@ -1574,6 +1629,15 @@ evaluate_match :: (
       // payload's holding is `origin_held_by`'s computation just above.
       if(!ct_known && ref_payload.is_none() && type_carries_origin(&b.ty) && !(ast_expr_is_atom(&scrutinee_expr) && match(get_variables_from_env(&env, ast_expr_token(&scrutinee_expr).value.*.clone()).last_cloned(), .Some(sv) => sv.is_parameter(), .None => false)), {
         audit_origin_totality_elided("match-binding", &scrutinee_expr, ctx);
+      });
+      if(mut_places && !b_ct_known && _names_contain(&own.borrowed, b.name.clone()), {
+        // A `mut(name)` copy below the cell would own the part's data a
+        // second time: its write drops what the cell still holds (E0901, as
+        // a `&` match's `mut(name)` copy of such a part).
+        if(is_mut_binding(&b_tok, &b.name) && type_contains_rc_cell_or_move_only(&bind_ty), {
+          _throw_mut_match_copy(&b.atom, &bind_ty, ctx, exn);
+        });
+        match(&_added, .Some(cv) => cell_copy_vars.push(Rc.clone(cv)), .None => ());
       });
       // Below a cell a binding borrows whatever the mode (decision 26).
       if((consuming || mut_places) && !_names_contain(&own.borrowed, b.name.clone()), {
@@ -1802,6 +1866,18 @@ evaluate_match :: (
         });
       });
       if(mut_places, {
+        (ci0 : usize) = usize(0);
+        while(ci0 < cell_copy_vars.len(), ci0 = (ci0 + usize(1)), {
+          match(
+            cell_copy_vars.get_cloned(ci0),
+            .Some(cv) => match(
+              lb_scr_source,
+              .Some(lbs) => local_borrow_note_match_place(&lbs, cv.name.clone(), &cv.token, &body_ast),
+              .None => match(&mut_place, .Some(lp) => local_borrow_register_match_place(cv.name.clone(), &cv.token, &lp, &body_ast), .None => ())
+            ),
+            .None => ()
+          );
+        });
         (pi0 : usize) = usize(0);
         while(pi0 < place_vars.len(), {
           match(
@@ -1841,9 +1917,24 @@ evaluate_match :: (
       // a join no compat query ever sees.
       reject_empty_record_arm(&body_ast, exn);
       evaluated_body := evaluate_begin_expression(&body_ast, &env, ctx, ArrayList(Variable).new(), false, exn);
+      // R-ARM's scope rule: the arm value's origin, computed while the arm's
+      // bindings are in scope; a root that is one of them is its scoped entry.
+      match(
+        expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_body)),
+        .Some(av_info) => if(type_carries_origin(&av_info.ty()), {
+          av_roots := origin_scope_close(&origin_of(&evaluated_body, &env, ctx), &arm_expr, &env);
+          (avi : usize) = usize(0);
+          while(avi < av_roots.len(), avi = (avi + usize(1)), {
+            arm_value_roots.push(av_roots(avi).clone());
+          });
+          arm_value_roots_computed = true;
+        }),
+        .None => ()
+      );
       // A binding the arm still owns after its body is dropped at the arm's
       // end (and at each `return` inside it).
       if(consuming, {
+        _access_owned_at_arm_end(&owned_vars, &arm_expr, ctx, exn);
         _drop_owned_at_arm_end(&owned_vars, &evaluated_body, &env, ctx, exn);
         _drop_owned_at_arm_end(&keep_vars, &evaluated_body, &env, ctx, exn);
       });
@@ -2389,6 +2480,10 @@ evaluate_match :: (
       },
       .None => ()
     );
+    // A22: the temporary scrutinee is dropped at the `match`'s end, an
+    // access of its pseudo-place: a binding into it stored where it outlives
+    // the `match` is E0911.
+    match(&scr_temp_place, .Some(tp) => local_borrow_access(tp, &LocalBorrowAccess.Move, &_last_token_of(expr, ast_expr_token(expr)), ctx, exn), .None => ());
     // Determine output value
     out_val_em := cond(
       scrutinee_val_opt.is_none() => Option(EvalValue).None,
@@ -2415,6 +2510,9 @@ evaluate_match :: (
     });
     out_em := new_expr_info(&env, &result_ty_final_em);
     out_em.set_value(out_val_em);
+    if(arm_value_roots_computed && type_carries_origin(&result_ty_final_em), {
+      expr_info_set_origin(&out_em, &Option(ArrayList(OriginRootPlace)).Some(origin_close_scrutinee_temporary(&arm_value_roots, &scrutinee_expr)));
+    });
     if(is_primitive_switch, {
       expr_info_set_is_primitive_match(&out_em, Option(bool).Some(true));
     });

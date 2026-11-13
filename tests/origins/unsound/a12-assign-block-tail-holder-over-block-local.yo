@@ -1,0 +1,19 @@
+// expect: E0911
+// A12's assignment form (audit holders a09): `h = { … }` stores a holder over the block's own `y`,
+// which is dropped at the block's end while `h` is read after it.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+H :: struct(r : &Rc(X), n : i32);
+mk :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+main :: (fn() -> unit)({
+  z := mk();
+  mut(h) := H(r : &z, n : i32(0));
+  h = {
+    y := mk();
+    H(r : &y, n : i32(1))
+  };
+  println(`OUT: ${h.r.*.*.s.len().to_string()}`);
+  ()
+});
+export(main);

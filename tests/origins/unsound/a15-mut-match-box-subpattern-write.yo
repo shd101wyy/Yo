@@ -1,0 +1,18 @@
+// expect: E0911
+// `s` binds the String inside the box `b` that the `&mut` match lends; the arm replaces the box,
+// freeing that String, and then reads `s`: heap-use-after-free.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+main :: (fn() -> unit)({
+  mut(b) := Box.new(L());
+  match(
+    &mut b,
+    Box(s) => {
+      b = Box.new(String.from("q"));
+      println(`OUT: ${s}`);
+    }
+  );
+  ()
+});
+export(main);

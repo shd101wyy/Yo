@@ -1,0 +1,20 @@
+// expect: E0911
+// `r := &o` is a direct lend of a local; `match(r, …)` binds `s` inside the box, the arm writes
+// `o = .None` (dropping the box) and reads `s`: heap-use-after-free.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+main :: (fn() -> unit)({
+  mut(o) := Option(Box(String)).Some(Box.new(L()));
+  r := &o;
+  match(
+    r,
+    .Some(Box(s)) => {
+      o = .None;
+      println(`OUT: ${s.*}`);
+    },
+    .None => ()
+  );
+  ()
+});
+export(main);

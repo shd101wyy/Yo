@@ -72,7 +72,9 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_index_method_value,
   expr_info_set_index_trait_ptr_type,
   record_branch_consume,
-  lookup_method_callee_type
+  lookup_method_callee_type,
+  expr_info_set_origin,
+  OriginRootPlace
 } :: import("../../expr_info.yo");
 { scope_release_active, scope_release_depth, scope_release_set_depth, scope_release_mark, scope_release_body, is_call_once_capture_dup, is_moved_container_dup, mark_fnonce_capture_drop, record_immediate_old_value_drop, is_by_value_param_share_dup, is_call_scoped_share_dup, note_arg_move_region, ast_comparable_token_bounds } :: import("../../expr_info.yo");
 { Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_is_inout_borrow_root, variable_keep_alias_dups, variable_mark_keep_alias_dups, variable_moved_at_cleanup_point, variable_undone_moves, snapshot_env, is_fnonce_capture_frame, env_adopt, variable_value_type } :: import("../../env.yo");
@@ -94,7 +96,7 @@ pragma(Pragma.AllowUnsafe);
 { is_flowable_expr, flow_options_default, FlowOptions, raise_flow_violation }
 :: import("../../types/flowability.yo");
 { throw_unwind_type_mismatch, UNWIND_WITHOUT_ENCLOSING_FN } :: import("./unwind.yo");
-{ type_representation_contains_raw_ptr, type_contains_rc_type, type_requires_explicit_copy, type_is_second_class, is_future_value_type } :: import("../../types/utils.yo");
+{ type_representation_contains_raw_ptr, type_contains_rc_type, type_requires_explicit_copy, type_is_second_class, is_future_value_type, type_carries_origin } :: import("../../types/utils.yo");
 { is_temp_variable_name, is_any_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
 { generate_expr_from_code } :: import("../../parser.yo");
@@ -131,6 +133,8 @@ pragma(Pragma.AllowUnsafe);
   LocalBorrowInfo,
   return_check,
   audit_origin_totality,
+  origin_of,
+  origin_scope_close,
   reject_bare_callable_into_dyn_fn,
   deref_exempt_mark,
   deref_exempt_clear,
@@ -4246,6 +4250,18 @@ _evaluate_begin_expression_impl :: (
       .None => ()
     );
   });
+  // R-ARM's scope rule (A12, plans/backlog/OWNERSHIP_BORROWING_ORIGINS_AUDIT.md
+  // §9 cluster 3): the block's value has the tail's origin, computed HERE,
+  // where the block's own locals and their borrow entries still exist; a
+  // root that is one of them becomes its scoped entry, which every sink
+  // keeping the value rejects. Computed after the block has closed (at the
+  // sink), the tail's names no longer resolve and the set comes out empty.
+  // A function body's result is judged by `return_check` inside it.
+  (scope_origin : Option(ArrayList(OriginRootPlace))) = if(
+    !is_evaluating_function_body_begin_block && (ast_expr_id(expr) != ast_expr_id(&last_expr)) && type_carries_origin(&return_type),
+    Option(ArrayList(OriginRootPlace)).Some(origin_scope_close(&origin_of(&last_expr, &env, ctx), expr, &env)),
+    Option(ArrayList(OriginRootPlace)).None
+  );
   env.pop_frame_nonmutating();
   // -------------------------------------------------------------------------
   // Build ExprInfo for the begin expression itself.
@@ -4387,6 +4403,9 @@ _evaluate_begin_expression_impl :: (
   });
   if(shared_with_tail && !(is_evaluating_function_body_begin_block && carry_runtime_args), {
     out_info.set_variable_name(Option(String).None);
+  });
+  if(scope_origin.is_some(), {
+    expr_info_set_origin(&out_info, &scope_origin);
   });
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   // Attach temp variable for the begin block result (no-op stub in Phase 2aa).

@@ -1,0 +1,19 @@
+// expect: accept
+// Positive control: the slot is read inside the arm, while `v` is alive, and is never read after it.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+main :: (fn() -> unit)({
+  mut(slot) := Option(&String).None;
+  o := Option(String).Some(L());
+  match(
+    o,
+    .Some(v) => {
+      slot = .Some(&v);
+      match(slot, .Some(r) => println(`OUT: ${r.*}`), .None => ());
+    },
+    .None => ()
+  );
+  ()
+});
+export(main);

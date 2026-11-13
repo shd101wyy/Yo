@@ -1,0 +1,30 @@
+// expect: E0911
+// `b` is a reference bound from a CALL RESULT (`idr` returns its `&` parameter), so `b`
+// holds a `&` loan of `x`. `match(b, …)` binds `p` into `b`'s referent, and `b`'s last
+// use is the scrutinee. The arm then overwrites `x` and reads `p`: nothing keeps `x`
+// frozen for `p`, the payload `Rc` is released by the write, and the read is a
+// use-after-free (ASan: SEGV through the freed cell).
+//   yo compile <this> --optimize 1 --sanitize address --allocator system -o t && ./t
+// A statement `match` (the arm prints): a `match` that initializes a binding (`n := match(b, …)`)
+// keeps `b`'s loan live over the whole statement, which hides the hole.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+idr :: (fn(r : &Option(Rc(X))) -> &Option(Rc(X)))(&r.*);
+mk :: (fn() -> Option(Rc(X)))(
+  .Some(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))))
+);
+main :: (fn() -> unit)({
+  mut(x) := mk();
+  b := idr(&x);
+  match(
+    b,
+    .Some(p) => {
+      x = .None;
+      println(`OUT: ${p.*.s}`);
+    },
+    .None => ()
+  );
+  ()
+});
+export(main);
