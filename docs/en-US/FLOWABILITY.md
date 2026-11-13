@@ -183,7 +183,7 @@ h := xs.get(i); // a `ref(struct(...))` element: a HANDLE to the
 xs(i) = v; // index WRITE for in-place element replacement
 t := xs.get(i).unwrap(); // Copy struct elements: copy out …
 xs(i) = t2; //   … write back
-for(xs, x => { ... }); // iteration is the value form (into_iter)
+for(xs, x => .{ ... }); // iteration is the value form (into_iter)
 ```
 
 Elements can also be **borrowed**, in exactly one place: the borrowed

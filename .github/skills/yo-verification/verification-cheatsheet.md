@@ -216,8 +216,8 @@ match(
 ```yo
 build :: import("std/build");
 
-proofs :: build.verify({ name : "proofs", root : "./src" }); // mode Verify, strict false
-spec_gate :: build.verify({ name : "spec-gate", root : "./spec", strict : true });
+proofs :: build.verify(.{ name : "proofs", root : "./src" }); // mode Verify, strict false
+spec_gate :: build.verify(.{ name : "spec-gate", root : "./spec", strict : true });
 
 install :: build.step("install", "Build all artifacts");
 install.depend_on(spec_gate);

@@ -436,12 +436,18 @@ derived or implemented. For **tag-only equality** (checking which variant), use 
 
 ```yo
 // WRONG — TypeValue enum doesn't support !=
-if(my_type != t_unit(), { ... });
+if(
+  my_type != t_unit(),
+  .{ ... }
+);
 
 // CORRECT — compare tags instead
 { type_value_tag } :: import("../../types/type.yo");
 { TypeTag } :: import("../../types/tags.yo");
-if(type_value_tag(my_type) != TypeTag.TUnit, { ... });
+if(
+  type_value_tag(my_type) != TypeTag.TUnit,
+  .{ ... }
+);
 ```
 
 ## Error handling

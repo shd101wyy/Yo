@@ -15,7 +15,7 @@ compiler generated itself, and the user has no spelling that avoids it.
 { println } :: import("std/fmt");
 main :: (fn() -> unit)({
   x := Rc(i32)(3);
-  y := { x : Rc.clone(x) };
+  y := .{ x : Rc.clone(x) };
   z := y.clone();
   println(`${z.x.*} ${y.x.*} ${ref_count(x)}`);
 });

@@ -313,7 +313,7 @@ test("Parse single-statement block { x; }", {
   e := only_expr(&prog);
   assert_str_eq(ast_expr_to_string(&e), `begin(x, ())`, "single-stmt block");
 });
-test("Parse anonymous struct { x: 1, y: 2 }", {
+test("Parse the record value .{ x: 1, y: 2 }", {
   exn := Exception(
     throw : (
       err -> {
@@ -322,11 +322,11 @@ test("Parse anonymous struct { x: 1, y: 2 }", {
       }
     )
   );
-  prog := parse(`{ x: 1, y: 2 }`, `test.yo`, exn);
+  prog := parse(`.{ x: 1, y: 2 }`, `test.yo`, exn);
   e := only_expr(&prog);
   assert_str_eq(ast_expr_to_string(&e), `_(x : 1, y : 2)`, "anon struct with field assignments");
 });
-test("Parse shorthand anonymous struct { x, y }", {
+test("Parse the shorthand record value .{ x, y }", {
   exn := Exception(
     throw : (
       err -> {
@@ -335,11 +335,11 @@ test("Parse shorthand anonymous struct { x, y }", {
       }
     )
   );
-  prog := parse(`{ x, y }`, `test.yo`, exn);
+  prog := parse(`.{ x, y }`, `test.yo`, exn);
   e := only_expr(&prog);
   assert_str_eq(ast_expr_to_string(&e), `_(x : x, y : y)`, "anon struct shorthand form");
 });
-test("Parse single-field shorthand anonymous struct { x }", {
+test("Parse the single-field record .{ x } and the block { x }", {
   exn := Exception(
     throw : (
       err -> {
@@ -348,9 +348,59 @@ test("Parse single-field shorthand anonymous struct { x }", {
       }
     )
   );
-  prog := parse(`{ x }`, `test.yo`, exn);
+  prog := parse(`.{ x }`, `test.yo`, exn);
   e := only_expr(&prog);
-  assert_str_eq(ast_expr_to_string(&e), `_(x : x)`, "single-field anon struct shorthand form");
+  assert_str_eq(ast_expr_to_string(&e), `_(x : x)`, "single-field record shorthand form");
+  blk := parse(`{ x }`, `test.yo`, exn);
+  assert_str_eq(ast_expr_to_string(&only_expr(&blk)), `begin(x)`, "a bare { x } in expression position is the block yielding x");
+  call_blk := parse(`{ f(x) }`, `test.yo`, exn);
+  assert_str_eq(ast_expr_to_string(&only_expr(&call_blk)), `begin(f(x))`, "{ f(x) } is the block yielding f(x)");
+  empty := parse(`{}`, `test.yo`, exn);
+  assert_str_eq(ast_expr_to_string(&only_expr(&empty)), `begin(())`, "{} is the empty block, unit");
+  empty_rec := parse(`.{}`, `test.yo`, exn);
+  assert_str_eq(ast_expr_to_string(&only_expr(&empty_rec)), `_()`, ".{} is the empty record");
+});
+// Brace groups Generation B (plans/reference/BRACE_BLOCKS.md): a bare
+// expression brace with a `,` or a pair is E0007, repaired by the dot; a dot
+// on the binding side is E0007, repaired by deleting it; binders keep bare
+// field lists.
+/// Parse `src`, expecting a diagnostic that carries `want`; an empty `want`
+/// expects `src` to parse.
+_expect_brace :: (fn(src : String, want : String) -> unit)({
+  s := _parse_error_text(&src);
+  if(want.len() == usize(0), {
+    if(s.len() > usize(0), {
+      println(`expected to parse: ${src}\n${s}`);
+      assert(false, "a binder field list parses");
+    });
+  }, {
+    if(!s.contains(&want), {
+      println(`expected "${want}" for: ${src}\ngot: ${s}`);
+      assert(false, "missing brace-group diagnostic");
+    });
+  });
+});
+test("Brace groups: a bare record-shaped brace in expression position is E0007", {
+  block_msg := String.from("is a block, and a block separates statements with `;`");
+  _expect_brace(String.from("y := { a, b };"), block_msg.clone());
+  _expect_brace(String.from("y := { k : v };"), block_msg.clone());
+  _expect_brace(String.from("f({ x : 1 });"), block_msg.clone());
+  _expect_brace(String.from("y := { &x };"), block_msg.clone());
+  _expect_brace(String.from("y := { x, };"), block_msg.clone());
+  dot_msg := String.from("a field list on the binding side is written without the dot");
+  _expect_brace(String.from(".{ a } := r;"), dot_msg.clone());
+  _expect_brace(String.from("match(p, .V(.{ x }) => x);"), dot_msg.clone());
+  _expect_brace(String.from("y := .{ a; b };"), String.from("builds a record; a block has no dot"));
+  _expect_brace(String.from("y := .{ 1, 2 };"), String.from("a record's fields are named"));
+  _expect_brace(String.from("{ a, b } := r;"), String.new());
+  _expect_brace(String.from("{ a : x } = r;"), String.new());
+  _expect_brace(String.from("{ A, B } :: import(\"m\");"), String.new());
+  _expect_brace(String.from("{ ... } :: import(\"m\");"), String.new());
+  _expect_brace(String.from("match(p, { x, y } => x, .V({ z }) => z, .W({}) => 0);"), String.new());
+  _expect_brace(String.from("f := { y }(p) => p;"), String.new());
+  _expect_brace(String.from("g := {}() => 1;"), String.new());
+  _expect_brace(String.from("match(p, ({ x } && (x > 0)) => { x }, _ => {});"), String.new());
+  _expect_brace(String.from("c := cond(a => { x }, true => {});"), String.new());
 });
 // ─── Closure capture lists (plans/VALUES_BY_DEFAULT.md decision 35) ─────────
 test("Parse a capture list: `{ x, &y, z : &mut w }(m) => body`", {

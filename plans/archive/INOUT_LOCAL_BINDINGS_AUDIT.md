@@ -532,7 +532,7 @@ What the borrowed form accepts and rejects (the reference examples):
 for(list, x => {
   total = (total + x);
 }); // value form, unchanged
-for(list.into_iter().map(v => (v * i32(2))), x => { … }); // chains: value form only
+for(list.into_iter().map(v => (v * i32(2))), x => .{ … }); // chains: value form only
 
 for(enemies, inout(e) => {
   e.hp = (e.hp - i32(1));

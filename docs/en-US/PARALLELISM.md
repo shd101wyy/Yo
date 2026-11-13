@@ -362,7 +362,7 @@ Thread(unit).spawn(io => {
 // ❌ Not Sendable
 Node :: ref(struct(value : i32));
 node := Node(42);
-Thread(unit).spawn(io => {
+Thread(unit).spawn(io => .{
   // ERROR: Cannot capture `node` (reference-semantics type is not Send)
   // node.value;
 });
@@ -426,7 +426,7 @@ thread.join();
 
 // Thread pool task
 pool := ThreadPool.new(usize(4));
-spawn(pool, (io : Io) => { /* work */ });
+spawn(pool, (io : Io) => .{ /* work */ });
 pool.join_all();
 
 // Communication

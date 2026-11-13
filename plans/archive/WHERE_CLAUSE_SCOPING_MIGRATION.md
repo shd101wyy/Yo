@@ -253,11 +253,13 @@ This change is **non-breaking** for correctly written code:
 ```yo
 Container :: (fn(comptime(T) : Type) -> comptime(Type))(
   object(
-    method1 :: (fn(self : Self, where(T <: Copy)) -> unit)({ ... }),
+    method1 :: (fn(self : Self, where(T <: Copy)) -> unit)(.{ ... }),
     // This relied on leaked constraints - now fails correctly
-    method2 :: (fn(self : Self) -> unit)({
-      // Tries to use Copy methods on T without declaring where clause
-    })
+    method2 :: (fn(self : Self) -> unit)(
+      .{
+        // Tries to use Copy methods on T without declaring where clause
+      }
+    )
   )
 );
 ```

@@ -138,12 +138,14 @@ own element iteration. The `Trace` trait is that contract:
 
 ```yo
 // std/prelude.yo
-Trace :: trait({
-  // Trace every managed object directly held by `self`, descending inline through
-  // value structure. Call `tracer.visit(child)` once per outgoing edge (per element
-  // for containers); never touch the raw callback.
-  trace : (fn(self : Self, tracer : GcTracer) -> unit)
-});
+Trace :: trait(
+  .{
+    // Trace every managed object directly held by `self`, descending inline through
+    // value structure. Call `tracer.visit(child)` once per outgoing edge (per element
+    // for containers); never touch the raw callback.
+    trace : (fn(self : Self, tracer : GcTracer) -> unit)
+  }
+);
 ```
 
 `GcTracer` is an opaque handle (defined in `std/prelude.yo`) that carries the

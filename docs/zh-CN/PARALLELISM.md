@@ -318,7 +318,7 @@ Thread(unit).spawn(io => {
 // ❌ 不可发送
 Node :: ref(struct(value : i32));
 node := Node(42);
-Thread(unit).spawn(io => {
+Thread(unit).spawn(io => .{
   // 错误：无法捕获 `node`（ref(struct(...)) 不是 Send）
   // node.value;
 });
@@ -380,7 +380,7 @@ thread.join();
 
 // 线程池任务
 pool := ThreadPool.new(usize(4));
-spawn(pool, (io : Io) => { /* 工作 */ });
+spawn(pool, (io : Io) => .{ /* 工作 */ });
 pool.join_all();
 
 // 通信

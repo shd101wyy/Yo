@@ -248,7 +248,7 @@ impl(
 info :: Type.get_info(Point);
 match(
   info,
-  .Struct(fields, kind) => {
+  .Struct(fields, kind) => .{
     // fields is ComptimeList(TypeFieldInfo) with x:i32, y:i32
     // kind is StructKind.Struct
   },
@@ -259,7 +259,7 @@ match(
 arr_info :: Type.get_info([i32 ; 3]);
 match(
   arr_info,
-  .Array(elem, len) => {
+  .Array(elem, len) => .{
     // elem == i32 (requires ComptimeEq for Type)
     // len == 3
   },
@@ -270,7 +270,7 @@ match(
 fn_info :: Type.get_info(fn(x : i32, y : i32) -> bool);
 match(
   fn_info,
-  .Function(info) => {
+  .Function(info) => .{
     // info.params has 2 entries
     // info.return_type == bool
   },

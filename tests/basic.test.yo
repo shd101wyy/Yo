@@ -29,37 +29,27 @@ test("Test zero-arg return", {
   });
   returns_unit();
 });
-test("an empty struct literal {} is not the unit value", {
-  // `{}` is a zero-field RECORD; `()` is the unit value. Where unit is
-  // expected the brace form is rejected with an error naming the parens
-  // form (issues/fixed/2026-10-18-an-empty-struct-literal-is-accepted-where-unit-is-expected.md).
+test("{} is the empty block (unit); .{} is the empty record", {
+  // Brace groups Generation B (plans/reference/BRACE_BLOCKS.md): `{}` and
+  // `()` are unit, so a no-op arm or body may be written either way; `.{}`
+  // is a zero-field RECORD and never unit
+  // (issues/fixed/2026-10-18-an-empty-struct-literal-is-accepted-where-unit-is-expected.md).
   comptime_expect_error({
     bad_cond :: (fn(b : bool) -> unit)(
       cond(
-        b => {},
+        b => .{},
         true => ()
       )
     );
     bad_cond(true)
-  }, "is an empty struct literal");
+  });
   comptime_expect_error({
-    bad_match :: (fn(x : i32) -> unit)(
-      match(
-        x,
-        1 => {},
-        _ => ()
-      )
-    );
-    bad_match(1)
-  }, "is an empty struct literal");
-  comptime_expect_error({
-    bad_body :: (fn() -> unit)({});
+    bad_body :: (fn() -> unit)(.{});
     bad_body()
-  }, "is an empty struct literal");
-  // The parens spellings still check and run.
+  });
   good :: (fn(b : bool) -> unit)(
     cond(
-      b => (),
+      b => {},
       true => ()
     )
   );
@@ -68,16 +58,16 @@ test("an empty struct literal {} is not the unit value", {
   good_match :: (fn(x : i32) -> unit)(
     match(
       x,
-      1 => (),
+      1 => {},
       _ => ()
     )
   );
   good_match(1);
-  // A genuine zero-field struct literal is still legal where a struct is
-  // expected: `{}` as the body of a `-> Z` fn, and `{}` in a Z-annotated
-  // initialization.
+  good_body :: (fn() -> unit)({});
+  good_body();
+  // The zero-field record is `.{}` where a struct is expected.
   Z :: struct();
-  mkz :: (fn() -> Z)({});
+  mkz :: (fn() -> Z)(.{});
   (z : Z) = mkz();
 });
 test("Test assignments", {

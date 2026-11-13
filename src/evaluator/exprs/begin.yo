@@ -11,6 +11,7 @@ pragma(Pragma.AllowUnsafe);
 {
   AstExpr,
   ast_expr_token,
+  brace_block_field,
   ast_expr_text,
   ast_expr_id,
   ast_expr_to_string,
@@ -83,7 +84,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, is_type_value, value_contains_unknown } :: import("../../value.yo");
 { TypeValue, TypeValueNode, t_refine_inner, t_slot_is_mut_ref, fn_param_by_value_flags, t_slot_pointee, t_slot_is_borrow } :: import("../../types/definitions.yo");
 { t_unit, t_ptr } :: import("../../types/creators.yo");
-{ is_some_type, is_reference_struct_type, cell_handle_view } :: import("../../types/guards.yo");
+{ is_some_type, is_reference_struct_type, cell_handle_view, is_struct_type } :: import("../../types/guards.yo");
 { HashSet } :: import("std/collections/hash_set");
 { is_io_async_call, is_io_await_call } :: import("../async/await_analysis.yo");
 { expr_tree_contains_return } :: import("../../expr_traversal.yo");
@@ -98,7 +99,7 @@ pragma(Pragma.AllowUnsafe);
 { eprintln } :: import("std/fmt");
 { generate_expr_from_code } :: import("../../parser.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
-{ format_error_message, format_error_messages, TokenAndError, with_code } :: import("../../error.yo");
+{ format_error_message, format_error_message_with_help, format_error_messages, TokenAndError, with_code } :: import("../../error.yo");
 { Severity, Diagnostic, Span, warnings_enabled, emit_warning, E_DISCARDED_MUST_USE } :: import("../../diagnostics.yo");
 { extract_future_trait_from_type } :: import("../trait_checking.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
@@ -2754,6 +2755,33 @@ _must_use_kind :: (fn(stmt : &AstExpr, ty : &TypeValue) -> Option(String))({
   )
 });
 
+/// Brace groups Generation B (plans/reference/BRACE_BLOCKS.md): a block the
+/// parse made from `{ x }` or `{}` where a struct is expected was almost
+/// certainly meant as the record `.{ x }` / `.{}`. `result` is the block's
+/// evaluated type, `.None` before evaluation (the empty block is unit).
+_reject_brace_block_for_struct :: (fn(expr : &AstExpr, result : Option(TypeValue), ctx : &EvalContext, exn : Exception) -> unit)(
+  match(
+    brace_block_field(ast_expr_token(expr)),
+    .Some(bb_field) => match(
+      &ctx.expected_type,
+      .Some(bb_et) => if(is_struct_type(&bb_et.ty) && match(&result, .Some(bb_rt) => !is_struct_type(bb_rt), .None => (bb_field.len() == usize(0))), {
+        written := if(bb_field.len() == usize(0), String.from("{}"), `{ ${bb_field} }`);
+        what := if(bb_field.len() == usize(0), String.from("the empty block (unit)"), `a block that yields \`${bb_field}\``);
+        exn.throw(
+          dyn(
+            format_error_message_with_help(
+              ast_expr_token(expr),
+              `Incompatible types: \`${written}\` is ${what}, but \`${type_to_string(&bb_et.ty)}\` is expected here`,
+              Option(String).Some(if(bb_field.len() == usize(0), String.from("the empty record is `.{}`"), `the one-field record is \`.{ ${bb_field} }\``))
+            )
+          )
+        );
+      }),
+      .None => ()
+    ),
+    .None => ()
+  )
+);
 evaluate_begin_expression :: (
   fn(
     expr : &AstExpr,
@@ -2773,12 +2801,14 @@ evaluate_begin_expression :: (
   // The local borrows a block declares are listed while it evaluates
   // (plans/VALUES_BY_DEFAULT.md decision 18).
   lb_mark := local_borrows_mark();
+  _reject_brace_block_for_struct(expr, Option(TypeValue).None, ctx, exn);
   if(scope_release_active() && is_evaluating_function_body_begin_block && (ctx.ctfe_depth == usize(0)), {
     sr_saved_depth := scope_release_depth();
     sr_mark := scope_release_mark();
     sr_entry := snapshot_env(env_in);
     scope_release_set_depth(sr_saved_depth + usize(1));
     sr_r := _evaluate_begin_expression_impl(expr, env_in, ctx, variables_to_add, is_evaluating_function_body_begin_block, exn);
+    match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&sr_r)), .Some(sr_info) => _reject_brace_block_for_struct(expr, Option(TypeValue).Some(sr_info.ty()), ctx, exn), .None => ());
     scope_release_set_depth(sr_saved_depth);
     if(sr_saved_depth == usize(0), {
       scope_release_body(sr_mark, &sr_entry);
@@ -2789,6 +2819,7 @@ evaluate_begin_expression :: (
     return(sr_r);
   });
   lb_r := _evaluate_begin_expression_impl(expr, env_in, ctx, variables_to_add, is_evaluating_function_body_begin_block, exn);
+  match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&lb_r)), .Some(lb_info) => _reject_brace_block_for_struct(expr, Option(TypeValue).Some(lb_info.ty()), ctx, exn), .None => ());
   local_borrows_truncate(lb_mark);
   if(is_evaluating_function_body_begin_block, {
     local_borrow_joins_truncate(lb_mark);
