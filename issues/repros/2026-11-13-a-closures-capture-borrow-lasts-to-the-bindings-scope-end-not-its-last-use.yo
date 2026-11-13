@@ -1,0 +1,13 @@
+// expect: accept
+// `bump` is called twice and `n` is read after its last call: rustc and decision 18 (last use) accept; v0.2.77 and develop reject with E0910 ("the borrow lasts until `bump`'s scope ends").
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(n) := i32(0);
+  (mut(bump) : Impl(FnMut() -> unit)) = ({ &mut n }() => {
+    n.* = (n.* + i32(1));
+  });
+  bump();
+  bump();
+  println(&n);
+});
+export(main);

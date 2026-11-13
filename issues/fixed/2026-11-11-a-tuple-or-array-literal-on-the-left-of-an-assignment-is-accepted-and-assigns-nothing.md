@@ -83,3 +83,24 @@ temporary (or `swap(&mut a, &mut b)`). If destructuring assignment is wanted lat
 With the fix, the three negative programs and the positive control move to `tests/origins/unsound/`;
 `tests/basic.test.yo`, beside "assignment to the result of a function call", gains `comptime_expect_error` rows for
 the tuple, array and struct literal targets.
+
+## Fix
+
+A literal target is rejected as not a place (lane c8e), in `evaluate_assignment`'s property / index path
+(`src/evaluator/exprs/assignment.yo`):
+
+- A tuple, array or anonymous-struct literal (`tuple(…)`, `array(…)`, `_(…)`, by its builtin: `_literal_target_kind`)
+  is rejected BEFORE the left side is evaluated. The `String` form therefore no longer reaches the misleading E0901
+  "moved" at the left side.
+- A named struct literal (`P(x : a, y : b)`) is rejected after the left side is evaluated, beside the
+  function-callee check, because its callee's value is a type.
+
+The message is "Cannot assign to a tuple literal: it builds a new value, it is not a place." (array / struct literal
+alike). Its help reads "Yo has no destructuring assignment: assign each place on its own (`a = x; b = y;`); a swap
+goes through a temporary (`t := a; a = b; b = t;`)". Like the function-call form, it carries no code. It is a shape
+error, not an ownership rule, so the programs stay under `issues/repros/` instead of moving to the G-B directory,
+whose rows need an `E09xx` code.
+
+Test: `tests/basic.test.yo`, "a tuple, array or struct literal on the left of `=` is not a place". It has
+`comptime_expect_error` rows for the tuple, array, struct-literal and `(a, t.0)` targets, and the swap through a
+temporary as the accepted form.
