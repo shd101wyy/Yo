@@ -103,7 +103,7 @@ pragma(Pragma.AllowUnsafe);
   variable_set_is_imm_borrow
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
-{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot_with_pointee, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_result_is_ref, fn_result_is_mut_ref, t_slot_is_borrow } :: import("../../types/definitions.yo");
+{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot_with_pointee, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_result_is_ref, fn_result_is_mut_ref, t_slot_is_borrow, fn_result_origin_names, fn_result_composite_origin_names, fn_param_in_result_origin, fn_param_pointee_in_result_origin, fn_result_slot } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_func_simple, t_ptr, generate_some_type_id } :: import("../../types/creators.yo");
 {
   EvalValue,
@@ -158,7 +158,7 @@ pragma(Pragma.AllowUnsafe);
 { OriginRootPlace, origin_of, variable_holder_roots, binder_read_mark, binder_read_clear, reference_binding_read_type, variable_is_mut_borrow, note_reference_read } :: import("../utils.yo");
 { type_carries_origin } :: import("../../types/utils.yo");
 { with_code } :: import("../../error.yo");
-{ E_USE_OF_MOVED_VALUE } :: import("../../diagnostics.yo");
+{ E_USE_OF_MOVED_VALUE, E_ORIGIN_MISMATCH } :: import("../../diagnostics.yo");
 { is_some_type, is_unit_type, is_void_type, is_never_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { synthesize_types, SynthesizeOptions, TypePair } :: import("../types/synthesizer.yo");
@@ -587,6 +587,40 @@ _collect_resume_args :: (fn(e : &AstExpr, out : &mut ArrayList(AstExpr)) -> unit
 _is_concrete_resume_type :: (fn(t : &TypeValue) -> bool)(
   !is_unit_type(t) && !is_never_type(t) && !is_void_type(t) && (get_all_some_types(t).len() == usize(0))
 );
+/// A closure literal's body value against the result origin of the slot type
+/// it adopted (`ft`, whose labels are the slot's; `labels` are the literal's
+/// own, by position): each root of the value at one of the literal's
+/// parameters must be a parameter that origin names. An elided result origin
+/// (the union of every reference parameter) admits them all.
+_closure_result_origin_check :: (fn(ft : &TypeValue, labels : &ArrayList(String), body : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+  names := match(
+    if(fn_result_is_ref(ft), fn_result_origin_names(ft), fn_result_composite_origin_names(ft)),
+    .Some(n) => n,
+    .None => return(())
+  );
+  roots := origin_of(body, env, ctx);
+  (ri : usize) = usize(0);
+  while(ri < roots.len(), ri = (ri + usize(1)), {
+    rn := roots(ri).place.root_name.clone();
+    (li : usize) = usize(0);
+    while(li < labels.len(), li = (li + usize(1)), {
+      if((labels(li) == rn) && !fn_param_in_result_origin(ft, li, &names) && !fn_param_pointee_in_result_origin(ft, li, &names), {
+        exn.throw(
+          dyn(
+            with_code(
+              format_error_message_with_help(
+                ast_expr_token(body),
+                `The closure's result points into its parameter \`${rn}\`, but the slot it is typed against declares its result \`${type_to_string(&fn_result_slot(ft))}\`, whose origin does not name that parameter. The slot's type is what its callers free their arguments by, so the result may point only into the places its origin lists (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O2, O7).`,
+                Option(String).Some(String.from("return a value built over a parameter the slot's result origin names, or an owned value"))
+              ),
+              E_ORIGIN_MISMATCH
+            )
+          )
+        );
+      });
+    });
+  });
+});
 _trial_eval_anon_body :: (
   fn(body : &AstExpr, env : &Environment, ctx : &mut EvalContext, out : &mut ArrayList(AstExpr)) -> unit
 )({
@@ -2669,6 +2703,15 @@ Result type: ${type_to_string(&decl_result_ty)}`
                 _ => `Function body has type \`${type_to_string(&cr_body_ty)}\`, but the declared result type is \`${type_to_string(&cr_ret_ty)}\`.${cr_hint}`
               );
               exn.throw(dyn(format_error_message(ast_expr_token(&body_expr), &cr_msg)));
+            });
+            // O2 / O7 (audit A48): a literal typed against a slot whose
+            // result SPELLS its origin (`Fn(a : &T, b : &T) -> Option(&(T, a))`)
+            // is checked with that origin: its callers free the arguments the
+            // origin leaves out, so the body's value may point into no other
+            // parameter. The adopted type keeps the slot's labels; the body
+            // binds the literal's own, position by position.
+            if(!cr_skip && !has_any_control_flow(cr_info.control_flow()) && type_carries_origin(&cr_ret_ty), {
+              _closure_result_origin_check(&function_type, &actual_param_labels, &anon_eb, &body_eval_env, &body_eval_ctx, exn);
             });
           },
           .None => ()
