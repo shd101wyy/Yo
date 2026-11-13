@@ -324,7 +324,9 @@ locally installed.
    - **Closure capture type** (covered by rule 4).
    - **Pointer pointee type** — `*(Raise)` is rejected so a handler
      can't be installed and then written through a pointer to
-     outer-frame storage.
+     outer-frame storage. A reference is not a pointer here: a `&Raise`
+     parameter is accepted (the lend ends before the install frame does), and
+     the result-type rule above still rejects returning one.
 
 9. **Middle-tier propagation.** A function that takes a `ctl`-typed
    parameter (or a struct containing one) and forwards it to a callee
@@ -476,8 +478,14 @@ standalone, not closures" is the implementation-side statement of the same rule.
   resumed at most once.
 - `unwind(value)` exits the frame that **installed** the handler: the
   function or the `io.async` block whose body the handler literal is written
-  in. Frames in between, including async tasks, are unwound through (a task in
-  between is aborted). When the installer is an `io.async` block, the value
+  in. Frames in between are unwound through, and so is a task the installer
+  awaits inline (`io.await(task, ctx)`: the task is aborted and the installer
+  exits). **A task started with `io.spawn` is a boundary, not a frame to unwind
+  through:** an `unwind` raised inside it aborts that task
+  (`FutureState.Aborted`) and nothing else. The installer keeps running past
+  its `spawn`, and awaiting the `JoinHandle` returns `.None`, so the installer
+  neither exits nor receives the unwound value (measured 2026-11-13 against
+  v0.2.77). When the installer is an `io.async` block, the value
   **resolves that block's future**, so it must have the block's result type:
 
   ```yo
@@ -498,6 +506,11 @@ standalone, not closures" is the implementation-side statement of the same rule.
 
   A frame that only passes a handler along never catches its unwind, so no
   frame reads another frame's value as its own.
+- **An `unwind` is one value in flight.** A `Drop` impl that performs an
+  unwinding operation while another unwind is already travelling replaces the
+  first value silently: the design does not say which one wins, and the
+  2026-11-11 audit reports that the later one does. Do not unwind from a
+  `Drop` impl.
 - An `unwind` that no handler catches is **never lost**.
   - One that ends an async task aborts the task, and the abort is reported
     only if nobody observes it. Observing is silent: `JoinHandle.await`
