@@ -115,12 +115,12 @@ Measured on the S2 draft (`vbd/d49-s2`) with the installed v0.2.77 seed,
   **Generation A (S2, v0.2.78):** the pre-scan reads the `?Sized` kind as the
   parameter pass does (`src/evaluator/types/function.yo`, Pass 3). Until the
   seed carries it, `Rc`, `Arc` and `ArcWeak` declare `comptime(V) : ?Sized`
-  with no `where`: `Rc.new` carries `where(V <: Escapable)` and `Arc.new`
-  `where(V <: (Send, Sync, Escapable))` (their binder is named `V`, so E0909's
-  text does not change), and every other `Arc`/`ArcWeak` impl already states
+  with no `where`: `Rc.new`'s own signature carries `where(V <: Escapable)` and
+  `Arc.new`'s `where(V <: (Send, Sync, Escapable))` (their binder is named `V`, so
+  E0909's text does not change; an impl-level bound reports a different message), and every other `Arc`/`ArcWeak` impl already states
   `where(T <: (Send, Sync))`. A type spelled `Rc(&T)` is accepted until then;
   no safe constructor builds one. **Generation B (once `SEED_VERSION` carries
-  S2):** the three bounds go back on the declarations.
+  S2):** the three bounds go back on the declarations, from the `where` clauses of `Rc.new` and `Arc.new`.
 - **`Deref` outside the prelude.** `impl(generic(T : Type), ArrayList(T),
   Deref(Target : [T]))` in `std/collections/array_list.yo` (and `String`'s
   `Deref(Target : str)`) is rejected: "Cannot implement Deref here: only the

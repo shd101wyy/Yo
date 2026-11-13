@@ -9843,7 +9843,6 @@ Rc :: (fn(comptime(V) : ?Sized) -> comptime(Type))(
 /// the prelude's `rc(value)`, deleted by static-argument inference B3.
 impl(
   generic(V : Type),
-  where(V <: Escapable),
   Rc(V),
   /// Move `value` into a fresh reference-counted cell whose `ref_count` is 1.
   /// `alloc : .Some(a)` places the cell in `a`; the default, `.None`, places
@@ -9855,7 +9854,7 @@ impl(
   /// a := Rc(i32).new(i32(42));
   /// assert(ref_count(a) == usize(1), "a fresh cell has one owner");
   /// ```
-  new : (fn(sink(value) : V, (alloc : Option(Allocator)) ?= .None) -> Rc(V))({
+  new : (fn(sink(value) : V, (alloc : Option(Allocator)) ?= .None, where(V <: Escapable)) -> Rc(V))({
     // The result is written `Rc(T)`, not `Self`: a specialization evaluates a
     // written return type again, which gives `dyn(...)`'s synthesized
     // `Rc(T).new(<closure>)` the concrete cell over the closure's capture
@@ -10601,7 +10600,6 @@ Arc :: (fn(comptime(V) : ?Sized) -> comptime(Type))(
 /// the prelude's `arc(value)`, deleted by static-argument inference B3.
 impl(
   generic(V : Type),
-  where(V <: (Send, Sync, Escapable)),
   Arc(V),
   /// Move `value` into a new atomically counted cell, returning a handle
   /// whose `ref_count` is 1. `alloc : .Some(a)` places the cell in `a`; the
@@ -10614,7 +10612,7 @@ impl(
   /// a := Arc(i32).new(i32(42));
   /// assert(a.* == i32(42), "the payload");
   /// ```
-  new : (fn(sink(value) : V, (alloc : Option(Allocator)) ?= .None) -> Arc(V))({
+  new : (fn(sink(value) : V, (alloc : Option(Allocator)) ?= .None, where(V <: (Send, Sync, Escapable))) -> Arc(V))({
     // `Arc(V)`, not `Self`, for `Rc.new`'s reason. The atomic cell takes the
     // allocator itself, as `Rc.new`'s does, and the handle is bound, not the
     // body's tail, for `Rc.new`'s reason
