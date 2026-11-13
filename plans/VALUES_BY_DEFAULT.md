@@ -5103,7 +5103,22 @@ and in git, not a silent edit.
       was written. The `str`/`RawSlice`/range-copy rewrites of VERDICTS-27
       Q2b(d) move to S2, and S3's `str`/`slice_copy` deletions ship one
       release after them. (S1d and S1e merged as #1890 and #1886; their
-      as-built notes, S1g, S2 and S3: to come.)
+      as-built notes, S1g and S3: to come.)
+      S2, first part (2026-11-13, `vbd/d49-s2`, built at stage 1 by the
+      v0.2.77 seed): `Box`/`Rc`/`Arc`/`Weak`/`ArcWeak` declare
+      `comptime(V) : ?Sized`, with `new`, `into_inner`, `try_unwrap`,
+      `make_mut`, `Default` and the `Weak` constructors sized and the rest
+      `?Sized`; `Box`'s layout L2; `CloneInto` (a bare blanket over every
+      sized `Clone`, and `[T]`); `drop_in_place` and `Eq`/`Ord`'s `Rhs` are
+      `?Sized`; `[T]`'s `len`, `is_empty`, `contains`, `Eq`, `Hash`; a slice
+      registers its impls under its element's id, so `s.m()` on a `&[T]`
+      finds them; `RawSlice` deleted (`random_bytes` takes `&mut [u8]`);
+      `AnyError :: Box(Dyn(Error, Clone))`. Two spellings the v0.2.77 seed
+      cannot read wait one release (plans/backlog/SEED_VERSION_AUTOMATION.md):
+      a `where` on the handles' `?Sized` binder (the bounds sit on `Rc.new`
+      and `Arc.new` until then; the compiler half is in this part) and
+      `Deref` on `ArrayList`/`String`. The flip (`Box(Dyn)` real, `Dyn` and
+      `str` unsized, `__yo_box_cell`) is S2's second part.
     - **Tests** (`tests/sized.test.yo`, `tests/dyn.test.yo`,
       `tests/slice.test.yo`, `tests/str_view.test.yo`,
       `tests/explicit_allocators.test.yo`, the cli case
