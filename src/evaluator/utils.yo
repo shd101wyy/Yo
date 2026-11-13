@@ -9202,6 +9202,12 @@ _lend_crossed_reference :: (fn(operand : &AstExpr, ctx : &EvalContext) -> Option
 /// marker's mode — or, through a reference on the way (R-DEREF), that
 /// reference's origin.
 _origin_push_lend :: (fn(operand : &AstExpr, is_mut : bool, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(OriginRootPlace)) -> unit)({
+  // A place behind a raw pointer (`&mut base.add(i).*`) is wherever the
+  // pointer points: no binding of this function is its root (unsafe code
+  // vouches for it, as for any raw-pointer deref).
+  if(_lend_crosses_raw_pointer(operand, ctx), {
+    return(());
+  });
   match(
     _lend_crossed_reference(operand, ctx),
     .Some(crossed) => {
@@ -9246,6 +9252,20 @@ _origin_push_lend :: (fn(operand : &AstExpr, is_mut : bool, env : &Environment, 
       );
     }
   );
+});
+/// The lend operand's place chain (field and deref dots) dereferences a raw
+/// pointer on the way to its root.
+_lend_crosses_raw_pointer :: (fn(operand : &AstExpr, ctx : &EvalContext) -> bool)({
+  (cur : AstExpr) = ast_expr_strip_borrow_marker(operand);
+  while(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
+    (base : AstExpr) = match(cur, .FnCall(_, _, Rc(dargs), _, _) => match(dargs.get(usize(0)), .Some(b) => b, .None => make_err_expr()), .Atom(_, _) => cur);
+    is_deref := match(cur, .FnCall(_, _, Rc(dargs), _, _) => match(dargs.get(usize(1)), .Some(f) => ast_expr_is_atom_of(&f, "*"), .None => false), .Atom(_, _) => false);
+    if(is_deref && deref_operand_is_raw_pointer(&base, ctx), {
+      return(true);
+    });
+    cur = base;
+  });
+  false
 });
 /// Whether `.*` on `base` is a step INTO an owning handle (`Box`, `Rc`,
 /// `Arc`: `unique_box_payload_type`, `cell_handle_view`) rather than a way
