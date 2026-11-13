@@ -120,7 +120,18 @@ Step 2 amends the two standing texts quoted above in the PR that flips the defau
   flips it amends the two standing texts quoted at the top.
 - `verify` and `--strict` stay opt-in.
 
-One consequence to settle in the flip PR, not before: once `verify+` is the default,
-`pragma(Pragma.VerifyOrAssert);` says nothing, and the two pragmas a module can still
-need are the strict one (an `unknown` fails the build, no runtime fallback) and the
-opt-out. Whether `Pragma.Verify` keeps its name then is part of that PR.
+**The two pragmas collapse to one at the flip (maintainer, 2026-11-13).** Until then
+both stay exactly as they are.
+
+- The two differ in one case only. Proved: both erase the runtime check. Refuted: both
+  fail the build. Solver gave up: `Pragma.Verify` fails the build,
+  `Pragma.VerifyOrAssert` keeps the runtime check and builds.
+- In the PR that makes `verify+` the default, `Pragma.VerifyOrAssert` is deleted: it
+  would say nothing, and there is no alias or deprecation window.
+- What a module can still spell after that is the strict form (a claim, enforced on
+  every build, that the module is fully proved and carries no runtime fallback; the
+  SELF_VERIFICATION ratchet counts only these) and an opt-out back to `runtime`, which
+  has no pragma today and is added by the same PR.
+- The strict pragma is renamed in that PR. `Verify` reads as the ordinary choice and is
+  the strict one, which is the wrong way round for an author choosing by name. The new
+  name is that PR's decision.
