@@ -2374,7 +2374,7 @@ test("Test JoinHandle await returns None on unwind", {
         unwind(());
       }
     );
-  handle := io.spawn(task, { io, raise });
+  handle := io.spawn(task, .{ io, raise });
   result := handle.await(io);
   assert(result.is_none(), "escaped task should return None");
 });
@@ -2399,8 +2399,8 @@ test("Test JoinHandle two tasks one escapes", {
         unwind(());
       }
     );
-  handle1 := io.spawn(task1, { io, raise });
-  handle2 := io.spawn(task2, { io, raise });
+  handle1 := io.spawn(task1, .{ io, raise });
+  handle2 := io.spawn(task2, .{ io, raise });
   result1 := handle1.await(io);
   result2 := handle2.await(io);
   assert(result1.is_none(), "task1 should unwind → None");
@@ -2427,7 +2427,7 @@ test("Test effect injection via io.await on sync future", {
         println(msg);
       }
     );
-  io.await(task, { io, log : log1 });
+  io.await(task, .{ io, log : log1 });
   unsafe(printf("effect injection via await OK\n"));
 });
 // ---------------------------------------------------------------------------
@@ -2453,7 +2453,7 @@ test("Test effect injection set-once via io.spawn then io.await", {
         assert(false, "log2 should not be called (set-once semantics)");
       }
     );
-  handle := io.spawn(task, { io, log : log1 });
+  handle := io.spawn(task, .{ io, log : log1 });
   handle.await(io);
   unsafe(printf("set-once via spawn OK\n"));
 });
@@ -2475,7 +2475,7 @@ test("Test effect injection via io.await on SM future", {
         println(msg);
       }
     );
-  io.await(task, { io, log : log1 });
+  io.await(task, .{ io, log : log1 });
   unsafe(printf("effect injection SM path OK\n"));
 });
 // ---------------------------------------------------------------------------
@@ -2601,7 +2601,7 @@ test("Test effect resume inside async closure", {
       return(i32(10));
     }
   );
-  result := io.await(task, { io, raise });
+  result := io.await(task, .{ io, raise });
   assert(result == i32(20), "resume handler should return 10 twice: 10+10=20");
 });
 // ---------------------------------------------------------------------------
@@ -2635,7 +2635,7 @@ test("Test effect resume across multiple yields", {
       return(i32(5));
     }
   );
-  result := io.await(task, { io, raise });
+  result := io.await(task, .{ io, raise });
   assert(result == i32(15), "3 resumes of 5 each: 15");
   assert(counter.with(cur => cur.*) == i32(15), "counter should track 5+5+5=15");
 });
@@ -2664,7 +2664,7 @@ test("Test two effects injected via io.await", {
       println(msg);
     }
   );
-  result := io.await(task, { io, raise, log });
+  result := io.await(task, .{ io, raise, log });
   assert(result == i32(42), "raise should resume with 42");
 });
 // ---------------------------------------------------------------------------
@@ -2692,7 +2692,7 @@ test("Test two effects injected via io.spawn", {
       println(msg);
     }
   );
-  handle := io.spawn(task, { io, raise, log });
+  handle := io.spawn(task, .{ io, raise, log });
   result := handle.await(io);
   assert(result.is_some(), "task should succeed");
   assert(result.unwrap() == i32(7), "raise should resume with 7");
@@ -2725,7 +2725,7 @@ test("Test effect resume in async while loop", {
       return(i32(3));
     }
   );
-  result := io.await(task, { io, get_value });
+  result := io.await(task, .{ io, get_value });
   assert(result == i32(12), "4 iterations * 3 = 12");
 });
 // ---------------------------------------------------------------------------
@@ -2762,7 +2762,7 @@ test("Test effect resume in async while loop with break", {
       return(i32(10));
     }
   );
-  result := io.await(task, { io, get_value });
+  result := io.await(task, .{ io, get_value });
   // Iterations: 1→get(10)→yield→sum+=10, 2→get(10)→yield→sum+=10, 3→get(10)→yield→break
   assert(result == i32(20), "2 full iterations * 10 = 20");
 });
@@ -2785,7 +2785,7 @@ test("Test unwind via injected effect aborts future", {
           unwind(i32(77));
         }
       );
-    my_io.await(task, { io : my_io, raise });
+    my_io.await(task, .{ io : my_io, raise });
     // should not reach here
     i32(0)
   });
@@ -2810,7 +2810,7 @@ test("Test JoinHandle unwind via spawn-injected effect", {
         unwind(());
       }
     );
-  handle := io.spawn(task, { io, raise });
+  handle := io.spawn(task, .{ io, raise });
   result := handle.await(io);
   assert(result.is_none(), "escaped task should return None");
 });
@@ -2906,7 +2906,7 @@ test("Regression: async unwind RC no double-decrement UAF", {
           unwind(i32(77));
         }
       );
-    result := my_io.await(task, { io : my_io, raise });
+    result := my_io.await(task, .{ io : my_io, raise });
     // If we reach here, the unwind didn't work
     result
   });

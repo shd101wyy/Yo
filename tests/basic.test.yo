@@ -807,12 +807,12 @@ test("Test 'struct'", {
     Point :: struct(x : i32, y : bool);
     p := Point(3, true);
     (p2 : Point) = _(3, true);
-    (p3 : Point) = { x : 3, y : true };
-    (p4 : Point) = { y : true, x : 3 };
+    (p3 : Point) = .{ x : 3, y : true };
+    (p4 : Point) = .{ y : true, x : 3 };
     x := 1;
     y := true;
-    (p5 : Point) = { x, y };
-    (p6 : Point) = { y, x };
+    (p5 : Point) = .{ x, y };
+    (p6 : Point) = .{ y, x };
     {
       { x : another_x, y : a } := p;
       a;
@@ -1046,7 +1046,7 @@ test("Test 'struct'", {
     );
     make_widthdraw_balance_100 :: (fn() -> Withdraw)({
       (balance : i32) = 100;
-      return({ balance });
+      return(.{ balance });
     });
     bank := make_widthdraw_balance_100();
     left := bank.withdraw(50);
@@ -2143,21 +2143,21 @@ test("Test control flows", {
 test("Test whole-struct destructuring statements", {
   // Destructure a comptime struct
   {
-    anony :: { x : 12, y : 13 };
+    anony :: .{ x : 12, y : 13 };
     { x, y } :: anony;
     comptime_assert(x == 12);
     comptime_assert(y == 13);
   };
   // Destructure a runtime struct
   {
-    anony := { x : i32(12), y : i32(13) };
+    anony := .{ x : i32(12), y : i32(13) };
     { x, y } := anony;
     assert(x == 12);
     assert(y == 13);
   };
   // Destructure a runtime anonymous struct with more fields
   {
-    point := { x : i32(5), y : i32(10), z : i32(15) };
+    point := .{ x : i32(5), y : i32(10), z : i32(15) };
     { x, y, z } := point;
     sum := (x + y + z);
     assert(sum == i32(30));
