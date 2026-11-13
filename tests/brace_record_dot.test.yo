@@ -1,9 +1,9 @@
 { assert } :: import("std/assert");
-// Brace groups, Generation A (plans/reference/BRACE_BLOCKS.md): `.{ ... }` in
-// expression position is a record value, with exactly the meaning today's
-// bare record brace has. The bare form keeps working in this generation, and
-// a binder position (a destructuring, a pattern, a capture list) keeps its
-// bare braces.
+// Brace groups (plans/reference/BRACE_BLOCKS.md): `.{ ... }` in expression
+// position is a record value (Generation A, v0.2.77), and a binder position
+// (a destructuring, a pattern, a capture list) keeps its bare braces. Since
+// Generation B (v0.2.78) a bare expression brace is a block
+// (tests/brace_blocks.test.yo).
 Point :: struct(x : i32, y : i32);
 Solo :: struct(v : i32);
 Z :: struct();
@@ -71,12 +71,6 @@ test("a parenthesized dot record takes a trailing field access", {
     .{ x : i32(5) }
   ).x;
   assert(r == i32(5));
-});
-test("the bare form still builds the same record", {
-  a := .{ x : i32(1), y : i32(2) };
-  b := { x : i32(1), y : i32(2) };
-  assert(a.x == b.x);
-  assert(a.y == b.y);
 });
 test("binder positions keep bare braces", {
   r := .{ x : i32(6), y : i32(7) };
