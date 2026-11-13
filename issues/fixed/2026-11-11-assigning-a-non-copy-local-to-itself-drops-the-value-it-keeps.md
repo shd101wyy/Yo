@@ -10,7 +10,7 @@ Found 2026-11-11 by the ownership / borrowing / origin audit
 
 ## Reproducers
 
-`issues/repros/2026-11-11-assigning-a-non-copy-local-to-itself-drops-the-value-it-keeps.yo` (negative: expects
+`tests/origins/unsound/self-assign-keeps-value-pos.yo` (was `issues/repros/2026-11-11-…`; negative: expects
 `accept` with no drop at the assignment; today it is a use-after-free):
 
 ```yo
@@ -39,10 +39,10 @@ __yo_v_x = __yo_v_x;
 String_drop(&(tmp_old));
 ```
 
-- `…-drop-count.yo` (negative, no heap payload): `D` with a counting `Drop`; prints `drops=1` right after `x = x`
+- `self-assign-keeps-value-drop-count-pos.yo` (negative, no heap payload): `D` with a counting `Drop`; prints `drops=1` right after `x = x`
   and `drops=2` at the end, for one value.
-- `…-loop.yo` (negative): `x = x` in a `while` body; ASan: double free on the second iteration.
-- `…-pos.yo` (positive control): `x = { y := x; y }`, the same self-assignment through a block, is clean.
+- `self-assign-keeps-value-loop-pos.yo` (negative): `x = x` in a `while` body; ASan: double free on the second iteration.
+- `self-assign-through-block-pos.yo` (positive control): `x = { y := x; y }`, the same self-assignment through a block, is clean.
 
 ## The family (develop `64f33c710`)
 
@@ -82,4 +82,19 @@ is the value's last use (then a move)", and the right side of `x = x` is that la
 
 With the fix, the three programs above and the positive control move to `tests/origins/unsound/` (all four
 `// expect: accept`, run under ASan); `tests/move_only.test.yo` gains "move-only: `x = x` keeps the value and runs
-no drop", with the `Drop`-count assertion of `…-drop-count.yo`.
+no drop", with the `Drop`-count assertion of `self-assign-keeps-value-drop-count-pos.yo`.
+
+## Fix
+
+`evaluate_assignment`'s whole-variable path (`src/evaluator/exprs/assignment.yo`) now reads `lhs_consumed_by_rhs`
+again after `set_expr_as_needs_to_call_dup(&rhs_evaled, …, "assign")` and the environment re-read that follows it
+(lane c8e). For a bare atom RHS that names the target, that transfer is the move. With the flag set, the `=` gets
+the unit info that `x = f(x)` gets: no temporary saves the old bytes, and codegen emits no drop of the value just
+stored. The variable is revived by the same store, so the scope end drops it once. `x = (x)` and `r = r` on an `Rc`
+take the same path.
+
+Tests, all `// expect: accept` and run under ASan by G-B: `tests/origins/unsound/self-assign-keeps-value-pos`,
+`self-assign-keeps-value-loop-pos`, `self-assign-keeps-value-drop-count-pos` (it asserts 0 drops after `x = x` and 1
+at the end) and `self-assign-through-block-pos`. `tests/move_only.test.yo`, "move-only: `x = x` keeps the value and
+runs no drop", checks the `Drop` count, including `x = (x)` in a loop. It fails on develop `ece5e5cfd`: the
+assignment disposes the value.

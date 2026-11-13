@@ -120,3 +120,34 @@ test("a guard's temporary receiver is released once on either path", {
   assert(hits == i32(8), "a and b hold for i = 2 and 3, c for every i");
   assert(g_guard_tok_drops == (before + i32(8)), "each receiver temp released once per evaluation");
 });
+_mg_take :: (fn(s : String) -> bool)(s.len() > usize(0));
+test("a guard may read or lend an outer value, never move it", {
+  // issues/fixed/2026-11-11-a-value-moved-inside-a-match-guard-is-never-recorded-as-moved.md:
+  // a guard that fails hands every value on to the later arms and to the code
+  // after the match, so a move in it is E0901.
+  a := String.from("a");
+  comptime_expect_error(match(i32(3), (n && (_mg_take(a))) => i32(1), _ => i32(2)), "is moved in a match guard");
+  b := String.from("b");
+  comptime_expect_error(
+    match(
+      i32(3),
+      (
+        n && ({
+          t := b;
+          t.len() > usize(0)
+        })
+      ) => i32(1),
+      _ => i32(2)
+    ),
+    "is moved in a match guard"
+  );
+  c := String.from("c");
+  comptime_expect_error(match(i32(3), (n && (_mg_take(c))) => i32(1), _ => cond(_mg_take(c) => i32(2), true => i32(3))), "is moved in a match guard");
+  comptime_expect_error(
+    by_param :: (fn(s : String) -> i32)(match(i32(3), (n && (_mg_take(s))) => i32(1), _ => i32(2))),
+    "is moved in a match guard"
+  );
+  d := String.from("d");
+  assert(match(i32(3), (n && (d.len() > usize(0))) => i32(1), _ => i32(2)) == i32(1), "a guard reads an outer value");
+  assert(_mg_take(d), "the value is still owned after the match");
+});

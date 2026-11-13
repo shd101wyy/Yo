@@ -80,7 +80,7 @@ per the ratchet, #1742.
 | **B** | Runtime and platform | `IO_INTERFACE_AND_STD_RUNTIME.md`, `THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md`, `ALLOCATOR_PLACEMENT.md` step C, `ZIG_STYLE_ALLOCATORS.md`, `NO_LIBC_BY_DEFAULT.md` |
 | **C** | Performance | P-PERF (§3.3): `EVALUATOR_MEMORY_REDUCTION.md`, `CODEGEN_MEMORY_REDUCTION.md`, `PARALLEL_COMPILATION.md`, `CODEGEN_PERFORMANCE.md` |
 | **D** | Docs and the agent loop | `AGENT_KNOWLEDGE_CONSOLIDATION.md` (K2–K7), `OWNERSHIP_AND_BORROWING_DOC_DRAFT.md`, `RUST_REFERENCE_PATTERNS.md` (the porting guide), `BEND_LAWS_AND_AGENT_LOOP_LESSONS.md` (B4 evals, B5, `yo gate`) |
-| **E** | Verification | `SAFE_MODE.md`, `SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md`, `SELF_VERIFICATION.md`, `FORMAL_VERIFICATION.md` (open tail), `THEOREM_PROVING_DIRECTION.md` (ranking), `ADA_SPARK_LESSONS.md` |
+| **E** | Verification | `SAFE_MODE.md`, `SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md`, `SELF_VERIFICATION.md`, `FORMAL_VERIFICATION.md` (open tail), `THEOREM_PROVING_DIRECTION.md` (ranking), `ADA_SPARK_LESSONS.md`, `DEFAULT_ON_VERIFICATION.md` (the lane's first track), `PROVEN_CORE.md` (its own track) |
 | **F** | std features and ecosystem | `ASYNC_DEADLINE_COMBINATOR.md`, `ASYNC_LINES_NEEDS_A_NONTHROWING_READ.md`, `RAW_AND_FENCED_STRING_LITERALS.md`, `MODULE_PREFIX_STUTTER_REMAINDER.md`, `LANGUAGE_FEATURE_CANDIDATES.md`, `PACKAGE_MANAGER_DISTRIBUTION.md`, `SEED_VERSION_AUTOMATION.md` (ledger) |
 
 Lane F is the filler lane: an agent whose own lane is waiting on a seed or a
@@ -101,6 +101,10 @@ battery takes the next lane-F item.
     P6 and P7 to lane A below.
 - **Lane A, first items (v0.2.80–v0.2.81; VERDICTS-58 decision 9):** the
   walls the campaign dropped, in this order.
+  0. **P4-0** (VERDICTS-59 decisions 10–12), ahead of N2c: a bound capture-list closure's captures become ordinary loans with a
+     last-use range and the capture side table (`g_capture_freezes`) is deleted
+     (`issues/2026-11-13-a-closures-capture-borrow-lasts-to-the-bindings-scope-end-not-its-last-use.md`, audit C14). It needs no N2d, and
+     waits only for clusters 2 and 7 and the A6 closure rows leaving `gen-known.tsv`. v0.2.80, first PR of P4.
   1. **N2c–N2f, P4 and P5.** N2c–N2f never landed (the container/cell wall,
      E0909), and P4 and P5 depend on N2d. They wait for the retype to finish
      because each multiplies the positions of the audit's clusters, and
@@ -112,6 +116,12 @@ battery takes the next lane-F item.
      std), behind A41/A42 because it widens thread surface over that walk.
   4. **P7** (lending iterators through a trait), unless its Generation A
      landed in v0.2.78 (decision 11).
+- **Lane E starts here (maintainer, 2026-11-13; an exception to rule 5's "lane E
+  starts when one drains"):** [`DEFAULT_ON_VERIFICATION.md`](DEFAULT_ON_VERIFICATION.md)
+  S1 (`yo init` scaffolds `pragma(Pragma.VerifyOrAssert);`) and S2 (the S2 issue
+  `issues/2026-11-13-a-contradictory-assumed-contract-makes-every-caller-proved.md`).
+  Its S3 is phase 4's item 1, pulled forward: verified std bodies start as soon
+  as S2 lands, not when lane C drains.
 - **P-PERF-0 (lane C, no code):** re-baseline on the v0.2.79 tree.
   - Measure `check`/`compile`/`build` RSS and wall time on the 64 GB Linux
     box (stage-2, mimalloc verified).
@@ -214,6 +224,12 @@ battery takes the next lane-F item.
   once lane C drains.
 
 ### Phase 4 — verification as the flagship (overlaps phase 3)
+
+> **Added 2026-11-13:** [`PROVEN_CORE.md`](PROVEN_CORE.md) is a separate
+> lane-E track (end-to-end correctness by a checked core, specified in
+> Lean). Its first rung, P0, needs the origin rules frozen and no compiler
+> change, so it may start at v0.2.80. It shares no bottleneck with the list
+> below and must not displace it.
 
 There is one shared bottleneck, and it is attacked first: **std bodies that
 the verifier walks instead of `assumed()`.** SAFE_MODE 5b Phase 3, SAFE_MODE
