@@ -137,7 +137,7 @@ evaluate_unwind :: (
     unit_info := new_expr_info(env, t_unit());
     unit_info.set_control_flow(.Some(control_flow_of(.Unwind)));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &unit_info);
-    return(expr);
+    return(expr.*);
   });
   // Pull arg out of the FnCall.
   arg_expr := match(
@@ -185,6 +185,6 @@ evaluate_unwind :: (
   out_info := new_expr_info(env, &arg_info.ty());
   out_info.set_control_flow(.Some(control_flow_of(.Unwind)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr
+  expr.*
 });
 export(evaluate_unwind, throw_unwind_type_mismatch, UNWIND_WITHOUT_ENCLOSING_FN);

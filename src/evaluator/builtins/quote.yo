@@ -64,7 +64,7 @@ process_unquotes_in_expr :: (
 )({
   // Atom nodes pass through unchanged.
   if(ast_expr_is_atom(expr), {
-    return(expr);
+    return(expr.*);
   });
   // --- FnCall processing ---
   match(
@@ -81,13 +81,13 @@ process_unquotes_in_expr :: (
       // tests/codegen-bootstrap/try_macro_assign.yo).
       if(_is_unquote(expr), {
         if(!(args.len() == usize(1)), {
-          return(expr);
+          return(expr.*);
         });
         arg := match(
           args.get(usize(0)),
           .Some(a) => a,
           .None => {
-            return(expr);
+            return(expr.*);
           }
         );
         eval_arg := evaluate_expression_raw(&arg, env, ctx, exn);
@@ -98,7 +98,7 @@ process_unquotes_in_expr :: (
             exn.throw(
               dyn(
                 format_error_message(
-                  &tok,
+                  &tok.*,
                   String.from("unquote: failed to evaluate argument")
                 )
               )
@@ -109,7 +109,7 @@ process_unquotes_in_expr :: (
         val := match(
           arg_info.value(),
           .None => {
-            exn.throw(dyn(format_error_message(&tok, String.from("unquote: argument must have a compile-time value"))));
+            exn.throw(dyn(format_error_message(&tok.*, String.from("unquote: argument must have a compile-time value"))));
             EvalValue.ExprVal(make_err_expr())
           },
           .Some(v) => v
@@ -117,12 +117,12 @@ process_unquotes_in_expr :: (
         // If type is not Expr but value is unknown → leave original expr in
         if(!is_expr_type(&arg_info.ty()), {
           if(is_unknown_val(&val), {
-            return(expr);
+            return(expr.*);
           });
-          exn.throw(dyn(format_error_message(&tok, String.from("unquote: expected Expr type"))));
+          exn.throw(dyn(format_error_message(&tok.*, String.from("unquote: expected Expr type"))));
         });
         if(is_unknown_val(&val), {
-          return(expr);
+          return(expr.*);
         });
         // FRESH-ID CLONE of the spliced AST — `eb` alone embeds the
         // env-bound ExprVal's nodes (and their ExprInfo keys) into the
@@ -131,14 +131,14 @@ process_unquotes_in_expr :: (
           val,
           .ExprVal(eb) => clone_expr_fresh_ids(&eb),
           _ => {
-            exn.throw(dyn(format_error_message(&tok, String.from("unquote: expected ExprVal"))));
+            exn.throw(dyn(format_error_message(&tok.*, String.from("unquote: expected ExprVal"))));
             make_err_expr()
           }
         );
         return(inner_expr);
       });
       // Case 2: Process func and each arg, expanding unquote_splicing.
-      new_func := recur(&func_box, env, ctx, exn);
+      new_func := recur(&func_box.*, env, ctx, exn);
       new_args := ArrayList(AstExpr).new();
       i := usize(0);
       n := args.len();
@@ -225,9 +225,9 @@ process_unquotes_in_expr :: (
           }
         );
       });
-      AstExpr.FnCall(id, new_func, Rc.new(new_args), is_infix, tok)
+      AstExpr.FnCall(id.*, new_func, Rc.new(new_args), is_infix.*, tok.*)
     },
-    .Atom(_, _) => expr
+    .Atom(_, _) => expr.*
   )
 });
 evaluate_quote :: (
@@ -244,11 +244,11 @@ evaluate_quote :: (
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
-        return(expr);
+        return(expr.*);
       }
     ),
     _ => {
-      return(expr);
+      return(expr.*);
     }
   );
   // Process unquotes inside a FRESH-ID CLONE of the quoted template. The
@@ -264,6 +264,6 @@ evaluate_quote :: (
   out_info := new_expr_info(env, t_expr_t());
   out_info.set_value(Option(EvalValue).Some(val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr
+  expr.*
 });
 export(process_unquotes_in_expr, evaluate_quote);

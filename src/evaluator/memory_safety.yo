@@ -238,14 +238,14 @@ _is_std_module_path :: (fn(mp : &String, std_path : &String) -> bool)({
 (g_std_path_memo : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 (g_std_path_memo_root : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 is_std_module_path :: (fn(mp : &String, std_path : &String) -> bool)({
-  if(match(g_std_path_memo_root.with(_c_first_cloned_str), .Some(r) => (r != std_path), .None => true), {
+  if(match(g_std_path_memo_root.with(_c_first_cloned_str), .Some(r) => (r != std_path.*), .None => true), {
     g_std_path_memo.with_mut(m => m.clear());
     g_std_path_memo_root.with_mut(xs => xs.clear());
     std_path_owned := std_path.clone();
     g_std_path_memo_root.with_mut({ std_path_owned }(xs) => xs.push(std_path_owned.clone()));
   });
   match(
-    g_std_path_memo.with({ &mp }(m) => m.get(mp)),
+    g_std_path_memo.with({ mp : &mp.* }(m) => m.get(mp)),
     .Some(b) => b,
     .None => {
       b := _is_std_module_path(mp.clone(), std_path);
@@ -272,7 +272,7 @@ is_std_module_path :: (fn(mp : &String, std_path : &String) -> bool)({
 (g_mut_rule_exempt_memo : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 is_global_mut_rule_exempt :: (fn(mp : &String, std_path : &String) -> bool)(
   match(
-    g_mut_rule_exempt_memo.with({ &mp }(m) => m.get(mp)),
+    g_mut_rule_exempt_memo.with({ mp : &mp.* }(m) => m.get(mp)),
     .Some(b) => b,
     .None => {
       (sp : String) = std_path.clone();
@@ -314,7 +314,7 @@ is_global_mut_rule_exempt :: (fn(mp : &String, std_path : &String) -> bool)(
 (g_deref_rule_exempt_memo : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 is_deref_rule_exempt :: (fn(mp : &String, std_path : &String) -> bool)(
   match(
-    g_deref_rule_exempt_memo.with({ &mp }(m) => m.get(mp)),
+    g_deref_rule_exempt_memo.with({ mp : &mp.* }(m) => m.get(mp)),
     .Some(b) => b,
     .None => {
       (sp : String) = std_path.clone();
@@ -420,7 +420,7 @@ is_prelude_or_generated_file :: (fn(module_path : &Option(String), std_path : &S
 /// runs it over the prelude: `expect_err` was missing from this list until
 /// that check existed (issues/fixed/result-expect-err-escapes-the-class-1-ban.md).
 is_class1_panic_method_name :: (fn(name : &String) -> bool)(
-  (name == "unwrap") || (name == "expect") || (name == "unwrap_err") || (name == "expect_err")
+  (name.* == "unwrap") || (name.* == "expect") || (name.* == "unwrap_err") || (name.* == "expect_err")
 );
 /// The receiver types whose extraction methods are class 1: the failure is
 /// IN the type. The value must BE an enum (`Option`/`Result` are enums), and

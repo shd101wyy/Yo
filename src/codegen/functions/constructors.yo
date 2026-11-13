@@ -98,7 +98,7 @@ _generate_one_constructor :: (fn(type : &TypeValue, c_name : &String, context : 
   dispose_self_c := if(dispose_ptr, get_type_string(type, &mut context.base), String.new());
   (dispose_thunk : String) = match(
     &dispose_opt,
-    .Some(dn) => if(dispose_ptr, dispose_fn_thunk(&dn, &dispose_self_c, context), String.new()),
+    .Some(dn) => if(dispose_ptr, dispose_fn_thunk(&dn.*, &dispose_self_c, context), String.new()),
     .None => String.new()
   );
   // A cell primitive's constructor takes the allocator as its first
@@ -207,7 +207,7 @@ _generate_one_ref_enum_constructor_set :: (fn(type : &TypeValue, c_name : &Strin
   dispose_self_c := if(dispose_ptr, get_type_string(type, &mut context.base), String.new());
   (dispose_thunk : String) = match(
     &dispose_opt,
-    .Some(dn) => if(dispose_ptr, dispose_fn_thunk(&dn, &dispose_self_c, context), String.new()),
+    .Some(dn) => if(dispose_ptr, dispose_fn_thunk(&dn.*, &dispose_self_c, context), String.new()),
     .None => String.new()
   );
   match(

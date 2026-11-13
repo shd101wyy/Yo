@@ -46,11 +46,11 @@ evaluate_yo_comptime_list_car :: (
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
-        return(expr);
+        return(expr.*);
       }
     ),
     _ => {
-      return(expr);
+      return(expr.*);
     }
   );
   eval_arg := evaluate_expression_raw(&arg_e, env, ctx, exn);
@@ -131,7 +131,7 @@ evaluate_yo_comptime_list_car :: (
     _ => ()
   );
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr
+  expr.*
 });
 evaluate_yo_comptime_list_cdr :: (
   fn(
@@ -147,11 +147,11 @@ evaluate_yo_comptime_list_cdr :: (
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
-        return(expr);
+        return(expr.*);
       }
     ),
     _ => {
-      return(expr);
+      return(expr.*);
     }
   );
   eval_arg := evaluate_expression_raw(&arg_e, env, ctx, exn);
@@ -231,7 +231,7 @@ evaluate_yo_comptime_list_cdr :: (
     _ => ()
   );
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr
+  expr.*
 });
 evaluate_yo_comptime_list_cons :: (
   fn(
@@ -247,11 +247,11 @@ evaluate_yo_comptime_list_cons :: (
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
-        return(expr);
+        return(expr.*);
       }
     ),
     _ => {
-      return(expr);
+      return(expr.*);
     }
   );
   cdr_arg_e := match(
@@ -260,11 +260,11 @@ evaluate_yo_comptime_list_cons :: (
       fargs.get(usize(1)),
       .Some(x) => x,
       .None => {
-        return(expr);
+        return(expr.*);
       }
     ),
     _ => {
-      return(expr);
+      return(expr.*);
     }
   );
   eval_car := evaluate_expression_raw(&car_arg_e, env, ctx, exn);
@@ -377,7 +377,7 @@ evaluate_yo_comptime_list_cons :: (
     _ => ()
   );
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr
+  expr.*
 });
 evaluate_yo_comptime_list_append :: (
   fn(
@@ -393,11 +393,11 @@ evaluate_yo_comptime_list_append :: (
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
-        return(expr);
+        return(expr.*);
       }
     ),
     _ => {
-      return(expr);
+      return(expr.*);
     }
   );
   second_arg_e := match(
@@ -406,11 +406,11 @@ evaluate_yo_comptime_list_append :: (
       fargs.get(usize(1)),
       .Some(x) => x,
       .None => {
-        return(expr);
+        return(expr.*);
       }
     ),
     _ => {
-      return(expr);
+      return(expr.*);
     }
   );
   eval_first := evaluate_expression_raw(&first_arg_e, env, ctx, exn);
@@ -547,7 +547,7 @@ evaluate_yo_comptime_list_append :: (
     _ => ()
   );
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr
+  expr.*
 });
 evaluate_yo_comptime_list_length :: (
   fn(
@@ -563,11 +563,11 @@ evaluate_yo_comptime_list_length :: (
       fargs.get(usize(0)),
       .Some(a) => a,
       .None => {
-        return(expr);
+        return(expr.*);
       }
     ),
     _ => {
-      return(expr);
+      return(expr.*);
     }
   );
   eval_arg := evaluate_expression_raw(&arg_e, env, ctx, exn);
@@ -621,7 +621,7 @@ evaluate_yo_comptime_list_length :: (
     _ => ()
   );
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr
+  expr.*
 });
 evaluate_yo_comptime_list_element_type :: (
   fn(
@@ -637,11 +637,11 @@ evaluate_yo_comptime_list_element_type :: (
       fargs.get(usize(0)),
       .Some(a) => a,
       .None => {
-        return(expr);
+        return(expr.*);
       }
     ),
     _ => {
-      return(expr);
+      return(expr.*);
     }
   );
   eval_arg := evaluate_expression_raw(&arg_e, env, ctx, exn);
@@ -704,7 +704,7 @@ evaluate_yo_comptime_list_element_type :: (
   out_info := new_expr_info(&info.env(), t_type());
   out_info.set_value(.Some(EvalValue.TypeVal(child_ty)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr
+  expr.*
 });
 evaluate_yo_comptime_list_get :: (
   fn(
@@ -720,11 +720,11 @@ evaluate_yo_comptime_list_get :: (
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
-        return(expr);
+        return(expr.*);
       }
     ),
     _ => {
-      return(expr);
+      return(expr.*);
     }
   );
   eval_list_arg := evaluate_expression_raw(&arg_e, env, ctx, exn);
@@ -771,11 +771,11 @@ evaluate_yo_comptime_list_get :: (
             fargs.get(usize(1)),
             .Some(a) => a,
             .None => {
-              return(expr);
+              return(expr.*);
             }
           ),
           _ => {
-            return(expr);
+            return(expr.*);
           }
         );
         eval_idx_arg := evaluate_expression_raw(&index_arg_e, &cur_env, ctx, exn);
@@ -847,7 +847,7 @@ evaluate_yo_comptime_list_get :: (
   out_info := new_expr_info(&cur_env, &child_ty);
   out_info.set_value(out_val);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr
+  expr.*
 });
 export(
   evaluate_yo_comptime_list_append,

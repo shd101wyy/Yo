@@ -39,11 +39,11 @@ evaluate_dup :: (
       a.get(usize(0)),
       .Some(x) => x,
       .None => {
-        return(expr);
+        return(expr.*);
       }
     ),
     _ => {
-      return(expr);
+      return(expr.*);
     }
   );
   eval_arg := evaluate_expression_raw(&arg_expr, env, ctx, exn);
@@ -66,7 +66,7 @@ evaluate_dup :: (
     arg_info_opt,
     .Some(i) => Rc.clone(i),
     .None => {
-      return(expr);
+      return(expr.*);
     }
   );
   (cur_env : Environment) = expr_info_adopt_env(&arg_info);
@@ -165,6 +165,6 @@ evaluate_dup :: (
   out_info := new_expr_info(&cur_env, &arg_type);
   // value is None (runtime)
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr
+  expr.*
 });
 export(evaluate_dup);

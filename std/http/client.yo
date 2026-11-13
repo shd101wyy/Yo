@@ -157,10 +157,10 @@ impl(
       match(
         self,
         .Plain(stream) => {
-          n = e.io.await(stream.write_string(&data, e.io), e);
+          n = e.io.await(stream.write_string(&data.*, e.io), e);
         },
         .Secure(stream) => {
-          n = e.io.await(stream.write_string(&data, e.io), e);
+          n = e.io.await(stream.write_string(&data.*, e.io), e);
         }
       );
       n
@@ -327,7 +327,7 @@ impl(
           self._idle(i).transport.close_sync();
           _dropped := self._idle.remove(i);
         },
-        (found.is_none() && (self._idle(i).key == key)) => {
+        (found.is_none() && (self._idle(i).key == key.*)) => {
           found = Option(_Idle).Some(self._idle.remove(i));
         },
         true => {
@@ -410,7 +410,7 @@ _value_has_token :: (fn(value : &String, token : &String) -> bool)({
   while(i < parts.len(), {
     trimmed := parts(i).trim();
     cond(
-      (trimmed.to_lowercase() == token) => {
+      (trimmed.to_lowercase() == token.*) => {
         found = true;
       },
       true => ()
@@ -531,8 +531,8 @@ _prepare :: (fn(url_str : &String, opts : &FetchOptions, keep_alive : bool, exn 
   // scope, so it uses the _exn wrapper.
   url := Url.parse_exn(url_str, exn);
   scheme := url.scheme();
-  is_http := (scheme == `http`);
-  is_https := (scheme == `https`);
+  is_http := (scheme.* == `http`);
+  is_https := (scheme.* == `https`);
   // Only http/https. https speaks real TLS (std/crypto/tls, D6); other
   // schemes are refused before any DNS or socket work.
   cond(

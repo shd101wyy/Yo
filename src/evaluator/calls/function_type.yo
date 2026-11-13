@@ -142,7 +142,7 @@ _evaluated_measure_for_verify :: (fn(dm : &AstExpr, env : &Environment, ctx : &m
         },
         .Atom(_, _) => ()
       );
-      dm
+      dm.*
     },
     true => evaluated_for_verify(dm, env, ctx, exn)
   )
@@ -449,7 +449,7 @@ _type_binder_env_value :: (
       sig_some_ts.get_cloned(smi),
       .Some(st) => match(
         &st,
-        Rc(.SomeT(_, st_name, _, _, _, _, _)) => if(st_name == name, {
+        Rc(.SomeT(_, st_name, _, _, _, _, _)) => if(st_name.* == name.*, {
           sig_match = Option(TypeValue).Some(Rc.clone(st));
         }),
         _ => ()
@@ -481,7 +481,7 @@ _type_binder_env_value :: (
             continue;
           }
         );
-        if(we.lhs_label == name, {
+        if(we.lhs_label == name.*, {
           if(we.is_negated, {
             fs_neg.push(Rc.clone(we.trait_ty));
             fs_neg_lv.push(usize(0));
@@ -698,7 +698,7 @@ _share_def_time_frames :: (fn(env : &Environment, strip : bool) -> Environment)(
 /// The tokens are the AST's own handles, so nothing is minted per binding.
 _fn_literal_param_tokens :: (fn(fn_literal : &AstExpr) -> ArrayList(Token))({
   out := ArrayList(Token).new();
-  ft := match(fn_literal, .FnCall(_, ft_box, _, _, _) => ft_box, .Atom(_, _) => return(out));
+  ft := match(fn_literal, .FnCall(_, ft_box, _, _, _) => ft_box.*, .Atom(_, _) => return(out));
   if(!ast_expr_is_fn_call_of(&ft, "->", Option(usize).Some(usize(2))), {
     return(out);
   });
@@ -750,7 +750,7 @@ _param_decl_token :: (fn(tokens : &ArrayList(Token), label : &String, module_pat
   (ti : usize) = usize(0);
   while(ti < tokens.len(), ti = (ti + usize(1)), {
     t := tokens(ti);
-    if(t.value.* == label, {
+    if(t.value.* == label.*, {
       return(t);
     });
   });
@@ -1268,9 +1268,9 @@ try_to_implement_function_by_function_type :: (
       param_labels := Rc.clone(__fm2.param_labels);
       implicit_labels := Rc.clone(__fm2.implicit_labels);
       // The result's VALUE type; a projection's `&`/`&mut` is its slot.
-      result_box := t_slot_pointee(&result_slot);
-      result_is_ref := t_slot_is_borrow(&result_slot);
-      result_is_mut_ref := t_slot_is_mut_ref(&result_slot);
+      result_box := t_slot_pointee(&result_slot.*);
+      result_is_ref := t_slot_is_borrow(&result_slot.*);
+      result_is_mut_ref := t_slot_is_mut_ref(&result_slot.*);
       result_is_comptime_only := __fm2.result_is_comptime_only;
       tok := ast_expr_token(expr);
       // §4 escape boundary 1 (rule 8): a fn's RESULT type must not be
@@ -1367,7 +1367,7 @@ Result type: ${type_to_string(&result_box)}`
       // expr, the same key the `copy_*` re-keying below uses.
       contract_key := match(
         expr,
-        .FnCall(_, ck_ft_box, _, _, _) => ast_expr_id(&ck_ft_box).to_string(),
+        .FnCall(_, ck_ft_box, _, _, _) => ast_expr_id(&ck_ft_box.*).to_string(),
         .Atom(_, _) => String.from("")
       );
       ck_requires := get_func_requires_exprs(contract_key.clone());
@@ -1402,7 +1402,7 @@ Result type: ${type_to_string(&result_box)}`
       n_pt := param_types.len();
       while(pti < n_pt, {
         pt_name := match(
-          slot_pointee_at(&param_types, pti),
+          slot_pointee_at(&param_types.*, pti),
           .Some(Rc(.SomeT(_, name, _, _, _, _, _))) => name.clone(),
           .Some(_) => String.from(""),
           .None => String.from("")
@@ -1524,7 +1524,7 @@ Result type: ${type_to_string(&result_box)}`
       (spi : usize) = usize(0);
       while((spi < param_types.len()) && !any_some_param_ft, {
         match(
-          slot_pointee_at(&param_types, spi),
+          slot_pointee_at(&param_types.*, spi),
           .Some(pt) => if(type_contains_some_type_for_codegen_param(&pt, ArrayList(String).new()), {
             any_some_param_ft = true;
           }),
@@ -1539,7 +1539,7 @@ Result type: ${type_to_string(&result_box)}`
       // SomeT) was NOT detected → the method was wrongly NOT deferred → its body
       // was def-time-evaluated with `T` unbound → "expected type for element,
       // got T" (field.yo:293). Use the deep predicate so such methods defer.
-      self_has_some_ft := match(&ctx.self_type, .Some(st) => type_contains_some_type_for_codegen_param(&st, ArrayList(String).new()), .None => false);
+      self_has_some_ft := match(&ctx.self_type, .Some(st) => type_contains_some_type_for_codegen_param(&st.*, ArrayList(String).new()), .None => false);
       // COMPTIME VALUE-position params (`fn(comptime(n) : usize) -> Array(i32, n)`)
       // make the fn GENERIC — the body must DEFER like a
       // forall/SomeT one: def-time eval with `n` unresolved threw "Return
@@ -1560,11 +1560,11 @@ Result type: ${type_to_string(&result_box)}`
       match(
         expr,
         .FnCall(_, ct_ft_box, _, _, _) => {
-          ct_flags_ft := get_func_param_comptime(ast_expr_id(&ct_ft_box).to_string());
+          ct_flags_ft := get_func_param_comptime(ast_expr_id(&ct_ft_box.*).to_string());
           (ct_fi : usize) = usize(0);
           while((ct_fi < ct_flags_ft.len()) && !ft_has_ct_param, {
             ct_is_typeuni := match(
-              slot_pointee_at(&param_types, ct_fi),
+              slot_pointee_at(&param_types.*, ct_fi),
               .Some(ct_pt) => match(ct_pt, Rc(.TypeUni(_)) => true, _ => false),
               .None => false
             );
@@ -1622,16 +1622,16 @@ Result type: ${type_to_string(&result_box)}`
       match(
         expr,
         .FnCall(_, fn_type_box, _, _, _) => {
-          copy_func_param_defaults(ast_expr_id(&fn_type_box).to_string(), fn_val_id.clone());
-          copy_func_param_default_exprs(ast_expr_id(&fn_type_box).to_string(), fn_val_id.clone());
-          copy_func_param_type_exprs(ast_expr_id(&fn_type_box).to_string(), fn_val_id.clone());
-          copy_func_param_comptime(ast_expr_id(&fn_type_box).to_string(), fn_val_id.clone());
-          copy_func_param_assigned_values(ast_expr_id(&fn_type_box).to_string(), fn_val_id.clone());
-          copy_func_return_type_expr(ast_expr_id(&fn_type_box).to_string(), fn_val_id.clone());
-          copy_func_variadic_param(ast_expr_id(&fn_type_box).to_string(), fn_val_id.clone());
-          copy_macro_registration(ast_expr_id(&fn_type_box).to_string(), fn_val_id.clone());
-          copy_func_where_constraints(ast_expr_id(&fn_type_box).to_string(), fn_val_id.clone());
-          copy_func_contract_exprs(ast_expr_id(&fn_type_box).to_string(), fn_val_id.clone());
+          copy_func_param_defaults(ast_expr_id(&fn_type_box.*).to_string(), fn_val_id.clone());
+          copy_func_param_default_exprs(ast_expr_id(&fn_type_box.*).to_string(), fn_val_id.clone());
+          copy_func_param_type_exprs(ast_expr_id(&fn_type_box.*).to_string(), fn_val_id.clone());
+          copy_func_param_comptime(ast_expr_id(&fn_type_box.*).to_string(), fn_val_id.clone());
+          copy_func_param_assigned_values(ast_expr_id(&fn_type_box.*).to_string(), fn_val_id.clone());
+          copy_func_return_type_expr(ast_expr_id(&fn_type_box.*).to_string(), fn_val_id.clone());
+          copy_func_variadic_param(ast_expr_id(&fn_type_box.*).to_string(), fn_val_id.clone());
+          copy_macro_registration(ast_expr_id(&fn_type_box.*).to_string(), fn_val_id.clone());
+          copy_func_where_constraints(ast_expr_id(&fn_type_box.*).to_string(), fn_val_id.clone());
+          copy_func_contract_exprs(ast_expr_id(&fn_type_box.*).to_string(), fn_val_id.clone());
         },
         .Atom(_, _) => ()
       );
@@ -1681,7 +1681,7 @@ Result type: ${type_to_string(&result_box)}`
           (pv_i : usize) = usize(0);
           while(pv_i < param_labels.len(), {
             pv_name := match(param_labels.get_cloned(pv_i), .Some(l) => l, .None => String.new());
-            pv_ty := match(slot_pointee_at(&param_types, pv_i), .Some(t) => t, .None => t_unit());
+            pv_ty := match(slot_pointee_at(&param_types.*, pv_i), .Some(t) => t, .None => t_unit());
             if(pv_name.len() > usize(0), {
               pv_var := add_variable_to_env(
                 &pred_env,
@@ -1813,7 +1813,7 @@ Result type: ${type_to_string(&result_box)}`
               module_path : tok.module_path.*.clone(),
               body : body_expr_raw.clone(),
               param_names : param_labels.items.clone(),
-              param_types : slot_pointees(&param_types),
+              param_types : slot_pointees(&param_types.*),
               result_type : result_box.clone(),
               requires_exprs : evd_reqs,
               ensures_exprs : evd_enss,
@@ -1881,13 +1881,13 @@ Result type: ${type_to_string(&result_box)}`
           def_where_entries := match(
             expr,
             .FnCall(_, dwe_ft_box, _, _, _) =>
-              get_func_where_constraints(ast_expr_id(&dwe_ft_box).to_string()),
+              get_func_where_constraints(ast_expr_id(&dwe_ft_box.*).to_string()),
             .Atom(_, _) => ArrayList(WhereConstraintEntry).new()
           );
           def_ct_flags := match(
             expr,
             .FnCall(_, ctf_ft_box, _, _, _) =>
-              get_func_param_comptime(ast_expr_id(&ctf_ft_box).to_string()),
+              get_func_param_comptime(ast_expr_id(&ctf_ft_box.*).to_string()),
             .Atom(_, _) => ArrayList(bool).new()
           );
           def_param_toks := _fn_literal_param_tokens(expr);
@@ -1909,7 +1909,7 @@ Result type: ${type_to_string(&result_box)}`
           match(
             expr,
             .FnCall(_, vp_ft_box, _, _, _) => match(
-              get_func_variadic_param(ast_expr_id(&vp_ft_box).to_string()),
+              get_func_variadic_param(ast_expr_id(&vp_ft_box.*).to_string()),
               .Some(vp_entry) => {
                 ___vp := add_variable_to_env(
                   &flow_env,
@@ -2356,12 +2356,12 @@ Result type: ${type_to_string(&result_box)}`
           ), {
             dg_where := match(
               expr,
-              .FnCall(_, dg_ft_box, _, _, _) => get_func_where_constraints(ast_expr_id(&dg_ft_box).to_string()),
+              .FnCall(_, dg_ft_box, _, _, _) => get_func_where_constraints(ast_expr_id(&dg_ft_box.*).to_string()),
               .Atom(_, _) => ArrayList(WhereConstraintEntry).new()
             );
             dg_ct_flags := match(
               expr,
-              .FnCall(_, dgc_ft_box, _, _, _) => get_func_param_comptime(ast_expr_id(&dgc_ft_box).to_string()),
+              .FnCall(_, dgc_ft_box, _, _, _) => get_func_param_comptime(ast_expr_id(&dgc_ft_box.*).to_string()),
               .Atom(_, _) => ArrayList(bool).new()
             );
             dg_param_toks := _fn_literal_param_tokens(expr);
@@ -2483,7 +2483,7 @@ Result type: ${type_to_string(&result_box)}`
             {
               (dgcv_i : usize) = usize(0);
               while(dgcv_i < dg_ct_flags.len(), {
-                dgcv_typeuni := match(slot_pointee_at(&param_types, dgcv_i), .Some(dgcv_pt) => match(dgcv_pt, Rc(.TypeUni(_)) => true, _ => false), .None => false);
+                dgcv_typeuni := match(slot_pointee_at(&param_types.*, dgcv_i), .Some(dgcv_pt) => match(dgcv_pt, Rc(.TypeUni(_)) => true, _ => false), .None => false);
                 if(match(dg_ct_flags.get(dgcv_i), .Some(b) => b, .None => false) && !dgcv_typeuni, {
                   dg_has_ct_value = true;
                 });
@@ -2547,7 +2547,7 @@ Result type: ${type_to_string(&result_box)}`
                         (dg_found : bool) = false;
                         (dg_fi : usize) = usize(0);
                         while(dg_fi < forall_labels.len(), {
-                          if(match(forall_labels.get_cloned(dg_fi), .Some(l) => (l == dg_sname), .None => false), {
+                          if(match(forall_labels.get_cloned(dg_fi), .Some(l) => (l == dg_sname.*), .None => false), {
                             dg_found = true;
                           });
                           dg_fi = (dg_fi + usize(1));
@@ -2623,7 +2623,7 @@ Result type: ${type_to_string(&result_box)}`
           });
         }
       );
-      expr
+      expr.*
     },
     _ => {
       exn.throw(

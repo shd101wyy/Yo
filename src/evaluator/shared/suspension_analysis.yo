@@ -100,7 +100,7 @@ extract_target_variable_id :: (
     .None => {
       return(Option(String).None);
     },
-    .Some(x) => x
+    .Some(x) => x.*
   );
   // `:=` binds a fresh target; `=` re-assigns an existing one. BOTH make the
   // await's result land in the LHS variable, and codegen's extraction writes
@@ -407,7 +407,7 @@ _capture_pattern_bindings :: (
 /// C local was set. Names are unique in a program.
 (g_arg_temps_across_suspension : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 is_arg_temp_across_suspension :: (fn(name : &String) -> bool)(
-  g_arg_temps_across_suspension.with({ &name }(s) => s.contains(name))
+  g_arg_temps_across_suspension.with({ name : &name.* }(s) => s.contains(name))
 );
 /// Capture the temp an argument's value is held in (a labeled argument
 /// `name : v` holds `v`'s): it is read when the call runs, after the later
@@ -440,7 +440,7 @@ _capture_argument_temp :: (
         g_arg_temps_across_suspension.with_mut({ tn_owned }(s) => s.insert(tn_owned.clone()));
         tenv := match(&get_info(call), .Some(cinfo) => cinfo.env(), .None => vinfo.env());
         _capture_env_variable(ast_expr_id(&value), tn.clone(), &tenv, Option(TypeValue).Some(vinfo.ty()), false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
-        _capture_env_variable(ast_expr_id(&value), &tn, &vinfo.env(), Option(TypeValue).Some(vinfo.ty()), false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
+        _capture_env_variable(ast_expr_id(&value), &tn.*, &vinfo.env(), Option(TypeValue).Some(vinfo.ty()), false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
       },
       .None => ()
     ),
@@ -592,7 +592,7 @@ walk_expr_ :: (
           .Some(me) => Option(AstExpr).Some(me),
           .None => match(
             &get_info(expr_cloned.clone()),
-            .Some(iinfo) => expr_info_macro_expansion(&iinfo),
+            .Some(iinfo) => expr_info_macro_expansion(&iinfo.*),
             .None => Option(AstExpr).None
           )
         );
@@ -616,7 +616,7 @@ walk_expr_ :: (
         // -------------------------------------------------------------------
         is_while => {
           initial_count := points.len();
-          recur(&func_box, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
+          recur(&func_box.*, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
           (mut(ai) : usize) = usize(0);
           n_args := args.len();
           while(ai < n_args, {
@@ -660,7 +660,7 @@ walk_expr_ :: (
         is_cond_or_match => {
           initial_count_b := points.len();
           // Walk the func expression (keyword + condition/matched value)
-          recur(&func_box, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
+          recur(&func_box.*, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
           // Save nameFrameToOriginalId snapshot before walking branches so that
           // variables declared inside one branch don't leak into subsequent branches.
           mut(saved_keys) := ArrayList(String).new();
@@ -866,7 +866,7 @@ walk_expr_ :: (
               .None => (),
               .Some(info2) => {
                 match(
-                  expr_info_deferred_dup_expressions(&info2),
+                  expr_info_deferred_dup_expressions(&info2.*),
                   .None => (),
                   .Some(dup_exprs) => {
                     (mut(di) : usize) = usize(0);
@@ -890,7 +890,7 @@ walk_expr_ :: (
             return(());
           });
           // Recurse into function and arguments
-          recur(&func_box, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
+          recur(&func_box.*, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
           (mut(ai3) : usize) = usize(0);
           n_args3 := args.len();
           // The suspension count after each argument: an earlier argument's

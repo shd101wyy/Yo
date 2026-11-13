@@ -129,7 +129,7 @@ type_id_or_empty :: (fn(t : &TypeValue) -> String)(
     Rc(.BoolT) => String.from("__yo_t_bool"),
     Rc(.Void) => String.from("__yo_t_void"),
     Rc(.Int(bits, signed)) => cond(
-      signed => (String.from("__yo_t_i") + bits.to_string()),
+      signed.* => (String.from("__yo_t_i") + bits.to_string()),
       true => (String.from("__yo_t_u") + bits.to_string())
     ),
     Rc(.Float(bits)) => (String.from("__yo_t_f") + bits.to_string()),
@@ -170,10 +170,10 @@ type_id_or_empty :: (fn(t : &TypeValue) -> String)(
     // `C`'s impl instead
     // (issues/fixed/2026-11-05-an-impl-over-a-reference-type-registers-nothing.md).
     Rc(.Reference(ref_pointee, ref_mut, _)) => {
-      ref_pid := type_id_or_empty(&ref_pointee);
+      ref_pid := type_id_or_empty(&ref_pointee.*);
       cond(
         (ref_pid.len() == usize(0)) => String.from(""),
-        ref_mut => `&mut ${ref_pid}`,
+        ref_mut.* => `&mut ${ref_pid}`,
         true => `&${ref_pid}`
       )
     },
@@ -224,7 +224,7 @@ MethodEntry :: ref(
 impl(
   MethodEntry,
   Clone(
-    clone : (fn(self : &Self) -> Self)(self)
+    clone : (fn(self : &Self) -> Self)(self.*)
   )
 );
 /// Module-level storage: `type id` → list of method entries.
@@ -361,7 +361,7 @@ set_import_closure_fn :: (fn(f : ImportClosureFn) -> unit)({
 (_canonical_owner_memo : RefCell(HashMap(String, Rc(String)))) = RefCell(HashMap(String, Rc(String))).new(HashMap(String, Rc(String)).new());
 _canonical_owner :: (fn(owner : &String) -> Rc(String))(
   match(
-    _canonical_owner_memo.with({ &owner }(m) => m.get_cloned(owner)),
+    _canonical_owner_memo.with({ owner : &owner.* }(m) => m.get_cloned(owner)),
     .Some(c) => c,
     .None => {
       c := Rc.new(canonical_module_path(owner));
@@ -396,7 +396,7 @@ owner_visible_from_current :: (fn(owner : &String) -> bool)({
   if(owner.len() == usize(0), {
     return(true);
   });
-  if(owner == cur_owner, {
+  if(owner.* == cur_owner, {
     return(true);
   });
   match(
@@ -425,7 +425,7 @@ register_type_trait_method :: (
   // clones once per lookup and once per store-back.
   tm_key := type_id.clone();
   list := match(_type_trait_methods.with_mut({ tm_key }(m) => m.remove(&tm_key)), .Some(l) => l, .None => ArrayList(MethodEntry).new());
-  list.push(entry);
+  list.push(entry.*);
   tm_key2 := type_id.clone();
   _type_trait_methods.with_mut({ tm_key2, list }(m) => m.insert(tm_key2, list));
   to_key := type_id.clone();
@@ -470,7 +470,7 @@ purge_type_trait_methods_owned_by :: (fn(owner : &String) -> unit)({
             (i : usize) = olist.len();
             while(i > usize(0), {
               i = (i - usize(1));
-              hit := match(olist.get_cloned(i), .Some(o) => (o == owner), .None => false);
+              hit := match(olist.get_cloned(i), .Some(o) => (o == owner.*), .None => false);
               if(hit && (i < list.len()), {
                 list.drain(i .. (i + usize(1)));
                 olist.drain(i .. (i + usize(1)));
@@ -524,7 +524,7 @@ type_trait_method_values_owned_by :: (fn(owner : &String) -> ArrayList(EvalValue
           .Some(olist) => {
             (i : usize) = usize(0);
             while((i < olist.len()) && (i < list.len()), {
-              if(match(olist.get_cloned(i), .Some(o) => (o == owner), .None => false), {
+              if(match(olist.get_cloned(i), .Some(o) => (o == owner.*), .None => false), {
                 match(list.get_cloned(i), .Some(m) => match(m.value, .Some(v) => out.push(v), .None => ()), .None => ());
               });
               i = (i + usize(1));
@@ -569,7 +569,7 @@ get_type_trait_methods_for_type :: (
   fn(type_id : &String) -> ArrayList(MethodEntry)
 )(
   match(
-    _type_trait_methods.with({ &type_id }(m) => m.get_cloned(type_id)),
+    _type_trait_methods.with({ type_id : &type_id.* }(m) => m.get_cloned(type_id)),
     .Some(list) => list,
     .None => ArrayList(MethodEntry).new()
   )
@@ -597,7 +597,7 @@ register_provisional_trait_method :: (
 )({
   type_id_own____ := type_id.clone();
   list := match(_provisional_trait_methods.with_mut({ type_id_own____ }(m) => m.remove(type_id_own____.clone())), .Some(l) => l, .None => ArrayList(MethodEntry).new());
-  list.push(entry);
+  list.push(entry.*);
   type_id_own_____ := type_id.clone();
   _provisional_trait_methods.with_mut({ type_id_own_____, list : list.clone() }(m) => m.insert(type_id_own_____.clone(), list.clone()));
 });
@@ -606,7 +606,7 @@ get_provisional_trait_methods_by_name :: (
 )({
   result := ArrayList(MethodEntry).new();
   match(
-    _provisional_trait_methods.with({ &type_id }(m) => m.get_cloned(type_id)),
+    _provisional_trait_methods.with({ type_id : &type_id.* }(m) => m.get_cloned(type_id)),
     .Some(all) => {
       n := all.len();
       (i : usize) = usize(0);
@@ -614,7 +614,7 @@ get_provisional_trait_methods_by_name :: (
         match(
           all.get(i),
           .Some(entry) => {
-            if(entry.label == method_name, {
+            if(entry.label == method_name.*, {
               result.push(entry);
             });
           },
@@ -643,7 +643,7 @@ get_type_trait_methods_by_name :: (
     match(
       all.get(i),
       .Some(entry) => {
-        if(entry.label == method_name, {
+        if(entry.label == method_name.*, {
           result.push(entry);
         });
       },
@@ -741,7 +741,7 @@ note_inherent_method_site :: (
   match(
     _inherent_method_sites.with({ &key }(m) => m.get_cloned(key.clone())),
     .Some(prev) => cond(
-      (prev == site) => Option(String).None,
+      (prev == site.*) => Option(String).None,
       true => Option(String).Some(prev)
     ),
     .None => {
@@ -786,7 +786,7 @@ note_trait_impl_site :: (fn(type_id : &String, trait_key : &String, site : &Stri
   match(
     _trait_impl_sites.with({ &key }(m) => m.get_cloned(key.clone())),
     .Some(prev) => cond(
-      (prev == site) => Option(String).None,
+      (prev == site.*) => Option(String).None,
       true => Option(String).Some(prev)
     ),
     .None => {
@@ -803,7 +803,7 @@ note_trait_impl_site :: (fn(type_id : &String, trait_key : &String, site : &Stri
 /// The site of the impl of trait `trait_key` for the type `type_id`, if one
 /// is registered (`note_trait_impl_site`), without recording anything.
 trait_impl_site_of :: (fn(type_id : &String, trait_key : &String) -> Option(String))(
-  _trait_impl_sites.with({ &type_id, &trait_key }(m) => m.get_cloned(`${type_id}\n${trait_key}`))
+  _trait_impl_sites.with({ type_id : &type_id.*, trait_key : &trait_key.* }(m) => m.get_cloned(`${type_id}\n${trait_key}`))
 );
 /// Drop the trait-impl site recorded for (`type_id`, `trait_key`) when it was
 /// recorded FROM `site` — the undo of `note_trait_impl_site` for an impl whose
@@ -814,7 +814,7 @@ forget_trait_impl_site_if_from :: (fn(type_id : &String, trait_key : &String, si
   key := `${type_id}\n${trait_key}`;
   match(
     _trait_impl_sites.with({ &key }(m) => m.get_cloned(key.clone())),
-    .Some(prev) => if(prev == site, {
+    .Some(prev) => if(prev == site.*, {
       key_own___ := key.clone();
       _trait_impl_sites.with_mut({ key_own___ }(m) => m.remove(key_own___.clone()));
       _trait_impl_site_owners.with_mut(m => m.remove(&key));
@@ -834,7 +834,7 @@ purge_trait_impl_sites_owned_by :: (fn(owner : &String) -> unit)({
   while(go, {
     match(
       it.next(),
-      .Some(k) => if(match(_trait_impl_site_owners.with({ &k }(m) => m.get_cloned(k.clone())), .Some(o) => (o == owner), .None => false), {
+      .Some(k) => if(match(_trait_impl_site_owners.with({ &k }(m) => m.get_cloned(k.clone())), .Some(o) => (o == owner.*), .None => false), {
         stale.push(k.clone());
       }),
       .None => {
@@ -888,7 +888,7 @@ purge_trait_defaults_owned_by :: (fn(owner : &String) -> unit)({
   });
 });
 get_trait_default :: (fn(trait_id : &String, label : &String) -> Option(EvalValue))(
-  _trait_method_defaults.with({ &trait_id, &label }(m) => m.get(trait_id.clone() + String.from("::") + label.clone()))
+  _trait_method_defaults.with({ trait_id : &trait_id.*, label : &label.* }(m) => m.get(trait_id.clone() + String.from("::") + label.clone()))
 );
 /// Trait-method CONTRACT clauses (V6 task 1, FORMAL_VERIFICATION.md):
 /// each trait-field fn-type's `requires(...)`/`ensures(...)` ASTs plus its
@@ -926,21 +926,21 @@ register_trait_method_contracts :: (
 });
 trait_method_requires :: (fn(trait_id : &String, label : &String) -> ArrayList(AstExpr))(
   match(
-    _trait_method_requires.with({ &trait_id, &label }(m) => m.get_cloned(trait_id.clone() + String.from("::") + label.clone())),
+    _trait_method_requires.with({ trait_id : &trait_id.*, label : &label.* }(m) => m.get_cloned(trait_id.clone() + String.from("::") + label.clone())),
     .Some(xs) => xs.clone(),
     .None => ArrayList(AstExpr).new()
   )
 );
 trait_method_ensures :: (fn(trait_id : &String, label : &String) -> ArrayList(AstExpr))(
   match(
-    _trait_method_ensures.with({ &trait_id, &label }(m) => m.get_cloned(trait_id.clone() + String.from("::") + label.clone())),
+    _trait_method_ensures.with({ trait_id : &trait_id.*, label : &label.* }(m) => m.get_cloned(trait_id.clone() + String.from("::") + label.clone())),
     .Some(xs) => xs.clone(),
     .None => ArrayList(AstExpr).new()
   )
 );
 trait_method_return_label :: (fn(trait_id : &String, label : &String) -> Option(String))(
   match(
-    _trait_method_return_labels.with({ &trait_id, &label }(m) => m.get_cloned(trait_id.clone() + String.from("::") + label.clone())),
+    _trait_method_return_labels.with({ trait_id : &trait_id.*, label : &label.* }(m) => m.get_cloned(trait_id.clone() + String.from("::") + label.clone())),
     .Some(r) => Option(String).Some(r.clone()),
     .None => Option(String).None
   )
@@ -1060,7 +1060,7 @@ find_associated_const_usize :: (
   while(i < n, {
     match(
       entries.get(i),
-      .Some(e) => if(e.label == label, {
+      .Some(e) => if(e.label == label.*, {
         match(
           e.value,
           .Some(v) => match(

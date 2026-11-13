@@ -84,7 +84,7 @@ _package_root_for :: (fn(file_dir : &String) -> String)(
 /// throughout — so a `/`-only check would reject every legitimate read under a
 /// UNC root, on Windows only.
 _is_inside :: (fn(root : &String, child : &String) -> bool)({
-  if(child == root, {
+  if(child.* == root.*, {
     return(true);
   });
   if(root.ends_with("/") || root.ends_with("\\"), {
@@ -106,7 +106,7 @@ evaluate_comptime_read_file :: (
       )
     );
   });
-  arg := match(args.get(usize(0)), .Some(a) => a, .None => expr);
+  arg := match(args.get(usize(0)), .Some(a) => a, .None => expr.*);
   evaluated := evaluate_expression_raw(&arg, env, ctx, exn);
   arg_value := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
@@ -205,6 +205,6 @@ evaluate_comptime_read_file :: (
     )
   );
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
-  expr
+  expr.*
 });
 export(evaluate_comptime_read_file);

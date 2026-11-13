@@ -119,7 +119,7 @@ evaluate_runtime :: (
   out_info.set_variable_name(arg_info.variable_name());
   out_info.set_source_variable(arg_info.source_variable());
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr
+  expr.*
 });
 // Unused fallback used to satisfy the type system for the impossible
 // `.None` arm above. The match is guarded by the preceding `if`-throw,
@@ -216,7 +216,7 @@ evaluate_borrow_check :: (
     .Some(ci) => match(
       &ci.variable_name(),
       .Some(vn) => {
-        vars := get_variables_from_env(&ci.env(), &vn);
+        vars := get_variables_from_env(&ci.env(), &vn.*);
         match(
           vars.last_cloned(),
           .Some(v0) => {
@@ -275,6 +275,6 @@ evaluate_borrow_check :: (
   });
   out_info := new_expr_info(&loop_info.env(), &loop_info.ty());
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr
+  expr.*
 });
 export(evaluate_runtime, evaluate_borrow_check);

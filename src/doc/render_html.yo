@@ -318,7 +318,7 @@ _search_entry_json :: (
   match(
     doc,
     .Some(d) => {
-      s.push_string(`"doc":${_json_str(&d)},`);
+      s.push_string(`"doc":${_json_str(&d.*)},`);
     },
     .None => ()
   );
@@ -410,7 +410,7 @@ _first_sentence :: (fn(text : &String) -> String)({
   result
 });
 _first_sentence_opt :: (fn(doc : &Option(String)) -> Option(String))(
-  match(doc, .Some(d) => Option(String).Some(_first_sentence(&d)), .None => Option(String).None)
+  match(doc, .Some(d) => Option(String).Some(_first_sentence(&d.*)), .None => Option(String).None)
 );
 /// Build the search index as ORDERED JSON entry strings — entries are
 /// pre-encoded, but href rewriting for module pages needs the raw href, so
@@ -556,7 +556,7 @@ _wrap_page :: (
   match(
     favicon,
     .Some(f) => {
-      s.push_string(`\n<link rel="icon" href="${_escape_html(&f)}">`);
+      s.push_string(`\n<link rel="icon" href="${_escape_html(&f.*)}">`);
     },
     .None => ()
   );
@@ -579,7 +579,7 @@ _wrap_page :: (
 _render_sidebar :: (fn(model : &DocModel, active_module : &Option(String)) -> String)({
   version_html := match(
     &model.version,
-    .Some(v) => `\n  <span class="version">${_escape_html(&v)}</span>`,
+    .Some(v) => `\n  <span class="version">${_escape_html(&v.*)}</span>`,
     .None => String.new()
   );
   overview_active := match(active_module, .Some(_) => String.new(), .None => String.from(" class=\"active\""));
@@ -636,7 +636,7 @@ _render_sidebar :: (fn(model : &DocModel, active_module : &Option(String)) -> St
     );
     active := match(
       active_module,
-      .Some(am) => if(m.name == am, String.from(" class=\"active\""), String.new()),
+      .Some(am) => if(m.name == am.*, String.from(" class=\"active\""), String.new()),
       .None => String.new()
     );
     fname := _module_to_filename(&m.name);
@@ -657,7 +657,7 @@ _render_sidebar :: (fn(model : &DocModel, active_module : &Option(String)) -> St
     mods := match(groups.get_cloned(g.clone()), .Some(x) => x, .None => ArrayList(DocModule).new());
     is_active_group := match(
       active_module,
-      .Some(am) => (_module_group(&am) == g),
+      .Some(am) => (_module_group(&am.*) == g),
       .None => false
     );
     open_cls := if(is_active_group, String.from(" open"), String.new());
@@ -675,7 +675,7 @@ _render_sidebar :: (fn(model : &DocModel, active_module : &Option(String)) -> St
       );
       active := match(
         active_module,
-        .Some(am) => if(m.name == am, String.from(" class=\"active\""), String.new()),
+        .Some(am) => if(m.name == am.*, String.from(" class=\"active\""), String.new()),
         .None => String.new()
       );
       fname := _module_to_filename(&m.name);
@@ -702,7 +702,7 @@ _render_sidebar :: (fn(model : &DocModel, active_module : &Option(String)) -> St
             break;
           }
         );
-        if(m.name == am, {
+        if(m.name == am.*, {
           found_mod = Option(DocModule).Some(m);
           break;
         });
@@ -788,7 +788,7 @@ _render_sidebar :: (fn(model : &DocModel, active_module : &Option(String)) -> St
 _render_doc :: (fn(doc : &Option(String)) -> String)(
   match(
     doc,
-    .Some(d) => `<div class="doc-content">${_render_markdown(&d)}</div>`,
+    .Some(d) => `<div class="doc-content">${_render_markdown(&d.*)}</div>`,
     .None => String.new()
   )
 );
@@ -796,7 +796,7 @@ _render_deprecated_banner :: (fn(deprecated : &Option(String)) -> String)(
   match(
     deprecated,
     .Some(dep) => {
-      detail := _render_markdown(&dep);
+      detail := _render_markdown(&dep.*);
       if(detail.len() > usize(0), `<div class="deprecated-banner">⚠️ <strong>Deprecated</strong>: ${detail}</div>`, String.from("<div class=\"deprecated-banner\">⚠️ <strong>Deprecated</strong></div>"))
     },
     .None => String.new()
@@ -809,21 +809,21 @@ _render_sections :: (
   match(
     returns,
     .Some(r) => {
-      html.push_string(`\n<div class="doc-section"><h5>Returns</h5><div class="doc-section-content">${_render_markdown(&r)}</div></div>`);
+      html.push_string(`\n<div class="doc-section"><h5>Returns</h5><div class="doc-section-content">${_render_markdown(&r.*)}</div></div>`);
     },
     .None => ()
   );
   match(
     errors,
     .Some(e) => {
-      html.push_string(`\n<div class="doc-section"><h5>Errors</h5><div class="doc-section-content">${_render_markdown(&e)}</div></div>`);
+      html.push_string(`\n<div class="doc-section"><h5>Errors</h5><div class="doc-section-content">${_render_markdown(&e.*)}</div></div>`);
     },
     .None => ()
   );
   match(
     examples,
     .Some(x) => {
-      html.push_string(`\n<div class="doc-section"><h5>Examples</h5><div class="doc-section-content">${_render_markdown(&x)}</div></div>`);
+      html.push_string(`\n<div class="doc-section"><h5>Examples</h5><div class="doc-section-content">${_render_markdown(&x.*)}</div></div>`);
     },
     .None => ()
   );
@@ -873,11 +873,11 @@ _render_params_table :: (
     match(
       &p.default_value,
       .Some(dv) => {
-        notes.push(`default: ${_escape_html(&dv)}`);
+        notes.push(`default: ${_escape_html(&dv.*)}`);
       },
       .None => ()
     );
-    doc_cell := if(has_doc, match(&p.doc, .Some(d) => `<td>${_render_markdown(&d)}</td>`, .None => String.from("<td></td>")), String.new());
+    doc_cell := if(has_doc, match(&p.doc, .Some(d) => `<td>${_render_markdown(&d.*)}</td>`, .None => String.from("<td></td>")), String.new());
     type_html := _type_html(p.type_.clone(), links, current_mod_file.clone(), use_links);
     notes_joined := String.from(", ").join(&notes);
     html.push_string(`\n<tr><td><code>${_escape_html(&p.name)}</code></td><td class="type-col">${type_html}</td><td>${notes_joined}</td>${doc_cell}</tr>`);
@@ -902,7 +902,7 @@ _render_fields_table :: (
         break;
       }
     );
-    doc_text := match(&f.doc, .Some(d) => _render_markdown(&d), .None => String.new());
+    doc_text := match(&f.doc, .Some(d) => _render_markdown(&d.*), .None => String.new());
     type_html := _type_html(f.type_.clone(), links, current_mod_file.clone(), use_links);
     html.push_string(`\n<tr><td><code>${_escape_html(&f.name)}</code></td><td class="type-col">${type_html}</td><td>${doc_text}</td></tr>`);
     i = (i + usize(1));
@@ -947,7 +947,7 @@ _render_variants_table :: (
       },
       .None => String.new()
     );
-    doc_text := match(&v.doc, .Some(d) => _render_markdown(&d), .None => String.new());
+    doc_text := match(&v.doc, .Some(d) => _render_markdown(&d.*), .None => String.new());
     html.push_string(`\n<tr><td><code>${_escape_html(&v.name)}</code></td><td class="type-col">${fields_str}</td><td>${doc_text}</td></tr>`);
     i = (i + usize(1));
   });
@@ -977,10 +977,10 @@ _render_associated_types :: (
         break;
       }
     );
-    doc_text := match(&t.doc, .Some(d) => _render_markdown(&d), .None => String.new());
+    doc_text := match(&t.doc, .Some(d) => _render_markdown(&d.*), .None => String.new());
     constraint_html := match(
       &t.constraint,
-      .Some(c) => _type_html(&c, links, current_mod_file.clone(), use_links),
+      .Some(c) => _type_html(&c.*, links, current_mod_file.clone(), use_links),
       .None => String.new()
     );
     html.push_string(`\n<tr><td><code>${_escape_html(&t.name)}</code></td><td class="type-col">${constraint_html}</td><td>${doc_text}</td></tr>`);
@@ -1131,7 +1131,7 @@ _render_impl_blocks :: (
               match(
                 &at.doc,
                 .Some(d) => {
-                  html.push_string(`\n<div class="method-body">${_render_markdown(&d)}</div>`);
+                  html.push_string(`\n<div class="method-body">${_render_markdown(&d.*)}</div>`);
                 },
                 .None => ()
               );
@@ -1225,7 +1225,7 @@ _render_function :: (
   match(
     &f.inherited_from,
     .Some(tn) => {
-      html.push_string(`<div class="inherited-doc">documentation inherited from <code>${_escape_html(&tn)}</code></div>`);
+      html.push_string(`<div class="inherited-doc">documentation inherited from <code>${_escape_html(&tn.*)}</code></div>`);
     },
     .None => ()
   );
@@ -1233,7 +1233,7 @@ _render_function :: (
   match(
     &f.type_params,
     .Some(tps) => if(tps.len() > usize(0), {
-      html.push_string(_render_params_table(&tps, String.from("Type Parameters"), links, current_mod_file.clone(), use_links));
+      html.push_string(_render_params_table(&tps.*, String.from("Type Parameters"), links, current_mod_file.clone(), use_links));
     }),
     .None => ()
   );
@@ -1243,7 +1243,7 @@ _render_function :: (
   match(
     &f.effects,
     .Some(effs) => if(effs.len() > usize(0), {
-      html.push_string(_render_params_table(&effs, String.from("Effects"), links, current_mod_file.clone(), use_links));
+      html.push_string(_render_params_table(&effs.*, String.from("Effects"), links, current_mod_file.clone(), use_links));
     }),
     .None => ()
   );
@@ -1264,21 +1264,21 @@ _render_type :: (
   match(
     &t.type_params,
     .Some(tps) => if(tps.len() > usize(0), {
-      html.push_string(_render_params_table(&tps, String.from("Type Parameters"), links, current_mod_file.clone(), use_links));
+      html.push_string(_render_params_table(&tps.*, String.from("Type Parameters"), links, current_mod_file.clone(), use_links));
     }),
     .None => ()
   );
   match(
     &t.fields,
     .Some(fls) => if(fls.len() > usize(0), {
-      html.push_string(_render_fields_table(&fls, links, current_mod_file.clone(), use_links));
+      html.push_string(_render_fields_table(&fls.*, links, current_mod_file.clone(), use_links));
     }),
     .None => ()
   );
   match(
     &t.variants,
     .Some(vs) => if(vs.len() > usize(0), {
-      html.push_string(_render_variants_table(&vs, links, current_mod_file.clone(), use_links));
+      html.push_string(_render_variants_table(&vs.*, links, current_mod_file.clone(), use_links));
     }),
     .None => ()
   );
@@ -1287,7 +1287,7 @@ _render_type :: (
   match(
     &t.examples,
     .Some(x) => {
-      html.push_string(`\n<div class="doc-section"><h5>Examples</h5><div class="doc-section-content">${_render_markdown(&x)}</div></div>`);
+      html.push_string(`\n<div class="doc-section"><h5>Examples</h5><div class="doc-section-content">${_render_markdown(&x.*)}</div></div>`);
     },
     .None => ()
   );
@@ -1305,7 +1305,7 @@ _render_trait :: (
   match(
     &tr.type_params,
     .Some(tps) => if(tps.len() > usize(0), {
-      html.push_string(_render_params_table(&tps, String.from("Type Parameters"), links, current_mod_file.clone(), use_links));
+      html.push_string(_render_params_table(&tps.*, String.from("Type Parameters"), links, current_mod_file.clone(), use_links));
     }),
     .None => ()
   );
@@ -1314,7 +1314,7 @@ _render_trait :: (
   match(
     &tr.examples,
     .Some(x) => {
-      html.push_string(`\n<div class="doc-section"><h5>Examples</h5><div class="doc-section-content">${_render_markdown(&x)}</div></div>`);
+      html.push_string(`\n<div class="doc-section"><h5>Examples</h5><div class="doc-section-content">${_render_markdown(&x.*)}</div></div>`);
     },
     .None => ()
   );
@@ -1377,7 +1377,7 @@ _render_constant :: (
   match(
     &c.value,
     .Some(v) => {
-      html.push_string(`\n<p>Value: <code>${_escape_html(&v)}</code></p>`);
+      html.push_string(`\n<p>Value: <code>${_escape_html(&v.*)}</code></p>`);
     },
     .None => ()
   );
@@ -1386,7 +1386,7 @@ _render_constant :: (
 });
 // ── Index page ───────────────────────────────────────────────────────
 _render_module_card :: (fn(m : &DocModule) -> String)({
-  desc := match(&m.doc, .Some(d) => _first_sentence(&d), .None => String.from("No description"));
+  desc := match(&m.doc, .Some(d) => _first_sentence(&d.*), .None => String.from("No description"));
   stats := ArrayList(String).new();
   if(m.functions.len() > usize(0), {
     stats.push(`${m.functions.len()} fn`);
@@ -1427,7 +1427,7 @@ _render_module_card :: (fn(m : &DocModule) -> String)({
 _render_index_content :: (fn(model : &DocModel) -> String)({
   version_badge := match(
     &model.version,
-    .Some(v) => ` <span class="version-badge">${_escape_html(&v)}</span>`,
+    .Some(v) => ` <span class="version-badge">${_escape_html(&v.*)}</span>`,
     .None => String.new()
   );
   html := `<h1>${_escape_html(&model.name)} — API Documentation${version_badge}</h1>`;
@@ -1532,7 +1532,7 @@ render_module_content_html :: (
       // text here printed it twice, and printed it HTML-ESCAPED, so its
       // markdown showed as literal backticks and asterisks in a one-line
       // badge meant for a single word.
-      level := stability_level(&st);
+      level := stability_level(&st.*);
       if(!level.is_empty(), {
         gloss := cond(
           (level == `stable`) => String.from(" — changes additively from here."),

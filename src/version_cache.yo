@@ -352,7 +352,7 @@ _contains_version :: (fn(xs : &ArrayList(String), name : &String) -> bool)({
   while(i < xs.len(), {
     match(
       xs.get_cloned(i),
-      .Some(v) => if(v == name, {
+      .Some(v) => if(v == name.*, {
         return(true);
       }),
       .None => ()
@@ -449,7 +449,7 @@ clean_version_cache :: (
     match(
       &owned_version_opt,
       .Some(version) => {
-        version_dir := get_version_cache_dir(&version);
+        version_dir := get_version_cache_dir(&version.*);
         dir_exists := e.io.await(exists(Path.new(&version_dir), e.io), e.io);
         if(dir_exists, {
           e.io.await(remove_dir_all(Path.new(&version_dir), e.io), e);

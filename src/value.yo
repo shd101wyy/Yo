@@ -222,7 +222,7 @@ EvalValue :: ref(
 impl(
   EvalValue,
   Clone(
-    clone : (fn(self : &Self) -> Self)(self)
+    clone : (fn(self : &Self) -> Self)(self.*)
   )
 );
 /// A compile-time PLACE: the list of values a pointer or a field write
@@ -241,9 +241,9 @@ ValueCell :: Rc(RefCell(ArrayList(EvalValue)));
 impl(
   ValueCell,
   /// Number of values in the place.
-  len : (fn(self : &Self) -> usize)(self.with({ &self }(xs) => xs.len())),
+  len : (fn(self : &Self) -> usize)(self.with({ self : &self.* }(xs) => xs.len())),
   /// True when the place holds no value (a runtime variable's cell).
-  is_empty : (fn(self : &Self) -> bool)(self.with({ &self }(xs) => xs.is_empty())),
+  is_empty : (fn(self : &Self) -> bool)(self.with({ self : &self.* }(xs) => xs.is_empty())),
   /// The value at `i`, or `.None` past the end.
   get : (fn(self : &Self, i : usize) -> Option(EvalValue))(self.with({ i }(xs) => xs.get(i))),
   /// Store `v` at `i`, seen by every holder of the place; panics past the end.
@@ -335,21 +335,21 @@ eval_value_eq :: (fn(a : &EvalValue, b : &EvalValue) -> bool)(
     .UnitVal =>
       match(b, .UnitVal => true, _ => false),
     .BoolVal(ab) =>
-      match(b, .BoolVal(bb) => (ab == bb), _ => false),
+      match(b, .BoolVal(bb) => (ab.* == bb.*), _ => false),
     .IntLit(ar) =>
-      match(b, .IntLit(br) => (ar == br), _ => false),
+      match(b, .IntLit(br) => (ar.* == br.*), _ => false),
     .FloatLit(ar) =>
-      match(b, .FloatLit(br) => (ar == br), _ => false),
+      match(b, .FloatLit(br) => (ar.* == br.*), _ => false),
     .StrLit(ar) =>
-      match(b, .StrLit(br) => (ar == br), _ => false),
+      match(b, .StrLit(br) => (ar.* == br.*), _ => false),
     .VarRef(an) =>
-      match(b, .VarRef(bn) => (an == bn), _ => false),
+      match(b, .VarRef(bn) => (an.* == bn.*), _ => false),
     .EnumVal(av, afs) =>
       match(
         b,
         .EnumVal(bv, bfs) =>
           cond(
-            !(av == bv) => false,
+            !(av.* == bv.*) => false,
             (afs.len() != bfs.len()) => false,
             true => {
               n := afs.len();
@@ -392,13 +392,13 @@ eval_value_eq :: (fn(a : &EvalValue, b : &EvalValue) -> bool)(
       // but NOT identical — a lenient key let `Self._alloc_with_capacity`'s specialization
       // for one V be reused for the other, so the callee's `Result<Self>` return type
       // disagreed with the call site (stage-2 Family-C incompatible-type cluster).
-      match(b, .TypeVal(bt) => are_types_compatible_exact(&at, &bt), _ => false),
+      match(b, .TypeVal(bt) => are_types_compatible_exact(&at.*, &bt.*), _ => false),
     .StructVal(atn, anames, avals) =>
       match(
         b,
         .StructVal(btn, bnames, bvals) =>
           cond(
-            !(atn == btn) => false,
+            !(atn.* == btn.*) => false,
             (anames.len() != bnames.len()) => false,
             (avals.len() != bvals.len()) => false,
             true => {
@@ -531,7 +531,7 @@ eval_value_eq :: (fn(a : &EvalValue, b : &EvalValue) -> bool)(
         b,
         .TraitVal(btn, bfnames, bfvals) =>
           cond(
-            !(atn == btn) => false,
+            !(atn.* == btn.*) => false,
             (afnames.len() != bfnames.len()) => false,
             (afvals.len() != bfvals.len()) => false,
             true => {
@@ -634,13 +634,13 @@ eval_value_eq :: (fn(a : &EvalValue, b : &EvalValue) -> bool)(
     // callee + args recursively.
     .ExprVal(a_ex) => match(
       b,
-      .ExprVal(b_ex) => exprs_are_equal(&a_ex, &b_ex),
+      .ExprVal(b_ex) => exprs_are_equal(&a_ex.*, &b_ex.*),
       _ => false
     ),
     // UnknownVal: two unknowns are equal if they represent the same type.
     // The `is_runtime_only` flag is provenance, not identity — equality
     // compares the TYPES only, so it is excluded here.
-    .UnknownVal(aty, _) => match(b, .UnknownVal(bty, _) => are_types_compatible(&aty, &bty), _ => false)
+    .UnknownVal(aty, _) => match(b, .UnknownVal(bty, _) => are_types_compatible(&aty.*, &bty.*), _ => false)
   )
 );
 impl(
@@ -659,7 +659,7 @@ value_to_string :: (fn(v : &EvalValue) -> String)(
   match(
     v,
     .UnitVal => String.from("()"),
-    .BoolVal(b) => if(b, String.from("true"), String.from("false")),
+    .BoolVal(b) => if(b.*, String.from("true"), String.from("false")),
     .IntLit(raw) => raw.clone(),
     .FloatLit(raw) => raw.clone(),
     .StrLit(raw) => raw.clone(),
@@ -714,12 +714,12 @@ value_to_string :: (fn(v : &EvalValue) -> String)(
       `<fn(${param_str})>`
     },
     .ReturnVal(val, _) => {
-      inner := recur(&val);
+      inner := recur(&val.*);
       `return(${inner})`
     },
     .BreakVal => String.from("break"),
     .ContinueVal => String.from("continue"),
-    .TypeVal(ty) => type_to_string(&ty),
+    .TypeVal(ty) => type_to_string(&ty.*),
     .StructVal(ty_name, field_names, field_values) => {
       parts_sv := String.from("");
       (svi : usize) = usize(0);
@@ -815,7 +815,7 @@ value_to_string :: (fn(v : &EvalValue) -> String)(
           cell0,
           .ArrayVal(elems) =>
             match(
-              elems.get(target_index),
+              elems.get(target_index.*),
               .Some(e) => {
                 es_ptr := recur(&e);
                 `<ptr to ${es_ptr}>`
@@ -892,7 +892,7 @@ value_to_string :: (fn(v : &EvalValue) -> String)(
     },
     .ExprVal(_) => String.from("<expr>"),
     .UnknownVal(ty, _) => {
-      ts := type_to_string(&ty);
+      ts := type_to_string(&ty.*);
       `<unknown: ${ts}>`
     }
   )
@@ -959,7 +959,7 @@ _values_contain_unknown :: (fn(vs : &ArrayList(EvalValue)) -> bool)({
 });
 /// Is `v` a RUNTIME-ONLY unknown (see `UnknownVal.is_runtime_only`)?
 is_runtime_only_unknown_val :: (fn(v : &EvalValue) -> bool)(
-  match(v, .UnknownVal(_, ro) => ro, _ => false)
+  match(v, .UnknownVal(_, ro) => ro.*, _ => false)
 );
 /// Check if `v` is a numeric literal (int or float). Numerics are stored as
 /// `IntLit` / `FloatLit` raw
@@ -1043,7 +1043,7 @@ EvalResult :: struct(
 );
 /// Construct an `EvalResult` with the given value and type.
 eval_result :: (fn(value : &EvalValue, ty : &TypeValue) -> EvalResult)(
-  EvalResult(value : value, ty : Rc.clone(ty))
+  EvalResult(value : value.*, ty : Rc.clone(ty))
 );
 /// Wrap a TypeValue as a TypeVal EvalValue. The "meta type" (TypeUni) is
 /// computed separately via `type_of_type` at call sites that need it.
@@ -1135,14 +1135,14 @@ export(eval_value_eq);
 // The first registration wins, as the scan's first match did.
 (g_enum_cfids : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 register_enum_cfid :: (fn(enum_id : &String, func_id : &String) -> unit)({
-  if((enum_id.len() > usize(0)) && (func_id.len() > usize(0)) && !g_enum_cfids.with({ &enum_id }(m) => m.contains_key(enum_id)), {
+  if((enum_id.len() > usize(0)) && (func_id.len() > usize(0)) && !g_enum_cfids.with({ enum_id : &enum_id.* }(m) => m.contains_key(enum_id)), {
     func_id_owned := func_id.clone();
     enum_id_owned := enum_id.clone();
     _prev := g_enum_cfids.with_mut({ func_id_owned, enum_id_owned }(m) => m.insert(enum_id_owned, func_id_owned.clone()));
   });
 });
 lookup_enum_cfid :: (fn(enum_id : &String) -> String)(
-  match(g_enum_cfids.with({ &enum_id }(m) => m.get_cloned(enum_id)), .Some(f) => f, .None => String.from(""))
+  match(g_enum_cfids.with({ enum_id : &enum_id.* }(m) => m.get_cloned(enum_id)), .Some(f) => f, .None => String.from(""))
 );
 export(register_enum_cfid, lookup_enum_cfid);
 // Type-constructor VALUES by func_id: the comptime function (`Option`,
@@ -1155,12 +1155,12 @@ export(register_enum_cfid, lookup_enum_cfid);
 // The first registration wins, as for `g_enum_cfids`.
 (g_type_ctor_values : RefCell(HashMap(String, EvalValue))) = RefCell(HashMap(String, EvalValue)).new(HashMap(String, EvalValue).new());
 register_type_ctor_value :: (fn(func_id : &String, v : &EvalValue) -> unit)({
-  if((func_id.len() > usize(0)) && !g_type_ctor_values.with({ &func_id }(m) => m.contains_key(func_id)), {
+  if((func_id.len() > usize(0)) && !g_type_ctor_values.with({ func_id : &func_id.* }(m) => m.contains_key(func_id)), {
     // Owned captures (`with_mut`'s callback is a sink parameter).
     tc_key := func_id.clone();
     tc_val := v.clone();
     _prev := g_type_ctor_values.with_mut({ tc_key, tc_val }(m) => m.insert(tc_key, tc_val));
   });
 });
-lookup_type_ctor_value :: (fn(func_id : &String) -> Option(EvalValue))(g_type_ctor_values.with({ &func_id }(m) => m.get(func_id)));
+lookup_type_ctor_value :: (fn(func_id : &String) -> Option(EvalValue))(g_type_ctor_values.with({ func_id : &func_id.* }(m) => m.get(func_id)));
 export(register_type_ctor_value, lookup_type_ctor_value);
