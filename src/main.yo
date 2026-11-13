@@ -71,7 +71,7 @@ pragma(Pragma.AllowUnsafe);
 { AstExpr, ExprId, BK_IMPORT, BK_TEST, BK_CONST, BK_EXPORT, BK_COND, BK_ANON_STRUCT, BF_DOT, BF_UPCAST, BF_ADDRESS_OF, BK_BORROW_MUT, BK_IMM, BK_MUT, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_token, ast_expr_to_string, make_err_expr } :: import("./expr.yo");
 { ExprInfoTable, expr_info_table_new, print_spec_report_if_requested, ExprInfo } :: import("./expr_info.yo");
 { Token, TokenKind } :: import("./token.yo");
-{ parse, Parser } :: import("./parser.yo");
+{ parse, Parser, set_brace_legacy_records } :: import("./parser.yo");
 { tokenize } :: import("./lexer.yo");
 { InitOptions, init_project, install_agent_files } :: import("./init.yo");
 { get_global_cache_dir, get_git_mirrors_dir, get_index_dir, store_lock_path, projects_registry_path } :: import("./cache.yo");
@@ -1720,8 +1720,12 @@ _run_migrate_record_literal :: (fn(files : &ArrayList(String), dry_run : bool, i
   while(fi < files.len(), fi = (fi + usize(1)), {
     file := files(fi).clone();
     src := String.from_bytes(io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn)));
+    // The source predates the flip: a bare brace group of fields is a record.
+    set_brace_legacy_records(true);
+    parsed := _parse_or_none(&src, &file);
+    set_brace_legacy_records(false);
     match(
-      _parse_or_none(&src, &file),
+      parsed,
       .None => {
         failed = (failed + usize(1));
         println(`fix: ${file} does not parse; its record literals were not migrated`);
