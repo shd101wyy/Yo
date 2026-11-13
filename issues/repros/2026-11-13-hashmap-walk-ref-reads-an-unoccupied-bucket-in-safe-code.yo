@@ -1,0 +1,16 @@
+{ println } :: import("std/fmt");
+{ HashMap } :: import("std/collections/hash_map");
+{ String } :: import("std/string");
+main :: (fn() -> unit)({
+  (mut(m) : HashMap(String, String)) = HashMap(String, String).new();
+  m.insert(String.from("k"), String.from("v"));
+  (mut(i) : usize) = usize(0);
+  while(i < usize(8), i = (i + usize(1)), {
+    if(m.walk_valid(&i), {
+      e := m.walk_ref(&i);
+      k := e.key.clone();
+      println(&k.len());
+    });
+  });
+});
+export(main);

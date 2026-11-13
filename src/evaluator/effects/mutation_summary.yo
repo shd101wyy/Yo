@@ -64,12 +64,11 @@
 { is_function_type, is_pointer_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, cell_handle_view, is_atomic_counted_handle_type, is_prelude_allocator_struct } :: import("../../types/guards.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
-{ file_has_pragma, is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
+{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { type_implements_trait_bool } :: import("../trait_checking.yo");
 { get_trait_type_from_env } :: import("../../types/env_lookup.yo");
 { is_thread_local } :: import("../../expr_info.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ TokenAndError } :: import("../../error.yo");
 { ast_expr_to_string, BK_MUT, BK_IMM, projection_tail_mode } :: import("../../expr.yo");
 { eprintln } :: import("std/fmt");
 {
@@ -2890,283 +2889,6 @@ impl(
     });
     m
   }),
-  strict_walk : (fn(e : &AstExpr, borrowed_ids : &ArrayList(usize), table : &ExprInfoTable, out : &mut ArrayList(TokenAndError)) -> unit)({
-    info_opt := expr_info_table_get(table, ast_expr_id(e));
-    match(
-      &info_opt,
-      .Some(info) => {
-        match(
-          expr_info_macro_expansion(&info),
-          .Some(mx) => {
-            // A local borrow: a `&mx` argument to this method's own recursive
-            // call is rejected while the method is still being evaluated.
-            mx_ref := &mx;
-            _MsP.strict_walk(mx_ref, borrowed_ids, table, out);
-            return(());
-          },
-          .None => ()
-        );
-        match(
-          expr_info_case_executed(&info),
-          .Some(ce) => if(!ce, {
-            return(());
-          }),
-          .None => ()
-        );
-        // A closure DEFINITION runs nothing here; a call to it is checked
-        // where it happens (an unresolvable callee).
-        match(
-          expr_info_is_anonymous_function_definition(&info),
-          .Some(an) => if(an, {
-            return(());
-          }),
-          .None => ()
-        );
-        if(expr_info_closure_function_value(&info).is_some(), {
-          return(());
-        });
-      },
-      .None => ()
-    );
-    if(ast_expr_is_atom(e), {
-      return(());
-    });
-    (func_expr : AstExpr) = e;
-    (args : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
-    match(
-      e,
-      .FnCall(_, f, Rc(a), _, _) => {
-        func_expr = f;
-        args = a.clone();
-      },
-      .Atom(_, _) => ()
-    );
-    (head : String) = String.new();
-    match(
-      func_expr,
-      .Atom(_, ht) => {
-        head = ht.value.*.clone();
-      },
-      _ => ()
-    );
-    // match: patterns bind, only the scrutinee and live arm bodies run.
-    if(head == "match", {
-      match(args.get(usize(0)), .Some(sc) => _MsP.strict_walk(&sc, borrowed_ids, table, out), .None => ());
-      (mi : usize) = usize(1);
-      while(mi < args.len(), {
-        match(
-          args.get(mi),
-          .Some(arm) => if(!_msp_arm_is_dead(&arm, table), {
-            match(
-              arm,
-              .FnCall(_, _, Rc(aargs), _, _) => match(aargs.get(usize(1)), .Some(b) => _MsP.strict_walk(&b, borrowed_ids, table, out), .None => ()),
-              .Atom(_, _) => ()
-            );
-          }),
-          .None => ()
-        );
-        mi = (mi + usize(1));
-      });
-      return(());
-    });
-    if(head == "cond", {
-      (ci : usize) = usize(0);
-      while(ci < args.len(), {
-        match(
-          args.get(ci),
-          .Some(arm) => if(!_msp_arm_is_dead(&arm, table), {
-            _MsP.strict_walk(&arm, borrowed_ids, table, out);
-          }),
-          .None => ()
-        );
-        ci = (ci + usize(1));
-      });
-      return(());
-    });
-    // Children first (nested calls in arguments).
-    _MsP.strict_walk(&func_expr, borrowed_ids, table, out);
-    (ai : usize) = usize(0);
-    while(ai < args.len(), {
-      match(args.get(ai), .Some(a) => _MsP.strict_walk(&a, borrowed_ids, table, out), .None => ());
-      ai = (ai + usize(1));
-    });
-    if((head.len() > usize(0)) && (_ms_head_is_safe_recurse(head.clone()) || _ms_head_is_pure_builtin(head.clone()) || _msp_pass_through_head(head.clone()) || _msp_statement_head(head.clone()) || _msp_is_borrow_marker(head.clone(), args.len()) || _msp_is_projection_tail(e)), {
-      return(());
-    });
-    if(_MsP.is_index_call(e, table), {
-      return(());
-    });
-    // Only calls written in a strict file are checked.
-    tok := ast_expr_token(e);
-    if(!file_has_pragma(Option(String).Some(tok.module_path.*.clone()), Pragma.StrictBorrow), {
-      return(());
-    });
-    match(
-      info_opt,
-      .Some(vinfo) => match(
-        vinfo.value(),
-        .Some(v) => if(_msp_value_is_folded(&v), {
-          return(());
-        }),
-        .None => ()
-      ),
-      .None => ()
-    );
-    if((head.len() > usize(0)) && _ms_head_is_rc_decrement(head.clone()), {
-      match(
-        args.get(usize(0)),
-        .Some(a0) => match(
-          _msp_arg_base_var(&a0, table),
-          .Some(v) => if(_msp_var_is_borrowed(&v, borrowed_ids), {
-            out.push(TokenAndError(token : tok, error_message : `Strict borrow: '${ast_expr_to_string(e)}' releases the collection borrowed by this loop. ${_msp_strict_hint}`));
-          }),
-          .None => ()
-        ),
-        .None => ()
-      );
-      return(());
-    });
-    // An allocator vtable slot can only invalidate the block it is handed.
-    slot_s := _msp_allocator_slot(&func_expr, table);
-    if(slot_s.len() > usize(0), {
-      if(slot_s != "alloc", {
-        match(
-          args.get(usize(1)),
-          .Some(sa1) => match(
-            _msp_arg_base_var(&sa1, table),
-            .Some(sv) => if(_msp_var_is_borrowed(&sv, borrowed_ids), {
-              out.push(TokenAndError(token : tok, error_message : `Strict borrow: '${ast_expr_to_string(&func_expr)}' may release '${ast_expr_to_string(&sa1)}', which is the collection borrowed by this loop. ${_msp_strict_hint}`));
-            }),
-            .None => ()
-          ),
-          .None => ()
-        );
-      });
-      return(());
-    });
-    match(
-      _MsP.extern_of(e, &func_expr, table),
-      .Some(ex) => {
-        ex_name := ast_expr_to_string(&func_expr);
-        if(_msp_extern_has_callback(&ex.ptypes, &ex.vtypes), {
-          out.push(TokenAndError(token : tok, error_message : `Strict borrow: the extern '${ex_name}' takes a callback whose effects the compiler cannot see through; it might invalidate the element borrowed by this loop. ${_msp_strict_hint}`));
-          return(());
-        });
-        if(_ms_extern_may_mutate(ex.name.clone(), &ex.ptypes, &ex.vtypes) || _msp_extern_writes_first_arg(ex.name.clone()), {
-          (xi : usize) = usize(0);
-          while(xi < args.len(), {
-            match(
-              args.get(xi),
-              .Some(xa) => match(
-                _msp_arg_base_var(&xa, table),
-                .Some(v) => if(_msp_var_is_borrowed(&v, borrowed_ids), {
-                  out.push(TokenAndError(token : tok, error_message : `Strict borrow: the extern '${ex_name}' may write through '${ast_expr_to_string(&xa)}', which is the collection borrowed by this loop. ${_msp_strict_hint}`));
-                }),
-                .None => ()
-              ),
-              .None => ()
-            );
-            xi = (xi + usize(1));
-          });
-        });
-        return(());
-      },
-      .None => ()
-    );
-    callee_opt := _MsP.callee(e, &func_expr, table);
-    match(
-      callee_opt,
-      .Some(callee) => match(
-        callee,
-        .TypeVal(_) => (),
-        .FuncVal(fvd, _) => {
-          fid := fvd.*.func_id.clone();
-          callee_name := ast_expr_to_string(&func_expr);
-          if(is_control_fn(fid.clone()), {
-            out.push(TokenAndError(token : tok, error_message : `Strict borrow: '${callee_name}' is an effect handler whose body runs caller-side code the compiler cannot see through; it might invalidate the element borrowed by this loop. ${_msp_strict_hint}`));
-            return(());
-          });
-          touched := ArrayList(String).new();
-          an := _MsP.analyze(fid.clone(), &fvd.*.body, table, &mut touched);
-          if(an.mask.all, {
-            if(_MsP.call_involves_closure(fid.clone(), &func_expr, &args, table), {
-              out.push(TokenAndError(token : tok, error_message : `Strict borrow: the compiler cannot prove that '${callee_name}' leaves the element borrowed by this loop valid (a closure is involved, whose effects cannot be mapped to the arguments). ${_msp_strict_hint}`));
-              return(());
-            });
-            // Unknown effects reach only through the arguments: a borrowed
-            // argument (receiver included) is a violation.
-            if(ast_expr_is_fn_call_of(&func_expr, BF_DOT, Option(usize).Some(usize(2))), {
-              match(
-                func_expr,
-                .FnCall(_, _, Rc(dargs), _, _) => match(
-                  dargs.get(usize(0)),
-                  .Some(recv) => match(
-                    _msp_arg_base_var(&recv, table),
-                    .Some(v) => if(_msp_var_is_borrowed(&v, borrowed_ids), {
-                      out.push(TokenAndError(token : tok, error_message : `Strict borrow: '${ast_expr_to_string(e)}' may mutate '${ast_expr_to_string(&recv)}', the collection borrowed by this loop. ${_msp_strict_hint}`));
-                    }),
-                    .None => ()
-                  ),
-                  .None => ()
-                ),
-                .Atom(_, _) => ()
-              );
-            });
-            (ui : usize) = usize(0);
-            while(ui < args.len(), {
-              match(
-                args.get(ui),
-                .Some(ua) => match(
-                  _msp_arg_base_var(&ua, table),
-                  .Some(v) => if(_msp_var_is_borrowed(&v, borrowed_ids), {
-                    out.push(TokenAndError(token : tok, error_message : `Strict borrow: '${ast_expr_to_string(e)}' may mutate '${ast_expr_to_string(&ua)}', the collection borrowed by this loop. ${_msp_strict_hint}`));
-                  }),
-                  .None => ()
-                ),
-                .None => ()
-              );
-              ui = (ui + usize(1));
-            });
-            return(());
-          });
-          labels := _msp_labels(fid.clone());
-          match(
-            _MsP.argv(e, &func_expr, &args, labels.len(), table),
-            .None => {
-              if(!param_mutation_mask_is_empty(&an.mask), {
-                out.push(TokenAndError(token : tok, error_message : `Strict borrow: '${callee_name}' mutates storage reachable from its parameters and its arguments cannot be matched to them. ${_msp_strict_hint}`));
-              });
-            },
-            .Some(av) => {
-              (j : usize) = usize(0);
-              while(j < av.len(), {
-                if(param_mutation_mask_hits(&an.mask, j), {
-                  match(
-                    av.get(j),
-                    .Some(aj) => match(
-                      _msp_arg_base_var(&aj, table),
-                      .Some(v) => if(_msp_var_is_borrowed(&v, borrowed_ids), {
-                        out.push(TokenAndError(token : tok, error_message : `Strict borrow: '${ast_expr_to_string(e)}' mutates '${ast_expr_to_string(&aj)}', the collection borrowed by this loop; the element reference could dangle. ${_msp_strict_hint}`));
-                      }),
-                      .None => ()
-                    ),
-                    .None => ()
-                  );
-                });
-                j = (j + usize(1));
-              });
-            }
-          );
-        },
-        _ => {
-          out.push(TokenAndError(token : tok, error_message : `Strict borrow: '${ast_expr_to_string(e)}' calls a value whose effects the compiler cannot see (a closure, a dynamic dispatch, or a function pointer); it might invalidate the element borrowed by this loop. ${_msp_strict_hint}`));
-        }
-      ),
-      .None => {
-        out.push(TokenAndError(token : tok, error_message : `Strict borrow: '${ast_expr_to_string(e)}' calls a value whose effects the compiler cannot see (a closure, a dynamic dispatch, or a function pointer); it might invalidate the element borrowed by this loop. ${_msp_strict_hint}`));
-      }
-    );
-  }),
   /// The mask of `e`: which parameters' storage it may mutate.
   walk : (fn(e : &AstExpr, ctx : &_MspCtx) -> ParamMutationMask)({
     m := param_mutation_mask_new();
@@ -3711,66 +3433,6 @@ impl(
   })
 );
 derive(_MspAnalysis, Clone);
-/// The variable an argument names: the base atom of its place chain
-/// (`xs`, `xs.inner`, `xs(i)` → `xs`), resolved through the atom's env.
-_msp_arg_base_var :: (fn(arg : &AstExpr, table : &ExprInfoTable) -> Option(Variable))(
-  match(
-    _msp_place_base_atom(arg),
-    .Some(ba) => match(
-      expr_info_table_get(table, ast_expr_id(&ba)),
-      .Some(bi) => {
-        vars := scope_variables(ast_expr_id(&ba), &bi.env(), ast_expr_token(&ba).value.*);
-        vars.last_cloned()
-      },
-      .None => Option(Variable).None
-    ),
-    .None => Option(Variable).None
-  )
-);
-/// Does `v` (or a same-frame alias it shares its count with) belong to the
-/// borrowed set?
-_msp_var_is_borrowed :: (fn(v : &Variable, borrowed_ids : &ArrayList(usize)) -> bool)({
-  (cur : Option(Variable)) = Option(Variable).Some(Rc.clone(v));
-  (hops : usize) = usize(0);
-  while(cur.is_some() && (hops < usize(64)), {
-    match(
-      cur.clone(),
-      .Some(b) => {
-        (i : usize) = usize(0);
-        while(i < borrowed_ids.len(), {
-          match(
-            borrowed_ids.get(i),
-            .Some(id) => if(id == b.id(), {
-              return(true);
-            }),
-            .None => ()
-          );
-          i = (i + usize(1));
-        });
-        cur = b.is_owning_the_same_rc_value_as();
-      },
-      .None => ()
-    );
-    hops = (hops + usize(1));
-  });
-  false
-});
-_msp_strict_hint :: "Move the call out of the loop body, copy the collection before the loop, or drop 'pragma(Pragma.StrictBorrow);' to fall back to the runtime borrow check.";
-/// Strict borrowed loops (`pragma(Pragma.StrictBorrow)`, Phase D): every call
-/// in `loop` written in a strict file must be provably harmless to the
-/// element the loop borrows. Reported: a mutating callee whose mutated
-/// parameter receives the borrowed collection or an alias of it; a callee the
-/// summary cannot see through (`all`); an unresolvable callee (closure, dyn,
-/// function pointer, effect handler); an extern that may mutate through a
-/// borrowed argument. Calls in non-strict files — including the prelude's
-/// own loop machinery — are left to the runtime flag.
-strict_borrow_violations :: (
-  fn(loop : &AstExpr, borrowed_ids : &ArrayList(usize), table : &ExprInfoTable) -> ArrayList(TokenAndError)
-)({
-  out := ArrayList(TokenAndError).new();
-  _MsP.strict_walk(loop, borrowed_ids, table, &mut out);
-  out
-});
 /// Public entry, PARAM-STORAGE mode: which of `fid`'s parameters have storage
 /// reachable from them that the function may (transitively) mutate — not
 /// only stores that release an RC value, but a length decrement, a control-
@@ -4712,7 +4374,7 @@ function_reaches_non_send_global :: (
 /// whose bodies were evaluated into it — the module's definitions and impl
 /// members, and the specializations its evaluation minted — and the two body
 /// summaries other modules' walks read are computed for each: the D1 reach
-/// verdict and the StrictBorrow mutation mask. Both are memoized by function
+/// verdict and the parameter mutation mask. Both are memoized by function
 /// id and body, which is all a later walk consults. A body with no ExprInfo in
 /// `table` (a generic body deferred to its specializations, a body evaluated
 /// into another module's table) is skipped, so no memo is written for it.
@@ -4780,4 +4442,4 @@ mutation_summary_entry_count :: (fn() -> usize)(
 d1_reach_memo :: (fn(fid : &String) -> Option(Option(String)))(
   match(g_gr_by_fid.with({ &fid }(m) => m.get_cloned(fid)), .Some(m) => Option(Option(String)).Some(m.reach.clone()), .None => Option(Option(String)).None)
 );
-export(summarize_function_bodies, purge_mutation_summaries, rc_write_audit_enabled, audit_rc_writes, mutation_summary_entry_count, function_may_mutate_rc_storage, function_param_mutation_mask, ParamMutationMask, param_mutation_mask_hits, param_mutation_mask_lends_mut, param_mutation_mask_is_empty, strict_borrow_violations, function_reaches_non_send_global, d1_record_global_write, d1_reach_memo, d1_note_thread_reach);
+export(summarize_function_bodies, purge_mutation_summaries, rc_write_audit_enabled, audit_rc_writes, mutation_summary_entry_count, function_may_mutate_rc_storage, function_param_mutation_mask, ParamMutationMask, param_mutation_mask_hits, param_mutation_mask_lends_mut, param_mutation_mask_is_empty, function_reaches_non_send_global, d1_record_global_write, d1_reach_memo, d1_note_thread_reach);

@@ -782,7 +782,7 @@ mm_invalidate_document :: (fn(fs_path : &String) -> ArrayList(String))({
         purge_specialization_caches_owned_by(owner.clone());
         owned_fids := take_owned_func_ids(owner.clone());
         purge_function_side_tables(owned_fids.clone());
-        // The D1 / StrictBorrow / RC-mutation memos: the re-evaluation
+        // The D1 / parameter-mutation / RC-mutation memos: the re-evaluation
         // re-summarizes these functions (bounded memo growth across rounds;
         // a stale entry could not answer anyway — memos match by body).
         purge_mutation_summaries(owned_fids.clone());
@@ -1202,7 +1202,7 @@ _defs_mentioning :: (fn(module : &String, names : &ArrayList(String)) -> ArrayLi
 /// definition has no edge to it, and neither does the sibling's own caller,
 /// nor that caller's importers' dependents. Missing any of them re-judges the
 /// changed body alone and keeps the old verdict of every caller whose type
-/// check, D1 reach or StrictBorrow mask depends on it, so a watch round would
+/// check, D1 reach or parameter mutation mask depends on it, so a watch round would
 /// accept what a cold `check` rejects
 /// (issues/fixed/watch-per-def-round-skips-same-module-callers.md).
 _revalidation_closure :: (fn(seeds : &ArrayList(String)) -> ArrayList(String))({

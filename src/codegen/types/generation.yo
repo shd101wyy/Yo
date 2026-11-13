@@ -1794,36 +1794,27 @@ _deferred_decl_cnames :: (
     );
     wi = (wi + usize(1));
   });
-  // A live cursor walk of the registry, not a borrowed `for`: the body can
-  // register a late type (the on-demand hook), which a borrowed walk refuses.
-  dkeys_cur := context.types.walk_start();
-  while(context.types.walk_valid(&dkeys_cur), dkeys_cur = context.types.walk_next(&dkeys_cur), {
-    tid := context.types.walk_ref(&dkeys_cur).key.clone();
-    match(
-      context.get_type_entry(tid.clone()),
-      .Some(entry) => {
-        ty := Rc.clone(entry.ty);
-        skip := (
-          _walk_skip_some(&ty)
-          || entry.c_include.is_some() || context.on_demand_body_cnames.contains(entry.c_name.clone())
-        );
-        if(
-          !skip,
-          cond(
-            is_struct_type(&ty) => {
-              out.insert(entry.c_name.clone());
-            },
-            (is_enum_type(&ty) && (!can_optimize_as_simple_enum(&ty) && !can_optimize_as_nullable_pointer(&ty).is_some())) => {
-              out.insert(entry.c_name.clone());
-            },
-            is_tuple_type(&ty) => {
-              out.insert(entry.c_name.clone());
-            },
-            true => ()
-          )
-        );
-      },
-      .None => ()
+  // A borrowed walk: this pass only reads the registry (`context` is `&`).
+  for(&context.types, (_tid, entry) => {
+    ty := Rc.clone(entry.ty);
+    skip := (
+      _walk_skip_some(&ty)
+      || entry.c_include.is_some() || context.on_demand_body_cnames.contains(entry.c_name.clone())
+    );
+    if(
+      !skip,
+      cond(
+        is_struct_type(&ty) => {
+          out.insert(entry.c_name.clone());
+        },
+        (is_enum_type(&ty) && (!can_optimize_as_simple_enum(&ty) && !can_optimize_as_nullable_pointer(&ty).is_some())) => {
+          out.insert(entry.c_name.clone());
+        },
+        is_tuple_type(&ty) => {
+          out.insert(entry.c_name.clone());
+        },
+        true => ()
+      )
     );
   });
   out
@@ -1839,11 +1830,14 @@ _deferred_decl_cnames :: (
 generate_type_declarations :: (fn(context : &mut CodeGenContext) -> unit)({
   _emit_type_runtime_preamble(context);
   // Forward declarations for structs / enums / future traits.
-  // A live cursor walk of the registry, not a borrowed `for`: the body can
-  // register a late type (the on-demand hook), which a borrowed walk refuses.
-  fkeys_cur := context.types.walk_start();
-  while(context.types.walk_valid(&fkeys_cur), fkeys_cur = context.types.walk_next(&fkeys_cur), {
-    tid := context.types.walk_ref(&fkeys_cur).key.clone();
+  // A snapshot of the registry's keys, in bucket order: the body writes
+  // through `context` (its emitter) while it runs, so it cannot hold a borrow
+  // of `context.types`; it registers no type, so the snapshot misses nothing
+  // (VERDICTS-59 decision 6).
+  fkeys_keys := context.types.keys_cloned();
+  (fkeys_i : usize) = usize(0);
+  while(fkeys_i < fkeys_keys.len(), fkeys_i = (fkeys_i + usize(1)), {
+    tid := fkeys_keys(fkeys_i).clone();
     match(
       context.get_type_entry(tid.clone()),
       .Some(entry) => {
@@ -1923,11 +1917,14 @@ generate_type_declarations :: (fn(context : &mut CodeGenContext) -> unit)({
   // error.
   emitted_decl_cnames := HashSet(String).new();
   // First pass: simple-enum declarations (leaf types).
-  // A live cursor walk of the registry, not a borrowed `for`: the body can
-  // register a late type (the on-demand hook), which a borrowed walk refuses.
-  skeys_cur := context.types.walk_start();
-  while(context.types.walk_valid(&skeys_cur), skeys_cur = context.types.walk_next(&skeys_cur), {
-    tid := context.types.walk_ref(&skeys_cur).key.clone();
+  // A snapshot of the registry's keys, in bucket order: the body can
+  // register a late type (the on-demand hook), and the hook declares that type
+  // itself and records it in `on_demand_body_cnames`, so this pass need not
+  // visit it (VERDICTS-59 decision 6).
+  skeys_keys := context.types.keys_cloned();
+  (skeys_i : usize) = usize(0);
+  while(skeys_i < skeys_keys.len(), skeys_i = (skeys_i + usize(1)), {
+    tid := skeys_keys(skeys_i).clone();
     match(
       context.get_type_entry(tid.clone()),
       .Some(entry) => {
@@ -1946,36 +1943,29 @@ generate_type_declarations :: (fn(context : &mut CodeGenContext) -> unit)({
   // Second pass: collect structs, complex enums, tuples for topological sorting.
   entries := ArrayList(_TypeWalkEntry).new();
   cname_to_typeid := HashMap(String, String).new();
-  // A live cursor walk of the registry, not a borrowed `for`: the body can
-  // register a late type (the on-demand hook), which a borrowed walk refuses.
-  ckeys_cur := context.types.walk_start();
-  while(context.types.walk_valid(&ckeys_cur), ckeys_cur = context.types.walk_next(&ckeys_cur), {
-    tid := context.types.walk_ref(&ckeys_cur).key.clone();
-    match(
-      context.get_type_entry(tid.clone()),
-      .Some(entry) => {
-        ty := Rc.clone(entry.ty);
-        skip := (_walk_skip_some(&ty) || entry.c_include.is_some() || cname_to_typeid.contains_key(entry.c_name.clone()));
-        if(
-          !skip,
-          cond(
-            is_struct_type(&ty) => {
-              entries.push(_TypeWalkEntry(type_id : tid.clone(), ty : ty, c_name : entry.c_name.clone(), kind : String.from("struct")));
-              cname_to_typeid.insert(entry.c_name.clone(), tid.clone());
-            },
-            (is_enum_type(&ty) && (!can_optimize_as_simple_enum(&ty) && !can_optimize_as_nullable_pointer(&ty).is_some())) => {
-              entries.push(_TypeWalkEntry(type_id : tid.clone(), ty : ty, c_name : entry.c_name.clone(), kind : String.from("enum")));
-              cname_to_typeid.insert(entry.c_name.clone(), tid.clone());
-            },
-            is_tuple_type(&ty) => {
-              entries.push(_TypeWalkEntry(type_id : tid.clone(), ty : ty, c_name : entry.c_name.clone(), kind : String.from("tuple")));
-              cname_to_typeid.insert(entry.c_name.clone(), tid.clone());
-            },
-            true => ()
-          )
-        );
-      },
-      .None => ()
+  // A borrowed walk: this collecting pass only reads the registry and fills
+  // the locals `entries` / `cname_to_typeid`, so no type can be registered
+  // under it.
+  for(&context.types, (tid, entry) => {
+    ty := Rc.clone(entry.ty);
+    skip := (_walk_skip_some(&ty) || entry.c_include.is_some() || cname_to_typeid.contains_key(entry.c_name.clone()));
+    if(
+      !skip,
+      cond(
+        is_struct_type(&ty) => {
+          entries.push(_TypeWalkEntry(type_id : tid.clone(), ty : ty, c_name : entry.c_name.clone(), kind : String.from("struct")));
+          cname_to_typeid.insert(entry.c_name.clone(), tid.clone());
+        },
+        (is_enum_type(&ty) && (!can_optimize_as_simple_enum(&ty) && !can_optimize_as_nullable_pointer(&ty).is_some())) => {
+          entries.push(_TypeWalkEntry(type_id : tid.clone(), ty : ty, c_name : entry.c_name.clone(), kind : String.from("enum")));
+          cname_to_typeid.insert(entry.c_name.clone(), tid.clone());
+        },
+        is_tuple_type(&ty) => {
+          entries.push(_TypeWalkEntry(type_id : tid.clone(), ty : ty, c_name : entry.c_name.clone(), kind : String.from("tuple")));
+          cname_to_typeid.insert(entry.c_name.clone(), tid.clone());
+        },
+        true => ()
+      )
     );
   });
   // Build the dependency graph (edge A→B means B must be defined before A).
