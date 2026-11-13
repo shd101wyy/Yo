@@ -7252,7 +7252,13 @@ local_borrow_info_of_variable :: (fn(v : &Variable) -> Option(LocalBorrowInfo))(
 /// parameter is a reference too (`bind_parameter`'s `is_ptr_borrow`), and so
 /// is a `&` match's binding (`is_borrow_match_binding`), but shared ones.
 variable_is_mut_borrow :: (fn(v : &Variable) -> bool)(
-  v.is_ref() && !v.is_imm_borrow() && !v.is_borrow_match_binding() && match(local_borrow_info_of_variable(v), .Some(info) => info.is_mut, .None => true)
+  v.is_ref() && !v.is_imm_borrow() && !v.is_borrow_match_binding() && match(
+    local_borrow_info_of_variable(v),
+    .Some(info) => info.is_mut,
+    // A capture-list borrow entry has the mode written in its entry
+    // (`{ r : &f }` is a `&` borrow, A47).
+    .None => match(borrow_capture_outer(v.id()), .Some(bco) => bco.is_mut, .None => true)
+  )
 );
 /// A binding that holds an `imm` borrow: an `imm` parameter, an `imm(y) :=`
 /// local borrow, or a binding of a borrowing match or a `for` loop.

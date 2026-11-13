@@ -81,3 +81,22 @@ literal is evaluated, whether or not the closure is ever called.
 With the fix: the two negative programs and the positive control move to `tests/origins/unsound/`; a corpus row
 `closure-mut-capture-while-shared` (E0911) in `tests/origins/corpus.tsv`; `tests/closure_capture_list.test.yo`
 gains the named, temporary and `for(&xs, …)` forms as E0911 cases.
+
+## Fix
+
+The cluster-2 fix (audit §9: "an access reaches the loan table weaker than its mode, or not at all") adds one
+helper, `access_place` / `access_variable` / `access_move` (`src/evaluator/utils.yo`): an access of a place in the
+mode the operation declares (read, write, move, `&mut` lend) checked against every loan table the checker holds — the
+local borrows and flow sets (E0911, `local_borrow_access`) and the closures' capture borrows (E0910,
+`capture_freeze_access`, which now takes the access kind and compares the capture's field path with the accessed
+place's).
+
+A borrow entry of a capture list is R-LEND of its place, so `_evaluate_capture_list`
+(`src/evaluator/values/anonymous_function.yo`) calls `access_expr(place, Exclusive)` for a `&mut` entry (`Read` for a
+`&` one) when the literal is evaluated: E0911 "Cannot borrow with `&mut` `xs` here: `r` borrows …" for every form of
+the family (named, temporary, inside `for(&xs, …)`, in a `&mut self` method), and E0910 against a live closure's
+capture borrow.
+
+Tests: `tests/origins/unsound/c2-mut-capture-entry-live-loan.yo`, `c2-mut-capture-entry-in-read-walk.yo`,
+`c2-mut-capture-entry-in-method.yo` (E0911), `c2-mut-capture-entry-live-loan-pos.yo` (accept, ASan clean);
+`tests/closure_capture_list.test.yo` "a capture-list `&mut` entry beside a live `&` loan is E0911".

@@ -92,3 +92,17 @@ E0913 at the write: a body that writes a capture makes the closure `FnMut`, whic
 With the fix: the two negative programs and the positive control move to `tests/origins/unsound/` next to the open
 doc's repro; `tests/closure_capture_rc_leak.test.yo` or `tests/fn_mut.test.yo` gains the `push_str`, `&mut`-argument
 and `i32` assignment forms as E0913 cases.
+
+## Fix
+
+Fix direction 1 of the 2026-10-23 doc, generalized to every write. Where a closure literal is typed
+(`evaluate_anonymous_function_implementation`), `set_closure_writes_captures` records whether its body may write an
+implicit capture: only a closure typed `FnMut(...)` or `FnOnce(...)` that owns its record (not a literal lent to a
+borrowing parameter, `closure_literal_is_borrowed`). `reject_implicit_capture_write` (`src/evaluator/utils.yo`) raises
+E0913 for a write of an implicit capture anywhere else; it is called from `place_require_mut` — every `&mut` lend
+(argument, `&mut self` receiver, local borrow, scrutinee, capture entry), a field store and an `FnMut` call — before
+decision 47's tree gate, and from `evaluate_assignment` for `x = v`. Capture-list entries keep their own rules.
+
+Tests: `tests/origins/unsound/c2-fn-closure-writes-capture-method.yo`, `-method-twice.yo`, `-mut-arg.yo`,
+`c2-fn-closure-assigns-capture.yo` (E0913), `c2-fn-closure-writes-capture-method-pos.yo` (accept, ASan clean);
+`tests/fn_mut.test.yo` "an `Fn` closure may not write an implicit capture (E0913)".

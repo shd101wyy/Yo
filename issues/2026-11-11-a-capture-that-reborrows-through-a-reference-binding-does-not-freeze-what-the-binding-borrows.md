@@ -77,3 +77,17 @@ range, as `{ y : &b }` freezes it.
 With the fix: both negative programs and the positive control move to `tests/origins/unsound/`; rows in
 `tests/closure_capture_list.test.yo` (the reborrow entry over a `:=` binding and over a borrowed-match binding) and a
 corpus row `closure-reborrow-capture-root-written` (neg, E0910) beside `closure-ref-capture-returned-over-local`.
+
+## Fix
+
+`_evaluate_capture_list` (`src/evaluator/values/anonymous_function.yo`), borrow branch: an entry whose place is
+reached through a reference binding (`{ y : &s.* }`, `cap_root_is_reference`) records its capture borrows as
+`origin_borrows` — the binding itself, plus every place the binding refers to
+(`reference_binding_referents`, `src/evaluator/utils.yo`: a lend binding's or holder's entries, a reference payload
+binding's held set, or a borrowed `match` binding's scrutinee origin), each in the entry's mode bounded by the
+referent's. The closure's freeze (`note_second_class_binding`) then covers `x` for `{ z : &y.* }` over `y := &x`, and
+`b` for `{ y : &s.* }` over `match(&b, Box(s) => …)`, so the write of the root is E0910 as for `{ y : &x }`.
+
+Tests: `tests/origins/unsound/c2-capture-reborrow-match-binding.yo`, `c2-capture-reborrow-ref-binding.yo` (E0910),
+`c2-capture-reborrow-match-binding-pos.yo` (accept, ASan clean); `tests/closure_capture_list.test.yo` "a capture that
+reborrows through a reference binding freezes what it borrows".
