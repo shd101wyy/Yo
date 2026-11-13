@@ -76,3 +76,21 @@ drop access of `x`'s place, exactly as passing `x` to a by-value parameter is.
 With the fix: the two negative programs and the positive control move to `tests/origins/unsound/`; a corpus row
 beside `drop-root-while-borrowed` in `tests/origins/corpus.tsv`, and a case in `tests/move_only.test.yo` for the
 `consume` of a borrowed local.
+
+## Fix
+
+The cluster-2 fix (audit §9: "an access reaches the loan table weaker than its mode, or not at all") adds one
+helper, `access_place` / `access_variable` / `access_move` (`src/evaluator/utils.yo`): an access of a place in the
+mode the operation declares (read, write, move, `&mut` lend) checked against every loan table the checker holds — the
+local borrows and flow sets (E0911, `local_borrow_access`) and the closures' capture borrows (E0910,
+`capture_freeze_access`, which now takes the access kind and compares the capture's field path with the accessed
+place's).
+
+`evaluate_consume` (`src/evaluator/builtins/consume.yo`) calls `access_move` on the consumed binding before marking
+it moved, as `set_expr_as_consumed` (now `access_move` too) does for a by-value argument: `consume(xs)` beside a live
+`r` is E0911 "Cannot move `xs` here: `r` borrows …", and the `&mut` row's verdict is now a move, not a read. The
+internal `___drop` builtin is unsafe-only (`is_destroying_builtin_call_capable`) and unchanged.
+
+Tests: `tests/origins/unsound/c2-consume-live-loan.yo`, `…-rc.yo`, `c2-consume-live-ref-binding.yo` (E0911) and
+`c2-consume-live-loan-pos.yo` (accept, ASan clean); `tests/move_only.test.yo` "`consume` of a place a live `&` loan
+points into is E0911".
