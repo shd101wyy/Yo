@@ -7,6 +7,8 @@ pragma(Pragma.AllowUnsafe);
 { StringBuilder } :: import("std/fmt");
 { Exception } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+{ HashSet } :: import("std/collections/hash_set");
 { TokenKind, Token, find_matching_bracket, intern_token_str, empty_token_text } :: import("./token.yo");
 { tokenize_shared, tokenize_span } :: import("./lexer.yo");
 { interpolation_body_end } :: import("./utils.yo");
@@ -25,6 +27,7 @@ pragma(Pragma.AllowUnsafe);
   BK_BORROW_MUT,
   BK_IMPORT,
   BK_ANON_STRUCT,
+  BK_COND,
   BK_FN,
   BK_UNSAFE_FN,
   BK_CTL,
@@ -42,6 +45,13 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_token,
   desugar_program_if_calls
 } :: import("./expr.yo");
+/// `yo fix --migrate record-literal` parses source written before Generation B
+/// of plans/backlog/BRACE_BLOCKS.md, where a bare brace group of fields is a
+/// record value: while set, `_brace_pass` does not run.
+(mut(g_brace_legacy_records) : bool) = false;
+set_brace_legacy_records :: (fn(on : bool) -> unit)({
+  g_brace_legacy_records = on;
+});
 /// Result of parsing one expression: the expression and the next token index.
 ParseResult :: struct(
   expr : AstExpr,
@@ -273,7 +283,14 @@ Parser :: struct(
   /// auto-import pulls in, so a file with no specs keeps a byte-identical
   /// import closure.
   has_template_spec : bool,
-  next_expr_id : usize
+  next_expr_id : usize,
+  /// The bare brace groups parsed as field lists (`{ a, b }`, `{ x }`,
+  /// `{}`), by node id, with whether a `,` separated them. A field list is a
+  /// binder; in expression position `_brace_pass` makes it a block or
+  /// rejects it (plans/backlog/BRACE_BLOCKS.md, Generation B).
+  bare_groups : HashMap(usize, bool),
+  /// The `.{ … }` record values, by node id: a dot in a binder is rejected.
+  dotted_groups : HashSet(usize)
 );
 impl(
   Parser,
@@ -294,7 +311,9 @@ impl(
       program : ArrayList(AstExpr).new(),
       has_template_string : false,
       has_template_spec : false,
-      next_expr_id : usize(0)
+      next_expr_id : usize(0),
+      bare_groups : HashMap(usize, bool).new(),
+      dotted_groups : HashSet(usize).new()
     )
   }),
   new : (
@@ -327,7 +346,9 @@ impl(
       program : ArrayList(AstExpr).new(),
       has_template_string : false,
       has_template_spec : false,
-      next_expr_id : usize(0)
+      next_expr_id : usize(0),
+      bare_groups : HashMap(usize, bool).new(),
+      dotted_groups : HashSet(usize).new()
     )
   }),
   get_tokens : (fn(self : &Self) -> ArrayList(Token))(self.tokens.clone()),
@@ -1280,6 +1301,16 @@ impl(
     if(tok.kind != TokenKind.LCurlyBracket, {
       exn.throw(dyn(make_parse_error(&tok, `expected {`)));
     });
+    // `.{` — a dot written right before the brace: the group is a record
+    // value (plans/backlog/BRACE_BLOCKS.md).
+    (dot_before : Option(Token)) = cond(
+      (index > usize(0)) => match(
+        self.tokens.get(index - usize(1)),
+        .Some(dt) => if((dt.kind == TokenKind.Dot) && ((dt.byte_offset + u32(1)) == tok.byte_offset), Option(Token).Some(dt), Option(Token).None),
+        .None => Option(Token).None
+      ),
+      true => Option(Token).None
+    );
     args := ArrayList(AstExpr).new();
     (separator_is_comma : Option(bool)) = .None;
     idx := (index + usize(1));
@@ -1363,52 +1394,56 @@ impl(
       args.push(arg_pr.expr);
       idx = arg_pr.index;
     });
-    // No separator or comma separator -> anonymous struct; semicolon separator -> begin block.
+    // A `;` makes a block; otherwise a group whose items are all fields is a
+    // field list (a record value after `.`, a binder's field list, or, in
+    // expression position, a block or an error: `_brace_pass`), and one item
+    // that is no field is a block yielding it (plans/backlog/BRACE_BLOCKS.md).
     is_comma := match(
       separator_is_comma,
       .None => true,
       .Some(__sb) => __sb
     );
+    had_comma := match(separator_is_comma, .None => false, .Some(__hc) => __hc);
+    (all_fields : bool) = true;
+    (vi : usize) = usize(0);
+    while(vi < args.len(), vi = (vi + usize(1)), {
+      match(
+        args.get(vi),
+        .Some(arg) => if(!self.is_valid_struct_field_arg(&arg), {
+          all_fields = false;
+        }),
+        .None => ()
+      );
+    });
+    is_single_expr_block := (is_comma && !all_fields && !had_comma && (args.len() == usize(1)) && dot_before.is_none());
+    if(is_comma && !all_fields && !is_single_expr_block, {
+      bad_msg := if(
+        dot_before.is_some(),
+        String.from("a record's fields are named: `.{ a : 1, b }`; a tuple is written `(a, b)`"),
+        String.from("`{ ... }` is a block, and a block separates statements with `;`. A record literal is written `.{ a, b }` and names its fields")
+      );
+      exn.throw(dyn(make_parse_error(&tok, &bad_msg)));
+    });
+    match(
+      &dot_before,
+      .Some(db_tok) => if(!is_comma, {
+        exn.throw(
+          dyn(
+            format_error_message_with_repair_at(
+              &tok,
+              &String.from("`.{ ... }` builds a record; a block has no dot"),
+              Option(String).None,
+              Span(path : db_tok.module_path.*.clone(), row : usize(db_tok.row), col : usize(db_tok.column), len : usize(1)),
+              String.new(),
+              String.from("delete the `.` so the braces form a block")
+            )
+          )
+        );
+      }),
+      .None => ()
+    );
     cond(
-      is_comma => {
-        (vi : usize) = usize(0);
-        vn := args.len();
-        while(vi < vn, {
-          match(
-            args.get(vi),
-            .None => (),
-            .Some(arg) => {
-              if(!self.is_valid_struct_field_arg(&arg), {
-                block_msg := String.from(
-                  "{ ... } without semicolons is parsed as a struct literal, not a block. To write a block, use semicolons: { stmt1; stmt2; }"
-                );
-                // ONE expression between the braces (`{ f(x) }`, the shape
-                // an agent writes for a single-statement body) has exactly
-                // one repair: a `;` before the `}`, which `idx` still points
-                // at. Two or more comma-separated items could be a block OR
-                // a record with a bad field, so those get the message alone.
-                close_tok := match(self.tokens.get(idx), .Some(ct) => ct, .None => tok);
-                if((vn == usize(1)) && (close_tok.kind == TokenKind.RCurlyBracket), {
-                  exn.throw(
-                    dyn(
-                      format_error_message_with_repair_at(
-                        &tok,
-                        &block_msg,
-                        Option(String).None,
-                        Span(path : close_tok.module_path.*.clone(), row : usize(close_tok.row), col : usize(close_tok.column), len : usize(0)),
-                        String.from(";"),
-                        String.from("insert `;` before `}` so the braces form a block")
-                      )
-                    )
-                  );
-                }, {
-                  exn.throw(dyn(make_parse_error(&tok, &block_msg)));
-                });
-              });
-            }
-          );
-          vi = (vi + usize(1));
-        });
+      (is_comma && !is_single_expr_block) => {
         // Anonymous struct: { x, y: 2 } → _(x: x, y: 2)
         n_args := args.len();
         final_args := ArrayList(AstExpr).new();
@@ -1455,8 +1490,14 @@ impl(
           module_path : Rc.clone(tok.module_path),
           input : Rc.clone(tok.input)
         );
+        group_id := self.alloc_id();
+        if(dot_before.is_some(), {
+          self.dotted_groups.insert(group_id);
+        }, {
+          _old := self.bare_groups.insert(group_id, had_comma);
+        });
         ParseResult(
-          expr : .FnCall(self.alloc_id(), .Atom(self.alloc_id(), anon_tok), Rc.new(final_args), false, tok),
+          expr : .FnCall(group_id, .Atom(self.alloc_id(), anon_tok), Rc.new(final_args), false, tok),
           index : (idx + usize(1))
         )
       },
@@ -2264,7 +2305,130 @@ impl(
         }
       );
     });
+    if(!g_brace_legacy_records && ((self.bare_groups.len() > usize(0)) || (self.dotted_groups.len() > usize(0))), {
+      (pi : usize) = usize(0);
+      while(pi < exprs.len(), pi = (pi + usize(1)), {
+        match(
+          self._brace_pass(&exprs(pi), u8(0), exn),
+          .Some(pe) => {
+            exprs(pi) = pe;
+          },
+          .None => ()
+        );
+      });
+    });
     self.program = exprs;
+  }),
+  /// Brace groups, Generation B (plans/backlog/BRACE_BLOCKS.md): `.{ … }`
+  /// builds a record, `{ names }` on a binding side picks fields, every other
+  /// `{ … }` is a block. The parse builds a bare group of fields as a field
+  /// list; this walk decides by position. `mode` 0 is an expression, 1 a
+  /// binder (the left side of `:=`, `::` and `=`, a `match`/`for`/closure
+  /// arrow's left side — patterns, capture lists, parameters — except a
+  /// pattern guard `(p && (g))`), 2 a `cond` arm, whose two sides are
+  /// expressions. In expression position `{}` is the unit block and `{ x }`
+  /// the block yielding `x`; a group with a `,` or a `label : value` pair is
+  /// E0007, repaired by the dot. In a binder a `.{ … }` is an error repaired by
+  /// deleting the dot. `.None` when nothing below `e` changes.
+  _brace_pass : (fn(self : &mut Self, e : &AstExpr, mode : u8, exn : Exception) -> Option(AstExpr))(
+    match(
+      e,
+      .Atom(_, _) => Option(AstExpr).None,
+      .FnCall(id, callee, Rc(args), is_infix, ftok) => {
+        binder := (mode == u8(1));
+        if(!binder && self.bare_groups.contains_key(&id.*), {
+          return(Option(AstExpr).Some(self._brace_group_as_block(id.*, args, ftok, exn)));
+        });
+        if(binder && self.dotted_groups.contains(&id.*), {
+          exn.throw(
+            dyn(
+              format_error_message_with_repair_at(
+                ftok,
+                &String.from("a field list on the binding side is written without the dot: `{ a }`. `.{ ... }` builds a record value"),
+                Option(String).None,
+                Span(path : ftok.module_path.*.clone(), row : usize(ftok.row), col : (usize(ftok.column) - usize(1)), len : usize(1)),
+                String.new(),
+                String.from("delete the `.` before `{`")
+              )
+            )
+          );
+        });
+        head := match(callee, .Atom(_, ht) => ht.value.*.clone(), .FnCall(_, _, _, _, _) => String.new());
+        n := args.len();
+        binds := ((mode == u8(0)) && ((head == ":=") || (head == "::") || (head == "=") || (head == "=>")) && (n == usize(2)));
+        guard := (binder && (head == "&&") && (n == usize(2)));
+        is_cond := ((mode != u8(1)) && (head == BK_COND));
+        (new_callee : Option(AstExpr)) = if(ast_expr_is_atom(callee), Option(AstExpr).None, self._brace_pass(callee, if(binder, u8(1), u8(0)), exn));
+        (changed : bool) = new_callee.is_some();
+        new_args := ArrayList(AstExpr).with_capacity(n);
+        (ai : usize) = usize(0);
+        while(ai < n, ai = (ai + usize(1)), {
+          a := args(ai).clone();
+          (child_mode : u8) = cond(
+            (binds && (ai == usize(0))) => u8(1),
+            (guard && (ai == usize(1))) => u8(0),
+            (is_cond && ast_expr_is_fn_call_of(&a, "=>", Option(usize).Some(usize(2)))) => u8(2),
+            binder => u8(1),
+            true => u8(0)
+          );
+          match(
+            self._brace_pass(&a, child_mode, exn),
+            .Some(na) => {
+              changed = true;
+              new_args.push(na);
+            },
+            .None => new_args.push(a)
+          );
+        });
+        if(!changed, Option(AstExpr).None, Option(AstExpr).Some(.FnCall(id.*, match(new_callee, .Some(nc) => nc, .None => callee.clone()), Rc.new(new_args), is_infix.*, ftok.clone())))
+      }
+    )
+  ),
+  /// A bare group of fields in expression position (`_brace_pass`): `{}` is
+  /// the unit block, `{ x }` the block yielding `x`; anything else (a `,`, a
+  /// `label : value` pair, `{ &y }`, `{ ...base }`) is E0007, whose repair
+  /// writes the record `.{ … }`.
+  _brace_group_as_block : (fn(self : &mut Self, id : usize, args : &ArrayList(AstExpr), tok : &Token, exn : Exception) -> AstExpr)({
+    had_comma := match(self.bare_groups.get(&id), .Some(hc) => hc, .None => false);
+    body := ArrayList(AstExpr).new();
+    if(args.len() == usize(0), {
+      body.push(self.make_unit_call(tok));
+    });
+    // `{ x }`: the parse wrote the pun as `x : x` with its `:` at the `{`.
+    if(!had_comma && (args.len() == usize(1)), {
+      match(
+        &args(usize(0)),
+        .FnCall(_, .Atom(_, pc_tok), Rc(pargs), true, _) => if((pc_tok.value.* == ":") && (pc_tok.byte_offset == tok.byte_offset) && (pargs.len() == usize(2)) && ast_expr_is_atom(&pargs(usize(0))), {
+          body.push(pargs(usize(0)).clone());
+        }),
+        _ => ()
+      );
+    });
+    if(body.len() == usize(0), {
+      exn.throw(
+        dyn(
+          format_error_message_with_repair_at(
+            tok,
+            &String.from("`{ ... }` is a block, and a block separates statements with `;`. A record literal is written `.{ a, b }`"),
+            Option(String).None,
+            Span(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), len : usize(0)),
+            String.from("."),
+            String.from("insert `.` before `{` to build a record")
+          )
+        )
+      );
+    });
+    begin_tok := Token(
+      kind : TokenKind.Identifier,
+      value : intern_token_str(String.from(BK_BEGIN)),
+      row : tok.row,
+      column : tok.column,
+      character : tok.character,
+      byte_offset : tok.byte_offset,
+      module_path : Rc.clone(tok.module_path),
+      input : Rc.clone(tok.input)
+    );
+    .FnCall(self.alloc_id(), .Atom(self.alloc_id(), begin_tok), Rc.new(body), false, begin_tok)
   }),
   /// The parsed program WITHOUT the template auto-import that `get_program`
   /// prepends — what a sub-parse of ONE expression needs. A template
@@ -2430,6 +2594,6 @@ generate_exprs_from_code :: (
   module_path := `auto-generated://\n// === START auto-generated code ===\n${code}\n// === END auto-generated code ===\n`;
   parse(code.clone(), &module_path, exn)
 });
-export(ParseResult, FnArgsResult, Parser, parse);
+export(ParseResult, FnArgsResult, Parser, parse, set_brace_legacy_records);
 export(extract_source_line, make_parse_error, make_parse_error_raw);
 export(generate_expr_from_code, generate_exprs_from_code);
