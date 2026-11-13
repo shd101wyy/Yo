@@ -27,7 +27,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
 { is_some_type, is_type_hierarchy_type, is_type_0, is_struct_type, is_shared_cell_type_name, is_dyn_type } :: import("../../types/guards.yo");
 { macro_return_is_unquote } :: import("../types/function.yo");
-{ type_contains_some_type, get_all_some_types, is_bound_closure_identity, type_carries_origin, type_is_sized, unsized_by_value_error } :: import("../../types/utils.yo");
+{ type_contains_some_type, get_all_some_types, is_bound_closure_identity, type_carries_origin, type_is_sized, unsized_by_value_error, is_legacy_value_str, legacy_value_str } :: import("../../types/utils.yo");
 {
   EvalValue,
   eval_value_eq,
@@ -722,10 +722,19 @@ evaluate_comptime_fn_call :: (
               arg_values.args.get(us_i),
               .Some(us_a) => match(
                 us_a.value,
-                .Some(.TypeVal(us_t)) => if(!type_is_sized(&us_t), {
-                  us_label := match(us_meta.param_labels.get(us_i), .Some(l) => l, .None => String.from("V"));
-                  exn.throw(dyn(unsized_by_value_error(&us_t, &`\`${ast_expr_to_string(&us_callee)}\`'s type parameter \`${us_label}\``, &Option(String).Some(us_label.clone()), &ast_expr_token(&us_callee))));
-                }),
+                .Some(.TypeVal(us_t)) => cond(
+                  // The legacy value `str` (decision 49,
+                  // `unsized_legacy_spellings`): `ArrayList(str)` is
+                  // `ArrayList(&(str, static))`.
+                  is_legacy_value_str(&us_t) => {
+                    us_a.value = Option(EvalValue).Some(EvalValue.TypeVal(legacy_value_str(&us_t)));
+                  },
+                  !type_is_sized(&us_t) => {
+                    us_label := match(us_meta.param_labels.get(us_i), .Some(l) => l, .None => String.from("V"));
+                    exn.throw(dyn(unsized_by_value_error(&us_t, &`\`${ast_expr_to_string(&us_callee)}\`'s type parameter \`${us_label}\``, &Option(String).Some(us_label.clone()), &ast_expr_token(&us_callee))));
+                  },
+                  true => ()
+                ),
                 _ => ()
               ),
               .None => ()

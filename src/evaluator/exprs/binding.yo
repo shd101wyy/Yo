@@ -43,7 +43,8 @@ import("std/fmt");
   type_requires_comptime_modifier,
   type_prohibits_comptime_modifier,
   type_contains_rc_type,
-  get_all_some_types
+  get_all_some_types,
+  legacy_value_str
 } :: import("../../types/utils.yo");
 { format_error_message, format_error_message_with_repair, format_error_messages, TokenAndError, YoError, format_eval_failure, with_code } :: import("../../error.yo");
 { E_COMPTIME_RUNTIME_BINDING } :: import("../../diagnostics.yo");
@@ -153,7 +154,7 @@ evaluate_binding :: (
       )
     );
   });
-  user_defined_type := match(
+  user_defined_type_spelled := match(
     rhs_info.value(),
     .Some(.TypeVal(bt)) => Rc.clone(bt),
     .Some(_) => t_unit(),
@@ -167,7 +168,7 @@ evaluate_binding :: (
   // Without this, the array.test.yo cee that EXPECTS this rejection
   // evaluated successfully and emptied the whole batch main.
   match(
-    &user_defined_type,
+    &user_defined_type_spelled,
     Rc(.Array(_, _, udt_lvar)) => if(udt_lvar.starts_with("_array_length_"), {
       exn.throw(
         dyn(
@@ -181,7 +182,7 @@ evaluate_binding :: (
     _ => ()
   );
   // Prohibit void type.
-  prohibit_void_type(&user_defined_type, ast_expr_token(&rhs), exn);
+  prohibit_void_type(&user_defined_type_spelled, ast_expr_token(&rhs), exn);
   // Strip optional `comptime(...)` wrapper from lhs.
   (is_compile_time_only : bool) = false;
   (lhs : AstExpr) = lhs_arg;
@@ -269,6 +270,10 @@ evaluate_binding :: (
   // A RUNTIME function evaluated at compile time (a `comptime_fn` clone, CTFE
   // capability analysis) runs under `force_compile_time_bindings`; its typed
   // locals are stored as compile-time values there.
+  // A runtime local spelled `str` is the legacy value `str`, `&(str, static)`
+  // (decision 49, `unsized_legacy_spellings`); a runtime function evaluated at
+  // compile time types its locals the same way.
+  user_defined_type := if(is_compile_time_only, user_defined_type_spelled, legacy_value_str(&user_defined_type_spelled));
   if(ctx.force_compile_time_bindings, {
     is_compile_time_only = true;
   });

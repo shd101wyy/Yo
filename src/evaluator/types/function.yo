@@ -50,7 +50,7 @@ pragma(Pragma.AllowUnsafe);
 { Environment, make_environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, snapshot_env, copy_env_frames, env_adopt, variable_value_type } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing, call_function_value_marker } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_runtime_only_unknown_val } :: import("../../value.yo");
-{ t_binder_slot, some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, SharedList, t_maybe_sized_kind, is_maybe_sized_kind, t_slot, t_slot_pointee, slot_pointee_at, t_origin_named, t_origin_elided, t_origin_kind, t_reference_with_origin, is_origin_kind, t_reference, t_slot_is_borrow, type_spells_origin } :: import("../../types/definitions.yo");
+{ t_binder_slot, some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, SharedList, t_maybe_sized_kind, is_maybe_sized_kind, t_slot, t_slot_pointee, slot_pointee_at, t_origin_named, t_origin_elided, t_origin_kind, t_reference_with_origin, is_origin_kind, t_reference, t_slot_is_borrow, type_spells_origin, t_origin_static, t_static_str_ref, t_value_slot, is_static_origin } :: import("../../types/definitions.yo");
 { t_some_t, t_some_t_with_kind, t_some_t_of_kind, t_type, t_type_1, t_unit, t_expr_t, t_comptime_list, type_has_computed_array_len } :: import("../../types/creators.yo");
 { type_key } :: import("../../types/type_key.yo");
 { is_some_type, is_trait_type, is_function_type, is_type_0, is_type_kind, is_unit_type } :: import("../../types/guards.yo");
@@ -75,7 +75,8 @@ pragma(Pragma.AllowUnsafe);
   note_origin_types_exist,
   escapable_bound_error,
   type_is_sized,
-  unsized_by_value_error
+  unsized_by_value_error,
+  is_legacy_value_str
 }
 :: import("../../types/utils.yo");
 { is_implicitly_unsafe_capable_file, is_macro_def_capable_file, is_std_module_path } :: import("../memory_safety.yo");
@@ -2453,6 +2454,15 @@ evaluate_function_parameter :: (
     }),
     .None => ()
   );
+  // The legacy value `str` (decision 49, `unsized_legacy_spellings`): a
+  // runtime parameter `s : str` (or `sink(s) : str`) is `s : &(str, static)`,
+  // the slot that spelling gives.
+  (legacy_str_param : bool) = (!is_compile_time_only && !is_parameter_comptime_by_default && !is_quote && !is_param_ref && !has_imm_wrapper && match(&param_type, .Some(lsp_t) => is_legacy_value_str(lsp_t), .None => false));
+  if(legacy_str_param, {
+    has_imm_wrapper = true;
+    is_sink_param = false;
+    is_owning_rc_value = false;
+  });
   // Evaluate default value expression.
   //
   // The default value's VALUE and
@@ -2728,7 +2738,7 @@ use_id :: (fn(generic(T : Type),
   (spelled_origin : Option(TypeValue)) = match(
     spelled_origin_expr,
     .Some(soe) => Option(TypeValue).Some(evaluate_param_origin(&soe, env_mut, ctx, exn)),
-    .None => Option(TypeValue).None
+    .None => if(legacy_str_param, Option(TypeValue).Some(t_origin_static()), Option(TypeValue).None)
   );
   label_str := match(label, .Some(l) => l, .None => String.from("?"));
   lbl_tok := match(label_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr));
@@ -5070,7 +5080,11 @@ evaluate_function_type :: (
   });
   // A by-value result is returned in a value (decision 49, E0619); a
   // projection (`-> &T`) returns the place.
-  if(!is_return_comptime_only && !is_return_type_ref && !t_slot_is_borrow(&return_type) && !type_is_sized(&return_type), {
+  // The legacy value `str` (decision 49, `unsized_legacy_spellings`): a
+  // runtime `-> str` (or `-> Self` in an `impl(str, ...)`) is the by-value
+  // `&(str, static)` result, the slot `-> &(str, static)` gives.
+  legacy_str_result := (!is_return_comptime_only && !is_return_type_ref && is_legacy_value_str(&return_type));
+  if(!legacy_str_result && !is_return_comptime_only && !is_return_type_ref && !t_slot_is_borrow(&return_type) && !type_is_sized(&return_type), {
     exn.throw(dyn(unsized_by_value_error(&return_type, &String.from("a by-value result"), &Option(String).None, &ast_expr_token(&return_type_expr))));
   });
   // A `comptime(p) : Origin` parameter belongs to a type constructor (decision
@@ -5487,9 +5501,13 @@ evaluate_function_type :: (
       // `-> &(T, o)`), every other result the bare type — the encoding
       // parameter slots use.
       cond(
+        legacy_str_result => t_value_slot(&t_static_str_ref()),
         is_return_type_ref => match(
           return_origin,
-          .Some(ro) => t_reference_with_origin(&return_type, is_return_type_mut_ref, &ro),
+          // `-> &(T, static)` borrows no argument (decision 49): its result is
+          // a reference VALUE, the by-value slot R3 gives `-> T` at a
+          // reference, not a projection of a parameter's place.
+          .Some(ro) => if(is_static_origin(&ro) && !is_return_type_mut_ref, t_value_slot(&t_reference_with_origin(&return_type, false, &ro)), t_reference_with_origin(&return_type, is_return_type_mut_ref, &ro)),
           .None => t_reference(&return_type, is_return_type_mut_ref)
         ),
         // `-> T` for a binder `T` (not `Self`): a by-value result that stays a

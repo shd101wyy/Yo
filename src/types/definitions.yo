@@ -843,6 +843,13 @@ t_origin_named :: (fn(names : &SharedList(String)) -> TypeValue)(Rc.new(TypeValu
 /// place. A reference with it borrows nothing (`∅ ⊆ p`, so it widens into
 /// every origin position) and is `Escapable` when its pointee is.
 is_static_origin :: (fn(o : &TypeValue) -> bool)(match(o, Rc(.OriginSet(so_places, so_elided)) => (!so_elided && (so_places.len() == usize(0))), _ => false));
+(g_origin_static : TypeValue) = Rc.new(TypeValueNode.OriginSet(places : Rc.clone(g_no_labels), is_elided : false));
+/// `static`, the empty origin (`is_static_origin`).
+t_origin_static :: (fn() -> TypeValue)(Rc.clone(g_origin_static));
+(g_t_static_str_ref : TypeValue) = Rc.new(TypeValueNode.Reference(pointee : Rc.new(TypeValueNode.Str), mutable : false, origin : Rc.clone(g_origin_static)));
+/// `&(str, static)` (decision 49 S2): the type of a string literal, and what
+/// a legacy value `str` means (`legacy_value_str`, types/utils.yo).
+t_static_str_ref :: (fn() -> TypeValue)(Rc.clone(g_t_static_str_ref));
 /// `&T` (`mutable = false`) or `&mut T`, with the elided origin.
 t_reference :: (fn(pointee : &TypeValue, mutable : bool) -> TypeValue)(
   Rc.new(TypeValueNode.Reference(pointee : pointee.clone(), mutable : mutable, origin : Rc.clone(g_origin_elided)))
@@ -1242,4 +1249,4 @@ get_struct_field_comptime_flags :: (
 export(TypeValue, TypeValueNode, FuncMeta, SomeTBounds, SomeTBoundsCell, some_t_bounds, some_t_bounds_empty, TraitTBody, TraitTBodyCell, trait_t_body, SharedList, SharedListCell, SharedListElem, shared_list, no_types, no_labels, no_flags, no_levels, no_discriminants, no_type_lists, no_label_lists, t_refine_inner, register_struct_field_comptime_flags, get_struct_field_comptime_flags);
 export(fn_trait_rank, fn_trait_base_serves, fn_trait_call_contract, fn_trait_slot_contract);
 export(fn_result_slot, fn_result_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_origin_spelled_names, t_slot_origin_names, fn_result_origin_names, fn_result_composite_origin_names, type_spells_origin, origin_names_contain, fn_param_in_result_origin, fn_param_pointee_in_result_origin);
-export(t_value_slot, t_binder_slot, t_slot_is_value_ref, t_slot_is_binder_slot, t_maybe_sized_kind, is_maybe_sized_kind, t_slice, t_origin_elided, t_origin_kind, t_origin_named, is_static_origin, t_reference_with_origin, is_origin_kind, t_reference, t_slot, t_slot_pointee, slot_pointee_at, slot_pointees, t_slot_is_mut_ref, t_slot_is_borrow, t_slot_is_by_value, t_slot_with_pointee, t_slot_like, fn_param_slots, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_at, fn_param_by_value_at, fn_param_mut_ref_flags, fn_param_by_value_flags);
+export(t_value_slot, t_binder_slot, t_slot_is_value_ref, t_slot_is_binder_slot, t_maybe_sized_kind, is_maybe_sized_kind, t_slice, t_origin_elided, t_origin_kind, t_origin_named, t_origin_static, t_static_str_ref, is_static_origin, t_reference_with_origin, is_origin_kind, t_reference, t_slot, t_slot_pointee, slot_pointee_at, slot_pointees, t_slot_is_mut_ref, t_slot_is_borrow, t_slot_is_by_value, t_slot_with_pointee, t_slot_like, fn_param_slots, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_at, fn_param_by_value_at, fn_param_mut_ref_flags, fn_param_by_value_flags);

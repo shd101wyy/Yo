@@ -408,6 +408,10 @@ _compat_impl :: (
           true => match(
             expected,
             Rc(.Str) => true,
+            // A literal is `&(str, static)` at run time (decision 49 S2): it
+            // fills every shared `&str`, whatever the origin (`static`
+            // widens into each).
+            Rc(.Reference(cs_pointee, false, _)) => match(t_refine_inner(&cs_pointee), Rc(.Str) => true, _ => false),
             Rc(.Pointer(einner)) => cond(
               is_u8_type(&einner) => true,
               is_char_type(&einner) => true,

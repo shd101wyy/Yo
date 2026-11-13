@@ -32,7 +32,7 @@ import("std/fmt");
 { stable_module_id, parse_raw_int } :: import("../../utils.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { format_error_message } :: import("../../error.yo");
-{ type_is_sized, unsized_by_value_error } :: import("../../types/utils.yo");
+{ type_is_sized, unsized_by_value_error, is_legacy_value_str, legacy_value_str } :: import("../../types/utils.yo");
 { Exception } :: import("std/error");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { ArrayList } :: import("std/collections/array_list");
@@ -129,7 +129,9 @@ evaluate_array_type :: (
     elem_type_info.value(),
     .Some(v) => match(
       v,
-      .TypeVal(inner) => Rc.clone(inner),
+      // `Array(str, N)` holds the legacy value `str`, `&(str, static)`
+      // (decision 49, `unsized_legacy_spellings`).
+      .TypeVal(inner) => legacy_value_str(&inner),
       _ => {
         exn.throw(
           dyn(
@@ -351,10 +353,12 @@ evaluate_slice_type :: (
       t_usize()
     }
   );
-  if(!type_is_sized(&elem_ty), {
+  // `[str]` is a slice of the legacy value `str`, `&(str, static)` (decision
+  // 49, `unsized_legacy_spellings`).
+  if(!type_is_sized(&elem_ty) && !is_legacy_value_str(&elem_ty), {
     exn.throw(dyn(unsized_by_value_error(&elem_ty, &String.from("a slice element"), &Option(String).None, &ast_expr_token(&element_type_expr))));
   });
-  slice_ty := t_slice(&elem_ty);
+  slice_ty := t_slice(&legacy_value_str(&elem_ty));
   out_info := new_expr_info(&expr_info_adopt_env(&elem_info), &type_of_type(&slice_ty));
   out_info.set_value(Option(EvalValue).Some(create_type_value(&slice_ty)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);

@@ -1726,12 +1726,15 @@ pointer_c_type_string :: (fn(pointee : &TypeValue, context : &mut CodeGenContext
   match(
     t_refine_inner(pointee),
     Rc(.SliceT(_)) => String.from("__yo_slice_t"),
+    // A pointer to the unsized `str` is `__yo_str` (decision 49 S2): the
+    // bytes and the length, the C type the legacy value `str` had.
+    Rc(.Str) => String.from("__yo_str"),
     // A specialized type variable is its resolution (`r : &T` at `T = [E]`):
     // fat when the resolution is unsized, `T*` (spelled through the variable,
     // as `get_type_string` resolves it) otherwise.
     (pc_v := Rc(.SomeT({ id : _ }))) => match(
       _some_resolution_chain(&pc_v),
-      .Some(pc_r) => if(!type_is_sized(&pc_r), String.from("__yo_slice_t"), {
+      .Some(pc_r) => if(!type_is_sized(&pc_r), pointer_c_type_string(&pc_r, context), {
         mut(rbase) := get_type_string(pointee, context);
         rbase.push_str("*");
         rbase

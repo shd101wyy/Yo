@@ -12,8 +12,8 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ TypeValue, TypeValueNode } :: import("./definitions.yo");
-{ t_i32, t_f64, t_str } :: import("./creators.yo");
+{ TypeValue, TypeValueNode, t_static_str_ref } :: import("./definitions.yo");
+{ t_i32, t_f64 } :: import("./creators.yo");
 {
   is_some_type,
   is_trait_type,
@@ -552,10 +552,11 @@ get_value_of_some_type_from_env :: (fn(env : &Environment, some_type : &TypeValu
 /// import cycle no longer exists; `types/env_lookup.yo` is the
 /// designated location for env-dependent type lookups.
 create_str_type :: (fn(env : &Environment) -> TypeValue)({
-  // str is now the builtin static string view; no prelude lookup needed.
+  // A string literal at run time is `&(str, static)` (decision 49 S2): a
+  // reference to static bytes. No prelude lookup is needed.
   // (env parameter kept for signature stability with callers.)
   env;
-  t_str()
+  t_static_str_ref()
 });
 
 /// True iff `ty` is `*(u8)` or `*(char)` — the two byte-pointer
