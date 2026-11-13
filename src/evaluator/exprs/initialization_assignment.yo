@@ -86,6 +86,7 @@
   get_all_some_types,
   dyn_upcast_note,
   type_carries_origin,
+  no_origin_position_error,
   type_is_sized,
   unsized_by_value_error
 } :: import("../../types/utils.yo");
@@ -1476,6 +1477,24 @@ evaluate_initialization_assignment :: (
         .Some(_) => false,
         .None => true
       );
+      // O4 "module-level bindings: no" (O10, §7 "Module-level origins"):
+      // no frame owns the places a module-level binding would borrow, so its
+      // type is `Escapable`. The typed form `(G : T) = v` is checked in
+      // assignment.yo; this is the `:=` form, whose type is the initializer's
+      // (issues/fixed/2026-11-11-an-untyped-module-level-binding-may-carry-an-origin-so-a-global-holds-a-reference-to-a-dead-local.md).
+      if(is_at_module_level && type_carries_origin(&rhs_info.ty()), {
+        exn.throw(
+          dyn(
+            no_origin_position_error(
+              &rhs_info.ty(),
+              &String.from("A module-level binding"),
+              &String.from("no frame owns the places it would borrow, so it may hold no reference (§7, module-level origins)."),
+              &String.from("hold the value itself, or bind the reference in the function that owns the place"),
+              ast_expr_token(&rhs)
+            )
+          )
+        );
+      });
       if(is_at_module_level && type_is_control_bound(&rhs_info.ty()), {
         exn.throw(
           dyn(

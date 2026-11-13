@@ -1,0 +1,26 @@
+// expect: E0909
+// A module-level binding requires an `Escapable` type.
+// The same through a holder struct: `mut(G) := H(r : &S0)` is accepted, then `_set` stores a
+// holder over its own local.
+{ println } :: import("std/fmt");
+H :: struct(r : &i64);
+derive(H, Copy, Clone);
+S0 := i64(5);
+mut(G) := H(r : &S0);
+_set :: (fn() -> unit)({
+  s := i64(1234567);
+  G = H(r : &s);
+});
+_clobber :: (fn() -> i64)({
+  a := i64(7);
+  b := i64(8);
+  c := i64(9);
+  (a + b) + c
+});
+main :: (fn() -> unit)({
+  _set();
+  _ := _clobber();
+  v := G.r.*;
+  println(`OUT: ${v.to_string()}`);
+});
+export(main);

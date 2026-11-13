@@ -1,0 +1,10 @@
+// expect: E0405
+// MaybeUninit's payload field private to the prelude (E0405 outside it).
+// The never-written `_value` of `MaybeUninit(Box(i64)).new()` is a zeroed `Box`, dereferenced in safe code.
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  m := MaybeUninit(Box(i64)).new();
+  v := m._value.*;
+  println(`OUT: ${v.to_string()}`);
+});
+export(main);
