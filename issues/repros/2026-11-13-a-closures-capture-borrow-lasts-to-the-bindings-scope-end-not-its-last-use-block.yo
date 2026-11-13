@@ -1,0 +1,15 @@
+// expect: accept
+// The workaround E0910 prints: the closure and its calls in a block, so the borrow ends with the block.
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(n) := i32(0);
+  {
+    (mut(bump) : Impl(FnMut() -> unit)) = ({ &mut n }() => {
+      n.* = (n.* + i32(1));
+    });
+    bump();
+    bump();
+  };
+  println(&n);
+});
+export(main);
