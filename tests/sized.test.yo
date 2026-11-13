@@ -177,5 +177,13 @@ test("CloneInto clones each element of a slice into an uninitialized run", {
   // The run is overwritten without a drop: its old elements own nothing.
   ([_SzCl] <: CloneInto).clone_into(unsize(&a), dst);
   assert(_SZ_CLONED == (before + i32(3)), "one clone per element");
-  assert(((b(usize(0)).n + b(usize(1)).n) + b(usize(2)).n) == i32(15), "the clones landed in order");
+  assert((b(usize(0)).n + b(usize(1)).n + b(usize(2)).n) == i32(15), "the clones landed in order");
+});
+// A `?Sized`-kinded constructor parameter prints with no mode, as a `Type`
+// one does (issues/fixed/2026-11-13-a-sized-kinded-constructor-parameter-prints-as-a-borrow.md).
+_SzPrintK :: (fn(comptime(V) : ?Sized) -> comptime(Type))(newtype(p : Option(i32)));
+test("a ?Sized constructor parameter prints with no mode", {
+  comptime_expect_error({
+    (a : i32) = _SzPrintK;
+  }, "Given   : fn(V : ?Sized) -> Type");
 });
