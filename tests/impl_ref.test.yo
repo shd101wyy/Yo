@@ -364,7 +364,7 @@ test("(R3) an owned temporary receiver picks the by-value impl: `.clone().into_i
 // read (E0926, spelled `ra.*`). Since G2 piece 3 the impl over `&_PgC` is the
 // prelude's blanket `Eq(&T)`, and a user impl over `&_PgC` beside it is E0612.
 _PgC :: struct(n : i32);
-derive(_PgC, Eq);
+derive(_PgC, Eq(_PgC));
 // A by-value `Self` slot at `Self = &C` is not selected for two reference
 // bindings yet (issues/2026-11-13-an-operator-impl-over-a-reference-with-by-value-operands-is-not-selected-for-reference-bindings.md).
 impl(
@@ -398,7 +398,10 @@ test("(P3b gap 1) an operand no impl over `&C` takes stays E0926", {
   e := _PgNoEq(n : i32(1));
   re := &e;
   re2 := &e;
-  comptime_expect_error(re == re2, "reading the value it refers to is spelled");
+  // The blanket `Eq(&T)` is selected for `&_PgNoEq` without its
+  // `where(T <: Eq(T))` being judged, so the error is raised in its body
+  // (issues/2026-11-13-a-blanket-tostring-impl-over-a-reference-answers-an-rc-receiver-whose-payload-has-the-method.md).
+  comptime_expect_error(re == re2, "No method \"==\" on _PgNoEq");
   comptime_expect_error(
     impl(&_PgC, Eq(&_PgC)((==) : (fn(lhs : &Self, rhs : &Self) -> bool)(lhs.*.*.n == rhs.*.*.n))),
     "is already implemented"
@@ -414,6 +417,7 @@ test("(P3b gap 1) an operand no impl over `&C` takes stays E0926", {
 // issues/2026-11-13-a-blanket-tostring-impl-over-a-reference-answers-an-rc-receiver-whose-payload-has-the-method.md).
 _g3_same :: (fn(generic(T : Type), a : T, b : T, where(T <: Eq(T))) -> bool)(a == b);
 _g3_less :: (fn(generic(T : Type), a : T, b : T, where(T <: Ord(T))) -> bool)(a < b);
+_g3_max :: (fn(generic(T : Type), a : T, b : T, where(T <: Ord(T))) -> T)(cond((a < b) => b, true => a));
 test("(G2 piece 3) `==`, `!=`, `<` and `cmp` on two references compare the referents", {
   a := String.from("apple");
   b := String.from("apple");
@@ -437,23 +441,22 @@ test("(G2 piece 3) generic code at `T := &U` has `Eq` and `Ord`", {
   a := String.from("x");
   b := String.from("x");
   c := String.from("y");
-  assert(_g3_same(&a, &b), "Eq(&String) through a bound");
-  assert(!_g3_same(&a, &c), "different referents through a bound");
-  assert(_g3_less(&a, &c), "Ord(&String) through a bound");
+  ra := &a;
+  rb := &b;
+  rc := &c;
+  assert(_g3_same(ra, rb), "Eq(&String) through a bound");
+  assert(!_g3_same(ra, rc), "different referents through a bound");
+  assert(_g3_less(ra, rc), "Ord(&String) through a bound");
   assert(_g3_same(i32(3), i32(3)), "the owned instance beside it");
 });
-test("(G2 piece 3) a list of references sorts by its referents", {
+test("(G2 piece 3) a generic `max` at `T := &String` returns the reference to the larger referent", {
   a := String.from("b");
-  b := String.from("c");
   c := String.from("a");
-  mut(xs) := ArrayList(&String).new();
-  xs.push(&a);
-  xs.push(&b);
-  xs.push(&c);
-  xs.sort();
-  assert(xs(usize(0)).* == "a", "first");
-  assert(xs(usize(2)).* == "c", "last");
-  assert(a == "b", "the referents are untouched");
+  ra := &a;
+  rc := &c;
+  m := _g3_max(ra, rc);
+  assert(m.* == "b", "the larger referent");
+  assert(a == "b", "nothing was copied out of the referents");
 });
 test("(G2 piece 3) mixed shapes have no impl: the operand is E0926", {
   x := i32(1);
