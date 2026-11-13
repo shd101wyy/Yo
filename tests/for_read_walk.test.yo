@@ -377,3 +377,19 @@ comptime_expect_error(
   }),
   "iterate it with `for(&mut coll, x => ...)`"
 );
+// C13 (issues/fixed/2026-11-12-a-zip-or-enumerate-of-borrowed-cursors-followed-by-filter-is-e0923-inside-std.md):
+// `filter`'s consuming `match(self._iter.next(), .Some(item) => …)` binds a by-value `IterPair` of
+// references; the binding holds what the moved item held, so storing it in `filter`'s
+// `loop_result` is no E0923.
+test("zip and enumerate of borrowed cursors, then filter", {
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("alpha"));
+  xs.push(String.from("bb"));
+  mut(ys) := ArrayList(String).new();
+  ys.push(String.from("gamma"));
+  ys.push(String.from("cc"));
+  n := (&xs).into_iter().zip((&ys).into_iter()).filter(p => (p.*._0.*.len() == p.*._1.*.len())).count();
+  assert(n == usize(2), "zip then filter keeps both equal-length pairs");
+  m := (&xs).into_iter().enumerate().filter(p => (p.*._0 > usize(0))).count();
+  assert(m == usize(1), "enumerate then filter skips index 0");
+});

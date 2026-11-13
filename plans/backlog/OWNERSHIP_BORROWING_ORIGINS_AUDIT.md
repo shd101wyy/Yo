@@ -161,7 +161,7 @@ basename), or the fix lane that owns it. Severity is `issues/README.md`'s scale.
 | C10 | A non-generic `Impl(Future(...))` parameter rejects a borrowing future operand | S3 | pre | `issues/2026-11-11-a-non-generic-impl-future-parameter-rejects-a-borrowing-future-operand.md` |
 | C11 | A `&mut` binding of a reference cannot be passed bare to a `&mut` reference-to-a-reference parameter | S2 | new (P3) | `issues/2026-11-11-a-mut-binding-of-a-reference-cannot-be-passed-bare-to-a-mut-reference-to-a-reference-parameter.md` |
 | C12 | A closure capturing `&x` cannot return a future that captures `x` (E0912) | S2 | n/a (v0.2.76 cannot spell it; the audit tip accepted it, #1905 suspected) | `issues/2026-11-12-a-closure-capturing-a-reference-cannot-return-a-future-that-captures-the-reference.md` |
-| C13 | A `zip` or `enumerate` of borrowed cursors followed by `filter` is E0923 inside std | S2 | n/a (v0.2.76 cannot spell a borrowed cursor; the audit tip rejects it too) | `issues/2026-11-12-a-zip-or-enumerate-of-borrowed-cursors-followed-by-filter-is-e0923-inside-std.md` |
+| C13 | A `zip` or `enumerate` of borrowed cursors followed by `filter` is E0923 inside std | S2 | n/a (v0.2.76 cannot spell a borrowed cursor; the audit tip rejects it too) | fixed by `fix/c3-c13`: `issues/fixed/2026-11-12-a-zip-or-enumerate-of-borrowed-cursors-followed-by-filter-is-e0923-inside-std.md` |
 
 The diagnostics that name the wrong place, rule or mode are rolled up in one document (C8): they do not change a
 verdict, and they share causes with the findings above (a method name printed as the place, a `&` capture called a
