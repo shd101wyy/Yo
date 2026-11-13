@@ -18,7 +18,11 @@ Yo takes Rust's memory model:
 Its references `&(T, p)` are parameterized by origins, which name *what* is
 borrowed (a set of places) rather than *how long* (decision 43). The target is
 a borrow checker with Rust-parity expressiveness and no soundness holes
-(decision 50).
+(decision 50). "Rust-parity" stays a target, not a v0.2.79 fact: v0.2.79
+claims the language migration and a checker that is sound on what it accepts,
+and the parity claim is made when `DIVERGENCES.tsv` has no row "rejected
+pending a parity item"
+([`handover/VBD_RELEASE_SCHEDULE.md`](handover/VBD_RELEASE_SCHEDULE.md) §5g).
 
 On top of that Yo adds algebraic effects, comptime and a built-in verifier. It
 aims at two niches the incumbents leave open: humane verified systems
@@ -55,6 +59,17 @@ programming, and a language designed for LLM authorship from day one.
   with `Send`/`Sync` split as in Rust), enforced at `check`, with a TSan run as
   the standing proof
   ([`reference/PARALLELISM_RULES.md`](reference/PARALLELISM_RULES.md)).
+  **Known gap, 2026-11-13 (VERDICTS-58 decision 6):** two S1 holes in rule
+  D1's thread reach walk are open, so "data-race freedom for safe code" is
+  not yet a claim that holds: the walk does not see `Drop`, so a value
+  dropped on another thread races on a global
+  (`issues/2026-11-11-the-d1-thread-reach-walk-does-not-see-drop-so-a-value-dropped-on-another-thread-races-on-a-global.md`,
+  audit A41), and it trusts every std body, including the user impls a std
+  generic calls
+  (`issues/2026-11-11-the-d1-thread-reach-walk-trusts-every-std-body-including-the-user-impls-a-std-generic-calls.md`,
+  audit A42). They belong to `PARALLELISM_RULES.md`, which VBD did not
+  change, so they are post-VBD lane A items ahead of scoped threads
+  ([`backlog/POST_VBD_PLAN.md`](backlog/POST_VBD_PLAN.md)).
 - **Real pattern matching**
   ([`reference/MATCH_PATTERN_MATCHING.md`](reference/MATCH_PATTERN_MATCHING.md)),
   and **`#line` debug info**
@@ -80,20 +95,19 @@ programming, and a language designed for LLM authorship from day one.
   - decision 43's reference checker N0–N3
     ([`backlog/REFERENCES_AND_ORIGINS.md`](backlog/REFERENCES_AND_ORIGINS.md)).
 
-## Now — only VALUES_BY_DEFAULT (v0.2.76 → v0.2.79)
+## Now — only VALUES_BY_DEFAULT (v0.2.78 → v0.2.79)
 
 Every declared type is a value, `ref(...)`/`atomic(...)` leave the language,
-and references carry origins ([`VALUES_BY_DEFAULT.md`](VALUES_BY_DEFAULT.md);
-release by release in
-[`handover/VBD_RELEASE_SCHEDULE.md`](handover/VBD_RELEASE_SCHEDULE.md)). What
-remains:
+references carry origins, and the checker is sound on what it accepts
+([`VALUES_BY_DEFAULT.md`](VALUES_BY_DEFAULT.md); release by release in
+[`handover/VBD_RELEASE_SCHEDULE.md`](handover/VBD_RELEASE_SCHEDULE.md), whose
+§5g defines the two claims "VBD complete" makes). What remains:
 
 | Release | Content |
 | --- | --- |
-| **v0.2.76** | The last migrations: N1e-2b, G1 (`FnMut` slots) and the `--migrate deref` sweep. The macro layer's Part C. Borrow-checker fixes O-1/O-2, which hold this cut until 2026-11-14 ([`backlog/BORROW_CHECKER_COMPLETENESS.md`](backlog/BORROW_CHECKER_COMPLETENESS.md)) |
-| **v0.2.77** | The parser drops `ref`/`atomic`; the `yo fix` migrations retire; G2 (borrowing collections); decision 49 S1 (`?Sized`, `str`, `[T]`, `Dyn`, compiler half); `Box` layout L1; parity items |
-| **v0.2.78** | Decision 49 S2 (std over `?Sized`) with `Box` layout L2; G3; kebab-case module files (Part C) |
-| **v0.2.79** | Retirements; `Box` layout L3; parity close-out (scoped threads, the generator). **VBD is complete.** |
+| **v0.2.77** | **Published 2026-11-13.** The `yo fix` migrations retire (every mode except `deref`); G2's borrowing collections (`impl(&C, IntoIterator)`); decision 49 S1 (`?Sized`, `str`, `[T]`, `Dyn`, compiler half) with `Box` layout L1; brace groups Generation A; the borrow-checker stack O-1…O-6, P3, P8, P9 and the audit's cut-gate fixes. The parser's `ref`/`atomic` drop moved to v0.2.79 |
+| **v0.2.78** (cut target 2026-11-25, latest 11-27) | The sweeps: `deref` and brace groups Generation B (one window); decision 49 S2 (std over `?Sized`) with `Box` layout L2, then S3a (the `Dyn` deletions) and G3; kebab-case module files (Part C), last. The audit's clusters 1–8 close by rule or wall (wall date 2026-11-20); G-D now, then G-C; P1 behind cluster 4, P2 and P12 |
+| **v0.2.79** (cut target 2026-12-11, latest 12-19) | The three-tree retype (`Token`, `AstExpr`, `EvalValue`) and the parser drop of `ref`/`atomic`; S3b (`str`/`slice_copy`); the mode retirements; `Box` layout L3. **The language migration is complete; the soundness claim is asserted by the release-candidate tests, or listed as pending** |
 
 ## Next — after VBD (from v0.2.80)
 
@@ -106,6 +120,9 @@ with at most four running at once:
     ([`backlog/TYPE_SYSTEM_SOUNDNESS.md`](backlog/TYPE_SYSTEM_SOUNDNESS.md)).
   - The `Comptime` storage rule
     ([`backlog/COMPTIME_METAPROGRAMMING_AUDIT.md`](backlog/COMPTIME_METAPROGRAMMING_AUDIT.md)).
+  - The walls VBD dropped, in order: N2c–N2f with P4 and P5, then the
+    thread reach walk's holes (A41/A42), then scoped threads (P6), then
+    lending iterators through a trait (P7).
   - The borrow checker's standing gates.
 - **B. Runtime and platform.** In order:
   1. `Io` becomes an interface value

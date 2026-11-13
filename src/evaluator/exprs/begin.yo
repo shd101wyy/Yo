@@ -790,13 +790,13 @@ _m3_is_flow_logged_move :: (fn(variable : &Variable, t : &Token) -> bool)({
 /// The same holds for a TEMPORARY passed by value (`g(mk(), …)`), a struct or
 /// tuple literal's earlier field and a by-value receiver (`T(…).eat(…)`)
 /// (issues/fixed/2026-11-11-a-temporary-argument-leaks-when-a-later-argument-returns-continues-or-unwinds.md).
-_m3_consumed_for_call_arg :: (fn(call : &AstExpr, args : &ArrayList(AstExpr), i : usize, variable : &Variable, consumed : &Option(Token)) -> Option(Token))({
+_m3_consumed_for_call_arg :: (fn(call : &AstExpr, args : &ArrayList(AstExpr), i : usize, variable : &Variable, consumed : &Option(Token), ctx : &EvalContext) -> Option(Token))({
   ct := match(consumed, .Some(t) => t, .None => return(Option(Token).None));
   // A block's statements run one by one: an earlier one is not an argument.
   if(ast_expr_is_fn_call_of(call, BK_BEGIN, Option(usize).None), {
     return(consumed);
   });
-  match(_m3_first_arg_after_move(call, args, variable, &ct), .Some(k) => if(i >= k, return(Option(Token).None)), .None => ());
+  match(_m3_first_arg_after_move(call, args, variable, &ct, ctx), .Some(k) => if(i >= k, return(Option(Token).None)), .None => ());
   consumed
 });
 /// Whether the call argument `a` is the by-value use that moved `variable` at
@@ -805,33 +805,69 @@ _m3_consumed_for_call_arg :: (fn(call : &AstExpr, args : &ArrayList(AstExpr), i 
 /// the call is what moves it, wherever the move is recorded: a receiver's at
 /// the method call). A labeled field's value (`S(f : x, …)`) counts as the
 /// argument.
-_m3_arg_moves_variable :: (fn(a : &AstExpr, variable : &Variable, ct : &Token) -> bool)(
-  _m3_operand_moves_variable(a, variable, ct) || match(
+_m3_arg_moves_variable :: (fn(a : &AstExpr, variable : &Variable, ct : &Token, ctx : &EvalContext) -> bool)(
+  _m3_operand_moves_variable(a, variable, ct, ctx) || match(
     a,
-    .FnCall(_, _, Rc(la), _, _) => (ast_expr_is_fn_call_of(a, BK_COLON, Option(usize).Some(usize(2))) && match(la.get(usize(1)), .Some(v) => _m3_operand_moves_variable(&v, variable, ct), .None => false)),
+    .FnCall(_, _, Rc(la), _, _) => (ast_expr_is_fn_call_of(a, BK_COLON, Option(usize).Some(usize(2))) && match(la.get(usize(1)), .Some(v) => _m3_operand_moves_variable(&v, variable, ct, ctx), .None => false)),
     .Atom(_, _) => false
   )
 );
-_m3_operand_moves_variable :: (fn(a : &AstExpr, variable : &Variable, ct : &Token) -> bool)({
+_m3_operand_moves_variable :: (fn(a : &AstExpr, variable : &Variable, ct : &Token, ctx : &EvalContext) -> bool)({
   t := ast_expr_token(a);
   if(ast_expr_is_atom(a), {
     return((t.value.* == variable.name) && _m3_tokens_comparable(&t, ct) && (t.character == ct.character));
   });
-  if(!is_any_temp_variable_name(&variable.name), {
+  // The minting-site test first: it allocates nothing, and the walks ask it
+  // of every operand of every call in a block, for each consumed variable.
+  minted_here := match(variable.initialized_at_token(), .Some(init) => (_m3_tokens_comparable(&t, &init) && (t.character == init.character)), .None => false);
+  if(!minted_here || !is_any_temp_variable_name(&variable.name), {
     return(false);
   });
-  match(variable.initialized_at_token(), .Some(init) => (_m3_tokens_comparable(&t, &init) && (t.character == init.character)), .None => false)
+  // A call-scoped share (Aliasing Stage 0's caller-owned +1 of a borrowed
+  // receiver or argument, `mark_call_scoped_share_dup`) is "consumed at the
+  // dup by design" and released by the call's post-call flush, whose drop
+  // codegen already keeps pending for every exit in the later arguments: the
+  // call does not move it, and an exit drop here released it a second time
+  // (issues/fixed/2026-11-13-a-receivers-call-scoped-rc-share-is-released-twice-by-an-exit-in-a-later-argument.md).
+  !_m3_operand_carries_call_scoped_share(a, ctx)
 });
+/// Whether the operand `a` carries a call-scoped share dup
+/// (`is_call_scoped_share_dup`): its temporary is the share, not a value the
+/// call moves.
+_m3_operand_carries_call_scoped_share :: (fn(a : &AstExpr, ctx : &EvalContext) -> bool)(
+  match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(a)),
+    .Some(ei) => match(
+      expr_info_deferred_dup_expressions(&ei),
+      .Some(dl) => {
+        (mut(i) : usize) = usize(0);
+        while(i < dl.len(), {
+          match(
+            dl.get(i),
+            .Some(d) => if(is_call_scoped_share_dup(ast_expr_id(&d)), {
+              return(true);
+            }),
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+        false
+      },
+      .None => false
+    ),
+    .None => false
+  )
+);
 /// The index of the first argument of the plain call `call` that runs after
 /// one of its by-value operands moved `variable` at `ct` (an earlier argument,
 /// or the receiver of a method call, which precedes them all), or `.None`.
-_m3_first_arg_after_move :: (fn(call : &AstExpr, args : &ArrayList(AstExpr), variable : &Variable, ct : &Token) -> Option(usize))({
+_m3_first_arg_after_move :: (fn(call : &AstExpr, args : &ArrayList(AstExpr), variable : &Variable, ct : &Token, ctx : &EvalContext) -> Option(usize))({
   receiver_moves := match(
     call,
     .FnCall(_, func, _, _, _) => (
       ast_expr_is_fn_call_of(&func, BF_DOT, Option(usize).Some(usize(2))) && match(
         func,
-        .FnCall(_, _, Rc(fargs), _, _) => match(fargs.get(usize(0)), .Some(r) => _m3_arg_moves_variable(&r, variable, ct), .None => false),
+        .FnCall(_, _, Rc(fargs), _, _) => match(fargs.get(usize(0)), .Some(r) => _m3_arg_moves_variable(&r, variable, ct, ctx), .None => false),
         .Atom(_, _) => false
       )
     ),
@@ -844,7 +880,7 @@ _m3_first_arg_after_move :: (fn(call : &AstExpr, args : &ArrayList(AstExpr), var
   while(j < args.len(), {
     match(
       args.get(j),
-      .Some(a) => if(_m3_arg_moves_variable(&a, variable, ct), {
+      .Some(a) => if(_m3_arg_moves_variable(&a, variable, ct, ctx), {
         return(Option(usize).Some(j + usize(1)));
       }),
       .None => ()
@@ -876,7 +912,7 @@ _m3_note_arg_move_region :: (fn(expr : &AstExpr, variable : &Variable, ct : &Tok
       plain := !(ast_expr_is_fn_call_of(expr, BK_BEGIN, Option(usize).None) || (ast_expr_is_fn_call_of(expr, BK_COND, Option(usize).None) || (ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None) || (ast_expr_is_fn_call_of(expr, BK_WHILE, Option(usize).None) || ast_expr_is_fn_call_of(expr, "=>", Option(usize).None)))));
       if(plain, {
         match(
-          _m3_first_arg_after_move(expr, &args, variable, ct),
+          _m3_first_arg_after_move(expr, &args, variable, ct, ctx),
           .Some(k) => match(
             args.get(k),
             .Some(later) => {
@@ -1162,7 +1198,7 @@ _m3_attach_to_returns :: (fn(expr : &AstExpr, variable : &Variable, drop_expr : 
       recur(&func, variable, drop_expr, consumed, ctx);
       (ai : usize) = usize(0);
       while(ai < args.len(), {
-        arg_consumed := _m3_consumed_for_call_arg(expr, &args, ai, variable, consumed);
+        arg_consumed := _m3_consumed_for_call_arg(expr, &args, ai, variable, consumed, ctx);
         match(args.get(ai), .Some(a) => recur(&a, variable, drop_expr, &arg_consumed, ctx), .None => ());
         ai = (ai + usize(1));
       });
@@ -1244,7 +1280,7 @@ _m3_attach_to_loop_exits :: (fn(expr : &AstExpr, variable : &Variable, drop_expr
       recur(&func, variable, drop_expr, consumed, ctx);
       (ai : usize) = usize(0);
       while(ai < args.len(), {
-        arg_consumed := _m3_consumed_for_call_arg(expr, &args, ai, variable, consumed);
+        arg_consumed := _m3_consumed_for_call_arg(expr, &args, ai, variable, consumed, ctx);
         match(args.get(ai), .Some(a) => recur(&a, variable, drop_expr, &arg_consumed, ctx), .None => ());
         ai = (ai + usize(1));
       });
