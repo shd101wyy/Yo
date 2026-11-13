@@ -24,6 +24,14 @@ write. What that leaves:
    too. A by-value `&mut`
    lend to such a callee is judged since the v0.2.77 fix (it needs no body).
 
+**Item 2 is fixed** by `fix/c2-access-modes` (audit §9 cluster 2): `d3_check_pending_unresolved_callee`
+(`src/evaluator/exprs/assignment.yo`) judges the local-borrow entries with the unknown mask (`all`), so every `&mut`
+argument to a callee with no body is a two-phase write against the live loans (E0911). Rows
+`tests/origins/unsound/c2-mut-arg-unresolved-dyn-fn.yo`, `-fn-value.yo`, `-dyn-trait.yo` (E0911) and
+`c2-mut-arg-unresolved-dyn-fn-pos.yo` (accept). The same branch makes every `&mut` argument and receiver an exclusive
+access against a live closure's capture borrow whatever the callee is (the declared mode). Item 1 (a summarized callee
+that neither writes nor lends, against a local `&` loan) is what remains open here.
+
 ## Expected (G)
 
 Every `&mut` argument and receiver is an exclusive access of its place at the call's activation point (two-phase,

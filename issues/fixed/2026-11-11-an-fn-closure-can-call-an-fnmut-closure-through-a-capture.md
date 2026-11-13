@@ -74,3 +74,15 @@ borrow or a `&` capture". The fix makes the callee check reject an `is_ref` bind
 With the fix: the negative program and the positive control move to `tests/origins/unsound/`; `tests/fn_mut.test.yo`
 gains the E0908 case and the local-`&`-borrow control, and a corpus row `fnmut-call-through-ref-capture` (E0908) in
 `tests/origins/corpus.tsv`.
+
+## Fix
+
+`reject_write_through_shared_capture` (`src/evaluator/utils.yo`), called from `place_require_mut` in every tree:
+a write of a `&` capture-list entry — the binding is `is_ref`, has a `BorrowCaptureOuter` record and its slot type is
+a shared reference — is E0908 "Cannot call the `FnMut(...)` closure `r`: it is the `&` capture `r : &f`, a read-only
+borrow." `_require_exclusive_fnmut_callee` reaches it through `place_require_mut`, so the `FnMut` call through
+`{ r : &f }` is rejected as the local `r := &f` is; `reject_implicit_capture_write` skips capture-list entries.
+
+Tests: `tests/origins/unsound/c2-fn-closure-calls-fnmut-ref-capture.yo` (E0908),
+`c2-fn-closure-calls-fnmut-ref-capture-pos.yo` (accept); `tests/fn_mut.test.yo` "an `FnMut` closure called through a
+`&` capture is E0908".
