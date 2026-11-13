@@ -1374,27 +1374,6 @@ impl(
     )
   })
 );
-/// A live position walk over the occupied buckets, in the bucket order
-/// `iter()` has: `walk_start` is the first occupied bucket, `walk_valid` says
-/// whether a position names one, `walk_ref` reads its entry in place and
-/// `walk_next` is the next occupied bucket. Unlike `iter()` and the borrowed
-/// `for`, it holds no lend of the map, so the map may grow between steps
-/// (a later step re-derives its position from the live buckets, and a
-/// rehash can reorder what is left to visit).
-impl(
-  generic(K : Type, V : Type),
-  where(K <: (Eq(K), Hash)),
-  HashMap(K, V),
-  walk_start : (fn(self : &Self) -> usize)(self._walk_from(usize(0))),
-  walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self.capacity),
-  walk_ref : (fn(self : &Self, cur : &usize) -> &MapEntry(K, V))({
-    if(cur >= self.capacity, {
-      __yo_panic("HashMap: walk cursor out of bounds");
-    });
-    Self._data_ptr(self).add(cur)
-  }),
-  walk_next : (fn(self : &Self, cur : &usize) -> usize)(self._walk_from(cur + usize(1)))
-);
 // NOTE: This held a wrapped `_inner : HashMapIter(K, V)` and delegated
 // `self._inner.next()` — but a method call on a struct FIELD of `self : &mut Self`
 // advances a COPY of the field, so `_index` never moved and manual
