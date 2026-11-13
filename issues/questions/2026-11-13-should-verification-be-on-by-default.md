@@ -123,6 +123,16 @@ Step 2 amends the two standing texts quoted above in the PR that flips the defau
 **The two pragmas collapse to one at the flip (maintainer, 2026-11-13).** Until then
 both stay exactly as they are.
 
+Both behaviours survive the flip. Only one spelling goes, because its behaviour
+becomes what a module gets with no pragma:
+
+| | Today | After the default flips |
+| --- | --- | --- |
+| No pragma | `runtime` (nothing proved) | `verify+` (prove what the solver can, keep a runtime check for the rest) |
+| `pragma(Pragma.VerifyOrAssert);` | `verify+` | deleted: it would restate the default |
+| `pragma(Pragma.Verify);` | `verify` (strict) | still `verify` (strict), under a clearer name |
+| Opt-out pragma | none exists | new: puts a module back in `runtime` |
+
 - The two differ in one case only. Proved: both erase the runtime check. Refuted: both
   fail the build. Solver gave up: `Pragma.Verify` fails the build,
   `Pragma.VerifyOrAssert` keeps the runtime check and builds.
