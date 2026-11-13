@@ -6,7 +6,7 @@ These are baseline syntax rules for portable Yo code.
 
 - Everything is an expression.
 - Separators change meaning:
-  - commas build tuples, arrays, or struct literals
+  - commas build tuples, arrays, or (after a dot, `.{ … }`) record literals
   - semicolons create sequencing or type shapes
 - Prefer explicit syntax over relying on parser guesswork.
 
@@ -52,11 +52,9 @@ total := {
 };
 ```
 
-Remember: `{ expr }` without semicolons is a struct literal, not a block. The parser now detects this mistake and emits a clear error if the single expression is not a valid struct field.
+Remember: `.{ … }` builds a record, `{ names }` on a binding side picks fields, every other `{ … }` is a block (`{ e }` yields `e`, `{}` is unit). **Run `yo check <file>` on every file you edit — and pass `--std-path ./std` when working in a Yo checkout**, or `check` silently validates against the INSTALLED std instead of yours.
 
-**`yo fmt` is not a syntax gate for this.** It parses `{ single_expr }` happily as a struct literal and pretty-prints it, so a `yo fmt` that says "Formatted 1 Yo file(s)" tells you nothing about whether you wrote the block you meant. Measured 2026-08-25: an `if(cond, { single_expr }, other)` passed `yo fmt` and then failed `yo check` with exactly that struct-literal error. **Run `yo check <file>` on every file you edit — and pass `--std-path ./std` when working in a Yo checkout**, or `check` silently validates against the INSTALLED std instead of yours.
-
-In struct literals, keep spaces around `:` and parenthesize infix field values: `{ x : (1 + 2), y : 3 }`, not `{ x: 1 + 2, y: 3 }`.
+In record literals, keep spaces around `:` and parenthesize infix field values: `.{ x : (1 + 2), y : 3 }`, not `.{ x: 1 + 2, y: 3 }`.
 
 ## Control flow
 
@@ -1416,35 +1414,30 @@ f := (fn(x : u32, acc : u32) -> u32)(
 );
 ```
 
-### A brace group is a RECORD unless it has a `;` — in every position
+### `.{ … }` builds a record, `{ names }` on a binding side picks fields, every other `{ … }` is a block
 
-The rule is uniform and decided (2026-09-16,
-`plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md` §4): a value, the left of
-`::` / `:=` / `=`, and a `match` payload pattern all read braces the same way,
-so patterns and literals can never disagree. No leading dot, no comma tax.
+The rule since v0.2.78 (`plans/reference/BRACE_BLOCKS.md`). A record value always carries the dot, as
+`.Some(x)` does: the type comes from context.
 
 ```yo ignore
-// ❌ Parsed as struct literal `{ match(...) }`
-fn :: (fn() -> T)({ match(x, arms) })
-
-// ✅ Remove braces or add semicolon
-fn :: (fn() -> T)(match(x, arms))
-fn :: (fn() -> T)({ match(x, arms); })
+r := .{ x : 1, y : 2 };             // a record; `.{ x }` one field, `.{}` empty
+(p : Point) = .{ x : 1, y : 2 };    // the expected struct's value
+io.await(fut, .{ io, exn });        // effect records too
+v := { x };                         // a block yielding x
+f :: (fn() -> T)({ match(x, arms) }) // a block yielding the match
+{ a, b } := r;                      // a binder: bare field list, no dot
+match(p, { x, y } => x, …)          // a pattern: no dot
 ```
 
-**`{ x }` is a ONE-FIELD RECORD, not a one-expression block** — the shape that
-looks most like a block in every other language. `v => { v }` builds
-`_(v : v)`. Write `v` for the value, `{ v; }` for a block. The compiler now
-says this at the literal when the expected type can never be a record; when
-it cannot tell (no expected type, as in `y := { x }`), the rule still holds
-and you get a record.
+A bare brace with a `,` or a `label : value` pair in expression position is E0007 (`yo fix` inserts the dot);
+a dot on the binding side is E0007 too (`yo fix` deletes it). `{}` is the empty block (unit), so `true => {}` is a
+no-op arm.
 
 ### Sibling match/cond arms must agree in type — brace statement-like arms
 
 An unbraced arm's value is the expression's value, and `list.push(x)` /
 `map.insert(k, v)` return non-unit — so mixing an unbraced push arm with a
-block-shaped (unit) sibling arm is a type error ("Incompatible types" /
-"{ ... } without semicolons"). Brace-and-semicolon every arm whose result
+block-shaped (unit) sibling arm is a type error ("Incompatible types"). Brace-and-semicolon every arm whose result
 is not meant to be the value: `(c) => { bytes.push(b); },`.
 
 ### Associated CONSTANTS exist, and a blanket body can read them
@@ -2028,11 +2021,9 @@ rather than hoisting around it.
 
 ## Body-statement rules
 
-A body `({ match(...) })` holding ONE expression and no `;` is a one-field
-record, whatever the expression (E0007: "{ ... } without semicolons is parsed
-as a struct literal"). Write `(match(...))` as the body, or end a statement with
-`;` — a block may start with `cond(...)` or `match(...)` like any other
-statement. Related body rules learned the hard way:
+A body `({ match(...) })` holding ONE expression is a block yielding it; `(match(...))` is the same
+value without the braces. A block may start with `cond(...)` or `match(...)` like any other statement.
+Related body rules learned the hard way:
 
 - Typed assignments need the whole pair parenthesized: `(x : T) = expr;` — bare
   `x : T = expr` is rejected as "adjacent different operators" (`x := expr` is

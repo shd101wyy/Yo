@@ -5,67 +5,34 @@ description: "Use when writing or editing Yo language code. Covers critical synt
 
 # Yo Language Syntax Rules
 
-## Curly braces `{...}` behave differently based on separators
+## Curly braces: `.{ … }` builds a record, `{ names }` on a binding side picks fields, every other `{ … }` is a block
 
-- A brace group is a **record unless it contains a `;`**, and that rule is the
-  same in EVERY position — a value, the left of `::` / `:=` / `=`, and a
-  `match` payload pattern (decided 2026-09-16,
-  `plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md` §4, where the `.{ … }` and
-  comma-decides alternatives are recorded as declined). Patterns and literals
-  therefore never disagree about what a brace means.
-- `{ expr }` without semicolons creates an **anonymous struct value**, NOT a block!
-- `{ x }` — a bare identifier — is a **one-field record** (`_(x : x)`), the
-  case that looks most like a block in other languages. The parser's clear
-  error covers a single non-fieldable expression (a call, a `match`), but
-  `{ x }` IS fieldable, so it is accepted; the compiler reports it at the
-  literal when the expected type can never be a record, and when there is no
-  expected type (`y := { x }`) you simply get the record.
-- `{ expr; }` with semicolons creates a **begin block** (sequence of statements)
-- Struct literal fields use spaces around `:` and infix field values must stay grouped: `{ x : (1 + 2), y : 3 }`, not `{ x: 1 + 2, y: 3 }`.
-- If you want a single expression, write `expr` directly. Don't wrap it in `{...}` unless you need a struct.
-- **The parser now detects this mistake and emits a clear error**: if `{ }` contains a single non-struct expression (a function call, `match`, `cond`, `while`, etc.), it fails with: `{ ... } without semicolons is parsed as a struct literal, not a block.`
+The whole rule (plans/reference/BRACE_BLOCKS.md, brace groups Generation B, v0.2.78):
+
+- **A record value is `.{ … }`, always**: `.{ x : 1, y : 2 }`, `.{ x, y }` (puns), `.{ x }` (one field),
+  `.{}` (the empty record), `.{ &y }`, `.{ ...base, x : 1 }`. With an expected struct type it is that
+  type's value (`(p : Point) = .{ x : 1, y : 2 }`), as `.Some(x)` is the expected enum's; with none it
+  is an anonymous record. Effect records and build options too: `io.await(fut, .{ io, exn })`,
+  `build.executable(.{ name : "n", root : "r" })`.
+- **A bare `{ … }` in expression position is a block**: `{ e }` yields `e`, `{ s; e }` yields `e`,
+  `{ s; }` yields unit, and `{}` is the empty block (unit). A `,` or a `label : value` pair directly
+  inside a bare expression brace is E0007, whose repair inserts the dot (`yo fix`).
+- **Binder positions keep bare braces**, a field list with no dot: `{ a } := s`, `{ a : alias } = s`,
+  `{ String } :: import("std/string")`, `{ ... } :: import("m")`, `match(p, { x, y } => …)`,
+  `.V({ x })` / `.V({})` in a pattern, and the closure capture list `{ y }(p) => …`, `{}() => …`. A
+  dot there is E0007, whose repair deletes it.
+- `(a, b)` is the only tuple spelling (`.{ 1, 2 }` is E0007 naming it), and `Point(x : 1, y : 2)` stays
+  the constructor of a named struct.
+- Record fields use spaces around `:` and infix field values stay grouped: `.{ x : (1 + 2), y : 3 }`.
+- `yo fix <path> --migrate record-literal` rewrites source written before v0.2.78 (where a bare brace
+  group of fields was a record) to `.{ … }`; it retires in v0.2.79.
 
 ```yo ignore
-// WRONG - creates a struct:
-result := { .Ok(()) }
-
-// CORRECT - just the expression:
-result := .Ok(())
-
-// CORRECT - begin block with statements:
-result := { x := 1; y := 2; .Ok(()) }
-
-// WRONG - invalid anonymous struct value:
-print_bool :: (fn(value: bool) -> i32)({
-  cond(
-    value => i32(1),
-    true => i32(0)
-  )
-});
-
-// CORRECT - just the expression:
-print_bool :: (fn(value: bool) -> i32)(
-  cond(
-    value => i32(1),
-    true => i32(0)
-  )
-);
-
-// WRONG - lambda body wraps single expression in {...}, creating a struct:
-io.async((io : Io) => {
-  cond(
-    done => .Ok(()),
-    true => .Err(e)
-  )
-})
-
-// CORRECT - lambda body is just the expression, no {...}:
-io.async((io : Io) =>
-  cond(
-    done => .Ok(()),
-    true => .Err(e)
-  )
-)
+r := .{ x : i32(1), y : i32(2) }; // a record
+v := { x };                        // a block yielding x
+{ x, y } := r;                     // a field list (binder)
+noop :: (fn() -> unit)({});        // the empty block is unit
+io.async((io : Io) => { cond(done => .Ok(()), true => .Err(e)) }) // a block yielding the cond
 ```
 
 ## Always write `cond(...)` and `match(...)` with parentheses
@@ -204,14 +171,12 @@ supplies the signature) is written with the right group, which fmt keeps:
 
 ## Return value rules
 
-- The last expression in `{ ... }` without semicolon is the return value of the struct or enum constructor.
+- The last expression in a block `{ ...; e }` (no semicolon after it) is the block's value; `{ e }` alone yields `e`.
 - With semicolon, like `{ expr; }`, the return value is `unit`.
 - **`()` is the unit VALUE; `unit` is the TYPE.** Never write `unit;` — that evaluates the type as a
   comptime value. To yield unit, either end the block with `()` as the last expression (no semicolon),
   or omit the tail entirely: a block whose statements all end in `;` already evaluates to unit. An
-  empty arm is `()` — `{}` is an empty STRUCT value, not unit, and is rejected where unit is
-  expected (`issues/fixed/2026-10-18-an-empty-struct-literal-is-accepted-where-unit-is-expected.md`;
-  maintainer directive 2026-10-18).
+  empty arm is `()` or the empty block `{}` (both unit since v0.2.78); `.{}` is the empty RECORD.
 
 ## Enum definition syntax
 
@@ -660,7 +625,7 @@ v := unsafe(p.*);
 // Assignment:
 unsafe(p.* = i32(12));
 
-// cond / match wrapped directly (no braces — `{...}` without `;` is a struct):
+// cond / match wrapped directly:
 result := unsafe(
   cond(
     (n > i32(0)) => p.*,
@@ -1467,7 +1432,7 @@ Fixes, in order of preference:
 1. **Hoist the statement out of the `match` entirely** — put the `eprintln`
    before or after, on a value the arms have already written. Usually the
    instrumentation did not need to be inside the arm at all.
-2. Give every sibling arm the same shape (add a matching statement to `_ => { ...; }` — an empty arm is `()`, never `{}`).
+2. Give every sibling arm the same shape (add a matching statement to `_ => { ...; }` — an empty arm is `()`).
 
 The error names a frame _level_, not a file or line, so it does not point at the
 arm you edited. If it appears right after you touched a `match`, assume this
@@ -1533,7 +1498,7 @@ the `&mut` audit note.
 
 ## Closure capture lists: `{ x, &y, z : &mut w }(params) => body`
 
-`plans/VALUES_BY_DEFAULT.md` decisions 35 and 38, Generation A (this compiler; `std/` and `src/` do not use it until the seed parses it). The `{…}` before the parameters is a record literal the closure literal reads as its captures:
+`plans/VALUES_BY_DEFAULT.md` decisions 35 and 38, Generation A (this compiler; `std/` and `src/` do not use it until the seed parses it). The `{…}` before the parameters is a field list (a binder, no dot) the closure literal reads as its captures:
 
 - `x` / `x : e` — a by-value field (copy, or move for a move-only value). `&y` / `name : &place` — a read-only borrow; `&mut z` / `name : &mut place` — a writing borrow. The sigil on the initializer carries the mode; the puns `&y` and `&mut z` stand for `y : &y` and `z : &mut z`.
 - The list is EXHAUSTIVE: the body may read only the listed names and module-level items (`{}()` captures nothing).

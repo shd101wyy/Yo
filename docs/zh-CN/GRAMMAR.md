@@ -185,36 +185,29 @@ ArrayExpression ::=
 ;; 只能位于指针之后：`&[T]`、`&mut [T]`、`*[T]`。`[T;]` 没有给出长度，
 ;; 是解析错误。单元素数组值用尾随逗号书写：`[expr,]`。
 
-;; 花括号表达式
-;; 花括号组在没有分号时是记录（RECORD）—— 这条规则在所有位置一致：
-;; 值、`::` / `:=` / `=` 的左侧、以及 `match` 载荷模式。这种一致性是
-;; 有意为之（2026-09-16 决定，plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §4）：
-;; 模式与字面量永远不会对一个花括号的含义产生分歧。需要知道的结果是：
-;; `{ x }` 是单字段记录，而不是单表达式块 —— 值直接写 `x`，块写 `{ x; }`。
-;; 编译器在能报告的地方都会明确提示。
-;; 分隔符决定解释方式：
-;; - 逗号或无分隔符：记录字面量 { x: 1, y: 2 } 或 { x, y }
-;; - 分号：begin 块 { expr; expr; expr }
-CurlyBracketExpression ::=
-  | '{' '}'                                           ;; 空记录
-  | '{' Field (',' Field)* ','? '}'                   ;; 记录字面量（逗号分隔）
-  | '{' ';' '}'                                       ;; 空 begin 块（begin(unit)）
-  | '{' Expression (';' Expression)* ';'? '}'         ;; begin 块（分号分隔）
+;; 花括号表达式（plans/reference/BRACE_BLOCKS.md，自 v0.2.78 起）
+;; `.{ … }` 构造记录，绑定一侧的 `{ names }` 选取字段，其余所有 `{ … }` 都是块。
+;; 在表达式位置，裸花括号组是块：`{ e }` 的值是 `e`，`{ s; e }` 的值是 `e`，
+;; `{ s; }` 和 `{}` 的值是 unit。裸表达式花括号内直接出现 `,` 或
+;; `label : value` 对是 E0007（修复方式是补上点）。绑定位置（`:=`、`::` 和
+;; 解构 `=` 的左侧；`match` 分支的模式及其所有子模式；`for` 的元素模式；
+;; 闭包的参数和捕获列表）使用不带点的裸字段列表；在那里写点是 E0007。
+RecordLiteral ::=                                     ;; 仅表达式位置
+  | '.{' (Field (',' Field)* ','?)? '}'               ;; '.' 与 '{' 相邻
+Block ::=
+  | '{' '}'                                           ;; unit
+  | '{' Expression '}'                                ;; 值为 Expression
+  | '{' (Expression ';')+ Expression? '}'             ;; 值为最后一个 Expression；尾随 ';' 时为 unit
+FieldList ::=                                         ;; 仅绑定位置
+  | '{' (Binder (',' Binder)* ','?)? '}'
 
-;; 记录的 Field 是裸标识符（改写为 `name : name`）或 `key : value` 对；
-;; 逗号组中的其他任何内容都是解析错误
-;; "{ ... } without semicolons is parsed as a struct literal, not a block.
-;; To write a block, use semicolons: { stmt1; stmt2; }"。
-Field ::= Identifier | Expression ':' Expression
+;; 记录的 Field 是裸标识符（改写为 `name : name`）、`key : value` 对、
+;; 借用简写 `&y` / `&mut y` 或展开 `...base`。`.{ 1, 2 }` 是错误，提示写元组 `(1, 2)`。
+Field ::= Identifier | Identifier ':' Expression | '&' Identifier | '&mut' Identifier | '...' Expression
+Binder ::= Identifier | 'mut' '(' Identifier ')' | Identifier ':' Pattern | '&' Identifier | '&mut' Identifier | '...'
 
-;; begin 块的尾随 `;` 会追加一个结尾 unit：`{ x; y; }` 的值是 `()`；
-;; `{ x; y }` 的值是 `y`。
-
-;; 空记录 `{}` 是零字段结构体的“值”，不是 unit 值。在期望 unit 的位置
-;; （`cond`/`match` 分支、`-> unit` 函数体、unit 参数）应写 `()` —— 在这些
-;; 位置写 `{}` 会被拒绝，报错会提示写 `()`（2026-10-18 起的检查期规则，
-;; 见 issues/fixed/2026-10-18-an-empty-struct-literal-is-accepted-where-unit-is-expected.md）。
-;; 在期望零字段结构体类型的位置，`{}` 才是应写的字面量。
+;; `.{}` 是空记录，即零字段结构体的“值”；`{}` 和 `()` 是 unit
+;; （issues/fixed/2026-10-18-an-empty-struct-literal-is-accepted-where-unit-is-expected.md）。
 
 ;; 点表达式
 ;; 前导点用于枚举变体或标签联合
@@ -405,7 +398,7 @@ Separator ::= ',' | ';'
 
    - 在 `[]` 中：数组字面量
    - 在 `()` 中：元组值
-   - 在 `{}` 中：记录字面量（匿名结构体）
+   - 在 `.{}` 中：记录字面量（匿名结构体）；在绑定位置的 `{}` 中：字段列表
 
 2. **分号（`;`）**：构造类型表达式或 begin 块
    - 在 `()` 中：元组类型
@@ -418,12 +411,12 @@ Separator ::= ',' | ';'
 
    - `()` - unit 值
    - `[]` - 空数组
-   - `{}` - 空记录
-   - `{;}` - 空 begin 块
+   - `.{}` - 空记录
+   - `{}` - 空块（unit）
 
 2. **记录简写**：
 
-   - `{ x, y }` 脱糖为 `_( x: x, y: y )`
+   - `.{ x, y }` 脱糖为 `_( x: x, y: y )`
    - 没有冒号的标识符把名字同时用作键和值
 
 3. **前导点**：
