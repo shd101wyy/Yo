@@ -3417,6 +3417,14 @@ twice({ n : i32(10) }() => {
 - **A by-value entry is writable only under `FnMut`.** The same body typed
   `Fn(...)` or `FnOnce(...)` writing an entry is E0917: there the write would
   reach a per-call copy. Under `FnOnce`, rebind the entry (`mut(m) := n;`).
+- **An implicit capture is written only under an owning `FnMut` or `FnOnce`.**
+  An `Fn(...)` closure, or a literal lent to a borrowing parameter
+  (`run(&(() => …))`), that writes a capture it names in its body — `s = …`,
+  `s.push_str(…)`, `grow(&mut s)` — is E0913: the record holds the closure's
+  copy of `s`, a bitwise alias of the caller's in a borrowed literal, so the
+  write would release storage the caller still owns. Borrow the place instead,
+  `{ &mut s }(...) => …` at an `FnMut` slot. A `&` capture entry is read-only:
+  calling an `FnMut` closure through `{ r : &f }` is E0908.
 - **An `FnMut` closure is move-only.** It derives neither `Copy` nor `Clone`,
   whatever its captures are: a copy would fork its state. `Box(Dyn(FnMut(...)))` is
   move-only too.
