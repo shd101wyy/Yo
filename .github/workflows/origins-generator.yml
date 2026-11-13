@@ -1,0 +1,151 @@
+name: Borrow-program generator (G-D)
+
+# plans/backlog/BORROW_CHECKER_COMPLETENESS.md §6 G-D: scripts/origins-gen.py renders enumerated borrow
+# programs as a Yo program AND a rustc twin, takes Yo's verdict (`yo check`), rustc's verdict and, when Yo
+# accepts, an ASan run, and minimizes every use-after-free / accept-vs-rustc disagreement into
+# tests/origins/gen-findings/.
+#
+# SCHEDULED + dispatchable, like ubsan.yml and fixpoint-arm64.yml: it costs a stage-1 build plus ~10 minutes of
+# programs, and it is NOT a required status check and NOT a `merge-gate` need (an unlisted job does not gate;
+# AGENTS.md). Nothing here runs on a pull request. Its findings become corpus rows (G-A / G-B) by a PR.
+#
+# The seed version is NOT a pin of this file: release.yml's bump touches exactly five workflows, so this one
+# reads test.yml's SEED_VERSION at run time instead of carrying a sixth copy.
+
+on:
+  schedule:
+    # Nightly, 03:17 UTC, off the ubsan (Saturday 05:23) and fixpoint-arm64 slots.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: "YO_GEN_SEED (empty = the run number, which a later dispatch can replay)"
+        required: false
+        default: ""
+      count:
+        description: "programs to sample"
+        required: false
+        default: "300"
+
+concurrency:
+  group: origins-generator
+  cancel-in-progress: true
+
+env:
+  APT_OPTS: "-o DPkg::Lock::Timeout=600 -o Acquire::Retries=3"
+
+jobs:
+  generate:
+    name: Borrow-program generator (Linux, Yo + rustc + ASan)
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout develop
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+          submodules: recursive
+      - name: Add swap space
+        run: |
+          sudo fallocate -l 8G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+      - name: Install OpenSSL dev (for std/http in the compiler closure)
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
+          { sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update; }
+          sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
+      - name: Read the seed version from test.yml
+        id: seed
+        run: |
+          v=$(grep -hE '^[[:space:]]*SEED_VERSION: v' .github/workflows/test.yml | head -1 | awk '{print $2}')
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      - name: Install the seed compiler (previous release)
+        uses: ./.github/actions/install-seed
+        with:
+          version: ${{ steps.seed.outputs.version }}
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
+      - name: "Stage 1: build the compiler from this tree"
+        # --std-path ./std: see test.yml's stage1 job.
+        run: |
+          YO_MAIN_STACK_MB=4096 nice -n 10 yo build --std-path ./std
+          cp "$(ls yo-out/*/bin/yo | head -1)" /tmp/yo-stage1
+      - name: Show the tools the generator will use
+        run: |
+          rustc --version
+          clang --version | head -1
+          /tmp/yo-stage1 --version
+      - name: Run the generator (10 minute budget)
+        id: gen
+        env:
+          YO_MAIN_STACK_MB: "4096"
+          YO_GEN_SEED_INPUT: ${{ inputs.seed }}
+          GEN_COUNT: ${{ inputs.count }}
+        run: |
+          export YO_GEN_SEED="${YO_GEN_SEED_INPUT:-${GITHUB_RUN_NUMBER}}"
+          set +e
+          python3 -I scripts/origins-gen.py --yo /tmp/yo-stage1 --std-path ./std --jobs 3 \
+            --count "${GEN_COUNT:-300}" --budget 600 2>&1 | tee /tmp/origins-gen.log
+          rc=${PIPESTATUS[0]}
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          echo "seed=$YO_GEN_SEED" >> "$GITHUB_OUTPUT"
+          # rc 1 is "a finding this tree does not know yet": the artifact and the issue below report it, the
+          # job does not fail on it. rc 2 (environment) is a real failure.
+          [ "$rc" -le 1 ]
+      # Sundays and manual dispatches also re-run every known pattern (tests/origins/gen-known.tsv): a pattern none of
+      # whose rustc-rejected programs Yo still accepts is FIXED, and its row is deleted in a follow-up PR.
+      - name: Verify the known findings (Sundays, dispatch)
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: |
+          if [ "$(date -u +%u)" = 7 ] || [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            python3 -I scripts/origins-gen.py --yo /tmp/yo-stage1 --std-path ./std --jobs 3 --verify-known \
+              --asan-controls 0 --budget 1500 --out /tmp/origins-gen-known 2>&1 | tee /tmp/origins-gen-known.log
+          else
+            echo "not Sunday and not a manual dispatch: skipped"
+          fi
+      - name: Upload the findings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: origins-gen-findings-${{ github.run_number }}
+          path: |
+            tests/origins/gen-findings/
+            /tmp/origins-gen.log
+            /tmp/origins-gen-known.log
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: Open an issue for a new finding
+        if: steps.gen.outputs.rc == '1'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SEED: ${{ steps.gen.outputs.seed }}
+        run: |
+          # One issue per distinct signature: a signature already named by an open issue is not filed twice.
+          grep -v '^#' tests/origins/gen-findings/findings.tsv | awk -F'\t' '$4 == "NEW"' | while IFS=$'\t' read -r cls sig verdicts _status file; do
+            if gh issue list --state open --search "\"$sig\" in:title" --json number --jq '.[0].number // empty' | grep -q .; then
+              echo "an open issue already names $sig"
+              continue
+            fi
+            {
+              echo "The borrow-program generator (\`scripts/origins-gen.py\`, run ${GITHUB_RUN_ID}, \`YO_GEN_SEED=${SEED}\`) found a program the checker does not handle."
+              echo
+              echo "- class: \`$cls\`"
+              echo "- signature: \`$sig\` (the program is a function of it; \`python3 -I scripts/origins-gen.py --list\` prints signatures)"
+              echo "- verdicts: $verdicts"
+              echo
+              echo "The minimized Yo program and its rustc twin are \`$file.yo\` / \`$file.rs\` in the run's \`origins-gen-findings-*\` artifact."
+              echo
+              echo '```yo'
+              grep -v '^//' "tests/origins/gen-findings/$file.yo"
+              echo '```'
+              echo
+              echo "Triage: a known audit row (plans/backlog/OWNERSHIP_BORROWING_ORIGINS_AUDIT.md §3, A1–A56) goes into tests/origins/gen-known.tsv; a new hole gets an issues/ doc with a Severity and a G-B row."
+            } > /tmp/issue-body.md
+            gh issue create --title "origins-gen: $cls $sig" --body-file /tmp/issue-body.md
+          done
