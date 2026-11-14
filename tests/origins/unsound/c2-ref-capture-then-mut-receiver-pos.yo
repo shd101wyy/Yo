@@ -1,0 +1,16 @@
+// expect: accept
+// Positive control: the closure lives in a block that ends before `xs.clear()`.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+  {
+    (g : Impl(Fn() -> usize)) = ({ r : &xs }() => r(usize(0)).len());
+    println(`OUT: ${g().to_string()}`);
+  };
+  xs.clear();
+  println(`OUT: ${xs.len().to_string()}`);
+});
+export(main);
