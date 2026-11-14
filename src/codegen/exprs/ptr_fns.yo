@@ -22,6 +22,7 @@
 { generate_arg_code_with_deferred_dups } :: import("./drop_dup.yo");
 { get_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, is_function_value_with_only_builtin_yo_inline_function_call, _checked_fixed_array_subscript, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
 { is_array_type, is_unit_type } :: import("../../types/guards.yo");
+{ t_refine_inner } :: import("../../types/definitions.yo");
 { type_is_sized } :: import("../../types/utils.yo");
 { expr_info_converted_runtime_type, expr_info_index_method_value, expr_info_is_index_trait_address_of } :: import("../../expr_info.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
@@ -224,6 +225,26 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
   // pointer `F`; its address is `F` (C has no `&` of a struct dereference).
   if(match(&arg_ei_opt, .Some(us_ei) => !type_is_sized(&us_ei.ty()), .None => false) && (arg_code.starts_with("(*") && arg_code.ends_with(")")), {
     return(arg_code.substring(usize(2), arg_code.len() - usize(1)));
+  });
+  // Decision 49: a reference to an UNSIZED pointee (`&Dyn(T)`, `&mut Dyn(T)`)
+  // IS the fat pair — the operand (a `dyn(&v)` lend, a `&Dyn` expression)
+  // already emitted the pair, so the address-of is that code itself.
+  if(match(
+    &arg_ei_opt,
+    .Some(urei) => match(
+      t_refine_inner(&urei.ty()),
+      Rc(.Reference(urep, _, _)) => !type_is_sized(&urep),
+      _ => false
+    ),
+    .None => false
+  ), {
+    return(arg_code);
+  });
+  // An unsized place in the flip's dyn-cell IDENTITY form `(storage)`
+  // (property_access: `h.*` on a dyn-cell handle, `cell.*` on the cell): the
+  // pair IS that storage — strip the one paren layer.
+  if(match(&arg_ei_opt, .Some(us_ei2) => !type_is_sized(&us_ei2.ty()), .None => false) && (arg_code.starts_with("(") && arg_code.ends_with(")") && !arg_code.starts_with("(*")), {
+    return(arg_code.substring(usize(1), arg_code.len() - usize(1)));
   });
   if(ast_expr_is_fn_call(&arg) && (!ast_expr_is_atom(&arg) && !ast_expr_is_fn_call_of(&arg, BF_DOT, Option(usize).None)), {
     match(
