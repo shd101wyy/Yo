@@ -2069,6 +2069,27 @@ test("Test an awaited future is consumed: a second await is E0901", {
   result := io.await(task, io);
   assert(result.* == i32(12), "the await moves the Rc result out");
 });
+_A2Box :: struct(n : i32);
+_a2_read :: (fn(b : &_A2Box, io : Io) -> Impl(Future(i32)))(
+  io.async({ b : &b.* }(io : Io) => {
+    return(b.n);
+  })
+);
+// §3.13 A2 under the deref rule: the hint for a field of a `&` parameter in an
+// `io.async` capture list is the referent borrowed whole, `{ b : &b.* }`, the
+// spelling `_a2_read` uses (the bare pun `{ &b }` is E0926).
+test("Test an io.async capture of a `&` parameter's field is rejected with the borrow-the-referent hint", {
+  comptime_expect_error(
+    _a2_field :: (fn(b : &_A2Box, io : Io) -> Impl(Future(i32)))(
+      io.async({ n : &b.n }(io : Io) => {
+        return(n.*);
+      })
+    ),
+    "`{ b : &b.* }`"
+  );
+  x := _A2Box(n : i32(7));
+  assert(io.await(_a2_read(&x, io), io) == i32(7), "the future reads the referent it borrows");
+});
 test("Test io.await moves a move-only result out, disposed once", {
   before := g_aw_disposed;
   {

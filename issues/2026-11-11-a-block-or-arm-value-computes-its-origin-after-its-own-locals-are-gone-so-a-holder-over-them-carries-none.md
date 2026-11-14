@@ -86,3 +86,17 @@ With the fix: the three negative programs and the positive control move to `test
 `block-tail-holder-over-block-local` (neg, E0911), `block-tail-holder-binding-outer-root` (neg, E0911) and
 `arm-block-holder-over-arm-local` (neg, E0911) in `tests/origins/corpus.tsv`, with `…-pos.yo` as
 `block-tail-holder-over-outer-local` (pos).
+
+## Partial fix (2026-11-13, P2 R-TAIL)
+
+P2 (VERDICTS-41 Q1 item 3, VERDICTS-58 decision 12) reads a `:=` initializer's block/arm-tail origin in each tail's
+OWN environment (`_chain_leaf_origins`, `src/evaluator/exprs/initialization_assignment.yo`), so a block or arm tail
+whose value carries an origin over a local declared inside it is now E0911 ("Cannot end this block while its result
+borrows `y`"): the main reproducer, `…-arm.yo`, and a `cond` arm. The G-B rows are
+`tests/origins/unsound/block-tail-holder-over-block-local.yo`, `tests/origins/unsound/cond-arm-tail-holder-over-arm-local.yo`
+and `tests/origins/unsound/match-arm-tail-holder-over-arm-local.yo`, each with its `-pos` twin; the
+`reference_read_rule` test pins the message.
+
+Still open: an outer root reached through a block-local holder binding (`…-outer-root.yo`, k07/k12/k09: `x` is not
+frozen), the assignment form `h = { … }` (a09), a call result in the tail over a block-local (u02/u03/u07/u08), and
+A22's temporary scrutinee.
