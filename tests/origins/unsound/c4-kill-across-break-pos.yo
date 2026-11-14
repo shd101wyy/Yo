@@ -1,0 +1,22 @@
+// expect: accept
+// Positive control for c4-kill-across-break: no exit lies between the store of `&y` and the reassignment
+// back to `&x`, so the entry for `y` ends inside `y`'s block.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  x := String.from("outer string that is long enough to live on the heap");
+  mut(h) := Option(&String).Some(&x);
+  mut(i) := i32(0);
+  while(i < i32(3), {
+    y := String.from("inner string that is long enough to live on the heap");
+    h = .Some(&y);
+    match(h, .Some(r) => println(`IN: ${r.*}`), .None => ());
+    h = .Some(&x);
+    if(i == i32(1), {
+      break;
+    });
+    i = (i + i32(1));
+  });
+  match(h, .Some(r) => println(`OUT: ${r.*}`), .None => ());
+});
+export(main);

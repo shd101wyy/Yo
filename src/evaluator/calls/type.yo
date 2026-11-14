@@ -410,7 +410,11 @@ try_to_call_type_with_arguments :: (
       if(local_borrows_active(), {
         match(
           local_borrow_place_of(&evaluated_arg, &env, ctx),
-          .Some(t9w_lp) => local_borrow_require_writable(&t9w_lp, local_borrow_root_is_shared_reference(&t9w_lp, &env), &t9w_what, &ast_expr_token(&actual_arg_expr), ctx, exn),
+          // `&mut r` of a reference binding (`rp : &mut &T`, §7 P3) writes
+          // `r` itself, never its referent, as the declaration form's check
+          // reads it
+          // (issues/fixed/2026-11-14-a-mut-lend-of-a-reference-binding-into-a-mut-ref-ref-field-is-rejected-as-a-write-through-it.md).
+          .Some(t9w_lp) => local_borrow_require_writable(&t9w_lp, local_borrow_root_is_shared_reference(&t9w_lp, &env) && !is_reference_self_place(ast_expr_id(&evaluated_arg)), &t9w_what, &ast_expr_token(&actual_arg_expr), ctx, exn),
           .None => ()
         );
       });

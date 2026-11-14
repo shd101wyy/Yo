@@ -1,0 +1,21 @@
+// expect: accept
+// Positive control for c4-put-projection-arg: `ys` is declared before `o`, so the stored reference
+// outlives every read of `o`.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+long :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+put :: (fn(generic(r : Origin), d : &mut Option(&(String, r)), v : &(String, r)) -> unit)({
+  d.* = .Some(v);
+});
+main :: (fn() -> unit)({
+  x := long();
+  mut(ys) := ArrayList(String).new();
+  ys.push(long());
+  mut(o) := Option(&String).Some(&x);
+  {
+    put(&mut o, ys.index(usize(0)));
+  };
+  match(&o, .Some(r) => println(`OUT: ${r.*.clone()}`), .None => ());
+});
+export(main);
