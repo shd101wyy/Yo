@@ -21,7 +21,7 @@
 { AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_token, ast_expr_text } :: import("../../expr.yo");
 { EvalValue, is_func_val, is_struct_val, is_unknown_val, value_contains_unknown } :: import("../../value.yo");
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
-{ is_unit_type, is_struct_type, is_enum_type, is_pointer_type, is_tuple_type, is_dyn_type, is_reference_struct_type, is_reference_enum_type, is_newtype_type, is_module_type, is_unique_box_type, cell_handle_view, is_dyn_cell_type } :: import("../../types/guards.yo");
+{ is_unit_type, is_struct_type, is_enum_type, is_pointer_type, is_tuple_type, is_reference_struct_type, is_reference_enum_type, is_newtype_type, is_module_type, is_unique_box_type, cell_handle_view, is_dyn_cell_type } :: import("../../types/guards.yo");
 { Environment } :: import("../../env.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
@@ -29,7 +29,7 @@
 { generate_comptime_value } :: import("./comptime_value.yo");
 { lookup_io_builtin_struct_field, expr_info_deferred_dup_expressions, is_call_scoped_share_dup } :: import("../../expr_info.yo");
 { emit_deferred_dup_or_code } :: import("./drop_dup.yo");
-{ dyn_type_has_vtable_slot, type_is_sized } :: import("../../types/utils.yo");
+{ dyn_type_has_vtable_slot, dyn_dispatch_receiver_type, type_is_sized } :: import("../../types/utils.yo");
 /// `e` carries a deferred dup that is the caller-owned share of a call
 /// (`mark_call_scoped_share_dup`): its emission is the dereferencing access's.
 _carries_call_scoped_share :: (fn(e : &AstExpr, context : &FunctionGenerationContext) -> bool)(
@@ -371,12 +371,20 @@ _generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &
   // name that isn't collected for a dyn call → the call fails to transpile.
   // Only a vtable SLOT: a blanket inherent method has none (see the call
   // site in other_fn_call.yo) and takes the static path below.
-  if(is_dyn_type(&object_type) && dyn_type_has_vtable_slot(&object_type, field_name.clone()), {
-    out := unsized_place_fat_code(&object_code);
-    out.push_str(".vtable->");
-    out.push_string(sanitize_for_c_identifier(&field_name, false));
-    return(out);
-  });
+  // A `&Dyn`-typed reference binding (a named dyn local, decision 49) reaches
+  // here with `object_type` = the reference; unwrap it
+  // (`dyn_dispatch_receiver_type`) so the access still dispatches through the
+  // vtable.
+  match(
+    dyn_dispatch_receiver_type(&object_type),
+    .Some(odt) => if(dyn_type_has_vtable_slot(&odt, field_name.clone()), {
+      out := unsized_place_fat_code(&object_code);
+      out.push_str(".vtable->");
+      out.push_string(sanitize_for_c_identifier(&field_name, false));
+      return(out);
+    }, ()),
+    .None => ()
+  );
   // Method access: the field resolved to a function → emit its C name.
   match(
     ei.value(),
@@ -515,7 +523,7 @@ _generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &
     _is_typevalue_enum(&object_value) => _typevalue_enum_access(&object_value, &field_name, context),
     is_pointer_type(&object_type) => _ptr_field_access(&object_type, &object_code, &field_name),
     is_tuple_type(&object_type) => _tuple_field_access(&object_type, &object_code, &field_name),
-    is_dyn_type(&object_type) => {
+    dyn_dispatch_receiver_type(&object_type).is_some() => {
       out := unsized_place_fat_code(&object_code);
       out.push_str(".vtable->");
       out.push_string(sanitize_for_c_identifier(&field_name, false));

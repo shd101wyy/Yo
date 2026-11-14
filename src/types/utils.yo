@@ -4262,6 +4262,23 @@ dyn_type_has_vtable_slot :: (fn(dyn_ty : &TypeValue, name : &String) -> bool)(
     _ => false
   )
 );
+/// The Dyn a method DISPATCH runs over, when `t` is a dispatchable receiver
+/// shape: the Dyn place itself, or one `Reference` level over it (decision 49:
+/// a named `(d : &Dyn(T)) = dyn(&c)` local records its type as the reference,
+/// while a `&Dyn` parameter records the pointee — both dispatch through the
+/// same vtable). Deliberately does NOT unwrap a `Box(Dyn)`/counted cell: a box
+/// receiver's own methods (`clone`) are the box's, not the payload's — the
+/// registration-shaped wide unwrap lives in the codegen collector.
+dyn_dispatch_receiver_type :: (fn(t : &TypeValue) -> Option(TypeValue))({
+  if(is_dyn_type(t), {
+    return(Option(TypeValue).Some(Rc.clone(t)));
+  });
+  match(
+    t_refine_inner(t),
+    Rc(.Reference(pointee, _, _)) => if(is_dyn_type(&pointee), Option(TypeValue).Some(Rc.clone(pointee)), Option(TypeValue).None),
+    _ => Option(TypeValue).None
+  )
+});
 /// True when the vtable slot `name` of `dyn_ty` is a projection method
 /// (`-> &T`, decision 24): the slot returns its place's address.
 dyn_vtable_slot_result_is_ref :: (fn(dyn_ty : &TypeValue, name : &String) -> bool)(
@@ -4528,7 +4545,7 @@ unknown_variant_message :: (fn(variant : &String, enum_ty : &TypeValue, variants
   });
   `Enum variant "${variant}" not found in enum ${type_to_string(enum_ty)}. Its variants: ${list}.`
 });
-export(dyn_member_is_method, dyn_member_unsafe_reason, dyn_type_has_vtable_slot, dyn_vtable_slot_param_is_ref, dyn_vtable_slot_result_is_ref, dyn_upcast_note, is_bare_callable_into_dyn_fn, same_name_note, unknown_field_message, unknown_field_code, unknown_variant_message, control_bound_field_message);
+export(dyn_member_is_method, dyn_member_unsafe_reason, dyn_type_has_vtable_slot, dyn_dispatch_receiver_type, dyn_vtable_slot_param_is_ref, dyn_vtable_slot_result_is_ref, dyn_upcast_note, is_bare_callable_into_dyn_fn, same_name_note, unknown_field_message, unknown_field_code, unknown_variant_message, control_bound_field_message);
 export(deref_miss_note, unknown_field_through_deref_message);
 /// `err` with its primary diagnostic marked `generic_independent` when
 /// neither `a` nor `b` contains a type variable: a mismatch between two such
