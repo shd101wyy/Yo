@@ -1,0 +1,13 @@
+// expect: E0911
+// The scrutinee `&mkb()` is a temporary of the `:=` statement; the arm value `Some(s)` points into its Box and
+// is bound to `p`, which is read after the statement freed the temporary.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+mkb :: (fn() -> Option(Box(String)))(.Some(Box.new(L())));
+main :: (fn() -> unit)({
+  p := match(&mkb(), .Some(Box(s)) => Option(&String).Some(s), .None => Option(&String).None);
+  match(p, .Some(s) => println(`OUT: ${s.*}`), .None => ());
+  ()
+});
+export(main);

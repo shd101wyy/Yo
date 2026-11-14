@@ -307,6 +307,57 @@ test("nested borrowed loops over two collections", {
   a.push(i32(3)); // both guards released
   assert(a.len() == usize(3), "push after nested loops");
 });
+// A read-only method whose own body walks its list, called on another object
+// inside a borrowed loop that nests a second borrowed loop (moved here from
+// the deleted `Pragma.StrictBorrow` test, VERDICTS-59 decision 2).
+_WalkBag :: struct(items : ArrayList(i32), version : i32);
+impl(
+  _WalkBag,
+  total : (fn(self : &Self) -> i32)({
+    mut(t) := i32(0);
+    for(&self.items, x => {
+      t = (t + x.*);
+    });
+    t
+  })
+);
+test("a read-only method that walks its own list, and a nested borrowed loop over another collection", {
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  mut(others) := ArrayList(i32).new();
+  others.push(i32(1));
+  others.push(i32(2));
+  mut(names) := ArrayList(String).new();
+  names.push(String.from("a"));
+  bag := _WalkBag(items : others, version : i32(0));
+  mut(seen) := i32(0);
+  for(&mut xs, x => {
+    seen = (seen + bag.total());
+    for(&mut names, n => {
+      n.push_str("!");
+    });
+  });
+  assert((seen == i32(6)) && (names(usize(0)) == "a!!"), "a read-only method on another object iterating itself, and a nested borrowed loop over another collection");
+});
+// HashMap's cursor walk (`walk_start` / `walk_valid` / `walk_ref` /
+// `walk_next`, the `BorrowedWalk` trait) is gone: `walk_ref` on an unoccupied
+// bucket handed safe code a reference over uninitialized memory
+// (issues/fixed/2026-11-13-hashmap-walk-ref-reads-an-unoccupied-bucket-in-safe-code.md).
+comptime_expect_error(
+  hashmap_walk_ref_is_gone :: (fn() -> unit)({
+    (mut(m) : HashMap(String, String)) = HashMap(String, String).new();
+    m.insert(String.from("k"), String.from("v"));
+    (mut(i) : usize) = usize(0);
+    while(i < usize(8), i = (i + usize(1)), {
+      if(m.walk_valid(&i), {
+        e := m.walk_ref(&i);
+        k := e.key.clone();
+      });
+    });
+  }),
+  "No method \"walk_valid\" on HashMap(String, String)"
+);
 // A nested borrowed loop over the SAME collection takes a second `&mut`
 // borrow of it while the outer one is live: E0911 (decision 18). Two `&mut`
 // elements could alias.

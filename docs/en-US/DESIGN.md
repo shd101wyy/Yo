@@ -3417,6 +3417,10 @@ twice({ n : i32(10) }() => {
 - **A by-value entry is writable only under `FnMut`.** The same body typed
   `Fn(...)` or `FnOnce(...)` writing an entry is E0917: there the write would
   reach a per-call copy. Under `FnOnce`, rebind the entry (`mut(m) := n;`).
+  The entry outlives each call, so it may not keep a reference to the call's
+  parameter (`last = .Some(v)` with `v : &T`, E0923) or to a local of the body
+  or one of the closure's own by-value entries (E0912); store an owned value,
+  or a borrow capture (`{ o : &x, last : Option(&T).None }`, `last = .Some(o)`).
 - **An implicit capture is written only under an owning `FnMut` or `FnOnce`.**
   An `Fn(...)` closure, or a literal lent to a borrowing parameter
   (`run(&(() => …))`), that writes a capture it names in its body — `s = …`,
@@ -3562,11 +3566,13 @@ assert(sum(&t) == 3);
 - **`Eq`, `Hash` and `Default`** compare, hash and build the payload.
   `Box(T)` is `Send`/`Sync` exactly when `T` is.
 - **Layout.** The `Box` value is one pointer, and `Option(Box(T))` is one
-  pointer too (`NULL` is `.None`). The cell carries an 8-byte flags word in
-  front of the payload (`max(8, align_of(T))` bytes of header), as an `Rc`
-  cell carries its count. A cell an `alloc` argument placed has the word's
-  placed bit set and, in front of the header, a 16-byte owner prefix
-  recording the allocator; a global cell carries no prefix.
+  pointer too (`NULL` is `.None`). A global cell is the payload alone,
+  `size_of(T)` bytes as in Rust, and a zero-sized payload allocates nothing.
+  A cell an `alloc` argument placed has a 16-byte owner prefix recording the
+  allocator in front of the payload, and the handle says so in bit 0 of its
+  pointer (every cell is at least 16-byte aligned, so the bit is free).
+  `Box`'s payload may be unsized (`comptime(V) : ?Sized`, decision 49): the
+  handle of a `Box([T])` or `Box(Dyn(T))` is two words.
 - **Allocators.** `Box.new(v, alloc : .Some(a))` places the cell in `a`;
   without `alloc`, the cell is on the global allocator. The cell is freed through its owner, and `Box.clone(b)`
   lands where `b` lives (a box placed by an explicit allocator clones into that allocator).

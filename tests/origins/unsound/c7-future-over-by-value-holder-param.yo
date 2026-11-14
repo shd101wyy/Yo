@@ -1,0 +1,23 @@
+// expect: E0911
+// `mk` takes the holder `h : H(p)` BY VALUE and returns a future capturing it. The caller moves
+// `x`, the place `h` borrows, while the future is live: accepted, heap-use-after-free at the await.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+H :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(String, p)));
+sink :: (fn(v : String) -> unit)({
+  println(`sink ${v.len().to_string()}`);
+});
+mk :: (fn(generic(p : Origin), h : H(p), io : Io) -> Impl(Future(unit, Io)))(
+  io.async({ h }(io : Io) => {
+    io.await(yield(io), io);
+    println(`OUT: ${h.r.*}`);
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  x := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+  f := mk(H(x)(r : &x), io);
+  sink(x);
+  io.await(f, io);
+});
+export(main);

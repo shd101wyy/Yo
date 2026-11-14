@@ -117,7 +117,7 @@ pragma(Pragma.AllowUnsafe);
   type_is_sized,
   unsized_by_value_error
 } :: import("../../types/utils.yo");
-{ is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type, is_unit_type, is_type_0, is_type_kind, is_void_type, is_type_hierarchy_type, is_fn_trait_type, is_never_type, is_pointer_type } :: import("../../types/guards.yo");
+{ is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type, is_unit_type, is_type_0, is_type_kind, is_void_type, is_type_hierarchy_type, is_type_parameter_type, is_fn_trait_type, is_never_type, is_pointer_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type_with_expected, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 {
   type_implements_future,
@@ -980,7 +980,7 @@ check_call_site_borrow_marker :: (
   if(param_is_owning || param_is_ct || ctx.is_in_function_call_checking_phase || ctx.is_ghost_context, {
     return(());
   });
-  if(is_type_hierarchy_type(param_ty) || is_pointer_type(param_ty), {
+  if(is_type_parameter_type(param_ty) || is_pointer_type(param_ty), {
     return(());
   });
   if(ast_expr_is_fn_call_of(written_arg, BK_BORROW_MUT, .Some(usize(1))) || ast_expr_is_fn_call_of(written_arg, BF_ADDRESS_OF, .Some(usize(1))), {
@@ -1188,10 +1188,11 @@ apply_call_site_borrow_markers :: (
       p_ty := match(param_types.get_cloned(ai), .Some(t) => t_slot_pointee(&t), .None => t_unit());
       place_text := ast_place_text(ast_expr_strip_borrow_marker(&bare));
       cond(
-        // A `Type` parameter (`ArrayList(&T)`, `Option(&mut T)`): the
-        // argument is a reference TYPE, not a lend (decision 43 step 3, N2a);
-        // the evaluator's `&` arms build it.
-        is_type_hierarchy_type(&p_ty) => (),
+        // A `Type` or `?Sized` parameter (`ArrayList(&T)`, `Option(&mut T)`,
+        // `Eq(&C)`): the argument is a reference TYPE, not a lend (decision 43
+        // step 3, N2a); the evaluator's `&` arms build it
+        // (issues/fixed/2026-11-14-a-reference-type-argument-at-a-sized-kinded-parameter-loses-its-reference.md).
+        is_type_parameter_type(&p_ty) => (),
         (is_mut_marker && p_is_ref) => {
           peel = true;
         },
@@ -1727,7 +1728,7 @@ check_argument_for_parameter :: (
   arg_is_comptime_lit := (is_comptime_int_type(arg_ty) || is_comptime_float_type(arg_ty) || is_comptime_string_type(arg_ty));
   lit_concrete := (
     !is_some_type(resolved_pt) && !type_contains_some_type_deep(resolved_pt)
-    && (!is_function_type(resolved_pt) && !is_fn_trait_type(resolved_pt) && !is_type_hierarchy_type(resolved_pt))
+    && (!is_function_type(resolved_pt) && !is_fn_trait_type(resolved_pt) && !is_type_parameter_type(resolved_pt))
   );
   // The fit and range checks hold for a `comptime(...)` parameter too
   // (`comptime(n) : u8` given `300`); only the lowering below skips it.
