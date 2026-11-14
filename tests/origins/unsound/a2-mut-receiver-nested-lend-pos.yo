@@ -1,0 +1,27 @@
+// expect: accept
+// a2-mut-receiver-nested-lend's positive twin: the later argument borrows another value.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+long :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+first :: (fn(xs : &ArrayList(String)) -> &String)(&xs(usize(0)));
+W :: struct(items : ArrayList(String));
+impl(
+  W,
+  eat : (fn(self : &mut Self, r : &String) -> usize)({
+    self.items.clear();
+    r.clone().len()
+  })
+);
+first_w :: (fn(w : &W) -> &String)(&w.items(usize(0)));
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(long());
+  mut(w) := W(items : xs);
+  mut(ys) := ArrayList(String).new();
+  ys.push(long());
+  u := W(items : ys);
+  v := w.eat(first_w(&u));
+  println(`OUT: ${v.to_string()}`);
+});
+export(main);

@@ -1,0 +1,25 @@
+// expect: E0923
+// Audit A24's family: the same widening through an enum payload, `w : Option(&mut Option(&(Rc(X), p)))` passed by value.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+put :: (fn(generic(p : Origin), w : Option(&mut Option(&(Rc(X), p))), v : &(Rc(X), p)) -> unit)({
+  match(
+    w,
+    .Some(d) => {
+      d.* = .Some(v);
+    },
+    .None => ()
+  );
+});
+main :: (fn() -> unit)({
+  x := Rc.new(X(s : String.from("x")));
+  mut(slot) := Option(&(Rc(X), x)).Some(&x);
+  {
+    y := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+    put(.Some(&mut slot), &y);
+  };
+  match(slot, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => println("none"));
+  ()
+});
+export(main);

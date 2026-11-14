@@ -1,0 +1,20 @@
+// expect: E0910
+// Audit A2 (c36): the c10 shape over a `&mut` parameter: `xs` passed bare (a `&mut` reborrow) and `first(xs)`, whose value reborrows `xs` shared.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+long :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+first :: (fn(xs : &ArrayList(String)) -> &String)(&xs(usize(0)));
+f :: (fn(xs : &mut ArrayList(String), r : &String) -> usize)({
+  xs.clear();
+  r.clone().len()
+});
+run :: (fn(xs : &mut ArrayList(String), ys : &ArrayList(String)) -> usize)(f(xs, first(xs)));
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(long());
+  ys := ArrayList(String).new();
+  v := run(&mut xs, &ys);
+  println(`OUT: ${v.to_string()}`);
+});
+export(main);

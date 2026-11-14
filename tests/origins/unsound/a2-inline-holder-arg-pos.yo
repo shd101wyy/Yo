@@ -1,0 +1,21 @@
+// expect: accept
+// a2-inline-holder-arg's positive twin: the holder borrows another list.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+long :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+first :: (fn(xs : &ArrayList(String)) -> &String)(&xs(usize(0)));
+H :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(String, p)));
+f :: (fn(generic(p : Origin), xs : &mut ArrayList(String), h : H(p)) -> usize)({
+  xs.clear();
+  h.r.clone().len()
+});
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(long());
+  mut(ys) := ArrayList(String).new();
+  ys.push(long());
+  v := f(&mut xs, H(ys)(r : &ys(usize(0))));
+  println(`OUT: ${v.to_string()}`);
+});
+export(main);

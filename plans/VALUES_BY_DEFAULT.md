@@ -2160,6 +2160,7 @@ and in git, not a silent edit.
     - Rejected: inferring the projection's mutability from the receiver.
     - Phase: V2b's first PR.
     - **2026-11-10 (VERDICTS-45):** the result position is a reference slot (R1): each result leaf is `&place` or a reference binding read (`x` for `x : &T`); a reference-typed field read and a projection call follow in P8b (`BORROW_CHECKER_COMPLETENESS.md` §7).
+    - **2026-11-11 (VERDICTS-41 R-TAIL, P2):** a `:=` binds a projection's result as a reference through a block, `cond` or `match` whose every leaf is reference-typed (a lend `&place`, a projection call, a reference binding read); a mixed chain binds the value.
 25. **A local borrow can be re-pointed to a place reached from itself.**
     This is the cursor walk over a linked structure.
     - **Widened 2026-11-07 (VERDICTS-31 P1; lands v0.2.77 after the

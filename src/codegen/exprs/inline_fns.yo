@@ -755,10 +755,17 @@ generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayLi
     },
     (function_name == BF_YO_MAYBE_UNINIT_AS_PTR) => {
       return_c_type := get_type_string(ei_ty(expr, context), &mut context.base);
+      // The pointer is the LAST operand: an alias call site
+      // (`m.as_ptr()`, `is_function_value_with_only_builtin_yo_inline_function_call`)
+      // hands only the caller's receiver, while the builtin called directly
+      // (a wrapper that is not a pass-through alias) hands all three, the
+      // first two being the type arguments `Self` and `BaseType`. Operand 0
+      // printed `Self`'s typedef name there, invalid C
+      // (issues/fixed/2026-11-14-an-inline-builtin-alias-that-derefs-its-reference-parameter-emits-a-type-as-the-operand.md).
       out := String.from("((");
       out.push_string(&return_c_type);
       out.push_str(")(");
-      out.push_string(_a(args, usize(0)));
+      out.push_string(_a(args, if(args.len() > usize(0), args.len() - usize(1), usize(0))));
       out.push_str("))");
       out
     },

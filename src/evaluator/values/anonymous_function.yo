@@ -153,7 +153,7 @@ pragma(Pragma.AllowUnsafe);
 { create_function_body_evaluation_context, hard_swallow_diagnostic, hard_swallow_diagnostic_in_generic_trial, forcing_depths, truncate_forcing_depths, publish_pending_member_phase_a, closure_literal_is_borrowed } :: import("../context.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep, type_requires_explicit_copy, type_is_bitwise_copy, mark_fnmut_capture_struct } :: import("../../types/utils.yo");
-{ attach_temp_variable_to_expr, local_borrow_place_of, access_expr, LocalBorrowAccess, set_closure_writes_captures, BorrowCaptureOuter, note_borrow_capture_outer, apply_capture_store_joins, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording, reject_reference_without_deref, is_reference_deref_site, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, projection_body_mismatch_message, reject_closure_literal_into_dyn_fn, place_require_mut, audit_copy_trait_enabled } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, local_borrow_place_of, access_expr, LocalBorrowAccess, set_closure_writes_captures, BorrowCaptureOuter, note_borrow_capture_outer, apply_capture_store_joins, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_spelling_applies, deref_rule_recording, reject_reference_without_deref, is_reference_deref_site, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, projection_body_mismatch_message, reject_closure_literal_into_dyn_fn, place_require_mut, audit_copy_trait_enabled } :: import("../utils.yo");
 { CaptureBorrow, register_capture_borrows, type_is_second_class, fn_param_is_ptr_borrow, reject_origin_carrying_signature } :: import("../../types/utils.yo");
 { OriginRootPlace, origin_of, variable_holder_roots, reference_binding_referents, binder_read_mark, binder_read_clear, reference_binding_read_type, variable_is_mut_borrow, note_reference_read } :: import("../utils.yo");
 { type_carries_origin } :: import("../../types/utils.yo");
@@ -1082,14 +1082,22 @@ _evaluate_capture_list :: (
       // (`note_reference_deref_site`): that name is the written deref, not a
       // bare `&r`
       // (issues/fixed/2026-11-05-a-capture-list-in-an-untyped-trait-default-lambda-cannot-borrow-self.md).
-      cap_root_is_reference := (variable_is_reference_binding(&root_var) && deref_rule_applies(&root_tok, ctx) && !is_reference_deref_site(&root_tok));
+      cap_root_is_ref_binding := (variable_is_reference_binding(&root_var) && !is_reference_deref_site(&root_tok));
+      cap_root_is_reference := (cap_root_is_ref_binding && deref_rule_applies(&root_tok, ctx));
       if(cap_root_is_reference && (fields.len() == usize(0)), {
         if(is_pun && deref_rule_recording(), {
           record_deref_edit_site(&raw_tok, &label, u8(1));
         });
         reject_reference_without_deref(&root_var, &root_tok, u8(2), ctx, exn);
       });
-      if(cap_root_is_reference && !deref_rule_recording() && (fields.len() > usize(0)) && (fields(usize(0)) == "*"), {
+      // The written `.*` is the reference's own deref wherever a written `.*`
+      // has that meaning (`deref_spelling_applies`), the trees that keep the
+      // old reading of a bare binding included: there `{ p : &p.* }` names
+      // what `{ &p }` names, the referent of `p` whole, so an `io.async` body
+      // borrows the `&` parameter whole (§3.13 A2) and the future keeps its
+      // own copy of it (`__yo_lent_<label>`). The seed rider of VERDICTS-60
+      // §4 (11): the release that builds the deref flip accepts its spelling.
+      if(cap_root_is_ref_binding && deref_spelling_applies(&root_tok, ctx) && !deref_rule_recording() && (fields.len() > usize(0)) && (fields(usize(0)) == "*"), {
         _dropped_star := fields.remove(usize(0));
       });
       saved_bexp := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
@@ -1120,7 +1128,7 @@ _evaluate_capture_list :: (
       // (C receives the parameter by value, in the frame the future may
       // outlive), so it borrows the parameter whole, not a place inside it.
       if(ctx.is_inside_io_async_call && root_var.is_imm_borrow() && (fields.len() > usize(0)), {
-        _cap_list_error(ctx, exn, ast_expr_token(&place_e), `An \`io.async\` body borrows a \`&\` parameter whole: \`${ast_expr_to_string(&place_e)}\` is a place inside the parameter \`${root_tok.value.*}\`, which the future copies when it is made (plans/VALUES_BY_DEFAULT.md §3.13 A2). Borrow the parameter, \`{ &${root_tok.value.*} }\`, and read \`${ast_expr_to_string(&place_e)}\` in the body.`);
+        _cap_list_error(ctx, exn, ast_expr_token(&place_e), `An \`io.async\` body borrows a \`&\` parameter whole: \`${ast_expr_to_string(&place_e)}\` is a place inside the parameter \`${root_tok.value.*}\`, which the future copies when it is made (plans/VALUES_BY_DEFAULT.md §3.13 A2). Borrow what the parameter refers to whole, \`{ ${root_tok.value.*} : &${root_tok.value.*}.* }\`, and read \`${ast_expr_to_string(&place_e)}\` in the body.`);
       });
       if(is_mut, {
         // Decision 38 D: a `mut` capture's place must be writable.
