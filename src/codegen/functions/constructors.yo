@@ -175,11 +175,14 @@ _generate_one_constructor :: (fn(type : &TypeValue, c_name : &String, context : 
 });
 /// Generate constructor implementations for every concrete object type.
 generate_ref_struct_constructor_functions :: (fn(context : &mut FunctionGenerationContext) -> unit)({
-  // A live cursor walk of the registry, not a borrowed `for`: the body can
-  // register a late type (the on-demand hook), which a borrowed walk refuses.
-  vals_cur := context.base.types.walk_start();
-  while(context.base.types.walk_valid(&vals_cur), vals_cur = context.base.types.walk_next(&vals_cur), {
-    vals_key := context.base.types.walk_ref(&vals_cur).key.clone();
+  // A snapshot of the registry's keys, in bucket order: the body can
+  // register a late type (the on-demand hook), and the hook declares that type
+  // itself and records it in `on_demand_body_cnames`, so this pass need not
+  // visit it (VERDICTS-59 decision 6).
+  vals_keys := context.base.types.keys_cloned();
+  (vals_i : usize) = usize(0);
+  while(vals_i < vals_keys.len(), vals_i = (vals_i + usize(1)), {
+    vals_key := vals_keys(vals_i).clone();
     match(
       context.base.get_type_entry(&vals_key),
       .Some(entry) => if(is_reference_struct_type(&entry.ty), {
@@ -283,11 +286,14 @@ _generate_one_ref_enum_constructor_set :: (fn(type : &TypeValue, c_name : &Strin
 /// Generate per-variant constructor implementations for every concrete
 /// reference-semantics enum (`ref(enum(…))`).
 generate_ref_enum_constructor_functions :: (fn(context : &mut FunctionGenerationContext) -> unit)({
-  // A live cursor walk of the registry, not a borrowed `for`: the body can
-  // register a late type (the on-demand hook), which a borrowed walk refuses.
-  vals_cur := context.base.types.walk_start();
-  while(context.base.types.walk_valid(&vals_cur), vals_cur = context.base.types.walk_next(&vals_cur), {
-    vals_key := context.base.types.walk_ref(&vals_cur).key.clone();
+  // A snapshot of the registry's keys, in bucket order: the body can
+  // register a late type (the on-demand hook), and the hook declares that type
+  // itself and records it in `on_demand_body_cnames`, so this pass need not
+  // visit it (VERDICTS-59 decision 6).
+  vals_keys := context.base.types.keys_cloned();
+  (vals_i : usize) = usize(0);
+  while(vals_i < vals_keys.len(), vals_i = (vals_i + usize(1)), {
+    vals_key := vals_keys(vals_i).clone();
     match(
       context.base.get_type_entry(&vals_key),
       .Some(entry) => if(is_reference_enum_type(&entry.ty), {
