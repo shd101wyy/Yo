@@ -423,11 +423,15 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
         `TypeApp(${recur(&constructor, _d + usize(1), visited)}, [${body}])`
       },
       Rc(.DynT(required_trait_types : rtt, required_trait_levels : _, negative_trait_types : ntt, negative_trait_levels : _)) => {
+        // The language's spelling, `Dyn(A, B)` with exclusions `!T` — the
+        // type appears in ordinary diagnostics since decision 49's flip, and
+        // the message must match the source. Keys hash the whole string, so
+        // identity is unaffected (only the spelled form changes).
         body := String.from("");
         i := usize(0);
         while(i < rtt.len(), {
           if(i > usize(0), {
-            body = `${body} + `;
+            body = `${body}, `;
           });
           ts := match(rtt.get(i), .Some(t2) => recur(&t2, _d + usize(1), visited), .None => `?`);
           body = `${body}${ts}`;
@@ -436,13 +440,13 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
         ii := usize(0);
         while(ii < ntt.len(), {
           if(body.len() > usize(0), {
-            body = `${body} + `;
+            body = `${body}, `;
           });
           ts := match(ntt.get(ii), .Some(t2) => recur(&t2, _d + usize(1), visited), .None => `?`);
-          body = `${body}!(${ts})`;
+          body = `${body}!${ts}`;
           ii = (ii + usize(1));
         });
-        `dyn(${body})`
+        `Dyn(${body})`
       },
       Rc(.FnTraitT(base_name : bn, call_param_labels : _, call_param_types : cpts, call_result : cr)) => {
         body := String.from("");

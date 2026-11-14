@@ -30,7 +30,7 @@ pragma(Pragma.AllowUnsafe);
 { HashSet } :: import("std/collections/hash_set");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr, clone_expr_fresh_ids, rewrite_projection_tails, projection_tail_diag_token } :: import("../../expr.yo");
 { copy_func_param_defaults, copy_func_param_default_exprs, copy_func_param_type_exprs, copy_func_param_comptime, copy_func_param_assigned_values, get_func_param_comptime, copy_func_return_type_expr, copy_macro_registration, get_func_variadic_param, copy_func_variadic_param, copy_func_where_constraints, get_func_where_constraints, WhereConstraintEntry, get_func_requires_exprs, get_func_ensures_exprs, get_func_decreases_expr, get_func_return_label, copy_func_contract_exprs, has_func_assumed_body } :: import("../types/function.yo");
-{ ExprInfo, new_expr_info, expr_info_table_set, expr_info_table_get, has_control_flow, has_any_control_flow, push_active_where_trait_ids, pop_active_where_trait_ids, some_resolution, trial_body_site, record_generic_trial_error, clear_generic_trial_error } :: import("../../expr_info.yo");
+{ ExprInfo, new_expr_info, expr_info_table_set, expr_info_table_get, has_control_flow, has_any_control_flow, unsize_reference_mode, push_active_where_trait_ids, pop_active_where_trait_ids, some_resolution, trial_body_site, record_generic_trial_error, clear_generic_trial_error } :: import("../../expr_info.yo");
 {
   Environment,
   Variable,
@@ -2189,9 +2189,14 @@ Result type: ${type_to_string(&result_box)}`
                 });
                 ub_skip := (has_any_control_flow(ub_info.control_flow()) || is_void_type(&result_box) || is_type_hierarchy_type(&result_box) || type_contains_some_type_for_codegen_param(&result_box, ArrayList(String).new()) || type_contains_some_type_for_codegen_param(&ub_ty, ArrayList(String).new()));
                 // A projection's body yields the place's address
-                // (`rewrite_projection_tails`): `&place` / `&mut place`.
+                // (`rewrite_projection_tails`): `&place` / `&mut place`. A
+                // `dyn(&v)` / reference-`upcast` body (its unsize-reference
+                // mode noted, decision 49) is the projection of the lent
+                // place already: the fat pair it lowers to IS the reference
+                // result's value, with no tail rewrite.
                 ub_place_ptr := t_ptr(&result_box);
-                if(!ub_skip && result_is_ref && !are_types_compatible(&ub_ty, &ub_place_ptr), {
+                ub_dyn_lend_body := unsize_reference_mode(ast_expr_id(&ub_body)).is_some();
+                if(!ub_skip && result_is_ref && !ub_dyn_lend_body && !are_types_compatible(&ub_ty, &ub_place_ptr), {
                   mark_fn_unemittable(fn_val_id.clone());
                   exn.throw(dyn(format_error_message(projection_tail_diag_token(&fb), projection_body_mismatch_message(&result_box, result_is_mut_ref, &ub_ty, &ub_body, ctx))));
                 });

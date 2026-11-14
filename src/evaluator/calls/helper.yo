@@ -203,7 +203,8 @@ pragma(Pragma.AllowUnsafe);
   mark_node_preevaluated,
   unmark_node_preevaluated,
   node_is_preevaluated,
-  note_mut_lend_value
+  note_mut_lend_value,
+  unsize_reference_mode
 } :: import("../../expr_info.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { call_promote_index_places_for_write } :: import("../context.yo");
@@ -5007,7 +5008,10 @@ create_specialized_function_inline :: (
               // `-> &T`) is typed `T` here, and codegen returned the value
               // where the C function returns a pointer
               // (issues/fixed/2026-11-08-a-generic-fn-forwarding-a-projection-call-as-its-reference-tail-emits-a-value.md).
-              if(sb_ret_is_ref && !has_any_control_flow(sb_info.control_flow()) && (get_all_some_types(&spec_ret_ty).len() == usize(0)) && (get_all_some_types(&sb_ty).len() == usize(0)) && !are_types_compatible(&sb_ty, &t_ptr(&spec_ret_ty)), {
+              // A `dyn(&v)` / reference-`upcast` tail (its unsize-reference
+              // mode noted) is the projection of the lent place: the fat pair
+              // it lowers to is the reference result, with no rewrite.
+              if(sb_ret_is_ref && !has_any_control_flow(sb_info.control_flow()) && (get_all_some_types(&spec_ret_ty).len() == usize(0)) && (get_all_some_types(&sb_ty).len() == usize(0)) && unsize_reference_mode(ast_expr_id(&specialized_body)).is_none() && !are_types_compatible(&sb_ty, &t_ptr(&spec_ret_ty)), {
                 exn.throw(dyn(format_error_message(projection_tail_diag_token(&cloned_body), projection_body_mismatch_message(&spec_ret_ty, fn_result_is_mut_ref(&func_type), &sb_ty, &specialized_body, ctx))));
               });
               if(!sb_skip && !are_types_compatible(&sb_ty, &spec_ret_ty), {

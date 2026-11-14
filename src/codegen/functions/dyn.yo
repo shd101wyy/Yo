@@ -17,7 +17,7 @@
 { should_skip_function_codegen, generate_function_prototype } :: import("./declarations.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
 { get_func_type, is_fnonce_closure_fn } :: import("../../function_value.yo");
-{ is_boxed_type, is_fn_trait_type, is_function_type, is_void_type, is_pointer_type, is_some_type, is_atomic_reference_struct_type, is_atomic_reference_enum_type, cell_handle_view, is_atomic_counted_handle_type, is_cell_primitive_type } :: import("../../types/guards.yo");
+{ is_boxed_type, is_fn_trait_type, is_function_type, is_void_type, is_pointer_type, is_some_type, is_atomic_reference_struct_type, is_atomic_reference_enum_type, is_reference_struct_type, cell_handle_view, is_atomic_counted_handle_type, is_cell_primitive_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("./context.yo");
 { DynImplEntry, type_key, get_type_string, dyn_slot_param_abi_string, dyn_slot_result_abi_string, dyn_concrete_func_type, dyn_concrete_c_name, dyn_impl_key_suffix, sanitize_for_c_identifier, ImplClosureCallInfo, CodegenFunctionEntry } :: import("../utils/index.yo");
 { get_drop_function_for_type, generate_drop_code_for_value, generate_dup_code_for_value } :: import("../exprs/drop_dup.yo");
@@ -466,6 +466,13 @@ _emit_dyn_clone_function :: (
       // `self : &Self` reaches the impl as `T` or as `T*` (`fn_abi_param_is_ptr`).
       self_by_ptr := clone_fn_takes_self_by_ptr(&clone_fid);
       (mut(receiver) : String) = String.new();
+      // A VALUE payload under decision 49's payload convention: the data word
+      // points AT the payload (L2's box is the payload alone), so the receiver
+      // reads through `(<C>*)self_ptr` and the clone lands in fresh storage the
+      // slot hands back — never a cast of `self_ptr` to the struct itself,
+      // which is not even valid C. A REFERENCE-struct payload is the pointer
+      // the data word holds, as before the flip.
+      value_payload := (!is_boxed && !is_reference_struct_type(concrete_type));
       if(is_boxed, {
         boxed_cname := _boxed_c_name(data_type.clone(), context);
         field_name := _box_field_name(data_type.clone());
@@ -473,8 +480,12 @@ _emit_dyn_clone_function :: (
         receiver = if(self_by_ptr, `&box->${field_name}`, `box->${field_name}`);
       }, {
         concrete_str := get_type_string(concrete_type.clone(), &mut context.base);
-        context.base.emitter.emit_declaration_string_line(`  ${concrete_str} concrete_value = (${concrete_str})self_ptr;`);
-        receiver = if(self_by_ptr, String.from("&concrete_value"), String.from("concrete_value"));
+        if(value_payload, {
+          receiver = if(self_by_ptr, `(${concrete_str}*)self_ptr`, `(*(${concrete_str}*)self_ptr)`);
+        }, {
+          context.base.emitter.emit_declaration_string_line(`  ${concrete_str} concrete_value = (${concrete_str})self_ptr;`);
+          receiver = if(self_by_ptr, String.from("&concrete_value"), String.from("concrete_value"));
+        });
       });
       if(is_boxed, {
         boxed_cname := _boxed_c_name(data_type.clone(), context);
@@ -485,7 +496,12 @@ _emit_dyn_clone_function :: (
         context.base.emitter.emit_declaration_string_line(`  ${boxed_cname}* out = __yo_new_${boxed_cname}(${scope_arg}${entry.c_name}(${receiver}));`);
       }, {
         concrete_str := get_type_string(concrete_type.clone(), &mut context.base);
-        context.base.emitter.emit_declaration_string_line(`  ${concrete_str} out = ${entry.c_name}(${receiver});`);
+        if(value_payload, {
+          context.base.emitter.emit_declaration_string_line(`  ${concrete_str}* out = (${concrete_str}*)__yo_malloc(sizeof(${concrete_str}));`);
+          context.base.emitter.emit_declaration_string_line(`  *out = ${entry.c_name}(${receiver});`);
+        }, {
+          context.base.emitter.emit_declaration_string_line(`  ${concrete_str} out = ${entry.c_name}(${receiver});`);
+        });
       });
       context.base.emitter.emit_declaration_line("  return (void*)out;");
     }),
