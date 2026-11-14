@@ -1774,9 +1774,12 @@ impl(
   )
 );
 // `str` is encode-only: a runtime String cannot become the static view.
+// SAFETY: the `str.from_raw_parts` view lives only for `String.from`, which
+// copies the bytes; a `&str` receiver need not point at static bytes
+// (decision 49 S2). S3b deletes it once `String.from` takes `&str`.
 impl(
   str,
-  ToJson(to_json : (fn(self : &Self) -> JsonValue)(JsonValue.Str(value : String.from(self))))
+  ToJson(to_json : (fn(self : &Self) -> JsonValue)(JsonValue.Str(value : String.from(str.from_raw_parts(self.ptr(), self.len())))))
 );
 // JsonValue round-trips through itself, so generic code can hold raw JSON.
 impl(

@@ -1,0 +1,24 @@
+// expect: accept
+// Positive twin of arm-tail-lend-over-arm-local: each arm block has a local of its own, but lends `w` or `v`,
+// declared before the `cond`, which outlive `z`.
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+pick :: (fn(c : bool) -> usize)({
+  w := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+  v := String.from("abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789");
+  z := cond(
+    c => {
+      n := String.from("n");
+      &w
+    },
+    true => {
+      m := String.from("m");
+      &v
+    }
+  );
+  z.len()
+});
+main :: (fn() -> unit)({
+  println(`OUT: ${pick(true).to_string()}`);
+});
+export(main);

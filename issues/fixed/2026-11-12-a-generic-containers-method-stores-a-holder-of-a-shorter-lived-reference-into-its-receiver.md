@@ -6,7 +6,7 @@ Found 2026-11-11 by the ownership / borrowing / origin audit (`plans/backlog/OWN
 
 ## Reproducer
 
-`issues/repros/2026-11-12-a-generic-containers-method-stores-a-holder-of-a-shorter-lived-reference-into-its-receiver.yo`:
+`tests/origins/unsound/a4-generic-container-method-store.yo` (moved from `issues/repros/` with the fix):
 
 ```yo
 { String } :: import("std/string");
@@ -53,3 +53,15 @@ E0911 at the read of `st.top` after the block (or E0923 at the `push`): `push(se
 ## Test
 
 With the fix: the reproducer as a `tests/origins/unsound/` pair (negative; positive control with `b` declared before `st`) and a corpus row.
+
+## Fix (2026-11-13, branch `fix/c1b-mut-in-by-value-and-generic-container`)
+
+A generic impl's method is called through its SPECIALIZED signature (`push(self : &mut Stack(H), v : H)`), so
+`lend_through` step 3 found neither an origin parameter nor a type variable to treat as the inference variable, and
+skipped the flow write-back. Now, when the `&mut` pointee carries an origin but spells neither, the pointee's type
+arguments are the inference variable. Another argument whose type occurs among them
+(`_type_occurs_in_type_arguments`; `H` in `Stack(H)`) is what the callee may store, so its roots join the
+receiver's flow set. The read of `st.top` after `b`'s block is then E0911.
+
+Rows: `a4-generic-container-method-store` (E0911) and `a4-generic-container-method-store-pos` (`b` declared
+before `st`).
