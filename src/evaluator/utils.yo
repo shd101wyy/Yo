@@ -11415,7 +11415,7 @@ _capture_store :: (fn(variable : &Variable, bco : &BorrowCaptureOuter, roots : &
 /// capture are frozen while the closure lives, which outlives its state, and
 /// a module-level binding outlives both: those pass, with nothing to join.
 _capture_state_store :: (fn(variable : &Variable, roots : &ArrayList(OriginRootPlace), at : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
-  ground := _origin_ground_roots(roots);
+  ground := _origin_ground_roots(roots, env);
   (gi : usize) = usize(0);
   while(gi < ground.len(), {
     match(
