@@ -29,26 +29,31 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-## Root cause (found 2026-11-14 21:00)
+## Root cause (found 2026-11-14 21:00-22:10; three sites, one class)
 
 Under decision 49 a `&Dyn(T)`/`&mut Dyn(T)` VALUE is the fat pair itself.
-`generate_address_of` (`src/codegen/exprs/ptr_fns.yo`) still treated every
-operand as an addressable place:
+Three emitters still treated a reference-typed operand as a PLACE to address:
 
-- a `dyn(&v)` lend (or any `&Dyn` expression) whose address-of is spelled by
-  a `&Dyn` binding or an `Option(&Dyn)` payload emitted `&(( fat ))` — a
-  pointer to a compound literal, assigned/cast where the pair BY VALUE is
-  expected;
-- the flip's dyn-cell IDENTITY places (`h.*` over a handle, `cell.*` —
-  property_access returns `(storage)`) fell past the existing `(*F)`-strip
-  arm (they start `((`, not `(*`), so `&h.*` and `Rc._payload_mut`'s
-  `addr_of(self._cell.*)` kept the wrap.
+1. `_apply_ref_amp`'s N2b arm (`src/codegen/exprs/other_fn_call.yo`): a
+   by-value parameter whose argument's converted runtime type is a Reference
+   got `pref = true` ("the argument is the place") — `_speak_via(&h.*)`
+   passed `(&(h))` where the `&Dyn` parameter takes the pair.
+2. The enum-ctor payload arm (same file, `f_takes_addr`): a borrow payload
+   addressed its argument — `Option(&Dyn).Some(x)` stored `&(pair)` in the
+   payload slot.
+3. `_reference_value_rhs` (`src/codegen/exprs/assignment.yo`): a reference
+   RHS wrapped `&(code)` — `(d : &Dyn) = dyn(&c)` declared the pair-typed
+   local with a pointer initializer.
 
-## Fix (commit e297c8f73)
+(`generate_address_of` in ptr_fns.yo gained the matching arms for the same
+class — a reference to an unsized pointee returns the operand's code; the
+dyn-cell identity place strips its paren layer — commit e297c8f73, which
+alone did NOT reach these three sites.)
 
-Two arms beside the slice strip: a reference to an UNSIZED pointee returns
-the operand's code as-is (it already IS the pair); an unsized place in the
-identity form `(storage)` strips the one paren layer.
+## Fix (commits e297c8f73 + b120032b1)
+
+All reference-to-UNSIZED-pointee cases keep the operand's code: no amp, no
+payload address, no assignment wrap.
 
 ## Test
 
