@@ -10077,7 +10077,16 @@ _with_binder_mode :: (fn(modes : &Option(ArrayList(u8)), i : usize, mode : u8) -
   bm := _binder_mode_at(modes, i);
   cond(
     (bm == u8(1)) => u8(0),
-    ((bm == u8(2)) && (mode == u8(1))) => u8(2),
+    // Mode 2 is "the pointee's holder, never the argument's own place"
+    // (O-3, `generic_result_binder_modes`), so it wins over both defaults:
+    // over 1, and over the elided 0 — an elided result origin's coarse
+    // union ("every reference-holding parameter") roots the result at the
+    // `&mut` argument's PLACE, which a by-value binder result never is
+    // (`replace(&mut h, v) -> T` returns the old contents, not a borrow of
+    // `h`; audit C2). A spelled 0 (the names list the parameter's own
+    // place) cannot co-occur with mode 2: the result then holds its
+    // binders only inside references, and the modes are `.None`.
+    (bm == u8(2)) => u8(2),
     true => mode
   )
 });
