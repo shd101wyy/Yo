@@ -1018,6 +1018,19 @@ _stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
       out.push_str(")");
       out
     },
+    // A reference renders its mode and its POINTEE's identity, never through
+    // `type_to_string` (the fallback below): that spells a nominal type by
+    // NAME, so `Option(&MathError)` of one declaration and another's rendered
+    // alike and `collect_type` aliased the second's type_key onto the first's
+    // C type — one Option struct for two payload types, and the second
+    // block's downcast initialized the first's `Some(value : &MathError)`
+    // with its own enum (`incompatible pointer types`, two same-named
+    // `MathError` enums in the error.test batch).
+    Rc(.Reference(sti_rp, sti_rmut, _)) => {
+      out := if(sti_rmut, String.from("&mut "), String.from("& "));
+      out.push_string(recur(&sti_rp, depth + usize(1)));
+      out
+    },
     Rc(.SliceT(sl_elem)) => {
       out := String.from("slice(");
       out.push_string(recur(&sl_elem, depth + usize(1)));
