@@ -111,7 +111,7 @@ pragma(Pragma.AllowUnsafe);
   note_rprobe_call,
   rprobe_stats_on
 } :: import("../context.yo");
-{ is_pointer_type, is_dyn_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, is_type_kind, type_decl_module, is_module_type, is_cell_primitive_type, is_counted_handle_type } :: import("../../types/guards.yo");
+{ is_pointer_type, is_dyn_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, is_type_kind, type_decl_module, is_module_type, is_cell_primitive_type, is_counted_handle_type, is_str_reference_type, str_reference_pointee } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
 { is_drop_method_name, is_clone_trait_type, type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, resolve_cell_chain, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type, note_future_origins_exist, note_unreturnable_future, future_origin_names, type_is_second_class, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message, type_lacks_clone } :: import("../../types/utils.yo");
@@ -8610,6 +8610,18 @@ _operator_reference_operand :: (
   });
   false
 });
+/// The Q-B legacy operator arm's rhs half (`unsized_legacy_spellings`,
+/// VERDICTS-62 decision 5): a 2nd operand of type `&str` — a value-`str`
+/// binding, field or call result read as the reference (arm A2), or a string
+/// literal `&(str, static)` — takes part in overload selection as `str`; the
+/// reference value itself then fills the chosen overload's `&Rhs` slot. Only a
+/// shared `&str` operand selects as `str`, and only against the unsized `str`
+/// parameter, so `string == "lit"` picks `Eq(str)` on `String` while
+/// `"lit" == string` and `s == string` pick `Eq(String)` on `str` by the exact
+/// rules alone. S3b-`str` deletes it with the alias (decision 7).
+_qb_str_operand_selects_as :: (fn(snd : &TypeValue, param : &TypeValue) -> bool)(
+  is_str_reference_type(snd) && match(t_refine_inner(param), Rc(.Str) => true, _ => false)
+);
 /// Evaluate an operator's 2nd operand under a capture-free swallow `Exception`
 /// to read its type for overload selection, WITHOUT aborting the caller on
 /// failure. The selection eval clears the expected type to read the operand's
@@ -10236,7 +10248,25 @@ _evaluate_function_call_unanchored :: (
     // prelude's `Eq(Option(T))` body at `T = EvalValue`, the inner `a == b`
     // dispatches here with `a` typed as EvalValue's shell.
     // See issues/fixed/yo-self-option-eq-ref-enum-not-specialized.md.
-    receiver_ty := resolve_enum_shell(match(first_info_opt, .Some(ri) => Rc.clone(ri.ty()), .None => t_unit()));
+    (receiver_ty : TypeValue) = resolve_enum_shell(match(first_info_opt, .Some(ri) => Rc.clone(ri.ty()), .None => t_unit()));
+    // The Q-B legacy operator arm (`unsized_legacy_spellings`, VERDICTS-62
+    // decision 5): after gap 1 has declined (`_ref_operand` false), a receiver
+    // of type `&str` — a value-`str` binding or field read as the reference
+    // (arm A2), or a string literal, whose type is `&(str, static)` — takes
+    // part in selection as `str`, and the reference value itself fills the
+    // `&Self` slot of the `impl(str, ...)` overloads. No storage is lent and no
+    // temporary is made: the operand already is the reference. Only a SHARED
+    // `&str` selects as `str` (`str_reference_pointee`: not `&mut str`, not
+    // another pointee), gap 1 keeps priority, and neither a method receiver nor
+    // a generic bound passes through here (`T := &str` still selects the
+    // blanket impl). S3b-`str` deletes the arm with the alias (decision 7).
+    if(!_ref_operand, {
+      match(
+        str_reference_pointee(&receiver_ty),
+        .Some(qb_str) => (receiver_ty = qb_str),
+        .None => ()
+      );
+    });
     // is_infix_operator_call = true: infix operators don't allow auto
     // pointer conversion of the receiver.
     (op_methods : ArrayList(MethodEntry)) = get_receiver_methods_by_name_from_env(env, op_name.clone(), &receiver_ty, true);
@@ -10360,7 +10390,7 @@ _evaluate_function_call_unanchored :: (
                 Rc(.Func({ param_types : ocpt })) => match(slot_pointee_at(&ocpt, usize(1)), .Some(t) => t, .None => t_unit()),
                 _ => t_unit()
               );
-              if(are_types_compatible(&snd_ty, &ocand_p1), {
+              if((are_types_compatible(&snd_ty, &ocand_p1) || _qb_str_operand_selects_as(&snd_ty, &ocand_p1)), {
                 chosen_idx = osi;
                 osel = true;
               });

@@ -6,7 +6,7 @@ pragma(Pragma.AllowUnsafe);
 { HashSet } :: import("std/collections/hash_set");
 { HashMap } :: import("std/collections/hash_map");
 { TypeValue, no_types } :: import("./definitions.yo");
-{ type_value_tag, resolve_enum_shell, resolve_struct_shell } :: import("./creators.yo");
+{ type_value_tag, resolve_enum_shell, resolve_struct_shell, t_str } :: import("./creators.yo");
 { t_refine_inner, slot_pointee_at, t_slot_pointee } :: import("./definitions.yo");
 { BK_YO_CELL, BK_YO_ATOMIC_CELL } :: import("../expr.yo");
 { RefCell } :: import("std/sync/refcell");
@@ -396,6 +396,24 @@ is_str_reference_type :: (fn(t : &TypeValue) -> bool)(
     Rc(.Reference(sr_p, false, _)) => match(t_refine_inner(&sr_p), Rc(.Str) => true, _ => false),
     Rc(.ValueSlot(sr_v)) => is_str_reference_type(&sr_v),
     _ => false
+  )
+);
+/// The unsized `str` a shared `&str` / `&(str, static)` (or a by-value slot
+/// holding one) selects as — `is_str_reference_type`'s pointee — or `.None`
+/// when `t` is not one. The Q-B legacy operator arm
+/// (`unsized_legacy_spellings`, VERDICTS-62 decision 5) rewrites an infix
+/// operator's `&str` receiver to it; `&mut str` and every other pointee stay
+/// `.None`.
+str_reference_pointee :: (fn(t : &TypeValue) -> Option(TypeValue))(
+  match(
+    t_refine_inner(t),
+    Rc(.Reference(srp_p, false, _)) => match(
+      t_refine_inner(&srp_p),
+      Rc(.Str) => Option(TypeValue).Some(t_str()),
+      _ => Option(TypeValue).None
+    ),
+    Rc(.ValueSlot(srp_v)) => str_reference_pointee(&srp_v),
+    _ => Option(TypeValue).None
   )
 );
 // ---------------------------------------------------------------------------
@@ -1279,6 +1297,7 @@ export(
   is_newtype_type,
   is_str_type,
   is_str_reference_type,
+  str_reference_pointee,
   is_box_type,
   is_arc_type,
   is_counted_handle_value_type,
