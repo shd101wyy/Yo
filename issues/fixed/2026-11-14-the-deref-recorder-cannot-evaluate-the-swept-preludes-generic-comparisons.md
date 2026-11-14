@@ -62,12 +62,15 @@ operand over a lent match binding), not in the sweep.
 
 ## Fix
 
-The rider PR (VERDICTS-60 decisions 11–14: "a third seed gap found there is a rider
-that merges before the Nov 23 20:00 freeze"). Until it lands, the five
-`tests/cli-cases/fix-migrate-deref-*` goldens fail against the swept std — they are
-this issue's failing tests (they pass with develop's std). The rider must also carry
-fc80e38da's two hunks (or their equivalents), which the text PR leaves out per
-VERDICTS-60 decision 15.1.
+Fixed in the deref text PR itself (the coordinator's call after the rider #1940 did not
+heal it): `deref_file_migrated` (`src/expr_info.yo`) and the gate on property_access's
+edit-3 old-payload evaluation (`src/evaluator/exprs/property_access.yo`) — the evaluation
+honours the same second-run rule the apply stage uses, so a file `note_deref_migrated_file`
+saw has its `.*`-through-Box/Rc/pointer/cell-handle references evaluated the new way. The
+five `tests/cli-cases/fix-migrate-deref-*` goldens are the failing tests: all five PASS on
+the fixed tree (re-verified with the stage-1 binary of the head, alongside the two former
+#1932 reds healed by develop's #1944). fc80e38da's capture-pun/binder hunts remain for the
+flip, per VERDICTS-60 decision 15.1.
 
 Found by the full `scripts/cli-diff-test.sh` run of the text-sweep stage 1: the five
 `fix-migrate-deref-*` cases failed while the same cases pass on the v0.2.78 brace tree
