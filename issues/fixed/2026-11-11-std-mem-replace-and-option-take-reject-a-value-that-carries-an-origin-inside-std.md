@@ -70,6 +70,22 @@ Hypothesis for the site: R-CALL's root walk over the call's operands (`_origin_o
 `addr_of(x)` operand through as a call-site lend marker) makes the `addr_of` operand's place a root of a result
 whose type carries an origin, so the value read through the pointer is rooted at the parameter's slot.
 
+Confirmed, and there are TWO such routes (measured with `YO_DEBUG_N2B=1`, the `[n2b] bind old: roots=[dst(imm)]`
+trace): R-CALL computes a call result's origins through both walks in `_origin_of_into` (`src/evaluator/utils.yo`).
+
+1. `projection_call_root_args` counted the raw-pointer operand as a root of the result (its `p_named`/`p_via_impl_origin`
+   arms). This is the route the INLINE spelling takes — `old := unsafe(__yo_ptr_read(addr_of(dst.*)))` — which the
+   measurement above uses. Fixed first: an argument whose expr-info type is a raw pointer (`Rc(.Pointer(_))`) is no
+   root (`p_raw`).
+2. `_origin_carrying_roots_shallow`, which runs FIRST over the same call, still pushed the root for the shape std
+   actually spells — the pointer held in an intermediary local: `p := addr_of(dst.*); old := unsafe(__yo_ptr_read(p))`.
+   There the argument is the ATOM `p` of raw-pointer type, and the walk's atom fallback ("a holder passed on: its own
+   frozen places", `_holder_roots_into`) extends the statement-local borrow `p` registered on `dst` — a raw-pointer
+   argument reached the holder path. Fixed the same way: an argument of raw-pointer type contributes nothing on this
+   walk either (`_origin_carrying_roots_shallow`'s atom route). With both guards the trace reads
+   `bind old: roots=[] rhs=unsafe(__yo_ptr_read(p))`, and the caller-side R-CALL over the returned holder is what
+   rejects `…-neg.yo` with E0911.
+
 ## Expected
 
 Accept the sound uses; reject the unsound ones at the CALLER. `plans/backlog/BORROW_CHECKER_COMPLETENESS.md` keeps
@@ -81,6 +97,7 @@ returned holder as it checks any call result (R-CALL), which is what rejects `�
 
 ## Test
 
-With the fix: the two accept programs and the negative move to `tests/origins/unsound/`; corpus rows
-`mem-replace-holder` (pos), `option-take-holder` (pos) and `mem-replace-block-local` (E0911) in
-`tests/origins/corpus.tsv`; std's own tests for `std/mem.yo` gain a `replace` / `take` case over a holder.
+With the fix: the two accept programs and the negative moved to `tests/origins/unsound/` as `mem-replace-holder-pos`,
+`option-take-holder-pos` (accept, run under ASan by `scripts/origins-unsound.sh`) and `mem-replace-block-local`
+(E0911 at the caller). The corpus rows (`mem-replace-holder`, `option-take-holder`, `mem-replace-block-local`) and a
+`std/mem.yo` test case are not added; the G-B rows cover the shapes (PR Deferred).

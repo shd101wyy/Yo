@@ -9797,6 +9797,20 @@ _origin_carrying_roots_shallow :: (fn(e : &AstExpr, env : &Environment, ctx : &E
               if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
                 eprintln(`[n2b] root-arg ${ast_expr_to_string(&value)}: marker=${(v_is_lend_mut || v_is_lend_amp)} lend=${match(expr_info_converted_runtime_type(&vi), .Some(_) => "yes", .None => "no")} ty=${type_to_string(&vi.ty())}`);
               });
+              // A raw pointer is outside the model (BORROW_CHECKER_COMPLETENESS.md §5:
+              // `addr_of(p)` is `access(p, lend-&)` for the statement and nothing
+              // after): an argument of raw-pointer type contributes no root of the
+              // call's result — what `__yo_ptr_read(p)` returns is a `T` whose
+              // origins are `T`'s, never the places the pointer was taken from
+              // (`p := addr_of(dst.*); old := __yo_ptr_read(p)` must not freeze
+              // `dst`; audit C2). The same guard as `projection_call_root_args`'s
+              // `p_raw`, on this walk's atom route: a pointer-typed atom reaching
+              // the holder fallback below would extend the local borrow the
+              // `addr_of` binding registered.
+              if(match(&vi.ty(), Rc(.Pointer(_)) => true, _ => false), {
+                i = (i + usize(1));
+                continue;
+              });
               // A recorded LEND (the marker was peeled out of the tree, T9):
               // its reference type carries the mode and the place's root.
               v_lend := match(
