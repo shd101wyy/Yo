@@ -154,6 +154,7 @@
   note_fn_value_definition,
   audit_origin_totality,
   origin_of,
+  _origin_through_match_bindings,
   OriginRootPlace,
   LocalBorrowElidedOrigin
 } :: import("../utils.yo");
@@ -746,7 +747,12 @@ _chain_leaf_origins :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext,
     .Atom(_, _) => ()
   );
   leaf_env := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)), .Some(li) => li.env(), .None => Rc.clone(env));
-  leaf_roots := origin_of(e, &leaf_env, ctx);
+  // A root that names a `&` match binding stands for the place it points
+  // into, the scrutinee's (a lend of it), not a local of the block dropped
+  // here: map it before the block-local test, as `return_check` and
+  // `origin_scope_close` do (`_origin_through_match_bindings`), or every
+  // `m := match(&o, .Some(h) => …&h…)` is a false "local of the block".
+  leaf_roots := _origin_through_match_bindings(&origin_of(e, &leaf_env, ctx), &leaf_env, ctx, u32(0));
   (li : usize) = usize(0);
   while(li < leaf_roots.len(), li = (li + usize(1)), {
     out.push(leaf_roots(li).clone());
