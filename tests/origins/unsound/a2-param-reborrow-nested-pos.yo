@@ -1,0 +1,21 @@
+// expect: accept
+// a2-param-reborrow-nested's positive twin: the call result borrows the other parameter.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+long :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+first :: (fn(xs : &ArrayList(String)) -> &String)(&xs(usize(0)));
+f :: (fn(xs : &mut ArrayList(String), r : &String) -> usize)({
+  xs.clear();
+  r.clone().len()
+});
+run :: (fn(xs : &mut ArrayList(String), ys : &ArrayList(String)) -> usize)(f(xs, first(ys)));
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(long());
+  mut(ys) := ArrayList(String).new();
+  ys.push(long());
+  v := run(&mut xs, &ys);
+  println(`OUT: ${v.to_string()}`);
+});
+export(main);

@@ -1,0 +1,17 @@
+// expect: accept
+// a2-std-fill-own-element's positive twin: the fill value is an element of another list.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+long :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+first :: (fn(xs : &ArrayList(String)) -> &String)(&xs(usize(0)));
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(long());
+  xs.push(long());
+  mut(ys) := ArrayList(String).new();
+  ys.push(long());
+  xs.fill(ys.index(usize(0)));
+  println(`OUT: ${xs(usize(1))}`);
+});
+export(main);

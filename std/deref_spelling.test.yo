@@ -84,3 +84,45 @@ test("r.* = Rc.new(...) writes the handle's slot", {
   v := bare.*.*;
   assert(v == i32(14), "a written deref beside it reads the same handle");
 });
+// The capture path's written `.*` (the seed rider of VERDICTS-60 §4, 11):
+// `{ b : &b.* }` names what `{ &b }` names here, the referent of `b` whole.
+// An `io.async` body that borrows a `&` parameter so keeps its own copy of
+// it (plans/VALUES_BY_DEFAULT.md §3.13 A2), the spelling the deref flip
+// writes in std and src
+// (issues/2026-11-13-the-v0277-seed-rejects-the-deref-swept-io-async-captures-of-a-reference-parameter.md).
+_DerefBox :: struct(n : i32);
+_deref_box_read :: (fn(b : &_DerefBox, io : Io) -> Impl(Future(i32)))(
+  io.async({ b : &b.* }(io : Io) => {
+    return(b.*.n);
+  })
+);
+test("an io.async capture `{ b : &b.* }` of a & parameter borrows the parameter whole", {
+  x := _DerefBox(n : i32(11));
+  assert(io.await(_deref_box_read(&x, io), io) == i32(11), "the future reads the referent it borrows");
+  comptime_expect_error(
+    _deref_box_field :: (fn(b : &_DerefBox, io : Io) -> Impl(Future(i32)))(
+      io.async({ n : &b.*.n }(io : Io) => {
+        return(n.*);
+      })
+    ),
+    "borrows a `&` parameter whole"
+  );
+});
+test("a closure's `{ r : &mut r.* }` borrows the referent whole while it lives", {
+  mut(p) := _DerefPoint(a : i32(1), b : i32(2));
+  r := &mut p;
+  comptime_expect_error({
+    (mut(f) : Impl(FnMut() -> i32)) = ({ r : &mut r.* }() => {
+      r.*.a = (r.*.a + i32(1));
+      r.*.a
+    });
+    _q := &r.b;
+    f()
+  }, "the closure `f` borrows");
+  (mut(g) : Impl(FnMut() -> i32)) = ({ r : &mut r.* }() => {
+    r.*.a = (r.*.a + i32(1));
+    r.*.a
+  });
+  assert(g() == i32(2), "the closure writes through the reborrow");
+  assert(p.a == i32(2), "the write landed in p");
+});

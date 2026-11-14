@@ -80,3 +80,17 @@ test("truncate shortens by BYTES and ignores a longer length", {
   s.truncate(usize(0));
   assert(s.is_empty() == true, "truncate to zero empties");
 });
+test("slice_copy takes its receiver by value: the view it returns is static only because the receiver is", {
+  // A `self : &Self` receiver let `slice_copy` build a static view from a
+  // reference that need not point at static bytes
+  // (issues/fixed/2026-11-14-str-slice-copy-builds-a-static-view-from-a-borrowed-receiver.md).
+  (f : (fn(s : str, r : &Range(usize)) -> str)) = str.slice_copy;
+  (g : (fn(s : str, r : &RangeInclusive(usize)) -> str)) = str.slice_copy_inclusive;
+  s := "hello";
+  t := f(s, &(usize(1) .. usize(3)));
+  u := g(s, &(usize(1) ..= usize(3)));
+  assert((t.len() == usize(2)) && (t == "el"), "slice_copy through a by-value fn type");
+  assert((u.len() == usize(3)) && (u == "ell"), "slice_copy_inclusive through a by-value fn type");
+  assert((s(usize(1) .. usize(4)) == "ell") && (s(usize(0) ..= usize(1)) == "he"), "the range subscripts lower to slice_copy");
+  assert(s(usize(3) .. usize(99)) == "lo", "an end past the length is clamped");
+});
