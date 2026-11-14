@@ -16,7 +16,7 @@ doc.
 
 ## Active
 
-Only VALUES_BY_DEFAULT is in progress (until v0.2.79). Everything else is in
+Only VALUES_BY_DEFAULT is in progress (until v0.2.80). Everything else is in
 `backlog/`, ordered by [`backlog/POST_VBD_PLAN.md`](backlog/POST_VBD_PLAN.md).
 
 - [`ROADMAP.md`](ROADMAP.md) — the language and product roadmap.
@@ -24,7 +24,7 @@ Only VALUES_BY_DEFAULT is in progress (until v0.2.79). Everything else is in
   value, `ref(...)`/`atomic(...)` leave the language, sharing is spelled
   `Rc(T)`/`Arc(T)`, references carry origins (decisions 1–50).
   - [`handover/VBD_RELEASE_SCHEDULE.md`](handover/VBD_RELEASE_SCHEDULE.md) —
-    the release-by-release schedule (v0.2.76–v0.2.79) and every scheduling
+    the release-by-release schedule (v0.2.76–v0.2.80) and every scheduling
     decision.
   - Its design sub-plans, in `backlog/` because they are designs rather than
     campaigns:
