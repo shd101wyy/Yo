@@ -70,8 +70,8 @@ Hypothesis for the site: R-CALL's root walk over the call's operands (`_origin_o
 `addr_of(x)` operand through as a call-site lend marker) makes the `addr_of` operand's place a root of a result
 whose type carries an origin, so the value read through the pointer is rooted at the parameter's slot.
 
-Confirmed, and there are TWO such routes (measured with `YO_DEBUG_N2B=1`, the `[n2b] bind old: roots=[dst(imm)]`
-trace): R-CALL computes a call result's origins through both walks in `_origin_of_into` (`src/evaluator/utils.yo`).
+Confirmed, and the fix needed THREE parts (measured with `YO_DEBUG_N2B=1`, the `[n2b] bind old: roots=[…]` traces);
+R-CALL computes a call result's origins through two walks in `_origin_of_into` (`src/evaluator/utils.yo`).
 
 1. `projection_call_root_args` counted the raw-pointer operand as a root of the result (its `p_named`/`p_via_impl_origin`
    arms). This is the route the INLINE spelling takes — `old := unsafe(__yo_ptr_read(addr_of(dst.*)))` — which the
@@ -82,9 +82,21 @@ trace): R-CALL computes a call result's origins through both walks in `_origin_o
    There the argument is the ATOM `p` of raw-pointer type, and the walk's atom fallback ("a holder passed on: its own
    frozen places", `_holder_roots_into`) extends the statement-local borrow `p` registered on `dst` — a raw-pointer
    argument reached the holder path. Fixed the same way: an argument of raw-pointer type contributes nothing on this
-   walk either (`_origin_carrying_roots_shallow`'s atom route). With both guards the trace reads
-   `bind old: roots=[] rhs=unsafe(__yo_ptr_read(p))`, and the caller-side R-CALL over the returned holder is what
-   rejects `…-neg.yo` with E0911.
+   walk either (`_origin_carrying_roots_shallow`'s atom route). With both guards the callee-side trace reads
+   `bind old: roots=[] rhs=unsafe(__yo_ptr_read(p))`.
+3. The caller then over-froze the RESULT: `old := replace(&mut h, H(r : &c))` registered `h(mut)` — the `&mut`
+   argument's own PLACE — so a later `h.r` read was E0911 ("`old` borrows `h` with `&mut`"). O-3's binder machinery
+   already defines the right answer (`generic_result_binder_modes`): a by-value result holding binder `T` reaches a
+   `&mut T` parameter through its POINTEE's references (mode 2, "never its own place"), but two gaps kept it from
+   firing: (a) `record_generic_callee_type` is written by ONE call arm (the inline FuncVal specialization,
+   `calls/function.yo`), so a DIRECT call to a generic fn value had no entry and every parameter read as mode 0 —
+   `generic_result_binder_modes` now falls back to the callee's declared type (the `ft` the walks already hold) for a
+   call with no method receiver; and (b) `_with_binder_mode` only honoured mode 2 over the default 1, never over the
+   ELIDED default 0 ("the union of the reference-holding parameters"), which is exactly the coarse rule the binder
+   modes exist to refine — mode 2 now wins over both defaults. With both, the caller-side trace reads
+   `bind old: roots=[a(imm), c(imm)]` and `mem-replace-holder-pos` accepts.
+
+The caller-side R-CALL over the returned holder is what rejects `…-neg.yo` with E0911.
 
 ## Expected
 
