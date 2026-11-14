@@ -147,17 +147,19 @@ generate_dyn_call :: (fn(expr : &AstExpr, indent : &String, context : &mut Funct
         return(`// Failed to transpile ${ast_expr_to_string(expr)}`);
       });
       b_out := `((${b_dyn_c}){ .data = (void*)(${b_code}), .vtable = &__yo_vtable_${b_key} })`;
-      return(match(
-        &ei.variable_name(),
-        .Some(b_tv) => {
-          already_b := match(&context.declared_temp_vars, .Some(ds) => ds.contains(b_tv.clone()), .None => false);
-          if(!already_b, record_declared_temp_var(context, b_tv.clone()));
-          context.base.emitter.emit_string_line(&`${indent.clone()}${b_dyn_c} ${b_tv.clone()} = ${b_out};`);
-          _store_temp_var_to_state_machine_if_needed(b_tv.clone(), indent.clone(), context);
-          b_tv.clone()
-        },
-        .None => b_out
-      ));
+      return(
+        match(
+          &ei.variable_name(),
+          .Some(b_tv) => {
+            already_b := match(&context.declared_temp_vars, .Some(ds) => ds.contains(b_tv.clone()), .None => false);
+            if(!already_b, record_declared_temp_var(context, b_tv.clone()));
+            context.base.emitter.emit_string_line(&`${indent.clone()}${b_dyn_c} ${b_tv.clone()} = ${b_out};`);
+            _store_temp_var_to_state_machine_if_needed(b_tv.clone(), indent.clone(), context);
+            b_tv.clone()
+          },
+          .None => b_out
+        )
+      );
     }),
     .None => ()
   );
