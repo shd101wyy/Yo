@@ -752,7 +752,21 @@ _chain_leaf_origins :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext,
   // here: map it before the block-local test, as `return_check` and
   // `origin_scope_close` do (`_origin_through_match_bindings`), or every
   // `m := match(&o, .Some(h) => …&h…)` is a false "local of the block".
-  leaf_roots := _origin_through_match_bindings(&origin_of(e, &leaf_env, ctx), &leaf_env, ctx, u32(0));
+  _dbg_pre := origin_of(e, &leaf_env, ctx);
+  leaf_roots := _origin_through_match_bindings(&_dbg_pre, &leaf_env, ctx, u32(0));
+  if(debug_knob(`YO_DEBUG_CHAIN`).is_some(), {
+    (d0 : usize) = usize(0);
+    pre_txt := String.new();
+    while(d0 < _dbg_pre.len(), d0 = (d0 + usize(1)), {
+      pre_txt.push_string(&`${_dbg_pre(d0).place.root_name.clone()}@${_dbg_pre(d0).place.root_decl.byte_offset},`);
+    });
+    post_txt := String.new();
+    (d1 : usize) = usize(0);
+    while(d1 < leaf_roots.len(), d1 = (d1 + usize(1)), {
+      post_txt.push_string(&`${leaf_roots(d1).place.root_name.clone()}@${leaf_roots(d1).place.root_decl.byte_offset},`);
+    });
+    eprintln(`[chain] leaf ${ast_expr_to_string(e)} pre=[${pre_txt}] post=[${post_txt}]`);
+  });
   (li : usize) = usize(0);
   while(li < leaf_roots.len(), li = (li + usize(1)), {
     out.push(leaf_roots(li).clone());
@@ -789,9 +803,15 @@ _expr_last_byte_offset :: (fn(e : &AstExpr) -> u32)({
 _chain_block_local_root :: (fn(rhs : &AstExpr, roots : &ArrayList(OriginRootPlace)) -> Option(String))({
   rhs_tok := ast_expr_token(rhs);
   rhs_end := _expr_last_byte_offset(rhs);
+  if(debug_knob(`YO_DEBUG_CHAIN`).is_some(), {
+    eprintln(`[chain] block-local rhs=${ast_expr_token(rhs).value.*.clone()}@${rhs_tok.byte_offset}-${rhs_end} roots=${roots.len().to_string()}`);
+  });
   (i : usize) = usize(0);
   while(i < roots.len(), i = (i + usize(1)), {
     cr := roots(i).clone();
+    if(debug_knob(`YO_DEBUG_CHAIN`).is_some(), {
+      eprintln(`[chain]  root ${cr.place.root_name.clone()}@${cr.place.root_decl.byte_offset} mod=${cr.place.root_decl.module_path.*.clone()}`);
+    });
     scoped := (cr.place.root_name == ORIGIN_SCOPED_ROOT);
     if((cr.place.root_name != ORIGIN_LOST_ROOT) && ((cr.place.root_name != ORIGIN_TEMPORARY_ROOT) && ((cr.place.root_decl.module_path.*.clone() == rhs_tok.module_path.*.clone()) && ((cr.place.root_decl.byte_offset >= rhs_tok.byte_offset) && (cr.place.root_decl.byte_offset <= rhs_end)))), {
       return(Option(String).Some(if(scoped, cr.place.text.clone(), cr.place.root_name.clone())));
