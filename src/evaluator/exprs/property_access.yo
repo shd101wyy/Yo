@@ -37,6 +37,7 @@ pragma(Pragma.AllowUnsafe);
   unmark_node_preevaluated,
   record_deref_edit_site,
   note_deref_migrated_file,
+  deref_file_migrated,
   note_dyn_place
 } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env, get_receiver_methods_by_name_from_env, get_pointer_own_methods_by_name_from_env, env_adopt } :: import("../../env.yo");
@@ -885,7 +886,13 @@ _evaluate_property_access_node :: (
           if(ast_expr_id(expr) == g_deref_chain_object_id, {
             g_deref_chain_object_id = usize(0);
           });
-          if(deref_rule_recording() && !rd_chain_new && deref_reads_through_pointee(&rd_oi.ty()), {
+          // A file `note_deref_migrated_file` saw reads its references the
+          // new way (the second-run rule): its `b.*` through a Box/Rc/pointer/
+          // cell handle reference is that reference's deref, and the site is
+          // EVALUATED that way too, not as an old payload read — the swept
+          // prelude's `Eq(Option(T))` comparison otherwise evaluates its
+          // operands the old way and the instantiation dies (E0601).
+          if(deref_rule_recording() && !rd_chain_new && !deref_file_migrated(ast_expr_token(&object_expr)) && deref_reads_through_pointee(&rd_oi.ty()), {
             record_deref_edit_site(ast_expr_token(&object_expr), &rd_v.name, u8(3));
           }, {
             // A `.*` no old source could write: the file is migrated already.
