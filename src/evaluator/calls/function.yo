@@ -9640,6 +9640,69 @@ _argument_origin_pairs :: (fn(arg : &AstExpr, slot : &TypeValue, env : &Environm
     _ => _origin_position_pairs(slot, &a_ty, out_p, out_a, u32(0))
   );
 });
+/// `needle` is `hay` or one of its type arguments, at any depth (struct
+/// and enum type arguments, tuple components, reference pointees): a
+/// generic container instantiated at `needle` (`Stack(H)` for `H`).
+_type_occurs_in_type_arguments :: (fn(needle : &TypeValue, hay : &TypeValue, depth : u32) -> bool)({
+  if(depth > u32(8), {
+    return(false);
+  });
+  if(are_types_compatible_exact(needle, hay), {
+    return(true);
+  });
+  (args : SharedList(TypeValue)) = match(
+    hay,
+    Rc(.Struct({ type_arguments : oc_tas })) => oc_tas.clone(),
+    Rc(.EnumT({ type_arguments : oc_tas })) => oc_tas.clone(),
+    Rc(.Tuple({ field_types : oc_fts })) => oc_fts.clone(),
+    Rc(.Reference(oc_p, _, _)) => return(recur(needle, &oc_p, (depth + u32(1)))),
+    _ => return(false)
+  );
+  (i : usize) = usize(0);
+  while(i < args.len(), i = (i + usize(1)), {
+    if(match(args.get(i), .Some(a) => recur(needle, &a, (depth + u32(1))), .None => false), {
+      return(true);
+    });
+  });
+  false
+});
+/// The origin parameters `ty` names under a `&mut` pointee (`under_mut`
+/// once one is crossed): through reference pointees, struct fields and type
+/// arguments, enum payloads and type arguments, and tuple components. Each
+/// is invariant (O3 step 3): `Slot(p)` with a field `dst : &mut Option(&(T,
+/// p))` names `p`, as do `Tuple(&mut Option(&(T, p)), i32)` and
+/// `Option(&mut Option(&(T, p)))`.
+_mut_pointee_origin_names :: (fn(ty : &TypeValue, under_mut : bool, out : &mut ArrayList(String), depth : u32) -> unit)({
+  if(depth > u32(8), {
+    return(());
+  });
+  if(under_mut, {
+    origin_param_names_of(ty, out, u32(0));
+  });
+  match(
+    ty,
+    Rc(.Reference(mp_p, mp_mut, _)) => recur(&mp_p, under_mut || mp_mut, out, (depth + u32(1))),
+    Rc(.Struct({ field_types : mp_fts, type_arguments : mp_tas })) => {
+      _mut_pointee_origin_names_list(&mp_fts, under_mut, out, depth);
+      _mut_pointee_origin_names_list(&mp_tas, under_mut, out, depth);
+    },
+    Rc(.EnumT({ variant_fields : mp_vfs, type_arguments : mp_tas })) => {
+      (vi : usize) = usize(0);
+      while(vi < mp_vfs.len(), vi = (vi + usize(1)), {
+        match(mp_vfs.get(vi), .Some(vf) => _mut_pointee_origin_names_list(&vf, under_mut, out, depth), .None => ());
+      });
+      _mut_pointee_origin_names_list(&mp_tas, under_mut, out, depth);
+    },
+    Rc(.Tuple({ field_types : mp_fts })) => _mut_pointee_origin_names_list(&mp_fts, under_mut, out, depth),
+    _ => ()
+  );
+});
+_mut_pointee_origin_names_list :: (fn(tys : &SharedList(TypeValue), under_mut : bool, out : &mut ArrayList(String), depth : u32) -> unit)({
+  (i : usize) = usize(0);
+  while(i < tys.len(), i = (i + usize(1)), {
+    match(tys.get(i), .Some(t) => _mut_pointee_origin_names(&t, under_mut, out, (depth + u32(1))), .None => ());
+  });
+});
 /// O3-3 at a call (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O3
 /// step 3): an origin parameter reached through a `&mut` parameter's pointee
 /// is INVARIANT. The `&mut`-lent argument whose type spells ground origins
@@ -9794,6 +9857,47 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
       }),
       .None => ()
     );
+    // A `&mut` nested inside a by-value (or `&`) parameter — a holder
+    // `s : Slot(p)` whose field is `&mut Option(&(T, p))`, a tuple or an
+    // `Option` around one — makes the origins under it invariant exactly as
+    // a top-level `&mut` parameter does (O3 step 3, "wherever the type
+    // stands in a signature"; audit A24): the argument's spelled origin at
+    // each such position fixes the parameter's.
+    match(
+      slots.get(ai),
+      .Some(n_slot) => if(!t_slot_is_mut_ref(&n_slot) && type_carries_origin(&n_slot), {
+        inv := ArrayList(String).new();
+        _mut_pointee_origin_names(&n_slot, false, &mut inv, u32(0));
+        if(inv.len() > usize(0), {
+          n_arg := match(op_args.get(ai), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr());
+          n_p := ArrayList(TypeValue).new();
+          n_a := ArrayList(TypeValue).new();
+          _argument_origin_pairs(&n_arg, &n_slot, env, ctx, &mut n_p, &mut n_a);
+          (nk : usize) = usize(0);
+          while(nk < n_p.len(), nk = (nk + usize(1)), {
+            match(
+              t_origin_spelled_names(&n_p(nk)),
+              .Some(npn) => if(npn.len() == usize(1), {
+                n := match(npn.get_cloned(usize(0)), .Some(n0) => n0, .None => String.from(""));
+                if(inv.contains(&n) && !fixed_names.contains(&n), {
+                  match(
+                    t_origin_spelled_names(&n_a(nk)),
+                    .Some(nan) => {
+                      fixed_names.push(n);
+                      fixed_sets.push(nan);
+                      fixed_by.push(ai);
+                    },
+                    .None => ()
+                  );
+                });
+              }),
+              .None => ()
+            );
+          });
+        });
+      }),
+      .None => ()
+    );
     ai = (ai + usize(1));
   });
   // 2. Every other argument whose parameter names a fixed origin carries
@@ -9914,6 +10018,17 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
             // Only the flow case: every named parameter the argument spelled
             // is already fixed exactly by step 1.
             (unfixed : bool) = (w_tvars.len() > usize(0));
+            // A specialized method of a generic container (`Stack(T).push(self
+            // : &mut Self, v : T)` at `T := H`, `H` a holder whose origin is
+            // elided): its slots spell neither an origin parameter nor a type
+            // variable any more, and the type argument is the inference
+            // variable — another argument whose type occurs among the
+            // pointee's type arguments is what the callee may store
+            // (audit A4's generic-container form).
+            (by_type_argument : bool) = ((w_names.len() == usize(0)) && ((w_tvars.len() == usize(0)) && type_carries_origin(&t_slot_pointee(&w_slot))));
+            if(by_type_argument, {
+              unfixed = true;
+            });
             (ni : usize) = usize(0);
             while(ni < w_names.len(), {
               if(!fixed_names.contains(match(w_names.get_cloned(ni), .Some(n) => n, .None => String.new())), {
@@ -9964,6 +10079,9 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
                             names_it = true;
                           });
                         });
+                      });
+                      if(!names_it && (by_type_argument && type_carries_origin(&x_slot)), {
+                        names_it = _type_occurs_in_type_arguments(&x_slot, &t_slot_pointee(&w_slot), u32(0));
                       });
                       if(!names_it && (w_tvars.len() > usize(0)), {
                         x_tvars := ArrayList(String).new();
