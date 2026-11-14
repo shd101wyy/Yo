@@ -764,23 +764,26 @@ comptime_expect_error({
 // A bare reference whose referent is move-only, read as a whole value: E0926
 // is judged before the read's consumer, and `r.*` is right where the value is
 // only read (an operand) but E0901 where it would be copied (a by-value
-// parameter, a `:=` binding), so the help names both; `r.*` copied anyway is
-// E0901 naming the dereference
+// parameter), so the help names both; `r.*` copied anyway is E0901 naming the
+// dereference
 // (issues/fixed/2026-11-05-migrate-deref-copies-a-move-only-referent-into-a-by-value-parameter.md).
+// An unannotated `x := r` is not such a copy: it binds the reference
+// (VERDICTS-23 R1, VERDICTS-44 PR 3, R-TAIL's reference-binding leaf).
 _take_owned_string :: (fn(s : String) -> usize)(s.len());
 comptime_expect_error({
   _pass_ref_by_value :: (fn(r : &String) -> usize)(_take_owned_string(r));
   s := String.from("a");
   _pass_ref_by_value(&s);
 }, "Where it would be copied — a by-value parameter, a `:=` binding, a return — `String` is move-only, so pass `r` itself to a `&String` parameter, read through it (`r.field`, `r.method()`), or copy it explicitly with `r.*.clone()`. `yo fix --migrate deref` inserts the `.*` at the reads and lists the copies.");
-comptime_expect_error({
-  _bind_ref_whole :: (fn(r : &String) -> usize)({
-    x := r;
-    x.len()
-  });
-  s := String.from("a");
-  _bind_ref_whole(&s);
-}, "write `r.*` where the value is only read in place (an operand such as `r.* == other`).");
+_bind_ref_whole :: (fn(r : &String) -> usize)({
+  x := r;
+  x.len()
+});
+test("`x := r` binds the reference, so a move-only referent is not copied", {
+  s := String.from("ab");
+  assert(_bind_ref_whole(&s) == usize(2), "x reads through r");
+  assert(s.len() == usize(2), "s stays in its place");
+});
 comptime_expect_error(
   (fn(r : &String) -> String)(r.*),
   "pass `r` itself to a `&String` parameter or read through it where the value is used (`r.field`, `r.method()`), or copy it explicitly with `r.*.clone()`"

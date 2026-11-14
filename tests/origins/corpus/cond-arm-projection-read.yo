@@ -1,0 +1,20 @@
+// P2 / R-TAIL corpus row `cond-arm-projection-read` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P2,
+// VERDICTS-41 Q1; manifest tests/origins/corpus.tsv): the control of `cond-arm-projection-join`: both
+// roots are only read while the joined reference is live.
+// Expected: accepted.
+first :: (fn(p : &i32) -> &i32)(&p.*);
+flag :: (fn(n : i32) -> bool)(n > i32(2));
+main :: (fn() -> unit)({
+  x := i32(1);
+  y := i32(2);
+  c := flag(i32(1));
+  z := cond(
+    c => first(&x),
+    true => first(&y)
+  );
+  _ := x;
+  _ := y;
+  _ := z.*;
+  ()
+});
+export(main);
