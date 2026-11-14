@@ -151,7 +151,35 @@ E0910 at the argument whose evaluation accesses a place an earlier argument's va
 argument. `swap(a, b)` over two `&mut(T, xs)` bindings obtained from one `get2_mut` call stays accepted: neither
 argument's evaluation accesses `xs`.
 
+## Fix (2026-11-13, branch `fix/c1-argument-loans`, audit §9 cluster 1)
+
+`src/evaluator/calls/function.yo`, `_check_call_value_loans`, run after decision 28's checks at every call
+(`evaluate_function_call`, user code and std alike). Each operand — the receiver at slot 0, the written arguments
+after it — whose VALUE carries an origin is a loan the call holds (`_call_value_loans`): a projection call's result
+(`first(&xs)`, `idm(&mut x)`, `xs.index(usize(0))`) holds its root arguments' places in their modes, plus what a
+root that is itself a reference or holder holds (`_value_loan_entries_into`); any other origin-carrying value
+(an inline holder or payload, a named reference or holder, a lent holder's contents) holds its `origin_of`. An
+operand's entries on its own place are left out: a by-name lend is decision 28's reserved loan. Then:
+
+- (a) every later operand is walked for an access the loan forbids (`_find_value_loan_access`): with a `&` loan a
+  write, a `&mut` lend or a `&mut self` receiver of an overlapping place, and a move of its root
+  (`_value_loan_root_moved_at`); with a `&mut` loan also a read or a `&` lend. E0910 at the access.
+- (b) the activation of every exclusive lend of the call (`&mut place`, a `self : &mut Self` receiver, a `&mut`
+  borrow passed bare) is checked against every OTHER operand's value loans, whichever side it stands on. E0910 at
+  the later of the two.
+
+Two-phase's reading is untouched (`xs.push(xs.len())`: a `usize` carries no loan), and no two argument values are
+compared with each other. Every row of the family table above is E0910 except the P9 rows, which stay E0911
+(the binding's own liveness, #1910, judges them first). The same helper feeds `lend_through`'s flow join for a
+projection result passed inline as a stored value (`put(&mut h, pick(&x.*.s))`, G-D's 2026-11-13 finding).
+
 ## Test
 
-With the fix: this program as a `tests/origins/unsound/` pair (negative: E0910; positive control: the two results
-used in two separate calls), and a corpus row beside `call-arg-overlap`.
+`tests/origins/unsound/` (`scripts/origins-unsound.sh`), every negative accepted by develop `6c90536aa` and E0910
+with the fix, each with a positive twin (`-pos`) that runs ASan-clean: `a2-two-call-results-mut` (row 1),
+`a2-mut-call-result-then-mut-lend` (row 2), `a2-shared-result-then-mut-lend` (row 3, s17),
+`a2-nested-lend-after-mut-lend` (c10), `a2-param-reborrow-nested` (c36), `a2-mut-receiver-nested-lend` (c48, s15),
+`a2-move-beside-value-loan` (c52), `a2-mut-result-then-field-lend` (c23), `a2-field-mut-lend-nested` (p04; its
+twin lends the disjoint field), `a2-inline-holder-arg` (c58), `a2-inline-payload-arg` (c59),
+`a2-std-fill-own-element` (s08); and `gd-inline-ref-result-store` (E0911, with `-bound` and `-pos`). The corpus row
+beside `call-arg-overlap` waits for the model's `eval_call` to implement O3 step 2 as now written (audit D7).
