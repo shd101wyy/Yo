@@ -89,3 +89,19 @@ make every borrow-tracker reader honour `is_value_rebind`, as #1875 did for two 
 
 With the fix: the three negatives and the positive control move to `tests/origins/unsound/`; a case beside #1875's
 in `tests/parameter_modes.test.yo`; corpus row `generic-by-value-param-borrowed-then-moved` (E0911).
+
+## Fix
+
+`fix/c7-captures` (audit §9 cluster 7). The borrow was registered (`r := &t` and `r := t.get()` root at `t`); the
+move was never checked. In a specialized body a move-only `t` is moved through its non-owning re-bind
+(`_move_through_sink_shadow`, `src/evaluator/utils.yo`), which marked the owning binding and the shadow consumed and
+returned without consulting a loan table. It now makes the move an access first (`access_move` on the shadow, the
+place the body's borrows root at), so `consume_t(t)` beside a live `r` is E0911 "Cannot move `t` here: `r` borrows
+`t`", as in the concrete body. The binder flags were left as they are: the re-bind stays non-owning (an owning one was
+a double release), and #1875's readers keep seeing through `is_value_rebind`. `match`'s consuming-scrutinee path
+(`move_through_sink_shadow`, `src/evaluator/exprs/match.yo`) gets the same check.
+
+Tests: `tests/origins/unsound/c7-generic-by-value-param-method-borrow.yo`, `-lend.yo`, `-future.yo` (E0911),
+`c7-generic-by-value-param-method-borrow-pos.yo` (accept, runs clean under ASan); `tests/parameter_modes.test.yo` "a
+borrow of a by-value parameter of a generic body freezes it". The probe `n02m` neighbour (a `&T` parameter forwarding
+a trait method's future through a generic bound) was not re-probed here.

@@ -77,3 +77,17 @@ exemption must go (or turn into the body-local branch). A borrow capture (`o : &
 With the fix: the two negative programs and the positive control move to `tests/origins/unsound/`; a corpus row
 `async-body-own-capture-into-capture` (E0912) beside `async-body-local-into-capture`, and the closure case in
 `tests/closure_capture_list.test.yo`.
+
+## Fix
+
+`fix/c7-captures` (audit §9 cluster 7). `_capture_store` (`src/evaluator/utils.yo`) no longer exempts a by-value
+capture-list entry: a root at one is the literal's own storage, which dies with the closure record or the future,
+and the store is E0912 ("the origin names a by-value capture of this literal, stored in the closure or future that
+ends with it"). A borrow capture (`o : &owned`) still joins the outer holder at the literal.
+
+Tests: `tests/origins/unsound/c7-async-stores-ref-to-by-value-capture.yo` and
+`c7-closure-stores-ref-to-by-value-capture.yo` (E0912), `c7-async-stores-ref-to-by-value-capture-pos.yo` (accept,
+runs clean under ASan); `tests/closure_capture_list.test.yo` "a reference to a by-value capture may not leave through
+a `&mut` capture". The corpus row is deferred. Found while fixing this:
+`issues/2026-11-14-a-reference-a-by-value-capture-holds-stored-through-a-mut-capture-is-rejected-as-a-body-local.md`
+(a pre-existing over-rejection: a ground root declared OUTSIDE the literal is E0912 too).
