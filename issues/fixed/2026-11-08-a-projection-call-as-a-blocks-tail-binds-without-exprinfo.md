@@ -53,3 +53,9 @@ spells a projection call bound directly, and a reference that crosses a block's
 end brings the block-local root checks of E0912 with it. Bind the reference
 by calling the projection outside a block, or read the value; the diagnostic
 for the stray `.*` is the other issue. Left open for the coordinator.
+
+## Fix (2026-11-11, plane-c P2)
+
+The triage's recommendation was overruled by VERDICTS-41 Q1 (option A, **R-TAIL**): an unannotated `:=` whose initializer is a `begin`, `cond` or `match` binds the reference when every result-chain leaf is a reference: a lend `&place`, a projection call of a named function, or a reference binding read. `ref_chain_leaves_of` (`src/evaluator/utils.yo`) classifies the leaves before evaluation and registers them, so `reference_read_wanted` types them `&U`. A `&place` leaf is evaluated by `evaluate_chain_lend` (`src/evaluator/builtins/ptr_fns.yo`). `_bind_projection_result` then binds the chain with the union of the leaves' roots: a temporary root is E0911 (R-TEMP) and a root declared inside the block is E0911 at the block's end (Q1 item 3). In codegen, `chain_leaf_pointer_code` gives each leaf's pointer for the `begin` tail, the `cond` arms and the `match` arms. The reproducer's `z.*` reads `1`. A block-local root (`{ w := i32(2); first(&w) }`) is rejected with "Cannot end this block while its result borrows `w`".
+
+Tests: `tests/origins/reference_read_rule.test.yo` ("A block, cond or match whose every leaf is a reference binds the reference", the mixed chain, the block-local root for a projection and for a lend, both roots of a two-arm `cond` frozen). Corpus rows: `block-tail-projection`, `block-tail-projection-local`, `cond-arm-projection-join`, `cond-arm-projection-read`. One gap remains open: a method-call leaf (`issues/2026-11-10-a-method-call-leaf-of-a-block-tail-is-not-classified-before-evaluation.md`).

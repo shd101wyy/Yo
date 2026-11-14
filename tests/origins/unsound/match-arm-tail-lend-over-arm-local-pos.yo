@@ -1,0 +1,22 @@
+// expect: accept
+// Positive twin of match-arm-tail-lend-over-arm-local: the arm block has a local of its own, but lends `w`, declared
+// before the `match`, which outlives `z`.
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+pick :: (fn(k : i32) -> usize)({
+  w0 := String.from("w0");
+  w := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+  z := match(
+    k,
+    i32(0) => &w0,
+    _ => {
+      n := String.from("n");
+      &w
+    }
+  );
+  z.len()
+});
+main :: (fn() -> unit)({
+  println(`OUT: ${pick(i32(1)).to_string()}`);
+});
+export(main);

@@ -368,11 +368,16 @@ impl(
 impl(
   str,
   ToString(
+    // SAFETY: `str.from_raw_parts` re-asserts the receiver's bytes as a
+    // static view only for the call: `String.from` and `push_str` copy them
+    // and keep no view. A `&str` receiver need not point at static bytes
+    // (decision 49 S2). S3b deletes the view once the copy-in parameters take
+    // `&str`.
     to_string : (fn(self : &Self) -> String)({
       // Convert byte array to String assuming UTF-8
-      return(String.from(self.*));
+      return(String.from(str.from_raw_parts(self.ptr(), self.len())));
     }),
-    append_to : (fn(self : &Self, out : &mut String) -> unit)(out.push_str(self.*))
+    append_to : (fn(self : &Self, out : &mut String) -> unit)(out.push_str(str.from_raw_parts(self.ptr(), self.len())))
   )
 );
 // === Unit ===

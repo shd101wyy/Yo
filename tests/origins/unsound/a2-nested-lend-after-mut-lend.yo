@@ -1,0 +1,18 @@
+// expect: E0910
+// Audit A2 (c10): `first(&xs)` makes a `&` loan of `xs` INSIDE a later argument and its result carries it into `f` beside `&mut xs`. Two-phase ends a loan whose last use is a later argument only when that argument's value does not carry it; `f` clears the list and reads the freed element.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+long :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+first :: (fn(xs : &ArrayList(String)) -> &String)(&xs(usize(0)));
+f :: (fn(xs : &mut ArrayList(String), r : &String) -> usize)({
+  xs.clear();
+  r.clone().len()
+});
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(long());
+  v := f(&mut xs, first(&xs));
+  println(`OUT: ${v.to_string()}`);
+});
+export(main);

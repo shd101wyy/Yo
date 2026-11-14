@@ -236,7 +236,7 @@ import("std/fmt");
 { format_error_message, format_error_message_with_help, note_eval_attempt, note_swallowed_error, format_eval_failure, warning_diagnostic_of_token } :: import("../../error.yo");
 { emit_warning } :: import("../../diagnostics.yo");
 { TypeValue, t_reference, t_slot_is_borrow } :: import("../../types/definitions.yo");
-{ projection_call_mode_of, binder_read_take, reference_read_wanted, reference_field_read_type, note_reference_read } :: import("../utils.yo");
+{ projection_call_mode_of, binder_read_take, reference_read_wanted, reference_field_read_type, note_reference_read, chain_ref_leaf_is } :: import("../utils.yo");
 { t_unit } :: import("../../types/creators.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { is_some_type } :: import("../../types/guards.yo");
@@ -407,7 +407,7 @@ _is_deleted_borrow_word :: (fn(e : &AstExpr, with_imm : bool) -> bool)(
 { evaluate_macro_expand } :: import("../builtins/macro_expand.yo");
 { evaluate_panic } :: import("../builtins/panic.yo");
 { evaluate_yo_process_functions } :: import("../builtins/process.yo");
-{ evaluate_address_call } :: import("../builtins/ptr_fns.yo");
+{ evaluate_address_call, evaluate_chain_lend } :: import("../builtins/ptr_fns.yo");
 { evaluate_quote } :: import("../builtins/quote.yo");
 { evaluate_ref_count } :: import("../builtins/rc.yo");
 {
@@ -1211,6 +1211,11 @@ _evaluate_expression :: (
           if(_borrow_operand_is_type(ast_expr_strip_borrow_marker(expr), env, ctx), {
             return(evaluate_reference_type(expr, env, ctx, false, exn));
           });
+          // A lend at a leaf of a `:=` initializer's result chain is a
+          // reference value (R-TAIL, VERDICTS-41 Q1).
+          if(chain_ref_leaf_is(ast_expr_token(expr)), {
+            return(evaluate_chain_lend(expr, false, env, ctx, exn));
+          });
           exn.throw(
             dyn(
               format_error_message(
@@ -1251,6 +1256,9 @@ _evaluate_expression :: (
           });
           if(_borrow_operand_is_type(ast_expr_strip_borrow_marker(expr), env, ctx), {
             return(evaluate_reference_type(expr, env, ctx, true, exn));
+          });
+          if(chain_ref_leaf_is(ast_expr_token(expr)), {
+            return(evaluate_chain_lend(expr, true, env, ctx, exn));
           });
           exn.throw(
             dyn(

@@ -523,6 +523,18 @@ _maybe_emit_auto_borrow_assert :: (fn(extern_func_name : &String, indent : &Stri
     context.base.emitter.emit_string_line(&line);
   })
 );
+/// The call `expr` of a wrapper elided as an alias of the inline builtin `op`
+/// (`is_function_value_with_only_builtin_yo_inline_function_call`), emitted
+/// with the call site's argument codes. A projection wrapper (decision 24, a
+/// `&T`/`&mut T` result: `index`'s `__yo_array_index(addr_of(self), idx)`)
+/// returns its place's address, as its function form's `T*` return does, and
+/// the call is the place, `(*…)`, exactly as a direct projection call is.
+/// Bare, `arr.index(j).*` read the address as the element
+/// (issues/fixed/2026-11-14-a-reference-returning-inline-builtin-alias-call-reads-the-address-as-the-value.md).
+_inline_alias_call_code :: (fn(op : &String, args : &ArrayList(String), expr : &AstExpr, context : &mut FunctionGenerationContext, indent : &String) -> String)({
+  code := generate_yo_inline_function_call(op, args, expr, context, indent.clone());
+  if(call_projection_mode(expr, context).is_some(), `(*${code})`, code)
+});
 /// The C function name registered for a func id, if any.
 _c_func_name :: (fn(func_id : &String, context : &FunctionGenerationContext) -> Option(String))(
   match(context.base.get_function_entry(func_id), .Some(e) => Option(String).Some(e.c_name.clone()), .None => Option(String).None)
@@ -2292,7 +2304,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               // (`self.row.clone()`) emitted `(*((*self).row))` and failed to
               // compile. Same ref-`&` handling as the main arg loop.
               inline_args_amped := _apply_ref_amp(&inline_args, &ia_pir, &dm_runtime, indent.clone(), context);
-              return(Option(String).Some(generate_yo_inline_function_call(&op, &inline_args_amped, expr, context, indent.clone())));
+              return(Option(String).Some(_inline_alias_call_code(&op, &inline_args_amped, expr, context, indent)));
             },
             .None => ()
           ),
@@ -3188,7 +3200,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
     func_ei.value(),
     .Some(fv) => if(is_func_val(&fv) && !cc_early_hit, {
       // Inline if the function body is a single builtin operator.
-      match(is_function_value_with_only_builtin_yo_inline_function_call(&fv), .Some(op) => return(Option(String).Some(generate_yo_inline_function_call(&op, &args2, expr, context, indent.clone()))), .None => ());
+      match(is_function_value_with_only_builtin_yo_inline_function_call(&fv), .Some(op) => return(Option(String).Some(_inline_alias_call_code(&op, &args2, expr, context, indent))), .None => ());
       fid := match(fv, .FuncVal(__fvd8, _) => __fvd8.*.func_id.clone(), _ => String.from(""));
       match(
         _c_func_name(&fid, context),
