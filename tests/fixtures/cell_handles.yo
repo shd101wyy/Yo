@@ -7,10 +7,10 @@
 //! Only an unsafe-capable file can spell the field type; a safe file names
 //! the wrappers (tests/cell_handles.test.yo).
 pragma(Pragma.AllowUnsafe);
-TRc :: (fn(comptime(V) : Type) -> comptime(Type))(
+TRc :: (fn(comptime(V) : ?Sized) -> comptime(Type))(
   newtype(_cell : __yo_cell(V))
 );
-TArc :: (fn(comptime(V) : Type) -> comptime(Type))(
+TArc :: (fn(comptime(V) : ?Sized) -> comptime(Type))(
   newtype(_cell : __yo_atomic_cell(V))
 );
 trc :: (fn(generic(V : Type), sink(v) : V) -> TRc(V))(TRc(V)(__yo_cell(V)(v, .None)));
