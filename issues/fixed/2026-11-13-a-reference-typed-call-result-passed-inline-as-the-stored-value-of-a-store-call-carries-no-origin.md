@@ -13,7 +13,7 @@ result at a store sink); the audit's §6 generator axis "nested call result" is 
 
 ## Reproducer
 
-`issues/repros/2026-11-13-a-reference-typed-call-result-passed-inline-as-the-stored-value-of-a-store-call-carries-no-origin.yo`
+`tests/origins/unsound/gd-inline-ref-result-store.yo` (moved from `issues/repros/` with the fix)
 (negative, expects E0911):
 
 ```yo ignore
@@ -37,9 +37,9 @@ $ yo compile repro.yo --optimize 1 --sanitize address --allocator system -o t &&
 ==…==ERROR: AddressSanitizer: heap-use-after-free
 ```
 
-- `…-bound.yo` (negative, E0911): the same with `r := pick(&x.*.s);` first. Rejected today: this is the control the
+- `gd-inline-ref-result-store-bound.yo` (negative, E0911): the same with `r := pick(&x.*.s);` first. Rejected today: this is the control the
   hole is measured against.
-- `…-pos.yo` (positive control): the slot is read inside the block; runs clean.
+- `gd-inline-ref-result-store-pos.yo` (positive control): the slot is read inside the block; runs clean.
 
 ## The family (the generator's `slot` grid, develop `6c90536aa`)
 
@@ -65,3 +65,15 @@ argument position evidently contributes none, where a bound one and a composite 
 
 A G-B row (`tests/origins/unsound/`) with the negative and its positive control moves in with the fix, with the
 generator signature `slot:*/ref/call/store/scope_end/x/after` in `tests/origins/gen-known.tsv` removed in the same PR.
+
+## Fix (2026-11-13, branch `fix/c1-argument-loans`, audit §9 cluster 1)
+
+Root cause: a call whose result is a reference is a projection (decision 24), typed as the PLACE it projects
+(`pick(&x.*.s)` : `String`), and `origin_of` reads no origin off it. `lend_through`'s flow write-back
+(`src/evaluator/calls/function.yo`, step 3) therefore found no origin position pairing the argument with the
+`&mut` slot's `p` (`_argument_origin_pairs` sees no reference) and took no roots from it. Two changes there: an
+argument that is a projection call names the slot's origins through its PARAMETER slot (`origin_param_names_of`),
+and its roots are the projection's root arguments' places (`_value_loan_entries_into`, the helper cluster 1's
+argument-value loans use). The stored value is then rooted at `x` and the read after the block is E0911, as the
+bound form is. The rows are G-B (`scripts/origins-unsound.sh`); the generator patterns `slot:*/ref/call/store/*/*/*`
+and `slot:*/ref/clo/store/*/*/*` are deleted from `tests/origins/gen-known.tsv`.

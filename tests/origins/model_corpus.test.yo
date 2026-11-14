@@ -1185,6 +1185,63 @@ test("cond-arm-composite", {
   );
   verdict("cond-arm-composite", case1(main), "E0911");
 });
+test("block-tail-projection", {
+  // A block whose tail lends an outer local: the reference binds the outer
+  // root, which outlives the block.
+  main := entry(
+    al4(
+      let_(X, lit()),
+      let_(M, lit()),
+      Rc.new(NodeE.Block(al2(let_(Y, lit()), Rc.new(NodeE.Assign(M, Rc.new(NodeE.Borrow(false, X))))))),
+      use_(Rc.new(NodeE.Var(M)))
+    )
+  );
+  verdict("block-tail-projection", case1(main), "ACCEPT");
+});
+test("block-tail-projection-local", {
+  // The tail lends the block's own local: it is dropped at the block's end
+  // while the binding reads through it (Q1 item 3, Rust's E0597).
+  main := entry(
+    al3(
+      let_(M, lit()),
+      Rc.new(NodeE.Block(al2(let_(Y, lit()), Rc.new(NodeE.Assign(M, Rc.new(NodeE.Borrow(false, Y))))))),
+      use_(Rc.new(NodeE.Var(M)))
+    )
+  );
+  verdict("block-tail-projection-local", case1(main), "E0911");
+});
+test("cond-arm-projection-join", {
+  // The arms lend different roots; the join keeps both, and the second arm's
+  // root is frozen where the joined reference is live.
+  arm_x := Rc.new(NodeE.Assign(M, Rc.new(NodeE.Borrow(false, X))));
+  arm_y := Rc.new(NodeE.Assign(M, Rc.new(NodeE.Borrow(false, Y))));
+  main := entry(
+    al6(
+      let_(X, lit()),
+      let_(Y, lit()),
+      let_(M, lit()),
+      Rc.new(NodeE.Branch(al1(arm_x), al1(arm_y))),
+      Rc.new(NodeE.Assign(Y, lit())),
+      use_(Rc.new(NodeE.Var(M)))
+    )
+  );
+  verdict("cond-arm-projection-join", case1(main), "E0911");
+});
+test("cond-arm-projection-read", {
+  // The control: the roots are only read while the joined reference lives.
+  arm_x := Rc.new(NodeE.Assign(M, Rc.new(NodeE.Borrow(false, X))));
+  arm_y := Rc.new(NodeE.Assign(M, Rc.new(NodeE.Borrow(false, Y))));
+  main := entry(
+    al5(
+      let_(X, lit()),
+      let_(Y, lit()),
+      let_(M, lit()),
+      Rc.new(NodeE.Branch(al1(arm_x), al1(arm_y))),
+      use_(Rc.new(NodeE.Var(M)))
+    )
+  );
+  verdict("cond-arm-projection-read", case1(main), "ACCEPT");
+});
 test("match-value-arm-composite", {
   // The same join over a match on an owned value (the Yo fixture's
   // `match(k, …)`): the arm that did not run still contributes its roots.
