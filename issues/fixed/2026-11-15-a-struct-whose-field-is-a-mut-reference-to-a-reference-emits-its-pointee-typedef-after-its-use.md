@@ -58,3 +58,11 @@ a checker-side origin bookkeeping change may not change emitted-C ordering at al
 ## Test
 
 The G-B row itself (it must compile and run under ASan, exit 0).
+
+## Resolution (2026-11-15)
+
+Healed by develop #1951 (`_walk_by_value_dep`'s reference peeling), no `fix/sig-1` change: the row
+compiles and runs rc 0 on `fix/sig-1` merged with develop 959702de6 (`fix/sig-1` @5c1b9c056,
+`/tmp/sig/yo-s1m`), while the same branch on the pre-#1951 base emitted the misordered C. The bug was
+develop's on bases predating #1951, surfaced by this branch's tip gate; the ordering regression was
+not caused by the branch's delta. Doc moved to fixed with the heal.
