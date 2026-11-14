@@ -57,7 +57,13 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
   (dyn_ty, dyn_code) := match(
     unique_box_payload_type(&arg_ty),
     .Some(bp) => {
-      box_code := if(match(t_refine_inner(&dyn_ei.ty()), Rc(.Reference(_, _, _)) => true, _ => false) || _arg_is_reference_binding(&dyn_arg, context), `(*${arg_code})`, arg_code.clone());
+      // A reference binding's code may ALREADY be the deref'd read (`(*self)`,
+      // the pair itself under decision 49) — do not deref twice.
+      box_code := if(
+        (match(t_refine_inner(&dyn_ei.ty()), Rc(.Reference(_, _, _)) => true, _ => false) || _arg_is_reference_binding(&dyn_arg, context)) && !(arg_code.starts_with("(*") && arg_code.ends_with(")")),
+        `(*${arg_code})`,
+        arg_code.clone()
+      );
       (bp, unsized_place_fat_code(&box_payload_place_code(&arg_ty, &box_code, &mut context.base)))
     },
     .None => (Rc.clone(arg_ty), unsized_place_fat_code(&arg_code))
