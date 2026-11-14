@@ -1,0 +1,13 @@
+// expect: E0911
+// P2 R-TAIL (VERDICTS-41 Q1 item 3): a block's reference tail lends the block's own local `w`, which is dropped at the
+// block's end while `z` reads through it afterwards: a heap-use-after-free under ASan when the rejection is missing.
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+main :: (fn() -> unit)({
+  z := {
+    w := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+    &w
+  };
+  println(`OUT: ${z.len().to_string()}`);
+});
+export(main);
