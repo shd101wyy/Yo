@@ -1284,7 +1284,15 @@ _unwrap_unsafe :: (fn(e : &AstExpr) -> AstExpr)(
 ///   `(self)      -> __yo_maybe_uninit_assume_init(Self, BaseType, self)`:8025
 ///
 /// 1. Unwrap `&(x)` and `unsafe(x)` — both are transparent at the C level for
-///    these builtins' operands.
+///    these builtins' operands. Under `&(…)`, the written deref `p.*` of a
+///    reference parameter `p : &T` / `&mut T` is `p` itself (`&(*p)` is `p` in
+///    C): the evaluator records that `.*` rewritten to the name
+///    (`note_rewritten_node`, `evaluate_property_access`), so the operand reads
+///    through `ast_rewritten_node`. A `.*` on a by-value parameter (a `Box`, a
+///    pointer) is not so recorded and stays a computed argument. This is the
+///    Generation B spelling of the prelude's `as_ptr`/`index` bodies,
+///    `addr_of(self.*)`
+///    (issues/fixed/2026-11-14-an-inline-builtin-alias-that-derefs-its-reference-parameter-emits-a-type-as-the-operand.md).
 /// 2. DROP any bare identifier that names no parameter. Those are the TYPE
 ///    arguments above (`Self`, `BaseType`); the emitters take their type
 ///    information from the expression's `ExprInfo`, never from these.
@@ -1305,7 +1313,7 @@ _inline_unwrap_transparent :: (fn(e : &AstExpr) -> AstExpr)({
     .Atom(_, _) => inner,
     .FnCall(_, _, Rc(addr_args), _, _) => if(
       ast_expr_is_address_of_call(&inner, .None) && (addr_args.len() == usize(1)),
-      match(addr_args.get(usize(0)), .Some(a) => a, .None => inner),
+      match(addr_args.get(usize(0)), .Some(a) => ast_rewritten_node(&a), .None => inner),
       inner
     )
   )

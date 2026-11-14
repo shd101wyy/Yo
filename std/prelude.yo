@@ -229,11 +229,11 @@ extern(
   __yo_str_from_raw_parts :
     (fn(ptr : *u8, length : usize) -> str),
   __yo_str_len :
-    (fn(s : str) -> usize),
+    (fn(s : &str) -> usize),
   __yo_str_ptr :
-    (fn(s : str) -> *u8),
+    (fn(s : &str) -> *u8),
   __yo_str_byte :
-    (fn(s : str, idx : usize) -> u8),
+    (fn(s : &str, idx : usize) -> u8),
   // array indexing builtin (used by Index trait impls)
   __yo_array_index :
     (fn(generic(T : Type, N : usize), self : &*Array(T, N), idx : usize) -> *T),
@@ -7479,18 +7479,21 @@ impl(
   )
 );
 /// Range slicing on `str` stays a ZERO-COPY `str` — a window of static
-/// bytes is still static (byte indices). `s(a..b)` lowers to this.
+/// bytes is still static (byte indices). `s(a..b)` lowers to this. The
+/// receiver is taken by value: the window is static because the receiver is
+/// a static view, which a `self : &Self` receiver need not be
+/// (issues/fixed/2026-11-14-str-slice-copy-builds-a-static-view-from-a-borrowed-receiver.md).
 impl(
   str,
-  slice_copy : (fn(self : &Self, r : &Range(usize)) -> Self)({
-    e := cond((r.end > __yo_str_len(self.*)) => __yo_str_len(self.*), true => r.end);
+  slice_copy : (fn(self : Self, r : &Range(usize)) -> Self)({
+    e := cond((r.end > self.len()) => self.len(), true => r.end);
     st := cond((r.start > e) => e, true => r.start);
-    __yo_str_from_raw_parts(__yo_str_ptr(self.*).add(st), e - st)
+    __yo_str_from_raw_parts(self.ptr().add(st), e - st)
   }),
-  slice_copy_inclusive : (fn(self : &Self, r : &RangeInclusive(usize)) -> Self)({
-    e := cond(((r.end + usize(1)) > __yo_str_len(self.*)) => __yo_str_len(self.*), true => (r.end + usize(1)));
+  slice_copy_inclusive : (fn(self : Self, r : &RangeInclusive(usize)) -> Self)({
+    e := cond(((r.end + usize(1)) > self.len()) => self.len(), true => (r.end + usize(1)));
     st := cond((r.start > e) => e, true => r.start);
-    __yo_str_from_raw_parts(__yo_str_ptr(self.*).add(st), e - st)
+    __yo_str_from_raw_parts(self.ptr().add(st), e - st)
   })
 );
 /// A `str` view clones as itself: the bytes are static, so the view is

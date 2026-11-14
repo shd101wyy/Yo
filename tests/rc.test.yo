@@ -3348,31 +3348,36 @@ test("a copyable receiver behind a Box or a value field of an element keeps its 
     "a value field of an element"
   );
 });
-test("a closure naming the container a receiver is lent from is E0910", {
+// The closure writes the container the receiver is lent from, and the slot
+// is `&Impl(Fn() -> unit)`: the write of an implicit capture in an `Fn`
+// closure is E0913 at the write (audit A46, #1932), before the call's
+// argument-exclusivity check sees the later argument (rustc reports E0596 at
+// the same point). Either rule rejects the program.
+test("a closure that writes the container a receiver is lent from is rejected", {
   comptime_expect_error({
     mut(hs) := ArrayList(Rc(_RcvCell)).new();
     hs(usize(0)).peek(() => {
       hs.clear();
     })
-  }, "an earlier argument of the same call lends to it");
+  }, "the closure captures it implicitly");
   comptime_expect_error({
     mut(fs) := ArrayList(_RcvField).new();
     fs(usize(0)).r.peek(() => {
       fs.clear();
     })
-  }, "an earlier argument of the same call lends to it");
+  }, "the closure captures it implicitly");
   comptime_expect_error({
     mut(r) := Rc.new(_RcvCell(n : i32(1)));
     r.peek(() => {
       r = Rc.new(_RcvCell(n : i32(2)));
     })
-  }, "an earlier argument of the same call lends to it");
+  }, "the closure captures it implicitly");
   comptime_expect_error({
     mut(ts) := ArrayList(_RcvText).new();
     ts(usize(0)).peek_len(() => {
       ts.clear();
     })
-  }, "an earlier argument of the same call lends to it");
+  }, "the closure captures it implicitly");
 });
 // An exit taken while a later argument of the call is evaluated (`return`,
 // `break`, `continue`, an unwind, a task's `return`) skips the post-call

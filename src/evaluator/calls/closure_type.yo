@@ -61,6 +61,8 @@ pragma(Pragma.AllowUnsafe);
 :: import("../../error.yo");
 { Exception } :: import("std/error");
 { stable_func_id, debug_knob } :: import("../../utils.yo");
+{ set_closure_writes_captures } :: import("../utils.yo");
+{ closure_literal_is_borrowed } :: import("../context.yo");
 { mark_as_closure_fn, register_func_type, register_closure_capture_info, ClosureCaptureInfo } :: import("../../function_value.yo");
 {
   create_function_body_evaluation_context
@@ -254,6 +256,14 @@ try_to_implement_closure_by_fn_module_type :: (
   // Mark this function as a closure so codegen prepends the `void* closure_context`
   // capture parameter to its C prototype/definition.
   mark_as_closure_fn(closure_id.clone());
+  // Audit A46: a closure built from its type (`ClosureType({ ... })`) owns
+  // its record, so its body may write an implicit capture when the type is
+  // `FnMut`/`FnOnce` (not when it is lent to a borrowing parameter), as an
+  // `=>` literal's may (`evaluate_anonymous_function_implementation`).
+  set_closure_writes_captures(
+    &closure_id,
+    match(fn_module_type, Rc(.FnTraitT(base_name : ct_bn)) => ((ct_bn == "FnMut") || (ct_bn == "FnOnce")), _ => false) && !closure_literal_is_borrowed(expr)
+  );
   // Record the closure's own resolved Func type by func_id so codegen's
   // prototype emitter (get_func_type) can build the signature. FuncVal carries
   // only param-name strings, so the structured type is side-tabled here at

@@ -11,7 +11,7 @@ spelling of the same call is rejected (corpus row `store-widen-named-holder`); o
 
 ## Reproducers
 
-`issues/repros/2026-11-11-a-mut-nested-inside-a-by-value-argument-does-not-make-its-origin-invariant-so-a-call-widens-it.yo`
+`tests/origins/unsound/a24-by-value-holder-mut-pointee.yo` (moved from `issues/repros/` with the fix)
 (negative, expects E0923):
 
 ```yo
@@ -41,9 +41,9 @@ $ yo compile repro.yo --optimize 1 --sanitize address --allocator system -o t &&
 ==…==ERROR: AddressSanitizer: heap-use-after-free
 ```
 
-- `…-tuple.yo` (negative, E0923): `put(generic(p), w : Tuple(&mut Option(&(Rc(X), p)), i32), v : &(Rc(X), p))`
+- `a24-tuple-mut-pointee.yo` (negative, E0923): `put(generic(p), w : Tuple(&mut Option(&(Rc(X), p)), i32), v : &(Rc(X), p))`
   called as `put((&mut slot, i32(0)), &y)`: heap-use-after-free.
-- `…-pos.yo` (positive control): the slot is declared over `(x, x2)`, both outliving it, and `put` stores `&x2`
+- `a24-by-value-holder-mut-pointee-pos.yo` (positive control): the slot is declared over `(x, x2)`, both outliving it, and `put` stores `&x2`
   through a by-value `Slot((x, x2))`. Accepted, runs clean (`OUT: 72`).
 
 ## The family (develop `64f33c710`)
@@ -86,3 +86,16 @@ struct fields, tuple components and enum payloads) and fix the origins under eac
 With the fix: the two negative programs and the positive control move to `tests/origins/unsound/`; corpus rows
 beside `store-widen-named-holder` in `tests/origins/corpus.tsv`: `store-widen-by-value-holder` and
 `store-widen-tuple-mut-pointee` (both E0923).
+
+## Fix (2026-11-13, branch `fix/c1b-mut-in-by-value-and-generic-container`)
+
+`lend_through` step 1 (`src/evaluator/calls/function.yo`) now also walks every parameter that is not a top-level
+`&mut` but whose type carries an origin. `_mut_pointee_origin_names` collects the origin parameters the type names
+under a `&mut` pointee, through reference pointees, struct fields and type arguments, enum payloads and tuple
+components. Each such parameter is fixed to the argument's spelled origin at that position, exactly as a top-level
+`&mut` parameter's pointee origins are, so step 2 rejects a wider argument with E0923. The `T := H` neighbour
+(no origin parameter at all) is not covered here.
+
+Rows (`tests/origins/unsound/`, all accepted by develop): `a24-by-value-holder-mut-pointee`,
+`a24-tuple-mut-pointee` and `a24-option-mut-pointee` (E0923), with the positive twins
+`a24-by-value-holder-mut-pointee-pos` and `a24-tuple-mut-pointee-pos`.

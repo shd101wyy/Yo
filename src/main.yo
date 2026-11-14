@@ -11359,7 +11359,7 @@ main :: (fn(io : Io) -> unit)({
         // exits with that code.
         (code : int) = int(1);
         match(
-          downcast(err, ExitWith),
+          downcast(&err.*, ExitWith),
           .Some(ew) => {
             code = int(ew.code);
             if(ew.message.len() > usize(0), {
@@ -11367,7 +11367,7 @@ main :: (fn(io : Io) -> unit)({
             });
           },
           .None => match(
-            downcast(err, YoError),
+            downcast(&err.*, YoError),
             .Some(ye) => {
               emit_rendered_text(render_diagnostics_for_mode(&ye.diagnostics));
             },

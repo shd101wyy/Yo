@@ -30,7 +30,7 @@
 { is_unit_type, is_never_type, is_pointer_type, is_reference_struct_type, is_reference_enum_type, is_enum_type, is_float_type, is_unique_box_type, is_box_type, is_newtype_type, cell_handle_view } :: import("../../types/guards.yo");
 { Environment } :: import("../../env.yo");
 { note_state_machine_binding_id, FunctionGenerationContext, sm_lowering_note_binding_source, shadow_binding_decl_name, shadow_binding_c_name, shadow_binding_push, shadow_binding_pop } :: import("../functions/context.yo");
-{ _call_generate_expr } :: import("./_expr.yo");
+{ _call_generate_expr, chain_leaf_pointer_code } :: import("./_expr.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { generate_deferred_drop_expressions, generate_deferred_dup_expressions, generate_dup_code_for_value, arm_value_with_dups, has_pending_emittable_drop, _looks_like_minted_temp } :: import("./drop_dup.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
@@ -462,7 +462,7 @@ generate_case_body :: (fn(body_expr : &AstExpr, indent : &String, context : &mut
         .None => ()
       );
     });
-    final_code0 := if(n > usize(0), match(begin_args.get(n - usize(1)), .Some(final_expr) => match(arm_value_with_dups(&final_expr, indent.clone(), context), .Some(fc) => fc, .None => _call_generate_expr(&final_expr, indent.clone(), context)), .None => String.from("")), String.from(""));
+    final_code0 := if(n > usize(0), match(begin_args.get(n - usize(1)), .Some(final_expr) => chain_leaf_pointer_code(&final_expr, match(arm_value_with_dups(&final_expr, indent.clone(), context), .Some(fc) => fc, .None => _call_generate_expr(&final_expr, indent.clone(), context)), context), .None => String.from("")), String.from(""));
     // The block's drops run after its value is taken: a value read from a
     // local the block drops (`{ …; a.n }` with `a` dropped at the end, a
     // consuming `match` arm's binding) is materialized first, as the bare
@@ -508,13 +508,17 @@ generate_case_body :: (fn(body_expr : &AstExpr, indent : &String, context : &mut
     // value out of the arm — e.g. `.Some(e) => e.ty`),
     // see arm_value_with_dups in drop_dup.yo.
     note_line_position(&mut context.base.emitter, body_expr);
-    code := match(
-      arm_value_with_dups(body_expr, indent.clone(), context),
-      .Some(fc) => fc,
-      .None => {
-        generate_deferred_dup_expressions(body_expr, indent.clone(), context);
-        _call_generate_expr(body_expr, indent.clone(), context)
-      }
+    code := chain_leaf_pointer_code(
+      body_expr,
+      match(
+        arm_value_with_dups(body_expr, indent.clone(), context),
+        .Some(fc) => fc,
+        .None => {
+          generate_deferred_dup_expressions(body_expr, indent.clone(), context);
+          _call_generate_expr(body_expr, indent.clone(), context)
+        }
+      ),
+      context
     );
     // A call nested under an operator in the arm value (`p => (f(tmp) > 0)`)
     // records its argument temps' drops on the BODY node, which no call's

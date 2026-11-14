@@ -37,7 +37,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue, TypeValueNode, SharedList, fn_param_is_mut_ref, fn_param_is_by_value, fn_result_origin_names, fn_param_in_result_origin, t_slot_origin_names, origin_names_contain, t_slot_is_mut_ref, t_reference } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
-{ DYN_LEND_HELP, attach_temp_variable_to_expr, projection_call_mode_of, projection_call_root_args, reference_field_read_type, ref_payload_source, borrow_match_source, origin_of, OriginRootPlace, variable_is_reference_binding, local_borrow_info_of_variable, deref_is_owning_handle_step } :: import("../utils.yo");
+{ DYN_LEND_HELP, attach_temp_variable_to_expr, projection_call_mode_of, projection_call_root_args, reference_field_read_type, ref_payload_source, borrow_match_source, origin_of, OriginRootPlace, variable_is_reference_binding, local_borrow_info_of_variable, lend_place_reference_type, deref_is_owning_handle_step } :: import("../utils.yo");
 { evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { call_promote_index_places_for_write } :: import("../context.yo");
@@ -855,4 +855,47 @@ evaluate_address_call :: (
   attach_temp_variable_to_expr(expr, false, ctx);
   expr.*
 });
-export(evaluate_address_call);
+/// A lend `&place` / `&mut place` at a leaf of a `:=` initializer's result
+/// chain (R-TAIL, VERDICTS-41 Q1; P2's `&x` as an expression): the node is a
+/// reference value `&(T, place)` — the marker stays in the tree, so R-LEND
+/// reads it and codegen takes the place's address (`generate_address_of`).
+/// The operand is evaluated as a place; the binding's roots are frozen by the
+/// `:=` that binds the chain (`_bind_projection_result`).
+evaluate_chain_lend :: (fn(expr : &AstExpr, is_mut : bool, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
+  operand := match(
+    expr,
+    .FnCall(_, _, Rc(l_args), _, _) => match(l_args.get(usize(0)), .Some(a) => a, .None => return(expr)),
+    .Atom(_, _) => return(expr)
+  );
+  l_gout := ArrayList(AstExpr).new();
+  l_gerr := evaluate_expression_guarded(&operand, env, ctx, &mut l_gout);
+  match(l_gerr, .Some(l_ge) => exn.throw(l_ge), .None => ());
+  evaluated := match(l_gout.get(usize(0)), .Some(g) => g, .None => make_err_expr());
+  info := match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
+    .Some(i) => Rc.clone(i),
+    .None => {
+      exn.throw(dyn(format_error_message(ast_expr_token(&operand), String.from("&: failed to evaluate the place this lend borrows."))));
+      return(expr);
+    }
+  );
+  lend_ty := match(
+    lend_place_reference_type(&evaluated, &info, is_mut, ctx),
+    .Some(t) => t,
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(expr),
+            `\`${if(is_mut, "&mut ", "&")}${ast_place_text(&operand)}\` cannot be a block's or an arm's result: a result lends a binding's place (\`&x\`, \`&x.f\`) or a raw pointer's referent (\`&p.*\`). Bind the place to a local first.`
+          )
+        )
+      );
+      return(expr);
+    }
+  );
+  out := new_expr_info(&expr_info_adopt_env(&info), &lend_ty);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
+  expr
+});
+export(evaluate_address_call, evaluate_chain_lend);
