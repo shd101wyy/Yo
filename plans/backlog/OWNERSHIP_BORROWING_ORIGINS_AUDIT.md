@@ -150,7 +150,7 @@ basename), or the fix lane that owns it. Severity is `issues/README.md`'s scale.
 | Id | Finding | Sev | Since | Where |
 | --- | --- | --- | --- | --- |
 | C1 | A composite holding a shared reference is not `Copy` although the reference is | S2 | pre | `issues/2026-11-11-a-composite-holding-a-shared-reference-is-not-copy-although-the-reference-is.md` |
-| C2 | std `mem.replace` and `Option.take` reject a value that carries an origin, inside std | S2 | pre | `issues/2026-11-11-std-mem-replace-and-option-take-reject-a-value-that-carries-an-origin-inside-std.md` |
+| C2 | std `mem.replace` and `Option.take` reject a value that carries an origin, inside std | S2 | pre | `issues/fixed/2026-11-11-std-mem-replace-and-option-take-reject-a-value-that-carries-an-origin-inside-std.md` |
 | C3 | A `match` over a reference-returning call is rejected as a copy of a move-only value | S2 | pre | `issues/2026-11-11-a-match-over-a-reference-returning-call-is-rejected-as-a-copy-of-a-move-only-value.md` |
 | C4 | Decision 18 rule 3 rejects a call while a local borrows an unmarked module-level binding | S2 | pre | `issues/2026-11-11-decision-18-rule-3-rejects-a-call-while-a-local-borrows-an-unmarked-module-level-binding.md` |
 | C5 | An `FnMut` closure cannot write its own non-Copy state through a `&mut self` method | S2 | pre | `issues/2026-11-11-an-fnmut-closure-cannot-write-its-own-non-copy-state-through-a-mut-self-method.md` |
