@@ -143,6 +143,8 @@
   chain_ref_leaf_register,
   is_result_chain_node,
   ORIGIN_TEMPORARY_ROOT,
+  ORIGIN_SCOPED_ROOT,
+  ORIGIN_LOST_ROOT,
   chain_ref_leaf_forget,
   ref_chain_leaves_of,
   projection_call_root_args,
@@ -153,6 +155,7 @@
   note_fn_value_definition,
   audit_origin_totality,
   origin_of,
+  _origin_through_match_bindings,
   OriginRootPlace,
   LocalBorrowElidedOrigin,
   bind_join_roots_for
@@ -746,7 +749,12 @@ _chain_leaf_origins :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext,
     .Atom(_, _) => ()
   );
   leaf_env := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)), .Some(li) => li.env(), .None => Rc.clone(env));
-  leaf_roots := origin_of(e, &leaf_env, ctx);
+  // A root that names a `&` match binding stands for the place it points
+  // into, the scrutinee's (a lend of it), not a local of the block dropped
+  // here: map it before the block-local test, as `return_check` and
+  // `origin_scope_close` do (`_origin_through_match_bindings`), or every
+  // `m := match(&o, .Some(h) => …&h…)` is a false "local of the block".
+  leaf_roots := _origin_through_match_bindings(&origin_of(e, &leaf_env, ctx), &leaf_env, ctx, u32(0));
   (li : usize) = usize(0);
   while(li < leaf_roots.len(), li = (li + usize(1)), {
     out.push(leaf_roots(li).clone());
@@ -776,15 +784,19 @@ _expr_last_byte_offset :: (fn(e : &AstExpr) -> u32)({
 });
 /// The root of `roots` declared inside `rhs`'s own source span: a local of
 /// the block (or arm block) whose result `rhs` is, dropped at that block's end
-/// (VERDICTS-41 Q1 item 3, Rust's E0597).
+/// (VERDICTS-41 Q1 item 3, Rust's E0597). A `#scoped` root (origin_scope_close,
+/// `fix/c3-value-origins`) is such a local by construction and its `text` still
+/// names the binding; a `#lost` root is left to the sink, which reports it with
+/// E0923 (G-E check 3).
 _chain_block_local_root :: (fn(rhs : &AstExpr, roots : &ArrayList(OriginRootPlace)) -> Option(String))({
   rhs_tok := ast_expr_token(rhs);
   rhs_end := _expr_last_byte_offset(rhs);
   (i : usize) = usize(0);
   while(i < roots.len(), i = (i + usize(1)), {
     cr := roots(i).clone();
-    if((cr.place.root_name != ORIGIN_TEMPORARY_ROOT) && ((cr.place.root_decl.module_path.*.clone() == rhs_tok.module_path.*.clone()) && ((cr.place.root_decl.byte_offset >= rhs_tok.byte_offset) && (cr.place.root_decl.byte_offset <= rhs_end))), {
-      return(Option(String).Some(cr.place.root_name.clone()));
+    scoped := (cr.place.root_name == ORIGIN_SCOPED_ROOT);
+    if((cr.place.root_name != ORIGIN_LOST_ROOT) && ((cr.place.root_name != ORIGIN_TEMPORARY_ROOT) && ((cr.place.root_decl.module_path.*.clone() == rhs_tok.module_path.*.clone()) && ((cr.place.root_decl.byte_offset >= rhs_tok.byte_offset) && (cr.place.root_decl.byte_offset <= rhs_end)))), {
+      return(Option(String).Some(if(scoped, cr.place.text.clone(), cr.place.root_name.clone())));
     });
   });
   Option(String).None

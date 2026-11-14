@@ -1,0 +1,29 @@
+// expect: E0911
+// The block's tail is a block-local holder BINDING `t` over the outer `x`: `t`'s loans are gone with the block,
+// so `h` does not freeze `x`, and the write of `x` frees the list `e` points into.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array_list");
+L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+mkl :: (fn() -> ArrayList(String))({
+  mut(xs) := ArrayList(String).new();
+  xs.push(L());
+  xs
+});
+HL :: struct(r : &ArrayList(String));
+main :: (fn() -> unit)({
+  mut(x) := mkl();
+  h := {
+    t := HL(r : &x);
+    t
+  };
+  match(
+    &h.r.*(usize(0)),
+    e => {
+      x = ArrayList(String).new();
+      println(`OUT: ${e.*}`);
+    }
+  );
+  ()
+});
+export(main);
