@@ -8,7 +8,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue, no_types, no_labels } :: import("../../types/definitions.yo");
-{ is_reference_struct_type, is_reference_enum_type, is_unit_type, is_cell_primitive_type } :: import("../../types/guards.yo");
+{ is_reference_struct_type, is_reference_enum_type, is_unit_type, is_cell_primitive_type, is_dyn_cell_type } :: import("../../types/guards.yo");
 { type_contains_some_type } :: import("../../types/utils.yo");
 { get_type_string, get_runtime_struct_fields, sanitize_for_c_identifier, c_variant_member_name, get_enum_variant_c_name, RuntimeStructField } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("./context.yo");
@@ -64,6 +64,15 @@ dispose_fn_thunk :: (fn(dispose_c_name : &String, self_c_type : &String, context
 _generate_one_constructor :: (fn(type : &TypeValue, c_name : &String, context : &mut FunctionGenerationContext) -> unit)({
   runtime_fields := get_runtime_struct_fields(type);
   if(_has_generic_fields(&runtime_fields), {
+    return();
+  });
+  // An interim `__yo_cell(Dyn)` (VERDICTS-61 decision 1) never runs the
+  // generic cell constructor: `dyn(Rc.new(v))`/`dyn(Arc.new(v))` build the
+  // legacy counted dyn box and the handle IS the fat pointer, and every
+  // construction site routes there. The generic ctor is dead code whose
+  // signature disagrees with the cell's remapped C name (the payload's), so
+  // it must not be emitted at all.
+  if(is_dyn_cell_type(type), {
     return();
   });
   mut(constructor_name) := String.from("__yo_new_");
