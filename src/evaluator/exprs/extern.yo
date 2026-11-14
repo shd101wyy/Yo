@@ -58,8 +58,8 @@ _reject_extern_origin :: (fn(ty : &TypeValue, at : &AstExpr, exn : Exception) ->
         );
         i = (i + usize(1));
       });
-      if(found.is_none() && type_carries_origin(&t_slot_pointee(&r)), {
-        found = Option(TypeValue).Some(t_slot_pointee(&r));
+      if(found.is_none() && type_carries_origin(&t_slot_pointee(&r.*)), {
+        found = Option(TypeValue).Some(t_slot_pointee(&r.*));
       });
       found
     },
@@ -132,7 +132,7 @@ User code should normally call stdlib wrappers (e.g. functions in
   first_arg_opt := all_args.get(usize(0));
   (has_lang_arg : bool) = match(first_arg_opt, .Some(a) => ast_expr_is_atom(&a), .None => false);
   if(has_lang_arg, {
-    lang_arg := match(first_arg_opt, .Some(a) => a, .None => expr);
+    lang_arg := match(first_arg_opt, .Some(a) => a, .None => expr.*);
     evaluated_lang := evaluate_expression_raw(&lang_arg, &env, ctx, exn);
     lang_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_lang));
     lang_info := match(lang_info_opt, .Some(i) => Rc.clone(i), .None => new_expr_info(&env, t_unit()));
@@ -208,7 +208,7 @@ User code should normally call stdlib wrappers (e.g. functions in
   (args_idx : usize) = field_start;
   (field_idx : usize) = usize(0);
   while(args_idx < all_args.len(), {
-    arg := match(all_args.get(args_idx), .Some(a) => a, .None => expr);
+    arg := match(all_args.get(args_idx), .Some(a) => a, .None => expr.*);
     result := evaluate_module_field(&arg, field_idx, &env, ctx, false, exn);
     // Check for duplicate labels.
     (dup_idx : usize) = usize(0);
@@ -293,7 +293,7 @@ User code should normally call stdlib wrappers (e.g. functions in
     field_val := match(
       &result.field_type,
       Rc(.TypeUni(fv_lvl)) => cond(
-        (fv_lvl == usize(0)) => EvalValue.TypeVal(t_extern_opaque(result.label.clone(), String.new())),
+        (fv_lvl.* == usize(0)) => EvalValue.TypeVal(t_extern_opaque(result.label.clone(), String.new())),
         true => create_unknown_val_with_name(&field_ty_with_extern, result.label.clone())
       ),
       _ => create_unknown_val_with_name(&field_ty_with_extern, result.label.clone())
@@ -347,8 +347,8 @@ User code should normally call stdlib wrappers (e.g. functions in
   mod_info.set_value(.Some(EvalValue.StructVal(sns_id, shared_list(field_labels), value_cell_new(field_vals))));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &mod_info);
   // Annotate callee (the "extern" func node) with same info.
-  callee_expr := match(expr, .FnCall(_, fb, _, _, _) => fb, .Atom(_, _) => expr);
+  callee_expr := match(expr, .FnCall(_, fb, _, _, _) => fb.*, .Atom(_, _) => expr.*);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&callee_expr), &mod_info);
-  expr
+  expr.*
 });
 export(evaluate_extern);

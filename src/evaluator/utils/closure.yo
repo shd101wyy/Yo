@@ -294,7 +294,7 @@ _note_fid_in :: (fn(registry : &mut HashMap(String, ArrayList(String)), sid : &S
       (seen : bool) = false;
       (fi : usize) = usize(0);
       while((fi < fids.len()) && !seen, {
-        if(match(fids.get_cloned(fi), .Some(x) => (x == fid), .None => false), {
+        if(match(fids.get_cloned(fi), .Some(x) => (x == fid.*), .None => false), {
           seen = true;
         });
         fi = (fi + usize(1));
@@ -320,7 +320,7 @@ note_closure_for_some_id :: (fn(sid : &String, fid : &String) -> unit)(_note_fid
 /// fresh binder for a closure argument) names the same closures.
 alias_closure_some_id :: (fn(new_id : &String, of_id : &String) -> unit)({
   match(
-    g_closure_fids_by_some.with({ &of_id }(m) => m.get_cloned(of_id)),
+    g_closure_fids_by_some.with({ of_id : &of_id.* }(m) => m.get_cloned(of_id)),
     .Some(fids) => {
       (ai : usize) = usize(0);
       while(ai < fids.len(), {
@@ -399,7 +399,7 @@ record_closure_capture_verdicts :: (
   match(
     capture_ty,
     .Some(rcv_ct) => {
-      cid := _capture_id_of(&rcv_ct);
+      cid := _capture_id_of(&rcv_ct.*);
       g_closure_fids_by_capture.with_mut({ fid : fid.clone(), cid : cid.clone() }(m) => _note_fid_in(m, &cid, &fid));
     },
     .None => ()
@@ -417,7 +417,7 @@ record_closure_capture_verdicts :: (
         match(
           get_trait_type_from_env(env, mn.clone()),
           .Some(mt) => {
-            verdict := if(borrows_captures && (mn == "Send"), Option(String).Some(String.from(_borrowed_captures_offense)), _captures_offense(&cv, &mt, env, ctx));
+            verdict := if(borrows_captures && (mn == "Send"), Option(String).Some(String.from(_borrowed_captures_offense)), _captures_offense(&cv.*, &mt, env, ctx));
             verdict_owned := verdict.clone();
             g_closure_capture_offense.with_mut({ fid : fid.clone(), mn : mn.clone(), verdict_owned }(m) => m.insert(`${fid}|${mn}`, verdict_owned));
           },
@@ -483,7 +483,7 @@ _function_value_offense :: (
   // variable; without one, the capture struct as a type.
   cap_hint := "a closure has a marker trait only when every value it captures does; capture an atomic object (Arc(T), Mutex(T), Atomic*) instead";
   match(
-    g_closure_capture_offense.with({ &fid, &mname }(m) => m.get_cloned(`${fid}|${mname}`)),
+    g_closure_capture_offense.with({ fid : &fid.*, &mname }(m) => m.get_cloned(`${fid}|${mname}`)),
     .Some(.Some(co)) => {
       return(Option(String).Some(`${co} — ${cap_hint}`));
     },
@@ -512,7 +512,7 @@ _function_value_offense :: (
     .Some(r) => r,
     .None => match(
       body,
-      .Some(b) => function_reaches_non_send_global(fid.clone(), &b, &ctx.expr_info_table, env),
+      .Some(b) => function_reaches_non_send_global(fid.clone(), &b.*, &ctx.expr_info_table, env),
       .None => Option(String).None
     )
   );
@@ -543,7 +543,7 @@ _closure_copy_offense :: (fn(ty : &TypeValue, trait_name : &String, env : &Envir
       (i : usize) = usize(0);
       while(i < co_fields.len(), {
         ft := match(co_fields.get(i), .Some(f) => f.clone(), .None => t_unit());
-        (part_ok : bool) = match(&trait_tt, .Some(tt) => type_implements_trait_bool(&ft, &tt, env), .None => true);
+        (part_ok : bool) = match(&trait_tt, .Some(tt) => type_implements_trait_bool(&ft, &tt.*, env), .None => true);
         if(!part_ok, {
           label := match(co_labels.get_cloned(i), .Some(l) => l, .None => String.new());
           return(`its capture \`${label}\` has type \`${type_to_string(&ft)}\`, which is not ${trait_name}; a closure is ${trait_name} exactly when every by-value capture is (plans/VALUES_BY_DEFAULT.md decision 36)`);
@@ -726,7 +726,7 @@ closure_capture_struct_marker :: (fn(capture_ty : &TypeValue, marker : &String) 
         match(
           ccm_fids.get_cloned(ci),
           .Some(ccm_fid) => match(
-            g_closure_capture_offense.with({ &ccm_fid, &marker }(m) => m.get_cloned(`${ccm_fid}|${marker}`)),
+            g_closure_capture_offense.with({ &ccm_fid, marker : &marker.* }(m) => m.get_cloned(`${ccm_fid}|${marker}`)),
             .Some(.Some(_)) => {
               return(Option(bool).Some(false));
             },
@@ -1080,7 +1080,7 @@ closure_signature_key :: (fn(fn_ty : &TypeValue) -> String)(
               t_slot_is_borrow(&csk_slot) => out.push_str("&"),
               true => ()
             );
-            match(slot_pointee_at(&csk_pts, csk_i), .Some(csk_t) => out.push_string(type_key(&csk_t)), .None => ());
+            match(slot_pointee_at(&csk_pts.*, csk_i), .Some(csk_t) => out.push_string(type_key(&csk_t)), .None => ());
           },
           .None => ()
         );
@@ -1088,7 +1088,7 @@ closure_signature_key :: (fn(fn_ty : &TypeValue) -> String)(
         csk_i = (csk_i + usize(1));
       });
       out.push_str(")->");
-      out.push_string(type_key(&t_slot_pointee(&csk_ret)));
+      out.push_string(type_key(&t_slot_pointee(&csk_ret.*)));
 
       out
     },
@@ -1541,7 +1541,7 @@ _clone_receiver_is_place :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
       ),
       // `xs(i)`: the index read's own ExprInfo carries the `Index`-dispatch
       // markers (a plain function call carries none).
-      (!cr_infix && _is_index_read_place(e, ctx)) => recur(&cr_callee, ctx),
+      (!cr_infix.* && _is_index_read_place(e, ctx)) => recur(&cr_callee.*, ctx),
       true => false
     )
   )
@@ -1552,9 +1552,9 @@ _clone_address_is_pure :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
   match(
     e,
     .FnCall(_, ca_callee, Rc(ca_args), false, _) => (
-      ast_expr_is_fn_call_of(&ca_callee, BF_DOT, Option(usize).Some(usize(2)))
+      ast_expr_is_fn_call_of(&ca_callee.*, BF_DOT, Option(usize).Some(usize(2)))
       && match(
-        &ca_callee,
+        ca_callee,
         .FnCall(_, _, Rc(ca_dot_args), _, _) => (
           match(ca_dot_args.get(usize(1)), .Some(.Atom(_, ca_m)) => (ca_m.value.* == "add"), _ => false)
           && match(ca_dot_args.get(usize(0)), .Some(ca_p) => _clone_receiver_is_place(&ca_p, ctx), .None => false)
@@ -1591,7 +1591,7 @@ _clone_subst_receiver :: (fn(e : &AstExpr, recv : &AstExpr) -> AstExpr)(
         new_args.push(recur(match(cs_args.get(i), .Some(a) => a, .None => make_err_expr()), recv));
         i = (i + usize(1));
       });
-      AstExpr.FnCall(cs_id, recur(&cs_func, recv), Rc.new(new_args), cs_infix, cs_tok.clone())
+      AstExpr.FnCall(cs_id.*, recur(&cs_func.*, recv), Rc.new(new_args), cs_infix.*, cs_tok.clone())
     }
   )
 );
@@ -1629,12 +1629,12 @@ _expand_clone_to :: (fn(expr : &AstExpr, generated : &AstExpr, ctx : &EvalContex
       out.set_control_flow(gen_info.control_flow());
       out.set_variable_name(gen_info.variable_name());
       record_macro_expansion(ast_expr_id(expr), generated.clone());
-      expr_info_set_macro_expansion(&out, Option(AstExpr).Some(generated));
+      expr_info_set_macro_expansion(&out, Option(AstExpr).Some(generated.*));
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
     },
     .None => ()
   );
-  expr
+  expr.*
 });
 /// `recv.clone()` on a closure or an anonymous record that is `Clone` but not
 /// `Copy` (decision 36): the field-wise clone no impl can name. A part that is
@@ -1751,7 +1751,7 @@ structural_clone_expansion :: (
   if(type_contains_rc_type(target), {
     attach_temp_variable_to_expr(expr, true, ctx);
   });
-  Option(AstExpr).Some(expr)
+  Option(AstExpr).Some(expr.*)
 });
 /// `__yo_capture_field(c, i)`: the type of field `i` of closure `c`'s capture
 /// record. The read is in place: a clone template passes it to the field
@@ -1776,7 +1776,7 @@ evaluate_yo_capture_field :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut
   out := new_expr_info(env, &field_ty);
   out.set_value(Option(EvalValue).None);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-  expr
+  expr.*
 });
 export(FuncCapturedVarInfo);
 export(CaptureTypeAndValueResult);

@@ -182,16 +182,16 @@ impl(
   pos : (fn(self : &Self) -> usize)(
     match(
       self,
-      .UnexpectedChar({ pos }) => pos,
-      .UnexpectedEnd({ pos }) => pos,
-      .UnterminatedString({ start }) => start,
-      .InvalidEscape({ pos }) => pos,
-      .InvalidUnicode({ pos }) => pos,
-      .InvalidNumber({ pos }) => pos,
-      .InvalidDatetime({ pos }) => pos,
-      .DuplicateKey({ pos }) => pos,
-      .RedefinedTable({ pos }) => pos,
-      .ExpectedTable({ pos }) => pos
+      .UnexpectedChar({ pos }) => pos.*,
+      .UnexpectedEnd({ pos }) => pos.*,
+      .UnterminatedString({ start }) => start.*,
+      .InvalidEscape({ pos }) => pos.*,
+      .InvalidUnicode({ pos }) => pos.*,
+      .InvalidNumber({ pos }) => pos.*,
+      .InvalidDatetime({ pos }) => pos.*,
+      .DuplicateKey({ pos }) => pos.*,
+      .RedefinedTable({ pos }) => pos.*,
+      .ExpectedTable({ pos }) => pos.*
     )
   )
 );
@@ -277,7 +277,7 @@ impl(
         mut(i) := usize(0);
         while(i < keys.len(), i = (i + usize(1)), {
           cond(
-            (keys(i) == key) => {
+            (keys(i) == key.*) => {
               return(Option(TomlValue).Some(values(i).clone()));
             },
             true => ()
@@ -352,19 +352,19 @@ impl(
   ),
   /// Extract the integer value, or `.None` if not an `Int`.
   as_int : (fn(self : &Self) -> Option(i64))(
-    match(self, .Int(n) => Option(i64).Some(n), _ => Option(i64).None)
+    match(self, .Int(n) => Option(i64).Some(n.*), _ => Option(i64).None)
   ),
   /// Extract the float value, or `.None` if not a `Float`.
   as_float : (fn(self : &Self) -> Option(f64))(
-    match(self, .Float(f) => Option(f64).Some(f), _ => Option(f64).None)
+    match(self, .Float(f) => Option(f64).Some(f.*), _ => Option(f64).None)
   ),
   /// Extract the boolean value, or `.None` if not a `Bool`.
   as_bool : (fn(self : &Self) -> Option(bool))(
-    match(self, .Bool(b) => Option(bool).Some(b), _ => Option(bool).None)
+    match(self, .Bool(b) => Option(bool).Some(b.*), _ => Option(bool).None)
   ),
   /// Extract the date-time value, or `.None` if not a `Datetime`.
   as_datetime : (fn(self : &Self) -> Option(TomlDateTime))(
-    match(self, .Datetime(d) => Option(TomlDateTime).Some(d), _ => Option(TomlDateTime).None)
+    match(self, .Datetime(d) => Option(TomlDateTime).Some(d.*), _ => Option(TomlDateTime).None)
   ),
   /// Extract the array items, or `.None` if not an `Array`.
   as_array : (fn(self : &Self) -> Option(ArrayList(TomlValue)))(
@@ -612,7 +612,7 @@ impl(
     mut(i) := usize(0);
     while(i < self.paths.len(), i = (i + usize(1)), {
       cond(
-        (self.paths(i) == path) => {
+        (self.paths(i) == path.*) => {
           found = Option(_TableKind).Some(self.kinds(i));
         },
         true => ()
@@ -625,7 +625,7 @@ impl(
     mut(i) := usize(0);
     while(i < self.paths.len(), i = (i + usize(1)), {
       cond(
-        (self.paths(i) == path) => {
+        (self.paths(i) == path.*) => {
           self.kinds(i) = kind;
           replaced = true;
         },
@@ -1631,7 +1631,7 @@ _key_index :: (fn(keys : &ArrayList(String), key : &String) -> Option(usize))({
   mut(i) := usize(0);
   while(i < keys.len(), i = (i + usize(1)), {
     cond(
-      (keys(i) == key) => {
+      (keys(i) == key.*) => {
         return(Option(usize).Some(i));
       },
       true => ()
@@ -1659,7 +1659,7 @@ _probe_at :: (fn(t : &TomlValue, steps : &ArrayList(_Step), si : usize, key : &S
       .Key(name) => match(
         t,
         .Table(tkeys, values) => match(
-          _key_index(&tkeys, &name),
+          _key_index(&tkeys.*, &name.*),
           .Some(j) => recur(&values(j), steps, si + usize(1), key),
           .None => __yo_panic("toml: a parser path names a missing key")
         ),
@@ -1667,14 +1667,14 @@ _probe_at :: (fn(t : &TomlValue, steps : &ArrayList(_Step), si : usize, key : &S
       ),
       .Elem(idx) => match(
         t,
-        .Array(items) => recur(&items(idx), steps, si + usize(1), key),
+        .Array(items) => recur(&items(idx.*), steps, si + usize(1), key),
         _ => __yo_panic("toml: a parser path steps by index into a non-array")
       )
     ),
     true => match(
       t,
       .Table(tkeys, values) => match(
-        _key_index(&tkeys, key),
+        _key_index(&tkeys.*, key),
         .Some(j) => _slot_of(&values(j)),
         .None => _Slot.Missing
       ),
@@ -1703,7 +1703,7 @@ _store_at :: (
       .Key(name) => match(
         t,
         .Table(tkeys, values) => match(
-          _key_index(&tkeys, &name),
+          _key_index(&tkeys.*, &name.*),
           .Some(j) => {
             // Called by name, not `recur`: `recur(&mut child, …)` passes the
             // local by value in the emitted C
@@ -1720,10 +1720,10 @@ _store_at :: (
       .Elem(idx) => match(
         t,
         .Array(items) => {
-          mut(child) := items.swap_remove(idx);
+          mut(child) := items.swap_remove(idx.*);
           _store_at(&mut child, steps, si + usize(1), key, value);
           items.push(child);
-          items.swap(idx, items.len() - usize(1));
+          items.swap(idx.*, items.len() - usize(1));
         },
         _ => __yo_panic("toml: a parser path steps by index into a non-array")
       )
@@ -2341,7 +2341,7 @@ export(parse);
 // Serialization
 // ============================================================================
 _push_string :: (fn(s : &String, out : &mut ArrayList(u8)) -> unit)({
-  b := &s;
+  b := &s.*;
   mut(i) := usize(0);
   while(i < b.len(), i = (i + usize(1)), {
     out.push(b.byte_at(i));
@@ -2372,7 +2372,7 @@ _write_u_escape :: (fn(b : u8, out : &mut ArrayList(u8)) -> unit)({
 /// the output prettier, never more correct.
 _write_basic_string :: (fn(s : &String, out : &mut ArrayList(u8)) -> unit)({
   out.push(_QUOTE);
-  b := &s;
+  b := &s.*;
   mut(i) := usize(0);
   while(i < b.len(), i = (i + usize(1)), {
     c := b.byte_at(i);
@@ -2413,7 +2413,7 @@ _write_basic_string :: (fn(s : &String, out : &mut ArrayList(u8)) -> unit)({
 });
 /// May `key` be written bare?
 _is_bare_key :: (fn(key : &String) -> bool)({
-  b := &key;
+  b := &key.*;
   cond(
     (b.len() == usize(0)) => {
       return(false);
@@ -2585,14 +2585,14 @@ _write_datetime :: (fn(d : TomlDateTime, out : &mut ArrayList(u8)) -> unit)({
 _write_inline :: (fn(value : &TomlValue, out : &mut ArrayList(u8)) -> unit)(
   match(
     value,
-    .Str(s) => _write_basic_string(&s, out),
+    .Str(s) => _write_basic_string(&s.*, out),
     .Int(n) => _push_string(n.to_string(), out),
-    .Float(f) => _write_f64(f, out),
+    .Float(f) => _write_f64(f.*, out),
     .Bool(b) => cond(
-      b => _push_lit("true", out),
+      b.* => _push_lit("true", out),
       true => _push_lit("false", out)
     ),
-    .Datetime(d) => _write_datetime(d, out),
+    .Datetime(d) => _write_datetime(d.*, out),
     .Array(items) => {
       out.push(_LBRACKET);
       mut(i) := usize(0);
@@ -2749,7 +2749,7 @@ impl(
   ToString(
     to_string : (fn(self : &Self) -> String)({
       mut(out) := ArrayList(u8).new();
-      _write_datetime(self, &mut out);
+      _write_datetime(self.*, &mut out);
       String.from_bytes(out)
     })
   )
@@ -2789,11 +2789,11 @@ _dt_eq :: (fn(a : TomlDateTime, b : TomlDateTime) -> bool)({
 _toml_eq :: (fn(lhs : &TomlValue, rhs : &TomlValue) -> bool)(
   match(
     lhs,
-    .Str(a) => match(rhs, .Str(b) => (a == b), _ => false),
-    .Int(a) => match(rhs, .Int(b) => (a == b), _ => false),
-    .Float(a) => match(rhs, .Float(b) => (a == b), _ => false),
-    .Bool(a) => match(rhs, .Bool(b) => (a == b), _ => false),
-    .Datetime(a) => match(rhs, .Datetime(b) => _dt_eq(a, b), _ => false),
+    .Str(a) => match(rhs, .Str(b) => (a.* == b.*), _ => false),
+    .Int(a) => match(rhs, .Int(b) => (a.* == b.*), _ => false),
+    .Float(a) => match(rhs, .Float(b) => (a.* == b.*), _ => false),
+    .Bool(a) => match(rhs, .Bool(b) => (a.* == b.*), _ => false),
+    .Datetime(a) => match(rhs, .Datetime(b) => _dt_eq(a.*, b.*), _ => false),
     .Array(a) => match(
       rhs,
       .Array(b) => {

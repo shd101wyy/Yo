@@ -85,8 +85,8 @@ try_to_convert_to_pointer_type :: (
   is_ptr_u8_or_char := match(
     target_type,
     Rc(.Pointer(inner)) => cond(
-      is_u8_type(&inner) => true,
-      is_char_type(&inner) => true,
+      is_u8_type(&inner.*) => true,
+      is_char_type(&inner.*) => true,
       true => false
     ),
     _ => false
@@ -125,7 +125,7 @@ try_to_convert_to_pointer_type :: (
   orig_id := ast_expr_id(expr);
   type_expr := match(
     expr,
-    .FnCall(_, func_box, _, _, _) => func_box,
+    .FnCall(_, func_box, _, _, _) => func_box.*,
     .Atom(_, _) => make_err_expr()
   );
   // Lower the runtime pointer→pointer cast to a `__yo_as` node, attached to the
@@ -176,6 +176,6 @@ try_to_convert_to_pointer_type :: (
   record_macro_expansion(ast_expr_id(expr), yo_as_node.clone());
   expr_info_set_macro_expansion(&out_info, Option(AstExpr).Some(yo_as_node));
   expr_info_table_set(&ctx.expr_info_table, orig_id, &out_info);
-  .Some(expr)
+  .Some(expr.*)
 });
 export(try_to_convert_to_pointer_type);

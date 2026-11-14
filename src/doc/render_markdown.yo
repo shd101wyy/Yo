@@ -71,7 +71,7 @@ find_method_by_name_ :: (fn(methods : &ArrayList(DocFunction), name : &String) -
         break;
       }
     );
-    if(m.name == name, {
+    if(m.name == name.*, {
       return(Option(DocFunction).Some(m));
     });
     i = (i + usize(1));
@@ -91,7 +91,7 @@ is_in_list_ :: (fn(list : &ArrayList(String), name : &String) -> bool)({
         break;
       }
     );
-    if(item == name, {
+    if(item == name.*, {
       result = true;
       break;
     });
@@ -255,7 +255,7 @@ render_function_md :: (fn(fn_ : &DocFunction) -> String)({
     &fn_.doc,
     .None => (),
     .Some(d) => {
-      lines.push(_md_doc(&d));
+      lines.push(_md_doc(&d.*));
       lines.push(``);
     }
   );
@@ -337,7 +337,7 @@ render_type_md :: (fn(t : &DocType) -> String)({
     &t.doc,
     .None => (),
     .Some(d) => {
-      lines.push(_md_doc(&d));
+      lines.push(_md_doc(&d.*));
       lines.push(``);
     }
   );
@@ -346,7 +346,7 @@ render_type_md :: (fn(t : &DocType) -> String)({
     .None => (),
     .Some(fields) => {
       if(fields.len() > usize(0), {
-        lines.push(render_fields_(&fields));
+        lines.push(render_fields_(&fields.*));
       });
     }
   );
@@ -355,7 +355,7 @@ render_type_md :: (fn(t : &DocType) -> String)({
     .None => (),
     .Some(variants) => {
       if(variants.len() > usize(0), {
-        lines.push(render_variants_(&variants));
+        lines.push(render_variants_(&variants.*));
       });
     }
   );
@@ -548,7 +548,7 @@ render_trait_md :: (fn(t : &DocTrait) -> String)({
     &t.doc,
     .None => (),
     .Some(d) => {
-      lines.push(_md_doc(&d));
+      lines.push(_md_doc(&d.*));
       lines.push(``);
     }
   );
@@ -557,7 +557,7 @@ render_trait_md :: (fn(t : &DocTrait) -> String)({
     .None => (),
     .Some(assoc_types) => {
       if(assoc_types.len() > usize(0), {
-        lines.push(render_associated_types_(&assoc_types));
+        lines.push(render_associated_types_(&assoc_types.*));
       });
     }
   );
@@ -629,7 +629,7 @@ render_constant_md :: (fn(c : &DocConstant) -> String)({
     &c.doc,
     .None => (),
     .Some(d) => {
-      lines.push(_md_doc(&d));
+      lines.push(_md_doc(&d.*));
       lines.push(``);
     }
   );
@@ -648,7 +648,7 @@ render_module_md :: (fn(mod : &DocModule) -> String)({
     .Some(st) => {
       // LEVEL only — the full `## Stability` section is still in `mod.doc`
       // and is rendered below, so repeating it here printed it twice.
-      lvl := stability_level(&st);
+      lvl := stability_level(&st.*);
       if(!lvl.is_empty(), {
         gloss := cond(
           (lvl == `stable`) => String.from("changes additively from here."),
@@ -664,7 +664,7 @@ render_module_md :: (fn(mod : &DocModule) -> String)({
     &mod.doc,
     .None => (),
     .Some(d) => {
-      lines.push(_md_doc(&d));
+      lines.push(_md_doc(&d.*));
       lines.push(``);
     }
   );
@@ -848,7 +848,7 @@ render_index_md :: (fn(model : &DocModel) -> String)({
     badge_word := match(
       &mod.stability,
       .None => ``,
-      .Some(st) => stability_level(&st)
+      .Some(st) => stability_level(&st.*)
     );
     badge := if(badge_word.is_empty(), ``, ` _(${badge_word})_`);
     lines.push(`- [\`${mod.path}\`](module/${mod.name}.md)${badge} (${item_count.to_string()} items)${summary}`);

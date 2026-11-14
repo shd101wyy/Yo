@@ -58,7 +58,7 @@ evaluate_anonymous_struct_value :: (
   // Validate: func must be Atom("_")
   func_expr := match(
     expr,
-    .FnCall(_, fb, _, _, _) => fb,
+    .FnCall(_, fb, _, _, _) => fb.*,
     .Atom(_, _) => {
       exn.throw(dyn(format_error_message(&tok, String.from("evaluate_anonymous_struct_value: expected FnCall"))));
       make_err_expr()
@@ -307,6 +307,6 @@ evaluate_anonymous_struct_value :: (
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   // Attach temp variable (no-op stub in Phase 2bk)
   attach_temp_variable_to_expr(expr, true, ctx);
-  expr
+  expr.*
 });
 export(evaluate_anonymous_struct_value);

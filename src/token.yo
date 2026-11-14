@@ -96,7 +96,7 @@ derive(Token, Eq(Token));
 impl(
   Token,
   Clone(
-    clone : (fn(self : &Self) -> Self)(self)
+    clone : (fn(self : &Self) -> Self)(self.*)
   )
 );
 is_operator_char :: (fn(c : rune) -> bool)(
@@ -132,7 +132,7 @@ is_operator_char :: (fn(c : rune) -> bool)(
 /// operator dispatch resolves these as builtins before any trait lookup,
 /// so a trait field named e.g. `(&&)` is unreachable, not unsound.)
 is_reserved_operator_name :: (fn(name : &String) -> bool)(
-  (name == "=") || (name == ":=") || (name == "::") || (name == ":") || (name == "=>") || (name == "->") || (name == "<:") || (name == "?=") || (name == "&&") || (name == "||") || (name == "..") || (name == "..=") || (name == "...") || (name == "==>")
+  (name.* == "=") || (name.* == ":=") || (name.* == "::") || (name.* == ":") || (name.* == "=>") || (name.* == "->") || (name.* == "<:") || (name.* == "?=") || (name.* == "&&") || (name.* == "||") || (name.* == "..") || (name.* == "..=") || (name.* == "...") || (name.* == "==>")
 );
 /// Plain-named BUILTIN dispatch names. Any call spelled with one of these
 /// names routes to the builtin in the evaluator AND codegen, so a user
@@ -156,19 +156,19 @@ is_reserved_operator_name :: (fn(name : &String) -> bool)(
 /// two cell primitives, `__yo_cell` and `__yo_atomic_cell`, are reserved: they
 /// are type builtins the evaluator dispatches on by name.
 is_reserved_builtin_binding_name :: (fn(name : &String) -> bool)(
-  (name == "type_of") || (name == "size_of") || (name == "align_of") || (name == "type_id") || (name == "addr_of") ||
-    (name == "runtime") || (name == "unwind") || (name == "recur") || (name == "consume")
+  (name.* == "type_of") || (name.* == "size_of") || (name.* == "align_of") || (name.* == "type_id") || (name.* == "addr_of") ||
+    (name.* == "runtime") || (name.* == "unwind") || (name.* == "recur") || (name.* == "consume")
     ||
-      (name == "unsafe") || (name == "pragma") || (name == "asm") || (name == "global_asm") ||
-        (name == "macro_expand") || (name == "va_start")
+      (name.* == "unsafe") || (name.* == "pragma") || (name.* == "asm") || (name.* == "global_asm") ||
+        (name.* == "macro_expand") || (name.* == "va_start")
         ||
-          (name == "comptime_assert") || (name == "comptime_fn") || (name == "comptime_print") || (name == "comptime_eval") ||
-            (name == "comptime_read_file") || (name == "comptime_json_parse") || (name == "comptime_toml_parse")
+          (name.* == "comptime_assert") || (name.* == "comptime_fn") || (name.* == "comptime_print") || (name.* == "comptime_eval") ||
+            (name.* == "comptime_read_file") || (name.* == "comptime_json_parse") || (name.* == "comptime_toml_parse")
             ||
-              (name == "requires") || (name == "ensures") || (name == "invariant") || (name == "decreases") ||
-                (name == "assumed") || (name == "___drop") || (name == "___dup") || (name == "dyn")
-                || (name == "the") || (name == "as") || (name == "clone") || (name == "quote") ||
-                  (name == "downcast") || (name == "upcast") || (name == "ref_count") ||
+              (name.* == "requires") || (name.* == "ensures") || (name.* == "invariant") || (name.* == "decreases") ||
+                (name.* == "assumed") || (name.* == "___drop") || (name.* == "___dup") || (name.* == "dyn")
+                || (name.* == "the") || (name.* == "as") || (name.* == "clone") || (name.* == "quote") ||
+                  (name.* == "downcast") || (name.* == "upcast") || (name.* == "ref_count") ||
                     // The identifier-spelled call-HEADS the evaluator dispatches on
                     // (begin/tuple/array sit in the special-head list of
                     // src/evaluator/effects/mutation_summary.yo beside the reserved
@@ -177,26 +177,26 @@ is_reserved_builtin_binding_name :: (fn(name : &String) -> bool)(
                     // the array-literal builtin (issues/begin-tuple-array-bindings-are-silently-hijacked.md).
                     // `thread_local` is special only in the
                     // `(thread_local(name) : T) = init;` LHS position, so it stays bindable.
-                    (name == "begin") || (name == "tuple") || (name == "array")
+                    (name.* == "begin") || (name.* == "tuple") || (name.* == "array")
                     ||
                       // `mut` follows `&` in a borrow (`x : &mut T`, `&mut x`,
                       // plans/VALUES_BY_DEFAULT.md decision 42), as in Rust.
-                      (name == "mut")
+                      (name.* == "mut")
                       ||
                         // The private cell primitives (plans/VALUES_BY_DEFAULT.md
                         // §3.5): the only `__yo` names the evaluator dispatches on.
-                        (name == "__yo_cell") || (name == "__yo_atomic_cell")
+                        (name.* == "__yo_cell") || (name.* == "__yo_atomic_cell")
                         ||
                           // The `Origin` kind (decision 43 step 2), reserved like
                           // `Type`: `generic(p : Origin)` means one thing in every module.
-                          (name == "Origin")
+                          (name.* == "Origin")
 );
 /// The error for a binding named by a reserved builtin word
 /// (`is_reserved_builtin_binding_name`).
 reserved_builtin_binding_message :: (fn(name : &String) -> String)(
   cond(
-    (name == "mut") => String.from("\"mut\" is reserved: it follows `&` in a borrow (`x : &mut T`, `y := &mut place`, `f(&mut x)`) and cannot name a binding (plans/VALUES_BY_DEFAULT.md decision 42). Choose a different name."),
-    (name == "Origin") => String.from("\"Origin\" is reserved: it is the kind of an origin (`generic(p : Origin)`, decision 43), as `Type` is the kind of a type, and cannot name a binding. Choose a different name."),
+    (name.* == "mut") => String.from("\"mut\" is reserved: it follows `&` in a borrow (`x : &mut T`, `y := &mut place`, `f(&mut x)`) and cannot name a binding (plans/VALUES_BY_DEFAULT.md decision 42). Choose a different name."),
+    (name.* == "Origin") => String.from("\"Origin\" is reserved: it is the kind of an origin (`generic(p : Origin)`, decision 43), as `Type` is the kind of a type, and cannot name a binding. Choose a different name."),
     true => `"${name}" names a builtin: every call with this name dispatches to the builtin, so a user binding could never run. Choose a different name.`
   )
 );
@@ -326,7 +326,7 @@ is_valid_identifier :: (fn(s : &String) -> bool)({
 g_token_intern := RefCell(HashMap(String, Rc(String))).new(HashMap(String, Rc(String)).new());
 intern_token_str :: (fn(s : &String) -> Rc(String))(
   match(
-    g_token_intern.with({ &s }(m) => m.get_cloned(s)),
+    g_token_intern.with({ s : &s.* }(m) => m.get_cloned(s)),
     .Some(canonical) => canonical,
     .None => {
       c := Rc.new(s.clone());

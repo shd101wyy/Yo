@@ -529,7 +529,7 @@ _link_store_trees :: (
 _names_a_symlink :: (fn(entries : &ArrayList(DirEntry), name : &String) -> bool)({
   (i : usize) = usize(0);
   while(i < entries.len(), {
-    if(entries(i).name == name, {
+    if(entries(i).name == name.*, {
       return(match(entries(i).file_type, .Symlink => true, _ => false));
     });
     i = (i + usize(1));
@@ -553,7 +553,7 @@ _package_import_lines :: (fn(package_dir : &String) -> ArrayList(String))({
   (i : usize) = usize(0);
   while(i < g_dep_import_dirs.with(_c_len_1), {
     dir := g_dep_import_dirs.with({ i }(xs) => xs(i).clone());
-    if(dir == package_dir, {
+    if(dir == package_dir.*, {
       out := ArrayList(String).new();
       lines := g_dep_import_texts.with({ i }(xs) => xs(i).clone());
       (j : usize) = usize(0);
@@ -572,7 +572,7 @@ _record_package_import_lines :: (fn(package_dir : &String, lines : &ArrayList(St
   (i : usize) = usize(0);
   while(i < g_dep_import_dirs.with(_c_len_1), {
     dir := g_dep_import_dirs.with({ i }(xs) => xs(i).clone());
-    if(dir == package_dir, {
+    if(dir == package_dir.*, {
       return(());
     });
     i = (i + usize(1));
@@ -1166,7 +1166,7 @@ _read_dir_task :: (fn(dir : &String, io : Io) -> Impl(Future(ArrayList(DirEntry)
 _entry_is_dir :: (fn(entries : &ArrayList(DirEntry), name : &String) -> bool)({
   (i : usize) = usize(0);
   while(i < entries.len(), {
-    if(entries(i).name == name, {
+    if(entries(i).name == name.*, {
       return(match(entries(i).file_type, .Directory => true, _ => false));
     });
     i = (i + usize(1));
@@ -1337,7 +1337,7 @@ _push_unique_string :: (fn(out : &mut ArrayList(String), v : &String) -> unit)({
   while(i < out.len(), {
     match(
       out.get_cloned(i),
-      .Some(seen) => if(seen == v, {
+      .Some(seen) => if(seen == v.*, {
         return(());
       }),
       .None => ()
@@ -1768,9 +1768,9 @@ _write_stamp :: (fn(path : &String, stamp : &String, io : Io) -> Impl(Future(uni
 /// (issues/fixed/build-release-small-is-identical-to-release-safe.md).
 optimize_level_for :: (fn(level : &String) -> String)(
   cond(
-    (level == "release-safe") => String.from("2"),
-    (level == "release-fast") => String.from("3"),
-    (level == "release-small") => String.from("s"),
+    (level.* == "release-safe") => String.from("2"),
+    (level.* == "release-fast") => String.from("3"),
+    (level.* == "release-small") => String.from("s"),
     true => String.new()
   )
 );
@@ -1780,7 +1780,7 @@ export(optimize_level_for);
 /// a build file has no other flag that reaches the child compile's -g, so
 /// Debug forwards it here. The release levels document no debug info and
 /// stay lean.
-level_wants_debug_symbols :: (fn(level : &String) -> bool)(level == "debug");
+level_wants_debug_symbols :: (fn(level : &String) -> bool)(level.* == "debug");
 export(level_wants_debug_symbols);
 compile_artifact :: (
   fn(
@@ -1939,7 +1939,7 @@ compile_artifact :: (
       &ctx.sysroot,
       .Some(s) => {
         cmd = cmd.arg(String.from("--sysroot"));
-        cmd = cmd.arg(&s);
+        cmd = cmd.arg(&s.*);
       },
       .None => ()
     );
@@ -2757,7 +2757,7 @@ _execute_batch :: (
   // starts: the async body would otherwise capture the borrowed `results` map.
   mut(owned_blocked) := ArrayList(bool).new();
   for(&owned_batch, node => {
-    owned_blocked.push(_dependency_failed(&node, results));
+    owned_blocked.push(_dependency_failed(&node.*, results));
   });
   io.async((e : IoExn) => {
     handles := ArrayList(JoinHandle(StepResult)).new();
@@ -2998,7 +2998,7 @@ print_build_summary :: (
   // Find root node and print tree
   i = usize(0);
   while(i < n, {
-    if(dag(i).name == root_name, {
+    if(dag(i).name == root_name.*, {
       node_map := HashMap(String, DAGNode).new();
       j := usize(0);
       while(j < n, {
@@ -3400,7 +3400,7 @@ run_build :: (
     // the fetch above, so a git dependency's sources are on disk.
     registry = match(
       &manifest_opt,
-      .Some(m) => e.io.await(_evaluate_dependency_builds(&m, registry, &owned_options.defines, e.io, e.exn), e),
+      .Some(m) => e.io.await(_evaluate_dependency_builds(&m.*, registry, &owned_options.defines, e.io, e.exn), e),
       .None => registry
     );
     project_name := match(manifest_opt, .Some(m) => m.name.clone(), .None => String.new());
@@ -3432,7 +3432,7 @@ run_build :: (
           for(&registry.system_libraries, slib => {
             (is_linked : bool) = false;
             for(&art.linked_system_libs, ln => {
-              if(ln == slib.name, {
+              if(ln.* == slib.name, {
                 is_linked = true;
               });
             });
@@ -3447,7 +3447,7 @@ run_build :: (
               for(&linked, wlib => {
                 (already : bool) = false;
                 for(&art.link_libraries, aln => {
-                  if(aln == wlib.name, {
+                  if(aln.* == wlib.name, {
                     already = true;
                   });
                 });

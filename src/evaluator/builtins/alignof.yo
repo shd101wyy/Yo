@@ -52,11 +52,11 @@ evaluate_align_of :: (
       args.get(usize(0)),
       .Some(a) => a,
       .None => {
-        return(expr);
+        return(expr.*);
       }
     ),
     .Atom(_, _) => {
-      return(expr);
+      return(expr.*);
     }
   );
   evaluated := evaluate_expression_raw(&type_expr, env, ctx, exn);
@@ -107,6 +107,6 @@ evaluate_align_of :: (
     }
   );
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr
+  expr.*
 });
 export(evaluate_align_of);

@@ -457,7 +457,7 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
     // naming it is emitted.
     temp := match(
       &ei.variable_name(),
-      .Some(cvn) => get_variable_name_for_codegen_at(ast_expr_id(expr), &cvn, Option(Environment).Some(ei.env())),
+      .Some(cvn) => get_variable_name_for_codegen_at(ast_expr_id(expr), &cvn.*, Option(Environment).Some(ei.env())),
       .None => {
         t := String.from("__capture_");
         t.push_string(fid.clone());
@@ -486,7 +486,7 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
         .Some(cvn2) => match(
           &context.state_machine_variables,
           .Some(smv) => match(
-            sm_slot_of(ast_expr_id(expr), &ei.env(), &cvn2, &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),
+            sm_slot_of(ast_expr_id(expr), &ei.env(), &cvn2.*, &smv.*, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),
             .Some(slot) => context.base.emitter.emit_string_line(`${indent.clone()}${slot} = ${temp.clone()};`),
             .None => ()
           ),

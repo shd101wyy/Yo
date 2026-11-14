@@ -148,33 +148,33 @@ abi_to_str :: (fn(a : Abi) -> str)(
 /// Parse the architecture word of a triple.
 parse_arch :: (fn(s : &String) -> Option(Arch))(
   cond(
-    (s == "x86_64") => Option(Arch).Some(Arch.X86_64),
-    (s == "aarch64") => Option(Arch).Some(Arch.Aarch64),
-    (s == "i686") => Option(Arch).Some(Arch.X86),
-    (s == "arm") => Option(Arch).Some(Arch.Arm),
-    (s == "wasm32") => Option(Arch).Some(Arch.Wasm32),
+    (s.* == "x86_64") => Option(Arch).Some(Arch.X86_64),
+    (s.* == "aarch64") => Option(Arch).Some(Arch.Aarch64),
+    (s.* == "i686") => Option(Arch).Some(Arch.X86),
+    (s.* == "arm") => Option(Arch).Some(Arch.Arm),
+    (s.* == "wasm32") => Option(Arch).Some(Arch.Wasm32),
     true => Option(Arch).None
   )
 );
 /// Parse the OS word of a triple.
 parse_os :: (fn(s : &String) -> Option(Os))(
   cond(
-    (s == "linux") => Option(Os).Some(Os.Linux),
-    (s == "darwin") => Option(Os).Some(Os.Macos),
-    (s == "windows") => Option(Os).Some(Os.Windows),
-    (s == "freebsd") => Option(Os).Some(Os.FreeBSD),
-    (s == "wasip1") => Option(Os).Some(Os.Wasi),
-    (s == "emscripten") => Option(Os).Some(Os.Emscripten),
+    (s.* == "linux") => Option(Os).Some(Os.Linux),
+    (s.* == "darwin") => Option(Os).Some(Os.Macos),
+    (s.* == "windows") => Option(Os).Some(Os.Windows),
+    (s.* == "freebsd") => Option(Os).Some(Os.FreeBSD),
+    (s.* == "wasip1") => Option(Os).Some(Os.Wasi),
+    (s.* == "emscripten") => Option(Os).Some(Os.Emscripten),
     true => Option(Os).None
   )
 );
 /// Parse the environment word of a triple.
 parse_abi :: (fn(s : &String) -> Option(Abi))(
   cond(
-    (s == "gnu") => Option(Abi).Some(Abi.Gnu),
-    (s == "musl") => Option(Abi).Some(Abi.Musl),
-    (s == "msvc") => Option(Abi).Some(Abi.Msvc),
-    (s == "p1") => Option(Abi).Some(Abi.P1),
+    (s.* == "gnu") => Option(Abi).Some(Abi.Gnu),
+    (s.* == "musl") => Option(Abi).Some(Abi.Musl),
+    (s.* == "msvc") => Option(Abi).Some(Abi.Msvc),
+    (s.* == "p1") => Option(Abi).Some(Abi.P1),
     true => Option(Abi).None
   )
 );
@@ -327,8 +327,8 @@ get_current_target :: (fn() -> TargetInfo)(
 /// never to accept a spelling.
 _parse_os_for_hint :: (fn(s : &String) -> Option(Os))(
   cond(
-    (s == "macos") => Option(Os).Some(Os.Macos),
-    (s == "wasi") => Option(Os).Some(Os.Wasi),
+    (s.* == "macos") => Option(Os).Some(Os.Macos),
+    (s.* == "wasi") => Option(Os).Some(Os.Wasi),
     true => parse_os(s)
   )
 );

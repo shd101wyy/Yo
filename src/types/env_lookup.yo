@@ -50,7 +50,7 @@ _same_some_id :: (fn(ty : &TypeValue, id_to_compare : &String) -> bool)(
         bounds : _
       )
     ) =>
-      (tid == id_to_compare),
+      (tid.* == id_to_compare.*),
     _ => false
   )
 );
@@ -95,7 +95,7 @@ _some_frame_level :: (fn(ty : &TypeValue) -> Option(usize))(
         frame_level : fl,
         bounds : _
       )
-    ) => Option(usize).Some(fl),
+    ) => Option(usize).Some(fl.*),
     _ => Option(usize).None
   )
 );
@@ -109,7 +109,7 @@ _id_visited :: (fn(visited_ids : &ArrayList(String), id : &String) -> bool)({
       visited_ids.get_cloned(i),
       .Some(existing) =>
         cond(
-          (existing == id) => {
+          (existing == id.*) => {
             found = true;
             i = n;
           },
@@ -128,7 +128,7 @@ _id_visited :: (fn(visited_ids : &ArrayList(String), id : &String) -> bool)({
 /// (issues/fixed/a-caller-binder-named-t-collides-with-io-async-t.md).
 _binding_may_be_for :: (fn(var : &Variable, some_id : &String) -> bool)({
   bound := variable_bound_some_id(var);
-  (bound.len() == usize(0)) || (bound == some_id)
+  (bound.len() == usize(0)) || (bound == some_id.*)
 });
 /// The bindings in `variables` that may be for the SomeT `some_id`
 /// (`_binding_may_be_for`), in their original order.
@@ -167,7 +167,7 @@ _lookup_by_frame :: (fn(env : &Environment, fl : usize, name : &String, some_id 
               vars.get_cloned(i),
               .Some(var) =>
                 cond(
-                  ((var.name == name) && _binding_may_be_for(&var, some_id)) =>
+                  ((var.name == name.*) && _binding_may_be_for(&var, some_id)) =>
                     match(
                       var.value().get(usize(0)),
                       .Some(val) =>
@@ -439,7 +439,7 @@ _last_type_binding_frame :: (fn(env : &Environment, name : &String) -> Option(us
           match(
             vars.get_cloned(vi),
             .Some(var) =>
-              if((var.name == name) && _is_type_eval_value_or_empty(&var), {
+              if((var.name == name.*) && _is_type_eval_value_or_empty(&var), {
                 hit = true;
               }),
             .None => ()
@@ -477,7 +477,7 @@ _chain_resolve :: (fn(env : &Environment, start : &TypeValue, visited_ids : &mut
         bounds : _
       )
     ) => {
-      r := _lookup_by_frame(env, sfl, &sn, &sid);
+      r := _lookup_by_frame(env, sfl.*, &sn.*, &sid.*);
       match(
         r,
         .Some(tv) =>
@@ -488,7 +488,7 @@ _chain_resolve :: (fn(env : &Environment, start : &TypeValue, visited_ids : &mut
             // through to the name-keyed last-binding-wins scan lets a sibling
             // call's same-named SomeT hijack the resolution (the mutable-env
             // name-collision class).
-            _same_some_id(&tv, &sid) => Option(TypeValue).Some(Rc.clone(start)),
+            _same_some_id(&tv, &sid.*) => Option(TypeValue).Some(Rc.clone(start)),
             // Another SomeT at the same frame → fall through to chain search
             is_some_type(&tv) => Option(TypeValue).None,
             // Concrete binding → trust it ONLY if the def frame still holds
@@ -508,9 +508,9 @@ _chain_resolve :: (fn(env : &Environment, start : &TypeValue, visited_ids : &mut
             // chain's last-binding-wins scan below is the authority (it
             // finds THIS match's fresh synthesis binding in the top frame).
             true => match(
-              _last_type_binding_frame(env, &sn),
+              _last_type_binding_frame(env, &sn.*),
               .Some(lbf) => cond(
-                (lbf == sfl) => Option(TypeValue).Some(Rc.clone(tv)),
+                (lbf == sfl.*) => Option(TypeValue).Some(Rc.clone(tv)),
                 true => Option(TypeValue).None
               ),
               .None => Option(TypeValue).None
@@ -554,7 +554,7 @@ get_value_of_some_type_from_env :: (fn(env : &Environment, some_type : &TypeValu
 create_str_type :: (fn(env : &Environment) -> TypeValue)({
   // str is now the builtin static string view; no prelude lookup needed.
   // (env parameter kept for signature stability with callers.)
-  env;
+  env.*;
   t_str()
 });
 
@@ -564,7 +564,7 @@ create_str_type :: (fn(env : &Environment) -> TypeValue)({
 _pointer_target_is_byte :: (fn(ty : &TypeValue) -> bool)(
   match(
     ty,
-    Rc(.Pointer(pointee)) => (is_u8_type(&pointee) || is_char_type(&pointee)),
+    Rc(.Pointer(pointee)) => (is_u8_type(&pointee.*) || is_char_type(&pointee.*)),
     _ => false
   )
 );
@@ -590,8 +590,8 @@ convert_comptime_type_to_runtime_type_with_expected :: (
         // comptime type rather than coercing to `str`. Without this the
         // default-value check compares `comptime_str` against `str`
         // and rejects `(comptime(x) : comptime_str) ?= "…"`.
-        is_comptime_string_type(&et) => Rc.clone(ty),
-        (is_pointer_type(&et) && _pointer_target_is_byte(&et)) => Rc.clone(et),
+        is_comptime_string_type(&et.*) => Rc.clone(ty),
+        (is_pointer_type(&et.*) && _pointer_target_is_byte(&et.*)) => Rc.clone(et),
         true => create_str_type(env)
       )
     ),

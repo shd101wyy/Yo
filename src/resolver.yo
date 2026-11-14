@@ -254,7 +254,7 @@ latest_release :: (fn(tags : &ArrayList(SemVer)) -> Option(SemVer))({
       best = match(
         best,
         .None => Option(SemVer).Some(t.clone()),
-        .Some(b) => if(compare_semver(&t, &b) > i32(0), Option(SemVer).Some(t.clone()), Option(SemVer).Some(b))
+        .Some(b) => if(compare_semver(&t.*, &b) > i32(0), Option(SemVer).Some(t.clone()), Option(SemVer).Some(b))
       );
     });
   });
@@ -801,9 +801,9 @@ choose_ref :: (
         .Some(prev) => {
           same := match(
             prev,
-            .Tag(a) => match(r, .Tag(b) => (a == b), _ => false),
-            .Rev(a) => match(r, .Rev(b) => (a == b), _ => false),
-            .Branch(a) => match(r, .Branch(b) => (a == b), _ => false),
+            .Tag(a) => match(r, .Tag(b) => (a.* == b), _ => false),
+            .Rev(a) => match(r, .Rev(b) => (a.* == b), _ => false),
+            .Branch(a) => match(r, .Branch(b) => (a.* == b), _ => false),
             .DefaultBranch => match(r, .DefaultBranch => true, _ => false),
             .Version(_) => false
           );
@@ -830,7 +830,7 @@ choose_ref :: (
         // A range can only be reconciled with an exact TAG that is a version.
         ok := match(
           &chosen,
-          .Tag(sv) => match(_satisfies_all_ranges(&sv, reqs), .Ok(b) => b, .Err(msg) => return(Result(ChosenRef, String).Err(msg))),
+          .Tag(sv) => match(_satisfies_all_ranges(&sv.*, reqs), .Ok(b) => b, .Err(msg) => return(Result(ChosenRef, String).Err(msg))),
           _ => false
         );
         if(!ok, {
@@ -866,7 +866,7 @@ choose_ref :: (
 /// Does the lock's `entry` (a `git+url#ref` record) still satisfy `reqs`? A
 /// version tag must fit every range; an exact pin must be the recorded ref.
 locked_entry_satisfies :: (fn(entry : &LockEntry, url : &String, reqs : &ArrayList(Requirement)) -> bool)({
-  if(!entry.is_git() || (entry.url() != url), return(false));
+  if(!entry.is_git() || (entry.url() != url.*), return(false));
   ref := entry.ref();
   (i : usize) = usize(0);
   while(i < reqs.len(), {
@@ -877,9 +877,9 @@ locked_entry_satisfies :: (fn(entry : &LockEntry, url : &String, reqs : &ArrayLi
         .Ok(req) => match(parse_semver(ref.clone()), .Some(sv) => version_req_matches(&req, &sv), .None => false),
         .Err(_) => false
       ),
-      .Tag(t) => (t == ref),
-      .Rev(sha) => (sha == ref),
-      .Branch(b) => (b == ref),
+      .Tag(t) => (t.* == ref),
+      .Rev(sha) => (sha.* == ref),
+      .Branch(b) => (b.* == ref),
       // A bare `git` follows whatever branch the lock recorded.
       .DefaultBranch => (ref.len() > usize(0))
     );
@@ -962,10 +962,10 @@ _State :: struct(
 );
 /// The index of the package named `name`.
 _find_package :: (fn(state : &Rc(_State), name : &String) -> Option(usize))(
-  state.packages.with({ &name }(ps) => {
+  state.packages.with({ name : &name.* }(ps) => {
     (i : usize) = usize(0);
     while(i < ps.len(), {
-      if(ps(i).name == name, {
+      if(ps(i).name == name.*, {
         return(Option(usize).Some(i));
       });
       i = (i + usize(1));
@@ -985,12 +985,12 @@ _source_text :: (fn(dep : &ManifestDependency) -> String)(
 _replace_requirement :: (fn(reqs : &mut ArrayList(Requirement), requirer : &String, sink(req) : Requirement) -> unit)({
   kept := ArrayList(Requirement).new();
   for(replace(reqs, ArrayList(Requirement).new()), r => {
-    if(r.requirer != requirer, {
+    if(r.requirer != requirer.*, {
       kept.push(r);
     });
   });
   kept.push(req);
-  reqs = kept;
+  reqs.* = kept;
 });
 /// Record `requirer`'s dependency `dep`: find or create its package, check
 /// that the name still means the same package, and add the requirement.
@@ -1139,7 +1139,7 @@ _refresh_requested :: (fn(state : &Rc(_State), name : &String) -> bool)(
       (i : usize) = usize(0);
       (found : bool) = false;
       while(i < names.len(), {
-        if(names(i) == name, {
+        if(names(i) == name.*, {
           found = true;
         });
         i = (i + usize(1));
@@ -1151,7 +1151,7 @@ _refresh_requested :: (fn(state : &Rc(_State), name : &String) -> bool)(
 _cached_text :: (fn(keys : &ArrayList(String), values : &ArrayList(String), key : &String) -> Option(String))({
   (i : usize) = usize(0);
   while(i < keys.len(), {
-    if(keys(i) == key, {
+    if(keys(i) == key.*, {
       return(Option(String).Some(values(i).clone()));
     });
     i = (i + usize(1));
@@ -1159,10 +1159,10 @@ _cached_text :: (fn(keys : &ArrayList(String), values : &ArrayList(String), key 
   Option(String).None
 });
 _cached_tags :: (fn(state : &Rc(_State), url : &String) -> Option(String))(
-  state.remote.with({ &url }(r) => _cached_text(&r.tag_urls, &r.tag_texts, url))
+  state.remote.with({ url : &url.* }(r) => _cached_text(&r.tag_urls, &r.tag_texts, url))
 );
 _cached_branch :: (fn(state : &Rc(_State), url : &String) -> Option(String))(
-  state.remote.with({ &url }(r) => _cached_text(&r.branch_urls, &r.branch_names, url))
+  state.remote.with({ url : &url.* }(r) => _cached_text(&r.branch_urls, &r.branch_names, url))
 );
 /// Resolve and fetch package `pi` for this round. Returns true when the
 /// package's state changed (a new ref, a fetch, an expansion) — the driver

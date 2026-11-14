@@ -67,7 +67,7 @@ assert_eq :: (
   fn(generic(A : Type), left : &A, right : &A, (msg : str) ?= "", where(A <: (Eq(A), ToString))) -> unit
 )({
   cond(
-    (left == right) => (),
+    (left.* == right.*) => (),
     true => panic(
       `assertion failed: left == right${_ctx(msg)}
   left : ${left.to_string()}
@@ -81,7 +81,7 @@ assert_ne :: (
   fn(generic(A : Type), left : &A, right : &A, (msg : str) ?= "", where(A <: (Eq(A), ToString))) -> unit
 )({
   cond(
-    (left != right) => (),
+    (left.* != right.*) => (),
     true => panic(
       `assertion failed: left != right${_ctx(msg)}
   both sides: ${left.to_string()}`

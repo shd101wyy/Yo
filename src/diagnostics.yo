@@ -98,7 +98,7 @@ emit_warning :: (fn(d : &Diagnostic) -> unit)({
       pi = (pi + usize(1));
     });
     if(!seen, {
-      g_pending_warnings.with_mut({ &d }(xs) => xs.push(d.clone()));
+      g_pending_warnings.with_mut({ d : &d.* }(xs) => xs.push(d.clone()));
     });
   });
 });
@@ -660,7 +660,7 @@ lookup_std_exporters :: (fn(name : &String) -> ArrayList(String))({
   while(i < g_std_export_names.with(_c_len_2), {
     match(
       g_std_export_names.with(xs => xs.get_cloned(i)),
-      .Some(n) => if(n == name, {
+      .Some(n) => if(n == name.*, {
         match(g_std_export_modules.with(xs => xs.get_cloned(i)), .Some(m) => out.push(m.clone()), .None => ());
       }),
       .None => ()
@@ -686,7 +686,7 @@ suggest_name :: (
     match(
       candidates.get_cloned(i),
       .Some(c) => {
-        if(c == target, {
+        if(c == target.*, {
           return(Option(String).None);
         });
         d := edit_distance(target, &c);
@@ -993,7 +993,7 @@ render_diagnostics_sarif :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)
           while(ki < rule_ids.len(), {
             match(
               rule_ids.get_cloned(ki),
-              .Some(k) => if(k == c, {
+              .Some(k) => if(k == c.*, {
                 seen = true;
               }),
               .None => ()

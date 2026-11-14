@@ -54,7 +54,7 @@ VcSort :: ref(
     Uninterpreted(name : String)
   )
 );
-impl(VcSort, Clone(clone : (fn(self : &Self) -> Self)(self)));
+impl(VcSort, Clone(clone : (fn(self : &Self) -> Self)(self.*)));
 derive(VcSort, Eq(VcSort));
 // A VcSort has no back edges. Its only children are `Self`
 // payloads (`SeqS`, `FunS`, `ArrS`), and it holds no list or cell. The
@@ -263,7 +263,7 @@ impl(
   VcQuery,
   /// Builder: push a declaration.
   declare : (fn(self : &mut Self, name : &String, sort : &VcSort) -> unit)({
-    self.declarations.push(VcDecl(name : name.clone(), sort : sort));
+    self.declarations.push(VcDecl(name : name.clone(), sort : sort.*));
   }),
   /// Builder: push an unnamed assumption.
   assume : (fn(self : &mut Self, term : &VcTerm) -> unit)({

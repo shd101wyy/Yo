@@ -319,8 +319,8 @@ _store_temp_var_to_state_machine_if_needed :: (fn(temp_var : &String, indent : &
       found = smv.get(temp_var);
       if(found.is_none(), {
         for(&smv, (_k, cv) => {
-          if(cv.base.name == temp_var, {
-            found = Option(CapturedVariable).Some(cv);
+          if(cv.base.name == temp_var.*, {
+            found = Option(CapturedVariable).Some(cv.*);
             break;
           });
         });
@@ -357,7 +357,7 @@ _sm_lent_temp_slot :: (fn(code : &String, context : &FunctionGenerationContext) 
     &context.state_machine_variables,
     .Some(smv) => {
       for(&smv, (_k, cv) => {
-        if((cv.base.name == code) && match(cv.kind, .Local => true, .Outer => false), {
+        if((cv.base.name == code.*) && match(cv.kind, .Local => true, .Outer => false), {
           return(Option(String).Some(`sm->${sm_local_field_name(cv.base.id.to_string())}`));
         });
       });
@@ -382,7 +382,7 @@ _get_interior_ref_container_code :: (fn(arg_expr : &AstExpr, param_is_ref : bool
           match(
             arg_expr,
             .FnCall(_, func, _, _, _) => {
-              container := func;
+              container := func.*;
               // Only an RC-managed OBJECT carries the `borrow_count` header
               // field. An indexed element of a VALUE container — `Array(T, N)`
               // is a stack value with fixed storage that nothing can
@@ -419,7 +419,7 @@ _interior_ref_container_is_atomic :: (fn(arg_expr : &AstExpr, context : &Functio
   match(
     arg_expr,
     .FnCall(_, func, _, _, _) => match(
-      context.base.get_expr_info(&func),
+      context.base.get_expr_info(&func.*),
       .Some(cei) => is_atomic_counted_handle_type(resolve_some_type_to_concrete(&cei.ty())),
       .None => false
     ),
@@ -479,13 +479,13 @@ _emit_borrow_releases :: (fn(containers : &ArrayList(String), indent : &String, 
 /// (`self` parameter of object type). An `Rc` or `Arc` cell is not one: it
 /// carries no borrow marks (`carries_no_borrow_marks`).
 _is_inside_object_method :: (fn(context : &FunctionGenerationContext) -> bool)(
-  match(&context.current_function_type, .Some(ft) => match(ft, Rc(.Func({ param_types : pts, meta : __fm1 })) => if(__fm1.param_labels.len() == usize(0), false, match(__fm1.param_labels.get_cloned(usize(0)), .Some(l) => if(l == "self", match(slot_pointee_at(&pts, usize(0)), .Some(t) => (is_reference_struct_type(&t) && !carries_no_borrow_marks(&t)), .None => false), false), .None => false)), _ => false), .None => false)
+  match(&context.current_function_type, .Some(ft) => match(ft, Rc(.Func({ param_types : pts, meta : __fm1 })) => if(__fm1.param_labels.len() == usize(0), false, match(__fm1.param_labels.get_cloned(usize(0)), .Some(l) => if(l == "self", match(slot_pointee_at(&pts.*, usize(0)), .Some(t) => (is_reference_struct_type(&t) && !carries_no_borrow_marks(&t)), .None => false), false), .None => false)), _ => false), .None => false)
 );
 /// Is the current function's `self` a `self : &mut Self` receiver? Such a receiver
 /// is passed as `T** self` (a pointer to the caller's handle slot), so the
 /// object is `*self`.
 _current_self_param_is_ref :: (fn(context : &FunctionGenerationContext) -> bool)(
-  match(&context.current_function_type, .Some(ft) => match(ft, Rc(.Func({ result : _ })) => match(fn_param_mut_ref_at(&ft, usize(0)), .Some(b) => b, .None => false), _ => false), .None => false)
+  match(&context.current_function_type, .Some(ft) => match(ft, Rc(.Func({ result : _ })) => match(fn_param_mut_ref_at(&ft.*, usize(0)), .Some(b) => b, .None => false), _ => false), .None => false)
 );
 /// The call `call` of a `c_include`d function whose result `r` is a data
 /// pointer `T*` (or a nullable `?*T`, laid out as that pointer), read as its
@@ -515,7 +515,7 @@ _c_pointer_result_as_declared :: (fn(r : &TypeValue, call : String, context : &m
 /// Auto-emit `__yo_borrow_assert_unborrowed((void*)self)` before a realloc/free
 /// inside an RC-managed object method.
 _maybe_emit_auto_borrow_assert :: (fn(extern_func_name : &String, indent : &String, context : &mut FunctionGenerationContext) -> unit)(
-  if(((extern_func_name == "__yo_realloc") || (extern_func_name == "__yo_free")) && _is_inside_object_method(context), {
+  if(((extern_func_name.* == "__yo_realloc") || (extern_func_name.* == "__yo_free")) && _is_inside_object_method(context), {
     // `self` is the method's Yo parameter, spelled as every parameter is.
     self_c := sanitize_for_c_identifier(String.from("self"), false);
     mut(line) := indent.clone();
@@ -549,7 +549,7 @@ _is_bare_literal :: (fn(c : &String) -> bool)({
   if(
     n == usize(0),
     false,
-    if((c == "true") || (c == "false"), true, {
+    if((c.* == "true") || (c.* == "false"), true, {
       (mut(i) : usize) = usize(0);
       if(c.byte_at(usize(0)) == u8(45), {
         i = usize(1);
@@ -803,7 +803,7 @@ sequence_operand :: (fn(arg : &AstExpr, code : String, operands : &ArrayList(Ast
     match(
       operands.get(j),
       .Some(later) => {
-        must = match(&root, .Some(rn) => _operand_mentions(&later, &rn), .None => _operand_may_write(&later, context));
+        must = match(&root, .Some(rn) => _operand_mentions(&later, &rn.*), .None => _operand_may_write(&later, context));
       },
       .None => ()
     );
@@ -935,7 +935,7 @@ _operand_is_constant_enum_ctor :: (fn(arg : &AstExpr, ei : &ExprInfo, context : 
       // the enum type (`.Some` → Option), the discriminator used by the
       // runtime-construction branch below.
       callee_is_ctor := match(
-        context.base.get_expr_info(&f),
+        context.base.get_expr_info(&f.*),
         .Some(fei) => match(fei.value(), .Some(.TypeVal(ewb)) => is_enum_type(&ewb), _ => false),
         .None => false
       );
@@ -1096,7 +1096,7 @@ _value_place_root :: (fn(e : &AstExpr, context : &FunctionGenerationContext) -> 
 _operand_mentions :: (fn(e : &AstExpr, name : &String) -> bool)(
   match(
     e,
-    .Atom(_, tok) => (tok.value.* == name),
+    .Atom(_, tok) => (tok.value.* == name.*),
     .FnCall(_, f, Rc(args), _, _) => {
       match(
         lookup_macro_expansion(ast_expr_id(e)),
@@ -1105,7 +1105,7 @@ _operand_mentions :: (fn(e : &AstExpr, name : &String) -> bool)(
         }),
         .None => ()
       );
-      if(recur(&f, name), {
+      if(recur(&f.*, name), {
         return(true);
       });
       (mut(i) : usize) = usize(0);
@@ -1127,7 +1127,7 @@ _operand_mentions :: (fn(e : &AstExpr, name : &String) -> bool)(
 /// operator over primitive operands (`_operator_inline_name`,
 /// `_unary_operator_inline_name` and the short-circuit pair).
 _is_primitive_operator_symbol :: (fn(op : &String) -> bool)(
-  (op == "+") || (op == "-") || (op == "*") || (op == "/") || (op == "%") || (op == "==") || (op == "!=") || (op == "<") || (op == "<=") || (op == ">") || (op == ">=") || (op == "&") || (op == "|") || (op == "^") || (op == "<<") || (op == ">>") || (op == "!") || (op == "~") || (op == "&&") || (op == "||")
+  (op.* == "+") || (op.* == "-") || (op.* == "*") || (op.* == "/") || (op.* == "%") || (op.* == "==") || (op.* == "!=") || (op.* == "<") || (op.* == "<=") || (op.* == ">") || (op.* == ">=") || (op.* == "&") || (op.* == "|") || (op.* == "^") || (op.* == "<<") || (op.* == ">>") || (op.* == "!") || (op.* == "~") || (op.* == "&&") || (op.* == "||")
 );
 /// Whether evaluating operand `e` may write, free or reassign state that an
 /// earlier operand reads. Conservative: only a name, a field or dereference
@@ -1384,8 +1384,8 @@ _apply_ref_amp :: (fn(args : &ArrayList(String), param_is_ref : &ArrayList(bool)
 _future_field_upcast :: (fn(field_ty : &Option(TypeValue), code : String, context : &mut FunctionGenerationContext) -> String)(
   match(
     field_ty,
-    .Some(ft) => if(type_implements_future(&ft), {
-      fct := get_type_string(&ft, &mut context.base);
+    .Some(ft) => if(type_implements_future(&ft.*), {
+      fct := get_type_string(&ft.*, &mut context.base);
       cond(
         (fct.ends_with("*") && (code.len() > usize(0))) => `((${fct})(${code}))`,
         true => code
@@ -1439,7 +1439,7 @@ _constructed_struct_type :: (fn(callee_ty : &TypeValue, call_ty : &TypeValue) ->
     callee_ty,
     Rc(.Struct({ id : c_id })) => match(
       call_ty,
-      Rc(.Struct({ id : r_id })) => if((c_id.len() > usize(0)) && (c_id == r_id), Rc.clone(call_ty), Rc.clone(callee_ty)),
+      Rc(.Struct({ id : r_id })) => if((c_id.len() > usize(0)) && (c_id.* == r_id.*), Rc.clone(call_ty), Rc.clone(callee_ty)),
       _ => Rc.clone(callee_ty)
     ),
     _ => Rc.clone(callee_ty)
@@ -1502,8 +1502,8 @@ _ctor_args_from_labeled :: (fn(wrapped : &TypeValue, fncall_args : &ArrayList(As
 _no_cast_by_value_param :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    Rc(.Struct({ is_reference_semantics : s_ref })) => !s_ref,
-    Rc(.EnumT({ is_reference_semantics : e_ref })) => !e_ref,
+    Rc(.Struct({ is_reference_semantics : s_ref })) => !s_ref.*,
+    Rc(.EnumT({ is_reference_semantics : e_ref })) => !e_ref.*,
     Rc(.Tuple(_, _)) => true,
     Rc(.Union(_, _, _)) => true,
     Rc(.Str) => true,
@@ -1543,7 +1543,7 @@ _callee_param_fn_type :: (fn(func_expr : &AstExpr, context : &FunctionGeneration
         if(match(labels.get_cloned(i), .Some(l) => (l == name), .None => false), {
           return(
             match(
-              slot_pointee_at(&cpts, i),
+              slot_pointee_at(&cpts.*, i),
               .Some(t) => if(is_function_type(&t), Option(TypeValue).Some(t), Option(TypeValue).None),
               .None => Option(TypeValue).None
             )
@@ -1571,7 +1571,7 @@ _per_arg_cast :: (fn(args_list : String, param_types : &ArrayList(TypeValue), pa
         pty := match(param_types.get_cloned(i), .Some(pty_slot) => Option(TypeValue).Some(t_slot_pointee(&pty_slot)), .None => Option(TypeValue).None);
         if(!pref && pty.is_some() && match(
           &pty,
-          .Some(pt) => _no_cast_by_value_param(&pt),
+          .Some(pt) => _no_cast_by_value_param(&pt.*),
           .None => false
         ), {
           // By-value aggregate: pass through bare (see _no_cast_by_value_param).
@@ -1622,7 +1622,7 @@ _enum_variant_index :: (fn(enum_ty : &TypeValue, name : &String) -> Option(usize
       while((i < n) && found.is_none(), {
         match(
           variant_names.get(i),
-          .Some(vn) => if(vn == name, {
+          .Some(vn) => if(vn == name.*, {
             found = Option(usize).Some(i);
           }),
           .None => ()
@@ -1795,8 +1795,8 @@ _func_val_id :: (fn(v : &EvalValue) -> String)(match(v, .FuncVal(__fvd2, _) => _
 /// def-time trial-eval swallow-and-continue behavior depends on reproducing
 /// this exactly (issues/fixed/yo-self-stage2-dyn-closure-divergence.md).
 _call_may_unwind :: (fn(func_ei_value : &Option(EvalValue), function_type : &TypeValue, param_types : &ArrayList(TypeValue), callee_is_atom : bool, context : &FunctionGenerationContext) -> bool)({
-  fid_is_control := match(func_ei_value, .Some(v) => if(is_func_val(&v), is_control_fn(_func_val_id(&v)), false), .None => false);
-  fid_is_effect_member := match(func_ei_value, .Some(v) => if(is_func_val(&v), is_effect_record_member(_func_val_id(&v)), false), .None => false);
+  fid_is_control := match(func_ei_value, .Some(v) => if(is_func_val(&v.*), is_control_fn(_func_val_id(&v.*)), false), .None => false);
+  fid_is_effect_member := match(func_ei_value, .Some(v) => if(is_func_val(&v.*), is_effect_record_member(_func_val_id(&v.*)), false), .None => false);
   ft_is_control := match(function_type, Rc(.Func({ meta : __fm2 })) => __fm2.is_control, _ => false);
   body_has_effects := match(
     func_ei_value,
@@ -1863,7 +1863,7 @@ _call_is_handler_installation :: (fn(key : ExprId, func_ei : &ExprInfo, function
       true => match(
         callee_name,
         .Some(cn) => match(
-          find_innermost_frame_with_given_variable(&env, (v : Variable) => (v.name == cn)),
+          find_innermost_frame_with_given_variable(&env, (v : Variable) => (v.name == cn.*)),
           .Some(fidx) => ((fidx > fdfl) && match(env.frame_at(fidx), .Some(fr) => fr.is_begin_block(), .None => false)),
           .None => false
         ),
@@ -1959,7 +1959,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   callee_is_enum_ctor := match(
     expr,
     .FnCall(_, ecf, _, _, _) => match(
-      context.base.get_expr_info(&ecf),
+      context.base.get_expr_info(&ecf.*),
       .Some(ecfei) => match(ecfei.value(), .Some(ecfv) => match(ecfv, .TypeVal(ewb) => is_enum_type(&ewb), _ => false), .None => false),
       .None => false
     ),
@@ -1975,7 +1975,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
     // leading `.`, which _generate_runtime_enum_construct strips.
     from_val := match(ei.value(), .Some(ev) => match(ev, .EnumVal(vr, _) => vr.clone(), _ => String.new()), .None => String.new());
     from_ty := match(&ei.ty(), Rc(.EnumT({ selected_variant_name })) => match(selected_variant_name, .Some(v) => v.clone(), .None => String.new()), _ => String.new());
-    from_callee := match(expr, .FnCall(_, f, _, _, _) => ast_expr_to_string(&f), .Atom(_, _) => String.new());
+    from_callee := match(expr, .FnCall(_, f, _, _, _) => ast_expr_to_string(&f.*), .Atom(_, _) => String.new());
     variant_raw := if(from_val.len() > usize(0), from_val, if(from_ty.len() > usize(0), from_ty, from_callee));
     if(variant_raw.len() > usize(0), {
       rt_e := match(&ei.runtime_arg_exprs_in_order(), .Some(ra) => ra.clone(), .None => ArrayList(AstExpr).new());
@@ -1999,7 +1999,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   });
   // The callee as the evaluator rewrote it (`w.m` → `w.*.m`, a payload
   // method; `ast_rewritten_node`).
-  func_expr := match(expr, .FnCall(_, f, _, _, _) => ast_rewritten_node(&f), .Atom(_, _) => return(Option(String).None));
+  func_expr := match(expr, .FnCall(_, f, _, _, _) => ast_rewritten_node(&f.*), .Atom(_, _) => return(Option(String).None));
   // Dyn method-call dispatch: `obj.method(args)` where obj : Dyn(...). The callee
   // dot-access (`s.speak`) has NO ExprInfo of its own (the evaluator resolves the
   // method directly), so this MUST run before the func_ei early-return below.
@@ -2632,7 +2632,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           .Some(cc_mp) => {
             match(
               &cc_mp.call_type,
-              .Some(cc_ct) => if(is_function_type(&cc_ct), {
+              .Some(cc_ct) => if(is_function_type(&cc_ct.*), {
                 function_type = Rc.clone(cc_ct);
               }),
               .None => ()
@@ -2830,7 +2830,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
         // literal `(cName){ .field = arg, ... }`.
         if(is_struct_type(&wrapped) && !is_reference_struct_type(&wrapped), {
           vs_cname := match(context.base.get_type_c_name(type_key(wrapped.clone())), .Some(cn) => cn, .None => String.from("__yo_unknown_struct"));
-          vs_is_newtype := match(&wrapped, Rc(.Struct({ is_newtype : nt })) => nt, _ => false);
+          vs_is_newtype := match(&wrapped, Rc(.Struct({ is_newtype : nt })) => nt.*, _ => false);
           rt_fields := get_runtime_struct_fields(wrapped.clone());
           vs_args_raw := match(&ei.runtime_arg_exprs_in_order(), .Some(ra) => ra.clone(), .None => ArrayList(AstExpr).new());
           // `runtime_arg_exprs_in_order` records a slot for EVERY field, including
@@ -2963,7 +2963,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
         // `Array(unit, N)`: the wrapper has no `data` member (the element is
         // zero-sized) and the element value is `unit`, which emits no C. The
         // index expression still runs for its side effects.
-        if(match(&function_type, Rc(.Array(ae, _, _)) => is_unit_type(&ae), _ => false), {
+        if(match(&function_type, Rc(.Array(ae, _, _)) => is_unit_type(&ae.*), _ => false), {
           idx_code := _call_generate_expr(&idx_expr, indent.clone(), context);
           if(idx_code.len() > usize(0), {
             mut(idx_stmt) := indent.clone();
@@ -3020,14 +3020,14 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   match(
     &function_type,
     Rc(.Func({ meta : __fm_sp })) => {
-      sp_is_yo := match(&__fm_sp.is_extern, .Some(sp_lang) => ((sp_lang == "yo") || (sp_lang == "c")), .None => false);
+      sp_is_yo := match(&__fm_sp.is_extern, .Some(sp_lang) => ((sp_lang.* == "yo") || (sp_lang.* == "c")), .None => false);
       match(
         &__fm_sp.extern_name,
         .Some(sp_name) => if(sp_is_yo, {
-          if(sp_name == "__yo_thread_spawn", {
+          if(sp_name.* == "__yo_thread_spawn", {
             return(generate_thread_spawn_call(expr, indent.clone(), context));
           });
-          if(sp_name == "__yo_worker_spawn", {
+          if(sp_name.* == "__yo_worker_spawn", {
             return(generate_worker_spawn_call(expr, indent.clone(), context));
           });
         }),
@@ -3071,13 +3071,13 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   match(
     &function_type,
     Rc(.Func({ result : r_slot6, meta : __fm6 })) => {
-      r := t_slot_pointee(&r_slot6);
+      r := t_slot_pointee(&r_slot6.*);
       ie := __fm6.is_extern.clone();
       en := __fm6.extern_name.clone();
       // A `c_include`d function's prototype is the header's, so its result
       // can be a `const T*` the binding spells `*(T)`; a plain `extern("c")`
       // function is declared from its Yo type and needs no cast.
-      is_c := match(&ie, .Some(lang) => (lang == "c"), .None => false);
+      is_c := match(&ie, .Some(lang) => (lang.* == "c"), .None => false);
       // extern "yo" AND extern "c" both lower to a direct `<extern_name>(<args>)`
       // C call (no per-arg cast). For extern "c" the symbol is a C library
       // function (e.g. `exit`, `fwrite`); the unsafe(...) gate is enforced in the
@@ -3172,11 +3172,11 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   // When a call may unwind, an
   // `emit_effect_unwind_check` is emitted after it: at the install frame the
   // unwound value is extracted + returned; elsewhere the escape propagates.
-  ou_callee_atom := match(expr, .FnCall(_, __ouf, _, _, _) => ast_expr_is_atom(&__ouf), _ => false);
+  ou_callee_atom := match(expr, .FnCall(_, __ouf, _, _, _) => ast_expr_is_atom(&__ouf.*), _ => false);
   ou_may_unwind := _call_may_unwind(&func_ei.value(), &function_type, &param_types.items, ou_callee_atom, context);
   ou_callee_name := match(
     expr,
-    .FnCall(_, __ouf2, _, _, _) => if(ast_expr_is_atom(&__ouf2), Option(String).Some(ast_expr_text(&__ouf2).*.clone()), Option(String).None),
+    .FnCall(_, __ouf2, _, _, _) => if(ast_expr_is_atom(&__ouf2.*), Option(String).Some(ast_expr_text(&__ouf2.*).*.clone()), Option(String).None),
     _ => Option(String).None
   );
   ou_is_install := if(ou_may_unwind, _call_is_handler_installation(ast_expr_id(&func_expr), &func_ei, &function_type, &param_types.items, &runtime_args, context, &ou_callee_name), false);
@@ -3514,9 +3514,9 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             sig_ret_override := if(
               ctl_generic_ret,
               Option(String).None,
-              match(&sf, Rc(.Func({ result : sfr })) => erased_future_result_type_string(&t_slot_pointee(&sfr), &mut context.base), _ => Option(String).None)
+              match(sf, Rc(.Func({ result : sfr })) => erased_future_result_type_string(&t_slot_pointee(&sfr.*), &mut context.base), _ => Option(String).None)
             );
-            cast = `(${generate_function_prototype(&sf, String.from("(*)"), &mut context.base, &sig_ret_override, false)})`;
+            cast = `(${generate_function_prototype(&sf.*, String.from("(*)"), &mut context.base, &sig_ret_override, false)})`;
           },
           .None => ()
         );

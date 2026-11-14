@@ -77,11 +77,11 @@ evaluate_size_of :: (
       args.get(usize(0)),
       .Some(a) => a,
       .None => {
-        return(expr);
+        return(expr.*);
       }
     ),
     .Atom(_, _) => {
-      return(expr);
+      return(expr.*);
     }
   );
   evaluated := evaluate_expression_raw(&type_expr, env, ctx, exn);
@@ -133,7 +133,7 @@ evaluate_size_of :: (
     }
   );
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr
+  expr.*
 });
 /// The arguments of a builtin call, evaluated in order, each with its info,
 /// and the call rebuilt over the evaluated arguments. The first argument is a
@@ -245,7 +245,7 @@ evaluate_size_of_val :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut Eval
 /// spells. `.None` when `st`'s tail is not a fixed-size array its
 /// constructor takes as a type argument.
 _tail_unsized_twin :: (fn(st : &TypeValue, at : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> Option(TypeValue))({
-  if(match(st, Rc(.Struct({ field_types : tft, is_reference_semantics : tref })) => (tref || (tft.len() == usize(0))), _ => true), {
+  if(match(st, Rc(.Struct({ field_types : tft, is_reference_semantics : tref })) => (tref.* || (tft.len() == usize(0))), _ => true), {
     return(.None);
   });
   (sid : String) = match(st, Rc(.Struct({ id : tid })) => tid.clone(), _ => String.new());

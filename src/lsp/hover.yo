@@ -63,7 +63,7 @@ _contract_block :: (
 )({
   v := match(
     val,
-    .Some(x) => x,
+    .Some(x) => x.*,
     .None => {
       return(Option(String).None);
     }
@@ -177,11 +177,11 @@ _collect_candidates :: (
     e,
     .Atom(_, tok) => {
       if((tok.value.* == target.value.*) && (tok.row == target.row) && (tok.column == target.column), {
-        out.push(e);
+        out.push(e.*);
       });
     },
     .FnCall(_, func_box, Rc(args), _, _) => {
-      recur(&func_box, target, out);
+      recur(&func_box.*, target, out);
       (mut(i) : usize) = usize(0);
       while(i < args.len(), {
         match(
@@ -281,9 +281,9 @@ AtomRoles :: struct(
 /// labels (struct literals, labelled arguments, `impl` methods, `struct` /
 /// `enum` field declarations).
 _is_declaring_callee :: (fn(callee : &String) -> bool)(
-  (callee == "fn") || (callee == "unsafe_fn") || (callee == "ctl") ||
-    (callee == "Fn") || (callee == "FnMut") || (callee == "FnOnce") || (callee == "generic") || (callee == "given") ||
-      (callee == "=") || (callee == ":=") || (callee == "?=")
+  (callee.* == "fn") || (callee.* == "unsafe_fn") || (callee.* == "ctl") ||
+    (callee.* == "Fn") || (callee.* == "FnMut") || (callee.* == "FnOnce") || (callee.* == "generic") || (callee.* == "given") ||
+      (callee.* == "=") || (callee.* == ":=") || (callee.* == "?=")
 );
 /// Mark the member position `a` of a `.` call: a bare atom (`p.x`, `.Red`)
 /// or a call whose callee is the member (`p.dist()`, `.Some(v)`) — the
@@ -292,15 +292,15 @@ _mark_member :: (fn(a : &AstExpr, roles : &mut AtomRoles) -> unit)({
   match(
     a,
     .Atom(id, _) => {
-      roles.members.insert(id);
+      roles.members.insert(id.*);
     },
     .FnCall(_, func_box, Rc(cargs), _, _) => {
       match(
         func_box,
         .Atom(fid, _) => {
-          roles.members.insert(fid);
+          roles.members.insert(fid.*);
         },
-        .FnCall(_, _, _, _, _) => _classify_roles(&func_box, roles)
+        .FnCall(_, _, _, _, _) => _classify_roles(&func_box.*, roles)
       );
       (i : usize) = usize(0);
       while(i < cargs.len(), {
@@ -321,7 +321,7 @@ _classify_roles :: (fn(e : &AstExpr, roles : &mut AtomRoles) -> unit)({
     .FnCall(_, func_box, Rc(args), is_infix, _) => {
       callee := match(
         func_box,
-        .Atom(_, _) => ast_expr_text(&func_box).*.clone(),
+        .Atom(_, _) => ast_expr_text(&func_box.*).*.clone(),
         .FnCall(_, _, _, _, _) => String.new()
       );
       cond(
@@ -329,7 +329,7 @@ _classify_roles :: (fn(e : &AstExpr, roles : &mut AtomRoles) -> unit)({
           // infix `a.b`: args[0] is the receiver, the rest are members;
           // prefix `.Variant`: every arg is a member.
           (start : usize) = usize(0);
-          if(is_infix, {
+          if(is_infix.*, {
             match(
               args.get(usize(0)),
               .Some(receiver) => recur(&receiver, roles),
@@ -349,7 +349,7 @@ _classify_roles :: (fn(e : &AstExpr, roles : &mut AtomRoles) -> unit)({
         },
         true => {
           declaring := _is_declaring_callee(&callee);
-          recur(&func_box, roles);
+          recur(&func_box.*, roles);
           (j : usize) = usize(0);
           while(j < args.len(), {
             match(
@@ -429,7 +429,7 @@ _find_member_access :: (
     .FnCall(_, func_box, Rc(args), is_infix, _) => {
       is_dot := match(func_box, .Atom(_, t) => (t.value.* == "."), .FnCall(_, _, _, _, _) => false);
       if(is_dot, {
-        (i : usize) = cond(is_infix => usize(1), true => usize(0));
+        (i : usize) = cond(is_infix.* => usize(1), true => usize(0));
         while(i < args.len(), {
           match(
             args.get(i),
@@ -440,7 +440,7 @@ _find_member_access :: (
                 .FnCall(_, mf, _, _, ct) => match(mf, .Atom(_, ft) => ft, .FnCall(_, _, _, _, _) => ct)
               );
               if((mt.row == target.row) && (mt.column == target.column) && (mt.value.* == target.value.*), {
-                out.push(e);
+                out.push(e.*);
               });
             },
             .None => ()
@@ -448,7 +448,7 @@ _find_member_access :: (
           i = (i + usize(1));
         });
       });
-      recur(&func_box, target, out);
+      recur(&func_box.*, target, out);
       (j : usize) = usize(0);
       while(j < args.len(), {
         match(

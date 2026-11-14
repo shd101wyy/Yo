@@ -108,7 +108,7 @@ expr_contains_unknown_value :: (fn(expr : &AstExpr, info : &ExprInfoTable) -> bo
   match(
     expr,
     .FnCall(_, func_box, Rc(args), _, _) => {
-      if(recur(&func_box, info), {
+      if(recur(&func_box.*, info), {
         return(true);
       });
       n := args.len();
@@ -137,7 +137,7 @@ expr_contains_unknown_value :: (fn(expr : &AstExpr, info : &ExprInfoTable) -> bo
   match(
     &ei_opt,
     .Some(ei) => match(
-      expr_info_macro_expansion(&ei),
+      expr_info_macro_expansion(&ei.*),
       .Some(me) => {
         if(is_unit_type(&ei.ty()), {
           return(false);
@@ -286,13 +286,13 @@ _register_extern_fn_callee :: (
       &__fm4.is_extern,
       .Some(lang) => {
         is_internal := match(&__fm4.extern_name, .Some(en) => en.clone().starts_with(String.from("__yo_")), .None => false);
-        if((lang == "c") || !is_internal, {
+        if((lang.* == "c") || !is_internal, {
           c_name := match(
             &__fm4.extern_name,
-            .Some(en) => if(lang == "c", en.clone(), c_symbol_name(en.clone())),
+            .Some(en) => if(lang.* == "c", en.clone(), c_symbol_name(en.clone())),
             .None => {
               tok := _callee_token_value(expr);
-              if(lang == "c", tok.clone(), c_symbol_name(tok.clone()))
+              if(lang.* == "c", tok.clone(), c_symbol_name(tok.clone()))
             }
           );
           // The header this symbol was `c_include`d under, from the
@@ -525,7 +525,7 @@ _collect_required_function_field :: (
   });
   func_id := _func_val_id(value);
   cond(
-    (label == "main") => {
+    (label.* == "main") => {
       // Rename user's main to __yo_user_main — we wrap it.
       context.register_function(func_id.clone(), value, String.from("__yo_user_main"));
     },
@@ -546,7 +546,7 @@ _collect_required_function_field :: (
         is_top_level_export && wants_plain_exports
         && match(
           &context.current_module_path,
-          .Some(entry_path) => _is_entry_module_path(&ast_expr_token(_func_val_body(value)).module_path.*, &entry_path),
+          .Some(entry_path) => _is_entry_module_path(&ast_expr_token(_func_val_body(value)).module_path.*, &entry_path.*),
           .None => false
         )
       );
@@ -692,12 +692,12 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
       // emits "// Failed to transpile" (which corrupts the C line). Mirrors the
       // same fallback in collect_types_from_expr (types/collection.yo).
       match(
-        expr_info_macro_expansion(&ei),
+        expr_info_macro_expansion(&ei.*),
         .Some(me) => find_function_calls_in_expr(&me, context, info),
         .None => match(lookup_macro_expansion(ast_expr_id(expr)), .Some(me) => find_function_calls_in_expr(&me, context, info), .None => ())
       );
       match(
-        expr_info_effect_analysis(&ei),
+        expr_info_effect_analysis(&ei.*),
         .Some(ea) => match(
           ea.handler_value,
           .Some(hv) => if(is_func_val(&hv), {
@@ -708,7 +708,7 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
         .None => ()
       );
       match(
-        expr_info_closure_function_value(&ei),
+        expr_info_closure_function_value(&ei.*),
         .Some(cfv) => if(is_func_val(&cfv), {
           cid := _func_val_id(&cfv);
           if(!context.has_function(cid.clone()), {
@@ -719,7 +719,7 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
         .None => ()
       );
       match(
-        expr_info_index_method_value(&ei),
+        expr_info_index_method_value(&ei.*),
         .Some(imv) => if(is_func_val(&imv), {
           iid := _func_val_id(&imv);
           mark_as_index_entry_method(iid.clone());
@@ -753,7 +753,7 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
   match(
     expr,
     .FnCall(_, func_box, Rc(args), _, _) => {
-      callee := func_box;
+      callee := func_box.*;
       // "?=" default-value assignment — skip.
       if(_callee_token_value(expr) == "?=", {
         return(());
@@ -1226,7 +1226,7 @@ _destructor_method_name :: (fn(ct : &TypeValue, module_env : &Environment) -> St
 /// (`dispose_function_takes_pointer`, codegen/exprs/drop_dup.yo).
 _destructor_receiver :: (fn(method : &String) -> String)(
   cond(
-    (method == "drop") => String.from("self : &mut Self"),
+    (method.* == "drop") => String.from("self : &mut Self"),
     true => String.from("self : &Self")
   )
 );

@@ -105,7 +105,7 @@ impl(
   /// timing a section of code.
   elapsed : (fn(self : &Self) -> Duration)({
     current := Instant.now();
-    current.duration_since(self)
+    current.duration_since(self.*)
   })
 );
 
@@ -144,7 +144,7 @@ impl(
       (lhs.secs == rhs.secs) && (lhs.nanos == rhs.nanos)
     ),
     (!=) : (fn(lhs : &Self, rhs : &Self) -> bool)(
-      !(lhs == rhs)
+      !(lhs.* == rhs.*)
     )
   )
 );
@@ -158,13 +158,13 @@ impl(
       )
     ),
     (<=) : (fn(lhs : &Self, rhs : &Self) -> bool)(
-      !(rhs < lhs)
+      !(rhs.* < lhs.*)
     ),
     (>) : (fn(lhs : &Self, rhs : &Self) -> bool)(
-      rhs < lhs
+      rhs.* < lhs.*
     ),
     (>=) : (fn(lhs : &Self, rhs : &Self) -> bool)(
-      !(lhs < rhs)
+      !(lhs.* < rhs.*)
     )
   )
 );
@@ -278,17 +278,17 @@ impl(
   /// which means the clock was adjusted between the two readings.
   duration_since : (fn(self : &Self, earlier : SystemTime) -> Result(Duration, SystemTimeError))(
     cond(
-      _st_at_or_after(self, earlier) =>
-        Result(Duration, SystemTimeError).Ok(_st_diff_ge(self, earlier)),
+      _st_at_or_after(self.*, earlier) =>
+        Result(Duration, SystemTimeError).Ok(_st_diff_ge(self.*, earlier)),
       true =>
         Result(Duration, SystemTimeError).Err(
-          SystemTimeError.EarlierThan(by : _st_diff_ge(earlier, self))
+          SystemTimeError.EarlierThan(by : _st_diff_ge(earlier, self.*))
         )
     )
   ),
   /// How long ago `self` was, or `.Err` if it is in the future.
   elapsed : (fn(self : &Self) -> Result(Duration, SystemTimeError))(
-    SystemTime.now().duration_since(self)
+    SystemTime.now().duration_since(self.*)
   ),
   /// `self` moved forward by `d`.
   add : (fn(self : &Self, d : Duration) -> Self)(
@@ -319,8 +319,8 @@ impl(
         true => (lhs.nanos < rhs.nanos)
       )
     ),
-    (<=) : (fn(lhs : &Self, rhs : &Self) -> bool)(!(rhs < lhs)),
-    (>) : (fn(lhs : &Self, rhs : &Self) -> bool)(rhs < lhs),
-    (>=) : (fn(lhs : &Self, rhs : &Self) -> bool)(!(lhs < rhs))
+    (<=) : (fn(lhs : &Self, rhs : &Self) -> bool)(!(rhs.* < lhs.*)),
+    (>) : (fn(lhs : &Self, rhs : &Self) -> bool)(rhs.* < lhs.*),
+    (>=) : (fn(lhs : &Self, rhs : &Self) -> bool)(!(lhs.* < rhs.*))
   )
 );

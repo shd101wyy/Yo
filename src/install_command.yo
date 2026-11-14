@@ -60,7 +60,7 @@ ParsedPackage :: enum(
 );
 /// Return `true` if `spec` looks like a local file-system path.
 is_local_path :: (fn(spec : &String) -> bool)(
-  (spec == ".") || (spec == "..") || spec.starts_with(String.from("./")) || spec.starts_with(String.from("../")) || spec.starts_with(String.from("/"))
+  (spec.* == ".") || (spec.* == "..") || spec.starts_with(String.from("./")) || spec.starts_with(String.from("../")) || spec.starts_with(String.from("/"))
 );
 /// The last path component of a URL or path, stripped of `.git` and of a
 /// trailing `/`.
@@ -200,18 +200,18 @@ load_project_manifest :: (fn(exn : Exception) -> Manifest)({
 dependency_value_text :: (fn(source : &DependencySource) -> String)(
   match(
     source,
-    .Path(p) => `{ path = ${toml_string(&p)} }`,
+    .Path(p) => `{ path = ${toml_string(&p.*)} }`,
     .Git(url, req, subdir) => {
       pin := match(
         req,
         .DefaultBranch => String.new(),
-        .Version(v) => `, version = ${toml_string(&v)}`,
-        .Tag(t) => `, tag = ${toml_string(&t)}`,
-        .Branch(b) => `, branch = ${toml_string(&b)}`,
-        .Rev(r) => `, rev = ${toml_string(&r)}`
+        .Version(v) => `, version = ${toml_string(&v.*)}`,
+        .Tag(t) => `, tag = ${toml_string(&t.*)}`,
+        .Branch(b) => `, branch = ${toml_string(&b.*)}`,
+        .Rev(r) => `, rev = ${toml_string(&r.*)}`
       );
-      sub := if(subdir.len() > usize(0), `, path = ${toml_string(&subdir)}`, String.new());
-      `{ git = ${toml_string(&url)}${pin}${sub} }`
+      sub := if(subdir.len() > usize(0), `, path = ${toml_string(&subdir.*)}`, String.new());
+      `{ git = ${toml_string(&url.*)}${pin}${sub} }`
     }
   )
 );

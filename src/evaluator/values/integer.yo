@@ -112,7 +112,7 @@ comptime_numeric_slot_type :: (
     (is_comptime_int_type(arg_ty) && target_integer_type_range(slot_ty).is_some()) => {
       match(
         value,
-        .Some(v) => match(v, .IntLit(raw) => check_comptime_int_value_fits(&raw, slot_ty, tok, exn), _ => ()),
+        .Some(v) => match(v, .IntLit(raw) => check_comptime_int_value_fits(&raw.*, slot_ty, tok, exn), _ => ()),
         .None => ()
       );
       Option(TypeValue).Some(Rc.clone(slot_ty))
@@ -186,6 +186,6 @@ evaluate_integer_literal :: (
   info := new_expr_info(env, &ty);
   info.set_value(.Some(val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
-  expr
+  expr.*
 });
 export(evaluate_integer_literal, check_literal_fits, comptime_int_value_misfit, check_comptime_int_value_fits, comptime_numeric_slot_type);

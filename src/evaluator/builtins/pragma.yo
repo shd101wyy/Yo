@@ -35,22 +35,22 @@ pragma(Pragma.AllowUnsafe);
 /// `evaluatePragma`; the pre-scan just ignores unknown names.
 pragma_kind_from_variant_name :: (fn(name : &String) -> Option(Pragma))(
   cond(
-    (name == "AllowUnsafe") => Option(Pragma).Some(.AllowUnsafe),
-    (name == "AllowMacroDef") => Option(Pragma).Some(.AllowMacroDef),
-    (name == "SkipPrelude") => Option(Pragma).Some(.SkipPrelude),
-    (name == "SkipWasm") => Option(Pragma).Some(.SkipWasm),
-    (name == "SkipWasm32Emscripten") => Option(Pragma).Some(.SkipWasm32Emscripten),
-    (name == "SkipWasm32Wasi") => Option(Pragma).Some(.SkipWasm32Wasi),
-    (name == "SkipWindows") => Option(Pragma).Some(.SkipWindows),
-    (name == "NeedsLeakVerdict") => Option(Pragma).Some(.NeedsLeakVerdict),
+    (name.* == "AllowUnsafe") => Option(Pragma).Some(.AllowUnsafe),
+    (name.* == "AllowMacroDef") => Option(Pragma).Some(.AllowMacroDef),
+    (name.* == "SkipPrelude") => Option(Pragma).Some(.SkipPrelude),
+    (name.* == "SkipWasm") => Option(Pragma).Some(.SkipWasm),
+    (name.* == "SkipWasm32Emscripten") => Option(Pragma).Some(.SkipWasm32Emscripten),
+    (name.* == "SkipWasm32Wasi") => Option(Pragma).Some(.SkipWasm32Wasi),
+    (name.* == "SkipWindows") => Option(Pragma).Some(.SkipWindows),
+    (name.* == "NeedsLeakVerdict") => Option(Pragma).Some(.NeedsLeakVerdict),
     // Formal-verification pragmas (Phase 0 of plans/backlog/FORMAL_VERIFICATION.md).
     // `NoContracts` is read by `wrap_function_body_with_contracts`;
     // `Verify`/`VerifyOrAssert` are registered only (the SMT verifier is a
     // later phase).
-    (name == "Verify") => Option(Pragma).Some(.Verify),
-    (name == "VerifyOrAssert") => Option(Pragma).Some(.VerifyOrAssert),
-    (name == "NoContracts") => Option(Pragma).Some(.NoContracts),
-    (name == "StrictBorrow") => Option(Pragma).Some(.StrictBorrow),
+    (name.* == "Verify") => Option(Pragma).Some(.Verify),
+    (name.* == "VerifyOrAssert") => Option(Pragma).Some(.VerifyOrAssert),
+    (name.* == "NoContracts") => Option(Pragma).Some(.NoContracts),
+    (name.* == "StrictBorrow") => Option(Pragma).Some(.StrictBorrow),
     true => Option(Pragma).None
   )
 );
@@ -162,7 +162,7 @@ evaluate_pragma :: (
       )
     );
   });
-  arg := match(args.get(usize(0)), .Some(a) => a, .None => expr);
+  arg := match(args.get(usize(0)), .Some(a) => a, .None => expr.*);
   // Fast path: the pre-scan already recognized and registered
   // `pragma(Pragma.SkipPrelude);` by AST shape — skip evaluation entirely.
   // `AllowMacroDef` is ALSO handled by AST shape (registered here): it must
@@ -183,7 +183,7 @@ evaluate_pragma :: (
     out0 := new_expr_info(env, t_unit());
     out0.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out0);
-    return(expr);
+    return(expr.*);
   });
   // Normal path: evaluate the argument, then check it's a Pragma enum
   // variant. Catches typos, misuse, and shadowed `Pragma` names.
@@ -207,7 +207,7 @@ evaluate_pragma :: (
       got_ty_str = type_to_string(&info.ty());
       match(
         &info.ty(),
-        Rc(.EnumT({ name, selected_variant_name })) => if(name == "Pragma", {
+        Rc(.EnumT({ name, selected_variant_name })) => if(name.* == "Pragma", {
           variant = selected_variant_name.clone();
         }),
         _ => ()
@@ -247,6 +247,6 @@ evaluate_pragma :: (
   out := new_expr_info(&arg_env, t_unit());
   out.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-  expr
+  expr.*
 });
 export(pre_scan_for_skip_prelude, recognize_pragma_arg, evaluate_pragma);

@@ -73,15 +73,15 @@ is_atom_like_token :: (fn(kind : TokenKind) -> bool)(
 /// `format_yo_files`.
 is_ignored_format_dir :: (fn(name : &String) -> bool)(
   cond(
-    (name == ".git") => true,
-    (name == ".yo-cache") => true,
-    (name == "node_modules") => true,
-    (name == "out") => true,
-    (name == "yo-out") => true,
+    (name.* == ".git") => true,
+    (name.* == ".yo-cache") => true,
+    (name.* == "node_modules") => true,
+    (name.* == "out") => true,
+    (name.* == "yo-out") => true,
     // `repros/` holds verbatim reproducer programs (`issues/repros`): several
     // are invalid BY DESIGN (the bug they reproduce is a lex/parse error), and
     // rewriting any of them would falsify the record its issue doc cites.
-    (name == "repros") => true,
+    (name.* == "repros") => true,
     true => false
   )
 );
@@ -121,8 +121,8 @@ paren_is_call_delimiter :: (fn(previous : &Option(Token)) -> bool)(
 /// `unsafe_fn`).
 is_function_type_keyword :: (fn(value : &String) -> bool)(
   cond(
-    (value == "fn") => true,
-    (value == "unsafe_fn") => true,
+    (value.* == "fn") => true,
+    (value.* == "unsafe_fn") => true,
     true => false
   )
 );
@@ -3410,7 +3410,7 @@ _formatted_parses_identically :: (
 _fmt_parse_gate :: (
   fn(input : &String, formatted : &String, module_path : &String, exn : Exception) -> unit
 )({
-  if(formatted != input, {
+  if(formatted.* != input.*, {
     parse(input.clone(), module_path.clone(), exn);
   });
 });

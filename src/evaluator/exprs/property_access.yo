@@ -215,7 +215,7 @@ find_last_field_index :: (fn(labels : &ArrayList(String), name : &String) -> Opt
     match(
       labels.get_cloned(i),
       .Some(lbl) => {
-        if(lbl == name, {
+        if(lbl == name.*, {
           result = Option(usize).Some(i);
         });
       },
@@ -234,7 +234,7 @@ find_first_field_index :: (fn(labels : &ArrayList(String), name : &String) -> Op
     match(
       labels.get_cloned(i),
       .Some(lbl) => {
-        if(lbl == name, {
+        if(lbl == name.*, {
           result = Option(usize).Some(i);
         });
       },
@@ -265,9 +265,9 @@ make_deref_expr :: (fn(obj : &AstExpr, dot_tok : &Token, at : &Token) -> AstExpr
   star_id := alloc_global_expr_id();
   note_synthesized_deref_star(star_id);
   args := ArrayList(AstExpr).new();
-  args.push(obj);
+  args.push(obj.*);
   args.push(AstExpr.Atom(star_id, star_tok));
-  AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), dot_tok), Rc.new(args), true, dot_tok)
+  AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), dot_tok.*), Rc.new(args), true, dot_tok.*)
 });
 /// Whether the `*` atom `star` of a `.*` is written (in the source, or in a
 /// batch the test runner printed from it as `.(*)`): the auto-deref hooks
@@ -353,7 +353,7 @@ build_field_path_collection :: (
     });
   }, {
     base_path := ArrayList(String).new();
-    base_name := match(&obj_vname, .Some(n) => n.clone(), .None => String.from("?"));
+    base_name := match(obj_vname, .Some(n) => n.clone(), .None => String.from("?"));
     base_path.push(base_name);
     base_path.push(prop_name.clone());
     result.push(base_path);
@@ -564,7 +564,7 @@ _evaluate_property_access_node :: (
         )
       )
     );
-    return(expr);
+    return(expr.*);
   });
   // -------------------------------------------------------------------------
   // Short-circuit: Type.<KindName> — kind-constraint syntactic sugar.
@@ -606,7 +606,7 @@ _evaluate_property_access_node :: (
       all_args_1.get(usize(0)),
       .Some(a) => a,
       .None => {
-        return(expr);
+        return(expr.*);
       }
     );
     // Property must be an identifier atom.
@@ -619,7 +619,7 @@ _evaluate_property_access_node :: (
           )
         )
       );
-      return(expr);
+      return(expr.*);
     });
     // Need an expected enum type from context.
     match(
@@ -634,7 +634,7 @@ _evaluate_property_access_node :: (
             )
           )
         );
-        return(expr);
+        return(expr.*);
       },
       .Some(exp_ctx_1) => {
         if(!is_enum_type(&exp_ctx_1.ty), {
@@ -647,7 +647,7 @@ _evaluate_property_access_node :: (
               )
             )
           );
-          return(expr);
+          return(expr.*);
         });
         variant_name_1 := ast_expr_text(&prop_expr_1).*.clone();
         match(
@@ -675,7 +675,7 @@ _evaluate_property_access_node :: (
                     )
                   )
                 );
-                return(expr);
+                return(expr.*);
               },
               .Some(vi_1) => {
                 _reject_gadt_unreachable_variant(&exp_ctx_1.ty, en_id_1.clone(), vi_1, variant_name_1.clone(), &prop_expr_1, exn);
@@ -716,7 +716,7 @@ _evaluate_property_access_node :: (
                   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_tv_1);
                   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&prop_expr_1), &out_tv_1);
                 });
-                return(expr);
+                return(expr.*);
               }
             );
           },
@@ -730,7 +730,7 @@ _evaluate_property_access_node :: (
                 )
               )
             );
-            return(expr);
+            return(expr.*);
           }
         );
       }
@@ -749,7 +749,7 @@ _evaluate_property_access_node :: (
         )
       )
     );
-    return(expr);
+    return(expr.*);
   });
   all_args := match(
     expr,
@@ -844,7 +844,7 @@ _evaluate_property_access_node :: (
         .Some(dd_v) => if(ast_expr_is_atom(&object_expr) && is_dyn_type(&dd_oi.ty()) && !variable_is_reference_binding(&dd_v) && _is_written_star(&property_expr), {
           out_dd := new_expr_info(&env, &dd_oi.ty());
           out_dd.set_value(dd_oi.value());
-          expr_info_set_origin_type(&out_dd, expr_info_origin_type(&dd_oi));
+          expr_info_set_origin_type(&out_dd, expr_info_origin_type(&dd_oi.*));
           out_dd.set_variable_name(dd_oi.variable_name());
           out_dd.set_source_variable(dd_oi.source_variable());
           out_dd.set_path_collection(dd_oi.path_collection());
@@ -917,7 +917,7 @@ _evaluate_property_access_node :: (
             note_reference_deref_site(&rd_tok);
             out_rd := new_expr_info(&env, &rd_oi.ty());
             out_rd.set_value(rd_oi.value());
-            expr_info_set_origin_type(&out_rd, expr_info_origin_type(&rd_oi));
+            expr_info_set_origin_type(&out_rd, expr_info_origin_type(&rd_oi.*));
             out_rd.set_variable_name(rd_oi.variable_name());
             out_rd.set_source_variable(rd_oi.source_variable());
             out_rd.set_path_collection(rd_oi.path_collection());
@@ -973,9 +973,9 @@ _evaluate_property_access_node :: (
           rf_new_args := ArrayList(AstExpr).new();
           rf_new_args.push(rf_obj);
           rf_new_args.push(AstExpr.Atom(ast_expr_id(&rf_label), rf_new_tok));
-          rf_node := AstExpr.FnCall(ast_expr_id(expr), rf_f.clone(), Rc.new(rf_new_args), rf_infix, rf_tok.clone());
+          rf_node := AstExpr.FnCall(ast_expr_id(expr), rf_f.clone(), Rc.new(rf_new_args), rf_infix.*, rf_tok.clone());
           note_rewritten_node(&rf_node);
-          match(&rf_mode, .Some(rf_rt) => note_reference_field_read(ast_expr_id(expr), &rf_rt), .None => ());
+          match(&rf_mode, .Some(rf_rt) => note_reference_field_read(ast_expr_id(expr), &rf_rt.*), .None => ());
           match(
             obj_info_opt,
             .Some(rf_oi) => {
@@ -1011,7 +1011,7 @@ _evaluate_property_access_node :: (
     // (issues/fixed/2026-11-05-dereferencing-a-projection-call-result-is-an-internal-error.md).
     pc_object_written := match(all_args.get(usize(0)), .Some(pc_ow) => pc_ow, .None => make_err_expr());
     pc_object_is_deref := match(&pc_object_written, .FnCall(_, _, Rc(pc_ow_args), _, _) => (ast_expr_is_fn_call_of(&pc_object_written, BF_DOT, Option(usize).Some(usize(2))) && match(pc_ow_args.get(usize(1)), .Some(pc_ow_p) => ast_expr_is_atom_of(&pc_ow_p, "*"), .None => false)), .Atom(_, _) => false);
-    if(!pc_object_is_deref && _is_written_star(&property_expr) && projection_call_mode_of(&object_expr, ctx).is_some() && match(&obj_ty_deref, .Some(pc_referent) => (deref_spelling_applies(ast_expr_token(&property_expr), ctx) && !deref_reads_through_pointee(&pc_referent)), .None => false), {
+    if(!pc_object_is_deref && _is_written_star(&property_expr) && projection_call_mode_of(&object_expr, ctx).is_some() && match(&obj_ty_deref, .Some(pc_referent) => (deref_spelling_applies(ast_expr_token(&property_expr), ctx) && !deref_reads_through_pointee(&pc_referent.*)), .None => false), {
       _note_projection_call_deref(expr, &object_expr, &env, ctx);
       // The caller keeps the `.*` node: a read of the referent, a value, so
       // `n := f(x).*` binds a copy where `n := f(x)` binds the reference.
@@ -1046,7 +1046,7 @@ _evaluate_property_access_node :: (
           );
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &rr_out);
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &rr_out);
-          return(expr);
+          return(expr.*);
         },
         _ => ()
       );
@@ -1060,14 +1060,14 @@ _evaluate_property_access_node :: (
         // pointer. It is safe, and a run-time place as the old `Rc`'s `*`
         // field is (a write there is E0919, `reject_write_through_rc`).
         match(
-          cell_handle_view(&ot),
+          cell_handle_view(&ot.*),
           .Some(hv) => {
             (hv_payload : TypeValue) = cond(
               is_some_type(&hv.payload) => get_value_of_some_type_from_env(&env, &hv.payload),
               true => Rc.clone(hv.payload)
             );
             hv_origin := match(
-              match(&obj_info_opt, .Some(oi) => expr_info_origin_type(&oi), .None => Option(TypeValue).None),
+              match(&obj_info_opt, .Some(oi) => expr_info_origin_type(&oi.*), .None => Option(TypeValue).None),
               .Some(o) => o,
               .None => Rc.clone(ot)
             );
@@ -1098,15 +1098,15 @@ _evaluate_property_access_node :: (
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_hv);
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_hv);
             attach_temp_variable_to_expr(expr, false, ctx);
-            return(expr);
+            return(expr.*);
           },
           .None => ()
         );
         // `b.*` on the unique `Box` (V1 step 2) names its payload place: the
         // box is a newtype over its cell pointer, so this is that pointer's
         // dereference. It is safe: the box owns a live cell.
-        deref_box_payload := unique_box_payload_type(&ot);
-        if(is_pointer_type(&ot) || deref_box_payload.is_some(), {
+        deref_box_payload := unique_box_payload_type(&ot.*);
+        if(is_pointer_type(&ot.*) || deref_box_payload.is_some(), {
           // Memory-safety gate: pointer dereference requires `unsafe(...)`.
           // Files under std/ and src/ are implicitly unsafe-capable.
           if(deref_box_payload.is_none() && !ctx.unsafe_context && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&property_expr).module_path.*.clone())), {
@@ -1123,7 +1123,7 @@ Raw pointer operations may dereference invalid memory.`
               )
             );
           });
-          base_ty_deref := match(deref_box_payload, .Some(bp) => Rc.clone(bp), .None => match(&ot, Rc(.Pointer(pt)) => Rc.clone(pt), _ => t_unit()));
+          base_ty_deref := match(deref_box_payload, .Some(bp) => Rc.clone(bp), .None => match(ot, Rc(.Pointer(pt)) => Rc.clone(pt), _ => t_unit()));
           // Resolve SomeType from env if needed.
           (resolved_base : TypeValue) = cond(
             is_some_type(&base_ty_deref) => get_value_of_some_type_from_env(&env, &base_ty_deref),
@@ -1181,7 +1181,7 @@ Raw pointer operations may dereference invalid memory.`
                   );
                   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_ptr);
                   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_ptr);
-                  return(expr);
+                  return(expr.*);
                 },
                 .UnknownVal(_, ptr_ro) => {
                   // CHECKING PHASE ONLY: keep the comptime Unknown placeholder.
@@ -1204,7 +1204,7 @@ Raw pointer operations may dereference invalid memory.`
                     out_unk.set_is_accessing_property(Option(bool).Some(true));
                     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_unk);
                     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_unk);
-                    return(expr);
+                    return(expr.*);
                   });
                 },
                 _ => ()
@@ -1219,7 +1219,7 @@ Raw pointer operations may dereference invalid memory.`
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_rt);
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_rt);
           attach_temp_variable_to_expr(expr, false, ctx);
-          return(expr);
+          return(expr.*);
         });
       },
       .None => ()
@@ -1352,7 +1352,7 @@ Raw pointer operations may dereference invalid memory.`
             pm_idx = (pm_idx + usize(1));
           });
           if(pm_done, {
-            return(expr);
+            return(expr.*);
           });
         });
       });
@@ -1389,7 +1389,7 @@ Raw pointer operations may dereference invalid memory.`
           generic_methods_pr.get_cloned(usize(0)),
           .Some(m) => m,
           .None => {
-            return(expr);
+            return(expr.*);
           }
         );
         out_gm_pr := new_expr_info(&env, &method_pr.method_type);
@@ -1397,7 +1397,7 @@ Raw pointer operations may dereference invalid memory.`
         out_gm_pr.set_is_accessing_property(Option(bool).Some(true));
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_gm_pr);
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_gm_pr);
-        return(expr);
+        return(expr.*);
       });
     });
     // --- TypeVal + working-trait associated-type fallback ------------------
@@ -1430,7 +1430,7 @@ Raw pointer operations may dereference invalid memory.`
               out_wt.set_is_accessing_property(Option(bool).Some(true));
               expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_wt);
               expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_wt);
-              return(expr);
+              return(expr.*);
             },
             .None => ()
           );
@@ -1466,7 +1466,7 @@ Raw pointer operations may dereference invalid memory.`
             )
           )
         );
-        return(expr);
+        return(expr.*);
       });
       variant_name_tv := ast_expr_text(&property_expr).*.clone();
       match(
@@ -1481,7 +1481,7 @@ Raw pointer operations may dereference invalid memory.`
               // (e.g. `Self.Output` from `impl(JsonValue, Index(String)(
               // Output : JsonValue, …))`). Only throw if that also fails.
               if(_try_resolve_associated_type(&type_val_inner, &variant_name_tv, expr, &property_expr, &env, ctx), {
-                return(expr);
+                return(expr.*);
               });
               // Still unresolved — consult the GENERIC-impl registry before
               // erroring. `Option(i32).unwrap` comes from
@@ -1501,7 +1501,7 @@ Raw pointer operations may dereference invalid memory.`
                   generic_methods_en.get_cloned(usize(0)),
                   .Some(m) => m,
                   .None => {
-                    return(expr);
+                    return(expr.*);
                   }
                 );
                 out_gm_en := new_expr_info(&env, &method_en.method_type);
@@ -1509,10 +1509,10 @@ Raw pointer operations may dereference invalid memory.`
                 out_gm_en.set_is_accessing_property(Option(bool).Some(true));
                 expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_gm_en);
                 expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_gm_en);
-                return(expr);
+                return(expr.*);
               });
               if(generic_methods_en.len() > usize(1), {
-                return(expr);
+                return(expr.*);
               });
               exn.throw(
                 dyn(
@@ -1527,7 +1527,7 @@ Raw pointer operations may dereference invalid memory.`
                   )
                 )
               );
-              return(expr);
+              return(expr.*);
             },
             .Some(tv_vi) => {
               _reject_gadt_unreachable_variant(&type_val_inner, tv_en_id.clone(), tv_vi, variant_name_tv.clone(), &property_expr, exn);
@@ -1568,12 +1568,12 @@ Raw pointer operations may dereference invalid memory.`
                 expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_tv_en2);
                 expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_tv_en2);
               });
-              return(expr);
+              return(expr.*);
             }
           );
         },
         _ => {
-          return(expr);
+          return(expr.*);
         }
       );
     });
@@ -1588,7 +1588,7 @@ Raw pointer operations may dereference invalid memory.`
             )
           )
         );
-        return(expr);
+        return(expr.*);
       });
       prop_name_su := ast_expr_text(&property_expr).*.clone();
       // A member of a type holding a reference beyond N2b (a container or a
@@ -1623,7 +1623,7 @@ Raw pointer operations may dereference invalid memory.`
           out_su.set_is_accessing_property(Option(bool).Some(true));
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_su);
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_su);
-          return(expr);
+          return(expr.*);
         },
         .None => ()
       );
@@ -1637,7 +1637,7 @@ Raw pointer operations may dereference invalid memory.`
           generic_methods_su.get_cloned(usize(0)),
           .Some(m) => m,
           .None => {
-            return(expr);
+            return(expr.*);
           }
         );
         out_gm_su := new_expr_info(&env, &method_su.method_type);
@@ -1645,7 +1645,7 @@ Raw pointer operations may dereference invalid memory.`
         out_gm_su.set_is_accessing_property(Option(bool).Some(true));
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_gm_su);
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_gm_su);
-        return(expr);
+        return(expr.*);
       });
       // During generic impl specialization, the associated type may be in env.
       if(ctx.is_evaluating_generic_impl_specialization, {
@@ -1665,7 +1665,7 @@ Raw pointer operations may dereference invalid memory.`
                     out_spec_su.set_is_accessing_property(Option(bool).Some(true));
                     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_spec_su);
                     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_spec_su);
-                    return(expr);
+                    return(expr.*);
                   },
                   .None => ()
                 );
@@ -1710,7 +1710,7 @@ Raw pointer operations may dereference invalid memory.`
           });
         };
         if(su_fn_overloads > usize(1), {
-          return(expr);
+          return(expr.*);
         });
         if(registry_methods.len() > usize(0), {
           (rm_idx : usize) = usize(0);
@@ -1743,12 +1743,12 @@ Raw pointer operations may dereference invalid memory.`
             rm_idx = (rm_idx + usize(1));
           });
           if(rm_done, {
-            return(expr);
+            return(expr.*);
           });
         });
       });
       // Not found — let function.yo handle it as a method call.
-      return(expr);
+      return(expr.*);
     });
     // --- TypeVal + ModuleT ------------------------------------------------
     if(is_module_type(&type_val_inner), {
@@ -1761,7 +1761,7 @@ Raw pointer operations may dereference invalid memory.`
             )
           )
         );
-        return(expr);
+        return(expr.*);
       });
       prop_name_mt := ast_expr_text(&property_expr).*.clone();
       mt_labels := match(
@@ -1784,11 +1784,11 @@ Raw pointer operations may dereference invalid memory.`
           out_mt.set_is_accessing_property(Option(bool).Some(true));
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_mt);
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_mt);
-          return(expr);
+          return(expr.*);
         },
         .None => {
           // Not found — let function.yo handle it.
-          return(expr);
+          return(expr.*);
         }
       );
     });
@@ -1804,7 +1804,7 @@ Raw pointer operations may dereference invalid memory.`
             )
           )
         );
-        return(expr);
+        return(expr.*);
       });
       prop_name_tt := ast_expr_text(&property_expr).*.clone();
       // `<:` WITNESS member access:
@@ -1854,7 +1854,7 @@ Raw pointer operations may dereference invalid memory.`
                   out_wc.set_is_accessing_property(Option(bool).Some(true));
                   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_wc);
                   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_wc);
-                  return(expr);
+                  return(expr.*);
                 }),
                 .None => ()
               );
@@ -1881,7 +1881,7 @@ Raw pointer operations may dereference invalid memory.`
               out_w.set_is_accessing_property(Option(bool).Some(true));
               expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_w);
               expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_w);
-              return(expr);
+              return(expr.*);
             });
             tt_ci = (tt_ci + usize(1));
           });
@@ -1908,11 +1908,11 @@ Raw pointer operations may dereference invalid memory.`
           out_tt.set_is_accessing_property(Option(bool).Some(true));
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_tt);
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_tt);
-          return(expr);
+          return(expr.*);
         },
         .None => {
           // Not found — let the function-call path handle it.
-          return(expr);
+          return(expr.*);
         }
       );
     });
@@ -2039,7 +2039,7 @@ Raw pointer operations may dereference invalid memory.`
           st_idx = (st_idx + usize(1));
         });
         if(st_found, {
-          return(expr);
+          return(expr.*);
         });
         // Property not found in any constraint trait — fall through.
       });
@@ -2108,7 +2108,7 @@ Raw pointer operations may dereference invalid memory.`
       out_io.set_is_accessing_property(Option(bool).Some(true));
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_io);
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_io);
-      return(expr);
+      return(expr.*);
     });
   });
   // -------------------------------------------------------------------------
@@ -2134,7 +2134,7 @@ Raw pointer operations may dereference invalid memory.`
     // structs have no declaring type and are never blocked.
     pa_vis_type_id := match(
       &base_ty,
-      Rc(.Struct({ id : pa_sid, is_source_namespace : pa_sns })) => cond(pa_sns => String.new(), true => pa_sid.clone()),
+      Rc(.Struct({ id : pa_sid, is_source_namespace : pa_sns })) => cond(pa_sns.* => String.new(), true => pa_sid.clone()),
       Rc(.Union(pa_uid, _, _)) => pa_uid.clone(),
       _ => String.new()
     );
@@ -2157,7 +2157,7 @@ Raw pointer operations may dereference invalid memory.`
       pa_union_member := ast_expr_text(&property_expr).*.clone();
       if(is_union_type(&base_ty) && !ctx.is_lhs_of_assignment && (fields_labels.items.contains(pa_union_member.clone()) && !is_union_member_read_capable(Option(String).Some(ast_expr_token(&property_expr).module_path.*.clone()), ctx.unsafe_context)), {
         exn.throw(dyn(format_error_message(ast_expr_token(&property_expr), union_member_read_error_message(pa_union_member.clone(), type_to_string(&base_ty)))));
-        return(expr);
+        return(expr.*);
       });
       // --- Integer index access (tuple fields only) -----------------------
       if(ast_expr_token(&property_expr).kind == TokenKind.Integer, {
@@ -2170,7 +2170,7 @@ Raw pointer operations may dereference invalid memory.`
               )
             )
           );
-          return(expr);
+          return(expr.*);
         });
         idx_str := ast_expr_text(&property_expr).*.clone();
         match(
@@ -2184,7 +2184,7 @@ Raw pointer operations may dereference invalid memory.`
                 )
               )
             );
-            return(expr);
+            return(expr.*);
           },
           .Some(idx_val) => {
             idx := usize(idx_val);
@@ -2198,11 +2198,11 @@ Raw pointer operations may dereference invalid memory.`
                   )
                 )
               );
-              return(expr);
+              return(expr.*);
             });
             ft_idx := _reference_field_read_type(&match(fields_types.get(idx), .Some(t) => t, .None => t_unit()), expr, &property_expr, pa_deref_exempt, ctx, exn);
             field_origin_idx := match(
-              match(&obj_info_opt, .Some(oi) => expr_info_origin_type(&oi), .None => Option(TypeValue).None),
+              match(&obj_info_opt, .Some(oi) => expr_info_origin_type(&oi.*), .None => Option(TypeValue).None),
               .Some(ot) => ot,
               .None => original_obj_ty
             );
@@ -2247,7 +2247,7 @@ Raw pointer operations may dereference invalid memory.`
               .None => ()
             );
             attach_temp_variable_to_expr(expr, false, ctx);
-            return(expr);
+            return(expr.*);
           }
         );
       });
@@ -2267,7 +2267,7 @@ Raw pointer operations may dereference invalid memory.`
                   )
                 )
               );
-              return(expr);
+              return(expr.*);
             });
             // Auto-dereference (plans/VALUES_BY_DEFAULT.md §3.3): on a
             // `Deref` wrapper (`Box`, `Rc`, `Arc`) whose own fields lack the label,
@@ -2301,7 +2301,7 @@ Raw pointer operations may dereference invalid memory.`
                   pa_deref_args := ArrayList(AstExpr).new();
                   pa_deref_args.push(make_deref_expr(&orig_obj, ast_expr_token(expr), ast_expr_token(&property_expr)));
                   pa_deref_args.push(property_expr.clone());
-                  pa_rewritten := match(expr, .FnCall(pa_id, pa_f, _, pa_infix, pa_tok) => AstExpr.FnCall(pa_id, pa_f, Rc.new(pa_deref_args), pa_infix, pa_tok), .Atom(_, _) => expr.clone());
+                  pa_rewritten := match(expr, .FnCall(pa_id, pa_f, _, pa_infix, pa_tok) => AstExpr.FnCall(pa_id.*, pa_f.*, Rc.new(pa_deref_args), pa_infix.*, pa_tok.*), .Atom(_, _) => expr.clone());
                   note_rewritten_node(&pa_rewritten);
                   obj_id := ast_expr_id(&orig_obj);
                   mark_node_preevaluated(obj_id);
@@ -2333,7 +2333,7 @@ Raw pointer operations may dereference invalid memory.`
                       )
                     )
                   );
-                  return(expr);
+                  return(expr.*);
                 })),
                 .Err(innermost) => if(!pa_is_callee, {
                   exn.throw(
@@ -2347,7 +2347,7 @@ Raw pointer operations may dereference invalid memory.`
                       )
                     )
                   );
-                  return(expr);
+                  return(expr.*);
                 })
               );
             });
@@ -2360,10 +2360,10 @@ Raw pointer operations may dereference invalid memory.`
             // (issues/fixed/unknown-struct-field-has-no-diagnostic.md).
             if(!pa_is_callee, {
               exn.throw(dyn(with_code(format_error_message(ast_expr_token(&property_expr), unknown_field_message(&label_str, &base_ty, &fields_labels.items)), unknown_field_code(&base_ty))));
-              return(expr);
+              return(expr.*);
             });
             // A method call — return without setting ExprInfo.
-            return(expr);
+            return(expr.*);
           },
           .Some(fi_lbl) => {
             // The access site is the label TOKEN's module (lexical) — never
@@ -2404,12 +2404,12 @@ Raw pointer operations may dereference invalid memory.`
                     )
                   )
                 );
-                return(expr);
+                return(expr.*);
               });
             });
             ft_lbl := _reference_field_read_type(&match(fields_types.get(fi_lbl), .Some(t) => t, .None => t_unit()), expr, &property_expr, pa_deref_exempt, ctx, exn);
             field_origin_lbl := match(
-              match(&obj_info_opt, .Some(oi) => expr_info_origin_type(&oi), .None => Option(TypeValue).None),
+              match(&obj_info_opt, .Some(oi) => expr_info_origin_type(&oi.*), .None => Option(TypeValue).None),
               .Some(ot) => ot,
               .None => original_obj_ty
             );
@@ -2525,7 +2525,7 @@ Raw pointer operations may dereference invalid memory.`
               .None => ()
             );
             attach_temp_variable_to_expr(expr, false, ctx);
-            return(expr);
+            return(expr.*);
           }
         );
       });
@@ -2546,7 +2546,7 @@ Raw pointer operations may dereference invalid memory.`
             )
           )
         );
-        return(expr);
+        return(expr.*);
       });
       if(is_valid_variable_name(&property_expr), {
         mod_label := ast_expr_text(&property_expr).*.clone();
@@ -2556,7 +2556,7 @@ Raw pointer operations may dereference invalid memory.`
         // degrades to the importer's ordered-read table.
         match(
           &base_ty,
-          Rc(.Struct({ id : pa3_sns, is_source_namespace : pa3_is_sns })) => if(pa3_is_sns, {
+          Rc(.Struct({ id : pa3_sns, is_source_namespace : pa3_is_sns })) => if(pa3_is_sns.*, {
             match(
               sns_module_of(pa3_sns.clone()),
               .Some(pa3_target) => record_module_member_read(&env.module_path().*, &pa3_target, mod_label.clone()),
@@ -2589,10 +2589,10 @@ Raw pointer operations may dereference invalid memory.`
                   )
                 )
               );
-              return(expr);
+              return(expr.*);
             });
             // Could be a method call.
-            return(expr);
+            return(expr.*);
           },
           .Some(fi_mod) => {
             ft_mod := match(mod_types_rt.get(fi_mod), .Some(t) => t, .None => t_unit());
@@ -2670,7 +2670,7 @@ Raw pointer operations may dereference invalid memory.`
                 );
               }
             );
-            return(expr);
+            return(expr.*);
           }
         );
       });
@@ -2690,7 +2690,7 @@ Raw pointer operations may dereference invalid memory.`
             )
           )
         );
-        return(expr);
+        return(expr.*);
       });
       prop_name_ev := ast_expr_text(&property_expr).*.clone();
       match(
@@ -2758,7 +2758,7 @@ Raw pointer operations may dereference invalid memory.`
                         },
                         .None => ()
                       );
-                      return(expr);
+                      return(expr.*);
                     }
                   );
                 },
@@ -2832,7 +2832,7 @@ Raw pointer operations may dereference invalid memory.`
                   ),
                   .None => ()
                 );
-                return(expr);
+                return(expr.*);
               });
             }
           );
@@ -2853,6 +2853,6 @@ Raw pointer operations may dereference invalid memory.`
     );
     eprintln(`[pa-fallthrough] prop=${ast_expr_token(&property_expr).value.*} obj_ty=${pa_obj_ty}`);
   });
-  expr
+  expr.*
 });
 export(evaluate_property_access, make_deref_expr);
