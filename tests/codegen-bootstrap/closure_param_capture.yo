@@ -6,9 +6,9 @@
 { String } :: import("std/string");
 { HashMap } :: import("std/collections/hash_map");
 
-Detector :: struct(detect : Dyn(Fn(x : i32) -> unit));
+Detector :: struct(detect : Dyn(FnMut(x : i32) -> unit));
 
-run_detector :: (fn(d : &Detector, x : i32) -> unit)({
+run_detector :: (fn(d : &mut Detector, x : i32) -> unit)({
   (d.detect)(x);
 });
 
@@ -16,15 +16,18 @@ analyze :: (
   fn(get_info : &Impl(Fn(e : i32) -> i32)) -> unit
 )({
   // The map is a value (B9): the closure owns its captured copy, so it reads
-  // the entry back itself.
+  // the entry back itself. Writing the copy types the closure `FnMut`, whose
+  // call borrows the closure exclusively — so the struct is lent `&mut` and
+  // the binding is `mut` (an `Fn` closure may not write an implicit capture,
+  // E0913, #1932).
   mut(extras) := HashMap(String, i32).new();
-  d := Detector(
+  mut(d) := Detector(
     detect : dyn(x => {
       extras.insert(`k${x}`, get_info(x));
       match(extras.get(String.from("k7")), .Some(v) => println(`${v}`), .None => println(`missing`));
     })
   );
-  run_detector(&d, i32(7));
+  run_detector(&mut d, i32(7));
 });
 
 main :: (fn() -> unit)({

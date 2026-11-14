@@ -4,10 +4,13 @@
 // by id) answered the callee atom with another node's entry: "box is not
 // callable: it has type unit".
 // issues/fixed/an-auto-boxed-dyn-value-builds-its-box-call-with-node-id-zero.md
+// The closure writes its implicit capture, so it is `FnMut` (in an `Fn`
+// closure the write is E0913, #1932), and a `Dyn(FnMut(...))` call borrows the
+// closure exclusively, so the binding is `mut`.
 { assert } :: import("std/assert");
 test("an auto-boxed closure in a test body", {
   mut(x) := 1;
-  (closure : Dyn(Fn(y : i32) -> i32)) = dyn(y => {
+  (mut(closure) : Dyn(FnMut(y : i32) -> i32)) = dyn(y => {
     x = (x + y);
     return(x);
   });
