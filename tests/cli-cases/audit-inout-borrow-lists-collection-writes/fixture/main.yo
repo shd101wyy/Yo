@@ -34,11 +34,16 @@ main :: (fn() -> unit)({
   // (no line: the borrowed form below is the way to write each element)
   // Not listed: the borrowed `for` form writes the element in place.
   for(&mut rows, row => row.push(i32(8)));
-  // Listed as a capture: the closure's copy of `seen`.
+  // Listed as a capture: the closure's copy of `seen`. A closure that writes
+  // its implicit capture is `FnMut` at an owning binding; in an `Fn` closure,
+  // or a literal lent to a borrowing parameter, the write is E0913 (#1932).
   mut(seen) := ArrayList(i32).new();
-  apply(() => {
-    seen.push(i32(9));
-  });
+  (mut(bump) : Impl(FnMut() -> unit)) = (
+    () => {
+      seen.push(i32(9));
+    }
+  );
+  bump();
   // Not listed: a shared handle written through its `RefCell` door (a
   // write through a plain `Rc` is E0919, decision 46).
   recorded := Rc.new(RefCell(ArrayList(i32)).new(ArrayList(i32).new()));
