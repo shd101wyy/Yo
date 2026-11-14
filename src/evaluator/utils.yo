@@ -8935,6 +8935,9 @@ generic_result_binder_modes :: (fn(call : &AstExpr, ft : &Option(TypeValue), n :
       .None => Option(TypeValue).None
     )
   );
+  if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
+    eprintln(`[n2b] binder-src ${ast_expr_to_string(call)}: lookup=${lookup_generic_callee_type(ast_expr_id(call)).is_some().to_string()} ft=${match(ft, .Some(t) => type_to_string(&t), .None => String.from("none"))}`);
+  });
   decl_v := match(decl, .Some(dv) => dv, .None => return(Option(ArrayList(u8)).None));
   res_vars := ArrayList(String).new();
   type_var_ids_of(&fn_result_slot(&decl_v), &mut res_vars, u32(0), false);
@@ -9937,6 +9940,9 @@ _origin_carrying_roots_shallow :: (fn(e : &AstExpr, env : &Environment, ctx : &E
       while(i < fc_args.len(), {
         arg := match(fc_args.get(i), .Some(a) => a, .None => make_err_expr());
         (oc_mode : u8) = _with_binder_mode(&oc_binder_modes, i + oc_offset, _call_origin_mode(&oc_ft, &oc_names, i + oc_offset));
+        if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
+          eprintln(`[n2b] shallow-arg ${ast_expr_to_string(&arg)}: mode=${oc_mode.to_string()} modes=${match(&oc_binder_modes, .Some(ms) => ms.len().to_string(), .None => String.from("none"))} ft=${match(&oc_ft, .Some(t) => type_to_string(&t), .None => String.from("none"))}`);
+        });
         if(oc_mode == u8(1), {
           i = (i + usize(1));
           continue;
