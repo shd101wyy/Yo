@@ -37,10 +37,10 @@ t.c:820:3: error: unknown type name '__yo_t_17030455559196638567'
 
 The ledger suspected an unsound shape behind the C failure (a re-point through the field). It does not need this
 fix to show: with an `Rc(X)` referent the C compiles, and `m := M(rp : &mut r); m.rp.* = ri;` with a block-local
-`inner` is accepted and reads `inner` after its scope (stack-use-after-scope). It is filed with the store-through-a-
+`inner` is accepted and reads `inner` after its scope (stack-use-after-scope). It was filed with the store-through-a-
 borrow family as
-`issues/repros/2026-11-11-a-store-through-a-local-mut-borrow-of-a-holder-does-not-widen-the-holders-flow-set-ref-ref-field.yo`
-(`issues/2026-11-11-a-store-through-a-local-mut-borrow-of-a-holder-does-not-widen-the-holders-flow-set.md`).
+`tests/origins/unsound/a25-store-through-local-mut-borrow-ref-ref-field.yo`
+(`issues/fixed/2026-11-11-a-store-through-a-local-mut-borrow-of-a-holder-does-not-widen-the-holders-flow-set.md`), fixed there; this C failure stays open.
 
 ## The family (develop `64f33c710`)
 

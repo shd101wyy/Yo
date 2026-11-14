@@ -154,3 +154,8 @@ ref-mut-ref-store-chain3	O-6 (d) at depth 3, the write-back follows the `&mut` r
 ref-mut-ref-store-reborrow-read-through	O-6 (d), the re-borrow names the same invariant origin	neg	N1	E0911	E0911|Cannot store a reference to `inner` in `rp` here
 ref-mut-ref-store-chain2-same-scope	O-6 (d) at depth 2, a widened `r` within one scope	pos	N1	ACCEPT	accept
 closure-mut-capture-last-use	decision 18 last use; VERDICTS-59 decision 12 (C14)	pos	N2	ACCEPT	E0910|the borrow lasts until `bump`'s scope ends
+holder-assigned-in-both-arms-then-first-root-written	cluster 4, BCC §3 bind / R-ARM: the join over both arms (audit A18)	neg	N1	E0911	E0911|Cannot write `x` here: `h` borrows `x`
+loop-store-body-local-read-next	cluster 4, BCC §3 bind: the loop back edge carries a body local (audit A19a)	neg	N1	E0911	E0911|is declared inside the loop, so each iteration drops it
+loop-store-body-local-read-same	cluster 4, the loop back edge: re-pointed outward before the back edge (A19a control)	pos	N1	ACCEPT	accept
+loop-join-option-slot	cluster 4, BCC §3 bind: a write before the lend, reached over the back edge (audit A19b)	neg	N1	E0911	E0911|Cannot write `x` here: `h` borrows `x`
+loop-join-option-slot-after	cluster 4, the loop back edge: the carried loan is dead at the write (A19b control)	pos	N1	ACCEPT	accept
