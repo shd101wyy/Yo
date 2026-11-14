@@ -1,0 +1,20 @@
+// expect: E0911
+// P1 and the loop back edge: `cur` is re-pointed at `y`, a local of the loop body, and read at the top of
+// the next iteration, after `y` was dropped (heap-use-after-free).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+flag :: (fn() -> bool)(String.from("a").len() == usize(1));
+main :: (fn() -> unit)({
+  x := L();
+  cur := &x;
+  mut(i) := i32(0);
+  while(i < i32(3), {
+    println(`OUT: ${cur.*}`);
+    y := L();
+    cur = &y;
+    i = (i + i32(1));
+  });
+  ()
+});
+export(main);

@@ -11,7 +11,7 @@ Found 2026-11-11 by the ownership / borrowing / origin audit
 
 ## Reproducers
 
-`issues/repros/2026-11-11-a-lend-of-a-holders-own-field-stored-into-the-holder-is-recorded-as-the-holders-earlier-loans.yo`
+`tests/origins/unsound/a27-self-field-lend-into-holder.yo` (filed under `issues/repros/` with this doc's name, moved with the fix; the `…-` twins below likewise)
 (negative, expects E0911 at `mut(b) := a`):
 
 ```yo
@@ -78,7 +78,10 @@ place inside the holder's own storage (R-LEND, `{(a.x, &)}`) stays itself. O5 ("
 admits the store and rejects only the move (liveness, decision 18). Whether the store itself should be E0911 is
 O5's question and is not this defect; the move after it must be rejected under either reading.
 
+## Fix
+
+Fixed by the cluster-4 branch `fix/c4-flow-join`. `_origin_ground_roots` (`src/evaluator/utils.yo`), which `bind_join_roots_for` uses to ground the roots of the stored value, grounded a root through the holder's own flow set even when the root is not a reference: `&a.x` was recorded as `a`'s earlier loans (`z`) instead of `a`. A root that is not a reference binding (and not a `for` desugar's hidden local) is now kept as itself AND grounded through its entries (the union), so `a`'s set after `a = S(x : …, y : .Some(&a.x))` contains `a`, and the move of `a` (or the write `a.x = …` while `a.y` is live) is E0911. Grounding through a reference binding is unchanged.
+
 ## Test
 
-With the fix: the two negative programs and the positive control move to `tests/origins/unsound/`; corpus rows
-`self-lend-reassigned-then-moved` (E0911) and `self-lend-field-write-over-held-loan` (E0911).
+`tests/origins/unsound/` (G-B): `a27-self-field-lend-into-holder`, `-field-write` (E0911 each) and `-pos`. The corpus rows the report proposed are not added; G-B carries the shapes.

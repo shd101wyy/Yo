@@ -8,12 +8,12 @@ and the read after the block is a heap-use-after-free. Pre-existing: v0.2.76 acc
 
 Found 2026-11-11 by the ownership / borrowing / origin audit
 (`plans/backlog/OWNERSHIP_BORROWING_ORIGINS_AUDIT.md` §3 A11). Confirmed on develop `64f33c710`. The named form (`m := slot(&mut s); m.* = …`) is the
-call-result twin of `issues/2026-11-11-a-store-through-a-local-mut-borrow-of-a-holder-does-not-widen-the-holders-flow-set.md`
+call-result twin of `issues/fixed/2026-11-11-a-store-through-a-local-mut-borrow-of-a-holder-does-not-widen-the-holders-flow-set.md`
 (A25: the join lands on the borrow, not on the holder); one fix should cover both.
 
 ## Reproducers
 
-`issues/repros/2026-11-11-a-store-through-a-mut-returned-by-a-call-does-not-grow-the-flow-set-of-the-place-it-borrows.yo`
+`tests/origins/unsound/a11-store-through-mut-call-result.yo` (filed under `issues/repros/` with this doc's name, moved with the fix; the `…-` twins below likewise)
 (negative, expects E0911):
 
 ```yo
@@ -84,7 +84,14 @@ holder of a store through it is `s`. BCC §3 `lend_through`: "a flow-inferred se
 variable solved by the unification and written back to the holder after the call", where the holder of a call-result
 argument is the root of the result's origin.
 
+## Fix
+
+Fixed by the cluster-4 branch `fix/c4-flow-join`. A store through a `&mut` that a call returned joins the place the call result borrows (`origin_of` of the call; `src/evaluator/utils.yo`, `store_via_mut_reference` / `store_via_targets` / `store_through_mut_join`):
+
+- `slot(&mut s).* = .Some(&y.*)`: the assignment's property path finds the projection call it stores through and joins `s`.
+- `s(usize(0)) = .Some(…)` through a user `IndexMut`: the place root of an index place (`_index_place_root`, `exprs/assignment.yo`, via `call_is_index_place`) is the indexed value `s`.
+- `put(slot(&mut s), &y)`: `lend_through`'s flow write-back (`src/evaluator/calls/function.yo`, step 3) now accepts an argument that is a `&mut` reference VALUE (`expr_is_mut_reference_value`), not only a bare local, and writes the solved origin into the roots `origin_of` gives for it (`flow_write_back_through`).
+
 ## Test
 
-With the fix: the three negative programs and the positive control move to `tests/origins/unsound/`; corpus rows
-`store-through-projection-result` (E0911) and `store-through-index-mut` (E0911) beside `place-write-join`.
+`tests/origins/unsound/` (G-B): `a11-store-through-mut-call-result` (the `put` form), `-deref-store`, `-index-mut` (E0911 each) and `-pos`. The corpus rows the report proposed are not added; G-B carries the shapes.
