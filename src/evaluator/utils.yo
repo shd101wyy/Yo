@@ -9679,7 +9679,12 @@ _origin_push_lend :: (fn(operand : &AstExpr, is_mut : bool, env : &Environment, 
   );
   match(
     local_borrow_place_of(operand, env, ctx),
-    .Some(p) => _origin_push(OriginRootPlace(place : p, is_mut : is_mut), out),
+    .Some(p) => {
+      if(debug_knob(`YO_DEBUG_CHAIN`).is_some(), {
+        eprintln(`[lend] ${ast_expr_to_string(operand)} branch=place root=${p.root_name.clone()}@${p.root_decl.byte_offset}`);
+      });
+      _origin_push(OriginRootPlace(place : p, is_mut : is_mut), out);
+    },
     .None => {
       // R-LEND through R-READ: the operand's root binding is not in `env` —
       // a match arm binding, whose frame ended with the arm. Its registered
@@ -12394,6 +12399,14 @@ _origin_through_match_bindings :: (fn(roots : &ArrayList(OriginRootPlace), env :
       .Some(v) => if(!v.is_parameter() && !v.is_compile_time_only() && v.is_borrow_match_binding() && (depth < u32(8)), borrow_match_source(v.id()), Option(AstExpr).None),
       .None => Option(AstExpr).None
     );
+    if(debug_knob(`YO_DEBUG_CHAIN`).is_some(), {
+      lv := get_variables_from_env(env, root.place.root_name.clone()).last_cloned();
+      match(
+        &lv,
+        .Some(dbg_v) => eprintln(`[map] root=${root.place.root_name.clone()} found param=${dbg_v.is_parameter()} ct=${dbg_v.is_compile_time_only()} bm=${dbg_v.is_borrow_match_binding()} id=${dbg_v.id().to_string()} src=${borrow_match_source(dbg_v.id()).is_some().to_string()}`),
+        .None => eprintln(`[map] root=${root.place.root_name.clone()} NOT-FOUND-in-env`)
+      );
+    });
     match(
       scr,
       .Some(scr_e) => {
