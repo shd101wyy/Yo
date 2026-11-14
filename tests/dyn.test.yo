@@ -1280,3 +1280,26 @@ test("a Dyn(Fn) after a Dyn(FnOnce) is its own constructor instance", {
   fs.push(dyn(Box.new(() => i32(1))));
   assert((f() + f() + fs(usize(0))() + fs(usize(0))() + o()) == i32(29), "the Fn instances call twice");
 });
+// Decision 49's flip: `Clone` in a `Dyn`'s trait list fills the vtable's
+// `clone_into` slot, never a callable method of the erased value (its `clone`
+// returns `Self`, which the `Dyn` erases — an unsized value). So `b.clone()`
+// over the owning box resolves to the box's own clone (an independent payload
+// written by `CloneInto`), and the payload's `clone` is not reachable through
+// the box at all.
+test("Box(Dyn(T, Clone)).clone() is the box's clone", {
+  (b : Box(Dyn(ToString, Clone))) = dyn(Box.new(_DcFd(n : i32(4))));
+  d := b.clone();
+  assert(match(downcast(&d.*, _DcFd), .Some(f) => f.n, .None => i32(0)) == i32(4), "an independent payload");
+  assert(g_dc_clones == i32(1), "one clone, through the vtable's clone_into");
+  assert(match(downcast(&b.*, _DcFd), .Some(f) => f.n, .None => i32(0)) == i32(4), "the source keeps its payload");
+});
+test("a Dyn's Clone is not a method of the erased value", {
+  comptime_expect_error(
+    (fn() -> unit)({
+      (b : Box(Dyn(ToString, Clone))) = dyn(Box.new(_DcFd(n : i32(4))));
+      _x := b.*.clone();
+      ()
+    }),
+    "clone"
+  );
+});
