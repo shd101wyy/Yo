@@ -468,7 +468,9 @@ test("FnMut: by-value state may not keep a per-call parameter or a body local", 
   }, "a local of this literal's body");
   b := String.from("b");
   (mut(g) : Impl(FnMut() -> usize)) = ({ rb : &b, last : Option(&String).None }() => {
-    n := match(last, .Some(r) => r.len(), .None => usize(0));
+    // `match(&last, …)`: the state is a capture the closure keeps for its
+    // next call, so it may not be matched by value (E0901, decision 26).
+    n := match(&last, .Some(r) => r.len(), .None => usize(0));
     last = .Some(rb);
     n
   });
