@@ -8,7 +8,7 @@ test("Test String as Error via AnyError", {
   // Downcast back to String and check the message
   match(
     downcast(&err.*, String),
-    .Some(s) => assert(s == `something went wrong`, "Expected error message to match"),
+    .Some(s) => assert(s.* == `something went wrong`, "Expected error message to match"),
     .None => assert(false, "Expected Some(String), got None")
   );
 });
@@ -16,7 +16,7 @@ test("Test downcast AnyError back to String", {
   (err : AnyError) = dyn(`file not found`);
   match(
     downcast(&err.*, String),
-    .Some(s) => assert(s == `file not found`, "Expected 'file not found'"),
+    .Some(s) => assert(s.* == `file not found`, "Expected 'file not found'"),
     .None => assert(false, "Expected Some(String), got None")
   );
 });
