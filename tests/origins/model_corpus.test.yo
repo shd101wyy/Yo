@@ -553,6 +553,21 @@ test("ref-mut-ref-repoint", {
   main := entry(al6(let_(X, lit()), let_(Y, lit()), let_d(R, Rc.new(NodeE.Borrow(false, X)), shr(int(), o(X) | o(Y))), let_(RP, Rc.new(NodeE.Borrow(true, R))), Rc.new(NodeE.WriteThrough(RP, Rc.new(NodeE.Borrow(false, Y)))), use_(Rc.new(NodeE.Var(R)))));
   verdict("ref-mut-ref-repoint", case1(main), "ACCEPT");
 });
+// P1 (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §4): a re-point to an unrelated place is an
+// assignment of a fresh lend to the reference binding.
+test("repoint-unrelated-then-use", {
+  main := entry(al4(let_(X, lit()), let_(R, Rc.new(NodeE.Borrow(false, X))), Rc.new(NodeE.Block(al2(let_(Y, lit()), Rc.new(NodeE.Assign(R, Rc.new(NodeE.Borrow(false, Y))))))), use_(Rc.new(NodeE.Var(R)))));
+  verdict("repoint-unrelated-then-use", case1(main), "E0911");
+});
+test("repoint-unrelated-control", {
+  main := entry(al3(let_(X, lit()), let_(R, Rc.new(NodeE.Borrow(false, X))), Rc.new(NodeE.Block(al3(let_(Y, lit()), Rc.new(NodeE.Assign(R, Rc.new(NodeE.Borrow(false, Y)))), use_(Rc.new(NodeE.Var(R))))))));
+  verdict("repoint-unrelated-control", case1(main), "ACCEPT");
+});
+// The model has no `Rc`: the pinned cell is a place that outlives `cur`.
+test("repoint-through-rc", {
+  main := entry(al5(let_(X, lit()), let_(R, Rc.new(NodeE.Borrow(false, X))), let_(Y, lit()), Rc.new(NodeE.Assign(R, Rc.new(NodeE.Borrow(false, Y)))), use_(Rc.new(NodeE.Var(R)))));
+  verdict("repoint-through-rc", case1(main), "ACCEPT");
+});
 // P9 (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7): two-phase borrows with a
 // named `&`. A `&mut` argument is reserved when evaluated and activated when
 // the call begins, so a `&` loan whose last use lies in a later argument is
@@ -1185,6 +1200,63 @@ test("cond-arm-composite", {
   );
   verdict("cond-arm-composite", case1(main), "E0911");
 });
+test("block-tail-projection", {
+  // A block whose tail lends an outer local: the reference binds the outer
+  // root, which outlives the block.
+  main := entry(
+    al4(
+      let_(X, lit()),
+      let_(M, lit()),
+      Rc.new(NodeE.Block(al2(let_(Y, lit()), Rc.new(NodeE.Assign(M, Rc.new(NodeE.Borrow(false, X))))))),
+      use_(Rc.new(NodeE.Var(M)))
+    )
+  );
+  verdict("block-tail-projection", case1(main), "ACCEPT");
+});
+test("block-tail-projection-local", {
+  // The tail lends the block's own local: it is dropped at the block's end
+  // while the binding reads through it (Q1 item 3, Rust's E0597).
+  main := entry(
+    al3(
+      let_(M, lit()),
+      Rc.new(NodeE.Block(al2(let_(Y, lit()), Rc.new(NodeE.Assign(M, Rc.new(NodeE.Borrow(false, Y))))))),
+      use_(Rc.new(NodeE.Var(M)))
+    )
+  );
+  verdict("block-tail-projection-local", case1(main), "E0911");
+});
+test("cond-arm-projection-join", {
+  // The arms lend different roots; the join keeps both, and the second arm's
+  // root is frozen where the joined reference is live.
+  arm_x := Rc.new(NodeE.Assign(M, Rc.new(NodeE.Borrow(false, X))));
+  arm_y := Rc.new(NodeE.Assign(M, Rc.new(NodeE.Borrow(false, Y))));
+  main := entry(
+    al6(
+      let_(X, lit()),
+      let_(Y, lit()),
+      let_(M, lit()),
+      Rc.new(NodeE.Branch(al1(arm_x), al1(arm_y))),
+      Rc.new(NodeE.Assign(Y, lit())),
+      use_(Rc.new(NodeE.Var(M)))
+    )
+  );
+  verdict("cond-arm-projection-join", case1(main), "E0911");
+});
+test("cond-arm-projection-read", {
+  // The control: the roots are only read while the joined reference lives.
+  arm_x := Rc.new(NodeE.Assign(M, Rc.new(NodeE.Borrow(false, X))));
+  arm_y := Rc.new(NodeE.Assign(M, Rc.new(NodeE.Borrow(false, Y))));
+  main := entry(
+    al5(
+      let_(X, lit()),
+      let_(Y, lit()),
+      let_(M, lit()),
+      Rc.new(NodeE.Branch(al1(arm_x), al1(arm_y))),
+      use_(Rc.new(NodeE.Var(M)))
+    )
+  );
+  verdict("cond-arm-projection-read", case1(main), "ACCEPT");
+});
 test("match-value-arm-composite", {
   // The same join over a match on an owned value (the Yo fixture's
   // `match(k, …)`): the arm that did not run still contributes its roots.
@@ -1441,6 +1513,61 @@ test("ablation: a user Drop keeps its roots live", {
 });
 test("ablation: a &mut capture grows the container's flow set", {
   flips("closure-push-capture-then-write", case2(closure_push_main(X), each()), ABLATE_CAPTURE_WIDEN, "ACCEPT");
+});
+// Cluster 4 (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3 `bind`: the join over
+// reaching definitions, including the loop back edge; audit A18, A19a, A19b).
+some_lend :: (fn(p : usize) -> Node)(Rc.new(NodeE.Make(Kind.Some, Rc.new(NodeE.Borrow(false, p)))));
+test("holder-assigned-in-both-arms-then-first-root-written", {
+  main := entry(
+    al7(
+      let_(Z, lit()),
+      let_(X, lit()),
+      let_(Y, lit()),
+      let_(H, some_lend(Z)),
+      Rc.new(NodeE.Branch(al1(Rc.new(NodeE.Assign(H, some_lend(X)))), al1(Rc.new(NodeE.Assign(H, some_lend(Y)))))),
+      Rc.new(NodeE.Assign(X, lit())),
+      use_(Rc.new(NodeE.Var(H)))
+    )
+  );
+  verdict("holder-assigned-in-both-arms-then-first-root-written", case1(main), "E0911");
+});
+test("loop-store-body-local-read-next", {
+  main := entry(al3(let_(Z, lit()), let_(SLOT, some_lend(Z)), Rc.new(NodeE.Loop(al1(Rc.new(NodeE.Block(al3(use_(Rc.new(NodeE.Var(SLOT))), let_(Y, lit()), Rc.new(NodeE.Assign(SLOT, some_lend(Y)))))))))));
+  verdict("loop-store-body-local-read-next", case1(main), "E0911");
+});
+test("loop-store-body-local-read-same", {
+  main := entry(
+    al3(
+      let_(Z, lit()),
+      let_(SLOT, some_lend(Z)),
+      Rc.new(NodeE.Loop(al1(Rc.new(NodeE.Block(al5(use_(Rc.new(NodeE.Var(SLOT))), let_(Y, lit()), Rc.new(NodeE.Assign(SLOT, some_lend(Y))), use_(Rc.new(NodeE.Var(SLOT))), Rc.new(NodeE.Assign(SLOT, some_lend(Z)))))))))
+    )
+  );
+  verdict("loop-store-body-local-read-same", case1(main), "ACCEPT");
+});
+test("loop-join-option-slot", {
+  main := entry(
+    al5(
+      let_(Z, lit()),
+      let_(X, lit()),
+      let_(H, some_lend(Z)),
+      Rc.new(NodeE.Loop(al2(Rc.new(NodeE.Branch(al1(Rc.new(NodeE.Assign(X, lit()))), none())), Rc.new(NodeE.Branch(al1(Rc.new(NodeE.Assign(H, some_lend(X)))), none()))))),
+      use_(Rc.new(NodeE.Var(H)))
+    )
+  );
+  verdict("loop-join-option-slot", case1(main), "E0911");
+});
+test("loop-join-option-slot-after", {
+  main := entry(
+    al5(
+      let_(Z, lit()),
+      let_(X, lit()),
+      let_(H, some_lend(Z)),
+      Rc.new(NodeE.Loop(al3(use_(Rc.new(NodeE.Var(H))), Rc.new(NodeE.Assign(X, lit())), Rc.new(NodeE.Assign(H, some_lend(X)))))),
+      use_(Rc.new(NodeE.Var(H)))
+    )
+  );
+  verdict("loop-join-option-slot-after", case1(main), "ACCEPT");
 });
 test("ablation: a borrow through an Rc deref carries the handle's place (O9)", {
   flips("rc-handle-dropped", rc_handle_dropped(), ABLATE_HANDLE_ORIGIN, "ACCEPT");

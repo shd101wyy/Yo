@@ -1,0 +1,34 @@
+//! The `io.async` capture rows of the deref seed rider (VERDICTS-60 §4, 11),
+//! re-homed from std/deref_spelling.test.yo: a module-level definition whose
+//! capture is spelled `{ b : &b.* }` is an A2 error under the v0.2.77 seed —
+//! whose `yo check ./std`, which every lane's Tier 1 runs, evaluates every
+//! file under std — while tests/ is judged, and there both the seed (it
+//! strips a written `.*` of a reference binding in a judged file, VERDICTS-60
+//! §6 E3) and the tree accept the spelling. `{ b : &b.* }` names what
+//! `{ &b }` names, the referent of `b` whole, so an `io.async` body that
+//! borrows a `&` parameter keeps its own copy of it
+//! (plans/VALUES_BY_DEFAULT.md §3.13 A2). The deref flip re-homes these rows
+//! beside the std lines that adopt the spelling
+//! (issues/2026-11-13-the-v0277-seed-rejects-the-deref-swept-io-async-captures-of-a-reference-parameter.md,
+//! open until the v0.2.79 flip).
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+
+_DerefBox :: struct(n : i32);
+_deref_box_read :: (fn(b : &_DerefBox, io : Io) -> Impl(Future(i32)))(
+  io.async({ b : &b.* }(io : Io) => {
+    return(b.*.n);
+  })
+);
+test("an io.async capture `{ b : &b.* }` of a & parameter borrows the parameter whole", {
+  x := _DerefBox(n : i32(11));
+  assert(io.await(_deref_box_read(&x, io), io) == i32(11), "the future reads the referent it borrows");
+  comptime_expect_error(
+    _deref_box_field :: (fn(b : &_DerefBox, io : Io) -> Impl(Future(i32)))(
+      io.async({ n : &b.*.n }(io : Io) => {
+        return(n.*);
+      })
+    ),
+    "borrows a `&` parameter whole"
+  );
+});

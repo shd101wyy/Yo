@@ -189,6 +189,15 @@ first_over :: (fn(list : &List, k : i32) -> i32)({
 head_count :: (fn(list : &List) -> usize)(
   match(list.head, .Some(b) => ref_count(b), .None => usize(0))
 );
+test("a re-point to a sibling local's place reads and writes that place (P1)", {
+  mut(a) := i32(1);
+  mut(b) := i32(2);
+  cur := &mut a;
+  cur = &mut b;
+  cur.* = i32(5);
+  assert(b == i32(5), "the write went to b");
+  assert(a == i32(1), "a is untouched");
+});
 test("the cursor walk appends at the tail slot (decision 25)", {
   mut(l) := List(head : .None);
   append(&mut l, i32(1));
@@ -391,25 +400,60 @@ comptime_expect_error(
   "Cannot call `for` while `c` is live"
 );
 
-// --- Rejected: re-points (decision 25, plan §8) -------------------------------
+// --- Rejected: re-points (decision 25, plan §8; P1 of BORROW_CHECKER_COMPLETENESS.md §4) ---
+// A re-point to another variable's place is a new loan: the declaration's
+// checks apply, and the place joins the borrow's flow set.
 comptime_expect_error(
-  repoint_to_a_sibling_root_rejected :: (fn() -> unit)({
+  repoint_mut_to_a_sibling_root_needs_its_mut_rejected :: (fn() -> unit)({
     mut(l1) := List(head : .None);
     l2 := List(head : .None);
     cur := &mut l1.head;
     cur = &mut l2.head;
     cur = .None;
   }),
-  "is a different variable, not a place reached from `cur`"
+  "Cannot re-point `cur` with `&mut` to `l2`"
 );
 comptime_expect_error(
-  repoint_to_a_module_level_place_rejected :: (fn() -> unit)({
+  repoint_mut_to_an_immutable_module_level_place_rejected :: (fn() -> unit)({
     mut(l1) := List(head : .None);
     cur := &mut l1.head;
     cur = &mut g_list.head;
     cur = .None;
   }),
-  "is a module-level binding"
+  "it is a module-level binding declared without `mut`"
+);
+comptime_expect_error(
+  repoint_to_an_inner_block_local_then_use_rejected :: (fn() -> unit)({
+    x := i32(1);
+    cur := &x;
+    {
+      y := i32(2);
+      cur = &y;
+    };
+    _v := (cur.* + i32(1));
+  }),
+  "Cannot store a reference to `y` in `cur` here"
+);
+comptime_expect_error(
+  repoint_to_a_sibling_then_write_it_rejected :: (fn() -> unit)({
+    x := i32(1);
+    mut(y) := i32(2);
+    cur := &x;
+    cur = &y;
+    y = i32(3);
+    _v := (cur.* + i32(1));
+  }),
+  "Cannot write `y` here"
+);
+comptime_expect_error(
+  repoint_to_a_module_level_place_then_call_rejected :: (fn() -> unit)({
+    mut(x) := i32(1);
+    c := &mut x;
+    c = &mut g_count;
+    noop();
+    c.* = i32(2);
+  }),
+  "Cannot call `noop` while `c` is live: `c` borrows `g_count`"
 );
 head_of :: (fn(l : &List) -> Option(Node))(l.head);
 comptime_expect_error(
@@ -420,7 +464,7 @@ comptime_expect_error(
     cur = &mut head_of(l2);
     cur = .None;
   }),
-  "is not known to be reached from `cur`"
+  "is not yet admitted"
 );
 comptime_expect_error(
   repoint_keeps_the_mode :: (fn() -> unit)({
@@ -720,23 +764,26 @@ comptime_expect_error({
 // A bare reference whose referent is move-only, read as a whole value: E0926
 // is judged before the read's consumer, and `r.*` is right where the value is
 // only read (an operand) but E0901 where it would be copied (a by-value
-// parameter, a `:=` binding), so the help names both; `r.*` copied anyway is
-// E0901 naming the dereference
+// parameter), so the help names both; `r.*` copied anyway is E0901 naming the
+// dereference
 // (issues/fixed/2026-11-05-migrate-deref-copies-a-move-only-referent-into-a-by-value-parameter.md).
+// An unannotated `x := r` is not such a copy: it binds the reference
+// (VERDICTS-23 R1, VERDICTS-44 PR 3, R-TAIL's reference-binding leaf).
 _take_owned_string :: (fn(s : String) -> usize)(s.len());
 comptime_expect_error({
   _pass_ref_by_value :: (fn(r : &String) -> usize)(_take_owned_string(r));
   s := String.from("a");
   _pass_ref_by_value(&s);
 }, "Where it would be copied — a by-value parameter, a `:=` binding, a return — `String` is move-only, so pass `r` itself to a `&String` parameter, read through it (`r.field`, `r.method()`), or copy it explicitly with `r.*.clone()`. `yo fix --migrate deref` inserts the `.*` at the reads and lists the copies.");
-comptime_expect_error({
-  _bind_ref_whole :: (fn(r : &String) -> usize)({
-    x := r;
-    x.len()
-  });
-  s := String.from("a");
-  _bind_ref_whole(&s);
-}, "write `r.*` where the value is only read in place (an operand such as `r.* == other`).");
+_bind_ref_whole :: (fn(r : &String) -> usize)({
+  x := r;
+  x.len()
+});
+test("`x := r` binds the reference, so a move-only referent is not copied", {
+  s := String.from("ab");
+  assert(_bind_ref_whole(&s) == usize(2), "x reads through r");
+  assert(s.len() == usize(2), "s stays in its place");
+});
 comptime_expect_error(
   (fn(r : &String) -> String)(r.*),
   "pass `r` itself to a `&String` parameter or read through it where the value is used (`r.field`, `r.method()`), or copy it explicitly with `r.*.clone()`"

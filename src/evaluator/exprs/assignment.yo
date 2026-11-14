@@ -99,7 +99,7 @@ pragma(Pragma.AllowUnsafe);
 { type_representation_contains_raw_ptr, type_contains_rc_type, dyn_upcast_note, type_is_control_bound, mark_generic_independent, type_carries_origin, no_origin_position_error, type_is_sized, unsized_by_value_error } :: import("../../types/utils.yo");
 { format_error_message, format_error_message_with_help, format_error_messages, format_error_messages_with_help, TokenAndError, with_code } :: import("../../error.yo");
 { E_VARIABLE_NOT_FOUND, E_WRITE_THROUGH_BORROW, E_COMPTIME_BINDING_RUNTIME_WRITE } :: import("../../diagnostics.yo");
-{ call_promote_index_places_for_write } :: import("../context.yo");
+{ call_promote_index_places_for_write, call_is_index_place } :: import("../context.yo");
 { comptime_numeric_slot_type } :: import("../values/integer.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
 { evaluate_binding, set_defer_generic_fn_type_check } :: import("./binding.yo");
@@ -138,6 +138,10 @@ pragma(Pragma.AllowUnsafe);
   bind_join_roots_for,
   origin_of,
   place_write_join,
+  store_through_mut_join,
+  store_via_mut_reference,
+  store_via_targets,
+  variable_holder_roots,
   deref_chain_atom,
   deref_chain_depth,
   reference_reborrow_chain,
@@ -667,26 +671,46 @@ _is_v2_value_collection_type :: (fn(t : &TypeValue) -> bool)(
 _join_through_mut_self_lend :: (fn(lender : &Variable, rhs : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)(
   match(
     local_borrow_info_of_variable(lender),
-    // `rp`'s referent is the reference itself (`rp : &mut &T`): under the
-    // older reading (std, src) `&mut r` lends the referent, never `r`.
-    .Some(js_info) => if(js_info.is_mut && (js_info.places.len() == usize(1)) && t_slot_is_borrow(&variable_value_type(lender)), {
-      match(
-        js_info.places.get_cloned(usize(0)),
-        .Some(js_place) => if((js_place.steps.len() == usize(0)) && !js_place.through_cell, {
-          match(
-            get_variables_from_env(env, js_place.root_name.clone()).last_cloned(),
-            .Some(js_r) => if(variable_is_reference_binding(&js_r) && js_r.is_ref() && (js_r.name != lender.name), {
-              bind_join(&js_r, rhs, env, ctx, exn);
-            }),
-            .None => ()
-          );
-        }),
-        .None => ()
-      );
+    // A local `&mut` borrow writes what it points to: the target holders'
+    // sets grow (`store_through_mut_join`, A25), a whole reference binding's
+    // is replaced (§7 P3).
+    .Some(js_info) => if(js_info.is_mut, {
+      _ := store_through_mut_join(&variable_holder_roots(lender), &lender.name, rhs, env, ctx, exn);
     }),
     .None => ()
   )
 );
+/// The root binding of an element place `recv(i)` of a type that dispatches
+/// `Index` (an `IndexMut` write): the receiver's own root.
+_index_place_root :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(Variable))(
+  cond(
+    (!ast_expr_is_atom(lhs) && !ast_expr_is_fn_call_of(lhs, BF_DOT, Option(usize).Some(usize(2))) && call_is_index_place(lhs, env, ctx)) => match(
+      lhs,
+      .FnCall(_, ip_callee, _, _, _) => cond(
+        ast_expr_is_atom(&ip_callee) => get_variables_from_env(env, ast_expr_token(&ip_callee).value.*.clone()).last_cloned(),
+        true => _place_root_variable(&ip_callee, env, ctx, true)
+      ),
+      .Atom(_, _) => Option(Variable).None
+    ),
+    true => Option(Variable).None
+  )
+);
+/// The root binding name of the reference expression `via` (no target of a
+/// store through it), or an empty name.
+_via_root_name :: (fn(via : &AstExpr) -> String)({
+  (cur : AstExpr) = via.clone();
+  while(!ast_expr_is_atom(&cur), {
+    cur = match(
+      cur,
+      .FnCall(_, callee, Rc(args), _, _) => cond(
+        ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))) => match(args.get(usize(0)), .Some(a) => a, .None => return(String.new())),
+        true => callee
+      ),
+      .Atom(_, _) => return(String.new())
+    );
+  });
+  ast_expr_token(&cur).value.*.clone()
+});
 /// `rpp.*.* = v` where `rpp := &mut rp` and `rp := &mut r` re-borrow the
 /// reference binding `r` (a chain of k ≥ 2 `.*` over `&mut` re-borrows of
 /// references, `reference_reborrow_chain`): the place written is `r`'s whole
@@ -1938,13 +1962,29 @@ evaluate_assignment :: (
     // §5): the root holder's flow set grows by the value's origin, or the
     // written place's spelled origins check the subset (`place_write_join`).
     if(ctx.is_evaluating_function_body_or_async_block.is_some() && type_carries_origin(&prop_rhs_info.ty()), {
-      match(
-        _place_root_variable(&evaluated_lhs, &env, ctx, true),
-        .Some(pj_root) => if(!pj_root.is_module_level() && !pj_root.is_compile_time_only(), {
-          place_write_join(&pj_root, &prop_rhs, &env, ctx, exn);
-        }),
-        .None => ()
+      // A store through a `&mut` (a local borrow, a reference field, a
+      // projection's result) grows the set of the place it points into
+      // (A25, A11; `store_through_mut_join`).
+      // A re-borrow chain `rpp.*.* = v` is `_join_through_reborrow_chain`'s.
+      through := cond(
+        (deref_chain_depth(&evaluated_lhs) >= usize(2)) => false,
+        true => match(
+          store_via_mut_reference(&evaluated_lhs, &env, ctx),
+          .Some(via) => store_through_mut_join(&store_via_targets(&via, &env, ctx), &_via_root_name(&via), &prop_rhs, &env, ctx, exn),
+          .None => false
+        )
       );
+      if(!through, {
+        match(
+          // An element of a user `IndexMut` type (`s(i) = v`) lies in the
+          // receiver, which `index_mut` lends `&mut` (A11).
+          match(_place_root_variable(&evaluated_lhs, &env, ctx, true), .Some(pr) => Option(Variable).Some(pr), .None => _index_place_root(&evaluated_lhs, &env, ctx)),
+          .Some(pj_root) => if(!pj_root.is_module_level() && !pj_root.is_compile_time_only(), {
+            place_write_join(&pj_root, &prop_rhs, &env, ctx, exn);
+          }),
+          .None => ()
+        );
+      });
     });
     // A store through a `&mut` re-borrow chain (`rpp.*.* = v`, `rpp := &mut
     // rp`, `rp := &mut r`): the place is `r`'s whole value
@@ -2452,8 +2492,13 @@ Bound type: ${type_to_string(&variable_value_type(&mcb_v))}`
   );
   check_capture_freeze_access(&variable, true, ast_expr_token(&lhs_resolved), &env, ctx, exn);
   // An implicit capture is written only where the closure owns its record
-  // and is `FnMut`/`FnOnce` (audit A46, E0913).
-  reject_implicit_capture_write(&variable, ast_expr_token(&lhs_resolved), &String.from("assign to"), &env, ctx, exn);
+  // and is `FnMut`/`FnOnce` (audit A46, E0913). A binding declared without a
+  // value (`x : i32;`) holds nothing to copy or release: assigning it is its
+  // initialization, which the gate below judges ("defined outside the
+  // function body"; issues/fixed/2026-11-14-an-uninitialized-binding-assigned-in-a-closure-reports-e0913-instead-of-the-initialization-error.md).
+  if(variable.initialized_at_token().is_some(), {
+    reject_implicit_capture_write(&variable, ast_expr_token(&lhs_resolved), &String.from("assign to"), &env, ctx, exn);
+  });
   // Check reassignability. A pattern or destructuring binding is immutable
   // unless declared `mut(name)` there (decision 47): E0917 names the marker.
   if(!variable.is_reassignable() && !variable.is_parameter() && !variable.is_implicit(), {

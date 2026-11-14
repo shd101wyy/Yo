@@ -141,6 +141,10 @@ qualified-method-store-widen-named-holder	O-6, §5 call row: a qualified method 
 fn-value-store-widen-named-holder	O-6, §5 call row: a local bound to a fn value remembers its definition	neg	N1	ORIGIN_MISMATCH	E0923|outside `a`
 bare-reference-store-widen	O-6 G-E, a reference binding passed bare to a store	neg	N1	ORIGIN_MISMATCH	accept
 impl-origin-name-collides-with-local	O-6, #1846 impl origin vs a caller local of the same name	pos	N1	ACCEPT	-|the projection borrows no argument
+block-tail-projection	P2, R-TAIL (VERDICTS-41 Q1)	pos	N1	ACCEPT	accept
+block-tail-projection-local	P2, R-TAIL, a block-local root is E0911 (VERDICTS-41 Q1 item 3)	neg	N1	E0911	E0911|Cannot end this block while its result borrows `w`
+cond-arm-projection-join	P2, R-TAIL, the join over arm projections (decision 38 A)	neg	N1	E0911	E0911|`z` borrows `y` with `&` and is still live
+cond-arm-projection-read	P2, R-TAIL, the control of cond-arm-projection-join	pos	N1	ACCEPT	accept
 ref-mut-ref-store-narrower	O-6 (d), O3-3 flow write-back through `&mut &(T, p)`	neg	N1	E0911	E0911|Cannot store a reference to `inner` in `r` here
 ref-mut-ref-store-narrower-declared	O-6 (d), O3-3 step 2 through `&mut &(T, p)`	neg	N1	ORIGIN_MISMATCH	E0923|`&inner` carries origin `inner`, outside `outer`
 ref-mut-ref-store-same-scope	O-6 (d), a widened `r` within one scope	pos	N1	ACCEPT	accept
@@ -150,3 +154,11 @@ ref-mut-ref-store-chain3	O-6 (d) at depth 3, the write-back follows the `&mut` r
 ref-mut-ref-store-reborrow-read-through	O-6 (d), the re-borrow names the same invariant origin	neg	N1	E0911	E0911|Cannot store a reference to `inner` in `rp` here
 ref-mut-ref-store-chain2-same-scope	O-6 (d) at depth 2, a widened `r` within one scope	pos	N1	ACCEPT	accept
 closure-mut-capture-last-use	decision 18 last use; VERDICTS-59 decision 12 (C14)	pos	N2	ACCEPT	E0910|the borrow lasts until `bump`'s scope ends
+holder-assigned-in-both-arms-then-first-root-written	cluster 4, BCC §3 bind / R-ARM: the join over both arms (audit A18)	neg	N1	E0911	E0911|Cannot write `x` here: `h` borrows `x`
+loop-store-body-local-read-next	cluster 4, BCC §3 bind: the loop back edge carries a body local (audit A19a)	neg	N1	E0911	E0911|is declared inside the loop, so each iteration drops it
+loop-store-body-local-read-same	cluster 4, the loop back edge: re-pointed outward before the back edge (A19a control)	pos	N1	ACCEPT	accept
+loop-join-option-slot	cluster 4, BCC §3 bind: a write before the lend, reached over the back edge (audit A19b)	neg	N1	E0911	E0911|Cannot write `x` here: `h` borrows `x`
+loop-join-option-slot-after	cluster 4, the loop back edge: the carried loan is dead at the write (A19b control)	pos	N1	ACCEPT	accept
+repoint-unrelated-then-use	P1, BCC §4: a re-point to an unrelated place joins cur's flow set	neg	N1	E0911	E0911|Cannot store a reference to `y` in `cur` here
+repoint-unrelated-control	P1, BCC §4: the unrelated place outlives every read of cur	pos	N1	ACCEPT	accept
+repoint-through-rc	P1, BCC §4 / decision 25: an unrelated re-point through an Rc pins the cell	pos	N1	ACCEPT	accept
