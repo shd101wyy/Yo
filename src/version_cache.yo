@@ -707,7 +707,7 @@ download_version :: (
       msg := `Yo v${owned_version} has no ${bundle_name}.tar.gz release asset.`;
       msg.push_string(String.from("\nRun `yo version list --remote` to see the published releases, or check "));
       msg.push_string(`https://github.com/${_github_repo()}/releases`);
-      e.exn.throw(dyn(msg));
+      e.exn.throw(dyn(Box.new(msg)));
     });
     if(code >= i64(400), {
       e.io.await(_cleanup_failed_download(&version_dir, tmp_dir.path(), e.io, e.exn), e);

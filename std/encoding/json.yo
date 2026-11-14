@@ -1214,15 +1214,15 @@ parse_string :: (fn(s : &String) -> Result(JsonValue, JsonError))(
 /// `parse_bytes` as an effect, for callers already inside an effect
 /// scope. Same for the two below.
 parse_bytes_exn :: (fn(bytes : &ArrayList(u8), exn : Exception) -> JsonValue)(
-  match(parse_bytes(bytes), .Ok(v) => v, .Err(e) => exn.throw(dyn(e)))
+  match(parse_bytes(bytes), .Ok(v) => v, .Err(e) => exn.throw(dyn(Box.new(e))))
 );
 /// `parse` as an effect.
 parse_exn :: (fn(s : str, exn : Exception) -> JsonValue)(
-  match(parse(s), .Ok(v) => v, .Err(e) => exn.throw(dyn(e)))
+  match(parse(s), .Ok(v) => v, .Err(e) => exn.throw(dyn(Box.new(e))))
 );
 /// `parse_string` as an effect.
 parse_string_exn :: (fn(s : &String, exn : Exception) -> JsonValue)(
-  match(parse_string(s), .Ok(v) => v, .Err(e) => exn.throw(dyn(e)))
+  match(parse_string(s), .Ok(v) => v, .Err(e) => exn.throw(dyn(Box.new(e))))
 );
 export(
   parse,

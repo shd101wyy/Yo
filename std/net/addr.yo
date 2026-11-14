@@ -86,10 +86,10 @@ impl(
           // '.' separator
           cond(
             (part_idx >= usize(3)) => {
-              exn.throw(dyn(NetError.Other(String.from("invalid IPv4 address"))));
+              exn.throw(dyn(Box.new(NetError.Other(String.from("invalid IPv4 address")))));
             },
             (digits == usize(0)) => {
-              exn.throw(dyn(NetError.Other(String.from("empty IPv4 octet"))));
+              exn.throw(dyn(Box.new(NetError.Other(String.from("empty IPv4 octet")))));
             },
             true => ()
           );
@@ -103,7 +103,7 @@ impl(
           // only at the separator, so `4294967297.0.0.0` wrapped to 1.0.0.0.
           cond(
             ((digits > usize(0)) && (val == u32(0))) => {
-              exn.throw(dyn(NetError.Other(String.from("leading zero in IPv4 octet"))));
+              exn.throw(dyn(Box.new(NetError.Other(String.from("leading zero in IPv4 octet")))));
             },
             true => ()
           );
@@ -111,23 +111,23 @@ impl(
           digits = (digits + usize(1));
           cond(
             (val > u32(255)) => {
-              exn.throw(dyn(NetError.Other(String.from("IPv4 octet out of range"))));
+              exn.throw(dyn(Box.new(NetError.Other(String.from("IPv4 octet out of range")))));
             },
             true => ()
           );
         },
         true => {
-          exn.throw(dyn(NetError.Other(String.from("invalid character in IPv4 address"))));
+          exn.throw(dyn(Box.new(NetError.Other(String.from("invalid character in IPv4 address")))));
         }
       );
       i = (i + usize(1));
     });
     cond(
       (part_idx != usize(3)) => {
-        exn.throw(dyn(NetError.Other(String.from("invalid IPv4 address"))));
+        exn.throw(dyn(Box.new(NetError.Other(String.from("invalid IPv4 address")))));
       },
       (digits == usize(0)) => {
-        exn.throw(dyn(NetError.Other(String.from("empty IPv4 octet"))));
+        exn.throw(dyn(Box.new(NetError.Other(String.from("empty IPv4 octet")))));
       },
       true => ()
     );
@@ -155,7 +155,7 @@ impl(
     n := bytes.len();
     cond(
       (n == usize(0)) => {
-        exn.throw(dyn(NetError.Other(String.from("empty IPv6 address"))));
+        exn.throw(dyn(Box.new(NetError.Other(String.from("empty IPv6 address")))));
       },
       true => ()
     );
@@ -194,7 +194,7 @@ impl(
                     seen_double => {
                       cond(
                         (tail_len >= usize(8)) => {
-                          exn.throw(dyn(NetError.Other(String.from("too many groups in IPv6 address"))));
+                          exn.throw(dyn(Box.new(NetError.Other(String.from("too many groups in IPv6 address")))));
                         },
                         true => ()
                       );
@@ -204,7 +204,7 @@ impl(
                     true => {
                       cond(
                         (head_len >= usize(8)) => {
-                          exn.throw(dyn(NetError.Other(String.from("too many groups in IPv6 address"))));
+                          exn.throw(dyn(Box.new(NetError.Other(String.from("too many groups in IPv6 address")))));
                         },
                         true => ()
                       );
@@ -219,7 +219,7 @@ impl(
               );
               cond(
                 seen_double => {
-                  exn.throw(dyn(NetError.Other(String.from("IPv6 address may contain only one '::'"))));
+                  exn.throw(dyn(Box.new(NetError.Other(String.from("IPv6 address may contain only one '::'")))));
                 },
                 true => ()
               );
@@ -228,7 +228,7 @@ impl(
               // A THIRD colon is not part of the compression run.
               cond(
                 ((i < n) && (bytes.byte_at(i) == _ASCII_COLON)) => {
-                  exn.throw(dyn(NetError.Other(String.from("empty group in IPv6 address"))));
+                  exn.throw(dyn(Box.new(NetError.Other(String.from("empty group in IPv6 address")))));
                 },
                 true => ()
               );
@@ -238,10 +238,10 @@ impl(
             (acc_digits == usize(0)) => {
               cond(
                 (i == usize(0)) => {
-                  exn.throw(dyn(NetError.Other(String.from("IPv6 address may not start with a single ':'"))));
+                  exn.throw(dyn(Box.new(NetError.Other(String.from("IPv6 address may not start with a single ':'")))));
                 },
                 true => {
-                  exn.throw(dyn(NetError.Other(String.from("empty group in IPv6 address"))));
+                  exn.throw(dyn(Box.new(NetError.Other(String.from("empty group in IPv6 address")))));
                 }
               );
             },
@@ -250,7 +250,7 @@ impl(
                 seen_double => {
                   cond(
                     (tail_len >= usize(8)) => {
-                      exn.throw(dyn(NetError.Other(String.from("too many groups in IPv6 address"))));
+                      exn.throw(dyn(Box.new(NetError.Other(String.from("too many groups in IPv6 address")))));
                     },
                     true => ()
                   );
@@ -260,7 +260,7 @@ impl(
                 true => {
                   cond(
                     (head_len >= usize(8)) => {
-                      exn.throw(dyn(NetError.Other(String.from("too many groups in IPv6 address"))));
+                      exn.throw(dyn(Box.new(NetError.Other(String.from("too many groups in IPv6 address")))));
                     },
                     true => ()
                   );
@@ -280,7 +280,7 @@ impl(
           // to the end of the string is the IPv4 part.
           cond(
             (acc_digits == usize(0)) => {
-              exn.throw(dyn(NetError.Other(String.from("malformed embedded IPv4 in IPv6 address"))));
+              exn.throw(dyn(Box.new(NetError.Other(String.from("malformed embedded IPv4 in IPv6 address")))));
             },
             true => ()
           );
@@ -293,7 +293,7 @@ impl(
                 seen_double => {
                   cond(
                     (tail_len > usize(6)) => {
-                      exn.throw(dyn(NetError.Other(String.from("too many groups in IPv6 address"))));
+                      exn.throw(dyn(Box.new(NetError.Other(String.from("too many groups in IPv6 address")))));
                     },
                     true => ()
                   );
@@ -304,7 +304,7 @@ impl(
                 true => {
                   cond(
                     (head_len > usize(6)) => {
-                      exn.throw(dyn(NetError.Other(String.from("too many groups in IPv6 address"))));
+                      exn.throw(dyn(Box.new(NetError.Other(String.from("too many groups in IPv6 address")))));
                     },
                     true => ()
                   );
@@ -327,7 +327,7 @@ impl(
             .Some(d) => {
               cond(
                 (acc_digits >= usize(4)) => {
-                  exn.throw(dyn(NetError.Other(String.from("IPv6 group has more than 4 hex digits"))));
+                  exn.throw(dyn(Box.new(NetError.Other(String.from("IPv6 group has more than 4 hex digits")))));
                 },
                 true => ()
               );
@@ -336,7 +336,7 @@ impl(
               i = (i + usize(1));
             },
             .None => {
-              exn.throw(dyn(NetError.Other(String.from("invalid character in IPv6 address"))));
+              exn.throw(dyn(Box.new(NetError.Other(String.from("invalid character in IPv6 address")))));
             }
           )
       );
@@ -348,7 +348,7 @@ impl(
           seen_double => {
             cond(
               (tail_len >= usize(8)) => {
-                exn.throw(dyn(NetError.Other(String.from("too many groups in IPv6 address"))));
+                exn.throw(dyn(Box.new(NetError.Other(String.from("too many groups in IPv6 address")))));
               },
               true => ()
             );
@@ -358,7 +358,7 @@ impl(
           true => {
             cond(
               (head_len >= usize(8)) => {
-                exn.throw(dyn(NetError.Other(String.from("too many groups in IPv6 address"))));
+                exn.throw(dyn(Box.new(NetError.Other(String.from("too many groups in IPv6 address")))));
               },
               true => ()
             );
@@ -372,10 +372,10 @@ impl(
       ((n > usize(0)) && (bytes.byte_at(n - usize(1)) == _ASCII_COLON)) => {
         cond(
           !seen_double => {
-            exn.throw(dyn(NetError.Other(String.from("IPv6 address may not end with a single ':'"))));
+            exn.throw(dyn(Box.new(NetError.Other(String.from("IPv6 address may not end with a single ':'")))));
           },
           ((n >= usize(2)) && (bytes.byte_at(n - usize(2)) != _ASCII_COLON)) => {
-            exn.throw(dyn(NetError.Other(String.from("IPv6 address may not end with a single ':'"))));
+            exn.throw(dyn(Box.new(NetError.Other(String.from("IPv6 address may not end with a single ':'")))));
           },
           true => ()
         );
@@ -386,15 +386,15 @@ impl(
     cond(
       // Without a `::` every one of the eight groups must be written out.
       (!seen_double && (total != usize(8))) => {
-        exn.throw(dyn(NetError.Other(String.from("IPv6 address needs 8 groups or a '::'"))));
+        exn.throw(dyn(Box.new(NetError.Other(String.from("IPv6 address needs 8 groups or a '::'")))));
       },
       (total > usize(8)) => {
-        exn.throw(dyn(NetError.Other(String.from("too many groups in IPv6 address"))));
+        exn.throw(dyn(Box.new(NetError.Other(String.from("too many groups in IPv6 address")))));
       },
       // `::` must stand for at least one zero group, so a compressed form
       // that already spells all eight is wrong (RFC 5952 §4.2.2).
       (seen_double && (total == usize(8))) => {
-        exn.throw(dyn(NetError.Other(String.from("'::' in an IPv6 address that already has 8 groups"))));
+        exn.throw(dyn(Box.new(NetError.Other(String.from("'::' in an IPv6 address that already has 8 groups")))));
       },
       true => ()
     );
@@ -788,7 +788,7 @@ export(IpAddr);
 _parse_port :: (fn(s : &String, exn : Exception) -> u16)({
   cond(
     s.is_empty() => {
-      exn.throw(dyn(NetError.Other(String.from("empty port in socket address"))));
+      exn.throw(dyn(Box.new(NetError.Other(String.from("empty port in socket address")))));
     },
     true => ()
   );
@@ -799,14 +799,14 @@ _parse_port :: (fn(s : &String, exn : Exception) -> u16)({
     b := bytes.byte_at(i);
     cond(
       ((b < _ASCII_ZERO) || (b > _ASCII_NINE)) => {
-        exn.throw(dyn(NetError.Other(String.from("port is not a number"))));
+        exn.throw(dyn(Box.new(NetError.Other(String.from("port is not a number")))));
       },
       true => ()
     );
     v = ((v * u32(10)) + u32(b - _ASCII_ZERO));
     cond(
       (v > u32(65535)) => {
-        exn.throw(dyn(NetError.Other(String.from("port is above 65535"))));
+        exn.throw(dyn(Box.new(NetError.Other(String.from("port is above 65535")))));
       },
       true => ()
     );
@@ -856,7 +856,7 @@ impl(
             rest := s.substring(close + usize(1), s.len());
             cond(
               !rest.starts_with(`:`) => {
-                exn.throw(dyn(NetError.Other(String.from("expected ':port' after the bracketed host"))));
+                exn.throw(dyn(Box.new(NetError.Other(String.from("expected ':port' after the bracketed host")))));
               },
               true => ()
             );
@@ -875,7 +875,7 @@ impl(
             // A second colon means a bare V6 host, which must be bracketed.
             cond(
               host.contains(`:`) => {
-                exn.throw(dyn(NetError.Other(String.from("an IPv6 host must be bracketed, as in [::1]:80"))));
+                exn.throw(dyn(Box.new(NetError.Other(String.from("an IPv6 host must be bracketed, as in [::1]:80")))));
               },
               true => ()
             );
@@ -884,7 +884,7 @@ impl(
               port : _parse_port(s.substring(colon + usize(1), s.len()), exn)
             )
           },
-          .None => exn.throw(dyn(NetError.Other(String.from("socket address needs a ':port'"))))
+          .None => exn.throw(dyn(Box.new(NetError.Other(String.from("socket address needs a ':port'")))))
         )
     )
   )

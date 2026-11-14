@@ -2874,7 +2874,7 @@ _report_hollow_async_body :: (fn(body_expr : &AstExpr, via_fsm : bool) -> unit)(
       if(hb.diagnostics.len() > usize(0), {
         codegen_report_error(dyn(yo_error_from_diagnostics(&hb.diagnostics)));
       }, {
-        codegen_report_error(dyn(hb.message.clone()));
+        codegen_report_error(dyn(Box.new(hb.message.clone())));
       });
     },
     .None => codegen_user_error(&tok, _hollow_async_body_message(body_expr, via_fsm))

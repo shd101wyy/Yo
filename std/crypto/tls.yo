@@ -125,7 +125,7 @@ _ssl_err_string :: (fn() -> String)({
   String.from_cstr(buf.ptr().unwrap()).unwrap_or(`unknown TLS error`.to_string())
 });
 _throw_tls :: (fn(err : &TlsError, exn : Exception) -> unit)(
-  exn.throw(dyn(err.clone()))
+  exn.throw(dyn(Box.new(err.clone())))
 );
 /// The socket and the OpenSSL objects behind a `TlsStream`'s `Box`. Its
 /// `Drop` releases both unless `close`/`close_sync` already did: a
@@ -234,7 +234,7 @@ impl(
       tcp := e.io.await(TcpStream.connect(addr, e.io), e);
       // 2. Backend objects (verify + trust store + SNI + hostname pin are
       // configured inside __yo_tls_ssl_new).
-      host_c := match(host_owned.to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
+      host_c := match(host_owned.to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(Box.new(IoError.InvalidInput))));
       ctx_opt := unsafe(__yo_tls_ctx_new());
       if(ctx_opt.is_none(), {
         _throw_tls(TlsError.Handshake(detail : _ssl_err_string()), e.exn);

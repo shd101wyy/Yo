@@ -444,7 +444,7 @@ _spawn_with_fds :: (
   unsafe(fflush(.Some(stdout)));
   io.async(e => {
     if(has_interior_nul, {
-      e.exn.throw(dyn(IoError.InvalidInput));
+      e.exn.throw(dyn(Box.new(IoError.InvalidInput)));
     });
     argc := storage.len();
     // Allocate argv buffer: argc entries + 1 null terminator.
@@ -553,7 +553,7 @@ _drain_fd :: (fn(fd : i32, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
       cond(
         (n < i32(0)) => {
           free(.Some((*void)(buf)));
-          e.exn.throw(dyn(IoError.from_errno(i32(0) - n)));
+          e.exn.throw(dyn(Box.new(IoError.from_errno(i32(0) - n))));
         },
         (n == i32(0)) => break,
         true => {
@@ -611,7 +611,7 @@ impl(
         (pr2 < i32(0)) => {
           e.io.await(IO_file.close(out_read), e.io);
           e.io.await(IO_file.close(out_write), e.io);
-          e.exn.throw(dyn(IoError.from_errno(i32(0) - pr2)));
+          e.exn.throw(dyn(Box.new(IoError.from_errno(i32(0) - pr2))));
         },
         true => ()
       );
@@ -644,7 +644,7 @@ impl(
           // The drain task unwound: its IoError already went to `e.exn`
           // (a throw inside a spawned task reaches the enclosing handlers);
           // if that handler resumed, report the pipe as unreadable here.
-          e.exn.throw(dyn(IoError.from_errno(i32(5))));
+          e.exn.throw(dyn(Box.new(IoError.from_errno(i32(5)))));
           ArrayList(u8).new()
         }
       );
@@ -943,7 +943,7 @@ impl(
         self._cell._stdin_fd,
         .Some(f) => f,
         .None => {
-          e.exn.throw(dyn(IoError.BadFileDescriptor));
+          e.exn.throw(dyn(Box.new(IoError.BadFileDescriptor)));
           i32(-1)
         }
       );
@@ -974,7 +974,7 @@ impl(
         self._cell._stdout_fd,
         .Some(f) => f,
         .None => {
-          e.exn.throw(dyn(IoError.BadFileDescriptor));
+          e.exn.throw(dyn(Box.new(IoError.BadFileDescriptor)));
           i32(-1)
         }
       );
@@ -989,7 +989,7 @@ impl(
         self._cell._stderr_fd,
         .Some(f) => f,
         .None => {
-          e.exn.throw(dyn(IoError.BadFileDescriptor));
+          e.exn.throw(dyn(Box.new(IoError.BadFileDescriptor)));
           i32(-1)
         }
       );

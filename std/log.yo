@@ -148,7 +148,7 @@ mut(_global_timestamps) := false;
 /// A `RefCell` rather than a `mut` global: a `mut` global holding a `Dyn` can
 /// be neither lent nor copied (decisions 7 and 18). `_log_mutex` serialises
 /// every access, so the cell's borrow flag is never contended.
-(_global_sink : RefCell(?Dyn(Sink))) = RefCell(?Dyn(Sink)).new(Option(Dyn(Sink)).None);
+(_global_sink : RefCell(?Box(Dyn(Sink)))) = RefCell(?Box(Dyn(Sink))).new(Option(Box(Dyn(Sink))).None);
 _log_mutex := __yo_mutex_create();
 // ============================================================================
 // Configuration
@@ -188,15 +188,15 @@ set_timestamps :: (fn(on : bool) -> unit)({
 /// `set_output` and `set_timestamps` stop having any effect while a sink is
 /// installed — rendering is the sink's job. The LEVEL filter still applies, so
 /// a sink never sees a record the configuration suppressed.
-set_sink :: (fn(sink : Dyn(Sink)) -> unit)({
+set_sink :: (fn(sink : Box(Dyn(Sink))) -> unit)({
   unsafe(__yo_mutex_lock(addr_of(_log_mutex)));
-  _global_sink.replace(Option(Dyn(Sink)).Some(sink));
+  _global_sink.replace(Option(Box(Dyn(Sink))).Some(sink));
   unsafe(__yo_mutex_unlock(addr_of(_log_mutex)));
 });
 /// Go back to writing to stdout/stderr.
 clear_sink :: (fn() -> unit)({
   unsafe(__yo_mutex_lock(addr_of(_log_mutex)));
-  _global_sink.replace(Option(Dyn(Sink)).None);
+  _global_sink.replace(Option(Box(Dyn(Sink))).None);
   unsafe(__yo_mutex_unlock(addr_of(_log_mutex)));
 });
 export(set_sink, clear_sink);

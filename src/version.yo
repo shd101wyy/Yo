@@ -178,7 +178,7 @@ read_yo_version :: (
         content := e.io.await(read_to_string(&path, e.io), e);
         match(
           parse_yo_version(&content),
-          .Err(msg) => e.exn.throw(dyn(msg)),
+          .Err(msg) => e.exn.throw(dyn(Box.new(msg))),
           .Ok(version) => .Some(version)
         )
       }

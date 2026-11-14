@@ -5571,7 +5571,7 @@ evaluate_module_value :: (
               c2_pf.state,
               .Done => (),
               .Failed => {
-                exn.throw(dyn(match(&c2_pf.failure, .Some(m) => m.clone(), .None => String.from("impl member failed"))));
+                exn.throw(dyn(Box.new(match(&c2_pf.failure, .Some(m) => m.clone(), .None => String.from("impl member failed")))));
               },
               .Forcing => {
                 exn.throw(dyn(format_error_message(ast_expr_token(&mf_expr), `internal error: impl member "${c2_pf.label}" reached by the field loop while it is being forced`)));
@@ -5672,7 +5672,7 @@ evaluate_module_value :: (
                   c2_ipf.state,
                   .Done => (),
                   .Failed => {
-                    exn.throw(dyn(match(&c2_ipf.failure, .Some(m) => m.clone(), .None => String.from("impl member failed"))));
+                    exn.throw(dyn(Box.new(match(&c2_ipf.failure, .Some(m) => m.clone(), .None => String.from("impl member failed")))));
                   },
                   .Forcing => {
                     exn.throw(dyn(format_error_message(ast_expr_token(&inner_e2), `internal error: impl member "${c2_ipf.label}" reached by the field loop while it is being forced`)));
@@ -6331,7 +6331,7 @@ evaluate_module_value :: (
                   c3_pf.state,
                   .Done => (),
                   .Failed => {
-                    exn.throw(dyn(match(&c3_pf.failure, .Some(m) => m.clone(), .None => String.from("impl member failed"))));
+                    exn.throw(dyn(Box.new(match(&c3_pf.failure, .Some(m) => m.clone(), .None => String.from("impl member failed")))));
                   },
                   .Forcing => {
                     exn.throw(dyn(format_error_message(ast_expr_token(&meth_expr), `internal error: impl member "${c3_pf.label}" reached by the field loop while it is being forced`)));

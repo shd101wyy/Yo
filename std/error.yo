@@ -42,7 +42,7 @@ Error :: trait(
   /// `issues/fixed/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md`).
   /// The result is an `AnyError` (it lists `Clone`): the wrapper keeps its
   /// cause and hands back a clone.
-  (source : (fn(self : &Self) -> Option(Dyn(SelfTrait, Clone)))) ?= (self -> .None),
+  (source : (fn(self : &Self) -> Option(Box(Dyn(SelfTrait, Clone))))) ?= (self -> .None),
   where(Self <: ToString)
 );
 export(Error);
@@ -60,7 +60,7 @@ export(Error);
 /// (decision 43 step 3) `AnyError` becomes a move-only `Dyn(Error)` and
 /// `Error.source` returns a borrow. Until then a payload must be `Clone`;
 /// `derive(MyError, Clone)` gives it one.
-AnyError :: Dyn(Error, Clone);
+AnyError :: Box(Dyn(Error, Clone));
 export(AnyError);
 /// Allows using `String` directly as an error type.
 impl(String, Error());

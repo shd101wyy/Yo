@@ -1524,7 +1524,7 @@ resolve_and_fetch :: (
       changed = progressed;
     });
     if(changed, {
-      e.exn.throw(dyn(String.from("Error: dependency resolution did not converge after 64 rounds — two dependencies keep moving each other's version; pin one with tag = \"…\".")));
+      e.exn.throw(dyn(Box.new(String.from("Error: dependency resolution did not converge after 64 rounds — two dependencies keep moving each other's version; pin one with tag = \"…\"."))));
     });
     new_lock := _build_lock(&state);
     unchanged := lock_files_equal(&read.lock, &new_lock);

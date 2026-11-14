@@ -538,7 +538,7 @@ _prepare :: (fn(url_str : &String, opts : &FetchOptions, keep_alive : bool, exn 
   cond(
     (is_http || is_https) => (),
     true => {
-      exn.throw(dyn(HttpError.UnsupportedScheme(scheme.clone())));
+      exn.throw(dyn(Box.new(HttpError.UnsupportedScheme(scheme.clone()))));
     }
   );
   host := match(
@@ -747,7 +747,7 @@ _fetch_once :: (
       cond(
         framing_err.is_some() => {
           conn.close_sync();
-          e.exn.throw(dyn(framing_err.unwrap()));
+          e.exn.throw(dyn(Box.new(framing_err.unwrap())));
         },
         true => ()
       );
@@ -781,7 +781,7 @@ _fetch_once :: (
             .Ok(r) => r,
             .Err(err) => {
               conn.close_sync();
-              e.exn.throw(dyn(HttpError.Other(err.to_string())));
+              e.exn.throw(dyn(Box.new(HttpError.Other(err.to_string()))));
               HttpResponse.new(StatusCode.OK(), ``) // unreachable
             }
           );
@@ -890,7 +890,7 @@ _fetch_follow :: (
         follow => {
           cond(
             (hops >= max_redirects) => {
-              e.exn.throw(dyn(HttpError.TooManyRedirects));
+              e.exn.throw(dyn(Box.new(HttpError.TooManyRedirects)));
             },
             true => ()
           );
@@ -994,7 +994,7 @@ _fetch_deadline :: (
             result = resp;
           },
           .Elapsed => {
-            e.exn.throw(dyn(HttpError.Timeout));
+            e.exn.throw(dyn(Box.new(HttpError.Timeout)));
           },
           .Aborted => {
             e.exn.throw(dyn(HttpError.Other(`request task was aborted`)));

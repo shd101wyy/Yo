@@ -136,7 +136,7 @@ impl(
       cond(
         (result < i32(0)) => {
           free(.Some((*void)(buf)));
-          e.exn.throw(dyn(IoError.from_errno(i32(0) - result)));
+          e.exn.throw(dyn(Box.new(IoError.from_errno(i32(0) - result))));
         },
         true => ()
       );
@@ -262,7 +262,7 @@ impl(
       cond(
         (fd < i32(0)) => {
           free(.Some((*void)(buf)));
-          e.exn.throw(dyn(IoError.from_errno(i32(0) - fd)));
+          e.exn.throw(dyn(Box.new(IoError.from_errno(i32(0) - fd))));
         },
         true => ()
       );

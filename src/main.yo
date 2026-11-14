@@ -2922,7 +2922,7 @@ run_verify_cmd :: (
     );
   });
   if(!harness_ok, {
-    exn.throw(dyn(String.from("verify: solver harness self-test failed")));
+    exn.throw(dyn(Box.new(String.from("verify: solver harness self-test failed"))));
   });
   if(bad > usize(0), {
     exn.throw(
@@ -4354,7 +4354,7 @@ _cc_plan_parse :: (fn(text : &String, exn : Exception) -> CcPlan)({
   plan := _new_cc_plan(_CC_PLAN_EXE, String.new(), String.new(), String.new());
   lines := text.split(String.from("\n"));
   if(match(lines.get_cloned(usize(0)), .Some(l) => (l != "yo-cc-plan 1"), .None => true), {
-    exn.throw(dyn(String.from("compile: not a yo-cc-plan 1 file")));
+    exn.throw(dyn(Box.new(String.from("compile: not a yo-cc-plan 1 file"))));
   });
   (li : usize) = usize(1);
   while(li < lines.len(), {
@@ -4840,7 +4840,7 @@ run_cc_plan_cmd :: (fn(argv : &ArrayList(String), io : Io, exn : Exception) -> u
     argv.get_cloned(usize(2)),
     .Some(p) => p,
     .None => {
-      exn.throw(dyn(String.from("compile: __cc-plan needs a plan file")));
+      exn.throw(dyn(Box.new(String.from("compile: __cc-plan needs a plan file"))));
       String.new()
     }
   );
@@ -5177,7 +5177,7 @@ run_compile :: (
         // Removed 2026-08-28: it was a pure alias of `--optimize 2` (no
         // profile, no NDEBUG, no warning difference). Say so instead of
         // failing as an unknown flag.
-        exn.throw(dyn(String.from("compile: --release was removed; use --optimize 2 (it was exactly that)")));
+        exn.throw(dyn(Box.new(String.from("compile: --release was removed; use --optimize 2 (it was exactly that)"))));
       },
       (a == "--line-directives") => {
         line_directives = true;
@@ -5277,7 +5277,7 @@ run_compile :: (
   // let a build believe it has a bounded heap while it runs on libc malloc.
   if(heap_size_raw.len() > usize(0), {
     if(allocator != "fixed", {
-      exn.throw(dyn(String.from("compile: --heap-size requires --allocator fixed")));
+      exn.throw(dyn(Box.new(String.from("compile: --heap-size requires --allocator fixed"))));
     });
     match(
       _parse_heap_size(heap_size_raw.clone()),
@@ -5290,7 +5290,7 @@ run_compile :: (
     );
   });
   if(debug_heap && (allocator != "fixed"), {
-    exn.throw(dyn(String.from("compile: --debug-heap requires --allocator fixed")));
+    exn.throw(dyn(Box.new(String.from("compile: --debug-heap requires --allocator fixed"))));
   });
   // "s" is -Os (optimize for size): clang, gcc, zig cc and emcc all accept
   // it, so unlike a "z" level it needs no per-compiler gate (gcc has no -Oz).
@@ -5307,17 +5307,17 @@ run_compile :: (
   // Chunked emission drives multiple TU inputs through the executable link
   // line; the static-library path compiles ONE input to ONE `.o`.
   if(((emit_chunks >= usize(1)) || emit_chunks_auto) && static_library, {
-    exn.throw(dyn(String.from("compile: --emit-chunks is not supported with --static-library")));
+    exn.throw(dyn(Box.new(String.from("compile: --emit-chunks is not supported with --static-library"))));
   });
   if(static_library && shared_library, {
-    exn.throw(dyn(String.from("compile: --static-library and --shared-library are mutually exclusive")));
+    exn.throw(dyn(Box.new(String.from("compile: --static-library and --shared-library are mutually exclusive"))));
   });
   // Both flags decide what C files get WRITTEN, so the combination is
   // ambiguous rather than merely redundant: `--emit-c-to` names ONE file, and
   // the chunked path writes a header plus N chunks. (`--emit-c`, which only
   // PRINTS the single-file equivalent, stays allowed.)
   if(((emit_chunks >= usize(1)) || emit_chunks_auto) && (emit_c_to.len() > usize(0)), {
-    exn.throw(dyn(String.from("compile: --emit-c-to writes one C file and --emit-chunks writes a header plus N chunks — pass only one")));
+    exn.throw(dyn(Box.new(String.from("compile: --emit-c-to writes one C file and --emit-chunks writes a header plus N chunks — pass only one"))));
   });
   // `--emit-chunks auto` cap (Phase 1): YO_JOBS wins when set to a usable
   // value, else the hardware thread count. A malformed YO_JOBS warns and
@@ -5364,7 +5364,7 @@ run_compile :: (
         cc = found_cc;
       },
       .None => {
-        exn.throw(dyn(String.from("Error: No C compiler found. Please install a C compiler (cc, gcc, clang, or zig) or specify one using the -cc/--c-compiler flag.")));
+        exn.throw(dyn(Box.new(String.from("Error: No C compiler found. Please install a C compiler (cc, gcc, clang, or zig) or specify one using the -cc/--c-compiler flag."))));
       }
     );
   });
@@ -6382,7 +6382,7 @@ _collect_workspace_test_files :: (
     load_manifest(root_path.clone(), exn),
     .Ok(m) => m,
     .Err(msg) => {
-      exn.throw(dyn(msg));
+      exn.throw(dyn(Box.new(msg)));
       return(ArrayList(String).new())
     }
   );
@@ -6654,7 +6654,7 @@ _lost_code_spill_error :: (fn(path : &String, found : &String, expected : usize)
 /// of them (issues/fixed/2026-10-23-concurrent-compiles-of-one-output-share-the-code-spill-file.md).
 _check_code_spill :: (fn(path : &String, expected : usize, io : Io, exn : Exception) -> unit)({
   if(!io.await(exists(Path.new(path), io), io), {
-    exn.throw(dyn(_lost_code_spill_error(path, String.from("is gone"), expected)));
+    exn.throw(dyn(Box.new(_lost_code_spill_error(path, String.from("is gone"), expected))));
   });
   b := IoExn(io : io, exn : exn);
   src := io.await(File.open(Path.new(path), .Read, io), b);
@@ -7344,7 +7344,7 @@ run_test :: (
   });
   if(test_heap_size_raw.len() > usize(0), {
     if(test_allocator != "fixed", {
-      exn.throw(dyn(String.from("test: --heap-size requires --allocator fixed")));
+      exn.throw(dyn(Box.new(String.from("test: --heap-size requires --allocator fixed"))));
     });
     match(
       _parse_heap_size(test_heap_size_raw.clone()),
@@ -7357,7 +7357,7 @@ run_test :: (
     );
   });
   if(test_debug_heap && (test_allocator != "fixed"), {
-    exn.throw(dyn(String.from("test: --debug-heap requires --allocator fixed")));
+    exn.throw(dyn(Box.new(String.from("test: --debug-heap requires --allocator fixed"))));
   });
   // YO_TEST_FORK=N: up to N files at a time in forked workers (see
   // `_TestForkPool`). A worker compiles in process, so the knob turns the
@@ -8515,7 +8515,7 @@ run_effects :: (
     );
   });
   if(target_path.len() == usize(0), {
-    exn.throw(dyn(String.from("effects: missing input file. Usage: yo effects <file-or-dir> [--exclude PATH] [--json]")));
+    exn.throw(dyn(Box.new(String.from("effects: missing input file. Usage: yo effects <file-or-dir> [--exclude PATH] [--json]"))));
   });
   files := collect_check_files(target_path.clone(), &excludes, io, exn);
   if(files.len() == usize(0), {
@@ -8806,7 +8806,7 @@ run_init :: (
     cond(
       (arg == "--name") => {
         if((ai + usize(1)) >= argv.len(), {
-          exn.throw(dyn(String.from("init: --name requires a value")));
+          exn.throw(dyn(Box.new(String.from("init: --name requires a value"))));
         });
         name = Option(String).Some(argv(ai + usize(1)).clone());
         ai = (ai + usize(1));
@@ -9323,28 +9323,28 @@ run_build_cmd :: (
     cond(
       ((arg == "--cc") || (arg == "--c-compiler")) => {
         if((ai + usize(1)) >= argv.len(), {
-          exn.throw(dyn(String.from("build: --cc requires a value")));
+          exn.throw(dyn(Box.new(String.from("build: --cc requires a value"))));
         });
         c_compiler = Option(String).Some(argv(ai + usize(1)).clone());
         ai = (ai + usize(1));
       },
       ((arg == "-t") || (arg == "--target")) => {
         if((ai + usize(1)) >= argv.len(), {
-          exn.throw(dyn(String.from("build: --target requires a value")));
+          exn.throw(dyn(Box.new(String.from("build: --target requires a value"))));
         });
         target_triple = Option(String).Some(argv(ai + usize(1)).clone());
         ai = (ai + usize(1));
       },
       (arg == "--sysroot") => {
         if((ai + usize(1)) >= argv.len(), {
-          exn.throw(dyn(String.from("build: --sysroot requires a value")));
+          exn.throw(dyn(Box.new(String.from("build: --sysroot requires a value"))));
         });
         sysroot = Option(String).Some(argv(ai + usize(1)).clone());
         ai = (ai + usize(1));
       },
       (arg == "--build-file") => {
         if((ai + usize(1)) >= argv.len(), {
-          exn.throw(dyn(String.from("build: --build-file requires a value")));
+          exn.throw(dyn(Box.new(String.from("build: --build-file requires a value"))));
         });
         build_file = argv(ai + usize(1)).clone();
         ai = (ai + usize(1));
@@ -9366,7 +9366,7 @@ run_build_cmd :: (
       },
       ((arg == "-j") || (arg == "--jobs")) => {
         if((ai + usize(1)) >= argv.len(), {
-          exn.throw(dyn(String.from("build: -j requires a value")));
+          exn.throw(dyn(Box.new(String.from("build: -j requires a value"))));
         });
         jobs = _parse_jobs(&argv(ai + usize(1)), exn);
         ai = (ai + usize(1));
@@ -9395,7 +9395,7 @@ run_build_cmd :: (
       // `build.dependency("name")`).
       ((arg == "-p") || (arg == "--package")) => {
         if((ai + usize(1)) >= argv.len(), {
-          exn.throw(dyn(String.from("build: -p requires a workspace member name")));
+          exn.throw(dyn(Box.new(String.from("build: -p requires a workspace member name"))));
         });
         package = Option(String).Some(argv(ai + usize(1)).clone());
         ai = (ai + usize(1));
@@ -9667,7 +9667,7 @@ run_doc_cmd :: (
     cond(
       ((arg == "-o") || (arg == "--output")) => {
         if((ai + usize(1)) >= argv.len(), {
-          exn.throw(dyn(String.from("doc: --output requires a value")));
+          exn.throw(dyn(Box.new(String.from("doc: --output requires a value"))));
         });
         output_dir = argv(ai + usize(1)).clone();
         ai = (ai + usize(1));
@@ -9677,7 +9677,7 @@ run_doc_cmd :: (
       },
       (arg == "--title") => {
         if((ai + usize(1)) >= argv.len(), {
-          exn.throw(dyn(String.from("doc: --title requires a value")));
+          exn.throw(dyn(Box.new(String.from("doc: --title requires a value"))));
         });
         title = argv(ai + usize(1)).clone();
         ai = (ai + usize(1));
@@ -9693,7 +9693,7 @@ run_doc_cmd :: (
       },
       ((arg == "-f") || (arg == "--format")) => {
         if((ai + usize(1)) >= argv.len(), {
-          exn.throw(dyn(String.from("doc: --format requires a value")));
+          exn.throw(dyn(Box.new(String.from("doc: --format requires a value"))));
         });
         format = argv(ai + usize(1)).clone();
         ai = (ai + usize(1));
@@ -9703,7 +9703,7 @@ run_doc_cmd :: (
       },
       (arg == "--version") => {
         if((ai + usize(1)) >= argv.len(), {
-          exn.throw(dyn(String.from("doc: --version requires a value")));
+          exn.throw(dyn(Box.new(String.from("doc: --version requires a value"))));
         });
         version = argv(ai + usize(1)).clone();
         ai = (ai + usize(1));
@@ -9713,7 +9713,7 @@ run_doc_cmd :: (
       },
       (arg == "--logo") => {
         if((ai + usize(1)) >= argv.len(), {
-          exn.throw(dyn(String.from("doc: --logo requires a value")));
+          exn.throw(dyn(Box.new(String.from("doc: --logo requires a value"))));
         });
         logo = argv(ai + usize(1)).clone();
         ai = (ai + usize(1));
@@ -9723,7 +9723,7 @@ run_doc_cmd :: (
       },
       (arg == "--favicon") => {
         if((ai + usize(1)) >= argv.len(), {
-          exn.throw(dyn(String.from("doc: --favicon requires a value")));
+          exn.throw(dyn(Box.new(String.from("doc: --favicon requires a value"))));
         });
         favicon = argv(ai + usize(1)).clone();
         ai = (ai + usize(1));
@@ -9849,7 +9849,7 @@ run_version_cmd :: (
     },
     (action == "install") => {
       if(value == "", {
-        exn.throw(dyn(String.from("Error: Specify a version to install.\nUsage: yo version install <version>")));
+        exn.throw(dyn(Box.new(String.from("Error: Specify a version to install.\nUsage: yo version install <version>"))));
       });
       already := io.await(is_version_cached(value.clone(), io, exn), IoExn(io : io, exn : exn));
       if(already, {

@@ -284,7 +284,7 @@ run_add :: (
       .Ok(p) => p
     );
     if(options.branch.is_some() && options.rev.is_some(), {
-      e.exn.throw(dyn(String.from("Error: --branch and --rev cannot be combined")));
+      e.exn.throw(dyn(Box.new(String.from("Error: --branch and --rev cannot be combined"))));
     });
     // Plain locals for the async body's awaits (each await is a top-level
     // statement below).
@@ -300,7 +300,7 @@ run_add :: (
       .Path(p_name, p_rel_path) => {
         is_path = true;
         if(options.branch.is_some() || options.rev.is_some() || options.subdir.is_some(), {
-          e.exn.throw(dyn(String.from("Error: --branch, --rev and --path apply to git dependencies only")));
+          e.exn.throw(dyn(Box.new(String.from("Error: --branch, --rev and --path apply to git dependencies only"))));
         });
         dep_name = match(&options.name, .Some(n) => n.clone(), .None => p_name.clone());
         // Stored relative to the manifest's directory, however it was typed.
@@ -322,7 +322,7 @@ run_add :: (
           &options.rev,
           .Some(r) => {
             if(g_requirement.is_some(), {
-              e.exn.throw(dyn(String.from("Error: --rev cannot be combined with an @version")));
+              e.exn.throw(dyn(Box.new(String.from("Error: --rev cannot be combined with an @version"))));
             });
             Option(GitRequirement).Some(GitRequirement.Rev(r.clone()))
           },
@@ -330,7 +330,7 @@ run_add :: (
             &options.branch,
             .Some(b) => {
               if(g_requirement.is_some(), {
-                e.exn.throw(dyn(String.from("Error: --branch cannot be combined with an @version")));
+                e.exn.throw(dyn(Box.new(String.from("Error: --branch cannot be combined with an @version"))));
               });
               Option(GitRequirement).Some(GitRequirement.Branch(b.clone()))
             },
@@ -349,7 +349,7 @@ run_add :: (
       }
     );
     if(dep_name.len() == usize(0), {
-      e.exn.throw(dyn(String.from("Error: cannot derive a dependency name from the specifier; pass --name <name>")));
+      e.exn.throw(dyn(Box.new(String.from("Error: cannot derive a dependency name from the specifier; pass --name <name>"))));
     });
     if(!_is_valid_package_name(&dep_name), {
       what := String.from("dependency name");
@@ -651,13 +651,13 @@ run_install :: (
       ni = (ni + usize(1));
     });
     if(options.latest && !options.update, {
-      e.exn.throw(dyn(String.from("Error: --latest belongs to `yo update`")));
+      e.exn.throw(dyn(Box.new(String.from("Error: --latest belongs to `yo update`"))));
     });
     if(options.latest && options.locked, {
-      e.exn.throw(dyn(String.from("Error: --latest edits yo.toml and yo.lock; it cannot be combined with --locked")));
+      e.exn.throw(dyn(Box.new(String.from("Error: --latest edits yo.toml and yo.lock; it cannot be combined with --locked"))));
     });
     if(options.latest && options.offline, {
-      e.exn.throw(dyn(String.from("Error: --latest needs the network; it cannot be combined with --offline")));
+      e.exn.throw(dyn(Box.new(String.from("Error: --latest needs the network; it cannot be combined with --offline"))));
     });
     if(manifest.dependencies.len() == usize(0), {
       println(`No dependencies declared in ${manifest.path}.`);
