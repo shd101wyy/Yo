@@ -14,7 +14,7 @@ borrow of a whole REFERENCE binding (`rp := &mut r; rp.* = ri`); this is the sam
 
 ## Reproducers
 
-`issues/repros/2026-11-11-a-store-through-a-local-mut-borrow-of-a-holder-does-not-widen-the-holders-flow-set.yo`
+`tests/origins/unsound/a25-store-through-local-mut-borrow.yo` (filed under `issues/repros/` with this doc's name, moved with the fix; the `…-` twins below likewise)
 (negative, expects E0911):
 
 ```yo
@@ -94,8 +94,14 @@ its place, so a write through it is a write of that place: `BORROW_CHECKER_COMPL
 place writes. The holder whose set grows is the borrow's lent place's root (`slot`, `h`, `w`, `r`), for a whole-value
 store through the borrow a GEN on that root (the borrow may point at a sub-place, so nothing of the root is killed).
 
+## Fix
+
+Fixed by the cluster-4 branch `fix/c4-flow-join`. A store through a local `&mut` borrow now joins the BORROWED holder, not the borrow (`src/evaluator/utils.yo`, `store_through_mut_join`, `store_via_mut_reference`, `store_via_targets`):
+
+- `p.* = v` with `p := &mut slot` (`_join_through_mut_self_lend`, `exprs/assignment.yo`, now for any local `&mut` borrow): a whole reference-binding target is re-bound (`bind_join`, KILL + GEN); any other target place gets `place_write_join`'s GEN on its root.
+- `p.o = v`, `w.h`-sub-place borrows and `m.rp.* = ri` (a `&mut &T` field read through `reference_field_read_mode`): the assignment's property path walks the receiver chain to the `&mut` it stores through and joins the place that `&mut` borrows. A chain of two or more `.*` steps stays with `_join_through_reborrow_chain` (#1923).
+- The callee form `_store(p, &y)` with `p := &mut slot`: `lend_through`'s flow write-back (`src/evaluator/calls/function.yo`, step 3) also writes the solved origin back into the holder that a `&mut`-borrow argument borrows (`local_mut_borrow_of_holder`, `flow_write_back_through`), composing with #1923's chain walk.
+
 ## Test
 
-With the fix: the four negative programs and the positive control move to `tests/origins/unsound/` beside
-`p3-mut-ref-store-inner.yo`; corpus rows `store-through-local-mut-borrow-of-holder` (E0911) and its `-field` and
-`-subplace` twins.
+`tests/origins/unsound/` (G-B): `a25-store-through-local-mut-borrow`, `-field`, `-subplace`, `-ref-ref-field`, `-callee` (E0911 each) and `-pos`. No corpus row: the corpus model has no `&mut`-to-a-holder value and gives `ORIGIN_MISMATCH` for the shape, so the row would assert a disagreement; G-B carries it.

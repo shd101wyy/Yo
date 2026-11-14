@@ -7,13 +7,13 @@ accepts it too. Writing the same two statements in the other order (lend, then w
 
 Found 2026-11-11 by the ownership / borrowing / origin audit
 (`plans/backlog/OWNERSHIP_BORROWING_ORIGINS_AUDIT.md` §3 A19, part b). Confirmed on develop `64f33c710`. Sibling:
-`issues/2026-11-11-a-reference-to-a-per-iteration-local-stored-in-an-outer-slot-survives-into-the-next-iteration.md`
+`issues/fixed/2026-11-11-a-reference-to-a-per-iteration-local-stored-in-an-outer-slot-survives-into-the-next-iteration.md`
 (A19a, a holder's liveness around the back edge). Both are the missing loop fixpoint; the checks that miss them
 differ, so a fix of one does not fix the other.
 
 ## Reproducers
 
-`issues/repros/2026-11-11-a-write-that-precedes-a-lend-in-a-loop-body-is-not-checked-against-the-loan-the-back-edge-carries.yo`
+`tests/origins/unsound/a19b-write-before-lend-back-edge.yo` (filed under `issues/repros/` with this doc's name, moved with the fix; the `…-` twins below likewise)
 (negative, expects E0911):
 
 ```yo
@@ -86,8 +86,15 @@ fixpoint)"; `REFERENCES_AND_ORIGINS.md` §4: the per-body set is "joined at cont
 fixpoint over loops". The reference checker (`tests/origins/model.yo`) has the fixpoint; one of its five ablations
 switches it off.
 
+## Fix
+
+Fixed by the cluster-4 branch `fix/c4-flow-join`. `local_borrow_loop_begin` / `local_borrow_loop_end` (`src/evaluator/utils.yo`, called from `exprs/while.yo`; `for` desugars to `while`) close a runtime loop with its back edge. Two checks run at the end of the body, for each entry GENed in it:
+
+- **A19a.** A root declared in the body is dropped at the end of every iteration. When the holder outlives the body and is read at the head of the next iteration before the body reassigns it (a scan of the condition and the body's statements, `_lb_live_at_loop_head`), the store is E0911: "`b` is declared inside the loop, so each iteration drops it at the end of the body, while `slot` is read at the next iteration before it is reassigned …", with the help "reassign `slot` before the end of the body (`slot = .None`), or declare `b` before the loop".
+- **A19b.** Every access of a place in the body is recorded (`_lb_loop_note_access`). An access that lies in the text BEFORE the GEN of an entry rooted at that place is re-judged against the entry when the holder is live at the access through the back edge (`_lb_live_via_back_edge`): it is the loan the previous iteration left, and a write is E0911 at the write as for a straight-line conflict.
+
+The A19b check is this document's; the A19a check is `issues/fixed/2026-11-11-a-reference-to-a-per-iteration-local-stored-in-an-outer-slot-survives-into-the-next-iteration.md`'s.
+
 ## Test
 
-With the fix: the three negative programs and the positive control move to `tests/origins/unsound/`; corpus rows
-`loop-join-option-slot` (neg, E0911) and `loop-join-option-slot-after` (pos) in `tests/origins/corpus.tsv` beside
-`loop-join-push`, encoded for the model in `tests/origins/model_corpus.test.yo`.
+`tests/origins/unsound/` (G-B): `a19b-write-before-lend-back-edge` (the boxed form), `-holder`, `-string` (E0911 each) and `-pos`. Corpus rows `loop-join-option-slot` (E0911) and `loop-join-option-slot-after` (accept) in `tests/origins/corpus.tsv`, encoded in `tests/origins/model_corpus.test.yo`.
