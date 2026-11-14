@@ -471,10 +471,11 @@ _generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &
   if(field_name == "*", {
     match(
       cell_handle_view(&object_type),
-      // The cell of an `Rc(Dyn(T))` is the fat pointer itself (decision 49
-      // S2): its payload is the unsized place `(*F)`.
+      // The cell of an `Rc(Dyn(T))` is the fat pair itself (decision 49 S2),
+      // and the handle's C value is that pair BY VALUE: the payload's place
+      // IS the handle's storage — identity, so `&h.*` names the pair.
       .Some(dhv) => if(is_dyn_cell_type(&dhv.cell), {
-        return(`(*${object_code.clone()})`);
+        return(`(${object_code.clone()})`);
       }),
       .None => ()
     );
@@ -523,6 +524,16 @@ _generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &
     _is_typevalue_enum(&object_value) => _typevalue_enum_access(&object_value, &field_name, context),
     is_pointer_type(&object_type) => _ptr_field_access(&object_type, &object_code, &field_name),
     is_tuple_type(&object_type) => _tuple_field_access(&object_type, &object_code, &field_name),
+    // The dyn cell's C value IS the fat pair (decision 49 S2): `cell.*`'s
+    // place is that storage — identity, not a `->payload` read through a
+    // "pointer" the remapped name no longer is (`&mut` projections such as
+    // Rc's `_payload_mut` rely on this naming the pair).
+    is_dyn_cell_type(&object_type) => {
+      out := String.from("(");
+      out.push_string(object_code.clone());
+      out.push_str(")");
+      out
+    },
     dyn_dispatch_receiver_type(&object_type).is_some() => {
       out := unsized_place_fat_code(&object_code);
       out.push_str(".vtable->");

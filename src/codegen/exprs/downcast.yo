@@ -33,7 +33,7 @@
 { get_func_type } :: import("../../function_value.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { bind_owning_result_temp } :: import("./other_fn_call.yo");
-{ TypeValue, TypeValueNode, no_types, t_slot_pointee, t_slot_is_mut_ref, t_refine_inner } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, t_slot_pointee, t_slot_is_mut_ref, t_refine_inner, SharedList } :: import("../../types/definitions.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 /// Generate code for `downcast(dyn_value, T)`.
 generate_downcast :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)(
@@ -83,9 +83,12 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
   // `Result(Box(V), Box(Dyn(...)))`: the box is moved in; on a match its data
   // word, the payload address with L1's placed bit, IS a `Box(V)`, so the
   // block is handed back retyped; otherwise the fat box comes back as `.Err`.
+  // `Result` is a comptime constructor over an ANONYMOUS `enum(Ok, Err)`
+  // (std/prelude.yo): the EnumT carries a synthesized name, never the string
+  // "Result", so the shape is detected by its variant names.
   match(
     &ei.ty(),
-    Rc(.EnumT({ name : res_name, type_arguments : res_targs })) => if(res_name == "Result", {
+    Rc(.EnumT({ variant_names : res_vns, type_arguments : res_targs })) => if((res_vns.len() == usize(2)) && _vn_at_is(&res_vns, usize(0), String.from("Ok")) && _vn_at_is(&res_vns, usize(1), String.from("Err")), {
       ok_box_ty := match(res_targs.get(usize(0)), .Some(t) => t, .None => return(String.from("/* ERROR: downcast Result without type arguments */")));
       res_c := get_type_string(&ei.ty(), &mut context.base);
       ok_c := get_type_string(&ok_box_ty, &mut context.base);
@@ -333,6 +336,16 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
     }
   )
 });
+/// Is `vns[i]` the string `want`? (bounds-checked; used to detect the
+/// anonymous `enum(Ok, Err)` a `Result(...)` builds, whose EnumT name is
+/// synthesized and never "Result".)
+_vn_at_is :: (fn(vns : &SharedList(String), i : usize, want : &String) -> bool)(
+  match(
+    vns.get(i),
+    .Some(v) => (v == want),
+    .None => false
+  )
+);
 /// Is `s` one plain C identifier (a local, a temp) — safe to name twice?
 _is_plain_c_identifier :: (fn(s : &String) -> bool)({
   if(s.len() == usize(0), {

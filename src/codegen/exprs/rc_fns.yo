@@ -18,7 +18,7 @@
 { EvalValue } :: import("../../value.yo");
 { TypeValue, TypeValueNode, t_refine_inner } :: import("../../types/definitions.yo");
 { type_is_sized } :: import("../../types/utils.yo");
-{ is_array_type, is_atomically_counted_rc_type, is_rc_type, is_some_type, is_tuple_type, cell_handle_view, is_atomic_counted_handle_type } :: import("../../types/guards.yo");
+{ is_array_type, is_atomically_counted_rc_type, is_rc_type, is_some_type, is_tuple_type, cell_handle_view, is_atomic_counted_handle_type, is_dyn_cell_type } :: import("../../types/guards.yo");
 { type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { parse_raw_int } :: import("../../utils.yo");
 { FunctionGenerationContext, sm_owns_fnonce_captures, sm_lowering_set_rc_operand, shadow_bindings_of } :: import("../functions/context.yo");
@@ -650,7 +650,16 @@ generate_ref_count_call :: (fn(expr : &AstExpr, indent : &String, context : &mut
   arg_type := _ty(&arg_expr, context);
   arg_code := _call_generate_expr(&arg_expr, indent.clone(), context);
   // A cell handle (`cell_handle_view`) is counted by its cell, and its C
-  // value is the cell pointer, so the header read is the same.
+  // value is the cell pointer, so the header read is the same — EXCEPT the
+  // dyn cell (decision 49 S2): its C value is the fat pair, and the counted
+  // block hangs off `.data`.
+  rc_dt := match(
+    t_refine_inner(&arg_type),
+    Rc(.Reference(rc_rp, _, _)) => Rc.clone(rc_rp),
+    _ => Rc.clone(arg_type)
+  );
+  rc_dyn_cell := (is_dyn_cell_type(&rc_dt) || match(cell_handle_view(&rc_dt), .Some(rhv) => is_dyn_cell_type(&rhv.cell), .None => false));
+  (count_code : String) = if(rc_dyn_cell, `(${arg_code}).data`, arg_code.clone());
   if(
     is_rc_type(&arg_type) || cell_handle_view(&arg_type).is_some(),
     // Every handle whose count the RC ops update atomically (an atomic
@@ -667,12 +676,12 @@ generate_ref_count_call :: (fn(expr : &AstExpr, indent : &String, context : &mut
       // Masked: the top bit is the explicit-allocator tag, not a count
       // (plans/archive/EXPLICIT_ALLOCATORS.md §3.4).
       out := String.from("(atomic_load_explicit((_Atomic uint32_t*)&((__yo_rc_prefix_t*)(");
-      out.push_string(&arg_code);
+      out.push_string(&count_code);
       out.push_str("))->ref_count, memory_order_acquire) & __YO_RC_COUNT)");
       out
     }, {
       out := String.from("(((__yo_rc_prefix_t*)(");
-      out.push_string(&arg_code);
+      out.push_string(&count_code);
       out.push_str("))->ref_count & __YO_RC_COUNT)");
       out
     }),
