@@ -30,31 +30,28 @@ export(main);
 `dyn(Box.new(E1(code : i32(3))))` — the explicit spelling — compiles and runs
 (`3`), so only the ALIAS path is broken.
 
-## Root cause (isolated to this precision on 2026-11-14)
+## Root cause (isolated to this precision on 2026-11-14; superseded hypothesis below)
 
-The alias's executing path (`src/evaluator/values/dyn.yo`, the
-`_dyn_payload_is_plain_value` branch at ~1882) synthesizes a `Box.new(v,
-alloc)` dot-call (`_synthesized_cell_call`'s concrete branch), evaluates it,
-and records the evaluated box expression as the dyn node's rewrite
-(`note_rewritten_node`) and as `runtime_arg_exprs_in_order[0]`. The
-specialization of `Box(T).new` at the payload type is CREATED by that
-evaluation (its spec fid is what the emitted callee carries), but it is never
-registered in codegen's function table: the collector
-(`find_function_calls_in_expr` over the rewritten view) reaches a path that
-either skips the spec (the `expr_contains_unknown_value && _func_has_some_param`
-skip in the callee-ExprInfo arm, collection.yo ~896) or never descends into the
-synthesized callee, so `fn_value_c_name(spec_fid)` finds nothing and
-`generate_comptime_value`'s FuncVal arm emits the error comment inside a
-function-pointer cast. The explicit `dyn(Box.new(v))` works because its source
-call is collected through the dot-registry arm before any of this matters.
+The collector's dyn arm (`find_function_calls_in_expr`'s `FnCall` callee
+walk, collection.yo ~1030) guarded its registrations on
+`is_dyn_type(&ei.ty())` — the CALL's recorded type. For the `dyn(v)` alias
+the call node's recorded type is the flip's HANDLE type (`Box(Dyn(...))`,
+a `&Dyn` reference, or the interim counted cell), not the bare `DynT`, so
+the arm never ran for the alias's synthesized `Box.new` spec and the spec
+was never registered: `fn_value_c_name(spec_fid)` found nothing and
+`generate_comptime_value`'s FuncVal arm emitted the error comment inside a
+function-pointer cast. The explicit `dyn(Box.new(v))` worked because its
+source call is collected through the dot-registry arm before any of this
+matters. The `[collect-skip]` debug print (YO_DEBUG_SWALLOW, commit
+2950eaf03) never firing on the alias proved the collector never reached the
+skip — the guard itself was the gate.
 
-## Next step
+## Fix
 
-Instrument which arm the collector takes for the synthesized call (a
-`YO_DEBUG` print at collection.yo's skip), then either drop the skip for a
-fid that has a spec instantiation or make `_synthesized_cell_call`'s concrete
-branch record `record_method_callee_value` the way a source dot-call does
-(collection.yo:870's arm then collects it).
+`dyn_arm_ty` (commits 7c3cb07e8 + c63b02702): the dyn arm unwraps the
+recorded type — `is_dyn_type` directly, else one `Reference` level, else
+`unique_box_payload_type`, else `cell_handle_view` — and the registrations
+below key on `type_key(&arm_dyn_ty)` / `dyn_type : Rc.clone(&arm_dyn_ty)`.
 
 ## Test
 

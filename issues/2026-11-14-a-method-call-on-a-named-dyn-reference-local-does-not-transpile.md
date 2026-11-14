@@ -25,17 +25,27 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-## Root cause (to this precision)
+## Root cause (found 2026-11-14 16:50; the evaluator was NOT at fault)
 
-After the R-TEMP deletion a `(d : &Dyn(T)) = dyn(&c)` binding is accepted
-(binding + dispatch through the local was VERDICTS-43's named-local
-acceptance), but a METHOD CALL whose receiver is the `&Dyn`-typed REFERENCE
-BINDING leaves the call node without ExprInfo — the evaluator's method-call
-path for a `Reference(DynT)` receiver does not record the dispatch the way a
-`&Dyn` PARAMETER receiver does (`_speak_via(d)` with `d : &Dyn(Speak)`
-works: probe p6's `_speak_via` rows pass; only the local-receiver
-`d.speak()` marks). The call therefore emits `// Failed to transpile
-(d.speak)()`.
+Codegen keys dyn dispatch on the receiver's RECORDED type: a `&Dyn`
+PARAMETER records the pointee (`DynT`), while a named `(d : &Dyn(T)) =
+dyn(&c)` LOCAL records the reference binding (`Reference(DynT)`). The
+guards — `other_fn_call.yo`'s `dot_recv_is_dyn` (feeding `dm_has_slot` /
+`dm_is_dyn_clone`) and `property_access.yo`'s two `is_dyn_type(&object_type)`
+checks (the method-access guard at ~374 and the value-shape arm at ~518) —
+all spelled `is_dyn_type(...)`, so a reference-binding receiver missed every
+one and the call emitted `// Failed to transpile (d.speak)()`. The call node
+HAS ExprInfo; only the dispatch branch failed to recognize the receiver.
+
+## Fix (commit c31c88098)
+
+New `dyn_dispatch_receiver_type` helper (`src/types/utils.yo`, beside
+`dyn_type_has_vtable_slot`): the Dyn behind a dispatchable receiver shape —
+the Dyn place itself or ONE `Reference` level over it. Deliberately does not
+unwrap `Box(Dyn)`/the interim cell: a box receiver's own methods (`clone`)
+are the box's, not the payload's (the registration-shaped WIDE unwrap lives
+in the codegen collector, `collection.yo`'s `dyn_arm_ty`). Used at all three
+guards.
 
 Note the ARGUMENT form works: passing the local to a `&Dyn` parameter
 dispatches fine — so the fix is in the dot-dispatch evaluation for a
