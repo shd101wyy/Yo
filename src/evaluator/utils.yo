@@ -7940,7 +7940,20 @@ local_borrow_note_call :: (fn(tok : &Token, callee_text : &String, ctx : &EvalCo
     match(
       g_local_borrows.with(xs => xs.get(i)),
       .Some(info) => if(info.module_root && _lb_live_at(&info, tok) && _lb_for_iterator_lends_mut_global(&info), {
-        root_text := match(info.places.get_cloned(usize(0)), .Some(p0) => _lb_place_text(&p0), .None => info.name.clone());
+        // The module-level place: a re-point (P1) may have added it after
+        // the declared one.
+        (root_text : String) = match(info.places.get_cloned(usize(0)), .Some(p0) => _lb_place_text(&p0), .None => info.name.clone());
+        (rti : usize) = info.places.len();
+        while(rti > usize(0), {
+          rti = (rti - usize(1));
+          match(
+            info.places.get_cloned(rti),
+            .Some(rp) => if(rp.module_root, {
+              root_text = _lb_place_text(&rp);
+            }),
+            .None => ()
+          );
+        });
         // A call a desugared `for` makes (macro plan B1) is the loop's: the
         // loop's cursor holds the lend over the whole loop (R-FOR).
         shown := match(for_desugar_site_of(tok), .Some(fc) => ast_expr_token(&fc).value.*.clone(), .None => callee_text.clone());
@@ -10436,7 +10449,9 @@ _lb_join_root_end :: (fn(variable : &Variable, root_name : &String, end : &Token
                         .FnCall(_, _, Rc(sargs), _, _) => match(sargs.get(usize(0)), .Some(l) => (ast_expr_is_atom(&l) && (ast_expr_token(&l).value.* == variable.name)), .None => false),
                         .Atom(_, _) => false
                       );
-                      if(is_holder && (first.module_path == at.module_path) && (first.character > at.character), {
+                      // A re-point `cur = &place` that does not read `cur`
+                      // replaces the stored reference too (P1).
+                      if((is_holder || _lb_is_whole_reassign(&st, &variable.name)) && (first.module_path == at.module_path) && (first.character > at.character), {
                         stop := _last_token_of(&st, &st_tok);
                         if(!_lb_tok_after(&stop, &root_site.scope_end), {
                           return(stop);
@@ -11699,7 +11714,7 @@ reference_reborrow_chain :: (fn(start : &Variable, max_links : usize, env : &Env
 /// `bind_join`'s registration core, shared with `lend_through`'s flow
 /// write-back: each root not already in the holder's set is registered with
 /// the holder's live range recomputed from its binding statement.
-bind_join_roots_for :: (fn(variable : &Variable, roots : &ArrayList(OriginRootPlace), at : &Token, env : &Environment, ctx : &EvalContext, exn : Exception, (kill : bool) ?= true) -> unit)({
+bind_join_roots_for :: (fn(variable : &Variable, roots : &ArrayList(OriginRootPlace), at : &Token, env : &Environment, ctx : &EvalContext, exn : Exception, (kill : bool) ?= true, (holder_may_drop : bool) ?= true) -> unit)({
   // R-TEMP: a holder outlives the statement whose temporary it would hold.
   match(
     origin_temporary_root(roots),
@@ -11722,7 +11737,9 @@ bind_join_roots_for :: (fn(variable : &Variable, roots : &ArrayList(OriginRootPl
   v_tok := variable.token;
   site := _lb_binding_site_of(variable);
   // O-4: a holder whose drop uses its roots is live to its scope-end drop.
-  holder_drops := ((roots.len() > usize(0)) && type_reaches_user_drop(&variable_value_type(variable), &ctx.std_path));
+  // `holder_may_drop` is false for a re-pointed reference binding (P1): its
+  // value type is its pointee's, whose `Drop` is not the binding's.
+  holder_drops := (holder_may_drop && ((roots.len() > usize(0)) && type_reaches_user_drop(&variable_value_type(variable), &ctx.std_path)));
   range := match(
     &site,
     .Some(s) => local_borrow_range_of(&s.stmt, variable.name.clone(), &v_tok, to_scope_end : holder_drops),

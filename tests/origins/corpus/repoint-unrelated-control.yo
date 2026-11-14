@@ -1,0 +1,15 @@
+// N0 corpus row `repoint-unrelated-control` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §4 P1; manifest
+// tests/origins/corpus.tsv): POSITIVE: `cur` is re-pointed at `y`, a local of an inner block, and read only
+// inside that block.
+// Expected: accepted.
+main :: (fn() -> unit)({
+  x := i32(1);
+  cur := &x;
+  {
+    y := i32(2);
+    cur = &y;
+    _ := (cur.* + i32(1));
+  };
+  ()
+});
+export(main);

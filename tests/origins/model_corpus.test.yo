@@ -553,6 +553,21 @@ test("ref-mut-ref-repoint", {
   main := entry(al6(let_(X, lit()), let_(Y, lit()), let_d(R, Rc.new(NodeE.Borrow(false, X)), shr(int(), o(X) | o(Y))), let_(RP, Rc.new(NodeE.Borrow(true, R))), Rc.new(NodeE.WriteThrough(RP, Rc.new(NodeE.Borrow(false, Y)))), use_(Rc.new(NodeE.Var(R)))));
   verdict("ref-mut-ref-repoint", case1(main), "ACCEPT");
 });
+// P1 (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §4): a re-point to an unrelated place is an
+// assignment of a fresh lend to the reference binding.
+test("repoint-unrelated-then-use", {
+  main := entry(al4(let_(X, lit()), let_(R, Rc.new(NodeE.Borrow(false, X))), Rc.new(NodeE.Block(al2(let_(Y, lit()), Rc.new(NodeE.Assign(R, Rc.new(NodeE.Borrow(false, Y))))))), use_(Rc.new(NodeE.Var(R)))));
+  verdict("repoint-unrelated-then-use", case1(main), "E0911");
+});
+test("repoint-unrelated-control", {
+  main := entry(al3(let_(X, lit()), let_(R, Rc.new(NodeE.Borrow(false, X))), Rc.new(NodeE.Block(al3(let_(Y, lit()), Rc.new(NodeE.Assign(R, Rc.new(NodeE.Borrow(false, Y)))), use_(Rc.new(NodeE.Var(R))))))));
+  verdict("repoint-unrelated-control", case1(main), "ACCEPT");
+});
+// The model has no `Rc`: the pinned cell is a place that outlives `cur`.
+test("repoint-through-rc", {
+  main := entry(al5(let_(X, lit()), let_(R, Rc.new(NodeE.Borrow(false, X))), let_(Y, lit()), Rc.new(NodeE.Assign(R, Rc.new(NodeE.Borrow(false, Y)))), use_(Rc.new(NodeE.Var(R)))));
+  verdict("repoint-through-rc", case1(main), "ACCEPT");
+});
 // P9 (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7): two-phase borrows with a
 // named `&`. A `&mut` argument is reserved when evaluated and activated when
 // the call begins, so a `&` loan whose last use lies in a later argument is
