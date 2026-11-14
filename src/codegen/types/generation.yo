@@ -1388,10 +1388,18 @@ _walk_by_value_dep :: (fn(deps_set : &mut HashSet(String), ft : &TypeValue, self
     // `const T*` / `T*`: a struct referent needs only its forward
     // declaration, but a newtype referent is spelled by its typedef, which
     // cannot be forward-declared, so the field's type follows it, as a
-    // pointer field's does (`_walk_pointee_newtype`).
+    // pointer field's does (`_walk_pointee_newtype`). A reference WHOSE
+    // referent is another reference (`&mut &String`, §7 P3) lowers to a
+    // pointer-to-pointer that names the ultimate referent's newtype typedef
+    // by value, so every reference level is peeled before the newtype edge
+    // (issues/fixed/2026-11-11-a-struct-with-a-mut-ref-ref-field-passes-check-and-its-c-names-an-undeclared-type.md).
     match(ft, Rc(.Reference(_, _, _)) => true, _ => false) => match(
       ft,
-      Rc(.Reference(ref_pt, _, _)) => match(_pointee_spelling_newtype(&ref_pt), .Some(nt) => _walk_add_dep(deps_set, &nt, self_type_id, cname_to_typeid, context), .None => ()),
+      Rc(.Reference(ref_pt, _, _)) => match(
+        ref_pt,
+        Rc(.Reference(_, _, _)) => recur(deps_set, &ref_pt, self_type_id, guard_nullable, cname_to_typeid, context),
+        _ => match(_pointee_spelling_newtype(&ref_pt), .Some(nt) => _walk_add_dep(deps_set, &nt, self_type_id, cname_to_typeid, context), .None => ())
+      ),
       _ => ()
     ),
     // A SomeT field with a per-object resolved concrete is EMITTED as that

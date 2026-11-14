@@ -69,8 +69,31 @@ The positive program compiles and prints `OUT: 1`: P3 accepts `&mut &T` wherever
 (`BORROW_CHECKER_COMPLETENESS.md` §7 P3: "`&mut r` on a `mut(r)` binding is `&mut &T`"), and a struct field is
 one (N2b's inline composites). The dependency walk peels every reference level before asking for the newtype.
 
+## Fix
+
+2026-11-14, `fix/develop-c4-asan-pos`. The order is BUILD-SENSITIVE, which is why the `&mut &Rc(X)` family table
+above said "compiles": whether the struct lands before the typedef depends on the emission order of the binary,
+which varies between a clang-built and a gcc-built compiler. Develop's battery 43591268749 (f463e3fb0, the
+job "Origins corpus, unsound programs, origin totality") hit the bad order on the gcc-built stage-1 artifact with
+G-B's `c4-mut-ref-ref-field-lend-pos` (a `&mut &Rc(X)` field, #1943's positive control):
+
+```text
+probe.c:817:3: error: unknown type name '__yo_t_4276958382691375234'
+  817 |   __yo_t_4276958382691375234 const * * __yo_v_rp;
+      |      ^
+```
+
+(the typedef IS emitted, 29 lines later). Reproduced locally with the downloaded stage-1 artifact and Ubuntu
+clang 18.1.3 — the runner's exact compiler; clang-built binaries happen to emit the typedef first, so local
+clang gates never saw it. `_walk_by_value_dep`'s reference arm (`src/codegen/types/generation.yo`) now recurses
+through a referent that is itself a reference before asking `_pointee_spelling_newtype`, so every reference
+level is peeled and the struct follows the ultimate referent's newtype typedef. The String reproducer moves to
+`tests/origins/corpus/ref-of-ref-field.yo` (manifest row `ref-of-ref-field`, ACCEPT, model twin in
+`tests/origins/model_corpus.test.yo`); the deleted `issues/repros/` file is that fixture.
+
 ## Test
 
-With the fix: the positive program moves to `tests/` as a codegen case (`tests/ref_binding.test.yo` or a new
-`ref-of-ref-field` row in `tests/origins/corpus.tsv`, ACCEPT), with a `String` referent so the ordering is
-exercised.
+Done: the corpus row `ref-of-ref-field` (pos, ACCEPT, `tests/origins/corpus/ref-of-ref-field.yo`, a `String`
+referent so the ordering is exercised) fails `yo compile` before the fix on a binary that emits the struct first
+(develop's stage-1 artifact, the battery log above) and compiles and prints `OUT: 1` after it; G-B's
+`c4-mut-ref-ref-field-lend-pos` (the `&mut &Rc(X)` field) is the row the battery caught.

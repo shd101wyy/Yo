@@ -553,6 +553,12 @@ test("ref-mut-ref-repoint", {
   main := entry(al6(let_(X, lit()), let_(Y, lit()), let_d(R, Rc.new(NodeE.Borrow(false, X)), shr(int(), o(X) | o(Y))), let_(RP, Rc.new(NodeE.Borrow(true, R))), Rc.new(NodeE.WriteThrough(RP, Rc.new(NodeE.Borrow(false, Y)))), use_(Rc.new(NodeE.Var(R)))));
   verdict("ref-mut-ref-repoint", case1(main), "ACCEPT");
 });
+test("ref-of-ref-field", {
+  // A struct field of `&mut &T` (audit B4) is a codegen declaration-order shape; the
+  // model lends a reference binding at `&mut` and the borrow ends with its scope.
+  main := entry(al3(let_(X, lit()), let_(R, Rc.new(NodeE.Borrow(false, X))), let_(RP, Rc.new(NodeE.Borrow(true, R)))));
+  verdict("ref-of-ref-field", case1(main), "ACCEPT");
+});
 // P1 (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §4): a re-point to an unrelated place is an
 // assignment of a fresh lend to the reference binding.
 test("repoint-unrelated-then-use", {

@@ -1,0 +1,15 @@
+// N0 corpus row `ref-of-ref-field` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P3;
+// manifest tests/origins/corpus.tsv): POSITIVE: a struct field of `&mut &T` (audit B4). The
+// emitted C spells the field `NT const * *`, naming the ultimate referent's newtype typedef,
+// so the struct's declaration must follow that typedef at every reference level
+// (issues/fixed/2026-11-11-a-struct-with-a-mut-ref-ref-field-passes-check-and-its-c-names-an-undeclared-type.md).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+M :: struct(rp : &mut&String);
+main :: (fn() -> unit)({
+  a := String.from("a");
+  mut(r) := &a;
+  m := M(rp : &mut r);
+  println(`OUT: ${m.rp.*.*.len().to_string()}`);
+});
+export(main);
