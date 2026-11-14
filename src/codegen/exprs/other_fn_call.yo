@@ -660,7 +660,10 @@ _materialize_arg :: (fn(arg : &AstExpr, param_is_ref : bool, expr : &AstExpr, in
             mut(line) := indent.clone();
             line.push_string(get_variable_type_string(&arg_ei.ty(), vname.clone(), &mut context.base));
             line.push_str(" = ");
-            line.push_string(arg_code.clone());
+            // Decision 49: an UNSIZED operand's `(*X)` deref code names the
+            // fat pair `X` — a fat temp cannot be initialized from a struct
+            // deref (a Box's `b.*` over a Dyn payload).
+            line.push_string(if((!type_is_sized(&arg_ei.ty()) && arg_code.starts_with("(*") && arg_code.ends_with(")")), arg_code.substring(usize(2), arg_code.len() - usize(1)), arg_code.clone()));
             line.push_str(";");
             context.base.emitter.emit_string_line(&line);
             emitted = true;
