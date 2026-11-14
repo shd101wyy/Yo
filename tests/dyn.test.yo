@@ -610,9 +610,11 @@ test("Dyn: a method a Dyn cannot call is E0614, the rest stay callable", {
 // A blanket INHERENT method over a trait bound resolves for a Dyn receiver; it
 // is not a trait member and has no vtable slot, so it is an ordinary call
 // (issues/fixed/blanket-inherent-method-on-a-dyn-receiver-dispatches-through-the-vtable.md).
+// The binder is `?Sized`: a `Dyn` is unsized, and a `Type` binder's blanket
+// covers sized types only (decision 49's coherence rule).
 _OsNamed :: trait(name : (fn(self : &Self) -> String));
 impl(
-  generic(E : Type),
+  generic(E : ?Sized),
   where(E <: _OsNamed),
   E,
   _os_shout : (fn(self : &Self) -> String)(self.name().concat(String.from("!")))

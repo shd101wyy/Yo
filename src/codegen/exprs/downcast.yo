@@ -393,8 +393,20 @@ _upcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionG
   (src_ty_u : TypeValue) = match(t_refine_inner(&dyn_ei.ty()), Rc(.Reference(urp0, _, _)) => Rc.clone(urp0), _ => Rc.clone(dyn_ei.ty()));
   moves_handle := (unsize_reference_mode(ast_expr_id(expr)).is_none() && (match(unique_box_payload_type(&src_ty_u), .Some(bp) => is_dyn_type(&bp), .None => false) || match(cell_handle_view(&src_ty_u), .Some(hv) => is_dyn_type(&hv.payload), .None => false)));
   // The target `Dyn`'s fat struct names the `__yo_up_` slot; a handle over it
-  // lowers to the same struct.
+  // lowers to the same struct. An owned upcast's result type is the HANDLE
+  // (`Box(Dyn(...))`, `Rc(Dyn(...))`), whose C name is a typedef ALIAS of that
+  // struct — the slot member is named by the fat struct itself, so the slot
+  // name must come from the unwrapped Dyn, while the cast may keep the handle.
   tgt_c := get_type_string(&ei.ty(), &mut context.base);
+  tgt_slot_c := match(
+    unique_box_payload_type(&ei.ty()),
+    .Some(utp) => get_type_string(&utp, &mut context.base),
+    .None => match(
+      cell_handle_view(&ei.ty()),
+      .Some(uhv) => get_type_string(&uhv.payload, &mut context.base),
+      .None => tgt_c.clone()
+    )
+  );
   // Name the source once: a call operand must not run twice.
   src := if(_is_plain_c_identifier(dyn_code.clone()), dyn_code.clone(), {
     src_c := get_type_string(&match(t_refine_inner(&dyn_ei.ty()), Rc(.Reference(urp, _, _)) => Rc.clone(urp), _ => Rc.clone(dyn_ei.ty())), &mut context.base);
@@ -406,7 +418,7 @@ _upcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionG
   });
   // Through a reference the payload is borrowed, not retained.
   data_expr := if(unsize_reference_mode(ast_expr_id(expr)).is_some() || moves_handle, `(void*)${src}.data`, `__yo_dyn_retain((void*)${src}.data, (const void*)${src}.vtable)`);
-  `((${tgt_c}){ .data = ${data_expr}, .vtable = ${src}.vtable->__yo_up_${tgt_c} })`
+  `((${tgt_c}){ .data = ${data_expr}, .vtable = ${src}.vtable->__yo_up_${tgt_slot_c} })`
 });
 /// The function id of the `clone` in a Dyn impl's `Clone` evidence (the
 /// trait value at `Clone`'s position among the Dyn's required traits), or

@@ -680,8 +680,21 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
                 )
               )
             );
-            if(is_dyn_type(&usrc_ty) && is_dyn_type(&uei.ty()), {
-              context.register_dyn_upcast(&usrc_ty, &uei.ty());
+            // An OWNED upcast's result type is a HANDLE over the target
+            // (`Box(Dyn(...))`, `Rc(Dyn(...))`), not the Dyn: unwrap it the
+            // same way, so the target registers as the Dyn every vtable
+            // layout and (concrete, target) impl lookup is keyed by.
+            utgt_ty := match(
+              unique_box_payload_type(uei.ty()),
+              .Some(utp) => Rc.clone(utp),
+              .None => match(
+                cell_handle_view(uei.ty()),
+                .Some(uhv) => Rc.clone(uhv.payload),
+                .None => Rc.clone(uei.ty())
+              )
+            );
+            if(is_dyn_type(&usrc_ty) && is_dyn_type(&utgt_ty), {
+              context.register_dyn_upcast(&usrc_ty, &utgt_ty);
             });
           },
           .None => ()
