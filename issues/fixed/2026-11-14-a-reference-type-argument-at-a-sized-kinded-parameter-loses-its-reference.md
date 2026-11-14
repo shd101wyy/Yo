@@ -50,5 +50,17 @@ use it (`src/evaluator/calls/helper.yo`, `src/evaluator/calls/function.yo`).
 
 `tests/sized.test.yo`, "a reference type argument at a ?Sized parameter keeps
 its reference": `_SzId(&i32)` is `&i32`, `Eq(&C)` is not `Eq(C)`, and a user
-`impl(&C, Eq(&C))` type-checks. `tests/impl_ref.test.yo`'s P3b gap 1 rows
-(#1933) are the end-to-end check once develop is merged.
+`impl(C, Eq(&D))` over a different reference `Rhs` type-checks with its
+`& &D` method slots. `tests/impl_ref.test.yo`'s P3b gap 1 rows (#1933) are the
+end-to-end check once develop is merged (24 passed on the merged scratch tree,
+2026-11-14).
+
+The first version of this test wrote the fix's proof as a user
+`impl(&C, Eq(&C))`. Beside the prelude's blanket `impl(&T, Eq(&T))` (the g2
+lane's piece 3) that shape is E0612 by coherence — the blanket covers `&T`
+for every `T <: Eq(T)`, the where-clause cannot be refuted for a type with no
+`Eq` impl of its own, so no manual impl of that shape can register (Rust's
+`impl<T: PartialEq> PartialEq<&T> for &T` behaves the same). The row was
+reshaped to `impl(C, Eq(&D))`, which no blanket covers, so it holds with and
+without the blanket (measured on the s1 scratch tree = this branch + develop
+57fb978f9 + vbd/g2-piece3, 2026-11-14).
