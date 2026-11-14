@@ -69,4 +69,4 @@ mode itself must learn the pointer case before the v0.2.79 flip re-runs it (ride
 VERDICTS-60 decisions 11–14). With the line held back the E0604 and the prelude-load failure are
 gone; the five `tests/cli-cases/fix-migrate-deref-*` cases stay red for a second, independent
 reason recorded beside this one
-(`issues/2026-11-14-the-deref-recorder-cannot-evaluate-the-swept-preludes-generic-comparisons.md`).
+(`issues/fixed/2026-11-14-the-deref-recorder-cannot-evaluate-the-swept-preludes-generic-comparisons.md`).
