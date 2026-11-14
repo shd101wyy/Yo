@@ -1,0 +1,23 @@
+// expect: accept
+// Positive control of a3-match-ref-binding-from-call: the arm only reads `p`; `x` is written after the
+// `match`, when no binding into `b`'s referent is live.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+idr :: (fn(r : &Option(Rc(X))) -> &Option(Rc(X)))(&r.*);
+mk :: (fn() -> Option(Rc(X)))(
+  .Some(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))))
+);
+main :: (fn() -> unit)({
+  mut(x) := mk();
+  b := idr(&x);
+  n := match(
+    b,
+    .Some(p) => p.*.s.len(),
+    .None => usize(0)
+  );
+  x = .None;
+  println(`OUT: ${n.to_string()} ${x.is_none().to_string()}`);
+  ()
+});
+export(main);

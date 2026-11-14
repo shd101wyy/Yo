@@ -75,11 +75,11 @@ test("range copies survive source reassignment and growth", {
   assert(match(s.get(usize(0)), .Some(v) => (v == i32(42)), .None => false), "copy data stable");
 });
 // ---------------------------------------------------------------------------
-// Privileged raw views are gated: safe code cannot name RawSlice or
-// type-annotate raw pointers.
+// Privileged raw views are gated: safe code cannot type-annotate a raw
+// pointer, to a slice (`*[u8]`, the old `RawSlice`) or to a value.
 // ---------------------------------------------------------------------------
 comptime_expect_error(
-  safe_code_cannot_name_rawslice :: (fn(s : RawSlice(u8)) -> usize)(s.len)
+  safe_code_cannot_name_raw_slice :: (fn(s : *[u8]) -> usize)(__yo_slice_len(s))
 );
 comptime_expect_error(
   safe_code_cannot_name_raw_ptr :: (fn(p : *u8) -> *u8)(p)

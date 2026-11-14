@@ -57,3 +57,13 @@ names `item`, which no holder type can. A reference item passes only because the
 scrutinee. The fix belongs to the binding: a by-value binding of a temporary scrutinee holds what the scrutinee
 holds (R-CALL's roots), which is audit cluster 3's "a scrutinee that is a temporary" (lane `arms`, `match.yo` and
 `origin_of`'s value positions). `find` over `zip` is very likely the same E0923 (same shape, not measured).
+
+## Fix (2026-11-13, branch `fix/c3-c13`)
+
+The cause is the binding (narrowed by the `sig` lane): `item`, a by-value binding of the consuming
+`match(self._iter.next(), .Some(item) => …)`, had no registered entries and was not a parameter, so R-READ fell
+back to `item`'s own place. A consuming `match`'s by-value binding whose type carries an origin now records what the
+moved scrutinee held (`origin_held_by`, `src/evaluator/exprs/match.yo`), and R-READ reads it back
+(`_ref_payload_held_of` in `_origin_of_into`'s atom rule, `src/evaluator/utils.yo`): a part of a value points where
+the value pointed, never into itself. Test: "zip and enumerate of borrowed cursors, then filter" in
+`tests/for_read_walk.test.yo`.

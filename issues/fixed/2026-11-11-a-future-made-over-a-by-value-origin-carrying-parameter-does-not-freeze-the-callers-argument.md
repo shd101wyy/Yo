@@ -78,3 +78,18 @@ The future's origin is `p`; R-CALL substitutes `p` from the argument `H(x)(r : &
 
 With the fix: the two negatives and the positive control move to `tests/origins/unsound/` (the `-sync` control
 documents the twin); a corpus row `async-forward-by-value-holder` (E0911) beside `async-forward-param`.
+
+## Fix
+
+`fix/c7-captures` (audit §9 cluster 7), both places the doc names (`src/evaluator/calls/function.yo`):
+
+1. `_register_borrowing_future`: a captured binding whose type has no capture borrows but carries an origin, and is a
+   by-value parameter of the maker (`h : H(p)`; not a `&`/`&mut` one), is named in the future's origin. No place is
+   rooted at it in the maker: `{ h }` moved `h` into the future, whose origin is what `h` borrows.
+2. `_future_call_lends_into`: an argument with no lend marker whose label the future's origin names, that carries an
+   origin, is not a borrowing future, and from which `_future_lends_into` reads no place, lends its own origin
+   (`origin_of`). That is O8's R-CALL substitution: `mk(H(x)(r : &x), io)` lends `{(x, &)}`, and `h := H(x)(r : &x);
+   mk(h, io)` lends what `h` froze. A binding of the future freezes `x`, so `sink(x)` is E0911.
+
+Tests: `tests/origins/unsound/c7-future-over-by-value-holder-param.yo` and `-bound.yo` (E0911),
+`c7-future-over-by-value-holder-param-pos.yo` (accept, runs clean under ASan). The corpus row is deferred.

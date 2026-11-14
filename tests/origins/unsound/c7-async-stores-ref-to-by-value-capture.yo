@@ -1,0 +1,15 @@
+// expect: E0912
+// An `io.async` body stores `&owned`, a reference to its own BY-VALUE capture, into the caller's
+// `slot` through a `&mut` capture. The state machine drops `owned` when it completes (heap-use-after-free).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+main :: (fn(io : Io) -> unit)({
+  mut(slot) := Option(&String).None;
+  owned := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+  fut := io.async({ s : &mut slot, owned }(io : Io) => {
+    s.* = .Some(&owned);
+  });
+  io.await(fut, io);
+  match(slot, .Some(r) => println(`OUT: ${r.*}`), .None => println("none"));
+});
+export(main);
