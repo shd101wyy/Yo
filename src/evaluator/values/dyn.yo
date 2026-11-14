@@ -1319,7 +1319,7 @@ _dyn_pointee_of_expected :: (fn(t : &TypeValue) -> Option(TypeValue))({
 /// cell whose count lives elsewhere.
 _reject_dyn_of_named_handle :: (fn(value_ty : &TypeValue, fresh : bool, tok : &Token, exn : Exception) -> unit)({
   if(!fresh && cell_handle_view(value_ty).is_some(), {
-    exn.throw(dyn(format_error_message(tok, String.from("`dyn(h)` over a named `Rc`/`Arc` handle is not available: erasing a shared handle in place arrives with the `?Sized` prelude; write `dyn(Rc.new(v))` to build the shared object here or `dyn(Box.new(v))` to own it"))));
+    exn.throw(dyn(format_error_message(tok, String.from("`dyn(h)` over a named `Rc`/`Arc` handle is not available: a shared handle cannot be erased in place; write `dyn(Rc.new(v))` to build the shared object here or `dyn(Box.new(v))` to own it"))));
   });
 });
 /// A `dyn(v)` payload that is neither a pointer kind nor a handle: the legacy

@@ -60,7 +60,7 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
       box_code := if(match(t_refine_inner(&dyn_ei.ty()), Rc(.Reference(_, _, _)) => true, _ => false) || _arg_is_reference_binding(&dyn_arg, context), `(*${arg_code})`, arg_code.clone());
       (bp, unsized_place_fat_code(&box_payload_place_code(&arg_ty, &box_code, &mut context.base)))
     },
-    .None => (arg_ty, unsized_place_fat_code(&arg_code))
+    .None => (Rc.clone(arg_ty), unsized_place_fat_code(&arg_code))
   );
   if(!is_dyn_type(&dyn_ty), {
     return(String.from("/* ERROR: downcast expected Dyn type as first argument */"));
