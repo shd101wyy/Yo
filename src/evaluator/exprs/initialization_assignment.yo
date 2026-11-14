@@ -106,7 +106,7 @@
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { type_implements_comptime, type_implements_runtime_full } :: import("../trait_checking.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
-{ reject_dyn_place_by_value, reject_dyn_lend_bind, is_valid_variable_name, in_compile_time_fn_body, note_second_class_binding, reject_malformed_mut_marker, place_require_mut, reject_write_through_rc, handle_payload_is_read_only, deref_reads_through_pointee, audit_copy_trait_enabled } :: import("../utils.yo");
+{ reject_dyn_place_by_value, reject_dyn_lend_bind, is_valid_variable_name, in_compile_time_fn_body, note_second_class_binding, reject_malformed_mut_marker, place_require_mut, binding_require_mut, reject_write_through_rc, handle_payload_is_read_only, deref_reads_through_pointee, audit_copy_trait_enabled } :: import("../utils.yo");
 { is_mut_binding, is_thread_local_binding } :: import("../../expr.yo");
 { throw_rhs_contains_control_flow_expression_error, shared_borrow_param_root_of_place, reject_write_through_shared_borrow_param, throw_if_mut_lend_through_atomic_object } :: import("./assignment.yo");
 {
@@ -156,7 +156,8 @@
   origin_of,
   _origin_through_match_bindings,
   OriginRootPlace,
-  LocalBorrowElidedOrigin
+  LocalBorrowElidedOrigin,
+  bind_join_roots_for
 } :: import("../utils.yo");
 { generate_new_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
@@ -1088,14 +1089,17 @@ _subscript_root_args :: (fn(call : &AstExpr) -> ArrayList(ProjectionRootArg))({
 /// `cur = &place` / `cur = &mut place`: re-point the local borrow `cur`
 /// to `place` (plans/VALUES_BY_DEFAULT.md decision 25, the cursor walk).
 ///
-/// `place` must be reached from `cur`: a field chain rooted at `cur` itself,
-/// or one rooted at a binding of a bare `match` over `cur`. Such a binding
-/// is a place binding, a reference into `cur`'s target (VERDICTS-13 §14), so
-/// the chain may step through a unique `Box` (a value step) or a reference
-/// cell; a by-value `match(cur.*, …)` copies or moves the payload, so its
-/// binding reaches `cur`'s target only through a cell (VERDICTS-24).
-/// Anything else is rejected: a sibling root, a module-level place, a call
-/// or index (a projection could yield any place the callee reaches).
+/// `place` is a field chain rooted at a variable. Rooted at `cur` itself, or
+/// at a binding of a bare `match` over `cur` (a place binding, a reference
+/// into `cur`'s target, VERDICTS-13 §14), it is reached from `cur`: the
+/// chain may step through a unique `Box` (a value step) or a reference cell;
+/// a by-value `match(cur.*, …)` copies or moves the payload, so its binding
+/// reaches `cur`'s target only through a cell (VERDICTS-24). Rooted at any
+/// other variable (P1, plans/backlog/BORROW_CHECKER_COMPLETENESS.md §4: a
+/// sibling local, a parameter, a module-level place), it is a new loan,
+/// checked as a declaration's is and joined into `cur`'s flow set
+/// (`bind_join_roots_for`), so a use of `cur` past that root's scope is
+/// E0911. A call, an index or a `.*` step is not yet admitted (P1b).
 /// The step through a cell pins it in the binding's step pin, releasing the
 /// cell the previous step pinned (decision 25, "Through an `Rc`"). The
 /// declared place stays frozen for `cur`'s whole live range, and a `match`
@@ -1165,7 +1169,7 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
   _evaluated_name := evaluate_expression_raw(&name_expr, &env, ctx, exn);
   deref_exempt_clear();
   // The new target: a field chain rooted at a variable.
-  not_reached := `A re-point must name a place reached from \`${name}\`: a field of \`${name}\`'s target (\`${name} = ${sig}${name}.next\`), or a field of a binding of a bare \`match\` over \`${name}\` (\`match(${name}, .Some(n) => { ${name} = ${sig}n.next; }, .None => ())\`).`;
+  not_reached := `A re-point names a field path rooted at a variable: a field of \`${name}\`'s target (\`${name} = ${sig}${name}.next\`), a field of a binding of a bare \`match\` over \`${name}\` (\`match(${name}, .Some(n) => { ${name} = ${sig}n.next; }, .None => ())\`), or another variable's place (\`${name} = ${sig}other.field\`).`;
   hops := ArrayList(_InoutPlaceHop).new();
   root_atom := match(
     _inout_place_chain(&rhs, &mut hops),
@@ -1175,7 +1179,7 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
         dyn(
           format_error_message(
             ast_expr_token(&rhs),
-            `Cannot re-point \`${name}\` to \`${local_borrow_place_text(&rhs)}\`: it is not a field path. A call or an index yields whatever place its callee reaches, so it is not known to be reached from \`${name}\`. ${not_reached}`
+            `Cannot re-point \`${name}\` to \`${local_borrow_place_text(&rhs)}\`: it is not a field path. A re-point to the place a call or an index yields is not yet admitted (P1b, plans/backlog/BORROW_CHECKER_COMPLETENESS.md §4). ${not_reached}`
           )
         )
       );
@@ -1187,7 +1191,7 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
     match(
       hops.get(hi),
       .Some(hop) => if(ast_expr_is_atom_of(&hop.field, "*"), {
-        exn.throw(dyn(format_error_message(ast_expr_token(&hop.field), `Cannot re-point \`${name}\` through a pointer dereference ('p.*'). ${not_reached}`)));
+        exn.throw(dyn(format_error_message(ast_expr_token(&hop.field), `Cannot re-point \`${name}\` through a pointer dereference ('p.*'): a re-point to a place behind a dereference is not yet admitted (P1b, plans/backlog/BORROW_CHECKER_COMPLETENESS.md §4). ${not_reached}`)));
       }),
       .None => ()
     );
@@ -1246,19 +1250,28 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
       .None => false
     )
   );
-  if(!is_self && !via_pattern, {
-    what := cond(
-      root_var.is_module_level() => `\`${root_var.name}\` is a module-level binding`,
-      true => `\`${root_var.name}\` is a different variable, not a place reached from \`${name}\``
+  // P1 (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §4): a place rooted
+  // at another variable is a new loan. It gets a declaration's checks (the
+  // root's `mut`, a `&T` parameter's read-only referent, exclusivity against
+  // the borrows live here), and the join below records it in `cur`'s flow
+  // set.
+  unrelated := (!is_self && !via_pattern);
+  if(unrelated && is_mut, {
+    rp_what := `re-point \`${name}\` with \`&mut\` to`;
+    place_require_mut(&evaluated_rhs, ast_expr_token(&rhs), &rp_what, true, &env, ctx, exn);
+    // `place_require_mut` leaves a module-level root to the global write
+    // rules; a re-point is not one of them (decision 47: `mut(G)`).
+    if(root_var.is_module_level(), {
+      binding_require_mut(&root_var, ast_expr_token(&rhs), &rp_what, ctx, exn);
+    });
+    match(
+      shared_borrow_param_root_of_place(&evaluated_rhs, &env, ctx),
+      .Some(sbv) => reject_write_through_shared_borrow_param(&sbv, `borrow \`${local_borrow_place_text(&rhs)}\` with \`&mut\``, ast_expr_token(&rhs), ctx, exn),
+      .None => ()
     );
-    exn.throw(
-      dyn(
-        format_error_message(
-          ast_expr_token(&rhs),
-          `Cannot re-point \`${name}\` to \`${local_borrow_place_text(&rhs)}\`: ${what}. ${not_reached}`
-        )
-      )
-    );
+    call_promote_index_places_for_write(&evaluated_rhs, &env, ctx, exn);
+    local_borrow_require_writable(&place, local_borrow_root_is_shared_reference(&place, &env), `borrow \`${local_borrow_place_text(&rhs)}\` with \`&mut\``, ast_expr_token(&rhs), ctx, exn);
+    access_place(&place, LocalBorrowAccess.Exclusive, ast_expr_token(&rhs), &env, ctx, exn);
   });
   // A binding of a bare `match` over `cur` is a reference into `cur`'s
   // target (VERDICTS-13 §14), so every place below it is reached; a binding
@@ -1334,6 +1347,22 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
   });
   if(place.through_cell, {
     info.crosses_cell = true;
+  });
+  if(unrelated, {
+    // A module-level place: decision 18's rules 3 and 4 (no call, no await
+    // while `cur` is live) now hold for `cur`, and they name this place.
+    if(place.module_root, {
+      info.module_root = true;
+      info.places.push(place.clone());
+    });
+    // The join (BCC §3 `bind`): `cur`'s loans are the reaching
+    // definitions'. This one KILLs what an earlier re-point on every path to
+    // it joined, and GENs the new place; §7's scope check rejects it when
+    // the place's root dies before `cur`'s last use. A reference binding's
+    // value type is its pointee's, so its `Drop` is not `cur`'s.
+    roots := ArrayList(OriginRootPlace).new();
+    roots.push(OriginRootPlace(place : place.clone(), is_mut : is_mut));
+    bind_join_roots_for(&cur_var, &roots, ast_expr_token(&rhs), &env, ctx, exn, kill : true, holder_may_drop : false);
   });
   variable_mark_inout_borrow_root(&root_var);
   lhs_info := new_expr_info(&env, t_unit());

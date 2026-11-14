@@ -189,6 +189,15 @@ first_over :: (fn(list : &List, k : i32) -> i32)({
 head_count :: (fn(list : &List) -> usize)(
   match(list.head, .Some(b) => ref_count(b), .None => usize(0))
 );
+test("a re-point to a sibling local's place reads and writes that place (P1)", {
+  mut(a) := i32(1);
+  mut(b) := i32(2);
+  cur := &mut a;
+  cur = &mut b;
+  cur.* = i32(5);
+  assert(b == i32(5), "the write went to b");
+  assert(a == i32(1), "a is untouched");
+});
 test("the cursor walk appends at the tail slot (decision 25)", {
   mut(l) := List(head : .None);
   append(&mut l, i32(1));
@@ -391,25 +400,60 @@ comptime_expect_error(
   "Cannot call `for` while `c` is live"
 );
 
-// --- Rejected: re-points (decision 25, plan §8) -------------------------------
+// --- Rejected: re-points (decision 25, plan §8; P1 of BORROW_CHECKER_COMPLETENESS.md §4) ---
+// A re-point to another variable's place is a new loan: the declaration's
+// checks apply, and the place joins the borrow's flow set.
 comptime_expect_error(
-  repoint_to_a_sibling_root_rejected :: (fn() -> unit)({
+  repoint_mut_to_a_sibling_root_needs_its_mut_rejected :: (fn() -> unit)({
     mut(l1) := List(head : .None);
     l2 := List(head : .None);
     cur := &mut l1.head;
     cur = &mut l2.head;
     cur = .None;
   }),
-  "is a different variable, not a place reached from `cur`"
+  "Cannot re-point `cur` with `&mut` to `l2`"
 );
 comptime_expect_error(
-  repoint_to_a_module_level_place_rejected :: (fn() -> unit)({
+  repoint_mut_to_an_immutable_module_level_place_rejected :: (fn() -> unit)({
     mut(l1) := List(head : .None);
     cur := &mut l1.head;
     cur = &mut g_list.head;
     cur = .None;
   }),
-  "is a module-level binding"
+  "it is a module-level binding declared without `mut`"
+);
+comptime_expect_error(
+  repoint_to_an_inner_block_local_then_use_rejected :: (fn() -> unit)({
+    x := i32(1);
+    cur := &x;
+    {
+      y := i32(2);
+      cur = &y;
+    };
+    _v := (cur.* + i32(1));
+  }),
+  "Cannot store a reference to `y` in `cur` here"
+);
+comptime_expect_error(
+  repoint_to_a_sibling_then_write_it_rejected :: (fn() -> unit)({
+    x := i32(1);
+    mut(y) := i32(2);
+    cur := &x;
+    cur = &y;
+    y = i32(3);
+    _v := (cur.* + i32(1));
+  }),
+  "Cannot write `y` here"
+);
+comptime_expect_error(
+  repoint_to_a_module_level_place_then_call_rejected :: (fn() -> unit)({
+    mut(x) := i32(1);
+    c := &mut x;
+    c = &mut g_count;
+    noop();
+    c.* = i32(2);
+  }),
+  "Cannot call `noop` while `c` is live: `c` borrows `g_count`"
 );
 head_of :: (fn(l : &List) -> Option(Node))(l.head);
 comptime_expect_error(
@@ -420,7 +464,7 @@ comptime_expect_error(
     cur = &mut head_of(l2);
     cur = .None;
   }),
-  "is not known to be reached from `cur`"
+  "is not yet admitted"
 );
 comptime_expect_error(
   repoint_keeps_the_mode :: (fn() -> unit)({
