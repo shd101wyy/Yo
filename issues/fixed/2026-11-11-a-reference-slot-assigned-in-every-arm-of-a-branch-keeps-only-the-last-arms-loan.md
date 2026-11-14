@@ -10,7 +10,7 @@ Found 2026-11-11 by the ownership / borrowing / origin audit
 
 ## Reproducers
 
-`issues/repros/2026-11-11-a-reference-slot-assigned-in-every-arm-of-a-branch-keeps-only-the-last-arms-loan.yo`
+`tests/origins/unsound/a18-every-arm-assigns-holder.yo` (filed under `issues/repros/` with this doc's name, moved with the fix; the `…-` twins below likewise)
 (negative, expects E0911; `flag()` is true at run time):
 
 ```yo
@@ -53,6 +53,7 @@ $ yo compile repro.yo --optimize 1 --sanitize address --allocator system -o t &&
 | only one arm assigns `h` (`cond(c => { h = .Some(&x); }, true => ())`), then `x` is written | E0911 | E0911 |
 | `mut(h) := …&y…; if(c, { h = …&x…; }); x = …` | E0911 | E0911 |
 | the same; then `y`, the root from before the `if`, is written | E0911 | E0911 |
+| one arm kills an entry GENed before the branch (`h = …&y…; if(c, { h = …&x…; }); y = …`) | accepted | E0911 |
 
 So the loss needs a `=` in each of two sibling arms: one arm's assignment discards the other's loan.
 
@@ -75,8 +76,12 @@ join over reaching definitions (loops to a fixpoint)", and R-ARM: "the union ove
 on the path where the assignment ran: at the end of a branch the holder's set is the union of the arms' sets,
 each arm starting from the set before the branch.
 
+## Fix
+
+Fixed by the cluster-4 branch `fix/c4-flow-join`. Each entry of `g_local_borrow_joins` now carries the sequence number of its GEN and the count of exits (`break`, `continue`, `return`, `unwind`) seen before it (`LocalBorrowInfo.gen_seq` / `gen_exits`, `src/evaluator/utils.yo`). The evaluator opens a flow region where control may skip code: each `cond` condition after the first and each runtime arm (`exprs/cond.yo`), each `match` arm (`exprs/match.yo`), a loop's condition and body (`exprs/while.yo`), the skippable operand of `&&` / `||` (`builtins/and_or.yo`) and a function body (`exprs/begin.yo`). The KILL of a whole-holder assignment (`local_borrow_joins_clear`) removes only the entries GENed inside the innermost open region with no exit between the GEN and the KILL: those are the entries every path to the assignment carries. An entry from a sibling arm, from before the branch, or from before an exit survives, so the holder's set at a merge point is the union over the paths into it.
+
+The second arm's `h = …&y…` therefore leaves the first arm's `h -> x` entry in place, and `x = …` after the branch is E0911 naming `h`. The same rule covers a kill in ONE arm of an entry GENed before the branch (`mut(h) := …; h = …&y…; if(c, { h = …&x…; }); y = …`), a row the family table did not have: the other path still carries `h -> y`, and the write of `y` is E0911.
+
 ## Test
 
-With the fix: the three negative programs and the positive control move to `tests/origins/unsound/`; corpus rows
-`holder-assigned-in-both-arms-then-first-root-written` (E0911) and the `match` twin in
-`tests/origins/corpus.tsv`.
+`tests/origins/unsound/` (G-B, `scripts/origins-unsound.sh`): `a18-every-arm-assigns-holder` (the boxed form), `-minimal`, `-match` (E0911 each) and `-pos`; `a18-prebranch-entry-killed-in-one-arm` (E0911) and its `-pos` twin. Corpus row `holder-assigned-in-both-arms-then-first-root-written` (E0911) in `tests/origins/corpus.tsv`, encoded in `tests/origins/model_corpus.test.yo`.

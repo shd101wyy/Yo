@@ -25,7 +25,7 @@
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ drop_moves_of_skippable_operand } :: import("../utils.yo");
+{ drop_moves_of_skippable_operand, local_borrow_flow_region_begin, local_borrow_flow_region_end } :: import("../utils.yo");
 {
   EvalValue,
   is_bool_val,
@@ -88,7 +88,10 @@ evaluate_and_or :: (
         // the environment the operand was evaluated in).
         skippable := (has_runtime || has_unknown);
         operand_log_start := branch_init_log_len();
+        // A skippable operand runs on some paths only (cluster 4's regions).
+        operand_region := if(skippable, Option(usize).Some(local_borrow_flow_region_begin()), Option(usize).None);
         evaluated_arg := evaluate_expression_raw(&arg, &cur_env, ctx, exn);
+        match(operand_region, .Some(orr) => local_borrow_flow_region_end(orr), .None => ());
         if(skippable, {
           drop_moves_of_skippable_operand(&arg, &cur_env, operand_log_start, ctx, exn);
         });
