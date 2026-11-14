@@ -664,8 +664,22 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
         .Some(usrc) => match(
           expr_info_table_get(info, ast_expr_id(&usrc)),
           .Some(usei) => {
-            // Through a reference (decision 49) the source Dyn is its pointee.
-            usrc_ty := match(t_refine_inner(&usei.ty()), Rc(.Reference(usp, _, _)) => Rc.clone(usp), _ => Rc.clone(usei.ty()));
+            // Through a reference (decision 49) the source Dyn is its pointee;
+            // an OWNED upcast's source arrives as the handle (`Box(Dyn(...))`,
+            // `Rc(Dyn(...))`) — the Dyn is its payload.
+            usrc_ty := match(
+              t_refine_inner(&usei.ty()),
+              Rc(.Reference(usp, _, _)) => Rc.clone(usp),
+              _ => match(
+                unique_box_payload_type(usei.ty()),
+                .Some(ubp) => Rc.clone(ubp),
+                .None => match(
+                  cell_handle_view(usei.ty()),
+                  .Some(uhv) => Rc.clone(uhv.payload),
+                  .None => Rc.clone(usei.ty())
+                )
+              )
+            );
             if(is_dyn_type(&usrc_ty) && is_dyn_type(&uei.ty()), {
               context.register_dyn_upcast(&usrc_ty, &uei.ty());
             });
