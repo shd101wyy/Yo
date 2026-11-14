@@ -44,7 +44,7 @@ test("Test downcast AnyError to an error type this program never throws", {
   // extracted out of its box.
   match(
     downcast(&err.*, String),
-    .Some(s) => assert(s == `plain message`, "Expected the String payload back"),
+    .Some(s) => assert(s.* == `plain message`, "Expected the String payload back"),
     .None => assert(false, "Expected Some(String), got None")
   );
 });
@@ -69,7 +69,7 @@ test("Test Exception throwing and catching with String", {
         println(`Error: ${err}`);
         match(
           downcast(&err.*, String),
-          .Some(msg) => assert(msg == `division by zero`, "Expected error message to be 'division by zero'"),
+          .Some(msg) => assert(msg.* == `division by zero`, "Expected error message to be 'division by zero'"),
           .None => assert(false, "Expected error to be a String")
         );
         unwind(());
@@ -114,7 +114,7 @@ test("Test Exception with custom MathError enum", {
           downcast(&err.*, MathError),
           .Some(math_err) =>
             match(
-              math_err,
+              math_err.*,
               .DivisionByZero => assert(true, "Caught expected DivisionByZero error"),
               _ => assert(false, "Expected error to be DivisionByZero")
             ),
@@ -142,7 +142,7 @@ test("Test ResumableException throwing and catching with String", {
         println(`Error: ${err}`);
         match(
           downcast(&err.*, String),
-          .Some(msg) => assert(msg == `division by zero`, "Expected error message to be 'division by zero'"),
+          .Some(msg) => assert(msg.* == `division by zero`, "Expected error message to be 'division by zero'"),
           .None => assert(false, "Expected error to be a String")
         );
         return(666); // Return a default value for the resumable exception
@@ -187,7 +187,7 @@ test("Test ResumableException with custom MathError enum", {
           downcast(&err.*, MathError),
           .Some(math_err) =>
             match(
-              math_err,
+              math_err.*,
               .DivisionByZero => assert(true, "Caught expected DivisionByZero error"),
               _ => assert(false, "Expected error to be DivisionByZero")
             ),
