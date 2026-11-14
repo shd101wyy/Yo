@@ -10291,6 +10291,7 @@ The rule, layout, prelude and tests are in decision 49 (§4).
 
 - S1 targets v0.2.77, behind G2, and never ahead of v0.2.76's hard gates.
 - S2 and its sweep come in v0.2.78. S3 comes in v0.2.78 or v0.2.79.
+- **Amended 2026-11-14 (VERDICTS-60/-61/-62, recorded in the schedule's §5h):** S2 is built in two releases — the `Dyn` half (the first half plus the flip A) in v0.2.78, the `str` flip in v0.2.79 day 1–2 — and S3 in three parts: S3a in v0.2.78 (minus the cell arms), S3b-`Dyn` the first PR of v0.2.79 behind the `deref` flip, S3b-`str` in v0.2.80 (seed-forced). The campaign completes with S3b-`str`, and claim (L) is made in v0.2.80's notes.
 - It is part of the VBD campaign (maintainer, 2026-11-05). The campaign completes with S3. v0.2.77's retirement PR retires every other mode.
 - G2 drops its `slice`/`View(T, p)` holder.
 
