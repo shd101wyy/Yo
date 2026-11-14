@@ -67,6 +67,7 @@ pragma(Pragma.AllowUnsafe);
   is_box_type,
   is_arc_type,
   unique_box_payload_type,
+  cell_handle_view,
   is_weak_handle_type,
   is_prelude_allocator_struct,
   is_counted_handle_value_type,
@@ -4373,32 +4374,56 @@ dyn_vtable_slot_param_is_ref :: (fn(dyn_ty : &TypeValue, name : &String) -> Arra
 /// never converts a `Dyn`, and the explicit conversion is `upcast`
 /// (plans/backlog/TYPE_SYSTEM_SOUNDNESS.md Phases 2.7 and 2.8,
 /// docs/en-US/DYN_DESIGN.md). Empty for every other pair.
-dyn_upcast_note :: (fn(expected : &TypeValue, given : &TypeValue) -> String)(
+dyn_upcast_note :: (fn(expected : &TypeValue, given : &TypeValue) -> String)({
+  // Under the flip both sides usually arrive as HANDLES over the Dyns
+  // (`Box(Dyn(...))`, `Rc(Dyn(...))`, `Arc(Dyn(...))`): the note is about the
+  // PAYLOADS' trait sets, so unwrap both before comparing.
+  _dyn_of :: (fn(t : &TypeValue) -> Option(TypeValue))(
+    match(
+      unique_box_payload_type(t),
+      .Some(bp) => Option(TypeValue).Some(bp),
+      .None => match(
+        cell_handle_view(t),
+        .Some(hv) => Option(TypeValue).Some(Rc.clone(hv.payload)),
+        .None => Option(TypeValue).None
+      )
+    )
+  );
+  _expected_dyn := match(_dyn_of(expected), .Some(d) => Option(TypeValue).Some(d), .None => Option(TypeValue).Some(Rc.clone(expected)));
+  _given_dyn := match(_dyn_of(given), .Some(d) => Option(TypeValue).Some(d), .None => Option(TypeValue).Some(Rc.clone(given)));
   match(
-    expected,
-    Rc(.DynT({ required_trait_types : ert })) => match(
-      given,
-      Rc(.DynT({ required_trait_types : grt })) => {
-        (all_in : bool) = (ert.len() < grt.len());
-        (i : usize) = usize(0);
-        while((i < ert.len()) && all_in, {
-          es := type_to_string(match(ert.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit)));
-          (hit : bool) = false;
-          (j : usize) = usize(0);
-          while((j < grt.len()) && !hit, {
-            hit = (type_to_string(match(grt.get(j), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit))) == es);
-            j = (j + usize(1));
-          });
-          all_in = hit;
-          i = (i + usize(1));
-        });
-        if(all_in, String.from("\nA Dyn value is not converted to a Dyn with fewer traits implicitly: write upcast(value, Dyn(...)) to drop the extra traits."), String.new())
-      },
+    _expected_dyn,
+    .Some(ed) => match(
+      ed,
+      Rc(.DynT({ required_trait_types : ert })) => match(
+        _given_dyn,
+        .Some(gd) => match(
+          gd,
+          Rc(.DynT({ required_trait_types : grt })) => {
+            (all_in : bool) = (ert.len() < grt.len());
+            (i : usize) = usize(0);
+            while((i < ert.len()) && all_in, {
+              es := type_to_string(match(ert.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit)));
+              (hit : bool) = false;
+              (j : usize) = usize(0);
+              while((j < grt.len()) && !hit, {
+                hit = (type_to_string(match(grt.get(j), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit))) == es);
+                j = (j + usize(1));
+              });
+              all_in = hit;
+              i = (i + usize(1));
+            });
+            if(all_in, String.from("\nA Dyn value is not converted to a Dyn with fewer traits implicitly: write upcast(value, Dyn(...)) to drop the extra traits."), String.new())
+          },
+          _ => String.new()
+        ),
+        _ => String.new()
+      ),
       _ => String.new()
     ),
     _ => String.new()
   )
-);
+});
 /// A `Dyn` whose trait set carries a closure trait (`Dyn(Fn(...))`,
 /// `Dyn(FnOnce(...), Send)`).
 _dyn_carries_fn_trait :: (fn(t : &TypeValue) -> bool)(

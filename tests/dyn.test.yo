@@ -642,7 +642,9 @@ impl(_OsCat, _OsOt(other_n : (self -> i32(1))));
 _os_takes_sp :: (fn(s : Box(Dyn(_OsSp))) -> i32)(s.speak());
 test("Dyn: no upcast from Dyn(A, B) to Dyn(A), with a note saying so", {
   (both : Box(Dyn(_OsSp, _OsOt))) = dyn(Box.new(_OsCat(n : i32(3))));
-  comptime_expect_error(_os_takes_sp(&both), "write upcast(value, Dyn(...))");
+  // By value: a `&both` lend is rejected by the by-value parameter before the
+  // Dyn shapes are compared, and the note this row guards is the Dyn one.
+  comptime_expect_error(_os_takes_sp(both), "write upcast(value, Dyn(...))");
   assert(both.speak() == i32(3), "the value itself is fine");
 });
 // Explicit upcast (plans/backlog/TYPE_SYSTEM_SOUNDNESS.md Phase 2.8): the same payload
