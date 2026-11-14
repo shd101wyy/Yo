@@ -12,7 +12,7 @@ Found 2026-11-11 by the ownership / borrowing / origin audit
 
 ## Reproducers
 
-`issues/repros/2026-11-11-a-struct-with-a-mut-ref-ref-field-passes-check-and-its-c-names-an-undeclared-type.yo`
+`tests/origins/corpus/ref-of-ref-field.yo`
 (positive: must check, compile and print `OUT: 1`):
 
 ```yo

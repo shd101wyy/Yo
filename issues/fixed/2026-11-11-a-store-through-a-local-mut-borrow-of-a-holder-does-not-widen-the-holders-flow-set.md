@@ -47,7 +47,7 @@ $ YO_DEBUG_N2B=1 yo check repro.yo
 - `…-ref-ref-field.yo` (negative, E0911): `M :: struct(rp : &mut &Rc(X))`, `m := M(rp : &mut r); m.rp.* = ri;`
   with `ri := &inner` block-local, then `r` is read: stack-use-after-scope. The fixed issue's shape with the
   `&mut &T` held in a struct field instead of a local borrow (a `&mut &String` field does not compile yet:
-  `issues/2026-11-11-a-struct-with-a-mut-ref-ref-field-passes-check-and-its-c-names-an-undeclared-type.md`).
+  `issues/fixed/2026-11-11-a-struct-with-a-mut-ref-ref-field-passes-check-and-its-c-names-an-undeclared-type.md`).
 - `…-pos.yo` (positive control): the same store through `p := &mut slot`, with `y` declared before `slot`.
 
 - `…-callee.yo` (negative, E0911): the callee form, VERDICTS-58 probe 2. `sp := &mut slot; _store(sp, &y);` with
