@@ -8586,7 +8586,8 @@ _strip_lend :: (fn(e : &AstExpr) -> AstExpr)(
 projection_call_root_args :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(ProjectionRootArg))({
   match(unsize_reference_mode(ast_expr_id(call)), .Some(ur_mut) => return(unsize_root_args(call, ur_mut)), .None => ());
   out := ArrayList(ProjectionRootArg).new();
-  meta_ty := match(projection_call_callee_type(call, ctx), .Some(t) => t, .None => return(out));
+  mc_ft := projection_call_callee_type(call, ctx);
+  meta_ty := match(&mc_ft, .Some(t) => Rc.clone(t), .None => return(out));
   (param_is_ref : SharedList(bool)) = no_flags();
   (param_is_owning : SharedList(bool)) = no_flags();
   match(
@@ -8632,7 +8633,7 @@ projection_call_root_args :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayLi
   unmatched := match(&res_names, .Some(rn) => _result_names_unmatched(&meta_ty, &rn, args.len()), .None => false);
   // A generic callee's by-value result holds what every argument typed over
   // its binders holds, whatever the specialization spells (O-3).
-  binder_modes := generic_result_binder_modes(call, fn_param_slots(&meta_ty).len());
+  binder_modes := generic_result_binder_modes(call, &mc_ft, fn_param_slots(&meta_ty).len(), ctx);
   (i : usize) = usize(0);
   while(i < args.len(), {
     p_ref := match(param_is_ref.get(i), .Some(b) => b, .None => false);
@@ -8762,11 +8763,36 @@ type_var_ids_of :: (fn(ty : &TypeValue, out : &mut ArrayList(String), depth : u3
 /// types are the arguments' own, so its result spells only the origin the
 /// first argument bound the binder to
 /// (issues/fixed/2026-11-12-a-generic-by-value-result-at-a-reference-type-drops-its-second-arguments-origin.md).
-generic_result_binder_modes :: (fn(call : &AstExpr, n : usize) -> Option(ArrayList(u8)))({
-  decl := match(lookup_generic_callee_type(ast_expr_id(call)), .Some(t) => t, .None => return(Option(ArrayList(u8)).None));
+/// `record_generic_callee_type` is written by ONE call arm (the inline
+/// FuncVal specialization, `calls/function.yo`), so a DIRECT call to a
+/// generic fn value — `replace(&mut h, v)` over `dst : &mut T, v : T -> T` —
+/// has no entry and every parameter read as mode 0: the shallow walk then
+/// rooted the result at the `&mut` argument's own PLACE (`h(mut)`, exclusive)
+/// instead of the places the pointee's references name (O-3's mode 2; audit
+/// C2: the taken `old` froze `h` itself, so a later `h.r` read was E0911).
+/// For a call with no method receiver the callee's declared type — the
+/// `ft` the callers already hold, its binders intact — answers the same
+/// question, so it is the fallback; a method call keeps the recorded entry
+/// alone (its dispatch arm is not this one, and its receiver routes are
+/// settled behavior).
+generic_result_binder_modes :: (fn(call : &AstExpr, ft : &Option(TypeValue), n : usize, ctx : &EvalContext) -> Option(ArrayList(u8)))({
+  decl := match(
+    lookup_generic_callee_type(ast_expr_id(call)),
+    .Some(t) => Option(TypeValue).Some(t),
+    .None => match(
+      ft,
+      .Some(f) => match(
+        _method_call_receiver(call, ctx),
+        .Some(_) => Option(TypeValue).None,
+        .None => Option(TypeValue).Some(Rc.clone(f))
+      ),
+      .None => Option(TypeValue).None
+    )
+  );
+  decl_v := match(decl, .Some(dv) => dv, .None => return(Option(ArrayList(u8)).None));
   res_vars := ArrayList(String).new();
-  type_var_ids_of(&fn_result_slot(&decl), &mut res_vars, u32(0), false);
-  slots := fn_param_slots(&decl);
+  type_var_ids_of(&fn_result_slot(&decl_v), &mut res_vars, u32(0), false);
+  slots := fn_param_slots(&decl_v);
   if((res_vars.len() == usize(0)) || (slots.len() != n), {
     return(Option(ArrayList(u8)).None);
   });
@@ -9728,7 +9754,7 @@ _origin_carrying_roots_shallow :: (fn(e : &AstExpr, env : &Environment, ctx : &E
   oc_names := match(&oc_ft, .Some(oc_t) => fn_result_composite_origin_names(&oc_t), .None => Option(SharedList(String)).None);
   // A generic callee's by-value result holds what every argument typed over
   // its binders holds (O-3), whatever its specialization spells.
-  oc_binder_modes := generic_result_binder_modes(&stripped, match(&oc_ft, .Some(oc_t) => fn_param_slots(oc_t).len(), .None => usize(0)));
+  oc_binder_modes := generic_result_binder_modes(&stripped, &oc_ft, match(&oc_ft, .Some(oc_t) => fn_param_slots(oc_t).len(), .None => usize(0)), ctx);
   // A method call's receiver is its first parameter (`m.entry(k)` with
   // `entry(self : &mut Self, key : K) -> HashMapEntry(K, V, self)`): the
   // place it lends is a root like a written `&mut m`, and the written
