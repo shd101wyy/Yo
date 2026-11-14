@@ -25,6 +25,8 @@ error[E0920]: `r` is a `&mut` borrow: a borrow reads as its value, and `.*` does
 
 `src/evaluator/exprs/property_access.yo` (the E0920 site) picks the mode with `cond(deref_b_v.is_ref => "&mut", true => "&")`. A projection's result binding is held by pointer, so `is_ref` is set for a `&` result too; `is_imm_borrow` is what tells the two apart.
 
+Also seen 2026-11-14 (VERDICTS-62 §3, probe `d1`): an operator operand `rhs.*.len()` with `rhs : & &str` — a shared reference-to-reference *parameter* this time, not a projection result — prints the same wrong mode ("`rhs` is a `&mut` borrow") on the seed v0.2.77 and on develop `57fb978f9`. The neighbouring shapes of that one site are collected in `issues/2026-11-14-a-deref-of-a-reference-to-a-reference-operator-operand-is-an-internal-error.md` (a struct pointee in the same position is an internal error; a double `.*` is accepted).
+
 ## Plan
 
 E0920 is retired by decision 43 step 2 N1e, which makes references binding types and gives `.*` its meaning (DESIGN.md §8, Q7). The fix lands there, or earlier as a one-line change that tests `is_imm_borrow` first, with a `comptime_expect_error` case in `tests/local_borrows.test.yo` naming the `&` mode.

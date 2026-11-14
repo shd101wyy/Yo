@@ -1,0 +1,17 @@
+Bar :: struct(n : i32);
+Foo :: struct(n : i32);
+impl(
+  Foo,
+  Eq(&Bar)(
+    (==) : (fn(lhs : &Self, rhs : & &Bar) -> bool)(lhs.n == rhs.*.n),
+    (!=) : (fn(lhs : &Self, rhs : & &Bar) -> bool)(lhs.n != rhs.*.n)
+  )
+);
+main :: (fn() -> unit)({
+  f := Foo(n : i32(1));
+  b := Bar(n : i32(1));
+  rb := &b;
+  _a := Foo.(==)(&f, &rb);
+  ()
+});
+export(main);
