@@ -11,7 +11,7 @@ TestDyn :: trait(
 );
 use_test_dyn :: (
   fn(
-    value : &Dyn(TestDyn)
+    value : Box(Dyn(TestDyn))
   ) -> i32
 )({
   value.print();
@@ -90,8 +90,10 @@ test("Test simple dynamic dispatch with `box`", {
   assert(use_test_dyn(dyn(Box.new(bi))) == 200);
 });
 test("Test simple dynamic dispatch with `Rc(T)`", {
-  assert(use_test_dyn(dyn(Rc(i32).new(i32(42)))) == 42);
-  assert(use_test_dyn(dyn(Rc(bool).new(true))) == 1);
+  (rh : Rc(Dyn(TestDyn))) = dyn(Rc(i32).new(i32(42)));
+  assert(rh.*.return_i32() == 42);
+  (rb : Rc(Dyn(TestDyn))) = dyn(Rc(bool).new(true));
+  assert(rb.*.return_i32() == 1);
   bi := MyBox(100);
   assert(use_test_dyn(dyn(Box.new(bi))) == 200);
 });
@@ -132,7 +134,7 @@ test("Test Dyn with multiple traits", {
       )
     )
   );
-  act :: (fn(s : &Dyn(Speak, Run)) -> i32)(s.speak() + s.run());
+  act :: (fn(s : Box(Dyn(Speak, Run))) -> i32)(s.speak() + s.run());
   dog := Dog();
   result := act(dyn(Box.new(dog)));
   assert(result == 3, "Expected result to be 3");
@@ -516,10 +518,8 @@ test("Test Dyn(Error) over a trait default the implementor omits", {
   assert(`${ve}` == `bust`, "Dyn(Error) from a value enum (auto-box)");
   match(ve.source(), .Some(_) => assert(false, "default source must be None (enum)"), .None => ());
 });
-_use_to_string_dyn :: (fn(v : &Dyn(ToString)) -> String)(v.to_string());
-_generic_show :: (fn(generic(T : Type), v : &T, where(T <: ToString)) -> String)(
-  _use_to_string_dyn(dyn(Box.new(v.*)))
-);
+_use_to_string_dyn :: (fn(v : Box(Dyn(ToString))) -> String)(v.to_string());
+_generic_show :: (fn(generic(T : Type), v : &T, where(T <: ToString)) -> String)(_use_to_string_dyn(dyn(Box.new(v.*))));
 test("Test dyn inside a generic body whose concrete is still a type variable", {
   // At DEFINITION time `T` is an unbound `SomeT`, so the bound is undecidable —
   // `type_implements_trait` answers `false` for want of a concrete. Rejecting
@@ -543,7 +543,7 @@ _DynDefShow :: trait(
 _DynDefP :: struct(x : i32);
 derive(_DynDefP, Copy, Clone);
 impl(_DynDefP, _DynDefShow(show : (fn(self : &Self) -> i32)(self.x)));
-_dyn_def_use :: (fn(v : &Dyn(_DynDefShow)) -> i32)({
+_dyn_def_use :: (fn(v : Box(Dyn(_DynDefShow))) -> i32)({
   mut(acc) := i32(1);
   v.show_into(&mut acc);
   acc
@@ -625,7 +625,7 @@ test("Dyn: a blanket inherent method on a Dyn receiver is a direct call", {
 // A trait implemented through a GENERIC impl can be put behind a Dyn: the
 // vtable gets the generic impl's methods specialized for the concrete type
 // (issues/fixed/dyn-cannot-resolve-a-trait-method-that-comes-from-a-generic-impl.md).
-_os_show :: (fn(v : &Dyn(ToString)) -> String)(v.to_string());
+_os_show :: (fn(v : Box(Dyn(ToString))) -> String)(v.to_string());
 test("Dyn: a trait from a generic impl builds its vtable", {
   mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
@@ -637,7 +637,7 @@ test("Dyn: a trait from a generic impl builds its vtable", {
 // (docs/en-US/DYN_DESIGN.md, Phase 2.7 decision).
 _OsOt :: trait(other_n : (fn(self : &Self) -> i32));
 impl(_OsCat, _OsOt(other_n : (self -> i32(1))));
-_os_takes_sp :: (fn(s : &Dyn(_OsSp)) -> i32)(s.speak());
+_os_takes_sp :: (fn(s : Box(Dyn(_OsSp))) -> i32)(s.speak());
 test("Dyn: no upcast from Dyn(A, B) to Dyn(A), with a note saying so", {
   (both : Box(Dyn(_OsSp, _OsOt))) = dyn(Box.new(_OsCat(n : i32(3))));
   comptime_expect_error(_os_takes_sp(&both), "write upcast(value, Dyn(...))");
@@ -762,7 +762,7 @@ _OrdB :: trait(b : (fn(self : &Self) -> i32));
 _OrdC :: struct(n : i32);
 impl(_OrdC, _OrdA(a : (self -> self.n)));
 impl(_OrdC, _OrdB(b : (self -> (self.n + i32(100)))));
-_ord_take :: (fn(d : &Dyn(_OrdB, _OrdA)) -> i32)(d.a() + (d.b() * i32(1000)));
+_ord_take :: (fn(d : Box(Dyn(_OrdB, _OrdA))) -> i32)(d.a() + (d.b() * i32(1000)));
 test("Dyn: the trait order is not part of the type", {
   (x : Box(Dyn(_OrdA, _OrdB))) = dyn(Box.new(_OrdC(n : i32(1))));
   assert(_ord_take(&x) == i32(101001), "both slots dispatch to their own impl");
@@ -849,7 +849,7 @@ test("Dyn(trait) method with an inout parameter writes through to the caller's p
 // and called through it: the runtime canaries follow the check below
 // (issues/fixed/dyn-of-a-named-function-value-emits-invalid-c.md).
 _dfs_by_value :: (fn(s : String) -> usize)(s.len());
-_dfs_call :: (fn(f : &Dyn(Fn(s : &String) -> usize), s : &String) -> usize)(f(s));
+_dfs_call :: (fn(f : Box(Dyn(Fn(s : &String) -> usize)), s : &String) -> usize)(f(s));
 test("dyn of a function value checks its signature against the Dyn's `Fn`", {
   s := String.from("four");
   comptime_expect_error({
@@ -883,7 +883,7 @@ _dnf_bump :: (fn(x : &mut i32) -> unit)({
 _dnf_nine :: (fn() -> i32)(i32(9));
 _dnf_double :: (fn(x : i32) -> i32)(x * i32(2));
 _dnf_box :: (fn(f : Impl(Fn(x : i32) -> i32)) -> Box(Dyn(Fn(x : i32) -> i32)))(dyn(Box.new(f)));
-_dnf_call :: (fn(f : &Dyn(Fn(s : &String) -> usize), s : &String) -> usize)(f(s));
+_dnf_call :: (fn(f : Box(Dyn(Fn(s : &String) -> usize)), s : &String) -> usize)(f(s));
 test("dyn of a named function calls the function", {
   s := String.from("four");
   (a : Box(Dyn(Fn(s : &String) -> usize))) = dyn(Box.new(_dnf_len));
@@ -1123,7 +1123,7 @@ test("a closure that borrows its captures copies no Dyn", {
   h := _UdHolder(d : d.clone());
   assert((h.d.count() + _ud_borrowed(&h.d)) == i32(6), "a field is lent with &");
 });
-_ud_borrowed :: (fn(d : &Dyn(_UdCounter, Clone)) -> i32)(d.count());
+_ud_borrowed :: (fn(d : Box(Dyn(_UdCounter, Clone))) -> i32)(d.count());
 _UdCloneLike :: trait(clone : (fn(self : &Self) -> i32));
 test("Clone's slot clashes with a trait method named clone", {
   comptime_expect_error(Box(Dyn(_UdCloneLike, Clone)), "two methods named");
