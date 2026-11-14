@@ -8,7 +8,7 @@
 { get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
 { get_func_type, is_control_fn, is_effect_record_member, is_io_async_sm_closure, get_closure_capture_info } :: import("../../function_value.yo");
 { should_skip_function_codegen, _async_override_return_type, awaited_future_c_type_override, emitted_return_type_string, generate_function_prototype, fn_value_c_name } :: import("../functions/declarations.yo");
-{ TypeValue, TypeValueNode, FuncMeta, no_types, no_labels, no_flags, SharedList, fn_param_mut_ref_at, fn_param_by_value_at, t_slot_pointee, t_slot_is_mut_ref, slot_pointee_at, fn_param_mut_ref_flags, fn_result_pointee, fn_result_is_ref, t_slot_is_borrow } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, no_types, no_labels, no_flags, SharedList, fn_param_mut_ref_at, fn_param_by_value_at, t_slot_pointee, t_slot_is_mut_ref, slot_pointee_at, fn_param_mut_ref_flags, fn_result_pointee, fn_result_is_ref, t_slot_is_borrow, t_refine_inner } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
 { is_reference_struct_type, is_reference_enum_type, is_function_type, is_unit_type, is_array_type, is_dyn_type, is_struct_type, is_enum_type, is_union_type, is_fn_trait_type, is_some_type, is_cell_primitive_type, is_counted_handle_type, carries_no_borrow_marks, is_atomic_counted_handle_type, is_never_type, is_primitive_type, is_tuple_type, unique_box_payload_type } :: import("../../types/guards.yo");
 { type_is_control_bound, type_is_sized, dyn_type_has_vtable_slot, dyn_vtable_slot_param_is_ref, dyn_vtable_slot_result_is_ref, type_contains_rc_cell_or_move_only, fn_abi_param_is_ptr, dyn_type_lists_clone, dyn_dispatch_receiver_type } :: import("../../types/utils.yo");
@@ -1613,6 +1613,17 @@ _join_args :: (fn(args : &ArrayList(String)) -> String)({
   });
   out
 });
+/// Decision 49: is `t` a projection result over an UNSIZED pointee (a
+/// `&Dyn(T)`/`&mut Dyn(T)` — given either as the reference or its pointee)?
+/// The projection's value is the fat pair itself; there is no C deref of a
+/// struct and no address to take.
+_projection_result_unsized :: (fn(t : &TypeValue) -> bool)(
+  match(
+    t_refine_inner(t),
+    Rc(.Reference(prp, _, _)) => !type_is_sized(&prp),
+    _ => !type_is_sized(t)
+  )
+);
 /// Index of `name` in an EnumT's `variant_names` (local copy — comptime_value's
 /// is not exported). `name` must be the clean variant (no leading `.`).
 _enum_variant_index :: (fn(enum_ty : &TypeValue, name : &String) -> Option(usize))(
@@ -2404,6 +2415,22 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             // this dispatch) is the place `(*m(args))`, as on the direct-call
             // path below: never a `T` temp.
             if(call_projection_mode(expr, context).is_some(), {
+              // Decision 49: an unsized projection result is the fat pair —
+              // no C deref, the unwind temp is the pair itself.
+              if(_projection_result_unsized(&ei.ty()), {
+                if(cm_may_unwind, {
+                  cm_n := g_ref_spill_counter;
+                  g_ref_spill_counter = (cm_n + usize(1));
+                  cm_pt := `__yo_ref_spill_${cm_n.to_string()}`;
+                  context.base.emitter.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
+                  emit_text4 := `${indent.clone()}${get_type_string(&ei.ty(), &mut context.base)} ${cm_pt.clone()} = ${cm_call};`;
+                  context.base.emitter.emit_string_line(&emit_text4);
+                  generate_call_deferred_drops(expr, indent.clone(), context, true);
+                  emit_effect_unwind_check(indent.clone(), context, cm_is_install, expr);
+                  return(Option(String).Some(cm_pt));
+                });
+                return(Option(String).Some(cm_call));
+              });
               if(cm_may_unwind, {
                 cm_n := g_ref_spill_counter;
                 g_ref_spill_counter = (cm_n + usize(1));
@@ -3239,6 +3266,21 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           // emitted as a statement first, for its unwind check.
           if(call_projection_mode(expr, context).is_some(), {
             proj_call := `${c_func_name}(${casted})`;
+            // Decision 49: an unsized projection result is the fat pair.
+            if(_projection_result_unsized(&result_type), {
+              if(ou_may_unwind, {
+                proj_n := g_ref_spill_counter;
+                g_ref_spill_counter = (proj_n + usize(1));
+                proj_tmp := `__yo_ref_spill_${proj_n.to_string()}`;
+                context.base.emitter.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
+                emit_text7 := `${indent.clone()}${get_type_string(&result_type, &mut context.base)} ${proj_tmp.clone()} = ${proj_call};`;
+                context.base.emitter.emit_string_line(&emit_text7);
+                generate_call_deferred_drops(expr, indent.clone(), context, true);
+                emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr);
+                return(Option(String).Some(proj_tmp));
+              });
+              return(Option(String).Some(proj_call));
+            });
             if(ou_may_unwind, {
               proj_n := g_ref_spill_counter;
               g_ref_spill_counter = (proj_n + usize(1));
@@ -3604,6 +3646,23 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   // temp. A call that may unwind is emitted as a statement first, for its
   // unwind check.
   if(call_projection_mode(expr, context).is_some(), {
+    // Decision 49: a projection whose pointee is UNSIZED (`&Dyn(T)`,
+    // `&mut Dyn(T)`) returns the fat pair itself — there is no C deref of a
+    // struct; the callee's result is the place.
+    if(_projection_result_unsized(&result_type), {
+      if(ou_may_unwind, {
+        fpj_n := g_ref_spill_counter;
+        g_ref_spill_counter = (fpj_n + usize(1));
+        fpj_tmp := `__yo_ref_spill_${fpj_n.to_string()}`;
+        context.base.emitter.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
+        emit_text8 := `${indent.clone()}${get_type_string(&result_type, &mut context.base)} ${fpj_tmp.clone()} = ${out.clone()};`;
+        context.base.emitter.emit_string_line(&emit_text8);
+        generate_call_deferred_drops(expr, indent.clone(), context, true);
+        emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr);
+        return(Option(String).Some(fpj_tmp));
+      });
+      return(Option(String).Some(out));
+    });
     if(ou_may_unwind, {
       fpj_n := g_ref_spill_counter;
       g_ref_spill_counter = (fpj_n + usize(1));

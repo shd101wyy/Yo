@@ -4667,13 +4667,23 @@ _params_may_store_a_reference :: (fn(pts : &SharedList(TypeValue)) -> bool)({
 /// `?Sized` variable is decided per specialization, where it is bound; the
 /// generic definition's slot keeps the thin ABI its sized instances use.
 _pointee_is_fat :: (fn(t : &TypeValue) -> bool)(!type_is_sized(t) && !type_contains_some_type(t));
+/// Is the borrow slot `s` over a `Dyn` pointee (decision 49)? Such a
+/// parameter takes the fat pair BY VALUE — the pointer-argument ABI never
+/// applies to it (a slice's `&[T]` keeps the pointer ABI).
+_dyn_pointee :: (fn(s : &TypeValue) -> bool)(
+  match(
+    t_refine_inner(&t_slot_pointee(s)),
+    Rc(.DynT(_, _, _, _)) => true,
+    _ => false
+  )
+);
 fn_param_is_ptr_borrow :: (fn(fn_ty : &TypeValue, i : usize) -> bool)(
   match(
     fn_ty,
     Rc(.Func({ param_types : pb_pts, result : pb_r })) => match(
       pb_pts.get(i),
       .Some(pb_s) => (
-        t_slot_is_borrow(&pb_s) && !t_slot_is_mut_ref(&pb_s) && (_pointee_is_fat(&t_slot_pointee(&pb_s)) || _result_may_point_into_params(&pb_r) || _params_may_store_a_reference(&pb_pts))
+        t_slot_is_borrow(&pb_s) && !t_slot_is_mut_ref(&pb_s) && (!_dyn_pointee(&pb_s) && (_pointee_is_fat(&t_slot_pointee(&pb_s)) || _result_may_point_into_params(&pb_r) || _params_may_store_a_reference(&pb_pts)))
       ),
       .None => false
     ),
@@ -4682,7 +4692,7 @@ fn_param_is_ptr_borrow :: (fn(fn_ty : &TypeValue, i : usize) -> bool)(
     Rc(.FnTraitT({ call_param_types : pb_cpts, call_result : pb_cr })) => match(
       pb_cpts.get(i),
       .Some(pb_cs) => (
-        t_slot_is_borrow(&pb_cs) && !t_slot_is_mut_ref(&pb_cs) && (_pointee_is_fat(&t_slot_pointee(&pb_cs)) || _result_may_point_into_params(&pb_cr) || _params_may_store_a_reference(&pb_cpts))
+        t_slot_is_borrow(&pb_cs) && !t_slot_is_mut_ref(&pb_cs) && (!_dyn_pointee(&pb_cs) && (_pointee_is_fat(&t_slot_pointee(&pb_cs)) || _result_may_point_into_params(&pb_cr) || _params_may_store_a_reference(&pb_cpts)))
       ),
       .None => false
     ),
