@@ -1,0 +1,13 @@
+// expect: accept
+// `Option(H).take()` (std/prelude.yo): the same E0912 inside std, "it borrows `self`".
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+H :: struct(r : &String);
+main :: (fn() -> unit)({
+  a := String.from("aaaa");
+  mut(o) := Option(H).Some(H(r : &a));
+  t := o.take();
+  match(t, .Some(h) => println(`OUT: ${h.r.len().to_string()}`), .None => println("none"));
+  ()
+});
+export(main);
