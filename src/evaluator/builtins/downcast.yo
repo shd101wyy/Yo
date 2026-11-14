@@ -35,7 +35,6 @@ pragma(Pragma.AllowUnsafe);
   expr_info_adopt_env,
   note_downcast_reference,
   note_unsize_reference,
-  note_dyn_lend,
   migrate_unsized_on,
   record_unsized_site
 } :: import("../../expr_info.yo");
@@ -464,7 +463,6 @@ evaluate_upcast :: (
     uc_ref,
     .Some(um) => {
       note_unsize_reference(ast_expr_id(expr), um);
-      note_dyn_lend(ast_expr_id(expr));
     },
     .None => attach_temp_variable_to_expr(expr, true, ctx)
   );

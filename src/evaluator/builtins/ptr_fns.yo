@@ -20,8 +20,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_comptime_ref,
   expr_info_index_trait_ptr_type,
   expr_info_set_comptime_ref,
-  expr_info_set_is_index_trait_address_of,
-  is_dyn_lend
+  expr_info_set_is_index_trait_address_of
 } :: import("../../expr_info.yo");
 { note_rewritten_node } :: import("../../expr.yo");
 { Variable, Environment, snapshot_env, get_variables_from_env, find_variable_in_env_at, variable_value_type, variable_slot_type } :: import("../../env.yo");
@@ -37,7 +36,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue, TypeValueNode, SharedList, fn_param_is_mut_ref, fn_param_is_by_value, fn_result_origin_names, fn_param_in_result_origin, t_slot_origin_names, origin_names_contain, t_slot_is_mut_ref, t_reference } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
-{ DYN_LEND_HELP, attach_temp_variable_to_expr, projection_call_mode_of, projection_call_root_args, reference_field_read_type, ref_payload_source, borrow_match_source, origin_of, OriginRootPlace, variable_is_reference_binding, local_borrow_info_of_variable, deref_is_owning_handle_step } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, projection_call_root_args, reference_field_read_type, ref_payload_source, borrow_match_source, origin_of, OriginRootPlace, variable_is_reference_binding, local_borrow_info_of_variable, deref_is_owning_handle_step } :: import("../utils.yo");
 { evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { call_promote_index_places_for_write } :: import("../context.yo");
@@ -315,11 +314,6 @@ _projection_root_error :: (fn(place : &AstExpr, is_mut : bool, env : &Environmen
           )
         }),
         .None => Option(_ProjRootError).None
-      ),
-      // A `dyn(&v)` reference is a temporary of its statement (VERDICTS-43).
-      is_dyn_lend(ast_expr_id(place)) => _proj_err(
-        `A projection yields a place, and this is a \`dyn(&v)\` reference: its storage is a temporary of the statement, which ends with the call (decision 49). ${DYN_LEND_HELP}.`,
-        Option(str).Some(E_LOCAL_BORROW_ESCAPES)
       ),
       match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(place)), .Some(pi) => expr_info_index_trait_ptr_type(&pi).is_some(), .None => false) => _projection_root_error(&pr_callee, is_mut, env, ctx),
       projection_call_mode_of(place, ctx).is_some() => _projection_call_root_error(place, is_mut, env, ctx),

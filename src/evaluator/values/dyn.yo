@@ -17,7 +17,6 @@ pragma(Pragma.AllowUnsafe);
   expr_info_table_get,
   expr_info_set_dyn_call_trait_values,
   note_unsize_reference,
-  note_dyn_lend,
   expr_info_adopt_env,
   mark_node_preevaluated,
   unmark_node_preevaluated,
@@ -1374,7 +1373,6 @@ _evaluate_dyn_over_lend :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut E
     out_info := new_expr_info(&expr_info_adopt_env(&info), &dyn_type);
     expr_info_set_dyn_call_trait_values(&out_info, Option(ArrayList(EvalValue)).Some(trait_vals));
     note_unsize_reference(ast_expr_id(expr), is_mut);
-    note_dyn_lend(ast_expr_id(expr));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   });
   call

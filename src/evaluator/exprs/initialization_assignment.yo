@@ -100,7 +100,7 @@
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { type_implements_comptime, type_implements_runtime_full } :: import("../trait_checking.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
-{ reject_dyn_place_by_value, reject_dyn_lend_bind, is_valid_variable_name, in_compile_time_fn_body, note_second_class_binding, reject_malformed_mut_marker, place_require_mut, reject_write_through_rc, handle_payload_is_read_only, deref_reads_through_pointee, audit_copy_trait_enabled } :: import("../utils.yo");
+{ reject_dyn_place_by_value, is_valid_variable_name, in_compile_time_fn_body, note_second_class_binding, reject_malformed_mut_marker, place_require_mut, reject_write_through_rc, handle_payload_is_read_only, deref_reads_through_pointee, audit_copy_trait_enabled } :: import("../utils.yo");
 { is_mut_binding, is_thread_local_binding } :: import("../../expr.yo");
 { throw_rhs_contains_control_flow_expression_error, shared_borrow_param_root_of_place, reject_write_through_shared_borrow_param, throw_if_mut_lend_through_atomic_object } :: import("./assignment.yo");
 {
@@ -1511,11 +1511,6 @@ Bound type: ${type_to_string(&rhs_info.ty())}`
   // (decision 24).
   // A runtime function evaluated at compile time (`force_compile_time_bindings`)
   // binds the value, as every `:=` there does.
-  // A reference-kind `dyn(&v)` is a temporary of its statement: it cannot be
-  // bound (VERDICTS-43).
-  if(ast_expr_is_atom(&actual_lhs), {
-    reject_dyn_lend_bind(&rhs, &ast_expr_to_string(&actual_lhs), ast_expr_token(&actual_lhs), exn);
-  });
   if(ast_expr_is_atom(&actual_lhs) && !ctx.force_compile_time_bindings && projection_call_mode_of(&rhs, ctx).is_some(), {
     return(_bind_projection_result(expr, &actual_lhs, &rhs, is_const || (is_implicit || (is_comptime_wrapped || is_thread_local_decl)), &env, ctx, exn));
   });
