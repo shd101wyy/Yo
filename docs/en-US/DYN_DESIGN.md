@@ -36,27 +36,24 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-### Release status (v0.2.77)
+### Release status (v0.2.78)
 
-The compiler half of decision 49 (S1) ships in v0.2.77, while the prelude's `Box`, `Rc` and
-`Arc` become generic over unsized types only in v0.2.78 (S2). Until then:
+Decision 49's flip ships in v0.2.78: `Dyn` is unsized, every pointer to it is the fat pointer
+above, and `Box(Dyn(T))` is the prelude's `Box` over it. The bare value spellings of v0.2.77
+(`Dyn(T)` as a value type, `&d` into a `&Dyn` slot) are errors (E0619, E0620);
+`yo fix <path> --migrate unsized` rewrites them. What stays interim:
 
-- **`Box(Dyn(T))` is the older owning `Dyn` value.** In v0.2.77, the bare spelling `Dyn(T)` used as
-  a value type means `Box(Dyn(T))`, a plain `dyn(v)` means `dyn(Box.new(v))`, and `&d` of such a
-  value into a `&Dyn` slot lends it as `&d.*` does. `yo fix <path> --migrate unsized` writes the
-  bare spellings the new way; in v0.2.78 they become errors (E0619, E0620).
-- **Until v0.2.78, `Rc(Dyn(T))` is two allocations**: `dyn(Rc.new(v))` puts a boxed `Dyn` in a
-  counted cell. Its type and its sharing rules are already final.
-- **Until v0.2.78, `downcast` of an owned object is spelled on `&d.*`.** `downcast(&d.*, V)`
-  gives `Option(&V)`, as on any reference. The owning form, which hands the box back on failure,
-  comes with the prelude; `downcast(d, V)` on an owned `d` keeps the copying form described below.
-- **Until v0.2.78, a `dyn(&v)` reference can be used only as a call argument.** It cannot be
-  named, stored or returned: binding it to a local or storing it is E0911, and returning it, also
-  through a projection or inside an `Option`, is E0912. Pass it directly, or own the object with
-  `dyn(Box.new(v))`.
+- **Until v0.2.79, `Rc(Dyn(T))` and `Arc(Dyn(T))` lower to two allocations**: `dyn(Rc.new(v))`
+  puts a boxed `Dyn` in a counted cell. The type and its sharing rules are final — `h.*` is the
+  `Dyn(T)` place, `&h.*` is `&Dyn(T)`, and `Rc.clone`, `get_mut`, `downgrade`/`upgrade` behave as
+  in the final design — but the one-block cell and `Rc.from_slice` come with v0.2.79.
+- **Until v0.2.79, an owned `downcast` on `Rc(Dyn)`/`Arc(Dyn)` is an error**: the block cannot be
+  retyped while the cell holds a box. Write `downcast(&h.*, V)`, which gives `Option(&V)` as on
+  any reference. On a `Box`, the owning `downcast(b, V)` is `Result(Box(V), Box(Dyn(T)))`, which
+  hands the box back on failure.
 
-A raw pointer `*Dyn(T)`/`?*Dyn(T)` is also a pointer to an owned `Box(Dyn(T))` until v0.2.78; the
-migration writes it `*Box(Dyn(T))`.
+A raw pointer `*Dyn(T)`/`?*Dyn(T)` points at a `Dyn` place; one that owns its object is spelled
+`*Box(Dyn(T))`, which the migration writes.
 
 ## Core Design
 
@@ -85,7 +82,7 @@ shares it. It starts with a fixed prefix, then one slot per callable method:
 | `size`, `align` | the payload's size and alignment, read by `size_of_val(d)` and `align_of_val(d)` |
 | `drop_in_place` | drops the payload where it lies |
 | `clone_into` | clones the payload into storage the caller provides; `NULL` unless the trait list has `Clone` |
-| `payload_of`, `retain`, `release`, `clone` | the v0.2.77 owning value's slots; removed once `Box(Dyn)` is the prelude's `Box` |
+| `payload_of`, `retain`, `release`, `clone` | the v0.2.77 owning value's slots; still emitted for the interim `Rc`/`Arc` cells, removed with them in v0.2.79 |
 
 ```c
 typedef struct {
@@ -192,7 +189,7 @@ export(main);
 A value becomes a `Dyn` only where the program writes `dyn(...)` (decision 44). There is no
 implicit conversion at a typed slot, for a nominal value or for a callable. A named closure, a
 named `fn`, an `Impl(Fn(...))` parameter or a closure literal in an owning `Dyn(Fn(...))` binding,
-field, argument or result is error E0618, whose note names `dyn(f)`, the v0.2.77 spelling of
+field, argument or result is error E0618, whose note names `dyn(f)`, the legacy alias of
 `dyn(Box.new(f))`. A `&Dyn(Fn(...))` parameter borrows the closure with `dyn(&f)`, which
 allocates nothing.
 
@@ -243,10 +240,10 @@ match(
 The second argument is a TYPE, evaluated at compile time. `std/error.yo`'s `err.is(T)` on an
 `AnyError` is built out of `downcast`.
 
-`downcast(d, V)` on an owned `d` keeps the v0.2.77 form: it returns `Option(V)`, a copy of the
-payload, so a move-only `V` needs a `Dyn` that lists `Clone`. In v0.2.78 the owning form becomes
-`Result(Box(V), Box(Dyn(T)))`, which hands the box back on failure; until then write
-`downcast(&d.*, V)` where you only read the payload.
+`downcast(b, V)` on an owned `Box` moves the box in and hands it back on failure: the result is
+`Result(Box(V), Box(Dyn(T)))`, whose `.Ok` is the same block retyped (no copy, so a move-only `V`
+needs no `Clone`). Where you only read the payload, write `downcast(&b.*, V)` for `Option(&V)`.
+On `Rc(Dyn)`/`Arc(Dyn)` the owning form is an error until v0.2.79; write `downcast(&h.*, V)`.
 
 **How the check works.** Each concrete type gets one static whose ADDRESS is its type id, and every
 vtable carries it in `__yo_type_id`. The check is one pointer comparison,
@@ -344,7 +341,8 @@ it out (`xs.pop()`).
 **Errors are thrown by value.** `Exception.throw` and `ResumableException(T).throw` take
 `error : AnyError` by value, so a handler owns the error it catches and keeps it (stores it,
 returns it, wraps it in a `Context`) by moving it, and lends it to a function that only reads it.
-`AnyError` is the owning `Dyn(Error, Clone)` in v0.2.77; v0.2.78 spells it `Box(Dyn(Error))`.
+`AnyError` is `Box(Dyn(Error, Clone))` since v0.2.78; v0.2.77 spelled it as a bare owning
+`Dyn(Error, Clone)` value.
 
 ## Summary of Design
 
@@ -357,6 +355,5 @@ returns it, wraps it in a `Context`) by moving it, and lends it to a function th
    `dyn(Arc.new(v))`, `dyn(&v)`, `dyn(&mut v)`.
 5. **`downcast` and `upcast` keep the pointer kind**: through a reference, `downcast` borrows the
    payload as `Option(&V)`; `upcast` replaces the vtable word.
-6. **In v0.2.77** `Box(Dyn(T))` is the older owning value, `Rc(Dyn(T))` takes two allocations, the
-   owning `downcast` is spelled on `&d.*`, and a `dyn(&v)` reference is a call argument only;
-   `yo fix --migrate unsized` writes the older spellings the new way.
+6. **In v0.2.78** `Rc(Dyn(T))`/`Arc(Dyn(T))` still take two allocations and reject the owning
+   `downcast` until v0.2.79's one-block cell; everything else above is final.
