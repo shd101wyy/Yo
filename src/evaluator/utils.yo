@@ -208,6 +208,13 @@ derive(RefPayloadSource, Clone);
 /// The borrowed-`match` bindings' scrutinees (`note_borrow_match_source`). Declared above
 /// `return_check`, whose body reaches it: a runtime binding is bound in order.
 (g_borrow_match_sources : RefCell(ArrayList(RefPayloadSource))) = RefCell(ArrayList(RefPayloadSource)).new(ArrayList(RefPayloadSource).new());
+/// The same sources keyed by the binding's declaration token: the binding's
+/// frame has ended where a late origin is computed (P2's chain leaves,
+/// `_chain_leaf_origins`), so the name resolves in no env there, but the
+/// root still carries the token of its declaration (`borrow_match_source_decl`).
+BorrowMatchSourceDecl :: struct(decl : Token, scrutinee : AstExpr);
+derive(BorrowMatchSourceDecl, Clone);
+(g_borrow_match_source_decls : RefCell(ArrayList(BorrowMatchSourceDecl))) = RefCell(ArrayList(BorrowMatchSourceDecl)).new(ArrayList(BorrowMatchSourceDecl).new());
 /// The by-value holders `bind` registered, by variable id: their loan set is
 /// their `bind` entries plus their `=` joins, so an empty set is "holds no
 /// place of this function" (R-READ falls back to a holder's own place only
@@ -9679,12 +9686,7 @@ _origin_push_lend :: (fn(operand : &AstExpr, is_mut : bool, env : &Environment, 
   );
   match(
     local_borrow_place_of(operand, env, ctx),
-    .Some(p) => {
-      if(debug_knob(`YO_DEBUG_CHAIN`).is_some(), {
-        eprintln(`[lend] ${ast_expr_to_string(operand)} branch=place root=${p.root_name.clone()}@${p.root_decl.byte_offset}`);
-      });
-      _origin_push(OriginRootPlace(place : p, is_mut : is_mut), out);
-    },
+    .Some(p) => _origin_push(OriginRootPlace(place : p, is_mut : is_mut), out),
     .None => {
       // R-LEND through R-READ: the operand's root binding is not in `env` —
       // a match arm binding, whose frame ended with the arm. Its registered
@@ -12362,11 +12364,30 @@ export(lend_place_reference_type, chain_ref_leaf_register, chain_ref_leaf_forget
 /// id and the scrutinee place it is a place inside. The projection root rule
 /// follows a yielded binding to that place's own root
 /// (`builtins/ptr_fns.yo`, `_projection_root_error`).
-/// Record that the binding `var_id` of a borrowed `match` is a place inside
-/// `scrutinee`.
-note_borrow_match_source :: (fn(var_id : usize, scrutinee : &AstExpr) -> unit)({
+/// Record that the binding `var_id` of a borrowed `match`, declared at
+/// `decl`, is a place inside `scrutinee`.
+note_borrow_match_source :: (fn(var_id : usize, decl : &Token, scrutinee : &AstExpr) -> unit)({
   bms_scr := scrutinee.clone();
   g_borrow_match_sources.with_mut({ var_id, bms_scr }(xs) => xs.push(RefPayloadSource(var_id : var_id, scrutinee : bms_scr.clone())));
+  bms_decl := decl.clone();
+  g_borrow_match_source_decls.with_mut({ bms_decl, bms_scr }(xs) => xs.push(BorrowMatchSourceDecl(decl : bms_decl.clone(), scrutinee : bms_scr.clone())));
+});
+/// The scrutinee a borrowed-`match` binding declared exactly at `decl` is a
+/// place inside: the binding's frame has ended where a late origin is
+/// computed, so only its declaration token identifies it there.
+borrow_match_source_decl :: (fn(decl : &Token) -> Option(AstExpr))({
+  (i : usize) = g_borrow_match_source_decls.with(bmsd => bmsd.len());
+  while(i > usize(0), {
+    i = (i - usize(1));
+    match(
+      g_borrow_match_source_decls.with(xs => xs.get(i)),
+      .Some(e) => if((e.decl.module_path.*.clone() == decl.module_path.*.clone()) && (e.decl.byte_offset == decl.byte_offset), {
+        return(Option(AstExpr).Some(e.scrutinee));
+      }),
+      .None => ()
+    );
+  });
+  Option(AstExpr).None
 });
 /// The scrutinee place the borrowed-`match` binding `var_id` is inside.
 borrow_match_source :: (fn(var_id : usize) -> Option(AstExpr))({
@@ -12394,19 +12415,19 @@ _origin_through_match_bindings :: (fn(roots : &ArrayList(OriginRootPlace), env :
   (ri : usize) = usize(0);
   while(ri < roots.len(), {
     root := roots(ri).clone();
+    // The binding's declaration token identifies it even where its frame has
+    // ended (a late origin - P2's chain leaves): the name resolves in no env
+    // there. Tried first: the token is exact where a same-named outer
+    // binding shadows the arm's.
     scr := match(
-      get_variables_from_env(env, root.place.root_name.clone()).last_cloned(),
-      .Some(v) => if(!v.is_parameter() && !v.is_compile_time_only() && v.is_borrow_match_binding() && (depth < u32(8)), borrow_match_source(v.id()), Option(AstExpr).None),
-      .None => Option(AstExpr).None
+      if(depth < u32(8), borrow_match_source_decl(&root.place.root_decl), Option(AstExpr).None),
+      .Some(scr_e) => Option(AstExpr).Some(scr_e),
+      .None => match(
+        get_variables_from_env(env, root.place.root_name.clone()).last_cloned(),
+        .Some(v) => if(!v.is_parameter() && !v.is_compile_time_only() && v.is_borrow_match_binding() && (depth < u32(8)), borrow_match_source(v.id()), Option(AstExpr).None),
+        .None => Option(AstExpr).None
+      )
     );
-    if(debug_knob(`YO_DEBUG_CHAIN`).is_some(), {
-      lv := get_variables_from_env(env, root.place.root_name.clone()).last_cloned();
-      match(
-        &lv,
-        .Some(dbg_v) => eprintln(`[map] root=${root.place.root_name.clone()} found param=${dbg_v.is_parameter()} ct=${dbg_v.is_compile_time_only()} bm=${dbg_v.is_borrow_match_binding()} id=${dbg_v.id().to_string()} src=${borrow_match_source(dbg_v.id()).is_some().to_string()}`),
-        .None => eprintln(`[map] root=${root.place.root_name.clone()} NOT-FOUND-in-env`)
-      );
-    });
     match(
       scr,
       .Some(scr_e) => {
