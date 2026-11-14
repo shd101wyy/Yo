@@ -1,0 +1,18 @@
+// expect: accept
+// Positive control of a3-match-local-reference-binding: the arm reads `s` before the root is written,
+// and the write comes after the `match`.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+main :: (fn() -> unit)({
+  mut(o) := Option(Box(String)).Some(Box.new(L()));
+  r := &o;
+  match(
+    r,
+    .Some(Box(s)) => println(`OUT: ${s.*}`),
+    .None => ()
+  );
+  o = .None;
+  ()
+});
+export(main);
