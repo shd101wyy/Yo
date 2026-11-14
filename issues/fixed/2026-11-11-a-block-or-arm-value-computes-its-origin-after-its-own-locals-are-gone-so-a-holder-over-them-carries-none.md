@@ -117,3 +117,10 @@ a block local (u02/u07), and A22's arm value. G-B rows: `tests/origins/unsound/a
 `a12-assign-block-tail-holder-over-block-local.yo`, `a12-block-tail-call-over-block-local.yo` (E0911), each with a
 `-pos` twin. Backstop (VERDICTS-58 decision 16): an origin computed where a runtime name it reads does not resolve
 pushes an `ORIGIN_LOST_ROOT` entry, E0923 at the sink, and `YO_AUDIT_ORIGIN_TOTALITY` reports it as `lost`.
+
+Reconciled with the partial fix on merge (P2, #1937-era `vbd/p2-ref-expr`): `_chain_leaf_origins` maps each leaf's
+borrow-match binding roots through the scrutinee lend before `_chain_block_local_root`'s span test, so
+`m := match(&o, .Some(h) => …&h…)` is judged by what `h` borrows (the scrutinee `o`, declared outside the match),
+not as "a local of the block"; a `#scoped` entry names its original binding in that error, and a `#lost` entry is
+left to the sink's E0923. Without the mapping the merged tree falsely rejected `h3b-match-arm-composite-pos.yo`
+(E0911 at the binding) and moved `match-arm-composite`'s first error to the binding.
