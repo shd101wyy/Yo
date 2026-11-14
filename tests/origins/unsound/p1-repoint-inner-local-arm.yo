@@ -1,0 +1,18 @@
+// expect: E0911
+// P1: `cur` is re-pointed at `y`, a local of one arm, and read after the branch, when `y` is gone.
+// `flag()` is true at run time, so the read is a heap-use-after-free.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+flag :: (fn() -> bool)(String.from("a").len() == usize(1));
+main :: (fn() -> unit)({
+  x := L();
+  cur := &x;
+  if(flag(), {
+    y := L();
+    cur = &y;
+  });
+  println(`OUT: ${cur.*}`);
+  ()
+});
+export(main);

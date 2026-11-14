@@ -1,0 +1,19 @@
+// Cluster 4 corpus row `loop-store-body-local-read-same` (POSITIVE; audit A19a's control; manifest
+// tests/origins/corpus.tsv): the holder is read in the iteration that stored the body local's reference and
+// re-pointed outward before the back edge, so no dead local is reached over it.
+// Expected: accepted (as Rust accepts it).
+probe :: (fn(n : i32) -> unit)({
+  z := i32(0);
+  mut(slot) := Option(&i32).Some(&z);
+  mut(i) := i32(0);
+  while(i < n, {
+    _ := slot.is_some();
+    y := i32(1);
+    slot = .Some(&y);
+    _ := slot.is_some();
+    slot = .Some(&z);
+    i = (i + i32(1));
+  });
+  ()
+});
+export(probe);
