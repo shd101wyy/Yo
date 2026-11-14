@@ -528,8 +528,9 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
 /// `ts` is the parameter's type, already rendered.
 format_param_with_mode :: (fn(label : &String, ts : &String, is_ref : bool, is_owning : bool) -> String)({
   sig_ts := if(ts.starts_with("fn(") || ts.starts_with("ctl("), `(${ts})`, ts.clone());
-  // A `Type`-valued parameter (`ArrayList`'s `T`) has no mode to speak of.
-  is_type_param := ((ts == "Type") || ts.starts_with("Type("));
+  // A `Type`-valued parameter (`ArrayList`'s `T`) has no mode to speak of,
+  // nor has a `?Sized`-kinded one (`Box`'s `V`, decision 49).
+  is_type_param := ((ts == "Type") || ts.starts_with("Type(") || (ts == "?Sized"));
   cond(
     is_ref => `${label} : &mut ${sig_ts}`,
     (is_owning || is_type_param) => `${label} : ${ts}`,

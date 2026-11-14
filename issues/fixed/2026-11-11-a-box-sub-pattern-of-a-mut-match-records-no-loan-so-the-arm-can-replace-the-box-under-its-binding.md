@@ -84,3 +84,20 @@ E0911 at the write of `b` (or `o`, `r.*`) while `s` is live: R-ARM in `plans/bac
 With the fix: the three negative programs and the positive control move to `tests/origins/unsound/`; corpus rows
 `mut-match-box-subpattern-write` (E0911) and its `-pos` twin in `tests/origins/corpus.tsv`; a row in
 `tests/match_binding_lend.test.yo` for the `Box(mut(s))` form.
+
+## Fix (2026-11-13, branch `fix/c3-value-origins`)
+
+`src/evaluator/exprs/match.yo` keeps decision 26's "copies" and makes the copy borrow: a binding of a `&mut` match
+below a `Box` (or another cell, `_ArmOwnership.borrowed`) registers an exclusive loan of the scrutinee's place, live
+to its last use in the arm, as a place binding does (`local_borrow_register_match_place` against `mut_place`; a
+scrutinee reached from a local borrow records the binding with `local_borrow_note_match_place`, as place bindings do).
+A write of `b`, `o` or `r.*` while the copy is live is E0911 ("`s` borrows `b` with `&mut` and is still live"). A
+`mut(name)` copy below the cell whose part holds data (`type_contains_rc_cell_or_move_only`) is E0901, as the `&`
+match's `mut(name)` copy is: its write would drop the buffer the box still owns (the `…-double-free.yo` shape double
+frees even without the box's replacement). G-B rows: `tests/origins/unsound/a15-mut-match-box-subpattern-write.yo`
+(E0911), `…-mut-parameter.yo` (E0911), `…-double-free.yo` (E0901), `…-write-pos.yo` (accept, runs clean under ASan).
+Still open, and tracked by the A3 document
+(`issues/2026-11-11-a-match-arm-binding-over-a-reference-bound-from-a-call-result-does-not-keep-the-root-frozen.md`):
+a `&mut` REFERENCE BINDING matched bare (`r := &mut o; match(r, .Some(Box(s)) =>
+{ r.* = .None; … })`): the place model cuts a place at `.*`, so a write through `r` cannot be told from a re-point of
+`r` (decision 25), and the binding is recorded, not registered.

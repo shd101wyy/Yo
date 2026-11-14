@@ -97,6 +97,30 @@ borrows `y`"): the main reproducer, `…-arm.yo`, and a `cond` arm. The G-B rows
 and `tests/origins/unsound/match-arm-tail-holder-over-arm-local.yo`, each with its `-pos` twin; the
 `reference_read_rule` test pins the message.
 
-Still open: an outer root reached through a block-local holder binding (`…-outer-root.yo`, k07/k12/k09: `x` is not
-frozen), the assignment form `h = { … }` (a09), a call result in the tail over a block-local (u02/u03/u07/u08), and
-A22's temporary scrutinee.
+Left open by P2, and closed by the fix below: an outer root reached through a block-local holder binding
+(`…-outer-root.yo`, k07/k12/k09: `x` is not frozen), the assignment form `h = { … }` (a09), a call result in the
+tail over a block-local (u02/u03/u07/u08), and A22's temporary scrutinee.
+
+## Fix (2026-11-13, branch `fix/c3-value-origins`)
+
+This completes the partial fix above. R-ARM's evaluation point moved to where the value is produced, for every sink. A non-function-body `begin` whose
+value carries an origin computes the tail's origin before its frame and its loan entries go
+(`src/evaluator/exprs/begin.yo`) and stores it as the block's `ExprInfo.origin`; a `match` computes each arm value's
+origin at the arm's end and stores the union as its own (`src/evaluator/exprs/match.yo`). `origin_scope_close`
+(`src/evaluator/utils.yo`) replaces a root declared inside the closing block or arm by an `ORIGIN_SCOPED_ROOT` entry
+(a reference binding declared inside stands for its own entries), and every sink that keeps the value rejects it
+(`bind`, the `=` join, `return_check`): "Cannot bind `h` to `…`: the value holds a reference to `y`, a binding of the
+block or `match` arm that produced it, and `y`'s scope ends with that block or arm, while `h` lives on". A block-local
+holder binding's entries are read while they exist, so `{ t := HL(r : &x); t }` now freezes `x`. Covered beyond
+P2's `:=` form: the outer root through a block-local holder (k07), `h = { … }` (a09), a call result in the tail over
+a block local (u02/u07), and A22's arm value. G-B rows: `tests/origins/unsound/a12-block-tail-holder-binding-outer-root.yo`,
+`a12-assign-block-tail-holder-over-block-local.yo`, `a12-block-tail-call-over-block-local.yo` (E0911), each with a
+`-pos` twin. Backstop (VERDICTS-58 decision 16): an origin computed where a runtime name it reads does not resolve
+pushes an `ORIGIN_LOST_ROOT` entry, E0923 at the sink, and `YO_AUDIT_ORIGIN_TOTALITY` reports it as `lost`.
+
+Reconciled with the partial fix on merge (P2, #1937-era `vbd/p2-ref-expr`): `_chain_leaf_origins` maps each leaf's
+borrow-match binding roots through the scrutinee lend before `_chain_block_local_root`'s span test, so
+`m := match(&o, .Some(h) => …&h…)` is judged by what `h` borrows (the scrutinee `o`, declared outside the match),
+not as "a local of the block"; a `#scoped` entry names its original binding in that error, and a `#lost` entry is
+left to the sink's E0923. Without the mapping the merged tree falsely rejected `h3b-match-arm-composite-pos.yo`
+(E0911 at the binding) and moved `match-arm-composite`'s first error to the binding.

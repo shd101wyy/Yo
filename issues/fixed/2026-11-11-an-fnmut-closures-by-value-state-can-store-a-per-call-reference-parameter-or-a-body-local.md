@@ -86,3 +86,17 @@ fixed at the literal instead of joined.
 With the fix: the two negative programs and the positive control move to `tests/origins/unsound/`; corpus rows
 `closure-fnmut-state-stores-param` (E0923) and `closure-fnmut-state-stores-body-local` (E0912) in
 `tests/origins/corpus.tsv`; `tests/fn_mut.test.yo` gains both beside its `Array(i32, 2)` state test.
+
+## Fix
+
+`fix/c7-captures` (audit §9 cluster 7). `bind_join_roots_for` (`src/evaluator/utils.yo`) sends a store whose holder
+is an `FnMut` literal's by-value entry (`is_fnmut_capture_value_binding`) to `_capture_state_store`. That function
+judges each ground root as a store through `&mut self`: a root at the literal's per-call parameter is E0923, a body
+local or another by-value entry of the literal (its own storage) is E0912, and a borrow capture's place, an implicit
+capture or a module-level binding passes. The entry's origin stays the one fixed at the literal (O7), so nothing is
+joined. The `Dyn(FnMut)` form keeps E0909.
+
+Tests: `tests/origins/unsound/c7-fnmut-state-stores-param.yo` (E0923), `c7-fnmut-state-stores-body-local.yo`
+(E0912) and `c7-fnmut-state-stores-param-pos.yo` (accept, runs clean under ASan); `tests/fn_mut.test.yo` "FnMut:
+by-value state may not keep a per-call parameter or a body local", including a borrow-capture store that passes. The
+corpus rows the Test section suggests are deferred; the G-B rows pin the same programs.

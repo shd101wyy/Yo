@@ -1,0 +1,28 @@
+// expect: E0911
+// The same hole with the root a `&mut` PARAMETER and `b` a direct `&` reborrow of it:
+// `b := &a.*; match(b, .Some(p) => { a.* = .None; p… })`. With `a` a LOCAL `&mut`
+// binding (`a := &mut x`) the write is rejected (E0911 naming `b`).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+mk :: (fn() -> Option(Rc(X)))(
+  .Some(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))))
+);
+f :: (fn(a : &mut Option(Rc(X))) -> usize)({
+  b := &a.*;
+  match(
+    b,
+    .Some(p) => {
+      a.* = .None;
+      p.*.s.len()
+    },
+    .None => usize(0)
+  )
+});
+main :: (fn() -> unit)({
+  mut(x) := mk();
+  n := f(&mut x);
+  println(`OUT: ${n.to_string()}`);
+  ()
+});
+export(main);
