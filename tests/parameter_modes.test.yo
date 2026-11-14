@@ -1121,20 +1121,22 @@ test("a by-value fn parameter in a generic body is not reported as a read-only b
 _PmGet :: trait(get : (fn(self : &Self) -> &String));
 _PmW :: struct(s : String);
 impl(_PmW, _PmGet(get : (fn(self : &Self) -> &String)(&self.s)));
-_pm_consume :: (fn(generic(T : Type), v : T) -> unit)(());
+// `_pm_consume_any`, not `_pm_consume`: the file already has a `_pm_consume`
+// for its `_PmRes` rows, and top-level names do not shadow.
+_pm_consume_any :: (fn(generic(T : Type), v : T) -> unit)(());
 _pm_gen_get_then_move :: (fn(generic(T : Type), t : T, where(T <: _PmGet)) -> usize)({
   r := t.get();
-  _pm_consume(t);
+  _pm_consume_any(t);
   r.len()
 });
 _pm_gen_lend_then_move :: (fn(generic(T : Type), t : T, where(T <: _PmGet)) -> usize)({
   r := &t;
-  _pm_consume(t);
+  _pm_consume_any(t);
   r.get().len()
 });
 _pm_gen_get_then_move_pos :: (fn(generic(T : Type), t : T, where(T <: _PmGet)) -> usize)({
   n := t.get().len();
-  _pm_consume(t);
+  _pm_consume_any(t);
   n
 });
 test("a borrow of a by-value parameter of a generic body freezes it", {
