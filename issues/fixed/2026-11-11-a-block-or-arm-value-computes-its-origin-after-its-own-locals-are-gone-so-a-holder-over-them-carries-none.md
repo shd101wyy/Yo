@@ -87,9 +87,23 @@ With the fix: the three negative programs and the positive control move to `test
 `arm-block-holder-over-arm-local` (neg, E0911) in `tests/origins/corpus.tsv`, with `…-pos.yo` as
 `block-tail-holder-over-outer-local` (pos).
 
+## Partial fix (2026-11-13, P2 R-TAIL)
+
+P2 (VERDICTS-41 Q1 item 3, VERDICTS-58 decision 12) reads a `:=` initializer's block/arm-tail origin in each tail's
+OWN environment (`_chain_leaf_origins`, `src/evaluator/exprs/initialization_assignment.yo`), so a block or arm tail
+whose value carries an origin over a local declared inside it is now E0911 ("Cannot end this block while its result
+borrows `y`"): the main reproducer, `…-arm.yo`, and a `cond` arm. The G-B rows are
+`tests/origins/unsound/block-tail-holder-over-block-local.yo`, `tests/origins/unsound/cond-arm-tail-holder-over-arm-local.yo`
+and `tests/origins/unsound/match-arm-tail-holder-over-arm-local.yo`, each with its `-pos` twin; the
+`reference_read_rule` test pins the message.
+
+Left open by P2, and closed by the fix below: an outer root reached through a block-local holder binding
+(`…-outer-root.yo`, k07/k12/k09: `x` is not frozen), the assignment form `h = { … }` (a09), a call result in the
+tail over a block-local (u02/u03/u07/u08), and A22's temporary scrutinee.
+
 ## Fix (2026-11-13, branch `fix/c3-value-origins`)
 
-R-ARM's evaluation point moved to where the value is produced, for every sink. A non-function-body `begin` whose
+This completes the partial fix above. R-ARM's evaluation point moved to where the value is produced, for every sink. A non-function-body `begin` whose
 value carries an origin computes the tail's origin before its frame and its loan entries go
 (`src/evaluator/exprs/begin.yo`) and stores it as the block's `ExprInfo.origin`; a `match` computes each arm value's
 origin at the arm's end and stores the union as its own (`src/evaluator/exprs/match.yo`). `origin_scope_close`
