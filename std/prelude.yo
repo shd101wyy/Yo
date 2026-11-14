@@ -10515,7 +10515,13 @@ impl(
       // changes, to a fresh block of `size_of_val(src)` bytes.
       unsafe(consume(unsafe.cast(addr_of(dst), *usize).* = addr));
       // SAFETY: the source payload is live for the call; `dst` is fresh.
-      unsafe((T <: CloneInto).clone_into(&src.*, dst));
+      // The source lent through a local binding: a specialized body's call
+      // operands are judged, not evaluated, so an `&src.*` written inline in
+      // the call records no ExprInfo of its own and codegen marks it; a
+      // binding's initializer evaluates it (the params-only shape worked
+      // from the start).
+      (src_ref : &T) = &src.*;
+      unsafe((T <: CloneInto).clone_into(src_ref, dst));
       (mut(out) : *T) = dst;
       (tagged : usize) = cond(placed => (addr | _BOX_PLACED), true => addr);
       unsafe(consume(unsafe.cast(addr_of(out), *usize).* = tagged));
