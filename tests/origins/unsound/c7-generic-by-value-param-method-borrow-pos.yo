@@ -1,0 +1,17 @@
+// expect: accept
+// Positive control: `r`'s last use is before `t` moves (OUT: the string).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+Get :: trait(get : (fn(self : &Self) -> &String));
+W :: struct(s : String);
+impl(W, Get(get : (fn(self : &Self) -> &String)(&self.s)));
+consume_t :: (fn(generic(T : Type), v : T) -> unit)(());
+run :: (fn(generic(T : Type), t : T, where(T <: Get)) -> unit)({
+  r := t.get();
+  println(`OUT: ${r.*}`);
+  consume_t(t);
+});
+main :: (fn() -> unit)({
+  run(W(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+});
+export(main);

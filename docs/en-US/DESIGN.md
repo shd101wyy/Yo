@@ -3417,6 +3417,10 @@ twice({ n : i32(10) }() => {
 - **A by-value entry is writable only under `FnMut`.** The same body typed
   `Fn(...)` or `FnOnce(...)` writing an entry is E0917: there the write would
   reach a per-call copy. Under `FnOnce`, rebind the entry (`mut(m) := n;`).
+  The entry outlives each call, so it may not keep a reference to the call's
+  parameter (`last = .Some(v)` with `v : &T`, E0923) or to a local of the body
+  or one of the closure's own by-value entries (E0912); store an owned value,
+  or a borrow capture (`{ o : &x, last : Option(&T).None }`, `last = .Some(o)`).
 - **An implicit capture is written only under an owning `FnMut` or `FnOnce`.**
   An `Fn(...)` closure, or a literal lent to a borrowing parameter
   (`run(&(() => …))`), that writes a capture it names in its body — `s = …`,

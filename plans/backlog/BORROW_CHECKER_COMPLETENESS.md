@@ -351,6 +351,13 @@ Filed 2026-11-07 from VERDICTS-30/31; each names its repro under `issues/repros/
   read-only to an `FnMut` call (A47, E0908), and a `&mut` argument to a callee with no body is a write (A6's bodyless
   half). The `&mut` argument to a summarized callee that neither writes nor lends stays a read against a local `&`
   loan (rule G, open).
+- 2026-11-14 (audit §9 cluster 7, `fix/c7-captures`): captures and parameters a body owns. A store into an `FnMut`
+  literal's by-value state is a store through `&mut self` (A35): a root at the literal's per-call parameter is E0923, a
+  body local or the literal's own by-value storage E0912; a borrow capture's place passes (O7). A by-value capture is
+  a body-local root of a store through a `&mut` capture (A50, E0912): the exemption that dropped the store is gone. An
+  `io.async` capturing a by-value origin-carrying parameter (`{ h }`, `h : H(p)`) names it in the future's origin, and
+  the call lends the argument's origin, `mk(H(x)(r : &x), io)` freezing `x` (A51, O8's R-CALL). A move of a generic
+  body's by-value parameter through its non-owning re-bind is a move access, E0911 against a borrow of it (A52).
 - 2026-11-09: R3 landed (VERDICTS-23: a specialization keeps the declared shape of its slots). A by-value slot whose
   type becomes a reference at a specialization (`-> T` / `v : T` at `T := &U`) is `ValueSlot(&U)`, a node of its own
   next to the borrow `Reference` slot, so `-> T` is a reference VALUE (a pointer), no longer lowered as a projection,

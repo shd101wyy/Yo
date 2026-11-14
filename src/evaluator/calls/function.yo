@@ -3818,6 +3818,22 @@ _register_borrowing_future :: (fn(fut_ty : &TypeValue, call_id : usize, args : &
         f_ty := match(cap_types.get(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         f_bs := ArrayList(CaptureBorrow).new();
         collect_type_borrows(&f_ty, &mut f_bs);
+        // A by-value parameter whose type carries an origin (`h : H(p)`),
+        // captured by value: the future holds what `h` borrows, an origin
+        // the caller's argument substitutes (O8, R-CALL; audit A51). The
+        // origin names the parameter, with no place here: `h` itself moved
+        // into the future, and `_future_call_lends_into` maps the name to the
+        // argument's origin at the call.
+        if(f_bs.len() == usize(0), {
+          f_label0 := match(cap_labels.get_cloned(fi), .Some(l) => l, .None => String.new());
+          match(
+            get_variables_from_env(env, f_label0.clone()).last_cloned(),
+            .Some(bv) => if(bv.is_parameter() && !bv.is_ref() && !bv.is_compile_time_only() && (!bv.is_imm_borrow() || bv.is_value_rebind()) && type_carries_origin(&variable_value_type(&bv)) && !_names_list_contains(&origin_names, &bv.name), {
+              origin_names.push(bv.name.clone());
+            }),
+            .None => ()
+          );
+        });
         if(f_bs.len() > usize(0), {
           f_label := match(cap_labels.get_cloned(fi), .Some(l) => l, .None => String.new());
           // The captured binding, when it is a borrow parameter of the
@@ -4528,7 +4544,29 @@ _future_call_lends_into :: (
           .Some(lp) => out.push(_FutureLend(place : lp, is_mut : (ast_expr_is_fn_call_of(&lent, "&mut", .Some(usize(1))) || _borrows_root_named_mut(leaf_bs, &label)), via : via.clone())),
           .None => ()
         ),
-        .None => _future_lends_into(&lent, via, env, ctx, out, depth + u32(1))
+        .None => {
+          before := out.len();
+          _future_lends_into(&lent, via, env, ctx, out, depth + u32(1));
+          // A by-value argument that carries an origin and is no borrowing
+          // future (`mk(H(x)(r : &x), io)` for `h : H(p)`): the future's
+          // origin names its parameter, so the call lends the argument's
+          // origin, `{(x, &)}` (O8, R-CALL; audit A51).
+          if((out.len() == before) && labels_known && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&lent)), .Some(lti) => (type_carries_origin(&lti.ty()) && !is_future_value_type(&lti.ty())), .None => false), {
+            tok := ast_expr_token(&lent);
+            ors := origin_of(&lent, env, ctx);
+            (oi : usize) = usize(0);
+            while(oi < ors.len(), oi = (oi + usize(1)), {
+              orp := ors(oi).clone();
+              out.push(
+                _FutureLend(
+                  place : _LentPlace(root : AstExpr.Atom(alloc_global_expr_id(), synthetic_token(&orp.place.root_name, &tok.module_path.*)), path : orp.place.steps.clone()),
+                  is_mut : orp.is_mut,
+                  via : via.clone()
+                )
+              );
+            });
+          });
+        }
       );
     });
   });

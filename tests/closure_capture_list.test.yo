@@ -924,3 +924,23 @@ test("access modes: a capture that reborrows through a reference binding freezes
   o = .None;
   assert(n == usize(3), "the reborrowing closure dies inside the arm");
 });
+// Audit A50: a by-value capture is the closure's own storage, so a reference
+// to it stored through a `&mut` capture would dangle once the closure dies
+// (E0912); a borrow capture's place outlives the closure and joins the slot.
+test("a reference to a by-value capture may not leave through a `&mut` capture", {
+  owned := String.from("abc");
+  mut(slot) := Option(&String).None;
+  comptime_expect_error({
+    (mut(c) : Impl(FnMut() -> unit)) = ({ s : &mut slot, owned }() => {
+      s.* = .Some(&owned);
+    });
+    c()
+  }, "a by-value capture of this literal");
+  {
+    (mut(c) : Impl(FnMut() -> unit)) = ({ s : &mut slot, o : &owned }() => {
+      s.* = .Some(o);
+    });
+    c();
+  };
+  assert(match(slot, .Some(r) => r.len(), .None => usize(0)) == usize(3), "the borrow capture's place reached the slot");
+});

@@ -1389,7 +1389,10 @@ is_own_fnonce_capture :: (fn(v : &Variable, env : &Environment, ctx : &EvalConte
 /// THAT binding, so its scope-end drop is skipped. Both moves are logged for
 /// the `cond`/`match` joins. False (no move) when there is no such owner.
 /// (issues/fixed/forwarding-a-sink-closure-parameter-to-a-sink-parameter-is-rejected.md)
-_move_through_sink_shadow :: (fn(v : &Variable, rhs : &AstExpr, env : &Environment) -> bool)({
+/// The move is a move access of the shadow, the place the body's borrows
+/// root at (`r := &t`, `t.get()`): E0911 against a live one (audit A52,
+/// issues/fixed/2026-11-11-a-borrow-of-a-by-value-parameter-of-a-generic-body-freezes-nothing.md).
+_move_through_sink_shadow :: (fn(v : &Variable, rhs : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> bool)({
   if(!v.is_parameter() || v.is_ref() || v.is_module_level(), {
     return(false);
   });
@@ -1397,6 +1400,7 @@ _move_through_sink_shadow :: (fn(v : &Variable, rhs : &AstExpr, env : &Environme
     _owning_param_binding_beside(env, v),
     .Some(o) => {
       tok := ast_expr_token(rhs);
+      access_move(v, &tok, env, ctx, exn);
       _log_user_move(&o, &tok, env);
       o.set_consumed_at_token(Option(Token).Some(tok.clone()));
       _log_user_move(v, &tok, env);
@@ -1409,7 +1413,7 @@ _move_through_sink_shadow :: (fn(v : &Variable, rhs : &AstExpr, env : &Environme
 /// `_owning_param_binding_beside` and `_move_through_sink_shadow` for the
 /// match-mode decision (exprs/match.yo `_decide_match_mode`).
 owning_param_binding_beside :: (fn(env : &Environment, v : &Variable) -> Option(Variable))(_owning_param_binding_beside(env, v));
-move_through_sink_shadow :: (fn(v : &Variable, rhs : &AstExpr, env : &Environment) -> bool)(_move_through_sink_shadow(v, rhs, env));
+move_through_sink_shadow :: (fn(v : &Variable, rhs : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> bool)(_move_through_sink_shadow(v, rhs, env, ctx, exn));
 /// E0913 for a move out of an implicit capture (Generation A of decision 37,
 /// as amended 2026-10-07): a closure body owns, and so may move out, only the
 /// by-value entries of a capture list, in a closure typed `FnOnce(...)`.
@@ -1470,7 +1474,7 @@ transfer_explicit_copy_value :: (fn(rhs : &AstExpr, ei : &ExprInfo, variable_nam
       is_fn_capture_value_binding(v.id()) => _throw_fn_closure_moves_capture(rhs, &ei.ty(), v.id(), ctx, exn),
       _is_implicit_closure_capture(&v, &ei.env(), ctx) => _throw_implicit_capture_move(rhs, &ei.ty(), ctx, exn),
       v.is_owning_the_rc_value() => set_expr_as_consumed(rhs, &ei.env(), false, ctx, exn),
-      _move_through_sink_shadow(&v, rhs, &ei.env()) => (),
+      _move_through_sink_shadow(&v, rhs, &ei.env(), ctx, exn) => (),
       // `r.*` on a reference binding `r` (evaluated as the name `r`): the
       // copy is of the value `r` refers to, whose owner keeps it.
       (ast_expr_is_atom(rhs) && is_reference_deref_site(ast_expr_token(rhs))) => _throw_reference_deref_copy(rhs, &ei.ty(), ctx, exn),
@@ -11341,7 +11345,10 @@ derive(CaptureStoreJoin, Clone);
 /// `variable` leaves the body into the outer place. A root at the literal's
 /// per-call parameter is E0923, at a local of the body E0912 (the first
 /// offending one in root order); a root at another borrow capture is that
-/// capture's outer place, which joins the outer holder at the literal.
+/// capture's outer place, which joins the outer holder at the literal. A
+/// by-value capture is the literal's own storage, which dies with the
+/// closure record or the future: a body-local root (audit A50,
+/// issues/fixed/2026-11-11-a-body-may-store-a-reference-to-its-own-by-value-capture-through-a-mut-capture.md).
 _capture_store :: (fn(variable : &Variable, bco : &BorrowCaptureOuter, roots : &ArrayList(OriginRootPlace), at : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   ground := _origin_ground_roots(roots, env);
   outer_roots := ArrayList(OriginRootPlace).new();
@@ -11369,20 +11376,18 @@ _capture_store :: (fn(variable : &Variable, bco : &BorrowCaptureOuter, roots : &
             true => match(
               borrow_capture_outer(rv.id()),
               .Some(rco) => outer_roots.push(OriginRootPlace(place : rco.place.clone(), is_mut : gr.is_mut)),
-              .None => if(!is_capture_list_value_binding(rv.id()), {
-                raise_flow_violation(
-                  with_code(
-                    format_error_message_with_help(
-                      at,
-                      `Cannot store a reference to \`${gr.place.text}\` into \`${bco.place.text}\` through the capture \`${bco.text}\`: the origin names a local of this literal's body, whose storage ends with it, while \`${bco.place.text}\` outlives it (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O2; plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3).`,
-                      Option(String).Some(`store an owned value, or a reference to a place the literal borrows through its capture list`)
-                    ),
-                    E_LOCAL_BORROW_ESCAPES
+              .None => raise_flow_violation(
+                with_code(
+                  format_error_message_with_help(
+                    at,
+                    `Cannot store a reference to \`${gr.place.text}\` into \`${bco.place.text}\` through the capture \`${bco.text}\`: the origin names ${if(is_capture_list_value_binding(rv.id()), "a by-value capture of this literal, stored in the closure or future that", "a local of this literal's body, whose storage")} ends with it, while \`${bco.place.text}\` outlives it (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O2; plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3).`,
+                    Option(String).Some(`store an owned value, or a reference to a place the literal borrows through its capture list`)
                   ),
-                  ctx,
-                  exn
-                );
-              })
+                  E_LOCAL_BORROW_ESCAPES
+                ),
+                ctx,
+                exn
+              )
             )
           ),
           .None => ()
@@ -11399,6 +11404,66 @@ _capture_store :: (fn(variable : &Variable, bco : &BorrowCaptureOuter, roots : &
     g_capture_store_joins.with_mut({ cap_id : variable.id(), outer : bco.outer.clone(), outer_roots, at : at.clone() }(l) => l.push(CaptureStoreJoin(cap_id : cap_id, outer : outer, roots : outer_roots, at : at)));
   });
 });
+/// A store into `variable`, a by-value entry of the capture list of the
+/// `FnMut` literal whose body is being evaluated (its state, which the
+/// closure record keeps across calls; audit A35,
+/// issues/fixed/2026-11-11-an-fnmut-closures-by-value-state-can-store-a-per-call-reference-parameter-or-a-body-local.md).
+/// The entry's origin is fixed at the literal (REFERENCES_AND_ORIGINS.md O7),
+/// so the body's write is a store through `&mut self`: a root at the
+/// literal's per-call parameter is E0923, at a body local or the literal's
+/// own by-value storage E0912. A borrow capture's place and an implicit
+/// capture are frozen while the closure lives, which outlives its state, and
+/// a module-level binding outlives both: those pass, with nothing to join.
+_capture_state_store :: (fn(variable : &Variable, roots : &ArrayList(OriginRootPlace), at : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+  ground := _origin_ground_roots(roots, env);
+  (gi : usize) = usize(0);
+  while(gi < ground.len(), {
+    match(
+      ground.get_cloned(gi),
+      .Some(gr) => if(gr.place.root_name != variable.name, {
+        match(
+          get_variables_from_env(env, gr.place.root_name.clone()).last_cloned(),
+          .Some(rv) => cond(
+            (rv.is_module_level() || rv.is_compile_time_only()) => (),
+            borrow_capture_outer(rv.id()).is_some() => (),
+            is_capture_list_value_binding(rv.id()) => _raise_capture_state_local(variable, &gr.place.text, "a by-value capture of this literal, whose storage is the closure's own", at, ctx, exn),
+            _is_implicit_closure_capture(&rv, env, ctx) => (),
+            is_body_parameter(&rv, env) => raise_flow_violation(
+              with_code(
+                format_error_message_with_help(
+                  at,
+                  `Cannot store a value holding \`${rv.name}\` into \`${variable.name}\`: \`${variable.name}\` is a by-value capture of this \`FnMut\` closure, kept in the closure across calls, and \`${rv.name}\`'s origin is the literal's per-call parameter, which a later call cannot name (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O2, O7).`,
+                  Option(String).Some(`store an owned value (\`${rv.name}.*.clone()\`, \`Rc.clone(${rv.name})\`), or keep the state outside the closure and capture it with \`&mut\``)
+                ),
+                E_ORIGIN_MISMATCH
+              ),
+              ctx,
+              exn
+            ),
+            true => _raise_capture_state_local(variable, &gr.place.text, "a local of this literal's body, whose storage ends with the call", at, ctx, exn)
+          ),
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
+    gi = (gi + usize(1));
+  });
+});
+_raise_capture_state_local :: (fn(variable : &Variable, place_text : &String, what : str, at : &Token, ctx : &EvalContext, exn : Exception) -> unit)(
+  raise_flow_violation(
+    with_code(
+      format_error_message_with_help(
+        at,
+        `Cannot store a reference to \`${place_text}\` into \`${variable.name}\`: \`${variable.name}\` is a by-value capture of this \`FnMut\` closure, kept in the closure across calls, and the origin names ${what} (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O2, O7).`,
+        Option(String).Some(`store an owned value, or a reference to a place the literal borrows through its capture list`)
+      ),
+      E_LOCAL_BORROW_ESCAPES
+    ),
+    ctx,
+    exn
+  )
+);
 /// At the end of a literal's evaluation (VERDICTS-37 Q3, "at the literal"):
 /// the stores its body made through the `&mut` captures `cap_ids` join the
 /// outer holders' flow sets, GEN only.
@@ -11734,6 +11799,11 @@ bind_join_roots_for :: (fn(variable : &Variable, roots : &ArrayList(OriginRootPl
     }),
     .None => ()
   );
+  // A store into an `FnMut` literal's by-value state (audit A35).
+  if(is_fnmut_capture_value_binding(variable.id()), {
+    _capture_state_store(variable, roots, at, env, ctx, exn);
+    return(());
+  });
   v_tok := variable.token;
   site := _lb_binding_site_of(variable);
   // O-4: a holder whose drop uses its roots is live to its scope-end drop.
