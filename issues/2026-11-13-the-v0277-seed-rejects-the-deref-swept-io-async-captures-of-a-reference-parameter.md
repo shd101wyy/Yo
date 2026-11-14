@@ -123,3 +123,11 @@ Tests: `std/deref_spelling.test.yo` ("an io.async capture `{ b : &b.* }` of a & 
 borrows the parameter whole", failing before the rider with the A2 error above, and "a
 closure's `{ r : &mut r.* }` borrows the referent whole while it lives");
 `tests/async_await.test.yo` (the hint).
+
+Fixture note (post-#1940): the `io.async` rows above moved to
+`tests/deref_spelling_capture.test.yo` — the module-level `_deref_box_read` in that
+spelling is an A2 error under the v0.2.77 seed, whose `yo check ./std` (every lane's
+Tier 1) evaluates every file under std, while tests/ is judged and both compilers accept
+the spelling there (VERDICTS-60 §6 E3). The `{ r : &mut r.* }` closure row stays in
+`std/deref_spelling.test.yo` (seed-clean). The flip re-homes the moved rows when the
+real std lines adopt the spelling. The issue itself is unchanged and stays open.
