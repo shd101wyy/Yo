@@ -4710,14 +4710,17 @@ fn_abi_param_is_ptr :: (fn(fn_ty : &TypeValue) -> ArrayList(bool))({
     Rc(.Func({ param_types : ap_pts })) => {
       (i : usize) = usize(0);
       while(i < ap_pts.len(), {
-        out.push(match(ap_pts.get(i), .Some(ap_s) => t_slot_is_mut_ref(&ap_s), .None => false) || fn_param_is_ptr_borrow(fn_ty, i));
+        // Decision 49: a `&mut Dyn(T)` parameter also takes the pair by
+        // value (its writes go through `.data`; the pair itself never
+        // mutates), so the mut-ref pointer ABI does not apply to it.
+        out.push(match(ap_pts.get(i), .Some(ap_s) => (t_slot_is_mut_ref(&ap_s) && !_dyn_pointee(&ap_s)), .None => false) || fn_param_is_ptr_borrow(fn_ty, i));
         i = (i + usize(1));
       });
     },
     Rc(.FnTraitT({ call_param_types : ap_cpts })) => {
       (j : usize) = usize(0);
       while(j < ap_cpts.len(), {
-        out.push(match(ap_cpts.get(j), .Some(ap_cs) => t_slot_is_mut_ref(&ap_cs), .None => false) || fn_param_is_ptr_borrow(fn_ty, j));
+        out.push(match(ap_cpts.get(j), .Some(ap_cs) => (t_slot_is_mut_ref(&ap_cs) && !_dyn_pointee(&ap_cs)), .None => false) || fn_param_is_ptr_borrow(fn_ty, j));
         j = (j + usize(1));
       });
     },
