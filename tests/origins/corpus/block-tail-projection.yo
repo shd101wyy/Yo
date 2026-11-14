@@ -1,0 +1,15 @@
+// P2 / R-TAIL corpus row `block-tail-projection` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P2,
+// VERDICTS-41 Q1; manifest tests/origins/corpus.tsv): a block whose tail is a lend of an outer local binds
+// the reference, exactly as `z := first(&x)` does.
+// Expected: accepted.
+first :: (fn(p : &i32) -> &i32)(&p.*);
+main :: (fn() -> unit)({
+  x := i32(1);
+  z := {
+    w := i32(2);
+    first(&x)
+  };
+  _ := z.*;
+  ()
+});
+export(main);

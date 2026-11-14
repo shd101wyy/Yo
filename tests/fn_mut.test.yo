@@ -1,4 +1,5 @@
 { assert } :: import("std/assert");
+{ String } :: import("std/string");
 /// `FnMut(...)`, Generation A (plans/VALUES_BY_DEFAULT.md decision 37,
 /// decision 43 N1f, VERDICTS-15): the call-repeatedly closure trait. Its call
 /// takes the closure as `self : &mut Self`, so the body may write its state —
@@ -374,4 +375,77 @@ _fm_generic_run :: (fn(generic(R : Type), f : &mut Impl(FnMut() -> R)) -> R)(f()
 test("FnMut: a capture-free literal at a generic FnMut slot compiles and runs", {
   n := _fm_generic_run(() => i32(5));
   assert(n == i32(5), "the literal reached the slot and ran");
+});
+// Audit A46: an `Fn` closure, or a literal lent to a borrowing parameter, may
+// not write a capture it holds implicitly: the write would land in the
+// closure's copy (a bitwise alias of the caller's value in a borrowed literal)
+// and release storage the caller still owns.
+_fm_grow :: (fn(t : &mut String) -> unit)({
+  t.push_str("!");
+});
+test("FnMut: an `Fn` closure may not write an implicit capture (E0913)", {
+  mut(s) := String.from("abc");
+  comptime_expect_error(
+    _fm_call_fn(
+      &(
+        () => {
+          s.push_str("d");
+          i32(0)
+        }
+      )
+    ),
+    "the closure captures it implicitly"
+  );
+  comptime_expect_error(
+    _fm_call_fn(
+      &(
+        () => {
+          _fm_grow(&mut s);
+          i32(0)
+        }
+      )
+    ),
+    "the closure captures it implicitly"
+  );
+  mut(n) := i32(0);
+  comptime_expect_error(
+    _fm_call_fn(
+      &(
+        () => {
+          n = (n + i32(1));
+          n
+        }
+      )
+    ),
+    "the closure captures it implicitly"
+  );
+  // The write that reaches the caller borrows the place.
+  assert(
+    _fm_twice(
+      &mut ({ &mut n }() => {
+        n.* = (n.* + i32(1));
+        n.*
+      })
+    ) == i32(3),
+    "a `&mut` entry writes the caller's binding"
+  );
+  assert(n == i32(2), "the caller sees both writes");
+});
+// Audit A47: calling an `FnMut` closure through a `&` capture is a `&mut self`
+// receiver call through a shared borrow, E0908 as through a local `&` borrow.
+test("FnMut: an `FnMut` closure called through a `&` capture is E0908", {
+  (mut(f) : Impl(FnMut() -> i32)) = ({ n : i32(0) }() => {
+    n = (n + i32(1));
+    n
+  });
+  comptime_expect_error({
+    (g : Impl(Fn() -> i32)) = ({ r : &f }() => r());
+    g()
+  }, "it is the `&` capture");
+  comptime_expect_error({
+    r := &f;
+    r()
+  }, "is a `&` borrow");
+  (mut(h) : Impl(FnMut() -> i32)) = ({ r : &mut f }() => r());
+  assert(h() == i32(1), "a `&mut` capture calls the FnMut closure");
 });

@@ -3232,7 +3232,7 @@ _reeval_closure_body_swallow :: (
         if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
           eprintln(`[reeval-swallow] ${_rcb_e.to_string()}`);
         });
-        match(downcast(_rcb_e, YoError), .Some(ye) => g_reeval_closure_err.with_mut(xs => xs.push(ye)), .None => ());
+        match(downcast(&_rcb_e.*, YoError), .Some(ye) => g_reeval_closure_err.with_mut({ ye : ye.clone() }(xs) => xs.push(ye)), .None => ());
         unwind(())
       }
     )
@@ -6035,7 +6035,7 @@ _create_specialization_trapped :: (
 /// flagged rejection that is this error gets the note too: the
 /// definition-time re-raise throws the flag, not the error this frame sees.
 _with_instantiation_note :: (fn(err : AnyError, call_tok : &Token, description : &String, callee_in_std : bool) -> AnyError)({
-  ye := match(downcast(err, YoError), .Some(y) => y, .None => return(err));
+  ye := match(downcast(&err.*, YoError), .Some(y) => y.clone(), .None => return(err));
   prim_at_call := match(
     ye.diagnostics.get_cloned(usize(0)),
     .Some(d) => ((d.span.path == call_tok.module_path.*) && (d.span.row == usize(call_tok.row)) && (d.span.col == usize(call_tok.column))),

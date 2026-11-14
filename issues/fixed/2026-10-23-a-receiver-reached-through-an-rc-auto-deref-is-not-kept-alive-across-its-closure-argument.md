@@ -153,4 +153,4 @@ the payload whose origin is the `Rc` cell, and the cell must outlive the call.
   `issues/2026-10-23-a-move-only-element-borrowed-for-a-call-is-freed-when-an-argument-clears-its-container-through-another-handle.md`.
 - Found while triaging, unrelated to the receiver: an `Fn` closure that
   reassigns a by-value capture releases the old value twice
-  (`issues/2026-10-23-an-fn-closure-that-reassigns-a-capture-releases-the-old-value-twice.md`).
+  (`issues/fixed/2026-10-23-an-fn-closure-that-reassigns-a-capture-releases-the-old-value-twice.md`).
