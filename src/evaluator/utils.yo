@@ -8939,6 +8939,9 @@ generic_result_binder_modes :: (fn(call : &AstExpr, ft : &Option(TypeValue), n :
   res_vars := ArrayList(String).new();
   type_var_ids_of(&fn_result_slot(&decl_v), &mut res_vars, u32(0), false);
   slots := fn_param_slots(&decl_v);
+  if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
+    eprintln(`[n2b] binder-modes ${ast_expr_to_string(call)}: decl=${type_to_string(&decl_v)} res_vars=${res_vars.len().to_string()} slots=${slots.len().to_string()} n=${n.to_string()}`);
+  });
   if((res_vars.len() == usize(0)) || (slots.len() != n), {
     return(Option(ArrayList(u8)).None);
   });
