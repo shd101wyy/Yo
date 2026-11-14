@@ -39,6 +39,10 @@ standalone attempt (its preamble is the test file's own counting allocator).
 
 ## Status
 
-Parked 2026-11-15 05:50 to keep the flip's test-respelling lane moving;
-pick up in src/evaluator/values/dyn.yo (`evaluate_dyn_value` /
-`_erasure_handle_name` / `_synthesized_cell_call`).
+RESOLVED without a new change 2026-11-15: the night's commits (yo-il, head 82fa70ecd) already
+type `dyn(Box.new(v, alloc : .Some(a)))` as `Box(Dyn(...))` — verified by `tmp/p/p19.yo` part 1
+(evaluator OK, compiled and run under ASan, the placed-cell count asserted). The hypothesis above
+describes a state that no longer reproduces. The file's remaining failure was a test-side
+pre-flip annotation (`(d : Box(Dyn(_Speak))) = dyn(Rc.clone(r))`, which erases to the interim
+`Rc(Dyn(_Speak))` by design) — respelled to `Rc(Dyn(_Speak))` in the same session;
+`tests/explicit_allocators.test.yo` is 22/22 by yo-il.

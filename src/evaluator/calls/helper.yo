@@ -2733,11 +2733,33 @@ _find_specialization_cache :: (
                     // cannot tell apart, so a forwarded closure param hit the
                     // FIRST closure's specialization
                     // (issues/fixed/forwarded-closure-param-shares-specialization.md).
+                    // The same holds ONE POINTER DEEP: the payload-taking
+                    // helpers of a boxed closure (`Box(T)._free_cell(cell : *T,
+                    // ...)`, prelude `drop_in_place(p : *T)`) compare their
+                    // `*capture` argument structurally, so the second closure's
+                    // box-dispose trial reused the first's spec and passed the
+                    // second's capture struct to the first's parameter
+                    // (two `dyn(Box.new(closure))` of one `Dyn(FnOnce(...))`,
+                    // incompatible-pointer-types C error).
+                    _cap_ids_differ :: (
+                      fn(c : &TypeValue, n : &TypeValue) -> bool
+                    )(
+                      match(
+                        c,
+                        Rc(.Struct({ id : cap_cid })) => match(
+                          n,
+                          Rc(.Struct({ id : cap_nid })) => ((cap_cid.starts_with("capture_") || cap_nid.starts_with("capture_")) && (cap_cid != cap_nid)),
+                          _ => false
+                        ),
+                        _ => false
+                      )
+                    );
                     cap_ids_differ := match(
                       &cached_ty,
-                      Rc(.Struct({ id : cap_cid })) => match(
+                      Rc(.Struct(_)) => _cap_ids_differ(&cached_ty, &current_ty),
+                      Rc(.Pointer(cached_cap_pt)) => match(
                         &current_ty,
-                        Rc(.Struct({ id : cap_nid })) => ((cap_cid.starts_with("capture_") || cap_nid.starts_with("capture_")) && (cap_cid != cap_nid)),
+                        Rc(.Pointer(current_cap_pt)) => _cap_ids_differ(&cached_cap_pt.*, &current_cap_pt.*),
                         _ => false
                       ),
                       _ => false

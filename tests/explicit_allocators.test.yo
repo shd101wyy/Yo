@@ -120,7 +120,7 @@ test("A dyn over a placed Rc reuses the Rc's cell: no second cell", {
   heap := _counting(addr_of(counts));
   {
     r := Rc.new(_Dog(volume : i32(6)), alloc : .Some(heap));
-    (d : Box(Dyn(_Speak))) = dyn(Rc.clone(r));
+    (d : Rc(Dyn(_Speak))) = dyn(Rc.clone(r));
     assert(ref_count(r) == usize(2), `the dyn holds a count on the Rc's cell: ${ref_count(r)}`);
     assert(counts.live == usize(1), `one placed cell: ${counts.live}`);
     assert(d.speak() == i32(6), "dispatched to the Rc's payload");
