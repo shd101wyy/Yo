@@ -8936,7 +8936,9 @@ generic_result_binder_modes :: (fn(call : &AstExpr, ft : &Option(TypeValue), n :
     )
   );
   if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
-    eprintln(`[n2b] binder-src ${ast_expr_to_string(call)}: lookup=${lookup_generic_callee_type(ast_expr_id(call)).is_some().to_string()} ft=${match(ft, .Some(t) => type_to_string(&t), .None => String.from("none"))}`);
+    rv := ArrayList(String).new();
+    type_var_ids_of(&fn_result_slot(&decl_v), &mut rv, u32(0), false);
+    eprintln(`[n2b] binder-src ${ast_expr_to_string(call)}: lookup=${lookup_generic_callee_type(ast_expr_id(call)).is_some().to_string()} ft=${match(ft, .Some(t) => type_to_string(&t), .None => String.from("none"))} resids=${rv.len().to_string()}`);
   });
   decl_v := match(decl, .Some(dv) => dv, .None => return(Option(ArrayList(u8)).None));
   res_vars := ArrayList(String).new();
@@ -8961,13 +8963,15 @@ generic_result_binder_modes :: (fn(call : &AstExpr, ft : &Option(TypeValue), n :
         shares = true;
       });
     });
-    modes.push(
-      cond(
+    one_mode := cond(
         !shares => u8(0),
         t_slot_is_borrow(&slot) => u8(2),
         true => u8(1)
-      )
-    );
+      );
+    if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
+      eprintln(`[n2b] binder-slot ${i.to_string()} slot=${type_to_string(&slot)} pvars=${p_vars.len().to_string()} shares=${shares.to_string()} mode=${one_mode.to_string()}`);
+    });
+    modes.push(one_mode);
   });
   Option(ArrayList(u8)).Some(modes)
 });
