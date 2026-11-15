@@ -5,6 +5,10 @@ closes: it starts at v0.2.80.** The maintainer accepted the staged path of §1 a
 for it to lead the post-VBD work. The default itself flips only when the gates of §4
 hold; what starts first is the work that makes them hold.
 
+**Amended 2026-11-15 (D7–D9), after the measurement of §2.2 and §2.3:** the flip is
+two steps (report by default, then erase by default), S1 waits for a new S0, and the
+solver's distribution is a step (SD) and a gate (G6).
+
 Filed the same day as a design question and promoted to a plan when the verdict was
 given. (The file is not called `VERIFICATION_BY_DEFAULT`: that abbreviates to "VBD",
 which already names VALUES_BY_DEFAULT.) Tree citations are to `origin/develop`
@@ -29,16 +33,27 @@ becomes how a module leaves it.
 | D4 | **The two pragmas collapse to one at the flip.** Until then both stay exactly as they are |
 | D5 | **This track leads lane E after VBD** ([`POST_VBD_PLAN.md`](POST_VBD_PLAN.md) phase 0) |
 | D6 | **The default keeps the runtime guard of an unannotated partial operation and reports it; the strict pragma rejects it** (§2.1) |
+| D7 | **The flip is two steps** (maintainer, 2026-11-15). *Report by default* (S6a): with no pragma the compiler proves what it can, fails the build on a refuted written contract, and keeps every runtime check. *Erase by default* (S6b): the default also removes the checks it proved, behind G1 and G2. D4's collapse to one pragma happens at S6b |
+| D8 | **S1 waits for S0** (maintainer, 2026-11-15): the `verify+` defect found by §2.2 is fixed and every valid fixture runs in both modes before `yo init` scaffolds the pragma |
+| D9 | **The solver must run wherever `yo` runs before the default depends on it** (maintainer, 2026-11-15): step SD, gate G6 (§2.3) |
 
 Both behaviours survive the flip. Only one spelling goes, because its behaviour becomes
 what a module gets with no pragma:
 
-| | Today | After the default flips |
-| --- | --- | --- |
-| No pragma | `runtime` (nothing proved) | `verify+` (prove what the solver can, keep a runtime check for the rest) |
-| `pragma(Pragma.VerifyOrAssert);` | `verify+` | deleted: it would restate the default |
-| `pragma(Pragma.Verify);` | `verify` (strict) | still `verify` (strict), under a clearer name |
-| Opt-out pragma | none exists | new: puts a module back in `runtime` |
+| | Today | After S6a (report by default) | After S6b (erase by default) |
+| --- | --- | --- | --- |
+| No pragma | `runtime` (nothing proved) | report mode: prove what the solver can, fail on a refuted written contract, keep every runtime check | `verify+` (the same, and a proved check is erased) |
+| `pragma(Pragma.VerifyOrAssert);` | `verify+` | `verify+`, unchanged: how a module asks for erasure early | deleted: it would restate the default |
+| `pragma(Pragma.Verify);` | `verify` (strict) | still `verify` (strict), under a clearer name | the same |
+| Opt-out pragma | none exists | new: puts a module back in `runtime` | the same |
+
+**Why two steps (D7).** The reason for the default is the counter-example at compile
+time (the paragraph above the verdict table). Erasing proved checks is a separate
+benefit with a separate risk: a proof may rest on an `assumed()` contract that nothing
+validates (§2, third bullet), and most std bodies are assumed. Report mode is exactly as
+safe as `runtime` mode is today, so it does not have to wait for std to be proved (G1)
+or for the assumption probes (G2). It needs only that the default is cheap, stable and
+runnable everywhere (G3, G5, G6).
 
 The two modes differ in one case only:
 
@@ -113,6 +128,8 @@ a function that carries no contract. The two answers considered:
 
 - The flip then changes no accepted program's behaviour: it erases the checks it can
   prove away and gives a counter-example for every contract the author wrote.
+- Under D7's first step (S6a) the two "guard erased" cells of the default column read
+  "guard kept". Nothing else in the table changes, and S6b restores them.
 - The tree has this treatment already for overflow obligations, which are
   elision-only: "the compile still succeeds, the function is still `ok`, and the
   overflow guard stays" (`tests/spec/fixtures/elision/add_unbounded_kept.yo`). D6
@@ -124,26 +141,137 @@ a function that carries no contract. The two answers considered:
   [`PROVEN_CORE.md`](PROVEN_CORE.md) §8 item 4 lists, and the strict pragma is how a
   module claims it has none.
 
+### 2.2 What it costs, measured 2026-11-15
+
+Measured with `yo 0.2.77` and Z3 5.1.0 on the 64 GB Linux box (32 cores, other
+jobs running, so wall times carry a few seconds of noise). *Judgment* marks an
+extrapolation.
+
+**On today's code the cost is close to zero, because the coverage is.** `yo
+verify --no-cache` against `yo check` on the same path:
+
+| Path | `check` | `verify` | Functions | Outside the subset | Solver queries |
+| --- | --- | --- | --- | --- | --- |
+| `std/collections` | 19.3 s, 294 MB | 19.4 s, 351 MB | 13 | 3 (9 more `assumed`) | 0 |
+| `std/string` | 5.6 s | 5.6 s | 179 | 175 | 0 (6 with `--elision`) |
+| `std/encoding` (7,118 lines) | 46.2 s, 291 MB | 54.8 s, then 44.5 s, 344 MB | 281 | 250 | 0 (6 with `--elision`) |
+| `std/fmt` | 10.5 s | 10.6 s | 78 | 78 | 0 |
+| `src/lexer.yo` | 40.9 s, 316 MB | 38.2 s, 309 MB | 6 | 6 | 0 |
+| `src/parser.yo` | 43.7 s, 322 MB | 64.2 s loaded, 46.2 s on the next run, 324 MB | 52 | 52 | 0 |
+| `src/formatter.yo` | 41.8 s, 354 MB | 39.7 s, 356 MB | 57 | 54 | 0 |
+
+The 31 `ok` functions of `std/encoding` have no obligation at all. The reasons
+a function is outside the subset, in `std/encoding`: 148 "parameter outside
+the integer/bool/array subset", 57 "call to a callee without contracts", 15
+"untyped expression". The three compiler modules give the first of these for
+110 of their 112 outside-subset functions. An unannotated `while` is outside
+the subset too ("while loop without a leading invariant"). With no query to
+send, a run's cache state does not matter, and the differences between the
+two time columns are machine load.
+
+**Inside the subset, the cost is per obligation.** A generated module of small
+contracted functions (integer arithmetic, a `cond`, a counting loop with an
+invariant, a loop over an `Array`, an `ArrayList` index, a division and a
+shift), with and without `pragma(Pragma.VerifyOrAssert);`, and a fresh
+`YO_CACHE_DIR` for the cold runs:
+
+| Functions (lines) | Command | No pragma | Cold cache | Warm cache | Queries |
+| --- | --- | --- | --- | --- | --- |
+| 71 (453) | `check` | 10.4 s | +3.9 s | +1.0 s | 120 |
+| 281 (1,773) | `check` | 11.8 s | +18.3 s | +1.2 s | 480 |
+| 1,121 (7,053) | `check` | 16.8 s, 308 MB | +77.1 s, 490 MB | +7.5 s | 1,920 |
+| 71 (453) | `compile --skip-c-compiler` | 9.7 s | +6.9 s | none measurable | 200 |
+| 281 (1,773) | `compile --skip-c-compiler` | 12.3 s | +31.6 s | +0.5 s | 800 |
+| 1,121 (7,053) | `compile --skip-c-compiler` | 16.2 s, 588 MB | +125.9 s, 774 MB | +12.5 s | 3,200 |
+
+- **A cold obligation costs about 40 ms**, and they run one after another:
+  one fresh `z3` process per query through `system(3)`. Starting `z3` on a
+  trivial script is 12 to 14 ms of that.
+- **A warm obligation costs about 4 ms**: the walk that builds the query, its
+  hash, and one cache file read. About 10 s of each "no pragma" time is the
+  prelude, so the largest module itself costs about 7 s to check, and a warm
+  verification doubles it.
+- `compile` asks more than `check` (3.3 against 2 queries per function here)
+  because it also generates the overflow obligations that let it remove a
+  guard.
+- Memory grew by about 185 MB (60 %) on the largest module.
+
+**The tail is heavy.** Most obligations took 25 to 200 ms. A product of two
+`i32` values whose `requires` bounds include negative numbers took 3 to 5 s
+for each of its three obligations (13.6 s for one function), all proved. A
+lower budget turns that into a bounded give-up: `--rlimit 200000` answers
+`unproven` in about 1.1 s each, `--rlimit 50000` in about 0.35 s. §2's 102 s
+example is the far end of the same tail, at the default budget of 5,000,000.
+
+***Judgment*, the compiler at full coverage.** `src/` is about 320,000 lines.
+At two to five obligations per definition and roughly 6,400 definitions it is
+13,000 to 32,000 obligations: 9 to 21 minutes cold and 50 to 130 s warm on a
+`check ./src` that takes about 105 s unverified, before any heavy obligation.
+That is not acceptable as measured and is acceptable with three changes, which
+are S4's real content (§5 items 5 to 7): solve in parallel, key the cache on
+the function so an unchanged function is not walked, and give automatic
+obligations a small budget.
+
+### 2.3 A machine without a usable solver
+
+What `yo 0.2.77` does with `~/.cache/yo/solvers/` empty and `YO_Z3_PATH` unset:
+
+| | `yo check` | `yo compile` |
+| --- | --- | --- |
+| `verify+` module | passes, one `verify: no Z3 solver found …` line | passes, same line; every contract stays a runtime assert |
+| `verify` module | passes, with the hint | fails: its runtime asserts are suppressed, so it cannot ship unproved |
+
+Only `yo verify` downloads the solver. Three facts that matter once `verify+`
+is the default:
+
+- **The same source then builds two different programs.** A module whose
+  `ensures` is false fails the build on a machine with the solver (`REFUTED`,
+  with the counter-example). Without it the build passes and the program
+  aborts at run time (`ensures failed: r > x`). Both are sound; they disagree
+  on when the author finds out.
+- **A solver that is installed but cannot run is reported once per function.**
+  A `z3` that exits with a loader error gives a `SOLVER-ERROR` block for every
+  function, with the loader's message repeated. The official Linux assets the
+  pin names need glibc 2.39 (x86_64) or 2.38 (arm64), while the `yo` binary is
+  static musl and runs on older and musl systems, so this is the case a user
+  on Debian 12, Ubuntu 22.04 or Alpine meets.
+- **The install is 157 MB** for a 36 MB binary: the release archive also
+  carries `libz3.a`, `libz3.so` and the Java and .NET bindings, and all of it
+  is unpacked.
+
 ## 3. The steps
 
-In order. S1 and S2 need nothing else and start at v0.2.80.
+In order. S0, S2 and SD need nothing else and start at v0.2.80. S1 follows S0 (D8).
 
 | Step | What | Size | Depends on |
 | --- | --- | --- | --- |
-| **S1** | `yo init` scaffolds `pragma(Pragma.VerifyOrAssert);` in the source modules it generates, and the scaffolded `AGENTS.md` says so. `src/init.yo` already scaffolds a verified `spec/` | S: `src/init.yo` plus a cli-case golden | nothing |
+| **S0** | Fix `issues/2026-11-15-under-verify-plus-a-function-with-a-requires-no-ensures-and-a-block-body-is-not-verified.md`, and add the both-modes sweep: every fixture of `tests/spec/fixtures/valid/` runs under `Pragma.Verify` and under `Pragma.VerifyOrAssert` and must prove the same set of functions | S to M: the root cause is not known | nothing |
+| **S1** | `yo init` scaffolds `pragma(Pragma.VerifyOrAssert);` in the source modules it generates, and the scaffolded `AGENTS.md` says so. `src/init.yo` already scaffolds a verified `spec/` | S: `src/init.yo` plus a cli-case golden | S0 |
+| **SD** | Solver distribution (D9): a static build of the pinned Z3 for each release target, published with the release, and an install that keeps only that binary; the installer and `yo version install` fetch it with the compiler, and `yo build` fetches it on first need; a missing solver and one that cannot execute are probed once and reported in one line for the build; `--require-solver` / `YO_REQUIRE_SOLVER=1` for CI; solver presence in the artifact's input stamp (§5 items 8 and 9) | M | nothing |
 | **S2** | A proved result is capped by what it rests on: the satisfiability probe per `assumed()` contract, the feasibility probe after a call, and `ok` naming the assumed contracts it used | about a week, with the vacuity probes of [`SELF_VERIFICATION.md`](SELF_VERIFICATION.md) | nothing |
 | **S3** | std bodies the verifier walks instead of `assumed()` | weeks; it is the shared bottleneck of [`POST_VBD_PLAN.md`](POST_VBD_PLAN.md) phase 4, item 1 | the raw-buffer model ([`THEOREM_PROVING_DIRECTION.md`](THEOREM_PROVING_DIRECTION.md) R1) |
-| **S4** | Incremental verification: an edit re-proves only the functions it changed, and a default-on `yo check` does not hold every function's state at once | L (SELF_VERIFICATION lever L8) | nothing |
+| **S4** | Incremental verification: an edit re-proves only the functions it changed, and a default-on `yo check` does not hold every function's state at once. Its three parts by §2.2: a solver pool, a per-function cache key, and a small budget for automatic obligations (§5 items 5 to 7) | L (SELF_VERIFICATION lever L8) | nothing |
 | **S5** | Subset growth until the coverage gate holds: strings, exceptions as exit paths, trees as datatypes, collections through contracts | L (SELF_VERIFICATION levers L1–L4) | S3 for L4 |
-| **S6** | **The flip.** One PR, seed-gated where it adds or removes a pragma name | M, plus the tree sweep below | every gate of §4 |
+| **S6a** | **Report by default** (D7). One PR, seed-gated where it adds or renames a pragma | M, plus the tree sweep below | S0, S4, SD; gates G3, G5, G6 |
+| **S6b** | **Erase by default** (D7). One PR, seed-gated where it removes a pragma name | S | S6a; gates G1, G2 |
 
-What the flip PR (S6) contains:
+S3 and S5 no longer stand between the project and its first flip: S6a does not need
+std to be proved or the subset to be wide. They gate S6b (S3, through G1) and decide
+how much the default proves (S5).
 
-- the default mode becomes `verify+`, with D6's treatment of uncontracted functions;
-- `Pragma.VerifyOrAssert` is deleted, with no alias and no deprecation window;
+What S6a contains:
+
+- the default mode becomes report mode, with D6's treatment of uncontracted functions.
+  Report mode is the `verify+` walk with its two erasures off. Both are single switches
+  today: the strip pass (`strip_proved_ensures_asserts`, one mode test in
+  `verify_and_strip_tasks`, `src/verifier/driver.yo`) and guard elision
+  (`record_elidable_guard_sites`, which `compile` calls). `requires` entry guards are
+  kept in every mode already. Its `--verify-mode` spelling is the PR's to choose;
 - an opt-out pragma back to `runtime` is added (none exists today);
 - the strict pragma is renamed: `Verify` reads as the ordinary choice and is the strict
   one, which is the wrong way round for an author choosing by name;
+- the build's verify summary states the share of functions inside the subset, so the
+  default never reads as "verified" while most code is outside it (§4, the note on G4);
 - **the tree sweep:** every module of `src/`, `std/` and `tests/` that does not verify
   green at that commit gets the opt-out pragma, and the count of opted-out modules
   becomes a ratchet that may only fall. Without the sweep the flip breaks the
@@ -151,6 +279,11 @@ What the flip PR (S6) contains:
 - the two standing texts are amended: [`FORMAL_VERIFICATION.md`](FORMAL_VERIFICATION.md)
   §Non-goals ("No mandatory verification") and [`SELF_VERIFICATION.md`](SELF_VERIFICATION.md)
   §Non-goals ("`runtime` stays the default for everyone else").
+
+What S6b contains:
+
+- the default mode becomes `verify+`: the two erasures are switched on for it;
+- `Pragma.VerifyOrAssert` is deleted, with no alias and no deprecation window (D4).
 
 ## 4. The gates for the flip
 
@@ -163,6 +296,19 @@ Each is a number or a verdict a CI job re-derives. None is asserted in prose.
 | **G3** the overhead is bounded | on the compiler's front-end modules, a warm default-on `yo check` after a one-function edit is within a stated factor of the unverified time and a stated RSS; both numbers are set from the first S4 measurement, not before |
 | **G4** the subset covers real code | a stated share of the functions in `tests/` and `std/` is inside the subset; the share is set from the first measurement after S5's first lever |
 | **G5** no flaky builds | over the language suite, no obligation's verdict differs between two cold runs on two machines (the pinned Z3 and `rlimit` budgets make this checkable) |
+| **G6** the solver runs wherever `yo` runs (D9) | on every release target, the release's smoke job proves one obligation with the solver the installer fetched; and a build with no solver, or with one that cannot execute, passes in the default mode with exactly one line |
+
+Which gate holds which step (D7):
+
+| Step | Gates |
+| --- | --- |
+| S6a, report by default | G3, G5, G6 |
+| S6b, erase by default | G1, G2, and those of S6a |
+
+**G4's place is not ruled on.** *Judgment:* it is not a gate for S6a, because a default
+that reports and erases nothing is safe at any coverage, provided S6a's summary line
+states the coverage. It is a gate for S6b, and for any sentence in the docs or the
+roadmap that says Yo code is verified by default.
 
 ## 5. Open questions
 
@@ -170,6 +316,59 @@ Each is a number or a verdict a CI job re-derives. None is asserted in prose.
 2. **Do `*.test.yo` files default too?** *Judgment:* yes, with the same rule; a test
    body that indexes with a literal proves trivially.
 3. **G3's and G4's numbers.** Set by measurement, as the table says.
+4. **Decided 2026-11-15: D8, step S0.** `verify+` must be tested as the default it is
+   about to become, before S1.
+   One fixture of `tests/spec/fixtures/valid/` uses `Pragma.VerifyOrAssert`,
+   and the measurement of §2.2 found
+   `issues/2026-11-15-under-verify-plus-a-function-with-a-requires-no-ensures-and-a-block-body-is-not-verified.md`
+   within an hour. *Judgment:* fix it and add a sweep that runs every valid
+   fixture in both modes and requires the same proved set; S1 scaffolds this
+   pragma into every new project.
+5. **Solve in parallel.** Every obligation is already its own process and its
+   own cache entry, and the verdicts do not depend on order. *Judgment:* a
+   pool of solver processes sized by `--jobs`; the cold numbers of §2.2
+   divide by the pool size.
+6. **Key the cache on the function, not only on the query.** A warm run
+   re-walks every function to rebuild queries it then finds cached, which is
+   the 4 ms per obligation of §2.2. *Judgment:* S4 stores, per function, a
+   hash of its body and of the contracts of everything it calls, with its
+   verdicts; an unchanged function is neither walked nor hashed per
+   obligation. G3 should be stated against this.
+7. **Two budgets.** An automatic obligation that the solver gives up on costs
+   nothing but a kept guard, so it does not deserve the budget of a written
+   contract. *Judgment:* the default mode gives automatic obligations a small
+   `rlimit` (the 200,000 of §2.2 is about one second) and keeps 5,000,000 for
+   written `requires`, `ensures` and `invariant` clauses and for the strict
+   pragma. Both are deterministic, so G5 holds.
+8. **Decided in principle 2026-11-15: D9, step SD; the details below are SD's to
+   confirm.** What a missing solver means under the default. *Judgment:*
+   - never an error in the default mode, and never silent: the build keeps
+     every runtime check (today's `runtime` behaviour) and prints one line for
+     the whole build, not one per file;
+   - make it rare: the installer and `yo version install` fetch the pinned
+     solver with the compiler, and `yo build`, the one command that already
+     fetches, fetches it on first need; `check`, `compile` and the editor
+     never touch the network;
+   - a flag and an environment variable (`--require-solver`,
+     `YO_REQUIRE_SOLVER=1`) turn the line into an error, for CI: what CI
+     proves is then what ships;
+   - the strict pragma keeps today's rule (`compile` fails);
+   - a solver that cannot execute is the same case as a missing one: probe it
+     once, print one line;
+   - whether the solver ran is part of the artifact's input stamp, so a build
+     cached without it is not served after it is installed *(grep:
+     `src/build_runner.yo` does not mention the solver today; not run)*.
+9. **Decided 2026-11-15: D9, step SD, gate G6.** Solver coverage must equal compiler
+   coverage. *Judgment:* Yo builds
+   the pinned Z3 itself as a static binary for each release target and
+   publishes it with the release, the way it publishes its own bundles, and
+   the install keeps only that binary (36 MB, against 157 MB today). Until
+   then gate G6 cannot be met on the systems §2.3 names.
+10. **The verify cache is never collected.** It holds one JSON file per
+    obligation in one directory (22,206 files and 90 MB on the measuring
+    box), and `yo cache gc` and `yo cache clean` do not know it *(grep:
+    `verify-cache` appears only in `src/verifier/`)*. *Judgment:* an S-sized
+    item for S4.
 
 ## 6. What does not change
 

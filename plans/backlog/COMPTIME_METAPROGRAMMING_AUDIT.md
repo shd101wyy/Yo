@@ -493,6 +493,12 @@ generated-code diagnostics; and the Lisp interpreter's error attribution
 `column` at a known site, plus one `comptime_assert` message that uses it.
 Small, no dependencies, land first.
 
+**Open before this starts (2026-11-15):** the defaulted-parameter sentence
+above contradicts the landed default-parameter rule (a default is recorded
+once, at the definition, and one that needs a call is E1105).
+`JAI_ADOPTION_CANDIDATES.md` J3 states the two ways out and recommends a
+second builtin, `caller_location()`, legal only as a `?=` default.
+
 ### C7 — CTFE budget API (S, low priority)
 
 **Close G7.** Adopt Z8: a default per-eval branch quota with

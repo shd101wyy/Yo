@@ -80,7 +80,7 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
         if(
           is_comptime_string_value(&av),
           match(
-            expr_info_converted_runtime_type(&arg_ei),
+            expr_info_converted_runtime_type(&arg_ei.*),
             .Some(_) => {
               arg_code := _call_generate_expr(&arg, indent.clone(), context);
               mut(out) := String.from("(&");
@@ -106,7 +106,7 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
   // fallback, which copies element 0 into a 1-byte temp and addresses THAT
   // (`uint8_t t = arr.data[0]; &t`). snprintf then overflows the temp → SIGTRAP.
   // Emit the address INTO the array buffer directly: `(&((&arr)->data[i]))`.
-  if(ast_expr_is_fn_call(&arg) && match(&arg_ei_opt, .Some(aei) => expr_info_index_method_value(&aei).is_none(), .None => true), {
+  if(ast_expr_is_fn_call(&arg) && match(&arg_ei_opt, .Some(aei) => expr_info_index_method_value(&aei.*).is_none(), .None => true), {
     callee_expr := match(arg, .FnCall(_, func, _, _, _) => func, .Atom(_, _) => arg);
     callee_is_array := match(context.base.get_expr_info(&callee_expr), .Some(cei) => is_array_type(&cei.ty()), .None => false);
     if(callee_is_array, {
@@ -132,7 +132,7 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
     match(
       &arg_ei_opt,
       .Some(arg_ei) => match(
-        expr_info_index_method_value(&arg_ei),
+        expr_info_index_method_value(&arg_ei.*),
         .Some(mv) => if(is_func_val(&mv), {
           callee_expr := match(arg, .FnCall(_, func, _, _, _) => func, .Atom(_, _) => arg);
           (callee_code : String) = _call_generate_expr(&callee_expr, indent.clone(), context);
@@ -265,7 +265,7 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
   // The same identity form unparenthesized: `d.*` on a `&Dyn` parameter
   // (passed as the pair by value) is the parameter's own name, so `&d.*` is
   // that pair, not its C address
-  // (issues/2026-11-15-reborrowing-a-dyn-reference-parameter-takes-the-c-address-of-the-pair.md).
+  // (issues/fixed/2026-11-15-reborrowing-a-dyn-reference-parameter-takes-the-c-address-of-the-pair.md).
   if(match(&arg_ei_opt, .Some(us_ei3) => !type_is_sized(&us_ei3.ty()), .None => false) && _is_c_member_chain(&arg_code), {
     return(arg_code);
   });
@@ -278,7 +278,7 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
           arg_type_str := get_type_string(&arg_ei.ty(), &mut context.base);
           temp_name := match(
             &arg_ei.variable_name(),
-            .Some(vn) => sanitize_for_c_identifier(&vn, false),
+            .Some(vn) => sanitize_for_c_identifier(&vn.*, false),
             .None => {
               arg_tok := ast_expr_token(&arg);
               stable_label_id(String.from("__yo_addrof_tmp_"), &arg_tok.module_path.*, usize(arg_tok.row), usize(arg_tok.column))

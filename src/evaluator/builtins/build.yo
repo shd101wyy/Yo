@@ -350,7 +350,7 @@ impl(
   remove_run_step : (fn(self : &mut Self, name : &String) -> unit)({
     kept := ArrayList(BuildRunStep).new();
     for(replace(&mut self.run_steps, ArrayList(BuildRunStep).new()), step => {
-      if(step.name != name, {
+      if(step.name != name.*, {
         kept.push(step);
       });
     });
@@ -369,12 +369,12 @@ impl(
   }),
   add_step_dependency : (fn(self : &mut Self, step_name : &String, dep_name : &String) -> unit)({
     for(&mut self.steps, step => {
-      if(step.name == step_name, {
+      if(step.name == step_name.*, {
         already := false;
         j := usize(0);
         m := step.dependency_names.len();
         while(j < m, {
-          if(step.dependency_names(j) == dep_name, {
+          if(step.dependency_names(j) == dep_name.*, {
             already = true;
           });
           j = (j + usize(1));
@@ -392,7 +392,7 @@ impl(
     i := usize(0);
     n := self.referenced_dependencies.len();
     while(i < n, {
-      if(self.referenced_dependencies(i) == name, return(()));
+      if(self.referenced_dependencies(i) == name.*, return(()));
       i = (i + usize(1));
     });
     self.referenced_dependencies.push(name.clone());
@@ -427,12 +427,12 @@ impl(
   }),
   register_link : (fn(self : &mut Self, artifact_name : &String, library_name : &String) -> unit)({
     for(&mut self.artifacts, art => {
-      if(art.name == artifact_name, {
+      if(art.name == artifact_name.*, {
         already := false;
         j := usize(0);
         m := art.linked_artifacts.len();
         while(j < m, {
-          if(art.linked_artifacts(j) == library_name, {
+          if(art.linked_artifacts(j) == library_name.*, {
             already = true;
           });
           j = (j + usize(1));
@@ -462,12 +462,12 @@ impl(
     // Module names are unique (`register_module` keeps the first), so at
     // most one entry matches.
     for(&mut self.modules, m => {
-      if(m.name == module_name, {
+      if(m.name == module_name.*, {
         already := false;
         j := usize(0);
         k := m.linked_system_libraries.len();
         while(j < k, {
-          if(m.linked_system_libraries(j) == system_library_name, {
+          if(m.linked_system_libraries(j) == system_library_name.*, {
             already = true;
           });
           j = (j + usize(1));
@@ -483,7 +483,7 @@ impl(
   }),
   find_artifact : (fn(self : &Self, name : &String) -> Option(BuildArtifact))({
     for(&self.artifacts, a => {
-      if(a.name == name, {
+      if(a.name == name.*, {
         return(Option(BuildArtifact).Some(a.clone()));
       });
     });
@@ -491,7 +491,7 @@ impl(
   }),
   find_test : (fn(self : &Self, name : &String) -> Option(BuildTestSuite))({
     for(&self.test_suites, t => {
-      if(t.name == name, {
+      if(t.name == name.*, {
         return(Option(BuildTestSuite).Some(t.clone()));
       });
     });
@@ -499,7 +499,7 @@ impl(
   }),
   find_run_step : (fn(self : &Self, name : &String) -> Option(BuildRunStep))({
     for(&self.run_steps, r => {
-      if(r.name == name, {
+      if(r.name == name.*, {
         return(Option(BuildRunStep).Some(r.clone()));
       });
     });
@@ -507,7 +507,7 @@ impl(
   }),
   find_step : (fn(self : &Self, name : &String) -> Option(BuildStep))({
     for(&self.steps, s => {
-      if(s.name == name, {
+      if(s.name == name.*, {
         return(Option(BuildStep).Some(s.clone()));
       });
     });
@@ -515,7 +515,7 @@ impl(
   }),
   find_documentation : (fn(self : &Self, name : &String) -> Option(BuildDocConfig))({
     for(&self.doc_configs, d => {
-      if(d.name == name, {
+      if(d.name == name.*, {
         return(Option(BuildDocConfig).Some(d.clone()));
       });
     });
@@ -523,7 +523,7 @@ impl(
   }),
   find_verify : (fn(self : &Self, name : &String) -> Option(BuildVerifyConfig))({
     for(&self.verify_configs, v => {
-      if(v.name == name, {
+      if(v.name == name.*, {
         return(Option(BuildVerifyConfig).Some(v.clone()));
       });
     });
@@ -531,7 +531,7 @@ impl(
   }),
   find_module : (fn(self : &Self, name : &String) -> Option(BuildModuleEntry))({
     for(&self.modules, m => {
-      if(m.name == name, {
+      if(m.name == name.*, {
         return(Option(BuildModuleEntry).Some(m.clone()));
       });
     });
@@ -539,7 +539,7 @@ impl(
   }),
   find_system_library : (fn(self : &Self, name : &String) -> Option(BuildSystemLibrary))({
     for(&self.system_libraries, l => {
-      if(l.name == name, {
+      if(l.name == name.*, {
         return(Option(BuildSystemLibrary).Some(l.clone()));
       });
     });
@@ -639,7 +639,7 @@ impl(
   _check_duplicate_artifact_name : (fn(self : &Self, name : &String) -> Option(String))({
     (i : usize) = usize(0);
     while(i < self.artifacts.len(), {
-      if(self.artifacts(i).name == name, {
+      if(self.artifacts(i).name == name.*, {
         kind_str := match(
           self.artifacts(i).kind,
           .Executable => "executable",
@@ -752,7 +752,7 @@ _build_unit_result :: (
   info := new_expr_info(env, t_unit());
   info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
-  expr
+  expr.*
 });
 /// Set the expr's result to a `comptime_str` carrying `value`.
 /// `StrLit` stores the quoted source
@@ -767,7 +767,7 @@ _build_bool_result :: (
   info := new_expr_info(env, t_bool());
   info.set_value(Option(EvalValue).Some(EvalValue.BoolVal(value)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
-  expr
+  expr.*
 });
 /// True when a build file is being evaluated (`g_build_registry_live`).
 _under_build :: (fn() -> bool)(g_build_registry_live);
@@ -778,7 +778,7 @@ _build_string_result :: (
   info := new_expr_info(env, t_comptime_string());
   info.set_value(Option(EvalValue).Some(EvalValue.StrLit(raw)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
-  expr
+  expr.*
 });
 /// Extract the (unquoted) comptime-string content of arg `idx`, throwing
 /// the build-function arg-type error otherwise.
@@ -986,10 +986,10 @@ _build_attach_system_library :: (
   fn(reg : &mut BuildRegistry, artifact_name : &String, library_name : &String) -> unit
 )({
   for(&mut reg.artifacts, art => {
-    if(art.name == artifact_name, {
+    if(art.name == artifact_name.*, {
       (attached : bool) = false;
       for(&art.linked_system_libs, l => {
-        if(l == library_name, {
+        if(l.* == library_name.*, {
           attached = true;
         });
       });
@@ -1069,7 +1069,7 @@ evaluate_yo_build_functions :: (
     // A field the manifest does not carry — and every field outside a build,
     // where the registry is empty — reads as the empty string, the same
     // answer `load_manifest` gives for an absent `[package]` key.
-    field_value := g_build_registry.with({ &field }(reg) => match(reg.manifest_fields.get_cloned(&field), .Some(v) => v, .None => String.new()));
+    field_value := g_build_registry.with({ &field }(reg) => match(reg.manifest_fields.get_cloned(&field.*), .Some(v) => v, .None => String.new()));
     return(_build_string_result(expr, env, ctx, &field_value));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_OPTION, Option(usize).None), {
@@ -1083,7 +1083,7 @@ evaluate_yo_build_functions :: (
       reg.declared_options.insert(declared_name, declared);
     });
     // A `-D<name>=<value>` on the command line overrides the declared default.
-    option_value := g_build_registry.with({ &opt_name, &default_value }(reg) => match(reg.cli_options.get_cloned(&opt_name), .Some(v) => v, .None => default_value.clone()));
+    option_value := g_build_registry.with({ &opt_name, &default_value }(reg) => match(reg.cli_options.get_cloned(&opt_name.*), .Some(v) => v, .None => default_value.clone()));
     return(_build_string_result(expr, env, ctx, &option_value));
   });
   // ── build.env (§5.4) ────────────────────────────────────────────────────

@@ -202,7 +202,7 @@ _has_type_pair :: (fn(pairs : &ArrayList(TypePair), exp_id : &String, giv_id : &
         break;
       }
     );
-    if((p.expected_id == exp_id) && (p.given_id == giv_id), {
+    if((p.expected_id == exp_id.*) && (p.given_id == giv_id.*), {
       found = true;
     });
     i = (i + usize(1));
@@ -218,8 +218,8 @@ _has_type_pair :: (fn(pairs : &ArrayList(TypePair), exp_id : &String, giv_id : &
 _record_bound_some_id :: (fn(bound : &Option(Variable), name : &String, source_some_id : &String, val : &EvalValue) -> unit)(
   match(
     bound,
-    .Some(bv) => if((source_some_id.len() > usize(0)) && (name.len() > usize(0)) && (name != "Impl") && match(val, .TypeVal(bvt) => !is_some_type(&bvt), _ => false), {
-      variable_set_bound_some_id(&bv, source_some_id);
+    .Some(bv) => if((source_some_id.len() > usize(0)) && (name.len() > usize(0)) && (name.* != "Impl") && match(val, .TypeVal(bvt) => !is_some_type(&bvt.*), _ => false), {
+      variable_set_bound_some_id(&bv.*, source_some_id);
     }),
     .None => ()
   )
@@ -236,7 +236,7 @@ _bind_some_type :: (
     exn : Exception
   ) -> unit
 )({
-  token := match(tok, .Some(t) => t, .None => synthetic_token(name, &env.module_path().*));
+  token := match(tok, .Some(t) => t.*, .None => synthetic_token(name, &env.module_path().*));
   // The bound VARIABLE's declared type is the KIND of the bound value —
   // a type binder `T` always carries `Type`/`Trait` as its variable type.
   // Passing the bound TYPE ITSELF (a SomeT or concrete) made a later read
@@ -247,7 +247,7 @@ _bind_some_type :: (
   // the caller's ty.
   bind_ty := match(
     val,
-    .TypeVal(bt_payload) => type_of_type(&bt_payload),
+    .TypeVal(bt_payload) => type_of_type(&bt_payload.*),
     _ => Rc.clone(ty)
   );
   vars := get_variables_from_env(env, name);
@@ -260,7 +260,7 @@ _bind_some_type :: (
           env,
           name,
           &bind_ty,
-          Option(EvalValue).Some(val),
+          Option(EvalValue).Some(val.*),
           true,
           // is_compile_time_only
           false,
@@ -313,7 +313,7 @@ _bind_some_type :: (
         .Some(ov) => match(ov, .TypeVal(ovt) => match(ovt, Rc(.SomeT({ id : ovid })) => ovid.clone(), _ => variable_bound_some_id(&old_var)), _ => String.from("")),
         .None => String.from("")
       );
-      identity_mismatch := ((source_some_id.len() > usize(0)) && (found_slot_someid.len() > usize(0)) && (found_slot_someid != source_some_id));
+      identity_mismatch := ((source_some_id.len() > usize(0)) && (found_slot_someid.len() > usize(0)) && (found_slot_someid != source_some_id.*));
       // A SELF-MARKER shadow-add (`F := SomeT(F-source)`) over a DIFFERENT
       // lineage's same-named binding is pure poison: it carries no binding
       // information (the source SomeT resolves to "unbound" with or without
@@ -325,14 +325,14 @@ _bind_some_type :: (
       // predicate (iterator_combinators arm 18).
       val_is_self_marker := match(
         val,
-        .TypeVal(vmt) => match(vmt, Rc(.SomeT({ id : vmid })) => (vmid == source_some_id), _ => false),
+        .TypeVal(vmt) => match(vmt, Rc(.SomeT({ id : vmid })) => (vmid.* == source_some_id.*), _ => false),
         _ => false
       );
       if(identity_mismatch && val_is_self_marker, {
         return(());
       });
       bind_probe_name := match(debug_knob(`YO_DEBUG_BIND`), .Some(bpn) => bpn, .None => String.from(""));
-      if((bind_probe_name.len() > usize(0)) && (name == bind_probe_name) && !val_is_self_marker, {
+      if((bind_probe_name.len() > usize(0)) && (name.* == bind_probe_name) && !val_is_self_marker, {
         wrote_lvl := if(identity_mismatch || ((env.frames_len() > usize(0)) && (old_var.frame_level != (env.frames_len() - usize(1)))), env.frames_len() - usize(1), old_var.frame_level);
         wrote_fid := match(env.frame_at(wrote_lvl), .Some(wf) => wf.id(), .None => usize(0));
         eprintln(`[bind-T] val=${value_to_string(val)} slot_lvl=${old_var.frame_level.to_string()} top=${(env.frames_len() - usize(1)).to_string()} wrote_lvl=${wrote_lvl.to_string()} fid=${wrote_fid.to_string()} inplace=${(!(identity_mismatch || ((env.frames_len() > usize(0)) && (old_var.frame_level != (env.frames_len() - usize(1)))))).to_string()}`);
@@ -343,7 +343,7 @@ _bind_some_type :: (
             env,
             name,
             &bind_ty,
-            Option(EvalValue).Some(val),
+            Option(EvalValue).Some(val.*),
             true,
             // is_compile_time_only
             false,
@@ -367,7 +367,7 @@ _bind_some_type :: (
         name : old_var.name.clone(),
         bound_ty : variable_value_type(&old_var),
         frame_level : old_var.frame_level,
-        value : value_cell_of(Option(EvalValue).Some(val)),
+        value : value_cell_of(Option(EvalValue).Some(val.*)),
         is_owning_the_same_rc_value_as : old_var.is_owning_the_same_rc_value_as(),
         token : old_var.token,
         initialized_at_token : old_var.initialized_at_token(),
@@ -397,7 +397,7 @@ can_assign_type_hierarchy :: (fn(expected : &TypeValue, given : &TypeValue) -> b
     expected,
     Rc(.TypeUni(exp_level)) => match(
       given,
-      Rc(.TypeUni(giv_level)) => (giv_level == exp_level),
+      Rc(.TypeUni(giv_level)) => (giv_level.* == exp_level.*),
       _ => false
     ),
     _ => false
@@ -437,7 +437,7 @@ _occurs_check :: (fn(some_type_id : &String, some_type_name : &String, ty : &Typ
   visited.push(ty_id);
   match(
     ty,
-    Rc(.SomeT(sid, _, _, _, _, _, _)) => (some_type_id == sid),
+    Rc(.SomeT(sid, _, _, _, _, _, _)) => (some_type_id.* == sid.*),
     Rc(.Struct({ field_types })) => {
       (res : bool) = false;
       i := usize(0);
@@ -507,9 +507,9 @@ _occurs_check :: (fn(some_type_id : &String, some_type_name : &String, ty : &Typ
       });
       res
     },
-    Rc(.Array(elem, _, _)) => recur(some_type_id, some_type_name, &elem, visited, exn),
-    Rc(.SliceT(sl_elem)) => recur(some_type_id, some_type_name, &sl_elem, visited, exn),
-    Rc(.ComptimeListT(child)) => recur(some_type_id, some_type_name, &child, visited, exn),
+    Rc(.Array(elem, _, _)) => recur(some_type_id, some_type_name, &elem.*, visited, exn),
+    Rc(.SliceT(sl_elem)) => recur(some_type_id, some_type_name, &sl_elem.*, visited, exn),
+    Rc(.ComptimeListT(child)) => recur(some_type_id, some_type_name, &child.*, visited, exn),
     // Don't check inside pointer types (valid indirection)
     Rc(.Pointer(_)) => false,
     Rc(.Func({ param_types, implicit_types, result, meta : __fm1 })) => {
@@ -534,7 +534,7 @@ _occurs_check :: (fn(some_type_id : &String, some_type_name : &String, ty : &Typ
       // closure-wrapper "Impl" a FALSE infinite type. "Impl" is a reserved
       // sugar name (never a user var), so shadowing it inside a nested Func is
       // sound, like the generic-label shadowing below.
-      if(some_type_name == "Impl", {
+      if(some_type_name.* == "Impl", {
         return(false);
       });
       {
@@ -548,7 +548,7 @@ _occurs_check :: (fn(some_type_id : &String, some_type_name : &String, ty : &Typ
               break;
             }
           );
-          if(fl == some_type_name, {
+          if(fl == some_type_name.*, {
             return(false);
           });
           sfi = (sfi + usize(1));
@@ -558,7 +558,7 @@ _occurs_check :: (fn(some_type_id : &String, some_type_name : &String, ty : &Typ
       i := usize(0);
       while((i < param_types.len()) && !res, {
         pt := match(
-          slot_pointee_at(&param_types, i),
+          slot_pointee_at(&param_types.*, i),
           .Some(t) => t,
           .None => {
             i = param_types.len();
@@ -571,14 +571,14 @@ _occurs_check :: (fn(some_type_id : &String, some_type_name : &String, ty : &Typ
         i = (i + usize(1));
       });
       if(!res, {
-        if(recur(some_type_id, some_type_name, &t_slot_pointee(&result), visited, exn), {
+        if(recur(some_type_id, some_type_name, &t_slot_pointee(&result.*), visited, exn), {
           res = true;
         });
       });
       res
     },
     Rc(.FutureTraitT(_, out_box, _, ets, _)) => {
-      if(recur(some_type_id, some_type_name, &out_box, visited, exn), {
+      if(recur(some_type_id, some_type_name, &out_box.*, visited, exn), {
         return(true);
       });
       (res : bool) = false;
@@ -604,7 +604,7 @@ _occurs_check :: (fn(some_type_id : &String, some_type_name : &String, ty : &Typ
       i := usize(0);
       while((i < call_param_types.len()) && !res, {
         pt := match(
-          slot_pointee_at(&call_param_types, i),
+          slot_pointee_at(&call_param_types.*, i),
           .Some(t) => t,
           .None => {
             i = call_param_types.len();
@@ -617,14 +617,14 @@ _occurs_check :: (fn(some_type_id : &String, some_type_name : &String, ty : &Typ
         i = (i + usize(1));
       });
       if(!res, {
-        if(recur(some_type_id, some_type_name, &call_result, visited, exn), {
+        if(recur(some_type_id, some_type_name, &call_result.*, visited, exn), {
           res = true;
         });
       });
       res
     },
     Rc(.TypeAppT(constructor, args)) => {
-      if(recur(some_type_id, some_type_name, &constructor, visited, exn), {
+      if(recur(some_type_id, some_type_name, &constructor.*, visited, exn), {
         return(true);
       });
       (res : bool) = false;
@@ -721,7 +721,7 @@ _flow_coercion_without_binders :: (fn(expected_ty : &TypeValue, given_ty : &Type
 /// the synthesizer itself knows. Callers whose errors reach the user pass
 /// the token (issues/fixed/unify-errors-carry-a-synthetic-token-so-editors-show-them-at-0-0.md).
 _anchor :: (fn(tok : &Option(Token), fallback_name : &String, module_path : &String) -> Token)(
-  match(tok, .Some(t) => t, .None => synthetic_token(fallback_name, module_path))
+  match(tok, .Some(t) => t.*, .None => synthetic_token(fallback_name, module_path))
 );
 /// Synthesize the effect lists of two FutureTraitT types, or the implicit
 /// parameter lists of two function types: each expected entry is matched
@@ -773,8 +773,8 @@ _synthesize_implicit_params :: (
         );
         if(exp_id == synthesis_type_id(&giv_ty), {
           res := _synthesize_types_impl(&exp_ty, expected_env, &giv_ty, given_env, checked, opts, exn);
-          env_adopt(&expected_env, &res.expected_env);
-          env_adopt(&given_env, &res.given_env);
+          env_adopt(&expected_env.*, &res.expected_env);
+          env_adopt(&given_env.*, &res.given_env);
           matched_given(gj) = true;
           gj = n_giv; // break
         });
@@ -822,13 +822,13 @@ _synthesize_fn_traits :: (
   exp_result := match(
     expected_ty,
     Rc(.FnTraitT(_, _, _, r, _, _)) => Rc.clone(r),
-    Rc(.Func({ result : r })) => t_slot_pointee(&r),
+    Rc(.Func({ result : r })) => t_slot_pointee(&r.*),
     _ => Rc.new(TypeValueNode.Unit)
   );
   giv_result := match(
     given_ty,
     Rc(.FnTraitT(_, _, _, r, _, _)) => Rc.clone(r),
-    Rc(.Func({ result : r })) => t_slot_pointee(&r),
+    Rc(.Func({ result : r })) => t_slot_pointee(&r.*),
     _ => Rc.new(TypeValueNode.Unit)
   );
   (ee : Environment) = Rc.clone(expected_env);
@@ -1063,7 +1063,7 @@ _synthesize_types_impl :: (
     exp_id2 := match(expected_ty, Rc(.SomeT(id, _, _, _, _, _, _)) => id.clone(), _ => ``);
     exp_name := match(expected_ty, Rc(.SomeT(_, n, _, _, _, _, _)) => n.clone(), _ => ``);
     exp_traits := match(expected_ty, Rc(.SomeT(_, _, _, _, rts_bnd, _, _)) => rts_bnd.required(), _ => ArrayList(TypeValue).new());
-    if(is_some_type(&bound) && match(&bound, Rc(.SomeT(bid, _, _, _, _, _, _)) => (bid == exp_id2), _ => false), {
+    if(is_some_type(&bound) && match(&bound, Rc(.SomeT(bid, _, _, _, _, _, _)) => (bid.* == exp_id2), _ => false), {
       // Unbound — bind to given_ty
       // Occurs check
       {
@@ -1590,8 +1590,8 @@ _synthesize_types_impl :: (
   // Case: Reference + Reference of one mode (decision 43 N1f-2): the
   // pointees synthesize, so a blanket `impl(generic(T), &T, Tr)` binds `T`
   // from a `&C` receiver. The origin is not part of the match (O1).
-  (exp_ref_mut : Option(bool)) = match(expected_ty, Rc(.Reference(_, erm, _)) => Option(bool).Some(erm), _ => Option(bool).None);
-  (giv_ref_mut : Option(bool)) = match(given_ty, Rc(.Reference(_, grm, _)) => Option(bool).Some(grm), _ => Option(bool).None);
+  (exp_ref_mut : Option(bool)) = match(expected_ty, Rc(.Reference(_, erm, _)) => Option(bool).Some(erm.*), _ => Option(bool).None);
+  (giv_ref_mut : Option(bool)) = match(given_ty, Rc(.Reference(_, grm, _)) => Option(bool).Some(grm.*), _ => Option(bool).None);
   if(match(exp_ref_mut, .Some(erm2) => match(giv_ref_mut, .Some(grm2) => (erm2 == grm2), .None => false), .None => false), {
     exp_pointee := t_slot_pointee(expected_ty);
     giv_pointee := t_slot_pointee(given_ty);
@@ -1620,9 +1620,9 @@ _synthesize_types_impl :: (
         gj = (gj + usize(1));
         same_kind := match(
           &et,
-          Rc(.FnTraitT(eb, _, _, _, _, _)) => match(&gt, Rc(.FnTraitT(gb, _, _, _, _, _)) => (eb == gb), _ => false),
+          Rc(.FnTraitT(eb, _, _, _, _, _)) => match(&gt, Rc(.FnTraitT(gb, _, _, _, _, _)) => (eb.* == gb.*), _ => false),
           Rc(.FutureTraitT(_, _, _, _, _)) => is_future_trait_type(&gt),
-          Rc(.TraitT(_, _, eid, _, _, _)) => match(&gt, Rc(.TraitT(_, _, gid, _, _, _)) => (eid == gid), _ => false),
+          Rc(.TraitT(_, _, eid, _, _, _)) => match(&gt, Rc(.TraitT(_, _, gid, _, _, _)) => (eid.* == gid.*), _ => false),
           _ => false
         );
         if(same_kind, {
@@ -1647,7 +1647,7 @@ _synthesize_types_impl :: (
     // is concrete, bind the variable in the expected env to the concrete
     // count so `_resolve_one_forall_binding` sees `U := <n>`.
     exp_lvar := match(expected_ty, Rc(.Array(_, _, lv)) => lv.clone(), _ => String.from(""));
-    giv_len := match(given_ty, Rc(.Array(_, n, _)) => n, _ => usize(0));
+    giv_len := match(given_ty, Rc(.Array(_, n, _)) => n.*, _ => usize(0));
     giv_lvar := match(given_ty, Rc(.Array(_, _, lv)) => lv.clone(), _ => String.from(""));
     if((exp_lvar.len() > usize(0)) && (giv_lvar.len() == usize(0)), {
       lvar_vars := get_variables_from_env(&ee, &exp_lvar);
@@ -1695,8 +1695,8 @@ _synthesize_types_impl :: (
     giv_pt := match(given_ty, Rc(.Func({ param_types : pts })) => Rc.clone(pts), _ => no_types());
     exp_it := match(expected_ty, Rc(.Func({ implicit_types : its })) => Rc.clone(its), _ => no_types());
     giv_it := match(given_ty, Rc(.Func({ implicit_types : its })) => Rc.clone(its), _ => no_types());
-    exp_ret := match(expected_ty, Rc(.Func({ result : r })) => t_slot_pointee(&r), _ => Rc.new(TypeValueNode.Unit));
-    giv_ret := match(given_ty, Rc(.Func({ result : r })) => t_slot_pointee(&r), _ => Rc.new(TypeValueNode.Unit));
+    exp_ret := match(expected_ty, Rc(.Func({ result : r })) => t_slot_pointee(&r.*), _ => Rc.new(TypeValueNode.Unit));
+    giv_ret := match(given_ty, Rc(.Func({ result : r })) => t_slot_pointee(&r.*), _ => Rc.new(TypeValueNode.Unit));
     if((exp_fa.len() == giv_fa.len()) && (exp_pt.len() == giv_pt.len()), {
       // Synthesize generic type params
       n_fa := exp_fa.len();
@@ -1769,7 +1769,7 @@ _synthesize_types_impl :: (
     hk_cfid := match(
       given_ty,
       Rc(.Struct({ constructor_func_id : c })) => c.clone(),
-      Rc(.EnumT({ id : eid })) => lookup_enum_cfid(&eid),
+      Rc(.EnumT({ id : eid })) => lookup_enum_cfid(&eid.*),
       _ => String.new()
     );
     hk_targs := match(

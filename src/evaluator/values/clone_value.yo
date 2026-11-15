@@ -26,20 +26,20 @@ clone_value :: (fn(v : &EvalValue, preserve_pointer_refs : bool) -> EvalValue)(
     v,
     // Primitive / immutable — return as-is
     .UnitVal => EvalValue.UnitVal,
-    .BoolVal(_) => v,
-    .IntLit(_) => v,
-    .FloatLit(_) => v,
-    .StrLit(_) => v,
-    .VarRef(_) => v,
-    .BreakVal => v,
-    .ContinueVal => v,
-    .FuncVal(_, _) => v,
-    .TypeVal(_) => v,
-    .ExprVal(_) => v,
-    .UnknownVal(_, _) => v,
+    .BoolVal(_) => v.*,
+    .IntLit(_) => v.*,
+    .FloatLit(_) => v.*,
+    .StrLit(_) => v.*,
+    .VarRef(_) => v.*,
+    .BreakVal => v.*,
+    .ContinueVal => v.*,
+    .FuncVal(_, _) => v.*,
+    .TypeVal(_) => v.*,
+    .ExprVal(_) => v.*,
+    .UnknownVal(_, _) => v.*,
     // ReturnVal — recursively clone the wrapped value
     .ReturnVal(val : val_box, ty : ty) =>
-      EvalValue.ReturnVal(val : recur(&val_box, preserve_pointer_refs), ty : ty.clone()),
+      EvalValue.ReturnVal(val : recur(&val_box.*, preserve_pointer_refs), ty : ty.clone()),
     // PtrVal — preserve or deep-clone depending on flag. Preserving keeps
     // the SAME cell (reference semantics); cloning mints a FRESH 1-elem cell
     // around the cloned pointee (no aliasing dedup between cloned cells —
@@ -47,7 +47,7 @@ clone_value :: (fn(v : &EvalValue, preserve_pointer_refs : bool) -> EvalValue)(
     // isolation only needs the copy).
     .PtrVal(target_value : tgt_cell, target_index : idx, aggregate_ty : agg) =>
       cond(
-        preserve_pointer_refs => v,
+        preserve_pointer_refs => v.*,
         true => {
           cv_new_cell := ArrayList(EvalValue).new();
           match(
@@ -57,7 +57,7 @@ clone_value :: (fn(v : &EvalValue, preserve_pointer_refs : bool) -> EvalValue)(
             },
             .None => ()
           );
-          EvalValue.PtrVal(target_value : value_cell_new(cv_new_cell), target_index : idx, aggregate_ty : agg.clone())
+          EvalValue.PtrVal(target_value : value_cell_new(cv_new_cell), target_index : idx.*, aggregate_ty : agg.clone())
         }
       ),
     // EnumVal — recursively clone each field

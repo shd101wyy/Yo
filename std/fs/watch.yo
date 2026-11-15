@@ -125,7 +125,7 @@ _stop_watch :: (fn(st : &mut _WatcherState) -> unit)({
     st._active = false;
     events.fs_event_stop(st._handle);
     events.fs_event_close(st._handle);
-    _wake_waiters(&mut st);
+    _wake_waiters(&mut st.*);
   });
 });
 impl(
@@ -142,7 +142,7 @@ impl(
   /// state's own teardown removes it.
   /// (issues/fixed/a-dropped-watcher-leaves-the-event-loop-calling-freed-memory.md)
   Drop(
-    drop : (fn(self : &mut Self) -> unit)(_stop_watch(&mut self))
+    drop : (fn(self : &mut Self) -> unit)(_stop_watch(&mut self.*))
   )
 );
 /// A live watch. Create with `watch`, drain with `poll`/`next`, and `close`

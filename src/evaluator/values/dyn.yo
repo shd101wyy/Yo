@@ -205,7 +205,7 @@ _dyn_cell_args_recognized :: (fn(args : &ArrayList(AstExpr)) -> bool)(
 _mark_preset_receiver :: (fn(recv : &Option(usize), on : bool) -> unit)(
   match(
     recv,
-    .Some(id) => if(on, mark_node_preevaluated(id), unmark_node_preevaluated(id)),
+    .Some(id) => if(on, mark_node_preevaluated(id.*), unmark_node_preevaluated(id.*)),
     .None => ()
   )
 );
@@ -242,7 +242,7 @@ _synthesized_cell_call :: (
     ctor_callee,
     .Some(callee) => {
       callee_id := ast_expr_id(&callee);
-      (AstExpr.FnCall(alloc_global_expr_id(), callee, Rc.new(call_args), false, at), callee_id)
+      (AstExpr.FnCall(alloc_global_expr_id(), callee, Rc.new(call_args), false, at.*), callee_id)
     },
     .None => {
       recv_id := alloc_global_expr_id();
@@ -264,7 +264,7 @@ _synthesized_cell_call :: (
       dot_args.push(recv);
       dot_args.push(AstExpr.Atom(alloc_global_expr_id(), synthetic_token(String.from("new"), &env.module_path().*)));
       callee := AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), dot_tok), Rc.new(dot_args), true, dot_tok);
-      (AstExpr.FnCall(alloc_global_expr_id(), callee, Rc.new(call_args), false, at), recv_id)
+      (AstExpr.FnCall(alloc_global_expr_id(), callee, Rc.new(call_args), false, at.*), recv_id)
     }
   )
 });
@@ -312,7 +312,7 @@ _prelude_cell_callee :: (fn(cell_name : &String, env : &Environment, ctx : &Eval
 /// (issues/2026-10-23-a-generic-constructors-specialization-keeps-its-declared-return-for-a-capture-struct-argument.md;
 /// Fable consultation #7).
 _prelude_cell_constructor :: (fn(cell_name : &String, env : &Environment) -> Option(Variable))({
-  ctor_name := cond((cell_name == "Arc") => String.from("__yo_arc_cell"), (cell_name == "Box") => String.from("__yo_box_cell"), true => String.from("__yo_rc_cell"));
+  ctor_name := cond((cell_name.* == "Arc") => String.from("__yo_arc_cell"), (cell_name.* == "Box") => String.from("__yo_box_cell"), true => String.from("__yo_rc_cell"));
   vars := get_variables_from_env(env, &ctor_name);
   (vi : usize) = usize(0);
   while(vi < vars.len(), vi = (vi + usize(1)), {
@@ -431,7 +431,7 @@ _dyn_bound_check_type :: (fn(t : &TypeValue, env : &Environment) -> Option(TypeV
 _name_in :: (fn(names : &ArrayList(String), n : &String) -> bool)({
   (i : usize) = usize(0);
   while(i < names.len(), {
-    if(match(names.get_cloned(i), .Some(x) => (x == n), .None => false), {
+    if(match(names.get_cloned(i), .Some(x) => (x == n.*), .None => false), {
       return(true);
     });
     i = (i + usize(1));
@@ -550,7 +550,7 @@ _require_dyn_traits_implemented :: (
           }
         );
         req_is_nominal := match(&req, Rc(.TraitT(_, _, _, _, _, _)) => true, _ => false);
-        req_judged := match(&req, Rc(.TraitT(name : rjn)) => _name_in(&fv_judged_names, &rjn), _ => false);
+        req_judged := match(&req, Rc(.TraitT(name : rjn)) => _name_in(&fv_judged_names, &rjn.*), _ => false);
         if(req_is_nominal && !req_judged && !type_implements_trait_bool(check_ty.clone(), req.clone(), env), {
           // Prefer the trait's declared NAME; an anonymous trait has none, and
           // `type_to_string` renders its field dump instead.
@@ -789,9 +789,9 @@ _monomorphize_default_fv :: (
   fn(fv : &EvalValue, default_fid : &String, value_type : &TypeValue, caller_env : &Environment, ctx : &mut EvalContext, exn : Exception) -> EvalValue
 )(
   cond(
-    !is_func_val(fv) => fv,
-    (default_fid == String.new()) => fv,
-    match(fv, .FuncVal(__mfv, _) => (__mfv.func_id == default_fid), _ => false) => {
+    !is_func_val(fv) => fv.*,
+    (default_fid.* == String.new()) => fv.*,
+    match(fv, .FuncVal(__mfv, _) => (__mfv.func_id == default_fid.*), _ => false) => {
       default_ft := get_func_type(default_fid.clone());
       // Every parameter is a runtime argument of its declared type, `Self`
       // read as the receiver. `create_specialized_function_inline` takes the
@@ -864,7 +864,7 @@ _monomorphize_default_fv :: (
       caller_env.pop_frame();
       spec_fv
     },
-    true => fv
+    true => fv.*
   )
 );
 /// The trait method `fname` the receiver gets from a GENERIC impl
@@ -885,7 +885,7 @@ _generic_impl_method_for_dyn :: (
   while(ci < cands.len(), {
     match(
       cands.get_cloned(ci),
-      .Some(c) => if(c.method_value.is_some() && (picked.is_none() || (c.source_trait_id == trait_id)), {
+      .Some(c) => if(c.method_value.is_some() && (picked.is_none() || (c.source_trait_id == trait_id.*)), {
         picked = Option(MethodCandidate).Some(c);
       }),
       .None => ()
@@ -1123,7 +1123,7 @@ _resolve_dyn_trait_values :: (fn(dyn_type : &TypeValue, value_type : &TypeValue,
                   match(
                     entries.get(k),
                     .Some(entry) => if(entry.label == fname, {
-                      is_exact := (entry.source_trait_id == trait_id);
+                      is_exact := (entry.source_trait_id == trait_id.*);
                       ev := entry.value;
                       if(is_exact, {
                         exact = ev;
@@ -1259,7 +1259,7 @@ _dyn_type_from_payload_or_throw :: (
                 expr_tok,
                 match(
                   expected_ty,
-                  .Some(et) => `cannot infer the Dyn type of dyn(...) here: the expected type ${type_to_string(&et)} is not a Dyn(...).\nAnnotate the value or bind it first — e.g. (x : Dyn(Trait)) = dyn(value) — or pass dyn(value) where a Dyn(...) is expected.`,
+                  .Some(et) => `cannot infer the Dyn type of dyn(...) here: the expected type ${type_to_string(&et.*)} is not a Dyn(...).\nAnnotate the value or bind it first — e.g. (x : Dyn(Trait)) = dyn(value) — or pass dyn(value) where a Dyn(...) is expected.`,
                   .None => `cannot infer the Dyn type of dyn(...) here: this position supplies no expected type.\nAnnotate the value or bind it first — e.g. (x : Dyn(Trait)) = dyn(value) — or pass dyn(value) where a Dyn(...) is expected.`
                 )
               ),
@@ -1342,7 +1342,7 @@ _reject_dyn_of_named_handle :: (fn(value_ty : &TypeValue, fresh : bool, tok : &T
 /// Left unboxed, the erasure was typed `Box(Dyn)` but lowered as the legacy
 /// counted cell, whose vtable has no `drop_in_place`: the box's drop called a
 /// NULL slot
-/// (issues/2026-11-15-the-dyn-alias-over-a-ref-struct-lowers-to-the-legacy-cell-under-a-box-type.md).
+/// (issues/fixed/2026-11-15-the-dyn-alias-over-a-ref-struct-lowers-to-the-legacy-cell-under-a-box-type.md).
 _dyn_payload_is_plain_value :: (fn(t : &TypeValue) -> bool)(
   !is_dyn_type(t) && cell_handle_view(t).is_none() && !is_unique_box_type(t)
 );
@@ -1524,7 +1524,7 @@ evaluate_dyn_value :: (
             // new type). A temp left at `Dyn` dropped through the legacy
             // `__yo_dyn_release`, leaking the box of a temporary lent to a
             // `&AnyError` parameter
-            // (issues/2026-11-15-a-temporary-dyn-box-lent-to-a-reference-parameter-is-released-as-a-legacy-dyn.md).
+            // (issues/fixed/2026-11-15-a-temporary-dyn-box-lent-to-a-reference-parameter-is-released-as-a-legacy-dyn.md).
             if(oi.variable_name().is_some(), {
               expr_info_set_origin_type(&oi, &Option(TypeValue).Some(Rc.clone(bt)));
               attach_temp_variable_to_expr(&out, true, ctx);
@@ -1562,7 +1562,7 @@ _evaluate_dyn_erasure :: (
           )
         )
       );
-      return(expr);
+      return(expr.*);
     }
   );
   (value_arg : AstExpr) = match(
@@ -1577,7 +1577,7 @@ _evaluate_dyn_erasure :: (
           )
         )
       );
-      return(expr);
+      return(expr.*);
     }
   );
   // `dyn(Box.new(v))` is `dyn(Rc.new(v))` here, the legacy owning Dyn.
@@ -1796,7 +1796,7 @@ _evaluate_dyn_erasure :: (
                     TypeValueNode.SomeT(
                       bx_id.clone(),
                       bx_nm.clone(),
-                      bx_fl,
+                      bx_fl.*,
                       Rc.clone(bx_pt),
                       some_t_bounds(bx_rtt.clone(), bx_rtl.clone(), bx_ntt.clone(), bx_ntl.clone()),
                       bx_kft.clone(),
@@ -1869,7 +1869,7 @@ _evaluate_dyn_erasure :: (
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
     // Attach the temp variable C codegen reads for the fat-pointer struct.
     attach_temp_variable_to_expr(expr, true, ctx);
-    return(expr);
+    return(expr.*);
   });
   // --- Executing path ---
   // Evaluate the inner expression (with the inner-expected computed above).
@@ -1891,7 +1891,7 @@ _evaluate_dyn_erasure :: (
           )
         )
       );
-      return(expr);
+      return(expr.*);
     }
   );
   (value_type : TypeValue) = Rc.clone(inner_info.ty());
@@ -1951,7 +1951,7 @@ _evaluate_dyn_erasure :: (
         });
         match(
           expr,
-          .FnCall(bx_id, bx_f, _, bx_infix, bx_tok) => note_rewritten_node(&AstExpr.FnCall(bx_id, bx_f, Rc.new(bx_args), bx_infix, bx_tok)),
+          .FnCall(bx_id, bx_f, _, bx_infix, bx_tok) => note_rewritten_node(&AstExpr.FnCall(bx_id.*, bx_f.*, Rc.new(bx_args), bx_infix.*, bx_tok.*)),
           _ => ()
         );
         final_value_type = Rc.clone(bi.ty());
@@ -2076,6 +2076,6 @@ _evaluate_dyn_erasure :: (
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   // Attach the temp variable C codegen reads for the fat-pointer struct.
   attach_temp_variable_to_expr(expr, true, ctx);
-  expr
+  expr.*
 });
 export(evaluate_dyn_value, apply_type_ctor_via);

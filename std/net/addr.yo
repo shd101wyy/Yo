@@ -71,7 +71,7 @@ impl(
   /// `Ipv4Addr::from_str` does — octal ambiguity), no empty octet (`1..2.3`,
   /// `1.2.3.`, `...` used to parse as 0-filled addresses).
   parse_v4 : (fn(s : &String, exn : Exception) -> IpAddr)({
-    bytes := &s;
+    bytes := &s.*;
     mut(parts) := Array(u8, usize(4)).fill(u8(0));
     mut(part_idx) := usize(0);
     mut(val) := u32(0);
@@ -151,7 +151,7 @@ impl(
   /// at the end. A zone id (`%eth0`) is NOT accepted — it identifies an
   /// interface, not an address, and `IpAddr` has nowhere to put it.
   parse_v6 : (fn(s : &String, exn : Exception) -> IpAddr)({
-    bytes := &s;
+    bytes := &s.*;
     n := bytes.len();
     cond(
       (n == usize(0)) => {
@@ -589,7 +589,7 @@ impl(
             self,
             .V4(a, b, c, d) => {
               buf := Array(u8, usize(16)).fill(u8(0));
-              unsafe(snprintf((*char)(addr_of(buf(usize(0)))), usize(16), "%d.%d.%d.%d", i32(a), i32(b), i32(c), i32(d)));
+              unsafe(snprintf((*char)(addr_of(buf(usize(0)))), usize(16), "%d.%d.%d.%d", i32(a.*), i32(b.*), i32(c.*), i32(d.*)));
               String.from_cstr(addr_of(buf(usize(0)))).unwrap()
             },
             .V6(segs) => {
@@ -723,10 +723,10 @@ impl(
   IpAddr,
   Eq(IpAddr)(
     (==) : (fn(lhs : &Self, rhs : &Self) -> bool)(
-      match(_ip_cmp(lhs, rhs), .Equal => true, _ => false)
+      match(_ip_cmp(lhs.*, rhs.*), .Equal => true, _ => false)
     ),
     (!=) : (fn(lhs : &Self, rhs : &Self) -> bool)(
-      match(_ip_cmp(lhs, rhs), .Equal => false, _ => true)
+      match(_ip_cmp(lhs.*, rhs.*), .Equal => false, _ => true)
     )
   )
 );
@@ -734,19 +734,19 @@ impl(
   IpAddr,
   Ord(IpAddr)(
     (<) : (fn(lhs : &Self, rhs : &Self) -> bool)(
-      match(_ip_cmp(lhs, rhs), .Less => true, _ => false)
+      match(_ip_cmp(lhs.*, rhs.*), .Less => true, _ => false)
     ),
     (<=) : (fn(lhs : &Self, rhs : &Self) -> bool)(
-      match(_ip_cmp(lhs, rhs), .Greater => false, _ => true)
+      match(_ip_cmp(lhs.*, rhs.*), .Greater => false, _ => true)
     ),
     (>) : (fn(lhs : &Self, rhs : &Self) -> bool)(
-      match(_ip_cmp(lhs, rhs), .Greater => true, _ => false)
+      match(_ip_cmp(lhs.*, rhs.*), .Greater => true, _ => false)
     ),
     (>=) : (fn(lhs : &Self, rhs : &Self) -> bool)(
-      match(_ip_cmp(lhs, rhs), .Less => false, _ => true)
+      match(_ip_cmp(lhs.*, rhs.*), .Less => false, _ => true)
     ),
     cmp : (fn(lhs : &Self, rhs : &Self) -> Ordering)(
-      _ip_cmp(lhs, rhs)
+      _ip_cmp(lhs.*, rhs.*)
     )
   )
 );
@@ -792,7 +792,7 @@ _parse_port :: (fn(s : &String, exn : Exception) -> u16)({
     },
     true => ()
   );
-  bytes := &s;
+  bytes := &s.*;
   (mut(v) : u32) = u32(0);
   (mut(i) : usize) = usize(0);
   while(i < bytes.len(), {
@@ -929,10 +929,10 @@ impl(
   SocketAddr,
   Eq(SocketAddr)(
     (==) : (fn(lhs : &Self, rhs : &Self) -> bool)(
-      match(_sa_cmp(lhs, rhs), .Equal => true, _ => false)
+      match(_sa_cmp(lhs.*, rhs.*), .Equal => true, _ => false)
     ),
     (!=) : (fn(lhs : &Self, rhs : &Self) -> bool)(
-      match(_sa_cmp(lhs, rhs), .Equal => false, _ => true)
+      match(_sa_cmp(lhs.*, rhs.*), .Equal => false, _ => true)
     )
   )
 );
@@ -940,19 +940,19 @@ impl(
   SocketAddr,
   Ord(SocketAddr)(
     (<) : (fn(lhs : &Self, rhs : &Self) -> bool)(
-      match(_sa_cmp(lhs, rhs), .Less => true, _ => false)
+      match(_sa_cmp(lhs.*, rhs.*), .Less => true, _ => false)
     ),
     (<=) : (fn(lhs : &Self, rhs : &Self) -> bool)(
-      match(_sa_cmp(lhs, rhs), .Greater => false, _ => true)
+      match(_sa_cmp(lhs.*, rhs.*), .Greater => false, _ => true)
     ),
     (>) : (fn(lhs : &Self, rhs : &Self) -> bool)(
-      match(_sa_cmp(lhs, rhs), .Greater => true, _ => false)
+      match(_sa_cmp(lhs.*, rhs.*), .Greater => true, _ => false)
     ),
     (>=) : (fn(lhs : &Self, rhs : &Self) -> bool)(
-      match(_sa_cmp(lhs, rhs), .Less => false, _ => true)
+      match(_sa_cmp(lhs.*, rhs.*), .Less => false, _ => true)
     ),
     cmp : (fn(lhs : &Self, rhs : &Self) -> Ordering)(
-      _sa_cmp(lhs, rhs)
+      _sa_cmp(lhs.*, rhs.*)
     )
   )
 );

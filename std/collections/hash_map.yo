@@ -393,7 +393,7 @@ impl(
           // Compared in place: a copy of the bucket would be E0901 for a
           // move-only `K` or `V`.
           cond(
-            ((data_ptr.add(probe_index)).*.key == key) => {
+            ((data_ptr.add(probe_index)).*.key == key.*) => {
               return(.Some(probe_index));
             },
             true => ()
@@ -446,7 +446,7 @@ impl(
         },
         (ctrl_byte == h2) => {
           cond(
-            ((data_ptr.add(probe_index)).*.key == key) => {
+            ((data_ptr.add(probe_index)).*.key == key.*) => {
               return(BucketProbe.Occupied(index : probe_index));
             },
             true => ()
@@ -993,7 +993,7 @@ impl(
   entry : (fn(generic(R : Type), self : &mut Self, key : &K, sink(body) : Impl(FnOnce(e : &mut HashMapEntry(K, V)) -> R), where(K <: Clone)) -> R)({
     hash := self._hash(key);
     (mut(e) : HashMapEntry(K, V)) = HashMapEntry(K, V)(
-      _map : addr_of(self),
+      _map : addr_of(self.*),
       _key : key.clone(),
       _hash : hash,
       _slot : Self._probe(self, key, hash)

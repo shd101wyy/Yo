@@ -23,7 +23,7 @@
 { AstExpr, ast_expr_id, ast_expr_strip_borrow_marker } :: import("../../expr.yo");
 { downcast_reference_mode, unsize_reference_mode } :: import("../../expr_info.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
-{ is_dyn_type, is_enum_type, is_reference_struct_type, cell_handle_view, is_pointer_type, unique_box_payload_type } :: import("../../types/guards.yo");
+{ is_dyn_type, is_enum_type, is_reference_struct_type, is_atomic_reference_struct_type, cell_handle_view, is_pointer_type, unique_box_payload_type } :: import("../../types/guards.yo");
 { _arg_is_reference_binding } :: import("./sizeof.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
@@ -158,14 +158,13 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
     qual := if(match(ref_mode, .Some(rm) => rm, .None => false), String.new(), String.from(" const"));
     `((${target_type_c_name.clone()}${qual}*)(${dyn_code.clone()}).vtable->__yo_payload_of((void*)(${dyn_code.clone()}).data))`
   }, if(is_reference_struct_type(&target_type), {
-    o := String.from("((");
-    o.push_string(target_type_c_name.clone());
-    o.push_str(")__yo_dyn_retain((void*)");
-    o.push_string(dyn_code.clone());
-    o.push_str(".data, (const void*)");
-    o.push_string(dyn_code.clone());
-    o.push_str(".vtable))");
-    o
+    // A `ref` object behind a legacy cell is the data word itself; behind a
+    // payload-convention instance (`dyn(Box.new(r))`, the alias boxing `r`,
+    // decision 49 S2) the data word is the box's payload slot, which HOLDS
+    // the handle: load it through `payload_of` and retain it
+    // (issues/2026-11-15-a-downcast-of-a-boxed-ref-struct-reads-the-payload-slot-as-the-object.md).
+    rs_incr := if(is_atomic_reference_struct_type(&target_type), String.from("__yo_incr_rc_atomic"), String.from("__yo_incr_rc"));
+    `((${target_type_c_name.clone()})((${dyn_code.clone()}).vtable->__yo_payload_of ? ${rs_incr}(*(void**)(${dyn_code.clone()}).vtable->__yo_payload_of((void*)(${dyn_code.clone()}).data)) : __yo_dyn_retain((void*)(${dyn_code.clone()}).data, (const void*)(${dyn_code.clone()}).vtable)))`
   }, {
     // Value/newtype target: find the Rc in the dyn_impls (same dyn, concrete ==
     // target), then extract `((Rc*)data)->valueField`.

@@ -75,7 +75,7 @@ apply_bounds :: (fn(n : i64, ty : &TypeValue) -> i64)(
 comptime_int_width :: (fn(ty : &TypeValue) -> Option(u32))(
   match(
     ty,
-    Rc(.Int(bits, _)) => Option(u32).Some(u32(bits)),
+    Rc(.Int(bits, _)) => Option(u32).Some(u32(bits.*)),
     Rc(.Usize) => Option(u32).Some(get_target_pointer_size_bits()),
     Rc(.Isize) => Option(u32).Some(get_target_pointer_size_bits()),
     _ => Option(u32).None
@@ -119,29 +119,29 @@ bit_not_int :: (fn(n : i64, ty : &TypeValue) -> i64)(
     Rc(.Usize) => i64(0).wrapping_sub(n.wrapping_add(i64(1))),
     Rc(.Isize) => i64(0).wrapping_sub(n.wrapping_add(i64(1))),
     Rc(.Int(bits, signed)) => cond(
-      (bits == u8(8)) => {
+      (bits.* == u8(8)) => {
         n_lower := (n & i64(255));
         result_u := (n_lower ^ i64(255));
         if(
-          signed && (result_u >= i64(128)),
+          signed.* && (result_u >= i64(128)),
           result_u - i64(256),
           result_u
         )
       },
-      (bits == u8(16)) => {
+      (bits.* == u8(16)) => {
         n_lower := (n & i64(65535));
         result_u := (n_lower ^ i64(65535));
         if(
-          signed && (result_u >= i64(32768)),
+          signed.* && (result_u >= i64(32768)),
           result_u - i64(65536),
           result_u
         )
       },
-      (bits == u8(32)) => {
+      (bits.* == u8(32)) => {
         n_lower := (n & i64(4294967295));
         result_u := (n_lower ^ i64(4294967295));
         if(
-          signed && (result_u >= i64(2147483648)),
+          signed.* && (result_u >= i64(2147483648)),
           result_u - i64(4294967296),
           result_u
         )
@@ -172,12 +172,12 @@ make_int_val :: (fn(n : i64, ty : &TypeValue) -> EvalValue)(
 // ---------------------------------------------------------------------------
 _i64_op_wrapped :: (fn(a : i64, b : i64, op_s : &String) -> bool)(
   cond(
-    (op_s == "add") => cond(
+    (op_s.* == "add") => cond(
       (b > i64(0)) => (a > (i64.MAX - b)),
       (b < i64(0)) => (a < (i64.MIN - b)),
       true => false
     ),
-    (op_s == "sub") => cond(
+    (op_s.* == "sub") => cond(
       (b < i64(0)) => (a > (i64.MAX + b)),
       (b > i64(0)) => (a < (i64.MIN + b)),
       true => false
@@ -235,15 +235,15 @@ check_int_overflow :: (
     ub := u64(b);
     uv := u64(value);
     u_over := cond(
-      (op_s == "add") => (uv < ua),
-      (op_s == "sub") => (ua < ub),
+      (op_s.* == "add") => (uv < ua),
+      (op_s.* == "sub") => (ua < ub),
       (ua == u64(0)) => false,
       true => ((uv / ua) != ub)
     );
     if(u_over, {
       u_symbol := cond(
-        (op_s == "mul") => String.from("*"),
-        (op_s == "add") => String.from("+"),
+        (op_s.* == "mul") => String.from("*"),
+        (op_s.* == "add") => String.from("+"),
         true => String.from("-")
       );
       exn.throw(
@@ -267,8 +267,8 @@ check_int_overflow :: (
   );
   if(out_of_range, {
     op_symbol := cond(
-      (op_s == "mul") => String.from("*"),
-      (op_s == "add") => String.from("+"),
+      (op_s.* == "mul") => String.from("*"),
+      (op_s.* == "add") => String.from("+"),
       true => String.from("-")
     );
     exn.throw(
@@ -419,11 +419,11 @@ evaluate_yo_comptime_numeric_functions :: (
         fargs.get(usize(0)),
         .Some(a) => a,
         .None => {
-          return(expr);
+          return(expr.*);
         }
       ),
       _ => {
-        return(expr);
+        return(expr.*);
       }
     );
     lhs_info := eval_numeric_arg(&arg0, env, ctx, exn);
@@ -538,21 +538,21 @@ evaluate_yo_comptime_numeric_functions :: (
       expr,
       .FnCall(_, _, Rc(fargs), _, _) => fargs.clone(),
       _ => {
-        return(expr);
+        return(expr.*);
       }
     );
     arg0 := match(
       args.get(usize(0)),
       .Some(a) => a,
       .None => {
-        return(expr);
+        return(expr.*);
       }
     );
     arg1 := match(
       args.get(usize(1)),
       .Some(a) => a,
       .None => {
-        return(expr);
+        return(expr.*);
       }
     );
     lhs_info := eval_numeric_arg(&arg0, env, ctx, exn);
@@ -926,6 +926,6 @@ evaluate_yo_comptime_numeric_functions :: (
     out_info.set_value(.Some(result_val));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   });
-  expr
+  expr.*
 });
 export(evaluate_yo_comptime_numeric_functions);

@@ -38,11 +38,11 @@ evaluate_drop :: (
       fargs.get(usize(0)),
       .Some(a) => a,
       .None => {
-        return(expr);
+        return(expr.*);
       }
     ),
     _ => {
-      return(expr);
+      return(expr.*);
     }
   );
   // Memory-safety gate, the same as a raw-pointer dereference: `___drop(place)`
@@ -74,7 +74,7 @@ evaluate_drop :: (
     arg_info_opt,
     .Some(i) => Rc.clone(i),
     .None => {
-      return(expr);
+      return(expr.*);
     }
   );
   (cur_env : Environment) = expr_info_adopt_env(&arg_info);
@@ -103,6 +103,6 @@ evaluate_drop :: (
   out_info := new_expr_info(&cur_env, t_unit());
   // value is None (runtime) for the non-RC path
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr
+  expr.*
 });
 export(evaluate_drop);

@@ -107,7 +107,7 @@ _find_field_label_index :: (fn(field_labels : &ArrayList(String), label : &Strin
   while((i < n) && idx.is_none(), {
     match(
       field_labels.get_cloned(i),
-      .Some(lbl) => if(lbl == label, {
+      .Some(lbl) => if(lbl == label.*, {
         idx = .Some(i);
       }),
       .None => ()
@@ -124,7 +124,7 @@ _is_excluded_label :: (fn(excluded : &ArrayList(String), label : &String) -> boo
   while((i < n) && !found, {
     match(
       excluded.get_cloned(i),
-      .Some(lbl) => if(lbl == label, {
+      .Some(lbl) => if(lbl == label.*, {
         found = true;
       }),
       .None => ()
@@ -307,7 +307,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
         // as it would have been without the early force.
         pending_here := match(
           &walk_opt,
-          .Some(w) => walk_pending_def_at(&w, i),
+          .Some(w) => walk_pending_def_at(&w.*, i),
           .None => Option(PendingDef).None
         );
         skip_statement := match(
@@ -331,7 +331,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
               true
             },
             .Unforced => {
-              push_forcing_def(&def);
+              push_forcing_def(&def.*);
               false
             }
           ),
@@ -535,7 +535,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                             if(!_is_excluded_label(&excluded_labels, ext_label.clone()), {
                               match(
                                 &ext_mod_path,
-                                .Some(mp) => record_module_ordered_read(&env.module_path().*, &mp, ext_label.clone()),
+                                .Some(mp) => record_module_ordered_read(&env.module_path().*, &mp.*, ext_label.clone()),
                                 .None => ()
                               );
                               // Check for duplicate label
@@ -844,7 +844,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
               match(
                 &walk_opt,
                 .Some(w) => {
-                  def.set_variable(module_frame_variable(&w, def.name.clone()));
+                  def.set_variable(module_frame_variable(&w.*, def.name.clone()));
                 },
                 .None => ()
               );
@@ -866,7 +866,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
   // post-walk miss fallback.
   match(
     &walk_opt,
-    .Some(w) => end_module_walk(&w),
+    .Some(w) => end_module_walk(&w.*),
     .None => ()
   );
   // Pop the env frame (only if no partial error)
@@ -945,8 +945,8 @@ _attach_module_init_temp_drops :: (fn(stmt : &AstExpr, env : &Environment, ctx :
   stmt_tok := ast_expr_token(stmt);
   rhs_node := match(
     stmt,
-    .FnCall(_, _, Rc(sa), _, _) => match(sa.get(usize(1)), .Some(r) => r, .None => stmt),
-    _ => stmt
+    .FnCall(_, _, Rc(sa), _, _) => match(sa.get(usize(1)), .Some(r) => r, .None => stmt.*),
+    _ => stmt.*
   );
   snapshot_env := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&rhs_node)),

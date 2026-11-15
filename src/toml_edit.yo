@@ -370,7 +370,7 @@ _find_table_header :: (fn(kinds : &ArrayList(_Line), table : &String) -> Option(
     match(
       &kinds(i).kind.clone(),
       .Header(path, array) => {
-        if(!array && ((path.len() == usize(1)) && (path(usize(0)) == table)), {
+        if(!array.* && ((path.len() == usize(1)) && (path(usize(0)) == table.*)), {
           return(Option(usize).Some(i));
         });
       },
@@ -422,7 +422,7 @@ _entry_ranges :: (
         match(
           &kinds(i).kind.clone(),
           .Entry(path) => {
-            if((path.len() >= usize(1)) && (path(usize(0)) == key), {
+            if((path.len() >= usize(1)) && (path(usize(0)) == key.*), {
               ranges.push(_Range(start : i, end : (kinds(i).end + usize(1))));
             });
           },
@@ -437,7 +437,7 @@ _entry_ranges :: (
     match(
       &kinds(j).kind.clone(),
       .Header(path, _) => {
-        if((path.len() >= usize(2)) && (path(usize(0)) == table) && (path(usize(1)) == key), {
+        if((path.len() >= usize(2)) && (path(usize(0)) == table.*) && (path(usize(1)) == key.*), {
           ranges.push(_Range(start : j, end : _section_end(kinds, j + usize(1))));
         });
       },

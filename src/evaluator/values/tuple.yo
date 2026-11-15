@@ -110,7 +110,7 @@ evaluate_tuple_element_value :: (
   // Reject labelled fields: `x: rhs`.
   if(ast_expr_is_fn_call_of(expr, ":", Option(usize).Some(usize(2))), {
     args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
-    lhs_expr := match(args.get(usize(0)), .Some(a) => a, .None => expr);
+    lhs_expr := match(args.get(usize(0)), .Some(a) => a, .None => expr.*);
     exn.throw(
       dyn(
         format_error_message(
@@ -355,7 +355,7 @@ evaluate_tuple_value :: (
     info := new_expr_info(env, Rc.new(TypeValueNode.Unit));
     info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
-    return(expr);
+    return(expr.*);
   });
   result := evaluate_tuple_elements_value(&args, env, ctx, exn);
   // Build the resulting tuple type and (if all elements known) tuple value.
@@ -422,7 +422,7 @@ evaluate_tuple_value :: (
   if(!all_known, {
     attach_temp_variable_to_expr(expr, true, ctx);
   });
-  expr
+  expr.*
 });
 export(
   evaluate_tuple_value,

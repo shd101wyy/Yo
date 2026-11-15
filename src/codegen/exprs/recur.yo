@@ -120,8 +120,8 @@ generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
       // `(*p)` read folds to `p`, an lvalue chain such as a field reached
       // through a `match` binding's pointer is addressed
       // (issues/fixed/2026-11-05-recur-of-a-mut-borrowed-field-of-a-match-binding-passes-the-value-not-its-address.md).
-      abi_is_ptr := match(&context.current_function_type, .Some(ft) => fn_abi_param_is_ptr(&ft), .None => ArrayList(bool).new());
-      amped := _apply_ref_amp(&arg_codes, &abi_is_ptr, &arg_exprs, indent.clone(), context);
+      abi_is_ptr := match(&context.current_function_type, .Some(ft) => fn_abi_param_is_ptr(&ft.*), .None => ArrayList(bool).new());
+      amped := _apply_ref_amp(&arg_codes, &abi_is_ptr, &arg_exprs.*, indent.clone(), context);
       args_list := String.from("");
       (ai : usize) = usize(0);
       while(ai < amped.len(), {

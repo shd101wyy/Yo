@@ -119,8 +119,8 @@ impl(
   // size (the current capacity's worth of slots) and alignment.
   _free_buf : (fn(self : &Self, p : &*T) -> unit)(
     cond(
-      self._owned() => Allocator.free(.Some((*void)(p)), self._cap() * size_of(T), align_of(T)),
-      true => free(.Some((*void)(p)))
+      self._owned() => Allocator.free(.Some((*void)(p.*)), self._cap() * size_of(T), align_of(T)),
+      true => free(.Some((*void)(p.*)))
     )
   ),
   /// Number of elements. O(1); not the ring's capacity.
@@ -529,7 +529,7 @@ impl(
     ),
     from_iter_add : (fn(sink(acc) : Self, item : &T) -> Self)({
       mut(out) := acc;
-      out.push_back(item);
+      out.push_back(item.*);
       out
     })
   )

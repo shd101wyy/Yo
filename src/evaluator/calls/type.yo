@@ -48,6 +48,7 @@ pragma(Pragma.AllowUnsafe);
 { same_name_note, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message } :: import("../../types/utils.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
+{ raise_function_value_origin_mismatch } :: import("../trait_checking.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { EvalContext, ExpectedTypeCtx, TypeCallResult, in_def_time_trial } :: import("../context.yo");
 { is_std_module_path } :: import("../memory_safety.yo");
@@ -146,7 +147,7 @@ try_to_call_type_with_arguments :: (
   (pre_i : usize) = usize(0);
   while(pre_i < n_fields, {
     values.push(Option(EvalValue).None);
-    runtime_arg_exprs_in_order.push(function_callee_expr);
+    runtime_arg_exprs_in_order.push(function_callee_expr.*);
     arg_types.push(Option(TypeValue).None);
     pre_i = (pre_i + usize(1));
   });
@@ -158,7 +159,7 @@ try_to_call_type_with_arguments :: (
     if(arg_expr_opt.is_none(), {
       i = (i + usize(1));
     });
-    arg_expr := match(arg_expr_opt, .Some(a) => a, .None => function_callee_expr);
+    arg_expr := match(arg_expr_opt, .Some(a) => a, .None => function_callee_expr.*);
     field_opt := type_fields.get_cloned(i);
     member_element := match(
       field_opt,
@@ -287,13 +288,13 @@ try_to_call_type_with_arguments :: (
       match(
         &member_element.ty,
         Rc(.Reference(_, t9_fm, _)) => {
-          if(t9_is_mut_marker != t9_fm, {
+          if(t9_is_mut_marker != t9_fm.*, {
             exn.throw(
               dyn(
                 with_code(
                   format_error_message(
                     ast_expr_token(&actual_arg_expr),
-                    `Field "${member_element.label}" takes \`${type_to_string(&member_element.ty)}\`: lend the place with \`${if(t9_fm, "&mut ", "&")}${ast_place_text(ast_expr_strip_borrow_marker(&actual_arg_expr))}\`.`
+                    `Field "${member_element.label}" takes \`${type_to_string(&member_element.ty)}\`: lend the place with \`${if(t9_fm.*, "&mut ", "&")}${ast_place_text(ast_expr_strip_borrow_marker(&actual_arg_expr))}\`.`
                   ),
                   E_BORROW_MARKER_MISMATCH
                 )
@@ -369,7 +370,7 @@ try_to_call_type_with_arguments :: (
         // whose place is typed as the reference itself.
         Rc(.Reference(_, _, _)) => cond(
           is_reference_self_place(ast_expr_id(&evaluated_arg)) => {
-            t9w_lend_ty = lend_place_reference_type(&evaluated_arg, &arg_info, t9w_mut, ctx);
+            t9w_lend_ty = lend_place_reference_type(&evaluated_arg, &arg_info, t9w_mut.*, ctx);
           },
           is_reference_read(ast_expr_id(&evaluated_arg)) => {
             rv_lend_ty := Option(TypeValue).Some(arg_info.ty());
@@ -379,7 +380,7 @@ try_to_call_type_with_arguments :: (
           true => ()
         ),
         _ => {
-          t9w_lend_ty = lend_place_reference_type(&evaluated_arg, &arg_info, t9w_mut, ctx);
+          t9w_lend_ty = lend_place_reference_type(&evaluated_arg, &arg_info, t9w_mut.*, ctx);
         }
       ),
       _ => ()
@@ -481,6 +482,10 @@ try_to_call_type_with_arguments :: (
         )
       );
     });
+    // O7 at a struct field (audit A48): a function value stored in a
+    // function-typed field fits its result and parameter origins, which a
+    // call through the field trusts.
+    raise_function_value_origin_mismatch(&member_element.ty, &arg_type, &actual_arg_expr, &ast_expr_token(&actual_arg_expr), &`Field "${member_element.label}"`, ctx, exn);
     // Store the result.
     values(member_element_position_index) = arg_info.value();
     runtime_arg_exprs_in_order(member_element_position_index) = evaluated_arg;

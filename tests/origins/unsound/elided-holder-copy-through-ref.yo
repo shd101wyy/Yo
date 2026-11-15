@@ -1,0 +1,21 @@
+// expect: E0923
+// `dst : &mut H, src : &H`: each `H` is its own origin, so rebuilding `dst.*` from `src.r` is E0923.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+mk :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+H :: struct(r : &Rc(X), n : i32);
+copy_into :: (fn(dst : &mut H, src : &H) -> unit)({
+  dst.* = H(r : src.r, n : src.n);
+});
+main :: (fn() -> unit)({
+  a := mk();
+  mut(h) := H(r : &a, n : i32(0));
+  {
+    y := mk();
+    t := H(r : &y, n : i32(1));
+    copy_into(&mut h, &t);
+  };
+  println(`OUT: ${h.r.*.*.s.len().to_string()}`);
+});
+export(main);
