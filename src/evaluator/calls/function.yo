@@ -6667,20 +6667,19 @@ _fv_synthesize_arg_into :: (fn(declared_pt : &TypeValue, scratch_env : &Environm
 ///   the callee's specialization abstract: `outer(())` with
 ///   `outer :: fn(generic(T), v : T) -> T)(inner(v))` emitted an abort stub
 ///   (issues/fixed/2026-10-24-a-generic-tail-call-forwarding-t-fails-to-transpile-for-unit.md).
-_funcval_infer_forall_ty :: (fn(arg_ty : &TypeValue, exp_slot : &TypeValue, param_is_ct : bool, env : &Environment) -> TypeValue)({
-  exp_pt := t_slot_pointee(exp_slot);
+_funcval_infer_forall_ty :: (fn(arg_ty : &TypeValue, exp_pt : &TypeValue, param_is_ct : bool, slot_lends : bool, env : &Environment) -> TypeValue)(
   cond(
     // A string literal (decision 49 S2) is the place `str` where the slot
     // lends one (`x : &T` binds `T := str`), and the `&(str, static)` value
     // anywhere else (`x : T` binds `T := &(str, static)`, the legacy value
     // `str`, as `s := "x"` types `s`).
-    is_comptime_string_type(arg_ty) => if(t_slot_is_borrow(exp_slot), Rc.new(TypeValueNode.Str), t_static_str_ref()),
+    is_comptime_string_type(arg_ty) => if(slot_lends, Rc.new(TypeValueNode.Str), t_static_str_ref()),
     (!param_is_ct && (is_comptime_int_type(arg_ty) || is_comptime_float_type(arg_ty))) => convert_comptime_type_to_runtime_type(arg_ty, env),
-    ((is_function_type(arg_ty) || is_fn_trait_type(arg_ty)) && is_some_type(&exp_pt)) => Rc.clone(exp_pt),
-    (is_unit_type(arg_ty) && is_some_type(&exp_pt) && (in_def_time_trial() || type_mentions_impl_fn_or_future(&exp_pt))) => Rc.clone(exp_pt),
+    ((is_function_type(arg_ty) || is_fn_trait_type(arg_ty)) && is_some_type(exp_pt)) => Rc.clone(exp_pt),
+    (is_unit_type(arg_ty) && is_some_type(exp_pt) && (in_def_time_trial() || type_mentions_impl_fn_or_future(exp_pt))) => Rc.clone(exp_pt),
     true => Rc.clone(arg_ty)
   )
-});
+);
 /// Do two concrete bindings of one binder disagree? Only SomeT-free types are
 /// judged (a type variable binds later), and the lenient relation is used in
 /// both directions, so a literal's comptime type and the numeric type it
@@ -6949,7 +6948,7 @@ _fv_refine_closure_expected :: (
         while((q < info_arg_idx.len()) && f_ty.is_none(), {
           if(match(info_arg_idx.get_cloned(q), .Some(ix) => (ix == p), .None => false), {
             q_info := match(infos.get_cloned(q), .Some(i) => i, .None => new_expr_info(env, t_unit()));
-            q_ty := _funcval_infer_forall_ty(&q_info.ty(), t_unit(), match(param_ct.get(p), .Some(c) => c, .None => false), env);
+            q_ty := _funcval_infer_forall_ty(&q_info.ty(), t_unit(), match(param_ct.get(p), .Some(c) => c, .None => false), match(declared_param_types.get(p), .Some(qd) => t_slot_is_borrow(&qd), .None => false), env);
             if((get_all_some_types(&q_ty).len() == usize(0)) && !is_some_type(&q_ty), {
               f_ty = Option(TypeValue).Some(q_ty);
             });
@@ -7299,8 +7298,9 @@ _funcval_bind_foralls :: (
             later_info := match(evaled_arg_infos.get_cloned(ptn_i), .Some(i) => i, .None => new_expr_info(env, t_unit()));
             later_ty := _funcval_infer_forall_ty(
               &later_info.ty(),
-              match(expected_param_types.get_cloned(ptn_i), .Some(t) => t, .None => t_unit()),
+              match(expected_param_types.get_cloned(ptn_i), .Some(t) => t_slot_pointee(&t), .None => t_unit()),
               match(param_ct_flags.get(ptn_i), .Some(f) => f, .None => false),
+              match(declared_param_types.get(ptn_i), .Some(dps) => t_slot_is_borrow(&dps), .None => false),
               env
             );
             if(_forall_types_conflict(&fa_prev.*, &later_ty), {
@@ -7321,8 +7321,9 @@ _funcval_bind_foralls :: (
         // `_funcval_infer_forall_ty`'s.
         fa_infer_ty := _funcval_infer_forall_ty(
           &arg_info.ty(),
-          match(expected_param_types.get_cloned(ptn_i), .Some(t) => t, .None => t_unit()),
+          match(expected_param_types.get_cloned(ptn_i), .Some(t) => t_slot_pointee(&t), .None => t_unit()),
           match(param_ct_flags.get(ptn_i), .Some(f) => f, .None => false),
+          match(declared_param_types.get(ptn_i), .Some(dps) => t_slot_is_borrow(&dps), .None => false),
           env
         );
         _add_forall := add_variable_to_env(
