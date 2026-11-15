@@ -160,6 +160,18 @@ and a file with a platform-gated `cond` arm the target does not evaluate
 (run it again with `--target`). A file that does not evaluate is named and
 `fix` exits non-zero.
 
+That is the mode as v0.2.77 ships it, and v0.2.77 is the release that
+migrates v0.2.77 code. From v0.2.78 `Dyn(...)` is unsized, a bare by-value
+`Dyn(...)` is E0619, and its help names the path:
+`yo version install 0.2.77 && yo fix <path> --migrate unsized`. v0.2.78's
+mode reads its input in the v0.2.78 spelling, where `*Dyn(...)`, a type alias
+body, `impl(Dyn(...), ...)` and a `size_of`/`Type.eq` argument name the
+unsized object. It therefore rewrites no type spelling. It still writes the
+legacy `dyn(v)` alias of a plain value as `dyn(Box.new(v))` (the alias goes
+in v0.2.79), and lists `dyn(p)` over a raw pointer, `dyn(h)` over a named
+handle, a spelling that does not print back on one line and a file with an
+unevaluated platform arm.
+
 A module-level or `thread_local` runtime binding is immutable (Rust's
 `static`) unless its name is wrapped in `mut(...)` (`static mut`, decision
 47). Writing an immutable global is E0917: reassigning it, writing a field or
