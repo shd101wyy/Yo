@@ -1342,7 +1342,7 @@ _reject_dyn_of_named_handle :: (fn(value_ty : &TypeValue, fresh : bool, tok : &T
 /// Left unboxed, the erasure was typed `Box(Dyn)` but lowered as the legacy
 /// counted cell, whose vtable has no `drop_in_place`: the box's drop called a
 /// NULL slot
-/// (issues/2026-11-15-the-dyn-alias-over-a-ref-struct-lowers-to-the-legacy-cell-under-a-box-type.md).
+/// (issues/fixed/2026-11-15-the-dyn-alias-over-a-ref-struct-lowers-to-the-legacy-cell-under-a-box-type.md).
 _dyn_payload_is_plain_value :: (fn(t : &TypeValue) -> bool)(
   !is_dyn_type(t) && cell_handle_view(t).is_none() && !is_unique_box_type(t)
 );
@@ -1524,7 +1524,7 @@ evaluate_dyn_value :: (
             // new type). A temp left at `Dyn` dropped through the legacy
             // `__yo_dyn_release`, leaking the box of a temporary lent to a
             // `&AnyError` parameter
-            // (issues/2026-11-15-a-temporary-dyn-box-lent-to-a-reference-parameter-is-released-as-a-legacy-dyn.md).
+            // (issues/fixed/2026-11-15-a-temporary-dyn-box-lent-to-a-reference-parameter-is-released-as-a-legacy-dyn.md).
             if(oi.variable_name().is_some(), {
               expr_info_set_origin_type(&oi, &Option(TypeValue).Some(Rc.clone(bt)));
               attach_temp_variable_to_expr(&out, true, ctx);

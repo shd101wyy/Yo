@@ -3657,7 +3657,7 @@ get_size_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
     // as the fat `{ data, vtable | len }` pair (`is_unsized_pointee`) = 2 ×
     // pointer size. Sizing it thin made `Box.new(v)` of a struct holding an
     // `AnyError` (a `Box(Dyn)`) allocate 8 bytes short
-    // (issues/2026-11-15-sizeof-of-a-pointer-to-an-unsized-pointee-is-thin.md).
+    // (issues/fixed/2026-11-15-sizeof-of-a-pointer-to-an-unsized-pointee-is-thin.md).
     Rc(.Pointer(sz_pointee)) => cond(
       type_is_sized(&sz_pointee) => Option(usize).Some(usize(get_target_pointer_size_bits())),
       true => Option(usize).Some(usize(u32(2) * get_target_pointer_size_bits()))
