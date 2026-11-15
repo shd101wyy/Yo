@@ -34,6 +34,6 @@ The `Dyn(...)` type path uses the same helper, but a type spelling rarely holds 
 
 - Skip string and template literal contents in `_expr_span_end`'s depth scan.
 - Locate a recorded `dyn(...)` site by its token position instead of matching printed text: the recorder already knows the call's row and column. The argument span is then the bracket-balanced text up to the matching `)`. Alternatively, compare against a print of the parse rather than of the evaluated expression.
-- When a site is listed, word the message by the real reason, and quote the source text, not the desugared print.
+- When a site is listed, word the message by the real reason, and quote the source text, not the desugared print. The type-spelling listings have the same flaw: the multi-line `detect` field of `src/evaluator/shared/suspension_analysis.yo` was listed as `Dyn(Fn(__yo_imm(expr) : AstExpr, …))`, the parser's internal mode form of `expr : &AstExpr`.
 
 The repro then becomes a test: all three sites rewritten, a second run a no-op.
