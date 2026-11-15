@@ -1272,6 +1272,35 @@ _closure_ref_spill_c_type :: (fn(default_cty : String, rei : &ExprInfo, context 
   });
   default_cty
 });
+/// The C of a lend of an UNSIZED place (decision 49): the place of a `Dyn`
+/// behind a fat pair reads `(*pair)`, and the lend is the pair itself, so a
+/// whole-expression `(*X)` folds to `X`. Any other code is the pair already.
+unsized_lend_pair_code :: (fn(code : &String) -> String)({
+  if(!(code.starts_with("(*") && code.ends_with(")")), {
+    return(code.clone());
+  });
+  // The leading `(` must close at the very end: `(*a) + (b)` is no place.
+  (depth : i64) = i64(0);
+  (k : usize) = usize(0);
+  n := code.len();
+  while(k < n, k = (k + usize(1)), {
+    ch := code.byte_at(k);
+    cond(
+      (ch == u8(0x28)) => {
+        depth = (depth + i64(1));
+      },
+      (ch == u8(0x29)) => {
+        depth = (depth - i64(1));
+        if((depth == i64(0)) && ((k + usize(1)) < n), {
+          return(code.clone());
+        });
+      },
+      true => ()
+    );
+  });
+  code.substring(usize(2), n - usize(1))
+});
+export(unsized_lend_pair_code);
 /// Apply the auto-`&` wrap to ref-parameter arguments (fold `(*x)`→`x`, wrap
 /// bare literals in a compound literal, address-of addressable exprs, else
 /// spill to a temp).
@@ -1286,6 +1315,7 @@ _apply_ref_amp :: (fn(args : &ArrayList(String), param_is_ref : &ArrayList(bool)
     // and the C field is a pointer, so it is addressed exactly like a ref
     // parameter's argument. The lend is recorded on the place's ExprInfo as
     // its converted runtime type (a `Reference`).
+    (mut(unsized_lend) : bool) = false;
     if(!pref, {
       match(
         runtime_args.get(i),
@@ -1298,15 +1328,24 @@ _apply_ref_amp :: (fn(args : &ArrayList(String), param_is_ref : &ArrayList(bool)
             // parameter takes (never an address).
             .Some(Rc(.Reference(n2p, _, _))) => if(type_is_sized(&n2p), {
               pref = true;
-            }, ()),
-            _ => ()
+            }, {
+              unsized_lend = true;
+            }),
+            // A reference binding of an unsized pointee read on (`f(r)`,
+            // `r : &Dyn(T)`) reads its place `(*r)`; the slot takes the pair.
+            _ => {
+              ul_ty := rei2.ty();
+              unsized_lend = (!type_is_sized(&ul_ty) || (t_slot_is_borrow(&ul_ty) && !type_is_sized(&t_slot_pointee(&ul_ty))));
+            }
           ),
           .None => ()
         ),
         .None => ()
       );
     });
-    c := match(args.get_cloned(i), .Some(x) => x, .None => String.from(""));
+    // The lent place of an unsized pointee reads through its pair (`b.*`
+    // over a box, a reference binding `r`: `(*pair)`); the lend is the pair.
+    c := match(args.get_cloned(i), .Some(x) => if(unsized_lend, unsized_lend_pair_code(&x), x), .None => String.from(""));
     // A ref/`inout` parameter of type `unit` has no C value to take the
     // address of — the arg code is EMPTY, so the spill branch declared
     // `void __yo_ref_spill_N = ;` (invalid C). The callee's unit receiver
@@ -1755,7 +1794,10 @@ _generate_runtime_enum_construct :: (
                 fcode := match(
                   rt_args.get(i),
                   .Some(a) => {
-                    f_code := emit_deferred_dup_or_code(&a, _call_generate_expr(&a, indent.clone(), context), indent.clone(), context);
+                    f_code_raw := emit_deferred_dup_or_code(&a, _call_generate_expr(&a, indent.clone(), context), indent.clone(), context);
+                    // A lend of an unsized place (`&b.*`, a reference
+                    // binding read) is the pair its place reads through.
+                    f_code := if(t_slot_is_borrow(&fty) && !f_is_ref, unsized_lend_pair_code(&f_code_raw), f_code_raw);
                     f_takes_addr := (f_is_ref && !reference_operand_is_value(&a, context));
                     sequence_operand(&a, if(f_takes_addr, `(&(${f_code}))`, f_code), rt_args, i, f_takes_addr, indent, context)
                   },
