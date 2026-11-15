@@ -23,7 +23,8 @@ pragma(Pragma.AllowUnsafe);
   migrate_unsized_on,
   record_unsized_site,
   unsized_handle_dyn_node,
-  unsize_reference_mode
+  unsize_reference_mode,
+  expr_info_set_origin_type
 } :: import("../../expr_info.yo");
 { Environment, Variable, synthetic_token, get_variables_from_env, add_variable_to_env, by_value_param_owns, snapshot_env, variable_value_type, variable_set_is_ref, variable_set_is_imm_borrow } :: import("../../env.yo");
 { Token, TokenKind, intern_token_str } :: import("../../token.yo");
@@ -1323,9 +1324,14 @@ _reject_dyn_of_named_handle :: (fn(value_ty : &TypeValue, fresh : bool, tok : &T
 });
 /// A `dyn(v)` payload that is neither a pointer kind nor a handle: the legacy
 /// alias boxes it, `dyn(Box.new(v))` (decision 49; E0620 once S3 deletes the
-/// alias).
+/// alias). A `ref struct` value is such a payload: its counted handle is the
+/// pointer-sized value the box holds, so the `Box(Dyn)` owns one reference.
+/// Left unboxed, the erasure was typed `Box(Dyn)` but lowered as the legacy
+/// counted cell, whose vtable has no `drop_in_place`: the box's drop called a
+/// NULL slot
+/// (issues/2026-11-15-the-dyn-alias-over-a-ref-struct-lowers-to-the-legacy-cell-under-a-box-type.md).
 _dyn_payload_is_plain_value :: (fn(t : &TypeValue) -> bool)(
-  !is_reference_struct_type(t) && !is_dyn_type(t) && cell_handle_view(t).is_none() && !is_unique_box_type(t)
+  !is_dyn_type(t) && cell_handle_view(t).is_none() && !is_unique_box_type(t)
 );
 /// `dyn(&v)` / `dyn(&mut v)` (plans/VALUES_BY_DEFAULT.md decision 49, S1d):
 /// the `&Dyn(...)` / `&mut Dyn(...)` over the lent place `v`, which stays where
@@ -1414,7 +1420,7 @@ _record_unsized_dyn_site :: (fn(expr : &AstExpr, written : &AstExpr, value_ty : 
     raw => record_unsized_site(&tok, u8(1), &text),
     // An open payload's `dyn(Box.new(v))` evaluates through the prelude cell
     // with `v`'s type: the written box is there already.
-    (!is_reference_struct_type(value_ty) && !is_dyn_type(value_ty) && cell_handle_view(value_ty).is_none() && !_written_cell_new(written)) => record_unsized_site(&tok, u8(2), &text),
+    (_dyn_payload_is_plain_value(value_ty) && !_written_cell_new(written)) => record_unsized_site(&tok, u8(2), &text),
     (!fresh && cell_handle_view(value_ty).is_some()) => record_unsized_site(&tok, u8(5), &text),
     true => {
       owning_dyn := match(expected, .Some(et) => match(t_refine_inner(&et.ty), Rc(.DynT(_, _, _, _)) => true, _ => false), .None => false);
@@ -1498,7 +1504,19 @@ evaluate_dyn_value :: (
         rt_payload := match(oi.runtime_arg_exprs_in_order(), .Some(ra) => match(ra.get(usize(0)), .Some(r0) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&r0)), .Some(ri) => Option(TypeValue).Some(Rc.clone(ri.ty())), .None => Option(TypeValue).None), .None => Option(TypeValue).None), .None => Option(TypeValue).None);
         match(
           _create_box_type_via(&_erasure_handle_name(&rt_payload), &t_refine_inner(&oi.ty()), &expr_info_adopt_env(&oi), ctx, exn),
-          .Some(bt) => oi.set_ty(bt),
+          .Some(bt) => {
+            oi.set_ty(Rc.clone(bt));
+            // The erasure attached its temp at the `Dyn` type; the temp is
+            // the handle, so re-attach it (the existing variable takes the
+            // new type). A temp left at `Dyn` dropped through the legacy
+            // `__yo_dyn_release`, leaking the box of a temporary lent to a
+            // `&AnyError` parameter
+            // (issues/2026-11-15-a-temporary-dyn-box-lent-to-a-reference-parameter-is-released-as-a-legacy-dyn.md).
+            if(oi.variable_name().is_some(), {
+              expr_info_set_origin_type(&oi, &Option(TypeValue).Some(Rc.clone(bt)));
+              attach_temp_variable_to_expr(&out, true, ctx);
+            });
+          },
           .None => ()
         );
       }),
