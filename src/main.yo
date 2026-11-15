@@ -1379,6 +1379,8 @@ _run_migrate_rc_clone :: (fn(files : &ArrayList(String), std_path : &String, dry
         .Some(e) => Option(usize).Some(e),
         .None => match(start_opt, .Some(start) => _deref_star_span_end(&runes, start, &st.expect), .None => Option(usize).None)
       );
+      // A copy of `r.*` recorded as `r`: the span takes the star.
+      span_e = match(span_e, .Some(e0) => if(((e0 + usize(1)) < runes.len()) && (runes(e0).char == u32(0x2E)) && (runes(e0 + usize(1)).char == u32(0x2A)) && !(((e0 + usize(2)) < runes.len()) && _is_word_rune(runes(e0 + usize(2)))), Option(usize).Some(e0 + usize(2)), Option(usize).Some(e0)), .None => Option(usize).None);
       match(
         span_e,
         .Some(end) => {
