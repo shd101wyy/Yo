@@ -687,8 +687,8 @@ _index_place_root :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalContext)
     (!ast_expr_is_atom(lhs) && !ast_expr_is_fn_call_of(lhs, BF_DOT, Option(usize).Some(usize(2))) && call_is_index_place(lhs, env, ctx)) => match(
       lhs,
       .FnCall(_, ip_callee, _, _, _) => cond(
-        ast_expr_is_atom(&ip_callee) => get_variables_from_env(env, ast_expr_token(&ip_callee).value.*.clone()).last_cloned(),
-        true => _place_root_variable(&ip_callee, env, ctx, true)
+        ast_expr_is_atom(&ip_callee.*) => get_variables_from_env(env, ast_expr_token(&ip_callee.*).value.*.clone()).last_cloned(),
+        true => _place_root_variable(&ip_callee.*, env, ctx, true)
       ),
       .Atom(_, _) => Option(Variable).None
     ),

@@ -995,24 +995,24 @@ _nominal_hidden_inner :: (fn(ty : &TypeValue, seen : &mut ArrayList(String), dep
     true => match(
       ty,
       Rc(.Struct({ id : nh_sid, field_types : nh_fields, type_arguments : nh_targs, is_source_namespace : nh_sns })) => cond(
-        nh_sns => false,
-        ((nh_sid.len() > usize(0)) && seen.contains(&nh_sid)) => false,
+        nh_sns.* => false,
+        ((nh_sid.len() > usize(0)) && seen.contains(&nh_sid.*)) => false,
         true => {
           if(nh_sid.len() > usize(0), {
             seen.push(nh_sid.clone());
           });
-          _any_hidden_origin(&nh_fields, &nh_targs, seen, depth)
+          _any_hidden_origin(&nh_fields.*, &nh_targs.*, seen, depth)
         }
       ),
       Rc(.EnumT({ id : nh_eid, variant_fields : nh_vfields, type_arguments : nh_etargs })) => cond(
-        ((nh_eid.len() > usize(0)) && seen.contains(&nh_eid)) => false,
+        ((nh_eid.len() > usize(0)) && seen.contains(&nh_eid.*)) => false,
         true => {
           if(nh_eid.len() > usize(0), {
             seen.push(nh_eid.clone());
           });
           (vi : usize) = usize(0);
           while(vi < nh_vfields.len(), vi = (vi + usize(1)), {
-            if(match(nh_vfields.get(vi), .Some(vf) => _any_hidden_origin(&vf, &nh_etargs, seen, depth), .None => false), {
+            if(match(nh_vfields.get(vi), .Some(vf) => _any_hidden_origin(&vf, &nh_etargs.*, seen, depth), .None => false), {
               return(true);
             });
           });
@@ -1047,19 +1047,19 @@ _field_hidden_origin :: (fn(ty : &TypeValue, args : &SharedList(TypeValue), seen
   });
   match(
     ty,
-    Rc(.Reference(fh_p, _, fh_o)) => (match(&fh_o, Rc(.OriginSet(_, fh_el)) => fh_el, _ => false) || _field_hidden_origin(&fh_p, args, seen, depth + u32(1))),
-    Rc(.OriginSet(_, fh_el2)) => fh_el2,
-    Rc(.ValueSlot(fh_vs)) => _field_hidden_origin(&fh_vs, args, seen, depth + u32(1)),
-    Rc(.Pointer(fh_in)) => _field_hidden_origin(&fh_in, args, seen, depth + u32(1)),
-    Rc(.SliceT(fh_el3)) => _field_hidden_origin(&fh_el3, args, seen, depth + u32(1)),
-    Rc(.Array(element : fh_el4)) => _field_hidden_origin(&fh_el4, args, seen, depth + u32(1)),
-    Rc(.RefineT(fh_ri, _)) => _field_hidden_origin(&fh_ri, args, seen, depth + u32(1)),
-    Rc(.SomeT({ resolution : fh_res })) => match(fh_res, .Some(r) => _field_hidden_origin(&r, args, seen, depth + u32(1)), .None => false),
-    Rc(.Tuple({ field_types : fh_tf })) => _any_hidden_origin(&fh_tf, args, seen, depth),
+    Rc(.Reference(fh_p, _, fh_o)) => (match(fh_o, Rc(.OriginSet(_, fh_el)) => fh_el.*, _ => false) || _field_hidden_origin(&fh_p.*, args, seen, depth + u32(1))),
+    Rc(.OriginSet(_, fh_el2)) => fh_el2.*,
+    Rc(.ValueSlot(fh_vs)) => _field_hidden_origin(&fh_vs.*, args, seen, depth + u32(1)),
+    Rc(.Pointer(fh_in)) => _field_hidden_origin(&fh_in.*, args, seen, depth + u32(1)),
+    Rc(.SliceT(fh_el3)) => _field_hidden_origin(&fh_el3.*, args, seen, depth + u32(1)),
+    Rc(.Array(element : fh_el4)) => _field_hidden_origin(&fh_el4.*, args, seen, depth + u32(1)),
+    Rc(.RefineT(fh_ri, _)) => _field_hidden_origin(&fh_ri.*, args, seen, depth + u32(1)),
+    Rc(.SomeT({ resolution : fh_res })) => match(fh_res, .Some(r) => _field_hidden_origin(&r.*, args, seen, depth + u32(1)), .None => false),
+    Rc(.Tuple({ field_types : fh_tf })) => _any_hidden_origin(&fh_tf.*, args, seen, depth),
     // A nested nominal: an argument of it that carries an origin of its own,
     // or a hidden origin of its definition.
-    Rc(.Struct({ type_arguments : fh_sta })) => (_any_hidden_origin(&fh_sta, args, seen, depth) || _nominal_hidden_inner(ty, seen, depth + u32(1))),
-    Rc(.EnumT({ type_arguments : fh_eta })) => (_any_hidden_origin(&fh_eta, args, seen, depth) || _nominal_hidden_inner(ty, seen, depth + u32(1))),
+    Rc(.Struct({ type_arguments : fh_sta })) => (_any_hidden_origin(&fh_sta.*, args, seen, depth) || _nominal_hidden_inner(ty, seen, depth + u32(1))),
+    Rc(.EnumT({ type_arguments : fh_eta })) => (_any_hidden_origin(&fh_eta.*, args, seen, depth) || _nominal_hidden_inner(ty, seen, depth + u32(1))),
     _ => false
   )
 });
@@ -1073,22 +1073,22 @@ _spelled_origin_names_into :: (fn(ty : &TypeValue, out : &mut ArrayList(String),
   match(
     ty,
     Rc(.Reference(sn_p, _, sn_o)) => {
-      _push_spelled_names(&sn_o, out);
-      _spelled_origin_names_into(&sn_p, out, depth + u32(1));
+      _push_spelled_names(&sn_o.*, out);
+      _spelled_origin_names_into(&sn_p.*, out, depth + u32(1));
     },
     Rc(.OriginSet(_, _)) => _push_spelled_names(ty, out),
     // An origin parameter of a generic impl or signature still unbound
     // (`impl(generic(p : Origin), Slot(p), …)`'s `p`): its name.
     Rc(.SomeT({ name : sn_n, parent_type : sn_k, resolution : sn_r })) => match(
       sn_r,
-      .Some(r) => _spelled_origin_names_into(&r, out, depth + u32(1)),
-      .None => if(is_origin_kind(&sn_k) && !out.contains(&sn_n), {
+      .Some(r) => _spelled_origin_names_into(&r.*, out, depth + u32(1)),
+      .None => if(is_origin_kind(&sn_k.*) && !out.contains(&sn_n.*), {
         out.push(sn_n.clone());
       })
     ),
-    Rc(.Struct({ type_arguments : sn_sta })) => _spelled_origin_names_list(&sn_sta, out, depth),
-    Rc(.EnumT({ type_arguments : sn_eta })) => _spelled_origin_names_list(&sn_eta, out, depth),
-    Rc(.Tuple({ field_types : sn_tf })) => _spelled_origin_names_list(&sn_tf, out, depth),
+    Rc(.Struct({ type_arguments : sn_sta })) => _spelled_origin_names_list(&sn_sta.*, out, depth),
+    Rc(.EnumT({ type_arguments : sn_eta })) => _spelled_origin_names_list(&sn_eta.*, out, depth),
+    Rc(.Tuple({ field_types : sn_tf })) => _spelled_origin_names_list(&sn_tf.*, out, depth),
     _ => ()
   );
 });

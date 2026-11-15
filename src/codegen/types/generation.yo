@@ -1397,8 +1397,8 @@ _walk_by_value_dep :: (fn(deps_set : &mut HashSet(String), ft : &TypeValue, self
       ft,
       Rc(.Reference(ref_pt, _, _)) => match(
         ref_pt,
-        Rc(.Reference(_, _, _)) => recur(deps_set, &ref_pt, self_type_id, guard_nullable, cname_to_typeid, context),
-        _ => match(_pointee_spelling_newtype(&ref_pt), .Some(nt) => _walk_add_dep(deps_set, &nt, self_type_id, cname_to_typeid, context), .None => ())
+        Rc(.Reference(_, _, _)) => recur(deps_set, &ref_pt.*, self_type_id, guard_nullable, cname_to_typeid, context),
+        _ => match(_pointee_spelling_newtype(&ref_pt.*), .Some(nt) => _walk_add_dep(deps_set, &nt, self_type_id, cname_to_typeid, context), .None => ())
       ),
       _ => ()
     ),

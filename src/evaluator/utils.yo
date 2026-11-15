@@ -6574,7 +6574,7 @@ chain_ref_leaf_forget :: (fn(tok : &Token) -> unit)({
   _old := g_chain_ref_leaves.with_mut(s => s.remove(&_reference_deref_site_key(tok)));
 });
 chain_ref_leaf_is :: (fn(tok : &Token) -> bool)(
-  (g_chain_ref_leaves.with({ &tok }(s) => s.len()) > usize(0)) && g_chain_ref_leaves.with(s => s.contains(&_reference_deref_site_key(tok)))
+  (g_chain_ref_leaves.with({ tok : &tok.* }(s) => s.len()) > usize(0)) && g_chain_ref_leaves.with(s => s.contains(&_reference_deref_site_key(tok)))
 );
 /// `e` is a `begin`, `cond` or `match`: a node a result chain passes through.
 is_result_chain_node :: (fn(e : &AstExpr) -> bool)(
@@ -6681,10 +6681,10 @@ _ref_chain_collect :: (fn(e : &AstExpr, env : &Environment, out : &mut ArrayList
     ast_expr_is_fn_call(e) => match(
       e,
       .FnCall(_, callee, _, infix, _) => if(
-        infix || !ast_expr_is_atom(&callee),
+        infix.* || !ast_expr_is_atom(&callee.*),
         false,
         match(
-          get_variables_from_env(env, ast_expr_token(&callee).value.*.clone()).last_cloned(),
+          get_variables_from_env(env, ast_expr_token(&callee.*).value.*.clone()).last_cloned(),
           .Some(fv) => if(is_function_type(&variable_value_type(&fv)) && fn_result_is_ref(&variable_value_type(&fv)), {
             out.push(e.clone());
             true
@@ -8887,7 +8887,7 @@ projection_call_root_args :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayLi
       .Some(ra) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ra)), .Some(rai) => match(&rai.ty(), Rc(.Pointer(_)) => true, _ => false), .None => false),
       .None => false
     );
-    p_named := (!p_raw && (match(&res_names, .Some(rn) => fn_param_in_result_origin(&meta_ty, i, &rn), .None => true) || (_binder_mode_at(&binder_modes, i) == u8(1))));
+    p_named := (!p_raw && (match(&res_names, .Some(rn) => fn_param_in_result_origin(&meta_ty, i, &rn.*), .None => true) || (_binder_mode_at(&binder_modes, i) == u8(1))));
     // Carried only through the impl's origin: the result points where the
     // argument's references do, never into the argument itself, so a
     // temporary holder (`H(x)(r : &x).get()`) is no root (R-TEMP).
@@ -10991,14 +10991,14 @@ _rigidify_elided_origins :: (fn(ty : &TypeValue, pname : &String, prefix : &Stri
       if((rs_tas.len() == usize(0)) && !rs_hidden, {
         return(ty.clone());
       });
-      Rc.new(TypeValueNode.Struct(rs_id.clone(), rs_n.clone(), Rc.clone(rs_fl), Rc.clone(rs_ft), rs_rs, rs_ar, rs_nt, rs_ctor.clone(), _rigidify_nominal_args(&rs_tas, rs_hidden, pname, prefix, next, depth), rs_ns))
+      Rc.new(TypeValueNode.Struct(rs_id.clone(), rs_n.clone(), Rc.clone(rs_fl), Rc.clone(rs_ft), rs_rs.*, rs_ar.*, rs_nt.*, rs_ctor.clone(), _rigidify_nominal_args(&rs_tas.*, rs_hidden, pname, prefix, next, depth), rs_ns.*))
     },
     Rc(.EnumT(re_id, re_n, re_vn, re_vf, re_sel, re_vfl, re_ds, re_rs, re_ar, re_tas)) => {
       re_hidden := nominal_has_hidden_origin(ty);
       if((re_tas.len() == usize(0)) && !re_hidden, {
         return(ty.clone());
       });
-      Rc.new(TypeValueNode.EnumT(re_id.clone(), re_n.clone(), Rc.clone(re_vn), Rc.clone(re_vf), re_sel.clone(), Rc.clone(re_vfl), Rc.clone(re_ds), re_rs, re_ar, _rigidify_nominal_args(&re_tas, re_hidden, pname, prefix, next, depth)))
+      Rc.new(TypeValueNode.EnumT(re_id.clone(), re_n.clone(), Rc.clone(re_vn), Rc.clone(re_vf), re_sel.clone(), Rc.clone(re_vfl), Rc.clone(re_ds), re_rs.*, re_ar.*, _rigidify_nominal_args(&re_tas.*, re_hidden, pname, prefix, next, depth)))
     },
     Rc(.Tuple(rt_fl, rt_ft)) => Rc.new(TypeValueNode.Tuple(Rc.clone(rt_fl), _rigidify_elided_list(&rt_ft.*, pname, prefix, next, depth))),
     _ => ty.clone()
@@ -11023,7 +11023,7 @@ _rigidify_nominal_args :: (fn(tas : &SharedList(TypeValue), hidden : bool, pname
   });
   names := ArrayList(String).new();
   names.push(`${pname}#${prefix}${next.to_string()}`);
-  next = (next + u32(1));
+  next.* = (next.* + u32(1));
   out.push(t_origin_named(&shared_list(names)));
   shared_list(out)
 });
@@ -11922,7 +11922,7 @@ store_through_mut_join :: (fn(targets : &ArrayList(OriginRootPlace), own : &Stri
   (ti : usize) = usize(0);
   while(ti < targets.len(), {
     t := targets(ti).clone();
-    if(t.is_mut && !t.place.module_root && (t.place.root_name != own), {
+    if(t.is_mut && !t.place.module_root && (t.place.root_name != own.*), {
       match(
         get_variables_from_env(env, t.place.root_name.clone()).last_cloned(),
         .Some(rv) => if(!rv.is_module_level() && !rv.is_compile_time_only() && !_variables_contain(&holders, &rv.name), {
@@ -11961,7 +11961,7 @@ flow_write_back_through :: (fn(targets : &ArrayList(OriginRootPlace), own : &Str
   (ti : usize) = usize(0);
   while(ti < targets.len(), {
     t := targets(ti).clone();
-    if(t.is_mut && !t.place.module_root && (t.place.root_name != own), {
+    if(t.is_mut && !t.place.module_root && (t.place.root_name != own.*), {
       match(
         get_variables_from_env(env, t.place.root_name.clone()).last_cloned(),
         .Some(rv) => if(!rv.is_module_level() && !rv.is_compile_time_only(), {
@@ -11989,7 +11989,7 @@ local_mut_borrow_of_holder :: (fn(v : &Variable) -> bool)(
 _variables_contain :: (fn(vs : &ArrayList(Variable), name : &String) -> bool)({
   (i : usize) = usize(0);
   while(i < vs.len(), {
-    if(vs(i).name == name, {
+    if(vs(i).name == name.*, {
       return(true);
     });
     i = (i + usize(1));
@@ -12492,7 +12492,7 @@ _lb_is_whole_reassign :: (fn(st : &AstExpr, name : &String) -> bool)(
           ast_expr_is_local_borrow_mode_call(&wr_lhs, Option(usize).Some(usize(1))) => match(wr_lhs, .FnCall(_, _, Rc(m_args), _, _) => match(m_args.get(usize(0)), .Some(a) => a, .None => wr_lhs.clone()), .Atom(_, _) => wr_lhs.clone()),
           true => wr_lhs.clone()
         );
-        ast_expr_is_atom(&target) && (ast_expr_token(&target).value.* == name) && match(wr_args.get(usize(1)), .Some(wr_rhs) => !_lb_mentions(&wr_rhs, name.clone()), .None => false)
+        ast_expr_is_atom(&target) && (ast_expr_token(&target).value.* == name.*) && match(wr_args.get(usize(1)), .Some(wr_rhs) => !_lb_mentions(&wr_rhs, name.clone()), .None => false)
       },
       .None => false
     ),
@@ -12509,7 +12509,7 @@ _lb_may_exit :: (fn(e : &AstExpr) -> bool)(
       if(ast_expr_is_fn_call_of(e, BK_RETURN, Option(usize).None) || ast_expr_is_fn_call_of(e, BF_UNWIND, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_BREAK, Option(usize).None) || ast_expr_is_fn_call_of(e, "continue", Option(usize).None), {
         return(true);
       });
-      if(_lb_may_exit(&callee), {
+      if(_lb_may_exit(&callee.*), {
         return(true);
       });
       (i : usize) = usize(0);
