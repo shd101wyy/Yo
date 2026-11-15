@@ -1,0 +1,14 @@
+//! `impl(Sq, Shape(...))` without `area` is E0602, but the generic form with no
+//! `area` is accepted and `where(S <: Shape)` holds at `G(i32)`.
+{ assert } :: import("std/assert");
+
+Shape :: trait(Kind : Type, area : (fn(self : &Self) -> i32));
+G :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T));
+impl(generic(T : Type), G(T), Shape(Kind : T));
+use_it :: (fn(generic(S : Type), s : &S, where(S <: Shape)) -> i32)(i32(1));
+
+main :: (fn() -> unit)({
+  g := G(i32)(v : i32(1));
+  assert(use_it(&g) == i32(1), "the generic impl has no `area` and still satisfies `Shape`");
+});
+export(main);
