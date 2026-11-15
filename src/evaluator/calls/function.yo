@@ -73,7 +73,7 @@ pragma(Pragma.AllowUnsafe);
   variable_value_type,
   variable_slot_type
 } :: import("../../env.yo");
-{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, t_refine_inner, shared_list, no_types, no_labels, no_levels, SharedList, no_flags, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_reference, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, t_slot_is_borrow, fn_param_slots, is_origin_kind, t_origin_kind, t_origin_named, t_origin_spelled_names, fn_result_slot } :: import("../../types/definitions.yo");
+{ some_t_bounds, t_static_str_ref, TypeValue, TypeValueNode, FuncMeta, t_refine_inner, shared_list, no_types, no_labels, no_levels, SharedList, no_flags, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_reference, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, t_slot_is_borrow, fn_param_slots, is_origin_kind, t_origin_kind, t_origin_named, t_origin_spelled_names, fn_result_slot } :: import("../../types/definitions.yo");
 { get_func_param_defaults, get_func_param_default_exprs, default_param_eval_env, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, get_func_where_clause_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep, collect_wrapper_trait_somes, evaluate_origin_argument } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call, is_io_state_call, is_io_spawn_call, is_join_handle_await_call, IO_BUILTIN_NONE } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
@@ -6667,15 +6667,20 @@ _fv_synthesize_arg_into :: (fn(declared_pt : &TypeValue, scratch_env : &Environm
 ///   the callee's specialization abstract: `outer(())` with
 ///   `outer :: fn(generic(T), v : T) -> T)(inner(v))` emitted an abort stub
 ///   (issues/fixed/2026-10-24-a-generic-tail-call-forwarding-t-fails-to-transpile-for-unit.md).
-_funcval_infer_forall_ty :: (fn(arg_ty : &TypeValue, exp_pt : &TypeValue, param_is_ct : bool, env : &Environment) -> TypeValue)(
+_funcval_infer_forall_ty :: (fn(arg_ty : &TypeValue, exp_slot : &TypeValue, param_is_ct : bool, env : &Environment) -> TypeValue)({
+  exp_pt := t_slot_pointee(exp_slot);
   cond(
-    is_comptime_string_type(arg_ty) => Rc.new(TypeValueNode.Str),
+    // A string literal (decision 49 S2) is the place `str` where the slot
+    // lends one (`x : &T` binds `T := str`), and the `&(str, static)` value
+    // anywhere else (`x : T` binds `T := &(str, static)`, the legacy value
+    // `str`, as `s := "x"` types `s`).
+    is_comptime_string_type(arg_ty) => if(t_slot_is_borrow(exp_slot), Rc.new(TypeValueNode.Str), t_static_str_ref()),
     (!param_is_ct && (is_comptime_int_type(arg_ty) || is_comptime_float_type(arg_ty))) => convert_comptime_type_to_runtime_type(arg_ty, env),
-    ((is_function_type(arg_ty) || is_fn_trait_type(arg_ty)) && is_some_type(exp_pt)) => Rc.clone(exp_pt),
-    (is_unit_type(arg_ty) && is_some_type(exp_pt) && (in_def_time_trial() || type_mentions_impl_fn_or_future(exp_pt))) => Rc.clone(exp_pt),
+    ((is_function_type(arg_ty) || is_fn_trait_type(arg_ty)) && is_some_type(&exp_pt)) => Rc.clone(exp_pt),
+    (is_unit_type(arg_ty) && is_some_type(&exp_pt) && (in_def_time_trial() || type_mentions_impl_fn_or_future(&exp_pt))) => Rc.clone(exp_pt),
     true => Rc.clone(arg_ty)
   )
-);
+});
 /// Do two concrete bindings of one binder disagree? Only SomeT-free types are
 /// judged (a type variable binds later), and the lenient relation is used in
 /// both directions, so a literal's comptime type and the numeric type it
@@ -7294,7 +7299,7 @@ _funcval_bind_foralls :: (
             later_info := match(evaled_arg_infos.get_cloned(ptn_i), .Some(i) => i, .None => new_expr_info(env, t_unit()));
             later_ty := _funcval_infer_forall_ty(
               &later_info.ty(),
-              match(expected_param_types.get_cloned(ptn_i), .Some(t) => t_slot_pointee(&t), .None => t_unit()),
+              match(expected_param_types.get_cloned(ptn_i), .Some(t) => t, .None => t_unit()),
               match(param_ct_flags.get(ptn_i), .Some(f) => f, .None => false),
               env
             );
@@ -7316,7 +7321,7 @@ _funcval_bind_foralls :: (
         // `_funcval_infer_forall_ty`'s.
         fa_infer_ty := _funcval_infer_forall_ty(
           &arg_info.ty(),
-          match(expected_param_types.get_cloned(ptn_i), .Some(t) => t_slot_pointee(&t), .None => t_unit()),
+          match(expected_param_types.get_cloned(ptn_i), .Some(t) => t, .None => t_unit()),
           match(param_ct_flags.get(ptn_i), .Some(f) => f, .None => false),
           env
         );
