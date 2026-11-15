@@ -98,7 +98,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { is_implicitly_unsafe_capable_file, is_prelude_or_generated_file, is_std_module_path } :: import("../memory_safety.yo");
 { Substitution, subst_new, subst_add, subst_add_len_var, subst_set_self, substitute } :: import("../../types/substitution.yo");
-{ get_all_some_types, type_mentions_some_type, is_bound_closure_identity, resolve_cell_chain, is_value_nominal_type, note_move_only_possible, bump_trait_impl_epoch, trait_impl_epoch, fn_param_is_ptr_borrow, type_is_sized, type_carries_origin } :: import("../../types/utils.yo");
+{ get_all_some_types, fn_param_origins_narrower, type_mentions_some_type, is_bound_closure_identity, resolve_cell_chain, is_value_nominal_type, note_move_only_possible, bump_trait_impl_epoch, trait_impl_epoch, fn_param_is_ptr_borrow, type_is_sized, type_carries_origin } :: import("../../types/utils.yo");
 { type_key, _tk_resolve_arg_slot, TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_identity_cacheable, type_key_memo_check_enabled } :: import("../../types/type_key.yo");
 { stable_func_id, debug_knob, display_module_path, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take, parse_raw_int } :: import("../../utils.yo");
 { register_func_type } :: import("../../function_value.yo");
@@ -4281,12 +4281,14 @@ _result_origin_roots :: (fn(ft : &TypeValue) -> Option(_ResultOriginRoots))({
   );
   Option(_ResultOriginRoots).Some(_ResultOriginRoots(params : params, names : names))
 });
-/// O7's impl rule: an impl member's result origin is a subset of its trait
-/// member's (decision 43 step 2, N1c), for a reference result and for a
-/// by-value one that carries an origin (VERDICTS-57 §2). `.None` when it is;
+/// O7's rule for a function type standing in for another: an impl member's
+/// result origin is a subset of its trait member's (decision 43 step 2, N1c),
+/// and a function value's of the function-typed slot it fills (audit A48),
+/// for a reference result and for a by-value one that carries an origin
+/// (VERDICTS-57 §2). `.None` when it is;
 /// otherwise the parameters (by the impl's labels) and the origin names the
 /// impl's result may point into that the trait's does not name.
-_impl_result_origin_wider :: (fn(actual : &TypeValue, expected : &TypeValue) -> Option(String))({
+fn_result_origin_wider :: (fn(actual : &TypeValue, expected : &TypeValue) -> Option(String))({
   a_roots := match(_result_origin_roots(actual), .Some(r) => r, .None => return(Option(String).None));
   e_roots := match(_result_origin_roots(expected), .Some(r) => r, .None => return(Option(String).None));
   labels := match(actual, Rc(.Func({ meta : ir_m })) => Rc.clone(ir_m.param_labels), _ => return(Option(String).None));
@@ -4312,6 +4314,55 @@ _impl_result_origin_wider :: (fn(actual : &TypeValue, expected : &TypeValue) -> 
     });
   });
   if(extra.len() == usize(0), Option(String).None, Option(String).Some(extra))
+});
+/// O7 for an impl member against its trait member (`expected`, `Self`
+/// already the receiver): the member's result origin within the trait's
+/// (decision 43 step 2, N1c; VERDICTS-57 §2), and its parameters' origins
+/// related no more than the trait's (O3-3, parameters are invariant). Both
+/// the concrete and the generic impl path call it: a generic impl's member
+/// is reached through a `Dyn` or a generic body as surely as a concrete one's.
+_impl_member_origin_checks :: (fn(actual : &TypeValue, expected : &TypeValue, receiver_ty : &TypeValue, trait_ty : &TypeValue, method_name : &String, name_tok : &Token, exn : Exception) -> unit)({
+  // The member's own `Self` read as the receiver, as the trait's is.
+  po_actual := _substitute_self_in_method_ty(actual, receiver_ty);
+  match(
+    fn_result_origin_wider(&po_actual, expected),
+    .Some(ro_msg) => {
+      exn.throw(
+        dyn(
+          with_code(
+            format_error_message_with_help(
+              name_tok,
+              `Type "${type_to_string(receiver_ty)}" does not implement required trait "${type_to_string(trait_ty)}" as written: member "${method_name}"'s result may point into ${ro_msg}, which the trait's result origin does not name. An impl may declare a narrower result origin than its trait, never a wider one: a call through the trait (a \`Dyn\`, or a generic body) frees the arguments the trait's origin leaves out (decision 43, O7).`,
+              Option(String).Some(`spell the member's result origin within the trait's, e.g. \`-> &(T, self)\` when the trait's is \`self\``)
+            ),
+            E_ORIGIN_MISMATCH
+          )
+        )
+      );
+    },
+    .None => ()
+  );
+  if(debug_knob(`YO_DEBUG_IMPL_ORIGINS`).is_some(), {
+    eprintln(`[impl-origins] ${method_name}: actual=${type_to_string(&po_actual)} expected=${type_to_string(expected)}`);
+  });
+  match(
+    fn_param_origins_narrower(&po_actual, expected),
+    .Some(po_msg) => {
+      exn.throw(
+        dyn(
+          with_code(
+            format_error_message_with_help(
+              name_tok,
+              `Type "${type_to_string(receiver_ty)}" does not implement required trait "${type_to_string(trait_ty)}" as written: member "${method_name}" relates the origins of ${po_msg}, which the trait's signature leaves independent. Parameters are invariant: a call through the trait (a \`Dyn\`, or a generic body) passes arguments whose origins are unrelated, so the member could store one into the other past its scope (decision 43, O3 step 3, O7).`,
+              Option(String).Some(`declare the member's parameters as the trait does (each elided \`&\` its own origin), or relate them in the trait's signature`)
+            ),
+            E_ORIGIN_MISMATCH
+          )
+        )
+      );
+    },
+    .None => ()
+  );
 });
 /// True when an impl member writes its receiver (`self : &mut Self`) where
 /// the trait lends it read-only (`self : &Self`). Receiver forms are otherwise
@@ -4499,24 +4550,7 @@ _c3_eval_colon_pair :: (
                 )
               );
             });
-            match(
-              _impl_result_origin_wider(&fi.ty(), &conf_exp),
-              .Some(ro_msg) => {
-                exn.throw(
-                  dyn(
-                    with_code(
-                      format_error_message_with_help(
-                        &name_tok,
-                        `Type "${type_to_string(&st.receiver_ty)}" does not implement required trait "${type_to_string(&conf_tt)}" as written: member "${method_name}"'s result may point into ${ro_msg}, which the trait's result origin does not name. An impl may declare a narrower result origin than its trait, never a wider one: a call through the trait (a \`Dyn\`, or a generic body) frees the arguments the trait's origin leaves out (decision 43, O7).`,
-                        Option(String).Some(`spell the member's result origin within the trait's, e.g. \`-> &(T, self)\` when the trait's is \`self\``)
-                      ),
-                      E_ORIGIN_MISMATCH
-                    )
-                  )
-                );
-              },
-              .None => ()
-            );
+            _impl_member_origin_checks(&fi.ty(), &conf_exp, &st.receiver_ty, &conf_tt, &method_name, &name_tok, exn);
             if(_receiver_writes_where_trait_reads(&fi.ty(), &conf_exp), {
               exn.throw(
                 dyn(
@@ -4872,7 +4906,7 @@ _c2_eval_inner_field :: (
   );
   saved4 := ctx.expected_type.clone();
   ctx.expected_type = match(
-    g_expected,
+    &g_expected,
     .Some(t) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(t), env : Rc.clone(st.env))),
     .None => Option(ExpectedTypeCtx).None
   );
@@ -4903,6 +4937,17 @@ _c2_eval_inner_field :: (
       }, {
         g_to_push = _stamp_impl_forall_on_method(&g_mval, &st.forall_names);
       });
+      match(
+        &st.current_trait_ty,
+        .Some(g_tt) => match(
+          &g_expected,
+          .Some(g_exp) => if(is_function_type(&gfi.ty()) && is_function_type(g_exp), {
+            _impl_member_origin_checks(&gfi.ty(), g_exp, &st.receiver_ty, g_tt, &g_mname, ast_expr_token(&g_name_expr), exn);
+          }),
+          .None => ()
+        ),
+        .None => ()
+      );
       pf.result_ty = Option(TypeValue).Some(Rc.clone(gfi.ty()));
       pf.result_value = Option(EvalValue).Some(g_to_push);
       // Tagged with the trait's id (Case 3's fresh-registration semantics:
@@ -7390,7 +7435,7 @@ ifc_memo_entry_count :: (fn() -> usize)(g_ifc_memo.with(_c_len_10));
 export(purge_ifc_memo_owned_by, ifc_memo_entry_count);
 export(TypeImplementsTraitFullFn);
 export(set_type_implements_trait_full_fn, set_register_trait_value_fn, set_check_self_constraints_fn, set_receiver_kind_trait_fn, get_trait_key, nominal_declares_move_only, generic_instantiation_declares_drop, nominal_drop_uses_roots);
-export(register_generic_impl, purge_concrete_trait_impls_owned_by);
+export(register_generic_impl, purge_concrete_trait_impls_owned_by, fn_result_origin_wider);
 export(register_negative_generic_impl, find_matching_negative_generic_impl);
 export(try_match_generic_impl);
 export(find_matching_generic_impl);

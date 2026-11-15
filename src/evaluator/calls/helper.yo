@@ -130,6 +130,7 @@ pragma(Pragma.AllowUnsafe);
   fn_constrained_param_requires_callable,
   fn_argument_not_callable_message,
   function_value_slot_mismatch,
+  raise_function_value_origin_mismatch,
   impl_param_unmet_trait,
   impl_argument_unmet_trait_message,
   judge_function_argument_markers,
@@ -1771,6 +1772,13 @@ check_argument_for_parameter :: (
     .Some(fv_note) => _arg_rule_throw_types(arg_tok, `Incompatible types:\n- Expected: ${type_to_string(resolved_pt)}\n- Given   : ${type_to_string(&lowered)}${fv_note}`, resolved_pt, &lowered, ctx, exn),
     .None => ()
   );
+  // O7 for the same route (audit A48): the value's result origin within the
+  // slot's, its parameters' origins related no more than the slot's. A
+  // closure LITERAL adopts the slot's signature, so only a value whose type
+  // is its own definition's is judged here.
+  if(!param_is_ct, {
+    raise_function_value_origin_mismatch(resolved_pt, &lowered, arg_expr, arg_tok, &`Argument for parameter "${param_label}"`, ctx, exn);
+  });
   // Decision 37: `Fn` implies `FnMut`, which implies `FnOnce`, never the
   // reverse (`fn_trait_base_serves`). A closure typed `FnOnce(...)` may be
   // called once, and an `Fn(...)`/`FnMut(...)` parameter's callee may call it

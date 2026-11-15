@@ -1,0 +1,22 @@
+// expect: E0923
+// A function value stored in a function-typed struct field whose result names only the first parameter
+// returns its second. A call through the field frees only `a`'s loan; the result points into `b`, which
+// dies first (ASan: stack-use-after-scope).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+mkr :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+pick_other :: (fn(a : &Rc(X), b : &Rc(X)) -> Option(&Rc(X)))(.Some(b));
+pick_first :: (fn(a : &Rc(X), b : &Rc(X)) -> Option(&(Rc(X), a)))(.Some(a));
+Hook :: struct(g : (fn(a : &Rc(X), b : &Rc(X)) -> Option(&(Rc(X), a))));
+main :: (fn() -> unit)({
+  a := mkr();
+  h := Hook(g : pick_other);
+  mut(o) := Option(&Rc(X)).None;
+  {
+    b := mkr();
+    o = (h.g)(&a, &b);
+  };
+  match(o, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => println("none"));
+});
+export(main);
