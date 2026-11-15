@@ -96,16 +96,6 @@ test("static is the empty origin", {
 
 // A by-value capture of a fat reference stores the fat pointer itself
 // (issues/fixed/2026-11-15-a-closure-capturing-a-fat-reference-by-value-emits-invalid-c.md).
-_up_sum :: (fn(xs : &[i32]) -> i32)({
-  p := unsafe(__yo_slice_ptr(xs));
-  (mut(t) : i32) = i32(0);
-  (mut(i) : usize) = usize(0);
-  while(i < xs.len(), i = (i + usize(1)), {
-    t = (t + unsafe(p.add(i).*));
-  });
-  t
-});
-
 test("a closure captures a &[i32] binding by value", {
   a := Array(i32, 3)(i32(1), i32(2), i32(3));
   v := unsize(&a);
