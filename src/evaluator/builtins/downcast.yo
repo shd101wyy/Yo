@@ -244,8 +244,10 @@ evaluate_downcast :: (
   // `yo fix --migrate unsized` lists a downcast of an owned Dyn (kind 6): the
   // owning form, `Result(Box(V), Box(Dyn(T)))`, comes with the `?Sized`
   // prelude, and a site that only reads the payload is `downcast(&d.*, V)`
-  // (VERDICTS-40 §5).
-  if(migrate_unsized_on(), {
+  // (VERDICTS-40 §5). A downcast through a reference (`downcast(&d.*, V)`,
+  // `downcast(err, V)` with `err : &AnyError`) is that view already; only a
+  // `ref` target reaches here from one, and it keeps its retained form.
+  if(migrate_unsized_on() && ref_mode.is_none(), {
     dc_tok := match(expr, .FnCall(_, dc_callee, _, _, _) => ast_expr_token(dc_callee), .Atom(_, t) => t.clone());
     dc_text := ast_expr_to_string(&dyn_expr);
     record_unsized_site(&dc_tok, u8(6), &dc_text);
