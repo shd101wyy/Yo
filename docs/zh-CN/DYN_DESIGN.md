@@ -33,7 +33,7 @@ export(main);
 
 ### 发布状态（v0.2.78）
 
-决策 49 的翻转随 v0.2.78 发布：`Dyn` 非定长，指向它的每个指针都是上文的胖指针，`Box(Dyn(T))` 是 prelude 的 `Box` 之上的它。v0.2.77 的裸值写法（值类型的 `Dyn(T)`、传入 `&Dyn` 槽位的 `&d`）变为错误（E0619、E0620）；由 v0.2.77 的 `yo fix <path> --migrate unsized` 改写它们（`yo version install 0.2.77`，E0619 的提示也这样说明），v0.2.78 的该模式则把剩余的 `dyn(v)` 别名位置改写为 `dyn(Box.new(v))`。仍属过渡的：
+决策 49 的翻转随 v0.2.78 发布：`Dyn` 非定长，指向它的每个指针都是上文的胖指针，`Box(Dyn(T))` 是 prelude 的 `Box` 之上的它。v0.2.77 的裸值写法变为错误：值类型的 `Dyn(T)` 是 E0619，把 `Box(Dyn(T))` 的 `&b` 传入 `&Dyn(T)` 槽位是 E0601（它借出的是 box；对象用 `&b.*` 借出）。为 v0.2.77 编写的代码分两步升级，E0619 的提示也这样说明：先在 v0.2.77 上（`yo version install 0.2.77`）运行 `yo fix <path> --migrate unsized` 改写类型写法，再在 v0.2.78 上运行同一命令，把借出 `&b` 改写为 `&b.*`，并把剩余的 `dyn(v)` 别名位置改写为 `dyn(Box.new(v))`。仍属过渡的：
 
 - **在 v0.2.79 之前，`Rc(Dyn(T))` 和 `Arc(Dyn(T))` 退化为两次分配**：`dyn(Rc.new(v))` 把一个装箱的 `Dyn` 放进计数单元。类型与共享规则已是最终形态——`h.*` 是 `Dyn(T)` 的位置，`&h.*` 是 `&Dyn(T)`，`Rc.clone`、`get_mut`、`downgrade`/`upgrade` 的行为与最终设计一致——但单块单元和 `Rc.from_slice` 随 v0.2.79 到来。
 - **在 v0.2.79 之前，对 `Rc(Dyn)`/`Arc(Dyn)` 的拥有型 `downcast` 是错误**：单元还持有 box 时块无法改型。请写 `downcast(&h.*, V)`，与任何引用一样得到 `Option(&V)`。对 `Box`，拥有型的 `downcast(b, V)` 是 `Result(Box(V), Box(Dyn(T)))`，失败时交还 box。

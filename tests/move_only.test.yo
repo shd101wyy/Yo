@@ -1300,8 +1300,11 @@ impl(
 );
 test("Drop: a trait method named drop or dispose keeps its Dyn vtable slot", {
   (d : Box(Dyn(_MoStack))) = dyn(Box.new(_MoStackImpl(top : i32(10))));
-  assert(d.drop(i32(3)) == i32(7), "a user trait's drop is called through Dyn");
-  assert(d.dispose() == i32(7), "a user trait's dispose is called through Dyn");
+  // `d.drop` names the box's own destructor (E0915); the object's
+  // members are reached through `d.*` (decision 32).
+  comptime_expect_error(d.drop(i32(3)), "Explicit call of the destructor");
+  assert(d.*.drop(i32(3)) == i32(7), "a user trait's drop is called through Dyn");
+  assert(d.*.dispose() == i32(7), "a user trait's dispose is called through Dyn");
 });
 // The destructor read as a value is E0915 too, as Rust's E0040: a call
 // through the value would run it a second time

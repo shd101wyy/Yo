@@ -40,10 +40,12 @@ export(main);
 
 Decision 49's flip ships in v0.2.78: `Dyn` is unsized, every pointer to it is the fat pointer
 above, and `Box(Dyn(T))` is the prelude's `Box` over it. The bare value spellings of v0.2.77
-(`Dyn(T)` as a value type, `&d` into a `&Dyn` slot) are errors (E0619, E0620);
-v0.2.77's `yo fix <path> --migrate unsized` rewrites them (`yo version install 0.2.77`, as
-E0619's help says), and v0.2.78's mode writes the remaining `dyn(v)` alias sites as
-`dyn(Box.new(v))`. What stays interim:
+are errors: `Dyn(T)` as a value type is E0619, and `&b` of a `Box(Dyn(T))` into a `&Dyn(T)`
+slot is E0601 (it lends the box; the object is lent with `&b.*`). Code written for v0.2.77 is
+upgraded in two steps, as E0619's help says: on v0.2.77 (`yo version install 0.2.77`),
+`yo fix <path> --migrate unsized` writes the type spellings; then on v0.2.78 the same command
+writes the lends `&b` as `&b.*` and the remaining `dyn(v)` alias sites as `dyn(Box.new(v))`.
+What stays interim:
 
 - **Until v0.2.79, `Rc(Dyn(T))` and `Arc(Dyn(T))` lower to two allocations**: `dyn(Rc.new(v))`
   puts a boxed `Dyn` in a counted cell. The type and its sharing rules are final — `h.*` is the
