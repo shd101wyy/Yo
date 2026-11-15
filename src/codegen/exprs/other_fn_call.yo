@@ -1315,7 +1315,7 @@ _apply_ref_amp :: (fn(args : &ArrayList(String), param_is_ref : &ArrayList(bool)
       runtime_args.get(i),
       .Some(fa) => match(
         context.base.get_expr_info(&fa),
-        .Some(fei) => (!type_is_sized(&fei.ty()) || ((t_slot_is_borrow(&fei.ty()) && !type_is_sized(&t_slot_pointee(&fei.ty()))) && !is_reference_self_place(ast_expr_id(&fa)))),
+        .Some(fei) => (match(expr_info_converted_runtime_type(&fei), .Some(fct) => !type_is_sized(&fct), .None => !type_is_sized(&fei.ty())) || ((t_slot_is_borrow(&fei.ty()) && !type_is_sized(&t_slot_pointee(&fei.ty()))) && !is_reference_self_place(ast_expr_id(&fa)))),
         .None => false
       ),
       .None => false

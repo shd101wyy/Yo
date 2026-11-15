@@ -2,7 +2,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ExprId, ast_expr_id, ast_expr_token } :: import("../../expr.yo");
-{ TypeValue, TypeValueNode, no_labels } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_labels, t_slot_is_borrow, t_slot_pointee } :: import("../../types/definitions.yo");
 { is_some_type, is_dyn_type, is_function_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { type_implements_fn, extract_fn_trait_from_type } :: import("../../evaluator/trait_checking.yo");
@@ -342,7 +342,7 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
                     // The address of an unsized place (`v` with
                     // `v : &[T]` or `&str` captured as `{ v }`) is the fat
                     // pointer the place was read through, not `&` of it.
-                    if(match(context.base.get_expr_info(&cfi.init), .Some(cb_ei) => !type_is_sized(&cb_ei.ty()), .None => false), unsized_place_fat_code(&init_code), `(&(${init_code}))`),
+                    if(match(context.base.get_expr_info(&cfi.init), .Some(cb_ei) => (!type_is_sized(&cb_ei.ty()) || (t_slot_is_borrow(&cb_ei.ty()) && !type_is_sized(&t_slot_pointee(&cb_ei.ty())))), .None => false), unsized_place_fat_code(&init_code), `(&(${init_code}))`),
                     _emit_deferred_dup_or_code(&cfi.init, &init_code, indent.clone(), context)
                   )
                 );
