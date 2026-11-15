@@ -1,0 +1,10 @@
+// expect: accept
+// Positive control: safe code reaches `MaybeUninit` only through std, here `Array.clone`, which writes
+// every slot through `as_ptr()` before `assume_init`.
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  a := [`0123456789abcdefghijklmnopqrstuvwxyz`, `abcdefghijklmnopqrstuvwxyz0123456789`];
+  b := a.clone();
+  println(`OUT: ${b(usize(1))}`);
+});
+export(main);
