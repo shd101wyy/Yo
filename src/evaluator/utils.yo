@@ -127,7 +127,7 @@ pragma(Pragma.AllowUnsafe);
   variable_slot_type
 } :: import("../env.yo");
 { get_value_of_some_type_from_env } :: import("../types/env_lookup.yo");
-{ Token, TokenKind } :: import("../token.yo");
+{ Token, TokenKind, TokenData } :: import("../token.yo");
 { EvalContext, ExpectedTypeCtx, LoopBodyCtx, LoopFlowSnapshot, FuncOrAsyncBlockKind, copy_trait_blockers_via_hook, type_head_name_for_impl_forcing } :: import("./context.yo");
 { atof } :: import("std/libc/stdlib");
 {
@@ -4637,7 +4637,7 @@ snapshot_loop_flow :: (fn(lc : &LoopBodyCtx, env : &Environment, site : &Token) 
 _mark_moved_at_loop_end :: (fn(v : &Variable, site : &Token, loop_expr : &AstExpr) -> unit)({
   note := variable_move_note(v, site);
   last := _last_token_of(loop_expr, site);
-  end := Token(
+  end := Rc.new(TokenData(
     kind : last.kind,
     value : Rc.clone(last.value),
     row : last.row,
@@ -4646,7 +4646,7 @@ _mark_moved_at_loop_end :: (fn(v : &Variable, site : &Token, loop_expr : &AstExp
     byte_offset : (last.byte_offset + u32(1)),
     module_path : Rc.clone(last.module_path),
     input : Rc.clone(last.input)
-  );
+  ));
   v.set_consumed_at_token(Option(Token).Some(end.clone()));
   variable_note_arm_move(v, &end, &Option(Token).Some(note));
 });

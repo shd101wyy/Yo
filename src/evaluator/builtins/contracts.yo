@@ -55,7 +55,7 @@
 { TypeValue, TypeValueNode, t_refine_inner, slot_pointee_at, t_slot_pointee, t_slot_is_borrow, t_slot_is_mut_ref } :: import("../../types/definitions.yo");
 { get_func_type } :: import("../../function_value.yo");
 { t_type, t_unit, t_bool, t_i64, t_u8 } :: import("../../types/creators.yo");
-{ Token, TokenKind } :: import("../../token.yo");
+{ Token, TokenKind, TokenData } :: import("../../token.yo");
 { file_has_pragma } :: import("../memory_safety.yo");
 { hook_register_refine_annotation } :: import("../values/type_trait_methods.yo");
 { ArrayList } :: import("std/collections/array_list");
@@ -1113,7 +1113,7 @@ _note_unlabeled_ensures_atoms :: (fn(e : &AstExpr) -> unit)(
 _synth_atom :: (fn(value : &String, kind : TokenKind, src_tok : &Token) -> AstExpr)(
   AstExpr.Atom(
     alloc_global_expr_id(),
-    Token(
+    Rc.new(TokenData(
       kind : kind,
       value : Rc.new(value.clone()),
       row : src_tok.row,
@@ -1122,7 +1122,7 @@ _synth_atom :: (fn(value : &String, kind : TokenKind, src_tok : &Token) -> AstEx
       byte_offset : src_tok.byte_offset,
       module_path : Rc.clone(src_tok.module_path),
       input : Rc.clone(src_tok.input)
-    )
+    ))
   )
 );
 /// JSON-escape `s` for embedding in a synthetic string-literal token.
@@ -1289,7 +1289,7 @@ _build_assert_call :: (
 /// binding. Comptime functions need `::` because a `:=` runtime binding is
 /// rejected inside a compile-time-only function body.
 _build_binding :: (fn(name : &String, value : &AstExpr, src_tok : &Token, op : &String) -> AstExpr)({
-  bind_tok := Token(
+  bind_tok := Rc.new(TokenData(
     kind : TokenKind.Identifier,
     value : Rc.new(op.clone()),
     row : src_tok.row,
@@ -1298,7 +1298,7 @@ _build_binding :: (fn(name : &String, value : &AstExpr, src_tok : &Token, op : &
     byte_offset : src_tok.byte_offset,
     module_path : Rc.clone(src_tok.module_path),
     input : Rc.clone(src_tok.input)
-  );
+  ));
   args := ArrayList(AstExpr).new();
   args.push(_synth_atom(name, TokenKind.Identifier, src_tok));
   args.push(value.*);

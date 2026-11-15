@@ -7,7 +7,7 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
-{ TokenKind, Token, intern_token_str, empty_token_text } :: import("./token.yo");
+{ TokenKind, Token, intern_token_str, empty_token_text, TokenData } :: import("./token.yo");
 { format_error_message, with_code, YoError } :: import("./error.yo");
 { E_DELETED_SPELLING } :: import("./diagnostics.yo");
 { Exception } :: import("std/error");
@@ -718,7 +718,7 @@ clone_expr_fresh_ids :: (fn(e : &AstExpr) -> AstExpr)({
 make_err_expr :: (fn() -> AstExpr)(
   .Atom(
     usize(0),
-    Token(
+    Rc.new(TokenData(
       kind : TokenKind.Identifier,
       value : Rc.new(String.from("?")),
       row : u32(0),
@@ -726,7 +726,7 @@ make_err_expr :: (fn() -> AstExpr)(
       character : u32(0),
       module_path : empty_token_text(),
       input : empty_token_text()
-    )
+    ))
   )
 );
 /// Return the representative token of an expression (used for error reporting).
@@ -1442,7 +1442,13 @@ _synth_desugar_tok :: (fn(kind : TokenKind, value : str, ref_tok : &Token) -> To
 /// `_synth_desugar_tok` for a name built at desugar time: the token stores
 /// the `value` cell (`Token.value`).
 _synth_desugar_tok_s :: (fn(kind : TokenKind, value : Rc(String), ref_tok : &Token) -> Token)(
-  Token(
+  Rc.new(_synth_desugar_tok_data(kind, value, ref_tok))
+);
+/// The data of `_synth_desugar_tok_s`'s token, for a synthesizer that
+/// adjusts a field before the token is shared (a `Token` is read-only once
+/// built, decision 46).
+_synth_desugar_tok_data :: (fn(kind : TokenKind, value : Rc(String), ref_tok : &Token) -> TokenData)(
+  TokenData(
     kind : kind,
     value : value,
     row : ref_tok.row,
@@ -2896,7 +2902,7 @@ wrap_body_in_begin :: (fn(body : &AstExpr) -> AstExpr)({
     return(body.*);
   });
   tok := ast_expr_token(body);
-  begin_tok := Token(
+  begin_tok := Rc.new(TokenData(
     kind : TokenKind.Identifier,
     value : intern_token_str(String.from(BK_BEGIN)),
     row : tok.row,
@@ -2905,7 +2911,7 @@ wrap_body_in_begin :: (fn(body : &AstExpr) -> AstExpr)({
     byte_offset : tok.byte_offset,
     module_path : Rc.clone(tok.module_path),
     input : Rc.clone(tok.input)
-  );
+  ));
   args := ArrayList(AstExpr).new();
   args.push(body.*);
   AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), begin_tok.clone()), Rc.new(args), false, begin_tok)
@@ -3017,12 +3023,13 @@ _projection_read_tail :: (fn(name : &AstExpr, is_mut : bool, value : bool) -> As
   // The star sits just past the name, never AT it: a deref site is keyed by
   // the position of the star, and a generic body evaluates this node once per
   // specialization, after the first recorded `name`'s own position.
-  star_tok := _synth_desugar_tok(TokenKind.Operator, "*", &at);
-  star_tok.byte_offset = (at.byte_offset + u32(at.value.*.len()));
-  dargs.push(AstExpr.Atom(alloc_global_expr_id(), star_tok));
+  mut(star_d) := _synth_desugar_tok_data(TokenKind.Operator, intern_token_str(String.from("*")), &at);
+  star_d.byte_offset = (at.byte_offset + u32(at.value.*.len()));
+  dargs.push(AstExpr.Atom(alloc_global_expr_id(), Rc.new(star_d)));
   deref := AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), dtok), Rc.new(dargs), true, dtok);
-  mark := _synth_desugar_tok(TokenKind.Identifier, cond(value => cond(is_mut => VALUE_MUT_READ_PATH, true => VALUE_REF_READ_PATH), is_mut => PROJECTION_MUT_READ_PATH, true => PROJECTION_REF_READ_PATH), &at);
-  mark.module_path = Rc.new(mark.value.*.clone());
+  mut(mark_d) := _synth_desugar_tok_data(TokenKind.Identifier, intern_token_str(String.from(cond(value => cond(is_mut => VALUE_MUT_READ_PATH, true => VALUE_REF_READ_PATH), is_mut => PROJECTION_MUT_READ_PATH, true => PROJECTION_REF_READ_PATH))), &at);
+  mark_d.module_path = Rc.new(mark_d.value.*.clone());
+  mark := Rc.new(mark_d);
   head := _synth_desugar_tok(TokenKind.Identifier, BF_ADDR_OF, &at);
   one := ArrayList(AstExpr).new();
   one.push(deref);
@@ -3064,8 +3071,9 @@ _projection_tail :: (fn(e : &AstExpr, is_mut : bool, value : bool, mismatches : 
       if(bs.is_mut != is_mut, {
         mismatches.push(bs.tok);
       });
-      mark := _synth_desugar_tok(TokenKind.Identifier, cond(bs.is_mut => PROJECTION_MUT_TAIL_PATH, true => PROJECTION_REF_TAIL_PATH), &bs.tok);
-      mark.module_path = Rc.new(mark.value.*.clone());
+      mut(mark_d) := _synth_desugar_tok_data(TokenKind.Identifier, intern_token_str(String.from(cond(bs.is_mut => PROJECTION_MUT_TAIL_PATH, true => PROJECTION_REF_TAIL_PATH))), &bs.tok);
+      mark_d.module_path = Rc.new(mark_d.value.*.clone());
+      mark := Rc.new(mark_d);
       head := _synth_desugar_tok(TokenKind.Identifier, BF_ADDR_OF, &bs.tok);
       one := ArrayList(AstExpr).new();
       one.push(bs.inner);
