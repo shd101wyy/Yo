@@ -68,7 +68,7 @@ pragma(Pragma.AllowUnsafe);
 { malloc : valve_malloc, free : valve_free } :: GlobalAllocator;
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
-{ AstExpr, ExprId, BK_IMPORT, BK_TEST, BK_CONST, BK_EXPORT, BK_COND, BK_ANON_STRUCT, BF_DOT, BF_UPCAST, BF_ADDRESS_OF, BK_BORROW_MUT, BK_IMM, BK_MUT, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_token, ast_expr_to_string, make_err_expr } :: import("./expr.yo");
+{ AstExpr, ExprId, BK_IMPORT, BK_TEST, BK_CONST, BK_EXPORT, BK_COND, BK_ANON_STRUCT, BF_DOT, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_token, ast_expr_to_string, make_err_expr } :: import("./expr.yo");
 { ExprInfoTable, expr_info_table_new, print_spec_report_if_requested, ExprInfo } :: import("./expr_info.yo");
 { Token, TokenKind } :: import("./token.yo");
 { parse, Parser, set_brace_legacy_records } :: import("./parser.yo");
@@ -1906,116 +1906,25 @@ _run_migrate_record_literal :: (fn(files : &ArrayList(String), dry_run : bool, i
     exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not parse`));
   });
 });
-/// A `--migrate unsized` site the parse finds, at `tok`. `kind` 0: a bare
-/// `Dyn(...)` type spelling (`expect` prints the call), written
-/// `Box(Dyn(...))`. Listed, never rewritten: `kind` 7, an
-/// `Rc(Dyn(T)).new(...)`/`Arc(Dyn(T)).new(...)` call (`expect` prints the
-/// handle type), and `kind` 8, an `impl(Dyn(...), ...)` (`expect` prints the
-/// `Dyn`).
-_UnsizedSyntax :: struct(tok : Token, expect : String, kind : u8);
-derive(_UnsizedSyntax, Clone);
-/// Whether a `Dyn(...)` written as argument `idx` of a call to `head` is not
-/// a bare value spelling (VERDICTS-40 §5, VERDICTS-55 §3): the immediate
-/// argument of `Box`/`Rc`/`Arc`/`Weak`/`ArcWeak`, of `&`/`&mut` (also with an
-/// origin, `&(Dyn(...), p)`), and `upcast`'s target, which names the Dyn the
-/// pointer kind keeps. `*` and `?*` are not on the list (VERDICTS-43 §4):
-/// `*Dyn(X)` is `*Box(Dyn(X))`. The parse writes a slot's `&T`/`&mut T`
-/// in the mode form (`x : &T` is `__yo_imm(x) : T`, `-> &T` is
-/// `-> __yo_imm(T)`), so a mode head is a reference too.
-_unsized_dyn_is_wrapped :: (fn(head : &String, idx : usize) -> bool)(
-  (head.* == "Box") || (head.* == "Rc") || (head.* == "Arc") || (head.* == "Weak") || (head.* == "ArcWeak") || (head.* == BF_ADDRESS_OF) || (head.* == BK_BORROW_MUT) || (head.* == BK_IMM) || (head.* == BK_MUT) || ((head.* == BF_UPCAST) && (idx == usize(1)))
-);
-/// Whether `e`, the left side of a `:`, is a parameter or binding the parse
-/// wrote in the mode form, `__yo_imm(x)`/`__yo_mut(x)` (also under
-/// `comptime(...)`): its type, the right side, is behind a reference.
-_unsized_is_mode_binder :: (fn(e : &AstExpr) -> bool)({
-  h := _record_head(e);
-  if((h == BK_IMM) || (h == BK_MUT), {
-    return(true);
-  });
-  cargs := _record_args(e);
-  (h == "comptime") && (cargs.len() == usize(1)) && ((_record_head(&cargs(usize(0))) == BK_IMM) || (_record_head(&cargs(usize(0))) == BK_MUT))
-});
-/// The `Rc(Dyn(T))`/`Arc(Dyn(T))` receiver of a `.new` call, or `.None`.
-_unsized_handle_new_receiver :: (fn(callee : &AstExpr) -> Option(AstExpr))({
-  if(!ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))), {
-    return(.None);
-  });
-  dargs := _record_args(callee);
-  if(!ast_expr_is_atom_of(&dargs(usize(1)), "new"), {
-    return(.None);
-  });
-  recv := dargs(usize(0)).clone();
-  rh := _record_head(&recv);
-  rargs := _record_args(&recv);
-  if(((rh == "Rc") || (rh == "Arc")) && (rargs.len() == usize(1)) && (_record_head(&rargs(usize(0))) == "Dyn"), Option(AstExpr).Some(recv), Option(AstExpr).None)
-});
-/// Every `--migrate unsized` site in `e`, written as argument `idx` of a
-/// call to `parent`.
-_unsized_sites_expr :: (fn(e : &AstExpr, parent : &String, idx : usize, out : &mut ArrayList(_UnsizedSyntax)) -> unit)({
-  if(ast_expr_is_atom(e), {
-    return(());
-  });
-  head := _record_head(e);
-  match(
-    e,
-    .FnCall(_, callee, _, _, _) => {
-      if(head == "Dyn", {
-        cond(
-          ((parent.* == "impl") && (idx == usize(0))) => out.push(_UnsizedSyntax(tok : ast_expr_token(callee), expect : ast_expr_to_string(e), kind : u8(8))),
-          !_unsized_dyn_is_wrapped(parent, idx) => out.push(_UnsizedSyntax(tok : ast_expr_token(callee), expect : ast_expr_to_string(e), kind : u8(0))),
-          true => ()
-        );
-      });
-      match(
-        _unsized_handle_new_receiver(callee),
-        .Some(recv) => {
-          recv_tok := match(&recv, .FnCall(_, rc_callee, _, _, _) => ast_expr_token(rc_callee), .Atom(_, rt) => rt.clone());
-          out.push(_UnsizedSyntax(tok : recv_tok, expect : ast_expr_to_string(&recv), kind : u8(7)));
-        },
-        .None => ()
-      );
-      if(!ast_expr_is_atom(callee), {
-        _unsized_sites_expr(callee, &String.new(), usize(0), out);
-      });
-    },
-    .Atom(_, _) => ()
-  );
-  rargs := _record_args(e);
-  // `x : &T` reads `__yo_imm(x) : T`: the type side is a referent.
-  ref_typed := ((head == ":") && (rargs.len() == usize(2)) && _unsized_is_mode_binder(&rargs(usize(0))));
-  (i : usize) = usize(0);
-  while(i < rargs.len(), i = (i + usize(1)), {
-    if(ref_typed && (i == usize(1)), {
-      _unsized_sites_expr(&rargs(i), &String.from(BF_ADDRESS_OF), usize(0), out);
-    }, {
-      _unsized_sites_expr(&rargs(i), &head, i, out);
-    });
-  });
-});
-/// `yo fix <path> --migrate unsized` (plans/VALUES_BY_DEFAULT.md decision 49
-/// S1f; VERDICTS-40 §5, VERDICTS-43 §4, VERDICTS-55): the S1 spellings of the
-/// owning `Dyn` written the way the `?Sized` prelude reads them. A bare
-/// `Dyn(...)` type spelling becomes `Box(Dyn(...))`, `*Dyn(...)` and
-/// `?*Dyn(...)` included (they point at an owned box), and so do an alias
-/// body and a `Type.impls`/`Type.eq`/`size_of` argument: under the S1 alias
-/// `Box(Dyn(X))` is the same type, so a `yo check` verdict does not change. A
-/// `Dyn(...)` that is the immediate argument of `Box`/`Rc`/`Arc`/`Weak`/
-/// `ArcWeak`/`&`/`&mut`, or `upcast`'s target, is left alone, so a second run
-/// rewrites nothing. The type spellings are read from the parse, so every
-/// platform arm is reached. Every file is also evaluated with the recorder on
-/// (`record_unsized_site`): `dyn(v)` of a plain value becomes
-/// `dyn(Box.new(v))`, and the `Rc`/`Arc` of a fresh `dyn(Rc.new(e))` against
-/// an owning `Dyn` becomes `Box`. Listed, never rewritten: a site that does
-/// not print back on one line, `Rc(Dyn(T)).new(...)` (two ways to write it),
-/// `impl(Dyn(...), ...)` (the owning value today, the unsized object after
-/// v0.2.78), `dyn(p)` over a raw pointer, `dyn(h)` over a named handle, a
-/// `downcast` of an owned `Dyn`, and a file with a platform arm this target
-/// does not evaluate.
+/// `yo fix <path> --migrate unsized` (plans/VALUES_BY_DEFAULT.md decision 49;
+/// VERDICTS-40 §5, VERDICTS-55, VERDICTS-61) over code in the v0.2.78
+/// spelling. Every file is evaluated with the recorder on
+/// (`record_unsized_site`): the legacy alias `dyn(v)` of a plain value becomes
+/// `dyn(Box.new(v))`, and a lend `&b` of a `Box(Dyn(T))` where a `&Dyn(T)` is
+/// taken becomes `&b.*` (VERDICTS-40 §5 family (d); v0.2.77's migration did
+/// not write it). Listed, never rewritten: a site that does not print back on
+/// one line, a `Box(Dyn(...))` temporary where a `&Dyn` is taken, `dyn(p)`
+/// over a raw pointer, `dyn(h)` over a named handle, and a file with a
+/// platform arm this target does not evaluate. The type
+/// spellings of v0.2.77, where a bare `Dyn(...)` was the owning box, are
+/// v0.2.77's mode (`yo version install 0.2.77`): here a bare by-value
+/// `Dyn(...)` is E0619, whose help says so, and `*Dyn(...)`, an alias body and
+/// `impl(Dyn(...), ...)` name the unsized object
+/// (issues/fixed/2026-11-15-what-does-migrate-unsized-do-under-the-binary-that-flips-dyn.md).
 _run_migrate_unsized :: (fn(files : &ArrayList(String), std_path : &String, dry_run : bool, io : Io, exn : Exception) -> unit)({
   (failed : usize) = usize(0);
-  (n_done : usize) = usize(0);
   (n_dyn : usize) = usize(0);
+  (n_lend : usize) = usize(0);
   (n_listed : usize) = usize(0);
   // The evaluation, with the recorder on (`record_unsized_site`), as
   // `yo check` evaluates each file.
@@ -2058,59 +1967,12 @@ _run_migrate_unsized :: (fn(files : &ArrayList(String), std_path : &String, dry_
       println(`fix: ${file}: a platform-gated \`cond\` arm this target does not evaluate keeps its \`dyn\` sites as written; run again with \`--target <triple>\` for that target`);
     });
     src := String.from_bytes(io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn)));
-    syn := ArrayList(_UnsizedSyntax).new();
-    match(
-      _parse_or_none(&src, &file),
-      .Some(prog) => {
-        (pi : usize) = usize(0);
-        while(pi < prog.len(), pi = (pi + usize(1)), {
-          _unsized_sites_expr(&prog(pi), &String.new(), usize(0), &mut syn);
-        });
-      },
-      .None => {
-        failed = (failed + usize(1));
-        println(`fix: ${file} does not parse; its \`Dyn(...)\` spellings were not migrated`);
-      }
-    );
     lines := src.split(String.from("\n"));
     checked := ArrayList(_PendingFix).new();
     // The listed sites, `<row>\t<col>\t<message>` with padded positions so
     // a sort puts them in source order.
     listed := ArrayList(String).new();
     seen := HashSet(String).new();
-    (si : usize) = usize(0);
-    while(si < syn.len(), si = (si + usize(1)), {
-      ss := syn(si).clone();
-      row := usize(ss.tok.row);
-      col := usize(ss.tok.column);
-      if(!seen.insert(`${ss.kind.to_string()}:${row.to_string()}:${col.to_string()}`), {
-        continue;
-      });
-      at := `${file}:${(row + usize(1)).to_string()}:${(col + usize(1)).to_string()}`;
-      if(ss.kind == u8(7), {
-        handle := if(ss.expect.starts_with(String.from("Arc(")), String.from("Arc"), String.from("Rc"));
-        listed.push(`${_deref_pad(row)}\t${_deref_pad(col)}\tfix: ${at}: \`${ss.expect}.new(...)\` puts an owned Dyn behind a shared handle: write \`dyn(${handle}.new(v))\` for one shared object, or \`${handle}(Box(Dyn(...))).new(dyn(Box.new(v)))\` to keep the box; left as written`);
-        continue;
-      });
-      if(ss.kind == u8(8), {
-        listed.push(`${_deref_pad(row)}\t${_deref_pad(col)}\tfix: ${at}: \`impl(${ss.expect}, ...)\` implements on the owning Dyn value today; after v0.2.78 \`${ss.expect}\` is the unsized object: write \`impl(Box(${ss.expect}), ...)\` to keep the owner, or keep it for the unsized object; left as written`);
-        continue;
-      });
-      line := match(lines.get_cloned(row), .Some(l) => l, .None => String.new());
-      runes := _line_runes(line);
-      span_end := if(col < runes.len(), _expr_span_end(&runes, col, col, &ss.expect, &file), Option(usize).None);
-      match(
-        span_end,
-        .Some(end) => {
-          n_done = (n_done + usize(1));
-          checked.push(_PendingFix(row : row, col : end, len : usize(0), replacement : String.from(")"), description : at.clone()));
-          checked.push(_PendingFix(row : row, col : col, len : usize(0), replacement : String.from("Box("), description : at));
-        },
-        .None => {
-          listed.push(`${_deref_pad(row)}\t${_deref_pad(col)}\tfix: ${at}: \`${ss.expect}\` does not print back on one line; write it \`Box(${ss.expect})\` by hand; left as written`);
-        }
-      );
-    });
     (ri : usize) = usize(0);
     while(ri < recorded.len(), ri = (ri + usize(1)), {
       st := recorded(ri).clone();
@@ -2124,23 +1986,19 @@ _run_migrate_unsized :: (fn(files : &ArrayList(String), std_path : &String, dry_
       cond(
         (st.kind == u8(1)) => listed.push(`${pos}fix: ${at}: \`dyn(${st.text})\` boxes the raw pointer \`${st.text}\` today, and in v0.2.78 \`dyn\` over a raw pointer unsizes it to a \`*Dyn(...)\` instead: write \`dyn(Box.new(${st.text}))\` to keep the box, or keep \`dyn(${st.text})\` for the unsized pointer; left as written`),
         (st.kind == u8(5)) => listed.push(`${pos}fix: ${at}: \`dyn(${st.text})\` erases a named \`Rc\`/\`Arc\` handle, which v0.2.77 rejects: write \`dyn(Rc.new(v))\` to build the shared object where it is made, or \`dyn(Box.new(v))\` to own it; left as written`),
+        (st.kind == u8(8)) => listed.push(`${pos}fix: ${at}: \`${st.text}\` is a \`Box(Dyn(...))\` given where a reference to the \`Dyn\` is taken; bind the box and lend the object it owns (\`b := ...; &b.*\`), or lend a value without a box (\`dyn(&v)\`); left as written`),
+        (st.kind == u8(7)) => match(
+          if(st.col < runes.len(), _expr_span_end(&runes, st.col, st.col, &st.text, &file), Option(usize).None),
+          // `&b` lends the box: `&b.*` lends the object it owns. `.` binds
+          // tighter than every operator, so `.*` after a name or a field
+          // chain dereferences exactly that place.
+          .Some(e) => {
+            n_lend = (n_lend + usize(1));
+            checked.push(_PendingFix(row : st.row, col : e, len : usize(0), replacement : String.from(".*"), description : at));
+          },
+          .None => listed.push(`${pos}fix: ${at}: \`${st.text}\` lends a \`Box(Dyn(...))\` where a reference to the \`Dyn\` is taken and does not print back on one line; write \`&${st.text}.*\` by hand; left as written`)
+        ),
         (st.kind == u8(6)) => listed.push(`${pos}fix: ${at}: \`downcast(${st.text}, ...)\` copies the payload out of an owned Dyn; v0.2.78's owning form is \`Result(Box(V), Box(Dyn(...)))\`: write \`downcast(&${st.text}.*, ...)\` where only the payload is read; left as written`),
-        (st.kind == u8(3)) => {
-          // `Rc`/`Arc` of a fresh `dyn(Rc.new(...))` against an owning Dyn.
-          k := st.col;
-          written := String.new();
-          (wk : usize) = k;
-          while((wk < runes.len()) && (wk < (k + st.text.len())), wk = (wk + usize(1)), {
-            written.push_rune(runes(wk));
-          });
-          matches := (written == st.text);
-          if(matches, {
-            n_dyn = (n_dyn + usize(1));
-            checked.push(_PendingFix(row : st.row, col : k, len : st.text.len(), replacement : String.from("Box"), description : at));
-          }, {
-            listed.push(`${pos}fix: ${at}: \`${st.text}.new(...)\` under \`dyn\` builds an owned Dyn: write it \`Box.new(...)\` by hand; left as written`);
-          });
-        },
         (st.kind == u8(2)) => {
           // `dyn(<arg>)`: the argument starts after the `(` that follows
           // `dyn`, and must print back as recorded on this line.
@@ -2182,9 +2040,9 @@ _run_migrate_unsized :: (fn(files : &ArrayList(String), std_path : &String, dry_
     });
   });
   verb := if(dry_run, String.from("would rewrite"), String.from("rewrote"));
-  println(`fix: ${verb} ${n_done.to_string()} \`Dyn(...)\` spelling(s) to \`Box(Dyn(...))\` and ${n_dyn.to_string()} \`dyn(...)\` site(s) to \`dyn(Box.new(...))\`; ${n_listed.to_string()} site(s) listed for a hand rewrite; ${failed.to_string()} file(s) did not evaluate or parse`);
+  println(`fix: ${verb} ${n_dyn.to_string()} \`dyn(...)\` site(s) to \`dyn(Box.new(...))\` and ${n_lend.to_string()} box lend(s) \`&b\` to \`&b.*\`; ${n_listed.to_string()} site(s) listed for a hand rewrite; ${failed.to_string()} file(s) did not evaluate`);
   if(failed > usize(0), {
-    exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate or parse — run \`yo check\` on them; what evaluation did not reach was not migrated`));
+    exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; what evaluation did not reach was not migrated`));
   });
 });
 /// `yo fix <path> [--dry-run]` — apply the mechanical repairs the compiler
@@ -10731,11 +10589,14 @@ Options:
                             { ... } that is a record -> .{ ... };
                             binders and blocks are left alone. Reads the
                             parse only, so it needs no evaluation
-  --migrate unsized         Run decision 49's migration: a bare Dyn(...)
-                            type (*Dyn(...) included) -> Box(Dyn(...));
-                            dyn(v) -> dyn(Box.new(v)); Rc(Dyn(T)).new(...),
-                            impl(Dyn(...), ...), dyn(p) over a raw
-                            pointer and owned downcasts are listed
+  --migrate unsized         Run decision 49's migration: the legacy
+                            dyn(v) -> dyn(Box.new(v)), and a lend &b of a
+                            Box(Dyn(T)) where a &Dyn(T) is taken -> &b.*;
+                            dyn(p) over a raw pointer and dyn(h) over a
+                            named handle are listed. v0.2.77 code takes two
+                            steps: first v0.2.77's migration for the bare
+                            Dyn(...) types (yo version install 0.2.77),
+                            then this one for the lends
   --target <triple>         Evaluate for this target, as compile --target
                             does, so the target's platform arms are
                             repaired or migrated (default: the host)
@@ -10764,11 +10625,13 @@ Examples:
                             表达式位置上作为记录的每个裸 { ... }
                             -> .{ ... }；绑定位置和代码块保持不变。
                             只读取解析结果，不需要求值
-  --migrate unsized         运行决定 49 的迁移：裸 Dyn(...) 类型（含
-                            *Dyn(...)）-> Box(Dyn(...))；dyn(v) ->
-                            dyn(Box.new(v))；列出 Rc(Dyn(T)).new(...)、
-                            impl(Dyn(...), ...)、原始指针上的 dyn(p) 与
-                            拥有型 downcast，留待手工改写
+  --migrate unsized         运行决定 49 的迁移：旧别名 dyn(v) ->
+                            dyn(Box.new(v))；在接受 &Dyn(T) 的位置借出
+                            Box(Dyn(T)) 的 &b -> &b.*；列出原始指针上的
+                            dyn(p) 与具名句柄上的 dyn(h)，留待手工改写。
+                            v0.2.77 的代码分两步：先用 v0.2.77 迁移裸
+                            Dyn(...) 类型（yo version install 0.2.77），
+                            再用本迁移改写借出
   --target <triple>         按该目标求值（同 compile --target），从而修复
                             或迁移该目标的平台分支（默认：宿主平台）
   --std-path <dir>          覆盖 std 库目录

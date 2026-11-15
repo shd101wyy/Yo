@@ -21,7 +21,7 @@
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
 { is_array_type, is_unit_type } :: import("../../types/guards.yo");
-{ type_contains_rc_cell_or_move_only } :: import("../../types/utils.yo");
+{ type_contains_rc_cell_or_move_only, type_is_sized } :: import("../../types/utils.yo");
 { FunctionGenerationContext, sm_owns_fnonce_captures } :: import("../functions/context.yo");
 { CapturedVariable } :: import("../../evaluator/async/await_analysis_types.yo");
 { _call_generate_expr } :: import("./_expr.yo");
@@ -122,12 +122,14 @@ _place_evaluation_runs_a_call :: (fn(e : &AstExpr, context : &FunctionGeneration
 /// through a `&mut &T`; plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P3):
 /// the evaluator records it as the converted runtime type, and its C is the
 /// place it refers to, so the store takes the place's address, folding a
-/// `(*p)` back to `p`.
+/// `(*p)` back to `p`. A reference to an UNSIZED pointee (`&Dyn(T)`,
+/// decision 49) is the fat pair itself: its code already IS the value.
 _reference_value_rhs :: (fn(rhs : &AstExpr, code : String, context : &FunctionGenerationContext) -> String)(
   match(
     match(context.base.get_expr_info(rhs), .Some(rei) => expr_info_converted_runtime_type(&rei), .None => Option(TypeValue).None),
-    .Some(Rc(.Reference(_, _, _))) => cond(
+    .Some(Rc(.Reference(rvp, _, _))) => cond(
       (code.starts_with("(*") && code.ends_with(")")) => code.substring(usize(2), code.len() - usize(1)),
+      !type_is_sized(&rvp) => code,
       true => `(&(${code}))`
     ),
     _ => code

@@ -2899,19 +2899,6 @@ note_downcast_reference :: (fn(id : usize, is_mut : bool) -> unit)({
 downcast_reference_mode :: (fn(id : usize) -> Option(bool))(
   if(g_downcast_reference_modes.with(_vh_unsize_modes_len) == usize(0), Option(bool).None, g_downcast_reference_modes.with({ id }(m) => m.get(&id)))
 );
-/// The `dyn(&v)` / `dyn(&mut v)` nodes, and the `upcast(r, Dyn(...))` nodes
-/// over a reference: while the alias holds a reference-kind Dyn lives in a
-/// frame temporary, so for every ESCAPE rule such a node is a temporary of its
-/// statement (R-TEMP) and for every EXCLUSIVITY rule a lend of `v` for the
-/// statement (VERDICTS-43). Codegen's projection mode (`unsize_reference_mode`)
-/// is unchanged. S2's flip deletes this table with the special case.
-(g_dyn_lends : RefCell(HashMap(usize, bool))) = RefCell(HashMap(usize, bool)).new(HashMap(usize, bool).new());
-note_dyn_lend :: (fn(id : usize) -> unit)({
-  _m := g_dyn_lends.with_mut({ id }(m) => m.insert(id, true));
-});
-is_dyn_lend :: (fn(id : usize) -> bool)(
-  if(g_dyn_lends.with(_vh_unsize_modes_len) == usize(0), false, g_dyn_lends.with({ id }(m) => m.get(&id)).is_some())
-);
 /// The `.*` nodes that name a `Dyn` place (`b.*` over an owned `Box(Dyn(T))`
 /// or an `Rc`/`Arc` handle's cell): an unsized place that is lent or called
 /// through and never read, bound, moved, assigned or matched by value
@@ -2923,6 +2910,17 @@ note_dyn_place :: (fn(id : usize) -> unit)({
 });
 is_dyn_place :: (fn(id : usize) -> bool)(
   if(g_dyn_places.with(_vh_unsize_modes_len) == usize(0), false, g_dyn_places.with({ id }(m) => m.get(&id)).is_some())
+);
+/// The `(T <: CloneInto).clone_into` witness nodes evaluated at a `Dyn`
+/// receiver (decision 49 S2): a `Dyn` whose list names `Clone` implements
+/// `CloneInto` through its vtable's `clone_into` slot, so the call lowers to
+/// that slot and names no impl.
+(g_dyn_clone_into_witnesses : RefCell(HashMap(usize, bool))) = RefCell(HashMap(usize, bool)).new(HashMap(usize, bool).new());
+note_dyn_clone_into_witness :: (fn(id : usize) -> unit)({
+  _m := g_dyn_clone_into_witnesses.with_mut({ id }(m) => m.insert(id, true));
+});
+is_dyn_clone_into_witness :: (fn(id : usize) -> bool)(
+  if(g_dyn_clone_into_witnesses.with(_vh_unsize_modes_len) == usize(0), false, g_dyn_clone_into_witnesses.with({ id }(m) => m.get(&id)).is_some())
 );
 /// The constructor funcId stamped for `struct_id`, if any.
 lookup_struct_ctor_fid :: (fn(struct_id : &String) -> Option(String))(
@@ -3337,8 +3335,8 @@ export(
   downcast_reference_mode,
   note_dyn_place,
   is_dyn_place,
-  note_dyn_lend,
-  is_dyn_lend,
+  note_dyn_clone_into_witness,
+  is_dyn_clone_into_witness,
   unsize_reference_mode,
   lookup_struct_ctor_value,
   record_branch_init,
@@ -3886,10 +3884,11 @@ export(DerefSite, set_migrate_deref, migrate_deref_on, audit_deref_on, record_de
 /// `kind` 1, a raw pointer (`*V`/`?*V`), listed and never rewritten (it boxes
 /// the pointer today, and unsizes it after the `?Sized` prelude); `kind` 2,
 /// the legacy auto-box of a plain value, written `dyn(Box.new(...))`; `kind`
-/// 5, a named `Rc`/`Arc` handle, listed. `kind` 3 is at the `Rc`/`Arc` token
-/// of a fresh `dyn(Rc.new(...))` against an owning `Dyn`, written `Box`
-/// (`text` is the token). `kind` 6 is at a `downcast` callee's token, a
-/// downcast of an owned `Dyn` (`text` its operand), listed.
+/// 5, a named `Rc`/`Arc` handle, listed. `kind` 6 is at a `downcast`
+/// callee's token, a downcast of an owned `Dyn` (`text` its operand), listed.
+/// `kind` 7 is at the root token of a named place `b` lent as a `&Box(Dyn(T))`
+/// where a `&Dyn(T)` is taken (`text` the place), written `b.*`; `kind` 8, a
+/// `Box(Dyn(T))` temporary there, listed (`legacy_box_dyn_lend`).
 UnsizedSite :: struct(path : String, row : usize, col : usize, kind : u8, text : String);
 derive(UnsizedSite, Clone);
 (mut(g_migrate_unsized) : bool) = false;

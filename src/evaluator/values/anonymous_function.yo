@@ -156,7 +156,7 @@ pragma(Pragma.AllowUnsafe);
 { attach_temp_variable_to_expr, local_borrow_place_of, access_expr, LocalBorrowAccess, set_closure_writes_captures, BorrowCaptureOuter, note_borrow_capture_outer, apply_capture_store_joins, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording, deref_text_is_new_spelling, deref_reads_through_pointee, reject_reference_without_deref, is_reference_deref_site, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, projection_body_mismatch_message, reject_closure_literal_into_dyn_fn, place_require_mut, audit_copy_trait_enabled } :: import("../utils.yo");
 { CaptureBorrow, register_capture_borrows, type_is_second_class, fn_param_is_ptr_borrow, reject_origin_carrying_signature } :: import("../../types/utils.yo");
 { OriginRootPlace, origin_of, variable_holder_roots, reference_binding_referents, binder_read_mark, binder_read_clear, reference_binding_read_type, variable_is_mut_borrow, note_reference_read } :: import("../utils.yo");
-{ type_carries_origin } :: import("../../types/utils.yo");
+{ type_carries_origin, is_dyn_fn_slot } :: import("../../types/utils.yo");
 { with_code } :: import("../../error.yo");
 { E_USE_OF_MOVED_VALUE, E_ORIGIN_MISMATCH } :: import("../../diagnostics.yo");
 { is_some_type, is_unit_type, is_void_type, is_never_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
@@ -1479,9 +1479,10 @@ evaluate_anonymous_function_implementation :: (
   if(op_is_arrow && cap_list_raw.is_some(), {
     exn.throw(dyn(format_error_message(&tok, String.from("A `->` function literal captures nothing, so it takes no capture list. Write the closure with `=>`: `{ x }(params) => body`."))));
   });
-  // Decision 44: a closure or function literal in a `Dyn(Fn(...))` slot is
+  // Decision 44: a closure or function literal in a `Dyn(Fn(...))` slot, or
+  // in its owning handle's (`Box(Dyn(Fn(...)))`, decision 49), is
   // `dyn(<literal>)` (E0618).
-  if(match(&expected_ty, Rc(.DynT(_, _, _, _)) => extract_fn_trait_from_type(&expected_ty).is_some(), _ => false), {
+  if(is_dyn_fn_slot(&expected_ty), {
     reject_closure_literal_into_dyn_fn(&expected_ty, expr, is_creating_closure, ctx, exn);
   });
   // Resolve the concrete Func type to use for parameter/return information.

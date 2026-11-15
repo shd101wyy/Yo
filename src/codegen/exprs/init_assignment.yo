@@ -18,7 +18,7 @@
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { _call_generate_expr, call_projection_mode } :: import("./_expr.yo");
 { emit_deferred_dup_or_code, generate_dup_code_for_value, generate_drop_code_for_value } :: import("./drop_dup.yo");
-{ type_contains_rc_cell_or_move_only } :: import("../../types/utils.yo");
+{ type_contains_rc_cell_or_move_only, type_is_sized } :: import("../../types/utils.yo");
 { get_state_machine_field_name, sm_slot_of, sm_move_flag_of, sm_local_field_name, sm_storage_id } :: import("../async/state_machine_naming.yo");
 { get_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
@@ -297,6 +297,19 @@ _generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : 
     .None => ()
   );
   place_code := _call_generate_expr(rhs, indent.clone(), context);
+  // Decision 49: an UNSIZED place (`&Dyn(T)`, `&mut Dyn(T)`) — the binding's
+  // value IS the fat pair, so the local is the pair itself and the place's
+  // code is stored directly (there is no address of a struct used as a
+  // reference).
+  if(!(type_is_sized(&place_type)), {
+    mut(uline) := indent.clone();
+    uline.push_string(get_variable_type_string(&t_ptr(&place_type), var_name.clone(), &mut context.base));
+    uline.push_str(" = ");
+    uline.push_string(if(place_code.starts_with("(*") && place_code.ends_with(")"), place_code.substring(usize(2), place_code.len() - usize(1)), place_code.clone()));
+    uline.push_str(";");
+    context.base.emitter.emit_string_line(&uline);
+    return(Option(String).Some(String.from("")));
+  });
   // Address the place: fold a `(*x)` pass-through, otherwise `(&(code))`. A
   // reference-typed chain (R-TAIL) is already the pointer.
   rhs_chain_ptr := ((ast_expr_is_fn_call_of(rhs, BK_BEGIN, Option(usize).None) || ast_expr_is_fn_call_of(rhs, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(rhs, BK_MATCH, Option(usize).None)) && match(context.base.get_expr_info(rhs), .Some(rci) => t_slot_is_borrow(&rci.ty()), .None => false));

@@ -10,8 +10,8 @@ import("std/string");
 // (suspension_analysis: detect_all silently ran the noop detector → 0 points).
 // See issues/fixed/yo-self-dyn-fn-field.md, FINAL LAYER.
 Pair :: struct(
-  first : Dyn(Fn(x : i32) -> i32),
-  second : Dyn(Fn(x : i32) -> i32)
+  first : Box(Dyn(Fn(x : i32) -> i32)),
+  second : Box(Dyn(Fn(x : i32) -> i32))
 );
 
 apply_both :: (fn(p : &Pair, seed : i32) -> i32)(
@@ -22,8 +22,8 @@ main :: (fn() -> unit)({
   bump := i32(1);
   scale := i32(2);
   p := Pair(
-    first : dyn((x : i32) => (x + bump)),
-    second : dyn((x : i32) => (x * scale))
+    first : dyn(Box.new((x : i32) => (x + bump))),
+    second : dyn(Box.new((x : i32) => (x * scale)))
   );
   // first(7)=8, second(7)=14 → 814. A key collision makes both boxes call the
   // SAME closure body: 8/8 → 808 or 14/14 → 1414.
