@@ -1435,7 +1435,9 @@ _future_field_upcast :: (fn(field_ty : &Option(TypeValue), code : String, contex
 _is_recorded_lend :: (fn(a : &AstExpr, context : &FunctionGenerationContext) -> bool)(
   match(
     context.base.get_expr_info(a),
-    .Some(lei) => match(expr_info_converted_runtime_type(&lei), .Some(Rc(.Reference(_, _, _))) => true, _ => false),
+    // A reference to an UNSIZED pointee (decision 49: `&str`, `&[T]`) is the
+    // fat pair the field holds, never an address.
+    .Some(lei) => match(expr_info_converted_runtime_type(&lei), .Some(Rc(.Reference(rl_p, _, _))) => type_is_sized(&rl_p), _ => false),
     .None => false
   )
 );
@@ -1454,12 +1456,12 @@ _lend_field_addr :: (fn(a : &AstExpr, code : &String, context : &FunctionGenerat
     context.base.get_expr_info(a),
     .Some(lei) => match(
       expr_info_converted_runtime_type(&lei),
-      .Some(Rc(.Reference(_, _, _))) => {
+      .Some(Rc(.Reference(lf_p, _, _))) => if(!type_is_sized(&lf_p), unsized_place_fat_code(code), {
         mut(w) := String.from("(&(");
         w.push_string(code);
         w.push_str("))");
         w
-      },
+      }),
       _ => code.clone()
     ),
     .None => code.clone()

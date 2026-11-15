@@ -2011,7 +2011,9 @@ check_if_function_parameter_matches_argument :: (
   // composite field read is N1e's, so this is a place or nothing) keeps its
   // own type.
   (t9_lend_ty : Option(TypeValue)) = Option(TypeValue).None;
-  if(!param_is_ref && !is_ct_only && !slot_of_reference, {
+  // A string literal is a `&(str, static)` VALUE (decision 49 S2), never a
+  // place to lend: at a `&str` field it is the reference itself.
+  if(!param_is_ref && !is_ct_only && !slot_of_reference && !is_comptime_string_type(&arg_info.ty()), {
     match(
       &resolved_pt,
       Rc(.Reference(_, t9_mut, _)) => match(
