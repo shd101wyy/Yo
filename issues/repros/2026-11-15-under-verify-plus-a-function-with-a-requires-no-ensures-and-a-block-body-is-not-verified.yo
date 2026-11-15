@@ -1,0 +1,23 @@
+// Reproducer for
+// issues/2026-11-15-under-verify-plus-a-function-with-a-requires-no-ensures-and-a-block-body-is-not-verified.md
+//
+//   yo check issues/repros/<this file>
+//
+// `block` and `expr` are the same function. Under `Pragma.VerifyOrAssert`
+// only `expr` is verified; under `Pragma.Verify` both are.
+pragma(Pragma.VerifyOrAssert);
+{ println } :: import("std/fmt");
+
+inc :: (fn(x : i32, requires(x < i32(100))) -> i32)(x + i32(1));
+
+block :: (fn(x : i32, requires(x < i32(50))) -> i32)({
+  v := inc(x);
+  v
+});
+
+expr :: (fn(x : i32, requires(x < i32(50))) -> i32)(inc(x));
+
+main :: (fn() -> unit)({
+  println(block(i32(3)) + expr(i32(3)));
+});
+export(main);

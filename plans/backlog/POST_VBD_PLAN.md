@@ -118,8 +118,12 @@ battery takes the next lane-F item.
      landed in v0.2.78 (decision 11).
 - **Lane E starts here (maintainer, 2026-11-13; an exception to rule 5's "lane E
   starts when one drains"):** [`DEFAULT_ON_VERIFICATION.md`](DEFAULT_ON_VERIFICATION.md)
-  S1 (`yo init` scaffolds `pragma(Pragma.VerifyOrAssert);`) and S2 (the S2 issue
-  `issues/2026-11-13-a-contradictory-assumed-contract-makes-every-caller-proved.md`).
+  S0 (the `verify+` defect
+  `issues/2026-11-15-under-verify-plus-a-function-with-a-requires-no-ensures-and-a-block-body-is-not-verified.md`
+  and the both-modes fixture sweep; amended 2026-11-15), then S1 (`yo init`
+  scaffolds `pragma(Pragma.VerifyOrAssert);`), with S2 (the S2 issue
+  `issues/2026-11-13-a-contradictory-assumed-contract-makes-every-caller-proved.md`)
+  and SD (the solver's distribution) beside them.
   Its S3 is phase 4's item 1, pulled forward: verified std bodies start as soon
   as S2 lands, not when lane C drains.
 - **P-PERF-0 (lane C, no code):** re-baseline on the v0.2.79 tree.
