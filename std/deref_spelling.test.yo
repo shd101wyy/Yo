@@ -1,14 +1,12 @@
-// SIBLING TEST: the `.*` spelling inside std (N3 deref Generation A',
-// plans/backlog/SEED_VERSION_AUTOMATION.md). std and src keep the old
-// reading of a BARE reference binding until v0.2.78 migrates them: a bare
-// `r` reads the value it refers to. A WRITTEN `r.*` on a reference binding
-// is the reference's own deref here as everywhere else, whatever the
-// referent: `r.*` on `r : &Rc(T)` is the handle, and `a.*` on `a : &T` in a
-// generic body is the `T` at every specialization (Generation A, v0.2.76,
-// read it as the payload or pointee whenever the specialization made `T` a
-// `Box`/`Rc`/`Arc`/pointer). This file lives under std so it is judged by
-// std's reading. The v0.2.76 seed compiles std but never runs this file's
-// tests, because `check` and builds treat `test(...)` as a no-op and release
+// SIBLING TEST: the `.*` spelling inside std (the N3 deref flip, v0.2.79,
+// plans/backlog/SEED_VERSION_AUTOMATION.md). std and src read a reference
+// binding as every other file does: a written `r.*` on a reference binding
+// is the reference's own deref, whatever the referent (`r.*` on `r : &Rc(T)`
+// is the handle, and `a.*` on `a : &T` in a generic body is the `T` at every
+// specialization), and a bare `r` used as a whole value is E0926, so `&r`
+// lends the reference itself. This file lives under std so it is judged by
+// std's reading. The seed compiles std but never runs this file's tests,
+// because `check` and builds treat `test(...)` as a no-op and release
 // bundles drop `*.test.yo`. `yo test ./std` runs it with the tree compiler.
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
@@ -22,12 +20,15 @@ test("a written r.* reads the referent of a reference binding", {
   v := r.*;
   assert(v == i32(3), "r.* binds the referent's value");
 });
-test("a bare read keeps the old reading beside it", {
+test("&r lends the reference itself, a &&T", {
   x := i32(4);
   r := &x;
-  v := r;
-  assert(v == i32(4), "a bare r still reads the referent in std");
-  assert(r == r.*, "both spellings read the same value");
+  q := &r;
+  assert(q.*.* == i32(4), "q.* is r, q.*.* the referent");
+  comptime_expect_error({
+    v := r;
+    v
+  }, "reading the value it refers to");
 });
 test("r.* = x writes through a &mut reference binding", {
   mut(y) := i32(1);
@@ -84,14 +85,10 @@ test("r.* = Rc.new(...) writes the handle's slot", {
   v := bare.*.*;
   assert(v == i32(14), "a written deref beside it reads the same handle");
 });
-// The capture path's written `.*` (the seed rider of VERDICTS-60 §4, 11).
-// The rider's `io.async` rows — `{ b : &b.* }` of a `&` parameter borrows it
-// whole and the future keeps its own copy, `{ n : &b.*.n }` keeps A2's error
-// — live in tests/deref_spelling_capture.test.yo: a module-level definition
-// in that spelling is an A2 error under the v0.2.77 seed, whose
-// `yo check ./std` evaluates every file under std
-// (issues/2026-11-13-the-v0277-seed-rejects-the-deref-swept-io-async-captures-of-a-reference-parameter.md;
-// the flip re-homes them when the real std lines adopt the spelling).
+// The `io.async` capture rows (`{ b : &b.* }` of a `&` parameter borrows it
+// whole and the future keeps its own copy, `{ n : &b.*.n }` keeps A2's error)
+// live in tests/deref_spelling_capture.test.yo; std's own `io.async` capture
+// lists use the spelling since the flip.
 test("a closure's `{ r : &mut r.* }` borrows the referent whole while it lives", {
   mut(p) := _DerefPoint(a : i32(1), b : i32(2));
   r := &mut p;
@@ -103,10 +100,13 @@ test("a closure's `{ r : &mut r.* }` borrows the referent whole while it lives",
     _q := &r.b;
     f()
   }, "the closure `f` borrows");
-  (mut(g) : Impl(FnMut() -> i32)) = ({ r : &mut r.* }() => {
-    r.*.a = (r.*.a + i32(1));
-    r.*.a
-  });
-  assert(g() == i32(2), "the closure writes through the reborrow");
-  assert(p.a == i32(2), "the write landed in p");
+  n := {
+    (mut(g) : Impl(FnMut() -> i32)) = ({ r : &mut r.* }() => {
+      r.*.a = (r.*.a + i32(1));
+      r.*.a
+    });
+    g()
+  };
+  assert(n == i32(2), "the closure writes through the reborrow");
+  assert(p.a == i32(2), "the write landed in p once the closure's scope ended");
 });
