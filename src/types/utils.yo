@@ -1469,7 +1469,7 @@ unsized_by_value_error :: (fn(ty : &TypeValue, position : &String, binder : &Opt
     .None => String.from("take the value behind a reference (`&T`), or use a sized type such as `Array(T, N)`")
   );
   if(is_dyn_type(ty), {
-    help = `${help}; code written for v0.2.77 or earlier, where a bare \`Dyn(...)\` was the owning box, is upgraded on v0.2.77: \`yo version install 0.2.77 && yo fix <path> --migrate unsized\` writes it \`Box(Dyn(...))\``;
+    help = `${help}; code written for v0.2.77 or earlier, where a bare \`Dyn(...)\` was the owning box, is upgraded in two steps: on v0.2.77, \`yo version install 0.2.77 && yo fix <path> --migrate unsized\` writes it \`Box(Dyn(...))\`; then on v0.2.78, \`yo fix <path> --migrate unsized\` writes the lends (\`&b\` to \`&b.*\`)`;
   });
   with_code(
     format_error_message_with_help(
@@ -5021,8 +5021,9 @@ fn_abi_param_is_ptr :: (fn(fn_ty : &TypeValue) -> ArrayList(bool))({
 });
 export(fn_param_is_ptr_borrow, fn_abi_param_is_ptr);
 /// The `Fn(...)` trait a closure-typed value carries: the trait itself, the
-/// `Fn` a `Dyn` lists, or a type variable's `Fn` bound, through its
-/// resolution chain (cycles stop the walk).
+/// `Fn` a `Dyn` lists (also through a `Box(Dyn(...))`, which is called
+/// through its payload, decision 49 S2), or a type variable's `Fn` bound,
+/// through its resolution chain (cycles stop the walk).
 closure_fn_trait_of :: (fn(ty : &TypeValue) -> Option(TypeValue))({
   (cur : TypeValue) = ty.clone();
   seen := ArrayList(String).new();
@@ -5031,6 +5032,13 @@ closure_fn_trait_of :: (fn(ty : &TypeValue) -> Option(TypeValue))({
       Rc.clone(cur),
       Rc(.FnTraitT(base_name : _)) => return(Option(TypeValue).Some(Rc.clone(cur))),
       Rc(.DynT({ required_trait_types : cft_drtt })) => return(_first_fn_trait(&cft_drtt.items)),
+      (cft_box := Rc(.Struct({ id : _ }))) => match(
+        unique_box_payload_type(&cft_box),
+        .Some(cft_p) => if(is_dyn_type(&cft_p), {
+          cur = cft_p;
+        }, return(Option(TypeValue).None)),
+        .None => return(Option(TypeValue).None)
+      ),
       Rc(.SomeT({ id : cft_id, bounds : cft_rtt_bnd, resolution : cft_res })) => {
         cft_rtt := cft_rtt_bnd.required();
         match(_first_fn_trait(&cft_rtt), .Some(t) => return(Option(TypeValue).Some(t)), .None => ());

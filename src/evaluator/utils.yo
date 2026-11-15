@@ -142,7 +142,7 @@ pragma(Pragma.AllowUnsafe);
   with_primary_repair_at_token
 } :: import("../error.yo");
 { raise_flow_violation } :: import("../types/flowability.yo");
-{ suggest_name, E_UNSIZED_BY_VALUE, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_WRITE_THROUGH_BORROW, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES, E_CLOSURE_TRAIT_TOO_WEAK, E_BARE_CALLABLE_INTO_DYN, E_GLOBAL_LENT_TO_CALL, E_IMMUTABLE_BINDING_WRITE, E_RC_PAYLOAD_WRITE, E_REFERENCE_READ_WITHOUT_DEREF, E_ORIGIN_MISMATCH } :: import("../diagnostics.yo");
+{ suggest_name, E_UNSIZED_BY_VALUE, E_INCOMPATIBLE_TYPES, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_WRITE_THROUGH_BORROW, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES, E_CLOSURE_TRAIT_TOO_WEAK, E_BARE_CALLABLE_INTO_DYN, E_GLOBAL_LENT_TO_CALL, E_IMMUTABLE_BINDING_WRITE, E_RC_PAYLOAD_WRITE, E_REFERENCE_READ_WITHOUT_DEREF, E_ORIGIN_MISMATCH } :: import("../diagnostics.yo");
 { Exception } :: import("std/error");
 { generate_new_temp_variable_name, is_temp_variable_name, is_any_temp_variable_name, debug_knob, display_module_path, canonical_module_path }
 :: import("../utils.yo");
@@ -154,7 +154,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string, type_to_string_for_message } :: import("../types/string.yo");
 { type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, nominal_has_hidden_origin, type_reaches_user_drop, type_nominal_drop_uses_roots, note_origin_types_exist, type_is_typed_fnmut_closure, capture_struct_is_fnmut, future_unreturnable_borrow, future_origin_names, get_all_some_types } :: import("../types/utils.yo");
-{ expr_info_table_set, is_mut_global, is_thread_local, migrate_deref_on, audit_deref_on, record_deref_site, record_deref_edit_site, deref_file_migrated, note_reference_read_copied, lookup_macro_expansion, is_reference_self_place, unsize_reference_mode } :: import("../expr_info.yo");
+{ expr_info_table_set, is_mut_global, is_thread_local, migrate_unsized_on, record_unsized_site, migrate_deref_on, audit_deref_on, record_deref_site, record_deref_edit_site, deref_file_migrated, note_reference_read_copied, lookup_macro_expansion, is_reference_self_place, unsize_reference_mode } :: import("../expr_info.yo");
 { is_global_mut_rule_exempt, is_deref_rule_exempt, is_deref_swept_tree } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
@@ -6196,7 +6196,77 @@ reject_dyn_place_by_value :: (fn(id : usize, position : &String, tok : &Token, e
     );
   });
 });
-export(reject_dyn_place_by_value);
+/// The root token of a place written as a name or a field chain (`b`,
+/// `self.cause`, `a.b.c`), or `.None` for anything else (a call, a
+/// temporary): `.*` appended to its text lends exactly that place.
+_named_place_root_token :: (fn(e : &AstExpr) -> Option(Token))(
+  match(
+    e,
+    .Atom(_, at) => if(at.kind == TokenKind.Identifier, Option(Token).Some(at.*), Option(Token).None),
+    .FnCall(_, _, Rc(np_args), _, _) => if(
+      ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))) && match(np_args.get(usize(1)), .Some(np_f) => !ast_expr_is_atom_of(&np_f, "*"), .None => false),
+      match(np_args.get(usize(0)), .Some(np_obj) => _named_place_root_token(&np_obj), .None => Option(Token).None),
+      Option(Token).None
+    )
+  )
+);
+/// The two-step path that upgrades code written for v0.2.77 (decision 49):
+/// E0619's and the box-lend E0601's help both name it.
+unsized_upgrade_path_text :: (fn() -> String)(
+  String.from("code written for v0.2.77 or earlier is upgraded in two steps: on v0.2.77, `yo version install 0.2.77 && yo fix <path> --migrate unsized` writes the type spellings (`Box(Dyn(...))`); then on v0.2.78, `yo fix <path> --migrate unsized` writes the lends (`&b` to `&b.*`)")
+);
+/// A `Box(Dyn(T))` given where a `&Dyn(T)`/`&mut Dyn(T)` is expected (decision
+/// 49, VERDICTS-40 §5 family (d)): `&b` lends the box, and nothing coerces a
+/// reference to a box into a reference to the object it owns (no deref
+/// coercion, 2026-11-07); the lend of the object is `&b.*`. `given` is the
+/// argument's type (a `&Box(Dyn)` reference or the lent place's
+/// `Box(Dyn)`), `arg` the argument as written or with its marker peeled.
+/// Returns false when the mismatch is not this one. Under `yo fix --migrate
+/// unsized` the site is recorded (kind 7, a named place: `.*` is appended;
+/// kind 8, a temporary: listed) and accepted, so the evaluation reaches the
+/// file's other sites; otherwise it is E0601 with the `&b.*` help.
+legacy_box_dyn_lend :: (fn(expected : &TypeValue, given : &TypeValue, arg : &AstExpr, tok : &Token, position : &String, ctx : &EvalContext, exn : Exception) -> bool)({
+  lb_e := if(t_slot_is_borrow(expected), t_slot_pointee(expected), Rc.clone(expected));
+  if(!t_slot_is_borrow(expected) || !is_dyn_type(&lb_e), {
+    return(false);
+  });
+  lb_g := if(t_slot_is_borrow(given), t_slot_pointee(given), Rc.clone(given));
+  lb_p := match(unique_box_payload_type(&lb_g), .Some(p) => p, .None => return(false));
+  if(!is_dyn_type(&lb_p) || !are_types_compatible(&lb_p, &lb_e), {
+    return(false);
+  });
+  lb_place := ast_expr_strip_borrow_marker(arg);
+  lb_text := ast_expr_to_string(&lb_place);
+  lb_root := _named_place_root_token(&lb_place);
+  if(migrate_unsized_on(), {
+    match(
+      lb_root,
+      .Some(rt) => record_unsized_site(&rt, u8(7), &lb_text),
+      .None => record_unsized_site(tok, u8(8), &lb_text)
+    );
+    return(true);
+  });
+  lb_sig := if(t_slot_is_mut_ref(expected), "&mut ", "&");
+  lb_help := match(
+    lb_root,
+    .Some(_) => `lend the object the box owns: \`${lb_sig}${lb_text}.*\`; ${unsized_upgrade_path_text()}`,
+    .None => `bind the box and lend the object it owns (\`b := ...; ${lb_sig}b.*\`), or lend a value as a \`Dyn\` without a box: \`dyn(${lb_sig}v)\`; ${unsized_upgrade_path_text()}`
+  );
+  raise_flow_violation(
+    with_code(
+      format_error_message_with_help(
+        tok,
+        `${position} takes \`${lb_sig}${type_to_string(&lb_e)}\`, and \`${lb_text}\` is the box \`${type_to_string(&lb_g)}\`: nothing coerces a box, or a reference to one, into a reference to the object it owns (plans/VALUES_BY_DEFAULT.md decision 49).`,
+        Option(String).Some(lb_help)
+      ),
+      E_INCOMPATIBLE_TYPES
+    ),
+    ctx,
+    exn
+  );
+  true
+});
+export(reject_dyn_place_by_value, legacy_box_dyn_lend, unsized_upgrade_path_text);
 export(in_compile_time_fn_body);
 export(throw_expr_is_implicit_variable_error);
 export(require_expr_not_consumed);

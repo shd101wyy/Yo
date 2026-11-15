@@ -3872,6 +3872,9 @@ export(DerefSite, set_migrate_deref, migrate_deref_on, audit_deref_on, record_de
 /// the legacy auto-box of a plain value, written `dyn(Box.new(...))`; `kind`
 /// 5, a named `Rc`/`Arc` handle, listed. `kind` 6 is at a `downcast`
 /// callee's token, a downcast of an owned `Dyn` (`text` its operand), listed.
+/// `kind` 7 is at the root token of a named place `b` lent as a `&Box(Dyn(T))`
+/// where a `&Dyn(T)` is taken (`text` the place), written `b.*`; `kind` 8, a
+/// `Box(Dyn(T))` temporary there, listed (`legacy_box_dyn_lend`).
 UnsizedSite :: struct(path : String, row : usize, col : usize, kind : u8, text : String);
 derive(UnsizedSite, Clone);
 (mut(g_migrate_unsized) : bool) = false;

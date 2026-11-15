@@ -1772,9 +1772,12 @@ _run_migrate_record_literal :: (fn(files : &ArrayList(String), dry_run : bool, i
 /// VERDICTS-40 §5, VERDICTS-55, VERDICTS-61) over code in the v0.2.78
 /// spelling. Every file is evaluated with the recorder on
 /// (`record_unsized_site`): the legacy alias `dyn(v)` of a plain value becomes
-/// `dyn(Box.new(v))`. Listed, never rewritten: a site that does not print back
-/// on one line, `dyn(p)` over a raw pointer, `dyn(h)` over a named handle, and
-/// a file with a platform arm this target does not evaluate. The type
+/// `dyn(Box.new(v))`, and a lend `&b` of a `Box(Dyn(T))` where a `&Dyn(T)` is
+/// taken becomes `&b.*` (VERDICTS-40 §5 family (d); v0.2.77's migration did
+/// not write it). Listed, never rewritten: a site that does not print back on
+/// one line, a `Box(Dyn(...))` temporary where a `&Dyn` is taken, `dyn(p)`
+/// over a raw pointer, `dyn(h)` over a named handle, and a file with a
+/// platform arm this target does not evaluate. The type
 /// spellings of v0.2.77, where a bare `Dyn(...)` was the owning box, are
 /// v0.2.77's mode (`yo version install 0.2.77`): here a bare by-value
 /// `Dyn(...)` is E0619, whose help says so, and `*Dyn(...)`, an alias body and
@@ -1783,6 +1786,7 @@ _run_migrate_record_literal :: (fn(files : &ArrayList(String), dry_run : bool, i
 _run_migrate_unsized :: (fn(files : &ArrayList(String), std_path : &String, dry_run : bool, io : Io, exn : Exception) -> unit)({
   (failed : usize) = usize(0);
   (n_dyn : usize) = usize(0);
+  (n_lend : usize) = usize(0);
   (n_listed : usize) = usize(0);
   // The evaluation, with the recorder on (`record_unsized_site`), as
   // `yo check` evaluates each file.
@@ -1844,6 +1848,18 @@ _run_migrate_unsized :: (fn(files : &ArrayList(String), std_path : &String, dry_
       cond(
         (st.kind == u8(1)) => listed.push(`${pos}fix: ${at}: \`dyn(${st.text})\` boxes the raw pointer \`${st.text}\` today, and in v0.2.78 \`dyn\` over a raw pointer unsizes it to a \`*Dyn(...)\` instead: write \`dyn(Box.new(${st.text}))\` to keep the box, or keep \`dyn(${st.text})\` for the unsized pointer; left as written`),
         (st.kind == u8(5)) => listed.push(`${pos}fix: ${at}: \`dyn(${st.text})\` erases a named \`Rc\`/\`Arc\` handle, which v0.2.77 rejects: write \`dyn(Rc.new(v))\` to build the shared object where it is made, or \`dyn(Box.new(v))\` to own it; left as written`),
+        (st.kind == u8(8)) => listed.push(`${pos}fix: ${at}: \`${st.text}\` is a \`Box(Dyn(...))\` given where a reference to the \`Dyn\` is taken; bind the box and lend the object it owns (\`b := ...; &b.*\`), or lend a value without a box (\`dyn(&v)\`); left as written`),
+        (st.kind == u8(7)) => match(
+          if(st.col < runes.len(), _expr_span_end(&runes, st.col, st.col, &st.text, &file), Option(usize).None),
+          // `&b` lends the box: `&b.*` lends the object it owns. `.` binds
+          // tighter than every operator, so `.*` after a name or a field
+          // chain dereferences exactly that place.
+          .Some(e) => {
+            n_lend = (n_lend + usize(1));
+            checked.push(_PendingFix(row : st.row, col : e, len : usize(0), replacement : String.from(".*"), description : at));
+          },
+          .None => listed.push(`${pos}fix: ${at}: \`${st.text}\` lends a \`Box(Dyn(...))\` where a reference to the \`Dyn\` is taken and does not print back on one line; write \`&${st.text}.*\` by hand; left as written`)
+        ),
         (st.kind == u8(6)) => listed.push(`${pos}fix: ${at}: \`downcast(${st.text}, ...)\` copies the payload out of an owned Dyn; v0.2.78's owning form is \`Result(Box(V), Box(Dyn(...)))\`: write \`downcast(&${st.text}.*, ...)\` where only the payload is read; left as written`),
         (st.kind == u8(2)) => {
           // `dyn(<arg>)`: the argument starts after the `(` that follows
@@ -1886,7 +1902,7 @@ _run_migrate_unsized :: (fn(files : &ArrayList(String), std_path : &String, dry_
     });
   });
   verb := if(dry_run, String.from("would rewrite"), String.from("rewrote"));
-  println(`fix: ${verb} ${n_dyn.to_string()} \`dyn(...)\` site(s) to \`dyn(Box.new(...))\`; ${n_listed.to_string()} site(s) listed for a hand rewrite; ${failed.to_string()} file(s) did not evaluate`);
+  println(`fix: ${verb} ${n_dyn.to_string()} \`dyn(...)\` site(s) to \`dyn(Box.new(...))\` and ${n_lend.to_string()} box lend(s) \`&b\` to \`&b.*\`; ${n_listed.to_string()} site(s) listed for a hand rewrite; ${failed.to_string()} file(s) did not evaluate`);
   if(failed > usize(0), {
     exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; what evaluation did not reach was not migrated`));
   });
@@ -10431,10 +10447,13 @@ Options:
                             were retired; the last release that ships
                             each is listed in docs/en-US/ERROR_DIAGNOSTICS.md
   --migrate unsized         Run decision 49's migration: the legacy
-                            dyn(v) -> dyn(Box.new(v)); dyn(p) over a raw
-                            pointer and dyn(h) over a named handle are
-                            listed. v0.2.77's bare Dyn(...) types are
-                            migrated with v0.2.77 (yo version install 0.2.77)
+                            dyn(v) -> dyn(Box.new(v)), and a lend &b of a
+                            Box(Dyn(T)) where a &Dyn(T) is taken -> &b.*;
+                            dyn(p) over a raw pointer and dyn(h) over a
+                            named handle are listed. v0.2.77 code takes two
+                            steps: first v0.2.77's migration for the bare
+                            Dyn(...) types (yo version install 0.2.77),
+                            then this one for the lends
   --target <triple>         Evaluate for this target, as compile --target
                             does, so the target's platform arms are
                             repaired or migrated (default: the host)
@@ -10460,10 +10479,12 @@ Examples:
                             各自最后提供它的版本列在
                             docs/zh-CN/ERROR_DIAGNOSTICS.md
   --migrate unsized         运行决定 49 的迁移：旧别名 dyn(v) ->
-                            dyn(Box.new(v))；列出原始指针上的 dyn(p) 与
-                            具名句柄上的 dyn(h)，留待手工改写。v0.2.77
-                            的裸 Dyn(...) 类型请用 v0.2.77 迁移
-                            （yo version install 0.2.77）
+                            dyn(Box.new(v))；在接受 &Dyn(T) 的位置借出
+                            Box(Dyn(T)) 的 &b -> &b.*；列出原始指针上的
+                            dyn(p) 与具名句柄上的 dyn(h)，留待手工改写。
+                            v0.2.77 的代码分两步：先用 v0.2.77 迁移裸
+                            Dyn(...) 类型（yo version install 0.2.77），
+                            再用本迁移改写借出
   --target <triple>         按该目标求值（同 compile --target），从而修复
                             或迁移该目标的平台分支（默认：宿主平台）
   --std-path <dir>          覆盖 std 库目录
