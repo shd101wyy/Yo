@@ -12,7 +12,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ TypeValue, TypeValueNode, t_static_str_ref } :: import("./definitions.yo");
+{ TypeValue, TypeValueNode, t_static_str_ref, t_refine_inner } :: import("./definitions.yo");
 { t_i32, t_f64 } :: import("./creators.yo");
 {
   is_some_type,
@@ -593,6 +593,11 @@ convert_comptime_type_to_runtime_type_with_expected :: (
         // and rejects `(comptime(x) : comptime_str) ?= "…"`.
         is_comptime_string_type(&et.*) => Rc.clone(ty),
         (is_pointer_type(&et.*) && _pointer_target_is_byte(&et.*)) => Rc.clone(et),
+        // The unsized `str` itself (decision 49 S2): the place a `&str`
+        // slot lends (`(s : &str)` takes a place of type `str`, as
+        // `(x : &T)` takes one of `T`). The literal is that place: static
+        // bytes, which the slot lends as `"abc".*` would.
+        match(t_refine_inner(et), Rc(.Str) => true, _ => false) => Rc.clone(et),
         true => create_str_type(env)
       )
     ),
