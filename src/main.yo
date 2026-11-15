@@ -1356,10 +1356,17 @@ _run_migrate_rc_clone :: (fn(files : &ArrayList(String), std_path : &String, dry
         continue;
       });
       start_opt := match(line_starts.get(st.row), .Some(ls) => Option(usize).Some(ls + st.col), .None => Option(usize).None);
-      span_e := match(
+      mut(span_e) := match(
         start_opt,
         .Some(start) => if(start < runes.len(), _expr_span_end(&runes, start, start, &st.expect, &file), Option(usize).None),
         .None => Option(usize).None
+      );
+      // A reference read spelled `r.*` (deref Generation B's text): the
+      // recorded copy prints as the bare `r`, the source carries the star.
+      span_e = match(
+        span_e,
+        .Some(e) => Option(usize).Some(e),
+        .None => match(start_opt, .Some(start) => _deref_star_span_end(&runes, start, &st.expect), .None => Option(usize).None)
       );
       match(
         span_e,
@@ -1536,6 +1543,10 @@ _run_migrate_rc_clone :: (fn(files : &ArrayList(String), std_path : &String, dry
           });
         });
         entry := cond(
+          n.starts_with("&") => {
+            rn := n.substring(usize(1), n.len());
+            `${rn} : &${rn}.*`
+          },
           spelling.is_empty() => n.clone(),
           (spelling == "derive") => {
             derive_needed = true;
@@ -1625,6 +1636,35 @@ _run_migrate_rc_clone :: (fn(files : &ArrayList(String), std_path : &String, dry
   if(failed > usize(0), {
     exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated copies were not migrated`));
   });
+});
+/// The end of `expect.*` written at `start` (a reference read the recorder
+/// printed without its star), or `.None`.
+_deref_star_span_end :: (fn(runes : &ArrayList(rune), start : usize, expect : &String) -> Option(usize))({
+  er := ArrayList(rune).new();
+  it := expect.chars();
+  (go : bool) = true;
+  while(go, {
+    match(it.next(), .Some(r) => er.push(r), .None => {
+      go = false;
+    });
+  });
+  end := (start + er.len());
+  if((end + usize(2)) > runes.len(), {
+    return(Option(usize).None);
+  });
+  (k : usize) = usize(0);
+  while(k < er.len(), k = (k + usize(1)), {
+    if(runes(start + k).char != er(k).char, {
+      return(Option(usize).None);
+    });
+  });
+  if((runes(end).char != u32(0x2E)) || (runes(end + usize(1)).char != u32(0x2A)), {
+    return(Option(usize).None);
+  });
+  if(((end + usize(2)) < runes.len()) && _is_word_rune(runes(end + usize(2))), {
+    return(Option(usize).None);
+  });
+  Option(usize).Some(end + usize(2))
 });
 _is_brace_shorthand_entry :: (fn(runes : &ArrayList(rune), start : usize, end : usize) -> bool)({
   if((start >= end) || (end > runes.len()) || runes(start).is_digit(), {

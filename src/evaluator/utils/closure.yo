@@ -96,7 +96,7 @@
 { move_captured_explicit_copy_variable, set_expr_as_needs_to_call_dup, attach_temp_variable_to_expr } :: import("../utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ audit_implicit_copy_enabled, audit_record_implicit_copy, audit_copy_trait_enabled, audit_record_copy_trait, dyn_copy_rule_applies, check_dyn_capture, migrate_rc_clone_on, ICMigrateCtx, _ic_in_generic, _rc_clone_spelling } :: import("../utils.yo");
+{ variable_is_reference_binding, audit_implicit_copy_enabled, audit_record_implicit_copy, audit_copy_trait_enabled, audit_record_copy_trait, dyn_copy_rule_applies, check_dyn_capture, migrate_rc_clone_on, ICMigrateCtx, _ic_in_generic, _rc_clone_spelling } :: import("../utils.yo");
 { Exception } :: import("std/error");
 { auto_derive_traits_for_struct_type } :: import("../types/utils.yo");
 // ---------------------------------------------------------------------------
@@ -1397,9 +1397,11 @@ _runtime_capture_names :: (fn(cvwv_opt : &Option(HashMap(String, FuncCapturedVar
       while(more, {
         match(
           it.next(),
-          .Some(n) => if(match(get_variables_from_env(env, n.clone()).last_cloned(), .Some(cv) => !cv.is_compile_time_only(), .None => false), {
-            names.push(n.clone());
-          }),
+          .Some(n) => match(get_variables_from_env(env, n.clone()).last_cloned(), .Some(cv) => if(!cv.is_compile_time_only(), {
+            // A reference binding is captured as a reborrow (`n : &n.*`),
+            // never by the shorthand, which would copy its referent.
+            names.push(if(variable_is_reference_binding(&cv), `&${n}`, n.clone()));
+          }), .None => ()),
           .None => {
             more = false;
           }
