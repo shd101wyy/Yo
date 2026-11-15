@@ -115,9 +115,10 @@ pragma(Pragma.AllowUnsafe);
   is_future_value_type,
   escapable_bound_error,
   type_is_sized,
-  unsized_by_value_error
+  unsized_by_value_error,
+  is_legacy_value_str
 } :: import("../../types/utils.yo");
-{ is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type, is_unit_type, is_type_0, is_type_kind, is_void_type, is_type_hierarchy_type, is_type_parameter_type, is_fn_trait_type, is_never_type, is_pointer_type } :: import("../../types/guards.yo");
+{ is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type, is_unit_type, is_type_0, is_type_kind, is_void_type, is_type_hierarchy_type, is_type_parameter_type, is_fn_trait_type, is_never_type, is_pointer_type, is_str_reference_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type_with_expected, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 {
   type_implements_future,
@@ -860,6 +861,12 @@ reference_argument_as_referent :: (fn(written_arg : &AstExpr, evaled_arg : AstEx
   });
   ra_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaled_arg)), .Some(ra_info) => ra_info.ty(), .None => return(evaled_arg));
   if(!t_slot_is_borrow(&ra_ty) || t_slot_is_mut_ref(&ra_ty) || node_is_preevaluated(ast_expr_id(&evaled_arg)), {
+    return(evaled_arg);
+  });
+  // A `&str` value at a `&str` slot (decision 49 S2): the fat reference is
+  // what the slot passes in C, so the argument is kept as it is and
+  // `check_argument_for_parameter` takes it as the `str` it refers to.
+  if(is_str_reference_type(&ra_ty) && is_legacy_value_str(resolved_pt), {
     return(evaled_arg);
   });
   if(is_some_type(resolved_pt) || (get_all_some_types(resolved_pt).len() > usize(0)) || are_types_compatible(&ra_ty, resolved_pt) || !are_types_compatible(&t_slot_pointee(&ra_ty), resolved_pt), {
@@ -1747,6 +1754,11 @@ check_argument_for_parameter :: (
   });
   lowered := cond(
     (param_is_ct || pt_is_comptime) => Rc.clone(arg_ty),
+    // A `&str` value (a call result, a field read) passed bare to a `&str`
+    // slot is the `str` it refers to (decision 49 S2): the slot lends that
+    // place, and in C the fat reference is the argument as it stands
+    // (`reference_argument_as_referent` keeps it).
+    (is_str_reference_type(arg_ty) && is_legacy_value_str(resolved_pt)) => Rc.clone(resolved_pt),
     (lit_concrete && (is_comptime_int_type(arg_ty) || is_comptime_float_type(arg_ty)) && are_types_compatible(arg_ty, resolved_pt)) => Rc.clone(resolved_pt),
     true => convert_comptime_type_to_runtime_type_with_expected(arg_ty, Option(TypeValue).Some(Rc.clone(resolved_pt)), env)
   );
