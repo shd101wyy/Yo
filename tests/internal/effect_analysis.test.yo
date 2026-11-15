@@ -3,7 +3,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
-{ TokenKind, Token } :: import("../../src/token.yo");
+{ TokenKind, Token, TokenData } :: import("../../src/token.yo");
 { AstExpr } :: import("../../src/expr.yo");
 { ExprInfo, new_expr_info } :: import("../../src/expr_info.yo");
 { t_unit } :: import("../../src/types/creators.yo");
@@ -17,7 +17,7 @@
 // Test helpers
 // ---------------------------------------------------------------------------
 make_token :: (fn(kind : TokenKind, v : str) -> Token)(
-  Token(
+  Rc.new(TokenData(
     kind : kind,
     value : Rc.new(String.from(v)),
     row : u32(0),
@@ -25,10 +25,10 @@ make_token :: (fn(kind : TokenKind, v : str) -> Token)(
     character : u32(0),
     module_path : Rc.new(String.from("")),
     input : Rc.new(String.from(""))
-  )
+  ))
 );
 make_token_at :: (fn(kind : TokenKind, v : str, character : usize) -> Token)(
-  Token(
+  Rc.new(TokenData(
     kind : kind,
     value : Rc.new(String.from(v)),
     row : u32(0),
@@ -36,7 +36,7 @@ make_token_at :: (fn(kind : TokenKind, v : str, character : usize) -> Token)(
     character : u32(character),
     module_path : Rc.new(String.from("")),
     input : Rc.new(String.from(""))
-  )
+  ))
 );
 make_ident :: (fn(v : str) -> AstExpr)(
   AstExpr.Atom(usize(0), make_token(TokenKind.Identifier, v))

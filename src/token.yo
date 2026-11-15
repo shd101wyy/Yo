@@ -31,8 +31,11 @@ TokenKind :: enum(
   Whitespace
 );
 derive(TokenKind, Eq(TokenKind), Hash, Clone, Copy, ToString);
-Token :: ref(
-  struct(
+/// A token's data. A `Token` is a shared, read-only handle to one
+/// (`Rc(TokenData)`, V5 part B 3c): every AST node, variable and diagnostic
+/// that names a source position holds the same cell, so a copy is a count
+/// bump, spelled `Rc.clone(tok)` where a second owner appears.
+TokenData :: struct(
     kind : TokenKind,
     /// The token's text, a SHARED cell like `input`/`module_path` below:
     /// identifier, keyword, operator, dot and number tokens take the
@@ -80,25 +83,9 @@ Token :: ref(
     /// the module's source). Readers spell `tok.input.*` / `&tok.input.*`.
     module_path : Rc(String),
     input : Rc(String)
-  )
 );
-derive(Token, Eq(Token));
-// `Token` is an `object` (Rc), not a value `struct` (P2 memory). Every `AstExpr`
-// embeds a `Token` and `Variable` embeds two, and AST/variable clones are
-// pervasive during the self-compile. As a value struct, each holder inlined the
-// ~104-byte Token, and each clone copied it — once ~1.6 GB of peak when
-// `derive(Clone)` also deep-copied the ~100–200 KB `input` source string. As an
-// Rc object every holder stores an 8-byte pointer to ONE shared token, and
-// `.clone()` is a refcount bump (the body returns `self`) that shares the whole
-// token — positions, lexeme, and the immutable `input`/`module_path` source
-// strings. Sound because tokens are immutable after lexing (no field is ever
-// reassigned).
-impl(
-  Token,
-  Clone(
-    clone : (fn(self : &Self) -> Self)(self.*)
-  )
-);
+derive(TokenData, Eq(TokenData));
+Token :: Rc(TokenData);
 is_operator_char :: (fn(c : rune) -> bool)(
   cond(
     (c.char == u32(61)) => true,
@@ -352,7 +339,7 @@ empty_token_text :: (fn() -> Rc(String))(Rc.clone(g_empty_token_text));
 /// Synthetic placeholder token used as a sentinel position when constructing
 /// AST nodes that have no real source location.
 placeholder_token :: (fn() -> Token)(
-  Token(
+  Rc.new(TokenData(
     kind : TokenKind.Identifier,
     value : Rc.clone(g_placeholder_token_text),
     row : u32(0),
@@ -360,12 +347,12 @@ placeholder_token :: (fn() -> Token)(
     character : u32(0),
     module_path : Rc.clone(g_placeholder_token_text),
     input : Rc.clone(g_placeholder_token_text)
-  )
+  ))
 );
 /// Synthetic token used for `drop` (RAII) markers attached to compiler-generated
 /// drop expressions.
 raii_token :: (fn() -> Token)(
-  Token(
+  Rc.new(TokenData(
     kind : TokenKind.Identifier,
     value : Rc.clone(g_raii_token_text),
     row : u32(0),
@@ -373,7 +360,7 @@ raii_token :: (fn() -> Token)(
     character : u32(0),
     module_path : Rc.clone(g_raii_token_text),
     input : Rc.clone(g_raii_token_text)
-  )
+  ))
 );
 find_matching_bracket :: (fn(tokens : &ArrayList(Token), start : usize) -> Option(usize))({
   n := tokens.len();
@@ -429,6 +416,7 @@ find_matching_bracket :: (fn(tokens : &ArrayList(Token), start : usize) -> Optio
 export(
   TokenKind,
   Token,
+  TokenData,
   is_operator_char,
   is_reserved_operator_name,
   is_reserved_builtin_binding_name,

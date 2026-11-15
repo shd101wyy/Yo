@@ -5,7 +5,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
-{ Token, TokenKind } :: import("../../src/token.yo");
+{ Token, TokenKind, TokenData } :: import("../../src/token.yo");
 { AstExpr, ast_expr_id, BF_TYPE_OF } :: import("../../src/expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set }
 :: import("../../src/expr_info.yo");
@@ -22,7 +22,7 @@ import("std/fmt");
 { assert, panic } :: import("std/assert");
 // Helper: build a token with the given identifier value.
 mk_token :: (fn(value : str) -> Token)(
-  Token(
+  Rc.new(TokenData(
     kind : TokenKind.Identifier,
     value : Rc.new(String.from(value)),
     row : u32(0),
@@ -30,7 +30,7 @@ mk_token :: (fn(value : str) -> Token)(
     character : u32(0),
     module_path : Rc.new(String.from("test")),
     input : Rc.new(String.from(""))
-  )
+  ))
 );
 // Helper: build a typeof(arg_atom) FnCall expression with stable ids.
 mk_typeof_call :: (fn(arg_id : usize, arg_value : str, call_id : usize) -> AstExpr)({
