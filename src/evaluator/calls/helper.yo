@@ -92,7 +92,7 @@ pragma(Pragma.AllowUnsafe);
 { Token, TokenKind, intern_token_str } :: import("../../token.yo");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
-{ t_unit, t_type, t_ptr, t_usize, clone_some_fresh } :: import("../../types/creators.yo");
+{ t_unit, t_type, t_ptr, t_usize, t_str, clone_some_fresh } :: import("../../types/creators.yo");
 { type_to_string, type_key_epoch } :: import("../../types/string.yo");
 { comptime_int_value_misfit } :: import("../values/integer.yo");
 { type_key, _tk_resolve_arg_slot, TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_identity_cacheable, type_key_memo_check_enabled } :: import("../../types/type_key.yo");
@@ -2084,10 +2084,15 @@ check_if_function_parameter_matches_argument :: (
       exn
     );
   });
+  // A string literal or a `&str` value lent to a `&P` slot whose `P` is a
+  // type binder is the `str` it refers to, so `P := str` (decision 49 S2), as
+  // a `&str` binding's place binds it: `s.contains("x")` is `Pattern` on
+  // `str`, and a `P : Type` binder is E0619's `?Sized` question.
+  str_place_at_binder := (t9_lend_ty.is_none() && !is_ct_only && !param_is_owning && !param_is_ref && !slot_of_reference && is_some_type(&resolved_pt) && (is_comptime_string_type(&arg_info.ty()) || is_str_reference_type(&arg_info.ty())));
   (arg_type : TypeValue) = match(
     t9_lend_ty,
     .Some(t9_w) => Rc.clone(t9_w),
-    .None => check_argument_for_parameter(param_label.clone(), &resolved_pt, is_ct_only, &arg_info.ty(), &arg_info, ast_expr_token(&actual_arg), &actual_arg, &caller_env_r, ctx, exn)
+    .None => if(str_place_at_binder, t_str(), check_argument_for_parameter(param_label.clone(), &resolved_pt, is_ct_only, &arg_info.ty(), &arg_info, ast_expr_token(&actual_arg), &actual_arg, &caller_env_r, ctx, exn))
   );
   // Record the runtime type a comptime literal lowered to, so codegen renders
   // the right C form (comptime_str → `*(char)` emits a bare string literal,
