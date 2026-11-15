@@ -5,9 +5,10 @@ closes: it starts at v0.2.80.** The maintainer accepted the staged path of §1 a
 for it to lead the post-VBD work. The default itself flips only when the gates of §4
 hold; what starts first is the work that makes them hold.
 
-**Amended 2026-11-15 (D7–D9), after the measurement of §2.2 and §2.3:** the flip is
-two steps (report by default, then erase by default), S1 waits for a new S0, and the
-solver's distribution is a step (SD) and a gate (G6).
+**Amended 2026-11-15 (D7–D10), after the measurement of §2.2 and §2.3:** the flip is
+two steps (report by default, then erase by default), S1 waits for a new S0, the
+solver's distribution is a step (SD) and a gate (G6), and `yo build` proves every
+module of its package (D10).
 
 Filed the same day as a design question and promoted to a plan when the verdict was
 given. (The file is not called `VERIFICATION_BY_DEFAULT`: that abbreviates to "VBD",
@@ -36,6 +37,7 @@ becomes how a module leaves it.
 | D7 | **The flip is two steps** (maintainer, 2026-11-15). *Report by default* (S6a): with no pragma the compiler proves what it can, fails the build on a refuted written contract, and keeps every runtime check. *Erase by default* (S6b): the default also removes the checks it proved, behind G1 and G2. D4's collapse to one pragma happens at S6b |
 | D8 | **S1 waits for S0** (maintainer, 2026-11-15): the `verify+` defect found by §2.2 is fixed and every valid fixture runs in both modes before `yo init` scaffolds the pragma |
 | D9 | **The solver must run wherever `yo` runs before the default depends on it** (maintainer, 2026-11-15): step SD, gate G6 (§2.3) |
+| D10 | **Which command proves which module** (maintainer, 2026-11-15; §5 item 11). `yo build` proves every module of the package it builds, once each. `yo check <file>` proves that file. A dependency, std included, is not proved by its consumer: its contracts are the consumer's assumptions |
 
 Both behaviours survive the flip. Only one spelling goes, because its behaviour becomes
 what a module gets with no pragma:
@@ -203,14 +205,51 @@ lower budget turns that into a bounded give-up: `--rlimit 200000` answers
 `unproven` in about 1.1 s each, `--rlimit 50000` in about 0.35 s. §2's 102 s
 example is the far end of the same tail, at the default budget of 5,000,000.
 
-***Judgment*, the compiler at full coverage.** `src/` is about 320,000 lines.
-At two to five obligations per definition and roughly 6,400 definitions it is
-13,000 to 32,000 obligations: 9 to 21 minutes cold and 50 to 130 s warm on a
-`check ./src` that takes about 105 s unverified, before any heavy obligation.
-That is not acceptable as measured and is acceptable with three changes, which
-are S4's real content (§5 items 5 to 7): solve in parallel, key the cache on
-the function so an unchanged function is not walked, and give automatic
-obligations a small budget.
+**A line shift empties the cache for the rest of the file.** A 70-function
+module verified twice answers all 140 queries from the cache in 14 ms. After
+one comment line is added at line 2, the third run solves all 140 again
+(3.3 s): the query text names its variables by the function's path and row
+(`issues/2026-11-15-one-inserted-line-invalidates-the-verify-cache-for-every-function-below-it.md`).
+So for the file being edited, today's "warm" cost is the cold cost.
+
+**The compiler at full coverage: the count is measured, the times are
+*Judgment*.** Each runtime guard the compiler emits is one obligation a
+verifier at full coverage would try to discharge. Counted in a `yo.c` emitted
+from a develop-based worktree on 2026-11-08 (2,081,860 lines of C):
+
+| Guard | Sites |
+| --- | --- |
+| overflow checks (`__yo_add_chk_*`, `__yo_sub_chk_*`, `__yo_mul_chk_*`, `__yo_neg_chk_*`) | 18,166, of which 2,368 are multiplications |
+| division guards (`__yo_div_guard*`) | 1,189 |
+| shift checks (`__yo_sh_chk`) | 91 |
+| array index checks (`__yo_idx_chk`) | 86 |
+| calls into bounds-checked container index functions | not counted exactly; several thousand |
+
+That is 20,000 to 30,000 obligations, as an upper bound: the C counts a
+generic function once per instantiation where the source would be verified
+once, and a constant case folds without a query. `src/` has about 5,800
+function definitions and 75 written contract clauses, so the automatic
+obligations are nearly all of it.
+
+What "verifying `./src`" means matters here. `yo compile <entry>` arms only
+the entry file as a verification target; `yo check <dir>` and `yo verify
+<dir>` arm every file under the directory (§5 item 11). The estimate is for every module
+of `src/` being verified, against a `compile src/main.yo --skip-c-compiler`
+of about 3 minutes:
+
+| Scenario | Added time |
+| --- | --- |
+| today's coverage | none: no query is sent (the table at the top of this section) |
+| full coverage, today's verifier, cold | 15 to 20 minutes at 40 ms each, plus the tail: 1 % of the multiplications exhausting the default budget, at about 100 s each, is another 40 minutes |
+| full coverage, today's verifier, warm and no line moved | 1 to 2 minutes at 4 ms each |
+| full coverage, after S4, cold, a pool of 16 | 1 to 2 minutes |
+| full coverage, after S4, nothing changed | a few seconds |
+| full coverage, after S4, one function edited | under a second of solving |
+
+"After S4" assumes its three parts (§5 items 5 to 7) and position-independent
+cache keys (item 12). None is built. Memory is the other open cost: `yo verify
+./src` peaked at 9.33 GB in September (§2) with almost everything outside the
+subset, and was not re-measured here.
 
 ### 2.3 A machine without a usable solver
 
@@ -267,6 +306,10 @@ What S6a contains:
   `verify_and_strip_tasks`, `src/verifier/driver.yo`) and guard elision
   (`record_elidable_guard_sites`, which `compile` calls). `requires` entry guards are
   kept in every mode already. Its `--verify-mode` spelling is the PR's to choose;
+- `yo build` proves every module of the package it builds (D10). Today `yo compile
+  <entry>` arms only the entry file, so without this the default would report on
+  `main.yo` and stay silent on every other module. It rests on S4's per-function
+  cache, which is why S4 is among this step's dependencies;
 - an opt-out pragma back to `runtime` is added (none exists today);
 - the strict pragma is renamed: `Verify` reads as the ordinary choice and is the strict
   one, which is the wrong way round for an author choosing by name;
@@ -369,6 +412,30 @@ roadmap that says Yo code is verified by default.
     box), and `yo cache gc` and `yo cache clean` do not know it *(grep:
     `verify-cache` appears only in `src/verifier/`)*. *Judgment:* an S-sized
     item for S4.
+11. **Decided 2026-11-15: D10.** Which command proves which module. `yo compile <entry>` arms only the
+    entry file (`set_verify_target_paths` in `src/main.yo`); a module it
+    imports is proved only when `yo check`, `yo verify` or a `build.verify`
+    step is pointed at it. Under a default that would mean a counter-example
+    for `main.yo` and silence for every other module of the project.
+    *Judgment:* `yo build` proves every module of the package it builds, once
+    each, through the per-function cache; `yo check <file>` keeps proving that
+    file, which is the editing loop; a dependency, std included, is not proved
+    by its consumer, and its contracts are the consumer's assumptions (that is
+    what G1 is for). S6b's erasure inside an imported module needs that
+    module's proofs in the same build, which is SAFE_MODE 5b Phase 3. What a
+    bare `yo compile <entry>` proves beyond its entry file is left to S6a's PR.
+12. **Cache keys must not carry a position.** §2.2: one inserted line re-solves
+    every function below it, and an absolute entry path puts the machine's
+    path in the key. *Judgment:* fix it in S4, before the per-function key of
+    item 6 is built on the same text
+    (`issues/2026-11-15-one-inserted-line-invalidates-the-verify-cache-for-every-function-below-it.md`).
+13. **Sharing verdicts.** A verdict is deterministic and its key is the query,
+    the solver's version and the budget, so once item 12 holds a cache
+    directory is valid on any machine. *Judgment:* CI persists
+    `<cache>/verify-cache` between runs, which makes its cold run a warm one;
+    no new mechanism is needed beyond `YO_CACHE_DIR`. Shipping std's verdicts
+    in a release was considered and is not useful under item 11's judgment: a
+    consumer never proves std's bodies.
 
 ## 6. What does not change
 
