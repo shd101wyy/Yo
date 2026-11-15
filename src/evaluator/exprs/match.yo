@@ -713,7 +713,10 @@ _decide_match_mode :: (
     marker : u8,
     env : &Environment,
     ctx : &EvalContext,
-    exn : Exception
+    exn : Exception,
+    /// The whole `match` node (`scr_raw` is its scrutinee): the migration's
+    /// arm-mention check reads its arms.
+    whole : &AstExpr
   ) -> u8
 )({
   scr := ast_expr_strip_borrow_marker(scr_raw);
@@ -1461,7 +1464,7 @@ evaluate_match :: (
   );
   // How the match takes its scrutinee (plans/VALUES_BY_DEFAULT.md decision
   // 26): a consuming match moves it here, before any arm reads it.
-  match_mode := _decide_match_mode(&scrutinee_expr, &evaluated_scrutinee, &scr_info, borrowed_match_scrutinee_kind(ast_expr_token(expr)), &env, ctx, exn);
+  match_mode := _decide_match_mode(&scrutinee_expr, &evaluated_scrutinee, &scr_info, borrowed_match_scrutinee_kind(ast_expr_token(expr)), &env, ctx, exn, expr);
   consuming := (match_mode == MATCH_MODE_CONSUME);
   mut_places := (match_mode == MATCH_MODE_MUT);
   // A borrowed scrutinee's materialized temporary (`match(&make(), …)`) is
