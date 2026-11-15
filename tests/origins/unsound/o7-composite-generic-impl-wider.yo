@@ -1,0 +1,22 @@
+// expect: E0923
+// O7's result half on a GENERIC impl: the trait spells `pick`'s result over `self`, the impl over `P(q)`
+// elides it (the union of `self` and `other`) and returns `other`; a call through the trait trusts `self`.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+Pk :: trait(pick : (fn(self : &Self, other : &Rc(X)) -> Option(&(Rc(X), self))));
+P :: (fn(comptime(q) : Origin) -> comptime(Type))(struct(n : i32, r : Option(&(Rc(X), q))));
+impl(generic(q : Origin), P(q), Pk(pick : (fn(self : &Self, other : &Rc(X)) -> Option(&Rc(X)))(.Some(other))));
+via :: (fn(generic(T : Type), t : &T, o : &Rc(X), where(T <: Pk)) -> Option(&(Rc(X), t)))(t.pick(o));
+main :: (fn() -> unit)({
+  y := Rc.new(X(s : String.from("y")));
+  p := P(y)(n : i32(1), r : .Some(&y));
+  mut(o) := Option(&Rc(X)).None;
+  {
+    b := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+    o = via(&p, &b);
+  };
+  match(o, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => println("none"));
+  ()
+});
+export(main);

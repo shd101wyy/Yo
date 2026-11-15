@@ -79,3 +79,30 @@ origins invariantly (O3 step 3).
 With the fix: the two negative programs and the positive control move to `tests/origins/unsound/`; corpus rows
 `fn-value-wider-result-at-slot` (E0923) and `closure-literal-wider-result-at-slot` (E0923) beside
 `closure-caps-exceed-slot`; a case in `tests/closure_capture_list.test.yo`.
+
+## Fix (2026-11-13, lane `sig`, branch `fix/sig-1`)
+
+- **A function value at a function-typed slot.** `function_value_origin_mismatch` (`src/evaluator/trait_checking.yo`)
+  compares the value's signature with the slot's, both read as function types (`fn(...)`, `Impl(Fn(...))`,
+  `Dyn(Fn(...))`): the result origin with O7's comparator (`fn_result_origin_wider`, the impl check's, now shared),
+  and the parameters by O3-3 (`fn_param_origins_narrower`, `src/types/utils.yo`: the value may relate no two
+  parameters' origins that the slot leaves independent). `raise_function_value_origin_mismatch` raises it as E0923
+  at every route a function value fills a function-typed slot: a call argument (`check_argument_for_parameter`,
+  `src/evaluator/calls/helper.yo`, both call paths), a struct field in a constructor (`src/evaluator/calls/type.yo`),
+  a field write `h.g = f` and a variable write or typed binding `(f : fn(...) -> ...) = g`
+  (`src/evaluator/exprs/assignment.yo`). The field routes were a second
+  hole of the same shape: `Hook(g : pick_other)` and `h.g = pick_other` were accepted, and a call through `h.g`
+  read `b` after its scope (ASan: stack-use-after-scope).
+- **A closure literal** adopts the slot's signature, so the declaration comparison cannot see it; its body is
+  checked instead (`_closure_result_origin_check`, `src/evaluator/values/anonymous_function.yo`): each root of the
+  body's value at one of the literal's parameters must be a parameter the adopted result origin names.
+- **The impl twin** (`issues/fixed/2026-11-12-an-impl-whose-parameter-origins-are-narrower-than-its-traits-is-accepted.md`)
+  uses the same parameter comparison at the impl.
+
+Not covered here: `dyn(pick_other)` at a `Dyn(Fn(...))` (`src/evaluator/values/dyn.yo`, which today over-rejects it with E0911 at the
+store, so it is no hole).
+
+The G-B rows: `fn-value-wider-result-at-slot`, `closure-literal-wider-result-at-slot`,
+`fn-value-related-params-at-slot`, `fn-value-wider-result-at-field`, `fn-value-wider-result-at-field-write`,
+`fn-value-wider-result-at-binding` (E0923), with the positive controls
+`fn-value-wider-result-at-slot-pos`, `fn-value-wider-result-at-field-pos` and `fn-value-wider-result-at-binding-pos`.

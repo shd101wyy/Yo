@@ -1,6 +1,6 @@
 # A blanket reference impl's specialized trait record registers too late for the declaration walks
 
-**Severity:** S2 (the branch that adds it fails G-B; the emitted C does not compile — no silent miscompilation; the fix already exists on the stacked branch)
+**Severity:** S2 (the branch that adds it fails G-B; the emitted C does not compile — no silent miscompilation). **Fixed** by #1953 before #1954 landed.
 
 ## Verbatim error
 
@@ -49,3 +49,9 @@ which the declaration walks (`codegen/functions/declarations.yo`, `constructors.
 Land G3's walk rewrite (the `on_demand_body_cnames` on-demand hook) with or before the blanket
 impls: `vbd/g2-piece3`'s G-B is green only when stacked with `vbd/g3`. The G-B row above is the
 test: it fails on piece 3 alone and passes with G3's walks (verified 2026-11-14 with `yo-g3a4`).
+
+## Resolution
+
+Fixed on develop by #1953 (G3, `959702de6`), which landed before the blanket impls (#1954, `38b10f4f0`).
+#1954's final gate ran G-B on a tree carrying both and passed 351/0, including
+`c4-mut-ref-ref-field-lend-pos`. The G-B row is the regression test.

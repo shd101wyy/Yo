@@ -100,7 +100,7 @@ If the impl's roots are not a subset of the trait's, the impl is E0923 at regist
 That covers the `Dyn` call and the `where(T <: Pk)` form at once, so callers keep trusting the trait.
 
 The parameter direction in the table above is out of scope: v0.2.76 accepts it too, and it is not this regression. It is
-`issues/2026-11-12-an-impl-whose-parameter-origins-are-narrower-than-its-traits-is-accepted.md` (S1, open). The repros `…-parameters.yo` and `…-parameters-pos.yo` keep
+`issues/fixed/2026-11-12-an-impl-whose-parameter-origins-are-narrower-than-its-traits-is-accepted.md` (S1, fixed 2026-11-13 by lane `sig`). The repros `…-parameters.yo` and `…-parameters-pos.yo` keep
 their names under `issues/repros/`.
 
 Tests in `tests/origins/unsound/` (G-B):
