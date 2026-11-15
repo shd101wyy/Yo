@@ -9,7 +9,7 @@ capture)
 ```yo
 u := _Tok(n : i32(6));
 (d : Box(Dyn(FnOnce(go : bool) -> i32))) = dyn(Box.new({ u }(go : bool) => _once_take(u)));
-_call(d, true);   // _call :: (fn(d : Box(Dyn(FnOnce(go : bool) -> i32)), go : bool) -> i32)(d(go))
+_call(d, true); // _call :: (fn(d : Box(Dyn(FnOnce(go : bool) -> i32)), go : bool) -> i32)(d(go))
 ```
 
 With a `Drop` counter on `_Tok`, three closures (one bare, two boxed) report 5 drops instead of 3

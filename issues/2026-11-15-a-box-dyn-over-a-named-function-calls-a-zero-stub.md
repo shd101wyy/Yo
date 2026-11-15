@@ -8,7 +8,7 @@ through the `Dyn` returns a zeroed value without running `f`; a non-scalar resul
 ```yo
 _dnf_len :: (fn(s : &String) -> usize)(s.len());
 (a : Box(Dyn(Fn(s : &String) -> usize))) = dyn(Box.new(_dnf_len));
-a(&s)   // 0
+a(&s) // 0
 ```
 
 The emitted call slot is the fallback stub:

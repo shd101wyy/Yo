@@ -22,9 +22,9 @@ impl(Cat, Speak(speak : ((self : &Self) -> self.n)));
 _via :: (fn(d : &Dyn(Speak)) -> i32)(d.speak());
 main :: (fn() -> unit)({
   (h : Rc(Dyn(Speak))) = dyn(Rc.new(Cat(n : i32(4))));
-  _via(&h.*);            // p6b: (&(( fat ))) cast to the pair by value
+  _via(&h.*); // p6b: (&(( fat ))) cast to the pair by value
   c := Cat(n : i32(6));
-  (d : &Dyn(Speak)) = dyn(&c);  // p6c: pair_t d = (&(( fat )));
+  (d : &Dyn(Speak)) = dyn(&c); // p6c: pair_t d = (&(( fat )));
 });
 export(main);
 ```
