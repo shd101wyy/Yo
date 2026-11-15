@@ -1344,3 +1344,61 @@ test("a downcast of a boxed ref-struct payload reads the object", {
   assert(_drs_n(&e) == i32(7), "the ref object behind the box");
   assert(e.to_string() == String.from("drs"), "and the erased value still dispatches");
 });
+// Decision 49 S2's ASan rows (VERDICTS-61 decision 15) the files above do not
+// already hold: a closure's captures through `Box(Dyn(Fn))` and the interim
+// `Rc(Dyn)` cell with a live `Weak` (the async rows are in
+// tests/async/combinators.test.yo). Each counts its payload's drops.
+(mut(g_ar_drops) : i32) = i32(0);
+_ArObj :: struct(n : i32);
+impl(
+  _ArObj,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_ar_drops = (g_ar_drops + i32(1));
+    })
+  )
+);
+_ArSp :: trait(ar_sp : (fn(self : &Self) -> i32));
+impl(_ArObj, _ArSp(ar_sp : (fn(self : &Self) -> i32)(self.n)));
+test("a closure boxed into Box(Dyn(Fn)) drops its captures once", {
+  g_ar_drops = i32(0);
+  {
+    a := _ArObj(n : i32(3));
+    (f : Box(Dyn(Fn() -> i32))) = dyn(Box.new({ a }() => a.n));
+    assert(f() == i32(3), "the boxed closure reads its capture");
+    assert(f() == i32(3), "twice");
+  };
+  assert(g_ar_drops == i32(1), "the capture dropped once");
+});
+test("the interim Rc(Dyn): the last strong handle dropped while a Weak lives, then the Weak", {
+  g_ar_drops = i32(0);
+  (h : Rc(Dyn(_ArSp))) = dyn(Rc.new(_ArObj(n : i32(9))));
+  w := Rc.downgrade(h);
+  assert(match(w.upgrade(), .Some(s) => s.ar_sp(), .None => i32(-1)) == i32(9), "the Weak upgrades while a strong handle lives");
+  drop(h);
+  assert(g_ar_drops == i32(1), "the payload dropped with the last strong handle");
+  assert(w.upgrade().is_none(), "the Weak no longer upgrades");
+  drop(w);
+  assert(g_ar_drops == i32(1), "the Weak drops no payload");
+});
+// The over-cancellation canary (VERDICTS-61 decision 16): a `Box(Dyn)` is
+// unique, so a dup/drop pair the optimizer cancels for a local moved into a
+// container that dies first is a leak, and a surviving retain a double free.
+_CanHolder :: struct(b : Box(Dyn(_ArSp)), tag : i32);
+test("a Box(Dyn) moved into a field of an inner-scope container drops with the container, once", {
+  g_ar_drops = i32(0);
+  (b : Box(Dyn(_ArSp))) = dyn(Box.new(_ArObj(n : i32(2))));
+  {
+    h := _CanHolder(b : b, tag : i32(1));
+    assert(h.b.ar_sp() == i32(2), "the container's box dispatches");
+  };
+  assert(g_ar_drops == i32(1), "dropped when the inner container died");
+  (mut(i) : i32) = i32(0);
+  while(i < i32(3), {
+    (c : Box(Dyn(_ArSp))) = dyn(Box.new(_ArObj(n : i)));
+    h := _CanHolder(b : c, tag : i);
+    assert(h.b.ar_sp() == h.tag, "each iteration's container");
+    i = (i + i32(1));
+  });
+  assert(g_ar_drops == i32(4), "one drop per iteration's container");
+});

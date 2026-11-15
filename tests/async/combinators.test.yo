@@ -11,7 +11,9 @@ pragma(Pragma.AllowUnsafe);
 { Stream } :: import("std/async/stream");
 { Duration } :: import("std/time/duration");
 { sleep } :: import("std/sys/timer");
-{ IoExn, Exception } :: import("std/error");
+{ IoExn, Exception, Error } :: import("std/error");
+{ ToString } :: import("std/fmt");
+{ String } :: import("std/string");
 { RefCell } :: import("std/sync/refcell");
 { Channel } :: import("std/async/channel");
 
@@ -1496,4 +1498,66 @@ test("A4: one combinator over the futures of two streams' collect gets two speci
   b := _a4_bounded_k(Countdown(_n : i32(4)).take(usize(2)), io);
   assert(a.len() == usize(3), "the mapped stream");
   assert(b.len() == usize(2), "the taken stream");
+});
+// ---------------------------------------------------------------------------
+// Decision 49 S2's async ASan rows (VERDICTS-61 decision 15): an `AnyError`
+// (a `Box(Dyn(Error, Clone))`) thrown across an await, and an aborted task
+// that owns a `Box(Dyn)`. Each counts its payload's drops.
+// ---------------------------------------------------------------------------
+(mut(g_ar_drops) : i32) = i32(0);
+_ArObj :: struct(n : i32);
+impl(
+  _ArObj,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_ar_drops = (g_ar_drops + i32(1));
+    })
+  )
+);
+_ArSp :: trait(ar_sp : (fn(self : &Self) -> i32));
+impl(_ArObj, _ArSp(ar_sp : (fn(self : &Self) -> i32)(self.n)));
+impl(_ArObj, ToString(to_string : (fn(self : &Self) -> String)(String.from("ar"))));
+impl(_ArObj, Error());
+impl(_ArObj, Clone(clone : (fn(self : &Self) -> Self)(_ArObj(n : self.n))));
+_ar_leaf :: (fn(n : i32, io : Io) -> Impl(Future(i32)))(io.async((e : Io) => n));
+_ar_throw :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => {
+    r := e.io.await(_ar_leaf(i32(4), e.io), e.io);
+    cond(
+      (r > i32(0)) => e.exn.throw(dyn(Box.new(_ArObj(n : r)))),
+      true => r
+    )
+  })
+);
+_ar_catch :: (fn(io : Io) -> i32)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(match(downcast(&err.*, _ArObj), .Some(a) => a.n, .None => i32(-1)));
+      }
+    )
+  );
+  io.await(_ar_throw(io), IoExn(io : io, exn : exn))
+});
+test("an AnyError thrown across an await is caught and its payload dropped once", {
+  g_ar_drops = i32(0);
+  assert(_ar_catch(io) == i32(4), "the handler read the payload through a view");
+  assert(g_ar_drops == i32(1), "the thrown box dropped once");
+});
+_ar_holder :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    (b : Box(Dyn(_ArSp))) = dyn(Box.new(_ArObj(n : i32(7))));
+    io.await(sleep(u64(30)), io);
+    b.ar_sp()
+  })
+);
+test("an aborted task that owns a Box(Dyn) drops it once", {
+  g_ar_drops = i32(0);
+  mut(handles) := ArrayList(JoinHandle(i32)).new();
+  handles.push(io.spawn(_ar_holder(io), io));
+  handles.push(io.spawn(_ar_leaf(i32(1), io), io));
+  handles(usize(0)).abort();
+  results := io.await(join_all(handles, io), io);
+  assert(results(usize(0)).is_none(), "the aborted task has no result");
+  assert(g_ar_drops == i32(1), "its Box(Dyn) local dropped once");
 });

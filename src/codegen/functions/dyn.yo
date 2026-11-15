@@ -96,6 +96,18 @@ generate_dyn_dup_drop :: (fn(context : &mut FunctionGenerationContext) -> unit)(
 /// Generate box constructor + dispose functions for dyn impls. The
 /// concrete type's drop fn resolves via get_drop_function_for_type (the
 /// type-method registry).
+/// The receiver a dyn wrapper passes to the impl for a payload of C type
+/// `pay_c` at `self_ptr` (decision 49's payload convention: the data word
+/// points at the payload). A `unit` payload (`void`) is zero-sized: by value
+/// its argument is the one-byte `0` (`get_storage_type_string`), by pointer
+/// the data word itself.
+_dyn_payload_receiver :: (fn(pay_c : &String, by_ptr : bool) -> String)(
+  cond(
+    (pay_c.* == "void") => if(by_ptr, String.from("self_ptr"), String.from("0")),
+    by_ptr => `((${pay_c.*}*)self_ptr)`,
+    true => `(*(${pay_c.*}*)self_ptr)`
+  )
+);
 generate_dyn_box_functions :: (fn(context : &mut FunctionGenerationContext) -> unit)({
   if(context.base.dyn_impls.is_empty(), {
     return(());
@@ -123,6 +135,11 @@ generate_dyn_box_functions :: (fn(context : &mut FunctionGenerationContext) -> u
         if(!generated.contains(box_name.clone()), {
           generated.insert(box_name.clone());
           value_str := get_type_string(dyn_concrete_res.clone(), &mut context.base);
+          // A `unit` payload is zero-sized: the box stores no member and its
+          // constructor takes the one-byte by-value `unit` argument
+          // (`get_storage_type_string`), as every storage position erases it.
+          is_unit_payload := (value_str == "void");
+          param_str := if(is_unit_payload, String.from("uint8_t"), value_str.clone());
           // Late-registered dyn impl (registered during body generation, after
           // the type-decl phase's box pass): emit the missing typedef into the
           // DECLARATIONS section now — see CodeGenContext.dyn_box_typedefs.
@@ -130,14 +147,16 @@ generate_dyn_box_functions :: (fn(context : &mut FunctionGenerationContext) -> u
             context.base.dyn_box_typedefs.insert(box_name.clone());
             context.base.emitter.emit_declaration_line("typedef struct {");
             context.base.emitter.emit_declaration_line("  __yo_ref_header_t header;");
-            context.base.emitter.emit_declaration_string_line(`  ${value_str} value;`);
+            if(!is_unit_payload, {
+              context.base.emitter.emit_declaration_string_line(`  ${value_str} value;`);
+            });
             context.base.emitter.emit_declaration_string_line(`} ${box_name};`);
             context.base.emitter.emit_declaration_line("");
-            context.base.emitter.emit_declaration_string_line(`static ${box_name}* __yo_new_${box_name}(${value_str} value);`);
+            context.base.emitter.emit_declaration_string_line(`static ${box_name}* __yo_new_${box_name}(${param_str} value);`);
             context.base.emitter.emit_declaration_string_line(`static void __yo_dispose_${box_name}(void* ptr);`);
             context.base.emitter.emit_declaration_line("");
           });
-          context.base.emitter.emit_string_line(`static ${box_name}* __yo_new_${box_name}(${value_str} value) {`);
+          context.base.emitter.emit_string_line(`static ${box_name}* __yo_new_${box_name}(${param_str} value) {`);
           // `dyn(...)`'s own box is global (ALLOCATOR_PLACEMENT.md §2.4: a
           // placed payload is a placed `Rc`, used as the data object).
           context.base.emitter.emit_string_line(`  ${box_name}* box = (${box_name}*)__yo_rc_alloc(sizeof(${box_name}));`);
@@ -146,7 +165,7 @@ generate_dyn_box_functions :: (fn(context : &mut FunctionGenerationContext) -> u
           dispose_name := `__yo_dispose_${box_name}`;
           tid := context.base.dispose_type_id_for(dispose_name.clone());
           context.base.emitter.emit_string_line(`  box->header.type_id = ${tid.to_string()};`);
-          context.base.emitter.emit_line("  box->value = value;");
+          context.base.emitter.emit_line(if(is_unit_payload, "  (void)value;", "  box->value = value;"));
           context.base.emitter.emit_line("  return box;");
           context.base.emitter.emit_line("}");
           context.base.emitter.emit_line("");
@@ -481,7 +500,7 @@ _emit_dyn_clone_function :: (
       }, {
         concrete_str := get_type_string(concrete_type.clone(), &mut context.base);
         if(value_payload, {
-          receiver = if(self_by_ptr, `(${concrete_str}*)self_ptr`, `(*(${concrete_str}*)self_ptr)`);
+          receiver = _dyn_payload_receiver(&concrete_str, self_by_ptr);
         }, {
           context.base.emitter.emit_declaration_string_line(`  ${concrete_str} concrete_value = (${concrete_str})self_ptr;`);
           receiver = if(self_by_ptr, String.from("&concrete_value"), String.from("concrete_value"));
@@ -933,7 +952,7 @@ generate_dyn_wrapper_functions :: (fn(context : &mut FunctionGenerationContext) 
                                   if(impl_entry.payload_convention, {
                                     // A reference-kind Dyn: the data word is the payload's address.
                                     pay_c := get_type_string(self_concrete.clone(), &mut context.base);
-                                    first_arg = if(pbp, `((${pay_c}*)self_ptr)`, `(*(${pay_c}*)self_ptr)`);
+                                    first_arg = _dyn_payload_receiver(&pay_c, pbp);
                                   }, if(is_boxed, {
                                     boxed_cname := _boxed_c_name(data_type.clone(), context);
                                     field_name := _box_field_name(data_type.clone());
