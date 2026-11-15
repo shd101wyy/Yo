@@ -2112,7 +2112,7 @@ _register_manifest_import_roots :: (fn(fs_path : &String, exn : Exception) -> un
         .Err(msg) => {
           // Forget the failed registration so a corrected manifest is re-read.
           g_manifest_roots_for = Option(String).None;
-          exn.throw(dyn(msg));
+          exn.throw(dyn(Box.new(msg)));
           load_manifest(&manifest_path, exn).unwrap()
         }
       );

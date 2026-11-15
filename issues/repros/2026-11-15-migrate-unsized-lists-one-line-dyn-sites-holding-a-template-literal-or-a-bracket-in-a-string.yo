@@ -1,0 +1,12 @@
+{ String } :: import("std/string");
+Show :: trait(show : (fn(self : &Self) -> String));
+impl(String, Show(show : (self -> self.clone())));
+a :: (fn() -> Box(Dyn(Show)))(dyn(`hi`));
+b :: (fn() -> Box(Dyn(Show)))(dyn(String.from("a[b")));
+c :: (fn() -> Box(Dyn(Show)))(dyn(String.from("ab")));
+main :: (fn() -> unit)({
+  x := a();
+  y := b();
+  z := c();
+});
+export(main);
