@@ -2754,15 +2754,17 @@ _find_specialization_cache :: (
                         _ => false
                       )
                     );
-                    cap_ids_differ := match(
-                      &cached_ty,
-                      Rc(.Struct(_)) => _cap_ids_differ(&cached_ty, &current_ty),
-                      Rc(.Pointer(cached_cap_pt)) => match(
-                        &current_ty,
-                        Rc(.Pointer(current_cap_pt)) => _cap_ids_differ(&cached_cap_pt.*, &current_cap_pt.*),
+                    cap_ids_differ := cond(
+                      is_pointer_type(&cached_ty) && is_pointer_type(&current_ty) => match(
+                        &cached_ty,
+                        Rc(.Pointer(cached_cap_pt)) => match(
+                          &current_ty,
+                          Rc(.Pointer(current_cap_pt)) => _cap_ids_differ(&cached_cap_pt.*, &current_cap_pt.*),
+                          _ => false
+                        ),
                         _ => false
                       ),
-                      _ => false
+                      true => _cap_ids_differ(&cached_ty, &current_ty)
                     );
                     // Two FUTURE WRAPPERS are one argument type only when
                     // their resolution chains end in one future: two
