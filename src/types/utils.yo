@@ -2040,7 +2040,7 @@ type_requires_explicit_copy :: (fn(ty : &TypeValue) -> bool)(type_is_move_only(t
 /// `yo fix --migrate rc-clone` suspends the rule while it records the copies
 /// it spells (`set_counted_handle_rule`): the tree it migrates still copies
 /// them implicitly.
-type_holds_counted_handle :: (fn(ty : &TypeValue) -> bool)(g_counted_handle_rule_on && type_holds_counted_handle_ignoring_migration(ty));
+type_holds_counted_handle :: (fn(ty : &TypeValue) -> bool)((g_counted_handle_rule_on || type_holds_dyn_by_value(ty)) && type_holds_counted_handle_ignoring_migration(ty));
 /// `type_holds_counted_handle` whether or not the rule is suspended (by `yo
 /// fix --migrate rc-clone`): what the migration records a copy by, so it
 /// spells exactly the copies the rule rejects.
