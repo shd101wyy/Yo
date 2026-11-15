@@ -9,7 +9,17 @@
 ```yo
 Speak :: trait(speak : (fn(self : &Self) -> i32), bump : (fn(self : &mut Self) -> unit));
 Cat :: struct(n : i32);
-impl(Cat, Speak(speak : ((self : &Self) -> self.n), bump : ((self : &mut Self) -> { self.n = (self.n + i32(1)); })));
+impl(
+  Cat,
+  Speak(
+    speak : ((self : &Self) -> self.n),
+    bump : (
+      (self : &mut Self) -> {
+        self.n = (self.n + i32(1));
+      }
+    )
+  )
+);
 bump :: (fn(d : &mut Dyn(Speak)) -> unit)(d.bump());
 main :: (fn() -> unit)({
   (d : Box(Dyn(Speak))) = dyn(Box.new(Cat(n : i32(3))));

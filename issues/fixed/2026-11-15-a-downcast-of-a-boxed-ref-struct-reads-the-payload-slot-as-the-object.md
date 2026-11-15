@@ -10,7 +10,7 @@ flip's stage 2 crashes on its first `YoError` downcast — `malloc returned None
 ```yo
 _DrsObj :: ref(struct(n : i32));
 (e : AnyError) = dyn(_DrsObj(n : i32(7)));
-match(downcast(&e, _DrsObj), .Some(o) => o.n, .None => i32(0))   // garbage
+match(downcast(&e, _DrsObj), .Some(o) => o.n, .None => i32(0)) // garbage
 ```
 
 Found by stage 2 of the flip (`check ./std` aborts in `primary_diagnostic_code`, whose
