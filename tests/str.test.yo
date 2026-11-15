@@ -94,3 +94,17 @@ test("slice_copy takes its receiver by value: the view it returns is static only
   assert((s(usize(1) .. usize(4)) == "ell") && (s(usize(0) ..= usize(1)) == "he"), "the range subscripts lower to slice_copy");
   assert(s(usize(3) .. usize(99)) == "lo", "an end past the length is clamped");
 });
+// A `&str` parameter takes a place of type `str`, as `(x : &T)` takes one of
+// `T`; a literal is that place (static bytes), and a `&str` value passed bare
+// lends what it refers to. The read intrinsics are declared `(s : &str)`
+// (issues/2026-11-15-a-string-literal-passed-to-a-str-reference-parameter-is-e0601-after-the-str-flip.md).
+impl(str, byte_count : (fn(self : &Self) -> usize)(__yo_str_len(self)));
+_count_bytes :: (fn(s : &str) -> usize)(s.len());
+test("a &str parameter takes a literal, a &str binding and a receiver", {
+  assert(__yo_str_len("abcd") == usize(4), "a literal into the extern's &str parameter");
+  s := "hello";
+  assert(__yo_str_len(s) == usize(5), "a &str binding into the extern's &str parameter");
+  assert(_count_bytes("abc") == usize(3), "a literal into a Yo function's &str parameter");
+  assert(_count_bytes(s) == usize(5), "a &str binding into a Yo function's &str parameter");
+  assert(("xy".byte_count() == usize(2)) && (s.byte_count() == usize(5)), "a receiver lent to the extern by an impl(str) method");
+});
