@@ -1307,3 +1307,18 @@ test("a Dyn's Clone is not a method of the erased value", {
     "clone"
   );
 });
+// A pointer to an unsized pointee is the fat pair, and the evaluator's layout
+// says so: a struct holding an `AnyError` measured one word short, so
+// `Box.new` of it allocated 8 bytes too few (an ASan heap-buffer-overflow in
+// error_ergonomics' "Context nests" row,
+// issues/2026-11-15-sizeof-of-a-pointer-to-an-unsized-pointee-is-thin.md).
+_SzHolder :: struct(tag : usize, err : AnyError);
+test("a Box(Dyn) and a *Dyn are two words, and a struct holding one is laid out so", {
+  assert(sizeof(Box(Dyn(TestDyn))) == (usize(2) * sizeof(usize)), "Box(Dyn) is the fat pair");
+  assert(sizeof(*(Dyn(TestDyn))) == (usize(2) * sizeof(usize)), "*Dyn is the fat pair");
+  assert(sizeof(*(i32)) == sizeof(usize), "a pointer to a sized pointee stays thin");
+  assert(sizeof(_SzHolder) == (usize(3) * sizeof(usize)), "the tag and the fat error");
+  (inner : AnyError) = dyn(Box.new(_DcFd(n : i32(5))));
+  b := Box.new(_SzHolder(tag : usize(7), err : inner));
+  assert(b.*.tag == usize(7), "the boxed holder reads back");
+});

@@ -3649,11 +3649,22 @@ get_size_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
     Rc(.CLongLong) => .None,
     Rc(.CULongLong) => .None,
     Rc(.CLongDouble) => .None,
-    // Pointer and function types are pointer-sized
-    Rc(.Pointer(_)) => .Some(usize(get_target_pointer_size_bits())),
+    // Pointer and function types are pointer-sized, except a pointer to an
+    // UNSIZED pointee (`*Dyn(T)`, `*[T]`, decision 49), which codegen lays out
+    // as the fat `{ data, vtable | len }` pair (`is_unsized_pointee`) = 2 ×
+    // pointer size. Sizing it thin made `Box.new(v)` of a struct holding an
+    // `AnyError` (a `Box(Dyn)`) allocate 8 bytes short
+    // (issues/2026-11-15-sizeof-of-a-pointer-to-an-unsized-pointee-is-thin.md).
+    Rc(.Pointer(sz_pointee)) => cond(
+      type_is_sized(&sz_pointee) => Option(usize).Some(usize(get_target_pointer_size_bits())),
+      true => Option(usize).Some(usize(u32(2) * get_target_pointer_size_bits()))
+    ),
     // A reference (`&T` / `&mut T`, decision 43) is a pointer in C (N2b:
-    // `const T*` / `T*`).
-    Rc(.Reference(_, _, _)) => .Some(usize(get_target_pointer_size_bits())),
+    // `const T*` / `T*`), fat over an unsized pointee as above.
+    Rc(.Reference(sz_ref_pointee, _, _)) => cond(
+      type_is_sized(&sz_ref_pointee) => Option(usize).Some(usize(get_target_pointer_size_bits())),
+      true => Option(usize).Some(usize(u32(2) * get_target_pointer_size_bits()))
+    ),
     Rc(.Func({ result : _ })) => .Some(usize(get_target_pointer_size_bits())),
     // Array: element size × length
     // `Array(unit, N)`: the wrapper has no `data` member, only the one-byte
