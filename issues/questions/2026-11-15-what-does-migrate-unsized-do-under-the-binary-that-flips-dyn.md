@@ -1,6 +1,9 @@
 # What does `yo fix --migrate unsized` do under the binary that flips `Dyn`?
 
-**Raised:** 2026-11-15, d49-flip lane (decision 49 S2 flip A, VERDICTS-58/-61).
+**Kind:** design question. **Decided 2026-11-15: option 3** (coordinator; precedent E0009 and
+v0.2.76's `--migrate borrow-spelling`), implemented in the flip. See "Verdict" below.
+
+*Raised 2026-11-15 by the d49-flip lane (decision 49 S2 flip A, VERDICTS-58/-61).*
 
 ## The question
 
@@ -42,3 +45,17 @@ README projects already ran it on v0.2.77 (VBD_RELEASE_SCHEDULE v0.2.77 row). Th
 the post-flip spelling and keeps the parts v0.2.78 still evaluates (type spellings, `dyn(v)` alias
 sites, the views). Option 1 can follow in v0.2.79 if user reports show it is needed. Option 2 costs
 a deleted intercept for one release, so not that.
+
+## Verdict
+
+Coordinator, 2026-11-15: option 3, on the precedent of E0009 and v0.2.76. Decision 42's deleted mode
+words are E0009, and its help names `yo fix --migrate borrow-spelling` on v0.2.76; the
+no-backward-compatibility policy applies.
+
+- E0619 at a by-value `Dyn(...)` names the path in its help:
+  `yo version install 0.2.77 && yo fix <path> --migrate unsized`
+  (`unsized_by_value_error`, `src/types/utils.yo`). `yo explain E0619` says the same in both
+  languages. Test: `tests/sized.test.yo` "a bare Dyn by value is E0619 and names the v0.2.77
+  migration".
+- `tests/cli-cases/fix-migrate-unsized` moves to the v0.2.78 spelling.
+- The release notes carry a Breaking bullet.

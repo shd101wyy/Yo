@@ -77,6 +77,14 @@ test("an unsized type by value is E0619", {
   comptime_expect_error((fn(x : &i32) -> [i32])(x), "a by-value result");
 });
 
+_SzSpeak :: trait(sz_speak : (fn(self : &Self) -> i32));
+test("a bare Dyn by value is E0619 and names the v0.2.77 migration", {
+  comptime_expect_error(Option(Dyn(_SzSpeak)), "is not `Sized`");
+  comptime_expect_error(Option(Dyn(_SzSpeak)), "yo version install 0.2.77 && yo fix <path> --migrate unsized");
+  comptime_expect_error(struct(a : Dyn(_SzSpeak), b : i32), "--migrate unsized");
+  comptime_assert(Type.impls(Option(Box(Dyn(_SzSpeak))), Sized), "the owning box is sized");
+});
+
 test("a ?Sized binder used by value is E0619 at the definition", {
   comptime_expect_error(
     (fn(generic(T : ?Sized), x : &T) -> unit)({

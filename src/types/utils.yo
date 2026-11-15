@@ -1458,23 +1458,28 @@ no_origin_position_error :: (fn(ty : &TypeValue, position : &String, why : &Stri
 /// E0619 (decision 49): the unsized `ty` is used at `position` (a phrase
 /// such as "a local", "the argument of `Option`'s `T : Type`"), which needs a
 /// size. `binder` names the `generic(T : Type)` binder to relax when the
-/// position is one, so the help can name `?Sized`.
-unsized_by_value_error :: (fn(ty : &TypeValue, position : &String, binder : &Option(String), tok : &Token) -> YoError)(
+/// position is one, so the help can name `?Sized`. A by-value `Dyn(...)` is
+/// how v0.2.77 and earlier spelled the owning box: the help names the
+/// migration that rewrites it and the release that ships it (as E0009 names
+/// v0.2.76's `--migrate borrow-spelling`).
+unsized_by_value_error :: (fn(ty : &TypeValue, position : &String, binder : &Option(String), tok : &Token) -> YoError)({
+  (help : String) = match(
+    binder,
+    .Some(b) => `\`${b}\` is a \`Type\` binder, which implies \`where(${b} <: Sized)\`; declare it \`${b} : ?Sized\` if the body uses it only behind a pointer`,
+    .None => String.from("take the value behind a reference (`&T`), or use a sized type such as `Array(T, N)`")
+  );
+  if(is_dyn_type(ty), {
+    help = `${help}; code written for v0.2.77 or earlier, where a bare \`Dyn(...)\` was the owning box, is upgraded on v0.2.77: \`yo version install 0.2.77 && yo fix <path> --migrate unsized\` writes it \`Box(Dyn(...))\``;
+  });
   with_code(
     format_error_message_with_help(
       tok,
       `\`${type_to_string(ty)}\` is not \`Sized\`: ${position} needs a size, and an unsized type lives only behind a pointer (\`&T\`, \`&mut T\`, \`*T\`; plans/VALUES_BY_DEFAULT.md decision 49).`,
-      Option(String).Some(
-        match(
-          binder,
-          .Some(b) => `\`${b}\` is a \`Type\` binder, which implies \`where(${b} <: Sized)\`; declare it \`${b} : ?Sized\` if the body uses it only behind a pointer`,
-          .None => String.from("take the value behind a reference (`&T`), or use a sized type such as `Array(T, N)`")
-        )
-      )
+      Option(String).Some(help)
     ),
     E_UNSIZED_BY_VALUE
   )
-);
+});
 /// E0909 for a failed `where(<label> <: Escapable)` bound (decision 43,
 /// plans/backlog/REFERENCES_AND_ORIGINS.md O10), the prelude's `Rc`/`Arc`
 /// payload bound included.
