@@ -719,7 +719,7 @@ _ArmOwnership :: struct(
   is_mut : bool
 );
 _ownership_hidden_bind :: (fn(own : &mut _ArmOwnership, ty : &TypeValue, env : &Environment) -> BindInfo)({
-  tok := own.tok;
+  tok := Rc.clone(own.tok);
   name := generate_new_temp_variable_name(&env.module_path().*, usize(tok.row), usize(tok.column), Option(String).Some(`mv${own.counter.to_string()}`), Option(String).Some(tok.module_path.*.clone()));
   own.counter = (own.counter + usize(1));
   atok := Rc.new(TokenData(kind : TokenKind.Identifier, value : Rc.new(name.clone()), row : tok.row, column : tok.column, character : tok.character, byte_offset : tok.byte_offset, module_path : Rc.clone(tok.module_path), input : Rc.clone(tok.input)));
@@ -902,7 +902,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
     },
     .Struct(struct_ty, field_idx, subs, arity) => {
       cell := (in_cell || pattern_position_is_cell(ty));
-      ftys := match(struct_ty, Rc(.Struct({ field_types : fts })) => Rc.clone(fts), _ => no_types());
+      ftys := match(&struct_ty, Rc(.Struct({ field_types : fts })) => Rc.clone(fts), _ => no_types());
       new_idx := ArrayList(usize).new();
       new_subs := ArrayList(Pattern).new();
       (i : usize) = usize(0);

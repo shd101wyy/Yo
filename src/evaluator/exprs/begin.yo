@@ -746,7 +746,7 @@ _m3_span_contains :: (fn(node : &AstExpr, t : &Token) -> bool)({
 _m3_consumed_for_arm :: (fn(args : &ArrayList(AstExpr), i : usize, variable : &Variable, consumed : &Option(Token)) -> Option(Token))({
   ct := match(consumed, .Some(t) => t.*, .None => return(Option(Token).None));
   if((i == usize(0)) || !_m3_is_flow_logged_move(variable, &ct), {
-    return(consumed.*);
+    return(consumed.*.clone());
   });
   (j : usize) = usize(0);
   while(j < i, {
@@ -801,7 +801,7 @@ _m3_consumed_for_call_arg :: (fn(call : &AstExpr, args : &ArrayList(AstExpr), i 
   ct := match(consumed, .Some(t) => t.*, .None => return(Option(Token).None));
   // A block's statements run one by one: an earlier one is not an argument.
   if(ast_expr_is_fn_call_of(call, BK_BEGIN, Option(usize).None), {
-    return(consumed.*);
+    return(consumed.*.clone());
   });
   match(_m3_first_arg_after_move(call, args, variable, &ct, ctx), .Some(k) => if(i >= k, return(Option(Token).None)), .None => ());
   consumed.*
@@ -925,7 +925,7 @@ _m3_note_arg_move_region :: (fn(expr : &AstExpr, variable : &Variable, ct : &Tok
             .Some(later) => {
               first := ast_comparable_token_bounds(&later, ct);
               whole := ast_comparable_token_bounds(expr, ct);
-              note_arg_move_region(variable.id(), first.0, whole.1);
+              note_arg_move_region(variable.id(), Rc.clone(first.0), Rc.clone(whole.1));
               return(true);
             },
             .None => ()
@@ -2011,7 +2011,7 @@ _ic_merge :: (fn(acc : &mut _ICScan, sub : &_ICScan) -> unit)({
   if(sub.later, {
     acc.later = true;
     if(acc.later_tok.is_none(), {
-      acc.later_tok = sub.later_tok;
+      acc.later_tok = sub.later_tok.clone();
     });
   });
 });
@@ -2362,7 +2362,7 @@ judge_dyn_copies :: (fn(frame : &Frame, scanned : &ArrayList(AstExpr), ctx : &Ev
                   match(scanned.get(ci), .Some(c) => _ic_scan(&c, &v, &p.site, &mut acc, ctx), .None => ());
                 });
                 if(acc.later, {
-                  raise_flow_violation(dyn_copy_used_again_error(&p, acc.later_tok), ctx, exn);
+                  raise_flow_violation(dyn_copy_used_again_error(&p, acc.later_tok.clone()), ctx, exn);
                 });
               },
               .None => ()
@@ -3251,7 +3251,7 @@ _evaluate_begin_expression_impl :: (
                         );
                         ir_entries.push(
                           TokenAndError(
-                            token : ir_first.token,
+                            token : Rc.clone(ir_first.token),
                             error_message : `First return has concrete type: ${type_to_string(&ir_first.concrete_type)}`
                           )
                         );
@@ -4145,7 +4145,7 @@ _evaluate_begin_expression_impl :: (
                 !eligible => false,
                 true => {
                   if(block_start.is_none(), {
-                    block_start = .Some(ast_comparable_token_bounds(expr, &begin_tok).0);
+                    block_start = .Some(Rc.clone(ast_comparable_token_bounds(expr, &begin_tok).0));
                   });
                   match(&block_start, .Some(bs) => _m3_token_is_at_or_before(bs, &it), .None => false)
                 }
@@ -4159,7 +4159,7 @@ _evaluate_begin_expression_impl :: (
               consumed_escape_drops.push(evaluated);
               _m3_note_arg_move_region_in(&begin_args, &ev, ctx);
               (dai : usize) = usize(0);
-              ev_init := match(ev.initialized_at_token(), .Some(it) => it, .None => begin_tok);
+              ev_init := match(ev.initialized_at_token(), .Some(it) => it, .None => Rc.clone(begin_tok));
               while(dai < begin_args.len(), {
                 match(
                   begin_args.get(dai),

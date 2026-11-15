@@ -239,7 +239,7 @@ _find_variant_decl :: (fn(e : &AstExpr, variant : &String, out : &mut ArrayList(
           match(
             args.get(i),
             .Some(.Atom(_, at)) => if(at.value.* == variant.*, {
-              out.push(at);
+              out.push(Rc.clone(at));
             }),
             .Some(.FnCall(_, vf, _, _, _)) => if(_atom_is(&vf, variant.clone()), {
               out.push(ast_expr_token(&vf));

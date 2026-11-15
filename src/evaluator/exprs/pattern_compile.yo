@@ -107,16 +107,18 @@ _func_of :: (fn(e : &AstExpr) -> Option(AstExpr))(
 _atom_name :: (fn(e : &AstExpr) -> String)(ast_expr_token(e).value.*.clone());
 /// A token for a synthesized node, positioned at `base`.
 _synth_token :: (fn(base : &Token, kind : TokenKind, value : &String) -> Token)(
-  Rc.new(TokenData(
-    kind : kind,
-    value : Rc.new(value.clone()),
-    row : base.row,
-    column : base.column,
-    character : base.character,
-    byte_offset : base.byte_offset,
-    module_path : Rc.clone(base.module_path),
-    input : Rc.clone(base.input)
-  ))
+  Rc.new(
+    TokenData(
+      kind : kind,
+      value : Rc.new(value.clone()),
+      row : base.row,
+      column : base.column,
+      character : base.character,
+      byte_offset : base.byte_offset,
+      module_path : Rc.clone(base.module_path),
+      input : Rc.clone(base.input)
+    )
+  )
 );
 _synth_atom :: (fn(base : &Token, kind : TokenKind, value : &String) -> AstExpr)(
   AstExpr.Atom(alloc_global_expr_id(), _synth_token(base, kind, value))
@@ -131,7 +133,7 @@ _synth_infix :: (fn(base : &Token, op : str, lhs : &AstExpr, rhs : &AstExpr) -> 
   // operator emitters key on it, and with the literal's token here the call
   // took the generic path and rendered `"a"` as an identifier.
   op_tok := _synth_token(base, TokenKind.Operator, String.from(op));
-  AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), op_tok), Rc.new(args), true, op_tok)
+  AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), Rc.clone(op_tok)), Rc.new(args), true, op_tok)
 });
 /// True for an atom whose token is a literal kind (compared, never bound).
 _is_literal_atom :: (fn(e : &AstExpr) -> bool)(

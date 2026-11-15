@@ -847,7 +847,7 @@ sequence_operand :: (fn(arg : &AstExpr, code : String, operands : &ArrayList(Ast
       k = (k + usize(1));
     });
   });
-  ty := match(hold_ty, .Some(t) => t, .None => return(code));
+  ty := match(hold_ty, .Some(t) => Rc.clone(t), .None => return(code));
   tmp := fresh_local_name(String.from("__yo_seq_"), &context.base.current_function_name);
   emit_text2 := `${indent}${get_variable_type_string(&ty, tmp.clone(), &mut context.base)} = ${code};`;
   context.base.emitter.emit_string_line(&emit_text2);
@@ -959,7 +959,7 @@ _operand_is_constant_enum_ctor :: (fn(arg : &AstExpr, ei : &ExprInfo, context : 
       // of `ei.ty` with no payload fields.
       if((n == usize(2)) && ast_expr_is_fn_call_of(arg, BF_DOT, Option(usize).Some(usize(2))), {
         base := match(pargs.get(usize(0)), .Some(b) => b, .None => return(false));
-        ftok := match(pargs.get(usize(1)), .Some(.Atom(_, t)) => t, _ => return(false));
+        ftok := match(pargs.get(usize(1)), .Some(.Atom(_, t)) => Rc.clone(t), _ => return(false));
         base_is_type := match(
           context.base.get_expr_info(&base),
           .Some(bei) => match(bei.value(), .Some(.TypeVal(_)) => true, _ => false),
