@@ -26,7 +26,7 @@
 { expr_contains_await } :: import("../../expr_traversal.yo");
 { TokenKind } :: import("../../token.yo");
 { generate_yo_inline_function_call } :: import("./inline_fns.yo");
-{ _call_generate_expr, call_projection_mode } :: import("./_expr.yo");
+{ _call_generate_expr, call_projection_mode, unsized_lend_pair_code } :: import("./_expr.yo");
 { emit_effect_unwind_check, generate_call_deferred_drops } :: import("./return.yo");
 { generate_thread_spawn_call, generate_worker_spawn_call } :: import("./parallelism.yo");
 { get_c_include_for_extern } :: import("../../evaluator/exprs/c_include.yo");
@@ -1272,35 +1272,6 @@ _closure_ref_spill_c_type :: (fn(default_cty : String, rei : &ExprInfo, context 
   });
   default_cty
 });
-/// The C of a lend of an UNSIZED place (decision 49): the place of a `Dyn`
-/// behind a fat pair reads `(*pair)`, and the lend is the pair itself, so a
-/// whole-expression `(*X)` folds to `X`. Any other code is the pair already.
-unsized_lend_pair_code :: (fn(code : &String) -> String)({
-  if(!(code.starts_with("(*") && code.ends_with(")")), {
-    return(code.clone());
-  });
-  // The leading `(` must close at the very end: `(*a) + (b)` is no place.
-  (depth : i64) = i64(0);
-  (k : usize) = usize(0);
-  n := code.len();
-  while(k < n, k = (k + usize(1)), {
-    ch := code.byte_at(k);
-    cond(
-      (ch == u8(0x28)) => {
-        depth = (depth + i64(1));
-      },
-      (ch == u8(0x29)) => {
-        depth = (depth - i64(1));
-        if((depth == i64(0)) && ((k + usize(1)) < n), {
-          return(code.clone());
-        });
-      },
-      true => ()
-    );
-  });
-  code.substring(usize(2), n - usize(1))
-});
-export(unsized_lend_pair_code);
 /// Apply the auto-`&` wrap to ref-parameter arguments (fold `(*x)`→`x`, wrap
 /// bare literals in a compound literal, address-of addressable exprs, else
 /// spill to a temp).
