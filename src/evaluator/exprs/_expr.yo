@@ -111,7 +111,6 @@ import("std/fmt");
   BF_SET_ADD,
   BF_SET_CONTAINS,
   BF_RUNTIME,
-  BF_YO_BORROW_CHECK,
   BF_UNWIND,
   BF_RECUR,
   BF_DOT,
@@ -249,7 +248,7 @@ import("std/fmt");
 { evaluate_initialization_assignment, evaluate_local_borrow_repoint } :: import("./initialization_assignment.yo");
 { evaluate_assignment } :: import("./assignment.yo");
 { evaluate_recur } :: import("./recur.yo");
-{ evaluate_runtime, evaluate_borrow_check } :: import("./runtime.yo");
+{ evaluate_runtime } :: import("./runtime.yo");
 { is_pointer_type } :: import("../../types/guards.yo");
 { is_pointer_value_capable_file } :: import("../memory_safety.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -799,8 +798,6 @@ _evaluate_expression :: (
           evaluate_recur(expr, env, ctx, exn),
         ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_RUNTIME, .None)) =>
           evaluate_runtime(expr, env, ctx, exn),
-        ((__dk_len == usize(17)) && ast_expr_is_fn_call_of(expr, BF_YO_BORROW_CHECK, .None)) =>
-          evaluate_borrow_check(expr, env, ctx, exn),
         ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BK_EXTERN, .None)) =>
           evaluate_extern(expr, env, ctx, exn),
         ((__dk_len == usize(9)) && ast_expr_is_fn_call_of(expr, BK_C_INCLUDE, .None)) =>

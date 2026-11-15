@@ -224,10 +224,10 @@ binder means Step 7's re-evaluation lost a binding that Step 6 made
 
 - **`check` gives each module its own ExprInfo table and drops it when the module
   finishes** (`compile` and `test` share one). A walk over a callee's evaluated
-  body (rule D1's reach walk, the StrictBorrow masks) therefore reads another
+  body (rule D1's reach walk, the parameter mutation masks) therefore reads another
   module's function through the memo `summarize_function_bodies`
   (`src/evaluator/effects/mutation_summary.yo`) took at that module's end. A
-  `check`-only E0906 "never evaluated" or `Strict borrow: … may mutate` on code
+  `check`-only E0906 "never evaluated" on code
   `compile` accepts means a body was not summarized: `YO_DEBUG_BODY_SUMMARY=1`
   prints `[body-summary] <module> offered=N summarized=M` per load
   (`issues/fixed/check-cannot-see-function-bodies-from-other-modules.md`).

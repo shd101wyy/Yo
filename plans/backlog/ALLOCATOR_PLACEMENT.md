@@ -399,6 +399,13 @@ it; its drop reads the bit, then the record, and frees through the owner, tellin
     allocator, a placed `Box(i64)` asks `16 + 8` at alignment 16 and a placed `Box(unit)` asks 16; a global
     `Box(i64)` asks 8 and a global `Box(unit)` asks nothing; `dyn(Box.new(<captureless closure>))` allocates
     nothing; the probe below rerun and recorded here; the memory ratchet moves down or holds.
+    *As built (2026-11-13, `vbd/d49-s2`):* `Box(V : ?Sized)`'s `new`/`into_inner`/`Default` stay sized; the
+    `?Sized` impl reads the handle's first word (`_word`), masks it (`_payload`, which keeps an unsized pointer's
+    length or vtable) and frees by `size_of_val`/`align_of_val` (`_free_cell`); `Clone` allocates
+    `size_of_val(src)` and writes through `CloneInto`. `tests/explicit_allocators.test.yo`: a placed `Box(i64)`
+    asks 24, a placed 64-byte payload 80, a placed `Box(unit)` 16; a global `Box(unit)`'s handle is `16`;
+    `into_inner` of a placed box frees through its owner. The `dyn(Box.new(<captureless closure>))` row waits for
+    S2's flip (`Box(Dyn)` is still the legacy value), and the RSS probe is not rerun during VBD (no perf gates).
   - **L3, compiler:** a placed `Rc`/`Arc` cell drops its extent once S2 has typed every release path. v0.2.79, or
     with the cycle collector's deletion if its sweep still needs a type-erased free.
 

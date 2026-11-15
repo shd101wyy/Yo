@@ -1,0 +1,21 @@
+// expect: accept
+// `M(rp : &mut r)` lends the reference binding `r` itself to a `&mut &T` field (§7 P3), not `r`'s
+// referent, so `r` being a `&` borrow does not make it read-only here. The store `m.rp.* = ri` re-points
+// `r` at `other`, which outlives every read of `r`.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+mk :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+M :: struct(rp : &mut&Rc(X));
+main :: (fn() -> unit)({
+  outer := mk();
+  other := mk();
+  mut(r) := &outer;
+  {
+    m := M(rp : &mut r);
+    ri := &other;
+    m.rp.* = ri;
+  };
+  println(`OUT: ${r.*.*.s.len().to_string()}`);
+});
+export(main);

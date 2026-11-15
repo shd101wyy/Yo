@@ -31,7 +31,7 @@
   expr_info_set_comptime_unrolled_bodies,
   branch_init_log_len
 } :: import("../../expr_info.yo");
-{ check_loop_flow, snapshot_loop_flow } :: import("../utils.yo");
+{ check_loop_flow, snapshot_loop_flow, local_borrow_loop_begin, local_borrow_loop_end, local_borrow_flow_region_begin, local_borrow_flow_region_end } :: import("../utils.yo");
 { expr_contains_loop_terminator } :: import("../../expr_traversal.yo");
 { Environment, snapshot_env, env_adopt, variable_value_type } :: import("../../env.yo");
 { get_variables_from_env } :: import("../../env.yo");
@@ -373,6 +373,14 @@ evaluate_while :: (
     ),
     true => raw_cond_expr
   );
+  // Cluster 4: the loop (its condition, body and step) runs on some paths
+  // only, and a runtime loop's back edge is judged at its end
+  // (`local_borrow_loop_end`), from the accesses recorded from here on.
+  loop_region := local_borrow_flow_region_begin();
+  loop_depth := local_borrow_loop_begin();
+  loop_head := ArrayList(AstExpr).new();
+  loop_head.push(inner_cond_expr.clone());
+  match(&step_expr_opt, .Some(se) => loop_head.push(se.clone()), .None => ());
   // The condition runs at the start of every iteration, so its moves are
   // judged with the body's (`check_loop_flow`): the loop's window into the
   // flow log opens before it
@@ -493,6 +501,8 @@ evaluate_while :: (
     .Some(v) => match(v, .BoolVal(b) => !b, _ => false)
   );
   if(eff_cond_is_false, {
+    local_borrow_loop_end(loop_depth, expr, &loop_head, &body_expr, ctx, exn, check : false);
+    local_borrow_flow_region_end(loop_region);
     out_info := new_expr_info(&env, t_unit());
     out_info.set_value(
       cond(
@@ -538,6 +548,10 @@ evaluate_while :: (
   // the previous iteration's moves. The loop can end without a `break` unless
   // its condition is compile-time `true`.
   is_runtime_loop := effective_condition_value.is_none();
+  // The back edge's loans (cluster 4): a compile-time loop is unrolled, each
+  // iteration evaluated after the previous one.
+  local_borrow_loop_end(loop_depth, expr, &loop_head, &body_expr, ctx, exn, check : is_runtime_loop);
+  local_borrow_flow_region_end(loop_region);
   loop_has_normal_exit := !match(condition_value, .Some(cv) => match(cv, .BoolVal(cb) => cb, _ => false), .None => false);
   // Require ExprInfo for the body.
   body_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_body));

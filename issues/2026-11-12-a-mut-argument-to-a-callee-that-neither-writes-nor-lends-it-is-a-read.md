@@ -1,8 +1,10 @@
 # A `&mut` argument to a callee that neither writes nor lends it is a read
 
-**Severity:** S1 — `f(&mut xs)` beside a live `&` loan of `xs` is accepted when the callee's body neither writes the parameter nor makes a `&mut` reference value of it, and always when the callee has no body to read (a `Dyn(Fn)` value, a function pointer); the second form is a heap-use-after-free today.
+**Severity:** S1 — `f(&mut xs)` beside a live `&` loan of `xs` is accepted when the callee's body neither writes the parameter nor makes a `&mut` reference value of it, and always when the callee had no body to read (a `Dyn(Fn)` value, a function pointer); that second form was a heap-use-after-free and is fixed (#1932, item 2 below). The first is open until rule G (v0.2.79).
 
-Filed 2026-11-12 by VERDICTS-57 §3.4 (the general rule, G, is v0.2.78). v0.2.77 ships the narrow rule
+Filed 2026-11-12 by VERDICTS-57 §3.4 (the general rule, G; deferred from v0.2.78 to v0.2.79 by the coordinator's
+ruling on audit cluster 2, 2026-11-14, with VERDICTS-57 §3.4's census, sweep and flip below as the plan). v0.2.77 ships
+the narrow rule
 (`issues/fixed/2026-11-11-a-mut-argument-is-an-exclusive-access-only-when-the-callees-body-writes-it.md`): making a
 `&mut` reference value of a place is a write, and a callee's `lends_mut` summary bit makes its `&mut` argument a
 write. What that leaves:

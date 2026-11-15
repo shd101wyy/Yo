@@ -2567,7 +2567,7 @@ evaluate_function_parameter :: (
   );
   // Raw-view naming gate (plans/archive/SLICE_REWORK.md): a SAFE file may not
   // annotate a parameter with a type whose representation carries a raw
-  // pointer (RawSlice(T), structs wrapping *(T), ...). The prelude's
+  // pointer (`*[T]`, structs wrapping *(T), ...). The prelude's
   // `Allocator` passes as an opaque handle (ALLOCATOR_PLACEMENT.md A2).
   if(!ctx.unsafe_context &&
     !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(expr).module_path.*.clone())) &&
@@ -4326,7 +4326,13 @@ evaluate_function_parameters :: (
       ct_info,
       .Some(info) => {
         // Try to evaluate the type expression; returns None on error (soft failure).
-        (param_type_opt : Option(TypeValue)) = _try_eval_comptime_type(&info.type_expr, env_mut, ctx, exn);
+        // `comptime(V) : ?Sized` (decision 49) is a kind, not `Option(Sized)`:
+        // read it as the parameter pass does, so a `where(V <: …)` on a
+        // `?Sized` type-constructor binder finds `V` bound to its SomeT.
+        (param_type_opt : Option(TypeValue)) = cond(
+          is_maybe_sized_kind_spelling(&info.type_expr) => Option(TypeValue).Some(t_maybe_sized_kind()),
+          true => _try_eval_comptime_type(&info.type_expr, env_mut, ctx, exn)
+        );
         if(param_type_opt.is_none(), {
           continue; // Skip — will be handled in main pass
         });
@@ -4340,7 +4346,7 @@ evaluate_function_parameters :: (
         );
         val := if(
           is_type_kind(&param_type),
-          create_type_value(t_some_t(&info.name, ct_frame_level)),
+          create_type_value(t_some_t_of_kind(&info.name, ct_frame_level, &param_type)),
           create_unknown_val(&param_type)
         );
         add_variable_to_env(
