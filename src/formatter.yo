@@ -573,7 +573,7 @@ find_multiline_bracket_indices :: (fn(tokens : &ArrayList(Token)) -> HashSet(usi
           if(stack.len() > usize(0), {
             left_idx := match(stack.last(), .Some(x) => x, .None => usize(0));
             _p := stack.pop();
-            left_tok := match(tokens.get(left_idx), .Some(lt) => lt, .None => Rc.clone(t));
+            left_tok := match(tokens.get(left_idx), .Some(lt) => lt, .None => t);
             if(t.row > left_tok.row, {
               multiline_indices.insert(left_idx);
               multiline_indices.insert(i);
@@ -607,7 +607,7 @@ find_multiline_inline_curly_indices :: (fn(tokens : &ArrayList(Token), inline_cu
           if(stack.len() > usize(0), {
             left_idx := match(stack.last(), .Some(x) => x, .None => usize(0));
             _p := stack.pop();
-            left_tok := match(tokens.get(left_idx), .Some(lt) => lt, .None => Rc.clone(t));
+            left_tok := match(tokens.get(left_idx), .Some(lt) => lt, .None => t);
             if(inline_curly_indices.contains(&left_idx) && (t.row > left_tok.row), {
               multiline_indices.insert(left_idx);
               multiline_indices.insert(i);
@@ -680,7 +680,7 @@ has_top_level_curly_argument :: (
           // Check curly-after-comma BEFORE depth updates
           if((t.kind == TokenKind.LCurlyBracket) && at_top_level, {
             match(
-              &previous_top_level,
+              previous_top_level,
               .None => (),
               .Some(p) => if(p.kind == TokenKind.Comma, {
                 found = true;
@@ -1512,7 +1512,7 @@ is_redundant_grouping_paren :: (
       next := next_meaningful_token(tokens, right_index, tokens.len());
       first_inner := next_meaningful_token(tokens, left_index, right_index);
       cond(
-        match(&first_inner, .None => true, .Some(_) => false) => false,
+        match(first_inner, .None => true, .Some(_) => false) => false,
         token_range_has_comment(tokens, left_index + usize(1), right_index) => false,
         paren_is_call_delimiter(&previous) => false,
         true => {
@@ -1531,7 +1531,7 @@ is_redundant_grouping_paren :: (
           // `op(operand)`, so its `(` is a call delimiter, never a removable
           // group.
           prev_prefix_defers_to_inner := match(
-            &previous,
+            previous,
             .None => false,
             .Some(p) => (
               is_prefix_capable_operator(&p) &&
@@ -1539,7 +1539,7 @@ is_redundant_grouping_paren :: (
             )
           );
           prev_blocks := match(
-            &previous,
+            previous,
             .None => false,
             .Some(p) => (
               ((p.kind == TokenKind.Operator) && !shape.atom_like) || (
@@ -1778,18 +1778,16 @@ canonicalize_callee_prefix_calls :: (fn(tokens : &ArrayList(Token)) -> ArrayList
             .None => (),
             .Some(anchor) => {
               out.push(
-                Rc.new(
-                  TokenData(
-                    kind : TokenKind.RParen,
-                    value : Rc.new(String.from(")")),
-                    row : anchor.row,
-                    column : anchor.column,
-                    character : anchor.character,
-                    byte_offset : anchor.byte_offset,
-                    module_path : Rc.clone(anchor.module_path),
-                    input : Rc.clone(anchor.input)
-                  )
-                )
+                Rc.new(TokenData(
+                  kind : TokenKind.RParen,
+                  value : Rc.new(String.from(")")),
+                  row : anchor.row,
+                  column : anchor.column,
+                  character : anchor.character,
+                  byte_offset : anchor.byte_offset,
+                  module_path : Rc.clone(anchor.module_path),
+                  input : Rc.clone(anchor.input)
+                ))
               );
             }
           );
@@ -1803,18 +1801,16 @@ canonicalize_callee_prefix_calls :: (fn(tokens : &ArrayList(Token)) -> ArrayList
                 .None => (),
                 .Some(anchor_o) => {
                   out.push(
-                    Rc.new(
-                      TokenData(
-                        kind : TokenKind.LParen,
-                        value : Rc.new(String.from("(")),
-                        row : anchor_o.row,
-                        column : anchor_o.column,
-                        character : anchor_o.character,
-                        byte_offset : anchor_o.byte_offset,
-                        module_path : Rc.clone(anchor_o.module_path),
-                        input : Rc.clone(anchor_o.input)
-                      )
-                    )
+                    Rc.new(TokenData(
+                      kind : TokenKind.LParen,
+                      value : Rc.new(String.from("(")),
+                      row : anchor_o.row,
+                      column : anchor_o.column,
+                      character : anchor_o.character,
+                      byte_offset : anchor_o.byte_offset,
+                      module_path : Rc.clone(anchor_o.module_path),
+                      input : Rc.clone(anchor_o.input)
+                    ))
                   );
                 }
               );
@@ -1894,7 +1890,7 @@ find_multiline_paren_indices :: (
             // Token row check: the source spans rows, or something strictly
             // inside will render on several rows.
             left_tok := t;
-            right_tok := match(tokens.get(right_idx), .Some(rt) => rt, .None => Rc.clone(left_tok));
+            right_tok := match(tokens.get(right_idx), .Some(rt) => rt, .None => left_tok);
             inner_multirow := (
               match(renders_multirow_prefix.get(right_idx), .Some(x) => x, .None => usize(0))
               > match(renders_multirow_prefix.get(i + usize(1)), .Some(x) => x, .None => usize(0))
@@ -2439,7 +2435,7 @@ _format_yo_source_impl :: (
                 continue;
               }
             );
-            previous := previous_token.clone();
+            previous := previous_token;
             next := next_token(&significant_tokens, &skipped_paren_indices, index);
             raw := match(raw_values.get_cloned(index), .Some(s) => s, .None => String.new());
             // ---- Comment handling ----
@@ -2624,7 +2620,7 @@ _format_yo_source_impl :: (
                             });
                             result.push_str("{");
                             indent_level = (indent_level + usize(1));
-                            next_is_rcurly := match(&next, .None => false, .Some(nx) => (nx.kind == TokenKind.RCurlyBracket));
+                            next_is_rcurly := match(next, .None => false, .Some(nx) => (nx.kind == TokenKind.RCurlyBracket));
                             if(!next_is_rcurly && match(next, .None => false, .Some(_) => true), {
                               if(!result.ends_with(String.from("\n")), {
                                 result.push_str("\n");
@@ -2643,7 +2639,7 @@ _format_yo_source_impl :: (
                               at_line_start = false;
                             });
                             result.push_str("{");
-                            next_is_rcurly := match(&next, .None => false, .Some(nx) => (nx.kind == TokenKind.RCurlyBracket));
+                            next_is_rcurly := match(next, .None => false, .Some(nx) => (nx.kind == TokenKind.RCurlyBracket));
                             if(!next_is_rcurly && match(next, .None => false, .Some(_) => true) && (!at_line_start && !result.ends_with(String.from(" "))), {
                               result.push_str(" ");
                             });
@@ -2780,7 +2776,7 @@ _format_yo_source_impl :: (
                     paren_depth = (paren_depth + usize(1));
                     if(is_multiline, {
                       indent_level = (indent_level + usize(1));
-                      next_is_rparen := match(&next, .None => false, .Some(nx) => (nx.kind == TokenKind.RParen));
+                      next_is_rparen := match(next, .None => false, .Some(nx) => (nx.kind == TokenKind.RParen));
                       if(!next_is_rparen && match(next, .None => false, .Some(_) => true), {
                         if(!result.ends_with(String.from("\n")), {
                           result.push_str("\n");
@@ -2807,7 +2803,7 @@ _format_yo_source_impl :: (
                     result.push_str("[");
                     if(is_multiline, {
                       indent_level = (indent_level + usize(1));
-                      next_is_rbracket := match(&next, .None => false, .Some(nx) => (nx.kind == TokenKind.RBracket));
+                      next_is_rbracket := match(next, .None => false, .Some(nx) => (nx.kind == TokenKind.RBracket));
                       if(!next_is_rbracket && match(next, .None => false, .Some(_) => true), {
                         if(!result.ends_with(String.from("\n")), {
                           result.push_str("\n");
@@ -2991,7 +2987,7 @@ _format_yo_source_impl :: (
                     });
                     result.push_str(",");
                     next_is_closer := match(
-                      &next,
+                      next,
                       .None => false,
                       .Some(nx) => (
                         (nx.kind == TokenKind.RParen) || (nx.kind == TokenKind.RBracket) || (nx.kind == TokenKind.RCurlyBracket)
@@ -3002,7 +2998,7 @@ _format_yo_source_impl :: (
                     // the comment handler writes the newline after it. Breaking
                     // here would move the comment onto the NEXT item.
                     next_is_trailing_comment := match(
-                      &next,
+                      next,
                       .None => false,
                       .Some(nx) => (is_line_comment_token(nx.kind) && (nx.row == token.row))
                     );
@@ -3125,8 +3121,8 @@ _format_yo_source_impl :: (
                     });
                   },
                   (token.kind == TokenKind.Semicolon) => {
-                    next_is_not_rbracket := match(&next, .None => false, .Some(nx) => (nx.kind != TokenKind.RBracket));
-                    next_is_not_comment := match(&next, .None => true, .Some(nx) => !is_comment_token(nx.kind));
+                    next_is_not_rbracket := match(next, .None => false, .Some(nx) => (nx.kind != TokenKind.RBracket));
+                    next_is_not_comment := match(next, .None => true, .Some(nx) => !is_comment_token(nx.kind));
                     cond(
                       ((bracket_depth > usize(0)) && next_is_not_rbracket && next_is_not_comment) => {
                         if(!at_line_start && !result.ends_with(String.from(" ")), {
@@ -3169,7 +3165,7 @@ _format_yo_source_impl :: (
                         });
                         result.push_str(";");
                         emit_newline := match(
-                          &next,
+                          next,
                           .None => false,
                           .Some(nx) => (!is_comment_token(nx.kind) || (nx.row > token.row))
                         );
@@ -3269,7 +3265,7 @@ _format_yo_source_impl :: (
                       },
                       true => {
                         prev_is_open_bracket := match(
-                          &previous,
+                          previous,
                           .None => false,
                           .Some(p) => (
                             (p.kind == TokenKind.LParen) ||
