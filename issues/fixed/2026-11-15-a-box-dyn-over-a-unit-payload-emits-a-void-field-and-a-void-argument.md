@@ -41,4 +41,4 @@ Found by the decision 49 S2 flip's ASan rows (VERDICTS-61 decision 15, "a zero-s
   `uint8_t`.
 - The wrappers pass `0` by value, or the data word by pointer (`_dyn_payload_receiver`).
 
-Test: `tests/dyn.test.yo` "a unit payload in a Box(Dyn): dispatch, size_of_val 0, global and placed".
+Test: `tests/explicit_allocators.test.yo` "A unit payload in a Box(Dyn): dispatch, size_of_val 0, global and placed". It fails in the C compiler before the fix (yo-iw) and passes after (yo-iy, 25 passed under ASan with `--allocator system`).
