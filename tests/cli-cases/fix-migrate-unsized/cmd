@@ -2,12 +2,13 @@
 # VERDICTS-55, VERDICTS-61): over code in the v0.2.78 spelling, the
 # evaluation writes each legacy `dyn(v)` alias site as `dyn(Box.new(v))` (a
 # closure and a generic body's `dyn(v.*)` included), keeps a `dyn(Rc.new(v))`
-# that builds an `Rc(Dyn(T))` handle, lists `impl(Dyn(...), ...)` and
-# `dyn(p)` over a raw pointer, and lists a file whose platform-gated `cond`
-# leaves an arm unevaluated (arms.yo). An owned `downcast` is already the
-# owning form and is not listed. The second run rewrites nothing, and every
-# file still type-checks. Code written for v0.2.77 is upgraded on v0.2.77
-# (fix-migrate-unsized-v0277-input).
+# that builds an `Rc(Dyn(T))` handle, lists `dyn(p)` over a raw pointer, and
+# lists a file whose platform-gated `cond` leaves an arm unevaluated
+# (arms.yo). `*Dyn(...)`, `?*Dyn(...)`, an alias body, `impl(Dyn(...), ...)`
+# and a `size_of`/`Type.eq` argument name the unsized object and are left
+# alone; an owned `downcast` is already the owning form and is not listed.
+# The second run rewrites nothing, and every file still type-checks. Code
+# written for v0.2.77 is upgraded on v0.2.77 (fix-migrate-unsized-v0277-input).
 fix . --migrate unsized
 fix . --migrate unsized
 check main.yo

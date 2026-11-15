@@ -1,11 +1,11 @@
 //! `yo fix . --migrate unsized` on v0.2.78 (decision 49 S2): the code is in
 //! the v0.2.78 spelling (`Box(Dyn(...))` owns, `&Dyn(...)`/`*Dyn(...)` view),
 //! and the mode writes each legacy `dyn(v)` alias site as `dyn(Box.new(v))` (a
-//! closure too),
-//! keeps a `dyn(Rc.new(v))` that builds an `Rc(Dyn(T))` handle, rewrites a
-//! generic body's `dyn(v.*)` once, and lists `impl(Dyn(...), ...)` and
-//! `dyn(p)` over a raw pointer. An owned `downcast` is the v0.2.78 owning form
-//! already and is not listed.
+//! closure too), keeps a `dyn(Rc.new(v))` that builds an `Rc(Dyn(T))` handle,
+//! rewrites a generic body's `dyn(v.*)` once, and lists `dyn(p)` over a raw
+//! pointer. `*Dyn(...)`, `?*Dyn(...)`, the alias body, `impl(Dyn(...), ...)`
+//! and the `size_of`/`Type.eq` arguments name the unsized object and stay as
+//! written; the owned `downcast` is the owning form and is not listed.
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { println } :: import("std/fmt");

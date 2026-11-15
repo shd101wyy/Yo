@@ -3870,10 +3870,8 @@ export(DerefSite, set_migrate_deref, migrate_deref_on, audit_deref_on, record_de
 /// `kind` 1, a raw pointer (`*V`/`?*V`), listed and never rewritten (it boxes
 /// the pointer today, and unsizes it after the `?Sized` prelude); `kind` 2,
 /// the legacy auto-box of a plain value, written `dyn(Box.new(...))`; `kind`
-/// 5, a named `Rc`/`Arc` handle, listed. `kind` 3 is at the `Rc`/`Arc` token
-/// of a fresh `dyn(Rc.new(...))` against an owning `Dyn`, written `Box`
-/// (`text` is the token). `kind` 6 is at a `downcast` callee's token, a
-/// downcast of an owned `Dyn` (`text` its operand), listed.
+/// 5, a named `Rc`/`Arc` handle, listed. `kind` 6 is at a `downcast`
+/// callee's token, a downcast of an owned `Dyn` (`text` its operand), listed.
 UnsizedSite :: struct(path : String, row : usize, col : usize, kind : u8, text : String);
 derive(UnsizedSite, Clone);
 (mut(g_migrate_unsized) : bool) = false;
