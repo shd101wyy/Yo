@@ -1340,7 +1340,7 @@ impl(_DrsObj, Error());
 impl(_DrsObj, Clone(clone : (fn(self : &Self) -> Self)(_DrsObj(n : self.n))));
 _drs_n :: (fn(err : &AnyError) -> i32)(match(downcast(err, _DrsObj), .Some(o) => o.n, .None => i32(0)));
 test("a downcast of a boxed ref-struct payload reads the object", {
-  (e : AnyError) = dyn(_DrsObj(n : i32(7)));
+  (e : AnyError) = dyn(Box.new(_DrsObj(n : i32(7))));
   assert(_drs_n(&e) == i32(7), "the ref object behind the box");
   assert(e.to_string() == String.from("drs"), "and the erased value still dispatches");
 });

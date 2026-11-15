@@ -225,7 +225,7 @@ test("capture list: a `&T` parameter's copy borrows the parameter (R-CAP-2)", {
     "cannot be returned"
   );
   comptime_expect_error(
-    (fn(p : &_ClNamed) -> Box(Dyn(Fn() -> usize)))(dyn({ p }() => p.s.len())),
+    (fn(p : &_ClNamed) -> Box(Dyn(Fn() -> usize)))(dyn(Box.new({ p }() => p.s.len()))),
     "second-class"
   );
   comptime_expect_error(
@@ -278,7 +278,7 @@ test("capture list: a match arm cannot be a capture-list closure", {
 test("second-class: a borrowing closure cannot escape", {
   w := i32(1);
   comptime_expect_error(_cl_keep({ &w }() => w.*), "moved into a by-value (`sink`) parameter");
-  comptime_expect_error(_cl_dyn(dyn({ &w }() => w.*)), "so it is second-class");
+  comptime_expect_error(_cl_dyn(dyn(Box.new({ &w }() => w.*))), "so it is second-class");
   comptime_expect_error(
     (fn(x : i32) -> Impl(Fn() -> i32))({ &x }() => x.*),
     "returned"
@@ -453,7 +453,7 @@ comptime_expect_error(
 comptime_expect_error(
   _cl_esc_dyn :: (fn(x : i32) -> Box(Dyn(Fn() -> i32)))({
     (f : Impl(Fn() -> i32)) = ({ &x }() => x.*);
-    (d : Box(Dyn(Fn() -> i32))) = dyn(f);
+    (d : Box(Dyn(Fn() -> i32))) = dyn(Box.new(f));
     d
   }),
   "second-class"
