@@ -182,7 +182,7 @@ process_dir :: (fn(root : Path, io : Io) -> Impl(Future(unit, WalkCtx)))(
 
     while(stack.len() > usize(0), {
       cur := match(stack.pop(), .Some(p) => p, .None => return());
-      entries := ctx.io.await(read_dir(cur, ctx.io), { io : ctx.io, exn : ctx.exn });
+      entries := ctx.io.await(read_dir(cur, ctx.io), .{ io : ctx.io, exn : ctx.exn });
       // process `entries`, push subdirectories to `stack`
       n := entries.len();
       i := usize(0);
@@ -414,7 +414,7 @@ tool_ok :: (fn(cmd : Command, io : Io) -> bool)({
       }
     )
   );
-  status := io.await(cmd.status(io), { io, exn });
+  status := io.await(cmd.status(io), .{ io, exn });
   status.success()
 });
 ```

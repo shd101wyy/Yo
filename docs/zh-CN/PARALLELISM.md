@@ -318,7 +318,7 @@ Thread(unit).spawn(io => {
 // ❌ 不可发送
 Node :: ref(struct(value : i32));
 node := Node(42);
-Thread(unit).spawn(io => {
+Thread(unit).spawn(io => .{
   // 错误：无法捕获 `node`（ref(struct(...)) 不是 Send）
   // node.value;
 });

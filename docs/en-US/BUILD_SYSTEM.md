@@ -70,17 +70,17 @@ The build file is a regular Yo source file that imports the `std/build` module. 
 build :: import("std/build");
 
 // Define artifacts — each returns a Step for dependency wiring
-exe :: build.executable({
+exe :: build.executable(.{
   name : "my-project",
   root : "./src/main.yo"
 });
 
-lib :: build.static_library({
+lib :: build.static_library(.{
   name : "my-project-lib",
   root : "./src/lib.yo"
 });
 
-tests :: build.test({ name : "tests", root : "./tests/" });
+tests :: build.test(.{ name : "tests", root : "./tests/" });
 
 // Register a run step (compile + execute)
 run_exe :: build.run(exe);
@@ -235,9 +235,9 @@ Steps are named targets that define what `yo build <step>` does. Every build fun
 
 ```yo
 // Each build function returns a Step
-exe :: build.executable({ name : "my-app", root : "./src/main.yo" });
-lib :: build.static_library({ name : "my-lib", root : "./src/lib.yo" });
-tests :: build.test({ name : "tests", root : "./tests/" });
+exe :: build.executable(.{ name : "my-app", root : "./src/main.yo" });
+lib :: build.static_library(.{ name : "my-lib", root : "./src/lib.yo" });
+tests :: build.test(.{ name : "tests", root : "./tests/" });
 run_exe :: build.run(exe);
 
 // Create named steps and wire dependencies
@@ -364,16 +364,16 @@ shapes  = "src/shapes.yo"
 ```yo
 build :: import("std/build");
 
-raylib :: build.system_library({
+raylib :: build.system_library(.{
   name : "raylib",
   defines : "NOMINMAX NOGDI NOUSER"
 });
 
 // Name a [modules] entry of yo.toml and link the system libraries it needs
-mod :: build.module({ name : "default" });
+mod :: build.module(.{ name : "default" });
 mod.link(raylib);
 
-exe :: build.executable({ name : "raylib-yo", root : "./src/main.yo" });
+exe :: build.executable(.{ name : "raylib-yo", root : "./src/main.yo" });
 exe.link(raylib);
 
 install :: build.step("install", "Build all artifacts");
@@ -413,17 +413,17 @@ Use `step.link()` to link any library to an artifact — works with static, shar
 build :: import("std/build");
 
 // Yo libraries
-lib :: build.shared_library({
+lib :: build.shared_library(.{
   name : "mylib",
   root : "./src/lib.yo"
 });
 
 // System libraries (via pkg-config)
-openssl :: build.system_library({
+openssl :: build.system_library(.{
   name : "openssl"
 });
 
-exe :: build.executable({
+exe :: build.executable(.{
   name : "my-app",
   root : "./src/main.yo"
 });
@@ -477,12 +477,12 @@ export(main);
 ```yo
 build :: import("std/build");
 
-lib :: build.static_library({
+lib :: build.static_library(.{
   name : "add",
   root : "./add.yo"
 });
 
-exe :: build.executable({
+exe :: build.executable(.{
   name : "demo",
   root : "./demo.yo"
 });
@@ -526,13 +526,13 @@ Like Zig's `b.option()`, declare user-configurable build options that can be set
 build :: import("std/build");
 
 // Declare a build option with a default value
-strip :: build.option({
+strip :: build.option(.{
   name : "strip",
   description : "Strip debug symbols",
   default : "false"
 });
 
-opt_level :: build.option({
+opt_level :: build.option(.{
   name : "opt",
   description : "Optimization level",
   default : "debug"
@@ -588,7 +588,7 @@ Yo supports targeting WASM via target triples. Specify the target in `build.yo` 
 ### In `build.yo`
 
 ```yo
-build.executable({
+build.executable(.{
   name : "my-app-wasm",
   root : "./src/main.yo",
   target : build.CompilationTarget.Wasm32_Unknown_Emscripten,
@@ -599,7 +599,7 @@ build.executable({
 You can also use raw target strings if preferred:
 
 ```yo
-build.executable({
+build.executable(.{
   name : "my-app-wasm",
   root : "./src/main.yo",
   target : "wasm32-unknown-emscripten",
@@ -861,14 +861,14 @@ build :: import("std/build");
 
 // Module definition
 // Native build
-native :: build.executable({
+native :: build.executable(.{
   name : "my-app",
   root : "./src/main.yo",
   optimize : build.Optimize.ReleaseFast
 });
 
 // WASM build (Emscripten)
-wasm :: build.executable({
+wasm :: build.executable(.{
   name : "my-app-wasm",
   root : "./src/main.yo",
   target : build.CompilationTarget.Wasm32_Unknown_Emscripten,
@@ -947,9 +947,9 @@ build :: import("std/build");
 
 // mode: build.VerifyMode.Verify (the default) or build.VerifyMode.VerifyOrAssert;
 // strict passes `--strict` (a vacuous `ok` with zero obligations fails).
-proofs :: build.verify({ name : "proofs", root : "./src", mode : build.VerifyMode.Verify, strict : false });
+proofs :: build.verify(.{ name : "proofs", root : "./src", mode : build.VerifyMode.Verify, strict : false });
 
-exe :: build.executable({ name : "app", root : "./src/main.yo" });
+exe :: build.executable(.{ name : "app", root : "./src/main.yo" });
 
 install :: build.step("install", "Build and prove");
 install.depend_on(exe);
@@ -1012,7 +1012,7 @@ artifact or step can be named by the manifest instead of repeating it:
 ```yo
 build :: import("std/build");
 
-exe :: build.executable({ name : build.manifest().name, root : "./src/main.yo" });
+exe :: build.executable(.{ name : build.manifest().name, root : "./src/main.yo" });
 
 install :: build.step("install", build.manifest().version);
 install.depend_on(exe);
@@ -1141,7 +1141,7 @@ build :: import("std/build");
 
 dep :: build.dependency("dep_lib");
 add_lib :: dep.artifact("add"); // a build.static_library of dep_lib's build.yo
-exe :: build.executable({ name : "demo", root : "./src/main.yo" });
+exe :: build.executable(.{ name : "demo", root : "./src/main.yo" });
 exe.link(add_lib);
 ```
 
@@ -1234,7 +1234,7 @@ integrity = "sha256-9a0b2e..."
 Link against system C libraries discovered via `pkg-config`:
 
 ```yo
-build.system_library({
+build.system_library(.{
   name : "openssl",
   fallback_include : "/usr/include/openssl",
   fallback_lib : "/usr/lib",
@@ -1250,7 +1250,7 @@ When `pkg-config` is available (Linux, macOS), it automatically resolves include
 For example, `raylib` on Windows needs a few Win32 macros defined before including `raylib.h`:
 
 ```yo
-raylib :: build.system_library({
+raylib :: build.system_library(.{
   name : "raylib",
   defines : "NOMINMAX NOGDI NOUSER"
 });
@@ -1401,7 +1401,7 @@ For advanced projects, configure documentation generation in `build.yo`:
 build :: import("std/build");
 
 // Define doc config
-docs :: build.doc({
+docs :: build.doc(.{
   name : "docs",
   root : "./src",
   output : "yo-out/doc",

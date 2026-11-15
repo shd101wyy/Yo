@@ -95,7 +95,7 @@ _copy_skills_dir :: (
   // Explicit worklist of (src, dest, display prefix) triples — an iterative
   // walk, the same shape std/fs/walker.yo uses.
   stack := ArrayList(struct(src : Path, dest : Path, prefix : String)).new();
-  stack.push({ src : src.clone(), dest : dest.clone(), prefix : display_prefix.clone() });
+  stack.push(.{ src : src.clone(), dest : dest.clone(), prefix : display_prefix.clone() });
   while(stack.len() > usize(0), {
     // len() > 0 proves pop() returns Some (safe-mode D7).
     item := match(stack.pop(), .Some(it) => it, .None => __yo_panic("skills: stack.pop() — len() > 0 by loop condition"));
@@ -109,7 +109,7 @@ _copy_skills_dir :: (
       display := `${item.prefix}/${name}`;
       md := io.await(metadata(src_entry.clone(), io), IoExn(io : io, exn : exn));
       if(md.is_dir(), {
-        stack.push({ src : src_entry, dest : dest_entry, prefix : display });
+        stack.push(.{ src : src_entry, dest : dest_entry, prefix : display });
       }, {
         _copy_skills_file(&src_entry, &dest_entry, &display, counters, io, exn);
       });

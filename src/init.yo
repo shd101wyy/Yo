@@ -82,15 +82,15 @@ generate_build_yo :: (fn(name : &String) -> String)(
   `build :: import("std/build");
 { assert, panic } :: import("std/assert");
 
-exe :: build.executable({ name : "${name}", root : "./src/main.yo" });
+exe :: build.executable(.{ name : "${name}", root : "./src/main.yo" });
 
-lib :: build.static_library({ name : "${name}-lib", root : "./src/lib.yo" });
+lib :: build.static_library(.{ name : "${name}-lib", root : "./src/lib.yo" });
 
-tests :: build.test({ name : "tests", root : "./tests/" });
+tests :: build.test(.{ name : "tests", root : "./tests/" });
 
 run_exe :: build.run(exe);
 
-docs :: build.doc({ name : "docs", root : "./src" });
+docs :: build.doc(.{ name : "docs", root : "./src" });
 
 install :: build.step("install", "Build all artifacts");
 install.depend_on(exe);

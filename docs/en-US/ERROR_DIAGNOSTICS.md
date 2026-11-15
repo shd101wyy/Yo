@@ -95,7 +95,9 @@ The repairs the compiler computes today:
 | E0401 name not found, one close candidate in scope | rename the token (`countr` → `counter`) |
 | E0401 on `rc`/`box`/`arc`, the prelude builtins static-argument inference B3 deleted | rewrite the name to the handle's constructor (`rc` → `Rc.new`, `box` → `Box.new`, `arc` → `Arc.new`); a closure or `.None` argument then needs its type written, E0613 |
 | E0401 name not found, exported by exactly one std module | insert `{ name } :: import("std/…");` above the first non-comment line (the help names the module; two exporting modules, or a rename candidate as well, give help only) |
-| E0007 `{ f(x) }` — one expression between braces, no `;` | insert `;` before the `}` (two or more comma-separated items give the message only) |
+| E0007 `{ a, b }`, `{ k : v }` as a value — a bare expression brace is a block | insert `.` before the `{` (the record `.{ … }`) |
+| E0007 `.{ a } := s`, `.V(.{ x })` in a pattern — a dot on the binding side | delete the `.` |
+| E0007 `.{ a; b }` — a dotted block | delete the `.` |
 | E0618 a named callable passed bare into a `Dyn(Fn(...))` slot | wrap the name: `run(f)` → `run(dyn(f))` (a longer value gives help only) |
 
 `yo fix <path> --migrate deref` runs a migration rather than a repair, for
@@ -122,10 +124,12 @@ written; `--target <triple>` evaluates for that one target, as
 never reached, and `fix` exits non-zero naming it.
 
 `yo fix <path> --migrate record-literal` is the migration for the brace-group
-rule (`plans/backlog/BRACE_BLOCKS.md`, Generation A): the parser accepts a
-record value spelled with a dot before the opening brace, and the migration
-writes that dot before every brace group in expression position that is a
-record today, the punned one-field group and the empty group included. It
+rule (`plans/reference/BRACE_BLOCKS.md`): since v0.2.78 a record value is
+spelled with a dot before the opening brace and a bare brace in expression
+position is a block, and the migration reads source written before that
+(where a bare brace group of fields was a record) and writes the dot before
+every such group in expression position, the punned one-field group and the
+empty group included. It retires in v0.2.79. It
 reads the parse and does not evaluate, so it needs no prelude and reaches
 every file. It touches no binder: the left side of `:=`, `=` and `::`
 (destructurings, imports, globs), match patterns and sub-patterns, `for`

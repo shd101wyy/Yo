@@ -193,14 +193,14 @@ run :: (
   ) -> T
 )(f(e));
 
-effects := { raise : my_raise, log : my_log };
+effects := .{ raise : my_raise, log : my_log };
 result := run(might_fail, effects);
 ```
 
 无效应 → 空结构体 `{}`：
 
 ```yo
-result := run(pure_func, {});
+result := run(pure_func, .{});
 ```
 
 ### 异步 + 效应
@@ -212,7 +212,7 @@ result := run(pure_func, {});
 ```yo
 // 单个捆绑（最常见）
 fut1 : Impl(Future(i32, IoExn)); // IoExn = { io, exn }
-y := io.await(fut1, { io, exn });
+y := io.await(fut1, .{ io, exn });
 
 // 单效应 future — 直接传递效应值
 fut2 : Impl(Future(i32, Io));
@@ -224,7 +224,7 @@ x := io.await(fut2, io);
 类型注解的函数体内时，可省略闭包参数注解：
 
 ```yo
-effects := { raise, log };
+effects := .{ raise, log };
 
 // 顶层：用 type_of(effects) 标注 e
 fut := io.async((e : type_of(effects)) => {
