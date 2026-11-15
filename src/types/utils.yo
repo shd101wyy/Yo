@@ -4673,7 +4673,11 @@ dyn_upcast_note :: (fn(expected : &TypeValue, given : &TypeValue) -> String)({
 });
 /// A `Dyn` whose trait set carries a closure trait (`Dyn(Fn(...))`,
 /// `Dyn(FnOnce(...), Send)`).
-_dyn_carries_fn_trait :: (fn(t : &TypeValue) -> bool)(
+/// Whether `t` is a `Dyn(...)` listing an `Fn` trait, or an owning handle
+/// over one (`Box(Dyn(Fn(...)))`, the interim `Rc`/`Arc(Dyn(Fn(...)))`):
+/// since decision 49's flip a `Dyn` is unsized, so a by-value slot that takes
+/// an erased callable is its owning handle.
+is_dyn_fn_slot :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
     Rc(.DynT({ required_trait_types : dct_rtt })) => {
@@ -4685,7 +4689,11 @@ _dyn_carries_fn_trait :: (fn(t : &TypeValue) -> bool)(
       });
       false
     },
-    _ => false
+    _ => match(
+      unique_box_payload_type(t),
+      .Some(dcf_p) => (is_dyn_type(&dcf_p) && recur(&dcf_p)),
+      .None => match(cell_handle_view(t), .Some(dcf_v) => (is_dyn_type(&dcf_v.payload) && recur(&dcf_v.payload)), .None => false)
+    )
   )
 );
 /// A callable that is not a `Dyn`: a named `fn` (a `Func`), a closure's
@@ -4715,7 +4723,7 @@ _is_unerased_callable :: (fn(t : &TypeValue) -> bool)(
 /// written `dyn(f)`; a bare `f` there is E0618. `Impl(Fn(...))` slots are
 /// not erasures and are untouched.
 is_bare_callable_into_dyn_fn :: (fn(expected : &TypeValue, given : &TypeValue) -> bool)(
-  _dyn_carries_fn_trait(expected) && !is_dyn_type(given) && _is_unerased_callable(given)
+  is_dyn_fn_slot(expected) && !is_dyn_type(given) && _is_unerased_callable(given)
 );
 /// The declaration id of a struct / enum / union, for the note below.
 _decl_id_of :: (fn(t : &TypeValue) -> String)(
@@ -4817,7 +4825,7 @@ unknown_variant_message :: (fn(variant : &String, enum_ty : &TypeValue, variants
   });
   `Enum variant "${variant}" not found in enum ${type_to_string(enum_ty)}. Its variants: ${list}.`
 });
-export(dyn_member_is_method, dyn_member_unsafe_reason, dyn_type_has_vtable_slot, dyn_dispatch_receiver_type, dyn_vtable_slot_param_is_ref, dyn_vtable_slot_result_is_ref, dyn_upcast_note, is_bare_callable_into_dyn_fn, same_name_note, unknown_field_message, unknown_field_code, unknown_variant_message, control_bound_field_message);
+export(dyn_member_is_method, dyn_member_unsafe_reason, dyn_type_has_vtable_slot, dyn_dispatch_receiver_type, dyn_vtable_slot_param_is_ref, dyn_vtable_slot_result_is_ref, dyn_upcast_note, is_bare_callable_into_dyn_fn, is_dyn_fn_slot, same_name_note, unknown_field_message, unknown_field_code, unknown_variant_message, control_bound_field_message);
 export(deref_miss_note, unknown_field_through_deref_message);
 /// `err` with its primary diagnostic marked `generic_independent` when
 /// neither `a` nor `b` contains a type variable: a mismatch between two such
