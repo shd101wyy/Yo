@@ -754,7 +754,7 @@ _evaluate_dependency_builds :: (
             package_name : r.dependency_name.clone()
           )
         );
-        match(link_err, .Some(m) => e.exn.throw(dyn(m)), .None => ());
+        match(link_err, .Some(m) => e.exn.throw(dyn(Box.new(m))), .None => ());
         // A `-D<dep>.<opt>` the dependency does not declare is a typo too.
         dep_unknown := undeclared_options(&dep_reg);
         if(dep_unknown.len() > usize(0), {
@@ -1291,7 +1291,7 @@ _resolve_workspace_member :: (
       load_manifest(root_manifest_path.clone(), e.exn),
       .Ok(m) => m,
       .Err(msg) => {
-        e.exn.throw(dyn(msg));
+        e.exn.throw(dyn(Box.new(msg)));
         return(Option(String).None)
       }
     );
@@ -1317,7 +1317,7 @@ _resolve_workspace_member :: (
           });
         },
         .Err(msg) => {
-          e.exn.throw(dyn(msg));
+          e.exn.throw(dyn(Box.new(msg)));
         }
       );
       mi = (mi + usize(1));
@@ -2856,7 +2856,7 @@ execute_dag :: (
         i = (i + usize(1));
       });
       if(ready.len() == usize(0), {
-        e.exn.throw(dyn(String.from("Error: Build DAG stalled — possible undetected cycle.")));
+        e.exn.throw(dyn(Box.new(String.from("Error: Build DAG stalled — possible undetected cycle."))));
       });
       // Execute the ready nodes, `ctx.jobs` at a time (§4.8). The default is
       // 1: the nodes' output streams to the user's terminal in DAG order, and

@@ -76,7 +76,7 @@ SuspensionPointDetector :: struct(
   /// Return true if this FnCall expression's body should be skipped
   /// (no recursion into func/args). Used for nested async blocks that
   /// have their own analysis. Deferred dup expressions are still walked.
-  should_skip_body : Dyn(Fn(expr : &AstExpr) -> bool),
+  should_skip_body : Box(Dyn(Fn(expr : &AstExpr) -> bool)),
   /// Walk EVERY macro call through its expansion, not only `if`: the async
   /// lowering generates the expansion, so an await that only a user macro
   /// contains is a suspension point like any other

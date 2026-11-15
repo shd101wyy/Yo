@@ -316,7 +316,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
             def.state(),
             .Done => true,
             .Failed => {
-              exn.throw(dyn(match(&def.failure(), .Some(m) => m.clone(), .None => String.from("definition failed"))));
+              exn.throw(dyn(Box.new(match(&def.failure(), .Some(m) => m.clone(), .None => String.from("definition failed")))));
               true
             },
             .Forcing => {
@@ -658,7 +658,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                             forced_var = Option(Variable).Some(fv);
                           },
                           .Error({ msg : fmsg }) => {
-                            exn.throw(dyn(fmsg));
+                            exn.throw(dyn(Box.new(fmsg)));
                           },
                           .NotPending => {
                             exn.throw(

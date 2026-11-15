@@ -86,7 +86,7 @@ read_file_sync :: (fn(path : &String, exn : Exception) -> ArrayList(u8))({
   cstr := path_c.ptr().unwrap();
   fd := unsafe(fcntl.open((*char)(cstr), int(fcntl.O_RDONLY)));
   if(fd < int(0), {
-    exn.throw(dyn(IoError.from_errno(__yo_errno())));
+    exn.throw(dyn(Box.new(IoError.from_errno(__yo_errno()))));
   });
   result := ArrayList(u8).new();
   buf := (*u8)(malloc(usize(4096)).unwrap());
@@ -99,7 +99,7 @@ read_file_sync :: (fn(path : &String, exn : Exception) -> ArrayList(u8))({
       (n < i64(0)) => {
         free(.Some((*void)(buf)));
         unsafe(unistd.close(fd));
-        exn.throw(dyn(IoError.from_errno(__yo_errno())));
+        exn.throw(dyn(Box.new(IoError.from_errno(__yo_errno()))));
       },
       (n == i64(0)) => break,
       true => {

@@ -111,7 +111,7 @@ export(DirEntry);
 create_dir :: (fn(path : &Path, io : Io) -> Impl(Future(unit, IoExn)))({
   path_owned := path.clone();
   io.async(e => {
-    cstr_bytes := match(path_owned.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
+    cstr_bytes := match(path_owned.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(Box.new(IoError.InvalidInput))));
     cstr := cstr_bytes.ptr().unwrap();
     result := e.io.await(IO_dir.mkdir(AT_FDCWD, cstr, i32(DEFAULT_DIR_MODE)), e.io);
     IoError.check(result, e.exn);
@@ -128,7 +128,7 @@ create_dir_all :: (fn(path : &Path, io : Io) -> Impl(Future(unit, IoExn)))({
   path_owned := path.clone();
   io.async(e => {
     path_s := path_owned.to_string();
-    cstr_bytes := match(path_s.to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
+    cstr_bytes := match(path_s.to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(Box.new(IoError.InvalidInput))));
     cstr := cstr_bytes.ptr().unwrap();
     // Try creating the directory directly first
     result := e.io.await(IO_dir.mkdir(AT_FDCWD, cstr, i32(DEFAULT_DIR_MODE)), e.io);
@@ -178,7 +178,7 @@ create_dir_all :: (fn(path : &Path, io : Io) -> Impl(Future(unit, IoExn)))({
                   // Ignore EEXIST errors
                   cond(
                     ((r < i32(0)) && ((i32(0) - r) != i32(EEXIST))) => {
-                      e.exn.throw(dyn(IoError.from_errno(i32(0) - r)));
+                      e.exn.throw(dyn(Box.new(IoError.from_errno(i32(0) - r))));
                     },
                     true => ()
                   );
@@ -195,12 +195,12 @@ create_dir_all :: (fn(path : &Path, io : Io) -> Impl(Future(unit, IoExn)))({
                 final_errno := (i32(0) - final_result);
                 cond(
                   (final_errno == i32(EEXIST)) => (),
-                  true => e.exn.throw(dyn(IoError.from_errno(final_errno)))
+                  true => e.exn.throw(dyn(Box.new(IoError.from_errno(final_errno))))
                 )
               }
             )
           },
-          true => e.exn.throw(dyn(IoError.from_errno(errno)))
+          true => e.exn.throw(dyn(Box.new(IoError.from_errno(errno))))
         )
       }
     )
@@ -220,7 +220,7 @@ remove_dir :: (fn(path : &Path, io : Io) -> Impl(Future(unit, IoExn)))({
     // (issues/fixed/2026-10-31-a-wrapper-whose-match-is-fused-at-two-awaits-redefines-its-c-labels.md).
     cstr_res := path_owned.to_string().to_cstr_checked();
     if(cstr_res.is_err(), {
-      e.exn.throw(dyn(IoError.InvalidInput));
+      e.exn.throw(dyn(Box.new(IoError.InvalidInput)));
     });
     cstr_bytes := cstr_res.unwrap_or(ArrayList(u8).new());
     cstr := cstr_bytes.ptr().unwrap();
@@ -237,7 +237,7 @@ remove_dir_str :: (fn(path : str, io : Io) -> Impl(Future(unit, IoExn)))(
 remove_file :: (fn(path : &Path, io : Io) -> Impl(Future(unit, IoExn)))({
   path_owned := path.clone();
   io.async(e => {
-    cstr_bytes := match(path_owned.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
+    cstr_bytes := match(path_owned.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(Box.new(IoError.InvalidInput))));
     cstr := cstr_bytes.ptr().unwrap();
     result := e.io.await(IO_dir.unlink(AT_FDCWD, cstr, i32(0)), e.io);
     IoError.check(result, e.exn);
@@ -251,9 +251,9 @@ rename :: (fn(from : &Path, to : &Path, io : Io) -> Impl(Future(unit, IoExn)))({
   from_owned := from.clone();
   to_owned := to.clone();
   io.async(e => {
-    from_cstr_bytes := match(from_owned.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
+    from_cstr_bytes := match(from_owned.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(Box.new(IoError.InvalidInput))));
     from_cstr := from_cstr_bytes.ptr().unwrap();
-    to_cstr_bytes := match(to_owned.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
+    to_cstr_bytes := match(to_owned.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(Box.new(IoError.InvalidInput))));
     to_cstr := to_cstr_bytes.ptr().unwrap();
     result := e.io.await(IO_dir.rename(AT_FDCWD, from_cstr, AT_FDCWD, to_cstr), e.io);
     IoError.check(result, e.exn);
@@ -267,9 +267,9 @@ hard_link :: (fn(src : &Path, dst : &Path, io : Io) -> Impl(Future(unit, IoExn))
   src_owned := src.clone();
   dst_owned := dst.clone();
   io.async(e => {
-    src_cstr_bytes := match(src_owned.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
+    src_cstr_bytes := match(src_owned.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(Box.new(IoError.InvalidInput))));
     src_cstr := src_cstr_bytes.ptr().unwrap();
-    dst_cstr_bytes := match(dst_owned.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
+    dst_cstr_bytes := match(dst_owned.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(Box.new(IoError.InvalidInput))));
     dst_cstr := dst_cstr_bytes.ptr().unwrap();
     result := e.io.await(IO_dir.link(AT_FDCWD, src_cstr, AT_FDCWD, dst_cstr, i32(0)), e.io);
     IoError.check(result, e.exn);
@@ -283,9 +283,9 @@ symlink :: (fn(src : &Path, dst : &Path, io : Io) -> Impl(Future(unit, IoExn)))(
   src_owned := src.clone();
   dst_owned := dst.clone();
   io.async(e => {
-    src_cstr_bytes := match(src_owned.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
+    src_cstr_bytes := match(src_owned.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(Box.new(IoError.InvalidInput))));
     src_cstr := src_cstr_bytes.ptr().unwrap();
-    dst_cstr_bytes := match(dst_owned.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
+    dst_cstr_bytes := match(dst_owned.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(Box.new(IoError.InvalidInput))));
     dst_cstr := dst_cstr_bytes.ptr().unwrap();
     result := e.io.await(IO_dir.symlink(src_cstr, AT_FDCWD, dst_cstr), e.io);
     IoError.check(result, e.exn);
@@ -299,7 +299,7 @@ symlink_str :: (fn(src : str, dst : str, io : Io) -> Impl(Future(unit, IoExn)))(
 read_link :: (fn(path : &Path, io : Io) -> Impl(Future(Path, IoExn)))({
   path_owned := path.clone();
   io.async(e => {
-    cstr_bytes := match(path_owned.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
+    cstr_bytes := match(path_owned.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(Box.new(IoError.InvalidInput))));
     cstr := cstr_bytes.ptr().unwrap();
     bufsize := usize(4096);
     buf := (*u8)(malloc(bufsize).unwrap());
@@ -307,7 +307,7 @@ read_link :: (fn(path : &Path, io : Io) -> Impl(Future(Path, IoExn)))({
     cond(
       (n < i32(0)) => {
         free(.Some((*void)(buf)));
-        e.exn.throw(dyn(IoError.from_errno(i32(0) - n)))
+        e.exn.throw(dyn(Box.new(IoError.from_errno(i32(0) - n))))
       },
       true => {
         mut(target_bytes) := ArrayList(u8).with_capacity(usize(n));
@@ -349,7 +349,7 @@ _statx_file_type :: (fn(buf : *u8, buf_size : usize) -> FileType)({
 file_type :: (fn(path : &Path, io : Io) -> Impl(Future(FileType, IoExn)))({
   path_owned := path.clone();
   io.async(e => {
-    cstr_bytes := match(path_owned.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
+    cstr_bytes := match(path_owned.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(Box.new(IoError.InvalidInput))));
     cstr := cstr_bytes.ptr().unwrap();
     buf_size := __yo_statx_buf_size();
     buf := (*u8)(malloc(buf_size).unwrap());
@@ -401,7 +401,7 @@ _file_type_or_other :: (fn(path : &Path, io : Io) -> Impl(Future(FileType, Io)))
 read_dir :: (fn(path : &Path, io : Io) -> Impl(Future(ArrayList(DirEntry), IoExn)))({
   path_owned := path.clone();
   io.async(e => {
-    cstr_bytes := match(path_owned.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
+    cstr_bytes := match(path_owned.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(Box.new(IoError.InvalidInput))));
     cstr := cstr_bytes.ptr().unwrap();
     // Open the directory
     fd_result := e.io.await(IO_file.openat(AT_FDCWD, cstr, O_RDONLY | O_DIRECTORY, i32(0)), e.io);
@@ -423,7 +423,7 @@ read_dir :: (fn(path : &Path, io : Io) -> Impl(Future(ArrayList(DirEntry), IoExn
         (n < i32(0)) => {
           free(.Some((*void)(buf)));
           e.io.await(IO_file.close(fd), e.io);
-          e.exn.throw(dyn(IoError.from_errno(i32(0) - n)));
+          e.exn.throw(dyn(Box.new(IoError.from_errno(i32(0) - n))));
         },
         (n == i32(0)) => {
           break;

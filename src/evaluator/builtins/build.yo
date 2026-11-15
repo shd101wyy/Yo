@@ -1175,7 +1175,7 @@ evaluate_yo_build_functions :: (
       _build_extract_usize_or(&args, usize(7), usize(0), ctx)
     );
     reg_err := g_build_registry.with_mut({ new_artifact }(reg) => reg.register_executable(&new_artifact));
-    match(reg_err, .Some(m) => exn.throw(dyn(m)), .None => ());
+    match(reg_err, .Some(m) => exn.throw(dyn(Box.new(m))), .None => ());
     return(_build_unit_result(expr, env, ctx));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_STATIC_LIBRARY, Option(usize).None), {
@@ -1192,7 +1192,7 @@ evaluate_yo_build_functions :: (
       usize(0)
     );
     reg_err := g_build_registry.with_mut({ new_artifact }(reg) => reg.register_static_library(&new_artifact));
-    match(reg_err, .Some(m) => exn.throw(dyn(m)), .None => ());
+    match(reg_err, .Some(m) => exn.throw(dyn(Box.new(m))), .None => ());
     return(_build_unit_result(expr, env, ctx));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_SHARED_LIBRARY, Option(usize).None), {
@@ -1209,7 +1209,7 @@ evaluate_yo_build_functions :: (
       usize(0)
     );
     reg_err := g_build_registry.with_mut({ new_artifact }(reg) => reg.register_shared_library(&new_artifact));
-    match(reg_err, .Some(m) => exn.throw(dyn(m)), .None => ());
+    match(reg_err, .Some(m) => exn.throw(dyn(Box.new(m))), .None => ());
     return(_build_unit_result(expr, env, ctx));
   });
   // Unified link: a name that matches a registered SYSTEM library attaches as
@@ -1264,7 +1264,7 @@ evaluate_yo_build_functions :: (
       exclude : exclude_list
     );
     reg_err := g_build_registry.with_mut({ new_entry }(reg) => reg.register_test(new_entry));
-    match(reg_err, .Some(m) => exn.throw(dyn(m)), .None => ());
+    match(reg_err, .Some(m) => exn.throw(dyn(Box.new(m))), .None => ());
     return(_build_unit_result(expr, env, ctx));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_RUN, Option(usize).None), {
@@ -1278,7 +1278,7 @@ evaluate_yo_build_functions :: (
     step_name_new := _build_extract_string(&args, usize(0), "name", expr, ctx, exn);
     step_desc := _build_extract_string(&args, usize(1), "description", expr, ctx, exn);
     reg_err := g_build_registry.with_mut({ step_name_new, step_desc }(reg) => reg.register_step(&step_name_new, &step_desc));
-    match(reg_err, .Some(m) => exn.throw(dyn(m)), .None => ());
+    match(reg_err, .Some(m) => exn.throw(dyn(Box.new(m))), .None => ());
     return(_build_unit_result(expr, env, ctx));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DOC, Option(usize).None), {
@@ -1295,7 +1295,7 @@ evaluate_yo_build_functions :: (
       version : _build_extract_string(&args, usize(9), "version", expr, ctx, exn)
     );
     reg_err := g_build_registry.with_mut({ new_entry }(reg) => reg.register_doc(new_entry));
-    match(reg_err, .Some(m) => exn.throw(dyn(m)), .None => ());
+    match(reg_err, .Some(m) => exn.throw(dyn(Box.new(m))), .None => ());
     return(_build_unit_result(expr, env, ctx));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_VERIFY, Option(usize).None), {
@@ -1307,7 +1307,7 @@ evaluate_yo_build_functions :: (
       strict : _build_extract_bool(&args, usize(3), ctx)
     );
     reg_err := g_build_registry.with_mut({ new_entry }(reg) => reg.register_verify(new_entry));
-    match(reg_err, .Some(m) => exn.throw(dyn(m)), .None => ());
+    match(reg_err, .Some(m) => exn.throw(dyn(Box.new(m))), .None => ());
     return(_build_unit_result(expr, env, ctx));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_STEP_DEPEND_ON, Option(usize).None), {
