@@ -87,6 +87,25 @@ is_thread_local_binding :: (fn(decl : &Token, name : &String) -> bool)({
   g_thread_local_binder_sites.with(s => s.contains(&key))
 });
 export(register_mut_binding, is_mut_binding, register_thread_local_binding, is_thread_local_binding);
+/// The blocks the parse made from a bare `{ x }` or `{}` in expression
+/// position (brace groups Generation B, plans/reference/BRACE_BLOCKS.md),
+/// keyed by the block's `{` token, with the punned name (`""` for `{}`). The
+/// evaluator names the record spelling (`.{ x }`, `.{}`) when such a block
+/// meets an expected struct type.
+(g_brace_blocks : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
+_brace_block_key :: (fn(tok : &Token) -> String)(`${tok.module_path.*}|${tok.row.to_string()}:${tok.column.to_string()}`);
+note_brace_block :: (fn(tok : &Token, field : String) -> unit)({
+  key := _brace_block_key(tok);
+  _old := g_brace_blocks.with_mut({ key, field }(m) => m.insert(key, field));
+});
+brace_block_field :: (fn(tok : &Token) -> Option(String))({
+  if(g_brace_blocks.with(m => m.len()) == usize(0), {
+    return(Option(String).None);
+  });
+  key := _brace_block_key(tok);
+  g_brace_blocks.with({ key }(m) => m.get_cloned(&key))
+});
+export(note_brace_block, brace_block_field);
 /// The Yo builtin keyword strings used by the parser.
 BK_TUPLE :: "tuple";
 BK_TUPLE_TYPE :: "Tuple";

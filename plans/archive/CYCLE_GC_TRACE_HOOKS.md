@@ -138,7 +138,7 @@ own element iteration. The `Trace` trait is that contract:
 
 ```yo
 // std/prelude.yo
-Trace :: trait({
+Trace :: trait(.{
   // Trace every managed object directly held by `self`, descending inline through
   // value structure. Call `tracer.visit(child)` once per outgoing edge (per element
   // for containers); never touch the raw callback.

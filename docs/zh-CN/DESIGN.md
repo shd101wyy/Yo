@@ -1192,17 +1192,17 @@ MyString :: ref(
 impl(
   MyString,
   // 方法
-  from : (fn(s : str) -> Self)({
+  from : (fn(s : str) -> Self)(.{
     // 实现...
   }),
-  length : (fn(self : Self) -> usize)({
+  length : (fn(self : Self) -> usize)(.{
     // 实现...
   })
 );
 impl(
   MyString,
   Drop(
-    drop : (fn(self : &mut Self) -> unit)({
+    drop : (fn(self : &mut Self) -> unit)(.{
       // 当引用计数降为零时运行 `drop`
     })
   )
@@ -1509,8 +1509,7 @@ read :: (fn(p : *i32) -> i32)(unsafe(p.*));
 // 指针算术同样：
 advance :: (fn(p : *i32, n : usize) -> *i32)(unsafe(p.add(n)));
 
-// 多语句 unsafe 用 begin-block 包裹（必须含分号 —
-// 不带分号的 `{ ... }` 是结构体字面量，而不是块）：
+// 使用块的多语句 unsafe：
 write_and_read :: (fn(p : *i32, v : i32) -> i32)(
   unsafe({
     p.* = v;
@@ -1898,7 +1897,7 @@ IntoIterator :: trait(
 
 ```yo
 // for 循环语法
-for(iter_expr, variable => {
+for(iter_expr, variable => .{
   // 循环体
 });
 ```
@@ -3138,7 +3137,7 @@ test_capture :: (fn() -> unit)({
 
 ### 捕获列表
 
-闭包可以在形参之前用一个记录字面量列出它的捕获
+闭包可以在形参之前用一个字段列表列出它的捕获
 （`plans/VALUES_BY_DEFAULT.md` 决策 35 与 38）：
 
 ```yo

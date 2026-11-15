@@ -39,7 +39,7 @@ impl(
   )
 );
 
-main :: (fn() -> unit)({});
+main :: (fn() -> unit)(.{});
 export(main);
 ```
 
