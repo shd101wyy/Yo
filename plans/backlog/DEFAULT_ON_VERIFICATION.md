@@ -124,6 +124,101 @@ a function that carries no contract. The two answers considered:
   [`PROVEN_CORE.md`](PROVEN_CORE.md) §8 item 4 lists, and the strict pragma is how a
   module claims it has none.
 
+### 2.2 What it costs, measured 2026-11-15
+
+Measured with `yo 0.2.77` and Z3 5.1.0 on the 64 GB Linux box (32 cores, other
+jobs running, so wall times carry a few seconds of noise). *Judgment* marks an
+extrapolation.
+
+**On today's code the cost is close to zero, because the coverage is.** `yo
+verify --no-cache` against `yo check` on the same path:
+
+| Path | `check` | `verify` | Functions | Outside the subset | Solver queries |
+| --- | --- | --- | --- | --- | --- |
+| `std/collections` | 19.3 s, 294 MB | 19.4 s, 351 MB | 13 | 3 (9 more `assumed`) | 0 |
+| `std/string` | 5.6 s | 5.6 s | 179 | 175 | 0 (6 with `--elision`) |
+| `std/encoding` (7,118 lines) | 46.2 s, 291 MB | 54.8 s, 344 MB | 281 | 250 | 0 (6 with `--elision`) |
+| `std/fmt` | 10.5 s | 10.6 s | 78 | 78 | 0 |
+| `src/lexer.yo` | FE_LEXER |
+| `src/parser.yo` | FE_PARSER |
+| `src/formatter.yo` | FE_FORMATTER |
+
+The 31 `ok` functions of `std/encoding` have no obligation at all. The reasons
+a function is outside the subset, in `std/encoding`: 148 "parameter outside
+the integer/bool/array subset", 57 "call to a callee without contracts", 15
+"untyped expression". An unannotated `while` is outside the subset too ("while
+loop without a leading invariant").
+
+**Inside the subset, the cost is per obligation.** A generated module of small
+contracted functions (integer arithmetic, a `cond`, a counting loop with an
+invariant, a loop over an `Array`, an `ArrayList` index, a division and a
+shift), with and without `pragma(Pragma.VerifyOrAssert);`, and a fresh
+`YO_CACHE_DIR` for the cold runs:
+
+| Functions (lines) | Command | No pragma | Cold cache | Warm cache | Queries |
+| --- | --- | --- | --- | --- | --- |
+| 71 (453) | `check` | 10.4 s | +3.9 s | +1.0 s | 120 |
+| 281 (1,773) | `check` | 11.8 s | +18.3 s | +1.2 s | 480 |
+| 1,121 (7,053) | `check` | 16.8 s, 308 MB | +77.1 s, 490 MB | +7.5 s | 1,920 |
+| 71 (453) | `compile --skip-c-compiler` | 9.7 s | +6.9 s | none measurable | 200 |
+| 281 (1,773) | `compile --skip-c-compiler` | 12.3 s | +31.6 s | +0.5 s | 800 |
+| 1,121 (7,053) | `compile --skip-c-compiler` | 16.2 s, 588 MB | +125.9 s, 774 MB | +12.5 s | 3,200 |
+
+- **A cold obligation costs about 40 ms**, and they run one after another:
+  one fresh `z3` process per query through `system(3)`. Starting `z3` on a
+  trivial script is 12 to 14 ms of that.
+- **A warm obligation costs about 4 ms**: the walk that builds the query, its
+  hash, and one cache file read. About 10 s of each "no pragma" time is the
+  prelude, so the largest module itself costs about 7 s to check, and a warm
+  verification doubles it.
+- `compile` asks more than `check` (3.3 against 2 queries per function here)
+  because it also generates the overflow obligations that let it remove a
+  guard.
+- Memory grew by about 185 MB (60 %) on the largest module.
+
+**The tail is heavy.** Most obligations took 25 to 200 ms. A product of two
+`i32` values whose `requires` bounds include negative numbers took 3 to 5 s
+for each of its three obligations (13.6 s for one function), all proved. A
+lower budget turns that into a bounded give-up: `--rlimit 200000` answers
+`unproven` in about 1.1 s each, `--rlimit 50000` in about 0.35 s. §2's 102 s
+example is the far end of the same tail, at the default budget of 5,000,000.
+
+***Judgment*, the compiler at full coverage.** `src/` is about 320,000 lines.
+At two to five obligations per definition and roughly 6,400 definitions it is
+13,000 to 32,000 obligations: 9 to 21 minutes cold and 50 to 130 s warm on a
+`check ./src` that takes about 105 s unverified, before any heavy obligation.
+That is not acceptable as measured and is acceptable with three changes, which
+are S4's real content (§5 items 5 to 7): solve in parallel, key the cache on
+the function so an unchanged function is not walked, and give automatic
+obligations a small budget.
+
+### 2.3 A machine without a usable solver
+
+What `yo 0.2.77` does with `~/.cache/yo/solvers/` empty and `YO_Z3_PATH` unset:
+
+| | `yo check` | `yo compile` |
+| --- | --- | --- |
+| `verify+` module | passes, one `verify: no Z3 solver found …` line | passes, same line; every contract stays a runtime assert |
+| `verify` module | passes, with the hint | fails: its runtime asserts are suppressed, so it cannot ship unproved |
+
+Only `yo verify` downloads the solver. Three facts that matter once `verify+`
+is the default:
+
+- **The same source then builds two different programs.** A module whose
+  `ensures` is false fails the build on a machine with the solver (`REFUTED`,
+  with the counter-example). Without it the build passes and the program
+  aborts at run time (`ensures failed: r > x`). Both are sound; they disagree
+  on when the author finds out.
+- **A solver that is installed but cannot run is reported once per function.**
+  A `z3` that exits with a loader error gives a `SOLVER-ERROR` block for every
+  function, with the loader's message repeated. The official Linux assets the
+  pin names need glibc 2.39 (x86_64) or 2.38 (arm64), while the `yo` binary is
+  static musl and runs on older and musl systems, so this is the case a user
+  on Debian 12, Ubuntu 22.04 or Alpine meets.
+- **The install is 157 MB** for a 36 MB binary: the release archive also
+  carries `libz3.a`, `libz3.so` and the Java and .NET bindings, and all of it
+  is unpacked.
+
 ## 3. The steps
 
 In order. S1 and S2 need nothing else and start at v0.2.80.
@@ -170,6 +265,56 @@ Each is a number or a verdict a CI job re-derives. None is asserted in prose.
 2. **Do `*.test.yo` files default too?** *Judgment:* yes, with the same rule; a test
    body that indexes with a literal proves trivially.
 3. **G3's and G4's numbers.** Set by measurement, as the table says.
+4. **`verify+` must be tested as the default it is about to become, before S1.**
+   One fixture of `tests/spec/fixtures/valid/` uses `Pragma.VerifyOrAssert`,
+   and the measurement of §2.2 found
+   `issues/2026-11-15-under-verify-plus-a-function-with-a-requires-no-ensures-and-a-block-body-is-not-verified.md`
+   within an hour. *Judgment:* fix it and add a sweep that runs every valid
+   fixture in both modes and requires the same proved set; S1 scaffolds this
+   pragma into every new project.
+5. **Solve in parallel.** Every obligation is already its own process and its
+   own cache entry, and the verdicts do not depend on order. *Judgment:* a
+   pool of solver processes sized by `--jobs`; the cold numbers of §2.2
+   divide by the pool size.
+6. **Key the cache on the function, not only on the query.** A warm run
+   re-walks every function to rebuild queries it then finds cached, which is
+   the 4 ms per obligation of §2.2. *Judgment:* S4 stores, per function, a
+   hash of its body and of the contracts of everything it calls, with its
+   verdicts; an unchanged function is neither walked nor hashed per
+   obligation. G3 should be stated against this.
+7. **Two budgets.** An automatic obligation that the solver gives up on costs
+   nothing but a kept guard, so it does not deserve the budget of a written
+   contract. *Judgment:* the default mode gives automatic obligations a small
+   `rlimit` (the 200,000 of §2.2 is about one second) and keeps 5,000,000 for
+   written `requires`, `ensures` and `invariant` clauses and for the strict
+   pragma. Both are deterministic, so G5 holds.
+8. **What a missing solver means under the default.** *Judgment:*
+   - never an error in the default mode, and never silent: the build keeps
+     every runtime check (today's `runtime` behaviour) and prints one line for
+     the whole build, not one per file;
+   - make it rare: the installer and `yo version install` fetch the pinned
+     solver with the compiler, and `yo build`, the one command that already
+     fetches, fetches it on first need; `check`, `compile` and the editor
+     never touch the network;
+   - a flag and an environment variable (`--require-solver`,
+     `YO_REQUIRE_SOLVER=1`) turn the line into an error, for CI: what CI
+     proves is then what ships;
+   - the strict pragma keeps today's rule (`compile` fails);
+   - a solver that cannot execute is the same case as a missing one: probe it
+     once, print one line;
+   - whether the solver ran is part of the artifact's input stamp, so a build
+     cached without it is not served after it is installed *(verify that the
+     stamp does not already cover this)*.
+9. **Solver coverage must equal compiler coverage.** *Judgment:* Yo builds
+   the pinned Z3 itself as a static binary for each release target and
+   publishes it with the release, the way it publishes its own bundles, and
+   the install keeps only that binary (36 MB, against 157 MB today). Until
+   then the default-on gate G5 cannot be met on the systems §2.3 names.
+10. **The verify cache is never collected.** It holds one JSON file per
+    obligation in one directory (22,206 files and 90 MB on the measuring
+    box), and `yo cache gc` and `yo cache clean` do not know it *(grep:
+    `verify-cache` appears only in `src/verifier/`)*. *Judgment:* an S-sized
+    item for S4.
 
 ## 6. What does not change
 
