@@ -6948,7 +6948,7 @@ _fv_refine_closure_expected :: (
         while((q < info_arg_idx.len()) && f_ty.is_none(), {
           if(match(info_arg_idx.get_cloned(q), .Some(ix) => (ix == p), .None => false), {
             q_info := match(infos.get_cloned(q), .Some(i) => i, .None => new_expr_info(env, t_unit()));
-            q_ty := _funcval_infer_forall_ty(&q_info.ty(), t_unit(), match(param_ct.get(p), .Some(c) => c, .None => false), match(declared_param_types.get(p), .Some(qd) => t_slot_is_borrow(&qd), .None => false), env);
+            q_ty := _funcval_infer_forall_ty(&q_info.ty(), t_unit(), match(param_ct.get(p), .Some(c) => c, .None => false), ((p < declared_param_types.len()) && t_slot_is_borrow(&declared_param_types(p))), env);
             if((get_all_some_types(&q_ty).len() == usize(0)) && !is_some_type(&q_ty), {
               f_ty = Option(TypeValue).Some(q_ty);
             });
@@ -7300,7 +7300,7 @@ _funcval_bind_foralls :: (
               &later_info.ty(),
               match(expected_param_types.get_cloned(ptn_i), .Some(t) => t_slot_pointee(&t), .None => t_unit()),
               match(param_ct_flags.get(ptn_i), .Some(f) => f, .None => false),
-              match(declared_param_types.get(ptn_i), .Some(dps) => t_slot_is_borrow(&dps), .None => false),
+              ((ptn_i < declared_param_types.len()) && t_slot_is_borrow(&declared_param_types(ptn_i))),
               env
             );
             if(_forall_types_conflict(&fa_prev.*, &later_ty), {
@@ -7323,7 +7323,7 @@ _funcval_bind_foralls :: (
           &arg_info.ty(),
           match(expected_param_types.get_cloned(ptn_i), .Some(t) => t_slot_pointee(&t), .None => t_unit()),
           match(param_ct_flags.get(ptn_i), .Some(f) => f, .None => false),
-          match(declared_param_types.get(ptn_i), .Some(dps) => t_slot_is_borrow(&dps), .None => false),
+          ((ptn_i < declared_param_types.len()) && t_slot_is_borrow(&declared_param_types(ptn_i))),
           env
         );
         _add_forall := add_variable_to_env(
