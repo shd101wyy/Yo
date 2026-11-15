@@ -1745,12 +1745,18 @@ generate_dyn_box_types :: (fn(context : &mut CodeGenContext) -> unit)({
           generated.insert(box_name.clone());
           context.dyn_box_typedefs.insert(box_name.clone());
           value_str := get_type_string(&concrete, context);
+          // A `unit` payload stores no member; its constructor takes the
+          // one-byte by-value `unit` (functions/dyn.yo, the box functions).
+          is_unit_payload := (value_str == "void");
+          param_str := if(is_unit_payload, String.from("uint8_t"), value_str.clone());
           context.emitter.emit_declaration_line("typedef struct {");
           context.emitter.emit_declaration_line("  __yo_ref_header_t header;");
-          context.emitter.emit_declaration_string_line(`  ${value_str} value;`);
+          if(!is_unit_payload, {
+            context.emitter.emit_declaration_string_line(`  ${value_str} value;`);
+          });
           context.emitter.emit_declaration_string_line(`} ${box_name};`);
           context.emitter.emit_declaration_line("");
-          context.emitter.emit_declaration_string_line(`static ${box_name}* __yo_new_${box_name}(${value_str} value);`);
+          context.emitter.emit_declaration_string_line(`static ${box_name}* __yo_new_${box_name}(${param_str} value);`);
           context.emitter.emit_declaration_string_line(`static void __yo_dispose_${box_name}(void* ptr);`);
           context.emitter.emit_declaration_line("");
         });

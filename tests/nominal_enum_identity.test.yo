@@ -155,11 +155,11 @@ impl(MyErr, Error());
 derive(MyErr, Clone);
 MaybeErr :: enum(None, Some(value : MyErr));
 _maybe_err_code :: (fn(m : MaybeErr) -> i32)(match(m, .Some(e) => e.code, .None => i32(0)));
-downcast_my_err :: (fn(err : AnyError) -> Option(MyErr))(downcast(err, MyErr));
+downcast_my_err :: (fn(err : &AnyError) -> Option(MyErr))(match(downcast(&err.*, MyErr), .Some(e) => Option(MyErr).Some(e.clone()), .None => Option(MyErr).None));
 test("a downcast's Option(T) is the prelude Option, not a same-shaped user enum", {
   a := _maybe_err_code(MaybeErr.Some(value : MyErr(code : i32(3))));
   (err : AnyError) = dyn(Box.new(MyErr(code : i32(7))));
-  (o : Option(MyErr)) = downcast_my_err(err);
+  (o : Option(MyErr)) = downcast_my_err(&err);
   b := match(o, .Some(e) => e.code, .None => i32(-1));
   assert((a + b) == i32(10), "downcast returns the prelude Option");
 });

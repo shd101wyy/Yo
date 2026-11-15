@@ -1,17 +1,15 @@
-# `yo fix <path> --migrate unsized` (decision 49 S1f; VERDICTS-40 §5,
-# VERDICTS-43 §4, VERDICTS-55) writes every bare `Dyn(...)` type spelling as
-# `Box(Dyn(...))`, `*Dyn(...)`/`?*Dyn(...)`, an alias body and a
-# `size_of`/`Type.eq` argument included, and leaves `Box`/`Rc`/`&`/`&mut`'s
-# argument and `upcast`'s target alone. It lists `Rc(Dyn(T)).new(...)`,
-# `impl(Dyn(...), ...)` and a spelling over several lines (multi.yo). The
-# evaluation writes `dyn(v)` as `dyn(Box.new(v))` and `dyn(Rc.new(v))` into
-# an owning Dyn as `dyn(Box.new(v))`, and lists `dyn(p)` over a raw pointer
-# and an owned `downcast`, and a file whose platform-gated `cond` leaves an
-# arm unevaluated (arms.yo). The second run rewrites nothing, and every file
-# still type-checks (check only: `dyn(p)` over a raw pointer emits invalid C,
-# issues/2026-11-11-dyn-over-a-raw-pointer-emits-invalid-c.md).
+# `yo fix <path> --migrate unsized` on v0.2.78 (decision 49 S2; VERDICTS-40 §5,
+# VERDICTS-55, VERDICTS-61): over code in the v0.2.78 spelling, the
+# evaluation writes each legacy `dyn(v)` alias site as `dyn(Box.new(v))` (a
+# closure and a generic body's `dyn(v.*)` included), keeps a `dyn(Rc.new(v))`
+# that builds an `Rc(Dyn(T))` handle, lists `dyn(p)` over a raw pointer, and
+# lists a file whose platform-gated `cond` leaves an arm unevaluated
+# (arms.yo). `*Dyn(...)`, `?*Dyn(...)`, an alias body, `impl(Dyn(...), ...)`
+# and a `size_of`/`Type.eq` argument name the unsized object and are left
+# alone; an owned `downcast` is already the owning form and is not listed.
+# The second run rewrites nothing, and every file still type-checks. Code
+# written for v0.2.77 is upgraded on v0.2.77 (fix-migrate-unsized-v0277-input).
 fix . --migrate unsized
 fix . --migrate unsized
 check main.yo
-check multi.yo
 check arms.yo
