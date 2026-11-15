@@ -10,7 +10,7 @@ _up_both :: (fn(k : i32) -> Box(Dyn(_OsSp, _OsOt)))(
   cond((k == i32(0)) => dyn(Box.new(_OsCat(n : i32(3)))), true => dyn(Box.new(_UpDog(n : i32(4)))))
 );
 (dog : Box(Dyn(_OsSp, _OsOt))) = _up_both(i32(1));
-upcast(&dog.*, Dyn(_OsOt)).other_n()   // SEGV, read at 0x48
+upcast(&dog.*, Dyn(_OsOt)).other_n() // SEGV, read at 0x48
 ```
 
 Three `tests/dyn.test.yo` rows ("upcast drops traits and keeps each payload's impls", "a downcast or

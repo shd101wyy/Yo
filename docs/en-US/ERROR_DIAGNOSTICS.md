@@ -166,15 +166,21 @@ and a file with a platform-gated `cond` arm the target does not evaluate
 
 That is the mode as v0.2.77 ships it, and v0.2.77 is the release that
 migrates v0.2.77 code. From v0.2.78 `Dyn(...)` is unsized, a bare by-value
-`Dyn(...)` is E0619, and its help names the path:
-`yo version install 0.2.77 && yo fix <path> --migrate unsized`. v0.2.78's
-mode reads its input in the v0.2.78 spelling, where `*Dyn(...)`, a type alias
-body, `impl(Dyn(...), ...)` and a `size_of`/`Type.eq` argument name the
-unsized object. It therefore rewrites no type spelling. It still writes the
-legacy `dyn(v)` alias of a plain value as `dyn(Box.new(v))` (the alias goes
-in v0.2.79), and lists `dyn(p)` over a raw pointer, `dyn(h)` over a named
-handle, a spelling that does not print back on one line and a file with an
-unevaluated platform arm.
+`Dyn(...)` is E0619, and code written for v0.2.77 is upgraded in two steps,
+which E0619's help names: on v0.2.77,
+`yo version install 0.2.77 && yo fix <path> --migrate unsized` writes the
+type spellings; then on v0.2.78, `yo fix <path> --migrate unsized` writes the
+lends. v0.2.78's mode reads its input in the v0.2.78 spelling, where
+`*Dyn(...)`, a type alias body, `impl(Dyn(...), ...)` and a
+`size_of`/`Type.eq` argument name the unsized object. It therefore rewrites
+no type spelling. It writes a lend `&b` of a `Box(Dyn(T))` where a `&Dyn(T)`
+is taken as `&b.*` (a `&Box(Dyn(T))` lends the box, and nothing coerces it to
+a reference to the object the box owns: E0601, whose help names `&b.*`), and
+the legacy `dyn(v)` alias of a plain value as `dyn(Box.new(v))` (the alias
+goes in v0.2.79). It lists a `Box(Dyn(T))` temporary where a `&Dyn(T)` is
+taken, `dyn(p)` over a raw pointer, `dyn(h)` over a named handle, a spelling
+that does not print back on one line and a file with an unevaluated platform
+arm.
 
 A module-level or `thread_local` runtime binding is immutable (Rust's
 `static`) unless its name is wrapped in `mut(...)` (`static mut`, decision
@@ -267,7 +273,7 @@ local-borrow spelling, and `mut-bindings` would read it as a mutable local.
 Never run `borrow-spelling` on code that already spells decision 47's
 `mut(x) := v`. The copy migrations run on v0.2.73 in their own order,
 `explicit-copy`, `cloned-accessors`, then `rc-clone`, before pinning v0.2.74.
-`yo fix --migrate deref` and `yo fix --migrate record-literal` are the two modes this release ships.
+`yo fix --migrate deref`, `yo fix --migrate record-literal` and `yo fix --migrate unsized` are the three modes this release ships.
 
 ## Warnings
 

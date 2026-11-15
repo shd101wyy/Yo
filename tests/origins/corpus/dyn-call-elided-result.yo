@@ -5,7 +5,7 @@ _Pick :: trait(pick : (fn(self : &Self, other : &i32) -> &i32));
 _P :: struct(v : i32);
 impl(_P, _Pick(pick : (fn(self : &Self, other : &i32) -> &i32)(&self.v)));
 main :: (fn() -> unit)({
-  (d : Dyn(_Pick)) = dyn(_P(v : i32(1)));
+  (d : Box(Dyn(_Pick))) = dyn(Box.new(_P(v : i32(1))));
   mut(o) := i32(2);
   r := d.pick(&o);
   o = i32(3);

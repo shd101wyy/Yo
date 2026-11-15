@@ -1340,7 +1340,7 @@ impl(_DrsObj, Error());
 impl(_DrsObj, Clone(clone : (fn(self : &Self) -> Self)(_DrsObj(n : self.n))));
 _drs_n :: (fn(err : &AnyError) -> i32)(match(downcast(err, _DrsObj), .Some(o) => o.n, .None => i32(0)));
 test("a downcast of a boxed ref-struct payload reads the object", {
-  (e : AnyError) = dyn(_DrsObj(n : i32(7)));
+  (e : AnyError) = dyn(Box.new(_DrsObj(n : i32(7))));
   assert(_drs_n(&e) == i32(7), "the ref object behind the box");
   assert(e.to_string() == String.from("drs"), "and the erased value still dispatches");
 });
@@ -1401,4 +1401,37 @@ test("a Box(Dyn) moved into a field of an inner-scope container drops with the c
     i = (i + i32(1));
   });
   assert(g_ar_drops == i32(4), "one drop per iteration's container");
+});
+// A reference to a box is not a reference to the object it owns (decision
+// 49; no deref coercion): `&b` of a `Box(Dyn(T))` where a `&Dyn(T)` is taken
+// is E0601 naming `&b.*`, at a parameter and at a field, and `&b.*` lends the
+// object (issues/fixed/2026-11-15-a-box-lent-where-a-ref-dyn-is-taken-has-no-migration-after-the-flip.md).
+_lend_sp :: (fn(d : &Dyn(_ArSp)) -> i32)(d.ar_sp());
+_LendHolder :: struct(b : Box(Dyn(_ArSp)));
+_lend_first :: (fn(h : &_LendHolder) -> Option(&Dyn(_ArSp)))(.Some(&h.b.*));
+test("a Box(Dyn) lent where a &Dyn is taken: `&b` is E0601, `&b.*` lends the object", {
+  (b : Box(Dyn(_ArSp))) = dyn(Box.new(_ArObj(n : i32(4))));
+  comptime_expect_error(_lend_sp(&b), "lend the object the box owns: `&b.*`");
+  assert(_lend_sp(&b.*) == i32(4), "`&b.*` lends the object");
+  h := _LendHolder(b : b);
+  comptime_expect_error(
+    (fn(hh : &_LendHolder) -> Option(&Dyn(_ArSp)))(.Some(&hh.b)),
+    "nothing coerces a box"
+  );
+  assert(match(_lend_first(&h), .Some(d) => d.ar_sp(), .None => i32(-1)) == i32(4), "a field's box lends its object");
+});
+// A call through a `Box(Dyn(Fn(...) -> &T))` is a projection: its result is
+// a reference, as through a `&Dyn(Fn)` (closure_fn_trait_of sees through
+// the box; issues/fixed/2026-11-15-a-call-through-a-box-dyn-fn-loses-its-reference-result.md).
+_PjCell :: struct(a : i32, b : i32);
+_pj_first :: (fn(t : &_PjCell) -> &i32)(&t.a);
+_pj_read :: (fn(x : &i32) -> i32)(x.*);
+_pj_via :: (fn(f : Box(Dyn(Fn(t : &_PjCell) -> &i32)), t : &_PjCell) -> i32)({
+  r := f(&t.*);
+  _pj_read(r)
+});
+test("a call through a Box(Dyn(Fn(...) -> &T)) yields a reference", {
+  t := _PjCell(a : i32(7), b : i32(2));
+  (f : Box(Dyn(Fn(s : &_PjCell) -> &i32))) = dyn(Box.new(_pj_first));
+  assert(_pj_via(f, &t) == i32(7), "the result reads the caller's place");
 });

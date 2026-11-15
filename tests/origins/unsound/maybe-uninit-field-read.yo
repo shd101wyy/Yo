@@ -4,7 +4,7 @@
 // the zero-filled `Dyn` is called through a null vtable (SEGV).
 { println } :: import("std/fmt");
 main :: (fn() -> unit)({
-  m := MaybeUninit(Dyn(Fn() -> i64)).new();
+  m := MaybeUninit(Box(Dyn(Fn() -> i64))).new();
   v := (m._value)();
   println(`OUT: ${v.to_string()}`);
 });

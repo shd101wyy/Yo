@@ -1,0 +1,9 @@
+//! A `Box(Dyn(T))` temporary where a `&Dyn(T)` is taken: listed.
+Speak :: trait(speak : (fn(self : &Self) -> i32));
+Cat :: struct(n : i32);
+impl(Cat, Speak(speak : ((self : &Self) -> self.n)));
+read :: (fn(d : &Dyn(Speak)) -> i32)(d.speak());
+main :: (fn() -> unit)({
+  _n := read(dyn(Box.new(Cat(n : i32(1)))));
+});
+export(main);

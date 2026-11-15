@@ -26,7 +26,7 @@
 { expr_contains_await } :: import("../../expr_traversal.yo");
 { TokenKind } :: import("../../token.yo");
 { generate_yo_inline_function_call } :: import("./inline_fns.yo");
-{ _call_generate_expr, call_projection_mode } :: import("./_expr.yo");
+{ _call_generate_expr, call_projection_mode, unsized_lend_pair_code } :: import("./_expr.yo");
 { emit_effect_unwind_check, generate_call_deferred_drops } :: import("./return.yo");
 { generate_thread_spawn_call, generate_worker_spawn_call } :: import("./parallelism.yo");
 { get_c_include_for_extern } :: import("../../evaluator/exprs/c_include.yo");
@@ -1286,6 +1286,7 @@ _apply_ref_amp :: (fn(args : &ArrayList(String), param_is_ref : &ArrayList(bool)
     // and the C field is a pointer, so it is addressed exactly like a ref
     // parameter's argument. The lend is recorded on the place's ExprInfo as
     // its converted runtime type (a `Reference`).
+    (mut(unsized_lend) : bool) = false;
     if(!pref, {
       match(
         runtime_args.get(i),
@@ -1298,15 +1299,24 @@ _apply_ref_amp :: (fn(args : &ArrayList(String), param_is_ref : &ArrayList(bool)
             // parameter takes (never an address).
             .Some(Rc(.Reference(n2p, _, _))) => if(type_is_sized(&n2p), {
               pref = true;
-            }, ()),
-            _ => ()
+            }, {
+              unsized_lend = true;
+            }),
+            // A reference binding of an unsized pointee read on (`f(r)`,
+            // `r : &Dyn(T)`) reads its place `(*r)`; the slot takes the pair.
+            _ => {
+              ul_ty := rei2.ty();
+              unsized_lend = (!type_is_sized(&ul_ty) || (t_slot_is_borrow(&ul_ty) && !type_is_sized(&t_slot_pointee(&ul_ty))));
+            }
           ),
           .None => ()
         ),
         .None => ()
       );
     });
-    c := match(args.get_cloned(i), .Some(x) => x, .None => String.from(""));
+    // The lent place of an unsized pointee reads through its pair (`b.*`
+    // over a box, a reference binding `r`: `(*pair)`); the lend is the pair.
+    c := match(args.get_cloned(i), .Some(x) => if(unsized_lend, unsized_lend_pair_code(&x), x), .None => String.from(""));
     // Decision 49 S2: an argument that is an unsized place (`"lit"` or `s`
     // lent to a `&str` slot) or a reference to an unsized pointee (a `&str`
     // value, a call's `&str` result) is passed as the fat pair it is: a
@@ -1775,7 +1785,10 @@ _generate_runtime_enum_construct :: (
                 fcode := match(
                   rt_args.get(i),
                   .Some(a) => {
-                    f_code := emit_deferred_dup_or_code(&a, _call_generate_expr(&a, indent.clone(), context), indent.clone(), context);
+                    f_code_raw := emit_deferred_dup_or_code(&a, _call_generate_expr(&a, indent.clone(), context), indent.clone(), context);
+                    // A lend of an unsized place (`&b.*`, a reference
+                    // binding read) is the pair its place reads through.
+                    f_code := if(t_slot_is_borrow(&fty) && !f_is_ref, unsized_lend_pair_code(&f_code_raw), f_code_raw);
                     f_takes_addr := (f_is_ref && !reference_operand_is_value(&a, context));
                     sequence_operand(&a, if(f_takes_addr, `(&(${f_code}))`, f_code), rt_args, i, f_takes_addr, indent, context)
                   },

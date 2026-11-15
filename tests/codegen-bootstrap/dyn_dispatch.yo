@@ -17,6 +17,7 @@ DogSpeak :: impl(
 call_speak :: (fn(s : &Dyn(Speak)) -> i32)(s.speak());
 main :: (fn() -> unit)({
   dog := Dog();
-  unsafe(_a := putchar(int(call_speak(dyn(dog)))));
+  (d : Box(Dyn(Speak))) = dyn(Box.new(dog));
+  unsafe(_a := putchar(int(call_speak(&d.*))));
 });
 export(main);
