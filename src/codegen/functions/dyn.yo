@@ -559,6 +559,12 @@ generate_dyn_wrapper_functions :: (fn(context : &mut FunctionGenerationContext) 
                   is_call_once := (fn_base == "FnOnce");
                   wrapper := `__yo_wrap_${impl_key}_call`;
                   params := _wrapper_params_abi(&rt, call_param_types.len(), usize(0), context);
+                  // A payload-convention call-once wrapper may drop its
+                  // payload after the call (below): its slot function is
+                  // defined in the code buffer, after the wrappers.
+                  if(is_call_once && impl_entry.payload_convention, {
+                    context.base.emitter.emit_declaration_string_line(`static void __yo_dip_${impl_key.clone()}(void* self_ptr);`);
+                  });
                   context.base.emitter.emit_declaration_string_line(`static ${return_str} ${wrapper}(${params}) {`);
                   ncp := call_param_types.len();
                   // A `unit` result lowers to C `void` too: the call is a
@@ -589,9 +595,15 @@ generate_dyn_wrapper_functions :: (fn(context : &mut FunctionGenerationContext) 
                     // word is the capture struct's own address, and nothing is
                     // released (the Dyn borrows it).
                     cc_fn_p := match(cc_info, .Some(mp) => mp.function_c_name.clone(), .None => String.from(""));
+                    // A `Box(Dyn(FnOnce(...)))` call consumes the payload; the
+                    // box is then freed without dropping it
+                    // (`Box._free_consumed`). A capture-list `FnOnce` body took
+                    // its captures; an `Fn` payload's body only borrowed them,
+                    // so the wrapper drops the payload once the call returns.
+                    p_drops_after := (is_call_once && !match(cc_info, .Some(mp) => is_fnonce_closure_fn(mp.closure_fid.clone()), .None => false));
                     call_p := String.from("  ");
                     if(!is_void, {
-                      call_p.push_str("return ");
+                      call_p.push_string(if(p_drops_after, `${return_str} __yo_once_r = `, String.from("return ")));
                     });
                     call_p.push_string(&cc_fn_p);
                     call_p.push_str("(self_ptr");
@@ -603,6 +615,12 @@ generate_dyn_wrapper_functions :: (fn(context : &mut FunctionGenerationContext) 
                     });
                     call_p.push_str(");");
                     context.base.emitter.emit_declaration_string_line(&call_p);
+                    if(p_drops_after, {
+                      context.base.emitter.emit_declaration_string_line(`  __yo_dip_${impl_key.clone()}(self_ptr);`);
+                      if(!is_void, {
+                        context.base.emitter.emit_declaration_line("  return __yo_once_r;");
+                      });
+                    });
                   }, if(is_boxed && match(cc_info, .Some(_) => true, .None => false), {
                     boxed_cname := _boxed_c_name(data_type.clone(), context);
                     field_name := _box_field_name(data_type.clone());

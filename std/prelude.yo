@@ -10461,6 +10461,18 @@ impl(
       (al > _BOX_MALLOC_ALIGN) => __yo_aligned_free(.Some((*void)(payload))),
       true => __yo_free(.Some((*void)(payload)))
     );
+  }),
+  /// Free the cell of a box whose payload a call has consumed: the release
+  /// after a `Box(Dyn(FnOnce(...)))` call (the call took the payload's
+  /// captures, or its call-once wrapper dropped them), so the payload is not
+  /// dropped again. The box is zeroed, as `into_inner` leaves it.
+  _free_consumed : (fn(self : Self) -> unit)({
+    mut(b) := self;
+    cell := Box(T)._payload(&b);
+    placed := Box(T)._is_placed(&b);
+    Box(T)._free_cell(cell, placed);
+    // SAFETY: the cell is freed; the zeroed box's drop is a no-op.
+    unsafe(__yo_ptr_write(unsafe.cast(addr_of(b), *usize), usize(0)));
   })
 );
 impl(

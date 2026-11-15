@@ -112,7 +112,7 @@ pragma(Pragma.AllowUnsafe);
   note_rprobe_call,
   rprobe_stats_on
 } :: import("../context.yo");
-{ is_pointer_type, is_dyn_type, is_type_hierarchy_type, is_type_parameter_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, is_type_kind, type_decl_module, is_module_type, is_cell_primitive_type, is_counted_handle_type } :: import("../../types/guards.yo");
+{ is_pointer_type, is_dyn_type, is_type_hierarchy_type, is_type_parameter_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, is_type_kind, type_decl_module, is_module_type, is_cell_primitive_type, is_counted_handle_type, unique_box_payload_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
 { is_drop_method_name, is_clone_trait_type, type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, resolve_cell_chain, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type, note_future_origins_exist, note_unreturnable_future, future_origin_names, type_is_second_class, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message, type_lacks_clone } :: import("../../types/utils.yo");
@@ -10496,7 +10496,17 @@ _record_fnonce_callee_release :: (fn(call : &AstExpr, name : &String, env : &Env
     saved.push(match(same_name.get_cloned(si), .Some(sv) => sv.consumed_at_token(), .None => Option(Token).None));
     si = (si + usize(1));
   });
-  drop_expr := generate_expr_from_code(`___drop(${name})`, exn);
+  // A called `Box(Dyn(FnOnce(...)))` has no payload left to drop: the call
+  // took a capture-list closure's captures, and the call-once wrapper drops
+  // an `Fn` payload's. Only the cell is freed (`Box._free_consumed`); the
+  // full drop dropped the captures a second time
+  // (issues/2026-11-15-a-called-boxed-fnonce-drops-its-moved-captures-again.md).
+  callee_is_box_dyn := match(
+    same_name.last_cloned(),
+    .Some(bv) => match(unique_box_payload_type(&variable_value_type(&bv)), .Some(bp) => is_dyn_type(&bp), .None => false),
+    .None => false
+  );
+  drop_expr := generate_expr_from_code(if(callee_is_box_dyn, `${name}._free_consumed()`, `___drop(${name})`), exn);
   evaluated := evaluate_expression_raw(&drop_expr, env, ctx, exn);
   (ri : usize) = usize(0);
   while(ri < same_name.len(), {
