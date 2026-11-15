@@ -1,12 +1,8 @@
-//! `yo fix . --migrate unsized` (decision 49 S1f): every bare `Dyn(...)` type
-//! spelling is written `Box(Dyn(...))`, `*Dyn(...)`, `?*Dyn(...)`, an alias
-//! body and a `size_of`/`Type.eq` argument included; the wrapped and reference
-//! spellings and `upcast`'s target are left alone; `Rc(Dyn(T)).new(...)` and
-//! `impl(Dyn(...), ...)` are listed. The evaluation writes `dyn(v)` as
-//! `dyn(Box.new(v))` (a closure too) and a `dyn(Rc.new(v))` into an owning
-//! `Dyn` as `dyn(Box.new(v))`, keeps a `dyn(Rc.new(v))` that builds an
-//! `Rc(Dyn(T))` handle, rewrites a generic body's `dyn(v.*)` once, and lists
-//! `dyn(p)` over a raw pointer and a `downcast` of an owned `Dyn`.
+//! Code written for v0.2.77, where a bare `Dyn(...)` was the owning box:
+//! by-value `Dyn(...)` fields, parameters, locals and results, `*Dyn(...)`,
+//! `Rc(Dyn(T)).new(...)` and `impl(Dyn(...), ...)`. v0.2.78 reads it in the
+//! v0.2.78 spelling, so it does not evaluate (E0619); v0.2.77's
+//! `--migrate unsized` is the one that rewrites it.
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { println } :: import("std/fmt");
