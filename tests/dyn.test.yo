@@ -1323,10 +1323,10 @@ test("a Dyn's Clone is not a method of the erased value", {
 // issues/2026-11-15-sizeof-of-a-pointer-to-an-unsized-pointee-is-thin.md).
 _SzHolder :: struct(tag : usize, err : AnyError);
 test("a Box(Dyn) and a *Dyn are two words, and a struct holding one is laid out so", {
-  assert(sizeof(Box(Dyn(TestDyn))) == (usize(2) * sizeof(usize)), "Box(Dyn) is the fat pair");
-  assert(sizeof(*(Dyn(TestDyn))) == (usize(2) * sizeof(usize)), "*Dyn is the fat pair");
-  assert(sizeof(*(i32)) == sizeof(usize), "a pointer to a sized pointee stays thin");
-  assert(sizeof(_SzHolder) == (usize(3) * sizeof(usize)), "the tag and the fat error");
+  assert(size_of(Box(Dyn(TestDyn))) == (usize(2) * size_of(usize)), "Box(Dyn) is the fat pair");
+  assert(size_of(*(Dyn(TestDyn))) == (usize(2) * size_of(usize)), "*Dyn is the fat pair");
+  assert(size_of(*(i32)) == size_of(usize), "a pointer to a sized pointee stays thin");
+  assert(size_of(_SzHolder) == (usize(3) * size_of(usize)), "the tag and the fat error");
   (inner : AnyError) = dyn(Box.new(_DcFd(n : i32(5))));
   b := Box.new(_SzHolder(tag : usize(7), err : inner));
   assert(b.*.tag == usize(7), "the boxed holder reads back");

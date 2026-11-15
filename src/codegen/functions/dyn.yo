@@ -590,7 +590,8 @@ generate_dyn_wrapper_functions :: (fn(context : &mut FunctionGenerationContext) 
                   );
                   cc_info := if(cc_struct_id.len() > usize(0), context.base.impl_closure_call_map.get(&cc_struct_id), Option(ImplClosureCallInfo).None);
                   fn_payload := dyn_concrete_func_type(impl_entry.concrete_type.clone());
-                  if(impl_entry.payload_convention && match(cc_info, .Some(_) => true, .None => false), {
+                  if(impl_entry.payload_convention && (match(cc_info, .Some(_) => true, .None => false) || fn_payload.is_some()), {
+                   if(match(cc_info, .Some(_) => true, .None => false), {
                     // A reference-kind Dyn over a closure (`dyn(&f)`): the data
                     // word is the capture struct's own address, and nothing is
                     // released (the Dyn borrows it).
@@ -621,6 +622,44 @@ generate_dyn_wrapper_functions :: (fn(context : &mut FunctionGenerationContext) 
                         context.base.emitter.emit_declaration_line("  return __yo_once_r;");
                       });
                     });
+                   }, {
+                    // A payload-convention Dyn over a named function
+                    // (`dyn(Box.new(f))`, `dyn(&f)` of a `fn(...)` value): the
+                    // payload is the code pointer, read through the data word
+                    // and called through the function's own prototype, each
+                    // argument at the pointer level that prototype takes it
+                    // (as the legacy boxed arm below). A code pointer owns
+                    // nothing, so a call-once call drops nothing after it.
+                    pf_fn := match(fn_payload, .Some(pf) => Rc.clone(pf), .None => Rc.new(TypeValueNode.Unit));
+                    pf_ptr := fn_abi_param_is_ptr(&pf_fn);
+                    pcall := String.from("  ");
+                    if(!is_void, {
+                      pcall.push_str("return ");
+                    });
+                    pcall.push_str("((");
+                    pcall.push_string(generate_function_prototype(&pf_fn, String.from("(*)"), &mut context.base, Option(String).None, false));
+                    pcall.push_str(")(*(void**)self_ptr))(");
+                    (pfi : usize) = usize(0);
+                    while(pfi < ncp, {
+                      if(pfi > usize(0), {
+                        pcall.push_str(", ");
+                      });
+                      p_slot_is_ptr := match(fn_abi_param_is_ptr(&rt).get(pfi), .Some(b) => b, .None => false);
+                      p_fn_is_ptr := match(pf_ptr.get(pfi), .Some(b) => b, .None => false);
+                      pcall.push_string(
+                        cond(
+                          (p_slot_is_ptr && !p_fn_is_ptr) => String.from("*"),
+                          (!p_slot_is_ptr && p_fn_is_ptr) => String.from("&"),
+                          true => String.from("")
+                        )
+                      );
+                      pcall.push_str("arg");
+                      pcall.push_string((pfi + usize(1)).to_string());
+                      pfi = (pfi + usize(1));
+                    });
+                    pcall.push_str(");");
+                    context.base.emitter.emit_declaration_string_line(&pcall);
+                   });
                   }, if(is_boxed && match(cc_info, .Some(_) => true, .None => false), {
                     boxed_cname := _boxed_c_name(data_type.clone(), context);
                     field_name := _box_field_name(data_type.clone());

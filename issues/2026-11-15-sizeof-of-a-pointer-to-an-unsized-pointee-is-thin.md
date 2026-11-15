@@ -1,4 +1,4 @@
-# `sizeof` of a pointer to an unsized pointee is one word, so `Box.new` of a struct holding an `AnyError` allocates short
+# `size_of` of a pointer to an unsized pointee is one word, so `Box.new` of a struct holding an `AnyError` allocates short
 
 **Severity:** S1 (a heap-buffer-overflow from safe Yo: every `Box.new(v)`, `ArrayList.push` or other
 `sizeof`-sized allocation of a value that holds a `Box(Dyn)` (every `AnyError`), a `*Dyn`, a `&Dyn` or a
@@ -38,5 +38,5 @@ Alignment is unchanged (both words are pointers).
 ## Test
 
 `tests/dyn.test.yo`: "a Box(Dyn) and a *Dyn are two words, and a struct holding one is laid out so"
-(sizeof rows plus a `Box.new` of a struct holding an `AnyError`), and the error_ergonomics row above
+(size_of rows plus a `Box.new` of a struct holding an `AnyError`), and the error_ergonomics row above
 (ASan-clean). Both fail before the fix and pass after.
