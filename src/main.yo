@@ -1641,7 +1641,8 @@ _run_migrate_rc_clone :: (fn(files : &ArrayList(String), std_path : &String, dry
 /// printed without its star), or `.None`.
 _deref_star_span_end :: (fn(runes : &ArrayList(rune), start : usize, expect : &String) -> Option(usize))({
   er := ArrayList(rune).new();
-  it := expect.chars();
+  expect_own := expect.clone();
+  it := expect_own.chars();
   (go : bool) = true;
   while(go, {
     match(it.next(), .Some(r) => er.push(r), .None => {
