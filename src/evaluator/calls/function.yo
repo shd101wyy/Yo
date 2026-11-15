@@ -116,6 +116,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
 { is_drop_method_name, is_clone_trait_type, type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, resolve_cell_chain, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type, note_future_origins_exist, note_unreturnable_future, future_origin_names, type_is_second_class, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message, type_holds_counted_handle_ignoring_migration, type_lacks_clone } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
+{ migrate_rc_clone_on, record_explicit_copy_site, ExplicitCopySite, _ic_in_generic } :: import("../utils.yo");
 { trait_impl_epoch, type_is_typed_fnmut_closure, closure_fn_trait_of, get_all_some_types, type_mentions_some_type_named, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note, same_name_note, deref_miss_note, mark_generic_independent, type_mentions_impl_fn_or_future } :: import("../../types/utils.yo");
 { check_literal_fits, comptime_int_value_misfit } :: import("../values/integer.yo");
 { type_id_or_empty, get_type_trait_methods_by_name, get_assoc_type_entries, MethodEntry } :: import("../values/type_trait_methods.yo");
@@ -10314,6 +10315,43 @@ _origin_names_text :: (fn(names : &SharedList(String)) -> String)({
   });
   out
 });
+/// LOCAL TOOL (`yo fix --migrate rc-clone`): a copying accessor call
+/// (`xs.get(i)`) whose result holds a counted handle copies it inside the
+/// standard library, where the recorder cannot spell it; the repair is the
+/// call's `_cloned` sibling, recorded at the method name.
+_record_accessor_copy :: (fn(call : &AstExpr, r : &AstExpr, env : &Environment, ctx : &EvalContext) -> unit)({
+  ai := match(_copying_accessor_info(call, env, ctx), .Some(a) => a, .None => return(()));
+  if(ai.cloned.is_empty() || ai.element_lacks_clone, {
+    return(());
+  });
+  rty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(r)), .Some(ri) => Rc.clone(ri.ty()), .None => return(()));
+  if(!type_holds_counted_handle_ignoring_migration(&rty), {
+    return(());
+  });
+  ntok := match(
+    call,
+    .FnCall(_, c, _, _, _) => match(
+      c,
+      .FnCall(_, _, Rc(pa), _, _) => match(pa.get(usize(1)), .Some(.Atom(_, nt)) => Rc.clone(nt), _ => return(())),
+      _ => return(())
+    ),
+    _ => return(())
+  );
+  record_explicit_copy_site(
+    ExplicitCopySite(
+      path : ntok.module_path.*.clone(),
+      row : usize(ntok.row),
+      col : usize(ntok.column),
+      expect : ai.method.clone(),
+      ty : type_to_string(&rty),
+      copy_path : String.from("accessor"),
+      in_generic : _ic_in_generic(ctx, &rty),
+      capture_label : String.new(),
+      spelling : `accessor:${ai.cloned}`,
+      capture_names : String.new()
+    )
+  );
+});
 evaluate_function_call :: (
   fn(
     expr : &AstExpr,
@@ -10361,6 +10399,9 @@ evaluate_function_call :: (
     },
     .None => {
       r := match(out.get(usize(0)), .Some(e) => e, .None => expr.*);
+      if(migrate_rc_clone_on() && !is_std_module_path(&call_mp, ctx.std_path.clone()), {
+        _record_accessor_copy(expr, &r, env, ctx);
+      });
       _reject_origin_carrying_value(&r, &call_tok, ctx, exn);
       _stamp_projection_call(&r, ctx);
       _attach_fnonce_callee_release(expr, &r, ctx);
@@ -15433,3 +15474,4 @@ Fix: wrap the call:
 });
 export(evaluate_function_call, reject_destructor_member_read);
 export(MACRO_DISPATCH_ENABLED);
+

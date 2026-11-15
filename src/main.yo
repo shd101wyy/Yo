@@ -1356,6 +1356,29 @@ _run_migrate_rc_clone :: (fn(files : &ArrayList(String), std_path : &String, dry
         println(`fix: ${at}: \`${st.expect}\` holds a counted handle and its type \`${st.ty}\` is not \`Clone\`; give the type \`derive(..., Clone)\` and spell \`.clone()\` by hand`);
         continue;
       });
+      if(st.spelling.starts_with("accessor:") && !st.in_generic, {
+        // A copying accessor (`xs.get(i)`): its `_cloned` sibling.
+        sibling := st.spelling.substring(usize(9), st.spelling.len());
+        a_start := match(line_starts.get(st.row), .Some(ls) => (ls + st.col), .None => runes.len());
+        a_text := String.new();
+        (ak : usize) = a_start;
+        while((ak < runes.len()) && _is_word_rune(runes(ak)), ak = (ak + usize(1)), {
+          a_text.push_rune(runes(ak));
+        });
+        if((a_text != st.expect) || !sibling.starts_with(st.expect.clone()), {
+          n_skipped = (n_skipped + usize(1));
+          println(`fix: ${at}: the accessor \`${st.expect}\` is not written here; left as written`);
+          continue;
+        });
+        n_inserted = (n_inserted + usize(1));
+        if(dry_run, {
+          println(`fix: ${at}: accessor: \`${st.expect}\` would become \`${sibling}\``);
+        });
+        at_idx.push(ak);
+        at_text.push(sibling.substring(st.expect.len(), sibling.len()));
+        at_close.push(true);
+        continue;
+      });
       if(st.in_generic, {
         n_skipped = (n_skipped + usize(1));
         println(`fix: ${at}: \`${st.expect}\` is copied in a generic body, where the copied value may be a type parameter (\`${st.spelling}.clone(...)\` or \`.clone()\` serves one instantiation, not every one); left as written`);
