@@ -863,10 +863,10 @@ move_only_type_help :: (fn(ty : &TypeValue) -> Option(String))(
 /// use after one names `match(&x, …)`. Keyed by token position.
 _consuming_match_key :: (fn(tok : &Token) -> String)(`${tok.module_path.*}:${tok.byte_offset}`);
 note_consuming_match_scrutinee :: (fn(tok : &Token) -> unit)({
-  g_consuming_match_scrutinees.with_mut({ tok : &tok.* }(s) => s.insert(_consuming_match_key(tok)));
+  g_consuming_match_scrutinees.with_mut(s => s.insert(_consuming_match_key(tok)));
 });
 consuming_match_scrutinee_at :: (fn(tok : &Token) -> bool)(
-  (g_consuming_match_scrutinees.with({ tok : &tok.* }(s) => s.len()) > usize(0)) && g_consuming_match_scrutinees.with({ tok : &tok.* }(s) => s.contains(_consuming_match_key(tok)))
+  (g_consuming_match_scrutinees.with({ tok : &tok.* }(s) => s.len()) > usize(0)) && g_consuming_match_scrutinees.with(s => s.contains(_consuming_match_key(tok)))
 );
 /// A use of moved value `name` at `use_tok` (moved at `moved_tok`), as E0901,
 /// with the move-only note when `ty` is move-only.
@@ -4238,8 +4238,8 @@ reset_sibling_flow_state :: (fn(env : &Environment, prev_arm : &Option(AstExpr))
       find_variable_by_id(env, r.var_id),
       .Some(v) => {
         match(prev_arm, .Some(pa) => _keep_undone_move(&v, &r.before_consumed, &pa.*), .None => ());
-        v.set_initialized_at_token(r.before_init.clone());
-        v.set_consumed_at_token(match(&r.before_consumed, .Some(bc) => Option(Token).Some(Rc.clone(bc)), .None => Option(Token).None));
+        v.set_initialized_at_token(r.before_init);
+        v.set_consumed_at_token(match(r.before_consumed, .Some(bc) => Option(Token).Some(bc), .None => Option(Token).None));
       },
       .None => ()
     );
@@ -4634,18 +4634,16 @@ snapshot_loop_flow :: (fn(lc : &LoopBodyCtx, env : &Environment, site : &Token) 
 _mark_moved_at_loop_end :: (fn(v : &Variable, site : &Token, loop_expr : &AstExpr) -> unit)({
   note := variable_move_note(v, site);
   last := _last_token_of(loop_expr, site);
-  end := Rc.new(
-    TokenData(
-      kind : last.kind,
-      value : Rc.clone(last.value),
-      row : last.row,
-      column : (last.column + u32(1)),
-      character : (last.character + u32(1)),
-      byte_offset : (last.byte_offset + u32(1)),
-      module_path : Rc.clone(last.module_path),
-      input : Rc.clone(last.input)
-    )
-  );
+  end := Rc.new(TokenData(
+    kind : last.kind,
+    value : Rc.clone(last.value),
+    row : last.row,
+    column : (last.column + u32(1)),
+    character : (last.character + u32(1)),
+    byte_offset : (last.byte_offset + u32(1)),
+    module_path : Rc.clone(last.module_path),
+    input : Rc.clone(last.input)
+  ));
   v.set_consumed_at_token(Option(Token).Some(end.clone()));
   variable_note_arm_move(v, &end, &Option(Token).Some(note));
 });
@@ -4738,19 +4736,19 @@ check_loop_flow :: (
     match(
       find_variable_by_id(env, r.var_id),
       .Some(v) => if(v.frame_level < lc.entry_frame_count, {
-        pre := r.before_consumed.clone();
+        pre := r.before_consumed;
         body_end := match(v.consumed_at_token(), .Some(ct) => Option(Token).Some(ct), .None => Option(Token).None);
         // Back edges.
         back_moved := ArrayList(Token).new();
         back_live := ArrayList(Token).new();
         if(body_completes, {
-          match(&body_end, .Some(t) => back_moved.push(Rc.clone(t)), .None => back_live.push(v.token));
+          match(body_end, .Some(t) => back_moved.push(t), .None => back_live.push(v.token));
         });
         (ci : usize) = usize(0);
         while(ci < lc.continue_states.len(), {
           match(
             lc.continue_states.get_cloned(ci),
-            .Some(cs) => match(_snapshot_state_of(&cs, v.id(), &pre), .Some(t) => back_moved.push(t), .None => back_live.push(Rc.clone(cs.site))),
+            .Some(cs) => match(_snapshot_state_of(&cs, v.id(), &pre), .Some(t) => back_moved.push(t), .None => back_live.push(cs.site)),
             .None => ()
           );
           ci = (ci + usize(1));
@@ -4760,7 +4758,7 @@ check_loop_flow :: (
           entries := ArrayList(TokenAndError).new();
           entries.push(
             TokenAndError(
-              token : Rc.clone(mv_tok),
+              token : mv_tok,
               error_message : `use of moved value: \`${v.name}\` is moved inside the loop, and the next iteration uses it again. Move it only on a path that leaves the loop, or give it a new value before the iteration ends.`
             )
           );
@@ -4781,7 +4779,7 @@ check_loop_flow :: (
             // entry, or one a back edge left (the same, when it was live; a
             // value moved before the loop and given a new value inside is
             // moved or not depending on the iteration count).
-            match(&pre, .Some(t) => exit_moved.push(Rc.clone(t)), .None => exit_live.push(v.token));
+            match(pre, .Some(t) => exit_moved.push(t), .None => exit_live.push(v.token));
             if(pre.is_some() && (back_live.len() > usize(0)), {
               exit_live.push(match(back_live.get(usize(0)), .Some(t) => t, .None => v.token));
             });
@@ -4791,7 +4789,7 @@ check_loop_flow :: (
         while(bi < lc.break_states.len(), {
           match(
             lc.break_states.get_cloned(bi),
-            .Some(bs) => match(_snapshot_state_of(&bs, v.id(), &pre), .Some(t) => exit_moved.push(t), .None => exit_live.push(Rc.clone(bs.site))),
+            .Some(bs) => match(_snapshot_state_of(&bs, v.id(), &pre), .Some(t) => exit_moved.push(t), .None => exit_live.push(bs.site)),
             .None => ()
           );
           bi = (bi + usize(1));
@@ -4812,7 +4810,7 @@ check_loop_flow :: (
         });
         final := match(exit_moved.get(usize(0)), .Some(t) => Option(Token).Some(t), .None => Option(Token).None);
         if((exit_moved.len() > usize(0)) || (exit_live.len() > usize(0)), {
-          v.set_consumed_at_token(match(&final, .Some(ft) => Option(Token).Some(Rc.clone(ft)), .None => Option(Token).None));
+          v.set_consumed_at_token(match(final, .Some(ft) => Option(Token).Some(ft), .None => Option(Token).None));
         });
         if(pre.is_none() && (exit_live.len() == usize(0)) && final.is_some(), {
           match(
@@ -5575,7 +5573,7 @@ merge_and_check_envs :: (
                         cb_entries := ArrayList(TokenAndError).new();
                         cb_entries.push(
                           TokenAndError(
-                            token : Rc.clone(cb_tok),
+                            token : cb_tok,
                             error_message :
                               `Variable "${base_var.name}" has type Impl(...) but different concrete types across branches.
 Impl(...) uses static dispatch and requires the same concrete type in all branches.
@@ -5621,14 +5619,14 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
             first_flow_record_in(base_var.id(), group_log_start, branch_init_log_len()),
             .Some(fr) => {
               flow_joined = true;
-              flow_pre_init = fr.before_init.clone();
-              flow_pre_consumed = fr.before_consumed.clone();
+              flow_pre_init = fr.before_init;
+              flow_pre_consumed = fr.before_consumed;
               initialized_at_tokens.clear();
               consumed_at_tokens.clear();
               (fl_bi : usize) = usize(0);
               while(fl_bi < bodies.len(), {
-                (fl_init : Option(Token)) = flow_pre_init.clone();
-                (fl_consumed : Option(Token)) = flow_pre_consumed.clone();
+                (fl_init : Option(Token)) = flow_pre_init;
+                (fl_consumed : Option(Token)) = flow_pre_consumed;
                 match(
                   bodies.get(fl_bi),
                   .Some(fl_body) => match(
@@ -5639,8 +5637,8 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
                       match(
                         last_flow_record_in(base_var.id(), fl_s, fl_e),
                         .Some(fl_last) => {
-                          fl_init = fl_last.after_init.clone();
-                          fl_consumed = fl_last.after_consumed.clone();
+                          fl_init = fl_last.after_init;
+                          fl_consumed = fl_last.after_consumed;
                         },
                         .None => ()
                       );
@@ -5655,7 +5653,7 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
               });
               // The joined state is decided below from the pre-branch state.
               base_var.set_initialized_at_token(flow_pre_init.clone());
-              base_var.set_consumed_at_token(match(&flow_pre_consumed, .Some(pc) => Option(Token).Some(Rc.clone(pc)), .None => Option(Token).None));
+              base_var.set_consumed_at_token(match(flow_pre_consumed, .Some(pc) => Option(Token).Some(pc), .None => Option(Token).None));
             },
             .None => ()
           );
@@ -5694,7 +5692,7 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
               match(
                 first_tok,
                 .Some(t) => {
-                  base_var.set_initialized_at_token(Option(Token).Some(Rc.clone(t)));
+                  base_var.set_initialized_at_token(Option(Token).Some(t));
                 },
                 .None => ()
               );
@@ -5708,10 +5706,10 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
                 body_tok := ast_expr_token(match(bodies.get(ei), .Some(b) => b, .None => make_err_expr()));
                 msg := cond(
                   (ei == usize(0)) => `Variable "${var_name}" might be initialized in some cases but not initialized in other cases:`,
-                  match(&tok_opt, .Some(_) => true, .None => false) => `Might be initialized here:`,
+                  match(tok_opt, .Some(_) => true, .None => false) => `Might be initialized here:`,
                   true => `Not initialized here:`
                 );
-                err_tok := match(tok_opt, .Some(t) => Rc.clone(t), .None => body_tok);
+                err_tok := match(tok_opt, .Some(t) => t, .None => body_tok);
                 {
                   err_list.push(TokenAndError(token : err_tok, error_message : msg));
                 };
@@ -5765,8 +5763,8 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
               // keeps each arm's move as an `UndoneMove`).
               end_tok := match(
                 branch_expr,
-                .Some(be) => match(&first_tok, .Some(ft) => Option(Token).Some(_last_token_of(&be.*, &ft)), .None => Option(Token).None),
-                .None => first_tok.clone()
+                .Some(be) => match(first_tok, .Some(ft) => Option(Token).Some(_last_token_of(&be.*, &ft)), .None => Option(Token).None),
+                .None => first_tok
               );
               match(
                 end_tok,
@@ -5793,8 +5791,8 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
               first_ct := _first_some_token(&consumed_at_tokens);
               end_ct := match(
                 branch_expr,
-                .Some(be) => match(&first_ct, .Some(fct) => Option(Token).Some(_last_token_of(&be.*, &fct)), .None => Option(Token).None),
-                .None => first_ct.clone()
+                .Some(be) => match(first_ct, .Some(fct) => Option(Token).Some(_last_token_of(&be.*, &fct)), .None => Option(Token).None),
+                .None => first_ct
               );
               match(
                 end_ct,
@@ -5813,10 +5811,10 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
                 body_tok := ast_expr_token(match(bodies.get(eci), .Some(b) => b, .None => make_err_expr()));
                 msg := cond(
                   (eci == usize(0)) => `Variable "${var_name}" is moved in some arms but not in others, so where they meet it would be dropped on some paths only:`,
-                  match(&tok_opt, .Some(_) => true, .None => false) => `Consumed here:`,
+                  match(tok_opt, .Some(_) => true, .None => false) => `Consumed here:`,
                   true => `Not consumed here:`
                 );
-                err_tok := match(tok_opt, .Some(t) => Rc.clone(t), .None => body_tok);
+                err_tok := match(tok_opt, .Some(t) => t, .None => body_tok);
                 {
                   err_list.push(TokenAndError(token : err_tok, error_message : msg));
                 };
@@ -5888,10 +5886,10 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
               body_tok := ast_expr_token(match(bodies.get(oei), .Some(b) => b, .None => make_err_expr()));
               msg := cond(
                 (oei == usize(0)) => `Variable "${var_name}" might be holding the Rc value in some cases but not holding the Rc value in other cases:`,
-                match(&tok_opt, .Some(_) => true, .None => false) => `Might be owning the Rc value here:`,
+                match(tok_opt, .Some(_) => true, .None => false) => `Might be owning the Rc value here:`,
                 true => `Might be not owning the Rc value here:`
               );
-              err_tok := match(tok_opt, .Some(t) => Rc.clone(t), .None => body_tok);
+              err_tok := match(tok_opt, .Some(t) => t, .None => body_tok);
               {
                 err_list.push(TokenAndError(token : err_tok, error_message : msg));
               };
@@ -6560,23 +6558,23 @@ reference_read_wanted :: (fn(tok : &Token, at_binder : bool, ctx : &EvalContext)
 /// evaluator judges it as the by-value read it is: E0926 (spelled `r.*`), or
 /// a recorded `.*` under `yo fix --migrate deref`, whose evaluation goes on.
 note_binder_value_read :: (fn(tok : &Token) -> unit)({
-  _new := g_binder_value_reads.with_mut({ tok : &tok.* }(s) => s.insert(_reference_deref_site_key(tok)));
+  _new := g_binder_value_reads.with_mut(s => s.insert(_reference_deref_site_key(tok)));
 });
 /// Undo `note_binder_value_read` at `tok`.
 forget_binder_value_read :: (fn(tok : &Token) -> unit)({
-  _old := g_binder_value_reads.with_mut({ tok : &tok.* }(s) => s.remove(&_reference_deref_site_key(tok)));
+  _old := g_binder_value_reads.with_mut(s => s.remove(&_reference_deref_site_key(tok)));
 });
 /// Mark the leaf at `tok` of a `:=` initializer's result chain as one that
 /// reads as a reference (R-TAIL).
 chain_ref_leaf_register :: (fn(tok : &Token) -> unit)({
-  _new := g_chain_ref_leaves.with_mut({ tok : &tok.* }(s) => s.insert(_reference_deref_site_key(tok)));
+  _new := g_chain_ref_leaves.with_mut(s => s.insert(_reference_deref_site_key(tok)));
 });
 /// Undo `chain_ref_leaf_register` at `tok`.
 chain_ref_leaf_forget :: (fn(tok : &Token) -> unit)({
-  _old := g_chain_ref_leaves.with_mut({ tok : &tok.* }(s) => s.remove(&_reference_deref_site_key(tok)));
+  _old := g_chain_ref_leaves.with_mut(s => s.remove(&_reference_deref_site_key(tok)));
 });
 chain_ref_leaf_is :: (fn(tok : &Token) -> bool)(
-  (g_chain_ref_leaves.with({ tok : &tok.* }(s) => s.len()) > usize(0)) && g_chain_ref_leaves.with({ tok : &tok.* }(s) => s.contains(&_reference_deref_site_key(tok)))
+  (g_chain_ref_leaves.with({ tok : &tok.* }(s) => s.len()) > usize(0)) && g_chain_ref_leaves.with(s => s.contains(&_reference_deref_site_key(tok)))
 );
 /// `e` is a `begin`, `cond` or `match`: a node a result chain passes through.
 is_result_chain_node :: (fn(e : &AstExpr) -> bool)(
@@ -6704,7 +6702,7 @@ _ref_chain_leaves_the_chain :: (fn(e : &AstExpr) -> bool)(
   ast_expr_is_fn_call_of(e, BK_RETURN, Option(usize).None) || (ast_expr_is_atom(e) && ((ast_expr_token(e).value.* == "break") || (ast_expr_token(e).value.* == "continue")))
 );
 is_binder_value_read :: (fn(tok : &Token) -> bool)(
-  (g_binder_value_reads.with({ tok : &tok.* }(s) => s.len()) > usize(0)) && g_binder_value_reads.with({ tok : &tok.* }(s) => s.contains(&_reference_deref_site_key(tok)))
+  (g_binder_value_reads.with({ tok : &tok.* }(s) => s.len()) > usize(0)) && g_binder_value_reads.with(s => s.contains(&_reference_deref_site_key(tok)))
 );
 /// Record whether the node `id` was read as a reference value (the read
 /// rule); a later evaluation of the same node at another position overrides.
@@ -6796,12 +6794,12 @@ deref_exempt_clear :: (fn() -> unit)({
 _reference_deref_site_key :: (fn(tok : &Token) -> String)(`${tok.module_path.*}:${tok.byte_offset.to_string()}`);
 /// `tok` is the receiver of an `r.*` rewritten to `r` (N1e-1).
 note_reference_deref_site :: (fn(tok : &Token) -> unit)({
-  _new := g_reference_deref_sites.with_mut({ tok : &tok.* }(s) => s.insert(_reference_deref_site_key(tok)));
+  _new := g_reference_deref_sites.with_mut(s => s.insert(_reference_deref_site_key(tok)));
   ()
 });
 /// Whether the name at `tok` is a rewritten `r.*`'s receiver.
 is_reference_deref_site :: (fn(tok : &Token) -> bool)(
-  (g_reference_deref_sites.with({ tok : &tok.* }(s) => s.len()) > usize(0)) && g_reference_deref_sites.with({ tok : &tok.* }(s) => s.contains(&_reference_deref_site_key(tok)))
+  (g_reference_deref_sites.with({ tok : &tok.* }(s) => s.len()) > usize(0)) && g_reference_deref_sites.with(s => s.contains(&_reference_deref_site_key(tok)))
 );
 /// At the identifier evaluator's entry: `e` is exempt. Clears the mark.
 deref_exempt_take :: (fn(e : &AstExpr) -> bool)({
@@ -7595,14 +7593,14 @@ _lb_raise_conflict :: (
   );
   // The borrowed `for`'s hidden `c := &mut coll`, which a desugared loop
   // (macro plan B1) or a macro's own code took.
-  is_for_site := match(&info.macro_site, .Some(fs) => for_desugar_site_of(&fs).is_some(), .None => false);
+  is_for_site := match(info.macro_site, .Some(fs) => for_desugar_site_of(&fs).is_some(), .None => false);
   match(
-    &info.macro_site,
+    info.macro_site,
     .Some(site) => {
       // Point at the loop (the call), which it spans.
       entries.push(
         TokenAndError(
-          token : Rc.clone(site),
+          token : site,
           error_message : cond(
             is_for_site => `this \`for\` loop borrows \`${ftext}\` for its whole extent (its hidden local \`${info.name}\`):`,
             true => `this macro call borrows \`${ftext}\` for its whole extent (its hidden local \`${info.name}\`):`
@@ -7611,10 +7609,10 @@ _lb_raise_conflict :: (
       );
     },
     .None => {
-      entries.push(TokenAndError(token : Rc.clone(info.decl), error_message : `\`${info.name}\` borrows \`${ftext}\` here:`));
+      entries.push(TokenAndError(token : info.decl, error_message : `\`${info.name}\` borrows \`${ftext}\` here:`));
       entries.push(
         TokenAndError(
-          token : Rc.clone(info.last_use),
+          token : info.last_use,
           error_message : cond(
             _lb_tok_after(&info.last_use, tok) => `and is used again here, so it is live at the access:`,
             true => `its last use is in the same statement as the access, here:`
@@ -7647,7 +7645,7 @@ _lb_raise_conflict :: (
           });
           entries.push(
             TokenAndError(
-              token : Rc.clone(info.decl),
+              token : info.decl,
               error_message : `\`${info.name}\` is the result of \`${eo.call_text}\`, whose result origin is elided, so it borrows every reference argument (decision 43, O2) — \`${frozen_label}\` = \`${ftext}\` among them. If the result points only into ${if(keep.len() > usize(0), `\`${keep}\``, String.from("the other parameters"))}, spell that in the callee's signature, \`-> &(T, ${if(keep.len() > usize(0), keep, String.from("..."))})\`, which releases \`${ftext}\`:`
             )
           );
@@ -7820,7 +7818,7 @@ local_borrow_require_writable :: (fn(place : &LocalBorrowPlace, root_read_only :
           error_message : `Cannot ${what}: \`${info.name}\` is a \`&\` borrow, which is read-only.`
         )
       );
-      entries.push(TokenAndError(token : Rc.clone(info.decl), error_message : `\`${info.name}\` is declared \`${info.name} := &...\` here:`));
+      entries.push(TokenAndError(token : info.decl, error_message : `\`${info.name}\` is declared \`${info.name} := &...\` here:`));
       raise_flow_violation(
         with_code(
           format_error_messages_with_help(&entries, Option(String).Some(`declare it \`${info.name} := &mut ...\` to write through it, or copy the value into a local (\`v := ${info.name};\`) and write the copy`)),
@@ -7919,7 +7917,7 @@ local_borrow_reject_result_borrow :: (fn(info : &LocalBorrowInfo, tok : &Token, 
       error_message : `Cannot return the local borrow \`${info.name}\`: it borrows \`${ftext}\` with \`${_lb_mode(info)}\` and is second-class, so it may not cross the function boundary (no return, store, escaping capture or spawn).`
     )
   );
-  entries.push(TokenAndError(token : Rc.clone(info.decl), error_message : `\`${info.name}\` borrows \`${ftext}\` here:`));
+  entries.push(TokenAndError(token : info.decl, error_message : `\`${info.name}\` borrows \`${ftext}\` here:`));
   raise_flow_violation(
     with_code(
       format_error_messages_with_help(
@@ -7939,7 +7937,7 @@ local_borrow_reject_result_borrow :: (fn(info : &LocalBorrowInfo, tok : &Token, 
 /// Every other module-rooted borrow is judged whatever its root.
 _lb_for_iterator_lends_mut_global :: (fn(info : &LocalBorrowInfo) -> bool)(
   match(
-    &info.macro_site,
+    info.macro_site,
     .Some(site) => cond(
       for_desugar_site_of(&site).is_some() => match(info.places.get_cloned(usize(0)), .Some(p0) => is_mut_global(&p0.root_decl.module_path.*, &p0.root_name), .None => true),
       true => true
@@ -7983,8 +7981,8 @@ local_borrow_note_call :: (fn(tok : &Token, callee_text : &String, ctx : &EvalCo
             )
           )
         );
-        entries.push(TokenAndError(token : Rc.clone(info.decl), error_message : `\`${info.name}\` borrows \`${root_text}\` here:`));
-        entries.push(TokenAndError(token : Rc.clone(info.last_use), error_message : String.from("and is live until here:")));
+        entries.push(TokenAndError(token : info.decl, error_message : `\`${info.name}\` borrows \`${root_text}\` here:`));
+        entries.push(TokenAndError(token : info.last_use, error_message : String.from("and is live until here:")));
         raise_flow_violation(
           with_code(
             format_error_messages_with_help(&entries, Option(String).Some(String.from("end the borrow before the call, or copy the value into a local, work on the local, and assign it back after the call"))),
@@ -8015,7 +8013,7 @@ local_borrow_note_await :: (fn(tok : &Token, ctx : &EvalContext, exn : Exception
   sites.push(tok.*);
   (si : usize) = usize(0);
   while(si < g_lb_macro_sites.with(_c_len_8), si = (si + usize(1)), {
-    match(g_lb_macro_sites.with(xs => xs.get_cloned(si)), .Some(ms) => sites.push(Rc.clone(ms.site)), .None => ());
+    match(g_lb_macro_sites.with(xs => xs.get_cloned(si)), .Some(ms) => sites.push(ms.site), .None => ());
   });
   (i : usize) = g_local_borrows.with(_c_len_5);
   while(i > usize(0), {
@@ -8074,7 +8072,7 @@ _lb_first_site_in :: (fn(sites : &ArrayList(Token), decl : &Token, end : &Token)
 _lb_raise_across_await :: (fn(name : String, info : &LocalBorrowInfo, decl : &Token, last_use : &Token, decl_note : String, at : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
   why := cond(info.module_root => "a module-level place", true => "a reference cell (`Rc`, `Arc` or a `ref` object)");
   // The hidden borrow of a desugared `for` (macro plan B1) spans the loop.
-  for_site := match(&info.macro_site, .Some(fs) => if((name == info.name) && for_desugar_site_of(&fs).is_some(), Option(Token).Some(Rc.clone(fs)), Option(Token).None), .None => Option(Token).None);
+  for_site := match(info.macro_site, .Some(fs) => if((name == info.name) && for_desugar_site_of(&fs).is_some(), Option(Token).Some(fs), Option(Token).None), .None => Option(Token).None);
   entries := ArrayList(TokenAndError).new();
   entries.push(
     TokenAndError(
@@ -8083,10 +8081,10 @@ _lb_raise_across_await :: (fn(name : String, info : &LocalBorrowInfo, decl : &To
     )
   );
   match(
-    &for_site,
+    for_site,
     .Some(fs) => {
       ftext := match(info.places.get_cloned(usize(0)), .Some(p0) => _lb_place_text(&p0), .None => name.clone());
-      entries.push(TokenAndError(token : Rc.clone(fs), error_message : `this \`for\` loop borrows \`${ftext}\` for its whole extent (its hidden local \`${name}\`):`));
+      entries.push(TokenAndError(token : fs, error_message : `this \`for\` loop borrows \`${ftext}\` for its whole extent (its hidden local \`${name}\`):`));
     },
     .None => {
       entries.push(TokenAndError(token : decl.*, error_message : `\`${name}\` ${decl_note}`));
@@ -8150,7 +8148,7 @@ _lb_collect_await_ids :: (fn(e : &AstExpr, out : &mut ArrayList(usize)) -> unit)
 local_borrow_enter_macro_site :: (fn(tok : &Token, call : &AstExpr, expansion : &AstExpr) -> unit)({
   ids := ArrayList(usize).new();
   _lb_collect_await_ids(expansion, &mut ids);
-  g_lb_macro_sites.with_mut({ call : &call.*, tok : &tok.*, ids }(xs) => xs.push(LocalBorrowMacroSite(site : tok.*, end : _last_token_of(call, tok), await_ids : ids.clone())));
+  g_lb_macro_sites.with_mut(xs => xs.push(LocalBorrowMacroSite(site : tok.*, end : _last_token_of(call, tok), await_ids : ids.clone())));
 });
 /// The expansion `local_borrow_enter_macro_site` announced is evaluated.
 local_borrow_leave_macro_site :: (fn() -> unit)({
@@ -8327,10 +8325,10 @@ _lb_last_mention :: (fn(e : &AstExpr, name : &String, best : &Option(Token), (in
     ),
     .FnCall(_, callee, Rc(args), _, _) => {
       if(_lb_arrow_shadows(e, name.clone(), in_cond_arm), {
-        return(best.*.clone());
+        return(best.*);
       });
       if(_lb_fn_literal_binds(&callee.*, name.clone()), {
-        return(best.*.clone());
+        return(best.*);
       });
       (acc : Option(Token)) = _lb_last_mention(&callee.*, name.clone(), best);
       is_dot := ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).None);
@@ -8481,7 +8479,7 @@ local_borrow_range_of :: (fn(binding : &AstExpr, name : &String, decl : &Token, 
           .Some(last_stmt) => {
             scope_end := _last_token_of(&last_stmt, decl);
             if(_lb_tok_after(&scope_end, &end), {
-              end = Rc.clone(scope_end);
+              end = scope_end;
             });
             if(_lb_tok_after(&scope_end, &last), {
               last = scope_end;
@@ -8523,16 +8521,16 @@ local_borrow_register :: (
   // Declared by a macro expansion's template code: live over the whole
   // macro call, in the call's coordinates.
   (start : Token) = decl.*;
-  (last_use : Token) = Rc.clone(range.last_use);
-  (end : Token) = Rc.clone(range.end);
+  (last_use : Token) = range.last_use;
+  (end : Token) = range.end;
   (macro_site : Option(Token)) = .None;
   match(
     _lb_macro_site_of(decl),
     .Some(site) => {
-      start = Rc.clone(site.site);
-      last_use = Rc.clone(site.end);
-      end = Rc.clone(site.end);
-      macro_site = .Some(Rc.clone(site.site));
+      start = site.site;
+      last_use = site.end;
+      end = site.end;
+      macro_site = .Some(site.site);
     },
     // Declared by a desugared `for` (macro plan B1): the hidden borrow is
     // live over the whole loop, the extent the macro's template borrow had.
@@ -8540,9 +8538,9 @@ local_borrow_register :: (
       for_desugar_site_of(decl),
       .Some(for_call) => {
         for_tok := ast_expr_token(&for_call);
-        start = Rc.clone(for_tok);
+        start = for_tok;
         last_use = _last_token_of(&for_call, &for_tok);
-        end = Rc.clone(last_use);
+        end = last_use;
         macro_site = .Some(for_tok);
       },
       .None => ()
@@ -8555,8 +8553,8 @@ local_borrow_register :: (
     macro_site : macro_site,
     is_mut : is_mut,
     places : places,
-    last_use : Rc.clone(last_use),
-    end : Rc.clone(end),
+    last_use : last_use,
+    end : end,
     // Cloned into the record: the transitive-freeze loop below still reads
     //  (B8: the struct literal would move it).
     parents : parents.clone(),
@@ -8571,10 +8569,10 @@ local_borrow_register :: (
       parents.get(qi),
       .Some(p) => {
         if(_lb_tok_after(&end, &p.end), {
-          p.end = Rc.clone(end);
+          p.end = end;
         });
         if(_lb_tok_after(&last_use, &p.last_use), {
-          p.last_use = Rc.clone(last_use);
+          p.last_use = last_use;
         });
       },
       .None => ()
@@ -8600,8 +8598,8 @@ local_borrow_require_no_live_derived :: (fn(info : &LocalBorrowInfo, tok : &Toke
             error_message : `Cannot re-point \`${info.name}\` here: \`${d.name}\` borrows from \`${info.name}\`'s current target and is still live, and re-pointing would leave \`${d.name}\` borrowing a place \`${info.name}\` no longer holds.`
           )
         );
-        entries.push(TokenAndError(token : Rc.clone(d.decl), error_message : `\`${d.name}\` borrows from \`${info.name}\` here:`));
-        entries.push(TokenAndError(token : Rc.clone(d.last_use), error_message : String.from("and is used again here:")));
+        entries.push(TokenAndError(token : d.decl, error_message : `\`${d.name}\` borrows from \`${info.name}\` here:`));
+        entries.push(TokenAndError(token : d.last_use, error_message : String.from("and is used again here:")));
         raise_flow_violation(
           with_code(
             format_error_messages_with_help(&entries, Option(String).Some(`end \`${d.name}\` (its last use) before the re-point`)),
@@ -9024,7 +9022,7 @@ generic_result_binder_modes :: (fn(call : &AstExpr, ft : &Option(TypeValue), n :
       .None => Option(TypeValue).None
     )
   );
-  decl_v := match(decl, .Some(dv) => Rc.clone(dv), .None => return(Option(ArrayList(u8)).None));
+  decl_v := match(decl, .Some(dv) => dv, .None => return(Option(ArrayList(u8)).None));
   res_vars := ArrayList(String).new();
   type_var_ids_of(&fn_result_slot(&decl_v), &mut res_vars, u32(0), false);
   slots := fn_param_slots(&decl_v);
@@ -12197,7 +12195,7 @@ bind_join_roots_for :: (fn(variable : &Variable, roots : &ArrayList(OriginRootPl
   range := match(
     &site,
     .Some(s) => local_borrow_range_of(&s.stmt, variable.name.clone(), &v_tok, to_scope_end : holder_drops),
-    .None => LocalBorrowRange(last_use : Rc.clone(v_tok), end : at.clone(), has_repoint : false)
+    .None => LocalBorrowRange(last_use : v_tok, end : at.clone(), has_repoint : false)
   );
   // KILL + GEN (§7): the assignment REPLACED the holder's value, so its
   // flow set is the new value's, never the union with the old one. A
@@ -12322,24 +12320,24 @@ bind_join_roots_for :: (fn(variable : &Variable, roots : &ArrayList(OriginRootPl
         // holds the lend over the whole loop, as the macro's `c := &xs` did:
         // every synthesized token sits at the loop's own position, so the
         // loop's extent, not the mentions' positions, is its live range.
-        (e_start : Token) = Rc.clone(v_tok);
-        (e_last_use : Token) = Rc.clone(range.last_use);
+        (e_start : Token) = v_tok;
+        (e_last_use : Token) = range.last_use;
         (e_end : Token) = entry_end;
         (e_site : Option(Token)) = .None;
         match(
           for_desugar_site_of(&v_tok),
           .Some(for_call) => {
             for_tok := ast_expr_token(&for_call);
-            e_start = Rc.clone(for_tok);
+            e_start = for_tok;
             e_last_use = _last_token_of(&for_call, &for_tok);
-            e_end = Rc.clone(e_last_use);
+            e_end = e_last_use;
             e_site = .Some(for_tok);
           },
           .None => ()
         );
         entry := LocalBorrowInfo(
           name : variable.name.clone(),
-          decl : Rc.clone(v_tok),
+          decl : v_tok,
           start : e_start,
           macro_site : e_site,
           is_mut : root.is_mut,
@@ -12789,7 +12787,7 @@ _origin_ground_root :: (fn(root : OriginRootPlace, out : &mut ArrayList(OriginRo
 _origin_of_holder_origin :: (fn(variable : &Variable) -> TypeValue)({
   vt := variable_value_type(variable);
   cond(
-    t_slot_is_borrow(&vt) => match(&vt, Rc(.Reference(_, _, vo)) => Rc.clone(vo), _ => Rc.clone(vt)),
+    t_slot_is_borrow(&vt) => match(&vt, Rc(.Reference(_, _, vo)) => Rc.clone(vo), _ => vt),
     true => vt
   )
 });
@@ -12969,7 +12967,7 @@ _check_drop_param_yield :: (fn(rv : &Variable, segs : &ArrayList(String), e : &A
     match(
       next,
       .Some(nt) => {
-        cur = Rc.clone(nt);
+        cur = nt;
         field_text.push_str(".");
         field_text.push_string(&seg);
         if(type_nominal_drop_uses_roots(&cur, &ctx.std_path), {

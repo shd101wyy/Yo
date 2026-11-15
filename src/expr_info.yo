@@ -3520,7 +3520,7 @@ record_node_eval :: (fn(id : usize, tok : &Token) -> unit)({
   });
   n := match(g_node_eval_counts.with(m => m.get(&id)), .Some(v) => v, .None => usize(0));
   if(n == usize(0), {
-    _pl := g_node_eval_labels.with_mut({ tok : &tok.*, id }(m) => m.insert(id, `${tok.value.*}@${tok.module_path.*}:${(usize(tok.row) + usize(1)).to_string()}:${(usize(tok.column) + usize(1)).to_string()}`));
+    _pl := g_node_eval_labels.with_mut(m => m.insert(id, `${tok.value.*}@${tok.module_path.*}:${(usize(tok.row) + usize(1)).to_string()}:${(usize(tok.column) + usize(1)).to_string()}`));
   });
   _pc := g_node_eval_counts.with_mut(m => m.insert(id, n + usize(1)));
 });
@@ -3783,7 +3783,7 @@ note_deref_migrated_file :: (fn(tok : &Token) -> unit)({
 /// read (the swept prelude under `yo fix --migrate deref`,
 /// issues/fixed/2026-11-14-the-deref-recorder-cannot-evaluate-the-swept-preludes-generic-comparisons.md).
 deref_file_migrated :: (fn(tok : &Token) -> bool)(
-  g_deref_migrated_files.with({ tok : &tok.* }(s) => s.contains(tok.module_path.*.clone()))
+  g_deref_migrated_files.with(s => s.contains(tok.module_path.*.clone()))
 );
 /// The files in which a `--migrate deref` evaluation met a `cond` whose
 /// compile-time-known conditions left an arm unevaluated: the arm gated on
@@ -3951,7 +3951,7 @@ _amr_bounds :: (fn(node : &AstExpr, reference : &Token, lo : Token, hi : Token) 
         match(
           args.get(i),
           .Some(a) => {
-            acc = recur(&a, reference, Rc.clone(acc.0), Rc.clone(acc.1));
+            acc = recur(&a, reference, acc.0, acc.1);
           },
           .None => ()
         );
