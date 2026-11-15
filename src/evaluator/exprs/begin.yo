@@ -119,6 +119,7 @@ pragma(Pragma.AllowUnsafe);
   take_pending_scrutinee_borrows,
   _lb_mentions,
   audit_pending_copies_enabled,
+  _ic_leftmost_token,
   audit_take_implicit_copy_pending,
   take_dyn_copy_pending,
   dyn_copy_pending_exists,
@@ -2152,7 +2153,12 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
         // (one lent to a `with_mut`/`for` body) has no deferred dup, but under
         // decision 17's rule its read of the variable still follows the copy
         // or the consuming `match`, so the copy is not the variable's last use.
-        if(migrate_rc_clone_on() && _lb_mentions(e, v.name.clone()), {
+        // The site inside this closure's own capture list (`{ v }(…) => …`,
+        // a field-store copy into the closure) is not followed by the body's
+        // reads: with a capture list the body reads the capture, not `v`.
+        lt := _ic_leftmost_token(e);
+        site_inside := ((lt.module_path.* == site.module_path) && (lt.byte_offset <= site.byte_offset) && (site.byte_offset <= tok.byte_offset));
+        if(migrate_rc_clone_on() && !site_inside && _lb_mentions(e, v.name.clone()), {
           _ic_read(&tok, site, acc);
         });
         return(());
