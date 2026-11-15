@@ -2047,7 +2047,7 @@ evaluate_match :: (
     guard_false := match(guard_val, .Some(b) => !(b), .None => false);
     should_process := ((gadt_reachable && !(ct_variant_miss)) && !(guard_false));
     if(!(should_process), {
-      _judge_arm_copies(&env, base_frame_count, Option(AstExpr).None, ctx, exn);
+      _judge_arm_copies(&env, base_frame_count, Option(AstExpr).None, ctx, exn, &scrutinee_expr);
       while(env.frames_len() > base_frame_count, {
         env.pop_frame_nonmutating();
       });
@@ -2239,7 +2239,7 @@ evaluate_match :: (
       });
       ctx.expected_type = old_expected;
       ctx.is_executing = old_executing;
-      _judge_arm_copies(&env, base_frame_count, Option(AstExpr).Some(body_ast), ctx, exn);
+      _judge_arm_copies(&env, base_frame_count, Option(AstExpr).Some(body_ast), ctx, exn, &scrutinee_expr);
       while(env.frames_len() > base_frame_count, {
         env.pop_frame_nonmutating();
       });
