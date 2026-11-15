@@ -67,11 +67,13 @@ SuspensionPointDetector :: struct(
   ///
   /// Typed side-channel lists (e.g. ArrayList(AwaitPoint)) are typically maintained
   /// inside this closure by the caller; see the Phase 2m/2n implementation notes.
-  detect : Dyn(
-    Fn(
-      expr : &AstExpr,
-      parent_expr : &Option(AstExpr)
-    ) -> ArrayList(SuspensionPoint)
+  detect : Box(
+    Dyn(
+      Fn(
+        expr : &AstExpr,
+        parent_expr : &Option(AstExpr)
+      ) -> ArrayList(SuspensionPoint)
+    )
   ),
   /// Return true if this FnCall expression's body should be skipped
   /// (no recursion into func/args). Used for nested async blocks that
