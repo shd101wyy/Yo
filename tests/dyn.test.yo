@@ -640,6 +640,7 @@ test("Dyn: a trait from a generic impl builds its vtable", {
 _OsOt :: trait(other_n : (fn(self : &Self) -> i32));
 impl(_OsCat, _OsOt(other_n : (self -> i32(1))));
 _os_takes_sp :: (fn(s : Box(Dyn(_OsSp))) -> i32)(s.speak());
+_os_views_sp :: (fn(s : &Dyn(_OsSp)) -> i32)(s.speak());
 test("Dyn: no upcast from Dyn(A, B) to Dyn(A), with a note saying so", {
   (both : Box(Dyn(_OsSp, _OsOt))) = dyn(Box.new(_OsCat(n : i32(3))));
   // By value: a `&both` lend is rejected by the by-value parameter before the
@@ -665,8 +666,8 @@ test("Dyn: upcast drops traits and keeps each payload's impls", {
   assert(cat.other_n() == i32(1), "the source is still usable after a view");
   (cs : Box(Dyn(_OsSp))) = upcast(cat, Dyn(_OsSp));
   (ds : Box(Dyn(_OsSp))) = upcast(dog, Dyn(_OsSp));
-  assert(_os_takes_sp(&cs.*) == i32(3), "the cat's speak");
-  assert(_os_takes_sp(&ds.*) == i32(40), "the dog's speak");
+  assert(_os_views_sp(&cs.*) == i32(3), "the cat's speak");
+  assert(_os_views_sp(&ds.*) == i32(40), "the dog's speak");
   // The same payload: the upcast Dyn downcasts back to it.
   assert(downcast(&ds.*, _UpDog).is_some(), "the payload behind the upcast Dyn");
   assert(downcast(&cs.*, _UpDog).is_none(), "a cat is not a dog");

@@ -30,6 +30,22 @@
 _c_function_name_opt :: (fn(context : &FunctionGenerationContext, func_id : &String) -> Option(String))(
   match(context.base.get_function_entry(func_id), .Some(e) => Option(String).Some(e.c_name.clone()), .None => Option(String).None)
 );
+/// Is `s` a bare C member chain (`a`, `a.b.c`: identifiers and `.`)?
+_is_c_member_chain :: (fn(s : &String) -> bool)({
+  if(s.len() == usize(0), {
+    return(false);
+  });
+  (i : usize) = usize(0);
+  while(i < s.len(), {
+    b := match(s.get_byte(i), .Some(x) => x, .None => u8(0));
+    ok := (((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90))) || ((b >= u8(48)) && (b <= u8(57))) || (b == u8(95)) || (b == u8(46)));
+    if(!ok, {
+      return(false);
+    });
+    i = (i + usize(1));
+  });
+  true
+});
 /// The `&` (address-of) operator generation.
 generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   ei := match(
@@ -245,6 +261,13 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
   // pair IS that storage — strip the one paren layer.
   if(match(&arg_ei_opt, .Some(us_ei2) => !type_is_sized(&us_ei2.ty()), .None => false) && (arg_code.starts_with("(") && arg_code.ends_with(")") && !arg_code.starts_with("(*")), {
     return(arg_code.substring(usize(1), arg_code.len() - usize(1)));
+  });
+  // The same identity form unparenthesized: `d.*` on a `&Dyn` parameter
+  // (passed as the pair by value) is the parameter's own name, so `&d.*` is
+  // that pair, not its C address
+  // (issues/2026-11-15-reborrowing-a-dyn-reference-parameter-takes-the-c-address-of-the-pair.md).
+  if(match(&arg_ei_opt, .Some(us_ei3) => !type_is_sized(&us_ei3.ty()), .None => false) && _is_c_member_chain(&arg_code), {
+    return(arg_code);
   });
   if(ast_expr_is_fn_call(&arg) && (!ast_expr_is_atom(&arg) && !ast_expr_is_fn_call_of(&arg, BF_DOT, Option(usize).None)), {
     match(

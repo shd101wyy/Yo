@@ -2742,19 +2742,25 @@ _find_specialization_cache :: (
                     // second's capture struct to the first's parameter
                     // (two `dyn(Box.new(closure))` of one `Dyn(FnOnce(...))`,
                     // incompatible-pointer-types C error).
+                    // Each side is read at its resolution chain's end: the
+                    // `cell : *T` of a specialized generic body is `*T` with
+                    // `T` a type variable resolved to the capture struct, so
+                    // the bare-`Struct` match never saw it.
                     _cap_ids_differ :: (
-                      fn(c : &TypeValue, n : &TypeValue) -> bool
-                    )(
+                      fn(c_in : &TypeValue, n_in : &TypeValue) -> bool
+                    )({
+                      c := resolution_chain_end(c_in);
+                      n := resolution_chain_end(n_in);
                       match(
-                        c,
+                        &c,
                         Rc(.Struct({ id : cap_cid })) => match(
-                          n,
+                          &n,
                           Rc(.Struct({ id : cap_nid })) => ((cap_cid.starts_with("capture_") || cap_nid.starts_with("capture_")) && (cap_cid != cap_nid)),
                           _ => false
                         ),
                         _ => false
                       )
-                    );
+                    });
                     cap_ids_differ := cond(
                       (is_pointer_type(&cached_ty) && is_pointer_type(&current_ty)) => match(
                         &cached_ty,
