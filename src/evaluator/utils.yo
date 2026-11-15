@@ -153,7 +153,7 @@ pragma(Pragma.AllowUnsafe);
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string, type_to_string_for_message } :: import("../types/string.yo");
-{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, nominal_has_hidden_origin, type_reaches_user_drop, type_nominal_drop_uses_roots, note_origin_types_exist, type_is_typed_fnmut_closure, capture_struct_is_fnmut, future_unreturnable_borrow, future_origin_names, get_all_some_types, is_legacy_value_str, legacy_value_str } :: import("../types/utils.yo");
+{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, nominal_has_hidden_origin, type_reaches_user_drop, type_nominal_drop_uses_roots, note_origin_types_exist, type_is_typed_fnmut_closure, capture_struct_is_fnmut, future_unreturnable_borrow, future_origin_names, get_all_some_types, is_legacy_value_str, legacy_value_str, type_is_sized } :: import("../types/utils.yo");
 { expr_info_table_set, is_mut_global, is_thread_local, migrate_unsized_on, record_unsized_site, migrate_deref_on, audit_deref_on, record_deref_site, record_deref_edit_site, deref_file_migrated, note_reference_read_copied, lookup_macro_expansion, is_reference_self_place, unsize_reference_mode } :: import("../expr_info.yo");
 { is_global_mut_rule_exempt, is_deref_rule_exempt, is_deref_swept_tree } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
@@ -411,7 +411,14 @@ attach_temp_variable_to_expr :: (
               !existing_var.is_owning_the_rc_value() => false,
               true => _is_owning_rc
             );
-            variable_set_value_type(&existing_var, Rc.clone(effective_ty));
+            // A reference binding to an unsized place read as the fat
+            // reference itself (a `&str` binding's value read, decision 49
+            // S2) types the read, not the binding: its value type stays the
+            // referent, or the slot would become a reference to a reference
+            // and codegen would read the pair through it as a pointer.
+            if(!(variable_is_reference_binding(&existing_var) && is_reference_read(ast_expr_id(expr)) && t_slot_is_borrow(&effective_ty) && !type_is_sized(&t_slot_pointee(&effective_ty))), {
+              variable_set_value_type(&existing_var, Rc.clone(effective_ty));
+            });
             existing_var.set_value(value_cell_of(cond(preserved_rc => Option(EvalValue).None, true => var_value)));
             existing_var.set_is_compile_time_only(cond(preserved_rc => false, true => is_ctonly));
             existing_var.set_is_owning_the_rc_value(preserved_rc);
