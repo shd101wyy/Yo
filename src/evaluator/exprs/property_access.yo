@@ -37,7 +37,6 @@ pragma(Pragma.AllowUnsafe);
   unmark_node_preevaluated,
   record_deref_edit_site,
   note_deref_migrated_file,
-  deref_file_migrated,
   note_dyn_place
 } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env, get_receiver_methods_by_name_from_env, get_pointer_own_methods_by_name_from_env, env_adopt } :: import("../../env.yo");
@@ -61,7 +60,7 @@ pragma(Pragma.AllowUnsafe);
 { unknown_field_message, unknown_field_code, unknown_variant_message, unknown_field_through_deref_message, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message, get_all_some_types } :: import("../../types/utils.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
 { suggest_name, E_AMBIGUOUS_METHOD, E_DEREF_OF_BORROW, E_DEREF_OF_VALUE } :: import("../../diagnostics.yo");
-{ attach_temp_variable_to_expr, local_borrow_take_receiver, local_borrow_mark_receiver, local_borrow_clear_receiver, local_borrows_active, local_borrow_access_expr, LocalBorrowAccess, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording, note_reference_deref_site, is_reference_deref_site, note_synthesized_deref_star, is_synthesized_deref_star, is_ctfe_reference_param, deref_reads_through_pointee, deref_payload_type, deref_exempt_take, projection_call_mode_of, note_reference_field_read, reference_field_read_type, reject_reference_field_without_deref, local_borrow_place_text, reference_read_wanted } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, local_borrow_take_receiver, local_borrow_mark_receiver, local_borrow_clear_receiver, local_borrows_active, local_borrow_access_expr, LocalBorrowAccess, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording, deref_text_is_new_spelling, note_reference_deref_site, is_reference_deref_site, note_synthesized_deref_star, is_synthesized_deref_star, is_ctfe_reference_param, deref_reads_through_pointee, deref_payload_type, deref_exempt_take, projection_call_mode_of, note_reference_field_read, reference_field_read_type, reject_reference_field_without_deref, local_borrow_place_text, reference_read_wanted } :: import("../utils.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_union_member_read_capable, union_member_read_error_message, is_std_module_path } :: import("../memory_safety.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
@@ -890,7 +889,7 @@ _evaluate_property_access_node :: (
           // EVALUATED that way too, not as an old payload read — the swept
           // prelude's `Eq(Option(T))` comparison otherwise evaluates its
           // operands the old way and the instantiation dies (E0601).
-          if(deref_rule_recording() && !rd_chain_new && !deref_file_migrated(ast_expr_token(&object_expr)) && deref_reads_through_pointee(&rd_oi.ty()), {
+          if(deref_rule_recording() && !rd_chain_new && !deref_text_is_new_spelling(ast_expr_token(&object_expr), ctx) && deref_reads_through_pointee(&rd_oi.ty()), {
             record_deref_edit_site(ast_expr_token(&object_expr), &rd_v.name, u8(3));
           }, {
             // A `.*` no old source could write: the file is migrated already.

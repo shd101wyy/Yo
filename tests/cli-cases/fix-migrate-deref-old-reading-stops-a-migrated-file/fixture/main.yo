@@ -1,0 +1,21 @@
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array_list");
+Cell :: (fn(comptime(T) : Type) -> comptime(Type))(struct(items : ArrayList(T)));
+List :: (fn(comptime(T) : Type) -> comptime(Type))(Rc(Cell(T)));
+N :: enum(Leaf, Func(param_types : List(Rc(Self)), n : i32));
+count :: (fn(l : &List(Rc(N))) -> usize)(l.items.len());
+f :: (fn(t : &Rc(N)) -> usize)(
+  match(
+    t,
+    Rc(.Func({ param_types : pts, n : _ })) => count(&pts.*),
+    _ => usize(0)
+  )
+);
+peek :: (fn(n : &i32) -> i32)(n.*);
+main :: (fn() -> unit)({
+  x := Rc.new(N.Func(param_types : Rc.new(Cell(Rc(N))(items : ArrayList(Rc(N)).new())), n : i32(1)));
+  println(f(&x).to_string());
+  k := i32(3);
+  println(peek(&k).to_string());
+});
+export(main);
