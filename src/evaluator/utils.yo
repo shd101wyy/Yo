@@ -6219,7 +6219,16 @@ note_legacy_str_spelling :: (fn(te : &AstExpr, listed : bool) -> unit)({
 /// not in reach of the binder's check (`evaluate_comptime_fn_call` sees the
 /// callee and the values). Recorded at the callee's token with the
 /// argument's index (`kind` 9); the migration finds the argument in the line.
-note_legacy_str_type_arg :: (fn(param_ty : &TypeValue, value : &Option(EvalValue)) -> Option(EvalValue))({
+note_legacy_str_type_arg :: (fn(callee : &AstExpr, index : usize) -> unit)({
+  if(migrate_unsized_on(), {
+    record_unsized_site(&ast_expr_token(callee), u8(9), &index.to_string());
+  });
+});
+/// The legacy value `str` at a `comptime(V) : Type` parameter (decision 49,
+/// `unsized_legacy_spellings`): `ArrayList(str)` binds `V := &(str, static)`,
+/// the sized type the value spelling means. A `?Sized` parameter keeps `str`.
+/// Every other value is returned as it is.
+legacy_str_type_arg :: (fn(param_ty : &TypeValue, value : &Option(EvalValue)) -> Option(EvalValue))({
   if(is_type_0(param_ty), {
     match(
       value,
