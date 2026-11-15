@@ -6247,16 +6247,19 @@ legacy_box_dyn_lend :: (fn(expected : &TypeValue, given : &TypeValue, arg : &Ast
     return(true);
   });
   lb_sig := if(t_slot_is_mut_ref(expected), "&mut ", "&");
+  // The place as written (`h.b`), for the message; `lb_text` is how the
+  // migration matches the source.
+  lb_shown := match(lb_root, .Some(_) => local_borrow_place_text(&lb_place), .None => lb_text.clone());
   lb_help := match(
     lb_root,
-    .Some(_) => `lend the object the box owns: \`${lb_sig}${lb_text}.*\`; ${unsized_upgrade_path_text()}`,
+    .Some(_) => `lend the object the box owns: \`${lb_sig}${lb_shown}.*\`; ${unsized_upgrade_path_text()}`,
     .None => `bind the box and lend the object it owns (\`b := ...; ${lb_sig}b.*\`), or lend a value as a \`Dyn\` without a box: \`dyn(${lb_sig}v)\`; ${unsized_upgrade_path_text()}`
   );
   raise_flow_violation(
     with_code(
       format_error_message_with_help(
         tok,
-        `${position} takes \`${lb_sig}${type_to_string(&lb_e)}\`, and \`${lb_text}\` is the box \`${type_to_string(&lb_g)}\`: nothing coerces a box, or a reference to one, into a reference to the object it owns (plans/VALUES_BY_DEFAULT.md decision 49).`,
+        `${position} takes \`${lb_sig}${type_to_string(&lb_e)}\`, and \`${lb_shown}\` is the box \`${type_to_string(&lb_g)}\`: nothing coerces a box, or a reference to one, into a reference to the object it owns (plans/VALUES_BY_DEFAULT.md decision 49).`,
         Option(String).Some(lb_help)
       ),
       E_INCOMPATIBLE_TYPES
