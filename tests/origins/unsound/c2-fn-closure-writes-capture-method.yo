@@ -1,0 +1,19 @@
+// expect: E0913
+// An `Fn` closure lent as `&(() => ...)` grows its implicit capture `s` with `push_str` (`&mut self`).
+// The growth reallocates through the closure's copy of `s` and frees the buffer the outer `s` still
+// points to; reading `s` afterwards is a heap-use-after-free.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+run :: (fn(f : &Impl(Fn() -> unit)) -> unit)(f());
+main :: (fn() -> unit)({
+  mut(s) := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+  run(
+    &(
+      () => {
+        s.push_str("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+      }
+    )
+  );
+  println(`OUT: ${s.len().to_string()} ${s}`);
+});
+export(main);

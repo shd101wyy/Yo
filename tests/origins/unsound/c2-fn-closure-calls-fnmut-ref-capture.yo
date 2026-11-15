@@ -1,0 +1,17 @@
+// expect: E0908
+// Two `Fn` closures hold `{ r : &f }` of one `FnMut` closure and call it: each call takes `f`'s record
+// as `&mut self` through a `&` borrow, so two "read-only" holders mutate the same state.
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  (mut(f) : Impl(FnMut() -> i32)) = ({ n : i32(0) }() => {
+    n = (n + i32(1));
+    n
+  });
+  (g : Impl(Fn() -> i32)) = ({ r : &f }() => r());
+  (h : Impl(Fn() -> i32)) = ({ r : &f }() => r());
+  a := g();
+  b := h();
+  c := g();
+  println(`OUT: ${a.to_string()} ${b.to_string()} ${c.to_string()}`);
+});
+export(main);

@@ -1,0 +1,21 @@
+// expect: E0909
+// A module-level binding requires an `Escapable` type (the typed spelling already gets it).
+// `mut(G) := Option(&i64).None` is accepted, so `_set` stores a reference to its own local in a
+// global and `main` reads it after `_set` returned.
+{ println } :: import("std/fmt");
+mut(G) := Option(&i64).None;
+_set :: (fn() -> unit)({
+  s := i64(1234567);
+  G = .Some(&s);
+});
+_clobber :: (fn() -> i64)({
+  a := i64(7);
+  (a + a)
+});
+main :: (fn() -> unit)({
+  _set();
+  _ := _clobber();
+  v := match(&G, .Some(r) => r.*, .None => i64(0));
+  println(`OUT: ${v.to_string()}`);
+});
+export(main);

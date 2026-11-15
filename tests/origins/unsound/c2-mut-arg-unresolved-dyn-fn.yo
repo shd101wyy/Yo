@@ -1,0 +1,18 @@
+// expect: E0911
+// A `&mut` argument to a callee with no body to summarize (a `Dyn(Fn)` value) while `r`, a `&` loan into `xs`, is
+// live: the local-borrow judge needs a callee body, so the argument is never activated as a write. Accepted by the
+// v0.2.76 seed too (reported by the borrow/ownership audit, yo-6c, 2026-11-12). The callee clears the list `r`
+// points into: heap-use-after-free.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("hello-world-hello-world-hello-world"));
+  (f : Box(Dyn(Fn(b : &mut ArrayList(String)) -> unit))) = dyn((b : &mut ArrayList(String)) => b.clear());
+  r := xs.index(usize(0));
+  f(&mut xs);
+  println(`OUT: ${r.*}`);
+  ()
+});
+export(main);

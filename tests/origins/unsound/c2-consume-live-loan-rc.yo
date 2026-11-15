@@ -1,0 +1,12 @@
+// expect: E0911
+// The same through a counted handle: `r := h.as_ref()` borrows the payload, `consume(h)` drops the last
+// handle, and `r` is read after the payload is freed. A user `eat(h : Rc(String))` call here is E0911.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  h := Rc.new(String.from("hello-world-hello-world-hello-world"));
+  r := h.as_ref();
+  consume(h);
+  println(`OUT: ${r.*}`);
+});
+export(main);

@@ -1,0 +1,14 @@
+// expect: accept
+// Positive control: the outer closure borrows `f` with `&mut` and is itself `FnMut`.
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  (mut(f) : Impl(FnMut() -> i32)) = ({ n : i32(0) }() => {
+    n = (n + i32(1));
+    n
+  });
+  (mut(g) : Impl(FnMut() -> i32)) = ({ r : &mut f }() => r());
+  a := g();
+  c := g();
+  println(`OUT: ${a.to_string()} ${c.to_string()}`);
+});
+export(main);

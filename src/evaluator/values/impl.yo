@@ -4154,7 +4154,7 @@ _materialize_default_body :: (
           eprintln(`[mat-default-swallow] ${_err.to_string()}`);
         });
         g_mat_default_err.with_mut(xs => xs.clear());
-        match(downcast(_err, YoError), .Some(ye) => g_mat_default_err.with_mut(xs => xs.push(ye)), .None => ());
+        match(downcast(&_err.*, YoError), .Some(ye) => g_mat_default_err.with_mut({ ye : ye.clone() }(xs) => xs.push(ye)), .None => ());
         unwind(())
       }
     )

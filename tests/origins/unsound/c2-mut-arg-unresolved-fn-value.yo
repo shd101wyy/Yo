@@ -1,0 +1,24 @@
+// expect: E0911
+// A `&mut` argument to a function VALUE while a `&` loan of the same place is live: there is no
+// body to summarize, so the lend is judged a read. The callee clears the Option the arm binding points into.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+mk :: (fn() -> Option(Rc(X)))(.Some(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")))));
+clear :: (fn(o : &mut Option(Rc(X))) -> unit)({
+  o.* = .None;
+});
+main :: (fn() -> unit)({
+  mut(x) := mk();
+  f := clear;
+  n := match(
+    &x,
+    .Some(p) => {
+      f(&mut x);
+      p.*.s.len()
+    },
+    .None => usize(0)
+  );
+  println(`OUT: ${n.to_string()}`);
+});
+export(main);

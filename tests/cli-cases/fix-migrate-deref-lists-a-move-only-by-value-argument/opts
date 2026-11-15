@@ -1,11 +1,13 @@
 # `yo fix --migrate deref` inserts `.*` where a reference is read as a whole
 # value of a `Copy` type (b.yo: `take_i(r.*)`), and where a move-only referent
 # is only read (d.yo: the operands of `r.* == o.*`). Where the evaluation
-# copies a move-only referent, `r.*` would be E0901, so those `String` sites
-# (a.yo: a by-value argument, c.yo: a `:=` binding) are listed and left as
-# written
-# (issues/fixed/2026-11-05-migrate-deref-copies-a-move-only-referent-into-a-by-value-parameter.md;
-# `check`'s E0926 text for them is pinned in tests/local_borrows.test.yo).
+# copies a move-only referent, `r.*` would be E0901, so that `String` site
+# (a.yo: a by-value argument) is listed and left as written
+# (issues/fixed/2026-11-05-migrate-deref-copies-a-move-only-referent-into-a-by-value-parameter.md).
+# c.yo's `x := r` is NOT a site: a reference-binding read is a reference leaf,
+# so the `:=` binds the reference and copies nothing (VERDICTS-41 R-TAIL,
+# VERDICTS-23 R1; tests/local_borrows.test.yo `_bind_ref_whole`). c.yo
+# evaluates, is not listed and keeps its text.
 # One site per file: a file whose evaluation stops (at the E0901 the kept copy
 # still raises) is migrated only up to that point. That makes `fix` exit 1,
 # and the harness stops a case at its first non-zero command, so no command

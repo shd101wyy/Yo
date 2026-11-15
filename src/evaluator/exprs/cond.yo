@@ -67,7 +67,9 @@ pragma(Pragma.AllowUnsafe);
   keep_last_arm_moves,
   consume_case_body_temp_var,
   attach_temp_variable_to_expr,
-  adopt_never_type
+  adopt_never_type,
+  local_borrow_flow_region_begin,
+  local_borrow_flow_region_end
 } :: import("../utils.yo");
 { evaluate_begin_expression, reject_empty_record_arm } :: import("./begin.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
@@ -196,6 +198,9 @@ evaluate_cond :: (
     case_env := Rc.clone(pstmt.case_env);
     // Evaluate condition with expected type = bool.
     old_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t_bool(), env : Rc.clone(case_env))));
+    // A condition after the first runs only when the earlier ones are false
+    // (cluster 4's regions: a kill inside it lies on those paths only).
+    cond_region := if(ec_i > usize(0), Option(usize).Some(local_borrow_flow_region_begin()), Option(usize).None);
     evaluated_cond_expr := cond(
       // Raw, like the begin arm below: an atom condition's own error (an
       // unbound name) is the diagnostic, not "Failed to evaluate condition".
@@ -204,6 +209,7 @@ evaluate_cond :: (
       true =>
         evaluate_begin_expression(&cond_expr, &case_env, ctx, ArrayList(Variable).new(), false, exn)
     );
+    match(cond_region, .Some(cr) => local_borrow_flow_region_end(cr), .None => ());
     ctx.expected_type = old_expected;
     // Require that the evaluator produced ExprInfo.
     cond_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_cond_expr));
@@ -499,6 +505,8 @@ evaluate_cond :: (
               // reject_empty_record_arm) — rejected even when every arm is
               // `{}`, a join no compat query ever sees.
               reject_empty_record_arm(&ec_item.case_body_expr, exn);
+              // The arm runs on some paths only (cluster 4's regions).
+              arm_region := local_borrow_flow_region_begin();
               evaluated_case_body := evaluate_begin_expression(
                 &ec_item.case_body_expr,
                 &ec_item.case_env,
@@ -507,6 +515,7 @@ evaluate_cond :: (
                 false,
                 exn
               );
+              local_borrow_flow_region_end(arm_region);
               push_arm_init_range(&mut arm_ranges, ast_expr_id(&evaluated_case_body), bir_start_a, branch_init_log_len());
               prev_arm_body = Option(AstExpr).Some(ec_item.case_body_expr);
               if(arm_untaken_ct, {

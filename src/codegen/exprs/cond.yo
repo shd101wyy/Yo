@@ -24,7 +24,7 @@ import("std/fmt");
 { fn_result_is_ref } :: import("../../types/definitions.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
-{ _call_generate_expr } :: import("./_expr.yo");
+{ _call_generate_expr, chain_leaf_pointer_code } :: import("./_expr.yo");
 { Environment } :: import("../../env.yo");
 { generate_dup_code_for_value, generate_deferred_dup_expressions, generate_deferred_drop_expressions, has_pending_emittable_drop } :: import("./drop_dup.yo");
 { _flush_stmt_lent_temp_drops } :: import("./begin.yo");
@@ -133,17 +133,24 @@ _cond_bool :: (fn(e : &AstExpr, context : &FunctionGenerationContext) -> Option(
 );
 /// Wrap `code` in `&(...)` when the enclosing function returns `-> &mut T` and
 /// this arm value is not already a pointer.
-_maybe_address_of :: (fn(value_expr : &AstExpr, code : String, cond_outer_is_ptr : bool, context : &FunctionGenerationContext) -> String)(
-  if(!cond_outer_is_ptr, code, {
-    arm_is_ptr := match(context.base.get_expr_info(value_expr), .Some(ei) => is_pointer_type(&ei.ty()), .None => true);
-    if(arm_is_ptr, code, {
-      mut(out) := String.from("&(");
-      out.push_string(&code);
-      out.push_str(")");
-      out
-    })
+_maybe_address_of :: (fn(value_expr : &AstExpr, code : String, cond_outer_is_ptr : bool, context : &FunctionGenerationContext) -> String)({
+  // A projection-call leaf of a reference-typed chain (R-TAIL) yields the
+  // call's own pointer.
+  leaf_code := chain_leaf_pointer_code(value_expr, code.clone(), context);
+  if(leaf_code != code, {
+    return(leaf_code);
+  });
+  if(!cond_outer_is_ptr, {
+    return(code);
+  });
+  arm_is_ptr := match(context.base.get_expr_info(value_expr), .Some(ei) => is_pointer_type(&ei.ty()), .None => true);
+  if(arm_is_ptr, code, {
+    mut(out) := String.from("&(");
+    out.push_string(&code);
+    out.push_str(")");
+    out
   })
-);
+});
 /// Whether the generated arm code is a control-flow statement (continue/break/
 /// goto/return) and should be emitted directly rather than assigned.
 _is_cf_code :: (fn(value_expr : &AstExpr, code : &String, context : &FunctionGenerationContext) -> bool)(

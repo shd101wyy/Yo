@@ -1,0 +1,14 @@
+// expect: E0911
+// `consume(xs)` while `r`, a `&` into `xs`, is live: the builtin's move is checked as a read, which a `&` loan
+// allows, so the list is released and `r` is read after it.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("hello-world-hello-world-hello-world"));
+  r := xs.index(usize(0));
+  consume(xs);
+  println(`OUT: ${r.*}`);
+});
+export(main);

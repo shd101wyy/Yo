@@ -1,0 +1,19 @@
+// P2 / R-TAIL corpus row `cond-arm-projection-join` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P2,
+// VERDICTS-41 Q1; manifest tests/origins/corpus.tsv): `cond` arms that are projections of different roots
+// bind one reference whose roots are the union over the arms (decision 38 A's join).
+// Expected: rejected: E0911 at the reassignment of `y` while `z` is live.
+first :: (fn(p : &i32) -> &i32)(&p.*);
+flag :: (fn(n : i32) -> bool)(n > i32(2));
+main :: (fn() -> unit)({
+  x := i32(1);
+  mut(y) := i32(2);
+  c := flag(i32(1));
+  z := cond(
+    c => first(&x),
+    true => first(&y)
+  );
+  y = i32(3);
+  _ := z.*;
+  ()
+});
+export(main);

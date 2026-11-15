@@ -118,7 +118,7 @@ The maintainer is right about the direction but has the wrong component in mind.
 - **A second user-facing prover.** This covers Lean as a discharger, Singular `integer_ring`, and Vampire (D2).
 - **Compiler-trusting decision procedures.** `native_decide` and `bv_decide`, which rely on `ofReduceBool`, stay out of the trusted path.
 - **Mathlib.**
-- **Semantic preservation, and a self-hosted prover.**
+- **Semantic preservation, and a self-hosted prover.** *Amended 2026-11-13:* semantic preservation left this list. It is the goal of [`PROVEN_CORE.md`](PROVEN_CORE.md), outside the theorem-proving sequence this document ranks. A self-hosted prover stays a non-goal.
 - **Importing external theorems** (TP_NEXT §9), except as amended by the question doc.
 
 ## 6. Open questions
@@ -225,6 +225,6 @@ Cheap docs follow-ups (J, XS each):
 - **Coq at the VC level**: the goals are written in the encoding and tied to code positions, so only experts can prove them and edits break them (Blanchard 2019, the JCVM).
 - **SPARK's fail-open replay**: it is "still marked as proved" when the prover is missing. Yo's certificate rule fails closed (`:324-326`).
 - **Lean as the primary proof path** (the SymCrypt model): about 14 Lean lines per source line contradicts the agent-loop thesis (J).
-- **A verified-compiler ceiling** (CompCert, Bedrock2, seL4): `SELF_VERIFICATION.md:49`.
+- **A verified-compiler ceiling** (CompCert, Bedrock2, seL4): `SELF_VERIFICATION.md:49`. *Amended 2026-11-13:* still not adopted in that form (a compiler written and proved in a proof assistant). The claim itself is now pursued by checking the compiler's output against a proved core ([`PROVEN_CORE.md`](PROVEN_CORE.md) §4).
 - **Cogent's restrictions** (no recursion, no loops): Yo has a subset discipline instead.
 - **Fulminate's shadow init-bitmap**: low value, since ASan and the canaries already cover those bugs (J).

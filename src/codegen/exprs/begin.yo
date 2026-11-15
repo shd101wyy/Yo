@@ -23,7 +23,7 @@
 { eprintln } :: import("std/fmt");
 { take_short_circuit_handled, FunctionGenerationContext, sm_owns_fnonce_captures } :: import("../functions/context.yo");
 { _get_deferred_drop_target_variable } :: import("./return.yo");
-{ _call_generate_expr } :: import("./_expr.yo");
+{ _call_generate_expr, chain_leaf_pointer_code } :: import("./_expr.yo");
 { _looks_like_minted_temp, arm_value_with_dups } :: import("./drop_dup.yo");
 { declare_c_var_name, get_type_string, is_deferred_drop_for_closure_capture, get_deferred_drop_target_atom_name, sanitize_for_c_identifier, note_line_position, scope_stack_contains } :: import("../utils/index.yo");
 { replace } :: import("std/mem");
@@ -324,6 +324,7 @@ generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
       (idx : usize) = usize(0);
       (stop : bool) = false;
       last_arg_code := String.from("");
+      (last_arg_expr : Option(AstExpr)) = Option(AstExpr).None;
       while((idx < n) && !stop, {
         match(
           args.get(idx),
@@ -369,6 +370,7 @@ generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
                 _flush_stmt_lent_temp_drops(&arg, &nxt, &ei.deferred_drop_expressions(), &arg_ei, &indent2, context);
               });
               last_arg_code = result;
+              last_arg_expr = Option(AstExpr).Some(arg.clone());
               if(has_any_control_flow(arg_ei.control_flow()), {
                 stop = true;
               });
@@ -384,7 +386,8 @@ generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
         line := indent2.clone();
         line.push_string(temp_var.clone());
         line.push_str(" = ");
-        line.push_string(&last_arg_code);
+        // A reference-typed block (R-TAIL) holds its tail's pointer.
+        line.push_string(&match(&last_arg_expr, .Some(lae) => chain_leaf_pointer_code(lae, last_arg_code.clone(), context), .None => last_arg_code.clone()));
         line.push_str(";");
         context.base.emitter.emit_string_line(&line);
       });

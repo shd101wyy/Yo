@@ -1,0 +1,18 @@
+// expect: E0910
+// Audit A2 (s17, row 3): a `&` call result into `xs` is the FIRST argument and `&mut xs` the second; the result is a loan the call holds from its evaluation, so the later `&mut xs` is an access against it.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+long :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+first :: (fn(xs : &ArrayList(String)) -> &String)(&xs(usize(0)));
+g :: (fn(r : &String, xs : &mut ArrayList(String)) -> usize)({
+  xs.clear();
+  r.clone().len()
+});
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(long());
+  v := g(first(&xs), &mut xs);
+  println(`OUT: ${v.to_string()}`);
+});
+export(main);

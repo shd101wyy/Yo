@@ -5,7 +5,7 @@ reference, pointer or `Deref` type) is reported as an evaluator internal error
 with no hint, or as "Failed to evaluate, got (z.(*))".
 
 Found 2026-11-09 by the bugs lane while triaging
-`issues/2026-11-08-a-projection-call-as-a-blocks-tail-binds-without-exprinfo.md`:
+`issues/fixed/2026-11-08-a-projection-call-as-a-blocks-tail-binds-without-exprinfo.md`:
 its reproducer binds `z := { ...; first(&x) }`, which binds the VALUE (an
 `i32` copy), and then reads `z.*`.
 

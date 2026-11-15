@@ -1,0 +1,18 @@
+// expect: E0910
+// A closure borrows `o` through `{ r : &o }`; `match(&mut o, …)` lends `o` exclusively and the arm replaces the
+// payload the closure then reads through its capture.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(o) := Option(String).Some(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+  (g : Impl(Fn() -> usize)) = ({ r : &o }() => match(&r.*, .Some(s) => s.len(), .None => usize(0)));
+  match(
+    &mut o,
+    .Some(v) => {
+      v.* = String.from("z");
+    },
+    .None => ()
+  );
+  println(`OUT: ${g().to_string()}`);
+});
+export(main);

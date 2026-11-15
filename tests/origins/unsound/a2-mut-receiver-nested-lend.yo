@@ -1,0 +1,24 @@
+// expect: E0910
+// Audit A2 (c48, s15): the receiver of a `self : &mut Self` method and a later argument whose value is a call result borrowing the receiver.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+long :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+first :: (fn(xs : &ArrayList(String)) -> &String)(&xs(usize(0)));
+W :: struct(items : ArrayList(String));
+impl(
+  W,
+  eat : (fn(self : &mut Self, r : &String) -> usize)({
+    self.items.clear();
+    r.clone().len()
+  })
+);
+first_w :: (fn(w : &W) -> &String)(&w.items(usize(0)));
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(long());
+  mut(w) := W(items : xs);
+  v := w.eat(first_w(&w));
+  println(`OUT: ${v.to_string()}`);
+});
+export(main);

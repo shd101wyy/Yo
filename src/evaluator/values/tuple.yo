@@ -61,9 +61,9 @@ import("std/fmt");
   is_reference_deref_site,
   reject_reference_without_deref,
   deref_rule_recording,
-  local_borrows_active,
+  loans_active,
   local_borrow_place_of,
-  local_borrow_access,
+  access_place,
   LocalBorrowAccess
 } :: import("../utils.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -263,10 +263,10 @@ evaluate_tuple_element_value :: (
   // place, a write of it (E0911 against a live borrow), and in a callee's
   // body the `lends_mut` bit of the parameter it is rooted in.
   note_mut_lend_value(ast_expr_id(&evaluated_rhs), is_lend && lend_is_mut);
-  if(is_lend && lend_is_mut && local_borrows_active(), {
+  if(is_lend && lend_is_mut && loans_active(), {
     match(
       local_borrow_place_of(&evaluated_rhs, &env, ctx),
-      .Some(ml_lp) => local_borrow_access(&ml_lp, LocalBorrowAccess.Exclusive, ast_expr_token(expr), ctx, exn),
+      .Some(ml_lp) => access_place(&ml_lp, LocalBorrowAccess.Exclusive, ast_expr_token(expr), &env, ctx, exn),
       .None => ()
     );
   });

@@ -1,0 +1,16 @@
+// expect: E0910
+// A closure borrows `xs` through `{ r : &xs }`; `for(&mut xs, …)` lends `xs` exclusively and replaces the element
+// the closure then reads through its capture.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+  (g : Impl(Fn() -> usize)) = ({ r : &xs }() => r(usize(0)).len());
+  for(&mut xs, e => {
+    e.* = String.from("z");
+  });
+  println(`OUT: ${g().to_string()}`);
+});
+export(main);

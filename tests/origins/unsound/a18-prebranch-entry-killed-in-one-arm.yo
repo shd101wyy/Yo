@@ -1,0 +1,19 @@
+// expect: E0911
+// A18 family: a holder whose `=` entry (made before the branch) is killed by an assignment in ONE arm of an
+// `if`; the other path keeps `h -> y`, so the write of `y` while `h` is live must be rejected.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+flag :: (fn() -> bool)(String.from("a").len() == usize(2));
+main :: (fn() -> unit)({
+  mut(x) := L();
+  mut(y) := L();
+  mut(h) := Option(&String).None;
+  h = .Some(&y);
+  if(flag(), {
+    h = .Some(&x);
+  });
+  y = String.from("q");
+  match(h, .Some(r) => println(`OUT: ${r.*}`), .None => ());
+});
+export(main);

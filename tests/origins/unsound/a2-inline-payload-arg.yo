@@ -1,0 +1,18 @@
+// expect: E0910
+// Audit A2 (c59): an inline `Option(&String).Some(&xs(0))` payload passed beside `&mut xs`.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+long :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+first :: (fn(xs : &ArrayList(String)) -> &String)(&xs(usize(0)));
+f :: (fn(xs : &mut ArrayList(String), o : Option(&String)) -> usize)({
+  xs.clear();
+  match(o, .Some(r) => r.clone().len(), .None => usize(0))
+});
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(long());
+  v := f(&mut xs, Option(&String).Some(&xs(usize(0))));
+  println(`OUT: ${v.to_string()}`);
+});
+export(main);

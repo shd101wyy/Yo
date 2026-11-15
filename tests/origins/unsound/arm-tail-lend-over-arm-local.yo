@@ -1,0 +1,22 @@
+// expect: E0911
+// P2 R-TAIL (VERDICTS-41 Q1 item 3) at an arm tail: each `cond` arm block lends its own local, dropped at the arm
+// block's end while `z` reads through it afterwards: a heap-use-after-free under ASan when the rejection is missing.
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+pick :: (fn(c : bool) -> usize)({
+  z := cond(
+    c => {
+      w := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+      &w
+    },
+    true => {
+      v := String.from("abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789");
+      &v
+    }
+  );
+  z.len()
+});
+main :: (fn() -> unit)({
+  println(`OUT: ${pick(true).to_string()}`);
+});
+export(main);

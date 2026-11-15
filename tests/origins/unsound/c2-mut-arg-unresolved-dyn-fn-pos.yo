@@ -1,0 +1,16 @@
+// expect: accept
+// Positive control: the `&` loan's last use precedes the `&mut` argument to the `Dyn(Fn)` value.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("hello-world-hello-world-hello-world"));
+  (f : Box(Dyn(Fn(b : &mut ArrayList(String)) -> unit))) = dyn((b : &mut ArrayList(String)) => b.clear());
+  r := xs.index(usize(0));
+  println(`OUT: ${r.*}`);
+  f(&mut xs);
+  println(`OUT: ${xs.len().to_string()}`);
+  ()
+});
+export(main);

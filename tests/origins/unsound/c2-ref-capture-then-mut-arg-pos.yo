@@ -1,0 +1,18 @@
+// expect: accept
+// Positive control: the closure's last use is before the `&mut` lend, so its borrow of `h.*.a` has ended.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+S :: struct(a : String);
+reset :: (fn(x : &mut Rc(S)) -> unit)({
+  x.* = Rc.new(S(a : String.from("z")));
+});
+main :: (fn() -> unit)({
+  mut(h) := Rc.new(S(a : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+  {
+    (g : Impl(Fn() -> usize)) = ({ t : &h.*.a }() => t.clone().len());
+    println(`OUT: ${g().to_string()}`);
+  };
+  reset(&mut h);
+  println(`OUT: ${h.*.a.len().to_string()}`);
+});
+export(main);

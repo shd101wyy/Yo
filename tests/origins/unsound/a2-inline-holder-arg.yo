@@ -1,0 +1,19 @@
+// expect: E0910
+// Audit A2 (c58): an inline holder constructor whose field lends `xs(0)` is passed beside `&mut xs`; the holder value is a loan the call holds.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+long :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+first :: (fn(xs : &ArrayList(String)) -> &String)(&xs(usize(0)));
+H :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(String, p)));
+f :: (fn(generic(p : Origin), xs : &mut ArrayList(String), h : H(p)) -> usize)({
+  xs.clear();
+  h.r.clone().len()
+});
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(long());
+  v := f(&mut xs, H(xs)(r : &xs(usize(0))));
+  println(`OUT: ${v.to_string()}`);
+});
+export(main);

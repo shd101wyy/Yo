@@ -1,0 +1,28 @@
+// expect: E0911
+// In a `self : &mut Self` method, `r` borrows `self.items` while a closure with the entry `{ m : &mut self.items }`
+// grows the list: the buffer `r` points into is reallocated, and `r` is read.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+B :: struct(items : ArrayList(String));
+impl(
+  B,
+  grow_and_read : (fn(self : &mut Self) -> usize)({
+    r := self.items.index(usize(0));
+    (mut(c) : Impl(FnMut() -> unit)) = ({ m : &mut self.items }() => {
+      mut(i) := i32(0);
+      while(i < i32(1000), {
+        m.push(String.from("z"));
+        i = (i + i32(1));
+      });
+    });
+    c();
+    r.len()
+  })
+);
+main :: (fn() -> unit)({
+  mut(b) := B(items : ArrayList(String).new());
+  b.items.push(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+  println(`OUT: ${b.grow_and_read().to_string()}`);
+});
+export(main);

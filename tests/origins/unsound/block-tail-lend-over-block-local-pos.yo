@@ -1,0 +1,14 @@
+// expect: accept
+// Positive twin of block-tail-lend-over-block-local: the block has a local of its own, but its reference tail lends
+// `w`, declared before the block, which outlives `z`.
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+main :: (fn() -> unit)({
+  w := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+  z := {
+    n := String.from("n");
+    &w
+  };
+  println(`OUT: ${z.len().to_string()}`);
+});
+export(main);

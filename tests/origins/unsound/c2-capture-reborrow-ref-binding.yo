@@ -1,0 +1,13 @@
+// expect: E0910
+// The minimal form, over a `:=` reference binding: `x` is written while the closure that reborrows `y.*` is
+// live, and the closure reads the new value (no memory error with a scalar; a Box payload is the main repro).
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(x) := i32(1);
+  y := &x;
+  (g : Impl(Fn() -> i32)) = ({ z : &y.* }() => z.*);
+  x = i32(3);
+  println(`OUT: ${g().to_string()}`);
+  ()
+});
+export(main);

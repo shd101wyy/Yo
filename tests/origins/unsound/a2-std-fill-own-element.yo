@@ -1,0 +1,15 @@
+// expect: E0910
+// Audit A2 (s08): `xs.fill(xs.index(usize(0)))` lends `xs` `&mut` as the receiver and passes a reference into its own element; `fill` overwrites element 0 (dropping it) and clones the dropped value into the later slots.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+long :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+first :: (fn(xs : &ArrayList(String)) -> &String)(&xs(usize(0)));
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(long());
+  xs.push(long());
+  xs.fill(xs.index(usize(0)));
+  println(`OUT: ${xs(usize(1))}`);
+});
+export(main);

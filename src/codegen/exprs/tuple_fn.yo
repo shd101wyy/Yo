@@ -9,7 +9,8 @@
 //! through `emit_deferred_dup_or_code`.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr } :: import("../../expr.yo");
+{ AstExpr, ast_expr_is_atom, ast_expr_token } :: import("../../expr.yo");
+{ is_chain_ref_binding_leaf } :: import("../../expr_info.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { type_key, get_variable_type_string } :: import("../utils/index.yo");
@@ -66,8 +67,11 @@ _build_tuple :: (fn(arg_exprs : &ArrayList(AstExpr), c_name : &String, expr : &A
         // argument is the place, the C member its address, taken before
         // sequencing (a hoisted temporary would be a copy of the place). A
         // reference VALUE (a by-value `&U` binding, a call's result: R3) is
-        // the pointer itself.
-        e_is_ref := (match(elem_types.get(i), .Some(et) => t_slot_is_borrow(&et), .None => false) && !reference_operand_is_value(&arg, context));
+        // the pointer itself. A reference binding read as the reference
+        // (R-TAIL's tuple component, `note_chain_ref_leaves`) is typed `&U`
+        // but emitted as its place `(*k)`: its address is the pointer.
+        e_leaf_place := (ast_expr_is_atom(&arg) && is_chain_ref_binding_leaf(ast_expr_token(&arg)));
+        e_is_ref := (match(elem_types.get(i), .Some(et) => t_slot_is_borrow(&et), .None => false) && (e_leaf_place || !reference_operand_is_value(&arg, context)));
         // Sequenced against the later elements (`sequence_operand`,
         // other_fn_call.yo): C leaves initializers unordered, and a later
         // element's statements run before this literal.
