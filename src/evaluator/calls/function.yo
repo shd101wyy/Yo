@@ -1549,11 +1549,22 @@ _find_receiver_method_of :: (
   // elements ("Type mismatch for type member"). Resolve the shell to the
   // finalized enum (registered by register_enum_final) so the derived clone is
   // found. No-op for non-shell receivers. issues/fixed/yo-self-p1-transpile-tail.md.
-  receiver_type := resolve_enum_shell(&receiver_info.ty());
+  mut(receiver_type) := resolve_enum_shell(&receiver_info.ty());
   receiver_value := receiver_info.value();
   // 3. Method name token.
   method_tok := ast_expr_token(&method_name_expr);
   method_name := method_tok.value.*.clone();
+  // The Q-B arm's receiver half (`unsized_legacy_spellings`, VERDICTS-62
+  // decision 5): a `&str` VALUE receiver (a call's result, the legacy value
+  // `str`) with no method of its own selects `str`'s, and the reference value
+  // fills the `&Self` slot as a `&str` argument does. S3b-`str` deletes it.
+  match(
+    str_reference_pointee(&receiver_type),
+    .Some(sr_p) => if(!match(receiver_value, .Some(sr_v) => is_type_val(&sr_v), .None => false) && (get_receiver_methods_by_name_from_env(env, method_name.clone(), &receiver_type, false).len() == usize(0)), {
+      receiver_type = sr_p;
+    }),
+    .None => ()
+  );
   // 4. Static vs instance dispatch.
   //    When the receiver's VALUE is a TypeValue (e.g. `HashMap(K,V)`,
   //    `EvenNumber`), this is a STATIC method call: look up methods on the
