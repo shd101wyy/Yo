@@ -91,7 +91,7 @@ SharedTree :: atomic(ref(enum(Leaf(i32), Branch(Self, Self)))); // Self, not the
 `ref` as a *parameter / reference binding* is renamed to `inout`:
 
 ```yo
-push :: (fn(inout(self) : ArrayList(T), x : T) -> unit)({ … }); // was ref(self)
+push :: (fn(inout(self) : ArrayList(T), x : T) -> unit)(.{ … }); // was ref(self)
 ```
 
 - The only supported form is the **parameter** `inout(name) : T`.

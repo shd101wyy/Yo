@@ -98,7 +98,7 @@ Emscripten-specific flags go in `add_c_flags(...)` after creating the step.
 ```yo
 build :: import("std/build");
 
-wasm_api :: build.executable({
+wasm_api :: build.executable(.{
   name : "my_lib_wasm_api",
   root : "./src/wasm_api.yo",
   target : build.CompilationTarget.Wasm32_Unknown_Emscripten,

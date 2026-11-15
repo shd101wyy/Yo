@@ -12,7 +12,7 @@ give :: (fn(io : Io) -> Impl(Future(usize, IoExn)))(
 );
 test("mismatched effect records are rejected at check time", {
   // A one-field record for an IoExn future: wrong layout.
-  comptime_expect_error(io.await(give(io), { io }));
+  comptime_expect_error(io.await(give(io), .{ io }));
   // A bare Io for an IoExn future: wrong layout.
   comptime_expect_error(io.await(give(io), io));
   assert(true, "both rejected");
@@ -28,7 +28,7 @@ test("matching bundles still pass", {
   );
   a := io.await(give(io), IoExn(io : io, exn : exn));
   // An anonymous record with EXACTLY the bundle's fields has its layout.
-  b := io.await(give(io), { io, exn });
+  b := io.await(give(io), .{ io, exn });
   assert((a == usize(11)) && (b == usize(11)), "typed and structural bundles both work");
 });
 // ---------------------------------------------------------------------------
@@ -59,7 +59,7 @@ test("an Io-bundled future can still be viewed as Future(T)", {
 OtherTell :: (fn(x : bool) -> i32);
 test("a bundle with the right labels and a wrong handler type is rejected", {
   t_bool :: (fn(x : bool) -> i32)(i32(0));
-  comptime_expect_error(io.await(tells(io), { io, tell : t_bool }));
+  comptime_expect_error(io.await(tells(io), .{ io, tell : t_bool }));
   assert(true, "rejected at check time");
 });
 // `Future` takes one effect argument, and the `...(E)` effect-row spread was

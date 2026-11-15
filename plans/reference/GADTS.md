@@ -125,16 +125,16 @@ This is the core GADT feature. When pattern matching on `(e : Expr(T))`:
 ```yo
 match(
   e,
-  .IntLit(i) => {
+  .IntLit(i) => .{
     // Here the type checker knows T = i32
     // Because IntLit -> recur(i32), and e : Expr(T), so T must equal i32
     // `i` has type i32
     // Return type in this branch can be i32 (which equals T)
   },
-  .BoolLit(b) => {
+  .BoolLit(b) => .{
     // T = bool, b : bool
   },
-  .If(c, t, f) => {
+  .If(c, t, f) => .{
     // T remains abstract (unconstrained)
     // c : Expr(bool), t : Expr(T), f : Expr(T)
   }

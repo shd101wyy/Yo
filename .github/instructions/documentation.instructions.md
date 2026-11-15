@@ -118,7 +118,7 @@ In `build.yo`, use `build.doc()` to add a documentation generation step:
 ```yo
 build :: import("std/build");
 
-docs :: build.doc({ name : "docs", root : "./src" });
+docs :: build.doc(.{ name : "docs", root : "./src" });
 doc_step :: build.step("doc", "Generate documentation");
 doc_step.depend_on(docs);
 ```

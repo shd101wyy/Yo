@@ -61,14 +61,14 @@ my-project/
 ```yo
 build :: import("std/build");
 
-mod :: build.module({ name : "my-project", root : "./src/lib.yo" });
+mod :: build.module(.{ name : "my-project", root : "./src/lib.yo" });
 
-exe :: build.executable({
+exe :: build.executable(.{
   name : "my-project",
   root : "./src/main.yo"
 });
 
-tests :: build.test({
+tests :: build.test(.{
   name : "tests",
   root : "./tests/"
 });
@@ -84,7 +84,7 @@ run_step.depend_on(run_exe);
 test_step :: build.step("test", "Run the tests");
 test_step.depend_on(tests);
 
-docs :: build.doc({ name : "my-project", root : "./src" });
+docs :: build.doc(.{ name : "my-project", root : "./src" });
 doc_step :: build.step("doc", "Generate documentation");
 doc_step.depend_on(docs);
 ```
@@ -243,7 +243,7 @@ For projects that compile to WASM npm packages, use `target: build.CompilationTa
 ```yo
 build :: import("std/build");
 
-wasm_api :: build.executable({
+wasm_api :: build.executable(.{
   name : "my_lib_wasm_api",
   root : "./src/wasm_api.yo",
   target : build.CompilationTarget.Wasm32_Unknown_Emscripten,
@@ -286,7 +286,7 @@ In `build.yo`:
 ```yo
 build :: import("std/build");
 
-docs :: build.doc({ name : "docs", root : "./src" });
+docs :: build.doc(.{ name : "docs", root : "./src" });
 doc_step :: build.step("doc", "Generate documentation");
 doc_step.depend_on(docs);
 ```
@@ -296,7 +296,7 @@ Then run: `yo build doc`
 ### Verification build step — proofs as part of the build
 
 ```yo
-proofs :: build.verify({ name : "proofs", root : "./src" }); // mode : build.VerifyMode.Verify (default) | .VerifyOrAssert; strict : bool
+proofs :: build.verify(.{ name : "proofs", root : "./src" }); // mode : build.VerifyMode.Verify (default) | .VerifyOrAssert; strict : bool
 install.depend_on(proofs);
 ```
 

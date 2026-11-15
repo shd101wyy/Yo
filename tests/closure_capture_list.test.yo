@@ -255,11 +255,11 @@ test("capture list: entry shapes are checked", {
   comptime_expect_error(_cl_call0({ mut(y) : &y }() => y), "`mut(x)` was deleted");
   comptime_expect_error(_cl_call0({ y, y }() => y), "names `y` twice");
   comptime_expect_error(_cl_call0({ t : &_cl_call0({}() => i32(1)) }() => t), "is not one");
-  comptime_expect_error(_cl_call0({ y }() -> y), "takes no capture list");
+  comptime_expect_error(_cl_call0(.{ y }() -> y), "takes no capture list");
 });
 test("capture list: a borrow entry outside a capture list is an error", {
   y := i32(1);
-  comptime_expect_error({ &y }, "lends a borrow");
+  comptime_expect_error(.{ &y }, "lends a borrow");
   assert(y == i32(1), "y is untouched");
 });
 test("capture list: a match arm cannot be a capture-list closure", {
