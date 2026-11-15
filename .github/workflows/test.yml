@@ -1903,7 +1903,11 @@ jobs:
     # ./src (#1918): 52 min of gates before the informational target set, so
     # the old 60-minute cap cancelled the job in that last step (battery
     # 43204313320, issues/fixed/2026-11-12-the-origins-job-is-cancelled-at-its-60-minute-cap.md).
-    timeout-minutes: 100
+    # The 100-minute cap went the same way on 2026-11-15 (battery 43680143543): G-B has
+    # grown to 382 programs, and a slow runner took 11 + 71 + 15 min for the three gates
+    # (64 min in total on the previous battery), so the target set was cut off again
+    # (issues/fixed/2026-11-15-the-origins-job-outgrows-its-100-minute-cap.md).
+    timeout-minutes: 150
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
