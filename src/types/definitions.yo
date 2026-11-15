@@ -772,17 +772,17 @@ some_t_bounds_empty :: (fn() -> SomeTBounds(TypeValue))(
 impl(
   SomeTBounds(TypeValue),
   /// A snapshot of the required trait constraints.
-  required : (fn(self : &Self) -> ArrayList(TypeValue))(self.with({ &self }(b) => b.required.clone())),
+  required : (fn(self : &Self) -> ArrayList(TypeValue))(self.with({ self : &self.* }(b) => b.required.clone())),
   /// A snapshot of the required constraints' frame levels.
-  required_levels : (fn(self : &Self) -> ArrayList(usize))(self.with({ &self }(b) => b.required_levels.clone())),
+  required_levels : (fn(self : &Self) -> ArrayList(usize))(self.with({ self : &self.* }(b) => b.required_levels.clone())),
   /// A snapshot of the negative trait constraints.
-  negative : (fn(self : &Self) -> ArrayList(TypeValue))(self.with({ &self }(b) => b.negative.clone())),
+  negative : (fn(self : &Self) -> ArrayList(TypeValue))(self.with({ self : &self.* }(b) => b.negative.clone())),
   /// A snapshot of the negative constraints' frame levels.
-  negative_levels : (fn(self : &Self) -> ArrayList(usize))(self.with({ &self }(b) => b.negative_levels.clone())),
+  negative_levels : (fn(self : &Self) -> ArrayList(usize))(self.with({ self : &self.* }(b) => b.negative_levels.clone())),
   /// Number of required constraints, read in place.
-  required_len : (fn(self : &Self) -> usize)(self.with({ &self }(b) => b.required.len())),
+  required_len : (fn(self : &Self) -> usize)(self.with({ self : &self.* }(b) => b.required.len())),
   /// Number of negative constraints, read in place.
-  negative_len : (fn(self : &Self) -> usize)(self.with({ &self }(b) => b.negative.len()))
+  negative_len : (fn(self : &Self) -> usize)(self.with({ self : &self.* }(b) => b.negative.len()))
 );
 /// A fresh trait body cell holding these lists (a NEW trait identity).
 trait_t_body :: (
@@ -803,18 +803,18 @@ trait_t_body :: (
 impl(
   TraitTBody(TypeValue),
   /// A snapshot of the associated type names.
-  assoc_type_names : (fn(self : &Self) -> ArrayList(String))(self.with({ &self }(b) => b.assoc_type_names.clone())),
+  assoc_type_names : (fn(self : &Self) -> ArrayList(String))(self.with({ self : &self.* }(b) => b.assoc_type_names.clone())),
   /// A snapshot of the member labels.
-  field_labels : (fn(self : &Self) -> ArrayList(String))(self.with({ &self }(b) => b.field_labels.clone())),
+  field_labels : (fn(self : &Self) -> ArrayList(String))(self.with({ self : &self.* }(b) => b.field_labels.clone())),
   /// A snapshot of the member types.
-  field_types : (fn(self : &Self) -> ArrayList(TypeValue))(self.with({ &self }(b) => b.field_types.clone())),
+  field_types : (fn(self : &Self) -> ArrayList(TypeValue))(self.with({ self : &self.* }(b) => b.field_types.clone())),
   /// A snapshot of the `where(Self <: X)` constraints.
-  self_constraints : (fn(self : &Self) -> ArrayList(TypeValue))(self.with({ &self }(b) => b.self_constraints.clone())),
+  self_constraints : (fn(self : &Self) -> ArrayList(TypeValue))(self.with({ self : &self.* }(b) => b.self_constraints.clone())),
   /// A snapshot of the negative `where(Self <: X)` constraints.
-  neg_self_constraints : (fn(self : &Self) -> ArrayList(TypeValue))(self.with({ &self }(b) => b.neg_self_constraints.clone())),
+  neg_self_constraints : (fn(self : &Self) -> ArrayList(TypeValue))(self.with({ self : &self.* }(b) => b.neg_self_constraints.clone())),
   /// A fresh cell holding copies of these lists (a NEW trait identity).
   fresh_copy : (fn(self : &Self) -> Self)(
-    self.with({ &self }(b) => trait_t_body(b.assoc_type_names.clone(), b.field_labels.clone(), b.field_types.clone(), b.self_constraints.clone(), b.neg_self_constraints.clone()))
+    self.with({ self : &self.* }(b) => trait_t_body(b.assoc_type_names.clone(), b.field_labels.clone(), b.field_types.clone(), b.self_constraints.clone(), b.neg_self_constraints.clone()))
   )
 );
 // ---------------------------------------------------------------------------
@@ -842,7 +842,7 @@ t_origin_named :: (fn(names : &SharedList(String)) -> TypeValue)(Rc.new(TypeValu
 /// `static`, the empty origin (decision 49): the spelled set naming no
 /// place. A reference with it borrows nothing (`∅ ⊆ p`, so it widens into
 /// every origin position) and is `Escapable` when its pointee is.
-is_static_origin :: (fn(o : &TypeValue) -> bool)(match(o, Rc(.OriginSet(so_places, so_elided)) => (!so_elided && (so_places.len() == usize(0))), _ => false));
+is_static_origin :: (fn(o : &TypeValue) -> bool)(match(o, Rc(.OriginSet(so_places, so_elided)) => (!so_elided.* && (so_places.len() == usize(0))), _ => false));
 /// `&T` (`mutable = false`) or `&mut T`, with the elided origin.
 t_reference :: (fn(pointee : &TypeValue, mutable : bool) -> TypeValue)(
   Rc.new(TypeValueNode.Reference(pointee : pointee.clone(), mutable : mutable, origin : Rc.clone(g_origin_elided)))
@@ -898,7 +898,7 @@ t_slot_pointee :: (fn(t : &TypeValue) -> TypeValue)(
   )
 );
 /// The slot is `&mut T`.
-t_slot_is_mut_ref :: (fn(t : &TypeValue) -> bool)(match(t, Rc(.Reference(_, mutable, _)) => mutable, _ => false));
+t_slot_is_mut_ref :: (fn(t : &TypeValue) -> bool)(match(t, Rc(.Reference(_, mutable, _)) => mutable.*, _ => false));
 /// The slot borrows (`&T` or `&mut T`).
 t_slot_is_borrow :: (fn(t : &TypeValue) -> bool)(match(t, Rc(.Reference(_, _, _)) => true, _ => false));
 /// The slot takes its argument by value.
@@ -908,7 +908,7 @@ t_slot_is_by_value :: (fn(t : &TypeValue) -> bool)(!t_slot_is_borrow(t));
 t_slot_with_pointee :: (fn(slot : &TypeValue, pointee : &TypeValue) -> TypeValue)(
   match(
     slot,
-    Rc(.Reference(_, mutable, origin)) => Rc.new(TypeValueNode.Reference(pointee : pointee.clone(), mutable : mutable, origin : Rc.clone(origin))),
+    Rc(.Reference(_, mutable, origin)) => Rc.new(TypeValueNode.Reference(pointee : pointee.clone(), mutable : mutable.*, origin : Rc.clone(origin))),
     Rc(.ValueSlot(_)) => t_value_slot(pointee),
     _ => pointee.clone()
   )
@@ -958,9 +958,9 @@ fn_result_pointee :: (fn(ft : &TypeValue) -> TypeValue)(t_slot_pointee(&fn_resul
 /// that is none of the three.
 fn_trait_rank :: (fn(base_name : &String) -> Option(u8))(
   cond(
-    (base_name == "Fn") => Option(u8).Some(u8(0)),
-    (base_name == "FnMut") => Option(u8).Some(u8(1)),
-    (base_name == "FnOnce") => Option(u8).Some(u8(2)),
+    (base_name.* == "Fn") => Option(u8).Some(u8(0)),
+    (base_name.* == "FnMut") => Option(u8).Some(u8(1)),
+    (base_name.* == "FnOnce") => Option(u8).Some(u8(2)),
     true => Option(u8).None
   )
 );
@@ -971,14 +971,14 @@ fn_trait_base_serves :: (fn(actual : &String, expected : &String) -> bool)(
   match(
     fn_trait_rank(actual),
     .Some(ar) => match(fn_trait_rank(expected), .Some(er) => (ar <= er), .None => false),
-    .None => (actual == expected)
+    .None => (actual.* == expected.*)
   )
 );
 /// What a call of a closure typed `base_name` does to it, for E0913's text.
 fn_trait_call_contract :: (fn(base_name : &String) -> String)(
   cond(
-    (base_name == "FnOnce") => String.from("which is called at most once (its call consumes it)"),
-    (base_name == "FnMut") => String.from("whose call borrows it exclusively (its body writes its state or a `&mut` capture)"),
+    (base_name.* == "FnOnce") => String.from("which is called at most once (its call consumes it)"),
+    (base_name.* == "FnMut") => String.from("whose call borrows it exclusively (its body writes its state or a `&mut` capture)"),
     true => String.from("whose call borrows it")
   )
 );
@@ -986,24 +986,24 @@ fn_trait_call_contract :: (fn(base_name : &String) -> String)(
 /// E0913's text.
 fn_trait_slot_contract :: (fn(base_name : &String) -> String)(
   cond(
-    (base_name == "Fn") => String.from("the closure may be called again, through a shared borrow"),
+    (base_name.* == "Fn") => String.from("the closure may be called again, through a shared borrow"),
     true => String.from("the closure may be called again")
   )
 );
 /// The `Func` (or closure trait, `Fn(...) -> &T`, N1c) `ft` is a
 /// projection (`-> &T` or `-> &mut T`).
-fn_result_is_ref :: (fn(ft : &TypeValue) -> bool)(match(ft, Rc(.Func({ result : fri_r })) => t_slot_is_borrow(&fri_r), Rc(.FnTraitT({ call_result : fri_cr })) => t_slot_is_borrow(&fri_cr), _ => false));
+fn_result_is_ref :: (fn(ft : &TypeValue) -> bool)(match(ft, Rc(.Func({ result : fri_r })) => t_slot_is_borrow(&fri_r.*), Rc(.FnTraitT({ call_result : fri_cr })) => t_slot_is_borrow(&fri_cr.*), _ => false));
 /// The `Func` (or closure trait) `ft` is a mutable projection (`-> &mut T`).
-fn_result_is_mut_ref :: (fn(ft : &TypeValue) -> bool)(match(ft, Rc(.Func({ result : frm_r })) => t_slot_is_mut_ref(&frm_r), Rc(.FnTraitT({ call_result : frm_cr })) => t_slot_is_mut_ref(&frm_cr), _ => false));
+fn_result_is_mut_ref :: (fn(ft : &TypeValue) -> bool)(match(ft, Rc(.Func({ result : frm_r })) => t_slot_is_mut_ref(&frm_r.*), Rc(.FnTraitT({ call_result : frm_cr })) => t_slot_is_mut_ref(&frm_cr.*), _ => false));
 /// The names a SPELLED origin lists (`&(T, (p, xs))` → `p`, `xs`); `.None`
 /// for an elided origin or a non-origin (decision 43 step 2, N1c).
 t_origin_spelled_names :: (fn(o : &TypeValue) -> Option(SharedList(String)))(
-  match(o, Rc(.OriginSet(osn_places, osn_elided)) => if(osn_elided, Option(SharedList(String)).None, Option(SharedList(String)).Some(Rc.clone(osn_places))), _ => Option(SharedList(String)).None)
+  match(o, Rc(.OriginSet(osn_places, osn_elided)) => if(osn_elided.*, Option(SharedList(String)).None, Option(SharedList(String)).Some(Rc.clone(osn_places))), _ => Option(SharedList(String)).None)
 );
 /// The names a reference slot's spelled origin lists; `.None` for a
 /// by-value slot or an elided origin.
 t_slot_origin_names :: (fn(slot : &TypeValue) -> Option(SharedList(String)))(
-  match(slot, Rc(.Reference(_, _, tso_origin)) => t_origin_spelled_names(&tso_origin), _ => Option(SharedList(String)).None)
+  match(slot, Rc(.Reference(_, _, tso_origin)) => t_origin_spelled_names(&tso_origin.*), _ => Option(SharedList(String)).None)
 );
 /// The names a projection's spelled result origin lists (`-> &(T, xs)`);
 /// `.None` for an elided one (O2: the union of the reference parameters) or
@@ -1020,7 +1020,7 @@ _spelled_origins_into :: (fn(t : &TypeValue, out : &mut ArrayList(String), depth
   match(
     t,
     Rc(.OriginSet(so_places, so_elided)) => {
-      if(so_elided, {
+      if(so_elided.*, {
         return(false);
       });
       (si : usize) = usize(0);
@@ -1030,13 +1030,13 @@ _spelled_origins_into :: (fn(t : &TypeValue, out : &mut ArrayList(String), depth
       });
       true
     },
-    Rc(.Reference(so_pointee, _, so_origin)) => (_spelled_origins_into(&so_origin, out, depth + usize(1)) && _spelled_origins_into(&so_pointee, out, depth + usize(1))),
-    Rc(.ValueSlot(so_vs)) => _spelled_origins_into(&so_vs, out, depth + usize(1)),
-    Rc(.Struct({ type_arguments : so_tas })) => _spelled_origins_in_list(&so_tas, out, depth),
-    Rc(.EnumT({ type_arguments : so_etas })) => _spelled_origins_in_list(&so_etas, out, depth),
-    Rc(.Tuple({ field_types : so_fts })) => _spelled_origins_in_list(&so_fts, out, depth),
+    Rc(.Reference(so_pointee, _, so_origin)) => (_spelled_origins_into(&so_origin.*, out, depth + usize(1)) && _spelled_origins_into(&so_pointee.*, out, depth + usize(1))),
+    Rc(.ValueSlot(so_vs)) => _spelled_origins_into(&so_vs.*, out, depth + usize(1)),
+    Rc(.Struct({ type_arguments : so_tas })) => _spelled_origins_in_list(&so_tas.*, out, depth),
+    Rc(.EnumT({ type_arguments : so_etas })) => _spelled_origins_in_list(&so_etas.*, out, depth),
+    Rc(.Tuple({ field_types : so_fts })) => _spelled_origins_in_list(&so_fts.*, out, depth),
     // `Impl(Future(T, E, p))` (decision 43 step 4): the future's origin.
-    Rc(.FutureTraitT(origin : so_fo)) => _spelled_origins_into(&so_fo, out, depth + usize(1)),
+    Rc(.FutureTraitT(origin : so_fo)) => _spelled_origins_into(&so_fo.*, out, depth + usize(1)),
     Rc(.SomeT({ bounds : so_bnd })) => _spelled_origins_in_list(&shared_list(so_bnd.required()), out, depth),
     _ => true
   )
@@ -1079,13 +1079,13 @@ _type_spells_origin_at :: (fn(t : &TypeValue, name : &String, depth : usize) -> 
   });
   match(
     t,
-    Rc(.OriginSet(ts_places, _)) => origin_names_contain(&ts_places, name),
-    Rc(.Reference(ts_pointee, _, ts_origin)) => (_type_spells_origin_at(&ts_origin, name, depth + usize(1)) || _type_spells_origin_at(&ts_pointee, name, depth + usize(1))),
-    Rc(.ValueSlot(ts_vs)) => _type_spells_origin_at(&ts_vs, name, depth + usize(1)),
-    Rc(.Struct({ type_arguments : ts_tas })) => _type_spells_origin_in_list(&ts_tas, name, depth),
-    Rc(.EnumT({ type_arguments : ts_etas })) => _type_spells_origin_in_list(&ts_etas, name, depth),
-    Rc(.Tuple({ field_types : ts_fts })) => _type_spells_origin_in_list(&ts_fts, name, depth),
-    Rc(.FutureTraitT(origin : ts_fo)) => _type_spells_origin_at(&ts_fo, name, depth + usize(1)),
+    Rc(.OriginSet(ts_places, _)) => origin_names_contain(&ts_places.*, name),
+    Rc(.Reference(ts_pointee, _, ts_origin)) => (_type_spells_origin_at(&ts_origin.*, name, depth + usize(1)) || _type_spells_origin_at(&ts_pointee.*, name, depth + usize(1))),
+    Rc(.ValueSlot(ts_vs)) => _type_spells_origin_at(&ts_vs.*, name, depth + usize(1)),
+    Rc(.Struct({ type_arguments : ts_tas })) => _type_spells_origin_in_list(&ts_tas.*, name, depth),
+    Rc(.EnumT({ type_arguments : ts_etas })) => _type_spells_origin_in_list(&ts_etas.*, name, depth),
+    Rc(.Tuple({ field_types : ts_fts })) => _type_spells_origin_in_list(&ts_fts.*, name, depth),
+    Rc(.FutureTraitT(origin : ts_fo)) => _type_spells_origin_at(&ts_fo.*, name, depth + usize(1)),
     _ => false
   )
 });
@@ -1103,7 +1103,7 @@ _type_spells_origin_in_list :: (fn(ts : &SharedList(TypeValue), name : &String, 
 origin_names_contain :: (fn(names : &SharedList(String), name : &String) -> bool)({
   (oi : usize) = usize(0);
   while(oi < names.len(), {
-    if(match(names.get_cloned(oi), .Some(n) => (n == name), .None => false), {
+    if(match(names.get_cloned(oi), .Some(n) => (n == name.*), .None => false), {
       return(true);
     });
     oi = (oi + usize(1));
@@ -1229,7 +1229,7 @@ fn_param_by_value_flags :: (fn(ft : &TypeValue) -> SharedList(bool))({
 register_struct_field_comptime_flags :: (
   fn(struct_id : &String, flags : &ArrayList(bool)) -> unit
 )({
-  g_struct_field_comptime_flags.with_mut({ &struct_id, &flags }(m) => m.insert(struct_id.clone(), flags.clone()));
+  g_struct_field_comptime_flags.with_mut({ struct_id : &struct_id.*, flags : &flags.* }(m) => m.insert(struct_id.clone(), flags.clone()));
   ()
 });
 /// Get the per-field compile-time-only flags for a struct id (`.None` if the
@@ -1237,7 +1237,7 @@ register_struct_field_comptime_flags :: (
 get_struct_field_comptime_flags :: (
   fn(struct_id : &String) -> Option(ArrayList(bool))
 )(
-  g_struct_field_comptime_flags.with({ &struct_id }(m) => m.get_cloned(struct_id.clone()))
+  g_struct_field_comptime_flags.with({ struct_id : &struct_id.* }(m) => m.get_cloned(struct_id.clone()))
 );
 export(TypeValue, TypeValueNode, FuncMeta, SomeTBounds, SomeTBoundsCell, some_t_bounds, some_t_bounds_empty, TraitTBody, TraitTBodyCell, trait_t_body, SharedList, SharedListCell, SharedListElem, shared_list, no_types, no_labels, no_flags, no_levels, no_discriminants, no_type_lists, no_label_lists, t_refine_inner, register_struct_field_comptime_flags, get_struct_field_comptime_flags);
 export(fn_trait_rank, fn_trait_base_serves, fn_trait_call_contract, fn_trait_slot_contract);

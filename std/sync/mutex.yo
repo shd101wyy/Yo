@@ -248,7 +248,7 @@ impl(
     ) -> R
   )({
     self._raw_lock();
-    _guard := __MutexUnlocker(T)(self);
+    _guard := __MutexUnlocker(T)(self.*);
     body(&mut self._cell.*._value)
   }),
   /// Run `body` under the lock IF it can be taken without waiting, and
@@ -286,7 +286,7 @@ impl(
       !__yo_mutex_trylock(addr_of(self._cell.*._handle)) => Option(R).None,
       true => {
         self._cell.*._owner.store(me, MemoryOrder.Release);
-        _guard := __MutexUnlocker(T)(self);
+        _guard := __MutexUnlocker(T)(self.*);
         Option(R).Some(body(&mut self._cell.*._value))
       }
     )

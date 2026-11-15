@@ -219,7 +219,7 @@ _get_or_create_some_ty_for_trait :: (
       )
     );
   });
-  env_adopt(&env_mut, &lhs_info.env());
+  env_adopt(&env_mut.*, &lhs_info.env());
   lhs_tv := match(
     lhs_info.value(),
     .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)),
@@ -272,13 +272,13 @@ _apply_single_constraint_for_trait :: (
 )({
   // Check if negated
   (is_negated : bool) = false;
-  (unwrapped_te : AstExpr) = trait_expr;
+  (unwrapped_te : AstExpr) = trait_expr.*;
   if(ast_expr_is_fn_call_of(trait_expr, "!", .Some(usize(1))), {
     is_negated = true;
     unwrapped_te = match(
       _fn_call_args(trait_expr).get(usize(0)),
       .Some(a) => a,
-      .None => trait_expr
+      .None => trait_expr.*
     );
   });
   // Resolve LHS (use outer exn — hard failure).
@@ -310,7 +310,7 @@ _apply_single_constraint_for_trait :: (
   if(!is_type_value(&te_info.value()), {
     return(false);
   });
-  env_adopt(&env_mut, &te_info.env());
+  env_adopt(&env_mut.*, &te_info.env());
   trait_ty2 = match(
     te_info.value(),
     .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)),
@@ -475,7 +475,7 @@ _parse_trait_where_clauses :: (
           );
         });
       });
-      env_adopt(&env_mut, &te_info.env());
+      env_adopt(&env_mut.*, &te_info.env());
       trait_ty2 = match(
         te_info.value(),
         .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)),
@@ -579,7 +579,7 @@ _evaluate_trait_field :: (
   // Phase 1: detect `?=` outer wrapper
   (default_value_expr_opt : Option(AstExpr)) = Option(AstExpr).None;
   (assigned_value_expr_opt : Option(AstExpr)) = Option(AstExpr).None;
-  (expr_inner : AstExpr) = expr;
+  (expr_inner : AstExpr) = expr.*;
   if(ast_expr_is_fn_call_of(expr, "?=", .Some(usize(2))), {
     inner_args := _fn_call_args(expr);
     default_value_expr_opt = .Some(match(inner_args.get(usize(1)), .Some(a) => a, .None => make_err_expr()));
@@ -737,7 +737,7 @@ _evaluate_trait_field :: (
       ctx.self_trait_type = old_self_trait_type;
       te_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_te));
       te_info := match(te_info_opt, .Some(i) => Rc.clone(i), .None => new_expr_info(env_mut, Rc.new(TypeValueNode.Unit)));
-      env_adopt(&env_mut, &te_info.env());
+      env_adopt(&env_mut.*, &te_info.env());
       if(!is_type_value(&te_info.value()), {
         exn.throw(
           dyn(
@@ -825,7 +825,7 @@ _evaluate_trait_field :: (
           new_expr_info(env_mut, Rc.new(TypeValueNode.Unit))
         }
       );
-      env_adopt(&env_mut, &av_info.env());
+      env_adopt(&env_mut.*, &av_info.env());
       av := match(
         av_info.value(),
         .Some(v) => v,
@@ -913,7 +913,7 @@ _evaluate_trait_field :: (
           new_expr_info(env_mut, Rc.new(TypeValueNode.Unit))
         }
       );
-      env_adopt(&env_mut, &dv_info.env());
+      env_adopt(&env_mut.*, &dv_info.env());
       dv := match(
         dv_info.value(),
         .Some(v) => v,
@@ -987,7 +987,7 @@ _evaluate_trait_field :: (
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &unit_info);
   // Phase 7: detect associated type (TypeUni(0) + !assignedValue + isForEvaluatingTraitType)
   (assoc_some_ty_opt : Option(TypeValue)) = Option(TypeValue).None;
-  is_type_uni_0 := match(&field_ty, Rc(.TypeUni(lvl)) => (lvl == usize(0)), _ => false);
+  is_type_uni_0 := match(&field_ty, Rc(.TypeUni(lvl)) => (lvl.* == usize(0)), _ => false);
   if(is_for_evaluating_trait_ty && assigned_val_opt.is_none() && is_type_uni_0, {
     // Check if a SomeType for this label already exists in env
     existing_vars := get_variables_from_env(env_mut, &label_str);
@@ -1237,11 +1237,11 @@ evaluate_trait_type :: (
           );
         });
         if(!already_bound, {
-          tv := create_type_value(&some_ty);
+          tv := create_type_value(&some_ty.*);
           add_variable_to_env(
             &env_mut,
             &field_result.label,
-            type_of_type(&some_ty),
+            type_of_type(&some_ty.*),
             .Some(tv),
             true,
             // is_compile_time_only
@@ -1361,10 +1361,10 @@ evaluate_trait_type :: (
   match(
     expr,
     .FnCall(_, func_box, _, _, _) => {
-      expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&func_box), &out_info);
+      expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&func_box.*), &out_info);
     },
     .Atom(_, _) => ()
   );
-  expr
+  expr.*
 });
 export(evaluate_trait_type);

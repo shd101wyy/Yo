@@ -366,7 +366,7 @@ resolve_var_name_in_context :: (
     .Some(vars) => {
       (result : String) = var_name.clone();
       for(&vars, (k, cv) => {
-        if(cv.base.name == var_name, {
+        if(cv.base.name == var_name.*, {
           // Outer captures are named by the variable's NAME
           // (`__capture.<name>`),
           // NEVER the map key: the same outer capture is registered both
@@ -455,7 +455,7 @@ _same_decl :: (fn(a : &Option(Token), b : &Option(Token)) -> bool)(
 /// would hide that local from every drop the compiler emits inside the arm
 /// (`shadow_bindings`).
 shadow_binding_decl_name :: (fn(context : &FunctionGenerationContext, name : &String) -> String)(
-  if(context.base.declared_scopes.with({ &name }(ds) => scope_stack_contains(ds, name)), fresh_local_name(`${name}_s`, &context.base.current_function_name), name.clone())
+  if(context.base.declared_scopes.with({ name : &name.* }(ds) => scope_stack_contains(ds, name)), fresh_local_name(`${name}_s`, &context.base.current_function_name), name.clone())
 );
 /// The C local of the innermost pattern binding of the sanitized name `name`,
 /// or `name` when it has none.
@@ -480,7 +480,7 @@ shadow_bindings_of :: (fn(context : &FunctionGenerationContext, name : &String) 
 shadow_binding_push :: (fn(context : &mut FunctionGenerationContext, name : &String, c_name : &String, decl : Option(Token)) -> unit)({
   stacks := match(context.shadow_bindings.take(), .Some(m) => m, .None => HashMap(String, ArrayList(ShadowBinding)).new());
   stack := match(stacks.get_cloned(name.clone()), .Some(st) => st, .None => ArrayList(ShadowBinding).new());
-  same := match(stack.last_cloned(), .Some(top) => ((top.c_name == c_name) && _same_decl(&top.decl, &decl)), .None => false);
+  same := match(stack.last_cloned(), .Some(top) => ((top.c_name == c_name.*) && _same_decl(&top.decl, &decl)), .None => false);
   if(!same, {
     stack.push(ShadowBinding(c_name : c_name.clone(), decl : decl));
   });

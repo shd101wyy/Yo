@@ -716,7 +716,7 @@ _entry_names :: (fn(entries : &ArrayList(ContextIndexEntry), module : &String) -
   (i : usize) = usize(0);
   while(i < entries.len(), {
     e := entries(i).clone();
-    if((module.len() == usize(0)) || (e.module == module), {
+    if((module.len() == usize(0)) || (e.module == module.*), {
       out.push(e.name.clone());
     });
     i = (i + usize(1));
@@ -745,10 +745,10 @@ _resolve_module :: (fn(mods : &ArrayList(ContextIndexModule), arg : &String) -> 
   while(i < mods.len(), {
     m := mods(i).module.clone();
     i = (i + usize(1));
-    if(m == arg, {
+    if(m == arg.*, {
       exact.push(m.clone());
     });
-    if(module_leaf(m.clone()) == arg, {
+    if(module_leaf(m.clone()) == arg.*, {
       segment.push(m.clone());
     });
     if(m.ends_with(slash_arg.clone()), {
@@ -812,11 +812,11 @@ _is_structural_heading :: (fn(line : &String) -> bool)(
   cond(
     _item_heading_anchor(line.clone()).is_some() => true,
     line.starts_with(String.from("# ")) => true,
-    (line == "## Contents") => true,
-    (line == "## Types") => true,
-    (line == "## Traits") => true,
-    (line == "## Functions") => true,
-    (line == "## Constants") => true,
+    (line.* == "## Contents") => true,
+    (line.* == "## Types") => true,
+    (line.* == "## Traits") => true,
+    (line.* == "## Functions") => true,
+    (line.* == "## Constants") => true,
     true => false
   )
 );
@@ -886,8 +886,8 @@ _anchor_base :: (fn(anchor : &String) -> String)({
 _anchor_names :: (fn(anchor : &String, item : &String) -> bool)({
   base := _anchor_base(anchor);
   cond(
-    item.contains(String.from(".")) => (base == item),
-    true => ((base == item) || base.ends_with(String.from(".").concat(item)))
+    item.contains(String.from(".")) => (base == item.*),
+    true => ((base == item.*) || base.ends_with(String.from(".").concat(item)))
   )
 });
 /// The rendered page of `module` from its owning corpus ("" when unknown).
@@ -896,7 +896,7 @@ _module_page :: (fn(mods : &ArrayList(ContextIndexModule), module : &String, io 
   while(i < mods.len(), {
     m := mods(i).clone();
     i = (i + usize(1));
-    if(m.module == module, {
+    if(m.module == module.*, {
       path := Path.new(module_md_dir(m.index_dir.clone(), module.clone())).join(Path.new(`${module_leaf(module.clone())}.md`));
       if(!io.await(exists(path.clone(), io), io), {
         return(String.new());
@@ -1180,7 +1180,7 @@ _run_context_describe_module :: (fn(module : &String, world : &LoadedWorld, as_j
   while(mi < world.mods.len(), {
     m := world.mods(mi).clone();
     mi = (mi + usize(1));
-    if(m.module == module, {
+    if(m.module == module.*, {
       doc = m.doc.clone();
       degraded = m.degraded;
     });
@@ -1191,7 +1191,7 @@ _run_context_describe_module :: (fn(module : &String, world : &LoadedWorld, as_j
   while(i < world.entries.len(), {
     e := world.entries(i).clone();
     i = (i + usize(1));
-    if(e.module == module, {
+    if(e.module == module.*, {
       items.push(e.clone());
       if(e.name.len() > width, {
         width = e.name.len();
@@ -1274,7 +1274,7 @@ _entry_names_item :: (
   fn(e : &ContextIndexEntry, item : &String, world : &LoadedWorld, cache : &mut HashMap(String, ArrayList(PageSection)), io : Io, exn : Exception) -> bool
 )({
   if(!item.contains(String.from(".")), {
-    return(e.name == item);
+    return(e.name == item.*);
   });
   segs := item.split(String.from("."));
   leaf := segs(segs.len() - usize(1)).clone();
@@ -1295,7 +1295,7 @@ _run_context_describe_item :: (
   while(i < world.entries.len(), {
     e := world.entries(i).clone();
     i = (i + usize(1));
-    if((e.module == module) && _entry_names_item(&e, item.clone(), world, &mut cache, io, exn), {
+    if((e.module == module.*) && _entry_names_item(&e, item.clone(), world, &mut cache, io, exn), {
       matches.push(e);
     });
   });

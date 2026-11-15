@@ -128,17 +128,17 @@ evaluate_array_value :: (
       ),
       // Subsequent elements: check compatibility.
       .Some(inferred_ty) => {
-        compat := are_types_compatible(&elem_ty, &inferred_ty);
+        compat := are_types_compatible(&elem_ty, &inferred_ty.*);
         cond(
           compat => Option(TypeValue).Some(Rc.clone(inferred_ty)),
           true => {
             // Try promoting comptime type to runtime type (e.g. comptime_int → i32).
-            converted := convert_comptime_type_to_runtime_type(&inferred_ty, &env_loop);
+            converted := convert_comptime_type_to_runtime_type(&inferred_ty.*, &env_loop);
             compat2 := are_types_compatible(&elem_ty, &converted);
             cond(
               compat2 => Option(TypeValue).Some(elem_ty),
               true => {
-                inferred_str := type_to_string(&inferred_ty);
+                inferred_str := type_to_string(&inferred_ty.*);
                 elem_str := type_to_string(&elem_ty);
                 exn.throw(
                   dyn(
@@ -220,6 +220,6 @@ evaluate_array_value :: (
   info.set_runtime_arg_exprs_in_order(Option(ArrayList(AstExpr)).Some(runtime_arg_exprs));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   attach_temp_variable_to_expr(expr, true, ctx);
-  expr
+  expr.*
 });
 export(evaluate_array_value);

@@ -80,11 +80,11 @@ evaluate_downcast :: (
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
-        return(expr);
+        return(expr.*);
       }
     ),
     _ => {
-      return(expr);
+      return(expr.*);
     }
   );
   // Both arguments through the builtin-argument reader, which also reads a
@@ -130,13 +130,13 @@ evaluate_downcast :: (
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(&expr),
+          ast_expr_token(&expr.*),
           `downcast expects a type as second argument, got ${type_to_string(&type_info.ty())}.`
         )
       )
     );
   });
-  type_expr := match(expr, .FnCall(_, _, Rc(fargs2), _, _) => match(fargs2.get(usize(1)), .Some(x) => x, .None => return(expr)), _ => return(expr));
+  type_expr := match(expr, .FnCall(_, _, Rc(fargs2), _, _) => match(fargs2.get(usize(1)), .Some(x) => x, .None => return(expr.*)), _ => return(expr.*));
   cur_env = expr_info_adopt_env(&type_info);
   target_type := match(
     type_info.value(),
@@ -228,11 +228,11 @@ evaluate_upcast :: (
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
-        return(expr);
+        return(expr.*);
       }
     ),
     _ => {
-      return(expr);
+      return(expr.*);
     }
   );
   (uc_call, uc_infos) := _eval_builtin_args(expr, usize(2), "upcast", &cur_env, ctx, exn);
@@ -273,7 +273,7 @@ evaluate_upcast :: (
       )
     );
   });
-  type_expr := match(expr, .FnCall(_, _, Rc(fargs2), _, _) => match(fargs2.get(usize(1)), .Some(x) => x, .None => return(expr)), _ => return(expr));
+  type_expr := match(expr, .FnCall(_, _, Rc(fargs2), _, _) => match(fargs2.get(usize(1)), .Some(x) => x, .None => return(expr.*)), _ => return(expr.*));
   cur_env = expr_info_adopt_env(&type_info);
   target_type := match(
     type_info.value(),

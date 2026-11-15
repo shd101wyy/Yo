@@ -146,7 +146,7 @@ _variant_to_json :: (fn(v : &DocVariant) -> JsonValue)({
   match(
     &v.fields,
     .Some(fields) => {
-      _obj_add(&mut keys, &mut vals, String.from("fields"), _fields_to_json(&fields));
+      _obj_add(&mut keys, &mut vals, String.from("fields"), _fields_to_json(&fields.*));
     },
     .None => ()
   );
@@ -214,7 +214,7 @@ _function_to_json :: (fn(f : &DocFunction) -> JsonValue)({
   match(
     &f.type_params,
     .Some(tp) => {
-      _obj_add(&mut keys, &mut vals, String.from("typeParams"), _params_to_json(&tp));
+      _obj_add(&mut keys, &mut vals, String.from("typeParams"), _params_to_json(&tp.*));
     },
     .None => ()
   );
@@ -258,14 +258,14 @@ _type_to_json :: (fn(t : &DocType) -> JsonValue)({
   match(
     &t.type_params,
     .Some(tp) => {
-      _obj_add(&mut keys, &mut vals, String.from("typeParams"), _params_to_json(&tp));
+      _obj_add(&mut keys, &mut vals, String.from("typeParams"), _params_to_json(&tp.*));
     },
     .None => ()
   );
   match(
     &t.fields,
     .Some(fields) => {
-      _obj_add(&mut keys, &mut vals, String.from("fields"), _fields_to_json(&fields));
+      _obj_add(&mut keys, &mut vals, String.from("fields"), _fields_to_json(&fields.*));
     },
     .None => ()
   );
@@ -325,7 +325,7 @@ _trait_to_json :: (fn(t : &DocTrait) -> JsonValue)({
   match(
     &t.type_params,
     .Some(tp) => {
-      _obj_add(&mut keys, &mut vals, String.from("typeParams"), _params_to_json(&tp));
+      _obj_add(&mut keys, &mut vals, String.from("typeParams"), _params_to_json(&tp.*));
     },
     .None => ()
   );

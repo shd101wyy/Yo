@@ -193,9 +193,9 @@ _make_yo_as_node :: (
     )
   );
   mut(args) := ArrayList(AstExpr).new();
-  args.push(evaluated);
-  args.push(type_expr);
-  AstExpr.FnCall(orig_id, func_atom, Rc.new(args), false, orig_tok)
+  args.push(evaluated.*);
+  args.push(type_expr.*);
+  AstExpr.FnCall(orig_id, func_atom, Rc.new(args), false, orig_tok.*)
 });
 /// Attempt to cast `arg_expr` to `target_type` as a numeric conversion.
 /// Returns `.None` if `target_type` is not a convertible numeric type.
@@ -283,9 +283,9 @@ try_to_convert_to_numeric_type :: (
       &enum_disc_raw,
       .Some(disc_raw) => {
         if(is_numeric_type(target_type), {
-          out_info := _make_comptime_info(&disc_raw, target_type, &env, ast_expr_token(expr), exn);
+          out_info := _make_comptime_info(&disc_raw.*, target_type, &env, ast_expr_token(expr), exn);
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-          return(.Some(expr));
+          return(.Some(expr.*));
         });
       },
       .None => ()
@@ -314,7 +314,7 @@ try_to_convert_to_numeric_type :: (
       out_unk := new_expr_info(&env, target_type);
       out_unk.set_value(Option(EvalValue).Some(create_unknown_val(target_type)));
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_unk);
-      return(.Some(expr));
+      return(.Some(expr.*));
     });
     // A CONCRETE non-numeric source is an error HERE, not in codegen. This
     // arm used to hand every non-numeric source the same UnknownVal, so
@@ -375,7 +375,7 @@ try_to_convert_to_numeric_type :: (
         );
         out_info := _make_comptime_info(&int_raw, target_type, &env, ast_expr_token(expr), exn);
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-        return(.Some(expr));
+        return(.Some(expr.*));
       });
     },
     .None => ()
@@ -406,15 +406,15 @@ try_to_convert_to_numeric_type :: (
       &comptime_raw,
       .Some(raw) => {
         // Already covered by Case 1, but handle here for completeness.
-        out_info := _make_comptime_info(&raw, target_type, &env, ast_expr_token(expr), exn);
+        out_info := _make_comptime_info(&raw.*, target_type, &env, ast_expr_token(expr), exn);
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-        return(.Some(expr));
+        return(.Some(expr.*));
       },
       .None => {
         out_info := new_expr_info(&env, target_type);
         out_info.set_value(.Some(create_unknown_val(target_type)));
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-        return(.Some(expr));
+        return(.Some(expr.*));
       }
     );
   });
@@ -424,7 +424,7 @@ try_to_convert_to_numeric_type :: (
   if(is_c_compatible_type(target_type) || comptime_raw.is_none(), {
     type_expr := match(
       expr,
-      .FnCall(_, func_box, _, _, _) => func_box,
+      .FnCall(_, func_box, _, _, _) => func_box.*,
       .Atom(_, _) => make_err_expr()
     );
     // Lower the runtime cast to a `__yo_as` node, then attach it to the ORIGINAL
@@ -460,7 +460,7 @@ try_to_convert_to_numeric_type :: (
     record_macro_expansion(ast_expr_id(expr), yo_as_node.clone());
     expr_info_set_macro_expansion(&out_info, Option(AstExpr).Some(yo_as_node));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-    return(.Some(expr));
+    return(.Some(expr.*));
   });
   // -----------------------------------------------------------------------
   // Case 4: Fallback (comptime value, non-comptime target — shouldn't happen)
@@ -468,9 +468,9 @@ try_to_convert_to_numeric_type :: (
   match(
     &comptime_raw,
     .Some(raw) => {
-      out_info := _make_comptime_info(&raw, target_type, &env, ast_expr_token(expr), exn);
+      out_info := _make_comptime_info(&raw.*, target_type, &env, ast_expr_token(expr), exn);
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-      .Some(expr)
+      .Some(expr.*)
     },
     .None => {
       exn.throw(

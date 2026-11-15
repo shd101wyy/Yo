@@ -51,7 +51,7 @@ evaluate_macro_expand :: (
     .FnCall(_, _, Rc(a), _, _) => a.clone(),
     _ => {
       exn.throw(dyn(format_error_message(&tok, String.from("macro_expand: expected FnCall"))));
-      return(expr);
+      return(expr.*);
     }
   );
   n := args.len();
@@ -70,7 +70,7 @@ evaluate_macro_expand :: (
     args.get(usize(0)),
     .Some(a) => a,
     .None => {
-      return(expr);
+      return(expr.*);
     }
   );
   eval_arg := evaluate_expression_raw(&arg_expr, env, ctx, exn);
@@ -86,7 +86,7 @@ evaluate_macro_expand :: (
           )
         )
       );
-      return(expr);
+      return(expr.*);
     }
   );
   cur_env := expr_info_adopt_env(&arg_info);
@@ -107,7 +107,7 @@ evaluate_macro_expand :: (
       args.get(usize(1)),
       .Some(a) => a,
       .None => {
-        return(expr);
+        return(expr.*);
       }
     );
     eval_level := evaluate_expression_raw(&level_arg, &cur_env, ctx, exn);
@@ -123,7 +123,7 @@ evaluate_macro_expand :: (
             )
           )
         );
-        return(expr);
+        return(expr.*);
       }
     );
     if(!is_comptime_int_type(&level_info.ty()), {
@@ -273,6 +273,6 @@ evaluate_macro_expand :: (
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
     }
   );
-  expr
+  expr.*
 });
 export(evaluate_macro_expand);

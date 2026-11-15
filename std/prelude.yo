@@ -786,7 +786,7 @@ ComptimeEq ::
       ((!=) : (fn(comptime(lhs) : &Self, comptime(rhs) : &Rhs) -> comptime(bool))) ?=
         (
           (lhs, rhs) ->
-            not(Self.(==)(lhs, rhs))
+            not(Self.(==)(lhs.*, rhs.*))
         ),
       where(Self <: Comptime)
     )
@@ -1205,11 +1205,11 @@ impl(
   ComptimeEq(comptime_int)(
     (==) : (
       (lhs, rhs) ->
-        __yo_comptime_int_eq(lhs, rhs)
+        __yo_comptime_int_eq(lhs.*, rhs.*)
     ),
     (!=) : (
       (lhs, rhs) ->
-        __yo_comptime_int_neq(lhs, rhs)
+        __yo_comptime_int_neq(lhs.*, rhs.*)
     )
   )
 );
@@ -1218,19 +1218,19 @@ impl(
   ComptimeOrd(comptime_int)(
     (<) : (
       (lhs, rhs) ->
-        __yo_comptime_int_lt(lhs, rhs)
+        __yo_comptime_int_lt(lhs.*, rhs.*)
     ),
     (<=) : (
       (lhs, rhs) ->
-        __yo_comptime_int_lte(lhs, rhs)
+        __yo_comptime_int_lte(lhs.*, rhs.*)
     ),
     (>) : (
       (lhs, rhs) ->
-        __yo_comptime_int_gt(lhs, rhs)
+        __yo_comptime_int_gt(lhs.*, rhs.*)
     ),
     (>=) : (
       (lhs, rhs) ->
-        __yo_comptime_int_gte(lhs, rhs)
+        __yo_comptime_int_gte(lhs.*, rhs.*)
     )
   )
 );
@@ -1314,11 +1314,11 @@ impl(
   ComptimeEq(comptime_float)(
     (==) : (
       (lhs, rhs) ->
-        __yo_comptime_float_eq(lhs, rhs)
+        __yo_comptime_float_eq(lhs.*, rhs.*)
     ),
     (!=) : (
       (lhs, rhs) ->
-        __yo_comptime_float_neq(lhs, rhs)
+        __yo_comptime_float_neq(lhs.*, rhs.*)
     )
   )
 );
@@ -1327,19 +1327,19 @@ impl(
   ComptimeOrd(comptime_float)(
     (<) : (
       (lhs, rhs) ->
-        __yo_comptime_float_lt(lhs, rhs)
+        __yo_comptime_float_lt(lhs.*, rhs.*)
     ),
     (<=) : (
       (lhs, rhs) ->
-        __yo_comptime_float_lte(lhs, rhs)
+        __yo_comptime_float_lte(lhs.*, rhs.*)
     ),
     (>) : (
       (lhs, rhs) ->
-        __yo_comptime_float_gt(lhs, rhs)
+        __yo_comptime_float_gt(lhs.*, rhs.*)
     ),
     (>=) : (
       (lhs, rhs) ->
-        __yo_comptime_float_gte(lhs, rhs)
+        __yo_comptime_float_gte(lhs.*, rhs.*)
     )
   )
 );
@@ -1368,11 +1368,11 @@ impl(
   ComptimeEq(comptime_str)(
     (==) : (
       (lhs, rhs) ->
-        __yo_comptime_string_eq(lhs, rhs)
+        __yo_comptime_string_eq(lhs.*, rhs.*)
     ),
     (!=) : (
       (lhs, rhs) ->
-        __yo_comptime_string_neq(lhs, rhs)
+        __yo_comptime_string_neq(lhs.*, rhs.*)
     )
   )
 );
@@ -1381,19 +1381,19 @@ impl(
   ComptimeOrd(comptime_str)(
     (<) : (
       (lhs, rhs) ->
-        __yo_comptime_string_lt(lhs, rhs)
+        __yo_comptime_string_lt(lhs.*, rhs.*)
     ),
     (<=) : (
       (lhs, rhs) ->
-        __yo_comptime_string_lte(lhs, rhs)
+        __yo_comptime_string_lte(lhs.*, rhs.*)
     ),
     (>) : (
       (lhs, rhs) ->
-        __yo_comptime_string_gt(lhs, rhs)
+        __yo_comptime_string_gt(lhs.*, rhs.*)
     ),
     (>=) : (
       (lhs, rhs) ->
-        __yo_comptime_string_gte(lhs, rhs)
+        __yo_comptime_string_gte(lhs.*, rhs.*)
     )
   )
 );
@@ -1441,7 +1441,7 @@ impl(
   bool,
   Clone(
     clone : (
-      self -> self
+      self -> self.*
     )
   )
 );
@@ -1449,7 +1449,7 @@ impl(bool, Copy());
 impl(
   bool,
   Hash(
-    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u8(cond(self => u8(1), true => u8(0))))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u8(cond(self.* => u8(1), true => u8(0))))
   )
 );
 impl(
@@ -1457,11 +1457,11 @@ impl(
   ComptimeEq(bool)(
     (==) : (
       (lhs, rhs) ->
-        __yo_comptime_bool_eq(lhs, rhs)
+        __yo_comptime_bool_eq(lhs.*, rhs.*)
     ),
     (!=) : (
       (lhs, rhs) ->
-        __yo_comptime_bool_neq(lhs, rhs)
+        __yo_comptime_bool_neq(lhs.*, rhs.*)
     )
   )
 );
@@ -1596,13 +1596,13 @@ impl(
 impl(
   i8,
   Hash(
-    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i8(self))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i8(self.*))
   )
 );
 impl(
   i8,
   Clone(
-    clone : (self -> self)
+    clone : (self -> self.*)
   )
 );
 impl(i8, Copy());
@@ -1671,11 +1671,11 @@ impl(
   ComptimeEq(i8)(
     (==) : (
       (lhs, rhs) ->
-        __yo_comptime_i8_eq(lhs, rhs)
+        __yo_comptime_i8_eq(lhs.*, rhs.*)
     ),
     (!=) : (
       (lhs, rhs) ->
-        __yo_comptime_i8_neq(lhs, rhs)
+        __yo_comptime_i8_neq(lhs.*, rhs.*)
     )
   )
 );
@@ -1684,19 +1684,19 @@ impl(
   ComptimeOrd(i8)(
     (<) : (
       (lhs, rhs) ->
-        __yo_comptime_i8_lt(lhs, rhs)
+        __yo_comptime_i8_lt(lhs.*, rhs.*)
     ),
     (<=) : (
       (lhs, rhs) ->
-        __yo_comptime_i8_lte(lhs, rhs)
+        __yo_comptime_i8_lte(lhs.*, rhs.*)
     ),
     (>) : (
       (lhs, rhs) ->
-        __yo_comptime_i8_gt(lhs, rhs)
+        __yo_comptime_i8_gt(lhs.*, rhs.*)
     ),
     (>=) : (
       (lhs, rhs) ->
-        __yo_comptime_i8_gte(lhs, rhs)
+        __yo_comptime_i8_gte(lhs.*, rhs.*)
     )
   )
 );
@@ -1891,13 +1891,13 @@ impl(
 impl(
   i16,
   Hash(
-    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i16(self))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i16(self.*))
   )
 );
 impl(
   i16,
   Clone(
-    clone : (self -> self)
+    clone : (self -> self.*)
   )
 );
 impl(i16, Copy());
@@ -1966,11 +1966,11 @@ impl(
   ComptimeEq(i16)(
     (==) : (
       (lhs, rhs) ->
-        __yo_comptime_i16_eq(lhs, rhs)
+        __yo_comptime_i16_eq(lhs.*, rhs.*)
     ),
     (!=) : (
       (lhs, rhs) ->
-        __yo_comptime_i16_neq(lhs, rhs)
+        __yo_comptime_i16_neq(lhs.*, rhs.*)
     )
   )
 );
@@ -1979,19 +1979,19 @@ impl(
   ComptimeOrd(i16)(
     (<) : (
       (lhs, rhs) ->
-        __yo_comptime_i16_lt(lhs, rhs)
+        __yo_comptime_i16_lt(lhs.*, rhs.*)
     ),
     (<=) : (
       (lhs, rhs) ->
-        __yo_comptime_i16_lte(lhs, rhs)
+        __yo_comptime_i16_lte(lhs.*, rhs.*)
     ),
     (>) : (
       (lhs, rhs) ->
-        __yo_comptime_i16_gt(lhs, rhs)
+        __yo_comptime_i16_gt(lhs.*, rhs.*)
     ),
     (>=) : (
       (lhs, rhs) ->
-        __yo_comptime_i16_gte(lhs, rhs)
+        __yo_comptime_i16_gte(lhs.*, rhs.*)
     )
   )
 );
@@ -2246,14 +2246,14 @@ impl(
 impl(
   i32,
   Hash(
-    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i32(self))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i32(self.*))
   )
 );
 impl(
   i32,
   Clone(
     clone : (
-      self -> self
+      self -> self.*
     )
   )
 );
@@ -2323,11 +2323,11 @@ impl(
   ComptimeEq(i32)(
     (==) : (
       (lhs, rhs) ->
-        __yo_comptime_i32_eq(lhs, rhs)
+        __yo_comptime_i32_eq(lhs.*, rhs.*)
     ),
     (!=) : (
       (lhs, rhs) ->
-        __yo_comptime_i32_neq(lhs, rhs)
+        __yo_comptime_i32_neq(lhs.*, rhs.*)
     )
   )
 );
@@ -2336,19 +2336,19 @@ impl(
   ComptimeOrd(i32)(
     (<) : (
       (lhs, rhs) ->
-        __yo_comptime_i32_lt(lhs, rhs)
+        __yo_comptime_i32_lt(lhs.*, rhs.*)
     ),
     (<=) : (
       (lhs, rhs) ->
-        __yo_comptime_i32_lte(lhs, rhs)
+        __yo_comptime_i32_lte(lhs.*, rhs.*)
     ),
     (>) : (
       (lhs, rhs) ->
-        __yo_comptime_i32_gt(lhs, rhs)
+        __yo_comptime_i32_gt(lhs.*, rhs.*)
     ),
     (>=) : (
       (lhs, rhs) ->
-        __yo_comptime_i32_gte(lhs, rhs)
+        __yo_comptime_i32_gte(lhs.*, rhs.*)
     )
   )
 );
@@ -2483,13 +2483,13 @@ impl(
 impl(
   i64,
   Hash(
-    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i64(self))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i64(self.*))
   )
 );
 impl(
   i64,
   Clone(
-    clone : (self -> self)
+    clone : (self -> self.*)
   )
 );
 impl(i64, Copy());
@@ -2558,11 +2558,11 @@ impl(
   ComptimeEq(i64)(
     (==) : (
       (lhs, rhs) ->
-        __yo_comptime_i64_eq(lhs, rhs)
+        __yo_comptime_i64_eq(lhs.*, rhs.*)
     ),
     (!=) : (
       (lhs, rhs) ->
-        __yo_comptime_i64_neq(lhs, rhs)
+        __yo_comptime_i64_neq(lhs.*, rhs.*)
     )
   )
 );
@@ -2571,19 +2571,19 @@ impl(
   ComptimeOrd(i64)(
     (<) : (
       (lhs, rhs) ->
-        __yo_comptime_i64_lt(lhs, rhs)
+        __yo_comptime_i64_lt(lhs.*, rhs.*)
     ),
     (<=) : (
       (lhs, rhs) ->
-        __yo_comptime_i64_lte(lhs, rhs)
+        __yo_comptime_i64_lte(lhs.*, rhs.*)
     ),
     (>) : (
       (lhs, rhs) ->
-        __yo_comptime_i64_gt(lhs, rhs)
+        __yo_comptime_i64_gt(lhs.*, rhs.*)
     ),
     (>=) : (
       (lhs, rhs) ->
-        __yo_comptime_i64_gte(lhs, rhs)
+        __yo_comptime_i64_gte(lhs.*, rhs.*)
     )
   )
 );
@@ -2771,13 +2771,13 @@ impl(
 impl(
   u8,
   Hash(
-    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u8(self))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u8(self.*))
   )
 );
 impl(
   u8,
   Clone(
-    clone : (self -> self)
+    clone : (self -> self.*)
   )
 );
 impl(u8, Copy());
@@ -2836,11 +2836,11 @@ impl(
   ComptimeEq(u8)(
     (==) : (
       (lhs, rhs) ->
-        __yo_comptime_u8_eq(lhs, rhs)
+        __yo_comptime_u8_eq(lhs.*, rhs.*)
     ),
     (!=) : (
       (lhs, rhs) ->
-        __yo_comptime_u8_neq(lhs, rhs)
+        __yo_comptime_u8_neq(lhs.*, rhs.*)
     )
   )
 );
@@ -2849,19 +2849,19 @@ impl(
   ComptimeOrd(u8)(
     (<) : (
       (lhs, rhs) ->
-        __yo_comptime_u8_lt(lhs, rhs)
+        __yo_comptime_u8_lt(lhs.*, rhs.*)
     ),
     (<=) : (
       (lhs, rhs) ->
-        __yo_comptime_u8_lte(lhs, rhs)
+        __yo_comptime_u8_lte(lhs.*, rhs.*)
     ),
     (>) : (
       (lhs, rhs) ->
-        __yo_comptime_u8_gt(lhs, rhs)
+        __yo_comptime_u8_gt(lhs.*, rhs.*)
     ),
     (>=) : (
       (lhs, rhs) ->
-        __yo_comptime_u8_gte(lhs, rhs)
+        __yo_comptime_u8_gte(lhs.*, rhs.*)
     )
   )
 );
@@ -3049,13 +3049,13 @@ impl(
 impl(
   u16,
   Hash(
-    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u16(self))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u16(self.*))
   )
 );
 impl(
   u16,
   Clone(
-    clone : (self -> self)
+    clone : (self -> self.*)
   )
 );
 impl(u16, Copy());
@@ -3114,11 +3114,11 @@ impl(
   ComptimeEq(u16)(
     (==) : (
       (lhs, rhs) ->
-        __yo_comptime_u16_eq(lhs, rhs)
+        __yo_comptime_u16_eq(lhs.*, rhs.*)
     ),
     (!=) : (
       (lhs, rhs) ->
-        __yo_comptime_u16_neq(lhs, rhs)
+        __yo_comptime_u16_neq(lhs.*, rhs.*)
     )
   )
 );
@@ -3127,19 +3127,19 @@ impl(
   ComptimeOrd(u16)(
     (<) : (
       (lhs, rhs) ->
-        __yo_comptime_u16_lt(lhs, rhs)
+        __yo_comptime_u16_lt(lhs.*, rhs.*)
     ),
     (<=) : (
       (lhs, rhs) ->
-        __yo_comptime_u16_lte(lhs, rhs)
+        __yo_comptime_u16_lte(lhs.*, rhs.*)
     ),
     (>) : (
       (lhs, rhs) ->
-        __yo_comptime_u16_gt(lhs, rhs)
+        __yo_comptime_u16_gt(lhs.*, rhs.*)
     ),
     (>=) : (
       (lhs, rhs) ->
-        __yo_comptime_u16_gte(lhs, rhs)
+        __yo_comptime_u16_gte(lhs.*, rhs.*)
     )
   )
 );
@@ -3327,13 +3327,13 @@ impl(
 impl(
   u32,
   Hash(
-    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u32(self))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u32(self.*))
   )
 );
 impl(
   u32,
   Clone(
-    clone : (self -> self)
+    clone : (self -> self.*)
   )
 );
 impl(u32, Copy());
@@ -3392,11 +3392,11 @@ impl(
   ComptimeEq(u32)(
     (==) : (
       (lhs, rhs) ->
-        __yo_comptime_u32_eq(lhs, rhs)
+        __yo_comptime_u32_eq(lhs.*, rhs.*)
     ),
     (!=) : (
       (lhs, rhs) ->
-        __yo_comptime_u32_neq(lhs, rhs)
+        __yo_comptime_u32_neq(lhs.*, rhs.*)
     )
   )
 );
@@ -3405,19 +3405,19 @@ impl(
   ComptimeOrd(u32)(
     (<) : (
       (lhs, rhs) ->
-        __yo_comptime_u32_lt(lhs, rhs)
+        __yo_comptime_u32_lt(lhs.*, rhs.*)
     ),
     (<=) : (
       (lhs, rhs) ->
-        __yo_comptime_u32_lte(lhs, rhs)
+        __yo_comptime_u32_lte(lhs.*, rhs.*)
     ),
     (>) : (
       (lhs, rhs) ->
-        __yo_comptime_u32_gt(lhs, rhs)
+        __yo_comptime_u32_gt(lhs.*, rhs.*)
     ),
     (>=) : (
       (lhs, rhs) ->
-        __yo_comptime_u32_gte(lhs, rhs)
+        __yo_comptime_u32_gte(lhs.*, rhs.*)
     )
   )
 );
@@ -3605,13 +3605,13 @@ impl(
 impl(
   u64,
   Hash(
-    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u64(self))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u64(self.*))
   )
 );
 impl(
   u64,
   Clone(
-    clone : (self -> self)
+    clone : (self -> self.*)
   )
 );
 impl(u64, Copy());
@@ -3670,11 +3670,11 @@ impl(
   ComptimeEq(u64)(
     (==) : (
       (lhs, rhs) ->
-        __yo_comptime_u64_eq(lhs, rhs)
+        __yo_comptime_u64_eq(lhs.*, rhs.*)
     ),
     (!=) : (
       (lhs, rhs) ->
-        __yo_comptime_u64_neq(lhs, rhs)
+        __yo_comptime_u64_neq(lhs.*, rhs.*)
     )
   )
 );
@@ -3683,19 +3683,19 @@ impl(
   ComptimeOrd(u64)(
     (<) : (
       (lhs, rhs) ->
-        __yo_comptime_u64_lt(lhs, rhs)
+        __yo_comptime_u64_lt(lhs.*, rhs.*)
     ),
     (<=) : (
       (lhs, rhs) ->
-        __yo_comptime_u64_lte(lhs, rhs)
+        __yo_comptime_u64_lte(lhs.*, rhs.*)
     ),
     (>) : (
       (lhs, rhs) ->
-        __yo_comptime_u64_gt(lhs, rhs)
+        __yo_comptime_u64_gt(lhs.*, rhs.*)
     ),
     (>=) : (
       (lhs, rhs) ->
-        __yo_comptime_u64_gte(lhs, rhs)
+        __yo_comptime_u64_gte(lhs.*, rhs.*)
     )
   )
 );
@@ -3841,14 +3841,14 @@ impl(
     // consistent with `==`).
     cmp : (
       (lhs, rhs) -> {
-        l_nan := not(lhs == lhs);
-        r_nan := not(rhs == rhs);
+        l_nan := not(lhs.* == lhs.*);
+        r_nan := not(rhs.* == rhs.*);
         cond(
           (l_nan && r_nan) => Ordering.Equal,
           l_nan => Ordering.Greater,
           r_nan => Ordering.Less,
-          (lhs < rhs) => Ordering.Less,
-          (lhs == rhs) => Ordering.Equal,
+          (lhs.* < rhs.*) => Ordering.Less,
+          (lhs.* == rhs.*) => Ordering.Equal,
           true => Ordering.Greater
         )
       }
@@ -3863,7 +3863,7 @@ impl(
 impl(
   f32,
   Clone(
-    clone : (self -> self)
+    clone : (self -> self.*)
   )
 );
 impl(f32, Copy());
@@ -3922,11 +3922,11 @@ impl(
   ComptimeEq(f32)(
     (==) : (
       (lhs, rhs) ->
-        __yo_comptime_f32_eq(lhs, rhs)
+        __yo_comptime_f32_eq(lhs.*, rhs.*)
     ),
     (!=) : (
       (lhs, rhs) ->
-        __yo_comptime_f32_neq(lhs, rhs)
+        __yo_comptime_f32_neq(lhs.*, rhs.*)
     )
   )
 );
@@ -3935,19 +3935,19 @@ impl(
   ComptimeOrd(f32)(
     (<) : (
       (lhs, rhs) ->
-        __yo_comptime_f32_lt(lhs, rhs)
+        __yo_comptime_f32_lt(lhs.*, rhs.*)
     ),
     (<=) : (
       (lhs, rhs) ->
-        __yo_comptime_f32_lte(lhs, rhs)
+        __yo_comptime_f32_lte(lhs.*, rhs.*)
     ),
     (>) : (
       (lhs, rhs) ->
-        __yo_comptime_f32_gt(lhs, rhs)
+        __yo_comptime_f32_gt(lhs.*, rhs.*)
     ),
     (>=) : (
       (lhs, rhs) ->
-        __yo_comptime_f32_gte(lhs, rhs)
+        __yo_comptime_f32_gte(lhs.*, rhs.*)
     )
   )
 );
@@ -4029,14 +4029,14 @@ impl(
     // TOTAL-order override — see the f32 impl's comment.
     cmp : (
       (lhs, rhs) -> {
-        l_nan := not(lhs == lhs);
-        r_nan := not(rhs == rhs);
+        l_nan := not(lhs.* == lhs.*);
+        r_nan := not(rhs.* == rhs.*);
         cond(
           (l_nan && r_nan) => Ordering.Equal,
           l_nan => Ordering.Greater,
           r_nan => Ordering.Less,
-          (lhs < rhs) => Ordering.Less,
-          (lhs == rhs) => Ordering.Equal,
+          (lhs.* < rhs.*) => Ordering.Less,
+          (lhs.* == rhs.*) => Ordering.Equal,
           true => Ordering.Greater
         )
       }
@@ -4048,7 +4048,7 @@ impl(
 impl(
   f64,
   Clone(
-    clone : (self -> self)
+    clone : (self -> self.*)
   )
 );
 impl(f64, Copy());
@@ -4107,11 +4107,11 @@ impl(
   ComptimeEq(f64)(
     (==) : (
       (lhs, rhs) ->
-        __yo_comptime_f64_eq(lhs, rhs)
+        __yo_comptime_f64_eq(lhs.*, rhs.*)
     ),
     (!=) : (
       (lhs, rhs) ->
-        __yo_comptime_f64_neq(lhs, rhs)
+        __yo_comptime_f64_neq(lhs.*, rhs.*)
     )
   )
 );
@@ -4120,19 +4120,19 @@ impl(
   ComptimeOrd(f64)(
     (<) : (
       (lhs, rhs) ->
-        __yo_comptime_f64_lt(lhs, rhs)
+        __yo_comptime_f64_lt(lhs.*, rhs.*)
     ),
     (<=) : (
       (lhs, rhs) ->
-        __yo_comptime_f64_lte(lhs, rhs)
+        __yo_comptime_f64_lte(lhs.*, rhs.*)
     ),
     (>) : (
       (lhs, rhs) ->
-        __yo_comptime_f64_gt(lhs, rhs)
+        __yo_comptime_f64_gt(lhs.*, rhs.*)
     ),
     (>=) : (
       (lhs, rhs) ->
-        __yo_comptime_f64_gte(lhs, rhs)
+        __yo_comptime_f64_gte(lhs.*, rhs.*)
     )
   )
 );
@@ -4269,13 +4269,13 @@ impl(
 impl(
   isize,
   Hash(
-    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_isize(self))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_isize(self.*))
   )
 );
 impl(
   isize,
   Clone(
-    clone : (self -> self)
+    clone : (self -> self.*)
   )
 );
 impl(isize, Copy());
@@ -4344,11 +4344,11 @@ impl(
   ComptimeEq(isize)(
     (==) : (
       (lhs, rhs) ->
-        __yo_comptime_isize_eq(lhs, rhs)
+        __yo_comptime_isize_eq(lhs.*, rhs.*)
     ),
     (!=) : (
       (lhs, rhs) ->
-        __yo_comptime_isize_neq(lhs, rhs)
+        __yo_comptime_isize_neq(lhs.*, rhs.*)
     )
   )
 );
@@ -4357,19 +4357,19 @@ impl(
   ComptimeOrd(isize)(
     (<) : (
       (lhs, rhs) ->
-        __yo_comptime_isize_lt(lhs, rhs)
+        __yo_comptime_isize_lt(lhs.*, rhs.*)
     ),
     (<=) : (
       (lhs, rhs) ->
-        __yo_comptime_isize_lte(lhs, rhs)
+        __yo_comptime_isize_lte(lhs.*, rhs.*)
     ),
     (>) : (
       (lhs, rhs) ->
-        __yo_comptime_isize_gt(lhs, rhs)
+        __yo_comptime_isize_gt(lhs.*, rhs.*)
     ),
     (>=) : (
       (lhs, rhs) ->
-        __yo_comptime_isize_gte(lhs, rhs)
+        __yo_comptime_isize_gte(lhs.*, rhs.*)
     )
   )
 );
@@ -4556,26 +4556,26 @@ impl(
 impl(
   usize,
   Hash(
-    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_usize(self))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_usize(self.*))
   )
 );
 impl(
   usize,
   Clone(
-    clone : (self -> self)
+    clone : (self -> self.*)
   )
 );
 impl(usize, Copy());
 impl(
   usize,
   RangeOp(
-    (..) : ((start, end) -> Range(usize)(start : start, end : end))
+    (..) : ((start, end) -> Range(usize)(start : start.*, end : end.*))
   )
 );
 impl(
   usize,
   RangeInclusiveOp(
-    (..=) : ((start, end) -> RangeInclusive(usize)(start : start, end : end))
+    (..=) : ((start, end) -> RangeInclusive(usize)(start : start.*, end : end.*))
   )
 );
 impl(
@@ -4598,109 +4598,109 @@ impl(
 impl(
   i8,
   RangeOp(
-    (..) : ((start, end) -> Range(i8)(start : start, end : end))
+    (..) : ((start, end) -> Range(i8)(start : start.*, end : end.*))
   )
 );
 impl(
   i8,
   RangeInclusiveOp(
-    (..=) : ((start, end) -> RangeInclusive(i8)(start : start, end : end))
+    (..=) : ((start, end) -> RangeInclusive(i8)(start : start.*, end : end.*))
   )
 );
 impl(
   i16,
   RangeOp(
-    (..) : ((start, end) -> Range(i16)(start : start, end : end))
+    (..) : ((start, end) -> Range(i16)(start : start.*, end : end.*))
   )
 );
 impl(
   i16,
   RangeInclusiveOp(
-    (..=) : ((start, end) -> RangeInclusive(i16)(start : start, end : end))
+    (..=) : ((start, end) -> RangeInclusive(i16)(start : start.*, end : end.*))
   )
 );
 impl(
   i32,
   RangeOp(
-    (..) : ((start, end) -> Range(i32)(start : start, end : end))
+    (..) : ((start, end) -> Range(i32)(start : start.*, end : end.*))
   )
 );
 impl(
   i32,
   RangeInclusiveOp(
-    (..=) : ((start, end) -> RangeInclusive(i32)(start : start, end : end))
+    (..=) : ((start, end) -> RangeInclusive(i32)(start : start.*, end : end.*))
   )
 );
 impl(
   i64,
   RangeOp(
-    (..) : ((start, end) -> Range(i64)(start : start, end : end))
+    (..) : ((start, end) -> Range(i64)(start : start.*, end : end.*))
   )
 );
 impl(
   i64,
   RangeInclusiveOp(
-    (..=) : ((start, end) -> RangeInclusive(i64)(start : start, end : end))
+    (..=) : ((start, end) -> RangeInclusive(i64)(start : start.*, end : end.*))
   )
 );
 impl(
   isize,
   RangeOp(
-    (..) : ((start, end) -> Range(isize)(start : start, end : end))
+    (..) : ((start, end) -> Range(isize)(start : start.*, end : end.*))
   )
 );
 impl(
   isize,
   RangeInclusiveOp(
-    (..=) : ((start, end) -> RangeInclusive(isize)(start : start, end : end))
+    (..=) : ((start, end) -> RangeInclusive(isize)(start : start.*, end : end.*))
   )
 );
 impl(
   u8,
   RangeOp(
-    (..) : ((start, end) -> Range(u8)(start : start, end : end))
+    (..) : ((start, end) -> Range(u8)(start : start.*, end : end.*))
   )
 );
 impl(
   u8,
   RangeInclusiveOp(
-    (..=) : ((start, end) -> RangeInclusive(u8)(start : start, end : end))
+    (..=) : ((start, end) -> RangeInclusive(u8)(start : start.*, end : end.*))
   )
 );
 impl(
   u16,
   RangeOp(
-    (..) : ((start, end) -> Range(u16)(start : start, end : end))
+    (..) : ((start, end) -> Range(u16)(start : start.*, end : end.*))
   )
 );
 impl(
   u16,
   RangeInclusiveOp(
-    (..=) : ((start, end) -> RangeInclusive(u16)(start : start, end : end))
+    (..=) : ((start, end) -> RangeInclusive(u16)(start : start.*, end : end.*))
   )
 );
 impl(
   u32,
   RangeOp(
-    (..) : ((start, end) -> Range(u32)(start : start, end : end))
+    (..) : ((start, end) -> Range(u32)(start : start.*, end : end.*))
   )
 );
 impl(
   u32,
   RangeInclusiveOp(
-    (..=) : ((start, end) -> RangeInclusive(u32)(start : start, end : end))
+    (..=) : ((start, end) -> RangeInclusive(u32)(start : start.*, end : end.*))
   )
 );
 impl(
   u64,
   RangeOp(
-    (..) : ((start, end) -> Range(u64)(start : start, end : end))
+    (..) : ((start, end) -> Range(u64)(start : start.*, end : end.*))
   )
 );
 impl(
   u64,
   RangeInclusiveOp(
-    (..=) : ((start, end) -> RangeInclusive(u64)(start : start, end : end))
+    (..=) : ((start, end) -> RangeInclusive(u64)(start : start.*, end : end.*))
   )
 );
 impl(
@@ -4758,11 +4758,11 @@ impl(
   ComptimeEq(usize)(
     (==) : (
       (lhs, rhs) ->
-        __yo_comptime_usize_eq(lhs, rhs)
+        __yo_comptime_usize_eq(lhs.*, rhs.*)
     ),
     (!=) : (
       (lhs, rhs) ->
-        __yo_comptime_usize_neq(lhs, rhs)
+        __yo_comptime_usize_neq(lhs.*, rhs.*)
     )
   )
 );
@@ -4771,19 +4771,19 @@ impl(
   ComptimeOrd(usize)(
     (<) : (
       (lhs, rhs) ->
-        __yo_comptime_usize_lt(lhs, rhs)
+        __yo_comptime_usize_lt(lhs.*, rhs.*)
     ),
     (<=) : (
       (lhs, rhs) ->
-        __yo_comptime_usize_lte(lhs, rhs)
+        __yo_comptime_usize_lte(lhs.*, rhs.*)
     ),
     (>) : (
       (lhs, rhs) ->
-        __yo_comptime_usize_gt(lhs, rhs)
+        __yo_comptime_usize_gt(lhs.*, rhs.*)
     ),
     (>=) : (
       (lhs, rhs) ->
-        __yo_comptime_usize_gte(lhs, rhs)
+        __yo_comptime_usize_gte(lhs.*, rhs.*)
     )
   )
 );
@@ -4996,7 +4996,7 @@ impl(
   /// false, so this is the identity.
   checked_abs : (fn(self : &T) -> Option(T))(
     cond(
-      ((self == T.MIN) && (T.MIN < T(0))) => Option(T).None,
+      ((self.* == T.MIN) && (T.MIN < T(0))) => Option(T).None,
       (self < T(0)) => Option(T).Some(T(0) - self),
       true => Option(T).Some(self)
     )
@@ -5026,7 +5026,7 @@ impl(
   }),
   /// `self` clamped into `[lo, hi]`.
   clamp : (fn(self : &T, lo : &T, hi : &T) -> T)(
-    cond((self < lo) => lo, (self > hi) => hi, true => self)
+    cond((self.* < lo) => lo.*, (self.* > hi) => hi.*, true => self.*)
   ),
   /// `self * rhs`, clamped to the type's bounds instead of overflowing.
   saturating_mul : (fn(self : T, rhs : T) -> T)(
@@ -5044,7 +5044,7 @@ impl(
   /// and any non-zero value for an unsigned one.
   checked_neg : (fn(self : &T) -> Option(T))(
     cond(
-      (self == T(0)) => Option(T).Some(T(0)),
+      (self.* == T(0)) => Option(T).Some(T(0)),
       (T.MIN == T(0)) => Option(T).None,
       (self == T.MIN) => Option(T).None,
       true => Option(T).Some(T(0) - self)
@@ -5126,9 +5126,9 @@ impl(
   /// so no intermediate product can overflow either.
   isqrt : (fn(self : &T) -> T)(
     cond(
-      (self < T(0)) => __yo_panic("isqrt: the receiver is negative"),
-      (self < T(2)) => self,
-      (self < T(4)) => T(1),
+      (self.* < T(0)) => __yo_panic("isqrt: the receiver is negative"),
+      (self.* < T(2)) => self.*,
+      (self.* < T(4)) => T(1),
       true => {
         (mut(r) : T) = self;
         (mut(next) : T) = (self / T(2));
@@ -5194,7 +5194,7 @@ impl(
   /// mathematical remainder is `0`.
   wrapping_rem : (fn(self : &T, rhs : &T) -> T)(
     cond(
-      ((self == T.MIN) && (rhs < T(0)) && ((T(0) - rhs) == T(1))) => T(0),
+      ((self.* == T.MIN) && (rhs < T(0)) && ((T(0) - rhs) == T(1))) => T(0),
       true => (self % rhs)
     )
   ),
@@ -5202,7 +5202,7 @@ impl(
   /// `T.MIN / -1` saturates to `T.MAX`; every other quotient already fits.
   saturating_div : (fn(self : &T, rhs : &T) -> T)(
     cond(
-      ((self == T.MIN) && (rhs < T(0)) && ((T(0) - rhs) == T(1))) => T.MAX,
+      ((self.* == T.MIN) && (rhs < T(0)) && ((T(0) - rhs) == T(1))) => T.MAX,
       true => (self / rhs)
     )
   ),
@@ -5242,9 +5242,9 @@ impl(
   /// unsigned type, which a `where(T <: Integer)` body cannot spell.
   ilog2 : (fn(self : &T) -> u32)(
     cond(
-      (self <= T(0)) => __yo_panic("ilog2: the receiver must be positive"),
+      (self.* <= T(0)) => __yo_panic("ilog2: the receiver must be positive"),
       true => {
-        (mut(v) : T) = self;
+        (mut(v) : T) = self.*;
         (mut(n) : u32) = u32(0);
         while(v > T(1), {
           v = (v / T(2));
@@ -5257,9 +5257,9 @@ impl(
   /// `floor(log10(self))`. PANICS for a receiver at or below zero.
   ilog10 : (fn(self : &T) -> u32)(
     cond(
-      (self <= T(0)) => __yo_panic("ilog10: the receiver must be positive"),
+      (self.* <= T(0)) => __yo_panic("ilog10: the receiver must be positive"),
       true => {
-        (mut(v) : T) = self;
+        (mut(v) : T) = self.*;
         (mut(n) : u32) = u32(0);
         while(v > T(9), {
           v = (v / T(10));
@@ -5274,10 +5274,10 @@ impl(
   /// terminating loop at all.
   ilog : (fn(self : &T, base : &T) -> u32)(
     cond(
-      (self <= T(0)) => __yo_panic("ilog: the receiver must be positive"),
-      (base < T(2)) => __yo_panic("ilog: the base must be at least 2"),
+      (self.* <= T(0)) => __yo_panic("ilog: the receiver must be positive"),
+      (base.* < T(2)) => __yo_panic("ilog: the base must be at least 2"),
       true => {
-        (mut(v) : T) = self;
+        (mut(v) : T) = self.*;
         (mut(n) : u32) = u32(0);
         while(v >= base, {
           v = (v / base);
@@ -5311,11 +5311,11 @@ impl(
   /// `self << (n % BITS)` — Rust's `wrapping_shl`. The shift COUNT wraps, not
   /// the value; bits shifted out are still discarded.
   wrapping_shl : (fn(self : &T, n : u32) -> T)(
-    self << T(n % T.BITS)
+    self.* << T(n % T.BITS)
   ),
   /// `self >> (n % BITS)` — Rust's `wrapping_shr`.
   wrapping_shr : (fn(self : &T, n : u32) -> T)(
-    self >> T(n % T.BITS)
+    self.* >> T(n % T.BITS)
   ),
   /// `(self.wrapping_shl(n), n >= BITS)` — Rust's `overflowing_shl`. The flag
   /// reports that the COUNT was reduced, not that any bit was lost: a shift
@@ -5352,22 +5352,22 @@ impl(
   /// would return a NEGATIVE absolute value.
   abs : (fn(self : &T) -> T)(
     cond(
-      (self == T.MIN) => __yo_panic("abs: the absolute value of MIN does not fit"),
-      (self < T(0)) => (T(0) - self),
+      (self.* == T.MIN) => __yo_panic("abs: the absolute value of MIN does not fit"),
+      (self.* < T(0)) => (T(0) - self),
       true => self
     )
   ),
   /// `-1`, `0` or `1` according to the sign.
   signum : (fn(self : &T) -> T)(
-    cond((self > T(0)) => T(1), (self < T(0)) => (T(0) - T(1)), true => T(0))
+    cond((self.* > T(0)) => T(1), (self.* < T(0)) => (T(0) - T(1)), true => T(0))
   ),
   /// `-self` modulo the type's range: `T.MIN` negates to itself.
   wrapping_neg : (fn(self : &T) -> T)(
-    cond((self == T.MIN) => T.MIN, true => (T(0) - self))
+    cond((self.* == T.MIN) => T.MIN, true => (T(0) - self))
   ),
   /// The absolute value modulo the type's range: `T.MIN` maps to itself.
   wrapping_abs : (fn(self : &T) -> T)(
-    cond((self == T.MIN) => T.MIN, (self < T(0)) => (T(0) - self), true => self)
+    cond((self.* == T.MIN) => T.MIN, (self.* < T(0)) => (T(0) - self), true => self)
   )
 );
 /// The same-width UNSIGNED counterpart of a signed integer type.
@@ -5571,7 +5571,7 @@ impl(
   ),
   /// The number of trailing zero bits, the full width for zero.
   trailing_zeros : (fn(self : &T) -> u32)(
-    cond((self == T(0)) => T.BITS, true => _trailing_zeros_u64(u64(T.Unsigned(self))))
+    cond((self.* == T(0)) => T.BITS, true => _trailing_zeros_u64(u64(T.Unsigned(self))))
   ),
   /// The number of leading one bits.
   leading_ones : (fn(self : &T) -> u32)(
@@ -5693,14 +5693,14 @@ impl(
   T,
   /// True when exactly one bit is set. `0` is NOT a power of two.
   is_power_of_two : (fn(self : &T) -> bool)(
-    (self != T(0)) && ((self & (self - T(1))) == T(0))
+    (self.* != T(0)) && ((self & (self - T(1))) == T(0))
   ),
   /// The smallest power of two at or above `self`, or `.None` when that does
   /// not fit. `0` and `1` both give `1`.
   checked_next_power_of_two : (fn(self : &T) -> Option(T))(
     cond(
-      (self <= T(1)) => Option(T).Some(T(1)),
-      (self > ((T.MAX >> T(1)) + T(1))) => Option(T).None,
+      (self.* <= T(1)) => Option(T).Some(T(1)),
+      (self.* > ((T.MAX >> T(1)) + T(1))) => Option(T).None,
       true =>
         Option(T).Some(
           T(T.Unsigned(u64(1) << u64(T.BITS - (self - T(1)).leading_zeros())))
@@ -5964,13 +5964,13 @@ impl(
 impl(
   char,
   Hash(
-    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u32(u32(self)))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u32(u32(self.*)))
   )
 );
 impl(
   char,
   Clone(
-    clone : (self -> self)
+    clone : (self -> self.*)
   )
 );
 impl(char, Copy());
@@ -6075,13 +6075,13 @@ impl(
 impl(
   int,
   Hash(
-    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i32(i32(self)))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i32(i32(self.*)))
   )
 );
 impl(
   int,
   Clone(
-    clone : (self -> self)
+    clone : (self -> self.*)
   )
 );
 impl(int, Copy());
@@ -6186,13 +6186,13 @@ impl(
 impl(
   uint,
   Hash(
-    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u32(u32(self)))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u32(u32(self.*)))
   )
 );
 impl(
   uint,
   Clone(
-    clone : (self -> self)
+    clone : (self -> self.*)
   )
 );
 impl(uint, Copy());
@@ -6297,13 +6297,13 @@ impl(
 impl(
   short,
   Hash(
-    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i16(i16(self)))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i16(i16(self.*)))
   )
 );
 impl(
   short,
   Clone(
-    clone : (self -> self)
+    clone : (self -> self.*)
   )
 );
 impl(short, Copy());
@@ -6408,13 +6408,13 @@ impl(
 impl(
   ushort,
   Hash(
-    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u16(u16(self)))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u16(u16(self.*)))
   )
 );
 impl(
   ushort,
   Clone(
-    clone : (self -> self)
+    clone : (self -> self.*)
   )
 );
 impl(ushort, Copy());
@@ -6519,13 +6519,13 @@ impl(
 impl(
   long,
   Hash(
-    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i64(i64(self)))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i64(i64(self.*)))
   )
 );
 impl(
   long,
   Clone(
-    clone : (self -> self)
+    clone : (self -> self.*)
   )
 );
 impl(long, Copy());
@@ -6630,13 +6630,13 @@ impl(
 impl(
   ulong,
   Hash(
-    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u64(u64(self)))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u64(u64(self.*)))
   )
 );
 impl(
   ulong,
   Clone(
-    clone : (self -> self)
+    clone : (self -> self.*)
   )
 );
 impl(ulong, Copy());
@@ -6741,13 +6741,13 @@ impl(
 impl(
   longlong,
   Hash(
-    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i64(i64(self)))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i64(i64(self.*)))
   )
 );
 impl(
   longlong,
   Clone(
-    clone : (self -> self)
+    clone : (self -> self.*)
   )
 );
 impl(longlong, Copy());
@@ -6852,13 +6852,13 @@ impl(
 impl(
   ulonglong,
   Hash(
-    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u64(u64(self)))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u64(u64(self.*)))
   )
 );
 impl(
   ulonglong,
   Clone(
-    clone : (self -> self)
+    clone : (self -> self.*)
   )
 );
 impl(ulonglong, Copy());
@@ -6963,13 +6963,13 @@ impl(
 impl(
   longdouble,
   Hash(
-    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i64(i64(self)))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i64(i64(self.*)))
   )
 );
 impl(
   longdouble,
   Clone(
-    clone : (self -> self)
+    clone : (self -> self.*)
   )
 );
 impl(longdouble, Copy());
@@ -7183,7 +7183,7 @@ impl(
     p := (*T)(raw);
     (mut(i) : usize) = usize(0);
     while(i < U, {
-      (p.add(i)).* = val;
+      (p.add(i)).* = val.*;
       i = (i + usize(1));
     });
     mu.assume_init(raw)
@@ -7200,7 +7200,7 @@ impl(
   Index(usize)(
     Output : T,
     index : (fn(self : &Self, idx : usize) -> &Self.Output)(
-      __yo_array_index(addr_of(self), idx)
+      __yo_array_index(addr_of(self.*), idx)
     )
   )
 );
@@ -7210,7 +7210,7 @@ impl(
   IndexMut(usize)(
     Output : T,
     index_mut : (fn(self : &mut Self, idx : usize) -> &mut Self.Output)(
-      __yo_array_index(addr_of(self), idx)
+      __yo_array_index(addr_of(self.*), idx)
     )
   )
 );
@@ -7565,7 +7565,7 @@ impl(
     Output : comptime_str,
     index : (
       (self, idx) ->
-        __yo_comptime_string_index(self, idx)
+        __yo_comptime_string_index(self.*, idx)
     )
   )
 );
@@ -7575,7 +7575,7 @@ impl(
     Output : comptime_str,
     index : (
       (self, idx) ->
-        __yo_comptime_string_index_range(self, idx)
+        __yo_comptime_string_index_range(self.*, idx)
     )
   )
 );
@@ -7585,7 +7585,7 @@ impl(
     Output : comptime_str,
     index : (
       (self, idx) ->
-        __yo_comptime_string_index_range_inclusive(self, idx)
+        __yo_comptime_string_index_range_inclusive(self.*, idx)
     )
   )
 );
@@ -7642,7 +7642,7 @@ impl(
 impl(
   str,
   Clone(
-    clone : (self -> self)
+    clone : (self -> self.*)
   )
 );
 impl(str, Copy());
@@ -7695,13 +7695,13 @@ impl(
       lhs_len < rhs_len
     }),
     (<=) : (fn(lhs : &Self, rhs : &Self) -> bool)({
-      return(!(rhs < lhs));
+      return(!(rhs.* < lhs.*));
     }),
     (>) : (fn(lhs : &Self, rhs : &Self) -> bool)({
-      return(rhs < lhs);
+      return(rhs.* < lhs.*);
     }),
     (>=) : (fn(lhs : &Self, rhs : &Self) -> bool)({
-      return(!(lhs < rhs));
+      return(!(lhs.* < rhs.*));
     })
   )
 );
@@ -8391,7 +8391,7 @@ impl(
   map : (fn(generic(B : Type), self : &Self, f : &mut Impl(FnMut(a : &T) -> B)) -> Option(B))(
     match(
       self,
-      .Some(value) => Option(B).Some(f(&value)),
+      .Some(value) => Option(B).Some(f(&value.*)),
       .None => Option(B).None
     )
   ),
@@ -8399,7 +8399,7 @@ impl(
   and_then : (fn(generic(B : Type), self : &Self, f : &mut Impl(FnMut(a : &T) -> Option(B))) -> Option(B))(
     match(
       self,
-      .Some(value) => f(&value),
+      .Some(value) => f(&value.*),
       .None => Option(B).None
     )
   ),
@@ -8428,7 +8428,7 @@ impl(
       self,
       .Some(value) => {
         drop(default_val);
-        f(&value)
+        f(&value.*)
       },
       .None => default_val
     )
@@ -8437,7 +8437,7 @@ impl(
   map_or_else : (fn(generic(B : Type), self : &Self, default_fn : &mut Impl(FnMut() -> B), f : &mut Impl(FnMut(a : &T) -> B)) -> B)(
     match(
       self,
-      .Some(value) => f(&value),
+      .Some(value) => f(&value.*),
       .None => default_fn()
     )
   ),
@@ -8483,7 +8483,7 @@ impl(
   is_some_and : (fn(self : &Self, f : &mut Impl(FnMut(a : &T) -> bool)) -> bool)(
     match(
       self,
-      .Some(value) => f(&value),
+      .Some(value) => f(&value.*),
       .None => false
     )
   ),
@@ -8506,14 +8506,14 @@ impl(
   /// Take the value out of the option, leaving `None` in its place.
   take : (fn(self : &mut Self) -> Option(T))({
     // A bitwise move out and in: a move-only payload is never copied.
-    p := addr_of(self);
+    p := addr_of(self.*);
     old := __yo_ptr_read(p);
     __yo_ptr_write(p, Option(T).None);
     old
   }),
   /// Replace the contained value with `Some(value)`, returning the old option.
   replace : (fn(self : &mut Self, value : T) -> Option(T))({
-    p := addr_of(self);
+    p := addr_of(self.*);
     old := __yo_ptr_read(p);
     __yo_ptr_write(p, Option(T).Some(value));
     old
@@ -8694,7 +8694,7 @@ __derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(t
         quote(
           Eq(unquote_splicing(trait_params))(
             (==) : ((lhs, rhs) -> unquote(eq_body)),
-            (!=) : ((lhs, rhs) -> not(lhs == rhs))
+            (!=) : ((lhs, rhs) -> not(lhs.* == rhs.*))
           )
         )
       )
@@ -8765,7 +8765,7 @@ __derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(t
         quote(
           Eq(unquote_splicing(trait_params))(
             (==) : ((lhs, rhs) -> unquote(match_body.to_expr())),
-            (!=) : ((lhs, rhs) -> not(lhs == rhs))
+            (!=) : ((lhs, rhs) -> not(lhs.* == rhs.*))
           )
         )
       )
@@ -9375,7 +9375,7 @@ impl(
       self,
       .Ok(value) => {
         drop(default_val);
-        f(&value)
+        f(&value.*)
       },
       .Err(_) => default_val
     )
@@ -9384,8 +9384,8 @@ impl(
   map_or_else : (fn(generic(B : Type), self : &Self, default_fn : &mut Impl(FnMut(a : &ErrorType) -> B), f : &mut Impl(FnMut(a : &OkType) -> B)) -> B)(
     match(
       self,
-      .Ok(value) => f(&value),
-      .Err(error) => default_fn(&error)
+      .Ok(value) => f(&value.*),
+      .Err(error) => default_fn(&error.*)
     )
   ),
   /// Extract the `Ok` value, or call `f` with the error to produce a fallback.
@@ -9599,7 +9599,7 @@ impl(
           .Some(a) => match(
             rhs,
             .None => false,
-            .Some(b) => (a == b)
+            .Some(b) => (a.* == b.*)
           )
         )
     )
@@ -9620,7 +9620,7 @@ impl(
           .Some(a) => match(
             rhs,
             .None => false,
-            .Some(b) => (a < b)
+            .Some(b) => (a.* < b.*)
           )
         )
     ),
@@ -9632,7 +9632,7 @@ impl(
           .Some(a) => match(
             rhs,
             .None => false,
-            .Some(b) => (a <= b)
+            .Some(b) => (a.* <= b.*)
           )
         )
     ),
@@ -9644,7 +9644,7 @@ impl(
           .Some(a) => match(
             rhs,
             .None => true,
-            .Some(b) => (a > b)
+            .Some(b) => (a.* > b.*)
           )
         )
     ),
@@ -9656,7 +9656,7 @@ impl(
           .Some(a) => match(
             rhs,
             .None => true,
-            .Some(b) => (a >= b)
+            .Some(b) => (a.* >= b.*)
           )
         )
     )
@@ -9724,13 +9724,13 @@ impl(
           lhs,
           .Ok(a) => match(
             rhs,
-            .Ok(b) => (a == b),
+            .Ok(b) => (a.* == b.*),
             .Err(_) => false
           ),
           .Err(a) => match(
             rhs,
             .Ok(_) => false,
-            .Err(b) => (a == b)
+            .Err(b) => (a.* == b.*)
           )
         )
     )
@@ -9749,13 +9749,13 @@ impl(
           lhs,
           .Ok(a) => match(
             rhs,
-            .Ok(b) => (a < b),
+            .Ok(b) => (a.* < b.*),
             .Err(_) => true
           ),
           .Err(a) => match(
             rhs,
             .Ok(_) => false,
-            .Err(b) => (a < b)
+            .Err(b) => (a.* < b.*)
           )
         )
     ),
@@ -9765,13 +9765,13 @@ impl(
           lhs,
           .Ok(a) => match(
             rhs,
-            .Ok(b) => (a <= b),
+            .Ok(b) => (a.* <= b.*),
             .Err(_) => true
           ),
           .Err(a) => match(
             rhs,
             .Ok(_) => false,
-            .Err(b) => (a <= b)
+            .Err(b) => (a.* <= b.*)
           )
         )
     ),
@@ -9781,13 +9781,13 @@ impl(
           lhs,
           .Ok(a) => match(
             rhs,
-            .Ok(b) => (a > b),
+            .Ok(b) => (a.* > b.*),
             .Err(_) => false
           ),
           .Err(a) => match(
             rhs,
             .Ok(_) => true,
-            .Err(b) => (a > b)
+            .Err(b) => (a.* > b.*)
           )
         )
     ),
@@ -9797,13 +9797,13 @@ impl(
           lhs,
           .Ok(a) => match(
             rhs,
-            .Ok(b) => (a >= b),
+            .Ok(b) => (a.* >= b.*),
             .Err(_) => false
           ),
           .Err(a) => match(
             rhs,
             .Ok(_) => true,
-            .Err(b) => (a >= b)
+            .Err(b) => (a.* >= b.*)
           )
         )
     )
@@ -9928,7 +9928,7 @@ impl(
   generic(T : ?Sized),
   Rc(T),
   Clone(
-    clone : (fn(self : &Self) -> Self)(___dup(self))
+    clone : (fn(self : &Self) -> Self)(___dup(self.*))
   )
 );
 /// The payload, lent: a `&T` borrowed from the handle, Rust's `Rc::as_ref`.
@@ -10025,7 +10025,7 @@ impl(
     // SAFETY: an `Rc` handle is the address of its live cell.
     cell := unsafe(unsafe.cast(self, *T));
     cond(
-      ((ref_count(self) == usize(1)) && (__yo_rc_weak_weak_count((*void)(cell)) == usize(0))) => .Some(Rc._payload_mut(self)),
+      ((ref_count(self.*) == usize(1)) && (__yo_rc_weak_weak_count((*void)(cell)) == usize(0))) => .Some(Rc._payload_mut(self)),
       true => .None
     )
   }),
@@ -10057,8 +10057,8 @@ impl(
     // SAFETY: an `Rc` handle is the address of its live cell.
     cell := unsafe(unsafe.cast(self, *T));
     cond(
-      (ref_count(self) != usize(1)) => {
-        self = Rc.new(unsafe(self._cell.*).clone());
+      (ref_count(self.*) != usize(1)) => {
+        self.* = Rc.new(unsafe(self._cell.*).clone());
       },
       (__yo_rc_weak_weak_count((*void)(cell)) != usize(0)) => {
         // SAFETY: `self` is the cell's only strong handle, so nothing else
@@ -10067,7 +10067,7 @@ impl(
         // `Weak` handles as dead without dropping the payload.
         payload := __yo_ptr_read(unsafe(addr_of(self._cell.*)));
         __yo_rc_forget_payload(self);
-        self = Rc.new(payload);
+        self.* = Rc.new(payload);
       },
       true => ()
     );
@@ -10667,7 +10667,7 @@ impl(
   where(T <: (Send, Sync)),
   Arc(T),
   Clone(
-    clone : (fn(self : &Self) -> Self)(___dup(self))
+    clone : (fn(self : &Self) -> Self)(___dup(self.*))
   )
 );
 /// The payload, lent: a `&T` borrowed from the handle, Rust's `Arc::as_ref`.
@@ -10803,8 +10803,8 @@ impl(
             // `ArcWeak` handles as dead without dropping it, and the handle's
             // slot, cleared by the release, takes the fresh cell.
             payload := __yo_ptr_read(unsafe(addr_of(self._cell.*)));
-            __yo_arc_release_locked((*void)(addr_of(self)));
-            self = Arc.new(payload);
+            __yo_arc_release_locked((*void)(addr_of(self.*)));
+            self.* = Arc.new(payload);
           }
         );
       },
@@ -11235,32 +11235,32 @@ Into :: (fn(comptime(To) : Type) -> comptime(Trait))(
 export(Into);
 // Lossless integer widenings — the canonical seed impls for From/Into.
 // (Narrowing stays with TryFrom, where failure is representable.)
-impl(i16, From(i8)(from : (value -> i16(value))));
-impl(i32, From(i8)(from : (value -> i32(value))));
-impl(i32, From(i16)(from : (value -> i32(value))));
-impl(i64, From(i8)(from : (value -> i64(value))));
-impl(i64, From(i16)(from : (value -> i64(value))));
-impl(i64, From(i32)(from : (value -> i64(value))));
-impl(u16, From(u8)(from : (value -> u16(value))));
-impl(u32, From(u8)(from : (value -> u32(value))));
-impl(u32, From(u16)(from : (value -> u32(value))));
-impl(u64, From(u8)(from : (value -> u64(value))));
-impl(u64, From(u16)(from : (value -> u64(value))));
-impl(u64, From(u32)(from : (value -> u64(value))));
-impl(f64, From(f32)(from : (value -> f64(value))));
-impl(i8, Into(i16)(into : ((self, _) -> i16(self))));
-impl(i8, Into(i32)(into : ((self, _) -> i32(self))));
-impl(i8, Into(i64)(into : ((self, _) -> i64(self))));
-impl(i16, Into(i32)(into : ((self, _) -> i32(self))));
-impl(i16, Into(i64)(into : ((self, _) -> i64(self))));
-impl(i32, Into(i64)(into : ((self, _) -> i64(self))));
-impl(u8, Into(u16)(into : ((self, _) -> u16(self))));
-impl(u8, Into(u32)(into : ((self, _) -> u32(self))));
-impl(u8, Into(u64)(into : ((self, _) -> u64(self))));
-impl(u16, Into(u32)(into : ((self, _) -> u32(self))));
-impl(u16, Into(u64)(into : ((self, _) -> u64(self))));
-impl(u32, Into(u64)(into : ((self, _) -> u64(self))));
-impl(f32, Into(f64)(into : ((self, _) -> f64(self))));
+impl(i16, From(i8)(from : (value -> i16(value.*))));
+impl(i32, From(i8)(from : (value -> i32(value.*))));
+impl(i32, From(i16)(from : (value -> i32(value.*))));
+impl(i64, From(i8)(from : (value -> i64(value.*))));
+impl(i64, From(i16)(from : (value -> i64(value.*))));
+impl(i64, From(i32)(from : (value -> i64(value.*))));
+impl(u16, From(u8)(from : (value -> u16(value.*))));
+impl(u32, From(u8)(from : (value -> u32(value.*))));
+impl(u32, From(u16)(from : (value -> u32(value.*))));
+impl(u64, From(u8)(from : (value -> u64(value.*))));
+impl(u64, From(u16)(from : (value -> u64(value.*))));
+impl(u64, From(u32)(from : (value -> u64(value.*))));
+impl(f64, From(f32)(from : (value -> f64(value.*))));
+impl(i8, Into(i16)(into : ((self, _) -> i16(self.*))));
+impl(i8, Into(i32)(into : ((self, _) -> i32(self.*))));
+impl(i8, Into(i64)(into : ((self, _) -> i64(self.*))));
+impl(i16, Into(i32)(into : ((self, _) -> i32(self.*))));
+impl(i16, Into(i64)(into : ((self, _) -> i64(self.*))));
+impl(i32, Into(i64)(into : ((self, _) -> i64(self.*))));
+impl(u8, Into(u16)(into : ((self, _) -> u16(self.*))));
+impl(u8, Into(u32)(into : ((self, _) -> u32(self.*))));
+impl(u8, Into(u64)(into : ((self, _) -> u64(self.*))));
+impl(u16, Into(u32)(into : ((self, _) -> u32(self.*))));
+impl(u16, Into(u64)(into : ((self, _) -> u64(self.*))));
+impl(u32, Into(u64)(into : ((self, _) -> u64(self.*))));
+impl(f32, Into(f64)(into : ((self, _) -> f64(self.*))));
 TryFrom :: (fn(comptime(Source) : Type) -> comptime(Trait))(
   trait(
     /// Error type returned on conversion failure.
@@ -11317,7 +11317,7 @@ impl(
       self,
       .Some(a) => match(
         other,
-        .Some(b) => Option(IterPair(T, B)).Some(IterPair(T, B)(_0 : a, _1 : b)),
+        .Some(b) => Option(IterPair(T, B)).Some(IterPair(T, B)(_0 : a.*, _1 : b.*)),
         .None => Option(IterPair(T, B)).None
       ),
       .None => Option(IterPair(T, B)).None

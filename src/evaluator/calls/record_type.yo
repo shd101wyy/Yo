@@ -100,7 +100,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
     (j : usize) = usize(0);
     while(j < n_args, {
       arg_expr_opt := arg_exprs.get(j);
-      arg_expr := match(arg_expr_opt, .Some(a) => a, .None => module_expr);
+      arg_expr := match(arg_expr_opt, .Some(a) => a, .None => module_expr.*);
       // Each arg must be a `label: value` colon call.
       if(!ast_expr_is_fn_call_of(&arg_expr, ":", .Some(usize(2))), {
         exn.throw(

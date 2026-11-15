@@ -564,12 +564,12 @@ z3_error_before_verdict :: (fn(forms : &ArrayList(Z3Sexpr)) -> Option(String))({
       .Some(form) => match(
         &form,
         .Atom(t) => {
-          if((t == "unsat") || (t == "sat") || (t == "unknown"), {
+          if((t.* == "unsat") || (t.* == "sat") || (t.* == "unknown"), {
             return(Option(String).None);
           });
         },
         .List(items) => match(
-          _head_atom_text(&items),
+          _head_atom_text(&items.*),
           .Some(h) => if(h == "error", {
             return(Option(String).Some(z3_sexpr_to_string(&form)));
           }),
@@ -603,7 +603,7 @@ _z3_info_of :: (fn(forms : &ArrayList(Z3Sexpr), keyword : &String) -> Option(Str
     match(
       forms.get_cloned(i),
       .Some(.List(items)) => {
-        if(match(_head_atom_text(&items), .Some(h) => (h == keyword), .None => false), {
+        if(match(_head_atom_text(&items), .Some(h) => (h == keyword.*), .None => false), {
           sb := StringBuilder.new();
           (j : usize) = usize(1);
           while(j < items.len(), {

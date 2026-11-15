@@ -42,7 +42,7 @@ evaluate_as :: (
     .FnCall(_, _, Rc(a), _, _) => a.clone(),
     _ => {
       exn.throw(dyn(format_error_message(&tok, String.from("as: expected FnCall"))));
-      return(expr);
+      return(expr.*);
     }
   );
   if(args.len() != usize(2), {
@@ -59,14 +59,14 @@ evaluate_as :: (
     args.get(usize(0)),
     .Some(a) => a,
     .None => {
-      return(expr);
+      return(expr.*);
     }
   );
   type_arg_expr := match(
     args.get(usize(1)),
     .Some(a) => a,
     .None => {
-      return(expr);
+      return(expr.*);
     }
   );
   // Evaluate the value argument.
@@ -84,7 +84,7 @@ evaluate_as :: (
           )
         )
       );
-      return(expr);
+      return(expr.*);
     }
   );
   // Evaluate the type argument using the updated env from the value evaluation.
@@ -104,7 +104,7 @@ evaluate_as :: (
           )
         )
       );
-      return(expr);
+      return(expr.*);
     }
   );
   // Check that the second argument is a type.
@@ -143,6 +143,6 @@ evaluate_as :: (
   out.set_value(val_info.value());
   out.set_path_collection(val_info.path_collection());
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-  expr
+  expr.*
 });
 export(evaluate_as);

@@ -116,7 +116,7 @@ evaluate_comptime_fn :: (
     out_info := new_expr_info(env, &func_type);
     out_info.set_value(Option(EvalValue).Some(arg_val));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-    return(expr);
+    return(expr.*);
   });
   // Pre-flight diagnostics. `analyze_ctfe_capability` re-derives all of these and
   // simply returns `.None`, but this builtin keeps
@@ -125,7 +125,7 @@ evaluate_comptime_fn :: (
   // shared analysis.
   forall_labels := match(&func_type, Rc(.Func({ meta : __fm1 })) => Rc.clone(__fm1.forall_labels), _ => no_labels());
   param_types := match(&func_type, Rc(.Func({ param_types : pt })) => Rc.clone(pt), _ => no_types());
-  result_box := match(&func_type, Rc(.Func({ result : rb })) => t_slot_pointee(&rb), _ => t_unit());
+  result_box := match(&func_type, Rc(.Func({ result : rb })) => t_slot_pointee(&rb.*), _ => t_unit());
   // Skip functions with generic parameters — they need specialisation first.
   if(forall_labels.len() > usize(0), {
     exn.throw(
@@ -183,7 +183,7 @@ evaluate_comptime_fn :: (
       out_info := new_expr_info(env, &ctfe_ok.ty);
       out_info.set_value(Option(EvalValue).Some(ctfe_ok.value));
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-      expr
+      expr.*
     },
     .None => {
       exn.throw(

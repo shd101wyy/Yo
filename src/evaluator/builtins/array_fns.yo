@@ -46,11 +46,11 @@ evaluate_yo_array_fill :: (
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
-        return(expr);
+        return(expr.*);
       }
     ),
     _ => {
-      return(expr);
+      return(expr.*);
     }
   );
   fill_value_arg := match(
@@ -59,11 +59,11 @@ evaluate_yo_array_fill :: (
       fargs.get(usize(1)),
       .Some(x) => x,
       .None => {
-        return(expr);
+        return(expr.*);
       }
     ),
     _ => {
-      return(expr);
+      return(expr.*);
     }
   );
   // Evaluate the array type argument (no expected type).
@@ -118,9 +118,9 @@ evaluate_yo_array_fill :: (
   // Destructure Array(element_box, length).
   (element_box, length) := match(
     &array_type_tv,
-    Rc(.Array(eb, l, _)) => (Rc.clone(eb), l),
+    Rc(.Array(eb, l, _)) => (Rc.clone(eb), l.*),
     _ => {
-      return(expr);
+      return(expr.*);
     }
   );
   element_type := Rc.clone(element_box);
@@ -193,6 +193,6 @@ evaluate_yo_array_fill :: (
     out_info.set_value(Option(EvalValue).Some(array_val));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   });
-  expr
+  expr.*
 });
 export(evaluate_yo_array_fill);
