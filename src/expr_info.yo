@@ -30,6 +30,7 @@ pragma(Pragma.AllowUnsafe);
 { RefCell } :: import("std/sync/refcell");
 { hash_one } :: import("std/hash");
 { cwd } :: import("std/env");
+{ canonical_module_path } :: import("./utils.yo");
 // `expr_info_paths_for_write` detects the SHARED empty PathCollection before a
 // push with the prelude's pointer-identity builtin `__yo_ptr_eq` (the same
 // direct call as env.yo / std/string/string.yo).
@@ -3776,13 +3777,25 @@ note_deref_migrated_file :: (fn(tok : &Token) -> unit)({
   mp := tok.module_path.*.clone();
   _new := g_deref_migrated_files.with_mut({ mp }(s) => s.insert(mp));
 });
-/// Whether `note_deref_migrated_file` already saw `tok`'s file: its written
-/// `.*`s are the new spelling, so an edit-3 site there is evaluated the way
-/// the apply stage treats it (the second-run rule), not as an old payload
-/// read (the swept prelude under `yo fix --migrate deref`,
+/// The files a `yo fix --migrate deref` retry evaluation reads as migrated
+/// text from the start (`YO_FIX_DEREF_ASSUME_MIGRATED`, canonical paths): the
+/// host evaluation of each stopped at the old reading of one of its written
+/// `.*`s before it reached any evidence (`_run_migrate_deref`,
+/// issues/2026-11-15-migrate-deref-doubles-a-swept-star-when-the-recorders-old-reading-aborts-the-files-evaluation.md).
+(g_deref_assumed_files : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+note_deref_assumed_migrated :: (fn(path : &String) -> unit)({
+  cp := canonical_module_path(path);
+  _new := g_deref_assumed_files.with_mut({ cp }(s) => s.insert(cp));
+});
+_deref_assumed_count :: (fn(s : &HashSet(String)) -> usize)(s.len());
+/// Whether `note_deref_migrated_file` already saw `tok`'s file, or a retry
+/// evaluation assumes it (`note_deref_assumed_migrated`): its written `.*`s
+/// are the new spelling, so an edit-3 site there is evaluated the way the
+/// apply stage treats it (the second-run rule), not as an old payload read
+/// (the swept prelude under `yo fix --migrate deref`,
 /// issues/fixed/2026-11-14-the-deref-recorder-cannot-evaluate-the-swept-preludes-generic-comparisons.md).
 deref_file_migrated :: (fn(tok : &Token) -> bool)(
-  g_deref_migrated_files.with(s => s.contains(tok.module_path.*.clone()))
+  g_deref_migrated_files.with(s => s.contains(tok.module_path.*.clone())) || ((g_deref_assumed_files.with(_deref_assumed_count) > usize(0)) && g_deref_assumed_files.with({ mp : canonical_module_path(&tok.module_path.*) }(s) => s.contains(mp)))
 );
 /// The files in which a `--migrate deref` evaluation met a `cond` whose
 /// compile-time-known conditions left an arm unevaluated: the arm gated on
@@ -3864,7 +3877,7 @@ take_deref_migrated_files :: (fn() -> HashSet(String))(
     out
   })
 );
-export(DerefSite, set_migrate_deref, migrate_deref_on, audit_deref_on, record_deref_site, record_deref_edit_site, note_deref_migrated_file, deref_file_migrated, note_deref_dead_arm_file, record_deref_clean_site, note_reference_read_copied, take_deref_sites, take_deref_migrated_files, take_deref_dead_arm_files, take_deref_clean_sites);
+export(DerefSite, set_migrate_deref, migrate_deref_on, audit_deref_on, record_deref_site, record_deref_edit_site, note_deref_migrated_file, deref_file_migrated, note_deref_assumed_migrated, note_deref_dead_arm_file, record_deref_clean_site, note_reference_read_copied, take_deref_sites, take_deref_migrated_files, take_deref_dead_arm_files, take_deref_clean_sites);
 /// `yo fix <path> --migrate unsized` (plans/VALUES_BY_DEFAULT.md decision 49
 /// S1f; VERDICTS-40 §5, VERDICTS-43 §4, VERDICTS-55): a site the evaluation
 /// records. At a `dyn` callee's token, with `text` its argument as it prints:
