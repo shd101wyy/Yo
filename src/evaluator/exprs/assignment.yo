@@ -1662,8 +1662,8 @@ evaluate_assignment :: (
       });
     });
   });
-  // `r.* = v` on a reference binding `r` (decision 43 step 2 N1e-1): outside
-  // std and src it writes the referent, the write a bare `r = v` was, so it
+  // `r.* = v` on a reference binding `r` (decision 43 step 2 N1e-1): it
+  // writes the referent, the write a bare `r = v` was, so it
   // is evaluated as that assignment and lowered to the same C (codegen
   // emits the expansion).
   match(
@@ -2469,7 +2469,7 @@ Bound type: ${type_to_string(&variable_value_type(&mcb_v))}`
   });
   // The if-check above guarantees vars is non-empty here; the .None arm is unreachable.
   variable := match(vars.last_cloned(), .Some(v) => v, .None => make_err_variable(&env));
-  // Outside std and src a whole-value write of a reference binding is
+  // A whole-value write of a reference binding is
   // `r.* = v` (E0926, decision 43 step 2 N1e-1); `r = &place` re-points it
   // and never reaches here, and `r.* = v` arrives exempt.
   is_deref_write := deref_exempt_take(&lhs_resolved);
