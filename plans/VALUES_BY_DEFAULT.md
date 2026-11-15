@@ -2160,6 +2160,7 @@ and in git, not a silent edit.
     - Rejected: inferring the projection's mutability from the receiver.
     - Phase: V2b's first PR.
     - **2026-11-10 (VERDICTS-45):** the result position is a reference slot (R1): each result leaf is `&place` or a reference binding read (`x` for `x : &T`); a reference-typed field read and a projection call follow in P8b (`BORROW_CHECKER_COMPLETENESS.md` §7).
+    - **2026-11-11 (VERDICTS-41 R-TAIL, P2):** a `:=` binds a projection's result as a reference through a block, `cond` or `match` whose every leaf is reference-typed (a lend `&place`, a projection call, a reference binding read); a mixed chain binds the value.
 25. **A local borrow can be re-pointed to a place reached from itself.**
     This is the cursor walk over a linked structure.
     - **Widened 2026-11-07 (VERDICTS-31 P1; lands v0.2.77 after the
@@ -10306,6 +10307,7 @@ The rule, layout, prelude and tests are in decision 49 (§4).
 
 - S1 targets v0.2.77, behind G2, and never ahead of v0.2.76's hard gates.
 - S2 and its sweep come in v0.2.78. S3 comes in v0.2.78 or v0.2.79.
+- **Amended 2026-11-14 (VERDICTS-60/-61/-62, recorded in the schedule's §5h):** S2 is built in two releases — the `Dyn` half (the first half plus the flip A) in v0.2.78, the `str` flip in v0.2.79 day 1–2 — and S3 in three parts: S3a in v0.2.78 (minus the cell arms), S3b-`Dyn` the first PR of v0.2.79 behind the `deref` flip, S3b-`str` in v0.2.80 (seed-forced). The campaign completes with S3b-`str`, and claim (L) is made in v0.2.80's notes.
 - It is part of the VBD campaign (maintainer, 2026-11-05). The campaign completes with S3. v0.2.77's retirement PR retires every other mode.
 - G2 drops its `slice`/`View(T, p)` holder.
 

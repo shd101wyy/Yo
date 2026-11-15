@@ -724,7 +724,7 @@ _p31_anon_same_fields :: Type.is_compatible_with(struct(x : i32), _P31Named);
 test("soundness: a name match or an anonymous side is not struct compatibility", {
   comptime_expect_error(_p31_take(_P31b(s : true, t : f64(1.0))), "two different types with the same name");
   comptime_expect_error({
-    r := { y : true, z : f64(2.5) };
+    r := .{ y : true, z : f64(2.5) };
     (a : _P31Named) = r;
   }, "Incompatible types");
   assert(!_p31_anon_other_fields, "anonymous record with other fields vs a named struct");
@@ -737,7 +737,7 @@ test("soundness: a name match or an anonymous side is not struct compatibility",
 });
 test("soundness canary: an anonymous record with the same fields flows into a named struct", {
   assert(_p31_anon_same_fields, "same fields");
-  r := { x : i32(7) };
+  r := .{ x : i32(7) };
   (a : _P31Named) = r;
   assert(a.x == i32(7), "the value survives");
   assert(_p31_take(_P31a(x : i32(4))) == i32(4), "the right P");
@@ -774,7 +774,7 @@ test("soundness: Type.eq does not depend on the order of earlier questions", {
 });
 test("soundness: an instantiation does not adopt an earlier, different one", {
   (w0 : _P34Wrap(struct(x : i32))) = _P34Wrap(struct(x : i32))(
-    inner : { x : i32(1) }
+    inner : .{ x : i32(1) }
   );
   (w1 : _P34Wrap(_P34A)) = _P34Wrap(_P34A)(inner : _P34A(x : i32(2)));
   assert(w0.inner.x == i32(1), "the anonymous instance");
@@ -787,7 +787,7 @@ test("soundness: an instantiation does not adopt an earlier, different one", {
 _P34Row :: struct(name : String, dt : u8);
 _p34_rows_anon :: (fn() -> usize)({
   mut(xs) := ArrayList(struct(name : String, dt : u8)).new();
-  xs.push({ name : String.from("a"), dt : u8(1) });
+  xs.push(.{ name : String.from("a"), dt : u8(1) });
   xs.len()
 });
 _p34_rows_named :: (fn() -> usize)({

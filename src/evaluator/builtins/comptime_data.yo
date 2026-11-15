@@ -41,7 +41,7 @@ _cv :: (fn(variant : &String, fields : &ArrayList(EvalValue)) -> EvalValue)(
 _cv0 :: (fn(variant : &String) -> EvalValue)(_cv(variant, ArrayList(EvalValue).new()));
 _cv1 :: (fn(variant : &String, field : &EvalValue) -> EvalValue)({
   fs := ArrayList(EvalValue).new();
-  fs.push(field);
+  fs.push(field.*);
   _cv(variant, &fs)
 });
 /// Lift a parsed JSON value into the `ComptimeValue` shape.
@@ -55,13 +55,13 @@ _lift_json :: (fn(v : &JsonValue) -> EvalValue)(
   match(
     v,
     .Null => _cv0(String.from("Null")),
-    .Bool(b) => _cv1(String.from("Bool"), EvalValue.BoolVal(b)),
+    .Bool(b) => _cv1(String.from("Bool"), EvalValue.BoolVal(b.*)),
     // JsonValue.Int is the exact arm — no f64 round trip, so an integer beyond
     // 2^53 lifts to a comptime Int losslessly instead of being rounded.
     .Int(i) => _cv1(String.from("Int"), EvalValue.IntLit(i.to_string())),
     .Number(n) => if(
-      n == f64(i64(n)),
-      _cv1(String.from("Int"), EvalValue.IntLit(i64(n).to_string())),
+      n.* == f64(i64(n.*)),
+      _cv1(String.from("Int"), EvalValue.IntLit(i64(n.*).to_string())),
       _cv1(String.from("Float"), EvalValue.FloatLit(n.to_string()))
     ),
     .Str(s) => _cv1(String.from("Str"), EvalValue.StrLit(`"${s}"`)),
@@ -100,7 +100,7 @@ _lift_toml :: (fn(v : &TomlValue) -> EvalValue)(
     .Str(s) => _cv1(String.from("Str"), EvalValue.StrLit(`"${s}"`)),
     .Int(n) => _cv1(String.from("Int"), EvalValue.IntLit(n.to_string())),
     .Float(f) => _cv1(String.from("Float"), EvalValue.FloatLit(f.to_string())),
-    .Bool(b) => _cv1(String.from("Bool"), EvalValue.BoolVal(b)),
+    .Bool(b) => _cv1(String.from("Bool"), EvalValue.BoolVal(b.*)),
     .Datetime(dt) => _cv1(String.from("Str"), EvalValue.StrLit(`"${dt.to_string()}"`)),
     .Array(items) => {
       out := ArrayList(EvalValue).new();
@@ -164,7 +164,7 @@ _string_argument :: (
       )
     );
   });
-  arg := match(args.get(usize(0)), .Some(a) => a, .None => expr);
+  arg := match(args.get(usize(0)), .Some(a) => a, .None => expr.*);
   evaluated := evaluate_expression_raw(&arg, env, ctx, exn);
   match(
     match(
@@ -195,9 +195,9 @@ _string_argument :: (
 _annotate :: (fn(expr : &AstExpr, value : &Option(EvalValue), env : &Environment, ctx : &EvalContext) -> AstExpr)({
   ty := match(_comptime_value_type(env), .Some(t) => t, .None => t_unit());
   info := new_expr_info(env, &ty);
-  info.set_value(value);
+  info.set_value(value.*);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
-  expr
+  expr.*
 });
 evaluate_comptime_json_parse :: (
   fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr

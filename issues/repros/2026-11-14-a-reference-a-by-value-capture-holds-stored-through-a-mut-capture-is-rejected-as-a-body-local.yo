@@ -1,0 +1,17 @@
+// A by-value capture `r` holds `&owned`, a place outside the literal; storing `r` through the `&mut` capture `s`
+// is E0912 ("a local of this literal's body") though `owned` outlives `slot`. Expected: accepted, runs clean.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  owned := String.from("abc");
+  mut(slot) := Option(&String).None;
+  r := &owned;
+  {
+    (mut(c) : Impl(FnMut() -> unit)) = ({ s : &mut slot, r }() => {
+      s.* = .Some(r);
+    });
+    c();
+  };
+  match(slot, .Some(x) => println(x), .None => ());
+});
+export(main);

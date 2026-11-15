@@ -1,0 +1,14 @@
+// P2 / R-TAIL corpus row `block-tail-projection-local` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P2,
+// VERDICTS-41 Q1; manifest tests/origins/corpus.tsv): a block-local root of the block's result is dropped at
+// the block's end while the binding reads through it afterwards.
+// Expected: rejected: E0911 at the block's end (Rust's E0597).
+first :: (fn(p : &i32) -> &i32)(&p.*);
+main :: (fn() -> unit)({
+  z := {
+    w := i32(2);
+    first(&w)
+  };
+  _ := z.*;
+  ()
+});
+export(main);

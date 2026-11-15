@@ -1,0 +1,18 @@
+// expect: E0910
+// Audit A2 (c52): a `&` call result into `xs` is the first argument and the second MOVES `xs` into the callee, which drops it before reading through the first.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+long :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+first :: (fn(xs : &ArrayList(String)) -> &String)(&xs(usize(0)));
+g :: (fn(r : &String, xs : ArrayList(String)) -> usize)({
+  drop(xs);
+  r.clone().len()
+});
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(long());
+  v := g(first(&xs), xs);
+  println(`OUT: ${v.to_string()}`);
+});
+export(main);

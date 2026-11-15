@@ -114,7 +114,7 @@ impl(
       // handles (issues/fixed/once-re-entered-from-its-own-closure-deadlocks-on-posix-and-double-runs-on-windows.md).
       self._cell.*._mutex._held_by_current_thread() => __yo_panic("Once.call: re-entered from its own initializer"),
       true =>
-        self._cell.*._mutex.with_lock({ self, &mut f }(_guarded) => {
+        self._cell.*._mutex.with_lock({ self : self.*, f : &mut f.* }(_guarded) => {
           // Double-check under the lock: another thread may have finished
           // between the fast-path load and the acquisition.
           cond(
@@ -181,7 +181,7 @@ impl(
     // through `self`'s cell, and lending the receiver through the same cell
     // root would be decision 28's argument exclusivity (E0910).
     once := self._cell.*._once;
-    once.call({ self, &mut f }() => {
+    once.call({ self : self.*, f : &mut f.* }() => {
       self._cell.*._value = Option(T).Some(f());
     });
   }),
@@ -198,7 +198,7 @@ impl(
     self._init(f);
     match(
       &self._cell.*._value,
-      .Some(v) => &v,
+      .Some(v) => &v.*,
       .None => __yo_panic("OnceCell: initialized flag published without a value")
     )
   }),

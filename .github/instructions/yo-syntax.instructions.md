@@ -5,67 +5,34 @@ description: "Use when writing or editing Yo language code. Covers critical synt
 
 # Yo Language Syntax Rules
 
-## Curly braces `{...}` behave differently based on separators
+## Curly braces: `.{ … }` builds a record, `{ names }` on a binding side picks fields, every other `{ … }` is a block
 
-- A brace group is a **record unless it contains a `;`**, and that rule is the
-  same in EVERY position — a value, the left of `::` / `:=` / `=`, and a
-  `match` payload pattern (decided 2026-09-16,
-  `plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md` §4, where the `.{ … }` and
-  comma-decides alternatives are recorded as declined). Patterns and literals
-  therefore never disagree about what a brace means.
-- `{ expr }` without semicolons creates an **anonymous struct value**, NOT a block!
-- `{ x }` — a bare identifier — is a **one-field record** (`_(x : x)`), the
-  case that looks most like a block in other languages. The parser's clear
-  error covers a single non-fieldable expression (a call, a `match`), but
-  `{ x }` IS fieldable, so it is accepted; the compiler reports it at the
-  literal when the expected type can never be a record, and when there is no
-  expected type (`y := { x }`) you simply get the record.
-- `{ expr; }` with semicolons creates a **begin block** (sequence of statements)
-- Struct literal fields use spaces around `:` and infix field values must stay grouped: `{ x : (1 + 2), y : 3 }`, not `{ x: 1 + 2, y: 3 }`.
-- If you want a single expression, write `expr` directly. Don't wrap it in `{...}` unless you need a struct.
-- **The parser now detects this mistake and emits a clear error**: if `{ }` contains a single non-struct expression (a function call, `match`, `cond`, `while`, etc.), it fails with: `{ ... } without semicolons is parsed as a struct literal, not a block.`
+The whole rule (plans/reference/BRACE_BLOCKS.md, brace groups Generation B, v0.2.78):
+
+- **A record value is `.{ … }`, always**: `.{ x : 1, y : 2 }`, `.{ x, y }` (puns), `.{ x }` (one field),
+  `.{}` (the empty record), `.{ &y }`, `.{ ...base, x : 1 }`. With an expected struct type it is that
+  type's value (`(p : Point) = .{ x : 1, y : 2 }`), as `.Some(x)` is the expected enum's; with none it
+  is an anonymous record. Effect records and build options too: `io.await(fut, .{ io, exn })`,
+  `build.executable(.{ name : "n", root : "r" })`.
+- **A bare `{ … }` in expression position is a block**: `{ e }` yields `e`, `{ s; e }` yields `e`,
+  `{ s; }` yields unit, and `{}` is the empty block (unit). A `,` or a `label : value` pair directly
+  inside a bare expression brace is E0007, whose repair inserts the dot (`yo fix`).
+- **Binder positions keep bare braces**, a field list with no dot: `{ a } := s`, `{ a : alias } = s`,
+  `{ String } :: import("std/string")`, `{ ... } :: import("m")`, `match(p, { x, y } => …)`,
+  `.V({ x })` / `.V({})` in a pattern, and the closure capture list `{ y }(p) => …`, `{}() => …`. A
+  dot there is E0007, whose repair deletes it.
+- `(a, b)` is the only tuple spelling (`.{ 1, 2 }` is E0007 naming it), and `Point(x : 1, y : 2)` stays
+  the constructor of a named struct.
+- Record fields use spaces around `:` and infix field values stay grouped: `.{ x : (1 + 2), y : 3 }`.
+- `yo fix <path> --migrate record-literal` rewrites source written before v0.2.78 (where a bare brace
+  group of fields was a record) to `.{ … }`; it retires in v0.2.79.
 
 ```yo ignore
-// WRONG - creates a struct:
-result := { .Ok(()) }
-
-// CORRECT - just the expression:
-result := .Ok(())
-
-// CORRECT - begin block with statements:
-result := { x := 1; y := 2; .Ok(()) }
-
-// WRONG - invalid anonymous struct value:
-print_bool :: (fn(value: bool) -> i32)({
-  cond(
-    value => i32(1),
-    true => i32(0)
-  )
-});
-
-// CORRECT - just the expression:
-print_bool :: (fn(value: bool) -> i32)(
-  cond(
-    value => i32(1),
-    true => i32(0)
-  )
-);
-
-// WRONG - lambda body wraps single expression in {...}, creating a struct:
-io.async((io : Io) => {
-  cond(
-    done => .Ok(()),
-    true => .Err(e)
-  )
-})
-
-// CORRECT - lambda body is just the expression, no {...}:
-io.async((io : Io) =>
-  cond(
-    done => .Ok(()),
-    true => .Err(e)
-  )
-)
+r := .{ x : i32(1), y : i32(2) }; // a record
+v := { x };                        // a block yielding x
+{ x, y } := r;                     // a field list (binder)
+noop :: (fn() -> unit)({});        // the empty block is unit
+io.async((io : Io) => { cond(done => .Ok(()), true => .Err(e)) }) // a block yielding the cond
 ```
 
 ## Always write `cond(...)` and `match(...)` with parentheses
@@ -204,14 +171,12 @@ supplies the signature) is written with the right group, which fmt keeps:
 
 ## Return value rules
 
-- The last expression in `{ ... }` without semicolon is the return value of the struct or enum constructor.
+- The last expression in a block `{ ...; e }` (no semicolon after it) is the block's value; `{ e }` alone yields `e`.
 - With semicolon, like `{ expr; }`, the return value is `unit`.
 - **`()` is the unit VALUE; `unit` is the TYPE.** Never write `unit;` — that evaluates the type as a
   comptime value. To yield unit, either end the block with `()` as the last expression (no semicolon),
   or omit the tail entirely: a block whose statements all end in `;` already evaluates to unit. An
-  empty arm is `()` — `{}` is an empty STRUCT value, not unit, and is rejected where unit is
-  expected (`issues/fixed/2026-10-18-an-empty-struct-literal-is-accepted-where-unit-is-expected.md`;
-  maintainer directive 2026-10-18).
+  empty arm is `()` or the empty block `{}` (both unit since v0.2.78); `.{}` is the empty RECORD.
 
 ## Enum definition syntax
 
@@ -626,11 +591,11 @@ main :: (fn() -> unit)({
 });
 ```
 
-Safe code cannot even HOLD a raw pointer value (2026-09-07): an expression whose type is `*(T)` or carries one directly (`Option(*(T))` from a pointer iterator's `next()`) is a compile error outside an unsafe-capable file (std, the trusted base, is exempt) — borrow elements with `for(&mut coll, x => …)` instead. A struct WRAPPING a pointer is not automatically gated (public pointer field does not decide safety: `HashMap`'s `ctrl` is public by accident and safe; `Allocator` is a public function-pointer table and safe), so the std rule is per-API: anything that hands out storage returns the POINTER (`ArrayList.ptr()`, `String.ptr()` — the gate rejects that in safe files), never a ptr+len struct — a `RawSlice` handout was measured passing through safe code into `random_bytes`, a UAF WRITE (2026-10-01). A file may also declare `pragma(Pragma.StrictBorrow);` to turn the borrowed loop's runtime invalidation panics into compile errors (calls the mutation summary cannot prove harmless are rejected).
+Safe code cannot even HOLD a raw pointer value (2026-09-07): an expression whose type is `*(T)` or carries one directly (`Option(*(T))` from a pointer iterator's `next()`) is a compile error outside an unsafe-capable file (std, the trusted base, is exempt) — borrow elements with `for(&mut coll, x => …)` instead. A struct WRAPPING a pointer is not automatically gated (public pointer field does not decide safety: `HashMap`'s `ctrl` is public by accident and safe; `Allocator` is a public function-pointer table and safe), so the std rule is per-API: anything that hands out storage returns the POINTER (`ArrayList.ptr()`, `String.ptr()` — the gate rejects that in safe files), never a ptr+len struct — a `RawSlice` handout was measured passing through safe code into `random_bytes`, a UAF WRITE (2026-10-01).
 
 Inside an unsafe-capable file, the following operations are wrapped in `unsafe(...)` (so the unsafe surface stays greppable). The compiler enforces the wrap only on `extern "c"` call sites; on the rest it is the audit convention `yo unsafe-report` keys off, and the pragma alone is what admits them (`docs/en-US/MEMORY_SAFETY.md`):
 
-- Pointer dereference: `p.*` (read), `p.* = v` (write). `.*` on a REFERENCE binding (`v.*` with `v : &T`/`&mut T`, `y.*` with `y := &x`, a `for(&xs, x => …)` element, a `match(&x, …)` binding) is the reference's own deref outside std and src (N1e-1): a whole-value read or write of the referent is spelled `v.*` / `v.* = e`, and the bare name in a by-value position (an operand, a by-value argument, an initializer, a return, `v = e`, `&v`) is E0926; receivers (`v.f`, `v.m()`, `v(i)`), `f(v)` into a reference parameter, the re-point `v = &place` and a `match(v, …)` scrutinee (it matches through the reference; its bindings borrow the payload) stay bare, and `match(&v, …)` on a reference is E0926 (the marker is redundant; the migration drops it). Through a reference to a `Box`/`Rc`/pointer the payload is `v.*.*`. std and src keep the old reading (bare reads, `v.*` meaning the payload, `.*` on a borrow E0920) until N3; `yo fix <path> --migrate deref` rewrites user code. Note `r.* = (a + b)`: an assignment's right-hand side operator chain is parenthesized, as everywhere (E0003)
+- Pointer dereference: `p.*` (read), `p.* = v` (write). `.*` on a REFERENCE binding (`v.*` with `v : &T`/`&mut T`, `y.*` with `y := &x`, a `for(&xs, x => …)` element, a `match(&x, …)` binding) is the reference's own deref outside std and src (N1e-1): a whole-value read or write of the referent is spelled `v.*` / `v.* = e`, and the bare name in a by-value position (an operand, a by-value argument, an initializer, a return, `v = e`, `&v`) is E0926; receivers (`v.f`, `v.m()`, `v(i)`), `f(v)` into a reference parameter, the re-point `v = &place` and a `match(v, …)` scrutinee (it matches through the reference; its bindings borrow the payload) stay bare, and `match(&v, …)` on a reference is E0926 (the marker is redundant; the migration drops it). Through a reference to a `Box`/`Rc`/pointer the payload is `v.*.*`. std and src are written in this spelling since the deref text sweep (v0.2.78), but keep their exemption until the deref flip (v0.2.79, VERDICTS-60): a written `v.*` there is the reference's own deref, and a bare `v` still reads the old way. Until the flip, new std/src code follows the rule above with two exceptions: an `io.async` capture of a reference parameter is written `{ &p }` (the v0.2.77 seed rejects `{ p : &p.* }` there, `issues/2026-11-13-the-v0277-seed-rejects-the-deref-swept-io-async-captures-of-a-reference-parameter.md`), and a by-value capture entry `{ r }` of a reference binding is not written at all (the seed copies the referent, the flip the reference): write `{ r : r.* }` to copy the referent. `yo fix <path> --migrate deref` rewrites user code. Note `r.* = (a + b)`: an assignment's right-hand side operator chain is parenthesized, as everywhere (E0003)
 - `addr_of(x)` of a `&T` parameter (`self : &Self` included), or of a place inside it (a field of a value struct or tuple, an element of an array it holds), is E0921: codegen passes every `&T` parameter of a non-projection function as a copy (`fn_param_is_ptr_borrow`, whatever the size of `T`), so the pointer is the callee's copy and dangles once the call returns. The caller's address comes from a `x : *T` parameter (the caller passes `addr_of(place)`) or `x : &mut T` (passed as a pointer). Not E0921: a field of a `ref(struct)` handle or anything behind a raw pointer (`addr_of(self.*)`, `addr_of(self.f)` on an `atomic(ref(struct))`, both in shared cells), and a projection's (`-> &T`) `&T` parameter, which is passed as a pointer (`issues/retired/2026-10-25-should-addr-of-a-borrowed-parameter-be-rejected.md`)
 - Pointer arithmetic: `.add(n)`, `.sub(n)`, `.offset_from(q)`
 - `consume(p.* = v)` (deref-and-init)
@@ -660,7 +625,7 @@ v := unsafe(p.*);
 // Assignment:
 unsafe(p.* = i32(12));
 
-// cond / match wrapped directly (no braces — `{...}` without `;` is a struct):
+// cond / match wrapped directly:
 result := unsafe(
   cond(
     (n > i32(0)) => p.*,
@@ -766,7 +731,7 @@ The builtin `Slice(T)` and the view methods `String.as_str()` /
 
 ### Return-slot modifiers: a borrow is BANNED; `comptime` goes on the label
 
-**A function returns a borrow only as a projection** (`-> &T` / `-> &mut T`, decision 24, V2b): the body yields a place written with the result's sigil (`&self.a`, `&mut self.rows(i)`, every `cond`/`match` arm and `return(...)` likewise) or a reference binding (`x` for `x : &T`, VERDICTS-45: the result is a reference slot, the bare read is the reference; `&x.*` stays legal; a field read or projection call is not yet a bare leaf, write `&h.r.*` / `&r.get()`), rooted at one of the projection's own borrow parameters (a `&mut` result needs a `&mut` parameter); a projection's `&T` parameters are passed by pointer. It is reached through the subscript (`x(i)` dispatching `Index.index` for a read, `IndexMut.index_mut` for every write) or called directly by name (`t.index(i)`, `Trio.index(&t, i)`, `first(&t)`; through a function value is an error). A direct call's result is the PLACE, not a copy: an operand (`t.index(i) + 1`), a receiver (`n.name_mut(0).push_str("!")`), a bare argument to a `&T`/`&mut T` parameter (`f(t.index(i))`), a local borrow (`r := t.index(i)` is a `&`/`&mut` borrow like `y := &place`, freezing the call's borrowed arguments, receiver included, until its last use, E0911; `(v : T) = t.index(i)` copies instead), and for a `&mut` projection the left of `=` (`t.index_mut(i) = v`; `.*` arrives with decision 43). A `&` projection's place is read-only (a write, a `&mut self` method or a `&mut` argument through it is E0908); a projection call whose borrowed argument is a temporary cannot be bound; a projection may yield another's result (`&g.index(i).a`) rooted at its own parameters (`docs/en-US/INDEX_TRAIT.md`). A borrow is second-class and exists in parameter position and as a LOCAL BINDING (`plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md`): `y := &mut x;` names x's slot (`y = v` writes x; `copy := y` copies the pointee), and `y := &x;` is the read-only form (a write through it, passing it to a `&mut` parameter or calling a writing method on it, or `z := &mut y.f` is E0908; the annotated form is `(y : &T) = &x;`). **A local borrow is live until its LAST USE and freezes its place for that range** (`plans/VALUES_BY_DEFAULT.md` decision 18, E0911): under `&` no write/move of the place, a place inside it or one containing it; under `&mut` no access at all except through the borrow. Sibling fields are free (`a := &mut p.x; b := &mut p.y;`); below a `ref` object/`Rc`/`Arc` the CELL is the unit (`h.n` and `h.s` overlap); a loop that mentions the borrow keeps it live for the whole loop; a borrow of a borrow keeps its source live; a borrow of a module-level place may not be live across a call, and one through a cell or a module-level place not across an `await`. So `x = v` while `y` is still used later is an error: read or write the root after the borrow's last use. **Re-point** a borrow along a linked structure with `cur = &mut place` / `cur = &place` (decision 25): the place must be a field of `cur`'s target or a field of a binding of a bare `match` over `cur` (`match(cur, .Some(n) => { cur = &mut n.next; }, .None => ())`; the binding is a place in `cur`'s target, and a unique `Box` on the way is a free value step, so the mutable list is `Option(Box(Node))`; an `Rc` list walks only with `&`, since its payload is read-only, E0919); a sibling root, a module-level place, a call result or a binding of a by-value `match(cur.*, …)` is rejected, `n` is frozen after `cur = &mut n.next`, the declared place stays frozen while `cur` is live, and a re-point is E0911 while a borrow derived from `cur` is live. The sigil on the right decides: a bare `cur = v` never re-points, it WRITES `v` through a `&mut` borrow into the lent place. **A local borrow never crosses the function boundary** (decision 18 rule 1, decision 38 A): `return(y)` / `return(y.f)` and a body whose result expression is the borrow — a block tail that yields one, including a nested block the body's result ends in — are E0912 (the spelling names the borrow, not the value it reads through; `v := y;` then `v` is the way out; `y.len()`, `xs(i)` and operations like `y + i32(0)` produce values and are fine; a `&mut` PARAMETER is a different mechanism and still returns the pointee copy). Accepted places: a whole variable of any scope, a field path rooted at a value struct, or a field path through a reference-semantics value (`h.n`, `a.b.n`) — that innermost object is then PINNED for the binding's scope (a hidden owning local; released on break/return/unwind). Rejected: element places (`xs(i)`, `p.*` — borrow elements with the `for` macro), rvalues, `Type.member`, compile-time roots, `::`, module-level declarations, and MOVING the root while a binding is live (`sink(sink(x))`). A binding inside an `io.async` body works across its awaits: the reference, its pin and the place's root live in task slots (`src/` and `std/` are built by the seed, so they may use this only once `SEED_VERSION` carries it). Return the value instead of a borrow (reference-semantics values are handles that mutate in place; struct values copy), or take a callback parameter that receives `name : &mut T`. A `&mut` ARGUMENT is a simple lvalue place: a variable, or `var.field` rooted at a local/param — chains through an intermediate reference-semantics value and module-level field roots are rejected for ARGUMENTS (bind the value to a local first: `b := a.b`, or use a local `&mut` borrow, which pins).
+**A function returns a borrow only as a projection** (`-> &T` / `-> &mut T`, decision 24, V2b): the body yields a place written with the result's sigil (`&self.a`, `&mut self.rows(i)`, every `cond`/`match` arm and `return(...)` likewise) or a reference binding (`x` for `x : &T`, VERDICTS-45: the result is a reference slot, the bare read is the reference; `&x.*` stays legal; a field read or projection call is not yet a bare leaf, write `&h.r.*` / `&r.get()`), rooted at one of the projection's own borrow parameters (a `&mut` result needs a `&mut` parameter); a projection's `&T` parameters are passed by pointer. It is reached through the subscript (`x(i)` dispatching `Index.index` for a read, `IndexMut.index_mut` for every write) or called directly by name (`t.index(i)`, `Trio.index(&t, i)`, `first(&t)`; through a function value is an error). A direct call's result is the PLACE, not a copy: an operand (`t.index(i) + 1`), a receiver (`n.name_mut(0).push_str("!")`), a bare argument to a `&T`/`&mut T` parameter (`f(t.index(i))`), a local borrow (`r := t.index(i)` is a `&`/`&mut` borrow like `y := &place`, freezing the call's borrowed arguments, receiver included, until its last use, E0911; `(v : T) = t.index(i)` copies instead), and for a `&mut` projection the left of `=` (`t.index_mut(i) = v`; `.*` arrives with decision 43). A `&` projection's place is read-only (a write, a `&mut self` method or a `&mut` argument through it is E0908); a projection call whose borrowed argument is a temporary cannot be bound; a projection may yield another's result (`&g.index(i).a`) rooted at its own parameters (`docs/en-US/INDEX_TRAIT.md`). A borrow is second-class and exists in parameter position and as a LOCAL BINDING (`plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md`): `y := &mut x;` names x's slot (`y = v` writes x; `copy := y` copies the pointee), and `y := &x;` is the read-only form (a write through it, passing it to a `&mut` parameter or calling a writing method on it, or `z := &mut y.f` is E0908; the annotated form is `(y : &T) = &x;`). **A local borrow is live until its LAST USE and freezes its place for that range** (`plans/VALUES_BY_DEFAULT.md` decision 18, E0911): under `&` no write/move of the place, a place inside it or one containing it; under `&mut` no access at all except through the borrow. Sibling fields are free (`a := &mut p.x; b := &mut p.y;`); below a `ref` object/`Rc`/`Arc` the CELL is the unit (`h.n` and `h.s` overlap); a loop that mentions the borrow keeps it live for the whole loop; a borrow of a borrow keeps its source live; a borrow of a module-level place may not be live across a call, and one through a cell or a module-level place not across an `await`. So `x = v` while `y` is still used later is an error: read or write the root after the borrow's last use. **Re-point** a borrow along a linked structure with `cur = &mut place` / `cur = &place` (decision 25, widened by P1): the place is a field of `cur`'s target, a field of a binding of a bare `match` over `cur` (`match(cur, .Some(n) => { cur = &mut n.next; }, .None => ())`; the binding is a place in `cur`'s target, and a unique `Box` on the way is a free value step, so the mutable list is `Option(Box(Node))`; an `Rc` list walks only with `&`, since its payload is read-only, E0919), or a place of another variable (`cur = &mut other.f`: a new loan with a declaration's checks, `mut(other)` for `&mut`; `cur` used after `other`'s scope ends is E0911 at the re-point, and writing `other` while `cur` is live is E0911); a call result, an index, a `.*` step (not yet admitted) or a binding of a by-value `match(cur.*, …)` is rejected, `n` is frozen after `cur = &mut n.next`, the declared place stays frozen while `cur` is live, and a re-point is E0911 while a borrow derived from `cur` is live. The sigil on the right decides: a bare `cur = v` never re-points, it WRITES `v` through a `&mut` borrow into the lent place. **A local borrow never crosses the function boundary** (decision 18 rule 1, decision 38 A): `return(y)` / `return(y.f)` and a body whose result expression is the borrow — a block tail that yields one, including a nested block the body's result ends in — are E0912 (the spelling names the borrow, not the value it reads through; `v := y;` then `v` is the way out; `y.len()`, `xs(i)` and operations like `y + i32(0)` produce values and are fine; a `&mut` PARAMETER is a different mechanism and still returns the pointee copy). Accepted places: a whole variable of any scope, a field path rooted at a value struct, or a field path through a reference-semantics value (`h.n`, `a.b.n`) — that innermost object is then PINNED for the binding's scope (a hidden owning local; released on break/return/unwind). Rejected: element places (`xs(i)`, `p.*` — borrow elements with the `for` macro), rvalues, `Type.member`, compile-time roots, `::`, module-level declarations, and MOVING the root while a binding is live (`sink(sink(x))`). A binding inside an `io.async` body works across its awaits: the reference, its pin and the place's root live in task slots (`src/` and `std/` are built by the seed, so they may use this only once `SEED_VERSION` carries it). Return the value instead of a borrow (reference-semantics values are handles that mutate in place; struct values copy), or take a callback parameter that receives `name : &mut T`. A `&mut` ARGUMENT is a simple lvalue place: a variable, or `var.field` rooted at a local/param — chains through an intermediate reference-semantics value and module-level field roots are rejected for ARGUMENTS (bind the value to a local first: `b := a.b`, or use a local `&mut` borrow, which pins).
 
 | Form                                                              | Verdict                                       |
 | ----------------------------------------------------------------- | --------------------------------------------- |
@@ -915,12 +880,12 @@ Verify with `yo public-safe-report ./std` (or `./src`). It scans every top-level
 
 ## `for` loop macro — correct form
 
-`for(coll, handle)` is desugared at parse time (`desugar_if_calls` → `_desugar_for_call`, `src/expr.yo`; macro plan B1) into exactly the loop the 2-argument prelude `for` macro expands to; the macro is kept only for the seed until Part C deletes it, and `YO_DEBUG_FOR_MACRO_REACHED=1` makes a call that still reaches it an error. Because the rewrite runs before name resolution, a user function named `for` is never called by `for(a, b)`. The value form iterates BY VALUE (it expands to `coll.into_iter()`, and `IntoIterator.into_iter` takes `self : Self`, so the loop CONSUMES `coll`: a collection read again afterwards takes the read walk below or `coll.clone()`; `chars`/`bytes`/`char_indices`/`lines`/`keys`/`values`/`chunks`/`windows` consume their receiver the same way, and until each collection's V2b flip the by-value receiver shares, so a later use still compiles. `iter()` yields raw pointers and holds the storage, not the collection: `pragma(Pragma.AllowUnsafe)` code only, B7b); the BORROWED form `for(&mut coll, x => body)` / `for(&mut map, (k, v) => body)` binds each element as a `&mut` local borrow into the collection's storage, and the READ WALK `for(&coll, x => body)` / `for(&map, (k, v) => body)` as a `&` local borrow (a `BorrowedWalk` cursor over a local borrow `c := &mut coll` / `c := &coll` under the hood):
+`for(coll, handle)` is desugared at parse time (`desugar_if_calls` → `_desugar_for_call`, `src/expr.yo`; macro plan B1) into a `while` over `.into_iter()` (the prelude's `for` macro was deleted with G3). Because the rewrite runs before name resolution, a user function named `for` is never called by `for(a, b)`. The value form iterates BY VALUE (it expands to `coll.into_iter()`, and `IntoIterator.into_iter` takes `self : Self`, so the loop CONSUMES `coll`: a collection read again afterwards takes the read walk below or `coll.clone()`; `chars`/`bytes`/`char_indices`/`lines`/`keys`/`values`/`chunks`/`windows` consume their receiver the same way, and until each collection's V2b flip the by-value receiver shares, so a later use still compiles. `iter()` yields raw pointers and holds the storage, not the collection: `pragma(Pragma.AllowUnsafe)` code only, B7b); the BORROWED form `for(&mut coll, x => body)` / `for(&mut map, (k, v) => body)` binds each element as a `&mut` local borrow into the collection's storage, and the READ WALK `for(&coll, x => body)` / `for(&map, (k, v) => body)` as a `&` local borrow (the value form over `(&mut coll).into_iter()` / `(&coll).into_iter()`, whose cursor holds the lend):
 
 ```yo
 for(list, x => {
   process(x);
-}); // value form: macro expands to list.into_iter()
+}); // value form: list.into_iter()
 for(counters, c => {
   c.n = (c.n + 1);
 }); // ref(struct(...)) elements are HANDLES: mutates in place
@@ -932,7 +897,7 @@ for(chain.map(f), y => println(&y)); // combinator chain: pass as the value-form
 
 - First argument: the collection itself, or an iterator chain (`.map().filter()`-style).
 - Second argument: an anonymous closure `(x) => body`; `x` is `T` by value (a handle for reference-semantics element types — mutating it mutates the element in place). A value element is borrowed: writing its RC data through `x` (a `String` element, a struct element's `String` field) is E0908 — use the borrowed form below.
-- **The borrowed form `for(&mut coll, x => body)`** (plans/VALUES_BY_DEFAULT.md decision 39, R-FOR): lowers to the VALUE form over `(&mut coll).into_iter()` — `impl(&mut C, IntoIterator)` returns a cursor (`ArrayListCursorMut(T, p)`, …) holding the `&mut(C, p)` lend, and `x` is the `&mut(T, p)` item binding (write `x.* = …`; struct fields write in place, RC elements are not dup'd, `bump(x)` passes the same reference). The hidden iterator `for_iter_var<N>` carries the `for` call's position (`for_desugar_site_of`), so its lend is live for the whole loop and the body may NOT name `coll` at all — `coll.push(x)`, `coll.len()`, `coll.clone()`, a nested `for(&mut coll, …)` — E0911 (Rust's `iter_mut` rule). `x` is second-class: `return(x)` is E0912 (`v := x.*; return(v)`). To read or grow a list while walking it, walk its positions: `for(xs.indices(), i => …)` with `xs(i)`. A source that is not a place is held by a hidden local. A source behind an `Rc` is lent through the payload: `for(&xs.*, …)`. Maps: `for(&mut m, (k, v) => body)` — Item `(&(K, p), &mut(V, p))`, key read-only; a single name binds the whole TUPLE (not a `MapEntry`). `HashSet`/`PriorityQueue` have no `impl(&mut C, IntoIterator)`: `for(&mut set, …)` is an error naming the missing impl. A user type is a source by `impl(generic(p : Origin), &(C, p), IntoIterator(Item : &(T, p), IntoIter : MyCursor(p), …))` over a cursor struct holding `&(C, p)`. `BorrowedWalk`/`BorrowedWalkMut` stay in std only for the v0.2.76 seed's parse-time desugar (G3 deletes them); no new code implements them. A mutable module-level binding (`mut(G)`) as the source is E0911 at the loop.
+- **The borrowed form `for(&mut coll, x => body)`** (plans/VALUES_BY_DEFAULT.md decision 39, R-FOR): lowers to the VALUE form over `(&mut coll).into_iter()` — `impl(&mut C, IntoIterator)` returns a cursor (`ArrayListCursorMut(T, p)`, …) holding the `&mut(C, p)` lend, and `x` is the `&mut(T, p)` item binding (write `x.* = …`; struct fields write in place, RC elements are not dup'd, `bump(x)` passes the same reference). The hidden iterator `for_iter_var<N>` carries the `for` call's position (`for_desugar_site_of`), so its lend is live for the whole loop and the body may NOT name `coll` at all — `coll.push(x)`, `coll.len()`, `coll.clone()`, a nested `for(&mut coll, …)` — E0911 (Rust's `iter_mut` rule). `x` is second-class: `return(x)` is E0912 (`v := x.*; return(v)`). To read or grow a list while walking it, walk its positions: `for(xs.indices(), i => …)` with `xs(i)`. A source that is not a place is held by a hidden local. A source behind an `Rc` is lent through the payload: `for(&xs.*, …)`. Maps: `for(&mut m, (k, v) => body)` — Item `(&(K, p), &mut(V, p))`, key read-only; a single name binds the whole TUPLE (not a `MapEntry`). `HashSet`/`PriorityQueue` have no `impl(&mut C, IntoIterator)`: `for(&mut set, …)` is an error naming the missing impl. A user type is a source by `impl(generic(p : Origin), &(C, p), IntoIterator(Item : &(T, p), IntoIter : MyCursor(p), …))` over a cursor struct holding `&(C, p)`. A mutable module-level binding (`mut(G)`) as the source is E0911 at the loop.
 - **The read walk `for(&coll, x => body)`** (B7a): the same over `(&coll).into_iter()` — each element a `&(T, p)` reference binding, nothing is copied (no element dup). `x` is read-only: `x.* = …`, `x.f = …` are E0908. A `&` borrow freezes only writes, so the body MAY read `coll` (`coll.len()`, a nested `for(&coll, …)`) but not write it (`coll.push(…)` is E0911). `return(x)` is E0912. Maps: `for(&map, (k, v) => body)`, both borrowed read-only. Every std collection is a read-walk source, `HashSet` and `PriorityQueue` included. A seed without B7a reads `for(&xs, …)` as the value form (a copy per element), so `src/`/`std/` may write it only once `SEED_VERSION` carries B7a. Available inside an `io.async` body, with awaits in the loop body. The old spelling `ref(x) =>` is gone.
 - **Do NOT use `for(x, arr, { body })`** — this older 3-arg form is an evaluator-internal representation and is not valid top-level Yo source. (The self-hosted evaluator's internal for-loop handler currently only understands the 3-arg form; this is tracked in `issues/fixed/eval-for-loop-3arg-vs-2arg.md`.)
 - **Async iteration is the written-out loop** `mut(s) := stream; while(true, { n := io.await(s.next(io), io); match(n, .Some(x) => body, .None => { break; }) });` (`std/async/stream.yo`): the body is ordinary loop code (`break`/`continue`/`return`), and the await suspends the enclosing task because it is written in the `io.async` body. An `io.await` inside a function the task calls BLOCKS instead of suspending, which is why std's `for_await` macro was deleted (2026-10-24) and no named loop form replaces it. The stream binding needs `mut(s)` (decision 47: `next` takes `self : &mut Self`).
@@ -1021,7 +986,7 @@ A `match` takes its scrutinee the way a parameter takes its argument (Rust's def
 
 ### Reference bindings: two open pitfalls (decision 43, 2026-11-06)
 
-- **Inside std, `&v.*` on a `&`-match binding is E0920; std spells it `&v`.** std (and src) is exempt from the deref rule (`is_deref_rule_exempt`, `src/evaluator/memory_safety.yo`): a borrow there still reads as its value, and `.*` on a borrow is E0920. So std lends the binding of `match(&x, .Some(v) => …)` as `f(&v)`, where user code under the rule writes `f(&v.*)` (or `f(v)`). The exemption goes with the `--migrate deref` adoption over std and src in v0.2.76, which rewrites these sites.
+- **std and src spell `&v.*` on a `&`-match binding, as user code does** (the deref text sweep, v0.2.78). Their exemption (`is_deref_rule_exempt`, `src/evaluator/memory_safety.yo`) still gives a bare `v` the old reading until the deref flip (v0.2.79), so a bare `&v` there borrows the payload; write `&v.*`.
 - **`Option(&T).unwrap()` cannot reach the payload's methods yet** (open S2, `issues/2026-11-05-an-option-of-a-reference-cannot-reach-its-payloads-methods.md`): `h.get().unwrap().len()` with `get -> Option(&P)` is E0601 inside the prelude's `unwrap`. Read through a `match` until it is fixed: `match(h.get(), .Some(p) => p.len(), .None => usize(0))`. The payload binding is a reference binding and auto-derefs.
 
 ## Pattern forms in `match` (real pattern matching, 2026-09-19)
@@ -1470,7 +1435,7 @@ Fixes, in order of preference:
 1. **Hoist the statement out of the `match` entirely** — put the `eprintln`
    before or after, on a value the arms have already written. Usually the
    instrumentation did not need to be inside the arm at all.
-2. Give every sibling arm the same shape (add a matching statement to `_ => { ...; }` — an empty arm is `()`, never `{}`).
+2. Give every sibling arm the same shape (add a matching statement to `_ => { ...; }` — an empty arm is `()`).
 
 The error names a frame _level_, not a file or line, so it does not point at the
 arm you edited. If it appears right after you touched a `match`, assume this
@@ -1536,7 +1501,7 @@ the `&mut` audit note.
 
 ## Closure capture lists: `{ x, &y, z : &mut w }(params) => body`
 
-`plans/VALUES_BY_DEFAULT.md` decisions 35 and 38, Generation A (this compiler; `std/` and `src/` do not use it until the seed parses it). The `{…}` before the parameters is a record literal the closure literal reads as its captures:
+`plans/VALUES_BY_DEFAULT.md` decisions 35 and 38, Generation A (this compiler; `std/` and `src/` do not use it until the seed parses it). The `{…}` before the parameters is a field list (a binder, no dot) the closure literal reads as its captures:
 
 - `x` / `x : e` — a by-value field (copy, or move for a move-only value). `&y` / `name : &place` — a read-only borrow; `&mut z` / `name : &mut place` — a writing borrow. The sigil on the initializer carries the mode; the puns `&y` and `&mut z` stand for `y : &y` and `z : &mut z`.
 - The list is EXHAUSTIVE: the body may read only the listed names and module-level items (`{}()` captures nothing).
@@ -1561,7 +1526,7 @@ the `&mut` audit note.
 
 `plans/VALUES_BY_DEFAULT.md` decision 37, decision 43 N1f/N3 (landed; VERDICTS-15, VERDICTS-28 Q1):
 
-- An `FnMut` call borrows the closure exclusively (`self : &mut Self`). Its body may write its capture-list BY-VALUE entries (own state, kept across calls) and its `&mut` captures: `(mut(tick) : Impl(FnMut() -> i32)) = ({ n : i32(0) }() => { n = (n + i32(1)); n });`. Under `Fn`/`FnOnce` an entry write stays E0917.
+- An `FnMut` call borrows the closure exclusively (`self : &mut Self`). Its body may write its capture-list BY-VALUE entries (own state, kept across calls) and its `&mut` captures: `(mut(tick) : Impl(FnMut() -> i32)) = ({ n : i32(0) }() => { n = (n + i32(1)); n });`. Under `Fn`/`FnOnce` an entry write stays E0917. The state outlives the call: storing a reference to the call's parameter into it is E0923, to a body local or another by-value entry E0912 (audit A35); a borrow capture (`{ o : &x, last : Option(&T).None }`, `last = .Some(o)`) is fine. Through a `&mut` capture, `s.* = .Some(&owned)` of a by-value entry `owned` is E0912 too: the entry dies with the closure or future (A50).
 - An IMPLICIT capture is written (`s = …`, `s.push_str(…)`, `grow(&mut s)`, `for(&mut s, …)`) only in an `FnMut`/`FnOnce` closure that owns its record; in an `Fn` closure or a literal lent to a borrowing parameter (`run(&(() => …))`) it is E0913 (the record holds a copy, a bitwise alias in a borrowed literal: the write would free what the caller owns). Spell `{ &mut s }` at an `FnMut` slot. A `&` capture entry is read-only: calling an `FnMut` closure through `{ r : &f }` is E0908 (audit A46/A47).
 - While a closure's `&` capture of `x` is in scope, every `&mut` lend of `x` is E0910 — a `&mut` argument or receiver (whatever the callee does), `w := &mut x`, `match(&mut x, …)`, `for(&mut x, …)`, another closure's `{ m : &mut x }`; a capture-list `&mut` entry, `consume(x)` and an implicit capture that moves `x` are accesses against live local borrows too (E0911).
 - Call it through `mut(f)`, `f : &mut Impl(FnMut(...))`, `(mut(d) : Dyn(FnMut(...)))` or a temporary; an unmarked binding or a by-value parameter is E0917 (rebind: `mut(g) := f;`), `f : &Impl(FnMut(...))` / `&Dyn(FnMut(...))` is E0908, a call while a borrow of it lives is E0911. A literal passed to `f : &mut Impl(FnMut(...))` needs no marker.

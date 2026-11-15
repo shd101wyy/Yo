@@ -74,6 +74,56 @@ it is wrapped (§3.8). A user writes either face the same way std does; the
 examples are in `ALLOCATOR_PLACEMENT.md` §11.1 and §11.2. That plan's
 §10.1 C1–C7 are open for the maintainer.
 
+**Checked 2026-11-15 against the post-VBD language (at the maintainer's
+request: "does it fit, and how long").** *Judgment* marks an estimate.
+
+- **The library part fits unchanged.** A1, A3, A6 and A2's value face are
+  std over the version-2 interface, which landed. The dynamic rule of §2
+  (`reset` and `deinit` panic while a block is live) is still required: Yo
+  keeps one `ArrayList(T)` type and routes frees by owner prefix, so a
+  container placed in an arena carries no static tie to it.
+- **Read these spellings as their post-VBD forms:** `View(T, p)` is a slice
+  reference, `&([T], p)` or `&mut([T], p)` (decision 49); every "cycle
+  collector" sentence is moot (decision 48); `Box(T)` "through the scope"
+  (§3.10) is the `alloc :` argument.
+- **A1 owns the one soundness decision left in the library part.** A
+  `FixedBufferAllocator` over a borrowed buffer and a
+  `StackFallbackAllocator` hand out an `Allocator` value, which is a
+  type-erased `{ctx, vtable}` that a block's prefix stores; origins do not
+  track it. So a state that dies with a block live must abort at run time,
+  as the deleted `std/arena` did, and A1 must say how it knows.
+- **A4 needs more than §4.2 says.** Tried on `yo 0.2.77` and a develop
+  build: the arena pattern with `&(T, arena)` results checks today (several
+  results live at once; `reset` beside a live result is E0911). The planned
+  `alloc(self : &Self, v : T) -> &mut(T, self)` does not: the definition is
+  accepted and every call is rejected
+  (`issues/questions/2026-11-15-how-an-arena-lends-a-mut-reference-through-a-shared-receiver.md`).
+  A4 therefore waits on three things, not one: N2c–N2f (a reference stored
+  in a container or a cell is still E0909; `POST_VBD_PLAN.md` lane A,
+  v0.2.80–v0.2.81), the interior-mutability question
+  (`issues/questions/2026-11-11-how-the-checker-knows-a-type-is-interior-mutable.md`),
+  and that new question. `reset`'s exclusivity is body-independent only
+  from rule G (v0.2.79).
+- **Two things are called an arena** (§0 item 3): `ArenaAllocator`, whose
+  misuse is a panic, and the origin `Arena`, whose misuse is a compile
+  error. *Judgment:* settle the two names so that the difference is in
+  them, before A3 ships the first.
+- ***Judgment*, the time,** with one agent on the lane and a release every
+  two weeks:
+
+  | Piece | Work | Notes |
+  | --- | --- | --- |
+  | `ALLOCATOR_PLACEMENT.md` step C (`global_allocator`), which this plan starts from | 1 to 2 weeks | seed-gated: Generation A and B in two releases |
+  | A1 | 1.5 to 2.5 weeks | seven allocators, three OS back ends and wasm, the stale-state rule |
+  | A2's value face, A6 | 3 to 5 days each | allocation sites wait for `source_location` |
+  | A3 | 1 to 2 weeks | |
+  | A4 | 3 to 5 weeks | after its three prerequisites above; includes the `TrivialDrop` marker, a compiler change |
+  | A5 | 1 week | a measurement with a go/no-go; a no-go archives it |
+
+  The library part is 6 to 8 weeks, or 3 to 4 with A1, A3 and A6 on
+  separate agents (they are independent modules). The whole plan is 2.5 to
+  3.5 months, and A4 sets the end date.
+
 The sections below keep their 2026-10-21 text otherwise.
 
 ## 0. Verdict

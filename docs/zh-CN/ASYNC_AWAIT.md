@@ -48,7 +48,7 @@ main :: (fn(io : Io) -> unit)({
 });
 
 // 并行：不同线程，真正的同时执行
-task := Task(i32, bool).spawn(parent -> {
+task := Task(i32, bool).spawn(parent -> .{
   // 运行在不同线程上！
   // 完全隔离——无共享内存
 });
@@ -430,7 +430,7 @@ main :: (fn(io : Io) -> unit)({
         unwind(());
       }
     );
-  handle := io.spawn(task, { io, raise });
+  handle := io.spawn(task, .{ io, raise });
   result := handle.await(io);
   // result 是 Option(i32).None——任务已被中止
   assert(result.is_none(), "aborted task returns None");
@@ -1001,7 +1001,7 @@ Future（异步块状态机）使用**引用计数**来处理任务在被 await 
 
 ```yo
 main :: (fn(io : Io) -> unit)({
-  task := io.async((io : Io) => {
+  task := io.async((io : Io) => .{
     /* 工作 */
   });
   // task 为冷状态（refcount=1），尚未启动
@@ -1305,7 +1305,7 @@ impl(
      nx := io.await(s.next(io), io);
      match(
        nx,
-       .Some(x) => { … },
+       .Some(x) => .{ … },
        .None => {
          break;
        }

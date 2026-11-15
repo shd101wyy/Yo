@@ -37,7 +37,7 @@ IoTraits :: import("../io");
 { malloc, free } :: GlobalAllocator;
 
 _throw_io :: (fn(errno_val : i32, exn : Exception) -> unit)(
-  exn.throw(dyn(NetError.from_io(IoError.from_errno(errno_val))))
+  exn.throw(dyn(Box.new(NetError.from_io(IoError.from_errno(errno_val)))))
 );
 /// A Unix-domain socket descriptor behind a `UnixStream`'s `Box`. Its
 /// `Drop` closes the socket unless `close` already did.
@@ -106,14 +106,14 @@ impl(
       raw_fd := e.io.await(IO_unix.socket_stream(), e.io);
       fd := NetError.check(raw_fd, e.exn);
       path_s := path_owned.to_string();
-      cstr_bytes := match(path_s.to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
+      cstr_bytes := match(path_s.to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(Box.new(IoError.InvalidInput))));
       addr := IO_unix.make_sockaddr_un(cstr_bytes.ptr().unwrap());
       addr_buf := match(
         addr.buf,
         .Some(p) => p,
         .None => {
           e.io.await(IO_unix.close(fd), e.io);
-          e.exn.throw(dyn(NetError.from_io(IoError.NotSupported)));
+          e.exn.throw(dyn(Box.new(NetError.from_io(IoError.NotSupported))));
           (*u8)("")
         }
       );
@@ -195,14 +195,14 @@ impl(
         true => ()
       );
       path_s := path_owned.to_string();
-      cstr_bytes := match(path_s.to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
+      cstr_bytes := match(path_s.to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(Box.new(IoError.InvalidInput))));
       addr := IO_unix.make_sockaddr_un(cstr_bytes.ptr().unwrap());
       addr_buf := match(
         addr.buf,
         .Some(p) => p,
         .None => {
           e.io.await(IO_unix.close(fd), e.io);
-          e.exn.throw(dyn(NetError.from_io(IoError.NotSupported)));
+          e.exn.throw(dyn(Box.new(NetError.from_io(IoError.NotSupported))));
           (*u8)("")
         }
       );

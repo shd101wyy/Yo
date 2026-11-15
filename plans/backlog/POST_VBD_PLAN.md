@@ -118,8 +118,12 @@ battery takes the next lane-F item.
      landed in v0.2.78 (decision 11).
 - **Lane E starts here (maintainer, 2026-11-13; an exception to rule 5's "lane E
   starts when one drains"):** [`DEFAULT_ON_VERIFICATION.md`](DEFAULT_ON_VERIFICATION.md)
-  S1 (`yo init` scaffolds `pragma(Pragma.VerifyOrAssert);`) and S2 (the S2 issue
-  `issues/2026-11-13-a-contradictory-assumed-contract-makes-every-caller-proved.md`).
+  S0 (the `verify+` defect
+  `issues/2026-11-15-under-verify-plus-a-function-with-a-requires-no-ensures-and-a-block-body-is-not-verified.md`
+  and the both-modes fixture sweep; amended 2026-11-15), then S1 (`yo init`
+  scaffolds `pragma(Pragma.VerifyOrAssert);`), with S2 (the S2 issue
+  `issues/2026-11-13-a-contradictory-assumed-contract-makes-every-caller-proved.md`)
+  and SD (the solver's distribution) beside them.
   Its S3 is phase 4's item 1, pulled forward: verified std bodies start as soon
   as S2 lands, not when lane C drains.
 - **P-PERF-0 (lane C, no code):** re-baseline on the v0.2.79 tree.
@@ -311,7 +315,7 @@ These are deliberately parked, with their trigger recorded in the owning doc:
 - **Porting the async runtime to Yo.** One epoll backend, as an experiment,
   after NO_LIBC P9 (same plan, §5).
 - **The candidate catalogues**
-  (`FSTAR_`/`LEAN_`/`GOOSE_`/`K_FRAMEWORK_`/`RUST_`/`ZIG_ADOPTION_CANDIDATES`).
+  (`FSTAR_`/`LEAN_`/`GOOSE_`/`K_FRAMEWORK_`/`RUST_`/`ZIG_`/`JAI_ADOPTION_CANDIDATES`).
   These are pull-only, as in rule 4.
 - **Polonius-only borrow cases.** A recorded divergence
   (`BORROW_CHECKER_COMPLETENESS.md` P16).

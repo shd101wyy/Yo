@@ -125,7 +125,7 @@ _stop_watch :: (fn(st : &mut _WatcherState) -> unit)({
     st._active = false;
     events.fs_event_stop(st._handle);
     events.fs_event_close(st._handle);
-    _wake_waiters(&mut st);
+    _wake_waiters(&mut st.*);
   });
 });
 impl(
@@ -142,7 +142,7 @@ impl(
   /// state's own teardown removes it.
   /// (issues/fixed/a-dropped-watcher-leaves-the-event-loop-calling-freed-memory.md)
   Drop(
-    drop : (fn(self : &mut Self) -> unit)(_stop_watch(&mut self))
+    drop : (fn(self : &mut Self) -> unit)(_stop_watch(&mut self.*))
   )
 );
 /// A live watch. Create with `watch`, drain with `poll`/`next`, and `close`
@@ -185,7 +185,7 @@ _on_fs_event :: (fn(path : *u8, mask : i32, user_data : *u8) -> unit)({
 watch :: (fn(path : &Path, opts : WatchOptions, exn : Exception) -> Watcher)({
   // Checked before the watcher exists: a path with an interior NUL would
   // watch its prefix (issues/fixed/string-to-cstr-truncates-at-an-interior-nul.md).
-  cstr_bytes := match(path.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => exn.throw(dyn(IoError.InvalidInput)));
+  cstr_bytes := match(path.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => exn.throw(dyn(Box.new(IoError.InvalidInput))));
   w := Watcher(
     _cell : Box.new(
       _WatcherState(
@@ -204,7 +204,7 @@ watch :: (fn(path : &Path, opts : WatchOptions, exn : Exception) -> Watcher)({
   status := events.fs_event_start(w._cell._handle, cstr, flags, _on_fs_event, (*u8)((*void)(st)));
   if(status < i32(0), {
     events.fs_event_close(w._cell._handle);
-    exn.throw(dyn(IoError.from_errno(i32(0) - status)));
+    exn.throw(dyn(Box.new(IoError.from_errno(i32(0) - status))));
   });
   unsafe(consume(st.*._active = true));
   w

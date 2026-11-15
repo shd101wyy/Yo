@@ -71,7 +71,7 @@ register_sm_captured_names :: (
 /// was empty).
 sm_local_field_name :: (fn(variable_id : &String) -> String)(
   match(
-    g_sm_local_field_names.with({ &variable_id }(m) => m.get_cloned(variable_id.clone())),
+    g_sm_local_field_names.with({ variable_id : &variable_id.* }(m) => m.get_cloned(variable_id.clone())),
     .Some(stable) => stable,
     .None => {
       pre := String.from("var_");
@@ -166,7 +166,7 @@ note_await_consumed_temp :: (fn(name : &String) -> unit)({
   g_await_consumed_temps.with_mut({ name_owned }(s) => s.insert(name_owned));
 });
 is_await_consumed_temp :: (fn(name : &String) -> bool)(
-  g_await_consumed_temps.with({ &name }(s) => s.contains(name))
+  g_await_consumed_temps.with({ name : &name.* }(s) => s.contains(name))
 );
 /// The task-slot fields of NAMED locals, each with a move flag
 /// (`uint8_t __yo_mv_<field>`) beside it in its state-machine struct. A move
@@ -217,8 +217,8 @@ sm_temp_slot_of :: (fn(temp_var : &String, smv : &HashMap(String, CapturedVariab
   (found : Option(CapturedVariable)) = smv.get(temp_var.clone());
   if(found.is_none(), {
     for(&smv, (_k, cv) => {
-      if(cv.base.name == temp_var, {
-        found = Option(CapturedVariable).Some(cv);
+      if(cv.base.name == temp_var.*, {
+        found = Option(CapturedVariable).Some(cv.*);
         break;
       });
     });

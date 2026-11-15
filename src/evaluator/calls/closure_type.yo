@@ -61,6 +61,8 @@ pragma(Pragma.AllowUnsafe);
 :: import("../../error.yo");
 { Exception } :: import("std/error");
 { stable_func_id, debug_knob } :: import("../../utils.yo");
+{ set_closure_writes_captures } :: import("../utils.yo");
+{ closure_literal_is_borrowed } :: import("../context.yo");
 { mark_as_closure_fn, register_func_type, register_closure_capture_info, ClosureCaptureInfo } :: import("../../function_value.yo");
 {
   create_function_body_evaluation_context
@@ -254,6 +256,14 @@ try_to_implement_closure_by_fn_module_type :: (
   // Mark this function as a closure so codegen prepends the `void* closure_context`
   // capture parameter to its C prototype/definition.
   mark_as_closure_fn(closure_id.clone());
+  // Audit A46: a closure built from its type (`ClosureType({ ... })`) owns
+  // its record, so its body may write an implicit capture when the type is
+  // `FnMut`/`FnOnce` (not when it is lent to a borrowing parameter), as an
+  // `=>` literal's may (`evaluate_anonymous_function_implementation`).
+  set_closure_writes_captures(
+    &closure_id,
+    match(fn_module_type, Rc(.FnTraitT(base_name : ct_bn)) => ((ct_bn.* == "FnMut") || (ct_bn.* == "FnOnce")), _ => false) && !closure_literal_is_borrowed(expr)
+  );
   // Record the closure's own resolved Func type by func_id so codegen's
   // prototype emitter (get_func_type) can build the signature. FuncVal carries
   // only param-name strings, so the structured type is side-tabled here at
@@ -307,13 +317,13 @@ try_to_implement_closure_by_fn_module_type :: (
   env.pop_frame();
   // Capture variable enrichment. The snapshot is read in place through a
   // borrow of the dying `eval_ctx` — no Option copy out of the context.
-  match(&eval_ctx.captured_variables, .Some(nested_caps) => propagate_captures_to_enclosing(&nested_caps, ctx), .None => ());
+  match(&eval_ctx.captured_variables, .Some(nested_caps) => propagate_captures_to_enclosing(&nested_caps.*, ctx), .None => ());
   captured_vars_with_values_opt := match(
     &eval_ctx.captured_variables,
     .None => Option(HashMap(String, FuncCapturedVarInfo)).None,
     .Some(cv) =>
       if(cv.len() > usize(0), {
-        enriched := enrich_captured_variables(&cv, caller_env);
+        enriched := enrich_captured_variables(&cv.*, caller_env);
         Option(HashMap(String, FuncCapturedVarInfo)).Some(enriched)
       }, Option(HashMap(String, FuncCapturedVarInfo)).None)
   );
@@ -369,6 +379,6 @@ try_to_implement_closure_by_fn_module_type :: (
   expr_info_set_deferred_dup_expressions(&info, &capture_dups.dup_exprs);
   expr_info_set_closure_function_value(&info, Option(EvalValue).Some(func_val_pre));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
-  Option(AstExpr).Some(expr)
+  Option(AstExpr).Some(expr.*)
 });
 export(try_to_implement_closure_by_fn_module_type);

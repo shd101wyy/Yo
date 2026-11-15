@@ -526,7 +526,7 @@ main :: (fn(io : Io) -> unit)({
         unwind(());
       }
     );
-  handle := io.spawn(task, { io, raise });
+  handle := io.spawn(task, .{ io, raise });
   result := handle.await(io);
   // result is Option(i32).None — the task was aborted
   assert(result.is_none(), "aborted task returns None");
@@ -1125,7 +1125,7 @@ Futures (async block state machines) are **reference counted** to handle cases w
 
 ```yo
 main :: (fn(io : Io) -> unit)({
-  task := io.async((io : Io) => {
+  task := io.async((io : Io) => .{
     /* work */
   });
   // task is cold (refcount=1), hasn't started yet
@@ -1450,7 +1450,7 @@ consumer needs no `Exception` handler.
      nx := io.await(s.next(io), io);
      match(
        nx,
-       .Some(x) => { … },
+       .Some(x) => .{ … },
        .None => {
          break;
        }

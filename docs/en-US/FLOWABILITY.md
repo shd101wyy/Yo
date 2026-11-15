@@ -77,10 +77,10 @@ values: the task keeps the binding, its pin and the place's root in its own
 memory.
 
 **Re-pointing a borrow** walks a linked structure (decision 25):
-`cur = &mut place` / `cur = &place` moves `cur` to a place reached from
-it — a field of `cur`'s target, or a field of a binding of a bare `match`
+`cur = &mut place` / `cur = &place` moves `cur` to another place of its
+type — a field of `cur`'s target, a field of a binding of a bare `match`
 over `cur` (the binding is a place in `cur`'s target; a `Box` on the way is
-stepped through). The sigil on the right decides: a bare
+stepped through), or a place of another variable. The sigil on the right decides: a bare
 `cur = v` writes `v` through the borrow into the lent place, as the last
 line below does:
 
@@ -100,8 +100,14 @@ append :: (fn(list : &mut List, v : i32) -> unit)({
 });
 ```
 
-A sibling root, a module-level place, a call result or a binding of a
-by-value `match(cur.*, …)` (a copy of the payload) is rejected. The
+A place of another variable (`cur = &mut other.head`) is a new loan, checked
+as a declaration's is: `other` needs `mut` for `&mut`, no live borrow of it
+may conflict, and `cur` may not be used after `other`'s scope ends (E0911 at
+the re-point). After `cur = &y` a write of `y` while `cur` is live is E0911,
+and a module-level place makes every call and `await` in `cur`'s live range
+E0911, as for a declared borrow of it. A call result, an index, a `.*` step
+(not yet admitted) and a binding of a by-value `match(cur.*, …)` (a copy of
+the payload) are rejected. The
 declared place (`list.head`) stays frozen for `cur`'s whole live range, and a
 re-point is E0911 while a borrow derived from `cur`'s current target is
 live. A `Box` step costs nothing. Each step into a cell (`&` walks over

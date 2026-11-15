@@ -175,18 +175,18 @@ _ik_arg_id :: (fn(t : &TypeValue, depth : usize, abs_depth : usize, visited : &m
   match(
     t,
     Rc(.Struct({ id : a_sid, type_arguments : a_tas })) => if(depth < usize(8), {
-      o := _ik_node_token("S:", &a_sid, &a_tas, depth + usize(1), abs_depth, visited);
+      o := _ik_node_token("S:", &a_sid.*, &a_tas.*, depth + usize(1), abs_depth, visited);
       o.push_str(")");
       o
     }, `S:${a_sid}`),
     Rc(.EnumT({ id : a_eid, type_arguments : a_etas })) => if(depth < usize(8), {
-      o := _ik_node_token("E:", &a_eid, &a_etas, depth + usize(1), abs_depth, visited);
+      o := _ik_node_token("E:", &a_eid.*, &a_etas.*, depth + usize(1), abs_depth, visited);
       o.push_str(")");
       o
     }, `E:${a_eid}`),
     Rc(.SomeT({ id : a_tid, resolution : a_res })) => match(
       a_res,
-      .Some(a_r) => if(depth < usize(8), `T:${a_tid}>${_ik_arg_id(&a_r, depth + usize(1), abs_depth + usize(1), visited)}`, `T:${a_tid}`),
+      .Some(a_r) => if(depth < usize(8), `T:${a_tid}>${_ik_arg_id(&a_r.*, depth + usize(1), abs_depth + usize(1), visited)}`, `T:${a_tid}`),
       .None => `T:${a_tid}`
     ),
     _ => type_intern_key(t, abs_depth, visited)
@@ -225,7 +225,7 @@ _intern_key_into :: (
       Rc(.Int(bits, signed)) => {
         sb.write_str("I");
         sb.write_string(bits.to_string());
-        _append_b(sb, signed);
+        _append_b(sb, signed.*);
       },
       Rc(.Float(bits)) => {
         sb.write_str("F");
@@ -237,23 +237,23 @@ _intern_key_into :: (
       },
       Rc(.Pointer(pointee)) => {
         sb.write_str("P");
-        recur(&pointee, sb, depth + usize(1), visited);
+        recur(&pointee.*, sb, depth + usize(1), visited);
       },
       Rc(.ComptimeListT(child)) => {
         sb.write_str("CL");
-        recur(&child, sb, depth + usize(1), visited);
+        recur(&child.*, sb, depth + usize(1), visited);
       },
       Rc(.Array(element, length, length_var)) => {
         sb.write_str("A");
-        recur(&element, sb, depth + usize(1), visited);
+        recur(&element.*, sb, depth + usize(1), visited);
         sb.write_str("#");
         sb.write_string(length.to_string());
         sb.write_str("#");
-        sb.write_string(&length_var);
+        sb.write_string(&length_var.*);
       },
       Rc(.Tuple(field_labels, field_types)) => {
         sb.write_str("Tup[");
-        _append_strings(sb, &field_labels);
+        _append_strings(sb, &field_labels.*);
         sb.write_str("|");
         n := field_types.len();
         (i : usize) = usize(0);
@@ -298,7 +298,7 @@ _intern_key_into :: (
           kw = (kw + usize(1));
         });
         sb.write_str("|");
-        recur(&res, sb, depth + usize(1), visited);
+        recur(&res.*, sb, depth + usize(1), visited);
         sb.write_str("|");
         _append_meta_key(sb, m.as_ref());
         sb.write_str("|");
@@ -318,7 +318,7 @@ _intern_key_into :: (
         // inner one short. Two different outer instantiations then keyed
         // alike and interned to ONE type, so a third `map` in a chain returned
         // the second's type (issues/fixed/a-stream-combinator-used-twice-in-one-chain-emits-two-c-types.md).
-        tok := _ik_node_token("S:", &sid, &sta, usize(0), depth, visited);
+        tok := _ik_node_token("S:", &sid.*, &sta.*, usize(0), depth, visited);
         // Only a token with an id names a type already rendered. An empty id
         // (comptime struct values, source namespaces, hand-built types) names
         // nothing, so its token would merge every empty-id type nested in
@@ -331,16 +331,16 @@ _intern_key_into :: (
           visited.insert(tok.clone());
           sb.write_string(&tok);
           sb.write_str("{");
-          sb.write_string(&snm);
+          sb.write_string(&snm.*);
           sb.write_str("|");
-          sb.write_string(&cfid);
+          sb.write_string(&cfid.*);
           sb.write_str("|");
-          _append_b(sb, irs);
-          _append_b(sb, iar);
-          _append_b(sb, isnt);
-          _append_b(sb, isns);
+          _append_b(sb, irs.*);
+          _append_b(sb, iar.*);
+          _append_b(sb, isnt.*);
+          _append_b(sb, isns.*);
           sb.write_str("|");
-          _append_strings(sb, &sfl);
+          _append_strings(sb, &sfl.*);
           sb.write_str("|");
           nsf := sft.len();
           (isf : usize) = usize(0);
@@ -367,18 +367,18 @@ _intern_key_into :: (
         // token cut the inner one short, so `wrap(wrap(i32))` and
         // `wrap(wrap(String))` keyed alike
         // (issues/fixed/a-generic-fns-option-result-at-a-specialized-option-is-a-second-c-type.md).
-        tok := _ik_node_token("E:", &eid, &etas, usize(0), depth, visited);
+        tok := _ik_node_token("E:", &eid.*, &etas.*, usize(0), depth, visited);
         if((eid.len() > usize(0)) && visited.contains(&tok), {
           sb.write_string(&tok);
         }, {
           visited.insert(tok.clone());
           sb.write_string(&tok);
           sb.write_str("{");
-          sb.write_string(&enm);
+          sb.write_string(&enm.*);
           sb.write_str("|");
-          _append_strings(sb, &evns);
+          _append_strings(sb, &evns.*);
           sb.write_str("|");
-          _append_i64s(sb, &edis);
+          _append_i64s(sb, &edis.*);
           sb.write_str("|");
           nvf := evfs.len();
           (ivf : usize) = usize(0);
@@ -405,8 +405,8 @@ _intern_key_into :: (
           sb.write_str("|");
           sb.write_string(esvn.clone().unwrap_or(String.from("n")));
           sb.write_str("|");
-          _append_b(sb, eirs);
-          _append_b(sb, eiar);
+          _append_b(sb, eirs.*);
+          _append_b(sb, eiar.*);
           // The type arguments, as the Struct arm: substitution keeps the id,
           // so a phantom `Tag(K)` at `K := i32` differs from `Tag(K)` here only.
           sb.write_str("|");
@@ -427,14 +427,14 @@ _intern_key_into :: (
         tsc := tatn_body.self_constraints();
         tnsc := tatn_body.neg_self_constraints();
         tok := String.from("Tr:");
-        tok.push_string(&tid);
+        tok.push_string(&tid.*);
         if((tid.len() > usize(0)) && visited.contains(&tok), {
           sb.write_string(&tok);
         }, {
           visited.insert(tok.clone());
           sb.write_string(&tok);
           sb.write_str("{");
-          sb.write_string(&tnm);
+          sb.write_string(&tnm.*);
           sb.write_str("|");
           _append_string_vec(sb, &tatn);
           sb.write_str("|");
@@ -450,7 +450,7 @@ _intern_key_into :: (
           sb.write_str("|");
           match(
             tisc,
-            .Some(c) => recur(&c, sb, depth + usize(1), visited),
+            .Some(c) => recur(&c.*, sb, depth + usize(1), visited),
             .None => sb.write_str("n")
           );
           sb.write_str("|");
@@ -472,7 +472,7 @@ _intern_key_into :: (
           // Associated-type constraints (`Item := X`) distinguish otherwise
           // same-id trait applications — key them like the constraint lists.
           sb.write_str("|");
-          _append_strings(sb, &tatcl);
+          _append_strings(sb, &tatcl.*);
           sb.write_str("|");
           natc := tatct.len();
           (iatc : usize) = usize(0);
@@ -498,18 +498,18 @@ _intern_key_into :: (
         smntt := smrtt_bnd.negative();
         smntl := smrtt_bnd.negative_levels();
         tok := String.from("So:");
-        tok.push_string(&smid);
+        tok.push_string(&smid.*);
         if((smid.len() > usize(0)) && visited.contains(&tok), {
           sb.write_string(&tok);
         }, {
           visited.insert(tok.clone());
           sb.write_string(&tok);
           sb.write_str("{");
-          sb.write_string(&smnm);
+          sb.write_string(&smnm.*);
           sb.write_str("|");
           sb.write_string(smfl.to_string());
           sb.write_str("|");
-          recur(&smpt, sb, depth + usize(1), visited);
+          recur(&smpt.*, sb, depth + usize(1), visited);
           sb.write_str("|");
           nrt := smrtt.len();
           (irt : usize) = usize(0);
@@ -545,7 +545,7 @@ _intern_key_into :: (
           sb.write_str("|");
           match(
             smkft,
-            .Some(k) => recur(&k, sb, depth + usize(1), visited),
+            .Some(k) => recur(&k.*, sb, depth + usize(1), visited),
             .None => sb.write_str("n")
           );
           // resolved_concrete is resolution METADATA, not identity — but the
@@ -557,7 +557,7 @@ _intern_key_into :: (
           sb.write_str("|");
           match(
             smrcp,
-            .Some(resolved) => recur(&resolved, sb, depth + usize(1), visited),
+            .Some(resolved) => recur(&resolved.*, sb, depth + usize(1), visited),
             .None => sb.write_str("n")
           );
           sb.write_str("}");
@@ -565,9 +565,9 @@ _intern_key_into :: (
       },
       Rc(.Union(unm, ufl, uft)) => {
         sb.write_str("Un:");
-        sb.write_string(&unm);
+        sb.write_string(&unm.*);
         sb.write_str("[");
-        _append_strings(sb, &ufl);
+        _append_strings(sb, &ufl.*);
         sb.write_str("|");
         nu := uft.len();
         (iu : usize) = usize(0);
@@ -580,7 +580,7 @@ _intern_key_into :: (
       },
       Rc(.TypeAppT(tac, taa)) => {
         sb.write_str("TA");
-        recur(&tac, sb, depth + usize(1), visited);
+        recur(&tac.*, sb, depth + usize(1), visited);
         sb.write_str("[");
         nta := taa.len();
         (ita : usize) = usize(0);
@@ -601,7 +601,7 @@ _intern_key_into :: (
           ir = (ir + usize(1));
         });
         sb.write_str("|");
-        _append_usizes(sb, &drtl);
+        _append_usizes(sb, &drtl.*);
         sb.write_str("|");
         nd := dntt.len();
         (idn : usize) = usize(0);
@@ -611,14 +611,14 @@ _intern_key_into :: (
           idn = (idn + usize(1));
         });
         sb.write_str("|");
-        _append_usizes(sb, &dntl);
+        _append_usizes(sb, &dntl.*);
         sb.write_str("]");
       },
       Rc(.FnTraitT({ base_name : fnbn, call_param_labels : fncpl, call_param_types : fncpt, call_result : fncr, implicit_labels : fnil, implicit_types : fnit })) => {
         sb.write_str("FT:");
-        sb.write_string(&fnbn);
+        sb.write_string(&fnbn.*);
         sb.write_str("[");
-        _append_strings(sb, &fncpl);
+        _append_strings(sb, &fncpl.*);
         sb.write_str("|");
         ncp := fncpt.len();
         (icp : usize) = usize(0);
@@ -628,9 +628,9 @@ _intern_key_into :: (
           icp = (icp + usize(1));
         });
         sb.write_str("|");
-        recur(&fncr, sb, depth + usize(1), visited);
+        recur(&fncr.*, sb, depth + usize(1), visited);
         sb.write_str("|");
-        _append_strings(sb, &fnil);
+        _append_strings(sb, &fnil.*);
         sb.write_str("|");
         nfi := fnit.len();
         (ifi : usize) = usize(0);
@@ -643,11 +643,11 @@ _intern_key_into :: (
       },
       Rc(.FutureTraitT({ base_name : ftbn, output : ftout, effect_labels : ftel, effect_types : ftet })) => {
         sb.write_str("FuT:");
-        sb.write_string(&ftbn);
+        sb.write_string(&ftbn.*);
         sb.write_str("[");
-        recur(&ftout, sb, depth + usize(1), visited);
+        recur(&ftout.*, sb, depth + usize(1), visited);
         sb.write_str("|");
-        _append_strings(sb, &ftel);
+        _append_strings(sb, &ftel.*);
         sb.write_str("|");
         nft := ftet.len();
         (ift : usize) = usize(0);
@@ -663,38 +663,38 @@ _intern_key_into :: (
       // level, so the key carries the predicate's func_id.
       Rc(.RefineT(inner, pfid)) => {
         sb.write_str("R:");
-        recur(&inner, sb, depth + usize(1), visited);
+        recur(&inner.*, sb, depth + usize(1), visited);
         sb.write_str("|");
-        sb.write_string(&pfid);
+        sb.write_string(&pfid.*);
       },
       Rc(.ExternOpaqueT(_, eo_c)) => {
         sb.write_str("Ex:");
-        sb.write_string(&eo_c);
+        sb.write_string(&eo_c.*);
       },
       // The intern table decides node SHARING, so the key carries the
       // origin: two references that differ only in origin are one type for
       // `type_key` and every memo, but must stay two nodes for the borrow
       // checker (decision 43 step 1; every step-1 origin is the elided one).
       Rc(.Reference(r_pointee, r_mut, r_origin)) => {
-        sb.write_str(if(r_mut, "Ref:m", "Ref:i"));
-        recur(&r_pointee, sb, depth + usize(1), visited);
+        sb.write_str(if(r_mut.*, "Ref:m", "Ref:i"));
+        recur(&r_pointee.*, sb, depth + usize(1), visited);
         sb.write_str("|");
-        recur(&r_origin, sb, depth + usize(1), visited);
+        recur(&r_origin.*, sb, depth + usize(1), visited);
       },
       Rc(.ValueSlot(vs_inner)) => {
         sb.write_str("VS");
-        recur(&vs_inner, sb, depth + usize(1), visited);
+        recur(&vs_inner.*, sb, depth + usize(1), visited);
       },
       Rc(.OriginKind) => sb.write_str("OrK"),
       Rc(.MaybeSizedKind) => sb.write_str("MSK"),
       Rc(.SliceT(s_elem)) => {
         sb.write_str("Sl");
-        recur(&s_elem, sb, depth + usize(1), visited);
+        recur(&s_elem.*, sb, depth + usize(1), visited);
       },
       Rc(.OriginSet(o_places, o_elided)) => {
         sb.write_str("OrS:");
-        _append_b(sb, o_elided);
-        _append_strings(sb, &o_places);
+        _append_b(sb, o_elided.*);
+        _append_strings(sb, &o_places.*);
         sb.write_str(";");
       }
     )
@@ -764,14 +764,14 @@ _ti_walk :: (fn(t : &TypeValue, depth : usize) -> unit)({
       _ti_list(it.len());
       _ti_list(wt.len());
       _ti_list(vt.len());
-      _ti_walk_list(&pt, depth);
-      _ti_walk(&rs, depth + usize(1));
+      _ti_walk_list(&pt.*, depth);
+      _ti_walk(&rs.*, depth + usize(1));
     },
     Rc(.Struct({ field_types : fts, type_arguments : ta })) => {
       g_ti_struct = (g_ti_struct + usize(1));
       _ti_list(fts.len());
       _ti_list(ta.len());
-      _ti_walk_list(&ta, depth);
+      _ti_walk_list(&ta.*, depth);
     },
     Rc(.EnumT({ variant_names : vns, variant_fields : vfs })) => {
       g_ti_enum = (g_ti_enum + usize(1));

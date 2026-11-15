@@ -11,6 +11,7 @@ pragma(Pragma.AllowUnsafe);
 {
   AstExpr,
   ast_expr_token,
+  brace_block_field,
   ast_expr_text,
   ast_expr_id,
   ast_expr_to_string,
@@ -42,8 +43,7 @@ pragma(Pragma.AllowUnsafe);
   BK_FN_ONCE_TRAIT,
   BK_FN_MUT_TRAIT,
   ast_expr_is_fn_call,
-  BK_BORROW_MUT,
-  BK_ANON_STRUCT
+  BK_BORROW_MUT
 } :: import("../../expr.yo");
 {
   ExprInfo,
@@ -72,7 +72,9 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_index_method_value,
   expr_info_set_index_trait_ptr_type,
   record_branch_consume,
-  lookup_method_callee_type
+  lookup_method_callee_type,
+  expr_info_set_origin,
+  OriginRootPlace
 } :: import("../../expr_info.yo");
 { scope_release_active, scope_release_depth, scope_release_set_depth, scope_release_mark, scope_release_body, is_call_once_capture_dup, is_moved_container_dup, mark_fnonce_capture_drop, record_immediate_old_value_drop, is_by_value_param_share_dup, is_call_scoped_share_dup, note_arg_move_region, ast_comparable_token_bounds } :: import("../../expr_info.yo");
 { Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_is_inout_borrow_root, variable_keep_alias_dups, variable_mark_keep_alias_dups, variable_moved_at_cleanup_point, variable_undone_moves, snapshot_env, is_fnonce_capture_frame, env_adopt, variable_value_type } :: import("../../env.yo");
@@ -84,7 +86,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, is_type_value, value_contains_unknown } :: import("../../value.yo");
 { TypeValue, TypeValueNode, t_refine_inner, t_slot_is_mut_ref, fn_param_by_value_flags, t_slot_pointee, t_slot_is_borrow } :: import("../../types/definitions.yo");
 { t_unit, t_ptr } :: import("../../types/creators.yo");
-{ is_some_type, is_reference_struct_type, cell_handle_view } :: import("../../types/guards.yo");
+{ is_some_type, is_reference_struct_type, cell_handle_view, is_struct_type } :: import("../../types/guards.yo");
 { HashSet } :: import("std/collections/hash_set");
 { is_io_async_call, is_io_await_call } :: import("../async/await_analysis.yo");
 { expr_tree_contains_return } :: import("../../expr_traversal.yo");
@@ -94,7 +96,7 @@ pragma(Pragma.AllowUnsafe);
 { is_flowable_expr, flow_options_default, FlowOptions, raise_flow_violation }
 :: import("../../types/flowability.yo");
 { throw_unwind_type_mismatch, UNWIND_WITHOUT_ENCLOSING_FN } :: import("./unwind.yo");
-{ type_representation_contains_raw_ptr, type_contains_rc_type, type_requires_explicit_copy, type_is_second_class, is_future_value_type } :: import("../../types/utils.yo");
+{ type_representation_contains_raw_ptr, type_contains_rc_type, type_requires_explicit_copy, type_is_second_class, is_future_value_type, type_carries_origin } :: import("../../types/utils.yo");
 { is_temp_variable_name, is_any_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
 { generate_expr_from_code } :: import("../../parser.yo");
@@ -120,6 +122,9 @@ pragma(Pragma.AllowUnsafe);
   local_borrows_mark,
   local_borrows_truncate,
   local_borrow_joins_truncate,
+  local_borrow_flow_restore,
+  local_borrow_flow_region_begin,
+  local_borrow_flow_note_exit,
   local_borrows_active,
   local_borrow_is_binding_stmt,
   local_borrow_may_bind_projection_stmt,
@@ -131,6 +136,8 @@ pragma(Pragma.AllowUnsafe);
   LocalBorrowInfo,
   return_check,
   audit_origin_totality,
+  origin_of,
+  origin_scope_close,
   reject_bare_callable_into_dyn_fn,
   deref_exempt_mark,
   deref_exempt_clear,
@@ -174,7 +181,7 @@ _ids_list_contains :: (fn(lst : &ArrayList(String), s : &String) -> bool)({
   while((i < lst.len()) && !found, {
     match(
       lst.get_cloned(i),
-      .Some(x) => if(x == s, {
+      .Some(x) => if(x == s.*, {
         found = true;
       }),
       .None => ()
@@ -191,7 +198,7 @@ _dup_call_target_name :: (fn(e : &AstExpr) -> Option(String))(
   match(
     e,
     .FnCall(_, f, Rc(eargs), _, _) => {
-      if((eargs.len() == usize(0)) && ast_expr_is_fn_call_of(&f, ".", Option(usize).Some(usize(2))), {
+      if((eargs.len() == usize(0)) && ast_expr_is_fn_call_of(&f.*, ".", Option(usize).Some(usize(2))), {
         match(
           f,
           .FnCall(_, _, Rc(fargs), _, _) => {
@@ -246,13 +253,13 @@ _push_dup_call :: (fn(res : &mut DupCallsResult, var_id : &String, e : &AstExpr)
       if(!found, {
         // Stored back: the binding is a copy once collections are values.
         lst := found_lst;
-        lst.push(e);
+        lst.push(e.*);
         res.dup_calls.insert(var_id.clone(), lst);
       });
     },
     .None => {
       nl := ArrayList(AstExpr).new();
-      nl.push(e);
+      nl.push(e.*);
       res.dup_calls.insert(var_id.clone(), nl);
       res.dup_call_var_ids.push(var_id.clone());
     }
@@ -299,8 +306,8 @@ _search_dup_calls :: (fn(expr : &AstExpr, res : &mut DupCallsResult, ctx : &Eval
   match(
     &ei_opt,
     .Some(ei_cl) => if(
-      match(expr_info_is_anonymous_function_definition(&ei_cl), .Some(b) => b, .None => false)
-      && expr_info_deferred_dup_expressions(&ei_cl).is_some(),
+      match(expr_info_is_anonymous_function_definition(&ei_cl.*), .Some(b) => b, .None => false)
+      && expr_info_deferred_dup_expressions(&ei_cl.*).is_some(),
       return(()),
       ()
     ),
@@ -311,7 +318,7 @@ _search_dup_calls :: (fn(expr : &AstExpr, res : &mut DupCallsResult, ctx : &Eval
     &ei_opt,
     .Some(ei) => {
       match(
-        expr_info_deferred_dup_expressions(&ei),
+        expr_info_deferred_dup_expressions(&ei.*),
         .Some(dl) => {
           (ddi : usize) = usize(0);
           while(ddi < dl.len(), {
@@ -337,7 +344,7 @@ _search_dup_calls :: (fn(expr : &AstExpr, res : &mut DupCallsResult, ctx : &Eval
   match(
     &ei_opt,
     .Some(ei_mx) => match(
-      expr_info_macro_expansion(&ei_mx),
+      expr_info_macro_expansion(&ei_mx.*),
       .Some(mx) => {
         recur(&mx, res, ctx);
         return(());
@@ -513,7 +520,7 @@ _search_dup_calls :: (fn(expr : &AstExpr, res : &mut DupCallsResult, ctx : &Eval
   match(
     expr,
     .FnCall(_, f2, Rc(fargs2), _, _) => {
-      recur(&f2, res, ctx);
+      recur(&f2.*, res, ctx);
       (ai : usize) = usize(0);
       while(ai < fargs2.len(), {
         match(
@@ -625,7 +632,7 @@ _check_keyword_position :: (
 ///                               before the final expr_info_table_set).
 /// True iff `name` equals the name carried by `opt` (if any).
 _name_matches_opt :: (fn(name : &String, opt : &Option(String)) -> bool)(
-  match(opt, .Some(n) => (name == n), .None => false)
+  match(opt, .Some(n) => (name.* == n.*), .None => false)
 );
 /// YO_DEBUG_SCOPE_DROPS=1 prints every frame variable's scope-drop eligibility
 /// (`[sd]` rows) and every flushed deferred-drop target (`[sd-fl]` rows) — the
@@ -662,11 +669,11 @@ _m3_token_is_before :: (fn(left : &Token, right : &Token) -> bool)(
 );
 _m3_max_comparable_token :: (fn(node : &AstExpr, reference : &Token, best : &Token) -> Token)({
   tok := ast_expr_token(node);
-  best2 := if(_m3_tokens_comparable(&tok, reference) && (tok.character > best.character), tok, best);
+  best2 := if(_m3_tokens_comparable(&tok, reference) && (tok.character > best.character), tok, best.*);
   match(
     node,
     .FnCall(_, func, Rc(args), _, _) => {
-      (acc : Token) = recur(&func, reference, &best2);
+      (acc : Token) = recur(&func.*, reference, &best2);
       n := args.len();
       (i : usize) = usize(0);
       while(i < n, {
@@ -686,16 +693,16 @@ _m3_max_comparable_token :: (fn(node : &AstExpr, reference : &Token, best : &Tok
 });
 _m3_last_comparable_token_in_expr :: (fn(expr : &AstExpr, reference : &Token) -> Token)({
   init := ast_expr_token(expr);
-  init2 := if(!_m3_tokens_comparable(&init, reference), reference, init);
+  init2 := if(!_m3_tokens_comparable(&init, reference), reference.*, init);
   _m3_max_comparable_token(expr, reference, &init2)
 });
 _m3_min_comparable_token :: (fn(node : &AstExpr, reference : &Token, best : &Token) -> Token)({
   tok := ast_expr_token(node);
-  best2 := if(_m3_tokens_comparable(&tok, reference) && (tok.character < best.character), tok, best);
+  best2 := if(_m3_tokens_comparable(&tok, reference) && (tok.character < best.character), tok, best.*);
   match(
     node,
     .FnCall(_, func, Rc(args), _, _) => {
-      (acc : Token) = recur(&func, reference, &best2);
+      (acc : Token) = recur(&func.*, reference, &best2);
       n := args.len();
       (i : usize) = usize(0);
       while(i < n, {
@@ -737,9 +744,9 @@ _m3_span_contains :: (fn(node : &AstExpr, t : &Token) -> bool)({
 /// already handed to `parts`
 /// (issues/fixed/2026-10-23-an-exit-in-a-later-arm-than-the-move-skips-the-drop-of-the-moved-local.md).
 _m3_consumed_for_arm :: (fn(args : &ArrayList(AstExpr), i : usize, variable : &Variable, consumed : &Option(Token)) -> Option(Token))({
-  ct := match(consumed, .Some(t) => t, .None => return(Option(Token).None));
+  ct := match(consumed, .Some(t) => t.*, .None => return(Option(Token).None));
   if((i == usize(0)) || !_m3_is_flow_logged_move(variable, &ct), {
-    return(consumed);
+    return(consumed.*);
   });
   (j : usize) = usize(0);
   while(j < i, {
@@ -762,7 +769,7 @@ _m3_consumed_for_arm :: (fn(args : &ArrayList(AstExpr), i : usize, variable : &V
     );
     j = (j + usize(1));
   });
-  consumed
+  consumed.*
 });
 /// Whether the flow log kept `variable`'s move at `t` for the arm that made
 /// it (see `UndoneMove`).
@@ -791,13 +798,13 @@ _m3_is_flow_logged_move :: (fn(variable : &Variable, t : &Token) -> bool)({
 /// tuple literal's earlier field and a by-value receiver (`T(…).eat(…)`)
 /// (issues/fixed/2026-11-11-a-temporary-argument-leaks-when-a-later-argument-returns-continues-or-unwinds.md).
 _m3_consumed_for_call_arg :: (fn(call : &AstExpr, args : &ArrayList(AstExpr), i : usize, variable : &Variable, consumed : &Option(Token), ctx : &EvalContext) -> Option(Token))({
-  ct := match(consumed, .Some(t) => t, .None => return(Option(Token).None));
+  ct := match(consumed, .Some(t) => t.*, .None => return(Option(Token).None));
   // A block's statements run one by one: an earlier one is not an argument.
   if(ast_expr_is_fn_call_of(call, BK_BEGIN, Option(usize).None), {
-    return(consumed);
+    return(consumed.*);
   });
   match(_m3_first_arg_after_move(call, args, variable, &ct, ctx), .Some(k) => if(i >= k, return(Option(Token).None)), .None => ());
-  consumed
+  consumed.*
 });
 /// Whether the call argument `a` is the by-value use that moved `variable` at
 /// `ct`: an atom spelling the variable's name at its move token, or the
@@ -865,7 +872,7 @@ _m3_first_arg_after_move :: (fn(call : &AstExpr, args : &ArrayList(AstExpr), var
   receiver_moves := match(
     call,
     .FnCall(_, func, _, _, _) => (
-      ast_expr_is_fn_call_of(&func, BF_DOT, Option(usize).Some(usize(2))) && match(
+      ast_expr_is_fn_call_of(&func.*, BF_DOT, Option(usize).Some(usize(2))) && match(
         func,
         .FnCall(_, _, Rc(fargs), _, _) => match(fargs.get(usize(0)), .Some(r) => _m3_arg_moves_variable(&r, variable, ct, ctx), .None => false),
         .Atom(_, _) => false
@@ -912,7 +919,7 @@ _m3_note_arg_move_region :: (fn(expr : &AstExpr, variable : &Variable, ct : &Tok
       plain := !(ast_expr_is_fn_call_of(expr, BK_BEGIN, Option(usize).None) || (ast_expr_is_fn_call_of(expr, BK_COND, Option(usize).None) || (ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None) || (ast_expr_is_fn_call_of(expr, BK_WHILE, Option(usize).None) || ast_expr_is_fn_call_of(expr, "=>", Option(usize).None)))));
       if(plain, {
         match(
-          _m3_first_arg_after_move(expr, &args, variable, ct, ctx),
+          _m3_first_arg_after_move(expr, &args.*, variable, ct, ctx),
           .Some(k) => match(
             args.get(k),
             .Some(later) => {
@@ -926,7 +933,7 @@ _m3_note_arg_move_region :: (fn(expr : &AstExpr, variable : &Variable, ct : &Tok
           .None => ()
         );
       });
-      if(recur(&func, variable, ct, ctx), {
+      if(recur(&func.*, variable, ct, ctx), {
         return(true);
       });
       (mut(ai) : usize) = usize(0);
@@ -983,7 +990,7 @@ _m3_has_token_at :: (fn(node : &AstExpr, t : &Token) -> bool)({
   match(
     node,
     .FnCall(_, func, Rc(args), _, _) => {
-      if(recur(&func, t), {
+      if(recur(&func.*, t), {
         return(true);
       });
       (i : usize) = usize(0);
@@ -1078,7 +1085,7 @@ _is_function_boundary_for_early_drop :: (fn(expr : &AstExpr, _ctx : &EvalContext
   match(
     expr,
     .FnCall(_, func, _, _, _) => if(
-      ast_expr_is_fn_call_of(&func, BK_FN, Option(usize).None) || ast_expr_is_fn_call_of(&func, BK_CTL, Option(usize).None) || ast_expr_is_fn_call_of(&func, BK_UNSAFE_FN, Option(usize).None) || ast_expr_is_fn_call_of(&func, BK_FN_TRAIT, Option(usize).None) || ast_expr_is_fn_call_of(&func, BK_FN_ONCE_TRAIT, Option(usize).None) || ast_expr_is_fn_call_of(&func, BK_FN_MUT_TRAIT, Option(usize).None),
+      ast_expr_is_fn_call_of(&func.*, BK_FN, Option(usize).None) || ast_expr_is_fn_call_of(&func.*, BK_CTL, Option(usize).None) || ast_expr_is_fn_call_of(&func.*, BK_UNSAFE_FN, Option(usize).None) || ast_expr_is_fn_call_of(&func.*, BK_FN_TRAIT, Option(usize).None) || ast_expr_is_fn_call_of(&func.*, BK_FN_ONCE_TRAIT, Option(usize).None) || ast_expr_is_fn_call_of(&func.*, BK_FN_MUT_TRAIT, Option(usize).None),
       return(true),
       ()
     ),
@@ -1107,7 +1114,7 @@ _attach_if_cleanup_needs_drop :: (fn(expr : &AstExpr, cleanup_point : &Token, va
       // module path the other way (`file://…`), so it cannot be ordered
       // against a body token (AGENTS.md: never compare the two spellings).
       init_ok := (latest.is_parameter() || _m3_token_is_at_or_before(init_tok, cleanup_point));
-      before_move := match(consumed, .Some(ct) => _m3_token_is_before(cleanup_point, &ct), .None => true);
+      before_move := match(consumed, .Some(ct) => _m3_token_is_before(cleanup_point, &ct.*), .None => true);
       if(init_ok && before_move, {
         existing := match(expr_info_early_return_only_deferred_drop_expressions(&ei), .Some(l) => l, .None => ArrayList(AstExpr).new());
         (found : bool) = false;
@@ -1123,7 +1130,7 @@ _attach_if_cleanup_needs_drop :: (fn(expr : &AstExpr, cleanup_point : &Token, va
           fi = (fi + usize(1));
         });
         if(!found, {
-          existing.push(drop_expr);
+          existing.push(drop_expr.*);
           expr_info_set_early_return_only_deferred_drop_expressions(&ei, Option(ArrayList(AstExpr)).Some(existing));
         });
       });
@@ -1154,7 +1161,7 @@ _m3_attach_to_returns :: (fn(expr : &AstExpr, variable : &Variable, drop_expr : 
         // return's own `sink(b)` — already released the value on this path,
         // though the tail's later move is what the variable still shows.
         if(!variable_moved_at_cleanup_point(variable, _m3_last_comparable_token_in_expr(expr, ast_expr_token(expr)), true), {
-          ref_tok := match(consumed, .Some(ct) => ct, .None => ast_expr_token(expr));
+          ref_tok := match(consumed, .Some(ct) => ct.*, .None => ast_expr_token(expr));
           _attach_if_cleanup_needs_drop(expr, _m3_last_comparable_token_in_expr(expr, &ref_tok), variable, drop_expr, &init_tok, consumed, ctx);
         });
         return(());
@@ -1165,13 +1172,13 @@ _m3_attach_to_returns :: (fn(expr : &AstExpr, variable : &Variable, drop_expr : 
         .None => ()
       );
       if(ast_expr_is_fn_call_of(expr, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None), {
-        recur(&func, variable, drop_expr, consumed, ctx);
+        recur(&func.*, variable, drop_expr, consumed, ctx);
         (ci : usize) = usize(0);
         while(ci < args.len(), {
           match(
             args.get(ci),
             .Some(arg) => if(ast_expr_is_fn_call(&arg) && ast_expr_is_fn_call_of(&arg, "=>", Option(usize).None), {
-              arm_consumed := _m3_consumed_for_arm(&args, ci, variable, consumed);
+              arm_consumed := _m3_consumed_for_arm(&args.*, ci, variable, consumed);
               match(
                 arg,
                 .FnCall(_, _, Rc(bargs), _, _) => {
@@ -1195,10 +1202,10 @@ _m3_attach_to_returns :: (fn(expr : &AstExpr, variable : &Variable, drop_expr : 
       if(_is_function_boundary_for_early_drop(expr, ctx), {
         return(());
       });
-      recur(&func, variable, drop_expr, consumed, ctx);
+      recur(&func.*, variable, drop_expr, consumed, ctx);
       (ai : usize) = usize(0);
       while(ai < args.len(), {
-        arg_consumed := _m3_consumed_for_call_arg(expr, &args, ai, variable, consumed, ctx);
+        arg_consumed := _m3_consumed_for_call_arg(expr, &args.*, ai, variable, consumed, ctx);
         match(args.get(ai), .Some(a) => recur(&a, variable, drop_expr, &arg_consumed, ctx), .None => ());
         ai = (ai + usize(1));
       });
@@ -1250,13 +1257,13 @@ _m3_attach_to_loop_exits :: (fn(expr : &AstExpr, variable : &Variable, drop_expr
         .None => ()
       );
       if(ast_expr_is_fn_call_of(expr, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None), {
-        recur(&func, variable, drop_expr, consumed, ctx);
+        recur(&func.*, variable, drop_expr, consumed, ctx);
         (ci : usize) = usize(0);
         while(ci < args.len(), {
           match(
             args.get(ci),
             .Some(arg) => if(ast_expr_is_fn_call_of(&arg, "=>", Option(usize).None), {
-              arm_consumed := _m3_consumed_for_arm(&args, ci, variable, consumed);
+              arm_consumed := _m3_consumed_for_arm(&args.*, ci, variable, consumed);
               match(
                 arg,
                 .FnCall(_, _, Rc(bargs), _, _) => {
@@ -1277,10 +1284,10 @@ _m3_attach_to_loop_exits :: (fn(expr : &AstExpr, variable : &Variable, drop_expr
         });
         return(());
       });
-      recur(&func, variable, drop_expr, consumed, ctx);
+      recur(&func.*, variable, drop_expr, consumed, ctx);
       (ai : usize) = usize(0);
       while(ai < args.len(), {
-        arg_consumed := _m3_consumed_for_call_arg(expr, &args, ai, variable, consumed, ctx);
+        arg_consumed := _m3_consumed_for_call_arg(expr, &args.*, ai, variable, consumed, ctx);
         match(args.get(ai), .Some(a) => recur(&a, variable, drop_expr, &arg_consumed, ctx), .None => ());
         ai = (ai + usize(1));
       });
@@ -1313,7 +1320,7 @@ _contains_return_for_opt :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)({
         ),
         .None => ()
       );
-      if(recur(&f, ctx), {
+      if(recur(&f.*, ctx), {
         return(true);
       });
       (ai : usize) = usize(0);
@@ -1350,7 +1357,7 @@ _contains_io_await_for_opt :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
           .None => false
         );
         if(!found, {
-          found = _contains_io_await_for_opt(&f, ctx);
+          found = _contains_io_await_for_opt(&f.*, ctx);
         });
         (ai : usize) = usize(0);
         while((ai < fargs.len()) && !found, {
@@ -1399,7 +1406,7 @@ _subtree_assigns_variable :: (fn(e : &AstExpr, name : &String, ctx : &EvalContex
       if(ast_expr_is_fn_call_of(e, BK_ASSIGN, Option(usize).Some(usize(2))), {
         match(
           fargs.get(usize(0)),
-          .Some(lhs) => if(ast_expr_is_atom(&lhs) && (ast_expr_token(&lhs).value.* == name), {
+          .Some(lhs) => if(ast_expr_is_atom(&lhs) && (ast_expr_token(&lhs).value.* == name.*), {
             return(true);
           }),
           .None => ()
@@ -1408,13 +1415,13 @@ _subtree_assigns_variable :: (fn(e : &AstExpr, name : &String, ctx : &EvalContex
       if(ast_expr_is_fn_call_of(e, BK_BORROW_MUT, Option(usize).Some(usize(1))), {
         match(
           fargs.get(usize(0)),
-          .Some(lent) => if(ast_expr_is_atom(&lent) && (ast_expr_token(&lent).value.* == name), {
+          .Some(lent) => if(ast_expr_is_atom(&lent) && (ast_expr_token(&lent).value.* == name.*), {
             return(true);
           }),
           .None => ()
         );
       });
-      if(_call_lends_receiver_mut(e, &f, &fargs, name, ctx), {
+      if(_call_lends_receiver_mut(e, &f.*, &fargs.*, name, ctx), {
         return(true);
       });
       match(
@@ -1428,7 +1435,7 @@ _subtree_assigns_variable :: (fn(e : &AstExpr, name : &String, ctx : &EvalContex
         ),
         .None => ()
       );
-      if(recur(&f, name.clone(), ctx), {
+      if(recur(&f.*, name.clone(), ctx), {
         return(true);
       });
       (ai : usize) = usize(0);
@@ -1480,7 +1487,7 @@ _call_lends_receiver_mut :: (fn(e : &AstExpr, f : &AstExpr, fargs : &ArrayList(A
     .None => false
   );
   self_arg := if(recv_is_type, match(fargs.get(usize(0)), .Some(a0) => ast_expr_strip_borrow_marker(&a0), .None => return(false)), recv);
-  ast_expr_is_atom(&self_arg) && (ast_expr_token(&self_arg).value.* == name)
+  ast_expr_is_atom(&self_arg) && (ast_expr_token(&self_arg).value.* == name.*)
 });
 /// Strip cancelled dup calls from every `deferred_dup_expressions` list in the
 /// tree. Expansions are fresh-id clones (they do not share the spliced arg
@@ -1528,7 +1535,7 @@ _remove_dup_calls_from_tree :: (fn(expr : &AstExpr, remove_ids : &HashSet(usize)
   match(
     expr,
     .FnCall(_, f, Rc(fargs), _, _) => {
-      recur(&f, remove_ids, ctx);
+      recur(&f.*, remove_ids, ctx);
       (ai : usize) = usize(0);
       while(ai < fargs.len(), {
         match(
@@ -2109,16 +2116,16 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
     &ei_opt,
     .Some(ei) => {
       match(
-        expr_info_macro_expansion(&ei),
+        expr_info_macro_expansion(&ei.*),
         .Some(mx) => {
           recur(&mx, v, site, acc, ctx);
           return(());
         },
         .None => ()
       );
-      if(match(expr_info_is_anonymous_function_definition(&ei), .Some(b) => b, .None => false), {
+      if(match(expr_info_is_anonymous_function_definition(&ei.*), .Some(b) => b, .None => false), {
         match(
-          expr_info_deferred_dup_expressions(&ei),
+          expr_info_deferred_dup_expressions(&ei.*),
           .Some(dl) => {
             (di : usize) = usize(0);
             while(di < dl.len(), {
@@ -2155,7 +2162,7 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
         .Some(aei) => match(
           get_variables_from_env(&aei.env(), v.name.clone()).last_cloned(),
           .Some(rv) => if(rv.id() == v.id(), {
-            _ic_read(&atok, site, acc);
+            _ic_read(&atok.*, site, acc);
           }),
           .None => ()
         ),
@@ -2239,7 +2246,7 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
       is_while := ast_expr_is_fn_call_of(e, BK_WHILE, Option(usize).None);
       // Any other call scans its callee and arguments into `acc` itself.
       if(!(is_while || is_exit), {
-        recur(&f, v, site, acc, ctx);
+        recur(&f.*, v, site, acc, ctx);
         (aj : usize) = usize(0);
         while((aj < args.len()) && !(acc.later || acc.done), {
           match(args.get(aj), .Some(a) => recur(&a, v, site, acc, ctx), .None => ());
@@ -2249,7 +2256,7 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
       });
       scan := _ic_sub_scan(acc);
       // By name, not `recur` (issues/2026-10-24-recur-lends-a-local-mut-by-value-in-c.md).
-      _ic_scan(&f, v, site, &mut scan, ctx);
+      _ic_scan(&f.*, v, site, &mut scan, ctx);
       (ai : usize) = usize(0);
       while((ai < args.len()) && !(scan.later || scan.done), {
         match(args.get(ai), .Some(a) => _ic_scan(&a, v, site, &mut scan, ctx), .None => ());
@@ -2270,7 +2277,7 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
         reaches_next := (scan.site_seen && !scan.later && (!scan.done || scan.continued));
         repeats := cond(
           !reaches_next => false,
-          acc.stop_at_write => _ic_next_iteration_reads(&args, v, site, acc, ctx),
+          acc.stop_at_write => _ic_next_iteration_reads(&args.*, v, site, acc, ctx),
           true => ((scan.reads > usize(0)) && !_subtree_assigns_variable(e, v.name.clone(), ctx))
         );
         _ic_merge(acc, &scan);
@@ -2280,7 +2287,7 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
         // The loop's own `break`/`continue` stay inside it. Every path
         // through the site ended in the loop unless one broke out of it; a
         // loop that may run zero times ends no path that did not enter it.
-        if(scan.done && !scan.broke && (scan.site_seen || _ic_while_runs_body(&args)), {
+        if(scan.done && !scan.broke && (scan.site_seen || _ic_while_runs_body(&args.*)), {
           acc.done = true;
         });
       });
@@ -2568,7 +2575,7 @@ _is_bare_variant_literal :: (fn(e : &AstExpr) -> bool)({
     head_ok(e) => true,
     true => match(
       e,
-      .FnCall(_, func, _, _, _) => head_ok(&func),
+      .FnCall(_, func, _, _, _) => head_ok(&func.*),
       .Atom(_, _) => false
     )
   )
@@ -2580,7 +2587,7 @@ _contains_return_of :: (fn(e : &AstExpr, name : &String) -> bool)({
       e,
       .FnCall(_, _, Rc(rargs), _, _) => match(
         rargs.get(usize(0)),
-        .Some(a) => (ast_expr_is_atom(&a) && (ast_expr_token(&a).value.* == name)),
+        .Some(a) => (ast_expr_is_atom(&a) && (ast_expr_token(&a).value.* == name.*)),
         .None => false
       ),
       .Atom(_, _) => false
@@ -2592,7 +2599,7 @@ _contains_return_of :: (fn(e : &AstExpr, name : &String) -> bool)({
   match(
     e,
     .FnCall(_, func, Rc(args), _, _) => {
-      if(recur(&func, name.clone()), {
+      if(recur(&func.*, name.clone()), {
         return(true);
       });
       (i : usize) = usize(0);
@@ -2628,7 +2635,7 @@ _enclosing_fn_returns_reference :: (fn(ctx : &EvalContext) -> bool)(
     &ctx.is_evaluating_function_body_or_async_block,
     .Some(fb_ctx) => match(
       fb_ctx.kind,
-      .FunctionBody => match(&fb_ctx.func_type, .Some(Rc(.Func({ result : rr_slot }))) => t_slot_is_borrow(&rr_slot), _ => false),
+      .FunctionBody => match(&fb_ctx.func_type, .Some(Rc(.Func({ result : rr_slot }))) => t_slot_is_borrow(&rr_slot.*), _ => false),
       _ => false
     ),
     .None => false
@@ -2642,7 +2649,7 @@ _enclosing_fn_result_type :: (fn(ctx : &EvalContext) -> Option(TypeValue))(
       fb_ctx.kind,
       .FunctionBody => match(
         &fb_ctx.func_type,
-        .Some(Rc(.Func({ result : ret_box }))) => Option(TypeValue).Some(t_slot_pointee(&ret_box)),
+        .Some(Rc(.Func({ result : ret_box }))) => Option(TypeValue).Some(t_slot_pointee(&ret_box.*)),
         .Some(_) => Option(TypeValue).None,
         .None => Option(TypeValue).None
       ),
@@ -2791,37 +2798,33 @@ _must_use_kind :: (fn(stmt : &AstExpr, ty : &TypeValue) -> Option(String))({
   )
 });
 
-/// A `cond`/`match` arm body written `{}` is a zero-field RECORD (the
-/// decided brace rule: a brace group without a `;` is a record in every
-/// position), so the arm's value would be an empty struct — never the no-op
-/// the writer means. An arm is a VALUE position, so `{}` is categorically
-/// the wrong shape there, whatever the join type turns out to be (even an
-/// all-`{}` join in statement position, which no compat query ever sees).
-/// The no-op arm spelling is `()`. Maintainer directive 2026-10-18:
-/// "`true => {}` is wrong and should give error" —
-/// issues/fixed/2026-10-18-an-empty-struct-literal-is-accepted-where-unit-is-expected.md
-reject_empty_record_arm :: (fn(body : &AstExpr, exn : Exception) -> unit)(
+/// Brace groups Generation B (plans/reference/BRACE_BLOCKS.md): a block the
+/// parse made from `{ x }` or `{}` where a struct is expected was almost
+/// certainly meant as the record `.{ x }` / `.{}`. `result` is the block's
+/// evaluated type, `.None` before evaluation (the empty block is unit).
+_reject_brace_block_for_struct :: (fn(expr : &AstExpr, result : Option(TypeValue), ctx : &EvalContext, exn : Exception) -> unit)(
   match(
-    body,
-    .FnCall(_, _, Rc(arm_args), _, _) => {
-      if((arm_args.len() == usize(0)) && ast_expr_is_fn_call_of(body, BK_ANON_STRUCT, Option(usize).None), {
+    brace_block_field(ast_expr_token(expr)),
+    .Some(bb_field) => match(
+      &ctx.expected_type,
+      .Some(bb_et) => if(is_struct_type(&bb_et.ty) && match(&result, .Some(bb_rt) => !is_struct_type(bb_rt), .None => (bb_field.len() == usize(0))), {
+        written := if(bb_field.len() == usize(0), String.from("{}"), `{ ${bb_field} }`);
+        what := if(bb_field.len() == usize(0), String.from("the empty block (unit)"), `a block that yields \`${bb_field}\``);
         exn.throw(
           dyn(
             format_error_message_with_help(
-              ast_expr_token(body),
-              String.from("an arm written `{}` is an empty struct literal — a no-op arm is `()`"),
-              Option(String).Some(
-                String.from("write `=> ()` — a brace group without a semicolon is a record, so `{}` is a zero-field struct, not unit")
-              )
+              ast_expr_token(expr),
+              `Incompatible types: \`${written}\` is ${what}, but \`${type_to_string(&bb_et.ty)}\` is expected here`,
+              Option(String).Some(if(bb_field.len() == usize(0), String.from("the empty record is `.{}`"), `the one-field record is \`.{ ${bb_field} }\``))
             )
           )
         );
-      }, ());
-    },
-    _ => ()
+      }),
+      .None => ()
+    ),
+    .None => ()
   )
 );
-
 evaluate_begin_expression :: (
   fn(
     expr : &AstExpr,
@@ -2841,12 +2844,19 @@ evaluate_begin_expression :: (
   // The local borrows a block declares are listed while it evaluates
   // (plans/VALUES_BY_DEFAULT.md decision 18).
   lb_mark := local_borrows_mark();
+  _reject_brace_block_for_struct(expr, Option(TypeValue).None, ctx, exn);
+  // A function body runs on the paths that call it (cluster 4's regions),
+  // and its end drops the flow state it pushed (`local_borrow_flow_restore`).
+  if(is_evaluating_function_body_begin_block, {
+    _ := local_borrow_flow_region_begin();
+  });
   if(scope_release_active() && is_evaluating_function_body_begin_block && (ctx.ctfe_depth == usize(0)), {
     sr_saved_depth := scope_release_depth();
     sr_mark := scope_release_mark();
     sr_entry := snapshot_env(env_in);
     scope_release_set_depth(sr_saved_depth + usize(1));
     sr_r := _evaluate_begin_expression_impl(expr, env_in, ctx, variables_to_add, is_evaluating_function_body_begin_block, exn);
+    match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&sr_r)), .Some(sr_info) => _reject_brace_block_for_struct(expr, Option(TypeValue).Some(sr_info.ty()), ctx, exn), .None => ());
     scope_release_set_depth(sr_saved_depth);
     if(sr_saved_depth == usize(0), {
       scope_release_body(sr_mark, &sr_entry);
@@ -2854,12 +2864,15 @@ evaluate_begin_expression :: (
     local_borrows_truncate(lb_mark);
     // The flow sets (O-2 §7) die with the function body, not the block.
     local_borrow_joins_truncate(lb_mark);
+    local_borrow_flow_restore(lb_mark);
     return(sr_r);
   });
   lb_r := _evaluate_begin_expression_impl(expr, env_in, ctx, variables_to_add, is_evaluating_function_body_begin_block, exn);
+  match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&lb_r)), .Some(lb_info) => _reject_brace_block_for_struct(expr, Option(TypeValue).Some(lb_info.ty()), ctx, exn), .None => ());
   local_borrows_truncate(lb_mark);
   if(is_evaluating_function_body_begin_block, {
     local_borrow_joins_truncate(lb_mark);
+    local_borrow_flow_restore(lb_mark);
   });
   lb_r
 });
@@ -2893,7 +2906,7 @@ _evaluate_begin_expression_impl :: (
     .Atom(_, _) => ArrayList(AstExpr).new()
   ), {
     single := ArrayList(AstExpr).new();
-    single.push(expr);
+    single.push(expr.*);
     single
   });
   n_args := begin_args.len();
@@ -2936,7 +2949,7 @@ _evaluate_begin_expression_impl :: (
     info := new_expr_info(&env, Rc.new(TypeValueNode.Unit));
     info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
-    return(expr);
+    return(expr.*);
   });
   // Push a new begin-block frame so temp variables are scoped correctly.
   _fr := env.push_frame(true);
@@ -2948,7 +2961,7 @@ _evaluate_begin_expression_impl :: (
       .Some(x) => x,
       .None => {
         vi = variables_to_add.len();
-        return(expr);
+        return(expr.*);
       }
     );
     _added := add_variable_to_env(
@@ -3007,6 +3020,10 @@ _evaluate_begin_expression_impl :: (
     is_break_atom := (ast_expr_is_atom(&expr_to_eval) && ast_expr_is_atom_of(&expr_to_eval, "break"));
     is_continue_atom := (ast_expr_is_atom(&expr_to_eval) && ast_expr_is_atom_of(&expr_to_eval, "continue"));
     is_escape_call := ast_expr_is_fn_call_of(&expr_to_eval, BF_UNWIND, .None);
+    // An exit: an entry GEN'd before it may leave on it (cluster 4's kill).
+    if(is_return_expr || is_break_atom || is_continue_atom || is_escape_call, {
+      local_borrow_flow_note_exit();
+    });
     cond(
       // -------------------------------------------------------------------
       // return / return(val)
@@ -3073,7 +3090,7 @@ _evaluate_begin_expression_impl :: (
               .FunctionBody => match(
                 &fb_ctx.func_type,
                 // A projection returns its place's address (decision 24).
-                .Some(Rc(.Func({ result : ret_slot }))) => Option(TypeValue).Some(if(t_slot_is_borrow(&ret_slot), t_ptr(&t_slot_pointee(&ret_slot)), Rc.clone(t_slot_pointee(&ret_slot)))),
+                .Some(Rc(.Func({ result : ret_slot }))) => Option(TypeValue).Some(if(t_slot_is_borrow(&ret_slot.*), t_ptr(&t_slot_pointee(&ret_slot.*)), Rc.clone(t_slot_pointee(&ret_slot.*)))),
                 .Some(_) => Option(TypeValue).None,
                 .None => Option(TypeValue).None
               ),
@@ -3164,7 +3181,7 @@ _evaluate_begin_expression_impl :: (
                 .Some(rft) => match(
                   rft,
                   Rc(.Func({ result : rfb_slot, meta : __fm1 })) => {
-                    rfb := t_slot_pointee(&rfb_slot);
+                    rfb := t_slot_pointee(&rfb_slot.*);
                     rfco := __fm1.result_is_comptime_only;
                     if(!rfco && type_representation_contains_raw_ptr(&rfb)
                     && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&ret_arg).module_path.*.clone())), {
@@ -3208,7 +3225,7 @@ _evaluate_begin_expression_impl :: (
               ir_fb.kind,
               .FunctionBody => match(
                 &ir_fb.func_type,
-                .Some(Rc(.Func({ result : ir_ret }))) => is_some_type(&t_slot_pointee(&ir_ret)),
+                .Some(Rc(.Func({ result : ir_ret }))) => is_some_type(&t_slot_pointee(&ir_ret.*)),
                 .Some(_) => false,
                 .None => false
               ),
@@ -3294,7 +3311,7 @@ _evaluate_begin_expression_impl :: (
         match(
           &mut ctx.is_evaluating_loop_body,
           .Some(brk_lc) => {
-            snap := snapshot_loop_flow(&brk_lc, &env, ast_expr_token(&expr_to_eval));
+            snap := snapshot_loop_flow(&brk_lc.*, &env, ast_expr_token(&expr_to_eval));
             brk_lc.break_states.push(snap);
           },
           .None => ()
@@ -3324,7 +3341,7 @@ _evaluate_begin_expression_impl :: (
         match(
           &mut ctx.is_evaluating_loop_body,
           .Some(cnt_lc) => {
-            snap := snapshot_loop_flow(&cnt_lc, &env, ast_expr_token(&expr_to_eval));
+            snap := snapshot_loop_flow(&cnt_lc.*, &env, ast_expr_token(&expr_to_eval));
             cnt_lc.continue_states.push(snap);
           },
           .None => ()
@@ -3598,7 +3615,7 @@ _evaluate_begin_expression_impl :: (
           is_either_assign := (is_assign_expr || is_init_assign_expr);
           ct_only_assign := match(
             &ev_info_opt,
-            .Some(ei) => match(expr_info_is_compile_time_only_assignment(&ei), .Some(b) => b, .None => false),
+            .Some(ei) => match(expr_info_is_compile_time_only_assignment(&ei.*), .Some(b) => b, .None => false),
             .None => false
           );
           // For NON-assignment statements, only a CONCRETELY known value
@@ -3688,8 +3705,8 @@ _evaluate_begin_expression_impl :: (
                 match(
                   ft,
                   Rc(.Func({ result : result_slot })) => {
-                    result_box := t_slot_pointee(&result_slot);
-                    rb_is_ref := t_slot_is_borrow(&result_slot);
+                    result_box := t_slot_pointee(&result_slot.*);
+                    rb_is_ref := t_slot_is_borrow(&result_slot.*);
                     // A projection's `return(&place)` yields the place's
                     // address (decision 24, `rewrite_projection_tails`).
                     expected_ret := if(rb_is_ref, t_ptr(&result_box), Rc.clone(result_box));
@@ -3887,7 +3904,7 @@ _evaluate_begin_expression_impl :: (
                         Rc(.Func({ meta : own_fm })) => {
                           (own_found : bool) = false;
                           own_labels := Rc.clone(own_fm.param_labels);
-                          own_flags := fn_param_by_value_flags(&fty);
+                          own_flags := fn_param_by_value_flags(&fty.*);
                           (own_i : usize) = usize(0);
                           n_own := own_labels.len();
                           while((own_i < n_own) && !own_found, {
@@ -3931,7 +3948,7 @@ _evaluate_begin_expression_impl :: (
   // and, for a function body, of its parameters (plans/VALUES_BY_DEFAULT.md
   // §6, item 1). Read-only.
   if(audit_copy_trait_enabled(), {
-    match(&current_frame_opt, .Some(audit_fr) => _audit_judge_implicit_copies(&audit_fr, &begin_args, ctx), .None => ());
+    match(&current_frame_opt, .Some(audit_fr) => _audit_judge_implicit_copies(&audit_fr.*, &begin_args, ctx), .None => ());
     if(is_evaluating_function_body_begin_block && (env.frames_len() >= usize(2)), {
       match(env.frame_at(env.frames_len() - usize(2)), .Some(audit_pfr) => _audit_judge_implicit_copies(&audit_pfr, &begin_args, ctx), .None => ());
     });
@@ -3939,7 +3956,7 @@ _evaluate_begin_expression_impl :: (
   // The unique `Dyn`, Generation A: judge the pending `Dyn` copies of this
   // block's locals and, for a function body, of its parameters.
   if(dyn_copy_pending_exists(), {
-    match(&current_frame_opt, .Some(dyn_fr) => judge_dyn_copies(&dyn_fr, &begin_args, ctx, exn), .None => ());
+    match(&current_frame_opt, .Some(dyn_fr) => judge_dyn_copies(&dyn_fr.*, &begin_args, ctx, exn), .None => ());
     if(is_evaluating_function_body_begin_block && (env.frames_len() >= usize(2)), {
       match(env.frame_at(env.frames_len() - usize(2)), .Some(dyn_pfr) => judge_dyn_copies(&dyn_pfr, &begin_args, ctx, exn), .None => ());
     });
@@ -3964,7 +3981,7 @@ _evaluate_begin_expression_impl :: (
         );
         ai = (ai + usize(1));
       });
-      _optimize_dup_drop_pairs(&opt_fr, &begin_args, &last_info.variable_name(), &last_expr, awaits, ctx);
+      _optimize_dup_drop_pairs(&opt_fr.*, &begin_args, &last_info.variable_name(), &last_expr, awaits, ctx);
     },
     .None => ()
   );
@@ -3973,7 +3990,7 @@ _evaluate_begin_expression_impl :: (
   // names are still in scope). See _schedule_scope_end_drops + plans/archive/YO_SELF_NAMED_LOCAL_DROPS.md.
   (scope_end_drops : Option(ArrayList(AstExpr))) = match(
     &current_frame_opt,
-    .Some(fr) => _schedule_scope_end_drops(&fr, &begin_args, &last_info.variable_name(), &last_expr, &env, ctx, exn),
+    .Some(fr) => _schedule_scope_end_drops(&fr.*, &begin_args, &last_info.variable_name(), &last_expr, &env, ctx, exn),
     .None => Option(ArrayList(AstExpr)).None
   );
   // For the FUNCTION-BODY begin block, also schedule drops for the
@@ -4282,6 +4299,18 @@ _evaluate_begin_expression_impl :: (
       .None => ()
     );
   });
+  // R-ARM's scope rule (A12, plans/backlog/OWNERSHIP_BORROWING_ORIGINS_AUDIT.md
+  // §9 cluster 3): the block's value has the tail's origin, computed HERE,
+  // where the block's own locals and their borrow entries still exist; a
+  // root that is one of them becomes its scoped entry, which every sink
+  // keeping the value rejects. Computed after the block has closed (at the
+  // sink), the tail's names no longer resolve and the set comes out empty.
+  // A function body's result is judged by `return_check` inside it.
+  (scope_origin : Option(ArrayList(OriginRootPlace))) = if(
+    !is_evaluating_function_body_begin_block && (ast_expr_id(expr) != ast_expr_id(&last_expr)) && type_carries_origin(&return_type),
+    Option(ArrayList(OriginRootPlace)).Some(origin_scope_close(&origin_of(&last_expr, &env, ctx), expr, &env, ctx)),
+    Option(ArrayList(OriginRootPlace)).None
+  );
   env.pop_frame_nonmutating();
   // -------------------------------------------------------------------------
   // Build ExprInfo for the begin expression itself.
@@ -4424,14 +4453,16 @@ _evaluate_begin_expression_impl :: (
   if(shared_with_tail && !(is_evaluating_function_body_begin_block && carry_runtime_args), {
     out_info.set_variable_name(Option(String).None);
   });
+  if(scope_origin.is_some(), {
+    expr_info_set_origin(&out_info, &scope_origin);
+  });
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   // Attach temp variable for the begin block result (no-op stub in Phase 2aa).
   attach_temp_variable_to_expr(expr, true, ctx);
-  expr
+  expr.*
 });
 export(DupCallsResult, is_unit_value_expression);
 export(collect_dup_calls_conservatively);
-export(reject_empty_record_arm);
 export(evaluate_begin_expression);
 /// A binding a consuming `match` arm owns (plans/VALUES_BY_DEFAULT.md
 /// decision 26) that the arm's body moved: a `return`, `unwind`, effect

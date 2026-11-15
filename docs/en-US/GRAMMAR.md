@@ -199,38 +199,32 @@ ArrayExpression ::=
 ;; names no length and is a parse error. A one-element array value is
 ;; written with a trailing comma: `[expr,]`.
 
-;; Curly Bracket Expressions
-;; A brace group is a RECORD unless it contains a semicolon — the same rule in
-;; every position: a value, the left side of `::` / `:=` / `=`, and a `match`
-;; payload pattern. That uniformity is deliberate (decided 2026-09-16,
-;; plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §4): patterns and literals can
-;; never disagree about what a brace means. The consequence to know is that
-;; `{ x }` is a ONE-FIELD RECORD, not a one-expression block — write `x` for
-;; the value and `{ x; }` for a block. The compiler says so where it can.
-;; Separator determines the interpretation:
-;; - Comma or no separator: record literal { x: 1, y: 2 } or { x, y }
-;; - Semicolon: begin block { expr; expr; expr }
-CurlyBracketExpression ::=
-  | '{' '}'                                           ;; Empty record
-  | '{' Field (',' Field)* ','? '}'                   ;; Record literal (comma-separated)
-  | '{' ';' '}'                                       ;; Empty begin block (begin(unit))
-  | '{' Expression (';' Expression)* ';'? '}'         ;; Begin block (semicolon-separated)
+;; Curly Bracket Expressions (plans/reference/BRACE_BLOCKS.md, since v0.2.78)
+;; `.{ … }` builds a record, `{ names }` on a binding side picks fields, and
+;; every other `{ … }` is a block. In expression position a bare brace group is
+;; a block: `{ e }` yields `e`, `{ s; e }` yields `e`, `{ s; }` and `{}` yield
+;; unit. A `,` or a `label : value` pair directly inside a bare expression
+;; brace is E0007 (its repair inserts the dot). Binder positions (the left side
+;; of `:=`, `::` and a destructuring `=`; a `match` arm's pattern and every
+;; sub-pattern; a `for` element pattern; a closure's parameters and its
+;; capture list) take a bare field list; a dot there is E0007.
+RecordLiteral ::=                                     ;; expression position only
+  | '.{' (Field (',' Field)* ','?)? '}'               ;; '.' and '{' adjacent
+Block ::=
+  | '{' '}'                                           ;; unit
+  | '{' Expression '}'                                ;; yields Expression
+  | '{' (Expression ';')+ Expression? '}'             ;; yields the last Expression, or unit after a trailing ';'
+FieldList ::=                                         ;; binder position only
+  | '{' (Binder (',' Binder)* ','?)? '}'
 
-;; A record Field is a bare identifier (rewritten to `name : name`) or a
-;; `key : value` pair; anything else in a comma group is the parse error
-;; "{ ... } without semicolons is parsed as a struct literal, not a block.
-;; To write a block, use semicolons: { stmt1; stmt2; }".
-Field ::= Identifier | Expression ':' Expression
+;; A record Field is a bare identifier (rewritten to `name : name`), a
+;; `key : value` pair, a borrow pun `&y` / `&mut y`, or a spread `...base`.
+;; `.{ 1, 2 }` is an error naming the tuple `(1, 2)`.
+Field ::= Identifier | Identifier ':' Expression | '&' Identifier | '&mut' Identifier | '...' Expression
+Binder ::= Identifier | 'mut' '(' Identifier ')' | Identifier ':' Pattern | '&' Identifier | '&mut' Identifier | '...'
 
-;; A begin block's trailing `;` appends a final unit: `{ x; y; }` has value
-;; `()`; `{ x; y }` has value `y`.
-
-;; The empty record `{}` is a zero-field struct VALUE, not the unit value.
-;; Where unit is expected (a `cond`/`match` arm, a `-> unit` fn body, a unit
-;; argument) write `()` — `{}` there is rejected with an error naming `()`
-;; (a check-time rule since 2026-10-18,
-;; issues/fixed/2026-10-18-an-empty-struct-literal-is-accepted-where-unit-is-expected.md).
-;; Where a zero-field struct type is expected, `{}` is the literal to write.
+;; `.{}` is the empty record, a zero-field struct VALUE; `{}` and `()` are
+;; unit (issues/fixed/2026-10-18-an-empty-struct-literal-is-accepted-where-unit-is-expected.md).
 
 ;; Dot Expression
 ;; Leading dot for enum variants or tagged unions
@@ -437,7 +431,7 @@ Separator ::= ',' | ';'
 
    - In `[]`: array literal
    - In `()`: tuple value
-   - In `{}`: record literal (anonymous struct)
+   - In `.{}`: record literal (anonymous struct); in a binder's `{}`, a field list
 
 2. **Semicolon (`;`)**: Creates type expressions or begin blocks
    - In `()`: tuple type
@@ -450,12 +444,12 @@ Separator ::= ',' | ';'
 
    - `()` - unit value
    - `[]` - empty array
-   - `{}` - empty record
-   - `{;}` - empty begin block
+   - `.{}` - empty record
+   - `{}` - empty block (unit)
 
 2. **Shorthand record syntax**:
 
-   - `{ x, y }` desugars to `_( x: x, y: y )`
+   - `.{ x, y }` desugars to `_( x: x, y: y )`
    - Identifiers without colons use their name as both key and value
 
 3. **Leading dot**:

@@ -67,9 +67,11 @@ pragma(Pragma.AllowUnsafe);
   keep_last_arm_moves,
   consume_case_body_temp_var,
   attach_temp_variable_to_expr,
-  adopt_never_type
+  adopt_never_type,
+  local_borrow_flow_region_begin,
+  local_borrow_flow_region_end
 } :: import("../utils.yo");
-{ evaluate_begin_expression, reject_empty_record_arm } :: import("./begin.yo");
+{ evaluate_begin_expression } :: import("./begin.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
@@ -188,7 +190,7 @@ evaluate_cond :: (
       .Some(s) => s,
       .None => {
         done_eval = true;
-        return(expr);
+        return(expr.*);
       }
     );
     cond_expr := pstmt.cond_expr;
@@ -196,6 +198,9 @@ evaluate_cond :: (
     case_env := Rc.clone(pstmt.case_env);
     // Evaluate condition with expected type = bool.
     old_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t_bool(), env : Rc.clone(case_env))));
+    // A condition after the first runs only when the earlier ones are false
+    // (cluster 4's regions: a kill inside it lies on those paths only).
+    cond_region := if(ec_i > usize(0), Option(usize).Some(local_borrow_flow_region_begin()), Option(usize).None);
     evaluated_cond_expr := cond(
       // Raw, like the begin arm below: an atom condition's own error (an
       // unbound name) is the diagnostic, not "Failed to evaluate condition".
@@ -204,6 +209,7 @@ evaluate_cond :: (
       true =>
         evaluate_begin_expression(&cond_expr, &case_env, ctx, ArrayList(Variable).new(), false, exn)
     );
+    match(cond_region, .Some(cr) => local_borrow_flow_region_end(cr), .None => ());
     ctx.expected_type = old_expected;
     // Require that the evaluator produced ExprInfo.
     cond_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_cond_expr));
@@ -221,7 +227,7 @@ evaluate_cond :: (
       cond_info_opt,
       .Some(ci) => Rc.clone(ci),
       .None => {
-        return(expr);
+        return(expr.*);
       }
     );
     // Require bool type — but tolerate `unit` (from an `UnknownVal`
@@ -297,7 +303,7 @@ evaluate_cond :: (
       .Some(c) => c,
       .None => {
         fti_done = true;
-        return(expr);
+        return(expr.*);
       }
     );
     is_comptime_true_here := match(ec_here.cond_value, .Some(v) => match(v, .BoolVal(b) => b, _ => false), .None => false);
@@ -343,7 +349,7 @@ evaluate_cond :: (
         evaluated_conds.get_cloned(fti_idx),
         .Some(c) => c,
         .None => {
-          return(expr);
+          return(expr.*);
         }
       );
       cond_expr_true := ec_true.cond_expr;
@@ -358,9 +364,6 @@ evaluate_cond :: (
         }
       );
       // Evaluate the body. One arm, no join: no branch-init window to record.
-      // An arm written `{}` is an empty record, not a no-op (see
-      // reject_empty_record_arm) — rejected before any join is attempted.
-      reject_empty_record_arm(&case_body_true, exn);
       evaluated_body := evaluate_begin_expression(&case_body_true, &case_env_true, ctx, ArrayList(Variable).new(), false, exn);
       body_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_body));
       body_cf := match(&body_info_opt, .Some(bi) => bi.control_flow(), .None => Option(ControlFlowFlags).None);
@@ -370,7 +373,7 @@ evaluate_cond :: (
           body_info_opt,
           .Some(bi) => Rc.clone(bi),
           .None => {
-            return(expr);
+            return(expr.*);
           }
         );
         // The arm's value leaves with the control flow (`return(x)` moves
@@ -389,7 +392,7 @@ evaluate_cond :: (
         out_info.set_path_collection(body_info.path_collection());
         out_info.set_control_flow(body_info.control_flow());
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-        return(expr);
+        return(expr.*);
       }, {
         // No control flow — use this body's type and value.
         body_info := match(
@@ -404,7 +407,7 @@ evaluate_cond :: (
                 )
               )
             );
-            return(expr);
+            return(expr.*);
           }
         );
         bodies.push(evaluated_body);
@@ -423,7 +426,7 @@ evaluate_cond :: (
         if(body_info.variable_name().is_none(), {
           attach_temp_variable_to_expr(expr, true, ctx);
         });
-        return(expr);
+        return(expr.*);
       });
     },
     // ---------------------------------------------------------------------
@@ -495,10 +498,8 @@ evaluate_cond :: (
               begin_branch_group_arm();
               reset_sibling_flow_state(&ec_item.case_env, &prev_arm_body);
               bir_start_a := branch_init_log_len();
-              // An arm written `{}` is an empty record, not a no-op (see
-              // reject_empty_record_arm) — rejected even when every arm is
-              // `{}`, a join no compat query ever sees.
-              reject_empty_record_arm(&ec_item.case_body_expr, exn);
+              // The arm runs on some paths only (cluster 4's regions).
+              arm_region := local_borrow_flow_region_begin();
               evaluated_case_body := evaluate_begin_expression(
                 &ec_item.case_body_expr,
                 &ec_item.case_env,
@@ -507,6 +508,7 @@ evaluate_cond :: (
                 false,
                 exn
               );
+              local_borrow_flow_region_end(arm_region);
               push_arm_init_range(&mut arm_ranges, ast_expr_id(&evaluated_case_body), bir_start_a, branch_init_log_len());
               prev_arm_body = Option(AstExpr).Some(ec_item.case_body_expr);
               if(arm_untaken_ct, {
@@ -571,7 +573,7 @@ evaluate_cond :: (
                     is_ptr_relaxed_match := cond(
                       (is_pointer_type(&et.ty) && !is_pointer_type(&body_einfo.ty())) => match(
                         &et.ty,
-                        Rc(.Pointer(child_box)) => are_types_compatible(&body_einfo.ty(), &child_box),
+                        Rc(.Pointer(child_box)) => are_types_compatible(&body_einfo.ty(), &child_box.*),
                         _ => false
                       ),
                       true => false
@@ -706,7 +708,7 @@ evaluate_cond :: (
           fb_i = (fb_i + usize(1));
         });
         reject_mixed_closure_arms(&filtered_bodies, ctx, exn);
-        env = merge_and_check_envs(&env, &filtered_bodies, group_log_start, &arm_ranges, ctx, exn, Option(AstExpr).Some(expr));
+        env = merge_and_check_envs(&env, &filtered_bodies, group_log_start, &arm_ranges, ctx, exn, Option(AstExpr).Some(expr.*));
         // A runtime condition cannot select a compile-time-only value: a
         // `Type`, a module or a trait has no runtime representation, so
         // `T :: cond(b => i32, true => i64)` with a runtime `b` has no
@@ -744,7 +746,7 @@ evaluate_cond :: (
         out_info.set_value(result_val);
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
         attach_temp_variable_to_expr(expr, true, ctx);
-        return(expr);
+        return(expr.*);
       }, {
         // All arms have control flow — determine what kind.
         if(control_flows.len() == usize(0), {
@@ -799,7 +801,7 @@ evaluate_cond :: (
                           match(
                             ft,
                             Rc(.Func({ result : result_slot })) => {
-                              return_type = Option(TypeValue).Some(if(t_slot_is_borrow(&result_slot), t_ptr(&t_slot_pointee(&result_slot)), Rc.clone(t_slot_pointee(&result_slot))));
+                              return_type = Option(TypeValue).Some(if(t_slot_is_borrow(&result_slot.*), t_ptr(&t_slot_pointee(&result_slot.*)), Rc.clone(t_slot_pointee(&result_slot.*))));
 
                             },
                             _ => ()
@@ -846,7 +848,7 @@ evaluate_cond :: (
                     .Some(fctx) => match(
                       &fctx.func_type,
                       .None => false,
-                      .Some(ft) => is_function_type_and_returns_comptime_value(&ft)
+                      .Some(ft) => is_function_type_and_returns_comptime_value(&ft.*)
                     )
                   ),
                   true => false
@@ -923,10 +925,10 @@ evaluate_cond :: (
         // temp and the function's own tail `expr` return closes it
         // (issues/fixed/2026-10-18-a-match-in-statement-position-falls-off-the-end-of-a-non-void-function.md).
         // Keep this spelling until SEED_VERSION carries the emitter fix.
-        expr
+        expr.*
       });
     }
   );
-  expr
+  expr.*
 });
 export(evaluate_cond);

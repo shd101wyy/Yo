@@ -126,12 +126,12 @@ _semantic_walk :: (
       key := `${usize(tok.row)}:${usize(tok.column)}`;
       if(!out.contains_key(key.clone()), {
         kind := _SEM_VARIABLE;
-        if(roles.members.contains(&id) || roles.labels.contains(&id), {
+        if(roles.members.contains(&id.*) || roles.labels.contains(&id.*), {
           kind = _SEM_PROPERTY;
         });
         if(kind == _SEM_VARIABLE, {
           match(
-            expr_info_table_get(info_table, id),
+            expr_info_table_get(info_table, id.*),
             .Some(info) => {
               is_type_val := match(
                 info.value(),
@@ -167,7 +167,7 @@ _semantic_walk :: (
       _,
       _
     ) => {
-      recur(&func_box, roles, info_table, out);
+      recur(&func_box.*, roles, info_table, out);
       (i : usize) = usize(0);
       while(i < args.len(), {
         match(

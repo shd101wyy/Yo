@@ -184,7 +184,7 @@ yo compile src/wasm_api.yo --target wasm32-unknown-emscripten --optimize 2 \
 ```yo
 build :: import("std/build");
 
-wasm_api :: build.executable({
+wasm_api :: build.executable(.{
   name : "my_lib_wasm_api",
   root : "./src/wasm_api.yo",
   target : build.CompilationTarget.Wasm32_Unknown_Emscripten,

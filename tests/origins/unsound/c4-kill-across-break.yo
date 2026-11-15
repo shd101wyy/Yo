@@ -1,0 +1,22 @@
+// expect: E0911
+// The join's kill precision (`_lb_join_root_end`) must not end an entry at a later reassignment that a
+// `break` between the store and the reassignment skips: on the iteration that breaks, `h` leaves the loop
+// holding `&y`, `y` is dropped with the body, and the read after the loop is a stack-use-after-scope.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  x := String.from("outer string that is long enough to live on the heap");
+  mut(h) := Option(&String).Some(&x);
+  mut(i) := i32(0);
+  while(i < i32(3), {
+    y := String.from("inner string that is long enough to live on the heap");
+    h = .Some(&y);
+    if(i == i32(1), {
+      break;
+    });
+    h = .Some(&x);
+    i = (i + i32(1));
+  });
+  match(h, .Some(r) => println(`OUT: ${r.*}`), .None => ());
+});
+export(main);

@@ -111,7 +111,6 @@ import("std/fmt");
   BF_SET_ADD,
   BF_SET_CONTAINS,
   BF_RUNTIME,
-  BF_YO_BORROW_CHECK,
   BF_UNWIND,
   BF_RECUR,
   BF_DOT,
@@ -236,11 +235,10 @@ import("std/fmt");
 { format_error_message, format_error_message_with_help, note_eval_attempt, note_swallowed_error, format_eval_failure, warning_diagnostic_of_token } :: import("../../error.yo");
 { emit_warning } :: import("../../diagnostics.yo");
 { TypeValue, t_reference, t_slot_is_borrow } :: import("../../types/definitions.yo");
-{ projection_call_mode_of, binder_read_take, reference_read_wanted, reference_field_read_type, note_reference_read } :: import("../utils.yo");
+{ projection_call_mode_of, binder_read_take, reference_read_wanted, reference_field_read_type, note_reference_read, chain_ref_leaf_is } :: import("../utils.yo");
 { t_unit } :: import("../../types/creators.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { is_some_type } :: import("../../types/guards.yo");
-{ is_primitive_type, is_unit_type, is_enum_type } :: import("../../types/guards.yo");
 { EvalValue } :: import("../../value.yo");
 { expr_info_table_get, expr_info_table_set, record_node_eval, node_is_preevaluated } :: import("../../expr_info.yo");
 { set_evaluate_expression_fn, set_evaluate_expression_raw_fn } :: import("./expr.yo");
@@ -249,69 +247,10 @@ import("std/fmt");
 { evaluate_initialization_assignment, evaluate_local_borrow_repoint } :: import("./initialization_assignment.yo");
 { evaluate_assignment } :: import("./assignment.yo");
 { evaluate_recur } :: import("./recur.yo");
-{ evaluate_runtime, evaluate_borrow_check } :: import("./runtime.yo");
+{ evaluate_runtime } :: import("./runtime.yo");
 { is_pointer_type } :: import("../../types/guards.yo");
 { is_pointer_value_capable_file } :: import("../memory_safety.yo");
 { type_to_string } :: import("../../types/string.yo");
-/// True when `expr` is the desugaring of a PUNNED one-field record — the
-/// `{ x }` shape, which the parser rewrites to `_(x : x)`. Structural, so an
-/// explicit `{ x : x }` is treated the same (the advice is identical).
-_is_punned_single_field :: (fn(expr : &AstExpr) -> bool)(
-  match(
-    expr,
-    .FnCall(_, _, Rc(args), _, _) => (
-      (args.len() == usize(1)) && match(
-        args.get(usize(0)),
-        .Some(pair) => (
-          ast_expr_is_fn_call_of(&pair, BK_COLON, Option(usize).Some(usize(2))) && match(
-            pair,
-            .FnCall(_, _, Rc(pargs), _, _) => match(
-              pargs.get(usize(0)),
-              .Some(l) => match(
-                pargs.get(usize(1)),
-                .Some(r) => (ast_expr_is_atom(&l) && ast_expr_is_atom(&r) && (ast_expr_token(&l).value.* == ast_expr_token(&r).value.*)),
-                .None => false
-              ),
-              .None => false
-            ),
-            _ => false
-          )
-        ),
-        .None => false
-      )
-    ),
-    _ => false
-  )
-);
-/// True when `expr` is the `{}` literal — the zero-field anon struct
-/// (`_(...)` with no arguments). A RECORD value, never unit.
-_is_empty_record_literal :: (fn(expr : &AstExpr) -> bool)(
-  match(
-    expr,
-    .FnCall(_, _, Rc(args), _, _) => (args.len() == usize(0)),
-    _ => false
-  )
-);
-/// The punned field's name, for the message. Empty when not punned.
-_punned_field_name :: (fn(expr : &AstExpr) -> String)(
-  match(
-    expr,
-    .FnCall(_, _, Rc(args), _, _) => match(
-      args.get(usize(0)),
-      .Some(pair) => match(
-        pair,
-        .FnCall(_, _, Rc(pargs), _, _) => match(
-          pargs.get(usize(0)),
-          .Some(l) => ast_expr_token(&l).value.*.clone(),
-          .None => String.new()
-        ),
-        _ => String.new()
-      ),
-      .None => String.new()
-    ),
-    _ => String.new()
-  )
-);
 { is_unknown_val, is_type_value } :: import("../../value.yo");
 _deleted_word :: (fn(e : &AstExpr) -> String)(match(ast_expr_is_old_mode_spelling(e), .Some(w) => w, .None => String.new()));
 /// `e` is a one-argument `mut(…)` / `inout(…)` (and, with `with_imm`,
@@ -407,7 +346,7 @@ _is_deleted_borrow_word :: (fn(e : &AstExpr, with_imm : bool) -> bool)(
 { evaluate_macro_expand } :: import("../builtins/macro_expand.yo");
 { evaluate_panic } :: import("../builtins/panic.yo");
 { evaluate_yo_process_functions } :: import("../builtins/process.yo");
-{ evaluate_address_call } :: import("../builtins/ptr_fns.yo");
+{ evaluate_address_call, evaluate_chain_lend } :: import("../builtins/ptr_fns.yo");
 { evaluate_quote } :: import("../builtins/quote.yo");
 { evaluate_ref_count } :: import("../builtins/rc.yo");
 {
@@ -746,7 +685,7 @@ _evaluate_expression :: (
           // the deleted spellings of `cur = &place` / `cur = &mut place`, E0009.
           _is_deleted_borrow_word(ast_expr_get_arg0(expr), true) => {
             exn.throw(dyn(deleted_mode_spelling_error(ast_expr_token(ast_expr_get_arg0(expr)), _deleted_word(ast_expr_get_arg0(expr)))));
-            expr
+            expr.*
           },
           // `cur = &place` / `cur = &mut place`: a re-point (decision 25).
           ast_expr_is_local_borrow_mode_call(ast_expr_get_arg0(expr), .Some(usize(1))) => evaluate_local_borrow_repoint(expr, env, ctx, exn),
@@ -799,8 +738,6 @@ _evaluate_expression :: (
           evaluate_recur(expr, env, ctx, exn),
         ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_RUNTIME, .None)) =>
           evaluate_runtime(expr, env, ctx, exn),
-        ((__dk_len == usize(17)) && ast_expr_is_fn_call_of(expr, BF_YO_BORROW_CHECK, .None)) =>
-          evaluate_borrow_check(expr, env, ctx, exn),
         ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BK_EXTERN, .None)) =>
           evaluate_extern(expr, env, ctx, exn),
         ((__dk_len == usize(9)) && ast_expr_is_fn_call_of(expr, BK_C_INCLUDE, .None)) =>
@@ -838,7 +775,7 @@ _evaluate_expression :: (
             // fallback.
             expected_is_anon_struct := match(
               &et_ty,
-              Rc(.Struct({ is_source_namespace : et_sns })) => !et_sns,
+              Rc(.Struct({ is_source_namespace : et_sns })) => !et_sns.*,
               // Patch D: an expected FUNC type reroutes too — `is_even =
               // _(cond(...))` under `comptime(is_even) : (fn(n : i32) ->
               // bool)` is a function DEFINITION call (fn arm 14).
@@ -861,60 +798,11 @@ _evaluate_expression :: (
             // Land patch D together with either shared-Variable def-env
             // threading or a deferred re-eval of comptime fn bodies at
             // assignment.
-            // THE `{ x }` FOOTGUN. A brace group without a semicolon is a
-            // RECORD, uniformly and in every position — that is the decided
-            // rule (plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §4), so
-            // `v => { v }` builds a one-field record where every other
-            // language would read a block. It then meets a non-record
-            // expected type and fails somewhere downstream with a bare type
-            // mismatch that never mentions braces. Say the actual cause
-            // HERE, while the punned shape is still visible.
-            //
-            // Narrow on purpose: only a single PUNNED field (`{ x }`, which
-            // the parser desugared to `_(x : x)`) and only against an
-            // expected type that can never be a record — a primitive, unit,
-            // or an enum. A trait/Impl/Dyn position can legitimately receive
-            // a record literal, so those are left alone.
-            // THE `{}` FOOTGUN (unit). The zero-field case of the same
-            // decided rule: `{}` is a zero-field RECORD, and unit is never
-            // a record — but the spellings are one keystroke apart, and the
-            // compatibility layer used to unify empty-struct with unit (both
-            // directions), so `true => {}` type-checked while an empty
-            // struct flowed into a unit slot. Reject it HERE, at the
-            // literal, with the parens form in the message (maintainer
-            // directive 2026-10-18:
-            // issues/fixed/2026-10-18-an-empty-struct-literal-is-accepted-where-unit-is-expected.md).
-            if(!expected_is_anon_struct && _is_empty_record_literal(expr) && is_unit_type(&et_ty), {
-              exn.throw(
-                dyn(
-                  format_error_message_with_help(
-                    ast_expr_token(expr),
-                    String.from("`{}` is an empty struct literal, but unit is expected here"),
-                    Option(String).Some(
-                      String.from("write `()` for the unit value — a brace group without a semicolon is a record, so `{}` is a zero-field struct")
-                    )
-                  )
-                )
-              );
-              make_err_expr()
-            }, if(!expected_is_anon_struct && _is_punned_single_field(expr) && (is_primitive_type(&et_ty) || is_unit_type(&et_ty) || is_enum_type(&et_ty)), {
-              exn.throw(
-                dyn(
-                  format_error_message_with_help(
-                    ast_expr_token(expr),
-                    `"{ ${_punned_field_name(expr)} }" is a one-field record, but ${type_to_string(&et_ty)} is expected here`,
-                    Option(String).Some(
-                      `a brace group without a semicolon is a record: write "${_punned_field_name(expr)}" for the value, or "{ ${_punned_field_name(expr)}; }" for a block`
-                    )
-                  )
-                )
-              );
-              make_err_expr()
-            }, if(
+            if(
               expected_is_anon_struct && !is_some_type(&et_ty),
               evaluate_function_call(expr, env, type_of_type(&et_ty), Option(EvalValue).Some(EvalValue.TypeVal(et_ty)), ctx, exn),
               evaluate_anonymous_struct_value(expr, env, ctx, exn)
-            )))
+            )
           },
           .None => evaluate_anonymous_struct_value(expr, env, ctx, exn)
         ),
@@ -1211,6 +1099,11 @@ _evaluate_expression :: (
           if(_borrow_operand_is_type(ast_expr_strip_borrow_marker(expr), env, ctx), {
             return(evaluate_reference_type(expr, env, ctx, false, exn));
           });
+          // A lend at a leaf of a `:=` initializer's result chain is a
+          // reference value (R-TAIL, VERDICTS-41 Q1).
+          if(chain_ref_leaf_is(ast_expr_token(expr)), {
+            return(evaluate_chain_lend(expr, false, env, ctx, exn));
+          });
           exn.throw(
             dyn(
               format_error_message(
@@ -1219,7 +1112,7 @@ _evaluate_expression :: (
               )
             )
           );
-          expr
+          expr.*
         },
         // `addr_of(x)` is today's address-of `&x` (decision 33).
         ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_ADDR_OF, .Some(usize(1)))) =>
@@ -1230,7 +1123,7 @@ _evaluate_expression :: (
         // function; an `asm(...)` operand `inout(reg, v)` has two arguments.
         (((__dk_len == usize(3)) || (__dk_len == usize(5))) && _is_deleted_borrow_word(expr, false)) => {
           exn.throw(dyn(deleted_mode_spelling_error(ast_expr_token(expr), _deleted_word(expr))));
-          expr
+          expr.*
         },
         // `&mut x` is a call-site marker, consumed where it is legal (a call
         // argument bound to a `mut`/`inout` parameter, a `match` scrutinee).
@@ -1252,6 +1145,9 @@ _evaluate_expression :: (
           if(_borrow_operand_is_type(ast_expr_strip_borrow_marker(expr), env, ctx), {
             return(evaluate_reference_type(expr, env, ctx, true, exn));
           });
+          if(chain_ref_leaf_is(ast_expr_token(expr)), {
+            return(evaluate_chain_lend(expr, true, env, ctx, exn));
+          });
           exn.throw(
             dyn(
               format_error_message(
@@ -1260,7 +1156,7 @@ _evaluate_expression :: (
               )
             )
           );
-          expr
+          expr.*
         },
         ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_TUPLE_TYPE, .None)) =>
           evaluate_tuple_type(expr, env, ctx, exn),
@@ -1746,7 +1642,7 @@ _evaluate_expression_raw_wrapper :: (
   // `mark_node_preevaluated`). Re-evaluating it here doubled the work of
   // every level of a call chain below.
   if(node_is_preevaluated(ast_expr_id(expr)) && expr_info_table_get(&ctx.expr_info_table, ast_expr_id(expr)).is_some(), {
-    return(expr);
+    return(expr.*);
   });
   record_node_eval(ast_expr_id(expr), ast_expr_token(expr));
   result := _evaluate_expression(expr, env, ctx, exn);

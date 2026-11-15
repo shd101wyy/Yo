@@ -139,7 +139,9 @@ _classify_message :: (fn(error_message : &String) -> Option(String))({
   if(msg.starts_with(String.from("unknown operator in")), {
     return(_coded(E_UNKNOWN_OPERATOR));
   });
-  if(msg.contains(String.from("without semicolons is parsed as a struct literal")), {
+  // Brace groups (plans/reference/BRACE_BLOCKS.md): `.{ … }` builds a record,
+  // `{ names }` on a binding side picks fields, every other `{ … }` is a block.
+  if(msg.contains(String.from("is a block, and a block separates statements with")) || (msg.contains(String.from("a record's fields are named")) || (msg.contains(String.from("a field list on the binding side is written without the dot")) || msg.contains(String.from("builds a record; a block has no dot")))), {
     return(_coded(E_STRUCT_LITERAL_VS_BLOCK));
   });
   if(msg.contains(String.from("paren-less function")) || msg.contains(
@@ -369,7 +371,7 @@ format_error_message_with_repair :: (
 )({
   d := _diagnostic_of_token(token, Severity.Error, error_message);
   if(help.is_some(), {
-    d.help = Option(String).Some(match(&help, .Some(hh) => hh.clone(), .None => String.new()));
+    d.help = Option(String).Some(match(help, .Some(hh) => hh.clone(), .None => String.new()));
   });
   d.repair = Option(Repair).Some(
     Repair(span : _span_of_token(token), replacement : replacement.clone(), description : repair_description.clone())
@@ -392,7 +394,7 @@ format_error_message_with_repair_at :: (
 )({
   d := _diagnostic_of_token(token, Severity.Error, error_message);
   if(help.is_some(), {
-    d.help = Option(String).Some(match(&help, .Some(hh) => hh.clone(), .None => String.new()));
+    d.help = Option(String).Some(match(help, .Some(hh) => hh.clone(), .None => String.new()));
   });
   d.repair = Option(Repair).Some(
     Repair(span : span.clone(), replacement : replacement.clone(), description : repair_description.clone())
@@ -686,7 +688,7 @@ with_code :: (fn(err : &YoError, code : str) -> YoError)(_with_primary_code(err,
 /// generated body) carries that error's code over with this; `.None` leaves
 /// `err` as it is.
 with_code_carried :: (fn(err : &YoError, code : &Option(String)) -> YoError)(
-  match(code, .Some(_) => _with_primary_code(err, code), .None => err)
+  match(code, .Some(_) => _with_primary_code(err, code), .None => err.*)
 );
 /// `err` with a mechanical repair on its PRIMARY diagnostic: replace
 /// `token`'s own text with `replacement` (`yo fix` applies it,

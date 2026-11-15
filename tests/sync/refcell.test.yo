@@ -285,11 +285,15 @@ test("a body naming the container its cell is lent from is E0910", {
     })
   }, "an earlier argument of the same call lends to it");
 });
-test("RefCell is Send when T is, never Sync, so Arc(RefCell(T)) is rejected", {
+test("RefCell is Send when T is, never Sync, so Arc.new of a RefCell is rejected", {
   comptime_assert(Type.impls(RefCell(i32), Send), "RefCell(i32) is Send");
   comptime_assert(!Type.impls(RefCell(i32), Sync), "RefCell(i32) is not Sync");
   comptime_assert(!Type.impls(RefCell(Rc(i32)), Send), "RefCell(Rc(i32)) is not Send");
-  comptime_expect_error(Arc(RefCell(i32)));
+  // The bound sits on `Arc.new` while `Arc`'s `?Sized` declaration cannot
+  // spell a `where` under the v0.2.77 seed (decision 49 S2); it returns to
+  // the declaration, and `Arc(RefCell(i32))` itself to an error, one release
+  // later (issues/2026-11-14-rc-of-a-reference-and-arc-of-a-non-send-type-check-as-types.md).
+  comptime_expect_error(Arc.new(RefCell(i32).new(i32(0))));
 });
 // A capture-free closure in a generic method is minted once per instantiation
 // of that method. Each mint must keep its own capture struct: codegen calls a

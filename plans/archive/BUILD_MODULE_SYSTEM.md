@@ -42,7 +42,7 @@ mod.link(raylib);   // this module's code requires the raylib C library
 ### `Dependency.module(name)` — get a module from a dependency
 
 ```yo
-raylib_yo :: build.dependency({
+raylib_yo :: build.dependency(.{
   name : "raylib_yo",
   url : "https://github.com/shd101wyy/raylib_yo.git",
   ref : "v0.0.3"
@@ -66,7 +66,7 @@ sole module when the name is empty).
 
 ```yo
 // ImportEntry pairs an import name with a module
-exe.add_import({ name : "raylib_yo", module : raylib_yo.module() });
+exe.add_import(.{ name : "raylib_yo", module : raylib_yo.module() });
 ```
 
 - Registers the module as an importable name on the artifact.
@@ -83,7 +83,7 @@ For convenience when importing many dependency modules:
 raylib_yo :: build.dependency({ ... });
 other_dep :: build.dependency({ ... });
 
-mods :: ComptimeList(ImportEntry)({ name : "raylib_yo", module : raylib_yo.module() }, { name : "other", module : other_dep.module() });
+mods :: ComptimeList(ImportEntry)(.{ name : "raylib_yo", module : raylib_yo.module() }, .{ name : "other", module : other_dep.module() });
 exe.add_import_list(mods);
 ```
 
@@ -96,7 +96,7 @@ Takes a `ComptimeList(ImportEntry)`. Duplicate names are a compile-time error.
 When `tetris_yo` does:
 
 ```yo
-exe.add_import({ name : "raylib_yo", module : raylib_yo.module() });
+exe.add_import(.{ name : "raylib_yo", module : raylib_yo.module() });
 ```
 
 The build runner:

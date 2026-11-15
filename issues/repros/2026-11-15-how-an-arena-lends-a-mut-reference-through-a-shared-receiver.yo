@@ -1,0 +1,38 @@
+// Reproducer for
+// issues/questions/2026-11-15-how-an-arena-lends-a-mut-reference-through-a-shared-receiver.md
+//
+//   yo check issues/repros/<this file>
+//
+// A two-slot stand-in for a bump arena. `alloc_a` and `alloc_b` declare a
+// `&mut(i32, self)` result through a `&Self` receiver. The definitions are
+// accepted; each call is rejected ("the projection borrows no argument").
+// With `&(i32, self)` results the same program is accepted.
+pragma(Pragma.AllowUnsafe);
+{ println } :: import("std/fmt");
+_Slots :: struct(_a : i32, _b : i32);
+Bump :: struct(_cell : __yo_atomic_cell(_Slots));
+impl(
+  Bump,
+  new : (fn() -> Self)(Self(_cell : __yo_atomic_cell(_Slots)(_Slots(_a : i32(0), _b : i32(0)), .None))),
+  alloc_a : (fn(self : &Self, v : i32) -> &mut(i32, self))({
+    self._cell.*._a = v;
+    &mut self._cell.*._a
+  }),
+  alloc_b : (fn(self : &Self, v : i32) -> &mut(i32, self))({
+    self._cell.*._b = v;
+    &mut self._cell.*._b
+  }),
+  reset : (fn(self : &mut Self) -> unit)({
+    self._cell.*._a = i32(0);
+    self._cell.*._b = i32(0);
+  })
+);
+main :: (fn() -> unit)({
+  mut(arena) := Bump.new();
+  p := arena.alloc_a(i32(1));
+  q := arena.alloc_b(i32(2));
+  p.* = i32(3);
+  q.* = i32(4);
+  println(p.* + q.*);
+});
+export(main);

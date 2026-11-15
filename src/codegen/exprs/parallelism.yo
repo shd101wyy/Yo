@@ -69,8 +69,8 @@ _capture_type_c_name :: (fn(capture_type : &TypeValue, context : &FunctionGenera
 _closure_fn_c_name :: (fn(cb_ei_value : &Option(EvalValue), cb_closure_fn_val : &Option(EvalValue), context : &FunctionGenerationContext) -> Option(String))({
   fv_opt := match(
     cb_closure_fn_val,
-    .Some(fv) => Option(EvalValue).Some(fv),
-    .None => match(cb_ei_value, .Some(v) => if(is_func_val(&v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)
+    .Some(fv) => Option(EvalValue).Some(fv.*),
+    .None => match(cb_ei_value, .Some(v) => if(is_func_val(&v.*), Option(EvalValue).Some(v.*), Option(EvalValue).None), .None => Option(EvalValue).None)
   );
   match(
     fv_opt,
@@ -82,8 +82,8 @@ _closure_fn_c_name :: (fn(cb_ei_value : &Option(EvalValue), cb_closure_fn_val : 
 _closure_fid :: (fn(cb_ei_value : &Option(EvalValue), cb_closure_fn_val : &Option(EvalValue)) -> String)({
   fv_opt := match(
     cb_closure_fn_val,
-    .Some(fv) => Option(EvalValue).Some(fv),
-    .None => match(cb_ei_value, .Some(v) => if(is_func_val(&v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)
+    .Some(fv) => Option(EvalValue).Some(fv.*),
+    .None => match(cb_ei_value, .Some(v) => if(is_func_val(&v.*), Option(EvalValue).Some(v.*), Option(EvalValue).None), .None => Option(EvalValue).None)
   );
   match(fv_opt, .Some(fv) => match(fv, .FuncVal(__fvd2, _) => __fvd2.*.func_id.clone(), _ => String.new()), .None => String.new())
 });
@@ -213,7 +213,7 @@ _emit_capture_dispose_lines :: (
       });
     },
     Rc(.Array(element : ds_elem, length : ds_len, length_var : ds_lv)) => {
-      if((ds_lv.len() == usize(0)) && (ds_len > usize(0)), {
+      if((ds_lv.len() == usize(0)) && (ds_len.* > usize(0)), {
         ds_loop := fresh_local_name(String.from("i_"), &context.base.current_function_name);
         mut(ds_hdr) := String.from("for (size_t ");
         ds_hdr.push_string(ds_loop.clone());
@@ -230,7 +230,7 @@ _emit_capture_dispose_lines :: (
         ds_eref.push_str(").data[");
         ds_eref.push_string(ds_loop.clone());
         ds_eref.push_str("]");
-        _emit_capture_dispose_lines(&ds_eref, &ds_elem, context, depth + u32(1));
+        _emit_capture_dispose_lines(&ds_eref, &ds_elem.*, context, depth + u32(1));
         context.base.emitter.emit_string_line(String.from("}"));
       });
     },
@@ -516,7 +516,7 @@ _generate_spawn_call :: (fn(expr : &AstExpr, indent : &String, context : &mut Fu
   wrapper := _generate_spawn_wrapper(&closure_fn, capture_c_name.clone(), &capture_type, &runtime_args, is_fnonce_closure_fn(&closure_fid), context);
   // The capture-struct VALUE (the cb arg's variable, or its generated code).
   cb_code := _call_generate_expr(&cb, indent.clone(), context);
-  cb_var := match(&cei.variable_name(), .Some(vn) => get_variable_name_for_codegen_at(ast_expr_id(&cb), &vn, Option(Environment).Some(cei.env())), .None => cb_code);
+  cb_var := match(&cei.variable_name(), .Some(vn) => get_variable_name_for_codegen_at(ast_expr_id(&cb), &vn.*, Option(Environment).Some(cei.env())), .None => cb_code);
   heap_var := fresh_local_name(
     String.from(if(is_worker, "_worker_closure_data_", "_thread_closure_data_")),
     &context.base.current_function_name

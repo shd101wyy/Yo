@@ -8,11 +8,11 @@
 //! compile-time variables are skipped (declared elsewhere / no runtime form).
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_text, BK_COMPTIME, BK_ARRAY_VAL, ast_expr_is_local_borrow_mode_call, BF_DOT, ast_call_is_deref_read } :: import("../../expr.yo");
-{ RuntimeDestructuring, expr_info_converted_runtime_type, expr_info_runtime_destructurings, expr_info_deferred_dup_expressions, expr_info_macro_expansion, scope_variables, lookup_local_borrow_step_pin } :: import("../../expr_info.yo");
+{ AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_text, BK_COMPTIME, BK_BEGIN, BK_COND, BK_MATCH, BK_ARRAY_VAL, ast_expr_is_local_borrow_mode_call, BF_DOT, ast_call_is_deref_read } :: import("../../expr.yo");
+{ RuntimeDestructuring, expr_info_converted_runtime_type, expr_info_runtime_destructurings, expr_info_deferred_dup_expressions, expr_info_macro_expansion, scope_variables, lookup_local_borrow_step_pin, is_chain_ref_binding } :: import("../../expr_info.yo");
 { Variable, Environment, variable_value_type } :: import("../../env.yo");
 { is_array_type, is_unit_type, is_struct_type, is_reference_struct_type, is_tuple_type, is_newtype_type } :: import("../../types/guards.yo");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, t_slot_is_borrow } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
 { FunctionGenerationContext, sm_owns_fnonce_captures } :: import("../functions/context.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
@@ -65,7 +65,7 @@ _tuple_index_of :: (fn(rhs_type : &TypeValue, label : &String) -> Option(usize))
       while(i < n, {
         match(
           fls.get(i),
-          .Some(lbl) => if(lbl == label, {
+          .Some(lbl) => if(lbl == label.*, {
             return(Option(usize).Some(i));
           }),
           .None => ()
@@ -92,7 +92,7 @@ _sm_binding_slot :: (fn(key : ExprId, env : &Environment, name : &String, contex
   });
   match(
     &context.state_machine_variables,
-    .Some(smv) => sm_slot_of(key, env, name, &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),
+    .Some(smv) => sm_slot_of(key, env, name, &smv.*, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),
     .None => Option(String).None
   )
 });
@@ -112,12 +112,12 @@ _clear_sm_move_flag :: (fn(slot : &String, indent : &String, context : &mut Func
 /// whose scope record holds the bound variable), or the pattern's own id.
 _binding_atom_key :: (fn(pattern : &AstExpr, name : &String) -> ExprId)({
   (mut(stack) : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
-  stack.push(pattern);
+  stack.push(pattern.*);
   while(stack.len() > usize(0), {
-    cur := match(stack.pop(), .Some(x) => x, .None => pattern);
+    cur := match(stack.pop(), .Some(x) => x, .None => pattern.*);
     match(
       cur,
-      .Atom(_, _) => if(ast_expr_token(&cur).value.* == name, {
+      .Atom(_, _) => if(ast_expr_token(&cur).value.* == name.*, {
         return(ast_expr_id(&cur));
       }),
       .FnCall(_, _, Rc(args), _, _) => {
@@ -247,7 +247,7 @@ _generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : 
   // bare name; `name := &place` its `__yo_imm(name)` / `__yo_mut(name)` form.
   name_expr := match(
     lhs,
-    .Atom(_, _) => lhs,
+    .Atom(_, _) => lhs.*,
     .FnCall(_, _, Rc(lhs_args), _, _) => match(lhs_args.get(usize(0)), .Some(x) => x, .None => return(Option(String).None))
   );
   name_ei := match(
@@ -297,9 +297,15 @@ _generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : 
     .None => ()
   );
   place_code := _call_generate_expr(rhs, indent.clone(), context);
-  // Address the place: fold a `(*x)` pass-through, otherwise `(&(code))`.
+  // Address the place: fold a `(*x)` pass-through, otherwise `(&(code))`. A
+  // reference-typed chain (R-TAIL) is already the pointer.
+  rhs_chain_ptr := ((ast_expr_is_fn_call_of(rhs, BK_BEGIN, Option(usize).None) || ast_expr_is_fn_call_of(rhs, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(rhs, BK_MATCH, Option(usize).None)) && match(context.base.get_expr_info(rhs), .Some(rci) => t_slot_is_borrow(&rci.ty()), .None => false));
   (mut(addr) : String) = String.new();
-  if(place_code.starts_with("(*") && place_code.ends_with(")"), {
+  if(rhs_chain_ptr, {
+    // The chain's temp is `const T*` for a `&` result; the binding's own
+    // type is `T*`, as a projection call's binding is.
+    addr = `((${get_type_string(t_ptr(&place_type), &mut context.base)})${place_code})`;
+  }, if(place_code.starts_with("(*") && place_code.ends_with(")"), {
     addr = place_code.substring(usize(2), place_code.len() - usize(1));
   }, {
     if(!_is_c_lvalue_chain(&place_code), {
@@ -308,12 +314,12 @@ _generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : 
     addr = String.from("(&(");
     addr.push_string(place_code.clone());
     addr.push_str("))");
-  });
+  }));
   mut(line) := indent.clone();
   ref_slot := match(
     bind_env,
     .Some(benv) => {
-      vs := scope_variables(bind_key, &benv, var_name.clone());
+      vs := scope_variables(bind_key, &benv.*, var_name.clone());
       cond(
         (vs.len() == usize(0)) => Option(String).None,
         true => match(vs.get_cloned(vs.len() - usize(1)), .Some(rv) => _sm_local_slot(&rv, context), .None => Option(String).None)
@@ -437,7 +443,16 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
   // `r := t.index(i)`: a projection call's result binds as a local borrow
   // (decision 24, `_bind_projection_result`), `T* r = f(...)`. The call a
   // written `.*` reads (`n := f(x).*`) binds its value instead.
-  if(ast_expr_is_atom(&lhs) && call_projection_mode(&rhs, context).is_some() && !ast_call_is_deref_read(&rhs), {
+  // A block/`cond`/`match` initializer typed as a reference binds the
+  // reference (R-TAIL, VERDICTS-41 Q1): its C value is the chain's pointer.
+  // Only a chain the evaluator bound so (`note_chain_ref_binding`): a
+  // reference-typed initializer that copies a reference value (`t := a.*` on
+  // `a : &mut &i32`) is a plain `T* t = …` value binding.
+  chain_bound := (ast_expr_is_atom(&lhs) && is_chain_ref_binding(ast_expr_token(&lhs)));
+  rhs_is_ref_chain := (chain_bound && ((ast_expr_is_fn_call_of(&rhs, BK_BEGIN, Option(usize).None) || ast_expr_is_fn_call_of(&rhs, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(&rhs, BK_MATCH, Option(usize).None)) && match(context.base.get_expr_info(&rhs), .Some(rci) => t_slot_is_borrow(&rci.ty()), .None => false)));
+  // `r := k` with `k` a reference binding read as the reference (VERDICTS-45 §11): `k`'s own pointer.
+  rhs_is_ref_atom := (chain_bound && (ast_expr_is_atom(&rhs) && match(context.base.get_expr_info(&rhs), .Some(rai) => t_slot_is_borrow(&rai.ty()), .None => false)));
+  if(ast_expr_is_atom(&lhs) && ((call_projection_mode(&rhs, context).is_some() && !ast_call_is_deref_read(&rhs)) || rhs_is_ref_chain || rhs_is_ref_atom), {
     return(_generate_inout_local_binding(&lhs, &rhs, ast_expr_id(&lhs), Option(Environment).Some(ei.env()), indent.clone(), context));
   });
   // Destructuring binds.
@@ -530,7 +545,7 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
           .Some(rei) => match(
             &rei.variable_name(),
             .Some(tvn) => {
-              temp_var_name := get_variable_name_for_codegen_at(ast_expr_id(&rhs), &tvn, Option(Environment).Some(rei.env()));
+              temp_var_name := get_variable_name_for_codegen_at(ast_expr_id(&rhs), &tvn.*, Option(Environment).Some(rei.env()));
               rhs_expr_code := _call_generate_expr(&rhs, indent.clone(), context);
               // The spill below exists for an Rc/temp RHS that has to be
               // materialized before the array copy. A PLAIN read of an existing
@@ -602,7 +617,7 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
         .Some(rei) => match(
           &rei.variable_name(),
           .Some(tvn) => {
-            temp_var_name := get_variable_name_for_codegen_at(ast_expr_id(&rhs), &tvn, Option(Environment).Some(rei.env()));
+            temp_var_name := get_variable_name_for_codegen_at(ast_expr_id(&rhs), &tvn.*, Option(Environment).Some(rei.env()));
             // Same name as the binding, or a bare atom already named — no temp.
             rhs_is_same_atom := (ast_expr_is_atom(&rhs) && (temp_var_name == get_variable_name_for_codegen_at(ast_expr_id(&rhs), ast_expr_token(&rhs).value.*, Option(Environment).Some(rei.env()))));
             if((temp_var_name == sanitized_var_name) || rhs_is_same_atom, emit_deferred_dup_or_code(&rhs, _call_generate_expr(&rhs, indent.clone(), context), indent.clone(), context), {

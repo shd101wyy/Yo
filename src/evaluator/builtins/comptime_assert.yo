@@ -50,7 +50,7 @@ _throw_assert_failed :: (
   err_msg := match(
     msg_expr_opt,
     .Some(msg_expr) => {
-      eval_msg := evaluate_expression_raw(&msg_expr, env, ctx, exn);
+      eval_msg := evaluate_expression_raw(&msg_expr.*, env, ctx, exn);
       msg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_msg));
       match(
         msg_info_opt,
@@ -167,14 +167,14 @@ evaluate_comptime_assert :: (
     out_info := new_expr_info(env, &ret_type);
     out_info.set_value(ret_val);
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-    return(expr);
+    return(expr.*);
   });
   // --- Executing path ---
   arg_expr := match(
     arg_expr_opt,
     .Some(a) => a,
     .None => {
-      return(expr);
+      return(expr.*);
     }
   );
   evaluated_arg := evaluate_expression_raw(&arg_expr, env, ctx, exn);
@@ -228,6 +228,6 @@ evaluate_comptime_assert :: (
   }, {
     _throw_assert_failed(expr, &arg_expr, &msg_expr_opt, env, ctx, exn);
   });
-  expr
+  expr.*
 });
 export(evaluate_comptime_assert);

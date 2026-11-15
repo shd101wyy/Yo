@@ -97,7 +97,7 @@ _drop_operand :: (fn(arg : &AstExpr, indent : &String, context : &mut FunctionGe
     .None => Option(Variable).None
   );
   tv := match(target, .Some(v) => v, .None => return(_rc_operand(arg, indent, context)));
-  if(match(&innermost.decl, .Some(d) => _same_position(&d, &tv.token), .None => false), {
+  if(match(&innermost.decl, .Some(d) => _same_position(&d.*, &tv.token), .None => false), {
     return(_rc_operand(arg, indent, context));
   });
   (mut(first_decl) : Option(Token)) = Option(Token).None;
@@ -108,7 +108,7 @@ _drop_operand :: (fn(arg : &AstExpr, indent : &String, context : &mut FunctionGe
       .Some(b) => match(
         &b.decl,
         .Some(d) => {
-          if(_same_position(&d, &tv.token), {
+          if(_same_position(&d.*, &tv.token), {
             return(b.c_name.clone());
           });
           if(first_decl.is_none(), {
@@ -120,7 +120,7 @@ _drop_operand :: (fn(arg : &AstExpr, indent : &String, context : &mut FunctionGe
       .None => ()
     );
   });
-  if(!match(&first_decl, .Some(fd) => _position_before(&tv.token, &fd), .None => false), {
+  if(!match(&first_decl, .Some(fd) => _position_before(&tv.token, &fd.*), .None => false), {
     return(_rc_operand(arg, indent, context));
   });
   saved_shadowed := context.local_shadowed_variables.take();
@@ -408,7 +408,7 @@ generate_yo_drop_array_element :: (fn(expr : &AstExpr, indent : &String, context
       nested.push_string(loop_var.clone());
       nested.push_str("]");
       context.base.emitter.emit_string_line(String.from("  { // drop nested array element"));
-      drop_code := generate_drop_code_for_value(&nested, &child, context);
+      drop_code := generate_drop_code_for_value(&nested, &child.*, context);
       if(drop_code.len() > usize(0), {
         line := String.from("    ");
         line.push_string(&drop_code);
@@ -481,7 +481,7 @@ generate_yo_dup_array_element :: (fn(expr : &AstExpr, indent : &String, context 
       elem_ref.push_str(".data[");
       elem_ref.push_string(loop_var.clone());
       elem_ref.push_str("]");
-      dup_code := generate_dup_code_for_value(elem_ref.clone(), &child, context);
+      dup_code := generate_dup_code_for_value(elem_ref.clone(), &child.*, context);
       asn := String.from("  ");
       asn.push_string(&elem_ref);
       asn.push_str(" = ");

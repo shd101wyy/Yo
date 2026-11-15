@@ -1,0 +1,16 @@
+// expect: accept
+// Positive control for a18-prebranch-entry-killed-in-one-arm: the assignment that replaces `h -> y` is
+// unconditional, so the write of `y` after it is no conflict.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+main :: (fn() -> unit)({
+  mut(x) := L();
+  mut(y) := L();
+  mut(h) := Option(&String).None;
+  h = .Some(&y);
+  h = .Some(&x);
+  y = String.from("q");
+  match(h, .Some(r) => println(`OUT: ${r.*}`), .None => ());
+});
+export(main);

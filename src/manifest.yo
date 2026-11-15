@@ -86,7 +86,7 @@ read_file_sync :: (fn(path : &String, exn : Exception) -> ArrayList(u8))({
   cstr := path_c.ptr().unwrap();
   fd := unsafe(fcntl.open((*char)(cstr), int(fcntl.O_RDONLY)));
   if(fd < int(0), {
-    exn.throw(dyn(IoError.from_errno(__yo_errno())));
+    exn.throw(dyn(Box.new(IoError.from_errno(__yo_errno()))));
   });
   result := ArrayList(u8).new();
   buf := (*u8)(malloc(usize(4096)).unwrap());
@@ -99,7 +99,7 @@ read_file_sync :: (fn(path : &String, exn : Exception) -> ArrayList(u8))({
       (n < i64(0)) => {
         free(.Some((*void)(buf)));
         unsafe(unistd.close(fd));
-        exn.throw(dyn(IoError.from_errno(__yo_errno())));
+        exn.throw(dyn(Box.new(IoError.from_errno(__yo_errno()))));
       },
       (n == i64(0)) => break,
       true => {
@@ -195,7 +195,7 @@ impl(
   find_dependency : (fn(self : &Self, name : &String) -> Option(ManifestDependency))({
     (i : usize) = usize(0);
     while(i < self.dependencies.len(), {
-      if(self.dependencies(i).name == name, {
+      if(self.dependencies(i).name == name.*, {
         return(Option(ManifestDependency).Some(self.dependencies(i).clone()));
       });
       i = (i + usize(1));
@@ -206,7 +206,7 @@ impl(
   find_module : (fn(self : &Self, name : &String) -> Option(ManifestModule))({
     (i : usize) = usize(0);
     while(i < self.modules.len(), {
-      if(self.modules(i).name == name, {
+      if(self.modules(i).name == name.*, {
         return(Option(ManifestModule).Some(self.modules(i).clone()));
       });
       i = (i + usize(1));
@@ -688,7 +688,7 @@ dependency_dir :: (
       lock := match(
         root_lock_text,
         .Some(t) => match(
-          parse_lock_file(&t),
+          parse_lock_file(&t.*),
           .Ok(l) => l,
           .Err(msg) => {
             return(Result(String, UnavailableImport).Err(_unavailable(dep.name.clone(), `git dependency "${dep.name}": ${msg} — run \`yo install\``, true)));
@@ -742,8 +742,8 @@ _add_root :: (
   (i : usize) = usize(0);
   while(i < roots.len(), {
     existing := roots(i).clone();
-    if(existing.name == name, {
-      if(existing.root == root, {
+    if(existing.name == name.*, {
+      if(existing.root == root.*, {
         return(Result(unit, String).Ok(()));
       });
       return(Result(unit, String).Err(`import name "${name}" reaches two different modules: ${existing.root} and ${root} (via ${via}). Rename one dependency.`));

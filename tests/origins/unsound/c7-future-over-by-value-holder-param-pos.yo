@@ -1,0 +1,22 @@
+// expect: accept
+// Positive control: the future is awaited before `x` moves (OUT: the string, then sink 72).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+H :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(String, p)));
+sink :: (fn(v : String) -> unit)({
+  println(`sink ${v.len().to_string()}`);
+});
+mk :: (fn(generic(p : Origin), h : H(p), io : Io) -> Impl(Future(unit, Io)))(
+  io.async({ h }(io : Io) => {
+    io.await(yield(io), io);
+    println(`OUT: ${h.r.*}`);
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  x := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+  f := mk(H(x)(r : &x), io);
+  io.await(f, io);
+  sink(x);
+});
+export(main);

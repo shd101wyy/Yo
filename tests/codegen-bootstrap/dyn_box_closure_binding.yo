@@ -1,14 +1,21 @@
 import("std/string");
 { println } :: import("std/fmt");
 { assert } :: import("std/assert");
+{ RefCell } :: import("std/sync/refcell");
 
 main :: (fn() -> unit)({
-  mut(x) := 1;
+  // The two handles share one closure through an Rc, and the closure keeps
+  // its counter behind a shared cell: an `Fn` closure may not write an
+  // implicit capture (E0913, #1932), but a write through a `RefCell` door is
+  // a read of the shared handle, so the `Rc(Dyn(Fn(...)))` shape stays.
+  state := Rc.new(RefCell(i32).new(i32(1)));
   (closure : Rc(Dyn(Fn(y : i32) -> i32))) = Rc(Dyn(Fn(y : i32) -> i32)).new(
     dyn(
       Rc.new(y => {
-        x = (x + y);
-        return(x);
+        state.with_mut(v => {
+          v.* = (v.* + y);
+        });
+        return(state.with(v => v.*));
       })
     )
   );
@@ -18,7 +25,6 @@ main :: (fn() -> unit)({
   closure.*(1); // 2
   closure2.*(1); // 3
   result := closure.*(2); // 5
-  assert(x == 1, "Captured variable x should remain unchanged outside closure");
   assert(result == 5, "Expected final result to be 5");
   println(`ok`);
 });

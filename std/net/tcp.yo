@@ -119,7 +119,7 @@ sockaddr_to_socket_addr :: (fn(buf : *u8) -> SocketAddr)({
   )
 });
 _throw_io :: (fn(errno_val : i32, exn : Exception) -> unit)(
-  exn.throw(dyn(NetError.from_io(IoError.from_errno(errno_val))))
+  exn.throw(dyn(Box.new(NetError.from_io(IoError.from_errno(errno_val)))))
 );
 // ============================================================================
 // TcpStream (declared before TcpListener so accept can reference it)

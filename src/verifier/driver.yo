@@ -56,9 +56,9 @@ derive(VerifyMode, Copy, Clone);
 /// Parse a `--verify-mode` spelling (`runtime` / `verify` / `verify+`).
 verify_mode_of_string :: (fn(s : &String) -> Option(VerifyMode))(
   cond(
-    (s == "runtime") => Option(VerifyMode).Some(VerifyMode.Runtime),
-    (s == "verify") => Option(VerifyMode).Some(VerifyMode.Verify),
-    (s == "verify+") => Option(VerifyMode).Some(VerifyMode.VerifyOrAssert),
+    (s.* == "runtime") => Option(VerifyMode).Some(VerifyMode.Runtime),
+    (s.* == "verify") => Option(VerifyMode).Some(VerifyMode.Verify),
+    (s.* == "verify+") => Option(VerifyMode).Some(VerifyMode.VerifyOrAssert),
     true => Option(VerifyMode).None
   )
 );
@@ -173,13 +173,13 @@ _verdict_to_json :: (fn(v : &VerifyVerdict) -> JsonValue)(
       String.from("verdict"),
       JsonValue.Str(String.from("proved")),
       String.from("core"),
-      _strs_to_json(&core)
+      _strs_to_json(&core.*)
     ),
     .Refuted(ce) => _json_obj2(
       String.from("verdict"),
       JsonValue.Str(String.from("refuted")),
       String.from("counterexample"),
-      _strs_to_json(&ce)
+      _strs_to_json(&ce.*)
     ),
     .Unproven(reason) => _json_obj2(
       String.from("verdict"),
@@ -639,7 +639,7 @@ _str_list_contains :: (fn(xs : &ArrayList(String), needle : &String) -> bool)({
     match(
       xs.get_cloned(i),
       .Some(x) => {
-        if(x == needle, {
+        if(x == needle.*, {
           return(true);
         });
       },
@@ -653,7 +653,7 @@ _str_list_contains :: (fn(xs : &ArrayList(String), needle : &String) -> bool)({
 /// declared `assumed()`, and a contract-less body the walk could not enter
 /// (infrastructure — nothing was promised). Everything else is a finding.
 _verify_outcome_passes_by_default :: (fn(outcome : &String) -> bool)(
-  (outcome == "ok") || (outcome == "assumed") || (outcome == "outside-subset")
+  (outcome.* == "ok") || (outcome.* == "assumed") || (outcome.* == "outside-subset")
 );
 /// Does this report FAIL the run, given the `--deny` set?
 ///
@@ -724,7 +724,7 @@ summarize_verify_reports :: (fn(reports : &ArrayList(VerifyFnReport)) -> VerifyS
       );
       ci = (ci + usize(1));
     });
-    if(verify_report_is_vacuous(&rp), {
+    if(verify_report_is_vacuous(&rp.*), {
       vacuous = (vacuous + usize(1));
     });
     for(&rp.obligations, obl => {
@@ -755,7 +755,7 @@ verify_summary_count :: (fn(sum : &VerifySummary, outcome : &String) -> usize)({
     match(
       names.get_cloned(i),
       .Some(nm) => {
-        if(nm == outcome, {
+        if(nm == outcome.*, {
           return(match(sum.counts.get(i), .Some(c) => c, .None => usize(0)));
         });
       },
@@ -1007,7 +1007,7 @@ verify_and_strip_tasks :: (
                 // every consumer (text, JSON, tests) sees `x = ...`.
                 clean_verdict := match(
                   &r.verdict,
-                  .Refuted(ce) => VerifyVerdict.Refuted(_unmangle_pairs(t.fn_id.clone(), &ce)),
+                  .Refuted(ce) => VerifyVerdict.Refuted(_unmangle_pairs(t.fn_id.clone(), &ce.*)),
                   .Proved(core) => VerifyVerdict.Proved(core.clone()),
                   .Unproven(reason) => VerifyVerdict.Unproven(reason.clone()),
                   .SolverError(msg) => VerifyVerdict.SolverError(msg.clone())

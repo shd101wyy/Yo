@@ -1,0 +1,22 @@
+// Cluster 4 corpus row `holder-assigned-in-both-arms-then-first-root-written`
+// (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3 `bind`, R-ARM; audit A18; manifest tests/origins/corpus.tsv):
+// both arms of a branch assign the holder, so after the branch it holds the union of the arms' loans.
+// Expected: rejected: E0911 at `x = i32(3)`, `h` may still point at `x`.
+probe :: (fn(c : bool) -> unit)({
+  z := i32(0);
+  mut(x) := i32(1);
+  y := i32(2);
+  mut(h) := Option(&i32).Some(&z);
+  cond(
+    c => {
+      h = .Some(&x);
+    },
+    true => {
+      h = .Some(&y);
+    }
+  );
+  x = i32(3);
+  _ := h.is_some();
+  ()
+});
+export(probe);

@@ -1,0 +1,25 @@
+// expect: E0910
+// Audit A2 (p04): `&mut w.l` and a later argument whose value is a call result borrowing `w.l`.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+long :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+first :: (fn(xs : &ArrayList(String)) -> &String)(&xs(usize(0)));
+W :: struct(l : ArrayList(String), k : ArrayList(String));
+mkw :: (fn() -> W)({
+  mut(l) := ArrayList(String).new();
+  l.push(long());
+  mut(k) := ArrayList(String).new();
+  k.push(long());
+  W(l : l, k : k)
+});
+f :: (fn(xs : &mut ArrayList(String), r : &String) -> usize)({
+  xs.clear();
+  r.clone().len()
+});
+main :: (fn() -> unit)({
+  mut(w) := mkw();
+  v := f(&mut w.l, first(&w.l));
+  println(`OUT: ${v.to_string()}`);
+});
+export(main);
