@@ -3795,7 +3795,9 @@ _deref_assumed_count :: (fn(s : &HashSet(String)) -> usize)(s.len());
 /// (the swept prelude under `yo fix --migrate deref`,
 /// issues/fixed/2026-11-14-the-deref-recorder-cannot-evaluate-the-swept-preludes-generic-comparisons.md).
 deref_file_migrated :: (fn(tok : &Token) -> bool)(
-  g_deref_migrated_files.with(s => s.contains(tok.module_path.*.clone())) || ((g_deref_assumed_files.with(_deref_assumed_count) > usize(0)) && g_deref_assumed_files.with({ mp : canonical_module_path(&tok.module_path.*) }(s) => s.contains(&mp)))
+  g_deref_migrated_files.with(s => s.contains(tok.module_path.*.clone())) || (
+    (g_deref_assumed_files.with(_deref_assumed_count) > usize(0)) && g_deref_assumed_files.with({ mp : canonical_module_path(&tok.module_path.*) }(s) => s.contains(&mp))
+  )
 );
 /// The files in which a `--migrate deref` evaluation met a `cond` whose
 /// compile-time-known conditions left an arm unevaluated: the arm gated on
