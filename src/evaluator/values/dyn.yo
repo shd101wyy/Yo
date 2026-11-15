@@ -28,7 +28,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_origin_type
 } :: import("../../expr_info.yo");
 { Environment, Variable, synthetic_token, get_variables_from_env, add_variable_to_env, by_value_param_owns, snapshot_env, variable_value_type, variable_set_is_ref, variable_set_is_imm_borrow } :: import("../../env.yo");
-{ Token, TokenKind, intern_token_str } :: import("../../token.yo");
+{ Token, TokenKind, intern_token_str, TokenData } :: import("../../token.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { function_reaches_non_send_global, d1_note_thread_reach } :: import("../effects/mutation_summary.yo");
 { EvalContext, ExpectedTypeCtx, ArgEntry, ArgValues, VarArgEntry, call_function_value_marker } :: import("../context.yo");
@@ -879,7 +879,7 @@ _generic_impl_method_for_dyn :: (
               cond(
                 (mp_is_ref || !mp_is_owning) => {
                   sigil_val := cond(mp_is_ref => String.from(BK_BORROW_MUT), true => String.from("&"));
-                  sigil_tok := Token(
+                  sigil_tok := Rc.new(TokenData(
                     kind : TokenKind.Operator,
                     value : intern_token_str(&sigil_val),
                     row : arg_tok.row,
@@ -888,7 +888,7 @@ _generic_impl_method_for_dyn :: (
                     byte_offset : arg_tok.byte_offset,
                     module_path : Rc.clone(arg_tok.module_path),
                     input : Rc.clone(arg_tok.input)
-                  );
+                  ));
                   lent_args := ArrayList(AstExpr).new();
                   lent_args.push(arg_atom);
                   call_args.push(AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), sigil_tok.clone()), Rc.new(lent_args), false, sigil_tok));

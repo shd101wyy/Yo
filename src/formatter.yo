@@ -18,7 +18,7 @@ import("std/fmt");
 { read, write_string, is_file, is_dir, exists } :: import("std/fs/file");
 { DirEntry, FileType, read_dir } :: import("std/fs/dir");
 { HashMap } :: import("std/collections/hash_map");
-{ Token, TokenKind } :: import("./token.yo");
+{ Token, TokenKind, TokenData } :: import("./token.yo");
 { tokenize, _is_two_char_operator } :: import("./lexer.yo");
 { interpolation_body_end } :: import("./utils.yo");
 { parse } :: import("./parser.yo");
@@ -1778,7 +1778,7 @@ canonicalize_callee_prefix_calls :: (fn(tokens : &ArrayList(Token)) -> ArrayList
             .None => (),
             .Some(anchor) => {
               out.push(
-                Token(
+                Rc.new(TokenData(
                   kind : TokenKind.RParen,
                   value : Rc.new(String.from(")")),
                   row : anchor.row,
@@ -1787,7 +1787,7 @@ canonicalize_callee_prefix_calls :: (fn(tokens : &ArrayList(Token)) -> ArrayList
                   byte_offset : anchor.byte_offset,
                   module_path : Rc.clone(anchor.module_path),
                   input : Rc.clone(anchor.input)
-                )
+                ))
               );
             }
           );
@@ -1801,7 +1801,7 @@ canonicalize_callee_prefix_calls :: (fn(tokens : &ArrayList(Token)) -> ArrayList
                 .None => (),
                 .Some(anchor_o) => {
                   out.push(
-                    Token(
+                    Rc.new(TokenData(
                       kind : TokenKind.LParen,
                       value : Rc.new(String.from("(")),
                       row : anchor_o.row,
@@ -1810,7 +1810,7 @@ canonicalize_callee_prefix_calls :: (fn(tokens : &ArrayList(Token)) -> ArrayList
                       byte_offset : anchor_o.byte_offset,
                       module_path : Rc.clone(anchor_o.module_path),
                       input : Rc.clone(anchor_o.input)
-                    )
+                    ))
                   );
                 }
               );

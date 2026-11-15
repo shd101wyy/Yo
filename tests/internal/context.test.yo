@@ -3,7 +3,7 @@
 { String } :: import("std/string");
 { assert, panic } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
-{ TokenKind, Token } :: import("../../src/token.yo");
+{ TokenKind, Token, TokenData } :: import("../../src/token.yo");
 {
   EvalContext,
   eval_context_new,
@@ -30,7 +30,7 @@
 { AstExpr } :: import("../../src/expr.yo");
 { HashMap } :: import("std/collections/hash_map");
 make_token :: (fn(value : str) -> Token)(
-  Token(
+  Rc.new(TokenData(
     kind : TokenKind.Identifier,
     value : Rc.new(String.from(value)),
     row : u32(0),
@@ -38,7 +38,7 @@ make_token :: (fn(value : str) -> Token)(
     character : u32(0),
     module_path : Rc.new(String.from("")),
     input : Rc.new(String.from(""))
-  )
+  ))
 );
 test("eval_context_new: default fields", {
   ctx := eval_context_new(String.from("/std"), String.from("test.yo"));

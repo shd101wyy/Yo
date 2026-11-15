@@ -35,7 +35,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
-{ Token, TokenKind, intern_token_str } :: import("../../token.yo");
+{ Token, TokenKind, intern_token_str, TokenData } :: import("../../token.yo");
 { Exception } :: import("std/error");
 /// Attempt to cast `arg_expr` to `target_type` as a pointer-type conversion.
 /// Returns `.None` if `target_type` is not a pointer type.
@@ -144,7 +144,7 @@ try_to_convert_to_pointer_type :: (
   fresh_id := alloc_global_expr_id();
   func_atom := AstExpr.Atom(
     alloc_global_expr_id(),
-    Token(
+    Rc.new(TokenData(
       kind : TokenKind.Identifier,
       value : intern_token_str(String.from(BF_YO_AS)),
       row : orig_tok.row,
@@ -153,7 +153,7 @@ try_to_convert_to_pointer_type :: (
       byte_offset : orig_tok.byte_offset,
       module_path : Rc.clone(orig_tok.module_path),
       input : Rc.clone(orig_tok.input)
-    )
+    ))
   );
   call_args := ArrayList(AstExpr).new();
   call_args.push(evaluated);
