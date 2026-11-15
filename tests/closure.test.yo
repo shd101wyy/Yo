@@ -221,12 +221,10 @@ test("Test anonymous closure value with Impl that captures Rc object", {
 test("Test anonymous closure value with Dyn that captures Rc object", {
   x := _my_box(1);
   xc := Rc.clone(&x);
-  (closure : Rc(Dyn(Fn(y : i32) -> i32))) = Rc(Dyn(Fn(y : i32) -> i32)).new(
-    dyn(
-      Box.new(y => {
-        return(_mb_add(&xc, y));
-      })
-    )
+  (closure : Rc(Dyn(Fn(y : i32) -> i32))) = dyn(
+    Rc.new(y => {
+      return(_mb_add(&xc, y));
+    })
   );
   // A Dyn owns its payload (plans/VALUES_BY_DEFAULT.md decision 7): the
   // two handles share one closure through an Rc.
@@ -241,18 +239,14 @@ test("Test anonymous closure value with Dyn that captures Rc object", {
 test("Test anonymous closure value with Dyn that captures Rc object with auto boxing", {
   x := _my_box(1);
   xc := Rc.clone(&x);
-  (closure : Rc(Dyn(Fn(y : i32) -> i32))) = Rc(Dyn(Fn(y : i32) -> i32)).new(
-    dyn(y => {
-      // without explicitly calling `box`
-      return(_mb_add(&xc, y));
-    })
-  );
-  // A Dyn owns its payload (plans/VALUES_BY_DEFAULT.md decision 7): the
-  // two handles share one closure through an Rc.
-  closure2 := Rc.clone(closure);
-  closure.*(1); // 2
-  closure2.*(1); // 3
-  result := closure.*(2); // 5
+  // `dyn(f)` is the legacy alias of `dyn(Box.new(f))` (decision 49): the
+  // closure is boxed into the owning `Box(Dyn(Fn))` without writing `Box.new`.
+  (closure : Box(Dyn(Fn(y : i32) -> i32))) = dyn(y => {
+    return(_mb_add(&xc, y));
+  });
+  closure(1); // 2
+  closure(1); // 3
+  result := closure(2); // 5
   unsafe(printf("Final result: %d\n", result));
   assert(_mb_get(&x) == 5, "Captured boxed variable should be 5");
   assert(_mb_get(&x) == result, "Expected final result to be 5");

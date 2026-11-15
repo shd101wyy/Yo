@@ -120,12 +120,12 @@ test("A dyn over a placed Rc reuses the Rc's cell: no second cell", {
   heap := _counting(addr_of(counts));
   {
     r := Rc.new(_Dog(volume : i32(6)), alloc : .Some(heap));
-    (d : Box(Dyn(_Speak))) = dyn(Rc.clone(r));
+    (d : Rc(Dyn(_Speak))) = dyn(Rc.clone(r));
     assert(ref_count(r) == usize(2), `the dyn holds a count on the Rc's cell: ${ref_count(r)}`);
     assert(counts.live == usize(1), `one placed cell: ${counts.live}`);
     assert(d.speak() == i32(6), "dispatched to the Rc's payload");
-    assert(downcast(d, _Dog).is_some(), "the data object's payload is the _Dog");
-    assert(downcast(d, Rc(_Dog)).is_none(), "not an Rc(_Dog) boxed again");
+    assert(downcast(&d.*, _Dog).is_some(), "the data object's payload is the _Dog");
+    assert(downcast(&d.*, Rc(_Dog)).is_none(), "not an Rc(_Dog) boxed again");
   };
   assert(counts.live == usize(0), `the one cell went back: ${counts.live}`);
 });
@@ -714,4 +714,68 @@ test("A header-free pool allocator frees by the size it is given", {
     });
     e = (e + usize(1));
   });
+});
+// Decision 49 S2's ASan rows over a placed `Box(Dyn)` (VERDICTS-61 decision
+// 15): the owning downcast keeps the placed block (`.Ok` is the same block,
+// retyped, freed once into its allocator; `.Err` hands the box back), and a
+// `unit` payload, the one zero-sized Yo type, dispatches global and placed.
+(mut(g_pd_drops) : i32) = i32(0);
+_PdDog :: struct(volume : i32);
+impl(
+  _PdDog,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_pd_drops = (g_pd_drops + i32(1));
+    })
+  )
+);
+impl(_PdDog, _Speak(speak : (fn(self : &Self) -> i32)(self.volume)));
+test("A placed Box(Dyn)'s owning downcast keeps the block: Ok drops it once into its allocator", {
+  g_pd_drops = i32(0);
+  counts := _counts();
+  heap := _counting(addr_of(counts));
+  {
+    (d : Box(Dyn(_Speak))) = dyn(Box.new(_PdDog(volume : i32(5)), alloc : .Some(heap)));
+    assert(d.speak() == i32(5), "dispatch through a placed box");
+    assert(counts.live == usize(1), "one placed block");
+    got := match(
+      downcast(d, _PdDog),
+      .Ok(b) => {
+        assert(Box.allocator(b).is_some(), "the retyped box still names its allocator");
+        b.volume
+      },
+      .Err(_) => i32(-1)
+    );
+    assert(got == i32(5), "Ok carries the payload");
+    assert(g_pd_drops == i32(1), "dropped once at the arm's end");
+  };
+  assert(counts.live == usize(0), `freed into its allocator: ${counts.live}`);
+  assert(g_pd_drops == i32(1), "no second drop");
+});
+test("A placed Box(Dyn)'s failed owning downcast hands the box back, dropped once", {
+  g_pd_drops = i32(0);
+  counts := _counts();
+  heap := _counting(addr_of(counts));
+  {
+    (d : Box(Dyn(_Speak))) = dyn(Box.new(_PdDog(volume : i32(6)), alloc : .Some(heap)));
+    back := match(downcast(d, _Dog), .Ok(_) => i32(-1), .Err(e) => e.speak());
+    assert(back == i32(6), "Err hands the same box back");
+  };
+  assert(counts.live == usize(0), `freed into its allocator: ${counts.live}`);
+  assert(g_pd_drops == i32(1), "dropped once");
+});
+impl(unit, _Speak(speak : (fn(self : &Self) -> i32)(i32(42))));
+test("A unit payload in a Box(Dyn): dispatch, size_of_val 0, global and placed", {
+  {
+    (z : Box(Dyn(_Speak))) = dyn(Box.new(()));
+    assert(z.speak() == i32(42), "dispatch to a zero-sized payload");
+    assert(size_of_val(&z.*) == usize(0), "no payload bytes");
+  };
+  counts := _counts();
+  heap := _counting(addr_of(counts));
+  {
+    (p : Box(Dyn(_Speak))) = dyn(Box.new((), alloc : .Some(heap)));
+    assert(p.speak() == i32(42), "dispatch to a placed zero-sized payload");
+  };
+  assert(counts.live == usize(0), `the placed cell went back: ${counts.live}`);
 });

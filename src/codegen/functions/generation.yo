@@ -987,6 +987,29 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
               );
               if(prev_ok, {
                 stub_found_ftt = true;
+                if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
+                  // The line the marker sits on, so a silent spec failure
+                  // (recorded=false) still names its expression.
+                  (ls : usize) = si;
+                  while((ls > usize(0)) && match(sb.get_byte((ls - usize(1))), .Some(lb) => (lb != u8(10)), .None => false), {
+                    ls = (ls - usize(1));
+                  });
+                  (le : usize) = si;
+                  while((le < total_b) && match(sb.get_byte(le), .Some(lb) => (lb != u8(10)), .None => false), {
+                    le = (le + usize(1));
+                  });
+                  ln := String.new();
+                  (lc : usize) = ls;
+                  while(lc < le, {
+                    match(
+                      sb.get_byte(lc),
+                      .Some(cb) => ln.push_byte(cb),
+                      .None => ()
+                    );
+                    lc = (lc + usize(1));
+                  });
+                  eprintln(`[ftt-marker] ${c_function_name.clone()}: ${ln.clone()}`);
+                });
               });
             });
             si = (si + usize(1));

@@ -53,11 +53,11 @@ main :: (fn(io : Io) -> unit)({
     )
   );
   (mut(total) : i32) = i32(0);
-  (d0 : Dyn(T0)) = dyn(S0(n : i32(0)));
+  (d0 : Box(Dyn(T0))) = dyn(Box.new(S0(n : i32(0))));
   total = (total + io.await(d0.get(io), IoExn(io : io, exn : exn)).v);
-  (d1 : Dyn(T1)) = dyn(S1(n : i32(1)));
+  (d1 : Box(Dyn(T1))) = dyn(Box.new(S1(n : i32(1))));
   total = (total + io.await(d1.get(io), IoExn(io : io, exn : exn)).v);
-  (d2 : Dyn(T2)) = dyn(S2(n : i32(2)));
+  (d2 : Box(Dyn(T2))) = dyn(Box.new(S2(n : i32(2))));
   total = (total + io.await(d2.get(io), IoExn(io : io, exn : exn)).v);
   println(`total: ${total}`);
 });

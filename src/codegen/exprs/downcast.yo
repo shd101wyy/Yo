@@ -23,16 +23,17 @@
 { AstExpr, ast_expr_id, ast_expr_strip_borrow_marker } :: import("../../expr.yo");
 { downcast_reference_mode, unsize_reference_mode } :: import("../../expr_info.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
-{ is_dyn_type, is_enum_type, is_reference_struct_type, cell_handle_view, is_pointer_type } :: import("../../types/guards.yo");
+{ is_dyn_type, is_enum_type, is_reference_struct_type, is_atomic_reference_struct_type, cell_handle_view, is_pointer_type, unique_box_payload_type } :: import("../../types/guards.yo");
+{ _arg_is_reference_binding } :: import("./sizeof.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ type_key, get_type_string, sanitize_for_c_identifier, c_symbol_name, c_variant_member_name, get_enum_variant_c_name, can_optimize_as_nullable_pointer, get_runtime_struct_fields, fresh_local_name, CodegenFunctionEntry } :: import("../utils/index.yo");
+{ type_key, get_type_string, sanitize_for_c_identifier, c_symbol_name, c_variant_member_name, get_enum_variant_c_name, can_optimize_as_nullable_pointer, get_runtime_struct_fields, fresh_local_name, CodegenFunctionEntry, unsized_place_fat_code, box_payload_place_code } :: import("../utils/index.yo");
 { get_dup_function_for_type, generate_dup_code_for_value } :: import("./drop_dup.yo");
 { type_contains_rc_cell_or_move_only, type_is_move_only, is_clone_trait_type } :: import("../../types/utils.yo");
 { get_func_type } :: import("../../function_value.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { bind_owning_result_temp } :: import("./other_fn_call.yo");
-{ TypeValue, TypeValueNode, no_types, t_slot_pointee, t_slot_is_mut_ref, t_refine_inner } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, t_slot_pointee, t_slot_is_mut_ref, t_refine_inner, SharedList } :: import("../../types/definitions.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 /// Generate code for `downcast(dyn_value, T)`.
 generate_downcast :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)(
@@ -48,11 +49,28 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
   // First argument: the dyn value (runtime).
   dyn_ei := match(context.base.get_expr_info(&dyn_arg), .Some(e) => e, .None => return(String.from("/* ERROR: downcast dyn arg not evaluated */")));
   // A reference binding's type may be the reference: the Dyn is its pointee.
-  dyn_ty := match(t_refine_inner(&dyn_ei.ty()), Rc(.Reference(drp, _, _)) => Rc.clone(drp), _ => Rc.clone(dyn_ei.ty()));
+  arg_ty := match(t_refine_inner(&dyn_ei.ty()), Rc(.Reference(drp, _, _)) => Rc.clone(drp), _ => Rc.clone(dyn_ei.ty()));
+  arg_code := _call_generate_expr(&dyn_arg, indent.clone(), context);
+  // Through an owning `Box(Dyn(...))` (decision 49 S2: `downcast(&b, V)`,
+  // `downcast(err, V)` with `err : &AnyError`): the box's payload place. A
+  // reference binding's code is the box's address.
+  (dyn_ty, dyn_code) := match(
+    unique_box_payload_type(&arg_ty),
+    .Some(bp) => {
+      // A reference binding's code may ALREADY be the deref'd read (`(*self)`,
+      // the pair itself under decision 49) — do not deref twice.
+      box_code := if(
+        (match(t_refine_inner(&dyn_ei.ty()), Rc(.Reference(_, _, _)) => true, _ => false) || _arg_is_reference_binding(&dyn_arg, context)) && !(arg_code.starts_with("(*") && arg_code.ends_with(")")),
+        `(*${arg_code})`,
+        arg_code.clone()
+      );
+      (bp, unsized_place_fat_code(&box_payload_place_code(&arg_ty, &box_code, &mut context.base)))
+    },
+    .None => (Rc.clone(arg_ty), unsized_place_fat_code(&arg_code))
+  );
   if(!is_dyn_type(&dyn_ty), {
     return(String.from("/* ERROR: downcast expected Dyn type as first argument */"));
   });
-  dyn_code := _call_generate_expr(&dyn_arg, indent.clone(), context);
   // Second argument: the target type T (comptime).
   target_type := match(context.base.get_expr_info(&type_arg), .Some(tei) => match(tei.value(), .Some(v) => match(v, .TypeVal(t) => Rc.clone(t), _ => return(String.from("/* ERROR: downcast expected TypeValue as second argument */"))), .None => return(String.from("/* ERROR: downcast expected TypeValue as second argument */"))), .None => return(String.from("/* ERROR: downcast type arg not evaluated */")));
   target_type_c_name := get_type_string(&target_type, &mut context.base);
@@ -67,6 +85,33 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
     context.base.emit_typeid_static(static_var_name.clone(), String.new());
   });
   context.base.add_c_include(String.from("<stdint.h>"));
+  // The owning downcast of a `Box(Dyn(...))` (decision 49 S2), typed
+  // `Result(Box(V), Box(Dyn(...)))`: the box is moved in; on a match its data
+  // word, the payload address with L1's placed bit, IS a `Box(V)`, so the
+  // block is handed back retyped; otherwise the fat box comes back as `.Err`.
+  // `Result` is a comptime constructor over an ANONYMOUS `enum(Ok, Err)`
+  // (std/prelude.yo): the EnumT carries a synthesized name, never the string
+  // "Result", so the shape is detected by its variant names.
+  match(
+    &ei.ty(),
+    Rc(.EnumT({ variant_names : res_vns, type_arguments : res_targs })) => if((res_vns.len() == usize(2)) && _vn_at_is(&res_vns, usize(0), String.from("Ok")) && _vn_at_is(&res_vns, usize(1), String.from("Err")), {
+      ok_box_ty := match(res_targs.get(usize(0)), .Some(t) => t, .None => return(String.from("/* ERROR: downcast Result without type arguments */")));
+      res_c := get_type_string(&ei.ty(), &mut context.base);
+      ok_c := get_type_string(&ok_box_ty, &mut context.base);
+      fat_c := get_type_string(&arg_ty, &mut context.base);
+      uid_o := fresh_local_name(String.from("u"), &context.base.current_function_name);
+      src_var := `__yo_dco_src_${uid_o}`;
+      context.base.emitter.emit_string_line(`${indent.clone()}${fat_c} ${src_var} = ${arg_code};`);
+      ok_tag := get_enum_variant_c_name(&ei.ty(), String.from("Ok"), &context.base);
+      err_tag := get_enum_variant_c_name(&ei.ty(), String.from("Err"), &context.base);
+      ok_m := c_variant_member_name(String.from("Ok"));
+      err_m := c_variant_member_name(String.from("Err"));
+      val_f := sanitize_for_c_identifier(String.from("value"), false);
+      err_f := sanitize_for_c_identifier(String.from("error"), false);
+      return(`((${src_var}.vtable->__yo_type_id == (uintptr_t)&${static_var_name}) ? (${res_c}){ .tag = ${ok_tag}, .data = { .${ok_m} = { .${val_f} = (${ok_c})(${src_var}.data) } } } : (${res_c}){ .tag = ${err_tag}, .data = { .${err_m} = { .${err_f} = ${src_var} } } })`);
+    }),
+    _ => ()
+  );
   // is-check: the Dyn's vtable type-id equals this target's static address.
   is_check := dyn_code.clone();
   is_check.push_str(".vtable->__yo_type_id == (uintptr_t)&");
@@ -113,14 +158,13 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
     qual := if(match(ref_mode, .Some(rm) => rm, .None => false), String.new(), String.from(" const"));
     `((${target_type_c_name.clone()}${qual}*)(${dyn_code.clone()}).vtable->__yo_payload_of((void*)(${dyn_code.clone()}).data))`
   }, if(is_reference_struct_type(&target_type), {
-    o := String.from("((");
-    o.push_string(target_type_c_name.clone());
-    o.push_str(")__yo_dyn_retain((void*)");
-    o.push_string(dyn_code.clone());
-    o.push_str(".data, (const void*)");
-    o.push_string(dyn_code.clone());
-    o.push_str(".vtable))");
-    o
+    // A `ref` object behind a legacy cell is the data word itself; behind a
+    // payload-convention instance (`dyn(Box.new(r))`, the alias boxing `r`,
+    // decision 49 S2) the data word is the box's payload slot, which HOLDS
+    // the handle: load it through `payload_of` and retain it
+    // (issues/fixed/2026-11-15-a-downcast-of-a-boxed-ref-struct-reads-the-payload-slot-as-the-object.md).
+    rs_incr := if(is_atomic_reference_struct_type(&target_type), String.from("__yo_incr_rc_atomic"), String.from("__yo_incr_rc"));
+    `((${target_type_c_name.clone()})((${dyn_code.clone()}).vtable->__yo_payload_of ? ${rs_incr}(*(void**)(${dyn_code.clone()}).vtable->__yo_payload_of((void*)(${dyn_code.clone()}).data)) : __yo_dyn_retain((void*)(${dyn_code.clone()}).data, (const void*)(${dyn_code.clone()}).vtable)))`
   }, {
     // Value/newtype target: find the Rc in the dyn_impls (same dyn, concrete ==
     // target), then extract `((Rc*)data)->valueField`.
@@ -297,6 +341,16 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
     }
   )
 });
+/// Is `vns[i]` the string `want`? (bounds-checked; used to detect the
+/// anonymous `enum(Ok, Err)` a `Result(...)` builds, whose EnumT name is
+/// synthesized and never "Result".)
+_vn_at_is :: (fn(vns : &SharedList(String), i : usize, want : &String) -> bool)(
+  match(
+    vns.get(i),
+    .Some(v) => (v == want),
+    .None => false
+  )
+);
 /// Is `s` one plain C identifier (a local, a temp) — safe to name twice?
 _is_plain_c_identifier :: (fn(s : &String) -> bool)({
   if(s.len() == usize(0), {
@@ -332,8 +386,26 @@ _upcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionG
   args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   dyn_arg := match(args.get(usize(0)), .Some(x) => ast_expr_strip_borrow_marker(&x), .None => return(String.from("/* ERROR: upcast requires 2 arguments */")));
   dyn_ei := match(context.base.get_expr_info(&dyn_arg), .Some(e) => e, .None => return(String.from("/* ERROR: upcast dyn arg not evaluated */")));
-  dyn_code := _call_generate_expr(&dyn_arg, indent.clone(), context);
+  dyn_code := unsized_place_fat_code(&_call_generate_expr(&dyn_arg, indent.clone(), context));
+  // An owned `Box`/`Rc`/`Arc` over a `Dyn` is moved into the result handle
+  // (decision 49 S2): its fat word is reused, nothing is retained.
+  (src_ty_u : TypeValue) = match(t_refine_inner(&dyn_ei.ty()), Rc(.Reference(urp0, _, _)) => Rc.clone(urp0), _ => Rc.clone(dyn_ei.ty()));
+  moves_handle := (unsize_reference_mode(ast_expr_id(expr)).is_none() && (match(unique_box_payload_type(&src_ty_u), .Some(bp) => is_dyn_type(&bp), .None => false) || match(cell_handle_view(&src_ty_u), .Some(hv) => is_dyn_type(&hv.payload), .None => false)));
+  // The target `Dyn`'s fat struct names the `__yo_up_` slot; a handle over it
+  // lowers to the same struct. An owned upcast's result type is the HANDLE
+  // (`Box(Dyn(...))`, `Rc(Dyn(...))`), whose C name is a typedef ALIAS of that
+  // struct — the slot member is named by the fat struct itself, so the slot
+  // name must come from the unwrapped Dyn, while the cast may keep the handle.
   tgt_c := get_type_string(&ei.ty(), &mut context.base);
+  tgt_slot_c := match(
+    unique_box_payload_type(&ei.ty()),
+    .Some(utp) => get_type_string(&utp, &mut context.base),
+    .None => match(
+      cell_handle_view(&ei.ty()),
+      .Some(uhv) => get_type_string(&uhv.payload, &mut context.base),
+      .None => tgt_c.clone()
+    )
+  );
   // Name the source once: a call operand must not run twice.
   src := if(_is_plain_c_identifier(dyn_code.clone()), dyn_code.clone(), {
     src_c := get_type_string(&match(t_refine_inner(&dyn_ei.ty()), Rc(.Reference(urp, _, _)) => Rc.clone(urp), _ => Rc.clone(dyn_ei.ty())), &mut context.base);
@@ -344,8 +416,8 @@ _upcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionG
     src_var
   });
   // Through a reference the payload is borrowed, not retained.
-  data_expr := if(unsize_reference_mode(ast_expr_id(expr)).is_some(), `(void*)${src}.data`, `__yo_dyn_retain((void*)${src}.data, (const void*)${src}.vtable)`);
-  `((${tgt_c}){ .data = ${data_expr}, .vtable = ${src}.vtable->__yo_up_${tgt_c} })`
+  data_expr := if(unsize_reference_mode(ast_expr_id(expr)).is_some() || moves_handle, `(void*)${src}.data`, `__yo_dyn_retain((void*)${src}.data, (const void*)${src}.vtable)`);
+  `((${tgt_c}){ .data = ${data_expr}, .vtable = ${src}.vtable->__yo_up_${tgt_slot_c} })`
 });
 /// The function id of the `clone` in a Dyn impl's `Clone` evidence (the
 /// trait value at `Clone`'s position among the Dyn's required traits), or

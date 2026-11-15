@@ -146,56 +146,63 @@ test("a Dyn place used by value is E0619", {
     "is not `Sized`"
   );
 });
-// VERDICTS-43: while the alias holds, a reference-kind Dyn (`dyn(&v)`, and an
-// `upcast` over a reference) lives in its statement's frame temporary. It is a
-// temporary of the statement for every escape rule and a lend of `v` for every
-// exclusivity rule, legal as a direct call argument only. S2's flip accepts the
-// escaping programs below; these rows then run them under ASan instead.
+// VERDICTS-43 §2 rows 1-5, flipped with S2 (decision 49): a reference-kind
+// `dyn(&v)` (and an `upcast` over a reference) is a projection of the lent
+// place, so the escaping programs below are legal. Each row runs what the
+// interim rejected; the PR's ASan gate asserts their leak freedom. Row 6 (an
+// overlapping `&`) stays E0910 forever.
 Zoo :: struct(c : Cat);
 _pass :: (fn(d : &mut Dyn(Bump)) -> &mut Dyn(Bump))(&mut d.*);
 _pass2 :: (fn(d : &Dyn(Speak)) -> &Dyn(Speak))(&d.*);
 _two :: (fn(a : &mut Dyn(Bump), b : &Cat) -> i32)(a.bump() + b.n);
 _two2 :: (fn(a : &mut Cat, b : &Cat) -> i32)(a.n + b.n);
-test("a dyn(&mut v) returned as a projection's place is E0912", {
-  comptime_expect_error((fn(z : &mut Zoo) -> &mut Dyn(Bump))(dyn(&mut z.c)), "until v0.2.78");
+_ret_mut :: (fn(z : &mut Zoo) -> &mut Dyn(Bump))(dyn(&mut z.c));
+_opt_ret :: (fn(z : &Zoo) -> Option(&Dyn(Speak)))(Option(&Dyn(Speak)).Some(dyn(&z.c)));
+test("a dyn(&mut v) returned as a projection's place", {
+  (mut(z) : Zoo) = Zoo(c : Cat(n : i32(2)));
+  r := _ret_mut(&mut z);
+  assert(r.bump() == i32(3), "mut dispatch through the returned projection");
+  assert(z.c.n == i32(3), "the write landed in v");
 });
-test("a dyn(&v) forwarded through a projection is E0912", {
-  comptime_expect_error((fn(z : &mut Zoo) -> &mut Dyn(Bump))(&mut _pass(dyn(&mut z.c))), "until v0.2.78");
-  comptime_expect_error((fn(z : &Zoo) -> &Dyn(Speak))(&_pass2(dyn(&z.c))), "until v0.2.78");
+test("a dyn(&v) forwarded through a projection", {
+  (mut(z) : Zoo) = Zoo(c : Cat(n : i32(4)));
+  assert(_pass(dyn(&mut z.c)).bump() == i32(5), "the &mut projection forwards");
+  assert(_speak_via(&_pass2(dyn(&z.c))) == i32(5), "the & projection forwards");
+  assert(z.c.n == i32(5), "v is where the writes landed");
 });
-test("a dyn(&v) inside a returned Option is E0912", {
-  comptime_expect_error(
-    (fn(z : &Zoo) -> Option(&Dyn(Speak)))(Option(&Dyn(Speak)).Some(dyn(&z.c))),
-    "until v0.2.78"
+test("a dyn(&v) inside a returned Option", {
+  z := Zoo(c : Cat(n : i32(6)));
+  assert(
+    match(
+      _opt_ret(&z),
+      .Some(d) => d.speak(),
+      .None => i32(-1)
+    ) == i32(6),
+    "the holder returns the projection"
   );
 });
-test("a dyn(&v) bound to a local is E0911", {
-  comptime_expect_error(
-    (fn() -> unit)({
-      c := Cat(n : i32(1));
-      (d : &Dyn(Speak)) = dyn(&c);
-      ()
-    }),
-    "until v0.2.78"
-  );
-  comptime_expect_error(
-    (fn() -> unit)({
-      (mut(c) : Cat) = Cat(n : i32(1));
-      (d : &mut Dyn(Bump)) = dyn(&mut c);
-      ()
-    }),
-    "until v0.2.78"
-  );
+test("a dyn(&v) bound to a local", {
+  c := Cat(n : i32(7));
+  (d : &Dyn(Speak)) = dyn(&c);
+  assert(d.speak() == i32(7), "dispatch through the named local");
+  assert(c.n == i32(7), "v still usable beside the borrow");
+  (mut(m) : Cat) = Cat(n : i32(1));
+  (e : &mut Dyn(Bump)) = dyn(&mut m);
+  assert(e.bump() == i32(2), "mut dispatch through the named local");
+  assert(m.n == i32(2), "the write landed in v");
 });
-test("a dyn(&v) stored in a holder past its statement is E0911", {
-  comptime_expect_error(
-    (fn() -> unit)({
-      c := Cat(n : i32(1));
-      o := Option(&Dyn(Speak)).Some(dyn(&c));
-      ()
-    }),
-    "until v0.2.78"
+test("a dyn(&v) stored in a holder past its statement", {
+  c := Cat(n : i32(8));
+  o := Option(&Dyn(Speak)).Some(dyn(&c));
+  assert(
+    match(
+      o,
+      .Some(d) => d.speak(),
+      .None => i32(-1)
+    ) == i32(8),
+    "the holder holds the projection past its statement"
   );
+  assert(c.n == i32(8), "v still usable after the holder");
 });
 test("dyn(&mut c) beside &c in one call is E0910", {
   comptime_expect_error(

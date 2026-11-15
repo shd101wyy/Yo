@@ -2,11 +2,11 @@
 // manifest tests/origins/corpus.tsv): POSITIVE: the same registration capturing only `x`.
 // Expected once decision 43's rules land: accepted.
 { ArrayList } :: import("std/collections/array_list");
-_register :: (fn(generic(r : Origin), reg : &mut ArrayList(Dyn(Fn(v : &i32) -> i32, r)), f : Dyn(Fn(v : &i32) -> i32, r)) -> unit)(reg.push(f));
+_register :: (fn(generic(r : Origin), reg : &mut ArrayList(Box(Dyn(Fn(v : &i32) -> i32, r))), f : Box(Dyn(Fn(v : &i32) -> i32, r))) -> unit)(reg.push(f));
 main :: (fn() -> unit)({
   x := i32(1);
   y := i32(2);
-  mut(reg) := ArrayList(Dyn(Fn(v : &i32) -> i32, x)).new();
+  mut(reg) := ArrayList(Box(Dyn(Fn(v : &i32) -> i32, x))).new();
   _register(&mut reg, dyn({ c : &x }(v : &i32) => (v.* + c.*)));
   _ := reg.len();
   ()
