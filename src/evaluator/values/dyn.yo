@@ -1056,8 +1056,21 @@ _synthesize_dyn_clone_fn :: (fn(payload_in : &TypeValue, dyn_type : &TypeValue, 
 /// (plans/backlog/TYPE_SYSTEM_SOUNDNESS.md Phase 2.8); before this the evaluator
 /// accepted it and codegen wrote its refusal into the C as a comment
 /// (issues/fixed/dyn-of-an-existing-dyn-value-emits-an-error-comment-into-the-c.md).
+///
+/// Under decision 49 S2 a `Dyn` value lives behind its handle, so a
+/// `Box(Dyn(...))`, an `Rc`/`Arc` over one and a `&Dyn` are already a `Dyn`
+/// too.
 _reject_dyn_of_dyn :: (fn(ty : &TypeValue, tok : &Token, exn : Exception) -> unit)({
-  if(is_dyn_type(ty), {
+  behind_handle := match(
+    unique_box_payload_type(ty),
+    .Some(bp) => is_dyn_type(&bp),
+    .None => match(
+      cell_handle_view(ty),
+      .Some(hv) => is_dyn_type(&hv.payload),
+      .None => match(t_refine_inner(ty), Rc(.Reference(rp, _, _)) => is_dyn_type(&rp), _ => false)
+    )
+  );
+  if(is_dyn_type(ty) || behind_handle, {
     exn.throw(
       dyn(
         with_code(
