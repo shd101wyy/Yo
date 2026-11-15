@@ -10576,7 +10576,9 @@ attached to a diagnostic only when exactly ONE edit fixes it, so 'fix' never
 guesses between alternatives; '--error-format json' carries the same repair
 as a structured field. Evaluation stops at the first error in a file, so fix
 re-runs until a pass changes nothing (at most 10 passes), formatting each
-file it rewrites.
+file it rewrites. '--migrate' runs one of the migrations listed below instead;
+a migration that was retired is no longer a mode, and the last release that
+ships each is listed in docs/en-US/ERROR_DIAGNOSTICS.md.
 
 Options:
   --exclude <path>          Exclude a directory/file (repeatable)
@@ -10596,9 +10598,6 @@ Options:
                             dyn(v) -> dyn(Box.new(v)); Rc(Dyn(T)).new(...),
                             impl(Dyn(...), ...), dyn(p) over a raw
                             pointer and owned downcasts are listed
-                            Migrations that were retired are not modes;
-                            the last release that ships each is listed in
-                            docs/en-US/ERROR_DIAGNOSTICS.md
   --target <triple>         Evaluate for this target, as compile --target
                             does, so the target's platform arms are
                             repaired or migrated (default: the host)
@@ -10614,6 +10613,8 @@ Examples:
 才会附带修复方案，因此 'fix' 从不在多种候选之间猜测；'--error-format json'
 也会以结构化字段携带同一修复。求值在每个文件的第一个错误处停止，因此 fix 会
 反复运行直到某一轮没有任何改动（最多 10 轮），并对它改写过的文件执行格式化。
+'--migrate' 改为运行下列迁移之一；已退役的迁移不再是可用模式，各自最后提供它的
+版本列在 docs/zh-CN/ERROR_DIAGNOSTICS.md。
 
 选项：
   --exclude <path>          排除目录/文件（可重复）
@@ -10630,8 +10631,6 @@ Examples:
                             dyn(Box.new(v))；列出 Rc(Dyn(T)).new(...)、
                             impl(Dyn(...), ...)、原始指针上的 dyn(p) 与
                             拥有型 downcast，留待手工改写
-                            已退役的迁移不是可用模式；各自最后提供它的
-                            版本列在 docs/zh-CN/ERROR_DIAGNOSTICS.md
   --target <triple>         按该目标求值（同 compile --target），从而修复
                             或迁移该目标的平台分支（默认：宿主平台）
   --std-path <dir>          覆盖 std 库目录
