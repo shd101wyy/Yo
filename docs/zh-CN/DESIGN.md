@@ -751,7 +751,7 @@ first_of :: (fn(generic(p : Origin), s : &(Pair, p)) -> &(i32, p))(&s.a);
 second_of :: (fn(s : &mut Pair) -> &mut(i32, s))(&mut s.b);
 ```
 
-**引用上的 impl**（决策 43 N1f-2；[`plans/VALUES_BY_DEFAULT.md`](../../plans/VALUES_BY_DEFAULT.md) 决策 43，R-PROBE）。impl 的接收者可以是引用：`impl(&C, Tr(...))`、`impl(&mut C, Tr(...))`、`impl(generic(p : Origin), &(C, p), Tr(...))`，或通用实现 `impl(generic(T), where(T <: Tr), &T, Tr(...))`。其中 `Self` 就是该引用，所以 `self : Self` 以 `&C` 接收接收者。`impl(C, Tr)`、`impl(&C, Tr)` 与 `impl(&mut C, Tr)` 是三个不同的接收者；origin 不属于接收者，因此 `impl(&(C, p), Tr)` 与 `impl(&C, Tr)` 并存是错误 E0612，裸类型变量的通用实现 `impl(generic(T), T, Tr)` 与二者之一并存也是（它同样覆盖 `&C`）。方法调用按**接收者槽位类型**解析：方法的槽位是其第一个参数代入 `Self` 后的类型（`impl(&C, …)` 上的 `self : Self` 与 `impl(C, …)` 上的 `self : &Self` 槽位都是 `&C`）。对类型为 `R` 的接收者，探测依次尝试 `R`，然后 `&R` 与 `&mut R`，再对 `R` 解引用一次并尝试其借用，第一个有方法适用的步骤胜出；同一步骤中固有方法优先于 trait 方法，同一步骤中两个 trait 方法是错误 E0616，其消息列出每个 impl 以及它们共享的槽位。因此拥有所有权的 `c` 优先采用 `C` 上按值的 `self`（`xs.into_iter()` 消耗它），只有没有按值方法时才借用；`(&c).m()` 与 `(&mut c).m()` 是显式借用，探测从 `&C` 开始（`(&xs).into_iter()` 借用）。显式借用绝不会把值从 `c` 中移出（对非 `Copy` 类型按值的 `self` 是 E0901），`(&c)` 也到达不了 `&mut Self` 方法（E0908）。引用接收者上找不到方法时，消息列出探测过的槽位类型。接收者槽位 `&&C`（`impl(&C, …)` 上的 `self : &Self`，接收 `&Self` 的 trait 会强制出现）被接受：引用绑定 `r : &C` 作为接收者时借出自身的存储，与 `(&r).m()` 相同；自有的值、调用结果或显式的 `(&c)` 没有可借出的存储，调用报错并提示先把引用绑定到局部变量。中缀运算符按同一规则选择：作为引用绑定的操作数以其引用类型参与选择，所以 `ra, rb : &C` 上的 `ra == rb` 是 `&C` 上的 impl（Rust 的 `impl PartialEq<&B> for &A`），其 `lhs : &Self` 与 `rhs : &Rhs` 槽位由两个绑定自身的存储填充；它绝不是解引用。没有 `&C` 上的 impl 接受这些操作数时（`c : C` 时的 `ra == c`、`ra + 1`，或 `C` 没有这样的 impl），该操作数是整值读取，E0926 要求写 `ra.*`。
+**引用上的 impl**（决策 43 N1f-2；[`plans/VALUES_BY_DEFAULT.md`](../../plans/VALUES_BY_DEFAULT.md) 决策 43，R-PROBE）。impl 的接收者可以是引用：`impl(&C, Tr(...))`、`impl(&mut C, Tr(...))`、`impl(generic(p : Origin), &(C, p), Tr(...))`，或通用实现 `impl(generic(T), where(T <: Tr), &T, Tr(...))`。其中 `Self` 就是该引用，所以 `self : Self` 以 `&C` 接收接收者。`impl(C, Tr)`、`impl(&C, Tr)` 与 `impl(&mut C, Tr)` 是三个不同的接收者；origin 不属于接收者，因此 `impl(&(C, p), Tr)` 与 `impl(&C, Tr)` 并存是错误 E0612，裸类型变量的通用实现 `impl(generic(T), T, Tr)` 与二者之一并存也是（它同样覆盖 `&C`）。方法调用按**接收者槽位类型**解析：方法的槽位是其第一个参数代入 `Self` 后的类型（`impl(&C, …)` 上的 `self : Self` 与 `impl(C, …)` 上的 `self : &Self` 槽位都是 `&C`）。对类型为 `R` 的接收者，探测依次尝试 `R`，然后 `&R` 与 `&mut R`，再对 `R` 解引用一次并尝试其借用，第一个有方法适用的步骤胜出；同一步骤中固有方法优先于 trait 方法，同一步骤中两个 trait 方法是错误 E0616，其消息列出每个 impl 以及它们共享的槽位。因此拥有所有权的 `c` 优先采用 `C` 上按值的 `self`（`xs.into_iter()` 消耗它），只有没有按值方法时才借用；`(&c).m()` 与 `(&mut c).m()` 是显式借用，探测从 `&C` 开始（`(&xs).into_iter()` 借用）。显式借用绝不会把值从 `c` 中移出（对非 `Copy` 类型按值的 `self` 是 E0901），`(&c)` 也到达不了 `&mut Self` 方法（E0908）。引用接收者上找不到方法时，消息列出探测过的槽位类型。接收者槽位 `&&C`（`impl(&C, …)` 上的 `self : &Self`，接收 `&Self` 的 trait 会强制出现）被接受：引用绑定 `r : &C` 作为接收者时借出自身的存储，与 `(&r).m()` 相同；自有的值、调用结果或显式的 `(&c)` 没有可借出的存储，调用报错并提示先把引用绑定到局部变量。中缀运算符按同一规则选择：作为引用绑定的操作数以其引用类型参与选择，所以 `ra, rb : &C` 上的 `ra == rb` 是 `&C` 上的 impl（Rust 的 `impl PartialEq<&B> for &A`），其 `lhs : &Self` 与 `rhs : &Rhs` 槽位由两个绑定自身的存储填充；它绝不是解引用。没有 `&C` 上的 impl 接受这些操作数时（`c : C` 时的 `ra == c`、`ra + 1`，或 `C` 没有这样的 impl），该操作数是整值读取，E0926 要求写 `ra.*`。prelude 为每个具有 `Eq(T)` / `Ord(T)` 的定长 `T` 提供 `Eq(&T)` 与 `Ord(&T)`（Rust 的 `impl PartialEq<&B> for &A`）：两个引用按其所指的值比较与排序，因此 `ra == rb`、`ra < rb` 以及 `T := &U` 处的泛型代码（`max`、约束 `where(T <: Ord(T))`）都可用；与之并存的用户 `impl(&C, Eq(&C))` 是 E0612。`&T` 上的 `Hash` 与 `ToString` 尚未提供。
 
 旧的关键字写法（`imm(x) : T`、`mut(x) : T`、`inout(x) : T`、`imm(self) : Self`、`mut(self) : Self`、`imm(y) := place`、`for(xs, mut(x) => ...)`）已在[值默认计划](../../plans/VALUES_BY_DEFAULT.md)的 Generation B 中删除（决定 42）：它是错误 E0009，错误信息给出借用符号写法；旧代码请在最后携带这些迁移的版本（[ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md)“已退役的迁移”）上升级。`imm` 是普通标识符；`mut` 仍是保留字，只出现在 `&` 之后。
 
@@ -3253,6 +3253,9 @@ twice({ n : i32(10) }() => {
   调用它。`FnOnce` 闭包不是 `FnMut`（E0913）。
 - **按值条目只有在 `FnMut` 下才可写。** 同样的函数体若类型为 `Fn(...)` 或 `FnOnce(...)`，写入条目是
   E0917：那里的写入只会到达每次调用的副本。在 `FnOnce` 下，请重新绑定该条目（`mut(m) := n;`）。
+  条目比每次调用活得更久，因此不能保存指向本次调用形参的引用（`v : &T` 时写 `last = .Some(v)`，E0923），
+  也不能保存指向函数体局部变量或闭包自身按值条目的引用（E0912）；请存入拥有所有权的值，或存入借用捕获
+  （`{ o : &x, last : Option(&T).None }`，`last = .Some(o)`）。
 - **隐式捕获只有在拥有其记录的 `FnMut` 或 `FnOnce` 闭包中才可写。** `Fn(...)` 闭包，或借给借用形参的
   字面量（`run(&(() => …))`），写入它在函数体中隐式捕获的变量——`s = …`、`s.push_str(…)`、
   `grow(&mut s)`——是 E0913：记录里存的是闭包自己的 `s` 副本（借出的字面量中则是调用方值的按位别名），
@@ -3382,7 +3385,7 @@ assert(sum(&t) == 3);
 - **`Eq`、`Hash` 和 `Default`** 比较、哈希和构造的都是载荷。`T` 是 `Send`/`Sync`
   时 `Box(T)` 才是。
 - **布局。** `Box` 值是一个指针，`Option(Box(T))` 也是一个指针（`NULL` 即
-  `.None`）。单元在载荷前带有一个 8 字节的标志字（头部共 `max(8, align_of(T))` 字节），就像 `Rc` 单元带有计数一样。由 `alloc` 参数放置的单元设置了标志字的放置位，并在头部之前带有 16 字节的所有者前缀，记录放置它的分配器；全局单元没有前缀。
+  `.None`）。全局单元就是载荷本身，与 Rust 一样占 `size_of(T)` 字节，零大小的载荷不分配任何内存。由 `alloc` 参数放置的单元在载荷前带有 16 字节的所有者前缀，记录放置它的分配器，句柄用指针的第 0 位标明这一点（每个单元至少按 16 字节对齐，所以这一位是空闲的）。`Box` 的载荷可以是非定长类型（`comptime(V) : ?Sized`，决策 49）：`Box([T])` 或 `Box(Dyn(T))` 的句柄是两个字。
 - **分配器。** `Box.new(v, alloc : .Some(a))` 把单元放在 `a` 中；不传 `alloc` 时单元
   使用全局分配器。单元通过其所有者释放，
   `Box.clone(b)` 落在 `b` 所在的位置（由显式分配器放置的 box 克隆到同一个分配器中）。

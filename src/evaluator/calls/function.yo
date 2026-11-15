@@ -41,7 +41,6 @@ pragma(Pragma.AllowUnsafe);
   BF_YO_AS,
   ast_expr_strip_borrow_marker,
   AUTO_REF_RECEIVER_PATH,
-  is_for_desugar_target,
   for_desugar_site_of,
   ast_expr_is_infix_op_fn_call
 } :: import("../../expr.yo");
@@ -83,7 +82,7 @@ pragma(Pragma.AllowUnsafe);
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
 { type_key } :: import("../../types/type_key.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_place_of, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, variable_is_reference_binding, variable_is_mut_borrow, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, local_borrow_write_expr, origin_of, bind_join_roots_for, origin_param_names_of, param_declared_origin_slot, is_rigid_origin_name, origin_name_phrase, OriginRootPlace, check_capture_freeze_access, reference_field_read_mode, deref_operand_is_raw_pointer, local_borrow_place_text, FutureRoot, note_future_roots, future_roots_of, holder_future_roots, is_reference_read, n2b_roots_text, deref_rule_applies, deref_rule_recording, is_reference_deref_site, note_binder_value_read, forget_binder_value_read, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, fn_value_definition, type_var_ids_of, deref_chain_atom, reference_reborrow_chain, call_activation_token, projection_call_root_args, ProjectionRootArg } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_place_of, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, variable_is_reference_binding, variable_is_mut_borrow, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, local_borrow_write_expr, origin_of, bind_join_roots_for, origin_param_names_of, param_declared_origin_slot, is_rigid_origin_name, origin_name_phrase, OriginRootPlace, check_capture_freeze_access, reference_field_read_mode, deref_operand_is_raw_pointer, local_borrow_place_text, FutureRoot, note_future_roots, future_roots_of, holder_future_roots, is_reference_read, n2b_roots_text, deref_rule_applies, deref_rule_recording, is_reference_deref_site, note_binder_value_read, forget_binder_value_read, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, fn_value_definition, type_var_ids_of, deref_chain_atom, reference_reborrow_chain, call_activation_token, projection_call_root_args, ProjectionRootArg, flow_write_back_through, local_mut_borrow_of_holder, expr_is_mut_reference_value, variable_holder_roots } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -112,7 +111,7 @@ pragma(Pragma.AllowUnsafe);
   note_rprobe_call,
   rprobe_stats_on
 } :: import("../context.yo");
-{ is_pointer_type, is_dyn_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, is_type_kind, type_decl_module, is_module_type, is_cell_primitive_type, is_counted_handle_type } :: import("../../types/guards.yo");
+{ is_pointer_type, is_dyn_type, is_type_hierarchy_type, is_type_parameter_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, is_type_kind, type_decl_module, is_module_type, is_cell_primitive_type, is_counted_handle_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
 { is_drop_method_name, is_clone_trait_type, type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, resolve_cell_chain, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type, note_future_origins_exist, note_unreturnable_future, future_origin_names, type_is_second_class, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message, type_lacks_clone } :: import("../../types/utils.yo");
@@ -3818,6 +3817,22 @@ _register_borrowing_future :: (fn(fut_ty : &TypeValue, call_id : usize, args : &
         f_ty := match(cap_types.get(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         f_bs := ArrayList(CaptureBorrow).new();
         collect_type_borrows(&f_ty, &mut f_bs);
+        // A by-value parameter whose type carries an origin (`h : H(p)`),
+        // captured by value: the future holds what `h` borrows, an origin
+        // the caller's argument substitutes (O8, R-CALL; audit A51). The
+        // origin names the parameter, with no place here: `h` itself moved
+        // into the future, and `_future_call_lends_into` maps the name to the
+        // argument's origin at the call.
+        if(f_bs.len() == usize(0), {
+          f_label0 := match(cap_labels.get_cloned(fi), .Some(l) => l, .None => String.new());
+          match(
+            get_variables_from_env(env, f_label0.clone()).last_cloned(),
+            .Some(bv) => if(bv.is_parameter() && !bv.is_ref() && !bv.is_compile_time_only() && (!bv.is_imm_borrow() || bv.is_value_rebind()) && type_carries_origin(&variable_value_type(&bv)) && !_names_list_contains(&origin_names, &bv.name), {
+              origin_names.push(bv.name.clone());
+            }),
+            .None => ()
+          );
+        });
         if(f_bs.len() > usize(0), {
           f_label := match(cap_labels.get_cloned(fi), .Some(l) => l, .None => String.new());
           // The captured binding, when it is a borrow parameter of the
@@ -4528,7 +4543,29 @@ _future_call_lends_into :: (
           .Some(lp) => out.push(_FutureLend(place : lp, is_mut : (ast_expr_is_fn_call_of(&lent, "&mut", .Some(usize(1))) || _borrows_root_named_mut(leaf_bs, &label)), via : via.clone())),
           .None => ()
         ),
-        .None => _future_lends_into(&lent, via, env, ctx, out, depth + u32(1))
+        .None => {
+          before := out.len();
+          _future_lends_into(&lent, via, env, ctx, out, depth + u32(1));
+          // A by-value argument that carries an origin and is no borrowing
+          // future (`mk(H(x)(r : &x), io)` for `h : H(p)`): the future's
+          // origin names its parameter, so the call lends the argument's
+          // origin, `{(x, &)}` (O8, R-CALL; audit A51).
+          if((out.len() == before) && labels_known && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&lent)), .Some(lti) => (type_carries_origin(&lti.ty()) && !is_future_value_type(&lti.ty())), .None => false), {
+            tok := ast_expr_token(&lent);
+            ors := origin_of(&lent, env, ctx);
+            (oi : usize) = usize(0);
+            while(oi < ors.len(), oi = (oi + usize(1)), {
+              orp := ors(oi).clone();
+              out.push(
+                _FutureLend(
+                  place : _LentPlace(root : AstExpr.Atom(alloc_global_expr_id(), synthetic_token(&orp.place.root_name, &tok.module_path.*)), path : orp.place.steps.clone()),
+                  is_mut : orp.is_mut,
+                  via : via.clone()
+                )
+              );
+            });
+          });
+        }
       );
     });
   });
@@ -9120,14 +9157,6 @@ _no_method_message :: (fn(func_expr : &AstExpr, ctx : &EvalContext) -> String)({
     ),
     .None => String.new()
   );
-  // The borrowed `for`'s expansion calls `walk_start` first (every source)
-  // and `walk_elem` only under `&mut` (plans/VALUES_BY_DEFAULT.md decision 39,
-  // B7a): a miss on either names the source the loop wanted.
-  walk_note := cond(
-    (method_name == "walk_start") => ` A borrowed \`for(&xs, …)\` / \`for(&mut xs, …)\` walks a collection implementing \`BorrowedWalk\`; walk a \`String\`'s characters with \`for(s.chars(), c => …)\`, and an \`Array(T, N)\` or an iterator chain with the value form \`for(xs, x => …)\`.`,
-    (method_name == "walk_elem") => ` \`for(&mut xs, …)\` writes each element in place and needs \`BorrowedWalkMut\`; ${recv_ty_str} has only the read walk \`for(&xs, …)\` (writing a \`HashSet\` or \`PriorityQueue\` element in place would break its order).`,
-    true => String.new()
-  );
   // R-PROBE ran (a reference receiver, or a program with reference impls):
   // name the receiver slot types it tried (VERDICTS-25 Q2 §3).
   nm_callee_id := ast_expr_id(func_expr);
@@ -9136,7 +9165,7 @@ _no_method_message :: (fn(func_expr : &AstExpr, ctx : &EvalContext) -> String)({
     .Some(slots) => `\nReceiver slot types probed: ${slots}.`,
     .None => String.new()
   );
-  `No method "${method_name}" on ${recv_ty_str}: the type has no field or method with that name.${deref_note}${walk_note}${probed_note}`
+  `No method "${method_name}" on ${recv_ty_str}: the type has no field or method with that name.${deref_note}${probed_note}`
 });
 /// A method miss inside auto-generated code (a derive's generated body) on a
 /// receiver whose type holds no type variable is generic-independent: no
@@ -10005,7 +10034,15 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
           if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
             eprintln(`[n2b] lend-through &mut arg ${ast_expr_to_string(&w_arg)}: place=${ast_expr_to_string(&w_place)} atom=${ast_expr_is_atom(&w_place).to_string()} fixed=${fixed_names.len().to_string()}`);
           });
-          if(ast_expr_is_atom(&w_place), {
+          // A `&mut` projection's result (`put(slot(&mut s), v)`, A11) is a
+          // path into its lent argument: its write-back lands there. The
+          // call's annotations sit on the node the evaluator rewrote it to.
+          w_node := ast_rewritten_node(&w_place);
+          w_projection := (!ast_expr_is_atom(&w_place) && expr_is_mut_reference_value(&w_node, ctx));
+          if(debug_knob(`YO_DEBUG_N2B`).is_some() && !ast_expr_is_atom(&w_place), {
+            eprintln(`[n2b] lend-through &mut value ${ast_expr_to_string(&w_node)}: projection=${w_projection.to_string()} roots=[${n2b_roots_text(&origin_of(&w_node, env, ctx))}]`);
+          });
+          if(ast_expr_is_atom(&w_place) || w_projection, {
             // The origin parameters the pointee names, and its TYPE
             // parameters: `dst : &mut Option(T)` with `T := &S` is as much an
             // inference variable as a spelled `r` (the row
@@ -10066,18 +10103,22 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
                         );
                         pk = (pk + usize(1));
                       });
-                      // A projection call's result passed inline is typed as
-                      // the place it projects (`pick(&x.*.s)` : `String`), so
-                      // the pairs above see no reference: its slot's own
-                      // origin names say what it may store.
-                      if(!names_it && projection_call_mode_of(&ast_expr_strip_borrow_marker(&x_arg), ctx).is_some(), {
-                        xs_names := ArrayList(String).new();
-                        origin_param_names_of(&x_slot, &mut xs_names, u32(0));
+                      // The parameter's own spelling: an argument whose
+                      // type reads as no reference (a projection call's
+                      // result `ys.index(i)` is typed as its place) pairs
+                      // no position above, and still carries what the
+                      // parameter names. (The ungated form also covers the
+                      // projection-call-result shape develop's #1938 block
+                      // targeted.)
+                      if(!names_it, {
+                        x_names := ArrayList(String).new();
+                        origin_param_names_of(&x_slot, &mut x_names, u32(0));
                         (xn : usize) = usize(0);
-                        while(xn < xs_names.len(), xn = (xn + usize(1)), {
-                          if(w_names.contains(match(xs_names.get_cloned(xn), .Some(n) => n, .None => String.new())), {
+                        while(xn < x_names.len(), {
+                          if(w_names.contains(match(x_names.get_cloned(xn), .Some(n) => n, .None => String.new())), {
                             names_it = true;
                           });
+                          xn = (xn + usize(1));
                         });
                       });
                       if(!names_it && (by_type_argument && type_carries_origin(&x_slot)), {
@@ -10117,7 +10158,13 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
                               }),
                               .None => ()
                             );
-                          });
+                          }, if(t_slot_is_borrow(&x_slot), {
+                            // A projection call's result at a reference
+                            // slot (`ys.index(usize(0))`) is typed as its
+                            // place, so it carries no origin of its own: the
+                            // value passed is a lend of that place.
+                            match(local_borrow_place_of(&x_bare, env, ctx), .Some(xlp) => x_roots.push(OriginRootPlace(place : xlp, is_mut : t_slot_is_mut_ref(&x_slot))), .None => ());
+                          }));
                         });
                         if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
                           eprintln(`[n2b] lend-through solve ${ast_expr_to_string(&x_arg)}: roots=[${n2b_roots_text(&x_roots)}]`);
@@ -10145,7 +10192,10 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
               // Only the end is KILLed (the store replaced its value), and only
               // when the chain has one end; the holders above it still point
               // where they pointed.
-              if(solved.len() > usize(0), {
+              if((solved.len() > usize(0)) && w_projection, {
+                flow_write_back_through(&origin_of(&w_node, env, ctx), &String.new(), &solved, ast_expr_token(&w_arg), env, ctx, exn);
+              });
+              if((solved.len() > usize(0)) && !w_projection, {
                 match(
                   get_variables_from_env(env, ast_expr_token(&w_place).value.*.clone()).last_cloned(),
                   .Some(hv) => {
@@ -10169,6 +10219,11 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
                               eprintln(`[n2b] write-back ${hh.name} (chain depth ${link.depth.to_string()}): roots=[${n2b_roots_text(&solved)}] at ${ast_expr_token(&w_arg).module_path.*.clone()}:${(ast_expr_token(&w_arg).row + u32(1)).to_string()}`);
                             });
                             bind_join_roots_for(&hh, &solved, ast_expr_token(&w_arg), env, ctx, exn, kill : (link.is_end && (n_ends == usize(1))));
+                            // A local `&mut` borrow of a holder (`sp := &mut
+                            // slot`): the store lands in the holder (A25).
+                            if(local_mut_borrow_of_holder(&hh), {
+                              flow_write_back_through(&variable_holder_roots(&hh), &hh.name, &solved, ast_expr_token(&w_arg), env, ctx, exn);
+                            });
                           });
                         },
                         .None => ()
@@ -12530,13 +12585,6 @@ Fix: wrap the call:
         // issues/fixed/yo-self-macro-dispatch-corruption.md). `is_macro_fn`
         // reads the REGISTRY (quoted params / unquote returns).
         fv_is_macro := (MACRO_DISPATCH_ENABLED && is_macro_fn(func_id_fv.clone()));
-        // Every `for(coll, handle)` is desugared at parse time (macro plan
-        // B1); the prelude's `for` macro stays only for the seed, and a call
-        // the desugar missed would still expand silently through it.
-        // `YO_DEBUG_FOR_MACRO_REACHED` makes such a call an error.
-        if(fv_is_macro && is_for_desugar_target(expr) && debug_knob(`YO_DEBUG_FOR_MACRO_REACHED`).is_some(), {
-          exn.throw(dyn(format_error_message(&tok, String.from("YO_DEBUG_FOR_MACRO_REACHED: this `for(...)` call reached the prelude's `for` macro; the parse-time desugar (`desugar_if_calls`, plans/backlog/MACRO_AND_ISO_REMOVAL.md B1) missed it."))));
-        });
         // Early generic synthesis from the expected return type. When this call has an expected type, the function has
         // `generic` parameters, and there is NO explicit `generic(...)` argument,
         // resolve the parameter types from the expected type so that a
@@ -12762,7 +12810,7 @@ Fix: wrap the call:
                 while((vs_ci < vs_ct_flags.len()) && !vs_has_ct_type, {
                   vs_is_ct := match(vs_ct_flags.get(vs_ci), .Some(b) => b, .None => false);
                   vs_pt := match(slot_pointee_at(&fv_param_types, vs_ci), .Some(t) => t, .None => t_unit());
-                  if(vs_is_ct && is_type_hierarchy_type(&vs_pt), {
+                  if(vs_is_ct && is_type_parameter_type(&vs_pt), {
                     vs_has_ct_type = true;
                   });
                   vs_ci = (vs_ci + usize(1));
@@ -12947,7 +12995,7 @@ Fix: wrap the call:
                   // declared type is available, an abstract expected mis-resolves
                   // enum-variant shorthands (".Table(...)" looked up in
                   // SomeT-T → "variant not found").
-                  is_type_hierarchy_type(&apt) => Option(ExpectedTypeCtx).None,
+                  is_type_parameter_type(&apt) => Option(ExpectedTypeCtx).None,
                   // Abstract SomeTs (bare type-param `T`) are skipped — an abstract
                   // expected mis-resolves enum-variant shorthands. EXCEPTION: a
                   // SomeT wrapping an Fn trait (`cb : Impl(Fn(...), Send)`) MUST be
@@ -13071,7 +13119,7 @@ Fix: wrap the call:
             fv_p_sink := match(fv_param_is_sink.get(ai), .Some(o) => o, .None => false);
             fv_p_is_ct := (
               match(fv_param_ct.get(ai), .Some(c) => c, .None => false)
-              || match(slot_pointee_at(&resolved_param_types, ai), .Some(apt2) => is_type_hierarchy_type(&apt2), .None => false)
+              || match(slot_pointee_at(&resolved_param_types, ai), .Some(apt2) => is_type_parameter_type(&apt2), .None => false)
             );
             fv_p_is_ref := match(fv_param_is_ref.get(ai), .Some(r) => r, .None => false);
             // D3: an `inout` argument rooted in an atomic object — recorded
@@ -13260,7 +13308,7 @@ Fix: wrap the call:
                 ctx.expected_type = match(
                   slot_pointee_at(&resolved_param_types, dpi),
                   .Some(apt) => cond(
-                    is_type_hierarchy_type(&apt) => Option(ExpectedTypeCtx).None,
+                    is_type_parameter_type(&apt) => Option(ExpectedTypeCtx).None,
                     is_some_type(&apt) => match(
                       extract_fn_trait_from_type(&apt),
                       .Some(_) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : apt, env : Rc.clone(def_env))),

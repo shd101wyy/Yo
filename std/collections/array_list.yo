@@ -149,8 +149,8 @@ impl(
   /// safe code exactly as it keeps out `ptr()`. Claiming memory initialized
   /// needs this token, which safe code cannot obtain (ATS's view of the region;
   /// issues/fixed/safe-code-reaches-freed-memory-through-arraylist-set-len.md).
-  /// A struct that merely CONTAINS a pointer, such as `RawSlice(T)`, would not
-  /// be gated: safe code may hold `String.raw_bytes()`. The pointer is valid
+  /// A struct that merely CONTAINS a pointer would not be gated. The pointer
+  /// is valid
   /// until the next reallocation, like `ptr()`.
   spare_capacity : (fn(self : &mut Self) -> Option(*T))(
     match(
@@ -1163,37 +1163,6 @@ impl(
   /// of a freed buffer. The range is fixed when it is made.
   indices : (fn(self : &Self) -> Range(usize))(
     usize(0) .. self._length
-  )
-);
-/// The borrowed `for`'s cursor (decision 39): a `usize` index, re-checked
-/// against the live length at each step.
-impl(
-  generic(T : Type),
-  ArrayList(T),
-  BorrowedWalk(
-    WalkCursor : usize,
-    WalkElem : T,
-    walk_start : (fn(self : &Self) -> usize)(usize(0)),
-    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur.* < self._length),
-    walk_ref : (fn(self : &Self, cur : &usize) -> &T)({
-      if(cur.* >= self._length, {
-        __yo_panic("ArrayList: walk cursor out of bounds");
-      });
-      self._ptr.unwrap().add(cur.*)
-    }),
-    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur.* + usize(1))
-  )
-);
-impl(
-  generic(T : Type),
-  ArrayList(T),
-  BorrowedWalkMut(
-    walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut T)({
-      if(cur.* >= self._length, {
-        __yo_panic("ArrayList: walk cursor out of bounds");
-      });
-      self._ptr.unwrap().add(cur.*)
-    })
   )
 );
 /// The shared walk over an `ArrayList` (Rust's `slice::Iter<'a, T>`): it holds a

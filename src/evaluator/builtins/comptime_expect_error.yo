@@ -35,7 +35,7 @@
   module_global_recording_mark,
   rollback_module_level_globals_to
 } :: import("../../expr_info.yo");
-{ local_borrows_mark, local_borrows_truncate, dyn_copy_mark, dyn_copy_rollback } :: import("../utils.yo");
+{ local_borrows_mark, local_borrows_truncate, local_borrow_flow_restore, dyn_copy_mark, dyn_copy_rollback } :: import("../utils.yo");
 { t_unit } :: import("../../types/creators.yo");
 { set_propagate_def_time_errors, propagate_def_time_errors, set_cee_observed_error, clear_cee_observed_error, cee_observed_error, record_cee_error_message, cee_observed_messages } :: import("../../types/flowability.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -389,6 +389,7 @@ evaluate_comptime_expect_error :: (
   };
   truncate_branch_group_stack(saved_branch_groups);
   local_borrows_truncate(saved_local_borrows);
+  local_borrow_flow_restore(saved_local_borrows);
   rollback_module_level_globals_to(saved_mg_mark);
   if(arg_threw, {
     // The optional second argument is the text the error must contain: an

@@ -1,0 +1,27 @@
+// expect: accept
+// Positive control for the p1-repoint-inner-local rows: `cur` is re-pointed at a sibling local that
+// outlives every read of it, and in the loop each iteration's re-point is read in that iteration only.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+flag :: (fn() -> bool)(String.from("a").len() == usize(1));
+main :: (fn() -> unit)({
+  x := L();
+  y := L();
+  cur := &x;
+  if(flag(), {
+    cur = &y;
+  });
+  println(`OUT: ${cur.*}`);
+  mut(i) := i32(0);
+  while(i < i32(3), {
+    z := L();
+    cur = &z;
+    println(`OUT: ${cur.*}`);
+    cur = &x;
+    i = (i + i32(1));
+  });
+  println(`OUT: ${cur.*}`);
+  ()
+});
+export(main);

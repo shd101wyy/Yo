@@ -20,7 +20,7 @@ pragma(Pragma.AllowUnsafe);
 { HashMap } :: import("std/collections/hash_map");
 { Exception } :: import("std/error");
 { panic } :: import("std/assert");
-{ TypeValue, TypeValueNode, FuncMeta, t_refine_inner, no_types, no_labels, SharedList, shared_list, slot_pointee_at, slot_pointees, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_pointee, t_slot_is_borrow, t_slot_is_mut_ref } :: import("../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, t_refine_inner, no_types, no_labels, SharedList, shared_list, slot_pointee_at, slot_pointees, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_pointee, t_slot_is_borrow, t_slot_is_mut_ref, fn_param_slots } :: import("../types/definitions.yo");
 {
   is_function_type,
   is_some_type,
@@ -78,14 +78,19 @@ pragma(Pragma.AllowUnsafe);
   is_drop_trait_name,
   buffer_element_types,
   type_is_escapable,
-  type_is_sized
+  type_is_sized,
+  fn_param_origins_narrower,
+  fn_trait_call_func_type
 } :: import("../types/utils.yo");
 { type_to_string, type_key_epoch } :: import("../types/string.yo");
 { force_pending_impls_for_type_name, type_head_name_for_impl_forcing, EvalContext, call_function_value_marker, call_closure_capture_marker, set_copy_trait_blockers_fn } :: import("./context.yo");
 { Environment, get_where_clause_constraints_for_some_type, new_environment } :: import("../env.yo");
 { Token } :: import("../token.yo");
 { EvalValue } :: import("../value.yo");
-{ YoError, format_error_message } :: import("../error.yo");
+{ YoError, format_error_message, format_error_message_with_help, with_code } :: import("../error.yo");
+{ AstExpr, ast_expr_is_fn_call_of, ast_expr_strip_borrow_marker } :: import("../expr.yo");
+{ raise_flow_violation } :: import("../types/flowability.yo");
+{ E_ORIGIN_MISMATCH } :: import("../diagnostics.yo");
 {
   find_matching_generic_impl,
   find_matching_negative_generic_impl,
@@ -104,7 +109,8 @@ pragma(Pragma.AllowUnsafe);
   find_associated_type_from_generic_impls,
   type_has_impl_shape_for,
   generic_pattern_implements_trait,
-  type_has_user_clone_impl
+  type_has_user_clone_impl,
+  fn_result_origin_wider
 }
 :: import("./values/impl.yo");
 {
@@ -3018,6 +3024,74 @@ function_value_slot_mismatch :: (fn(expected : &TypeValue, given : &TypeValue) -
   });
   Option(String).None
 });
+/// The function type a function-typed slot or value stands for: a `fn(...)`
+/// type itself, or the call signature of the `Fn(...)` trait an
+/// `Impl(Fn(...))`, a `Dyn(Fn(...))` or a closure carries.
+_signature_func_of :: (fn(ty : &TypeValue) -> Option(TypeValue))(
+  cond(
+    is_function_type(ty) => Option(TypeValue).Some(Rc.clone(ty)),
+    true => fn_trait_call_func_type(ty)
+  )
+);
+/// O7 for a function VALUE standing in a function-typed slot (a parameter,
+/// a binding, a `Dyn(Fn(...))`; audit A48): the slot's type is what its
+/// holder is checked against and what its callers trust, so the value's
+/// result may point into no parameter the slot's result origin leaves out,
+/// and its parameters relate no origins the slot leaves independent
+/// (O3-3, parameters are invariant). `.None` when the value fits; otherwise
+/// the E0923 text. A closure literal typed against the slot adopts its
+/// signature and is judged by its body instead.
+function_value_origin_mismatch :: (fn(expected : &TypeValue, given : &TypeValue) -> Option(String))({
+  e_ft := match(_signature_func_of(expected), .Some(t) => t, .None => return(Option(String).None));
+  g_ft := match(_signature_func_of(given), .Some(t) => t, .None => return(Option(String).None));
+  if(fn_param_slots(&e_ft).len() != fn_param_slots(&g_ft).len(), {
+    return(Option(String).None);
+  });
+  match(
+    fn_result_origin_wider(&g_ft, &e_ft),
+    .Some(ro) => return(
+      Option(String).Some(
+        `The function's result may point into ${ro}, which the result origin of the slot's type \`${type_to_string(expected)}\` does not name. The slot's type is what its holder is checked against and what its callers free their arguments by, so a function value may declare a narrower result origin than the slot, never a wider one (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O7).`
+      )
+    ),
+    .None => ()
+  );
+  match(
+    fn_param_origins_narrower(&g_ft, &e_ft),
+    .Some(po) => Option(String).Some(
+      `The function relates the origins of ${po}, which the slot's type \`${type_to_string(expected)}\` leaves independent. Parameters are invariant: a call through the slot passes arguments whose origins are unrelated, so the function could store one into the other past its scope (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O3 step 3, O7).`
+    ),
+    .None => Option(String).None
+  )
+});
+/// Raises `function_value_origin_mismatch` as E0923 at `at`, for a function
+/// value `value` filling a slot of type `slot`: a call argument, a struct
+/// field in a constructor, a field write `h.g = f`, a variable write. `what`
+/// names the slot (`Argument for parameter "f"`). A closure LITERAL adopts
+/// the slot's signature, so its own type says nothing here; its body is
+/// judged instead (`_closure_result_origin_check`).
+raise_function_value_origin_mismatch :: (fn(slot : &TypeValue, given : &TypeValue, value : &AstExpr, at : &Token, what : &String, ctx : &EvalContext, exn : Exception) -> unit)({
+  bare := ast_expr_strip_borrow_marker(value);
+  if(ast_expr_is_fn_call_of(&bare, "=>", Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(&bare, "->", Option(usize).Some(usize(2))), {
+    return(());
+  });
+  match(
+    function_value_origin_mismatch(slot, given),
+    .Some(fo_msg) => raise_flow_violation(
+      with_code(
+        format_error_message_with_help(
+          at,
+          `${what}: ${fo_msg}`,
+          Option(String).Some(String.from("spell the function's result origin within the slot's (e.g. `-> Option(&(T, a))` for a slot whose result names `a`), or widen the slot's"))
+        ),
+        E_ORIGIN_MISMATCH
+      ),
+      ctx,
+      exn
+    ),
+    .None => ()
+  );
+});
 // ---------------------------------------------------------------------------
 // impl_param_unmet_trait / impl_argument_unmet_trait_message
 // ---------------------------------------------------------------------------
@@ -3641,7 +3715,7 @@ export(set_flip_prelude_env, push_copy_pending, clear_copy_pending);
 export(type_implements_fn);
 export(resolve_assoc_type_for_target);
 export(extract_fn_trait_from_type);
-export(type_is_callable_shaped, fn_constrained_param_requires_callable, fn_argument_not_callable_message, function_value_slot_mismatch);
+export(type_is_callable_shaped, fn_constrained_param_requires_callable, fn_argument_not_callable_message, function_value_slot_mismatch, function_value_origin_mismatch, raise_function_value_origin_mismatch);
 export(impl_param_unmet_trait, impl_argument_unmet_trait_message, FunctionArgMarkers, judge_function_argument_markers);
 export(type_implements_future);
 export(type_contains_some_type_for_codegen_param);

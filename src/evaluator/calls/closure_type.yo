@@ -262,7 +262,7 @@ try_to_implement_closure_by_fn_module_type :: (
   // `=>` literal's may (`evaluate_anonymous_function_implementation`).
   set_closure_writes_captures(
     &closure_id,
-    match(fn_module_type, Rc(.FnTraitT(base_name : ct_bn)) => ((ct_bn == "FnMut") || (ct_bn == "FnOnce")), _ => false) && !closure_literal_is_borrowed(expr)
+    match(fn_module_type, Rc(.FnTraitT(base_name : ct_bn)) => ((ct_bn.* == "FnMut") || (ct_bn.* == "FnOnce")), _ => false) && !closure_literal_is_borrowed(expr)
   );
   // Record the closure's own resolved Func type by func_id so codegen's
   // prototype emitter (get_func_type) can build the signature. FuncVal carries

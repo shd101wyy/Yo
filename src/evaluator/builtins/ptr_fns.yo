@@ -864,8 +864,8 @@ evaluate_address_call :: (
 evaluate_chain_lend :: (fn(expr : &AstExpr, is_mut : bool, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
   operand := match(
     expr,
-    .FnCall(_, _, Rc(l_args), _, _) => match(l_args.get(usize(0)), .Some(a) => a, .None => return(expr)),
-    .Atom(_, _) => return(expr)
+    .FnCall(_, _, Rc(l_args), _, _) => match(l_args.get(usize(0)), .Some(a) => a, .None => return(expr.*)),
+    .Atom(_, _) => return(expr.*)
   );
   l_gout := ArrayList(AstExpr).new();
   l_gerr := evaluate_expression_guarded(&operand, env, ctx, &mut l_gout);
@@ -876,7 +876,7 @@ evaluate_chain_lend :: (fn(expr : &AstExpr, is_mut : bool, env : &Environment, c
     .Some(i) => Rc.clone(i),
     .None => {
       exn.throw(dyn(format_error_message(ast_expr_token(&operand), String.from("&: failed to evaluate the place this lend borrows."))));
-      return(expr);
+      return(expr.*);
     }
   );
   lend_ty := match(
@@ -891,11 +891,11 @@ evaluate_chain_lend :: (fn(expr : &AstExpr, is_mut : bool, env : &Environment, c
           )
         )
       );
-      return(expr);
+      return(expr.*);
     }
   );
   out := new_expr_info(&expr_info_adopt_env(&info), &lend_ty);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-  expr
+  expr.*
 });
 export(evaluate_address_call, evaluate_chain_lend);

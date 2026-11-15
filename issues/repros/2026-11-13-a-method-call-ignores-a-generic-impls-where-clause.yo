@@ -1,0 +1,10 @@
+// expect: E0610 (`clone` exists only for a `Copy` payload; today accepted)
+// A derived `Clone` bounded `where(T <: Copy)` is dispatched for `N(String)` by a method call.
+{ String } :: import("std/string");
+N :: (fn(comptime(T) : Type) -> comptime(Type))(newtype(_v : T));
+derive(generic(T : Type), where(T <: Copy), N(T), Clone);
+main :: (fn() -> unit)({
+  m := N(String)(_v : String.from("a"));
+  c := m.clone();
+});
+export(main);

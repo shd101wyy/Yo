@@ -1,0 +1,23 @@
+// Cluster 4 corpus row `loop-join-option-slot` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3 `bind`, the
+// loop back edge; audit A19b; the `Option(&T)`-slot twin of `loop-join-push`, which the container wall
+// rejects; manifest tests/origins/corpus.tsv): a write that precedes the lend in the body's text is reached by
+// the loan an earlier iteration made, and the holder is read after the loop.
+// Expected: rejected: E0911 at `x = i32(5)`.
+probe :: (fn(n : i32) -> unit)({
+  z := i32(0);
+  mut(x) := i32(1);
+  mut(h) := Option(&i32).Some(&z);
+  mut(i) := i32(0);
+  while(i < n, {
+    if(i == i32(2), {
+      x = i32(5);
+    });
+    if(i == i32(1), {
+      h = .Some(&x);
+    });
+    i = (i + i32(1));
+  });
+  _ := h.is_some();
+  ()
+});
+export(probe);

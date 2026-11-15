@@ -174,33 +174,62 @@ test("An allocator whose callbacks allocate places Rc, Arc and a Dyn clone witho
   };
   assert(counts.live == usize(0), `all four went back: ${counts.live}`);
 });
-// `Box`'s layout (plans/backlog/ALLOCATOR_PLACEMENT.md, "Related: `Box`'s
-// layout"): an 8-byte flags word in front of the payload, its placed bit set
-// only by an `alloc` argument, and the owner prefix only on a placed cell.
-_box_flags :: (fn(b : &Box(i64)) -> u64)({
-  // SAFETY: a `Box(V)` is one `*V`, and its cell's flags word is the 8 bytes
-  // in front of the payload.
-  cell := unsafe(unsafe.cast(b, *u8));
-  unsafe((*u64)(cell.sub(usize(8))).*)
-});
-test("A placed Box carries the owner prefix and its flags word; a global one only the flags word", {
+// `Box`'s layout L2 (plans/backlog/ALLOCATOR_PLACEMENT.md, "Related: `Box`'s
+// layout", VERDICTS-29): the placed bit is bit 0 of the handle's cell
+// pointer, a global cell is the payload alone, a placed cell is the owner
+// prefix then the payload, and a global zero-sized payload allocates nothing.
+_box_word :: (fn(b : &Box(i64)) -> usize)(
+  // SAFETY: a `Box(i64)` is one `*i64`, its bit 0 the placed bit.
+  unsafe(unsafe.cast(b, usize))
+);
+_unit_box_word :: (fn(b : &Box(unit)) -> usize)(
+  // SAFETY: as `_box_word`.
+  unsafe(unsafe.cast(b, usize))
+);
+_B64 :: struct(a : i64, b : i64, c : i64, d : i64, e : i64, f : i64, g : i64, h : i64);
+test("A placed Box is the owner prefix and the payload, its handle's bit 0 set; a global one is the payload alone", {
   counts := _counts();
   heap := _counting(addr_of(counts));
   {
     placed := Box.new(i64(7), alloc : .Some(heap));
-    // The owner prefix (16), the flags word (8), the payload (8).
-    assert(counts.bytes == usize(32), `a placed Box(i64) asks for 32 bytes: ${counts.bytes}`);
-    assert(_box_flags(&placed) == u64(1), "the placed bit");
+    // The owner prefix (16), the payload (8): no flags word.
+    assert(counts.bytes == usize(24), `a placed Box(i64) asks for 24 bytes: ${counts.bytes}`);
+    assert((_box_word(&placed) & usize(1)) == usize(1), "the placed bit is in the handle");
     assert(Box.allocator(placed).unwrap().same(heap), "the owner prefix names the allocator");
     global := Box.new(i64(8));
-    assert(_box_flags(&global) == u64(0), "a global cell's flags word is clear");
+    assert((_box_word(&global) & usize(1)) == usize(0), "a global handle's bit 0 is clear");
     assert(Box.allocator(global).is_none(), "and it has no owner");
     assert((placed.* + global.*) == i64(15), "payloads");
     copy := Box.clone(placed);
     assert(Box.allocator(copy).unwrap().same(heap), "a clone lives where its source lives");
     assert(counts.live == usize(2), `the source and its clone: ${counts.live}`);
+    big := Box.new(_B64(a : i64(1), b : i64(2), c : i64(3), d : i64(4), e : i64(5), f : i64(6), g : i64(7), h : i64(8)), alloc : .Some(heap));
+    assert(counts.bytes == usize(128), `a placed 64-byte payload asks for 80 bytes: ${counts.bytes}`);
+    assert(big.h == i64(8), "the payload after the prefix");
   };
-  assert(counts.live == usize(0), `both placed cells went back: ${counts.live}`);
+  assert(counts.live == usize(0), `every placed cell went back: ${counts.live}`);
+});
+test("A zero-sized Box allocates nothing globally and the owner prefix alone when placed", {
+  counts := _counts();
+  heap := _counting(addr_of(counts));
+  {
+    global := Box.new(());
+    assert(_unit_box_word(&global) == usize(16), "the dangling handle: no allocation");
+    assert(Box.allocator(global).is_none(), "a global zero-sized box has no owner");
+    placed := Box.new((), alloc : .Some(heap));
+    assert(counts.bytes == usize(16), `a placed Box(unit) asks for the prefix alone: ${counts.bytes}`);
+    assert(Box.allocator(placed).unwrap().same(heap), "and records its owner");
+  };
+  assert(counts.live == usize(0), `the placed prefix went back: ${counts.live}`);
+});
+test("into_inner of a placed Box frees its cell through the allocator", {
+  counts := _counts();
+  heap := _counting(addr_of(counts));
+  b := Box.new(i64(41), alloc : .Some(heap));
+  v := b.into_inner();
+  assert(v == i64(41), "the payload moved out");
+  assert(counts.live == usize(0), `the cell went back: ${counts.live}`);
+  assert(counts.frees == usize(1), `one free: ${counts.frees}`);
 });
 test("An alloc argument takes any Allocator value", {
   counts := _counts();
