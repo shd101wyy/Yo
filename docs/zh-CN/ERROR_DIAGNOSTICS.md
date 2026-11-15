@@ -115,7 +115,7 @@ yo fix <path> --migrate borrow-spelling
 | `mut-bindings` | 给程序写入的每个局部、模式和编译期绑定加上 `mut(x)`（决策 47 第二步） | E0917 | v0.2.76 |
 | `rc-clone` | 源值之后仍被使用的计数句柄隐式拷贝改写为 `Rc.clone(h)`/`Arc.clone(h)`/`e.clone()`，捕获句柄的闭包加上捕获列表（决策 17） | E0901 | v0.2.76 |
 
-请按阶段顺序运行它们。早于决策 42 的代码要先运行 `borrow-spelling`，再运行 `mut-bindings`：这类代码中的 `mut(z) := x` 是已删除的局部借用写法，`mut-bindings` 会把它当作可变局部变量。绝不要在已经使用决策 47 的 `mut(x) := v` 写法的代码上运行 `borrow-spelling`。拷贝迁移在 v0.2.73 上按各自的顺序运行：`explicit-copy`、`cloned-accessors`，然后 `rc-clone`，之后再固定到 v0.2.74。`yo fix --migrate deref` 和 `yo fix --migrate record-literal` 是本版本携带的两个模式。
+请按阶段顺序运行它们。早于决策 42 的代码要先运行 `borrow-spelling`，再运行 `mut-bindings`：这类代码中的 `mut(z) := x` 是已删除的局部借用写法，`mut-bindings` 会把它当作可变局部变量。绝不要在已经使用决策 47 的 `mut(x) := v` 写法的代码上运行 `borrow-spelling`。拷贝迁移在 v0.2.73 上按各自的顺序运行：`explicit-copy`、`cloned-accessors`，然后 `rc-clone`，之后再固定到 v0.2.74。`yo fix --migrate deref`、`yo fix --migrate record-literal` 和 `yo fix --migrate unsized` 是本版本携带的三个模式。
 
 ## 警告
 

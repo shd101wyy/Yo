@@ -1,0 +1,13 @@
+//! A closure that captures a fat reference (`&[T]`) by value emits `&(*v)` on a
+//! `__yo_slice_t`: "indirection requires pointer operand".
+{ assert } :: import("std/assert");
+
+count :: (fn(xs : &[i32]) -> usize)(xs.len());
+
+main :: (fn() -> unit)({
+  a := Array(i32, 3)(1, 2, 3);
+  v := unsize(&a);
+  (f : Impl(Fn() -> usize)) = ({ v }() => count(v));
+  assert(f() == usize(3), "a `&[i32]` binding captured by value");
+});
+export(main);

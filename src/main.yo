@@ -10434,7 +10434,9 @@ attached to a diagnostic only when exactly ONE edit fixes it, so 'fix' never
 guesses between alternatives; '--error-format json' carries the same repair
 as a structured field. Evaluation stops at the first error in a file, so fix
 re-runs until a pass changes nothing (at most 10 passes), formatting each
-file it rewrites.
+file it rewrites. '--migrate' runs one of the migrations listed below instead;
+a migration that was retired is no longer a mode, and the last release that
+ships each is listed in docs/en-US/ERROR_DIAGNOSTICS.md.
 
 Options:
   --exclude <path>          Exclude a directory/file (repeatable)
@@ -10443,9 +10445,12 @@ Options:
                             repairs: r -> r.* where a reference is read
                             or written whole, &r -> &r.*, and
                             v.* -> v.*.* where v.* was the Box/Rc deref
-                            through a reference. The other migrations
-                            were retired; the last release that ships
-                            each is listed in docs/en-US/ERROR_DIAGNOSTICS.md
+                            through a reference
+  --migrate record-literal  Run the brace-group migration (brace Gen B,
+                            E0007): every expression-position bare
+                            { ... } that is a record -> .{ ... };
+                            binders and blocks are left alone. Reads the
+                            parse only, so it needs no evaluation
   --migrate unsized         Run decision 49's migration: the legacy
                             dyn(v) -> dyn(Box.new(v)), and a lend &b of a
                             Box(Dyn(T)) where a &Dyn(T) is taken -> &b.*;
@@ -10469,15 +10474,19 @@ Examples:
 才会附带修复方案，因此 'fix' 从不在多种候选之间猜测；'--error-format json'
 也会以结构化字段携带同一修复。求值在每个文件的第一个错误处停止，因此 fix 会
 反复运行直到某一轮没有任何改动（最多 10 轮），并对它改写过的文件执行格式化。
+'--migrate' 改为运行下列迁移之一；已退役的迁移不再是可用模式，各自最后提供它的
+版本列在 docs/zh-CN/ERROR_DIAGNOSTICS.md。
 
 选项：
   --exclude <path>          排除目录/文件（可重复）
   --dry-run                 只打印修复，不写入
   --migrate deref           运行 deref 迁移而不是修复：整体读写引用时
                             r -> r.*，&r -> &r.*，经由引用表示 Box/Rc
-                            解引用的 v.* -> v.*.*。其他迁移已退役；
-                            各自最后提供它的版本列在
-                            docs/zh-CN/ERROR_DIAGNOSTICS.md
+                            解引用的 v.* -> v.*.*
+  --migrate record-literal  运行花括号组迁移（花括号 Gen B，E0007）：
+                            表达式位置上作为记录的每个裸 { ... }
+                            -> .{ ... }；绑定位置和代码块保持不变。
+                            只读取解析结果，不需要求值
   --migrate unsized         运行决定 49 的迁移：旧别名 dyn(v) ->
                             dyn(Box.new(v))；在接受 &Dyn(T) 的位置借出
                             Box(Dyn(T)) 的 &b -> &b.*；列出原始指针上的

@@ -273,7 +273,7 @@ local-borrow spelling, and `mut-bindings` would read it as a mutable local.
 Never run `borrow-spelling` on code that already spells decision 47's
 `mut(x) := v`. The copy migrations run on v0.2.73 in their own order,
 `explicit-copy`, `cloned-accessors`, then `rc-clone`, before pinning v0.2.74.
-`yo fix --migrate deref` and `yo fix --migrate record-literal` are the two modes this release ships.
+`yo fix --migrate deref`, `yo fix --migrate record-literal` and `yo fix --migrate unsized` are the three modes this release ships.
 
 ## Warnings
 
