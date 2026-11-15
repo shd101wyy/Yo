@@ -58,7 +58,7 @@ pragma(Pragma.AllowUnsafe);
   note_lent_temporary
 } :: import("../../expr_info.yo");
 { expr_info_set_origin, OriginRootPlace } :: import("../../expr_info.yo");
-{ Environment, Variable, pop_env_frame, snapshot_env, env_adopt, variable_set_is_ref, variable_set_is_imm_borrow, variable_set_is_borrow_match_binding, variable_set_reference_mut } :: import("../../env.yo");
+{ Environment, Variable, pop_env_frame, snapshot_env, env_adopt, variable_value_type, variable_set_is_ref, variable_set_is_imm_borrow, variable_set_is_borrow_match_binding, variable_set_reference_mut } :: import("../../env.yo");
 { Token, TokenKind, intern_token_str } :: import("../../token.yo");
 { add_variable_to_env, get_variables_from_env, find_variable_in_env, variable_set_inout_borrow_root_id, variable_mark_inout_borrow_root, mark_macro_pattern_binding } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, fn_ctx_returns_comptime, call_is_index_place } :: import("../context.yo");
@@ -356,7 +356,7 @@ _commit_guard_copies :: (fn(env : &Environment, arm_frame : usize) -> unit)({
   if(dyn_copy_pending_exists(), {
     match(env.frame_at(arm_frame), .Some(dfr) => discard_dyn_copies(&dfr), .None => ());
   });
-  if(!audit_copy_trait_enabled(), {
+  if(!audit_pending_copies_enabled(), {
     return(());
   });
   match(env.frame_at(arm_frame), .Some(fr) => audit_commit_arm_copies(&fr), .None => ());
