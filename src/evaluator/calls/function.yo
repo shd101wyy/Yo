@@ -7979,7 +7979,10 @@ _evaluate_funcval_runtime_call :: (
                     is_comptime_int_type(&_ac_aty) || is_comptime_float_type(&_ac_aty)
                     || is_comptime_string_type(&_ac_aty)
                   );
-                  if(!_ac_p_generic && !_ac_a_generic && !_ac_a_comptime
+                  // A `&str` value at a `&str` slot is the `str` it refers
+                  // to (decision 49 S2, `check_argument_for_parameter`).
+                  _ac_str_place := (is_str_reference_type(&_ac_aty) && is_legacy_value_str(&_ac_pty));
+                  if(!_ac_p_generic && !_ac_a_generic && !_ac_a_comptime && !_ac_str_place
                   && !are_types_compatible(&_ac_aty, &_ac_pty), {
                     // C19: a concrete/concrete argument-type mismatch (e.g. C
                     // `int` where `i32` is declared) is ALWAYS a hard error.
