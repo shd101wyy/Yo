@@ -65,7 +65,7 @@ pragma(Pragma.AllowUnsafe);
 { is_valid_variable_name } :: import("../utils.yo");
 { is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_union_member_read_capable, union_member_read_error_message, is_std_module_path } :: import("../memory_safety.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
-{ Token, TokenKind, intern_token_str } :: import("../../token.yo");
+{ Token, TokenKind, intern_token_str, TokenData } :: import("../../token.yo");
 { deref_target_type } :: import("../trait_checking.yo");
 { gadt_branch_reachable } :: import("../../pattern.yo");
 { get_gadt_variant_args } :: import("../types/gadt_registry.yo");
@@ -262,7 +262,7 @@ find_first_field_index :: (fn(labels : &ArrayList(String), name : &String) -> Op
 /// `at`'s position and module path, so a diagnostic on the synthesized node
 /// still points at the user's access.
 make_deref_expr :: (fn(obj : &AstExpr, dot_tok : &Token, at : &Token) -> AstExpr)({
-  star_tok := Token(
+  star_tok := Rc.new(TokenData(
     kind : TokenKind.Operator,
     value : intern_token_str(String.from("*")),
     row : at.row,
@@ -271,7 +271,7 @@ make_deref_expr :: (fn(obj : &AstExpr, dot_tok : &Token, at : &Token) -> AstExpr
     byte_offset : at.byte_offset,
     module_path : Rc.clone(at.module_path),
     input : Rc.clone(at.input)
-  );
+  ));
   star_id := alloc_global_expr_id();
   note_synthesized_deref_star(star_id);
   args := ArrayList(AstExpr).new();
@@ -918,7 +918,7 @@ _evaluate_property_access_node :: (
             // second reference deref.
             rd_name_tok := ast_expr_token(&object_expr);
             rd_star_tok := ast_expr_token(&property_expr);
-            rd_tok := Token(
+            rd_tok := Rc.new(TokenData(
               kind : rd_name_tok.kind,
               value : Rc.clone(rd_name_tok.value),
               row : rd_star_tok.row,
@@ -927,7 +927,7 @@ _evaluate_property_access_node :: (
               byte_offset : rd_star_tok.byte_offset,
               module_path : Rc.clone(rd_name_tok.module_path),
               input : Rc.clone(rd_name_tok.input)
-            );
+            ));
             note_reference_deref_site(&rd_tok);
             out_rd := new_expr_info(&env, &rd_oi.ty());
             out_rd.set_value(rd_oi.value());
@@ -968,7 +968,7 @@ _evaluate_property_access_node :: (
           rf_label := match(rf_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
           rf_label_tok := ast_expr_token(&rf_label);
           rf_star_tok := ast_expr_token(&property_expr);
-          rf_new_tok := Token(
+          rf_new_tok := Rc.new(TokenData(
             kind : rf_label_tok.kind,
             value : Rc.clone(rf_label_tok.value),
             row : rf_star_tok.row,
@@ -977,7 +977,7 @@ _evaluate_property_access_node :: (
             byte_offset : rf_star_tok.byte_offset,
             module_path : Rc.clone(rf_label_tok.module_path),
             input : Rc.clone(rf_label_tok.input)
-          );
+          ));
           note_reference_deref_site(&rf_new_tok);
           rf_new_args := ArrayList(AstExpr).new();
           rf_new_args.push(rf_obj);
