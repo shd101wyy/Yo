@@ -1381,3 +1381,24 @@ test("the interim Rc(Dyn): the last strong handle dropped while a Weak lives, th
   drop(w);
   assert(g_ar_drops == i32(1), "the Weak drops no payload");
 });
+// The over-cancellation canary (VERDICTS-61 decision 16): a `Box(Dyn)` is
+// unique, so a dup/drop pair the optimizer cancels for a local moved into a
+// container that dies first is a leak, and a surviving retain a double free.
+_CanHolder :: struct(b : Box(Dyn(_ArSp)), tag : i32);
+test("a Box(Dyn) moved into a field of an inner-scope container drops with the container, once", {
+  g_ar_drops = i32(0);
+  (b : Box(Dyn(_ArSp))) = dyn(Box.new(_ArObj(n : i32(2))));
+  {
+    h := _CanHolder(b : b, tag : i32(1));
+    assert(h.b.ar_sp() == i32(2), "the container's box dispatches");
+  };
+  assert(g_ar_drops == i32(1), "dropped when the inner container died");
+  (mut(i) : i32) = i32(0);
+  while(i < i32(3), {
+    (c : Box(Dyn(_ArSp))) = dyn(Box.new(_ArObj(n : i)));
+    h := _CanHolder(b : c, tag : i);
+    assert(h.b.ar_sp() == h.tag, "each iteration's container");
+    i = (i + i32(1));
+  });
+  assert(g_ar_drops == i32(4), "one drop per iteration's container");
+});
