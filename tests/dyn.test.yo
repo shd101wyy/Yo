@@ -1337,6 +1337,7 @@ test("a Box(Dyn) and a *Dyn are two words, and a struct holding one is laid out 
 _DrsObj :: ref(struct(n : i32));
 impl(_DrsObj, ToString(to_string : (fn(self : &Self) -> String)(String.from("drs"))));
 impl(_DrsObj, Error());
+impl(_DrsObj, Clone(clone : (fn(self : &Self) -> Self)(_DrsObj(n : self.n))));
 _drs_n :: (fn(err : &AnyError) -> i32)(match(downcast(err, _DrsObj), .Some(o) => o.n, .None => i32(0)));
 test("a downcast of a boxed ref-struct payload reads the object", {
   (e : AnyError) = dyn(_DrsObj(n : i32(7)));

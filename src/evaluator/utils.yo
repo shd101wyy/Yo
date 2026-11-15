@@ -154,8 +154,8 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string, type_to_string_for_message } :: import("../types/string.yo");
 { type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, nominal_has_hidden_origin, type_reaches_user_drop, type_nominal_drop_uses_roots, note_origin_types_exist, type_is_typed_fnmut_closure, capture_struct_is_fnmut, future_unreturnable_borrow, future_origin_names, get_all_some_types } :: import("../types/utils.yo");
-{ expr_info_table_set, is_mut_global, is_thread_local, migrate_deref_on, audit_deref_on, record_deref_site, record_deref_edit_site, note_reference_read_copied, lookup_macro_expansion, is_reference_self_place, unsize_reference_mode } :: import("../expr_info.yo");
-{ is_global_mut_rule_exempt, is_deref_rule_exempt } :: import("./memory_safety.yo");
+{ expr_info_table_set, is_mut_global, is_thread_local, migrate_deref_on, audit_deref_on, record_deref_site, record_deref_edit_site, deref_file_migrated, note_reference_read_copied, lookup_macro_expansion, is_reference_self_place, unsize_reference_mode } :: import("../expr_info.yo");
+{ is_global_mut_rule_exempt, is_deref_rule_exempt, is_deref_swept_tree } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
 // late-binding dispatcher (it imports neither utils.yo nor any handler).
@@ -6885,6 +6885,18 @@ deref_rule_applies :: (fn(tok : &Token, ctx : &EvalContext) -> bool)(
 deref_spelling_applies :: (fn(tok : &Token, ctx : &EvalContext) -> bool)(
   deref_rule_applies(tok, ctx) || (!tok.module_path.*.starts_with(String.from("auto-generated://")) && for_desugar_site_of(tok).is_none())
 );
+/// Whether the recorder reads a written `.*` at `tok` as the new spelling
+/// whatever the referent: a file `note_deref_migrated_file` saw, or one of
+/// the repository's own swept trees (`is_deref_swept_tree`), which hold no
+/// old source. The evidence rule alone is order-dependent: the swept
+/// prelude's `*T` `Clone` (`self -> self.*`, `self : &*T`) is instantiated
+/// by `derive(Allocator, Copy, Clone)` before any evidence site of the
+/// prelude is evaluated, and its old reading (the pointee) fails the
+/// derive, so every directory-form migration could not load the prelude
+/// (issues/fixed/2026-11-14-the-deref-migration-rewrites-the-raw-pointer-clone-impls-result-type-to-the-pointee.md).
+deref_text_is_new_spelling :: (fn(tok : &Token, ctx : &EvalContext) -> bool)(
+  deref_file_migrated(tok) || is_deref_swept_tree(&tok.module_path.*, &ctx.std_path)
+);
 /// Whether a judged site records instead of rejecting: `yo fix --migrate
 /// deref` or the census.
 deref_rule_recording :: (fn() -> bool)(migrate_deref_on() || audit_deref_on());
@@ -13284,6 +13296,7 @@ export(
   note_binder_value_read,
   forget_binder_value_read,
   deref_rule_recording,
+  deref_text_is_new_spelling,
   reject_reference_without_deref,
   local_borrow_is_binding_stmt,
   local_borrow_may_bind_projection_stmt,
