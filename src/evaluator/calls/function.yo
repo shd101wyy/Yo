@@ -77,7 +77,7 @@ pragma(Pragma.AllowUnsafe);
 { is_io_async_call, is_io_await_call, is_io_state_call, is_io_spawn_call, is_join_handle_await_call, IO_BUILTIN_NONE } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 { t_unit, t_type, t_usize, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell, resolve_struct_shell, UNFRAMED_BINDER_LEVEL, t_with_resolution, enum_phantom_positions } :: import("../../types/creators.yo");
-{ Token, TokenKind, string_is_operator, intern_token_str } :: import("../../token.yo");
+{ Token, TokenKind, string_is_operator, intern_token_str, TokenData } :: import("../../token.yo");
 { EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val, is_module_val, create_runtime_unknown_val_with_name, lookup_enum_cfid, shared_values, value_cell_new } :: import("../../value.yo");
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
 { type_key } :: import("../../types/type_key.yo");
@@ -1019,7 +1019,7 @@ _reject_class1_panic_method_call :: (
 _synth_name_atom :: (fn(name : str, at : &Token) -> AstExpr)(
   AstExpr.Atom(
     alloc_global_expr_id(),
-    Token(
+    Rc.new(TokenData(
       kind : TokenKind.Identifier,
       value : intern_token_str(String.from(name)),
       row : at.row,
@@ -1028,7 +1028,7 @@ _synth_name_atom :: (fn(name : str, at : &Token) -> AstExpr)(
       byte_offset : at.byte_offset,
       module_path : Rc.clone(at.module_path),
       input : Rc.clone(at.input)
-    )
+    ))
   )
 );
 /// `Option(Allocator)`, the type of a cell primitive's allocator argument
@@ -2869,7 +2869,7 @@ _build_receiver_call_args :: (
       recv_tok := ast_expr_token(receiver_expr);
       amp_atom := AstExpr.Atom(
         alloc_global_expr_id(),
-        Token(
+        Rc.new(TokenData(
           kind : TokenKind.Identifier,
           value : intern_token_str(String.from("addr_of")),
           row : recv_tok.row,
@@ -2878,7 +2878,7 @@ _build_receiver_call_args :: (
           byte_offset : recv_tok.byte_offset,
           module_path : Rc.new(String.from(AUTO_REF_RECEIVER_PATH)),
           input : Rc.clone(recv_tok.input)
-        )
+        ))
       );
       amp_args := ArrayList(AstExpr).new();
       amp_args.push(receiver_expr.clone());
@@ -14765,7 +14765,7 @@ Fix: wrap the call:
               recv_tok := ast_expr_token(&method_info.receiver_expr);
               amp_atom := AstExpr.Atom(
                 alloc_global_expr_id(),
-                Token(
+                Rc.new(TokenData(
                   kind : TokenKind.Identifier,
                   value : intern_token_str(String.from("addr_of")),
                   row : recv_tok.row,
@@ -14774,7 +14774,7 @@ Fix: wrap the call:
                   byte_offset : recv_tok.byte_offset,
                   module_path : Rc.new(String.from(AUTO_REF_RECEIVER_PATH)),
                   input : Rc.clone(recv_tok.input)
-                )
+                ))
               );
               amp_args := ArrayList(AstExpr).new();
               amp_args.push(method_info.receiver_expr);
