@@ -329,13 +329,13 @@ _evaluate_inout_local_binding :: (
         sh_entries := ArrayList(TokenAndError).new();
         sh_entries.push(
           TokenAndError(
-            token : name_tok,
+            token : Rc.clone(name_tok),
             error_message : `Failed to define variable "${var_name}":`
           )
         );
         sh_entries.push(
           TokenAndError(
-            token : shadow_var.token,
+            token : Rc.clone(shadow_var.token),
             error_message : `Variable "${var_name}" is already defined here (variable shadowing is not allowed):`
           )
         );
@@ -880,8 +880,8 @@ _bind_projection_result :: (
     shadow_existing.last_cloned(),
     .Some(shadow_var) => {
       sh_entries := ArrayList(TokenAndError).new();
-      sh_entries.push(TokenAndError(token : name_tok, error_message : `Failed to define variable "${var_name}":`));
-      sh_entries.push(TokenAndError(token : shadow_var.token, error_message : `Variable "${var_name}" is already defined here (variable shadowing is not allowed):`));
+      sh_entries.push(TokenAndError(token : Rc.clone(name_tok), error_message : `Failed to define variable "${var_name}":`));
+      sh_entries.push(TokenAndError(token : Rc.clone(shadow_var.token), error_message : `Variable "${var_name}" is already defined here (variable shadowing is not allowed):`));
       exn.throw(dyn(format_error_messages(&sh_entries)));
     },
     .None => ()
@@ -2174,13 +2174,13 @@ Use \`::\` for compile-time definitions inside impl.`
             sh_entries := ArrayList(TokenAndError).new();
             sh_entries.push(
               TokenAndError(
-                token : actual_lhs_tok,
+                token : Rc.clone(actual_lhs_tok),
                 error_message : `Failed to define variable "${var_name}":`
               )
             );
             sh_entries.push(
               TokenAndError(
-                token : shadow_var.token,
+                token : Rc.clone(shadow_var.token),
                 error_message : `Variable "${var_name}" is already defined here (variable shadowing is not allowed):`
               )
             );
@@ -2224,7 +2224,7 @@ Use \`::\` for compile-time definitions inside impl.`
         // itself and the token is the same handle: every field a reader
         // uses (module-path spelling, lexeme, kind) is already the one set
         // here. `token` is one of `Variable`'s read-only fields (VERDICTS-22).
-        pb.set_initialized_at_token(Option(Token).Some(actual_lhs_tok));
+        pb.set_initialized_at_token(Option(Token).Some(Rc.clone(actual_lhs_tok)));
         Option(Variable).Some(Rc.clone(pb))
       },
       .None => add_variable_to_env(

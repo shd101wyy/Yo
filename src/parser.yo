@@ -183,16 +183,18 @@ _is_old_capture_mode_pun :: (fn(expr : &AstExpr) -> bool)(
 /// A synthetic token of the D10 template lowering, positioned at the template
 /// token `at` so a diagnostic about the lowered code points at the template.
 _template_syn_tok :: (fn(at : &Token, kind : TokenKind, value : &String) -> Token)(
-  Rc.new(TokenData(
-    kind : kind,
-    value : intern_token_str(value),
-    row : at.row,
-    column : at.column,
-    character : at.character,
-    byte_offset : at.byte_offset,
-    module_path : Rc.clone(at.module_path),
-    input : Rc.clone(at.input)
-  ))
+  Rc.new(
+    TokenData(
+      kind : kind,
+      value : intern_token_str(value),
+      row : at.row,
+      column : at.column,
+      character : at.character,
+      byte_offset : at.byte_offset,
+      module_path : Rc.clone(at.module_path),
+      input : Rc.clone(at.input)
+    )
+  )
 );
 /// The result of peeling a `:spec` suffix off a template-string interpolation.
 /// `spec` is empty when the text carries none, in which case `expr_text` is the
@@ -359,17 +361,19 @@ impl(
     id
   }),
   make_unit_call : (fn(self : &mut Self, ref_tok : &Token) -> AstExpr)({
-    unit_tok := Rc.new(TokenData(
-      kind : TokenKind.Identifier,
-      value : intern_token_str(String.from(BK_TUPLE)),
-      row : ref_tok.row,
-      column : ref_tok.column,
-      character : ref_tok.character,
-      byte_offset : ref_tok.byte_offset,
-      module_path : Rc.clone(ref_tok.module_path),
-      input : Rc.clone(ref_tok.input)
-    ));
-    .FnCall(self.alloc_id(), .Atom(self.alloc_id(), unit_tok), Rc.new(ArrayList(AstExpr).new()), false, unit_tok)
+    unit_tok := Rc.new(
+      TokenData(
+        kind : TokenKind.Identifier,
+        value : intern_token_str(String.from(BK_TUPLE)),
+        row : ref_tok.row,
+        column : ref_tok.column,
+        character : ref_tok.character,
+        byte_offset : ref_tok.byte_offset,
+        module_path : Rc.clone(ref_tok.module_path),
+        input : Rc.clone(ref_tok.input)
+      )
+    );
+    .FnCall(self.alloc_id(), .Atom(self.alloc_id(), Rc.clone(unit_tok)), Rc.new(ArrayList(AstExpr).new()), false, unit_tok)
   }),
   skip_ws_fwd : (fn(self : &mut Self, index : usize) -> usize)({
     i := index;
@@ -527,9 +531,9 @@ impl(
   )({
     prop_args := ArrayList(AstExpr).new();
     prop_args.push(recv);
-    prop_args.push(.Atom(self.alloc_id(), m_tok.*));
-    (prop : AstExpr) = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), d_tok.*), Rc.new(prop_args), true, d_tok.*);
-    .FnCall(self.alloc_id(), prop, Rc.new(args), false, outer_tok.*)
+    prop_args.push(.Atom(self.alloc_id(), Rc.clone(m_tok.*)));
+    (prop : AstExpr) = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), Rc.clone(d_tok.*)), Rc.new(prop_args), true, Rc.clone(d_tok.*));
+    .FnCall(self.alloc_id(), prop, Rc.new(args), false, Rc.clone(outer_tok.*))
   }),
   /// `part.append_to(&mut <name_tok>)`: one interpolated part of a template
   /// appended to the builder local (D10).
@@ -537,9 +541,9 @@ impl(
     fn(self : &mut Self, part : &AstExpr, d_tok : &Token, append_tok : &Token, borrow_tok : &Token, name_tok : &Token, outer_tok : &Token) -> AstExpr
   )({
     borrow_args := ArrayList(AstExpr).new();
-    borrow_args.push(.Atom(self.alloc_id(), name_tok.*));
+    borrow_args.push(.Atom(self.alloc_id(), Rc.clone(name_tok.*)));
     call_args := ArrayList(AstExpr).new();
-    call_args.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), borrow_tok.*), Rc.new(borrow_args), false, borrow_tok.*));
+    call_args.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), Rc.clone(borrow_tok.*)), Rc.new(borrow_args), false, Rc.clone(borrow_tok.*)));
     self._template_method_call(part.*, d_tok, append_tok, call_args, outer_tok)
   }),
   parse_template_string : (fn(self : &mut Self, tok : &Token, index : usize, exn : Exception) -> ParseResult)({
@@ -641,9 +645,9 @@ impl(
     )({
       prop_args := ArrayList(AstExpr).new();
       prop_args.push(e.*);
-      prop_args.push(.Atom(id_ts_atom, ts_tok.*));
-      (prop : AstExpr) = .FnCall(id_prop, .Atom(id_dot_atom, d_tok.*), Rc.new(prop_args), true, d_tok.*);
-      .FnCall(id_outer, prop, Rc.new(ArrayList(AstExpr).new()), false, outer_tok.*)
+      prop_args.push(.Atom(id_ts_atom, Rc.clone(ts_tok.*)));
+      (prop : AstExpr) = .FnCall(id_prop, .Atom(id_dot_atom, Rc.clone(d_tok.*)), Rc.new(prop_args), true, Rc.clone(d_tok.*));
+      .FnCall(id_outer, prop, Rc.new(ArrayList(AstExpr).new()), false, Rc.clone(outer_tok.*))
     });
     // Twin of `make_ts_call` for a spec'd interpolation: emits
     // `e.format("<spec>")` instead of `e.to_string()`. The spec text can never
@@ -665,11 +669,11 @@ impl(
     )({
       prop_args := ArrayList(AstExpr).new();
       prop_args.push(e.*);
-      prop_args.push(.Atom(id_fmt_atom, fmt_tok.*));
-      (prop : AstExpr) = .FnCall(id_prop, .Atom(id_dot_atom, d_tok.*), Rc.new(prop_args), true, d_tok.*);
+      prop_args.push(.Atom(id_fmt_atom, Rc.clone(fmt_tok.*)));
+      (prop : AstExpr) = .FnCall(id_prop, .Atom(id_dot_atom, Rc.clone(d_tok.*)), Rc.new(prop_args), true, Rc.clone(d_tok.*));
       outer_args := ArrayList(AstExpr).new();
-      outer_args.push(.Atom(id_spec_atom, spec_tok.*));
-      .FnCall(id_outer, prop, Rc.new(outer_args), false, outer_tok.*)
+      outer_args.push(.Atom(id_spec_atom, Rc.clone(spec_tok.*)));
+      .FnCall(id_outer, prop, Rc.new(outer_args), false, Rc.clone(outer_tok.*))
     });
     // `${expr:spec}` (STD_API_AUDIT D3.10). The spec is peeled off the RIGHT
     // END by walking backward over a CLOSED character set that deliberately
@@ -828,16 +832,18 @@ impl(
           cond(
             (sp.spec.len() > usize(0)) => {
               self.has_template_spec = true;
-              spec_tok := Rc.new(TokenData(
-                kind : TokenKind.StringLit,
-                value : Rc.new(String.from("\"") + sp.spec.clone() + String.from("\"")),
-                row : tok.row,
-                column : tok.column,
-                character : tok.character,
-                byte_offset : tok.byte_offset,
-                module_path : Rc.clone(tok.module_path),
-                input : Rc.clone(tok.input)
-              ));
+              spec_tok := Rc.new(
+                TokenData(
+                  kind : TokenKind.StringLit,
+                  value : Rc.new(String.from("\"") + sp.spec.clone() + String.from("\"")),
+                  row : tok.row,
+                  column : tok.column,
+                  character : tok.character,
+                  byte_offset : tok.byte_offset,
+                  module_path : Rc.clone(tok.module_path),
+                  input : Rc.clone(tok.input)
+                )
+              );
               formatted := make_ts_spec_call(
                 &inner_expr,
                 &dot_tok,
@@ -863,16 +869,18 @@ impl(
           // Literal string part: "content".to_string()
           // Build the escaped string by wrapping content in double quotes
           content_str := content.clone();
-          str_tok := Rc.new(TokenData(
-            kind : TokenKind.StringLit,
-            value : Rc.new(String.from("\"") + content + String.from("\"")),
-            row : tok.row,
-            column : tok.column,
-            character : tok.character,
-            byte_offset : tok.byte_offset,
-            module_path : Rc.clone(tok.module_path),
-            input : Rc.clone(tok.input)
-          ));
+          str_tok := Rc.new(
+            TokenData(
+              kind : TokenKind.StringLit,
+              value : Rc.new(String.from("\"") + content + String.from("\"")),
+              row : tok.row,
+              column : tok.column,
+              character : tok.character,
+              byte_offset : tok.byte_offset,
+              module_path : Rc.clone(tok.module_path),
+              input : Rc.clone(tok.input)
+            )
+          );
           (lit_atom : AstExpr) = .Atom(self.alloc_id(), str_tok);
           cond(
             single_part => make_ts_call(&lit_atom, &dot_tok, &to_str_tok, tok, self.alloc_id(), self.alloc_id(), self.alloc_id(), self.alloc_id()),
@@ -881,7 +889,7 @@ impl(
               // straight from its static bytes.
               lit_args := ArrayList(AstExpr).new();
               lit_args.push(lit_atom);
-              (name_atom : AstExpr) = .Atom(self.alloc_id(), tpl_name_tok);
+              (name_atom : AstExpr) = .Atom(self.alloc_id(), Rc.clone(tpl_name_tok));
               self._template_method_call(name_atom, &dot_tok, &tpl_push_str_tok, lit_args, tok)
             }
           )
@@ -911,12 +919,12 @@ impl(
         (empty_atom : AstExpr) = .Atom(self.alloc_id(), empty_tok);
         empty_str := make_ts_call(&empty_atom, &dot_tok, &to_str_tok, tok, self.alloc_id(), self.alloc_id(), self.alloc_id(), self.alloc_id());
         mut_args := ArrayList(AstExpr).new();
-        mut_args.push(.Atom(self.alloc_id(), tpl_name_tok));
+        mut_args.push(.Atom(self.alloc_id(), Rc.clone(tpl_name_tok)));
         bind_args := ArrayList(AstExpr).new();
-        bind_args.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), tpl_mut_tok), Rc.new(mut_args), false, tpl_mut_tok));
+        bind_args.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), Rc.clone(tpl_mut_tok)), Rc.new(mut_args), false, tpl_mut_tok));
         bind_args.push(empty_str);
         block_args := ArrayList(AstExpr).new();
-        block_args.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), tpl_bind_tok), Rc.new(bind_args), true, tpl_bind_tok));
+        block_args.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), Rc.clone(tpl_bind_tok)), Rc.new(bind_args), true, tpl_bind_tok));
         si := usize(0);
         while(si < tpl_stmts.len(), {
           match(tpl_stmts.get(si), .Some(st) => block_args.push(st), .None => ());
@@ -931,21 +939,23 @@ impl(
         // (issues/fixed/2026-11-11-a-string-interpolation-containing-an-await-evaluates-to-an-empty-string-and-leaks-its-pieces.md).
         tpl_tail_tok := match(
           scan.close,
-          .Some(c) => Rc.new(TokenData(
-            kind : TokenKind.Identifier,
-            value : Rc.clone(tpl_name_tok.value),
-            row : u32(c.row),
-            column : u32(c.col),
-            character : u32(c.ch),
-            byte_offset : u32(c.byte),
-            module_path : Rc.clone(tok.module_path),
-            input : Rc.clone(tok.input)
-          )),
+          .Some(c) => Rc.new(
+            TokenData(
+              kind : TokenKind.Identifier,
+              value : Rc.clone(tpl_name_tok.value),
+              row : u32(c.row),
+              column : u32(c.col),
+              character : u32(c.ch),
+              byte_offset : u32(c.byte),
+              module_path : Rc.clone(tok.module_path),
+              input : Rc.clone(tok.input)
+            )
+          ),
           .None => tpl_name_tok.clone()
         );
         block_args.push(.Atom(self.alloc_id(), tpl_tail_tok));
         begin_tok := _template_syn_tok(tok, TokenKind.Identifier, &String.from(BK_BEGIN));
-        .FnCall(self.alloc_id(), .Atom(self.alloc_id(), begin_tok), Rc.new(block_args), false, begin_tok)
+        .FnCall(self.alloc_id(), .Atom(self.alloc_id(), Rc.clone(begin_tok)), Rc.new(block_args), false, begin_tok)
       }
     );
     ParseResult(expr : final_expr, index : (index + usize(1)))
@@ -1064,19 +1074,21 @@ impl(
       .None => TokenKind.Identifier
     );
     if(next_tok_kind == TokenKind.RParen, {
-      unit_tok := Rc.new(TokenData(
-        kind : TokenKind.Identifier,
-        value : intern_token_str(String.from(BK_TUPLE)),
-        row : tok.row,
-        column : tok.column,
-        character : tok.character,
-        byte_offset : tok.byte_offset,
-        module_path : Rc.clone(tok.module_path),
-        input : Rc.clone(tok.input)
-      ));
+      unit_tok := Rc.new(
+        TokenData(
+          kind : TokenKind.Identifier,
+          value : intern_token_str(String.from(BK_TUPLE)),
+          row : tok.row,
+          column : tok.column,
+          character : tok.character,
+          byte_offset : tok.byte_offset,
+          module_path : Rc.clone(tok.module_path),
+          input : Rc.clone(tok.input)
+        )
+      );
       return(
         ParseResult(
-          expr : .FnCall(self.alloc_id(), .Atom(self.alloc_id(), unit_tok), Rc.new(ArrayList(AstExpr).new()), false, unit_tok),
+          expr : .FnCall(self.alloc_id(), .Atom(self.alloc_id(), Rc.clone(unit_tok)), Rc.new(ArrayList(AstExpr).new()), false, unit_tok),
           index : (index + usize(2))
         )
       );
@@ -1155,18 +1167,20 @@ impl(
       .Some(__sb) => (__sb == false)
     );
     kw := cond(is_tuple_type => BK_TUPLE_TYPE, true => BK_TUPLE);
-    func_tok := Rc.new(TokenData(
-      kind : TokenKind.Identifier,
-      value : intern_token_str(String.from(kw)),
-      row : tok.row,
-      column : tok.column,
-      character : tok.character,
-      byte_offset : tok.byte_offset,
-      module_path : Rc.clone(tok.module_path),
-      input : Rc.clone(tok.input)
-    ));
+    func_tok := Rc.new(
+      TokenData(
+        kind : TokenKind.Identifier,
+        value : intern_token_str(String.from(kw)),
+        row : tok.row,
+        column : tok.column,
+        character : tok.character,
+        byte_offset : tok.byte_offset,
+        module_path : Rc.clone(tok.module_path),
+        input : Rc.clone(tok.input)
+      )
+    );
     ParseResult(
-      expr : .FnCall(self.alloc_id(), .Atom(self.alloc_id(), func_tok), Rc.new(args), false, func_tok),
+      expr : .FnCall(self.alloc_id(), .Atom(self.alloc_id(), Rc.clone(func_tok)), Rc.new(args), false, func_tok),
       index : (idx + usize(1))
     )
   }),
@@ -1254,18 +1268,20 @@ impl(
       is_slice_type => BK_SLICE,
       true => BK_ARRAY_VAL
     );
-    func_tok := Rc.new(TokenData(
-      kind : TokenKind.Identifier,
-      value : intern_token_str(String.from(kw)),
-      row : tok.row,
-      column : tok.column,
-      character : tok.character,
-      byte_offset : tok.byte_offset,
-      module_path : Rc.clone(tok.module_path),
-      input : Rc.clone(tok.input)
-    ));
+    func_tok := Rc.new(
+      TokenData(
+        kind : TokenKind.Identifier,
+        value : intern_token_str(String.from(kw)),
+        row : tok.row,
+        column : tok.column,
+        character : tok.character,
+        byte_offset : tok.byte_offset,
+        module_path : Rc.clone(tok.module_path),
+        input : Rc.clone(tok.input)
+      )
+    );
     ParseResult(
-      expr : .FnCall(self.alloc_id(), .Atom(self.alloc_id(), func_tok), Rc.new(args), false, func_tok),
+      expr : .FnCall(self.alloc_id(), .Atom(self.alloc_id(), Rc.clone(func_tok)), Rc.new(args), false, func_tok),
       index : (idx + usize(1))
     )
   }),
@@ -1365,29 +1381,33 @@ impl(
         last_tok := match(
           self.tokens.get(last_nws_idx),
           .Some(t) => t,
-          .None => Rc.new(TokenData(
-            kind : TokenKind.LCurlyBracket,
-            value : intern_token_str(String.from("{")),
-            row : u32(0),
-            column : u32(0),
-            character : u32(0),
-            module_path : empty_token_text(),
-            input : empty_token_text()
-          ))
+          .None => Rc.new(
+            TokenData(
+              kind : TokenKind.LCurlyBracket,
+              value : intern_token_str(String.from("{")),
+              row : u32(0),
+              column : u32(0),
+              character : u32(0),
+              module_path : empty_token_text(),
+              input : empty_token_text()
+            )
+          )
         );
         is_semi := match(separator_is_comma, .None => false, .Some(__sb) => (__sb == false));
         if(is_semi && ((last_tok.kind == TokenKind.Semicolon) || (last_tok.kind == TokenKind.LCurlyBracket)), {
-          unit_tok := Rc.new(TokenData(
-            kind : TokenKind.Identifier,
-            value : intern_token_str(String.from(BK_TUPLE)),
-            row : last_tok.row,
-            column : last_tok.column,
-            character : last_tok.character,
-            byte_offset : last_tok.byte_offset,
-            module_path : Rc.clone(last_tok.module_path),
-            input : Rc.clone(last_tok.input)
-          ));
-          args.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), unit_tok), Rc.new(ArrayList(AstExpr).new()), false, unit_tok));
+          unit_tok := Rc.new(
+            TokenData(
+              kind : TokenKind.Identifier,
+              value : intern_token_str(String.from(BK_TUPLE)),
+              row : last_tok.row,
+              column : last_tok.column,
+              character : last_tok.character,
+              byte_offset : last_tok.byte_offset,
+              module_path : Rc.clone(last_tok.module_path),
+              input : Rc.clone(last_tok.input)
+            )
+          );
+          args.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), Rc.clone(unit_tok)), Rc.new(ArrayList(AstExpr).new()), false, unit_tok));
         });
         break;
       });
@@ -1458,21 +1478,23 @@ impl(
             .Some(arg) => {
               (new_arg : AstExpr) = cond(
                 ast_expr_is_atom(&arg) => {
-                  colon_tok := Rc.new(TokenData(
-                    kind : TokenKind.Operator,
-                    value : intern_token_str(String.from(":")),
-                    row : tok.row,
-                    column : tok.column,
-                    character : tok.character,
-                    byte_offset : tok.byte_offset,
-                    module_path : Rc.clone(tok.module_path),
-                    input : Rc.clone(tok.input)
-                  ));
+                  colon_tok := Rc.new(
+                    TokenData(
+                      kind : TokenKind.Operator,
+                      value : intern_token_str(String.from(":")),
+                      row : tok.row,
+                      column : tok.column,
+                      character : tok.character,
+                      byte_offset : tok.byte_offset,
+                      module_path : Rc.clone(tok.module_path),
+                      input : Rc.clone(tok.input)
+                    )
+                  );
                   arg_copy := match(args.get(ai), .Some(a) => a, .None => make_err_expr());
                   pair_args := ArrayList(AstExpr).with_capacity(usize(2));
                   pair_args.push(arg);
                   pair_args.push(arg_copy);
-                  .FnCall(self.alloc_id(), .Atom(self.alloc_id(), colon_tok), Rc.new(pair_args), true, colon_tok)
+                  .FnCall(self.alloc_id(), .Atom(self.alloc_id(), Rc.clone(colon_tok)), Rc.new(pair_args), true, colon_tok)
                 },
                 true => arg
               );
@@ -1481,16 +1503,18 @@ impl(
             }
           );
         });
-        anon_tok := Rc.new(TokenData(
-          kind : TokenKind.Identifier,
-          value : intern_token_str(String.from(BK_ANON_STRUCT)),
-          row : tok.row,
-          column : tok.column,
-          character : tok.character,
-          byte_offset : tok.byte_offset,
-          module_path : Rc.clone(tok.module_path),
-          input : Rc.clone(tok.input)
-        ));
+        anon_tok := Rc.new(
+          TokenData(
+            kind : TokenKind.Identifier,
+            value : intern_token_str(String.from(BK_ANON_STRUCT)),
+            row : tok.row,
+            column : tok.column,
+            character : tok.character,
+            byte_offset : tok.byte_offset,
+            module_path : Rc.clone(tok.module_path),
+            input : Rc.clone(tok.input)
+          )
+        );
         group_id := self.alloc_id();
         if(dot_before.is_some(), {
           self.dotted_groups.insert(group_id);
@@ -1504,18 +1528,20 @@ impl(
       },
       true => {
         // Begin block: begin(e1, e2, ...)
-        begin_tok := Rc.new(TokenData(
-          kind : TokenKind.Identifier,
-          value : intern_token_str(String.from(BK_BEGIN)),
-          row : tok.row,
-          column : tok.column,
-          character : tok.character,
-          byte_offset : tok.byte_offset,
-          module_path : Rc.clone(tok.module_path),
-          input : Rc.clone(tok.input)
-        ));
+        begin_tok := Rc.new(
+          TokenData(
+            kind : TokenKind.Identifier,
+            value : intern_token_str(String.from(BK_BEGIN)),
+            row : tok.row,
+            column : tok.column,
+            character : tok.character,
+            byte_offset : tok.byte_offset,
+            module_path : Rc.clone(tok.module_path),
+            input : Rc.clone(tok.input)
+          )
+        );
         ParseResult(
-          expr : .FnCall(self.alloc_id(), .Atom(self.alloc_id(), begin_tok), Rc.new(args), false, begin_tok),
+          expr : .FnCall(self.alloc_id(), .Atom(self.alloc_id(), Rc.clone(begin_tok)), Rc.new(args), false, begin_tok),
           index : (idx + usize(1))
         )
       }
@@ -1619,10 +1645,10 @@ impl(
         rhs,
         .FnCall(_, rfb, _, _, _) => match(
           rfb,
-          .Atom(_, ft) => ft.*,
-          .FnCall(_, _, _, _, ft) => ft.*
+          .Atom(_, ft) => Rc.clone(ft.*),
+          .FnCall(_, _, _, _, ft) => Rc.clone(ft.*)
         ),
-        .Atom(_, t) => t.*
+        .Atom(_, t) => Rc.clone(t.*)
       );
       // Splice at the BOTTOM of the rhs's left spine, not one level below
       // the top. The rhs of a FOUR-or-more-operand same-operator chain
@@ -1640,7 +1666,7 @@ impl(
       tail := ArrayList(AstExpr).new();
       tail_toks := ArrayList(Token).new();
       tail.push(right_operand);
-      tail_toks.push(rhs_func_tok);
+      tail_toks.push(Rc.clone(rhs_func_tok));
       (cur : AstExpr) = left_operand;
       while(true, {
         // One descent step, computed as a value: when `cur` is a
@@ -1656,14 +1682,14 @@ impl(
                 cfb,
                 .Atom(_, ft) => {
                   if((ft.kind != TokenKind.Dot) && (ft.value.* == op_tok.value.*), {
-                    cand_tok = Option(Token).Some(ft);
+                    cand_tok = Option(Token).Some(Rc.clone(ft));
                   });
                 },
                 .FnCall(_, _, _, _, _) => ()
               );
             });
             at_rhs_level := match(
-              cand_tok,
+              &cand_tok,
               .Some(ct) => self._op_token_at_rhs_depth(rhs_start, &ct),
               .None => false
             );
@@ -1674,7 +1700,7 @@ impl(
                   cargs.get(usize(1)),
                   .Some(r) => match(
                     cand_tok,
-                    .Some(ct2) => Option(Tuple(Token, AstExpr, AstExpr)).Some((ct2, l, r)),
+                    .Some(ct2) => Option(Tuple(Token, AstExpr, AstExpr)).Some((Rc.clone(ct2), l, r)),
                     .None => Option(Tuple(Token, AstExpr, AstExpr)).None
                   ),
                   .None => Option(Tuple(Token, AstExpr, AstExpr)).None
@@ -1689,7 +1715,7 @@ impl(
         match(
           step,
           .Some(t) => {
-            tail_toks.push(t.0);
+            tail_toks.push(Rc.clone(t.0));
             tail.push(t.2);
             cur = t.1;
           },
@@ -1704,23 +1730,23 @@ impl(
       spine_args := ArrayList(AstExpr).new();
       spine_args.push(primary.*);
       spine_args.push(cur);
-      (acc : AstExpr) = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), op_tok.*), Rc.new(spine_args), true, op_tok.*);
+      (acc : AstExpr) = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), Rc.clone(op_tok.*)), Rc.new(spine_args), true, Rc.clone(op_tok.*));
       i := tail.len();
       while(i > usize(0), {
         i = (i - usize(1));
-        lvl_tok := match(tail_toks.get(i), .Some(t) => t, .None => rhs_func_tok);
+        lvl_tok := match(tail_toks.get(i), .Some(t) => t, .None => Rc.clone(rhs_func_tok));
         lvl_rhs := match(tail.get(i), .Some(r) => r, .None => right_operand);
         lvl_args := ArrayList(AstExpr).new();
         lvl_args.push(acc);
         lvl_args.push(lvl_rhs);
-        acc = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), lvl_tok), Rc.new(lvl_args), true, lvl_tok);
+        acc = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), Rc.clone(lvl_tok)), Rc.new(lvl_args), true, lvl_tok);
       });
       self.parse_primary_end(&acc, index, exn)
     }, {
       simple_args := ArrayList(AstExpr).new();
       simple_args.push(primary.*);
       simple_args.push(rhs.*);
-      (simple_call : AstExpr) = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), op_tok.*), Rc.new(simple_args), true, op_tok.*);
+      (simple_call : AstExpr) = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), Rc.clone(op_tok.*)), Rc.new(simple_args), true, Rc.clone(op_tok.*));
       self.parse_primary_end(&simple_call, index, exn)
     })
   }),
@@ -1808,15 +1834,17 @@ impl(
         dot_tok := match(
           self.tokens.get(idx),
           .Some(t) => t,
-          .None => Rc.new(TokenData(
-            kind : TokenKind.Dot,
-            value : Rc.new(String.from(".")),
-            row : u32(0),
-            column : u32(0),
-            character : u32(0),
-            module_path : empty_token_text(),
-            input : empty_token_text()
-          ))
+          .None => Rc.new(
+            TokenData(
+              kind : TokenKind.Dot,
+              value : Rc.new(String.from(".")),
+              row : u32(0),
+              column : u32(0),
+              character : u32(0),
+              module_path : empty_token_text(),
+              input : empty_token_text()
+            )
+          )
         );
         rhs_start := cond(primary_is_dot => idx, true => (idx + usize(1)));
         rhs_pr := self.parse_primary(rhs_start, exn);
@@ -1824,8 +1852,8 @@ impl(
         rhs_idx := rhs_pr.index;
         dot_fn_tok := cond(
           primary_is_dot =>
-            match(primary_expr, .Atom(_, pt) => pt.*, .FnCall(_, _, _, _, pt) => pt.*),
-          true => dot_tok
+            match(primary_expr, .Atom(_, pt) => Rc.clone(pt.*), .FnCall(_, _, _, _, pt) => Rc.clone(pt.*)),
+          true => Rc.clone(dot_tok)
         );
         // `.{ … }` — a prefix dot ADJACENT to a record brace group IS that
         // record value (plans/reference/BRACE_BLOCKS.md, Generation A): the
@@ -1849,7 +1877,7 @@ impl(
         // Accumulate further immediate dot-chains (no whitespace)
         (cur_expr : AstExpr) = cond(
           is_dot_record => rhs_expr,
-          true => .FnCall(self.alloc_id(), .Atom(self.alloc_id(), dot_fn_tok), Rc.new(init_args), init_infix, dot_fn_tok)
+          true => .FnCall(self.alloc_id(), .Atom(self.alloc_id(), Rc.clone(dot_fn_tok)), Rc.new(init_args), init_infix, dot_fn_tok)
         );
         cur_idx := rhs_idx;
         while(true, {
@@ -1866,7 +1894,7 @@ impl(
               chain_args := ArrayList(AstExpr).with_capacity(usize(2));
               chain_args.push(cur_expr);
               chain_args.push(chain_pr.expr);
-              cur_expr = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), dot_tok), Rc.new(chain_args), true, dot_tok);
+              cur_expr = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), Rc.clone(dot_tok)), Rc.new(chain_args), true, Rc.clone(dot_tok));
               cur_idx = chain_pr.index;
             }
           );
@@ -1939,7 +1967,7 @@ impl(
           rhs_args.push(rhs);
           recur(
             self,
-            .FnCall(self.alloc_id(), .Atom(self.alloc_id(), tok), Rc.new(rhs_args), true, tok),
+            .FnCall(self.alloc_id(), .Atom(self.alloc_id(), Rc.clone(tok)), Rc.new(rhs_args), true, tok),
             rhs_end,
             exn
           )
@@ -2176,7 +2204,7 @@ impl(
       );
       operand_at := self.skip_ws_fwd(cur_idx);
       if(!nxt_is_immediate_lparen && self.token_starts_prefix_operand(operand_at), {
-        op_tok := match(cur_expr, .Atom(_, at) => at, .FnCall(_, _, _, _, ft) => ft);
+        op_tok := match(cur_expr, .Atom(_, at) => Rc.clone(at), .FnCall(_, _, _, _, ft) => Rc.clone(ft));
         inner := self.parse_prefix_operand(cur_idx, exn);
         operand_args := ArrayList(AstExpr).with_capacity(usize(1));
         operand_args.push(inner.expr);
@@ -2212,7 +2240,7 @@ impl(
           dot_args := ArrayList(AstExpr).with_capacity(usize(2));
           dot_args.push(cur_expr);
           dot_args.push(rhs_pr.expr);
-          cur_expr = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), t), Rc.new(dot_args), true, t);
+          cur_expr = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), Rc.clone(t)), Rc.new(dot_args), true, t);
           cur_idx = rhs_pr.index;
         },
         true => {
@@ -2251,7 +2279,7 @@ impl(
       );
       operand_at := self.skip_ws_fwd(pr.index);
       if(!immediate_lparen && self.token_starts_prefix_operand(operand_at), {
-        op_tok := match(pr.expr, .Atom(_, at) => at, .FnCall(_, _, _, _, ft) => ft);
+        op_tok := match(pr.expr, .Atom(_, at) => Rc.clone(at), .FnCall(_, _, _, _, ft) => Rc.clone(ft));
         operand := self.parse_prefix_operand(pr.index, exn);
         operand_args := ArrayList(AstExpr).with_capacity(usize(1));
         operand_args.push(operand.expr);
@@ -2291,17 +2319,19 @@ impl(
         .None => (),
         .Some(last_tok) => {
           if(last_tok.kind == TokenKind.Semicolon, {
-            unit_tok := Rc.new(TokenData(
-              kind : TokenKind.Identifier,
-              value : intern_token_str(String.from(BK_TUPLE)),
-              row : last_tok.row,
-              column : last_tok.column,
-              character : last_tok.character,
-              byte_offset : last_tok.byte_offset,
-              module_path : Rc.clone(last_tok.module_path),
-              input : Rc.clone(last_tok.input)
-            ));
-            exprs.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), unit_tok), Rc.new(ArrayList(AstExpr).new()), false, unit_tok));
+            unit_tok := Rc.new(
+              TokenData(
+                kind : TokenKind.Identifier,
+                value : intern_token_str(String.from(BK_TUPLE)),
+                row : last_tok.row,
+                column : last_tok.column,
+                character : last_tok.character,
+                byte_offset : last_tok.byte_offset,
+                module_path : Rc.clone(last_tok.module_path),
+                input : Rc.clone(last_tok.input)
+              )
+            );
+            exprs.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), Rc.clone(unit_tok)), Rc.new(ArrayList(AstExpr).new()), false, unit_tok));
           });
         }
       );
@@ -2431,17 +2461,19 @@ impl(
         )
       );
     });
-    begin_tok := Rc.new(TokenData(
-      kind : TokenKind.Identifier,
-      value : intern_token_str(String.from(BK_BEGIN)),
-      row : tok.row,
-      column : tok.column,
-      character : tok.character,
-      byte_offset : tok.byte_offset,
-      module_path : Rc.clone(tok.module_path),
-      input : Rc.clone(tok.input)
-    ));
-    .FnCall(self.alloc_id(), .Atom(self.alloc_id(), begin_tok), Rc.new(body), false, begin_tok)
+    begin_tok := Rc.new(
+      TokenData(
+        kind : TokenKind.Identifier,
+        value : intern_token_str(String.from(BK_BEGIN)),
+        row : tok.row,
+        column : tok.column,
+        character : tok.character,
+        byte_offset : tok.byte_offset,
+        module_path : Rc.clone(tok.module_path),
+        input : Rc.clone(tok.input)
+      )
+    );
+    .FnCall(self.alloc_id(), .Atom(self.alloc_id(), Rc.clone(begin_tok)), Rc.new(body), false, begin_tok)
   }),
   /// The parsed program WITHOUT the template auto-import that `get_program`
   /// prepends — what a sub-parse of ONE expression needs. A template
@@ -2458,25 +2490,29 @@ impl(
   get_program : (fn(self : &mut Self, exn : Exception) -> ArrayList(AstExpr))({
     self.do_parse(exn);
     if(self.has_template_string, {
-      import_tok := Rc.new(TokenData(
-        kind : TokenKind.Identifier,
-        value : intern_token_str(String.from(BK_IMPORT)),
-        row : u32(0),
-        column : u32(0),
-        character : u32(0),
-        module_path : Rc.clone(self.module_path),
-        input : Rc.clone(self.input_string)
-      ));
-      str_tok := Rc.new(TokenData(
-        kind : TokenKind.StringLit,
-        value : Rc.new(if(self.has_template_spec, String.from("\"std/fmt/format\""), String.from("\"std/fmt/to_string\""))),
-        row : u32(0),
-        column : u32(0),
-        character : u32(0),
-        module_path : Rc.clone(self.module_path),
-        input : Rc.clone(self.input_string)
-      ));
-      (import_atom : AstExpr) = .Atom(self.alloc_id(), import_tok);
+      import_tok := Rc.new(
+        TokenData(
+          kind : TokenKind.Identifier,
+          value : intern_token_str(String.from(BK_IMPORT)),
+          row : u32(0),
+          column : u32(0),
+          character : u32(0),
+          module_path : Rc.clone(self.module_path),
+          input : Rc.clone(self.input_string)
+        )
+      );
+      str_tok := Rc.new(
+        TokenData(
+          kind : TokenKind.StringLit,
+          value : Rc.new(if(self.has_template_spec, String.from("\"std/fmt/format\""), String.from("\"std/fmt/to_string\""))),
+          row : u32(0),
+          column : u32(0),
+          character : u32(0),
+          module_path : Rc.clone(self.module_path),
+          input : Rc.clone(self.input_string)
+        )
+      );
+      (import_atom : AstExpr) = .Atom(self.alloc_id(), Rc.clone(import_tok));
       (str_atom : AstExpr) = .Atom(self.alloc_id(), str_tok);
       import_args := ArrayList(AstExpr).with_capacity(usize(1));
       import_args.push(str_atom);
