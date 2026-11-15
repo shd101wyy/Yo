@@ -137,17 +137,20 @@ verify --no-cache` against `yo check` on the same path:
 | --- | --- | --- | --- | --- | --- |
 | `std/collections` | 19.3 s, 294 MB | 19.4 s, 351 MB | 13 | 3 (9 more `assumed`) | 0 |
 | `std/string` | 5.6 s | 5.6 s | 179 | 175 | 0 (6 with `--elision`) |
-| `std/encoding` (7,118 lines) | 46.2 s, 291 MB | 54.8 s, 344 MB | 281 | 250 | 0 (6 with `--elision`) |
+| `std/encoding` (7,118 lines) | 46.2 s, 291 MB | 54.8 s, then 44.5 s, 344 MB | 281 | 250 | 0 (6 with `--elision`) |
 | `std/fmt` | 10.5 s | 10.6 s | 78 | 78 | 0 |
-| `src/lexer.yo` | FE_LEXER |
-| `src/parser.yo` | FE_PARSER |
-| `src/formatter.yo` | FE_FORMATTER |
+| `src/lexer.yo` | 40.9 s, 316 MB | 38.2 s, 309 MB | 6 | 6 | 0 |
+| `src/parser.yo` | 43.7 s, 322 MB | 64.2 s loaded, 46.2 s on the next run, 324 MB | 52 | 52 | 0 |
+| `src/formatter.yo` | 41.8 s, 354 MB | 39.7 s, 356 MB | 57 | 54 | 0 |
 
 The 31 `ok` functions of `std/encoding` have no obligation at all. The reasons
 a function is outside the subset, in `std/encoding`: 148 "parameter outside
 the integer/bool/array subset", 57 "call to a callee without contracts", 15
-"untyped expression". An unannotated `while` is outside the subset too ("while
-loop without a leading invariant").
+"untyped expression". The three compiler modules give the first of these for
+110 of their 112 outside-subset functions. An unannotated `while` is outside
+the subset too ("while loop without a leading invariant"). With no query to
+send, a run's cache state does not matter, and the differences between the
+two time columns are machine load.
 
 **Inside the subset, the cost is per obligation.** A generated module of small
 contracted functions (integer arithmetic, a `cond`, a counting loop with an
@@ -303,8 +306,8 @@ Each is a number or a verdict a CI job re-derives. None is asserted in prose.
    - a solver that cannot execute is the same case as a missing one: probe it
      once, print one line;
    - whether the solver ran is part of the artifact's input stamp, so a build
-     cached without it is not served after it is installed *(verify that the
-     stamp does not already cover this)*.
+     cached without it is not served after it is installed *(grep:
+     `src/build_runner.yo` does not mention the solver today; not run)*.
 9. **Solver coverage must equal compiler coverage.** *Judgment:* Yo builds
    the pinned Z3 itself as a static binary for each release target and
    publishes it with the release, the way it publishes its own bundles, and
