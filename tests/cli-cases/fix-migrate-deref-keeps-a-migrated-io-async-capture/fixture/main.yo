@@ -1,0 +1,12 @@
+{ println } :: import("std/fmt");
+Res :: struct(n : i32);
+read_n :: (fn(r : &Res, io : Io) -> Impl(Future(i32)))(
+  io.async({ r : &r.* }(io : Io) => {
+    return(r.*.n);
+  })
+);
+main :: (fn() -> unit)({
+  x := Res(n : i32(7));
+  println(io.await(read_n(&x, io), io).to_string());
+});
+export(main);
