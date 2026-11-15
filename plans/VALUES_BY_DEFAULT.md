@@ -559,6 +559,15 @@ Explicit sharing must not mean writing `.*` everywhere.
     prelude `Deref`'s key and accepts an impl only in the prelude and in
     compiler-generated code.
   - Landed in #1191.
+  - **Amended 2026-11-15 (VERDICTS-63, not yet landed).** `Deref` carries
+    `deref : fn(self : &Self) -> &Self.Target` and `DerefMut` carries
+    `deref_mut : fn(self : &mut Self) -> &mut Self.Target`, chosen as
+    `Index` and `IndexMut` are. A handle's (`Box`, `Rc`, `Arc`) `.*` is
+    read natively; an owner's (`ArrayList`, `String`, `Array`) calls the
+    projection. Outside the prelude an impl is accepted when its `Target`
+    is an unsized type. Generation A is v0.2.79, Generation B (the
+    `ArrayList` and `String` impls) v0.2.80
+    (`issues/questions/deref-on-arraylist-and-string-trait-method-or-compiler-projection.md`).
 - **`w.*` on a `Deref` type names its payload place** (`w->value` in C). On
   a raw pointer it stays the pointer dereference. In V5 this becomes the
   only reading, and `is_box_type` and the `*`-label tests move to the
@@ -573,6 +582,9 @@ Explicit sharing must not mean writing `.*` everywhere.
   - A name both have is an error (decision 32). The error names
     `Rc.clone(w)` for the wrapper's member and `w.*.clone()` for the
     payload's.
+  - **An owner's own member wins** (VERDICTS-63). The step from
+    `ArrayList(T)` to `[T]` is R-PROBE's ordinary deref step, taken only
+    when no earlier step applies. Decision 32 is the handles' rule.
   - So no order between the wrapper and the payload is ever needed to
     choose.
   - **The commonest clash is `clone`.** Every wrapper has it, and so does
@@ -772,7 +784,10 @@ cannot be copied.
       view forwards to its cell's payload, the place `h.*` reads, whatever
       `Target` the impl names (`deref_target_type`): the impl's `Target` is
       not compared with the payload, so a misnamed one cannot send
-      auto-dereference to a type the handle does not hold.
+      auto-dereference to a type the handle does not hold. (Superseded
+      2026-11-15, VERDICTS-63: with a required `deref`, a misnamed `Target`
+      no longer type-checks, so `TMisnamed` becomes a type error at the
+      impl.)
     - **D3, the non-handle atomic types are `struct`s.** `Mutex`, `RwLock`,
       the `Atomic*` types and the rest become `struct(_cell :
       __yo_atomic_cell(State))` at V5, not newtypes: a newtype would make
@@ -2507,6 +2522,11 @@ and in git, not a silent edit.
       - `w.*.clone()` for the payload's.
 
       A name only one of them has forwards (§3.3).
+    - **Scope (VERDICTS-63, 2026-11-15).** This is the rule for handles
+      (`Box`, `Rc`, `Arc`, raw pointers): a handle and its payload are two
+      objects. An owner (`ArrayList`, `String`) and its `.*` are one value at
+      two types, so the owner's own member wins and the clash check does
+      not fire.
     - **Raw pointers are covered too** (amended 2026-10-06, decision 36).
       If `p : *(T)` and both the pointer and `T` have a member `m`, then
       `p.m` is an error naming `p.*.m()` for the pointee's member and the
@@ -4981,7 +5001,10 @@ and in git, not a silent edit.
       `&xs(a..b)` and `&mut xs(a..b)` are zero-copy views with origin
       `xs`; `ArrayList(T)` and `Array(T, N)` implement `Deref(Target :
       [T])`, `String` implements `Deref(Target : str)` (`Deref.Target :
-      ?Sized`), and R-PROBE's deref step reaches the slice's and `str`'s
+      ?Sized`, which waits on
+      `issues/2026-11-15-an-associated-type-declared-sized-opt-out-breaks-self-target.md`;
+      VERDICTS-63: `Deref` on `Array` is v0.2.79, on `ArrayList`/`String`
+      v0.2.80), and R-PROBE's deref step reaches the slice's and `str`'s
       methods and impls from them.
     - **`str` and literals.** `str` is `[u8]` under the UTF-8 invariant.
       The empty origin is spelled `static`: a literal is `&(str, static)`,

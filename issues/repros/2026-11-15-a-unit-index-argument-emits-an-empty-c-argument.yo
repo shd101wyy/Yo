@@ -1,0 +1,25 @@
+//! `b(())` over `Index(unit)` bound with `:=` emits `f(&b, )`: "expected expression".
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+
+Buf :: struct(items : Array(i32, 4), n : usize);
+impl(
+  Buf,
+  Index(unit)(
+    Output : [i32],
+    index : (fn(self : &Self, u : unit) -> &[i32])({
+      p := unsafe(__yo_slice_ptr(unsize(&self.items)));
+      part := unsafe(__yo_slice_from_raw_parts(p, self.n));
+      &part.*
+    })
+  )
+);
+
+count :: (fn(xs : &[i32]) -> usize)(xs.len());
+
+main :: (fn() -> unit)({
+  b := Buf(items : Array(i32, 4)(1, 2, 3, 4), n : usize(2));
+  v := &b(());
+  assert(count(v) == usize(2), "the view through a unit index");
+});
+export(main);
