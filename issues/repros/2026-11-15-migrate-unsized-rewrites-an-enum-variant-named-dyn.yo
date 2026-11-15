@@ -1,0 +1,16 @@
+Shape :: enum(
+  Dyn(x : i32),
+  Plain
+);
+get :: (fn(s : Shape) -> i32)(
+  match(
+    s,
+    .Dyn(x : v) => v,
+    .Plain => i32(0)
+  )
+);
+mk :: (fn() -> Shape)(.Dyn(x : i32(1)));
+main :: (fn() -> unit)({
+  n := get(mk());
+});
+export(main);
