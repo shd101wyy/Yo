@@ -746,7 +746,7 @@ _m3_span_contains :: (fn(node : &AstExpr, t : &Token) -> bool)({
 _m3_consumed_for_arm :: (fn(args : &ArrayList(AstExpr), i : usize, variable : &Variable, consumed : &Option(Token)) -> Option(Token))({
   ct := match(consumed, .Some(t) => Rc.clone(t.*), .None => return(Option(Token).None));
   if((i == usize(0)) || !_m3_is_flow_logged_move(variable, &ct), {
-    return(consumed.clone().*);
+    return(consumed.*.clone());
   });
   (j : usize) = usize(0);
   while(j < i, {
@@ -801,7 +801,7 @@ _m3_consumed_for_call_arg :: (fn(call : &AstExpr, args : &ArrayList(AstExpr), i 
   ct := match(consumed, .Some(t) => Rc.clone(t.*), .None => return(Option(Token).None));
   // A block's statements run one by one: an earlier one is not an argument.
   if(ast_expr_is_fn_call_of(call, BK_BEGIN, Option(usize).None), {
-    return(consumed.clone().*);
+    return(consumed.*.clone());
   });
   match(_m3_first_arg_after_move(call, args, variable, &ct, ctx), .Some(k) => if(i >= k, return(Option(Token).None)), .None => ());
   consumed.*.clone()

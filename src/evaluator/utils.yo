@@ -8327,10 +8327,10 @@ _lb_last_mention :: (fn(e : &AstExpr, name : &String, best : &Option(Token), (in
     ),
     .FnCall(_, callee, Rc(args), _, _) => {
       if(_lb_arrow_shadows(e, name.clone(), in_cond_arm), {
-        return(best.clone().*);
+        return(best.*.clone());
       });
       if(_lb_fn_literal_binds(&callee.*, name.clone()), {
-        return(best.clone().*);
+        return(best.*.clone());
       });
       (acc : Option(Token)) = _lb_last_mention(&callee.*, name.clone(), best);
       is_dot := ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).None);
