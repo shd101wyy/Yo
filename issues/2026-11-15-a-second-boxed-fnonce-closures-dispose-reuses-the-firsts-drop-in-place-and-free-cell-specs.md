@@ -55,8 +55,14 @@ without the sink call compile clean, as does ONE closure with it.
   `tmp/p/p17.yo`: `_once_take`'s parameter made a `sink`). yo-il fails its C; the seed passes the
   alias form.
 
-## Fix status
+## Fix
 
-OPEN. The failing-then-passing test is `tests/fn_once.test.yo` rows "a one-argument call of an
-FnOnce local is either operand of ==" and the other rows that box two FnOnce closures of one
-signature (the batch fails as a unit).
+`_find_specialization_cache`'s capture-identity gate (`src/evaluator/calls/helper.yo`) compared two
+capture structs only as bare `Struct`s. 7eef8b157 extended it one pointer deep (`*capture`), which was
+not enough: inside the specialized `drop` body `cell : *T` is `*T` with `T` a type variable resolved to
+the capture struct, so the pointee is a `SomeT` and the match never fired. `_cap_ids_differ` now reads
+each side at its resolution chain's end (`resolution_chain_end`), 8d58a5696; `tmp/p/p17.yo` compiles
+(yo-io).
+
+The failing-then-passing test is `tests/fn_once.test.yo`: its batch fails to compile as a unit before
+the fix (40/40 reported failed).
