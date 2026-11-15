@@ -1,0 +1,11 @@
+# `yo fix <path> --migrate unsized`, the `str` family (decision 49 S2,
+# VERDICTS-61 §8, VERDICTS-62 §1): a value `str` type is the legacy alias of
+# `&(str, static)`, and the migration writes that spelling at a parameter, a
+# result, a typed local, a struct field, an array element and a type
+# argument (`ArrayList(str)`). It lists a `sink(s) : str` parameter (a
+# reference parameter is not a `sink`). `&str`, `impl(str, ...)`, `Self`, the
+# alias name `Name` and a type argument spelled through a binder (`T`) are
+# left alone. The second run rewrites nothing, and the file still checks.
+fix . --migrate unsized
+fix . --migrate unsized
+check main.yo

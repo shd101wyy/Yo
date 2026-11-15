@@ -73,7 +73,7 @@ rejected: neither std type has that shape.
 
 Not started. Bugs found by the probes, filed 2026-11-15:
 
-- `issues/2026-11-15-a-closure-capturing-a-fat-reference-by-value-emits-invalid-c.md` (S2)
+- `issues/fixed/2026-11-15-a-closure-capturing-a-fat-reference-by-value-emits-invalid-c.md` (S2, fixed on `vbd/d49-str`)
 - `issues/2026-11-15-a-generic-impl-omitting-a-required-trait-member-is-accepted.md` (S2)
 - `issues/2026-11-15-an-associated-type-declared-sized-opt-out-breaks-self-target.md` (S3)
 - `issues/2026-11-15-returning-a-projection-call-of-a-local-reports-e0901-where-e0912-is-due.md` (S3)
