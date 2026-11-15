@@ -238,14 +238,6 @@ SpecializingFunctionInfo :: struct(
   (is_generic_body : bool) ?= false
 );
 derive(SpecializingFunctionInfo, Clone);
-/// Point the `--migrate mut-bindings` declaration census at the
-/// specialization `ctx` is in: it records nothing inside a generic body's
-/// specialization (`set_mut_decl_census_untrusted`, env.yo). Called wherever
-/// `ctx.currently_specializing_function` is entered or restored, so an
-/// unwound specialization cannot leave it set.
-sync_mut_decl_census_untrusted :: (fn(ctx : &EvalContext) -> unit)({
-  set_mut_decl_census_untrusted(match(&ctx.currently_specializing_function, .Some(s) => s.is_generic_body, .None => false));
-});
 // ---------------------------------------------------------------------------
 // Impl concrete-type return tracking
 // ---------------------------------------------------------------------------
