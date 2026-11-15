@@ -1501,7 +1501,10 @@ generate_captured_variable_dup_expressions :: (
                 if(!borrow_captures && dyn_copy_rule_applies(&ci.ty), {
                   match(get_variables_from_env(env, var_name.clone()).last_cloned(), .Some(dyn_cap_v) => check_dyn_capture(&dyn_cap_v, closure_tok, env, ctx, exn), .None => ());
                 });
-                if(audit_implicit_copy_enabled(), {
+                // A reference binding's capture lends the referent; it copies
+                // no handle (the recorder would spell `{ r : &r.* }`).
+                cap_is_ref := match(get_variables_from_env(env, var_name.clone()).last_cloned(), .Some(rv) => variable_is_reference_binding(&rv), .None => false);
+                if(audit_implicit_copy_enabled() && !cap_is_ref, {
                   audit_record_implicit_copy(
                     closure_tok,
                     &ci.ty,
