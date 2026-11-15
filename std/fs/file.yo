@@ -166,7 +166,7 @@ impl(
     );
     path_str := path.to_string();
     io.async(e => {
-      cstr_bytes := match(path_str.to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
+      cstr_bytes := match(path_str.to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(Box.new(IoError.InvalidInput))));
       cstr := cstr_bytes.ptr().unwrap();
       result := e.io.await(IO_file.openat(AT_FDCWD, cstr, flags, file_mode), e.io);
       fd := IoError.check(result, e.exn);
@@ -211,10 +211,10 @@ impl(
       flags := match(
         opts.to_flags(),
         .Ok(f) => f,
-        .Err(msg) => e.exn.throw(dyn(Context.new(&msg, dyn(IoError.InvalidInput))))
+        .Err(msg) => e.exn.throw(dyn(Box.new(Context.new(&msg, dyn(Box.new(IoError.InvalidInput))))))
       );
       path_str := path_owned.clone();
-      cstr_bytes := match(path_str.to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
+      cstr_bytes := match(path_str.to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(Box.new(IoError.InvalidInput))));
       cstr := cstr_bytes.ptr().unwrap();
       result := e.io.await(IO_file.openat(AT_FDCWD, cstr, flags, file_mode), e.io);
       fd := IoError.check(result, e.exn);
@@ -309,7 +309,7 @@ impl(
     );
     target := (base + offset);
     cond(
-      (target < i64(0)) => exn.throw(dyn(IoError.from_errno(i32(EINVAL)))),
+      (target < i64(0)) => exn.throw(dyn(Box.new(IoError.from_errno(i32(EINVAL))))),
       true => {
         st := self._st();
         unsafe(consume(st.*._pos = u64(target)));
@@ -554,7 +554,7 @@ exists_cstr :: (fn(path : *u8, io : Io) -> Impl(Future(bool, Io)))(
 try_exists :: (fn(path : &Path, io : Io) -> Impl(Future(bool, IoExn)))({
   path_owned := path.clone();
   io.async(e => {
-    cstr_bytes := match(path_owned.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
+    cstr_bytes := match(path_owned.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(Box.new(IoError.InvalidInput))));
     cstr := cstr_bytes.ptr().unwrap();
     buf_size := __yo_statx_buf_size();
     buf := (*u8)(malloc(buf_size).unwrap());
@@ -563,7 +563,7 @@ try_exists :: (fn(path : &Path, io : Io) -> Impl(Future(bool, IoExn)))({
     cond(
       (result >= i32(0)) => true,
       (((i32(0) - result) == i32(ENOENT)) || ((i32(0) - result) == i32(ENOTDIR))) => false,
-      true => e.exn.throw(dyn(IoError.from_errno(i32(0) - result)))
+      true => e.exn.throw(dyn(Box.new(IoError.from_errno(i32(0) - result))))
     )
   })
 });
@@ -575,11 +575,11 @@ try_exists_str :: (fn(path : str, io : Io) -> Impl(Future(bool, IoExn)))(
 set_permissions :: (fn(path : &Path, perm : FilePermission, io : Io) -> Impl(Future(unit, IoExn)))({
   path_owned := path.clone();
   io.async(e => {
-    cstr_bytes := match(path_owned.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
+    cstr_bytes := match(path_owned.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(Box.new(IoError.InvalidInput))));
     cstr := cstr_bytes.ptr().unwrap();
     r := unsafe(chmod((*char)(cstr), perm.mode));
     cond(
-      (r < int(0)) => e.exn.throw(dyn(IoError.from_errno(__yo_errno()))),
+      (r < int(0)) => e.exn.throw(dyn(Box.new(IoError.from_errno(__yo_errno())))),
       true => ()
     )
   })
@@ -671,7 +671,7 @@ canonicalize :: (fn(path : &Path, io : Io) -> Impl(Future(Path, IoExn)))({
   path_owned := path.clone();
   io.async(e => {
     path_str := path_owned.to_string();
-    cstr_bytes := match(path_str.to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
+    cstr_bytes := match(path_str.to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(Box.new(IoError.InvalidInput))));
     cstr := cstr_bytes.ptr().unwrap();
     // Async stat to verify path exists (provides await point for proper RC cleanup)
     buf_size := __yo_statx_buf_size();

@@ -109,7 +109,7 @@ Reader :: trait(
           match(
             String.from_utf8(bytes),
             .Ok(s) => s,
-            .Err(_) => e.exn.throw(dyn(IoError.InvalidData))
+            .Err(_) => e.exn.throw(dyn(Box.new(IoError.InvalidData)))
           )
         })
     )
@@ -134,7 +134,7 @@ Writer :: trait(
           while(written < size, {
             n := e.io.await(Self.write(self, buf.add(written), size - written, io), e);
             cond(
-              (n == usize(0)) => e.exn.throw(dyn(IoError.WriteZero)),
+              (n == usize(0)) => e.exn.throw(dyn(Box.new(IoError.WriteZero))),
               true => ()
             );
             written = (written + n);
