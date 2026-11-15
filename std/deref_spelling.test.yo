@@ -10,6 +10,7 @@
 // bundles drop `*.test.yo`. `yo test ./std` runs it with the tree compiler.
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array_list");
 
 _DerefPoint :: struct(a : i32, b : i32);
 
@@ -109,4 +110,33 @@ test("a closure's `{ r : &mut r.* }` borrows the referent whole while it lives",
   };
   assert(n == i32(2), "the closure writes through the reborrow");
   assert(p.a == i32(2), "the write landed in p once the closure's scope ended");
+});
+// The swept `&pts.*` lend of an `Rc`-handle binding matched through a
+// reference (`src/evaluator/values/impl.yo`'s `slot_pointee_at(&pts.*, i)`):
+// `pts.*` is the handle, not its payload
+// (issues/fixed/2026-11-15-the-deletion-binary-rejects-the-swept-lend-of-an-rc-handle-binding-in-src.md).
+_DerefCell :: struct(items : ArrayList(i32));
+_DerefNode :: enum(Leaf, Func(param_types : Rc(_DerefCell), n : i32));
+_deref_count_at :: (fn(l : &Rc(_DerefCell), i : usize) -> usize)(if(i < l.items.len(), usize(1), usize(0)));
+_deref_walk :: (fn(t : &Rc(_DerefNode)) -> usize)(
+  match(
+    t,
+    Rc(.Func({ param_types : pts, n : _ })) => {
+      mut(found) := usize(0);
+      mut(i) := usize(0);
+      while(i < pts.items.len(), {
+        found = (found + _deref_count_at(&pts.*, i));
+        i = (i + usize(1));
+      });
+      found
+    },
+    _ => usize(0)
+  )
+);
+test("&pts.* lends the Rc handle a reference match binding names", {
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  t := Rc.new(_DerefNode.Func(param_types : Rc.new(_DerefCell(items : xs)), n : i32(0)));
+  assert(_deref_walk(&t) == usize(2), "every slot is visited through the handle");
 });
