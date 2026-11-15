@@ -335,7 +335,7 @@ syntactic_decl_at :: (fn(exprs : &ArrayList(AstExpr), target : &Token) -> Option
   scoped := scoped_atoms_of(exprs, &target.value.*);
   (k : usize) = usize(0);
   while(k < scoped.len(), k = (k + usize(1)), {
-    sa := scoped(k);
+    sa := &scoped(k);
     t := ast_expr_token(&sa.atom);
     if((t.row == target.row) && (t.column == target.column), {
       return(sa.scope.clone());
@@ -416,7 +416,7 @@ collect_symbol_occurrences_with_decl :: (
   seen := HashSet(String).new();
   (si : usize) = usize(0);
   while(si < scoped.len(), si = (si + usize(1)), {
-    sa := scoped(si);
+    sa := &scoped(si);
     tok := ast_expr_token(&sa.atom);
     if(!atom_is_member_or_label(&roles, ast_expr_id(&sa.atom)), {
       // Excluded only when the atom resolves to a DIFFERENT declaration:
