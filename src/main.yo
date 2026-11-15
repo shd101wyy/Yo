@@ -1092,6 +1092,12 @@ _is_word_rune :: (fn(r : rune) -> bool)(
 /// brackets balance is parsed, and the first whose AST prints as `expect`
 /// wins (`a` and `a.b` print differently, so the shortest match is the
 /// expression itself).
+/// `printed` without the derefs a reference's auto-deref inserts (`.(*)`)
+/// and without parentheses: `v.token` read through `v : &Variable` prints
+/// `((v.(*)).token)`.
+_span_norm :: (fn(printed : &String) -> String)(
+  printed.replace(".(*)", String.new()).replace("(", String.new()).replace(")", String.new())
+);
 _expr_span_end :: (fn(runes : &ArrayList(rune), col : usize, scan_from : usize, expect : &String, file : &String) -> Option(usize))({
   (depth : i64) = i64(0);
   (e : usize) = scan_from;
@@ -1119,7 +1125,7 @@ _expr_span_end :: (fn(runes : &ArrayList(rune), col : usize, scan_from : usize, 
       });
       match(
         _parse_or_none(&cand, file.clone()),
-        .Some(asts) => if((asts.len() == usize(1)) && (ast_expr_to_string(&asts(usize(0))) == expect.*), {
+        .Some(asts) => if((asts.len() == usize(1)) && ((ast_expr_to_string(&asts(usize(0))) == expect.*) || (_span_norm(&ast_expr_to_string(&asts(usize(0)))) == _span_norm(expect))), {
           return(.Some(end));
         }),
         .None => ()
@@ -1355,10 +1361,15 @@ _run_migrate_rc_clone :: (fn(files : &ArrayList(String), std_path : &String, dry
         println(`fix: ${at}: \`${st.expect}\` is copied in a generic body, where the copied value may be a type parameter (\`${st.spelling}.clone(...)\` or \`.clone()\` serves one instantiation, not every one); left as written`);
         continue;
       });
-      start_opt := match(line_starts.get(st.row), .Some(ls) => Option(usize).Some(ls + st.col), .None => Option(usize).None);
+      start_opt := match(line_starts.get(st.row), .Some(ls) => Option(usize).Some(_operand_start_before_star(&runes, ls + st.col)), .None => Option(usize).None);
+      star_case := match(line_starts.get(st.row), .Some(ls) => match(start_opt, .Some(so) => (so != (ls + st.col)), .None => false), .None => false);
       mut(span_e) := match(
         start_opt,
-        .Some(start) => if(start < runes.len(), _expr_span_end(&runes, start, start, &st.expect, &file), Option(usize).None),
+        .Some(start) => cond(
+          star_case => _deref_star_span_end(&runes, start, &st.expect),
+          (start < runes.len()) => _expr_span_end(&runes, start, start, &st.expect, &file),
+          true => Option(usize).None
+        ),
         .None => Option(usize).None
       );
       // A reference read spelled `r.*` (deref Generation B's text): the
@@ -1666,6 +1677,18 @@ _deref_star_span_end :: (fn(runes : &ArrayList(rune), start : usize, expect : &S
     return(Option(usize).None);
   });
   Option(usize).Some(end + usize(2))
+});
+/// A copy recorded at the star of `name.*` (a synthesized deref takes the
+/// star's position): the start of `name`; any other position is kept.
+_operand_start_before_star :: (fn(runes : &ArrayList(rune), at : usize) -> usize)({
+  if((at < usize(2)) || (at >= runes.len()) || (runes(at).char != u32(0x2A)) || (runes(at - usize(1)).char != u32(0x2E)), {
+    return(at);
+  });
+  (k : usize) = (at - usize(1));
+  while((k > usize(0)) && _is_word_rune(runes(k - usize(1))), {
+    k = (k - usize(1));
+  });
+  if(k == (at - usize(1)), at, k)
 });
 _is_brace_shorthand_entry :: (fn(runes : &ArrayList(rune), start : usize, end : usize) -> bool)({
   if((start >= end) || (end > runes.len()) || runes(start).is_digit(), {
