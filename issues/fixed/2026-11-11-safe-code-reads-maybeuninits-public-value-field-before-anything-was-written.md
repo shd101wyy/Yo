@@ -81,3 +81,21 @@ Rust's `impl<T: Copy> Clone for MaybeUninit<T>`: a bitwise copy of a zero-filled
 With the fix: `tests/member_visibility.test.yo` (which already probes `MaybeUninit._probe`) gains `m.value` from a
 foreign module (E0405); the two negative field reads and the `clone` program go to `tests/origins/unsound/`, and the
 positive control stays accepted.
+
+## Fix (2026-11-13, lane `sig`, branch `fix/sig-2`)
+
+`std/prelude.yo`: the payload field is `_value`, private to the prelude (E0405 elsewhere), and `MaybeUninit(T)` is
+`Clone` and `Copy` only for a `Copy` payload, as Rust's `impl<T: Copy> Clone for MaybeUninit<T>`. The `Clone` is a
+written impl whose `clone` is the bitwise copy `self.*`, never `T`'s `clone`, and `Copy` is derived under the same
+`where(T <: Copy)` (`Copy` requires `Clone`, decision 36). `tests/prelude.test.yo` relies on the `Copy` half: it calls
+`assume_init` twice on one `MaybeUninit(Array(i32, 2))`.
+
+A method call ignores a generic impl's `where` clause
+(`issues/2026-11-13-a-method-call-ignores-a-generic-impls-where-clause.md`, S2, open), so `m.clone()` on a
+`MaybeUninit(Box(i64))` still dispatches to the bounded impl. It is rejected all the same: the bitwise body raises
+E0901 for a move-only payload. The derived `where(T <: Copy)` `Copy` holds (a second use of a moved
+`MaybeUninit(Box(i64))` is E0901). Once the dispatch defect is fixed the `clone` row's code becomes E0610.
+
+The G-B rows are `tests/origins/unsound/maybe-uninit-field-read.yo`, `maybe-uninit-field-read-box.yo` (E0405) and
+`maybe-uninit-clone.yo` (E0901, see above), with the positive control `maybe-uninit-field-read-pos.yo`. The drop route stays
+the open `issues/2026-10-23-an-unwritten-maybeuninit-drops-its-payload.md`.
