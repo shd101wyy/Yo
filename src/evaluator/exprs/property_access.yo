@@ -101,8 +101,9 @@ _reference_field_read_type :: (fn(ft : &TypeValue, expr : &AstExpr, property_exp
   // A `&str` field is the legacy value `str` (decision 49,
   // `unsized_legacy_spellings`): its read is the reference itself, except
   // where a `&str` slot expects the `str` place it lends (as for a `&str`
-  // binding, exprs/identifer_and_operator.yo).
-  if(is_str_reference_type(ft) && !match(&ctx.expected_type, .Some(sp_et) => match(t_refine_inner(&sp_et.ty), Rc(.Str) => true, _ => false), .None => false), Rc.clone(ft), _reference_field_read_place(ft, expr, property_expr, exempt, ctx, exn))
+  // binding, exprs/identifer_and_operator.yo), and as a receiver or a lend
+  // (`exempt`).
+  if(is_str_reference_type(ft) && !exempt && !match(&ctx.expected_type, .Some(sp_et) => match(t_refine_inner(&sp_et.ty), Rc(.Str) => true, _ => false), .None => false), Rc.clone(ft), _reference_field_read_place(ft, expr, property_expr, exempt, ctx, exn))
 );
 /// `_reference_field_read_type` for every field but a `&str` one.
 _reference_field_read_place :: (fn(ft : &TypeValue, expr : &AstExpr, property_expr : &AstExpr, exempt : bool, ctx : &EvalContext, exn : Exception) -> TypeValue)(

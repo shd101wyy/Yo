@@ -556,11 +556,12 @@ evaluate_identifier_and_operator :: (
     mark_reference_self_place(ast_expr_id(expr));
   });
   // A `&str` binding is the legacy value `str` (decision 49,
-  // `unsized_legacy_spellings`): its read is the reference in every position
-  // but one, the place a `&str` slot lends (an expected bare `str`, which no
-  // value position has: a value `str` is aliased to `&(str, static)`). There
-  // the binding reads as the `str` it points at, as `r : &T` does at `&T`.
-  expects_str_place := match(&ctx.expected_type, .Some(sp_et) => match(t_refine_inner(&sp_et.ty), Rc(.Str) => true, _ => false), .None => false);
+  // `unsized_legacy_spellings`): its read is the reference in every value
+  // position. Where `r : &T` reads as its place it reads as the `str` it
+  // points at: a receiver and a lend to a reference slot (`deref_is_exempt`),
+  // and the place a `&str` slot lends (an expected bare `str`, which no value
+  // position has: a value `str` is aliased to `&(str, static)`).
+  expects_str_place := (deref_is_exempt || match(&ctx.expected_type, .Some(sp_et) => match(t_refine_inner(&sp_et.ty), Rc(.Str) => true, _ => false), .None => false));
   reads_reference := (!is_self_place && variable_is_reference_binding(&variable) && (reference_read_wanted(&token, is_binder_arg, ctx) || (is_str_reference_type(&variable_slot_type(&variable)) && !expects_str_place)));
   if(variable_is_reference_binding(&variable), {
     note_reference_read(ast_expr_id(expr), reads_reference);
