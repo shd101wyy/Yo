@@ -127,9 +127,9 @@ Measured on the S2 draft (`vbd/d49-s2`) with the installed v0.2.77 seed,
   prelude's Box, Rc and Arc implement it" (`_throw_if_deref_impl_outside_prelude`,
   `src/evaluator/values/impl.yo`), and `deref_target_type` forwards only
   through cells. **Generation A:** the compiler admits the std collections'
-  impls and lowers their `.*` (the design question is open: a `deref`
-  method on `Deref` for a non-cell type, or a compiler-known projection).
-  **Generation B:** the std impls, one release later. `Array(T, N)`'s impl
+  impls and lowers their `.*` (a `deref`
+  projection, VERDICTS-63; Generation A v0.2.79).
+  **Generation B:** the std impls, at `SEED_VERSION` >= v0.2.79 (v0.2.80). `Array(T, N)`'s impl
   lives in the prelude and is not seed-gated.
 
 ## Seed-gated follow-up (2026-11-02): the json `insert` moves its old value out
