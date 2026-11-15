@@ -1905,7 +1905,7 @@ reject_second_class_return :: (fn(ty : &TypeValue, tok : &Token, env : &Environm
   // rejects a local in it (E0912) where the result is written.
   if(is_future_value_type(ty), {
     // A `&T` parameter is copied into the future only through the body's
-    // own `{ &p }` entry; a borrowing closure the body captures points at
+    // own `{ p : &p.* }` entry; a borrowing closure the body captures points at
     // the parameter's slot in the frame that returns.
     match(
       future_unreturnable_borrow(ty),
@@ -1914,7 +1914,7 @@ reject_second_class_return :: (fn(ty : &TypeValue, tok : &Token, env : &Environm
           format_error_message_with_help(
             tok,
             `This future borrows the \`&\` parameter \`${b.root_name}\` through a closure it captures (${_capture_borrow_note(&b)}), so it cannot be returned: C passes \`${b.root_name}\` by value, in the frame that returns, and a returned future keeps its own copy of a \`&\` parameter only when its own capture list borrows it (plans/VALUES_BY_DEFAULT.md §3.13 A2).`,
-            Option(String).Some(`borrow the parameter in the \`io.async\` body's own capture list (\`io.async({ &${b.root_name} }(io : Io) => ...)\`) and read it there, or await the future inside this function`)
+            Option(String).Some(`borrow the parameter in the \`io.async\` body's own capture list (\`io.async({ ${b.root_name} : &${b.root_name}.* }(io : Io) => ...)\`) and read it there, or await the future inside this function`)
           ),
           E_BORROW_ESCAPES
         ),
