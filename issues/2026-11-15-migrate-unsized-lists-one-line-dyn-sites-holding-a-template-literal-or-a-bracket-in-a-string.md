@@ -1,6 +1,6 @@
 # `yo fix --migrate unsized` lists one-line `dyn(...)` sites that hold a template literal or a bracket inside a string
 
-**Severity:** S3: no code is changed wrongly, but the migration rewrites far fewer sites than it could, and its message is wrong for the sites it skips. In the S2 sweep of std and src, 174 of the 211 sites listed as "does not print back on one line" are template-literal sites that sit on one line. The suggested replacement shows the desugared template (`begin(__yo_tpl_8225195 := …)`), so it cannot be pasted back.
+**Severity:** S3: no code is changed wrongly, but the migration rewrites far fewer sites than it could, and its message is wrong for the sites it skips. In the S2 sweep of std and src, 178 of the 211 sites listed as "does not print back on one line" sit on one line: 177 hold a template literal, and one (`std/net/addr.yo`) holds a `[` inside a string. The suggested replacement shows the desugared template (`begin(__yo_tpl_8225195 := …)`), so it cannot be pasted back.
 
 **Status:** OPEN. Found 2026-11-15 by the unsized-sweep lane while auditing the S2 sweep of std and src (`vbd/unsized-sweep`).
 
