@@ -9045,7 +9045,7 @@ _restore_move_states :: (fn(saved_vars : &ArrayList(Variable), saved_moves : &Ar
     match(
       saved_vars.get_cloned(ri),
       .Some(v) => {
-        v.set_consumed_at_token(match(saved_moves.get(ri), .Some(m) => m, .None => Option(Token).None));
+        v.set_consumed_at_token(match(saved_moves.get_cloned(ri), .Some(m) => m, .None => Option(Token).None));
       },
       .None => ()
     );
@@ -10497,7 +10497,7 @@ _record_fnonce_callee_release :: (fn(call : &AstExpr, name : &String, env : &Env
     match(
       same_name.get_cloned(ri),
       .Some(rv) => {
-        rv.set_consumed_at_token(match(saved.get(ri), .Some(t) => t, .None => Option(Token).None));
+        rv.set_consumed_at_token(match(saved.get_cloned(ri), .Some(t) => t, .None => Option(Token).None));
       },
       .None => ()
     );

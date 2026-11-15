@@ -1037,7 +1037,7 @@ _locals_moved_inside :: (fn(e : &AstExpr, env : &Environment) -> ArrayList(_Move
   (i : usize) = usize(0);
   while(i < toks.len(), i = (i + usize(1)), {
     match(
-      toks.get(i),
+      toks.get_cloned(i),
       .Some(t) => if(t.module_path == module, {
         if(t.character < lo, {
           lo = t.character;
@@ -1052,7 +1052,7 @@ _locals_moved_inside :: (fn(e : &AstExpr, env : &Environment) -> ArrayList(_Move
   i = usize(0);
   while(i < toks.len(), i = (i + usize(1)), {
     match(
-      toks.get(i),
+      toks.get_cloned(i),
       .Some(t) => match(
         find_variable_in_env(env, &t.value.*),
         .Some(v) => match(

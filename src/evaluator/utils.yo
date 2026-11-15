@@ -3531,7 +3531,7 @@ audit_record_copy_trait :: (
 /// ownership transfer to record an accurate consumed_at_token (early returns
 /// AFTER the transfer must not re-drop the moved value).
 (g_dup_use_site_tokens : RefCell(HashMap(usize, Token))) = RefCell(HashMap(usize, Token)).new(HashMap(usize, Token).new());
-get_dup_use_site_token :: (fn(id : usize) -> Option(Token))(g_dup_use_site_tokens.with(m => m.get(&id)));
+get_dup_use_site_token :: (fn(id : usize) -> Option(Token))(g_dup_use_site_tokens.with(m => m.get_cloned(&id)));
 // ---------------------------------------------------------------------------
 // The unique `Dyn` (plans/VALUES_BY_DEFAULT.md decision 7, B12 and B13)
 // ---------------------------------------------------------------------------
@@ -4704,7 +4704,7 @@ _snapshot_state_of :: (fn(snap : &LoopFlowSnapshot, id : usize, pre : &Option(To
   (si : usize) = usize(0);
   while(si < snap.var_ids.len(), {
     if(match(snap.var_ids.get_cloned(si), .Some(x) => (x == id), .None => false), {
-      return(match(snap.consumed.get(si), .Some(c) => c, .None => pre.*.clone()));
+      return(match(snap.consumed.get_cloned(si), .Some(c) => c, .None => pre.*.clone()));
     });
     si = (si + usize(1));
   });
@@ -4756,7 +4756,7 @@ check_loop_flow :: (
           ci = (ci + usize(1));
         });
         if(pre.is_none() && (back_moved.len() > usize(0)), {
-          mv_tok := match(back_moved.get(usize(0)), .Some(t) => t, .None => Rc.clone(v.token));
+          mv_tok := match(back_moved.get_cloned(usize(0)), .Some(t) => t, .None => Rc.clone(v.token));
           entries := ArrayList(TokenAndError).new();
           entries.push(
             TokenAndError(
@@ -4783,7 +4783,7 @@ check_loop_flow :: (
             // moved or not depending on the iteration count).
             match(&pre, .Some(t) => exit_moved.push(Rc.clone(t)), .None => exit_live.push(Rc.clone(v.token)));
             if(pre.is_some() && (back_live.len() > usize(0)), {
-              exit_live.push(match(back_live.get(usize(0)), .Some(t) => t, .None => Rc.clone(v.token)));
+              exit_live.push(match(back_live.get_cloned(usize(0)), .Some(t) => t, .None => Rc.clone(v.token)));
             });
           });
         });
@@ -4803,14 +4803,14 @@ check_loop_flow :: (
           entries2 := ArrayList(TokenAndError).new();
           entries2.push(
             TokenAndError(
-              token : match(exit_moved.get(usize(0)), .Some(t) => t, .None => Rc.clone(v.token)),
+              token : match(exit_moved.get_cloned(usize(0)), .Some(t) => t, .None => Rc.clone(v.token)),
               error_message : `Variable "${v.name}" is moved on some ways out of the loop but not on others, so after the loop it would be dropped on some paths only. Moved here:`
             )
           );
-          entries2.push(TokenAndError(token : match(exit_live.get(usize(0)), .Some(t) => t, .None => Rc.clone(v.token)), error_message : String.from("Not moved on the way out here:")));
+          entries2.push(TokenAndError(token : match(exit_live.get_cloned(usize(0)), .Some(t) => t, .None => Rc.clone(v.token)), error_message : String.from("Not moved on the way out here:")));
           exn.throw(dyn(with_code(format_error_messages(&entries2), E_MOVED_ON_SOME_PATHS)));
         });
-        final := match(exit_moved.get(usize(0)), .Some(t) => Option(Token).Some(t), .None => Option(Token).None);
+        final := match(exit_moved.get_cloned(usize(0)), .Some(t) => Option(Token).Some(t), .None => Option(Token).None);
         if((exit_moved.len() > usize(0)) || (exit_live.len() > usize(0)), {
           v.set_consumed_at_token(match(&final, .Some(ft) => Option(Token).Some(Rc.clone(ft)), .None => Option(Token).None));
         });
@@ -4907,7 +4907,7 @@ _first_some_token :: (fn(toks : &ArrayList(Option(Token))) -> Option(Token))({
   (i : usize) = usize(0);
   while(i < toks.len(), {
     match(
-      toks.get(i),
+      toks.get_cloned(i),
       .Some(.Some(t)) => {
         return(Option(Token).Some(t));
       },
@@ -4974,7 +4974,7 @@ _drop_in_arms_that_keep :: (
   // (issues/fixed/2026-11-05-a-match-arm-binding-that-shadows-a-local-is-never-dropped.md).
   (si : usize) = usize(0);
   while(si < bodies.len(), {
-    keeps_s := match(consumed_at_tokens.get(si), .Some(.Some(_)) => false, _ => true);
+    keeps_s := match(consumed_at_tokens.get_cloned(si), .Some(.Some(_)) => false, _ => true);
     if(keeps_s, {
       match(
         bodies.get(si),
@@ -5021,7 +5021,7 @@ _drop_in_arms_that_keep :: (
   v.set_consumed_at_token(Option(Token).None);
   (i : usize) = usize(0);
   while(i < bodies.len(), {
-    keeps := match(consumed_at_tokens.get(i), .Some(.Some(_)) => false, _ => true);
+    keeps := match(consumed_at_tokens.get_cloned(i), .Some(.Some(_)) => false, _ => true);
     if(keeps, {
       match(
         bodies.get(i),
@@ -5663,7 +5663,7 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
           // diverge) initializes it → it is initialized after the branch.
           if(n_cases == usize(1), {
             match(
-              initialized_at_tokens.get(usize(0)),
+              initialized_at_tokens.get_cloned(usize(0)),
               .Some(.Some(t1)) => if(base_var.initialized_at_token().is_none(), {
                 base_var.set_initialized_at_token(Option(Token).Some(t1));
               }),
@@ -5677,7 +5677,7 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
             (any_init : bool) = false;
             (init_i : usize) = usize(0);
             while(init_i < n_cases, {
-              tok_opt := match(initialized_at_tokens.get(init_i), .Some(v) => v, .None => Option(Token).None);
+              tok_opt := match(initialized_at_tokens.get_cloned(init_i), .Some(v) => v, .None => Option(Token).None);
               match(
                 tok_opt,
                 .Some(_) => {
@@ -5690,7 +5690,7 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
               init_i = (init_i + usize(1));
             });
             if(all_init && !match(base_var.initialized_at_token(), .Some(_) => true, .None => false), {
-              first_tok := match(initialized_at_tokens.get(usize(0)), .Some(v) => v, .None => Option(Token).None);
+              first_tok := match(initialized_at_tokens.get_cloned(usize(0)), .Some(v) => v, .None => Option(Token).None);
               match(
                 first_tok,
                 .Some(t) => {
@@ -5704,7 +5704,7 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
               err_list := ArrayList(TokenAndError).new();
               (ei : usize) = usize(0);
               while(ei < n_cases, {
-                tok_opt := match(initialized_at_tokens.get(ei), .Some(v) => v, .None => Option(Token).None);
+                tok_opt := match(initialized_at_tokens.get_cloned(ei), .Some(v) => v, .None => Option(Token).None);
                 body_tok := ast_expr_token(match(bodies.get(ei), .Some(b) => b, .None => make_err_expr()));
                 msg := cond(
                   (ei == usize(0)) => `Variable "${var_name}" might be initialized in some cases but not initialized in other cases:`,
@@ -5723,7 +5723,7 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
           // ---- Check consumed_at_token ----
           // Case 1: single branch consumed → propagate
           if(n_cases == usize(1), {
-            first_consumed := match(consumed_at_tokens.get(usize(0)), .Some(v) => v, .None => Option(Token).None);
+            first_consumed := match(consumed_at_tokens.get_cloned(usize(0)), .Some(v) => v, .None => Option(Token).None);
             match(
               first_consumed,
               .Some(ct) => {
@@ -5744,7 +5744,7 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
             (any_consumed : bool) = false;
             (cons_i : usize) = usize(0);
             while(cons_i < n_cases, {
-              tok_opt := match(consumed_at_tokens.get(cons_i), .Some(v) => v, .None => Option(Token).None);
+              tok_opt := match(consumed_at_tokens.get_cloned(cons_i), .Some(v) => v, .None => Option(Token).None);
               match(
                 tok_opt,
                 .Some(_) => {
@@ -5757,7 +5757,7 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
               cons_i = (cons_i + usize(1));
             });
             if(all_consumed && !match(base_var.consumed_at_token(), .Some(_) => true, .None => false), {
-              first_tok := match(consumed_at_tokens.get(usize(0)), .Some(v) => v, .None => Option(Token).None);
+              first_tok := match(consumed_at_tokens.get_cloned(usize(0)), .Some(v) => v, .None => Option(Token).None);
               // Moved where the branch ends, as for a move in some arms: a
               // `return` in an arm that left the join (a returning arm) is
               // before that point, so the early-return pass drops the value
@@ -5809,7 +5809,7 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
               err_list := ArrayList(TokenAndError).new();
               (eci : usize) = usize(0);
               while(eci < n_cases, {
-                tok_opt := match(consumed_at_tokens.get(eci), .Some(v) => v, .None => Option(Token).None);
+                tok_opt := match(consumed_at_tokens.get_cloned(eci), .Some(v) => v, .None => Option(Token).None);
                 body_tok := ast_expr_token(match(bodies.get(eci), .Some(b) => b, .None => make_err_expr()));
                 msg := cond(
                   (eci == usize(0)) => `Variable "${var_name}" is moved in some arms but not in others, so where they meet it would be dropped on some paths only:`,
@@ -5835,7 +5835,7 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
             (all_reinit : bool) = true;
             (ri_i : usize) = usize(0);
             while(ri_i < n_cases, ri_i = (ri_i + usize(1)), {
-              if(match(consumed_at_tokens.get(ri_i), .Some(.Some(_)) => true, _ => false), {
+              if(match(consumed_at_tokens.get_cloned(ri_i), .Some(.Some(_)) => true, _ => false), {
                 all_reinit = false;
               });
             });
@@ -5863,7 +5863,7 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
           (any_owning : bool) = false;
           (ow_i : usize) = usize(0);
           while(ow_i < n_cases, {
-            tok_opt := match(owning_at_tokens.get(ow_i), .Some(v) => v, .None => Option(Token).None);
+            tok_opt := match(owning_at_tokens.get_cloned(ow_i), .Some(v) => v, .None => Option(Token).None);
             match(
               tok_opt,
               .Some(_) => {
@@ -5884,7 +5884,7 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
             err_list := ArrayList(TokenAndError).new();
             (oei : usize) = usize(0);
             while(oei < n_cases, {
-              tok_opt := match(owning_at_tokens.get(oei), .Some(v) => v, .None => Option(Token).None);
+              tok_opt := match(owning_at_tokens.get_cloned(oei), .Some(v) => v, .None => Option(Token).None);
               body_tok := ast_expr_token(match(bodies.get(oei), .Some(b) => b, .None => make_err_expr()));
               msg := cond(
                 (oei == usize(0)) => `Variable "${var_name}" might be holding the Rc value in some cases but not holding the Rc value in other cases:`,
@@ -13213,7 +13213,7 @@ borrow_match_source_decl :: (fn(decl : &Token) -> Option(AstExpr))({
   while(i > usize(0), {
     i = (i - usize(1));
     match(
-      g_borrow_match_source_decls.with(xs => xs.get(i)),
+      g_borrow_match_source_decls.with(xs => xs.get_cloned(i)),
       .Some(e) => if((e.decl.module_path.*.clone() == decl.module_path.*.clone()) && (e.decl.byte_offset == decl.byte_offset), {
         return(Option(AstExpr).Some(e.scrutinee));
       }),
