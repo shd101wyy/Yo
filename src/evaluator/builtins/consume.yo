@@ -82,7 +82,7 @@ set_variable_as_consumed :: (
         entries := ArrayList(TokenAndError).new();
         entries.push(
           TokenAndError(
-            token : token,
+            token : token.*,
             error_message : `use of moved value: \`${variable_name}\``
           )
         );
@@ -165,11 +165,11 @@ evaluate_consume :: (
       fargs.get(usize(0)),
       .Some(a) => a,
       .None => {
-        return(expr);
+        return(expr.*);
       }
     ),
     _ => {
-      return(expr);
+      return(expr.*);
     }
   );
   // Through the caller's `exn`: the 3-argument `evaluate_expression` swallows
@@ -178,7 +178,7 @@ evaluate_consume :: (
   // wrong environment (issues/fixed/consume-swallows-its-arguments-error-and-its-env.md).
   eval_arg := evaluate_expression_raw(&arg_expr, env, ctx, exn);
   arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_arg));
-  (cur_env : Environment) = match(&arg_info_opt, .Some(i) => expr_info_adopt_env(&i), .None => Rc.clone(env));
+  (cur_env : Environment) = match(&arg_info_opt, .Some(i) => expr_info_adopt_env(&i.*), .None => Rc.clone(env));
   match(
     &arg_info_opt,
     .Some(_) => (),
@@ -227,6 +227,6 @@ evaluate_consume :: (
   out_info := new_expr_info(&cur_env, t_unit());
   out_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr
+  expr.*
 });
 export(evaluate_consume, set_variable_as_consumed);

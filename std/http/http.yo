@@ -62,13 +62,13 @@ impl(
   /// requires). `.None` for anything not in the enum.
   from_string : (fn(s : &String) -> Option(HttpMethod))(
     cond(
-      (s == `GET`) => .Some(HttpMethod.GET),
-      (s == `POST`) => .Some(HttpMethod.POST),
-      (s == `PUT`) => .Some(HttpMethod.PUT),
-      (s == `DELETE`) => .Some(HttpMethod.DELETE),
-      (s == `HEAD`) => .Some(HttpMethod.HEAD),
-      (s == `PATCH`) => .Some(HttpMethod.PATCH),
-      (s == `OPTIONS`) => .Some(HttpMethod.OPTIONS),
+      (s.* == `GET`) => .Some(HttpMethod.GET),
+      (s.* == `POST`) => .Some(HttpMethod.POST),
+      (s.* == `PUT`) => .Some(HttpMethod.PUT),
+      (s.* == `DELETE`) => .Some(HttpMethod.DELETE),
+      (s.* == `HEAD`) => .Some(HttpMethod.HEAD),
+      (s.* == `PATCH`) => .Some(HttpMethod.PATCH),
+      (s.* == `OPTIONS`) => .Some(HttpMethod.OPTIONS),
       true => .None
     )
   )
@@ -574,7 +574,7 @@ parse_response :: (fn(raw : &String) -> Result(HttpResponse, HttpParseError))({
   head := raw.substring(usize(0), header_end);
   body := cond(
     ((header_end + usize(4)) <= raw.len()) => {
-      raw_b := &raw;
+      raw_b := &raw.*;
       mut(body_b) := ArrayList(u8).new();
       mut(bi) := (header_end + usize(4));
       while(bi < raw_b.len(), {
@@ -671,7 +671,7 @@ parse_request :: (fn(raw : &String) -> Result(HttpRequest, HttpParseError))({
   // binary-bodies row; pinned by tests/http/server.test.yo).
   body := cond(
     ((header_end + usize(4)) <= raw.len()) => {
-      raw_b := &raw;
+      raw_b := &raw.*;
       mut(body_b) := ArrayList(u8).new();
       mut(bi) := (header_end + usize(4));
       while(bi < raw_b.len(), {

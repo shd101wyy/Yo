@@ -321,7 +321,7 @@ parse_error_text :: (
                 );
                 message := header.message.clone();
                 if(message.len() > usize(0), {
-                  same_file := ((a_path == doc_abs) || a_path.ends_with(doc_abs.clone()));
+                  same_file := ((a_path == doc_abs.*) || a_path.ends_with(doc_abs.clone()));
                   cond(
                     same_file => {
                       // The renderer emits up to three snippet lines after
@@ -546,7 +546,7 @@ _typed_to_lsp :: (
     match(
       diags.get_cloned(i),
       .Some(d) => {
-        same_file := ((d.span.path == doc_abs) || d.span.path.ends_with(doc_abs.clone()));
+        same_file := ((d.span.path == doc_abs.*) || d.span.path.ends_with(doc_abs.clone()));
         is_note := match(
           d.severity,
           .Note => true,

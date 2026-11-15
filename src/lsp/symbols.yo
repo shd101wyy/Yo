@@ -63,7 +63,7 @@ _symbol_kind_of :: (fn(value_expr : &AstExpr) -> usize)({
   match(
     value_expr,
     .FnCall(_, func_box, _, _, _) => {
-      if(_is_fn_type_expr(&func_box), {
+      if(_is_fn_type_expr(&func_box.*), {
         return(usize(12));
       });
     },
@@ -135,7 +135,7 @@ derive(SymbolEntry, Clone);
 _decl_name_tok :: (fn(lhs : &AstExpr) -> Option(Token))(
   match(
     lhs,
-    .Atom(_, t) => Option(Token).Some(t),
+    .Atom(_, t) => Option(Token).Some(t.*),
     .FnCall(_, _, Rc(targs), _, _) => if(ast_expr_is_fn_call_of(lhs, "thread_local", .Some(usize(1))) || ast_expr_is_fn_call_of(lhs, "mut", .Some(usize(1))), match(targs.get(usize(0)), .Some(inner) => recur(&inner), .None => Option(Token).None), Option(Token).None)
   )
 );
@@ -376,10 +376,10 @@ handle_workspace_symbols :: (fn(query : &String, docs : &ArrayList(WorkspaceDoc)
 _impl_arg_is :: (fn(e : &AstExpr, name : &String) -> bool)(
   match(
     e,
-    .Atom(_, t) => (t.value.* == name),
+    .Atom(_, t) => (t.value.* == name.*),
     .FnCall(_, func_box, _, _, _) => match(
       func_box,
-      .Atom(_, ht) => (ht.value.* == name),
+      .Atom(_, ht) => (ht.value.* == name.*),
       .FnCall(_, _, _, _, _) => false
     )
   )

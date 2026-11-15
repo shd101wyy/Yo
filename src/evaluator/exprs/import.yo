@@ -106,7 +106,7 @@ clear_import_roots :: (fn() -> unit)({
 lookup_import_unavailable :: (fn(name : &String) -> Option(String))({
   (i : usize) = usize(0);
   while(i < g_import_unavailable_names.with(_c_len_1), {
-    matches := match(g_import_unavailable_names.with({ i }(xs) => xs.get_cloned(i)), .Some(n) => (n == name), .None => false);
+    matches := match(g_import_unavailable_names.with({ i }(xs) => xs.get_cloned(i)), .Some(n) => (n == name.*), .None => false);
     if(matches, {
       match(
         g_import_unavailable_reasons.with(xs => xs.get_cloned(i)),
@@ -125,7 +125,7 @@ lookup_import_root :: (fn(name : &String) -> Option(String))({
   while(i < g_import_root_names.with(_c_len_1), {
     // `.get(i)` copies the element out: indexing a module-level container
     // for a `ref` argument is rejected (a callee could reallocate it).
-    matches := match(g_import_root_names.with({ i }(xs) => xs.get_cloned(i)), .Some(n) => (n == name), .None => false);
+    matches := match(g_import_root_names.with({ i }(xs) => xs.get_cloned(i)), .Some(n) => (n == name.*), .None => false);
     if(matches, {
       match(
         g_import_root_paths.with(xs => xs.get_cloned(i)),
@@ -371,7 +371,7 @@ evaluate_import :: (
             )
           )
         );
-        expr
+        expr.*
       }
     ),
     .Atom(_, _) => {
@@ -383,7 +383,7 @@ evaluate_import :: (
           )
         )
       );
-      expr
+      expr.*
     }
   );
   // Evaluate the argument — it must yield a comptime string.
@@ -576,7 +576,7 @@ evaluate_import :: (
   out_info := new_expr_info(&env, &mod_ty);
   out_info.set_value(.Some(mod_val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr
+  expr.*
 });
 export(evaluate_import, resolve_module_path, ModuleResolveResult, _build_module_val_from_env);
 export(set_import_root, set_import_unavailable, clear_import_roots, lookup_import_root, lookup_import_unavailable);

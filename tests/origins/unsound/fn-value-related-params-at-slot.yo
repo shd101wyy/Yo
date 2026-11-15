@@ -1,0 +1,21 @@
+// expect: E0923
+// A function value whose signature relates its two parameters' origins (one `p` for both) at a slot
+// that leaves them independent: the slot's caller passes unrelated arguments, and the function stores
+// the second into the first's pointee (O3-3, parameters are invariant; O7).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+mkr :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+store :: (fn(generic(p : Origin), dst : &mut Option(&(Rc(X), p)), v : &(Rc(X), p)) -> unit)({
+  dst.* = .Some(v);
+});
+run :: (fn(f : (fn(dst : &mut Option(&Rc(X)), v : &Rc(X)) -> unit), dst : &mut Option(&Rc(X)), v : &Rc(X)) -> unit)(f(dst, v));
+main :: (fn() -> unit)({
+  mut(o) := Option(&Rc(X)).None;
+  {
+    b := mkr();
+    run(store, &mut o, &b);
+  };
+  match(o, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => println("none"));
+});
+export(main);

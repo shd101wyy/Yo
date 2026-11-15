@@ -150,7 +150,7 @@ _evaluate_contract_marker :: (
   out_info := new_expr_info(&cur_env, t_unit());
   out_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr
+  expr.*
 });
 /// The file set the current command is verifying (absolute or as-given
 /// paths — matched by equality against `Token.module_path`). Empty = no
@@ -184,7 +184,7 @@ _is_verify_target :: (fn(module_path : &String) -> bool)({
   while((i < g_verify_target_paths.with(_c_len_1)) && !found, {
     match(
       g_verify_target_paths.with(xs => xs.get_cloned(i)),
-      .Some(p) => if(p == module_path, {
+      .Some(p) => if(p == module_path.*, {
         found = true;
       }),
       .None => ()
@@ -360,7 +360,7 @@ evaluate_ghost :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContex
             out_info := new_expr_info(&r_info.env(), t_unit());
             out_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-            return(expr);
+            return(expr.*);
           });
         },
         .None => ()
@@ -403,7 +403,7 @@ _evaluate_transparent_unary :: (
       );
     }
   );
-  expr
+  expr.*
 });
 /// V5 task 3: the ghost-fn registry. `ghost_fn(...)` registers the wrapped
 /// function's func_id here; function.yo's call arm rejects calls to these
@@ -415,7 +415,7 @@ register_ghost_fn :: (fn(func_id : &String) -> unit)({
   ()
 });
 is_ghost_fn :: (fn(func_id : &String) -> bool)(
-  g_ghost_fn_ids.with({ &func_id }(s) => s.contains(func_id))
+  g_ghost_fn_ids.with({ func_id : &func_id.* }(s) => s.contains(func_id))
 );
 /// V6 task 3: the ghost-fn DEF registry — `func_id → (params, body)` for
 /// every registered ghost_fn. The refinement machinery reads it: a
@@ -439,7 +439,7 @@ register_ghost_fn_def :: (fn(func_id : &String, params : &ArrayList(String), bod
   ()
 });
 ghost_fn_def_of :: (fn(func_id : &String) -> Option(GhostFnDef))(
-  g_ghost_fn_defs.with({ &func_id }(m) => m.get_cloned(func_id))
+  g_ghost_fn_defs.with({ func_id : &func_id.* }(m) => m.get_cloned(func_id))
 );
 /// The refinement CHAIN registry: an outer predicate's func_id → the
 /// predicates of the refinement it wraps (outermost inner first —
@@ -455,7 +455,7 @@ register_refine_pred_chain :: (fn(outer_fid : &String, chain : &ArrayList(String
 });
 refine_pred_chain_of :: (fn(outer_fid : &String) -> ArrayList(String))(
   match(
-    g_refine_pred_chains.with({ &outer_fid }(m) => m.get_cloned(outer_fid.clone())),
+    g_refine_pred_chains.with({ outer_fid : &outer_fid.* }(m) => m.get_cloned(outer_fid.clone())),
     .Some(chain) => chain,
     .None => ArrayList(String).new()
   )
@@ -609,7 +609,7 @@ ${ast_expr_to_string(expr)}`
   out_info := new_expr_info(&cur_env, t_type());
   out_info.set_value(Option(EvalValue).Some(EvalValue.TypeVal(refined)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr
+  expr.*
 });
 
 /// `ghost_fn(f)` — marks a function value ghost-only. V5 task 3: the
@@ -754,7 +754,7 @@ _evaluate_spec_collection :: (
   out_info := new_expr_info(&cur_env, res_ty.clone());
   out_info.set_value(Option(EvalValue).Some(create_unknown_val(&res_ty)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr
+  expr.*
 });
 evaluate_seq_unit :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
@@ -985,7 +985,7 @@ _evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut Eval
   out_info := new_expr_info(&cur_env, t_bool());
   out_info.set_value(Option(EvalValue).Some(create_unknown_val(t_bool())));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr
+  expr.*
 });
 /// forall(...) — ghost-only universal quantifier (V5).
 evaluate_forall :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)(
@@ -1043,7 +1043,7 @@ evaluate_implies :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalCont
   out_info := new_expr_info(&cur_env, t_bool());
   out_info.set_value(Option(EvalValue).Some(create_unknown_val(t_bool())));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr
+  expr.*
 });
 /// `old(expr)` — entry-snapshot reference (handled specially inside `ensures`
 /// by the wrapper; transparent pass-through elsewhere).
@@ -1093,7 +1093,7 @@ _note_unlabeled_ensures_atoms :: (fn(e : &AstExpr) -> unit)(
       note_unlabeled_ensures_atom(ast_expr_id(e));
     },
     .FnCall(_, f_box, Rc(f_args), _, _) => {
-      recur(&f_box);
+      recur(&f_box.*);
       (ai : usize) = usize(0);
       while(ai < f_args.len(), {
         match(
@@ -1204,7 +1204,7 @@ _build_assert_call :: (
   );
   if(is_comptime_fn, {
     args := ArrayList(AstExpr).new();
-    args.push(pred);
+    args.push(pred.*);
     args.push(msg_expr);
     return(
       AstExpr.FnCall(
@@ -1228,7 +1228,7 @@ _build_assert_call :: (
     pred_tok.clone()
   );
   rt_args := ArrayList(AstExpr).new();
-  rt_args.push(pred);
+  rt_args.push(pred.*);
   runtime_pred := AstExpr.FnCall(
     alloc_global_expr_id(),
     _synth_atom(String.from(BF_RUNTIME), TokenKind.Identifier, pred_tok.clone()),
@@ -1301,7 +1301,7 @@ _build_binding :: (fn(name : &String, value : &AstExpr, src_tok : &Token, op : &
   );
   args := ArrayList(AstExpr).new();
   args.push(_synth_atom(name, TokenKind.Identifier, src_tok));
-  args.push(value);
+  args.push(value.*);
   AstExpr.FnCall(
     alloc_global_expr_id(),
     AstExpr.Atom(alloc_global_expr_id(), bind_tok.clone()),
@@ -1318,13 +1318,13 @@ _build_binding :: (fn(name : &String, value : &AstExpr, src_tok : &Token, op : &
 /// Local list builders for AST synthesis (ArrayList has no literal syntax).
 single1 :: (fn(a : &AstExpr) -> ArrayList(AstExpr))({
   out := ArrayList(AstExpr).new();
-  out.push(a);
+  out.push(a.*);
   out
 });
 single2 :: (fn(a : &AstExpr, b : &AstExpr) -> ArrayList(AstExpr))({
   out := ArrayList(AstExpr).new();
-  out.push(a);
-  out.push(b);
+  out.push(a.*);
+  out.push(b.*);
   out
 });
 (mut(g_contract_old_counter) : usize) = usize(0);
@@ -1341,7 +1341,7 @@ _hoist_old_in :: (
 )(
   match(
     e,
-    .Atom(_, _) => e,
+    .Atom(_, _) => e.*,
     .FnCall(_, f_box, Rc(f_args), f_infix, f_tok) => cond(
       ast_expr_is_fn_call_of(e, BF_OLD, .Some(usize(1))) => {
         inner := recur(
@@ -1372,9 +1372,9 @@ _hoist_old_in :: (
         });
         AstExpr.FnCall(
           alloc_global_expr_id(),
-          recur(&f_box, snapshots, bind_op.clone()),
+          recur(&f_box.*, snapshots, bind_op.clone()),
           Rc.new(new_args),
-          f_infix,
+          f_infix.*,
           f_tok.clone()
         )
       }
@@ -1478,7 +1478,7 @@ clear_proved_guard_sites :: (fn() -> unit)({
   ()
 });
 record_index_unchecked_twin :: (fn(node_id : ExprId, twin : &EvalValue) -> unit)({
-  g_index_unchecked_twins.with_mut(m => m.insert(node_id, twin));
+  g_index_unchecked_twins.with_mut(m => m.insert(node_id, twin.*));
   ()
 });
 /// Drop the twin recorded for `node_id`: a subscript promoted to `IndexMut`
@@ -1499,7 +1499,7 @@ elided_guard_count :: (fn() -> usize)(
 _guard_site_recorded :: (fn(expr : &AstExpr, class : str) -> bool)(
   match(
     // The value list is taken by remove-style clone: get copies it (B8).
-    g_proved_guard_sites.with({ &expr }(m) => m.get_cloned(ast_expr_id(expr))),
+    g_proved_guard_sites.with({ expr : &expr.* }(m) => m.get_cloned(ast_expr_id(expr))),
     .Some(sites) => {
       tok := ast_expr_token(expr);
       canon := canonical_module_path(&tok.module_path.*);
@@ -1547,7 +1547,7 @@ record_verify_task_def_eval_failure :: (fn(fn_id : &String, msg : &String) -> un
   ()
 });
 verify_task_def_eval_failure :: (fn(fn_id : &String) -> Option(String))(
-  g_verify_def_eval_failures.with({ &fn_id }(m) => m.get_cloned(fn_id))
+  g_verify_def_eval_failures.with({ fn_id : &fn_id.* }(m) => m.get_cloned(fn_id))
 );
 /// The file set the current command is verifying (absolute or as-given
 /// paths — matched by equality against `Token.module_path`). Empty = no
@@ -1699,7 +1699,7 @@ register_impl_inheritance_task :: (
           (pih : usize) = usize(0);
           while(pih < __ihpt.len(), {
             match(
-              slot_pointee_at(&__ihpt, pih),
+              slot_pointee_at(&__ihpt.*, pih),
               .Some(pt) => {
                 p_types.push(pt.clone());
                 p_names.push(
@@ -1714,7 +1714,7 @@ register_impl_inheritance_task :: (
             );
             pih = (pih + usize(1));
           });
-          ret_ty = t_slot_pointee(&__ihres);
+          ret_ty = t_slot_pointee(&__ihres.*);
         },
         _ => ()
       );
@@ -1796,7 +1796,7 @@ register_impl_inheritance_task :: (
           return_label : __t_ret,
           table : ctx.expr_info_table.clone(),
           mode : __mode.clone(),
-          func_val : method_val,
+          func_val : method_val.*,
           requires_enforced : ArrayList(bool).new()
         )
       );
@@ -1870,7 +1870,7 @@ register_callsite_contracts :: (
   _ := g_callsite_contracts.with_mut({ reqs_owned, call_id_owned, enss_owned }(m) => m.insert(call_id_owned, CallsiteContracts(reqs : reqs_owned.clone(), enss : enss_owned)));
 });
 callsite_contracts_for :: (fn(call_id : &String) -> Option(CallsiteContracts))(
-  g_callsite_contracts.with({ &call_id }(m) => m.get_cloned(call_id))
+  g_callsite_contracts.with({ call_id : &call_id.* }(m) => m.get_cloned(call_id))
 );
 /// V6 task 4: specialized FuncVal id → the base (unspecialized) id it
 /// was minted from. Written at the specialization mint (calls/helper.yo)
@@ -1883,7 +1883,7 @@ register_specialized_base :: (fn(spec_id : &String, base_id : &String) -> unit)(
   _ := g_specialized_base.with_mut({ spec_id_owned, base_id_owned }(m) => m.insert(spec_id_owned.clone(), base_id_owned));
 });
 specialized_base_of :: (fn(id : &String) -> Option(String))(
-  g_specialized_base.with({ &id }(m) => m.get_cloned(id))
+  g_specialized_base.with({ id : &id.* }(m) => m.get_cloned(id))
 );
 /// Task-registration hook: stash contract instances for every contracted
 /// callee call in the task body (see the CallsiteContracts doc).
@@ -1928,7 +1928,7 @@ _prepare_callsite_contracts :: (
           _prepare_callsite_contracts(&xp, env, ctx, exn);
         },
         .None => {
-          _stash_callsite_contracts(e, &f, env, ctx, exn);
+          _stash_callsite_contracts(e, &f.*, env, ctx, exn);
           (ai : usize) = usize(0);
           while(ai < args.len(), {
             match(
@@ -1989,7 +1989,7 @@ _callsite_method_receiver :: (
   recv := match(
     f,
     .FnCall(_, cf, Rc(fa), _, _) => cond(
-      ((ast_expr_token(&cf).value.* == ".") && (fa.len() == usize(2))) => match(fa.get(usize(0)), .Some(r) => r, .None => make_err_expr()),
+      ((ast_expr_token(&cf.*).value.* == ".") && (fa.len() == usize(2))) => match(fa.get(usize(0)), .Some(r) => r, .None => make_err_expr()),
       true => {
         return(Option(AstExpr).None);
       }
@@ -2018,7 +2018,7 @@ _callsite_param_type :: (
     recv,
     .Some(r) => cond(
       (i == usize(0)) => match(
-        expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&r)),
+        expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&r.*)),
         .Some(ri) => Option(TypeValue).Some(ri.ty()),
         .None => Option(TypeValue).None
       ),
@@ -2041,7 +2041,7 @@ _callee_param_slot :: (fn(fty : &TypeValue, label : &String) -> Option(TypeValue
     Rc(.Func({ param_types : cps, meta : cfm })) => {
       (j : usize) = usize(0);
       while(j < cfm.param_labels.items.len(), {
-        if(cfm.param_labels.items(j) == label, {
+        if(cfm.param_labels.items(j) == label.*, {
           return(cps.items.get_cloned(j));
         });
         j = (j + usize(1));
@@ -2321,7 +2321,7 @@ register_impl_variance_task :: (
       (pi : usize) = usize(0);
       while(pi < __vpt.len(), {
         match(
-          slot_pointee_at(&__vpt, pi),
+          slot_pointee_at(&__vpt.*, pi),
           .Some(pt) => {
             p_types.push(pt.clone());
             p_names.push(
@@ -2336,7 +2336,7 @@ register_impl_variance_task :: (
         );
         pi = (pi + usize(1));
       });
-      ret_ty = t_slot_pointee(&__vres);
+      ret_ty = t_slot_pointee(&__vres.*);
     },
     _ => ()
   );
@@ -2550,8 +2550,8 @@ register_impl_variance_task :: (
 /// `assert((a) ==> (b))` with fresh node ids — one variance obligation.
 _implies_assert :: (fn(a : &AstExpr, b : &AstExpr, tok : &Token) -> AstExpr)({
   imp_args := ArrayList(AstExpr).new();
-  imp_args.push(a);
-  imp_args.push(b);
+  imp_args.push(a.*);
+  imp_args.push(b.*);
   imp := AstExpr.FnCall(
     alloc_global_expr_id(),
     _synth_atom(String.from("==>"), TokenKind.Operator, tok.clone()),
@@ -2635,7 +2635,7 @@ strip_proved_ensures_asserts :: (
 _assert_head_is :: (fn(e : &AstExpr, name : &String) -> bool)(
   match(
     e,
-    .FnCall(_, f, _, _, _) => _callee_named(&f, name.clone()),
+    .FnCall(_, f, _, _, _) => _callee_named(&f.*, name.clone()),
     .Atom(_, _) => false
   )
 );
@@ -2644,8 +2644,8 @@ _assert_head_is :: (fn(e : &AstExpr, name : &String) -> bool)(
 _callee_named :: (fn(f : &AstExpr, name : &String) -> bool)(
   match(
     f,
-    .Atom(_, ht) => (ht.value.* == name),
-    .FnCall(_, dot_h, Rc(dot_args), _, _) => _callee_member_cond(&dot_h, &dot_args, name.clone())
+    .Atom(_, ht) => (ht.value.* == name.*),
+    .FnCall(_, dot_h, Rc(dot_args), _, _) => _callee_member_cond(&dot_h.*, &dot_args.*, name.clone())
   )
 );
 /// The member-callee cond (arm-body extraction — no braced single
@@ -2662,7 +2662,7 @@ _callee_member_cond :: (
 _dot_arg1_is :: (fn(dot_args : &ArrayList(AstExpr), name : &String) -> bool)(
   match(
     dot_args.get(usize(1)),
-    .Some(.Atom(_, st)) => (st.value.* == name),
+    .Some(.Atom(_, st)) => (st.value.* == name.*),
     .Some(.FnCall(_, _, _, _, _)) => false,
     .None => false
   )
@@ -2672,7 +2672,7 @@ _dot_arg1_is :: (fn(dot_args : &ArrayList(AstExpr), name : &String) -> bool)(
 _assert_msg_of :: (fn(e : &AstExpr) -> String)(
   match(
     e,
-    .FnCall(_, _, Rc(a), _, _) => _arg1_string_atom(&a),
+    .FnCall(_, _, Rc(a), _, _) => _arg1_string_atom(&a.*),
     .Atom(_, _) => String.new()
   )
 );
@@ -2821,17 +2821,17 @@ _contract_clause_runs :: (fn(pred : &AstExpr, table : &ExprInfoTable, allow_old 
       .None => true
     ),
     .FnCall(_, head, Rc(args), _, _) => {
-      if(ast_expr_is_atom(&head), {
-        hn := ast_expr_text(&head).*.clone();
+      if(ast_expr_is_atom(&head.*), {
+        hn := ast_expr_text(&head.*).*.clone();
         if(((hn == BF_OLD) && !allow_old) || (hn == BF_FORALL) || (hn == BF_EXISTS) || (hn == BF_GHOST) || (hn == BF_DISTINCT), {
           return(false);
         });
         // A ghost fn defined anywhere in this module, forced yet or not.
-        if(is_module_ghost_fn_def(&ast_expr_token(&head).module_path.*, hn.clone()), {
+        if(is_module_ghost_fn_def(&ast_expr_token(&head.*).module_path.*, hn.clone()), {
           return(false);
         });
       });
-      if(!_contract_clause_runs(&head, table, allow_old), {
+      if(!_contract_clause_runs(&head.*, table, allow_old), {
         return(false);
       });
       (i : usize) = usize(0);
@@ -2859,7 +2859,7 @@ requires_enforced_flags :: (fn(reqs : &ArrayList(AstExpr), mode : &String, in_gh
   while(i < reqs.len(), {
     out.push(
       cond(
-        (mode == "verify+") => true,
+        (mode.* == "verify+") => true,
         in_ghost_fn => false,
         true => match(reqs.get(i), .Some(p) => requires_is_runtime_checkable(&p, table), .None => false)
       )
@@ -2889,7 +2889,7 @@ wrap_function_body_with_contracts :: (
   ) -> AstExpr
 )({
   if((requires_exprs.len() == usize(0)) && (ensures_exprs.len() == usize(0)), {
-    return(body);
+    return(body.*);
   });
   body_tok := ast_expr_token(body);
   // The ensures clauses that get runtime asserts: all of them, except in
@@ -2919,7 +2919,7 @@ wrap_function_body_with_contracts :: (
     // `ignore` (the `pragma(Pragma.NoContracts);` mode, or the CLI
     // override) — erase contract clauses entirely.
     if(mode == "ignore", {
-      return(body);
+      return(body.*);
     });
     // `verify` — suppress the ENSURES asserts: the verifier proves each one
     // against this body, so the proof replaces the check. The REQUIRES entry
@@ -2945,7 +2945,7 @@ wrap_function_body_with_contracts :: (
         });
       });
       if(kept_requires.len() == usize(0), {
-        return(body);
+        return(body.*);
       });
       splice_requires = kept_requires;
       splice_ensures = ArrayList(AstExpr).new();
@@ -3016,7 +3016,7 @@ wrap_function_body_with_contracts :: (
         bi = (bi + usize(1));
       });
     }, {
-      new_args.push(body);
+      new_args.push(body.*);
     });
     return(
       AstExpr.FnCall(alloc_global_expr_id(), begin_atom, Rc.new(new_args), false, body_tok.clone())
@@ -3079,7 +3079,7 @@ wrap_function_body_with_contracts :: (
     // Unit return: the return value is not nameable and
     // `void result = ...` is invalid C. Run the body as a statement, then
     // the ensures asserts.
-    out_args.push(body);
+    out_args.push(body.*);
   }, {
     out_args.push(
       _build_binding(
@@ -3280,11 +3280,11 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext,
   // target. `--verify-mode` is global, so resolve_verify_mode alone would arm
   // every law in std/ and in every dependency.
   if(!_is_verify_target(&law_tok.module_path.*), {
-    return(expr);
+    return(expr.*);
   });
   law_mode := resolve_verify_mode(&law_tok.module_path.*);
   if((law_mode != "verify") && (law_mode != "verify+"), {
-    return(expr);
+    return(expr.*);
   });
   pred_env := Rc.clone(env);
   pred_env.push_frame(false);
@@ -3374,7 +3374,7 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext,
       requires_enforced : ArrayList(bool).new()
     )
   );
-  expr
+  expr.*
 });
 export(evaluate_law, evaluate_ghost_fn, evaluate_old, evaluate_forall, evaluate_exists, evaluate_implies);
 export(wrap_function_body_with_contracts, _is_contract_assert_call);

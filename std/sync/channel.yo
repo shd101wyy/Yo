@@ -439,7 +439,7 @@ impl(
   /// until it has been moved there, which is itself a synchronizing transfer.
   _attach : (fn(ch : &Channel(T)) -> Self)({
     _prev := ch._cell.*._senders.fetch_add(usize(1), MemoryOrder.Relaxed);
-    Self(_cell : __yo_atomic_cell(_SenderState(T))(_SenderState(T)(_ch : ch), .None))
+    Self(_cell : __yo_atomic_cell(_SenderState(T))(_SenderState(T)(_ch : ch.*), .None))
   }),
   /// Send a value, blocking while the buffer is full.
   ///
@@ -518,7 +518,7 @@ impl(
   /// Attach the consumer to `ch`. Internal: `Channel.receiver` and
   /// `Channel.pair` are the only callers.
   _attach : (fn(ch : &Channel(T)) -> Self)(
-    Self(_cell : __yo_atomic_cell(_ReceiverState(T))(_ReceiverState(T)(_ch : ch), .None))
+    Self(_cell : __yo_atomic_cell(_ReceiverState(T))(_ReceiverState(T)(_ch : ch.*), .None))
   ),
   /// Mint a producer for this queue, counted like every other `Sender`.
   ///

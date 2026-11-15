@@ -249,7 +249,7 @@ enabled :: (fn(level : Level) -> bool)({
 });
 export(enabled);
 _write_string :: (fn(s : &String, dest : *FILE) -> unit)({
-  bytes := &s;
+  bytes := &s.*;
   cond(
     (bytes.len() > usize(0)) => {
       ptr := bytes.ptr().unwrap();
@@ -272,7 +272,7 @@ _emit :: (fn(level : Level, target : &String, msg : &String) -> unit)({
   );
   // A sink takes the record whole and renders it itself; the lock stays held
   // across the call, which is what serialises concurrent records.
-  sunk := _global_sink.with_mut({ level, &target, &msg }(o) => match(
+  sunk := _global_sink.with_mut({ level, target : &target.*, msg : &msg.* }(o) => match(
     o,
     .Some(sink) => {
       sink.write_line(level, target, msg);

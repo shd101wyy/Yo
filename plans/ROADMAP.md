@@ -165,12 +165,15 @@ with at most four running at once:
   produced ([`backlog/PROVEN_CORE.md`](backlog/PROVEN_CORE.md), decided
   2026-11-13, after VBD).
 
-  Verification becomes the default in two steps, and this is lane E's first
+  Verification becomes the default in stages, and this is lane E's first
   track after VBD (decided 2026-11-13,
   [`backlog/DEFAULT_ON_VERIFICATION.md`](backlog/DEFAULT_ON_VERIFICATION.md)):
   `yo init` scaffolds `pragma(Pragma.VerifyOrAssert);` first, and the
-  language default flips from `runtime` to `verify+` once std bodies are
-  proved, incremental verification has landed and its other gates hold.
+  language default then flips from `runtime` in two steps (amended
+  2026-11-15): it reports first (proves what it can, fails on a refuted
+  contract, keeps every runtime check) once incremental verification and the
+  solver's distribution have landed, and it erases proved checks once std
+  bodies are proved.
 - **F. std and reach.**
   - HTTP keep-alive and `lines()`.
   - Raw string literals.
