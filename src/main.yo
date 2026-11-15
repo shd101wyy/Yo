@@ -10585,14 +10585,20 @@ Options:
                             repairs: r -> r.* where a reference is read
                             or written whole, &r -> &r.*, and
                             v.* -> v.*.* where v.* was the Box/Rc deref
-                            through a reference. The other migrations
-                            were retired; the last release that ships
-                            each is listed in docs/en-US/ERROR_DIAGNOSTICS.md
+                            through a reference
+  --migrate record-literal  Run the brace-group migration (brace Gen B,
+                            E0007): every expression-position bare
+                            { ... } that is a record -> .{ ... };
+                            binders and blocks are left alone. Reads the
+                            parse only, so it needs no evaluation
   --migrate unsized         Run decision 49's migration: a bare Dyn(...)
                             type (*Dyn(...) included) -> Box(Dyn(...));
                             dyn(v) -> dyn(Box.new(v)); Rc(Dyn(T)).new(...),
                             impl(Dyn(...), ...), dyn(p) over a raw
                             pointer and owned downcasts are listed
+                            Migrations that were retired are not modes;
+                            the last release that ships each is listed in
+                            docs/en-US/ERROR_DIAGNOSTICS.md
   --target <triple>         Evaluate for this target, as compile --target
                             does, so the target's platform arms are
                             repaired or migrated (default: the host)
@@ -10614,14 +10620,18 @@ Examples:
   --dry-run                 只打印修复，不写入
   --migrate deref           运行 deref 迁移而不是修复：整体读写引用时
                             r -> r.*，&r -> &r.*，经由引用表示 Box/Rc
-                            解引用的 v.* -> v.*.*。其他迁移已退役；
-                            各自最后提供它的版本列在
-                            docs/zh-CN/ERROR_DIAGNOSTICS.md
+                            解引用的 v.* -> v.*.*
+  --migrate record-literal  运行花括号组迁移（花括号 Gen B，E0007）：
+                            表达式位置上作为记录的每个裸 { ... }
+                            -> .{ ... }；绑定位置和代码块保持不变。
+                            只读取解析结果，不需要求值
   --migrate unsized         运行决定 49 的迁移：裸 Dyn(...) 类型（含
                             *Dyn(...)）-> Box(Dyn(...))；dyn(v) ->
                             dyn(Box.new(v))；列出 Rc(Dyn(T)).new(...)、
                             impl(Dyn(...), ...)、原始指针上的 dyn(p) 与
                             拥有型 downcast，留待手工改写
+                            已退役的迁移不是可用模式；各自最后提供它的
+                            版本列在 docs/zh-CN/ERROR_DIAGNOSTICS.md
   --target <triple>         按该目标求值（同 compile --target），从而修复
                             或迁移该目标的平台分支（默认：宿主平台）
   --std-path <dir>          覆盖 std 库目录
