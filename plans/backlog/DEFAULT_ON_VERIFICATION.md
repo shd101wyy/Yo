@@ -5,9 +5,10 @@ closes: it starts at v0.2.80.** The maintainer accepted the staged path of §1 a
 for it to lead the post-VBD work. The default itself flips only when the gates of §4
 hold; what starts first is the work that makes them hold.
 
-**Amended 2026-11-15 (D7–D9), after the measurement of §2.2 and §2.3:** the flip is
-two steps (report by default, then erase by default), S1 waits for a new S0, and the
-solver's distribution is a step (SD) and a gate (G6).
+**Amended 2026-11-15 (D7–D10), after the measurement of §2.2 and §2.3:** the flip is
+two steps (report by default, then erase by default), S1 waits for a new S0, the
+solver's distribution is a step (SD) and a gate (G6), and `yo build` proves every
+module of its package (D10).
 
 Filed the same day as a design question and promoted to a plan when the verdict was
 given. (The file is not called `VERIFICATION_BY_DEFAULT`: that abbreviates to "VBD",
@@ -36,6 +37,7 @@ becomes how a module leaves it.
 | D7 | **The flip is two steps** (maintainer, 2026-11-15). *Report by default* (S6a): with no pragma the compiler proves what it can, fails the build on a refuted written contract, and keeps every runtime check. *Erase by default* (S6b): the default also removes the checks it proved, behind G1 and G2. D4's collapse to one pragma happens at S6b |
 | D8 | **S1 waits for S0** (maintainer, 2026-11-15): the `verify+` defect found by §2.2 is fixed and every valid fixture runs in both modes before `yo init` scaffolds the pragma |
 | D9 | **The solver must run wherever `yo` runs before the default depends on it** (maintainer, 2026-11-15): step SD, gate G6 (§2.3) |
+| D10 | **Which command proves which module** (maintainer, 2026-11-15; §5 item 11). `yo build` proves every module of the package it builds, once each. `yo check <file>` proves that file. A dependency, std included, is not proved by its consumer: its contracts are the consumer's assumptions |
 
 Both behaviours survive the flip. Only one spelling goes, because its behaviour becomes
 what a module gets with no pragma:
@@ -304,6 +306,10 @@ What S6a contains:
   `verify_and_strip_tasks`, `src/verifier/driver.yo`) and guard elision
   (`record_elidable_guard_sites`, which `compile` calls). `requires` entry guards are
   kept in every mode already. Its `--verify-mode` spelling is the PR's to choose;
+- `yo build` proves every module of the package it builds (D10). Today `yo compile
+  <entry>` arms only the entry file, so without this the default would report on
+  `main.yo` and stay silent on every other module. It rests on S4's per-function
+  cache, which is why S4 is among this step's dependencies;
 - an opt-out pragma back to `runtime` is added (none exists today);
 - the strict pragma is renamed: `Verify` reads as the ordinary choice and is the strict
   one, which is the wrong way round for an author choosing by name;
@@ -406,7 +412,7 @@ roadmap that says Yo code is verified by default.
     box), and `yo cache gc` and `yo cache clean` do not know it *(grep:
     `verify-cache` appears only in `src/verifier/`)*. *Judgment:* an S-sized
     item for S4.
-11. **Which command proves which module.** `yo compile <entry>` arms only the
+11. **Decided 2026-11-15: D10.** Which command proves which module. `yo compile <entry>` arms only the
     entry file (`set_verify_target_paths` in `src/main.yo`); a module it
     imports is proved only when `yo check`, `yo verify` or a `build.verify`
     step is pointed at it. Under a default that would mean a counter-example
@@ -416,8 +422,8 @@ roadmap that says Yo code is verified by default.
     file, which is the editing loop; a dependency, std included, is not proved
     by its consumer, and its contracts are the consumer's assumptions (that is
     what G1 is for). S6b's erasure inside an imported module needs that
-    module's proofs in the same build, which is SAFE_MODE 5b Phase 3. Not
-    ruled on; S6a cannot ship without an answer.
+    module's proofs in the same build, which is SAFE_MODE 5b Phase 3. What a
+    bare `yo compile <entry>` proves beyond its entry file is left to S6a's PR.
 12. **Cache keys must not carry a position.** §2.2: one inserted line re-solves
     every function below it, and an absolute entry path puts the machine's
     path in the key. *Judgment:* fix it in S4, before the per-function key of
