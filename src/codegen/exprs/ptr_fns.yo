@@ -18,11 +18,11 @@
 { Environment } :: import("../../env.yo");
 { stable_label_id } :: import("../../utils.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
-{ _call_generate_expr, call_projection_mode } :: import("./_expr.yo");
+{ _call_generate_expr, call_projection_mode, unsized_lend_pair_code } :: import("./_expr.yo");
 { generate_arg_code_with_deferred_dups } :: import("./drop_dup.yo");
 { get_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, is_function_value_with_only_builtin_yo_inline_function_call, _checked_fixed_array_subscript, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
 { is_array_type, is_unit_type } :: import("../../types/guards.yo");
-{ t_refine_inner } :: import("../../types/definitions.yo");
+{ t_refine_inner, t_slot_is_borrow, t_slot_pointee } :: import("../../types/definitions.yo");
 { type_is_sized } :: import("../../types/utils.yo");
 { expr_info_converted_runtime_type, expr_info_index_method_value, expr_info_is_index_trait_address_of } :: import("../../expr_info.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
@@ -234,6 +234,11 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
   // A direct projection call (decision 24) is a place, `(*f(args))`: its
   // address is the call's own result, never a spilled copy's.
   if(call_projection_mode(&arg, context).is_some(), {
+    // Decision 49: an unsized projection call returns the fat pair itself,
+    // which is the lend (`&_root(s)` with `-> &Dyn(T)`).
+    if(match(&arg_ei_opt, .Some(pu_ei) => (!type_is_sized(&pu_ei.ty()) || (t_slot_is_borrow(&pu_ei.ty()) && !type_is_sized(&t_slot_pointee(&pu_ei.ty())))), .None => false), {
+      return(unsized_lend_pair_code(&arg_code));
+    });
     return(if(arg_code.starts_with("(*") && arg_code.ends_with(")"), arg_code.substring(usize(2), arg_code.len() - usize(1)), `(&${arg_code})`));
   });
   // Rvalue function-call operand → spill into a named temp first.
