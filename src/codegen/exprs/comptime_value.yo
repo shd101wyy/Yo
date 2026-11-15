@@ -25,6 +25,8 @@
   can_optimize_as_simple_enum
 } :: import("../utils/index.yo");
 { fn_value_c_name } :: import("../functions/declarations.yo");
+{ debug_knob } :: import("../../utils.yo");
+(g_dbg_strlit_tmp : bool) = debug_knob(`YO_DEBUG_STRLIT_TMP`).is_some();
 /// C integer-literal suffix for an integer type (ValueTag suffix logic, driven
 /// by the threaded type).
 _int_suffix :: (fn(ty : &TypeValue) -> str)(
@@ -309,7 +311,12 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &m
           lit.push_str(" }");
           lit
         },
-        true => _c_string_literal(&raw)
+        true => {
+          if(g_dbg_strlit_tmp, {
+            eprintln(`[strlit-tmp] ${raw} as ${type_to_string(ty)}`);
+          });
+          _c_string_literal(&raw)
+        }
       )
     },
     // --- enum (nullable-pointer / simple / tagged-union) ---

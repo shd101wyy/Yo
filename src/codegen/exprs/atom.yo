@@ -877,9 +877,9 @@ _generate_atom_read :: (fn(expr : &AstExpr, context : &mut FunctionGenerationCon
         match(ei.value(), .Some(v) => !is_unknown_val(&v), .None => false) => match(
           ei.value(),
           .Some(v) => generate_comptime_value(&v, match(expr_info_converted_runtime_type(&ei), .Some(crt) => crt, .None => Rc.clone(ei.ty())), &mut context.base),
-          .None => _var_read_code(ast_expr_id(expr), tv.clone(), &env_opt)
+          .None => _var_read_code(ast_expr_id(expr), tv.clone(), &env_opt, Option(TypeValue).Some(ei.ty()))
         ),
-        true => _var_read_code(ast_expr_id(expr), tv.clone(), &env_opt)
+        true => _var_read_code(ast_expr_id(expr), tv.clone(), &env_opt, Option(TypeValue).Some(ei.ty()))
       )
     },
     .None => get_variable_name_for_codegen(tv.clone(), Option(Environment).None)
