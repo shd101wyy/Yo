@@ -1163,7 +1163,7 @@ test("a Dyn(Fn(...), Clone) clones its closure", {
 test("a Dyn listing Send and Sync compiles one member per name", {
   (k : Impl(Fn() -> i32)) = (() => i32(4));
   (d : Box(Dyn(Fn() -> i32, Send, Sync))) = dyn(Box.new(k));
-  (a : Arc(Dyn(Fn() -> i32, Send, Sync))) = Arc(Dyn(Fn() -> i32, Send, Sync)).new(dyn(Box.new(() => i32(5))));
+  (a : Arc(Dyn(Fn() -> i32, Send, Sync))) = dyn(Arc.new(() => i32(5)));
   b := Arc.clone(a);
   assert((d() + (a.*() + b.*())) == i32(14), "a Send and Sync Dyn calls through its vtable, and through an Arc");
 });
@@ -1246,11 +1246,12 @@ impl(_DcFd, Error());
 test("an owning downcast moves the box, its payload dropped once", {
   {
     (err : AnyError) = dyn(Box.new(_DcFd(n : i32(3))));
-    n := match(downcast(&err.*, _DcFd), .Ok(f) => f.n, .Err(_) => i32(0));
+    n := match(downcast(err, _DcFd), .Ok(f) => f.n, .Err(_) => i32(0));
     assert(n == i32(3), "the downcast reads the payload");
     assert(g_dc_clones == i32(0), "nothing is cloned");
   };
-  assert(g_dc_drops == i32(1), `the payload dropped once, got ${g_dc_drops.to_string()}`);
+  drops := g_dc_drops;
+  assert(drops == i32(1), `the payload dropped once, got ${drops.to_string()}`);
   {
     (other : AnyError) = dyn(Box.new(_UpErr.Bad));
     back := match(downcast(other, _DcFd), .Ok(_) => i32(-1), .Err(e) => if(downcast(&e.*, _UpErr).is_some(), i32(1), i32(0)));
