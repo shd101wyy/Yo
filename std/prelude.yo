@@ -7915,13 +7915,13 @@ impl(
   contains_rc_type : (fn(comptime(self) : Type) -> comptime(bool))({
     return(__yo_type_contains_rc_type(self));
   }),
-  impls : (fn(comptime(self) : Type, comptime(marker) : Trait) -> comptime(bool))({
+  impls : (fn(comptime(self) : ?Sized, comptime(marker) : Trait) -> comptime(bool))({
     return(__yo_type_impls(self, marker));
   }),
-  eq : (fn(comptime(a) : Type, comptime(b) : Type) -> comptime(bool))({
+  eq : (fn(comptime(a) : ?Sized, comptime(b) : ?Sized) -> comptime(bool))({
     return(__yo_are_types_equal(a, b));
   }),
-  neq : (fn(comptime(a) : Type, comptime(b) : Type) -> comptime(bool))({
+  neq : (fn(comptime(a) : ?Sized, comptime(b) : ?Sized) -> comptime(bool))({
     return(!__yo_are_types_equal(a, b));
   }),
   /// Render this type for DISPLAY — diagnostics, comptime_assert messages,

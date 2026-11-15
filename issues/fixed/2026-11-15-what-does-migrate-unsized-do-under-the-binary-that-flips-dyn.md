@@ -57,5 +57,5 @@ no-backward-compatibility policy applies.
   (`unsized_by_value_error`, `src/types/utils.yo`). `yo explain E0619` says the same in both
   languages. Test: `tests/sized.test.yo` "a bare Dyn by value is E0619 and names the v0.2.77
   migration".
-- `tests/cli-cases/fix-migrate-unsized` moves to the v0.2.78 spelling.
+- `tests/cli-cases/fix-migrate-unsized` moves to the v0.2.78 spelling, and `tests/cli-cases/fix-migrate-unsized-v0277-input` pins what v0.2.78 does with v0.2.77 input: it rewrites the type spellings, reports the files as not evaluating, and exits with rc 1.
 - The release notes carry a Breaking bullet.
