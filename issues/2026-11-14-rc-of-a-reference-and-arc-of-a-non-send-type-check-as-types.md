@@ -33,7 +33,10 @@ still reject the payload with E0909's unchanged text.
 
 `tests/arc.test.yo` lost one row for this:
 `comptime_expect_error(Arc(Counter))` no longer errors, and the row was
-removed with a comment pointing at the constructor bound.
+removed with a comment pointing at the constructor bound. `tests/sync/refcell.test.yo`'s
+`comptime_expect_error(Arc(RefCell(i32)))` row was missed there and turned four develop language
+shards and the TSan job red (battery 43647918952); it now expects the error from
+`Arc.new(RefCell(i32).new(i32(0)))`.
 
 ## Reproducer
 
@@ -50,4 +53,4 @@ carries S2's Generation A, put the bounds back on the declarations
 (`Rc`/`Weak` `where(V <: Escapable)`, `Arc`/`ArcWeak`
 `where(V <: (Send, Sync, Escapable))`), drop the constructor-level copies,
 and restore the `comptime_expect_error(Arc(Counter))` row in
-`tests/arc.test.yo`.
+`tests/arc.test.yo` and the `Arc(RefCell(i32))` row in `tests/sync/refcell.test.yo`.
