@@ -2,7 +2,7 @@
 
 The `Yo` compiler is **self-hosted**: it is written in Yo and lives in
 [`src/`](./src/). Building it needs an already-installed `yo` binary
-(get one from the [install script](./README.md#install-script-recommended)) plus
+(get one from the [install script](./README.md#installation)) plus
 a C compiler.
 
 Yo is primarily developed on the Steam Deck LCD (Linux). The compiler currently transpiles Yo to C; to produce
