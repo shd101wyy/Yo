@@ -3638,7 +3638,9 @@ _try_rewrite_range_index_to_slice_copy :: (
     return(Option(AstExpr).None);
   });
   method_name := if(is_incl, String.from("slice_copy_inclusive"), String.from("slice_copy"));
-  methods := get_receiver_methods_by_name_from_env(env, method_name.clone(), recv_ty, false);
+  // A `&str` receiver (decision 49 S2's legacy value `str`) slices the `str`
+  // it refers to.
+  methods := get_receiver_methods_by_name_from_env(env, method_name.clone(), &match(str_reference_pointee(recv_ty), .Some(sr_p) => sr_p, .None => Rc.clone(recv_ty)), false);
   if(methods.len() == usize(0), {
     return(Option(AstExpr).None);
   });

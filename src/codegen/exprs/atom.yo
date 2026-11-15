@@ -31,13 +31,13 @@
   fresh_local_name
 } :: import("../utils/index.yo");
 { deferred_drop_target_variable, _codegen_name_of_variables } :: import("../utils/index.yo");
-{ type_contains_rc_cell_or_move_only } :: import("../../types/utils.yo");
+{ type_contains_rc_cell_or_move_only, type_is_sized } :: import("../../types/utils.yo");
 { sm_local_field_name, sm_storage_id, sm_slot_of, sm_slot_of_variable, sm_move_flag_of } :: import("../async/state_machine_naming.yo");
-{ Environment, get_variables_from_env, Variable, variable_moved_at_cleanup_point, variable_undone_moves } :: import("../../env.yo");
+{ Environment, get_variables_from_env, Variable, variable_moved_at_cleanup_point, variable_undone_moves, variable_slot_type } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { is_unit_type } :: import("../../types/guards.yo");
 { expr_info_converted_runtime_type, scope_variables, scope_release_mode, scope_release_note_mismatch, is_fnonce_capture_drop, is_call_scoped_share_drop, is_reference_self_place } :: import("../../expr_info.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, t_slot_is_borrow } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { extract_future_trait_from_type } :: import("../../evaluator/trait_checking.yo");
 { emit_async_future_completion } :: import("./async_completion.yo");
@@ -289,7 +289,7 @@ _generate_sm_atom :: (fn(expr : &AstExpr, var_name : &String, context : &mut Fun
             // (issues/fixed/captured-variable-as-a-cond-arm-value-emits-a-bare-identifier.md),
             // and since phase 6 such a local can be a C local of the resume
             // function rather than a field.
-            return(Option(String).Some(_var_read_code(ast_expr_id(expr), var_name.clone(), Option(Environment).Some(ei5.env()))));
+            return(Option(String).Some(_var_read_code(ast_expr_id(expr), var_name.clone(), Option(Environment).Some(ei5.env()), Option(TypeValue).Some(ei5.ty()))));
           },
           .None => ()
         ),
@@ -524,15 +524,20 @@ _scope_var_is_borrow_match_binding :: (fn(key : ExprId, name : &String, env_opt 
 /// in `(*name)` when the binding is a by-`ref` borrow (`name : &mut T` param — at
 /// the C level `name` is `T*`, so a read dereferences). The deref here means a by-ref RECEIVER passed/used as a value
 /// (e.g. `String.from(self)` in str.to_string) reads `(*self)`, not the raw pointer.
-_var_read_code :: (fn(key : ExprId, tv : &String, env_opt : &Option(Environment)) -> String)({
+/// A binding that holds a fat reference by value (`s := "abc"`, a `&str`,
+/// decision 49 S2) and is read as the unsized place it refers to (`read_ty`
+/// unsized: a receiver, a lend) reads as `(*name)` too, the unsized-place
+/// convention every `&` of such a place folds back to the fat value.
+_var_read_code :: (fn(key : ExprId, tv : &String, env_opt : &Option(Environment), (read_ty : Option(TypeValue)) ?= Option(TypeValue).None) -> String)({
   vn := get_variable_name_for_codegen_at(key, tv.clone(), env_opt);
+  read_unsized := match(&read_ty, .Some(rt) => !type_is_sized(rt), .None => false);
   is_ref := match(
     env_opt,
     .Some(e) => {
       vs := scope_variables(key, &e.*, tv.clone());
       cond(
         (vs.len() == usize(0)) => false,
-        true => match(vs.last_cloned(), .Some(v) => v.is_ref(), .None => false)
+        true => match(vs.last_cloned(), .Some(v) => (v.is_ref() || (read_unsized && t_slot_is_borrow(&variable_slot_type(&v)))), .None => false)
       )
     },
     .None => false
@@ -825,7 +830,7 @@ _generate_atom_read :: (fn(expr : &AstExpr, context : &mut FunctionGenerationCon
             // lookup to the current binding's C name, so SSA/shadowing still work
             // (for a normal reference token == variable_name, so this is a no-op).
             // `_var_read_code` also derefs a by-ref (`inout(...)`) binding to `(*name)`.
-            return(_var_read_code(ast_expr_id(expr), tv.clone(), &env_opt));
+            return(_var_read_code(ast_expr_id(expr), tv.clone(), &env_opt, Option(TypeValue).Some(ei.ty())));
           });
         },
         .None => ()
@@ -854,7 +859,9 @@ _generate_atom_read :: (fn(expr : &AstExpr, context : &mut FunctionGenerationCon
           // A capture-list borrow (`imm(y)`, `mut(z)`, decision 35) is a
           // pointer field: a read or a write goes through it. A `&` match's
           // binding captured implicitly is a copy of its part.
-          if(_scope_var_is_ref(ast_expr_id(expr), cap_name.clone(), &env_opt) && !_scope_var_is_borrow_match_binding(ast_expr_id(expr), cap_name.clone(), &env_opt), `(*${field_read})`, field_read)
+          // A captured fat reference read as its unsized place (a `&str`
+          // lent or used as a receiver) is `(*field)` as well.
+          if((_scope_var_is_ref(ast_expr_id(expr), cap_name.clone(), &env_opt) && !_scope_var_is_borrow_match_binding(ast_expr_id(expr), cap_name.clone(), &env_opt)) || !type_is_sized(&ei.ty()), `(*${field_read})`, field_read)
         },
         // Non-variable atom with a comptime value → inline it. Use the
         // coerced runtime type when present (e.g. a comptime_str arg coerced
