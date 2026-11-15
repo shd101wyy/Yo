@@ -93,3 +93,22 @@ _UpStaticRef :: &(i32, static);
 test("static is the empty origin", {
   comptime_assert(Type.impls(_UpStaticRef, Escapable), "a static reference borrows nothing");
 });
+
+// A by-value capture of a fat reference stores the fat pointer itself
+// (issues/fixed/2026-11-15-a-closure-capturing-a-fat-reference-by-value-emits-invalid-c.md).
+_up_sum :: (fn(xs : &[i32]) -> i32)({
+  p := unsafe(__yo_slice_ptr(xs));
+  (mut(t) : i32) = i32(0);
+  (mut(i) : usize) = usize(0);
+  while(i < xs.len(), i = (i + usize(1)), {
+    t = (t + unsafe(p.add(i).*));
+  });
+  t
+});
+
+test("a closure captures a &[i32] binding by value", {
+  a := Array(i32, 3)(i32(1), i32(2), i32(3));
+  v := unsize(&a);
+  (f : Impl(Fn() -> i32)) = ({ v }() => _up_sum(v));
+  assert(f() == i32(6), "the captured view reads the array");
+});

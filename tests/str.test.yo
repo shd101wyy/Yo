@@ -108,3 +108,8 @@ test("a &str parameter takes a literal, a &str binding and a receiver", {
   assert(_count_bytes(s) == usize(5), "a &str binding into a Yo function's &str parameter");
   assert(("xy".byte_count() == usize(2)) && (s.byte_count() == usize(5)), "a receiver lent to the extern by an impl(str) method");
 });
+test("a closure captures a &str binding by value", {
+  s := "hello";
+  (f : Impl(Fn() -> usize)) = ({ s }() => s.len());
+  assert(f() == usize(5), "the captured view keeps its length");
+});
