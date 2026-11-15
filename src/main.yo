@@ -1960,7 +1960,9 @@ _run_migrate_unsized :: (fn(files : &ArrayList(String), std_path : &String, dry_
     });
   });
   verb := if(dry_run, String.from("would rewrite"), String.from("rewrote"));
-  println(`fix: ${verb} ${n_dyn.to_string()} \`dyn(...)\` site(s) to \`dyn(Box.new(...))\` and ${n_str.to_string()} \`str\` type(s) to \`&(str, static)\`; ${n_listed.to_string()} site(s) listed for a hand rewrite; ${failed.to_string()} file(s) did not evaluate`);
+  // The `str` count is named only when a `str` type was rewritten.
+  str_part := if(n_str > usize(0), ` and ${n_str.to_string()} \`str\` type(s) to \`&(str, static)\``, String.new());
+  println(`fix: ${verb} ${n_dyn.to_string()} \`dyn(...)\` site(s) to \`dyn(Box.new(...))\`${str_part}; ${n_listed.to_string()} site(s) listed for a hand rewrite; ${failed.to_string()} file(s) did not evaluate`);
   if(failed > usize(0), {
     exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; what evaluation did not reach was not migrated`));
   });

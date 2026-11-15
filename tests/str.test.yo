@@ -113,3 +113,25 @@ test("a closure captures a &str binding by value", {
   (f : Impl(Fn() -> usize)) = ({ s }() => s.len());
   assert(f() == usize(5), "the captured view keeps its length");
 });
+// A string literal at a `str` (`&(str, static)`) struct field or enum payload
+// is that reference value, never a place to lend; a `-> str` function returns
+// its `&str` parameter as the reference it is
+// (issues/fixed/2026-11-16-a-string-literal-in-a-str-field-is-lent-as-a-place.md).
+_StrHolder :: struct(name : str);
+_StrTagged :: enum(Tag(name : str), Empty);
+_str_id :: (fn(s : &str) -> str)(s);
+_str_tag_len :: (fn(t : &_StrTagged) -> usize)(
+  match(
+    t,
+    .Tag("a") => usize(100),
+    .Tag(n) => n.len(),
+    .Empty => usize(0)
+  )
+);
+test("a string literal fills a str field and payload, and a -> str function returns a &str", {
+  h := _StrHolder(name : "abc");
+  assert(h.name.len() == usize(3), "a literal in a str struct field keeps its length");
+  assert(_str_tag_len(_StrTagged.Tag("a")) == usize(100), "a literal payload compares equal to the pattern literal");
+  assert(_str_tag_len(_StrTagged.Tag("zzzz")) == usize(4), "a literal payload keeps its length");
+  assert(_str_id("xyz").len() == usize(3), "a -> str function returns its &str parameter");
+});
