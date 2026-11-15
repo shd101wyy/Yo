@@ -970,6 +970,11 @@ _cap_place_root :: (fn(place : &AstExpr, fields : &mut ArrayList(String)) -> Opt
 /// - `y : &p` and `z : &mut p` (puns `&y`, `&mut z`) borrow
 ///   the place `p`, which must be rooted at a named local binding (decision
 ///   38 D: not across a cell, not module-level; a `mut` place is writable).
+/// A capture-list entry written as the shorthand `x` (label and initializer
+/// are one token): the copy recorder spells its clone `x : Rc.clone(x)`.
+_cap_entry_is_shorthand :: (fn(label_e : &AstExpr, init_e : &AstExpr) -> bool)(
+  ast_expr_is_atom(label_e) && ast_expr_is_atom(init_e) && (ast_expr_token(label_e).byte_offset == ast_expr_token(init_e).byte_offset)
+);
 _evaluate_capture_list :: (
   fn(
     raw_entries : &ArrayList(AstExpr),
