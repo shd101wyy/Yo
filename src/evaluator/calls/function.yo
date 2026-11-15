@@ -10507,7 +10507,11 @@ _record_fnonce_callee_release :: (fn(call : &AstExpr, name : &String, env : &Env
     .None => false
   );
   drop_expr := generate_expr_from_code(if(callee_is_box_dyn, `${name}._free_consumed()`, `___drop(${name})`), exn);
+  // The release is a statement of its own: the enclosing call's expected
+  // result type does not flow into it.
+  saved_rel_et := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   evaluated := evaluate_expression_raw(&drop_expr, env, ctx, exn);
+  ctx.expected_type = saved_rel_et;
   (ri : usize) = usize(0);
   while(ri < same_name.len(), {
     match(

@@ -770,7 +770,7 @@ impl(_OrdC, _OrdB(b : (self -> (self.n + i32(100)))));
 _ord_take :: (fn(d : Box(Dyn(_OrdB, _OrdA))) -> i32)(d.a() + (d.b() * i32(1000)));
 test("Dyn: the trait order is not part of the type", {
   (x : Box(Dyn(_OrdA, _OrdB))) = dyn(Box.new(_OrdC(n : i32(1))));
-  assert(_ord_take(&x) == i32(101001), "both slots dispatch to their own impl");
+  assert(_ord_take(x) == i32(101001), "both slots dispatch to their own impl");
   assert(Type.eq(Box(Dyn(_OrdA, _OrdB)), Box(Dyn(_OrdB, _OrdA))), "one type");
 });
 // issues/fixed/a-method-call-two-trait-impls-supply-silently-picks-one.md:
@@ -812,7 +812,7 @@ test("Dyn(Fn) with an inout parameter writes through to the caller's place", {
   assert(x == i32(42), "a local i32 is incremented in place");
   _dio_bump_twice(&mut x, &h);
   assert(x == i32(44), "an inout parameter is forwarded, not re-addressed");
-  _dio_call_param(&mut x, &h.cb);
+  _dio_call_param(&mut x, &h.cb.*);
   assert(x == i32(45), "a Dyn(Fn) parameter called with an inout parameter");
   p := _DioPusher(
     push : dyn((xs : &mut ArrayList(i32)) => {
@@ -843,7 +843,7 @@ test("Dyn(trait) method with an inout parameter writes through to the caller's p
   (mut(x) : i32) = i32(40);
   d.bump(&mut x);
   assert(x == i32(42), "a local i32 is updated in place");
-  _dio_trait_bump(&mut x, &d);
+  _dio_trait_bump(&mut x, &d.*);
   assert(x == i32(44), "an inout parameter is forwarded, not re-addressed");
 });
 
@@ -854,7 +854,7 @@ test("Dyn(trait) method with an inout parameter writes through to the caller's p
 // and called through it: the runtime canaries follow the check below
 // (issues/fixed/dyn-of-a-named-function-value-emits-invalid-c.md).
 _dfs_by_value :: (fn(s : String) -> usize)(s.len());
-_dfs_call :: (fn(f : Box(Dyn(Fn(s : &String) -> usize)), s : &String) -> usize)(f(s));
+_dfs_call :: (fn(f : &Dyn(Fn(s : &String) -> usize), s : &String) -> usize)(f(s));
 test("dyn of a function value checks its signature against the Dyn's `Fn`", {
   s := String.from("four");
   comptime_expect_error({
@@ -864,9 +864,9 @@ test("dyn of a function value checks its signature against the Dyn's `Fn`", {
     (h : Box(Dyn(Fn(x : i32) -> i32))) = dyn(Box.new(_dfs_by_value));
   }, "Incompatible types");
   (by_value : Box(Dyn(Fn(t : String) -> usize))) = dyn(Box.new(t => t.len()));
-  comptime_expect_error(_dfs_call(&by_value, &s), "a parameter's mode is part of the function type");
+  comptime_expect_error(_dfs_call(&by_value.*, &s), "a parameter's mode is part of the function type");
   (c : Box(Dyn(Fn(t : &String) -> usize))) = dyn(Box.new(t => t.len()));
-  assert(_dfs_call(&c, &s) == usize(4), "a closure literal adopts the Dyn's modes");
+  assert(_dfs_call(&c.*, &s) == usize(4), "a closure literal adopts the Dyn's modes");
   assert(s.len() == usize(4), "s was only ever lent");
 });
 // `dyn(f)` of a named function boxes its code pointer: the Dyn's `call` slot
@@ -888,14 +888,14 @@ _dnf_bump :: (fn(x : &mut i32) -> unit)({
 _dnf_nine :: (fn() -> i32)(i32(9));
 _dnf_double :: (fn(x : i32) -> i32)(x * i32(2));
 _dnf_box :: (fn(f : Impl(Fn(x : i32) -> i32)) -> Box(Dyn(Fn(x : i32) -> i32)))(dyn(Box.new(f)));
-_dnf_call :: (fn(f : Box(Dyn(Fn(s : &String) -> usize)), s : &String) -> usize)(f(s));
+_dnf_call :: (fn(f : &Dyn(Fn(s : &String) -> usize), s : &String) -> usize)(f(s));
 test("dyn of a named function calls the function", {
   s := String.from("four");
   (a : Box(Dyn(Fn(s : &String) -> usize))) = dyn(Box.new(_dnf_len));
   (b : Box(Dyn(Fn(s : &String) -> usize))) = dyn(Box.new(_dnf_twice_len));
   assert(a(&s) == usize(4), "the first named fn");
   assert(b(&s) == usize(8), "a second fn of the same signature calls its own code");
-  assert(_dnf_call(&a, &s) == usize(4), "a Dyn of a named fn passed by reference");
+  assert(_dnf_call(&a.*, &s) == usize(4), "a Dyn of a named fn passed by reference");
   (c : Box(Dyn(Fn(x : &mut i32) -> unit))) = dyn(Box.new(_dnf_bump));
   (mut(x) : i32) = i32(40);
   c(&mut x);
@@ -991,7 +991,9 @@ test("a Dyn copy on a path that breaks out of its loop is its last use", {
   });
   (mut(i) : i32) = i32(0);
   e := _ud_tally(i32(1));
-  while(i < i32(5), {
+  // The loop leaves only through the `break` that moves `e`: a `Box(Dyn)` is
+  // moved, not retained, so an exit that skips the move would be E0907.
+  while(true, {
     if(i == i32(3), {
       xs.push(e);
       break;
@@ -1000,14 +1002,19 @@ test("a Dyn copy on a path that breaks out of its loop is its last use", {
   });
   (mut(f) : Box(Dyn(_UdCounter, Clone))) = _ud_tally(i32(0));
   (mut(j) : i32) = i32(0);
+  // A moved `Box(Dyn)` gets its new value before the iteration ends, as any
+  // move-only local must.
   while(j < i32(2), {
-    f = _ud_tally(j);
     xs.push(f);
+    f = _ud_tally(j);
     j = (j + i32(1));
   });
   assert(xs.len() == usize(4), "each copy was the last use of its source on its path");
 });
 test("a Dyn copy reached again on another path is E0901", {
+  // A `Box(Dyn)` is move-only (decision 49 S2): a loop exit that skips the
+  // move is E0907, and a move the next iteration reaches is the move-only
+  // loop form of E0901.
   comptime_expect_error({
     (mut(d) : Box(Dyn(_UdCounter, Clone))) = _ud_tally(i32(1));
     c := runtime(true);
@@ -1030,7 +1037,7 @@ test("a Dyn copy reached again on another path is E0901", {
       d = _ud_tally(i32(2));
     });
     d.count()
-  }, "use of moved value");
+  }, "moved on some ways out of the loop");
   comptime_expect_error({
     (mut(d) : Box(Dyn(_UdCounter, Clone))) = _ud_tally(i32(1));
     c := runtime(true);
@@ -1041,7 +1048,7 @@ test("a Dyn copy reached again on another path is E0901", {
         d = _ud_tally(i32(2));
       });
     });
-  }, "the loop runs this copy again");
+  }, "the next iteration uses it again");
   comptime_expect_error({
     (mut(d) : Box(Dyn(_UdCounter, Clone))) = _ud_tally(i32(1));
     c := runtime(true);
@@ -1053,7 +1060,7 @@ test("a Dyn copy reached again on another path is E0901", {
       });
       d = _ud_tally(i32(2));
     });
-  }, "the loop runs this copy again");
+  }, "the next iteration uses it again");
   assert(true, "rejected");
 });
 test("a by-value match moves a local holding a Dyn", {
@@ -1089,7 +1096,7 @@ test("a Dyn copy whose source is used again is E0901", {
       xs.push(d);
       i = (i + usize(1));
     });
-  }, "the loop runs this copy again");
+  }, "the next iteration uses it again");
   comptime_expect_error({
     d := _ud_tally(i32(1));
     (f : Impl(Fn() -> i32)) = (() => d.count());
@@ -1126,9 +1133,9 @@ test("a closure that borrows its captures copies no Dyn", {
   assert(_ud_count(() => d.count()) == i32(3), "a closure passed to a &Impl(Fn) borrows d");
   assert(d.count() == i32(3), "d is still the caller's");
   h := _UdHolder(d : d.clone());
-  assert((h.d.count() + _ud_borrowed(&h.d)) == i32(6), "a field is lent with &");
+  assert((h.d.count() + _ud_borrowed(&h.d.*)) == i32(6), "a field is lent with &");
 });
-_ud_borrowed :: (fn(d : Box(Dyn(_UdCounter, Clone))) -> i32)(d.count());
+_ud_borrowed :: (fn(d : &Dyn(_UdCounter, Clone)) -> i32)(d.count());
 _UdCloneLike :: trait(clone : (fn(self : &Self) -> i32));
 test("Clone's slot clashes with a trait method named clone", {
   comptime_expect_error(Box(Dyn(_UdCloneLike, Clone)), "two methods named");
