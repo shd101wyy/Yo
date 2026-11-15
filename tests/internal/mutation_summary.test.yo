@@ -13,7 +13,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { assert } :: import("std/assert");
-{ Token, TokenKind } :: import("../../src/token.yo");
+{ Token, TokenKind, TokenData } :: import("../../src/token.yo");
 { AstExpr } :: import("../../src/expr.yo");
 { expr_info_table_new } :: import("../../src/expr_info.yo");
 { TypeValue } :: import("../../src/types/definitions.yo");
@@ -22,7 +22,7 @@
 { function_param_mutation_mask, param_mutation_mask_is_empty } :: import("../../src/evaluator/effects/mutation_summary.yo");
 
 _tok :: (fn(v : str) -> Token)(
-  Token(
+  Rc.new(TokenData(
     kind : TokenKind.Identifier,
     value : Rc.new(String.from(v)),
     row : u32(0),
@@ -30,7 +30,7 @@ _tok :: (fn(v : str) -> Token)(
     character : u32(0),
     module_path : Rc.new(String.from("app.yo")),
     input : Rc.new(String.new())
-  )
+  ))
 );
 /// Register `fn(<labels> : i32 ...) -> unit` under `fid`.
 _register :: (fn(fid : str, label0 : str, label1 : str) -> unit)({

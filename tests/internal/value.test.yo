@@ -5,7 +5,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, make_err_expr } :: import("../../src/expr.yo");
-{ TokenKind, Token } :: import("../../src/token.yo");
+{ TokenKind, Token, TokenData } :: import("../../src/token.yo");
 { TypeValue, shared_list, no_labels } :: import("../../src/types/definitions.yo");
 { assert, panic } :: import("std/assert");
 {
@@ -297,7 +297,7 @@ test("ExprVal: structural equality", {
   other := EvalValue.ExprVal(
     AstExpr.Atom(
       usize(0),
-      Token(
+      Rc.new(TokenData(
         kind : TokenKind.Integer,
         value : Rc.new(String.from("42")),
         row : u32(0),
@@ -305,7 +305,7 @@ test("ExprVal: structural equality", {
         character : u32(0),
         module_path : Rc.new(String.from("")),
         input : Rc.new(String.from(""))
-      )
+      ))
     )
   );
   assert(!(e1 == other), "ExprVal structural equality: different atoms are unequal");

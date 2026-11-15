@@ -1,12 +1,12 @@
 /// Tests for `is_valid_variable_name` in src/evaluator/utils.yo.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ Token, TokenKind } :: import("../../src/token.yo");
+{ Token, TokenKind, TokenData } :: import("../../src/token.yo");
 { AstExpr } :: import("../../src/expr.yo");
 { is_valid_variable_name } :: import("../../src/evaluator/utils.yo");
 { assert, panic } :: import("std/assert");
 mk_tok :: (fn(value : str, kind : TokenKind) -> Token)(
-  Token(
+  Rc.new(TokenData(
     kind : kind,
     value : Rc.new(String.from(value)),
     row : u32(0),
@@ -14,7 +14,7 @@ mk_tok :: (fn(value : str, kind : TokenKind) -> Token)(
     character : u32(0),
     module_path : Rc.new(String.from("")),
     input : Rc.new(String.from(""))
-  )
+  ))
 );
 mk_atom :: (fn(value : str, kind : TokenKind) -> AstExpr)(
   AstExpr.Atom(usize(0), mk_tok(value, kind))

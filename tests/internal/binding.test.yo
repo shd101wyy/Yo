@@ -9,7 +9,7 @@
 { String } :: import("std/string");
 import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
-{ Token, TokenKind } :: import("../../src/token.yo");
+{ Token, TokenKind, TokenData } :: import("../../src/token.yo");
 { AstExpr, ast_expr_id, BK_COLON, BK_COMPTIME, make_err_expr }
 :: import("../../src/expr.yo");
 {
@@ -34,7 +34,7 @@ import("std/fmt");
 // Helpers
 // ---------------------------------------------------------------------------
 mk_token :: (fn(kind : TokenKind, value : str) -> Token)(
-  Token(
+  Rc.new(TokenData(
     kind : kind,
     value : Rc.new(String.from(value)),
     row : u32(0),
@@ -42,7 +42,7 @@ mk_token :: (fn(kind : TokenKind, value : str) -> Token)(
     character : u32(0),
     module_path : Rc.new(String.from("test")),
     input : Rc.new(String.from(""))
-  )
+  ))
 );
 mk_ident :: (fn(id : usize, name : str) -> AstExpr)(
   AstExpr.Atom(id, mk_token(TokenKind.Identifier, name))
