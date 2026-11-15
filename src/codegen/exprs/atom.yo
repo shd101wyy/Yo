@@ -37,7 +37,7 @@
 { Token } :: import("../../token.yo");
 { is_unit_type } :: import("../../types/guards.yo");
 { expr_info_converted_runtime_type, scope_variables, scope_release_mode, scope_release_note_mismatch, is_fnonce_capture_drop, is_call_scoped_share_drop, is_reference_self_place } :: import("../../expr_info.yo");
-{ TypeValue, t_slot_is_borrow } :: import("../../types/definitions.yo");
+{ TypeValue, t_slot_is_borrow, t_slot_pointee } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { extract_future_trait_from_type } :: import("../../evaluator/trait_checking.yo");
 { emit_async_future_completion } :: import("./async_completion.yo");
@@ -524,6 +524,12 @@ _scope_var_is_borrow_match_binding :: (fn(key : ExprId, name : &String, env_opt 
 /// in `(*name)` when the binding is a by-`ref` borrow (`name : &mut T` param — at
 /// the C level `name` is `T*`, so a read dereferences). The deref here means a by-ref RECEIVER passed/used as a value
 /// (e.g. `String.from(self)` in str.to_string) reads `(*self)`, not the raw pointer.
+/// `v`'s slot is a reference to an unsized pointee (`&str`, `&[T]`) and the
+/// read is that reference itself (`read_ty`), not its place.
+_reads_own_fat_reference :: (fn(v : &Variable, read_ty : &Option(TypeValue)) -> bool)({
+  vt := variable_slot_type(v);
+  t_slot_is_borrow(&vt) && (!type_is_sized(&t_slot_pointee(&vt)) && match(read_ty, .Some(rt) => (t_slot_is_borrow(rt) && !type_is_sized(&t_slot_pointee(rt))), .None => false))
+});
 /// A binding that holds a fat reference by value (`s := "abc"`, a `&str`,
 /// decision 49 S2) and is read as the unsized place it refers to (`read_ty`
 /// unsized: a receiver, a lend) reads as `(*name)` too, the unsized-place
@@ -537,7 +543,9 @@ _var_read_code :: (fn(key : ExprId, tv : &String, env_opt : &Option(Environment)
       vs := scope_variables(key, &e.*, tv.clone());
       cond(
         (vs.len() == usize(0)) => false,
-        true => match(vs.last_cloned(), .Some(v) => (v.is_ref() || (read_unsized && t_slot_is_borrow(&variable_slot_type(&v)))), .None => false)
+        // Read as the fat reference it holds (the legacy value `str`): the
+        // storage IS the pair, a `&str` parameter's included.
+        true => match(vs.last_cloned(), .Some(v) => if(_reads_own_fat_reference(&v, &read_ty), false, (v.is_ref() || (read_unsized && t_slot_is_borrow(&variable_slot_type(&v))))), .None => false)
       )
     },
     .None => false
