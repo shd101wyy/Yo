@@ -86,7 +86,7 @@ pragma(Pragma.AllowUnsafe);
   is_never_type,
   is_unit_type
 } :: import("../../types/guards.yo");
-{ type_contains_some_type, type_mentions_impl_fn_or_future, mark_generic_independent, type_requires_explicit_copy, type_contains_rc_cell_or_move_only, type_is_bitwise_copy, type_carries_origin, type_holds_counted_handle_ignoring_migration } :: import("../../types/utils.yo");
+{ type_contains_some_type, type_mentions_impl_fn_or_future, mark_generic_independent, type_requires_explicit_copy, type_contains_rc_cell_or_move_only, type_is_bitwise_copy, type_carries_origin, type_holds_counted_handle_ignoring_migration, is_static_view_slot } :: import("../../types/utils.yo");
 { raise_flow_violation, propagate_def_time_errors } :: import("../../types/flowability.yo");
 { E_USE_OF_MOVED_VALUE, E_WRITE_THROUGH_BORROW } :: import("../../diagnostics.yo");
 { with_code } :: import("../../error.yo");
@@ -1711,8 +1711,15 @@ evaluate_match :: (
       // flag).
       // A `mut` match's place binding of a reference payload stays the
       // payload slot itself (re-pointing it is decision 25's).
+      // A legacy value `str` payload (`.Some(s)` over an `Option(str)`, a
+      // `&(str, static)`, decision 49, VERDICTS-62 decision 1) is the static
+      // view it is: a by-value binding that copies the reference, as
+      // `s := "abc"` and a `s : str` parameter do. It borrows nothing, so it
+      // is neither a reference binding to an unsized place nor a pointer into
+      // the scrutinee.
+      p_view := (!b_ct_known && !mut_places && is_static_view_slot(&b.ty));
       (ref_payload : Option(bool)) = cond(
-        (b_ct_known || mut_places) => Option(bool).None,
+        (b_ct_known || (mut_places || p_view)) => Option(bool).None,
         true => match(&b.ty, Rc(.Reference(_, rp_mut, _)) => Option(bool).Some(rp_mut.*), _ => Option(bool).None)
       );
       bind_ty := match(&ref_payload, .Some(_) => t_slot_pointee(&b.ty), .None => Rc.clone(b.ty));
@@ -1785,7 +1792,7 @@ evaluate_match :: (
       // by-value binding of type T, a copy of its part (VERDICTS-28 Q2,
       // issues/retired/2026-11-06-a-mut-binding-of-a-borrowed-match-reads-as-a-reference.md),
       // under both spellings of a borrowed scrutinee.
-      if(!b_ct_known && ref_binds, {
+      if(!b_ct_known && (ref_binds && !p_view), {
         match(
           &_added,
           // The binding points at its part, a read-only borrow. A
@@ -1878,7 +1885,7 @@ evaluate_match :: (
       );
       // A22: a binding into a temporary scrutinee points into the temporary
       // (a reference payload points where the temporary's references do).
-      if(!b_ct_known && ref_binds && ref_payload.is_none() && !is_mut_binding(&b_tok, &b.name), {
+      if(!b_ct_known && ref_binds && ref_payload.is_none() && !p_view && !is_mut_binding(&b_tok, &b.name), {
         match(&scr_temp_place, .Some(tp) => local_borrow_register_match_place(b.name.clone(), ast_expr_token(&b.atom), tp, &body_ast, false), .None => ());
         // A3: a reference binding matched bare (`r := &o; match(r, …)`, or
         // `b := idr(&x)`): the binding is a place in the referent, so it

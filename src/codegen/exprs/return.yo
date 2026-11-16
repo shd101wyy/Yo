@@ -13,7 +13,8 @@
 { Variable, Environment, variable_moved_at_cleanup_point, get_variables_from_env } :: import("../../env.yo");
 { is_unit_type, is_some_type } :: import("../../types/guards.yo");
 { expr_info_deferred_dup_expressions, expr_info_early_return_only_deferred_drop_expressions, some_resolution, scope_variables, scope_release_mode, scope_release_note_mismatch, is_fnonce_capture_drop, is_call_scoped_share_drop, arg_move_region_holds } :: import("../../expr_info.yo");
-{ TypeValue, t_slot_pointee, fn_result_pointee, fn_result_is_ref } :: import("../../types/definitions.yo");
+{ TypeValue, t_slot_pointee, t_slot_is_borrow, fn_result_pointee, fn_result_is_ref } :: import("../../types/definitions.yo");
+{ type_is_sized } :: import("../../types/utils.yo");
 { FunctionGenerationContext, resolve_var_name_in_context, sm_owns_fnonce_captures } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { emit_async_future_escape, emit_async_future_completion, emit_sm_unwind_catch } :: import("./async_completion.yo");
@@ -928,7 +929,11 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
               aei_nr.source_variable(),
               .Some(asv_nr) => {
                 sv_name := get_variable_name_for_codegen(asv_nr.name.clone(), Option(Environment).None);
-                if(asv_nr.is_ref() && (arg_code == sv_name), {
+                // A read of a fat reference as itself (`s` with `s : &str`
+                // returned by a `-> str` body, decision 49 S2) is the pair the
+                // binding holds: no deref.
+                reads_fat_reference := (t_slot_is_borrow(&aei_nr.ty()) && !type_is_sized(&t_slot_pointee(&aei_nr.ty())));
+                if(asv_nr.is_ref() && (arg_code == sv_name) && !reads_fat_reference, {
                   arg_code = String.from("(*");
                   arg_code.push_string(&sv_name);
                   arg_code.push_str(")");

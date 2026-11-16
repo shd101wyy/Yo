@@ -333,9 +333,7 @@ scoped_atoms_of :: (fn(exprs : &ArrayList(AstExpr), name : &String) -> ArrayList
 /// evaluator never reached, in a deferred body.
 syntactic_decl_at :: (fn(exprs : &ArrayList(AstExpr), target : &Token) -> Option(Token))({
   scoped := scoped_atoms_of(exprs, &target.value.*);
-  (k : usize) = usize(0);
-  while(k < scoped.len(), k = (k + usize(1)), {
-    sa := scoped(k);
+  for(&scoped, sa => {
     t := ast_expr_token(&sa.atom);
     if((t.row == target.row) && (t.column == target.column), {
       return(sa.scope);
@@ -414,9 +412,7 @@ collect_symbol_occurrences_with_decl :: (
     .None => ()
   );
   seen := HashSet(String).new();
-  (si : usize) = usize(0);
-  while(si < scoped.len(), si = (si + usize(1)), {
-    sa := scoped(si);
+  for(&scoped, sa => {
     tok := ast_expr_token(&sa.atom);
     if(!atom_is_member_or_label(&roles, ast_expr_id(&sa.atom)), {
       // Excluded only when the atom resolves to a DIFFERENT declaration:

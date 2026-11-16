@@ -149,13 +149,13 @@ pragma(Pragma.AllowUnsafe);
 { eprintln } :: import("std/fmt");
 { EvalValue, is_unknown_val, is_type_value, is_var_ref, is_func_val } :: import("../value.yo");
 { TypeValue, TypeValueNode, t_refine_inner, SharedList, no_flags, no_types, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_param_slots, fn_result_is_ref, fn_result_is_mut_ref, fn_result_origin_names, fn_result_composite_origin_names, fn_param_in_result_origin, fn_param_pointee_in_result_origin, fn_result_slot, shared_list, t_slot_is_mut_ref, t_slot_is_borrow, t_slot_pointee, t_reference, t_reference_with_origin, t_origin_named, t_origin_spelled_names, t_origin_elided } :: import("../types/definitions.yo");
-{ is_never_type, is_unit_type, is_function_type, is_function_type_and_returns_comptime_value, is_box_type, is_unique_box_type, is_dyn_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_primitive_type, is_pointer_type, is_bool_type, is_array_type, is_struct_type, is_tuple_type, is_some_type, cell_handle_view, is_atomic_counted_handle_type, is_counted_cell_type, is_arc_type, is_counted_handle_value_type, unique_box_payload_type, is_fn_trait_type, is_future_trait_type } :: import("../types/guards.yo");
+{ is_never_type, is_unit_type, is_function_type, is_function_type_and_returns_comptime_value, is_box_type, is_unique_box_type, is_dyn_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_primitive_type, is_pointer_type, is_bool_type, is_array_type, is_struct_type, is_tuple_type, is_some_type, cell_handle_view, is_atomic_counted_handle_type, is_counted_cell_type, is_arc_type, is_counted_handle_value_type, unique_box_payload_type, is_fn_trait_type, is_future_trait_type, is_type_0, is_comptime_string_type, is_str_reference_type } :: import("../types/guards.yo");
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string, type_to_string_for_message } :: import("../types/string.yo");
-{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, nominal_has_hidden_origin, type_reaches_user_drop, type_nominal_drop_uses_roots, note_origin_types_exist, type_is_typed_fnmut_closure, capture_struct_is_fnmut, future_unreturnable_borrow, future_origin_names, get_all_some_types, type_holds_counted_handle_ignoring_migration, set_counted_handle_rule, type_contains_some_type_deep } :: import("../types/utils.yo");
+{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, nominal_has_hidden_origin, type_reaches_user_drop, type_nominal_drop_uses_roots, note_origin_types_exist, type_is_typed_fnmut_closure, capture_struct_is_fnmut, future_unreturnable_borrow, future_origin_names, get_all_some_types, type_holds_counted_handle_ignoring_migration, set_counted_handle_rule, type_contains_some_type_deep, is_legacy_value_str, legacy_value_str, type_is_sized } :: import("../types/utils.yo");
 { expr_info_table_set, is_mut_global, is_thread_local, migrate_deref_on, audit_deref_on, record_deref_site, record_deref_edit_site, note_reference_read_copied, lookup_macro_expansion, is_reference_self_place, unsize_reference_mode, migrate_unsized_on, record_unsized_site, deref_file_migrated } :: import("../expr_info.yo");
-{ is_global_mut_rule_exempt, is_deref_swept_tree } :: import("./memory_safety.yo");
+{ is_global_mut_rule_exempt, is_deref_swept_tree, is_implicitly_unsafe_capable_file, is_std_module_path } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
 // late-binding dispatcher (it imports neither utils.yo nor any handler).
@@ -411,7 +411,14 @@ attach_temp_variable_to_expr :: (
               !existing_var.is_owning_the_rc_value() => false,
               true => _is_owning_rc
             );
-            variable_set_value_type(&existing_var, Rc.clone(effective_ty));
+            // A reference binding to an unsized place read as the fat
+            // reference itself (a `&str` binding's value read, decision 49
+            // S2) types the read, not the binding: its value type stays the
+            // referent, or the slot would become a reference to a reference
+            // and codegen would read the pair through it as a pointer.
+            if(!(variable_is_reference_binding(&existing_var) && is_reference_read(ast_expr_id(expr)) && t_slot_is_borrow(&effective_ty) && !type_is_sized(&t_slot_pointee(&effective_ty))), {
+              variable_set_value_type(&existing_var, Rc.clone(effective_ty));
+            });
             existing_var.set_value(value_cell_of(cond(preserved_rc => Option(EvalValue).None, true => var_value)));
             existing_var.set_is_compile_time_only(cond(preserved_rc => false, true => is_ctonly));
             existing_var.set_is_owning_the_rc_value(preserved_rc);
@@ -871,10 +878,11 @@ move_only_type_help :: (fn(ty : &TypeValue) -> Option(String))(
 /// use after one names `match(&x, …)`. Keyed by token position.
 _consuming_match_key :: (fn(tok : &Token) -> String)(`${tok.module_path.*}:${tok.byte_offset}`);
 note_consuming_match_scrutinee :: (fn(tok : &Token) -> unit)({
-  g_consuming_match_scrutinees.with_mut(s => s.insert(_consuming_match_key(tok)));
+  cm_key := _consuming_match_key(tok);
+  g_consuming_match_scrutinees.with_mut({ cm_key }(s) => s.insert(cm_key));
 });
 consuming_match_scrutinee_at :: (fn(tok : &Token) -> bool)(
-  (g_consuming_match_scrutinees.with({ tok : &tok.* }(s) => s.len()) > usize(0)) && g_consuming_match_scrutinees.with(s => s.contains(_consuming_match_key(tok)))
+  (g_consuming_match_scrutinees.with({ tok : &tok.* }(s) => s.len()) > usize(0)) && g_consuming_match_scrutinees.with({ tok : &tok.* }(s) => s.contains(_consuming_match_key(tok)))
 );
 /// A use of moved value `name` at `use_tok` (moved at `moved_tok`), as E0901,
 /// with the move-only note when `ty` is move-only.
@@ -6749,6 +6757,61 @@ reject_dyn_place_by_value :: (fn(id : usize, position : &String, tok : &Token, e
     );
   });
 });
+/// `yo fix --migrate unsized`'s `str` family (decision 49 S2): a written
+/// `str` type that the legacy alias reads as `&(str, static)`
+/// (`legacy_value_str`) is recorded at its token, rewritten to that spelling
+/// (`kind` 10), or only listed (`kind` 11) where the spelling would change the
+/// parameter's mode (`sink(s) : str`). Anything but the bare word `str` (an
+/// alias name, a `Self`) is the user's own spelling and is left alone. Only
+/// where the file may spell `static` (`_static_spellable_at`): elsewhere the
+/// rewrite would be E0922 while P12's rule is blocked, and the alias keeps
+/// the written `str` meaning `&(str, static)`
+/// (issues/questions/2026-11-16-the-str-migration-writes-a-static-origin-that-safe-code-cannot-spell-while-p12-is-blocked.md).
+note_legacy_str_spelling :: (fn(te : &AstExpr, listed : bool, std_path : &String) -> unit)({
+  if(!migrate_unsized_on(), {
+    return(());
+  });
+  match(
+    te,
+    .Atom(_, ls_tok) => if((ls_tok.kind == TokenKind.Identifier) && (ls_tok.value.* == "str") && _static_spellable_at(&ls_tok.*, std_path), {
+      record_unsized_site(&ls_tok.*, if(listed, u8(11), u8(10)), &String.from("str"));
+    }),
+    _ => ()
+  );
+});
+/// The `str` family's type-binder arm: `ArrayList(str)`, whose argument is
+/// not in reach of the binder's check (`evaluate_comptime_fn_call` sees the
+/// callee and the values). Recorded at the callee's token with the
+/// argument's index (`kind` 12); the migration finds the argument in the line.
+note_legacy_str_type_arg :: (fn(callee : &AstExpr, index : usize, std_path : &String) -> unit)({
+  if(migrate_unsized_on() && _static_spellable_at(&ast_expr_token(callee), std_path), {
+    record_unsized_site(&ast_expr_token(callee), u8(12), &index.to_string());
+  });
+});
+/// The file at `tok` may spell the `static` origin: std or an unsafe-capable
+/// file, the exemption of E0922's wall (`_reject_empty_origin_in_safe_code`,
+/// VERDICTS-57 §1).
+_static_spellable_at :: (fn(tok : &Token, std_path : &String) -> bool)({
+  mp := tok.module_path.*.clone();
+  is_implicitly_unsafe_capable_file(Option(String).Some(mp.clone())) || is_std_module_path(&mp, std_path)
+});
+/// The legacy value `str` at a `comptime(V) : Type` parameter (decision 49,
+/// `unsized_legacy_spellings`): `ArrayList(str)` binds `V := &(str, static)`,
+/// the sized type the value spelling means. A `?Sized` parameter keeps `str`.
+/// Every other value is returned as it is.
+legacy_str_type_arg :: (fn(param_ty : &TypeValue, value : &Option(EvalValue)) -> Option(EvalValue))({
+  if(is_type_0(param_ty), {
+    match(
+      value,
+      .Some(.TypeVal(lt_t)) => if(is_legacy_value_str(lt_t), {
+        return(Option(EvalValue).Some(EvalValue.TypeVal(legacy_value_str(lt_t))));
+      }),
+      _ => ()
+    );
+  });
+  value.clone()
+});
+export(note_legacy_str_spelling, note_legacy_str_type_arg, legacy_str_type_arg);
 /// The root token of a place written as a name or a field chain (`b`,
 /// `self.cause`, `a.b.c`), or `.None` for anything else (a call, a
 /// temporary): `.*` appended to its text lends exactly that place.
@@ -7135,23 +7198,27 @@ reference_read_wanted :: (fn(tok : &Token, at_binder : bool, ctx : &EvalContext)
 /// evaluator judges it as the by-value read it is: E0926 (spelled `r.*`), or
 /// a recorded `.*` under `yo fix --migrate deref`, whose evaluation goes on.
 note_binder_value_read :: (fn(tok : &Token) -> unit)({
-  _new := g_binder_value_reads.with_mut(s => s.insert(_reference_deref_site_key(tok)));
+  bv_key := _reference_deref_site_key(tok);
+  _new := g_binder_value_reads.with_mut({ bv_key }(s) => s.insert(bv_key));
 });
 /// Undo `note_binder_value_read` at `tok`.
 forget_binder_value_read :: (fn(tok : &Token) -> unit)({
-  _old := g_binder_value_reads.with_mut(s => s.remove(&_reference_deref_site_key(tok)));
+  bv_key := _reference_deref_site_key(tok);
+  _old := g_binder_value_reads.with_mut({ bv_key }(s) => s.remove(&bv_key));
 });
 /// Mark the leaf at `tok` of a `:=` initializer's result chain as one that
 /// reads as a reference (R-TAIL).
 chain_ref_leaf_register :: (fn(tok : &Token) -> unit)({
-  _new := g_chain_ref_leaves.with_mut(s => s.insert(_reference_deref_site_key(tok)));
+  cl_key := _reference_deref_site_key(tok);
+  _new := g_chain_ref_leaves.with_mut({ cl_key }(s) => s.insert(cl_key));
 });
 /// Undo `chain_ref_leaf_register` at `tok`.
 chain_ref_leaf_forget :: (fn(tok : &Token) -> unit)({
-  _old := g_chain_ref_leaves.with_mut(s => s.remove(&_reference_deref_site_key(tok)));
+  cl_key := _reference_deref_site_key(tok);
+  _old := g_chain_ref_leaves.with_mut({ cl_key }(s) => s.remove(&cl_key));
 });
 chain_ref_leaf_is :: (fn(tok : &Token) -> bool)(
-  (g_chain_ref_leaves.with({ tok : &tok.* }(s) => s.len()) > usize(0)) && g_chain_ref_leaves.with(s => s.contains(&_reference_deref_site_key(tok)))
+  (g_chain_ref_leaves.with({ tok : &tok.* }(s) => s.len()) > usize(0)) && g_chain_ref_leaves.with({ tok : &tok.* }(s) => s.contains(&_reference_deref_site_key(tok)))
 );
 /// `e` is a `begin`, `cond` or `match`: a node a result chain passes through.
 is_result_chain_node :: (fn(e : &AstExpr) -> bool)(
@@ -7279,7 +7346,7 @@ _ref_chain_leaves_the_chain :: (fn(e : &AstExpr) -> bool)(
   ast_expr_is_fn_call_of(e, BK_RETURN, Option(usize).None) || (ast_expr_is_atom(e) && ((ast_expr_token(e).value.* == "break") || (ast_expr_token(e).value.* == "continue")))
 );
 is_binder_value_read :: (fn(tok : &Token) -> bool)(
-  (g_binder_value_reads.with({ tok : &tok.* }(s) => s.len()) > usize(0)) && g_binder_value_reads.with(s => s.contains(&_reference_deref_site_key(tok)))
+  (g_binder_value_reads.with({ tok : &tok.* }(s) => s.len()) > usize(0)) && g_binder_value_reads.with({ tok : &tok.* }(s) => s.contains(&_reference_deref_site_key(tok)))
 );
 /// Record whether the node `id` was read as a reference value (the read
 /// rule); a later evaluation of the same node at another position overrides.
@@ -7371,12 +7438,13 @@ deref_exempt_clear :: (fn() -> unit)({
 _reference_deref_site_key :: (fn(tok : &Token) -> String)(`${tok.module_path.*}:${tok.byte_offset.to_string()}`);
 /// `tok` is the receiver of an `r.*` rewritten to `r` (N1e-1).
 note_reference_deref_site :: (fn(tok : &Token) -> unit)({
-  _new := g_reference_deref_sites.with_mut(s => s.insert(_reference_deref_site_key(tok)));
+  rd_key := _reference_deref_site_key(tok);
+  _new := g_reference_deref_sites.with_mut({ rd_key }(s) => s.insert(rd_key));
   ()
 });
 /// Whether the name at `tok` is a rewritten `r.*`'s receiver.
 is_reference_deref_site :: (fn(tok : &Token) -> bool)(
-  (g_reference_deref_sites.with({ tok : &tok.* }(s) => s.len()) > usize(0)) && g_reference_deref_sites.with(s => s.contains(&_reference_deref_site_key(tok)))
+  (g_reference_deref_sites.with({ tok : &tok.* }(s) => s.len()) > usize(0)) && g_reference_deref_sites.with({ tok : &tok.* }(s) => s.contains(&_reference_deref_site_key(tok)))
 );
 /// At the identifier evaluator's entry: `e` is exempt. Clears the mark.
 deref_exempt_take :: (fn(e : &AstExpr) -> bool)({
@@ -8467,12 +8535,37 @@ local_borrow_result_borrow_of :: (fn(e : &AstExpr, env : &Environment, ctx : &Ev
   cond(
     local_borrow_result_is_place(e) => match(
       local_borrow_place_of(e, env, ctx),
-      .Some(p) => local_borrow_info_of(p.root_name.clone(), &p.root_decl),
+      .Some(p) => match(
+        local_borrow_info_of(p.root_name.clone(), &p.root_decl),
+        .Some(lbi) => if(_lb_places_are_str_parameter_referents(&lbi, env), Option(LocalBorrowInfo).None, Option(LocalBorrowInfo).Some(lbi)),
+        .None => Option(LocalBorrowInfo).None
+      ),
       .None => Option(LocalBorrowInfo).None
     ),
     true => Option(LocalBorrowInfo).None
   )
 );
+/// Every place the borrow `info` names is the referent of a shared `&str`
+/// PARAMETER (the legacy value `str`, decision 49 S2): `r := s` copies the
+/// caller's reference, which points into no local of this function, so a
+/// `-> str` body returns `r` as it returns `s` itself.
+_lb_places_are_str_parameter_referents :: (fn(info : &LocalBorrowInfo, env : &Environment) -> bool)({
+  if(info.places.len() == usize(0), {
+    return(false);
+  });
+  (i : usize) = usize(0);
+  while(i < info.places.len(), i = (i + usize(1)), {
+    ok := match(
+      match(info.places.get_cloned(i), .Some(p) => get_variables_from_env(env, p.root_name.clone()).last_cloned(), .None => Option(Variable).None),
+      .Some(rv) => (rv.is_parameter() && variable_is_reference_binding(&rv) && is_str_reference_type(&variable_slot_type(&rv))),
+      .None => false
+    );
+    if(!ok, {
+      return(false);
+    });
+  });
+  true
+});
 /// E0912: the local borrow `info` is the function's result — `return(...)`
 /// names it as its argument at `tok`, or the body's result expression is the
 /// place it names (a block tail that yields it). A borrow is second-class
@@ -8723,7 +8816,8 @@ _lb_collect_await_ids :: (fn(e : &AstExpr, out : &mut ArrayList(usize)) -> unit)
 local_borrow_enter_macro_site :: (fn(tok : &Token, call : &AstExpr, expansion : &AstExpr) -> unit)({
   ids := ArrayList(usize).new();
   _lb_collect_await_ids(expansion, &mut ids);
-  g_lb_macro_sites.with_mut(xs => xs.push(LocalBorrowMacroSite(site : tok.*, end : _last_token_of(call, tok), await_ids : ids.clone())));
+  lbm := LocalBorrowMacroSite(site : tok.*, end : _last_token_of(call, tok), await_ids : ids.clone());
+  g_lb_macro_sites.with_mut({ lbm }(xs) => xs.push(lbm));
 });
 /// The expansion `local_borrow_enter_macro_site` announced is evaluated.
 local_borrow_leave_macro_site :: (fn() -> unit)({
@@ -9810,7 +9904,9 @@ lend_place_reference_type :: (fn(place : &AstExpr, place_info : &ExprInfo, is_mu
       note_origin_types_exist();
       Option(TypeValue).Some(t_reference(&place_info.ty(), is_mut))
     },
-    ast_expr_is_atom(&cur) => {
+    // A string literal is no place: it is the `&(str, static)` value itself
+    // (decision 49 S2), which a reference field or payload holds as it is.
+    (ast_expr_is_atom(&cur) && !is_comptime_string_type(&place_info.ty())) => {
       names := ArrayList(String).new();
       names.push(ast_expr_token(&cur).value.*.clone());
       lend_ty := Option(TypeValue).Some(t_reference_with_origin(&place_info.ty(), is_mut, t_origin_named(&shared_list(names))));

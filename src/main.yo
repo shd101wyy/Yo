@@ -2447,6 +2447,64 @@ _run_migrate_record_literal :: (fn(files : &ArrayList(String), dry_run : bool, i
     exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not parse`));
   });
 });
+/// A rune that continues an identifier (`[A-Za-z0-9_]`).
+_is_ident_rune :: (fn(r : rune) -> bool)({
+  c := r.char;
+  (((c >= u32(0x30)) && (c <= u32(0x39))) || ((c >= u32(0x41)) && (c <= u32(0x5A)))) || (((c >= u32(0x61)) && (c <= u32(0x7A))) || (c == u32(0x5F)))
+});
+/// The column of the word `str` that `runes(start..end)` holds once trimmed,
+/// or `.None` when it holds anything else.
+_str_word_at :: (fn(runes : &ArrayList(rune), start : usize, end : usize) -> Option(usize))({
+  if(start >= end, {
+    return(.None);
+  });
+  (a : usize) = start;
+  while((a < end) && runes(a).is_whitespace(), a = (a + usize(1)), ());
+  (b : usize) = end;
+  while((b > a) && runes(b - usize(1)).is_whitespace(), b = (b - usize(1)), ());
+  if(((b - a) == usize(3)) && ((runes(a).char == u32(0x73)) && (runes(a + usize(1)).char == u32(0x74))) && (runes(a + usize(2)).char == u32(0x72)), {
+    return(.Some(a));
+  });
+  .None
+});
+/// The `str` family's type-binder arm (`kind` 9): the column of argument
+/// `index` of the call whose callee starts at `col` (`ArrayList(str)`), when
+/// that argument is the word `str` on this line; `.None` otherwise.
+_str_type_arg_col :: (fn(runes : &ArrayList(rune), col : usize, index : usize) -> Option(usize))({
+  (k : usize) = col;
+  while((k < runes.len()) && _is_ident_rune(runes(k)), k = (k + usize(1)), ());
+  while((k < runes.len()) && runes(k).is_whitespace(), k = (k + usize(1)), ());
+  if((k >= runes.len()) || (runes(k).char != u32(0x28)), {
+    return(.None);
+  });
+  k = (k + usize(1));
+  (depth : usize) = usize(0);
+  (arg : usize) = usize(0);
+  (start : usize) = k;
+  while(k < runes.len(), k = (k + usize(1)), {
+    c := runes(k).char;
+    cond(
+      (((c == u32(0x28)) || (c == u32(0x5B))) || (c == u32(0x7B))) => {
+        depth = (depth + usize(1));
+      },
+      (((c == u32(0x29)) || (c == u32(0x5D))) || (c == u32(0x7D))) => {
+        if(depth == usize(0), {
+          return(if(arg == index, _str_word_at(runes, start, k), Option(usize).None));
+        });
+        depth = (depth - usize(1));
+      },
+      ((c == u32(0x2C)) && (depth == usize(0))) => {
+        if(arg == index, {
+          return(_str_word_at(runes, start, k));
+        });
+        arg = (arg + usize(1));
+        start = (k + usize(1));
+      },
+      true => ()
+    );
+  });
+  .None
+});
 /// `yo fix <path> --migrate unsized` (plans/VALUES_BY_DEFAULT.md decision 49;
 /// VERDICTS-40 §5, VERDICTS-55, VERDICTS-61) over code in the v0.2.78
 /// spelling. Every file is evaluated with the recorder on
@@ -2465,6 +2523,7 @@ _run_migrate_record_literal :: (fn(files : &ArrayList(String), dry_run : bool, i
 _run_migrate_unsized :: (fn(files : &ArrayList(String), std_path : &String, dry_run : bool, io : Io, exn : Exception) -> unit)({
   (failed : usize) = usize(0);
   (n_dyn : usize) = usize(0);
+  (n_str : usize) = usize(0);
   (n_lend : usize) = usize(0);
   (n_listed : usize) = usize(0);
   // The evaluation, with the recorder on (`record_unsized_site`), as
@@ -2527,6 +2586,25 @@ _run_migrate_unsized :: (fn(files : &ArrayList(String), std_path : &String, dry_
       cond(
         (st.kind == u8(1)) => listed.push(`${pos}fix: ${at}: \`dyn(${st.text})\` boxes the raw pointer \`${st.text}\` today, and in v0.2.78 \`dyn\` over a raw pointer unsizes it to a \`*Dyn(...)\` instead: write \`dyn(Box.new(${st.text}))\` to keep the box, or keep \`dyn(${st.text})\` for the unsized pointer; left as written`),
         (st.kind == u8(5)) => listed.push(`${pos}fix: ${at}: \`dyn(${st.text})\` erases a named \`Rc\`/\`Arc\` handle, which v0.2.77 rejects: write \`dyn(Rc.new(v))\` to build the shared object where it is made, or \`dyn(Box.new(v))\` to own it; left as written`),
+        // The `str` family (decision 49 S2): a value `str` type is the
+        // legacy alias of `&(str, static)`, written as such.
+        (st.kind == u8(10)) => match(
+          _str_word_at(&runes, st.col, cond(((st.col + usize(3)) > runes.len()) => runes.len(), true => (st.col + usize(3)))),
+          .Some(sc) => {
+            n_str = (n_str + usize(1));
+            checked.push(_PendingFix(row : st.row, col : sc, len : usize(3), replacement : String.from("&(str, static)"), description : at.clone()));
+          },
+          .None => ()
+        ),
+        (st.kind == u8(11)) => listed.push(`${pos}fix: ${at}: \`sink(...) : str\` takes the legacy value \`str\`, a \`&(str, static)\`, and a reference parameter is not a \`sink\`: write the parameter \`name : &(str, static)\`; left as written`),
+        (st.kind == u8(12)) => match(
+          _str_type_arg_col(&runes, st.col, match(st.text.parse_u64(), .Some(n) => usize(n), .None => usize(0))),
+          .Some(sc) => {
+            n_str = (n_str + usize(1));
+            checked.push(_PendingFix(row : st.row, col : sc, len : usize(3), replacement : String.from("&(str, static)"), description : at.clone()));
+          },
+          .None => ()
+        ),
         (st.kind == u8(8)) => listed.push(`${pos}fix: ${at}: \`${st.text}\` is a \`Box(Dyn(...))\` given where a reference to the \`Dyn\` is taken; bind the box and lend the object it owns (\`b := ...; &b.*\`), or lend a value without a box (\`dyn(&v)\`); left as written`),
         (st.kind == u8(7)) => match(
           if(st.col < runes.len(), _expr_span_end(&runes, st.col, st.col, &st.text, &file), Option(usize).None),
@@ -2581,7 +2659,9 @@ _run_migrate_unsized :: (fn(files : &ArrayList(String), std_path : &String, dry_
     });
   });
   verb := if(dry_run, String.from("would rewrite"), String.from("rewrote"));
-  println(`fix: ${verb} ${n_dyn.to_string()} \`dyn(...)\` site(s) to \`dyn(Box.new(...))\` and ${n_lend.to_string()} box lend(s) \`&b\` to \`&b.*\`; ${n_listed.to_string()} site(s) listed for a hand rewrite; ${failed.to_string()} file(s) did not evaluate`);
+  // The `str` count is named only when a `str` type was rewritten.
+  str_part := if(n_str > usize(0), ` and ${n_str.to_string()} \`str\` type(s) to \`&(str, static)\``, String.new());
+  println(`fix: ${verb} ${n_dyn.to_string()} \`dyn(...)\` site(s) to \`dyn(Box.new(...))\` and ${n_lend.to_string()} box lend(s) \`&b\` to \`&b.*\`${str_part}; ${n_listed.to_string()} site(s) listed for a hand rewrite; ${failed.to_string()} file(s) did not evaluate`);
   if(failed > usize(0), {
     exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; what evaluation did not reach was not migrated`));
   });

@@ -7,7 +7,7 @@ Go 的模型相同。这条规则贯穿日常代码里会遇到的所有字符�
 | 类型 | `len()` | 切片 | 元素访问 |
 | --- | --- | --- | --- |
 | `String`（`std/string`） | 字节数，O(1) | `substring(a, b)` —— 字节 | `byte_at(i)` → `u8`，`get_byte(i)` → `Option(u8)`，`at(i)` → `Option(rune)` |
-| `str`（prelude；字符串字面量） | 字节数 | `s(a..b)` —— 零拷贝字节窗口 | `bytes(i)` → `u8`（越界即中止） |
+| `&str`（prelude；字符串字面量为 `&(str, static)`） | 字节数 | `s(a..b)` —— 零拷贝字节窗口 | `bytes(i)` → `u8`（越界即中止） |
 | `StringBuilder`（`std/string`） | 字节数 | — | — |
 | `comptime_str`（编译期） | 字节数 | `slice(a, b)` / `s(a..b)` —— 字节 | `s(i)` → 单 rune 的 `comptime_str` |
 
@@ -136,6 +136,31 @@ s.byte_at(usize(0)); // u8(97)
 s.get_byte(usize(9)); // .None —— 越界
 s(usize(1) .. usize(3)); // "é" —— 一个新的 String
 ```
+
+## `str` 与 `&str`
+
+自 v0.2.79 起（决定 49），`str` 是**非定长**（unsized）的 UTF-8 字节序列，与 `[u8]`
+一样只能放在指针之后：`&str` 是胖引用（字节的地址与长度，两个字，按值复制）。字符串字面量的类型是
+`&(str, static)`，即指向静态字节的引用，因此它能填入任何 `&str` 位置。
+
+```yo
+count :: (fn(s : &str) -> usize)(s.len());
+
+main :: (fn() -> unit)({
+  s := "hello"; // `&(str, static)`
+  _ := (count(s), count("abc"), s.len()); // 绑定、字面量、接收者
+});
+export(main);
+```
+
+`&str` 参数接收其实参所指向的 `str`，就像 `(x : &T)` 接收一个 `T`：字面量、`&str`
+绑定或字段、`impl(str, ...)` 方法的接收者都可以直接传入。闭包按值捕获 `&str` 绑定（`{ s }`）时捕获的是该引用。
+
+**值写法。** 在持有值的位置（按值参数、返回值、带类型的局部变量、结构体字段、数组元素、类型实参如
+`ArrayList(str)`）写出的 `str` 暂时表示 `&(str, static)`，与以前的含义相同：静态字节的视图。
+`yo fix --migrate unsized` 会改写成这种写法（`(name : &(str, static))`、`ArrayList(&(str, static))`），
+并列出需要手工改写的 `sink(s) : str` 参数。值写法将在 v0.2.80 移除。`&str` 与 `String` 或 `str`
+的比较（`name == "lit"`、`"lit" == name`）通过同一条旧规则继续可用。
 
 ## 副本、克隆与字节列表
 
