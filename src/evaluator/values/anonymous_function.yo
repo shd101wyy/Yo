@@ -153,7 +153,7 @@ pragma(Pragma.AllowUnsafe);
 { create_function_body_evaluation_context, hard_swallow_diagnostic, hard_swallow_diagnostic_in_generic_trial, forcing_depths, truncate_forcing_depths, publish_pending_member_phase_a, closure_literal_is_borrowed } :: import("../context.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep, type_requires_explicit_copy, type_is_bitwise_copy, mark_fnmut_capture_struct } :: import("../../types/utils.yo");
-{ attach_temp_variable_to_expr, local_borrow_place_of, access_expr, LocalBorrowAccess, set_closure_writes_captures, BorrowCaptureOuter, note_borrow_capture_outer, apply_capture_store_joins, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_spelling_applies, deref_rule_recording, reject_reference_without_deref, is_reference_deref_site, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, projection_body_mismatch_message, reject_closure_literal_into_dyn_fn, place_require_mut, audit_copy_trait_enabled } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, local_borrow_place_of, access_expr, LocalBorrowAccess, set_closure_writes_captures, BorrowCaptureOuter, note_borrow_capture_outer, apply_capture_store_joins, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording, deref_text_is_new_spelling, deref_reads_through_pointee, reject_reference_without_deref, is_reference_deref_site, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, projection_body_mismatch_message, reject_closure_literal_into_dyn_fn, place_require_mut, audit_copy_trait_enabled } :: import("../utils.yo");
 { CaptureBorrow, register_capture_borrows, type_is_second_class, fn_param_is_ptr_borrow, reject_origin_carrying_signature } :: import("../../types/utils.yo");
 { OriginRootPlace, origin_of, variable_holder_roots, reference_binding_referents, binder_read_mark, binder_read_clear, reference_binding_read_type, variable_is_mut_borrow, note_reference_read } :: import("../utils.yo");
 { type_carries_origin, is_dyn_fn_slot } :: import("../../types/utils.yo");
@@ -847,8 +847,8 @@ outcome after the guarded call instead (e.g. a result the handler unwinds past).
                         if(v.is_ref() && !in_cap_frame && !v.is_borrow_match_binding(), {
                           // A judged tree names the reference itself (VERDICTS-44
                           // R-CAP-1): `{ y }` copies a `&T`, `{ m : &mut m.* }`
-                          // reborrows a `&mut T`. The trees that keep the old
-                          // reading name a borrow of the place.
+                          // reborrows a `&mut T`. Compiler-synthesized code, which
+                          // keeps the old reading, names a borrow of the place.
                           how := cond(
                             deref_rule_applies(&ci.token, ctx) => `Name it in the capture list: \`{ ${k} }(...) => ...\` copies a \`&T\` reference (the closure then refers to what \`${k}\` refers to), and \`{ ${k} : &mut ${k}.* }(...) => ...\` reborrows a \`&mut T\`.`,
                             true => `Name it in a capture list (\`{ &${k} }(...) => ...\` or \`{ &mut ${k} }(...) => ...\`), which keeps the closure second-class, or read the value into a local first.`
@@ -1039,8 +1039,8 @@ _evaluate_capture_list :: (
       _cap_list_error(ctx, exn, ast_expr_token(&init_e), `A borrow capture's initializer is a place under its sigil (\`${label} : ${want}place\`, or the pun \`${want}${label}\`); got \`${ast_expr_to_string(&init_e)}\`.`);
     });
     // The entry `y` / `r : y` whose initializer is a reference binding of a
-    // judged tree reads the reference (R-CAP-1); the trees that keep the old
-    // reading (`deref_rule_applies`) copy the referent as before.
+    // judged file reads the reference (R-CAP-1); compiler-synthesized code,
+    // which keeps the old reading (`deref_rule_applies`), copies the referent.
     (ref_copy_var : Option(Variable)) = Option(Variable).None;
     if(!is_borrow && ast_expr_is_atom(&init_e) && is_valid_variable_name(&init_e) && deref_rule_applies(ast_expr_token(&init_e), ctx) && !is_reference_deref_site(ast_expr_token(&init_e)), {
       match(
@@ -1096,14 +1096,15 @@ _evaluate_capture_list :: (
         });
         reject_reference_without_deref(&root_var, &root_tok, u8(2), ctx, exn);
       });
-      // The written `.*` is the reference's own deref wherever a written `.*`
-      // has that meaning (`deref_spelling_applies`), the trees that keep the
-      // old reading of a bare binding included: there `{ p : &p.* }` names
-      // what `{ &p }` names, the referent of `p` whole, so an `io.async` body
-      // borrows the `&` parameter whole (§3.13 A2) and the future keeps its
-      // own copy of it (`__yo_lent_<label>`). The seed rider of VERDICTS-60
-      // §4 (11): the release that builds the deref flip accepts its spelling.
-      if(cap_root_is_ref_binding && deref_spelling_applies(&root_tok, ctx) && !deref_rule_recording() && (fields.len() > usize(0)) && (fields(usize(0)) == "*"), {
+      // The written `.*` is the reference's own deref: `{ p : &p.* }` names
+      // the referent of `p` whole, so an `io.async` body borrows the `&`
+      // parameter whole (§3.13 A2) and the future keeps its own copy of it
+      // (`__yo_lent_<label>`). `yo fix --migrate deref` reads such a `.*` the
+      // old way (the payload) only where old source could have written it:
+      // through a `Box`, a handle or a pointer, in a file that shows no new
+      // spelling, as `property_access.yo` does; there the hop stays.
+      cap_star_is_new := (!deref_rule_recording() || (deref_text_is_new_spelling(&root_tok, ctx) || !deref_reads_through_pointee(&variable_value_type(&root_var))));
+      if(cap_root_is_reference && cap_star_is_new && (fields.len() > usize(0)) && (fields(usize(0)) == "*"), {
         _dropped_star := fields.remove(usize(0));
       });
       saved_bexp := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);

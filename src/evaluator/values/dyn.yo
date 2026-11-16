@@ -117,7 +117,7 @@ apply_type_ctor_via :: (fn(ctor : &String, types : &ArrayList(TypeValue), env : 
       (ai : usize) = usize(0);
       while(ai < types.len(), {
         ty_i := match(types.get_cloned(ai), .Some(t) => t, .None => t_unit());
-        param_ty := match(&box_ft, Rc(.Func({ param_types : pts })) => match(slot_pointee_at(&pts, ai), .Some(p) => p, .None => t_type()), _ => t_type());
+        param_ty := match(&box_ft, Rc(.Func({ param_types : pts })) => match(slot_pointee_at(&pts.*, ai), .Some(p) => p, .None => t_type()), _ => t_type());
         param_label := match(&box_ft, Rc(.Func({ meta : bm })) => match(bm.param_labels.get(ai), .Some(l) => l, .None => String.from("V")), _ => String.from("V"));
         vtok := synthetic_token(param_label.clone(), &cenv.module_path().*);
         add_variable_to_env(&cenv, param_label.clone(), t_type(), Option(EvalValue).Some(create_type_value(&ty_i)), true, false, false, false, &vtok);

@@ -102,8 +102,7 @@ The repairs the compiler computes today:
 | E0620 `dyn(v)` of a named plain value | box it: `dyn(v)` → `dyn(Box.new(v))` (a longer value gives help only) |
 
 `yo fix <path> --migrate deref` runs a migration rather than a repair, for
-decision 43 step 2 (N1e-1): outside std and the compiler's own source, a
-reference binding reads and writes the value it refers to with `.*`. It
+decision 43 step 2 (N1e-1): a reference binding reads and writes the value it refers to with `.*`. It
 evaluates every file with E0926 recording instead of rejecting, and appends
 `.*` where a reference is read or written as a whole value (`n + 1` →
 `n.* + 1`, `r = v` → `r.* = v`, `&r` → `&r.*`), turns `v.*` into `v.*.*`

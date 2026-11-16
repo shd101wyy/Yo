@@ -5326,7 +5326,7 @@ derive(_ArgValueLoan, Clone);
 _call_operand_slots :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(Option(AstExpr)))({
   out := ArrayList(Option(AstExpr)).new();
   op_args := match(call, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => return(out));
-  (op_callee : AstExpr) = match(call, .FnCall(_, c, _, _, _) => c, .Atom(_, _) => return(out));
+  (op_callee : AstExpr) = match(call, .FnCall(_, c, _, _, _) => c.*, .Atom(_, _) => return(out));
   (recv : Option(AstExpr)) = Option(AstExpr).None;
   if(ast_expr_is_fn_call_of(&op_callee, BF_DOT, Option(usize).Some(usize(2))) && (lookup_method_callee_value(ast_expr_id(call)).is_some() || lookup_method_callee_type(ast_expr_id(call)).is_some()), {
     match(
@@ -5484,7 +5484,7 @@ _find_value_loan_access :: (fn(e : &AstExpr, lp : &LocalBorrowPlace, exclusive :
   if(_is_plain_place_expr(e), {
     return(if(exclusive && _value_loan_touched(e, lp, env, ctx), Option(Tuple(AstExpr, String)).Some((e.clone(), String.from("reads"))), Option(Tuple(AstExpr, String)).None));
   });
-  (callee : AstExpr) = match(e, .FnCall(_, c, _, _, _) => c, .Atom(_, _) => return(Option(Tuple(AstExpr, String)).None));
+  (callee : AstExpr) = match(e, .FnCall(_, c, _, _, _) => c.*, .Atom(_, _) => return(Option(Tuple(AstExpr, String)).None));
   c_args := match(e, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   first := match(c_args.get(usize(0)), .Some(f) => f, .None => make_err_expr());
   cond(
@@ -5584,7 +5584,7 @@ _reject_value_loan_access :: (fn(at : &AstExpr, what : &String, l : &_ArgValueLo
 _check_call_value_loans :: (fn(call : &AstExpr, lends : &ArrayList(_CallLend), env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   // A function literal `(fn(...) -> T)(body)` defines a function: its body
   // is no argument (`_call_lends`).
-  (callee : AstExpr) = match(call, .FnCall(_, c, _, _, _) => c, .Atom(_, _) => return(()));
+  (callee : AstExpr) = match(call, .FnCall(_, c, _, _, _) => c.*, .Atom(_, _) => return(()));
   if(match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&callee)), .Some(fl_ci) => match(fl_ci.value(), .Some(.TypeVal(fl_t)) => is_function_type(&fl_t), _ => false), .None => false), {
     return(());
   });
@@ -9745,7 +9745,7 @@ _type_occurs_in_type_arguments :: (fn(needle : &TypeValue, hay : &TypeValue, dep
     Rc(.Struct({ type_arguments : oc_tas })) => oc_tas.clone(),
     Rc(.EnumT({ type_arguments : oc_tas })) => oc_tas.clone(),
     Rc(.Tuple({ field_types : oc_fts })) => oc_fts.clone(),
-    Rc(.Reference(oc_p, _, _)) => return(recur(needle, &oc_p, (depth + u32(1)))),
+    Rc(.Reference(oc_p, _, _)) => return(recur(needle, &oc_p.*, (depth + u32(1)))),
     _ => return(false)
   );
   (i : usize) = usize(0);
@@ -9771,19 +9771,19 @@ _mut_pointee_origin_names :: (fn(ty : &TypeValue, under_mut : bool, out : &mut A
   });
   match(
     ty,
-    Rc(.Reference(mp_p, mp_mut, _)) => recur(&mp_p, under_mut || mp_mut, out, (depth + u32(1))),
+    Rc(.Reference(mp_p, mp_mut, _)) => recur(&mp_p.*, under_mut || mp_mut.*, out, (depth + u32(1))),
     Rc(.Struct({ field_types : mp_fts, type_arguments : mp_tas })) => {
-      _mut_pointee_origin_names_list(&mp_fts, under_mut, out, depth);
-      _mut_pointee_origin_names_list(&mp_tas, under_mut, out, depth);
+      _mut_pointee_origin_names_list(&mp_fts.*, under_mut, out, depth);
+      _mut_pointee_origin_names_list(&mp_tas.*, under_mut, out, depth);
     },
     Rc(.EnumT({ variant_fields : mp_vfs, type_arguments : mp_tas })) => {
       (vi : usize) = usize(0);
       while(vi < mp_vfs.len(), vi = (vi + usize(1)), {
         match(mp_vfs.get(vi), .Some(vf) => _mut_pointee_origin_names_list(&vf, under_mut, out, depth), .None => ());
       });
-      _mut_pointee_origin_names_list(&mp_tas, under_mut, out, depth);
+      _mut_pointee_origin_names_list(&mp_tas.*, under_mut, out, depth);
     },
-    Rc(.Tuple({ field_types : mp_fts })) => _mut_pointee_origin_names_list(&mp_fts, under_mut, out, depth),
+    Rc(.Tuple({ field_types : mp_fts })) => _mut_pointee_origin_names_list(&mp_fts.*, under_mut, out, depth),
     _ => ()
   );
 });

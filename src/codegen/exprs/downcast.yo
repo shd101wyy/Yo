@@ -94,7 +94,7 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
   // "Result", so the shape is detected by its variant names.
   match(
     &ei.ty(),
-    Rc(.EnumT({ variant_names : res_vns, type_arguments : res_targs })) => if((res_vns.len() == usize(2)) && _vn_at_is(&res_vns, usize(0), String.from("Ok")) && _vn_at_is(&res_vns, usize(1), String.from("Err")), {
+    Rc(.EnumT({ variant_names : res_vns, type_arguments : res_targs })) => if((res_vns.len() == usize(2)) && _vn_at_is(&res_vns.*, usize(0), String.from("Ok")) && _vn_at_is(&res_vns.*, usize(1), String.from("Err")), {
       ok_box_ty := match(res_targs.get(usize(0)), .Some(t) => t, .None => return(String.from("/* ERROR: downcast Result without type arguments */")));
       res_c := get_type_string(&ei.ty(), &mut context.base);
       ok_c := get_type_string(&ok_box_ty, &mut context.base);
@@ -346,7 +346,7 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
 _vn_at_is :: (fn(vns : &SharedList(String), i : usize, want : &String) -> bool)(
   match(
     vns.get(i),
-    .Some(v) => (v == want),
+    .Some(v) => (v == want.*),
     .None => false
   )
 );
