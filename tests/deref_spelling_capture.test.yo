@@ -1,16 +1,9 @@
-//! The `io.async` capture rows of the deref seed rider (VERDICTS-60 §4, 11),
-//! re-homed from std/deref_spelling.test.yo: a module-level definition whose
-//! capture is spelled `{ b : &b.* }` is an A2 error under the v0.2.77 seed —
-//! whose `yo check ./std`, which every lane's Tier 1 runs, evaluates every
-//! file under std — while tests/ is judged, and there both the seed (it
-//! strips a written `.*` of a reference binding in a judged file, VERDICTS-60
-//! §6 E3) and the tree accept the spelling. `{ b : &b.* }` names what
-//! `{ &b }` names, the referent of `b` whole, so an `io.async` body that
-//! borrows a `&` parameter keeps its own copy of it
-//! (plans/VALUES_BY_DEFAULT.md §3.13 A2). The deref flip re-homes these rows
-//! beside the std lines that adopt the spelling
-//! (issues/2026-11-13-the-v0277-seed-rejects-the-deref-swept-io-async-captures-of-a-reference-parameter.md,
-//! open until the v0.2.79 flip).
+//! The `io.async` capture rows of the deref seed rider (VERDICTS-60 §4, 11):
+//! `{ b : &b.* }` borrows a `&` parameter whole, so an `io.async` body keeps
+//! its own copy of it (plans/VALUES_BY_DEFAULT.md §3.13 A2), and `{ &b }` is
+//! E0926 in every file since the deref flip (v0.2.79), std and src included,
+//! whose `io.async` capture lists are written this way
+//! (issues/fixed/2026-11-13-the-v0277-seed-rejects-the-deref-swept-io-async-captures-of-a-reference-parameter.md).
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 
@@ -30,5 +23,13 @@ test("an io.async capture `{ b : &b.* }` of a & parameter borrows the parameter 
       })
     ),
     "borrows a `&` parameter whole"
+  );
+  comptime_expect_error(
+    _deref_box_bare :: (fn(b : &_DerefBox, io : Io) -> Impl(Future(i32)))(
+      io.async({ &b }(io : Io) => {
+        return(b.*.n);
+      })
+    ),
+    "borrowing the value it refers to"
   );
 });

@@ -294,48 +294,13 @@ is_global_mut_rule_exempt :: (fn(mp : &String, std_path : &String) -> bool)(
     }
   )
 );
-/// Decision 43 step 2, N1e-1 (step-2 consultation Q7, VERDICTS-13 §11):
-/// the trees that keep the OLD reading of a reference binding until N3 — a
-/// bare read is its value, and `v.*` on a `&Box(T)`/`&Rc(T)` (or on a
-/// pointee with a field named `*`) is that deref — because the seed that
-/// compiles them rejects `.*` on a borrow (E0920): std (`is_std_module_path`),
-/// the compiler source beside it (`<std>/../src/`), the repository's build
-/// file and scripts, a fetched dependency in the store
-/// (`.../store/sha256/...`) and compiler-synthesized expansions. Keyed on
-/// the DEFINING file of the expression, so a std generic body specialized
-/// for a user type keeps std's reading. Everywhere else E0926 rejects a
-/// whole-value read or write of a reference without `.*`. Since N3 deref
-/// Generation A' (v0.2.77) these trees read every WRITTEN `r.*` on a
-/// reference binding as the reference's own deref
-/// (`deref_spelling_applies`). The deref text sweep (v0.2.78) wrote std and
-/// src in that spelling, except `io.async` capture lists, which the v0.2.77
-/// seed cannot read in it; only a bare `r` keeps the old reading. Deleted by
-/// the deref flip (v0.2.79, VERDICTS-60), which also sweeps those capture
-/// lists (plans/backlog/SEED_VERSION_AUTOMATION.md).
-(g_deref_rule_exempt_memo : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
-is_deref_rule_exempt :: (fn(mp : &String, std_path : &String) -> bool)(
-  match(
-    g_deref_rule_exempt_memo.with({ mp : &mp.* }(m) => m.get(mp)),
-    .Some(b) => b,
-    .None => {
-      store := String.from("/store/sha256/");
-      b := (
-        mp.starts_with(String.from("auto-generated://")) || (is_deref_swept_tree(mp, std_path) || _lex_abs_path(mp.clone()).contains(&store))
-      );
-      mp_owned := mp.clone();
-      g_deref_rule_exempt_memo.with_mut({ mp_owned, b : b.clone() }(m) => m.insert(mp_owned.clone(), b));
-      b
-    }
-  )
-);
 /// Whether `mp` lies in one of the repository's own trees whose text the
 /// v0.2.78 deref sweep wrote in the new spelling: std
 /// (`is_std_module_path`), the compiler source beside it (`<std>/../src/`),
 /// its scripts and its build file. Every written `r.*` there is the
 /// reference's own deref (N3 deref Generation A' has read it so since
 /// v0.2.77), so `yo fix --migrate deref` never reads one as old source
-/// (`deref_text_is_new_spelling`). Outlives the exemption above, which the
-/// deref flip deletes.
+/// (`deref_text_is_new_spelling`).
 is_deref_swept_tree :: (fn(mp : &String, std_path : &String) -> bool)({
   if(is_std_module_path(mp, std_path), {
     return(true);
@@ -502,7 +467,6 @@ export(
   is_auto_generated_expansion,
   is_macro_def_capable_file,
   is_global_mut_rule_exempt,
-  is_deref_rule_exempt,
   is_deref_swept_tree,
   is_pointer_value_capable_file,
   is_overload_set_capable_file,

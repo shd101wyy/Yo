@@ -68,7 +68,7 @@ parameter type from `Clone`'s signature, `fn(self : &Self) -> Self`, so at `Self
 a `&*T` reference and its body `self.*` is the pointer, `Self`. Normal mode reads it that way (a tree
 binary's `check ./std` and the v0.2.77 seed's both accept the swept line), and a binary with the
 exemption deleted rejects the held-back `self -> self` with E0926
-(`issues/2026-11-15-the-deletion-binary-rejects-the-swept-lend-of-an-rc-handle-binding-in-src.md`),
+(`issues/fixed/2026-11-15-the-deletion-binary-rejects-the-swept-lend-of-an-rc-handle-binding-in-src.md`),
 so `self.*` is the spelling the deref flip needs.
 
 What broke is `yo fix --migrate deref` loading that prelude. While recording, a written `.*` on a
@@ -94,6 +94,6 @@ loads the prelude and instantiates the derive. With the swept line they fail bef
 (E0604 above, rc 1) and pass after.
 
 The sibling
-`issues/2026-11-15-migrate-deref-doubles-a-swept-star-when-the-recorders-old-reading-aborts-the-files-evaluation.md`
+`issues/fixed/2026-11-15-migrate-deref-doubles-a-swept-star-when-the-recorders-old-reading-aborts-the-files-evaluation.md`
 is the same order dependence. Its src sites (`impl.yo:217`, `declarations.yo:134`) lie in a swept tree and
 fall under this fix too (not re-run here); its user-file repro does not, and stays open.

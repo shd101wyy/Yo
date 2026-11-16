@@ -141,7 +141,7 @@ json :: import("std/encoding/json");
 } :: import("./module_manager.yo");
 { record_input_file, reset_input_files, input_files, input_file_entries, set_input_hashing, input_hashing_enabled } :: import("./input_record.yo");
 { YoError, ExitWith, render_any_error, take_error_diagnostics } :: import("./error.yo");
-{ set_migrate_unsized, take_unsized_sites, DerefSite, set_migrate_deref, take_deref_sites, take_deref_migrated_files, take_deref_clean_sites, take_deref_dead_arm_files } :: import("./expr_info.yo");
+{ set_migrate_unsized, take_unsized_sites, DerefSite, set_migrate_deref, take_deref_sites, take_deref_migrated_files, take_deref_clean_sites, take_deref_dead_arm_files, note_deref_assumed_migrated } :: import("./expr_info.yo");
 { Diagnostic, Span, Severity } :: import("./diagnostics.yo");
 { set_strict_test_bodies, SkippedTestBody, take_skipped_test_bodies } :: import("./evaluator/exprs/test.yo");
 { ExplicitCopySite, set_migrate_rc_clone, migrate_mut_scrutinee_at, clear_migrate_mut_scrutinees, take_explicit_copy_sites } :: import("./evaluator/utils.yo");
@@ -1216,8 +1216,8 @@ _deref_pad :: (fn(n : usize) -> String)({
   out
 });
 /// `yo fix <path> --migrate deref` — decision 43 step 2, N1e-1 (step-2
-/// consultation Q7, VERDICTS-13 §11): a reference binding outside std and
-/// the compiler tree reads and writes its referent with `.*`. Semantic:
+/// consultation Q7, VERDICTS-13 §11): a reference binding reads and writes
+/// its referent with `.*`. Semantic:
 /// only the evaluator knows which binding is a reference. Every file is
 /// evaluated with the recorder on (`record_deref_site`): E0926 records the
 /// expression instead of rejecting it — a whole-value read or write
@@ -1770,6 +1770,13 @@ _run_migrate_deref :: (
   // parent `yo fix --migrate deref` spawned (below): it writes what it
   // recorded to that file and applies nothing.
   child_out := proc_env.get(String.from("YO_FIX_DEREF_SITES_OUT"));
+  // Set when this process is the retry evaluation below: these files'
+  // written `.*`s read as the new spelling from the start.
+  match(
+    proc_env.get(String.from("YO_FIX_DEREF_ASSUME_MIGRATED")),
+    .Some(am) => for(am.split(String.from("\t")), ap => if(ap.len() > usize(0), note_deref_assumed_migrated(&ap))),
+    .None => ()
+  );
   (failed : usize) = usize(0);
   failed_files := ArrayList(String).new();
   (fi : usize) = usize(0);
@@ -1789,18 +1796,15 @@ _run_migrate_deref :: (
       _drop_diags := take_error_diagnostics();
       failed = (failed + usize(1));
       failed_files.push(file.clone());
-      if(child_out.is_none(), {
-        println(`fix: ${file} does not evaluate; its references are migrated only as far as evaluation reached`);
-      });
     });
   });
   set_migrate_deref(false);
-  host_sites := take_deref_sites();
-  host_clean := take_deref_clean_sites();
+  (host_sites : ArrayList(DerefSite)) = take_deref_sites();
+  (host_clean : ArrayList(DerefSite)) = take_deref_clean_sites();
   // The files that already read their references with `.*`: an old-reading
   // payload `.*` (edit 3) there is the reference's deref, written by an
   // earlier run (issues/fixed/2026-11-04-migrate-deref-adds-a-second-star-on-a-second-run.md).
-  migrated_raw := take_deref_migrated_files();
+  (migrated_raw : HashSet(String)) = take_deref_migrated_files();
   dead_raw := take_deref_dead_arm_files();
   match(
     child_out,
@@ -1827,6 +1831,140 @@ _run_migrate_deref :: (
     },
     .None => ()
   );
+  // A file can stop at the old reading of its own migrated text: an edit-3
+  // site (`b.*` through a reference to a Box, an Rc, a pointer or a cell
+  // handle, read the old way as the payload) fails to type-check where the
+  // `.*` is already the reference's own (`count(&pts.*)` into a `&List(T)`
+  // parameter), before evaluation reaches any evidence that the file is
+  // migrated, and applying the edit would double the star. Every file that
+  // did not evaluate is evaluated again in one child process that reads the
+  // written `.*`s of those files as the new spelling from the start. A file
+  // that evaluates there is migrated text (or imports one): the child's
+  // sites replace the host's for it
+  // (issues/fixed/2026-11-15-migrate-deref-doubles-a-swept-star-when-the-recorders-old-reading-aborts-the-files-evaluation.md).
+  (still_failed : ArrayList(String)) = failed_files.clone();
+  assume := ArrayList(String).new();
+  migrated_pre := HashSet(String).new();
+  for(&migrated_raw, mp => {
+    _new := migrated_pre.insert(canonical_module_path(mp));
+  });
+  for(&failed_files, ff => {
+    cf := canonical_module_path(ff);
+    (has_payload_edit : bool) = false;
+    for(&host_sites, st => {
+      if((st.edit == u8(3)) && (canonical_module_path(&st.path) == cf), {
+        has_payload_edit = true;
+      });
+    });
+    if(has_payload_edit && !migrated_pre.contains(&cf), {
+      assume.push(ff.clone());
+    });
+  });
+  if(assume.len() > usize(0), {
+    retry_out := `${temp_dir()}/yo-fix-deref-${pid().to_string()}-retry.txt`;
+    (retry_ran : bool) = match(
+      current_exe(),
+      .Ok(exe) => {
+        rcmd := Command.new(exe.to_string()).arg(String.from("--std-path")).arg(std_path.clone()).arg(String.from("fix")).args(&failed_files).arg(String.from("--migrate")).arg(String.from("deref")).env(String.from("YO_FIX_DEREF_SITES_OUT"), retry_out.clone()).env(String.from("YO_FIX_DEREF_ASSUME_MIGRATED"), String.from("\t").join(&assume));
+        if(explicit_target, {
+          rcmd = rcmd.arg(String.from("--target")).arg(get_current_target().triple.clone());
+        });
+        rst := io.await(rcmd.status(io), IoExn(io : io, exn : exn));
+        (rst.raw == i32(0)) && io.await(exists(Path.new(retry_out.clone()), io), io)
+      },
+      .Err(_) => false
+    );
+    if(retry_ran, {
+      rraw := String.from_bytes(io.await(read(Path.new(retry_out.clone()), io), IoExn(io : io, exn : exn)));
+      _remove_batch_artifact(&retry_out, io);
+      r_sites := ArrayList(DerefSite).new();
+      r_clean := ArrayList(DerefSite).new();
+      r_migrated := ArrayList(String).new();
+      r_failed := HashSet(String).new();
+      for(rraw.split(String.from("\n")), ln => {
+        fs := ln.split(String.from("\t"));
+        cond(
+          ((fs.len() == usize(6)) && (fs(usize(0)) == "S")) => r_sites.push(
+            DerefSite(
+              path : _deref_field_unescape(&fs(usize(4))),
+              row : _deref_field_usize(&fs(usize(2))),
+              col : _deref_field_usize(&fs(usize(3))),
+              expect : _deref_field_unescape(&fs(usize(5))),
+              edit : u8(_deref_field_usize(&fs(usize(1))))
+            )
+          ),
+          ((fs.len() == usize(5)) && (fs(usize(0)) == "C")) => r_clean.push(
+            DerefSite(
+              path : _deref_field_unescape(&fs(usize(3))),
+              row : _deref_field_usize(&fs(usize(1))),
+              col : _deref_field_usize(&fs(usize(2))),
+              expect : _deref_field_unescape(&fs(usize(4))),
+              edit : u8(255)
+            )
+          ),
+          ((fs.len() == usize(2)) && (fs(usize(0)) == "M")) => r_migrated.push(_deref_field_unescape(&fs(usize(1)))),
+          ((fs.len() == usize(2)) && (fs(usize(0)) == "F")) => {
+            _new := r_failed.insert(canonical_module_path(&_deref_field_unescape(&fs(usize(1)))));
+          },
+          true => ()
+        );
+      });
+      recovered := HashSet(String).new();
+      still_failed = ArrayList(String).new();
+      for(&failed_files, ff => {
+        cf := canonical_module_path(ff);
+        if(r_failed.contains(&cf), {
+          still_failed.push(ff.clone());
+        }, {
+          _new := recovered.insert(cf);
+        });
+      });
+      if(recovered.len() > usize(0), {
+        failed = still_failed.len();
+        kept_sites := ArrayList(DerefSite).new();
+        for(&host_sites, st => {
+          if(!recovered.contains(&canonical_module_path(&st.path)), {
+            kept_sites.push(st.clone());
+          });
+        });
+        for(&r_sites, st => {
+          if(recovered.contains(&canonical_module_path(&st.path)), {
+            kept_sites.push(st.clone());
+          });
+        });
+        host_sites = kept_sites;
+        kept_clean := ArrayList(DerefSite).new();
+        for(&host_clean, st => {
+          if(!recovered.contains(&canonical_module_path(&st.path)), {
+            kept_clean.push(st.clone());
+          });
+        });
+        for(&r_clean, st => {
+          if(recovered.contains(&canonical_module_path(&st.path)), {
+            kept_clean.push(st.clone());
+          });
+        });
+        host_clean = kept_clean;
+        // An assumed file the child evaluated is migrated text; one it did
+        // not is not evidence of anything.
+        for(&r_migrated, mp => {
+          if(!r_failed.contains(&canonical_module_path(mp)), {
+            _new := migrated_raw.insert(mp.clone());
+          });
+        });
+        for(&assume, af => {
+          if(recovered.contains(&canonical_module_path(af)), {
+            _new := migrated_raw.insert(af.clone());
+          });
+        });
+      });
+    });
+  });
+  (sfi : usize) = usize(0);
+  while(sfi < still_failed.len(), sfi = (sfi + usize(1)), {
+    sf := still_failed(sfi).clone();
+    println(`fix: ${sf} does not evaluate; its references are migrated only as far as evaluation reached`);
+  });
   migrated := HashSet(String).new();
   for(&migrated_raw, mp => {
     _new := migrated.insert(canonical_module_path(mp.clone()));

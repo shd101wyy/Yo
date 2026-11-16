@@ -1,0 +1,25 @@
+// expect: E0911
+// A generic callee: `gmk(rx)` at `T := Rc(X)` (issues/fixed/2026-11-16-a-reference-binding-passed-bare-to-a-reference-parameter-gives-the-call-result-no-origin.md).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+mkh :: (fn(a : &Rc(X)) -> Option(&Rc(X)))(Option(&Rc(X)).Some(a));
+idopt :: (fn(o : Option(&Rc(X))) -> Option(&Rc(X)))(o);
+gmk :: (fn(generic(T : Type), a : &T) -> Option(&T))(Option(&T).Some(a));
+W :: struct(n : i32);
+impl(W, mk : (fn(self : &Self, a : &Rc(X)) -> Option(&Rc(X)))(Option(&Rc(X)).Some(a)));
+main :: (fn() -> unit)({
+  z := Rc.new(X(s : String.from("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")));
+  mut(h) := Option(&Rc(X)).Some(&z);
+  w := W(n : i32(1));
+  {
+    x := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+    (mut(c) : Impl(FnMut() -> unit)) = ({ s : &mut h, rx : &x }() => {
+      s.* = gmk(rx);
+    });
+    c();
+  };
+  match(&h, .Some(r) => println(`OUT: ${r.*.*.s.slice_copy(usize(0) .. usize(5))}`), .None => println("none"));
+  _ := w.n;
+});
+export(main);

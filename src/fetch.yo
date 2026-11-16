@@ -444,7 +444,7 @@ release_store_lock :: (
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
-  io.async({ &lock }(e : IoExn) => {
+  io.async({ lock : &lock.* }(e : IoExn) => {
     _ := flock(lock.file.fd(), LOCK_UN);
     e.io.await(lock.file.close(e.io), e);
   })
