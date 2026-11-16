@@ -6,7 +6,7 @@ impl(Boom, ToString(to_string : (self -> self.msg.clone())));
 impl(Boom, Error());
 derive(Boom, Clone);
 _may_fail :: (fn(fail : bool, io : Io) -> Impl(Future(String, IoExn)))(
-  io.async((e : IoExn) => cond(fail => e.exn.throw(dyn(Boom(msg : `framing broke`))), true => `ok body`))
+  io.async((e : IoExn) => cond(fail => e.exn.throw(dyn(Box.new(Boom(msg : `framing broke`)))), true => `ok body`))
 );
 _guarded :: (fn(fail : bool, io : Io) -> Impl(Future(Result(String, String), IoExn)))(
   io.async((e : IoExn) => {
