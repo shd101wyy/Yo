@@ -171,7 +171,7 @@ impl(
   /// `other`'s components are APPENDED, `..` included: `"a/b".join("../c")`
   /// is `a/b/../c`, matching what `Path.new("a/b/../c")` records. Call
   /// `normalize()` on the result for the lexical fold.
-  join : (fn(generic(P : Type), self : &Self, other : &P, where(P <: ToString)) -> Self)(
+  join : (fn(generic(P : ?Sized), self : &Self, other : &P, where(P <: ToString)) -> Self)(
     self._join_path(Path.new(other.to_string()))
   ),
   _join_path : (fn(self : &Self, other : &Self) -> Self)({
@@ -809,7 +809,7 @@ impl(
 /// `other` is appended rather than folded, exactly like `join`.
 impl(
   Path,
-  push : (fn(generic(P : Type), self : &mut Self, other : &P, where(P <: ToString)) -> unit)({
+  push : (fn(generic(P : ?Sized), self : &mut Self, other : &P, where(P <: ToString)) -> unit)({
     joined := self._join_path(Path.new(other.to_string()));
     self._segments.clear();
     self._segments.extend_cloned(&joined._segments);

@@ -44,7 +44,7 @@ pragma(Pragma.AllowUnsafe);
 (mut(g_future_origins_exist) : bool) = false;
 /// Capture-list borrow entries by capture-struct id (`register_capture_borrows`).
 (g_capture_borrows : RefCell(HashMap(String, ArrayList(CaptureBorrow)))) = RefCell(HashMap(String, ArrayList(CaptureBorrow))).new(HashMap(String, ArrayList(CaptureBorrow)).new());
-{ TypeValue, TypeValueNode, FuncMeta, no_labels, t_refine_inner, no_types, SharedList, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_borrow, fn_result_is_ref, t_origin_spelled_names, is_maybe_sized_kind, is_static_origin, fn_param_slots, is_origin_kind } :: import("./definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, no_labels, t_refine_inner, no_types, SharedList, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_borrow, fn_result_is_ref, t_origin_spelled_names, is_maybe_sized_kind, is_static_origin, fn_param_slots, is_origin_kind, t_static_str_ref } :: import("./definitions.yo");
 { type_intern_key } :: import("./intern.yo");
 { type_to_string, type_to_string_for_message } :: import("./string.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell, enum_phantom_positions } :: import("./creators.yo");
@@ -933,11 +933,30 @@ type_is_escapable :: (fn(ty : &TypeValue) -> bool)(!type_carries_origin(ty) && !
 /// unsized ones, which live only behind a pointer. Derived structurally, as
 /// `Escapable` is, and never implemented by hand. Unsized: `[T]`, an open
 /// type variable declared `?Sized`, and a value struct or newtype whose LAST
-/// field is unsized (a tail struct), and `Dyn(...)` (decision 49 S2: a `Dyn`
-/// lives behind a pointer, `Box(Dyn(T))`, `&Dyn(T)`, `Rc(Dyn(T))`). `str` is
-/// sized here while `unsized_legacy_spellings` holds: a value `str` is still
-/// the legacy view.
+/// field is unsized (a tail struct), `Dyn(...)` and `str` (decision 49 S2:
+/// each lives behind a pointer — `Box(Dyn(T))`, `&Dyn(T)`, `Rc(Dyn(T))`;
+/// `&str`, `&(str, static)`). A legacy value `str` spelling is aliased to
+/// `&(str, static)` before it reaches here (`legacy_value_str`).
 type_is_sized :: (fn(ty : &TypeValue) -> bool)(_type_is_sized_d(ty, u32(0)));
+/// The legacy value `str` (decision 49, `unsized_legacy_spellings`): a `str`
+/// written where a SIZED type is required (a by-value parameter, a result, a
+/// field, a payload, a local, an element, a `Type` binder's argument) means
+/// `&(str, static)`, the type of a literal, so the tree's own `x : str`
+/// spellings name one type before S3b sweeps them. Every other type is
+/// returned as it is. S3b deletes this with the alias.
+legacy_value_str :: (fn(ty : &TypeValue) -> TypeValue)(
+  match(t_refine_inner(ty), Rc(.Str) => t_static_str_ref(), _ => Rc.clone(ty))
+);
+/// A parameter slot `&(U, static)` over an unsized `U`: the legacy value
+/// `str` (`s : str` is `s : &(str, static)`, decision 49 S2). The parameter
+/// holds a static fat reference, which its body reads, copies, captures and
+/// returns as the value it is: it binds as a by-value `&(U, static)`, as
+/// `s := "abc"` does, never as a borrow of the caller's place.
+is_static_view_slot :: (fn(slot : &TypeValue) -> bool)(
+  match(slot, Rc(.Reference(svs_p, false, svs_o)) => (is_static_origin(&svs_o.*) && !type_is_sized(&svs_p.*)), _ => false)
+);
+/// `ty` is the bare unsized `str` that `legacy_value_str` rewrites.
+is_legacy_value_str :: (fn(ty : &TypeValue) -> bool)(match(t_refine_inner(ty), Rc(.Str) => true, _ => false));
 /// One of `bounds` is the prelude's `Sized` marker.
 _bounds_name_sized :: (fn(bounds : &ArrayList(TypeValue)) -> bool)({
   (i : usize) = usize(0);
@@ -954,6 +973,7 @@ _type_is_sized_d :: (fn(ty : &TypeValue, depth : u32) -> bool)(
     true => match(
       t_refine_inner(ty),
       Rc(.SliceT(_)) => false,
+      Rc(.Str) => false,
       Rc(.DynT(_, _, _, _)) => false,
       // A `?Sized` variable is unsized unless a `where(T <: Sized)` bound
       // re-tightens it (one method of a `?Sized` impl).
@@ -4352,7 +4372,7 @@ type_may_provide_slice_source :: (fn(ty : &TypeValue) -> bool)({
 export(enum_phantom_type_arg_somes, enum_phantom_type_args_masked);
 export(CaptureBorrow, register_capture_borrows, capture_struct_borrows, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, type_is_second_class, type_first_mut_borrow, type_pointee_second_class);
 export(future_origin_names, note_future_origins_exist, note_unreturnable_future, future_unreturnable_borrow);
-export(type_carries_origin, nominal_has_hidden_origin, fn_param_origin_links, fn_param_origins_narrower, type_reaches_user_drop, type_nominal_drop_uses_roots, DropUsesRootsFn, set_drop_uses_roots_fn, type_is_escapable, type_is_sized, unsized_by_value_error, escapable_bound_error, note_origin_types_exist, origin_value_phase_message, reject_origin_carrying_signature, no_origin_position_error, origin_beyond_n2b, origin_beyond_n2b_message);
+export(type_carries_origin, nominal_has_hidden_origin, fn_param_origin_links, fn_param_origins_narrower, type_reaches_user_drop, type_nominal_drop_uses_roots, DropUsesRootsFn, set_drop_uses_roots_fn, type_is_escapable, type_is_sized, legacy_value_str, is_legacy_value_str, is_static_view_slot, unsized_by_value_error, escapable_bound_error, note_origin_types_exist, origin_value_phase_message, reject_origin_carrying_signature, no_origin_position_error, origin_beyond_n2b, origin_beyond_n2b_message);
 export(set_target_pointer_size);
 export(is_drop_trait_name, is_drop_method_name, is_destructor_trait_member, is_clone_trait_type, dyn_type_lists_clone, type_holds_dyn_by_value);
 export(get_target_pointer_size_bits);

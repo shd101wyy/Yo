@@ -94,3 +94,112 @@ test("slice_copy takes its receiver by value: the view it returns is static only
   assert((s(usize(1) .. usize(4)) == "ell") && (s(usize(0) ..= usize(1)) == "he"), "the range subscripts lower to slice_copy");
   assert(s(usize(3) .. usize(99)) == "lo", "an end past the length is clamped");
 });
+// A `&str` parameter takes a place of type `str`, as `(x : &T)` takes one of
+// `T`; a literal is that place (static bytes), and a `&str` value passed bare
+// lends what it refers to. The read intrinsics are declared `(s : &str)`
+// (issues/fixed/2026-11-15-a-str-reference-argument-is-e0601-under-the-str-flip.md).
+impl(str, byte_count : (fn(self : &Self) -> usize)(__yo_str_len(self)));
+_count_bytes :: (fn(s : &str) -> usize)(s.len());
+test("a &str parameter takes a literal, a &str binding and a receiver", {
+  assert(__yo_str_len("abcd") == usize(4), "a literal into the extern's &str parameter");
+  s := "hello";
+  assert(__yo_str_len(s) == usize(5), "a &str binding into the extern's &str parameter");
+  assert(_count_bytes("abc") == usize(3), "a literal into a Yo function's &str parameter");
+  assert(_count_bytes(s) == usize(5), "a &str binding into a Yo function's &str parameter");
+  assert(("xy".byte_count() == usize(2)) && (s.byte_count() == usize(5)), "a receiver lent to the extern by an impl(str) method");
+});
+test("a closure captures a &str binding by value", {
+  s := "hello";
+  (f : Impl(Fn() -> usize)) = ({ s }() => s.len());
+  assert(f() == usize(5), "the captured view keeps its length");
+});
+// A string literal at a `str` (`&(str, static)`) struct field or enum payload
+// is that reference value, never a place to lend; a `-> str` function returns
+// its `&str` parameter, or a local copy of a `str` parameter, as the
+// `&(str, static)` value it is; a literal at a by-value binder is that value
+// (issues/fixed/2026-11-16-a-string-literal-in-a-str-field-is-lent-as-a-place.md).
+_StrHolder :: struct(name : str);
+_StrTagged :: enum(Tag(name : str), Empty);
+_str_id :: (fn(s : &str) -> str)(s);
+_str_copy :: (fn(a : str) -> str)({
+  r := a;
+  r
+});
+_str_pick :: (fn(a : str, b : str, c : bool) -> str)({
+  x := cond(c => a, true => b);
+  x
+});
+_str_hold :: (fn(generic(T : Type), x : T) -> T)(x);
+_str_tag_len :: (fn(t : &_StrTagged) -> usize)(
+  match(
+    t,
+    .Tag("a") => usize(100),
+    .Tag(n) => n.len(),
+    .Empty => usize(0)
+  )
+);
+test("a string literal fills a str field and payload, and a -> str function returns a &str", {
+  h := _StrHolder(name : "abc");
+  assert(h.name.len() == usize(3), "a literal in a str struct field keeps its length");
+  assert(_str_tag_len(_StrTagged.Tag("a")) == usize(100), "a literal payload compares equal to the pattern literal");
+  assert(_str_tag_len(_StrTagged.Tag("zzzz")) == usize(4), "a literal payload keeps its length");
+  assert(_str_id("xyz").len() == usize(3), "a -> str function returns its &str parameter");
+  assert((_str_copy("ab") == "ab") && (_str_pick("a", "bc", false) == "bc"), "a local copy of a str parameter is returned");
+  assert(_str_hold("xy").len() == usize(2), "a literal at a by-value binder binds T := &(str, static)");
+});
+// A legacy value `str` payload (`.Some(s)` over an `Option(str)`) is the
+// `&(str, static)` value it is: a copy, which a local may take and an arm may
+// yield, whatever the match's mode
+// (issues/fixed/2026-11-16-a-str-payload-binding-is-a-reference-to-an-unsized-place.md).
+_str_or :: (fn(o : Option(str), d : str) -> str)(
+  match(
+    o,
+    .Some(s) => {
+      t := s;
+      t
+    },
+    .None => d
+  )
+);
+_str_first :: (fn(xs : &ArrayList(str)) -> str)({
+  v := match(xs.get(usize(0)), .Some(s) => s, .None => "~");
+  v
+});
+_str_ref_or :: (fn(o : &Option(str)) -> usize)(
+  match(
+    o,
+    .Some(s) => {
+      t := s;
+      t.len()
+    },
+    .None => usize(0)
+  )
+);
+// A `str` element read through a raw pointer (`p.*` over a `*(&(str, static))`) is the
+// `&(str, static)` value itself, which a payload or a field stores as is
+// (ArrayList(str).get's `.Some((_ptr.add(index)).*)` emitted the address).
+_str_at :: (fn(p : *&(str, static), i : usize) -> Option(str))(.Some((p.add(i)).*));
+_str_holder_at :: (fn(p : *&(str, static), i : usize) -> _StrHolder)(_StrHolder(name : (p.add(i)).*));
+test("a str read through a raw pointer fills a payload and a field", {
+  mut(xs) := ArrayList(str).new();
+  xs.push("ab");
+  xs.push("cde");
+  match(
+    xs.ptr(),
+    .Some(p) => {
+      assert(match(_str_at(p, usize(1)), .Some(s) => (s == "cde"), .None => false), "the payload is the element");
+      assert(_str_holder_at(p, usize(0)).name.len() == usize(2), "the field is the element");
+    },
+    .None => assert(false, "a pushed list has a buffer")
+  );
+  assert(match(xs.get(usize(1)), .Some(s) => (s.len() == usize(3)), .None => false), "get yields the element");
+});
+test("a str payload binds the &(str, static) value", {
+  assert((_str_or(Option(str).Some("abc"), "d") == "abc") && (_str_or(Option(str).None, "d") == "d"), "a local copy of a consumed payload is the arm's result");
+  mut(xs) := ArrayList(str).new();
+  assert(_str_first(&xs) == "~", "the default arm");
+  xs.push("hi");
+  assert(_str_first(&xs) == "hi", "a payload yielded by an arm");
+  o := Option(str).Some("four");
+  assert(_str_ref_or(&o) == usize(4), "a local copy of a borrowed match's payload");
+});

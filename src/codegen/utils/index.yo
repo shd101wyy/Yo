@@ -1738,6 +1738,9 @@ pointer_c_type_string :: (fn(pointee : &TypeValue, context : &mut CodeGenContext
   match(
     t_refine_inner(pointee),
     Rc(.SliceT(_)) => String.from("__yo_slice_t"),
+    // A pointer to the unsized `str` is `__yo_str` (decision 49 S2): the
+    // bytes and the length, the C type the legacy value `str` had.
+    Rc(.Str) => String.from("__yo_str"),
     // A pointer to a `Dyn` is its registered fat struct `{ data, vtable }`
     // (decision 49 S2); the data word is the payload's address.
     Rc(.DynT({})) => get_type_string(pointee, context),

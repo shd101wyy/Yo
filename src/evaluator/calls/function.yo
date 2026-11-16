@@ -73,7 +73,7 @@ pragma(Pragma.AllowUnsafe);
   variable_value_type,
   variable_slot_type
 } :: import("../../env.yo");
-{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, t_refine_inner, shared_list, no_types, no_labels, no_levels, SharedList, no_flags, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_reference, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, t_slot_is_borrow, fn_param_slots, is_origin_kind, t_origin_kind, t_origin_named, t_origin_spelled_names, fn_result_slot } :: import("../../types/definitions.yo");
+{ some_t_bounds, t_static_str_ref, TypeValue, TypeValueNode, FuncMeta, t_refine_inner, shared_list, no_types, no_labels, no_levels, SharedList, no_flags, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_reference, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, t_slot_is_borrow, fn_param_slots, is_origin_kind, t_origin_kind, t_origin_named, t_origin_spelled_names, fn_result_slot } :: import("../../types/definitions.yo");
 { get_func_param_defaults, get_func_param_default_exprs, default_param_eval_env, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, get_func_where_clause_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep, collect_wrapper_trait_somes, evaluate_origin_argument } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call, is_io_state_call, is_io_spawn_call, is_join_handle_await_call, IO_BUILTIN_NONE } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
@@ -83,7 +83,7 @@ pragma(Pragma.AllowUnsafe);
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
 { type_key } :: import("../../types/type_key.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_place_of, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, variable_is_reference_binding, variable_is_mut_borrow, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, local_borrow_write_expr, origin_of, bind_join_roots_for, origin_param_names_of, param_declared_origin_slot, is_rigid_origin_name, origin_name_phrase, OriginRootPlace, check_capture_freeze_access, reference_field_read_mode, deref_operand_is_raw_pointer, local_borrow_place_text, FutureRoot, note_future_roots, future_roots_of, holder_future_roots, is_reference_read, n2b_roots_text, deref_rule_applies, deref_rule_recording, is_reference_deref_site, note_binder_value_read, forget_binder_value_read, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, fn_value_definition, type_var_ids_of, deref_chain_atom, reference_reborrow_chain, call_activation_token, projection_call_root_args, ProjectionRootArg, flow_write_back_through, local_mut_borrow_of_holder, expr_is_mut_reference_value, variable_holder_roots, legacy_box_dyn_lend } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_place_of, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, variable_is_reference_binding, variable_is_mut_borrow, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, local_borrow_write_expr, origin_of, bind_join_roots_for, origin_param_names_of, param_declared_origin_slot, is_rigid_origin_name, origin_name_phrase, OriginRootPlace, check_capture_freeze_access, reference_field_read_mode, deref_operand_is_raw_pointer, local_borrow_place_text, FutureRoot, note_future_roots, future_roots_of, holder_future_roots, is_reference_read, n2b_roots_text, deref_rule_applies, deref_rule_recording, is_reference_deref_site, note_binder_value_read, forget_binder_value_read, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, fn_value_definition, type_var_ids_of, deref_chain_atom, reference_reborrow_chain, call_activation_token, projection_call_root_args, ProjectionRootArg, flow_write_back_through, local_mut_borrow_of_holder, expr_is_mut_reference_value, variable_holder_roots, legacy_box_dyn_lend, legacy_str_type_arg } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -112,10 +112,10 @@ pragma(Pragma.AllowUnsafe);
   note_rprobe_call,
   rprobe_stats_on
 } :: import("../context.yo");
-{ is_pointer_type, is_dyn_type, is_type_hierarchy_type, is_type_parameter_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, is_type_kind, type_decl_module, is_module_type, is_cell_primitive_type, is_counted_handle_type, unique_box_payload_type } :: import("../../types/guards.yo");
+{ is_pointer_type, is_dyn_type, is_type_hierarchy_type, is_type_parameter_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, is_type_kind, type_decl_module, is_module_type, is_cell_primitive_type, is_counted_handle_type, is_str_reference_type, str_reference_pointee, unique_box_payload_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
-{ is_drop_method_name, is_clone_trait_type, type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, resolve_cell_chain, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type, note_future_origins_exist, note_unreturnable_future, future_origin_names, type_is_second_class, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message, type_lacks_clone } :: import("../../types/utils.yo");
+{ is_drop_method_name, is_clone_trait_type, type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, resolve_cell_chain, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type, note_future_origins_exist, note_unreturnable_future, future_origin_names, type_is_second_class, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message, type_lacks_clone, is_legacy_value_str, is_static_view_slot } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
 { trait_impl_epoch, type_is_typed_fnmut_closure, closure_fn_trait_of, get_all_some_types, type_mentions_some_type_named, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note, same_name_note, deref_miss_note, mark_generic_independent, type_mentions_impl_fn_or_future } :: import("../../types/utils.yo");
 { check_literal_fits, comptime_int_value_misfit } :: import("../values/integer.yo");
@@ -1552,11 +1552,22 @@ _find_receiver_method_of :: (
   // elements ("Type mismatch for type member"). Resolve the shell to the
   // finalized enum (registered by register_enum_final) so the derived clone is
   // found. No-op for non-shell receivers. issues/fixed/yo-self-p1-transpile-tail.md.
-  receiver_type := resolve_enum_shell(&receiver_info.ty());
+  mut(receiver_type) := resolve_enum_shell(&receiver_info.ty());
   receiver_value := receiver_info.value();
   // 3. Method name token.
   method_tok := ast_expr_token(&method_name_expr);
   method_name := method_tok.value.*.clone();
+  // The Q-B arm's receiver half (`unsized_legacy_spellings`, VERDICTS-62
+  // decision 5): a `&str` VALUE receiver (a call's result, the legacy value
+  // `str`) with no method of its own selects `str`'s, and the reference value
+  // fills the `&Self` slot as a `&str` argument does. S3b-`str` deletes it.
+  match(
+    str_reference_pointee(&receiver_type),
+    .Some(sr_p) => if(!match(receiver_value, .Some(sr_v) => is_type_val(&sr_v), .None => false) && (get_receiver_methods_by_name_from_env(env, method_name.clone(), &receiver_type, false).len() == usize(0)), {
+      receiver_type = sr_p;
+    }),
+    .None => ()
+  );
   // 4. Static vs instance dispatch.
   //    When the receiver's VALUE is a TypeValue (e.g. `HashMap(K,V)`,
   //    `EvenNumber`), this is a STATIC method call: look up methods on the
@@ -3641,7 +3652,9 @@ _try_rewrite_range_index_to_slice_copy :: (
     return(Option(AstExpr).None);
   });
   method_name := if(is_incl, String.from("slice_copy_inclusive"), String.from("slice_copy"));
-  methods := get_receiver_methods_by_name_from_env(env, method_name.clone(), recv_ty, false);
+  // A `&str` receiver (decision 49 S2's legacy value `str`) slices the `str`
+  // it refers to.
+  methods := get_receiver_methods_by_name_from_env(env, method_name.clone(), &match(str_reference_pointee(recv_ty), .Some(sr_p) => sr_p, .None => Rc.clone(recv_ty)), false);
   if(methods.len() == usize(0), {
     return(Option(AstExpr).None);
   });
@@ -6664,9 +6677,17 @@ _fv_synthesize_arg_into :: (fn(declared_pt : &TypeValue, scratch_env : &Environm
 ///   the callee's specialization abstract: `outer(())` with
 ///   `outer :: fn(generic(T), v : T) -> T)(inner(v))` emitted an abort stub
 ///   (issues/fixed/2026-10-24-a-generic-tail-call-forwarding-t-fails-to-transpile-for-unit.md).
-_funcval_infer_forall_ty :: (fn(arg_ty : &TypeValue, exp_pt : &TypeValue, param_is_ct : bool, env : &Environment) -> TypeValue)(
+_funcval_infer_forall_ty :: (fn(arg_ty : &TypeValue, exp_pt : &TypeValue, param_is_ct : bool, slot_lends : bool, env : &Environment) -> TypeValue)(
   cond(
-    is_comptime_string_type(arg_ty) => Rc.new(TypeValueNode.Str),
+    // A string literal (decision 49 S2) is the place `str` where the slot
+    // lends one (`x : &T` binds `T := str`), and the `&(str, static)` value
+    // anywhere else (`x : T` binds `T := &(str, static)`, the legacy value
+    // `str`, as `s := "x"` types `s`).
+    is_comptime_string_type(arg_ty) => if(slot_lends, Rc.new(TypeValueNode.Str), t_static_str_ref()),
+    // A `&str` value lent to the slot is the `str` it refers to, as the
+    // literal is (`check_if_function_parameter_matches_argument`'s
+    // `str_place_at_binder`): `assert_eq(s, "q")` binds one `A := str`.
+    (slot_lends && is_str_reference_type(arg_ty)) => Rc.new(TypeValueNode.Str),
     (!param_is_ct && (is_comptime_int_type(arg_ty) || is_comptime_float_type(arg_ty))) => convert_comptime_type_to_runtime_type(arg_ty, env),
     ((is_function_type(arg_ty) || is_fn_trait_type(arg_ty)) && is_some_type(exp_pt)) => Rc.clone(exp_pt),
     (is_unit_type(arg_ty) && is_some_type(exp_pt) && (in_def_time_trial() || type_mentions_impl_fn_or_future(exp_pt))) => Rc.clone(exp_pt),
@@ -6941,7 +6962,7 @@ _fv_refine_closure_expected :: (
         while((q < info_arg_idx.len()) && f_ty.is_none(), {
           if(match(info_arg_idx.get_cloned(q), .Some(ix) => (ix == p), .None => false), {
             q_info := match(infos.get_cloned(q), .Some(i) => i, .None => new_expr_info(env, t_unit()));
-            q_ty := _funcval_infer_forall_ty(&q_info.ty(), t_unit(), match(param_ct.get(p), .Some(c) => c, .None => false), env);
+            q_ty := _funcval_infer_forall_ty(&q_info.ty(), t_unit(), match(param_ct.get(p), .Some(c) => c, .None => false), ((p < declared_param_types.len()) && t_slot_is_borrow(&declared_param_types(p))), env);
             if((get_all_some_types(&q_ty).len() == usize(0)) && !is_some_type(&q_ty), {
               f_ty = Option(TypeValue).Some(q_ty);
             });
@@ -7293,6 +7314,7 @@ _funcval_bind_foralls :: (
               &later_info.ty(),
               match(expected_param_types.get_cloned(ptn_i), .Some(t) => t_slot_pointee(&t), .None => t_unit()),
               match(param_ct_flags.get(ptn_i), .Some(f) => f, .None => false),
+              ((ptn_i < declared_param_types.len()) && t_slot_is_borrow(&declared_param_types(ptn_i))),
               env
             );
             if(_forall_types_conflict(&fa_prev.*, &later_ty), {
@@ -7315,6 +7337,7 @@ _funcval_bind_foralls :: (
           &arg_info.ty(),
           match(expected_param_types.get_cloned(ptn_i), .Some(t) => t_slot_pointee(&t), .None => t_unit()),
           match(param_ct_flags.get(ptn_i), .Some(f) => f, .None => false),
+          ((ptn_i < declared_param_types.len()) && t_slot_is_borrow(&declared_param_types(ptn_i))),
           env
         );
         _add_forall := add_variable_to_env(
@@ -8005,7 +8028,10 @@ _evaluate_funcval_runtime_call :: (
                     is_comptime_int_type(&_ac_aty) || is_comptime_float_type(&_ac_aty)
                     || is_comptime_string_type(&_ac_aty)
                   );
-                  if(!_ac_p_generic && !_ac_a_generic && !_ac_a_comptime
+                  // A `&str` value at a `&str` slot is the `str` it refers
+                  // to (decision 49 S2, `check_argument_for_parameter`).
+                  _ac_str_place := (is_str_reference_type(&_ac_aty) && is_legacy_value_str(&_ac_pty));
+                  if(!_ac_p_generic && !_ac_a_generic && !_ac_a_comptime && !_ac_str_place
                   && !are_types_compatible(&_ac_aty, &_ac_pty), {
                     // C19: a concrete/concrete argument-type mismatch (e.g. C
                     // `int` where `i32` is declared) is ALWAYS a hard error.
@@ -9036,6 +9062,18 @@ _operator_reference_operand :: (
   });
   false
 });
+/// The Q-B legacy operator arm's rhs half (`unsized_legacy_spellings`,
+/// VERDICTS-62 decision 5): a 2nd operand of type `&str` — a value-`str`
+/// binding, field or call result read as the reference (arm A2), or a string
+/// literal `&(str, static)` — takes part in overload selection as `str`; the
+/// reference value itself then fills the chosen overload's `&Rhs` slot. Only a
+/// shared `&str` operand selects as `str`, and only against the unsized `str`
+/// parameter, so `string == "lit"` picks `Eq(str)` on `String` while
+/// `"lit" == string` and `s == string` pick `Eq(String)` on `str` by the exact
+/// rules alone. S3b-`str` deletes it with the alias (decision 7).
+_qb_str_operand_selects_as :: (fn(snd : &TypeValue, param : &TypeValue) -> bool)(
+  is_str_reference_type(snd) && match(t_refine_inner(param), Rc(.Str) => true, _ => false)
+);
 /// Evaluate an operator's 2nd operand under a capture-free swallow `Exception`
 /// to read its type for overload selection, WITHOUT aborting the caller on
 /// failure. The selection eval clears the expected type to read the operand's
@@ -10836,7 +10874,28 @@ _evaluate_function_call_unanchored :: (
     // prelude's `Eq(Option(T))` body at `T = EvalValue`, the inner `a == b`
     // dispatches here with `a` typed as EvalValue's shell.
     // See issues/fixed/yo-self-option-eq-ref-enum-not-specialized.md.
-    receiver_ty := resolve_enum_shell(match(first_info_opt, .Some(ri) => Rc.clone(ri.ty()), .None => t_unit()));
+    (receiver_ty : TypeValue) = resolve_enum_shell(match(first_info_opt, .Some(ri) => Rc.clone(ri.ty()), .None => t_unit()));
+    // The Q-B legacy operator arm (`unsized_legacy_spellings`, VERDICTS-62
+    // decision 5): after gap 1 has declined (`_ref_operand` false), a receiver
+    // of type `&str` — a value-`str` binding or field read as the reference
+    // (arm A2), or a string literal, whose type is `&(str, static)` — takes
+    // part in selection as `str`, and the reference value itself fills the
+    // `&Self` slot of the `impl(str, ...)` overloads. No storage is lent and no
+    // temporary is made: the operand already is the reference. Only a SHARED
+    // `&str` selects as `str` (`str_reference_pointee`: not `&mut str`, not
+    // another pointee), gap 1 keeps priority, and neither a method receiver nor
+    // a generic bound passes through here (`T := &str` still selects the
+    // blanket impl). S3b-`str` deletes the arm with the alias (decision 7).
+    if(!_ref_operand, {
+      match(
+        str_reference_pointee(&receiver_ty),
+        .Some(qb_str) => {
+          receiver_ty = qb_str;
+          ()
+        },
+        .None => ()
+      );
+    });
     // is_infix_operator_call = true: infix operators don't allow auto
     // pointer conversion of the receiver.
     (op_methods : ArrayList(MethodEntry)) = get_receiver_methods_by_name_from_env(env, op_name.clone(), &receiver_ty, true);
@@ -10960,7 +11019,7 @@ _evaluate_function_call_unanchored :: (
                 Rc(.Func({ param_types : ocpt })) => match(slot_pointee_at(&ocpt.*, usize(1)), .Some(t) => t, .None => t_unit()),
                 _ => t_unit()
               );
-              if(are_types_compatible(&snd_ty, &ocand_p1), {
+              if((are_types_compatible(&snd_ty, &ocand_p1) || _qb_str_operand_selects_as(&snd_ty, &ocand_p1)), {
                 chosen_idx = osi;
                 osel = true;
               });
@@ -13820,6 +13879,11 @@ Fix: wrap the call:
             bind_val = Option(EvalValue).Some(create_unknown_val(&resolved_decl_pt));
             is_ct = false;
           });
+          // A `&str` value at a `&str` slot binds the `str` it refers to
+          // (decision 49 S2, `check_argument_for_parameter`).
+          if(is_str_reference_type(&arg_info.ty()) && is_legacy_value_str(&resolved_decl_pt), {
+            bind_ty = resolved_decl_pt.clone();
+          });
           // With an EXPLICIT call-site type application, the resolved param
           // type is authoritative — every argument must be checked against
           // it and `pick(generic(i32), u8(1), ...)` rejected. This
@@ -13887,7 +13951,18 @@ Fix: wrap the call:
               .None => ()
             );
           });
-          var_opt := bind_parameter(&fresh_env, &pname, &bind_ty, &bind_val, is_ct, p_is_ref, p_is_own, synthetic_token(&pname, &env.module_path().*), match(&callee_info_opt, .Some(ci) => fn_param_is_ptr_borrow(&ci.ty(), pi), .None => false));
+          // `ArrayList(str)` binds `V := &(str, static)` (decision 49's
+          // legacy value `str`, `legacy_str_type_arg`).
+          if(is_ct, {
+            bind_val = legacy_str_type_arg(&resolved_decl_pt, &bind_val);
+          });
+          // The legacy value `str` (`is_static_view_slot`) binds as the
+          // `&(str, static)` value it is, as the def-time binder does.
+          p_view := (!is_ct && (pi < fv_param_types.len()) && is_static_view_slot(&fv_param_types(pi)));
+          if(p_view, {
+            bind_ty = Rc.clone(fv_param_types(pi));
+          });
+          var_opt := bind_parameter(&fresh_env, &pname, &bind_ty, &bind_val, is_ct, p_is_ref, p_is_own || p_view, synthetic_token(&pname, &env.module_path().*), !p_view && match(&callee_info_opt, .Some(ci) => fn_param_is_ptr_borrow(&ci.ty(), pi), .None => false));
           match(
             var_opt,
             .Some(v) => {

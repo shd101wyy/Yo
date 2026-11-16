@@ -10392,6 +10392,9 @@ The rule, layout, prelude and tests are in decision 49 (§4).
     to v0.2.79, behind the retype of the three shared trees (`Token`,
     `AstExpr`, `EvalValue`); src's last 74 declarations land in batches
     across v0.2.77–v0.2.79. The parser drop is tree-gated, not seed-gated.
+  - **Amended 2026-11-16 (schedule §5i decision 54):** the three trees are
+    gated by compiler-swap identity; their emitted C differs from the base's
+    by construction (new type keys, payload reads, `clone` calls).
   - **Amended 2026-11-04 (schedule §5f decisions 27–29):** v0.2.75 became a
     cadence cut. The declaration migration ("part B") is v0.2.76's only
     must-have, and Generation B moves to v0.2.77 with the retirement.

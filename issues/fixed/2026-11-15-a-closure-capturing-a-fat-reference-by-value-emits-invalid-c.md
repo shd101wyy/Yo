@@ -38,11 +38,19 @@ Compiled with `yo compile <file> --std-path ./std --optimize 2 --allocator syste
 ## Root cause
 
 The capture initializer emits `&(*v)` for the by-value capture of a reference binding. A fat reference is a
-`__yo_slice_t` value, not a pointer, so the dereference is invalid C. (Read from the emitted C; the emitting site in
-`src/codegen/` is not located.)
+`__yo_slice_t` value, not a pointer, so the dereference is invalid C. The site is the capture-list arm of
+`src/codegen/exprs/closures.yo` (`cfi.is_borrow`): the entry `{ v }` of a reference binding is a borrow entry whose
+initializer is the place `v` refers to, rendered `(*v)`, and the arm stored `(&(<place>))` whatever the place's type.
 
 ## Expected
 
 The closure copies the fat reference: `{ v }` captures the reference value.
 
-Fix: not started (v0.2.79).
+## Fix
+
+Fixed 2026-11-15 on `vbd/d49-str` (the `str` flip, decision 49 S2), where every `&str` binding is fat. A borrow
+entry whose place is unsized stores the fat pointer the place was read through (`unsized_place_fat_code`, the
+convention the other `&` sites use: `(*fat)` lends as `fat`); a sized place keeps `(&(<place>))`.
+
+Tests: `tests/unsized_places.test.yo` ("a closure captures a &[i32] binding by value"; the batch failed to compile
+before, on the seed) and `tests/str.test.yo` ("a closure captures a &str binding by value").
