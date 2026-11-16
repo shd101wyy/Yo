@@ -27,15 +27,17 @@ import("std/fmt");
 { Exception } :: import("std/error");
 { assert, panic } :: import("std/assert");
 mk_token :: (fn(value : str) -> Token)(
-  Rc.new(TokenData(
-    kind : TokenKind.Identifier,
-    value : Rc.new(String.from(value)),
-    row : u32(0),
-    column : u32(0),
-    character : u32(0),
-    module_path : Rc.new(String.from("test")),
-    input : Rc.new(String.from(""))
-  ))
+  Rc.new(
+    TokenData(
+      kind : TokenKind.Identifier,
+      value : Rc.new(String.from(value)),
+      row : u32(0),
+      column : u32(0),
+      character : u32(0),
+      module_path : Rc.new(String.from("test")),
+      input : Rc.new(String.from(""))
+    )
+  )
 );
 mk_escape_call :: (fn(arg_id : usize, arg_value : str, call_id : usize) -> AstExpr)({
   arg_atom := AstExpr.Atom(arg_id, mk_token(arg_value));
@@ -80,7 +82,7 @@ test("evaluate_unwind: writes ExprInfo with Unwind control flow", {
   assert(match(&info_opt, .Some(_) => true, .None => false), "unwind(did not record an ExprInfo)");
   info := match(
     info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => new_expr_info(&env, t_i32())
   );
   // Type should be i32 (from stub).

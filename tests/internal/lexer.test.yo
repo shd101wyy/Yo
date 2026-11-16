@@ -17,7 +17,7 @@ non_ws :: (fn(toks : &ArrayList(Token)) -> ArrayList(Token))({
   n := toks.len();
   while(i < n, {
     match(
-      toks.get(i),
+      toks.get_cloned(i),
       .None => (),
       .Some(tok) => {
         if(tok.kind != TokenKind.Whitespace, {
@@ -42,7 +42,7 @@ test("Single identifier", {
   toks := non_ws(lex_or_panic(`hello`, exn));
   assert(toks.len() == usize(1), "expected 1 token");
   match(
-    toks.get(usize(0)),
+    toks.get_cloned(usize(0)),
     .None => assert(false, "no token at 0"),
     .Some(tok) => {
       assert(tok.kind == TokenKind.Identifier, "expected Identifier");
@@ -62,7 +62,7 @@ test("Identifier with digits and underscore", {
   toks := non_ws(lex_or_panic(`my_var_2`, exn));
   assert(toks.len() == usize(1), "expected 1 token");
   match(
-    toks.get(usize(0)),
+    toks.get_cloned(usize(0)),
     .None => assert(false, "no token at 0"),
     .Some(tok) => {
       assert(tok.kind == TokenKind.Identifier, "expected Identifier");
@@ -82,7 +82,7 @@ test("Bool literals true and false", {
   toks := non_ws(lex_or_panic(`true false`, exn));
   assert(toks.len() == usize(2), "expected 2 tokens");
   match(
-    toks.get(usize(0)),
+    toks.get_cloned(usize(0)),
     .None => assert(false, "no token at 0"),
     .Some(tok) => {
       assert(tok.kind == TokenKind.Bool, "expected Bool");
@@ -90,7 +90,7 @@ test("Bool literals true and false", {
     }
   );
   match(
-    toks.get(usize(1)),
+    toks.get_cloned(usize(1)),
     .None => assert(false, "no token at 1"),
     .Some(tok) => {
       assert(tok.kind == TokenKind.Bool, "expected Bool");
@@ -111,7 +111,7 @@ test("Decimal integer", {
   toks := non_ws(lex_or_panic(`42`, exn));
   assert(toks.len() == usize(1), "expected 1 token");
   match(
-    toks.get(usize(0)),
+    toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
       assert(tok.kind == TokenKind.Integer, "expected Integer");
@@ -131,7 +131,7 @@ test("Hex integer", {
   toks := non_ws(lex_or_panic(`0xFF`, exn));
   assert(toks.len() == usize(1), "expected 1 token");
   match(
-    toks.get(usize(0)),
+    toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
       assert(tok.kind == TokenKind.Integer, "expected Integer");
@@ -151,7 +151,7 @@ test("Binary integer", {
   toks := non_ws(lex_or_panic(`0b1010`, exn));
   assert(toks.len() == usize(1), "expected 1 token");
   match(
-    toks.get(usize(0)),
+    toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
       assert(tok.kind == TokenKind.Integer, "expected Integer");
@@ -171,7 +171,7 @@ test("Octal integer", {
   toks := non_ws(lex_or_panic(`0o777`, exn));
   assert(toks.len() == usize(1), "expected 1 token");
   match(
-    toks.get(usize(0)),
+    toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
       assert(tok.kind == TokenKind.Integer, "expected Integer");
@@ -191,7 +191,7 @@ test("Float with decimal point", {
   toks := non_ws(lex_or_panic(`3.14`, exn));
   assert(toks.len() == usize(1), "expected 1 token");
   match(
-    toks.get(usize(0)),
+    toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
       assert(tok.kind == TokenKind.Float, "expected Float");
@@ -215,7 +215,7 @@ test("Bare exponent is a Float (1e5)", {
   toks := non_ws(lex_or_panic(`1e10`, exn));
   assert(toks.len() == usize(1), "expected 1 token");
   match(
-    toks.get(usize(0)),
+    toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
       assert(tok.kind == TokenKind.Float, "expected Float (exponent makes the literal a float)");
@@ -235,7 +235,7 @@ test("Hex digits are not an exponent (0x1E5 stays Integer)", {
   toks := non_ws(lex_or_panic(`0x1E5`, exn));
   assert(toks.len() == usize(1), "expected 1 token");
   match(
-    toks.get(usize(0)),
+    toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
       assert(tok.kind == TokenKind.Integer, "expected Integer (hex scan, no exponent branch)");
@@ -257,7 +257,7 @@ test("Sign with no exponent digit leaves the token Integer", {
   toks := non_ws(lex_or_panic(`1e+`, exn));
   assert(toks.len() == usize(3), "expected Integer, +, Integer tokens");
   match(
-    toks.get(usize(0)),
+    toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
       assert(tok.kind == TokenKind.Integer, "expected Integer for '1'");
@@ -277,7 +277,7 @@ test("Float with negative exponent", {
   toks := non_ws(lex_or_panic(`2.5e-3`, exn));
   assert(toks.len() == usize(1), "expected 1 token");
   match(
-    toks.get(usize(0)),
+    toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
       assert(tok.kind == TokenKind.Float, "expected Float");
@@ -298,7 +298,7 @@ test("Double-quoted string literal", {
   toks := non_ws(lex_or_panic(`"hello"`, exn));
   assert(toks.len() == usize(1), "expected 1 token");
   match(
-    toks.get(usize(0)),
+    toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
       assert(tok.kind == TokenKind.StringLit, "expected StringLit");
@@ -323,7 +323,7 @@ test("Template string content", {
   toks := non_ws(lex_or_panic(&src, exn));
   assert(toks.len() == usize(1), "expected 1 token");
   match(
-    toks.get(usize(0)),
+    toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
       assert(tok.kind == TokenKind.TemplateString, "expected TemplateString");
@@ -344,7 +344,7 @@ test("Arrow operator", {
   toks := non_ws(lex_or_panic(`->`, exn));
   assert(toks.len() == usize(1), "expected 1 token");
   match(
-    toks.get(usize(0)),
+    toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
       assert(tok.kind == TokenKind.Operator, "expected Operator");
@@ -364,7 +364,7 @@ test("Dot token", {
   toks := non_ws(lex_or_panic(`.`, exn));
   assert(toks.len() == usize(1), "expected 1 token");
   match(
-    toks.get(usize(0)),
+    toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
       assert(tok.kind == TokenKind.Dot, "expected Dot");
@@ -384,7 +384,7 @@ test("Range operator ..", {
   toks := non_ws(lex_or_panic(`..`, exn));
   assert(toks.len() == usize(1), "expected 1 token");
   match(
-    toks.get(usize(0)),
+    toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
       assert(tok.kind == TokenKind.Operator, "expected Operator for '..'");
@@ -404,7 +404,7 @@ test("Range-inclusive operator ..=", {
   toks := non_ws(lex_or_panic(`..=`, exn));
   assert(toks.len() == usize(1), "expected 1 token");
   match(
-    toks.get(usize(0)),
+    toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
       assert(tok.kind == TokenKind.Operator, "expected Operator for '..='");
@@ -423,12 +423,12 @@ test("All bracket kinds", {
   );
   toks := non_ws(lex_or_panic(`()[]{}`, exn));
   assert(toks.len() == usize(6), "expected 6 tokens");
-  match(toks.get(usize(0)), .None => assert(false, "0"), .Some(tok) => assert(tok.kind == TokenKind.LParen, "0: LParen"));
-  match(toks.get(usize(1)), .None => assert(false, "1"), .Some(tok) => assert(tok.kind == TokenKind.RParen, "1: RParen"));
-  match(toks.get(usize(2)), .None => assert(false, "2"), .Some(tok) => assert(tok.kind == TokenKind.LBracket, "2: LBracket"));
-  match(toks.get(usize(3)), .None => assert(false, "3"), .Some(tok) => assert(tok.kind == TokenKind.RBracket, "3: RBracket"));
-  match(toks.get(usize(4)), .None => assert(false, "4"), .Some(tok) => assert(tok.kind == TokenKind.LCurlyBracket, "4: LCurlyBracket"));
-  match(toks.get(usize(5)), .None => assert(false, "5"), .Some(tok) => assert(tok.kind == TokenKind.RCurlyBracket, "5: RCurlyBracket"));
+  match(toks.get_cloned(usize(0)), .None => assert(false, "0"), .Some(tok) => assert(tok.kind == TokenKind.LParen, "0: LParen"));
+  match(toks.get_cloned(usize(1)), .None => assert(false, "1"), .Some(tok) => assert(tok.kind == TokenKind.RParen, "1: RParen"));
+  match(toks.get_cloned(usize(2)), .None => assert(false, "2"), .Some(tok) => assert(tok.kind == TokenKind.LBracket, "2: LBracket"));
+  match(toks.get_cloned(usize(3)), .None => assert(false, "3"), .Some(tok) => assert(tok.kind == TokenKind.RBracket, "3: RBracket"));
+  match(toks.get_cloned(usize(4)), .None => assert(false, "4"), .Some(tok) => assert(tok.kind == TokenKind.LCurlyBracket, "4: LCurlyBracket"));
+  match(toks.get_cloned(usize(5)), .None => assert(false, "5"), .Some(tok) => assert(tok.kind == TokenKind.RCurlyBracket, "5: RCurlyBracket"));
 });
 test("Comma and semicolon", {
   exn := Exception(
@@ -441,8 +441,8 @@ test("Comma and semicolon", {
   );
   toks := non_ws(lex_or_panic(`,;`, exn));
   assert(toks.len() == usize(2), "expected 2 tokens");
-  match(toks.get(usize(0)), .None => assert(false, "0"), .Some(tok) => assert(tok.kind == TokenKind.Comma, "0: Comma"));
-  match(toks.get(usize(1)), .None => assert(false, "1"), .Some(tok) => assert(tok.kind == TokenKind.Semicolon, "1: Semicolon"));
+  match(toks.get_cloned(usize(0)), .None => assert(false, "0"), .Some(tok) => assert(tok.kind == TokenKind.Comma, "0: Comma"));
+  match(toks.get_cloned(usize(1)), .None => assert(false, "1"), .Some(tok) => assert(tok.kind == TokenKind.Semicolon, "1: Semicolon"));
 });
 // ─── Comments ────────────────────────────────────────────────────────────────
 test("Single-line comment //", {
@@ -457,7 +457,7 @@ test("Single-line comment //", {
   toks := tokenize(`// this is a comment`, `test.yo`, exn);
   assert(toks.len() == usize(1), "expected 1 token");
   match(
-    toks.get(usize(0)),
+    toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
       assert(tok.kind == TokenKind.SingleLineComment, "expected SingleLineComment");
@@ -477,7 +477,7 @@ test("Outer doc-line comment ///", {
   toks := tokenize(`/// docs`, `test.yo`, exn);
   assert(toks.len() == usize(1), "expected 1 token");
   match(
-    toks.get(usize(0)),
+    toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
       assert(tok.kind == TokenKind.DocLineComment, "expected DocLineComment");
@@ -497,7 +497,7 @@ test("Inner doc comment //!", {
   toks := tokenize(`//! inner doc`, `test.yo`, exn);
   assert(toks.len() == usize(1), "expected 1 token");
   match(
-    toks.get(usize(0)),
+    toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => assert(tok.kind == TokenKind.InnerDocLineComment, "expected InnerDocLineComment")
   );
@@ -514,7 +514,7 @@ test("Block comment /* */", {
   toks := tokenize(`/* block */`, `test.yo`, exn);
   assert(toks.len() == usize(1), "expected 1 token");
   match(
-    toks.get(usize(0)),
+    toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
       assert(tok.kind == TokenKind.MultiLineComment, "expected MultiLineComment");
@@ -534,7 +534,7 @@ test("Nested block comment", {
   toks := tokenize(`/* outer /* inner */ end */`, `test.yo`, exn);
   assert(toks.len() == usize(1), "expected 1 token");
   match(
-    toks.get(usize(0)),
+    toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => assert(tok.kind == TokenKind.MultiLineComment, "expected MultiLineComment")
   );
@@ -551,7 +551,7 @@ test("Doc block comment /**", {
   toks := tokenize(`/** doc */`, `test.yo`, exn);
   assert(toks.len() == usize(1), "expected 1 token");
   match(
-    toks.get(usize(0)),
+    toks.get_cloned(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => assert(tok.kind == TokenKind.DocBlockComment, "expected DocBlockComment")
   );
@@ -574,7 +574,7 @@ test("Token row tracking across newlines", {
   toks := non_ws(tokenize(&src, `test.yo`, exn));
   assert(toks.len() == usize(2), "expected 2 tokens");
   match(
-    toks.get(usize(0)),
+    toks.get_cloned(usize(0)),
     .None => assert(false, "no token 0"),
     .Some(tok) => {
       assert(usize(tok.row) == usize(0), "hello is on row 0");
@@ -582,7 +582,7 @@ test("Token row tracking across newlines", {
     }
   );
   match(
-    toks.get(usize(1)),
+    toks.get_cloned(usize(1)),
     .None => assert(false, "no token 1"),
     .Some(tok) => {
       assert(usize(tok.row) == usize(1), "world is on row 1");
@@ -602,12 +602,12 @@ test("Column offset within a line", {
   toks := non_ws(tokenize(`abc def`, `test.yo`, exn));
   assert(toks.len() == usize(2), "expected 2 tokens");
   match(
-    toks.get(usize(0)),
+    toks.get_cloned(usize(0)),
     .None => assert(false, "no token 0"),
     .Some(tok) => assert(usize(tok.column) == usize(0), "abc at column 0")
   );
   match(
-    toks.get(usize(1)),
+    toks.get_cloned(usize(1)),
     .None => assert(false, "no token 1"),
     .Some(tok) => assert(usize(tok.column) == usize(4), "def at column 4")
   );
@@ -783,7 +783,7 @@ test("Tokenize x : (fn() -> i32) yields correct bracket count", {
   n := toks.len();
   while(i < n, {
     match(
-      toks.get(i),
+      toks.get_cloned(i),
       .None => (),
       .Some(tok) => {
         cond(
@@ -823,7 +823,7 @@ test("forall tokenizes as a plain identifier (V5 activates the quantifier)", {
   toks := non_ws(lex_or_panic(`forall`, exn));
   assert(toks.len() == usize(1), "expected 1 token");
   match(
-    toks.get(usize(0)),
+    toks.get_cloned(usize(0)),
     .None => assert(false, "no token at 0"),
     .Some(tok) => {
       assert(tok.kind == TokenKind.Identifier, "expected Identifier");
@@ -875,7 +875,7 @@ test("exists is NOT reserved — tokenizes as a plain identifier", {
   toks := non_ws(lex_or_panic(`exists`, exn));
   assert(toks.len() == usize(1), "expected 1 token");
   match(
-    toks.get(usize(0)),
+    toks.get_cloned(usize(0)),
     .None => assert(false, "no token at 0"),
     .Some(tok) => {
       assert(tok.kind == TokenKind.Identifier, "expected Identifier");
@@ -895,7 +895,7 @@ test("generic tokenizes as a plain identifier (the binder survives)", {
   toks := non_ws(lex_or_panic(`generic`, exn));
   assert(toks.len() == usize(1), "expected 1 token");
   match(
-    toks.get(usize(0)),
+    toks.get_cloned(usize(0)),
     .None => assert(false, "no token at 0"),
     .Some(tok) => {
       assert(tok.kind == TokenKind.Identifier, "expected Identifier");
@@ -917,7 +917,7 @@ test("closed operator set: ** splits into two * tokens", {
   assert(toks.len() == usize(4), "expected 4 tokens: a * * b");
   (mut(first_star_col) : usize) = usize(0);
   match(
-    toks.get(usize(1)),
+    toks.get_cloned(usize(1)),
     .None => assert(false, "no token at 1"),
     .Some(tok) => {
       assert(tok.kind == TokenKind.Operator, "expected Operator");
@@ -926,7 +926,7 @@ test("closed operator set: ** splits into two * tokens", {
     }
   );
   match(
-    toks.get(usize(2)),
+    toks.get_cloned(usize(2)),
     .None => assert(false, "no token at 2"),
     .Some(tok) => {
       assert(tok.value.* == `*`, "second * of the split");
@@ -946,12 +946,12 @@ test("closed operator set: greedy longest match splits <<= into << and =", {
   toks := non_ws(lex_or_panic(`a <<= b`, exn));
   assert(toks.len() == usize(4), "expected 4 tokens: a << = b");
   match(
-    toks.get(usize(1)),
+    toks.get_cloned(usize(1)),
     .None => assert(false, "no token at 1"),
     .Some(tok) => assert(tok.value.* == `<<`, "greedy 2-char match first")
   );
   match(
-    toks.get(usize(2)),
+    toks.get_cloned(usize(2)),
     .None => assert(false, "no token at 2"),
     .Some(tok) => assert(tok.value.* == `=`, "then the 1-char remainder")
   );
@@ -968,7 +968,7 @@ test("closed operator set: ?* splits into ? and * (Option of pointer)", {
   toks := non_ws(lex_or_panic(`?*`, exn));
   assert(toks.len() == usize(2), "?* splits into ? *");
   match(
-    toks.get(usize(0)),
+    toks.get_cloned(usize(0)),
     .None => assert(false, "no token at 0"),
     .Some(tok) => assert(tok.value.* == `?`, "? is the Option alias")
   );
@@ -987,7 +987,7 @@ test("closed operator set: retired &+ splits into & and +", {
   toks := non_ws(lex_or_panic(`p &+ n`, exn));
   assert(toks.len() == usize(4), "expected 4 tokens: p & + n");
   match(
-    toks.get(usize(1)),
+    toks.get_cloned(usize(1)),
     .None => assert(false, "no token at 1"),
     .Some(tok) => assert(tok.value.* == `&`, "retired &+ is no single token")
   );
@@ -1022,7 +1022,7 @@ test("Token.byte_offset is a BYTE offset while character stays a rune index", {
   // a  :=  "名前"  ;  b  :=  1  ;  → 8 tokens
   assert(toks.len() == usize(8), "expected 8 non-whitespace tokens");
   match(
-    toks.get(usize(2)),
+    toks.get_cloned(usize(2)),
     .None => assert(false, "no token at 2"),
     .Some(tok) => {
       assert(tok.kind == TokenKind.StringLit, "token 2 is the string literal");
@@ -1031,7 +1031,7 @@ test("Token.byte_offset is a BYTE offset while character stays a rune index", {
     }
   );
   match(
-    toks.get(usize(3)),
+    toks.get_cloned(usize(3)),
     .None => assert(false, "no token at 3"),
     .Some(tok) => {
       assert(tok.value.* == `;`, "token 3 is the semicolon");
@@ -1044,7 +1044,7 @@ test("Token.byte_offset is a BYTE offset while character stays a rune index", {
   (mut(i) : usize) = usize(0);
   while(i < toks.len(), {
     match(
-      toks.get(i),
+      toks.get_cloned(i),
       .None => (),
       .Some(tok) => {
         assert(tok.input.*.is_char_boundary(usize(tok.byte_offset)), "byte_offset is a rune boundary");
@@ -1073,7 +1073,7 @@ test("Token.byte_offset tracks a multibyte operator run correctly", {
   toks := non_ws(lex_or_panic(&src, exn));
   assert(toks.len() == usize(3), "名 <= 名");
   match(
-    toks.get(usize(1)),
+    toks.get_cloned(usize(1)),
     .None => assert(false, "no token at 1"),
     .Some(tok) => {
       assert(tok.value.* == `<=`, "the operator token");
@@ -1103,7 +1103,7 @@ test("Leading UTF-8 BOM is skipped, not lexed into the first token", {
   toks := non_ws(lex_or_panic(&src, exn));
   assert(toks.len() == usize(4), "open ( 1 ) — 4 non-whitespace tokens");
   match(
-    toks.get(usize(0)),
+    toks.get_cloned(usize(0)),
     .None => assert(false, "no token at 0"),
     .Some(tok) => {
       assert(tok.kind == TokenKind.Identifier, "expected Identifier");
@@ -1275,27 +1275,27 @@ test("Well-formed unicode escapes lex, and a template decodes them", {
     )
   );
   dq := non_ws(lex_or_panic(String.from("s :: \"x\\u0041y\";"), exn));
-  assert(dq.get(2).unwrap().kind == TokenKind.StringLit, "the literal lexed");
+  assert(dq.get_cloned(2).unwrap().kind == TokenKind.StringLit, "the literal lexed");
   assert(
-    dq.get(2).unwrap().value.* == String.from("\"x\\u0041y\""),
+    dq.get_cloned(2).unwrap().value.* == String.from("\"x\\u0041y\""),
     "a double-quoted literal keeps the escape raw, delimiters included"
   );
   tmpl := non_ws(lex_or_panic(String.from("s :: `x\\u0041y`;"), exn));
-  assert(tmpl.get(2).unwrap().kind == TokenKind.TemplateString, "the template lexed");
+  assert(tmpl.get_cloned(2).unwrap().kind == TokenKind.TemplateString, "the template lexed");
   assert(
-    tmpl.get(2).unwrap().value.* == String.from("xAy"),
+    tmpl.get_cloned(2).unwrap().value.* == String.from("xAy"),
     "a template DECODES the escape: four hex digits became one A"
   );
   braced := non_ws(lex_or_panic(String.from("s :: `x\\u{41}y`;"), exn));
   assert(
-    braced.get(2).unwrap().value.* == String.from("xAy"),
+    braced.get_cloned(2).unwrap().value.* == String.from("xAy"),
     "the braced spelling decodes to the same text"
   );
   astral := non_ws(lex_or_panic(String.from("s :: `\\u{1F600}`;"), exn));
-  assert(astral.get(2).unwrap().value.*.len() == usize(4), "U+1F600 is four UTF-8 bytes");
+  assert(astral.get_cloned(2).unwrap().value.*.len() == usize(4), "U+1F600 is four UTF-8 bytes");
   pair := non_ws(lex_or_panic(String.from("s :: `\\uD83D\\uDE00`;"), exn));
   assert(
-    pair.get(2).unwrap().value.* == astral.get(2).unwrap().value.*,
+    pair.get_cloned(2).unwrap().value.* == astral.get_cloned(2).unwrap().value.*,
     "a surrogate PAIR combines into the same code point"
   );
 });
@@ -1375,7 +1375,7 @@ test("A surrogate PAIR in a double-quoted literal keeps lexing", {
   );
   toks := non_ws(lex_or_panic(String.from("s :: \"x\\uD83D\\uDE00y\";"), exn));
   match(
-    toks.get(usize(2)),
+    toks.get_cloned(usize(2)),
     .None => assert(false, "no string token"),
     .Some(tok) => {
       assert(tok.kind == TokenKind.StringLit, "expected StringLit");
@@ -1465,7 +1465,7 @@ test("A multiline template token carries its START row", {
   // The template OPENS on row 2 and closes on row 4.
   toks := non_ws(lex_or_panic(String.from("\ns :: `a\n${b}\nc`;"), exn));
   match(
-    toks.get(usize(2)),
+    toks.get_cloned(usize(2)),
     .None => assert(false, "no template token"),
     .Some(tok) => {
       assert(tok.kind == TokenKind.TemplateString, "expected the template token");
@@ -1489,7 +1489,7 @@ test("A comment inside an interpolation does not close the body", {
   );
   block := non_ws(lex_or_panic(String.from("s :: `a ${x /* } */} b`;"), exn));
   match(
-    block.get(usize(2)),
+    block.get_cloned(usize(2)),
     .None => assert(false, "no template token"),
     .Some(tok) => {
       assert(tok.kind == TokenKind.TemplateString, "expected the template token");
@@ -1499,7 +1499,7 @@ test("A comment inside an interpolation does not close the body", {
   );
   line := non_ws(lex_or_panic(String.from("s :: `c ${x // don't}\n} d`;"), exn));
   match(
-    line.get(usize(2)),
+    line.get_cloned(usize(2)),
     .None => assert(false, "no template token"),
     .Some(tok) => {
       assert(tok.kind == TokenKind.TemplateString, "expected the template token");
@@ -1522,7 +1522,7 @@ test("Float with underscore separators is one Float token", {
   );
   toks := non_ws(lex_or_panic(String.from("x := 1_000.5;"), exn));
   match(
-    toks.get(usize(2)),
+    toks.get_cloned(usize(2)),
     .None => assert(false, "no float token"),
     .Some(tok) => {
       assert(tok.kind == TokenKind.Float, "expected Float");

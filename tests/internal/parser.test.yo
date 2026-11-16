@@ -683,15 +683,17 @@ test("extract_source_line: out-of-range returns empty string", {
   assert_str_eq(&result, String.from(""), "out-of-range row should return(empty string)");
 });
 test("make_parse_error renders via the shared renderer", {
-  tok := Rc.new(TokenData(
-    kind : TokenKind.Identifier,
-    value : Rc.new(String.from("}")),
-    row : u32(3),
-    column : u32(0),
-    character : u32(0),
-    module_path : Rc.new(String.from("test.yo")),
-    input : Rc.new(String.from("a\nb\nc\n}"))
-  ));
+  tok := Rc.new(
+    TokenData(
+      kind : TokenKind.Identifier,
+      value : Rc.new(String.from("}")),
+      row : u32(3),
+      column : u32(0),
+      character : u32(0),
+      module_path : Rc.new(String.from("test.yo")),
+      input : Rc.new(String.from("a\nb\nc\n}"))
+    )
+  );
   s := render_diagnostics_human(make_parse_error(&tok, String.from("unexpected token: }")).diagnostics);
   assert(s.contains(String.from("error[E0001]: unexpected token: }")), "should contain the coded error message");
   assert(s.contains(String.from("--> test.yo:4:1")), "should show row+1=4, col+1=1 in location");
@@ -1261,9 +1263,9 @@ test("a call missing its `)` is E0002 before ; ] } and at the end of the input",
 _tokens_of :: (fn(e : &AstExpr, out : &mut ArrayList(Token)) -> unit)(
   match(
     e,
-    .Atom(_, tok) => out.push(tok.*),
+    .Atom(_, tok) => out.push(Rc.clone(tok.*)),
     .FnCall(_, callee, Rc(args), _, tok) => {
-      out.push(tok.*);
+      out.push(Rc.clone(tok.*));
       _tokens_of(&callee.*, out);
       (mut(i) : usize) = usize(0);
       while(i < args.len(), i = (i + usize(1)), {
@@ -1288,14 +1290,14 @@ test("every token of a parse shares the module's source and path cells", {
   while(i < prog.len(), i = (i + usize(1)), {
     _tokens_of(&prog(i), &mut toks);
   });
-  first := toks(usize(0));
+  first := Rc.clone(toks(usize(0)));
   src_cell := Rc.clone(first.input);
   path_cell := Rc.clone(first.module_path);
   assert(src_cell.* == source, "the first token carries the source text");
   (mut(shared) : usize) = usize(0);
   (mut(j) : usize) = usize(0);
   while(j < toks.len(), j = (j + usize(1)), {
-    t := toks(j);
+    t := Rc.clone(toks(j));
     t_src := Rc.clone(t.input);
     t_path := Rc.clone(t.module_path);
     if(t.value.* == `b`, {
@@ -1337,7 +1339,7 @@ test("a template's lowered tokens sit at the template, not at the start of the m
     (mut(start) : Option(u32)) = .None;
     (mut(k) : usize) = usize(0);
     while(k < toks.len(), k = (k + usize(1)), {
-      t := toks(k);
+      t := Rc.clone(toks(k));
       if((t.value.* == `y`) || ((t.value.* == `z`) || (t.value.* == `w`)), {
         start = .Some(t.character);
       });
@@ -1347,7 +1349,7 @@ test("a template's lowered tokens sit at the template, not at the start of the m
       .Some(c0) => {
         (mut(j) : usize) = usize(0);
         while(j < toks.len(), j = (j + usize(1)), {
-          t := toks(j);
+          t := Rc.clone(toks(j));
           if(t.character < c0, {
             println(`token "${t.value.*}" at character ${t.character} precedes its statement at ${c0}`);
             assert(false, "a template's lowered token precedes the template");
@@ -1371,7 +1373,7 @@ _value_cells_of :: (fn(toks : &ArrayList(Token), text : str) -> ArrayList(Rc(Str
   mut(out) := ArrayList(Rc(String)).new();
   (mut(i) : usize) = usize(0);
   while(i < toks.len(), i = (i + usize(1)), {
-    t := toks(i);
+    t := Rc.clone(toks(i));
     if(t.value.* == text, {
       out.push(Rc.clone(t.value));
     });
