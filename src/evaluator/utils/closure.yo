@@ -1502,13 +1502,15 @@ generate_captured_variable_dup_expressions :: (
                   match(get_variables_from_env(env, var_name.clone()).last_cloned(), .Some(dyn_cap_v) => check_dyn_capture(&dyn_cap_v, closure_tok, env, ctx, exn), .None => ());
                 });
                 // A reference binding's capture lends the referent; it copies
-                // no handle (the recorder would spell `{ r : &r.* }`).
+                // no handle. It is recorded as `capture(ref)` and LISTED, never
+                // spelled (VERDICTS-64 decisions 18-19: a closure handed to a
+                // `sink` parameter captures values, so the site is a hand fix).
                 cap_is_ref := match(get_variables_from_env(env, var_name.clone()).last_cloned(), .Some(rv) => variable_is_reference_binding(&rv), .None => false);
-                if(audit_implicit_copy_enabled() && !cap_is_ref, {
+                if(audit_implicit_copy_enabled(), {
                   audit_record_implicit_copy(
                     closure_tok,
                     &ci.ty,
-                    "capture",
+                    if(cap_is_ref, "capture(ref)", "capture"),
                     env,
                     var_name.clone(),
                     var_name.clone(),

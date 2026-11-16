@@ -1356,6 +1356,11 @@ _run_migrate_rc_clone :: (fn(files : &ArrayList(String), std_path : &String, dry
         println(`fix: ${at}: \`${st.expect}\` holds a counted handle and its type \`${st.ty}\` is not \`Clone\`; give the type \`derive(..., Clone)\` and spell \`.clone()\` by hand`);
         continue;
       });
+      if(st.spelling == "refcapture", {
+        n_skipped = (n_skipped + usize(1));
+        println(`fix: ${at}: \`${st.expect}\` is a reference captured by a closure; left as written (a closure handed to a \`sink\` parameter captures values: compute what it reads before the call; one handed to a lent parameter such as \`RefCell.with\` reborrows with \`{ ${st.expect} : &${st.expect}.* }\`)`);
+        continue;
+      });
       if(st.spelling.starts_with("accessor:") && !st.in_generic, {
         // A copying accessor (`xs.get(i)`): its `_cloned` sibling.
         sibling := st.spelling.substring(usize(9), st.spelling.len());
