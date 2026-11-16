@@ -1744,6 +1744,15 @@ type_implements_trait :: (
   // and a `fn` pointer are Copy (Clone) exactly when every part is. Every
   // other type answers through its impls below.
   if(is_copy_trait(trait_type, env) || _is_clone_trait(trait_type, env), {
+    // A shared reference is `Copy` (plans/VALUES_BY_DEFAULT.md decision 43,
+    // Types: "`&T` is `Copy`. `&mut T` is not"): a copy copies the pointer
+    // (a `&str` the pointer and the length), never the referent. So
+    // `Option(&T)` and `Option(str)`, the legacy value spelling of
+    // `Option(&(str, static))` (decision 49 S2), are `Copy` through their
+    // payload. No impl can name it, as for the structural types below.
+    if(match(&target, Rc(.Reference(_, false, _)) => true, _ => false), {
+      return(TraitCheckResult(implemented : true, env : Rc.clone(env)));
+    });
     match(
       copy_structural_parts(&target),
       .Some(cp_parts) => {
