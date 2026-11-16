@@ -1462,10 +1462,6 @@ test("a plain dyn(v) is E0620 naming dyn(Box.new(v)) and the v0.2.78 migration",
     (b : Box(Dyn(_S3bSpeak))) = dyn(_S3bCat(n : i32(2)));
   }, "yo version install 0.2.78 && yo fix <path> --migrate unsized");
   c3 := _S3bCat(n : i32(3));
-  r3 := &c3;
-  comptime_expect_error({
-    (b : Box(Dyn(_S3bSpeak))) = dyn(r3);
-  }, "is a reference binding");
   (ok : Box(Dyn(_S3bSpeak))) = dyn(Box.new(_S3bCat(n : i32(4))));
   assert(ok.*.s3b_speak() == i32(4), "the spelled box erases");
   assert(_s3b_lent(dyn(&c3)) == i32(3), "a lent place erases without a box");

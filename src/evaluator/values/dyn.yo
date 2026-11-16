@@ -1231,7 +1231,17 @@ _dyn_type_from_payload_or_throw :: (
 /// `Dyn(Fn(...))` or `Dyn(FnMut(...))` could be called again, re-running a
 /// body that already gave its captures away; one typed `FnMut(...)` boxed as
 /// a `Dyn(Fn(...))` could be called through a shared borrow (E0913).
-_reject_weaker_closure_into_dyn :: (fn(target : &Option(ExpectedTypeCtx), value_ty : &TypeValue, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
+_reject_weaker_closure_into_dyn :: (fn(target : &Option(ExpectedTypeCtx), written_ty : &TypeValue, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
+  // The closure the erasure boxes: `dyn(Box.new(f))` and `dyn(Rc.new(f))`
+  // hand `dyn` the handle, and the closure is its payload. Read off the
+  // handle, an `FnOnce`/`FnMut` closure passed for a `Dyn(Fn(...))` and was
+  // called again through it (a double free of its moved captures)
+  // (issues/fixed/2026-11-16-a-boxed-fnonce-closure-erases-into-a-dyn-fn.md).
+  value_ty := match(
+    unique_box_payload_type(written_ty),
+    .Some(bp) => bp,
+    .None => match(cell_handle_view(written_ty), .Some(hv) => Rc.clone(hv.payload), .None => Rc.clone(written_ty))
+  );
   target_base := match(
     target,
     .Some(t) => match(
@@ -1241,7 +1251,7 @@ _reject_weaker_closure_into_dyn :: (fn(target : &Option(ExpectedTypeCtx), value_
     ),
     .None => String.from("")
   );
-  value_base := match(extract_fn_trait_from_type(value_ty), .Some(vf) => match(vf, Rc(.FnTraitT(base_name : vb)) => vb.clone(), _ => String.from("")), .None => String.from(""));
+  value_base := match(extract_fn_trait_from_type(&value_ty), .Some(vf) => match(vf, Rc(.FnTraitT(base_name : vb)) => vb.clone(), _ => String.from("")), .None => String.from(""));
   if(!target_base.is_empty() && (!value_base.is_empty() && !fn_trait_base_serves(&value_base, &target_base)), {
     raise_flow_violation(
       with_code(
@@ -1259,7 +1269,7 @@ _reject_weaker_closure_into_dyn :: (fn(target : &Option(ExpectedTypeCtx), value_
   // A closure that is `FnMut` by its `&mut` captures alone, boxed as a
   // `Dyn(Fn(...))`: E0913 (VERDICTS-15 Q4′).
   if((target_base == "Fn") && (value_base != "FnMut"), {
-    match(target, .Some(dt) => judge_capture_fnmut_at_fn_slot(tok, &dt.ty, value_ty, ctx, exn), .None => ());
+    match(target, .Some(dt) => judge_capture_fnmut_at_fn_slot(tok, &dt.ty, &value_ty, ctx, exn), .None => ());
   });
 });
 /// The Dyn a pointer-kind `dyn` builds, read from the type its position
@@ -1300,21 +1310,14 @@ _reject_dyn_of_plain_value :: (fn(value_ty : &TypeValue, written : &AstExpr, tok
   });
   ty_text := type_to_string(value_ty);
   migration := String.from("code written for v0.2.78 is migrated with `yo version install 0.2.78 && yo fix <path> --migrate unsized`");
-  (msg, help) := match(
-    t_refine_inner(value_ty),
-    Rc(.Reference(_, _, _)) => (
-      `\`dyn(r)\` erases a pointer, and \`r\` is a reference binding (\`${ty_text}\`): \`dyn\` lends a place only where it is written \`dyn(&v)\`.`,
-      String.from("lend the referent, `dyn(&r.*)`")
+  (msg, help) := cond(
+    (is_pointer_type(value_ty) || match(can_optimize_as_nullable_pointer(value_ty), .Some(p) => is_pointer_type(&p), .None => false)) => (
+      `\`dyn(p)\` over a raw pointer (\`${ty_text}\`) is not available: a raw pointer is not unsized to a \`*Dyn(...)\`.`,
+      `own the pointer in a box, \`dyn(Box.new(p))\`; ${migration}`
     ),
-    _ => cond(
-      (is_pointer_type(value_ty) || match(can_optimize_as_nullable_pointer(value_ty), .Some(p) => is_pointer_type(&p), .None => false)) => (
-        `\`dyn(p)\` over a raw pointer (\`${ty_text}\`) is not available: a raw pointer is not unsized to a \`*Dyn(...)\`.`,
-        `own the pointer in a box, \`dyn(Box.new(p))\`; ${migration}`
-      ),
-      true => (
-        `\`dyn(v)\` erases a pointer, and its argument is a \`${ty_text}\` value: the value is moved behind the pointer that owns it, and that pointer is spelled.`,
-        `own it, \`dyn(Box.new(v))\`; share it, \`dyn(Rc.new(v))\`; or lend a place, \`dyn(&v)\`; ${migration}`
-      )
+    true => (
+      `\`dyn(v)\` erases a pointer, and its argument is a \`${ty_text}\` value: the value is moved behind the pointer that owns it, and that pointer is spelled.`,
+      `own it, \`dyn(Box.new(v))\`; share it, \`dyn(Rc.new(v))\`; or lend a place, \`dyn(&v)\`; ${migration}`
     )
   );
   exn.throw(
@@ -1371,6 +1374,10 @@ _evaluate_dyn_over_lend :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut E
   );
   if(is_dyn_type(&dyn_type), {
     _reject_dyn_of_dyn(pointee.clone(), &tok, exn);
+    // An `FnOnce`/`FnMut` closure lent where a `&Dyn(Fn(...))` is taken
+    // would be called again through it
+    // (issues/fixed/2026-11-16-a-boxed-fnonce-closure-erases-into-a-dyn-fn.md).
+    _reject_weaker_closure_into_dyn(&Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(dyn_type), env : Rc.clone(env))), &pointee, &tok, ctx, exn);
     _require_dyn_traits_implemented(&dyn_type, &pointee, &tok, ctx, env, exn);
     trait_vals := _resolve_dyn_trait_values(Rc.clone(dyn_type), &pointee, ctx, env, exn);
     _require_send_dyn_methods_reach_no_global(&dyn_type, &trait_vals, &tok, ctx, env, exn);

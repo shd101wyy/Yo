@@ -511,10 +511,14 @@ test("escape: an implicit capture by an escaping closure", {
 test("escape: every route into a `Dyn` keeps the value second-class", {
   w := i32(1);
   (f : Impl(Fn() -> i32)) = ({ &w }() => w.*);
+  // Each boxing row has its own closure: a second rejected `Box.new` of one
+  // closure type inside `comptime_expect_error` reports "No method `new`"
+  // (issues/2026-11-16-a-second-rejected-box-new-of-one-closure-type-in-comptime-expect-error-finds-no-new.md).
+  (f2 : Impl(Fn() -> i32)) = ({ &w }() => (w.* + i32(1)));
   comptime_expect_error(_cl_keep_dyn(f), "A callable flows bare into");
   comptime_expect_error(_cl_keep_dyn(dyn(Box.new(f))), "second-class");
   comptime_expect_error({
-    (d : Box(Dyn(Fn() -> i32))) = dyn(Box.new(f));
+    (d : Box(Dyn(Fn() -> i32))) = dyn(Box.new(f2));
     _cl_keep_dyn(d)
   }, "second-class");
   (outer : Box(Dyn(Fn() -> i32))) = dyn(Box.new({}() => i32(0)));
