@@ -121,8 +121,14 @@ test("a closure captures a &str binding by value", {
 _StrHolder :: struct(name : str);
 _StrTagged :: enum(Tag(name : str), Empty);
 _str_id :: (fn(s : &str) -> str)(s);
-_str_copy :: (fn(a : str) -> str)({ r := a; r });
-_str_pick :: (fn(a : str, b : str, c : bool) -> str)({ x := cond(c => a, true => b); x });
+_str_copy :: (fn(a : str) -> str)({
+  r := a;
+  r
+});
+_str_pick :: (fn(a : str, b : str, c : bool) -> str)({
+  x := cond(c => a, true => b);
+  x
+});
 _str_hold :: (fn(generic(T : Type), x : T) -> T)(x);
 _str_tag_len :: (fn(t : &_StrTagged) -> usize)(
   match(

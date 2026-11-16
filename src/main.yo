@@ -1909,10 +1909,14 @@ _run_migrate_unsized :: (fn(files : &ArrayList(String), std_path : &String, dry_
         (st.kind == u8(5)) => listed.push(`${pos}fix: ${at}: \`dyn(${st.text})\` erases a named \`Rc\`/\`Arc\` handle, which v0.2.77 rejects: write \`dyn(Rc.new(v))\` to build the shared object where it is made, or \`dyn(Box.new(v))\` to own it; left as written`),
         // The `str` family (decision 49 S2): a value `str` type is the
         // legacy alias of `&(str, static)`, written as such.
-        (st.kind == u8(10)) => match(_str_word_at(&runes, st.col, cond(((st.col + usize(3)) > runes.len()) => runes.len(), true => (st.col + usize(3)))), .Some(sc) => {
-          n_str = (n_str + usize(1));
-          checked.push(_PendingFix(row : st.row, col : sc, len : usize(3), replacement : String.from("&(str, static)"), description : at.clone()));
-        }, .None => ()),
+        (st.kind == u8(10)) => match(
+          _str_word_at(&runes, st.col, cond(((st.col + usize(3)) > runes.len()) => runes.len(), true => (st.col + usize(3)))),
+          .Some(sc) => {
+            n_str = (n_str + usize(1));
+            checked.push(_PendingFix(row : st.row, col : sc, len : usize(3), replacement : String.from("&(str, static)"), description : at.clone()));
+          },
+          .None => ()
+        ),
         (st.kind == u8(11)) => listed.push(`${pos}fix: ${at}: \`sink(...) : str\` takes the legacy value \`str\`, a \`&(str, static)\`, and a reference parameter is not a \`sink\`: write the parameter \`name : &(str, static)\`; left as written`),
         (st.kind == u8(12)) => match(
           _str_type_arg_col(&runes, st.col, match(st.text.parse_u64(), .Some(n) => usize(n), .None => usize(0))),

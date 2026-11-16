@@ -1321,15 +1321,17 @@ _apply_ref_amp :: (fn(args : &ArrayList(String), param_is_ref : &ArrayList(bool)
     // lent to a `&str` slot) or a reference to an unsized pointee (a `&str`
     // value, a call's `&str` result) is passed as the fat pair it is: a
     // `(*fat)` place folds to `fat`, anything else is already the pair.
-    fat_arg := (pref && match(
-      runtime_args.get(i),
-      .Some(fa) => match(
-        context.base.get_expr_info(&fa),
-        .Some(fei) => (match(expr_info_converted_runtime_type(&fei), .Some(fct) => !type_is_sized(&fct), .None => (!type_is_sized(&fei.ty()) || is_comptime_string_type(&fei.ty()))) || ((t_slot_is_borrow(&fei.ty()) && !type_is_sized(&t_slot_pointee(&fei.ty()))) && !is_reference_self_place(ast_expr_id(&fa)))),
+    fat_arg := (
+      pref && match(
+        runtime_args.get(i),
+        .Some(fa) => match(
+          context.base.get_expr_info(&fa),
+          .Some(fei) => (match(expr_info_converted_runtime_type(&fei), .Some(fct) => !type_is_sized(&fct), .None => (!type_is_sized(&fei.ty()) || is_comptime_string_type(&fei.ty()))) || ((t_slot_is_borrow(&fei.ty()) && !type_is_sized(&t_slot_pointee(&fei.ty()))) && !is_reference_self_place(ast_expr_id(&fa)))),
+          .None => false
+        ),
         .None => false
-      ),
-      .None => false
-    ));
+      )
+    );
     if(fat_arg, {
       out.push(unsized_place_fat_code(&c));
       i = (i + usize(1));

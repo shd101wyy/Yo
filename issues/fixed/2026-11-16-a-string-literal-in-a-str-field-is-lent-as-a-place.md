@@ -15,7 +15,10 @@ Filed 2026-11-16 by the d49-str lane, fixed on the same branch before it was ope
 H :: struct(name : str);
 Tagged :: enum(Tag(name : str), Empty);
 id :: (fn(s : &str) -> str)(s);
-copy :: (fn(a : str) -> str)({ r := a; r });
+copy :: (fn(a : str) -> str)({
+  r := a;
+  r
+});
 main :: (fn() -> unit)({
   h := H(name : "c");
   t := Tagged.Tag("a");

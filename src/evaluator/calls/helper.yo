@@ -116,7 +116,8 @@ pragma(Pragma.AllowUnsafe);
   escapable_bound_error,
   type_is_sized,
   unsized_by_value_error,
-  is_legacy_value_str
+  is_legacy_value_str,
+  is_static_view_slot
 } :: import("../../types/utils.yo");
 { is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type, is_unit_type, is_type_0, is_type_kind, is_void_type, is_type_hierarchy_type, is_type_parameter_type, is_fn_trait_type, is_never_type, is_pointer_type, is_str_reference_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type_with_expected, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
@@ -1878,7 +1879,11 @@ check_if_function_parameter_matches_argument :: (
     (param_is_ptr_borrow : bool) ?= false,
     /// A by-value slot that accepts a second-class body or future
     /// (`_param_accepts_second_class`, decision 37, §3.13 A2 and A4).
-    (second_class_slot : bool) ?= false
+    (second_class_slot : bool) ?= false,
+    /// The parameter's slot when it is the legacy value `str`
+    /// (`is_static_view_slot`, decision 49 S2): it binds as that
+    /// `&(str, static)` value.
+    (param_view_slot : Option(TypeValue)) ?= Option(TypeValue).None
   ) -> CheckParamResult
 )({
   // Step 1: labels are readability-only (see `strip_argument_label`).
@@ -2343,7 +2348,13 @@ ${ast_expr_to_string(&actual_arg)}`
   // `ArrayList(str)` binds `V := &(str, static)` (decision 49's legacy value
   // `str`, `legacy_str_type_arg`).
   bound_arg_value := if(is_ct_only, legacy_str_type_arg(&bind_pt, &arg_value), arg_value.clone());
-  bound_param_opt := bind_parameter(&callee_env_r, param_label, &bind_pt, &bound_arg_value, is_ct_only, param_is_ref, param_is_owning, &param_tok, param_is_ptr_borrow);
+  // The legacy value `str` binds as the `&(str, static)` value it is, as
+  // the def-time binder does (`is_static_view_slot`).
+  bound_param_opt := match(
+    &param_view_slot,
+    .Some(pvs) => if(is_ct_only, bind_parameter(&callee_env_r, param_label, &bind_pt, &bound_arg_value, is_ct_only, param_is_ref, param_is_owning, &param_tok, param_is_ptr_borrow), bind_parameter(&callee_env_r, param_label, &pvs.*, &bound_arg_value, false, false, true, &param_tok, false)),
+    .None => bind_parameter(&callee_env_r, param_label, &bind_pt, &bound_arg_value, is_ct_only, param_is_ref, param_is_owning, &param_tok, param_is_ptr_borrow)
+  );
   bound_param_opt;
   CheckParamResult(
     callee_env : callee_env_r,
@@ -8867,7 +8878,14 @@ try_to_call_function_with_arguments :: (
                 &de_env,
                 ctx,
                 &mut rt_args,
-                exn
+                exn,
+                Option(EvalValue).None,
+                false,
+                false,
+                false,
+                false,
+                false,
+                match(pt.get(pi), .Some(pvs) => if(is_static_view_slot(&pvs), Option(TypeValue).Some(pvs), Option(TypeValue).None), .None => Option(TypeValue).None)
               );
               callee_env_m = Rc.clone(dpr.callee_env);
               arg_vals.push(
@@ -8946,7 +8964,8 @@ try_to_call_function_with_arguments :: (
           argument_is_aliased_by_inout(&parg, match(pref.get(pi), .Some(b) => b, .None => false), &s7_inout_roots),
           p_sink,
           fn_param_is_ptr_borrow(&norm_func_type2, pi),
-          _param_accepts_second_class(expr, &ptype, &ret_b, ft.len() > usize(0), ctx)
+          _param_accepts_second_class(expr, &ptype, &ret_b, ft.len() > usize(0), ctx),
+          match(pt.get(pi), .Some(pvs) => if(is_static_view_slot(&pvs), Option(TypeValue).Some(pvs), Option(TypeValue).None), .None => Option(TypeValue).None)
         );
         _check_reference_argument(
           _unlabeled_argument(match(written_args.get(pi), .Some(w) => w, .None => parg)),
