@@ -2711,7 +2711,7 @@ deref_target_type :: (fn(ty : &TypeValue, env : &Environment) -> Option(TypeValu
 implements_deref_mut_without_deref :: (fn(ty : &TypeValue, env : &Environment) -> bool)(
   (is_struct_type(ty) || is_array_type(ty)) && match(
     get_trait_type_from_env(env, String.from("DerefMut")),
-    .Some(dm_tt) => type_implements_trait_bool(ty, &dm_tt, env) && match(get_trait_type_from_env(env, String.from("Deref")), .Some(d_tt) => !type_implements_trait_bool(ty, &d_tt, env), .None => true),
+    .Some(dm_tt) => (type_implements_trait_bool(ty, &dm_tt, env) && match(get_trait_type_from_env(env, String.from("Deref")), .Some(d_tt) => !type_implements_trait_bool(ty, &d_tt, env), .None => true)),
     .None => false
   )
 );
