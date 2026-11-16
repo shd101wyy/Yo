@@ -18,13 +18,12 @@ $ yo fix --help
                             表达式位置上作为记录的每个裸 { ... }
                             -> .{ ... }；绑定位置和代码块保持不变。
                             只读取解析结果，不需要求值
-  --migrate unsized         运行决定 49 的迁移：旧别名 dyn(v) ->
-                            dyn(Box.new(v))；在接受 &Dyn(T) 的位置借出
-                            Box(Dyn(T)) 的 &b -> &b.*；列出原始指针上的
-                            dyn(p) 与具名句柄上的 dyn(h)，留待手工改写。
-                            v0.2.77 的代码分两步：先用 v0.2.77 迁移裸
-                            Dyn(...) 类型（yo version install 0.2.77），
-                            再用本迁移改写借出
+  --migrate unsized         运行决定 49 的迁移：在接受 &Dyn(T) 的位置借出
+                            Box(Dyn(T)) 的 &b -> &b.*；列出具名句柄上的
+                            dyn(h)，留待手工改写。更旧的代码依次经过最后
+                            接受其拼写的版本：裸 Dyn(...) 类型用 v0.2.77，
+                            裸 dyn(v) 用 v0.2.78（yo version install
+                            0.2.78），再运行本迁移
   --target <triple>         按该目标求值（同 compile --target），从而修复
                             或迁移该目标的平台分支（默认：宿主平台）
   --std-path <dir>          覆盖 std 库目录
