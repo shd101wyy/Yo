@@ -866,7 +866,8 @@ move_only_type_help :: (fn(ty : &TypeValue) -> Option(String))(
 /// use after one names `match(&x, …)`. Keyed by token position.
 _consuming_match_key :: (fn(tok : &Token) -> String)(`${tok.module_path.*}:${tok.byte_offset}`);
 note_consuming_match_scrutinee :: (fn(tok : &Token) -> unit)({
-  g_consuming_match_scrutinees.with_mut(s => s.insert(_consuming_match_key(tok)));
+  cm_key := _consuming_match_key(tok);
+  g_consuming_match_scrutinees.with_mut({ cm_key }(s) => s.insert(cm_key));
 });
 consuming_match_scrutinee_at :: (fn(tok : &Token) -> bool)(
   (g_consuming_match_scrutinees.with({ tok : &tok.* }(s) => s.len()) > usize(0)) && g_consuming_match_scrutinees.with({ tok : &tok.* }(s) => s.contains(_consuming_match_key(tok)))
@@ -6583,20 +6584,24 @@ reference_read_wanted :: (fn(tok : &Token, at_binder : bool, ctx : &EvalContext)
 /// evaluator judges it as the by-value read it is: E0926 (spelled `r.*`), or
 /// a recorded `.*` under `yo fix --migrate deref`, whose evaluation goes on.
 note_binder_value_read :: (fn(tok : &Token) -> unit)({
-  _new := g_binder_value_reads.with_mut(s => s.insert(_reference_deref_site_key(tok)));
+  bv_key := _reference_deref_site_key(tok);
+  _new := g_binder_value_reads.with_mut({ bv_key }(s) => s.insert(bv_key));
 });
 /// Undo `note_binder_value_read` at `tok`.
 forget_binder_value_read :: (fn(tok : &Token) -> unit)({
-  _old := g_binder_value_reads.with_mut(s => s.remove(&_reference_deref_site_key(tok)));
+  bv_key := _reference_deref_site_key(tok);
+  _old := g_binder_value_reads.with_mut({ bv_key }(s) => s.remove(&bv_key));
 });
 /// Mark the leaf at `tok` of a `:=` initializer's result chain as one that
 /// reads as a reference (R-TAIL).
 chain_ref_leaf_register :: (fn(tok : &Token) -> unit)({
-  _new := g_chain_ref_leaves.with_mut(s => s.insert(_reference_deref_site_key(tok)));
+  cl_key := _reference_deref_site_key(tok);
+  _new := g_chain_ref_leaves.with_mut({ cl_key }(s) => s.insert(cl_key));
 });
 /// Undo `chain_ref_leaf_register` at `tok`.
 chain_ref_leaf_forget :: (fn(tok : &Token) -> unit)({
-  _old := g_chain_ref_leaves.with_mut(s => s.remove(&_reference_deref_site_key(tok)));
+  cl_key := _reference_deref_site_key(tok);
+  _old := g_chain_ref_leaves.with_mut({ cl_key }(s) => s.remove(&cl_key));
 });
 chain_ref_leaf_is :: (fn(tok : &Token) -> bool)(
   (g_chain_ref_leaves.with({ tok : &tok.* }(s) => s.len()) > usize(0)) && g_chain_ref_leaves.with({ tok : &tok.* }(s) => s.contains(&_reference_deref_site_key(tok)))
@@ -6819,7 +6824,8 @@ deref_exempt_clear :: (fn() -> unit)({
 _reference_deref_site_key :: (fn(tok : &Token) -> String)(`${tok.module_path.*}:${tok.byte_offset.to_string()}`);
 /// `tok` is the receiver of an `r.*` rewritten to `r` (N1e-1).
 note_reference_deref_site :: (fn(tok : &Token) -> unit)({
-  _new := g_reference_deref_sites.with_mut(s => s.insert(_reference_deref_site_key(tok)));
+  rd_key := _reference_deref_site_key(tok);
+  _new := g_reference_deref_sites.with_mut({ rd_key }(s) => s.insert(rd_key));
   ()
 });
 /// Whether the name at `tok` is a rewritten `r.*`'s receiver.
@@ -8185,7 +8191,8 @@ _lb_collect_await_ids :: (fn(e : &AstExpr, out : &mut ArrayList(usize)) -> unit)
 local_borrow_enter_macro_site :: (fn(tok : &Token, call : &AstExpr, expansion : &AstExpr) -> unit)({
   ids := ArrayList(usize).new();
   _lb_collect_await_ids(expansion, &mut ids);
-  g_lb_macro_sites.with_mut(xs => xs.push(LocalBorrowMacroSite(site : tok.*, end : _last_token_of(call, tok), await_ids : ids.clone())));
+  lbm := LocalBorrowMacroSite(site : tok.*, end : _last_token_of(call, tok), await_ids : ids.clone());
+  g_lb_macro_sites.with_mut({ lbm }(xs) => xs.push(lbm));
 });
 /// The expansion `local_borrow_enter_macro_site` announced is evaluated.
 local_borrow_leave_macro_site :: (fn() -> unit)({

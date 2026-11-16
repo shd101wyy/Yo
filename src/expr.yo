@@ -2806,7 +2806,8 @@ desugar_if_calls :: (fn(e : &AstExpr) -> AstExpr)(
       // unambiguous.
       if(_is_borrowed_match_scrutinee(e), {
         bm_kind := match(args.get(usize(0)), .Some(s0) => if(ast_expr_is_fn_call_of(&s0, BK_BORROW_MUT, Option(usize).Some(usize(1))), u8(2), u8(1)), .None => u8(1));
-        _bm_old := g_borrowed_match_sites.with_mut(m => m.insert(_borrowed_match_site_key(&tok.*), bm_kind));
+        bm_key := _borrowed_match_site_key(&tok.*);
+        _bm_old := g_borrowed_match_sites.with_mut({ bm_key, bm_kind }(m) => m.insert(bm_key, bm_kind));
         bm_args := ArrayList(AstExpr).new();
         (bm_i : usize) = usize(0);
         while(bm_i < n_args, {
