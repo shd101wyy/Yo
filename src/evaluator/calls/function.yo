@@ -6674,6 +6674,10 @@ _funcval_infer_forall_ty :: (fn(arg_ty : &TypeValue, exp_pt : &TypeValue, param_
     // anywhere else (`x : T` binds `T := &(str, static)`, the legacy value
     // `str`, as `s := "x"` types `s`).
     is_comptime_string_type(arg_ty) => if(slot_lends, Rc.new(TypeValueNode.Str), t_static_str_ref()),
+    // A `&str` value lent to the slot is the `str` it refers to, as the
+    // literal is (`check_if_function_parameter_matches_argument`'s
+    // `str_place_at_binder`): `assert_eq(s, "q")` binds one `A := str`.
+    (slot_lends && is_str_reference_type(arg_ty)) => Rc.new(TypeValueNode.Str),
     (!param_is_ct && (is_comptime_int_type(arg_ty) || is_comptime_float_type(arg_ty))) => convert_comptime_type_to_runtime_type(arg_ty, env),
     ((is_function_type(arg_ty) || is_fn_trait_type(arg_ty)) && is_some_type(exp_pt)) => Rc.clone(exp_pt),
     (is_unit_type(arg_ty) && is_some_type(exp_pt) && (in_def_time_trial() || type_mentions_impl_fn_or_future(exp_pt))) => Rc.clone(exp_pt),

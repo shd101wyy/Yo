@@ -64,7 +64,7 @@ _ctx :: (fn(msg : str) -> String)(
 ///   assert_eq(got, i32(42));
 ///   assert_eq(name, `yo`, "config name round-trip");
 assert_eq :: (
-  fn(generic(A : Type), left : &A, right : &A, (msg : str) ?= "", where(A <: (Eq(A), ToString))) -> unit
+  fn(generic(A : ?Sized), left : &A, right : &A, (msg : str) ?= "", where(A <: (Eq(A), ToString))) -> unit
 )({
   cond(
     (left.* == right.*) => (),
@@ -78,7 +78,7 @@ assert_eq :: (
 });
 /// Assert two values are NOT equal; prints the (shared) value on failure.
 assert_ne :: (
-  fn(generic(A : Type), left : &A, right : &A, (msg : str) ?= "", where(A <: (Eq(A), ToString))) -> unit
+  fn(generic(A : ?Sized), left : &A, right : &A, (msg : str) ?= "", where(A <: (Eq(A), ToString))) -> unit
 )({
   cond(
     (left.* != right.*) => (),
