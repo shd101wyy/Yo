@@ -1,0 +1,12 @@
+# `yo fix <path> --migrate unsized` rewrites every `dyn(v)` site of a plain
+# value by its recorded position: a template literal, an interpolation, a
+# bracket or an escaped quote inside a string, and an argument over several
+# lines with a comment are rewritten `dyn(Box.new(v))`
+# (issues/fixed/2026-11-15-migrate-unsized-lists-one-line-dyn-sites-holding-a-template-literal-or-a-bracket-in-a-string.md).
+# An enum variant named `Dyn` is left alone
+# (issues/fixed/2026-11-15-migrate-unsized-rewrites-an-enum-variant-named-dyn.md),
+# and so is a `dyn` site inside a `comptime_expect_error` argument. The second
+# run is a no-op and the file still type-checks.
+fix . --migrate unsized
+fix . --migrate unsized
+check main.yo

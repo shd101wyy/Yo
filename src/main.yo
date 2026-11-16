@@ -1095,6 +1095,20 @@ _expr_span_end :: (fn(runes : &ArrayList(rune), col : usize, scan_from : usize, 
   (depth : i64) = i64(0);
   (e : usize) = scan_from;
   while(e < runes.len(), {
+    // A string, char or template literal's contents are not brackets: jump
+    // to its closing quote, which is then the candidate end
+    // (issues/fixed/2026-11-15-migrate-unsized-lists-one-line-dyn-sites-holding-a-template-literal-or-a-bracket-in-a-string.md).
+    if(_is_quote_rune(runes(e).char), {
+      match(
+        _literal_close(runes, e),
+        .Some(q) => {
+          e = q;
+        },
+        .None => {
+          return(.None);
+        }
+      );
+    });
     r := runes(e);
     cond(
       ((r.char == u32(0x28)) || (r.char == u32(0x5B)) || (r.char == u32(0x7B))) => {
@@ -1125,6 +1139,129 @@ _expr_span_end :: (fn(runes : &ArrayList(rune), col : usize, scan_from : usize, 
       );
     });
     e = end;
+  });
+  .None
+});
+/// `"`, `'` or a backtick: the runes that open a string, char or template
+/// literal.
+_is_quote_rune :: (fn(c : u32) -> bool)(
+  (c == u32(0x22)) || (c == u32(0x27)) || (c == u32(0x60))
+);
+/// The index of the quote that closes the literal opened at `open` on this
+/// line (a `\` escapes the next rune), or `.None` when the line ends first.
+_literal_close :: (fn(runes : &ArrayList(rune), open : usize) -> Option(usize))({
+  q := runes(open).char;
+  (k : usize) = (open + usize(1));
+  while(k < runes.len(), {
+    c := runes(k).char;
+    cond(
+      (c == u32(0x5C)) => {
+        k = (k + usize(2));
+      },
+      (c == q) => {
+        return(.Some(k));
+      },
+      true => {
+        k = (k + usize(1));
+      }
+    );
+  });
+  .None
+});
+/// The first argument of the call whose `(` is at (`row`, `open`) of `lines`:
+/// `(arg_row, arg_col, end_row, end_col)`, the argument running from its first
+/// rune to just after its last, `end` exclusive. Found by position, not by
+/// matching a print of the evaluated expression, so a template literal (which
+/// the evaluator sees desugared) or a bracket inside a string does not hide
+/// the site, and the argument may span lines. String, char and template
+/// literals (with their `${...}` bodies) and `//` comments are skipped;
+/// `.None` when the brackets do not balance or the call has no argument
+/// (issues/fixed/2026-11-15-migrate-unsized-lists-one-line-dyn-sites-holding-a-template-literal-or-a-bracket-in-a-string.md).
+_first_call_arg_span :: (fn(lines : &ArrayList(String), row : usize, open : usize) -> Option(Tuple(usize, usize, usize, usize)))({
+  // The open brackets, innermost last: `(`, `[`, `{`, a backtick for a
+  // template's text and `$` for a `${` interpolation body.
+  stack := ArrayList(u32).new();
+  stack.push(u32(0x28));
+  (start : Option(Tuple(usize, usize))) = Option(Tuple(usize, usize)).None;
+  (last_r : usize) = row;
+  (last_c : usize) = open;
+  (r : usize) = row;
+  (c : usize) = (open + usize(1));
+  while(r < lines.len(), {
+    runes := _line_runes(lines(r).clone());
+    while(c < runes.len(), {
+      ch := runes(c).char;
+      top := stack(stack.len() - usize(1));
+      if(top == u32(0x60), {
+        // Template text.
+        cond(
+          (ch == u32(0x5C)) => {
+            c = (c + usize(2));
+          },
+          (ch == u32(0x60)) => {
+            _popped := stack.pop();
+            last_r = r;
+            last_c = (c + usize(1));
+            c = (c + usize(1));
+          },
+          ((ch == u32(0x24)) && ((c + usize(1)) < runes.len()) && (runes(c + usize(1)).char == u32(0x7B))) => {
+            stack.push(u32(0x24));
+            c = (c + usize(2));
+          },
+          true => {
+            c = (c + usize(1));
+          }
+        );
+        continue;
+      });
+      if(runes(c).is_whitespace(), {
+        c = (c + usize(1));
+        continue;
+      });
+      if((ch == u32(0x2F)) && ((c + usize(1)) < runes.len()) && (runes(c + usize(1)).char == u32(0x2F)), {
+        // A `//` comment: the rest of the line.
+        c = runes.len();
+        continue;
+      });
+      // A delimiter that ends the first argument: the `,` after it, or the
+      // `)` that closes the call.
+      if((stack.len() == usize(1)) && ((ch == u32(0x2C)) || (ch == u32(0x29))), {
+        return(match(start, .Some((sr, sc)) => Option(Tuple(usize, usize, usize, usize)).Some((sr, sc, last_r, last_c)), .None => Option(Tuple(usize, usize, usize, usize)).None));
+      });
+      if(start.is_none(), {
+        start = Option(Tuple(usize, usize)).Some((r, c));
+      });
+      cond(
+        ((ch == u32(0x22)) || (ch == u32(0x27))) => match(
+          _literal_close(&runes, c),
+          .Some(q) => {
+            c = q;
+          },
+          .None => {
+            return(.None);
+          }
+        ),
+        (ch == u32(0x60)) => stack.push(u32(0x60)),
+        ((ch == u32(0x28)) || (ch == u32(0x5B)) || (ch == u32(0x7B))) => stack.push(ch),
+        ((ch == u32(0x29)) || (ch == u32(0x5D)) || (ch == u32(0x7D))) => {
+          want := cond(
+            (ch == u32(0x29)) => u32(0x28),
+            (ch == u32(0x5D)) => u32(0x5B),
+            true => if(top == u32(0x24), u32(0x24), u32(0x7B))
+          );
+          if(top != want, {
+            return(.None);
+          });
+          _popped := stack.pop();
+        },
+        true => ()
+      );
+      last_r = r;
+      last_c = (c + usize(1));
+      c = (c + usize(1));
+    });
+    r = (r + usize(1));
+    c = usize(0);
   });
   .None
 });
@@ -1862,25 +1999,21 @@ _run_migrate_unsized :: (fn(files : &ArrayList(String), std_path : &String, dry_
         ),
         (st.kind == u8(6)) => listed.push(`${pos}fix: ${at}: \`downcast(${st.text}, ...)\` copies the payload out of an owned Dyn; v0.2.78's owning form is \`Result(Box(V), Box(Dyn(...)))\`: write \`downcast(&${st.text}.*, ...)\` where only the payload is read; left as written`),
         (st.kind == u8(2)) => {
-          // `dyn(<arg>)`: the argument starts after the `(` that follows
-          // `dyn`, and must print back as recorded on this line.
+          // `dyn(<arg>)`, found by the recorded position of `dyn`: the
+          // argument is the bracket-balanced source after the `(` that
+          // follows it, on this line or the next ones.
+          written_dyn := (((st.col + usize(3)) <= runes.len()) && (runes(st.col).char == u32(0x64)) && (runes(st.col + usize(1)).char == u32(0x79)) && (runes(st.col + usize(2)).char == u32(0x6E)) && ((st.col == usize(0)) || !_is_word_rune(runes(st.col - usize(1)))));
           (k : usize) = (st.col + usize(3));
           while((k < runes.len()) && runes(k).is_whitespace(), k = (k + usize(1)), ());
-          (arg_start : Option(usize)) = Option(usize).None;
-          if((k < runes.len()) && (runes(k).char == u32(0x28)), {
-            (a : usize) = (k + usize(1));
-            while((a < runes.len()) && runes(a).is_whitespace(), a = (a + usize(1)), ());
-            arg_start = Option(usize).Some(a);
-          });
-          span := match(arg_start, .Some(a) => match(_expr_span_end(&runes, a, a, &st.text, &file), .Some(e) => Option(Tuple(usize, usize)).Some((a, e)), .None => Option(Tuple(usize, usize)).None), .None => Option(Tuple(usize, usize)).None);
+          span := if(written_dyn && (k < runes.len()) && (runes(k).char == u32(0x28)), _first_call_arg_span(&lines, st.row, k), Option(Tuple(usize, usize, usize, usize)).None);
           match(
             span,
-            .Some((a, e)) => {
+            .Some((ar, ac, er, ec)) => {
               n_dyn = (n_dyn + usize(1));
-              checked.push(_PendingFix(row : st.row, col : e, len : usize(0), replacement : String.from(")"), description : at.clone()));
-              checked.push(_PendingFix(row : st.row, col : a, len : usize(0), replacement : String.from("Box.new("), description : at));
+              checked.push(_PendingFix(row : er, col : ec, len : usize(0), replacement : String.from(")"), description : at.clone()));
+              checked.push(_PendingFix(row : ar, col : ac, len : usize(0), replacement : String.from("Box.new("), description : at));
             },
-            .None => listed.push(`${pos}fix: ${at}: \`dyn(${st.text})\` does not print back on one line; write it \`dyn(Box.new(${st.text}))\` by hand; left as written`)
+            .None => listed.push(`${pos}fix: ${at}: \`dyn(${st.text})\` is not written as a \`dyn(...)\` call with balanced brackets at this position; write it \`dyn(Box.new(${st.text}))\` by hand; left as written`)
           );
         },
         true => ()

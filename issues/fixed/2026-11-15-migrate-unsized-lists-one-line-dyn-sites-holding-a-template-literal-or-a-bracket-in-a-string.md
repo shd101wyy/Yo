@@ -2,7 +2,7 @@
 
 **Severity:** S3: no code is changed wrongly, but the migration rewrites far fewer sites than it could, and its message is wrong for the sites it skips. In the S2 sweep of std and src, 178 of the 211 sites listed as "does not print back on one line" sit on one line: 177 hold a template literal, and one (`std/net/addr.yo`) holds a `[` inside a string. The suggested replacement shows the desugared template (`begin(__yo_tpl_8225195 := …)`), so it cannot be pasted back.
 
-**Status:** OPEN. Found 2026-11-15 by the unsized-sweep lane while auditing the S2 sweep of std and src (`vbd/unsized-sweep`).
+**Status:** FIXED 2026-11-16 (`vbd/migrate-unsized-sites`, written by the S3b-`Dyn` lane for its sweep). Found 2026-11-15 by the unsized-sweep lane while auditing the S2 sweep of std and src (`vbd/unsized-sweep`).
 
 ## Reproducer
 
@@ -37,3 +37,21 @@ The `Dyn(...)` type path uses the same helper, but a type spelling rarely holds 
 - When a site is listed, word the message by the real reason, and quote the source text, not the desugared print. The type-spelling listings have the same flaw: the multi-line `detect` field of `src/evaluator/shared/suspension_analysis.yo` was listed as `Dyn(Fn(__yo_imm(expr) : AstExpr, …))`, the parser's internal mode form of `expr : &AstExpr`.
 
 The repro then becomes a test: all three sites rewritten, a second run a no-op.
+
+## Fix
+
+- A recorded `dyn(<arg>)` site is found by POSITION (`_first_call_arg_span`, `src/main.yo`): the recorder's row and
+  column must hold the word `dyn` followed by `(`, and the argument is the bracket-balanced source after it, which
+  may span lines. String, char and template literals (with their `${...}` bodies) and `//` comments are skipped. No
+  print of the evaluated expression is compared, so the desugared template no longer hides a site.
+- `_expr_span_end` (the lend arm, kind 7) skips string, char and template literal contents.
+- A `dyn` site recorded inside a `comptime_expect_error` argument is dropped (`unsized_sites_rollback`,
+  `src/expr_info.yo`): it is the error a negative row tests, and rewriting it changed what the row tested (the d49
+  flip lane restored one such row by hand).
+
+Test: the cli case `tests/cli-cases/fix-migrate-unsized-sites` (a template literal, an interpolation holding a
+string with a `)`, a `[` and an escaped quote inside strings, an argument over several lines with a `)` in a
+comment, a written `dyn(Box.new(...))`, an enum variant named `Dyn` and a negative row; two runs, the second a
+no-op, then `yo check`). The develop binary (`223b188f4`) lists the five plain sites and rewrites the negative row;
+the fix rewrites the five and leaves the row and the variant.
+

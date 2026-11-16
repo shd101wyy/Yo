@@ -177,8 +177,11 @@ no type spelling. It writes a lend `&b` of a `Box(Dyn(T))` where a `&Dyn(T)`
 is taken as `&b.*` (a `&Box(Dyn(T))` lends the box, and nothing coerces it to
 a reference to the object the box owns: E0601, whose help names `&b.*`), and
 the legacy `dyn(v)` alias of a plain value as `dyn(Box.new(v))` (the alias
-goes in v0.2.79). It lists a `Box(Dyn(T))` temporary where a `&Dyn(T)` is
-taken, `dyn(p)` over a raw pointer, `dyn(h)` over a named handle, a spelling
+goes in v0.2.79), found by its position, so a template literal, a bracket
+inside a string and an argument over several lines are rewritten too; a
+`dyn` site inside a `comptime_expect_error` argument is the error under test
+and is left as written. It lists a `Box(Dyn(T))` temporary where a `&Dyn(T)`
+is taken, `dyn(p)` over a raw pointer, `dyn(h)` over a named handle, a lend
 that does not print back on one line and a file with an unevaluated platform
 arm.
 
