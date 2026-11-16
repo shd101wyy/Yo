@@ -67,6 +67,7 @@ pragma(Pragma.AllowUnsafe);
   is_box_type,
   is_arc_type,
   unique_box_payload_type,
+  cell_handle_view,
   is_weak_handle_type,
   is_prelude_allocator_struct,
   is_counted_handle_value_type,
@@ -932,9 +933,10 @@ type_is_escapable :: (fn(ty : &TypeValue) -> bool)(!type_carries_origin(ty) && !
 /// unsized ones, which live only behind a pointer. Derived structurally, as
 /// `Escapable` is, and never implemented by hand. Unsized: `[T]`, an open
 /// type variable declared `?Sized`, and a value struct or newtype whose LAST
-/// field is unsized (a tail struct). `Dyn(...)` and `str` are sized here
-/// while `unsized_legacy_spellings` holds (S1): a value `Dyn(...)` and a
-/// value `str` are still the legacy fat values; S2 moves them onto pointers.
+/// field is unsized (a tail struct), and `Dyn(...)` (decision 49 S2: a `Dyn`
+/// lives behind a pointer, `Box(Dyn(T))`, `&Dyn(T)`, `Rc(Dyn(T))`). `str` is
+/// sized here while `unsized_legacy_spellings` holds: a value `str` is still
+/// the legacy view.
 type_is_sized :: (fn(ty : &TypeValue) -> bool)(_type_is_sized_d(ty, u32(0)));
 /// One of `bounds` is the prelude's `Sized` marker.
 _bounds_name_sized :: (fn(bounds : &ArrayList(TypeValue)) -> bool)({
@@ -952,6 +954,7 @@ _type_is_sized_d :: (fn(ty : &TypeValue, depth : u32) -> bool)(
     true => match(
       t_refine_inner(ty),
       Rc(.SliceT(_)) => false,
+      Rc(.DynT(_, _, _, _)) => false,
       // A `?Sized` variable is unsized unless a `where(T <: Sized)` bound
       // re-tightens it (one method of a `?Sized` impl).
       Rc(.SomeT({ parent_type : st_kind, bounds : st_bounds, resolution : st_res })) => match(
@@ -1455,23 +1458,28 @@ no_origin_position_error :: (fn(ty : &TypeValue, position : &String, why : &Stri
 /// E0619 (decision 49): the unsized `ty` is used at `position` (a phrase
 /// such as "a local", "the argument of `Option`'s `T : Type`"), which needs a
 /// size. `binder` names the `generic(T : Type)` binder to relax when the
-/// position is one, so the help can name `?Sized`.
-unsized_by_value_error :: (fn(ty : &TypeValue, position : &String, binder : &Option(String), tok : &Token) -> YoError)(
+/// position is one, so the help can name `?Sized`. A by-value `Dyn(...)` is
+/// how v0.2.77 and earlier spelled the owning box: the help names the
+/// migration that rewrites it and the release that ships it (as E0009 names
+/// v0.2.76's `--migrate borrow-spelling`).
+unsized_by_value_error :: (fn(ty : &TypeValue, position : &String, binder : &Option(String), tok : &Token) -> YoError)({
+  (help : String) = match(
+    binder,
+    .Some(b) => `\`${b}\` is a \`Type\` binder, which implies \`where(${b} <: Sized)\`; declare it \`${b} : ?Sized\` if the body uses it only behind a pointer`,
+    .None => String.from("take the value behind a reference (`&T`), or use a sized type such as `Array(T, N)`")
+  );
+  if(is_dyn_type(ty), {
+    help = `${help}; code written for v0.2.77 or earlier, where a bare \`Dyn(...)\` was the owning box, is upgraded in two steps: on v0.2.77, \`yo version install 0.2.77 && yo fix <path> --migrate unsized\` writes it \`Box(Dyn(...))\`; then on v0.2.78, \`yo fix <path> --migrate unsized\` writes the lends (\`&b\` to \`&b.*\`)`;
+  });
   with_code(
     format_error_message_with_help(
       tok,
       `\`${type_to_string(ty)}\` is not \`Sized\`: ${position} needs a size, and an unsized type lives only behind a pointer (\`&T\`, \`&mut T\`, \`*T\`; plans/VALUES_BY_DEFAULT.md decision 49).`,
-      Option(String).Some(
-        match(
-          binder,
-          .Some(b) => `\`${b}\` is a \`Type\` binder, which implies \`where(${b} <: Sized)\`; declare it \`${b} : ?Sized\` if the body uses it only behind a pointer`,
-          .None => String.from("take the value behind a reference (`&T`), or use a sized type such as `Array(T, N)`")
-        )
-      )
+      Option(String).Some(help)
     ),
     E_UNSIZED_BY_VALUE
   )
-);
+});
 /// E0909 for a failed `where(<label> <: Escapable)` bound (decision 43,
 /// plans/backlog/REFERENCES_AND_ORIGINS.md O10), the prelude's `Rc`/`Arc`
 /// payload bound included.
@@ -3892,11 +3900,22 @@ get_size_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
     Rc(.CLongLong) => .None,
     Rc(.CULongLong) => .None,
     Rc(.CLongDouble) => .None,
-    // Pointer and function types are pointer-sized
-    Rc(.Pointer(_)) => .Some(usize(get_target_pointer_size_bits())),
+    // Pointer and function types are pointer-sized, except a pointer to an
+    // UNSIZED pointee (`*Dyn(T)`, `*[T]`, decision 49), which codegen lays out
+    // as the fat `{ data, vtable | len }` pair (`is_unsized_pointee`) = 2 ×
+    // pointer size. Sizing it thin made `Box.new(v)` of a struct holding an
+    // `AnyError` (a `Box(Dyn)`) allocate 8 bytes short
+    // (issues/fixed/2026-11-15-sizeof-of-a-pointer-to-an-unsized-pointee-is-thin.md).
+    Rc(.Pointer(sz_pointee)) => cond(
+      type_is_sized(&sz_pointee) => Option(usize).Some(usize(get_target_pointer_size_bits())),
+      true => Option(usize).Some(usize(u32(2) * get_target_pointer_size_bits()))
+    ),
     // A reference (`&T` / `&mut T`, decision 43) is a pointer in C (N2b:
-    // `const T*` / `T*`).
-    Rc(.Reference(_, _, _)) => .Some(usize(get_target_pointer_size_bits())),
+    // `const T*` / `T*`), fat over an unsized pointee as above.
+    Rc(.Reference(sz_ref_pointee, _, _)) => cond(
+      type_is_sized(&sz_ref_pointee) => Option(usize).Some(usize(get_target_pointer_size_bits())),
+      true => Option(usize).Some(usize(u32(2) * get_target_pointer_size_bits()))
+    ),
     Rc(.Func({ result : _ })) => .Some(usize(get_target_pointer_size_bits())),
     // Array: element size × length
     // `Array(unit, N)`: the wrapper has no `data` member, only the one-byte
@@ -4506,6 +4525,23 @@ dyn_type_has_vtable_slot :: (fn(dyn_ty : &TypeValue, name : &String) -> bool)(
     _ => false
   )
 );
+/// The Dyn a method DISPATCH runs over, when `t` is a dispatchable receiver
+/// shape: the Dyn place itself, or one `Reference` level over it (decision 49:
+/// a named `(d : &Dyn(T)) = dyn(&c)` local records its type as the reference,
+/// while a `&Dyn` parameter records the pointee — both dispatch through the
+/// same vtable). Deliberately does NOT unwrap a `Box(Dyn)`/counted cell: a box
+/// receiver's own methods (`clone`) are the box's, not the payload's — the
+/// registration-shaped wide unwrap lives in the codegen collector.
+dyn_dispatch_receiver_type :: (fn(t : &TypeValue) -> Option(TypeValue))({
+  if(is_dyn_type(t), {
+    return(Option(TypeValue).Some(Rc.clone(t)));
+  });
+  match(
+    t_refine_inner(t),
+    Rc(.Reference(pointee, _, _)) => if(is_dyn_type(&pointee), Option(TypeValue).Some(Rc.clone(pointee)), Option(TypeValue).None),
+    _ => Option(TypeValue).None
+  )
+});
 /// True when the vtable slot `name` of `dyn_ty` is a projection method
 /// (`-> &T`, decision 24): the slot returns its place's address.
 dyn_vtable_slot_result_is_ref :: (fn(dyn_ty : &TypeValue, name : &String) -> bool)(
@@ -4600,35 +4636,63 @@ dyn_vtable_slot_param_is_ref :: (fn(dyn_ty : &TypeValue, name : &String) -> Arra
 /// never converts a `Dyn`, and the explicit conversion is `upcast`
 /// (plans/backlog/TYPE_SYSTEM_SOUNDNESS.md Phases 2.7 and 2.8,
 /// docs/en-US/DYN_DESIGN.md). Empty for every other pair.
-dyn_upcast_note :: (fn(expected : &TypeValue, given : &TypeValue) -> String)(
+dyn_upcast_note :: (fn(expected : &TypeValue, given : &TypeValue) -> String)({
+  // Under the flip both sides usually arrive as HANDLES over the Dyns
+  // (`Box(Dyn(...))`, `Rc(Dyn(...))`, `Arc(Dyn(...))`): the note is about the
+  // PAYLOADS' trait sets, so unwrap both before comparing.
+  _dyn_of :: (fn(t : &TypeValue) -> Option(TypeValue))(
+    match(
+      unique_box_payload_type(t),
+      .Some(bp) => Option(TypeValue).Some(bp),
+      .None => match(
+        cell_handle_view(t),
+        .Some(hv) => Option(TypeValue).Some(Rc.clone(hv.payload)),
+        .None => Option(TypeValue).None
+      )
+    )
+  );
+  _expected_dyn := match(_dyn_of(expected), .Some(d) => Option(TypeValue).Some(d), .None => Option(TypeValue).Some(Rc.clone(expected)));
+  _given_dyn := match(_dyn_of(given), .Some(d) => Option(TypeValue).Some(d), .None => Option(TypeValue).Some(Rc.clone(given)));
   match(
-    expected,
-    Rc(.DynT({ required_trait_types : ert })) => match(
-      given,
-      Rc(.DynT({ required_trait_types : grt })) => {
-        (all_in : bool) = (ert.len() < grt.len());
-        (i : usize) = usize(0);
-        while((i < ert.len()) && all_in, {
-          es := type_to_string(match(ert.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit)));
-          (hit : bool) = false;
-          (j : usize) = usize(0);
-          while((j < grt.len()) && !hit, {
-            hit = (type_to_string(match(grt.get(j), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit))) == es);
-            j = (j + usize(1));
-          });
-          all_in = hit;
-          i = (i + usize(1));
-        });
-        if(all_in, String.from("\nA Dyn value is not converted to a Dyn with fewer traits implicitly: write upcast(value, Dyn(...)) to drop the extra traits."), String.new())
-      },
+    _expected_dyn,
+    .Some(ed) => match(
+      ed,
+      Rc(.DynT({ required_trait_types : ert })) => match(
+        _given_dyn,
+        .Some(gd) => match(
+          gd,
+          Rc(.DynT({ required_trait_types : grt })) => {
+            (all_in : bool) = (ert.len() < grt.len());
+            (i : usize) = usize(0);
+            while((i < ert.len()) && all_in, {
+              es := type_to_string(match(ert.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit)));
+              (hit : bool) = false;
+              (j : usize) = usize(0);
+              while((j < grt.len()) && !hit, {
+                hit = (type_to_string(match(grt.get(j), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit))) == es);
+                j = (j + usize(1));
+              });
+              all_in = hit;
+              i = (i + usize(1));
+            });
+            if(all_in, String.from("\nA Dyn value is not converted to a Dyn with fewer traits implicitly: write upcast(value, Dyn(...)) to drop the extra traits."), String.new())
+          },
+          _ => String.new()
+        ),
+        _ => String.new()
+      ),
       _ => String.new()
     ),
     _ => String.new()
   )
-);
+});
 /// A `Dyn` whose trait set carries a closure trait (`Dyn(Fn(...))`,
 /// `Dyn(FnOnce(...), Send)`).
-_dyn_carries_fn_trait :: (fn(t : &TypeValue) -> bool)(
+/// Whether `t` is a `Dyn(...)` listing an `Fn` trait, or an owning handle
+/// over one (`Box(Dyn(Fn(...)))`, the interim `Rc`/`Arc(Dyn(Fn(...)))`):
+/// since decision 49's flip a `Dyn` is unsized, so a by-value slot that takes
+/// an erased callable is its owning handle.
+is_dyn_fn_slot :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
     Rc(.DynT({ required_trait_types : dct_rtt })) => {
@@ -4640,7 +4704,11 @@ _dyn_carries_fn_trait :: (fn(t : &TypeValue) -> bool)(
       });
       false
     },
-    _ => false
+    _ => match(
+      unique_box_payload_type(t),
+      .Some(dcf_p) => (is_dyn_type(&dcf_p) && recur(&dcf_p)),
+      .None => match(cell_handle_view(t), .Some(dcf_v) => (is_dyn_type(&dcf_v.payload) && recur(&dcf_v.payload)), .None => false)
+    )
   )
 );
 /// A callable that is not a `Dyn`: a named `fn` (a `Func`), a closure's
@@ -4670,7 +4738,7 @@ _is_unerased_callable :: (fn(t : &TypeValue) -> bool)(
 /// written `dyn(f)`; a bare `f` there is E0618. `Impl(Fn(...))` slots are
 /// not erasures and are untouched.
 is_bare_callable_into_dyn_fn :: (fn(expected : &TypeValue, given : &TypeValue) -> bool)(
-  _dyn_carries_fn_trait(expected) && !is_dyn_type(given) && _is_unerased_callable(given)
+  is_dyn_fn_slot(expected) && !is_dyn_type(given) && _is_unerased_callable(given)
 );
 /// The declaration id of a struct / enum / union, for the note below.
 _decl_id_of :: (fn(t : &TypeValue) -> String)(
@@ -4772,7 +4840,7 @@ unknown_variant_message :: (fn(variant : &String, enum_ty : &TypeValue, variants
   });
   `Enum variant "${variant}" not found in enum ${type_to_string(enum_ty)}. Its variants: ${list}.`
 });
-export(dyn_member_is_method, dyn_member_unsafe_reason, dyn_type_has_vtable_slot, dyn_vtable_slot_param_is_ref, dyn_vtable_slot_result_is_ref, dyn_upcast_note, is_bare_callable_into_dyn_fn, same_name_note, unknown_field_message, unknown_field_code, unknown_variant_message, control_bound_field_message);
+export(dyn_member_is_method, dyn_member_unsafe_reason, dyn_type_has_vtable_slot, dyn_dispatch_receiver_type, dyn_vtable_slot_param_is_ref, dyn_vtable_slot_result_is_ref, dyn_upcast_note, is_bare_callable_into_dyn_fn, is_dyn_fn_slot, same_name_note, unknown_field_message, unknown_field_code, unknown_variant_message, control_bound_field_message);
 export(deref_miss_note, unknown_field_through_deref_message);
 /// `err` with its primary diagnostic marked `generic_independent` when
 /// neither `a` nor `b` contains a type variable: a mismatch between two such
@@ -4894,13 +4962,34 @@ _params_may_store_a_reference :: (fn(pts : &SharedList(TypeValue)) -> bool)({
 /// `?Sized` variable is decided per specialization, where it is bound; the
 /// generic definition's slot keeps the thin ABI its sized instances use.
 _pointee_is_fat :: (fn(t : &TypeValue) -> bool)(!type_is_sized(t) && !type_contains_some_type(t));
+/// Is the borrow slot `s` over a Box whose payload is UNSIZED (decision 49:
+/// `&Box(Dyn(T))`, `&AnyError`)? The box's C value is the fat pair and the
+/// by-ref read convention derefs (`(*self)` is the pair), so the parameter
+/// is POINTER-passed (a pointer to the pair).
+_dyn_box_pointee :: (fn(s : &TypeValue) -> bool)(
+  match(
+    unique_box_payload_type(&t_slot_pointee(s)),
+    .Some(p) => !type_is_sized(&p),
+    .None => false
+  )
+);
+/// Is the borrow slot `s` over a `Dyn` pointee (decision 49)? Such a
+/// parameter takes the fat pair BY VALUE — the pointer-argument ABI never
+/// applies to it (a slice's `&[T]` keeps the pointer ABI).
+_dyn_pointee :: (fn(s : &TypeValue) -> bool)(
+  match(
+    t_refine_inner(&t_slot_pointee(s)),
+    Rc(.DynT(_, _, _, _)) => true,
+    _ => false
+  )
+);
 fn_param_is_ptr_borrow :: (fn(fn_ty : &TypeValue, i : usize) -> bool)(
   match(
     fn_ty,
     Rc(.Func({ param_types : pb_pts, result : pb_r })) => match(
       pb_pts.get(i),
       .Some(pb_s) => (
-        t_slot_is_borrow(&pb_s) && !t_slot_is_mut_ref(&pb_s) && (_pointee_is_fat(&t_slot_pointee(&pb_s)) || _result_may_point_into_params(&pb_r.*) || _params_may_store_a_reference(&pb_pts.*))
+        t_slot_is_borrow(&pb_s) && !t_slot_is_mut_ref(&pb_s) && (!_dyn_pointee(&pb_s) && (_dyn_box_pointee(&pb_s) || _pointee_is_fat(&t_slot_pointee(&pb_s)) || _result_may_point_into_params(&pb_r.*) || _params_may_store_a_reference(&pb_pts.*)))
       ),
       .None => false
     ),
@@ -4909,7 +4998,7 @@ fn_param_is_ptr_borrow :: (fn(fn_ty : &TypeValue, i : usize) -> bool)(
     Rc(.FnTraitT({ call_param_types : pb_cpts, call_result : pb_cr })) => match(
       pb_cpts.get(i),
       .Some(pb_cs) => (
-        t_slot_is_borrow(&pb_cs) && !t_slot_is_mut_ref(&pb_cs) && (_pointee_is_fat(&t_slot_pointee(&pb_cs)) || _result_may_point_into_params(&pb_cr.*) || _params_may_store_a_reference(&pb_cpts.*))
+        t_slot_is_borrow(&pb_cs) && !t_slot_is_mut_ref(&pb_cs) && (!_dyn_pointee(&pb_cs) && (_dyn_box_pointee(&pb_cs) || _pointee_is_fat(&t_slot_pointee(&pb_cs)) || _result_may_point_into_params(&pb_cr.*) || _params_may_store_a_reference(&pb_cpts.*)))
       ),
       .None => false
     ),
@@ -4927,14 +5016,17 @@ fn_abi_param_is_ptr :: (fn(fn_ty : &TypeValue) -> ArrayList(bool))({
     Rc(.Func({ param_types : ap_pts })) => {
       (i : usize) = usize(0);
       while(i < ap_pts.len(), {
-        out.push(match(ap_pts.get(i), .Some(ap_s) => t_slot_is_mut_ref(&ap_s), .None => false) || fn_param_is_ptr_borrow(fn_ty, i));
+        // Decision 49: a `&mut Dyn(T)` parameter also takes the pair by
+        // value (its writes go through `.data`; the pair itself never
+        // mutates), so the mut-ref pointer ABI does not apply to it.
+        out.push(match(ap_pts.get(i), .Some(ap_s) => (t_slot_is_mut_ref(&ap_s) && !_dyn_pointee(&ap_s)), .None => false) || fn_param_is_ptr_borrow(fn_ty, i));
         i = (i + usize(1));
       });
     },
     Rc(.FnTraitT({ call_param_types : ap_cpts })) => {
       (j : usize) = usize(0);
       while(j < ap_cpts.len(), {
-        out.push(match(ap_cpts.get(j), .Some(ap_cs) => t_slot_is_mut_ref(&ap_cs), .None => false) || fn_param_is_ptr_borrow(fn_ty, j));
+        out.push(match(ap_cpts.get(j), .Some(ap_cs) => (t_slot_is_mut_ref(&ap_cs) && !_dyn_pointee(&ap_cs)), .None => false) || fn_param_is_ptr_borrow(fn_ty, j));
         j = (j + usize(1));
       });
     },
@@ -4944,8 +5036,9 @@ fn_abi_param_is_ptr :: (fn(fn_ty : &TypeValue) -> ArrayList(bool))({
 });
 export(fn_param_is_ptr_borrow, fn_abi_param_is_ptr);
 /// The `Fn(...)` trait a closure-typed value carries: the trait itself, the
-/// `Fn` a `Dyn` lists, or a type variable's `Fn` bound, through its
-/// resolution chain (cycles stop the walk).
+/// `Fn` a `Dyn` lists (also through a `Box(Dyn(...))`, which is called
+/// through its payload, decision 49 S2), or a type variable's `Fn` bound,
+/// through its resolution chain (cycles stop the walk).
 closure_fn_trait_of :: (fn(ty : &TypeValue) -> Option(TypeValue))({
   (cur : TypeValue) = ty.clone();
   seen := ArrayList(String).new();
@@ -4954,6 +5047,13 @@ closure_fn_trait_of :: (fn(ty : &TypeValue) -> Option(TypeValue))({
       Rc.clone(cur),
       Rc(.FnTraitT(base_name : _)) => return(Option(TypeValue).Some(Rc.clone(cur))),
       Rc(.DynT({ required_trait_types : cft_drtt })) => return(_first_fn_trait(&cft_drtt.items)),
+      (cft_box := Rc(.Struct({ id : _ }))) => match(
+        unique_box_payload_type(&cft_box),
+        .Some(cft_p) => if(is_dyn_type(&cft_p), {
+          cur = cft_p;
+        }, return(Option(TypeValue).None)),
+        .None => return(Option(TypeValue).None)
+      ),
       Rc(.SomeT({ id : cft_id, bounds : cft_rtt_bnd, resolution : cft_res })) => {
         cft_rtt := cft_rtt_bnd.required();
         match(_first_fn_trait(&cft_rtt), .Some(t) => return(Option(TypeValue).Some(t)), .None => ());

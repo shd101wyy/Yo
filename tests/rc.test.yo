@@ -1392,6 +1392,13 @@ _take_dyn_tag :: (fn(d : Box(Dyn(_NestedTag))) -> unit)({
   kept := Option(Box(Dyn(_NestedTag))).Some(d);
   assert(match(&kept, .Some(k) => (k.tag_of() == i32(11)), .None => false), "the callee sees the payload");
 });
+// The interim counted spelling of the same callee: an `Rc` handle over the
+// Dyn (decision 49 S2) — `dyn(Rc.clone(&sink))` erases to it, and the handle
+// moves by value like the box's.
+_take_dyn_tag_rc :: (fn(d : Rc(Dyn(_NestedTag))) -> unit)({
+  kept := Option(Rc(Dyn(_NestedTag))).Some(d);
+  assert(match(&kept, .Some(k) => (k.tag_of() == i32(11)), .None => false), "the callee sees the payload");
+});
 // The holder is a value struct: a `ref` holding a `ref` is GC-tracked, which
 // defers its release and would hide the early free.
 test("a local stored into a temporary struct passed by value outlives the call", {
@@ -1408,7 +1415,7 @@ test("a local stored into a temporary Dyn passed by value outlives the call", {
   before := g_nested_disposed;
   {
     sink := Rc.new(_NestedSinkVal(tag : i32(11)));
-    _take_dyn_tag(dyn(Rc.clone(&sink)));
+    _take_dyn_tag_rc(dyn(Rc.clone(&sink)));
     assert(g_nested_disposed == before, "the callee's Dyn did not take the caller's local with it");
     assert(sink.tag == i32(11), "and the local still reads correctly");
   };

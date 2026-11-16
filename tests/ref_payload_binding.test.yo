@@ -45,7 +45,7 @@ impl(
   _Wrap,
   _Link(
     code : (fn(self : &Self) -> i32)(self.code),
-    source : (fn(self : &Self) -> Option(&Dyn(_Link)))(.Some(&self.cause))
+    source : (fn(self : &Self) -> Option(&Dyn(_Link)))(.Some(&self.cause.*))
   )
 );
 _root_code :: (fn(e : &Dyn(_Link)) -> i32)(
@@ -169,18 +169,18 @@ test("ref payload: a variant with a reference and a later operand", {
 });
 test("ref payload: a `&Dyn(Trait)` payload dispatches through its vtable", {
   (d : Box(Dyn(_Shape))) = dyn(Box.new(_Sq(s : i32(3))));
-  a := match(_first(&d), .Some(r) => r.area(), .None => i32(0));
-  b := match(_first(&d), .Some(r) => _area(r), .None => i32(0));
+  a := match(_first(&d.*), .Some(r) => r.area(), .None => i32(0));
+  b := match(_first(&d.*), .Some(r) => _area(r), .None => i32(0));
   assert(a == i32(9), "r.area()");
   assert(b == i32(9), "_area(r)");
 });
 test("ref payload: a borrowing `source` chain walks without cloning", {
   (e : Box(Dyn(_Link))) = dyn(Box.new(_Wrap(code : i32(1), cause : dyn(Box.new(_Wrap(code : i32(2), cause : dyn(Box.new(_Leaf(code : i32(3))))))))));
-  assert(_root_code(&e) == i32(3), "the innermost link's code");
-  assert(_depth(&e) == i32(2), "two causes below the head");
-  r := _root(&e);
+  assert(_root_code(&e.*) == i32(3), "the innermost link's code");
+  assert(_depth(&e.*) == i32(2), "two causes below the head");
+  r := _root(&e.*);
   assert(r.code() == i32(3), "the root returned as a borrow of the leaf");
-  f := _first_cause(&e);
+  f := _first_cause(&e.*);
   assert(f.code() == i32(2), "the first cause returned as a borrow");
 });
 // A reference payload or field whose referent is spelled by a typedef (a

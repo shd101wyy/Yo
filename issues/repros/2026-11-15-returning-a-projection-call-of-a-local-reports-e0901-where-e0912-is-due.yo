@@ -1,0 +1,24 @@
+//! The tail `b.view()` of a `-> &[i32]` function whose `b` is local reports E0901
+//! ("cannot copy `(b.view)()`"); the `&b.view().*` spelling reports E0912.
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+
+Buf :: struct(items : Array(i32, 4), n : usize);
+impl(
+  Buf,
+  view : (fn(self : &Self) -> &[i32])({
+    p := unsafe(__yo_slice_ptr(unsize(&self.items)));
+    part := unsafe(__yo_slice_from_raw_parts(p, self.n));
+    &part.*
+  })
+);
+
+leak :: (fn() -> &[i32])({
+  b := Buf(items : Array(i32, 4)(1, 2, 3, 4), n : usize(2));
+  b.view()
+});
+
+main :: (fn() -> unit)({
+  assert(leak().len() == usize(2), "dangling");
+});
+export(main);

@@ -545,8 +545,9 @@ test("an element borrow beside a closure in a struct field is rejected", {
       v.* = String.from("w");
     });
     // Boxed or not, a closure that borrows `xs` is second-class (decision
-    // 43): the cell payload is rejected before the overlap itself.
-    comptime_expect_error(field_beside(&mut xs(usize(0)), _CbFieldBox(cb : dyn(cb))), "second-class and cannot be the payload type of a cell");
+    // 43): the box's heap-stored payload is rejected before the overlap
+    // itself.
+    comptime_expect_error(field_beside(&mut xs(usize(0)), _CbFieldBox(cb : dyn(Box.new(cb)))), "so it is second-class and cannot be the type of the heap-stored field");
   };
   assert(xs.len() == usize(1), "nothing ran");
 });

@@ -9,15 +9,13 @@ main :: (fn() -> unit)({
   // implicit capture (E0913, #1932), but a write through a `RefCell` door is
   // a read of the shared handle, so the `Rc(Dyn(Fn(...)))` shape stays.
   state := Rc.new(RefCell(i32).new(i32(1)));
-  (closure : Rc(Dyn(Fn(y : i32) -> i32))) = Rc(Dyn(Fn(y : i32) -> i32)).new(
-    dyn(
-      Rc.new(y => {
-        state.with_mut(v => {
-          v.* = (v.* + y);
-        });
-        return(state.with(v => v.*));
-      })
-    )
+  (closure : Rc(Dyn(Fn(y : i32) -> i32))) = dyn(
+    Rc.new(y => {
+      state.with_mut(v => {
+        v.* = (v.* + y);
+      });
+      return(state.with(v => v.*));
+    })
   );
   // A Dyn owns its payload (plans/VALUES_BY_DEFAULT.md decision 7): the
   // two handles share one closure through an Rc.

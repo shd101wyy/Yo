@@ -225,7 +225,7 @@ test("capture list: a `&T` parameter's copy borrows the parameter (R-CAP-2)", {
     "cannot be returned"
   );
   comptime_expect_error(
-    (fn(p : &_ClNamed) -> Box(Dyn(Fn() -> usize)))(dyn({ p }() => p.s.len())),
+    (fn(p : &_ClNamed) -> Box(Dyn(Fn() -> usize)))(dyn(Box.new({ p }() => p.s.len()))),
     "second-class"
   );
   comptime_expect_error(
@@ -278,7 +278,7 @@ test("capture list: a match arm cannot be a capture-list closure", {
 test("second-class: a borrowing closure cannot escape", {
   w := i32(1);
   comptime_expect_error(_cl_keep({ &w }() => w.*), "moved into a by-value (`sink`) parameter");
-  comptime_expect_error(_cl_dyn(dyn({ &w }() => w.*)), "so it is second-class");
+  comptime_expect_error(_cl_dyn(dyn(Box.new({ &w }() => w.*))), "so it is second-class");
   comptime_expect_error(
     (fn(x : i32) -> Impl(Fn() -> i32))({ &x }() => x.*),
     "returned"
@@ -453,7 +453,7 @@ comptime_expect_error(
 comptime_expect_error(
   _cl_esc_dyn :: (fn(x : i32) -> Box(Dyn(Fn() -> i32)))({
     (f : Impl(Fn() -> i32)) = ({ &x }() => x.*);
-    (d : Box(Dyn(Fn() -> i32))) = dyn(f);
+    (d : Box(Dyn(Fn() -> i32))) = dyn(Box.new(f));
     d
   }),
   "second-class"
@@ -504,12 +504,14 @@ test("escape: an implicit capture by an escaping closure", {
   assert(g() == usize(2), "a capture list may borrow a local borrow");
 });
 // Every route into a `Dyn` is `dyn(...)` (decision 44): a bare closure in a
-// `Dyn(Fn(...))` slot is E0618 before the escape check runs, and `dyn(f)`
-// over a second-class closure is the escape (decision 38 A).
+// `Dyn(Fn(...))` slot is E0618 before the escape check runs, and a closure
+// that borrows a local is second-class before `dyn(f)` can reject it: the
+// by-value (`sink`) parameter of the keeper rejects the borrow first
+// (decision 38 A).
 test("escape: every route into a `Dyn` keeps the value second-class", {
   w := i32(1);
   (f : Impl(Fn() -> i32)) = ({ &w }() => w.*);
-  comptime_expect_error(_cl_keep_dyn(f), "Write `dyn(f)`");
+  comptime_expect_error(_cl_keep_dyn(f), "A callable flows bare into");
   comptime_expect_error(_cl_keep_dyn(dyn(f)), "second-class");
   comptime_expect_error({
     (d : Box(Dyn(Fn() -> i32))) = dyn(f);
@@ -632,7 +634,7 @@ test("a function literal rejects an Impl(Fn(...)) parameter", {
     "function literal has one body"
   );
   // The boxed spelling remains a literal's way to take a closure argument.
-  (d : Impl(Fn(k : &Dyn(Fn() -> i32)) -> i32)) = ((k : Box(Dyn(Fn() -> i32))) => (k() + n));
+  (d : Impl(Fn(k : Box(Dyn(Fn() -> i32))) -> i32)) = ((k : Box(Dyn(Fn() -> i32))) => (k() + n));
   assert(d(dyn(Box.new(() => i32(2)))) == i32(3), "a Dyn(Fn(...)) parameter works");
 });
 // ---------------------------------------------------------------------------
