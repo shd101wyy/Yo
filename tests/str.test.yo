@@ -147,3 +147,40 @@ test("a string literal fills a str field and payload, and a -> str function retu
   assert((_str_copy("ab") == "ab") && (_str_pick("a", "bc", false) == "bc"), "a local copy of a str parameter is returned");
   assert(_str_hold("xy").len() == usize(2), "a literal at a by-value binder binds T := &(str, static)");
 });
+// A legacy value `str` payload (`.Some(s)` over an `Option(str)`) is the
+// `&(str, static)` value it is: a copy, which a local may take and an arm may
+// yield, whatever the match's mode
+// (issues/fixed/2026-11-16-a-str-payload-binding-is-a-reference-to-an-unsized-place.md).
+_str_or :: (fn(o : Option(str), d : str) -> str)(
+  match(
+    o,
+    .Some(s) => {
+      t := s;
+      t
+    },
+    .None => d
+  )
+);
+_str_first :: (fn(xs : &ArrayList(str)) -> str)({
+  v := match(xs.get(usize(0)), .Some(s) => s, .None => "~");
+  v
+});
+_str_ref_or :: (fn(o : &Option(str)) -> usize)(
+  match(
+    o,
+    .Some(s) => {
+      t := s;
+      t.len()
+    },
+    .None => usize(0)
+  )
+);
+test("a str payload binds the &(str, static) value", {
+  assert((_str_or(Option(str).Some("abc"), "d") == "abc") && (_str_or(Option(str).None, "d") == "d"), "a local copy of a consumed payload is the arm's result");
+  mut(xs) := ArrayList(str).new();
+  assert(_str_first(&xs) == "~", "the default arm");
+  xs.push("hi");
+  assert(_str_first(&xs) == "hi", "a payload yielded by an arm");
+  o := Option(str).Some("four");
+  assert(_str_ref_or(&o) == usize(4), "a local copy of a borrowed match's payload");
+});

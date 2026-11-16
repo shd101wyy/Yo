@@ -29,7 +29,7 @@
 } :: import("../../expr_info.yo");
 { is_unit_type, is_never_type, is_pointer_type, is_reference_struct_type, is_reference_enum_type, is_enum_type, is_float_type, is_unique_box_type, is_box_type, is_newtype_type, cell_handle_view } :: import("../../types/guards.yo");
 { Environment } :: import("../../env.yo");
-{ type_is_sized } :: import("../../types/utils.yo");
+{ type_is_sized, is_static_view_slot } :: import("../../types/utils.yo");
 { note_state_machine_binding_id, FunctionGenerationContext, sm_lowering_note_binding_source, shadow_binding_decl_name, shadow_binding_c_name, shadow_binding_push, shadow_binding_pop } :: import("../functions/context.yo");
 { _call_generate_expr, chain_leaf_pointer_code } :: import("./_expr.yo");
 { Token, TokenKind } :: import("../../token.yo");
@@ -72,11 +72,14 @@ _emit_pattern_binding_decl :: (
   // A reference payload's binding is a reference binding: a `T*` local, as
   // `r := &x`'s is, whatever the payload field's `const` (a `&` binding is
   // read-only in the checker, not in C).
-  tstr := if(t_slot_is_borrow(ty), pointer_c_type_string(&t_slot_pointee(ty), &mut context.base), get_type_string(ty, &mut context.base));
+  // A legacy value `str` payload (`&(str, static)`) is a by-value binding
+  // of the fat pair, as the evaluator binds it (`evaluate_match`'s `p_view`).
+  ref_slot := (t_slot_is_borrow(ty) && !is_static_view_slot(ty));
+  tstr := if(ref_slot, pointer_c_type_string(&t_slot_pointee(ty), &mut context.base), get_type_string(ty, &mut context.base));
   // An unsized subject (a `str` scrutinee read through its `&str`, decision
   // 49) is held as the fat pair its place folds back to.
   init_c := cond(
-    t_slot_is_borrow(ty) => `((${tstr})(${init_code}))`,
+    ref_slot => `((${tstr})(${init_code}))`,
     !type_is_sized(ty) => unsized_place_fat_code(init_code),
     true => init_code.clone()
   );
@@ -112,7 +115,7 @@ _emit_pattern_binding_decl :: (
   // A reference payload's binding holds the pointer and the evaluator binds
   // it as a reference binding (decision 43 step 3): reads go through it, as
   // a `mut` match's place binding's do.
-  if(t_slot_is_borrow(ty), {
+  if(ref_slot, {
     _place_add(context, bind);
   });
 });
