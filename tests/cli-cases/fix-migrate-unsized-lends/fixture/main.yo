@@ -3,7 +3,17 @@
 { println } :: import("std/fmt");
 Speak :: trait(speak : (fn(self : &Self) -> i32), bump : (fn(self : &mut Self) -> unit));
 Cat :: struct(n : i32);
-impl(Cat, Speak(speak : ((self : &Self) -> self.n), bump : ((self : &mut Self) -> { self.n = (self.n + i32(1)); })));
+impl(
+  Cat,
+  Speak(
+    speak : ((self : &Self) -> self.n),
+    bump : (
+      (self : &mut Self) -> {
+        self.n = (self.n + i32(1));
+      }
+    )
+  )
+);
 Holder :: struct(b : Box(Dyn(Speak)));
 read :: (fn(d : &Dyn(Speak)) -> i32)(d.speak());
 bump :: (fn(d : &mut Dyn(Speak)) -> unit)(d.bump());
