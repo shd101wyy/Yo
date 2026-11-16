@@ -2,7 +2,7 @@
 
 **Severity:** S1 — an unbounded leak in accepted safe code: each call of such a closure that takes the branch which does not move the capture leaks the capture's heap buffer.
 
-**Status:** open. Found 2026-11-17 by the deref-owner lane (VERDICTS-63 Generation A): `tests/internal/diagnostics_registry_examples.test.yo` failed on a LeakSanitizer report (317 bytes in 8 allocations), all allocated by `String.clone` in `set_closure_writes_captures` (`src/evaluator/utils.yo`), whose closure moved its `fid` capture into the map when `writes` held and only borrowed it otherwise. The reproducer below leaks on a develop `916b279c1` binary as well. The compiler no longer uses the pattern (that function now builds one closure per branch); the codegen bug is open.
+**Status:** open. Found 2026-11-17 by the deref-owner lane (VERDICTS-63 Generation A): `tests/internal/diagnostics_registry_examples.test.yo` failed on a LeakSanitizer report (317 bytes in 8 allocations), all allocated by `String.clone` in `set_closure_writes_captures` (`src/evaluator/utils.yo`), whose closure moved its `fid` capture into the map when `writes` held and only borrowed it otherwise. The test fails the same way on develop `916b279c1` (317 bytes in 8 allocations, measured 2026-11-17), and the reproducer below leaks on a develop `916b279c1` binary as well. The compiler no longer uses the pattern (that function now builds one closure per branch); the codegen bug is open.
 
 ## Reproducer
 
