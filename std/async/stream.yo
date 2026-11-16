@@ -154,7 +154,7 @@ impl(
   Stream(
     Item : B,
     next : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(B), Io)))(
-      io.async({ &mut self }(io : Io) => {
+      io.async({ self : &mut self.* }(io : Io) => {
         nx := io.await(self._inner.next(io), io);
         match(
           nx,
@@ -182,7 +182,7 @@ impl(
   Stream(
     Item : A,
     next : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(A), Io)))(
-      io.async({ &mut self }(io : Io) => {
+      io.async({ self : &mut self.* }(io : Io) => {
         (mut(out) : Option(A)) = Option(A).None;
         (mut(searching) : bool) = true;
         while(searching, {
@@ -222,7 +222,7 @@ impl(
   Stream(
     Item : B,
     next : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(B), Io)))(
-      io.async({ &mut self }(io : Io) => {
+      io.async({ self : &mut self.* }(io : Io) => {
         (mut(out) : Option(B)) = Option(B).None;
         (mut(searching) : bool) = true;
         while(searching, {
@@ -262,7 +262,7 @@ impl(
   Stream(
     Item : A,
     next : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(A), Io)))(
-      io.async({ &mut self }(io : Io) => {
+      io.async({ self : &mut self.* }(io : Io) => {
         (mut(out) : Option(A)) = Option(A).None;
         if(self._remaining > usize(0), {
           self._remaining = (self._remaining - usize(1));
@@ -295,7 +295,7 @@ impl(
   Stream(
     Item : A,
     next : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(A), Io)))(
-      io.async({ &mut self }(io : Io) => {
+      io.async({ self : &mut self.* }(io : Io) => {
         (mut(out) : Option(A)) = Option(A).None;
         (mut(pulling) : bool) = true;
         while(pulling, {
