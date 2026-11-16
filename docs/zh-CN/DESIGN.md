@@ -3536,15 +3536,16 @@ Ring :: struct(items : Array(i32, 3));
 impl(Ring, len : (fn(self : &Self) -> usize)(usize(30)));
 impl(Ring, Deref(Target : [i32], deref : (fn(self : &Self) -> &Self.Target)(&self.items.*)));
 impl(Ring, DerefMut(Target : [i32], deref_mut : (fn(self : &mut Self) -> &mut Self.Target)(&mut self.items.*)));
-total :: (fn(xs : &[i32]) -> i32)(xs(usize(0)) + xs(usize(1)) + xs(usize(2)));
+count :: (fn(xs : &[i32]) -> usize)(xs.len());
 main :: (fn() -> unit)({
   mut(r) := Ring(items : Array(i32, 3)(1, 2, 3));
   v := &r.*; // r.deref()：以 r 为根的视图
-  assert(total(v) == i32(6));
+  assert(count(v) == usize(3));
   assert(r.len() == usize(30)); // 所有者自己的 len
   assert(r.*.len() == usize(3)); // 视图的 len
   assert(!r.is_empty()); // 只有视图有它：r.*.is_empty()
-  r.*(usize(0)) = i32(9); // 写入：r.deref_mut()
+  w := &mut r.*; // r.deref_mut()：w 存活期间独占
+  assert(count(w) == usize(3));
 });
 export(main);
 ```
@@ -3556,8 +3557,8 @@ export(main);
   成员属于所有者，因此上例中 `r.len()` 是 `Ring` 的，`r.*.len()` 是视图的。
   决策 32 的 E0616 是句柄的规则。因此，给所有者新增成员会让原先访问视图同名
   成员的调用改为解析到所有者。
-- **其他地方都不解引用。** `&Ring` 不能填入 `&[i32]` 形参：`total(&r)` 是
-  E0601，其帮助信息给出 `total(&r.*)`。运算符的操作数也从不解引用。
+- **其他地方都不解引用。** `&Ring` 不能填入 `&[i32]` 形参：`count(&r)` 是
+  E0601，其帮助信息给出 `count(&r.*)`。运算符的操作数也从不解引用。
 
 ### Rc 与赋值
 

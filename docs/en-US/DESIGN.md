@@ -3740,15 +3740,16 @@ Ring :: struct(items : Array(i32, 3));
 impl(Ring, len : (fn(self : &Self) -> usize)(usize(30)));
 impl(Ring, Deref(Target : [i32], deref : (fn(self : &Self) -> &Self.Target)(&self.items.*)));
 impl(Ring, DerefMut(Target : [i32], deref_mut : (fn(self : &mut Self) -> &mut Self.Target)(&mut self.items.*)));
-total :: (fn(xs : &[i32]) -> i32)(xs(usize(0)) + xs(usize(1)) + xs(usize(2)));
+count :: (fn(xs : &[i32]) -> usize)(xs.len());
 main :: (fn() -> unit)({
   mut(r) := Ring(items : Array(i32, 3)(1, 2, 3));
   v := &r.*; // r.deref(): a view rooted at r
-  assert(total(v) == i32(6));
+  assert(count(v) == usize(3));
   assert(r.len() == usize(30)); // the owner's own len
   assert(r.*.len() == usize(3)); // the view's
   assert(!r.is_empty()); // only the view has it: r.*.is_empty()
-  r.*(usize(0)) = i32(9); // a write: r.deref_mut()
+  w := &mut r.*; // r.deref_mut(): exclusive while w lives
+  assert(count(w) == usize(3));
 });
 export(main);
 ```
@@ -3762,7 +3763,7 @@ export(main);
   rule. Adding a member to an owner therefore re-resolves calls that reached
   the view's member of that name.
 - **Nothing else dereferences.** A `&Ring` does not fill a `&[i32]`
-  parameter: `total(&r)` is E0601, whose help names `total(&r.*)`. An
+  parameter: `count(&r)` is E0601, whose help names `count(&r.*)`. An
   operator operand is never dereferenced either.
 
 ### Rc with Assignments

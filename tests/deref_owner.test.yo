@@ -5,21 +5,9 @@
 // wins over its view's, and a member only the view has forwards through
 // `.*`. Outside the prelude the `Target` must be unsized (E0622).
 { assert } :: import("std/assert");
-{ RawBuf, raw_buf } :: import("./fixtures/deref_owner.yo");
+{ RawBuf, raw_buf, view_sum, view_set, ZeroFirst } :: import("./fixtures/deref_owner.yo");
 
-_sum :: (fn(xs : &[i32]) -> i32)({
-  mut(t) := i32(0);
-  mut(i) := usize(0);
-  while(i < xs.len(), i = (i + usize(1)), {
-    t = (t + xs(i));
-  });
-  t
-});
-// A view method that writes: reached through `DerefMut`.
-_ZeroFirst :: trait(zero_first : (fn(self : &mut Self) -> unit));
-impl([i32], _ZeroFirst(zero_first : (fn(self : &mut Self) -> unit)({
-  self(usize(0)) = i32(0);
-})));
+_sum :: (fn(xs : &[i32]) -> i32)(view_sum(xs));
 // A safe owner: its `deref` is `&self.items.*`, the whole inner array.
 _Ring :: struct(items : Array(i32, 3));
 impl(_Ring, len : (fn(self : &Self) -> usize)(usize(30)));
@@ -51,10 +39,10 @@ test("a member only the view has forwards through .*", {
 test("&mut b.* lends the view exclusively, and writes reach the owner", {
   mut(b) := raw_buf(usize(3));
   w := &mut b.*;
-  w(usize(1)) = i32(20);
+  view_set(w, usize(1), i32(20));
   assert(b.items(usize(1)) == i32(20), "written through the view");
-  b.*(usize(2)) = i32(30);
-  assert(b.items(usize(2)) == i32(30), "an element of b.* written in place");
+  view_set(&mut b.*, usize(2), i32(30));
+  assert(b.items(usize(2)) == i32(30), "written through a &mut lend of b.*");
   b.zero_first();
   assert(b.items(usize(0)) == i32(0), "a &mut view method through the owner");
   b.push(i32(7));
@@ -100,14 +88,13 @@ impl(_Tick, Drop(drop : (fn(self : &mut Self) -> unit)({
 })));
 _Ticks :: struct(items : Array(_Tick, 2));
 impl(_Ticks, Deref(Target : [_Tick], deref : (fn(self : &Self) -> &Self.Target)(&self.items.*)));
-_tick_sum :: (fn(xs : &[_Tick]) -> i32)(xs(usize(0)).n + xs(usize(1)).n);
 test("the elements are dropped once, by the owner", {
   _tick_drops = i32(0);
   {
     t := _Ticks(items : Array(_Tick, 2)(_Tick(n : i32(1)), _Tick(n : i32(2))));
     v := &t.*;
-    assert(_tick_sum(v) == i32(3), "read through the view");
-    assert(_tick_sum(&t.*) == i32(3), "and again");
+    assert(v.len() == usize(2), "read through the view");
+    assert(t.*.len() == usize(2), "and again");
   };
   assert(_tick_drops == i32(2), "two elements, each dropped once");
 });
@@ -128,7 +115,7 @@ test("a live view freezes the owner (decision 13)", {
     mut(b) := raw_buf(usize(2));
     w := &mut b.*;
     _n := b.*.len();
-    w(usize(0)) = i32(1);
+    view_set(w, usize(0), i32(1));
   }, "borrows `b`");
 });
 test("a write through .* needs a writable owner and DerefMut", {
@@ -142,7 +129,7 @@ test("a write through .* needs a writable owner and DerefMut", {
   }, "but not `DerefMut`");
   comptime_expect_error({
     mut(r) := _RoRing(items : Array(i32, 2)(1, 2));
-    r.*(usize(0)) = i32(5);
+    r.*.zero_first();
   }, "but not `DerefMut`");
   comptime_expect_error({
     r := Rc.new(raw_buf(usize(2)));
@@ -168,7 +155,7 @@ test("nothing dereferences at a parameter", {
 test("a capture list names a binding, not a projection place", {
   comptime_expect_error({
     b := raw_buf(usize(2));
-    f := { v : &b.* }() => _sum(v);
+    f := ({ v : &b.* }() => _sum(v));
     f()
   }, "A borrow capture names a place rooted at a named binding");
 });

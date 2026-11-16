@@ -552,10 +552,14 @@ note_projection_call_deref :: (fn(deref : &AstExpr, call : &AstExpr, env : &Envi
 _evaluate_owner_deref :: (fn(deref : &AstExpr, object : &AstExpr, star_tok : &Token, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
   call := make_owner_deref_call(object, star_tok, false);
   obj_id := ast_expr_id(object);
+  // The ambient expected type is the place's reader's (an operand's, an
+  // argument's), never the projection call's.
+  od_saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   mark_node_preevaluated(obj_id);
   od_out := ArrayList(AstExpr).new();
   od_err := evaluate_expression_guarded(&call, env, ctx, &mut od_out);
   unmark_node_preevaluated(obj_id);
+  ctx.expected_type = od_saved_expected;
   match(od_err, .Some(od_e) => exn.throw(od_e), .None => ());
   evaluated_call := match(od_out.get(usize(0)), .Some(c) => c, .None => call);
   note_owner_deref(ast_expr_id(deref), object);
