@@ -68,4 +68,4 @@ other argument keeps `_origin_of_into`.
 
 ## Status
 
-Fixed by the PR that adds this document: the G-B rows above and the tests in `tests/closure_capture_list.test.yo`.
+Fixed (`fix/gd-closure-call-store`), with the G-B rows above and the test "a call result over a reference capture reaches the slot through a `&mut` capture" in `tests/closure_capture_list.test.yo`.
