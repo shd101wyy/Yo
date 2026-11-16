@@ -867,7 +867,7 @@ note_consuming_match_scrutinee :: (fn(tok : &Token) -> unit)({
   g_consuming_match_scrutinees.with_mut({ cm_key }(s) => s.insert(cm_key));
 });
 consuming_match_scrutinee_at :: (fn(tok : &Token) -> bool)(
-  (g_consuming_match_scrutinees.with({ tok : &tok.* }(s) => s.len()) > usize(0)) && g_consuming_match_scrutinees.with(s => s.contains(_consuming_match_key(tok)))
+  (g_consuming_match_scrutinees.with({ tok : &tok.* }(s) => s.len()) > usize(0)) && g_consuming_match_scrutinees.with({ tok : &tok.* }(s) => s.contains(_consuming_match_key(tok)))
 );
 /// A use of moved value `name` at `use_tok` (moved at `moved_tok`), as E0901,
 /// with the move-only note when `ty` is move-only.
@@ -6581,7 +6581,7 @@ chain_ref_leaf_forget :: (fn(tok : &Token) -> unit)({
   _old := g_chain_ref_leaves.with_mut({ cl_key }(s) => s.remove(&cl_key));
 });
 chain_ref_leaf_is :: (fn(tok : &Token) -> bool)(
-  (g_chain_ref_leaves.with({ tok : &tok.* }(s) => s.len()) > usize(0)) && g_chain_ref_leaves.with(s => s.contains(&_reference_deref_site_key(tok)))
+  (g_chain_ref_leaves.with({ tok : &tok.* }(s) => s.len()) > usize(0)) && g_chain_ref_leaves.with({ tok : &tok.* }(s) => s.contains(&_reference_deref_site_key(tok)))
 );
 /// `e` is a `begin`, `cond` or `match`: a node a result chain passes through.
 is_result_chain_node :: (fn(e : &AstExpr) -> bool)(
@@ -6709,7 +6709,7 @@ _ref_chain_leaves_the_chain :: (fn(e : &AstExpr) -> bool)(
   ast_expr_is_fn_call_of(e, BK_RETURN, Option(usize).None) || (ast_expr_is_atom(e) && ((ast_expr_token(e).value.* == "break") || (ast_expr_token(e).value.* == "continue")))
 );
 is_binder_value_read :: (fn(tok : &Token) -> bool)(
-  (g_binder_value_reads.with({ tok : &tok.* }(s) => s.len()) > usize(0)) && g_binder_value_reads.with(s => s.contains(&_reference_deref_site_key(tok)))
+  (g_binder_value_reads.with({ tok : &tok.* }(s) => s.len()) > usize(0)) && g_binder_value_reads.with({ tok : &tok.* }(s) => s.contains(&_reference_deref_site_key(tok)))
 );
 /// Record whether the node `id` was read as a reference value (the read
 /// rule); a later evaluation of the same node at another position overrides.
@@ -6807,7 +6807,7 @@ note_reference_deref_site :: (fn(tok : &Token) -> unit)({
 });
 /// Whether the name at `tok` is a rewritten `r.*`'s receiver.
 is_reference_deref_site :: (fn(tok : &Token) -> bool)(
-  (g_reference_deref_sites.with({ tok : &tok.* }(s) => s.len()) > usize(0)) && g_reference_deref_sites.with(s => s.contains(&_reference_deref_site_key(tok)))
+  (g_reference_deref_sites.with({ tok : &tok.* }(s) => s.len()) > usize(0)) && g_reference_deref_sites.with({ tok : &tok.* }(s) => s.contains(&_reference_deref_site_key(tok)))
 );
 /// At the identifier evaluator's entry: `e` is exempt. Clears the mark.
 deref_exempt_take :: (fn(e : &AstExpr) -> bool)({
