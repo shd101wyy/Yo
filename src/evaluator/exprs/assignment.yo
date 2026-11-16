@@ -171,7 +171,6 @@ pragma(Pragma.AllowUnsafe);
   deref_exempt_clear,
   variable_is_reference_binding,
   deref_rule_applies,
-  deref_spelling_applies,
   deref_rule_recording,
   reject_reference_without_deref,
   ref_payload_source,
@@ -1554,7 +1553,7 @@ get_atomic_object_root_type :: (
 // evaluate_assignment
 // ---------------------------------------------------------------------------
 /// The name `r` of an assignment target `r.*` when `r` is a reference
-/// binding whose written `.*` is its own deref (`deref_spelling_applies`),
+/// binding whose written `.*` is its own deref (`deref_rule_applies`),
 /// outside the recording mode (decision 43 step 2): the target is the
 /// referent, the place a bare `r = v` wrote.
 _reference_deref_write_target :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(AstExpr))({
@@ -1569,7 +1568,7 @@ _reference_deref_write_target :: (fn(lhs : &AstExpr, env : &Environment, ctx : &
   });
   match(
     get_variables_from_env(env, ast_expr_token(&rw_recv).value.*.clone()).last_cloned(),
-    .Some(rw_v) => if(variable_is_reference_binding(&rw_v) && deref_spelling_applies(ast_expr_token(&rw_recv), ctx), Option(AstExpr).Some(rw_recv), Option(AstExpr).None),
+    .Some(rw_v) => if(variable_is_reference_binding(&rw_v) && deref_rule_applies(ast_expr_token(&rw_recv), ctx), Option(AstExpr).Some(rw_recv), Option(AstExpr).None),
     .None => Option(AstExpr).None
   )
 });
@@ -1663,8 +1662,8 @@ evaluate_assignment :: (
       });
     });
   });
-  // `r.* = v` on a reference binding `r` (decision 43 step 2 N1e-1): outside
-  // std and src it writes the referent, the write a bare `r = v` was, so it
+  // `r.* = v` on a reference binding `r` (decision 43 step 2 N1e-1): it
+  // writes the referent, the write a bare `r = v` was, so it
   // is evaluated as that assignment and lowered to the same C (codegen
   // emits the expansion).
   match(
@@ -2470,7 +2469,7 @@ Bound type: ${type_to_string(&variable_value_type(&mcb_v))}`
   });
   // The if-check above guarantees vars is non-empty here; the .None arm is unreachable.
   variable := match(vars.last_cloned(), .Some(v) => v, .None => make_err_variable(&env));
-  // Outside std and src a whole-value write of a reference binding is
+  // A whole-value write of a reference binding is
   // `r.* = v` (E0926, decision 43 step 2 N1e-1); `r = &place` re-points it
   // and never reaches here, and `r.* = v` arrives exempt.
   is_deref_write := deref_exempt_take(&lhs_resolved);

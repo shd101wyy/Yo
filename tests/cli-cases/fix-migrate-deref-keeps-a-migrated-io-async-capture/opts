@@ -1,0 +1,8 @@
+# `yo fix <path> --migrate deref` over a migrated file whose `io.async` capture
+# list borrows a `&` parameter whole, `{ r : &r.* }` (§3.13 A2). The recorder
+# used to keep the written `*` as a hop of the captured place, which A2
+# rejects, so the file did not evaluate; the `.*` is the reference's own
+# deref, as outside the recorder, and nothing is applied
+# (issues/fixed/2026-11-16-migrate-deref-cannot-evaluate-a-migrated-io-async-capture-of-a-reference-parameter.md).
+stdout_keep=^fix:
+timeout=240

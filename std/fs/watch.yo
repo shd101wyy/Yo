@@ -262,7 +262,7 @@ impl(
     /// The future borrows the watcher (`&mut self`): await it where it is
     /// made, or hand the watcher to a combinator that owns it.
     next : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(FsEvent), Io)))(
-      io.async({ &mut self }(io : Io) => {
+      io.async({ self : &mut self.* }(io : Io) => {
         st := addr_of(self._cell.*);
         while((self._cell._head >= self._cell._queue.len()) && self._cell._active, {
           p := Park.new();

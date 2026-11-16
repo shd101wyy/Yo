@@ -30,6 +30,7 @@ pragma(Pragma.AllowUnsafe);
 { RefCell } :: import("std/sync/refcell");
 { hash_one } :: import("std/hash");
 { cwd } :: import("std/env");
+{ canonical_module_path } :: import("./utils.yo");
 // `expr_info_paths_for_write` detects the SHARED empty PathCollection before a
 // push with the prelude's pointer-identity builtin `__yo_ptr_eq` (the same
 // direct call as env.yo / std/string/string.yo).
@@ -3425,8 +3426,8 @@ mark_call_scoped_share_dup :: (fn(id : usize) -> unit)({
 is_call_scoped_share_dup :: (fn(id : usize) -> bool)(g_call_scoped_share_dup_ids.with(s => s.contains(&id)));
 /// The operands of a written `&r` / `&mut r` (a lend marker over a bare
 /// name), recorded before the operand is evaluated
-/// (`note_self_lend_operand`). Where `r` is a reference binding outside the
-/// trees that keep the old reading, the lend is of `r`'s OWN storage, a
+/// (`note_self_lend_operand`). Where `r` is a reference binding (outside
+/// compiler-synthesized code, `deref_rule_applies`), the lend is of `r`'s OWN storage, a
 /// `&&T` / `&mut &T` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P3):
 /// the identifier evaluator types the read as the reference itself and
 /// records it as a SELF PLACE (`mark_reference_self_place`), whose C is the
@@ -3444,9 +3445,9 @@ self_lend_operand_mode :: (fn(id : usize) -> Option(bool))(
 );
 /// A lend operand whose slot takes a reference to a REFERENCE (a `&A` /
 /// `&mut A` parameter with `A` a reference type): its `&r` lends `r` itself
-/// in every tree, the ones that keep the old reading of `&r` (std, src)
-/// included, since the referent cannot be what such a slot takes (an adapter's
-/// `(self._f)(&item)` over a reference `Item`).
+/// in every file, compiler-synthesized code included, since the referent
+/// cannot be what such a slot takes (an adapter's `(self._f)(&item)` over a
+/// reference `Item`).
 (g_self_lend_forced_ids : RefCell(HashSet(usize))) = RefCell(HashSet(usize)).new(HashSet(usize).new());
 note_self_lend_forced :: (fn(id : usize) -> unit)({
   _m := g_self_lend_forced_ids.with_mut(s => s.insert(id));
@@ -3707,8 +3708,7 @@ expr_side_table_entry_count :: (fn() -> usize)(
 export(record_module_level_init_expr, get_module_level_init_exprs);
 export(purge_expr_side_tables, purge_executed_clone_metadata, expr_side_table_entry_count);
 /// One `.*` `yo fix --migrate deref` inserts (decision 43 step 2, N1e-1;
-/// step-2 consultation Q7, VERDICTS-13 §11): outside std and the compiler
-/// tree, a reference binding read or written as a whole value (`n + 1`,
+/// step-2 consultation Q7, VERDICTS-13 §11): a reference binding read or written as a whole value (`n + 1`,
 /// `r = v`, `&r`) reads its referent with `.*` (E0926), and a `v.*` that
 /// meant the `Box`/`Rc`/field-`*` deref through a reference becomes
 /// `v.*.*`. Every site is one insertion of `.*` right after the expression
@@ -3733,7 +3733,7 @@ set_migrate_deref :: (fn(on : bool) -> unit)({
 migrate_deref_on :: (fn() -> bool)(g_migrate_deref);
 /// `YO_AUDIT_DEREF=1`: the census of N1e-1's sites, printed as
 /// `[deref] <file>:<row>:<col> <expr>` at each one (print-only, every file,
-/// the exempt trees included), so the PR states the real count.
+/// compiler-synthesized code included), so the PR states the real count.
 (g_audit_deref : bool) = debug_knob(`YO_AUDIT_DEREF`).is_some();
 audit_deref_on :: (fn() -> bool)(g_audit_deref);
 /// Record one site: `tok` is the expression's leftmost token. Recorded
@@ -3777,13 +3777,27 @@ note_deref_migrated_file :: (fn(tok : &Token) -> unit)({
   mp := tok.module_path.*.clone();
   _new := g_deref_migrated_files.with_mut({ mp }(s) => s.insert(mp));
 });
-/// Whether `note_deref_migrated_file` already saw `tok`'s file: its written
-/// `.*`s are the new spelling, so an edit-3 site there is evaluated the way
-/// the apply stage treats it (the second-run rule), not as an old payload
-/// read (the swept prelude under `yo fix --migrate deref`,
+/// The files a `yo fix --migrate deref` retry evaluation reads as migrated
+/// text from the start (`YO_FIX_DEREF_ASSUME_MIGRATED`, canonical paths): the
+/// host evaluation of each stopped at the old reading of one of its written
+/// `.*`s before it reached any evidence (`_run_migrate_deref`,
+/// issues/fixed/2026-11-15-migrate-deref-doubles-a-swept-star-when-the-recorders-old-reading-aborts-the-files-evaluation.md).
+(g_deref_assumed_files : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+note_deref_assumed_migrated :: (fn(path : &String) -> unit)({
+  cp := canonical_module_path(path);
+  _new := g_deref_assumed_files.with_mut({ cp }(s) => s.insert(cp));
+});
+_deref_assumed_count :: (fn(s : &HashSet(String)) -> usize)(s.len());
+/// Whether `note_deref_migrated_file` already saw `tok`'s file, or a retry
+/// evaluation assumes it (`note_deref_assumed_migrated`): its written `.*`s
+/// are the new spelling, so an edit-3 site there is evaluated the way the
+/// apply stage treats it (the second-run rule), not as an old payload read
+/// (the swept prelude under `yo fix --migrate deref`,
 /// issues/fixed/2026-11-14-the-deref-recorder-cannot-evaluate-the-swept-preludes-generic-comparisons.md).
 deref_file_migrated :: (fn(tok : &Token) -> bool)(
-  g_deref_migrated_files.with({ tok : &tok.* }(s) => s.contains(tok.module_path.*.clone()))
+  g_deref_migrated_files.with({ tok : &tok.* }(s) => s.contains(tok.module_path.*.clone())) || (
+    (g_deref_assumed_files.with(_deref_assumed_count) > usize(0)) && g_deref_assumed_files.with({ mp : canonical_module_path(&tok.module_path.*) }(s) => s.contains(&mp))
+  )
 );
 /// The files in which a `--migrate deref` evaluation met a `cond` whose
 /// compile-time-known conditions left an arm unevaluated: the arm gated on
@@ -3865,7 +3879,7 @@ take_deref_migrated_files :: (fn() -> HashSet(String))(
     out
   })
 );
-export(DerefSite, set_migrate_deref, migrate_deref_on, audit_deref_on, record_deref_site, record_deref_edit_site, note_deref_migrated_file, deref_file_migrated, note_deref_dead_arm_file, record_deref_clean_site, note_reference_read_copied, take_deref_sites, take_deref_migrated_files, take_deref_dead_arm_files, take_deref_clean_sites);
+export(DerefSite, set_migrate_deref, migrate_deref_on, audit_deref_on, record_deref_site, record_deref_edit_site, note_deref_migrated_file, deref_file_migrated, note_deref_assumed_migrated, note_deref_dead_arm_file, record_deref_clean_site, note_reference_read_copied, take_deref_sites, take_deref_migrated_files, take_deref_dead_arm_files, take_deref_clean_sites);
 /// `yo fix <path> --migrate unsized` (plans/VALUES_BY_DEFAULT.md decision 49
 /// S1f; VERDICTS-40 §5, VERDICTS-43 §4, VERDICTS-55): a site the evaluation
 /// records. At a `dyn` callee's token, with `text` its argument as it prints:
