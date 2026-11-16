@@ -88,9 +88,14 @@ test("one generic body over Deref(Target := [i32])", {
 });
 mut(_tick_drops) := i32(0);
 _Tick :: struct(n : i32);
-impl(_Tick, Drop(drop : (fn(self : &mut Self) -> unit)({
-  _tick_drops = (_tick_drops + i32(1));
-})));
+impl(
+  _Tick,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      _tick_drops = (_tick_drops + i32(1));
+    })
+  )
+);
 _Ticks :: struct(items : Array(_Tick, 2));
 impl(_Ticks, Deref(Target : [_Tick], deref : (fn(self : &Self) -> &Self.Target)(&self.items.*)));
 test("the elements are dropped once, by the owner", {
