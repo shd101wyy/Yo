@@ -14,7 +14,10 @@ off-path records (~24), rides v0.2.77 as an optional rider or opens v0.2.78;
 **3b**, the evaluator/codegen records (~47, `VcSort` first), lands in v0.2.78
 between deref Generation B and kebab-case; **3c** `Token`, **3d** `AstExpr` and
 **3e** `EvalValue` open v0.2.79, before the parser drop. `Token`'s row keeps
-"`Rc(S)` unless the emit-diff shows a plain struct within noise".
+"`Rc(S)` (3c measured one layout for the cell and the `ref` object; the plain
+struct was not tried and is not a v0.2.79 item)". Gates for 3c–3e: VERDICTS-64
+§2 (schedule §5i decision 54). Hand rule: VERDICTS-39 §4 plus VERDICTS-64
+decision 18.
 
 ## Method
 
