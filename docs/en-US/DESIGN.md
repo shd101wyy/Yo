@@ -3671,9 +3671,23 @@ assert(m.* == 20);
 
 ### Auto-dereference
 
-`Box`, `Rc` and `Arc` implement the prelude's `Deref` marker trait
-(`Deref :: trait(Target : Type)`, `Target` is the payload). On a `Deref`
-type, a field or method the wrapper does not have is looked up on the
+The prelude's `Deref` trait names the place `w.*` stands for, and
+`DerefMut` is its write half:
+
+```yo ignore
+Deref :: trait(Target : Type, deref : (fn(self : &Self) -> &Self.Target));
+DerefMut :: trait(Target : Type, deref_mut : (fn(self : &mut Self) -> &mut Self.Target));
+```
+
+They are chosen as `Index` and `IndexMut` are: a read of `w.*` calls `deref`,
+while a write, a `&mut` lend, a `self : &mut Self` receiver and `addr_of` call
+`deref_mut`. A type with `Deref` and no `DerefMut` has a read-only `.*`, and
+the two impls share one `Target`.
+
+`Box`, `Rc` and `Arc` are **handles**: `w.*` is the payload their pointer
+names, read natively, and their `deref` is `&self.*.*`. `Rc` and `Arc` have
+no `DerefMut`, because their payload is read-only through the handle. On a
+`Deref` type, a field or method the wrapper does not have is looked up on the
 payload: `w.field` means `w.*.field` and `w.method()` means `w.*.method()`.
 
 ```yo
@@ -3699,9 +3713,11 @@ assert(pp.y == 2); // nested wrappers: pp.*.*.y
   `pragma(Pragma.AllowUnsafe)`, a write through an `Arc` is still rejected
   (`a.n = v`, `a.bump()` with `self : &mut Self`): mutate an `Arc`'s payload
   through a `Mutex` or an atomic.
-- **Only `Box`, `Rc` and `Arc` implement `Deref`.** `impl(MyWrapper, Deref(...))`
-  is a compile error: a user wrapper exposes its payload through its own
-  fields and methods.
+- **Outside the prelude, `Deref` needs an unsized `Target`.** A `Deref` or
+  `DerefMut` impl outside the prelude is accepted when its `Target` is
+  `[T]`, `str`, a `Dyn(...)` or a tail-unsized struct. A sized `Target` and
+  an open type variable are error E0622: a wrapper over a sized payload
+  exposes it through its own fields and methods.
 - When neither the wrapper nor its payload has the name, the error says so:
   ``No field "z" on Rc(Point). `p` is a Rc(Point); its payload Point has no
   field "z" either.`` (E0406; E0610 for a method).
@@ -3714,6 +3730,40 @@ assert(pp.y == 2); // nested wrappers: pp.*.*.y
   parameter (`takes_point(p.as_ref())`), and `Rc.as_ref(h)` is the same call
   through the type. Pass the result straight to a call or bind it first
   (`q := p.as_ref(); q.clone()` is the payload's `clone`).
+
+**Owners.** Every other `Deref` type is an owner of unsized content, whose
+`.*` is the place its `deref` projection yields. `Array(T, N)` is one in the
+prelude, with `Target : [T]`, and so is a user type over a `[T]`:
+
+```yo
+Ring :: struct(items : Array(i32, 3));
+impl(Ring, len : (fn(self : &Self) -> usize)(usize(30)));
+impl(Ring, Deref(Target : [i32], deref : (fn(self : &Self) -> &Self.Target)(&self.items.*)));
+impl(Ring, DerefMut(Target : [i32], deref_mut : (fn(self : &mut Self) -> &mut Self.Target)(&mut self.items.*)));
+total :: (fn(xs : &[i32]) -> i32)(xs(usize(0)) + xs(usize(1)) + xs(usize(2)));
+main :: (fn() -> unit)({
+  mut(r) := Ring(items : Array(i32, 3)(1, 2, 3));
+  v := &r.*; // r.deref(): a view rooted at r
+  assert(total(v) == i32(6));
+  assert(r.len() == usize(30)); // the owner's own len
+  assert(r.*.len() == usize(3)); // the view's
+  assert(!r.is_empty()); // only the view has it: r.*.is_empty()
+  r.*(usize(0)) = i32(9); // a write: r.deref_mut()
+});
+export(main);
+```
+
+- `&w.*` is `w.deref()`, `&mut w.*` is `w.deref_mut()`, and anywhere else
+  `w.*` is that call's place. The view borrows the owner, so while it is
+  live the owner cannot be written, moved or lent `&mut` (E0911).
+- **The owner's own member wins.** A member only the view has is reached
+  through `.*`; a member the owner has is the owner's, so `r.len()` above is
+  `Ring`'s and `r.*.len()` the view's. Decision 32's E0616 is the handles'
+  rule. Adding a member to an owner therefore re-resolves calls that reached
+  the view's member of that name.
+- **Nothing else dereferences.** A `&Ring` does not fill a `&[i32]`
+  parameter: `total(&r)` is E0601, whose help names `total(&r.*)`. An
+  operator operand is never dereferenced either.
 
 ### Rc with Assignments
 

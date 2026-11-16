@@ -2146,13 +2146,13 @@ _throw_if_deref_impl_outside_prelude :: (fn(trait_ty : &Option(TypeValue), recei
     return(());
   });
   _is_prelude_trait :: (fn(tt : &TypeValue, name : str, env : &Environment) -> bool)(
-    match(get_trait_type_from_env(env, String.from(name)), .Some(p_tt) => (get_trait_key(tt) == get_trait_key(&p_tt)), .None => false)
+    match(get_trait_type_from_env(env, String.from(name)), .Some(p_tt) => (get_trait_key(&tt.*) == get_trait_key(&p_tt)), .None => false)
   );
   trait_name := match(
     trait_ty,
     .Some(tt) => cond(
-      _is_prelude_trait(tt, "Deref", env) => String.from("Deref"),
-      _is_prelude_trait(tt, "DerefMut", env) => String.from("DerefMut"),
+      _is_prelude_trait(&tt.*, "Deref", env) => String.from("Deref"),
+      _is_prelude_trait(&tt.*, "DerefMut", env) => String.from("DerefMut"),
       true => return(())
     ),
     .None => return(())
@@ -2183,7 +2183,7 @@ _throw_if_deref_impl_outside_prelude :: (fn(trait_ty : &Option(TypeValue), recei
   target_ev := evaluate_expression_raw(&te, env, ctx, exn);
   target := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&target_ev)),
-    .Some(tinfo) => match(tinfo.value(), .Some(.TypeVal(t)) => t, _ => return(())),
+    .Some(tinfo) => match(tinfo.value(), .Some(.TypeVal(t)) => Rc.clone(t), _ => return(())),
     .None => return(())
   );
   is_open_var := match(t_refine_inner(&target), Rc(.SomeT({ resolution : st_res })) => st_res.is_none(), _ => false);

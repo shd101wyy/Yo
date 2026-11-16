@@ -17,8 +17,8 @@ trc :: (fn(generic(V : Type), sink(v) : V) -> TRc(V))(TRc(V)(__yo_cell(V)(v, .No
 tarc :: (fn(generic(V : Type), sink(v) : V) -> TArc(V))(TArc(V)(__yo_atomic_cell(V)(v, .None)));
 // Decision D2: a cell handle in an unsafe-capable file may implement
 // `Deref`, as the prelude's cells do.
-impl(generic(T : Type), TRc(T), Deref(Target : T));
-impl(generic(T : Type), TArc(T), Deref(Target : T));
+impl(generic(T : Type), TRc(T), Deref(Target : T, deref : (fn(self : &Self) -> &Self.Target)(&self.*.*)));
+impl(generic(T : Type), TArc(T), Deref(Target : T, deref : (fn(self : &Self) -> &Self.Target)(&self.*.*)));
 // Decision 17: a second handle is spelled, `TRc.clone(h)`, a count bump as
 // the prelude's `Rc.clone` is.
 impl(generic(T : Type), TRc(T), Clone(clone : (fn(self : &Self) -> Self)(___dup(self.*))));
@@ -36,11 +36,11 @@ TLocked :: (fn(comptime(V) : Type) -> comptime(Type))(
   struct(_cell : __yo_atomic_cell(V))
 );
 tlocked :: (fn(generic(V : Type), sink(v) : V) -> TLocked(V))(TLocked(V)(_cell : __yo_atomic_cell(V)(v, .None)));
-/// A handle whose `Deref` impl names a `Target` other than its payload:
-/// auto-dereference forwards to the payload `h.*` reads, as for every handle
-/// (decision D2).
+/// A handle whose `Deref` impl names a `Target` other than its payload is a
+/// type error at the impl: its `deref` (`&self.*.*`) yields the payload, not
+/// the `Target` (VERDICTS-63 decision 12, which retires D2's "whatever
+/// `Target` its impl names").
 TPt :: struct(x : i32);
 TMisnamed :: newtype(_cell : __yo_cell(TPt));
-impl(TMisnamed, Deref(Target : bool));
-tmisnamed :: (fn(x : i32) -> TMisnamed)(TMisnamed(__yo_cell(TPt)(TPt(x : x), .None)));
-export(TRc, TArc, trc, tarc, treset, TLocked, tlocked, TPt, TMisnamed, tmisnamed);
+comptime_expect_error(impl(TMisnamed, Deref(Target : bool, deref : (fn(self : &Self) -> &Self.Target)(&self.*.*))), "TODO");
+export(TRc, TArc, trc, tarc, treset, TLocked, tlocked, TPt);
