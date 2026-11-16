@@ -5012,7 +5012,7 @@ impl(
     (mut(overflowed) : bool) = false;
     while((i < exp) && !overflowed, {
       match(
-        acc.checked_mul(self),
+        acc.checked_mul(self.*),
         .Some(v) => {
           acc = v;
         },
@@ -5026,7 +5026,7 @@ impl(
   }),
   /// `self` clamped into `[lo, hi]`.
   clamp : (fn(self : &T, lo : &T, hi : &T) -> T)(
-    cond((self.* < lo) => lo.*, (self.* > hi) => hi.*, true => self.*)
+    cond((self.* < lo.*) => lo.*, (self.* > hi.*) => hi.*, true => self.*)
   ),
   /// `self * rhs`, clamped to the type's bounds instead of overflowing.
   saturating_mul : (fn(self : T, rhs : T) -> T)(
@@ -5046,8 +5046,8 @@ impl(
     cond(
       (self.* == T(0)) => Option(T).Some(T(0)),
       (T.MIN == T(0)) => Option(T).None,
-      (self == T.MIN) => Option(T).None,
-      true => Option(T).Some(T(0) - self)
+      (self.* == T.MIN) => Option(T).None,
+      true => Option(T).Some(T(0) - self.*)
     )
   ),
   /// `(wrapped product, did it overflow)` — Rust's `overflowing_mul`.
@@ -5074,7 +5074,7 @@ impl(
         cond(
           // A negative base to an ODD power saturates low; every other
           // overflowing case saturates high.
-          ((self < T(0)) && ((exp % u32(2)) == u32(1))) => T.MIN,
+          ((self.* < T(0)) && ((exp % u32(2)) == u32(1))) => T.MIN,
           true => T.MAX
         )
     )
@@ -5130,11 +5130,11 @@ impl(
       (self.* < T(2)) => self.*,
       (self.* < T(4)) => T(1),
       true => {
-        (mut(r) : T) = self;
-        (mut(next) : T) = (self / T(2));
+        (mut(r) : T) = self.*;
+        (mut(next) : T) = (self.* / T(2));
         while(next < r, {
           r = next;
-          next = ((r + (self / r)) / T(2));
+          next = ((r + (self.* / r)) / T(2));
         });
         r
       }
@@ -5194,16 +5194,16 @@ impl(
   /// mathematical remainder is `0`.
   wrapping_rem : (fn(self : &T, rhs : &T) -> T)(
     cond(
-      ((self.* == T.MIN) && (rhs < T(0)) && ((T(0) - rhs) == T(1))) => T(0),
-      true => (self % rhs)
+      ((self.* == T.MIN) && (rhs.* < T(0)) && ((T(0) - rhs.*) == T(1))) => T(0),
+      true => (self.* % rhs.*)
     )
   ),
   /// `self / rhs`, clamped to the type's bound — Rust's `saturating_div`.
   /// `T.MIN / -1` saturates to `T.MAX`; every other quotient already fits.
   saturating_div : (fn(self : &T, rhs : &T) -> T)(
     cond(
-      ((self.* == T.MIN) && (rhs < T(0)) && ((T(0) - rhs) == T(1))) => T.MAX,
-      true => (self / rhs)
+      ((self.* == T.MIN) && (rhs.* < T(0)) && ((T(0) - rhs.*) == T(1))) => T.MAX,
+      true => (self.* / rhs.*)
     )
   ),
   /// `-self`, or `.None` when the negation does not fit — Rust's
@@ -5279,8 +5279,8 @@ impl(
       true => {
         (mut(v) : T) = self.*;
         (mut(n) : u32) = u32(0);
-        while(v >= base, {
-          v = (v / base);
+        while(v >= base.*, {
+          v = (v / base.*);
           n = (n + u32(1));
         });
         n
@@ -5296,7 +5296,7 @@ impl(
   checked_shl : (fn(self : &T, n : u32) -> Option(T))(
     cond(
       (n >= T.BITS) => Option(T).None,
-      true => Option(T).Some(self << T(n))
+      true => Option(T).Some(self.* << T(n))
     )
   ),
   /// `self >> n`, or `.None` when `n` is at or above the type's width.
@@ -5305,7 +5305,7 @@ impl(
   checked_shr : (fn(self : &T, n : u32) -> Option(T))(
     cond(
       (n >= T.BITS) => Option(T).None,
-      true => Option(T).Some(self >> T(n))
+      true => Option(T).Some(self.* >> T(n))
     )
   ),
   /// `self << (n % BITS)` — Rust's `wrapping_shl`. The shift COUNT wraps, not
@@ -5353,8 +5353,8 @@ impl(
   abs : (fn(self : &T) -> T)(
     cond(
       (self.* == T.MIN) => __yo_panic("abs: the absolute value of MIN does not fit"),
-      (self.* < T(0)) => (T(0) - self),
-      true => self
+      (self.* < T(0)) => (T(0) - self.*),
+      true => self.*
     )
   ),
   /// `-1`, `0` or `1` according to the sign.
@@ -5363,11 +5363,11 @@ impl(
   ),
   /// `-self` modulo the type's range: `T.MIN` negates to itself.
   wrapping_neg : (fn(self : &T) -> T)(
-    cond((self.* == T.MIN) => T.MIN, true => (T(0) - self))
+    cond((self.* == T.MIN) => T.MIN, true => (T(0) - self.*))
   ),
   /// The absolute value modulo the type's range: `T.MIN` maps to itself.
   wrapping_abs : (fn(self : &T) -> T)(
-    cond((self.* == T.MIN) => T.MIN, (self.* < T(0)) => (T(0) - self), true => self)
+    cond((self.* == T.MIN) => T.MIN, (self.* < T(0)) => (T(0) - self.*), true => self.*)
   )
 );
 /// The same-width UNSIGNED counterpart of a signed integer type.
@@ -5561,42 +5561,42 @@ impl(
   /// Counted over the receiver's OWN two's-complement pattern, which is what
   /// the trip through `T.Unsigned` buys: `i8(-1).count_ones()` is `8`, not
   /// `64`.
-  count_ones : (fn(self : &T) -> u32)(_popcount_u64(u64(T.Unsigned(self)))),
+  count_ones : (fn(self : &T) -> u32)(_popcount_u64(u64(T.Unsigned(self.*)))),
   /// The number of zero bits.
-  count_zeros : (fn(self : &T) -> u32)(T.BITS - _popcount_u64(u64(T.Unsigned(self)))),
+  count_zeros : (fn(self : &T) -> u32)(T.BITS - _popcount_u64(u64(T.Unsigned(self.*)))),
   /// The number of leading zero bits, the full width for zero — and always
   /// `0` for a negative receiver, whose sign bit is set.
   leading_zeros : (fn(self : &T) -> u32)(
-    _leading_zeros_u64(u64(T.Unsigned(self))) - (u32(64) - T.BITS)
+    _leading_zeros_u64(u64(T.Unsigned(self.*))) - (u32(64) - T.BITS)
   ),
   /// The number of trailing zero bits, the full width for zero.
   trailing_zeros : (fn(self : &T) -> u32)(
-    cond((self.* == T(0)) => T.BITS, true => _trailing_zeros_u64(u64(T.Unsigned(self))))
+    cond((self.* == T(0)) => T.BITS, true => _trailing_zeros_u64(u64(T.Unsigned(self.*))))
   ),
   /// The number of leading one bits.
   leading_ones : (fn(self : &T) -> u32)(
-    _leading_zeros_u64(u64(T.Unsigned(~self))) - (u32(64) - T.BITS)
+    _leading_zeros_u64(u64(T.Unsigned(~self.*))) - (u32(64) - T.BITS)
   ),
   /// The number of trailing one bits.
   trailing_ones : (fn(self : &T) -> u32)({
-    c := u64(T.Unsigned(~self));
+    c := u64(T.Unsigned(~self.*));
     cond((c == u64(0)) => T.BITS, true => _trailing_zeros_u64(c))
   }),
   /// `self` rotated left by `n` bits, wrapping the bits that fall off the top
   /// back in at the bottom. NOT a shift: no bit is lost, and `n` is taken
   /// modulo the width, so a full turn is the identity.
   rotate_left : (fn(self : &T, n : u32) -> T)(
-    T(T.Unsigned(_rotate_left_u64(u64(T.Unsigned(self)), n, T.BITS)))
+    T(T.Unsigned(_rotate_left_u64(u64(T.Unsigned(self.*)), n, T.BITS)))
   ),
   /// `self` rotated right by `n` bits.
   rotate_right : (fn(self : &T, n : u32) -> T)(
-    T(T.Unsigned(_rotate_right_u64(u64(T.Unsigned(self)), n, T.BITS)))
+    T(T.Unsigned(_rotate_right_u64(u64(T.Unsigned(self.*)), n, T.BITS)))
   ),
   /// `self` with its bit order reversed.
   reverse_bits : (fn(self : &T) -> T)(
     T(
       T.Unsigned(
-        _reverse_bits_u64(u64(T.Unsigned(self))) >> (u64(64) - u64(T.BITS))
+        _reverse_bits_u64(u64(T.Unsigned(self.*))) >> (u64(64) - u64(T.BITS))
       )
     )
   ),
@@ -5604,7 +5604,7 @@ impl(
   swap_bytes : (fn(self : &T) -> T)(
     T(
       T.Unsigned(
-        _swap_bytes_u64(u64(T.Unsigned(self))) >> (u64(64) - u64(T.BITS))
+        _swap_bytes_u64(u64(T.Unsigned(self.*))) >> (u64(64) - u64(T.BITS))
       )
     )
   )
@@ -5627,7 +5627,7 @@ impl(
   /// The big-endian byte representation — most significant byte first.
   to_be_bytes : (fn(self : &T) -> Array(u8, T.BYTES))({
     (mut(out) : Array(u8, T.BYTES)) = Array(u8, T.BYTES).fill(u8(0));
-    u := T.Unsigned(self);
+    u := T.Unsigned(self.*);
     (mut(i) : usize) = usize(0);
     while(i < T.BYTES, i = (i + usize(1)), {
       sh := ((T.BYTES - usize(1) - i) * usize(8));
@@ -5638,7 +5638,7 @@ impl(
   /// The little-endian byte representation — least significant byte first.
   to_le_bytes : (fn(self : &T) -> Array(u8, T.BYTES))({
     (mut(out) : Array(u8, T.BYTES)) = Array(u8, T.BYTES).fill(u8(0));
-    u := T.Unsigned(self);
+    u := T.Unsigned(self.*);
     (mut(i) : usize) = usize(0);
     while(i < T.BYTES, i = (i + usize(1)), {
       sh := (i * usize(8));
@@ -5693,7 +5693,7 @@ impl(
   T,
   /// True when exactly one bit is set. `0` is NOT a power of two.
   is_power_of_two : (fn(self : &T) -> bool)(
-    (self.* != T(0)) && ((self & (self - T(1))) == T(0))
+    (self.* != T(0)) && ((self.* & (self.* - T(1))) == T(0))
   ),
   /// The smallest power of two at or above `self`, or `.None` when that does
   /// not fit. `0` and `1` both give `1`.
@@ -5703,7 +5703,7 @@ impl(
       (self.* > ((T.MAX >> T(1)) + T(1))) => Option(T).None,
       true =>
         Option(T).Some(
-          T(T.Unsigned(u64(1) << u64(T.BITS - (self - T(1)).leading_zeros())))
+          T(T.Unsigned(u64(1) << u64(T.BITS - (self.* - T(1)).leading_zeros())))
         )
     )
   ),
