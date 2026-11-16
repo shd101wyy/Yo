@@ -55,6 +55,8 @@ comment, a written `dyn(Box.new(...))`, an enum variant named `Dyn` and a negati
 no-op, then `yo check`). The develop binary (`223b188f4`) lists the five plain sites and rewrites the negative row;
 the fix rewrites the five and leaves the row and the variant.
 
-With the fix, `yo fix ./std ./src ./tests --migrate unsized` rewrote every remaining `dyn(v)` site of the tree for
-decision 49 S3b, which then deleted the alias: from v0.2.79 a plain `dyn(v)` is E0620 and the mode no longer has a
-`dyn(v)` rewrite (v0.2.78 is the release that migrates it).
+With the fix, `yo fix ./std ./src <tests> --migrate unsized` rewrote 1,680 `dyn(v)` sites of std, src and the
+language tests for decision 49 S3b (the multi-line `exn.throw(dyn(...))` sites included; three sites in arms the host
+does not evaluate and a dozen negative rows were respelled by hand). S3b then deleted the alias: from v0.2.79 a plain
+`dyn(v)` is E0620, the mode no longer rewrites it (v0.2.78 is the release that migrates it), and
+`fix-migrate-unsized-sites` pins what v0.2.79 does with that v0.2.78 input.

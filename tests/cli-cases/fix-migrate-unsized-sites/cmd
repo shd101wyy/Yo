@@ -1,12 +1,14 @@
-# `yo fix <path> --migrate unsized` rewrites every `dyn(v)` site of a plain
-# value by its recorded position: a template literal, an interpolation, a
-# bracket or an escaped quote inside a string, and an argument over several
-# lines with a comment are rewritten `dyn(Box.new(v))`
-# (issues/fixed/2026-11-15-migrate-unsized-lists-one-line-dyn-sites-holding-a-template-literal-or-a-bracket-in-a-string.md).
-# An enum variant named `Dyn` is left alone
-# (issues/fixed/2026-11-15-migrate-unsized-rewrites-an-enum-variant-named-dyn.md),
-# and so is a `dyn` site inside a `comptime_expect_error` argument. The second
-# run is a no-op and the file still type-checks.
-fix . --migrate unsized
+# What v0.2.79 does with v0.2.78 input (decision 49 S3b): every `dyn(v)`
+# site of this fixture is v0.2.78's legacy alias of `dyn(Box.new(v))`, and
+# from v0.2.79 a plain `dyn(v)` is E0620, whose help names v0.2.78's
+# migration. The mode no longer rewrites the alias, so the file is reported as
+# not evaluating, `fix` exits 1, and the file is left unchanged (expected_tree).
+# The case was written for v0.2.78's mode, which rewrites every site of this
+# fixture by its position (a template literal, an interpolation, a bracket or
+# an escaped quote inside a string, an argument over several lines) and
+# leaves an enum variant named `Dyn` and a `comptime_expect_error` argument
+# alone
+# (issues/fixed/2026-11-15-migrate-unsized-lists-one-line-dyn-sites-holding-a-template-literal-or-a-bracket-in-a-string.md,
+# issues/fixed/2026-11-15-migrate-unsized-rewrites-an-enum-variant-named-dyn.md).
 fix . --migrate unsized
 check main.yo
