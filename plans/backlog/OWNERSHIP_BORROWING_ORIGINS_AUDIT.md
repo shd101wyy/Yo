@@ -130,6 +130,7 @@ basename), or the fix lane that owns it. Severity is `issues/README.md`'s scale.
 | A54 | A string interpolation containing an await evaluates to an empty string and leaks its pieces | S1 | pre; fixed by `fix/c8-codegen-ownership` | `issues/fixed/2026-11-11-a-string-interpolation-containing-an-await-evaluates-to-an-empty-string-and-leaks-its-pieces.md` |
 | A55 | A generic by-value result at a reference type (`_sm_pick(rx, ry, c)` at `T := &i32`, `Option(T)`, three arguments) carries only its first argument's origin | S1 | new (R3, #1904; v0.2.76 rejects with E0601); fixed by #1921 | `issues/fixed/2026-11-12-a-generic-by-value-result-at-a-reference-type-drops-its-second-arguments-origin.md` |
 | A56 | A local closure returning a reference borrows only its first reference argument | S1 | pre | `issues/2026-11-12-a-local-closure-returning-a-reference-borrows-only-its-first-reference-argument.md` |
+| A57 | A reference binding passed bare to a reference parameter (a capture `{ rx : &x }`, a reference parameter) gives the call result no origin, so `s.* = mkh(rx)` through a `&mut` capture stores a reference to `x` past its scope (G-D #1935, #1974) | S1 | pre; fixed by `fix/gd-closure-call-store` | `issues/fixed/2026-11-16-a-reference-binding-passed-bare-to-a-reference-parameter-gives-the-call-result-no-origin.md` |
 
 ### 3.2 Compiler failures
 

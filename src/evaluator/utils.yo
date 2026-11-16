@@ -9688,7 +9688,9 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
             });
             // A by-value root: the result points where the argument's
             // references point, never into the argument (`_origin_held_into`).
-            if(ra.by_value, _origin_held_into(&ra.arg, env, ctx, out, (depth + u32(1))), _origin_of_into(&ra.arg, env, ctx, out, (depth + u32(1))));
+            // A reference root: the reference the parameter receives
+            // (`_origin_of_reference_arg_into`).
+            if(ra.by_value, _origin_held_into(&ra.arg, env, ctx, out, (depth + u32(1))), _origin_of_reference_arg_into(&ra.arg, ra.is_mut, env, ctx, out, (depth + u32(1))));
           },
           .None => ()
         );
@@ -9763,6 +9765,47 @@ _origin_held_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, o
     ),
     .None => ()
   );
+  _origin_of_into(e, env, ctx, out, depth);
+});
+/// What the argument `e` passed at a reference parameter (`is_mut`: a `&mut`
+/// one) gives the call's result: the reference the parameter receives. A
+/// reference binding passed bare there (`mkh(rx)` with `rx` a capture
+/// `{ rx : &x }`, a reference parameter or a local reference) is no lend and
+/// no reference read: the reference slot exempts it from the read rule and
+/// it is read at its POINTEE's type, so `_origin_of_into`'s R-NONE drops it
+/// whenever the pointee carries no origin. The value the parameter receives
+/// is the reference the binding holds, so its origin is R-READ's, as the
+/// recorded lend of `.Some(rx)` gives it: a reference payload's held places,
+/// else the binding's registered entries, else its own place — which a
+/// capture store maps to the capture's outer place, and a store of a
+/// literal's parameter rejects (issues/fixed/2026-11-16-a-reference-binding-passed-bare-to-a-reference-parameter-gives-the-call-result-no-origin.md).
+_origin_of_reference_arg_into :: (fn(e : &AstExpr, is_mut : bool, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(OriginRootPlace), depth : u32) -> unit)({
+  stripped := ast_expr_strip_borrow_marker(e);
+  if(ast_expr_is_atom(&stripped) && !is_reference_read(ast_expr_id(&stripped)), {
+    match(
+      get_variables_from_env(env, ast_expr_token(&stripped).value.*.clone()).last_cloned(),
+      .Some(rv) => if(variable_is_reference_binding(&rv), {
+        match(
+          _ref_payload_held_of(&stripped, env),
+          .Some(held) => {
+            (hi : usize) = usize(0);
+            while(hi < held.len(), hi = (hi + usize(1)), {
+              _origin_push(held(hi).clone(), out);
+            });
+          },
+          .None => {
+            before := out.len();
+            _holder_roots_into(&stripped, env, ctx, out);
+            if(out.len() == before, {
+              _origin_push_place(&stripped, is_mut, env, ctx, out);
+            });
+          }
+        );
+        return(());
+      }),
+      .None => ()
+    );
+  });
   _origin_of_into(e, env, ctx, out, depth);
 });
 /// R-FIELD's push for the field read `node` (`recv.field`): the field
