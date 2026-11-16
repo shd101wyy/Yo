@@ -14,15 +14,17 @@
 { TokenKind, Token, TokenData } :: import("../../src/token.yo");
 { assert, panic } :: import("std/assert");
 make_token :: (fn(v : str) -> Token)(
-  Rc.new(TokenData(
-    kind : TokenKind.Identifier,
-    value : Rc.new(String.from(v)),
-    row : u32(0),
-    column : u32(0),
-    character : u32(0),
-    module_path : Rc.new(String.from("")),
-    input : Rc.new(String.from(""))
-  ))
+  Rc.new(
+    TokenData(
+      kind : TokenKind.Identifier,
+      value : Rc.new(String.from(v)),
+      row : u32(0),
+      column : u32(0),
+      character : u32(0),
+      module_path : Rc.new(String.from("")),
+      input : Rc.new(String.from(""))
+    )
+  )
 );
 make_atom_expr :: (fn(v : str) -> AstExpr)(
   AstExpr.Atom(usize(0), make_token(v))

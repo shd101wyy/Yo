@@ -129,16 +129,18 @@ evaluate_gensym :: (
   // (every gensym'd node overwrote key 0, dropping live values).
   atom_expr := AstExpr.Atom(
     alloc_global_expr_id(),
-    Rc.new(TokenData(
-      kind : TokenKind.Identifier,
-      value : Rc.new(symbol),
-      row : tok.row,
-      column : tok.column,
-      character : tok.character,
-      byte_offset : tok.byte_offset,
-      module_path : Rc.clone(tok.module_path),
-      input : Rc.clone(tok.input)
-    ))
+    Rc.new(
+      TokenData(
+        kind : TokenKind.Identifier,
+        value : Rc.new(symbol),
+        row : tok.row,
+        column : tok.column,
+        character : tok.character,
+        byte_offset : tok.byte_offset,
+        module_path : Rc.clone(tok.module_path),
+        input : Rc.clone(tok.input)
+      )
+    )
   );
   // Wrap the atom as an ExprVal.
   val := EvalValue.ExprVal(atom_expr);

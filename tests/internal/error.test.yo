@@ -56,15 +56,17 @@ json :: import("std/encoding/json");
 } :: import("../../src/diagnostics.yo");
 // Build a dummy token for testing.
 make_token :: (fn(module_path : &String, input : &String, row : usize, column : usize, value : &String) -> Token)(
-  Rc.new(TokenData(
-    kind : TokenKind.Identifier,
-    value : Rc.new(value.clone()),
-    row : u32(row),
-    column : u32(column),
-    character : u32(0),
-    module_path : Rc.new(module_path.clone()),
-    input : Rc.new(input.clone())
-  ))
+  Rc.new(
+    TokenData(
+      kind : TokenKind.Identifier,
+      value : Rc.new(value.clone()),
+      row : u32(row),
+      column : u32(column),
+      character : u32(0),
+      module_path : Rc.new(module_path.clone()),
+      input : Rc.new(input.clone())
+    )
+  )
 );
 // ─── format_error_message: the human render (exact) ──────────────────────────
 test("format_error_message renders the full block exactly once", {

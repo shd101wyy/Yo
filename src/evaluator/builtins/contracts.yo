@@ -1113,16 +1113,18 @@ _note_unlabeled_ensures_atoms :: (fn(e : &AstExpr) -> unit)(
 _synth_atom :: (fn(value : &String, kind : TokenKind, src_tok : &Token) -> AstExpr)(
   AstExpr.Atom(
     alloc_global_expr_id(),
-    Rc.new(TokenData(
-      kind : kind,
-      value : Rc.new(value.clone()),
-      row : src_tok.row,
-      column : src_tok.column,
-      character : src_tok.character,
-      byte_offset : src_tok.byte_offset,
-      module_path : Rc.clone(src_tok.module_path),
-      input : Rc.clone(src_tok.input)
-    ))
+    Rc.new(
+      TokenData(
+        kind : kind,
+        value : Rc.new(value.clone()),
+        row : src_tok.row,
+        column : src_tok.column,
+        character : src_tok.character,
+        byte_offset : src_tok.byte_offset,
+        module_path : Rc.clone(src_tok.module_path),
+        input : Rc.clone(src_tok.input)
+      )
+    )
   )
 );
 /// JSON-escape `s` for embedding in a synthetic string-literal token.
@@ -1289,16 +1291,18 @@ _build_assert_call :: (
 /// binding. Comptime functions need `::` because a `:=` runtime binding is
 /// rejected inside a compile-time-only function body.
 _build_binding :: (fn(name : &String, value : &AstExpr, src_tok : &Token, op : &String) -> AstExpr)({
-  bind_tok := Rc.new(TokenData(
-    kind : TokenKind.Identifier,
-    value : Rc.new(op.clone()),
-    row : src_tok.row,
-    column : src_tok.column,
-    character : src_tok.character,
-    byte_offset : src_tok.byte_offset,
-    module_path : Rc.clone(src_tok.module_path),
-    input : Rc.clone(src_tok.input)
-  ));
+  bind_tok := Rc.new(
+    TokenData(
+      kind : TokenKind.Identifier,
+      value : Rc.new(op.clone()),
+      row : src_tok.row,
+      column : src_tok.column,
+      character : src_tok.character,
+      byte_offset : src_tok.byte_offset,
+      module_path : Rc.clone(src_tok.module_path),
+      input : Rc.clone(src_tok.input)
+    )
+  );
   args := ArrayList(AstExpr).new();
   args.push(_synth_atom(name, TokenKind.Identifier, src_tok));
   args.push(value.*);
