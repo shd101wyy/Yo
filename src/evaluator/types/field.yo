@@ -333,7 +333,7 @@ evaluate_type_field :: (
       // static)` (decision 49, `unsized_legacy_spellings`).
       .Some(.TypeVal(inner)) => {
         if(!is_comptime && is_legacy_value_str(&inner), {
-          note_legacy_str_spelling(&te, false);
+          note_legacy_str_spelling(&te, false, &ctx.std_path);
         });
         Option(TypeValue).Some(if(is_comptime, Rc.clone(inner), legacy_value_str(&inner)))
       },

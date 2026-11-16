@@ -155,7 +155,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string, type_to_string_for_message } :: import("../types/string.yo");
 { type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, nominal_has_hidden_origin, type_reaches_user_drop, type_nominal_drop_uses_roots, note_origin_types_exist, type_is_typed_fnmut_closure, capture_struct_is_fnmut, future_unreturnable_borrow, future_origin_names, get_all_some_types, is_legacy_value_str, legacy_value_str, type_is_sized } :: import("../types/utils.yo");
 { expr_info_table_set, is_mut_global, is_thread_local, migrate_unsized_on, record_unsized_site, migrate_deref_on, audit_deref_on, record_deref_site, record_deref_edit_site, deref_file_migrated, note_reference_read_copied, lookup_macro_expansion, is_reference_self_place, unsize_reference_mode } :: import("../expr_info.yo");
-{ is_global_mut_rule_exempt, is_deref_rule_exempt, is_deref_swept_tree } :: import("./memory_safety.yo");
+{ is_global_mut_rule_exempt, is_deref_rule_exempt, is_deref_swept_tree, is_implicitly_unsafe_capable_file, is_std_module_path } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
 // late-binding dispatcher (it imports neither utils.yo nor any handler).
@@ -6208,14 +6208,18 @@ reject_dyn_place_by_value :: (fn(id : usize, position : &String, tok : &Token, e
 /// (`legacy_value_str`) is recorded at its token, rewritten to that spelling
 /// (`kind` 10), or only listed (`kind` 11) where the spelling would change the
 /// parameter's mode (`sink(s) : str`). Anything but the bare word `str` (an
-/// alias name, a `Self`) is the user's own spelling and is left alone.
-note_legacy_str_spelling :: (fn(te : &AstExpr, listed : bool) -> unit)({
+/// alias name, a `Self`) is the user's own spelling and is left alone. Only
+/// where the file may spell `static` (`_static_spellable_at`): elsewhere the
+/// rewrite would be E0922 while P12's rule is blocked, and the alias keeps
+/// the written `str` meaning `&(str, static)`
+/// (issues/questions/2026-11-16-the-str-migration-writes-a-static-origin-that-safe-code-cannot-spell-while-p12-is-blocked.md).
+note_legacy_str_spelling :: (fn(te : &AstExpr, listed : bool, std_path : &String) -> unit)({
   if(!migrate_unsized_on(), {
     return(());
   });
   match(
     te,
-    .Atom(_, ls_tok) => if((ls_tok.kind == TokenKind.Identifier) && (ls_tok.value.* == "str"), {
+    .Atom(_, ls_tok) => if((ls_tok.kind == TokenKind.Identifier) && (ls_tok.value.* == "str") && _static_spellable_at(&ls_tok.*, std_path), {
       record_unsized_site(&ls_tok.*, if(listed, u8(11), u8(10)), &String.from("str"));
     }),
     _ => ()
@@ -6225,10 +6229,17 @@ note_legacy_str_spelling :: (fn(te : &AstExpr, listed : bool) -> unit)({
 /// not in reach of the binder's check (`evaluate_comptime_fn_call` sees the
 /// callee and the values). Recorded at the callee's token with the
 /// argument's index (`kind` 12); the migration finds the argument in the line.
-note_legacy_str_type_arg :: (fn(callee : &AstExpr, index : usize) -> unit)({
-  if(migrate_unsized_on(), {
+note_legacy_str_type_arg :: (fn(callee : &AstExpr, index : usize, std_path : &String) -> unit)({
+  if(migrate_unsized_on() && _static_spellable_at(&ast_expr_token(callee), std_path), {
     record_unsized_site(&ast_expr_token(callee), u8(12), &index.to_string());
   });
+});
+/// The file at `tok` may spell the `static` origin: std or an unsafe-capable
+/// file, the exemption of E0922's wall (`_reject_empty_origin_in_safe_code`,
+/// VERDICTS-57 §1).
+_static_spellable_at :: (fn(tok : &Token, std_path : &String) -> bool)({
+  mp := tok.module_path.*.clone();
+  is_implicitly_unsafe_capable_file(Option(String).Some(mp.clone())) || is_std_module_path(&mp, std_path)
 });
 /// The legacy value `str` at a `comptime(V) : Type` parameter (decision 49,
 /// `unsized_legacy_spellings`): `ArrayList(str)` binds `V := &(str, static)`,

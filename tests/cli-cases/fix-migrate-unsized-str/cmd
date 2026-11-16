@@ -5,7 +5,12 @@
 # argument (`ArrayList(str)`). It lists a `sink(s) : str` parameter (a
 # reference parameter is not a `sink`). `&str`, `impl(str, ...)`, `Self`, the
 # alias name `Name` and a type argument spelled through a binder (`T`) are
-# left alone. The second run rewrites nothing, and the file still checks.
+# left alone. It writes `static` only where the file may spell it (std and a
+# pragma'd file, `main.yo`): in safe code (`safe.yo`) that is E0922 while P12's
+# rule is blocked, so the written `str` stays and the alias keeps its meaning
+# (issues/questions/2026-11-16-the-str-migration-writes-a-static-origin-that-safe-code-cannot-spell-while-p12-is-blocked.md).
+# The second run rewrites nothing, and both files still check.
 fix . --migrate unsized
 fix . --migrate unsized
 check main.yo
+check safe.yo

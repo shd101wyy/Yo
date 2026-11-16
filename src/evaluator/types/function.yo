@@ -2459,7 +2459,7 @@ evaluate_function_parameter :: (
   // the slot that spelling gives.
   (legacy_str_param : bool) = (!is_compile_time_only && !is_parameter_comptime_by_default && !is_quote && !is_param_ref && !has_imm_wrapper && match(&param_type, .Some(lsp_t) => is_legacy_value_str(lsp_t), .None => false));
   if(legacy_str_param, {
-    match(&type_expr, .Some(lsp_te) => note_legacy_str_spelling(lsp_te, is_sink_param), .None => ());
+    match(&type_expr, .Some(lsp_te) => note_legacy_str_spelling(lsp_te, is_sink_param, &ctx.std_path), .None => ());
     has_imm_wrapper = true;
     is_sink_param = false;
     is_owning_rc_value = false;
@@ -5086,7 +5086,7 @@ evaluate_function_type :: (
   // `&(str, static)` result, the slot `-> &(str, static)` gives.
   legacy_str_result := (!is_return_comptime_only && !is_return_type_ref && is_legacy_value_str(&return_type));
   if(legacy_str_result, {
-    note_legacy_str_spelling(&return_type_expr, false);
+    note_legacy_str_spelling(&return_type_expr, false, &ctx.std_path);
   });
   if(!legacy_str_result && !is_return_comptime_only && !is_return_type_ref && !t_slot_is_borrow(&return_type) && !type_is_sized(&return_type), {
     exn.throw(dyn(unsized_by_value_error(&return_type, &String.from("a by-value result"), &Option(String).None, &ast_expr_token(&return_type_expr))));

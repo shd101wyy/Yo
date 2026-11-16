@@ -134,7 +134,7 @@ evaluate_array_type :: (
       // (decision 49, `unsized_legacy_spellings`).
       .TypeVal(inner) => {
         if(is_legacy_value_str(&inner), {
-          note_legacy_str_spelling(&element_type_expr, false);
+          note_legacy_str_spelling(&element_type_expr, false, &ctx.std_path);
         });
         legacy_value_str(&inner)
       },
@@ -365,7 +365,7 @@ evaluate_slice_type :: (
     exn.throw(dyn(unsized_by_value_error(&elem_ty, &String.from("a slice element"), &Option(String).None, &ast_expr_token(&element_type_expr))));
   });
   if(is_legacy_value_str(&elem_ty), {
-    note_legacy_str_spelling(&element_type_expr, false);
+    note_legacy_str_spelling(&element_type_expr, false, &ctx.std_path);
   });
   slice_ty := t_slice(&legacy_value_str(&elem_ty));
   out_info := new_expr_info(&expr_info_adopt_env(&elem_info), &type_of_type(&slice_ty));
