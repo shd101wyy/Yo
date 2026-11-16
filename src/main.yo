@@ -2002,7 +2002,7 @@ _run_migrate_unsized :: (fn(files : &ArrayList(String), std_path : &String, dry_
           // `dyn(<arg>)`, found by the recorded position of `dyn`: the
           // argument is the bracket-balanced source after the `(` that
           // follows it, on this line or the next ones.
-          written_dyn := ((st.col + usize(3)) <= runes.len()) && (runes(st.col).char == u32(0x64)) && (runes(st.col + usize(1)).char == u32(0x79)) && (runes(st.col + usize(2)).char == u32(0x6E)) && ((st.col == usize(0)) || !_is_word_rune(runes(st.col - usize(1))));
+          written_dyn := (((st.col + usize(3)) <= runes.len()) && (runes(st.col).char == u32(0x64)) && (runes(st.col + usize(1)).char == u32(0x79)) && (runes(st.col + usize(2)).char == u32(0x6E)) && ((st.col == usize(0)) || !_is_word_rune(runes(st.col - usize(1)))));
           (k : usize) = (st.col + usize(3));
           while((k < runes.len()) && runes(k).is_whitespace(), k = (k + usize(1)), ());
           span := if(written_dyn && (k < runes.len()) && (runes(k).char == u32(0x28)), _first_call_arg_span(&lines, st.row, k), Option(Tuple(usize, usize, usize, usize)).None);
