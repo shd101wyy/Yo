@@ -27,6 +27,11 @@ test("&b.* lends the view: bound, as an argument, as a receiver", {
   assert(_sum(&b.*) == i32(3), "as an argument");
   assert(b.*.len() == usize(2), "the view's len");
   assert(b.len() == usize(4), "the owner's own len wins");
+  // An unsized projection call's place, lent and used as a receiver: the
+  // argument is the fat pair itself
+  // (issues/fixed/2026-11-16-an-unsized-projection-place-lent-to-a-reference-parameter-spills-an-undeclared-temporary.md).
+  assert(_sum(&RawBuf.deref(&b).*) == i32(3), "a projection call's place as an argument");
+  assert(RawBuf.deref(&b).*.len() == usize(2), "and as a receiver");
 });
 test("a member only the view has forwards through .*", {
   b := raw_buf(usize(2));
@@ -155,9 +160,9 @@ test("nothing dereferences at a parameter", {
 test("a capture list names a binding, not a projection place", {
   comptime_expect_error({
     b := raw_buf(usize(2));
-    f := ({ v : &b.* }() => _sum(v));
+    (f : Impl(Fn() -> i32)) = ({ v : &b.* }() => _sum(v));
     f()
-  }, "A borrow capture names a place rooted at a named binding");
+  }, "an owner's `.*` is the place its `deref` projection yields");
 });
 _Sized :: struct(n : i32);
 _Gen :: (fn(comptime(T) : ?Sized) -> comptime(Type))(struct(inner : Box(T)));
@@ -166,7 +171,7 @@ _Half2 :: struct(items : Array(i32, 2), bytes : Array(u8, 2));
 _NoDeref :: struct(items : Array(i32, 2));
 test("outside the prelude a Deref impl needs an unsized Target (E0622)", {
   comptime_expect_error(impl(_Sized, Deref(Target : i32, deref : (fn(self : &Self) -> &Self.Target)(&self.n))), "its `Target` `i32` has a size");
-  comptime_expect_error(impl(_Sized, DerefMut(Target : i32, deref_mut : (fn(self : &mut Self) -> &mut Self.Target)(&mut self.n))), "E0622");
+  comptime_expect_error(impl(_Sized, DerefMut(Target : i32, deref_mut : (fn(self : &mut Self) -> &mut Self.Target)(&mut self.n))), "Cannot implement `DerefMut` for `_Sized`: its `Target` `i32` has a size");
   comptime_expect_error(impl(generic(T : ?Sized), _Gen(T), Deref(Target : T, deref : (fn(self : &Self) -> &Self.Target)(&self.inner.*))), "is a type variable");
   comptime_expect_error(impl(_NoDeref, Deref(Target : [i32])), "member \"deref\" is not provided");
 });
@@ -177,7 +182,7 @@ test("DerefMut needs a Deref with the same Target", {
   comptime_expect_error({
     mut(h) := _Half(items : Array(i32, 2)(1, 2));
     _w := &mut h.*;
-  }, "Deref");
+  }, "implements `DerefMut` but not `Deref`");
   comptime_expect_error({
     mut(h) := _Half2(items : Array(i32, 2)(1, 2), bytes : Array(u8, 2)(3, 4));
     _w := &mut h.*;

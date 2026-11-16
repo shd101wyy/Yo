@@ -2705,6 +2705,16 @@ deref_target_type :: (fn(ty : &TypeValue, env : &Environment) -> Option(TypeValu
     )
   )
 });
+/// `ty` implements the prelude's `DerefMut` and not its `Deref`: a
+/// `DerefMut` impl needs a `Deref` impl with the same `Target` (VERDICTS-63
+/// decision 2), so such a type has no `.*`.
+implements_deref_mut_without_deref :: (fn(ty : &TypeValue, env : &Environment) -> bool)(
+  (is_struct_type(ty) || is_array_type(ty)) && match(
+    get_trait_type_from_env(env, String.from("DerefMut")),
+    .Some(dm_tt) => type_implements_trait_bool(ty, &dm_tt, env) && match(get_trait_type_from_env(env, String.from("Deref")), .Some(d_tt) => !type_implements_trait_bool(ty, &d_tt, env), .None => true),
+    .None => false
+  )
+);
 /// `ty` is a handle: a type whose `.*` the compiler reads natively through
 /// its payload pointer (`Box`, `Rc`, `Arc`, a D2 cell view). Decision 32's
 /// clash rule (E0616) is the handles' rule (VERDICTS-63 decision 7).
@@ -3737,7 +3747,7 @@ export(check_type_implements_self_constraints);
 export(type_implements_comptime, type_implements_runtime_full);
 export(begin_send_derivation, end_send_derivation);
 export(type_implements_send, type_implements_sync, type_implements_dispose, is_escapable_trait, is_sized_trait);
-export(deref_target_type, is_deref_handle, deref_owner_target, copy_structural_parts);
+export(deref_target_type, is_deref_handle, deref_owner_target, implements_deref_mut_without_deref, copy_structural_parts);
 export(set_flip_prelude_env, push_copy_pending, clear_copy_pending);
 export(type_implements_fn);
 export(resolve_assoc_type_for_target);

@@ -15,7 +15,7 @@ pragma(Pragma.AllowUnsafe);
 { replace } :: import("std/mem");
 { str_lit_unquote_bytes } :: import("../../utils.yo");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ExprId, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_to_string, BF_DOT, ast_rewritten_node, owner_deref_object, make_owner_deref_call, note_rewritten_node_as } :: import("../../expr.yo");
+{ AstExpr, ExprId, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_to_string, BF_DOT, ast_rewritten_node, owner_deref_object, make_owner_deref_call, note_rewritten_node_as, ast_place_text } :: import("../../expr.yo");
 { Token } :: import("../../token.yo");
 { Environment, Variable, get_receiver_methods_by_name_from_env, get_variables_from_env, find_variable_in_env, add_variable_to_env, synthetic_token, snapshot_env, FvCaptureSource, fv_capture_source, fv_source_name, fv_source_ty, fv_capture_vals, new_environment, variable_value_type } :: import("../../env.yo");
 { TypeValue, TypeValueNode, fn_param_mut_ref_at, fn_param_by_value_at, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, fn_param_mut_ref_flags, t_slot_is_borrow, t_refine_inner } :: import("../../types/definitions.yo");
@@ -2083,7 +2083,7 @@ _promote_index_call :: (fn(call : &AstExpr, env : &Environment, ctx : &mut EvalC
 _promote_owner_deref :: (fn(star : &AstExpr, object : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> unit)({
   star_info := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(star)), .Some(i) => i, .None => return(()));
   recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(object)), .Some(oi) => Rc.clone(oi.ty()), .None => return(()));
-  place_text := ast_expr_to_string(star);
+  place_text := ast_place_text(star);
   tok := ast_expr_token(star);
   has_deref_mut := match(
     get_trait_type_from_env(env, String.from("DerefMut")),
