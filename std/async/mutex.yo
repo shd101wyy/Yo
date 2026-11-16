@@ -300,7 +300,7 @@ impl(
   /// The future borrows the mutex (§3.13 A2): await it where it is made,
   /// `io.await(m.*.lock(io), io)`.
   lock : (fn(self : &Self, io : Io) -> Impl(Future(unit)))(
-    io.async({ &self }(io : Io) => {
+    io.async({ self : &self.* }(io : Io) => {
       match(
         self._acquire_or_park(),
         .None => (),
@@ -329,7 +329,7 @@ impl(
   /// stamp now resolves through the enclosing specialization's env
   /// (issues/fixed/future-wrapper-return-shared-across-specializations.md, C54).
   with_lock : (fn(generic(R : Type), self : &Self, body : &mut Impl(FnMut(v : &mut T) -> R), io : Io) -> Impl(Future(R)))(
-    io.async({ &self, &mut body }(io : Io) => {
+    io.async({ self : &self.*, body : &mut body.* }(io : Io) => {
       io.await(self.lock(io), io);
       // The async lock alone guards the section: the guard is not held while
       // `body` runs, so a long body never blocks another thread's loop in
