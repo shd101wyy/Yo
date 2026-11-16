@@ -953,7 +953,7 @@ legacy_value_str :: (fn(ty : &TypeValue) -> TypeValue)(
 /// returns as the value it is: it binds as a by-value `&(U, static)`, as
 /// `s := "abc"` does, never as a borrow of the caller's place.
 is_static_view_slot :: (fn(slot : &TypeValue) -> bool)(
-  match(slot, Rc(.Reference(svs_p, false, svs_o)) => (is_static_origin(&svs_o) && !type_is_sized(&svs_p)), _ => false)
+  match(slot, Rc(.Reference(svs_p, false, svs_o)) => (is_static_origin(&svs_o.*) && !type_is_sized(&svs_p.*)), _ => false)
 );
 /// `ty` is the bare unsized `str` that `legacy_value_str` rewrites.
 is_legacy_value_str :: (fn(ty : &TypeValue) -> bool)(match(t_refine_inner(ty), Rc(.Str) => true, _ => false));
