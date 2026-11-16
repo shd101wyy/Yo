@@ -62,8 +62,8 @@ get_info_none :: (fn(e : &AstExpr) -> Option(ExprInfo))(
 // A detector that never detects anything.
 make_noop_detector :: (fn() -> SuspensionPointDetector)(
   SuspensionPointDetector(
-    detect : dyn((expr, parent_expr) => ArrayList(SuspensionPoint).new()),
-    should_skip_body : dyn(expr => false),
+    detect : dyn(Box.new((expr, parent_expr) => ArrayList(SuspensionPoint).new())),
+    should_skip_body : dyn(Box.new(expr => false)),
     follow_macro_expansions : false
   )
 );
@@ -75,31 +75,33 @@ make_noop_detector :: (fn() -> SuspensionPointDetector)(
 make_detect_all_detector :: (fn() -> SuspensionPointDetector)({
   next_index := Rc.new(RefCell(usize).new(usize(0)));
   SuspensionPointDetector(
-    detect : dyn((expr, parent_expr) => {
-      idx := next_index.with_mut(n => {
-        cur := n.*;
-        n.* = (cur + usize(1));
-        cur
-      });
-      mut(points) := ArrayList(SuspensionPoint).new();
-      sp := SuspensionPoint(
-        index : idx,
-        expr : expr.clone(),
-        target_variable_id : Option(String).None,
-        is_inside_cond : Option(bool).None,
-        is_body_result : Option(bool).None,
-        is_inside_while : Option(bool).None,
-        while_nesting_depth : Option(usize).None,
-        cond_branch_source_index : Option(usize).None,
-        needs_own_cond_branch_field : Option(bool).None,
-        enclosing_while_expr : Option(AstExpr).None,
-        cond_branch_suspension_exprs : Option(ArrayList(AstExpr)).None,
-        cond_branch_suspension_in_while : Option(ArrayList(bool)).None
-      );
-      points.push(sp);
-      points
-    }),
-    should_skip_body : dyn(expr => false),
+    detect : dyn(
+      Box.new((expr, parent_expr) => {
+        idx := next_index.with_mut(n => {
+          cur := n.*;
+          n.* = (cur + usize(1));
+          cur
+        });
+        mut(points) := ArrayList(SuspensionPoint).new();
+        sp := SuspensionPoint(
+          index : idx,
+          expr : expr.clone(),
+          target_variable_id : Option(String).None,
+          is_inside_cond : Option(bool).None,
+          is_body_result : Option(bool).None,
+          is_inside_while : Option(bool).None,
+          while_nesting_depth : Option(usize).None,
+          cond_branch_source_index : Option(usize).None,
+          needs_own_cond_branch_field : Option(bool).None,
+          enclosing_while_expr : Option(AstExpr).None,
+          cond_branch_suspension_exprs : Option(ArrayList(AstExpr)).None,
+          cond_branch_suspension_in_while : Option(ArrayList(bool)).None
+        );
+        points.push(sp);
+        points
+      })
+    ),
+    should_skip_body : dyn(Box.new(expr => false)),
     follow_macro_expansions : false
   )
 });
