@@ -1903,7 +1903,7 @@ Raw pointer operations may dereference invalid memory.`
       // S2): the vtable's `clone_into` slot, with `Self` the `Dyn`.
       dyn_ci_recv := match(
         &type_val_inner,
-        Rc(.TraitT(ci_tn, _, _, .Some(ci_recv), _, _)) => if((ci_tn == "CloneInto") && (prop_name_tt == "clone_into") && is_dyn_type(&ci_recv), Option(TypeValue).Some(Rc.clone(ci_recv)), Option(TypeValue).None),
+        Rc(.TraitT(ci_tn, _, _, .Some(ci_recv), _, _)) => if((ci_tn.* == "CloneInto") && (prop_name_tt == "clone_into") && is_dyn_type(&ci_recv.*), Option(TypeValue).Some(Rc.clone(ci_recv)), Option(TypeValue).None),
         _ => Option(TypeValue).None
       );
       match(
@@ -1919,7 +1919,7 @@ Raw pointer operations may dereference invalid memory.`
               note_dyn_clone_into_witness(ast_expr_id(expr));
               expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_ci);
               expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_ci);
-              return(expr);
+              return(expr.*);
             },
             .None => ()
           );
