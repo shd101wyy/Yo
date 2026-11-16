@@ -2,8 +2,8 @@
 
 **Severity:** S2 — a valid program fails to compile in C: `f(&b.view().*)` and `b.view().*.len()` with `view : fn(self : &Self) -> &[T]` emit `&(__yo_ref_spill_N)` for a temporary whose declaration is commented out.
 
-**Status:** fixed 2026-11-16 on `vbd/d49-deref-owner` (VERDICTS-63 Generation A), with the argument hunk the
-`vbd/d49-str` lane carries for `&str`.
+**Status:** fixed by the argument hunk of the `str` flip (#1980), which `vbd/d49-deref-owner` (VERDICTS-63
+Generation A) carried until #1980 merged; the regression row is in `tests/deref_owner.test.yo`.
 
 Found 2026-11-16 by the deref-owner lane: probe p3e of VERDICTS-63, which passed on the 2026-11-15 develop build
 `yo-dt6`, fails on develop `223b188f4`. Every owner's `.*` is such a place (`&b.*` lowers to `b.deref()`), so
@@ -49,7 +49,7 @@ which `get_type_string` cannot spell, and the declaration is emitted as a commen
 
 `_apply_ref_amp` passes an argument whose place type is unsized, or whose type is a reference to an unsized pointee,
 as the fat pair (`unsized_place_fat_code`): a `(*fat)` place folds to `fat`, and anything else is the pair already.
-The hunk is `vbd/d49-str`'s minus its string-literal arm, which belongs to the `str` flip.
+The hunk landed with the `str` flip (#1980), whose string-literal arm also folds a `"lit"` argument to a `&str` slot.
 
 ## Verification
 
