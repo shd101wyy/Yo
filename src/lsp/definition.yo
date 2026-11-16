@@ -239,7 +239,7 @@ _find_variant_decl :: (fn(e : &AstExpr, variant : &String, out : &mut ArrayList(
           match(
             args.get(i),
             .Some(.Atom(_, at)) => if(at.value.* == variant.*, {
-              out.push(at);
+              out.push(Rc.clone(at));
             }),
             .Some(.FnCall(_, vf, _, _, _)) => if(_atom_is(&vf, variant.clone()), {
               out.push(ast_expr_token(&vf));
@@ -419,7 +419,7 @@ _owner_member_decl :: (
     Rc(.EnumT(_, _, _, _, _, _, _, _, _, _)) => _find_variant_decl(&value, member, &mut found),
     _ => _find_field_label(&value, member, &mut found)
   );
-  found.get(usize(0))
+  found.get_cloned(usize(0))
 });
 /// The `impl` pair declaring method `member` on `owner` (or its pointer
 /// target): the registry's `FuncVal` body token pins the declaring module and
@@ -479,7 +479,7 @@ _method_decl :: (
     i = (i + usize(1));
   });
   match(
-    found.get(usize(0)),
+    found.get_cloned(usize(0)),
     .Some(t) => Option(Token).Some(t),
     // The pair was not found (a synthesized method): the body itself.
     .None => Option(Token).Some(body_tok)
@@ -989,7 +989,7 @@ handle_document_links :: (
   (i : usize) = usize(0);
   while(i < tokens.len(), {
     t := match(
-      tokens.get(i),
+      tokens.get_cloned(i),
       .Some(x) => x,
       .None => {
         return(JsonValue.Array(items : out));
@@ -1065,7 +1065,7 @@ _tok_before :: (fn(tokens : &ArrayList(Token), i : usize) -> _TokAt)({
   while(j > usize(0), {
     j = (j - usize(1));
     match(
-      tokens.get(j),
+      tokens.get_cloned(j),
       .Some(t) => {
         if(t.kind != TokenKind.Whitespace, {
           return(_TokAt(tok : t, idx : j));
@@ -1082,7 +1082,7 @@ _tok_after :: (fn(tokens : &ArrayList(Token), i : usize) -> _TokAt)({
   (j : usize) = (i + usize(1));
   while(j < tokens.len(), {
     match(
-      tokens.get(j),
+      tokens.get_cloned(j),
       .Some(t) => {
         if(t.kind != TokenKind.Whitespace, {
           return(_TokAt(tok : t, idx : j));
