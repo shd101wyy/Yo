@@ -99,7 +99,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../context.yo");
 { stable_func_id, display_module_path, debug_knob } :: import("../../utils.yo");
 { register_func_type, get_func_type, mark_fn_unemittable } :: import("../../function_value.yo");
-{ get_all_some_types, type_representation_contains_raw_ptr, type_is_control_bound, fn_param_is_ptr_borrow, is_bare_callable_into_dyn_fn, reject_origin_carrying_signature } :: import("../../types/utils.yo");
+{ get_all_some_types, is_static_view_slot, type_representation_contains_raw_ptr, type_is_control_bound, fn_param_is_ptr_borrow, is_bare_callable_into_dyn_fn, reject_origin_carrying_signature } :: import("../../types/utils.yo");
 { are_types_compatible, are_types_compatible_invariant } :: import("../../types/compatibility.yo");
 { format_error_message, yo_error_from_diagnostics, YoError, with_code_carried } :: import("../../error.yo");
 { Diagnostic, E_COMPTIME_RUNTIME_BINDING } :: import("../../diagnostics.yo");
@@ -1115,7 +1115,11 @@ _build_def_time_body_env :: (
     );
     // The shared binding rule (calls/helper.yo): the declared comptime,
     // `inout` and `own` flags.
-    bind_parameter(&fresh_env, &pn, &pt, &pv, p_ct || is_type_kind(&pt), p_ref, p_own, _param_decl_token(param_decl_tokens, &pn, &caller_env.module_path().*), fn_param_is_ptr_borrow(fn_type_for_foralls, pi));
+    // The legacy value `str` (`is_static_view_slot`) binds as the
+    // `&(str, static)` value it is.
+    p_view := (!p_ct && match(param_types.get_cloned(pi), .Some(t) => is_static_view_slot(&t), .None => false));
+    p_bind_ty := if(p_view, match(param_types.get_cloned(pi), .Some(t) => t, .None => Rc.clone(pt)), Rc.clone(pt));
+    bind_parameter(&fresh_env, &pn, &p_bind_ty, &pv, p_ct || is_type_kind(&pt), p_ref, p_own || p_view, _param_decl_token(param_decl_tokens, &pn, &caller_env.module_path().*), fn_param_is_ptr_borrow(fn_type_for_foralls, pi) && !p_view);
     pi = (pi + usize(1));
   });
   fresh_env

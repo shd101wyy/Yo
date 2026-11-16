@@ -1419,27 +1419,27 @@ impl(
 impl(
   String,
   /// Does `self` have `prefix` starting at BYTE offset `position` (default 0)?
-  starts_with : (fn(generic(P : Type), self : &Self, prefix : &P, (position : usize) ?= 0, where(P <: Pattern)) -> bool)(
+  starts_with : (fn(generic(P : ?Sized), self : &Self, prefix : &P, (position : usize) ?= 0, where(P <: Pattern)) -> bool)(
     prefix.is_prefix_of(self, position)
   ),
   /// Does the first `end_position` BYTES of `self` end with `suffix`?
   /// `end_position` defaults to `usize.MAX`, meaning the whole string, and
   /// clamps to `len()`.
-  ends_with : (fn(generic(P : Type), self : &Self, suffix : &P, (end_position : usize) ?= usize.MAX, where(P <: Pattern)) -> bool)(
+  ends_with : (fn(generic(P : ?Sized), self : &Self, suffix : &P, (end_position : usize) ?= usize.MAX, where(P <: Pattern)) -> bool)(
     suffix.is_suffix_of(self, end_position)
   ),
   /// Does `substr` occur at or after BYTE offset `from_index` (default 0)?
-  contains : (fn(generic(P : Type), self : &Self, substr : &P, (from_index : usize) ?= 0, where(P <: Pattern)) -> bool)(
+  contains : (fn(generic(P : ?Sized), self : &Self, substr : &P, (from_index : usize) ?= 0, where(P <: Pattern)) -> bool)(
     substr.is_contained_in(self, from_index)
   ),
   /// BYTE offset of the first occurrence of `substr` at or after BYTE offset
   /// `from_index` (default 0), or `.None`.
-  index_of : (fn(generic(P : Type), self : &Self, substr : &P, (from_index : usize) ?= 0, where(P <: Pattern)) -> Option(usize))(
+  index_of : (fn(generic(P : ?Sized), self : &Self, substr : &P, (from_index : usize) ?= 0, where(P <: Pattern)) -> Option(usize))(
     substr.index_in(self, from_index)
   ),
   /// BYTE offset of the last occurrence of `substr` starting at or before BYTE
   /// offset `from_index` (default `usize.MAX`, meaning anywhere), or `.None`.
-  last_index_of : (fn(generic(P : Type), self : &Self, substr : &P, (from_index : usize) ?= usize.MAX, where(P <: Pattern)) -> Option(usize))(
+  last_index_of : (fn(generic(P : ?Sized), self : &Self, substr : &P, (from_index : usize) ?= usize.MAX, where(P <: Pattern)) -> Option(usize))(
     substr.last_index_in(self, from_index)
   ),
   /// Split on runs of ASCII whitespace, discarding empty pieces — Rust's
@@ -1475,7 +1475,7 @@ impl(
   /// of the string, separators included. Rust's `splitn`. `n == 0` yields
   /// nothing, as in Rust.
   splitn : (
-    fn(generic(P : Type), self : &Self, n : usize, separator : &P, where(P <: Pattern)) -> ArrayList(String)
+    fn(generic(P : ?Sized), self : &Self, n : usize, separator : &P, where(P <: Pattern)) -> ArrayList(String)
   )({
     mut(out) := ArrayList(String).new();
     cond(
@@ -1560,7 +1560,7 @@ impl(
   ///
   /// A ZERO-WIDTH pattern (the empty string, a regex matching empty) strips
   /// nothing and terminates rather than spinning.
-  trim_start_matches : (fn(generic(P : Type), self : &Self, pat : &P, where(P <: Pattern)) -> Self)({
+  trim_start_matches : (fn(generic(P : ?Sized), self : &Self, pat : &P, where(P <: Pattern)) -> Self)({
     (mut(out) : Self) = self.substring(usize(0), self.len());
     while(true, {
       before := out.len();
@@ -1584,7 +1584,7 @@ impl(
   }),
   /// `self` with every trailing occurrence of `pat` removed — Rust's
   /// `trim_end_matches`. Repeats, and terminates on a zero-width pattern.
-  trim_end_matches : (fn(generic(P : Type), self : &Self, pat : &P, where(P <: Pattern)) -> Self)({
+  trim_end_matches : (fn(generic(P : ?Sized), self : &Self, pat : &P, where(P <: Pattern)) -> Self)({
     (mut(out) : Self) = self.substring(usize(0), self.len());
     while(true, {
       before := out.len();
@@ -1608,7 +1608,7 @@ impl(
   }),
   /// `self` with every leading AND trailing occurrence of `pat` removed —
   /// Rust's `trim_matches`.
-  trim_matches : (fn(generic(P : Type), self : &Self, pat : &P, where(P <: Pattern)) -> Self)(
+  trim_matches : (fn(generic(P : ?Sized), self : &Self, pat : &P, where(P <: Pattern)) -> Self)(
     self.trim_start_matches(pat).trim_end_matches(pat)
   ),
   /// `self` cut at every occurrence of `separator` — Rust's `str::split`,
@@ -1626,7 +1626,7 @@ impl(
   /// `["a", "b", "c"]` — not Rust's `["", "a", "b", "c", ""]`. It is pinned to
   /// the rune vocabulary on purpose: a byte-wise split would hand back
   /// fragments that are not valid UTF-8 now that `len()` counts bytes.
-  split : (fn(generic(P : Type), self : &Self, separator : &P, where(P <: Pattern)) -> ArrayList(String))(
+  split : (fn(generic(P : ?Sized), self : &Self, separator : &P, where(P <: Pattern)) -> ArrayList(String))(
     separator.split_of(self)
   ),
   /// `split`'s pieces from the RIGHT — Rust's `rsplit`.
@@ -1635,7 +1635,7 @@ impl(
   /// reversed, so `"a.b.c".rsplit(".")` is `["c", "b", "a"]`. (Rust's returns
   /// a lazy iterator; Yo's `split` already returns the whole list, so this
   /// reverses it.)
-  rsplit : (fn(generic(P : Type), self : &Self, separator : &P, where(P <: Pattern)) -> ArrayList(String))({
+  rsplit : (fn(generic(P : ?Sized), self : &Self, separator : &P, where(P <: Pattern)) -> ArrayList(String))({
     mut(parts) := self.split(separator);
     parts.reverse();
     parts
@@ -1714,7 +1714,7 @@ impl(
   /// Rust's `str::split_once`. A zero-width separator (empty string pattern,
   /// regex matching empty) splits before the first rune.
   split_once : (
-    fn(generic(P : Type), self : &Self, separator : &P, where(P <: Pattern)) -> Option(
+    fn(generic(P : ?Sized), self : &Self, separator : &P, where(P <: Pattern)) -> Option(
       (
         String;
         String
@@ -1733,7 +1733,7 @@ impl(
   }),
   /// `self` without `prefix`, or `.None` when `self` does not start with it.
   /// Rust's `str::strip_prefix`.
-  strip_prefix : (fn(generic(P : Type), self : &Self, prefix : &P, where(P <: Pattern)) -> Option(Self))({
+  strip_prefix : (fn(generic(P : ?Sized), self : &Self, prefix : &P, where(P <: Pattern)) -> Option(Self))({
     (hit : bool) = prefix.is_prefix_of(self, usize(0));
     cond(
       hit => .Some(self.substring(prefix.length_in(self, usize(0)), self.len())),
@@ -1744,7 +1744,7 @@ impl(
   /// Rust's `str::strip_suffix`. The LAST starting occurrence of the suffix
   /// is the one stripped (so `"aaa".strip_suffix("aa")` is `.Some("a")`,
   /// like Rust).
-  strip_suffix : (fn(generic(P : Type), self : &Self, suffix : &P, where(P <: Pattern)) -> Option(Self))({
+  strip_suffix : (fn(generic(P : ?Sized), self : &Self, suffix : &P, where(P <: Pattern)) -> Option(Self))({
     (last : Option(usize)) = suffix.last_index_in(self, usize.MAX);
     match(
       last,
@@ -1764,7 +1764,7 @@ impl(
   /// with `bounded` replaces nothing.
   _replace_scan : (
     fn(
-      generic(P : Type),
+      generic(P : ?Sized),
       self : &Self,
       search_value : &P,
       new_value : &Self,
@@ -1853,7 +1853,7 @@ impl(
   ///
   /// NOTE this replaced only the FIRST occurrence before D10. Use `replacen`
   /// for a bounded count.
-  replace : (fn(generic(P : Type), self : &Self, search_value : &P, new_value : &Self, where(P <: Pattern)) -> Self)(
+  replace : (fn(generic(P : ?Sized), self : &Self, search_value : &P, new_value : &Self, where(P <: Pattern)) -> Self)(
     Self._replace_scan(self, search_value, new_value, usize(0), false)
   ),
   /// Replace the first `count` occurrences of `search_value` with `new_value`,
@@ -1863,7 +1863,7 @@ impl(
   /// `count == 0` returns `self` unchanged.
   replacen : (
     fn(
-      generic(P : Type),
+      generic(P : ?Sized),
       self : &Self,
       search_value : &P,
       new_value : &Self,
@@ -1877,14 +1877,14 @@ impl(
   ///
   /// DEPRECATED (D10), kept for one release: this is what `replace` used to
   /// mean. Write `replacen(search_value, new_value, usize(1))` instead.
-  replace_first : (fn(generic(P : Type), self : &Self, search_value : &P, new_value : &Self, where(P <: Pattern)) -> Self)(
+  replace_first : (fn(generic(P : ?Sized), self : &Self, search_value : &P, new_value : &Self, where(P <: Pattern)) -> Self)(
     Self._replace_scan(self, search_value, new_value, usize(1), true)
   ),
   /// Replace EVERY occurrence of `search_value` with `new_value`.
   ///
   /// DEPRECATED (D10), kept for one release: `replace` now means this. Rust
   /// spells it `replace`, with no `replace_all` on `str`.
-  replace_all : (fn(generic(P : Type), self : &Self, search_value : &P, new_value : &Self, where(P <: Pattern)) -> Self)(
+  replace_all : (fn(generic(P : ?Sized), self : &Self, search_value : &P, new_value : &Self, where(P <: Pattern)) -> Self)(
     Self._replace_scan(self, search_value, new_value, usize(0), false)
   )
 );

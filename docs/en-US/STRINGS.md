@@ -7,7 +7,7 @@ ordinary code and at compile time:
 | type | `len()` | slicing | element access |
 | --- | --- | --- | --- |
 | `String` (`std/string`) | bytes, O(1) | `substring(a, b)` — bytes | `byte_at(i)` → `u8`, `get_byte(i)` → `Option(u8)`, `at(i)` → `Option(rune)` |
-| `str` (prelude; string literals) | bytes | `s(a..b)` — zero-copy byte window | `bytes(i)` → `u8` (aborts out of range) |
+| `&str` (prelude; string literals are `&(str, static)`) | bytes | `s(a..b)` — zero-copy byte window | `bytes(i)` → `u8` (aborts out of range) |
 | `StringBuilder` (`std/string`) | bytes | — | — |
 | `comptime_str` (compile time) | bytes | `slice(a, b)` / `s(a..b)` — bytes | `s(i)` → 1-rune `comptime_str` |
 
@@ -147,6 +147,37 @@ s.byte_at(usize(0)); // u8(97)
 s.get_byte(usize(9)); // .None — past the end
 s(usize(1) .. usize(3)); // "é" — a new String
 ```
+
+## `str` and `&str`
+
+Since v0.2.79 (decision 49) `str` is the **unsized** run of UTF-8 bytes, like
+`[u8]`, and it lives behind a pointer: `&str` is the fat reference (the bytes'
+address and their length, two words, copied by value). A string literal is
+`&(str, static)`, a reference to static bytes, so it fills every `&str` slot.
+
+```yo
+count :: (fn(s : &str) -> usize)(s.len());
+
+main :: (fn() -> unit)({
+  s := "hello"; // `&(str, static)`
+  _ := (count(s), count("abc"), s.len()); // a binding, a literal, a receiver
+});
+export(main);
+```
+
+A `&str` parameter takes the `str` its argument refers to, as `(x : &T)` takes
+a `T`: a literal, a `&str` binding or field, and a receiver of an
+`impl(str, ...)` method all pass bare. A closure captures a `&str` binding by
+value (`{ s }`) as the reference.
+
+**The value spelling.** A `str` written where a value is held (a by-value
+parameter, a result, a typed local, a struct field, an array element, a type
+argument such as `ArrayList(str)`) means `&(str, static)` for now, which is
+what it meant before: a view of static bytes. `yo fix --migrate unsized`
+writes that spelling (`(name : &(str, static))`, `ArrayList(&(str, static))`)
+and lists a `sink(s) : str` parameter for a hand rewrite. The value spelling
+is removed in v0.2.80. Comparing a `&str` with a `String` or a `str`
+(`name == "lit"`, `"lit" == name`) keeps working through the same legacy rule.
 
 ## Copies, clones and the byte list
 
