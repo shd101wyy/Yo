@@ -946,3 +946,60 @@ test("a reference to a by-value capture may not leave through a `&mut` capture",
   };
   assert(match(slot, .Some(r) => r.len(), .None => usize(0)) == usize(3), "the borrow capture's place reached the slot");
 });
+// A call result stored through a `&mut` capture holds what the call's
+// reference arguments hold: a reference capture passed bare to a reference
+// parameter (`_cl_some(o)` with `o : &x`) gives the result the capture's place,
+// as `.Some(o)` does (G-D #1935, #1974,
+// issues/2026-11-16-a-reference-binding-passed-bare-to-a-reference-parameter-gives-the-call-result-no-origin.md).
+_cl_some :: (fn(a : &String) -> Option(&String))(Option(&String).Some(a));
+_cl_some_g :: (fn(generic(T : Type), a : &T) -> Option(&T))(Option(&T).Some(a));
+test("a call result over a reference capture reaches the slot through a `&mut` capture", {
+  owned := String.from("abc");
+  mut(slot) := Option(&String).None;
+  {
+    (mut(c) : Impl(FnMut() -> unit)) = ({ s : &mut slot, o : &owned }() => {
+      s.* = _cl_some(o);
+    });
+    c();
+  };
+  assert(match(slot, .Some(r) => r.len(), .None => usize(0)) == usize(3), "the call result's origin is the capture's place");
+  comptime_expect_error(
+    {
+      (mut(h) : Option(&String)) = .None;
+      {
+        x := String.from("ab");
+        (mut(c) : Impl(FnMut() -> unit)) = ({ s : &mut h, rx : &x }() => {
+          s.* = _cl_some(rx);
+        });
+        c();
+      };
+      _ := h;
+    },
+    "scope ends with its block"
+  );
+  comptime_expect_error(
+    {
+      (mut(h) : Option(&String)) = .None;
+      {
+        x := String.from("ab");
+        (c : Impl(FnOnce() -> unit)) = ({ s : &mut h, rx : &x }() => {
+          y := _cl_some_g(rx);
+          s.* = y;
+        });
+        c();
+      };
+      _ := h;
+    },
+    "scope ends with its block"
+  );
+  comptime_expect_error(
+    {
+      (mut(h) : Option(&String)) = .None;
+      (mut(c) : Impl(FnMut(p : &String) -> unit)) = ({ s : &mut h }(p : &String) => {
+        s.* = _cl_some(p);
+      });
+      _ := h;
+    },
+    "per-call parameter"
+  );
+});
