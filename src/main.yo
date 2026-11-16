@@ -1344,7 +1344,13 @@ _run_migrate_rc_clone :: (fn(files : &ArrayList(String), std_path : &String, dry
     at_close := ArrayList(bool).new();
     (mi : usize) = usize(0);
     while(mi < mine.len(), mi = (mi + usize(1)), {
-      st := mine(mi).clone();
+      (st : ExplicitCopySite) = mine(mi).clone();
+      // A shared scrutinee borrow of a `Clone` type is spelled as its clone
+      // (`migrate_rc_clone_borrow_scrutinee`); one whose arms write through a
+      // binding stays a `&mut` borrow.
+      if(st.spelling.starts_with("borrow|"), {
+        st.spelling = if(migrate_mut_scrutinee_at(`${canon}:${st.row.to_string()}:${st.col.to_string()}`), String.from("borrow"), st.spelling.substring(usize(7), st.spelling.len()));
+      });
       at := `${file}:${(st.row + usize(1)).to_string()}:${(st.col + usize(1)).to_string()}`;
       if(conflicting.contains(`${st.row.to_string()}:${st.col.to_string()}`), {
         n_skipped = (n_skipped + usize(1));

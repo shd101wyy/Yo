@@ -3578,7 +3578,11 @@ derive(PendingScrutineeBorrow, Clone);
 /// (`x = Rc.clone(y)` with `y` bound below `&x`), because a `&` borrow freezes
 /// its place while a binding through it is live (E0911).
 /// The driver spells a `borrow` as `&mut` when an arm wrote through one of
-/// its bindings (`note_migrate_mut_scrutinee`).
+/// its bindings (`note_migrate_mut_scrutinee`). Otherwise a `Clone` type is
+/// recorded `borrow|<clone spelling>` and the driver spells the clone: since
+/// the deref flip (#1976) a `match(&x, …)` binds its payload as a reference,
+/// so an arm's `&b` would lend a `&&T` (E0601) and a whole-value read of `b`
+/// would need `b.*` (E0926). The clone leaves the arms as written.
 migrate_rc_clone_borrow_scrutinee :: (fn(scr : &AstExpr, ty : &TypeValue, (clone_scrutinee : bool) ?= false) -> unit)({
   if(!g_migrate_rc_clone || propagate_def_time_errors() || type_requires_explicit_copy(ty) || !type_holds_counted_handle_ignoring_migration(ty), {
     return(());
@@ -3594,7 +3598,11 @@ migrate_rc_clone_borrow_scrutinee :: (fn(scr : &AstExpr, ty : &TypeValue, (clone
       copy_path : String.from("match-scrutinee"),
       in_generic : false,
       capture_label : String.new(),
-      spelling : if(clone_scrutinee && !type_lacks_clone(ty), _rc_clone_spelling(ty), String.from("borrow")),
+      spelling : cond(
+        type_lacks_clone(ty) => String.from("borrow"),
+        clone_scrutinee => _rc_clone_spelling(ty),
+        true => `borrow|${_rc_clone_spelling(ty)}`
+      ),
       capture_names : String.new()
     )
   );
