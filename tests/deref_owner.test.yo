@@ -127,7 +127,7 @@ test("a write through .* needs a writable owner and DerefMut", {
   comptime_expect_error({
     b := raw_buf(usize(2));
     _w := &mut b.*;
-  }, "E0917");
+  }, "it is a binding declared without `mut`");
   comptime_expect_error({
     mut(r) := _RoRing(items : Array(i32, 2)(1, 2));
     _w := &mut r.*;
@@ -139,17 +139,17 @@ test("a write through .* needs a writable owner and DerefMut", {
   comptime_expect_error({
     r := Rc.new(raw_buf(usize(2)));
     _w := &mut r.*.*;
-  }, "E0919");
+  }, "an `Rc`'s payload is shared, so it is read-only through the handle");
 });
 test("an unsized place has no value of its own", {
   comptime_expect_error({
     mut(b) := raw_buf(usize(2));
     b.* = b.*;
-  }, "E0619");
+  }, "`Slice(i32)` is not `Sized`");
   comptime_expect_error({
     b := raw_buf(usize(2));
     _x := b.*;
-  }, "E0619");
+  }, "`Slice(i32)` is not `Sized`");
 });
 test("nothing dereferences at a parameter", {
   comptime_expect_error({
