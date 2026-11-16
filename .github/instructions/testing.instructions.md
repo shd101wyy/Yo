@@ -1469,6 +1469,12 @@ For large generated test binaries, use `--test-batch-size N` to split one `.test
   that is NOT a codegen change. Compile both sides with the same
   `YO_STD=<abs>/std` before diffing; then all diff hunks must sit inside the
   runtime region (`Platform-specific sync helpers (Linux)` .. `__yo_main_thread_entry`).
+- **A refactor of the compiler's own data is gated by a compiler swap, not by
+  an emit-diff of two trees.** Build stage 1 of the merge base and of the
+  branch, compile the BRANCH tree's `src/main.yo` with both in one directory
+  (the fixpoint's stage-2 command line), and `cmp` the C. Two trees under one
+  compiler differ whenever a type changed; two compilers on one tree differ
+  only when behaviour did (VERDICTS-64, schedule §5i decision 54).
 - Performance: `scripts/io-budget-check.sh` is the hard gate (syscall counts);
   `scripts/bench-io-backends.sh` (ring vs epoll) and `scripts/bench-vs-libuv.sh`
   (both vs libuv 1.x; needs libuv headers, `LIBUV_CFLAGS`/`LIBUV_LIBS` without
