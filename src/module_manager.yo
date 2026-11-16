@@ -2044,13 +2044,13 @@ _load_imports_file :: (fn(exn : Exception) -> unit)({
           match(
             line.index_of("="),
             .None => {
-              exn.throw(dyn(`--imports ${p}: line ${(i + usize(1)).to_string()} is not "name=/path/to/root.yo": ${line}`));
+              exn.throw(dyn(Box.new(`--imports ${p}: line ${(i + usize(1)).to_string()} is not "name=/path/to/root.yo": ${line}`)));
             },
             .Some(k) => {
               name := line.substring(usize(0), k).trim();
               root := line.substring(k + usize(1), line.len()).trim();
               if((name.len() == usize(0)) || (root.len() == usize(0)), {
-                exn.throw(dyn(`--imports ${p}: line ${(i + usize(1)).to_string()} has an empty name or root: ${line}`));
+                exn.throw(dyn(Box.new(`--imports ${p}: line ${(i + usize(1)).to_string()} has an empty name or root: ${line}`)));
               });
               abs_root := if(
                 Path.new(root.clone()).is_absolute(),
@@ -2121,7 +2121,7 @@ _register_manifest_import_roots :: (fn(fs_path : &String, exn : Exception) -> un
         .Ok(r) => r,
         .Err(msg) => {
           g_manifest_roots_for = Option(String).None;
-          exn.throw(dyn(`${manifest.path}: ${msg}`));
+          exn.throw(dyn(Box.new(`${manifest.path}: ${msg}`)));
           resolve_import_roots(&manifest, Option(String).None, exn).unwrap()
         }
       );
@@ -2705,9 +2705,11 @@ _reject_non_unit_main :: (fn(module_value : &EvalValue, exn : Exception) -> unit
                 if(!is_unit_type(&main_result), {
                   exn.throw(
                     dyn(
-                      format_error_message(
-                        ast_expr_token(&__main_fvd.*.body),
-                        `"main" must return unit, but this one returns ${type_to_string(&main_result)}. The entry point's result is discarded — it can never become the process exit status. Write \`-> unit\` and call \`exit(code)\` from "std/process" to set a status.`
+                      Box.new(
+                        format_error_message(
+                          ast_expr_token(&__main_fvd.*.body),
+                          `"main" must return unit, but this one returns ${type_to_string(&main_result)}. The entry point's result is discarded — it can never become the process exit status. Write \`-> unit\` and call \`exit(code)\` from "std/process" to set a status.`
+                        )
                       )
                     )
                   );
@@ -2735,9 +2737,11 @@ _reject_non_unit_main :: (fn(module_value : &EvalValue, exn : Exception) -> unit
                           if(!pt_is_io, {
                             exn.throw(
                               dyn(
-                                format_error_message(
-                                  ast_expr_token(&__main_fvd.*.body),
-                                  `"main" accepts at most an \`io : Io\` parameter, but this one takes ${type_to_string(&pt)}. The runtime can only provide the Io record; any other effect record would carry NULL handler pointers and crash on first use. Bind handlers inside main instead (for example: exn := Exception(throw : ((err) -> { unwind(()); }));).`
+                                Box.new(
+                                  format_error_message(
+                                    ast_expr_token(&__main_fvd.*.body),
+                                    `"main" accepts at most an \`io : Io\` parameter, but this one takes ${type_to_string(&pt)}. The runtime can only provide the Io record; any other effect record would carry NULL handler pointers and crash on first use. Bind handlers inside main instead (for example: exn := Exception(throw : ((err) -> { unwind(()); }));).`
+                                  )
                                 )
                               )
                             );

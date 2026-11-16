@@ -371,12 +371,14 @@ _closure_projection_body :: (fn(body : &AstExpr, is_mut : bool, exn : Exception)
     .Some(mt) => {
       exn.throw(
         dyn(
-          format_error_message(
-            &mt,
-            if(
-              is_mut,
-              String.from("This closure returns `&mut T`, so its result is a mutable place: write `&mut place`. A `&place` is a shared borrow and cannot be handed out as `&mut`."),
-              String.from("This closure returns `&T`, so its result is a shared place: write `&place`, not `&mut place`.")
+          Box.new(
+            format_error_message(
+              &mt,
+              if(
+                is_mut,
+                String.from("This closure returns `&mut T`, so its result is a mutable place: write `&mut place`. A `&place` is a shared borrow and cannot be handed out as `&mut`."),
+                String.from("This closure returns `&T`, so its result is a shared place: write `&place`, not `&mut place`.")
+              )
             )
           )
         )
@@ -607,13 +609,15 @@ _closure_result_origin_check :: (fn(ft : &TypeValue, labels : &ArrayList(String)
       if((labels(li) == rn) && !fn_param_in_result_origin(ft, li, &names) && !fn_param_pointee_in_result_origin(ft, li, &names), {
         exn.throw(
           dyn(
-            with_code(
-              format_error_message_with_help(
-                ast_expr_token(body),
-                `The closure's result points into its parameter \`${rn}\`, but the slot it is typed against declares its result \`${type_to_string(&fn_result_slot(ft))}\`, whose origin does not name that parameter. The slot's type is what its callers free their arguments by, so the result may point only into the places its origin lists (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O2, O7).`,
-                Option(String).Some(String.from("return a value built over a parameter the slot's result origin names, or an owned value"))
-              ),
-              E_ORIGIN_MISMATCH
+            Box.new(
+              with_code(
+                format_error_message_with_help(
+                  ast_expr_token(body),
+                  `The closure's result points into its parameter \`${rn}\`, but the slot it is typed against declares its result \`${type_to_string(&fn_result_slot(ft))}\`, whose origin does not name that parameter. The slot's type is what its callers free their arguments by, so the result may point only into the places its origin lists (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O2, O7).`,
+                  Option(String).Some(String.from("return a value built over a parameter the slot's result origin names, or an owned value"))
+                ),
+                E_ORIGIN_MISMATCH
+              )
             )
           )
         );
@@ -795,14 +799,16 @@ _check_anon_fn_captures :: (
       mark_fn_unemittable(func_id.clone());
       exn.throw(
         dyn(
-          format_error_message(
-            tok,
-            `A regular function (using ->) cannot capture outer runtime variables: ${names}.
+          Box.new(
+            format_error_message(
+              tok,
+              `A regular function (using ->) cannot capture outer runtime variables: ${names}.
 Use a closure (=> syntax) instead, or refactor the handler to not reference outer variables.
 If this is an effect handler (e.g. Exception.throw), the handler type only accepts -> functions:
 handlers are capture-free by design (docs/en-US/ALGEBRAIC_EFFECTS.md), so a handler body may use
 its own parameters and locals, comptime constants, and builtins (panic, unwind) — record the
 outcome after the guarded call instead (e.g. a result the handler unwinds past).`
+            )
           )
         )
       );
@@ -1398,9 +1404,11 @@ evaluate_anonymous_function_implementation :: (
   if(n_expr_args != usize(2), {
     exn.throw(
       dyn(
-        format_error_message(
-          &tok,
-          `Anonymous function: expected 2 args, got ${n_expr_args}`
+        Box.new(
+          format_error_message(
+            &tok,
+            `Anonymous function: expected 2 args, got ${n_expr_args}`
+          )
         )
       )
     );
@@ -1450,9 +1458,11 @@ evaluate_anonymous_function_implementation :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            &tok,
-            `Expected a function type, got:\n${ast_expr_to_string(expr)}`
+          Box.new(
+            format_error_message(
+              &tok,
+              `Expected a function type, got:\n${ast_expr_to_string(expr)}`
+            )
           )
         )
       );
@@ -1476,7 +1486,7 @@ evaluate_anonymous_function_implementation :: (
   op_is_arrow := (op_str == "->");
   is_creating_closure := !op_is_arrow;
   if(op_is_arrow && cap_list_raw.is_some(), {
-    exn.throw(dyn(format_error_message(&tok, String.from("A `->` function literal captures nothing, so it takes no capture list. Write the closure with `=>`: `{ x }(params) => body`."))));
+    exn.throw(dyn(Box.new(format_error_message(&tok, String.from("A `->` function literal captures nothing, so it takes no capture list. Write the closure with `=>`: `{ x }(params) => body`.")))));
   });
   // Decision 44: a closure or function literal in a `Dyn(Fn(...))` slot, or
   // in its owning handle's (`Box(Dyn(Fn(...)))`, decision 49), is
@@ -1532,9 +1542,11 @@ evaluate_anonymous_function_implementation :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            &tok,
-            String.from("Anonymous function: expected a Func or Impl(Fn(...)) type")
+          Box.new(
+            format_error_message(
+              &tok,
+              String.from("Anonymous function: expected a Func or Impl(Fn(...)) type")
+            )
           )
         )
       );
@@ -1549,10 +1561,12 @@ evaluate_anonymous_function_implementation :: (
   if(is_creating_closure && match(&expected_ty, Rc(.Func({ meta : bf_m })) => !(bf_m.is_control), _ => false), {
     exn.throw(
       dyn(
-        format_error_message_with_help(
-          &tok,
-          `Type mismatch: a closure (\`${op_str}\`) cannot be used where the function-pointer type \`${type_to_string(&expected_ty)}\` is expected — a closure carries its captures, a \`fn(...)\` value is a bare code pointer`,
-          Option(String).Some(String.from("declare the slot `Impl(Fn(...))` (monomorphized) or `Dyn(Fn(...))` (boxed), or write a `->` function literal, which captures nothing"))
+        Box.new(
+          format_error_message_with_help(
+            &tok,
+            `Type mismatch: a closure (\`${op_str}\`) cannot be used where the function-pointer type \`${type_to_string(&expected_ty)}\` is expected — a closure carries its captures, a \`fn(...)\` value is a bare code pointer`,
+            Option(String).Some(String.from("declare the slot `Impl(Fn(...))` (monomorphized) or `Dyn(Fn(...))` (boxed), or write a `->` function literal, which captures nothing"))
+          )
         )
       )
     );
@@ -1691,9 +1705,11 @@ evaluate_anonymous_function_implementation :: (
   if(n_regular != n_expected, {
     exn.throw(
       dyn(
-        format_error_message(
-          &tok,
-          `Anonymous function: expected ${n_expected} regular parameters, got ${n_regular}`
+        Box.new(
+          format_error_message(
+            &tok,
+            `Anonymous function: expected ${n_expected} regular parameters, got ${n_regular}`
+          )
         )
       )
     );
@@ -1821,10 +1837,12 @@ evaluate_anonymous_function_implementation :: (
       ifp_label := match(param_labels.get(ifp_i), .Some(l) => l.clone(), .None => String.from("_"));
       exn.throw(
         dyn(
-          format_error_message_with_help(
-            &tok,
-            `A \`${op_str}\` function literal has one body, so its "${ifp_label}" parameter of type ${type_to_string(&ifp_ty)} cannot be specialized per call: the parameter would lower to void* while each call passes the argument closure's own capture struct`,
-            Option(String).Some(String.from("take the parameter as Dyn(Fn(...)) (one boxed calling convention), or write a named fn: a named function specializes its Impl(Fn(...)) parameters per call site"))
+          Box.new(
+            format_error_message_with_help(
+              &tok,
+              `A \`${op_str}\` function literal has one body, so its "${ifp_label}" parameter of type ${type_to_string(&ifp_ty)} cannot be specialized per call: the parameter would lower to void* while each call passes the argument closure's own capture struct`,
+              Option(String).Some(String.from("take the parameter as Dyn(Fn(...)) (one boxed calling convention), or write a named fn: a named function specializes its Impl(Fn(...)) parameters per call site"))
+            )
           )
         )
       );
@@ -2508,11 +2526,13 @@ evaluate_anonymous_function_implementation :: (
     if(type_is_control_bound(&decl_result_ty), {
       exn.throw(
         dyn(
-          format_error_message(
-            &tok,
-            `A function's result type cannot be control-bound (transitively contain a \`ctl(...) -> ret\` function type). A \`ctl\` handler unwinds the frame it is installed in at the throw site; returning one out of its defining function would let it be invoked after that frame is gone. Pass the handler (or the record holding it) downward as a parameter instead.
+          Box.new(
+            format_error_message(
+              &tok,
+              `A function's result type cannot be control-bound (transitively contain a \`ctl(...) -> ret\` function type). A \`ctl\` handler unwinds the frame it is installed in at the throw site; returning one out of its defining function would let it be invoked after that frame is gone. Pass the handler (or the record holding it) downward as a parameter instead.
 
 Result type: ${type_to_string(&decl_result_ty)}`
+            )
           )
         )
       );
@@ -2628,7 +2648,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
           // Read the code BEFORE the clear, which empties it.
           anon_fwd_code := _anon_swallow_code();
           _clear_anon_swallow();
-          exn.throw(dyn(with_code_carried(format_error_message(&tok, &anon_fwd_msg), &anon_fwd_code)));
+          exn.throw(dyn(Box.new(with_code_carried(format_error_message(&tok, &anon_fwd_msg), &anon_fwd_code))));
         },
         .None => ()
       );
@@ -2660,7 +2680,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
       c3_diags := g_anon_swallow_diags.with(_c_clone_diags);
       _clear_anon_swallow();
       if(c3_diags.len() > usize(0), {
-        exn.throw(dyn(yo_error_from_diagnostics(&c3_diags)));
+        exn.throw(dyn(Box.new(yo_error_from_diagnostics(&c3_diags))));
       });
       exn.throw(dyn(Box.new(c3_msg)));
     });
@@ -2681,15 +2701,17 @@ Result type: ${type_to_string(&decl_result_ty)}`
         c2_diags := g_anon_swallow_diags.with(_c_clone_diags);
         _clear_anon_swallow();
         if(c2_diags.len() > usize(0), {
-          exn.throw(dyn(yo_error_from_diagnostics(&c2_diags)));
+          exn.throw(dyn(Box.new(yo_error_from_diagnostics(&c2_diags))));
         });
         exn.throw(dyn(Box.new(c2_msg)));
       });
       exn.throw(
         dyn(
-          format_error_message(
-            &tok,
-            String.from("Anonymous function body raised a compile-time error during definition-time evaluation.")
+          Box.new(
+            format_error_message(
+              &tok,
+              String.from("Anonymous function body raised a compile-time error during definition-time evaluation.")
+            )
           )
         )
       );
@@ -2708,9 +2730,11 @@ Result type: ${type_to_string(&decl_result_ty)}`
         if(evaluated_body_contains_unwind(&anon_eb) && (!fn_type_is_control && !is_creating_closure), {
           exn.throw(
             dyn(
-              format_error_message(
-                &tok,
-                String.from("`unwind` is only valid inside a control-function body. This function is declared with `fn(...) -> ret`; change the declared type to `ctl(...) -> ret` if the body needs to unwind.")
+              Box.new(
+                format_error_message(
+                  &tok,
+                  String.from("`unwind` is only valid inside a control-function body. This function is declared with `fn(...) -> ret`; change the declared type to `ctl(...) -> ret` if the body needs to unwind.")
+                )
               )
             )
           );
@@ -2764,7 +2788,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
                 ),
                 _ => `Function body has type \`${type_to_string(&cr_body_ty)}\`, but the declared result type is \`${type_to_string(&cr_ret_ty)}\`.${cr_hint}`
               );
-              exn.throw(dyn(format_error_message(ast_expr_token(&body_expr), &cr_msg)));
+              exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&body_expr), &cr_msg))));
             });
             // O2 / O7 (audit A48): a literal typed against a slot whose
             // result SPELLS its origin (`Fn(a : &T, b : &T) -> Option(&(T, a))`)
@@ -2823,10 +2847,12 @@ Result type: ${type_to_string(&decl_result_ty)}`
               .Some(rv_info) => if(_is_concrete_resume_type(&rv_info.ty()), {
                 exn.throw(
                   dyn(
-                    format_error_message_with_help(
-                      ast_expr_token(&rv_e),
-                      `This handler resumes the throw with a value of type \`${type_to_string(&rv_info.ty())}\`, but its resume type \`${type_to_string(&rv_ret)}\` is chosen by each throw site, so no value of one fixed type can satisfy it.`,
-                      Option(String).Some(String.from("a handler of a generic-resume `ctl` (such as `Exception.throw`) must unwind, diverge, or fall through with `()`. To resume with a value, install a `ResumableException(T)`, whose resume type `T` is fixed when the handler is built."))
+                    Box.new(
+                      format_error_message_with_help(
+                        ast_expr_token(&rv_e),
+                        `This handler resumes the throw with a value of type \`${type_to_string(&rv_info.ty())}\`, but its resume type \`${type_to_string(&rv_ret)}\` is chosen by each throw site, so no value of one fixed type can satisfy it.`,
+                        Option(String).Some(String.from("a handler of a generic-resume `ctl` (such as `Exception.throw`) must unwind, diverge, or fall through with `()`. To resume with a value, install a `ResumableException(T)`, whose resume type `T` is fixed when the handler is built."))
+                      )
                     )
                   )
                 );
@@ -3148,7 +3174,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
           .Some(dgc_fwd_msg) => {
             dgc_fwd_code := _anon_swallow_code();
             _clear_anon_swallow();
-            exn.throw(dyn(with_code_carried(format_error_message(&tok, &dgc_fwd_msg), &dgc_fwd_code)));
+            exn.throw(dyn(Box.new(with_code_carried(format_error_message(&tok, &dgc_fwd_msg), &dgc_fwd_code))));
           },
           .None => ()
         );
@@ -3180,7 +3206,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
             if(!dgc_fv_was, {
               clear_flow_violation();
             });
-            exn.throw(dyn(dgc_err));
+            exn.throw(dyn(Box.new(dgc_err)));
           },
           .None => ()
         );

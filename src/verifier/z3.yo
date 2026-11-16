@@ -278,7 +278,7 @@ _install_z3 :: (
     if(stem.len() == usize(0), {
       e.exn.throw(
         dyn(
-          `verify: no pinned Z3 release asset for this host (${host_target().triple}). Set YO_Z3_PATH to an existing z3 binary.`
+          Box.new(`verify: no pinned Z3 release asset for this host (${host_target().triple}). Set YO_Z3_PATH to an existing z3 binary.`)
         )
       );
     });
@@ -294,10 +294,10 @@ _install_z3 :: (
     opts = opts.with_max_response_bytes(usize(268435456));
     resp := e.io.await(fetch_with(url.clone(), &opts, e.io), e);
     if(resp.status.is_error(), {
-      e.exn.throw(dyn(`verify: failed to download Z3 (HTTP ${resp.status.to_string()}) from ${url}`));
+      e.exn.throw(dyn(Box.new(`verify: failed to download Z3 (HTTP ${resp.status.to_string()}) from ${url}`)));
     });
     if(!_z3_write_file_sync(zip_path.clone(), &resp.body), {
-      e.exn.throw(dyn(`verify: failed to write ${zip_path}`));
+      e.exn.throw(dyn(Box.new(`verify: failed to write ${zip_path}`)));
     });
     mut(uc) := Command.new(String.from("unzip"));
     uc = uc.arg(String.from("-o"));
@@ -309,14 +309,14 @@ _install_z3 :: (
     if(!uout.status.success(), {
       e.exn.throw(
         dyn(
-          `verify: 'unzip' failed to extract the Z3 archive. Install 'unzip' (or set YO_Z3_PATH to an existing z3 binary).`
+          Box.new(`verify: 'unzip' failed to extract the Z3 archive. Install 'unzip' (or set YO_Z3_PATH to an existing z3 binary).`)
         )
       );
     });
     bin := z3_binary_path();
     if(!_z3_exists_sync(bin.clone()), {
       e.exn.throw(
-        dyn(`verify: Z3 archive extracted but ${bin} is missing — unexpected archive layout from ${url}`)
+        dyn(Box.new(`verify: Z3 archive extracted but ${bin} is missing — unexpected archive layout from ${url}`))
       );
     });
     bin

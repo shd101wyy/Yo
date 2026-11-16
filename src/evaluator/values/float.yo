@@ -28,9 +28,11 @@ evaluate_float_literal :: (
   if(!(tok.kind == TokenKind.Float), {
     exn.throw(
       dyn(
-        format_error_message(
-          &tok,
-          `Expected float literal, got ${tok.value.*}`
+        Box.new(
+          format_error_message(
+            &tok,
+            `Expected float literal, got ${tok.value.*}`
+          )
         )
       )
     );
@@ -42,9 +44,11 @@ evaluate_float_literal :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            &tok,
-            `Failed to parse float literal: ${tok.value.*}`
+          Box.new(
+            format_error_message(
+              &tok,
+              `Failed to parse float literal: ${tok.value.*}`
+            )
           )
         )
       );

@@ -286,9 +286,11 @@ enforce_atomic_object_send :: (
     if(non_send_fields.len() > usize(0), {
       exn.throw(
         dyn(
-          format_error_message(
-            error_token,
-            `atomic object must implement Sync (its copies share one payload across threads, so all fields must be Sync), but ${type_to_string(struct_ty)} has non-Sync fields:\n${non_send_fields}\nUse "object" instead if thread safety is not needed.`
+          Box.new(
+            format_error_message(
+              error_token,
+              `atomic object must implement Sync (its copies share one payload across threads, so all fields must be Sync), but ${type_to_string(struct_ty)} has non-Sync fields:\n${non_send_fields}\nUse "object" instead if thread safety is not needed.`
+            )
           )
         )
       );

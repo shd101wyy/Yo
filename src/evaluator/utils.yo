@@ -617,9 +617,11 @@ throw_expr_is_implicit_variable_error :: (
           if(rv.is_implicit(), {
             exn.throw(
               dyn(
-                format_error_message(
-                  ast_expr_token(rhs),
-                  `Cannot use implicit variable "${var_name}" in assignment. Implicit variables must be passed via  parameters.`
+                Box.new(
+                  format_error_message(
+                    ast_expr_token(rhs),
+                    `Cannot use implicit variable "${var_name}" in assignment. Implicit variables must be passed via  parameters.`
+                  )
                 )
               )
             );
@@ -667,7 +669,7 @@ require_expr_not_consumed :: (
           .Some(h) => Option(String).Some(`did you mean "${h}"?`),
           .None => Option(String).None
         );
-        exn.throw(dyn(format_error_messages_with_help(&entries, &hint)));
+        exn.throw(dyn(Box.new(format_error_messages_with_help(&entries, &hint))));
       });
       v := match(vars.last_cloned(), .Some(v) => v, .None => make_err_variable(env));
       match(
@@ -690,7 +692,7 @@ require_expr_not_consumed :: (
           if(same_site, {
             return(());
           });
-          exn.throw(dyn(use_of_moved_value_error(&var_name, &variable_value_type(&v), ast_expr_token(rhs), variable_move_note(&v, &consumed_tok))));
+          exn.throw(dyn(Box.new(use_of_moved_value_error(&var_name, &variable_value_type(&v), ast_expr_token(rhs), variable_move_note(&v, &consumed_tok)))));
         }
       );
     }
@@ -729,7 +731,7 @@ expect_expr_to_have_been_evaluated :: (
       entries.push(
         TokenAndError(token : ast_expr_token(expr), error_message : msg)
       );
-      exn.throw(dyn(format_error_messages(&entries)));
+      exn.throw(dyn(Box.new(format_error_messages(&entries))));
       // Unreachable. Provide a placeholder so the type checker is
       // satisfied.
       new_expr_info_placeholder_for_unreachable_(expr)
@@ -2595,7 +2597,7 @@ set_expr_as_consumed :: (
               .Some(h) => Option(String).Some(`did you mean "${h}"?`),
               .None => Option(String).None
             );
-            exn.throw(dyn(format_error_messages_with_help(&entries, &hint)));
+            exn.throw(dyn(Box.new(format_error_messages_with_help(&entries, &hint))));
           });
           v := match(vars.last_cloned(), .Some(x) => x, .None => make_err_variable(env));
           // A compile-time-only FUNCTION binding (`f :: (fn(...) -> R)(...)`)
@@ -2637,7 +2639,7 @@ set_expr_as_consumed :: (
                 error_message : `"${b.name}" borrows "${name}" here:`
               )
             );
-            exn.throw(dyn(format_error_messages(&b_entries)));
+            exn.throw(dyn(Box.new(format_error_messages(&b_entries))));
           });
           match(
             v.consumed_at_token(),
@@ -2659,7 +2661,7 @@ set_expr_as_consumed :: (
               },
               // Step 4: throw `use of moved value`.
               true => {
-                exn.throw(dyn(use_of_moved_value_error(&name.*, &variable_value_type(&v), ast_expr_token(expr), variable_move_note(&v, &consumed_tok))));
+                exn.throw(dyn(Box.new(use_of_moved_value_error(&name.*, &variable_value_type(&v), ast_expr_token(expr), variable_move_note(&v, &consumed_tok)))));
               }
             )
           );
@@ -3015,7 +3017,7 @@ reject_malformed_mut_marker :: (fn(holder : &AstExpr, idx : usize, exn : Excepti
       .Some(arg) => if(ast_expr_is_fn_call_of(&arg, "mut", Option(usize).Some(usize(1))), {
         name := match(arg, .FnCall(_, _, Rc(ma), _, _) => match(ma.get(usize(0)), .Some(a) => a, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
         if(!ast_expr_is_atom(&name) || (ast_expr_token(&name).kind != TokenKind.Identifier), {
-          exn.throw(dyn(format_error_message(ast_expr_token(&arg), `"mut" takes the binding's NAME: write \`mut(name) := init\`, \`(mut(name) : T) = init\`, \`.Some(mut(name))\` in a pattern or \`{ a, mut(name) }\` in a destructuring; got \`${ast_expr_to_string(&arg)}\` (plans/VALUES_BY_DEFAULT.md decision 47).`)));
+          exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&arg), `"mut" takes the binding's NAME: write \`mut(name) := init\`, \`(mut(name) : T) = init\`, \`.Some(mut(name))\` in a pattern or \`{ a, mut(name) }\` in a destructuring; got \`${ast_expr_to_string(&arg)}\` (plans/VALUES_BY_DEFAULT.md decision 47).`))));
         });
       }),
       .None => ()
@@ -4781,7 +4783,7 @@ check_loop_flow :: (
             )
           );
           entries.push(TokenAndError(token : v.token, error_message : String.from("declared outside the loop here")));
-          exn.throw(dyn(with_code(format_error_messages_with_help(&entries, moved_value_help(&v.name, &variable_value_type(&v), &mv_tok)), E_USE_OF_MOVED_VALUE)));
+          exn.throw(dyn(Box.new(with_code(format_error_messages_with_help(&entries, moved_value_help(&v.name, &variable_value_type(&v), &mv_tok)), E_USE_OF_MOVED_VALUE))));
         });
         // Ways out.
         exit_moved := ArrayList(Token).new();
@@ -4824,7 +4826,7 @@ check_loop_flow :: (
             )
           );
           entries2.push(TokenAndError(token : match(exit_live.get(usize(0)), .Some(t) => t, .None => v.token), error_message : String.from("Not moved on the way out here:")));
-          exn.throw(dyn(with_code(format_error_messages(&entries2), E_MOVED_ON_SOME_PATHS)));
+          exn.throw(dyn(Box.new(with_code(format_error_messages(&entries2), E_MOVED_ON_SOME_PATHS))));
         });
         final := match(exit_moved.get(usize(0)), .Some(t) => Option(Token).Some(t), .None => Option(Token).None);
         if((exit_moved.len() > usize(0)) || (exit_live.len() > usize(0)), {
@@ -4884,7 +4886,7 @@ reject_guard_moves :: (fn(log_start : usize, arm_frame : usize, env : &Environme
             );
             entries.push(TokenAndError(token : v.token, error_message : String.from("declared outside the arm here")));
             help := `a guard may read \`${v.name}\` or lend it (\`&${v.name}\`); move it in the arm's body instead`;
-            exn.throw(dyn(with_code(format_error_messages_with_help(&entries, Option(String).Some(help)), E_USE_OF_MOVED_VALUE)));
+            exn.throw(dyn(Box.new(with_code(format_error_messages_with_help(&entries, Option(String).Some(help)), E_USE_OF_MOVED_VALUE))));
           },
           .None => ()
         );
@@ -5237,9 +5239,11 @@ reject_mixed_closure_arms :: (
             }, if(cid != first_id, {
               exn.throw(
                 dyn(
-                  format_error_message(
-                    ast_expr_token(&body),
-                    String.from("Branches produce different concrete closure types for an Impl(...) result. Impl(...) uses static dispatch and requires the same concrete type across branches. Consider using Dyn(...) for dynamic dispatch if different concrete types are needed.")
+                  Box.new(
+                    format_error_message(
+                      ast_expr_token(&body),
+                      String.from("Branches produce different concrete closure types for an Impl(...) result. Impl(...) uses static dispatch and requires the same concrete type across branches. Consider using Dyn(...) for dynamic dispatch if different concrete types are needed.")
+                    )
                   )
                 )
               );
@@ -5307,9 +5311,11 @@ merge_and_check_envs :: (
       .None => {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&body),
-              `Expected the body of the case to be evaluated, but it is not.`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&body),
+                `Expected the body of the case to be evaluated, but it is not.`
+              )
             )
           )
         );
@@ -5365,9 +5371,11 @@ merge_and_check_envs :: (
     if(case_env.frames_len() == usize(0), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(match(bodies.get(ci), .Some(b) => b, .None => make_err_expr())),
-            `Case env is missing outer frames (has ${case_env.frames_len().to_string()}, need ${required_depth.to_string()}).`
+          Box.new(
+            format_error_message(
+              ast_expr_token(match(bodies.get(ci), .Some(b) => b, .None => make_err_expr())),
+              `Case env is missing outer frames (has ${case_env.frames_len().to_string()}, need ${required_depth.to_string()}).`
+            )
           )
         )
       );
@@ -5456,9 +5464,11 @@ merge_and_check_envs :: (
             if((base_var.name != case_var_k.name) && !is_temp_variable_name(&env.module_path().*, &base_var.name) && !is_temp_variable_name(&env.module_path().*, &case_var_k.name), {
               exn.throw(
                 dyn(
-                  format_error_message(
-                    ast_expr_token(match(bodies.get(cj), .Some(b) => b, .None => make_err_expr())),
-                    `Frame level ${frame_i} has different variable names for different cases.`
+                  Box.new(
+                    format_error_message(
+                      ast_expr_token(match(bodies.get(cj), .Some(b) => b, .None => make_err_expr())),
+                      `Frame level ${frame_i} has different variable names for different cases.`
+                    )
                   )
                 )
               );
@@ -5598,7 +5608,7 @@ Impl(...) uses static dispatch and requires the same concrete type in all branch
 Consider using Dyn(...) for dynamic dispatch if different concrete types are needed.`
                           )
                         );
-                        exn.throw(dyn(format_error_messages(&cb_entries)));
+                        exn.throw(dyn(Box.new(format_error_messages(&cb_entries))));
                       });
                     },
                     .None => ()
@@ -5617,7 +5627,7 @@ First initialization: ${type_to_string(&cb_first_ty)}
 Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
                     )
                   );
-                  exn.throw(dyn(format_error_messages(&cb_entries2)));
+                  exn.throw(dyn(Box.new(format_error_messages(&cb_entries2))));
                 });
                 cb_k = (cb_k + usize(1));
               });
@@ -5733,7 +5743,7 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
                 };
                 ei = (ei + usize(1));
               });
-              exn.throw(dyn(format_error_messages(&err_list)));
+              exn.throw(dyn(Box.new(format_error_messages(&err_list))));
             });
           });
           // ---- Check consumed_at_token ----
@@ -5838,7 +5848,7 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
                 };
                 eci = (eci + usize(1));
               });
-              exn.throw(dyn(with_code(format_error_messages(&err_list), E_MOVED_ON_SOME_PATHS)));
+              exn.throw(dyn(Box.new(with_code(format_error_messages(&err_list), E_MOVED_ON_SOME_PATHS))));
             });
           });
           // A value moved before the branch and reassigned on every arm that
@@ -5913,7 +5923,7 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
               };
               oei = (oei + usize(1));
             });
-            exn.throw(dyn(format_error_messages(&err_list)));
+            exn.throw(dyn(Box.new(format_error_messages(&err_list))));
           });
           // ---- Handle variable ID reassignment across branches ----
           // If any branch has a different variable ID, generate a new one.
@@ -6199,13 +6209,15 @@ reject_dyn_place_by_value :: (fn(id : usize, position : &String, tok : &Token, e
   if(is_dyn_place(id), {
     exn.throw(
       dyn(
-        with_code(
-          format_error_message_with_help(
-            tok,
-            `A \`Dyn(...)\` place is not \`Sized\`: ${position} needs a size, and the value a \`Box(Dyn(...))\` owns lives only behind a pointer (plans/VALUES_BY_DEFAULT.md decision 49).`,
-            Option(String).Some(String.from("lend it: `&b.*` or `&mut b.*`, or call a method through `b.*`; move the whole box (`b`) to move the object"))
-          ),
-          E_UNSIZED_BY_VALUE
+        Box.new(
+          with_code(
+            format_error_message_with_help(
+              tok,
+              `A \`Dyn(...)\` place is not \`Sized\`: ${position} needs a size, and the value a \`Box(Dyn(...))\` owns lives only behind a pointer (plans/VALUES_BY_DEFAULT.md decision 49).`,
+              Option(String).Some(String.from("lend it: `&b.*` or `&mut b.*`, or call a method through `b.*`; move the whole box (`b`) to move the object"))
+            ),
+            E_UNSIZED_BY_VALUE
+          )
         )
       )
     );

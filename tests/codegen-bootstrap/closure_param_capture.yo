@@ -22,10 +22,12 @@ analyze :: (
   // E0913, #1932).
   mut(extras) := HashMap(String, i32).new();
   mut(d) := Detector(
-    detect : dyn(x => {
-      extras.insert(`k${x}`, get_info(x));
-      match(extras.get(String.from("k7")), .Some(v) => println(`${v}`), .None => println(`missing`));
-    })
+    detect : dyn(
+      Box.new(x => {
+        extras.insert(`k${x}`, get_info(x));
+        match(extras.get(String.from("k7")), .Some(v) => println(`${v}`), .None => println(`missing`));
+      })
+    )
   );
   run_detector(&mut d, i32(7));
 });

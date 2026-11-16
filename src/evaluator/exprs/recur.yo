@@ -78,9 +78,11 @@ evaluate_recur :: (
   if(!is_function_body, {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected a function type for recur, got:\n${ast_expr_to_string(expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected a function type for recur, got:\n${ast_expr_to_string(expr)}`
+          )
         )
       )
     );
@@ -101,9 +103,11 @@ evaluate_recur :: (
   if(!ast_expr_is_fn_call_of(expr, BF_RECUR, Option(usize).None), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected recur, got:\n${ast_expr_to_string(expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected recur, got:\n${ast_expr_to_string(expr)}`
+          )
         )
       )
     );
@@ -116,9 +120,11 @@ evaluate_recur :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            String.from("recur: missing function type in context")
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              String.from("recur: missing function type in context")
+            )
           )
         )
       );

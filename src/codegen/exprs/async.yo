@@ -2872,7 +2872,7 @@ _report_hollow_async_body :: (fn(body_expr : &AstExpr, via_fsm : bool) -> unit)(
     lookup_hollow_body_error(`${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`),
     .Some(hb) => {
       if(hb.diagnostics.len() > usize(0), {
-        codegen_report_error(dyn(yo_error_from_diagnostics(&hb.diagnostics)));
+        codegen_report_error(dyn(Box.new(yo_error_from_diagnostics(&hb.diagnostics))));
       }, {
         codegen_report_error(dyn(Box.new(hb.message.clone())));
       });

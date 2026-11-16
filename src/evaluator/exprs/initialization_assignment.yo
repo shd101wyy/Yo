@@ -266,9 +266,11 @@ _evaluate_inout_local_binding :: (
   if(is_compile_time_only, {
     exn.throw(
       dyn(
-        format_error_message(
-          &lhs_tok,
-          `A local borrow (\`y := ${sig}place\`) aliases runtime storage, so it cannot be a compile-time binding: declare it with \`:=\`, or bind a compile-time value with \`::\`.`
+        Box.new(
+          format_error_message(
+            &lhs_tok,
+            `A local borrow (\`y := ${sig}place\`) aliases runtime storage, so it cannot be a compile-time binding: declare it with \`:=\`, or bind a compile-time value with \`::\`.`
+          )
         )
       )
     );
@@ -281,9 +283,11 @@ _evaluate_inout_local_binding :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            &lhs_tok,
-            `A local borrow (\`y := ${sig}place\`) is local: declare it inside a function body.`
+          Box.new(
+            format_error_message(
+              &lhs_tok,
+              `A local borrow (\`y := ${sig}place\`) is local: declare it inside a function body.`
+            )
           )
         )
       );
@@ -297,9 +301,11 @@ _evaluate_inout_local_binding :: (
   if((lhs_args.len() == usize(0)) || (lhs_args.len() > usize(3)), {
     exn.throw(
       dyn(
-        format_error_message(
-          &lhs_tok,
-          `A local borrow binds one name (\`y := ${sig}place\`), got ${lhs_args.len().to_string()} arguments.`
+        Box.new(
+          format_error_message(
+            &lhs_tok,
+            `A local borrow binds one name (\`y := ${sig}place\`), got ${lhs_args.len().to_string()} arguments.`
+          )
         )
       )
     );
@@ -312,9 +318,11 @@ _evaluate_inout_local_binding :: (
   if(!ast_expr_is_atom(&name_expr) || !is_valid_variable_name(&name_expr), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&name_expr),
-          `A local borrow binds a name (\`y := ${sig}place\`), got ${ast_expr_to_string(&name_expr)}.`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&name_expr),
+            `A local borrow binds a name (\`y := ${sig}place\`), got ${ast_expr_to_string(&name_expr)}.`
+          )
         )
       )
     );
@@ -339,7 +347,7 @@ _evaluate_inout_local_binding :: (
             error_message : `Variable "${var_name}" is already defined here (variable shadowing is not allowed):`
           )
         );
-        exn.throw(dyn(format_error_messages(&sh_entries)));
+        exn.throw(dyn(Box.new(format_error_messages(&sh_entries))));
       },
       .None => ()
     );
@@ -367,7 +375,7 @@ _evaluate_inout_local_binding :: (
     _inout_place_chain(rhs, &mut hops),
     .Some(r) => r,
     .None => {
-      exn.throw(dyn(format_error_message(ast_expr_token(rhs), place_recipe.clone())));
+      exn.throw(dyn(Box.new(format_error_message(ast_expr_token(rhs), place_recipe.clone()))));
       make_err_expr()
     }
   );
@@ -397,15 +405,17 @@ _evaluate_inout_local_binding :: (
   root_tok := ast_expr_token(&root_atom);
   root_vars := get_variables_from_env(env, root_tok.value.*.clone());
   if(root_vars.len() == usize(0), {
-    exn.throw(dyn(format_error_message(&root_tok, `Variable "${root_tok.value.*}" is not defined.`)));
+    exn.throw(dyn(Box.new(format_error_message(&root_tok, `Variable "${root_tok.value.*}" is not defined.`))));
   });
   root_var := match(root_vars.last_cloned(), .Some(v) => v, .None => make_err_variable(env));
   if(root_var.is_compile_time_only(), {
     exn.throw(
       dyn(
-        format_error_message(
-          &root_tok,
-          `Cannot borrow "${root_tok.value.*}" (\`${sig}${root_tok.value.*}\`): it is a compile-time value with no runtime storage to alias.`
+        Box.new(
+          format_error_message(
+            &root_tok,
+            `Cannot borrow "${root_tok.value.*}" (\`${sig}${root_tok.value.*}\`): it is a compile-time value with no runtime storage to alias.`
+          )
         )
       )
     );
@@ -439,7 +449,7 @@ _evaluate_inout_local_binding :: (
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_rhs)),
     .Some(ri) => ri,
     .None => {
-      exn.throw(dyn(format_error_message(ast_expr_token(rhs), `Failed to evaluate, got ${ast_expr_to_string(rhs)}`)));
+      exn.throw(dyn(Box.new(format_error_message(ast_expr_token(rhs), `Failed to evaluate, got ${ast_expr_to_string(rhs)}`))));
       new_expr_info(env, t_unit())
     }
   );
@@ -470,9 +480,11 @@ _evaluate_inout_local_binding :: (
           if(!d_is_reference_deref && !handle_payload_is_read_only(&d_recv_ty), {
             exn.throw(
               dyn(
-                format_error_message(
-                  ast_expr_token(&dhop.field),
-                  `A local borrow cannot reach through a pointer dereference (\`p.*\`): the storage has no owner the borrow could keep alive. Iterate the collection with \`for(&mut coll, x => ...)\` to borrow an element, or copy the value out.`
+                Box.new(
+                  format_error_message(
+                    ast_expr_token(&dhop.field),
+                    `A local borrow cannot reach through a pointer dereference (\`p.*\`): the storage has no owner the borrow could keep alive. Iterate the collection with \`for(&mut coll, x => ...)\` to borrow an element, or copy the value out.`
+                  )
                 )
               )
             );
@@ -495,13 +507,13 @@ _evaluate_inout_local_binding :: (
     .None => false
   );
   if(root_is_type, {
-    exn.throw(dyn(format_error_message(&root_tok, place_recipe.clone())));
+    exn.throw(dyn(Box.new(format_error_message(&root_tok, place_recipe.clone()))));
   });
   place_type := Rc.clone(rhs_info.ty());
   // A `unit` local has no C storage (its declaration emits nothing), so there
   // is no address to alias; reject instead of lowering `&()`.
   if(is_unit_type(&place_type), {
-    exn.throw(dyn(format_error_message(ast_expr_token(rhs), `Cannot borrow a unit-typed place (\`${sig}...\`): it has no runtime storage to alias.`)));
+    exn.throw(dyn(Box.new(format_error_message(ast_expr_token(rhs), `Cannot borrow a unit-typed place (\`${sig}...\`): it has no runtime storage to alias.`))));
   });
   // `(y : &T) = &place`: the annotation names the place's type exactly (a
   // borrow converts nothing).
@@ -516,16 +528,18 @@ _evaluate_inout_local_binding :: (
         ann_val,
         .Some(.TypeVal(at)) => Rc.clone(at),
         _ => {
-          exn.throw(dyn(format_error_message(ast_expr_token(&ann), `A local borrow's annotation is a type (\`(y : ${sig}T) = ${sig}place\`), got ${ast_expr_to_string(&ann)}.`)));
+          exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&ann), `A local borrow's annotation is a type (\`(y : ${sig}T) = ${sig}place\`), got ${ast_expr_to_string(&ann)}.`))));
           t_unit()
         }
       );
       if(!are_types_compatible_exact(&place_type, &ann_ty), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(rhs),
-              `Incompatible types:\n- Expected: ${type_to_string(&ann_ty)}\n- Given   : ${type_to_string(&place_type)}\nA local borrow \`(y : ${sig}T) = ${sig}place\` lends the place itself, so its type is the annotation's exactly.`
+            Box.new(
+              format_error_message(
+                ast_expr_token(rhs),
+                `Incompatible types:\n- Expected: ${type_to_string(&ann_ty)}\n- Given   : ${type_to_string(&place_type)}\nA local borrow \`(y : ${sig}T) = ${sig}place\` lends the place itself, so its type is the annotation's exactly.`
+              )
             )
           )
         );
@@ -536,9 +550,11 @@ _evaluate_inout_local_binding :: (
   if(type_requires_comptime_modifier(&place_type), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(rhs),
-          `Cannot borrow a value of compile-time-only type "${type_to_string(&place_type)}" (\`${sig}...\`): it has no runtime storage to alias.`
+        Box.new(
+          format_error_message(
+            ast_expr_token(rhs),
+            `Cannot borrow a value of compile-time-only type "${type_to_string(&place_type)}" (\`${sig}...\`): it has no runtime storage to alias.`
+          )
         )
       )
     );
@@ -634,12 +650,14 @@ _evaluate_inout_local_binding :: (
       if(!ao_names.contains(&root_var.name), {
         exn.throw(
           dyn(
-            with_code(
-              format_error_message(
-                ast_expr_token(rhs),
-                `\`${sig}${local_borrow_place_text(rhs)}\` lends \`${root_var.name}\`, outside the declared origin \`${ast_expr_to_string(&ao)}\` of \`${var_name}\`.`
-              ),
-              E_ORIGIN_MISMATCH
+            Box.new(
+              with_code(
+                format_error_message(
+                  ast_expr_token(rhs),
+                  `\`${sig}${local_borrow_place_text(rhs)}\` lends \`${root_var.name}\`, outside the declared origin \`${ast_expr_to_string(&ao)}\` of \`${var_name}\`.`
+                ),
+                E_ORIGIN_MISMATCH
+              )
             )
           )
         );
@@ -814,7 +832,7 @@ _chain_block_local_error :: (fn(rhs : &AstExpr, root_name : &String, var_name : 
 _reject_chain_block_local_roots :: (fn(rhs : &AstExpr, var_name : &String, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   roots := ArrayList(OriginRootPlace).new();
   _chain_leaf_origins(rhs, env, ctx, &mut roots, u32(0));
-  match(_chain_block_local_root(rhs, &roots), .Some(root_name) => exn.throw(dyn(_chain_block_local_error(rhs, &root_name, var_name))), .None => ());
+  match(_chain_block_local_root(rhs, &roots), .Some(root_name) => exn.throw(dyn(Box.new(_chain_block_local_error(rhs, &root_name, var_name)))), .None => ());
 });
 _projection_temporary_message :: (fn(var_name : &String, call_text : &String, arg : &AstExpr) -> String)(
   `Cannot bind \`${var_name}\` to \`${call_text}\`: the projection's result is a place inside \`${ast_expr_to_string(arg)}\`, which is a temporary that ends with this statement. Bind the borrowed value to a local first, or copy the result out with \`(${var_name} : T) = ${call_text}\`.`
@@ -868,9 +886,11 @@ _bind_projection_result :: (
   if(is_compile_time_only || ctx.is_evaluating_function_body_or_async_block.is_none(), {
     exn.throw(
       dyn(
-        format_error_message(
-          &name_tok,
-          `\`${call_text}\` is a projection's result, a \`${sig}T\` borrow of runtime storage (decision 24): bind it with \`${var_name} := ...\` inside a function body, or copy the value out with \`(${var_name} : T) = ...\`.`
+        Box.new(
+          format_error_message(
+            &name_tok,
+            `\`${call_text}\` is a projection's result, a \`${sig}T\` borrow of runtime storage (decision 24): bind it with \`${var_name} := ...\` inside a function body, or copy the value out with \`(${var_name} : T) = ...\`.`
+          )
         )
       )
     );
@@ -882,7 +902,7 @@ _bind_projection_result :: (
       sh_entries := ArrayList(TokenAndError).new();
       sh_entries.push(TokenAndError(token : name_tok, error_message : `Failed to define variable "${var_name}":`));
       sh_entries.push(TokenAndError(token : shadow_var.token, error_message : `Variable "${var_name}" is already defined here (variable shadowing is not allowed):`));
-      exn.throw(dyn(format_error_messages(&sh_entries)));
+      exn.throw(dyn(Box.new(format_error_messages(&sh_entries))));
     },
     .None => ()
   );
@@ -890,7 +910,7 @@ _bind_projection_result :: (
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(rhs)),
     .Some(ri) => ri,
     .None => {
-      exn.throw(dyn(format_error_message(ast_expr_token(rhs), `Failed to evaluate, got ${call_text}`)));
+      exn.throw(dyn(Box.new(format_error_message(ast_expr_token(rhs), `Failed to evaluate, got ${call_text}`))));
       new_expr_info(env, t_unit())
     }
   );
@@ -921,12 +941,12 @@ _bind_projection_result :: (
   if(chain, {
     chain_roots := ArrayList(OriginRootPlace).new();
     _chain_leaf_origins(rhs, env, ctx, &mut chain_roots, u32(0));
-    match(_chain_block_local_root(rhs, &chain_roots), .Some(bl_root) => exn.throw(dyn(_chain_block_local_error(rhs, &bl_root, &var_name))), .None => ());
+    match(_chain_block_local_root(rhs, &chain_roots), .Some(bl_root) => exn.throw(dyn(Box.new(_chain_block_local_error(rhs, &bl_root, &var_name)))), .None => ());
     (cr_i : usize) = usize(0);
     while(cr_i < chain_roots.len(), cr_i = (cr_i + usize(1)), {
       cr := chain_roots(cr_i).clone();
       if(cr.place.root_name == ORIGIN_TEMPORARY_ROOT, {
-        exn.throw(dyn(with_code(format_error_message_with_help(ast_expr_token(rhs), `Cannot bind \`${var_name}\` to this result: it holds a reference into \`${cr.place.text}\`, a temporary that ends with this statement, while \`${var_name}\` lives on (decision 43, plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3 R-TEMP).`, Option(String).Some(`bind \`${cr.place.text}\` to a local first and lend the local`)), E_LOCAL_BORROW_CONFLICT)));
+        exn.throw(dyn(Box.new(with_code(format_error_message_with_help(ast_expr_token(rhs), `Cannot bind \`${var_name}\` to this result: it holds a reference into \`${cr.place.text}\`, a temporary that ends with this statement, while \`${var_name}\` lives on (decision 43, plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3 R-TEMP).`, Option(String).Some(`bind \`${cr.place.text}\` to a local first and lend the local`)), E_LOCAL_BORROW_CONFLICT))));
       });
       if(!is_mut || cr.is_mut, {
         match(get_variables_from_env(env, cr.place.root_name.clone()).last_cloned(), .Some(rv) => root_vars.push(rv), .None => ());
@@ -951,7 +971,7 @@ _bind_projection_result :: (
     // too (`c.borrow().get()`: the result is rooted at the guard itself) —
     // ends with this statement.
     if(!root.by_value && is_temporary_operand(&root.arg, env, ctx), {
-      exn.throw(dyn(with_code(format_error_message(ast_expr_token(&root.arg), _projection_temporary_message(&var_name, &call_text, &root.arg)), E_LOCAL_BORROW_CONFLICT)));
+      exn.throw(dyn(Box.new(with_code(format_error_message(ast_expr_token(&root.arg), _projection_temporary_message(&var_name, &call_text, &root.arg)), E_LOCAL_BORROW_CONFLICT))));
     });
     // A holder passed by value (N1e-2): the places its references point
     // into, as its own binding froze them (`origin_of`).
@@ -1004,14 +1024,14 @@ _bind_projection_result :: (
           held_places.push(false);
         },
         .None => {
-          exn.throw(dyn(with_code(format_error_message(ast_expr_token(&root.arg), _projection_temporary_message(&var_name, &call_text, &root.arg)), E_LOCAL_BORROW_CONFLICT)));
+          exn.throw(dyn(Box.new(with_code(format_error_message(ast_expr_token(&root.arg), _projection_temporary_message(&var_name, &call_text, &root.arg)), E_LOCAL_BORROW_CONFLICT))));
         }
       );
     });
     ri = (ri + usize(1));
   });
   if(places.len() == usize(0), {
-    exn.throw(dyn(format_error_message(ast_expr_token(rhs), `Cannot bind \`${var_name}\` to \`${call_text}\`: the projection borrows no argument, so its place has no storage to borrow.`)));
+    exn.throw(dyn(Box.new(format_error_message(ast_expr_token(rhs), `Cannot bind \`${var_name}\` to \`${call_text}\`: the projection borrows no argument, so its place has no storage to borrow.`))));
   });
   // A `&mut` result writes its places: each must be writable, and nothing
   // else may borrow them (E0908 / E0911).
@@ -1122,7 +1142,7 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
   lhs_args := match(lhs, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   name_expr := match(lhs_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   if((lhs_args.len() != usize(1)) || !ast_expr_is_atom(&name_expr), {
-    exn.throw(dyn(format_error_message(&lhs_tok, `A re-point names the local borrow it moves (\`cur = ${sig}place\`).`)));
+    exn.throw(dyn(Box.new(format_error_message(&lhs_tok, `A re-point names the local borrow it moves (\`cur = ${sig}place\`).`))));
   });
   name_tok := ast_expr_token(&name_expr);
   name := name_tok.value.*.clone();
@@ -1130,7 +1150,7 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
     get_variables_from_env(&env, name.clone()).last_cloned(),
     .Some(v) => v,
     .None => {
-      exn.throw(dyn(format_error_message(&name_tok, `Variable "${name}" is not defined.`)));
+      exn.throw(dyn(Box.new(format_error_message(&name_tok, `Variable "${name}" is not defined.`))));
       make_err_variable(&env)
     }
   );
@@ -1140,10 +1160,12 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
     .None => {
       exn.throw(
         dyn(
-          format_error_message_with_help(
-            &name_tok,
-            `\`${name} = ${sig}place\` re-points a local borrow, and \`${name}\` is not one.`,
-            Option(String).Some(`declare it with \`${name} := ${sig}place\` first; to write the value \`${name}\` holds, write \`${name} = value\` without the sigil`)
+          Box.new(
+            format_error_message_with_help(
+              &name_tok,
+              `\`${name} = ${sig}place\` re-points a local borrow, and \`${name}\` is not one.`,
+              Option(String).Some(`declare it with \`${name} := ${sig}place\` first; to write the value \`${name}\` holds, write \`${name} = value\` without the sigil`)
+            )
           )
         )
       );
@@ -1155,10 +1177,12 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
     decl_sig := cond(info.is_mut => "&mut ", true => "&");
     exn.throw(
       dyn(
-        format_error_message_with_help(
-          &lhs_tok,
-          `\`${name}\` is a \`${decl_mode}\` borrow, so a re-point keeps that mode.`,
-          Option(String).Some(`write \`${name} = ${decl_sig}place\``)
+        Box.new(
+          format_error_message_with_help(
+            &lhs_tok,
+            `\`${name}\` is a \`${decl_mode}\` borrow, so a re-point keeps that mode.`,
+            Option(String).Some(`write \`${name} = ${decl_sig}place\``)
+          )
         )
       )
     );
@@ -1178,9 +1202,11 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&rhs),
-            `Cannot re-point \`${name}\` to \`${local_borrow_place_text(&rhs)}\`: it is not a field path. A re-point to the place a call or an index yields is not yet admitted (P1b, plans/backlog/BORROW_CHECKER_COMPLETENESS.md §4). ${not_reached}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&rhs),
+              `Cannot re-point \`${name}\` to \`${local_borrow_place_text(&rhs)}\`: it is not a field path. A re-point to the place a call or an index yields is not yet admitted (P1b, plans/backlog/BORROW_CHECKER_COMPLETENESS.md §4). ${not_reached}`
+            )
           )
         )
       );
@@ -1192,7 +1218,7 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
     match(
       hops.get(hi),
       .Some(hop) => if(ast_expr_is_atom_of(&hop.field, "*"), {
-        exn.throw(dyn(format_error_message(ast_expr_token(&hop.field), `Cannot re-point \`${name}\` through a pointer dereference ('p.*'): a re-point to a place behind a dereference is not yet admitted (P1b, plans/backlog/BORROW_CHECKER_COMPLETENESS.md §4). ${not_reached}`)));
+        exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&hop.field), `Cannot re-point \`${name}\` through a pointer dereference ('p.*'): a re-point to a place behind a dereference is not yet admitted (P1b, plans/backlog/BORROW_CHECKER_COMPLETENESS.md §4). ${not_reached}`))));
       }),
       .None => ()
     );
@@ -1205,7 +1231,7 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_rhs)),
     .Some(ri) => ri,
     .None => {
-      exn.throw(dyn(format_error_message(ast_expr_token(&rhs), `Failed to evaluate, got ${ast_expr_to_string(&rhs)}`)));
+      exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&rhs), `Failed to evaluate, got ${ast_expr_to_string(&rhs)}`))));
       new_expr_info(&env, t_unit())
     }
   );
@@ -1219,9 +1245,11 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
   if(!are_types_compatible(&rhs_info.ty(), &variable_value_type(&cur_var)), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&rhs),
-          `Cannot re-point \`${name}\` to \`${local_borrow_place_text(&rhs)}\`: \`${name}\` borrows a place of type ${type_to_string(&variable_value_type(&cur_var))}, and this place has type ${type_to_string(&rhs_info.ty())}.`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&rhs),
+            `Cannot re-point \`${name}\` to \`${local_borrow_place_text(&rhs)}\`: \`${name}\` borrows a place of type ${type_to_string(&variable_value_type(&cur_var))}, and this place has type ${type_to_string(&rhs_info.ty())}.`
+          )
         )
       )
     );
@@ -1231,7 +1259,7 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
     get_variables_from_env(&env, root_tok.value.*.clone()).last_cloned(),
     .Some(v) => v,
     .None => {
-      exn.throw(dyn(format_error_message(&root_tok, `Variable "${root_tok.value.*}" is not defined.`)));
+      exn.throw(dyn(Box.new(format_error_message(&root_tok, `Variable "${root_tok.value.*}" is not defined.`))));
       make_err_variable(&env)
     }
   );
@@ -1239,7 +1267,7 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
     local_borrow_place_of(&evaluated_rhs, &env, ctx),
     .Some(p) => p,
     .None => {
-      exn.throw(dyn(format_error_message(ast_expr_token(&rhs), `Cannot re-point \`${name}\` to \`${local_borrow_place_text(&rhs)}\`. ${not_reached}`)));
+      exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&rhs), `Cannot re-point \`${name}\` to \`${local_borrow_place_text(&rhs)}\`. ${not_reached}`))));
       local_borrow_place_of_variable(&root_var)
     }
   );
@@ -1281,10 +1309,12 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
   if(via_pattern && !(place.through_cell || variable_is_reference_binding(&root_var)), {
     exn.throw(
       dyn(
-        format_error_message_with_help(
-          ast_expr_token(&rhs),
-          `Cannot re-point \`${name}\` to \`${local_borrow_place_text(&rhs)}\`: \`${root_var.name}\` is a binding of a by-value \`match\`, and a by-value \`match\` copies or moves the payload, so this place would die with the arm.`,
-          Option(String).Some(`match \`${name}\` bare to bind its place (\`match(${name}, .Some(${root_var.name}) => { ${name} = ${sig}${root_var.name}.next; }, .None => ())\`)`)
+        Box.new(
+          format_error_message_with_help(
+            ast_expr_token(&rhs),
+            `Cannot re-point \`${name}\` to \`${local_borrow_place_text(&rhs)}\`: \`${root_var.name}\` is a binding of a by-value \`match\`, and a by-value \`match\` copies or moves the payload, so this place would die with the arm.`,
+            Option(String).Some(`match \`${name}\` bare to bind its place (\`match(${name}, .Some(${root_var.name}) => { ${name} = ${sig}${root_var.name}.next; }, .None => ())\`)`)
+          )
         )
       )
     );
@@ -1316,7 +1346,7 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
         &info.step_pin,
         .Some(p) => Rc.clone(p),
         .None => {
-          exn.throw(dyn(format_error_message(&lhs_tok, `Cannot re-point \`${name}\` here: a re-point must be in the block that declares \`${name}\`, or a block nested in it.`)));
+          exn.throw(dyn(Box.new(format_error_message(&lhs_tok, `Cannot re-point \`${name}\` here: a re-point must be in the block that declares \`${name}\`, or a block nested in it.`))));
           make_err_variable(&env)
         }
       );
@@ -1326,9 +1356,11 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
         if(!are_types_compatible(&pin_type, &variable_value_type(&sp)), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&rhs),
-                `Cannot re-point \`${name}\` into a ${type_to_string(&pin_type)} cell: an earlier re-point of \`${name}\` steps into ${type_to_string(&variable_value_type(&sp))} cells, and the one cell a step holds has one type.`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&rhs),
+                  `Cannot re-point \`${name}\` into a ${type_to_string(&pin_type)} cell: an earlier re-point of \`${name}\` steps into ${type_to_string(&variable_value_type(&sp))} cells, and the one cell a step holds has one type.`
+                )
               )
             )
           );
@@ -1416,9 +1448,11 @@ evaluate_initialization_assignment :: (
   if(!(is_const || is_init_assign), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          String.from("Expected \":=\" or \"::\" for initialization assignment.")
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            String.from("Expected \":=\" or \"::\" for initialization assignment.")
+          )
         )
       )
     );
@@ -1463,27 +1497,31 @@ evaluate_initialization_assignment :: (
     if(ast_expr_is_local_borrow_mode_call(&lhs, .None), {
       exn.throw(
         dyn(
-          with_code(
-            format_error_message(
-              ast_expr_token(expr),
-              String.from("A local borrow (`y := &place`, `y := &mut place`) binds a reference to runtime storage, but this is the body of a function that returns a compile-time value, which has none; read and assign the compile-time variable directly.")
-            ),
-            E_COMPTIME_RUNTIME_BINDING
+          Box.new(
+            with_code(
+              format_error_message(
+                ast_expr_token(expr),
+                String.from("A local borrow (`y := &place`, `y := &mut place`) binds a reference to runtime storage, but this is the body of a function that returns a compile-time value, which has none; read and assign the compile-time variable directly.")
+              ),
+              E_COMPTIME_RUNTIME_BINDING
+            )
           )
         )
       );
     });
     exn.throw(
       dyn(
-        with_code(
-          format_error_message_with_repair(
-            ast_expr_token(expr),
-            String.from("`:=` declares a runtime variable, but this is the body of a function that returns a compile-time value; declare the local with `::` (it is still mutable)."),
-            Option(String).Some(String.from("replace `:=` with `::`")),
-            String.from("::"),
-            String.from("declare the local with `::`")
-          ),
-          E_COMPTIME_RUNTIME_BINDING
+        Box.new(
+          with_code(
+            format_error_message_with_repair(
+              ast_expr_token(expr),
+              String.from("`:=` declares a runtime variable, but this is the body of a function that returns a compile-time value; declare the local with `::` (it is still mutable)."),
+              Option(String).Some(String.from("replace `:=` with `::`")),
+              String.from("::"),
+              String.from("declare the local with `::`")
+            ),
+            E_COMPTIME_RUNTIME_BINDING
+          )
         )
       )
     );
@@ -1528,9 +1566,11 @@ evaluate_initialization_assignment :: (
     if(n_given_args != usize(1), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&lhs),
-            `Expected exactly one argument for "given", got ${n_given_args.to_string()}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&lhs),
+              `Expected exactly one argument for "given", got ${n_given_args.to_string()}`
+            )
           )
         )
       );
@@ -1558,9 +1598,11 @@ evaluate_initialization_assignment :: (
     if(n_tl_args != usize(1), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&lhs),
-            `Expected exactly one argument for "thread_local", got ${n_tl_args.to_string()}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&lhs),
+              `Expected exactly one argument for "thread_local", got ${n_tl_args.to_string()}`
+            )
           )
         )
       );
@@ -1573,9 +1615,11 @@ evaluate_initialization_assignment :: (
     if(!ast_expr_is_atom(&tl_atom), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&lhs),
-            `"thread_local" takes the variable NAME: write "thread_local(name) := init;" or "(thread_local(name) : T) = init;".`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&lhs),
+              `"thread_local" takes the variable NAME: write "thread_local(name) := init;" or "(thread_local(name) : T) = init;".`
+            )
           )
         )
       );
@@ -1586,10 +1630,12 @@ evaluate_initialization_assignment :: (
     op_str := ast_expr_token(expr).value.*.clone();
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&actual_lhs),
-          `Unexpected use of ":" in type declaration with "${op_str}". Please consider using "=":
+        Box.new(
+          format_error_message(
+            ast_expr_token(&actual_lhs),
+            `Unexpected use of ":" in type declaration with "${op_str}". Please consider using "=":
 (${ast_expr_to_string(&actual_lhs)}) = ${ast_expr_to_string(&rhs)}`
+          )
         )
       )
     );
@@ -1673,12 +1719,14 @@ evaluate_initialization_assignment :: (
       if(is_at_module_level && type_carries_origin(&rhs_info.ty()), {
         exn.throw(
           dyn(
-            no_origin_position_error(
-              &rhs_info.ty(),
-              &String.from("A module-level binding"),
-              &String.from("no frame owns the places it would borrow, so it may hold no reference (§7, module-level origins)."),
-              &String.from("hold the value itself, or bind the reference in the function that owns the place"),
-              ast_expr_token(&rhs)
+            Box.new(
+              no_origin_position_error(
+                &rhs_info.ty(),
+                &String.from("A module-level binding"),
+                &String.from("no frame owns the places it would borrow, so it may hold no reference (§7, module-level origins)."),
+                &String.from("hold the value itself, or bind the reference in the function that owns the place"),
+                ast_expr_token(&rhs)
+              )
             )
           )
         );
@@ -1686,11 +1734,13 @@ evaluate_initialization_assignment :: (
       if(is_at_module_level && type_is_control_bound(&rhs_info.ty()), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&rhs),
-              `Cannot bind a value whose type is control-bound (transitively contains a \`ctl(...) -> ret\` function type) at module level. Module-level bindings outlive every call frame; invoking the contained control-function later would unwind to a dead frame.
+            Box.new(
+              format_error_message(
+                ast_expr_token(&rhs),
+                `Cannot bind a value whose type is control-bound (transitively contains a \`ctl(...) -> ret\` function type) at module level. Module-level bindings outlive every call frame; invoking the contained control-function later would unwind to a dead frame.
 
 Bound type: ${type_to_string(&rhs_info.ty())}`
+              )
             )
           )
         );
@@ -1743,7 +1793,7 @@ Bound type: ${type_to_string(&rhs_info.ty())}`
   match(
     &rhs_info_opt,
     .Some(us_rhs_info) => if(!type_is_sized(&us_rhs_info.ty()), {
-      exn.throw(dyn(unsized_by_value_error(&us_rhs_info.ty(), &`the local \`${ast_expr_to_string(&actual_lhs)}\``, &Option(String).None, ast_expr_token(&actual_lhs))));
+      exn.throw(dyn(Box.new(unsized_by_value_error(&us_rhs_info.ty(), &`the local \`${ast_expr_to_string(&actual_lhs)}\``, &Option(String).None, ast_expr_token(&actual_lhs)))));
     }),
     .None => ()
   );
@@ -1778,9 +1828,11 @@ Bound type: ${type_to_string(&rhs_info.ty())}`
       lhs_tok_val := ast_expr_token(&actual_lhs).value.*.clone();
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&actual_lhs),
-            `Invalid assignment to ${lhs_tok_val}, expected identifier or operator`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&actual_lhs),
+              `Invalid assignment to ${lhs_tok_val}, expected identifier or operator`
+            )
           )
         )
       );
@@ -1792,9 +1844,11 @@ Bound type: ${type_to_string(&rhs_info.ty())}`
     if((res_tok.kind == TokenKind.Operator) && is_reserved_operator_name(res_tok.value.*.clone()), {
       exn.throw(
         dyn(
-          format_error_message(
-            &res_tok,
-            `Operator "${res_tok.value.*}" is reserved and cannot be bound or overloaded (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md).`
+          Box.new(
+            format_error_message(
+              &res_tok,
+              `Operator "${res_tok.value.*}" is reserved and cannot be bound or overloaded (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md).`
+            )
           )
         )
       );
@@ -1842,9 +1896,11 @@ Bound type: ${type_to_string(&rhs_info.ty())}`
         .None => {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&rhs),
-                `Failed to evaluate, got ${ast_expr_to_string(&rhs)}`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&rhs),
+                  `Failed to evaluate, got ${ast_expr_to_string(&rhs)}`
+                )
               )
             )
           );
@@ -1878,11 +1934,13 @@ Bound type: ${type_to_string(&rhs_info.ty())}`
         rhs_ty_str := type_to_string(&synth.ty);
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&actual_lhs),
-              `Incompatible types:
+            Box.new(
+              format_error_message(
+                ast_expr_token(&actual_lhs),
+                `Incompatible types:
 - Defined: ${pre_ty_str}
 - Given  : ${rhs_ty_str}${dyn_upcast_note(&pre_type, &synth.ty)}`
+              )
             )
           )
         );
@@ -1926,13 +1984,15 @@ Bound type: ${type_to_string(&rhs_info.ty())}`
       expr_str := ast_expr_to_string(expr);
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            `Expected "::" instead of ":=" for compile-time known value assignment:
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              `Expected "::" instead of ":=" for compile-time known value assignment:
 ${expr_str}
 
 Type:
 ${lhs_type_str}`
+            )
           )
         )
       );
@@ -1942,10 +2002,12 @@ ${lhs_type_str}`
       expr_str := ast_expr_to_string(expr);
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            `Expected ":=" instead of "::" for value type "${lhs_type_str}" which can only be used at the runtime:
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              `Expected ":=" instead of "::" for value type "${lhs_type_str}" which can only be used at the runtime:
 ${expr_str}`
+            )
           )
         )
       );
@@ -1973,11 +2035,13 @@ ${expr_str}`
       rhs_str := ast_expr_to_string(&rhs);
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&actual_lhs),
-            `Expected compile-time value for "${lhs_tok_val}".
+          Box.new(
+            format_error_message(
+              ast_expr_token(&actual_lhs),
+              `Expected compile-time value for "${lhs_tok_val}".
 Got runtime value. Please consider using ":=" instead of "::":
 ${rhs_str}`
+            )
           )
         )
       );
@@ -2126,10 +2190,12 @@ ${rhs_str}`
     if(is_runtime_not_in_fn && ctx.is_inside_impl_block, {
       exn.throw(
         dyn(
-          format_error_message(
-            &actual_lhs_tok,
-            `Mutable runtime variable "${var_name}" is not allowed inside an impl block.
+          Box.new(
+            format_error_message(
+              &actual_lhs_tok,
+              `Mutable runtime variable "${var_name}" is not allowed inside an impl block.
 Use \`::\` for compile-time definitions inside impl.`
+            )
           )
         )
       );
@@ -2179,7 +2245,7 @@ Use \`::\` for compile-time definitions inside impl.`
                 error_message : `Variable "${var_name}" is already defined here (variable shadowing is not allowed):`
               )
             );
-            exn.throw(dyn(format_error_messages(&sh_entries)));
+            exn.throw(dyn(Box.new(format_error_messages(&sh_entries))));
           }),
           .None => ()
         );
@@ -2188,7 +2254,7 @@ Use \`::\` for compile-time definitions inside impl.`
     // A runtime local holds its value by value (decision 49, E0619): an
     // unsized type has no size to hold it in.
     if(!effective_is_compile_time_only && !type_is_sized(&final_lhs_type), {
-      exn.throw(dyn(unsized_by_value_error(&final_lhs_type, &`the local \`${var_name}\``, &Option(String).None, &actual_lhs_tok)));
+      exn.throw(dyn(Box.new(unsized_by_value_error(&final_lhs_type, &`the local \`${var_name}\``, &Option(String).None, &actual_lhs_tok))));
     });
     // Add variable to environment (or fill the phase-A pre-bound one).
     new_var_opt := match(
@@ -2280,9 +2346,11 @@ Use \`::\` for compile-time definitions inside impl.`
           if(!is_module_level, {
             exn.throw(
               dyn(
-                format_error_message(
-                  &actual_lhs_tok,
-                  `A thread-local must be declared at module level. "${var_name}" is declared inside a function body, where a per-thread instance has no meaning — use an ordinary local.`
+                Box.new(
+                  format_error_message(
+                    &actual_lhs_tok,
+                    `A thread-local must be declared at module level. "${var_name}" is declared inside a function body, where a per-thread instance has no meaning — use an ordinary local.`
+                  )
                 )
               )
             );
@@ -2290,9 +2358,11 @@ Use \`::\` for compile-time definitions inside impl.`
           if(type_contains_rc_type(&final_lhs_type), {
             exn.throw(
               dyn(
-                format_error_message(
-                  &actual_lhs_tok,
-                  `A thread-local cannot hold a reference-counted type, and "${var_name}" has type ${type_to_string(&final_lhs_type)}. A thread's instance is released when the thread exits, and the C11 thread-local storage a thread-local lowers to has no hook to run that release — so the value would leak once per thread. Use a reference-counted value owned by the caller and passed in, or a plain (non-RC) type here.`
+                Box.new(
+                  format_error_message(
+                    &actual_lhs_tok,
+                    `A thread-local cannot hold a reference-counted type, and "${var_name}" has type ${type_to_string(&final_lhs_type)}. A thread's instance is released when the thread exits, and the C11 thread-local storage a thread-local lowers to has no hook to run that release — so the value would leak once per thread. Use a reference-counted value owned by the caller and passed in, or a plain (non-RC) type here.`
+                  )
                 )
               )
             );

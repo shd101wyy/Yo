@@ -1016,12 +1016,14 @@ _reject_dyn_of_dyn :: (fn(ty : &TypeValue, tok : &Token, exn : Exception) -> uni
   if(is_dyn_type(ty) || behind_handle, {
     exn.throw(
       dyn(
-        with_code(
-          format_error_message(
-            tok,
-            `dyn(...) of a value that is already a Dyn (${type_to_string(ty)}): its concrete type is erased, so there is nothing to build a new vtable from.\nUse the value as it is, or upcast(value, Dyn(...)) to keep fewer of its traits.`
-          ),
-          E_TYPE_MISMATCH
+        Box.new(
+          with_code(
+            format_error_message(
+              tok,
+              `dyn(...) of a value that is already a Dyn (${type_to_string(ty)}): its concrete type is erased, so there is nothing to build a new vtable from.\nUse the value as it is, or upcast(value, Dyn(...)) to keep fewer of its traits.`
+            ),
+            E_TYPE_MISMATCH
+          )
         )
       )
     );
@@ -1197,16 +1199,18 @@ _dyn_type_from_payload_or_throw :: (
       if(have_payload_ty, {
         exn.throw(
           dyn(
-            with_code(
-              format_error_message(
-                expr_tok,
-                match(
-                  expected_ty,
-                  .Some(et) => `cannot infer the Dyn type of dyn(...) here: the expected type ${type_to_string(&et.*)} is not a Dyn(...).\nAnnotate the value or bind it first — e.g. (x : Dyn(Trait)) = dyn(value) — or pass dyn(value) where a Dyn(...) is expected.`,
-                  .None => `cannot infer the Dyn type of dyn(...) here: this position supplies no expected type.\nAnnotate the value or bind it first — e.g. (x : Dyn(Trait)) = dyn(value) — or pass dyn(value) where a Dyn(...) is expected.`
-                )
-              ),
-              E_TYPE_MISMATCH
+            Box.new(
+              with_code(
+                format_error_message(
+                  expr_tok,
+                  match(
+                    expected_ty,
+                    .Some(et) => `cannot infer the Dyn type of dyn(...) here: the expected type ${type_to_string(&et.*)} is not a Dyn(...).\nAnnotate the value or bind it first — e.g. (x : Dyn(Trait)) = dyn(value) — or pass dyn(value) where a Dyn(...) is expected.`,
+                    .None => `cannot infer the Dyn type of dyn(...) here: this position supplies no expected type.\nAnnotate the value or bind it first — e.g. (x : Dyn(Trait)) = dyn(value) — or pass dyn(value) where a Dyn(...) is expected.`
+                  )
+                ),
+                E_TYPE_MISMATCH
+              )
             )
           )
         );
@@ -1275,7 +1279,7 @@ _dyn_pointee_of_expected :: (fn(t : &TypeValue) -> Option(TypeValue))({
 /// cell whose count lives elsewhere.
 _reject_dyn_of_named_handle :: (fn(value_ty : &TypeValue, fresh : bool, tok : &Token, exn : Exception) -> unit)({
   if(!fresh && cell_handle_view(value_ty).is_some(), {
-    exn.throw(dyn(format_error_message(tok, String.from("`dyn(h)` over a named `Rc`/`Arc` handle is not available: a shared handle cannot be erased in place; write `dyn(Rc.new(v))` to build the shared object here or `dyn(Box.new(v))` to own it"))));
+    exn.throw(dyn(Box.new(format_error_message(tok, String.from("`dyn(h)` over a named `Rc`/`Arc` handle is not available: a shared handle cannot be erased in place; write `dyn(Rc.new(v))` to build the shared object here or `dyn(Box.new(v))` to own it")))));
   });
 });
 /// A `dyn(v)` payload that is neither a pointer kind nor a handle: a value,
@@ -1348,7 +1352,7 @@ _evaluate_dyn_over_lend :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut E
       pointee = Rc.clone(rp);
       is_mut = rm;
     },
-    _ => exn.throw(dyn(format_error_message(&tok, `\`dyn(&v)\` lends a place, and its argument is a \`${type_to_string(&info.ty())}\`.`)))
+    _ => exn.throw(dyn(Box.new(format_error_message(&tok, `\`dyn(&v)\` lends a place, and its argument is a \`${type_to_string(&info.ty())}\`.`))))
   );
   (dyn_type : TypeValue) = match(
     &ctx.expected_type,
@@ -1356,12 +1360,12 @@ _evaluate_dyn_over_lend :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut E
       _dyn_pointee_of_expected(&et.ty),
       .Some(d) => d,
       .None => {
-        exn.throw(dyn(format_error_message_with_help(&tok, String.from("`dyn(&v)` builds a `&Dyn(...)`, and the Dyn it builds is named by the type its position expects."), Option(String).Some(String.from("pass it where a `&Dyn(Trait)` is expected, or annotate the binding: `(d : &Dyn(Trait)) = dyn(&v)`")))));
+        exn.throw(dyn(Box.new(format_error_message_with_help(&tok, String.from("`dyn(&v)` builds a `&Dyn(...)`, and the Dyn it builds is named by the type its position expects."), Option(String).Some(String.from("pass it where a `&Dyn(Trait)` is expected, or annotate the binding: `(d : &Dyn(Trait)) = dyn(&v)`"))))));
         t_unit()
       }
     ),
     .None => {
-      exn.throw(dyn(format_error_message_with_help(&tok, String.from("`dyn(&v)` builds a `&Dyn(...)`, and the Dyn it builds is named by the type its position expects."), Option(String).Some(String.from("pass it where a `&Dyn(Trait)` is expected, or annotate the binding: `(d : &Dyn(Trait)) = dyn(&v)`")))));
+      exn.throw(dyn(Box.new(format_error_message_with_help(&tok, String.from("`dyn(&v)` builds a `&Dyn(...)`, and the Dyn it builds is named by the type its position expects."), Option(String).Some(String.from("pass it where a `&Dyn(Trait)` is expected, or annotate the binding: `(d : &Dyn(Trait)) = dyn(&v)`"))))));
       t_unit()
     }
   );
@@ -1503,9 +1507,11 @@ _evaluate_dyn_erasure :: (
     _ => {
       exn.throw(
         dyn(
-          format_error_message(
-            &expr_tok,
-            String.from("evaluate_dyn_value: expected a FnCall expression")
+          Box.new(
+            format_error_message(
+              &expr_tok,
+              String.from("evaluate_dyn_value: expected a FnCall expression")
+            )
           )
         )
       );
@@ -1518,9 +1524,11 @@ _evaluate_dyn_erasure :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            &expr_tok,
-            String.from("'dyn' requires exactly one argument")
+          Box.new(
+            format_error_message(
+              &expr_tok,
+              String.from("'dyn' requires exactly one argument")
+            )
           )
         )
       );
@@ -1744,9 +1752,11 @@ _evaluate_dyn_erasure :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            &expr_tok,
-            String.from("evaluate_dyn_value: failed to evaluate inner expression")
+          Box.new(
+            format_error_message(
+              &expr_tok,
+              String.from("evaluate_dyn_value: failed to evaluate inner expression")
+            )
           )
         )
       );
@@ -1832,9 +1842,11 @@ _evaluate_dyn_erasure :: (
       _ => {
         exn.throw(
           dyn(
-            format_error_message(
-              &expr_tok,
-              String.from("'dyn' requires a SomeType (Impl), DynType, or an expected Dyn type context. Concrete types without trait fields are not supported in Phase 3.")
+            Box.new(
+              format_error_message(
+                &expr_tok,
+                String.from("'dyn' requires a SomeType (Impl), DynType, or an expected Dyn type context. Concrete types without trait fields are not supported in Phase 3.")
+              )
             )
           )
         );

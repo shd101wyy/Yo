@@ -157,9 +157,11 @@ _string_argument :: (
   if(args.len() != usize(1), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected exactly 1 argument for "${name}", got ${args.len().to_string()}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected exactly 1 argument for "${name}", got ${args.len().to_string()}`
+          )
         )
       )
     );
@@ -179,9 +181,11 @@ _string_argument :: (
       _ => {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(expr),
-              `"${name}" needs a compile-time string, got a value of another kind`
+            Box.new(
+              format_error_message(
+                ast_expr_token(expr),
+                `"${name}" needs a compile-time string, got a value of another kind`
+              )
             )
           )
         );
@@ -213,9 +217,11 @@ evaluate_comptime_json_parse :: (
     .Err(e) => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            `"${BF_COMPTIME_JSON_PARSE}" could not parse the input: ${e.to_string()}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              `"${BF_COMPTIME_JSON_PARSE}" could not parse the input: ${e.to_string()}`
+            )
           )
         )
       );
@@ -238,9 +244,11 @@ evaluate_comptime_toml_parse :: (
     .Err(e) => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            `"${BF_COMPTIME_TOML_PARSE}" could not parse the input: ${e.to_string()}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              `"${BF_COMPTIME_TOML_PARSE}" could not parse the input: ${e.to_string()}`
+            )
           )
         )
       );

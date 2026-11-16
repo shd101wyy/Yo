@@ -132,10 +132,12 @@ test("Test multiple expected errors", {
 // borrow, so they need `Fn` and a cell for the state (the tests below).
 test("Test closure with Dyn", {
   x := 1;
-  (mut(closure) : Box(Dyn(FnMut(y : i32) -> i32))) = dyn({ x }(y : i32) => {
-    x = (x + y);
-    return(x);
-  });
+  (mut(closure) : Box(Dyn(FnMut(y : i32) -> i32))) = dyn(
+    Box.new({ x }(y : i32) => {
+      x = (x + y);
+      return(x);
+    })
+  );
   closure(1); // 2
   closure(1); // 3
   result := closure(2); // 5
@@ -241,9 +243,11 @@ test("Test anonymous closure value with Dyn that captures Rc object with auto bo
   xc := Rc.clone(&x);
   // `dyn(f)` is the legacy alias of `dyn(Box.new(f))` (decision 49): the
   // closure is boxed into the owning `Box(Dyn(Fn))` without writing `Box.new`.
-  (closure : Box(Dyn(Fn(y : i32) -> i32))) = dyn(y => {
-    return(_mb_add(&xc, y));
-  });
+  (closure : Box(Dyn(Fn(y : i32) -> i32))) = dyn(
+    Box.new(y => {
+      return(_mb_add(&xc, y));
+    })
+  );
   closure(1); // 2
   closure(1); // 3
   result := closure(2); // 5

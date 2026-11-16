@@ -220,9 +220,11 @@ throw_rhs_contains_control_flow_expression_error :: (
   );
   exn.throw(
     dyn(
-      format_error_message(
-        ast_expr_token(rhs),
-        &error_msg
+      Box.new(
+        format_error_message(
+          ast_expr_token(rhs),
+          &error_msg
+        )
       )
     )
   );
@@ -519,10 +521,12 @@ _captured_root_of_place :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalCo
 _throw_not_a_place :: (fn(lhs : &AstExpr, what : str, exn : Exception) -> unit)(
   exn.throw(
     dyn(
-      format_error_message_with_help(
-        ast_expr_token(lhs),
-        `Cannot assign to ${what}: it builds a new value, it is not a place.`,
-        Option(String).Some(String.from("Yo has no destructuring assignment: assign each place on its own (`a = x; b = y;`); a swap goes through a temporary (`t := a; a = b; b = t;`)"))
+      Box.new(
+        format_error_message_with_help(
+          ast_expr_token(lhs),
+          `Cannot assign to ${what}: it builds a new value, it is not a place.`,
+          Option(String).Some(String.from("Yo has no destructuring assignment: assign each place on its own (`a = x; b = y;`); a swap goes through a temporary (`t := a; a = b; b = t;`)"))
+        )
       )
     )
   )
@@ -1117,9 +1121,11 @@ _d1_record_write :: (
     .Some(reach_loc) => {
       exn.throw(
         dyn(
-          format_error_message(
-            write_tok,
-            `Cannot ${how} module-level global '${gv.name}' (type ${type_to_string(&variable_value_type(gv))})${note}: a closure that runs on another thread reads it (at ${reach_loc}). A module-level binding is one static shared by every thread, so a mutable one may only be touched by one thread. Use thread_local(${gv.name}) for per-thread state, or an atomic object (AtomicI32, Mutex(T), Arc(T)) for shared state.`
+          Box.new(
+            format_error_message(
+              write_tok,
+              `Cannot ${how} module-level global '${gv.name}' (type ${type_to_string(&variable_value_type(gv))})${note}: a closure that runs on another thread reads it (at ${reach_loc}). A module-level binding is one static shared by every thread, so a mutable one may only be touched by one thread. Use thread_local(${gv.name}) for per-thread state, or an atomic object (AtomicI32, Mutex(T), Arc(T)) for shared state.`
+            )
           )
         )
       );
@@ -1406,9 +1412,11 @@ d3_check_pending :: (
             if(is_write, {
               exn.throw(
                 dyn(
-                  format_error_message(
-                    ast_expr_token(&entry.place),
-                    `Cannot ${entry.how} ${entry.noun} '${root_text}' (type ${root_type}) in safe code: the callee may write through that mut parameter. Atomic objects shared across threads must use AtomicX / Mutex / RwLock for mutation — take the receiver by value (self : Self) for a read-only method, or wrap the state in Arc(Mutex(T)).`
+                  Box.new(
+                    format_error_message(
+                      ast_expr_token(&entry.place),
+                      `Cannot ${entry.how} ${entry.noun} '${root_text}' (type ${root_type}) in safe code: the callee may write through that mut parameter. Atomic objects shared across threads must use AtomicX / Mutex / RwLock for mutation — take the receiver by value (self : Self) for a read-only method, or wrap the state in Arc(Mutex(T)).`
+                    )
                   )
                 )
               );
@@ -1457,9 +1465,11 @@ _throw_if_atomic_object_root :: (
     .Some(atomic_obj_type) => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(place),
-            `Cannot ${how} atomic object '${ast_expr_to_string(root_expr)}' (type ${type_to_string(&atomic_obj_type)}) in safe code. Atomic objects shared across threads must use AtomicX / Mutex / RwLock for mutation. Use Arc(AtomicI32), Arc(Mutex(T)), or Arc(RwLock(T)) instead.`
+          Box.new(
+            format_error_message(
+              ast_expr_token(place),
+              `Cannot ${how} atomic object '${ast_expr_to_string(root_expr)}' (type ${type_to_string(&atomic_obj_type)}) in safe code. Atomic objects shared across threads must use AtomicX / Mutex / RwLock for mutation. Use Arc(AtomicI32), Arc(Mutex(T)), or Arc(RwLock(T)) instead.`
+            )
           )
         )
       );
@@ -1502,9 +1512,11 @@ _throw_if_write_through_atomic_hop :: (fn(ev_place : &AstExpr, how : String, ctx
       r_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&r)), .Some(ri) => type_to_string(&ri.ty()), .None => String.from("?"));
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(ev_place),
-            `Cannot ${how} atomic object '${ast_expr_to_string(&r)}' (type ${r_ty}) in safe code. Atomic objects shared across threads must use AtomicX / Mutex / RwLock for mutation. Use Arc(AtomicI32), Arc(Mutex(T)), or Arc(RwLock(T)) instead.`
+          Box.new(
+            format_error_message(
+              ast_expr_token(ev_place),
+              `Cannot ${how} atomic object '${ast_expr_to_string(&r)}' (type ${r_ty}) in safe code. Atomic objects shared across threads must use AtomicX / Mutex / RwLock for mutation. Use Arc(AtomicI32), Arc(Mutex(T)), or Arc(RwLock(T)) instead.`
+            )
           )
         )
       );
@@ -1594,9 +1606,11 @@ evaluate_assignment :: (
   if(!ast_expr_is_fn_call_of(expr, BK_ASSIGN, .Some(usize(2))), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected "=" for assignment.`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected "=" for assignment.`
+          )
         )
       )
     );
@@ -1654,9 +1668,11 @@ evaluate_assignment :: (
       if(!ast_expr_is_atom(&tl_atom), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&tl_name_pos),
-              `"thread_local" takes the variable NAME: write "(thread_local(name) : T) = init;" or "thread_local(name) := init;".`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&tl_name_pos),
+                `"thread_local" takes the variable NAME: write "(thread_local(name) : T) = init;" or "thread_local(name) := init;".`
+              )
             )
           )
         );
@@ -1754,9 +1770,11 @@ evaluate_assignment :: (
     if(lhs_info_opt.is_none(), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&lhs),
-            `Failed to evaluate left-hand side of assignment: ${ast_expr_to_string(&lhs)}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&lhs),
+              `Failed to evaluate left-hand side of assignment: ${ast_expr_to_string(&lhs)}`
+            )
           )
         )
       );
@@ -1778,9 +1796,11 @@ evaluate_assignment :: (
             if(is_function_type(&callee_info.ty()), {
               exn.throw(
                 dyn(
-                  format_error_message(
-                    ast_expr_token(&lhs),
-                    `Cannot assign to the result of a function call: ${ast_expr_to_string(&lhs)}`
+                  Box.new(
+                    format_error_message(
+                      ast_expr_token(&lhs),
+                      `Cannot assign to the result of a function call: ${ast_expr_to_string(&lhs)}`
+                    )
                   )
                 )
               );
@@ -1799,7 +1819,7 @@ evaluate_assignment :: (
     // An unsized place (`r.* = v` for `r : &mut [T]`, `xs(a..b) = v`) has no
     // value to store whole (decision 49, E0619): write its elements.
     if(!type_is_sized(&expected_ty), {
-      exn.throw(dyn(unsized_by_value_error(&expected_ty, &String.from("an assignment's target"), &Option(String).None, &ast_expr_token(&lhs))));
+      exn.throw(dyn(Box.new(unsized_by_value_error(&expected_ty, &String.from("an assignment's target"), &Option(String).None, &ast_expr_token(&lhs)))));
     });
     // Step 2 — Evaluate RHS with expected type from LHS
     ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(expected_ty), env : Rc.clone(env)));
@@ -1809,9 +1829,11 @@ evaluate_assignment :: (
     if(prop_rhs_info_opt.is_none(), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&rhs),
-            `Failed to evaluate right-hand side of assignment: ${ast_expr_to_string(&rhs)}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&rhs),
+              `Failed to evaluate right-hand side of assignment: ${ast_expr_to_string(&rhs)}`
+            )
           )
         )
       );
@@ -1897,7 +1919,7 @@ evaluate_assignment :: (
         // (function_type.yo), mirroring the simple-variable assignment gate.
         prop_viol_err := format_error_message(ast_expr_token(&rhs), &prop_viol_msg);
         flag_flow_violation(&prop_viol_err);
-        exn.throw(dyn(prop_viol_err));
+        exn.throw(dyn(Box.new(prop_viol_err)));
       });
     });
     // Step 3c — A write into a borrowed copy must not release RC data the
@@ -2035,13 +2057,15 @@ evaluate_assignment :: (
       rhs_str := type_to_string(&prop_rhs_type);
       exn.throw(
         dyn(
-          mark_generic_independent(
-            format_error_message(
-              ast_expr_token(&lhs),
-              `Incompatible types:\n- Expected: ${exp_str}\n- Given   : ${rhs_str}${dyn_upcast_note(&expected_ty, &prop_rhs_type)}`
-            ),
-            &expected_ty,
-            &prop_rhs_type
+          Box.new(
+            mark_generic_independent(
+              format_error_message(
+                ast_expr_token(&lhs),
+                `Incompatible types:\n- Expected: ${exp_str}\n- Given   : ${rhs_str}${dyn_upcast_note(&expected_ty, &prop_rhs_type)}`
+              ),
+              &expected_ty,
+              &prop_rhs_type
+            )
           )
         )
       );
@@ -2225,9 +2249,11 @@ evaluate_assignment :: (
                     if(ev_fi < i64(0), {
                       exn.throw(
                         dyn(
-                          format_error_message(
-                            ast_expr_token(&lhs),
-                            `Cannot assign the compile-time payload field "${pc_field_or_idx}": variant ${ev_variant} has no such field.`
+                          Box.new(
+                            format_error_message(
+                              ast_expr_token(&lhs),
+                              `Cannot assign the compile-time payload field "${pc_field_or_idx}": variant ${ev_variant} has no such field.`
+                            )
                           )
                         )
                       );
@@ -2359,9 +2385,11 @@ evaluate_assignment :: (
     if(tl_vars.len() == usize(0), {
       exn.throw(
         dyn(
-          format_error_message(
-            &tl_tok,
-            `Failed to declare thread-local "${variable_name}".`
+          Box.new(
+            format_error_message(
+              &tl_tok,
+              `Failed to declare thread-local "${variable_name}".`
+            )
           )
         )
       );
@@ -2376,9 +2404,11 @@ evaluate_assignment :: (
     if(!tl_var.is_module_level(), {
       exn.throw(
         dyn(
-          format_error_message(
-            &tl_tok,
-            `A thread-local must be declared at module level. "${variable_name}" is declared inside a function body, where a per-thread instance has no meaning — use an ordinary local.`
+          Box.new(
+            format_error_message(
+              &tl_tok,
+              `A thread-local must be declared at module level. "${variable_name}" is declared inside a function body, where a per-thread instance has no meaning — use an ordinary local.`
+            )
           )
         )
       );
@@ -2386,9 +2416,11 @@ evaluate_assignment :: (
     if(type_contains_rc_type(&variable_value_type(&tl_var)), {
       exn.throw(
         dyn(
-          format_error_message(
-            &tl_tok,
-            `A thread-local cannot hold a reference-counted type, and "${variable_name}" has type ${type_to_string(&variable_value_type(&tl_var))}. A thread's instance is released when the thread exits, and the C11 thread-local storage a thread-local lowers to has no hook to run that release — so the value would leak once per thread. Use a reference-counted value owned by the caller and passed in, or a plain (non-RC) type here.`
+          Box.new(
+            format_error_message(
+              &tl_tok,
+              `A thread-local cannot hold a reference-counted type, and "${variable_name}" has type ${type_to_string(&variable_value_type(&tl_var))}. A thread's instance is released when the thread exits, and the C11 thread-local storage a thread-local lowers to has no hook to run that release — so the value would leak once per thread. Use a reference-counted value owned by the caller and passed in, or a plain (non-RC) type here.`
+            )
           )
         )
       );
@@ -2418,23 +2450,27 @@ evaluate_assignment :: (
       .Some(mcb_v) => if(mcb_v.is_module_level() && type_carries_origin(&variable_value_type(&mcb_v)), {
         exn.throw(
           dyn(
-            no_origin_position_error(
-              &variable_value_type(&mcb_v),
-              &String.from("A module-level binding"),
-              &String.from("no frame owns the places it would borrow, so it may hold no reference (§7, module-level origins)."),
-              &String.from("hold the value itself, or bind the reference in the function that owns the place"),
-              ast_expr_token(&lhs_resolved)
+            Box.new(
+              no_origin_position_error(
+                &variable_value_type(&mcb_v),
+                &String.from("A module-level binding"),
+                &String.from("no frame owns the places it would borrow, so it may hold no reference (§7, module-level origins)."),
+                &String.from("hold the value itself, or bind the reference in the function that owns the place"),
+                ast_expr_token(&lhs_resolved)
+              )
             )
           )
         );
       }, if(mcb_v.is_module_level() && type_is_control_bound(&variable_value_type(&mcb_v)), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&lhs_resolved),
-              `Cannot bind a value whose type is control-bound (transitively contains a \`ctl(...) -> ret\` function type) at module level. Module-level bindings outlive every call frame; invoking the contained control-function later would unwind to a dead frame.
+            Box.new(
+              format_error_message(
+                ast_expr_token(&lhs_resolved),
+                `Cannot bind a value whose type is control-bound (transitively contains a \`ctl(...) -> ret\` function type) at module level. Module-level bindings outlive every call frame; invoking the contained control-function later would unwind to a dead frame.
 
 Bound type: ${type_to_string(&variable_value_type(&mcb_v))}`
+              )
             )
           )
         );
@@ -2446,9 +2482,11 @@ Bound type: ${type_to_string(&variable_value_type(&mcb_v))}`
   if(variable_name == "_", {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&lhs_resolved),
-          `Cannot reassign "_". Use ":=" to discard a value, or use a named variable for reassignment.`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&lhs_resolved),
+            `Cannot reassign "_". Use ":=" to discard a value, or use a named variable for reassignment.`
+          )
         )
       )
     );
@@ -2458,12 +2496,14 @@ Bound type: ${type_to_string(&variable_value_type(&mcb_v))}`
   if(vars.len() == usize(0), {
     exn.throw(
       dyn(
-        with_code(
-          format_error_message(
-            ast_expr_token(&lhs_resolved),
-            `Variable "${variable_name}" not found.`
-          ),
-          E_VARIABLE_NOT_FOUND
+        Box.new(
+          with_code(
+            format_error_message(
+              ast_expr_token(&lhs_resolved),
+              `Variable "${variable_name}" not found.`
+            ),
+            E_VARIABLE_NOT_FOUND
+          )
         )
       )
     );
@@ -2532,14 +2572,16 @@ Bound type: ${type_to_string(&variable_value_type(&mcb_v))}`
   if(!variable.is_reassignable(), {
     exn.throw(
       dyn(
-        format_error_message_with_help(
-          ast_expr_token(&lhs_resolved),
-          `Cannot reassign "${variable_name}": it is ${if(variable.is_parameter(), "a parameter", "an immutable binding")}, which cannot be reassigned.`,
-          Option(String).Some(
-            if(
-              variable.is_parameter(),
-              `rebind it to a mutable local and assign that (\`mut(${variable_name}_m) := ${variable_name};\`, plans/VALUES_BY_DEFAULT.md decision 47), or take \`${variable_name} : &mut T\` and write through it if the caller's value should change`,
-              String.from("bind a new name instead")
+        Box.new(
+          format_error_message_with_help(
+            ast_expr_token(&lhs_resolved),
+            `Cannot reassign "${variable_name}": it is ${if(variable.is_parameter(), "a parameter", "an immutable binding")}, which cannot be reassigned.`,
+            Option(String).Some(
+              if(
+                variable.is_parameter(),
+                `rebind it to a mutable local and assign that (\`mut(${variable_name}_m) := ${variable_name};\`, plans/VALUES_BY_DEFAULT.md decision 47), or take \`${variable_name} : &mut T\` and write through it if the caller's value should change`,
+                String.from("bind a new name instead")
+              )
             )
           )
         )
@@ -2574,9 +2616,11 @@ Bound type: ${type_to_string(&variable_value_type(&mcb_v))}`
   if(rhs_info_opt.is_none(), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&rhs),
-          `Failed to evaluate right-hand side of assignment: ${ast_expr_to_string(&rhs)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&rhs),
+            `Failed to evaluate right-hand side of assignment: ${ast_expr_to_string(&rhs)}`
+          )
         )
       )
     );
@@ -2624,15 +2668,17 @@ Bound type: ${type_to_string(&variable_value_type(&mcb_v))}`
       dgc_ty_str := type_to_string(&variable_value_type(&variable));
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&lhs_resolved),
-            `Runtime variables with generic function types are not allowed:
+          Box.new(
+            format_error_message(
+              ast_expr_token(&lhs_resolved),
+              `Runtime variables with generic function types are not allowed:
 ${dgc_ty_str}
 
 Generic functions must be compile-time known to enable monomorphization. Consider using:
 comptime(${variable_name}) : ${dgc_ty_str}
 
 (Carve-out: a ctl handler whose body always unwinds is accepted automatically; the analysis did not see an all-paths-unwind body.)`
+            )
           )
         )
       );
@@ -2665,7 +2711,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
       // real `exn` (function_type.yo), mirroring the `name := &mut place` binding-site.
       viol_err := format_error_message(ast_expr_token(&rhs), &viol_msg);
       flag_flow_violation(&viol_err);
-      exn.throw(dyn(viol_err));
+      exn.throw(dyn(Box.new(viol_err)));
     });
   });
   // Check if the LHS variable was consumed by the RHS (e.g., via own parameter).
@@ -2823,7 +2869,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
           error_message : String.from("First assigned here:")
         )
       );
-      exn.throw(dyn(format_error_messages(&ra_entries)));
+      exn.throw(dyn(Box.new(format_error_messages(&ra_entries))));
     });
   });
   // A closure bound to an `Impl(Fn(...))` slot keeps its own call
@@ -2837,10 +2883,12 @@ comptime(${variable_name}) : ${dgc_ty_str}
     function_value_slot_mismatch(&variable_value_type(&variable), &rhs_type),
     .Some(fvs_note) => exn.throw(
       dyn(
-        mark_generic_independent(
-          format_error_message(ast_expr_token(&lhs_resolved), `Incompatible types:\n- Expected: ${type_to_string(&variable_value_type(&variable))}\n- Given   : ${type_to_string(&rhs_type)}${fvs_note}`),
-          &variable_value_type(&variable),
-          &rhs_type
+        Box.new(
+          mark_generic_independent(
+            format_error_message(ast_expr_token(&lhs_resolved), `Incompatible types:\n- Expected: ${type_to_string(&variable_value_type(&variable))}\n- Given   : ${type_to_string(&rhs_type)}${fvs_note}`),
+            &variable_value_type(&variable),
+            &rhs_type
+          )
         )
       )
     ),
@@ -2854,13 +2902,15 @@ comptime(${variable_name}) : ${dgc_ty_str}
     rhs_ty_str := type_to_string(&rhs_type);
     exn.throw(
       dyn(
-        mark_generic_independent(
-          format_error_message(
-            ast_expr_token(&lhs_resolved),
-            `Incompatible types:\n- Expected: ${var_ty_str}\n- Given   : ${rhs_ty_str}${dyn_upcast_note(&variable_value_type(&variable), &rhs_type)}`
-          ),
-          &variable_value_type(&variable),
-          &rhs_type
+        Box.new(
+          mark_generic_independent(
+            format_error_message(
+              ast_expr_token(&lhs_resolved),
+              `Incompatible types:\n- Expected: ${var_ty_str}\n- Given   : ${rhs_ty_str}${dyn_upcast_note(&variable_value_type(&variable), &rhs_type)}`
+            ),
+            &variable_value_type(&variable),
+            &rhs_type
+          )
         )
       )
     );
@@ -2878,7 +2928,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
       // flow check above does).
       bind_err := format_error_message(ast_expr_token(&lhs_resolved), &bind_msg);
       flag_flow_violation(&bind_err);
-      exn.throw(dyn(bind_err));
+      exn.throw(dyn(Box.new(bind_err)));
     },
     .None => ()
   );
@@ -2917,7 +2967,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
               error_message : String.from("Defined here:")
             )
           );
-          exn.throw(dyn(format_error_messages(&wl_entries)));
+          exn.throw(dyn(Box.new(format_error_messages(&wl_entries))));
         });
       },
       .None => ()
@@ -2941,7 +2991,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
                 error_message : String.from("Defined here:")
               )
             );
-            exn.throw(dyn(format_error_messages(&of_entries)));
+            exn.throw(dyn(Box.new(format_error_messages(&of_entries))));
           });
         },
         _ => ()
@@ -3069,7 +3119,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
     if(match(value_to_store, .Some(vts) => match(vts, .FuncVal(_, _) => true, _ => false), .None => false), {
       match(
         call_rerun_pending_def_evals(&env, ctx),
-        .Some(rp_err) => exn.throw(dyn(rp_err)),
+        .Some(rp_err) => exn.throw(dyn(Box.new(rp_err))),
         .None => ()
       );
     });

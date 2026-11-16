@@ -362,9 +362,11 @@ _reject_private_method_call :: (
     );
     exn.throw(
       dyn(
-        format_error_message(
-          &name_tok,
-          `Method "${name_tok.value.*}" of ${recv_str} is private to its declaring module`
+        Box.new(
+          format_error_message(
+            &name_tok,
+            `Method "${name_tok.value.*}" of ${recv_str} is private to its declaring module`
+          )
         )
       )
     );
@@ -452,9 +454,11 @@ _reject_dyn_uncallable_method_call :: (
                         .Some(reason) => {
                           exn.throw(
                             dyn(
-                              format_error_message(
-                                &name_tok,
-                                `Method "${name_tok.value.*}" of trait ${tname} cannot be called through a Dyn receiver (${type_to_string(&recv_ty)}): ${reason}. Call it on a concrete value, or declare it with Self only as the receiver and no generic(...) parameters.`
+                              Box.new(
+                                format_error_message(
+                                  &name_tok,
+                                  `Method "${name_tok.value.*}" of trait ${tname} cannot be called through a Dyn receiver (${type_to_string(&recv_ty)}): ${reason}. Call it on a concrete value, or declare it with Self only as the receiver and no generic(...) parameters.`
+                                )
                               )
                             )
                           );
@@ -644,13 +648,15 @@ _reject_explicit_destructor_call :: (fn(callee : &AstExpr, call_args : Option(Ar
   );
   exn.throw(
     dyn(
-      with_code(
-        format_error_message_with_help(
-          &name_tok,
-          &message,
-          Option(String).Some(`to end the value now, write ${repair}: it moves the value in and drops it there. Inside a destructor, the fields drop by themselves after it returns.`)
-        ),
-        E_EXPLICIT_DESTRUCTOR_CALL
+      Box.new(
+        with_code(
+          format_error_message_with_help(
+            &name_tok,
+            &message,
+            Option(String).Some(`to end the value now, write ${repair}: it moves the value in and drops it there. Inside a destructor, the fields drop by themselves after it returns.`)
+          ),
+          E_EXPLICIT_DESTRUCTOR_CALL
+        )
       )
     )
   );
@@ -704,34 +710,40 @@ _reject_explicit_ref_receiver_slot_of :: (
     // `into_iter` is only the by-value one has no borrowed walk.
     ((method_name == "into_iter") && for_desugar_site_of(&ast_expr_token(callee)).is_some() && t_slot_is_by_value(&slot)) => exn.throw(
       dyn(
-        with_code(
-          format_error_message(
-            ast_expr_token(callee),
-            `A borrowed \`for(&xs, …)\` / \`for(&mut xs, …)\` walks a collection implementing \`IntoIterator\` for \`&C\` / \`&mut C\`, and \`${type_to_string(&recv_ty)}\` has no such impl (a \`HashSet\` or \`PriorityQueue\` has only the read walk \`for(&xs, …)\`: writing an element in place would break its order). Walk a \`String\`'s characters with \`for(s.chars(), c => …)\`, and an \`Array(T, N)\` or an iterator chain with the value form \`for(xs, x => …)\`.`
-          ),
-          E_NO_MATCHING_CALL
+        Box.new(
+          with_code(
+            format_error_message(
+              ast_expr_token(callee),
+              `A borrowed \`for(&xs, …)\` / \`for(&mut xs, …)\` walks a collection implementing \`IntoIterator\` for \`&C\` / \`&mut C\`, and \`${type_to_string(&recv_ty)}\` has no such impl (a \`HashSet\` or \`PriorityQueue\` has only the read walk \`for(&xs, …)\`: writing an element in place would break its order). Walk a \`String\`'s characters with \`for(s.chars(), c => …)\`, and an \`Array(T, N)\` or an iterator chain with the value form \`for(xs, x => …)\`.`
+            ),
+            E_NO_MATCHING_CALL
+          )
         )
       )
     ),
     (match(mi.probe_ref, .Some(pm) => !pm, .None => false) && slot_is_single_mut) => exn.throw(
       dyn(
-        with_code(
-          format_error_message(
-            ast_expr_token(callee),
-            `\`${method_name}\` takes \`&mut Self\`, and \`(&${recv_text})\` lends \`${recv_text}\` shared: the call would write through a shared borrow. Lend it exclusively: \`(&mut ${recv_text}).${method_name}(...)\`.`
-          ),
-          E_WRITE_THROUGH_BORROW
+        Box.new(
+          with_code(
+            format_error_message(
+              ast_expr_token(callee),
+              `\`${method_name}\` takes \`&mut Self\`, and \`(&${recv_text})\` lends \`${recv_text}\` shared: the call would write through a shared borrow. Lend it exclusively: \`(&mut ${recv_text}).${method_name}(...)\`.`
+            ),
+            E_WRITE_THROUGH_BORROW
+          )
         )
       )
     ),
     (t_slot_is_by_value(&slot) && type_requires_explicit_copy(&recv_ty)) => exn.throw(
       dyn(
-        with_code(
-          format_error_message(
-            ast_expr_token(callee),
-            `\`${method_name}\` takes \`${type_to_string(&recv_ty)}\` by value, and \`(&${recv_text})\` only lends \`${recv_text}\`: the call would move out of what the borrow refers to. Call it on the owned value: \`${recv_text}.${method_name}(...)\`.`
-          ),
-          E_USE_OF_MOVED_VALUE
+        Box.new(
+          with_code(
+            format_error_message(
+              ast_expr_token(callee),
+              `\`${method_name}\` takes \`${type_to_string(&recv_ty)}\` by value, and \`(&${recv_text})\` only lends \`${recv_text}\`: the call would move out of what the borrow refers to. Call it on the owned value: \`${recv_text}.${method_name}(...)\`.`
+            ),
+            E_USE_OF_MOVED_VALUE
+          )
         )
       )
     ),
@@ -779,12 +791,14 @@ _lend_reference_receiver_at_double_slot :: (
       recv_text := ast_expr_to_string(&mi.receiver_expr);
       exn.throw(
         dyn(
-          with_code(
-            format_error_message(
-              ast_expr_token(callee),
-              `\`${method_name}\` is implemented for the reference type \`${type_to_string(&t_slot_pointee(&slot))}\` with a receiver slot \`${type_to_string(&slot)}\`, and \`${recv_text}\` is not a reference binding whose own storage the call could lend: bind the reference to a local first (\`r := &${recv_text}; r.${method_name}(...)\`), or call it qualified (\`Trait.${method_name}(&r, ...)\`).`
-            ),
-            E_NO_MATCHING_CALL
+          Box.new(
+            with_code(
+              format_error_message(
+                ast_expr_token(callee),
+                `\`${method_name}\` is implemented for the reference type \`${type_to_string(&t_slot_pointee(&slot))}\` with a receiver slot \`${type_to_string(&slot)}\`, and \`${recv_text}\` is not a reference binding whose own storage the call could lend: bind the reference to a local first (\`r := &${recv_text}; r.${method_name}(...)\`), or call it qualified (\`Trait.${method_name}(&r, ...)\`).`
+              ),
+              E_NO_MATCHING_CALL
+            )
           )
         )
       );
@@ -882,20 +896,22 @@ _reject_wrapper_payload_clash :: (
   repair_opt := _wrapper_member_repair(&mi.receiver_expr, &name_tok, ctor.clone(), arg_count);
   exn.throw(
     dyn(
-      with_code(
-        match(
-          repair_opt,
-          .Some(rp) => format_error_message_with_repair_at(
-            &name_tok,
-            &msg,
-            Option(String).None,
-            &rp.span,
-            &rp.replacement,
-            &rp.description
+      Box.new(
+        with_code(
+          match(
+            repair_opt,
+            .Some(rp) => format_error_message_with_repair_at(
+              &name_tok,
+              &msg,
+              Option(String).None,
+              &rp.span,
+              &rp.replacement,
+              &rp.description
+            ),
+            .None => format_error_message(&name_tok, &msg)
           ),
-          .None => format_error_message(&name_tok, &msg)
-        ),
-        E_AMBIGUOUS_METHOD
+          E_AMBIGUOUS_METHOD
+        )
       )
     )
   );
@@ -1047,12 +1063,12 @@ _cell_allocator_type :: (fn(at : &Token, env : &Environment, ctx : &mut EvalCont
       oi.value(),
       .Some(.TypeVal(ot)) => Rc.clone(ot),
       _ => {
-        exn.throw(dyn(format_error_message(at, String.from("A cell's allocator argument needs the prelude's `Option(Allocator)`, which did not evaluate to a type here."))));
+        exn.throw(dyn(Box.new(format_error_message(at, String.from("A cell's allocator argument needs the prelude's `Option(Allocator)`, which did not evaluate to a type here.")))));
         Rc.new(TypeValueNode.Unit)
       }
     ),
     .None => {
-      exn.throw(dyn(format_error_message(at, String.from("A cell's allocator argument needs the prelude's `Option(Allocator)`, which is not visible here."))));
+      exn.throw(dyn(Box.new(format_error_message(at, String.from("A cell's allocator argument needs the prelude's `Option(Allocator)`, which is not visible here.")))));
       Rc.new(TypeValueNode.Unit)
     }
   )
@@ -1073,9 +1089,11 @@ _reject_private_construction :: (
     if(private_member_blocked(lbl.clone(), &decl, &tok.module_path.*), {
       exn.throw(
         dyn(
-          format_error_message(
-            tok,
-            `Cannot construct ${struct_name} outside its declaring module: field "${lbl}" is private`
+          Box.new(
+            format_error_message(
+              tok,
+              `Cannot construct ${struct_name} outside its declaring module: field "${lbl}" is private`
+            )
           )
         )
       );
@@ -1881,13 +1899,15 @@ _infer_unapplied_ctor_receiver :: (
     if(uc_may_throw, {
       exn.throw(
         dyn(
-          with_code(
-            format_error_message_with_help(
-              ast_expr_token(&uc_recv),
-              `Cannot infer the type parameters of \`${uc_ctor}\` in \`${uc_ctor}.${uc_method}()\`: a method called through an unapplied type constructor infers them from its arguments, and this call has none.`,
-              Option(String).Some(`write the type arguments: \`${uc_ctor}(...).${uc_method}()\``)
-            ),
-            E_CANNOT_INFER
+          Box.new(
+            with_code(
+              format_error_message_with_help(
+                ast_expr_token(&uc_recv),
+                `Cannot infer the type parameters of \`${uc_ctor}\` in \`${uc_ctor}.${uc_method}()\`: a method called through an unapplied type constructor infers them from its arguments, and this call has none.`,
+                Option(String).Some(`write the type arguments: \`${uc_ctor}(...).${uc_method}()\``)
+              ),
+              E_CANNOT_INFER
+            )
           )
         )
       );
@@ -1960,13 +1980,15 @@ _infer_unapplied_ctor_receiver :: (
     if(uc_may_throw && !uc_has_arg0, {
       exn.throw(
         dyn(
-          with_code(
-            format_error_message_with_help(
-              ast_expr_token(&uc_recv),
-              `Cannot infer the type parameters of \`${uc_ctor}\` in \`${uc_ctor}.${uc_method}(...)\`: they are inferred from the first argument, the receiver, which takes its type from the parameter (a closure or an enum shorthand) and so is not an instance of \`${uc_ctor}\`.`,
-              Option(String).Some(`pass a \`${uc_ctor}(...)\` value as the first argument, or write the type arguments: \`${uc_ctor}(...).${uc_method}(...)\``)
-            ),
-            E_CANNOT_INFER
+          Box.new(
+            with_code(
+              format_error_message_with_help(
+                ast_expr_token(&uc_recv),
+                `Cannot infer the type parameters of \`${uc_ctor}\` in \`${uc_ctor}.${uc_method}(...)\`: they are inferred from the first argument, the receiver, which takes its type from the parameter (a closure or an enum shorthand) and so is not an instance of \`${uc_ctor}\`.`,
+                Option(String).Some(`pass a \`${uc_ctor}(...)\` value as the first argument, or write the type arguments: \`${uc_ctor}(...).${uc_method}(...)\``)
+              ),
+              E_CANNOT_INFER
+            )
           )
         )
       );
@@ -1979,23 +2001,25 @@ _infer_unapplied_ctor_receiver :: (
       uc_other_ctor := (instance_constructor_fid(&uc_own).len() > usize(0));
       exn.throw(
         dyn(
-          with_code(
-            format_error_message_with_help(
-              ast_expr_token(&uc_recv),
-              cond(
-                uc_other_ctor => `Cannot infer the type parameters of \`${uc_ctor}\` in \`${uc_ctor}.${uc_method}(...)\`: they are inferred from the first argument, the receiver, which has type \`${type_to_string(&uc_arg_ty)}\`, not an instance of \`${uc_ctor}\`: another type constructor built it (an alias or a partial application of a constructor is a constructor of its own).`,
-                true => `Cannot infer the type parameters of \`${uc_ctor}\` in \`${uc_ctor}.${uc_method}(...)\`: they are inferred from the first argument, the receiver, which has type \`${type_to_string(&uc_arg_ty)}\`, not an instance of \`${uc_ctor}\`.`
-              ),
-              cond(
-                uc_other_ctor => Option(String).Some(
-                  `call the method through the constructor that built \`${type_to_string(&uc_arg_ty)}\`; \`${uc_ctor}\` is matched by identity, so where it is an alias of that constructor, write its arguments: \`${uc_ctor}(...).${uc_method}(...)\``
+          Box.new(
+            with_code(
+              format_error_message_with_help(
+                ast_expr_token(&uc_recv),
+                cond(
+                  uc_other_ctor => `Cannot infer the type parameters of \`${uc_ctor}\` in \`${uc_ctor}.${uc_method}(...)\`: they are inferred from the first argument, the receiver, which has type \`${type_to_string(&uc_arg_ty)}\`, not an instance of \`${uc_ctor}\`: another type constructor built it (an alias or a partial application of a constructor is a constructor of its own).`,
+                  true => `Cannot infer the type parameters of \`${uc_ctor}\` in \`${uc_ctor}.${uc_method}(...)\`: they are inferred from the first argument, the receiver, which has type \`${type_to_string(&uc_arg_ty)}\`, not an instance of \`${uc_ctor}\`.`
                 ),
-                true => Option(String).Some(
-                  `pass a \`${uc_ctor}(...)\` value as the first argument; a method with no receiver takes its type arguments written out: \`${uc_ctor}(...).${uc_method}(...)\``
+                cond(
+                  uc_other_ctor => Option(String).Some(
+                    `call the method through the constructor that built \`${type_to_string(&uc_arg_ty)}\`; \`${uc_ctor}\` is matched by identity, so where it is an alias of that constructor, write its arguments: \`${uc_ctor}(...).${uc_method}(...)\``
+                  ),
+                  true => Option(String).Some(
+                    `pass a \`${uc_ctor}(...)\` value as the first argument; a method with no receiver takes its type arguments written out: \`${uc_ctor}(...).${uc_method}(...)\``
+                  )
                 )
-              )
-            ),
-            E_CANNOT_INFER
+              ),
+              E_CANNOT_INFER
+            )
           )
         )
       );
@@ -2479,9 +2503,11 @@ _sai_decide :: (
     });
     exn.throw(
       dyn(
-        with_code(
-          format_error_message_with_help(&tok, `Cannot infer the type parameters of \`${ctor}\` in \`${ctor}.${m}(...)\`: it is ambiguous, the arguments fit more than one impl that declares \`${m}\`: ${listing}.`, &help),
-          E_CANNOT_INFER
+        Box.new(
+          with_code(
+            format_error_message_with_help(&tok, `Cannot infer the type parameters of \`${ctor}\` in \`${ctor}.${m}(...)\`: it is ambiguous, the arguments fit more than one impl that declares \`${m}\`: ${listing}.`, &help),
+            E_CANNOT_INFER
+          )
         )
       )
     );
@@ -2493,9 +2519,11 @@ _sai_decide :: (
       .Some(.WhereFailed(wb, wbound, wtrait, wsite)) => {
         exn.throw(
           dyn(
-            with_code(
-              format_error_message(&tok, `Type ${type_to_string(&wbound)} does not implement required trait ${type_to_string(&wtrait)}: \`${ctor}.${m}(...)\` binds \`${wb}\` to ${type_to_string(&wbound)}, and the impl that declares \`${m}\` (at ${wsite}) requires \`${wb} <: ${type_to_string(&wtrait)}\`.`),
-              E_TRAIT_NOT_IMPLEMENTED
+            Box.new(
+              with_code(
+                format_error_message(&tok, `Type ${type_to_string(&wbound)} does not implement required trait ${type_to_string(&wtrait)}: \`${ctor}.${m}(...)\` binds \`${wb}\` to ${type_to_string(&wbound)}, and the impl that declares \`${m}\` (at ${wsite}) requires \`${wb} <: ${type_to_string(&wtrait)}\`.`),
+                E_TRAIT_NOT_IMPLEMENTED
+              )
             )
           )
         );
@@ -2511,9 +2539,11 @@ _sai_decide :: (
       .Some(.Conflict(cb, cfirst, cfirst_arg, clater, clater_arg)) => {
         exn.throw(
           dyn(
-            with_code(
-              format_error_message(&tok, `Incompatible types for type parameter "${cb}" of \`${ctor}\`: it is ${type_to_string(&cfirst)} from argument ${(cfirst_arg + usize(1)).to_string()} but ${type_to_string(&clater)} from argument ${(clater_arg + usize(1)).to_string()}. Every mention of a type parameter in one call stands for one type.`),
-              E_INCOMPATIBLE_TYPES
+            Box.new(
+              with_code(
+                format_error_message(&tok, `Incompatible types for type parameter "${cb}" of \`${ctor}\`: it is ${type_to_string(&cfirst)} from argument ${(cfirst_arg + usize(1)).to_string()} but ${type_to_string(&clater)} from argument ${(clater_arg + usize(1)).to_string()}. Every mention of a type parameter in one call stands for one type.`),
+                E_INCOMPATIBLE_TYPES
+              )
             )
           )
         );
@@ -2529,9 +2559,11 @@ _sai_decide :: (
       .Some(.Unbound(ub)) => {
         exn.throw(
           dyn(
-            with_code(
-              format_error_message_with_help(&tok, `Cannot infer the type parameter \`${ub}\` of \`${ctor}\` in \`${ctor}.${m}(...)\`: no argument binds it. An argument binds the type parameters its parameter's declared type mentions; a closure, an enum shorthand \`.X\` and a defaulted argument bind none, and neither does the type the call is expected to have.`, &help),
-              E_CANNOT_INFER
+            Box.new(
+              with_code(
+                format_error_message_with_help(&tok, `Cannot infer the type parameter \`${ub}\` of \`${ctor}\` in \`${ctor}.${m}(...)\`: no argument binds it. An argument binds the type parameters its parameter's declared type mentions; a closure, an enum shorthand \`.X\` and a defaulted argument bind none, and neither does the type the call is expected to have.`, &help),
+                E_CANNOT_INFER
+              )
             )
           )
         );
@@ -2547,9 +2579,11 @@ _sai_decide :: (
       .Some(.NoFit(na, nty, npt)) => {
         exn.throw(
           dyn(
-            with_code(
-              format_error_message_with_help(&tok, `Cannot infer the type parameters of \`${ctor}\` in \`${ctor}.${m}(...)\`: argument ${(na + usize(1)).to_string()} has type \`${type_to_string(&nty)}\`, which does not fit the parameter type \`${type_to_string(&npt)}\`.`, &help),
-              E_CANNOT_INFER
+            Box.new(
+              with_code(
+                format_error_message_with_help(&tok, `Cannot infer the type parameters of \`${ctor}\` in \`${ctor}.${m}(...)\`: argument ${(na + usize(1)).to_string()} has type \`${type_to_string(&nty)}\`, which does not fit the parameter type \`${type_to_string(&npt)}\`.`, &help),
+                E_CANNOT_INFER
+              )
             )
           )
         );
@@ -2560,9 +2594,11 @@ _sai_decide :: (
   });
   exn.throw(
     dyn(
-      with_code(
-        format_error_message_with_help(&tok, `Cannot infer the type parameters of \`${ctor}\` in \`${ctor}.${m}(...)\`: the bounds of every impl that declares \`${m}\` fail for these arguments.`, &help),
-        E_CANNOT_INFER
+      Box.new(
+        with_code(
+          format_error_message_with_help(&tok, `Cannot infer the type parameters of \`${ctor}\` in \`${ctor}.${m}(...)\`: the bounds of every impl that declares \`${m}\` fail for these arguments.`, &help),
+          E_CANNOT_INFER
+        )
       )
     )
   );
@@ -3222,7 +3258,7 @@ _select_matching_overload :: (
       },
       .None => if(amb_traits.len() > usize(1), {
         amb_name := match(base.all_hits.get(winner_hi), .Some(w) => w.label.clone(), .None => String.new());
-        exn.throw(dyn(with_code(format_error_message(ast_expr_token(func_expr), _ambiguous_method_message(base, &amb_name, &amb_traits, &amb_entries, env, ctx)), E_AMBIGUOUS_METHOD)));
+        exn.throw(dyn(Box.new(with_code(format_error_message(ast_expr_token(func_expr), _ambiguous_method_message(base, &amb_name, &amb_traits, &amb_entries, env, ctx)), E_AMBIGUOUS_METHOD))));
       })
     );
   });
@@ -3479,10 +3515,12 @@ _try_expand_call_overload :: (
     // `Call :: (add2, add3)` module (tests/fn.test.yo arm 13, hollow batch).
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(call_expr),
-          `No matching call found with arguments:
+        Box.new(
+          format_error_message(
+            ast_expr_token(call_expr),
+            `No matching call found with arguments:
 ${ast_expr_to_string(call_expr)}`
+          )
         )
       )
     );
@@ -8288,9 +8326,11 @@ _evaluate_funcval_runtime_call :: (
     .Some(ubn_label) => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            `Cannot infer the type parameter "${ubn_label}" of this call: it appears in the result type ${type_to_string(ret_type)}, and neither an argument nor the expected type determines it. Annotate the binding the result lands in, or pass the type with generic(...).`
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              `Cannot infer the type parameter "${ubn_label}" of this call: it appears in the result type ${type_to_string(ret_type)}, and neither an argument nor the expected type determines it. Annotate the binding the result lands in, or pass the type with generic(...).`
+            )
           )
         )
       );
@@ -9423,7 +9463,7 @@ _reported_at_user_call :: (fn(err : AnyError, call : &AstExpr, call_tok : &Token
     .Some(ye) => {
       anchored := reanchor_primary_at(&ye, call_tok, String.from(STD_RAISE_NOTE));
       shown := match(&accessor_subject, .Some(s) => _with_primary_subject(&anchored, &s.*), .None => anchored);
-      dyn(match(&accessor_help, .Some(h) => _with_primary_help(&shown, &h.*), .None => shown))
+      dyn(Box.new(match(&accessor_help, .Some(h) => _with_primary_help(&shown, &h.*), .None => shown)))
     },
     .None => err
   )
@@ -9558,7 +9598,7 @@ _reject_origin_carrying_value :: (fn(r : &AstExpr, call_tok : &Token, ctx : &Eva
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(r)),
     .Some(ri) => if(origin_beyond_n2b(&ri.ty()), {
-      exn.throw(dyn(format_error_message(call_tok, origin_beyond_n2b_message(&ri.ty()))));
+      exn.throw(dyn(Box.new(format_error_message(call_tok, origin_beyond_n2b_message(&ri.ty())))));
     }),
     .None => ()
   )
@@ -10890,9 +10930,11 @@ _evaluate_function_call_unanchored :: (
     if((op_methods.len() == usize(0)) && ((is_primitive_type(&receiver_ty) && (!is_unit_type(&receiver_ty) || !op_unit_is_placeholder)) || is_type_hierarchy_type(&receiver_ty) || _is_concrete_nominal_operand(&receiver_ty)), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            `No matching call found for operator "${op_name}" with receiver type "${type_to_string(&receiver_ty)}"`
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              `No matching call found for operator "${op_name}" with receiver type "${type_to_string(&receiver_ty)}"`
+            )
           )
         )
       );
@@ -11487,9 +11529,11 @@ _evaluate_function_call_unanchored :: (
   if(gate_is_extern_runtime && _d6_callee_is_by_name(&func_expr, ctx) && !gate_in_autogen && !is_implicitly_unsafe_capable_file(Option(String).Some(tok.module_path.*.clone())), {
     exn.throw(
       dyn(
-        format_error_message(
-          &tok,
-          `Calling the runtime extern '${match(&callee_ty_for_gate, Rc(.Func({ meta : __fm_d6n })) => match(&__fm_d6n.extern_name, .Some(n) => n.clone(), .None => ast_expr_to_string(&func_expr)), _ => ast_expr_to_string(&func_expr))}' is not available in safe code. Runtime entry points are the implementation of std's wrappers (std/thread, std/fs, ...) and do not keep the invariants those wrappers keep — call the std API instead. A file that genuinely needs the raw entry point declares 'pragma(Pragma.AllowUnsafe);' at the top.`
+        Box.new(
+          format_error_message(
+            &tok,
+            `Calling the runtime extern '${match(&callee_ty_for_gate, Rc(.Func({ meta : __fm_d6n })) => match(&__fm_d6n.extern_name, .Some(n) => n.clone(), .None => ast_expr_to_string(&func_expr)), _ => ast_expr_to_string(&func_expr))}' is not available in safe code. Runtime entry points are the implementation of std's wrappers (std/thread, std/fs, ...) and do not keep the invariants those wrappers keep — call the std API instead. A file that genuinely needs the raw entry point declares 'pragma(Pragma.AllowUnsafe);' at the top.`
+          )
         )
       )
     );
@@ -11502,15 +11546,17 @@ _evaluate_function_call_unanchored :: (
     );
     exn.throw(
       dyn(
-        format_error_message(
-          &tok,
-          `Call to extern "c" function '${callee_name}' must be wrapped in 'unsafe(...)' to mark the call site as audit-capable.
+        Box.new(
+          format_error_message(
+            &tok,
+            `Call to extern "c" function '${callee_name}' must be wrapped in 'unsafe(...)' to mark the call site as audit-capable.
 
 C functions are outside Yo's type-checking reach — wrong argument types, contract violations, or aliasing assumptions produce undefined behavior. Wrapping each call site lets 'yo unsafe-report' flag exactly where the UB-capable operations live, instead of just noting that the whole file is privileged.
 
 Fix: wrap the call:
 
   unsafe(${ast_expr_to_string(expr)})`
+          )
         )
       )
     );
@@ -11531,9 +11577,11 @@ Fix: wrap the call:
             if(args.len() != usize(1), {
               exn.throw(
                 dyn(
-                  format_error_message(
-                    &tok,
-                    `Expected 1 body argument for function definition, got ${args.len()}`
+                  Box.new(
+                    format_error_message(
+                      &tok,
+                      `Expected 1 body argument for function definition, got ${args.len()}`
+                    )
                   )
                 )
               );
@@ -11556,9 +11604,11 @@ Fix: wrap the call:
               .None => {
                 exn.throw(
                   dyn(
-                    format_error_message(
-                      &tok,
-                      String.from("evaluate_function_call: closure creation failed")
+                    Box.new(
+                      format_error_message(
+                        &tok,
+                        String.from("evaluate_function_call: closure creation failed")
+                      )
                     )
                   )
                 );
@@ -11615,9 +11665,11 @@ Fix: wrap the call:
                       .None => {
                         exn.throw(
                           dyn(
-                            format_error_message(
-                              &tok,
-                              String.from("evaluate_function_call: SomeT closure creation failed")
+                            Box.new(
+                              format_error_message(
+                                &tok,
+                                String.from("evaluate_function_call: SomeT closure creation failed")
+                              )
                             )
                           )
                         );
@@ -11628,9 +11680,11 @@ Fix: wrap the call:
                   .None => {
                     exn.throw(
                       dyn(
-                        format_error_message(
-                          &tok,
-                          String.from("evaluate_function_call: TypeVal SomeT callee without FnTrait (Phase 4)")
+                        Box.new(
+                          format_error_message(
+                            &tok,
+                            String.from("evaluate_function_call: TypeVal SomeT callee without FnTrait (Phase 4)")
+                          )
                         )
                       )
                     );
@@ -11658,9 +11712,11 @@ Fix: wrap the call:
                   .None => {
                     exn.throw(
                       dyn(
-                        format_error_message(
-                          &tok,
-                          String.from("evaluate_function_call: DynT closure creation failed")
+                        Box.new(
+                          format_error_message(
+                            &tok,
+                            String.from("evaluate_function_call: DynT closure creation failed")
+                          )
                         )
                       )
                     );
@@ -11671,9 +11727,11 @@ Fix: wrap the call:
               .None => {
                 exn.throw(
                   dyn(
-                    format_error_message(
-                      &tok,
-                      String.from("evaluate_function_call: TypeVal DynT callee without FnTrait (Phase 4)")
+                    Box.new(
+                      format_error_message(
+                        &tok,
+                        String.from("evaluate_function_call: TypeVal DynT callee without FnTrait (Phase 4)")
+                      )
                     )
                   )
                 );
@@ -11920,9 +11978,11 @@ Fix: wrap the call:
               .None => {
                 exn.throw(
                   dyn(
-                    format_error_message(
-                      &tok,
-                      String.from("evaluate_function_call: EnumT callee has no selected variant")
+                    Box.new(
+                      format_error_message(
+                        &tok,
+                        String.from("evaluate_function_call: EnumT callee has no selected variant")
+                      )
                     )
                   )
                 );
@@ -11948,9 +12008,11 @@ Fix: wrap the call:
             if(!found_variant, {
               exn.throw(
                 dyn(
-                  format_error_message(
-                    &tok,
-                    `evaluate_function_call: enum variant not found: ${variant_name}`
+                  Box.new(
+                    format_error_message(
+                      &tok,
+                      `evaluate_function_call: enum variant not found: ${variant_name}`
+                    )
                   )
                 )
               );
@@ -12128,9 +12190,11 @@ Fix: wrap the call:
               .None => {
                 exn.throw(
                   dyn(
-                    format_error_message(
-                      &tok,
-                      String.from("evaluate_function_call: pointer cast expects 1 argument")
+                    Box.new(
+                      format_error_message(
+                        &tok,
+                        String.from("evaluate_function_call: pointer cast expects 1 argument")
+                      )
                     )
                   )
                 );
@@ -12144,9 +12208,11 @@ Fix: wrap the call:
               .None => {
                 exn.throw(
                   dyn(
-                    format_error_message(
-                      &tok,
-                      String.from("evaluate_function_call: pointer type conversion failed")
+                    Box.new(
+                      format_error_message(
+                        &tok,
+                        String.from("evaluate_function_call: pointer type conversion failed")
+                      )
                     )
                   )
                 );
@@ -12166,9 +12232,11 @@ Fix: wrap the call:
                 .None => {
                   exn.throw(
                     dyn(
-                      format_error_message(
-                        &tok,
-                        String.from("evaluate_function_call: numeric cast expects 1 argument")
+                      Box.new(
+                        format_error_message(
+                          &tok,
+                          String.from("evaluate_function_call: numeric cast expects 1 argument")
+                        )
                       )
                     )
                   );
@@ -12182,9 +12250,11 @@ Fix: wrap the call:
                 .None => {
                   exn.throw(
                     dyn(
-                      format_error_message(
-                        &tok,
-                        String.from("evaluate_function_call: numeric type conversion failed")
+                      Box.new(
+                        format_error_message(
+                          &tok,
+                          String.from("evaluate_function_call: numeric type conversion failed")
+                        )
                       )
                     )
                   );
@@ -12194,12 +12264,14 @@ Fix: wrap the call:
             }, {
               exn.throw(
                 dyn(
-                  with_code(
-                    format_error_message(
-                      &tok,
-                      `Type ${type_to_string(&func_type)} cannot be called: a type is callable only as a numeric conversion (\`i32(x)\`) or as a constructor (\`P(x : 1)\`).`
-                    ),
-                    E_NOT_CALLABLE
+                  Box.new(
+                    with_code(
+                      format_error_message(
+                        &tok,
+                        `Type ${type_to_string(&func_type)} cannot be called: a type is callable only as a numeric conversion (\`i32(x)\`) or as a constructor (\`P(x : 1)\`).`
+                      ),
+                      E_NOT_CALLABLE
+                    )
                   )
                 )
               );
@@ -12233,9 +12305,11 @@ Fix: wrap the call:
         if(is_ghost_fn(func_id_fv.clone()) && !ctx.is_ghost_context, {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(expr),
-                String.from("a ghost_fn is callable only from ghost context (contract clauses, ghost(...) bindings, ghost_fn bodies) — it has no runtime semantics")
+              Box.new(
+                format_error_message(
+                  ast_expr_token(expr),
+                  String.from("a ghost_fn is callable only from ghost context (contract clauses, ghost(...) bindings, ghost_fn bodies) — it has no runtime semantics")
+                )
               )
             )
           );
@@ -12270,9 +12344,11 @@ Fix: wrap the call:
             if(n_a != pa_pt.len(), {
               exn.throw(
                 dyn(
-                  format_error_message(
-                    &tok,
-                    `Partial application: expected ${pa_pt.len()} argument(s), got ${n_a}`
+                  Box.new(
+                    format_error_message(
+                      &tok,
+                      `Partial application: expected ${pa_pt.len()} argument(s), got ${n_a}`
+                    )
                   )
                 )
               );
@@ -12602,7 +12678,7 @@ Fix: wrap the call:
           if(n_required_reg != n_p, {
             fv_count_msg = `Argument count mismatch: expected ${(n_required_reg + n_ev)}..${(n_p + n_ev)}, got ${n_a}`;
           });
-          exn.throw(dyn(format_error_message(&tok, &fv_count_msg)));
+          exn.throw(dyn(Box.new(format_error_message(&tok, &fv_count_msg))));
         });
         // Number of regular args actually supplied (the rest of `n_a` are
         // evidence args, which follow the regulars in `evaled_arg_infos`).
@@ -13113,9 +13189,11 @@ Fix: wrap the call:
               .None => {
                 exn.throw(
                   dyn(
-                    format_error_message(
-                      ast_expr_token(&arg_expr),
-                      String.from("evaluate_function_call: arg not evaluated")
+                    Box.new(
+                      format_error_message(
+                        ast_expr_token(&arg_expr),
+                        String.from("evaluate_function_call: arg not evaluated")
+                      )
                     )
                   )
                 );
@@ -13557,7 +13635,7 @@ Fix: wrap the call:
         if(fv_forall_conflicts.len() > usize(0), {
           fc_arg := match(fv_forall_conflict_args.get(usize(0)), .Some(i) => i, .None => usize(0));
           fc_tok := match(fv_args.get(fc_arg), .Some(a) => ast_expr_token(&a), .None => ast_expr_token(expr));
-          exn.throw(dyn(format_error_message(&fc_tok, match(fv_forall_conflicts.get_cloned(usize(0)), .Some(m) => m, .None => String.new()))));
+          exn.throw(dyn(Box.new(format_error_message(&fc_tok, match(fv_forall_conflicts.get_cloned(usize(0)), .Some(m) => m, .None => String.new())))));
         });
         // A binder no argument fixed, bound from the EXPECTED type instead:
         // `(x : Option(i32)) = mk()` with `mk : fn(generic(T)) -> Option(T)`
@@ -13811,11 +13889,13 @@ Fix: wrap the call:
             if(!etc_skip && !are_types_compatible(&etc_arg_ty, &resolved_decl_pt), {
               exn.throw(
                 dyn(
-                  format_error_message(
-                    ast_expr_token(match(fv_args.get(pi), .Some(ae) => ae, .None => expr.*)),
-                    `Incompatible type with expected type:
+                  Box.new(
+                    format_error_message(
+                      ast_expr_token(match(fv_args.get(pi), .Some(ae) => ae, .None => expr.*)),
+                      `Incompatible type with expected type:
 - Expected: ${type_to_string(&resolved_decl_pt)}
 - Actual  : ${type_to_string(&etc_arg_ty)}`
+                    )
                   )
                 )
               );
@@ -14216,9 +14296,11 @@ Fix: wrap the call:
               _ => {
                 exn.throw(
                   dyn(
-                    format_error_message(
-                      &tok,
-                      String.from("Expected macro function to return an Expr value.")
+                    Box.new(
+                      format_error_message(
+                        &tok,
+                        String.from("Expected macro function to return an Expr value.")
+                      )
                     )
                   )
                 );
@@ -15329,21 +15411,23 @@ Fix: wrap the call:
             // value that is not a function (`n(1)` for `n : i32`, E0606).
             exn.throw(
               dyn(
-                cond(
-                  ast_expr_is_fn_call_of(&func_expr, BF_DOT, Option(usize).None) => _generated_no_method_independence(
-                    &with_code(
-                      format_error_message(ast_expr_token(&func_expr), _no_method_message(&func_expr, ctx)),
-                      E_NO_MATCHING_CALL
+                Box.new(
+                  cond(
+                    ast_expr_is_fn_call_of(&func_expr, BF_DOT, Option(usize).None) => _generated_no_method_independence(
+                      &with_code(
+                        format_error_message(ast_expr_token(&func_expr), _no_method_message(&func_expr, ctx)),
+                        E_NO_MATCHING_CALL
+                      ),
+                      &func_expr,
+                      ctx
                     ),
-                    &func_expr,
-                    ctx
-                  ),
-                  true => with_code(
-                    format_error_message(
-                      ast_expr_token(&func_expr),
-                      `${ast_expr_to_string(&func_expr)} is not callable: it has type ${type_to_string(&callee_ty_none)}.`
-                    ),
-                    E_NOT_CALLABLE
+                    true => with_code(
+                      format_error_message(
+                        ast_expr_token(&func_expr),
+                        `${ast_expr_to_string(&func_expr)} is not callable: it has type ${type_to_string(&callee_ty_none)}.`
+                      ),
+                      E_NOT_CALLABLE
+                    )
                   )
                 )
               )

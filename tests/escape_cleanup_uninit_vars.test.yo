@@ -37,7 +37,7 @@ get_opt_token :: (fn(present : bool) -> Option(Token))(
 parse_one :: (fn(present : bool, exn : Exception) -> ParseResult)({
   (tok : Token) = match(
     get_opt_token(present),
-    .None => exn.throw(dyn(ParseError(message : `eof`))),
+    .None => exn.throw(dyn(Box.new(ParseError(message : `eof`)))),
     .Some(t) => t
   );
   ParseResult(label : tok.name.clone(), index : usize(0))

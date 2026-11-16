@@ -229,7 +229,7 @@ _USAGE :: "yo context [<module> [<name>] | <name>] [--list] [--search <query>] [
 /// handler; an empty one prints nothing (the JSON path already wrote its
 /// error object to stdout).
 _fail :: (fn(code : i32, message : &String, exn : Exception) -> unit)({
-  exn.throw(dyn(ExitWith(code : code, message : message.clone())));
+  exn.throw(dyn(Box.new(ExitWith(code : code, message : message.clone()))));
 });
 /// A usage error (exit 2), with the grammar appended.
 _usage_error :: (fn(en : &String, zh : &String, exn : Exception) -> unit)({

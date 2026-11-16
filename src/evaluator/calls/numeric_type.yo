@@ -153,13 +153,13 @@ _float_raw_to_int_raw :: (fn(raw : &String, target_type : &TypeValue, tok : &Tok
     parse_raw_float(raw.clone()),
     .Some(x) => x,
     .None => {
-      exn.throw(dyn(format_error_message(tok, `Cannot read the float value ${raw} to convert it to ${type_to_string(target_type)}`)));
+      exn.throw(dyn(Box.new(format_error_message(tok, `Cannot read the float value ${raw} to convert it to ${type_to_string(target_type)}`))));
       return(String.from("0"));
     }
   );
   // NaN compares unequal to itself; an infinity is beyond every bound below.
   if(!(v == v) || (v >= f64(18446744073709551616.0)) || (v <= f64(-9223372036854775809.0)), {
-    exn.throw(dyn(format_error_message(tok, `The value ${raw} is outside the range of ${type_to_string(target_type)}: converting it is undefined`)));
+    exn.throw(dyn(Box.new(format_error_message(tok, `The value ${raw} is outside the range of ${type_to_string(target_type)}: converting it is undefined`))));
     return(String.from("0"));
   });
   truncated := cond(
@@ -226,9 +226,11 @@ try_to_convert_to_numeric_type :: (
   if(info_opt.is_none(), {
     exn.throw(
       dyn(
-        format_eval_failure(
-          ast_expr_token(arg_expr),
-          `Failed to evaluate argument: ${ast_expr_to_string(arg_expr)}`
+        Box.new(
+          format_eval_failure(
+            ast_expr_token(arg_expr),
+            `Failed to evaluate argument: ${ast_expr_to_string(arg_expr)}`
+          )
         )
       )
     );
@@ -260,9 +262,11 @@ try_to_convert_to_numeric_type :: (
                     .None => {
                       exn.throw(
                         dyn(
-                          format_error_message(
-                            ast_expr_token(arg_expr),
-                            `Failed to get discriminant for enum variant "${variant}"`
+                          Box.new(
+                            format_error_message(
+                              ast_expr_token(arg_expr),
+                              `Failed to get discriminant for enum variant "${variant}"`
+                            )
                           )
                         )
                       );
@@ -323,9 +327,11 @@ try_to_convert_to_numeric_type :: (
     // (issues/fixed/numeric-conversion-of-a-non-numeric-source-checks-clean-and-emits-a-hollow-stub.md).
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(arg_expr),
-          `Cannot convert a value of type ${type_to_string(&arg_type)} to ${type_to_string(target_type)}: \`${type_to_string(target_type)}(x)\` converts integers, floats, enum discriminants and C-compatible values only`
+        Box.new(
+          format_error_message(
+            ast_expr_token(arg_expr),
+            `Cannot convert a value of type ${type_to_string(&arg_type)} to ${type_to_string(target_type)}: \`${type_to_string(target_type)}(x)\` converts integers, floats, enum discriminants and C-compatible values only`
+          )
         )
       )
     );
@@ -387,9 +393,11 @@ try_to_convert_to_numeric_type :: (
     if(comptime_raw.is_none(), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(arg_expr),
-            `Cannot convert runtime value to ${type_to_string(target_type)}. Only compile-time values can be converted to ${type_to_string(target_type)}.`
+          Box.new(
+            format_error_message(
+              ast_expr_token(arg_expr),
+              `Cannot convert runtime value to ${type_to_string(target_type)}. Only compile-time values can be converted to ${type_to_string(target_type)}.`
+            )
           )
         )
       );
@@ -475,9 +483,11 @@ try_to_convert_to_numeric_type :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            String.from("Unexpected case in numeric type conversion")
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              String.from("Unexpected case in numeric type conversion")
+            )
           )
         )
       );

@@ -147,7 +147,7 @@ test("Test downcast success", {
   derive(Cat, Clone);
   impl(Cat, ToString(to_string : (self -> self.name.clone())));
   Animal :: Box(Dyn(ToString, Clone));
-  (animal : Animal) = dyn(Cat(`whiskers`));
+  (animal : Animal) = dyn(Box.new(Cat(`whiskers`)));
   maybe_cat := downcast(&animal.*, Cat);
   match(
     maybe_cat,
@@ -167,7 +167,7 @@ test("Test downcast failure", {
   derive(Dog, Clone);
   impl(Dog, ToString(to_string : (self -> self.name.clone())));
   Animal :: Box(Dyn(ToString, Clone));
-  (animal : Animal) = dyn(Cat(`whiskers`));
+  (animal : Animal) = dyn(Box.new(Cat(`whiskers`)));
   maybe_dog := downcast(&animal.*, Dog);
   match(
     maybe_dog,
@@ -187,7 +187,7 @@ test("Test downcast type check via is_some", {
   derive(Dog, Clone);
   impl(Dog, ToString(to_string : (self -> self.name.clone())));
   Animal :: Box(Dyn(ToString, Clone));
-  (animal : Animal) = dyn(Cat(`whiskers`));
+  (animal : Animal) = dyn(Box.new(Cat(`whiskers`)));
   assert(downcast(&animal.*, Cat).is_some(), "Expected animal to be a Cat");
   assert(downcast(&animal.*, Dog).is_none(), "Expected animal to not be a Dog");
 });
@@ -210,7 +210,7 @@ test("Test downcast to a value type that no dyn() in the program wraps", {
   NeverDynnedValue :: enum(Boom(code : i32), Bang);
   impl(NeverDynnedValue, ToString(to_string : (self -> `never`)));
   Animal :: Box(Dyn(ToString, Clone));
-  (animal : Animal) = dyn(Cat(`whiskers`));
+  (animal : Animal) = dyn(Box.new(Cat(`whiskers`)));
   assert(downcast(&animal.*, NeverDynnedValue).is_none(), "a never-dyn'd value enum can never be inside a Dyn");
   NeverDynnedPoint :: struct(x : i32, y : i32);
   assert(downcast(&animal.*, NeverDynnedPoint).is_none(), "a never-dyn'd value struct can never be inside a Dyn");
@@ -219,7 +219,7 @@ test("Test downcast to a value type that no dyn() in the program wraps", {
   assert(downcast(&animal.*, Cat).is_some(), "Expected animal to still be a Cat");
   // The operand of a statically-`.None` downcast is still evaluated — here it is
   // a CALL that builds a fresh Dyn, not a plain local.
-  make_animal :: (fn() -> Animal)(dyn(Cat(`shadow`)));
+  make_animal :: (fn() -> Animal)(dyn(Box.new(Cat(`shadow`))));
   assert(downcast(make_animal(), NeverDynnedValue).is_err(), "Expected None from a freshly built Dyn too");
 });
 // Regression (issues/fixed/dyn-as-a-direct-downcast-argument-reports-got-option.md):
@@ -238,9 +238,9 @@ test("Test downcast rejects a bare dyn() operand it cannot infer a Dyn for", {
   comptime_expect_error(downcast(dyn(Cat(`shadow`)), Cat), "cannot infer the Dyn type");
   // The two accepted spellings from the issue, as over-rejection canaries in
   // the same batch:
-  (animal : Animal) = dyn(Cat(`shadow`));
+  (animal : Animal) = dyn(Box.new(Cat(`shadow`)));
   assert(downcast(&animal.*, Cat).is_some(), "the annotated-binding spelling supplies the Dyn");
-  make_animal :: (fn() -> Animal)(dyn(Cat(`shadow`)));
+  make_animal :: (fn() -> Animal)(dyn(Box.new(Cat(`shadow`))));
   assert(downcast(make_animal(), Cat).is_ok(), "the declared-return spelling supplies the Dyn");
 });
 test("Test downcast with multiple concrete types", {
@@ -251,8 +251,8 @@ test("Test downcast with multiple concrete types", {
   derive(Dog, Clone);
   impl(Dog, ToString(to_string : (self -> self.name.clone())));
   Animal :: Box(Dyn(ToString, Clone));
-  (cat_animal : Animal) = dyn(Cat(`kitty`));
-  (dog_animal : Animal) = dyn(Dog(`buddy`));
+  (cat_animal : Animal) = dyn(Box.new(Cat(`kitty`)));
+  (dog_animal : Animal) = dyn(Box.new(Dog(`buddy`)));
   // Downcast cat_animal
   match(
     downcast(&cat_animal.*, Cat),
@@ -430,7 +430,7 @@ test("a view downcast of a value payload copies nothing", {
 test("a Dyn payload that owns heap memory releases it", {
   before := g_dyn_payload_disposed;
   {
-    (d : Box(Dyn(TestDyn))) = dyn(DynHeapPayload(name : `a string on the heap`, r : _dpr(i32(9))));
+    (d : Box(Dyn(TestDyn))) = dyn(Box.new(DynHeapPayload(name : `a string on the heap`, r : _dpr(i32(9)))));
     assert(g_dyn_payload_disposed == before, "nothing is released while the Dyn is live");
   };
   assert(
@@ -510,7 +510,7 @@ test("Test Dyn(Error) over a trait default the implementor omits", {
     )
   );
   impl(ValErr, Error());
-  (re : AnyError) = dyn(RefErr(`ref-err`));
+  (re : AnyError) = dyn(Box.new(RefErr(`ref-err`)));
   assert(`${re}` == `ref-err`, "Dyn(Error) from a ref struct");
   assert(`e: ${re}!` == `e: ref-err!`, "a Dyn(Error) as a later template part (ToString's append_to)");
   match(re.source(), .Some(_) => assert(false, "default source must be None"), .None => ());
@@ -803,9 +803,11 @@ _dio_call_param :: (fn(y : &mut i32, cb : &Dyn(Fn(n : &mut i32) -> unit)) -> uni
 });
 test("Dyn(Fn) with an inout parameter writes through to the caller's place", {
   h := _DioHolder(
-    cb : dyn((n : &mut i32) => {
-      n.* = (n.* + i32(1));
-    })
+    cb : dyn(
+      Box.new((n : &mut i32) => {
+        n.* = (n.* + i32(1));
+      })
+    )
   );
   (mut(x) : i32) = i32(41);
   h.cb(&mut x);
@@ -815,9 +817,11 @@ test("Dyn(Fn) with an inout parameter writes through to the caller's place", {
   _dio_call_param(&mut x, &h.cb.*);
   assert(x == i32(45), "a Dyn(Fn) parameter called with an inout parameter");
   p := _DioPusher(
-    push : dyn((xs : &mut ArrayList(i32)) => {
-      xs.push(i32(7));
-    })
+    push : dyn(
+      Box.new((xs : &mut ArrayList(i32)) => {
+        xs.push(i32(7));
+      })
+    )
   );
   (mut(ys) : ArrayList(i32)) = ArrayList(i32).new();
   p.push(&mut ys);
@@ -921,9 +925,11 @@ test("a unit-returning Dyn(FnOnce) of a named fn and of a closure", {
   (b : Box(Dyn(FnOnce(x : &mut i32) -> unit))) = dyn(Box.new(_dnf_bump));
   b(&mut x);
   assert(x == i32(2), "a unit-returning named fn called once through a Dyn");
-  (c : Box(Dyn(FnOnce(x : &mut i32) -> unit))) = dyn(x => {
-    x.* = (x.* + i32(10));
-  });
+  (c : Box(Dyn(FnOnce(x : &mut i32) -> unit))) = dyn(
+    Box.new(x => {
+      x.* = (x.* + i32(10));
+    })
+  );
   c(&mut x);
   assert(x == i32(12), "a unit-returning closure called once through a Dyn");
   (d : Box(Dyn(FnOnce() -> unit))) = dyn(Box.new(() => _dnf_noop()));
@@ -1171,9 +1177,11 @@ test("a Dyn listing Send and Sync compiles one member per name", {
 // types with two vtables: the slot mode is part of the `Fn` type's key
 // (issues/fixed/2026-10-27-dyn-fn-types-differing-only-in-a-parameter-mode-share-one-vtable.md).
 test("Dyn(Fn(...)) types differing only in a parameter mode get their own vtables", {
-  (a : Box(Dyn(Fn(x : &mut i32) -> unit))) = dyn((x : &mut i32) => {
-    x.* = (x.* + i32(1));
-  });
+  (a : Box(Dyn(Fn(x : &mut i32) -> unit))) = dyn(
+    Box.new((x : &mut i32) => {
+      x.* = (x.* + i32(1));
+    })
+  );
   (b : Box(Dyn(Fn(x : i32) -> i32))) = dyn(Box.new((x : i32) => (x + i32(10))));
   (c : Box(Dyn(Fn(x : &i32) -> i32))) = dyn(Box.new((x : &i32) => (x.* + i32(100))));
   (mut(v) : i32) = i32(1);
@@ -1207,9 +1215,11 @@ impl(
 // step 2 N1e-1).
 _dm_run :: (fn(generic(T : Type), t : T, k : i32) -> i32)(
   t.apply(
-    dyn(x => {
-      _y := (x.clone() + k);
-    })
+    dyn(
+      Box.new(x => {
+        _y := (x.clone() + k);
+      })
+    )
   )
 );
 test("one closure literal boxed at a &mut slot and at a by-value slot", {

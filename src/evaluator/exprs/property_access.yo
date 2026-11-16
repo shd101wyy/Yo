@@ -86,7 +86,7 @@ _reject_origin_carrying_unit_variant :: (fn(en_ty : &TypeValue, at : &AstExpr, c
   // In a std body (specialized for a type holding a reference) the user's
   // call that reached it is walled instead, naming the user's type.
   if(origin_beyond_n2b(en_ty) && !is_std_module_path(&ast_expr_token(at).module_path.*, ctx.std_path.clone()), {
-    exn.throw(dyn(format_error_message(ast_expr_token(at), origin_beyond_n2b_message(en_ty))));
+    exn.throw(dyn(Box.new(format_error_message(ast_expr_token(at), origin_beyond_n2b_message(en_ty)))));
   })
 );
 /// A read of a reference FIELD (decision 43 step 2, N1e-2): `v.at` with
@@ -199,10 +199,12 @@ _reject_gadt_unreachable_variant :: (
     });
     exn.throw(
       dyn(
-        format_error_message_with_help(
-          ast_expr_token(at),
-          `Incompatible types: GADT variant "${variant_name}" is declared \`-> recur(${idx_s})\`, so it cannot construct a ${type_to_string(enum_ty)}`,
-          Option(String).Some(String.from("construct the variant through the instantiation its index names, or pick a variant whose `-> recur(...)` index matches"))
+        Box.new(
+          format_error_message_with_help(
+            ast_expr_token(at),
+            `Incompatible types: GADT variant "${variant_name}" is declared \`-> recur(${idx_s})\`, so it cannot construct a ${type_to_string(enum_ty)}`,
+            Option(String).Some(String.from("construct the variant through the instantiation its index names, or pick a variant whose `-> recur(...)` index matches"))
+          )
         )
       )
     );
@@ -396,9 +398,11 @@ _reject_private_static_member :: (
   if(private_member_blocked(prop_name.clone(), &decl, &ast_expr_token(property_expr).module_path.*), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(property_expr),
-          `Method "${prop_name}" of ${type_to_string(type_val_inner)} is private to its declaring module`
+        Box.new(
+          format_error_message(
+            ast_expr_token(property_expr),
+            `Method "${prop_name}" of ${type_to_string(type_val_inner)} is private to its declaring module`
+          )
         )
       )
     );
@@ -559,9 +563,11 @@ _evaluate_property_access_node :: (
   if(!ast_expr_is_fn_call_of(expr, BF_DOT, .None), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected "." for property access, got:\n${ast_expr_to_string(expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected "." for property access, got:\n${ast_expr_to_string(expr)}`
+          )
         )
       )
     );
@@ -614,9 +620,11 @@ _evaluate_property_access_node :: (
     if(!ast_expr_is_atom(&prop_expr_1) || !is_valid_variable_name(&prop_expr_1), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&prop_expr_1),
-            `Expected identifier for enum variant access, got:\n${ast_expr_to_string(&prop_expr_1)}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&prop_expr_1),
+              `Expected identifier for enum variant access, got:\n${ast_expr_to_string(&prop_expr_1)}`
+            )
           )
         )
       );
@@ -628,10 +636,12 @@ _evaluate_property_access_node :: (
       .None => {
         exn.throw(
           dyn(
-            format_error_message_with_help(
-              ast_expr_token(expr),
-              String.from("Failed to infer enum variant type."),
-              Option(String).Some(String.from("name the enum: `MyEnum.Variant(...)`, annotate the binding: `(x : MyEnum) = .Variant(...)`, or return the value directly"))
+            Box.new(
+              format_error_message_with_help(
+                ast_expr_token(expr),
+                String.from("Failed to infer enum variant type."),
+                Option(String).Some(String.from("name the enum: `MyEnum.Variant(...)`, annotate the binding: `(x : MyEnum) = .Variant(...)`, or return the value directly"))
+              )
             )
           )
         );
@@ -641,10 +651,12 @@ _evaluate_property_access_node :: (
         if(!is_enum_type(&exp_ctx_1.ty), {
           exn.throw(
             dyn(
-              format_error_message_with_help(
-                ast_expr_token(expr),
-                String.from("Failed to infer enum variant type."),
-                Option(String).Some(String.from("name the enum: `MyEnum.Variant(...)`, annotate the binding: `(x : MyEnum) = .Variant(...)`, or return the value directly"))
+              Box.new(
+                format_error_message_with_help(
+                  ast_expr_token(expr),
+                  String.from("Failed to infer enum variant type."),
+                  Option(String).Some(String.from("name the enum: `MyEnum.Variant(...)`, annotate the binding: `(x : MyEnum) = .Variant(...)`, or return the value directly"))
+                )
               )
             )
           );
@@ -665,13 +677,15 @@ _evaluate_property_access_node :: (
               .None => {
                 exn.throw(
                   dyn(
-                    format_error_message_with_help(
-                      ast_expr_token(&prop_expr_1),
-                      unknown_variant_message(variant_name_1.clone(), resolve_enum_shell(&exp_ctx_1.ty), &en_vnames_1.items),
-                      match(
-                        suggest_name(&variant_name_1, &en_vnames_1.items),
-                        .Some(h) => Option(String).Some(`did you mean ".${h}"?`),
-                        .None => Option(String).None
+                    Box.new(
+                      format_error_message_with_help(
+                        ast_expr_token(&prop_expr_1),
+                        unknown_variant_message(variant_name_1.clone(), resolve_enum_shell(&exp_ctx_1.ty), &en_vnames_1.items),
+                        match(
+                          suggest_name(&variant_name_1, &en_vnames_1.items),
+                          .Some(h) => Option(String).Some(`did you mean ".${h}"?`),
+                          .None => Option(String).None
+                        )
                       )
                     )
                   )
@@ -724,10 +738,12 @@ _evaluate_property_access_node :: (
           _ => {
             exn.throw(
               dyn(
-                format_error_message_with_help(
-                  ast_expr_token(expr),
-                  String.from("Failed to infer enum variant type."),
-                  Option(String).Some(String.from("name the enum: `MyEnum.Variant(...)`, annotate the binding: `(x : MyEnum) = .Variant(...)`, or return the value directly"))
+                Box.new(
+                  format_error_message_with_help(
+                    ast_expr_token(expr),
+                    String.from("Failed to infer enum variant type."),
+                    Option(String).Some(String.from("name the enum: `MyEnum.Variant(...)`, annotate the binding: `(x : MyEnum) = .Variant(...)`, or return the value directly"))
+                  )
                 )
               )
             );
@@ -744,9 +760,11 @@ _evaluate_property_access_node :: (
   if(!ast_expr_is_fn_call_of(expr, BF_DOT, .Some(usize(2))), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected "." with 2 arguments, got:\n${ast_expr_to_string(expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected "." with 2 arguments, got:\n${ast_expr_to_string(expr)}`
+          )
         )
       )
     );
@@ -1119,13 +1137,15 @@ _evaluate_property_access_node :: (
           if(deref_box_payload.is_none() && !ctx.unsafe_context && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&property_expr).module_path.*.clone())), {
             exn.throw(
               dyn(
-                format_error_message(
-                  ast_expr_token(&property_expr),
-                  `Pointer dereference requires 'unsafe(...)'.
+                Box.new(
+                  format_error_message(
+                    ast_expr_token(&property_expr),
+                    `Pointer dereference requires 'unsafe(...)'.
 
 Wrap as: unsafe(${ast_expr_to_string(&object_expr)}.*)
 
 Raw pointer operations may dereference invalid memory.`
+                  )
                 )
               )
             );
@@ -1256,13 +1276,15 @@ Raw pointer operations may dereference invalid memory.`
           deref_b_mode := cond(deref_b_v.is_ref() => "&mut", true => "&");
           exn.throw(
             dyn(
-              with_code(
-                format_error_message_with_help(
-                  ast_expr_token(expr),
-                  `\`${deref_b_name}\` is a \`${deref_b_mode}\` borrow: a borrow reads as its value, and \`.*\` does not apply to a borrow until decision 43 (references become types).`,
-                  Option(String).Some(`read the value directly — \`${deref_b_name}\` already is the value (\`${deref_b_name}.field\` for a field, \`${deref_b_name}(i)\` for an element); \`.*\` is for raw pointers (\`unsafe(p.*)\`), \`Deref\` wrappers (\`b.*\`) and a type's own \`*\` field (std's atomics)`)
-                ),
-                E_DEREF_OF_BORROW
+              Box.new(
+                with_code(
+                  format_error_message_with_help(
+                    ast_expr_token(expr),
+                    `\`${deref_b_name}\` is a \`${deref_b_mode}\` borrow: a borrow reads as its value, and \`.*\` does not apply to a borrow until decision 43 (references become types).`,
+                    Option(String).Some(`read the value directly — \`${deref_b_name}\` already is the value (\`${deref_b_name}.field\` for a field, \`${deref_b_name}(i)\` for an element); \`.*\` is for raw pointers (\`unsafe(p.*)\`), \`Deref\` wrappers (\`b.*\`) and a type's own \`*\` field (std's atomics)`)
+                  ),
+                  E_DEREF_OF_BORROW
+                )
               )
             )
           );
@@ -1291,13 +1313,15 @@ Raw pointer operations may dereference invalid memory.`
         );
         exn.throw(
           dyn(
-            with_code(
-              format_error_message_with_help(
-                ast_expr_token(expr),
-                `${dv_subject}, a value: \`.*\` reads through a reference (\`&T\`, \`&mut T\`), a raw pointer (\`*T\`) or a \`Deref\` type (\`Box\`, \`Rc\`, \`Arc\`), and \`${dv_ty_text}\` is none of them.`,
-                Option(String).Some(dv_help)
-              ),
-              E_DEREF_OF_VALUE
+            Box.new(
+              with_code(
+                format_error_message_with_help(
+                  ast_expr_token(expr),
+                  `${dv_subject}, a value: \`.*\` reads through a reference (\`&T\`, \`&mut T\`), a raw pointer (\`*T\`) or a \`Deref\` type (\`Box\`, \`Rc\`, \`Arc\`), and \`${dv_ty_text}\` is none of them.`,
+                  Option(String).Some(dv_help)
+                ),
+                E_DEREF_OF_VALUE
+              )
             )
           )
         );
@@ -1467,9 +1491,11 @@ Raw pointer operations may dereference invalid memory.`
       if(!ast_expr_is_atom(&property_expr), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&property_expr),
-              `Expected identifier for enum variant, got:\n${ast_expr_to_string(&property_expr)}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&property_expr),
+                `Expected identifier for enum variant, got:\n${ast_expr_to_string(&property_expr)}`
+              )
             )
           )
         );
@@ -1523,13 +1549,15 @@ Raw pointer operations may dereference invalid memory.`
               });
               exn.throw(
                 dyn(
-                  format_error_message_with_help(
-                    ast_expr_token(&property_expr),
-                    unknown_variant_message(variant_name_tv.clone(), &type_val_inner, &tv_en_vnames.items),
-                    match(
-                      suggest_name(&variant_name_tv, &tv_en_vnames.items),
-                      .Some(h) => Option(String).Some(`did you mean ".${h}"?`),
-                      .None => Option(String).None
+                  Box.new(
+                    format_error_message_with_help(
+                      ast_expr_token(&property_expr),
+                      unknown_variant_message(variant_name_tv.clone(), &type_val_inner, &tv_en_vnames.items),
+                      match(
+                        suggest_name(&variant_name_tv, &tv_en_vnames.items),
+                        .Some(h) => Option(String).Some(`did you mean ".${h}"?`),
+                        .None => Option(String).None
+                      )
                     )
                   )
                 )
@@ -1589,9 +1617,11 @@ Raw pointer operations may dereference invalid memory.`
       if(!is_valid_variable_name(&property_expr), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&property_expr),
-              `Expected identifier for type method, got:\n${ast_expr_to_string(&property_expr)}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&property_expr),
+                `Expected identifier for type method, got:\n${ast_expr_to_string(&property_expr)}`
+              )
             )
           )
         );
@@ -1605,7 +1635,7 @@ Raw pointer operations may dereference invalid memory.`
       // composite is N2b's and passes (a variant constructor, a user
       // static).
       if(origin_beyond_n2b(&type_val_inner) && !is_std_module_path(&ast_expr_token(expr).module_path.*, ctx.std_path.clone()), {
-        exn.throw(dyn(format_error_message(ast_expr_token(&property_expr), origin_beyond_n2b_message(&type_val_inner))));
+        exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&property_expr), origin_beyond_n2b_message(&type_val_inner)))));
       });
       su_labels := match(
         &type_val_inner,
@@ -1762,9 +1792,11 @@ Raw pointer operations may dereference invalid memory.`
       if(!is_valid_variable_name(&property_expr), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&property_expr),
-              `Expected identifier for type method, got:\n${ast_expr_to_string(&property_expr)}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&property_expr),
+                `Expected identifier for type method, got:\n${ast_expr_to_string(&property_expr)}`
+              )
             )
           )
         );
@@ -1805,9 +1837,11 @@ Raw pointer operations may dereference invalid memory.`
       if(!is_valid_variable_name(&property_expr), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&property_expr),
-              `Expected identifier for type method, got:\n${ast_expr_to_string(&property_expr)}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&property_expr),
+                `Expected identifier for type method, got:\n${ast_expr_to_string(&property_expr)}`
+              )
             )
           )
         );
@@ -2183,7 +2217,7 @@ Raw pointer operations may dereference invalid memory.`
       // A write (`u.x = v`, evaluated with is_lhs_of_assignment) stays legal.
       pa_union_member := ast_expr_text(&property_expr).*.clone();
       if(is_union_type(&base_ty) && !ctx.is_lhs_of_assignment && (fields_labels.items.contains(pa_union_member.clone()) && !is_union_member_read_capable(Option(String).Some(ast_expr_token(&property_expr).module_path.*.clone()), ctx.unsafe_context)), {
-        exn.throw(dyn(format_error_message(ast_expr_token(&property_expr), union_member_read_error_message(pa_union_member.clone(), type_to_string(&base_ty)))));
+        exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&property_expr), union_member_read_error_message(pa_union_member.clone(), type_to_string(&base_ty))))));
         return(expr.*);
       });
       // --- Integer index access (tuple fields only) -----------------------
@@ -2191,9 +2225,11 @@ Raw pointer operations may dereference invalid memory.`
         if(!is_tuple_type(match(&obj_info_opt, .Some(oi) => Rc.clone(oi.ty()), .None => t_unit())), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&property_expr),
-                String.from("Accessing tuple field by index is only allowed for tuples.")
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&property_expr),
+                  String.from("Accessing tuple field by index is only allowed for tuples.")
+                )
               )
             )
           );
@@ -2205,9 +2241,11 @@ Raw pointer operations may dereference invalid memory.`
           .None => {
             exn.throw(
               dyn(
-                format_error_message(
-                  ast_expr_token(&property_expr),
-                  `Expected integer for tuple index, got:\n${ast_expr_to_string(&property_expr)}`
+                Box.new(
+                  format_error_message(
+                    ast_expr_token(&property_expr),
+                    `Expected integer for tuple index, got:\n${ast_expr_to_string(&property_expr)}`
+                  )
                 )
               )
             );
@@ -2219,9 +2257,11 @@ Raw pointer operations may dereference invalid memory.`
             if(idx >= field_count, {
               exn.throw(
                 dyn(
-                  format_error_message(
-                    ast_expr_token(&property_expr),
-                    `Index out of bounds: ${idx_str} for accessing field in:\n${type_to_string(&base_ty)}`
+                  Box.new(
+                    format_error_message(
+                      ast_expr_token(&property_expr),
+                      `Index out of bounds: ${idx_str} for accessing field in:\n${type_to_string(&base_ty)}`
+                    )
                   )
                 )
               );
@@ -2288,9 +2328,11 @@ Raw pointer operations may dereference invalid memory.`
             if(is_module_type(match(obj_info_opt, .Some(oi) => Rc.clone(oi.ty()), .None => t_unit())), {
               exn.throw(
                 dyn(
-                  format_error_message(
-                    ast_expr_token(&property_expr),
-                    `Module field "${label_str}" not found in module type`
+                  Box.new(
+                    format_error_message(
+                      ast_expr_token(&property_expr),
+                      `Module field "${label_str}" not found in module type`
+                    )
                   )
                 )
               );
@@ -2351,12 +2393,14 @@ Raw pointer operations may dereference invalid memory.`
                   );
                   exn.throw(
                     dyn(
-                      with_code(
-                        format_error_message(
-                          ast_expr_token(&property_expr),
-                          `"${label_str}" is a method of ${wrapper_s} and a field of its payload, so ${obj_shown}.${label_str}(...) could mean either (plans/VALUES_BY_DEFAULT.md decision 32).\nWrite ${ctor}.${label_str}(${obj_shown}, ...) for the ${ctor}'s own ${label_str}, or ${obj_shown}.*.${label_str}(...) to call the payload's field.`
-                        ),
-                        E_AMBIGUOUS_METHOD
+                      Box.new(
+                        with_code(
+                          format_error_message(
+                            ast_expr_token(&property_expr),
+                            `"${label_str}" is a method of ${wrapper_s} and a field of its payload, so ${obj_shown}.${label_str}(...) could mean either (plans/VALUES_BY_DEFAULT.md decision 32).\nWrite ${ctor}.${label_str}(${obj_shown}, ...) for the ${ctor}'s own ${label_str}, or ${obj_shown}.*.${label_str}(...) to call the payload's field.`
+                          ),
+                          E_AMBIGUOUS_METHOD
+                        )
                       )
                     )
                   );
@@ -2365,12 +2409,14 @@ Raw pointer operations may dereference invalid memory.`
                 .Err(innermost) => if(!pa_is_callee, {
                   exn.throw(
                     dyn(
-                      with_code(
-                        format_error_message(
-                          ast_expr_token(&property_expr),
-                          unknown_field_through_deref_message(label_str.clone(), ast_expr_to_string(&object_expr), &base_ty, &innermost, &_field_labels_of(&innermost).items)
-                        ),
-                        unknown_field_code(&base_ty)
+                      Box.new(
+                        with_code(
+                          format_error_message(
+                            ast_expr_token(&property_expr),
+                            unknown_field_through_deref_message(label_str.clone(), ast_expr_to_string(&object_expr), &base_ty, &innermost, &_field_labels_of(&innermost).items)
+                          ),
+                          unknown_field_code(&base_ty)
+                        )
                       )
                     )
                   );
@@ -2386,7 +2432,7 @@ Raw pointer operations may dereference invalid memory.`
             // read "arg not evaluated", and `(p.xx + i32(1))` passed `check`
             // (issues/fixed/unknown-struct-field-has-no-diagnostic.md).
             if(!pa_is_callee, {
-              exn.throw(dyn(with_code(format_error_message(ast_expr_token(&property_expr), unknown_field_message(&label_str, &base_ty, &fields_labels.items)), unknown_field_code(&base_ty))));
+              exn.throw(dyn(Box.new(with_code(format_error_message(ast_expr_token(&property_expr), unknown_field_message(&label_str, &base_ty, &fields_labels.items)), unknown_field_code(&base_ty)))));
               return(expr.*);
             });
             // A method call — return without setting ExprInfo.
@@ -2399,9 +2445,11 @@ Raw pointer operations may dereference invalid memory.`
             if(private_member_blocked(label_str.clone(), type_decl_module(pa_vis_type_id.clone()), &ast_expr_token(&property_expr).module_path.*), {
               exn.throw(
                 dyn(
-                  format_error_message(
-                    ast_expr_token(&property_expr),
-                    `Field "${label_str}" of ${type_to_string(&base_ty)} is private to its declaring module`
+                  Box.new(
+                    format_error_message(
+                      ast_expr_token(&property_expr),
+                      `Field "${label_str}" of ${type_to_string(&base_ty)} is private to its declaring module`
+                    )
                   )
                 )
               );
@@ -2425,9 +2473,11 @@ Raw pointer operations may dereference invalid memory.`
                 obj_shown := ast_expr_to_string(&object_expr);
                 exn.throw(
                   dyn(
-                    format_error_message(
-                      ast_expr_token(&property_expr),
-                      `"${label_str}" is both a field of ${type_to_string(&base_ty)} and a method of the raw pointer ${type_to_string(&original_obj_ty)}, so ${obj_shown}.${label_str}(...) could mean either (plans/VALUES_BY_DEFAULT.md decision 32, covering raw pointers per decision 36). Write ${obj_shown}.*.${label_str}(...) to call the pointee's field. For the pointer's own ${label_str} there is no second spelling: a raw pointer is Copy, so for its clone the copy itself, q := ${obj_shown}, is the spelling.`
+                    Box.new(
+                      format_error_message(
+                        ast_expr_token(&property_expr),
+                        `"${label_str}" is both a field of ${type_to_string(&base_ty)} and a method of the raw pointer ${type_to_string(&original_obj_ty)}, so ${obj_shown}.${label_str}(...) could mean either (plans/VALUES_BY_DEFAULT.md decision 32, covering raw pointers per decision 36). Write ${obj_shown}.*.${label_str}(...) to call the pointee's field. For the pointer's own ${label_str} there is no second spelling: a raw pointer is Copy, so for its clone the copy itself, q := ${obj_shown}, is the spelling.`
+                      )
                     )
                   )
                 );
@@ -2567,9 +2617,11 @@ Raw pointer operations may dereference invalid memory.`
       if(ast_expr_token(&property_expr).kind == TokenKind.Integer, {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&property_expr),
-              `Accessing module field by index is not allowed, got:\n${ast_expr_to_string(&property_expr)}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&property_expr),
+                `Accessing module field by index is not allowed, got:\n${ast_expr_to_string(&property_expr)}`
+              )
             )
           )
         );
@@ -2610,9 +2662,11 @@ Raw pointer operations may dereference invalid memory.`
               // (No ModuleVal.isLoading check — there is no such field.)
               exn.throw(
                 dyn(
-                  format_error_message(
-                    ast_expr_token(&property_expr),
-                    `Module field "${mod_label}" not found in module type`
+                  Box.new(
+                    format_error_message(
+                      ast_expr_token(&property_expr),
+                      `Module field "${mod_label}" not found in module type`
+                    )
                   )
                 )
               );
@@ -2711,9 +2765,11 @@ Raw pointer operations may dereference invalid memory.`
       if(!is_valid_variable_name(&property_expr), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&property_expr),
-              `Expected identifier for enum variant property, got:\n${ast_expr_to_string(&property_expr)}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&property_expr),
+                `Expected identifier for enum variant property, got:\n${ast_expr_to_string(&property_expr)}`
+              )
             )
           )
         );

@@ -77,9 +77,11 @@ ci_eval_arg :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(arg),
-            label
+          Box.new(
+            format_error_message(
+              ast_expr_token(arg),
+              label
+            )
           )
         )
       );
@@ -305,9 +307,11 @@ ci_eval_list_index :: (
               .None => {
                 exn.throw(
                   dyn(
-                    format_error_message(
-                      ast_expr_token(&idx_arg),
-                      String.from("Invalid integer literal for ComptimeList index")
+                    Box.new(
+                      format_error_message(
+                        ast_expr_token(&idx_arg),
+                        String.from("Invalid integer literal for ComptimeList index")
+                      )
                     )
                   )
                 );
@@ -317,9 +321,11 @@ ci_eval_list_index :: (
             if(idx_i64 < i64(0), {
               exn.throw(
                 dyn(
-                  format_error_message(
-                    ast_expr_token(&idx_arg),
-                    `ComptimeList index out of bounds: ${idx_raw}`
+                  Box.new(
+                    format_error_message(
+                      ast_expr_token(&idx_arg),
+                      `ComptimeList index out of bounds: ${idx_raw}`
+                    )
                   )
                 )
               );
@@ -329,9 +335,11 @@ ci_eval_list_index :: (
             if(idx_usize >= list_len, {
               exn.throw(
                 dyn(
-                  format_error_message(
-                    ast_expr_token(&idx_arg),
-                    `ComptimeList index out of bounds: ${idx_raw}`
+                  Box.new(
+                    format_error_message(
+                      ast_expr_token(&idx_arg),
+                      `ComptimeList index out of bounds: ${idx_raw}`
+                    )
                   )
                 )
               );
@@ -342,9 +350,11 @@ ci_eval_list_index :: (
               .None => {
                 exn.throw(
                   dyn(
-                    format_error_message(
-                      ast_expr_token(&idx_arg),
-                      String.from("ComptimeList index out of bounds")
+                    Box.new(
+                      format_error_message(
+                        ast_expr_token(&idx_arg),
+                        String.from("ComptimeList index out of bounds")
+                      )
                     )
                   )
                 );
@@ -440,9 +450,11 @@ ci_eval_list_range_index :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&range_arg),
-            String.from("Expected numeric start/end in Range for comptime list range index")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&range_arg),
+              String.from("Expected numeric start/end in Range for comptime list range index")
+            )
           )
         )
       );
@@ -468,9 +480,11 @@ ci_eval_list_range_index :: (
       if(start_idx > list_len, {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&range_arg),
-              `ComptimeList range start out of bounds: ${start_idx}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&range_arg),
+                `ComptimeList range start out of bounds: ${start_idx}`
+              )
             )
           )
         );
@@ -478,9 +492,11 @@ ci_eval_list_range_index :: (
       if(end_idx < start_idx, {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&range_arg),
-              `ComptimeList range end out of bounds: ${end_idx}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&range_arg),
+                `ComptimeList range end out of bounds: ${end_idx}`
+              )
             )
           )
         );
@@ -488,9 +504,11 @@ ci_eval_list_range_index :: (
       if(end_idx > list_len, {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&range_arg),
-              `ComptimeList range end out of bounds: ${end_idx}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&range_arg),
+                `ComptimeList range end out of bounds: ${end_idx}`
+              )
             )
           )
         );
@@ -586,9 +604,11 @@ ci_eval_array_index :: (
                   .None => {
                     exn.throw(
                       dyn(
-                        format_error_message(
-                          ast_expr_token(&idx_arg),
-                          String.from("Invalid integer literal for array index")
+                        Box.new(
+                          format_error_message(
+                            ast_expr_token(&idx_arg),
+                            String.from("Invalid integer literal for array index")
+                          )
                         )
                       )
                     );
@@ -598,9 +618,11 @@ ci_eval_array_index :: (
                 if(idx_i64 < i64(0), {
                   exn.throw(
                     dyn(
-                      format_error_message(
-                        ast_expr_token(&idx_arg),
-                        `Array index out of bounds: ${idx_raw}`
+                      Box.new(
+                        format_error_message(
+                          ast_expr_token(&idx_arg),
+                          `Array index out of bounds: ${idx_raw}`
+                        )
                       )
                     )
                   );
@@ -610,9 +632,11 @@ ci_eval_array_index :: (
                 if(idx_usize >= arr_len, {
                   exn.throw(
                     dyn(
-                      format_error_message(
-                        ast_expr_token(&idx_arg),
-                        `Array index out of bounds: ${idx_raw}`
+                      Box.new(
+                        format_error_message(
+                          ast_expr_token(&idx_arg),
+                          `Array index out of bounds: ${idx_raw}`
+                        )
                       )
                     )
                   );
@@ -623,9 +647,11 @@ ci_eval_array_index :: (
                   .None => {
                     exn.throw(
                       dyn(
-                        format_error_message(
-                          ast_expr_token(&idx_arg),
-                          String.from("Array index out of bounds")
+                        Box.new(
+                          format_error_message(
+                            ast_expr_token(&idx_arg),
+                            String.from("Array index out of bounds")
+                          )
                         )
                       )
                     );
@@ -751,9 +777,11 @@ ci_eval_string_index :: (
       .None => {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&idx_arg),
-              String.from("Invalid integer literal for string index")
+            Box.new(
+              format_error_message(
+                ast_expr_token(&idx_arg),
+                String.from("Invalid integer literal for string index")
+              )
             )
           )
         );
@@ -763,9 +791,11 @@ ci_eval_string_index :: (
     if(idx_i64 < i64(0), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&idx_arg),
-            `String index out of bounds: ${idx_raw}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&idx_arg),
+              `String index out of bounds: ${idx_raw}`
+            )
           )
         )
       );
@@ -775,9 +805,11 @@ ci_eval_string_index :: (
     if(idx_usize >= str_len, {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&idx_arg),
-            `String index out of bounds: ${idx_raw}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&idx_arg),
+              `String index out of bounds: ${idx_raw}`
+            )
           )
         )
       );
@@ -792,9 +824,11 @@ ci_eval_string_index :: (
     if(!unquoted.is_char_boundary(idx_usize), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&idx_arg),
-            `String index ${idx_raw} is not on a UTF-8 character boundary`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&idx_arg),
+              `String index ${idx_raw} is not on a UTF-8 character boundary`
+            )
           )
         )
       );
@@ -833,9 +867,11 @@ ci_eval_string_index :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&idx_arg),
-            String.from("Expected numeric start/end in Range for comptime string range index")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&idx_arg),
+              String.from("Expected numeric start/end in Range for comptime string range index")
+            )
           )
         )
       );
@@ -848,9 +884,11 @@ ci_eval_string_index :: (
   if(start_idx > str_len, {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&idx_arg),
-          `String slice start index out of bounds: ${start_idx}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&idx_arg),
+            `String slice start index out of bounds: ${start_idx}`
+          )
         )
       )
     );
@@ -858,9 +896,11 @@ ci_eval_string_index :: (
   if(end_idx < start_idx, {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&idx_arg),
-          `String slice end index out of bounds: ${end_idx}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&idx_arg),
+            `String slice end index out of bounds: ${end_idx}`
+          )
         )
       )
     );
@@ -868,9 +908,11 @@ ci_eval_string_index :: (
   if(end_idx > str_len, {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&idx_arg),
-          `String slice end index out of bounds: ${end_idx}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&idx_arg),
+            `String slice end index out of bounds: ${end_idx}`
+          )
         )
       )
     );
@@ -882,9 +924,11 @@ ci_eval_string_index :: (
   if(!unquoted.is_char_boundary(start_idx), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&idx_arg),
-          `String slice start index ${start_idx} is not on a UTF-8 character boundary`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&idx_arg),
+            `String slice start index ${start_idx} is not on a UTF-8 character boundary`
+          )
         )
       )
     );
@@ -892,9 +936,11 @@ ci_eval_string_index :: (
   if(!unquoted.is_char_boundary(end_idx), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&idx_arg),
-          `String slice end index ${end_idx} is not on a UTF-8 character boundary`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&idx_arg),
+            `String slice end index ${end_idx} is not on a UTF-8 character boundary`
+          )
         )
       )
     );
@@ -939,9 +985,11 @@ evaluate_yo_comptime_index_functions :: (
   });
   exn.throw(
     dyn(
-      format_error_message(
-        ast_expr_token(expr),
-        String.from("evaluate_yo_comptime_index_functions: unexpected function")
+      Box.new(
+        format_error_message(
+          ast_expr_token(expr),
+          String.from("evaluate_yo_comptime_index_functions: unexpected function")
+        )
       )
     )
   );

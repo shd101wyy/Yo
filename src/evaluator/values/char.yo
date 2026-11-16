@@ -59,9 +59,11 @@ parse_char_literal :: (fn(tok_value : &String, tok : &Token, exn : Exception) ->
           esc_str := String.from_bytes(esc_bytes);
           exn.throw(
             dyn(
-              format_error_message(
-                tok,
-                `Unknown escape sequence: \\${esc_str}`
+              Box.new(
+                format_error_message(
+                  tok,
+                  `Unknown escape sequence: \\${esc_str}`
+                )
               )
             )
           );
@@ -85,9 +87,11 @@ evaluate_char_literal :: (
   if(!(tok.kind == TokenKind.CharLit), {
     exn.throw(
       dyn(
-        format_error_message(
-          &tok,
-          `Expected char literal, got ${tok.value.*}`
+        Box.new(
+          format_error_message(
+            &tok,
+            `Expected char literal, got ${tok.value.*}`
+          )
         )
       )
     );

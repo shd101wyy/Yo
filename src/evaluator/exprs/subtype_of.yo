@@ -41,9 +41,11 @@ evaluate_subtype_of :: (
   if(!ast_expr_is_fn_call_of(expr, BK_SUBTYPE_OF, .Some(usize(2))), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          String.from("`<:` requires exactly two arguments.")
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            String.from("`<:` requires exactly two arguments.")
+          )
         )
       )
     );
@@ -76,9 +78,11 @@ evaluate_subtype_of :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&lhs_expr),
-            String.from("Expected type for left-hand side of `<:`.")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&lhs_expr),
+              String.from("Expected type for left-hand side of `<:`.")
+            )
           )
         )
       );
@@ -92,9 +96,11 @@ evaluate_subtype_of :: (
     .Some(v) => if(is_type_val(&v), v, {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&lhs_expr),
-            String.from("Expected type for left-hand side expression of `<:`.")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&lhs_expr),
+              String.from("Expected type for left-hand side expression of `<:`.")
+            )
           )
         )
       );
@@ -103,9 +109,11 @@ evaluate_subtype_of :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&lhs_expr),
-            String.from("Expected type for left-hand side expression of `<:`.")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&lhs_expr),
+              String.from("Expected type for left-hand side expression of `<:`.")
+            )
           )
         )
       );
@@ -121,9 +129,11 @@ evaluate_subtype_of :: (
   if(ctx.is_inside_where_clause && !is_some_type(&lhs_ty), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&lhs_expr),
-          `In a where clause, the left-hand side of <: must be a type parameter (SomeType), got: ${type_to_string(&lhs_ty)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&lhs_expr),
+            `In a where clause, the left-hand side of <: must be a type parameter (SomeType), got: ${type_to_string(&lhs_ty)}`
+          )
         )
       )
     );
@@ -205,9 +215,11 @@ evaluate_subtype_of :: (
       .None => {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&te),
-              String.from("Expected trait type for right-hand side of `<:`.")
+            Box.new(
+              format_error_message(
+                ast_expr_token(&te),
+                String.from("Expected trait type for right-hand side of `<:`.")
+              )
             )
           )
         );
@@ -223,9 +235,11 @@ evaluate_subtype_of :: (
         .TypeVal(b) => if(is_trait_type(&b), Rc.clone(b), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&te),
-                String.from("Expected trait type for right-hand side of `<:`.")
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&te),
+                  String.from("Expected trait type for right-hand side of `<:`.")
+                )
               )
             )
           );
@@ -234,9 +248,11 @@ evaluate_subtype_of :: (
         _ => {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&te),
-                String.from("Expected trait type for right-hand side of `<:`.")
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&te),
+                  String.from("Expected trait type for right-hand side of `<:`.")
+                )
               )
             )
           );
@@ -246,9 +262,11 @@ evaluate_subtype_of :: (
       .None => {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&te),
-              String.from("Expected trait type for right-hand side of `<:`.")
+            Box.new(
+              format_error_message(
+                ast_expr_token(&te),
+                String.from("Expected trait type for right-hand side of `<:`.")
+              )
             )
           )
         );
@@ -259,9 +277,11 @@ evaluate_subtype_of :: (
     if(is_neg && !ctx.is_inside_where_clause, {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&te),
-            String.from("Negated trait constraints !(Trait) are only allowed in where clauses.")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&te),
+              String.from("Negated trait constraints !(Trait) are only allowed in where clauses.")
+            )
           )
         )
       );
@@ -270,9 +290,11 @@ evaluate_subtype_of :: (
     if(_trait_has_receiver(&trait_ty_val), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&te),
-            String.from("Expected trait type already has a receiver type assigned.")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&te),
+              String.from("Expected trait type already has a receiver type assigned.")
+            )
           )
         )
       );
@@ -304,9 +326,11 @@ evaluate_subtype_of :: (
     if(trait_type_vals.len() > usize(1), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&rhs_expr),
-            String.from("Multiple trait constraints (tuple form) are only allowed in where clauses.")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&rhs_expr),
+              String.from("Multiple trait constraints (tuple form) are only allowed in where clauses.")
+            )
           )
         )
       );
@@ -317,9 +341,11 @@ evaluate_subtype_of :: (
       .None => {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(expr),
-              String.from("No trait found in `<:` expression.")
+            Box.new(
+              format_error_message(
+                ast_expr_token(expr),
+                String.from("No trait found in `<:` expression.")
+              )
             )
           )
         );
@@ -346,9 +372,11 @@ evaluate_subtype_of :: (
       if(!lhs_implements, {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(expr),
-              `Type "${type_to_string(&lhs_ty)}" does not implement trait "${type_to_string(&trait_ty)}".`
+            Box.new(
+              format_error_message(
+                ast_expr_token(expr),
+                `Type "${type_to_string(&lhs_ty)}" does not implement trait "${type_to_string(&trait_ty)}".`
+              )
             )
           )
         );

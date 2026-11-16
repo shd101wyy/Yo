@@ -57,9 +57,11 @@ evaluate_comptime_fn :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            &tok,
-            String.from("comptime_fn requires exactly one argument (a function)")
+          Box.new(
+            format_error_message(
+              &tok,
+              String.from("comptime_fn requires exactly one argument (a function)")
+            )
           )
         )
       );
@@ -75,9 +77,11 @@ evaluate_comptime_fn :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg_expr),
-            String.from("Failed to evaluate argument to comptime_fn")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg_expr),
+              String.from("Failed to evaluate argument to comptime_fn")
+            )
           )
         )
       );
@@ -91,9 +95,11 @@ evaluate_comptime_fn :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg_expr),
-            String.from("comptime_fn: argument has no compile-time value")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg_expr),
+              String.from("comptime_fn: argument has no compile-time value")
+            )
           )
         )
       );
@@ -103,9 +109,11 @@ evaluate_comptime_fn :: (
   if(!is_func_val(&arg_val), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&arg_expr),
-          String.from("comptime_fn requires a function argument")
+        Box.new(
+          format_error_message(
+            ast_expr_token(&arg_expr),
+            String.from("comptime_fn requires a function argument")
+          )
         )
       )
     );
@@ -130,9 +138,11 @@ evaluate_comptime_fn :: (
   if(forall_labels.len() > usize(0), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&arg_expr),
-          String.from("comptime_fn: cannot convert a generic (generic) function to comptime")
+        Box.new(
+          format_error_message(
+            ast_expr_token(&arg_expr),
+            String.from("comptime_fn: cannot convert a generic (generic) function to comptime")
+          )
         )
       )
     );
@@ -145,9 +155,11 @@ evaluate_comptime_fn :: (
     if(type_prohibits_comptime_modifier(&pt), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg_expr),
-            String.from("comptime_fn: a parameter type prohibits the comptime modifier")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg_expr),
+              String.from("comptime_fn: a parameter type prohibits the comptime modifier")
+            )
           )
         )
       );
@@ -157,9 +169,11 @@ evaluate_comptime_fn :: (
   if(type_prohibits_comptime_modifier(&result_box), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&arg_expr),
-          String.from("comptime_fn: return type prohibits the comptime modifier")
+        Box.new(
+          format_error_message(
+            ast_expr_token(&arg_expr),
+            String.from("comptime_fn: return type prohibits the comptime modifier")
+          )
         )
       )
     );
@@ -167,9 +181,11 @@ evaluate_comptime_fn :: (
   if(match(create_comptime_function_type(&func_type), .Some(_) => false, .None => true), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&arg_expr),
-          String.from("comptime_fn: return type cannot be promoted to comptime")
+        Box.new(
+          format_error_message(
+            ast_expr_token(&arg_expr),
+            String.from("comptime_fn: return type cannot be promoted to comptime")
+          )
         )
       )
     );
@@ -188,9 +204,11 @@ evaluate_comptime_fn :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg_expr),
-            String.from("comptime_fn: Failed to create compile-time version of function. The function body cannot be evaluated at compile time.")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg_expr),
+              String.from("comptime_fn: Failed to create compile-time version of function. The function body cannot be evaluated at compile time.")
+            )
           )
         )
       );

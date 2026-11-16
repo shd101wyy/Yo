@@ -102,9 +102,11 @@ evaluate_and_or :: (
           .None => {
             exn.throw(
               dyn(
-                format_error_message(
-                  ast_expr_token(&arg),
-                  `Expected bool type for "${if(is_and, String.from("and"), String.from("or"))}" argument, got:\n${ast_expr_to_string(&arg)}`
+                Box.new(
+                  format_error_message(
+                    ast_expr_token(&arg),
+                    `Expected bool type for "${if(is_and, String.from("and"), String.from("or"))}" argument, got:\n${ast_expr_to_string(&arg)}`
+                  )
                 )
               )
             );
@@ -114,9 +116,11 @@ evaluate_and_or :: (
         if(!is_bool_type(&arg_info.ty()), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&arg),
-                `Expected bool type for "${if(is_and, String.from("and"), String.from("or"))}" argument, got:\n${ast_expr_to_string(&arg)}`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&arg),
+                  `Expected bool type for "${if(is_and, String.from("and"), String.from("or"))}" argument, got:\n${ast_expr_to_string(&arg)}`
+                )
               )
             )
           );

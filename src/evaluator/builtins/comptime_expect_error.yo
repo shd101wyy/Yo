@@ -429,9 +429,11 @@ evaluate_comptime_expect_error :: (
           got := match(observed_msgs.get_cloned(usize(0)), .Some(m) => m, .None => String.from("(an error whose text was not recorded)"));
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(expr),
-                `comptime_expect_error: the expression raised an error, but not the expected one.\n- Expected text: ${want_text}\n- Raised: ${got}`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(expr),
+                  `comptime_expect_error: the expression raised an error, but not the expected one.\n- Expected text: ${want_text}\n- Raised: ${got}`
+                )
               )
             )
           );
@@ -461,7 +463,7 @@ evaluate_comptime_expect_error :: (
             msg_info.value(),
             .Some(v) => {
               err_msg := match(v, .StrLit(raw) => raw.clone(), _ => value_to_string(&v));
-              exn.throw(dyn(format_error_message(ast_expr_token(expr), &err_msg)));
+              exn.throw(dyn(Box.new(format_error_message(ast_expr_token(expr), &err_msg))));
             },
             .None => ()
           );
@@ -473,10 +475,12 @@ evaluate_comptime_expect_error :: (
   );
   exn.throw(
     dyn(
-      format_error_message(
-        ast_expr_token(expr),
-        String.from("Expected compile error, but the expression was evaluated successfully:\n") +
-          ast_expr_to_string(&arg_expr)
+      Box.new(
+        format_error_message(
+          ast_expr_token(expr),
+          String.from("Expected compile error, but the expression was evaluated successfully:\n") +
+            ast_expr_to_string(&arg_expr)
+        )
       )
     )
   );

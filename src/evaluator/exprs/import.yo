@@ -349,9 +349,11 @@ evaluate_import :: (
   if(!ast_expr_is_fn_call_of(expr, BK_IMPORT, .Some(usize(1))), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          String.from("Expected `import` with exactly 1 argument.")
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            String.from("Expected `import` with exactly 1 argument.")
+          )
         )
       )
     );
@@ -365,9 +367,11 @@ evaluate_import :: (
       .None => {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(expr),
-              String.from("import: missing path argument.")
+            Box.new(
+              format_error_message(
+                ast_expr_token(expr),
+                String.from("import: missing path argument.")
+              )
             )
           )
         );
@@ -377,9 +381,11 @@ evaluate_import :: (
     .Atom(_, _) => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            String.from("import: expected FnCall expression.")
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              String.from("import: expected FnCall expression.")
+            )
           )
         )
       );
@@ -395,9 +401,11 @@ evaluate_import :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&module_arg),
-            String.from("import: failed to evaluate module path argument.")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&module_arg),
+              String.from("import: failed to evaluate module path argument.")
+            )
           )
         )
       );
@@ -414,9 +422,11 @@ evaluate_import :: (
     .Some(_) => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&module_arg),
-            String.from("Expected comptime_str for module path.")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&module_arg),
+              String.from("Expected comptime_str for module path.")
+            )
           )
         )
       );
@@ -425,9 +435,11 @@ evaluate_import :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&module_arg),
-            String.from("Expected comptime_str for module path.")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&module_arg),
+              String.from("Expected comptime_str for module path.")
+            )
           )
         )
       );
@@ -445,9 +457,11 @@ evaluate_import :: (
   if((module_path_to_import == "std/prelude") || (module_path_to_import == "std/prelude.yo"), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&module_arg),
-          String.from("Importing the prelude module is not allowed — it is automatically loaded for every file.")
+        Box.new(
+          format_error_message(
+            ast_expr_token(&module_arg),
+            String.from("Importing the prelude module is not allowed — it is automatically loaded for every file.")
+          )
         )
       )
     );
@@ -470,9 +484,11 @@ evaluate_import :: (
     .Ambiguous(base) => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&module_arg),
-            `Ambiguous import("${base}": both "${base}.yo" and "${base}/index.yo" exist. Use an explicit path to resolve the ambiguity.)`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&module_arg),
+              `Ambiguous import("${base}": both "${base}.yo" and "${base}/index.yo" exist. Use an explicit path to resolve the ambiguity.)`
+            )
           )
         )
       );
@@ -481,9 +497,11 @@ evaluate_import :: (
     .NotFound(base) => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&module_arg),
-            `Module not found: tried "${base}.yo" and "${base}/index.yo"`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&module_arg),
+              `Module not found: tried "${base}.yo" and "${base}/index.yo"`
+            )
           )
         )
       );
@@ -492,9 +510,11 @@ evaluate_import :: (
     .Unavailable(name, reason) => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&module_arg),
-            `import("${name}"): ${reason}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&module_arg),
+              `import("${name}"): ${reason}`
+            )
           )
         )
       );
@@ -557,7 +577,7 @@ evaluate_import :: (
           `Failed to import module "${module_path_to_import}":\n${err_msg}`
         )
       );
-      exn.throw(dyn(group));
+      exn.throw(dyn(Box.new(group)));
     },
     .None => ()
   );

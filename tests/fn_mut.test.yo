@@ -54,10 +54,12 @@ test("FnMut: own state through a `&mut Impl(FnMut(...))` parameter", {
   assert(g() == i32(15), "the state persisted in `g` past the callee");
 });
 test("FnMut: own state through a `Dyn(FnMut(...))`", {
-  (mut(d) : Box(Dyn(FnMut() -> i32))) = dyn({ n : i32(0) }() => {
-    n = (n + i32(2));
-    n
-  });
+  (mut(d) : Box(Dyn(FnMut() -> i32))) = dyn(
+    Box.new({ n : i32(0) }() => {
+      n = (n + i32(2));
+      n
+    })
+  );
   assert(d() == i32(2), "the first call");
   assert(d() == i32(4), "the boxed state persisted");
 });
@@ -312,10 +314,12 @@ comptime_expect_error(
 );
 _fm_call_through_mut_dyn :: (fn(d : &mut Dyn(FnMut() -> i32)) -> i32)(d() + d());
 test("FnMut: a `&mut Dyn(FnMut(...))` parameter calls it", {
-  (mut(d) : Box(Dyn(FnMut() -> i32))) = dyn({ n : i32(0) }() => {
-    n = (n + i32(3));
-    n
-  });
+  (mut(d) : Box(Dyn(FnMut() -> i32))) = dyn(
+    Box.new({ n : i32(0) }() => {
+      n = (n + i32(3));
+      n
+    })
+  );
   assert(_fm_call_through_mut_dyn(&mut d.*) == i32(9), "3 + 6");
   assert(d() == i32(9), "the state persisted");
 });

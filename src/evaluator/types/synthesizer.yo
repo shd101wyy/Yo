@@ -1071,9 +1071,11 @@ _synthesize_types_impl :: (
         if(_occurs_check(&exp_id2, &exp_name, given_ty, &mut visited, exn), {
           exn.throw(
             dyn(
-              format_error_message(
-                _anchor(&tok, &exp_name, &ee.module_path().*),
-                `Cannot unify type variable "${exp_name}" with type "${type_to_string(given_ty)}" because it would create an infinite type.`
+              Box.new(
+                format_error_message(
+                  _anchor(&tok, &exp_name, &ee.module_path().*),
+                  `Cannot unify type variable "${exp_name}" with type "${type_to_string(given_ty)}" because it would create an infinite type.`
+                )
               )
             )
           );
@@ -1139,9 +1141,11 @@ _synthesize_types_impl :: (
         if(_occurs_check(&giv_id2, &giv_name, expected_ty, &mut visited, exn), {
           exn.throw(
             dyn(
-              format_error_message(
-                _anchor(&tok, &giv_name, &ge.module_path().*),
-                `Cannot unify type variable "${giv_name}" with type "${type_to_string(expected_ty)}" because it would create an infinite type.`
+              Box.new(
+                format_error_message(
+                  _anchor(&tok, &giv_name, &ge.module_path().*),
+                  `Cannot unify type variable "${giv_name}" with type "${type_to_string(expected_ty)}" because it would create an infinite type.`
+                )
               )
             )
           );
@@ -1160,13 +1164,15 @@ _synthesize_types_impl :: (
     if(exp_fields.len() != giv_fields.len(), {
       exn.throw(
         dyn(
-          mark_generic_independent(
-            format_error_message(
-              _anchor(&tok, String.from("tuple"), &ee.module_path().*),
-              `Cannot unify incompatible tuple types: "${type_to_string(expected_ty)}" and "${type_to_string(given_ty)}"`
-            ),
-            expected_ty,
-            given_ty
+          Box.new(
+            mark_generic_independent(
+              format_error_message(
+                _anchor(&tok, String.from("tuple"), &ee.module_path().*),
+                `Cannot unify incompatible tuple types: "${type_to_string(expected_ty)}" and "${type_to_string(given_ty)}"`
+              ),
+              expected_ty,
+              given_ty
+            )
           )
         )
       );
@@ -1285,13 +1291,15 @@ _synthesize_types_impl :: (
       });
       exn.throw(
         dyn(
-          mark_generic_independent(
-            format_error_message(
-              _anchor(&tok, String.from("struct"), &ee.module_path().*),
-              `Cannot unify incompatible struct types: "${type_to_string(expected_ty)}" and "${type_to_string(given_ty)}"`
-            ),
-            expected_ty,
-            given_ty
+          Box.new(
+            mark_generic_independent(
+              format_error_message(
+                _anchor(&tok, String.from("struct"), &ee.module_path().*),
+                `Cannot unify incompatible struct types: "${type_to_string(expected_ty)}" and "${type_to_string(given_ty)}"`
+              ),
+              expected_ty,
+              given_ty
+            )
           )
         )
       );
@@ -1380,13 +1388,15 @@ _synthesize_types_impl :: (
     if((exp_enum_id != giv_enum_id) && !same_enum_ctor && !same_variants, {
       exn.throw(
         dyn(
-          mark_generic_independent(
-            format_error_message(
-              _anchor(&tok, String.from("enum"), &ee.module_path().*),
-              `Cannot unify incompatible enum types: "${type_to_string(&exp_en_ty)}" and "${type_to_string(&giv_en_ty)}"`
-            ),
-            &exp_en_ty,
-            &giv_en_ty
+          Box.new(
+            mark_generic_independent(
+              format_error_message(
+                _anchor(&tok, String.from("enum"), &ee.module_path().*),
+                `Cannot unify incompatible enum types: "${type_to_string(&exp_en_ty)}" and "${type_to_string(&giv_en_ty)}"`
+              ),
+              &exp_en_ty,
+              &giv_en_ty
+            )
           )
         )
       );
@@ -1930,13 +1940,15 @@ _synthesize_types_impl :: (
       );
       exn.throw(
         dyn(
-          mark_generic_independent(
-            format_error_message(
-              _anchor(&tok, String.from("type"), &ee.module_path().*),
-              `Cannot unify incompatible types: "${type_to_string(expected_ty)}" and "${type_to_string(given_ty)}"`
-            ),
-            expected_ty,
-            given_ty
+          Box.new(
+            mark_generic_independent(
+              format_error_message(
+                _anchor(&tok, String.from("type"), &ee.module_path().*),
+                `Cannot unify incompatible types: "${type_to_string(expected_ty)}" and "${type_to_string(given_ty)}"`
+              ),
+              expected_ty,
+              given_ty
+            )
           )
         )
       );

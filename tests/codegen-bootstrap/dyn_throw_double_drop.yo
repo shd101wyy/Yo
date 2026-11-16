@@ -47,7 +47,7 @@ fail_op :: (fn(x : i32, exn : Exception) -> i32)({
   // extra RC locals so the escape drop list is populated
   note := String.from("context note");
   cond(
-    (x == i32(0)) => exn.throw(dyn(make_err(`bad input: ${note}`))),
+    (x == i32(0)) => exn.throw(dyn(Box.new(make_err(`bad input: ${note}`)))),
     true => (x + i32(1))
   )
 });

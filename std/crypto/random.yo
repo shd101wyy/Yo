@@ -108,7 +108,7 @@ random_bytes :: (fn(buf : &mut [u8], exn : Exception) -> unit)({
           // BCryptGenRandom returns an NTSTATUS, NOT an errno, so it cannot go
           // through `IoError.from_errno` — carry the raw status instead, which
           // is still infinitely more than "unavailable".
-          exn.throw(dyn(CryptoError.Other(msg : `BCryptGenRandom failed: NTSTATUS ${r}`)));
+          exn.throw(dyn(Box.new(CryptoError.Other(msg : `BCryptGenRandom failed: NTSTATUS ${r}`))));
         }
       );
     },
@@ -125,7 +125,7 @@ random_bytes :: (fn(buf : &mut [u8], exn : Exception) -> unit)({
         cond(
           (ret < i32(0)) => {
             e_ent := __yo_errno();
-            exn.throw(dyn(CryptoError.Other(msg : `getentropy: ${IoError.from_errno(e_ent).to_string()} (errno ${e_ent})`)));
+            exn.throw(dyn(Box.new(CryptoError.Other(msg : `getentropy: ${IoError.from_errno(e_ent).to_string()} (errno ${e_ent})`))));
           },
           true => ()
         );
@@ -155,7 +155,7 @@ random_bytes :: (fn(buf : &mut [u8], exn : Exception) -> unit)({
                 // as "platform random unavailable" told the caller nothing and
                 // left `.Other` with no producer at all
                 // (issues/fixed/crypto-random-reports-every-failure-as-unavailable-and-discards-the-errno.md).
-                exn.throw(dyn(CryptoError.Other(msg : `getrandom: ${IoError.from_errno(e_now).to_string()} (errno ${e_now})`)));
+                exn.throw(dyn(Box.new(CryptoError.Other(msg : `getrandom: ${IoError.from_errno(e_now).to_string()} (errno ${e_now})`))));
               }
             );
           },
