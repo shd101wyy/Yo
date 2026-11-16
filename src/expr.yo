@@ -2577,7 +2577,9 @@ _desugar_for_call :: (fn(e : &AstExpr) -> AstExpr)({
   });
   ordinal := g_for_desugar_ordinal;
   g_for_desugar_ordinal = (ordinal + usize(1));
-  _old_site := g_for_desugar_sites.with_mut(m => m.insert(_borrowed_match_site_key(&tok), e.*));
+  site_key := _borrowed_match_site_key(&tok);
+  site_expr := e.*;
+  _old_site := g_for_desugar_sites.with_mut({ site_key, site_expr }(m) => m.insert(site_key, site_expr));
   inv_split := _fd_invariant_split(&body);
   out := ArrayList(AstExpr).new();
   // The source of the iterator and the pattern each `.Some(...)` binds. The
