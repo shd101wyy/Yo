@@ -52,8 +52,8 @@ The repro then becomes a test: all three sites rewritten, a second run a no-op.
 Test: the cli case `tests/cli-cases/fix-migrate-unsized-sites` (a template literal, an interpolation holding a
 string with a `)`, a `[` and an escaped quote inside strings, an argument over several lines with a `)` in a
 comment, a written `dyn(Box.new(...))`, an enum variant named `Dyn` and a negative row; two runs, the second a
-no-op, then `yo check`). The develop binary lists five of the six sites and rewrites the negative row; the fix
-rewrites all six and leaves the row.
+no-op, then `yo check`). The develop binary (`223b188f4`) lists the five plain sites and rewrites the negative row;
+the fix rewrites the five and leaves the row and the variant.
 
 With the fix, `yo fix ./std ./src ./tests --migrate unsized` rewrote every remaining `dyn(v)` site of the tree for
 decision 49 S3b, which then deleted the alias: from v0.2.79 a plain `dyn(v)` is E0620 and the mode no longer has a
