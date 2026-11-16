@@ -521,7 +521,7 @@ test("escape: every route into a `Dyn` keeps the value second-class", {
   comptime_expect_error({
     v := i32(1);
     (g : Impl(Fn() -> i32)) = ({ &v }() => v.*);
-    outer = dyn(g);
+    outer = dyn(Box.new(g));
   }, "second-class");
   assert(outer() == i32(0), "outer keeps its first closure");
 });

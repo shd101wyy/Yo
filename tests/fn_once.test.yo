@@ -243,7 +243,7 @@ comptime_expect_error(
   _dyn_fn_rejects_fnonce :: (fn() -> unit)({
     k := i32(1);
     (f : Impl(FnOnce() -> i32)) = ({ k }() => k);
-    (d : Box(Dyn(Fn() -> i32))) = dyn(f);
+    (d : Box(Dyn(Fn() -> i32))) = dyn(Box.new(f));
     _r := d();
   }),
   "Cannot box an `FnOnce(...)` closure as a `Dyn(Fn(...))`"

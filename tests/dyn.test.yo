@@ -235,7 +235,7 @@ test("Test downcast rejects a bare dyn() operand it cannot infer a Dyn for", {
   derive(Cat, Clone);
   impl(Cat, ToString(to_string : (self -> self.name.clone())));
   Animal :: Box(Dyn(ToString, Clone));
-  comptime_expect_error(downcast(dyn(Cat(`shadow`)), Cat), "cannot infer the Dyn type");
+  comptime_expect_error(downcast(dyn(Box.new(Cat(`shadow`))), Cat), "cannot infer the Dyn type");
   // The two accepted spellings from the issue, as over-rejection canaries in
   // the same batch:
   (animal : Animal) = dyn(Box.new(Cat(`shadow`)));
