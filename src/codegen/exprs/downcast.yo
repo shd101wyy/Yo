@@ -159,8 +159,7 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
     `((${target_type_c_name.clone()}${qual}*)(${dyn_code.clone()}).vtable->__yo_payload_of((void*)(${dyn_code.clone()}).data))`
   }, if(is_reference_struct_type(&target_type), {
     // A `ref` object behind a legacy cell is the data word itself; behind a
-    // payload-convention instance (`dyn(Box.new(r))`, the alias boxing `r`,
-    // decision 49 S2) the data word is the box's payload slot, which HOLDS
+    // payload-convention instance (`dyn(Box.new(r))`, decision 49 S2) the data word is the box's payload slot, which HOLDS
     // the handle: load it through `payload_of` and retain it
     // (issues/fixed/2026-11-15-a-downcast-of-a-boxed-ref-struct-reads-the-payload-slot-as-the-object.md).
     rs_incr := if(is_atomic_reference_struct_type(&target_type), String.from("__yo_incr_rc_atomic"), String.from("__yo_incr_rc"));

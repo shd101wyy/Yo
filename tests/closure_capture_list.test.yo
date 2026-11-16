@@ -505,16 +505,16 @@ test("escape: an implicit capture by an escaping closure", {
 });
 // Every route into a `Dyn` is `dyn(...)` (decision 44): a bare closure in a
 // `Dyn(Fn(...))` slot is E0618 before the escape check runs, and a closure
-// that borrows a local is second-class before `dyn(f)` can reject it: the
+// that borrows a local is second-class before `dyn(Box.new(f))` can reject it: the
 // by-value (`sink`) parameter of the keeper rejects the borrow first
 // (decision 38 A).
 test("escape: every route into a `Dyn` keeps the value second-class", {
   w := i32(1);
   (f : Impl(Fn() -> i32)) = ({ &w }() => w.*);
   comptime_expect_error(_cl_keep_dyn(f), "A callable flows bare into");
-  comptime_expect_error(_cl_keep_dyn(dyn(f)), "second-class");
+  comptime_expect_error(_cl_keep_dyn(dyn(Box.new(f))), "second-class");
   comptime_expect_error({
-    (d : Box(Dyn(Fn() -> i32))) = dyn(f);
+    (d : Box(Dyn(Fn() -> i32))) = dyn(Box.new(f));
     _cl_keep_dyn(d)
   }, "second-class");
   (outer : Box(Dyn(Fn() -> i32))) = dyn(Box.new({}() => i32(0)));

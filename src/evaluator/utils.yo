@@ -1572,7 +1572,7 @@ _written_leftmost_token :: (fn(e : &AstExpr) -> Token)(
 /// and flows into a slot of type `slot_ty`, `site` naming the slot ("the
 /// binding `d`", "field \"f\"", ...). A callable that is not already a `Dyn`
 /// (a named closure, a named `fn`, an `Impl(Fn(...))` parameter, a closure
-/// literal) in a `Dyn(Fn(...))` slot is E0618 with a note naming `dyn(f)`;
+/// literal) in a `Dyn(Fn(...))` slot is E0618 with a note naming `dyn(Box.new(f))`;
 /// an atom carries the repair `yo fix` applies. Runs before the slot's
 /// compatibility check and before decision 38's escape check, so the bare
 /// form is this error at every site.
@@ -1591,16 +1591,31 @@ reject_bare_callable_into_dyn_fn :: (
 reject_closure_literal_into_dyn_fn :: (fn(slot_ty : &TypeValue, literal : &AstExpr, is_closure : bool, ctx : &EvalContext, exn : Exception) -> unit)(
   _bare_callable_into_dyn_fn(slot_ty, if(is_closure, String.from("is a closure literal"), String.from("is a function literal")), literal, String.from("a slot"), ctx, exn)
 );
+/// The erasure of the callable written `text` into the `Dyn(Fn(...))` slot
+/// `slot_ty`, spelled by the pointer the slot takes (decision 49):
+/// `dyn(Box.new(f))` for a `Box`, `dyn(Rc.new(f))`/`dyn(Arc.new(f))` for a
+/// shared handle, and `dyn(&f)` for the `Dyn` a reference slot names.
+_dyn_fn_erasure_of :: (fn(slot_ty : &TypeValue, text : &String) -> String)(
+  cond(
+    unique_box_payload_type(slot_ty).is_some() => `dyn(Box.new(${text}))`,
+    true => match(
+      cell_handle_view(slot_ty),
+      .Some(hv) => if(hv.is_atomic, `dyn(Arc.new(${text}))`, `dyn(Rc.new(${text}))`),
+      .None => `dyn(&${text})`
+    )
+  )
+);
 _bare_callable_into_dyn_fn :: (
   fn(slot_ty : &TypeValue, given : &String, value : &AstExpr, site : &String, ctx : &EvalContext, exn : Exception) -> unit
 )({
   bc_tok := _written_leftmost_token(value);
   bc_text := ast_expr_to_string(value);
-  bc_msg := `A callable flows bare into ${site} of type \`${type_to_string(slot_ty)}\`: \`${bc_text}\` ${given}, and a value becomes a \`Dyn\` only where the program says so (plans/VALUES_BY_DEFAULT.md decision 44). Write \`dyn(${bc_text})\`, which moves the callable into the \`Dyn\`'s heap cell. An \`Impl(Fn(...))\` slot takes the closure as it is.`;
-  bc_help := Option(String).Some(`write \`dyn(${bc_text})\``);
+  bc_spelled := _dyn_fn_erasure_of(slot_ty, &bc_text);
+  bc_msg := `A callable flows bare into ${site} of type \`${type_to_string(slot_ty)}\`: \`${bc_text}\` ${given}, and a value becomes a \`Dyn\` only where the program says so (plans/VALUES_BY_DEFAULT.md decision 44). Write \`${bc_spelled}\`, which moves the callable behind the pointer the slot takes. An \`Impl(Fn(...))\` slot takes the closure as it is.`;
+  bc_help := Option(String).Some(`write \`${bc_spelled}\``);
   bc_err := match(
     value,
-    .Atom(_, bc_atom_tok) => format_error_message_with_repair(&bc_atom_tok.*, &bc_msg, &bc_help, `dyn(${bc_atom_tok.value.*})`, String.from("wrap the callable in `dyn(...)`")),
+    .Atom(_, bc_atom_tok) => format_error_message_with_repair(&bc_atom_tok.*, &bc_msg, &bc_help, _dyn_fn_erasure_of(slot_ty, &bc_atom_tok.value.*), String.from("erase the callable with `dyn(...)` over the pointer the slot takes")),
     _ => format_error_message_with_help(&bc_tok, &bc_msg, &bc_help)
   );
   raise_flow_violation(with_code(&bc_err, E_BARE_CALLABLE_INTO_DYN), ctx, exn);

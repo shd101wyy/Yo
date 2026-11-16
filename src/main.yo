@@ -1168,103 +1168,6 @@ _literal_close :: (fn(runes : &ArrayList(rune), open : usize) -> Option(usize))(
   });
   .None
 });
-/// The first argument of the call whose `(` is at (`row`, `open`) of `lines`:
-/// `(arg_row, arg_col, end_row, end_col)`, the argument running from its first
-/// rune to just after its last, `end` exclusive. Found by position, not by
-/// matching a print of the evaluated expression, so a template literal (which
-/// the evaluator sees desugared) or a bracket inside a string does not hide
-/// the site, and the argument may span lines. String, char and template
-/// literals (with their `${...}` bodies) and `//` comments are skipped;
-/// `.None` when the brackets do not balance or the call has no argument
-/// (issues/fixed/2026-11-15-migrate-unsized-lists-one-line-dyn-sites-holding-a-template-literal-or-a-bracket-in-a-string.md).
-_first_call_arg_span :: (fn(lines : &ArrayList(String), row : usize, open : usize) -> Option(Tuple(usize, usize, usize, usize)))({
-  // The open brackets, innermost last: `(`, `[`, `{`, a backtick for a
-  // template's text and `$` for a `${` interpolation body.
-  stack := ArrayList(u32).new();
-  stack.push(u32(0x28));
-  (start : Option(Tuple(usize, usize))) = Option(Tuple(usize, usize)).None;
-  (last_r : usize) = row;
-  (last_c : usize) = open;
-  (r : usize) = row;
-  (c : usize) = (open + usize(1));
-  while(r < lines.len(), {
-    runes := _line_runes(lines(r).clone());
-    while(c < runes.len(), {
-      ch := runes(c).char;
-      top := stack(stack.len() - usize(1));
-      if(top == u32(0x60), {
-        // Template text.
-        cond(
-          (ch == u32(0x5C)) => {
-            c = (c + usize(2));
-          },
-          (ch == u32(0x60)) => {
-            _popped := stack.pop();
-            last_r = r;
-            last_c = (c + usize(1));
-            c = (c + usize(1));
-          },
-          ((ch == u32(0x24)) && ((c + usize(1)) < runes.len()) && (runes(c + usize(1)).char == u32(0x7B))) => {
-            stack.push(u32(0x24));
-            c = (c + usize(2));
-          },
-          true => {
-            c = (c + usize(1));
-          }
-        );
-        continue;
-      });
-      if(runes(c).is_whitespace(), {
-        c = (c + usize(1));
-        continue;
-      });
-      if((ch == u32(0x2F)) && ((c + usize(1)) < runes.len()) && (runes(c + usize(1)).char == u32(0x2F)), {
-        // A `//` comment: the rest of the line.
-        c = runes.len();
-        continue;
-      });
-      // A delimiter that ends the first argument: the `,` after it, or the
-      // `)` that closes the call.
-      if((stack.len() == usize(1)) && ((ch == u32(0x2C)) || (ch == u32(0x29))), {
-        return(match(start, .Some((sr, sc)) => Option(Tuple(usize, usize, usize, usize)).Some((sr, sc, last_r, last_c)), .None => Option(Tuple(usize, usize, usize, usize)).None));
-      });
-      if(start.is_none(), {
-        start = Option(Tuple(usize, usize)).Some((r, c));
-      });
-      cond(
-        ((ch == u32(0x22)) || (ch == u32(0x27))) => match(
-          _literal_close(&runes, c),
-          .Some(q) => {
-            c = q;
-          },
-          .None => {
-            return(.None);
-          }
-        ),
-        (ch == u32(0x60)) => stack.push(u32(0x60)),
-        ((ch == u32(0x28)) || (ch == u32(0x5B)) || (ch == u32(0x7B))) => stack.push(ch),
-        ((ch == u32(0x29)) || (ch == u32(0x5D)) || (ch == u32(0x7D))) => {
-          want := cond(
-            (ch == u32(0x29)) => u32(0x28),
-            (ch == u32(0x5D)) => u32(0x5B),
-            true => if(top == u32(0x24), u32(0x24), u32(0x7B))
-          );
-          if(top != want, {
-            return(.None);
-          });
-          _popped := stack.pop();
-        },
-        true => ()
-      );
-      last_r = r;
-      last_c = (c + usize(1));
-      c = (c + usize(1));
-    });
-    r = (r + usize(1));
-    c = usize(0);
-  });
-  .None
-});
 /// `yo fix --migrate deref`'s per-target exchange (a child evaluation writes
 /// one record per line, tab-separated): a field with `\`, a tab or a newline
 /// escaped.
@@ -1906,23 +1809,21 @@ _run_migrate_record_literal :: (fn(files : &ArrayList(String), dry_run : bool, i
   });
 });
 /// `yo fix <path> --migrate unsized` (plans/VALUES_BY_DEFAULT.md decision 49;
-/// VERDICTS-40 §5, VERDICTS-55, VERDICTS-61) over code in the v0.2.78
-/// spelling. Every file is evaluated with the recorder on
-/// (`record_unsized_site`): the legacy alias `dyn(v)` of a plain value becomes
-/// `dyn(Box.new(v))`, and a lend `&b` of a `Box(Dyn(T))` where a `&Dyn(T)` is
-/// taken becomes `&b.*` (VERDICTS-40 §5 family (d); v0.2.77's migration did
-/// not write it). Listed, never rewritten: a site that does not print back on
-/// one line, a `Box(Dyn(...))` temporary where a `&Dyn` is taken, `dyn(p)`
-/// over a raw pointer, `dyn(h)` over a named handle, and a file with a
-/// platform arm this target does not evaluate. The type
-/// spellings of v0.2.77, where a bare `Dyn(...)` was the owning box, are
-/// v0.2.77's mode (`yo version install 0.2.77`): here a bare by-value
-/// `Dyn(...)` is E0619, whose help says so, and `*Dyn(...)`, an alias body and
-/// `impl(Dyn(...), ...)` name the unsized object
+/// VERDICTS-40 §5, VERDICTS-55, VERDICTS-61). Every file is evaluated with the
+/// recorder on (`record_unsized_site`): a lend `&b` of a `Box(Dyn(T))` where a
+/// `&Dyn(T)` is taken becomes `&b.*` (VERDICTS-40 §5 family (d); v0.2.77's
+/// migration did not write it). Listed, never rewritten: a lend that does not
+/// print back on one line, a `Box(Dyn(...))` temporary where a `&Dyn` is
+/// taken, an owned `downcast`, `dyn(h)` over a named handle, and a file with a
+/// platform arm this target does not evaluate. Each earlier spelling is
+/// migrated by the release that last accepts it, then the next release is
+/// installed (the precedent of E0009): v0.2.77's type spellings, where a bare
+/// `Dyn(...)` was the owning box, by v0.2.77 (E0619's help says so), and
+/// v0.2.78's plain `dyn(v)`, the legacy alias of `dyn(Box.new(v))`, by
+/// v0.2.78 (E0620's help says so; decision 49 S3b)
 /// (issues/fixed/2026-11-15-what-does-migrate-unsized-do-under-the-binary-that-flips-dyn.md).
 _run_migrate_unsized :: (fn(files : &ArrayList(String), std_path : &String, dry_run : bool, io : Io, exn : Exception) -> unit)({
   (failed : usize) = usize(0);
-  (n_dyn : usize) = usize(0);
   (n_lend : usize) = usize(0);
   (n_listed : usize) = usize(0);
   // The evaluation, with the recorder on (`record_unsized_site`), as
@@ -1983,7 +1884,6 @@ _run_migrate_unsized :: (fn(files : &ArrayList(String), std_path : &String, dry_
       line := match(lines.get_cloned(st.row), .Some(l) => l, .None => String.new());
       runes := _line_runes(line);
       cond(
-        (st.kind == u8(1)) => listed.push(`${pos}fix: ${at}: \`dyn(${st.text})\` boxes the raw pointer \`${st.text}\` today, and in v0.2.78 \`dyn\` over a raw pointer unsizes it to a \`*Dyn(...)\` instead: write \`dyn(Box.new(${st.text}))\` to keep the box, or keep \`dyn(${st.text})\` for the unsized pointer; left as written`),
         (st.kind == u8(5)) => listed.push(`${pos}fix: ${at}: \`dyn(${st.text})\` erases a named \`Rc\`/\`Arc\` handle, which v0.2.77 rejects: write \`dyn(Rc.new(v))\` to build the shared object where it is made, or \`dyn(Box.new(v))\` to own it; left as written`),
         (st.kind == u8(8)) => listed.push(`${pos}fix: ${at}: \`${st.text}\` is a \`Box(Dyn(...))\` given where a reference to the \`Dyn\` is taken; bind the box and lend the object it owns (\`b := ...; &b.*\`), or lend a value without a box (\`dyn(&v)\`); left as written`),
         (st.kind == u8(7)) => match(
@@ -1998,24 +1898,6 @@ _run_migrate_unsized :: (fn(files : &ArrayList(String), std_path : &String, dry_
           .None => listed.push(`${pos}fix: ${at}: \`${st.text}\` lends a \`Box(Dyn(...))\` where a reference to the \`Dyn\` is taken and does not print back on one line; write \`&${st.text}.*\` by hand; left as written`)
         ),
         (st.kind == u8(6)) => listed.push(`${pos}fix: ${at}: \`downcast(${st.text}, ...)\` copies the payload out of an owned Dyn; v0.2.78's owning form is \`Result(Box(V), Box(Dyn(...)))\`: write \`downcast(&${st.text}.*, ...)\` where only the payload is read; left as written`),
-        (st.kind == u8(2)) => {
-          // `dyn(<arg>)`, found by the recorded position of `dyn`: the
-          // argument is the bracket-balanced source after the `(` that
-          // follows it, on this line or the next ones.
-          written_dyn := (((st.col + usize(3)) <= runes.len()) && (runes(st.col).char == u32(0x64)) && (runes(st.col + usize(1)).char == u32(0x79)) && (runes(st.col + usize(2)).char == u32(0x6E)) && ((st.col == usize(0)) || !_is_word_rune(runes(st.col - usize(1)))));
-          (k : usize) = (st.col + usize(3));
-          while((k < runes.len()) && runes(k).is_whitespace(), k = (k + usize(1)), ());
-          span := if(written_dyn && (k < runes.len()) && (runes(k).char == u32(0x28)), _first_call_arg_span(&lines, st.row, k), Option(Tuple(usize, usize, usize, usize)).None);
-          match(
-            span,
-            .Some((ar, ac, er, ec)) => {
-              n_dyn = (n_dyn + usize(1));
-              checked.push(_PendingFix(row : er, col : ec, len : usize(0), replacement : String.from(")"), description : at.clone()));
-              checked.push(_PendingFix(row : ar, col : ac, len : usize(0), replacement : String.from("Box.new("), description : at));
-            },
-            .None => listed.push(`${pos}fix: ${at}: \`dyn(${st.text})\` is not written as a \`dyn(...)\` call with balanced brackets at this position; write it \`dyn(Box.new(${st.text}))\` by hand; left as written`)
-          );
-        },
         true => ()
       );
     });
@@ -2035,7 +1917,7 @@ _run_migrate_unsized :: (fn(files : &ArrayList(String), std_path : &String, dry_
     });
   });
   verb := if(dry_run, String.from("would rewrite"), String.from("rewrote"));
-  println(`fix: ${verb} ${n_dyn.to_string()} \`dyn(...)\` site(s) to \`dyn(Box.new(...))\` and ${n_lend.to_string()} box lend(s) \`&b\` to \`&b.*\`; ${n_listed.to_string()} site(s) listed for a hand rewrite; ${failed.to_string()} file(s) did not evaluate`);
+  println(`fix: ${verb} ${n_lend.to_string()} box lend(s) \`&b\` to \`&b.*\`; ${n_listed.to_string()} site(s) listed for a hand rewrite; ${failed.to_string()} file(s) did not evaluate`);
   if(failed > usize(0), {
     exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; what evaluation did not reach was not migrated`));
   });
@@ -10584,14 +10466,13 @@ Options:
                             { ... } that is a record -> .{ ... };
                             binders and blocks are left alone. Reads the
                             parse only, so it needs no evaluation
-  --migrate unsized         Run decision 49's migration: the legacy
-                            dyn(v) -> dyn(Box.new(v)), and a lend &b of a
+  --migrate unsized         Run decision 49's migration: a lend &b of a
                             Box(Dyn(T)) where a &Dyn(T) is taken -> &b.*;
-                            dyn(p) over a raw pointer and dyn(h) over a
-                            named handle are listed. v0.2.77 code takes two
-                            steps: first v0.2.77's migration for the bare
-                            Dyn(...) types (yo version install 0.2.77),
-                            then this one for the lends
+                            dyn(h) over a named handle is listed. Older
+                            code steps through the release that last
+                            accepts its spelling: v0.2.77 for the bare
+                            Dyn(...) types, v0.2.78 for the plain dyn(v)
+                            (yo version install 0.2.78), then this one
   --target <triple>         Evaluate for this target, as compile --target
                             does, so the target's platform arms are
                             repaired or migrated (default: the host)
@@ -10620,13 +10501,12 @@ Examples:
                             表达式位置上作为记录的每个裸 { ... }
                             -> .{ ... }；绑定位置和代码块保持不变。
                             只读取解析结果，不需要求值
-  --migrate unsized         运行决定 49 的迁移：旧别名 dyn(v) ->
-                            dyn(Box.new(v))；在接受 &Dyn(T) 的位置借出
-                            Box(Dyn(T)) 的 &b -> &b.*；列出原始指针上的
-                            dyn(p) 与具名句柄上的 dyn(h)，留待手工改写。
-                            v0.2.77 的代码分两步：先用 v0.2.77 迁移裸
-                            Dyn(...) 类型（yo version install 0.2.77），
-                            再用本迁移改写借出
+  --migrate unsized         运行决定 49 的迁移：在接受 &Dyn(T) 的位置借出
+                            Box(Dyn(T)) 的 &b -> &b.*；列出具名句柄上的
+                            dyn(h)，留待手工改写。更旧的代码依次经过最后
+                            接受其拼写的版本：裸 Dyn(...) 类型用 v0.2.77，
+                            裸 dyn(v) 用 v0.2.78（yo version install
+                            0.2.78），再运行本迁移
   --target <triple>         按该目标求值（同 compile --target），从而修复
                             或迁移该目标的平台分支（默认：宿主平台）
   --std-path <dir>          覆盖 std 库目录

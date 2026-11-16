@@ -1059,11 +1059,9 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
           // Decision 49's flip: the dyn expr's TYPE is the handle the erasure
           // retyped to — `Box(Dyn(...))`, an `Rc`/`Arc` cell handle, a `&Dyn`
           // lend — no longer the bare DynT the owning value spelled. Unwrap
-          // for the guard AND the registrations below, or the synthesized
-          // `Box.new` of the `dyn(v)` alias (reachable only through
-          // runtime_arg_exprs) is never collected and its spec emits as a
-          // "no C function name" comment (the explicit `dyn(Box.new(v))`
-          // worked because its call sat in the source args).
+          // for the guard AND the registrations below, or a `Box.new` the
+          // erasure reaches only through runtime_arg_exprs is never collected
+          // and its spec emits as a "no C function name" comment.
           dyn_arm_ty := match(
             &ei.ty(),
             dat => cond(

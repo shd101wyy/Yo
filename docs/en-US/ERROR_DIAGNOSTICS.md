@@ -98,7 +98,8 @@ The repairs the compiler computes today:
 | E0007 `{ a, b }`, `{ k : v }` as a value — a bare expression brace is a block | insert `.` before the `{` (the record `.{ … }`) |
 | E0007 `.{ a } := s`, `.V(.{ x })` in a pattern — a dot on the binding side | delete the `.` |
 | E0007 `.{ a; b }` — a dotted block | delete the `.` |
-| E0618 a named callable passed bare into a `Dyn(Fn(...))` slot | wrap the name: `run(f)` → `run(dyn(f))` (a longer value gives help only) |
+| E0618 a named callable passed bare into a `Dyn(Fn(...))` slot | erase the name over the pointer the slot takes: `run(f)` → `run(dyn(Box.new(f)))` (`dyn(Rc.new(f))` for an `Rc`, `dyn(&f)` for a reference; a longer value gives help only) |
+| E0620 `dyn(v)` of a named plain value | box it: `dyn(v)` → `dyn(Box.new(v))` (a longer value gives help only) |
 
 `yo fix <path> --migrate deref` runs a migration rather than a repair, for
 decision 43 step 2 (N1e-1): outside std and the compiler's own source, a
@@ -176,11 +177,20 @@ lends. v0.2.78's mode reads its input in the v0.2.78 spelling, where
 no type spelling. It writes a lend `&b` of a `Box(Dyn(T))` where a `&Dyn(T)`
 is taken as `&b.*` (a `&Box(Dyn(T))` lends the box, and nothing coerces it to
 a reference to the object the box owns: E0601, whose help names `&b.*`), and
-the legacy `dyn(v)` alias of a plain value as `dyn(Box.new(v))` (the alias
-goes in v0.2.79). It lists a `Box(Dyn(T))` temporary where a `&Dyn(T)` is
-taken, `dyn(p)` over a raw pointer, `dyn(h)` over a named handle, a spelling
-that does not print back on one line and a file with an unevaluated platform
-arm.
+the legacy `dyn(v)` alias of a plain value as `dyn(Box.new(v))`, found by
+its position, so a template literal, a bracket inside a string and an
+argument over several lines are rewritten too; a `dyn` site inside a
+`comptime_expect_error` argument is the error under test and is left as
+written. It lists a `Box(Dyn(T))` temporary where a `&Dyn(T)` is taken,
+`dyn(p)` over a raw pointer, `dyn(h)` over a named handle, a lend that does
+not print back on one line and a file with an unevaluated platform arm.
+
+That is the mode as v0.2.78 ships it, and v0.2.78 is the release that
+migrates the `dyn(v)` alias. From v0.2.79 a plain `dyn(v)` is E0620 (`dyn`
+unsizes a pointer, and a value has none), whose help names the step:
+`yo version install 0.2.78 && yo fix <path> --migrate unsized`, then the next
+release. v0.2.79's mode keeps the lends (`&b` → `&b.*`) and the listings of
+`dyn(h)` over a named handle and of an owned `downcast`.
 
 A module-level or `thread_local` runtime binding is immutable (Rust's
 `static`) unless its name is wrapped in `mut(...)` (`static mut`, decision

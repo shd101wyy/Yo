@@ -2,7 +2,7 @@
 
 **Severity:** S3: the migration turns a file that checks into one that does not, and counts the edit as a successful rewrite. Only an enum variant named `Dyn` declared on one line triggers it. The prelude's `TypeInfo.Dyn` variant has this shape, and is spared only because it spans several lines (it is listed instead, with the wrong advice).
 
-**Status:** OPEN. Found 2026-11-15 by the unsized-sweep lane while auditing the S2 sweep of std and src (`vbd/unsized-sweep`).
+**Status:** FIXED by #1970 (decision 49 S2 flip A, 2026-11-16), confirmed 2026-11-16 by the S3b-`Dyn` lane. Found 2026-11-15 by the unsized-sweep lane while auditing the S2 sweep of std and src (`vbd/unsized-sweep`).
 
 ## Reproducer
 
@@ -48,3 +48,14 @@ In the std/src sweep, the multi-line `TypeInfo` variant at `std/prelude.yo` (`Dy
 ## Fix direction
 
 Skip the direct arguments of `enum(...)` (and `union`-style declarations, if any reuse the variant syntax): a variant declaration is never a type spelling. The variant's field types are still visited, so `Wrap(inner : Dyn(T))` is still rewritten. The repro then becomes a test: the migration must leave the file unchanged and it must still check.
+
+## Fix
+
+The flip (#1970) retired the mode's syntactic type-spelling pass: under v0.2.78 a bare `Dyn(...)` type is E0619 and
+v0.2.77 is the release that migrates the type spellings (`issues/fixed/2026-11-15-what-does-migrate-unsized-do-under-the-binary-that-flips-dyn.md`).
+`_unsized_sites_expr` is gone, and nothing in v0.2.78's mode reads a `Dyn(...)` call head. Measured with the develop
+binary (`223b188f4`): the reproducer reports `rewrote 0` and is unchanged. The v0.2.77 binary keeps the defect; it is
+published and not patched.
+
+Test: the cli case `tests/cli-cases/fix-migrate-unsized-sites` declares a one-line `Dyn(x : i32)` variant, builds and
+matches it, and expects the file unchanged after two runs and clean under `yo check`.
