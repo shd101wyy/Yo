@@ -131,3 +131,11 @@ Tier 1) evaluates every file under std, while tests/ is judged and both compiler
 the spelling there (VERDICTS-60 §6 E3). The `{ r : &mut r.* }` closure row stays in
 `std/deref_spelling.test.yo` (seed-clean). The flip re-homes the moved rows when the
 real std lines adopt the spelling. The issue itself is unchanged and stays open.
+
+## Fixed (v0.2.79, the deref flip)
+
+With v0.2.78 as the seed (it carries the capture-path rider, #1940), the flip sweeps the held-back
+capture lists: std's 87 and src's 5 `io.async` capture entries of a `&` parameter are written
+`{ p : &p.* }` (std by `yo fix --migrate deref` with the deletion binary, src by hand), and
+`is_deref_rule_exempt` is deleted, so `{ &p }` of a `&` parameter is E0926 in std and src as in every
+other file. `tests/deref_spelling_capture.test.yo` pins both spellings.

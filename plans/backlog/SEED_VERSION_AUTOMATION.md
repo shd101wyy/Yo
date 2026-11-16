@@ -585,7 +585,7 @@ v0.2.79, so v0.2.77's retirement PR keeps it.
 
 **Amended 2026-11-14 (VERDICTS-60): text v0.2.78; flip at `SEED_VERSION` ≥ v0.2.78 (v0.2.79); riders:
 capture path, alias rule.** The v0.2.77 seed rejects two swept spellings that no other spelling can bridge:
-`{ p : &p.* }` in an `io.async` capture list (A2, `issues/2026-11-13-the-v0277-seed-rejects-the-deref-swept-io-async-captures-of-a-reference-parameter.md`)
+`{ p : &p.* }` in an `io.async` capture list (A2, `issues/fixed/2026-11-13-the-v0277-seed-rejects-the-deref-swept-io-async-captures-of-a-reference-parameter.md`)
 and `MaybeUninit.as_ptr`'s `addr_of(self.*)`, which emits invalid C. The **text** sweep lands in v0.2.78. It is
 `yo fix std src scripts build.yo --migrate deref`, run with a local deletion binary as the tool, minus those
 93 lines in 21 files, with the exemption kept. v0.2.78 also carries the two **riders**: the capture path
@@ -593,6 +593,14 @@ strips a written `.*` under `deref_spelling_applies`, and the inline-builtin ali
 parameter as `p`. The **flip** is the first PR of v0.2.79. It sweeps the held-back lines, deletes
 `is_deref_rule_exempt` and its old-reading branches, and re-runs the migration over whatever was written in
 between. `--migrate deref` therefore retires in v0.2.80.
+
+**Landed (v0.2.79, the flip; `SEED_VERSION` v0.2.78).** The held-back lines are swept (the `io.async` capture
+lists borrow a `&` parameter whole as `{ p : &p.* }`, `MaybeUninit.as_ptr` reads `addr_of(self.*)`, the `*T`
+`Clone` returns `self.*`), the code written in std and src between the text PR and the flip is migrated with the
+deletion binary, and `is_deref_rule_exempt` is deleted: `deref_spelling_applies` folds into `deref_rule_applies`,
+which keeps the old reading only for compiler-synthesized code and a desugared `for`'s machinery. A fetched
+dependency is judged from v0.2.79 on. The recorder keeps `is_deref_swept_tree` (a written `.*` in std, src,
+`scripts/` and `build.yo` is never old source).
 
 ## Seed-gated follow-up (2026-11-02): V5 cells — `Rc`/`Arc` become views over `__yo_cell`
 

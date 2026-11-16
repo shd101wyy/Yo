@@ -1027,8 +1027,8 @@ _stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
     // with its own enum (`incompatible pointer types`, two same-named
     // `MathError` enums in the error.test batch).
     Rc(.Reference(sti_rp, sti_rmut, _)) => {
-      out := if(sti_rmut, String.from("&mut "), String.from("& "));
-      out.push_string(recur(&sti_rp, depth + usize(1)));
+      out := if(sti_rmut.*, String.from("&mut "), String.from("& "));
+      out.push_string(recur(&sti_rp.*, depth + usize(1)));
       out
     },
     Rc(.SliceT(sl_elem)) => {
