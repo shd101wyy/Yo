@@ -5340,7 +5340,14 @@ _call_value_loans :: (fn(slots : &ArrayList(Option(AstExpr)), env : &Environment
     match(
       slots.get_cloned(si),
       .Some(.Some(arg)) => {
-        (value : AstExpr) = match(_lent_argument_place(&arg), .Some(p) => p, .None => arg.clone());
+        (mut(value) : AstExpr) = match(_lent_argument_place(&arg), .Some(p) => p, .None => arg.clone());
+        // `&f(&x).*`, and an owner's `&b.*` (VERDICTS-63 decision 13), lend
+        // the place a projection call yields: the `.*` node reads as the
+        // call (`note_projection_call_deref`), whose roots are the loans.
+        vl_call := ast_rewritten_node(&value);
+        if(projection_call_mode_of(&vl_call, ctx).is_some(), {
+          value = vl_call;
+        });
         entries := ArrayList(OriginRootPlace).new();
         _value_loan_entries_into(&value, env, ctx, &mut entries, u32(0));
         if(entries.len() > usize(0), {

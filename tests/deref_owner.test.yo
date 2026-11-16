@@ -103,6 +103,20 @@ test("the elements are dropped once, by the owner", {
   };
   assert(_tick_drops == i32(2), "two elements, each dropped once");
 });
+_Hold :: struct(v : &[i32]);
+_push_and_sum :: (fn(b : &mut RawBuf, xs : &[i32]) -> i32)({
+  b.push(i32(1));
+  _sum(xs)
+});
+// issues/fixed/2026-11-16-an-argument-lending-a-projection-calls-place-holds-no-loan.md:
+// `&f(&s).*` and `&s.m().*` as an argument beside `&mut s`.
+_S :: struct(x : i32);
+impl(_S, xr : (fn(self : &Self) -> &i32)(&self.x));
+_xr :: (fn(s : &_S) -> &i32)(&s.x);
+_bump :: (fn(s : &mut _S, v : &i32) -> i32)({
+  s.x = (s.x + i32(1));
+  v.*
+});
 test("a live view freezes the owner (decision 13)", {
   comptime_expect_error({
     mut(b) := raw_buf(usize(2));
@@ -122,6 +136,30 @@ test("a live view freezes the owner (decision 13)", {
     _n := b.*.len();
     view_set(w, usize(0), i32(1));
   }, "borrows `b`");
+  comptime_expect_error({
+    mut(b) := raw_buf(usize(2));
+    h := _Hold(v : &b.*);
+    b.push(i32(3));
+    _sum(h.v)
+  }, "borrows");
+  comptime_expect_error({
+    mut(b) := raw_buf(usize(2));
+    _push_and_sum(&mut b, &b.*)
+  }, "carries a `&` loan of `b`");
+});
+test("an argument lending a projection call's place holds the call's loans", {
+  comptime_expect_error({
+    mut(s) := _S(x : i32(1));
+    _bump(&mut s, &s.xr().*)
+  }, "carries a `&` loan of `s`");
+  comptime_expect_error({
+    mut(s) := _S(x : i32(1));
+    _bump(&mut s, &_xr(&s).*)
+  }, "carries a `&` loan of `s`");
+  mut(s) := _S(x : i32(1));
+  n := _xr(&s).*;
+  assert(_bump(&mut s, &n) == i32(1), "a copy out of the place lends nothing");
+  assert(s.x == i32(2), "and the write landed");
 });
 test("a write through .* needs a writable owner and DerefMut", {
   comptime_expect_error({
