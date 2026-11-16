@@ -175,6 +175,25 @@ _str_ref_or :: (fn(o : &Option(str)) -> usize)(
     .None => usize(0)
   )
 );
+// A `str` element read through a raw pointer (`p.*` over a `*(&(str, static))`) is the
+// `&(str, static)` value itself, which a payload or a field stores as is
+// (ArrayList(str).get's `.Some((_ptr.add(index)).*)` emitted the address).
+_str_at :: (fn(p : *&(str, static), i : usize) -> Option(str))(.Some((p.add(i)).*));
+_str_holder_at :: (fn(p : *&(str, static), i : usize) -> _StrHolder)(_StrHolder(name : (p.add(i)).*));
+test("a str read through a raw pointer fills a payload and a field", {
+  mut(xs) := ArrayList(str).new();
+  xs.push("ab");
+  xs.push("cde");
+  match(
+    xs.ptr(),
+    .Some(p) => {
+      assert(match(_str_at(p, usize(1)), .Some(s) => (s == "cde"), .None => false), "the payload is the element");
+      assert(_str_holder_at(p, usize(0)).name.len() == usize(2), "the field is the element");
+    },
+    .None => assert(false, "a pushed list has a buffer")
+  );
+  assert(match(xs.get(usize(1)), .Some(s) => (s.len() == usize(3)), .None => false), "get yields the element");
+});
 test("a str payload binds the &(str, static) value", {
   assert((_str_or(Option(str).Some("abc"), "d") == "abc") && (_str_or(Option(str).None, "d") == "d"), "a local copy of a consumed payload is the arm's result");
   mut(xs) := ArrayList(str).new();

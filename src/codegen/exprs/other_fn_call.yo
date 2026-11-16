@@ -1789,8 +1789,11 @@ _generate_runtime_enum_construct :: (
                   .Some(a) => {
                     f_code_raw := emit_deferred_dup_or_code(&a, _call_generate_expr(&a, indent.clone(), context), indent.clone(), context);
                     // A lend of an unsized place (`&b.*`, a reference
-                    // binding read) is the pair its place reads through.
-                    f_code := if(t_slot_is_borrow(&fty) && !f_is_ref, unsized_lend_pair_code(&f_code_raw), f_code_raw);
+                    // binding read) is the pair its place reads through; a
+                    // reference VALUE (`p.*` over a `*(&str)`) already is
+                    // the pair, and its `(*p)` is the read, not a place.
+                    f_arg_is_fat_value := match(context.base.get_expr_info(&a), .Some(fa_ei) => (t_slot_is_borrow(&fa_ei.ty()) && !type_is_sized(&t_slot_pointee(&fa_ei.ty()))), .None => false);
+                    f_code := if(t_slot_is_borrow(&fty) && !f_is_ref && !f_arg_is_fat_value, unsized_lend_pair_code(&f_code_raw), f_code_raw);
                     f_takes_addr := (f_is_ref && !reference_operand_is_value(&a, context));
                     sequence_operand(&a, if(f_takes_addr, `(&(${f_code}))`, f_code), rt_args, i, f_takes_addr, indent, context)
                   },
