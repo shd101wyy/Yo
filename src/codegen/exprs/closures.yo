@@ -238,7 +238,7 @@ _sm_moved_capture_read :: (fn(expr : &AstExpr, label : &String, sm_code : String
           (mi : usize) = usize(0);
           while((mi < ms.len()) && !moved, mi = (mi + usize(1)), {
             match(
-              ms.get(mi),
+              ms.get_cloned(mi),
               .Some(m) => if(!m.arm_drop && !m.after && ((m.moved_at.module_path == tok.module_path) && ((m.moved_at.row == tok.row) && (m.moved_at.column == tok.column))), {
                 moved = true;
               }),

@@ -236,7 +236,7 @@ _bind_some_type :: (
     exn : Exception
   ) -> unit
 )({
-  token := match(tok, .Some(t) => t.*, .None => synthetic_token(name, &env.module_path().*));
+  token := match(tok, .Some(t) => Rc.clone(t.*), .None => synthetic_token(name, &env.module_path().*));
   // The bound VARIABLE's declared type is the KIND of the bound value —
   // a type binder `T` always carries `Type`/`Trait` as its variable type.
   // Passing the bound TYPE ITSELF (a SomeT or concrete) made a later read
@@ -369,7 +369,7 @@ _bind_some_type :: (
         frame_level : old_var.frame_level,
         value : value_cell_of(Option(EvalValue).Some(val.*)),
         is_owning_the_same_rc_value_as : old_var.is_owning_the_same_rc_value_as(),
-        token : old_var.token,
+        token : Rc.clone(old_var.token),
         initialized_at_token : old_var.initialized_at_token(),
         consumed_at_token : old_var.consumed_at_token(),
         rare : old_var.rare(),
@@ -692,7 +692,7 @@ _occurs_check :: (fn(some_type_id : &String, some_type_name : &String, ty : &Typ
 // ---------------------------------------------------------------------------
 /// Extract the token from options (or make a synthetic one).
 opts_token :: (fn(opts : &Option(SynthesizeOptions), env : &Environment) -> Option(Token))(
-  match(opts, .Some(o) => o.token, .None => Option(Token).None)
+  match(opts, .Some(o) => o.token.clone(), .None => Option(Token).None)
 );
 /// A flow coercion between two types that carry no SomeTs to bind: there is
 /// nothing to synthesize, so the pair is accepted exactly when
@@ -721,7 +721,7 @@ _flow_coercion_without_binders :: (fn(expected_ty : &TypeValue, given_ty : &Type
 /// the synthesizer itself knows. Callers whose errors reach the user pass
 /// the token (issues/fixed/unify-errors-carry-a-synthetic-token-so-editors-show-them-at-0-0.md).
 _anchor :: (fn(tok : &Option(Token), fallback_name : &String, module_path : &String) -> Token)(
-  match(tok, .Some(t) => t.*, .None => synthetic_token(fallback_name, module_path))
+  match(tok, .Some(t) => Rc.clone(t.*), .None => synthetic_token(fallback_name, module_path))
 );
 /// Synthesize the effect lists of two FutureTraitT types, or the implicit
 /// parameter lists of two function types: each expected entry is matched
