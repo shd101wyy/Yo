@@ -45,4 +45,5 @@ written: its type is the referent, which carries no origin, so the call's roots 
 
 `tests/deref_owner.test.yo`: "an argument lending a projection call's place holds the call's loans" (both spellings
 above, and a copy out of the place that lends nothing) and the `_push_and_sum(&mut b, &b.*)` row of "a live view
-freezes the owner (decision 13)".
+freezes the owner (decision 13)". G-B: `tests/origins/unsound/a-projection-place-argument-beside-mut.yo` (expects
+E0910) with its `-pos` control (a clone out of the place, run under ASan).
