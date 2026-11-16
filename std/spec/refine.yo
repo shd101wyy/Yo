@@ -59,7 +59,7 @@ Bounded :: (
     comptime(hi) : T,
     where(T <: Comptime)
   ) -> comptime(Type)
-)(refine(T, ghost_fn((fn(x : &T) -> bool)((x.* >= lo) && (x <= hi)))));
+)(refine(T, ghost_fn((fn(x : &T) -> bool)((x.* >= lo) && (x.* <= hi)))));
 export(Bounded);
 /// `NonEmpty(T)` — a value of `T` that carries at least one element.
 ///
@@ -133,7 +133,7 @@ check_bounded :: (
   ) -> Option(Bounded(T, lo, hi))
 )(
   if(
-    (x.* >= lo) && (x <= hi),
+    (x.* >= lo) && (x.* <= hi),
     Option(Bounded(T, lo, hi)).Some(x),
     Option(Bounded(T, lo, hi)).None
   )
