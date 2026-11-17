@@ -35,8 +35,8 @@ export(main);
 
 决策 49 的翻转随 v0.2.78 发布：`Dyn` 非定长，指向它的每个指针都是上文的胖指针，`Box(Dyn(T))` 是 prelude 的 `Box` 之上的它。v0.2.77 的裸值写法变为错误：值类型的 `Dyn(T)` 是 E0619，把 `Box(Dyn(T))` 的 `&b` 传入 `&Dyn(T)` 槽位是 E0601（它借出的是 box；对象用 `&b.*` 借出）。为 v0.2.77 编写的代码分两步升级，E0619 的提示也这样说明：先在 v0.2.77 上（`yo version install 0.2.77`）运行 `yo fix <path> --migrate unsized` 改写类型写法，再在 v0.2.78 上运行同一命令，把借出 `&b` 改写为 `&b.*`，并把剩余的 `dyn(v)` 别名位置改写为 `dyn(Box.new(v))`。自 v0.2.79 起该别名已移除：裸 `dyn(v)` 是 E0620，因为 `dyn` 对指针做非定长化，而值没有指针。为 v0.2.78 编写的代码先在 v0.2.78 上迁移（`yo version install 0.2.78 && yo fix <path> --migrate unsized`），E0620 的提示也这样说明；具名实参（`dyn(e)`）还带有 `yo fix <path>` 会应用的修复 `dyn(Box.new(e))`。仍属过渡的：
 
-- **在 v0.2.79 之前，`Rc(Dyn(T))` 和 `Arc(Dyn(T))` 退化为两次分配**：`dyn(Rc.new(v))` 把一个装箱的 `Dyn` 放进计数单元。类型与共享规则已是最终形态——`h.*` 是 `Dyn(T)` 的位置，`&h.*` 是 `&Dyn(T)`，`Rc.clone`、`get_mut`、`downgrade`/`upgrade` 的行为与最终设计一致——但单块单元和 `Rc.from_slice` 随 v0.2.79 到来。
-- **在 v0.2.79 之前，对 `Rc(Dyn)`/`Arc(Dyn)` 的拥有型 `downcast` 是错误**：单元还持有 box 时块无法改型。请写 `downcast(&h.*, V)`，与任何引用一样得到 `Option(&V)`。对 `Box`，拥有型的 `downcast(b, V)` 是 `Result(Box(V), Box(Dyn(T)))`，失败时交还 box。
+- **在 v0.2.80 之前，`Rc(Dyn(T))` 和 `Arc(Dyn(T))` 退化为两次分配**：`dyn(Rc.new(v))` 把一个装箱的 `Dyn` 放进计数单元。类型与共享规则已是最终形态——`h.*` 是 `Dyn(T)` 的位置，`&h.*` 是 `&Dyn(T)`，`Rc.clone`、`get_mut`、`downgrade`/`upgrade` 的行为与最终设计一致——但单块单元和 `Rc.from_slice` 随 v0.2.80 到来。
+- **在 v0.2.80 之前，对 `Rc(Dyn)`/`Arc(Dyn)` 的拥有型 `downcast` 是错误**：单元还持有 box 时块无法改型。请写 `downcast(&h.*, V)`，与任何引用一样得到 `Option(&V)`。对 `Box`，拥有型的 `downcast(b, V)` 是 `Result(Box(V), Box(Dyn(T)))`，失败时交还 box。
 
 裸指针 `*Dyn(T)`/`?*Dyn(T)` 指向 `Dyn` 的位置；拥有其对象的写法是 `*Box(Dyn(T))`，迁移会写出它。
 
@@ -65,7 +65,7 @@ typedef struct {
 | `size`、`align` | 载荷的大小和对齐，由 `size_of_val(d)` 和 `align_of_val(d)` 读取 |
 | `drop_in_place` | 就地销毁载荷 |
 | `clone_into` | 把载荷克隆到调用方提供的存储中；trait 列表不含 `Clone` 时为 `NULL` |
-| `payload_of`、`retain`、`release`、`clone` | v0.2.77 拥有型值的槽位；为过渡期的 `Rc`/`Arc` 单元继续生成，随它们在 v0.2.79 移除 |
+| `payload_of`、`retain`、`release`、`clone` | v0.2.77 拥有型值的槽位；为过渡期的 `Rc`/`Arc` 单元继续生成，随它们在 v0.2.80 移除 |
 
 ```c
 typedef struct {
@@ -190,7 +190,7 @@ match(
 
 第二个参数是一个**类型**，在编译期求值。`std/error.yo` 里 `AnyError` 的 `err.is(T)` 就是用 `downcast` 构建的。
 
-对拥有型 `Box` 写 `downcast(b, V)` 会把 box 移入并在失败时交还：结果是 `Result(Box(V), Box(Dyn(T)))`，其 `.Ok` 是同一块内存改型而来（没有拷贝，所以仅移动的 `V` 不需要 `Clone`）。只读载荷时请写 `downcast(&b.*, V)` 得到 `Option(&V)`。在 v0.2.79 之前，对 `Rc(Dyn)`/`Arc(Dyn)` 的拥有型形式是错误；请写 `downcast(&h.*, V)`。
+对拥有型 `Box` 写 `downcast(b, V)` 会把 box 移入并在失败时交还：结果是 `Result(Box(V), Box(Dyn(T)))`，其 `.Ok` 是同一块内存改型而来（没有拷贝，所以仅移动的 `V` 不需要 `Clone`）。只读载荷时请写 `downcast(&b.*, V)` 得到 `Option(&V)`。在 v0.2.80 之前，对 `Rc(Dyn)`/`Arc(Dyn)` 的拥有型形式是错误；请写 `downcast(&h.*, V)`。
 
 **检查是怎么做的。** 每个具体类型都有一个静态变量，其**地址**就是它的类型 id，每个虚表都在 `__yo_type_id` 中带着它。检查就是一次指针比较，`d.vtable->__yo_type_id == (uintptr_t)&__yo_typeid_Cat`，没有字符串比较，也没有 RTTI 表。
 
@@ -268,4 +268,4 @@ d.speak(); // error[E0901]: use of moved value: `d`
 3. **每个具体类型和 trait 列表一个虚表**，由各种指针共用：前缀 `{ type_id, size, align, drop_in_place, clone_into }`，然后是方法槽位。
 4. **`dyn(...)` 是唯一显式写出的非定长化**：`dyn(Box.new(v))`、`dyn(Rc.new(v))`、`dyn(Arc.new(v))`、`dyn(&v)`、`dyn(&mut v)`。
 5. **`downcast` 和 `upcast` 保持指针的种类**：通过引用时，`downcast` 把载荷借用为 `Option(&V)`；`upcast` 替换虚表那个字。
-6. **在 v0.2.78 中**，`Rc(Dyn(T))`/`Arc(Dyn(T))` 在 v0.2.79 的单块单元到来之前仍是两次分配并拒绝拥有型 `downcast`；上文的其余设计均已最终。
+6. **在 v0.2.78 中**，`Rc(Dyn(T))`/`Arc(Dyn(T))` 在 v0.2.80 的单块单元到来之前仍是两次分配并拒绝拥有型 `downcast`；上文的其余设计均已最终。

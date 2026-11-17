@@ -51,11 +51,11 @@ value has none. Code written for v0.2.78 is migrated on v0.2.78 first
 argument (`dyn(e)`) also carries the repair `yo fix <path>` applies, `dyn(Box.new(e))`.
 What stays interim:
 
-- **Until v0.2.79, `Rc(Dyn(T))` and `Arc(Dyn(T))` lower to two allocations**: `dyn(Rc.new(v))`
+- **Until v0.2.80, `Rc(Dyn(T))` and `Arc(Dyn(T))` lower to two allocations**: `dyn(Rc.new(v))`
   puts a boxed `Dyn` in a counted cell. The type and its sharing rules are final — `h.*` is the
   `Dyn(T)` place, `&h.*` is `&Dyn(T)`, and `Rc.clone`, `get_mut`, `downgrade`/`upgrade` behave as
-  in the final design — but the one-block cell and `Rc.from_slice` come with v0.2.79.
-- **Until v0.2.79, an owned `downcast` on `Rc(Dyn)`/`Arc(Dyn)` is an error**: the block cannot be
+  in the final design — but the one-block cell and `Rc.from_slice` come with v0.2.80.
+- **Until v0.2.80, an owned `downcast` on `Rc(Dyn)`/`Arc(Dyn)` is an error**: the block cannot be
   retyped while the cell holds a box. Write `downcast(&h.*, V)`, which gives `Option(&V)` as on
   any reference. On a `Box`, the owning `downcast(b, V)` is `Result(Box(V), Box(Dyn(T)))`, which
   hands the box back on failure.
@@ -90,7 +90,7 @@ shares it. It starts with a fixed prefix, then one slot per callable method:
 | `size`, `align` | the payload's size and alignment, read by `size_of_val(d)` and `align_of_val(d)` |
 | `drop_in_place` | drops the payload where it lies |
 | `clone_into` | clones the payload into storage the caller provides; `NULL` unless the trait list has `Clone` |
-| `payload_of`, `retain`, `release`, `clone` | the v0.2.77 owning value's slots; still emitted for the interim `Rc`/`Arc` cells, removed with them in v0.2.79 |
+| `payload_of`, `retain`, `release`, `clone` | the v0.2.77 owning value's slots; still emitted for the interim `Rc`/`Arc` cells, removed with them in v0.2.80 |
 
 ```c
 typedef struct {
@@ -251,7 +251,7 @@ The second argument is a TYPE, evaluated at compile time. `std/error.yo`'s `err.
 `downcast(b, V)` on an owned `Box` moves the box in and hands it back on failure: the result is
 `Result(Box(V), Box(Dyn(T)))`, whose `.Ok` is the same block retyped (no copy, so a move-only `V`
 needs no `Clone`). Where you only read the payload, write `downcast(&b.*, V)` for `Option(&V)`.
-On `Rc(Dyn)`/`Arc(Dyn)` the owning form is an error until v0.2.79; write `downcast(&h.*, V)`.
+On `Rc(Dyn)`/`Arc(Dyn)` the owning form is an error until v0.2.80; write `downcast(&h.*, V)`.
 
 **How the check works.** Each concrete type gets one static whose ADDRESS is its type id, and every
 vtable carries it in `__yo_type_id`. The check is one pointer comparison,
@@ -364,4 +364,4 @@ returns it, wraps it in a `Context`) by moving it, and lends it to a function th
 5. **`downcast` and `upcast` keep the pointer kind**: through a reference, `downcast` borrows the
    payload as `Option(&V)`; `upcast` replaces the vtable word.
 6. **In v0.2.78** `Rc(Dyn(T))`/`Arc(Dyn(T))` still take two allocations and reject the owning
-   `downcast` until v0.2.79's one-block cell; everything else above is final.
+   `downcast` until v0.2.80's one-block cell; everything else above is final.
