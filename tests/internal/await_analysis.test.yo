@@ -55,44 +55,52 @@ make_io_method_call :: (fn(method : str, arg : &AstExpr, call_char : usize) -> A
   mut(dot_args) := ArrayList(AstExpr).new();
   dot_args.push(make_ident("io"));
   dot_args.push(Rc.new(AstExprNode.Atom(usize(0), make_token(TokenKind.Identifier, method))));
-  dot_fncall := Rc.new(AstExprNode.FnCall(
-    usize(0),
-    Rc.new(AstExprNode.Atom(usize(0), make_token(TokenKind.Dot, "."))),
-    Rc.new(dot_args),
-    true,
-    make_token(TokenKind.Dot, ".")
-  ));
+  dot_fncall := Rc.new(
+    AstExprNode.FnCall(
+      usize(0),
+      Rc.new(AstExprNode.Atom(usize(0), make_token(TokenKind.Dot, "."))),
+      Rc.new(dot_args),
+      true,
+      make_token(TokenKind.Dot, ".")
+    )
+  );
   mut(outer_args) := ArrayList(AstExpr).new();
-  outer_args.push(arg.*);
-  Rc.new(AstExprNode.FnCall(
-    usize(0),
-    dot_fncall,
-    Rc.new(outer_args),
-    false,
-    make_token_at(TokenKind.Identifier, method, call_char)
-  ))
+  outer_args.push(Rc.clone(arg.*));
+  Rc.new(
+    AstExprNode.FnCall(
+      usize(0),
+      dot_fncall,
+      Rc.new(outer_args),
+      false,
+      make_token_at(TokenKind.Identifier, method, call_char)
+    )
+  )
 });
 // Creates a call `handle.await(using_arg, handle)` for JoinHandle await detection
 make_handle_await_call :: (fn(handle_name : str, arg : &AstExpr) -> AstExpr)({
   mut(dot_args) := ArrayList(AstExpr).new();
   dot_args.push(make_ident(handle_name));
   dot_args.push(Rc.new(AstExprNode.Atom(usize(0), make_token(TokenKind.Identifier, "await"))));
-  dot_fncall := Rc.new(AstExprNode.FnCall(
-    usize(0),
-    Rc.new(AstExprNode.Atom(usize(0), make_token(TokenKind.Dot, "."))),
-    Rc.new(dot_args),
-    true,
-    make_token(TokenKind.Dot, ".")
-  ));
+  dot_fncall := Rc.new(
+    AstExprNode.FnCall(
+      usize(0),
+      Rc.new(AstExprNode.Atom(usize(0), make_token(TokenKind.Dot, "."))),
+      Rc.new(dot_args),
+      true,
+      make_token(TokenKind.Dot, ".")
+    )
+  );
   mut(outer_args) := ArrayList(AstExpr).new();
-  outer_args.push(arg.*);
-  Rc.new(AstExprNode.FnCall(
-    usize(0),
-    dot_fncall,
-    Rc.new(outer_args),
-    false,
-    make_token(TokenKind.Identifier, "await")
-  ))
+  outer_args.push(Rc.clone(arg.*));
+  Rc.new(
+    AstExprNode.FnCall(
+      usize(0),
+      dot_fncall,
+      Rc.new(outer_args),
+      false,
+      make_token(TokenKind.Identifier, "await")
+    )
+  )
 });
 // A simple future type: SomeT with one required trait = FutureTraitT(output: unit)
 make_future_some_type :: (fn() -> TypeValue)({
@@ -278,13 +286,15 @@ test("analyze_await_points: non-await fncall body => no await points", {
   // foo(x) — not an io.await call, get_info returns None
   mut(args) := ArrayList(AstExpr).new();
   args.push(make_ident("x"));
-  body := Rc.new(AstExprNode.FnCall(
-    usize(0),
-    make_ident("foo"),
-    Rc.new(args),
-    false,
-    make_token(TokenKind.Identifier, "foo")
-  ));
+  body := Rc.new(
+    AstExprNode.FnCall(
+      usize(0),
+      make_ident("foo"),
+      Rc.new(args),
+      false,
+      make_token(TokenKind.Identifier, "foo")
+    )
+  );
   result := analyze_await_points(&body, get_info_none);
   assert(result.await_points.len() == usize(0), "no await points in non-await call");
   assert(!result.has_awaits, "has_awaits should be false");

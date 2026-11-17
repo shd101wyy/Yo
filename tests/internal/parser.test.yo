@@ -24,7 +24,7 @@ assert_str_eq :: (fn(actual : &String, expected : &String, msg : str) -> unit)(
 only_expr :: (fn(prog : &ArrayList(AstExpr)) -> AstExpr)({
   assert(prog.len() == usize(1), "expected program with exactly 1 top-level expression");
   match(
-    prog.get(usize(0)),
+    prog.get_cloned(usize(0)),
     .None => {
       assert(false, "no expression at index 0");
       make_err_expr()
@@ -538,12 +538,12 @@ test("Parse two top-level expressions separated by semicolon", {
   prog := parse(`a; b`, `test.yo`, exn);
   assert(prog.len() == usize(2), "expected 2 expressions");
   match(
-    prog.get(usize(0)),
+    prog.get_cloned(usize(0)),
     .None => assert(false, "no first expr"),
     .Some(e) => assert_str_eq(ast_expr_to_string(&e), `a`, "first expr")
   );
   match(
-    prog.get(usize(1)),
+    prog.get_cloned(usize(1)),
     .None => assert(false, "no second expr"),
     .Some(e) => assert_str_eq(ast_expr_to_string(&e), `b`, "second expr")
   );
@@ -560,12 +560,12 @@ test("Parse trailing semicolon appends unit expression", {
   prog := parse(`x;`, `test.yo`, exn);
   assert(prog.len() == usize(2), "expected 2 exprs (x and trailing unit)");
   match(
-    prog.get(usize(0)),
+    prog.get_cloned(usize(0)),
     .None => assert(false, "no first expr"),
     .Some(e) => assert_str_eq(ast_expr_to_string(&e), `x`, "first is x")
   );
   match(
-    prog.get(usize(1)),
+    prog.get_cloned(usize(1)),
     .None => assert(false, "no second expr"),
     .Some(e) => assert_str_eq(ast_expr_to_string(&e), `()`, "second is unit")
   );
@@ -847,7 +847,7 @@ _parse_ts :: (fn(inner : str, exn : Exception) -> String)({
   prog := parse(_ts(inner), `test.yo`, exn);
   assert(prog.len() == usize(2), "template string should parse to import + rendering");
   match(
-    prog.get(usize(1)),
+    prog.get_cloned(usize(1)),
     .Some(e) => ast_expr_to_string(&e),
     .None => String.new()
   )
@@ -1145,7 +1145,7 @@ _d47_at :: (fn(src : &String, path : &String) -> AstExpr)({
   only_expr(parse(src, path, exn))
 });
 _d47_arg :: (fn(e : &AstExpr, i : usize) -> AstExpr)(
-  match(e, Rc(.FnCall(_, _, Rc(a), _, _)) => match(a.get(i), .Some(x) => x, .None => make_err_expr()), Rc(.Atom(_, _)) => make_err_expr())
+  match(e, Rc(.FnCall(_, _, Rc(a), _, _)) => match(a.get_cloned(i), .Some(x) => x, .None => make_err_expr()), Rc(.Atom(_, _)) => make_err_expr())
 );
 _d47_marked :: (fn(name : &AstExpr) -> bool)({
   t := ast_expr_token(name);
