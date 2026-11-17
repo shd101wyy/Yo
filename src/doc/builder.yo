@@ -237,7 +237,7 @@ _is_trivia_token :: (fn(token : &Token) -> bool)(
 /// Skip past balanced parentheses starting at `(`. Returns index after `)`.
 _skip_balanced_parens :: (fn(toks : &ArrayList(Token), start : usize) -> usize)({
   at_lparen := match(
-    toks.get(start),
+    toks.get_cloned(start),
     .Some(t) => (t.kind == TokenKind.LParen),
     .None => false
   );
@@ -248,7 +248,7 @@ _skip_balanced_parens :: (fn(toks : &ArrayList(Token), start : usize) -> usize)(
   (j : usize) = (start + usize(1));
   while((j < toks.len()) && (depth > usize(0)), {
     match(
-      toks.get(j),
+      toks.get_cloned(j),
       .Some(t) => {
         if(t.kind == TokenKind.LParen, {
           depth = (depth + usize(1));
@@ -272,14 +272,14 @@ _slice_token_text :: (
     return(String.new());
   });
   start_tok := match(
-    toks.get(start_index),
+    toks.get_cloned(start_index),
     .Some(t) => t,
     .None => {
       return(String.new());
     }
   );
   end_tok := match(
-    toks.get(end_index),
+    toks.get_cloned(end_index),
     .Some(t) => t,
     .None => {
       return(String.new());
@@ -306,7 +306,7 @@ _skip_delimited_argument :: (fn(toks : &ArrayList(Token), start : usize) -> usiz
   (done : bool) = false;
   while((index < toks.len()) && !done, {
     token := match(
-      toks.get(index),
+      toks.get_cloned(index),
       .Some(t) => t,
       .None => {
         done = true;
@@ -354,7 +354,7 @@ _extract_receiver_type_name :: (
   (i : usize) = start;
   while(i <= end, {
     match(
-      toks.get(i),
+      toks.get_cloned(i),
       .Some(t) => if(t.kind == TokenKind.Identifier, {
         return(t.value.*.clone());
       }),
@@ -426,7 +426,7 @@ _render_token_span :: (
   (k : usize) = start;
   while((k <= end_index) && (k < toks.len()), {
     t := match(
-      toks.get(k),
+      toks.get_cloned(k),
       .Some(tok) => tok,
       .None => {
         k = (k + usize(1));
@@ -434,7 +434,7 @@ _render_token_span :: (
       }
     );
     if(k > start, {
-      prev := match(toks.get(k - usize(1)), .Some(pt) => pt, .None => t);
+      prev := match(toks.get_cloned(k - usize(1)), .Some(pt) => pt, .None => Rc.clone(t));
       // `Token.character` is a RUNE offset, so the token width added to one
       // has to be a rune count (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
       adjacent := ((usize(prev.character) + prev.value.*.clone().chars().count()) == usize(t.character));
@@ -467,7 +467,7 @@ _parse_source_param :: (
   (found_default : bool) = false;
   while((q <= end_index) && !found_default, {
     t := match(
-      toks.get(q),
+      toks.get_cloned(q),
       .Some(tok) => tok,
       .None => {
         q = (q + usize(1));
@@ -502,7 +502,7 @@ _parse_source_param :: (
   // Unwrap a paren around the whole core: `(msg : T) ?= default`.
   (core_start : usize) = start;
   starts_with_paren := match(
-    toks.get(core_start),
+    toks.get_cloned(core_start),
     .Some(t) => (t.kind == TokenKind.LParen),
     .None => false
   );
@@ -516,7 +516,7 @@ _parse_source_param :: (
   // The name: either a bare identifier, or a wrapper like `comptime(x)` /
   // `sink(x)` whose first inner identifier is the name.
   head := match(
-    toks.get(core_start),
+    toks.get_cloned(core_start),
     .Some(t) => t,
     .None => {
       return(Option(DocParam).None);
@@ -529,7 +529,7 @@ _parse_source_param :: (
   (is_comptime : bool) = false;
   (after_name : usize) = (core_start + usize(1));
   wrapper_paren := match(
-    toks.get(core_start + usize(1)),
+    toks.get_cloned(core_start + usize(1)),
     .Some(t) => (((core_start + usize(1)) <= core_end) && (t.kind == TokenKind.LParen)),
     .None => false
   );
@@ -549,7 +549,7 @@ _parse_source_param :: (
     return(Option(DocParam).None);
   });
   colon_ok := match(
-    toks.get(after_name),
+    toks.get_cloned(after_name),
     .Some(t) => ((t.kind == TokenKind.Operator) && (t.value.* == `:`)),
     .None => false
   );
@@ -585,7 +585,7 @@ _parse_source_fn_signature :: (
   });
   param_list_start := (type_start + usize(2));
   param_list_ok := match(
-    toks.get(param_list_start),
+    toks.get_cloned(param_list_start),
     .Some(t) => ((param_list_start < (fn_paren_end - usize(1))) && (t.kind == TokenKind.LParen)),
     .None => false
   );
@@ -600,7 +600,7 @@ _parse_source_fn_signature :: (
   while(p < (param_end - usize(1)), {
     arg_end := _skip_delimited_argument(toks, p);
     first := match(
-      toks.get(p),
+      toks.get_cloned(p),
       .Some(t) => t,
       .None => {
         p = (p + usize(1));
@@ -608,7 +608,7 @@ _parse_source_fn_signature :: (
       }
     );
     second_is_lparen := match(
-      toks.get(p + usize(1)),
+      toks.get_cloned(p + usize(1)),
       .Some(t) => (((p + usize(1)) < arg_end) && (t.kind == TokenKind.LParen)),
       .None => false
     );
@@ -620,7 +620,7 @@ _parse_source_fn_signature :: (
         while(g < (gen_end - usize(1)), {
           g_end := _skip_delimited_argument(toks, g);
           g_tok := match(
-            toks.get(g),
+            toks.get_cloned(g),
             .Some(t) => t,
             .None => {
               g = (g + usize(1));
@@ -629,7 +629,7 @@ _parse_source_fn_signature :: (
           );
           if(g_tok.kind == TokenKind.Identifier, {
             has_constraint := match(
-              toks.get(g + usize(1)),
+              toks.get_cloned(g + usize(1)),
               .Some(t) => (((g + usize(1)) < g_end) && (t.kind == TokenKind.Operator) && (t.value.* == `:`)),
               .None => false
             );
@@ -648,7 +648,7 @@ _parse_source_fn_signature :: (
           });
           g = g_end;
           g_is_comma := match(
-            toks.get(g),
+            toks.get_cloned(g),
             .Some(t) => ((g < (gen_end - usize(1))) && (t.kind == TokenKind.Comma)),
             .None => false
           );
@@ -671,7 +671,7 @@ _parse_source_fn_signature :: (
     );
     p = arg_end;
     p_is_comma := match(
-      toks.get(p),
+      toks.get_cloned(p),
       .Some(t) => ((p < (param_end - usize(1))) && (t.kind == TokenKind.Comma)),
       .None => false
     );
@@ -687,7 +687,7 @@ _parse_source_fn_signature :: (
   (found_arrow : bool) = false;
   while((q < (fn_paren_end - usize(1))) && !found_arrow, {
     t := match(
-      toks.get(q),
+      toks.get_cloned(q),
       .Some(tok) => tok,
       .None => {
         q = (q + usize(1));
@@ -735,7 +735,7 @@ _extract_top_level_fn_signatures :: (
   (fi : usize) = usize(0);
   while(fi < tokens.len(), {
     match(
-      tokens.get(fi),
+      tokens.get_cloned(fi),
       .Some(t) => if(!_is_trivia_token(&t), {
         toks.push(t);
       }),
@@ -746,7 +746,7 @@ _extract_top_level_fn_signatures :: (
   (i : usize) = usize(0);
   while(i < toks.len(), {
     token := match(
-      toks.get(i),
+      toks.get_cloned(i),
       .Some(t) => t,
       .None => {
         i = (i + usize(1));
@@ -755,17 +755,17 @@ _extract_top_level_fn_signatures :: (
     );
     is_decl := if((token.kind == TokenKind.Identifier) && ((i + usize(3)) < toks.len()), {
       t1_ok := match(
-        toks.get(i + usize(1)),
+        toks.get_cloned(i + usize(1)),
         .Some(t) => ((t.kind == TokenKind.Operator) && (t.value.* == `::`)),
         .None => false
       );
       t2_ok := match(
-        toks.get(i + usize(2)),
+        toks.get_cloned(i + usize(2)),
         .Some(t) => (t.kind == TokenKind.LParen),
         .None => false
       );
       t3_ok := match(
-        toks.get(i + usize(3)),
+        toks.get_cloned(i + usize(3)),
         .Some(t) => ((t.kind == TokenKind.Identifier) && (t.value.* == `fn`)),
         .None => false
       );
@@ -842,11 +842,11 @@ _paren_contains_trait_body :: (fn(toks : &ArrayList(Token), l_paren_index : usiz
   (i : usize) = (l_paren_index + usize(1));
   while((i + usize(1)) < (end - usize(1)), {
     is_pair := match(
-      toks.get(i),
+      toks.get_cloned(i),
       .Some(t) => if(
         t.kind == TokenKind.Identifier,
         match(
-          toks.get(i + usize(1)),
+          toks.get_cloned(i + usize(1)),
           .Some(t2) => ((t2.kind == TokenKind.Operator) && (t2.value.* == `:`)),
           .None => false
         ),
@@ -924,7 +924,7 @@ _collect_doc_comment_before :: (
   (found : bool) = false;
   while((i < full_tokens.len()) && !found, {
     match(
-      full_tokens.get(i),
+      full_tokens.get_cloned(i),
       .Some(t) => if((usize(t.row) > row) || ((usize(t.row) == row) && (usize(t.character) >= character)), {
         idx = isize(i);
         found = true;
@@ -943,7 +943,7 @@ _collect_doc_comment_before :: (
   (stop : bool) = false;
   while((bi >= isize(0)) && !stop, {
     match(
-      full_tokens.get(usize(bi)),
+      full_tokens.get_cloned(usize(bi)),
       .Some(t) => cond(
         (t.kind == TokenKind.Whitespace) => (),
         (t.kind == TokenKind.DocLineComment) => {
@@ -992,7 +992,7 @@ extract_trait_impls_from_tokens :: (
   (fi : usize) = usize(0);
   while(fi < tokens.len(), {
     match(
-      tokens.get(fi),
+      tokens.get_cloned(fi),
       .Some(t) => if(!_is_trivia_token(&t), {
         toks.push(t);
       }),
@@ -1003,7 +1003,7 @@ extract_trait_impls_from_tokens :: (
   (i : usize) = usize(0);
   while(i < toks.len(), {
     tok := match(
-      toks.get(i),
+      toks.get_cloned(i),
       .Some(t) => t,
       .None => {
         i = (i + usize(1));
@@ -1014,7 +1014,7 @@ extract_trait_impls_from_tokens :: (
       (tok.kind == TokenKind.Identifier) && ((tok.value.* == `impl`) || (tok.value.* == `derive`))
     );
     has_lparen := match(
-      toks.get(i + usize(1)),
+      toks.get_cloned(i + usize(1)),
       .Some(t) => (t.kind == TokenKind.LParen),
       .None => false
     );
@@ -1026,14 +1026,14 @@ extract_trait_impls_from_tokens :: (
     (j : usize) = (i + usize(2));
     // Skip `generic(...)` if present.
     is_generic := match(
-      toks.get(j),
+      toks.get_cloned(j),
       .Some(t) => ((t.kind == TokenKind.Identifier) && (t.value.* == `generic`)),
       .None => false
     );
     if(is_generic, {
       j = _skip_balanced_parens(&toks, j + usize(1));
       match(
-        toks.get(j),
+        toks.get_cloned(j),
         .Some(t) => if(t.kind == TokenKind.Comma, {
           j = (j + usize(1));
         }),
@@ -1042,14 +1042,14 @@ extract_trait_impls_from_tokens :: (
     });
     // Skip `where(...)` if present.
     is_where := match(
-      toks.get(j),
+      toks.get_cloned(j),
       .Some(t) => ((t.kind == TokenKind.Identifier) && (t.value.* == `where`)),
       .None => false
     );
     if(is_where, {
       j = _skip_balanced_parens(&toks, j + usize(1));
       match(
-        toks.get(j),
+        toks.get_cloned(j),
         .Some(t) => if(t.kind == TokenKind.Comma, {
           j = (j + usize(1));
         }),
@@ -1058,7 +1058,7 @@ extract_trait_impls_from_tokens :: (
     });
     // The receiver type name.
     type_name := match(
-      toks.get(j),
+      toks.get_cloned(j),
       .Some(t) => if(t.kind == TokenKind.Identifier, t.value.*.clone(), String.new()),
       .None => String.new()
     );
@@ -1069,7 +1069,7 @@ extract_trait_impls_from_tokens :: (
     j = (j + usize(1));
     // Skip type parameters like `(T)` after the type name.
     is_lp := match(
-      toks.get(j),
+      toks.get_cloned(j),
       .Some(t) => (t.kind == TokenKind.LParen),
       .None => false
     );
@@ -1078,7 +1078,7 @@ extract_trait_impls_from_tokens :: (
     });
     // If next is comma, the item after is the trait name.
     is_comma := match(
-      toks.get(j),
+      toks.get_cloned(j),
       .Some(t) => (t.kind == TokenKind.Comma),
       .None => false
     );
@@ -1088,7 +1088,7 @@ extract_trait_impls_from_tokens :: (
     });
     j = (j + usize(1));
     trait_name := match(
-      toks.get(j),
+      toks.get_cloned(j),
       .Some(t) => if(t.kind == TokenKind.Identifier, t.value.*.clone(), String.new()),
       .None => String.new()
     );
@@ -1098,7 +1098,7 @@ extract_trait_impls_from_tokens :: (
     });
     // Verify it's followed by `(` to confirm it's a trait (not another arg).
     trait_lp := match(
-      toks.get(j + usize(1)),
+      toks.get_cloned(j + usize(1)),
       .Some(t) => (t.kind == TokenKind.LParen),
       .None => false
     );
@@ -1137,13 +1137,13 @@ _extract_trait_body_members :: (
   (i : usize) = (l_paren_index + usize(1));
   while(i < (end - usize(1)), {
     is_pair := match(
-      toks.get(i),
+      toks.get_cloned(i),
       .Some(t) => if(
         t.kind == TokenKind.Identifier,
         if(
           (i + usize(1)) < (end - usize(1)),
           match(
-            toks.get(i + usize(1)),
+            toks.get_cloned(i + usize(1)),
             .Some(t2) => ((t2.kind == TokenKind.Operator) && (t2.value.* == `:`)),
             .None => false
           ),
@@ -1155,7 +1155,7 @@ _extract_trait_body_members :: (
     );
     if(is_pair, {
       name_tok := match(
-        toks.get(i),
+        toks.get_cloned(i),
         .Some(t) => t,
         .None => {
           i = (i + usize(1));
@@ -1173,13 +1173,13 @@ _extract_trait_body_members :: (
       type_start := (i + usize(2));
       if(type_start < (end - usize(1)), {
         type_tok_is_lparen := match(
-          toks.get(type_start),
+          toks.get_cloned(type_start),
           .Some(t) => (t.kind == TokenKind.LParen),
           .None => false
         );
         is_fn_type := (
           type_tok_is_lparen && ((type_start + usize(1)) < (end - usize(1))) && match(
-            toks.get(type_start + usize(1)),
+            toks.get_cloned(type_start + usize(1)),
             .Some(t) => ((t.kind == TokenKind.Identifier) && (t.value.* == `fn`)),
             .None => false
           )
@@ -1194,7 +1194,7 @@ _extract_trait_body_members :: (
           params := ArrayList(DocParam).new();
           param_start := (type_start + usize(2));
           param_start_is_lp := match(
-            toks.get(param_start),
+            toks.get_cloned(param_start),
             .Some(t) => (t.kind == TokenKind.LParen),
             .None => false
           );
@@ -1203,7 +1203,7 @@ _extract_trait_body_members :: (
             (p : usize) = (param_start + usize(1));
             while(p < (param_end - usize(1)), {
               param_name := match(
-                toks.get(p),
+                toks.get_cloned(p),
                 .Some(t) => if(t.kind == TokenKind.Identifier, t.value.*.clone(), String.new()),
                 .None => String.new()
               );
@@ -1213,7 +1213,7 @@ _extract_trait_body_members :: (
                 if((param_name != `self`) || (params.len() == usize(0)), {
                   has_colon := (
                     ((p + usize(1)) < (param_end - usize(1))) && match(
-                      toks.get(p + usize(1)),
+                      toks.get_cloned(p + usize(1)),
                       .Some(t) => ((t.kind == TokenKind.Operator) && (t.value.* == `:`)),
                       .None => false
                     )
@@ -1237,7 +1237,7 @@ _extract_trait_body_members :: (
                     p = type_arg_end;
                     comma_next := (
                       (p < (param_end - usize(1))) && match(
-                        toks.get(p),
+                        toks.get_cloned(p),
                         .Some(t) => (t.kind == TokenKind.Comma),
                         .None => false
                       )
@@ -1291,7 +1291,7 @@ _extract_trait_body_members :: (
     });
     // Skip balanced nested parens to avoid false matches inside type exprs.
     at_lp := match(
-      toks.get(i),
+      toks.get_cloned(i),
       .Some(t) => (t.kind == TokenKind.LParen),
       .None => false
     );
@@ -1320,7 +1320,7 @@ extract_impl_info_from_tokens :: (
   (fi : usize) = usize(0);
   while(fi < tokens.len(), {
     match(
-      tokens.get(fi),
+      tokens.get_cloned(fi),
       .Some(t) => if(!_is_trivia_token(&t), {
         toks.push(t);
       }),
@@ -1331,7 +1331,7 @@ extract_impl_info_from_tokens :: (
   (i : usize) = usize(0);
   while(i < toks.len(), {
     tok := match(
-      toks.get(i),
+      toks.get_cloned(i),
       .Some(t) => t,
       .None => {
         i = (i + usize(1));
@@ -1340,7 +1340,7 @@ extract_impl_info_from_tokens :: (
     );
     is_impl := ((tok.kind == TokenKind.Identifier) && (tok.value.* == `impl`));
     has_lparen := match(
-      toks.get(i + usize(1)),
+      toks.get_cloned(i + usize(1)),
       .Some(t) => (t.kind == TokenKind.LParen),
       .None => false
     );
@@ -1353,7 +1353,7 @@ extract_impl_info_from_tokens :: (
     signature_parts := ArrayList(String).new();
     // `generic(...)` prefix.
     is_generic := match(
-      toks.get(current),
+      toks.get_cloned(current),
       .Some(t) => ((t.kind == TokenKind.Identifier) && (t.value.* == `generic`)),
       .None => false
     );
@@ -1362,7 +1362,7 @@ extract_impl_info_from_tokens :: (
       signature_parts.push(_slice_token_text(&toks, current, forall_end - usize(1)));
       current = forall_end;
       match(
-        toks.get(current),
+        toks.get_cloned(current),
         .Some(t) => if(t.kind == TokenKind.Comma, {
           current = (current + usize(1));
         }),
@@ -1371,7 +1371,7 @@ extract_impl_info_from_tokens :: (
     });
     // `where(...)` before the receiver.
     is_where := match(
-      toks.get(current),
+      toks.get_cloned(current),
       .Some(t) => ((t.kind == TokenKind.Identifier) && (t.value.* == `where`)),
       .None => false
     );
@@ -1380,7 +1380,7 @@ extract_impl_info_from_tokens :: (
       signature_parts.push(_slice_token_text(&toks, current, where_end - usize(1)));
       current = where_end;
       match(
-        toks.get(current),
+        toks.get_cloned(current),
         .Some(t) => if(t.kind == TokenKind.Comma, {
           current = (current + usize(1));
         }),
@@ -1398,7 +1398,7 @@ extract_impl_info_from_tokens :: (
     signature_parts.push(_slice_token_text(&toks, receiver_start, receiver_end - usize(1)));
     current = receiver_end;
     match(
-      toks.get(current),
+      toks.get_cloned(current),
       .Some(t) => if(t.kind == TokenKind.Comma, {
         current = (current + usize(1));
       }),
@@ -1406,7 +1406,7 @@ extract_impl_info_from_tokens :: (
     );
     // `where(...)` AFTER the receiver — inserted before it in the signature.
     is_where2 := match(
-      toks.get(current),
+      toks.get_cloned(current),
       .Some(t) => ((t.kind == TokenKind.Identifier) && (t.value.* == `where`)),
       .None => false
     );
@@ -1417,7 +1417,7 @@ extract_impl_info_from_tokens :: (
       signature_parts.push(receiver_part);
       current = where_end;
       match(
-        toks.get(current),
+        toks.get_cloned(current),
         .Some(t) => if(t.kind == TokenKind.Comma, {
           current = (current + usize(1));
         }),
@@ -1438,7 +1438,7 @@ extract_impl_info_from_tokens :: (
       arg_start := current;
       arg_end := _skip_delimited_argument(&toks, arg_start);
       first := match(
-        toks.get(arg_start),
+        toks.get_cloned(arg_start),
         .Some(t) => t,
         .None => {
           current = (arg_end + usize(1));
@@ -1446,7 +1446,7 @@ extract_impl_info_from_tokens :: (
         }
       );
       second_is_colon := match(
-        toks.get(arg_start + usize(1)),
+        toks.get_cloned(arg_start + usize(1)),
         .Some(t) => ((t.kind == TokenKind.Operator) && (t.value.* == `:`)),
         .None => false
       );
@@ -1456,7 +1456,7 @@ extract_impl_info_from_tokens :: (
         anonymous_method_names.push(method_name.clone());
         type_start := (arg_start + usize(2));
         type_start_is_lp := match(
-          toks.get(type_start),
+          toks.get_cloned(type_start),
           .Some(t) => (t.kind == TokenKind.LParen),
           .None => false
         );
@@ -1513,7 +1513,7 @@ extract_impl_info_from_tokens :: (
           (trait_assoc_types : ArrayList(DocImplAssocType)) = ArrayList(DocImplAssocType).new();
           (trait_methods : ArrayList(DocFunction)) = ArrayList(DocFunction).new();
           next_is_lp := match(
-            toks.get(arg_start + usize(1)),
+            toks.get_cloned(arg_start + usize(1)),
             .Some(t) => (t.kind == TokenKind.LParen),
             .None => false
           );
@@ -1521,7 +1521,7 @@ extract_impl_info_from_tokens :: (
             first_paren_end := _skip_balanced_parens(&toks, arg_start + usize(1));
             first_has_body := _paren_contains_trait_body(&toks, arg_start + usize(1));
             second_is_lp := match(
-              toks.get(first_paren_end),
+              toks.get_cloned(first_paren_end),
               .Some(t) => (t.kind == TokenKind.LParen),
               .None => false
             );
@@ -1622,7 +1622,7 @@ extract_impl_info_from_tokens :: (
       });
       current = arg_end;
       match(
-        toks.get(current),
+        toks.get_cloned(current),
         .Some(t) => if(t.kind == TokenKind.Comma, {
           current = (current + usize(1));
         }),
@@ -1710,7 +1710,7 @@ _classify_token_declarations :: (fn(tokens : &ArrayList(Token)) -> TokenDeclStru
   (fi : usize) = usize(0);
   while(fi < tokens.len(), {
     match(
-      tokens.get(fi),
+      tokens.get_cloned(fi),
       .Some(t) => if(!_is_trivia_token(&t), {
         toks.push(t);
       }),
@@ -1733,7 +1733,7 @@ _classify_token_declarations :: (fn(tokens : &ArrayList(Token)) -> TokenDeclStru
   (i : usize) = usize(0);
   while(i < toks.len(), {
     tok := match(
-      toks.get(i),
+      toks.get_cloned(i),
       .Some(t) => t,
       .None => {
         i = (i + usize(1));
@@ -1744,7 +1744,7 @@ _classify_token_declarations :: (fn(tokens : &ArrayList(Token)) -> TokenDeclStru
       head := match(
         // A leading LParen can only be a parenthesized statement in a file
         // with no imports/pragmas; there is no identifier before it then.
-        if(i > usize(0), toks.get(i - usize(1)), Option(Token).None),
+        if(i > usize(0), toks.get_cloned(i - usize(1)), Option(Token).None),
         .Some(prev) => if(prev.kind == TokenKind.Identifier, prev.value.*.clone(), String.new()),
         .None => String.new()
       );
@@ -1772,7 +1772,7 @@ _classify_token_declarations :: (fn(tokens : &ArrayList(Token)) -> TokenDeclStru
       continue;
     });
     next := match(
-      toks.get(i + usize(1)),
+      toks.get_cloned(i + usize(1)),
       .Some(t) => t,
       .None => {
         i = (i + usize(1));
@@ -1798,7 +1798,7 @@ _classify_token_declarations :: (fn(tokens : &ArrayList(Token)) -> TokenDeclStru
         (depth : usize) = usize(1);
         while((j < toks.len()) && (depth > usize(0)), {
           inner := match(
-            toks.get(j),
+            toks.get_cloned(j),
             .Some(t) => t,
             .None => {
               j = (j + usize(1));
@@ -1841,7 +1841,7 @@ _classify_token_declarations :: (fn(tokens : &ArrayList(Token)) -> TokenDeclStru
       && (outer.head.len() == usize(0))
       && is_binding
       && match(
-        toks.get(outer.open_index + usize(1)),
+        toks.get_cloned(outer.open_index + usize(1)),
         .Some(first) => !((first.kind == TokenKind.Identifier) && (first.value.* == `fn`)),
         .None => false
       )
