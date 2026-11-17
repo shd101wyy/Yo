@@ -602,6 +602,11 @@ test("derive over an Array of a struct type", {
 Nested :: struct(grid : Array(Array(i32, 2), 2), name : i32);
 derive(Nested, Eq(Nested), Ord(Nested), Clone, Copy, Hash);
 test("derive over an Array nested inside another aggregate", {
+  // An array of arrays is `Hash` through the element's own `Array` impl: the
+  // trait check's recursion guard keys an array by its element type and
+  // length, not by the id every `Array` shares.
+  comptime_assert(Type.impls(Array(Array(i32, 2), 2), Hash), "an array of arrays is Hash");
+  comptime_assert(Type.impls(Array(Option(Array(i32, 2)), 3), Hash), "an array of an Option of an array is Hash");
   a := Nested(
     Array(Array(i32, 2), 2)(Array(i32, 2)(1, 2), Array(i32, 2)(3, 4)),
     i32(0)
