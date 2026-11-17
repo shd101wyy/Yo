@@ -107,9 +107,11 @@ try_to_specialize_trait_type :: (
     if(!ast_expr_is_fn_call_of(&arg, ":=", .Some(usize(2))), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg),
-            `Expected ":=" for trait specialization (binding associated types), got:\n${ast_expr_to_string(&arg)}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg),
+              `Expected ":=" for trait specialization (binding associated types), got:\n${ast_expr_to_string(&arg)}`
+            )
           )
         )
       );
@@ -120,7 +122,7 @@ try_to_specialize_trait_type :: (
       label_sub_opt,
       .Some(s) => s,
       .None => {
-        exn.throw(dyn(format_error_message(ast_expr_token(&arg), String.from("Missing label in :="))));
+        exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&arg), String.from("Missing label in :=")))));
         arg
       }
     );
@@ -128,16 +130,18 @@ try_to_specialize_trait_type :: (
       value_sub_opt,
       .Some(s) => s,
       .None => {
-        exn.throw(dyn(format_error_message(ast_expr_token(&arg), String.from("Missing value in :="))));
+        exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&arg), String.from("Missing value in :=")))));
         arg
       }
     );
     if(!ast_expr_is_atom(&label_sub), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&label_sub),
-            `Expected identifier for associated type label, got:\n${ast_expr_to_string(&label_sub)}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&label_sub),
+              `Expected identifier for associated type label, got:\n${ast_expr_to_string(&label_sub)}`
+            )
           )
         )
       );
@@ -162,13 +166,15 @@ try_to_specialize_trait_type :: (
       tf_hint := match(suggest_name(label_tok.clone(), &field_labels), .Some(near) => Option(String).Some(`did you mean "${near}"?`), .None => Option(String).None);
       exn.throw(
         dyn(
-          with_code(
-            format_error_message_with_help(
-              ast_expr_token(&label_sub),
-              `Field "${label_tok}" not found in trait "${trait_name}".`,
-              &tf_hint
-            ),
-            E_FIELD_NOT_FOUND
+          Box.new(
+            with_code(
+              format_error_message_with_help(
+                ast_expr_token(&label_sub),
+                `Field "${label_tok}" not found in trait "${trait_name}".`,
+                &tf_hint
+              ),
+              E_FIELD_NOT_FOUND
+            )
           )
         )
       );
@@ -191,9 +197,11 @@ try_to_specialize_trait_type :: (
     if(!is_assoc, {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&label_sub),
-            `Field "${label_tok}" is not an associated type. Only associated type fields can be constrained with ":=".`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&label_sub),
+              `Field "${label_tok}" is not an associated type. Only associated type fields can be constrained with ":=".`
+            )
           )
         )
       );
@@ -204,9 +212,11 @@ try_to_specialize_trait_type :: (
     if(!match(&evaluated_info_opt, .Some(info) => is_type_value(&info.value()), .None => false), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&value_sub),
-            `Expected type for associated type constraint "${label_tok}", got:\n${ast_expr_to_string(&value_sub)}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&value_sub),
+              `Expected type for associated type constraint "${label_tok}", got:\n${ast_expr_to_string(&value_sub)}`
+            )
           )
         )
       );
@@ -279,9 +289,11 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
   if(n_args > n_fields, {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(trait_expr),
-          String.from("Failed to implement the trait. Too many fields provided.")
+        Box.new(
+          format_error_message(
+            ast_expr_token(trait_expr),
+            String.from("Failed to implement the trait. Too many fields provided.")
+          )
         )
       )
     );
@@ -290,9 +302,11 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
   if(ctx.receiver_type.is_none(), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(trait_expr),
-          String.from("Receiver type is undefined when implementing trait.\nPlease use \"impl\" to specify the receiver type explicitly.")
+        Box.new(
+          format_error_message(
+            ast_expr_token(trait_expr),
+            String.from("Receiver type is undefined when implementing trait.\nPlease use \"impl\" to specify the receiver type explicitly.")
+          )
         )
       )
     );
@@ -365,9 +379,11 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
       if(!ast_expr_is_fn_call_of(&arg_expr, ":", .Some(usize(2))), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&arg_expr),
-              `Expected member label, but got:\n${ast_expr_to_string(&arg_expr)}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&arg_expr),
+                `Expected member label, but got:\n${ast_expr_to_string(&arg_expr)}`
+              )
             )
           )
         );
@@ -378,7 +394,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
         label_sub_opt,
         .Some(s) => s,
         .None => {
-          exn.throw(dyn(format_error_message(ast_expr_token(&arg_expr), String.from("Label arg missing label sub-expr."))));
+          exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&arg_expr), String.from("Label arg missing label sub-expr.")))));
           arg_expr
         }
       );
@@ -386,16 +402,18 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
         value_sub_opt,
         .Some(s) => s,
         .None => {
-          exn.throw(dyn(format_error_message(ast_expr_token(&arg_expr), String.from("Label arg missing value sub-expr."))));
+          exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&arg_expr), String.from("Label arg missing value sub-expr.")))));
           arg_expr
         }
       );
       if(!ast_expr_is_atom(&label_sub), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&label_sub),
-              `Expected identifier for label, got:\n${ast_expr_to_string(&label_sub)}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&label_sub),
+                `Expected identifier for label, got:\n${ast_expr_to_string(&label_sub)}`
+              )
             )
           )
         );
@@ -419,9 +437,11 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
       if(!label_exists, {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&label_sub),
-              `Trait member with label "${label_tok}" does not exist in the trait type.`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&label_sub),
+                `Trait member with label "${label_tok}" does not exist in the trait type.`
+              )
             )
           )
         );
@@ -439,9 +459,11 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
         if(arg_info_opt.is_none(), {
           exn.throw(
             dyn(
-              format_eval_failure(
-                ast_expr_token(&value_sub),
-                `Failed to evaluate trait member "${field_label}".`
+              Box.new(
+                format_eval_failure(
+                  ast_expr_token(&value_sub),
+                  `Failed to evaluate trait member "${field_label}".`
+                )
               )
             )
           );
@@ -454,9 +476,11 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
         if(!are_types_compatible(&arg_type, &field_type), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&value_sub),
-                `Type mismatch for the trait member "${field_label}":\nExpected: ${type_to_string(&field_type)}\nGot:   ${type_to_string(&arg_type)}`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&value_sub),
+                  `Type mismatch for the trait member "${field_label}":\nExpected: ${type_to_string(&field_type)}\nGot:   ${type_to_string(&arg_type)}`
+                )
               )
             )
           );
@@ -473,9 +497,11 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
     if(!found_arg, {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(trait_expr),
-            `Trait member "${field_label}" is not provided and has no required/default value.`
+          Box.new(
+            format_error_message(
+              ast_expr_token(trait_expr),
+              `Trait member "${field_label}" is not provided and has no required/default value.`
+            )
           )
         )
       );

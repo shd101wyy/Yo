@@ -4,7 +4,7 @@
 { Error, AnyError, Exception, ResumableException } :: import("std/error");
 { RefCell } :: import("std/sync/refcell");
 test("Test String as Error via AnyError", {
-  (err : AnyError) = dyn(`something went wrong`);
+  (err : AnyError) = dyn(Box.new(`something went wrong`));
   // Downcast back to String and check the message
   match(
     downcast(&err.*, String),
@@ -13,7 +13,7 @@ test("Test String as Error via AnyError", {
   );
 });
 test("Test downcast AnyError back to String", {
-  (err : AnyError) = dyn(`file not found`);
+  (err : AnyError) = dyn(Box.new(`file not found`));
   match(
     downcast(&err.*, String),
     .Some(s) => assert(s.* == `file not found`, "Expected 'file not found'"),
@@ -33,7 +33,7 @@ test("Test downcast AnyError to an error type this program never throws", {
   is_never_thrown :: (fn(candidate : &AnyError) -> bool)(
     match(downcast(candidate, NeverThrownError), .Some(_) => true, .None => false)
   );
-  (err : AnyError) = dyn(`plain message`);
+  (err : AnyError) = dyn(Box.new(`plain message`));
   assert(!is_never_thrown(&err), "a never-thrown error type can never be inside an AnyError");
   match(
     downcast(&err.*, NeverThrownError),
@@ -49,7 +49,7 @@ test("Test downcast AnyError to an error type this program never throws", {
   );
 });
 test("Test Error source returns None by default", {
-  (err : AnyError) = dyn(`default source`);
+  (err : AnyError) = dyn(Box.new(`default source`));
   match(
     err.source(),
     .Some(s) => assert(false, "Expected None source"),
@@ -59,7 +59,7 @@ test("Test Error source returns None by default", {
 test("Test Exception throwing and catching with String", {
   safe_divide :: (fn(x : i32, y : i32, exn : Exception) -> i32)(
     cond(
-      (y == i32(0)) => exn.throw(dyn(`division by zero`)),
+      (y == i32(0)) => exn.throw(dyn(Box.new(`division by zero`))),
       true => (x / y)
     )
   );
@@ -132,7 +132,7 @@ test("Test Exception with custom MathError enum", {
 test("Test ResumableException throwing and catching with String", {
   safe_divide :: (fn(x : i32, y : i32, exn : ResumableException(i32)) -> i32)(
     cond(
-      (y == i32(0)) => exn.throw(dyn(`division by zero`)),
+      (y == i32(0)) => exn.throw(dyn(Box.new(`division by zero`))),
       true => (x / y)
     )
   );
@@ -210,7 +210,7 @@ test("Test ResumableException with custom MathError enum", {
 // returned was silently skipped because the stale flag short-circuited it.
 test("Exception install-point clears __yo_effect_escaped after unwind", {
   do_throw :: (fn(exn : Exception) -> bool)({
-    exn.throw(dyn(`boom`));
+    exn.throw(dyn(Box.new(`boom`)));
     true
   });
   call_with_local :: (fn() -> bool)({
@@ -244,7 +244,7 @@ test("comptime call after exn.throw in a match arm compiles and unwinds", {
       v > i32(0),
       true => v,
       false => {
-        exn.throw(dyn(`neg`));
+        exn.throw(dyn(Box.new(`neg`)));
         i32(mk(i32(3)))
       }
     )
@@ -286,7 +286,7 @@ impl(
   )
 );
 _throw_payload :: (fn(exn : Exception) -> i32)(
-  exn.throw(dyn(ThrownErr(detail : `boom`, r : Rc.new(ThrownRes(tag : i32(1))))))
+  exn.throw(dyn(Box.new(ThrownErr(detail : `boom`, r : Rc.new(ThrownRes(tag : i32(1)))))))
 );
 // The handler must `unwind`, which exits THIS function — so the loop below can
 // call it repeatedly.
@@ -332,7 +332,7 @@ impl(
 );
 _owning_frame_that_throws :: (fn(exn : Exception) -> MovedOutRes)({
   res := MovedOutRes(tag : i32(7));
-  exn.throw(dyn(`boom`));
+  exn.throw(dyn(Box.new(`boom`)));
   res
 });
 _catch_moved_out :: (fn() -> unit)({
@@ -369,7 +369,7 @@ test("a local moved out through the return value is released when a throw unwind
 // throw with no diagnostic anywhere.
 _bare_arrow_divide :: (fn(x : i32, y : i32, exn : ResumableException(i32)) -> i32)(
   cond(
-    (y == i32(0)) => exn.throw(dyn(`division by zero`)),
+    (y == i32(0)) => exn.throw(dyn(Box.new(`division by zero`))),
     true => (x / y)
   )
 );
@@ -406,7 +406,7 @@ test("a bare-arrow handler may compute its resume value from the error", {
 // so it never took the broken path, and it must not regress.
 _bare_unwind_divide :: (fn(x : i32, y : i32, exn : Exception) -> i32)(
   cond(
-    (y == i32(0)) => exn.throw(dyn(`division by zero`)),
+    (y == i32(0)) => exn.throw(dyn(Box.new(`division by zero`))),
     true => (x / y)
   )
 );

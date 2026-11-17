@@ -62,9 +62,11 @@ evaluate_raw_pointer_call :: (
     .None => {
       exn.throw(
         dyn(
-          format_eval_failure(
-            ast_expr_token(&arg_expr),
-            `Failed to evaluate the argument expression for pointer:\n${ast_expr_to_string(&arg_expr)}`
+          Box.new(
+            format_eval_failure(
+              ast_expr_token(&arg_expr),
+              `Failed to evaluate the argument expression for pointer:\n${ast_expr_to_string(&arg_expr)}`
+            )
           )
         )
       );
@@ -93,9 +95,11 @@ evaluate_raw_pointer_call :: (
       if(!ctx.unsafe_context && !is_implicitly_unsafe_capable_file(Option(String).Some(ptok.module_path.*.clone())), {
         exn.throw(
           dyn(
-            format_error_message(
-              &ptok,
-              `Raw pointer types ('*(${type_to_string(&inner_ty)})') are not available in safe code.\n\nUse 'ArrayList(T)' (or 'Array(T, N)') for bounded byte/element storage, 'name : &mut T' parameters for in-place mutation, or wrap the underlying pointer in an 'object' type. If this file genuinely needs raw pointers, add 'pragma(Pragma.AllowUnsafe);' at the top — but consider whether the unsafe surface really belongs in this module.`
+            Box.new(
+              format_error_message(
+                &ptok,
+                `Raw pointer types ('*(${type_to_string(&inner_ty)})') are not available in safe code.\n\nUse 'ArrayList(T)' (or 'Array(T, N)') for bounded byte/element storage, 'name : &mut T' parameters for in-place mutation, or wrap the underlying pointer in an 'object' type. If this file genuinely needs raw pointers, add 'pragma(Pragma.AllowUnsafe);' at the top — but consider whether the unsafe surface really belongs in this module.`
+              )
             )
           )
         );
@@ -107,13 +111,15 @@ evaluate_raw_pointer_call :: (
       if(type_is_control_bound(&inner_ty), {
         exn.throw(
           dyn(
-            format_error_message(
-              &ptok,
-              `Cannot form a pointer to a control-bound type. The pointee transitively contains a \`ctl(...) -> ret\` function value, whose lifetime is bound to its install frame. A pointer would allow writes-through-indirection that escape that frame.
+            Box.new(
+              format_error_message(
+                &ptok,
+                `Cannot form a pointer to a control-bound type. The pointee transitively contains a \`ctl(...) -> ret\` function value, whose lifetime is bound to its install frame. A pointer would allow writes-through-indirection that escape that frame.
 
 Pointee type: ${type_to_string(&inner_ty)}
 
 If you need to thread a handler through code, pass it by value (handlers are fn-pointer-sized; copying is free).`
+              )
             )
           )
         );
@@ -133,9 +139,11 @@ If you need to thread a handler through code, pass it by value (handlers are fn-
     true => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg_expr),
-            `Cannot create a pointer to a value. Use "addr_of(x)" to create a pointer to a value:\n${ast_expr_to_string(&arg_expr)}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg_expr),
+              `Cannot create a pointer to a value. Use "addr_of(x)" to create a pointer to a value:\n${ast_expr_to_string(&arg_expr)}`
+            )
           )
         )
       );

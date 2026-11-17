@@ -149,7 +149,7 @@ _may_fail :: (fn(fail : bool, io : Io) -> Impl(Future(String, IoExn)))(
   io.async((e : IoExn) => {
     io.await(yield(e.io), e.io);
     cond(
-      fail => e.exn.throw(dyn(Boom(msg : `framing broke`))),
+      fail => e.exn.throw(dyn(Box.new(Boom(msg : `framing broke`)))),
       true => `ok body`
     )
   })
@@ -310,7 +310,7 @@ _sm_escape_after_branch :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
       sum = (sum + match(w, .A(t) => t.n, .B(t) => t.n));
       cond(
         (i == i32(1)) => {
-          e.exn.throw(dyn(`stop`));
+          e.exn.throw(dyn(Box.new(`stop`)));
         },
         true => ()
       );
@@ -341,7 +341,7 @@ test("an escape after a closed branch drops each value-enum local once", {
 _sm_throws_thing :: (fn(io : Io) -> Impl(Future(Thing, IoExn)))(
   io.async(e => {
     e.io.await(yield(e.io), e.io);
-    e.exn.throw(dyn(`stop`));
+    e.exn.throw(dyn(Box.new(`stop`)));
     _thing(i32(0))
   })
 );

@@ -125,9 +125,11 @@ _get_or_create_some_ty_for_trait :: (
         .None => {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(lhs_expr),
-                String.from("Expected type for left-hand side of where clause constraint.")
+              Box.new(
+                format_error_message(
+                  ast_expr_token(lhs_expr),
+                  String.from("Expected type for left-hand side of where clause constraint.")
+                )
               )
             )
           );
@@ -155,9 +157,11 @@ _get_or_create_some_ty_for_trait :: (
     if(top_frame == usize(0), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(lhs_expr),
-            String.from("Expected type for left-hand side of where clause constraint.")
+          Box.new(
+            format_error_message(
+              ast_expr_token(lhs_expr),
+              String.from("Expected type for left-hand side of where clause constraint.")
+            )
           )
         )
       );
@@ -200,9 +204,11 @@ _get_or_create_some_ty_for_trait :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(lhs_expr),
-            String.from("Expected type for left-hand side of where clause constraint.")
+          Box.new(
+            format_error_message(
+              ast_expr_token(lhs_expr),
+              String.from("Expected type for left-hand side of where clause constraint.")
+            )
           )
         )
       );
@@ -212,9 +218,11 @@ _get_or_create_some_ty_for_trait :: (
   if(!is_type_value(&lhs_info.value()), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(lhs_expr),
-          String.from("Expected type for left-hand side of where clause constraint.")
+        Box.new(
+          format_error_message(
+            ast_expr_token(lhs_expr),
+            String.from("Expected type for left-hand side of where clause constraint.")
+          )
         )
       )
     );
@@ -228,9 +236,11 @@ _get_or_create_some_ty_for_trait :: (
   if(!is_some_type(&lhs_tv), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(lhs_expr),
-          `Expected SomeType for left-hand side of where clause constraint, got ${type_to_string(&lhs_tv)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(lhs_expr),
+            `Expected SomeType for left-hand side of where clause constraint, got ${type_to_string(&lhs_tv)}`
+          )
         )
       )
     );
@@ -376,9 +386,11 @@ _parse_trait_where_clauses :: (
     if(!ast_expr_is_fn_call_of(&constraint_expr, "<:", .Some(usize(2))), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&constraint_expr),
-            `Expected constraint in the form "T <: Trait" or "T <: (Trait1, Trait2)", got: ${ast_expr_to_string(&constraint_expr)}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&constraint_expr),
+              `Expected constraint in the form "T <: Trait" or "T <: (Trait1, Trait2)", got: ${ast_expr_to_string(&constraint_expr)}`
+            )
           )
         )
       );
@@ -450,9 +462,11 @@ _parse_trait_where_clauses :: (
           }, {
             exn.throw(
               dyn(
-                format_error_message(
-                  ast_expr_token(&unwrapped_te),
-                  String.from("Expected trait type for right-hand side of where clause constraint.")
+                Box.new(
+                  format_error_message(
+                    ast_expr_token(&unwrapped_te),
+                    String.from("Expected trait type for right-hand side of where clause constraint.")
+                  )
                 )
               )
             );
@@ -467,9 +481,11 @@ _parse_trait_where_clauses :: (
         }, {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&unwrapped_te),
-                String.from("Expected trait type for right-hand side of where clause constraint.")
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&unwrapped_te),
+                  String.from("Expected trait type for right-hand side of where clause constraint.")
+                )
               )
             )
           );
@@ -484,9 +500,11 @@ _parse_trait_where_clauses :: (
       if(!is_trait_type(&trait_ty2), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&unwrapped_te),
-              `Expected trait type for right-hand side of where clause constraint, got: ${type_to_string(&trait_ty2)}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&unwrapped_te),
+                `Expected trait type for right-hand side of where clause constraint, got: ${type_to_string(&trait_ty2)}`
+              )
             )
           )
         );
@@ -494,9 +512,11 @@ _parse_trait_where_clauses :: (
       if(_trait_has_receiver(&trait_ty2), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&unwrapped_te),
-              String.from("Trait type in where clause already has a receiver type assigned.")
+            Box.new(
+              format_error_message(
+                ast_expr_token(&unwrapped_te),
+                String.from("Trait type in where clause already has a receiver type assigned.")
+              )
             )
           )
         );
@@ -592,9 +612,11 @@ _evaluate_trait_field :: (
     if(ast_expr_is_fn_call_of(&expr_inner, BK_CONST, .Some(usize(2))), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&expr_inner),
-            String.from("Cannot use \"::\" for trait field. Use \":=\" instead.\nAll trait fields are compile-time only by default.")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&expr_inner),
+              String.from("Cannot use \"::\" for trait field. Use \":=\" instead.\nAll trait fields are compile-time only by default.")
+            )
           )
         )
       );
@@ -607,9 +629,11 @@ _evaluate_trait_field :: (
   if(default_value_expr_opt.is_some() && assigned_value_expr_opt.is_some(), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          String.from("Cannot have both default value and required value for trait field.")
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            String.from("Cannot have both default value and required value for trait field.")
+          )
         )
       )
     );
@@ -627,9 +651,11 @@ _evaluate_trait_field :: (
     if(ast_expr_is_fn_call_of(&lhs_label_expr, BK_COMPTIME, .Some(usize(1))), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&lhs_label_expr),
-            String.from("No need to use \"comptime\" modifier. All trait fields are compile-time only by default.")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&lhs_label_expr),
+              String.from("No need to use \"comptime\" modifier. All trait fields are compile-time only by default.")
+            )
           )
         )
       );
@@ -637,9 +663,11 @@ _evaluate_trait_field :: (
     if(!ast_expr_is_atom(&lhs_label_expr) && !is_valid_variable_name(&lhs_label_expr), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&lhs_label_expr),
-            `Expected identifier for trait field label, got ${ast_expr_to_string(&lhs_label_expr)}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&lhs_label_expr),
+              `Expected identifier for trait field label, got ${ast_expr_to_string(&lhs_label_expr)}`
+            )
           )
         )
       );
@@ -652,9 +680,11 @@ _evaluate_trait_field :: (
     if(ast_expr_is_fn_call_of(&expr_inner, BK_COMPTIME, .Some(usize(1))), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&expr_inner),
-            String.from("No need to use \"comptime\" modifier. All trait fields are compile-time only by default.")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&expr_inner),
+              String.from("No need to use \"comptime\" modifier. All trait fields are compile-time only by default.")
+            )
           )
         )
       );
@@ -663,9 +693,11 @@ _evaluate_trait_field :: (
     if(default_value_expr_opt.is_none() && assigned_value_expr_opt.is_none(), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            `Expected label for trait field, got ${ast_expr_to_string(&expr_inner)}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              `Expected label for trait field, got ${ast_expr_to_string(&expr_inner)}`
+            )
           )
         )
       );
@@ -674,9 +706,11 @@ _evaluate_trait_field :: (
     if(!is_valid_variable_name(&expr_inner), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&expr_inner),
-            `Expected identifier for trait field label, got ${ast_expr_to_string(&expr_inner)}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&expr_inner),
+              `Expected identifier for trait field label, got ${ast_expr_to_string(&expr_inner)}`
+            )
           )
         )
       );
@@ -741,9 +775,11 @@ _evaluate_trait_field :: (
       if(!is_type_value(&te_info.value()), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&type_expr),
-              `Expected type for trait field, got ${ast_expr_to_string(&type_expr)}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&type_expr),
+                `Expected type for trait field, got ${ast_expr_to_string(&type_expr)}`
+              )
             )
           )
         );
@@ -816,9 +852,11 @@ _evaluate_trait_field :: (
         .None => {
           exn.throw(
             dyn(
-              format_eval_failure(
-                ast_expr_token(&av_expr),
-                `Failed to evaluate required value expression: ${ast_expr_to_string(&av_expr)}`
+              Box.new(
+                format_eval_failure(
+                  ast_expr_token(&av_expr),
+                  `Failed to evaluate required value expression: ${ast_expr_to_string(&av_expr)}`
+                )
               )
             )
           );
@@ -832,9 +870,11 @@ _evaluate_trait_field :: (
         .None => {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&av_expr),
-                `Expected compile-time known value for required value, got ${ast_expr_to_string(&av_expr)}`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&av_expr),
+                  `Expected compile-time known value for required value, got ${ast_expr_to_string(&av_expr)}`
+                )
               )
             )
           );
@@ -849,9 +889,11 @@ _evaluate_trait_field :: (
           if(!are_types_compatible(&av_ty, &fet), {
             exn.throw(
               dyn(
-                format_error_message(
-                  ast_expr_token(&av_expr),
-                  `Assigned value type mismatch:\nExpected type: ${type_to_string(&fet)}\nGiven type: ${type_to_string(&av_ty)}`
+                Box.new(
+                  format_error_message(
+                    ast_expr_token(&av_expr),
+                    `Assigned value type mismatch:\nExpected type: ${type_to_string(&fet)}\nGiven type: ${type_to_string(&av_ty)}`
+                  )
                 )
               )
             );
@@ -904,9 +946,11 @@ _evaluate_trait_field :: (
         .None => {
           exn.throw(
             dyn(
-              format_eval_failure(
-                ast_expr_token(&dv_expr),
-                `Failed to evaluate default value expression: ${ast_expr_to_string(&dv_expr)}`
+              Box.new(
+                format_eval_failure(
+                  ast_expr_token(&dv_expr),
+                  `Failed to evaluate default value expression: ${ast_expr_to_string(&dv_expr)}`
+                )
               )
             )
           );
@@ -920,9 +964,11 @@ _evaluate_trait_field :: (
         .None => {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&dv_expr),
-                `Expected compile-time known value for default value, got ${ast_expr_to_string(&dv_expr)}`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&dv_expr),
+                  `Expected compile-time known value for default value, got ${ast_expr_to_string(&dv_expr)}`
+                )
               )
             )
           );
@@ -937,9 +983,11 @@ _evaluate_trait_field :: (
           if(!are_types_compatible(&dv_ty, &fet), {
             exn.throw(
               dyn(
-                format_error_message(
-                  ast_expr_token(&dv_expr),
-                  `Default value type mismatch:\nExpected type: ${type_to_string(&fet)}\nGiven type: ${type_to_string(&dv_ty)}`
+                Box.new(
+                  format_error_message(
+                    ast_expr_token(&dv_expr),
+                    `Default value type mismatch:\nExpected type: ${type_to_string(&fet)}\nGiven type: ${type_to_string(&dv_ty)}`
+                  )
                 )
               )
             );
@@ -961,9 +1009,11 @@ _evaluate_trait_field :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            String.from("Failed to infer the field type")
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              String.from("Failed to infer the field type")
+            )
           )
         )
       );
@@ -1047,9 +1097,11 @@ evaluate_trait_type :: (
   if(!ast_expr_is_fn_call_of(expr, BK_TRAIT, .None), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected "trait", got:\n${ast_expr_to_string(expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected "trait", got:\n${ast_expr_to_string(expr)}`
+          )
         )
       )
     );
@@ -1098,9 +1150,11 @@ evaluate_trait_type :: (
       if(w_args.len() == usize(0), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&last_arg),
-              String.from("The where clause must have at least one constraint.")
+            Box.new(
+              format_error_message(
+                ast_expr_token(&last_arg),
+                String.from("The where clause must have at least one constraint.")
+              )
             )
           )
         );
@@ -1143,9 +1197,11 @@ evaluate_trait_type :: (
       if(i != args.len(), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&arg),
-              String.from("The where clause must be the last argument in a trait definition.")
+            Box.new(
+              format_error_message(
+                ast_expr_token(&arg),
+                String.from("The where clause must be the last argument in a trait definition.")
+              )
             )
           )
         );
@@ -1189,9 +1245,11 @@ evaluate_trait_type :: (
     if(is_duplicate, {
       exn.throw(
         dyn(
-          format_error_message(
-            match(args.get(i - usize(1)), .Some(a) => ast_expr_token(&a), .None => ast_expr_token(expr)),
-            `Duplicate label 3 "${field_result.label}" in trait`
+          Box.new(
+            format_error_message(
+              match(args.get(i - usize(1)), .Some(a) => ast_expr_token(&a), .None => ast_expr_token(expr)),
+              `Duplicate label 3 "${field_result.label}" in trait`
+            )
           )
         )
       );
@@ -1334,9 +1392,11 @@ evaluate_trait_type :: (
                 );
                 exn.throw(
                   dyn(
-                    format_error_message(
-                      ast_expr_token(expr),
-                      `Return type "${type_to_string(&vf_ret)}" in trait field "${vf_label}" is used with "comptime" but type parameter "${type_to_string(&vf_missing)}" does not implement the Comptime trait. Add "${vf_missing_name} <: Comptime" to the where clause.`
+                    Box.new(
+                      format_error_message(
+                        ast_expr_token(expr),
+                        `Return type "${type_to_string(&vf_ret)}" in trait field "${vf_label}" is used with "comptime" but type parameter "${type_to_string(&vf_missing)}" does not implement the Comptime trait. Add "${vf_missing_name} <: Comptime" to the where clause.`
+                      )
                     )
                   )
                 );

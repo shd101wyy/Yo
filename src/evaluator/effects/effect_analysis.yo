@@ -675,22 +675,24 @@ analyze_effect_call_points :: (
     body.clone(),
     get_info,
     SuspensionPointDetector(
-      detect : dyn({ effect_extras : Rc.clone(effect_extras), effect_field_path : effect_field_path.clone(), effect_param_fn_type : effect_param_fn_type.clone(), effect_parameter_name : effect_parameter_name.clone(), get_info : get_info.*, include_transitive_calls }(expr, parent_expr) =>
-        effect_extras.with_mut({ effect_field_path : effect_field_path.clone(), effect_param_fn_type : effect_param_fn_type.clone(), effect_parameter_name : effect_parameter_name.clone(), expr : expr.*, get_info, include_transitive_calls, parent_expr : parent_expr.* }(extras) => {
-          found := ArrayList(SuspensionPoint).new();
-          detect_effect_expr_(
-            &expr,
-            &parent_expr,
-            &mut found,
-            extras,
-            effect_parameter_name.clone(),
-            effect_field_path.clone(),
-            include_transitive_calls,
-            effect_param_fn_type.clone(),
-            &get_info
-          );
-          found
-        })),
+      detect : dyn(
+        Box.new({ effect_extras : Rc.clone(effect_extras), effect_field_path : effect_field_path.clone(), effect_param_fn_type : effect_param_fn_type.clone(), effect_parameter_name : effect_parameter_name.clone(), get_info : get_info.*, include_transitive_calls }(expr, parent_expr) =>
+          effect_extras.with_mut({ effect_field_path : effect_field_path.clone(), effect_param_fn_type : effect_param_fn_type.clone(), effect_parameter_name : effect_parameter_name.clone(), expr : expr.*, get_info, include_transitive_calls, parent_expr : parent_expr.* }(extras) => {
+            found := ArrayList(SuspensionPoint).new();
+            detect_effect_expr_(
+              &expr,
+              &parent_expr,
+              &mut found,
+              extras,
+              effect_parameter_name.clone(),
+              effect_field_path.clone(),
+              include_transitive_calls,
+              effect_param_fn_type.clone(),
+              &get_info
+            );
+            found
+          }))
+      ),
       should_skip_body : dyn(Box.new(expr => is_io_async_call(expr))),
       follow_macro_expansions : false
     )

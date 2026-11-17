@@ -259,9 +259,11 @@ evaluate_identifier_and_operator :: (
       if(v.is_ghost_binding() && !ctx.is_ghost_context, {
         exn.throw(
           dyn(
-            format_error_message(
-              &token,
-              `ghost value escapes specification context: '${identifier_string}' is a ghost binding, readable only from contract clauses, ghost(...) code and ghost_fn bodies`
+            Box.new(
+              format_error_message(
+                &token,
+                `ghost value escapes specification context: '${identifier_string}' is a ghost binding, readable only from contract clauses, ghost(...) code and ghost_fn bodies`
+              )
             )
           )
         );
@@ -405,34 +407,36 @@ evaluate_identifier_and_operator :: (
         });
         exn.throw(
           dyn(
-            with_code(
-              match(
-                not_found_repair,
-                .Some(fix_name) => format_error_message_with_repair(
-                  &token,
-                  `Variable "${identifier_string}" not found.`,
-                  &not_found_help,
-                  fix_name.clone(),
-                  match(not_found_repair_label, .Some(l) => l, .None => `rename to "${fix_name}"`)
-                ),
-                .None => match(
-                  import_repair,
-                  .Some(line) => format_error_message_with_repair_at(
+            Box.new(
+              with_code(
+                match(
+                  not_found_repair,
+                  .Some(fix_name) => format_error_message_with_repair(
                     &token,
                     `Variable "${identifier_string}" not found.`,
                     &not_found_help,
-                    Span(path : token.module_path.*.clone(), row : _first_code_row(&token.input.*), col : usize(0), len : usize(0)),
-                    `${line}\n`,
-                    `add ${line}`
+                    fix_name.clone(),
+                    match(not_found_repair_label, .Some(l) => l, .None => `rename to "${fix_name}"`)
                   ),
-                  .None => format_error_message_with_help(
-                    &token,
-                    `Variable "${identifier_string}" not found.`,
-                    &not_found_help
+                  .None => match(
+                    import_repair,
+                    .Some(line) => format_error_message_with_repair_at(
+                      &token,
+                      `Variable "${identifier_string}" not found.`,
+                      &not_found_help,
+                      Span(path : token.module_path.*.clone(), row : _first_code_row(&token.input.*), col : usize(0), len : usize(0)),
+                      `${line}\n`,
+                      `add ${line}`
+                    ),
+                    .None => format_error_message_with_help(
+                      &token,
+                      `Variable "${identifier_string}" not found.`,
+                      &not_found_help
+                    )
                   )
-                )
-              ),
-              E_VARIABLE_NOT_FOUND
+                ),
+                E_VARIABLE_NOT_FOUND
+              )
             )
           )
         );
@@ -445,9 +449,11 @@ evaluate_identifier_and_operator :: (
     if(!(is_function_type(&variable_value_type(&variable)) || is_type_value(variable.value().get(usize(0)))), {
       exn.throw(
         dyn(
-          format_error_message(
-            &token,
-            String.from("Variable \"") + identifier_string + String.from("\" is not initialized")
+          Box.new(
+            format_error_message(
+              &token,
+              String.from("Variable \"") + identifier_string + String.from("\" is not initialized")
+            )
           )
         )
       );
@@ -545,10 +551,12 @@ evaluate_identifier_and_operator :: (
     if(match(self_lend_mode, .Some(m) => m, .None => false) && !variable.is_ref(), {
       exn.throw(
         dyn(
-          format_error_message_with_help(
-            &token,
-            `\`&mut ${variable.name}\` lends the reference \`${variable.name}\` itself exclusively (a \`&mut &T\`), and \`${variable.name}\` is not a local reference binding with storage of its own.`,
-            Option(String).Some(`bind it to a local first (\`mut(r) := ${variable.name};\` re-binds the reference), or lend the value it refers to with \`&mut ${variable.name}.*\``)
+          Box.new(
+            format_error_message_with_help(
+              &token,
+              `\`&mut ${variable.name}\` lends the reference \`${variable.name}\` itself exclusively (a \`&mut &T\`), and \`${variable.name}\` is not a local reference binding with storage of its own.`,
+              Option(String).Some(`bind it to a local first (\`mut(r) := ${variable.name};\` re-binds the reference), or lend the value it refers to with \`&mut ${variable.name}.*\``)
+            )
           )
         )
       );

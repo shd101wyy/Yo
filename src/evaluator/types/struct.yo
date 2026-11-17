@@ -73,9 +73,11 @@ evaluate_struct_type :: (
   if(!(is_struct_keyword || is_newtype_keyword), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected "struct" or "newtype", got:\n${ast_expr_to_string(expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected "struct" or "newtype", got:\n${ast_expr_to_string(expr)}`
+          )
         )
       )
     );
@@ -174,9 +176,11 @@ evaluate_struct_type :: (
       );
       exn.throw(
         dyn(
-          format_error_message(
-            &err_tok,
-            `Duplicate label "${field.label}" in struct`
+          Box.new(
+            format_error_message(
+              &err_tok,
+              `Duplicate label "${field.label}" in struct`
+            )
           )
         )
       );
@@ -206,9 +210,11 @@ evaluate_struct_type :: (
       );
       exn.throw(
         dyn(
-          format_error_message(
-            &res_tok,
-            String.from("\"header\" is a reserved field name in a reference struct: the generated C layout already carries a `header` member (the reference-count header), so a field of that name would collide with it. Rename the field.")
+          Box.new(
+            format_error_message(
+              &res_tok,
+              String.from("\"header\" is a reserved field name in a reference struct: the generated C layout already carries a `header` member (the reference-count header), so a field of that name would collide with it. Rename the field.")
+            )
           )
         )
       );
@@ -219,7 +225,7 @@ evaluate_struct_type :: (
     // object (issues/fixed/ctl-handler-stored-in-a-ref-struct-field-escapes-its-frame.md).
     // A value struct holding one is itself control-bound and cannot escape.
     if((force_reference_semantics || is_atomic_rc) && !field.is_comptime && type_is_control_bound(&field.ty), {
-      exn.throw(dyn(format_error_message(ast_expr_token(&arg), control_bound_field_message(&field.label, &field.ty))));
+      exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&arg), control_bound_field_message(&field.label, &field.ty)))));
     });
     // Decision 38 A, type positions: a second-class type (a closure holding
     // a capture-list borrow) may not be stored behind a pointer or in a
@@ -240,7 +246,7 @@ evaluate_struct_type :: (
     // Only a struct's LAST field may be unsized, which makes the struct a
     // tail struct (decision 49, E0619).
     if(!field.is_comptime && ((i + usize(1)) < args.len()) && !type_is_sized(&field.ty), {
-      exn.throw(dyn(unsized_by_value_error(&field.ty, &`the field \`${field.label}\`, which is not the struct's last`, &Option(String).None, &ast_expr_token(&arg))));
+      exn.throw(dyn(Box.new(unsized_by_value_error(&field.ty, &`the field \`${field.label}\`, which is not the struct's last`, &Option(String).None, &ast_expr_token(&arg)))));
     });
     field_labels.push(field.label.clone());
     field_types.push(Rc.clone(field.ty));
@@ -256,9 +262,11 @@ evaluate_struct_type :: (
   if(is_newtype && !(fields.len() == usize(1)), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Newtype struct must have exactly one field, but got ${fields.len()} fields.`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Newtype struct must have exactly one field, but got ${fields.len()} fields.`
+          )
         )
       )
     );
@@ -310,9 +318,11 @@ evaluate_struct_type :: (
       if(_type_reaches_root_by_value(&vc_ft, struct_id.clone(), struct_id.clone(), ArrayList(String).new()), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(expr),
-              `recursive value struct: field '${vc_label}' contains the struct itself by value (a path with no reference indirection) — a plain 'struct(...)' would have infinite size. Make it 'ref(struct(...))', or route the recursion through a reference type (ArrayList, Rc, Option of a ref).`
+            Box.new(
+              format_error_message(
+                ast_expr_token(expr),
+                `recursive value struct: field '${vc_label}' contains the struct itself by value (a path with no reference indirection) — a plain 'struct(...)' would have infinite size. Make it 'ref(struct(...))', or route the recursion through a reference type (ArrayList, Rc, Option of a ref).`
+              )
             )
           )
         );
@@ -375,9 +385,11 @@ evaluate_struct_type :: (
   if(fields_have_incompatible_contexts(&patched_types_s.items), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Type ${type_to_string(&struct_ty)} has incompatible field contexts and cannot be used in any evaluation context.`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Type ${type_to_string(&struct_ty)} has incompatible field contexts and cannot be used in any evaluation context.`
+          )
         )
       )
     );
@@ -476,10 +488,12 @@ evaluate_cell_type :: (
   if(!is_implicitly_unsafe_capable_file(Option(String).Some(tok.module_path.*.clone())), {
     exn.throw(
       dyn(
-        format_error_message_with_help(
-          &tok,
-          `\`${builtin}(...)\` is not available in safe code: it is the private heap-cell primitive behind \`Rc\` and \`Arc\` (plans/VALUES_BY_DEFAULT.md §3.5).`,
-          Option(String).Some(String.from("share a value with `Rc.new(v)` (`Rc(T)`) or `Arc.new(v)` (`Arc(T)`); a file that implements a cell wrapper declares `pragma(Pragma.AllowUnsafe);`"))
+        Box.new(
+          format_error_message_with_help(
+            &tok,
+            `\`${builtin}(...)\` is not available in safe code: it is the private heap-cell primitive behind \`Rc\` and \`Arc\` (plans/VALUES_BY_DEFAULT.md §3.5).`,
+            Option(String).Some(String.from("share a value with `Rc.new(v)` (`Rc(T)`) or `Arc.new(v)` (`Arc(T)`); a file that implements a cell wrapper declares `pragma(Pragma.AllowUnsafe);`"))
+          )
         )
       )
     );
@@ -489,9 +503,11 @@ evaluate_cell_type :: (
   if(args.len() != usize(1), {
     exn.throw(
       dyn(
-        format_error_message(
-          &tok,
-          `\`${builtin}\` takes exactly one argument, the payload type: \`${builtin}(V)\`, got ${args.len().to_string()}.`
+        Box.new(
+          format_error_message(
+            &tok,
+            `\`${builtin}\` takes exactly one argument, the payload type: \`${builtin}(V)\`, got ${args.len().to_string()}.`
+          )
         )
       )
     );
@@ -517,9 +533,11 @@ evaluate_cell_type :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&payload_expr),
-            `\`${builtin}(V)\` expects a type, got:\n${ast_expr_to_string(&payload_expr)}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&payload_expr),
+              `\`${builtin}(V)\` expects a type, got:\n${ast_expr_to_string(&payload_expr)}`
+            )
           )
         )
       );
@@ -531,7 +549,7 @@ evaluate_cell_type :: (
   // second-class value, and a comptime-only payload has no C layout.
   payload_label := String.from("*");
   if(type_is_control_bound(&v), {
-    exn.throw(dyn(format_error_message(ast_expr_token(&payload_expr), control_bound_field_message(&payload_label, &v))));
+    exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&payload_expr), control_bound_field_message(&payload_label, &v)))));
   });
   reject_second_class_escape(&v, String.from("the payload type of a cell (a second-class type may not be a field type, an element type or a type argument)"), ast_expr_token(&payload_expr), ctx, exn);
   // The cell is a run-time object, so its payload must have a run-time
@@ -539,9 +557,11 @@ evaluate_cell_type :: (
   if(!type_contains_some_type(&v) && type_is_comptime_only_full(&v, &env), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&payload_expr),
-          `\`${builtin}(${type_to_string(&v)})\`: a cell's payload is a run-time value, and ${type_to_string(&v)} exists only at compile time.`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&payload_expr),
+            `\`${builtin}(${type_to_string(&v)})\`: a cell's payload is a run-time value, and ${type_to_string(&v)} exists only at compile time.`
+          )
         )
       )
     );

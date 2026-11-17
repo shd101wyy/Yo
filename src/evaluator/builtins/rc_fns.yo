@@ -100,9 +100,11 @@ _eval_arg :: (
     .None => {
       exn.throw(
         dyn(
-          format_eval_failure(
-            ast_expr_token(&arg_expr),
-            `Failed to evaluate argument for ${fn_name}`
+          Box.new(
+            format_eval_failure(
+              ast_expr_token(&arg_expr),
+              `Failed to evaluate argument for ${fn_name}`
+            )
           )
         )
       );
@@ -123,7 +125,7 @@ _require_destroying_builtin_capable :: (fn(builtin : str, expr : &AstExpr, exn :
       .FnCall(_, _, Rc(fargs), _, _) => match(fargs.get(usize(0)), .Some(x) => ast_expr_to_string(&x), .None => String.new()),
       _ => String.new()
     );
-    exn.throw(dyn(format_error_message(&tok, destroying_builtin_error_message(&name, &place))));
+    exn.throw(dyn(Box.new(format_error_message(&tok, destroying_builtin_error_message(&name, &place)))));
   });
 });
 // ---------------------------------------------------------------------------
@@ -322,9 +324,11 @@ evaluate_yo_dup_array_element :: (
     );
     exn.throw(
       dyn(
-        format_error_message(
-          &tok,
-          `evaluate_yo_dup_array_element: expected array type, got: ${type_to_string(&array_type)}`
+        Box.new(
+          format_error_message(
+            &tok,
+            `evaluate_yo_dup_array_element: expected array type, got: ${type_to_string(&array_type)}`
+          )
         )
       )
     );
@@ -354,9 +358,11 @@ evaluate_yo_dup_tuple_element :: (
     );
     exn.throw(
       dyn(
-        format_error_message(
-          &tok,
-          `evaluate_yo_dup_tuple_element: expected tuple type, got: ${type_to_string(&tuple_type)}`
+        Box.new(
+          format_error_message(
+            &tok,
+            `evaluate_yo_dup_tuple_element: expected tuple type, got: ${type_to_string(&tuple_type)}`
+          )
         )
       )
     );
@@ -380,9 +386,11 @@ evaluate_yo_dup_tuple_element :: (
       );
       exn.throw(
         dyn(
-          format_error_message(
-            &tok,
-            `evaluate_yo_dup_tuple_element: index ${index_i64} out of bounds for tuple`
+          Box.new(
+            format_error_message(
+              &tok,
+              `evaluate_yo_dup_tuple_element: index ${index_i64} out of bounds for tuple`
+            )
           )
         )
       );

@@ -99,9 +99,11 @@ evaluate_comptime_read_file :: (
   if(args.len() != usize(1), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected exactly 1 argument for "${BF_COMPTIME_READ_FILE}", got ${args.len().to_string()}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected exactly 1 argument for "${BF_COMPTIME_READ_FILE}", got ${args.len().to_string()}`
+          )
         )
       )
     );
@@ -126,9 +128,11 @@ evaluate_comptime_read_file :: (
       _ => {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(expr),
-              `"${BF_COMPTIME_READ_FILE}" needs a compile-time string path, got a value of another kind`
+            Box.new(
+              format_error_message(
+                ast_expr_token(expr),
+                `"${BF_COMPTIME_READ_FILE}" needs a compile-time string path, got a value of another kind`
+              )
             )
           )
         );
@@ -138,9 +142,11 @@ evaluate_comptime_read_file :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            `"${BF_COMPTIME_READ_FILE}" needs a compile-time string path; this one is only known at run time`
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              `"${BF_COMPTIME_READ_FILE}" needs a compile-time string path; this one is only known at run time`
+            )
           )
         )
       );
@@ -155,9 +161,11 @@ evaluate_comptime_read_file :: (
   if(!_is_inside(root.clone(), resolved.clone()), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `"${BF_COMPTIME_READ_FILE}" may only read inside its own package: "${rel}" resolves to "${resolved}", which is outside "${root}"`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `"${BF_COMPTIME_READ_FILE}" may only read inside its own package: "${rel}" resolves to "${resolved}", which is outside "${root}"`
+          )
         )
       )
     );
@@ -172,9 +180,11 @@ evaluate_comptime_read_file :: (
     if(!file_exists_sync(resolved.clone()), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            `"${BF_COMPTIME_READ_FILE}" cannot read "${rel}": no such file (resolved to "${resolved}")`
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              `"${BF_COMPTIME_READ_FILE}" cannot read "${rel}": no such file (resolved to "${resolved}")`
+            )
           )
         )
       );

@@ -117,9 +117,11 @@ evaluate_cond :: (
   if(!ast_expr_is_fn_call_of(expr, BK_COND, .None), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected "cond"`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected "cond"`
+          )
         )
       )
     );
@@ -134,9 +136,11 @@ evaluate_cond :: (
   if(statement_count == usize(0), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected at least one statement in "cond", got 0`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected at least one statement in "cond", got 0`
+          )
         )
       )
     );
@@ -152,9 +156,11 @@ evaluate_cond :: (
     if(!is_arrow_call, {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&statement),
-            `Expected => for cond statement, got ${ast_expr_to_string(&statement)}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&statement),
+              `Expected => for cond statement, got ${ast_expr_to_string(&statement)}`
+            )
           )
         )
       );
@@ -216,9 +222,11 @@ evaluate_cond :: (
     if(cond_info_opt.is_none(), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&evaluated_cond_expr),
-            `Failed to evaluate condition expression: ${ast_expr_to_string(&evaluated_cond_expr)}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&evaluated_cond_expr),
+              `Failed to evaluate condition expression: ${ast_expr_to_string(&evaluated_cond_expr)}`
+            )
           )
         )
       );
@@ -239,9 +247,11 @@ evaluate_cond :: (
     if(!is_bool_type(&cond_info.ty()) && !is_unit_fallback, {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&evaluated_cond_expr),
-            `Expected bool for cond statement, got ${ast_expr_to_string(&evaluated_cond_expr)} of type ${type_to_string(&cond_info.ty())}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&evaluated_cond_expr),
+              `Expected bool for cond statement, got ${ast_expr_to_string(&evaluated_cond_expr)} of type ${type_to_string(&cond_info.ty())}`
+            )
           )
         )
       );
@@ -254,9 +264,11 @@ evaluate_cond :: (
     if(is_last && !is_comptime_true, {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&evaluated_cond_expr),
-            `Expect the last condition to be compile-time known "true".`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&evaluated_cond_expr),
+              `Expect the last condition to be compile-time known "true".`
+            )
           )
         )
       );
@@ -401,9 +413,11 @@ evaluate_cond :: (
           .None => {
             exn.throw(
               dyn(
-                format_error_message(
-                  ast_expr_token(&evaluated_body),
-                  `Expected type for cond statement, got ${ast_expr_to_string(&evaluated_body)}`
+                Box.new(
+                  format_error_message(
+                    ast_expr_token(&evaluated_body),
+                    `Expected type for cond statement, got ${ast_expr_to_string(&evaluated_body)}`
+                  )
                 )
               )
             );
@@ -544,9 +558,11 @@ evaluate_cond :: (
                   .None => {
                     exn.throw(
                       dyn(
-                        format_error_message(
-                          ast_expr_token(&evaluated_case_body),
-                          `Expected type for cond statement, got ${ast_expr_to_string(&evaluated_case_body)}`
+                        Box.new(
+                          format_error_message(
+                            ast_expr_token(&evaluated_case_body),
+                            `Expected type for cond statement, got ${ast_expr_to_string(&evaluated_case_body)}`
+                          )
                         )
                       )
                     );
@@ -587,9 +603,11 @@ evaluate_cond :: (
                       if(!are_types_compatible(&runtime_arm_ty, &et.ty), {
                         exn.throw(
                           dyn(
-                            format_error_message(
-                              ast_expr_token(&evaluated_case_body),
-                              `Incompatible type with expected type:\n- Expected: ${type_to_string(&et.ty)}\n- Actual  : ${type_to_string(&body_einfo.ty())}`
+                            Box.new(
+                              format_error_message(
+                                ast_expr_token(&evaluated_case_body),
+                                `Incompatible type with expected type:\n- Expected: ${type_to_string(&et.ty)}\n- Actual  : ${type_to_string(&body_einfo.ty())}`
+                              )
                             )
                           )
                         );
@@ -629,9 +647,11 @@ evaluate_cond :: (
                         }, {
                           exn.throw(
                             dyn(
-                              format_error_message(
-                                ast_expr_token(&evaluated_case_body),
-                                `Incompatible types:\n- Previous: ${type_to_string(&vt.ty)}\n- Current : ${type_to_string(&body_einfo.ty())}`
+                              Box.new(
+                                format_error_message(
+                                  ast_expr_token(&evaluated_case_body),
+                                  `Incompatible types:\n- Previous: ${type_to_string(&vt.ty)}\n- Current : ${type_to_string(&body_einfo.ty())}`
+                                )
                               )
                             )
                           );
@@ -661,9 +681,11 @@ evaluate_cond :: (
         if(has_case_without_control_flow && value_type.is_none(), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(expr),
-                `Failed to determine the type of value from the cond.`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(expr),
+                  `Failed to determine the type of value from the cond.`
+                )
               )
             )
           );
@@ -718,9 +740,11 @@ evaluate_cond :: (
           .Some(rc_tok) => if(type_requires_comptime_modifier(convert_comptime_type_to_runtime_type(&vts.ty, &env)), {
             exn.throw(
               dyn(
-                format_error_message(
-                  &rc_tok,
-                  `This condition is only known at runtime, but the \`cond\` selects a compile-time-only value of type ${type_to_string(&vts.ty)}. Every condition before the chosen arm must be known at compile time: make it a \`::\` constant or a \`comptime\` parameter.`
+                Box.new(
+                  format_error_message(
+                    &rc_tok,
+                    `This condition is only known at runtime, but the \`cond\` selects a compile-time-only value of type ${type_to_string(&vts.ty)}. Every condition before the chosen arm must be known at compile time: make it a \`::\` constant or a \`comptime\` parameter.`
+                  )
                 )
               )
             );
@@ -752,9 +776,11 @@ evaluate_cond :: (
         if(control_flows.len() == usize(0), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(expr),
-                `No control flows found but expected some.`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(expr),
+                  `No control flows found but expected some.`
+                )
               )
             )
           );
@@ -765,9 +791,11 @@ evaluate_cond :: (
             if(ctx.is_evaluating_function_body_or_async_block.is_none(), {
               exn.throw(
                 dyn(
-                  format_error_message(
-                    ast_expr_token(expr),
-                    `All cases in cond are returning from function, but not evaluating in function body.`
+                  Box.new(
+                    format_error_message(
+                      ast_expr_token(expr),
+                      `All cases in cond are returning from function, but not evaluating in function body.`
+                    )
                   )
                 )
               );
@@ -828,9 +856,11 @@ evaluate_cond :: (
               .None => {
                 exn.throw(
                   dyn(
-                    format_error_message(
-                      ast_expr_token(expr),
-                      `Failed to determine the return type for cond statement.`
+                    Box.new(
+                      format_error_message(
+                        ast_expr_token(expr),
+                        `Failed to determine the return type for cond statement.`
+                      )
                     )
                   )
                 );
@@ -869,9 +899,11 @@ evaluate_cond :: (
             if(ctx.enclosing_function_return_type.is_none(), {
               exn.throw(
                 dyn(
-                  format_error_message(
-                    ast_expr_token(expr),
-                    `All cases in cond use "unwind", but not inside a function with an enclosing function.`
+                  Box.new(
+                    format_error_message(
+                      ast_expr_token(expr),
+                      `All cases in cond use "unwind", but not inside a function with an enclosing function.`
+                    )
                   )
                 )
               );
@@ -886,9 +918,11 @@ evaluate_cond :: (
             if(ctx.is_evaluating_loop_body.is_none(), {
               exn.throw(
                 dyn(
-                  format_error_message(
-                    ast_expr_token(expr),
-                    `All cases in cond are breaking from loop, but not inside a loop.`
+                  Box.new(
+                    format_error_message(
+                      ast_expr_token(expr),
+                      `All cases in cond are breaking from loop, but not inside a loop.`
+                    )
                   )
                 )
               );
@@ -903,9 +937,11 @@ evaluate_cond :: (
             if(ctx.is_evaluating_loop_body.is_none(), {
               exn.throw(
                 dyn(
-                  format_error_message(
-                    ast_expr_token(expr),
-                    `All cases in cond are continuing loop, but not inside a loop.`
+                  Box.new(
+                    format_error_message(
+                      ast_expr_token(expr),
+                      `All cases in cond are continuing loop, but not inside a loop.`
+                    )
                   )
                 )
               );

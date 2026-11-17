@@ -803,9 +803,11 @@ _build_extract_string :: (
       _ => {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(expr),
-              `Build function: expected comptime_str for "${param}", got non-string`
+            Box.new(
+              format_error_message(
+                ast_expr_token(expr),
+                `Build function: expected comptime_str for "${param}", got non-string`
+              )
             )
           )
         );
@@ -815,9 +817,11 @@ _build_extract_string :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            `Build function: expected comptime_str for "${param}", got undefined`
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              `Build function: expected comptime_str for "${param}", got undefined`
+            )
           )
         )
       );
@@ -930,9 +934,11 @@ _build_require_args :: (
   if(args.len() < least, {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `${message}, got ${args.len()}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `${message}, got ${args.len()}`
+          )
         )
       )
     );
@@ -1048,9 +1054,11 @@ evaluate_yo_build_functions :: (
     if(args.len() != usize(1), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            `__yo_build_target_parse expects 1 argument (triple), got ${args.len()}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              `__yo_build_target_parse expects 1 argument (triple), got ${args.len()}`
+            )
           )
         )
       );
@@ -1102,9 +1110,11 @@ evaluate_yo_build_functions :: (
     if(!_under_build(), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            `"build.env" may only be read while a build file is being evaluated — an ordinary module that read the environment would mean something different under \`yo build\`, \`yo check\`, \`yo test\` and the editor. Declare a \`build.option\` and pass \`-D${env_name}=…\` instead.`
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              `"build.env" may only be read while a build file is being evaluated — an ordinary module that read the environment would mean something different under \`yo build\`, \`yo check\`, \`yo test\` and the editor. Declare a \`build.option\` and pass \`-D${env_name}=…\` instead.`
+            )
           )
         )
       );
@@ -1121,9 +1131,11 @@ evaluate_yo_build_functions :: (
     if(!_under_build(), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            `"build.env_is_set" may only be read while a build file is being evaluated. Declare a \`build.option\` and pass \`-D${is_set_name}=…\` instead.`
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              `"build.env_is_set" may only be read while a build file is being evaluated. Declare a \`build.option\` and pass \`-D${is_set_name}=…\` instead.`
+            )
           )
         )
       );
@@ -1138,9 +1150,11 @@ evaluate_yo_build_functions :: (
     if(args.len() < usize(2), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            `__yo_build_dep_module expects 2 arguments (dependency_name, module_name), got ${args.len()}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              `__yo_build_dep_module expects 2 arguments (dependency_name, module_name), got ${args.len()}`
+            )
           )
         )
       );
@@ -1384,9 +1398,11 @@ evaluate_yo_build_functions :: (
   });
   exn.throw(
     dyn(
-      format_error_message(
-        ast_expr_token(expr),
-        `Unknown build function: ${ast_expr_token(expr).value.*}`
+      Box.new(
+        format_error_message(
+          ast_expr_token(expr),
+          `Unknown build function: ${ast_expr_token(expr).value.*}`
+        )
       )
     )
   );

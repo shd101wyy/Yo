@@ -292,9 +292,11 @@ _bind_subject_and_eval_test :: (
       if(!are_types_compatible(&ti.ty(), t_bool()), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(src),
-              `Pattern ${ast_expr_to_string(src)} cannot match a value of type ${type_to_string(position_ty)}: a value pattern is compared with \`==\`, and there is no \`==\` between them that gives a bool.${cond(is_tuple_type(position_ty) => " Write a tuple pattern with one sub-pattern per element instead.", true => "")}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(src),
+                `Pattern ${ast_expr_to_string(src)} cannot match a value of type ${type_to_string(position_ty)}: a value pattern is compared with \`==\`, and there is no \`==\` between them that gives a bool.${cond(is_tuple_type(position_ty) => " Write a tuple pattern with one sub-pattern per element instead.", true => "")}`
+              )
             )
           )
         );
@@ -313,9 +315,11 @@ _bind_subject_and_eval_test :: (
       });
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(src),
-            `Pattern ${ast_expr_to_string(src)} cannot match a value of type ${type_to_string(position_ty)} (no \`==\` between them)`
+          Box.new(
+            format_error_message(
+              ast_expr_token(src),
+              `Pattern ${ast_expr_to_string(src)} cannot match a value of type ${type_to_string(position_ty)} (no \`==\` between them)`
+            )
           )
         )
       );
@@ -402,10 +406,12 @@ _const_value_of :: (fn(e : &AstExpr, evaluated : &AstExpr, ctx : &EvalContext, e
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(e),
-            `Invalid pattern in match expression: ${ast_expr_to_string(e)}
+          Box.new(
+            format_error_message(
+              ast_expr_token(e),
+              `Invalid pattern in match expression: ${ast_expr_to_string(e)}
 Supported patterns: _, a binding name, a compile-time constant, .Variant, .Variant(p, …), .Variant(label : p), .Variant({…}), (p | q), (name := p), (lo..hi), (p && (guard)), (a, b), S(label : p, …), {label : p, …}`
+            )
           )
         )
       );
@@ -418,9 +424,11 @@ Supported patterns: _, a binding name, a compile-time constant, .Variant, .Varia
       if(is_unknown_val(&v), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(e),
-              `Match patterns must be compile-time known values. "${ast_expr_to_string(e)}" is a runtime value.`
+            Box.new(
+              format_error_message(
+                ast_expr_token(e),
+                `Match patterns must be compile-time known values. "${ast_expr_to_string(e)}" is a runtime value.`
+              )
             )
           )
         );
@@ -431,9 +439,11 @@ Supported patterns: _, a binding name, a compile-time constant, .Variant, .Varia
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(e),
-            `Match patterns must be compile-time known values. "${ast_expr_to_string(e)}" is a runtime value.`
+          Box.new(
+            format_error_message(
+              ast_expr_token(e),
+              `Match patterns must be compile-time known values. "${ast_expr_to_string(e)}" is a runtime value.`
+            )
           )
         )
       );
@@ -521,9 +531,11 @@ _compile_range :: (
     if(!known, {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&b),
-            `Range pattern bounds must be compile-time known values. "${ast_expr_to_string(&b)}" is not.`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&b),
+              `Range pattern bounds must be compile-time known values. "${ast_expr_to_string(&b)}" is not.`
+            )
           )
         )
       );
@@ -687,9 +699,11 @@ _compile_variant :: (
   if(!is_enum_type(&enum_ty), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(e),
-          `Pattern .${vname} needs an enum value to match against, but this position has type ${type_to_string(position_ty_in)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(e),
+            `Pattern .${vname} needs an enum value to match against, but this position has type ${type_to_string(position_ty_in)}`
+          )
         )
       )
     );
@@ -702,9 +716,11 @@ _compile_variant :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(e),
-            `Enum variant "${vname}" not found in ${type_to_string(&enum_ty)}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(e),
+              `Enum variant "${vname}" not found in ${type_to_string(&enum_ty)}`
+            )
           )
         )
       );
@@ -758,9 +774,11 @@ _compile_variant :: (
     if(dparams.len() > usize(0), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(e),
-            `Variant "${vname}" has no fields, but destructuring parameters were provided`
+          Box.new(
+            format_error_message(
+              ast_expr_token(e),
+              `Variant "${vname}" has no fields, but destructuring parameters were provided`
+            )
           )
         )
       );
@@ -770,9 +788,11 @@ _compile_variant :: (
     if(!has_labeled && (dparams.len() > usize(0)) && (dparams.len() != arity), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(e),
-            `Variant "${vname}" expects ${arity} parameters, got ${dparams.len()}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(e),
+              `Variant "${vname}" expects ${arity} parameters, got ${dparams.len()}`
+            )
           )
         )
       );
@@ -785,9 +805,11 @@ _compile_variant :: (
     if(has_labeled && (dparams.len() > arity), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(e),
-            `Variant "${vname}" has ${arity} fields, but the pattern lists ${dparams.len()}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(e),
+              `Variant "${vname}" has ${arity} fields, but the pattern lists ${dparams.len()}`
+            )
           )
         )
       );
@@ -810,9 +832,11 @@ _compile_variant :: (
       if(!ast_expr_is_atom(&label_expr), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&label_expr),
-              `Expected identifier for label in destructuring pattern, got ${ast_expr_to_string(&label_expr)}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&label_expr),
+                `Expected identifier for label in destructuring pattern, got ${ast_expr_to_string(&label_expr)}`
+              )
             )
           )
         );
@@ -840,13 +864,15 @@ _compile_variant :: (
           });
           exn.throw(
             dyn(
-              with_code(
-                format_error_message_with_help(
-                  ast_expr_token(&label_expr),
-                  `Label "${lbl}" not found in variant "${vname}". Available labels: ${available}`,
-                  _did_you_mean(lbl.clone(), &labels.items)
-                ),
-                E_FIELD_NOT_FOUND
+              Box.new(
+                with_code(
+                  format_error_message_with_help(
+                    ast_expr_token(&label_expr),
+                    `Label "${lbl}" not found in variant "${vname}". Available labels: ${available}`,
+                    _did_you_mean(lbl.clone(), &labels.items)
+                  ),
+                  E_FIELD_NOT_FOUND
+                )
               )
             )
           );
@@ -856,9 +882,11 @@ _compile_variant :: (
       if(_find_str(&seen_labels, lbl.clone()).is_some(), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&label_expr),
-              `Label "${lbl}" is already destructured`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&label_expr),
+                `Label "${lbl}" is already destructured`
+              )
             )
           )
         );
@@ -875,9 +903,11 @@ _compile_variant :: (
         if(ast_expr_is_atom_of(&param, "_"), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&param),
-                `Bare "_" inside curly destructuring "{...}" is meaningless. Either omit the field, or write "label: _" to assert presence without binding.`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&param),
+                  `Bare "_" inside curly destructuring "{...}" is meaningless. Either omit the field, or write "label: _" to assert presence without binding.`
+                )
               )
             )
           );
@@ -886,9 +916,11 @@ _compile_variant :: (
         if(ast_expr_is_fn_call_of(&param, "_", Option(usize).None), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&param),
-                `Nested curly destructuring "{...}" inside another "{...}" is not supported.`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&param),
+                  `Nested curly destructuring "{...}" inside another "{...}" is not supported.`
+                )
               )
             )
           );
@@ -905,13 +937,15 @@ _compile_variant :: (
             .None => {
               exn.throw(
                 dyn(
-                  with_code(
-                    format_error_message_with_help(
-                      ast_expr_token(&param),
-                      `Label "${lbl}" not found in variant "${vname}"`,
-                      _did_you_mean(lbl.clone(), &labels.items)
-                    ),
-                    E_FIELD_NOT_FOUND
+                  Box.new(
+                    with_code(
+                      format_error_message_with_help(
+                        ast_expr_token(&param),
+                        `Label "${lbl}" not found in variant "${vname}"`,
+                        _did_you_mean(lbl.clone(), &labels.items)
+                      ),
+                      E_FIELD_NOT_FOUND
+                    )
                   )
                 )
               );
@@ -921,9 +955,11 @@ _compile_variant :: (
         }, {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&param),
-                `Expected labeled pattern (label: variable) inside curly destructuring "{...}", got ${ast_expr_to_string(&param)}`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&param),
+                  `Expected labeled pattern (label: variable) inside curly destructuring "{...}", got ${ast_expr_to_string(&param)}`
+                )
               )
             )
           );
@@ -1007,9 +1043,11 @@ _compile_tuple :: (
   if(elem_tys.len() == usize(0), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(e),
-          `Pattern ${ast_expr_to_string(e)} needs a tuple to match against, but this position has type ${type_to_string(position_ty)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(e),
+            `Pattern ${ast_expr_to_string(e)} needs a tuple to match against, but this position has type ${type_to_string(position_ty)}`
+          )
         )
       )
     );
@@ -1018,9 +1056,11 @@ _compile_tuple :: (
   if(elem_tys.len() != args.len(), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(e),
-          `Tuple pattern has ${args.len()} elements, but this position's type ${type_to_string(position_ty)} has ${elem_tys.len()}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(e),
+            `Tuple pattern has ${args.len()} elements, but this position's type ${type_to_string(position_ty)} has ${elem_tys.len()}`
+          )
         )
       )
     );
@@ -1090,9 +1130,11 @@ _compile_struct :: (
       if(!ast_expr_is_atom(&label_expr), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&label_expr),
-              `Expected identifier for label in struct pattern, got ${ast_expr_to_string(&label_expr)}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&label_expr),
+                `Expected identifier for label in struct pattern, got ${ast_expr_to_string(&label_expr)}`
+              )
             )
           )
         );
@@ -1105,13 +1147,15 @@ _compile_struct :: (
         .None => {
           exn.throw(
             dyn(
-              with_code(
-                format_error_message_with_help(
-                  ast_expr_token(&label_expr),
-                  `Label "${lbl}" not found in ${_struct_type_name_for_err(struct_ty, ty_named)}`,
-                  _did_you_mean(lbl.clone(), &labels.items)
-                ),
-                E_FIELD_NOT_FOUND
+              Box.new(
+                with_code(
+                  format_error_message_with_help(
+                    ast_expr_token(&label_expr),
+                    `Label "${lbl}" not found in ${_struct_type_name_for_err(struct_ty, ty_named)}`,
+                    _did_you_mean(lbl.clone(), &labels.items)
+                  ),
+                  E_FIELD_NOT_FOUND
+                )
               )
             )
           );
@@ -1121,9 +1165,11 @@ _compile_struct :: (
       if(_find_str(&seen_labels, lbl.clone()).is_some(), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&label_expr),
-              `Label "${lbl}" is already destructured`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&label_expr),
+                `Label "${lbl}" is already destructured`
+              )
             )
           )
         );
@@ -1154,13 +1200,15 @@ _compile_struct :: (
           .None => {
             exn.throw(
               dyn(
-                with_code(
-                  format_error_message_with_help(
-                    ast_expr_token(&param),
-                    `Label "${lbl}" not found in ${_struct_type_name_for_err(struct_ty, ty_named)}`,
-                    _did_you_mean(lbl.clone(), &labels.items)
-                  ),
-                  E_FIELD_NOT_FOUND
+                Box.new(
+                  with_code(
+                    format_error_message_with_help(
+                      ast_expr_token(&param),
+                      `Label "${lbl}" not found in ${_struct_type_name_for_err(struct_ty, ty_named)}`,
+                      _did_you_mean(lbl.clone(), &labels.items)
+                    ),
+                    E_FIELD_NOT_FOUND
+                  )
                 )
               )
             );
@@ -1170,9 +1218,11 @@ _compile_struct :: (
         if(_find_str(&seen_labels, lbl.clone()).is_some(), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&param),
-                `Label "${lbl}" is already destructured`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&param),
+                  `Label "${lbl}" is already destructured`
+                )
               )
             )
           );
@@ -1182,9 +1232,11 @@ _compile_struct :: (
       }, {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&param),
-              `Expected a labeled pattern (label: pattern) or a bare field name in a struct pattern, got ${ast_expr_to_string(&param)}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&param),
+                `Expected a labeled pattern (label: pattern) or a bare field name in a struct pattern, got ${ast_expr_to_string(&param)}`
+              )
             )
           )
         );
@@ -1317,9 +1369,11 @@ compile_pattern :: (
     if(!ast_expr_is_atom(&name_expr) || _is_literal_atom(&name_expr), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&name_expr),
-            `Expected a binding name on the left of ":=" in a pattern, got ${ast_expr_to_string(&name_expr)}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&name_expr),
+              `Expected a binding name on the left of ":=" in a pattern, got ${ast_expr_to_string(&name_expr)}`
+            )
           )
         )
       );
@@ -1409,10 +1463,12 @@ compile_pattern :: (
         article := if(ctor.name == "Box", String.from("a"), String.from("an"));
         exn.throw(
           dyn(
-            format_error_message_with_help(
-              ast_expr_token(e),
-              `Pattern ${ast_expr_to_string(e)} cannot match a value of type ${type_to_string(position_ty)}: \`${ctor.name}(p)\` looks through ${article} \`${ctor.name}\`, and this position is not one.`,
-              Option(String).Some(`match the value itself, without \`${ctor.name}(…)\` around the pattern`)
+            Box.new(
+              format_error_message_with_help(
+                ast_expr_token(e),
+                `Pattern ${ast_expr_to_string(e)} cannot match a value of type ${type_to_string(position_ty)}: \`${ctor.name}(p)\` looks through ${article} \`${ctor.name}\`, and this position is not one.`,
+                Option(String).Some(`match the value itself, without \`${ctor.name}(…)\` around the pattern`)
+              )
             )
           )
         );
@@ -1461,11 +1517,13 @@ compile_pattern :: (
     cell_name := _cell_ctor_name(position_ty);
     exn.throw(
       dyn(
-        format_error_message_with_help(
-          ast_expr_token(e),
-          `Pattern ${ast_expr_to_string(e)} cannot match a value of type ${type_to_string(position_ty)}: a pattern does not look through a cell implicitly.`,
-          Option(String).Some(
-            `spell the wrapper the pattern crosses: ${cell_name}(${ast_expr_to_string(e)})`
+        Box.new(
+          format_error_message_with_help(
+            ast_expr_token(e),
+            `Pattern ${ast_expr_to_string(e)} cannot match a value of type ${type_to_string(position_ty)}: a pattern does not look through a cell implicitly.`,
+            Option(String).Some(
+              `spell the wrapper the pattern crosses: ${cell_name}(${ast_expr_to_string(e)})`
+            )
           )
         )
       )
@@ -1490,9 +1548,11 @@ compile_pattern :: (
           if(!(is_struct_type(&pos_struct) && are_types_compatible(&struct_ty, &pos_struct)), {
             exn.throw(
               dyn(
-                format_error_message(
-                  ast_expr_token(e),
-                  `Pattern ${_struct_type_name_text(&struct_ty)} needs a value of that struct type to match against, but this position has type ${type_to_string(position_ty)}`
+                Box.new(
+                  format_error_message(
+                    ast_expr_token(e),
+                    `Pattern ${_struct_type_name_text(&struct_ty)} needs a value of that struct type to match against, but this position has type ${type_to_string(position_ty)}`
+                  )
                 )
               )
             );
@@ -1525,9 +1585,11 @@ compile_pattern :: (
     }, {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(e),
-            `Pattern ${ast_expr_to_string(e)} needs a struct value to match against, but this position has type ${type_to_string(position_ty)}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(e),
+              `Pattern ${ast_expr_to_string(e)} needs a struct value to match against, but this position has type ${type_to_string(position_ty)}`
+            )
           )
         )
       );
@@ -1560,9 +1622,11 @@ compile_pattern :: (
           if(!_same_names(&first_names, &alt_names), {
             exn.throw(
               dyn(
-                format_error_message(
-                  ast_expr_token(&alt_ast),
-                  `Or-pattern alternatives bind different names: ${_names_to_string(&first_names)} vs ${_names_to_string(&alt_names)}`
+                Box.new(
+                  format_error_message(
+                    ast_expr_token(&alt_ast),
+                    `Or-pattern alternatives bind different names: ${_names_to_string(&first_names)} vs ${_names_to_string(&alt_names)}`
+                  )
                 )
               )
             );

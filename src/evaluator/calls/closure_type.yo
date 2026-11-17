@@ -107,9 +107,11 @@ try_to_implement_closure_by_fn_module_type :: (
   if(arg_len != usize(1), {
     exn.throw(
       dyn(
-        format_error_message(
-          &tok,
-          `Fn module type expects exactly 1 argument (the closure body), got ${arg_len.to_string()}`
+        Box.new(
+          format_error_message(
+            &tok,
+            `Fn module type expects exactly 1 argument (the closure body), got ${arg_len.to_string()}`
+          )
         )
       )
     );
@@ -306,9 +308,11 @@ try_to_implement_closure_by_fn_module_type :: (
   if(!are_types_compatible(&body_ty, &result_type), {
     exn.throw(
       dyn(
-        format_error_message(
-          &tok,
-          `Incompatible closure return type`
+        Box.new(
+          format_error_message(
+            &tok,
+            `Incompatible closure return type`
+          )
         )
       )
     );

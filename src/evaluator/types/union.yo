@@ -49,9 +49,11 @@ evaluate_union_type :: (
   if(!ast_expr_is_fn_call_of(expr, BK_UNION, Option(usize).None), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected "union", got:\n${ast_expr_to_string(expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected "union", got:\n${ast_expr_to_string(expr)}`
+          )
         )
       )
     );
@@ -102,9 +104,11 @@ evaluate_union_type :: (
       );
       exn.throw(
         dyn(
-          format_error_message(
-            &err_tok,
-            `Duplicate label "${field.label}" in union field.`
+          Box.new(
+            format_error_message(
+              &err_tok,
+              `Duplicate label "${field.label}" in union field.`
+            )
           )
         )
       );
@@ -113,9 +117,11 @@ evaluate_union_type :: (
     if(field.default_value.is_some(), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg),
-            String.from("Union type cannot have default value for its fields.")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg),
+              String.from("Union type cannot have default value for its fields.")
+            )
           )
         )
       );
@@ -124,9 +130,11 @@ evaluate_union_type :: (
     if(type_is_comptime_only(&field.ty) || !type_implements_runtime(&field.ty), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg),
-            String.from("Union type fields must be runtime types.")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg),
+              String.from("Union type fields must be runtime types.")
+            )
           )
         )
       );
@@ -135,9 +143,11 @@ evaluate_union_type :: (
     if(type_contains_rc_type(&field.ty), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg),
-            String.from("Union type cannot have field with garbage-collected type.")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg),
+              String.from("Union type cannot have field with garbage-collected type.")
+            )
           )
         )
       );

@@ -5,7 +5,7 @@
 add :: (fn(a : i32, b : i32) -> i32)(a + b);
 /// Throws through the handler record.
 parse_or_throw :: (fn(text : &String, exn : Exception) -> i32)(
-  match(text.parse_i32(), .Some(v) => v, .None => exn.throw(dyn(String.from("not a number"))))
+  match(text.parse_i32(), .Some(v) => v, .None => exn.throw(dyn(Box.new(String.from("not a number")))))
 );
 /// Needs the async runtime.
 tick :: (fn(io : Io) -> unit)(());

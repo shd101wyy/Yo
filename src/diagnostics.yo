@@ -199,10 +199,12 @@ E_UNSIZED_BY_VALUE :: "E0619";
 /// Before the code, `x.*` with `x : i32` fell through the property lookup and
 /// surfaced as the evaluator internal "arg has no ExprInfo"
 /// (issues/fixed/2026-11-09-a-deref-of-a-plain-value-is-an-internal-error-not-a-diagnostic.md).
-/// E0620 stays reserved for a plain `dyn(v)` (decision 49).
+/// (E0620 is the unsizing of a value, `unsize(a)` and a plain `dyn(v)`.)
 E_DEREF_OF_VALUE :: "E0621";
-/// An unsizing (`unsize(p)`, decision 49) applied to a value instead of a
-/// pointer: the unsizing is of the pointer, never a value moved behind one.
+/// An unsizing (`unsize(p)`, `dyn(p)`, decision 49) applied to a value
+/// instead of a pointer: the unsizing is of the pointer, never a value moved
+/// behind one. A plain `dyn(v)` is this error since decision 49 S3b (until
+/// v0.2.79 it was the legacy alias of `dyn(Box.new(v))`).
 E_UNSIZING_A_VALUE :: "E0620";
 // Ownership / moves / effects / async.
 E_USE_OF_MOVED_VALUE :: "E0901";

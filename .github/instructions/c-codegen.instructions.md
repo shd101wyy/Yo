@@ -1059,7 +1059,7 @@ Two consequences worth knowing before touching `src/codegen/exprs/downcast.yo`:
   `dyn(&v)` instance whose data word is the payload's address, `_A` for a legacy
   `Arc(V)` cell, empty for the legacy cell), in the collection pass, the
   fixup's re-key, an upcast target and the `dyn(...)` site alike. Without it a
-  `dyn(&c)` and an owned `dyn(Cat(...))` of one Dyn share an entry, one
+  `dyn(&c)` and an owned `dyn(Box.new(Cat(...)))` of one Dyn share an entry, one
   overwrites the other, and an upcast target registered from the survivor
   leaves the other convention's `__yo_up_<Tgt>` slot NULL
   (`issues/fixed/2026-11-11-a-reference-upcast-and-an-owned-upcast-to-one-dyn-in-one-program-crash.md`).

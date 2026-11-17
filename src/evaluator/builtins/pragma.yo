@@ -154,9 +154,11 @@ evaluate_pragma :: (
   if(args.len() != usize(1), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected 1 arguments, got ${args.len()}:\n${ast_expr_to_string(expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected 1 arguments, got ${args.len()}:\n${ast_expr_to_string(expr)}`
+          )
         )
       )
     );
@@ -195,9 +197,11 @@ evaluate_pragma :: (
     info_opt,
     .None => exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&arg),
-          `Failed to evaluate the argument of 'pragma(...)'.`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&arg),
+            `Failed to evaluate the argument of 'pragma(...)'.`
+          )
         )
       )
     ),
@@ -217,9 +221,11 @@ evaluate_pragma :: (
     variant,
     .None => exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&arg),
-          `'pragma(...)' expects a 'Pragma.X' argument (e.g. 'pragma(Pragma.AllowUnsafe);'). Got value of type ${got_ty_str} from: ${ast_expr_to_string(&arg)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&arg),
+            `'pragma(...)' expects a 'Pragma.X' argument (e.g. 'pragma(Pragma.AllowUnsafe);'). Got value of type ${got_ty_str} from: ${ast_expr_to_string(&arg)}`
+          )
         )
       )
     ),
@@ -227,9 +233,11 @@ evaluate_pragma :: (
       pragma_kind_from_variant_name(vname.clone()),
       .None => exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg),
-            `Unknown 'Pragma' variant '${vname}'. The compiler does not recognize this pragma — make sure the prelude's 'Pragma' enum and 'evaluator/memory_safety.yo' agree on the set of supported variants.`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg),
+              `Unknown 'Pragma' variant '${vname}'. The compiler does not recognize this pragma — make sure the prelude's 'Pragma' enum and 'evaluator/memory_safety.yo' agree on the set of supported variants.`
+            )
           )
         )
       ),

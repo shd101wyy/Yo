@@ -74,9 +74,11 @@ evaluate_yo_array_fill :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&array_type_arg),
-            String.from("__yo_array_fill: failed to evaluate array type argument")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&array_type_arg),
+              String.from("__yo_array_fill: failed to evaluate array type argument")
+            )
           )
         )
       );
@@ -96,9 +98,11 @@ evaluate_yo_array_fill :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&array_type_arg),
-            String.from("__yo_array_fill expects first argument to be an ArrayType")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&array_type_arg),
+              String.from("__yo_array_fill expects first argument to be an ArrayType")
+            )
           )
         )
       );
@@ -108,9 +112,11 @@ evaluate_yo_array_fill :: (
   if(!is_array_type(&array_type_tv), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&array_type_arg),
-          `__yo_array_fill expects first argument to be an ArrayType, got ${type_to_string(&array_type_tv)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&array_type_arg),
+            `__yo_array_fill expects first argument to be an ArrayType, got ${type_to_string(&array_type_tv)}`
+          )
         )
       )
     );
@@ -137,9 +143,11 @@ evaluate_yo_array_fill :: (
     .None => {
       exn.throw(
         dyn(
-          format_eval_failure(
-            ast_expr_token(&fill_value_arg),
-            String.from("Failed to evaluate fill value")
+          Box.new(
+            format_eval_failure(
+              ast_expr_token(&fill_value_arg),
+              String.from("Failed to evaluate fill value")
+            )
           )
         )
       );
@@ -151,9 +159,11 @@ evaluate_yo_array_fill :: (
   if(!are_types_compatible(&fv_info.ty(), &element_type), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&fill_value_arg),
-          `Fill value type ${type_to_string(&fv_info.ty())} is not compatible with array element type ${type_to_string(&element_type)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&fill_value_arg),
+            `Fill value type ${type_to_string(&fv_info.ty())} is not compatible with array element type ${type_to_string(&element_type)}`
+          )
         )
       )
     );
@@ -165,9 +175,11 @@ evaluate_yo_array_fill :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&fill_value_arg),
-            String.from("__yo_array_fill expects second argument to be a compile-time known value, got runtime value")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&fill_value_arg),
+              String.from("__yo_array_fill expects second argument to be a compile-time known value, got runtime value")
+            )
           )
         )
       );
