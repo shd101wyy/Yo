@@ -1982,7 +1982,7 @@ fused_await_site :: (fn(await_expr : &AstExpr, report : bool, context : &Functio
   });
   wrapper_body := match(
     context.base.functions.get(cand.func_id.clone()),
-    .Some(fe) => match(fe.value, Rc(.FuncVal(wfvd, _)) => Rc.clone(wfvd.*.body), _ => return(_fusion_not_lowered(await_expr, String.from("the wrapper has no body"), report))),
+    .Some(fe) => match(Rc.clone(fe.value), Rc(.FuncVal(wfvd, _)) => Rc.clone(wfvd.*.body), _ => return(_fusion_not_lowered(await_expr, String.from("the wrapper has no body"), report))),
     .None => return(_fusion_not_lowered(await_expr, String.from("the wrapper is not emitted"), report))
   );
   stmts := if(ast_expr_is_fn_call_of(&wrapper_body, BK_BEGIN, Option(usize).None), emitted_block_statements(match(Rc.clone(wrapper_body), Rc(.FnCall(_, _, Rc(sa), _, _)) => sa.clone(), _ => ArrayList(AstExpr).new())), {
@@ -3813,7 +3813,7 @@ preregister_async_block_types :: (fn(context : &mut FunctionGenerationContext) -
   bodies := ArrayList(AstExpr).new();
   for(&context.base.functions, (_fid, entry) => {
     match(
-      entry.value,
+      Rc.clone(entry.value),
       Rc(.FuncVal(__fvd3, _)) => bodies.push(__fvd3.*.body.clone()),
       _ => ()
     );
@@ -3885,7 +3885,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
         result_type = rct;
       },
       .None => match(
-        result_closure_fv,
+        result_closure_fv.clone(),
         .Some(fv) => match(
           fv,
           Rc(.FuncVal(__fvd4, _)) => match(
@@ -3969,7 +3969,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   // sync-future stub below would run nothing and silently complete (the C22
   // `_sync_fut_t` class — handover §0c). Reject it instead.
   match(
-    closure_fn_val,
+    closure_fn_val.clone(),
     .Some(fv) => match(
       fv,
       Rc(.FuncVal(__fvdh, _)) => match(

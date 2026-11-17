@@ -55,7 +55,7 @@ _evaluator_ctx_load_module :: (fn(path : &String) -> LoadModuleResult)(
     g_evaluator_load_fn,
     .Some(f) =>
       match(
-        f(path.clone()),
+        f(path.clone()).clone(),
         .Some(v) => LoadModuleResult(
           module_value : v,
           module_type : Rc.new(TypeValueNode.Unit),
@@ -182,7 +182,7 @@ impl(
     if(!skip_prelude, {
       prelude_path := `file://${std_path}/prelude.yo`;
       match(
-        load_module_fn(&prelude_path),
+        load_module_fn(&prelude_path).clone(),
         .Some(pval) =>
           match(
             pval,
@@ -246,7 +246,7 @@ impl(
         true,
         exn
       );
-      module_value = Option(EvalValue).Some(result.module_value);
+      module_value = Option(EvalValue).Some(Rc.clone(result.module_value));
       module_error = result.partial_module_error.clone();
       final_env = Option(Environment).Some(Rc.clone(result.env));
       // Build the O(1) prelude variable cache after evaluating
@@ -267,7 +267,7 @@ impl(
   }),
   get_program : (fn(self : &Self) -> &ArrayList(AstExpr))(&self.program),
   get_tokens : (fn(self : &Self) -> &ArrayList(Token))(&self.tokens),
-  get_module_value : (fn(self : &Self) -> Option(EvalValue))(self.module_value),
+  get_module_value : (fn(self : &Self) -> Option(EvalValue))(self.module_value.clone()),
   get_module_error : (fn(self : &Self) -> &Option(String))(&self.module_error),
   get_env : (fn(self : &Self) -> Option(Environment))(self.env.clone())
 );

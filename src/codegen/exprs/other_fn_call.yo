@@ -2316,7 +2316,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
         match(
           lookup_method_callee_value(ast_expr_id(expr)),
           .Some(mcv) => if(is_func_val(&mcv), {
-            mfid2 := match(mcv, Rc(.FuncVal(__fvd5, _)) => __fvd5.*.func_id.clone(), _ => String.from(""));
+            mfid2 := match(Rc.clone(mcv), Rc(.FuncVal(__fvd5, _)) => __fvd5.*.func_id.clone(), _ => String.from(""));
             mc_name = _c_func_name(&mfid2, context);
             method_fv = Option(EvalValue).Some(mcv);
           }),
@@ -2330,11 +2330,11 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             match(
               entries.get(mei),
               .Some(entry) => match(
-                entry.value,
+                entry.value.clone(),
                 .Some(mv) => if(is_func_val(&mv), {
                   mfid := match(mv, Rc(.FuncVal(__fvd4, _)) => __fvd4.*.func_id.clone(), _ => String.from(""));
                   mc_name = _c_func_name(&mfid, context);
-                  method_fv = Option(EvalValue).Some(mv);
+                  method_fv = Option(EvalValue).Some(Rc.clone(mv));
                 }),
                 .None => ()
               ),
@@ -2350,7 +2350,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
         // Emit the inline form directly — mirrors the registered-call path
         // (the FuncVal-call arm does the same via generate_yo_inline_function_call).
         match(
-          method_fv,
+          method_fv.clone(),
           .Some(mfv) => match(
             is_function_value_with_only_builtin_yo_inline_function_call(&mfv),
             .Some(op) => {
@@ -2399,7 +2399,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             // it, `w.bump()` emitted `bump(w)` for `bump(self*)` ("take the address
             // with &"). The `&mut` flags come from the resolved method's Func type.
             cm_param_is_ref := match(
-              method_fv,
+              method_fv.clone(),
               .Some(mfv2) => {
                 cm_ft := get_func_type(match(mfv2, Rc(.FuncVal(__fvd7, _)) => __fvd7.*.func_id.clone(), _ => String.from("")));
                 match(&cm_ft, Rc(.Func({ result : _ })) => fn_param_mut_ref_flags(&cm_ft), _ => no_flags())
@@ -2409,7 +2409,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             // The C pointer flags (a projection's `&T` parameters too); the
             // borrow acquires keep `cm_param_is_ref`.
             cm_abi_ptr := match(
-              method_fv,
+              method_fv.clone(),
               .Some(mfv3) => {
                 cm_ft := get_func_type(match(mfv3, Rc(.FuncVal(__fvd8, _)) => __fvd8.*.func_id.clone(), _ => String.from("")));
                 fn_abi_param_is_ptr(&cm_ft)
@@ -2419,7 +2419,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             // Resolved BEFORE the argument loop (they only need `method_fv`)
             // so the loop can tell whether an empty — i.e. `unit` — argument
             // has a real C parameter slot to fill with the dead byte.
-            cm_mft := match(method_fv, .Some(mv) => get_func_type(_func_val_id(&mv)), .None => Rc.new(TypeValueNode.Unit));
+            cm_mft := match(method_fv.clone(), .Some(mv) => get_func_type(_func_val_id(&mv)), .None => Rc.new(TypeValueNode.Unit));
             cm_ptypes := match(&cm_mft, Rc(.Func({ param_types : cpt })) => Rc.clone(cpt), _ => no_types());
             mut(cm_arg_list) := ArrayList(String).new();
             cnma := dm_runtime.len();
@@ -2577,7 +2577,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
     match(
       lookup_method_callee_value(ast_expr_id(expr)),
       .Some(rmv) => if(is_func_val(&rmv), {
-        rm_fid := match(rmv, Rc(.FuncVal(__fvdrm, _)) => __fvdrm.*.func_id.clone(), _ => String.from(""));
+        rm_fid := match(Rc.clone(rmv), Rc(.FuncVal(__fvdrm, _)) => __fvdrm.*.func_id.clone(), _ => String.from(""));
         match(
           _c_func_name(rm_fid.clone(), context),
           .Some(rmcn) => {
@@ -2615,7 +2615,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             rm_call.push_str("(");
             rm_call.push_string(_join_args(&rm_args));
             rm_call.push_str(")");
-            rm_may_unwind := _call_may_unwind(Option(EvalValue).Some(rmv), &rm_mft, &rm_ptypes.items, false, context);
+            rm_may_unwind := _call_may_unwind(Option(EvalValue).Some(Rc.clone(rmv)), &rm_mft, &rm_ptypes.items, false, context);
             rm_install_ei := new_expr_info(&ei.env(), &rm_mft);
             rm_install_ei.set_value(Option(EvalValue).Some(rmv));
             rm_is_install := _call_is_handler_installation(ast_expr_id(expr), &rm_install_ei, &rm_mft, &rm_ptypes.items, &rm_runtime, context, Option(String).None);
@@ -3296,7 +3296,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
     .Some(fv) => if(is_func_val(&fv) && !cc_early_hit, {
       // Inline if the function body is a single builtin operator.
       match(is_function_value_with_only_builtin_yo_inline_function_call(&fv), .Some(op) => return(Option(String).Some(_inline_alias_call_code(&op, &args2, expr, context, indent))), .None => ());
-      fid := match(fv, Rc(.FuncVal(__fvd8, _)) => __fvd8.*.func_id.clone(), _ => String.from(""));
+      fid := match(Rc.clone(fv), Rc(.FuncVal(__fvd8, _)) => __fvd8.*.func_id.clone(), _ => String.from(""));
       match(
         _c_func_name(&fid, context),
         .Some(c_func_name) => {
