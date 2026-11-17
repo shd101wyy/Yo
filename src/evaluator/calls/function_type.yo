@@ -2083,6 +2083,16 @@ Result type: ${type_to_string(&result_box)}`
           // trial (`reraise_flow_violation`). Unconditional (NOT under
           // `result_is_ref`) because the enclosing function may return any
           // type — e.g. `fn() -> unit`.
+          // A body that threw inside a `comptime_expect_error` argument is a
+          // rejected definition: the function was registered before its body
+          // ran, and nothing calls it, so codegen must not emit the body
+          // (issues/fixed/2026-11-17-a-definition-rejected-in-its-body-inside-comptime-expect-error-is-still-emitted.md).
+          // Only there: outside one the throw ends the compile, or an
+          // enclosing generic trial keeps it and re-evaluates this literal
+          // at the same stable id.
+          if(propagate_def_time_errors() && (flow_out.len() == usize(0)), {
+            mark_fn_unemittable(fn_val_id.clone());
+          });
           match(
             flow_violation_error(),
             .Some(viol_err) => {
