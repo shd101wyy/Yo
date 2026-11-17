@@ -887,26 +887,30 @@ reference_argument_as_referent :: (fn(written_arg : &AstExpr, evaled_arg : AstEx
   // yields the referent. The star sits just past the argument's token, never
   // AT a recorded deref site.
   ra_at := ast_expr_token(&evaled_arg);
-  ra_dot := Rc.new(TokenData(
-    kind : TokenKind.Dot,
-    value : intern_token_str(String.from(".")),
-    row : ra_at.row,
-    column : ra_at.column,
-    character : ra_at.character,
-    byte_offset : ra_at.byte_offset,
-    module_path : Rc.clone(ra_at.module_path),
-    input : Rc.clone(ra_at.input)
-  ));
-  ra_star := Rc.new(TokenData(
-    kind : TokenKind.Operator,
-    value : intern_token_str(String.from("*")),
-    row : ra_at.row,
-    column : ra_at.column,
-    character : ra_at.character,
-    byte_offset : (ra_at.byte_offset + u32(ra_at.value.*.len())),
-    module_path : Rc.clone(ra_at.module_path),
-    input : Rc.clone(ra_at.input)
-  ));
+  ra_dot := Rc.new(
+    TokenData(
+      kind : TokenKind.Dot,
+      value : intern_token_str(String.from(".")),
+      row : ra_at.row,
+      column : ra_at.column,
+      character : ra_at.character,
+      byte_offset : ra_at.byte_offset,
+      module_path : Rc.clone(ra_at.module_path),
+      input : Rc.clone(ra_at.input)
+    )
+  );
+  ra_star := Rc.new(
+    TokenData(
+      kind : TokenKind.Operator,
+      value : intern_token_str(String.from("*")),
+      row : ra_at.row,
+      column : ra_at.column,
+      character : ra_at.character,
+      byte_offset : (ra_at.byte_offset + u32(ra_at.value.*.len())),
+      module_path : Rc.clone(ra_at.module_path),
+      input : Rc.clone(ra_at.input)
+    )
+  );
   ra_args := ArrayList(AstExpr).new();
   ra_args.push(evaled_arg.clone());
   ra_args.push(AstExpr.Atom(alloc_global_expr_id(), ra_star));
@@ -1323,7 +1327,7 @@ apply_call_site_borrow_markers :: (
               l_new := ArrayList(AstExpr).new();
               l_new.push(match(l_args.get(usize(0)), .Some(l) => l, .None => make_err_expr()));
               l_new.push(place);
-              AstExpr.FnCall(l_id, l_fn, Rc.new(l_new), l_infix, l_tok)
+              AstExpr.FnCall(l_id, l_fn, Rc.new(l_new), l_infix, Rc.clone(l_tok))
             },
             .Atom(_, _) => place
           ),

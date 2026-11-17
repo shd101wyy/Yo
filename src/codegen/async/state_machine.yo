@@ -1126,7 +1126,7 @@ _build_combined_sm_variables :: (
   match(
     capture_type,
     .Some(ct) => {
-      flabels := match(ct, Rc(.Struct({ field_labels : fl })) => Rc.clone(fl), _ => no_labels());
+      flabels := match(Rc.clone(ct), Rc(.Struct({ field_labels : fl })) => Rc.clone(fl), _ => no_labels());
       ftypes := match(ct, Rc(.Struct({ field_types : ft })) => Rc.clone(ft), _ => no_types());
       (j : usize) = usize(0);
       while(j < flabels.len(), {
