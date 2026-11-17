@@ -483,7 +483,7 @@ _record_loop_handle_scrutinee_borrows :: (fn(e : &AstExpr, env : &Environment, e
                 // A `&`/`&mut` borrow (a `x : &T` parameter) is never
                 // consumed by a match: it already borrows.
                 .Some(rv) => if((rv.frame_level < entry_frames) && !rv.is_module_level() && !rv.is_compile_time_only()
-                && !_variable_is_imm_borrow(&rv) && !_variable_is_mut_borrow(&rv)
+                && !_variable_is_imm_borrow(&rv) && !_variable_is_mut_borrow(&rv) && !variable_is_reference_binding(&rv)
                 && !match_scrutinee_is_capture(&rv, env, ctx)
                 && type_holds_counted_handle_ignoring_migration(&variable_value_type(&rv)), {
                   migrate_rc_clone_borrow_scrutinee(&loop_scr, &variable_value_type(&rv), clone_scrutinee : _scrutinee_written_in_arms(e, rv.name.clone(), ctx));
@@ -799,8 +799,9 @@ _decide_match_mode :: (
   });
   if(!type_requires_explicit_copy(&ty), {
     // `yo fix --migrate rc-clone` (the rule suspended): a place the rule
-    // could not move gets the `&` its E0901 asks for.
-    if(migrate_rc_clone_on(), {
+    // could not move gets the `&` its E0901 asks for. A reference binding
+    // named bare is matched through (its bindings borrow the payload): no copy.
+    if(migrate_rc_clone_on() && !_scrutinee_is_reference_binding(&scr, env), {
       arm_mention := if(
         is_atom,
         match(
