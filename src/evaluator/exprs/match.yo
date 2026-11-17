@@ -1705,6 +1705,15 @@ evaluate_match :: (
           .None => ()
         );
       });
+      // A by-value match of a `Copy` scrutinee copies the part (decision
+      // 26's "copies or shares"): like C13's moved part, the copy holds what
+      // the scrutinee held, never its own place. `IterFilter.next`'s
+      // `.Some(item)` over an `Option(IterPair(&String, &String))` holds the
+      // walked lists, so `loop_result = .Some(item)` stores no borrow of
+      // `item` (issues/fixed/2026-11-17-a-copied-match-binding-is-its-own-origin-so-filter-over-zip-is-e0923.md).
+      if(!consuming && (!mut_places && (!ref_binds && (!b_ct_known && (ref_payload.is_none() && (!p_view && (type_carries_origin(&bind_ty) && !_names_contain(&own.borrowed, b.name.clone()))))))), {
+        match(&_added, .Some(cv) => note_ref_payload_held(cv.id(), &origin_held_by(&scrutinee_expr, &env, ctx)), .None => ());
+      });
     });
     unbound_vars := _add_hidden_bindings(&own.unbound, &env, ctx);
     keep_vars := _add_hidden_bindings(&own.keeps, &env, ctx);
