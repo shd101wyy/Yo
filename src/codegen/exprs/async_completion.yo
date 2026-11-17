@@ -105,12 +105,12 @@ unwind_origin_id :: (fn(body : &AstExpr) -> String)({
 _boundary_body :: (fn(e : &AstExpr) -> Option(AstExpr))(
   match(
     e,
-    .FnCall(_, func_box, Rc(args), _, _) => match(
+    Rc(.FnCall(_, func_box, Rc(args), _, _)) => match(
       func_box,
-      .Atom(_, _) => if(args.len() > usize(0), args.last(), Option(AstExpr).None),
-      .FnCall(_, _, _, _, _) => args.get(usize(0))
+      Rc(.Atom(_, _)) => if(args.len() > usize(0), args.last_cloned(), Option(AstExpr).None),
+      Rc(.FnCall(_, _, _, _, _)) => args.get_cloned(usize(0))
     ),
-    .Atom(_, _) => Option(AstExpr).None
+    Rc(.Atom(_, _)) => Option(AstExpr).None
   )
 );
 /// Visit the sub-expressions of `e` that belong to the same function: every
@@ -120,24 +120,24 @@ _same_frame_children :: (fn(e : &AstExpr) -> ArrayList(AstExpr))({
   out := ArrayList(AstExpr).new();
   match(
     e,
-    .FnCall(_, func_box, Rc(args), _, _) => {
-      out.push(func_box.*);
+    Rc(.FnCall(_, func_box, Rc(args), _, _)) => {
+      out.push(Rc.clone(func_box.*));
       is_branching := (ast_expr_is_fn_call_of(e, BK_COND, .None) || ast_expr_is_fn_call_of(e, BK_MATCH, .None));
       (i : usize) = usize(0);
       while(i < args.len(), {
         match(
-          args.get(i),
+          args.get_cloned(i),
           .Some(a) => if(is_branching && ast_expr_is_fn_call_of(&a, "=>", .None), {
             match(
               a,
-              .FnCall(_, _, Rc(parts), _, _) => {
+              Rc(.FnCall(_, _, Rc(parts), _, _)) => {
                 (j : usize) = usize(0);
                 while(j < parts.len(), {
-                  match(parts.get(j), .Some(pa) => out.push(pa), .None => ());
+                  match(parts.get_cloned(j), .Some(pa) => out.push(pa), .None => ());
                   j = (j + usize(1));
                 });
               },
-              .Atom(_, _) => ()
+              Rc(.Atom(_, _)) => ()
             );
           }, out.push(a)),
           .None => ()
@@ -145,7 +145,7 @@ _same_frame_children :: (fn(e : &AstExpr) -> ArrayList(AstExpr))({
         i = (i + usize(1));
       });
     },
-    .Atom(_, _) => ()
+    Rc(.Atom(_, _)) => ()
   );
   out
 });
@@ -165,7 +165,7 @@ _collect_unwind_catches :: (fn(e : &AstExpr, out : &mut ArrayList(String)) -> un
   kids := _same_frame_children(e);
   (i : usize) = usize(0);
   while(i < kids.len(), {
-    match(kids.get(i), .Some(k) => _collect_unwind_catches(&k, out), .None => ());
+    match(kids.get_cloned(i), .Some(k) => _collect_unwind_catches(&k, out), .None => ());
     i = (i + usize(1));
   });
 });

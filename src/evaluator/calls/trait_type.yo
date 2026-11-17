@@ -95,13 +95,13 @@ try_to_specialize_trait_type :: (
   n_args := arg_exprs.len();
   (mut(j) : usize) = usize(0);
   while(j < n_args, {
-    arg_opt := arg_exprs.get(j);
+    arg_opt := arg_exprs.get_cloned(j);
     arg := match(
       arg_opt,
-      .Some(a) => a,
+      .Some(a) => Rc.clone(a),
       .None => {
         j = (j + usize(1));
-        trait_expr.*
+        Rc.clone(trait_expr.*)
       }
     );
     if(!ast_expr_is_fn_call_of(&arg, ":=", .Some(usize(2))), {
@@ -116,19 +116,19 @@ try_to_specialize_trait_type :: (
         )
       );
     });
-    label_sub_opt := match(arg, .FnCall(_, _, Rc(args), _, _) => args.get(usize(0)), _ => Option(AstExpr).None);
-    value_sub_opt := match(arg, .FnCall(_, _, Rc(args), _, _) => args.get(usize(1)), _ => Option(AstExpr).None);
+    label_sub_opt := match(Rc.clone(arg), Rc(.FnCall(_, _, Rc(args), _, _)) => args.get_cloned(usize(0)), _ => Option(AstExpr).None);
+    value_sub_opt := match(Rc.clone(arg), Rc(.FnCall(_, _, Rc(args), _, _)) => args.get_cloned(usize(1)), _ => Option(AstExpr).None);
     label_sub := match(
       label_sub_opt,
-      .Some(s) => s,
+      .Some(s) => Rc.clone(s),
       .None => {
         exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&arg), String.from("Missing label in :=")))));
-        arg
+        Rc.clone(arg)
       }
     );
     value_sub := match(
       value_sub_opt,
-      .Some(s) => s,
+      .Some(s) => Rc.clone(s),
       .None => {
         exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&arg), String.from("Missing value in :=")))));
         arg
@@ -146,7 +146,7 @@ try_to_specialize_trait_type :: (
         )
       );
     });
-    label_tok := match(label_sub, .Atom(_, tok) => tok.value.*.clone(), _ => String.from(""));
+    label_tok := match(Rc.clone(label_sub), Rc(.Atom(_, tok)) => tok.value.*.clone(), _ => String.from(""));
     // Check field exists in the trait.
     (field_exists : bool) = false;
     (li : usize) = usize(0);
@@ -373,8 +373,8 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
     (found_arg : bool) = false;
     (j : usize) = usize(0);
     while(j < n_args, {
-      arg_expr_opt := arg_exprs.get(j);
-      arg_expr := match(arg_expr_opt, .Some(a) => a, .None => trait_expr.*);
+      arg_expr_opt := arg_exprs.get_cloned(j);
+      arg_expr := match(arg_expr_opt, .Some(a) => Rc.clone(a), .None => Rc.clone(trait_expr.*));
       // Each arg must be a `label: value` colon call.
       if(!ast_expr_is_fn_call_of(&arg_expr, ":", .Some(usize(2))), {
         exn.throw(
@@ -388,19 +388,19 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
           )
         );
       });
-      label_sub_opt := match(arg_expr, .FnCall(_, _, Rc(args), _, _) => args.get(usize(0)), _ => Option(AstExpr).None);
-      value_sub_opt := match(arg_expr, .FnCall(_, _, Rc(args), _, _) => args.get(usize(1)), _ => Option(AstExpr).None);
+      label_sub_opt := match(Rc.clone(arg_expr), Rc(.FnCall(_, _, Rc(args), _, _)) => args.get_cloned(usize(0)), _ => Option(AstExpr).None);
+      value_sub_opt := match(Rc.clone(arg_expr), Rc(.FnCall(_, _, Rc(args), _, _)) => args.get_cloned(usize(1)), _ => Option(AstExpr).None);
       label_sub := match(
         label_sub_opt,
-        .Some(s) => s,
+        .Some(s) => Rc.clone(s),
         .None => {
           exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&arg_expr), String.from("Label arg missing label sub-expr.")))));
-          arg_expr
+          Rc.clone(arg_expr)
         }
       );
       value_sub := match(
         value_sub_opt,
-        .Some(s) => s,
+        .Some(s) => Rc.clone(s),
         .None => {
           exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&arg_expr), String.from("Label arg missing value sub-expr.")))));
           arg_expr
@@ -418,7 +418,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
           )
         );
       });
-      label_tok := match(label_sub, .Atom(_, tok) => tok.value.*.clone(), _ => String.from(""));
+      label_tok := match(Rc.clone(label_sub), Rc(.Atom(_, tok)) => tok.value.*.clone(), _ => String.from(""));
       // Validate label exists in the trait.
       (label_exists : bool) = false;
       (li : usize) = usize(0);
@@ -454,7 +454,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
         evaluated_arg_gerr := evaluate_expression_guarded(&value_sub, &caller_env, ctx, &mut evaluated_arg_gout);
         ctx.expected_type = saved_expected;
         match(evaluated_arg_gerr, .Some(evaluated_arg_ge) => exn.throw(evaluated_arg_ge), .None => ());
-        evaluated_arg := match(evaluated_arg_gout.get(usize(0)), .Some(evaluated_arg_g) => evaluated_arg_g, .None => make_err_expr());
+        evaluated_arg := match(evaluated_arg_gout.get_cloned(usize(0)), .Some(evaluated_arg_g) => evaluated_arg_g, .None => make_err_expr());
         arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg));
         if(arg_info_opt.is_none(), {
           exn.throw(

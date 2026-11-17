@@ -212,10 +212,10 @@ ParsedOperand :: struct(
 );
 derive(ParsedOperand, Clone);
 _atom_value_cg :: (fn(e : &AstExpr) -> String)(
-  match(e, .Atom(_, tok) => tok.value.*.clone(), _ => String.from(""))
+  match(e, Rc(.Atom(_, tok)) => tok.value.*.clone(), _ => String.from(""))
 );
 _fn_call_args_cg :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, .FnCall(_, _, Rc(args), _, _) => args.clone(), .Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, Rc(.FnCall(_, _, Rc(args), _, _)) => args.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new())
 );
 /// Read an expr's comptime-string VALUE (decoded, delimiters stripped).
 _cg_comptime_str :: (fn(e : &AstExpr, context : &FunctionGenerationContext) -> Option(String))(
@@ -255,7 +255,7 @@ _extract_constraint_string :: (fn(e : &AstExpr, context : &FunctionGenerationCon
     .None => ()
   );
   if(ast_expr_is_fn_call_of(e, "raw", Option(usize).Some(usize(1))), {
-    raw_arg := match(_fn_call_args_cg(e).get(usize(0)), .Some(a) => a, .None => make_err_expr());
+    raw_arg := match(_fn_call_args_cg(e).get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
     match(
       _cg_comptime_str(&raw_arg, context),
       .Some(rs) => {
@@ -279,7 +279,7 @@ _parse_operand_for_codegen :: (
     (mut(name) : Option(String)) = Option(String).None;
     (mut(value_idx) : usize) = usize(0);
     if(args.len() == usize(2), {
-      first := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+      first := match(args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
       match(
         _cg_comptime_str(&first, context),
         .Some(s) => {
@@ -289,7 +289,7 @@ _parse_operand_for_codegen :: (
         .None => ()
       );
     });
-    value_e := match(args.get(value_idx), .Some(a) => a, .None => make_err_expr());
+    value_e := match(args.get_cloned(value_idx), .Some(a) => a, .None => make_err_expr());
     value_code := _call_generate_expr(&value_e, indent.clone(), context);
     return(
       ParsedOperand(
@@ -307,7 +307,7 @@ _parse_operand_for_codegen :: (
   (mut(name) : Option(String)) = Option(String).None;
   (mut(constraint_idx) : usize) = usize(0);
   if(args.len() >= usize(2), {
-    first := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+    first := match(args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
     is_reg_class_atom := (ast_expr_is_atom(&first) && _is_register_class(_atom_value_cg(&first)));
     if(!is_reg_class_atom, {
       match(
@@ -324,7 +324,7 @@ _parse_operand_for_codegen :: (
   (mut(constraint_raw) : Option(String)) = Option(String).None;
   (mut(value_type_idx) : usize) = usize(0);
   if(has_constraint_arg, {
-    c_e := match(args.get(constraint_idx), .Some(a) => a, .None => make_err_expr());
+    c_e := match(args.get_cloned(constraint_idx), .Some(a) => a, .None => make_err_expr());
     constraint_raw = Option(String).Some(_extract_constraint_string(&c_e, context));
     value_type_idx = (constraint_idx + usize(1));
   }, {
@@ -338,7 +338,7 @@ _parse_operand_for_codegen :: (
     value_type_idx = constraint_idx;
   });
   constraint := _resolve_constraint(&constraint_raw, arch);
-  value_or_type := match(args.get(value_type_idx), .Some(a) => a, .None => make_err_expr());
+  value_or_type := match(args.get_cloned(value_type_idx), .Some(a) => a, .None => make_err_expr());
   // Discard `_`
   if(ast_expr_is_atom(&value_or_type) && (_atom_value_cg(&value_or_type) == String.from("_")), {
     return(
@@ -393,7 +393,7 @@ _parse_operand_for_codegen :: (
 /// Clobber list from clobber()/clobber_abi().
 _parse_clobbers :: (fn(clobber_expr : &AstExpr, context : &FunctionGenerationContext) -> ArrayList(String))({
   clobbers := ArrayList(String).new();
-  kind := match(clobber_expr, .FnCall(_, f, _, _, _) => _atom_value_cg(&f.*), _ => String.from("clobber"));
+  kind := match(clobber_expr, Rc(.FnCall(_, f, _, _, _)) => _atom_value_cg(&f.*), _ => String.from("clobber"));
   if(kind == String.from("clobber_abi"), {
     arch := context.base.target_info.arch;
     match(
@@ -438,7 +438,7 @@ _parse_clobbers :: (fn(clobber_expr : &AstExpr, context : &FunctionGenerationCon
   args := _fn_call_args_cg(clobber_expr);
   (i : usize) = usize(0);
   while(i < args.len(), {
-    arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
+    arg := match(args.get_cloned(i), .Some(a) => a, .None => make_err_expr());
     match(
       _cg_comptime_str(&arg, context),
       .Some(s) => {
@@ -464,7 +464,7 @@ _parse_asm_options_for_codegen :: (fn(opt_expr : &AstExpr) -> AsmCodegenOptions)
   args := _fn_call_args_cg(opt_expr);
   (i : usize) = usize(0);
   while(i < args.len(), {
-    arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
+    arg := match(args.get_cloned(i), .Some(a) => a, .None => make_err_expr());
     if(ast_expr_is_atom(&arg), {
       flag := _atom_value_cg(&arg);
       cond(
@@ -538,7 +538,7 @@ generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGe
   (arg_idx : usize) = usize(0);
   (scanning : bool) = true;
   while((arg_idx < args.len()) && scanning, {
-    arg := match(args.get(arg_idx), .Some(a) => a, .None => make_err_expr());
+    arg := match(args.get_cloned(arg_idx), .Some(a) => a, .None => make_err_expr());
     if(ast_expr_is_fn_call(&arg), {
       scanning = false;
     }, {
@@ -576,9 +576,9 @@ generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGe
   all_clobbers := ArrayList(String).new();
   (opts : AsmCodegenOptions) = AsmCodegenOptions(is_volatile : true, intel_syntax : false, noreturn : false);
   while(arg_idx < args.len(), {
-    arg := match(args.get(arg_idx), .Some(a) => a, .None => make_err_expr());
+    arg := match(args.get_cloned(arg_idx), .Some(a) => a, .None => make_err_expr());
     if(ast_expr_is_fn_call(&arg), {
-      call_name := match(arg, .FnCall(_, f, _, _, _) => _atom_value_cg(&f), _ => String.new());
+      call_name := match(Rc.clone(arg), Rc(.FnCall(_, f, _, _, _)) => _atom_value_cg(&f), _ => String.new());
       is_operand := (
         (call_name == "in") || (call_name == "out") || (call_name == "inout") || (call_name == "lateout") ||
           (call_name == "inlateout") || (call_name == "ref")
@@ -929,7 +929,7 @@ generate_global_asm :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
     return(String.from("/* global_asm skipped: not supported on this target */"));
   });
   args := _fn_call_args_cg(expr);
-  template_e := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+  template_e := match(args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
   match(
     _cg_comptime_str(&template_e, context),
     .Some(template) => {

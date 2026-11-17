@@ -122,8 +122,8 @@ _is_init_assignment :: (fn(arg : &AstExpr) -> bool)(
     ast_expr_is_fn_call_of(arg, BK_ASSIGN, Option(usize).None) => true,
     ast_expr_is_fn_call_of(arg, BF_UNSAFE, Option(usize).Some(usize(1))) => match(
       arg,
-      .FnCall(_, _, Rc(uargs), _, _) => match(uargs.get(usize(0)), .Some(inner) => recur(&inner), .None => false),
-      .Atom(_, _) => false
+      Rc(.FnCall(_, _, Rc(uargs), _, _)) => match(uargs.get_cloned(usize(0)), .Some(inner) => recur(&inner), .None => false),
+      Rc(.Atom(_, _)) => false
     ),
     true => false
   )
@@ -163,15 +163,15 @@ evaluate_consume :: (
 )({
   arg_expr := match(
     expr,
-    .FnCall(_, _, Rc(fargs), _, _) => match(
-      fargs.get(usize(0)),
+    Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
+      fargs.get_cloned(usize(0)),
       .Some(a) => a,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     ),
     _ => {
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   // Through the caller's `exn`: the 3-argument `evaluate_expression` swallows
@@ -231,6 +231,6 @@ evaluate_consume :: (
   out_info := new_expr_info(&cur_env, t_unit());
   out_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 export(evaluate_consume, set_variable_as_consumed);

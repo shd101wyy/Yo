@@ -114,8 +114,8 @@ _count_contract_asserts_in_ast :: (fn(func_val : &EvalValue, label : &String) ->
 _count_labeled_asserts_in_body :: (fn(body : &AstExpr, label : &String, emitted_only : bool) -> usize)(
   match(
     body,
-    .FnCall(_, _, Rc(args), _, _) => if(emitted_only, _count_labeled_asserts(&emitted_block_statements(args.clone()), label.clone()), _count_labeled_asserts(&args.*, label.clone())),
-    .Atom(_, _) => usize(0)
+    Rc(.FnCall(_, _, Rc(args), _, _)) => if(emitted_only, _count_labeled_asserts(&emitted_block_statements(args.clone()), label.clone()), _count_labeled_asserts(&args.*, label.clone())),
+    Rc(.Atom(_, _)) => usize(0)
   )
 );
 _count_labeled_asserts :: (fn(args : &ArrayList(AstExpr), label : &String) -> usize)({
@@ -123,7 +123,7 @@ _count_labeled_asserts :: (fn(args : &ArrayList(AstExpr), label : &String) -> us
   (mut(i) : usize) = usize(0);
   while(i < args.len(), {
     match(
-      args.get(i),
+      args.get_cloned(i),
       .Some(arg) => {
         if(_is_assert_with_label(&arg, label.clone()), {
           n = (n + usize(1));
@@ -138,11 +138,11 @@ _count_labeled_asserts :: (fn(args : &ArrayList(AstExpr), label : &String) -> us
 /// Arg 1 of a call as a string when it is a plain atom ("" otherwise).
 _arg1_atom_value :: (fn(a : &ArrayList(AstExpr)) -> String)(
   match(
-    a.get(usize(1)),
+    a.get_cloned(usize(1)),
     .Some(m_arg) => match(
       m_arg,
-      .Atom(_, mt) => mt.value.*.clone(),
-      .FnCall(_, _, _, _, _) => String.new()
+      Rc(.Atom(_, mt)) => mt.value.*.clone(),
+      Rc(.FnCall(_, _, _, _, _)) => String.new()
     ),
     .None => String.new()
   )

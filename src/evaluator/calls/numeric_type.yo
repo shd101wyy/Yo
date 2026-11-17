@@ -10,6 +10,7 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 {
   AstExpr,
+  AstExprNode,
   ExprId,
   ast_expr_token,
   ast_expr_id,
@@ -179,25 +180,27 @@ _make_yo_as_node :: (
     type_expr : &AstExpr
   ) -> AstExpr
 )({
-  func_atom := AstExpr.Atom(
-    orig_id,
-    Rc.new(
-      TokenData(
-        kind : TokenKind.Identifier,
-        value : intern_token_str(String.from(BF_YO_AS)),
-        row : orig_tok.row,
-        column : orig_tok.column,
-        character : orig_tok.character,
-        byte_offset : orig_tok.byte_offset,
-        module_path : Rc.clone(orig_tok.module_path),
-        input : Rc.clone(orig_tok.input)
+  func_atom := Rc.new(
+    AstExprNode.Atom(
+      orig_id,
+      Rc.new(
+        TokenData(
+          kind : TokenKind.Identifier,
+          value : intern_token_str(String.from(BF_YO_AS)),
+          row : orig_tok.row,
+          column : orig_tok.column,
+          character : orig_tok.character,
+          byte_offset : orig_tok.byte_offset,
+          module_path : Rc.clone(orig_tok.module_path),
+          input : Rc.clone(orig_tok.input)
+        )
       )
     )
   );
   mut(args) := ArrayList(AstExpr).new();
-  args.push(evaluated.*);
-  args.push(type_expr.*);
-  AstExpr.FnCall(orig_id, func_atom, Rc.new(args), false, Rc.clone(orig_tok.*))
+  args.push(Rc.clone(evaluated.*));
+  args.push(Rc.clone(type_expr.*));
+  Rc.new(AstExprNode.FnCall(orig_id, func_atom, Rc.new(args), false, Rc.clone(orig_tok.*)))
 });
 /// Attempt to cast `arg_expr` to `target_type` as a numeric conversion.
 /// Returns `.None` if `target_type` is not a convertible numeric type.
@@ -223,7 +226,7 @@ try_to_convert_to_numeric_type :: (
   evaluated_gerr := evaluate_expression_guarded(arg_expr, caller_env, ctx, &mut evaluated_gout);
   ctx.expected_type = saved_expected;
   match(evaluated_gerr, .Some(evaluated_ge) => exn.throw(evaluated_ge), .None => ());
-  evaluated := match(evaluated_gout.get(usize(0)), .Some(evaluated_g) => evaluated_g, .None => make_err_expr());
+  evaluated := match(evaluated_gout.get_cloned(usize(0)), .Some(evaluated_g) => evaluated_g, .None => make_err_expr());
   info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
   if(info_opt.is_none(), {
     exn.throw(
@@ -291,7 +294,7 @@ try_to_convert_to_numeric_type :: (
         if(is_numeric_type(target_type), {
           out_info := _make_comptime_info(&disc_raw.*, target_type, &env, ast_expr_token(expr), exn);
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-          return(.Some(expr.*));
+          return(.Some(Rc.clone(expr.*)));
         });
       },
       .None => ()
@@ -320,7 +323,7 @@ try_to_convert_to_numeric_type :: (
       out_unk := new_expr_info(&env, target_type);
       out_unk.set_value(Option(EvalValue).Some(create_unknown_val(target_type)));
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_unk);
-      return(.Some(expr.*));
+      return(.Some(Rc.clone(expr.*)));
     });
     // A CONCRETE non-numeric source is an error HERE, not in codegen. This
     // arm used to hand every non-numeric source the same UnknownVal, so
@@ -383,7 +386,7 @@ try_to_convert_to_numeric_type :: (
         );
         out_info := _make_comptime_info(&int_raw, target_type, &env, ast_expr_token(expr), exn);
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-        return(.Some(expr.*));
+        return(.Some(Rc.clone(expr.*)));
       });
     },
     .None => ()
@@ -418,13 +421,13 @@ try_to_convert_to_numeric_type :: (
         // Already covered by Case 1, but handle here for completeness.
         out_info := _make_comptime_info(&raw.*, target_type, &env, ast_expr_token(expr), exn);
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-        return(.Some(expr.*));
+        return(.Some(Rc.clone(expr.*)));
       },
       .None => {
         out_info := new_expr_info(&env, target_type);
         out_info.set_value(.Some(create_unknown_val(target_type)));
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-        return(.Some(expr.*));
+        return(.Some(Rc.clone(expr.*)));
       }
     );
   });
@@ -434,8 +437,8 @@ try_to_convert_to_numeric_type :: (
   if(is_c_compatible_type(target_type) || comptime_raw.is_none(), {
     type_expr := match(
       expr,
-      .FnCall(_, func_box, _, _, _) => func_box.*,
-      .Atom(_, _) => make_err_expr()
+      Rc(.FnCall(_, func_box, _, _, _)) => Rc.clone(func_box.*),
+      Rc(.Atom(_, _)) => make_err_expr()
     );
     // Lower the runtime cast to a `__yo_as` node, then attach it to the ORIGINAL
     // expr's ExprInfo as a `macro_expansion`. Codegen walks the original parsed
@@ -470,7 +473,7 @@ try_to_convert_to_numeric_type :: (
     record_macro_expansion(ast_expr_id(expr), yo_as_node.clone());
     expr_info_set_macro_expansion(&out_info, Option(AstExpr).Some(yo_as_node));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-    return(.Some(expr.*));
+    return(.Some(Rc.clone(expr.*)));
   });
   // -----------------------------------------------------------------------
   // Case 4: Fallback (comptime value, non-comptime target — shouldn't happen)
@@ -480,7 +483,7 @@ try_to_convert_to_numeric_type :: (
     .Some(raw) => {
       out_info := _make_comptime_info(&raw.*, target_type, &env, ast_expr_token(expr), exn);
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-      .Some(expr.*)
+      .Some(Rc.clone(expr.*))
     },
     .None => {
       exn.throw(

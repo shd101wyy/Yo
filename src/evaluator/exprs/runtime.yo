@@ -68,12 +68,12 @@ evaluate_runtime :: (
   // Pull arg out of the FnCall.
   arg_expr := match(
     expr,
-    .FnCall(_, _, Rc(args), _, _) => match(
-      args.get(usize(0)),
+    Rc(.FnCall(_, _, Rc(args), _, _)) => match(
+      args.get_cloned(usize(0)),
       .Some(a) => a,
       .None => make_err_expr()
     ),
-    .Atom(_, _) => make_err_expr()
+    Rc(.Atom(_, _)) => make_err_expr()
   );
   // Recursively evaluate the argument.
   evaluated := evaluate_expression_raw(&arg_expr, env, ctx, exn);
@@ -113,6 +113,6 @@ evaluate_runtime :: (
   out_info.set_variable_name(arg_info.variable_name());
   out_info.set_source_variable(arg_info.source_variable());
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 export(evaluate_runtime);

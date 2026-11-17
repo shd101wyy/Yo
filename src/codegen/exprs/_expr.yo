@@ -47,7 +47,7 @@ _call_generate_expr :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
 call_projection_mode :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> Option(bool))(
   match(
     expr,
-    .FnCall(_, pc_callee, _, pc_infix, _) => cond(
+    Rc(.FnCall(_, pc_callee, _, pc_infix, _)) => cond(
       pc_infix.* => Option(bool).None,
       // `unsize(&a)` (decision 49): its C is the place `(*fat)`.
       unsize_reference_mode(ast_expr_id(expr)).is_some() => unsize_reference_mode(ast_expr_id(expr)),
@@ -66,7 +66,7 @@ call_projection_mode :: (fn(expr : &AstExpr, context : &FunctionGenerationContex
         .None => Option(bool).None
       )
     ),
-    .Atom(_, _) => Option(bool).None
+    Rc(.Atom(_, _)) => Option(bool).None
   )
 );
 /// R-TAIL (VERDICTS-41 Q1): a chain (`begin`/`cond`/`match`) typed as a

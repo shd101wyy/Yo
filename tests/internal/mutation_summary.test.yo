@@ -14,7 +14,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { assert } :: import("std/assert");
 { Token, TokenKind, TokenData } :: import("../../src/token.yo");
-{ AstExpr } :: import("../../src/expr.yo");
+{ AstExpr, AstExprNode } :: import("../../src/expr.yo");
 { expr_info_table_new } :: import("../../src/expr_info.yo");
 { TypeValue } :: import("../../src/types/definitions.yo");
 { t_func_simple, t_unit, t_i32 } :: import("../../src/types/creators.yo");
@@ -47,8 +47,8 @@ _register :: (fn(fid : str, label0 : str, label1 : str) -> unit)({
 /// `<head>(<arg>)` with fresh node ids.
 _call1 :: (fn(head : str, arg : str, id : usize) -> AstExpr)({
   mut(args) := ArrayList(AstExpr).new();
-  args.push(AstExpr.Atom(id + usize(2), _tok(arg)));
-  AstExpr.FnCall(id, AstExpr.Atom(id + usize(1), _tok(head)), Rc.new(args), false, _tok(head))
+  args.push(Rc.new(AstExprNode.Atom(id + usize(2), _tok(arg))));
+  Rc.new(AstExprNode.FnCall(id, Rc.new(AstExprNode.Atom(id + usize(1), _tok(head))), Rc.new(args), false, _tok(head)))
 });
 test("a body that dups its first parameter mutates nothing, even with no ExprInfo for it", {
   _register("fn_yo_id_test_msp_dup_first", "self", "other");

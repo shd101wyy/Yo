@@ -38,7 +38,7 @@ evaluate_comptime_print :: (
   // Validate: at least 1 argument
   match(
     expr,
-    .FnCall(_, _, Rc(args), _, _) => {
+    Rc(.FnCall(_, _, Rc(args), _, _)) => {
       if(args.len() == usize(0), {
         exn.throw(
           dyn(
@@ -52,7 +52,7 @@ evaluate_comptime_print :: (
         );
       });
     },
-    .Atom(_, _) => {
+    Rc(.Atom(_, _)) => {
       exn.throw(
         dyn(
           Box.new(
@@ -69,18 +69,18 @@ evaluate_comptime_print :: (
   parts := ArrayList(String).new();
   args := match(
     expr,
-    .FnCall(_, _, Rc(a), _, _) => a.clone(),
-    .Atom(_, _) => ArrayList(AstExpr).new()
+    Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(),
+    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
   );
   (i : usize) = usize(0);
   (cur_env : Environment) = Rc.clone(env);
   while(i < args.len(), {
     arg_expr := match(
-      args.get(i),
+      args.get_cloned(i),
       .Some(a) => a,
       .None => {
         i = args.len();
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     );
     evaluated := evaluate_expression_raw(&arg_expr, &cur_env, ctx, exn);
@@ -138,6 +138,6 @@ evaluate_comptime_print :: (
   info := new_expr_info(&cur_env, t_unit());
   info.set_value(.Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
-  expr.*
+  Rc.clone(expr.*)
 });
 export(evaluate_comptime_print);

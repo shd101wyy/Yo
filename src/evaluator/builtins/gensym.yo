@@ -6,6 +6,7 @@
 { String } :: import("std/string");
 {
   AstExpr,
+  AstExprNode,
   ast_expr_token,
   ast_expr_id,
   ast_expr_to_string,
@@ -38,12 +39,12 @@ evaluate_gensym :: (
   // Extract optional prefix argument.
   (args_opt_0 : Option(AstExpr)) = match(
     expr,
-    .FnCall(_, _, Rc(args), _, _) => args.get(usize(0)),
+    Rc(.FnCall(_, _, Rc(args), _, _)) => args.get_cloned(usize(0)),
     _ => Option(AstExpr).None
   );
   (n_args : usize) = match(
     expr,
-    .FnCall(_, _, Rc(args), _, _) => args.len(),
+    Rc(.FnCall(_, _, Rc(args), _, _)) => args.len(),
     _ => usize(0)
   );
   (prefix : String) = String.new();
@@ -81,7 +82,7 @@ evaluate_gensym :: (
               )
             )
           );
-          return(expr.*);
+          return(Rc.clone(expr.*));
         }
       );
       // Prefix must be a comptime string (StrLit).
@@ -135,18 +136,20 @@ evaluate_gensym :: (
   tok := ast_expr_token(expr);
   // Fresh id — id-0 synthesized atoms all collide in the ExprInfo table
   // (every gensym'd node overwrote key 0, dropping live values).
-  atom_expr := AstExpr.Atom(
-    alloc_global_expr_id(),
-    Rc.new(
-      TokenData(
-        kind : TokenKind.Identifier,
-        value : Rc.new(symbol),
-        row : tok.row,
-        column : tok.column,
-        character : tok.character,
-        byte_offset : tok.byte_offset,
-        module_path : Rc.clone(tok.module_path),
-        input : Rc.clone(tok.input)
+  atom_expr := Rc.new(
+    AstExprNode.Atom(
+      alloc_global_expr_id(),
+      Rc.new(
+        TokenData(
+          kind : TokenKind.Identifier,
+          value : Rc.new(symbol),
+          row : tok.row,
+          column : tok.column,
+          character : tok.character,
+          byte_offset : tok.byte_offset,
+          module_path : Rc.clone(tok.module_path),
+          input : Rc.clone(tok.input)
+        )
       )
     )
   );
@@ -155,6 +158,6 @@ evaluate_gensym :: (
   info := new_expr_info(env, t_expr_t());
   info.set_value(.Some(val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
-  expr.*
+  Rc.clone(expr.*)
 });
 export(evaluate_gensym);

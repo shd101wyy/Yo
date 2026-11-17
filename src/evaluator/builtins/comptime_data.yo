@@ -153,7 +153,7 @@ _comptime_value_type :: (fn(env : &Environment) -> Option(TypeValue))({
 _string_argument :: (
   fn(name : &String, expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> Option(String)
 )({
-  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new());
+  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), _ => ArrayList(AstExpr).new());
   if(args.len() != usize(1), {
     exn.throw(
       dyn(
@@ -166,7 +166,7 @@ _string_argument :: (
       )
     );
   });
-  arg := match(args.get(usize(0)), .Some(a) => a, .None => expr.*);
+  arg := match(args.get_cloned(usize(0)), .Some(a) => a, .None => Rc.clone(expr.*));
   evaluated := evaluate_expression_raw(&arg, env, ctx, exn);
   match(
     match(
@@ -201,7 +201,7 @@ _annotate :: (fn(expr : &AstExpr, value : &Option(EvalValue), env : &Environment
   info := new_expr_info(env, &ty);
   info.set_value(value.*);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
-  expr.*
+  Rc.clone(expr.*)
 });
 evaluate_comptime_json_parse :: (
   fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr

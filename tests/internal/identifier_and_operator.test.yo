@@ -9,7 +9,7 @@
 import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { Token, TokenKind, TokenData } :: import("../../src/token.yo");
-{ AstExpr, ast_expr_id } :: import("../../src/expr.yo");
+{ AstExpr, AstExprNode, ast_expr_id } :: import("../../src/expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set }
 :: import("../../src/expr_info.yo");
 { Environment, add_variable_to_env, new_environment } :: import("../../src/env.yo");
@@ -39,7 +39,7 @@ mk_ident_token :: (fn(value : str) -> Token)(
   )
 );
 mk_ident :: (fn(id : usize, name : str) -> AstExpr)(
-  AstExpr.Atom(id, mk_ident_token(name))
+  Rc.new(AstExprNode.Atom(id, mk_ident_token(name)))
 );
 // A no-op stub evaluator.
 stub_eval :: (
@@ -48,7 +48,7 @@ stub_eval :: (
     _env : &Environment,
     _ctx : &mut EvalContext
   ) -> AstExpr
-)(expr.*);
+)(Rc.clone(expr.*));
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------

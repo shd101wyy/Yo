@@ -10,6 +10,7 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 {
   AstExpr,
+  AstExprNode,
   ast_expr_token,
   ast_expr_id,
   ast_expr_is_size_of_call,
@@ -75,15 +76,15 @@ evaluate_size_of :: (
   });
   type_expr := match(
     expr,
-    .FnCall(_, _, Rc(args), _, _) => match(
-      args.get(usize(0)),
+    Rc(.FnCall(_, _, Rc(args), _, _)) => match(
+      args.get_cloned(usize(0)),
       .Some(a) => a,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     ),
-    .Atom(_, _) => {
-      return(expr.*);
+    Rc(.Atom(_, _)) => {
+      return(Rc.clone(expr.*));
     }
   );
   evaluated := evaluate_expression_raw(&type_expr, env, ctx, exn);
@@ -137,7 +138,7 @@ evaluate_size_of :: (
     }
   );
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 /// The arguments of a builtin call, evaluated in order, each with its info,
 /// and the call rebuilt over the evaluated arguments. The first argument is a
@@ -145,7 +146,7 @@ evaluate_size_of :: (
 /// the place (its origin the place's root, as a tuple's lend element), and a
 /// bare reference binding is the reference, not a whole-value read (E0926).
 _eval_builtin_args :: (fn(expr : &AstExpr, n : usize, name : str, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> Tuple(AstExpr, ArrayList(ExprInfo)))({
-  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
   if(args.len() != n, {
     exn.throw(dyn(Box.new(format_error_message(ast_expr_token(expr), `Expected "${name}" with ${n.to_string()} argument(s)`))));
   });
@@ -183,7 +184,7 @@ _eval_builtin_args :: (fn(expr : &AstExpr, n : usize, name : str, env : &Environ
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&a), &lend_info);
       lend_args := ArrayList(AstExpr).new();
       lend_args.push(ev);
-      new_args.push(match(&a, .FnCall(l_id, l_func, _, l_infix, l_tok) => AstExpr.FnCall(l_id.*, l_func.clone(), Rc.new(lend_args), l_infix.*, l_tok.clone()), .Atom(_, _) => a.clone()));
+      new_args.push(match(&a, Rc(.FnCall(l_id, l_func, _, l_infix, l_tok)) => Rc.new(AstExprNode.FnCall(l_id.*, l_func.clone(), Rc.new(lend_args), l_infix.*, l_tok.clone())), Rc(.Atom(_, _)) => a.clone()));
       out.push(lend_info);
     }, {
       // A bare reference binding is the reference value it holds (the read
@@ -203,7 +204,7 @@ _eval_builtin_args :: (fn(expr : &AstExpr, n : usize, name : str, env : &Environ
       );
     });
   });
-  call := match(expr, .FnCall(c_id, c_func, _, c_infix, c_tok) => AstExpr.FnCall(c_id.*, c_func.clone(), Rc.new(new_args), c_infix.*, c_tok.clone()), .Atom(_, _) => expr.clone());
+  call := match(expr, Rc(.FnCall(c_id, c_func, _, c_infix, c_tok)) => Rc.new(AstExprNode.FnCall(c_id.*, c_func.clone(), Rc.new(new_args), c_infix.*, c_tok.clone())), Rc(.Atom(_, _)) => expr.clone());
   (call, out)
 });
 /// The pointee of a reference or raw pointer type, `.None` for any other.
@@ -241,7 +242,7 @@ evaluate_size_of_val :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut Eval
     );
   });
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  call
+  Rc.clone(call)
 });
 /// The tail-unsized twin of the struct instance `st` (decision 49): its
 /// constructor applied again with the tail's `Array(E, N)` argument replaced
@@ -275,7 +276,7 @@ _tail_unsized_twin :: (fn(st : &TypeValue, at : &AstExpr, env : &Environment, ct
     arg_info := new_expr_info(env, t_type());
     arg_info.set_value(Option(EvalValue).Some(create_type_value(&arg_ty)));
     expr_info_table_set(&ctx.expr_info_table, arg_id, &arg_info);
-    call_args.push(AstExpr.Atom(arg_id, synthetic_token(String.from("__yo_unsize_arg"), &env.module_path().*)));
+    call_args.push(Rc.new(AstExprNode.Atom(arg_id, synthetic_token(String.from("__yo_unsize_arg"), &env.module_path().*))));
     arg_ids.push(arg_id);
   });
   if(!replaced, {
@@ -285,7 +286,7 @@ _tail_unsized_twin :: (fn(st : &TypeValue, at : &AstExpr, env : &Environment, ct
   callee_info := new_expr_info(env, &get_func_type(match(&ctor, .FuncVal(cfv, _) => cfv.func_id.clone(), _ => return(.None))));
   callee_info.set_value(Option(EvalValue).Some(ctor.clone()));
   expr_info_table_set(&ctx.expr_info_table, callee_id, &callee_info);
-  call := AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(callee_id, synthetic_token(String.from("__yo_unsize_ctor"), &env.module_path().*)), Rc.new(call_args), false, tok);
+  call := Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), Rc.new(AstExprNode.Atom(callee_id, synthetic_token(String.from("__yo_unsize_ctor"), &env.module_path().*))), Rc.new(call_args), false, tok));
   mark_node_preevaluated(callee_id);
   for(&arg_ids, id => mark_node_preevaluated(id.*));
   ev := evaluate_expression_raw(&call, env, ctx, exn);
@@ -348,7 +349,7 @@ evaluate_unsize :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalConte
       )
     )
   );
-  call
+  Rc.clone(call)
 });
 /// The slice primitives the prelude writes `[T]`'s impls with (decision 49
 /// S2): `__yo_slice_len(r)` is the length a `&[T]`/`*[T]` carries;
@@ -388,6 +389,6 @@ evaluate_slice_primitive :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut 
   });
   out_info := new_expr_info(&expr_info_adopt_env(&info), &result_ty);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  call
+  Rc.clone(call)
 });
 export(evaluate_size_of, evaluate_size_of_val, evaluate_unsize, evaluate_slice_primitive, _eval_builtin_args);

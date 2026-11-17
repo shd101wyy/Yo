@@ -76,13 +76,13 @@ evaluate_union_type :: (
   );
   ctx.self_type = Option(TypeValue).Some(prelim_ty);
   // Collect fields.
-  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
   field_labels := ArrayList(String).new();
   field_types := ArrayList(TypeValue).new();
   fields := ArrayList(TypeField).new();
   (i : usize) = usize(0);
   while(i < args.len(), {
-    arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
+    arg := match(args.get_cloned(i), .Some(a) => a, .None => make_err_expr());
     result := evaluate_type_field(&arg, i, &env_mut, ctx, "union", exn);
     field := result.field.clone();
     // Check for duplicate labels.
@@ -96,10 +96,10 @@ evaluate_union_type :: (
       dup_idx = (dup_idx + usize(1));
     });
     if(has_dup, {
-      arg_args := match(arg, .FnCall(_, _, Rc(a2), _, _) => a2.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
+      arg_args := match(Rc.clone(arg), Rc(.FnCall(_, _, Rc(a2), _, _)) => a2.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
       err_tok := if(
         ast_expr_is_fn_call(&arg),
-        match(arg_args.get(usize(0)), .Some(fe) => ast_expr_token(&fe), .None => ast_expr_token(&arg)),
+        match(arg_args.get_cloned(usize(0)), .Some(fe) => ast_expr_token(&fe), .None => ast_expr_token(&arg)),
         ast_expr_token(&arg)
       );
       exn.throw(
@@ -176,8 +176,8 @@ evaluate_union_type :: (
   out_info.set_value(Option(EvalValue).Some(union_val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   // Annotate callee (expr.func) with the same info.
-  callee_expr := match(expr, .FnCall(_, fb, _, _, _) => fb.*, .Atom(_, _) => expr.*);
+  callee_expr := match(expr, Rc(.FnCall(_, fb, _, _, _)) => Rc.clone(fb.*), Rc(.Atom(_, _)) => Rc.clone(expr.*));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&callee_expr), &out_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 export(evaluate_union_type);

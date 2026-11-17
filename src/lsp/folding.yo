@@ -119,9 +119,11 @@ _semantic_walk :: (
 )({
   match(
     e,
-    .Atom(
-      id,
-      tok
+    Rc(
+      .Atom(
+        id,
+        tok
+      )
     ) => {
       key := `${usize(tok.row)}:${usize(tok.column)}`;
       if(!out.contains_key(key.clone()), {
@@ -160,18 +162,20 @@ _semantic_walk :: (
         out.insert(key, kind);
       });
     },
-    .FnCall(
-      _,
-      func_box,
-      Rc(args),
-      _,
-      _
+    Rc(
+      .FnCall(
+        _,
+        func_box,
+        Rc(args),
+        _,
+        _
+      )
     ) => {
       recur(&func_box.*, roles, info_table, out);
       (i : usize) = usize(0);
       while(i < args.len(), {
         match(
-          args.get(i),
+          args.get_cloned(i),
           .Some(a) => recur(&a, roles, info_table, out),
           .None => ()
         );
@@ -246,7 +250,7 @@ handle_semantic_tokens :: (
   (wi : usize) = usize(0);
   while(wi < exprs.len(), {
     match(
-      exprs.get(wi),
+      exprs.get_cloned(wi),
       .Some(e) => _semantic_walk(&e, &roles, info_table, &mut atom_kinds),
       .None => ()
     );

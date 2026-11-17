@@ -50,15 +50,15 @@ evaluate_align_of :: (
   });
   type_expr := match(
     expr,
-    .FnCall(_, _, Rc(args), _, _) => match(
-      args.get(usize(0)),
+    Rc(.FnCall(_, _, Rc(args), _, _)) => match(
+      args.get_cloned(usize(0)),
       .Some(a) => a,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     ),
-    .Atom(_, _) => {
-      return(expr.*);
+    Rc(.Atom(_, _)) => {
+      return(Rc.clone(expr.*));
     }
   );
   evaluated := evaluate_expression_raw(&type_expr, env, ctx, exn);
@@ -111,6 +111,6 @@ evaluate_align_of :: (
     }
   );
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 export(evaluate_align_of);

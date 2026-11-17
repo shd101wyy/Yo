@@ -469,7 +469,7 @@ _returns_plain_impl :: (fn(ret : &TypeValue) -> bool)(
 );
 /// The body expression of a FuncVal, if any.
 _func_value_body :: (fn(value : &EvalValue) -> Option(AstExpr))(
-  match(value, .FuncVal(__fvd1, _) => Option(AstExpr).Some(__fvd1.body), _ => Option(AstExpr).None)
+  match(value, .FuncVal(__fvd1, _) => Option(AstExpr).Some(Rc.clone(__fvd1.body)), _ => Option(AstExpr).None)
 );
 /// True when the function body's effect analysis reports effects.
 _body_is_effectful :: (fn(body : &Option(AstExpr), context : &CodeGenContext) -> bool)(
@@ -643,7 +643,7 @@ _async_override_return_type :: (
     .None => Option(String).None,
     .Some(b) => {
       block_sn := match(
-        find_returned_async_block(Option(AstExpr).Some(b.*)),
+        find_returned_async_block(Option(AstExpr).Some(Rc.clone(b.*))),
         .Some(block) => match(
           context.get_expr_info(&block),
           .Some(ei) => expr_info_async_state_machine_struct_name(&ei),
@@ -709,7 +709,7 @@ awaited_future_c_type_override :: (
     .Some(v) => Option(EvalValue).Some(v),
     .None => match(
       future_expr,
-      .FnCall(_, af_fx, _, _, _) => match(
+      Rc(.FnCall(_, af_fx, _, _, _)) => match(
         context.get_expr_info(&af_fx.*),
         .Some(af_fei) => af_fei.value(),
         .None => Option(EvalValue).None
@@ -721,7 +721,7 @@ awaited_future_c_type_override :: (
     callee_v,
     .Some(.FuncVal(__afd, _)) => _async_override_return_type(
       get_func_type(&__afd.*.func_id),
-      Option(AstExpr).Some(__afd.*.body),
+      Option(AstExpr).Some(Rc.clone(__afd.*.body)),
       context
     ),
     .Some(_) => Option(String).None,

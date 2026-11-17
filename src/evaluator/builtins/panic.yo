@@ -65,7 +65,7 @@ evaluate_panic :: (
           )
         )
       );
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   // During CTFE capability analysis, panic disqualifies the function.
@@ -98,8 +98,8 @@ evaluate_panic :: (
   // If there's a message argument, evaluate it and validate its type.
   args := match(
     expr,
-    .FnCall(_, _, Rc(a), _, _) => a.clone(),
-    .Atom(_, _) => ArrayList(AstExpr).new()
+    Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(),
+    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
   );
   (cur_env : Environment) = Rc.clone(env);
   // The message text when it is compile-time known (a `comptime_str`
@@ -107,10 +107,10 @@ evaluate_panic :: (
   (ct_msg : Option(String)) = .None;
   if(args.len() > usize(0), {
     msg_expr := match(
-      args.get(usize(0)),
+      args.get_cloned(usize(0)),
       .Some(a) => a,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     );
     evaluated := evaluate_expression_raw(&msg_expr, &cur_env, ctx, exn);
@@ -209,6 +209,6 @@ evaluate_panic :: (
   info := new_expr_info(&cur_env, &return_ty);
   // panic never returns a value — leave info.value as .None
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
-  expr.*
+  Rc.clone(expr.*)
 });
 export(evaluate_panic);

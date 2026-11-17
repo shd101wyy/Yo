@@ -50,9 +50,9 @@ evaluate_comptime_fn :: (
   ) -> AstExpr
 )({
   tok := ast_expr_token(expr);
-  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new());
+  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), _ => ArrayList(AstExpr).new());
   arg_expr := match(
-    args.get(usize(0)),
+    args.get_cloned(usize(0)),
     .Some(a) => a,
     .None => {
       exn.throw(
@@ -124,7 +124,7 @@ evaluate_comptime_fn :: (
     out_info := new_expr_info(env, &func_type);
     out_info.set_value(Option(EvalValue).Some(arg_val));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-    return(expr.*);
+    return(Rc.clone(expr.*));
   });
   // Pre-flight diagnostics. `analyze_ctfe_capability` re-derives all of these and
   // simply returns `.None`, but this builtin keeps
@@ -199,7 +199,7 @@ evaluate_comptime_fn :: (
       out_info := new_expr_info(env, &ctfe_ok.ty);
       out_info.set_value(Option(EvalValue).Some(ctfe_ok.value));
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-      expr.*
+      Rc.clone(expr.*)
     },
     .None => {
       exn.throw(

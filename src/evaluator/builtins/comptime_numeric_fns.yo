@@ -345,9 +345,9 @@ evaluate_yo_comptime_numeric_functions :: (
   // ---- 1. Extract the function name. -------------------------------------
   fn_name := match(
     expr,
-    .FnCall(_, func_box, _, _, _) => match(
+    Rc(.FnCall(_, func_box, _, _, _)) => match(
       func_box,
-      .Atom(_, ftok) => ftok.value.*.clone(),
+      Rc(.Atom(_, ftok)) => ftok.value.*.clone(),
       _ => String.new()
     ),
     _ => String.new()
@@ -423,15 +423,15 @@ evaluate_yo_comptime_numeric_functions :: (
   if(is_unary, {
     arg0 := match(
       expr,
-      .FnCall(_, _, Rc(fargs), _, _) => match(
-        fargs.get(usize(0)),
+      Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
+        fargs.get_cloned(usize(0)),
         .Some(a) => a,
         .None => {
-          return(expr.*);
+          return(Rc.clone(expr.*));
         }
       ),
       _ => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     );
     lhs_info := eval_numeric_arg(&arg0, env, ctx, exn);
@@ -550,23 +550,23 @@ evaluate_yo_comptime_numeric_functions :: (
     // ---- 6. Binary operations. -------------------------------------------
     args := match(
       expr,
-      .FnCall(_, _, Rc(fargs), _, _) => fargs.clone(),
+      Rc(.FnCall(_, _, Rc(fargs), _, _)) => fargs.clone(),
       _ => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     );
     arg0 := match(
-      args.get(usize(0)),
+      args.get_cloned(usize(0)),
       .Some(a) => a,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     );
     arg1 := match(
-      args.get(usize(1)),
+      args.get_cloned(usize(1)),
       .Some(a) => a,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     );
     lhs_info := eval_numeric_arg(&arg0, env, ctx, exn);
@@ -956,6 +956,6 @@ evaluate_yo_comptime_numeric_functions :: (
     out_info.set_value(.Some(result_val));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   });
-  expr.*
+  Rc.clone(expr.*)
 });
 export(evaluate_yo_comptime_numeric_functions);

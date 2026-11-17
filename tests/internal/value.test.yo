@@ -4,7 +4,7 @@
 { Debug } :: import("std/fmt");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, make_err_expr } :: import("../../src/expr.yo");
+{ AstExpr, AstExprNode, make_err_expr } :: import("../../src/expr.yo");
 { TokenKind, Token, TokenData } :: import("../../src/token.yo");
 { TypeValue, shared_list, no_labels } :: import("../../src/types/definitions.yo");
 { assert, panic } :: import("std/assert");
@@ -295,17 +295,19 @@ test("ExprVal: structural equality", {
   assert(e1 == e2, "ExprVal structural equality: identical atoms are equal");
   // Different atoms should not be equal.
   other := EvalValue.ExprVal(
-    AstExpr.Atom(
-      usize(0),
-      Rc.new(
-        TokenData(
-          kind : TokenKind.Integer,
-          value : Rc.new(String.from("42")),
-          row : u32(0),
-          column : u32(0),
-          character : u32(0),
-          module_path : Rc.new(String.from("")),
-          input : Rc.new(String.from(""))
+    Rc.new(
+      AstExprNode.Atom(
+        usize(0),
+        Rc.new(
+          TokenData(
+            kind : TokenKind.Integer,
+            value : Rc.new(String.from("42")),
+            row : u32(0),
+            column : u32(0),
+            character : u32(0),
+            module_path : Rc.new(String.from("")),
+            input : Rc.new(String.from(""))
+          )
         )
       )
     )

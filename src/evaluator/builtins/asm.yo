@@ -87,7 +87,7 @@ _is_valid_asm_operand_type :: (fn(t : &TypeValue) -> bool)(
   is_integer_type(t) || is_float_type(t) || is_pointer_type(t) || is_bool_type(t)
 );
 _atom_value :: (fn(e : &AstExpr) -> String)(
-  match(e, .Atom(_, tok) => tok.value.*.clone(), _ => String.from(""))
+  match(e, Rc(.Atom(_, tok)) => tok.value.*.clone(), _ => String.from(""))
 );
 _is_register_class_atom :: (fn(e : &AstExpr) -> bool)(
   ast_expr_is_atom(e) && _str_in(_register_classes(), _atom_value(e))
@@ -98,8 +98,8 @@ _is_asm_subcall :: (fn(e : &AstExpr) -> bool)({
   });
   fname := match(
     e,
-    .FnCall(_, f, _, _, _) => _atom_value(&f.*),
-    .Atom(_, _) => String.from("")
+    Rc(.FnCall(_, f, _, _, _)) => _atom_value(&f.*),
+    Rc(.Atom(_, _)) => String.from("")
   );
   (fname.len() > usize(0)) && _is_asm_subcall_name(&fname)
 });
@@ -107,7 +107,7 @@ _is_discard_atom :: (fn(e : &AstExpr) -> bool)(
   ast_expr_is_atom(e) && (_atom_value(e) == String.from("_"))
 );
 _fn_call_args_of :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, .FnCall(_, _, Rc(args), _, _) => args.clone(), .Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, Rc(.FnCall(_, _, Rc(args), _, _)) => args.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new())
 );
 /// Strip the surrounding `"` delimiters that the StrLit convention
 /// keeps (see evaluator/values/string.yo — raw stores the QUOTED token).
@@ -164,7 +164,7 @@ _evaluate_constraint :: (
     .None => ()
   );
   if(ast_expr_is_fn_call_of(constraint_expr, "raw", Option(usize).Some(usize(1))), {
-    raw_arg := match(_fn_call_args_of(constraint_expr).get(usize(0)), .Some(a) => a, .None => make_err_expr());
+    raw_arg := match(_fn_call_args_of(constraint_expr).get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
     match(
       _eval_comptime_str(&raw_arg, env, ctx, exn),
       .Some(rs) => {
@@ -209,7 +209,7 @@ _parse_special_operand :: (
   (name : Option(String)) = Option(String).None;
   (value_idx : usize) = usize(0);
   if(args.len() == usize(2), {
-    first := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+    first := match(args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
     match(
       _eval_comptime_str(&first, env, ctx, exn),
       .Some(s) => {
@@ -219,7 +219,7 @@ _parse_special_operand :: (
       .None => ()
     );
   });
-  value_expr := match(args.get(value_idx), .Some(a) => a, .None => make_err_expr());
+  value_expr := match(args.get_cloned(value_idx), .Some(a) => a, .None => make_err_expr());
   evaluated := evaluate_expression_raw(&value_expr, env, ctx, exn);
   AsmOperand(
     kind : kind.clone(),
@@ -257,7 +257,7 @@ _parse_operand :: (
   (constraint_idx : usize) = usize(0);
   // Detect if first arg is a name (comptime_str that is NOT a register class).
   if(args.len() >= usize(2), {
-    first := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+    first := match(args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
     if(_is_register_class_atom(&first) || _is_discard_atom(&first), {
       constraint_idx = usize(0);
     }, {
@@ -279,7 +279,7 @@ _parse_operand :: (
   (constraint : Option(String)) = Option(String).None;
   (value_type_idx : usize) = usize(0);
   if(has_constraint, {
-    c_expr := match(args.get(constraint_idx), .Some(a) => a, .None => make_err_expr());
+    c_expr := match(args.get_cloned(constraint_idx), .Some(a) => a, .None => make_err_expr());
     constraint = Option(String).Some(_evaluate_constraint(&c_expr, env, ctx, exn));
     value_type_idx = (constraint_idx + usize(1));
   }, {
@@ -293,7 +293,7 @@ _parse_operand :: (
     value_type_idx = constraint_idx;
   });
   value_or_type_expr := match(
-    args.get(value_type_idx),
+    args.get_cloned(value_type_idx),
     .Some(a) => a,
     .None => {
       exn.throw(
@@ -361,7 +361,7 @@ _parse_operand :: (
           });
           // Evaluate to annotate for codegen; an UNINITIALIZED variable is
           // annotated manually.
-          (evaluated_out : AstExpr) = value_or_type_expr;
+          (evaluated_out : AstExpr) = Rc.clone(value_or_type_expr);
           if(var_initialized, {
             evaluated_out = evaluate_expression_raw(&value_or_type_expr, env, ctx, exn);
           }, {
@@ -512,7 +512,7 @@ _parse_asm_options :: (
   args := _fn_call_args_of(option_expr);
   (i : usize) = usize(0);
   while(i < args.len(), {
-    arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
+    arg := match(args.get_cloned(i), .Some(a) => a, .None => make_err_expr());
     if(ast_expr_is_atom(&arg), {
       flag := _atom_value(&arg);
       if(!_str_in(&flags, flag.clone()), {
@@ -698,7 +698,7 @@ evaluate_asm :: (
         )
       )
     );
-    return(expr.*);
+    return(Rc.clone(expr.*));
   });
   // asm can only be called inside a function body or test block.
   in_fn_or_test := match(
@@ -717,7 +717,7 @@ evaluate_asm :: (
         )
       )
     );
-    return(expr.*);
+    return(Rc.clone(expr.*));
   });
   // Block CTFE.
   if(ctx.is_analyzing_ctfe_capability, {
@@ -731,7 +731,7 @@ evaluate_asm :: (
         )
       )
     );
-    return(expr.*);
+    return(Rc.clone(expr.*));
   });
   args := _fn_call_args_of(expr);
   if(args.len() == usize(0), {
@@ -745,14 +745,14 @@ evaluate_asm :: (
         )
       )
     );
-    return(expr.*);
+    return(Rc.clone(expr.*));
   });
   // --- Parse template strings ---
   template_parts := ArrayList(String).new();
   (arg_idx : usize) = usize(0);
   (scanning_template : bool) = true;
   while((arg_idx < args.len()) && scanning_template, {
-    arg := match(args.get(arg_idx), .Some(a) => a, .None => make_err_expr());
+    arg := match(args.get_cloned(arg_idx), .Some(a) => a, .None => make_err_expr());
     if(_is_asm_subcall(&arg), {
       scanning_template = false;
     }, {
@@ -783,7 +783,7 @@ evaluate_asm :: (
     });
   });
   if(template_parts.len() == usize(0), {
-    first_tok := match(args.get(usize(0)), .Some(a) => ast_expr_token(&a), .None => tok);
+    first_tok := match(args.get_cloned(usize(0)), .Some(a) => ast_expr_token(&a), .None => tok);
     exn.throw(
       dyn(
         Box.new(
@@ -794,13 +794,13 @@ evaluate_asm :: (
         )
       )
     );
-    return(expr.*);
+    return(Rc.clone(expr.*));
   });
   // --- Parse operands and options ---
   operands := ArrayList(AsmOperand).new();
   (noreturn : bool) = false;
   while(arg_idx < args.len(), {
-    arg := match(args.get(arg_idx), .Some(a) => a, .None => make_err_expr());
+    arg := match(args.get_cloned(arg_idx), .Some(a) => a, .None => make_err_expr());
     if(!ast_expr_is_fn_call(&arg), {
       exn.throw(
         dyn(
@@ -812,12 +812,12 @@ evaluate_asm :: (
           )
         )
       );
-      return(expr.*);
+      return(Rc.clone(expr.*));
     });
     call_name := match(
-      arg,
-      .FnCall(_, f, _, _, _) => _atom_value(&f),
-      .Atom(_, _) => String.from("")
+      Rc.clone(arg),
+      Rc(.FnCall(_, f, _, _, _)) => _atom_value(&f),
+      Rc(.Atom(_, _)) => String.from("")
     );
     if(call_name.len() == usize(0), {
       exn.throw(
@@ -830,7 +830,7 @@ evaluate_asm :: (
           )
         )
       );
-      return(expr.*);
+      return(Rc.clone(expr.*));
     });
     cond(
       (_is_input_kind(&call_name) || _is_output_kind(&call_name) || _is_inout_kind(&call_name) || _is_special_kind(&call_name)) => {
@@ -842,7 +842,7 @@ evaluate_asm :: (
         cargs := _fn_call_args_of(&arg);
         (ci : usize) = usize(0);
         while(ci < cargs.len(), {
-          carg := match(cargs.get(ci), .Some(a) => a, .None => make_err_expr());
+          carg := match(cargs.get_cloned(ci), .Some(a) => a, .None => make_err_expr());
           is_bare := (ast_expr_is_atom(&carg) && ((_atom_value(&carg) == String.from("memory")) || (_atom_value(&carg) == String.from("cc"))));
           if(!is_bare, {
             match(
@@ -879,7 +879,7 @@ evaluate_asm :: (
             )
           )
         );
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     );
     arg_idx = (arg_idx + usize(1));
@@ -997,7 +997,7 @@ evaluate_asm :: (
   // Stamp: asm is always a runtime expression.
   out_info := new_expr_info(env, &return_type);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 /// Evaluate the `global_asm(...)` builtin.
 evaluate_global_asm :: (
@@ -1022,7 +1022,7 @@ evaluate_global_asm :: (
         )
       )
     );
-    return(expr.*);
+    return(Rc.clone(expr.*));
   });
   args := _fn_call_args_of(expr);
   if(args.len() == usize(0), {
@@ -1036,9 +1036,9 @@ evaluate_global_asm :: (
         )
       )
     );
-    return(expr.*);
+    return(Rc.clone(expr.*));
   });
-  template_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+  template_expr := match(args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
   evaluated := evaluate_expression_raw(&template_expr, env, ctx, exn);
   (ok : bool) = false;
   match(
@@ -1067,10 +1067,10 @@ evaluate_global_asm :: (
         )
       )
     );
-    return(expr.*);
+    return(Rc.clone(expr.*));
   });
   out_info := new_expr_info(env, t_unit());
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 export(evaluate_asm, evaluate_global_asm);

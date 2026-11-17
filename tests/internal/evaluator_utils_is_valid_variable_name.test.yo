@@ -2,7 +2,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { Token, TokenKind, TokenData } :: import("../../src/token.yo");
-{ AstExpr } :: import("../../src/expr.yo");
+{ AstExpr, AstExprNode } :: import("../../src/expr.yo");
 { is_valid_variable_name } :: import("../../src/evaluator/utils.yo");
 { assert, panic } :: import("std/assert");
 mk_tok :: (fn(value : str, kind : TokenKind) -> Token)(
@@ -19,16 +19,18 @@ mk_tok :: (fn(value : str, kind : TokenKind) -> Token)(
   )
 );
 mk_atom :: (fn(value : str, kind : TokenKind) -> AstExpr)(
-  AstExpr.Atom(usize(0), mk_tok(value, kind))
+  Rc.new(AstExprNode.Atom(usize(0), mk_tok(value, kind)))
 );
 mk_call :: (fn(func_value : str, func_kind : TokenKind) -> AstExpr)({
   args := ArrayList(AstExpr).new();
-  AstExpr.FnCall(
-    usize(0),
-    mk_atom(func_value, func_kind),
-    Rc.new(args),
-    false,
-    mk_tok(func_value, func_kind)
+  Rc.new(
+    AstExprNode.FnCall(
+      usize(0),
+      mk_atom(func_value, func_kind),
+      Rc.new(args),
+      false,
+      mk_tok(func_value, func_kind)
+    )
   )
 });
 test("is_valid_variable_name: Identifier atom → true", {

@@ -259,7 +259,7 @@ _generate_sm_atom :: (fn(expr : &AstExpr, var_name : &String, context : &mut Fun
       //    `expr` itself binds, so this holds only when `expr` IS the atom: a
       //    capture read on behalf of an `io.async(...)` call would get the call's
       //    own temp.
-      is_the_atom := match(expr, .Atom(_, atok) => (atok.value.* == var_name.*), _ => false);
+      is_the_atom := match(expr, Rc(.Atom(_, atok)) => (atok.value.* == var_name.*), _ => false);
       if(!is_the_atom, {
         return(Option(String).None);
       });
@@ -340,7 +340,7 @@ _emit_loop_body_drops_before_exit :: (fn(context : &mut FunctionGenerationContex
         (mut(i) : usize) = usize(0);
         while(i < emit_count, {
           match(
-            drops.get(i),
+            drops.get_cloned(i),
             .Some(drop_expr) => {
               // Skip a drop whose target C variable is not IN SCOPE at this
               // emission point. `x := match(...)`/`cond(...)` bindings emit
@@ -674,7 +674,7 @@ _generate_atom_read :: (fn(expr : &AstExpr, context : &mut FunctionGenerationCon
               (rdi : usize) = usize(0);
               while(rdi < dd.len(), {
                 match(
-                  dd.get(rdi),
+                  dd.get_cloned(rdi),
                   .Some(de) => {
                     dc := _call_generate_expr(&de, indent.clone(), context);
                     if((dc.len() > usize(0)) && dc.contains("sm->"), {

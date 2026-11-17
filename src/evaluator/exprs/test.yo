@@ -109,7 +109,7 @@ _trial_eval_test_body :: (
       mut(out) := ArrayList(AstExpr).new();
       _trial_err := evaluate_expression_guarded(body, env, ctx, &mut out);
       match(
-        out.get(usize(0)),
+        out.get_cloned(usize(0)),
         .Some(ev) => ev,
         .None => {
           return(());
@@ -122,7 +122,7 @@ _trial_eval_test_body :: (
     body_info_opt,
     .Some(body_info) => {
       if(is_unit_type(&body_info.ty()), {
-        expr_info_set_original_expr(&body_info, Option(AstExpr).Some(original_body.*));
+        expr_info_set_original_expr(&body_info, Option(AstExpr).Some(Rc.clone(original_body.*)));
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&evaluated), &body_info);
       });
     },
@@ -164,8 +164,8 @@ evaluate_test :: (
   // test expects exactly 2 arguments: test "name", { body }
   (arg_count : usize) = match(
     expr,
-    .FnCall(_, _, Rc(args), _, _) => args.len(),
-    .Atom(_, _) => usize(0)
+    Rc(.FnCall(_, _, Rc(args), _, _)) => args.len(),
+    Rc(.Atom(_, _)) => usize(0)
   );
   if(arg_count != usize(2), {
     exn.throw(
@@ -181,13 +181,13 @@ evaluate_test :: (
   });
   test_name_expr := match(
     expr,
-    .FnCall(_, _, Rc(args), _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
-    .Atom(_, _) => make_err_expr()
+    Rc(.FnCall(_, _, Rc(args), _, _)) => match(args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()),
+    Rc(.Atom(_, _)) => make_err_expr()
   );
   test_body_expr := match(
     expr,
-    .FnCall(_, _, Rc(args), _, _) => match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
-    .Atom(_, _) => make_err_expr()
+    Rc(.FnCall(_, _, Rc(args), _, _)) => match(args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr()),
+    Rc(.Atom(_, _)) => make_err_expr()
   );
   // Evaluate test name to ensure it's a comptime_str.
   evaluated_test_name_expr := evaluate_expression_raw(&test_name_expr, &env, ctx, exn);
@@ -332,7 +332,7 @@ evaluate_test :: (
   result_info := new_expr_info(&env, t_unit());
   result_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &result_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 export(evaluate_test);
 export(set_strict_test_bodies, strict_test_bodies);

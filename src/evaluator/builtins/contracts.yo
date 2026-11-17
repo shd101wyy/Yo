@@ -15,6 +15,7 @@
 { StringBuilder, eprintln } :: import("std/fmt");
 {
   AstExpr,
+  AstExprNode,
   ExprId,
   ast_expr_token,
   ast_expr_text,
@@ -108,13 +109,13 @@ _evaluate_contract_marker :: (
 )({
   args := match(
     expr,
-    .FnCall(_, _, a, _, _) => Rc.clone(a).*.clone(),
-    .Atom(_, _) => ArrayList(AstExpr).new()
+    Rc(.FnCall(_, _, a, _, _)) => Rc.clone(a).*.clone(),
+    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
   );
   (cur_env : Environment) = Rc.clone(env);
   (i : usize) = usize(0);
   while(i < args.len(), {
-    arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
+    arg := match(args.get_cloned(i), .Some(a) => a, .None => make_err_expr());
     // Bracket the predicate evaluation with the contract-predicate flag:
     // parameters and the return label are not bound in this env (they get
     // their real bindings in the splice lowering and the verifier's
@@ -152,7 +153,7 @@ _evaluate_contract_marker :: (
   out_info := new_expr_info(&cur_env, t_unit());
   out_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 /// The file set the current command is verifying (absolute or as-given
 /// paths — matched by equality against `Token.module_path`). Empty = no
@@ -200,8 +201,8 @@ _is_verify_target :: (fn(module_path : &String) -> bool)({
 _reject_zero_arg_marker :: (fn(expr : &AstExpr, message : &String, exn : Exception) -> unit)({
   n := match(
     expr,
-    .FnCall(_, _, Rc(a), _, _) => a.len(),
-    .Atom(_, _) => usize(0)
+    Rc(.FnCall(_, _, Rc(a), _, _)) => a.len(),
+    Rc(.Atom(_, _)) => usize(0)
   );
   if(n == usize(0), {
     exn.throw(dyn(Box.new(format_error_message(ast_expr_token(expr), message))));
@@ -253,8 +254,8 @@ evaluate_decreases :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalCo
 evaluate_assumed :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
   n := match(
     expr,
-    .FnCall(_, _, Rc(a), _, _) => a.len(),
-    .Atom(_, _) => usize(0)
+    Rc(.FnCall(_, _, Rc(a), _, _)) => a.len(),
+    Rc(.Atom(_, _)) => usize(0)
   );
   if(n != usize(0), {
     exn.throw(
@@ -306,22 +307,22 @@ evaluate_ghost :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContex
   {
     match(
       expr,
-      .FnCall(_, _, Rc(fargs), _, _) => match(
-        fargs.get(usize(0)),
+      Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
+        fargs.get_cloned(usize(0)),
         .Some(first) => {
           if(ast_expr_is_fn_call_of(&first, ":=", Option(usize).Some(usize(2))), {
             ba := match(
-              first,
-              .FnCall(_, _, Rc(a2), _, _) => a2.clone(),
-              .Atom(_, _) => ArrayList(AstExpr).new()
+              Rc.clone(first),
+              Rc(.FnCall(_, _, Rc(a2), _, _)) => a2.clone(),
+              Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
             );
             nm := match(
-              ba.get(usize(0)),
+              ba.get_cloned(usize(0)),
               .Some(n0) => ast_expr_text(&n0).*.clone(),
               .None => String.new()
             );
             rhs := match(
-              ba.get(usize(1)),
+              ba.get_cloned(usize(1)),
               .Some(r0) => r0,
               .None => make_err_expr()
             );
@@ -364,12 +365,12 @@ evaluate_ghost :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContex
             out_info := new_expr_info(&r_info.env(), t_unit());
             out_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-            return(expr.*);
+            return(Rc.clone(expr.*));
           });
         },
         .None => ()
       ),
-      .Atom(_, _) => ()
+      Rc(.Atom(_, _)) => ()
     );
   };
   _evaluate_contract_marker(expr, env, ctx, exn)
@@ -387,8 +388,8 @@ _evaluate_transparent_unary :: (
 )({
   arg := match(
     expr,
-    .FnCall(_, _, Rc(a), _, _) => match(a.get(usize(0)), .Some(x) => x, .None => make_err_expr()),
-    .Atom(_, _) => make_err_expr()
+    Rc(.FnCall(_, _, Rc(a), _, _)) => match(a.get_cloned(usize(0)), .Some(x) => x, .None => make_err_expr()),
+    Rc(.Atom(_, _)) => make_err_expr()
   );
   evaluated := evaluate_expression_raw(&arg, env, ctx, exn);
   match(
@@ -409,7 +410,7 @@ _evaluate_transparent_unary :: (
       );
     }
   );
-  expr.*
+  Rc.clone(expr.*)
 });
 /// V5 task 3: the ghost-fn registry. `ghost_fn(...)` registers the wrapped
 /// function's func_id here; function.yo's call arm rejects calls to these
@@ -484,8 +485,8 @@ evaluate_refine :: (
 )({
   args := match(
     expr,
-    .FnCall(_, _, a, _, _) => Rc.clone(a).*.clone(),
-    .Atom(_, _) => ArrayList(AstExpr).new()
+    Rc(.FnCall(_, _, a, _, _)) => Rc.clone(a).*.clone(),
+    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
   );
   if((args.len() != usize(1)) && (args.len() != usize(2)), {
     exn.throw(
@@ -506,7 +507,7 @@ ${ast_expr_to_string(expr)}`
   (pred_fid : String) = String.from("");
   (ai : usize) = usize(0);
   while(ai < args.len(), {
-    arg := match(args.get(ai), .Some(a) => a, .None => make_err_expr());
+    arg := match(args.get_cloned(ai), .Some(a) => a, .None => make_err_expr());
     evaluated := evaluate_expression_raw(&arg, &cur_env, ctx, exn);
     match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
@@ -623,7 +624,7 @@ ${ast_expr_to_string(expr)}`
   out_info := new_expr_info(&cur_env, t_type());
   out_info.set_value(Option(EvalValue).Some(EvalValue.TypeVal(refined)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 
 /// `ghost_fn(f)` — marks a function value ghost-only. V5 task 3: the
@@ -653,11 +654,11 @@ evaluate_ghost_fn :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalCon
   // ghost-fn registry so every later CALL from non-ghost context errors.
   args := match(
     expr,
-    .FnCall(_, _, a, _, _) => Rc.clone(a).*.clone(),
-    .Atom(_, _) => ArrayList(AstExpr).new()
+    Rc(.FnCall(_, _, a, _, _)) => Rc.clone(a).*.clone(),
+    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
   );
   match(
-    args.get(usize(0)),
+    args.get_cloned(usize(0)),
     .Some(inner) => {
       match(
         expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&inner)),
@@ -705,12 +706,12 @@ _evaluate_spec_collection :: (
   (cur_env : Environment) = Rc.clone(env);
   args := match(
     expr,
-    .FnCall(_, _, a, _, _) => Rc.clone(a).*.clone(),
-    .Atom(_, _) => ArrayList(AstExpr).new()
+    Rc(.FnCall(_, _, a, _, _)) => Rc.clone(a).*.clone(),
+    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
   );
   (i : usize) = usize(0);
   while(i < args.len(), {
-    arg := match(args.get(i), .Some(x) => x, .None => make_err_expr());
+    arg := match(args.get_cloned(i), .Some(x) => x, .None => make_err_expr());
     prev_ghost := ctx.is_ghost_context;
     ctx.is_ghost_context = true;
     evaluated := evaluate_expression_raw(&arg, &cur_env, ctx, exn);
@@ -743,7 +744,7 @@ _evaluate_spec_collection :: (
   head := ast_expr_text(expr).*.clone();
   arg1_ty := t_bool();
   match(
-    args.get(usize(0)),
+    args.get_cloned(usize(0)),
     .Some(a0) => {
       match(
         expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&a0)),
@@ -772,7 +773,7 @@ _evaluate_spec_collection :: (
   out_info := new_expr_info(&cur_env, res_ty.clone());
   out_info.set_value(Option(EvalValue).Some(create_unknown_val(&res_ty)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 evaluate_seq_unit :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
@@ -858,8 +859,8 @@ _evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut Eval
   _reject_not_ghost_context(expr, ctx, exn);
   args := match(
     expr,
-    .FnCall(_, _, Rc(a), _, _) => a.clone(),
-    .Atom(_, _) => ArrayList(AstExpr).new()
+    Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(),
+    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
   );
   if(args.len() < usize(2), {
     exn.throw(
@@ -881,7 +882,7 @@ _evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut Eval
   (bi : usize) = usize(0);
   while((bi + usize(1)) < args.len(), {
     barg := match(
-      args.get(bi),
+      args.get_cloned(bi),
       .Some(bb) => bb,
       .None => make_err_expr()
     );
@@ -901,12 +902,12 @@ _evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut Eval
     // expression evaluates to a TypeVal). The annotation call itself is
     // a binding FORM — never evaluated as an expression.
     ba := match(
-      barg,
-      .FnCall(_, _, Rc(a2), _, _) => a2.clone(),
-      .Atom(_, _) => ArrayList(AstExpr).new()
+      Rc.clone(barg),
+      Rc(.FnCall(_, _, Rc(a2), _, _)) => a2.clone(),
+      Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
     );
     ty_expr := match(
-      ba.get(usize(1)),
+      ba.get_cloned(usize(1)),
       .Some(t0) => t0,
       .None => make_err_expr()
     );
@@ -965,7 +966,7 @@ _evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut Eval
       }
     );
     bn := match(
-      ba.get(usize(0)),
+      ba.get_cloned(usize(0)),
       .Some(n0) => ast_expr_text(&n0).*.clone(),
       .None => String.from("_")
     );
@@ -996,7 +997,7 @@ _evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut Eval
     vi = (vi + usize(1));
   });
   body := match(
-    args.last(),
+    args.last_cloned(),
     .Some(bb) => bb,
     .None => make_err_expr()
   );
@@ -1015,7 +1016,7 @@ _evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut Eval
   out_info := new_expr_info(&cur_env, t_bool());
   out_info.set_value(Option(EvalValue).Some(create_unknown_val(t_bool())));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 /// forall(...) — ghost-only universal quantifier (V5).
 evaluate_forall :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)(
@@ -1031,8 +1032,8 @@ evaluate_implies :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalCont
   _reject_not_ghost_context(expr, ctx, exn);
   args := match(
     expr,
-    .FnCall(_, _, Rc(a), _, _) => a.clone(),
-    .Atom(_, _) => ArrayList(AstExpr).new()
+    Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(),
+    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
   );
   if(args.len() != usize(2), {
     exn.throw(
@@ -1049,7 +1050,7 @@ evaluate_implies :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalCont
   (cur_env : Environment) = Rc.clone(env);
   (i : usize) = usize(0);
   while(i < args.len(), {
-    arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
+    arg := match(args.get_cloned(i), .Some(a) => a, .None => make_err_expr());
     prev_pred_flag := ctx.is_evaluating_contract_predicate;
     ctx.is_evaluating_contract_predicate = true;
     evaluated := evaluate_expression_raw(&arg, &cur_env, ctx, exn);
@@ -1077,7 +1078,7 @@ evaluate_implies :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalCont
   out_info := new_expr_info(&cur_env, t_bool());
   out_info.set_value(Option(EvalValue).Some(create_unknown_val(t_bool())));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 /// `old(expr)` — entry-snapshot reference (handled specially inside `ensures`
 /// by the wrapper; transparent pass-through elsewhere).
@@ -1125,15 +1126,15 @@ __YO_CONTRACT_RESULT :: "__yo_contract_result";
 _note_unlabeled_ensures_atoms :: (fn(e : &AstExpr) -> unit)(
   match(
     e,
-    .Atom(_, _) => {
+    Rc(.Atom(_, _)) => {
       note_unlabeled_ensures_atom(ast_expr_id(e));
     },
-    .FnCall(_, f_box, Rc(f_args), _, _) => {
+    Rc(.FnCall(_, f_box, Rc(f_args), _, _)) => {
       recur(&f_box.*);
       (ai : usize) = usize(0);
       while(ai < f_args.len(), {
         match(
-          f_args.get(ai),
+          f_args.get_cloned(ai),
           .Some(a) => {
             recur(&a);
           },
@@ -1147,18 +1148,20 @@ _note_unlabeled_ensures_atoms :: (fn(e : &AstExpr) -> unit)(
 /// Build a synthetic atom borrowing `src_tok`'s source position so diagnostics
 /// point at the user's contract clause.
 _synth_atom :: (fn(value : &String, kind : TokenKind, src_tok : &Token) -> AstExpr)(
-  AstExpr.Atom(
-    alloc_global_expr_id(),
-    Rc.new(
-      TokenData(
-        kind : kind,
-        value : Rc.new(value.clone()),
-        row : src_tok.row,
-        column : src_tok.column,
-        character : src_tok.character,
-        byte_offset : src_tok.byte_offset,
-        module_path : Rc.clone(src_tok.module_path),
-        input : Rc.clone(src_tok.input)
+  Rc.new(
+    AstExprNode.Atom(
+      alloc_global_expr_id(),
+      Rc.new(
+        TokenData(
+          kind : kind,
+          value : Rc.new(value.clone()),
+          row : src_tok.row,
+          column : src_tok.column,
+          character : src_tok.character,
+          byte_offset : src_tok.byte_offset,
+          module_path : Rc.clone(src_tok.module_path),
+          input : Rc.clone(src_tok.input)
+        )
       )
     )
   )
@@ -1242,15 +1245,17 @@ _build_assert_call :: (
   );
   if(is_comptime_fn, {
     args := ArrayList(AstExpr).new();
-    args.push(pred.*);
+    args.push(Rc.clone(pred.*));
     args.push(msg_expr);
     return(
-      AstExpr.FnCall(
-        alloc_global_expr_id(),
-        _synth_atom(String.from(BF_COMPTIME_ASSERT), TokenKind.Identifier, pred_tok.clone()),
-        Rc.new(args),
-        false,
-        pred_tok
+      Rc.new(
+        AstExprNode.FnCall(
+          alloc_global_expr_id(),
+          _synth_atom(String.from(BF_COMPTIME_ASSERT), TokenKind.Identifier, pred_tok.clone()),
+          Rc.new(args),
+          false,
+          pred_tok
+        )
       )
     );
   });
@@ -1258,69 +1263,85 @@ _build_assert_call :: (
   // body is the parser's zero-arg `tuple()` call shape (a bare `()` atom
   // does not evaluate); the panic message is a synthesized string literal,
   // which generate_panic prints with the splice site's location.
-  unit_expr := AstExpr.FnCall(
-    alloc_global_expr_id(),
-    _synth_atom(String.from(BK_TUPLE), TokenKind.Identifier, pred_tok.clone()),
-    Rc.new(ArrayList(AstExpr).new()),
-    false,
-    pred_tok.clone()
+  unit_expr := Rc.new(
+    AstExprNode.FnCall(
+      alloc_global_expr_id(),
+      _synth_atom(String.from(BK_TUPLE), TokenKind.Identifier, pred_tok.clone()),
+      Rc.new(ArrayList(AstExpr).new()),
+      false,
+      pred_tok.clone()
+    )
   );
   rt_args := ArrayList(AstExpr).new();
-  rt_args.push(pred.*);
-  runtime_pred := AstExpr.FnCall(
-    alloc_global_expr_id(),
-    _synth_atom(String.from(BF_RUNTIME), TokenKind.Identifier, pred_tok.clone()),
-    Rc.new(rt_args),
-    false,
-    pred_tok.clone()
+  rt_args.push(Rc.clone(pred.*));
+  runtime_pred := Rc.new(
+    AstExprNode.FnCall(
+      alloc_global_expr_id(),
+      _synth_atom(String.from(BF_RUNTIME), TokenKind.Identifier, pred_tok.clone()),
+      Rc.new(rt_args),
+      false,
+      pred_tok.clone()
+    )
   );
   // The cond evaluator routes non-atom conditions through the BEGIN
   // evaluator (parsed parens are begin nodes) — so the synthesized
   // condition is begin-wrapped exactly as the parser would build it.
-  runtime_cond := AstExpr.FnCall(
-    alloc_global_expr_id(),
-    _synth_atom(String.from(BK_BEGIN), TokenKind.Identifier, pred_tok.clone()),
-    Rc.new(single1(&runtime_pred)),
-    false,
-    pred_tok.clone()
+  runtime_cond := Rc.new(
+    AstExprNode.FnCall(
+      alloc_global_expr_id(),
+      _synth_atom(String.from(BK_BEGIN), TokenKind.Identifier, pred_tok.clone()),
+      Rc.new(single1(&runtime_pred)),
+      false,
+      pred_tok.clone()
+    )
   );
-  arm1 := AstExpr.FnCall(
-    alloc_global_expr_id(),
-    _synth_atom(String.from("=>"), TokenKind.Identifier, pred_tok.clone()),
-    Rc.new(single2(&runtime_cond, &unit_expr)),
-    false,
-    pred_tok.clone()
+  arm1 := Rc.new(
+    AstExprNode.FnCall(
+      alloc_global_expr_id(),
+      _synth_atom(String.from("=>"), TokenKind.Identifier, pred_tok.clone()),
+      Rc.new(single2(&runtime_cond, &unit_expr)),
+      false,
+      pred_tok.clone()
+    )
   );
-  panic_call := AstExpr.FnCall(
-    alloc_global_expr_id(),
-    _synth_atom(String.from(BF_PANIC), TokenKind.Identifier, pred_tok.clone()),
-    Rc.new(single1(&msg_expr)),
-    false,
-    pred_tok.clone()
+  panic_call := Rc.new(
+    AstExprNode.FnCall(
+      alloc_global_expr_id(),
+      _synth_atom(String.from(BF_PANIC), TokenKind.Identifier, pred_tok.clone()),
+      Rc.new(single1(&msg_expr)),
+      false,
+      pred_tok.clone()
+    )
   );
   // arm2's body is a begin sequencing the panic with `()` — evaluate_panic
   // adopts the ambient expected type as its stand-in type, so a bare panic
   // arm would unify as bool/i32 against arm1's unit (E0601).
-  arm2_body := AstExpr.FnCall(
-    alloc_global_expr_id(),
-    _synth_atom(String.from(BK_BEGIN), TokenKind.Identifier, pred_tok.clone()),
-    Rc.new(single2(&panic_call, &unit_expr)),
-    false,
-    pred_tok.clone()
+  arm2_body := Rc.new(
+    AstExprNode.FnCall(
+      alloc_global_expr_id(),
+      _synth_atom(String.from(BK_BEGIN), TokenKind.Identifier, pred_tok.clone()),
+      Rc.new(single2(&panic_call, &unit_expr)),
+      false,
+      pred_tok.clone()
+    )
   );
-  arm2 := AstExpr.FnCall(
-    alloc_global_expr_id(),
-    _synth_atom(String.from("=>"), TokenKind.Identifier, pred_tok.clone()),
-    Rc.new(single2(_synth_atom(String.from("true"), TokenKind.Bool, pred_tok.clone()), &arm2_body)),
-    false,
-    pred_tok.clone()
+  arm2 := Rc.new(
+    AstExprNode.FnCall(
+      alloc_global_expr_id(),
+      _synth_atom(String.from("=>"), TokenKind.Identifier, pred_tok.clone()),
+      Rc.new(single2(_synth_atom(String.from("true"), TokenKind.Bool, pred_tok.clone()), &arm2_body)),
+      false,
+      pred_tok.clone()
+    )
   );
-  AstExpr.FnCall(
-    alloc_global_expr_id(),
-    _synth_atom(String.from(BK_COND), TokenKind.Identifier, pred_tok.clone()),
-    Rc.new(single2(&arm1, &arm2)),
-    false,
-    pred_tok
+  Rc.new(
+    AstExprNode.FnCall(
+      alloc_global_expr_id(),
+      _synth_atom(String.from(BK_COND), TokenKind.Identifier, pred_tok.clone()),
+      Rc.new(single2(&arm1, &arm2)),
+      false,
+      pred_tok
+    )
   )
 });
 /// Build a synthetic `name := value` (runtime) or `name :: value` (comptime)
@@ -1341,13 +1362,15 @@ _build_binding :: (fn(name : &String, value : &AstExpr, src_tok : &Token, op : &
   );
   args := ArrayList(AstExpr).new();
   args.push(_synth_atom(name, TokenKind.Identifier, src_tok));
-  args.push(value.*);
-  AstExpr.FnCall(
-    alloc_global_expr_id(),
-    AstExpr.Atom(alloc_global_expr_id(), bind_tok.clone()),
-    Rc.new(args),
-    true,
-    bind_tok
+  args.push(Rc.clone(value.*));
+  Rc.new(
+    AstExprNode.FnCall(
+      alloc_global_expr_id(),
+      Rc.new(AstExprNode.Atom(alloc_global_expr_id(), bind_tok.clone())),
+      Rc.new(args),
+      true,
+      bind_tok
+    )
   )
 });
 /// Monotonic counter for `old(...)` entry-snapshot names. A module-level global
@@ -1358,13 +1381,13 @@ _build_binding :: (fn(name : &String, value : &AstExpr, src_tok : &Token, op : &
 /// Local list builders for AST synthesis (ArrayList has no literal syntax).
 single1 :: (fn(a : &AstExpr) -> ArrayList(AstExpr))({
   out := ArrayList(AstExpr).new();
-  out.push(a.*);
+  out.push(Rc.clone(a.*));
   out
 });
 single2 :: (fn(a : &AstExpr, b : &AstExpr) -> ArrayList(AstExpr))({
   out := ArrayList(AstExpr).new();
-  out.push(a.*);
-  out.push(b.*);
+  out.push(Rc.clone(a.*));
+  out.push(Rc.clone(b.*));
   out
 });
 (mut(g_contract_old_counter) : usize) = usize(0);
@@ -1381,11 +1404,11 @@ _hoist_old_in :: (
 )(
   match(
     e,
-    .Atom(_, _) => e.*,
-    .FnCall(_, f_box, Rc(f_args), f_infix, f_tok) => cond(
+    Rc(.Atom(_, _)) => Rc.clone(e.*),
+    Rc(.FnCall(_, f_box, Rc(f_args), f_infix, f_tok)) => cond(
       ast_expr_is_fn_call_of(e, BF_OLD, .Some(usize(1))) => {
         inner := recur(
-          match(f_args.get(usize(0)), .Some(x) => x, .None => make_err_expr()),
+          match(f_args.get_cloned(usize(0)), .Some(x) => x, .None => make_err_expr()),
           snapshots,
           bind_op.clone()
         );
@@ -1402,7 +1425,7 @@ _hoist_old_in :: (
         (hi : usize) = usize(0);
         while(hi < f_args.len(), {
           match(
-            f_args.get(hi),
+            f_args.get_cloned(hi),
             .Some(a) => {
               new_args.push(recur(&a, snapshots, bind_op.clone()));
             },
@@ -1410,12 +1433,14 @@ _hoist_old_in :: (
           );
           hi = (hi + usize(1));
         });
-        AstExpr.FnCall(
-          alloc_global_expr_id(),
-          recur(&f_box.*, snapshots, bind_op.clone()),
-          Rc.new(new_args),
-          f_infix.*,
-          f_tok.clone()
+        Rc.new(
+          AstExprNode.FnCall(
+            alloc_global_expr_id(),
+            recur(&f_box.*, snapshots, bind_op.clone()),
+            Rc.new(new_args),
+            f_infix.*,
+            f_tok.clone()
+          )
         )
       }
     )
@@ -1802,7 +1827,7 @@ register_impl_inheritance_task :: (
       (vh : usize) = usize(0);
       while(vh < __t_reqs.len(), {
         match(
-          __t_reqs.get(vh),
+          __t_reqs.get_cloned(vh),
           .Some(p) => evh_reqs.push(evaluated_for_verify(clone_expr_fresh_ids(p.clone()), &pred_env, ctx, exn)),
           .None => ()
         );
@@ -1812,7 +1837,7 @@ register_impl_inheritance_task :: (
       (vh2 : usize) = usize(0);
       while(vh2 < __t_enss.len(), {
         match(
-          __t_enss.get(vh2),
+          __t_enss.get_cloned(vh2),
           .Some(p) => evh_enss.push(evaluated_for_verify(clone_expr_fresh_ids(p.clone()), &pred_env, ctx, exn)),
           .None => ()
         );
@@ -1859,10 +1884,10 @@ _same_expr_ids :: (fn(a : &ArrayList(AstExpr), b : &ArrayList(AstExpr)) -> bool)
       (same : bool) = true;
       while((i < a.len()) && same, {
         match(
-          a.get(i),
+          a.get_cloned(i),
           .Some(ax) => {
             match(
-              b.get(i),
+              b.get_cloned(i),
               .Some(bx) => {
                 if(ast_expr_id(&ax) != ast_expr_id(&bx), {
                   same = false;
@@ -1956,8 +1981,8 @@ _prepare_callsite_contracts :: (
   // unit anyway; the explicit tail keeps the shape obvious.
   match(
     e,
-    .Atom(_, _) => (),
-    .FnCall(_, f, Rc(args), _, _) => {
+    Rc(.Atom(_, _)) => (),
+    Rc(.FnCall(_, f, Rc(args), _, _)) => {
       // Macro calls: the semantics live in the expansion.
       expanded := match(
         expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)),
@@ -1974,7 +1999,7 @@ _prepare_callsite_contracts :: (
           (ai : usize) = usize(0);
           while(ai < args.len(), {
             match(
-              args.get(ai),
+              args.get_cloned(ai),
               .Some(a) => _prepare_callsite_contracts(&a, env, ctx, exn),
               .None => ()
             );
@@ -1994,17 +2019,17 @@ _callsite_arg_type :: (
 )(
   match(
     e,
-    .FnCall(_, _, Rc(args), _, _) => match(
-      args.get(i),
+    Rc(.FnCall(_, _, Rc(args), _, _)) => match(
+      args.get_cloned(i),
       .Some(a) => match(
         expr_info_table_get(
           &ctx.expr_info_table,
           ast_expr_id(
             &cond(
               (ast_expr_is_fn_call_of(&a, BF_ADDRESS_OF, .Some(usize(1))) || ast_expr_is_fn_call_of(&a, BK_BORROW_MUT, .Some(usize(1)))) => match(
-                a,
-                .FnCall(_, _, Rc(m_args), _, _) => match(m_args.get(usize(0)), .Some(place) => place, .None => a.clone()),
-                .Atom(_, _) => a.clone()
+                Rc.clone(a),
+                Rc(.FnCall(_, _, Rc(m_args), _, _)) => match(m_args.get_cloned(usize(0)), .Some(place) => place, .None => a.clone()),
+                Rc(.Atom(_, _)) => a.clone()
               ),
               true => a.clone()
             )
@@ -2015,7 +2040,7 @@ _callsite_arg_type :: (
       ),
       .None => Option(TypeValue).None
     ),
-    .Atom(_, _) => Option(TypeValue).None
+    Rc(.Atom(_, _)) => Option(TypeValue).None
   )
 );
 /// A method call's RECEIVER expression when the callee is the dot-call
@@ -2030,13 +2055,13 @@ _callsite_method_receiver :: (
   });
   recv := match(
     f,
-    .FnCall(_, cf, Rc(fa), _, _) => cond(
-      ((ast_expr_token(&cf.*).value.* == ".") && (fa.len() == usize(2))) => match(fa.get(usize(0)), .Some(r) => r, .None => make_err_expr()),
+    Rc(.FnCall(_, cf, Rc(fa), _, _)) => cond(
+      ((ast_expr_token(&cf.*).value.* == ".") && (fa.len() == usize(2))) => match(fa.get_cloned(usize(0)), .Some(r) => r, .None => make_err_expr()),
       true => {
         return(Option(AstExpr).None);
       }
     ),
-    .Atom(_, _) => {
+    Rc(.Atom(_, _)) => {
       return(Option(AstExpr).None);
     }
   );
@@ -2216,7 +2241,7 @@ _stash_callsite_contracts :: (
   (ri : usize) = usize(0);
   while(ri < raw_reqs.len(), {
     match(
-      raw_reqs.get(ri),
+      raw_reqs.get_cloned(ri),
       .Some(p) => ev_reqs.push(evaluated_for_verify(clone_expr_fresh_ids(p.clone()), &site_env, ctx, exn)),
       .None => ()
     );
@@ -2233,7 +2258,7 @@ _stash_callsite_contracts :: (
   (ei : usize) = usize(0);
   while(ei < raw_enss.len(), {
     match(
-      raw_enss.get(ei),
+      raw_enss.get_cloned(ei),
       .Some(p) => {
         prev_ghost := ctx.is_ghost_context;
         depth := site_env.frames_len();
@@ -2275,19 +2300,19 @@ _callsite_ensures_or_drop :: (
 /// (a single predicate passes through unwrapped). Fresh node ids.
 _conj_exprs :: (fn(preds : &ArrayList(AstExpr), tok : &Token) -> AstExpr)({
   out := match(
-    preds.get(usize(0)),
+    preds.get_cloned(usize(0)),
     .Some(p0) => clone_expr_fresh_ids(p0.clone()),
     .None => make_err_expr()
   );
   (i : usize) = usize(1);
   while(i < preds.len(), {
     match(
-      preds.get(i),
+      preds.get_cloned(i),
       .Some(p) => {
         args := ArrayList(AstExpr).new();
         args.push(out);
         args.push(clone_expr_fresh_ids(p.clone()));
-        out = AstExpr.FnCall(alloc_global_expr_id(), _synth_atom(String.from("&&"), TokenKind.Operator, tok.clone()), Rc.new(args), true, tok.clone());
+        out = Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), _synth_atom(String.from("&&"), TokenKind.Operator, tok.clone()), Rc.new(args), true, tok.clone()));
       },
       .None => ()
     );
@@ -2411,22 +2436,26 @@ register_impl_variance_task :: (
       name_tok.clone()
     )
   );
-  __asrt_imp := AstExpr.FnCall(
-    alloc_global_expr_id(),
-    _synth_atom(String.from("import"), TokenKind.Identifier, name_tok.clone()),
-    Rc.new(__asrt_imp_args),
-    false,
-    name_tok.clone()
+  __asrt_imp := Rc.new(
+    AstExprNode.FnCall(
+      alloc_global_expr_id(),
+      _synth_atom(String.from("import"), TokenKind.Identifier, name_tok.clone()),
+      Rc.new(__asrt_imp_args),
+      false,
+      name_tok.clone()
+    )
   );
   __asrt_dot_args := ArrayList(AstExpr).new();
   __asrt_dot_args.push(__asrt_imp);
   __asrt_dot_args.push(_synth_atom(String.from("assert"), TokenKind.Identifier, name_tok.clone()));
-  __asrt_expr := AstExpr.FnCall(
-    alloc_global_expr_id(),
-    _synth_atom(String.from("."), TokenKind.Identifier, name_tok.clone()),
-    Rc.new(__asrt_dot_args),
-    false,
-    name_tok.clone()
+  __asrt_expr := Rc.new(
+    AstExprNode.FnCall(
+      alloc_global_expr_id(),
+      _synth_atom(String.from("."), TokenKind.Identifier, name_tok.clone()),
+      Rc.new(__asrt_dot_args),
+      false,
+      name_tok.clone()
+    )
   );
   __asrt_ev := evaluated_for_verify(&__asrt_expr, &pred_env, ctx, exn);
   match(
@@ -2481,7 +2510,7 @@ register_impl_variance_task :: (
   (vi : usize) = usize(0);
   while(vi < __t_reqs.len(), {
     match(
-      __t_reqs.get(vi),
+      __t_reqs.get_cloned(vi),
       .Some(p) => ev_t_reqs.push(evaluated_for_verify(clone_expr_fresh_ids(p.clone()), &pred_env, ctx, exn)),
       .None => ()
     );
@@ -2490,7 +2519,7 @@ register_impl_variance_task :: (
   (vj : usize) = usize(0);
   while(vj < __t_enss.len(), {
     match(
-      __t_enss.get(vj),
+      __t_enss.get_cloned(vj),
       .Some(p) => ev_t_enss.push(evaluated_for_verify(clone_expr_fresh_ids(p.clone()), &pred_env, ctx, exn)),
       .None => ()
     );
@@ -2499,7 +2528,7 @@ register_impl_variance_task :: (
   (vk : usize) = usize(0);
   while(vk < __i_reqs.len(), {
     match(
-      __i_reqs.get(vk),
+      __i_reqs.get_cloned(vk),
       .Some(p) => ev_i_reqs.push(evaluated_for_verify(clone_expr_fresh_ids(p.clone()), &pred_env, ctx, exn)),
       .None => ()
     );
@@ -2508,7 +2537,7 @@ register_impl_variance_task :: (
   (vl : usize) = usize(0);
   while(vl < __i_enss.len(), {
     match(
-      __i_enss.get(vl),
+      __i_enss.get_cloned(vl),
       .Some(p) => ev_i_enss.push(evaluated_for_verify(clone_expr_fresh_ids(p.clone()), &pred_env, ctx, exn)),
       .None => ()
     );
@@ -2521,7 +2550,7 @@ register_impl_variance_task :: (
     (ri : usize) = usize(0);
     while(ri < ev_i_reqs.len(), {
       match(
-        ev_i_reqs.get(ri),
+        ev_i_reqs.get_cloned(ri),
         .Some(ir) => stmts.push(_implies_assert(t_conj.clone(), ir.clone(), name_tok.clone())),
         .None => ()
       );
@@ -2533,7 +2562,7 @@ register_impl_variance_task :: (
     (ei : usize) = usize(0);
     while(ei < ev_t_enss.len(), {
       match(
-        ev_t_enss.get(ei),
+        ev_t_enss.get_cloned(ei),
         .Some(te) => stmts.push(_implies_assert(i_conj.clone(), te.clone(), name_tok.clone())),
         .None => ()
       );
@@ -2548,20 +2577,24 @@ register_impl_variance_task :: (
   // `tuple()` call — a bare "()" atom would go down identifier lookup at
   // the diagnostic evaluation below and die on `Variable "()" not found`.
   stmts.push(
-    AstExpr.FnCall(
+    Rc.new(
+      AstExprNode.FnCall(
+        alloc_global_expr_id(),
+        _synth_atom(String.from(BK_TUPLE), TokenKind.Identifier, name_tok.clone()),
+        Rc.new(ArrayList(AstExpr).new()),
+        false,
+        name_tok.clone()
+      )
+    )
+  );
+  body := Rc.new(
+    AstExprNode.FnCall(
       alloc_global_expr_id(),
-      _synth_atom(String.from(BK_TUPLE), TokenKind.Identifier, name_tok.clone()),
-      Rc.new(ArrayList(AstExpr).new()),
+      _synth_atom(String.from(BK_BEGIN), TokenKind.Identifier, name_tok.clone()),
+      Rc.new(stmts),
       false,
       name_tok.clone()
     )
-  );
-  body := AstExpr.FnCall(
-    alloc_global_expr_id(),
-    _synth_atom(String.from(BK_BEGIN), TokenKind.Identifier, name_tok.clone()),
-    Rc.new(stmts),
-    false,
-    name_tok.clone()
   );
   body_ev := evaluated_for_verify(&body, &pred_env, ctx, exn);
   pred_env.pop_frame();
@@ -2592,23 +2625,27 @@ register_impl_variance_task :: (
 /// `assert((a) ==> (b))` with fresh node ids — one variance obligation.
 _implies_assert :: (fn(a : &AstExpr, b : &AstExpr, tok : &Token) -> AstExpr)({
   imp_args := ArrayList(AstExpr).new();
-  imp_args.push(a.*);
-  imp_args.push(b.*);
-  imp := AstExpr.FnCall(
-    alloc_global_expr_id(),
-    _synth_atom(String.from("==>"), TokenKind.Operator, tok.clone()),
-    Rc.new(imp_args),
-    true,
-    tok.clone()
+  imp_args.push(Rc.clone(a.*));
+  imp_args.push(Rc.clone(b.*));
+  imp := Rc.new(
+    AstExprNode.FnCall(
+      alloc_global_expr_id(),
+      _synth_atom(String.from("==>"), TokenKind.Operator, tok.clone()),
+      Rc.new(imp_args),
+      true,
+      tok.clone()
+    )
   );
   as_args := ArrayList(AstExpr).new();
   as_args.push(imp);
-  AstExpr.FnCall(
-    alloc_global_expr_id(),
-    _synth_atom(String.from("assert"), TokenKind.Identifier, tok.clone()),
-    Rc.new(as_args),
-    false,
-    tok.clone()
+  Rc.new(
+    AstExprNode.FnCall(
+      alloc_global_expr_id(),
+      _synth_atom(String.from("assert"), TokenKind.Identifier, tok.clone()),
+      Rc.new(as_args),
+      false,
+      tok.clone()
+    )
   )
 });
 /// The `verify+` strip pass (plan task 6): leave out of the emitted code
@@ -2627,16 +2664,16 @@ strip_proved_ensures_asserts :: (
   match(
     func_val,
     .FuncVal(fvd, _) => {
-      body := fvd.body;
+      body := Rc.clone(fvd.body);
       match(
         body,
-        .FnCall(_, _, Rc(args), _, _) => {
+        Rc(.FnCall(_, _, Rc(args), _, _)) => {
           (ens_idx : usize) = usize(0);
           (stripped : usize) = usize(0);
           (i : usize) = usize(0);
           while(i < args.len(), {
             match(
-              args.get(i),
+              args.get_cloned(i),
               .Some(arg) => {
                 if(_is_contract_assert_call(&arg, String.from("ensures failed:")), {
                   proved_here := match(
@@ -2662,7 +2699,7 @@ strip_proved_ensures_asserts :: (
           });
           stripped
         },
-        .Atom(_, _) => usize(0)
+        Rc(.Atom(_, _)) => usize(0)
       )
     },
     _ => usize(0)
@@ -2677,8 +2714,8 @@ strip_proved_ensures_asserts :: (
 _assert_head_is :: (fn(e : &AstExpr, name : &String) -> bool)(
   match(
     e,
-    .FnCall(_, f, _, _, _) => _callee_named(&f.*, name.clone()),
-    .Atom(_, _) => false
+    Rc(.FnCall(_, f, _, _, _)) => _callee_named(&f.*, name.clone()),
+    Rc(.Atom(_, _)) => false
   )
 );
 /// Whether a callee expression names `name` — bare atom or the
@@ -2686,8 +2723,8 @@ _assert_head_is :: (fn(e : &AstExpr, name : &String) -> bool)(
 _callee_named :: (fn(f : &AstExpr, name : &String) -> bool)(
   match(
     f,
-    .Atom(_, ht) => (ht.value.* == name.*),
-    .FnCall(_, dot_h, Rc(dot_args), _, _) => _callee_member_cond(&dot_h.*, &dot_args.*, name.clone())
+    Rc(.Atom(_, ht)) => (ht.value.* == name.*),
+    Rc(.FnCall(_, dot_h, Rc(dot_args), _, _)) => _callee_member_cond(&dot_h.*, &dot_args.*, name.clone())
   )
 );
 /// The member-callee cond (arm-body extraction — no braced single
@@ -2703,9 +2740,9 @@ _callee_member_cond :: (
 /// Whether a `.`-call's SECOND argument is a plain atom named `name`.
 _dot_arg1_is :: (fn(dot_args : &ArrayList(AstExpr), name : &String) -> bool)(
   match(
-    dot_args.get(usize(1)),
-    .Some(.Atom(_, st)) => (st.value.* == name.*),
-    .Some(.FnCall(_, _, _, _, _)) => false,
+    dot_args.get_cloned(usize(1)),
+    .Some(Rc(.Atom(_, st))) => (st.value.* == name.*),
+    .Some(Rc(.FnCall(_, _, _, _, _))) => false,
     .None => false
   )
 );
@@ -2714,15 +2751,15 @@ _dot_arg1_is :: (fn(dot_args : &ArrayList(AstExpr), name : &String) -> bool)(
 _assert_msg_of :: (fn(e : &AstExpr) -> String)(
   match(
     e,
-    .FnCall(_, _, Rc(a), _, _) => _arg1_string_atom(&a.*),
-    .Atom(_, _) => String.new()
+    Rc(.FnCall(_, _, Rc(a), _, _)) => _arg1_string_atom(&a.*),
+    Rc(.Atom(_, _)) => String.new()
   )
 );
 /// Arg 1 of a call rendered as a string when it is a plain string atom
 /// ("" otherwise).
 _arg1_string_atom :: (fn(a : &ArrayList(AstExpr)) -> String)(
   match(
-    a.get(usize(1)),
+    a.get_cloned(usize(1)),
     .Some(m_arg) => cond(
       ast_expr_is_atom(&m_arg) => ast_expr_text(&m_arg).*.clone(),
       true => String.new()
@@ -2750,19 +2787,19 @@ _is_contract_assert_call :: (fn(e : &AstExpr, prefix : &String) -> bool)(
 _contract_guard_is :: (fn(e : &AstExpr, prefix : &String) -> bool)(
   match(
     e,
-    .FnCall(_, head, Rc(args), _, _) => cond(
+    Rc(.FnCall(_, head, Rc(args), _, _)) => cond(
       (
-        match(head, .Atom(_, ht) => (ht.value.* == BK_COND), .FnCall(_, _, _, _, _) => false) &&
+        match(head, Rc(.Atom(_, ht)) => (ht.value.* == BK_COND), Rc(.FnCall(_, _, _, _, _)) => false) &&
           (args.len() == usize(2))
       ) =>
         match(
-          args.get(usize(1)),
+          args.get_cloned(usize(1)),
           .None => false,
           .Some(arm2) => _guard_arm2_is(&arm2, prefix)
         ),
       true => false
     ),
-    .Atom(_, _) => false
+    Rc(.Atom(_, _)) => false
   )
 );
 /// The else-arm of the runtime contract guard: `=> (true, __yo_panic(msg))`
@@ -2770,19 +2807,19 @@ _contract_guard_is :: (fn(e : &AstExpr, prefix : &String) -> bool)(
 _guard_arm2_is :: (fn(arm2 : &AstExpr, prefix : &String) -> bool)(
   match(
     arm2,
-    .FnCall(_, ah, Rc(aargs), _, _) => cond(
+    Rc(.FnCall(_, ah, Rc(aargs), _, _)) => cond(
       (
-        match(ah, .Atom(_, ht) => (ht.value.* == "=>"), .FnCall(_, _, _, _, _) => false) &&
+        match(ah, Rc(.Atom(_, ht)) => (ht.value.* == "=>"), Rc(.FnCall(_, _, _, _, _)) => false) &&
           (aargs.len() == usize(2))
       ) =>
         cond(
           match(
-            aargs.get(usize(0)),
+            aargs.get_cloned(usize(0)),
             .None => false,
-            .Some(t) => match(t, .Atom(_, at) => (at.value.* == "true"), .FnCall(_, _, _, _, _) => false)
+            .Some(t) => match(t, Rc(.Atom(_, at)) => (at.value.* == "true"), Rc(.FnCall(_, _, _, _, _)) => false)
           ) =>
             match(
-              aargs.get(usize(1)),
+              aargs.get_cloned(usize(1)),
               .None => false,
               .Some(body) => _guard_body_is(&body, prefix)
             ),
@@ -2790,7 +2827,7 @@ _guard_arm2_is :: (fn(arm2 : &AstExpr, prefix : &String) -> bool)(
         ),
       true => false
     ),
-    .Atom(_, _) => false
+    Rc(.Atom(_, _)) => false
   )
 );
 /// The panic call of the runtime contract guard: `__yo_panic("<prefix>…")`
@@ -2798,19 +2835,19 @@ _guard_arm2_is :: (fn(arm2 : &AstExpr, prefix : &String) -> bool)(
 _guard_panic_is :: (fn(pc : &AstExpr, prefix : &String) -> bool)(
   match(
     pc,
-    .FnCall(_, ph, Rc(pargs), _, _) => cond(
+    Rc(.FnCall(_, ph, Rc(pargs), _, _)) => cond(
       (
-        match(ph, .Atom(_, pt) => (pt.value.* == BF_PANIC), .FnCall(_, _, _, _, _) => false) &&
+        match(ph, Rc(.Atom(_, pt)) => (pt.value.* == BF_PANIC), Rc(.FnCall(_, _, _, _, _)) => false) &&
           (pargs.len() == usize(1))
       ) =>
         match(
-          pargs.get(usize(0)),
+          pargs.get_cloned(usize(0)),
           .None => false,
-          .Some(m) => match(m, .Atom(_, mt) => mt.value.*.starts_with(`"${prefix}`), .FnCall(_, _, _, _, _) => false)
+          .Some(m) => match(m, Rc(.Atom(_, mt)) => mt.value.*.starts_with(`"${prefix}`), Rc(.FnCall(_, _, _, _, _)) => false)
         ),
       true => false
     ),
-    .Atom(_, _) => false
+    Rc(.Atom(_, _)) => false
   )
 );
 /// The arm body: either the bare panic call or a begin sequencing the
@@ -2819,19 +2856,19 @@ _guard_panic_is :: (fn(pc : &AstExpr, prefix : &String) -> bool)(
 _guard_body_is :: (fn(body : &AstExpr, prefix : &String) -> bool)(
   match(
     body,
-    .FnCall(_, bh, Rc(bargs), _, _) => cond(
+    Rc(.FnCall(_, bh, Rc(bargs), _, _)) => cond(
       (
-        match(bh, .Atom(_, bt) => (bt.value.* == BK_BEGIN), .FnCall(_, _, _, _, _) => false) &&
+        match(bh, Rc(.Atom(_, bt)) => (bt.value.* == BK_BEGIN), Rc(.FnCall(_, _, _, _, _)) => false) &&
           (bargs.len() >= usize(1))
       ) =>
         match(
-          bargs.get(usize(0)),
+          bargs.get_cloned(usize(0)),
           .None => false,
           .Some(first) => _guard_panic_is(&first, prefix)
         ),
       true => _guard_panic_is(body, prefix)
     ),
-    .Atom(_, _) => false
+    Rc(.Atom(_, _)) => false
   )
 );
 /// Can `pred` be evaluated at runtime? Not when it mentions a verification-only
@@ -2853,7 +2890,7 @@ ensures_is_runtime_checkable :: (fn(pred : &AstExpr, table : &ExprInfoTable) -> 
 _contract_clause_runs :: (fn(pred : &AstExpr, table : &ExprInfoTable, allow_old : bool) -> bool)(
   match(
     pred,
-    .Atom(_, _) => match(
+    Rc(.Atom(_, _)) => match(
       expr_info_table_get(table, ast_expr_id(pred)),
       .Some(ai) => match(
         ai.value(),
@@ -2862,7 +2899,7 @@ _contract_clause_runs :: (fn(pred : &AstExpr, table : &ExprInfoTable, allow_old 
       ),
       .None => true
     ),
-    .FnCall(_, head, Rc(args), _, _) => {
+    Rc(.FnCall(_, head, Rc(args), _, _)) => {
       if(ast_expr_is_atom(&head.*), {
         hn := ast_expr_text(&head.*).*.clone();
         if(((hn == BF_OLD) && !allow_old) || (hn == BF_FORALL) || (hn == BF_EXISTS) || (hn == BF_GHOST) || (hn == BF_DISTINCT), {
@@ -2879,7 +2916,7 @@ _contract_clause_runs :: (fn(pred : &AstExpr, table : &ExprInfoTable, allow_old 
       (i : usize) = usize(0);
       while(i < args.len(), {
         match(
-          args.get(i),
+          args.get_cloned(i),
           .Some(a) => if(!_contract_clause_runs(&a, table, allow_old), {
             return(false);
           }),
@@ -2903,7 +2940,7 @@ requires_enforced_flags :: (fn(reqs : &ArrayList(AstExpr), mode : &String, in_gh
       cond(
         (mode.* == "verify+") => true,
         in_ghost_fn => false,
-        true => match(reqs.get(i), .Some(p) => requires_is_runtime_checkable(&p, table), .None => false)
+        true => match(reqs.get_cloned(i), .Some(p) => requires_is_runtime_checkable(&p, table), .None => false)
       )
     );
     i = (i + usize(1));
@@ -2931,7 +2968,7 @@ wrap_function_body_with_contracts :: (
   ) -> AstExpr
 )({
   if((requires_exprs.len() == usize(0)) && (ensures_exprs.len() == usize(0)), {
-    return(body.*);
+    return(Rc.clone(body.*));
   });
   body_tok := ast_expr_token(body);
   // The ensures clauses that get runtime asserts: all of them, except in
@@ -2940,7 +2977,7 @@ wrap_function_body_with_contracts :: (
   (sei : usize) = usize(0);
   while(sei < ensures_exprs.len(), {
     if(match(ensures_checkable.get(sei), .Some(c) => c, .None => true), {
-      splice_ensures.push(ensures_exprs(sei));
+      splice_ensures.push(Rc.clone(ensures_exprs(sei)));
     });
     sei = (sei + usize(1));
   });
@@ -2961,7 +2998,7 @@ wrap_function_body_with_contracts :: (
     // `ignore` (the `pragma(Pragma.NoContracts);` mode, or the CLI
     // override) — erase contract clauses entirely.
     if(mode == "ignore", {
-      return(body.*);
+      return(Rc.clone(body.*));
     });
     // `verify` — suppress the ENSURES asserts: the verifier proves each one
     // against this body, so the proof replaces the check. The REQUIRES entry
@@ -2981,13 +3018,13 @@ wrap_function_body_with_contracts :: (
         (kri : usize) = usize(0);
         while(kri < requires_exprs.len(), {
           if(match(requires_checkable.get(kri), .Some(c) => c, .None => false), {
-            match(requires_exprs.get(kri), .Some(rp) => kept_requires.push(rp), .None => ());
+            match(requires_exprs.get_cloned(kri), .Some(rp) => kept_requires.push(rp), .None => ());
           });
           kri = (kri + usize(1));
         });
       });
       if(kept_requires.len() == usize(0), {
-        return(body.*);
+        return(Rc.clone(body.*));
       });
       splice_requires = kept_requires;
       splice_ensures = ArrayList(AstExpr).new();
@@ -3010,7 +3047,7 @@ wrap_function_body_with_contracts :: (
   (ri : usize) = usize(0);
   while(ri < splice_requires.len(), {
     match(
-      splice_requires.get(ri),
+      splice_requires.get_cloned(ri),
       .Some(p) => {
         requires_asserts.push(
           _build_assert_call(
@@ -3032,7 +3069,7 @@ wrap_function_body_with_contracts :: (
     (ai : usize) = usize(0);
     while(ai < requires_asserts.len(), {
       match(
-        requires_asserts.get(ai),
+        requires_asserts.get_cloned(ai),
         .Some(a) => {
           new_args.push(a);
         },
@@ -3043,13 +3080,13 @@ wrap_function_body_with_contracts :: (
     if(flatten_body && ast_expr_is_fn_call_of(body, BK_BEGIN, Option(usize).None), {
       body_args := match(
         body,
-        .FnCall(_, _, Rc(ba), _, _) => ba.clone(),
-        .Atom(_, _) => ArrayList(AstExpr).new()
+        Rc(.FnCall(_, _, Rc(ba), _, _)) => ba.clone(),
+        Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
       );
       (bi : usize) = usize(0);
       while(bi < body_args.len(), {
         match(
-          body_args.get(bi),
+          body_args.get_cloned(bi),
           .Some(a) => {
             new_args.push(a);
           },
@@ -3058,10 +3095,10 @@ wrap_function_body_with_contracts :: (
         bi = (bi + usize(1));
       });
     }, {
-      new_args.push(body.*);
+      new_args.push(Rc.clone(body.*));
     });
     return(
-      AstExpr.FnCall(alloc_global_expr_id(), begin_atom, Rc.new(new_args), false, body_tok.clone())
+      Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), begin_atom, Rc.new(new_args), false, body_tok.clone()))
     );
   });
   // Ensures present: hoist `old(...)` snapshots, then build the wrapped body.
@@ -3070,7 +3107,7 @@ wrap_function_body_with_contracts :: (
   (ei : usize) = usize(0);
   while(ei < splice_ensures.len(), {
     match(
-      splice_ensures.get(ei),
+      splice_ensures.get_cloned(ei),
       .Some(p) => {
         rewritten := _hoist_old_in(clone_expr_fresh_ids(p.clone()), &mut snapshots, bind_op.clone());
         if(return_label.is_none(), {
@@ -3098,7 +3135,7 @@ wrap_function_body_with_contracts :: (
   (si : usize) = usize(0);
   while(si < snapshots.len(), {
     match(
-      snapshots.get(si),
+      snapshots.get_cloned(si),
       .Some(a) => {
         out_args.push(a);
       },
@@ -3109,7 +3146,7 @@ wrap_function_body_with_contracts :: (
   (qi : usize) = usize(0);
   while(qi < requires_asserts.len(), {
     match(
-      requires_asserts.get(qi),
+      requires_asserts.get_cloned(qi),
       .Some(a) => {
         out_args.push(a);
       },
@@ -3121,7 +3158,7 @@ wrap_function_body_with_contracts :: (
     // Unit return: the return value is not nameable and
     // `void result = ...` is invalid C. Run the body as a statement, then
     // the ensures asserts.
-    out_args.push(body.*);
+    out_args.push(Rc.clone(body.*));
   }, {
     out_args.push(
       _build_binding(
@@ -3135,7 +3172,7 @@ wrap_function_body_with_contracts :: (
   (fi : usize) = usize(0);
   while(fi < ensures_asserts.len(), {
     match(
-      ensures_asserts.get(fi),
+      ensures_asserts.get_cloned(fi),
       .Some(a) => {
         out_args.push(a);
       },
@@ -3148,7 +3185,7 @@ wrap_function_body_with_contracts :: (
       _synth_atom(ret_name.clone(), TokenKind.Identifier, body_tok.clone())
     );
   });
-  AstExpr.FnCall(alloc_global_expr_id(), begin_atom, Rc.new(out_args), false, body_tok.clone())
+  Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), begin_atom, Rc.new(out_args), false, body_tok.clone()))
 });
 export(evaluate_requires, evaluate_ensures, evaluate_invariant, evaluate_decreases, evaluate_assumed, evaluate_refine, evaluate_ghost, refine_pred_chain_of);
 /// Reject a signature clause a law cannot honour. `assumed()` would make the
@@ -3160,13 +3197,13 @@ _reject_law_clause :: (
 )({
   args := match(
     fn_head,
-    .FnCall(_, _, Rc(a), _, _) => a.clone(),
-    .Atom(_, _) => ArrayList(AstExpr).new()
+    Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(),
+    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
   );
   (i : usize) = usize(0);
   while(i < args.len(), {
     match(
-      args.get(i),
+      args.get_cloned(i),
       .Some(c) => {
         if(ast_expr_is_fn_call_of(&c, clause, Option(usize).None), {
           exn.throw(
@@ -3217,16 +3254,16 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext,
   });
   args := match(
     expr,
-    .FnCall(_, _, Rc(a), _, _) => a.clone(),
-    .Atom(_, _) => ArrayList(AstExpr).new()
+    Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(),
+    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
   );
-  arg := match(args.get(usize(0)), .Some(x) => x, .None => make_err_expr());
+  arg := match(args.get_cloned(usize(0)), .Some(x) => x, .None => make_err_expr());
   // The argument must be a fn-type LITERAL. An alias would hide its clauses
   // from the scan below — there is no side-table hook for `assumed`/`decreases`.
   fn_head := match(
-    arg,
-    .FnCall(_, _, Rc(a2), _, _) => match(a2.get(usize(0)), .Some(h) => h, .None => make_err_expr()),
-    .Atom(_, _) => make_err_expr()
+    Rc.clone(arg),
+    Rc(.FnCall(_, _, Rc(a2), _, _)) => match(a2.get_cloned(usize(0)), .Some(h) => h, .None => make_err_expr()),
+    Rc(.Atom(_, _)) => make_err_expr()
   );
   arrow_ok := ast_expr_is_fn_call_of(&arg, "->", Option(usize).Some(usize(2)));
   fn_ok := ast_expr_is_fn_call_of(&fn_head, BK_FN, Option(usize).None);
@@ -3332,11 +3369,11 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext,
   // target. `--verify-mode` is global, so resolve_verify_mode alone would arm
   // every law in std/ and in every dependency.
   if(!_is_verify_target(&law_tok.module_path.*), {
-    return(expr.*);
+    return(Rc.clone(expr.*));
   });
   law_mode := resolve_verify_mode(&law_tok.module_path.*);
   if((law_mode != "verify") && (law_mode != "verify+"), {
-    return(expr.*);
+    return(Rc.clone(expr.*));
   });
   pred_env := Rc.clone(env);
   pred_env.push_frame(false);
@@ -3363,7 +3400,7 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext,
   (ri : usize) = usize(0);
   while(ri < raw_reqs.len(), {
     match(
-      raw_reqs.get(ri),
+      raw_reqs.get_cloned(ri),
       .Some(pr) => ev_reqs.push(evaluated_for_verify(clone_expr_fresh_ids(pr.clone()), &pred_env, ctx, exn)),
       .None => ()
     );
@@ -3373,7 +3410,7 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext,
   (si : usize) = usize(0);
   while(si < raw_enss.len(), {
     match(
-      raw_enss.get(si),
+      raw_enss.get_cloned(si),
       .Some(pe) => ev_enss.push(evaluated_for_verify(clone_expr_fresh_ids(pe.clone()), &pred_env, ctx, exn)),
       .None => ()
     );
@@ -3382,12 +3419,14 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext,
   // The body is a synthetic unit literal: a law has no code. It must be the
   // parser's zero-arg `tuple()` call rather than a bare "()" atom, which would
   // go down identifier lookup and die on `Variable "()" not found`.
-  body := AstExpr.FnCall(
-    alloc_global_expr_id(),
-    _synth_atom(String.from(BK_TUPLE), TokenKind.Identifier, law_tok.clone()),
-    Rc.new(ArrayList(AstExpr).new()),
-    false,
-    law_tok.clone()
+  body := Rc.new(
+    AstExprNode.FnCall(
+      alloc_global_expr_id(),
+      _synth_atom(String.from(BK_TUPLE), TokenKind.Identifier, law_tok.clone()),
+      Rc.new(ArrayList(AstExpr).new()),
+      false,
+      law_tok.clone()
+    )
   );
   body_ev := evaluated_for_verify(&body, &pred_env, ctx, exn);
   // A law's calls live in its clauses (its body is a unit literal), so the
@@ -3397,12 +3436,12 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext,
   // (issues/fixed/law-over-an-imported-callee-cannot-verify.md).
   (ci : usize) = usize(0);
   while(ci < ev_reqs.len(), {
-    match(ev_reqs.get(ci), .Some(c) => _prepare_callsite_contracts(&c, &pred_env, ctx, exn), .None => ());
+    match(ev_reqs.get_cloned(ci), .Some(c) => _prepare_callsite_contracts(&c, &pred_env, ctx, exn), .None => ());
     ci = (ci + usize(1));
   });
   (cj : usize) = usize(0);
   while(cj < ev_enss.len(), {
-    match(ev_enss.get(cj), .Some(c) => _prepare_callsite_contracts(&c, &pred_env, ctx, exn), .None => ());
+    match(ev_enss.get_cloned(cj), .Some(c) => _prepare_callsite_contracts(&c, &pred_env, ctx, exn), .None => ());
     cj = (cj + usize(1));
   });
   pred_env.pop_frame();
@@ -3426,7 +3465,7 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext,
       requires_enforced : ArrayList(bool).new()
     )
   );
-  expr.*
+  Rc.clone(expr.*)
 });
 export(evaluate_law, evaluate_ghost_fn, evaluate_old, evaluate_forall, evaluate_exists, evaluate_implies);
 export(wrap_function_body_with_contracts, _is_contract_assert_call);

@@ -580,13 +580,13 @@ _collect_operand_holds_list :: (fn(operands : &ArrayList(AstExpr), out : &mut Ar
   (mut(i) : usize) = usize(0);
   while((i + usize(1)) < n, {
     match(
-      operands.get(i),
+      operands.get_cloned(i),
       .Some(op) => {
         (mut(later_awaits) : bool) = false;
         (mut(j) : usize) = (i + usize(1));
         while(j < n, {
           match(
-            operands.get(j),
+            operands.get_cloned(j),
             .Some(l) => if(expr_contains_await(&l), {
               later_awaits = true;
             }),
@@ -614,15 +614,15 @@ _collect_operand_holds_list :: (fn(operands : &ArrayList(AstExpr), out : &mut Ar
 is_any_identifier_atom :: (fn(e : &AstExpr) -> bool)(
   match(
     e,
-    .Atom(_, tok) => (tok.kind == TokenKind.Identifier),
-    .FnCall(_, _, _, _, _) => false
+    Rc(.Atom(_, tok)) => (tok.kind == TokenKind.Identifier),
+    Rc(.FnCall(_, _, _, _, _)) => false
   )
 );
 _collect_operand_holds_walk :: (fn(expr : &AstExpr, out : &mut ArrayList(OperandHold), seen : &mut HashSet(usize), context : &FunctionGenerationContext) -> unit)(
   match(
     expr,
-    .Atom(_, _) => (),
-    .FnCall(_, fn_box, Rc(args), _, _) => {
+    Rc(.Atom(_, _)) => (),
+    Rc(.FnCall(_, fn_box, Rc(args), _, _)) => {
       match(
         lookup_macro_expansion(ast_expr_id(expr)),
         .Some(me) => _collect_operand_holds_walk(&me, out, seen, context),
@@ -632,15 +632,15 @@ _collect_operand_holds_walk :: (fn(expr : &AstExpr, out : &mut ArrayList(Operand
             (mut(ci) : usize) = usize(0);
             while(ci < args.len(), {
               match(
-                args.get(ci),
+                args.get_cloned(ci),
                 .Some(a) => if(ast_expr_is_fn_call_of(&a, "=>", Option(usize).None), {
                   match(
                     a,
-                    .Atom(_, _) => (),
-                    .FnCall(_, _, Rc(branch_args), _, _) => {
+                    Rc(.Atom(_, _)) => (),
+                    Rc(.FnCall(_, _, Rc(branch_args), _, _)) => {
                       (mut(bj) : usize) = usize(0);
                       while(bj < branch_args.len(), {
-                        match(branch_args.get(bj), .Some(ba) => _collect_operand_holds_walk(&ba, out, seen, context), .None => ());
+                        match(branch_args.get_cloned(bj), .Some(ba) => _collect_operand_holds_walk(&ba, out, seen, context), .None => ());
                         bj = (bj + usize(1));
                       });
                     }
@@ -665,7 +665,7 @@ _collect_operand_holds_walk :: (fn(expr : &AstExpr, out : &mut ArrayList(Operand
               _collect_operand_holds_walk(&fn_box.*, out, seen, context);
               (mut(ai) : usize) = usize(0);
               while(ai < args.len(), {
-                match(args.get(ai), .Some(a) => _collect_operand_holds_walk(&a, out, seen, context), .None => ());
+                match(args.get_cloned(ai), .Some(a) => _collect_operand_holds_walk(&a, out, seen, context), .None => ());
                 ai = (ai + usize(1));
               });
             });
@@ -961,12 +961,12 @@ _build_deferred_deps :: (
         &ap.future_variable_id,
         .Some(_) => (),
         .None => {
-          await_expr := ap.base.expr;
-          is_fn_call := match(await_expr, .FnCall(_, _, _, _, _) => true, _ => false);
+          await_expr := Rc.clone(ap.base.expr);
+          is_fn_call := match(Rc.clone(await_expr), Rc(.FnCall(_, _, _, _, _)) => true, _ => false);
           if(is_fn_call, {
             args := ast_call_args_unmarked(&await_expr);
             match(
-              args.get(usize(0)),
+              args.get_cloned(usize(0)),
               .Some(future_expr) => match(
                 context.base.get_expr_info(&future_expr),
                 .Some(ei) => match(
@@ -1646,9 +1646,9 @@ generate_async_block_constructor :: (
 _dup_expr_var_name :: (fn(dup_expr : &AstExpr) -> Option(String))({
   match(
     dup_expr,
-    .FnCall(_, func, Rc(args), _, _) => if(args.len() > usize(0), {
+    Rc(.FnCall(_, func, Rc(args), _, _)) => if(args.len() > usize(0), {
       match(
-        args.get(usize(0)),
+        args.get_cloned(usize(0)),
         .Some(a0) => if(ast_expr_is_atom(&a0), {
           return(Option(String).Some(ast_expr_text(&a0).*.clone()));
         }),
@@ -1659,9 +1659,9 @@ _dup_expr_var_name :: (fn(dup_expr : &AstExpr) -> Option(String))({
       if(ast_expr_is_fn_call_of(&func.*, ".", Option(usize).None), {
         match(
           func,
-          .FnCall(_, _, Rc(fargs), _, _) => if(fargs.len() >= usize(2), {
+          Rc(.FnCall(_, _, Rc(fargs), _, _)) => if(fargs.len() >= usize(2), {
             match(
-              fargs.get(usize(0)),
+              fargs.get_cloned(usize(0)),
               .Some(f0) => if(ast_expr_is_atom(&f0), {
                 return(Option(String).Some(ast_expr_text(&f0).*.clone()));
               }),
@@ -1783,7 +1783,7 @@ _build_async_capture_struct_literal :: (
             (mut(di) : usize) = usize(0);
             while((di < dup_exprs.len()) && matched.is_none(), di = (di + usize(1)), {
               match(
-                dup_exprs.get(di),
+                dup_exprs.get_cloned(di),
                 .Some(de) => if(match(_dup_expr_var_name(&de), .Some(vn) => (vn == label), .None => false), {
                   matched = Option(AstExpr).Some(de);
                 }),
@@ -1974,33 +1974,33 @@ fused_await_site :: (fn(await_expr : &AstExpr, report : bool, context : &Functio
   if(!_async_fusion_enabled(), {
     return(Option(FusedAwaitSite).None);
   });
-  await_args := match(await_expr, .FnCall(_, _, _, _, _) => ast_call_args_unmarked(await_expr), _ => return(Option(FusedAwaitSite).None));
-  future_arg := match(await_args.get(usize(0)), .Some(f) => f, .None => return(Option(FusedAwaitSite).None));
+  await_args := match(await_expr, Rc(.FnCall(_, _, _, _, _)) => ast_call_args_unmarked(await_expr), _ => return(Option(FusedAwaitSite).None));
+  future_arg := match(await_args.get_cloned(usize(0)), .Some(f) => f, .None => return(Option(FusedAwaitSite).None));
   cand := match(await_fusion_candidate(&future_arg), .Some(c) => c, .None => return(Option(FusedAwaitSite).None));
   if(cand.verdict.len() > usize(0), {
     return(Option(FusedAwaitSite).None);
   });
   wrapper_body := match(
     context.base.functions.get(cand.func_id.clone()),
-    .Some(fe) => match(fe.value, .FuncVal(wfvd, _) => wfvd.*.body, _ => return(_fusion_not_lowered(await_expr, String.from("the wrapper has no body"), report))),
+    .Some(fe) => match(fe.value, .FuncVal(wfvd, _) => Rc.clone(wfvd.*.body), _ => return(_fusion_not_lowered(await_expr, String.from("the wrapper has no body"), report))),
     .None => return(_fusion_not_lowered(await_expr, String.from("the wrapper is not emitted"), report))
   );
-  stmts := if(ast_expr_is_fn_call_of(&wrapper_body, BK_BEGIN, Option(usize).None), emitted_block_statements(match(wrapper_body, .FnCall(_, _, Rc(sa), _, _) => sa.clone(), _ => ArrayList(AstExpr).new())), {
+  stmts := if(ast_expr_is_fn_call_of(&wrapper_body, BK_BEGIN, Option(usize).None), emitted_block_statements(match(Rc.clone(wrapper_body), Rc(.FnCall(_, _, Rc(sa), _, _)) => sa.clone(), _ => ArrayList(AstExpr).new())), {
     mut(one) := ArrayList(AstExpr).new();
-    one.push(wrapper_body);
+    one.push(Rc.clone(wrapper_body));
     one
   });
   if(stmts.len() == usize(0), {
     return(_fusion_not_lowered(await_expr, String.from("the wrapper body is empty"), report));
   });
-  io_call := match(stmts.get(stmts.len() - usize(1)), .Some(l) => l, .None => return(Option(FusedAwaitSite).None));
+  io_call := match(stmts.get_cloned(stmts.len() - usize(1)), .Some(l) => l, .None => return(Option(FusedAwaitSite).None));
   if(!is_io_async_call(&io_call), {
     return(_fusion_not_lowered(await_expr, String.from("the wrapper does not end in io.async"), report));
   });
   mut(prologue) := ArrayList(AstExpr).new();
   (mut(pi) : usize) = usize(0);
   while(pi < (stmts.len() - usize(1)), pi = (pi + usize(1)), {
-    match(stmts.get(pi), .Some(st) => prologue.push(st), .None => ());
+    match(stmts.get_cloned(pi), .Some(st) => prologue.push(st), .None => ());
   });
   // The wrapper's own state machine, registered when the wrapper was emitted.
   (mut(found) : Option(DeferredAsyncBlock)) = Option(DeferredAsyncBlock).None;
@@ -2073,7 +2073,7 @@ fused_await_site :: (fn(await_expr : &AstExpr, report : bool, context : &Functio
   });
   bundle_ty := match(&block.closure_param_slots, .Some(s) => match(s.get_cloned(usize(0)), .Some(sl) => Rc.clone(sl.param_type), .None => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
   effects_ty := match(
-    await_args.get(usize(1)),
+    await_args.get_cloned(usize(1)),
     .Some(ea) => match(context.base.get_expr_info(&ea), .Some(eei) => Option(TypeValue).Some(Rc.clone(eei.ty())), .None => Option(TypeValue).None),
     .None => Option(TypeValue).None
   );
@@ -2119,14 +2119,14 @@ _collect_fused_sites :: (
           .Some(be) => be.clone(),
           .None => {
             mut(one) := ArrayList(AstExpr).new();
-            one.push(ap.base.expr);
+            one.push(Rc.clone(ap.base.expr));
             one
           }
         );
         (mut(j) : usize) = usize(0);
         while(j < exprs.len(), j = (j + usize(1)), {
           match(
-            exprs.get(j),
+            exprs.get_cloned(j),
             .Some(e) => match(
               fused_await_site(&e, false, context),
               .Some(s) => if(!seen.contains(s.prefix.clone()), {
@@ -2435,9 +2435,9 @@ _fused_sm_aliases :: (fn(site : &FusedAwaitSite) -> HashMap(String, String))({
 });
 /// The statements of a block expression.
 _fused_statements :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  if(ast_expr_is_fn_call_of(e, BK_BEGIN, Option(usize).None), emitted_block_statements(match(e, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new())), {
+  if(ast_expr_is_fn_call_of(e, BK_BEGIN, Option(usize).None), emitted_block_statements(match(e, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), _ => ArrayList(AstExpr).new())), {
     mut(one) := ArrayList(AstExpr).new();
-    one.push(e.*);
+    one.push(Rc.clone(e.*));
     one
   })
 );
@@ -2448,7 +2448,7 @@ _emit_fused_statements :: (fn(stmts : &ArrayList(AstExpr), indent : &String, con
   (mut(i) : usize) = usize(0);
   while(i < stmts.len(), i = (i + usize(1)), {
     match(
-      stmts.get(i),
+      stmts.get_cloned(i),
       .Some(st) => {
         is_tail := (i == (stmts.len() - usize(1)));
         // The tail takes its deferred dups, as the state machine's own tail
@@ -2482,7 +2482,7 @@ _fused_arg_carries_call_share :: (fn(arg : &AstExpr, context : &FunctionGenerati
   (mut(i) : usize) = usize(0);
   while(i < dl.len(), i = (i + usize(1)), {
     match(
-      dl.get(i),
+      dl.get_cloned(i),
       .Some(d) => if(is_by_value_param_share_dup(ast_expr_id(&d)) || is_call_scoped_share_dup(ast_expr_id(&d)), {
         return(true);
       }),
@@ -2542,8 +2542,8 @@ _back_to_caller_scope :: (fn(sink(scope) : _CallerScope, context : &mut Function
 emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> Option(String))({
   site := match(fused_await_site(await_expr, true, context), .Some(s) => s, .None => return(Option(String).None));
   low_analysis := match(sm_lowering_analysis(context), .Some(a) => a, .None => return(Option(String).None));
-  await_args := match(await_expr, .FnCall(_, _, _, _, _) => ast_call_args_unmarked(await_expr), _ => ArrayList(AstExpr).new());
-  effects_arg := match(await_args.get(usize(1)), .Some(ea) => ea, .None => return(Option(String).None));
+  await_args := match(await_expr, Rc(.FnCall(_, _, _, _, _)) => ast_call_args_unmarked(await_expr), _ => ArrayList(AstExpr).new());
+  effects_arg := match(await_args.get_cloned(usize(1)), .Some(ea) => ea, .None => return(Option(String).None));
   if(debug_knob(String.from("YO_DEBUG_FUSION")).is_some(), {
     tok := ast_expr_token(await_expr);
     // The callee's position, as the `fusable` line prints it: the block id is
@@ -2602,7 +2602,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut 
   (mut(ai) : usize) = usize(0);
   while(ai < rargs.len(), ai = (ai + usize(1)), {
     match(
-      rargs.get(ai),
+      rargs.get_cloned(ai),
       .Some(a) => {
         code := _call_generate_expr(&a, indent.clone(), context);
         owned := if(_fused_arg_carries_call_share(&a, context), emit_deferred_dup_or_code(&a, &code, indent, context), code);
@@ -2737,7 +2737,7 @@ _emit_fused_statements_no_tail :: (fn(stmts : &ArrayList(AstExpr), indent : &Str
   (mut(i) : usize) = usize(0);
   while(i < stmts.len(), i = (i + usize(1)), {
     match(
-      stmts.get(i),
+      stmts.get_cloned(i),
       .Some(st) => {
         code := _call_generate_expr(&st, indent.clone(), context);
         skip := ((code.len() == usize(0)) || match(context.base.get_expr_info(&st), .Some(sei) => is_temp_variable_name(&sei.env().module_path().*, code.clone()), .None => true));
@@ -2752,7 +2752,7 @@ _emit_fused_statements_no_tail :: (fn(stmts : &ArrayList(AstExpr), indent : &Str
 _append_expr_list :: (fn(dst : &mut ArrayList(AstExpr), src : &ArrayList(AstExpr)) -> unit)({
   (mut(i) : usize) = usize(0);
   while(i < src.len(), i = (i + usize(1)), {
-    match(src.get(i), .Some(e) => dst.push(e), .None => ());
+    match(src.get_cloned(i), .Some(e) => dst.push(e), .None => ());
   });
 });
 /// The await analysis for an io.async call's closure, looked up via the closure's
@@ -2764,7 +2764,7 @@ io_async_await_analysis :: (fn(expr : &AstExpr, context : &FunctionGenerationCon
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(Option(AwaitAnalysisResult).None));
   closure_arg := match(
     &ei.runtime_arg_exprs_in_order(),
-    .Some(rargs) => match(rargs.get(usize(0)), .Some(c) => c, .None => return(Option(AwaitAnalysisResult).None)),
+    .Some(rargs) => match(rargs.get_cloned(usize(0)), .Some(c) => c, .None => return(Option(AwaitAnalysisResult).None)),
     .None => return(Option(AwaitAnalysisResult).None)
   );
   cei := match(context.base.get_expr_info(&closure_arg), .Some(c) => c, .None => return(Option(AwaitAnalysisResult).None));
@@ -2827,7 +2827,7 @@ io_async_closure_body :: (fn(expr : &AstExpr, context : &FunctionGenerationConte
   match(
     &ei.runtime_arg_exprs_in_order(),
     .Some(rargs) => match(
-      rargs.get(usize(0)),
+      rargs.get_cloned(usize(0)),
       .Some(carg) => match(
         context.base.get_expr_info(&carg),
         .Some(cei) => {
@@ -2838,7 +2838,7 @@ io_async_closure_body :: (fn(expr : &AstExpr, context : &FunctionGenerationConte
           );
           body_opt := match(
             fv_opt,
-            .Some(fv) => match(fv, .FuncVal(__fvd2, _) => Option(AstExpr).Some(__fvd2.*.body), _ => Option(AstExpr).None),
+            .Some(fv) => match(fv, .FuncVal(__fvd2, _) => Option(AstExpr).Some(Rc.clone(__fvd2.*.body)), _ => Option(AstExpr).None),
             .None => Option(AstExpr).None
           );
           body_opt
@@ -2883,8 +2883,8 @@ _report_hollow_async_body :: (fn(body_expr : &AstExpr, via_fsm : bool) -> unit)(
 /// The declaration site (`module:row:col`) of parameter `name` in the closure
 /// literal an `io.async(...)` call passes, or "" when it is not found.
 _closure_param_decl_site :: (fn(io_async_call : &AstExpr, name : &String) -> String)({
-  closure := match(io_async_call, .FnCall(_, _, Rc(a), _, _) => match(a.get(usize(0)), .Some(c) => c, .None => return(String.from(""))), .Atom(_, _) => return(String.from("")));
-  params := match(closure, .FnCall(_, _, Rc(ca), _, _) => match(ca.get(usize(0)), .Some(p) => p, .None => return(String.from(""))), .Atom(_, _) => return(String.from("")));
+  closure := match(io_async_call, Rc(.FnCall(_, _, Rc(a), _, _)) => match(a.get_cloned(usize(0)), .Some(c) => c, .None => return(String.from(""))), Rc(.Atom(_, _)) => return(String.from("")));
+  params := match(closure, Rc(.FnCall(_, _, Rc(ca), _, _)) => match(ca.get_cloned(usize(0)), .Some(p) => p, .None => return(String.from(""))), Rc(.Atom(_, _)) => return(String.from("")));
   _first_atom_site(&params, name)
 });
 /// The declaration sites of parameter `name` in a closure's parameter list:
@@ -2894,22 +2894,22 @@ _closure_param_decl_site :: (fn(io_async_call : &AstExpr, name : &String) -> Str
 _first_atom_site :: (fn(e : &AstExpr, name : &String) -> String)(
   match(
     e.clone(),
-    .Atom(_, tok) => cond(
+    Rc(.Atom(_, tok)) => cond(
       (tok.value.* == name.*) => `${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`,
       true => String.from("")
     ),
-    .FnCall(_, _, Rc(args), _, _) => {
-      typed_here := (ast_expr_is_fn_call_of(e.clone(), ":", Option(usize).Some(usize(2))) && match(args.get(usize(0)), .Some(a0) => (ast_expr_is_atom(a0.clone()) && (ast_expr_token(&a0).value.* == name.*)), .None => false));
+    Rc(.FnCall(_, _, Rc(args), _, _)) => {
+      typed_here := (ast_expr_is_fn_call_of(e.clone(), ":", Option(usize).Some(usize(2))) && match(args.get_cloned(usize(0)), .Some(a0) => (ast_expr_is_atom(a0.clone()) && (ast_expr_token(&a0).value.* == name.*)), .None => false));
       if(typed_here, {
         ctok := ast_expr_token(e.clone());
-        a0tok := match(args.get(usize(0)), .Some(a0) => ast_expr_token(&a0), .None => ctok.clone());
+        a0tok := match(args.get_cloned(usize(0)), .Some(a0) => ast_expr_token(&a0), .None => ctok.clone());
         return(`${a0tok.module_path}:${a0tok.row.to_string()}:${a0tok.column.to_string()}|${ctok.module_path.*}:${ctok.row.to_string()}:${ctok.column.to_string()}`);
       });
       (mut(i) : usize) = usize(0);
       (mut(found) : String) = String.from("");
       while((i < args.len()) && (found.len() == usize(0)), {
         match(
-          args.get(i),
+          args.get_cloned(i),
           .Some(a) => {
             found = recur(&a, name.clone());
           },
@@ -2931,10 +2931,10 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
   is_io_async := is_io_async_call(expr);
   body_expr_opt := if(
     is_io_async,
-    io_async_body.*,
-    match(expr, .FnCall(_, _, Rc(a), _, _) => match(a.get(usize(0)), .Some(x) => Option(AstExpr).Some(x), .None => Option(AstExpr).None), _ => Option(AstExpr).None)
+    io_async_body.*.clone(),
+    match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => match(a.get_cloned(usize(0)), .Some(x) => Option(AstExpr).Some(x), .None => Option(AstExpr).None), _ => Option(AstExpr).None)
   );
-  body_expr := match(body_expr_opt, .Some(b) => b, .None => return(codegen_fatal_expr(String.from("async requires exactly 1 argument"))));
+  body_expr := match(body_expr_opt, .Some(b) => Rc.clone(b), .None => return(codegen_fatal_expr(String.from("async requires exactly 1 argument"))));
   // POISON GATE (partially-hollow body, FSM path): the io.async closure's
   // body block must carry ExprInfo — a deferred trial that swallowed an
   // error leaves the block unevaluated even when earlier statements (e.g.
@@ -2993,7 +2993,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
     match(
       &ei.runtime_arg_exprs_in_order(),
       .Some(rargs) => match(
-        rargs.get(usize(0)),
+        rargs.get_cloned(usize(0)),
         .Some(carg) => match(
           context.base.get_expr_info(&carg),
           .Some(cei) => {
@@ -3659,7 +3659,7 @@ _set_async_sm_struct_name :: (fn(expr : &AstExpr, struct_name : &String, context
 /// sub-expression type, if it is an extern function. Helper for the async-runtime /
 /// parallelism extern detection.
 _called_extern_name :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> Option(String))({
-  func_expr := match(expr, .FnCall(_, f, _, _, _) => f.*, _ => return(Option(String).None));
+  func_expr := match(expr, Rc(.FnCall(_, f, _, _, _)) => Rc.clone(f.*), _ => return(Option(String).None));
   ft := match(context.base.get_expr_info(&func_expr), .Some(ei) => Rc.clone(ei.ty()), .None => return(Option(String).None));
   match(
     ft,
@@ -3674,7 +3674,7 @@ _called_extern_name :: (fn(expr : &AstExpr, context : &FunctionGenerationContext
 /// Recursively search `expr` for async blocks and pre-register their state-machine
 /// types (forward-declared struct typedefs), and flag uses_async / uses_parallelism.
 preregister_async_blocks_in_expr :: (fn(expr : &AstExpr, context : &mut FunctionGenerationContext) -> unit)({
-  is_fn_call := match(expr, .FnCall(_, _, _, _, _) => true, _ => false);
+  is_fn_call := match(expr, Rc(.FnCall(_, _, _, _, _)) => true, _ => false);
   if(!is_fn_call, return());
   ei_opt := context.base.get_expr_info(expr);
   // Async-block path (struct name always _state_t).
@@ -3797,11 +3797,11 @@ preregister_async_blocks_in_expr :: (fn(expr : &AstExpr, context : &mut Function
     },
     .None => ()
   );
-  match(expr, .FnCall(_, callee, _, _, _) => recur(&callee.*, context), _ => ());
-  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new());
+  match(expr, Rc(.FnCall(_, callee, _, _, _)) => recur(&callee.*, context), _ => ());
+  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), _ => ArrayList(AstExpr).new());
   (i : usize) = usize(0);
   while(i < args.len(), {
-    match(args.get(i), .Some(arg) => recur(&arg, context), .None => ());
+    match(args.get_cloned(i), .Some(arg) => recur(&arg, context), .None => ());
     i = (i + usize(1));
   });
 });
@@ -3838,7 +3838,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   // Closure argument expression + its info.
   closure_arg := match(
     &ei.runtime_arg_exprs_in_order(),
-    .Some(rargs) => match(rargs.get(usize(0)), .Some(c) => c, .None => return(codegen_fatal_expr(String.from("Missing closure argument for io.async")))),
+    .Some(rargs) => match(rargs.get_cloned(usize(0)), .Some(c) => c, .None => return(codegen_fatal_expr(String.from("Missing closure argument for io.async")))),
     .None => return(codegen_fatal_expr(String.from("Missing closure argument for io.async")))
   );
   cei := match(context.base.get_expr_info(&closure_arg), .Some(c) => c, .None => return(codegen_fatal_expr(String.from("Missing closure argument for io.async"))));
@@ -3846,7 +3846,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   // closure_type.yo on the ORIGINAL closure expr (the FnCall's args[0]); the
   // runtime-arg expr may be a distinct node carrying only the plain value. Consult
   // args[0]'s ExprInfo as a fallback for that metadata.
-  orig_closure_ei := match(expr, .FnCall(_, _, Rc(a), _, _) => match(a.get(usize(0)), .Some(oa) => context.base.get_expr_info(&oa), .None => Option(ExprInfo).None), _ => Option(ExprInfo).None);
+  orig_closure_ei := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => match(a.get_cloned(usize(0)), .Some(oa) => context.base.get_expr_info(&oa), .None => Option(ExprInfo).None), _ => Option(ExprInfo).None);
   // Result type (resolve unresolved SomeType via the closure body type).
   // The closure FuncVal: prefer closure_function_value, else the anon-fn `value`
   // (an io.async lambda may be carried as a plain value — see below).

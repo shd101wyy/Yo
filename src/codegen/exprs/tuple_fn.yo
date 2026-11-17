@@ -21,7 +21,7 @@
 { codegen_fatal_expr } :: import("../constants.yo");
 /// Args of a FnCall (empty for an Atom).
 _args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new())
 );
 /// Build `(<cName>){ ._0 = a, ... }`, emitting into a named temp when the
 /// tuple has a result variable name. Shared by the main and fallback paths.
@@ -34,7 +34,7 @@ _build_tuple :: (fn(arg_exprs : &ArrayList(AstExpr), c_name : &String, expr : &A
   (mut(any_elem) : bool) = false;
   while(i < n, {
     match(
-      arg_exprs.get(i),
+      arg_exprs.get_cloned(i),
       // A `unit` element is zero-sized and has no `_N` member
       // (types/generation.yo), so it gets no initializer; its expression still
       // runs for its side effects.

@@ -101,10 +101,10 @@ is_effect_call_ :: (
   });
   func_expr := match(
     expr,
-    .Atom(_, _) => {
+    Rc(.Atom(_, _)) => {
       return(false);
     },
-    .FnCall(_, fb, _, _, _) => fb.*
+    Rc(.FnCall(_, fb, _, _, _)) => Rc.clone(fb.*)
   );
   // Dispatch: None or empty field path → Case 1 (direct call)
   //           non-empty field path     → Case 2 (module member)
@@ -114,8 +114,8 @@ is_effect_call_ :: (
     .None => {
       func_name := match(
         func_expr.clone(),
-        .Atom(_, tok) => tok.value.*.clone(),
-        .FnCall(_, _, _, _, _) => {
+        Rc(.Atom(_, tok)) => tok.value.*.clone(),
+        Rc(.FnCall(_, _, _, _, _)) => {
           return(false);
         }
       );
@@ -156,8 +156,8 @@ is_effect_call_ :: (
         // Case 1b: Empty field path → same logic as Case 1
         func_name := match(
           func_expr.clone(),
-          .Atom(_, tok) => tok.value.*.clone(),
-          .FnCall(_, _, _, _, _) => {
+          Rc(.Atom(_, tok)) => tok.value.*.clone(),
+          Rc(.FnCall(_, _, _, _, _)) => {
             return(false);
           }
         );
@@ -205,16 +205,16 @@ is_effect_call_ :: (
           break;
         });
         match(
-          current,
-          .Atom(_, _) => {
+          Rc.clone(current),
+          Rc(.Atom(_, _)) => {
             go = false;
           },
-          .FnCall(_, curr_func, Rc(curr_args), _, _) => {
+          Rc(.FnCall(_, curr_func, Rc(curr_args), _, _)) => {
             if(curr_args.len() < usize(2), {
               return(false);
             });
             field_arg := match(
-              curr_args.get(usize(1)),
+              curr_args.get_cloned(usize(1)),
               .None => {
                 return(false);
               },
@@ -222,10 +222,10 @@ is_effect_call_ :: (
             );
             match(
               field_arg,
-              .Atom(_, tok) => {
+              Rc(.Atom(_, tok)) => {
                 access_path_rev.push(tok.value.*.clone());
                 receiver_arg := match(
-                  curr_args.get(usize(0)),
+                  curr_args.get_cloned(usize(0)),
                   .None => {
                     return(false);
                   },
@@ -233,7 +233,7 @@ is_effect_call_ :: (
                 );
                 current = receiver_arg;
               },
-              .FnCall(_, _, _, _, _) => {
+              Rc(.FnCall(_, _, _, _, _)) => {
                 return(false);
               }
             );
@@ -243,8 +243,8 @@ is_effect_call_ :: (
       // The root should be an atom matching the effect parameter name
       root_name := match(
         current,
-        .Atom(_, tok) => tok.value.*.clone(),
-        .FnCall(_, _, _, _, _) => {
+        Rc(.Atom(_, tok)) => tok.value.*.clone(),
+        Rc(.FnCall(_, _, _, _, _)) => {
           return(false);
         }
       );
@@ -333,10 +333,10 @@ is_transitive_effect_call_ :: (
   });
   func_expr := match(
     expr,
-    .Atom(_, _) => {
+    Rc(.Atom(_, _)) => {
       return(Option(bool).None);
     },
-    .FnCall(_, fb, _, _, _) => fb.*
+    Rc(.FnCall(_, fb, _, _, _)) => Rc.clone(fb.*)
   );
   func_info := match(
     &get_info(func_expr.clone()),
@@ -437,13 +437,13 @@ detect_effect_expr_ :: (
     operation_arg_types := ArrayList(TypeValue).new();
     match(
       expr.clone(),
-      .Atom(_, _) => (),
-      .FnCall(_, _, Rc(args), _, _) => {
+      Rc(.Atom(_, _)) => (),
+      Rc(.FnCall(_, _, Rc(args), _, _)) => {
         n := args.len();
         ai := usize(0);
         while(ai < n, {
           arg := match(
-            args.get(ai),
+            args.get_cloned(ai),
             .Some(a) => a,
             .None => {
               ai = (ai + usize(1));
@@ -677,7 +677,7 @@ analyze_effect_call_points :: (
     SuspensionPointDetector(
       detect : dyn(
         Box.new({ effect_extras : Rc.clone(effect_extras), effect_field_path : effect_field_path.clone(), effect_param_fn_type : effect_param_fn_type.clone(), effect_parameter_name : effect_parameter_name.clone(), get_info : get_info.*, include_transitive_calls }(expr, parent_expr) =>
-          effect_extras.with_mut({ effect_field_path : effect_field_path.clone(), effect_param_fn_type : effect_param_fn_type.clone(), effect_parameter_name : effect_parameter_name.clone(), expr : expr.*, get_info, include_transitive_calls, parent_expr : parent_expr.* }(extras) => {
+          effect_extras.with_mut({ effect_field_path : effect_field_path.clone(), effect_param_fn_type : effect_param_fn_type.clone(), effect_parameter_name : effect_parameter_name.clone(), expr : Rc.clone(expr.*), get_info, include_transitive_calls, parent_expr : parent_expr.*.clone() }(extras) => {
             found := ArrayList(SuspensionPoint).new();
             detect_effect_expr_(
               &expr,

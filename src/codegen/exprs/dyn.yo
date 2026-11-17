@@ -110,8 +110,8 @@ _generate_dyn_over_lend :: (fn(expr : &AstExpr, dyn_type : &TypeValue, trait_val
 generate_dyn_call :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* Error: dyn() not evaluated */")));
   trait_values := match(expr_info_dyn_call_trait_values(&ei), .Some(tv) => if(tv.len() == usize(0), return(String.from("/* Error: dyn() call missing trait values */")), tv), .None => return(String.from("/* Error: dyn() call missing trait values */")));
-  args0 := match(expr, .FnCall(_, _, Rc(a), _, _) => a.get(usize(0)), .Atom(_, _) => Option(AstExpr).None);
-  value_expr := match(&ei.runtime_arg_exprs_in_order(), .Some(rargs) => match(rargs.get(usize(0)), .Some(v) => v, .None => match(args0, .Some(a) => a, .None => return(String.from("/* Error: dyn() requires a value argument */")))), .None => match(args0, .Some(a) => a, .None => return(String.from("/* Error: dyn() requires a value argument */"))));
+  args0 := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.get_cloned(usize(0)), Rc(.Atom(_, _)) => Option(AstExpr).None);
+  value_expr := match(&ei.runtime_arg_exprs_in_order(), .Some(rargs) => match(rargs.get_cloned(usize(0)), .Some(v) => v, .None => match(args0, .Some(a) => Rc.clone(a), .None => return(String.from("/* Error: dyn() requires a value argument */")))), .None => match(args0, .Some(a) => Rc.clone(a), .None => return(String.from("/* Error: dyn() requires a value argument */"))));
   // A `dyn(&v)` result may carry the reference it was read as (a `&Dyn`
   // declaration's converted type): the Dyn is its pointee.
   // An owning erasure is typed `Box(Dyn(...))` (decision 49 S2): the Dyn is
@@ -235,7 +235,7 @@ generate_dyn_call :: (fn(expr : &AstExpr, indent : &String, context : &mut Funct
     .Some(dups) => if(dups.len() > usize(0), {
       generate_deferred_dup_expressions(&value_expr, indent.clone(), context);
       match(
-        dups.get(usize(0)),
+        dups.get_cloned(usize(0)),
         .Some(dup_expr) => match(
           if(element_wise_dup_target(&dup_expr).is_some(), Option(ExprInfo).None, context.base.get_expr_info(&dup_expr)),
           .Some(dei) => match(

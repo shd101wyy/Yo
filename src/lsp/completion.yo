@@ -435,7 +435,7 @@ _receiver_at :: (
   (ei : usize) = usize(0);
   while(ei < exprs.len(), {
     match(
-      exprs.get(ei),
+      exprs.get_cloned(ei),
       .Some(e) => _collect_candidates(&e, target, &mut cands),
       .None => ()
     );
@@ -515,16 +515,20 @@ _receiver_at :: (
 _expr_near_line :: (fn(e : &AstExpr, line : usize) -> bool)(
   match(
     e,
-    .Atom(
-      _,
-      tok
+    Rc(
+      .Atom(
+        _,
+        tok
+      )
     ) => (usize(tok.row) == line),
-    .FnCall(
-      _,
-      func_box,
-      Rc(args),
-      _,
-      tok2
+    Rc(
+      .FnCall(
+        _,
+        func_box,
+        Rc(args),
+        _,
+        tok2
+      )
     ) => {
       if(usize(tok2.row) == line, {
         return(true);
@@ -535,7 +539,7 @@ _expr_near_line :: (fn(e : &AstExpr, line : usize) -> bool)(
       (i : usize) = usize(0);
       while(i < args.len(), {
         match(
-          args.get(i),
+          args.get_cloned(i),
           .Some(a) => if(recur(&a, line), {
             return(true);
           }),
@@ -559,27 +563,27 @@ _expected_enum_at :: (
   });
   match(
     e,
-    .Atom(_, _) => (),
-    .FnCall(_, func_box, Rc(args), _, _) => {
-      head := match(func_box, .Atom(_, ht) => ht.value.*.clone(), _ => String.new());
+    Rc(.Atom(_, _)) => (),
+    Rc(.FnCall(_, func_box, Rc(args), _, _)) => {
+      head := match(func_box, Rc(.Atom(_, ht)) => ht.value.*.clone(), _ => String.new());
       if((head == "=") && (args.len() >= usize(2)), {
         // NB: not named `near` — that is a legacy Windows macro (windef.h
         // defines it to nothing), and user locals keep their names in the
         // emitted C, so `if (near)` became `if ()` on the windows target.
         near_cursor := (
-          match(args.get(usize(1)), .Some(r) => _expr_near_line(&r, line), .None => false) ||
-            match(args.get(usize(0)), .Some(l) => _expr_near_line(&l, line), .None => false)
+          match(args.get_cloned(usize(1)), .Some(r) => _expr_near_line(&r, line), .None => false) ||
+            match(args.get_cloned(usize(0)), .Some(l) => _expr_near_line(&l, line), .None => false)
         );
         if(near_cursor, {
           match(
-            args.get(usize(0)),
+            args.get_cloned(usize(0)),
             .Some(lhs) => match(
               lhs,
-              .FnCall(_, lhs_func, Rc(lhs_args), _, _) => {
-                lhs_head := match(lhs_func, .Atom(_, lt) => lt.value.*.clone(), _ => String.new());
+              Rc(.FnCall(_, lhs_func, Rc(lhs_args), _, _)) => {
+                lhs_head := match(lhs_func, Rc(.Atom(_, lt)) => lt.value.*.clone(), _ => String.new());
                 if((lhs_head == ":") && (lhs_args.len() >= usize(2)), {
                   match(
-                    lhs_args.get(usize(1)),
+                    lhs_args.get_cloned(usize(1)),
                     .Some(ty_expr) => match(
                       expr_info_table_get(info_table, ast_expr_id(&ty_expr)),
                       .Some(tinfo) => {
@@ -617,7 +621,7 @@ _expected_enum_at :: (
         (branch_near : bool) = false;
         while(bi < args.len(), {
           match(
-            args.get(bi),
+            args.get_cloned(bi),
             .Some(b) => if(_expr_near_line(&b, line), {
               branch_near = true;
             }),
@@ -627,7 +631,7 @@ _expected_enum_at :: (
         });
         if(branch_near, {
           match(
-            args.get(usize(0)),
+            args.get_cloned(usize(0)),
             .Some(subject) => match(
               expr_info_table_get(info_table, ast_expr_id(&subject)),
               .Some(sinfo) => match(
@@ -647,7 +651,7 @@ _expected_enum_at :: (
       (i : usize) = usize(0);
       while(i < args.len(), {
         match(
-          args.get(i),
+          args.get_cloned(i),
           .Some(a) => recur(&a, info_table, line, out),
           .None => ()
         );
@@ -677,7 +681,7 @@ _scan_idents :: (
 )({
   match(
     e,
-    .Atom(_, tok) => {
+    Rc(.Atom(_, tok)) => {
       at_or_before := ((usize(tok.row) < line) || ((usize(tok.row) == line) && (usize(tok.column) <= character)));
       match(
         expr_info_table_get(info_table, ast_expr_id(e)),
@@ -721,12 +725,12 @@ _scan_idents :: (
         );
       });
     },
-    .FnCall(_, func_box, Rc(args), _, _) => {
+    Rc(.FnCall(_, func_box, Rc(args), _, _)) => {
       recur(&func_box.*, info_table, line, character, names, name_rows, name_cols, name_expr_ids, name_index, env_holder, env_depth);
       (i : usize) = usize(0);
       while(i < args.len(), {
         match(
-          args.get(i),
+          args.get_cloned(i),
           .Some(a) => recur(&a, info_table, line, character, names, name_rows, name_cols, name_expr_ids, name_index, env_holder, env_depth),
           .None => ()
         );
@@ -1205,7 +1209,7 @@ handle_completion :: (
           (xi : usize) = usize(0);
           while(xi < exprs.len(), {
             match(
-              exprs.get(xi),
+              exprs.get_cloned(xi),
               .Some(e) => _expected_enum_at(&e, info_table, line, &mut expected),
               .None => ()
             );
@@ -1249,7 +1253,7 @@ handle_completion :: (
   (si : usize) = usize(0);
   while(si < exprs.len(), {
     match(
-      exprs.get(si),
+      exprs.get_cloned(si),
       .Some(e) => _scan_idents(&e, info_table, line, character, &mut names, &mut name_rows, &mut name_cols, &mut name_expr_ids, &mut name_index, &mut env_holder, &mut env_depth),
       .None => ()
     );

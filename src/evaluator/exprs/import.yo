@@ -361,8 +361,8 @@ evaluate_import :: (
   // Get the path argument (first arg of the import call).
   module_arg := match(
     expr,
-    .FnCall(_, _, Rc(args), _, _) => match(
-      args.get(usize(0)),
+    Rc(.FnCall(_, _, Rc(args), _, _)) => match(
+      args.get_cloned(usize(0)),
       .Some(a) => a,
       .None => {
         exn.throw(
@@ -375,10 +375,10 @@ evaluate_import :: (
             )
           )
         );
-        expr.*
+        Rc.clone(expr.*)
       }
     ),
-    .Atom(_, _) => {
+    Rc(.Atom(_, _)) => {
       exn.throw(
         dyn(
           Box.new(
@@ -389,7 +389,7 @@ evaluate_import :: (
           )
         )
       );
-      expr.*
+      Rc.clone(expr.*)
     }
   );
   // Evaluate the argument — it must yield a comptime string.
@@ -596,7 +596,7 @@ evaluate_import :: (
   out_info := new_expr_info(&env, &mod_ty);
   out_info.set_value(.Some(mod_val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 export(evaluate_import, resolve_module_path, ModuleResolveResult, _build_module_val_from_env);
 export(set_import_root, set_import_unavailable, clear_import_roots, lookup_import_root, lookup_import_unavailable);

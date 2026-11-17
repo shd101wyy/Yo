@@ -129,8 +129,8 @@ evaluate_cond :: (
   // Extract argument list.
   statements := match(
     expr,
-    .FnCall(_, _, Rc(args), _, _) => args.clone(),
-    .Atom(_, _) => ArrayList(AstExpr).new()
+    Rc(.FnCall(_, _, Rc(args), _, _)) => args.clone(),
+    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
   );
   statement_count := statements.len();
   if(statement_count == usize(0), {
@@ -151,7 +151,7 @@ evaluate_cond :: (
   parsed_stmts := ArrayList(ParsedStmt).new();
   (pi : usize) = usize(0);
   while(pi < statement_count, {
-    statement := match(statements.get(pi), .Some(s) => s, .None => make_err_expr());
+    statement := match(statements.get_cloned(pi), .Some(s) => s, .None => make_err_expr());
     is_arrow_call := (ast_expr_is_fn_call(&statement) && ast_expr_is_fn_call_of(&statement, "=>", .Some(usize(2))));
     if(!is_arrow_call, {
       exn.throw(
@@ -166,14 +166,14 @@ evaluate_cond :: (
       );
     });
     cond_expr := match(
-      statement,
-      .FnCall(_, _, Rc(sargs), _, _) => match(sargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
-      .Atom(_, _) => make_err_expr()
+      Rc.clone(statement),
+      Rc(.FnCall(_, _, Rc(sargs), _, _)) => match(sargs.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()),
+      Rc(.Atom(_, _)) => make_err_expr()
     );
     case_body_expr := match(
       statement,
-      .FnCall(_, _, Rc(sargs), _, _) => match(sargs.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
-      .Atom(_, _) => make_err_expr()
+      Rc(.FnCall(_, _, Rc(sargs), _, _)) => match(sargs.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr()),
+      Rc(.Atom(_, _)) => make_err_expr()
     );
     parsed_stmts.push(
       ParsedStmt(
@@ -196,11 +196,11 @@ evaluate_cond :: (
       .Some(s) => s,
       .None => {
         done_eval = true;
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     );
-    cond_expr := pstmt.cond_expr;
-    case_body_expr := pstmt.case_body_expr;
+    cond_expr := Rc.clone(pstmt.cond_expr);
+    case_body_expr := Rc.clone(pstmt.case_body_expr);
     case_env := Rc.clone(pstmt.case_env);
     // Evaluate condition with expected type = bool.
     old_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t_bool(), env : Rc.clone(case_env))));
@@ -235,7 +235,7 @@ evaluate_cond :: (
       cond_info_opt,
       .Some(ci) => Rc.clone(ci),
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     );
     // Require bool type — but tolerate `unit` (from an `UnknownVal`
@@ -315,7 +315,7 @@ evaluate_cond :: (
       .Some(c) => c,
       .None => {
         fti_done = true;
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     );
     is_comptime_true_here := match(ec_here.cond_value, .Some(v) => match(v, .BoolVal(b) => b, _ => false), .None => false);
@@ -361,11 +361,11 @@ evaluate_cond :: (
         evaluated_conds.get_cloned(fti_idx),
         .Some(c) => c,
         .None => {
-          return(expr.*);
+          return(Rc.clone(expr.*));
         }
       );
-      cond_expr_true := ec_true.cond_expr;
-      case_body_true := ec_true.case_body_expr;
+      cond_expr_true := Rc.clone(ec_true.cond_expr);
+      case_body_true := Rc.clone(ec_true.case_body_expr);
       case_env_true := Rc.clone(ec_true.case_env);
       // Mark condition as executed.
       match(
@@ -385,7 +385,7 @@ evaluate_cond :: (
           body_info_opt,
           .Some(bi) => Rc.clone(bi),
           .None => {
-            return(expr.*);
+            return(Rc.clone(expr.*));
           }
         );
         // The arm's value leaves with the control flow (`return(x)` moves
@@ -404,7 +404,7 @@ evaluate_cond :: (
         out_info.set_path_collection(body_info.path_collection());
         out_info.set_control_flow(body_info.control_flow());
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }, {
         // No control flow — use this body's type and value.
         body_info := match(
@@ -421,7 +421,7 @@ evaluate_cond :: (
                 )
               )
             );
-            return(expr.*);
+            return(Rc.clone(expr.*));
           }
         );
         bodies.push(evaluated_body);
@@ -440,7 +440,7 @@ evaluate_cond :: (
         if(body_info.variable_name().is_none(), {
           attach_temp_variable_to_expr(expr, true, ctx);
         });
-        return(expr.*);
+        return(Rc.clone(expr.*));
       });
     },
     // ---------------------------------------------------------------------
@@ -524,7 +524,7 @@ evaluate_cond :: (
               );
               local_borrow_flow_region_end(arm_region);
               push_arm_init_range(&mut arm_ranges, ast_expr_id(&evaluated_case_body), bir_start_a, branch_init_log_len());
-              prev_arm_body = Option(AstExpr).Some(ec_item.case_body_expr);
+              prev_arm_body = Option(AstExpr).Some(Rc.clone(ec_item.case_body_expr));
               if(arm_untaken_ct, {
                 ctx.ctfe_untaken_arm_depth = (ctx.ctfe_untaken_arm_depth - usize(1));
               });
@@ -569,7 +569,7 @@ evaluate_cond :: (
                     new_expr_info(&ec_item.case_env, t_unit())
                   }
                 );
-                bodies.push(evaluated_case_body);
+                bodies.push(Rc.clone(evaluated_case_body));
                 // Track whether any body produced a runtime (None) value.
                 if(body_einfo.value().is_none(), {
                   has_runtime_body_val = true;
@@ -618,7 +618,7 @@ evaluate_cond :: (
                 // Update the running value type. A `never` arm is the join's
                 // identity: it does not constrain the result.
                 if(is_never_type(&body_einfo.ty()) && !has_any_control_flow(body_cf2), {
-                  never_bodies.push(evaluated_case_body);
+                  never_bodies.push(Rc.clone(evaluated_case_body));
                 });
                 if(!has_any_control_flow(body_cf2) && !is_never_type(&body_einfo.ty()), {
                   match(
@@ -698,7 +698,7 @@ evaluate_cond :: (
         // it: `cond(c => 300, true => u8(1))` would emit a truncated constant.
         (ci_bi : usize) = usize(0);
         while(ci_bi < bodies.len(), {
-          ci_body := match(bodies.get(ci_bi), .Some(b) => b, .None => make_err_expr());
+          ci_body := match(bodies.get_cloned(ci_bi), .Some(b) => b, .None => make_err_expr());
           match(
             expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ci_body)),
             .Some(ci_info) => if(is_comptime_int_type(&ci_info.ty()) && !has_any_control_flow(ci_info.control_flow()), {
@@ -716,7 +716,7 @@ evaluate_cond :: (
         filtered_bodies := ArrayList(AstExpr).new();
         (fb_i : usize) = usize(0);
         while(fb_i < bodies.len(), {
-          body := match(bodies.get(fb_i), .Some(b) => b, .None => make_err_expr());
+          body := match(bodies.get_cloned(fb_i), .Some(b) => b, .None => make_err_expr());
           body_info_filt_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&body));
           match(
             body_info_filt_opt,
@@ -730,7 +730,7 @@ evaluate_cond :: (
           fb_i = (fb_i + usize(1));
         });
         reject_mixed_closure_arms(&filtered_bodies, ctx, exn);
-        env = merge_and_check_envs(&env, &filtered_bodies, group_log_start, &arm_ranges, ctx, exn, Option(AstExpr).Some(expr.*));
+        env = merge_and_check_envs(&env, &filtered_bodies, group_log_start, &arm_ranges, ctx, exn, Option(AstExpr).Some(Rc.clone(expr.*)));
         // A runtime condition cannot select a compile-time-only value: a
         // `Type`, a module or a trait has no runtime representation, so
         // `T :: cond(b => i32, true => i64)` with a runtime `b` has no
@@ -763,14 +763,14 @@ evaluate_cond :: (
         );
         (nb_ai : usize) = usize(0);
         while(nb_ai < never_bodies.len(), {
-          match(never_bodies.get(nb_ai), .Some(nb) => adopt_never_type(&nb, &result_ty, ctx), .None => ());
+          match(never_bodies.get_cloned(nb_ai), .Some(nb) => adopt_never_type(&nb, &result_ty, ctx), .None => ());
           nb_ai = (nb_ai + usize(1));
         });
         out_info := new_expr_info(&env, &result_ty);
         out_info.set_value(result_val);
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
         attach_temp_variable_to_expr(expr, true, ctx);
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }, {
         // All arms have control flow — determine what kind.
         if(control_flows.len() == usize(0), {
@@ -804,7 +804,7 @@ evaluate_cond :: (
             // or the expected type (in that priority order).
             (return_type : Option(TypeValue)) = Option(TypeValue).None;
             if(return_bodies.len() > usize(0), {
-              first_rb := match(return_bodies.get(usize(0)), .Some(b) => b, .None => make_err_expr());
+              first_rb := match(return_bodies.get_cloned(usize(0)), .Some(b) => b, .None => make_err_expr());
               first_rb_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&first_rb));
               match(
                 first_rb_info_opt,
@@ -961,10 +961,10 @@ evaluate_cond :: (
         // temp and the function's own tail `expr` return closes it
         // (issues/fixed/2026-10-18-a-match-in-statement-position-falls-off-the-end-of-a-non-void-function.md).
         // Keep this spelling until SEED_VERSION carries the emitter fix.
-        expr.*
+        Rc.clone(expr.*)
       });
     }
   );
-  expr.*
+  Rc.clone(expr.*)
 });
 export(evaluate_cond);

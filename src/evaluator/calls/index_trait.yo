@@ -741,7 +741,7 @@ _try_comptime_array_index :: (
   evaluated_gerr := evaluate_expression_guarded(arg_expr, env, ctx, &mut evaluated_gout);
   ctx.expected_type = cai_saved_expected;
   match(evaluated_gerr, .Some(evaluated_ge) => exn.throw(evaluated_ge), .None => ());
-  evaluated := match(evaluated_gout.get(usize(0)), .Some(evaluated_g) => evaluated_g, .None => make_err_expr());
+  evaluated := match(evaluated_gout.get_cloned(usize(0)), .Some(evaluated_g) => evaluated_g, .None => make_err_expr());
   info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
   info := match(
     info_opt,
@@ -988,7 +988,7 @@ _try_comptime_string_index :: (
   evaluated_gerr := evaluate_expression_guarded(arg_expr, env, ctx, &mut evaluated_gout);
   ctx.expected_type = csi_saved_expected;
   match(evaluated_gerr, .Some(evaluated_ge) => exn.throw(evaluated_ge), .None => ());
-  evaluated := match(evaluated_gout.get(usize(0)), .Some(evaluated_g) => evaluated_g, .None => make_err_expr());
+  evaluated := match(evaluated_gout.get_cloned(usize(0)), .Some(evaluated_g) => evaluated_g, .None => make_err_expr());
   info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
   info := match(
     info_opt,
@@ -1055,12 +1055,12 @@ derive(_MovedLocal, Clone);
 _atom_tokens_of :: (fn(e : &AstExpr, out : &mut ArrayList(Token)) -> unit)(
   match(
     e,
-    .Atom(_, t) => out.push(Rc.clone(t.*)),
-    .FnCall(_, callee, Rc(args), _, _) => {
+    Rc(.Atom(_, t)) => out.push(Rc.clone(t.*)),
+    Rc(.FnCall(_, callee, Rc(args), _, _)) => {
       recur(&callee.*, out);
       (i : usize) = usize(0);
       while(i < args.len(), i = (i + usize(1)), {
-        match(args.get(i), .Some(a) => recur(&a, out), .None => ());
+        match(args.get_cloned(i), .Some(a) => recur(&a, out), .None => ());
       });
     }
   )
@@ -1197,7 +1197,7 @@ _specialize_index_method :: (
   // unwinds out of `_specialize_index_method_trial` (the handler's fn), so
   // this restore runs on both paths.
   saved_trial_recv := ctx.index_specialization_trial_recv_id;
-  trial_recv := match(expr, .FnCall(_, func, _, _, _) => func.*, .Atom(_, _) => expr.*);
+  trial_recv := match(expr, Rc(.FnCall(_, func, _, _, _)) => Rc.clone(func.*), Rc(.Atom(_, _)) => Rc.clone(expr.*));
   ctx.index_specialization_trial_recv_id = Option(ExprId).Some(ast_expr_id(&trial_recv));
   _specialize_index_method_trial(mv, mty, expr, caller_env, ctx, idx_expr, out);
   ctx.index_specialization_trial_recv_id = saved_trial_recv;
@@ -1234,10 +1234,10 @@ _specialize_index_method :: (
 _specialize_index_method_trial :: (
   fn(mv : &Option(EvalValue), mty : &TypeValue, expr : &AstExpr, caller_env : &Environment, ctx : &mut EvalContext, idx_expr : &AstExpr, out : &mut ArrayList(EvalValue)) -> unit
 )({
-  recv := match(expr, .FnCall(_, func, _, _, _) => func.*, .Atom(_, _) => expr.*);
+  recv := match(expr, Rc(.FnCall(_, func, _, _, _)) => Rc.clone(func.*), Rc(.Atom(_, _)) => Rc.clone(expr.*));
   margs := ArrayList(AstExpr).new();
-  margs.push(recv);
-  margs.push(idx_expr.*);
+  margs.push(Rc.clone(recv));
+  margs.push(Rc.clone(idx_expr.*));
   inner_exn := Exception(throw : (_err -> unwind(())));
   r := try_to_call_function_with_arguments(mv, mty, expr, &recv, &margs, caller_env, ctx, true, false, false, inner_exn);
   match(
@@ -1493,7 +1493,7 @@ _try_comptime_custom_type_index :: (
   });
   _ct_frame := ct_callee_env.push_frame(false);
   ct_param_token := ast_expr_token(
-    match(expr, .FnCall(_, ct_func_slot, _, _, _) => ct_func_slot.*, .Atom(_, _) => expr.*)
+    match(expr, Rc(.FnCall(_, ct_func_slot, _, _, _)) => Rc.clone(ct_func_slot.*), Rc(.Atom(_, _)) => Rc.clone(expr.*))
   );
   _ct_add_self := add_variable_to_env(
     &ct_callee_env,
@@ -1543,7 +1543,7 @@ _try_comptime_custom_type_index :: (
   ct_saved_validating := ctx.is_validating_function_definition;
   ctx.is_validating_function_definition = false;
   ct_result := evaluate_comptime_fn_call(
-    Option(AstExpr).Some(match(expr, .FnCall(_, ct_func_slot2, _, _, _) => ct_func_slot2.*, .Atom(_, _) => expr.*)),
+    Option(AstExpr).Some(match(expr, Rc(.FnCall(_, ct_func_slot2, _, _, _)) => Rc.clone(ct_func_slot2.*), Rc(.Atom(_, _)) => Rc.clone(expr.*))),
     &ct_fn_type,
     &ct_fn_value,
     &ct_arg_values,
@@ -1657,7 +1657,7 @@ try_to_call_with_index_trait :: (
     );
   });
   arg_expr := match(
-    arg_exprs.get(usize(0)),
+    arg_exprs.get_cloned(usize(0)),
     .Some(e) => e,
     .None => {
       exn.throw(
@@ -1759,7 +1759,7 @@ try_to_call_with_index_trait :: (
   evaluated_arg_gerr := evaluate_expression_guarded(&arg_expr, caller_env, ctx, &mut evaluated_arg_gout);
   ctx.expected_type = rt_arg_saved_expected;
   match(evaluated_arg_gerr, .Some(evaluated_arg_ge) => exn.throw(evaluated_arg_ge), .None => ());
-  evaluated_arg := match(evaluated_arg_gout.get(usize(0)), .Some(evaluated_arg_g) => evaluated_arg_g, .None => make_err_expr());
+  evaluated_arg := match(evaluated_arg_gout.get_cloned(usize(0)), .Some(evaluated_arg_g) => evaluated_arg_g, .None => make_err_expr());
   arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg));
   arg_info := match(
     arg_info_opt,
@@ -1983,27 +1983,27 @@ _record_index_unchecked_twin :: (
 /// receiver's own storage (a raw-pointer deref, a reference-typed base, a
 /// call result): then the root's mode says nothing about the receiver.
 _index_receiver_root :: (fn(recv : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(Variable))({
-  (cur : AstExpr) = recv.*;
+  (cur : AstExpr) = Rc.clone(recv.*);
   while(true, {
     // A step an evaluator rewrite replaced reads as rewritten.
     cur = ast_rewritten_node(&cur);
     match(
-      cur,
-      .Atom(_, rr_tok) => {
+      Rc.clone(cur),
+      Rc(.Atom(_, rr_tok)) => {
         return(get_variables_from_env(env, rr_tok.value.*.clone()).last_cloned());
       },
-      .FnCall(_, rr_callee, Rc(rr_args), rr_infix, _) => {
+      Rc(.FnCall(_, rr_callee, Rc(rr_args), rr_infix, _)) => {
         cur = cond(
           ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))) => {
-            base := match(rr_args.get(usize(0)), .Some(b) => b, .None => make_err_expr());
-            field_is_deref := match(rr_args.get(usize(1)), .Some(f) => ast_expr_is_atom_of(&f, "*"), .None => false);
+            base := match(rr_args.get_cloned(usize(0)), .Some(b) => b, .None => make_err_expr());
+            field_is_deref := match(rr_args.get_cloned(usize(1)), .Some(f) => ast_expr_is_atom_of(&f, "*"), .None => false);
             base_is_ref := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&base)), .Some(bi) => (is_pointer_type(&bi.ty()) || is_reference_struct_type(&bi.ty())), .None => true);
             if(field_is_deref || base_is_ref, {
               return(Option(Variable).None);
             });
             base
           },
-          (!rr_infix && _is_index_call(&cur, ctx)) => rr_callee,
+          (!rr_infix && _is_index_call(&cur, ctx)) => Rc.clone(rr_callee),
           true => {
             return(Option(Variable).None);
           }
@@ -2035,8 +2035,8 @@ _is_index_call :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
 _promote_index_call :: (fn(call : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception, is_addr_of : bool) -> unit)({
   info := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(call)), .Some(i) => i, .None => return(()));
   read_ty := match(expr_info_index_method_type(&info), .Some(t) => t, .None => return(()));
-  (recv : AstExpr) = match(call, .FnCall(_, pc_callee, _, _, _) => pc_callee.*, .Atom(_, _) => return(()));
-  (idx : AstExpr) = match(call, .FnCall(_, _, Rc(pc_args), _, _) => match(pc_args.get(usize(0)), .Some(a) => a, .None => return(())), .Atom(_, _) => return(()));
+  (recv : AstExpr) = match(call, Rc(.FnCall(_, pc_callee, _, _, _)) => Rc.clone(pc_callee.*), Rc(.Atom(_, _)) => return(()));
+  (idx : AstExpr) = match(call, Rc(.FnCall(_, _, Rc(pc_args), _, _)) => match(pc_args.get_cloned(usize(0)), .Some(a) => a, .None => return(())), Rc(.Atom(_, _)) => return(()));
   recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)), .Some(ri) => Rc.clone(ri.ty()), .None => return(()));
   arg_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&idx)), .Some(ai) => Rc.clone(ai.ty()), .None => return(()));
   read_shape := match(_index_shape_of(&read_ty, &arg_ty), .Some(sh) => sh, .None => return(()));
@@ -2165,7 +2165,7 @@ _promote_owner_deref :: (fn(star : &AstExpr, object : &AstExpr, env : &Environme
   unmark_node_preevaluated(obj_id);
   ctx.expected_type = pm_saved_expected;
   match(pm_err, .Some(pm_e) => exn.throw(pm_e), .None => ());
-  mut_call := match(pm_out.get(usize(0)), .Some(c) => c, .None => return(()));
+  mut_call := match(pm_out.get_cloned(usize(0)), .Some(c) => c, .None => return(()));
   mut_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&mut_call)), .Some(mi) => Rc.clone(mi.ty()), .None => return(()));
   read_ty := Rc.clone(star_info.ty());
   if(!(are_types_compatible(&mut_ty, &read_ty) && are_types_compatible(&read_ty, &mut_ty)), {
@@ -2193,7 +2193,7 @@ _promote_owner_deref :: (fn(star : &AstExpr, object : &AstExpr, env : &Environme
 /// (`self : &mut Self -> *Self.Output`) serves reads and writes alike and
 /// stays as dispatched.
 promote_index_places_for_write :: (fn(place : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception, is_addr_of : bool) -> unit)({
-  (cur : AstExpr) = place.*;
+  (cur : AstExpr) = Rc.clone(place.*);
   (walking : bool) = true;
   while(walking, {
     // An owner's `.*` is written through its `deref_mut` (VERDICTS-63
@@ -2209,19 +2209,19 @@ promote_index_places_for_write :: (fn(place : &AstExpr, env : &Environment, ctx 
     // A step an evaluator rewrite replaced reads as rewritten.
     cur = ast_rewritten_node(&cur);
     (next : Option(AstExpr)) = match(
-      cur,
-      .FnCall(_, pw_callee, Rc(pw_args), pw_infix, _) => cond(
+      Rc.clone(cur),
+      Rc(.FnCall(_, pw_callee, Rc(pw_args), pw_infix, _)) => cond(
         // An element of an owner's view (`b.*(i)`, a built-in array or
         // slice access): the write goes through the owner's `.*`.
-        (!pw_infix && _is_builtin_index_call(&cur, ctx) && owner_deref_object(&pw_callee).is_some()) => Option(AstExpr).Some(pw_callee),
+        (!pw_infix && _is_builtin_index_call(&cur, ctx) && owner_deref_object(&pw_callee).is_some()) => Option(AstExpr).Some(Rc.clone(pw_callee)),
         ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))) => match(
-          pw_args.get(usize(1)),
-          .Some(f) => if(ast_expr_is_atom_of(&f, "*"), Option(AstExpr).None, pw_args.get(usize(0))),
+          pw_args.get_cloned(usize(1)),
+          .Some(f) => if(ast_expr_is_atom_of(&f, "*"), Option(AstExpr).None, pw_args.get_cloned(usize(0))),
           .None => Option(AstExpr).None
         ),
         (!pw_infix && _is_index_call(&cur, ctx)) => {
           _promote_index_call(&cur, env, ctx, exn, is_addr_of);
-          Option(AstExpr).Some(pw_callee)
+          Option(AstExpr).Some(Rc.clone(pw_callee))
         },
         // A direct projection call (decision 24): a `&` projection's result
         // is read-only. A `&mut` one is written through; its own receiver
@@ -2246,12 +2246,12 @@ promote_index_places_for_write :: (fn(place : &AstExpr, env : &Environment, ctx 
         },
         true => Option(AstExpr).None
       ),
-      .Atom(_, _) => Option(AstExpr).None
+      Rc(.Atom(_, _)) => Option(AstExpr).None
     );
     match(
       next,
       .Some(n) => {
-        cur = n;
+        cur = Rc.clone(n);
       },
       .None => {
         walking = false;
@@ -2368,7 +2368,7 @@ _place_step_index_output :: (fn(t : &TypeValue, env : &Environment) -> Option(Ty
 _place_chain_type :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(TypeValue))(
   match(
     e,
-    .Atom(_, pc_tok) => match(
+    Rc(.Atom(_, pc_tok)) => match(
       get_variables_from_env(env, pc_tok.value.*.clone()).last_cloned(),
       .Some(pc_v) => cond(
         pc_v.is_compile_time_only() => Option(TypeValue).None,
@@ -2376,10 +2376,10 @@ _place_chain_type :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -
       ),
       .None => Option(TypeValue).None
     ),
-    .FnCall(_, pc_callee, Rc(pc_args), pc_infix, _) => cond(
+    Rc(.FnCall(_, pc_callee, Rc(pc_args), pc_infix, _)) => cond(
       ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))) => match(
-        pc_args.get(usize(1)),
-        .Some(.Atom(_, pc_f)) => match(
+        pc_args.get_cloned(usize(1)),
+        .Some(Rc(.Atom(_, pc_f))) => match(
           recur(&pc_args(usize(0)), env, ctx),
           .Some(pc_base) => cond(
             // A reference binding's type is its referent's (the mode is
@@ -2429,16 +2429,16 @@ _is_index_place :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> 
 _is_reference_binding_atom :: (fn(e : &AstExpr, env : &Environment) -> bool)(
   match(
     e,
-    .Atom(_, rb_tok) => match(get_variables_from_env(env, rb_tok.value.*.clone()).last_cloned(), .Some(rb_v) => variable_is_reference_binding(&rb_v), .None => false),
-    .FnCall(_, _, _, _, _) => false
+    Rc(.Atom(_, rb_tok)) => match(get_variables_from_env(env, rb_tok.value.*.clone()).last_cloned(), .Some(rb_v) => variable_is_reference_binding(&rb_v), .None => false),
+    Rc(.FnCall(_, _, _, _, _)) => false
   )
 );
 /// `e`, a projection chain, has a non-`.` call step (an element access).
 _chain_has_index_step :: (fn(e : &AstExpr) -> bool)(
   match(
     e,
-    .Atom(_, _) => false,
-    .FnCall(_, ch_callee, Rc(ch_args), _, _) => cond(
+    Rc(.Atom(_, _)) => false,
+    Rc(.FnCall(_, ch_callee, Rc(ch_args), _, _)) => cond(
       ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))) => recur(&ch_args(usize(0))),
       true => true
     )

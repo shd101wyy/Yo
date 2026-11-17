@@ -4,7 +4,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { RefCell } :: import("std/sync/refcell");
 { SuspensionPoint, SuspensionAnalysisResult } :: import("../../src/evaluator/shared/suspension_analysis_types.yo");
-{ AstExpr, ast_expr_is_fn_call_of } :: import("../../src/expr.yo");
+{ AstExpr, AstExprNode, ast_expr_is_fn_call_of } :: import("../../src/expr.yo");
 { TokenKind, Token, TokenData } :: import("../../src/token.yo");
 { ExprInfo, new_expr_info } :: import("../../src/expr_info.yo");
 { Environment } :: import("../../src/env.yo");
@@ -33,28 +33,32 @@ make_token :: (fn(kind : TokenKind, v : str) -> Token)(
   )
 );
 make_ident_expr :: (fn(v : str) -> AstExpr)(
-  AstExpr.Atom(usize(0), make_token(TokenKind.Identifier, v))
+  Rc.new(AstExprNode.Atom(usize(0), make_token(TokenKind.Identifier, v)))
 );
 make_fncall_expr :: (fn(func_name : str) -> AstExpr)(
-  AstExpr.FnCall(
-    usize(0),
-    make_ident_expr(func_name),
-    Rc.new(ArrayList(AstExpr).new()),
-    false,
-    make_token(TokenKind.Identifier, func_name)
+  Rc.new(
+    AstExprNode.FnCall(
+      usize(0),
+      make_ident_expr(func_name),
+      Rc.new(ArrayList(AstExpr).new()),
+      false,
+      make_token(TokenKind.Identifier, func_name)
+    )
   )
 );
 // Creates a `:= x rhs` FnCall to simulate an assignment parent expression.
 make_assign_expr :: (fn(var_name : str, rhs : &AstExpr) -> AstExpr)({
   mut(args) := ArrayList(AstExpr).new();
   args.push(make_ident_expr(var_name));
-  args.push(rhs.*);
-  AstExpr.FnCall(
-    usize(0),
-    make_ident_expr(":="),
-    Rc.new(args),
-    false,
-    make_token(TokenKind.Identifier, ":=")
+  args.push(Rc.clone(rhs.*));
+  Rc.new(
+    AstExprNode.FnCall(
+      usize(0),
+      make_ident_expr(":="),
+      Rc.new(args),
+      false,
+      make_token(TokenKind.Identifier, ":=")
+    )
   )
 });
 // A get_info that always returns None (no type info available).
@@ -167,12 +171,14 @@ test("analyze_suspension_points: nested fncall — detect_all detects outer + in
   inner := make_fncall_expr("inner_call");
   mut(args) := ArrayList(AstExpr).new();
   args.push(inner);
-  outer := AstExpr.FnCall(
-    usize(0),
-    make_ident_expr("outer_call"),
-    Rc.new(args),
-    false,
-    make_token(TokenKind.Identifier, "outer_call")
+  outer := Rc.new(
+    AstExprNode.FnCall(
+      usize(0),
+      make_ident_expr("outer_call"),
+      Rc.new(args),
+      false,
+      make_token(TokenKind.Identifier, "outer_call")
+    )
   );
   detector := make_detect_all_detector();
   result := analyze_suspension_points(&outer, get_info_none, &detector);
@@ -183,12 +189,14 @@ test("analyze_suspension_points: suspension point index is sequential", {
   inner := make_fncall_expr("a");
   mut(args) := ArrayList(AstExpr).new();
   args.push(inner);
-  outer := AstExpr.FnCall(
-    usize(0),
-    make_ident_expr("b"),
-    Rc.new(args),
-    false,
-    make_token(TokenKind.Identifier, "b")
+  outer := Rc.new(
+    AstExprNode.FnCall(
+      usize(0),
+      make_ident_expr("b"),
+      Rc.new(args),
+      false,
+      make_token(TokenKind.Identifier, "b")
+    )
   );
   detector := make_detect_all_detector();
   result := analyze_suspension_points(&outer, get_info_none, &detector);

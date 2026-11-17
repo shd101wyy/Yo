@@ -46,9 +46,9 @@ evaluate_impl_constraint :: (
 )({
   args := match(
     expr,
-    .FnCall(_, _, Rc(a), _, _) => a.clone(),
+    Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(),
     _ => {
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   if(args.len() == usize(0), {
@@ -73,7 +73,7 @@ evaluate_impl_constraint :: (
   (cur_env : Environment) = Rc.clone(env);
   (i : usize) = usize(0);
   while(i < args.len(), {
-    arg_opt := args.get(i);
+    arg_opt := args.get_cloned(i);
     match(
       arg_opt,
       .None => {
@@ -86,15 +86,15 @@ evaluate_impl_constraint :: (
         module_expr := match(
           is_negated,
           true => match(
-            arg,
-            .FnCall(_, _, Rc(neg_args), _, _) => match(
-              neg_args.get(usize(0)),
+            Rc.clone(arg),
+            Rc(.FnCall(_, _, Rc(neg_args), _, _)) => match(
+              neg_args.get_cloned(usize(0)),
               .Some(a) => a,
-              .None => arg
+              .None => Rc.clone(arg)
             ),
-            _ => arg
+            _ => Rc.clone(arg)
           ),
-          false => arg
+          false => Rc.clone(arg)
         );
         // Evaluate the trait expression
         eval_mod := evaluate_expression_raw(&module_expr, &cur_env, ctx, exn);
@@ -210,6 +210,6 @@ evaluate_impl_constraint :: (
   out_info := new_expr_info(&cur_env, Rc.new(TypeValueNode.TypeUni(usize(0))));
   out_info.set_value(Option(EvalValue).Some(type_val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 export(evaluate_impl_constraint);

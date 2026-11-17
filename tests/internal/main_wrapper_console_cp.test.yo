@@ -18,7 +18,7 @@
 { expr_info_table_new } :: import("../../src/expr_info.yo");
 { parse_target, host_target, TargetInfo } :: import("../../src/target.yo");
 { Token, TokenKind, TokenData } :: import("../../src/token.yo");
-{ AstExpr } :: import("../../src/expr.yo");
+{ AstExpr, AstExprNode } :: import("../../src/expr.yo");
 { EvalValue, FuncValData, no_values } :: import("../../src/value.yo");
 { TypeValue } :: import("../../src/types/definitions.yo");
 { CodeGenContext } :: import("../../src/codegen/utils/index.yo");
@@ -50,7 +50,7 @@ mk_user_main_funcval :: (fn() -> EvalValue)({
     params : ArrayList(String).new(),
     param_type_names : ArrayList(String).new(),
     evidence_params : ArrayList(String).new(),
-    body : AstExpr.Atom(usize(1), tok),
+    body : Rc.new(AstExprNode.Atom(usize(1), tok)),
     cap_names : ArrayList(String).new(),
     cap_tys : ArrayList(TypeValue).new(),
     func_id : String.from("fn_yo_id_test_console_cp_main")

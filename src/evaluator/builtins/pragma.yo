@@ -63,26 +63,26 @@ pragma_kind_from_variant_name :: (fn(name : &String) -> Option(Pragma))(
 recognize_pragma_arg :: (fn(arg : &AstExpr) -> Option(Pragma))(
   match(
     arg,
-    .Atom(_, _) => Option(Pragma).None,
-    .FnCall(_, func_box, Rc(args), _, _) => {
+    Rc(.Atom(_, _)) => Option(Pragma).None,
+    Rc(.FnCall(_, func_box, Rc(args), _, _)) => {
       is_dot := match(
         func_box,
-        .Atom(_, tok) => (tok.kind == TokenKind.Dot),
-        .FnCall(_, _, _, _, _) => false
+        Rc(.Atom(_, tok)) => (tok.kind == TokenKind.Dot),
+        Rc(.FnCall(_, _, _, _, _)) => false
       );
       if(!is_dot, return(Option(Pragma).None));
       if(args.len() != usize(2), return(Option(Pragma).None));
       lhs_is_pragma := match(
-        args.get(usize(0)),
-        .Some(.Atom(_, tok)) => (tok.value.* == "Pragma"),
-        .Some(.FnCall(_, _, _, _, _)) => false,
+        args.get_cloned(usize(0)),
+        .Some(Rc(.Atom(_, tok))) => (tok.value.* == "Pragma"),
+        .Some(Rc(.FnCall(_, _, _, _, _))) => false,
         .None => false
       );
       if(!lhs_is_pragma, return(Option(Pragma).None));
       match(
-        args.get(usize(1)),
-        .Some(.Atom(_, tok)) => pragma_kind_from_variant_name(tok.value.*.clone()),
-        .Some(.FnCall(_, _, _, _, _)) => Option(Pragma).None,
+        args.get_cloned(usize(1)),
+        .Some(Rc(.Atom(_, tok))) => pragma_kind_from_variant_name(tok.value.*.clone()),
+        .Some(Rc(.FnCall(_, _, _, _, _))) => Option(Pragma).None,
         .None => Option(Pragma).None
       )
     }
@@ -99,13 +99,13 @@ pre_scan_for_skip_prelude :: (fn(program : &ArrayList(AstExpr)) -> bool)({
   n := program.len();
   while((i < n) && !found, {
     match(
-      program.get(i),
+      program.get_cloned(i),
       .Some(expr) => {
         if(ast_expr_is_fn_call_of(&expr, BF_PRAGMA, Option(usize).Some(usize(1))), {
           match(
             expr,
-            .FnCall(_, _, Rc(args), _, _) => match(
-              args.get(usize(0)),
+            Rc(.FnCall(_, _, Rc(args), _, _)) => match(
+              args.get_cloned(usize(0)),
               .Some(arg) => match(
                 recognize_pragma_arg(&arg),
                 .Some(.SkipPrelude) => {
@@ -116,7 +116,7 @@ pre_scan_for_skip_prelude :: (fn(program : &ArrayList(AstExpr)) -> bool)({
               ),
               .None => ()
             ),
-            .Atom(_, _) => ()
+            Rc(.Atom(_, _)) => ()
           );
         });
       },
@@ -148,8 +148,8 @@ evaluate_pragma :: (
 )({
   args := match(
     expr,
-    .FnCall(_, _, Rc(a), _, _) => a.clone(),
-    .Atom(_, _) => ArrayList(AstExpr).new()
+    Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(),
+    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
   );
   if(args.len() != usize(1), {
     exn.throw(
@@ -163,7 +163,7 @@ evaluate_pragma :: (
       )
     );
   });
-  arg := match(args.get(usize(0)), .Some(a) => a, .None => expr.*);
+  arg := match(args.get_cloned(usize(0)), .Some(a) => a, .None => Rc.clone(expr.*));
   // Fast path: the pre-scan already recognized and registered
   // `pragma(Pragma.SkipPrelude);` by AST shape — skip evaluation entirely.
   // `AllowMacroDef` is ALSO handled by AST shape (registered here): it must
@@ -184,7 +184,7 @@ evaluate_pragma :: (
     out0 := new_expr_info(env, t_unit());
     out0.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out0);
-    return(expr.*);
+    return(Rc.clone(expr.*));
   });
   // Normal path: evaluate the argument, then check it's a Pragma enum
   // variant. Catches typos, misuse, and shadowed `Pragma` names.
@@ -254,6 +254,6 @@ evaluate_pragma :: (
   out := new_expr_info(&arg_env, t_unit());
   out.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-  expr.*
+  Rc.clone(expr.*)
 });
 export(pre_scan_for_skip_prelude, recognize_pragma_arg, evaluate_pragma);

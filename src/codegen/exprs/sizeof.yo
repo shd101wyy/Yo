@@ -14,8 +14,8 @@
 generate_sizeof :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)(
   match(
     expr,
-    .FnCall(_, _, Rc(args), _, _) => match(
-      args.get(usize(0)),
+    Rc(.FnCall(_, _, Rc(args), _, _)) => match(
+      args.get_cloned(usize(0)),
       .Some(arg) => {
         out := String.from("sizeof(");
         out.push_string(_call_generate_expr(&arg, indent, context));
@@ -24,7 +24,7 @@ generate_sizeof :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
       },
       .None => codegen_fatal_expr(String.from("sizeof requires exactly 1 argument"))
     ),
-    .Atom(_, _) => codegen_fatal_expr(String.from("sizeof requires a call expression"))
+    Rc(.Atom(_, _)) => codegen_fatal_expr(String.from("sizeof requires a call expression"))
   )
 );
 /// `align_of(<arg>)` whose alignment the evaluator could not compute — a type
@@ -37,12 +37,12 @@ generate_sizeof :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
 generate_alignof :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   arg := match(
     expr,
-    .FnCall(_, _, Rc(args), _, _) => match(
-      args.get(usize(0)),
+    Rc(.FnCall(_, _, Rc(args), _, _)) => match(
+      args.get_cloned(usize(0)),
       .Some(a) => a,
       .None => return(codegen_fatal_expr(String.from("align_of requires exactly 1 argument")))
     ),
-    .Atom(_, _) => return(codegen_fatal_expr(String.from("align_of requires a call expression")))
+    Rc(.Atom(_, _)) => return(codegen_fatal_expr(String.from("align_of requires a call expression")))
   );
   // A type argument lowers the way `sizeof`'s does (its structural C name,
   // never the collected-type registry); a value argument is measured by its
@@ -68,12 +68,12 @@ _pointer_arg_code :: (fn(arg : &AstExpr, indent : &String, context : &mut Functi
   cond(
     (ast_expr_is_fn_call_of(arg, "&", Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(arg, BK_BORROW_MUT, Option(usize).Some(usize(1)))) => match(
       arg,
-      .FnCall(_, _, Rc(ba), _, _) => match(
-        ba.get(usize(0)),
+      Rc(.FnCall(_, _, Rc(ba), _, _)) => match(
+        ba.get_cloned(usize(0)),
         .Some(place) => _address_of_code(&_call_generate_expr(&place, indent, context)),
         .None => codegen_fatal_expr(String.from("a borrow needs a place"))
       ),
-      .Atom(_, _) => codegen_fatal_expr(String.from("a borrow needs a place"))
+      Rc(.Atom(_, _)) => codegen_fatal_expr(String.from("a borrow needs a place"))
     ),
     true => match(
       context.base.get_expr_info(arg),
@@ -171,8 +171,8 @@ _tail_struct_size_code :: (fn(st : &TypeValue, len_code : &String, context : &mu
 /// an array's address and its static length; the slice primitives read or
 /// build one. A `__yo_slice_t` erases its element type, so each use casts.
 generate_unsized_builtin :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
-  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => return(codegen_fatal_expr(String.from("an unsized builtin needs a call"))));
-  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("an unsized builtin needs an argument"))));
+  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => return(codegen_fatal_expr(String.from("an unsized builtin needs a call"))));
+  arg0 := match(args.get_cloned(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("an unsized builtin needs an argument"))));
   ty0 := match(context.base.get_expr_info(&arg0), .Some(ai) => ai.ty(), .None => return(codegen_fatal_expr(String.from("an unsized builtin's argument has no evaluation info"))));
   // A reference binding (`s := unsize(&a)`, a `match` binding over a
   // reference) and a projection call (`unsize(&a)` itself) record their
@@ -224,7 +224,7 @@ generate_unsized_builtin :: (fn(expr : &AstExpr, indent : &String, context : &mu
       _ => codegen_fatal_expr(String.from("__yo_slice_ptr of a non-slice reached codegen"))
     ),
     ast_expr_is_fn_call_of(expr, BF_SLICE_FROM_RAW_PARTS, .None) => match(
-      args.get(usize(1)),
+      args.get_cloned(usize(1)),
       .Some(arg1) => `((__yo_slice_t){ .ptr = (void*)(${_call_generate_expr(&arg0, indent, context)}), .len = (size_t)(${_call_generate_expr(&arg1, indent, context)}) })`,
       .None => codegen_fatal_expr(String.from("__yo_slice_from_raw_parts needs two arguments"))
     ),

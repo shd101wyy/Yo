@@ -46,8 +46,8 @@ evaluate_array_value :: (
   // Extract args from the FnCall node.
   args := match(
     expr,
-    .FnCall(_, _, Rc(a), _, _) => a.clone(),
-    .Atom(_, _) => ArrayList(AstExpr).new()
+    Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(),
+    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
   );
   // Disallow empty arrays.
   array_len := args.len();
@@ -83,7 +83,7 @@ evaluate_array_value :: (
   (runtime_arg_exprs : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
   (i : usize) = usize(0);
   while(i < array_len, {
-    arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
+    arg := match(args.get_cloned(i), .Some(a) => a, .None => make_err_expr());
     // Save/restore expected_type around element evaluation.
     old_expected := ctx.expected_type.clone();
     ctx.expected_type = match(
@@ -95,7 +95,7 @@ evaluate_array_value :: (
     evaluated_elem_gerr := evaluate_expression_guarded(&arg, &env_loop, ctx, &mut evaluated_elem_gout);
     ctx.expected_type = old_expected;
     match(evaluated_elem_gerr, .Some(evaluated_elem_ge) => exn.throw(evaluated_elem_ge), .None => ());
-    evaluated_elem := match(evaluated_elem_gout.get(usize(0)), .Some(evaluated_elem_g) => evaluated_elem_g, .None => make_err_expr());
+    evaluated_elem := match(evaluated_elem_gout.get_cloned(usize(0)), .Some(evaluated_elem_g) => evaluated_elem_g, .None => make_err_expr());
     set_expr_as_needs_to_call_dup(&evaluated_elem, ctx, exn, "element");
     elem_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_elem));
     if(elem_info_opt.is_none(), {
@@ -228,6 +228,6 @@ evaluate_array_value :: (
   info.set_runtime_arg_exprs_in_order(Option(ArrayList(AstExpr)).Some(runtime_arg_exprs));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   attach_temp_variable_to_expr(expr, true, ctx);
-  expr.*
+  Rc.clone(expr.*)
 });
 export(evaluate_array_value);

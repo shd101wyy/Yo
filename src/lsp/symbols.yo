@@ -26,14 +26,14 @@ _is_fn_type_expr :: (fn(e : &AstExpr) -> bool)({
   if(ast_expr_is_fn_call_of(e, "->", .Some(usize(2))), {
     match(
       e,
-      .FnCall(_, _, Rc(arrow_args), _, _) => match(
-        arrow_args.get(usize(0)),
+      Rc(.FnCall(_, _, Rc(arrow_args), _, _)) => match(
+        arrow_args.get_cloned(usize(0)),
         .Some(lhs) => {
           return(ast_expr_is_fn_call_of(&lhs, "fn", .None));
         },
         .None => ()
       ),
-      .Atom(_, _) => ()
+      Rc(.Atom(_, _)) => ()
     );
   });
   false
@@ -62,12 +62,12 @@ _symbol_kind_of :: (fn(value_expr : &AstExpr) -> usize)({
   // CALLEE is the fn type.
   match(
     value_expr,
-    .FnCall(_, func_box, _, _, _) => {
+    Rc(.FnCall(_, func_box, _, _, _)) => {
       if(_is_fn_type_expr(&func_box.*), {
         return(usize(12));
       });
     },
-    .Atom(_, _) => ()
+    Rc(.Atom(_, _)) => ()
   );
   usize(14)
 });
@@ -84,16 +84,16 @@ _typed_decl_symbol :: (fn(e : &AstExpr, lines : &ArrayList(String)) -> Option(Sy
   });
   match(
     e,
-    .FnCall(_, _, Rc(args), _, _) => match(
-      args.get(usize(0)),
+    Rc(.FnCall(_, _, Rc(args), _, _)) => match(
+      args.get_cloned(usize(0)),
       .Some(lhs) => {
         if(!ast_expr_is_fn_call_of(&lhs, ":", .Some(usize(2))), {
           return(Option(SymbolEntry).None);
         });
         match(
           lhs,
-          .FnCall(_, _, Rc(pair), _, _) => match(
-            pair.get(usize(0)),
+          Rc(.FnCall(_, _, Rc(pair), _, _)) => match(
+            pair.get_cloned(usize(0)),
             .Some(name_expr) => {
               if(!ast_expr_is_atom(&name_expr), {
                 return(Option(SymbolEntry).None);
@@ -112,12 +112,12 @@ _typed_decl_symbol :: (fn(e : &AstExpr, lines : &ArrayList(String)) -> Option(Sy
             },
             .None => Option(SymbolEntry).None
           ),
-          .Atom(_, _) => Option(SymbolEntry).None
+          Rc(.Atom(_, _)) => Option(SymbolEntry).None
         )
       },
       .None => Option(SymbolEntry).None
     ),
-    .Atom(_, _) => Option(SymbolEntry).None
+    Rc(.Atom(_, _)) => Option(SymbolEntry).None
   )
 });
 
@@ -135,8 +135,8 @@ derive(SymbolEntry, Clone);
 _decl_name_tok :: (fn(lhs : &AstExpr) -> Option(Token))(
   match(
     lhs,
-    .Atom(_, t) => Option(Token).Some(Rc.clone(t.*)),
-    .FnCall(_, _, Rc(targs), _, _) => if(ast_expr_is_fn_call_of(lhs, "thread_local", .Some(usize(1))) || ast_expr_is_fn_call_of(lhs, "mut", .Some(usize(1))), match(targs.get(usize(0)), .Some(inner) => recur(&inner), .None => Option(Token).None), Option(Token).None)
+    Rc(.Atom(_, t)) => Option(Token).Some(Rc.clone(t.*)),
+    Rc(.FnCall(_, _, Rc(targs), _, _)) => if(ast_expr_is_fn_call_of(lhs, "thread_local", .Some(usize(1))) || ast_expr_is_fn_call_of(lhs, "mut", .Some(usize(1))), match(targs.get_cloned(usize(0)), .Some(inner) => recur(&inner), .None => Option(Token).None), Option(Token).None)
   )
 );
 
@@ -150,9 +150,9 @@ _runtime_decl_symbol :: (fn(e : &AstExpr, lines : &ArrayList(String)) -> Option(
   if(ast_expr_is_fn_call_of(e, ":=", .Some(usize(2))), {
     match(
       e,
-      .FnCall(_, _, Rc(args), _, _) =>
+      Rc(.FnCall(_, _, Rc(args), _, _)) =>
         match(
-          args.get(usize(0)),
+          args.get_cloned(usize(0)),
           .Some(lhs) => {
             match(
               _decl_name_tok(&lhs),
@@ -174,23 +174,23 @@ _runtime_decl_symbol :: (fn(e : &AstExpr, lines : &ArrayList(String)) -> Option(
           },
           .None => ()
         ),
-      .Atom(_, _) => ()
+      Rc(.Atom(_, _)) => ()
     );
   });
   // `(thread_local(name) : T) = init` — the typed thread-local form.
   if(ast_expr_is_fn_call_of(e, "=", .Some(usize(2))), {
     match(
       e,
-      .FnCall(_, _, Rc(args), _, _) =>
+      Rc(.FnCall(_, _, Rc(args), _, _)) =>
         match(
-          args.get(usize(0)),
+          args.get_cloned(usize(0)),
           .Some(lhs) => {
             if(ast_expr_is_fn_call_of(&lhs, ":", .Some(usize(2))), {
               match(
                 lhs,
-                .FnCall(_, _, Rc(pair), _, _) =>
+                Rc(.FnCall(_, _, Rc(pair), _, _)) =>
                   match(
-                    pair.get(usize(0)),
+                    pair.get_cloned(usize(0)),
                     .Some(name_expr) => {
                       match(
                         _decl_name_tok(&name_expr),
@@ -213,13 +213,13 @@ _runtime_decl_symbol :: (fn(e : &AstExpr, lines : &ArrayList(String)) -> Option(
                     },
                     .None => ()
                   ),
-                .Atom(_, _) => ()
+                Rc(.Atom(_, _)) => ()
               );
             });
           },
           .None => ()
         ),
-      .Atom(_, _) => ()
+      Rc(.Atom(_, _)) => ()
     );
   });
   Option(SymbolEntry).None
@@ -234,7 +234,7 @@ collect_document_symbols :: (
   (mut(i) : usize) = usize(0);
   while(i < exprs.len(), {
     e := match(
-      exprs.get(i),
+      exprs.get_cloned(i),
       .Some(x) => x,
       .None => {
         return(());
@@ -242,10 +242,10 @@ collect_document_symbols :: (
     );
     if(ast_expr_is_fn_call_of(&e, "::", .Some(usize(2))), {
       match(
-        e,
-        .FnCall(_, _, Rc(args), _, _) => {
-          name_expr := match(args.get(usize(0)), .Some(a) => a, .None => e);
-          value_expr := match(args.get(usize(1)), .Some(a) => a, .None => e);
+        Rc.clone(e),
+        Rc(.FnCall(_, _, Rc(args), _, _)) => {
+          name_expr := match(args.get_cloned(usize(0)), .Some(a) => a, .None => Rc.clone(e));
+          value_expr := match(args.get_cloned(usize(1)), .Some(a) => a, .None => Rc.clone(e));
           if(ast_expr_is_atom(&name_expr), {
             name_tok := ast_expr_token(&name_expr);
             rng := j_range_in(
@@ -261,7 +261,7 @@ collect_document_symbols :: (
             );
           });
         },
-        .Atom(_, _) => ()
+        Rc(.Atom(_, _)) => ()
       );
     }, {
       match(
@@ -376,11 +376,11 @@ handle_workspace_symbols :: (fn(query : &String, docs : &ArrayList(WorkspaceDoc)
 _impl_arg_is :: (fn(e : &AstExpr, name : &String) -> bool)(
   match(
     e,
-    .Atom(_, t) => (t.value.* == name.*),
-    .FnCall(_, func_box, _, _, _) => match(
+    Rc(.Atom(_, t)) => (t.value.* == name.*),
+    Rc(.FnCall(_, func_box, _, _, _)) => match(
       func_box,
-      .Atom(_, ht) => (ht.value.* == name.*),
-      .FnCall(_, _, _, _, _) => false
+      Rc(.Atom(_, ht)) => (ht.value.* == name.*),
+      Rc(.FnCall(_, _, _, _, _)) => false
     )
   )
 );
@@ -388,7 +388,7 @@ _impl_arg_is :: (fn(e : &AstExpr, name : &String) -> bool)(
 /// `impl(generic(T : Type), ArrayList(T), ...)`); false past the end.
 _impl_arg_is_generic :: (fn(args : &ArrayList(AstExpr), a : usize) -> bool)(
   match(
-    args.get(a),
+    args.get_cloned(a),
     .Some(arg) => ast_expr_is_fn_call_of(&arg, "generic", .None),
     .None => false
   )
@@ -431,12 +431,12 @@ handle_implementations :: (
   (i : usize) = usize(0);
   while(i < exprs.len(), {
     match(
-      exprs.get(i),
+      exprs.get_cloned(i),
       .Some(e) => {
         if(ast_expr_is_fn_call_of(&e, "impl", .None), {
           match(
             e,
-            .FnCall(_, _, Rc(args), _, itok) => {
+            Rc(.FnCall(_, _, Rc(args), _, itok)) => {
               // Skip the leading generic(...) clauses; the first remaining
               // argument is the Self type, the second (when present) the
               // trait.
@@ -445,12 +445,12 @@ handle_implementations :: (
                 a = (a + usize(1));
               });
               self_matches := match(
-                args.get(a),
+                args.get_cloned(a),
                 .Some(self_expr) => _impl_arg_is(&self_expr, target.value.*.clone()),
                 .None => false
               );
               trait_matches := match(
-                args.get(a + usize(1)),
+                args.get_cloned(a + usize(1)),
                 .Some(trait_expr) => _impl_arg_is(&trait_expr, target.value.*.clone()),
                 .None => false
               );
@@ -469,7 +469,7 @@ handle_implementations :: (
                 );
               });
             },
-            .Atom(_, _) => ()
+            Rc(.Atom(_, _)) => ()
           );
         });
       },
