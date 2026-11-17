@@ -1514,7 +1514,8 @@ clear_proved_guard_sites :: (fn() -> unit)({
   ()
 });
 record_index_unchecked_twin :: (fn(node_id : ExprId, twin : &EvalValue) -> unit)({
-  g_index_unchecked_twins.with_mut(m => m.insert(node_id, twin.*));
+  twin_owned := twin.*;
+  g_index_unchecked_twins.with_mut({ node_id, twin_owned }(m) => m.insert(node_id, twin_owned));
   ()
 });
 /// Drop the twin recorded for `node_id`: a subscript promoted to `IndexMut`

@@ -2244,7 +2244,8 @@ is_consume_release :: (fn(consume_id : ExprId) -> bool)(
 /// Record the resolved/specialized method FuncVal for a method-call expr id.
 record_method_callee_value :: (fn(call_id : ExprId, v : &EvalValue) -> unit)({
   record_owned_expr_id(call_id);
-  g_method_callee_values.with_mut(m => m.insert(call_id, v.*));
+  mc_value := v.*;
+  g_method_callee_values.with_mut({ call_id, mc_value }(m) => m.insert(call_id, mc_value));
   ()
 });
 /// Look up the resolved/specialized method FuncVal for a method-call expr id.
