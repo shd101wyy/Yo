@@ -617,7 +617,7 @@ impl(
       Rc(.FuncVal(fvd, _)) => ast_expr_token(&fvd.body).module_path.*.clone(),
       _ => String.new()
     );
-    self.functions.insert(func_id.clone(), CodegenFunctionEntry(value : value.*, c_name : final_name, def_module : def_mod));
+    self.functions.insert(func_id.clone(), CodegenFunctionEntry(value : Rc.clone(value.*), c_name : final_name, def_module : def_mod));
     ()
   }),
   /// True if a function with this func_id is already registered.
@@ -636,7 +636,7 @@ impl(
     // get_type_c_name above (the enum sibling-cname pollution).
     match(
       self.functions.get(func_id),
-      .Some(fe) => Option(CodegenFunctionEntry).Some(CodegenFunctionEntry(value : fe.value, c_name : fe.c_name.clone(), def_module : fe.def_module.clone())),
+      .Some(fe) => Option(CodegenFunctionEntry).Some(CodegenFunctionEntry(value : Rc.clone(fe.value), c_name : fe.c_name.clone(), def_module : fe.def_module.clone())),
       .None => Option(CodegenFunctionEntry).None
     )
   ),

@@ -174,7 +174,7 @@ add_comptime_var :: (
     env,
     name.clone(),
     ty,
-    Option(EvalValue).Some(value.*),
+    Option(EvalValue).Some(Rc.clone(value.*)),
     true,
     false,
     false,
@@ -384,7 +384,7 @@ call_registered_derive_rule :: (
     }
   );
   result_expr := match(
-    call_val,
+    Rc.clone(call_val),
     Rc(.ExprVal(e)) => Rc.clone(e),
     _ => {
       exn.throw(dyn(Box.new(format_error_message(&tok, `derive: derive rule must return(comptime(Expr)); got ${value_to_string(&call_val)}`))));
@@ -481,7 +481,7 @@ process_trait_arg :: (
   rule_opt := get_derive_rule(&key);
   derive_rule_val := match(
     rule_opt,
-    .Some(r) => r,
+    .Some(r) => Rc.clone(r),
     .None => {
       exn.throw(
         dyn(

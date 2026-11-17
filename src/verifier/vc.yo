@@ -3278,9 +3278,9 @@ _call_written_names :: (fn(table : &ExprInfoTable, e : &AstExpr, out : &mut Arra
     Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
   );
   cv := _call_callee_value(table, e);
-  fid := match(cv, .Some(v) => _func_val_id(&v), .None => String.new());
+  fid := match(cv.clone(), .Some(v) => _func_val_id(&v), .None => String.new());
   params := match(
-    cv,
+    cv.clone(),
     .Some(v2) => match(
       v2,
       Rc(.FuncVal(fvd, _)) => fvd.*.params.clone(),

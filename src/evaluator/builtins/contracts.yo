@@ -1543,7 +1543,7 @@ clear_proved_guard_sites :: (fn() -> unit)({
   ()
 });
 record_index_unchecked_twin :: (fn(node_id : ExprId, twin : &EvalValue) -> unit)({
-  twin_owned := twin.*;
+  twin_owned := Rc.clone(twin.*);
   g_index_unchecked_twins.with_mut({ node_id, twin_owned }(m) => m.insert(node_id, twin_owned));
   ()
 });
@@ -1554,7 +1554,7 @@ forget_index_unchecked_twin :: (fn(node_id : ExprId) -> unit)({
   ()
 });
 index_unchecked_twin_of :: (fn(node_id : ExprId) -> Option(EvalValue))(
-  g_index_unchecked_twins.with(m => m.get(&node_id))
+  g_index_unchecked_twins.with(m => m.get_cloned(&node_id))
 );
 /// How many distinct guards codegen elided since the last clear.
 elided_guard_count :: (fn() -> usize)(
@@ -1864,7 +1864,7 @@ register_impl_inheritance_task :: (
           return_label : __t_ret,
           table : ctx.expr_info_table.clone(),
           mode : __mode.clone(),
-          func_val : method_val.*,
+          func_val : Rc.clone(method_val.*),
           requires_enforced : ArrayList(bool).new()
         )
       );
@@ -2138,8 +2138,8 @@ _stash_callsite_contracts :: (
     .Some(ci) => match(
       ci.value(),
       .Some(v) => match(
-        v,
-        Rc(.FuncVal(_, _)) => Option(EvalValue).Some(v),
+        Rc.clone(v),
+        Rc(.FuncVal(_, _)) => Option(EvalValue).Some(Rc.clone(v)),
         _ => lookup_method_callee_value(ast_expr_id(e))
       ),
       .None => lookup_method_callee_value(ast_expr_id(e))
@@ -2147,7 +2147,7 @@ _stash_callsite_contracts :: (
     .None => lookup_method_callee_value(ast_expr_id(e))
   );
   fid := match(
-    callee_val,
+    callee_val.clone(),
     .Some(cv) => match(
       cv,
       Rc(.FuncVal(fvd, _)) => fvd.*.func_id.clone(),

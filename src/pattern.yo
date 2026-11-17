@@ -102,8 +102,8 @@ impl(
         self,
         .Wildcard => Pattern.Wildcard,
         .Bind(name, token, atom) => Pattern.Bind(name : name.clone(), token : Rc.clone(token.*), atom : Rc.clone(atom.*)),
-        .Const(value, ty, src, subject, test) => Pattern.Const(value : value.*, ty : Rc.clone(ty), src : Rc.clone(src.*), subject : subject.clone(), test : Rc.clone(test.*)),
-        .Range(src, subject, test, ty, lo, hi, inclusive) => Pattern.Range(src : Rc.clone(src.*), subject : subject.clone(), test : Rc.clone(test.*), ty : Rc.clone(ty), lo : lo.*, hi : hi.*, inclusive : inclusive.*),
+        .Const(value, ty, src, subject, test) => Pattern.Const(value : Rc.clone(value.*), ty : Rc.clone(ty), src : Rc.clone(src.*), subject : subject.clone(), test : Rc.clone(test.*)),
+        .Range(src, subject, test, ty, lo, hi, inclusive) => Pattern.Range(src : Rc.clone(src.*), subject : subject.clone(), test : Rc.clone(test.*), ty : Rc.clone(ty), lo : lo.*.clone(), hi : hi.*.clone(), inclusive : inclusive.*),
         .Variant(name, idx, field_idx, subs, enum_ty, through_ptr, arity) => Pattern.Variant(
           name : name.clone(),
           idx : idx.*,

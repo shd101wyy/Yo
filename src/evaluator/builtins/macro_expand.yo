@@ -148,7 +148,7 @@ evaluate_macro_expand :: (
     });
     // Extract the integer value from IntLit.
     lv_opt := level_info.value();
-    if(!is_int_lit(match(lv_opt, .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal))), {
+    if(!is_int_lit(match(lv_opt.clone(), .Some(v) => Rc.clone(v), .None => Rc.new(EvalValueNode.UnitVal))), {
       exn.throw(
         dyn(
           Box.new(

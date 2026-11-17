@@ -47,7 +47,8 @@ pragma(Pragma.AllowUnsafe);
 { EvalContext, ExpectedTypeCtx, record_module_member_read, sns_module_of, is_dot_callee } :: import("../context.yo");
 { get_struct_fields } :: import("../types/field.yo");
 {
-  EvalValue, EvalValueNode,
+  EvalValue,
+  EvalValueNode,
   create_type_value,
   create_unknown_val,
   create_runtime_unknown_val,
@@ -489,10 +490,10 @@ _try_resolve_associated_type :: (
       match(
         registry_methods.get(rm_idx),
         .Some(rm) => match(
-          rm.value,
+          rm.value.clone(),
           .Some(rmv) => {
             out_rm := new_expr_info(env, &rm.ty);
-            out_rm.set_value(Option(EvalValue).Some(rmv));
+            out_rm.set_value(Option(EvalValue).Some(Rc.clone(rmv)));
             out_rm.set_is_accessing_property(Option(bool).Some(true));
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_rm);
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(property_expr), &out_rm);
@@ -1226,16 +1227,16 @@ Raw pointer operations may dereference invalid memory.`
                     .Some(t0) => t0,
                     .None => Rc.new(EvalValueNode.UnitVal)
                   );
-                  (deref_val : EvalValue) = target0;
+                  (deref_val : EvalValue) = Rc.clone(target0);
                   (deref_place : Option(ComptimeRef)) = Option(ComptimeRef).None;
                   match(
-                    target0,
+                    Rc.clone(target0),
                     Rc(.ArrayVal(deref_elems)) => {
-                      deref_val = match(deref_elems.get(ptr_tgt_idx), .Some(de) => de, .None => target0);
+                      deref_val = match(deref_elems.get(ptr_tgt_idx), .Some(de) => de, .None => Rc.clone(target0));
                       deref_place = Option(ComptimeRef).Some(ComptimeRef.ArrayRef(Rc.clone(deref_elems), ptr_tgt_idx));
                     },
                     _ => {
-                      deref_val = match(target_cell.get(ptr_tgt_idx), .Some(dt) => dt, .None => target0);
+                      deref_val = match(target_cell.get(ptr_tgt_idx), .Some(dt) => dt, .None => Rc.clone(target0));
                       deref_place = Option(ComptimeRef).Some(ComptimeRef.ArrayRef(Rc.clone(target_cell), ptr_tgt_idx));
                     }
                   );
@@ -1428,10 +1429,10 @@ Raw pointer operations may dereference invalid memory.`
             match(
               prim_methods.get(pm_idx),
               .Some(pm) => match(
-                pm.value,
+                pm.value.clone(),
                 .Some(pmv) => {
                   out_prim := new_expr_info(&env, &pm.ty);
-                  out_prim.set_value(Option(EvalValue).Some(pmv));
+                  out_prim.set_value(Option(EvalValue).Some(Rc.clone(pmv)));
                   out_prim.set_is_accessing_property(Option(bool).Some(true));
                   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_prim);
                   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_prim);
@@ -1485,7 +1486,7 @@ Raw pointer operations may dereference invalid memory.`
           }
         );
         out_gm_pr := new_expr_info(&env, &method_pr.method_type);
-        out_gm_pr.set_value(method_pr.method_value);
+        out_gm_pr.set_value(method_pr.method_value.clone());
         out_gm_pr.set_is_accessing_property(Option(bool).Some(true));
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_gm_pr);
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_gm_pr);
@@ -1599,7 +1600,7 @@ Raw pointer operations may dereference invalid memory.`
                   }
                 );
                 out_gm_en := new_expr_info(&env, &method_en.method_type);
-                out_gm_en.set_value(method_en.method_value);
+                out_gm_en.set_value(method_en.method_value.clone());
                 out_gm_en.set_is_accessing_property(Option(bool).Some(true));
                 expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_gm_en);
                 expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_gm_en);
@@ -1739,7 +1740,7 @@ Raw pointer operations may dereference invalid memory.`
           }
         );
         out_gm_su := new_expr_info(&env, &method_su.method_type);
-        out_gm_su.set_value(method_su.method_value);
+        out_gm_su.set_value(method_su.method_value.clone());
         out_gm_su.set_is_accessing_property(Option(bool).Some(true));
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_gm_su);
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_gm_su);
@@ -1818,11 +1819,11 @@ Raw pointer operations may dereference invalid memory.`
               registry_methods.get(rm_idx),
               .Some(rm) => {
                 match(
-                  rm.value,
+                  rm.value.clone(),
                   .Some(rmv) => {
                     rm_v_ty := type_of_eval_value(&rmv);
                     out_rm := new_expr_info(&env, &rm.ty);
-                    out_rm.set_value(Option(EvalValue).Some(rmv));
+                    out_rm.set_value(Option(EvalValue).Some(Rc.clone(rmv)));
                     out_rm.set_is_accessing_property(Option(bool).Some(true));
                     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_rm);
                     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_rm);
@@ -1952,7 +1953,7 @@ Raw pointer operations may dereference invalid memory.`
                 tt_conc.get(tt_ki),
                 .Some(tt_km) => if((tt_km.source_trait_id == tt_trait_id) || (tt_km.source_trait_id == tt_trait_key), {
                   out_wc := new_expr_info(&env, &tt_km.ty);
-                  out_wc.set_value(tt_km.value);
+                  out_wc.set_value(tt_km.value.clone());
                   out_wc.set_is_accessing_property(Option(bool).Some(true));
                   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_wc);
                   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_wc);
@@ -1979,7 +1980,7 @@ Raw pointer operations may dereference invalid memory.`
             // unrelated trait must not match this witness.
             if(tt_cand.source_trait_id == tt_trait_key, {
               out_w := new_expr_info(&env, &tt_cand.method_type);
-              out_w.set_value(tt_cand.method_value);
+              out_w.set_value(tt_cand.method_value.clone());
               out_w.set_is_accessing_property(Option(bool).Some(true));
               expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_w);
               expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_w);
@@ -2569,7 +2570,7 @@ Raw pointer operations may dereference invalid memory.`
               obj_val_main,
               .Some(ov_lbl) => {
                 match(
-                  ov_lbl,
+                  Rc.clone(ov_lbl),
                   // Propagate `is_runtime_only` onto the field's unknown.
                   Rc(.UnknownVal(_, ov_lbl_ro)) => {
                     out_lbl.set_value(
@@ -2584,10 +2585,10 @@ Raw pointer operations may dereference invalid memory.`
                   },
                   _ => {
                     // Dereference through PtrVal before field selection.
-                    (resolved_lbl : EvalValue) = ov_lbl;
+                    (resolved_lbl : EvalValue) = Rc.clone(ov_lbl);
                     (lbl_via_ptr : bool) = false;
                     match(
-                      ov_lbl,
+                      Rc.clone(ov_lbl),
                       // The pointee lives at target_value(target_index) — the
                       // "optional faithfulness completion" noted in
                       // issues/fixed/yo-self-comptime-pointer-place.md — index
@@ -2596,11 +2597,11 @@ Raw pointer operations may dereference invalid memory.`
                         resolved_lbl = match(
                           tgt_cell_l.get(usize(0)),
                           .Some(t0l) => match(
-                            t0l,
-                            Rc(.ArrayVal(t0l_elems)) => match(t0l_elems.get(tgt_idx_l), .Some(t0e) => t0e, .None => t0l),
-                            _ => t0l
+                            Rc.clone(t0l),
+                            Rc(.ArrayVal(t0l_elems)) => match(t0l_elems.get(tgt_idx_l), .Some(t0e) => t0e, .None => Rc.clone(t0l)),
+                            _ => Rc.clone(t0l)
                           ),
-                          .None => ov_lbl
+                          .None => Rc.clone(ov_lbl)
                         );
                         lbl_via_ptr = true;
                       },
@@ -2799,7 +2800,7 @@ Raw pointer operations may dereference invalid memory.`
                   .Some(mod_tfs) => match(
                     mod_tfs.get_cloned(fi_mod),
                     .Some(mod_tf) => {
-                      mod_reg_val = mod_tf.assigned_value;
+                      mod_reg_val = mod_tf.assigned_value.clone();
                     },
                     .None => ()
                   ),
@@ -2808,7 +2809,7 @@ Raw pointer operations may dereference invalid memory.`
                 out_mod.set_value(
                   match(
                     mod_reg_val,
-                    .Some(av) => Option(EvalValue).Some(av),
+                    .Some(av) => Option(EvalValue).Some(Rc.clone(av)),
                     .None => Option(EvalValue).Some(create_unknown_val(&ft_mod))
                   )
                 );

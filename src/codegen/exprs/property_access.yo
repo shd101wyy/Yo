@@ -417,7 +417,7 @@ _generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &
   // read from the object's C value below. Taken down this path, a runtime
   // field's NAME was resolved as a variable, an undeclared `__yo_v_x`
   // (issues/fixed/2026-11-05-a-method-on-a-field-of-a-match-binding-over-an-inline-literal-emits-an-undeclared-identifier.md).
-  if(is_module_type(&object_type) || match(object_value, .Some(v) => (is_struct_val(&v) && !value_contains_unknown(&v)), .None => false), {
+  if(is_module_type(&object_type) || match(object_value.clone(), .Some(v) => (is_struct_val(&v) && !value_contains_unknown(&v)), .None => false), {
     match(
       ei.value(),
       .Some(fv) => if(

@@ -170,7 +170,7 @@ _eval_body_for_ctfe :: (
     cn := match(cap_names.get_cloned(cap_i), .Some(n) => n, .None => String.from(""));
     ct := match(cap_tys.get_cloned(cap_i), .Some(t) => t, .None => t_unit());
     cv := match(cap_vals.get(cap_i), .Some(v) => Option(EvalValue).Some(v), .None => Option(EvalValue).None);
-    is_ct := match(cv, .Some(_) => true, .None => false);
+    is_ct := match(cv.clone(), .Some(_) => true, .None => false);
     _add := add_variable_to_env(
       &ctfe_env,
       &cn,
@@ -193,7 +193,7 @@ _eval_body_for_ctfe :: (
     &ctfe_env,
     String.from("__recur_fn"),
     func_type,
-    Option(EvalValue).Some(func_value.*),
+    Option(EvalValue).Some(Rc.clone(func_value.*)),
     true,
     false,
     false,
@@ -241,7 +241,7 @@ _eval_body_for_ctfe :: (
     FuncOrAsyncBlockCtx(
       kind : FuncOrAsyncBlockKind.FunctionBody,
       func_type : Option(TypeValue).Some(Rc.clone(func_type)),
-      func_value : Option(EvalValue).Some(func_value.*),
+      func_value : Option(EvalValue).Some(Rc.clone(func_value.*)),
       eval_env : snapshot_env(&ctfe_env)
     )
   );
@@ -352,7 +352,7 @@ _build_comptime_clone :: (
   ) -> EvalValue
 )({
   ct_fid := match(func_value, Rc(.FuncVal(__fvd9, _)) => __fvd9.func_id.clone(), _ => String.new());
-  (out_val : EvalValue) = func_value.*;
+  (out_val : EvalValue) = Rc.clone(func_value.*);
   if(ct_fid.len() > usize(0), {
     ct_new_id := `${ct_fid}_comptime`;
     ct_new_data := FuncValData(

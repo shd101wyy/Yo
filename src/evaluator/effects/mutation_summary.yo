@@ -355,7 +355,7 @@ impl(
       .None => Option(EvalValue).None
     );
     is_fv := match(
-      from_info,
+      from_info.clone(),
       .Some(Rc(.FuncVal(_, _))) => true,
       .Some(Rc(.TypeVal(_))) => true,
       .Some(_) => false,
@@ -564,12 +564,12 @@ impl(
       info_opt,
       .Some(ci) => match(
         expr_info_index_method_value(&ci),
-        .Some(imv) => match(imv, Rc(.FuncVal(_, _)) => Option(EvalValue).Some(imv), _ => Option(EvalValue).None),
+        .Some(imv) => match(Rc.clone(imv), Rc(.FuncVal(_, _)) => Option(EvalValue).Some(Rc.clone(imv)), _ => Option(EvalValue).None),
         .None => Option(EvalValue).None
       ),
       .None => Option(EvalValue).None
     );
-    callee_opt := match(index_callee, .Some(_) => index_callee, .None => _MsW.callee_value(e, &func_expr, table));
+    callee_opt := match(index_callee.clone(), .Some(_) => index_callee.clone(), .None => _MsW.callee_value(e, &func_expr, table));
     match(
       callee_opt,
       .Some(callee) => match(
@@ -1506,9 +1506,9 @@ impl(
       .Some(ci) => match(
         expr_info_index_method_value(&ci),
         .Some(imv) => match(
-          imv,
+          Rc.clone(imv),
           Rc(.FuncVal(_, _)) => {
-            return(Option(EvalValue).Some(imv));
+            return(Option(EvalValue).Some(Rc.clone(imv)));
           },
           _ => ()
         ),
@@ -4393,7 +4393,7 @@ summarize_function_bodies :: (fn(values : &ArrayList(EvalValue), table : &ExprIn
   (i : usize) = usize(0);
   while(i < values.len(), {
     match(
-      values.get(i),
+      values.get_cloned(i),
       .Some(v) => match(
         v,
         Rc(.FuncVal(fvd, _)) => {

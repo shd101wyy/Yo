@@ -73,7 +73,8 @@
 /// silent 64-bit collision would merge two capture structs in the emitted C.
 (g_capture_struct_ids_r : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 {
-  EvalValue, EvalValueNode,
+  EvalValue,
+  EvalValueNode,
   value_cell_new
 } :: import("../../value.yo");
 {
@@ -1154,7 +1155,7 @@ create_capture_type_and_value :: (
                 .Some(fci) => {
                   field_labels.push(cap_name.clone());
                   field_types.push(Rc.clone(fci.ty));
-                  cap_values.push(fci.value);
+                  cap_values.push(fci.value.clone());
                   type_fields.push(
                     TypeField(
                       label : cap_name.clone(),
@@ -1310,7 +1311,7 @@ create_capture_type_and_value :: (
       (cv_i : usize) = usize(0);
       while(cv_i < n_caps, {
         match(
-          cap_values.get(cv_i),
+          cap_values.get_cloned(cv_i),
           .None => (),
           .Some(v_opt) => {
             match(
@@ -1330,7 +1331,7 @@ create_capture_type_and_value :: (
         (ci : usize) = usize(0);
         while(ci < n_caps, {
           match(
-            cap_values.get(ci),
+            cap_values.get_cloned(ci),
             .None => (),
             .Some(v_opt) => {
               match(
@@ -1346,11 +1347,13 @@ create_capture_type_and_value :: (
         });
         // Use struct_id as the type name for the StructVal.
         Option(EvalValue).Some(
-          Rc.new(EvalValueNode.StructVal(
-            struct_id.clone(),
-            Rc.clone(field_labels_s),
-            value_cell_new(concrete_vals)
-          ))
+          Rc.new(
+            EvalValueNode.StructVal(
+              struct_id.clone(),
+              Rc.clone(field_labels_s),
+              value_cell_new(concrete_vals)
+            )
+          )
         )
       }, Option(EvalValue).None);
       CaptureTypeAndValueResult(

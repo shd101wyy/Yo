@@ -624,7 +624,7 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &m
           // A whole value. An element list with no recorded aggregate type
           // cannot be told apart from its siblings: keep the placeholder.
           .None => cond(
-            (match(target, Rc(.ArrayVal(_)) => true, Rc(.ComptimeListVal(_)) => true, _ => false) && !is_array_type(&pointee.*)) => String.from("/* skip generating value */"),
+            (match(Rc.clone(target), Rc(.ArrayVal(_)) => true, Rc(.ComptimeListVal(_)) => true, _ => false) && !is_array_type(&pointee.*)) => String.from("/* skip generating value */"),
             true => _static_address(&target, &pointee.*, String.new(), context)
           ),
           .Some(agg_ty) => {

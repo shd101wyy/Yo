@@ -460,7 +460,7 @@ evaluate_type_field :: (
     // Same UnknownVal hole as the ?= gate above, for the `name = value`
     // comptime-field form: a runtime call is not a compile-time value.
     match(
-      assigned_value,
+      assigned_value.clone(),
       .Some(avv) => if(is_unknown_val(&avv), {
         exn.throw(
           dyn(
@@ -565,7 +565,7 @@ evaluate_type_field :: (
     // MISMATCHED declared type is already rejected by the compatibility
     // check below).
     match(
-      default_value,
+      default_value.clone(),
       .Some(dvv) => if(is_unknown_val(&dvv), {
         exn.throw(
           dyn(
@@ -636,11 +636,11 @@ evaluate_type_field :: (
       .None => Option(String).None
     );
     le_val := match(
-      assigned_value,
-      .Some(av) => Option(EvalValue).Some(av),
+      assigned_value.clone(),
+      .Some(av) => Option(EvalValue).Some(Rc.clone(av)),
       .None => match(
-        default_value,
-        .Some(dv) => Option(EvalValue).Some(dv),
+        default_value.clone(),
+        .Some(dv) => Option(EvalValue).Some(Rc.clone(dv)),
         .None => Option(EvalValue).None
       )
     );

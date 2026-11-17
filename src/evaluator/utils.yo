@@ -1244,7 +1244,7 @@ _closure_binding_site :: (fn(v : &Variable, env : &Environment, ctx : &EvalConte
     .Some(sub) => match(
       sub.kind,
       .FunctionBody => {
-        fid := match(sub.func_value, .Some(fv) => match(fv, Rc(.FuncVal(fvd, _)) => fvd.*.func_id.clone(), _ => String.from("")), .None => String.from(""));
+        fid := match(sub.func_value.clone(), .Some(fv) => match(fv, Rc(.FuncVal(fvd, _)) => fvd.*.func_id.clone(), _ => String.from("")), .None => String.from(""));
         if((fid.len() == usize(0)) || !is_closure_fn(fid.clone()) || is_io_async_sm_closure(fid.clone()), {
           return(u8(0));
         });
@@ -1339,7 +1339,7 @@ set_closure_writes_captures :: (fn(func_id : &String, writes : bool) -> unit)({
 _current_closure_fid :: (fn(ctx : &EvalContext) -> String)(
   match(
     &ctx.is_evaluating_function_body_or_async_block,
-    .Some(sub) => match(sub.func_value, .Some(Rc(.FuncVal(fvd, _))) => fvd.*.func_id.clone(), _ => String.new()),
+    .Some(sub) => match(sub.func_value.clone(), .Some(Rc(.FuncVal(fvd, _))) => fvd.*.func_id.clone(), _ => String.new()),
     .None => String.new()
   )
 );
@@ -6207,7 +6207,7 @@ in_compile_time_fn_body :: (fn(ctx : &EvalContext) -> bool)(
     .Some(fctx) => match(
       fctx.kind,
       .FunctionBody => match(
-        fctx.func_value,
+        fctx.func_value.clone(),
         .Some(fv) => match(
           fv,
           Rc(.FuncVal(fvd, _)) => {

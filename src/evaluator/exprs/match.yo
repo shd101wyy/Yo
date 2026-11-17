@@ -64,7 +64,8 @@ pragma(Pragma.AllowUnsafe);
 { add_variable_to_env, get_variables_from_env, find_variable_in_env, variable_set_inout_borrow_root_id, variable_mark_inout_borrow_root, mark_macro_pattern_binding } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, fn_ctx_returns_comptime, call_is_index_place } :: import("../context.yo");
 {
-  EvalValue, EvalValueNode,
+  EvalValue,
+  EvalValueNode,
   create_unknown_val,
   is_runtime_only_unknown_val,
   is_enum_val,
@@ -1247,7 +1248,7 @@ evaluate_match :: (
   // Is the scrutinee's value known at compile time? (An enum must be a
   // concrete EnumVal, a primitive a concrete literal.)
   ct_known := match(
-    scrutinee_val_opt,
+    scrutinee_val_opt.clone(),
     .Some(sv) => cond(
       is_unknown_val(&sv) => false,
       scrutinee_is_enum => is_enum_val(&sv),
@@ -1442,7 +1443,7 @@ evaluate_match :: (
     pat := compile_pattern(
       &pattern_ast,
       &position_type,
-      cond(ct_known => scrutinee_val_opt, true => Option(EvalValue).None),
+      cond(ct_known => scrutinee_val_opt.clone(), true => Option(EvalValue).None),
       &mut pc,
       &env,
       ctx,
@@ -1506,7 +1507,7 @@ evaluate_match :: (
         &env,
         b.name.clone(),
         &bind_ty,
-        cond(b_ct_known => b.value, true => Option(EvalValue).None),
+        cond(b_ct_known => b.value.clone(), true => Option(EvalValue).None),
         b_ct_known,
         false,
         false,
@@ -2499,7 +2500,7 @@ evaluate_match :: (
       // Case 2: concrete scrutinee + single non-return body
       (did_use_single : bool) = false;
       match(
-        scrutinee_val_opt,
+        scrutinee_val_opt.clone(),
         .None => (),
         .Some(sv) => {
           if(ct_known && (non_return_em.len() == usize(1)), {

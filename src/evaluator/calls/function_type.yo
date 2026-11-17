@@ -1154,21 +1154,23 @@ _rerun_pending_def_evals :: (fn(caller_env : &Environment, ctx : &EvalContext) -
           &pd.param_decl_tokens
         );
         rp_tok := ast_expr_token(&pd.body);
-        rp_fv := Rc.new(EvalValueNode.FuncVal(
-          Rc.new(
-            FuncValData(
-              forall_names : ArrayList(String).new(),
-              params : ArrayList(String).new(),
-              param_type_names : ArrayList(String).new(),
-              evidence_params : ArrayList(String).new(),
-              body : make_err_expr(),
-              cap_names : ArrayList(String).new(),
-              cap_tys : ArrayList(TypeValue).new(),
-              func_id : stable_func_id(String.from(""), &rp_tok.module_path.*, usize(rp_tok.row), usize(rp_tok.column))
-            )
-          ),
-          no_values()
-        ));
+        rp_fv := Rc.new(
+          EvalValueNode.FuncVal(
+            Rc.new(
+              FuncValData(
+                forall_names : ArrayList(String).new(),
+                params : ArrayList(String).new(),
+                param_type_names : ArrayList(String).new(),
+                evidence_params : ArrayList(String).new(),
+                body : make_err_expr(),
+                cap_names : ArrayList(String).new(),
+                cap_tys : ArrayList(TypeValue).new(),
+                func_id : stable_func_id(String.from(""), &rp_tok.module_path.*, usize(rp_tok.row), usize(rp_tok.column))
+              )
+            ),
+            no_values()
+          )
+        );
         if(debug_knob(`YO_DEBUG_CAPTURE`).is_some(), {
           eprintln(`[fbctx-fnty-rp]`);
         });
@@ -1596,22 +1598,24 @@ Result type: ${type_to_string(&result_box)}`
         Option(AstExpr).Some(body_expr.clone()),
         Option(AstExpr).None
       );
-      func_val := Rc.new(EvalValueNode.FuncVal(
-        Rc.new(
-          FuncValData(
-            forall_names : forall_labels.items.clone(),
-            params : param_labels.items.clone(),
-            param_type_names : param_type_names,
-            evidence_params : implicit_labels.items.clone(),
-            body : Rc.clone(body_expr),
-            cap_names : ArrayList(String).new(),
-            cap_tys : ArrayList(TypeValue).new(),
-            func_id : fn_val_id.clone(),
-            env_key : ft_env_key
-          )
-        ),
-        shared_values(cap_vals)
-      ));
+      func_val := Rc.new(
+        EvalValueNode.FuncVal(
+          Rc.new(
+            FuncValData(
+              forall_names : forall_labels.items.clone(),
+              params : param_labels.items.clone(),
+              param_type_names : param_type_names,
+              evidence_params : implicit_labels.items.clone(),
+              body : Rc.clone(body_expr),
+              cap_names : ArrayList(String).new(),
+              cap_tys : ArrayList(TypeValue).new(),
+              func_id : fn_val_id.clone(),
+              env_key : ft_env_key
+            )
+          ),
+          shared_values(cap_vals)
+        )
+      );
       // Phase A of a lazy top-level binding (plans/reference/LAZY_TOPLEVEL_BINDINGS.md
       // §4.3): when this application IS the RHS of the definition being
       // forced, publish the head FuncVal before the body trial below, so a
@@ -1835,7 +1839,7 @@ Result type: ${type_to_string(&result_box)}`
               return_label : get_func_return_label(fn_val_id.clone()),
               table : ctx.expr_info_table.clone(),
               mode : vmode.clone(),
-              func_val : func_val,
+              func_val : Rc.clone(func_val),
               // V6 task 5: an `assumed()` body is not walked, but its
               // predicates were evaluated above all the same, so a caller
               // that assumes them reads TYPED nodes (a method call in an
@@ -1864,13 +1868,13 @@ Result type: ${type_to_string(&result_box)}`
       // is essential here: an ordinary runtime helper defined inside a
       // comptime-executing body is EXPECTED to fail this analysis and must be left
       // exactly as it is.
-      (final_func_val : EvalValue) = func_val;
+      (final_func_val : EvalValue) = Rc.clone(func_val);
       (final_func_ty : TypeValue) = Rc.clone(function_type);
       if(ctx.is_analyzing_ctfe_capability || ctx.force_compile_time_bindings, {
         match(
           analyze_ctfe_capability(&func_val, function_type, caller_env, ctx),
           .Some(ctfe_ok) => {
-            final_func_val = ctfe_ok.value;
+            final_func_val = Rc.clone(ctfe_ok.value);
             final_func_ty = Rc.clone(ctfe_ok.ty);
           },
           .None => ()
@@ -1937,21 +1941,23 @@ Result type: ${type_to_string(&result_box)}`
             ),
             Rc(.Atom(_, _)) => ()
           );
-          flow_fv := Rc.new(EvalValueNode.FuncVal(
-            Rc.new(
-              FuncValData(
-                forall_names : ArrayList(String).new(),
-                params : ArrayList(String).new(),
-                param_type_names : ArrayList(String).new(),
-                evidence_params : ArrayList(String).new(),
-                body : make_err_expr(),
-                cap_names : ArrayList(String).new(),
-                cap_tys : ArrayList(TypeValue).new(),
-                func_id : stable_func_id(String.from(""), &tok.module_path.*, usize(tok.row), usize(tok.column))
-              )
-            ),
-            no_values()
-          ));
+          flow_fv := Rc.new(
+            EvalValueNode.FuncVal(
+              Rc.new(
+                FuncValData(
+                  forall_names : ArrayList(String).new(),
+                  params : ArrayList(String).new(),
+                  param_type_names : ArrayList(String).new(),
+                  evidence_params : ArrayList(String).new(),
+                  body : make_err_expr(),
+                  cap_names : ArrayList(String).new(),
+                  cap_tys : ArrayList(TypeValue).new(),
+                  func_id : stable_func_id(String.from(""), &tok.module_path.*, usize(tok.row), usize(tok.column))
+                )
+              ),
+              no_values()
+            )
+          );
           if(debug_knob(`YO_DEBUG_CAPTURE`).is_some(), {
             eprintln(`[fbctx-fnty-flow]`);
           });
@@ -2407,21 +2413,23 @@ Result type: ${type_to_string(&result_box)}`
             // A THROWAWAY FuncVal with a fresh id (same pattern as flow_fv
             // above): reusing the real one lets trial registrations shadow
             // the real definition's and codegen emits the trial body clone.
-            dg_fv := Rc.new(EvalValueNode.FuncVal(
-              Rc.new(
-                FuncValData(
-                  forall_names : ArrayList(String).new(),
-                  params : ArrayList(String).new(),
-                  param_type_names : ArrayList(String).new(),
-                  evidence_params : ArrayList(String).new(),
-                  body : make_err_expr(),
-                  cap_names : ArrayList(String).new(),
-                  cap_tys : ArrayList(TypeValue).new(),
-                  func_id : stable_func_id(String.from(""), &tok.module_path.*, usize(tok.row), usize(tok.column))
-                )
-              ),
-              no_values()
-            ));
+            dg_fv := Rc.new(
+              EvalValueNode.FuncVal(
+                Rc.new(
+                  FuncValData(
+                    forall_names : ArrayList(String).new(),
+                    params : ArrayList(String).new(),
+                    param_type_names : ArrayList(String).new(),
+                    evidence_params : ArrayList(String).new(),
+                    body : make_err_expr(),
+                    cap_names : ArrayList(String).new(),
+                    cap_tys : ArrayList(TypeValue).new(),
+                    func_id : stable_func_id(String.from(""), &tok.module_path.*, usize(tok.row), usize(tok.column))
+                  )
+                ),
+                no_values()
+              )
+            );
             dg_ctx := create_function_body_evaluation_context(function_type, &dg_fv, &dg_env, ctx);
             dg_out := ArrayList(AstExpr).new();
             dg_fv_was := flow_violation_pending();

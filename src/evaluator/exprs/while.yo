@@ -442,7 +442,7 @@ evaluate_while :: (
   // `condition_value.is_some()` would wrongly treat such a runtime-unknown
   // condition (e.g. `i < lhs.len()` on an unknown param, evaluated at
   // definition time) as comptime-known and mis-fire the modifier gate below.
-  cond_is_comptime_known := match(condition_value, .Some(cv) => !is_unknown_val(&cv), .None => false);
+  cond_is_comptime_known := match(condition_value.clone(), .Some(cv) => !is_unknown_val(&cv), .None => false);
   // Enforce comptime() modifier semantics:
   // With comptime(): condition MUST be compile-time known; error if runtime.
   if(is_comptime_modifier && condition_value.is_none(), {
@@ -500,13 +500,13 @@ evaluate_while :: (
   });
   // Effective condition value: only comptime when the modifier is present.
   effective_condition_value := cond(
-    is_comptime_modifier => condition_value,
+    is_comptime_modifier => condition_value.clone(),
     true => Option(EvalValue).None
   );
   is_compile_time := effective_condition_value.is_some();
   // If the effective condition is compile-time false, stop evaluation.
   eff_cond_is_false := match(
-    effective_condition_value,
+    effective_condition_value.clone(),
     .None => false,
     .Some(v) => match(v, Rc(.BoolVal(b)) => !b, _ => false)
   );
@@ -702,7 +702,7 @@ evaluate_while :: (
   (is_cond_literal_true : bool) = false;
   {
     eff_cond_is_true_lt := match(
-      effective_condition_value,
+      effective_condition_value.clone(),
       .None => false,
       .Some(v) => match(v, Rc(.BoolVal(b)) => b, _ => false)
     );
@@ -812,7 +812,7 @@ evaluate_while :: (
       .Some(ci) => ci.value(),
       .None => Option(EvalValue).None
     );
-    next_is_bool := match(next_cond_val, .Some(v) => match(v, Rc(.BoolVal(_)) => true, _ => false), .None => false);
+    next_is_bool := match(next_cond_val.clone(), .Some(v) => match(v, Rc(.BoolVal(_)) => true, _ => false), .None => false);
     if(next_is_bool, {
       unrolled_bodies := ArrayList(AstExpr).new();
       unrolled_bodies.push(Rc.clone(body_expr));

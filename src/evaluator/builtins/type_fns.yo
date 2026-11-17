@@ -28,7 +28,8 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 {
-  EvalValue, EvalValueNode,
+  EvalValue,
+  EvalValueNode,
   is_type_val,
   is_str_lit,
   is_func_val,
@@ -1840,7 +1841,7 @@ evaluate_type_join_fields :: (
     escaped_label := _ti_escape_str(&label);
     fi_code := (String.from("FieldInfo(\"") + escaped_label + String.from("\", ") + ft_name + String.from(")"));
     fi_val_opt := _ti_eval_code(&local_env, &fi_code, ctx, exn);
-    fi_val := match(fi_val_opt, .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal));
+    fi_val := match(fi_val_opt, .Some(v) => Rc.clone(v), .None => Rc.new(EvalValueNode.UnitVal));
     fi_type := match(&fi_declared_ty_opt, .Some(dt) => Rc.clone(dt), .None => type_of_eval_value(&fi_val));
     // Bind FieldInfo to temp var, then call mapper(fi_name).
     fi_name := stable_module_id(String.from("__da_"), &local_env.module_path().*);

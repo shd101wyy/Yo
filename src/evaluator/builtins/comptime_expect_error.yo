@@ -414,7 +414,7 @@ evaluate_comptime_expect_error :: (
         want_eval := evaluate_expression_raw(&want_expr, env, ctx, exn);
         want_text := match(
           expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&want_eval)),
-          .Some(wi) => match(wi.value(), .Some(wv) => match(wv, Rc(.StrLit(raw)) => str_lit_unquote_bytes(&raw), _ => value_to_string(&wv)), .None => String.new()),
+          .Some(wi) => match(wi.value(), .Some(wv) => match(Rc.clone(wv), Rc(.StrLit(raw)) => str_lit_unquote_bytes(&raw), _ => value_to_string(&wv)), .None => String.new()),
           .None => String.new()
         );
         (matched : bool) = (want_text.len() == usize(0));
@@ -462,7 +462,7 @@ evaluate_comptime_expect_error :: (
           match(
             msg_info.value(),
             .Some(v) => {
-              err_msg := match(v, Rc(.StrLit(raw)) => raw.clone(), _ => value_to_string(&v));
+              err_msg := match(Rc.clone(v), Rc(.StrLit(raw)) => raw.clone(), _ => value_to_string(&v));
               exn.throw(dyn(Box.new(format_error_message(ast_expr_token(expr), &err_msg))));
             },
             .None => ()

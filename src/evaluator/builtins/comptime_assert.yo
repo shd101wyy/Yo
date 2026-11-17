@@ -20,7 +20,8 @@
 { Environment } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 {
-  EvalValue, EvalValueNode,
+  EvalValue,
+  EvalValueNode,
   is_bool_val,
   is_unknown_val,
   create_unknown_val,
@@ -57,7 +58,7 @@ _throw_assert_failed :: (
         .Some(mi) => match(
           mi.value(),
           .Some(mv) => match(
-            mv,
+            Rc.clone(mv),
             Rc(.StrLit(raw)) => {
               rn := raw.len();
               raw.substring(usize(1), rn - usize(1))

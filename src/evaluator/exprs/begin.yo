@@ -2435,7 +2435,7 @@ _evaluating_fnonce_closure_body :: (fn(ctx : &EvalContext) -> bool)(
   match(
     &ctx.is_evaluating_function_body_or_async_block,
     .Some(sub) => match(
-      sub.func_value,
+      sub.func_value.clone(),
       .Some(fv) => match(fv, Rc(.FuncVal(fvd, _)) => is_fnonce_closure_fn(fvd.*.func_id.clone()), _ => false),
       .None => false
     ),
@@ -4474,7 +4474,7 @@ _evaluate_begin_expression_impl :: (
   carry_runtime_args := match(
     last_info.value(),
     .None => true,
-    .Some(v) => match(v, Rc(.UnitVal) => true, _ => value_contains_unknown(&v))
+    .Some(v) => match(Rc.clone(v), Rc(.UnitVal) => true, _ => value_contains_unknown(&v))
   );
   if(shared_with_tail && !carry_runtime_args, {
     out_info.set_runtime_arg_exprs_in_order(Option(ArrayList(AstExpr)).None);

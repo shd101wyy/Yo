@@ -231,15 +231,15 @@ _method_ty_skip_stamp :: (fn(ty : &TypeValue) -> bool)(
 _stamp_impl_forall_on_method :: (fn(v : &EvalValue, names : &ArrayList(String)) -> EvalValue)(
   if(
     names.len() == usize(0),
-    v.*,
+    Rc.clone(v.*),
     match(
       v,
       Rc(.FuncVal(__fvm8, cv)) => if(
         __fvm8.forall_names.len() > usize(0),
-        v.*,
+        Rc.clone(v.*),
         Rc.new(EvalValueNode.FuncVal(Rc.new(FuncValData(forall_names : names.clone(), params : __fvm8.params.clone(), param_type_names : __fvm8.param_type_names.clone(), evidence_params : __fvm8.evidence_params.clone(), body : Rc.clone(__fvm8.body), cap_names : __fvm8.cap_names.clone(), cap_tys : __fvm8.cap_tys.clone(), func_id : __fvm8.func_id.clone(), env_key : __fvm8.env_key)), Rc.clone(cv)))
       ),
-      _ => v.*
+      _ => Rc.clone(v.*)
     )
   )
 );
@@ -1850,7 +1850,7 @@ try_match_generic_impl :: (
       _pre_where_or_resolve(&entry.forall_some_types, &pre_where_bindings, &match_env, &fa_some2, &fa_name2, unify_base - usize(1)),
       .Some(t) => {
         bindings.push(t);
-        g_last_match_binding_vals.with_mut(xs => xs.push(fa_val2));
+        g_last_match_binding_vals.with_mut(xs => xs.push(Rc.clone(fa_val2)));
       },
       .None => {
         // Structural field synthesis left this param abstract: the receiver
@@ -1914,7 +1914,7 @@ try_match_generic_impl :: (
                                   match(
                                     wcr_regs.get(wcr_ri),
                                     .Some(wcr_re) => match(
-                                      wcr_re.value,
+                                      wcr_re.value.clone(),
                                       .Some(Rc(.TypeVal(wcr_ret))) => if(!is_some_type(&wcr_ret), {
                                         wcr_bound = Option(TypeValue).Some(Rc.clone(wcr_ret));
                                       }),
@@ -2025,7 +2025,7 @@ try_match_generic_impl :: (
         dar_fty := match(entry.field_types.get_cloned(dar_fi), .Some(t) => t, .None => t_unit());
         if((dar_lbl.len() > usize(0)) && !is_function_type(&dar_fty), {
           match(
-            entry.field_values.get(dar_fi),
+            entry.field_values.get_cloned(dar_fi),
             .Some(dar_fv) => match(
               dar_fv,
               Rc(.TypeVal(dar_tvb)) => {
@@ -2689,7 +2689,7 @@ _inject_forall_captures :: (
 )(
   match(
     method_val,
-    .None => method_val.*,
+    .None => method_val.*.clone(),
     .Some(mv) => match(
       mv,
       Rc(.FuncVal(__fvm9, cvs)) => {
@@ -2712,7 +2712,7 @@ _inject_forall_captures :: (
           (mk_v : usize) = usize(0);
           while(mk_v < binding_vals.len(), {
             match(
-              binding_vals.get(mk_v),
+              binding_vals.get_cloned(mk_v),
               .Some(Rc(.IntLit(bv_r))) => {
                 memo_key.push_str("#");
                 memo_key.push_string(bv_r.clone());
@@ -2736,7 +2736,7 @@ _inject_forall_captures :: (
           );
         };
         match(
-          g_ifc_memo.with({ &memo_key }(m) => m.get(memo_key.clone())),
+          g_ifc_memo.with({ &memo_key }(m) => m.get_cloned(memo_key.clone())),
           .Some(cached) => Option(EvalValue).Some(cached),
           .None => {
             new_cns := ArrayList(String).new();
@@ -2800,7 +2800,7 @@ _inject_forall_captures :: (
               // `U` a TYPE (the array-family "expected usize, got Type").
               (fa_is_val : bool) = false;
               match(
-                binding_vals.get(fi2),
+                binding_vals.get_cloned(fi2),
                 .Some(Rc(.IntLit(bv_raw))) => {
                   fa_is_val = true;
                   if(!ifc_aligned, {
@@ -2872,7 +2872,7 @@ _inject_forall_captures :: (
           }
         )
       },
-      _ => method_val.*
+      _ => method_val.*.clone()
     )
   )
 );
@@ -2985,7 +2985,7 @@ _find_methods_from_generic_impls_scan :: (
             (mbv_i : usize) = usize(0);
             while(mbv_i < g_last_match_binding_vals.with(_c_len_8), {
               match(
-                g_last_match_binding_vals.with(xs => xs.get(mbv_i)),
+                g_last_match_binding_vals.with(xs => xs.get_cloned(mbv_i)),
                 .Some(Rc(.IntLit(mbv_raw))) => {
                   match_binding_vals.push(Rc.new(EvalValueNode.IntLit(mbv_raw.clone())));
                 },
@@ -3014,7 +3014,7 @@ _find_methods_from_generic_impls_scan :: (
                 .Some(t) => t,
                 .None => Rc.new(TypeValueNode.Unit)
               );
-              fvalue := entry.field_values.get(fi);
+              fvalue := entry.field_values.get_cloned(fi);
               // Specialize the method TYPE with the impl's generic bindings:
               // the returned candidate's param/return types must
               // be concrete (e.g. `self : ComptimeList(comptime_str)`, not
@@ -3074,7 +3074,7 @@ _find_methods_from_generic_impls_scan :: (
                 // Bind the length by NAME from the match's IntLit side channel
                 // (`g_last_match_binding_vals`, index-aligned with `bindings`).
                 match(
-                  match_binding_vals.get(sb_i),
+                  match_binding_vals.get_cloned(sb_i),
                   .Some(sb_val) => match(
                     sb_val,
                     Rc(.IntLit(sb_raw)) => match(
@@ -3449,7 +3449,7 @@ find_associated_type_from_generic_impls :: (
               .Some(match_bindings) => {
                 // Substitute the impl's generic bindings into the stored
                 // associated-type value.
-                fvalue_opt := entry.field_values.get(field_idx);
+                fvalue_opt := entry.field_values.get_cloned(field_idx);
                 match(
                   fvalue_opt,
                   .Some(fvalue) => match(
@@ -3637,7 +3637,7 @@ find_generic_impl_method_value :: (
               });
             });
             if(matched, {
-              return(entry.field_values.get(found_idx));
+              return(entry.field_values.get_cloned(found_idx));
             });
           });
         },
@@ -4215,21 +4215,23 @@ _materialize_default_body :: (
   // A separate preliminary FuncVal for the body-eval context (EvalValue is not
   // Clone and the caller still needs the registered one). Same pattern as
   // anonymous_function.yo's `body_ctx_func_val`.
-  body_ctx_fv := Rc.new(EvalValueNode.FuncVal(
-    Rc.new(
-      FuncValData(
-        forall_names : ArrayList(String).new(),
-        params : ArrayList(String).new(),
-        param_type_names : ArrayList(String).new(),
-        evidence_params : ArrayList(String).new(),
-        body : body.clone(),
-        cap_names : ArrayList(String).new(),
-        cap_tys : ArrayList(TypeValue).new(),
-        func_id : fn_id.clone()
-      )
-    ),
-    no_values()
-  ));
+  body_ctx_fv := Rc.new(
+    EvalValueNode.FuncVal(
+      Rc.new(
+        FuncValData(
+          forall_names : ArrayList(String).new(),
+          params : ArrayList(String).new(),
+          param_type_names : ArrayList(String).new(),
+          evidence_params : ArrayList(String).new(),
+          body : body.clone(),
+          cap_names : ArrayList(String).new(),
+          cap_tys : ArrayList(TypeValue).new(),
+          func_id : fn_id.clone()
+        )
+      ),
+      no_values()
+    )
+  );
   body_ctx := create_function_body_evaluation_context(fn_ty, &body_ctx_fv, env, ctx);
   // A DEF-time contained-swallow evaluation like _trial_eval_fn_body — the
   // in_def_time_trial flag is set/restored AT THE CALL SITES (a swallowed
@@ -4679,7 +4681,7 @@ _c3_eval_colon_pair :: (
         .Some(ls_ty) => {
           note_legacy_str_spelling(&val_expr, false, &ctx.std_path);
           fi.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.TypeVal(ls_ty.clone()))));
-          Rc.new(EvalValueNode.TypeVal(ls_ty))
+          Rc.new(EvalValueNode.TypeVal(Rc.clone(ls_ty)))
         },
         .None => match(fi.value(), .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal))
       );
@@ -4689,7 +4691,7 @@ _c3_eval_colon_pair :: (
       // resolves to a method value, and copying FuncVals into
       // the context list proved fragile.
       match(
-        method_val,
+        Rc.clone(method_val),
         Rc(.TypeVal(c3_wt_tvb)) => {
           ctx.current_impl_trait_field_labels.push(method_name.clone());
           ctx.current_impl_trait_field_types.push(Rc.clone(c3_wt_tvb));
@@ -4700,7 +4702,7 @@ _c3_eval_colon_pair :: (
         &st.env,
         &qualified,
         &fi.ty(),
-        .Some(method_val),
+        .Some(Rc.clone(method_val)),
         true,
         false,
         false,
@@ -4716,7 +4718,7 @@ _c3_eval_colon_pair :: (
         &st.env,
         method_name.clone(),
         &fi.ty(),
-        .Some(method_val),
+        .Some(Rc.clone(method_val)),
         true,
         false,
         false,
@@ -4744,17 +4746,17 @@ _c3_eval_colon_pair :: (
         match(
           field_opt,
           .Some(pa_pf) => if(pa_pf.phase_a_registered, {
-            pa_real_fid := match(method_val, Rc(.FuncVal(__pa_fvd, _)) => __pa_fvd.*.func_id.clone(), _ => String.new());
+            pa_real_fid := match(Rc.clone(method_val), Rc(.FuncVal(__pa_fvd, _)) => __pa_fvd.*.func_id.clone(), _ => String.new());
             pa_existing := get_type_trait_methods_by_name(&st.recv_id, &method_name);
             (pa_i : usize) = usize(0);
             while((pa_i < pa_existing.len()) && !updated_phase_a, {
               match(
                 pa_existing.get(pa_i),
                 .Some(pa_e) => {
-                  pa_e_fid := match(pa_e.value, .Some(pa_v) => match(pa_v, Rc(.FuncVal(__pa_e_fvd, _)) => __pa_e_fvd.*.func_id.clone(), _ => String.new()), .None => String.new());
+                  pa_e_fid := match(pa_e.value.clone(), .Some(pa_v) => match(pa_v, Rc(.FuncVal(__pa_e_fvd, _)) => __pa_e_fvd.*.func_id.clone(), _ => String.new()), .None => String.new());
                   if((pa_e_fid.len() > usize(0)) && (pa_e_fid == pa_real_fid), {
                     pa_e.ty = Rc.clone(fi.ty());
-                    pa_e.value = Option(EvalValue).Some(method_val);
+                    pa_e.value = Option(EvalValue).Some(Rc.clone(method_val));
                     register_func_type(pa_real_fid.clone(), _retype_with_value_param_labels(&fi.ty(), &method_val));
                     updated_phase_a = true;
                   });
@@ -4782,7 +4784,7 @@ _c3_eval_colon_pair :: (
           // (register_func_type at the d_fresh mint above); this
           // is the colon-pair-method twin.
           match(
-            method_val,
+            Rc.clone(method_val),
             Rc(.FuncVal(__reg_fvd, _)) => {
               register_func_type(__reg_fvd.*.func_id.clone(), _retype_with_value_param_labels(&fi.ty(), &method_val));
             },
@@ -4793,7 +4795,7 @@ _c3_eval_colon_pair :: (
             MethodEntry(
               label : method_name.clone(),
               ty : Rc.clone(fi.ty()),
-              value : Option(EvalValue).Some(method_val),
+              value : Option(EvalValue).Some(Rc.clone(method_val)),
               // INHERENT-FIRST: tag trait-impl methods (current_trait_ty
               // is Some — `impl(T, Trait(...))`) with their trait id, so
               // resolution can SHADOW them behind a same-name direct/
@@ -4829,7 +4831,7 @@ _c3_eval_colon_pair :: (
         current_trait_ty,
         .Some(__var_tt) => {
           match(
-            method_val,
+            Rc.clone(method_val),
             Rc(.FuncVal(__var_fvd, _)) => {
               register_impl_inheritance_task(
                 type_id_or_empty(&__var_tt.*),
@@ -4876,10 +4878,10 @@ _c2_register_member :: (
       match(
         prior.get(pi),
         .Some(pe) => {
-          pe_fid := match(pe.value, .Some(pv) => match(pv, Rc(.FuncVal(__c2p_fvd, _)) => __c2p_fvd.*.func_id.clone(), _ => String.new()), .None => String.new());
+          pe_fid := match(pe.value.clone(), .Some(pv) => match(pv, Rc(.FuncVal(__c2p_fvd, _)) => __c2p_fvd.*.func_id.clone(), _ => String.new()), .None => String.new());
           if((pe_fid.len() > usize(0)) && (pe_fid == real_fid), {
             pe.ty = Rc.clone(ty);
-            pe.value = Option(EvalValue).Some(value.*);
+            pe.value = Option(EvalValue).Some(Rc.clone(value.*));
             pe.source_trait_id = src_tid.clone();
             updated = true;
           });
@@ -4901,7 +4903,7 @@ _c2_register_member :: (
       MethodEntry(
         label : label.clone(),
         ty : Rc.clone(ty),
-        value : Option(EvalValue).Some(value.*),
+        value : Option(EvalValue).Some(Rc.clone(value.*)),
         source_trait_id : src_tid.clone(),
         needs_pointer_conversion : false,
         self_type : Option(TypeValue).None,
@@ -4940,12 +4942,12 @@ _c2_eval_direct_field :: (
       m_is_macro := _method_ty_skip_stamp(&mfi.ty());
       (m_to_push : EvalValue) = Rc.new(EvalValueNode.UnitVal);
       if(m_is_macro, {
-        m_to_push = mval;
+        m_to_push = Rc.clone(mval);
       }, {
         m_to_push = _stamp_impl_forall_on_method(&mval, &st.forall_names);
       });
       pf.result_ty = Option(TypeValue).Some(Rc.clone(mfi.ty()));
-      pf.result_value = Option(EvalValue).Some(m_to_push);
+      pf.result_value = Option(EvalValue).Some(Rc.clone(m_to_push));
       // Bind the bare label so later sibling fields can reference it by
       // name — alias fields like ComptimeList's `first : car`
       // (std/prelude.yo) evaluated `car` as an unbound atom and registered
@@ -5011,7 +5013,7 @@ _c2_eval_inner_field :: (
       // Make this field visible to later fields' `Self.X`. TYPE-valued
       // fields only — see the Case 3 counterpart.
       match(
-        g_mval,
+        Rc.clone(g_mval),
         Rc(.TypeVal(g_wt_tvb)) => {
           ctx.current_impl_trait_field_labels.push(g_mname.clone());
           ctx.current_impl_trait_field_types.push(Rc.clone(g_wt_tvb));
@@ -5037,7 +5039,7 @@ _c2_eval_inner_field :: (
         .None => ()
       );
       pf.result_ty = Option(TypeValue).Some(Rc.clone(gfi.ty()));
-      pf.result_value = Option(EvalValue).Some(g_to_push);
+      pf.result_value = Option(EvalValue).Some(Rc.clone(g_to_push));
       // Tagged with the trait's id (Case 3's fresh-registration semantics:
       // inherent-first resolution reads source_trait_id).
       if(st.recv_id != "", {
@@ -5399,7 +5401,7 @@ evaluate_module_value :: (
     ctx.expected_type = saved_expected.clone();
     local_env = Rc.clone(result.env);
     out_info := new_expr_info(&local_env, &result.module_type);
-    out_info.set_value(.Some(result.module_value));
+    out_info.set_value(.Some(Rc.clone(result.module_value)));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
     return(Rc.clone(expr.*));
   });
@@ -5721,7 +5723,7 @@ evaluate_module_value :: (
               .Some(c2_rt) => {
                 method_names.push(c2_pf.label.clone());
                 method_types.push(Rc.clone(c2_rt));
-                method_values.push(match(c2_pf.result_value, .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal)));
+                method_values.push(match(c2_pf.result_value.clone(), .Some(v) => Rc.clone(v), .None => Rc.new(EvalValueNode.UnitVal)));
               },
               .None => ()
             );
@@ -5822,7 +5824,7 @@ evaluate_module_value :: (
                   .Some(g_rt) => {
                     g_method_names.push(c2_ipf.label.clone());
                     g_method_types.push(Rc.clone(g_rt));
-                    g_method_values.push(match(c2_ipf.result_value, .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal)));
+                    g_method_values.push(match(c2_ipf.result_value.clone(), .Some(v) => Rc.clone(v), .None => Rc.new(EvalValueNode.UnitVal)));
                   },
                   .None => ()
                 );
@@ -6586,27 +6588,29 @@ evaluate_module_value :: (
                       // params bound at the Self-substituted types; a failing
                       // materialization falls back to the shared default.
                       d_reg_val := match(
-                        d_val,
+                        Rc.clone(d_val),
                         Rc(.FuncVal(d_fvd, d_cvs)) => {
                           d_tok := ast_expr_token(expr);
                           d_fresh_id := stable_func_id(String.from("fn_"), &d_tok.module_path.*, usize(d_tok.row), usize(d_tok.column));
                           d_body_clone := clone_expr_fresh_ids(&d_fvd.*.body);
-                          d_fresh := Rc.new(EvalValueNode.FuncVal(
-                            Rc.new(
-                              FuncValData(
-                                forall_names : d_fvd.*.forall_names.clone(),
-                                params : d_fvd.*.params.clone(),
-                                param_type_names : d_fvd.*.param_type_names.clone(),
-                                evidence_params : d_fvd.*.evidence_params.clone(),
-                                body : d_body_clone.clone(),
-                                cap_names : d_fvd.*.cap_names.clone(),
-                                cap_tys : d_fvd.*.cap_tys.clone(),
-                                func_id : d_fresh_id.clone(),
-                                env_key : d_fvd.*.env_key
-                              )
-                            ),
-                            Rc.clone(d_cvs)
-                          ));
+                          d_fresh := Rc.new(
+                            EvalValueNode.FuncVal(
+                              Rc.new(
+                                FuncValData(
+                                  forall_names : d_fvd.*.forall_names.clone(),
+                                  params : d_fvd.*.params.clone(),
+                                  param_type_names : d_fvd.*.param_type_names.clone(),
+                                  evidence_params : d_fvd.*.evidence_params.clone(),
+                                  body : d_body_clone.clone(),
+                                  cap_names : d_fvd.*.cap_names.clone(),
+                                  cap_tys : d_fvd.*.cap_tys.clone(),
+                                  func_id : d_fresh_id.clone(),
+                                  env_key : d_fvd.*.env_key
+                                )
+                              ),
+                              Rc.clone(d_cvs)
+                            )
+                          );
                           register_func_type(d_fresh_id.clone(), d_sub_ty.clone());
                           d_saved_self := ctx.self_type.clone();
                           ctx.self_type = Option(TypeValue).Some(receiver_ty.clone());
@@ -6746,25 +6750,27 @@ evaluate_module_value :: (
                           // Clone) so prior behavior is kept.
                           cond(
                             (d_out.len() > usize(0)) => d_fresh,
-                            true => Rc.new(EvalValueNode.FuncVal(
-                              Rc.new(
-                                FuncValData(
-                                  forall_names : d_fvd.*.forall_names.clone(),
-                                  params : d_fvd.*.params.clone(),
-                                  param_type_names : d_fvd.*.param_type_names.clone(),
-                                  evidence_params : d_fvd.*.evidence_params.clone(),
-                                  body : Rc.clone(d_fvd.*.body),
-                                  cap_names : d_fvd.*.cap_names.clone(),
-                                  cap_tys : d_fvd.*.cap_tys.clone(),
-                                  func_id : d_fvd.*.func_id.clone(),
-                                  env_key : d_fvd.*.env_key
-                                )
-                              ),
-                              Rc.clone(d_cvs)
-                            ))
+                            true => Rc.new(
+                              EvalValueNode.FuncVal(
+                                Rc.new(
+                                  FuncValData(
+                                    forall_names : d_fvd.*.forall_names.clone(),
+                                    params : d_fvd.*.params.clone(),
+                                    param_type_names : d_fvd.*.param_type_names.clone(),
+                                    evidence_params : d_fvd.*.evidence_params.clone(),
+                                    body : Rc.clone(d_fvd.*.body),
+                                    cap_names : d_fvd.*.cap_names.clone(),
+                                    cap_tys : d_fvd.*.cap_tys.clone(),
+                                    func_id : d_fvd.*.func_id.clone(),
+                                    env_key : d_fvd.*.env_key
+                                  )
+                                ),
+                                Rc.clone(d_cvs)
+                              )
+                            )
                           )
                         },
-                        _ => d_val
+                        _ => Rc.clone(d_val)
                       );
                       register_type_trait_method(
                         &receiver_type_id,
@@ -6864,7 +6870,7 @@ _find_methods_from_generic_impls_as_method_entries :: (
           MethodEntry(
             label : method_name.clone(),
             ty : Rc.clone(c.method_type),
-            value : c.method_value,
+            value : c.method_value.clone(),
             source_trait_id : c.source_trait_id.clone(),
             owner : c.owner.clone(),
             needs_pointer_conversion : false,

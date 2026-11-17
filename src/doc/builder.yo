@@ -2924,7 +2924,7 @@ _function_params_to_doc_params :: (
         is_ct := match(comptime_flags.get(i), .Some(b) => b, .None => false);
         (default_str : Option(String)) = Option(String).None;
         match(
-          defaults.get(i),
+          defaults.get_cloned(i),
           .Some(.Some(v)) => {
             default_str = Option(String).Some(value_to_string(&v));
           },
@@ -3465,7 +3465,7 @@ build_doc_module :: (
     // -- Type declarations (value holds the actual type) --
     (handled : bool) = false;
     match(
-      value,
+      Rc.clone(value),
       Rc(.TypeVal(actual_type)) => {
         handled = true;
         sections := extract_doc_sections(&doc);

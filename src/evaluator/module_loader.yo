@@ -318,7 +318,7 @@ register_module :: (fn(path : &String, module_value : &EvalValue, module_type : 
   if(!module_cache_has(path.clone()), {
     path_owned := path.clone();
     g_module_cache_keys.with_mut({ path_owned }(xs) => xs.push(path_owned.clone()));
-    module_value_owned := module_value.*;
+    module_value_owned := Rc.clone(module_value.*);
     g_module_cache_vals.with_mut({ module_value_owned }(xs) => xs.push(module_value_owned));
     g_module_cache_types.with_mut({ module_type : Rc.clone(module_type) }(xs) => xs.push(Rc.clone(module_type)));
   });
@@ -331,7 +331,7 @@ load_module_from_cache :: (fn(path : &String) -> LoadModuleResult)(
     _module_cache_index(path.clone()),
     .Some(i) => LoadModuleResult(
       module_value : match(
-        g_module_cache_vals.with(xs => xs.get(i)),
+        g_module_cache_vals.with(xs => xs.get_cloned(i)),
         .Some(v) => v,
         .None => Rc.new(EvalValueNode.UnitVal)
       ),
@@ -412,7 +412,7 @@ update_module_cache_slot :: (fn(path : &String, name : &String, var : &Variable)
     .Some(i) => {
       (patched : bool) = false;
       match(
-        g_module_cache_vals.with(xs => xs.get(i)),
+        g_module_cache_vals.with(xs => xs.get_cloned(i)),
         .Some(mv) =>
           match(
             mv,

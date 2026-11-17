@@ -143,7 +143,7 @@ apply_type_ctor_via :: (fn(ctor : &String, types : &ArrayList(TypeValue), env : 
       b_callee := Rc.new(AstExprNode.Atom(alloc_global_expr_id(), b_callee_tok));
       bres := evaluate_comptime_fn_call(Option(AstExpr).Some(b_callee), &box_ft, &bfv, &bav, env, &cenv, ctx, exn);
       cenv.pop_frame();
-      match(bres.value, Rc(.TypeVal(bt)) => Option(TypeValue).Some(Rc.clone(bt)), _ => Option(TypeValue).None)
+      match(Rc.clone(bres.value), Rc(.TypeVal(bt)) => Option(TypeValue).Some(Rc.clone(bt)), _ => Option(TypeValue).None)
     }
   )
 });
@@ -603,7 +603,7 @@ _require_send_dyn_methods_reach_no_global :: (
   (ti : usize) = usize(0);
   while(ti < trait_vals.len(), {
     match(
-      trait_vals.get(ti),
+      trait_vals.get_cloned(ti),
       .Some(tv) => match(
         tv,
         Rc(.TraitVal(_, fnames, fvals)) => {
@@ -667,7 +667,7 @@ _reject_dyn_borrowing_future_methods :: (
   (ti : usize) = usize(0);
   while(ti < trait_vals.len(), ti = (ti + usize(1)), {
     match(
-      trait_vals.get(ti),
+      trait_vals.get_cloned(ti),
       .Some(Rc(.TraitVal(tname, fnames, fvals))) => {
         (fi : usize) = usize(0);
         while(fi < fvals.len(), fi = (fi + usize(1)), {
@@ -732,8 +732,8 @@ _monomorphize_default_fv :: (
   fn(fv : &EvalValue, default_fid : &String, value_type : &TypeValue, caller_env : &Environment, ctx : &mut EvalContext, exn : Exception) -> EvalValue
 )(
   cond(
-    !is_func_val(fv) => fv.*,
-    (default_fid.* == String.new()) => fv.*,
+    !is_func_val(fv) => Rc.clone(fv.*),
+    (default_fid.* == String.new()) => Rc.clone(fv.*),
     match(fv, Rc(.FuncVal(__mfv, _)) => (__mfv.func_id == default_fid.*), _ => false) => {
       default_ft := get_func_type(default_fid.clone());
       // Every parameter is a runtime argument of its declared type, `Self`
@@ -807,7 +807,7 @@ _monomorphize_default_fv :: (
       caller_env.pop_frame();
       spec_fv
     },
-    true => fv.*
+    true => Rc.clone(fv.*)
   )
 );
 /// The trait method `fname` the receiver gets from a GENERIC impl
@@ -843,7 +843,7 @@ _generic_impl_method_for_dyn :: (
   match(
     picked,
     .Some(pc) => match(
-      pc.method_value,
+      pc.method_value.clone(),
       .Some(fv) => if(is_func_val(&fv), {
         recv_name := `__yo_dyn_receiver_${fname}`;
         caller_env.push_frame(false);
@@ -910,10 +910,10 @@ _generic_impl_method_for_dyn :: (
         // context's (the `Dyn` a `dyn(...)` argument is checked against)
         // must not reach it.
         saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
-        res := try_to_call_function_with_arguments(Option(EvalValue).Some(fv), &pc.method_type, &call_expr, &callee_atom, &call_args, caller_env, ctx, true, false, true, exn);
+        res := try_to_call_function_with_arguments(Option(EvalValue).Some(Rc.clone(fv)), &pc.method_type, &call_expr, &callee_atom, &call_args, caller_env, ctx, true, false, true, exn);
         ctx.expected_type = saved_expected.clone();
         caller_env.pop_frame();
-        res.specialized_function_value
+        res.specialized_function_value.clone()
       }, Option(EvalValue).None),
       .None => Option(EvalValue).None
     ),
@@ -972,7 +972,7 @@ _synthesize_dyn_clone_fn :: (fn(payload_in : &TypeValue, dyn_type : &TypeValue, 
   match(
     generic_fv,
     .Some(fv) => {
-      fid := match(fv, Rc(.FuncVal(sfd, _)) => sfd.*.func_id.clone(), _ => String.new());
+      fid := match(Rc.clone(fv), Rc(.FuncVal(sfd, _)) => sfd.*.func_id.clone(), _ => String.new());
       fn_ty := get_func_type(&fid);
       recv_name := String.from("__yo_dyn_clone_source");
       caller_env.push_frame(false);
@@ -987,10 +987,10 @@ _synthesize_dyn_clone_fn :: (fn(payload_in : &TypeValue, dyn_type : &TypeValue, 
       call_args.push(recv_atom);
       call_expr := Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), Rc.clone(callee_atom), Rc.new(call_args.clone()), false, recv_tok));
       ctx.expected_type = Option(ExpectedTypeCtx).None;
-      res := try_to_call_function_with_arguments(Option(EvalValue).Some(fv), &fn_ty, &call_expr, &callee_atom, &call_args, caller_env, ctx, true, false, true, exn);
+      res := try_to_call_function_with_arguments(Option(EvalValue).Some(Rc.clone(fv)), &fn_ty, &call_expr, &callee_atom, &call_args, caller_env, ctx, true, false, true, exn);
       ctx.expected_type = saved_expected.clone();
       caller_env.pop_frame();
-      res.specialized_function_value
+      res.specialized_function_value.clone()
     },
     .None => Option(EvalValue).None
   )
@@ -1071,7 +1071,7 @@ _resolve_dyn_trait_values :: (fn(dyn_type : &TypeValue, value_type : &TypeValue,
                     entries.get(k),
                     .Some(entry) => if(entry.label == fname, {
                       is_exact := (entry.source_trait_id == trait_id.*);
-                      ev := entry.value;
+                      ev := entry.value.clone();
                       if(is_exact, {
                         exact = ev;
                         have_exact = true;
@@ -1127,7 +1127,7 @@ _resolve_dyn_trait_values :: (fn(dyn_type : &TypeValue, value_type : &TypeValue,
                 field_vals.push(
                   match(
                     resolved_field,
-                    .Some(rf) => Option(EvalValue).Some(rf),
+                    .Some(rf) => Option(EvalValue).Some(Rc.clone(rf)),
                     .None => if(is_clone_trait_type(&tt) && (fname == "clone"), _synthesize_dyn_clone_fn(&method_lookup_type, dyn_type, caller_env, ctx, exn), Option(EvalValue).None)
                   )
                 );
@@ -1145,11 +1145,13 @@ _resolve_dyn_trait_values :: (fn(dyn_type : &TypeValue, value_type : &TypeValue,
             // name).
             Rc(.FnTraitT(fn_base, _, _, _, _, _)) => {
               trait_vals.push(
-                Rc.new(EvalValueNode.TraitVal(
-                  fn_base.clone(),
-                  no_labels(),
-                  no_opt_values()
-                ))
+                Rc.new(
+                  EvalValueNode.TraitVal(
+                    fn_base.clone(),
+                    no_labels(),
+                    no_opt_values()
+                  )
+                )
               );
               ()
             },

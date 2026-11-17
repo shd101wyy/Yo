@@ -1050,7 +1050,7 @@ generate_function_declarations :: (fn(context : &mut CodeGenContext) -> unit)({
         context.get_function_entry(func_id.clone()),
         .Some(entry) => {
           c_name := entry.c_name.clone();
-          value := entry.value;
+          value := Rc.clone(entry.value);
           function_type := get_func_type(func_id.clone());
           is_user_main := (c_name == "__yo_user_main");
           body := _func_value_body(&value);

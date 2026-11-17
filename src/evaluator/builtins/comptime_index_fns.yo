@@ -34,7 +34,8 @@ pragma(Pragma.AllowUnsafe);
 { Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 {
-  EvalValue, EvalValueNode,
+  EvalValue,
+  EvalValueNode,
   is_int_lit,
   is_str_lit,
   is_struct_val,
@@ -158,7 +159,7 @@ ci_resolve_comptime_list :: (fn(val_opt : &Option(EvalValue)) -> Option(EvalValu
     val_opt,
     .Some(sv) => if(
       is_comptime_list_val(&sv.*),
-      Option(EvalValue).Some(sv.*),
+      Option(EvalValue).Some(Rc.clone(sv.*)),
       if(is_ptr_val(&sv.*), {
         inner := match(
           sv,

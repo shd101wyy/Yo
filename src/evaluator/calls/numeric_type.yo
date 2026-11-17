@@ -41,7 +41,8 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 {
-  EvalValue, EvalValueNode,
+  EvalValue,
+  EvalValueNode,
   create_unknown_val,
   is_int_lit,
   is_float_lit,
@@ -250,7 +251,7 @@ try_to_convert_to_numeric_type :: (
   (mut(enum_disc_raw) : Option(String)) = Option(String).None;
   if(is_enum_type(&arg_type), {
     match(
-      arg_val,
+      arg_val.clone(),
       .Some(v) => {
         if(is_enum_val(&v), {
           match(
@@ -349,7 +350,7 @@ try_to_convert_to_numeric_type :: (
     &enum_disc_raw,
     .Some(r) => .Some(r.clone()),
     .None => match(
-      arg_val,
+      arg_val.clone(),
       .Some(v) => cond(
         is_int_lit(&v) => match(v, Rc(.IntLit(r)) => Option(String).Some(r.clone()), _ => .None),
         is_float_lit(&v) => match(v, Rc(.FloatLit(r)) => Option(String).Some(r.clone()), _ => .None),

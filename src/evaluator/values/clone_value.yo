@@ -26,17 +26,17 @@ clone_value :: (fn(v : &EvalValue, preserve_pointer_refs : bool) -> EvalValue)(
     v,
     // Primitive / immutable — return as-is
     Rc(.UnitVal) => Rc.new(EvalValueNode.UnitVal),
-    Rc(.BoolVal(_)) => v.*,
-    Rc(.IntLit(_)) => v.*,
-    Rc(.FloatLit(_)) => v.*,
-    Rc(.StrLit(_)) => v.*,
-    Rc(.VarRef(_)) => v.*,
-    Rc(.BreakVal) => v.*,
-    Rc(.ContinueVal) => v.*,
-    Rc(.FuncVal(_, _)) => v.*,
-    Rc(.TypeVal(_)) => v.*,
-    Rc(.ExprVal(_)) => v.*,
-    Rc(.UnknownVal(_, _)) => v.*,
+    Rc(.BoolVal(_)) => Rc.clone(v.*),
+    Rc(.IntLit(_)) => Rc.clone(v.*),
+    Rc(.FloatLit(_)) => Rc.clone(v.*),
+    Rc(.StrLit(_)) => Rc.clone(v.*),
+    Rc(.VarRef(_)) => Rc.clone(v.*),
+    Rc(.BreakVal) => Rc.clone(v.*),
+    Rc(.ContinueVal) => Rc.clone(v.*),
+    Rc(.FuncVal(_, _)) => Rc.clone(v.*),
+    Rc(.TypeVal(_)) => Rc.clone(v.*),
+    Rc(.ExprVal(_)) => Rc.clone(v.*),
+    Rc(.UnknownVal(_, _)) => Rc.clone(v.*),
     // ReturnVal — recursively clone the wrapped value
     Rc(.ReturnVal(val : val_box, ty : ty)) =>
       Rc.new(EvalValueNode.ReturnVal(val : recur(&val_box.*, preserve_pointer_refs), ty : ty.clone())),
@@ -47,7 +47,7 @@ clone_value :: (fn(v : &EvalValue, preserve_pointer_refs : bool) -> EvalValue)(
     // isolation only needs the copy).
     Rc(.PtrVal(target_value : tgt_cell, target_index : idx, aggregate_ty : agg)) =>
       cond(
-        preserve_pointer_refs => v.*,
+        preserve_pointer_refs => Rc.clone(v.*),
         true => {
           cv_new_cell := ArrayList(EvalValue).new();
           match(

@@ -203,7 +203,7 @@ evaluate_anonymous_struct_value :: (
     );
     field_labels.push(label.clone());
     field_types.push(Rc.clone(field_ty));
-    field_values.push(field_val_opt);
+    field_values.push(field_val_opt.clone());
     runtime_arg_exprs.push(evaluated_arg);
     yofield := TypeField(
       label : label.clone(),
@@ -246,7 +246,7 @@ evaluate_anonymous_struct_value :: (
     (ai : usize) = usize(0);
     while((ai < field_values.len()) && ac, {
       match(
-        field_values.get(ai),
+        field_values.get_cloned(ai),
         .None => {
           ac = false;
         },
@@ -273,7 +273,7 @@ evaluate_anonymous_struct_value :: (
           .None => ()
         );
         match(
-          field_values.get(si),
+          field_values.get_cloned(si),
           .Some(.Some(v)) => {
             sv_vals.push(v);
           },
@@ -290,7 +290,7 @@ evaluate_anonymous_struct_value :: (
   struct_type_val := create_type_value(&struct_ty);
   meta_ty := type_of_type(&struct_ty);
   func_info := new_expr_info(&cur_env, &meta_ty);
-  func_info.set_value(Option(EvalValue).Some(struct_type_val));
+  func_info.set_value(Option(EvalValue).Some(Rc.clone(struct_type_val)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&func_expr), &func_info);
   // Add struct type to env as a comptime variable named by struct_id
   add_variable_to_env(

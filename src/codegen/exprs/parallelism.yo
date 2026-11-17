@@ -69,8 +69,8 @@ _capture_type_c_name :: (fn(capture_type : &TypeValue, context : &FunctionGenera
 _closure_fn_c_name :: (fn(cb_ei_value : &Option(EvalValue), cb_closure_fn_val : &Option(EvalValue), context : &FunctionGenerationContext) -> Option(String))({
   fv_opt := match(
     cb_closure_fn_val,
-    .Some(fv) => Option(EvalValue).Some(fv.*),
-    .None => match(cb_ei_value, .Some(v) => if(is_func_val(&v.*), Option(EvalValue).Some(v.*), Option(EvalValue).None), .None => Option(EvalValue).None)
+    .Some(fv) => Option(EvalValue).Some(Rc.clone(fv.*)),
+    .None => match(cb_ei_value, .Some(v) => if(is_func_val(&v.*), Option(EvalValue).Some(Rc.clone(v.*)), Option(EvalValue).None), .None => Option(EvalValue).None)
   );
   match(
     fv_opt,
@@ -82,8 +82,8 @@ _closure_fn_c_name :: (fn(cb_ei_value : &Option(EvalValue), cb_closure_fn_val : 
 _closure_fid :: (fn(cb_ei_value : &Option(EvalValue), cb_closure_fn_val : &Option(EvalValue)) -> String)({
   fv_opt := match(
     cb_closure_fn_val,
-    .Some(fv) => Option(EvalValue).Some(fv.*),
-    .None => match(cb_ei_value, .Some(v) => if(is_func_val(&v.*), Option(EvalValue).Some(v.*), Option(EvalValue).None), .None => Option(EvalValue).None)
+    .Some(fv) => Option(EvalValue).Some(Rc.clone(fv.*)),
+    .None => match(cb_ei_value, .Some(v) => if(is_func_val(&v.*), Option(EvalValue).Some(Rc.clone(v.*)), Option(EvalValue).None), .None => Option(EvalValue).None)
   );
   match(fv_opt, .Some(fv) => match(fv, Rc(.FuncVal(__fvd2, _)) => __fvd2.*.func_id.clone(), _ => String.new()), .None => String.new())
 });

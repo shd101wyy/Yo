@@ -63,7 +63,7 @@ _contract_block :: (
 )({
   v := match(
     val,
-    .Some(x) => x.*,
+    .Some(x) => Rc.clone(x.*),
     .None => {
       return(Option(String).None);
     }
@@ -583,7 +583,7 @@ handle_hover :: (
               match(
                 sv.value().get(usize(0)),
                 .Some(vv) => {
-                  fn_val = Option(EvalValue).Some(vv);
+                  fn_val = Option(EvalValue).Some(Rc.clone(vv));
                   vs2 := value_to_string(&vv);
                   if(vs2 != "<runtime value>", {
                     val_opt = Option(String).Some(vs2);

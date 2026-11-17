@@ -2031,7 +2031,7 @@ ${expr_str}`
     // `r :: runt_id(n)` was silently accepted (tests/fn.test.yo arm 12's
     // comptime_expect_error never saw an error and hollowed the batch).
     rhs_has_no_ct_value := match(
-      rhs_value_opt,
+      rhs_value_opt.clone(),
       .Some(_rv) => is_runtime_only_unknown_val(&_rv),
       .None => true
     );
@@ -2059,7 +2059,7 @@ ${rhs_str}`
     // match; under propagated def-eval the prelude's `assert` failed on it
     // and cascaded across 96 std files.
     stamped_rhs_value_opt := match(
-      rhs_value_opt,
+      rhs_value_opt.clone(),
       .Some(rv) => match(
         rv,
         Rc(.TypeVal(tv_box)) => {
@@ -2131,12 +2131,12 @@ ${rhs_str}`
           match(
             stamped_ty,
             .Some(new_ty) => Option(EvalValue).Some(Rc.new(EvalValueNode.TypeVal(Rc.clone(new_ty)))),
-            .None => rhs_value_opt
+            .None => rhs_value_opt.clone()
           )
         },
-        _ => rhs_value_opt
+        _ => rhs_value_opt.clone()
       ),
-      .None => rhs_value_opt
+      .None => rhs_value_opt.clone()
     );
     // Determine the value to store. A MODULE value is stored by handle, not
     // deep-cloned: importers must share the cached module's `field_values`
@@ -2149,7 +2149,7 @@ ${rhs_str}`
     lhs_value_opt := cond(
       effective_is_compile_time_only => match(
         stamped_rhs_value_opt,
-        .Some(rv) => Option(EvalValue).Some(cond(is_module_val(&rv) => rv, true => clone_value(&rv, true))),
+        .Some(rv) => Option(EvalValue).Some(cond(is_module_val(&rv) => Rc.clone(rv), true => clone_value(&rv, true))),
         .None => Option(EvalValue).Some(create_unknown_val(&lhs_type))
       ),
       true => Option(EvalValue).None
@@ -2269,11 +2269,11 @@ Use \`::\` for compile-time definitions inside impl.`
         match(
           lhs_value_opt,
           .Some(pb_v) => if(pb.value().len() > usize(0), {
-            pb.value().set(usize(0), pb_v);
+            pb.value().set(usize(0), Rc.clone(pb_v));
           }, {
             // An EMPTY cell is the shared `empty_value_cell()` (value.yo):
             // never push into it — mint the variable its own cell.
-            pb.set_value(value_cell_of(Option(EvalValue).Some(pb_v)));
+            pb.set_value(value_cell_of(Option(EvalValue).Some(Rc.clone(pb_v))));
           }),
           .None => ()
         );

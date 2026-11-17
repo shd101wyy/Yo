@@ -142,7 +142,8 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../trait_checking.yo");
 { is_io_async_call, is_io_await_call, is_io_state_call, is_io_spawn_call, is_join_handle_await_call } :: import("../async/await_analysis.yo");
 {
-  EvalValue, EvalValueNode,
+  EvalValue,
+  EvalValueNode,
   FuncValData,
   eval_value_eq,
   value_to_string,
@@ -299,7 +300,7 @@ extract_function_value :: (fn(value : &Option(EvalValue)) -> Option(EvalValue))(
     .None => Option(EvalValue).None,
     .Some(v) => match(
       v,
-      Rc(.FuncVal(_, _)) => Option(EvalValue).Some(v.*),
+      Rc(.FuncVal(_, _)) => Option(EvalValue).Some(Rc.clone(v.*)),
       _ => Option(EvalValue).None
     )
   )
@@ -345,7 +346,7 @@ _module_type_contains_ctl_field :: (
           is_func_field := match(&field_ty, Rc(.Func({ result : _ })) => true, _ => false);
           if(is_func_field, {
             match(
-              field_val_opt,
+              field_val_opt.clone(),
               .Some(Rc(.FuncVal(__fvd1, _))) => {
                 if(is_control_fn(__fvd1.*.func_id.clone()), {
                   found = true;
@@ -362,8 +363,8 @@ _module_type_contains_ctl_field :: (
               field_val_opt,
               .None => Option(EvalValue).None,
               .Some(fv) => match(
-                fv,
-                Rc(.StructVal(_, _, _)) => Option(EvalValue).Some(fv),
+                Rc.clone(fv),
+                Rc(.StructVal(_, _, _)) => Option(EvalValue).Some(Rc.clone(fv)),
                 _ => Option(EvalValue).None
               )
             );
@@ -2181,7 +2182,7 @@ check_if_function_parameter_matches_argument :: (
   match(
     param_assigned_value,
     .Some(pav) => match(
-      arg_value,
+      arg_value.clone(),
       .Some(agv) => {
         (pav_matches : bool) = are_values_equal(&pav.*, &callee_env_r, &agv, &caller_env_r);
         if(!pav_matches, {
@@ -2246,7 +2247,7 @@ ${ast_expr_to_string(&actual_arg)}`
   // Step 9 binds `f` with, so this is what makes the specialized body — and the
   // C it emits — use `Option(i32)`.
   match(
-    arg_value,
+    arg_value.clone(),
     .Some(av_pr) => match(
       av_pr,
       Rc(.FuncVal(pr_fvd, _)) => match(
@@ -2269,7 +2270,7 @@ ${ast_expr_to_string(&actual_arg)}`
   );
   (arg_type_for_synth : TypeValue) = Rc.clone(arg_type);
   match(
-    arg_value,
+    arg_value.clone(),
     .Some(av_cb) => match(
       av_cb,
       Rc(.FuncVal(cb_fvd, _)) => match(
@@ -2543,7 +2544,7 @@ compute_compile_time_signature :: (
           fpi < n_fa,
           match(
             arg_values.forall_args.get(fpi),
-            .Some(ae) => ae.value,
+            .Some(ae) => ae.value.clone(),
             .None => Option(EvalValue).None
           ),
           Option(EvalValue).None
@@ -2589,7 +2590,7 @@ compute_compile_time_signature :: (
         sig_str := match(
           impl_args.get(iai),
           .Some(ae) => match(
-            ae.value,
+            ae.value.clone(),
             .Some(v) => sanitize_for_sig(value_to_signature_string(&v)),
             .None => String.from("unknown")
           ),
@@ -2619,7 +2620,7 @@ compute_compile_time_signature :: (
       ct_sig := match(
         arg_values.args.get(pci),
         .Some(ae) => match(
-          ae.value,
+          ae.value.clone(),
           .Some(v) => sanitize_for_sig(value_to_signature_string(&v)),
           .None => String.from("unknown")
         ),
@@ -2771,8 +2772,8 @@ _find_specialization_cache :: (
               if(ct_match, {
                 (cti : usize) = usize(0);
                 while((cti < n_ct) && ct_match, {
-                  cached_v := match(cache.compile_time_arg_values.get(cti), .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal));
-                  current_v := match(compile_time_arg_values.get(cti), .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal));
+                  cached_v := match(cache.compile_time_arg_values.get_cloned(cti), .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal));
+                  current_v := match(compile_time_arg_values.get_cloned(cti), .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal));
                   if(!eval_value_eq(&cached_v, &current_v), {
                     ct_match = false;
                   });
@@ -2913,7 +2914,7 @@ _find_specialization_cache :: (
                   });
                 });
                 if(rt_match, {
-                  result = Option(EvalValue).Some(cache.specialized_func_value);
+                  result = Option(EvalValue).Some(Rc.clone(cache.specialized_func_value));
                 });
               });
             });
@@ -2940,7 +2941,7 @@ _store_specialization_cache :: (
   new_cache := SpecializedFunctionCache(
     compile_time_arg_values : compile_time_arg_values.clone(),
     runtime_parameter_types : runtime_parameter_types.clone(),
-    specialized_func_value : specialized_func_val.*,
+    specialized_func_value : Rc.clone(specialized_func_val.*),
     owner : registration_owner()
   );
   // Find existing entry for this func_id
@@ -2994,7 +2995,7 @@ specialization_recording_take :: (fn(start : usize) -> ArrayList(EvalValue))({
   out := ArrayList(EvalValue).new();
   (i : usize) = start;
   while(i < g_minted_specializations.with(_c_len_3), {
-    match(g_minted_specializations.with(xs => xs.get(i)), .Some(v) => out.push(v), .None => ());
+    match(g_minted_specializations.with(xs => xs.get_cloned(i)), .Some(v) => out.push(v), .None => ());
     i = (i + usize(1));
   });
   while(g_minted_specializations.with(_c_len_3) > start, {
@@ -3069,7 +3070,7 @@ specialization_capture_value_count :: (fn() -> usize)({
       .Some(entry) => {
         for(&entry.caches, c => {
           match(
-            c.specialized_func_value,
+            Rc.clone(c.specialized_func_value),
             Rc(.FuncVal(_, __scv)) => {
               n = (n + __scv.len());
             },
@@ -3095,7 +3096,7 @@ specialization_flat_capture_count :: (fn() -> usize)({
       .Some(entry) => {
         for(&entry.caches, c => {
           match(
-            c.specialized_func_value,
+            Rc.clone(c.specialized_func_value),
             Rc(.FuncVal(__sfd, _)) => {
               n = (n + __sfd.*.cap_names.len());
             },
@@ -3212,21 +3213,23 @@ _build_forward_ref_funcval :: (
     func_val,
     .Some(fv) => match(
       fv,
-      Rc(.FuncVal(__fvm1, _)) => Rc.new(EvalValueNode.FuncVal(
-        Rc.new(
-          FuncValData(
-            forall_names : __fvm1.forall_names.clone(),
-            params : __fvm1.params.clone(),
-            param_type_names : __fvm1.param_type_names.clone(),
-            evidence_params : __fvm1.evidence_params.clone(),
-            body : make_err_expr(),
-            cap_names : ArrayList(String).new(),
-            cap_tys : ArrayList(TypeValue).new(),
-            func_id : specialized_func_id.clone()
-          )
-        ),
-        no_values()
-      )),
+      Rc(.FuncVal(__fvm1, _)) => Rc.new(
+        EvalValueNode.FuncVal(
+          Rc.new(
+            FuncValData(
+              forall_names : __fvm1.forall_names.clone(),
+              params : __fvm1.params.clone(),
+              param_type_names : __fvm1.param_type_names.clone(),
+              evidence_params : __fvm1.evidence_params.clone(),
+              body : make_err_expr(),
+              cap_names : ArrayList(String).new(),
+              cap_tys : ArrayList(TypeValue).new(),
+              func_id : specialized_func_id.clone()
+            )
+          ),
+          no_values()
+        )
+      ),
       _ => Rc.new(EvalValueNode.UnitVal)
     ),
     .None => Rc.new(EvalValueNode.UnitVal)
@@ -3356,7 +3359,7 @@ _spec_bindings_are_concrete :: (fn(forall_args : &ArrayList(ArgEntry), runtime_p
     match(
       forall_args.get(fi),
       .Some(fa) => match(
-        fa.value,
+        fa.value.clone(),
         .Some(Rc(.TypeVal(ft))) => if(type_contains_some_type_for_codegen_param(&ft, ArrayList(String).new()), {
           return(false);
         }),
@@ -3462,7 +3465,7 @@ _somes_are_closure_forall_args :: (fn(somes : &ArrayList(TypeValue), forall_args
     match(
       forall_args.get(fi),
       .Some(fa) => match(
-        fa.value,
+        fa.value.clone(),
         .Some(fv) => match(
           fv,
           Rc(.TypeVal(ft)) => match(
@@ -3533,9 +3536,9 @@ create_specialized_function_inline :: (
         match(
           arg_values.forall_args.get(fai),
           .Some(ae) => match(
-            ae.value,
+            ae.value.clone(),
             .Some(v) => {
-              compile_time_args.push(v);
+              compile_time_args.push(Rc.clone(v));
             },
             .None => ()
           ),
@@ -3553,9 +3556,9 @@ create_specialized_function_inline :: (
             match(
               impl_args.get(iai),
               .Some(ae) => match(
-                ae.value,
+                ae.value.clone(),
                 .Some(v) => {
-                  compile_time_args.push(v);
+                  compile_time_args.push(Rc.clone(v));
                 },
                 .None => ()
               ),
@@ -3586,9 +3589,9 @@ create_specialized_function_inline :: (
             sp_ai_ct := match(spec_param_ct_flags.get(ai), .Some(f) => f, .None => false);
             if(sp_ai_ct, {
               match(
-                ae.value,
+                ae.value.clone(),
                 .Some(ct_v) => {
-                  compile_time_args.push(ct_v);
+                  compile_time_args.push(Rc.clone(ct_v));
                 },
                 .None => ()
               );
@@ -3630,7 +3633,7 @@ create_specialized_function_inline :: (
           _ => ()
         );
         if(degenerate_unit_arg, {
-          return(original_func_val.*);
+          return(Rc.clone(original_func_val.*));
         });
       };
       // Bind explicit `comptime(K) : Type` params into the mint env EARLY —
@@ -3648,14 +3651,14 @@ create_specialized_function_inline :: (
             match(
               arg_values.args.get(ectp_i),
               .Some(ectp_ae) => match(
-                ectp_ae.value,
+                ectp_ae.value.clone(),
                 .Some(ectp_v) => {
                   ectp_ty := match(ectp_v, Rc(.TypeVal(_)) => Rc.new(TypeValueNode.TypeUni(usize(0))), _ => Rc.clone(ectp_ae.arg_type));
                   _ectp := add_variable_to_env(
                     callee_env,
                     &ectp_label,
                     &ectp_ty,
-                    Option(EvalValue).Some(ectp_v),
+                    Option(EvalValue).Some(Rc.clone(ectp_v)),
                     true,
                     false,
                     false,
@@ -3737,7 +3740,7 @@ create_specialized_function_inline :: (
           match(
             arg_values.args.get(cfi),
             .Some(cf_ae) => match(
-              cf_ae.value,
+              cf_ae.value.clone(),
               .Some(cf_v) => match(
                 cf_v,
                 Rc(.FuncVal(cf_fvd, _)) => {
@@ -3783,7 +3786,7 @@ create_specialized_function_inline :: (
       );
       match(
         cached,
-        .Some(spec_val) => spec_val,
+        .Some(spec_val) => Rc.clone(spec_val),
         .None => {
           // ------------------------------------------------------------------
           // Cache miss: create the specialization
@@ -3843,7 +3846,7 @@ create_specialized_function_inline :: (
               match(
                 arg_values.forall_args.get(zb_i),
                 .Some(zb_ae) => match(
-                  zb_ae.value,
+                  zb_ae.value.clone(),
                   .Some(zb_v) => match(
                     zb_v,
                     Rc(.TypeVal(zb_tb)) => if(!is_some_type(&zb_tb) && is_type_kind(&zb_kind), {
@@ -3888,7 +3891,7 @@ create_specialized_function_inline :: (
                               arg_values.args.get(zbp),
                               .Some(zb_ae2) => {
                                 match(
-                                  zb_ae2.value,
+                                  zb_ae2.value.clone(),
                                   .Some(zb_v2) => match(
                                     zb_v2,
                                     Rc(.FuncVal(zb_fvd, _)) => {
@@ -4012,7 +4015,7 @@ create_specialized_function_inline :: (
                         match(
                           arg_values.forall_args.get(zbni),
                           .Some(zae) => match(
-                            zae.value,
+                            zae.value.clone(),
                             .Some(Rc(.TypeVal(ztb))) => if(!is_some_type(&ztb), {
                               subst_add(&zs_ret, zrst_name.clone(), zrst_lvl, ztb.clone());
                               zs_any = true;
@@ -4265,7 +4268,7 @@ create_specialized_function_inline :: (
               original_func_id : func_id.clone(),
               specialized_func_id : specialized_func_id.clone(),
               specialized_return_type : spec_ret_ty.clone(),
-              original_func_value : original_func_val.*,
+              original_func_value : Rc.clone(original_func_val.*),
               impl_bindings_sig : push_bindings_sig,
               is_concrete : _spec_bindings_are_concrete(&arg_values.forall_args, &runtime_param_tys)
             )
@@ -4320,7 +4323,7 @@ create_specialized_function_inline :: (
             FuncOrAsyncBlockCtx(
               kind : FuncOrAsyncBlockKind.FunctionBody,
               func_type : Option(TypeValue).Some(fb_func_type),
-              func_value : Option(EvalValue).Some(original_func_val.*),
+              func_value : Option(EvalValue).Some(Rc.clone(original_func_val.*)),
               // SNAPSHOT the entry env (frames-list copy, shared Frame refs):
               // the live env grows when evaluate_begin pushes the body's OWN
               // begin frame, so without the snapshot body locals (frame_level
@@ -4670,7 +4673,7 @@ create_specialized_function_inline :: (
                   match(
                     arg_values.args.get(rbp_i),
                     .Some(cb_ae2) => match(
-                      cb_ae2.value,
+                      cb_ae2.value.clone(),
                       .Some(cb_v2) => match(
                         cb_v2,
                         Rc(.FuncVal(cb_fvd2, _)) => match(
@@ -4740,7 +4743,7 @@ create_specialized_function_inline :: (
                   match(
                     arg_values.args.get(rbp_i),
                     .Some(cb_ae3) => match(
-                      cb_ae3.value,
+                      cb_ae3.value.clone(),
                       .Some(Rc(.FuncVal(cb_fvd3, _))) => note_closure_for_some_id(fresh_some_id.clone(), cb_fvd3.*.func_id.clone()),
                       .Some(_) => (),
                       .None => match(
@@ -4780,7 +4783,7 @@ create_specialized_function_inline :: (
                         match(
                           arg_values.args.get(rbp_i),
                           .Some(cl_ae3) => match(
-                            cl_ae3.value,
+                            cl_ae3.value.clone(),
                             .Some(cl_v3) => match(
                               cl_v3,
                               Rc(.FuncVal(cl_fvd3, _)) => match(
@@ -5128,7 +5131,7 @@ create_specialized_function_inline :: (
                   match(
                     arg_values.forall_args.get(sbi),
                     .Some(sb_fa) => match(
-                      sb_fa.value,
+                      sb_fa.value.clone(),
                       .Some(sb_fv) => {
                         sb_inst.push_str(if(sb_inst.len() == usize(0), " (instantiated with ", ", "));
                         sb_inst.push_string(match(forall_names.get_cloned(sbi), .Some(n) => n, .None => String.new()));
@@ -5324,24 +5327,26 @@ create_specialized_function_inline :: (
             new_env_key = mint_funcval_env_key();
             register_funcval_cap_slices(new_env_key, cap_slices_with_list(&spec_prefix, &new_cap_vars));
           });
-          specialized_func_val := Rc.new(EvalValueNode.FuncVal(
-            Rc.new(
-              FuncValData(
-                forall_names : forall_names.clone(),
-                params : params.clone(),
-                param_type_names : param_type_names,
-                evidence_params : evidence_params,
-                body : cloned_body,
-                cap_names : new_cap_names,
-                cap_tys : new_cap_tys,
-                func_id : specialized_func_id.clone(),
-                env_key : new_env_key
-              )
-            ),
-            shared_values(new_cap_vals)
-          ));
+          specialized_func_val := Rc.new(
+            EvalValueNode.FuncVal(
+              Rc.new(
+                FuncValData(
+                  forall_names : forall_names.clone(),
+                  params : params.clone(),
+                  param_type_names : param_type_names,
+                  evidence_params : evidence_params,
+                  body : cloned_body,
+                  cap_names : new_cap_names,
+                  cap_tys : new_cap_tys,
+                  func_id : specialized_func_id.clone(),
+                  env_key : new_env_key
+                )
+              ),
+              shared_values(new_cap_vals)
+            )
+          );
           if(g_mint_recordings_open > usize(0), {
-            g_minted_specializations.with_mut(xs => xs.push(specialized_func_val));
+            g_minted_specializations.with_mut({ specialized_func_val : Rc.clone(specialized_func_val) }(xs) => xs.push(Rc.clone(specialized_func_val)));
           });
           // V6 task 2 (FORMAL_VERIFICATION.md): re-key the ORIGINAL
           // FuncVal's contract tables onto the specialized id — the
@@ -5434,7 +5439,7 @@ create_specialized_function_inline :: (
                 match(
                   arg_values.args.get(spi),
                   .Some(cc_ae) => match(
-                    cc_ae.value,
+                    cc_ae.value.clone(),
                     .Some(cc_v) => match(
                       cc_v,
                       Rc(.FuncVal(cc_fvd, cc_capvals)) => {
@@ -5516,7 +5521,7 @@ create_specialized_function_inline :: (
                                               match(
                                                 arg_values.forall_args.get(cw_bi),
                                                 .Some(cw_fae) => match(
-                                                  cw_fae.value,
+                                                  cw_fae.value.clone(),
                                                   .Some(cw_fav) => match(
                                                     cw_fav,
                                                     Rc(.TypeVal(cw_fat)) => if(!is_some_type(&cw_fat) && (get_all_some_types(&cw_fat).len() == usize(0)), {
@@ -5610,9 +5615,9 @@ create_specialized_function_inline :: (
                                     match(
                                       fv_source_val(&cw_src, &cc_capvals, cw_cvi),
                                       .Some(x) => match(
-                                        x,
+                                        Rc.clone(x),
                                         Rc(.TypeVal(_)) => {
-                                          cw_cv = Option(EvalValue).Some(x);
+                                          cw_cv = Option(EvalValue).Some(Rc.clone(x));
                                           cw_has_cv = true;
                                         },
                                         _ => ()
@@ -5794,7 +5799,7 @@ create_specialized_function_inline :: (
                           match(
                             arg_values.forall_args.get(ybni),
                             .Some(yae) => match(
-                              yae.value,
+                              yae.value.clone(),
                               .Some(Rc(.TypeVal(ytb))) => if(!is_some_type(&ytb), {
                                 subst_add(&ys_ret, yrst_name.clone(), yrst_lvl, ytb.clone());
                                 ys_added_names.push(yrst_name.clone());
@@ -6053,7 +6058,7 @@ create_specialized_function_inline :: (
         }
       )
     },
-    _ => original_func_val.*
+    _ => Rc.clone(original_func_val.*)
   );
   result
 });
@@ -6067,7 +6072,7 @@ _instantiation_description :: (fn(callee : &String, names : &ArrayList(String), 
     match(
       forall_args.get(i),
       .Some(fa) => match(
-        fa.value,
+        fa.value.clone(),
         .Some(fv) => {
           out.push_str(if(n_bound == usize(0), " with ", ", "));
           out.push_string(match(names.get_cloned(i), .Some(n) => n, .None => String.new()));
@@ -6097,7 +6102,7 @@ _reject_unsized_type_binder_arguments :: (
       match(
         av.forall_args.get(i),
         .Some(uk_fa) => match(
-          uk_fa.value,
+          uk_fa.value.clone(),
           .Some(Rc(.TypeVal(uk_t))) => if(!type_is_sized(&uk_t), {
             uk_name := match(names.get_cloned(i), .Some(n) => n, .None => String.from("T"));
             exn.throw(dyn(Box.new(unsized_by_value_error(&uk_t, &`\`${callee_name}\`'s type binder \`${uk_name}\``, &Option(String).Some(uk_name.clone()), call_tok))));
@@ -6234,9 +6239,9 @@ create_specialization_at_call :: (
       Rc.new(EvalValueNode.UnitVal)
     },
     .None => match(
-      out.get(usize(0)),
+      out.get_cloned(usize(0)),
       .Some(spec) => {
-        match(spec, Rc(.FuncVal(sfvd, _)) => record_spec_instantiation(sfvd.*.func_id.clone(), call_tok, &description), _ => ());
+        match(Rc.clone(spec), Rc(.FuncVal(sfvd, _)) => record_spec_instantiation(sfvd.*.func_id.clone(), call_tok, &description), _ => ());
         spec
       },
       .None => Rc.new(EvalValueNode.UnitVal)
@@ -6325,7 +6330,7 @@ evaluate_ctl_function_body_inline :: (
     cached_result,
     .Some(cv2) => {
       found_cached = true;
-      cached_val = cv2;
+      cached_val = Rc.clone(cv2);
     },
     .None => ()
   );
@@ -6435,7 +6440,7 @@ evaluate_ctl_function_body_inline :: (
   handler_fb_ctx := FuncOrAsyncBlockCtx(
     kind : FuncOrAsyncBlockKind.FunctionBody,
     func_type : Option(TypeValue).Some(Rc.clone(func_type)),
-    func_value : Option(EvalValue).Some(original_func_val.*),
+    func_value : Option(EvalValue).Some(Rc.clone(original_func_val.*)),
     // Snapshot: freeze the entry frame count (see the spec-path ctx above).
     eval_env : snapshot_env(&specialized_env)
   );
@@ -6545,22 +6550,24 @@ evaluate_ctl_function_body_inline :: (
     ctl_env_key = mint_funcval_env_key();
     register_funcval_cap_slices(ctl_env_key, cap_slices_with_list(&ctl_prefix, &ctl_cap_vars));
   });
-  ctl_func_val := Rc.new(EvalValueNode.FuncVal(
-    Rc.new(
-      FuncValData(
-        forall_names : orig_forall_labels,
-        params : orig_params,
-        param_type_names : orig_param_type_names,
-        evidence_params : orig_evidence_params,
-        body : orig_body,
-        cap_names : ctl_cap_names,
-        cap_tys : ctl_cap_tys,
-        func_id : ctl_func_id.clone(),
-        env_key : ctl_env_key
-      )
-    ),
-    shared_values(ctl_cap_vals)
-  ));
+  ctl_func_val := Rc.new(
+    EvalValueNode.FuncVal(
+      Rc.new(
+        FuncValData(
+          forall_names : orig_forall_labels,
+          params : orig_params,
+          param_type_names : orig_param_type_names,
+          evidence_params : orig_evidence_params,
+          body : orig_body,
+          cap_names : ctl_cap_names,
+          cap_tys : ctl_cap_tys,
+          func_id : ctl_func_id.clone(),
+          env_key : ctl_env_key
+        )
+      ),
+      shared_values(ctl_cap_vals)
+    )
+  );
   // -------------------------------------------------------------------------
   // Cache the result.
   // -------------------------------------------------------------------------
@@ -7829,7 +7836,7 @@ try_to_call_function_with_arguments :: (
         (ofi : usize) = usize(0);
         while(ofi < n_params, {
           match(
-            call_param_defaults.get(ofi),
+            call_param_defaults.get_cloned(ofi),
             .Some(d) => if(d.is_none(), {
               nr = (nr + usize(1));
             }),
@@ -8941,7 +8948,7 @@ try_to_call_function_with_arguments :: (
               callee_env_m = Rc.clone(dpr.callee_env);
               arg_vals.push(
                 ArgEntry(
-                  value : dpr.arg_value,
+                  value : dpr.arg_value.clone(),
                   parameter_type : Rc.clone(dpr.resolved_param_type),
                   arg_type : Rc.clone(dpr.arg_type)
                 )
@@ -8954,7 +8961,7 @@ try_to_call_function_with_arguments :: (
               // type) so the callee body still sees the parameter.
               (omitted_val : EvalValue) = create_unknown_val(&ptype);
               match(
-                call_param_defaults.get(pi),
+                call_param_defaults.get_cloned(pi),
                 .Some(.Some(dv)) => {
                   omitted_val = dv;
                 },
@@ -8965,7 +8972,7 @@ try_to_call_function_with_arguments :: (
                 &callee_env_m,
                 &plabel,
                 &ptype,
-                Option(EvalValue).Some(omitted_val),
+                Option(EvalValue).Some(Rc.clone(omitted_val)),
                 false,
                 false,
                 false,
@@ -9010,7 +9017,7 @@ try_to_call_function_with_arguments :: (
           ctx,
           &mut rt_args,
           exn,
-          match(call_param_assigned.get(pi), .Some(a) => a, .None => Option(EvalValue).None),
+          match(call_param_assigned.get_cloned(pi), .Some(a) => a, .None => Option(EvalValue).None),
           callee_is_extern,
           argument_is_aliased_by_inout(&parg, match(pref.get(pi), .Some(b) => b, .None => false), &s7_inout_roots),
           p_sink,
@@ -9068,7 +9075,7 @@ try_to_call_function_with_arguments :: (
         _check_forall_bindings_after_arg(&fl.items, &callee_env_m, pi, &pl.items, &mut forall_seen, ast_expr_token(&parg), exn);
         arg_vals.push(
           ArgEntry(
-            value : pr.arg_value,
+            value : pr.arg_value.clone(),
             parameter_type : Rc.clone(pr.resolved_param_type),
             arg_type : Rc.clone(pr.arg_type)
           )
@@ -9281,7 +9288,7 @@ try_to_call_function_with_arguments :: (
                   // the spec's return substitution the bare SomeT, so
                   // spec_ret_ty stayed `List(U)` and emission's
                   // has_generic_return gate silently dropped the spec.
-                  (v_out : EvalValue) = v;
+                  (v_out : EvalValue) = Rc.clone(v);
                   // The env WRITE-BACK half: replace the callee_env binding
                   // itself — without this, the return-type re-evaluation
                   // would re-evaluate the return type and still see T as
@@ -9326,9 +9333,9 @@ try_to_call_function_with_arguments :: (
                   // a durable write-through in the mutable env model (the
                   // rule _bind_some_type follows for the same reason).
                   wb_top_frame := ((callee_env_m.frames_len() > usize(0)) && (last_v.frame_level == (callee_env_m.frames_len() - usize(1))));
-                  if(wb_from_cell && wb_plain && wb_top_frame && !match(v_out, Rc(.TypeVal(wb_t)) => is_some_type(&wb_t), _ => true), {
+                  if(wb_from_cell && wb_plain && wb_top_frame && !match(Rc.clone(v_out), Rc(.TypeVal(wb_t)) => is_some_type(&wb_t), _ => true), {
                     wb_cell := ArrayList(EvalValue).new();
-                    wb_cell.push(v_out);
+                    wb_cell.push(Rc.clone(v_out));
                     last_v.set_value(value_cell_new(wb_cell));
                   });
                   forall_arg_vals.push(
@@ -9715,7 +9722,7 @@ try_to_call_function_with_arguments :: (
         (s10b_i : usize) = usize(0);
         while(s10b_i < forall_arg_vals.len(), {
           s10b_e := match(forall_arg_vals.get(s10b_i), .Some(e) => e, .None => ArgEntry(value : Option(EvalValue).None, parameter_type : t_unit(), arg_type : t_unit()));
-          s10b_abstract := match(s10b_e.value, .Some(ev) => match(ev, Rc(.TypeVal(ev_t)) => (get_all_some_types(&ev_t).len() > usize(0)), _ => false), .None => false);
+          s10b_abstract := match(s10b_e.value.clone(), .Some(ev) => match(ev, Rc(.TypeVal(ev_t)) => (get_all_some_types(&ev_t).len() > usize(0)), _ => false), .None => false);
           s10b_now := cond(
             s10b_abstract => _forall_binding_now(&callee_env_m, match(forall_arg_labels.get_cloned(s10b_i), .Some(l) => l, .None => String.new())),
             true => Option(TypeValue).None
@@ -9832,7 +9839,7 @@ try_to_call_function_with_arguments :: (
                           &callee_env_m,
                           &impl_label,
                           &resolved_impl_type,
-                          .Some(ua_val),
+                          .Some(Rc.clone(ua_val)),
                           true,
                           // is_compile_time_only
                           false,
@@ -9906,7 +9913,7 @@ try_to_call_function_with_arguments :: (
                 &callee_env_m,
                 &impl_label,
                 &resolved_impl_type,
-                .Some(gv_val),
+                .Some(Rc.clone(gv_val)),
                 true,
                 // is_compile_time_only
                 false,
@@ -9917,7 +9924,7 @@ try_to_call_function_with_arguments :: (
               );
               implicit_arg_vals.push(
                 ArgEntry(
-                  value : .Some(gv_val),
+                  value : .Some(Rc.clone(gv_val)),
                   parameter_type : resolved_impl_type,
                   arg_type : given_ty
                 )
@@ -10131,13 +10138,13 @@ try_to_call_function_with_arguments :: (
           .None => ()
         );
         if(!is_recursive_spec && !mutual_is_some && is_concrete_fv, {
-          fv2 := match(func_val, .Some(v) => v.*, .None => Rc.new(EvalValueNode.UnitVal));
+          fv2 := match(func_val, .Some(v) => Rc.clone(v.*), .None => Rc.new(EvalValueNode.UnitVal));
           // ----------------------------------------------------------------
           // Ctl function path: a control function with generic params.
           // Must come before regular specialization to override it.
           // ----------------------------------------------------------------
           fv2_func_id := match(
-            fv2,
+            Rc.clone(fv2),
             Rc(.FuncVal(__fvd15, _)) => __fvd15.*.func_id.clone(),
             _ => String.from("")
           );
@@ -10231,9 +10238,9 @@ try_to_call_function_with_arguments :: (
       // rooted in an atomic object is rejected iff the callee may write
       // through that parameter (issues/fixed/phase-o-atomic-write-gate-misses-inout-receivers-arguments-and-index-assignment.md).
       if(d3_pending.len() > usize(0), {
-        (d3_target : Option(EvalValue)) = spec_func_val;
+        (d3_target : Option(EvalValue)) = spec_func_val.clone();
         if(d3_target.is_none(), {
-          d3_target = func_val.*;
+          d3_target = func_val.*.clone();
         });
         match(
           d3_target,
@@ -10253,9 +10260,9 @@ try_to_call_function_with_arguments :: (
       // The consumed dup temps stay in their frames — inert (consumed, no
       // scope-end drop; the dup that assigned them is gone).
       if(s0_call_drops.len() > usize(0), {
-        (s1_target : Option(EvalValue)) = spec_func_val;
+        (s1_target : Option(EvalValue)) = spec_func_val.clone();
         if(s1_target.is_none(), {
-          s1_target = func_val.*;
+          s1_target = func_val.*.clone();
         });
         match(
           s1_target,

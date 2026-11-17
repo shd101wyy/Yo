@@ -397,7 +397,7 @@ handle_member_destructuring :: (
             .Some(rv) => _get_eval_value_field(&rv.*, j),
             .None => Option(EvalValue).None
           );
-          if(match(fval_opt, .None => true, _ => false) && is_compile_time_only, {
+          if(match(fval_opt.clone(), .None => true, _ => false) && is_compile_time_only, {
             exn.throw(
               dyn(
                 Box.new(
@@ -619,7 +619,7 @@ handle_member_destructuring :: (
         variable_name_opt,
         .Some(var_name) => {
           var_tok_expr := match(variable_token_opt, .Some(e) => Rc.clone(e), .None => Rc.clone(lhs_field));
-          if(match(field_value_opt, .None => true, _ => false) && is_compile_time_only, {
+          if(match(field_value_opt.clone(), .None => true, _ => false) && is_compile_time_only, {
             exn.throw(
               dyn(
                 Box.new(
@@ -651,7 +651,7 @@ handle_member_destructuring :: (
               env,
               var_name.clone(),
               &bind_field_type,
-              match(field_value_opt, .Some(fv) => Option(EvalValue).Some(clone_value(&fv, true)), .None => Option(EvalValue).None),
+              match(field_value_opt.clone(), .Some(fv) => Option(EvalValue).Some(clone_value(&fv, true)), .None => Option(EvalValue).None),
               is_compile_time_only,
               false,
               // is_reassignable

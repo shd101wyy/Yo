@@ -174,7 +174,7 @@ _get_or_create_some_ty_for_trait :: (
       env_mut,
       &var_name,
       type_of_type(&new_some_ty),
-      .Some(tv),
+      .Some(Rc.clone(tv)),
       true,
       // is_compile_time_only
       false,
@@ -1025,7 +1025,7 @@ _evaluate_trait_field :: (
   match(
     label_expr_opt,
     .Some(le) => {
-      label_val := match(assigned_val_opt, .Some(av) => av, .None => create_unknown_val(&field_ty));
+      label_val := match(assigned_val_opt.clone(), .Some(av) => Rc.clone(av), .None => create_unknown_val(&field_ty));
       le_info := new_expr_info(env_mut, &field_ty);
       le_info.set_value(.Some(label_val));
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&le), &le_info);
@@ -1236,7 +1236,7 @@ evaluate_trait_type :: (
     // per-field defaults — divergence). Keyed by trait_id + label; read by
     // `_resolve_dyn_trait_values` (and method dispatch) on a missing override.
     match(
-      field_result.default_value_opt,
+      field_result.default_value_opt.clone(),
       .Some(__dv) => register_trait_default(trait_id.clone(), field_result.label.clone(), &__dv),
       .None => ()
     );

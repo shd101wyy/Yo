@@ -251,11 +251,11 @@ try_to_implement_module_with_arguments_by_module_type :: (
       },
       .None => ()
     );
-    val_opt := match(values.get(k), .Some(v) => v, .None => Option(EvalValue).None);
+    val_opt := match(values.get_cloned(k), .Some(v) => v, .None => Option(EvalValue).None);
     match(
       val_opt,
       .Some(v) => {
-        result_values.push(v);
+        result_values.push(Rc.clone(v));
       },
       .None => {
         result_values.push(Rc.new(EvalValueNode.UnitVal));

@@ -254,7 +254,7 @@ register_func_param_defaults :: (fn(func_id : &String, defaults : &ArrayList(Opt
   (i : usize) = usize(0);
   while((i < defaults.len()) && !any_default, {
     match(
-      defaults.get(i),
+      defaults.get_cloned(i),
       .Some(d) => if(d.is_some(), {
         any_default = true;
       }),
@@ -343,7 +343,7 @@ register_func_param_assigned_values :: (fn(func_id : &String, assigned : &ArrayL
   (i : usize) = usize(0);
   while((i < assigned.len()) && !any_assigned, {
     match(
-      assigned.get(i),
+      assigned.get_cloned(i),
       .Some(a) => if(a.is_some(), {
         any_assigned = true;
       }),
@@ -1331,7 +1331,7 @@ _type_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut Eval
   });
   o_var := match(o_vars.get_cloned(o_n - usize(1)), .Some(v) => v, .None => return(()));
   o_value := o_var.value().get(usize(0));
-  o_is_type := match(o_value, .Some(Rc(.TypeVal(_))) => !is_origin_kind(&variable_value_type(&o_var)), _ => false);
+  o_is_type := match(o_value.clone(), .Some(Rc(.TypeVal(_))) => !is_origin_kind(&variable_value_type(&o_var)), _ => false);
   if(o_is_type, {
     exn.throw(
       dyn(
@@ -2571,7 +2571,7 @@ evaluate_function_parameter :: (
         .Some(info) => {
           env_adopt(&env_mut.*, &info.env());
           dv_val_opt := info.value();
-          captured_default_value = dv_val_opt;
+          captured_default_value = dv_val_opt.clone();
           // Coerce comptime types (e.g. comptime_str) to their runtime
           // equivalents when the param has an explicit annotation —
           // lets `(msg : str) ?= "Assertion failed."` typecheck because the
@@ -2925,7 +2925,7 @@ use_id :: (fn(generic(T : Type),
       existing_some_ty := match(wv.value().get(usize(0)), .Some(ev) => match(ev, Rc(.TypeVal(b)) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
       // If assigned_value is a SomeT, merge traits from it
       match(
-        assigned_value,
+        assigned_value.clone(),
         .Some(av) => {
           match(
             av,
@@ -3018,8 +3018,8 @@ use_id :: (fn(generic(T : Type),
             usize(0)
           );
           (param_val : Option(EvalValue)) = match(
-            assigned_value,
-            .Some(av) => .Some(av),
+            assigned_value.clone(),
+            .Some(av) => .Some(Rc.clone(av)),
             .None =>
               if(
                 is_compile_time_only,
@@ -3632,7 +3632,7 @@ parse_where_clause_constraints :: (
           env_mut,
           &var_name,
           type_of_type(&new_some_ty),
-          .Some(tv),
+          .Some(Rc.clone(tv)),
           true,
           // is_compile_time_only
           false,
@@ -3939,7 +3939,7 @@ prepare_where_clause_variables :: (
           env_mut,
           &var_name,
           type_of_type(&new_some_ty),
-          .Some(tv),
+          .Some(Rc.clone(tv)),
           true,
           // is_compile_time_only
           false,
@@ -5530,11 +5530,11 @@ evaluate_function_type :: (
     // The slot: the parameter's mode rides in its type.
     param_types.push(Rc.clone(pp.ty));
     param_is_sink.push(pp.is_sink);
-    param_defaults.push(pp.default_value);
+    param_defaults.push(pp.default_value.clone());
     param_default_exprs.push(pp.default_value_expr.clone());
     param_type_exprs.push(pp.ty_expr.clone());
     param_comptime_flags.push(pp.is_compile_time_only);
-    param_assigned_values.push(pp.assigned_value);
+    param_assigned_values.push(pp.assigned_value.clone());
     if(pp.is_quote, {
       quoted_param_indices.push(ppi);
     });

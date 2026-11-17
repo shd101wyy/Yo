@@ -26,7 +26,8 @@ pragma(Pragma.AllowUnsafe);
 { Variable, Environment, snapshot_env, get_variables_from_env, find_variable_in_env_at, variable_value_type, variable_slot_type } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, FuncOrAsyncBlockKind } :: import("../context.yo");
 {
-  EvalValue, EvalValueNode,
+  EvalValue,
+  EvalValueNode,
   is_unknown_val,
   create_unknown_val,
   is_type_value,
@@ -44,7 +45,7 @@ pragma(Pragma.AllowUnsafe);
 /// A fresh single-element PtrVal cell.
 _cell1 :: (fn(v : &EvalValue) -> ValueCell)({
   mut(c) := ArrayList(EvalValue).new();
-  c.push(v.*);
+  c.push(Rc.clone(v.*));
   value_cell_new(c)
 });
 { panic, assert } :: import("std/assert");
@@ -773,8 +774,8 @@ evaluate_address_call :: (
   // — kept separate from the UnknownValue fallback so the ladder
   // below keeps its order.
   ptr_place_val_opt := match(
-    ptr_val_from_comptime_ref,
-    .Some(_) => ptr_val_from_comptime_ref,
+    ptr_val_from_comptime_ref.clone(),
+    .Some(_) => ptr_val_from_comptime_ref.clone(),
     .None => match(
       arg_info.source_variable(),
       // Hand the variable's OWN value cell to the pointer
@@ -834,7 +835,7 @@ evaluate_address_call :: (
   // deliberately leaves `ty` at `pointer_type` and does NOT set
   // `is_index_trait_address_of`.
   match(
-    ptr_place_val_opt,
+    ptr_place_val_opt.clone(),
     .Some(_) => {
       out_info.set_value(ptr_place_val_opt);
     },

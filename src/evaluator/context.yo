@@ -1288,7 +1288,7 @@ _vh_pdf_row :: (fn(l : &PendingDefLive) -> usize)(l.row);
 _vh_pdf_is_derive :: (fn(l : &PendingDefLive) -> bool)(l.is_derive);
 _vh_pdf_state :: (fn(l : &PendingDefLive) -> PendingDefState)(l.state);
 _vh_pdf_failure :: (fn(l : &PendingDefLive) -> Option(String))(l.failure.clone());
-_vh_pdf_phase_a_value :: (fn(l : &PendingDefLive) -> Option(EvalValue))(l.phase_a_value);
+_vh_pdf_phase_a_value :: (fn(l : &PendingDefLive) -> Option(EvalValue))(l.phase_a_value.clone());
 _vh_pdf_phase_a_type :: (fn(l : &PendingDefLive) -> Option(TypeValue))(l.phase_a_type.clone());
 _vh_pdf_variable :: (fn(l : &PendingDefLive) -> Option(Variable))(l.variable.clone());
 _vh_pdf_src_hash :: (fn(l : &PendingDefLive) -> u64)(l.src_hash);
@@ -1342,7 +1342,7 @@ impl(
   phase_a_value : (fn(self : &Self) -> Option(EvalValue))(self.live.with(_vh_pdf_phase_a_value)),
   set_phase_a_value : (fn(self : &Self, v : Option(EvalValue)) -> unit)(
     self.live.with_mut(l => {
-      l.phase_a_value = v;
+      l.phase_a_value = v.clone();
     })
   ),
   phase_a_type : (fn(self : &Self) -> Option(TypeValue))(self.live.with(_vh_pdf_phase_a_type)),
@@ -3013,7 +3013,7 @@ publish_pending_phase_a :: (fn(rhs_id : usize, value : &EvalValue, ty : &TypeVal
         Rc(.Atom(_, _)) => usize(0)
       );
       if(def_rhs_id == rhs_id, {
-        def.set_phase_a_value(Option(EvalValue).Some(value.*));
+        def.set_phase_a_value(Option(EvalValue).Some(Rc.clone(value.*)));
         def.set_phase_a_type(Option(TypeValue).Some(Rc.clone(ty)));
       });
     }),
@@ -3797,7 +3797,7 @@ create_function_body_evaluation_context :: (
   func_body_ctx := FuncOrAsyncBlockCtx(
     kind : FuncOrAsyncBlockKind.FunctionBody,
     func_type : Option(TypeValue).Some(Rc.clone(function_type)),
-    func_value : Option(EvalValue).Some(function_value.*),
+    func_value : Option(EvalValue).Some(Rc.clone(function_value.*)),
     eval_env : snapshot_env(env)
   );
   // Compute enclosing function's return type.

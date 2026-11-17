@@ -806,7 +806,7 @@ value_to_string :: (fn(v : &EvalValue) -> String)(
       match(
         target_value.get(usize(0)),
         .Some(cell0) => match(
-          cell0,
+          Rc.clone(cell0),
           Rc(.ArrayVal(elems)) =>
             match(
               elems.get(target_index.*),
@@ -941,7 +941,7 @@ _values_contain_unknown :: (fn(vs : &ArrayList(EvalValue)) -> bool)({
   (found : bool) = false;
   while((i < vs.len()) && !found, {
     match(
-      vs.get(i),
+      vs.get_cloned(i),
       .Some(f) => if(value_contains_unknown(&f), {
         found = true;
       }),
@@ -1037,7 +1037,7 @@ EvalResult :: struct(
 );
 /// Construct an `EvalResult` with the given value and type.
 eval_result :: (fn(value : &EvalValue, ty : &TypeValue) -> EvalResult)(
-  EvalResult(value : value.*, ty : Rc.clone(ty))
+  EvalResult(value : Rc.clone(value.*), ty : Rc.clone(ty))
 );
 /// Wrap a TypeValue as a TypeVal EvalValue. The "meta type" (TypeUni) is
 /// computed separately via `type_of_type` at call sites that need it.
@@ -1156,5 +1156,5 @@ register_type_ctor_value :: (fn(func_id : &String, v : &EvalValue) -> unit)({
     _prev := g_type_ctor_values.with_mut({ tc_key, tc_val }(m) => m.insert(tc_key, tc_val));
   });
 });
-lookup_type_ctor_value :: (fn(func_id : &String) -> Option(EvalValue))(g_type_ctor_values.with({ func_id : &func_id.* }(m) => m.get(func_id)));
+lookup_type_ctor_value :: (fn(func_id : &String) -> Option(EvalValue))(g_type_ctor_values.with({ func_id : &func_id.* }(m) => m.get_cloned(func_id)));
 export(register_type_ctor_value, lookup_type_ctor_value);

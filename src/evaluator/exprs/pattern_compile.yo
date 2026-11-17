@@ -278,7 +278,7 @@ _bind_subject_and_eval_test :: (
     env,
     subject.clone(),
     position_ty,
-    cond(known => value_opt.*, true => Option(EvalValue).None),
+    cond(known => value_opt.*.clone(), true => Option(EvalValue).None),
     known,
     false,
     false,
@@ -369,10 +369,12 @@ _test_subject :: (fn(test : &AstExpr) -> String)(
 _enum_const_to_variant :: (fn(value : &EvalValue, position_ty : &TypeValue) -> Option(Pattern))(
   match(
     value,
-    Rc(.EnumVal(
-      vname,
-      vfields
-    )) => {
+    Rc(
+      .EnumVal(
+        vname,
+        vfields
+      )
+    ) => {
       if(is_enum_type(position_ty) && (vfields.len() == usize(0)), {
         vns := _enum_variant_names(position_ty);
         (vi : usize) = usize(0);
@@ -566,8 +568,8 @@ _compile_range :: (
     subject : subject,
     test : test,
     ty : Rc.clone(position_ty),
-    lo : match(bound_vals.get(usize(0)), .Some(v) => v, .None => Option(EvalValue).None),
-    hi : match(bound_vals.get(usize(1)), .Some(v) => v, .None => Option(EvalValue).None),
+    lo : match(bound_vals.get_cloned(usize(0)), .Some(v) => v, .None => Option(EvalValue).None),
+    hi : match(bound_vals.get_cloned(usize(1)), .Some(v) => v, .None => Option(EvalValue).None),
     inclusive : inclusive
   )
 });
@@ -1408,7 +1410,7 @@ compile_pattern :: (
       bcf2 := match(position_ty.clone(), Rc(.Struct({ constructor_func_id : bcf })) => bcf.clone(), _ => String.from("-"));
       eprintln(`[tmint-bind] name=${nm} id=${bid2} n_ta=${bta2.to_string()} cfid=${bcf2} fields=${fs}`);
     });
-    pc.binds.push(BindInfo(name : nm.clone(), ty : Rc.clone(position_ty), value : value_opt.*, atom : Rc.clone(name_expr)));
+    pc.binds.push(BindInfo(name : nm.clone(), ty : Rc.clone(position_ty), value : value_opt.*.clone(), atom : Rc.clone(name_expr)));
     // The self-calls that can throw are by NAME, not `recur`: seeds up to
     // v0.2.45 emit `recur` without the escape check, so a seed-built compiler
     // continued past a throw here with a NULL sub-pattern
@@ -1448,7 +1450,7 @@ compile_pattern :: (
         bcf3 := match(position_ty.clone(), Rc(.Struct({ constructor_func_id : bcf4 })) => bcf4.clone(), _ => String.from("-"));
         eprintln(`[tmint-bind] name=${nm} id=${bid3} n_ta=${bta3.to_string()} cfid=${bcf3} fields=${fs2}`);
       });
-      pc.binds.push(BindInfo(name : nm.clone(), ty : Rc.clone(position_ty), value : value_opt.*, atom : Rc.clone(e.*)));
+      pc.binds.push(BindInfo(name : nm.clone(), ty : Rc.clone(position_ty), value : value_opt.*.clone(), atom : Rc.clone(e.*)));
       return(Pattern.Bind(name : nm, token : ast_expr_token(e), atom : Rc.clone(e.*)));
     });
   });
@@ -1911,7 +1913,7 @@ pattern_const_values :: (fn(p : &Pattern) -> ArrayList(Option(EvalValue)))({
   match(
     p,
     .Const(v, _, _, _, _) => {
-      out.push(Option(EvalValue).Some(v.*));
+      out.push(Option(EvalValue).Some(Rc.clone(v.*)));
     },
     .Or(alts) => {
       (i : usize) = usize(0);
@@ -1920,7 +1922,7 @@ pattern_const_values :: (fn(p : &Pattern) -> ArrayList(Option(EvalValue)))({
         (k : usize) = usize(0);
         while(k < inner.len(), {
           match(
-            inner.get(k),
+            inner.get_cloned(k),
             .Some(x) => {
               out.push(x);
             },
