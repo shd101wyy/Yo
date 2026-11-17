@@ -52,7 +52,7 @@ evaluate_drop :: (
   if(!is_destroying_builtin_call_capable(Option(String).Some(drop_tok.module_path.*.clone())), {
     drop_name := String.from(BF_DROP);
     drop_place := ast_expr_to_string(&arg_expr);
-    exn.throw(dyn(format_error_message(&drop_tok, destroying_builtin_error_message(&drop_name, &drop_place))));
+    exn.throw(dyn(Box.new(format_error_message(&drop_tok, destroying_builtin_error_message(&drop_name, &drop_place)))));
   });
   eval_arg := evaluate_expression_raw(&arg_expr, env, ctx, exn);
   arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_arg));
@@ -62,9 +62,11 @@ evaluate_drop :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg_expr),
-            String.from("___drop: failed to evaluate the argument expression.")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg_expr),
+              String.from("___drop: failed to evaluate the argument expression.")
+            )
           )
         )
       );

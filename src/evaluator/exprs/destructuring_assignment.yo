@@ -124,9 +124,11 @@ _reject_private_destructure :: (
   if(private_member_blocked(label.clone(), type_decl_module(&pv_type_id), &tok.module_path.*), {
     exn.throw(
       dyn(
-        format_error_message(
-          tok,
-          `Cannot destructure field "${label}" of ${type_to_string(rhs_type)} outside its declaring module: it is private`
+        Box.new(
+          format_error_message(
+            tok,
+            `Cannot destructure field "${label}" of ${type_to_string(rhs_type)} outside its declaring module: it is private`
+          )
         )
       )
     );
@@ -178,7 +180,7 @@ _reject_shadowing :: (fn(env : &Environment, var_name : &String, at : &Token, ct
           error_message : `Variable "${var_name}" is already defined here (variable shadowing is not allowed):`
         )
       );
-      exn.throw(dyn(format_error_messages(&sh_entries)));
+      exn.throw(dyn(Box.new(format_error_messages(&sh_entries))));
     },
     .None => ()
   );
@@ -266,9 +268,11 @@ handle_member_destructuring :: (
   if(require_underscore && !(lhs_func_name == "_"), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(lhs_func),
-          `Expected "_" for non-tuple destructuring, got "${lhs_func_name}"`
+        Box.new(
+          format_error_message(
+            ast_expr_token(lhs_func),
+            `Expected "_" for non-tuple destructuring, got "${lhs_func_name}"`
+          )
         )
       )
     );
@@ -276,15 +280,17 @@ handle_member_destructuring :: (
   // Union destructuring requires exactly one field, and is a member READ:
   // the same safe-mode gate as `u.x` (property_access.yo).
   if(is_union_type(rhs_type) && !is_union_member_read_capable(Option(String).Some(ast_expr_token(lhs).module_path.*.clone()), ctx.unsafe_context), {
-    exn.throw(dyn(format_error_message(ast_expr_token(lhs), union_member_read_error_message(ast_expr_to_string(lhs), type_to_string(rhs_type)))));
+    exn.throw(dyn(Box.new(format_error_message(ast_expr_token(lhs), union_member_read_error_message(ast_expr_to_string(lhs), type_to_string(rhs_type))))));
   });
   if(is_union_type(rhs_type), {
     if(!(lhs_fields.len() == usize(1)), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(lhs),
-            `Destructuring union type requires a single field, got ${lhs_fields.len()}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(lhs),
+              `Destructuring union type requires a single field, got ${lhs_fields.len()}`
+            )
           )
         )
       );
@@ -294,9 +300,11 @@ handle_member_destructuring :: (
   if(lhs_fields.len() > rhs_field_labels.len(), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(lhs),
-          `Too many fields in destructuring pattern. Expected at most ${rhs_field_labels.len()}, got ${lhs_fields.len()}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(lhs),
+            `Too many fields in destructuring pattern. Expected at most ${rhs_field_labels.len()}, got ${lhs_fields.len()}`
+          )
         )
       )
     );
@@ -354,9 +362,11 @@ handle_member_destructuring :: (
       if(is_union_type(rhs_type), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&lhs_field),
-              `Cannot destructure union type with _, got ${type_to_string(rhs_type)}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&lhs_field),
+                `Cannot destructure union type with _, got ${type_to_string(rhs_type)}`
+              )
             )
           )
         );
@@ -389,9 +399,11 @@ handle_member_destructuring :: (
           if(match(fval_opt, .None => true, _ => false) && is_compile_time_only, {
             exn.throw(
               dyn(
-                format_error_message(
-                  ast_expr_token(&lhs_field),
-                  `Destructuring field "${flab}" is not defined in compile-time only context.`
+                Box.new(
+                  format_error_message(
+                    ast_expr_token(&lhs_field),
+                    `Destructuring field "${flab}" is not defined in compile-time only context.`
+                  )
                 )
               )
             );
@@ -444,9 +456,11 @@ handle_member_destructuring :: (
         if(!(ast_expr_is_atom(&left_side) && is_valid_variable_name(&left_side)), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&left_side),
-                `Expected identifier for label in destructuring pattern, got ${ast_expr_token(&left_side).value.*}`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&left_side),
+                  `Expected identifier for label in destructuring pattern, got ${ast_expr_token(&left_side).value.*}`
+                )
               )
             )
           );
@@ -457,7 +471,7 @@ handle_member_destructuring :: (
         match(
           fi_opt,
           .None => {
-            exn.throw(dyn(with_code(format_error_message(ast_expr_token(&lhs_field), unknown_field_message(&label, rhs_type, rhs_field_labels)), unknown_field_code(rhs_type))));
+            exn.throw(dyn(Box.new(with_code(format_error_message(ast_expr_token(&lhs_field), unknown_field_message(&label, rhs_type, rhs_field_labels)), unknown_field_code(rhs_type)))));
           },
           .Some(fi) => {
             field_index = fi;
@@ -480,9 +494,11 @@ handle_member_destructuring :: (
         }, {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&right_side),
-                `Nested destructuring is not supported: ${ast_expr_token(&right_side).value.*}`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&right_side),
+                  `Nested destructuring is not supported: ${ast_expr_token(&right_side).value.*}`
+                )
               )
             )
           );
@@ -490,9 +506,11 @@ handle_member_destructuring :: (
         if(_label_already_seen(&seen_labels, rhs_field_label.clone()), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&lhs_field),
-                `Label "${label}" being destructured already exists.`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&lhs_field),
+                  `Label "${label}" being destructured already exists.`
+                )
               )
             )
           );
@@ -516,9 +534,11 @@ handle_member_destructuring :: (
       if(!is_labeled && ast_expr_is_fn_call(&lhs_field), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&lhs_field),
-              `Nested destructuring is not supported: ${ast_expr_token(&lhs_field).value.*}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&lhs_field),
+                `Nested destructuring is not supported: ${ast_expr_token(&lhs_field).value.*}`
+              )
             )
           )
         );
@@ -532,9 +552,11 @@ handle_member_destructuring :: (
         if(is_union_type(rhs_type), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&lhs_field),
-                `Cannot destructure union type with positional destructuring, got ${type_to_string(rhs_type)}`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&lhs_field),
+                  `Cannot destructure union type with positional destructuring, got ${type_to_string(rhs_type)}`
+                )
               )
             )
           );
@@ -542,9 +564,11 @@ handle_member_destructuring :: (
         if(_label_already_seen(&seen_labels, rhs_field_label.clone()), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&lhs_field),
-                `Label "${rhs_field_label}" being destructured already exists.`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&lhs_field),
+                  `Label "${rhs_field_label}" being destructured already exists.`
+                )
               )
             )
           );
@@ -578,9 +602,11 @@ handle_member_destructuring :: (
       if(!is_labeled && !ast_expr_is_fn_call(&lhs_field) && !(ast_expr_is_atom(&lhs_field) && is_valid_variable_name(&lhs_field)), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&lhs_field),
-              `Unsupported destructuring pattern for: ${ast_expr_token(&lhs_field).value.*}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&lhs_field),
+                `Unsupported destructuring pattern for: ${ast_expr_token(&lhs_field).value.*}`
+              )
             )
           )
         );
@@ -595,9 +621,11 @@ handle_member_destructuring :: (
           if(match(field_value_opt, .None => true, _ => false) && is_compile_time_only, {
             exn.throw(
               dyn(
-                format_error_message(
-                  ast_expr_token(&lhs_field),
-                  `Destructuring field "${var_name}" is not defined in compile-time only context.`
+                Box.new(
+                  format_error_message(
+                    ast_expr_token(&lhs_field),
+                    `Destructuring field "${var_name}" is not defined in compile-time only context.`
+                  )
                 )
               )
             );
@@ -710,9 +738,11 @@ evaluate_destructuring_assignment :: (
   if(match(&rhs_info_opt, .None => true, _ => false), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(rhs),
-          `(1) Expected type for right-hand side, got ${ast_expr_token(rhs).value.*}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(rhs),
+            `(1) Expected type for right-hand side, got ${ast_expr_token(rhs).value.*}`
+          )
         )
       )
     );
@@ -794,9 +824,11 @@ evaluate_destructuring_assignment :: (
       .None => {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(rhs),
-              `Expected enum variant name to be determined, got ${type_to_string(&rhs_type)}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(rhs),
+                `Expected enum variant name to be determined, got ${type_to_string(&rhs_type)}`
+              )
             )
           )
         );
@@ -813,9 +845,11 @@ evaluate_destructuring_assignment :: (
       .None => {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(rhs),
-              `Expected enum variant "${svn}" to be defined, got ${type_to_string(&rhs_type)}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(rhs),
+                `Expected enum variant "${svn}" to be defined, got ${type_to_string(&rhs_type)}`
+              )
             )
           )
         );
@@ -827,9 +861,11 @@ evaluate_destructuring_assignment :: (
     if(selected_fields.len() == usize(0), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(rhs),
-            `Cannot destructure enum variant "${svn}" without fields, got ${type_to_string(&rhs_type)}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(rhs),
+              `Cannot destructure enum variant "${svn}" without fields, got ${type_to_string(&rhs_type)}`
+            )
           )
         )
       );
@@ -867,18 +903,22 @@ evaluate_destructuring_assignment :: (
   if(!(is_tuple_type(&rhs_type) || is_struct_type(&rhs_type) || is_union_type(&rhs_type) || is_module_type(&rhs_type) || is_enum_type(&rhs_type)), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(rhs),
-          `Destructuring assignment not supported for the right-hand type: ${type_to_string(&rhs_type)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(rhs),
+            `Destructuring assignment not supported for the right-hand type: ${type_to_string(&rhs_type)}`
+          )
         )
       )
     );
   });
   exn.throw(
     dyn(
-      format_error_message(
-        ast_expr_token(lhs),
-        `Destructuring assignment not supported for the left-hand pattern: ${ast_expr_token(lhs).value.*}`
+      Box.new(
+        format_error_message(
+          ast_expr_token(lhs),
+          `Destructuring assignment not supported for the left-hand pattern: ${ast_expr_token(lhs).value.*}`
+        )
       )
     )
   );

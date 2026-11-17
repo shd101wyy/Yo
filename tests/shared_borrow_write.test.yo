@@ -183,12 +183,16 @@ _pass_rc_struct_to_dyn :: (fn(s : &_S, cb : &Dyn(Fn(t : &mut _S) -> unit)) -> un
   comptime_expect_error(cb(&mut s.*), "Cannot pass");
 });
 test("a place in a `&T` parameter lent `&mut` to a `Dyn(Fn)` is E0908", {
-  (bump : Box(Dyn(Fn(n : &mut i32) -> unit))) = dyn((n : &mut i32) => {
-    n.* = (n.* + i32(1));
-  });
-  (grow : Box(Dyn(Fn(t : &mut _S) -> unit))) = dyn((t : &mut _S) => {
-    t.n = (t.n + i32(1));
-  });
+  (bump : Box(Dyn(Fn(n : &mut i32) -> unit))) = dyn(
+    Box.new((n : &mut i32) => {
+      n.* = (n.* + i32(1));
+    })
+  );
+  (grow : Box(Dyn(Fn(t : &mut _S) -> unit))) = dyn(
+    Box.new((t : &mut _S) => {
+      t.n = (t.n + i32(1));
+    })
+  );
   x := _mk();
   _pass_field_to_dyn(&x, &bump.*);
   s := _S(s : String.from("a"), n : i32(0));

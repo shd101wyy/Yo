@@ -71,9 +71,11 @@ _extract_type_val :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(arg),
-            `${fn_name}: expected a type value, got runtime expression`
+          Box.new(
+            format_error_message(
+              ast_expr_token(arg),
+              `${fn_name}: expected a type value, got runtime expression`
+            )
           )
         )
       );
@@ -85,9 +87,11 @@ _extract_type_val :: (
       _ => {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(arg),
-              `${fn_name}: expected a TypeVal, got a non-type value`
+            Box.new(
+              format_error_message(
+                ast_expr_token(arg),
+                `${fn_name}: expected a TypeVal, got a non-type value`
+              )
             )
           )
         );
@@ -126,9 +130,11 @@ evaluate_yo_type_to_string :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg0),
-            String.from("__yo_type_to_comptime_string: failed to evaluate argument")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg0),
+              String.from("__yo_type_to_comptime_string: failed to evaluate argument")
+            )
           )
         )
       );
@@ -138,9 +144,11 @@ evaluate_yo_type_to_string :: (
   if(!is_type_hierarchy_type(&arg_info.ty()), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&arg0),
-          `__yo_type_to_comptime_string: expected a Type argument, got: ${type_to_string(&arg_info.ty())}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&arg0),
+            `__yo_type_to_comptime_string: expected a Type argument, got: ${type_to_string(&arg_info.ty())}`
+          )
         )
       )
     );
@@ -172,9 +180,11 @@ evaluate_yo_type_to_string :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg0),
-            String.from("__yo_type_to_comptime_string: expected type value, got runtime expression")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg0),
+              String.from("__yo_type_to_comptime_string: expected type value, got runtime expression")
+            )
           )
         )
       );
@@ -235,9 +245,11 @@ evaluate_yo_are_types_compatible :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg0),
-            String.from("__yo_are_types_compatible: failed to evaluate first argument")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg0),
+              String.from("__yo_are_types_compatible: failed to evaluate first argument")
+            )
           )
         )
       );
@@ -247,9 +259,11 @@ evaluate_yo_are_types_compatible :: (
   if(!is_type_hierarchy_type(&info_0.ty()), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&arg0),
-          `__yo_are_types_compatible: expected a Type for first argument, got: ${type_to_string(&info_0.ty())}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&arg0),
+            `__yo_are_types_compatible: expected a Type for first argument, got: ${type_to_string(&info_0.ty())}`
+          )
         )
       )
     );
@@ -271,9 +285,11 @@ evaluate_yo_are_types_compatible :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg1),
-            String.from("__yo_are_types_compatible: failed to evaluate second argument")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg1),
+              String.from("__yo_are_types_compatible: failed to evaluate second argument")
+            )
           )
         )
       );
@@ -283,9 +299,11 @@ evaluate_yo_are_types_compatible :: (
   if(!is_type_hierarchy_type(&info_1.ty()), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&arg1),
-          `__yo_are_types_compatible: expected a Type for second argument, got: ${type_to_string(&info_1.ty())}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&arg1),
+            `__yo_are_types_compatible: expected a Type for second argument, got: ${type_to_string(&info_1.ty())}`
+          )
         )
       )
     );
@@ -350,9 +368,11 @@ evaluate_yo_are_types_equal :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg0),
-            String.from("__yo_are_types_equal: failed to evaluate first argument")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg0),
+              String.from("__yo_are_types_equal: failed to evaluate first argument")
+            )
           )
         )
       );
@@ -375,9 +395,11 @@ evaluate_yo_are_types_equal :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg1),
-            String.from("__yo_are_types_equal: failed to evaluate second argument")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg1),
+              String.from("__yo_are_types_equal: failed to evaluate second argument")
+            )
           )
         )
       );
@@ -424,9 +446,11 @@ evaluate_yo_type_contains_rc_type :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg0),
-            String.from("__yo_type_contains_rc_type: failed to evaluate argument")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg0),
+              String.from("__yo_type_contains_rc_type: failed to evaluate argument")
+            )
           )
         )
       );
@@ -436,9 +460,11 @@ evaluate_yo_type_contains_rc_type :: (
   if(!is_type_hierarchy_type(&arg_info.ty()), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&arg0),
-          `__yo_type_contains_rc_type: expected a Type argument, got: ${type_to_string(&arg_info.ty())}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&arg0),
+            `__yo_type_contains_rc_type: expected a Type argument, got: ${type_to_string(&arg_info.ty())}`
+          )
         )
       )
     );
@@ -495,9 +521,11 @@ evaluate_yo_type_impls :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg0),
-            String.from("__yo_type_impls: failed to evaluate type argument")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg0),
+              String.from("__yo_type_impls: failed to evaluate type argument")
+            )
           )
         )
       );
@@ -508,9 +536,11 @@ evaluate_yo_type_impls :: (
   if(!is_type_hierarchy_type(&info0.ty()), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&arg0),
-          String.from("__yo_type_impls: expected Type for first argument")
+        Box.new(
+          format_error_message(
+            ast_expr_token(&arg0),
+            String.from("__yo_type_impls: expected Type for first argument")
+          )
         )
       )
     );
@@ -524,9 +554,11 @@ evaluate_yo_type_impls :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg1),
-            String.from("__yo_type_impls: failed to evaluate trait argument")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg1),
+              String.from("__yo_type_impls: failed to evaluate trait argument")
+            )
           )
         )
       );
@@ -569,9 +601,11 @@ evaluate_yo_type_impls :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg1),
-            String.from("__yo_type_impls: expected trait type for second argument")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg1),
+              String.from("__yo_type_impls: expected trait type for second argument")
+            )
           )
         )
       );
@@ -1084,9 +1118,11 @@ evaluate_yo_type_get_info :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg0),
-            String.from("__yo_type_get_info: failed to evaluate type argument")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg0),
+              String.from("__yo_type_get_info: failed to evaluate type argument")
+            )
           )
         )
       );
@@ -1152,9 +1188,11 @@ evaluate_yo_type_get_info :: (
       true => {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(expr),
-              String.from("__yo_type_get_info: unsupported Int bits")
+            Box.new(
+              format_error_message(
+                ast_expr_token(expr),
+                String.from("__yo_type_get_info: unsupported Int bits")
+              )
             )
           )
         );
@@ -1324,9 +1362,11 @@ evaluate_yo_type_get_info :: (
     _ => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            String.from("__yo_type_get_info: unsupported type variant")
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              String.from("__yo_type_get_info: unsupported type variant")
+            )
           )
         )
       );
@@ -1348,9 +1388,11 @@ evaluate_yo_type_get_info :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            String.from("__yo_type_get_info: failed to create TypeInfo value")
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              String.from("__yo_type_get_info: failed to create TypeInfo value")
+            )
           )
         )
       );
@@ -1392,9 +1434,11 @@ evaluate_comptime_eval :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg0),
-            String.from("comptime_eval: failed to evaluate argument")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg0),
+              String.from("comptime_eval: failed to evaluate argument")
+            )
           )
         )
       );
@@ -1441,9 +1485,11 @@ evaluate_comptime_eval :: (
       .None => {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&arg0),
-              String.from("comptime_eval: failed to evaluate code expression")
+            Box.new(
+              format_error_message(
+                ast_expr_token(&arg0),
+                String.from("comptime_eval: failed to evaluate code expression")
+              )
             )
           )
         );
@@ -1488,9 +1534,11 @@ evaluate_comptime_string_to_expr :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg0),
-            String.from("__yo_comptime_string_to_expr: failed to evaluate argument")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg0),
+              String.from("__yo_comptime_string_to_expr: failed to evaluate argument")
+            )
           )
         )
       );
@@ -1514,9 +1562,11 @@ evaluate_comptime_string_to_expr :: (
       .None => {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&arg0),
-              String.from("__yo_comptime_string_to_expr: expected a comptime_str argument")
+            Box.new(
+              format_error_message(
+                ast_expr_token(&arg0),
+                String.from("__yo_comptime_string_to_expr: expected a comptime_str argument")
+              )
             )
           )
         );
@@ -1601,9 +1651,11 @@ evaluate_type_join_fields :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg0),
-            String.from("__yo_type_join_fields: failed to evaluate type argument")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg0),
+              String.from("__yo_type_join_fields: failed to evaluate type argument")
+            )
           )
         )
       );
@@ -1623,9 +1675,11 @@ evaluate_type_join_fields :: (
   if(!is_struct_type(&target_type), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&arg0),
-          String.from("__yo_type_join_fields: expected a struct type")
+        Box.new(
+          format_error_message(
+            ast_expr_token(&arg0),
+            String.from("__yo_type_join_fields: expected a struct type")
+          )
         )
       )
     );
@@ -1638,9 +1692,11 @@ evaluate_type_join_fields :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg1),
-            String.from("__yo_type_join_fields: failed to evaluate mapper")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg1),
+              String.from("__yo_type_join_fields: failed to evaluate mapper")
+            )
           )
         )
       );
@@ -1653,9 +1709,11 @@ evaluate_type_join_fields :: (
     .Some(v) => if(is_func_val(&v), v, {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg1),
-            String.from("__yo_type_join_fields: second argument must be a function")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg1),
+              String.from("__yo_type_join_fields: second argument must be a function")
+            )
           )
         )
       );
@@ -1664,9 +1722,11 @@ evaluate_type_join_fields :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg1),
-            String.from("__yo_type_join_fields: mapper is a runtime expression")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg1),
+              String.from("__yo_type_join_fields: mapper is a runtime expression")
+            )
           )
         )
       );
@@ -1681,9 +1741,11 @@ evaluate_type_join_fields :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg2),
-            String.from("__yo_type_join_fields: failed to evaluate combiner")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg2),
+              String.from("__yo_type_join_fields: failed to evaluate combiner")
+            )
           )
         )
       );
@@ -1697,9 +1759,11 @@ evaluate_type_join_fields :: (
     .Some(_) => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg2),
-            String.from("__yo_type_join_fields: third argument must be a quoted expression")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg2),
+              String.from("__yo_type_join_fields: third argument must be a quoted expression")
+            )
           )
         )
       );
@@ -1708,9 +1772,11 @@ evaluate_type_join_fields :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg2),
-            String.from("__yo_type_join_fields: combiner is a runtime expression")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg2),
+              String.from("__yo_type_join_fields: combiner is a runtime expression")
+            )
           )
         )
       );
@@ -1745,9 +1811,11 @@ evaluate_type_join_fields :: (
   if(n_fields == usize(0), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          String.from("__yo_type_join_fields: struct has no fields")
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            String.from("__yo_type_join_fields: struct has no fields")
+          )
         )
       )
     );
@@ -1810,9 +1878,11 @@ evaluate_type_join_fields :: (
       .Some(_) => {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&arg1),
-              String.from("__yo_type_join_fields: mapper must return(comptime(Expr))")
+            Box.new(
+              format_error_message(
+                ast_expr_token(&arg1),
+                String.from("__yo_type_join_fields: mapper must return(comptime(Expr))")
+              )
             )
           )
         );
@@ -1821,9 +1891,11 @@ evaluate_type_join_fields :: (
       .None => {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&arg1),
-              String.from("__yo_type_join_fields: mapper returned no value")
+            Box.new(
+              format_error_message(
+                ast_expr_token(&arg1),
+                String.from("__yo_type_join_fields: mapper returned no value")
+              )
             )
           )
         );
@@ -1899,9 +1971,11 @@ evaluate_type_map_variants :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg0),
-            String.from("__yo_type_map_variants: failed to evaluate type argument")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg0),
+              String.from("__yo_type_map_variants: failed to evaluate type argument")
+            )
           )
         )
       );
@@ -1922,9 +1996,11 @@ evaluate_type_map_variants :: (
   if(!is_enum_type(&target_type), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&arg0),
-          String.from("__yo_type_map_variants: expected an enum type")
+        Box.new(
+          format_error_message(
+            ast_expr_token(&arg0),
+            String.from("__yo_type_map_variants: expected an enum type")
+          )
         )
       )
     );
@@ -1937,9 +2013,11 @@ evaluate_type_map_variants :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg1),
-            String.from("__yo_type_map_variants: failed to evaluate mapper")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg1),
+              String.from("__yo_type_map_variants: failed to evaluate mapper")
+            )
           )
         )
       );
@@ -1952,9 +2030,11 @@ evaluate_type_map_variants :: (
     .Some(v) => if(is_func_val(&v), v, {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg1),
-            String.from("__yo_type_map_variants: second argument must be a function")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg1),
+              String.from("__yo_type_map_variants: second argument must be a function")
+            )
           )
         )
       );
@@ -1963,9 +2043,11 @@ evaluate_type_map_variants :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg1),
-            String.from("__yo_type_map_variants: mapper is a runtime expression")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg1),
+              String.from("__yo_type_map_variants: mapper is a runtime expression")
+            )
           )
         )
       );
@@ -2050,9 +2132,11 @@ evaluate_type_map_variants :: (
       .None => {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&arg1),
-              String.from("__yo_type_map_variants: mapper returned no value")
+            Box.new(
+              format_error_message(
+                ast_expr_token(&arg1),
+                String.from("__yo_type_map_variants: mapper returned no value")
+              )
             )
           )
         );

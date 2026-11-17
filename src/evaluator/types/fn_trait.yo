@@ -68,9 +68,11 @@ evaluate_fn_trait_type :: (
   if(!ast_expr_is_fn_call_of(expr, "->", .Some(usize(2))), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected -> operator for Fn trait type, got:\n${ast_expr_to_string(expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected -> operator for Fn trait type, got:\n${ast_expr_to_string(expr)}`
+          )
         )
       )
     );
@@ -89,9 +91,11 @@ evaluate_fn_trait_type :: (
     !(ast_expr_is_fn_call_of(&fn_call_expr, BK_FN_TRAIT, Option(usize).None) || (is_once || is_mut)), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&fn_call_expr),
-          `Expected Fn(...), FnMut(...) or FnOnce(...) for function trait, got:\n${ast_expr_to_string(&fn_call_expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&fn_call_expr),
+            `Expected Fn(...), FnMut(...) or FnOnce(...) for function trait, got:\n${ast_expr_to_string(&fn_call_expr)}`
+          )
         )
       )
     );
@@ -113,9 +117,11 @@ evaluate_fn_trait_type :: (
   if(is_origin_qualified_reference_expr(&return_type_expr), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&return_type_expr),
-          `A closure trait's result origin is elided: \`${ast_expr_to_string(expr)}\` spells one. \`Fn(...) -> &T\` borrows from the call's reference arguments (decision 43 step 2, plans/backlog/REFERENCES_AND_ORIGINS.md O2); an origin parameter there (a closure returning a captured reference) arrives with references as binding types (N1e).`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&return_type_expr),
+            `A closure trait's result origin is elided: \`${ast_expr_to_string(expr)}\` spells one. \`Fn(...) -> &T\` borrows from the call's reference arguments (decision 43 step 2, plans/backlog/REFERENCES_AND_ORIGINS.md O2); an origin parameter there (a closure returning a captured reference) arrives with references as binding types (N1e).`
+          )
         )
       )
     );
@@ -141,9 +147,11 @@ evaluate_fn_trait_type :: (
       if(!is_type_value(&info.value()), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&return_type_expr),
-              `Expected a type for Fn return type, got:\n${ast_expr_to_string(&return_type_expr)}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&return_type_expr),
+                `Expected a type for Fn return type, got:\n${ast_expr_to_string(&return_type_expr)}`
+              )
             )
           )
         );
@@ -157,9 +165,11 @@ evaluate_fn_trait_type :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&return_type_expr),
-            String.from("Failed to evaluate return type for Fn trait.")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&return_type_expr),
+              String.from("Failed to evaluate return type for Fn trait.")
+            )
           )
         )
       );

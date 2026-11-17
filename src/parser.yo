@@ -816,7 +816,7 @@ impl(
             self.has_template_spec = true;
           });
           if(inner_prog.len() == usize(0), {
-            exn.throw(dyn(make_parse_error(tok, `empty expression in template string interpolation`)));
+            exn.throw(dyn(Box.new(make_parse_error(tok, `empty expression in template string interpolation`))));
           });
           inner_expr := match(
             inner_prog.get(usize(0)),
@@ -982,9 +982,9 @@ impl(
             open_tok := match(
               self.tokens.get(index - usize(1)),
               .Some(t) => t,
-              .None => exn.throw(dyn(make_parse_error_raw(&self.module_path.*, `expected , or ) in function call: the call's ( is not closed before the end of the file`)))
+              .None => exn.throw(dyn(Box.new(make_parse_error_raw(&self.module_path.*, `expected , or ) in function call: the call's ( is not closed before the end of the file`))))
             );
-            exn.throw(dyn(make_parse_error(&open_tok, `expected , or ) in function call: the call's ( is not closed before the end of the file`)));
+            exn.throw(dyn(Box.new(make_parse_error(&open_tok, `expected , or ) in function call: the call's ( is not closed before the end of the file`))));
           });
           return(FnArgsResult(args : args, index : idx));
         }
@@ -1014,14 +1014,16 @@ impl(
         true => {
           exn.throw(
             dyn(
-              make_parse_error(
-                &curr,
-                cond(
-                  has_whitespace => `expected ; to end function call`,
-                  (curr.kind == TokenKind.Semicolon) => `expected , or ) in function call: the call's ( is not closed before this ;`,
-                  (curr.kind == TokenKind.RBracket) => `expected , or ) in function call: the call's ( is not closed before this ]`,
-                  (curr.kind == TokenKind.RCurlyBracket) => `expected , or ) in function call: the call's ( is not closed before this }`,
-                  true => `expected , or ) in function call`
+              Box.new(
+                make_parse_error(
+                  &curr,
+                  cond(
+                    has_whitespace => `expected ; to end function call`,
+                    (curr.kind == TokenKind.Semicolon) => `expected , or ) in function call: the call's ( is not closed before this ;`,
+                    (curr.kind == TokenKind.RBracket) => `expected , or ) in function call: the call's ( is not closed before this ]`,
+                    (curr.kind == TokenKind.RCurlyBracket) => `expected , or ) in function call: the call's ( is not closed before this }`,
+                    true => `expected , or ) in function call`
+                  )
                 )
               )
             )
@@ -1051,11 +1053,11 @@ impl(
   parse_paren_expr : (fn(self : &mut Self, index : usize, exn : Exception) -> ParseResult)({
     (tok : Token) = match(
       self.tokens.get(index),
-      .None => exn.throw(dyn(make_parse_error_raw(&self.module_path.*, `unexpected end of input`))),
+      .None => exn.throw(dyn(Box.new(make_parse_error_raw(&self.module_path.*, `unexpected end of input`)))),
       .Some(t) => t
     );
     if(tok.kind != TokenKind.LParen, {
-      exn.throw(dyn(make_parse_error(&tok, `expected (`)));
+      exn.throw(dyn(Box.new(make_parse_error(&tok, `expected (`))));
     });
     // Check for unit ()
     next_tok_kind := match(
@@ -1087,7 +1089,7 @@ impl(
     (curr_kind : TokenKind) = match(
       self.tokens.get(idx),
       .Some(t) => t.kind,
-      .None => exn.throw(dyn(make_parse_error(&tok, `expected ) or , in (...)`)))
+      .None => exn.throw(dyn(Box.new(make_parse_error(&tok, `expected ) or , in (...)`))))
     );
     // Single expression wrapped in parens: (expr)
     if(curr_kind == TokenKind.RParen, {
@@ -1100,7 +1102,7 @@ impl(
     while(true, {
       (curr : Token) = match(
         self.tokens.get(idx),
-        .None => exn.throw(dyn(make_parse_error(&tok, `expected ) or , for tuple`))),
+        .None => exn.throw(dyn(Box.new(make_parse_error(&tok, `expected ) or , for tuple`)))),
         .Some(t) => t
       );
       cond(
@@ -1111,7 +1113,7 @@ impl(
             .Some(__sb) => cond(
               __sb => Option(bool).Some(true),
               true => {
-                exn.throw(dyn(make_parse_error(&curr, `cannot mix , and ; in (...)`)));
+                exn.throw(dyn(Box.new(make_parse_error(&curr, `cannot mix , and ; in (...)`))));
                 Option(bool).Some(false)
               }
             )
@@ -1124,7 +1126,7 @@ impl(
             .None => Option(bool).Some(false),
             .Some(__sb) => cond(
               __sb => {
-                exn.throw(dyn(make_parse_error(&curr, `cannot mix ; and , in (...)`)));
+                exn.throw(dyn(Box.new(make_parse_error(&curr, `cannot mix ; and , in (...)`))));
                 Option(bool).Some(true)
               },
               true => Option(bool).Some(false)
@@ -1137,7 +1139,7 @@ impl(
       idx = self.skip_ws_fwd(idx);
       (curr2 : Token) = match(
         self.tokens.get(idx),
-        .None => exn.throw(dyn(make_parse_error(&tok, `expected ) for tuple`))),
+        .None => exn.throw(dyn(Box.new(make_parse_error(&tok, `expected ) for tuple`)))),
         .Some(t) => t
       );
       if(curr2.kind == TokenKind.RParen, {
@@ -1173,11 +1175,11 @@ impl(
   parse_array_expr : (fn(self : &mut Self, index : usize, exn : Exception) -> ParseResult)({
     (tok : Token) = match(
       self.tokens.get(index),
-      .None => exn.throw(dyn(make_parse_error_raw(&self.module_path.*, `unexpected end of input`))),
+      .None => exn.throw(dyn(Box.new(make_parse_error_raw(&self.module_path.*, `unexpected end of input`)))),
       .Some(t) => t
     );
     if(tok.kind != TokenKind.LBracket, {
-      exn.throw(dyn(make_parse_error(&tok, `expected [`)));
+      exn.throw(dyn(Box.new(make_parse_error(&tok, `expected [`))));
     });
     idx := (index + usize(1));
     (separator_is_comma : Option(bool)) = .None;
@@ -1185,7 +1187,7 @@ impl(
     while(true, {
       (curr : Token) = match(
         self.tokens.get(idx),
-        .None => exn.throw(dyn(make_parse_error(&tok, `expected ] or , for array`))),
+        .None => exn.throw(dyn(Box.new(make_parse_error(&tok, `expected ] or , for array`)))),
         .Some(t) => t
       );
       cond(
@@ -1196,7 +1198,7 @@ impl(
             .Some(__sb) => cond(
               __sb => Option(bool).Some(true),
               true => {
-                exn.throw(dyn(make_parse_error(&curr, `cannot mix , and ; in [...]`)));
+                exn.throw(dyn(Box.new(make_parse_error(&curr, `cannot mix , and ; in [...]`))));
                 Option(bool).Some(false)
               }
             )
@@ -1209,7 +1211,7 @@ impl(
             .None => Option(bool).Some(false),
             .Some(__sb) => cond(
               __sb => {
-                exn.throw(dyn(make_parse_error(&curr, `cannot mix ; and , in [...]`)));
+                exn.throw(dyn(Box.new(make_parse_error(&curr, `cannot mix ; and , in [...]`))));
                 Option(bool).Some(true)
               },
               true => Option(bool).Some(false)
@@ -1221,7 +1223,7 @@ impl(
       );
       (curr2 : Token) = match(
         self.tokens.get(idx),
-        .None => exn.throw(dyn(make_parse_error(&tok, `expected ]`))),
+        .None => exn.throw(dyn(Box.new(make_parse_error(&tok, `expected ]`)))),
         .Some(t) => t
       );
       if(curr2.kind == TokenKind.RBracket, {
@@ -1241,12 +1243,12 @@ impl(
     );
     n_args := args.len();
     if(is_array_type_form && (n_args > usize(2)), {
-      exn.throw(dyn(make_parse_error(&tok, `expected 2 expressions for Array type [T; N]`)));
+      exn.throw(dyn(Box.new(make_parse_error(&tok, `expected 2 expressions for Array type [T; N]`))));
     });
     is_array_type := (is_array_type_form && (n_args == usize(2)));
     // `[T;]` names no length: it is neither the array type nor the slice.
     if(match(separator_is_comma, .Some(__sc) => !__sc, .None => false) && (n_args == usize(1)), {
-      exn.throw(dyn(make_parse_error(&tok, `expected 2 expressions for Array type [T; N]; the slice type is [T]`)));
+      exn.throw(dyn(Box.new(make_parse_error(&tok, `expected 2 expressions for Array type [T; N]; the slice type is [T]`))));
     });
     is_slice_type := (is_array_type_form && (n_args == usize(1)));
     kw := cond(
@@ -1296,11 +1298,11 @@ impl(
   parse_curly_bracket_expr : (fn(self : &mut Self, index : usize, exn : Exception) -> ParseResult)({
     (tok : Token) = match(
       self.tokens.get(index),
-      .None => exn.throw(dyn(make_parse_error_raw(&self.module_path.*, `unexpected end of input`))),
+      .None => exn.throw(dyn(Box.new(make_parse_error_raw(&self.module_path.*, `unexpected end of input`)))),
       .Some(t) => t
     );
     if(tok.kind != TokenKind.LCurlyBracket, {
-      exn.throw(dyn(make_parse_error(&tok, `expected {`)));
+      exn.throw(dyn(Box.new(make_parse_error(&tok, `expected {`))));
     });
     // `.{` — a dot written right before the brace: the group is a record
     // value (plans/reference/BRACE_BLOCKS.md).
@@ -1319,7 +1321,7 @@ impl(
       idx = self.skip_ws_fwd(idx);
       (curr : Token) = match(
         self.tokens.get(idx),
-        .None => exn.throw(dyn(make_parse_error(&tok, `unexpected end of {...}`))),
+        .None => exn.throw(dyn(Box.new(make_parse_error(&tok, `unexpected end of {...}`)))),
         .Some(t) => t
       );
       cond(
@@ -1330,7 +1332,7 @@ impl(
             .Some(__sb) => cond(
               __sb => Option(bool).Some(true),
               true => {
-                exn.throw(dyn(make_parse_error(&curr, `cannot mix , and ; in {...}`)));
+                exn.throw(dyn(Box.new(make_parse_error(&curr, `cannot mix , and ; in {...}`))));
                 Option(bool).Some(false)
               }
             )
@@ -1343,7 +1345,7 @@ impl(
             .None => Option(bool).Some(false),
             .Some(__sb) => cond(
               __sb => {
-                exn.throw(dyn(make_parse_error(&curr, `cannot mix ; and , in {...}`)));
+                exn.throw(dyn(Box.new(make_parse_error(&curr, `cannot mix ; and , in {...}`))));
                 Option(bool).Some(true)
               },
               true => Option(bool).Some(false)
@@ -1356,7 +1358,7 @@ impl(
       idx = self.skip_ws_fwd(idx);
       (curr2 : Token) = match(
         self.tokens.get(idx),
-        .None => exn.throw(dyn(make_parse_error(&tok, `unexpected end of {...}`))),
+        .None => exn.throw(dyn(Box.new(make_parse_error(&tok, `unexpected end of {...}`)))),
         .Some(t) => t
       );
       if(curr2.kind == TokenKind.RCurlyBracket, {
@@ -1423,20 +1425,22 @@ impl(
         String.from("a record's fields are named: `.{ a : 1, b }`; a tuple is written `(a, b)`"),
         String.from("`{ ... }` is a block, and a block separates statements with `;`. A record literal is written `.{ a, b }` and names its fields")
       );
-      exn.throw(dyn(make_parse_error(&tok, &bad_msg)));
+      exn.throw(dyn(Box.new(make_parse_error(&tok, &bad_msg))));
     });
     match(
       &dot_before,
       .Some(db_tok) => if(!is_comma, {
         exn.throw(
           dyn(
-            format_error_message_with_repair_at(
-              &tok,
-              &String.from("`.{ ... }` builds a record; a block has no dot"),
-              Option(String).None,
-              Span(path : db_tok.module_path.*.clone(), row : usize(db_tok.row), col : usize(db_tok.column), len : usize(1)),
-              String.new(),
-              String.from("delete the `.` so the braces form a block")
+            Box.new(
+              format_error_message_with_repair_at(
+                &tok,
+                &String.from("`.{ ... }` builds a record; a block has no dot"),
+                Option(String).None,
+                Span(path : db_tok.module_path.*.clone(), row : usize(db_tok.row), col : usize(db_tok.column), len : usize(1)),
+                String.new(),
+                String.from("delete the `.` so the braces form a block")
+              )
             )
           )
         );
@@ -1602,18 +1606,18 @@ impl(
         .FnCall(_, _, Rc(rargs), _, _) => match(
           rargs.get(usize(0)),
           .Some(a) => a,
-          .None => exn.throw(dyn(make_parse_error_raw(&self.module_path.*, `internal: missing left arg in rhs`)))
+          .None => exn.throw(dyn(Box.new(make_parse_error_raw(&self.module_path.*, `internal: missing left arg in rhs`))))
         ),
-        .Atom(_, _) => exn.throw(dyn(make_parse_error_raw(&self.module_path.*, `internal: rhs is atom`)))
+        .Atom(_, _) => exn.throw(dyn(Box.new(make_parse_error_raw(&self.module_path.*, `internal: rhs is atom`))))
       );
       (right_operand : AstExpr) = match(
         rhs,
         .FnCall(_, _, Rc(rargs), _, _) => match(
           rargs.get(usize(1)),
           .Some(a) => a,
-          .None => exn.throw(dyn(make_parse_error_raw(&self.module_path.*, `internal: missing right arg in rhs`)))
+          .None => exn.throw(dyn(Box.new(make_parse_error_raw(&self.module_path.*, `internal: missing right arg in rhs`))))
         ),
-        .Atom(_, _) => exn.throw(dyn(make_parse_error_raw(&self.module_path.*, `internal: rhs is atom`)))
+        .Atom(_, _) => exn.throw(dyn(Box.new(make_parse_error_raw(&self.module_path.*, `internal: rhs is atom`))))
       );
       rhs_func_tok := match(
         rhs,
@@ -1728,7 +1732,7 @@ impl(
     idx := self.skip_ws_fwd(index);
     (tok : Token) = match(
       self.tokens.get(idx),
-      .None => exn.throw(dyn(make_parse_error_raw(&self.module_path.*, `unexpected end of input`))),
+      .None => exn.throw(dyn(Box.new(make_parse_error_raw(&self.module_path.*, `unexpected end of input`)))),
       .Some(t) => t
     );
     cond(
@@ -1740,7 +1744,7 @@ impl(
       (tok.kind == TokenKind.LCurlyBracket) => self.parse_curly_bracket_expr(idx, exn),
       (tok.kind == TokenKind.Dot) => ParseResult(expr : .Atom(self.alloc_id(), tok), index : (idx + usize(1))),
       (tok.kind == TokenKind.TemplateString) => self.parse_template_string(&tok, idx, exn),
-      true => exn.throw(dyn(make_parse_error(&tok, `unexpected token: ${tok.value.*}`)))
+      true => exn.throw(dyn(Box.new(make_parse_error(&tok, `unexpected token: ${tok.value.*}`))))
     )
   }),
   parse_primary_end : (
@@ -1924,9 +1928,11 @@ impl(
               });
               exn.throw(
                 dyn(
-                  make_parse_error(
-                    &tok,
-                    &msg
+                  Box.new(
+                    make_parse_error(
+                      &tok,
+                      &msg
+                    )
                   )
                 )
               );
@@ -1951,11 +1957,11 @@ impl(
         recur(self, &fn_pr.expr, fn_pr.index, exn)
       },
       ((has_ws_fwd == true) && (tok.kind == TokenKind.LParen)) => {
-        exn.throw(dyn(make_parse_error(&tok, `whitespace before '(' is not allowed in function calls`)));
+        exn.throw(dyn(Box.new(make_parse_error(&tok, `whitespace before '(' is not allowed in function calls`))));
         ParseResult(expr : primary_expr.*, index : idx)
       },
       true => {
-        exn.throw(dyn(make_parse_error(&tok, `paren-less function and operator calls are not supported; use parentheses`)));
+        exn.throw(dyn(Box.new(make_parse_error(&tok, `paren-less function and operator calls are not supported; use parentheses`))));
         ParseResult(expr : primary_expr.*, index : idx)
       }
     )
@@ -2139,7 +2145,7 @@ impl(
       .Some(t) => if((t.kind == TokenKind.Operator) && (t.value.* == "&&"), {
         nt_kind := match(self.tokens.get(next), .Some(n) => n.kind, .None => TokenKind.Whitespace);
         if((nt_kind != TokenKind.Whitespace) && (nt_kind != TokenKind.LParen) && self.token_starts_prefix_operand(next), {
-          exn.throw(dyn(make_parse_error(&t, `\`&&\` is logical and, and a borrow of a borrow does not exist: a borrow is a mode a slot spells (\`x : &T\`, \`y := &place\`), not a type another \`&\` could wrap (plans/VALUES_BY_DEFAULT.md decision 42; references become types with decision 43).`)));
+          exn.throw(dyn(Box.new(make_parse_error(&t, `\`&&\` is logical and, and a borrow of a borrow does not exist: a borrow is a mode a slot spells (\`x : &T\`, \`y := &place\`), not a type another \`&\` could wrap (plans/VALUES_BY_DEFAULT.md decision 42; references become types with decision 43).`))));
         });
       }),
       .None => ()
@@ -2343,13 +2349,15 @@ impl(
         if(binder && self.dotted_groups.contains(&id.*), {
           exn.throw(
             dyn(
-              format_error_message_with_repair_at(
-                ftok,
-                &String.from("a field list on the binding side is written without the dot: `{ a }`. `.{ ... }` builds a record value"),
-                Option(String).None,
-                Span(path : ftok.module_path.*.clone(), row : usize(ftok.row), col : (usize(ftok.column) - usize(1)), len : usize(1)),
-                String.new(),
-                String.from("delete the `.` before `{`")
+              Box.new(
+                format_error_message_with_repair_at(
+                  ftok,
+                  &String.from("a field list on the binding side is written without the dot: `{ a }`. `.{ ... }` builds a record value"),
+                  Option(String).None,
+                  Span(path : ftok.module_path.*.clone(), row : usize(ftok.row), col : (usize(ftok.column) - usize(1)), len : usize(1)),
+                  String.new(),
+                  String.from("delete the `.` before `{`")
+                )
               )
             )
           );
@@ -2420,13 +2428,15 @@ impl(
     if(body.len() == usize(0), {
       exn.throw(
         dyn(
-          format_error_message_with_repair_at(
-            tok,
-            &String.from("`{ ... }` is a block, and a block separates statements with `;`. A record literal is written `.{ a, b }`"),
-            Option(String).None,
-            Span(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), len : usize(0)),
-            String.from("."),
-            String.from("insert `.` before `{` to build a record")
+          Box.new(
+            format_error_message_with_repair_at(
+              tok,
+              &String.from("`{ ... }` is a block, and a block separates statements with `;`. A record literal is written `.{ a, b }`"),
+              Option(String).None,
+              Span(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), len : usize(0)),
+              String.from("."),
+              String.from("insert `.` before `{` to build a record")
+            )
           )
         )
       );
@@ -2586,9 +2596,11 @@ generate_expr_from_code :: (
       });
       exn.throw(
         dyn(
-          make_parse_error_raw(
-            String.from(""),
-            String.from("generate_expr_from_code: expected exactly 1 expression from parsed code, got: ") + n.to_string()
+          Box.new(
+            make_parse_error_raw(
+              String.from(""),
+              String.from("generate_expr_from_code: expected exactly 1 expression from parsed code, got: ") + n.to_string()
+            )
           )
         )
       );

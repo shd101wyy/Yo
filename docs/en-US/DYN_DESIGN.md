@@ -45,6 +45,10 @@ slot is E0601 (it lends the box; the object is lent with `&b.*`). Code written f
 upgraded in two steps, as E0619's help says: on v0.2.77 (`yo version install 0.2.77`),
 `yo fix <path> --migrate unsized` writes the type spellings; then on v0.2.78 the same command
 writes the lends `&b` as `&b.*` and the remaining `dyn(v)` alias sites as `dyn(Box.new(v))`.
+Since v0.2.79 that alias is gone: a plain `dyn(v)` is E0620, because `dyn` unsizes a pointer and a
+value has none. Code written for v0.2.78 is migrated on v0.2.78 first
+(`yo version install 0.2.78 && yo fix <path> --migrate unsized`), as E0620's help says; a named
+argument (`dyn(e)`) also carries the repair `yo fix <path>` applies, `dyn(Box.new(e))`.
 What stays interim:
 
 - **Until v0.2.79, `Rc(Dyn(T))` and `Arc(Dyn(T))` lower to two allocations**: `dyn(Rc.new(v))`
@@ -193,9 +197,9 @@ export(main);
 A value becomes a `Dyn` only where the program writes `dyn(...)` (decision 44). There is no
 implicit conversion at a typed slot, for a nominal value or for a callable. A named closure, a
 named `fn`, an `Impl(Fn(...))` parameter or a closure literal in an owning `Dyn(Fn(...))` binding,
-field, argument or result is error E0618, whose note names `dyn(f)`, the legacy alias of
-`dyn(Box.new(f))`. A `&Dyn(Fn(...))` parameter borrows the closure with `dyn(&f)`, which
-allocates nothing.
+field, argument or result is error E0618, whose note names `dyn(Box.new(f))` (`dyn(Rc.new(f))`
+for an `Rc`, `dyn(&f)` for a reference). A `&Dyn(Fn(...))` parameter borrows the closure with
+`dyn(&f)`, which allocates nothing.
 
 ```yo
 run :: (fn(d : &Dyn(Fn() -> i32)) -> i32)(d());

@@ -3155,7 +3155,7 @@ Yo supports closures (anonymous functions that capture their environment).
 A closure compiles to a **capture struct** holding the variables it uses. How that struct is stored and called depends on the type it is given:
 
 - **`Impl(Fn(...))` — static dispatch, not reference counted.** The compiler monomorphizes the closure into its own function, passes the capture struct **by value**, and emits a direct call. No heap allocation, no vtable, no reference count. Each closure has its own distinct type (see [Closure Type Restrictions](#closure-type-restrictions)), so this form cannot hold two different closures in one variable.
-- **`Box(Dyn(Fn(...)))` and `&Dyn(Fn(...))` — dynamic dispatch.** The value is a fat pointer of `{data, vtable}` ([DYN_DESIGN.md](./DYN_DESIGN.md)): `dyn(Box.new(f))` moves the capture struct into a heap box the `Box` owns, and `dyn(&f)` borrows a closure where it is, with no allocation. Use this when closures of different types must share one type — storing them in a collection, returning them from different branches, or accepting any callable. The erasure is always written, at a binding, a field, an argument and a result alike; in v0.2.77 `dyn(f)` of a closure, a named `fn` or an `Impl(Fn(...))` value is still the spelling of `dyn(Box.new(f))`. A callable passed bare into a `Dyn(Fn(...))` slot (`(d : Dyn(Fn() -> i32)) = f`, `run(f)`, `S(cb : f)`, a body ending in `f`) is error E0618, whose note names `dyn(f)`; `yo fix <path>` wraps a named callable. An `Impl(Fn(...))` slot is not an erasure and takes the closure bare.
+- **`Box(Dyn(Fn(...)))` and `&Dyn(Fn(...))` — dynamic dispatch.** The value is a fat pointer of `{data, vtable}` ([DYN_DESIGN.md](./DYN_DESIGN.md)): `dyn(Box.new(f))` moves the capture struct into a heap box the `Box` owns, and `dyn(&f)` borrows a closure where it is, with no allocation. Use this when closures of different types must share one type — storing them in a collection, returning them from different branches, or accepting any callable. The erasure is always written, at a binding, a field, an argument and a result alike; a plain `dyn(f)` of a closure, a named `fn` or an `Impl(Fn(...))` value, the legacy alias of `dyn(Box.new(f))` in v0.2.77 and v0.2.78, is E0620 since v0.2.79. A callable passed bare into a `Dyn(Fn(...))` slot (`(d : Dyn(Fn() -> i32)) = f`, `run(f)`, `S(cb : f)`, a body ending in `f`) is error E0618, whose note names `dyn(f)`; `yo fix <path>` wraps a named callable. An `Impl(Fn(...))` slot is not an erasure and takes the closure bare.
 
 In both cases the *captured values* follow the usual rules: a captured `Rc` handle is owned by the capture and released when the capture is dropped.
 
@@ -3913,7 +3913,7 @@ The position of the `dyn(...)` call must say which `Dyn(...)` to build — a par
 - `downcast` and `upcast` keep the pointer kind
 - Several traits in one `Dyn`: `Dyn(Speak, Run)`
 
-In v0.2.77 the older spellings still compile: a bare `Dyn(Trait)` value type means `Box(Dyn(Trait))`, and `dyn(v)` of a plain value means `dyn(Box.new(v))`. `yo fix <path> --migrate unsized` writes the type spellings the new way. See [DYN_DESIGN.md](./DYN_DESIGN.md) for what else changes in v0.2.78.
+The older spellings are errors now: a bare `Dyn(Trait)` value type, which meant `Box(Dyn(Trait))` in v0.2.77, is E0619 since v0.2.78, and `dyn(v)` of a plain value, which meant `dyn(Box.new(v))` in v0.2.77 and v0.2.78, is E0620 since v0.2.79. `yo fix <path> --migrate unsized` migrates each on the last release that accepts it (`yo version install 0.2.77` for the types, `0.2.78` for `dyn(v)`). See [DYN_DESIGN.md](./DYN_DESIGN.md) for what else changes in v0.2.78.
 
 ### Examples
 
@@ -4137,8 +4137,8 @@ derive(MathError, Clone);
 //   .NotFound(path : String)  =>  `not found: ${path}`
 // Writing the two impls by hand still works, and is the way to go when the
 // message is not a simple per-variant string.
-// AnyError is the owning Dyn(Error, Clone) — any type implementing Error and
-// Clone can be wrapped (v0.2.78 spells it Box(Dyn(Error))). It owns its payload
+// AnyError is Box(Dyn(Error, Clone)) — any type implementing Error and
+// Clone can be wrapped with dyn(Box.new(e)). It owns its payload
 // uniquely, and `throw` passes the error by value, so a handler keeps a caught
 // error by moving it.
 (err : AnyError) = dyn(Box.new(MathError.DivisionByZero));
@@ -4163,7 +4163,7 @@ from the enclosing function:
 
 safe_divide :: (fn(x : i32, y : i32, exn : Exception) -> i32)(
   cond(
-    (y == i32(0)) => exn.throw(dyn(MathError.DivisionByZero)),
+    (y == i32(0)) => exn.throw(dyn(Box.new(MathError.DivisionByZero))),
     true => (x / y)
   )
 );
@@ -4200,7 +4200,7 @@ recovery value:
 
 safe_divide :: (fn(x : i32, y : i32, exn : ResumableException(i32)) -> i32)(
   cond(
-    (y == i32(0)) => exn.throw(dyn(`division by zero`)),
+    (y == i32(0)) => exn.throw(dyn(Box.new(`division by zero`))),
     true => (x / y)
   )
 );

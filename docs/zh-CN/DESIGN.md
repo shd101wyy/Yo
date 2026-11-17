@@ -3027,7 +3027,7 @@ Yo 支持闭包（捕获其所在环境的匿名函数）。
 闭包会被编译成一个保存所捕获变量的**捕获结构体**。它如何存储与调用，取决于所标注的类型：
 
 - **`Impl(Fn(...))` —— 静态分发，不做引用计数。** 编译器会将闭包单态化为独立函数，捕获结构体**按值传递**，并生成直接调用：没有堆分配、没有虚表、也没有引用计数。每个闭包都有各自不同的类型（参见 [Closure Type Restrictions](#closure-type-restrictions)），因此这种形式无法用同一个变量持有两个不同的闭包。
-- **`Box(Dyn(Fn(...)))` 和 `&Dyn(Fn(...))` —— 动态分发。** 值是 `{data, vtable}` 的胖指针（[DYN_DESIGN.md](./DYN_DESIGN.md)）：`dyn(Box.new(f))` 把捕获结构体移入由 `Box` 拥有的堆 box，`dyn(&f)` 则就地借用闭包，不做分配。当不同类型的闭包需要共享同一类型时使用它——例如存入集合、从不同分支返回，或接受任意可调用对象。擦除总是要写出来，绑定、字段、实参和结果都一样；在 v0.2.77 中，对闭包、具名 `fn` 或 `Impl(Fn(...))` 值写 `dyn(f)` 仍是 `dyn(Box.new(f))` 的写法。把可调用值裸传入 `Dyn(Fn(...))` 位置（`(d : Dyn(Fn() -> i32)) = f`、`run(f)`、`S(cb : f)`、以 `f` 结尾的函数体）是错误 E0618，其提示会给出 `dyn(f)`；`yo fix <path>` 会给具名可调用值加上 `dyn(...)`。`Impl(Fn(...))` 位置不是擦除，闭包可以直接传入。
+- **`Box(Dyn(Fn(...)))` 和 `&Dyn(Fn(...))` —— 动态分发。** 值是 `{data, vtable}` 的胖指针（[DYN_DESIGN.md](./DYN_DESIGN.md)）：`dyn(Box.new(f))` 把捕获结构体移入由 `Box` 拥有的堆 box，`dyn(&f)` 则就地借用闭包，不做分配。当不同类型的闭包需要共享同一类型时使用它——例如存入集合、从不同分支返回，或接受任意可调用对象。擦除总是要写出来，绑定、字段、实参和结果都一样；对闭包、具名 `fn` 或 `Impl(Fn(...))` 值写裸 `dyn(f)`（在 v0.2.77 和 v0.2.78 中是 `dyn(Box.new(f))` 的旧别名）自 v0.2.79 起是 E0620。把可调用值裸传入 `Dyn(Fn(...))` 位置（`(d : Dyn(Fn() -> i32)) = f`、`run(f)`、`S(cb : f)`、以 `f` 结尾的函数体）是错误 E0618，其提示会给出 `dyn(f)`；`yo fix <path>` 会给具名可调用值加上 `dyn(...)`。`Impl(Fn(...))` 位置不是擦除，闭包可以直接传入。
 
 两种形式下，**被捕获的值**都遵循一般规则：被捕获的 `Rc` 句柄由该捕获结构体持有，并在其销毁时释放。
 
@@ -3684,7 +3684,7 @@ perform :: (
 - `downcast` 和 `upcast` 保持指针的种类
 - 一个 `Dyn` 中可以有多个 trait：`Dyn(Speak, Run)`
 
-在 v0.2.77 中，较早的写法仍然可以编译：裸的 `Dyn(Trait)` 值类型表示 `Box(Dyn(Trait))`，对普通值写 `dyn(v)` 表示 `dyn(Box.new(v))`。`yo fix <path> --migrate unsized` 会把类型的写法改写成新写法。v0.2.78 中还有哪些变化，见 [DYN_DESIGN.md](./DYN_DESIGN.md)。
+较早的写法现在都是错误：裸的 `Dyn(Trait)` 值类型（在 v0.2.77 中表示 `Box(Dyn(Trait))`）自 v0.2.78 起是 E0619，对普通值写的 `dyn(v)`（在 v0.2.77 和 v0.2.78 中表示 `dyn(Box.new(v))`）自 v0.2.79 起是 E0620。`yo fix <path> --migrate unsized` 在最后一个接受该写法的版本上迁移它（类型用 `yo version install 0.2.77`，`dyn(v)` 用 `0.2.78`）。v0.2.78 中还有哪些变化，见 [DYN_DESIGN.md](./DYN_DESIGN.md)。
 
 ### 示例
 
@@ -3898,8 +3898,8 @@ derive(MathError, Clone);
 // 字段可以按名字插值：
 //   .NotFound(path : String)  =>  `not found: ${path}`
 // 手写这两个 impl 依然可用；当消息不是简单的「每个变体一条字符串」时，就该那么写。
-// AnyError 是拥有型的 Dyn(Error, Clone) — 任何实现了 Error 和 Clone 的类型都
-// 可以被包装（v0.2.78 把它写作 Box(Dyn(Error))）。它独占其载荷，而 `throw`
+// AnyError 是 Box(Dyn(Error, Clone)) — 任何实现了 Error 和 Clone 的类型都
+// 可以用 dyn(Box.new(e)) 包装。它独占其载荷，而 `throw`
 // 按值传递错误，所以处理器通过移动来保留捕获的错误。
 (err : AnyError) = dyn(Box.new(MathError.DivisionByZero));
 
@@ -3922,7 +3922,7 @@ match(
 
 safe_divide :: (fn(x : i32, y : i32, exn : Exception) -> i32)(
   cond(
-    (y == i32(0)) => exn.throw(dyn(MathError.DivisionByZero)),
+    (y == i32(0)) => exn.throw(dyn(Box.new(MathError.DivisionByZero))),
     true => (x / y)
   )
 );
@@ -3956,7 +3956,7 @@ throw 点各自选定的类型变量，所以处理器只能 `unwind`、发散�
 
 safe_divide :: (fn(x : i32, y : i32, exn : ResumableException(i32)) -> i32)(
   cond(
-    (y == i32(0)) => exn.throw(dyn(`division by zero`)),
+    (y == i32(0)) => exn.throw(dyn(Box.new(`division by zero`))),
     true => (x / y)
   )
 );

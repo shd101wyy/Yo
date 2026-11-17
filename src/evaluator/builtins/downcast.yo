@@ -155,10 +155,12 @@ evaluate_downcast :: (
               // of a shared handle (VERDICTS-61 decision 2).
               exn.throw(
                 dyn(
-                  format_error_message_with_help(
-                    ast_expr_token(&dyn_expr),
-                    &`an owning \`downcast\` of a shared \`${type_to_string(&dyn_type)}\` handle is not available: the cell's block cannot be retyped while another handle may share it`,
-                    &Option(String).Some(`downcast a view of the payload instead: \`downcast(&${ast_expr_to_string(&dyn_expr)}.*, V)\` returns \`Option(&V)\``)
+                  Box.new(
+                    format_error_message_with_help(
+                      ast_expr_token(&dyn_expr),
+                      &`an owning \`downcast\` of a shared \`${type_to_string(&dyn_type)}\` handle is not available: the cell's block cannot be retyped while another handle may share it`,
+                      &Option(String).Some(`downcast a view of the payload instead: \`downcast(&${ast_expr_to_string(&dyn_expr)}.*, V)\` returns \`Option(&V)\``)
+                    )
                   )
                 )
               );
@@ -172,9 +174,11 @@ evaluate_downcast :: (
   if(!is_dyn_type(&dyn_type), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&dyn_expr),
-          `downcast expects a Dyn type as first argument, got ${type_to_string(&dyn_type)}.`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&dyn_expr),
+            `downcast expects a Dyn type as first argument, got ${type_to_string(&dyn_type)}.`
+          )
         )
       )
     );
@@ -182,9 +186,11 @@ evaluate_downcast :: (
   if(!is_type_value(&type_info.value()), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&expr.*),
-          `downcast expects a type as second argument, got ${type_to_string(&type_info.ty())}.`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&expr.*),
+            `downcast expects a type as second argument, got ${type_to_string(&type_info.ty())}.`
+          )
         )
       )
     );
@@ -258,12 +264,14 @@ evaluate_downcast :: (
   if(type_is_move_only(&target_type) && !dyn_type_lists_clone(&dyn_type), {
     exn.throw(
       dyn(
-        with_code(
-          format_error_message(
-            ast_expr_token(&type_expr),
-            `downcast copies the payload out of the Dyn, which keeps its own, and \`${type_to_string(&target_type)}\` is move-only: it is copied with its \`clone\`, so the Dyn must list \`Clone\` (\`${type_to_string(&dyn_type)}\` does not). Downcast from a \`Dyn(..., Clone)\`, such as std/error's \`AnyError\`.`
-          ),
-          E_USE_OF_MOVED_VALUE
+        Box.new(
+          with_code(
+            format_error_message(
+              ast_expr_token(&type_expr),
+              `downcast copies the payload out of the Dyn, which keeps its own, and \`${type_to_string(&target_type)}\` is move-only: it is copied with its \`clone\`, so the Dyn must list \`Clone\` (\`${type_to_string(&dyn_type)}\` does not). Downcast from a \`Dyn(..., Clone)\`, such as std/error's \`AnyError\`.`
+            ),
+            E_USE_OF_MOVED_VALUE
+          )
         )
       )
     );
@@ -377,9 +385,11 @@ evaluate_upcast :: (
   if(!is_dyn_type(&src_type), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&dyn_expr),
-          `upcast expects a Dyn value as first argument, got ${type_to_string(&src_type)}.`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&dyn_expr),
+            `upcast expects a Dyn value as first argument, got ${type_to_string(&src_type)}.`
+          )
         )
       )
     );
@@ -394,9 +404,11 @@ evaluate_upcast :: (
   if(!is_dyn_type(&target_type), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&type_expr),
-          `upcast expects a Dyn type as second argument, got ${type_to_string(&type_info.ty())}.`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&type_expr),
+            `upcast expects a Dyn type as second argument, got ${type_to_string(&type_info.ty())}.`
+          )
         )
       )
     );
@@ -411,12 +423,14 @@ evaluate_upcast :: (
     if(!_trait_in(&rt, &src_req.items), {
       exn.throw(
         dyn(
-          with_code(
-            format_error_message(
-              ast_expr_token(expr),
-              `upcast cannot add a trait: ${type_to_string(&target_type)} requires ${type_to_string(&rt)}, which ${type_to_string(&src_type)} does not carry.\nAn upcast only drops traits. Call dyn(...) on the concrete value with the traits the destination needs, or downcast(...) first.`
-            ),
-            E_TRAIT_NOT_IMPLEMENTED
+          Box.new(
+            with_code(
+              format_error_message(
+                ast_expr_token(expr),
+                `upcast cannot add a trait: ${type_to_string(&target_type)} requires ${type_to_string(&rt)}, which ${type_to_string(&src_type)} does not carry.\nAn upcast only drops traits. Call dyn(...) on the concrete value with the traits the destination needs, or downcast(...) first.`
+              ),
+              E_TRAIT_NOT_IMPLEMENTED
+            )
           )
         )
       );
@@ -429,12 +443,14 @@ evaluate_upcast :: (
     if(!_trait_in(&nt, &src_neg.items), {
       exn.throw(
         dyn(
-          with_code(
-            format_error_message(
-              ast_expr_token(expr),
-              `upcast cannot add an exclusion: ${type_to_string(&target_type)} excludes ${type_to_string(&nt)}, which ${type_to_string(&src_type)} does not exclude, so the payload might implement it.`
-            ),
-            E_TRAIT_NOT_IMPLEMENTED
+          Box.new(
+            with_code(
+              format_error_message(
+                ast_expr_token(expr),
+                `upcast cannot add an exclusion: ${type_to_string(&target_type)} excludes ${type_to_string(&nt)}, which ${type_to_string(&src_type)} does not exclude, so the payload might implement it.`
+              ),
+              E_TRAIT_NOT_IMPLEMENTED
+            )
           )
         )
       );

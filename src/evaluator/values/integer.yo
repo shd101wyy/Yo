@@ -48,9 +48,11 @@ check_literal_fits :: (fn(text : &String, ty : &TypeValue, tok : &Token, exn : E
       .Some(fits) => if(!fits, {
         exn.throw(
           dyn(
-            format_error_message(
-              tok,
-              `Integer overflow: the literal ${text} does not fit in ${type_to_string(ty)} (${integer_type_range_string(ty)})`
+            Box.new(
+              format_error_message(
+                tok,
+                `Integer overflow: the literal ${text} does not fit in ${type_to_string(ty)} (${integer_type_range_string(ty)})`
+              )
             )
           )
         );
@@ -94,7 +96,7 @@ comptime_int_value_misfit :: (fn(raw : &String, ty : &TypeValue) -> Option(Strin
 check_comptime_int_value_fits :: (fn(raw : &String, ty : &TypeValue, tok : &Token, exn : Exception) -> unit)(
   match(
     comptime_int_value_misfit(raw, ty),
-    .Some(msg) => exn.throw(dyn(format_error_message(tok, &msg))),
+    .Some(msg) => exn.throw(dyn(Box.new(format_error_message(tok, &msg)))),
     .None => ()
   )
 );
@@ -133,9 +135,11 @@ evaluate_integer_literal :: (
   if(!(tok.kind == TokenKind.Integer), {
     exn.throw(
       dyn(
-        format_error_message(
-          &tok,
-          `Expected integer literal, got ${tok.value.*}`
+        Box.new(
+          format_error_message(
+            &tok,
+            `Expected integer literal, got ${tok.value.*}`
+          )
         )
       )
     );
@@ -147,9 +151,11 @@ evaluate_integer_literal :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            &tok,
-            `Failed to parse integer literal: ${tok.value.*}`
+          Box.new(
+            format_error_message(
+              &tok,
+              `Failed to parse integer literal: ${tok.value.*}`
+            )
           )
         )
       );

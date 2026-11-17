@@ -356,7 +356,7 @@ project_manifest :: (fn(project_dir : &String, exn : Exception) -> Option(Manife
       load_manifest(&path, exn),
       .Ok(m) => Option(Manifest).Some(m),
       .Err(msg) => {
-        exn.throw(dyn(`Error: ${msg}`));
+        exn.throw(dyn(Box.new(`Error: ${msg}`)));
         Option(Manifest).None
       }
     )
@@ -368,7 +368,7 @@ _manifest_roots :: (fn(manifest : &Manifest, exn : Exception) -> ImportRoots)(
     resolve_import_roots(manifest, read_lock_text(manifest, exn), exn),
     .Ok(r) => r,
     .Err(msg) => {
-      exn.throw(dyn(`Error: ${manifest.path}: ${msg}`));
+      exn.throw(dyn(Box.new(`Error: ${manifest.path}: ${msg}`)));
       ImportRoots(roots : ArrayList(ImportRoot).new(), unavailable : ArrayList(UnavailableImport).new())
     }
   )
@@ -419,7 +419,7 @@ resolve_build_import_roots :: (
     g_import_lines.with_mut(xs => xs.clear());
     has_manifest := owned_manifest_opt.is_some();
     if(!has_manifest && (referenced.len() > usize(0)), {
-      e.exn.throw(dyn(`Error: build.dependency("${referenced(usize(0))}") needs a ${MANIFEST_FILENAME} declaring it, and this project has none.`));
+      e.exn.throw(dyn(Box.new(`Error: build.dependency("${referenced(usize(0))}") needs a ${MANIFEST_FILENAME} declaring it, and this project has none.`)));
     });
     if(!has_manifest, {
       return(());
@@ -429,7 +429,7 @@ resolve_build_import_roots :: (
     while(ri < referenced.len(), {
       dep_name := referenced(ri).clone();
       if(manifest.find_dependency(dep_name.clone()).is_none(), {
-        e.exn.throw(dyn(`Error: build.dependency("${dep_name}") is not declared in ${manifest.path}. Add it with 'yo add'.`));
+        e.exn.throw(dyn(Box.new(`Error: build.dependency("${dep_name}") is not declared in ${manifest.path}. Add it with 'yo add'.`)));
       });
       ri = (ri + usize(1));
     });
@@ -443,7 +443,7 @@ resolve_build_import_roots :: (
     });
     final_roots := if(needs_fetch, _manifest_roots(&manifest, e.exn), roots);
     if(final_roots.unavailable.len() > usize(0), {
-      e.exn.throw(dyn(`Error: dependency "${final_roots.unavailable(usize(0)).name}": ${final_roots.unavailable(usize(0)).reason}`));
+      e.exn.throw(dyn(Box.new(`Error: dependency "${final_roots.unavailable(usize(0)).name}": ${final_roots.unavailable(usize(0)).reason}`)));
     });
     lines := ArrayList(String).new();
     (li : usize) = usize(0);
@@ -645,7 +645,7 @@ _evaluate_dependency_build_file :: (
         .Some(rendered) => emit_rendered_text(&rendered),
         .None => eprintln(`build: error in: ${owned_build_file} (no diagnostic recorded)`)
       );
-      e.exn.throw(dyn(`Error: dependency "${owned_dep_name}": failed to evaluate ${owned_build_file}`));
+      e.exn.throw(dyn(Box.new(`Error: dependency "${owned_dep_name}": failed to evaluate ${owned_build_file}`)));
     });
     evaluated
   })
@@ -680,7 +680,7 @@ _evaluate_dependency_builds :: (
         manifest.find_dependency(r.dependency_name.clone()),
         .Some(d) => d,
         .None => {
-          e.exn.throw(dyn(`Error: build.dependency("${r.dependency_name}") is not declared in ${manifest.path}. Add it with 'yo add'.`));
+          e.exn.throw(dyn(Box.new(`Error: build.dependency("${r.dependency_name}") is not declared in ${manifest.path}. Add it with 'yo add'.`)));
           return(registry);
         }
       );
@@ -688,7 +688,7 @@ _evaluate_dependency_builds :: (
         dependency_dir(&dep, manifest.dir.clone(), lock_text.clone()),
         .Ok(d) => d,
         .Err(u) => {
-          e.exn.throw(dyn(`Error: dependency "${r.dependency_name}": ${u.reason}`));
+          e.exn.throw(dyn(Box.new(`Error: dependency "${r.dependency_name}": ${u.reason}`)));
           String.new()
         }
       );
@@ -696,7 +696,7 @@ _evaluate_dependency_builds :: (
       if(!file_exists_sync(build_file.clone()), {
         e.exn.throw(
           dyn(
-            `Error: dependency "${r.dependency_name}" has no build.yo, so .artifact("${r.artifact_name}") has nothing to build (looked for ${build_file}).`
+            Box.new(`Error: dependency "${r.dependency_name}" has no build.yo, so .artifact("${r.artifact_name}") has nothing to build (looked for ${build_file}).`)
           )
         );
       });
@@ -715,7 +715,7 @@ _evaluate_dependency_builds :: (
           dep_reg.find_artifact(r.artifact_name.clone()),
           .Some(a) => a,
           .None => {
-            e.exn.throw(dyn(`Error: dependency "${r.dependency_name}" defines no artifact "${r.artifact_name}" in ${build_file}.`));
+            e.exn.throw(dyn(Box.new(`Error: dependency "${r.dependency_name}" defines no artifact "${r.artifact_name}" in ${build_file}.`)));
             return(registry);
           }
         );
@@ -723,7 +723,7 @@ _evaluate_dependency_builds :: (
         if(!is_lib, {
           e.exn.throw(
             dyn(
-              `Error: dependency "${r.dependency_name}": "${r.artifact_name}" is not a static library, and only a static library can be linked into this project.`
+              Box.new(`Error: dependency "${r.dependency_name}": "${r.artifact_name}" is not a static library, and only a static library can be linked into this project.`)
             )
           );
         });
@@ -761,7 +761,7 @@ _evaluate_dependency_builds :: (
           dep_joined := `", "`.join(&dep_unknown);
           e.exn.throw(
             dyn(
-              `Error: -D${r.dependency_name}."${dep_joined}" is not an option of dependency "${r.dependency_name}" (${build_file}).`
+              Box.new(`Error: -D${r.dependency_name}."${dep_joined}" is not an option of dependency "${r.dependency_name}" (${build_file}).`)
             )
           );
         });
@@ -787,7 +787,7 @@ _dependency_import_lines :: (
     resolve_import_roots(&dep_manifest, root_lock_text, exn),
     .Ok(r) => r,
     .Err(msg) => {
-      exn.throw(dyn(`Error: ${dep_dir}/${MANIFEST_FILENAME}: ${msg}`));
+      exn.throw(dyn(Box.new(`Error: ${dep_dir}/${MANIFEST_FILENAME}: ${msg}`)));
       return(lines)
     }
   );
@@ -1219,7 +1219,7 @@ expand_workspace_members :: (
       if(parent_rel.contains("*"), {
         e.exn.throw(
           dyn(
-            `workspace member "${pattern}": only the last path segment may contain "*" — a member is a path into the workspace, not a tree search`
+            Box.new(`workspace member "${pattern}": only the last path segment may contain "*" — a member is a path into the workspace, not a tree search`)
           )
         );
       });
@@ -1254,7 +1254,7 @@ expand_workspace_members :: (
         if(!file_exists_sync(Path.new(cand.clone()).join(Path.new(String.from(MANIFEST_FILENAME))).to_string()), {
           e.exn.throw(
             dyn(
-              `workspace member "${pattern}" has no ${MANIFEST_FILENAME} (looked in ${cand}). Every member is a package; remove the entry or add a manifest.`
+              Box.new(`workspace member "${pattern}" has no ${MANIFEST_FILENAME} (looked in ${cand}). Every member is a package; remove the entry or add a manifest.`)
             )
           );
         });
@@ -1283,7 +1283,7 @@ _resolve_workspace_member :: (
       find_manifest(cwd_str.clone()),
       .Some(p) => p.clone(),
       .None => {
-        e.exn.throw(dyn(`-p ${name}: no ${MANIFEST_FILENAME} here or above, so there is no workspace to take a member from`));
+        e.exn.throw(dyn(Box.new(`-p ${name}: no ${MANIFEST_FILENAME} here or above, so there is no workspace to take a member from`)));
         String.new()
       }
     );
@@ -1298,7 +1298,7 @@ _resolve_workspace_member :: (
     if(root.workspace_members.len() == usize(0), {
       e.exn.throw(
         dyn(
-          `-p ${name}: ${root_manifest_path} declares no [workspace] members, so it is a single package rather than a workspace`
+          Box.new(`-p ${name}: ${root_manifest_path} declares no [workspace] members, so it is a single package rather than a workspace`)
         )
       );
     });
@@ -1325,7 +1325,7 @@ _resolve_workspace_member :: (
     sep := String.from(", ");
     e.exn.throw(
       dyn(
-        `-p ${name}: no workspace member is named that. Members of ${root_manifest_path}: ${sep.join(&available)}`
+        Box.new(`-p ${name}: no workspace member is named that. Members of ${root_manifest_path}: ${sep.join(&available)}`)
       )
     );
     Option(String).None
@@ -3034,7 +3034,7 @@ _plan_step :: (
         i = (i + usize(1));
       });
       if(names_str.len() == usize(0), names_str.push_str("(none)"));
-      exn.throw(dyn(`Error: Unknown step "${step_name}". Available: ${names_str}`));
+      exn.throw(dyn(Box.new(`Error: Unknown step "${step_name}". Available: ${names_str}`)));
     },
     .Some(_) => ()
   );
@@ -3044,14 +3044,14 @@ _plan_step :: (
     joined := `", "`.join(&missing);
     exn.throw(
       dyn(
-        `Error: step "${step_name}" depends on "${joined}", which no artifact, test, run, doc or step defines.`
+        Box.new(`Error: step "${step_name}" depends on "${joined}", which no artifact, test, run, doc or step defines.`)
       )
     );
   });
   match(
     detect_cycle(&dag),
     .Some(cycle_node) => {
-      exn.throw(dyn(`Error: Cycle in build DAG involving "${cycle_node}"`));
+      exn.throw(dyn(Box.new(`Error: Cycle in build DAG involving "${cycle_node}"`)));
     },
     .None => ()
   );
@@ -3286,7 +3286,7 @@ evaluate_build_file :: (
         .Some(rendered) => emit_rendered_text(&rendered),
         .None => eprintln(`build: error in: ${owned_build_file} (no diagnostic recorded)`)
       );
-      e.exn.throw(dyn(`Error: Failed to evaluate build file ${owned_build_file}`));
+      e.exn.throw(dyn(Box.new(`Error: Failed to evaluate build file ${owned_build_file}`)));
     });
     take_build_registry()
   })
@@ -3311,7 +3311,7 @@ _resolve_c_compiler :: (
       .Some(found) => found,
       .None => {
         exn.throw(
-          dyn(`Error: No C compiler found. Please install a C compiler (cc, gcc, clang, or zig) or specify one using the -cc/--c-compiler flag.`)
+          dyn(Box.new(`Error: No C compiler found. Please install a C compiler (cc, gcc, clang, or zig) or specify one using the -cc/--c-compiler flag.`))
         );
         String.new()
       }
@@ -3337,7 +3337,7 @@ run_build :: (
     build_file_path := Path.new(effective_build_file.clone());
     build_file_exists := e.io.await(exists(&build_file_path, e.io), e.io);
     if(!build_file_exists, {
-      e.exn.throw(dyn(`Error: Build file not found: ${build_file_path.to_string()}`));
+      e.exn.throw(dyn(Box.new(`Error: Build file not found: ${build_file_path.to_string()}`)));
     });
     // `project_dir` follows `path.dirname` semantics ("foo" → "."): Yo's
     // `Path.parent()` follows Rust — `Path::new("foo").parent()` is `Some("")` —
@@ -3388,7 +3388,7 @@ run_build :: (
       joined := `", "`.join(&unknown_opts);
       e.exn.throw(
         dyn(
-          `Error: -D"${joined}" is not an option of this build file. Run 'yo build --list-options' to see the ones it declares.`
+          Box.new(`Error: -D"${joined}" is not an option of this build file. Run 'yo build --list-options' to see the ones it declares.`)
         )
       );
     });

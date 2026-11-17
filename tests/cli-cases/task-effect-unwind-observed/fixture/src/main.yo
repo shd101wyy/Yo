@@ -23,7 +23,7 @@ main :: (fn(io : Io) -> unit)({
   // 1. An awaited handle: `.None` observes the abort, so nothing is printed.
   awaited := io.spawn(
     io.async((e : IoExn) => {
-      e.exn.throw(dyn(MyError.Boom));
+      e.exn.throw(dyn(Box.new(MyError.Boom)));
     }),
     IoExn(io : io, exn : exn)
   );
@@ -38,7 +38,7 @@ main :: (fn(io : Io) -> unit)({
     io.async((e : IoExn) => {
       inner := e.io.spawn(
         e.io.async((e2 : IoExn) => {
-          e2.exn.throw(dyn(MyError.Boom));
+          e2.exn.throw(dyn(Box.new(MyError.Boom)));
         }),
         e
       );
@@ -58,7 +58,7 @@ main :: (fn(io : Io) -> unit)({
   // 3. A bound handle that is never awaited: reported when the body returns.
   never_awaited := io.spawn(
     io.async((e : IoExn) => {
-      e.exn.throw(dyn(MyError.Boom));
+      e.exn.throw(dyn(Box.new(MyError.Boom)));
     }),
     IoExn(io : io, exn : exn)
   );

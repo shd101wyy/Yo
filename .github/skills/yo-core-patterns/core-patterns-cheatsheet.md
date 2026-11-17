@@ -382,7 +382,7 @@ s := value.to_string();
 ```
 
 - `Dyn(Trait)` is an UNSIZED type-erased trait object, used behind a pointer (decision 49): `Box(Dyn(T))` owns it (`dyn(Box.new(v))`), `Rc(Dyn(T))` shares it (`dyn(Rc.new(v))`), `&Dyn(T)` borrows it with no allocation (`dyn(&v)`, or `&b.*` of an owned one)
-- In v0.2.77 a bare `Dyn(T)` value type and `dyn(v)` of a plain value are the older spellings of `Box(Dyn(T))` and `dyn(Box.new(v))`; `src/`/`std/` keep them until v0.2.78 because the seed compiles them (`yo fix <path> --migrate unsized` writes the types the new way). A `dyn(&v)` reference is a call argument only until v0.2.78
+- A bare `Dyn(T)` value type (E0619 since v0.2.78) and `dyn(v)` of a plain value (E0620 since v0.2.79) were the older spellings of `Box(Dyn(T))` and `dyn(Box.new(v))`; `yo fix <path> --migrate unsized` migrates them on the last release that accepts each (v0.2.77 for the types, v0.2.78 for `dyn(v)`). A `dyn(&v)` reference is a call argument only until v0.2.78
 - `Impl(Trait)` is the static dispatch counterpart
 
 ## Derive traits
@@ -465,7 +465,7 @@ safe_div :: (fn(a : i32, b : i32) -> Result(i32, DivError))(
 ```
 
 - Custom error types implement both `ToString` and `Error` traits
-- `AnyError` is `Dyn(Error, Clone)` — wraps any `Clone` error: `(err : AnyError) = dyn(MyError.Foo)`
+- `AnyError` is `Box(Dyn(Error, Clone))` — wraps any `Clone` error: `(err : AnyError) = dyn(Box.new(MyError.Foo))` (a plain `dyn(MyError.Foo)` is E0620 since v0.2.79)
   (`derive(MyError, Clone)`). `throw(error : AnyError)` takes the error by value, so a handler
   owns it: keeping it (a trap's `unwind(Option(AnyError).Some(e))`, a stored first error) is a
   move, and a read-only helper borrows it (`render(&e)`); `Context.new(msg, cause)` takes the
@@ -476,8 +476,8 @@ safe_div :: (fn(a : i32, b : i32) -> Result(i32, DivError))(
   answers `.None` — that is how a negative "is this error some OTHER type?"
   helper is written. (Before 2026-09-05 it emitted invalid C for a value target:
   `issues/fixed/downcast-to-a-never-dyned-value-type-emits-invalid-c.md`.)
-- `dyn(x)` needs an expected `Dyn` type from its context — an annotated binding
-  or a declared return type. As a bare argument (`downcast(dyn(x), T)`) it has
+- `dyn(Box.new(x))` needs an expected `Dyn` type from its context — an annotated binding
+  or a declared return type. As a bare argument (`downcast(dyn(Box.new(x)), T)`) it has
   none and is rejected, today with a misleading message
   (`issues/fixed/dyn-as-a-direct-downcast-argument-reports-got-option.md`).
 - `upcast(d, Dyn(Fewer))` drops traits from a `Dyn` (checked at compile time, returns the
