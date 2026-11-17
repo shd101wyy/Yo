@@ -51,7 +51,7 @@ _find_enclosing_call :: (
           (mut(ai) : usize) = usize(0);
           while(ai < args.len(), {
             match(
-              args.get(ai),
+              args.get_cloned(ai),
               .Some(a) => {
                 at := ast_expr_token(&a);
                 if(_at_or_after(&at, row, col), {
@@ -62,7 +62,7 @@ _find_enclosing_call :: (
             );
             ai = (ai + usize(1));
           });
-          best_callee.push(func_box.*);
+          best_callee.push(Rc.clone(func_box.*));
           best_active.push(cond((active > usize(0)) => (active - usize(1)), true => usize(0)));
           best_row.push(usize(tok.row));
           best_col.push(usize(tok.column));
@@ -72,7 +72,7 @@ _find_enclosing_call :: (
       (mut(i) : usize) = usize(0);
       while(i < args.len(), {
         match(
-          args.get(i),
+          args.get_cloned(i),
           .Some(a2) => recur(&a2, row, col, best_callee, best_active, best_row, best_col),
           .None => ()
         );
@@ -98,7 +98,7 @@ handle_signature_help :: (
   (mut(ei) : usize) = usize(0);
   while(ei < exprs.len(), {
     match(
-      exprs.get(ei),
+      exprs.get_cloned(ei),
       .Some(e) => _find_enclosing_call(&e, line, character, &mut best_callee, &mut best_active, &mut best_row, &mut best_col),
       .None => ()
     );
@@ -112,7 +112,7 @@ handle_signature_help :: (
   (mut(ci) : usize) = usize(0);
   while(ci < best_callee.len(), {
     cand := match(
-      best_callee.get(ci),
+      best_callee.get_cloned(ci),
       .Some(c) => c,
       .None => {
         return(Option(JsonValue).None);
@@ -146,7 +146,7 @@ handle_signature_help :: (
     }
   );
   callee := match(
-    best_callee.get(chosen_i),
+    best_callee.get_cloned(chosen_i),
     .Some(c3) => c3,
     .None => {
       return(Option(JsonValue).None);

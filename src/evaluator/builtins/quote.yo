@@ -9,7 +9,8 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 {
-  AstExpr, AstExprNode,
+  AstExpr,
+  AstExprNode,
   ExprId,
   ast_expr_token,
   ast_expr_id,
@@ -64,7 +65,7 @@ process_unquotes_in_expr :: (
 )({
   // Atom nodes pass through unchanged.
   if(ast_expr_is_atom(expr), {
-    return(expr.*);
+    return(Rc.clone(expr.*));
   });
   // --- FnCall processing ---
   match(
@@ -81,13 +82,13 @@ process_unquotes_in_expr :: (
       // tests/codegen-bootstrap/try_macro_assign.yo).
       if(_is_unquote(expr), {
         if(!(args.len() == usize(1)), {
-          return(expr.*);
+          return(Rc.clone(expr.*));
         });
         arg := match(
-          args.get(usize(0)),
+          args.get_cloned(usize(0)),
           .Some(a) => a,
           .None => {
-            return(expr.*);
+            return(Rc.clone(expr.*));
           }
         );
         eval_arg := evaluate_expression_raw(&arg, env, ctx, exn);
@@ -119,12 +120,12 @@ process_unquotes_in_expr :: (
         // If type is not Expr but value is unknown → leave original expr in
         if(!is_expr_type(&arg_info.ty()), {
           if(is_unknown_val(&val), {
-            return(expr.*);
+            return(Rc.clone(expr.*));
           });
           exn.throw(dyn(Box.new(format_error_message(&tok.*, String.from("unquote: expected Expr type")))));
         });
         if(is_unknown_val(&val), {
-          return(expr.*);
+          return(Rc.clone(expr.*));
         });
         // FRESH-ID CLONE of the spliced AST — `eb` alone embeds the
         // env-bound ExprVal's nodes (and their ExprInfo keys) into the
@@ -145,7 +146,7 @@ process_unquotes_in_expr :: (
       i := usize(0);
       n := args.len();
       while(i < n, {
-        opt_arg := args.get(i);
+        opt_arg := args.get_cloned(i);
         i = (i + usize(1));
         match(
           opt_arg,
@@ -154,28 +155,28 @@ process_unquotes_in_expr :: (
             if(_is_unquote_splicing(&arg), {
               // The unquote_splicing argument.
               splice_inner := match(
-                arg,
-                Rc(.FnCall(_, _, Rc(splice_args), _, _)) => match(splice_args.get(usize(0)), .Some(a) => a, .None => arg),
-                Rc(.Atom(_, _)) => arg
+                Rc.clone(arg),
+                Rc(.FnCall(_, _, Rc(splice_args), _, _)) => match(splice_args.get_cloned(usize(0)), .Some(a) => a, .None => Rc.clone(arg)),
+                Rc(.Atom(_, _)) => Rc.clone(arg)
               );
               eval_splice := evaluate_expression_raw(&splice_inner, env, ctx, exn);
               opt_splice_info := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_splice));
               match(
                 opt_splice_info,
                 .None => {
-                  new_args.push(arg);
+                  new_args.push(Rc.clone(arg));
                 },
                 .Some(splice_info) => {
                   opt_splice_val := splice_info.value();
                   match(
                     opt_splice_val,
                     .None => {
-                      new_args.push(arg);
+                      new_args.push(Rc.clone(arg));
                     },
                     .Some(splice_val) => {
                       if(!is_expr_list_type(&splice_info.ty()), {
                         if(is_unknown_val(&splice_val), {
-                          new_args.push(arg);
+                          new_args.push(Rc.clone(arg));
                         }, {
                           exn.throw(
                             dyn(
@@ -203,10 +204,10 @@ process_unquotes_in_expr :: (
                                   .None => (),
                                   .Some(elem) => {
                                     if(is_expr_val(&elem), {
-                                      inner_node := match(elem, .ExprVal(eb) => clone_expr_fresh_ids(&eb), _ => arg);
+                                      inner_node := match(elem, .ExprVal(eb) => clone_expr_fresh_ids(&eb), _ => Rc.clone(arg));
                                       new_args.push(inner_node);
                                     }, {
-                                      new_args.push(arg);
+                                      new_args.push(Rc.clone(arg));
                                     });
                                   }
                                 );
@@ -216,7 +217,7 @@ process_unquotes_in_expr :: (
                           );
                         }, {
                           // Unknown value — keep original arg
-                          new_args.push(arg);
+                          new_args.push(Rc.clone(arg));
                         });
                       });
                     }
@@ -231,7 +232,7 @@ process_unquotes_in_expr :: (
       });
       Rc.new(AstExprNode.FnCall(id.*, new_func, Rc.new(new_args), is_infix.*, Rc.clone(tok.*)))
     },
-    Rc(.Atom(_, _)) => expr.*
+    Rc(.Atom(_, _)) => Rc.clone(expr.*)
   )
 });
 evaluate_quote :: (
@@ -245,14 +246,14 @@ evaluate_quote :: (
   arg := match(
     expr,
     Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
-      fargs.get(usize(0)),
+      fargs.get_cloned(usize(0)),
       .Some(x) => x,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     ),
     _ => {
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   // Process unquotes inside a FRESH-ID CLONE of the quoted template. The
@@ -268,6 +269,6 @@ evaluate_quote :: (
   out_info := new_expr_info(env, t_expr_t());
   out_info.set_value(Option(EvalValue).Some(val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 export(process_unquotes_in_expr, evaluate_quote);

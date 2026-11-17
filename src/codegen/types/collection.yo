@@ -605,7 +605,7 @@ _fv_id :: (fn(v : &EvalValue) -> String)(
 );
 /// body AstExpr of a FuncVal EvalValue, or an error placeholder.
 _fv_body :: (fn(v : &EvalValue) -> AstExpr)(
-  match(v, .FuncVal(__fvd2, _) => __fvd2.body, _ => make_err_expr())
+  match(v, .FuncVal(__fvd2, _) => Rc.clone(__fvd2.body), _ => make_err_expr())
 );
 /// Collect types referenced by an expression (its evaluated type, any function
 /// value it resolves to, deferred drops, macro expansion, runtime
@@ -650,7 +650,7 @@ _collect_types_from_node :: (fn(expr : &AstExpr, context : &mut CodeGenContext, 
           nd := drops.len();
           (di : usize) = usize(0);
           while(di < nd, {
-            match(drops.get(di), .Some(de) => collect_types_from_expr(&de, context, info), .None => ());
+            match(drops.get_cloned(di), .Some(de) => collect_types_from_expr(&de, context, info), .None => ());
             di = (di + usize(1));
           });
         },
@@ -717,7 +717,7 @@ _collect_types_from_node :: (fn(expr : &AstExpr, context : &mut CodeGenContext, 
       n := args.len();
       (i : usize) = usize(0);
       while(i < n, {
-        match(args.get(i), .Some(a) => collect_types_from_expr(&a, context, info), .None => ());
+        match(args.get_cloned(i), .Some(a) => collect_types_from_expr(&a, context, info), .None => ());
         i = (i + usize(1));
       });
     },
@@ -775,7 +775,7 @@ collect_required_types :: (fn(module_value : &EvalValue, context : &mut CodeGenC
   (mli : usize) = usize(0);
   while(mli < mlv_inits.len(), {
     match(
-      mlv_inits.get(mli),
+      mlv_inits.get_cloned(mli),
       .Some(ie) => collect_types_from_expr(&ie, context, info),
       .None => ()
     );

@@ -77,14 +77,14 @@ evaluate_downcast :: (
   dyn_expr := match(
     expr,
     Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
-      fargs.get(usize(0)),
+      fargs.get_cloned(usize(0)),
       .Some(x) => x,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     ),
     _ => {
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   // Both arguments through the builtin-argument reader, which also reads a
@@ -195,7 +195,7 @@ evaluate_downcast :: (
       )
     );
   });
-  type_expr := match(expr, Rc(.FnCall(_, _, Rc(fargs2), _, _)) => match(fargs2.get(usize(1)), .Some(x) => x, .None => return(expr.*)), _ => return(expr.*));
+  type_expr := match(expr, Rc(.FnCall(_, _, Rc(fargs2), _, _)) => match(fargs2.get_cloned(usize(1)), .Some(x) => x, .None => return(Rc.clone(expr.*))), _ => return(Rc.clone(expr.*)));
   cur_env = expr_info_adopt_env(&type_info);
   target_type := match(
     type_info.value(),
@@ -217,7 +217,7 @@ evaluate_downcast :: (
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info_r);
       note_downcast_reference(ast_expr_id(expr), rm);
       attach_temp_variable_to_expr(expr, true, ctx);
-      return(dc_call);
+      return(Rc.clone(dc_call));
     }),
     .None => ()
   );
@@ -229,21 +229,21 @@ evaluate_downcast :: (
     .Some(ob) => {
       vb_targs := ArrayList(TypeValue).new();
       vb_targs.push(Rc.clone(&target_type));
-      vbox := match(apply_type_ctor_via(&String.from("Box"), &vb_targs, &cur_env, ctx, exn), .Some(t) => t, .None => return(dc_call));
+      vbox := match(apply_type_ctor_via(&String.from("Box"), &vb_targs, &cur_env, ctx, exn), .Some(t) => t, .None => return(Rc.clone(dc_call)));
       res_targs := ArrayList(TypeValue).new();
       res_targs.push(vbox);
       res_targs.push(Rc.clone(&ob));
-      res_ty := match(apply_type_ctor_via(&String.from("Result"), &res_targs, &cur_env, ctx, exn), .Some(t) => t, .None => return(dc_call));
+      res_ty := match(apply_type_ctor_via(&String.from("Result"), &res_targs, &cur_env, ctx, exn), .Some(t) => t, .None => return(Rc.clone(dc_call)));
       match(
         dc_call,
-        Rc(.FnCall(_, _, Rc(oargs), _, _)) => match(oargs.get(usize(0)), .Some(oa) => set_expr_as_needs_to_call_dup(&oa, ctx, exn, "downcast"), .None => ()),
+        Rc(.FnCall(_, _, Rc(oargs), _, _)) => match(oargs.get_cloned(usize(0)), .Some(oa) => set_expr_as_needs_to_call_dup(&oa, ctx, exn, "downcast"), .None => ()),
         _ => ()
       );
       out_info_o := new_expr_info(&cur_env, &res_ty);
       out_info_o.set_value(Option(EvalValue).Some(create_unknown_val(&res_ty)));
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info_o);
       attach_temp_variable_to_expr(expr, true, ctx);
-      return(dc_call);
+      return(Rc.clone(dc_call));
     },
     .None => ()
   );
@@ -283,7 +283,7 @@ evaluate_downcast :: (
   out_info.set_value(Option(EvalValue).Some(result_value));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   attach_temp_variable_to_expr(expr, true, ctx);
-  dc_call
+  Rc.clone(dc_call)
 });
 /// Is `t` one of `list` (the identity relation on trait types)?
 _trait_in :: (fn(t : &TypeValue, list : &ArrayList(TypeValue)) -> bool)({
@@ -314,14 +314,14 @@ evaluate_upcast :: (
   dyn_expr := match(
     expr,
     Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
-      fargs.get(usize(0)),
+      fargs.get_cloned(usize(0)),
       .Some(x) => x,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     ),
     _ => {
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   (uc_call, uc_infos) := _eval_builtin_args(expr, usize(2), "upcast", &cur_env, ctx, exn);
@@ -394,7 +394,7 @@ evaluate_upcast :: (
       )
     );
   });
-  type_expr := match(expr, Rc(.FnCall(_, _, Rc(fargs2), _, _)) => match(fargs2.get(usize(1)), .Some(x) => x, .None => return(expr.*)), _ => return(expr.*));
+  type_expr := match(expr, Rc(.FnCall(_, _, Rc(fargs2), _, _)) => match(fargs2.get_cloned(usize(1)), .Some(x) => x, .None => return(Rc.clone(expr.*))), _ => return(Rc.clone(expr.*)));
   cur_env = expr_info_adopt_env(&type_info);
   target_type := match(
     type_info.value(),
@@ -464,10 +464,10 @@ evaluate_upcast :: (
     .Some(hname) => {
       ht := ArrayList(TypeValue).new();
       ht.push(Rc.clone(&target_type));
-      uc_result_ty = match(apply_type_ctor_via(&hname, &ht, &cur_env, ctx, exn), .Some(t) => t, .None => return(uc_call));
+      uc_result_ty = match(apply_type_ctor_via(&hname, &ht, &cur_env, ctx, exn), .Some(t) => t, .None => return(Rc.clone(uc_call)));
       match(
         uc_call,
-        Rc(.FnCall(_, _, Rc(uargs), _, _)) => match(uargs.get(usize(0)), .Some(ua) => set_expr_as_needs_to_call_dup(&ua, ctx, exn, "upcast"), .None => ()),
+        Rc(.FnCall(_, _, Rc(uargs), _, _)) => match(uargs.get_cloned(usize(0)), .Some(ua) => set_expr_as_needs_to_call_dup(&ua, ctx, exn, "upcast"), .None => ()),
         _ => ()
       );
     },
@@ -484,6 +484,6 @@ evaluate_upcast :: (
     },
     .None => attach_temp_variable_to_expr(expr, true, ctx)
   );
-  uc_call
+  Rc.clone(uc_call)
 });
 export(evaluate_downcast, evaluate_upcast);

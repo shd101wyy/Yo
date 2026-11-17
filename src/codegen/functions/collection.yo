@@ -115,7 +115,7 @@ expr_contains_unknown_value :: (fn(expr : &AstExpr, info : &ExprInfoTable) -> bo
       (mut(i) : usize) = usize(0);
       while(i < n, {
         match(
-          args.get(i),
+          args.get_cloned(i),
           .Some(arg) => {
             arg_is_unit := match(
               expr_info_table_get(info, ast_expr_id(&arg)),
@@ -161,7 +161,7 @@ expr_contains_unknown_value :: (fn(expr : &AstExpr, info : &ExprInfoTable) -> bo
           (mut(di) : usize) = usize(0);
           while(di < nd, {
             match(
-              dups.get(di),
+              dups.get_cloned(di),
               .Some(de) => if(recur(&de, info), {
                 return(true);
               }),
@@ -179,7 +179,7 @@ expr_contains_unknown_value :: (fn(expr : &AstExpr, info : &ExprInfoTable) -> bo
           (ri : usize) = usize(0);
           while(ri < nr, {
             match(
-              drops.get(ri),
+              drops.get_cloned(ri),
               .Some(re) => if(recur(&re, info), {
                 return(true);
               }),
@@ -241,7 +241,7 @@ collect_effect_record_members :: (fn(mv : &EvalValue, context : &mut CodeGenCont
                   mark_as_effect_record_member(func_id.clone());
                 });
                 context.register_function(func_id.clone(), &fv, function_c_name(&func_id));
-                body := match(fv, .FuncVal(__fvd2, _) => __fvd2.*.body, _ => make_err_expr());
+                body := match(fv, .FuncVal(__fvd2, _) => Rc.clone(__fvd2.*.body), _ => make_err_expr());
                 _call_find_function_calls_in_expr(&body, context, info);
               });
             },
@@ -377,7 +377,7 @@ _func_val_id :: (fn(v : &EvalValue) -> String)(
 );
 /// body AstExpr of a FuncVal EvalValue, or an error placeholder.
 _func_val_body :: (fn(v : &EvalValue) -> AstExpr)(
-  match(v, .FuncVal(__fvd4, _) => __fvd4.body, _ => make_err_expr())
+  match(v, .FuncVal(__fvd4, _) => Rc.clone(__fvd4.body), _ => make_err_expr())
 );
 /// True if any parameter slot in the list holds the `Expr` type (a quoted-AST param) — the
 /// signature of a MACRO (e.g. `if`, `try`: `fn(quote(x) : Expr, …) ->
@@ -623,7 +623,7 @@ collect_module_level_init_functions :: (fn(context : &mut CodeGenContext, info :
   (i : usize) = usize(0);
   while(i < inits.len(), {
     match(
-      inits.get(i),
+      inits.get_cloned(i),
       .Some(ie) => find_function_calls_in_expr(&ie, context, info),
       .None => ()
     );
@@ -660,7 +660,7 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
     match(
       &ei_opt,
       .Some(uei) => match(
-        match(expr, Rc(.FnCall(_, _, Rc(uargs), _, _)) => uargs.get(usize(0)), Rc(.Atom(_, _)) => Option(AstExpr).None),
+        match(expr, Rc(.FnCall(_, _, Rc(uargs), _, _)) => uargs.get_cloned(usize(0)), Rc(.Atom(_, _)) => Option(AstExpr).None),
         .Some(usrc) => match(
           expr_info_table_get(info, ast_expr_id(&usrc)),
           .Some(usei) => {
@@ -780,7 +780,7 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
   match(
     expr,
     Rc(.FnCall(_, func_box, Rc(args), _, _)) => {
-      callee := func_box.*;
+      callee := Rc.clone(func_box.*);
       // "?=" default-value assignment — skip.
       if(_callee_token_value(expr) == "?=", {
         return(());
@@ -792,16 +792,16 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
       // gets a C name (the same collection the dyn path does for
       // trait-value methods).
       if(ast_expr_is_fn_call_of(&callee, BF_DOT, Option(usize).Some(usize(2))), {
-        cdot_args := match(callee, Rc(.FnCall(_, _, Rc(da), _, _)) => da.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
-        recv_ty := match(cdot_args.get(usize(0)), .Some(r) => match(expr_info_table_get(info, ast_expr_id(&r)), .Some(ri) => Rc.clone(ri.ty()), .None => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
-        cmname := match(cdot_args.get(usize(1)), .Some(m) => if(ast_expr_is_atom(&m), ast_expr_text(&m).*.clone(), String.from("")), .None => String.from(""));
+        cdot_args := match(Rc.clone(callee), Rc(.FnCall(_, _, Rc(da), _, _)) => da.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+        recv_ty := match(cdot_args.get_cloned(usize(0)), .Some(r) => match(expr_info_table_get(info, ast_expr_id(&r)), .Some(ri) => Rc.clone(ri.ty()), .None => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
+        cmname := match(cdot_args.get_cloned(usize(1)), .Some(m) => if(ast_expr_is_atom(&m), ast_expr_text(&m).*.clone(), String.from("")), .None => String.from(""));
         // A STATIC receiver (`Self.method` / `P.method`, no instance — e.g. a
         // forward-referenced `Self.callee`) evaluates to a TypeValue, so recv_ty
         // is the metatype `Type`, not the receiver type P — `type_id_or_empty`
         // on it misses P's static methods in the registry, leaving the callee
         // uncollected ("call to undeclared function"). Prefer the WRAPPED type's
         // id from the receiver's TypeVal value.
-        recv_static_id := match(cdot_args.get(usize(0)), .Some(r) => match(expr_info_table_get(info, ast_expr_id(&r)), .Some(ri) => match(ri.value(), .Some(rv) => match(rv, .TypeVal(t) => type_id_or_empty(&t), _ => String.from("")), .None => String.from("")), .None => String.from("")), .None => String.from(""));
+        recv_static_id := match(cdot_args.get_cloned(usize(0)), .Some(r) => match(expr_info_table_get(info, ast_expr_id(&r)), .Some(ri) => match(ri.value(), .Some(rv) => match(rv, .TypeVal(t) => type_id_or_empty(&t), _ => String.from("")), .None => String.from("")), .None => String.from("")), .None => String.from(""));
         // A POINTER receiver (`self : *(Self)`) carries its methods on the
         // POINTEE type. `type_id_or_empty` has no Pointer case, so it returns ""
         // for `*(P)`, skipping the registry lookup below. That lookup is the ONLY
@@ -849,7 +849,7 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
         // FuncVal from the receiver's module StructVal by label and register
         // it as a REGULAR function first, before the receiver walk.
         if(cmname.len() > usize(0), {
-          recv_mod_val := match(cdot_args.get(usize(0)), .Some(r) => match(expr_info_table_get(info, ast_expr_id(&r)), .Some(ri) => ri.value(), .None => Option(EvalValue).None), .None => Option(EvalValue).None);
+          recv_mod_val := match(cdot_args.get_cloned(usize(0)), .Some(r) => match(expr_info_table_get(info, ast_expr_id(&r)), .Some(ri) => ri.value(), .None => Option(EvalValue).None), .None => Option(EvalValue).None);
           match(
             recv_mod_val,
             .Some(rmv) => match(
@@ -945,7 +945,7 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
       na := args.len();
       (ai : usize) = usize(0);
       while(ai < na, {
-        match(args.get(ai), .Some(a) => find_function_calls_in_expr(&a, context, info), .None => ());
+        match(args.get_cloned(ai), .Some(a) => find_function_calls_in_expr(&a, context, info), .None => ());
         ai = (ai + usize(1));
       });
     },
@@ -1007,7 +1007,7 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
           nd := dups.len();
           (di : usize) = usize(0);
           while(di < nd, {
-            match(dups.get(di), .Some(de) => find_function_calls_in_expr(&de, context, info), .None => ());
+            match(dups.get_cloned(di), .Some(de) => find_function_calls_in_expr(&de, context, info), .None => ());
             di = (di + usize(1));
           });
         },
@@ -1019,7 +1019,7 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
           nr := drops.len();
           (ri : usize) = usize(0);
           while(ri < nr, {
-            match(drops.get(ri), .Some(re) => find_function_calls_in_expr(&re, context, info), .None => ());
+            match(drops.get_cloned(ri), .Some(re) => find_function_calls_in_expr(&re, context, info), .None => ());
             ri = (ri + usize(1));
           });
         },
@@ -1093,8 +1093,8 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
             // to the source arg for non-auto-boxed dyns.
             varg_opt := match(
               &ei.runtime_arg_exprs_in_order(),
-              .Some(ra) => match(ra.get(usize(0)), .Some(p) => Option(AstExpr).Some(p), .None => match(expr, Rc(.FnCall(_, _, Rc(cargs), _, _)) => cargs.get(usize(0)), Rc(.Atom(_, _)) => Option(AstExpr).None)),
-              .None => match(expr, Rc(.FnCall(_, _, Rc(cargs), _, _)) => cargs.get(usize(0)), Rc(.Atom(_, _)) => Option(AstExpr).None)
+              .Some(ra) => match(ra.get_cloned(usize(0)), .Some(p) => Option(AstExpr).Some(p), .None => match(expr, Rc(.FnCall(_, _, Rc(cargs), _, _)) => cargs.get_cloned(usize(0)), Rc(.Atom(_, _)) => Option(AstExpr).None)),
+              .None => match(expr, Rc(.FnCall(_, _, Rc(cargs), _, _)) => cargs.get_cloned(usize(0)), Rc(.Atom(_, _)) => Option(AstExpr).None)
             );
             match(
               varg_opt,
@@ -1227,7 +1227,7 @@ _eval_and_register_rc_method :: (
         fv,
         .FuncVal(__dfvd, _) => {
           fid := __dfvd.*.func_id.clone();
-          fbody := __dfvd.*.body;
+          fbody := Rc.clone(__dfvd.*.body);
           if(!base.has_function(fid.clone()), {
             base.register_function(fid.clone(), &fv, function_c_name(&fid));
             find_function_calls_in_expr(&fbody, base, info);
@@ -1350,7 +1350,7 @@ _synthesize_and_register_dispose :: (
               mfv,
               .FuncVal(__dfvd, _) => {
                 fid := __dfvd.*.func_id.clone();
-                fbody := __dfvd.*.body;
+                fbody := Rc.clone(__dfvd.*.body);
                 if(!base.has_function(fid.clone()), {
                   base.register_function(fid.clone(), &mfv, function_c_name(&fid));
                   find_function_calls_in_expr(&fbody, base, info);
@@ -1458,7 +1458,7 @@ _synthesize_and_register_enum_dispose :: (
               mfv,
               .FuncVal(__dfvd, _) => {
                 fid := __dfvd.*.func_id.clone();
-                fbody := __dfvd.*.body;
+                fbody := Rc.clone(__dfvd.*.body);
                 if(!base.has_function(fid.clone()), {
                   base.register_function(fid.clone(), &mfv, function_c_name(&fid));
                   find_function_calls_in_expr(&fbody, base, info);

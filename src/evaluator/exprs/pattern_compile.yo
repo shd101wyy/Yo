@@ -29,7 +29,8 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 {
-  AstExpr, AstExprNode,
+  AstExpr,
+  AstExprNode,
   ast_expr_token,
   ast_expr_id,
   ast_expr_to_string,
@@ -102,7 +103,7 @@ _args_of :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
   match(e, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new())
 );
 _func_of :: (fn(e : &AstExpr) -> Option(AstExpr))(
-  match(e, Rc(.FnCall(_, f, _, _, _)) => Option(AstExpr).Some(f.*), Rc(.Atom(_, _)) => Option(AstExpr).None)
+  match(e, Rc(.FnCall(_, f, _, _, _)) => Option(AstExpr).Some(Rc.clone(f.*)), Rc(.Atom(_, _)) => Option(AstExpr).None)
 );
 _atom_name :: (fn(e : &AstExpr) -> String)(ast_expr_token(e).value.*.clone());
 /// A token for a synthesized node, positioned at `base`.
@@ -126,8 +127,8 @@ _synth_atom :: (fn(base : &Token, kind : TokenKind, value : &String) -> AstExpr)
 /// `(lhs <op> rhs)` as an infix call node.
 _synth_infix :: (fn(base : &Token, op : str, lhs : &AstExpr, rhs : &AstExpr) -> AstExpr)({
   args := ArrayList(AstExpr).new();
-  args.push(lhs.*);
-  args.push(rhs.*);
+  args.push(Rc.clone(lhs.*));
+  args.push(Rc.clone(rhs.*));
   // The call node carries the OPERATOR token, exactly as the parser builds
   // `a == b` (`.FnCall(id, .Atom(id, op_tok), args, true, op_tok)`); the
   // operator emitters key on it, and with the literal's token here the call
@@ -150,7 +151,7 @@ _is_literal_atom :: (fn(e : &AstExpr) -> bool)(
 /// `-<numeric atom>` — the prefix-minus call the parser produces for `-1`.
 _is_negated_numeric_literal :: (fn(e : &AstExpr) -> bool)(
   ast_expr_is_fn_call_of(e, "-", Option(usize).Some(usize(1))) && match(
-    _args_of(e).get(usize(0)),
+    _args_of(e).get_cloned(usize(0)),
     .Some(op) => (
       ast_expr_is_atom(&op) && match(
         ast_expr_token(&op).kind,
@@ -181,7 +182,7 @@ _is_classic_payload_literal :: (fn(e : &AstExpr) -> bool)(
 /// Is `e` the `.V` dot call (one atom argument)?
 _is_variant_head :: (fn(e : &AstExpr) -> bool)(
   ast_expr_is_fn_call_of(e, ".", Option(usize).Some(usize(1))) && match(
-    _args_of(e).get(usize(0)),
+    _args_of(e).get_cloned(usize(0)),
     .Some(v) => ast_expr_is_atom(&v),
     .None => false
   )
@@ -358,7 +359,7 @@ _make_const_test :: (
 /// The hidden subject name a test was built for (its left operand).
 _test_subject :: (fn(test : &AstExpr) -> String)(
   match(
-    _args_of(test).get(usize(0)),
+    _args_of(test).get_cloned(usize(0)),
     .Some(lhs) => _atom_name(&lhs),
     .None => String.new()
   )
@@ -480,7 +481,7 @@ _compile_const_expr :: (
     evaluated_gerr := evaluate_expression_guarded(e, env, ctx, &mut evaluated_gout);
     ctx.expected_type = old_expected.clone();
     match(evaluated_gerr, .Some(evaluated_ge) => exn.throw(evaluated_ge), .None => ());
-    evaluated := match(evaluated_gout.get(usize(0)), .Some(evaluated_g) => evaluated_g, .None => make_err_expr());
+    evaluated := match(evaluated_gout.get_cloned(usize(0)), .Some(evaluated_g) => evaluated_g, .None => make_err_expr());
     value := _const_value_of(e, &evaluated, ctx, exn);
     match(
       _enum_const_to_variant(&value, norm_position_type(position_ty)),
@@ -491,12 +492,12 @@ _compile_const_expr :: (
     );
     const_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)), .Some(i) => Rc.clone(i.ty()), .None => Rc.clone(position_ty));
     test := _make_const_test(e, position_ty, value_opt, pc, env, ctx, exn);
-    return(Pattern.Const(value : value, ty : const_ty, src : e.*, subject : _test_subject(&test), test : test));
+    return(Pattern.Const(value : value, ty : const_ty, src : Rc.clone(e.*), subject : _test_subject(&test), test : test));
   });
   test := _make_const_test(e, position_ty, value_opt, pc, env, ctx, exn);
   value := _const_value_of(e, e, ctx, exn);
   const_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)), .Some(i) => Rc.clone(i.ty()), .None => Rc.clone(position_ty));
-  Pattern.Const(value : value, ty : const_ty, src : e.*, subject : _test_subject(&test), test : test)
+  Pattern.Const(value : value, ty : const_ty, src : Rc.clone(e.*), subject : _test_subject(&test), test : test)
 });
 /// Compile a range pattern `(lo..hi)` / `(lo..=hi)`.
 _compile_range :: (
@@ -512,19 +513,19 @@ _compile_range :: (
   ) -> Pattern
 )({
   args := _args_of(e);
-  lo := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-  hi := match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+  lo := match(args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
+  hi := match(args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr());
   // Both bounds must be compile-time values of the position's type.
   (bound_vals : ArrayList(Option(EvalValue))) = ArrayList(Option(EvalValue)).new();
   (bi : usize) = usize(0);
   while(bi < usize(2), {
-    b := cond((bi == usize(0)) => lo, true => hi);
+    b := cond((bi == usize(0)) => Rc.clone(lo), true => Rc.clone(hi));
     old_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
     ev_gout := ArrayList(AstExpr).new();
     ev_gerr := evaluate_expression_guarded(&b, env, ctx, &mut ev_gout);
     ctx.expected_type = old_expected.clone();
     match(ev_gerr, .Some(ev_ge) => exn.throw(ev_ge), .None => ());
-    ev := match(ev_gout.get(usize(0)), .Some(ev_g) => ev_g, .None => make_err_expr());
+    ev := match(ev_gout.get_cloned(usize(0)), .Some(ev_g) => ev_g, .None => make_err_expr());
     known := match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev)),
       .Some(binfo) => match(binfo.value(), .Some(v) => !is_unknown_val(&v), .None => false),
@@ -561,7 +562,7 @@ _compile_range :: (
   test := _synth_infix(&tok, "&&", &lower, &upper);
   _bind_subject_and_eval_test(subject.clone(), position_ty, value_opt, &test, e, pc, env, ctx, exn);
   Pattern.Range(
-    src : e.*,
+    src : Rc.clone(e.*),
     subject : subject,
     test : test,
     ty : Rc.clone(position_ty),
@@ -574,7 +575,7 @@ _compile_range :: (
 _flatten_or :: (fn(e : &AstExpr) -> ArrayList(AstExpr))({
   if(!ast_expr_is_fn_call_of(e, "|", Option(usize).Some(usize(2))), {
     out := ArrayList(AstExpr).new();
-    out.push(e.*);
+    out.push(Rc.clone(e.*));
     return(out);
   });
   args := _args_of(e);
@@ -582,13 +583,13 @@ _flatten_or :: (fn(e : &AstExpr) -> ArrayList(AstExpr))({
   (i : usize) = usize(0);
   while(i < usize(2), {
     match(
-      args.get(i),
+      args.get_cloned(i),
       .Some(side) => {
         flat := recur(&side);
         (k : usize) = usize(0);
         while(k < flat.len(), {
           match(
-            flat.get(k),
+            flat.get_cloned(k),
             .Some(x) => {
               out.push(x);
             },
@@ -696,7 +697,7 @@ _compile_variant :: (
 )({
   through_ptr := is_pointer_type(position_ty_in);
   enum_ty := norm_position_type(position_ty_in);
-  name_expr := match(_args_of(head).get(usize(0)), .Some(a) => a, .None => make_err_expr());
+  name_expr := match(_args_of(head).get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
   vname := _atom_name(&name_expr);
   if(!is_enum_type(&enum_ty), {
     exn.throw(
@@ -755,19 +756,19 @@ _compile_variant :: (
   // sub-patterns (bare `{a}` is the parser's `(a : a)`).
   is_curly := (
     (params.len() == usize(1)) && match(
-      params.get(usize(0)),
+      params.get_cloned(usize(0)),
       .Some(p0) => ast_expr_is_fn_call_of(&p0, "_", Option(usize).None),
       .None => false
     )
   );
   dparams := cond(
-    is_curly => match(params.get(usize(0)), .Some(p0) => _args_of(&p0), .None => params.clone()),
+    is_curly => match(params.get_cloned(usize(0)), .Some(p0) => _args_of(&p0), .None => params.clone()),
     true => params.clone()
   );
   (has_labeled : bool) = is_curly;
   (li : usize) = usize(0);
   while((li < dparams.len()) && !has_labeled, {
-    if(match(dparams.get(li), .Some(p) => ast_expr_is_fn_call_of(&p, ":", Option(usize).Some(usize(2))), .None => false), {
+    if(match(dparams.get_cloned(li), .Some(p) => ast_expr_is_fn_call_of(&p, ":", Option(usize).Some(usize(2))), .None => false), {
       has_labeled = true;
     });
     li = (li + usize(1));
@@ -823,14 +824,14 @@ _compile_variant :: (
   seen_labels := ArrayList(String).new();
   (pi : usize) = usize(0);
   while(pi < dparams.len(), {
-    param := match(dparams.get(pi), .Some(p) => p, .None => make_err_expr());
+    param := match(dparams.get_cloned(pi), .Some(p) => p, .None => make_err_expr());
     (fidx : usize) = pi;
-    (sub_ast : AstExpr) = param;
+    (sub_ast : AstExpr) = Rc.clone(param);
     (curly_bind : bool) = false;
     if(ast_expr_is_fn_call_of(&param, ":", Option(usize).Some(usize(2))), {
       pargs := _args_of(&param);
-      label_expr := match(pargs.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-      sub_ast = match(pargs.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+      label_expr := match(pargs.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
+      sub_ast = match(pargs.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr());
       if(!ast_expr_is_atom(&label_expr), {
         exn.throw(
           dyn(
@@ -985,7 +986,7 @@ _compile_variant :: (
     sub := cond(
       curly_bind => {
         bn := _atom_name(&sub_ast);
-        pc.binds.push(BindInfo(name : bn.clone(), ty : fty, value : fval, atom : sub_ast));
+        pc.binds.push(BindInfo(name : bn.clone(), ty : fty, value : fval, atom : Rc.clone(sub_ast)));
         Pattern.Bind(name : bn, token : ast_expr_token(&sub_ast), atom : sub_ast)
       },
       true => compile_pattern(&sub_ast, &fty, &fval, pc, env, ctx, exn)
@@ -1077,7 +1078,7 @@ _compile_tuple :: (
   subs := ArrayList(Pattern).new();
   (i : usize) = usize(0);
   while(i < args.len(), {
-    arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
+    arg := match(args.get_cloned(i), .Some(a) => a, .None => make_err_expr());
     ety := match(elem_tys.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
     ev := match(
       &elem_vals,
@@ -1121,14 +1122,14 @@ _compile_struct :: (
   seen_labels := ArrayList(String).new();
   (pi : usize) = usize(0);
   while(pi < params.len(), {
-    param := match(params.get(pi), .Some(p) => p, .None => make_err_expr());
+    param := match(params.get_cloned(pi), .Some(p) => p, .None => make_err_expr());
     (fidx : usize) = usize(0);
-    (sub_ast : AstExpr) = param;
+    (sub_ast : AstExpr) = Rc.clone(param);
     (bare_bind : bool) = false;
     if(ast_expr_is_fn_call_of(&param, ":", Option(usize).Some(usize(2))), {
       pargs := _args_of(&param);
-      label_expr := match(pargs.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-      sub_ast = match(pargs.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+      label_expr := match(pargs.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
+      sub_ast = match(pargs.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr());
       if(!ast_expr_is_atom(&label_expr), {
         exn.throw(
           dyn(
@@ -1254,7 +1255,7 @@ _compile_struct :: (
     sub := cond(
       bare_bind => {
         bn := _atom_name(&sub_ast);
-        pc.binds.push(BindInfo(name : bn.clone(), ty : fty, value : fval, atom : sub_ast));
+        pc.binds.push(BindInfo(name : bn.clone(), ty : fty, value : fval, atom : Rc.clone(sub_ast)));
         Pattern.Bind(name : bn, token : ast_expr_token(&sub_ast), atom : sub_ast)
       },
       true => compile_pattern(&sub_ast, &fty, &fval, pc, env, ctx, exn)
@@ -1366,8 +1367,8 @@ compile_pattern :: (
   // `(name := p)`
   if(ast_expr_is_fn_call_of(e, ":=", Option(usize).Some(usize(2))), {
     args := _args_of(e);
-    name_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-    sub_expr := match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+    name_expr := match(args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
+    sub_expr := match(args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr());
     if(!ast_expr_is_atom(&name_expr) || _is_literal_atom(&name_expr), {
       exn.throw(
         dyn(
@@ -1407,7 +1408,7 @@ compile_pattern :: (
       bcf2 := match(position_ty.clone(), Rc(.Struct({ constructor_func_id : bcf })) => bcf.clone(), _ => String.from("-"));
       eprintln(`[tmint-bind] name=${nm} id=${bid2} n_ta=${bta2.to_string()} cfid=${bcf2} fields=${fs}`);
     });
-    pc.binds.push(BindInfo(name : nm.clone(), ty : Rc.clone(position_ty), value : value_opt.*, atom : name_expr));
+    pc.binds.push(BindInfo(name : nm.clone(), ty : Rc.clone(position_ty), value : value_opt.*, atom : Rc.clone(name_expr)));
     // The self-calls that can throw are by NAME, not `recur`: seeds up to
     // v0.2.45 emit `recur` without the escape check, so a seed-built compiler
     // continued past a throw here with a NULL sub-pattern
@@ -1447,8 +1448,8 @@ compile_pattern :: (
         bcf3 := match(position_ty.clone(), Rc(.Struct({ constructor_func_id : bcf4 })) => bcf4.clone(), _ => String.from("-"));
         eprintln(`[tmint-bind] name=${nm} id=${bid3} n_ta=${bta3.to_string()} cfid=${bcf3} fields=${fs2}`);
       });
-      pc.binds.push(BindInfo(name : nm.clone(), ty : Rc.clone(position_ty), value : value_opt.*, atom : e.*));
-      return(Pattern.Bind(name : nm, token : ast_expr_token(e), atom : e.*));
+      pc.binds.push(BindInfo(name : nm.clone(), ty : Rc.clone(position_ty), value : value_opt.*, atom : Rc.clone(e.*)));
+      return(Pattern.Bind(name : nm, token : ast_expr_token(e), atom : Rc.clone(e.*)));
     });
   });
   // `Rc(p)` / `Arc(p)` — a WRAPPER pattern (plans/VALUES_BY_DEFAULT.md
@@ -1489,7 +1490,7 @@ compile_pattern :: (
         .Some(_) => Option(EvalValue).None,
         .None => Option(EvalValue).None
       );
-      sub_expr := match(_args_of(e).get(usize(0)), .Some(a) => a, .None => make_err_expr());
+      sub_expr := match(_args_of(e).get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
       sub := compile_pattern(&sub_expr, &inner, &inner_val, pc, env, ctx, exn);
       return(Pattern.ThroughBox(box_ty : cell_ty, inner_ty : inner, sub : Box.new(sub)));
     },
@@ -1609,7 +1610,7 @@ compile_pattern :: (
     (first_names : ArrayList(String)) = ArrayList(String).new();
     (ai : usize) = usize(0);
     while(ai < alts_ast.len(), {
-      alt_ast := match(alts_ast.get(ai), .Some(a) => a, .None => make_err_expr());
+      alt_ast := match(alts_ast.get_cloned(ai), .Some(a) => a, .None => make_err_expr());
       pc.binds = ArrayList(BindInfo).new();
       alt := compile_pattern(&alt_ast, position_ty, value_opt, pc, env, ctx, exn);
       alt_binds := replace(&mut pc.binds, ArrayList(BindInfo).new());
@@ -1863,7 +1864,7 @@ _classic_variant_sub :: (fn(sub : &Pattern, ast_params : &ArrayList(AstExpr), i 
       // literals in place; a labeled or curly literal was rejected.
       positional := (
         (ast_params.len() == n) && match(
-          ast_params.get(i),
+          ast_params.get_cloned(i),
           .Some(ap) => (!ast_expr_is_fn_call_of(&ap, ":", Option(usize).Some(usize(2))) && !ast_expr_is_fn_call_of(&ap, "_", Option(usize).None)),
           .None => false
         )

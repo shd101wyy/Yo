@@ -102,7 +102,7 @@ extract_target_variable_id :: (
     .None => {
       return(Option(String).None);
     },
-    .Some(x) => x.*
+    .Some(x) => Rc.clone(x.*)
   );
   // `:=` binds a fresh target; `=` re-assigns an existing one. BOTH make the
   // await's result land in the LHS variable, and codegen's extraction writes
@@ -122,7 +122,7 @@ extract_target_variable_id :: (
       return(Option(String).None);
     },
     Rc(.FnCall(_, _, Rc(args), _, _)) => match(
-      args.get(usize(0)),
+      args.get_cloned(usize(0)),
       .None => {
         return(Option(String).None);
       },
@@ -394,7 +394,7 @@ _capture_pattern_bindings :: (
       (mut(i) : usize) = usize(0);
       while(i < args.len(), {
         match(
-          args.get(i),
+          args.get_cloned(i),
           .Some(a) => recur(&a, get_info, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping),
           .None => ()
         );
@@ -429,7 +429,7 @@ _capture_argument_temp :: (
 )({
   value := match(
     arg.clone(),
-    Rc(.FnCall(_, _, Rc(la), _, _)) => if(ast_expr_is_fn_call_of(arg.clone(), ":", Option(usize).Some(usize(2))), match(la.get(usize(1)), .Some(v) => v, .None => arg.clone()), arg.clone()),
+    Rc(.FnCall(_, _, Rc(la), _, _)) => if(ast_expr_is_fn_call_of(arg.clone(), ":", Option(usize).Some(usize(2))), match(la.get_cloned(usize(1)), .Some(v) => v, .None => arg.clone()), arg.clone()),
     Rc(.Atom(_, _)) => arg.clone()
   );
   match(
@@ -504,9 +504,9 @@ walk_expr_ :: (
       // clang error).
       if(ast_expr_is_fn_call_of(expr_cloned.clone(), ":=", Option(usize).None), {
         match(
-          args.get(usize(0)),
+          args.get_cloned(usize(0)),
           .Some(lhs_e) => match(
-            lhs_e,
+            Rc.clone(lhs_e),
             Rc(.Atom(_, lhs_tok)) => if(lhs_tok.kind == TokenKind.Identifier, {
               match(
                 &get_info(expr_cloned.clone()),
@@ -525,9 +525,9 @@ walk_expr_ :: (
                 &get_info(expr_cloned.clone()),
                 .Some(binfo) => {
                   match(
-                    inout_args.get(usize(0)),
+                    inout_args.get_cloned(usize(0)),
                     .Some(ref_name) => match(
-                      ref_name,
+                      Rc.clone(ref_name),
                       Rc(.Atom(_, ref_tok)) => _capture_env_variable(ast_expr_id(&ref_name), ref_tok.value.*.clone(), &binfo.env(), Option(TypeValue).None, false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping),
                       Rc(.FnCall(_, _, _, _, _)) => ()
                     ),
@@ -567,13 +567,13 @@ walk_expr_ :: (
       // Walk the object only; the member is not a suspension-crossing value.
       if(ast_expr_is_fn_call_of(expr_cloned.clone(), ".", Option(usize).Some(usize(2))), {
         member_is_name := match(
-          args.get(usize(1)),
+          args.get_cloned(usize(1)),
           .Some(me) => match(me, Rc(.Atom(_, mt)) => (mt.kind == TokenKind.Identifier), Rc(.FnCall(_, _, _, _, _)) => false),
           .None => false
         );
         if(member_is_name, {
           match(
-            args.get(usize(0)),
+            args.get_cloned(usize(0)),
             .Some(obj) => recur(&obj, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone())),
             .None => ()
           );
@@ -623,7 +623,7 @@ walk_expr_ :: (
           n_args := args.len();
           while(ai < n_args, {
             arg := match(
-              args.get(ai),
+              args.get_cloned(ai),
               .None => {
                 ai = n_args;
                 return(());
@@ -678,7 +678,7 @@ walk_expr_ :: (
           while(ai2 < n_args2, {
             branch_start := points.len();
             arg2 := match(
-              args.get(ai2),
+              args.get_cloned(ai2),
               .None => {
                 ai2 = n_args2;
                 return(());
@@ -689,7 +689,7 @@ walk_expr_ :: (
               match(
                 arg2.clone(),
                 Rc(.FnCall(_, _, Rc(arm_args), _, _)) => match(
-                  arm_args.get(usize(0)),
+                  arm_args.get_cloned(usize(0)),
                   .Some(arm_pat) => _capture_pattern_bindings(&arm_pat, get_info, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping),
                   .None => ()
                 ),
@@ -825,7 +825,7 @@ walk_expr_ :: (
                               (mut(ni) : usize) = usize(0);
                               while(ni < nested.len(), {
                                 match(
-                                  nested.get(ni),
+                                  nested.get_cloned(ni),
                                   .Some(ne) => {
                                     branch_exprs.push(ne);
                                     branch_in_while.push(p3_in_while || match(nested_in_while.get(ni), .Some(b) => b, .None => false));
@@ -836,7 +836,7 @@ walk_expr_ :: (
                               });
                             },
                             .None => {
-                              branch_exprs.push(p3.expr);
+                              branch_exprs.push(Rc.clone(p3.expr));
                               branch_in_while.push(p3_in_while);
                             }
                           );
@@ -875,7 +875,7 @@ walk_expr_ :: (
                     n_dup := dup_exprs.len();
                     while(di < n_dup, {
                       dup_e := match(
-                        dup_exprs.get(di),
+                        dup_exprs.get_cloned(di),
                         .None => {
                           di = n_dup;
                           return(());
@@ -902,7 +902,7 @@ walk_expr_ :: (
           mut(arg_marks) := ArrayList(usize).new();
           while(ai3 < n_args3, {
             arg3 := match(
-              args.get(ai3),
+              args.get_cloned(ai3),
               .None => {
                 ai3 = n_args3;
                 return(());
@@ -918,7 +918,7 @@ walk_expr_ :: (
           while((ti + usize(1)) < arg_marks.len(), ti = (ti + usize(1)), {
             if(match(arg_marks.get(ti), .Some(m) => (m < last_mark), .None => false), {
               match(
-                args.get(ti),
+                args.get_cloned(ti),
                 .Some(ta) => _capture_argument_temp(&ta, expr_cloned.clone(), get_info, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping),
                 .None => ()
               );
@@ -937,7 +937,7 @@ walk_expr_ :: (
                   n_drop := drop_exprs.len();
                   while(di2 < n_drop, {
                     drop_e := match(
-                      drop_exprs.get(di2),
+                      drop_exprs.get_cloned(di2),
                       .None => {
                         di2 = n_drop;
                         return(());
@@ -998,7 +998,7 @@ analyze_suspension_points :: (
           (mut(di) : usize) = usize(0);
           while(di < n_drops, {
             drop_e := match(
-              drop_exprs.get(di),
+              drop_exprs.get_cloned(di),
               .None => {
                 break;
               },

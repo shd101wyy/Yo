@@ -805,12 +805,12 @@ _dd_drop_target_atom :: (fn(drop_expr : &AstExpr) -> Option(AstExpr))(
       match(
         func,
         Rc(.FnCall(_, _, Rc(fargs), _, _)) => if(ast_expr_is_fn_call_of(&func.*, BF_DOT, Option(usize).Some(usize(2))), {
-          a1_is_drop := match(fargs.get(usize(1)), .Some(a1) => if(ast_expr_is_atom(&a1), ast_expr_token(&a1).value.* == BF_DROP, false), .None => false);
-          if(a1_is_drop, match(fargs.get(usize(0)), .Some(a0) => if(ast_expr_is_atom(&a0), Option(AstExpr).Some(a0), Option(AstExpr).None), .None => Option(AstExpr).None), Option(AstExpr).None)
+          a1_is_drop := match(fargs.get_cloned(usize(1)), .Some(a1) => if(ast_expr_is_atom(&a1), ast_expr_token(&a1).value.* == BF_DROP, false), .None => false);
+          if(a1_is_drop, match(fargs.get_cloned(usize(0)), .Some(a0) => if(ast_expr_is_atom(&a0), Option(AstExpr).Some(a0), Option(AstExpr).None), .None => Option(AstExpr).None), Option(AstExpr).None)
         }, Option(AstExpr).None),
         Rc(.Atom(_, _)) => Option(AstExpr).None
       ),
-      if(ast_expr_is_fn_call_of(drop_expr, BF_DROP, Option(usize).None), match(args.get(usize(0)), .Some(a0) => if(ast_expr_is_atom(&a0), Option(AstExpr).Some(a0), Option(AstExpr).None), .None => Option(AstExpr).None), Option(AstExpr).None)
+      if(ast_expr_is_fn_call_of(drop_expr, BF_DROP, Option(usize).None), match(args.get_cloned(usize(0)), .Some(a0) => if(ast_expr_is_atom(&a0), Option(AstExpr).Some(a0), Option(AstExpr).None), .None => Option(AstExpr).None), Option(AstExpr).None)
     ),
     Rc(.Atom(_, _)) => Option(AstExpr).None
   )
@@ -903,7 +903,7 @@ has_pending_emittable_drop :: (fn(expr : &AstExpr, context : &FunctionGeneration
         (i : usize) = usize(0);
         while((i < drops.len()) && !found, {
           match(
-            drops.get(i),
+            drops.get_cloned(i),
             .Some(d) => if(!context.emitted_deferred_drop_ids.contains(ast_expr_id(&d)) && !is_deferred_drop_for_closure_capture(&d, &context.current_closure_captures, sm_owns_fnonce_captures(context)), {
               emittable := if(
                 _drop_target_is_parameter(&d, context),
@@ -955,7 +955,7 @@ generate_deferred_drop_expressions :: (
         (i : usize) = usize(0);
         while(i < n, {
           match(
-            drops.get(i),
+            drops.get_cloned(i),
             .Some(drop_expr) => {
               if(g_debug_scope_drops, {
                 eprintln(`[sd-fl] carrier=${ast_expr_to_string(expr)} target=${match(get_deferred_drop_target_atom_name(&drop_expr), .Some(n) => n, .None => String.from("-"))}`);
@@ -1064,7 +1064,7 @@ generate_deferred_dup_expressions :: (fn(expr : &AstExpr, indent : &String, cont
         (i : usize) = usize(0);
         while(i < n, {
           match(
-            dups.get(i),
+            dups.get_cloned(i),
             .Some(dup_expr) => if(ast_expr_is_fn_call(&dup_expr), {
               // Skip a dup whose target TEMP was never emitted as a C
               // declaration (the ___dup names the eval-time temp of e.g. an
@@ -1235,7 +1235,7 @@ emit_deferred_dup_or_code :: (fn(expr : &AstExpr, fallback_code : &String, inden
         // types to agree; otherwise the caller keeps using the source value,
         // which the in-place dup has already retained.
         dup_result_name := match(
-          dups.get(usize(0)),
+          dups.get_cloned(usize(0)),
           .Some(dup_expr) => if(
             ast_expr_is_fn_call(&dup_expr),
             match(
@@ -1262,7 +1262,7 @@ emit_deferred_dup_or_code :: (fn(expr : &AstExpr, fallback_code : &String, inden
         // `Some(bucket.value)`. Materialize the field value once into that temp
         // (materialize-then-dup), so the dup references a real local and the temp is
         // the dup'd value the caller uses. Safe: the field access is evaluated once.
-        dup_target := match(dups.get(usize(0)), .Some(de) => get_deferred_dup_target_atom_name(&de), .None => Option(String).None);
+        dup_target := match(dups.get_cloned(usize(0)), .Some(de) => get_deferred_dup_target_atom_name(&de), .None => Option(String).None);
         t_name := sanitize_for_c_identifier(match(&dup_target, .Some(s) => s.clone(), .None => String.from("")), false);
         // Only materialize when the source is NOT already materialized into the dup
         // target temp: if the caller's fallback code already IS that temp (some paths
@@ -1364,7 +1364,7 @@ arm_value_with_dups :: (fn(body_expr : &AstExpr, indent : &String, context : &mu
   // else the drift-safe escape hatch (dup the generated value directly).
   (dup_named : bool) = false;
   match(
-    bdups.get(usize(0)),
+    bdups.get_cloned(usize(0)),
     .Some(bdup0) => match(
       context.base.get_expr_info(&bdup0),
       .Some(bdup_info) => match(
@@ -1428,7 +1428,7 @@ generate_arg_code_with_deferred_dups :: (
         // An element-wise dup's temp is one element of the argument
         // (`element_wise_dup_target`): pass the argument, retained in place.
         match(
-          ix_dups.get(usize(0)),
+          ix_dups.get_cloned(usize(0)),
           .Some(ix_dup) => if(
             ast_expr_is_fn_call(&ix_dup) && element_wise_dup_target(&ix_dup).is_none(),
             match(
@@ -1464,7 +1464,7 @@ generate_early_return_only_deferred_drop_expressions :: (fn(expr : &AstExpr, ind
         (i : usize) = usize(0);
         while(i < early_drops.len(), {
           match(
-            early_drops.get(i),
+            early_drops.get_cloned(i),
             .Some(drop_expr) => if(!is_deferred_drop_for_closure_capture(&drop_expr, &context.current_closure_captures, sm_owns_fnonce_captures(context)), {
               // Gate: the drop target's C declaration must have been emitted AND
               // its enclosing C block must still be open at this exact point

@@ -90,13 +90,13 @@ _top_level_decl_token :: (fn(exprs : &ArrayList(AstExpr), name : &String) -> Opt
   (i : usize) = usize(0);
   while(i < exprs.len(), {
     match(
-      exprs.get(i),
+      exprs.get_cloned(i),
       .Some(e) => {
         if(ast_expr_is_fn_call_of(&e, "::", .Some(usize(2))) || ast_expr_is_fn_call_of(&e, ":=", .Some(usize(2))), {
           match(
-            e,
+            Rc.clone(e),
             Rc(.FnCall(_, _, Rc(args), _, _)) => match(
-              args.get(usize(0)),
+              args.get_cloned(usize(0)),
               .Some(lhs) => match(
                 lhs,
                 Rc(.Atom(_, t)) => {
@@ -115,13 +115,13 @@ _top_level_decl_token :: (fn(exprs : &ArrayList(AstExpr), name : &String) -> Opt
           match(
             e,
             Rc(.FnCall(_, _, Rc(args), _, _)) => match(
-              args.get(usize(0)),
+              args.get_cloned(usize(0)),
               .Some(lhs) => {
                 if(ast_expr_is_fn_call_of(&lhs, ":", .Some(usize(2))), {
                   match(
                     lhs,
                     Rc(.FnCall(_, _, Rc(pair), _, _)) => match(
-                      pair.get(usize(0)),
+                      pair.get_cloned(usize(0)),
                       .Some(name_expr) => {
                         if(ast_expr_is_atom(&name_expr), {
                           name_tok := ast_expr_token(&name_expr);
@@ -185,7 +185,7 @@ _fn_literal_decl :: (fn(e : &AstExpr, name : &String) -> Option(Token))(
       ast_expr_is_fn_call_of(&callee.*, "->", Option(usize).Some(usize(2))) => match(
         callee,
         Rc(.FnCall(_, _, Rc(ft_args), _, _)) => {
-          head := ft_args(usize(0));
+          head := Rc.clone(ft_args(usize(0)));
           cond(
             (ast_expr_is_fn_call_of(&head, "fn", Option(usize).None) || ast_expr_is_fn_call_of(&head, "unsafe_fn", Option(usize).None) || ast_expr_is_fn_call_of(&head, "ctl", Option(usize).None)) => _decl_atom(&head, name),
             true => Option(Token).None
@@ -251,7 +251,7 @@ _scoped_atoms :: (fn(e : &AstExpr, name : &String, scope : &Option(Token), out :
         (cur : Option(Token)) = scope.clone();
         (k : usize) = usize(0);
         while(k < args.len(), k = (k + usize(1)), {
-          stmt := args(k);
+          stmt := Rc.clone(args(k));
           match(
             _stmt_decl(&stmt, name),
             .Some(d) => {
@@ -280,10 +280,10 @@ _scoped_atoms :: (fn(e : &AstExpr, name : &String, scope : &Option(Token), out :
         recur(&callee.*, name, scope, out);
         (k : usize) = usize(0);
         while(k < args.len(), k = (k + usize(1)), {
-          arm := args(k);
+          arm := Rc.clone(args(k));
           if(ast_expr_is_fn_call_of(&arm, "=>", Option(usize).Some(usize(2))), {
             arm_scope := match(
-              if(is_match, match(arm, Rc(.FnCall(_, _, Rc(arm_args), _, _)) => _decl_atom(&arm_args(usize(0)), name), Rc(.Atom(_, _)) => Option(Token).None), Option(Token).None),
+              if(is_match, match(Rc.clone(arm), Rc(.FnCall(_, _, Rc(arm_args), _, _)) => _decl_atom(&arm_args(usize(0)), name), Rc(.Atom(_, _)) => Option(Token).None), Option(Token).None),
               .Some(d) => Option(Token).Some(d),
               .None => scope.clone()
             );
@@ -372,7 +372,7 @@ collect_symbol_occurrences_with_decl :: (
   (ci : usize) = usize(0);
   while(ci < exprs.len(), {
     match(
-      exprs.get(ci),
+      exprs.get_cloned(ci),
       .Some(e) => _collect_candidates(&e, target, &mut cands),
       .None => ()
     );

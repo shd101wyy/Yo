@@ -189,16 +189,16 @@ _is_subscript_shape :: (fn(e : &AstExpr) -> bool)(
   )
 );
 _inout_place_chain :: (fn(place : &AstExpr, hops : &mut ArrayList(_InoutPlaceHop)) -> Option(AstExpr))({
-  (cur : AstExpr) = place.*;
+  (cur : AstExpr) = Rc.clone(place.*);
   (walking : bool) = true;
   while(walking, {
     if(ast_expr_is_fn_call(&cur) && ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
       match(
-        cur,
+        Rc.clone(cur),
         Rc(.FnCall(_, _, Rc(dargs), _, _)) => {
-          recv := match(dargs.get(usize(0)), .Some(b) => b, .None => make_err_expr());
-          fld := match(dargs.get(usize(1)), .Some(b) => b, .None => make_err_expr());
-          hops.push(_InoutPlaceHop(node : cur, field : fld));
+          recv := match(dargs.get_cloned(usize(0)), .Some(b) => b, .None => make_err_expr());
+          fld := match(dargs.get_cloned(usize(1)), .Some(b) => b, .None => make_err_expr());
+          hops.push(_InoutPlaceHop(node : Rc.clone(cur), field : fld));
           cur = recv;
         },
         Rc(.Atom(_, _)) => {
@@ -309,11 +309,11 @@ _evaluate_inout_local_binding :: (
       )
     );
   });
-  annotation_e := lhs_args.get(usize(1));
+  annotation_e := lhs_args.get_cloned(usize(1));
   // `(y : &(T, o)) = &place`: the annotation's spelled origin
   // (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P3).
-  annotation_origin_e := lhs_args.get(usize(2));
-  name_expr := match(lhs_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+  annotation_origin_e := lhs_args.get_cloned(usize(2));
+  name_expr := match(lhs_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
   if(!ast_expr_is_atom(&name_expr) || !is_valid_variable_name(&name_expr), {
     exn.throw(
       dyn(
@@ -474,7 +474,7 @@ _evaluate_inout_local_binding :: (
       match(
         hops.get(dk),
         .Some(dhop) => if(ast_expr_is_atom_of(&dhop.field, "*"), {
-          d_recv := if((dk + usize(1)) < hops.len(), match(hops.get(dk + usize(1)), .Some(h2) => h2.node, .None => make_err_expr()), root_atom);
+          d_recv := if((dk + usize(1)) < hops.len(), match(hops.get(dk + usize(1)), .Some(h2) => Rc.clone(h2.node), .None => make_err_expr()), Rc.clone(root_atom));
           d_recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&d_recv)), .Some(dri) => Rc.clone(dri.ty()), .None => t_unit());
           // `&r.*…` through the reference binding `r` itself (N1e-1) names
           // the referent: the place `r` already borrows, not a pointer.
@@ -575,8 +575,8 @@ _evaluate_inout_local_binding :: (
   while((pk < hops.len()) && pin_expr.is_none(), {
     recv_expr := if(
       (pk + usize(1)) < hops.len(),
-      match(hops.get(pk + usize(1)), .Some(h2) => h2.node, .None => make_err_expr()),
-      root_atom
+      match(hops.get(pk + usize(1)), .Some(h2) => Rc.clone(h2.node), .None => make_err_expr()),
+      Rc.clone(root_atom)
     );
     recv_type := if(
       (pk + usize(1)) < hops.len(),
@@ -632,7 +632,7 @@ _evaluate_inout_local_binding :: (
   // on `break`, `return` and effect `unwind` alike (§8 B4).
   (pin_var : Option(Variable)) = Option(Variable).None;
   match(
-    pin_expr,
+    pin_expr.clone(),
     .Some(pp) => {
       pp_tok := ast_expr_token(&pp);
       pin_name := generate_new_temp_variable_name(&env.module_path().*, usize(pp_tok.row), usize(pp_tok.column), .None, .Some(pp_tok.module_path.*.clone()));
@@ -726,7 +726,7 @@ _evaluate_inout_local_binding :: (
   expr_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
   expr_info_set_is_compile_time_only_assignment(&expr_info, Option(bool).Some(false));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 _join_labels :: (fn(xs : &ArrayList(String)) -> String)({
   out := String.new();
@@ -754,7 +754,7 @@ _chain_leaf_origins :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext,
     e,
     Rc(.FnCall(_, _, Rc(c_args), _, _)) => {
       if(ast_expr_is_fn_call_of(e, BK_BEGIN, .None), {
-        match(c_args.last(), .Some(tail) => _chain_leaf_origins(&tail, env, ctx, out, (depth + u32(1))), .None => ());
+        match(c_args.last_cloned(), .Some(tail) => _chain_leaf_origins(&tail, env, ctx, out, (depth + u32(1))), .None => ());
         return(());
       });
       if(ast_expr_is_fn_call_of(e, BK_COND, .None) || ast_expr_is_fn_call_of(e, BK_MATCH, .None), {
@@ -1098,7 +1098,7 @@ _bind_projection_result :: (
   expr_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
   expr_info_set_is_compile_time_only_assignment(&expr_info, Option(bool).Some(false));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 /// The root of the range projection `xs(a..b)`: the collection `xs`, lent
 /// read-only.
@@ -1138,13 +1138,13 @@ _subscript_root_args :: (fn(call : &AstExpr) -> ArrayList(ProjectionRootArg))({
 evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
   (env : Environment) = Rc.clone(env_in);
   args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
-  lhs := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-  rhs := match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+  lhs := match(args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
+  rhs := match(args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr());
   lhs_tok := ast_expr_token(&lhs);
   is_mut := ast_expr_is_inout_mode_call(&lhs, .None);
   sig := if(is_mut, String.from("&mut "), String.from("&"));
-  lhs_args := match(lhs, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
-  name_expr := match(lhs_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+  lhs_args := match(Rc.clone(lhs), Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+  name_expr := match(lhs_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
   if((lhs_args.len() != usize(1)) || !ast_expr_is_atom(&name_expr), {
     exn.throw(dyn(Box.new(format_error_message(&lhs_tok, `A re-point names the local borrow it moves (\`cur = ${sig}place\`).`))));
   });
@@ -1332,8 +1332,8 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
   while((pk < hops.len()) && pin_expr.is_none(), {
     recv_expr := if(
       (pk + usize(1)) < hops.len(),
-      match(hops.get(pk + usize(1)), .Some(h2) => h2.node, .None => make_err_expr()),
-      root_atom
+      match(hops.get(pk + usize(1)), .Some(h2) => Rc.clone(h2.node), .None => make_err_expr()),
+      Rc.clone(root_atom)
     );
     recv_type := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv_expr)), .Some(ri) => Rc.clone(ri.ty()), .None => variable_value_type(&root_var));
     if(is_counted_handle_type(&recv_type), {
@@ -1344,7 +1344,7 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
   });
   (step_pin : Option(Variable)) = Option(Variable).None;
   match(
-    pin_expr,
+    pin_expr.clone(),
     .Some(_) => {
       sp := match(
         &info.step_pin,
@@ -1417,14 +1417,14 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
   expr_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
   expr_info_set_is_compile_time_only_assignment(&expr_info, Option(bool).Some(false));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 /// `.V` or `.V(…)` on the right of `:=` — see `local_variant_hint`.
 _rhs_is_bare_variant_literal :: (fn(e : &AstExpr) -> bool)({
   head_ok := (fn(h : &AstExpr) -> bool)(
     ast_expr_is_fn_call_of(h, BF_DOT, Option(usize).Some(usize(1))) && match(
       h,
-      Rc(.FnCall(_, _, Rc(hargs), _, _)) => match(hargs.get(usize(0)), .Some(a) => ast_expr_is_atom(&a), .None => false),
+      Rc(.FnCall(_, _, Rc(hargs), _, _)) => match(hargs.get_cloned(usize(0)), .Some(a) => ast_expr_is_atom(&a), .None => false),
       Rc(.Atom(_, _)) => false
     )
   );
@@ -1464,12 +1464,12 @@ evaluate_initialization_assignment :: (
   // Extract lhs and rhs from args.
   (lhs : AstExpr) = match(
     expr,
-    Rc(.FnCall(_, _, Rc(args), _, _)) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+    Rc(.FnCall(_, _, Rc(args), _, _)) => match(args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()),
     Rc(.Atom(_, _)) => make_err_expr()
   );
   (rhs : AstExpr) = match(
     expr,
-    Rc(.FnCall(_, _, Rc(args), _, _)) => match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
+    Rc(.FnCall(_, _, Rc(args), _, _)) => match(args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr()),
     Rc(.Atom(_, _)) => make_err_expr()
   );
   // `name := rhs` and `name := &mut place` declare RUNTIME storage, so
@@ -1539,7 +1539,7 @@ evaluate_initialization_assignment :: (
   should_convert_to_runtime_type := !is_const;
   // Detect given(name) wrapper on LHS for implicit parameter declaration.
   (is_implicit : bool) = false;
-  (actual_lhs : AstExpr) = lhs;
+  (actual_lhs : AstExpr) = Rc.clone(lhs);
   // `comptime(name) := rhs` is the compile-time spelling of `:=` (DESIGN.md
   // "Variables"): it binds `name` exactly like `name :: rhs`. It used to fall
   // through to the destructuring branch and fail with "Destructuring
@@ -1549,8 +1549,8 @@ evaluate_initialization_assignment :: (
     is_compile_time_only = true;
     should_convert_to_runtime_type = false;
     actual_lhs = match(
-      lhs,
-      Rc(.FnCall(_, _, Rc(cargs), _, _)) => match(cargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+      Rc.clone(lhs),
+      Rc(.FnCall(_, _, Rc(cargs), _, _)) => match(cargs.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()),
       Rc(.Atom(_, _)) => make_err_expr()
     );
   });
@@ -1563,7 +1563,7 @@ evaluate_initialization_assignment :: (
   });
   if(ast_expr_is_fn_call(&lhs) && ast_expr_is_fn_call_of(&lhs, BK_GIVEN, .None), {
     n_given_args := match(
-      lhs,
+      Rc.clone(lhs),
       Rc(.FnCall(_, _, Rc(gargs), _, _)) => gargs.len(),
       Rc(.Atom(_, _)) => usize(0)
     );
@@ -1581,8 +1581,8 @@ evaluate_initialization_assignment :: (
     });
     is_implicit = true;
     actual_lhs = match(
-      lhs,
-      Rc(.FnCall(_, _, Rc(gargs), _, _)) => match(gargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+      Rc.clone(lhs),
+      Rc(.FnCall(_, _, Rc(gargs), _, _)) => match(gargs.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()),
       Rc(.Atom(_, _)) => make_err_expr()
     );
   });
@@ -1598,7 +1598,7 @@ evaluate_initialization_assignment :: (
   // modifier still here is malformed and is rejected below.
   (is_thread_local_decl : bool) = (ast_expr_is_atom(&lhs) && is_thread_local_binding(&ast_expr_token(&lhs), &ast_expr_token(&lhs).value.*));
   if(ast_expr_is_fn_call(&lhs) && ast_expr_is_fn_call_of(&lhs, BK_THREAD_LOCAL, .None), {
-    n_tl_args := match(lhs, Rc(.FnCall(_, _, Rc(targs), _, _)) => targs.len(), Rc(.Atom(_, _)) => usize(0));
+    n_tl_args := match(Rc.clone(lhs), Rc(.FnCall(_, _, Rc(targs), _, _)) => targs.len(), Rc(.Atom(_, _)) => usize(0));
     if(n_tl_args != usize(1), {
       exn.throw(
         dyn(
@@ -1612,8 +1612,8 @@ evaluate_initialization_assignment :: (
       );
     });
     tl_atom := match(
-      lhs,
-      Rc(.FnCall(_, _, Rc(targs), _, _)) => match(targs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+      Rc.clone(lhs),
+      Rc(.FnCall(_, _, Rc(targs), _, _)) => match(targs.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()),
       Rc(.Atom(_, _)) => make_err_expr()
     );
     if(!ast_expr_is_atom(&tl_atom), {
@@ -1927,7 +1927,7 @@ Bound type: ${type_to_string(&rhs_info.ty())}`
         .None => t_unit()
       );
       synth := synthesize_expr_and_type(&rhs, &pre_type, &env, ctx);
-      rhs = synth.expr;
+      rhs = Rc.clone(synth.expr);
       rhs_type_opt = Option(TypeValue).Some(Rc.clone(synth.ty));
       env_adopt(&env, &synth.env);
       // Re-read rhs_info for the updated rhs.
@@ -2421,7 +2421,7 @@ Use \`::\` for compile-time definitions inside impl.`
     expr_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
     expr_info_set_is_compile_time_only_assignment(&expr_info, Option(bool).Some(effective_is_compile_time_only));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
-    expr.*
+    Rc.clone(expr.*)
   }, {
     // -------------------------------------------------------------------
     // Destructuring LHS: `{x, y} := rhs`
@@ -2471,7 +2471,7 @@ Use \`::\` for compile-time definitions inside impl.`
     expr_info_set_runtime_destructurings(&expr_info, &destr_result.runtime_destructurings);
     expr_info_set_is_compile_time_only_assignment(&expr_info, Option(bool).Some(effective_is_compile_time_only));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
-    expr.*
+    Rc.clone(expr.*)
   })
 });
 export(evaluate_initialization_assignment, evaluate_local_borrow_repoint);
