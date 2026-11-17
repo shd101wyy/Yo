@@ -3963,7 +3963,7 @@ prepare_where_clause_variables :: (
     (pi : usize) = usize(0);
     while(pi < new_pending.len(), {
       pc := match(
-        new_pending.get(pi),
+        new_pending.get_cloned(pi),
         .Some(p) => p,
         .None => {
           pi = new_pending.len();
@@ -3993,7 +3993,7 @@ retry_pending_constraints :: (
   (i : usize) = usize(0);
   while(i < pending.len(), {
     pc := match(
-      pending.get(i),
+      pending.get_cloned(i),
       .Some(p) => p,
       .None => {
         i = pending.len();
@@ -4890,7 +4890,7 @@ evaluate_function_parameters :: (
     pending_constraints = retry_pending_constraints(&pending_constraints, env_mut, ctx, exn);
     if(pending_constraints.len() > usize(0), {
       failed := match(
-        pending_constraints.get(usize(0)),
+        pending_constraints.get_cloned(usize(0)),
         .Some(p) => p,
         .None => return(
           FuncParamsResult(

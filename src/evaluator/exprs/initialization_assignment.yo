@@ -394,7 +394,7 @@ _evaluate_inout_local_binding :: (
   (hi : usize) = usize(0);
   while(hi < hops.len(), {
     match(
-      hops.get(hi),
+      hops.get_cloned(hi),
       .Some(hop) => if(ast_expr_is_atom_of(&hop.field, "*") && rhs_is_privileged, {
         place_has_deref = true;
       }),
@@ -473,9 +473,9 @@ _evaluate_inout_local_binding :: (
     (dk : usize) = usize(0);
     while(dk < hops.len(), {
       match(
-        hops.get(dk),
+        hops.get_cloned(dk),
         .Some(dhop) => if(ast_expr_is_atom_of(&dhop.field, "*"), {
-          d_recv := if((dk + usize(1)) < hops.len(), match(hops.get(dk + usize(1)), .Some(h2) => Rc.clone(h2.node), .None => make_err_expr()), Rc.clone(root_atom));
+          d_recv := if((dk + usize(1)) < hops.len(), match(hops.get_cloned(dk + usize(1)), .Some(h2) => Rc.clone(h2.node), .None => make_err_expr()), Rc.clone(root_atom));
           d_recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&d_recv)), .Some(dri) => Rc.clone(dri.ty()), .None => t_unit());
           // `&r.*…` through the reference binding `r` itself (N1e-1) names
           // the referent: the place `r` already borrows, not a pointer.
@@ -576,7 +576,7 @@ _evaluate_inout_local_binding :: (
   while((pk < hops.len()) && pin_expr.is_none(), {
     recv_expr := if(
       (pk + usize(1)) < hops.len(),
-      match(hops.get(pk + usize(1)), .Some(h2) => Rc.clone(h2.node), .None => make_err_expr()),
+      match(hops.get_cloned(pk + usize(1)), .Some(h2) => Rc.clone(h2.node), .None => make_err_expr()),
       Rc.clone(root_atom)
     );
     recv_type := if(
@@ -1221,7 +1221,7 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
   (hi : usize) = usize(0);
   while(hi < hops.len(), {
     match(
-      hops.get(hi),
+      hops.get_cloned(hi),
       .Some(hop) => if(ast_expr_is_atom_of(&hop.field, "*"), {
         exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&hop.field), `Cannot re-point \`${name}\` through a pointer dereference ('p.*'): a re-point to a place behind a dereference is not yet admitted (P1b, plans/backlog/BORROW_CHECKER_COMPLETENESS.md §4). ${not_reached}`))));
       }),
@@ -1333,7 +1333,7 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
   while((pk < hops.len()) && pin_expr.is_none(), {
     recv_expr := if(
       (pk + usize(1)) < hops.len(),
-      match(hops.get(pk + usize(1)), .Some(h2) => Rc.clone(h2.node), .None => make_err_expr()),
+      match(hops.get_cloned(pk + usize(1)), .Some(h2) => Rc.clone(h2.node), .None => make_err_expr()),
       Rc.clone(root_atom)
     );
     recv_type := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv_expr)), .Some(ri) => Rc.clone(ri.ty()), .None => variable_value_type(&root_var));
