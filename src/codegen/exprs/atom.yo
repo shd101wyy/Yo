@@ -530,10 +530,18 @@ _reads_own_fat_reference :: (fn(v : &Variable, read_ty : &Option(TypeValue)) -> 
   vt := variable_slot_type(v);
   t_slot_is_borrow(&vt) && (!type_is_sized(&t_slot_pointee(&vt)) && match(read_ty, .Some(rt) => (t_slot_is_borrow(rt) && !type_is_sized(&t_slot_pointee(rt))), .None => false))
 });
-/// A binding that holds a fat reference by value (`s := "abc"`, a `&str`,
-/// decision 49 S2) and is read as the unsized place it refers to (`read_ty`
-/// unsized: a receiver, a lend) reads as `(*name)` too, the unsized-place
-/// convention every `&` of such a place folds back to the fat value.
+/// A binding whose slot is a FAT reference (`&str`, `&[T]`, `&Dyn(...)`, a
+/// tail struct — decision 49 S2) reads as the pair itself, however it is
+/// read: its C storage IS the fat value (`s := "abc"`, a `&str` parameter, a
+/// shorthand receiver's `self`), and C cannot dereference a struct — so the
+/// `(*name)` wrap never applies to a fat slot, not even through `is_ref` (a
+/// by-`ref` binding) or an unsized-place read (`read_ty` unsized: a
+/// receiver, a lend). The wrap — a by-`ref` THIN binding (`&mut T`
+/// parameter, whose C level is `T*`) or the unsized-place `(*F)` convention
+/// (every `&` of such a place folds back to the fat value, and
+/// `unsized_place_fat_code` takes a bare pair as the place's fat pointer
+/// too) — is kept for a THIN borrow slot only, whose C storage is a pointer
+/// (issues/fixed/2026-11-17-str-clone-derefs-its-fat-reference-receiver-and-emits-invalid-c.md).
 _var_read_code :: (fn(key : ExprId, tv : &String, env_opt : &Option(Environment), (read_ty : Option(TypeValue)) ?= Option(TypeValue).None) -> String)({
   vn := get_variable_name_for_codegen_at(key, tv.clone(), env_opt);
   read_unsized := match(&read_ty, .Some(rt) => !type_is_sized(rt), .None => false);
@@ -545,7 +553,15 @@ _var_read_code :: (fn(key : ExprId, tv : &String, env_opt : &Option(Environment)
         (vs.len() == usize(0)) => false,
         // Read as the fat reference it holds (the legacy value `str`): the
         // storage IS the pair, a `&str` parameter's included.
-        true => match(vs.last_cloned(), .Some(v) => if(_reads_own_fat_reference(&v, &read_ty), false, (v.is_ref() || (read_unsized && t_slot_is_borrow(&variable_slot_type(&v))))), .None => false)
+        true => match(
+          vs.last_cloned(),
+          .Some(v) => {
+            vrc_slot := variable_slot_type(&v);
+            vrc_thin := (!t_slot_is_borrow(&vrc_slot) || type_is_sized(&t_slot_pointee(&vrc_slot)));
+            if(_reads_own_fat_reference(&v, &read_ty), false, (vrc_thin && (v.is_ref() || (read_unsized && t_slot_is_borrow(&vrc_slot)))))
+          },
+          .None => false
+        )
       )
     },
     .None => false
