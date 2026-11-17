@@ -2136,7 +2136,8 @@ lookup_io_builtin_call :: (fn(call_id : ExprId) -> Option(String))(
 (g_immediate_old_value_drops : RefCell(HashMap(ExprId, AstExpr))) = RefCell(HashMap(ExprId, AstExpr)).new(HashMap(ExprId, AstExpr).new());
 record_immediate_old_value_drop :: (fn(assign_id : ExprId, drop_expr : &AstExpr) -> unit)({
   record_owned_expr_id(assign_id);
-  g_immediate_old_value_drops.with_mut(m => m.insert(assign_id, drop_expr.*));
+  od_expr := drop_expr.*;
+  g_immediate_old_value_drops.with_mut({ assign_id, od_expr }(m) => m.insert(assign_id, od_expr));
   ()
 });
 lookup_immediate_old_value_drop :: (fn(assign_id : ExprId) -> Option(AstExpr))(
@@ -3202,7 +3203,8 @@ lookup_spec_instantiation :: (fn(spec_fid : &String) -> Option(SpecInstantiation
 /// Record the expanded form for a macro-call expr id.
 record_macro_expansion :: (fn(call_id : ExprId, expanded : &AstExpr) -> unit)({
   record_owned_expr_id(call_id);
-  g_macro_expansions.with_mut(m => m.insert(call_id, expanded.*));
+  me_expr := expanded.*;
+  g_macro_expansions.with_mut({ call_id, me_expr }(m) => m.insert(call_id, me_expr));
   ()
 });
 /// Look up the expanded form for a macro-call expr id, if recorded.
@@ -3226,7 +3228,8 @@ record_module_level_init_expr :: (fn(e : &AstExpr) -> unit)({
   already := match(g_module_level_init_seen.with(m => m.get(&eid)), .Some(_) => true, .None => false);
   if(!already, {
     g_module_level_init_seen.with_mut(m => m.insert(eid, true));
-    g_module_level_init_exprs.with_mut(xs => xs.push(e.*));
+    mi_expr := e.*;
+    g_module_level_init_exprs.with_mut({ mi_expr }(xs) => xs.push(mi_expr));
   });
   ()
 });
