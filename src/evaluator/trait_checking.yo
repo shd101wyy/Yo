@@ -2310,9 +2310,25 @@ type_implements_trait :: (
   // an id-only key cut the inner `Option(i32) <: Copy` as recursion, so the
   // outer read as not `Copy` (decision 36's flip rejected its copy;
   // `_ww_thrice`, tests/generic_instantiation_compat.test.yo).
+  // A STRUCTURAL type — an array, a tuple, a raw pointer, or a `[T]`/`&T`
+  // whose element is itself one — has no nominal id, so the id arms render
+  // "" and every such check shared the single key `":<trait>"`: a nested
+  // structural type checking the SAME trait (`Array(Array(i32, 2), 2) <:
+  // Hash` → the Array impl's where pass → `Array(i32, 2) <: Hash`, and a
+  // slice over an array from the slice side) found its own ancestor's entry
+  // and was cut as a cycle, answering false. Key it by the structural
+  // rendering, exactly as the marker guard's `ondemand_key` (step 4b above)
+  // already does for the same measured class (`*(*(i32))` is not Send,
+  // `Tuple(Tuple(i32))` is not Comptime): a structural type is a finite
+  // tree and cannot recurse without going through a NOMINAL type (which
+  // keeps its own id in the guard), so the rendering is terminating and
+  // precise. This arm subsumes the array-only one
+  // (issues/fixed/2026-11-17-an-array-of-arrays-is-not-hash-to-the-trait-check.md).
+  guard_id := _type_id_for_trait_check(&target);
   guard_key := cond(
     is_enum_type(&target) => enum_instance_node_id(&target),
-    true => _type_id_for_trait_check(&target)
+    guard_id.is_empty() => type_to_string(&target),
+    true => guard_id
   ).concat(`:`).concat(_trait_type_id(trait_type));
   // Recursion guard: return false if already checking this pair.
   (already_checking : bool) = false;
