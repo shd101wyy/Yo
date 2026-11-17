@@ -236,11 +236,11 @@ impl(
   /// True when the place holds no value (a runtime variable's cell).
   is_empty : (fn(self : &Self) -> bool)(self.with({ self : &self.* }(xs) => xs.is_empty())),
   /// The value at `i`, or `.None` past the end.
-  get : (fn(self : &Self, i : usize) -> Option(EvalValue))(self.with({ i }(xs) => xs.get(i))),
+  get : (fn(self : &Self, i : usize) -> Option(EvalValue))(self.with({ i }(xs) => xs.get_cloned(i))),
   /// Store `v` at `i`, seen by every holder of the place; panics past the end.
   set : (fn(self : &Self, i : usize, v : EvalValue) -> unit)(
     self.with_mut(xs => {
-      xs(i) = v;
+      xs(i) = Rc.clone(v);
     })
   )
 );
@@ -280,7 +280,7 @@ impl(
   /// True when the list holds no elements.
   is_empty : (fn(self : &Self) -> bool)(self.items.is_empty()),
   /// The element at `i`, or `.None` past the end.
-  get : (fn(self : &Self, i : usize) -> Option(EvalValue))(self.items.get(i)),
+  get : (fn(self : &Self, i : usize) -> Option(EvalValue))(self.items.get_cloned(i)),
   /// `xs(i)` reads the element at `i` (a read projection); panics past the end.
   Index(usize)(
     Output : EvalValue,
@@ -310,7 +310,7 @@ impl(
   /// True when the list holds no elements.
   is_empty : (fn(self : &Self) -> bool)(self.items.is_empty()),
   /// The element at `i`, or `.None` past the end.
-  get : (fn(self : &Self, i : usize) -> Option(Option(EvalValue)))(self.items.get(i))
+  get : (fn(self : &Self, i : usize) -> Option(Option(EvalValue)))(self.items.get_cloned(i))
 );
 /// Element-wise equality for `EvalValue`.
 ///
@@ -323,22 +323,22 @@ impl(
 eval_value_node_eq :: (fn(a : &EvalValueNode, b : &EvalValueNode) -> bool)(
   match(
     a,
-    Rc(.UnitVal) =>
-      match(b, Rc(.UnitVal) => true, _ => false),
-    Rc(.BoolVal(ab)) =>
-      match(b, Rc(.BoolVal(bb)) => (ab.* == bb.*), _ => false),
-    Rc(.IntLit(ar)) =>
-      match(b, Rc(.IntLit(br)) => (ar.* == br.*), _ => false),
-    Rc(.FloatLit(ar)) =>
-      match(b, Rc(.FloatLit(br)) => (ar.* == br.*), _ => false),
-    Rc(.StrLit(ar)) =>
-      match(b, Rc(.StrLit(br)) => (ar.* == br.*), _ => false),
-    Rc(.VarRef(an)) =>
-      match(b, Rc(.VarRef(bn)) => (an.* == bn.*), _ => false),
-    Rc(.EnumVal(av, afs)) =>
+    .UnitVal =>
+      match(b, .UnitVal => true, _ => false),
+    .BoolVal(ab) =>
+      match(b, .BoolVal(bb) => (ab.* == bb.*), _ => false),
+    .IntLit(ar) =>
+      match(b, .IntLit(br) => (ar.* == br.*), _ => false),
+    .FloatLit(ar) =>
+      match(b, .FloatLit(br) => (ar.* == br.*), _ => false),
+    .StrLit(ar) =>
+      match(b, .StrLit(br) => (ar.* == br.*), _ => false),
+    .VarRef(an) =>
+      match(b, .VarRef(bn) => (an.* == bn.*), _ => false),
+    .EnumVal(av, afs) =>
       match(
         b,
-        Rc(.EnumVal(bv, bfs)) =>
+        .EnumVal(bv, bfs) =>
           cond(
             !(av.* == bv.*) => false,
             (afs.len() != bfs.len()) => false,
@@ -370,11 +370,11 @@ eval_value_node_eq :: (fn(a : &EvalValueNode, b : &EvalValueNode) -> bool)(
           ),
         _ => false
       ),
-    Rc(.FuncVal(_, _)) => false,
-    Rc(.ReturnVal(_, _)) => false,
-    Rc(.BreakVal) => match(b, Rc(.BreakVal) => true, _ => false),
-    Rc(.ContinueVal) => match(b, Rc(.ContinueVal) => true, _ => false),
-    Rc(.TypeVal(at)) =>
+    .FuncVal(_, _) => false,
+    .ReturnVal(_, _) => false,
+    .BreakVal => match(b, .BreakVal => true, _ => false),
+    .ContinueVal => match(b, .ContinueVal => true, _ => false),
+    .TypeVal(at) =>
       // EXACT type identity (not lenient compatibility). `eval_value_eq` keys the
       // specialization cache (`_find_specialization_cache`, on compile-time arg VALUES —
       // which include the generic type args like a HashMap's `V`), so a lenient compare
@@ -383,11 +383,11 @@ eval_value_node_eq :: (fn(a : &EvalValueNode, b : &EvalValueNode) -> bool)(
       // but NOT identical — a lenient key let `Self._alloc_with_capacity`'s specialization
       // for one V be reused for the other, so the callee's `Result<Self>` return type
       // disagreed with the call site (stage-2 Family-C incompatible-type cluster).
-      match(b, Rc(.TypeVal(bt)) => are_types_compatible_exact(&at.*, &bt.*), _ => false),
-    Rc(.StructVal(atn, anames, avals)) =>
+      match(b, .TypeVal(bt) => are_types_compatible_exact(&at.*, &bt.*), _ => false),
+    .StructVal(atn, anames, avals) =>
       match(
         b,
-        Rc(.StructVal(btn, bnames, bvals)) =>
+        .StructVal(btn, bnames, bvals) =>
           cond(
             !(atn.* == btn.*) => false,
             (anames.len() != bnames.len()) => false,
@@ -447,10 +447,10 @@ eval_value_node_eq :: (fn(a : &EvalValueNode, b : &EvalValueNode) -> bool)(
         _ => false
       ),
     // Phase 2h variants ---------------------------------------------------------
-    Rc(.TupleVal(afs)) =>
+    .TupleVal(afs) =>
       match(
         b,
-        Rc(.TupleVal(bfs)) =>
+        .TupleVal(bfs) =>
           cond(
             (afs.len() != bfs.len()) => false,
             true => {
@@ -481,10 +481,10 @@ eval_value_node_eq :: (fn(a : &EvalValueNode, b : &EvalValueNode) -> bool)(
           ),
         _ => false
       ),
-    Rc(.ArrayVal(aes)) =>
+    .ArrayVal(aes) =>
       match(
         b,
-        Rc(.ArrayVal(bes)) =>
+        .ArrayVal(bes) =>
           cond(
             (aes.len() != bes.len()) => false,
             true => {
@@ -516,11 +516,11 @@ eval_value_node_eq :: (fn(a : &EvalValueNode, b : &EvalValueNode) -> bool)(
         _ => false
       ),
     // PtrVal: pointer alias identity is not portable; always unequal.
-    Rc(.PtrVal(_, _, _)) => false,
-    Rc(.TraitVal(atn, afnames, afvals)) =>
+    .PtrVal(_, _, _) => false,
+    .TraitVal(atn, afnames, afvals) =>
       match(
         b,
-        Rc(.TraitVal(btn, bfnames, bfvals)) =>
+        .TraitVal(btn, bfnames, bfvals) =>
           cond(
             !(atn.* == btn.*) => false,
             (afnames.len() != bfnames.len()) => false,
@@ -587,10 +587,10 @@ eval_value_node_eq :: (fn(a : &EvalValueNode, b : &EvalValueNode) -> bool)(
           ),
         _ => false
       ),
-    Rc(.ComptimeListVal(aes)) =>
+    .ComptimeListVal(aes) =>
       match(
         b,
-        Rc(.ComptimeListVal(bes)) =>
+        .ComptimeListVal(bes) =>
           cond(
             (aes.len() != bes.len()) => false,
             true => {
@@ -623,15 +623,15 @@ eval_value_node_eq :: (fn(a : &EvalValueNode, b : &EvalValueNode) -> bool)(
       ),
     // ExprVal: full structural equality — Atoms by token value, FnCalls by
     // callee + args recursively.
-    Rc(.ExprVal(a_ex)) => match(
+    .ExprVal(a_ex) => match(
       b,
-      Rc(.ExprVal(b_ex)) => exprs_are_equal(&a_ex.*, &b_ex.*),
+      .ExprVal(b_ex) => exprs_are_equal(&a_ex.*, &b_ex.*),
       _ => false
     ),
     // UnknownVal: two unknowns are equal if they represent the same type.
     // The `is_runtime_only` flag is provenance, not identity — equality
     // compares the TYPES only, so it is excluded here.
-    Rc(.UnknownVal(aty, _)) => match(b, Rc(.UnknownVal(bty, _)) => are_types_compatible(&aty.*, &bty.*), _ => false)
+    .UnknownVal(aty, _) => match(b, .UnknownVal(bty, _) => are_types_compatible(&aty.*, &bty.*), _ => false)
   )
 );
 impl(
