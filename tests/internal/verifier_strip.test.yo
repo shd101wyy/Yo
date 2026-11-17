@@ -89,7 +89,7 @@ _load_fixture_tasks :: (fn(rel : &String, io : Io) -> ArrayList(VerifyTask))({
 _task_func_val :: (fn(tasks : &ArrayList(VerifyTask)) -> EvalValue)(
   match(
     tasks.get_cloned(usize(0)),
-    .Some(t) => t.func_val,
+    .Some(t) => Rc.clone(t.func_val),
     .None => Rc.new(EvalValueNode.UnitVal)
   )
 );

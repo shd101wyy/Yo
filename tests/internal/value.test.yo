@@ -9,7 +9,8 @@
 { TypeValue, shared_list, no_labels } :: import("../../src/types/definitions.yo");
 { assert, panic } :: import("std/assert");
 {
-  EvalValue, EvalValueNode,
+  EvalValue,
+  EvalValueNode,
   value_to_string,
   is_unit_val,
   is_bool_val,
@@ -144,7 +145,7 @@ test("ArrayVal: value_to_string singleton (trailing comma)", {
 // the file failed to compile and all five reported as failures.
 _ptr_cell :: (fn(target : &EvalValue) -> ValueCell)({
   mut(cell) := ArrayList(EvalValue).new();
-  cell.push(target.*);
+  cell.push(Rc.clone(target.*));
   value_cell_new(cell)
 });
 test("PtrVal: always unequal", {
@@ -174,29 +175,37 @@ test("PtrVal: value_to_string array element", {
 // TraitVal
 // ---------------------------------------------------------------------------
 test("TraitVal: empty trait equality", {
-  t1 := Rc.new(EvalValueNode.TraitVal(
-    String.from("Display"),
-    no_labels(),
-    no_opt_values()
-  ));
-  t2 := Rc.new(EvalValueNode.TraitVal(
-    String.from("Display"),
-    no_labels(),
-    no_opt_values()
-  ));
+  t1 := Rc.new(
+    EvalValueNode.TraitVal(
+      String.from("Display"),
+      no_labels(),
+      no_opt_values()
+    )
+  );
+  t2 := Rc.new(
+    EvalValueNode.TraitVal(
+      String.from("Display"),
+      no_labels(),
+      no_opt_values()
+    )
+  );
   assert(t1 == t2, "empty same-named traits equal");
 });
 test("TraitVal: different name is not equal", {
-  t1 := Rc.new(EvalValueNode.TraitVal(
-    String.from("Display"),
-    no_labels(),
-    no_opt_values()
-  ));
-  t2 := Rc.new(EvalValueNode.TraitVal(
-    String.from("Debug"),
-    no_labels(),
-    no_opt_values()
-  ));
+  t1 := Rc.new(
+    EvalValueNode.TraitVal(
+      String.from("Display"),
+      no_labels(),
+      no_opt_values()
+    )
+  );
+  t2 := Rc.new(
+    EvalValueNode.TraitVal(
+      String.from("Debug"),
+      no_labels(),
+      no_opt_values()
+    )
+  );
   assert(!(t1 == t2), "different trait names not equal");
 });
 test("TraitVal: Some/None field equality", {
@@ -230,11 +239,13 @@ test("TraitVal: Some vs None mismatch not equal", {
   assert(!(t_some == t_none), "Some vs None mismatch is not equal");
 });
 test("TraitVal: predicates", {
-  v := Rc.new(EvalValueNode.TraitVal(
-    String.from("Eq"),
-    no_labels(),
-    no_opt_values()
-  ));
+  v := Rc.new(
+    EvalValueNode.TraitVal(
+      String.from("Eq"),
+      no_labels(),
+      no_opt_values()
+    )
+  );
   assert(is_trait_val(&v), "is_trait_val true");
   assert(!is_struct_val(&v), "is_struct_val false for TraitVal");
 });
@@ -294,24 +305,26 @@ test("ExprVal: structural equality", {
   // Two calls to make_err_expr() produce identical Atom nodes, so they are equal.
   assert(e1 == e2, "ExprVal structural equality: identical atoms are equal");
   // Different atoms should not be equal.
-  other := Rc.new(EvalValueNode.ExprVal(
-    Rc.new(
-      AstExprNode.Atom(
-        usize(0),
-        Rc.new(
-          TokenData(
-            kind : TokenKind.Integer,
-            value : Rc.new(String.from("42")),
-            row : u32(0),
-            column : u32(0),
-            character : u32(0),
-            module_path : Rc.new(String.from("")),
-            input : Rc.new(String.from(""))
+  other := Rc.new(
+    EvalValueNode.ExprVal(
+      Rc.new(
+        AstExprNode.Atom(
+          usize(0),
+          Rc.new(
+            TokenData(
+              kind : TokenKind.Integer,
+              value : Rc.new(String.from("42")),
+              row : u32(0),
+              column : u32(0),
+              character : u32(0),
+              module_path : Rc.new(String.from("")),
+              input : Rc.new(String.from(""))
+            )
           )
         )
       )
     )
-  ));
+  );
   assert(!(e1 == other), "ExprVal structural equality: different atoms are unequal");
 });
 test("ExprVal: predicates", {
