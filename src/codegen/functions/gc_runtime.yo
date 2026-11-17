@@ -29,7 +29,7 @@ _collect_unwind_value_ctypes_from_expr :: (fn(expr : &AstExpr, context : &mut Fu
   if(ast_expr_is_fn_call_of(expr, BF_UNWIND, Option(usize).None), {
     match(
       expr,
-      .FnCall(_, _, Rc(args), _, _) => match(
+      Rc(.FnCall(_, _, Rc(args), _, _)) => match(
         args.get(usize(0)),
         .Some(arg0) => match(
           context.base.get_expr_info(&arg0),
@@ -40,13 +40,13 @@ _collect_unwind_value_ctypes_from_expr :: (fn(expr : &AstExpr, context : &mut Fu
         ),
         .None => ()
       ),
-      .Atom(_, _) => ()
+      Rc(.Atom(_, _)) => ()
     );
   });
   if(ast_expr_is_fn_call(expr), {
     match(
       expr,
-      .FnCall(_, func, Rc(args), _, _) => {
+      Rc(.FnCall(_, func, Rc(args), _, _)) => {
         n := args.len();
         (ai : usize) = usize(0);
         while(ai < n, {
@@ -85,7 +85,7 @@ _collect_unwind_value_ctypes_from_expr :: (fn(expr : &AstExpr, context : &mut Fu
           fk = (fk + usize(1));
         });
       },
-      .Atom(_, _) => ()
+      Rc(.Atom(_, _)) => ()
     );
   });
   out

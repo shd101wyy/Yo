@@ -136,7 +136,7 @@ _expr_may_have_side_effects :: (fn(expr : &AstExpr, context : &FunctionGeneratio
   });
   match(
     expr,
-    .FnCall(_, func, Rc(args), _, _) => {
+    Rc(.FnCall(_, func, Rc(args), _, _)) => {
       n := args.len();
       (i : usize) = usize(0);
       while(i < n, {
@@ -151,7 +151,7 @@ _expr_may_have_side_effects :: (fn(expr : &AstExpr, context : &FunctionGeneratio
       });
       recur(&func.*, context)
     },
-    .Atom(_, _) => false
+    Rc(.Atom(_, _)) => false
   )
 });
 /// Collect the variable names newly CREATED by an expression tree (temps from
@@ -160,7 +160,7 @@ _expr_may_have_side_effects :: (fn(expr : &AstExpr, context : &FunctionGeneratio
 _collect_created_var_names_from_expr :: (fn(expr : &AstExpr, result : &mut HashSet(String), context : &FunctionGenerationContext) -> unit)(
   match(
     expr,
-    .FnCall(_, func, Rc(args), _, _) => {
+    Rc(.FnCall(_, func, Rc(args), _, _)) => {
       match(
         context.base.get_expr_info(expr),
         .Some(ei) => {
@@ -223,7 +223,7 @@ _collect_created_var_names_from_expr :: (fn(expr : &AstExpr, result : &mut HashS
         recur(&func.*, result, context);
       });
     },
-    .Atom(_, _) => ()
+    Rc(.Atom(_, _)) => ()
   )
 );
 /// Emit, from `list_owner`'s own deferred-drop list, the drops whose target is
@@ -425,7 +425,7 @@ _emit_drops_for_conditional_branch :: (
 );
 /// `&&` operator with short-circuit evaluation.
 generate_op_and :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
-  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
   if(args.len() == usize(1), {
     return(_call_generate_expr(match(args.get(usize(0)), .Some(a) => a, .None => expr.*), indent.clone(), context));
   });
@@ -582,7 +582,7 @@ generate_op_and :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
 });
 /// `||` operator with short-circuit evaluation.
 generate_op_or :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
-  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
   if(args.len() == usize(1), {
     return(_call_generate_expr(match(args.get(usize(0)), .Some(a) => a, .None => expr.*), indent.clone(), context));
   });

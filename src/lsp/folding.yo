@@ -119,10 +119,10 @@ _semantic_walk :: (
 )({
   match(
     e,
-    .Atom(
+    Rc(.Atom(
       id,
       tok
-    ) => {
+    )) => {
       key := `${usize(tok.row)}:${usize(tok.column)}`;
       if(!out.contains_key(key.clone()), {
         kind := _SEM_VARIABLE;
@@ -160,13 +160,13 @@ _semantic_walk :: (
         out.insert(key, kind);
       });
     },
-    .FnCall(
+    Rc(.FnCall(
       _,
       func_box,
       Rc(args),
       _,
       _
-    ) => {
+    )) => {
       recur(&func_box.*, roles, info_table, out);
       (i : usize) = usize(0);
       while(i < args.len(), {

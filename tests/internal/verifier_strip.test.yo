@@ -114,8 +114,8 @@ _count_contract_asserts_in_ast :: (fn(func_val : &EvalValue, label : &String) ->
 _count_labeled_asserts_in_body :: (fn(body : &AstExpr, label : &String, emitted_only : bool) -> usize)(
   match(
     body,
-    .FnCall(_, _, Rc(args), _, _) => if(emitted_only, _count_labeled_asserts(&emitted_block_statements(args.clone()), label.clone()), _count_labeled_asserts(&args.*, label.clone())),
-    .Atom(_, _) => usize(0)
+    Rc(.FnCall(_, _, Rc(args), _, _)) => if(emitted_only, _count_labeled_asserts(&emitted_block_statements(args.clone()), label.clone()), _count_labeled_asserts(&args.*, label.clone())),
+    Rc(.Atom(_, _)) => usize(0)
   )
 );
 _count_labeled_asserts :: (fn(args : &ArrayList(AstExpr), label : &String) -> usize)({
@@ -141,8 +141,8 @@ _arg1_atom_value :: (fn(a : &ArrayList(AstExpr)) -> String)(
     a.get(usize(1)),
     .Some(m_arg) => match(
       m_arg,
-      .Atom(_, mt) => mt.value.*.clone(),
-      .FnCall(_, _, _, _, _) => String.new()
+      Rc(.Atom(_, mt)) => mt.value.*.clone(),
+      Rc(.FnCall(_, _, _, _, _)) => String.new()
     ),
     .None => String.new()
   )

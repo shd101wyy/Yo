@@ -11,7 +11,7 @@ pragma(Pragma.AllowUnsafe);
 { replace } :: import("std/mem");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr, alloc_global_expr_id } :: import("../../expr.yo");
+{ AstExpr, AstExprNode, ast_expr_token, ast_expr_id, make_err_expr, alloc_global_expr_id } :: import("../../expr.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -112,7 +112,7 @@ evaluate_yo_type_to_string :: (
 )({
   arg0 := match(
     expr,
-    .FnCall(_, _, Rc(fargs), _, _) => match(
+    Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
@@ -205,7 +205,7 @@ evaluate_yo_are_types_compatible :: (
 )({
   arg0 := match(
     expr,
-    .FnCall(_, _, Rc(fargs), _, _) => match(
+    Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
@@ -218,7 +218,7 @@ evaluate_yo_are_types_compatible :: (
   );
   arg1 := match(
     expr,
-    .FnCall(_, _, Rc(fargs), _, _) => match(
+    Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
       fargs.get(usize(1)),
       .Some(x) => x,
       .None => {
@@ -329,7 +329,7 @@ evaluate_yo_are_types_equal :: (
 )({
   arg0 := match(
     expr,
-    .FnCall(_, _, Rc(fargs), _, _) => match(
+    Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
@@ -342,7 +342,7 @@ evaluate_yo_are_types_equal :: (
   );
   arg1 := match(
     expr,
-    .FnCall(_, _, Rc(fargs), _, _) => match(
+    Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
       fargs.get(usize(1)),
       .Some(x) => x,
       .None => {
@@ -428,7 +428,7 @@ evaluate_yo_type_contains_rc_type :: (
 )({
   arg0 := match(
     expr,
-    .FnCall(_, _, Rc(fargs), _, _) => match(
+    Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
@@ -489,7 +489,7 @@ evaluate_yo_type_impls :: (
 )({
   arg0 := match(
     expr,
-    .FnCall(_, _, Rc(fargs), _, _) => match(
+    Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
@@ -502,7 +502,7 @@ evaluate_yo_type_impls :: (
   );
   arg1 := match(
     expr,
-    .FnCall(_, _, Rc(fargs), _, _) => match(
+    Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
       fargs.get(usize(1)),
       .Some(x) => x,
       .None => {
@@ -1100,7 +1100,7 @@ evaluate_yo_type_get_info :: (
 )({
   arg0 := match(
     expr,
-    .FnCall(_, _, Rc(fargs), _, _) => match(
+    Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
@@ -1416,7 +1416,7 @@ evaluate_comptime_eval :: (
 )({
   arg0 := match(
     expr,
-    .FnCall(_, _, Rc(fargs), _, _) => match(
+    Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
@@ -1516,7 +1516,7 @@ evaluate_comptime_string_to_expr :: (
 )({
   arg0 := match(
     expr,
-    .FnCall(_, _, Rc(fargs), _, _) => match(
+    Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
@@ -1606,7 +1606,7 @@ evaluate_type_join_fields :: (
 )({
   arg0 := match(
     expr,
-    .FnCall(_, _, Rc(fargs), _, _) => match(
+    Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
@@ -1619,7 +1619,7 @@ evaluate_type_join_fields :: (
   );
   arg1 := match(
     expr,
-    .FnCall(_, _, Rc(fargs), _, _) => match(
+    Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
       fargs.get(usize(1)),
       .Some(x) => x,
       .None => {
@@ -1632,7 +1632,7 @@ evaluate_type_join_fields :: (
   );
   arg2 := match(
     expr,
-    .FnCall(_, _, Rc(fargs), _, _) => match(
+    Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
       fargs.get(usize(2)),
       .Some(x) => x,
       .None => {
@@ -1917,7 +1917,7 @@ evaluate_type_join_fields :: (
     // Fresh node ids: the combined Expr is spliced and evaluated, and the
     // ExprInfo side table is keyed by id (see the auto-boxed `dyn` fix,
     // issues/fixed/an-auto-boxed-dyn-value-builds-its-box-call-with-node-id-zero.md).
-    acc_expr = AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), Rc.clone(tok)), Rc.new(combine_args), true, Rc.clone(tok));
+    acc_expr = Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), Rc.new(AstExprNode.Atom(alloc_global_expr_id(), Rc.clone(tok))), Rc.new(combine_args), true, Rc.clone(tok)));
     ri = (ri + usize(1));
   });
   combined_val := EvalValue.ExprVal(acc_expr);
@@ -1939,7 +1939,7 @@ evaluate_type_map_variants :: (
 )({
   arg0 := match(
     expr,
-    .FnCall(_, _, Rc(fargs), _, _) => match(
+    Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
@@ -1952,7 +1952,7 @@ evaluate_type_map_variants :: (
   );
   arg1 := match(
     expr,
-    .FnCall(_, _, Rc(fargs), _, _) => match(
+    Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
       fargs.get(usize(1)),
       .Some(x) => x,
       .None => {

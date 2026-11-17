@@ -76,7 +76,7 @@ evaluate_downcast :: (
   // First argument: the dyn value (runtime).
   dyn_expr := match(
     expr,
-    .FnCall(_, _, Rc(fargs), _, _) => match(
+    Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
@@ -195,7 +195,7 @@ evaluate_downcast :: (
       )
     );
   });
-  type_expr := match(expr, .FnCall(_, _, Rc(fargs2), _, _) => match(fargs2.get(usize(1)), .Some(x) => x, .None => return(expr.*)), _ => return(expr.*));
+  type_expr := match(expr, Rc(.FnCall(_, _, Rc(fargs2), _, _)) => match(fargs2.get(usize(1)), .Some(x) => x, .None => return(expr.*)), _ => return(expr.*));
   cur_env = expr_info_adopt_env(&type_info);
   target_type := match(
     type_info.value(),
@@ -236,7 +236,7 @@ evaluate_downcast :: (
       res_ty := match(apply_type_ctor_via(&String.from("Result"), &res_targs, &cur_env, ctx, exn), .Some(t) => t, .None => return(dc_call));
       match(
         dc_call,
-        .FnCall(_, _, Rc(oargs), _, _) => match(oargs.get(usize(0)), .Some(oa) => set_expr_as_needs_to_call_dup(&oa, ctx, exn, "downcast"), .None => ()),
+        Rc(.FnCall(_, _, Rc(oargs), _, _)) => match(oargs.get(usize(0)), .Some(oa) => set_expr_as_needs_to_call_dup(&oa, ctx, exn, "downcast"), .None => ()),
         _ => ()
       );
       out_info_o := new_expr_info(&cur_env, &res_ty);
@@ -254,7 +254,7 @@ evaluate_downcast :: (
   // `downcast(err, V)` with `err : &AnyError`) is that view already; only a
   // `ref` target reaches here from one, and it keeps its retained form.
   if(migrate_unsized_on() && ref_mode.is_none(), {
-    dc_tok := match(expr, .FnCall(_, dc_callee, _, _, _) => ast_expr_token(dc_callee), .Atom(_, t) => t.clone());
+    dc_tok := match(expr, Rc(.FnCall(_, dc_callee, _, _, _)) => ast_expr_token(dc_callee), Rc(.Atom(_, t)) => t.clone());
     dc_text := ast_expr_to_string(&dyn_expr);
     record_unsized_site(&dc_tok, u8(6), &dc_text);
   });
@@ -313,7 +313,7 @@ evaluate_upcast :: (
   expect_expr_to_be_fn_call_of(expr, BF_UPCAST, Option(usize).Some(usize(2)), exn);
   dyn_expr := match(
     expr,
-    .FnCall(_, _, Rc(fargs), _, _) => match(
+    Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
@@ -394,7 +394,7 @@ evaluate_upcast :: (
       )
     );
   });
-  type_expr := match(expr, .FnCall(_, _, Rc(fargs2), _, _) => match(fargs2.get(usize(1)), .Some(x) => x, .None => return(expr.*)), _ => return(expr.*));
+  type_expr := match(expr, Rc(.FnCall(_, _, Rc(fargs2), _, _)) => match(fargs2.get(usize(1)), .Some(x) => x, .None => return(expr.*)), _ => return(expr.*));
   cur_env = expr_info_adopt_env(&type_info);
   target_type := match(
     type_info.value(),
@@ -467,7 +467,7 @@ evaluate_upcast :: (
       uc_result_ty = match(apply_type_ctor_via(&hname, &ht, &cur_env, ctx, exn), .Some(t) => t, .None => return(uc_call));
       match(
         uc_call,
-        .FnCall(_, _, Rc(uargs), _, _) => match(uargs.get(usize(0)), .Some(ua) => set_expr_as_needs_to_call_dup(&ua, ctx, exn, "upcast"), .None => ()),
+        Rc(.FnCall(_, _, Rc(uargs), _, _)) => match(uargs.get(usize(0)), .Some(ua) => set_expr_as_needs_to_call_dup(&ua, ctx, exn, "upcast"), .None => ()),
         _ => ()
       );
     },

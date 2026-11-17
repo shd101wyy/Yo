@@ -130,12 +130,12 @@ _c_type_field_spelling :: (fn(arg : &AstExpr, exn : Exception) -> Option(String)
   if(!ast_expr_is_fn_call_of(arg, ":", .Some(usize(2))), {
     return(Option(String).None);
   });
-  pair := match(arg, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
+  pair := match(arg, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
   rhs := match(pair.get(usize(1)), .Some(r) => r, .None => arg.*);
   if(!ast_expr_is_fn_call_of(&rhs, "c_type", .None), {
     return(Option(String).None);
   });
-  cargs := match(rhs, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
+  cargs := match(rhs, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
   spelling_atom := match(cargs.get(usize(0)), .Some(a) => a, .None => rhs);
   raw := ast_expr_token(&spelling_atom).value.*.clone();
   rn := raw.len();
@@ -205,7 +205,7 @@ User code should normally call stdlib wrappers (e.g. functions in
     );
   });
   (env : Environment) = Rc.clone(env_in);
-  all_args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new());
+  all_args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), _ => ArrayList(AstExpr).new());
   // First arg must be an atom (the C header file string literal, e.g. "<stdio.h>").
   first_arg_opt := all_args.get(usize(0));
   if(!match(first_arg_opt, .Some(a) => ast_expr_is_atom(&a), .None => false), {
@@ -303,7 +303,7 @@ User code should normally call stdlib wrappers (e.g. functions in
       &c_type_spelling,
       .Some(_) => EvalModuleFieldResult(
         label : match(
-          match(arg, .FnCall(_, _, Rc(pa), _, _) => pa.get(usize(0)), .Atom(_, _) => Option(AstExpr).None),
+          match(arg, Rc(.FnCall(_, _, Rc(pa), _, _)) => pa.get(usize(0)), Rc(.Atom(_, _)) => Option(AstExpr).None),
           .Some(l) => ast_expr_token(&l).value.*.clone(),
           .None => String.new()
         ),
@@ -326,7 +326,7 @@ User code should normally call stdlib wrappers (e.g. functions in
       err_tok := if(
         ast_expr_is_fn_call(&arg),
         match(
-          match(arg, .FnCall(_, _, Rc(a2), _, _) => a2.clone(), _ => ArrayList(AstExpr).new()).get(usize(0)),
+          match(arg, Rc(.FnCall(_, _, Rc(a2), _, _)) => a2.clone(), _ => ArrayList(AstExpr).new()).get(usize(0)),
           .Some(fe) => ast_expr_token(&fe),
           .None => ast_expr_token(&arg)
         ),
@@ -517,7 +517,7 @@ User code should normally call stdlib wrappers (e.g. functions in
   mod_info.set_value(.Some(EvalValue.StructVal(sns_id, shared_list(field_labels), value_cell_new(field_vals))));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &mod_info);
   // Annotate callee (the "c_include" func node) with same info.
-  callee_expr := match(expr, .FnCall(_, fb, _, _, _) => fb.*, .Atom(_, _) => expr.*);
+  callee_expr := match(expr, Rc(.FnCall(_, fb, _, _, _)) => fb.*, Rc(.Atom(_, _)) => expr.*);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&callee_expr), &mod_info);
   expr.*
 });

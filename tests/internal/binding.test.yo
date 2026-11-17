@@ -10,7 +10,7 @@
 import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { Token, TokenKind, TokenData } :: import("../../src/token.yo");
-{ AstExpr, ast_expr_id, BK_COLON, BK_COMPTIME, make_err_expr }
+{ AstExpr, AstExprNode, ast_expr_id, BK_COLON, BK_COMPTIME, make_err_expr }
 :: import("../../src/expr.yo");
 {
   ExprInfo,
@@ -47,36 +47,36 @@ mk_token :: (fn(kind : TokenKind, value : str) -> Token)(
   )
 );
 mk_ident :: (fn(id : usize, name : str) -> AstExpr)(
-  AstExpr.Atom(id, mk_token(TokenKind.Identifier, name))
+  Rc.new(AstExprNode.Atom(id, mk_token(TokenKind.Identifier, name)))
 );
 mk_op :: (fn(id : usize, op : str) -> AstExpr)(
-  AstExpr.Atom(id, mk_token(TokenKind.Operator, op))
+  Rc.new(AstExprNode.Atom(id, mk_token(TokenKind.Operator, op)))
 );
 /// Build a `(name : typename)` FnCall:
 ///   FnCall(call_id, Atom(":"), [Atom(name_id, name), Atom(type_id, typename)], true, ":"-token)
 mk_binding_expr :: (fn(call_id : usize, name_id : usize, name : str, type_id : usize, typename : str) -> AstExpr)({
-  callee := AstExpr.Atom(call_id + usize(10000), mk_token(TokenKind.Operator, BK_COLON));
+  callee := Rc.new(AstExprNode.Atom(call_id + usize(10000), mk_token(TokenKind.Operator, BK_COLON)));
   mut(args) := ArrayList(AstExpr).new();
   args.push(mk_ident(name_id, name));
   args.push(mk_ident(type_id, typename));
-  AstExpr.FnCall(call_id, callee, Rc.new(args), true, mk_token(TokenKind.Operator, BK_COLON))
+  Rc.new(AstExprNode.FnCall(call_id, callee, Rc.new(args), true, mk_token(TokenKind.Operator, BK_COLON)))
 });
 /// Build `comptime(inner)` FnCall.
 mk_comptime_wrap :: (fn(call_id : usize, inner : &AstExpr) -> AstExpr)({
-  callee := AstExpr.Atom(call_id + usize(20000), mk_token(TokenKind.Identifier, BK_COMPTIME));
+  callee := Rc.new(AstExprNode.Atom(call_id + usize(20000), mk_token(TokenKind.Identifier, BK_COMPTIME)));
   mut(args) := ArrayList(AstExpr).new();
   args.push(inner.*);
-  AstExpr.FnCall(call_id, callee, Rc.new(args), false, mk_token(TokenKind.Identifier, BK_COMPTIME))
+  Rc.new(AstExprNode.FnCall(call_id, callee, Rc.new(args), false, mk_token(TokenKind.Identifier, BK_COMPTIME)))
 });
 /// Build a `(comptime(name) : typename)` binding.
 mk_comptime_binding :: (fn(call_id : usize, name_id : usize, name : str, type_id : usize, typename : str) -> AstExpr)({
   ct_call_id := (call_id + usize(500));
   comptime_lhs := mk_comptime_wrap(ct_call_id, mk_ident(name_id, name));
-  callee := AstExpr.Atom(call_id + usize(10000), mk_token(TokenKind.Operator, BK_COLON));
+  callee := Rc.new(AstExprNode.Atom(call_id + usize(10000), mk_token(TokenKind.Operator, BK_COLON)));
   mut(args) := ArrayList(AstExpr).new();
   args.push(comptime_lhs);
   args.push(mk_ident(type_id, typename));
-  AstExpr.FnCall(call_id, callee, Rc.new(args), true, mk_token(TokenKind.Operator, BK_COLON))
+  Rc.new(AstExprNode.FnCall(call_id, callee, Rc.new(args), true, mk_token(TokenKind.Operator, BK_COLON)))
 });
 /// Stub evaluator: maps type-name identifiers to TypeVal.
 stub_evaluate_type :: (
@@ -88,13 +88,13 @@ stub_evaluate_type :: (
 )({
   (ty : TypeValue) = match(
     expr,
-    .Atom(_, tok) => cond(
+    Rc(.Atom(_, tok)) => cond(
       (tok.value.* == "bool") => t_bool(),
       (tok.value.* == "i32") => t_i32(),
       (tok.value.* == "void") => t_void(),
       true => t_unit()
     ),
-    .FnCall(_, _, _, _, _) => t_unit()
+    Rc(.FnCall(_, _, _, _, _)) => t_unit()
   );
   val := EvalValue.TypeVal(ty.clone());
   info := new_expr_info(env, &ty);
@@ -117,9 +117,9 @@ test("is_valid_variable_name: operator atom is valid", {
   assert(is_valid_variable_name(&expr), "operator should be valid variable name");
 });
 test("is_valid_variable_name: non-operator FnCall is invalid", {
-  callee := AstExpr.Atom(usize(5), mk_token(TokenKind.Identifier, "foo"));
+  callee := Rc.new(AstExprNode.Atom(usize(5), mk_token(TokenKind.Identifier, "foo")));
   args := ArrayList(AstExpr).new();
-  expr := AstExpr.FnCall(usize(6), callee, Rc.new(args), false, mk_token(TokenKind.Identifier, "foo"));
+  expr := Rc.new(AstExprNode.FnCall(usize(6), callee, Rc.new(args), false, mk_token(TokenKind.Identifier, "foo")));
   assert(!is_valid_variable_name(&expr), "fn call with identifier token should be invalid");
 });
 // ---------------------------------------------------------------------------

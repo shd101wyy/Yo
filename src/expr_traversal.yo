@@ -51,8 +51,8 @@ pragma(Pragma.AllowUnsafe);
 evaluated_body_contains_unwind :: (fn(e : &AstExpr) -> bool)(
   match(
     e,
-    .Atom(_, tok) => (tok.value.* == BF_UNWIND),
-    .FnCall(_, func_box, Rc(args), _, _) => {
+    Rc(.Atom(_, tok)) => (tok.value.* == BF_UNWIND),
+    Rc(.FnCall(_, func_box, Rc(args), _, _)) => {
       is_cond := ast_expr_is_fn_call_of(e, BK_COND, .None);
       is_match := ast_expr_is_fn_call_of(e, BK_MATCH, .None);
       if(is_cond || is_match, {
@@ -71,8 +71,8 @@ evaluated_body_contains_unwind :: (fn(e : &AstExpr) -> bool)(
           if(is_branch_arrow, {
             inner_args := match(
               arg_a,
-              .FnCall(_, _, Rc(ia_inner), _, _) => ia_inner.clone(),
-              .Atom(_, _) => ArrayList(AstExpr).new()
+              Rc(.FnCall(_, _, Rc(ia_inner), _, _)) => ia_inner.clone(),
+              Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
             );
             ni := inner_args.len();
             (ji : usize) = usize(0);
@@ -123,11 +123,11 @@ evaluated_body_contains_unwind :: (fn(e : &AstExpr) -> bool)(
 expr_tree_contains_return :: (fn(e : &AstExpr) -> bool)(
   match(
     e,
-    .Atom(_, tok) => {
+    Rc(.Atom(_, tok)) => {
       v := tok.value.*.clone();
       (v == BK_RETURN) || (v == BF_UNWIND)
     },
-    .FnCall(_, func_box, Rc(args), _, _) => {
+    Rc(.FnCall(_, func_box, Rc(args), _, _)) => {
       if(ast_expr_is_fn_call_of(e, BK_RETURN, .None), {
         return(true);
       });
@@ -149,8 +149,8 @@ expr_tree_contains_return :: (fn(e : &AstExpr) -> bool)(
           if(is_branch_arrow, {
             inner_args := match(
               arg_a,
-              .FnCall(_, _, Rc(ia_inner), _, _) => ia_inner.clone(),
-              .Atom(_, _) => ArrayList(AstExpr).new()
+              Rc(.FnCall(_, _, Rc(ia_inner), _, _)) => ia_inner.clone(),
+              Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
             );
             ni := inner_args.len();
             (ji : usize) = usize(0);
@@ -199,11 +199,11 @@ expr_tree_contains_return :: (fn(e : &AstExpr) -> bool)(
 expr_contains_loop_terminator :: (fn(expr : &AstExpr) -> bool)(
   match(
     expr,
-    .Atom(_, tok) => {
+    Rc(.Atom(_, tok)) => {
       s := tok.value.*.clone();
       (s == BK_BREAK) || (s == BK_RETURN) || (s == BF_UNWIND)
     },
-    .FnCall(_, fn_box, Rc(args), _, _) => {
+    Rc(.FnCall(_, fn_box, Rc(args), _, _)) => {
       // return / unwind as a direct function call
       if(ast_expr_is_fn_call_of(expr, BK_RETURN, .None), {
         return(true);
@@ -232,8 +232,8 @@ expr_contains_loop_terminator :: (fn(expr : &AstExpr) -> bool)(
             // Branch arrow: recurse into each child (condition and body)
             match(
               arg,
-              .Atom(_, _) => (),
-              .FnCall(_, _, Rc(branch_args), _, _) => {
+              Rc(.Atom(_, _)) => (),
+              Rc(.FnCall(_, _, Rc(branch_args), _, _)) => {
                 (n_ba : usize) = branch_args.len();
                 (j : usize) = usize(0);
                 while(j < n_ba, {
@@ -283,8 +283,8 @@ expr_contains_loop_terminator :: (fn(expr : &AstExpr) -> bool)(
 expr_contains_await :: (fn(expr : &AstExpr) -> bool)(
   match(
     expr,
-    .Atom(_, _) => false,
-    .FnCall(_, fn_box, Rc(args), _, _) => {
+    Rc(.Atom(_, _)) => false,
+    Rc(.FnCall(_, fn_box, Rc(args), _, _)) => {
       // io.await(future) — the await we are looking for.
       if(is_io_await_call(expr), {
         return(true);
@@ -320,8 +320,8 @@ expr_contains_await :: (fn(expr : &AstExpr) -> bool)(
           if(ast_expr_is_fn_call_of(&arg, "=>", .None), {
             match(
               arg,
-              .Atom(_, _) => (),
-              .FnCall(_, _, Rc(branch_args), _, _) => {
+              Rc(.Atom(_, _)) => (),
+              Rc(.FnCall(_, _, Rc(branch_args), _, _)) => {
                 (n_ba : usize) = branch_args.len();
                 (j : usize) = usize(0);
                 while(j < n_ba, {
@@ -379,8 +379,8 @@ expr_contains_await :: (fn(expr : &AstExpr) -> bool)(
 expr_contains_while_with_await :: (fn(expr : &AstExpr) -> bool)(
   match(
     expr,
-    .Atom(_, _) => false,
-    .FnCall(_, fn_box, Rc(args), _, _) => {
+    Rc(.Atom(_, _)) => false,
+    Rc(.FnCall(_, fn_box, Rc(args), _, _)) => {
       if(ast_expr_is_fn_call_of(expr, BK_WHILE, Option(usize).None) && expr_contains_await(expr), {
         return(true);
       });
@@ -407,8 +407,8 @@ expr_contains_while_with_await :: (fn(expr : &AstExpr) -> bool)(
           if(ast_expr_is_fn_call_of(&arg, "=>", .None), {
             match(
               arg,
-              .Atom(_, _) => (),
-              .FnCall(_, _, Rc(branch_args), _, _) => {
+              Rc(.Atom(_, _)) => (),
+              Rc(.FnCall(_, _, Rc(branch_args), _, _)) => {
                 (n_ba : usize) = branch_args.len();
                 (j : usize) = usize(0);
                 while(j < n_ba, {
@@ -465,8 +465,8 @@ expr_contains_while_with_await :: (fn(expr : &AstExpr) -> bool)(
 all_paths_unwind :: (fn(e : &AstExpr) -> bool)(
   match(
     e,
-    .Atom(_, _) => false,
-    .FnCall(_, apw_func, Rc(apw_args), _, _) => {
+    Rc(.Atom(_, _)) => false,
+    Rc(.FnCall(_, apw_func, Rc(apw_args), _, _)) => {
       if(ast_expr_is_fn_call_of(e, BF_UNWIND, .None), {
         return(true);
       });
@@ -475,7 +475,7 @@ all_paths_unwind :: (fn(e : &AstExpr) -> bool)(
       });
       match(
         apw_func,
-        .Atom(_, apw_ftok) => {
+        Rc(.Atom(_, apw_ftok)) => {
           if((apw_ftok.value.* == "__yo_panic") || (apw_ftok.value.* == "abort") || (apw_ftok.value.* == "unreachable"), {
             return(true);
           });
@@ -508,12 +508,12 @@ all_paths_unwind :: (fn(e : &AstExpr) -> bool)(
         while(apw_j < apw_args.len(), {
           apw_arm := match(apw_args.get(apw_j), .Some(a) => a, .None => make_err_expr());
           if(ast_expr_is_fn_call_of(&apw_arm, "=>", .None), {
-            apw_arm_args := match(apw_arm, .FnCall(_, _, Rc(aa), _, _) => aa.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
+            apw_arm_args := match(apw_arm, Rc(.FnCall(_, _, Rc(aa), _, _)) => aa.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
             if(apw_arm_args.len() >= usize(2), {
               apw_has_arm = true;
               match(
                 apw_arm_args.get(usize(0)),
-                .Some(.Atom(_, apw_ctok)) => if((apw_ctok.value.* == "true") || (apw_ctok.value.* == "_"), {
+                .Some(Rc(.Atom(_, apw_ctok))) => if((apw_ctok.value.* == "true") || (apw_ctok.value.* == "_"), {
                   apw_has_default = true;
                 }),
                 .Some(_) => (),
@@ -550,7 +550,7 @@ all_paths_unwind :: (fn(e : &AstExpr) -> bool)(
 /// The statements of a block (`begin(...)`), or the expression itself.
 _fusion_statements :: (fn(e : &AstExpr) -> ArrayList(AstExpr))({
   if(ast_expr_is_fn_call_of(e, BK_BEGIN, Option(usize).None), {
-    return(match(e, .FnCall(_, _, Rc(args), _, _) => args.clone(), _ => ArrayList(AstExpr).new()));
+    return(match(e, Rc(.FnCall(_, _, Rc(args), _, _)) => args.clone(), _ => ArrayList(AstExpr).new()));
   });
   one := ArrayList(AstExpr).new();
   one.push(e.*);
@@ -562,7 +562,7 @@ _fusion_is_flat_await :: (fn(aw : &AstExpr) -> bool)(
     is_io_await_call(aw),
     match(
       aw,
-      .FnCall(_, _, Rc(args), _, _) => {
+      Rc(.FnCall(_, _, Rc(args), _, _)) => {
         (i : usize) = usize(0);
         while(i < args.len(), {
           if(match(args.get(i), .Some(a) => expr_contains_await(&a), .None => false), {
@@ -583,7 +583,7 @@ _fusion_is_flat_await :: (fn(aw : &AstExpr) -> bool)(
 _fusion_is_top_level_await :: (fn(stmt : &AstExpr) -> bool)(
   match(
     stmt,
-    .FnCall(_, f, Rc(args), _, _) => if(
+    Rc(.FnCall(_, f, Rc(args), _, _)) => if(
       (ast_expr_is_atom_of(&f.*, ":=") || ast_expr_is_atom_of(&f.*, "=")) && (args.len() == usize(2)),
       match(args.get(usize(1)), .Some(rhs) => _fusion_is_flat_await(&rhs), .None => false),
       _fusion_is_flat_await(stmt)
@@ -597,8 +597,8 @@ _fusion_is_top_level_await :: (fn(stmt : &AstExpr) -> bool)(
 _fusion_closure_mentions :: (fn(e : &AstExpr, name : &String, inside_closure : bool) -> bool)(
   match(
     e,
-    .Atom(_, tok) => (inside_closure && (tok.value.* == name.*)),
-    .FnCall(_, f, Rc(args), _, _) => {
+    Rc(.Atom(_, tok)) => (inside_closure && (tok.value.* == name.*)),
+    Rc(.FnCall(_, f, Rc(args), _, _)) => {
       is_cond_or_match := (ast_expr_is_fn_call_of(e, BK_COND, .None) || ast_expr_is_fn_call_of(e, BK_MATCH, .None));
       nested := (inside_closure || (!is_cond_or_match && is_function_boundary_arrow(e)));
       if(recur(&f.*, name, nested), {
@@ -612,7 +612,7 @@ _fusion_closure_mentions :: (fn(e : &AstExpr, name : &String, inside_closure : b
           is_cond_or_match && ast_expr_is_fn_call_of(&arg, "=>", .None),
           match(
             arg,
-            .FnCall(_, _, Rc(arm_parts), _, _) => {
+            Rc(.FnCall(_, _, Rc(arm_parts), _, _)) => {
               (j : usize) = usize(0);
               (hit : bool) = false;
               while((j < arm_parts.len()) && !hit, {
@@ -641,7 +641,7 @@ _fusion_param_name :: (fn(pa : &AstExpr) -> String)(
     ast_expr_is_atom(pa) => ast_expr_token(pa).value.*.clone(),
     ast_expr_is_fn_call_of(pa, ":", .None) => match(
       pa,
-      .FnCall(_, _, Rc(pargs), _, _) => match(
+      Rc(.FnCall(_, _, Rc(pargs), _, _)) => match(
         pargs.get(usize(0)),
         .Some(pn) => if(ast_expr_is_atom(&pn), ast_expr_token(&pn).value.*.clone(), String.from("")),
         .None => String.from("")
@@ -676,11 +676,11 @@ async_wrapper_fusion_verdict :: (fn(body : &AstExpr) -> Option(String))({
     });
     i = (i + usize(1));
   });
-  closure := match(last, .FnCall(_, _, Rc(a), _, _) => match(a.get(usize(0)), .Some(c) => c, .None => return(Option(String).Some(String.from("io.async has no argument")))), _ => return(Option(String).None));
+  closure := match(last, Rc(.FnCall(_, _, Rc(a), _, _)) => match(a.get(usize(0)), .Some(c) => c, .None => return(Option(String).Some(String.from("io.async has no argument")))), _ => return(Option(String).None));
   (param_name : String) = String.from("");
   block := match(
     closure,
-    .FnCall(_, f, Rc(cargs), _, _) => if(ast_expr_is_atom_of(&f, "=>") && (cargs.len() == usize(2)), {
+    Rc(.FnCall(_, f, Rc(cargs), _, _)) => if(ast_expr_is_atom_of(&f, "=>") && (cargs.len() == usize(2)), {
       match(
         cargs.get(usize(0)),
         .Some(pa) => {

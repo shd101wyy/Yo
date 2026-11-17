@@ -212,7 +212,7 @@ _unwrap_begin_blocks :: (fn(expr : &AstExpr) -> AstExpr)({
   (go : bool) = true;
   while(go, {
     if(ast_expr_is_fn_call(&current) && ast_expr_is_fn_call_of(&current, BK_BEGIN, Option(usize).None), {
-      args := match(current, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new());
+      args := match(current, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), _ => ArrayList(AstExpr).new());
       if(args.len() == usize(0), {
         go = false;
       }, {
@@ -236,7 +236,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
   // `Identifier(name : "x")`, named call args) are transparent for flow
   // purposes; the VALUE side is what flows.
   if(ast_expr_is_fn_call(&expr) && ast_expr_is_fn_call_of(&expr, ":", .Some(usize(2))), {
-    labeled_args := match(expr, .FnCall(_, _, Rc(la), _, _) => la.clone(), _ => ArrayList(AstExpr).new());
+    labeled_args := match(expr, Rc(.FnCall(_, _, Rc(la), _, _)) => la.clone(), _ => ArrayList(AstExpr).new());
     match(
       labeled_args.get(usize(1)),
       .Some(lv) => {
@@ -327,8 +327,8 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
   if(!ast_expr_is_fn_call(&expr), {
     return(false);
   });
-  call_func := match(expr, .FnCall(_, f, _, _, _) => f, _ => expr);
-  call_args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new());
+  call_func := match(expr, Rc(.FnCall(_, f, _, _, _)) => f, _ => expr);
+  call_args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), _ => ArrayList(AstExpr).new());
   // R2: `expr.field` — a 2-arg `.` call. Flowable iff the base is flowable.
   if(ast_expr_is_fn_call_of(&expr, BF_DOT, Option(usize).Some(usize(2))), {
     base := match(
@@ -357,7 +357,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
     while(i < call_args.len(), {
       arm := match(call_args.get(i), .Some(a) => a, .None => make_err_expr());
       if(ast_expr_is_fn_call(&arm) && ast_expr_is_fn_call_of(&arm, "=>", Option(usize).Some(usize(2))), {
-        arm_args := match(arm, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new());
+        arm_args := match(arm, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), _ => ArrayList(AstExpr).new());
         arm_body := match(arm_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
         if(!recur(&arm_body, ctx, opts), {
           return(false);
@@ -375,7 +375,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
     while(i < call_args.len(), {
       arm := match(call_args.get(i), .Some(a) => a, .None => make_err_expr());
       if(ast_expr_is_fn_call(&arm) && ast_expr_is_fn_call_of(&arm, "=>", Option(usize).Some(usize(2))), {
-        arm_args := match(arm, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new());
+        arm_args := match(arm, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), _ => ArrayList(AstExpr).new());
         arm_body := match(arm_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
         if(!recur(&arm_body, ctx, opts), {
           return(false);
@@ -405,12 +405,12 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
     return(recur(&base, ctx, opts));
   });
   {
-    fa_callee := match(expr, .FnCall(_, fa_f, _, _, _) => Option(AstExpr).Some(fa_f), _ => Option(AstExpr).None);
+    fa_callee := match(expr, Rc(.FnCall(_, fa_f, _, _, _)) => Option(AstExpr).Some(fa_f), _ => Option(AstExpr).None);
     match(
       fa_callee,
       .Some(fa_fn) => if(ast_expr_is_fn_call_of(&fa_fn, ".", Option(usize).Some(usize(2))) && (call_args.len() == usize(1)), {
-        fa_recv := match(fa_fn, .FnCall(_, _, Rc(fa_fargs), _, _) => fa_fargs.get(usize(0)), _ => Option(AstExpr).None);
-        fa_member := match(fa_fn, .FnCall(_, _, Rc(fa_fargs2), _, _) => fa_fargs2.get(usize(1)), _ => Option(AstExpr).None);
+        fa_recv := match(fa_fn, Rc(.FnCall(_, _, Rc(fa_fargs), _, _)) => fa_fargs.get(usize(0)), _ => Option(AstExpr).None);
+        fa_member := match(fa_fn, Rc(.FnCall(_, _, Rc(fa_fargs2), _, _)) => fa_fargs2.get(usize(1)), _ => Option(AstExpr).None);
         fa_name := match(
           fa_member,
           .Some(fa_m) => if(ast_expr_is_atom(&fa_m), ast_expr_text(&fa_m).*.clone(), String.new()),
@@ -443,7 +443,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
     (ast_expr_is_fn_call(&call_func) && ast_expr_is_fn_call_of(&call_func, BF_DOT, Option(usize).Some(usize(2)))) => {
       qrecv := match(
         call_func,
-        .FnCall(_, _, Rc(cf_args), _, _) => match(cf_args.get(usize(0)), .Some(r) => r, .None => make_err_expr()),
+        Rc(.FnCall(_, _, Rc(cf_args), _, _)) => match(cf_args.get(usize(0)), .Some(r) => r, .None => make_err_expr()),
         _ => make_err_expr()
       );
       match(
@@ -479,7 +479,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
       if(ast_expr_is_fn_call(&a) && ast_expr_is_fn_call_of(&a, ":", .Some(usize(2))), {
         a = match(
           a,
-          .FnCall(_, _, Rc(la2), _, _) => match(la2.get(usize(1)), .Some(v) => v, .None => a),
+          Rc(.FnCall(_, _, Rc(la2), _, _)) => match(la2.get(usize(1)), .Some(v) => v, .None => a),
           _ => a
         );
       });
@@ -502,7 +502,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
       if(ast_expr_is_fn_call(&te) && ast_expr_is_fn_call_of(&te, ":", .Some(usize(2))), {
         te = match(
           te,
-          .FnCall(_, _, Rc(tla), _, _) => match(tla.get(usize(1)), .Some(v) => v, .None => te),
+          Rc(.FnCall(_, _, Rc(tla), _, _)) => match(tla.get(usize(1)), .Some(v) => v, .None => te),
           _ => te
         );
       });
@@ -552,7 +552,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
   // Build the effective argument list (receiver as implicit arg 0 for methods).
   eff_args := ArrayList(AstExpr).new();
   if(is_method_call, {
-    cf_args := match(call_func, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new());
+    cf_args := match(call_func, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), _ => ArrayList(AstExpr).new());
     match(
       cf_args.get(usize(0)),
       .Some(recv) => {
@@ -639,8 +639,8 @@ _place_root_atom :: (fn(expr_in : &AstExpr) -> Option(AstExpr))({
     if(ast_expr_is_fn_call(&cur) && ast_expr_is_fn_call_of(&cur, BF_DOT, .Some(usize(2))), {
       cur = match(
         cur,
-        .FnCall(_, _, Rc(pr_args), _, _) => match(pr_args.get(usize(0)), .Some(b) => b, .None => make_err_expr()),
-        .Atom(_, _) => make_err_expr()
+        Rc(.FnCall(_, _, Rc(pr_args), _, _)) => match(pr_args.get(usize(0)), .Some(b) => b, .None => make_err_expr()),
+        Rc(.Atom(_, _)) => make_err_expr()
       );
     }, {
       walking = false;
@@ -707,7 +707,7 @@ require_ref_own_argument_exclusivity :: (
               cond(
                 (is_idx && ast_expr_is_fn_call(&arg)) => match(
                   arg,
-                  .FnCall(_, fc, _, _, _) => _place_root_atom(&fc),
+                  Rc(.FnCall(_, fc, _, _, _)) => _place_root_atom(&fc),
                   _ => Option(AstExpr).None
                 ),
                 true => _place_root_atom(&arg)
@@ -954,11 +954,11 @@ _ref_place_holder_types :: (fn(ref_arg : &AstExpr, kind : str, root : &Variable,
   keys.insert(type_key(&variable_value_type(root)));
   (cur : AstExpr) = match(
     ref_arg,
-    .FnCall(_, callee, Rc(dargs), _, _) => cond(
+    Rc(.FnCall(_, callee, Rc(dargs), _, _)) => cond(
       (kind == "index") => callee.*,
       true => match(dargs.get(usize(0)), .Some(b) => b, .None => return(.None))
     ),
-    .Atom(_, _) => return(.None)
+    Rc(.Atom(_, _)) => return(.None)
   );
   while(!ast_expr_is_atom(&cur), {
     match(
@@ -973,8 +973,8 @@ _ref_place_holder_types :: (fn(ref_arg : &AstExpr, kind : str, root : &Variable,
     });
     cur = match(
       cur,
-      .FnCall(_, _, Rc(pargs), _, _) => match(pargs.get(usize(0)), .Some(b) => b, .None => return(.None)),
-      .Atom(_, _) => return(.None)
+      Rc(.FnCall(_, _, Rc(pargs), _, _)) => match(pargs.get(usize(0)), .Some(b) => b, .None => return(.None)),
+      Rc(.Atom(_, _)) => return(.None)
     );
   });
   .Some(keys)
@@ -1196,7 +1196,7 @@ _reject_if_container_reachable :: (
   if(kind == "index", {
     match(
       ref_arg,
-      .FnCall(_, idx_callee, _, _, _) => {
+      Rc(.FnCall(_, idx_callee, _, _, _)) => {
         match(
           expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&idx_callee.*)),
           .Some(idx_info) => {
@@ -1210,7 +1210,7 @@ _reject_if_container_reachable :: (
           .None => ()
         );
       },
-      .Atom(_, _) => ()
+      Rc(.Atom(_, _)) => ()
     );
   });
   // (b) element-only: any OTHER argument that could hold a handle to the
@@ -1338,8 +1338,8 @@ require_valid_ref_argument_places :: (
         if(arg_is_index_place && ast_expr_is_fn_call(&arg), {
           container_atom := match(
             arg,
-            .FnCall(_, icallee, _, _, _) => _place_root_atom(&icallee),
-            .Atom(_, _) => Option(AstExpr).None
+            Rc(.FnCall(_, icallee, _, _, _)) => _place_root_atom(&icallee),
+            Rc(.Atom(_, _)) => Option(AstExpr).None
           );
           match(
             container_atom,
@@ -1357,8 +1357,8 @@ require_valid_ref_argument_places :: (
                 hops.push(cur);
                 cur = match(
                   cur,
-                  .FnCall(_, _, Rc(dargs), _, _) => match(dargs.get(usize(0)), .Some(b) => b, .None => make_err_expr()),
-                  .Atom(_, _) => make_err_expr()
+                  Rc(.FnCall(_, _, Rc(dargs), _, _)) => match(dargs.get(usize(0)), .Some(b) => b, .None => make_err_expr()),
+                  Rc(.Atom(_, _)) => make_err_expr()
                 );
               }, {
                 walking = false;

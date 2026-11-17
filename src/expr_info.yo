@@ -1516,14 +1516,14 @@ _scope_log :: (fn(id : ExprId, info : &ExprInfo) -> unit)(
 _drop_target_atom_of :: (fn(d : &AstExpr) -> Option(AstExpr))(
   match(
     d,
-    .Atom(_, _) => Option(AstExpr).None,
-    .FnCall(_, func, Rc(args), _, _) => cond(
+    Rc(.Atom(_, _)) => Option(AstExpr).None,
+    Rc(.FnCall(_, func, Rc(args), _, _)) => cond(
       (args.len() == usize(0)) => match(
         func,
-        .FnCall(_, _, Rc(fargs), _, _) => match(fargs.get(usize(0)), .Some(a0) => match(a0, .Atom(_, _) => Option(AstExpr).Some(a0), _ => Option(AstExpr).None), .None => Option(AstExpr).None),
-        .Atom(_, _) => Option(AstExpr).None
+        Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(fargs.get(usize(0)), .Some(a0) => match(a0, Rc(.Atom(_, _)) => Option(AstExpr).Some(a0), _ => Option(AstExpr).None), .None => Option(AstExpr).None),
+        Rc(.Atom(_, _)) => Option(AstExpr).None
       ),
-      true => match(args.get(usize(0)), .Some(a0) => match(a0, .Atom(_, _) => Option(AstExpr).Some(a0), _ => Option(AstExpr).None), .None => Option(AstExpr).None)
+      true => match(args.get(usize(0)), .Some(a0) => match(a0, Rc(.Atom(_, _)) => Option(AstExpr).Some(a0), _ => Option(AstExpr).None), .None => Option(AstExpr).None)
     )
   )
 );
@@ -1533,7 +1533,7 @@ _scope_target_names :: (fn(lst : &Option(ArrayList(AstExpr)), out : &mut ArrayLi
     .Some(l) => {
       (k : usize) = usize(0);
       while(k < l.len(), {
-        match(l.get(k), .Some(d) => match(_drop_target_atom_of(&d), .Some(at) => match(at, .Atom(_, tok) => out.push(tok.value.*.clone()), _ => ()), .None => ()), .None => ());
+        match(l.get(k), .Some(d) => match(_drop_target_atom_of(&d), .Some(at) => match(at, Rc(.Atom(_, tok)) => out.push(tok.value.*.clone()), _ => ()), .None => ()), .None => ());
         k = (k + usize(1));
       });
     },
@@ -3693,7 +3693,7 @@ purge_executed_clone_metadata :: (fn(table : &ExprInfoTable, root : &AstExpr, lo
   _purge_expr_side_tables_at(id);
   match(
     root,
-    .FnCall(_, callee, Rc(args), _, _) => {
+    Rc(.FnCall(_, callee, Rc(args), _, _)) => {
       purge_executed_clone_metadata(table, &callee.*, lo, hi);
       (ai : usize) = usize(0);
       while(ai < args.len(), {
@@ -3701,7 +3701,7 @@ purge_executed_clone_metadata :: (fn(table : &ExprInfoTable, root : &AstExpr, lo
         ai = (ai + usize(1));
       });
     },
-    .Atom(_, _) => ()
+    Rc(.Atom(_, _)) => ()
   );
 });
 /// Total entries across those tables (the B2 plateau test's probe).
@@ -3974,7 +3974,7 @@ _amr_bounds :: (fn(node : &AstExpr, reference : &Token, lo : Token, hi : Token) 
   hi2 := if(ok && (tok.character > hi.character), tok.clone(), hi);
   match(
     node,
-    .FnCall(_, func, Rc(args), _, _) => {
+    Rc(.FnCall(_, func, Rc(args), _, _)) => {
       (mut(acc) : Tuple(Token, Token)) = recur(&func.*, reference, lo2, hi2);
       (mut(i) : usize) = usize(0);
       while(i < args.len(), {
@@ -3989,7 +3989,7 @@ _amr_bounds :: (fn(node : &AstExpr, reference : &Token, lo : Token, hi : Token) 
       });
       acc
     },
-    .Atom(_, _) => (lo2, hi2)
+    Rc(.Atom(_, _)) => (lo2, hi2)
   )
 });
 /// The earliest and the latest token of `node`'s tree in `reference`'s
