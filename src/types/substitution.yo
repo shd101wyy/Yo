@@ -113,9 +113,25 @@ subst_add_len_var :: (fn(s : &mut Substitution, name : &String, value : usize) -
 /// the SPINE — parameters, results, locals, pointers, tuples — and stops at a
 /// nominal boundary. Shares the other arrays; no copy when there is nothing to
 /// drop.
+/// A field-wise copy of `s` (a `Substitution` is move-only over its arrays).
+_subst_clone :: (fn(s : &Substitution) -> Substitution)(
+  Substitution(
+    names : s.names.clone(),
+    levels : s.levels.clone(),
+    types : s.types.clone(),
+    visited_trait_ids : s.visited_trait_ids.clone(),
+    self_from : s.self_from.clone(),
+    self_to : s.self_to.clone(),
+    len_var_names : s.len_var_names.clone(),
+    len_var_values : s.len_var_values.clone(),
+    own_resolution_ids : s.own_resolution_ids.clone(),
+    node_memo_from : s.node_memo_from.clone(),
+    node_memo_to : s.node_memo_to.clone()
+  )
+);
 _without_len_vars :: (fn(s : &mut Substitution) -> Substitution)(
   cond(
-    (s.len_var_names.len() == usize(0)) => s.*,
+    (s.len_var_names.len() == usize(0)) => _subst_clone(s),
     true => Substitution(
       names : s.names.clone(),
       levels : s.levels.clone(),
@@ -399,7 +415,7 @@ _mfb_is_binder :: (fn(labels : &ArrayList(String), nm : &String) -> bool)({
 });
 _mask_func_own_binders :: (fn(s : &mut Substitution, forall_labels : &ArrayList(String)) -> Substitution)({
   if((forall_labels.len() == usize(0)) || ((s.names.len() == usize(0)) && (s.len_var_names.len() == usize(0))), {
-    return(s.*);
+    return(_subst_clone(s));
   });
   (any_masked : bool) = false;
   {
@@ -426,7 +442,7 @@ _mask_func_own_binders :: (fn(s : &mut Substitution, forall_labels : &ArrayList(
     });
   };
   if(!any_masked, {
-    return(s.*);
+    return(_subst_clone(s));
   });
   masked := Substitution(
     names : ArrayList(String).new(),
@@ -634,7 +650,7 @@ _substitute_node :: (fn(s : &mut Substitution, ty : &TypeValue, is_root : bool) 
         // _mask_func_own_binders (capture avoidance); the root node is exempt
         // (see the `substitute` wrapper).
         Rc(.Func({ forall_types : fts, param_types : pts, implicit_types : its, where_types : wts, result : ret, meta : __fm1, variadic_types : vts })) => {
-          s_in := if(is_root, s.*, _mask_func_own_binders(s, &__fm1.forall_labels.items));
+          s_in := if(is_root, _subst_clone(s), _mask_func_own_binders(s, &__fm1.forall_labels.items));
           new_fts := _subst_list(&s_in, &fts.*);
           new_pts := _subst_slot_list(&s_in, &pts.*);
           new_its := _subst_list(&s_in, &its.*);
