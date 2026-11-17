@@ -11,7 +11,8 @@ import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { Token, TokenKind, TokenData } :: import("../../src/token.yo");
 {
-  AstExpr, AstExprNode,
+  AstExpr,
+  AstExprNode,
   ast_expr_id,
   BK_INIT_ASSIGN,
   BK_CONST,
@@ -63,15 +64,15 @@ mk_ident_call :: (fn(id : usize, name : str, args : &ArrayList(AstExpr)) -> AstE
 /// Build `lhs := rhs` initialization assignment expression.
 mk_init_assign :: (fn(id : usize, lhs : &AstExpr, rhs : &AstExpr) -> AstExpr)({
   mut(args) := ArrayList(AstExpr).new();
-  args.push(lhs.*);
-  args.push(rhs.*);
+  args.push(Rc.clone(lhs.*));
+  args.push(Rc.clone(rhs.*));
   mk_op_call(id, BK_INIT_ASSIGN, &args)
 });
 /// Build `lhs :: rhs` const declaration expression.
 mk_const :: (fn(id : usize, lhs : &AstExpr, rhs : &AstExpr) -> AstExpr)({
   mut(args) := ArrayList(AstExpr).new();
-  args.push(lhs.*);
-  args.push(rhs.*);
+  args.push(Rc.clone(lhs.*));
+  args.push(Rc.clone(rhs.*));
   mk_op_call(id, BK_CONST, &args)
 });
 /// Stub evaluator: stores t_bool() + BoolVal(true) ExprInfo for any expr.
@@ -85,7 +86,7 @@ stub_eval_bool :: (
   info := new_expr_info(env, t_bool());
   info.set_value(Option(EvalValue).Some(EvalValue.BoolVal(true)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
-  expr.*
+  Rc.clone(expr.*)
 });
 /// Raw-seam variant of stub_eval_bool (ignores the custom handler).
 stub_eval_bool_raw :: (
@@ -109,7 +110,7 @@ stub_eval_i32 :: (
   info := new_expr_info(env, t_i32());
   info.set_value(Option(EvalValue).Some(EvalValue.IntLit(String.from("42"))));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
-  expr.*
+  Rc.clone(expr.*)
 });
 // ---------------------------------------------------------------------------
 // evaluate_initialization_assignment — error cases

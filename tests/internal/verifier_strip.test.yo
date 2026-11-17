@@ -123,7 +123,7 @@ _count_labeled_asserts :: (fn(args : &ArrayList(AstExpr), label : &String) -> us
   (mut(i) : usize) = usize(0);
   while(i < args.len(), {
     match(
-      args.get(i),
+      args.get_cloned(i),
       .Some(arg) => {
         if(_is_assert_with_label(&arg, label.clone()), {
           n = (n + usize(1));
@@ -138,7 +138,7 @@ _count_labeled_asserts :: (fn(args : &ArrayList(AstExpr), label : &String) -> us
 /// Arg 1 of a call as a string when it is a plain atom ("" otherwise).
 _arg1_atom_value :: (fn(a : &ArrayList(AstExpr)) -> String)(
   match(
-    a.get(usize(1)),
+    a.get_cloned(usize(1)),
     .Some(m_arg) => match(
       m_arg,
       Rc(.Atom(_, mt)) => mt.value.*.clone(),
