@@ -82,7 +82,7 @@ subst_new :: (fn() -> Substitution)(
 /// Bind a const-generic array LENGTH variable (`N` in `Array(T, N)`) to its
 /// concrete value. Applied by the `.Array` arm of `substitute`. Overwrites an
 /// existing binding of the same name.
-subst_add_len_var :: (fn(s : &Substitution, name : &String, value : usize) -> unit)({
+subst_add_len_var :: (fn(s : &mut Substitution, name : &String, value : usize) -> unit)({
   if(name.len() == usize(0), {
     return(());
   });
@@ -113,7 +113,7 @@ subst_add_len_var :: (fn(s : &Substitution, name : &String, value : usize) -> un
 /// the SPINE — parameters, results, locals, pointers, tuples — and stops at a
 /// nominal boundary. Shares the other arrays; no copy when there is nothing to
 /// drop.
-_without_len_vars :: (fn(s : &Substitution) -> Substitution)(
+_without_len_vars :: (fn(s : &mut Substitution) -> Substitution)(
   cond(
     (s.len_var_names.len() == usize(0)) => s.*,
     true => Substitution(
@@ -151,7 +151,7 @@ set_lookup_assoc_const :: (fn(f : AssocConstLookupFn) -> unit)({
 /// a length projection is recorded as the bare text `T.BYTES` and has no level
 /// to offer. First match wins, which matches how the projection was written:
 /// the `T` in `Array(u8, T.BYTES)` is the `T` of the enclosing impl.
-_subst_lookup_by_name :: (fn(s : &Substitution, name : &String) -> Option(TypeValue))({
+_subst_lookup_by_name :: (fn(s : &mut Substitution, name : &String) -> Option(TypeValue))({
   i := usize(0);
   n := s.names.len();
   while(i < n, {
@@ -170,7 +170,7 @@ _subst_lookup_by_name :: (fn(s : &Substitution, name : &String) -> Option(TypeVa
 /// off the bound concrete type. `.None` for a non-dotted name, an unbound
 /// receiver, an unset hook, or a type that does not carry the constant — every
 /// one of which leaves the caller's length untouched.
-_subst_resolve_len_projection :: (fn(s : &Substitution, lvar : &String) -> Option(usize))({
+_subst_resolve_len_projection :: (fn(s : &mut Substitution, lvar : &String) -> Option(usize))({
   dot := lvar.index_of(String.from("."));
   if(dot.is_none(), {
     return(Option(usize).None);
@@ -191,7 +191,7 @@ _subst_resolve_len_projection :: (fn(s : &Substitution, lvar : &String) -> Optio
     .None => Option(usize).None
   )
 });
-subst_lookup_len_var :: (fn(s : &Substitution, name : &String) -> Option(usize))({
+subst_lookup_len_var :: (fn(s : &mut Substitution, name : &String) -> Option(usize))({
   i := usize(0);
   n := s.len_var_names.len();
   while(i < n, {
@@ -217,13 +217,13 @@ subst_lookup_len_var :: (fn(s : &Substitution, name : &String) -> Option(usize))
 /// and a `fn(self : Self) -> T` keeps the PATTERN's nominal id with a concrete
 /// payload — and types are nominal, so they cannot just be substituted
 /// structurally.
-subst_set_self :: (fn(s : &Substitution, from : &TypeValue, to : &TypeValue) -> unit)({
+subst_set_self :: (fn(s : &mut Substitution, from : &TypeValue, to : &TypeValue) -> unit)({
   s.self_from.push(Rc.clone(from));
   s.self_to.push(Rc.clone(to));
   ()
 });
 /// True if `id` is already recorded in the substitution's visited-trait set.
-_subst_trait_visited :: (fn(s : &Substitution, id : &String) -> bool)({
+_subst_trait_visited :: (fn(s : &mut Substitution, id : &String) -> bool)({
   i := usize(0);
   n := s.visited_trait_ids.len();
   while(i < n, {
@@ -236,7 +236,7 @@ _subst_trait_visited :: (fn(s : &Substitution, id : &String) -> bool)({
   false
 });
 /// Add a (name, frame_level) → type binding.  Overwrites if already present.
-subst_add :: (fn(s : &Substitution, name : &String, level : usize, ty : &TypeValue) -> unit)({
+subst_add :: (fn(s : &mut Substitution, name : &String, level : usize, ty : &TypeValue) -> unit)({
   i := usize(0);
   n := s.names.len();
   while(i < n, {
@@ -255,12 +255,12 @@ subst_add :: (fn(s : &Substitution, name : &String, level : usize, ty : &TypeVal
 _is_some_t :: (fn(t : &TypeValue) -> bool)(match(t, Rc(.SomeT({ id : _ })) => true, _ => false));
 /// Adopt the own resolution of every occurrence of the SomeT `id` that
 /// carries one (see `own_resolution_ids`).
-subst_adopt_own_resolution :: (fn(s : &Substitution, id : &String) -> unit)({
+subst_adopt_own_resolution :: (fn(s : &mut Substitution, id : &String) -> unit)({
   if(!_subst_adopts_own(s, id), {
     s.own_resolution_ids.push(id.clone());
   });
 });
-_subst_adopts_own :: (fn(s : &Substitution, id : &String) -> bool)({
+_subst_adopts_own :: (fn(s : &mut Substitution, id : &String) -> bool)({
   (i : usize) = usize(0);
   while(i < s.own_resolution_ids.len(), {
     if(match(s.own_resolution_ids.get_cloned(i), .Some(v) => (v == id.*), .None => false), {
@@ -271,7 +271,7 @@ _subst_adopts_own :: (fn(s : &Substitution, id : &String) -> bool)({
   false
 });
 /// Look up a (name, frame_level) → Option(TypeValue).
-subst_lookup :: (fn(s : &Substitution, name : &String, level : usize) -> Option(TypeValue))({
+subst_lookup :: (fn(s : &mut Substitution, name : &String, level : usize) -> Option(TypeValue))({
   i := usize(0);
   n := s.names.len();
   while(i < n, {
@@ -298,7 +298,7 @@ subst_lookup :: (fn(s : &Substitution, name : &String, level : usize) -> Option(
 /// that entry to `Ch`'s own `T` nests the instance to
 /// `W(ArrayList(ArrayList(T)))`
 /// (issues/fixed/2026-10-17-a-generic-impl-wrapping-arraylist-of-its-same-named-parameter-emits-an-uncompilable-instance.md).
-_subst_lookup_for_some :: (fn(s : &Substitution, id : &String, name : &String, level : usize) -> Option(TypeValue))(
+_subst_lookup_for_some :: (fn(s : &mut Substitution, id : &String, name : &String, level : usize) -> Option(TypeValue))(
   match(
     subst_lookup(s, name, level),
     .Some(t) => cond(
@@ -351,7 +351,7 @@ _type_mentions_some_id :: (fn(ty : &TypeValue, id : &String) -> bool)({
 /// `subst_set_self`. Struct/EnumT only: a blanket impl's bare-SomeT pattern is
 /// already handled by the generic bindings and replacing there would clobber
 /// them. Exact structural equality keeps this a port, not a shape guess.
-_is_self_pattern :: (fn(s : &Substitution, ty : &TypeValue) -> bool)({
+_is_self_pattern :: (fn(s : &mut Substitution, ty : &TypeValue) -> bool)({
   if(s.self_from.len() == usize(0), {
     return(false);
   });
@@ -397,7 +397,7 @@ _mfb_is_binder :: (fn(labels : &ArrayList(String), nm : &String) -> bool)({
   });
   hit
 });
-_mask_func_own_binders :: (fn(s : &Substitution, forall_labels : &ArrayList(String)) -> Substitution)({
+_mask_func_own_binders :: (fn(s : &mut Substitution, forall_labels : &ArrayList(String)) -> Substitution)({
   if((forall_labels.len() == usize(0)) || ((s.names.len() == usize(0)) && (s.len_var_names.len() == usize(0))), {
     return(s.*);
   });
@@ -473,7 +473,7 @@ _mask_func_own_binders :: (fn(s : &Substitution, forall_labels : &ArrayList(Stri
 /// `xs` with `s` applied to every element: `.None` when no element changed
 /// (each substituted element is the handle it was), so the caller keeps the
 /// list it has instead of building an equal one.
-_subst_list_changed :: (fn(s : &Substitution, xs : &SharedList(TypeValue), slots : bool) -> Option(ArrayList(TypeValue)))({
+_subst_list_changed :: (fn(s : &mut Substitution, xs : &SharedList(TypeValue), slots : bool) -> Option(ArrayList(TypeValue)))({
   // The output list is allocated at the first changed element (the prefix
   // before it is copied then), so an unchanged list costs no allocation.
   (out : Option(ArrayList(TypeValue))) = .None;
@@ -507,7 +507,7 @@ _subst_list_changed :: (fn(s : &Substitution, xs : &SharedList(TypeValue), slots
 });
 /// `xs` with `s` applied to every element; `xs` itself (shared, not copied)
 /// when no element changed.
-_subst_list :: (fn(s : &Substitution, xs : &SharedList(TypeValue)) -> SharedList(TypeValue))(
+_subst_list :: (fn(s : &mut Substitution, xs : &SharedList(TypeValue)) -> SharedList(TypeValue))(
   match(
     _subst_list_changed(s, xs, false),
     .Some(out) => shared_list(out),
@@ -516,7 +516,7 @@ _subst_list :: (fn(s : &Substitution, xs : &SharedList(TypeValue)) -> SharedList
 );
 /// `_subst_list` over parameter slots (`Func.param_types`,
 /// `FnTraitT.call_param_types`): see `_subst_slot_at`.
-_subst_slot_list :: (fn(s : &Substitution, xs : &SharedList(TypeValue)) -> SharedList(TypeValue))(
+_subst_slot_list :: (fn(s : &mut Substitution, xs : &SharedList(TypeValue)) -> SharedList(TypeValue))(
   match(
     _subst_list_changed(s, xs, true),
     .Some(out) => shared_list(out),
@@ -529,10 +529,10 @@ _subst_slot_list :: (fn(s : &Substitution, xs : &SharedList(TypeValue)) -> Share
 /// borrow (VERDICTS-23 R3): the declared mode survives the specialization. A
 /// bare slot (a slot of `Self`, a written reference, an alias) is substituted
 /// as it is: what it declared is what it stays (VERDICTS-54).
-_subst_slot_at :: (fn(s : &Substitution, slot : &TypeValue) -> TypeValue)(_substitute_at(s, slot, false));
+_subst_slot_at :: (fn(s : &mut Substitution, slot : &TypeValue) -> TypeValue)(_substitute_at(s, slot, false));
 /// `_substitute_node` through the walk's struct/enum memo (see
 /// `node_memo_from`): a shared node is substituted once per walk.
-_substitute_at :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> TypeValue)({
+_substitute_at :: (fn(s : &mut Substitution, ty : &TypeValue, is_root : bool) -> TypeValue)({
   (memoized : bool) = match(ty, Rc(.Struct({ id : _ })) => true, Rc(.EnumT({ id : _ })) => true, _ => false);
   if(!memoized, {
     return(_substitute_node(s, ty, is_root));
@@ -549,7 +549,7 @@ _substitute_at :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> Typ
   out
 });
 /// The first `node_memo_from` slot whose address is not below `ty`'s.
-_node_memo_lower_bound :: (fn(s : &Substitution, ty : &TypeValue) -> usize)({
+_node_memo_lower_bound :: (fn(s : &mut Substitution, ty : &TypeValue) -> usize)({
   (lo : usize) = usize(0);
   (hi : usize) = s.node_memo_from.len();
   while(lo < hi, {
@@ -562,7 +562,7 @@ _node_memo_lower_bound :: (fn(s : &Substitution, ty : &TypeValue) -> usize)({
   });
   lo
 });
-_substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> TypeValue)(
+_substitute_node :: (fn(s : &mut Substitution, ty : &TypeValue, is_root : bool) -> TypeValue)(
   // P2 hash-consing: intern each substitution result. `substitute` recurses via
   // `_substitute_at`, so wrapping the body interns EVERY level bottom-up → shared subtrees
   // (and transient duplicates) canonicalize to one instance. Key validated to match
@@ -825,9 +825,9 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
 /// forall binders on purpose (`_freshen_io_builtin_callee`'s per-call T/E
 /// re-mint) target the root directly, while binders of Funcs encountered
 /// DEEPER in the walk always shadow (see _mask_func_own_binders).
-substitute :: (fn(s : &Substitution, ty : &TypeValue) -> TypeValue)(_substitute_at(s, ty, true));
+substitute :: (fn(s : &mut Substitution, ty : &TypeValue) -> TypeValue)(_substitute_at(s, ty, true));
 /// Apply substitution to every element of a list, returning a new list.
-substitute_all :: (fn(s : &Substitution, types : &ArrayList(TypeValue)) -> ArrayList(TypeValue))({
+substitute_all :: (fn(s : &mut Substitution, types : &ArrayList(TypeValue)) -> ArrayList(TypeValue))({
   result := ArrayList(TypeValue).new();
   i := usize(0);
   while(i < types.len(), {
