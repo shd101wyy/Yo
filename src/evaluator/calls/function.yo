@@ -10577,14 +10577,16 @@ _record_fnonce_callee_release :: (fn(call : &AstExpr, name : &String, env : &Env
   // the return points) or a capture of the enclosing closure (whose drops a
   // closure body otherwise skips).
   mark_fnonce_post_call_release(ast_expr_id(&evaluated));
-  g_fnonce_release_after_call.with_mut(m => m.insert(ast_expr_id(call), evaluated));
+  fr_id := ast_expr_id(call);
+  g_fnonce_release_after_call.with_mut({ fr_id, evaluated }(m) => m.insert(fr_id, evaluated));
 });
 /// Append the post-call release `_consume_fnonce_callee` recorded for `call`
 /// to the deferred drops of `result`, the node its evaluation returned (it may
 /// be a rewrite of `call`), which codegen flushes right after the call.
 _attach_fnonce_callee_release :: (fn(call : &AstExpr, result : &AstExpr, ctx : &EvalContext) -> unit)({
+  fr_id := ast_expr_id(call);
   match(
-    g_fnonce_release_after_call.with_mut(m => m.remove(ast_expr_id(call))),
+    g_fnonce_release_after_call.with_mut({ fr_id }(m) => m.remove(fr_id)),
     .Some(callee) => match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(result)),
       .Some(ci) => {

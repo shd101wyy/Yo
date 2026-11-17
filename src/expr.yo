@@ -590,7 +590,9 @@ next_global_expr_id :: (fn() -> ExprId)(g_next_global_expr_id);
 /// Record `rewritten` as the node its id names, as an evaluator rewrite left
 /// it (`g_rewritten_nodes`).
 note_rewritten_node :: (fn(rewritten : &AstExpr) -> unit)({
-  _old := g_rewritten_nodes.with_mut(m => m.insert(ast_expr_id(rewritten), rewritten.clone()));
+  rn_id := ast_expr_id(rewritten);
+  rn_node := rewritten.clone();
+  _old := g_rewritten_nodes.with_mut({ rn_id, rn_node }(m) => m.insert(rn_id, rn_node));
   ()
 });
 /// Record `node` as what the node `id` names, where the rewrite is another
@@ -598,8 +600,10 @@ note_rewritten_node :: (fn(rewritten : &AstExpr) -> unit)({
 /// the call itself (`evaluate_property_access`), which keeps every record
 /// keyed by the call's id (its dispatch, its specialization).
 note_rewritten_node_as :: (fn(id : ExprId, node : &AstExpr) -> unit)({
-  _old := g_rewritten_nodes.with_mut(m => m.insert(id, node.clone()));
-  _old_read := g_deref_read_calls.with_mut(m => m.insert(ast_expr_id(node), true));
+  rn_node := node.clone();
+  _old := g_rewritten_nodes.with_mut({ id, rn_node }(m) => m.insert(id, rn_node));
+  dr_id := ast_expr_id(node);
+  _old_read := g_deref_read_calls.with_mut({ dr_id }(m) => m.insert(dr_id, true));
   ()
 });
 /// `e` is a projection call a written `.*` reads (`g_deref_read_calls`).

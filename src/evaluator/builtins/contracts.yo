@@ -1520,7 +1520,8 @@ _guard_site_recorded :: (fn(expr : &AstExpr, class : str) -> bool)(
 /// elision when it answers yes.
 guard_site_is_proved :: (fn(expr : &AstExpr, class : str) -> bool)({
   if(_guard_site_recorded(expr, class), {
-    g_elided_guard_nodes.with_mut(s => s.insert(`${ast_expr_id(expr).to_string()}/${class}`));
+    eg_key := `${ast_expr_id(expr).to_string()}/${class}`;
+    g_elided_guard_nodes.with_mut({ eg_key }(s) => s.insert(eg_key));
     return(true);
   });
   false
@@ -1529,7 +1530,8 @@ guard_site_is_proved :: (fn(expr : &AstExpr, class : str) -> bool)({
 /// `divisor-nonzero` and `div-no-overflow`). One guard, counted once.
 guard_site_pair_is_proved :: (fn(expr : &AstExpr, class_a : str, class_b : str) -> bool)({
   if(_guard_site_recorded(expr, class_a) && _guard_site_recorded(expr, class_b), {
-    g_elided_guard_nodes.with_mut(s => s.insert(`${ast_expr_id(expr).to_string()}/${class_a}+${class_b}`));
+    eg_key := `${ast_expr_id(expr).to_string()}/${class_a}+${class_b}`;
+    g_elided_guard_nodes.with_mut({ eg_key }(s) => s.insert(eg_key));
     return(true);
   });
   false
