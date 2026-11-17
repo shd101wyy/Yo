@@ -250,7 +250,7 @@ call_registered_derive_rule :: (
   trait_params := ArrayList(AstExpr).new();
   match(
     trait_arg_expr,
-    .FnCall(_, _, Rc(ta_args), _, _) => {
+    Rc(.FnCall(_, _, Rc(ta_args), _, _)) => {
       (ti : usize) = usize(0);
       while(ti < ta_args.len(), {
         match(
@@ -263,7 +263,7 @@ call_registered_derive_rule :: (
         ti = (ti + usize(1));
       });
     },
-    .Atom(_, _) => ()
+    Rc(.Atom(_, _)) => ()
   );
   // Push a temp frame; all bindings below are comptime vars on it.
   _pf := push_env_frame(caller_env, false);
@@ -594,8 +594,8 @@ _evaluate_derive_executing :: (
   // Extract arguments.
   args := match(
     expr,
-    .FnCall(_, _, Rc(a), _, _) => a.clone(),
-    .Atom(_, _) => ArrayList(AstExpr).new()
+    Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(),
+    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
   );
   if(args.len() < usize(2), {
     exn.throw(
@@ -624,8 +624,8 @@ _evaluate_derive_executing :: (
     forall_expr := match(forall_arg_opt, .Some(fa) => fa, .None => make_err_expr());
     forall_params := match(
       forall_expr,
-      .FnCall(_, _, Rc(fps), _, _) => fps.clone(),
-      .Atom(_, _) => ArrayList(AstExpr).new()
+      Rc(.FnCall(_, _, Rc(fps), _, _)) => fps.clone(),
+      Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
     );
     _fr := env.push_frame(false);
     (fpi : usize) = usize(0);
@@ -634,18 +634,18 @@ _evaluate_derive_executing :: (
       // Handle both `T` (Atom) and `T : Type` (FnCall(":", [T, Type])) forms.
       fp_name := match(
         fp,
-        .Atom(_, ftok) => ftok.value.*.clone(),
-        .FnCall(_, func_b, Rc(fa2), _, _) => match(
+        Rc(.Atom(_, ftok)) => ftok.value.*.clone(),
+        Rc(.FnCall(_, func_b, Rc(fa2), _, _)) => match(
           func_b,
-          .Atom(_, op_tok) => cond(
+          Rc(.Atom(_, op_tok)) => cond(
             (op_tok.value.* == ":") => match(
               fa2.get(usize(0)),
-              .Some(na) => match(na, .Atom(_, ntok) => ntok.value.*.clone(), .FnCall(_, _, _, _, _) => String.from("")),
+              .Some(na) => match(na, Rc(.Atom(_, ntok)) => ntok.value.*.clone(), Rc(.FnCall(_, _, _, _, _)) => String.from("")),
               .None => String.from("")
             ),
             true => String.from("")
           ),
-          .FnCall(_, _, _, _, _) => String.from("")
+          Rc(.FnCall(_, _, _, _, _)) => String.from("")
         )
       );
       if(fp_name.len() > usize(0), {
@@ -657,9 +657,9 @@ _evaluate_derive_executing :: (
         // ABSTRACT origin instead, as an impl's or a function's does.
         fp_kind_origin := match(
           fp,
-          .FnCall(_, func_b, fa3, _, _) => match(
+          Rc(.FnCall(_, func_b, fa3, _, _)) => match(
             func_b,
-            .Atom(_, op_tok3) => cond(
+            Rc(.Atom(_, op_tok3)) => cond(
               (op_tok3.value.* == ":") => match(
                 fa3.get(usize(1)),
                 .Some(ka) => (ast_expr_is_atom(&ka) && (ast_expr_token(&ka).value.* == "Origin")),
@@ -667,9 +667,9 @@ _evaluate_derive_executing :: (
               ),
               true => false
             ),
-            .FnCall(_, _, _, _, _) => false
+            Rc(.FnCall(_, _, _, _, _)) => false
           ),
-          .Atom(_, _) => false
+          Rc(.Atom(_, _)) => false
         );
         if(fp_kind_origin, {
           op_names := ArrayList(String).new();
@@ -691,8 +691,8 @@ _evaluate_derive_executing :: (
           fp_kind := if(
             match(
               fp,
-              .FnCall(_, _, fa4, _, _) => match(fa4.get(usize(1)), .Some(ka4) => is_maybe_sized_kind_spelling(&ka4), .None => false),
-              .Atom(_, _) => false
+              Rc(.FnCall(_, _, fa4, _, _)) => match(fa4.get(usize(1)), .Some(ka4) => is_maybe_sized_kind_spelling(&ka4), .None => false),
+              Rc(.Atom(_, _)) => false
             ),
             t_maybe_sized_kind(),
             Rc.new(TypeValueNode.TypeUni(usize(0)))

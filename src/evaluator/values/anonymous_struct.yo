@@ -58,8 +58,8 @@ evaluate_anonymous_struct_value :: (
   // Validate: func must be Atom("_")
   func_expr := match(
     expr,
-    .FnCall(_, fb, _, _, _) => fb.*,
-    .Atom(_, _) => {
+    Rc(.FnCall(_, fb, _, _, _)) => fb.*,
+    Rc(.Atom(_, _)) => {
       exn.throw(dyn(format_error_message(&tok, String.from("evaluate_anonymous_struct_value: expected FnCall"))));
       make_err_expr()
     }
@@ -67,8 +67,8 @@ evaluate_anonymous_struct_value :: (
   is_underscore := (
     ast_expr_is_atom(&func_expr) && match(
       func_expr,
-      .Atom(_, ftok) => (ftok.value.* == BK_ANON_STRUCT),
-      .FnCall(_, _, _, _, _) => false
+      Rc(.Atom(_, ftok)) => (ftok.value.* == BK_ANON_STRUCT),
+      Rc(.FnCall(_, _, _, _, _)) => false
     )
   );
   if(!is_underscore, {
@@ -81,7 +81,7 @@ evaluate_anonymous_struct_value :: (
       )
     );
   });
-  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
   // Generate unique struct id. Phase 2: occurrence-indexed at this literal's
   // source position — every evaluation still mints a FRESH id (distinct
   // anonymous-struct instantiations must never share, see struct.yo's twin),
@@ -118,7 +118,7 @@ evaluate_anonymous_struct_value :: (
     // `__yo_imm(y)` / `__yo_mut(z)` (the puns `&y` / `&mut z`, or the label
     // of `y : &p`) is a capture-list borrow entry (decision 35): it means
     // something only before a closure's parameters.
-    entry_label := if(ast_expr_is_fn_call_of(&arg, ":", Option(usize).Some(usize(2))), match(arg, .FnCall(_, _, Rc(ea), _, _) => match(ea.get(usize(0)), .Some(l) => l, .None => arg), .Atom(_, _) => arg), arg);
+    entry_label := if(ast_expr_is_fn_call_of(&arg, ":", Option(usize).Some(usize(2))), match(arg, Rc(.FnCall(_, _, Rc(ea), _, _)) => match(ea.get(usize(0)), .Some(l) => l, .None => arg), Rc(.Atom(_, _)) => arg), arg);
     if(ast_expr_is_capture_mode_entry(&arg) || ast_expr_is_capture_mode_entry(&entry_label), {
       exn.throw(
         dyn(
@@ -133,13 +133,13 @@ evaluate_anonymous_struct_value :: (
     is_labeled := (
       ast_expr_is_fn_call(&arg) &&
         ast_expr_is_fn_call_of(&arg, ":", Option(usize).Some(usize(2))) &&
-          match(arg, .FnCall(_, _, _, finfix, _) => finfix, .Atom(_, _) => false)
+          match(arg, Rc(.FnCall(_, _, _, finfix, _)) => finfix, Rc(.Atom(_, _)) => false)
     );
     (label_opt : Option(String)) = Option(String).None;
     (value_expr : AstExpr) = arg;
     (label_arg_expr : AstExpr) = make_err_expr();
     if(is_labeled, {
-      fa := match(arg, .FnCall(_, _, Rc(a2), _, _) => a2.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
+      fa := match(arg, Rc(.FnCall(_, _, Rc(a2), _, _)) => a2.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
       lae := match(fa.get(usize(0)), .Some(a2) => a2, .None => make_err_expr());
       label_arg_expr = lae;
       value_expr = match(fa.get(usize(1)), .Some(a2) => a2, .None => make_err_expr());
@@ -153,7 +153,7 @@ evaluate_anonymous_struct_value :: (
           )
         );
       });
-      lstr := match(lae, .Atom(_, ltok) => ltok.value.*.clone(), .FnCall(_, _, _, _, _) => String.from(""));
+      lstr := match(lae, Rc(.Atom(_, ltok)) => ltok.value.*.clone(), Rc(.FnCall(_, _, _, _, _)) => String.from(""));
       label_opt = Option(String).Some(lstr);
     });
     // Evaluate the value expression with SelfType = prelim_ty

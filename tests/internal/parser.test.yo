@@ -1143,7 +1143,7 @@ _d47_at :: (fn(src : &String, path : &String) -> AstExpr)({
   only_expr(parse(src, path, exn))
 });
 _d47_arg :: (fn(e : &AstExpr, i : usize) -> AstExpr)(
-  match(e, .FnCall(_, _, Rc(a), _, _) => match(a.get(i), .Some(x) => x, .None => make_err_expr()), .Atom(_, _) => make_err_expr())
+  match(e, Rc(.FnCall(_, _, Rc(a), _, _)) => match(a.get(i), .Some(x) => x, .None => make_err_expr()), Rc(.Atom(_, _)) => make_err_expr())
 );
 _d47_marked :: (fn(name : &AstExpr) -> bool)({
   t := ast_expr_token(name);
@@ -1261,8 +1261,8 @@ test("a call missing its `)` is E0002 before ; ] } and at the end of the input",
 _tokens_of :: (fn(e : &AstExpr, out : &mut ArrayList(Token)) -> unit)(
   match(
     e,
-    .Atom(_, tok) => out.push(tok.*),
-    .FnCall(_, callee, Rc(args), _, tok) => {
+    Rc(.Atom(_, tok)) => out.push(tok.*),
+    Rc(.FnCall(_, callee, Rc(args), _, tok)) => {
       out.push(tok.*);
       _tokens_of(&callee.*, out);
       (mut(i) : usize) = usize(0);

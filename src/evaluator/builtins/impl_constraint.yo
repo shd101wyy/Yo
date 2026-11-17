@@ -46,7 +46,7 @@ evaluate_impl_constraint :: (
 )({
   args := match(
     expr,
-    .FnCall(_, _, Rc(a), _, _) => a.clone(),
+    Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(),
     _ => {
       return(expr.*);
     }
@@ -85,7 +85,7 @@ evaluate_impl_constraint :: (
           is_negated,
           true => match(
             arg,
-            .FnCall(_, _, Rc(neg_args), _, _) => match(
+            Rc(.FnCall(_, _, Rc(neg_args), _, _)) => match(
               neg_args.get(usize(0)),
               .Some(a) => a,
               .None => arg

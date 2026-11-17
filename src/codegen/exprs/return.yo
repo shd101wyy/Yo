@@ -31,19 +31,19 @@
 _drop_target_atom :: (fn(drop_expr : &AstExpr) -> Option(AstExpr))(
   match(
     drop_expr,
-    .FnCall(_, func, Rc(args), _, _) => if(
+    Rc(.FnCall(_, func, Rc(args), _, _)) => if(
       args.len() == usize(0),
       match(
         func,
-        .FnCall(_, _, Rc(fargs), _, _) => if(ast_expr_is_fn_call_of(&func.*, BF_DOT, Option(usize).Some(usize(2))), {
+        Rc(.FnCall(_, _, Rc(fargs), _, _)) => if(ast_expr_is_fn_call_of(&func.*, BF_DOT, Option(usize).Some(usize(2))), {
           a1_is_drop := match(fargs.get(usize(1)), .Some(a1) => if(ast_expr_is_atom(&a1), ast_expr_token(&a1).value.* == BF_DROP, false), .None => false);
           if(a1_is_drop, match(fargs.get(usize(0)), .Some(a0) => if(ast_expr_is_atom(&a0), Option(AstExpr).Some(a0), Option(AstExpr).None), .None => Option(AstExpr).None), Option(AstExpr).None)
         }, Option(AstExpr).None),
-        .Atom(_, _) => Option(AstExpr).None
+        Rc(.Atom(_, _)) => Option(AstExpr).None
       ),
       if(ast_expr_is_fn_call_of(drop_expr, BF_DROP, Option(usize).None), match(args.get(usize(0)), .Some(a0) => if(ast_expr_is_atom(&a0), Option(AstExpr).Some(a0), Option(AstExpr).None), .None => Option(AstExpr).None), Option(AstExpr).None)
     ),
-    .Atom(_, _) => Option(AstExpr).None
+    Rc(.Atom(_, _)) => Option(AstExpr).None
   )
 );
 /// Whether `drop_expr` targets the C variable named by `escaped_result` — the
@@ -126,7 +126,7 @@ _max_comparable_token :: (fn(node : &AstExpr, reference : &Token, best : &Token)
   best2 := if(_tokens_are_comparable(&tok, reference) && (tok.character > best.character), tok, best.*);
   match(
     node,
-    .FnCall(_, func, Rc(args), _, _) => {
+    Rc(.FnCall(_, func, Rc(args), _, _)) => {
       (mut(acc) : Token) = recur(&func.*, reference, &best2);
       n := args.len();
       (mut(i) : usize) = usize(0);
@@ -142,7 +142,7 @@ _max_comparable_token :: (fn(node : &AstExpr, reference : &Token, best : &Token)
       });
       acc
     },
-    .Atom(_, _) => best2
+    Rc(.Atom(_, _)) => best2
   )
 });
 _get_last_comparable_token_in_expr :: (fn(expr : &AstExpr, reference : &Token) -> Token)({
@@ -846,7 +846,7 @@ handle_func_call_deferred_dup :: (fn(expr : &AstExpr, indent : &String, context 
 /// Generate a `return` statement.
 generate_return :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("return expression missing metadata"))));
-  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
   // (ctl-handler resume is Phase 5: FGC has no continuation_variables — omitted.)
   match(
     args.get(usize(0)),
@@ -1372,7 +1372,7 @@ generate_implicit_return_statement :: (fn(expr : &AstExpr, indent : &String, con
   (
     match(
       expr,
-      .Atom(_, _) => {
+      Rc(.Atom(_, _)) => {
         atom_code := generate_atom(expr, context, indent.clone());
         final_code := handle_atom_deferred_dup(expr, atom_code, indent.clone(), context);
         // Own-param scope-end drops (function-scope, excluded from the caller's
@@ -1385,7 +1385,7 @@ generate_implicit_return_statement :: (fn(expr : &AstExpr, indent : &String, con
         line.push_str(";");
         context.base.emitter.emit_string_line(&line);
       },
-      .FnCall(_, _, _, _, _) => if(ast_expr_is_fn_call_of(expr, BK_RETURN, Option(usize).None) || ast_expr_is_fn_call_of(expr, BF_UNWIND, Option(usize).None), {
+      Rc(.FnCall(_, _, _, _, _)) => if(ast_expr_is_fn_call_of(expr, BK_RETURN, Option(usize).None) || ast_expr_is_fn_call_of(expr, BF_UNWIND, Option(usize).None), {
         // Control-flow tail (`return(...)` / `unwind(...)`): its generator already emits
         // the full control-flow statement (the escape flag + a `return` for unwind, or the
         // return itself), so emit as-is — do NOT wrap in another `return` (that produced
@@ -1667,7 +1667,7 @@ _emit_unwind_tail_param_drops :: (fn(expr : &AstExpr, indent : &String, context 
   )
 );
 generate_unwind :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
-  arg_opt := match(expr, .FnCall(_, _, Rc(a), _, _) => a.get(usize(0)), _ => Option(AstExpr).None);
+  arg_opt := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.get(usize(0)), _ => Option(AstExpr).None);
   is_async := match(&context.in_async_state_machine, .Some(_) => true, .None => false);
   // One release per variable per escape sequence (see
   // collect_names_released_by_escape_sequence): the pending channel just

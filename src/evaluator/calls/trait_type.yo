@@ -114,8 +114,8 @@ try_to_specialize_trait_type :: (
         )
       );
     });
-    label_sub_opt := match(arg, .FnCall(_, _, Rc(args), _, _) => args.get(usize(0)), _ => Option(AstExpr).None);
-    value_sub_opt := match(arg, .FnCall(_, _, Rc(args), _, _) => args.get(usize(1)), _ => Option(AstExpr).None);
+    label_sub_opt := match(arg, Rc(.FnCall(_, _, Rc(args), _, _)) => args.get(usize(0)), _ => Option(AstExpr).None);
+    value_sub_opt := match(arg, Rc(.FnCall(_, _, Rc(args), _, _)) => args.get(usize(1)), _ => Option(AstExpr).None);
     label_sub := match(
       label_sub_opt,
       .Some(s) => s,
@@ -142,7 +142,7 @@ try_to_specialize_trait_type :: (
         )
       );
     });
-    label_tok := match(label_sub, .Atom(_, tok) => tok.value.*.clone(), _ => String.from(""));
+    label_tok := match(label_sub, Rc(.Atom(_, tok)) => tok.value.*.clone(), _ => String.from(""));
     // Check field exists in the trait.
     (field_exists : bool) = false;
     (li : usize) = usize(0);
@@ -372,8 +372,8 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
           )
         );
       });
-      label_sub_opt := match(arg_expr, .FnCall(_, _, Rc(args), _, _) => args.get(usize(0)), _ => Option(AstExpr).None);
-      value_sub_opt := match(arg_expr, .FnCall(_, _, Rc(args), _, _) => args.get(usize(1)), _ => Option(AstExpr).None);
+      label_sub_opt := match(arg_expr, Rc(.FnCall(_, _, Rc(args), _, _)) => args.get(usize(0)), _ => Option(AstExpr).None);
+      value_sub_opt := match(arg_expr, Rc(.FnCall(_, _, Rc(args), _, _)) => args.get(usize(1)), _ => Option(AstExpr).None);
       label_sub := match(
         label_sub_opt,
         .Some(s) => s,
@@ -400,7 +400,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
           )
         );
       });
-      label_tok := match(label_sub, .Atom(_, tok) => tok.value.*.clone(), _ => String.from(""));
+      label_tok := match(label_sub, Rc(.Atom(_, tok)) => tok.value.*.clone(), _ => String.from(""));
       // Validate label exists in the trait.
       (label_exists : bool) = false;
       (li : usize) = usize(0);

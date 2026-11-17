@@ -48,14 +48,14 @@ evaluate_align_of :: (
   });
   type_expr := match(
     expr,
-    .FnCall(_, _, Rc(args), _, _) => match(
+    Rc(.FnCall(_, _, Rc(args), _, _)) => match(
       args.get(usize(0)),
       .Some(a) => a,
       .None => {
         return(expr.*);
       }
     ),
-    .Atom(_, _) => {
+    Rc(.Atom(_, _)) => {
       return(expr.*);
     }
   );

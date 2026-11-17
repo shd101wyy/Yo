@@ -29,7 +29,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 {
-  AstExpr,
+  AstExpr, AstExprNode,
   ast_expr_token,
   ast_expr_id,
   ast_expr_to_string,
@@ -99,10 +99,10 @@ new_pattern_ctx :: (fn(arm_id : usize, ct_scrutinee : bool) -> PatternCtx)(
   PatternCtx(arm_id : arm_id, counter : usize(0), ct_scrutinee : ct_scrutinee, binds : ArrayList(BindInfo).new())
 );
 _args_of :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new())
 );
 _func_of :: (fn(e : &AstExpr) -> Option(AstExpr))(
-  match(e, .FnCall(_, f, _, _, _) => Option(AstExpr).Some(f.*), .Atom(_, _) => Option(AstExpr).None)
+  match(e, Rc(.FnCall(_, f, _, _, _)) => Option(AstExpr).Some(f.*), Rc(.Atom(_, _)) => Option(AstExpr).None)
 );
 _atom_name :: (fn(e : &AstExpr) -> String)(ast_expr_token(e).value.*.clone());
 /// A token for a synthesized node, positioned at `base`.
@@ -119,7 +119,7 @@ _synth_token :: (fn(base : &Token, kind : TokenKind, value : &String) -> Token)(
   )
 );
 _synth_atom :: (fn(base : &Token, kind : TokenKind, value : &String) -> AstExpr)(
-  AstExpr.Atom(alloc_global_expr_id(), _synth_token(base, kind, value))
+  Rc.new(AstExprNode.Atom(alloc_global_expr_id(), _synth_token(base, kind, value)))
 );
 /// `(lhs <op> rhs)` as an infix call node.
 _synth_infix :: (fn(base : &Token, op : str, lhs : &AstExpr, rhs : &AstExpr) -> AstExpr)({
@@ -131,7 +131,7 @@ _synth_infix :: (fn(base : &Token, op : str, lhs : &AstExpr, rhs : &AstExpr) -> 
   // operator emitters key on it, and with the literal's token here the call
   // took the generic path and rendered `"a"` as an identifier.
   op_tok := _synth_token(base, TokenKind.Operator, String.from(op));
-  AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), op_tok), Rc.new(args), true, op_tok)
+  Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), Rc.new(AstExprNode.Atom(alloc_global_expr_id(), op_tok)), Rc.new(args), true, op_tok))
 });
 /// True for an atom whose token is a literal kind (compared, never bound).
 _is_literal_atom :: (fn(e : &AstExpr) -> bool)(

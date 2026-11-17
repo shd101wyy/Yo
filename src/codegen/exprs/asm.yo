@@ -212,10 +212,10 @@ ParsedOperand :: struct(
 );
 derive(ParsedOperand, Clone);
 _atom_value_cg :: (fn(e : &AstExpr) -> String)(
-  match(e, .Atom(_, tok) => tok.value.*.clone(), _ => String.from(""))
+  match(e, Rc(.Atom(_, tok)) => tok.value.*.clone(), _ => String.from(""))
 );
 _fn_call_args_cg :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, .FnCall(_, _, Rc(args), _, _) => args.clone(), .Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, Rc(.FnCall(_, _, Rc(args), _, _)) => args.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new())
 );
 /// Read an expr's comptime-string VALUE (decoded, delimiters stripped).
 _cg_comptime_str :: (fn(e : &AstExpr, context : &FunctionGenerationContext) -> Option(String))(
@@ -393,7 +393,7 @@ _parse_operand_for_codegen :: (
 /// Clobber list from clobber()/clobber_abi().
 _parse_clobbers :: (fn(clobber_expr : &AstExpr, context : &FunctionGenerationContext) -> ArrayList(String))({
   clobbers := ArrayList(String).new();
-  kind := match(clobber_expr, .FnCall(_, f, _, _, _) => _atom_value_cg(&f.*), _ => String.from("clobber"));
+  kind := match(clobber_expr, Rc(.FnCall(_, f, _, _, _)) => _atom_value_cg(&f.*), _ => String.from("clobber"));
   if(kind == String.from("clobber_abi"), {
     arch := context.base.target_info.arch;
     match(
@@ -578,7 +578,7 @@ generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGe
   while(arg_idx < args.len(), {
     arg := match(args.get(arg_idx), .Some(a) => a, .None => make_err_expr());
     if(ast_expr_is_fn_call(&arg), {
-      call_name := match(arg, .FnCall(_, f, _, _, _) => _atom_value_cg(&f), _ => String.new());
+      call_name := match(arg, Rc(.FnCall(_, f, _, _, _)) => _atom_value_cg(&f), _ => String.new());
       is_operand := (
         (call_name == "in") || (call_name == "out") || (call_name == "inout") || (call_name == "lateout") ||
           (call_name == "inlateout") || (call_name == "ref")

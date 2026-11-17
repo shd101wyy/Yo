@@ -64,12 +64,12 @@ evaluate_runtime :: (
   // Pull arg out of the FnCall.
   arg_expr := match(
     expr,
-    .FnCall(_, _, Rc(args), _, _) => match(
+    Rc(.FnCall(_, _, Rc(args), _, _)) => match(
       args.get(usize(0)),
       .Some(a) => a,
       .None => make_err_expr()
     ),
-    .Atom(_, _) => make_err_expr()
+    Rc(.Atom(_, _)) => make_err_expr()
   );
   // Recursively evaluate the argument.
   evaluated := evaluate_expression_raw(&arg_expr, env, ctx, exn);

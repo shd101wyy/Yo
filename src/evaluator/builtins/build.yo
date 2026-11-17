@@ -1021,8 +1021,8 @@ evaluate_yo_build_functions :: (
 )({
   args := match(
     expr,
-    .FnCall(_, _, Rc(a), _, _) => a.clone(),
-    .Atom(_, _) => ArrayList(AstExpr).new()
+    Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(),
+    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
   );
   // ── Trial evaluation (function-definition type-check) ───────────────
   // target_host returns the host triple, option returns "", everything

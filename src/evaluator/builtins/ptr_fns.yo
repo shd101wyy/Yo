@@ -5,7 +5,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_to_string, ast_place_text, BF_DOT, projection_tail_mode, value_tail_mode, projection_tail_is_read, ast_expr_is_auto_ref_receiver, ast_rewritten_node, ast_expr_strip_borrow_marker } :: import("../../expr.yo");
+{ AstExpr, AstExprNode, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_to_string, ast_place_text, BF_DOT, projection_tail_mode, value_tail_mode, projection_tail_is_read, ast_expr_is_auto_ref_receiver, ast_rewritten_node, ast_expr_strip_borrow_marker } :: import("../../expr.yo");
 { is_array_type, is_struct_type, is_tuple_type, is_union_type, is_reference_struct_type } :: import("../../types/guards.yo");
 { fn_param_is_ptr_borrow, type_carries_origin } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -54,7 +54,7 @@ _cell1 :: (fn(v : &EvalValue) -> ValueCell)({
 _aggregate_type_of :: (fn(place : &AstExpr, ctx : &EvalContext) -> Option(TypeValue))(
   match(
     place,
-    .FnCall(_, callee, Rc(args), _, _) => {
+    Rc(.FnCall(_, callee, Rc(args), _, _)) => {
       mut(candidates) := ArrayList(AstExpr).new();
       if(!ast_expr_is_fn_call_of(place, BF_DOT, Option(usize).None), {
         candidates.push(callee.*);
@@ -73,7 +73,7 @@ _aggregate_type_of :: (fn(place : &AstExpr, ctx : &EvalContext) -> Option(TypeVa
       });
       found
     },
-    .Atom(_, _) => .None
+    Rc(.Atom(_, _)) => .None
   )
 );
 /// A projection result's root error: the message and its code (E0912 for a
@@ -275,8 +275,8 @@ _projection_root_error :: (fn(place : &AstExpr, is_mut : bool, env : &Environmen
   });
   match(
     pr_rw,
-    .Atom(_, pr_tok) => _projection_root_name_error(&pr_tok.value.*, is_mut, env, ctx),
-    .FnCall(_, pr_callee, Rc(pr_args), _, _) => cond(
+    Rc(.Atom(_, pr_tok)) => _projection_root_name_error(&pr_tok.value.*, is_mut, env, ctx),
+    Rc(.FnCall(_, pr_callee, Rc(pr_args), _, _)) => cond(
       ast_expr_is_fn_call_of(place, BF_DOT, Option(usize).Some(usize(2))) => match(
         pr_args.get(usize(1)),
         // A `.*` through a reference or a raw pointer: the place is wherever
@@ -294,7 +294,7 @@ _projection_root_error :: (fn(place : &AstExpr, is_mut : bool, env : &Environmen
           // them (`fn_param_in_result_origin`'s holder rule).
           rb_param := match(
             ast_rewritten_node(&base),
-            .Atom(_, rb_tok) => match(
+            Rc(.Atom(_, rb_tok)) => match(
               get_variables_from_env(env, rb_tok.value.*.clone()).last_cloned(),
               .Some(rb_v) => if(rb_v.is_parameter() && !rb_v.is_compile_time_only(), Option(String).Some(rb_tok.value.*.clone()), Option(String).None),
               .None => Option(String).None
@@ -517,12 +517,12 @@ _by_value_borrow_param_root :: (fn(place : &AstExpr, env : &Environment, ctx : &
   });
   match(
     br_rw,
-    .Atom(_, br_tok) => match(
+    Rc(.Atom(_, br_tok)) => match(
       get_variables_from_env(env, br_tok.value.*.clone()).last_cloned(),
       .Some(v) => if(_is_by_value_borrow_param(&v, ctx), Option(Variable).Some(v), Option(Variable).None),
       .None => Option(Variable).None
     ),
-    .FnCall(_, br_callee, Rc(br_args), _, _) => cond(
+    Rc(.FnCall(_, br_callee, Rc(br_args), _, _)) => cond(
       ast_expr_is_fn_call_of(place, BF_DOT, Option(usize).Some(usize(2))) => match(
         br_args.get(usize(1)),
         .Some(f) => if(ast_expr_is_atom_of(&f, "*"), Option(Variable).None, {
@@ -547,7 +547,7 @@ evaluate_address_call :: (
 )({
   arg_expr := match(
     expr,
-    .FnCall(_, _, Rc(fargs), _, _) => match(
+    Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
@@ -566,8 +566,8 @@ evaluate_address_call :: (
   if(projection_tail_is_read(expr), {
     pr_name := match(
       &arg_expr,
-      .FnCall(_, _, Rc(pr_args), _, _) => match(pr_args.get(usize(0)), .Some(n) => n, .None => make_err_expr()),
-      .Atom(_, _) => make_err_expr()
+      Rc(.FnCall(_, _, Rc(pr_args), _, _)) => match(pr_args.get(usize(0)), .Some(n) => n, .None => make_err_expr()),
+      Rc(.Atom(_, _)) => make_err_expr()
     );
     pr_var := get_variables_from_env(env, ast_expr_token(&pr_name).value.*.clone()).last_cloned();
     pr_ref := match(&pr_var, .Some(v) => variable_is_reference_binding(v), .None => false);
@@ -583,7 +583,7 @@ evaluate_address_call :: (
           expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&po)),
           .Some(po_info) => {
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &po_info);
-            vr_atom := AstExpr.Atom(ast_expr_id(expr), ast_expr_token(&po).clone());
+            vr_atom := Rc.new(AstExprNode.Atom(ast_expr_id(expr), ast_expr_token(&po).clone()));
             note_rewritten_node(&vr_atom);
             return(vr_atom);
           },
@@ -714,7 +714,7 @@ evaluate_address_call :: (
       .Some(bp) => {
         bp_place := ast_place_text(&arg_expr);
         bp_ty := type_to_string(&variable_value_type(&bp));
-        bp_what := if(match(eval_arg, .Atom(_, _) => true, _ => false), `\`${bp.name}\`, a \`&${bp_ty}\` parameter`, `a place inside \`${bp.name}\`, a \`&${bp_ty}\` parameter`);
+        bp_what := if(match(eval_arg, Rc(.Atom(_, _)) => true, _ => false), `\`${bp.name}\`, a \`&${bp_ty}\` parameter`, `a place inside \`${bp.name}\`, a \`&${bp_ty}\` parameter`);
         exn.throw(
           dyn(
             with_code(
@@ -858,8 +858,8 @@ evaluate_address_call :: (
 evaluate_chain_lend :: (fn(expr : &AstExpr, is_mut : bool, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
   operand := match(
     expr,
-    .FnCall(_, _, Rc(l_args), _, _) => match(l_args.get(usize(0)), .Some(a) => a, .None => return(expr.*)),
-    .Atom(_, _) => return(expr.*)
+    Rc(.FnCall(_, _, Rc(l_args), _, _)) => match(l_args.get(usize(0)), .Some(a) => a, .None => return(expr.*)),
+    Rc(.Atom(_, _)) => return(expr.*)
   );
   l_gout := ArrayList(AstExpr).new();
   l_gerr := evaluate_expression_guarded(&operand, env, ctx, &mut l_gout);

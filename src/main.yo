@@ -197,14 +197,14 @@ C_TMP :: "/tmp/yo_self_out.c";
 extract_bare_import_path :: (fn(e : &AstExpr) -> Option(String))(
   match(
     e,
-    .Atom(_, _) => Option(String).None,
-    .FnCall(_, func_box, Rc(fn_imp_args), is_infix, _) => cond(
+    Rc(.Atom(_, _)) => Option(String).None,
+    Rc(.FnCall(_, func_box, Rc(fn_imp_args), is_infix, _)) => cond(
       is_infix.* => Option(String).None,
       (fn_imp_args.len() != usize(1)) => Option(String).None,
       !match(
         func_box,
-        .Atom(_, tok) => (tok.value.* == BK_IMPORT),
-        .FnCall(_, _, _, _, _) => false
+        Rc(.Atom(_, tok)) => (tok.value.* == BK_IMPORT),
+        Rc(.FnCall(_, _, _, _, _)) => false
       )
       => Option(String).None,
       true => match(
@@ -212,8 +212,8 @@ extract_bare_import_path :: (fn(e : &AstExpr) -> Option(String))(
         .None => Option(String).None,
         .Some(path_arg) => match(
           path_arg,
-          .FnCall(_, _, _, _, _) => Option(String).None,
-          .Atom(_, ptok) => {
+          Rc(.FnCall(_, _, _, _, _)) => Option(String).None,
+          Rc(.Atom(_, ptok)) => {
             raw := ptok.value.*.clone();
             n := raw.len();
             cond(
@@ -233,12 +233,12 @@ extract_bare_import_path :: (fn(e : &AstExpr) -> Option(String))(
 extract_import_path :: (fn(expr : &AstExpr) -> Option(String))(
   match(
     expr,
-    .Atom(_, _) => Option(String).None,
-    .FnCall(_, func_box, Rc(fn_imp_args), is_infix, _) => {
+    Rc(.Atom(_, _)) => Option(String).None,
+    Rc(.FnCall(_, func_box, Rc(fn_imp_args), is_infix, _)) => {
       fval := match(
         func_box,
-        .Atom(_, tok) => tok.value.*.clone(),
-        .FnCall(_, _, _, _, _) => String.new()
+        Rc(.Atom(_, tok)) => tok.value.*.clone(),
+        Rc(.FnCall(_, _, _, _, _)) => String.new()
       );
       cond(
         // Pattern: { Names } :: import("path") (infix ::)
@@ -279,8 +279,8 @@ collect_import_paths_recursive :: (
   );
   match(
     expr,
-    .Atom(_, _) => (),
-    .FnCall(_, fb, Rc(walk_args), _, _) => {
+    Rc(.Atom(_, _)) => (),
+    Rc(.FnCall(_, fb, Rc(walk_args), _, _)) => {
       recur(&fb.*, out);
       (i : usize) = usize(0);
       while(i < walk_args.len(), {
@@ -350,14 +350,14 @@ try_populate_expr_info_table :: (
 extract_test_name :: (fn(expr : &AstExpr) -> Option(String))(
   match(
     expr,
-    .Atom(_, _) => Option(String).None,
-    .FnCall(_, func_box, Rc(fn_args), is_infix, _) => cond(
+    Rc(.Atom(_, _)) => Option(String).None,
+    Rc(.FnCall(_, func_box, Rc(fn_args), is_infix, _)) => cond(
       is_infix.* => Option(String).None,
       (fn_args.len() < usize(2)) => Option(String).None,
       !match(
         func_box,
-        .Atom(_, ftok) => (ftok.value.* == "test"),
-        .FnCall(_, _, _, _, _) => false
+        Rc(.Atom(_, ftok)) => (ftok.value.* == "test"),
+        Rc(.FnCall(_, _, _, _, _)) => false
       )
       => Option(String).None,
       true => match(
@@ -365,8 +365,8 @@ extract_test_name :: (fn(expr : &AstExpr) -> Option(String))(
         .None => Option(String).None,
         .Some(name_expr) => match(
           name_expr,
-          .FnCall(_, _, _, _, _) => Option(String).None,
-          .Atom(_, ntok) => cond(
+          Rc(.FnCall(_, _, _, _, _)) => Option(String).None,
+          Rc(.Atom(_, ntok)) => cond(
             (ntok.kind == TokenKind.StringLit) => {
               // The token value is the RAW quoted source: decode the escapes
               // with the evaluator's own table (a `\"` in a test name printed
@@ -391,8 +391,8 @@ extract_test_name :: (fn(expr : &AstExpr) -> Option(String))(
 extract_test_body :: (fn(expr : &AstExpr) -> Option(AstExpr))(
   match(
     expr,
-    .Atom(_, _) => Option(AstExpr).None,
-    .FnCall(_, _, Rc(fn_args), _, _) => cond(
+    Rc(.Atom(_, _)) => Option(AstExpr).None,
+    Rc(.FnCall(_, _, Rc(fn_args), _, _)) => cond(
       (fn_args.len() < usize(2)) => Option(AstExpr).None,
       true => fn_args.get(usize(1))
     )
@@ -1738,8 +1738,8 @@ _run_migrate_deref :: (
             .Some(asts) => (
               (asts.len() == usize(1)) && match(
                 asts(usize(0)),
-                .FnCall(_, _, Rc(d_args), _, _) => (ast_expr_is_fn_call_of(&asts(usize(0)), BF_DOT, .Some(usize(2))) && match(d_args.get(usize(0)), .Some(d_obj) => (ast_expr_to_string(&d_obj) == st.expect), .None => false) && match(d_args.get(usize(1)), .Some(d_fld) => ast_expr_is_atom_of(&d_fld, "*"), .None => false)),
-                .Atom(_, _) => false
+                Rc(.FnCall(_, _, Rc(d_args), _, _)) => (ast_expr_is_fn_call_of(&asts(usize(0)), BF_DOT, .Some(usize(2))) && match(d_args.get(usize(0)), .Some(d_obj) => (ast_expr_to_string(&d_obj) == st.expect), .None => false) && match(d_args.get(usize(1)), .Some(d_fld) => ast_expr_is_atom_of(&d_fld, "*"), .None => false)),
+                Rc(.Atom(_, _)) => false
               )
             ),
             .None => false
@@ -1772,10 +1772,10 @@ _run_migrate_deref :: (
 /// The callee name of a call node (`:=`, `=>`, `cond`, ...), or "" for an atom
 /// or a call whose callee is itself a call.
 _record_head :: (fn(e : &AstExpr) -> String)(
-  match(e, .FnCall(_, .Atom(_, t), _, _, _) => t.value.*.clone(), _ => String.new())
+  match(e, Rc(.FnCall(_, Rc(.Atom(_, t)), _, _, _)) => t.value.*.clone(), _ => String.new())
 );
 _record_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new())
 );
 /// A match arm's or closure's left side is a binder: nothing in it builds a
 /// record, except the guard of `(pattern && (guard))`, which is an expression.
@@ -1815,10 +1815,10 @@ _record_sites_expr :: (fn(e : &AstExpr, out : &mut ArrayList(Token)) -> unit)({
   });
   match(
     e,
-    .FnCall(_, callee, _, _, _) => if(!ast_expr_is_atom(callee), {
+    Rc(.FnCall(_, callee, _, _, _)) => if(!ast_expr_is_atom(callee), {
       _record_sites_expr(callee, out);
     }),
-    .Atom(_, _) => ()
+    Rc(.Atom(_, _)) => ()
   );
   (i : usize) = start;
   while(i < rargs.len(), i = (i + usize(1)), {
@@ -6562,7 +6562,7 @@ _is_main_definition :: (fn(e : &AstExpr) -> bool)(
   ast_expr_is_fn_call_of(e, BK_CONST, Option(usize).Some(usize(2))) &&
     match(
       e,
-      .FnCall(_, _, Rc(args), _, _) => match(
+      Rc(.FnCall(_, _, Rc(args), _, _)) => match(
         args.get(usize(0)),
         .Some(lhs) => (ast_expr_is_atom(&lhs) && (ast_expr_token(&lhs).value.* == "main")),
         .None => false
@@ -6579,7 +6579,7 @@ _export_without_main :: (fn(e : &AstExpr) -> Option(String))({
   kept := ArrayList(String).new();
   match(
     e,
-    .FnCall(_, _, Rc(args), _, _) => {
+    Rc(.FnCall(_, _, Rc(args), _, _)) => {
       (ai : usize) = usize(0);
       while(ai < args.len(), {
         match(
@@ -7844,7 +7844,7 @@ run_test :: (
       e := match(prog.get(pi), .Some(x) => x, .None => make_err_expr());
       pi = (pi + usize(1));
       if(ast_expr_is_fn_call_of(&e, BK_TEST, .None), {
-        targs := match(e, .FnCall(_, _, Rc(a2), _, _) => a2.clone(), _ => ArrayList(AstExpr).new());
+        targs := match(e, Rc(.FnCall(_, _, Rc(a2), _, _)) => a2.clone(), _ => ArrayList(AstExpr).new());
         if(targs.len() >= usize(2), {
           // Go through extract_test_name, which strips the surrounding quotes a
           // StringLit token value carries ("name" -> name): it reads the

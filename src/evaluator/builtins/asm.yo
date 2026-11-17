@@ -87,7 +87,7 @@ _is_valid_asm_operand_type :: (fn(t : &TypeValue) -> bool)(
   is_integer_type(t) || is_float_type(t) || is_pointer_type(t) || is_bool_type(t)
 );
 _atom_value :: (fn(e : &AstExpr) -> String)(
-  match(e, .Atom(_, tok) => tok.value.*.clone(), _ => String.from(""))
+  match(e, Rc(.Atom(_, tok)) => tok.value.*.clone(), _ => String.from(""))
 );
 _is_register_class_atom :: (fn(e : &AstExpr) -> bool)(
   ast_expr_is_atom(e) && _str_in(_register_classes(), _atom_value(e))
@@ -98,8 +98,8 @@ _is_asm_subcall :: (fn(e : &AstExpr) -> bool)({
   });
   fname := match(
     e,
-    .FnCall(_, f, _, _, _) => _atom_value(&f.*),
-    .Atom(_, _) => String.from("")
+    Rc(.FnCall(_, f, _, _, _)) => _atom_value(&f.*),
+    Rc(.Atom(_, _)) => String.from("")
   );
   (fname.len() > usize(0)) && _is_asm_subcall_name(&fname)
 });
@@ -107,7 +107,7 @@ _is_discard_atom :: (fn(e : &AstExpr) -> bool)(
   ast_expr_is_atom(e) && (_atom_value(e) == String.from("_"))
 );
 _fn_call_args_of :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, .FnCall(_, _, Rc(args), _, _) => args.clone(), .Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, Rc(.FnCall(_, _, Rc(args), _, _)) => args.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new())
 );
 /// Strip the surrounding `"` delimiters that the StrLit convention
 /// keeps (see evaluator/values/string.yo — raw stores the QUOTED token).
@@ -778,8 +778,8 @@ evaluate_asm :: (
     });
     call_name := match(
       arg,
-      .FnCall(_, f, _, _, _) => _atom_value(&f),
-      .Atom(_, _) => String.from("")
+      Rc(.FnCall(_, f, _, _, _)) => _atom_value(&f),
+      Rc(.Atom(_, _)) => String.from("")
     );
     if(call_name.len() == usize(0), {
       exn.throw(

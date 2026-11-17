@@ -236,13 +236,13 @@ _ms_touched_add :: (fn(touched : &mut ArrayList(String), fid : &String) -> unit)
 _ms_body_dups_first_param :: (fn(fid : &String, body : &AstExpr) -> bool)(
   match(
     body,
-    .FnCall(_, _, Rc(args), _, _) => if(
+    Rc(.FnCall(_, _, Rc(args), _, _)) => if(
       ast_expr_is_fn_call_of(body, "___dup", Option(usize).Some(usize(1))),
       match(
         args.get(usize(0)),
         .Some(a) => match(
           a,
-          .Atom(_, tok) => match(_msp_labels(fid).items.get_cloned(usize(0)), .Some(l0) => (l0 == tok.value.*), .None => false),
+          Rc(.Atom(_, tok)) => match(_msp_labels(fid).items.get_cloned(usize(0)), .Some(l0) => (l0 == tok.value.*), .None => false),
           _ => false
         ),
         .None => false
@@ -419,16 +419,16 @@ impl(
     (args : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
     match(
       e,
-      .FnCall(_, f, Rc(a), _, _) => {
+      Rc(.FnCall(_, f, Rc(a), _, _)) => {
         func_expr = f.*;
         args = a.clone();
       },
-      .Atom(_, _) => ()
+      Rc(.Atom(_, _)) => ()
     );
     (head : String) = String.new();
     match(
       func_expr,
-      .Atom(_, ht) => {
+      Rc(.Atom(_, ht)) => {
         head = ht.value.*.clone();
       },
       _ => ()
@@ -495,14 +495,14 @@ impl(
               (arm_body : Option(AstExpr)) = Option(AstExpr).None;
               match(
                 arm,
-                .FnCall(_, af, Rc(aargs), _, _) => match(
+                Rc(.FnCall(_, af, Rc(aargs), _, _)) => match(
                   af,
-                  .Atom(_, at) => if(((at.value.* == "=>") || (at.value.* == "->")) && (aargs.len() == usize(2)), {
+                  Rc(.Atom(_, at)) => if(((at.value.* == "=>") || (at.value.* == "->")) && (aargs.len() == usize(2)), {
                     arm_body = aargs.get(usize(1));
                   }),
                   _ => ()
                 ),
-                .Atom(_, _) => ()
+                Rc(.Atom(_, _)) => ()
               );
               match(
                 arm_body,
@@ -998,21 +998,21 @@ _msp_allocator_slot :: (fn(func_expr : &AstExpr, table : &ExprInfoTable) -> Stri
   (field : String) = String.new();
   match(
     func_expr,
-    .FnCall(_, _, Rc(dargs), _, _) => {
+    Rc(.FnCall(_, _, Rc(dargs), _, _)) => {
       recv_opt = dargs.get(usize(0));
       match(
         dargs.get(usize(1)),
         .Some(fa) => match(
           fa,
-          .Atom(_, ft) => {
+          Rc(.Atom(_, ft)) => {
             field = ft.value.*.clone();
           },
-          .FnCall(_, _, _, _, _) => ()
+          Rc(.FnCall(_, _, _, _, _)) => ()
         ),
         .None => ()
       );
     },
-    .Atom(_, _) => ()
+    Rc(.Atom(_, _)) => ()
   );
   if(!((field == "alloc") || (field == "realloc") || (field == "free")), {
     return(String.new());
@@ -1264,13 +1264,13 @@ _msp_atom_local_name :: (fn(ctx : &_MspCtx, atom : &AstExpr) -> Option(String))(
 _msp_pattern_names :: (fn(pat : &AstExpr, out : &mut ArrayList(String)) -> unit)({
   match(
     pat,
-    .Atom(_, t) => if(!t.value.*.starts_with(".") && !(t.value.* == "_"), {
+    Rc(.Atom(_, t)) => if(!t.value.*.starts_with(".") && !(t.value.* == "_"), {
       out.push(t.value.*.clone());
     }),
-    .FnCall(_, f, Rc(args), _, _) => {
-      is_colon := match(f, .Atom(_, ft) => (ft.value.* == ":"), _ => false);
+    Rc(.FnCall(_, f, Rc(args), _, _)) => {
+      is_colon := match(f, Rc(.Atom(_, ft)) => (ft.value.* == ":"), _ => false);
       // A variant reference (`.None`, the head of `.Some(x)`) binds nothing.
-      is_variant := match(f, .Atom(_, fv) => (fv.value.* == "."), _ => false);
+      is_variant := match(f, Rc(.Atom(_, fv)) => (fv.value.* == "."), _ => false);
       if(is_variant, {
         return(());
       });
@@ -1291,10 +1291,10 @@ _msp_pattern_names :: (fn(pat : &AstExpr, out : &mut ArrayList(String)) -> unit)
 _msp_type_of_name_in :: (fn(e : &AstExpr, name : &String, table : &ExprInfoTable) -> Option(TypeValue))(
   match(
     e,
-    .Atom(
+    Rc(.Atom(
       _,
       t
-    ) => if(
+    )) => if(
       t.value.* == name.*,
       match(
         expr_info_table_get(
@@ -1306,13 +1306,13 @@ _msp_type_of_name_in :: (fn(e : &AstExpr, name : &String, table : &ExprInfoTable
       ),
       Option(TypeValue).None
     ),
-    .FnCall(
+    Rc(.FnCall(
       _,
       f,
       Rc(args),
       _,
       _
-    ) => {
+    )) => {
       r := recur(&f.*, name.clone(), table);
       if(r.is_some(), {
         return(r);
@@ -1340,12 +1340,12 @@ _msp_type_of_name_in :: (fn(e : &AstExpr, name : &String, table : &ExprInfoTable
 _msp_store_prefix :: (fn(lhs : &AstExpr) -> Option(AstExpr))(
   match(
     lhs,
-    .FnCall(_, f, Rc(args), _, _) => if(
+    Rc(.FnCall(_, f, Rc(args), _, _)) => if(
       ast_expr_is_fn_call_of(lhs, BF_DOT, Option(usize).Some(usize(2))),
       args.get(usize(0)),
       Option(AstExpr).Some(f.*)
     ),
-    .Atom(_, _) => Option(AstExpr).None
+    Rc(.Atom(_, _)) => Option(AstExpr).None
   )
 );
 /// The local variable at the bottom of a place chain, if any.
@@ -1355,10 +1355,10 @@ _msp_place_base_atom :: (fn(e : &AstExpr) -> Option(AstExpr))({
   while(walking, {
     match(
       cur,
-      .Atom(_, _) => {
+      Rc(.Atom(_, _)) => {
         walking = false;
       },
-      .FnCall(_, f, Rc(args), _, _) => if(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
+      Rc(.FnCall(_, f, Rc(args), _, _)) => if(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
         cur = match(args.get(usize(0)), .Some(b) => b, .None => cur);
       }, {
         cur = f;
@@ -1404,12 +1404,12 @@ _msp_arm_is_dead :: (fn(arm : &AstExpr, table : &ExprInfoTable) -> bool)({
   });
   match(
     arm,
-    .FnCall(_, _, Rc(aargs), _, _) => match(
+    Rc(.FnCall(_, _, Rc(aargs), _, _)) => match(
       aargs.get(usize(1)),
       .Some(b) => expr_info_table_get(table, ast_expr_id(&b)).is_none(),
       .None => false
     ),
-    .Atom(_, _) => false
+    Rc(.Atom(_, _)) => false
   )
 });
 /// An argument with its call-site marker peeled (decision 33): `&x` and
@@ -1554,7 +1554,7 @@ impl(
     if(((args.len() + usize(1)) == labels_len) && ast_expr_is_fn_call_of(func_expr, BF_DOT, Option(usize).Some(usize(2))), {
       match(
         func_expr,
-        .FnCall(_, _, Rc(dargs), _, _) => match(
+        Rc(.FnCall(_, _, Rc(dargs), _, _)) => match(
           dargs.get(usize(0)),
           .Some(recv) => {
             recv_is_type := match(expr_info_table_get(table, ast_expr_id(&recv)), .Some(ri) => is_type_value(&ri.value()), .None => false);
@@ -1570,7 +1570,7 @@ impl(
           },
           .None => ()
         ),
-        .Atom(_, _) => ()
+        Rc(.Atom(_, _)) => ()
       );
     });
     // A plain call omitting trailing `?=` parameters (`Box.new(v)` for
@@ -1772,14 +1772,14 @@ impl(
     );
     match(
       e,
-      .Atom(_, _) => if(is_tail, {
+      Rc(.Atom(_, _)) => if(is_tail, {
         out.push(e.*);
       }),
-      .FnCall(_, f, Rc(args), _, _) => {
+      Rc(.FnCall(_, f, Rc(args), _, _)) => {
         (head : String) = String.new();
         match(
           f,
-          .Atom(_, ht) => {
+          Rc(.Atom(_, ht)) => {
             head = ht.value.*.clone();
           },
           _ => ()
@@ -1810,13 +1810,13 @@ impl(
                 if(is_arm && !_msp_arm_is_dead(&arm, table), {
                   match(
                     arm,
-                    .FnCall(_, _, Rc(aargs), _, _) => {
+                    Rc(.FnCall(_, _, Rc(aargs), _, _)) => {
                       if(head == "cond", {
                         match(aargs.get(usize(0)), .Some(t) => _MsP.return_exprs(&t, table, out, false), .None => ());
                       });
                       match(aargs.get(usize(1)), .Some(b) => _MsP.return_exprs(&b, table, out, is_tail), .None => ());
                     },
-                    .Atom(_, _) => ()
+                    Rc(.Atom(_, _)) => ()
                   );
                 }, {
                   // the match scrutinee (or a malformed arm)
@@ -1885,16 +1885,16 @@ impl(
     (args : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
     match(
       e,
-      .FnCall(_, f, Rc(a), _, _) => {
+      Rc(.FnCall(_, f, Rc(a), _, _)) => {
         func_expr = f.*;
         args = a.clone();
       },
-      .Atom(_, _) => ()
+      Rc(.Atom(_, _)) => ()
     );
     (head : String) = String.new();
     match(
       func_expr,
-      .Atom(_, ht) => {
+      Rc(.Atom(_, ht)) => {
         head = ht.value.*.clone();
       },
       _ => ()
@@ -1930,14 +1930,14 @@ impl(
             if(is_arm && !_msp_arm_is_dead(&arm, &ctx.table), {
               match(
                 arm,
-                .FnCall(_, _, Rc(aargs), _, _) => match(
+                Rc(.FnCall(_, _, Rc(aargs), _, _)) => match(
                   aargs.get(usize(1)),
                   .Some(b) => {
                     acc = _msp_join(acc, _MsP.classify(&b, ctx));
                   },
                   .None => ()
                 ),
-                .Atom(_, _) => ()
+                Rc(.Atom(_, _)) => ()
               );
             });
           },
@@ -2122,14 +2122,14 @@ impl(
     );
     match(
       e,
-      .Atom(_, _) => {
+      Rc(.Atom(_, _)) => {
         match(_msp_atom_local_name(ctx, e), .Some(n) => out.push(n), .None => ());
       },
-      .FnCall(_, f, Rc(args), _, _) => {
+      Rc(.FnCall(_, f, Rc(args), _, _)) => {
         (head : String) = String.new();
         match(
           f,
-          .Atom(_, ht) => {
+          Rc(.Atom(_, ht)) => {
             head = ht.value.*.clone();
           },
           _ => ()
@@ -2158,8 +2158,8 @@ impl(
               .Some(arm) => if((ast_expr_is_fn_call_of(&arm, "=>", Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(&arm, "->", Option(usize).Some(usize(2)))) && !_msp_arm_is_dead(&arm, &ctx.table), {
                 match(
                   arm,
-                  .FnCall(_, _, Rc(aargs), _, _) => match(aargs.get(usize(1)), .Some(b) => _MsP.flowing(&b, ctx, out), .None => ()),
-                  .Atom(_, _) => ()
+                  Rc(.FnCall(_, _, Rc(aargs), _, _)) => match(aargs.get(usize(1)), .Some(b) => _MsP.flowing(&b, ctx, out), .None => ()),
+                  Rc(.Atom(_, _)) => ()
                 );
               }),
               .None => ()
@@ -2246,7 +2246,7 @@ impl(
     if(ast_expr_is_fn_call_of(func_expr, BF_DOT, Option(usize).Some(usize(2))), {
       match(
         func_expr,
-        .FnCall(_, _, Rc(dargs), _, _) => match(
+        Rc(.FnCall(_, _, Rc(dargs), _, _)) => match(
           dargs.get(usize(0)),
           .Some(recv) => match(
             expr_info_table_get(table, ast_expr_id(&recv)),
@@ -2257,7 +2257,7 @@ impl(
           ),
           .None => ()
         ),
-        .Atom(_, _) => ()
+        Rc(.Atom(_, _)) => ()
       );
     });
     (i : usize) = usize(0);
@@ -2355,14 +2355,14 @@ impl(
       if(ast_expr_is_fn_call_of(func_expr, BF_DOT, Option(usize).Some(usize(2))), {
         match(
           func_expr,
-          .FnCall(_, _, Rc(dargs), _, _) => match(
+          Rc(.FnCall(_, _, Rc(dargs), _, _)) => match(
             dargs.get(usize(0)),
             .Some(recv) => {
               acc0 = _msp_join(acc0, _MsP.classify(&recv, ctx));
             },
             .None => ()
           ),
-          .Atom(_, _) => ()
+          Rc(.Atom(_, _)) => ()
         );
       });
       return(if(_msp_builtin_keeps_value(&ex.name), acc0, _msp_as_contents(acc0)));
@@ -2456,16 +2456,16 @@ impl(
     (args : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
     match(
       e,
-      .FnCall(_, f, Rc(a), _, _) => {
+      Rc(.FnCall(_, f, Rc(a), _, _)) => {
         func_expr = f.*;
         args = a.clone();
       },
-      .Atom(_, _) => ()
+      Rc(.Atom(_, _)) => ()
     );
     (head : String) = String.new();
     match(
       func_expr,
-      .Atom(_, ht) => {
+      Rc(.Atom(_, ht)) => {
         head = ht.value.*.clone();
       },
       _ => ()
@@ -2479,13 +2479,13 @@ impl(
       r := _MsP.classify(rhs, ctx);
       match(
         lhs,
-        .Atom(_, lt) => _MsP.define_from(ctx, lt.value.*.clone(), r, &rhs),
-        .FnCall(_, lf, Rc(largs), _, _) => {
-          is_inout := match(lf, .Atom(_, lft) => ((lft.value.* == BK_MUT) || (lft.value.* == BK_IMM)), _ => false);
+        Rc(.Atom(_, lt)) => _MsP.define_from(ctx, lt.value.*.clone(), r, &rhs),
+        Rc(.FnCall(_, lf, Rc(largs), _, _)) => {
+          is_inout := match(lf, Rc(.Atom(_, lft)) => ((lft.value.* == BK_MUT) || (lft.value.* == BK_IMM)), _ => false);
           if(is_inout, {
             match(
               largs.get(usize(0)),
-              .Some(la) => match(la, .Atom(_, lat) => _msp_def(ctx, lat.value.*.clone(), r), _ => ()),
+              .Some(la) => match(la, Rc(.Atom(_, lat)) => _msp_def(ctx, lat.value.*.clone(), r), _ => ()),
               .None => ()
             );
           }, {
@@ -2510,15 +2510,15 @@ impl(
       // aliases the new place too (the join keeps every target it had).
       match(
         lhs,
-        .FnCall(_, rlf, Rc(rlargs), _, _) => if(match(rlf, .Atom(_, rlft) => ((rlft.value.* == BK_MUT) || (rlft.value.* == BK_IMM)), _ => false), {
+        Rc(.FnCall(_, rlf, Rc(rlargs), _, _)) => if(match(rlf, Rc(.Atom(_, rlft)) => ((rlft.value.* == BK_MUT) || (rlft.value.* == BK_IMM)), _ => false), {
           match(
             rlargs.get(usize(0)),
-            .Some(rla) => match(rla, .Atom(_, rlat) => _msp_def(ctx, rlat.value.*.clone(), _MsP.classify(&rhs, ctx)), _ => ()),
+            .Some(rla) => match(rla, Rc(.Atom(_, rlat)) => _msp_def(ctx, rlat.value.*.clone(), _MsP.classify(&rhs, ctx)), _ => ()),
             .None => ()
           );
           return(());
         }),
-        .Atom(_, _) => ()
+        Rc(.Atom(_, _)) => ()
       );
       _MsP.collect(&lhs, ctx);
       r := _MsP.classify(&rhs, ctx);
@@ -2526,18 +2526,18 @@ impl(
       if(ast_expr_is_fn_call_of(&lhs, BK_COLON, Option(usize).Some(usize(2))), {
         match(
           lhs,
-          .FnCall(_, _, Rc(cargs), _, _) => match(
+          Rc(.FnCall(_, _, Rc(cargs), _, _)) => match(
             cargs.get(usize(0)),
-            .Some(na) => match(na, .Atom(_, nt) => _MsP.define_from(ctx, nt.value.*.clone(), r, &rhs), _ => ()),
+            .Some(na) => match(na, Rc(.Atom(_, nt)) => _MsP.define_from(ctx, nt.value.*.clone(), r, &rhs), _ => ()),
             .None => ()
           ),
-          .Atom(_, _) => ()
+          Rc(.Atom(_, _)) => ()
         );
         return(());
       });
       match(
         lhs,
-        .Atom(_, lt) => {
+        Rc(.Atom(_, lt)) => {
           // Whole-variable store.
           env_opt := match(info_opt, .Some(si) => Option(Environment).Some(si.env()), .None => Option(Environment).None);
           match(
@@ -2560,7 +2560,7 @@ impl(
             .None => _MsP.taint_flowing(&rhs, ctx, MSP_ROOTED)
           );
         },
-        .FnCall(_, _, _, _, _) => {
+        Rc(.FnCall(_, _, _, _, _)) => {
           if(ast_expr_is_fn_call_of(&lhs, "tuple", Option(usize).None), {
             // Destructuring assignment: each name receives contents of rhs.
             names := ArrayList(String).new();
@@ -2601,8 +2601,8 @@ impl(
             if(!_msp_arm_is_dead(&arm, &ctx.table), {
               match(
                 arm,
-                .FnCall(_, af, Rc(aargs), _, _) => {
-                  is_arm := (match(af, .Atom(_, at) => ((at.value.* == "=>") || (at.value.* == "->")), _ => false) && (aargs.len() == usize(2)));
+                Rc(.FnCall(_, af, Rc(aargs), _, _)) => {
+                  is_arm := (match(af, Rc(.Atom(_, at)) => ((at.value.* == "=>") || (at.value.* == "->")), _ => false) && (aargs.len() == usize(2)));
                   if(is_arm, {
                     pat := match(aargs.get(usize(0)), .Some(p) => p, .None => arm);
                     body := match(aargs.get(usize(1)), .Some(b) => b, .None => arm);
@@ -2625,7 +2625,7 @@ impl(
                     _MsP.collect(&arm, ctx);
                   });
                 },
-                .Atom(_, _) => ()
+                Rc(.Atom(_, _)) => ()
               );
             });
           },
@@ -2796,7 +2796,7 @@ impl(
     if(ast_expr_is_fn_call_of(func_expr, BF_DOT, Option(usize).Some(usize(2))), {
       match(
         func_expr,
-        .FnCall(_, _, Rc(dargs), _, _) => match(
+        Rc(.FnCall(_, _, Rc(dargs), _, _)) => match(
           dargs.get(usize(0)),
           .Some(recv) => {
             rr := _MsP.classify(&recv, ctx);
@@ -2804,7 +2804,7 @@ impl(
           },
           .None => ()
         ),
-        .Atom(_, _) => ()
+        Rc(.Atom(_, _)) => ()
       );
     });
     (i : usize) = usize(0);
@@ -2852,8 +2852,8 @@ impl(
               j < off,
               match(
                 func_expr,
-                .FnCall(_, _, Rc(dargs), _, _) => if(ast_expr_is_fn_call_of(func_expr, BF_DOT, Option(usize).Some(usize(2))), dargs.get(usize(0)), Option(AstExpr).None),
-                .Atom(_, _) => Option(AstExpr).None
+                Rc(.FnCall(_, _, Rc(dargs), _, _)) => if(ast_expr_is_fn_call_of(func_expr, BF_DOT, Option(usize).Some(usize(2))), dargs.get(usize(0)), Option(AstExpr).None),
+                Rc(.Atom(_, _)) => Option(AstExpr).None
               ),
               args.get(j - off)
             );
@@ -2862,7 +2862,7 @@ impl(
               .Some(ra) => {
                 ru := if(
                   ast_expr_is_fn_call_of(&ra, BK_COLON, Option(usize).Some(usize(2))),
-                  match(&ra, .FnCall(_, _, Rc(la), _, _) => match(la.get(usize(1)), .Some(v) => v, .None => ra.clone()), .Atom(_, _) => ra.clone()),
+                  match(&ra, Rc(.FnCall(_, _, Rc(la), _, _)) => match(la.get(usize(1)), .Some(v) => v, .None => ra.clone()), Rc(.Atom(_, _)) => ra.clone()),
                   ra
                 );
                 if(ast_expr_is_fn_call_of(&ru, BK_BORROW_MUT, Option(usize).Some(usize(1))), {
@@ -2940,16 +2940,16 @@ impl(
     (args : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
     match(
       e,
-      .FnCall(_, f, Rc(a), _, _) => {
+      Rc(.FnCall(_, f, Rc(a), _, _)) => {
         func_expr = f.*;
         args = a.clone();
       },
-      .Atom(_, _) => ()
+      Rc(.Atom(_, _)) => ()
     );
     (head : String) = String.new();
     match(
       func_expr,
-      .Atom(_, ht) => {
+      Rc(.Atom(_, ht)) => {
         head = ht.value.*.clone();
       },
       _ => ()
@@ -3024,7 +3024,7 @@ impl(
       });
       match(
         lhs,
-        .Atom(_, lt) => {
+        Rc(.Atom(_, lt)) => {
           env_opt := match(info_opt, .Some(si) => Option(Environment).Some(si.env()), .None => Option(Environment).None);
           match(
             env_opt,
@@ -3076,7 +3076,7 @@ impl(
             }
           );
         },
-        .FnCall(_, lf, Rc(largs), _, _) => {
+        Rc(.FnCall(_, lf, Rc(largs), _, _)) => {
           if(ast_expr_is_fn_call_of(&lhs, "tuple", Option(usize).None), {
             (ti : usize) = usize(0);
             while(ti < largs.len(), {
@@ -3125,15 +3125,15 @@ impl(
             if(!_msp_arm_is_dead(&arm, &ctx.table), {
               match(
                 arm,
-                .FnCall(_, af, Rc(aargs), _, _) => {
-                  is_arm := (match(af, .Atom(_, at) => ((at.value.* == "=>") || (at.value.* == "->")), _ => false) && (aargs.len() == usize(2)));
+                Rc(.FnCall(_, af, Rc(aargs), _, _)) => {
+                  is_arm := (match(af, Rc(.Atom(_, at)) => ((at.value.* == "=>") || (at.value.* == "->")), _ => false) && (aargs.len() == usize(2)));
                   if(is_arm, {
                     match(aargs.get(usize(1)), .Some(b) => _msp_mask_or(&m, _MsP.walk(&b, ctx)), .None => ());
                   }, {
                     _msp_mask_or(&m, _MsP.walk(&arm, ctx));
                   });
                 },
-                .Atom(_, _) => ()
+                Rc(.Atom(_, _)) => ()
               );
             });
           },
@@ -3281,7 +3281,7 @@ impl(
                   if(ast_expr_is_fn_call_of(&func_expr, BF_DOT, Option(usize).Some(usize(2))), {
                     match(
                       func_expr,
-                      .FnCall(_, _, Rc(dargs), _, _) => match(
+                      Rc(.FnCall(_, _, Rc(dargs), _, _)) => match(
                         dargs.get(usize(0)),
                         .Some(recv) => {
                           rr := _MsP.classify(&recv, ctx);
@@ -3292,7 +3292,7 @@ impl(
                         },
                         .None => ()
                       ),
-                      .Atom(_, _) => ()
+                      Rc(.Atom(_, _)) => ()
                     );
                   });
                   (ai2 : usize) = usize(0);
@@ -3517,7 +3517,7 @@ _rcw_type_of :: (fn(e : &AstExpr, table : &ExprInfoTable) -> Option(TypeValue))(
 );
 /// The head name of a call's callee, "" for a callee that is not an atom.
 _rcw_head :: (fn(f : &AstExpr) -> String)(
-  match(f, .Atom(_, ft) => ft.value.*.clone(), _ => String.new())
+  match(f, Rc(.Atom(_, ft)) => ft.value.*.clone(), _ => String.new())
 );
 /// The cell step of `place` to report: the `Rc` step nearest the written
 /// storage when the place goes through any `Rc`, else the nearest `ref`
@@ -3546,7 +3546,7 @@ _rcw_crossing :: (fn(place : &AstExpr, table : &ExprInfoTable) -> Option(_RcwCro
         (pass_base : Option(AstExpr)) = Option(AstExpr).None;
         match(
           cur,
-          .FnCall(_, f, Rc(args), _, _) => {
+          Rc(.FnCall(_, f, Rc(args), _, _)) => {
             head := _rcw_head(&f);
             cond(
               ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))) => {
@@ -3567,7 +3567,7 @@ _rcw_crossing :: (fn(place : &AstExpr, table : &ExprInfoTable) -> Option(_RcwCro
               true => ()
             );
           },
-          .Atom(_, _) => ()
+          Rc(.Atom(_, _)) => ()
         );
         match(
           step_base,
@@ -3673,11 +3673,11 @@ _rcw_walk :: (fn(e : &AstExpr, ctx : &_MspCtx, in_closure_in : bool) -> unit)({
   (args : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
   match(
     e,
-    .FnCall(_, f, Rc(a), _, _) => {
+    Rc(.FnCall(_, f, Rc(a), _, _)) => {
       func_expr = f.*;
       args = a.clone();
     },
-    .Atom(_, _) => {
+    Rc(.Atom(_, _)) => {
       return(());
     }
   );
@@ -4137,16 +4137,16 @@ _gr_walk :: (fn(e : &AstExpr, ctx : &_GrCtx) -> Option(String))({
   );
   match(
     e,
-    .Atom(_, _) => match(
+    Rc(.Atom(_, _)) => match(
       _gr_atom(e, ctx),
       .Some(m) => Option(String).Some(m),
       .None => _gr_value_function(e, ctx)
     ),
-    .FnCall(_, f, Rc(args), _, _) => {
+    Rc(.FnCall(_, f, Rc(args), _, _)) => {
       (head : String) = String.new();
       match(
         f,
-        .Atom(_, ht) => {
+        Rc(.Atom(_, ht)) => {
           head = ht.value.*.clone();
         },
         _ => ()

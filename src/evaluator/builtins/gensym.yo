@@ -5,7 +5,7 @@
 //! Returns an ExprVal holding the new atom expression.
 { String } :: import("std/string");
 {
-  AstExpr,
+  AstExpr, AstExprNode,
   ast_expr_token,
   ast_expr_id,
   ast_expr_to_string,
@@ -38,12 +38,12 @@ evaluate_gensym :: (
   // Extract optional prefix argument.
   (args_opt_0 : Option(AstExpr)) = match(
     expr,
-    .FnCall(_, _, Rc(args), _, _) => args.get(usize(0)),
+    Rc(.FnCall(_, _, Rc(args), _, _)) => args.get(usize(0)),
     _ => Option(AstExpr).None
   );
   (n_args : usize) = match(
     expr,
-    .FnCall(_, _, Rc(args), _, _) => args.len(),
+    Rc(.FnCall(_, _, Rc(args), _, _)) => args.len(),
     _ => usize(0)
   );
   (prefix : String) = String.new();
@@ -127,7 +127,7 @@ evaluate_gensym :: (
   tok := ast_expr_token(expr);
   // Fresh id — id-0 synthesized atoms all collide in the ExprInfo table
   // (every gensym'd node overwrote key 0, dropping live values).
-  atom_expr := AstExpr.Atom(
+  atom_expr := Rc.new(AstExprNode.Atom(
     alloc_global_expr_id(),
     Token(
       kind : TokenKind.Identifier,
@@ -139,7 +139,7 @@ evaluate_gensym :: (
       module_path : Rc.clone(tok.module_path),
       input : Rc.clone(tok.input)
     )
-  );
+  ));
   // Wrap the atom as an ExprVal.
   val := EvalValue.ExprVal(atom_expr);
   info := new_expr_info(env, t_expr_t());

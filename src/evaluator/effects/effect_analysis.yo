@@ -101,10 +101,10 @@ is_effect_call_ :: (
   });
   func_expr := match(
     expr,
-    .Atom(_, _) => {
+    Rc(.Atom(_, _)) => {
       return(false);
     },
-    .FnCall(_, fb, _, _, _) => fb.*
+    Rc(.FnCall(_, fb, _, _, _)) => fb.*
   );
   // Dispatch: None or empty field path → Case 1 (direct call)
   //           non-empty field path     → Case 2 (module member)
@@ -114,8 +114,8 @@ is_effect_call_ :: (
     .None => {
       func_name := match(
         func_expr.clone(),
-        .Atom(_, tok) => tok.value.*.clone(),
-        .FnCall(_, _, _, _, _) => {
+        Rc(.Atom(_, tok)) => tok.value.*.clone(),
+        Rc(.FnCall(_, _, _, _, _)) => {
           return(false);
         }
       );
@@ -156,8 +156,8 @@ is_effect_call_ :: (
         // Case 1b: Empty field path → same logic as Case 1
         func_name := match(
           func_expr.clone(),
-          .Atom(_, tok) => tok.value.*.clone(),
-          .FnCall(_, _, _, _, _) => {
+          Rc(.Atom(_, tok)) => tok.value.*.clone(),
+          Rc(.FnCall(_, _, _, _, _)) => {
             return(false);
           }
         );
@@ -206,10 +206,10 @@ is_effect_call_ :: (
         });
         match(
           current,
-          .Atom(_, _) => {
+          Rc(.Atom(_, _)) => {
             go = false;
           },
-          .FnCall(_, curr_func, Rc(curr_args), _, _) => {
+          Rc(.FnCall(_, curr_func, Rc(curr_args), _, _)) => {
             if(curr_args.len() < usize(2), {
               return(false);
             });
@@ -222,7 +222,7 @@ is_effect_call_ :: (
             );
             match(
               field_arg,
-              .Atom(_, tok) => {
+              Rc(.Atom(_, tok)) => {
                 access_path_rev.push(tok.value.*.clone());
                 receiver_arg := match(
                   curr_args.get(usize(0)),
@@ -233,7 +233,7 @@ is_effect_call_ :: (
                 );
                 current = receiver_arg;
               },
-              .FnCall(_, _, _, _, _) => {
+              Rc(.FnCall(_, _, _, _, _)) => {
                 return(false);
               }
             );
@@ -243,8 +243,8 @@ is_effect_call_ :: (
       // The root should be an atom matching the effect parameter name
       root_name := match(
         current,
-        .Atom(_, tok) => tok.value.*.clone(),
-        .FnCall(_, _, _, _, _) => {
+        Rc(.Atom(_, tok)) => tok.value.*.clone(),
+        Rc(.FnCall(_, _, _, _, _)) => {
           return(false);
         }
       );
@@ -333,10 +333,10 @@ is_transitive_effect_call_ :: (
   });
   func_expr := match(
     expr,
-    .Atom(_, _) => {
+    Rc(.Atom(_, _)) => {
       return(Option(bool).None);
     },
-    .FnCall(_, fb, _, _, _) => fb.*
+    Rc(.FnCall(_, fb, _, _, _)) => fb.*
   );
   func_info := match(
     &get_info(func_expr.clone()),
@@ -437,8 +437,8 @@ detect_effect_expr_ :: (
     operation_arg_types := ArrayList(TypeValue).new();
     match(
       expr.clone(),
-      .Atom(_, _) => (),
-      .FnCall(_, _, Rc(args), _, _) => {
+      Rc(.Atom(_, _)) => (),
+      Rc(.FnCall(_, _, Rc(args), _, _)) => {
         n := args.len();
         ai := usize(0);
         while(ai < n, {

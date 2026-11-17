@@ -13,7 +13,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
 {
-  AstExpr,
+  AstExpr, AstExprNode,
   ast_expr_token,
   ast_expr_text,
   ast_place_text,
@@ -1216,7 +1216,7 @@ evaluate_param_origin :: (fn(e : &AstExpr, env : &Environment, ctx : &mut EvalCo
 _origin_place_root :: (fn(e : &AstExpr) -> Option(AstExpr))({
   (cur : AstExpr) = e.clone();
   while(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
-    cur = match(cur, .FnCall(_, _, d_args, _, _) => match(d_args.get(usize(0)), .Some(b) => b, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
+    cur = match(cur, Rc(.FnCall(_, _, d_args, _, _)) => match(d_args.get(usize(0)), .Some(b) => b, .None => make_err_expr()), Rc(.Atom(_, _)) => make_err_expr());
   });
   if(ast_expr_is_atom(&cur) && is_valid_variable_name(&cur), Option(AstExpr).Some(cur), Option(AstExpr).None)
 });
@@ -1353,7 +1353,7 @@ reject_annotation_naming_its_binding :: (fn(ann : &AstExpr, name : &String, env 
 _reject_origin_naming_binding_in :: (fn(e : &AstExpr, name : &String, exn : Exception) -> unit)(
   match(
     e,
-    .FnCall(_, _, Rc(args), _, _) => {
+    Rc(.FnCall(_, _, Rc(args), _, _)) => {
       if(is_origin_qualified_reference_expr(e), {
         match(args.get(usize(1)), .Some(o) => _reject_origin_union_naming(&o, name, exn), .None => ());
       });
@@ -1363,7 +1363,7 @@ _reject_origin_naming_binding_in :: (fn(e : &AstExpr, name : &String, exn : Exce
         ai = (ai + usize(1));
       });
     },
-    .Atom(_, _) => ()
+    Rc(.Atom(_, _)) => ()
   )
 );
 /// One origin position `o` (a name, a field path, or a union `(a, b)`).
@@ -1641,15 +1641,15 @@ FuncParamsResult :: struct(
 _fn_call_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
   match(
     e,
-    .FnCall(_, _, Rc(args), _, _) => args.clone(),
-    .Atom(_, _) => ArrayList(AstExpr).new()
+    Rc(.FnCall(_, _, Rc(args), _, _)) => args.clone(),
+    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
   )
 );
 _fn_call_func :: (fn(e : &AstExpr) -> AstExpr)(
   match(
     e,
-    .FnCall(_, func_box, _, _, _) => func_box.*,
-    .Atom(_, _) => make_err_expr()
+    Rc(.FnCall(_, func_box, _, _, _)) => func_box.*,
+    Rc(.Atom(_, _)) => make_err_expr()
   )
 );
 /// Evaluate an expression and return (updated_env, TypeValue option).
@@ -1812,8 +1812,8 @@ _is_contract_clause :: (fn(e : &AstExpr) -> bool)(
 _atom_name_occurs :: (fn(e : &AstExpr, name : &String) -> bool)(
   match(
     e,
-    .Atom(_, at_tok) => (at_tok.value.* == name.*),
-    .FnCall(_, f_box, Rc(f_args), _, _) => cond(
+    Rc(.Atom(_, at_tok)) => (at_tok.value.* == name.*),
+    Rc(.FnCall(_, f_box, Rc(f_args), _, _)) => cond(
       recur(&f_box.*, name.clone()) => true,
       true => {
         (found : bool) = false;
@@ -3422,7 +3422,7 @@ parse_where_clause_constraints :: (
       .Some(e) => e,
       .None => {
         ci = constraint_exprs.len();
-        AstExpr.Atom(usize(0), Token(kind : TokenKind.Identifier, value : empty_token_text(), row : u32(0), column : u32(0), character : u32(0), module_path : empty_token_text(), input : empty_token_text()))
+        Rc.new(AstExprNode.Atom(usize(0), Token(kind : TokenKind.Identifier, value : empty_token_text(), row : u32(0), column : u32(0), character : u32(0), module_path : empty_token_text(), input : empty_token_text())))
       }
     );
     ci = (ci + usize(1));
