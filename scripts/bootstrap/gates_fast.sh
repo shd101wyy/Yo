@@ -17,12 +17,7 @@ P=${P:-fast}
 export YO_TEST_LEAK_VERDICT=${YO_TEST_LEAK_VERDICT:-0}
 # GATE 7 runs the CLI cases in sandboxes, and S1 may be staged outside this
 # checkout (CI's /tmp/yo-stage1) — where the exe-relative walk-up finds
-# neither std/ nor .github/skills. The harness passes YO_STD through; pin
-# YO_SKILLS the same way so `yo skills install` resolves the checkout's
-# bundled skills regardless of where S1 sits.
-if [ -d "$PWD/.github/skills" ]; then
-  export YO_SKILLS="$PWD/.github/skills"
-fi
+# neither std/ nor pack/. The harness passes YO_STD through.
 fails=0
 fail() {
   echo "FAIL: $*"

@@ -5,22 +5,19 @@
 //!   tests/main.test.yo, tests/lib.test.yo, spec/README.md, spec/example.yo,
 //!   .gitignore, README.md
 //!
-//! Unless skipped with `--no-skills`, it then installs the bundled agent
-//! skill files into the project's agent config dirs and writes `AGENTS.md`
-//! (listing them) — see `install_agent_files`. No `CLAUDE.md` is written:
-//! Claude Code reads `AGENTS.md` directly, so the pointer file was one more
-//! thing to keep in sync for no benefit.
+//! It then writes `AGENTS.md` (the agent-facing entry point, whose command
+//! block opens with `yo context`) and a one-line `CLAUDE.md` holding
+//! `@AGENTS.md` — see `install_agent_files`. No skill tree is copied: the
+//! version-matched language knowledge is `yo context`, served by the
+//! installed toolchain.
 { String } :: import("std/string");
 { println } :: import("std/fmt");
 { env } :: import("std/env");
 { Path } :: import("std/path");
 { AnyError, Exception, IoExn } :: import("std/error");
-{ ArrayList } :: import("std/collections/array_list");
 { cwd } :: import("std/env");
 { exists, write_string } :: import("std/fs/file");
 { create_dir_all } :: import("std/fs/dir");
-{ install_skills_into, print_skills_summary, SkillEntry, SkillsInstallResult } :: import("./skills_command.yo");
-{ tr } :: import("./cli_lang.yo");
 // ---------------------------------------------------------------------------
 // Data types
 // ---------------------------------------------------------------------------
@@ -205,38 +202,10 @@ doubled_nonneg :: law(
 );
 `
 );
-/// Generate the content of `AGENTS.md` — the agent-facing entry point
-/// listing the installed Yo skill files. `targets` are the agent config
-/// dirs the skills were copied into (".agents", …) and only feed the
-/// location sentence; an empty `skills` list renders the section as "not
-/// installed yet" (callers normally skip the file in that case).
-generate_agents_md :: (
-  fn(skills : &ArrayList(SkillEntry), targets : &ArrayList(String)) -> String
-)({
-  (locations : String) = String.from("");
-  (l : usize) = usize(0);
-  while(l < targets.len(), {
-    if(l > usize(0), {
-      locations.push_str(", ");
-    });
-    locations.push_str("`");
-    locations.push_string(targets(l).clone());
-    locations.push_str("/skills/`");
-    l = (l + usize(1));
-  });
-  (bullets : String) = String.new();
-  (s : usize) = usize(0);
-  while(s < skills.len(), {
-    bullets.push_str("- **");
-    bullets.push_string(skills(s).name.clone());
-    bullets.push_str("**");
-    if(skills(s).description.len() > usize(0), {
-      bullets.push_str(" — ");
-      bullets.push_string(skills(s).description.clone());
-    });
-    bullets.push_str("\n");
-    s = (s + usize(1));
-  });
+/// Generate the content of `AGENTS.md` — the agent-facing entry point. Its
+/// command block opens with `yo context`, the version-matched language pack,
+/// which is what an agent reads before writing Yo.
+generate_agents_md :: (fn() -> String)({
   header :=
     `# AGENTS.md
 
@@ -247,35 +216,35 @@ programming language that compiles to readable C11. Build, test, and format
 it with the yo toolchain:
 
 `;
-  fence := String.from("```bash\nyo context       # the language pack + API index — read this first\nyo build run     # build and run the app\nyo build test    # run the test suite\nyo check ./src   # type-check after every edit\nyo verify ./spec --strict   # prove the laws in spec/ (fails on assumed)\nyo fmt           # format the source\n```\n\n");
-  skills_section := cond(
-    (skills.len() > usize(0)) => (
-      `## Yo agent skills
-
-Version-matched Yo skill files are installed under ${locations} — one
-subdirectory per skill, each with a SKILL.md file. Read the relevant skill
-before writing or reviewing Yo code:
-
-`
-      + bullets
-    ),
-    true =>
-      `## Yo agent skills
-
-No Yo skill files are installed in this project yet. Run: yo skills install
-`
-  );
-  footer := String.from("\nRefresh the skills after upgrading the compiler: yo skills install\n");
-  header + fence + skills_section + footer
+  fence := String.from("```bash\nyo context       # the language pack + API index — read this first\nyo build run     # build and run the app\nyo build test    # run the test suite\nyo check ./src   # type-check after every edit\nyo verify ./spec --strict   # prove the laws in spec/ (fails on assumed)\nyo fmt           # format the source\n```\n");
+  header + fence
 });
-/// Post-scaffold agent setup, run by `yo init` unless `--no-skills`:
-/// install the bundled skill files into `project_dir`'s agent config dirs,
-/// then write `AGENTS.md` (listing the installed skills) when it does not
-/// already exist.
-///
-/// Best-effort by design: a missing bundled skills dir only prints a note —
-/// it must never fail `yo init` itself. Sync (blocking awaits): called from
-/// `run_init` after init_project's future has resolved.
+/// The content of `CLAUDE.md`: Claude Code reads `CLAUDE.md`, not
+/// `AGENTS.md`, so the file is one import line that points it at `AGENTS.md`.
+generate_claude_md :: (fn() -> String)(String.from("@AGENTS.md\n"));
+/// Write `name` into `project_dir` with `content` unless it already exists
+/// (an existing file is the user's and is left alone), printing
+/// `  create     <name>` when it writes.
+_create_agent_file :: (
+  fn(
+    project_dir : &Path,
+    name : String,
+    content : String,
+    io : Io,
+    exn : Exception
+  ) -> unit
+)({
+  file_path := project_dir.join(Path.new(name.clone()));
+  file_exists := io.await(exists(file_path.clone(), io), io);
+  if(!file_exists, {
+    io.await(write_string(&file_path, content, io), IoExn(io : io, exn : exn));
+    println(`  create     ${name}`);
+  });
+});
+/// Post-scaffold agent setup, run by `yo init`: write `AGENTS.md` and a
+/// one-line `CLAUDE.md` into `project_dir`, each only when it does not
+/// already exist. Sync (blocking awaits): called from `run_init` after
+/// init_project's future has resolved.
 install_agent_files :: (
   fn(
     project_dir : &Path,
@@ -283,35 +252,8 @@ install_agent_files :: (
     exn : Exception
   ) -> unit
 )({
-  res_opt := install_skills_into(project_dir, io, exn);
-  match(
-    res_opt,
-    .None => {
-      println(
-        tr(
-          `note: bundled skill files not found; skipping agent scaffolding (AGENTS.md).`,
-          `注意：找不到随发行版捆绑的技能文件，跳过 agent 脚手架（AGENTS.md）。`
-        )
-      );
-    },
-    .Some(res) => {
-      // Empty bundled dir: the "No skill files found" message already
-      // printed; an AGENTS.md listing zero skills is not worth creating.
-      if(res.skills.len() == usize(0), {
-        return(());
-      });
-      agents_path := project_dir.join(Path.new(String.from("AGENTS.md")));
-      agents_exists := io.await(exists(agents_path.clone(), io), io);
-      cond(
-        !agents_exists => {
-          io.await(write_string(&agents_path, generate_agents_md(&res.skills, &res.targets), io), IoExn(io : io, exn : exn));
-          println(String.from("  create     AGENTS.md"));
-        },
-        true => ()
-      );
-      print_skills_summary(&res);
-    }
-  );
+  _create_agent_file(project_dir, String.from("AGENTS.md"), generate_agents_md(), io, exn);
+  _create_agent_file(project_dir, String.from("CLAUDE.md"), generate_claude_md(), io, exn);
 });
 // ---------------------------------------------------------------------------
 // Main init function

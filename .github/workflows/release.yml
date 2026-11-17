@@ -409,7 +409,7 @@ jobs:
             ## Native bundles (bootstrap seed chain)
             The `yo-v*-<os>-<arch>.tar.gz` assets attached below are this commit's
             self-hosted compiler, built by the PREVIOUS release's compiler — the
-            seed (`bin/yo` + `std/` + `vendor/mimalloc/` + `.github/skills` +
+            seed (`bin/yo` + `std/` + `vendor/mimalloc/` +
             `pack` + LICENSE). The
             TypeScript compiler that used to build them was retired in P2.5 and
             is frozen at the `src-attic-final` tag. See
@@ -472,7 +472,7 @@ jobs:
   # self-hosted binary "one last time" per platform; the tarballs attached to
   # the release are what the 2.3 CI migration downloads instead of setting up
   # bun/node. Bundle layout: <name>/bin/yo, <name>/std/, <name>/vendor/mimalloc/,
-  # <name>/.github/skills, <name>/pack, <name>/LICENSE.md (init templates are
+  # <name>/pack, <name>/LICENSE.md (init templates are
   # generated inline by the binary — nothing else to ship).
   # CI consumers extract it, put bin/ on PATH, and set YO_STD to the bundled
   # std/. The Linux bundles are static musl only (2026-08-20; see the
@@ -875,12 +875,6 @@ jobs:
           # legs' comment).
           mkdir -p "$BUNDLE/vendor"
           cp -R vendor/mimalloc "$BUNDLE/vendor/mimalloc"
-          # The bundled agent skill files ride along so `yo skills install`
-          # and `yo init`'s agent scaffolding work from an installed bundle:
-          # the exe-walk-up looks for .github/skills beside the version dir,
-          # the same way it resolves std/.
-          mkdir -p "$BUNDLE/.github"
-          cp -R .github/skills "$BUNDLE/.github/skills"
           # The agent context pack rides along so `yo context` works from an
           # installed bundle: the exe-walk-up looks for pack/context.md
           # beside the version dir, the same way it resolves std/.
@@ -1166,12 +1160,6 @@ jobs:
           # allocator, so a bundle without it cannot compile anything.
           mkdir -p "$BUNDLE/vendor"
           cp -R vendor/mimalloc "$BUNDLE/vendor/mimalloc"
-          # The bundled agent skill files ride along so `yo skills install`
-          # and `yo init`'s agent scaffolding work from an installed bundle:
-          # the exe-walk-up looks for .github/skills beside the version dir,
-          # the same way it resolves std/.
-          mkdir -p "$BUNDLE/.github"
-          cp -R .github/skills "$BUNDLE/.github/skills"
           # The agent context pack rides along so `yo context` works from an
           # installed bundle: the exe-walk-up looks for pack/context.md
           # beside the version dir, the same way it resolves std/.
