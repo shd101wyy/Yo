@@ -610,6 +610,37 @@ ast_call_is_deref_read :: (fn(e : &AstExpr) -> bool)(
     .FnCall(dr_id, _, _, _, _) => g_deref_read_calls.with(m => m.contains_key(&dr_id.*))
   )
 );
+/// The owners' `.*` nodes (VERDICTS-63 decision 4): the `.*` of an owner
+/// (a `Deref` type that is not a handle) reads as its `deref` projection
+/// call, recorded as the node's rewrite (`note_rewritten_node_as`); this
+/// table keeps the object the `.*` derefs, so a write through the place
+/// (`promote_index_places_for_write`) re-dispatches it to `deref_mut`.
+(g_owner_deref_objects : RefCell(HashMap(ExprId, AstExpr))) = RefCell(HashMap(ExprId, AstExpr)).new(HashMap(ExprId, AstExpr).new());
+/// Record the `.*` node `star_id` as an owner's deref of `object`.
+note_owner_deref :: (fn(star_id : ExprId, object : &AstExpr) -> unit)({
+  _old := g_owner_deref_objects.with_mut(m => m.insert(star_id, object.clone()));
+  ()
+});
+/// The object of an owner's `.*` node `e` (`note_owner_deref`), if `e` is one.
+owner_deref_object :: (fn(e : &AstExpr) -> Option(AstExpr))(
+  match(
+    e,
+    .Atom(_, _) => Option(AstExpr).None,
+    .FnCall(od_id, _, _, _, _) => g_owner_deref_objects.with(m => m.get(&od_id.*))
+  )
+);
+/// The projection call an owner's `.*` reads: `object.deref()`, or
+/// `object.deref_mut()` when `is_mut` (VERDICTS-63 decision 4), with fresh
+/// ids and the tokens of the `.*` at `at`.
+make_owner_deref_call :: (fn(object : &AstExpr, at : &Token, is_mut : bool) -> AstExpr)({
+  dot_tok := _synth_desugar_tok(TokenKind.Operator, ".", at);
+  name_tok := _synth_desugar_tok(TokenKind.Identifier, if(is_mut, "deref_mut", "deref"), at);
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(object.*);
+  dot_args.push(AstExpr.Atom(alloc_global_expr_id(), name_tok));
+  callee := AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), dot_tok), Rc.new(dot_args), true, dot_tok);
+  AstExpr.FnCall(alloc_global_expr_id(), callee, Rc.new(ArrayList(AstExpr).new()), false, at.*)
+});
 /// The node an evaluator rewrite recorded for `e`'s id, if any.
 _recorded_rewrite :: (fn(e : &AstExpr) -> Option(AstExpr))(
   match(
@@ -2892,7 +2923,7 @@ export(desugar_if_calls, desugar_program_if_calls);
 export(exprs_are_equal);
 export(expect_expr_to_be_fn_call_of, expect_expr_to_be_fn_call_of_any);
 export(is_function_boundary_arrow);
-export(alloc_global_expr_id, next_global_expr_id, clone_expr_fresh_ids, cloned_expr_node_count, note_rewritten_node, note_rewritten_node_as, ast_call_is_deref_read, ast_rewritten_node, ast_rewritten_view);
+export(alloc_global_expr_id, next_global_expr_id, clone_expr_fresh_ids, cloned_expr_node_count, note_rewritten_node, note_rewritten_node_as, ast_call_is_deref_read, note_owner_deref, owner_deref_object, make_owner_deref_call, ast_rewritten_node, ast_rewritten_view);
 /// Wrap `body` in a synthetic `begin(body)` call when it is not already a
 /// `begin(...)` node. The wrap gives even a bare-atom body the begin
 /// machinery — in particular the begin-tail ownership pass, so a

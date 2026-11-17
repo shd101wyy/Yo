@@ -2,7 +2,7 @@
 
 `Arc(T)` provides shared ownership of a single value via atomic reference counting.
 It is **not** a compiler built-in anymore. In the current design, `Arc` is defined
-in `std/prelude.yo` as a thin `atomic(ref(struct(...)))` wrapper, so `Arc` and
+in `std/prelude.yo` as a newtype over an atomically counted cell, so `Arc` and
 `Arc.new(...)` are available everywhere through the prelude. `Arc(T)` itself requires
 `T <: (Send, Sync)`, which keeps `Arc` from laundering non-thread-safe values into a
 thread-shareable wrapper. Each bound has its own reason:
@@ -21,18 +21,16 @@ captures, which the type-level derivation cannot see.
 ## Current definition
 
 ```yo
-Arc :: (fn(comptime(V) : Type, where(V <: (Send, Sync))) -> comptime(Type))(
-  atomic(
-    ref(
-      struct(
-        (*) : V
-      )
-    )
-  )
+Arc :: (fn(comptime(V) : ?Sized) -> comptime(Type))(
+  newtype(_cell : __yo_atomic_cell(V))
 );
 
-arc :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None, where(V <: (Send, Sync))) -> Arc(V))(
-  ...
+impl(
+  generic(V : Type),
+  Arc(V),
+  new : (fn(sink(value) : V, (alloc : Option(Allocator)) ?= .None, where(V <: (Send, Sync, Escapable))) -> Arc(V))(
+    ...
+  )
 );
 ```
 
@@ -42,28 +40,24 @@ places it on the global allocator (see [Placing the cell](#placing-the-cell)).
 ## When to use `Arc`
 
 - Use `Arc(T)` when you want to share **one existing value** across threads or closures.
-- Use `atomic(ref(struct(...)))` when you are defining your **own shared type**.
+- To share **your own type**, write a plain `struct` and share it as `Arc(YourType)`; give it interior mutability with a `Mutex(T)`, an `RwLock(T)` or an atomic.
 - To **transfer** a value to another thread rather than share it, move it: a `Send` value moves
   into a spawned closure or through a `Channel`. An `Rc` graph is thread-local (Rust's rule);
-  `Rc.try_unwrap` takes the value out of a uniquely held `Rc`. Until `String` and the
-  collections become `Send` by move (`plans/VALUES_BY_DEFAULT.md` V2b), neither crosses a
-  thread: share data that is `Send` and `Sync` through an `Arc`, rebuild the value on the
-  receiving thread from `Send` parts, or serialize it. (The one-shot isolated handoff that
-  used to cover this was removed in v0.2.68.)
-- `Arc(T)` only accepts child types that are both `Send` and `Sync`. A regular
-  `ref(struct(...))` value is neither. A type that is `Send` but not `Sync` (one that opts out
+  `Rc.try_unwrap` takes the value out of a uniquely held `Rc`. A `String` or a collection
+  of `Send` elements is `Send`, so it moves to the other thread by value.
+- `Arc(T)` only accepts child types that are both `Send` and `Sync`. An `Rc(T)` is
+  neither. A type that is `Send` but not `Sync` (one that opts out
   with `impl(T, !(Sync()))`) goes in a `Mutex(T)` instead, which serializes access.
 - `Arc.new(f)` of a function value (a closure or a named function) is judged by the value: what it
   captures and what its code reaches must be `Send` and `Sync` (rules D4 and D9,
   `THREAD_SAFETY.md`).
 
-Many standard-library types no longer need an extra `Arc(...)` wrapper. For
-example, the `std/sync` primitives are already implemented with
-`atomic(ref(struct(...)))` and are directly shareable.
+Many standard-library types need no extra `Arc(...)` wrapper. For example, the
+`std/sync` primitives are built over an atomically counted cell and are `Send`
+and `Sync`, so they are directly shareable.
 
-If you need shared mutable state, define that state as an `atomic(ref(struct(...)))`
-first, then share it directly or place it inside `Arc(...)` if you specifically
-need a single wrapped value.
+If you need shared mutable state, put it behind one of those primitives and
+share that: `Arc(Mutex(State))`, an `RwLock`, or an atomic.
 
 ## Basic usage
 
@@ -163,13 +157,13 @@ Arc.make_mut(&mut b) = i32(2); // b gets a cell of its own
 assert((a.* == i32(1)) && (b.* == i32(2)), "a is unchanged");
 ```
 
-## `Arc` vs `atomic(ref(struct(...)))`
+## Choosing a tool
 
-| Need                                            | Preferred tool             |
-| ----------------------------------------------- | -------------------------- |
-| Share one existing value                        | `Arc(T)`                   |
-| Define a reusable shared reference-counted type | `atomic(ref(struct(...)))` |
-| Hand a `Send` value to another thread           | a move (spawn, `Channel`)  |
+| Need                                  | Preferred tool            |
+| ------------------------------------- | ------------------------- |
+| Share one existing value              | `Arc(T)`                  |
+| Share state that is written           | `Arc(Mutex(T))`, an atomic |
+| Hand a `Send` value to another thread | a move (spawn, `Channel`) |
 
 ## Semantics
 

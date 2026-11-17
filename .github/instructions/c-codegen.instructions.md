@@ -804,6 +804,17 @@ A move-only value type (a value `struct`/`enum`/`newtype` with a `Drop` impl, or
   treats a tail or returned value's dups as a borrowed value's must test it
   too (`functions/generation.yo`)
   (issues/fixed/2026-10-16-a-closure-returned-from-a-function-retains-its-captures-twice.md).
+- **Every drop an `FnOnce` body schedules for its own capture must carry the
+  tag.** In a closure body, codegen skips any drop whose target names a
+  capture (`is_deferred_drop_for_closure_capture`). It keeps only drops tagged
+  `mark_fnonce_capture_drop`. The capture-frame scope-end and early-exit
+  drops (`begin.yo`) carry the tag, and so do the drops for a capture moved on
+  some paths only: the arm that keeps it (`_drop_in_arms_that_keep`) and the
+  skipped short-circuit operand (`drop_moves_of_skippable_operand`), both
+  tagged when `is_own_fnonce_capture` holds. A new evaluator path that drops a
+  value a sibling path moved must tag the drop the same way. An untagged drop
+  vanishes, and every call that takes the keeping path leaks the capture
+  (issues/fixed/2026-11-17-a-closure-moving-a-by-value-capture-on-one-branch-leaks-it-on-the-other.md).
 
 ### A hand-written C declaration must be registered, or its drops vanish
 

@@ -42,7 +42,9 @@ pragma(Pragma.AllowUnsafe);
   BK_BORROW_MUT,
   BF_ADDRESS_OF,
   BF_DOT,
-  rewrite_projection_tails
+  rewrite_projection_tails,
+  owner_deref_object,
+  ast_place_text
 } :: import("../../expr.yo");
 {
   ExprInfo,
@@ -942,6 +944,20 @@ _is_borrow_sigil :: (fn(e : &AstExpr, want_mut : bool) -> bool)(
 /// and its root atom; `.None` unless the place is a `.` chain of identifier
 /// fields rooted at an identifier (a call, an index, a literal or a
 /// temporary is not a place a borrow can name).
+/// The evaluated place `e` steps through an owner's `.*` (`owner_deref_object`).
+_cap_place_has_owner_deref :: (fn(e : &AstExpr) -> bool)({
+  (cur : AstExpr) = e.*;
+  while(true, {
+    if(owner_deref_object(&cur).is_some(), {
+      return(true);
+    });
+    if(!ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
+      return(false);
+    });
+    cur = match(cur, .FnCall(_, _, Rc(oa), _, _) => match(oa.get(usize(0)), .Some(b) => b, .None => return(false)), .Atom(_, _) => return(false));
+  });
+  false
+});
 _cap_place_root :: (fn(place : &AstExpr, fields : &mut ArrayList(String)) -> Option(AstExpr))({
   rev := ArrayList(String).new();
   (cur : AstExpr) = place.*;
@@ -1113,6 +1129,11 @@ _evaluate_capture_list :: (
       deref_exempt_clear();
       ctx.expected_type = saved_bexp;
       require_expr_not_consumed(&ev_place, env, ctx, exn);
+      // An owner's `.*` is its `deref` projection's place (VERDICTS-63
+      // decision 9): a call's result, which a capture entry does not name.
+      if(_cap_place_has_owner_deref(&ev_place), {
+        _cap_list_error(ctx, exn, ast_expr_token(&place_e), `A borrow capture names a place rooted at a named binding (\`y\`, \`s.items\`); \`${ast_place_text(&place_e)}\` is not one: an owner's \`.*\` is the place its \`deref\` projection yields. Bind the view first (\`t := &${ast_place_text(&place_e)};\`) and capture \`{ t }\`.`);
+      });
       place_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev_place)), .Some(pi) => Rc.clone(pi.ty()), .None => t_unit());
       if(is_unit_type(&place_ty), {
         _cap_list_error(ctx, exn, ast_expr_token(&place_e), `A borrow capture cannot name a unit-typed place: it has no runtime storage.`);

@@ -26,6 +26,9 @@ Only VALUES_BY_DEFAULT is in progress (until v0.2.80). Everything else is in
   - [`handover/VBD_RELEASE_SCHEDULE.md`](handover/VBD_RELEASE_SCHEDULE.md) —
     the release-by-release schedule (v0.2.76–v0.2.80) and every scheduling
     decision.
+  - [`handover/VBD_V0279_RETIREMENTS_AND_CLAIM.md`](handover/VBD_V0279_RETIREMENTS_AND_CLAIM.md) —
+    v0.2.79's retirements ledger and the draft text of the "VBD complete"
+    claim.
   - Its design sub-plans, in `backlog/` because they are designs rather than
     campaigns:
     - [`REFERENCES_AND_ORIGINS`](backlog/REFERENCES_AND_ORIGINS.md), decision

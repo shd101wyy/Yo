@@ -20,7 +20,7 @@ Everything you'd expect from a modern general-purpose language:
 
 - **Value types.** `i32`, `bool`, `str` (a view of STATIC string bytes — immortal backing), structs, enums, tuples, `Array(T, N)`.
 - **Heap-managed collections.** `ArrayList(T)`, `HashMap(K, V)`, `HashSet(T)`, `Deque(T)`, `String`. `ArrayList(T)` and `String` are uniquely owned values: a copy is a move or an explicit `.clone()`.
-- **Shared ownership.** Reference-semantics types — `ref(struct(...))` / `ref(enum(...))` (single-threaded Rc) — `Arc(T)` (atomic Rc for cross-thread sharing).
+- **Shared ownership.** `Rc(T)` (non-atomic reference counting, single-threaded) and `Arc(T)` (atomic reference counting for cross-thread sharing). A shared payload is read-only through the handle; shared mutation goes through a door such as `RefCell`, `Mutex` or an atomic.
 - **Sum / option / result types.** `Option(T)`, `Result(T, E)`, your own `enum`s.
 - **Closures and higher-order functions** over safe types.
 - **Generics, traits, GADTs.** All of Yo's type-system features.
@@ -46,7 +46,7 @@ main :: (fn() -> unit)({
 });
 ```
 
-The `for` macro iterates by value (`(item) => …` calls `.into_iter()` under the hood, which consumes the collection; read one in place with `for(&coll, item => …)`). Reference-semantics elements are handles, so mutating `item` in the body mutates the element in place; for struct/scalar elements, borrow each one with `for(&mut coll, item => …)`, where an assignment to `item` writes the element in place, or write back with index assignment (`coll(i) = v`).
+The `for` macro iterates by value (`(item) => …` calls `.into_iter()` under the hood, which consumes the collection; read one in place with `for(&coll, item => …)`). To change the elements, borrow each one with `for(&mut coll, item => …)`, where an assignment to `item` writes the element in place, or write back with index assignment (`coll(i) = v`).
 
 ## What Safe Code Cannot Do
 
@@ -54,7 +54,7 @@ Each of the following is a compile error in a file without `pragma(Pragma.AllowU
 
 | Construct                                                    | Diagnostic (short)                                                               | Safe alternative                                                                                   |
 | ------------------------------------------------------------ | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `*(T)` type expression in a parameter, field, or return      | "raw pointer types are not available in safe code"                               | owned collections (`ArrayList`/`String`), `name : &mut T`, a reference-semantics type, or a stdlib wrapper |
+| `*(T)` type expression in a parameter, field, or return      | "raw pointer types are not available in safe code"                               | owned collections (`ArrayList`/`String`), `name : &mut T`, `Rc(T)`/`Arc(T)`, or a stdlib wrapper |
 | `addr_of(expr)` address-of                                    | "this expression has type `*(T)`, which is not available in safe code"           | `name : &mut T` parameter, or pass the owned collection                                          |
 | Holding a raw pointer VALUE (`it.next()` on a pointer iterator yields `Option(*(T))`) | "Raw pointer values are not available in safe code"                       | `for(&coll, x => …)` (read) or `for(&mut coll, x => …)` (in place) borrows an element for the loop; iterator combinators (`count`, `map`) stay available |
 | An API that hands out storage hands it out as a raw pointer (`s.ptr()`, `xs.ptr()`) | "Raw pointer values are not available in safe code"            | Read or copy the bytes through the safe API (`len()`, indexing, `s(a..b)`), or borrow a slice (`&mut [u8]`, `unsize(&mut buf)`); raw views are stdlib-internal plumbing |
@@ -127,7 +127,7 @@ The language also closes the **dangling-view hole** that other languages with ra
 
 - `str` is the only built-in view type, and it can only refer to **static** string data (literals, `comptime_str`) — it is never backed by a heap buffer that could be freed under it.
 - **Range operations on collections copy.** `list(usize(1)..usize(3))` and `String` ranges produce an owned value, not a window into the source buffer — there is no heap-backed slice type to dangle.
-- **Element access hands out values, never interior pointers.** `xs.get(i)` returns the element — for reference-semantics elements (`ref(struct(...))`) that is a handle to the element _object_ (it mutates in place and survives the container's growth/realloc); for a `Copy` element it is a copy, written back with `xs(i) = v`; a `String` or other move-only element is copied out with `xs.get_cloned(i)` and written in place with `xs.with(i, s => …)`. No safe expression yields a pointer into a container's buffer, so growth invalidation is inexpressible.
+- **Element access hands out values, never interior pointers.** `xs.get(i)` returns the element — for a `Copy` element it is a copy, written back with `xs(i) = v`; a `String`, an `Rc(T)` handle or another element that is not `Copy` is copied out with `xs.get_cloned(i)` (an `Rc` clone is a second handle to the same cell, which survives the container's growth/realloc) and written in place with `xs.with(i, s => …)`. No safe expression yields a pointer into a container's buffer, so growth invalidation is inexpressible.
 
 The walkthrough of these rules is in [FLOWABILITY.md](./FLOWABILITY.md); you don't need to know them to write safe code — the compiler rejects the dangerous shapes.
 
@@ -166,11 +166,15 @@ strong handles leaks: its cells are never freed and their `Drop` never runs.
 is not unsafe: no pointer dangles.
 
 ```yo
-Node :: ref(struct(value : i32, next : Option(Self)));
+{ RefCell } :: import("std/sync/refcell");
+
+Node :: struct(value : i32, next : Option(Rc(RefCell(Self))));
 test("a cycle of strong handles is never freed", {
-  a := Node(value : i32(1), next : .None);
-  b := Node(value : i32(2), next : .Some(a));
-  a.next = .Some(b); // a -> b -> a: both counts stay above zero
+  a := Rc.new(RefCell(Node).new(Node(value : i32(1), next : .None)));
+  b := Rc.new(RefCell(Node).new(Node(value : i32(2), next : .Some(Rc.clone(a)))));
+  a.with_mut((n : &mut Node) => {
+    n.next = .Some(Rc.clone(b)); // a -> b -> a: both counts stay above zero
+  });
 });
 ```
 

@@ -1,0 +1,21 @@
+// expect: accept
+// The control: a copy out of the place lends nothing, and the pushes reallocate safely.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+first :: (fn(xs : &ArrayList(String)) -> &String)(&xs(usize(0)));
+grow_then_read :: (fn(xs : &mut ArrayList(String), v : &String) -> usize)({
+  (mut(i) : usize) = usize(0);
+  while(i < usize(64), i = (i + usize(1)), {
+    xs.push(String.from("0123456789abcdefghijklmnopqrstuvwxyz"));
+  });
+  v.len()
+});
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("0123456789abcdefghijklmnopqrstuvwxyz"));
+  s := first(&xs).clone();
+  n := grow_then_read(&mut xs, &s);
+  println(&n);
+});
+export(main);

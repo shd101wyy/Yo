@@ -20,7 +20,9 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_is_fn_call_of,
   make_err_expr,
   alloc_global_expr_id,
-  BF_DOT
+  BF_DOT,
+  note_owner_deref,
+  make_owner_deref_call
 } :: import("../../expr.yo");
 {
   ExprInfo,
@@ -60,13 +62,13 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { unknown_field_message, unknown_field_code, unknown_variant_message, unknown_field_through_deref_message, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message, get_all_some_types } :: import("../../types/utils.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
-{ suggest_name, E_AMBIGUOUS_METHOD, E_DEREF_OF_BORROW, E_DEREF_OF_VALUE } :: import("../../diagnostics.yo");
+{ suggest_name, E_AMBIGUOUS_METHOD, E_DEREF_OF_BORROW, E_DEREF_OF_VALUE, E_TRAIT_NOT_IMPLEMENTED } :: import("../../diagnostics.yo");
 { attach_temp_variable_to_expr, local_borrow_take_receiver, local_borrow_mark_receiver, local_borrow_clear_receiver, local_borrows_active, local_borrow_access_expr, LocalBorrowAccess, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording, deref_text_is_new_spelling, note_reference_deref_site, is_reference_deref_site, note_synthesized_deref_star, is_synthesized_deref_star, is_ctfe_reference_param, deref_reads_through_pointee, deref_payload_type, deref_exempt_take, projection_call_mode_of, note_reference_field_read, reference_field_read_type, reject_reference_field_without_deref, local_borrow_place_text, reference_read_wanted } :: import("../utils.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_union_member_read_capable, union_member_read_error_message, is_std_module_path } :: import("../memory_safety.yo");
-{ evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
+{ evaluate_expression, evaluate_expression_raw, evaluate_expression_guarded } :: import("./expr.yo");
 { Token, TokenKind, intern_token_str, TokenData } :: import("../../token.yo");
-{ deref_target_type } :: import("../trait_checking.yo");
+{ deref_target_type, deref_owner_target, implements_deref_mut_without_deref } :: import("../trait_checking.yo");
 { gadt_branch_reachable } :: import("../../pattern.yo");
 { get_gadt_variant_args } :: import("../types/gadt_registry.yo");
 { Exception } :: import("std/error");
@@ -528,14 +530,14 @@ evaluate_property_access :: (
     // re-evaluation evaluates the call and keeps the `.*` node, a value.
     rw_node => if(ast_expr_is_fn_call_of(&rw_node, BF_DOT, Option(usize).None), _evaluate_property_access_node(&rw_node, env_in, ctx, exn), {
       rw_call := evaluate_expression_raw(&rw_node, env_in, ctx, exn);
-      _note_projection_call_deref(expr, &rw_call, env_in, ctx);
+      note_projection_call_deref(expr, &rw_call, env_in, ctx);
       expr.clone()
     })
   )
 );
 /// `deref` (`f(x).*`) reads the place the evaluated projection call `call`
 /// names: it is recorded rewritten to the call and carries the call's info.
-_note_projection_call_deref :: (fn(deref : &AstExpr, call : &AstExpr, env : &Environment, ctx : &mut EvalContext) -> unit)({
+note_projection_call_deref :: (fn(deref : &AstExpr, call : &AstExpr, env : &Environment, ctx : &mut EvalContext) -> unit)({
   note_rewritten_node_as(ast_expr_id(deref), call);
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(call)),
@@ -551,6 +553,31 @@ _note_projection_call_deref :: (fn(deref : &AstExpr, call : &AstExpr, env : &Env
     },
     .None => ()
   );
+});
+/// `x.*` on an owner (VERDICTS-63 decision 4: a `Deref` type that is not a
+/// handle, `deref_owner_target`) is the place its `deref` projection
+/// yields: the `.*` node reads as the call `x.deref()`, which a projection
+/// call already has as an operand, a receiver and a subscript base. The
+/// object `x` was evaluated already and is reused (`mark_node_preevaluated`);
+/// the node is recorded as an owner's deref (`note_owner_deref`), so a
+/// write through it re-dispatches the call to `deref_mut`
+/// (`promote_index_places_for_write`).
+_evaluate_owner_deref :: (fn(deref : &AstExpr, object : &AstExpr, star_tok : &Token, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
+  call := make_owner_deref_call(object, star_tok, false);
+  obj_id := ast_expr_id(object);
+  // The ambient expected type is the place's reader's (an operand's, an
+  // argument's), never the projection call's.
+  od_saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
+  mark_node_preevaluated(obj_id);
+  od_out := ArrayList(AstExpr).new();
+  od_err := evaluate_expression_guarded(&call, env, ctx, &mut od_out);
+  unmark_node_preevaluated(obj_id);
+  ctx.expected_type = od_saved_expected;
+  match(od_err, .Some(od_e) => exn.throw(od_e), .None => ());
+  evaluated_call := match(od_out.get(usize(0)), .Some(c) => c, .None => call);
+  note_owner_deref(ast_expr_id(deref), object);
+  note_projection_call_deref(deref, &evaluated_call, env, ctx);
+  deref.clone()
 });
 _evaluate_property_access_node :: (
   fn(
@@ -1039,7 +1066,7 @@ _evaluate_property_access_node :: (
     pc_object_written := match(all_args.get(usize(0)), .Some(pc_ow) => pc_ow, .None => make_err_expr());
     pc_object_is_deref := match(&pc_object_written, .FnCall(_, _, Rc(pc_ow_args), _, _) => (ast_expr_is_fn_call_of(&pc_object_written, BF_DOT, Option(usize).Some(usize(2))) && match(pc_ow_args.get(usize(1)), .Some(pc_ow_p) => ast_expr_is_atom_of(&pc_ow_p, "*"), .None => false)), .Atom(_, _) => false);
     if(!pc_object_is_deref && _is_written_star(&property_expr) && projection_call_mode_of(&object_expr, ctx).is_some() && match(&obj_ty_deref, .Some(pc_referent) => (deref_rule_applies(ast_expr_token(&property_expr), ctx) && !deref_reads_through_pointee(&pc_referent.*)), .None => false), {
-      _note_projection_call_deref(expr, &object_expr, &env, ctx);
+      note_projection_call_deref(expr, &object_expr, &env, ctx);
       // The caller keeps the `.*` node: a read of the referent, a value, so
       // `n := f(x).*` binds a copy where `n := f(x)` binds the reference.
       return(expr.clone());
@@ -1078,6 +1105,15 @@ _evaluate_property_access_node :: (
         _ => ()
       );
     });
+    // `x.*` on an owner (VERDICTS-63 decision 4): its `deref` projection's
+    // place. A handle's `.*` (below) is read natively.
+    match(
+      &obj_ty_deref,
+      .Some(ow_ty) => if(!is_pointer_type(&ow_ty.*) && deref_owner_target(&resolve_struct_shell(&ow_ty.*), &env).is_some(), {
+        return(_evaluate_owner_deref(expr, &object_expr, ast_expr_token(&property_expr), &env, ctx, exn));
+      }),
+      .None => ()
+    );
     match(
       &obj_ty_deref,
       .Some(ot) => {
@@ -1305,6 +1341,22 @@ Raw pointer operations may dereference invalid memory.`
       &obj_info_opt,
       .Some(dv_oi) => if(_is_written_star(&property_expr) && !is_type_value(&dv_oi.value()) && !is_module_type(&dv_oi.ty()) && (get_all_some_types(&dv_oi.ty()).len() == usize(0)) && !_type_is_dereferenceable(&dv_oi.ty(), &env), {
         dv_ty_text := type_to_string(&dv_oi.ty());
+        // A `DerefMut` impl with no `Deref` (VERDICTS-63 decision 2).
+        if(implements_deref_mut_without_deref(&resolve_struct_shell(&dv_oi.ty()), &env), {
+          exn.throw(
+            dyn(
+              Box.new(
+                with_code(
+                  format_error_message(
+                    ast_expr_token(expr),
+                    `\`${dv_ty_text}\` implements \`DerefMut\` but not \`Deref\`: a \`DerefMut\` impl needs a \`Deref\` impl with the same \`Target\` (VERDICTS-63 decision 2), and \`.*\` is read through \`deref\`. Implement \`Deref\` for \`${dv_ty_text}\`.`
+                  ),
+                  E_TRAIT_NOT_IMPLEMENTED
+                )
+              )
+            )
+          );
+        });
         dv_subject := cond(
           ast_expr_is_atom(&object_expr) => `\`${ast_expr_to_string(&object_expr)}\` has type \`${dv_ty_text}\``,
           true => `this expression has type \`${dv_ty_text}\``
@@ -2379,13 +2431,15 @@ Raw pointer operations may dereference invalid memory.`
                   rewritten := recur(&pa_rewritten, env_in, ctx, exn);
                   unmark_node_preevaluated(obj_id);
                   return(rewritten);
-                }, if(!(ctx.currently_specializing_function.is_some() || ctx.is_evaluating_generic_impl_specialization), {
+                }, if(!(ctx.currently_specializing_function.is_some() || ctx.is_evaluating_generic_impl_specialization) && deref_owner_target(&base_ty, &env).is_none(), {
                   // Decision 32: a callee `w.m` where the wrapper has a
                   // METHOD `m` and its payload a FIELD `m` (a function-typed
                   // field is callable) has two readings. The wrapper's
                   // method used to win silently. Off inside a specialized
                   // generic body, as `calls/function.yo`'s
-                  // `_reject_wrapper_payload_clash` is.
+                  // `_reject_wrapper_payload_clash` is. An owner's own method
+                  // wins over its view's field (VERDICTS-63 decision 7):
+                  // decision 32 is the handles' rule.
                   obj_shown := ast_expr_to_string(&object_expr);
                   wrapper_s := type_to_string(&base_ty);
                   ctor := match(
@@ -2940,4 +2994,4 @@ Raw pointer operations may dereference invalid memory.`
   });
   expr.*
 });
-export(evaluate_property_access, make_deref_expr);
+export(evaluate_property_access, make_deref_expr, note_projection_call_deref);

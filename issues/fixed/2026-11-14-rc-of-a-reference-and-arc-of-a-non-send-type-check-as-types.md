@@ -3,8 +3,8 @@
 **Severity:** S3 (no safe program builds such a value; only a type spelling
 that should be rejected is accepted)
 
-**Status:** OPEN, accepted for v0.2.78 by the coordinator (2026-11-14). Filed by
-the decision 49 S2 lane (`vbd/d49-s2`).
+**Status:** FIXED in v0.2.79 (`std/rc-arc-where-bounds`). Accepted for v0.2.78 by
+the coordinator (2026-11-14); filed by the decision 49 S2 lane (`vbd/d49-s2`).
 
 ## What
 
@@ -46,11 +46,18 @@ _NotSend :: struct(p : *i32);
 _T :: Arc(_NotSend);
 ```
 
-## Recommendation
+## Resolution
 
-Fix it in v0.2.79 with the type-constructor check: once `SEED_VERSION`
-carries S2's Generation A, put the bounds back on the declarations
-(`Rc`/`Weak` `where(V <: Escapable)`, `Arc`/`ArcWeak`
-`where(V <: (Send, Sync, Escapable))`), drop the constructor-level copies,
-and restore the `comptime_expect_error(Arc(Counter))` row in
-`tests/arc.test.yo` and the `Arc(RefCell(i32))` row in `tests/sync/refcell.test.yo`.
+Fixed in v0.2.79 as the Recommendation said, with `SEED_VERSION` at v0.2.78
+(which carries S2's Generation A, the `?Sized` pre-scan fix). `std/prelude.yo`
+declares `Rc :: (fn(comptime(V) : ?Sized, where(V <: Escapable)) -> ...)` and
+`Arc`/`ArcWeak` over `where(V <: (Send, Sync, Escapable))`, and the
+constructor-level copies on `Rc.new` and `Arc.new` are gone: the bound is now
+on the type, so `Rc(&T)`, `Arc(NonSend)` and `ArcWeak(NonSend)` are E0909
+(same text, binder `V`) wherever they are spelled. The v0.2.78 seed accepts the
+std (`yo check ./std --std-path ./std`).
+
+Tests (each fails on the parent commit, where the type spellings are accepted):
+`tests/arc.test.yo` (`Arc(Counter)`, `ArcWeak(Counter)`),
+`tests/sync/refcell.test.yo` (`Arc(RefCell(i32))`), and
+`tests/borrow_spelling.test.yo` (`Rc(&i32)`, `Arc(&i32)`).
