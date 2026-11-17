@@ -266,8 +266,8 @@ Thread(unit).spawn(io => {
 });
 ```
 
-`Channel` is implemented as an `atomic(ref(struct(...)))`, so it is directly shareable across
-threads. No extra `Arc.new()` wrapper is needed.
+`Channel(T)` is `Send` and `Sync` when `T` is `Send` (it is built over an atomically counted
+cell), so it is directly shareable across threads. No extra `Arc.new()` wrapper is needed.
 
 Channel uses a `Mutex` + `CondVar` internally for synchronization. Send blocks when the channel is full; recv blocks when the channel is empty.
 
@@ -338,19 +338,16 @@ implement `Sync` can be shared between threads (an `Arc` payload, a module-level
   all Send and whose code reaches no non-Send module global — judged from the value where the
   compiler can see it: a spawn body, an `Impl(Fn(...), Send)` or `Impl(FnOnce(...), Send)` argument, a generic
   `where(T <: Send)` argument, a captured variable
-- **Not Sendable**: `ref(struct(...))` / `ref(enum(...))` (non-atomic RC:
-  `Rc`, ..., and values holding one), raw pointers and types holding one
+- **Not Sendable**: `Rc(T)` (non-atomic RC) and values holding one, raw pointers and types holding one
   unless they opt in, `Box(Dyn(Trait))` without `Send` in its bound, `Io`, `JoinHandle`, closures
   that borrow their captures,
   function values capturing any of those or reaching a non-Send global, and a bare
   `fn(...)` type whose value is not known there (a struct field, a `Channel(fn() -> unit)`
   payload) — see "Functions and Closures Across Threads" in `THREAD_SAFETY.md`
 
-An `Rc` graph stays on its thread (Rust's rule). Until `String` and the collections become
-`Send` by move (`plans/VALUES_BY_DEFAULT.md` V2b), neither can be moved to another thread:
-share data that is `Send` and `Sync` through an `Arc`, rebuild the value on the receiving
-thread from `Send` parts, or serialize it. The one-shot isolated handoff that covered this
-case was removed in v0.2.68 (`plans/backlog/MACRO_AND_ISO_REMOVAL.md`).
+An `Rc` graph stays on its thread (Rust's rule). A `String` or a collection of `Send`
+elements is `Send`: it moves to another thread by value, and data that several threads
+read goes through an `Arc`.
 
 ```yo
 // ✅ Sendable
@@ -360,11 +357,10 @@ Thread(unit).spawn(io => {
 });
 
 // ❌ Not Sendable
-Node :: ref(struct(value : i32));
-node := Node(42);
-Thread(unit).spawn(io => .{
-  // ERROR: Cannot capture `node` (reference-semantics type is not Send)
-  // node.value;
+node := Rc.new(i32(42));
+Thread(unit).spawn(io => {
+  // ERROR: Cannot capture `node` (an `Rc` is not Send)
+  // node.*;
 });
 ```
 

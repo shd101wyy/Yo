@@ -20,7 +20,7 @@ Yo **默认是内存安全的**。作为普通用户编写的代码无法解引�
 
 - **值类型。** `i32`、`bool`、`str`（指向**静态**字符串字节的视图 —— 背后存储永生）、struct、enum、tuple、`Array(T, N)`。
 - **堆管理的集合。** `ArrayList(T)`、`HashMap(K, V)`、`HashSet(T)`、`Deque(T)`、`String`。`ArrayList(T)` 与 `String` 是唯一所有的值：复制就是移动，或显式的 `.clone()`。
-- **共享所有权。** 引用语义类型（`ref(struct(...))`/`ref(enum(...))`，单线程 Rc）、`Arc(T)`（跨线程共享的原子 Rc）。
+- **共享所有权。** `Rc(T)`（非原子引用计数，单线程）与 `Arc(T)`（原子引用计数，跨线程共享）。共享的载荷通过句柄只读；共享的可变状态要经过 `RefCell`、`Mutex` 或原子类型这类“门”。
 - **和类型 / Option / Result 类型。** `Option(T)`、`Result(T, E)`，以及你自定义的 `enum`。
 - **闭包和高阶函数** —— 在安全类型上。
 - **泛型、trait、GADT。** Yo 的全部类型系统特性。
@@ -46,7 +46,7 @@ main :: (fn() -> unit)({
 });
 ```
 
-`for` 宏按值迭代（`(item) => …` 底层调用 `.into_iter()`，它会消耗集合；就地读取用 `for(&coll, item => …)`）。引用语义类型（`ref(struct(...))`）元素是句柄，在循环体内变异 `item` 即就地变异元素；struct/标量元素可以用 `for(&mut coll, item => …)` 逐个借用，对 `item` 赋值即原地写入元素；也可以用索引赋值写回（`coll(i) = v`）。
+`for` 宏按值迭代（`(item) => …` 底层调用 `.into_iter()`，它会消耗集合；就地读取用 `for(&coll, item => …)`）。要修改元素，可以用 `for(&mut coll, item => …)` 逐个借用，对 `item` 赋值即原地写入元素；也可以用索引赋值写回（`coll(i) = v`）。
 
 ## 安全代码不能做什么
 
@@ -54,7 +54,7 @@ main :: (fn() -> unit)({
 
 | 构造                                                | 诊断（简短）                                                                     | 安全替代方案                                                                                                           |
 | --------------------------------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| 参数、字段或返回值中的 `*(T)` 类型                  | "raw pointer types are not available in safe code"                               | 自有集合（`ArrayList`/`String`）、`name : &mut T`、引用语义类型（`ref(struct(...))`/`ref(enum(...))`），或标准库包装 |
+| 参数、字段或返回值中的 `*(T)` 类型                  | "raw pointer types are not available in safe code"                               | 自有集合（`ArrayList`/`String`）、`name : &mut T`、`Rc(T)`/`Arc(T)`，或标准库包装 |
 | `addr_of(expr)` 取地址                                    | "this expression has type `*(T)`, which is not available in safe code"           | `name : &mut T` 参数，或直接传自有集合                                                                               |
 | 持有原始指针**值**（指针迭代器的 `it.next()` 交出 `Option(*(T))`） | "Raw pointer values are not available in safe code"                              | `for(&coll, x => …)`（只读）或 `for(&mut coll, x => …)`（原地）在循环期间借用元素；迭代器组合子（`count`、`map`）仍可用 |
 | 交出存储的 API 一律以原始指针形式交出（`s.ptr()`、`xs.ptr()`） | "Raw pointer values are not available in safe code"                 | 通过安全 API 读取或复制字节（`len()`、索引、`s(a..b)`）；原始视图是标准库内部管道 |
@@ -127,7 +127,7 @@ main :: (fn() -> unit)({
 
 - `str` 是唯一的内建视图类型，且只能指向**静态**字符串数据（字面量、`comptime_str`）—— 它永远不会指向可能被释放的堆缓冲区。
 - **集合上的区间操作是拷贝。** `list(usize(1)..usize(3))` 与 `String` 的区间产生一个独立持有的值，而不是源缓冲区上的窗口 —— 不存在可悬空的堆切片类型。
-- **元素访问只交出值，从不交出内部指针。** `xs.get(i)` 返回元素 —— 引用语义元素（`ref(struct(...))`）返回指向元素*对象*的句柄（就地变异、且在容器增长/realloc 之后依然有效）；`Copy` 元素返回拷贝，用 `xs(i) = v` 写回；`String` 等只能移动的元素用 `xs.get_cloned(i)` 拷出，用 `xs.with(i, s => …)` 就地写入。安全表达式无法产生指向容器缓冲区内部的指针，因此增长失效根本无法表达。
+- **元素访问只交出值，从不交出内部指针。** `xs.get(i)` 返回元素 —— `Copy` 元素返回拷贝，用 `xs(i) = v` 写回；`String`、`Rc(T)` 句柄等非 `Copy` 的元素用 `xs.get_cloned(i)` 拷出（`Rc` 的克隆是指向同一单元的第二个句柄，在容器增长/realloc 之后依然有效），用 `xs.with(i, s => …)` 就地写入。安全表达式无法产生指向容器缓冲区内部的指针，因此增长失效根本无法表达。
 
 这些规则的讲解见 [FLOWABILITY.md](./FLOWABILITY.md)；编写安全代码不需要了解它们 —— 危险的形态会被编译器直接拒绝。
 
@@ -163,11 +163,15 @@ Yo 没有环回收器（v0.2.75 移除，决策 48，`plans/archive/WEAK_AND_UNC
 即最后一个句柄被释放时。泄漏并不是不安全：没有指针会悬垂。
 
 ```yo
-Node :: ref(struct(value : i32, next : Option(Self)));
+{ RefCell } :: import("std/sync/refcell");
+
+Node :: struct(value : i32, next : Option(Rc(RefCell(Self))));
 test("a cycle of strong handles is never freed", {
-  a := Node(value : i32(1), next : .None);
-  b := Node(value : i32(2), next : .Some(a));
-  a.next = .Some(b); // a -> b -> a: both counts stay above zero
+  a := Rc.new(RefCell(Node).new(Node(value : i32(1), next : .None)));
+  b := Rc.new(RefCell(Node).new(Node(value : i32(2), next : .Some(Rc.clone(a)))));
+  a.with_mut((n : &mut Node) => {
+    n.next = .Some(Rc.clone(b)); // a -> b -> a: both counts stay above zero
+  });
 });
 ```
 

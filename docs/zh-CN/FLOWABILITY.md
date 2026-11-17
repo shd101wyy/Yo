@@ -150,8 +150,8 @@ borrows from it"`）而非内存破坏。同缓存行加载 + 预测分支 —�
 e := xs.get_cloned(i); // String 元素：一份副本（自 B8 起 String 是值），
 //   在 xs.push / realloc 之后依然有效
 xs.with(i, s => s.push_str("!")); // 就地写入元素
-h := xs.get(i); // `ref(struct(...))` 元素：指向对象的句柄，
-//   通过它就地变异对象
+h := xs.get_cloned(i); // `Rc(...)` 元素：指向同一单元的第二个句柄，
+//   通过该单元的 `RefCell` 写入
 xs(i) = v; // 索引写：就地替换元素
 t := xs.get(i).unwrap(); // Copy 的 struct 元素：拷出 ……
 xs(i) = t2; //   …… 再写回

@@ -21,8 +21,8 @@ Yo 默认为安全代码（非 pragma 代码）提供**无数据竞争**保证�
 | ------------------------------------------------------------- | --------------------------- | --------------------------- |
 | 基本类型（`i32`、`bool`、`f64`、`str` 等）                    | 是                          | 是                          |
 | 结构体、枚举、联合体、元组或数组                              | 当且仅当每个字段都是 `Send` | 当且仅当每个字段都是 `Sync` |
-| 非原子单元（`Rc(T)`、任何 `ref(struct(...))`）                   | 否                          | 否                          |
-| 原子对象（`Arc(T)`、`atomic(ref(struct(...)))`）              | 当且仅当每个字段都是 `Sync` | 当且仅当每个字段都是 `Sync` |
+| 非原子单元（`Rc(T)`）                                         | 否                          | 否                          |
+| 原子对象（`Arc(T)`、`Mutex(T)`、`Atomic*` 类型）              | 当且仅当每个字段都是 `Sync` | 当且仅当每个字段都是 `Sync` |
 | 裸指针 `*(T)`                                                 | 否                          | 否                          |
 | `Dyn(Trait)`                                                  | 仅当写成 `Dyn(Trait, Send)` | 仅当写成 `Dyn(Trait, Sync)` |
 | 闭包                                                          | 见下文                      | 见下文                      |
@@ -32,7 +32,7 @@ Yo 默认为安全代码（非 pragma 代码）提供**无数据竞争**保证�
 Point :: struct(x : i32, y : i32);
 
 // 非原子单元两者都不是 —— 它的计数不是原子的
-MyObj :: ref(struct(data : Vec(i32)));
+Shared :: Rc(String);
 
 // 裸指针两者都不是：没有任何东西说明谁拥有被指向的值
 Raw :: struct(p : ?*u8);
@@ -42,23 +42,23 @@ Raw :: struct(p : ?*u8);
 
 标准库类型遵循同样的划分。在线程之间共享载荷的类型要求 `Sync`：`Arc(T)` 和 `RwLock(T)`（并发的读守卫）要求 `T <: (Send, Sync)`。一次只把载荷交给一个线程的类型只要求 `Send`：`Mutex(T)` 和 `Channel(T)` 要求 `T <: Send`。因此，一个是 `Send` 但用 `impl(T, !(Sync()))` 退出 `Sync` 的类型可以放进 `Mutex` 或通过 `Channel` 传递，但不能放进 `Arc`。
 
-`String`、`ArrayList(T)`、`HashMap(K, V)` 和 `HashSet(T)` 唯一地拥有自己的缓冲区：它们是值，移动一个值就是交出它唯一的所有者。`String` 是 `Send` 与 `Sync` 的；`T` 是 `Send`（`Sync`）时，`ArrayList(T)` 和 `HashSet(T)` 也是；`K` 与 `V` 都是时，`HashMap(K, V)` 也是。`String` 或 `ArrayList(String)` 可以移入 `Thread(...).spawn` 的闭包体、经由 `join()` 取回，也可以通过 `Channel(String)` 传递；移动之后在发送方再使用它是 E0901。其他集合（`Deque`、`BTreeMap` 等）在各自转为值类型之前仍是共享的、非原子计数的单元，因此暂时不能跨线程：通过 `Arc` 共享同时满足 `Send` 和 `Sync` 的数据，在接收线程上用 `Send` 的部分重建该值，或将其序列化。`Rc` 对象图只属于它所在的线程（Rust 的规则）；`Rc.try_unwrap` 从唯一持有的 `Rc` 中取出值，该值是 `Send` 时就可以移动。过去覆盖这种情况的一次性隔离移交已在 v0.2.68 中移除（`plans/backlog/MACRO_AND_ISO_REMOVAL.md`）。
+`String`、`ArrayList(T)`、`HashMap(K, V)`、`HashSet(T)`、`Deque(T)` 和 `BTreeMap(K, V)` 唯一地拥有自己的缓冲区：它们是值，移动一个值就是交出它唯一的所有者。`String` 是 `Send` 与 `Sync` 的；集合的元素是 `Send`（`Sync`）时，集合也是。`String` 或 `ArrayList(String)` 可以移入 `Thread(...).spawn` 的闭包体、经由 `join()` 取回，也可以通过 `Channel(String)` 传递；移动之后在发送方再使用它是 E0901。`Rc` 对象图只属于它所在的线程（Rust 的规则）；`Rc.try_unwrap` 从唯一持有的 `Rc` 中取出值，该值是 `Send` 时就可以移动。
 
 ### 手动 Send 与 Sync 实现需要 Pragma
 
 编写 `impl(MyType, Send())` 或 `impl(MyType, Sync())` 需要 `pragma(Pragma.AllowUnsafe)` 和解释该类型为何可以安全地跨线程移动或共享的 `// SAFETY:` 注释。持有裸指针的类型就是这样选择加入的（std 的 `Channel`、`Waker`），这也让每个这样的声明都可审计。
 
-## 原子引用语义类型 vs 普通引用语义类型
+## 原子对象 vs 普通单元
 
-|                | `ref(struct(...))`     | `atomic(ref(struct(...)))`          |
+|                | 非原子单元             | 原子对象                            |
 | -------------- | ---------------------- | ----------------------------------- |
 | **引用计数**   | 非原子 RC（线程本地）  | 原子 RC（线程安全）                 |
 | **跨线程共享** | 不允许（非 Send）      | 允许（所有字段都是 Sync 时为 Send 和 Sync） |
-| **示例**       | `Rc(T)`、用户定义的 `ref(struct)` | `Arc(T)`, `Mutex(T)`, `Channel(T)`  |
+| **示例**       | `Rc(T)`                | `Arc(T)`, `Mutex(T)`, `Channel(T)`  |
 
 ## 安全代码中禁止原子字段修改
 
-在安全代码中，通过 `atomic(ref(struct(...)))` 写入是**编译时错误** —— 字段与索引赋值，以及任何进入它的、其被调用者可能通过该参数写入的 `&mut` 路径（传给 `&mut T` 参数的实参，或接收者为 `self : &mut Self` 的方法）：
+在安全代码中，通过原子对象写入是**编译时错误** —— 字段与索引赋值，以及任何进入它的、其被调用者可能通过该参数写入的 `&mut` 路径（传给 `&mut T` 参数的实参，或接收者为 `self : &mut Self` 的方法）：
 
 ```yo
 a := Arc.new(i32(0));
@@ -99,7 +99,7 @@ Pragma 代码（带有 `pragma(Pragma.AllowUnsafe)` 的文件）绕过此规则�
 回绕，与 C11 `atomic_fetch_*` 完全一致。`AtomicBool` 不提供这些方法：它不是整
 数原子类型。
 
-所有方法的接收者都是 `self : Self`，与 `std/sync` 中其他 `atomic(ref(...))` 类
+所有方法的接收者都是 `self : Self`，与 `std/sync` 中其他原子类
 型的约定一致；只有 `compare_exchange` 的 `expected` 是 `&mut`，因为交换失败时
 会把实际观测到的值写回它。每个操作都需要显式的 `MemoryOrder`：
 
@@ -175,7 +175,7 @@ new_value := counter.with_lock(v => (v + i32(1)));
 
 模块级运行期绑定（在任何函数之外的 `name := init` 或 `(name : T) = init`）是一个被所有线程共享的静态变量。它是不可变的（Rust 的 `static`），除非它的名字被包在 `mut(...)` 里（`mut(name) := init`、`(mut(name) : T) = init`，在 `thread_local(...)` 里同样可用），这使它成为 Rust 的 `static mut`。写入不可变的全局变量是 E0917；把 `mut(...)` 全局变量或它下面的位置借给调用是 E0916（先把它读到局部变量里）。详见[错误参考](ERROR_DIAGNOSTICS.md)。在安全代码中：
 
-- 在另一个线程上运行的闭包（`Thread.spawn` 的闭包体、线程池任务、`spawn_blocking` 回调 —— 任何绑定到 `Impl(FnOnce(...), Send)`、`Impl(Fn(...), Send)` 或 `Impl(Fn(...), Sync)` 的闭包）不能直接或经由它调用的任何函数触及类型不是 `Sync` 的全局变量。全局变量被所有线程共享，所以问题在于共享。非原子引用计数的全局变量（`Rc`、任何 `ref(struct)`）对主线程仍然合法，但通过这样的句柄读取字段会更新引用计数，所以其他线程不能碰它；
+- 在另一个线程上运行的闭包（`Thread.spawn` 的闭包体、线程池任务、`spawn_blocking` 回调 —— 任何绑定到 `Impl(FnOnce(...), Send)`、`Impl(Fn(...), Send)` 或 `Impl(Fn(...), Sync)` 的闭包）不能直接或经由它调用的任何函数触及类型不是 `Sync` 的全局变量。全局变量被所有线程共享，所以问题在于共享。非原子引用计数的全局变量（`Rc`）对主线程仍然合法，但通过这样的句柄读取字段会更新引用计数，所以其他线程不能碰它；
 - 在任何地方被**写入**的 `Sync` 值类型全局变量（标量或内部不含引用的结构体）—— 被赋值、以它为根做字段或索引写入、或交给被调用者会通过其写入的 `&mut` 参数 —— 是可变静态变量，在另一个线程上运行的闭包不能触及它。只在一个线程上读写时，它是普通的全局变量；被所有线程读取但从不写入时，它是共享常量。错误报在编译器第二个看到的那个位置上，并指出另一个位置。
 
 ```yo
@@ -246,7 +246,7 @@ impl(MyHandle, !Sync()); // 也不是 Sync
 
 ## 字段可见性 — `_` 前缀约定
 
-名称以 `_` 开头的字段仅对定义类型的**文件和目录**私有。用户代码无法访问 `mutex._value` 或 `mutex._handle`。同一目录内的访问是被允许的。
+名称以 `_` 开头的字段仅对定义类型的**文件和目录**私有。用户代码无法访问 `mutex._cell`，因此也够不到其中的 `_value` 与 `_handle`。同一目录内的访问是被允许的。
 
 ## 信任边界
 

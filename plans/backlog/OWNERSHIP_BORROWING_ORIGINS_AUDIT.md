@@ -212,6 +212,13 @@ rejected; the open hole is A26's by-value read of a `&mut` field); the `ALGEBRAI
 `&Raise` parameter acceptance in rule 8, in both languages. The audit's own status line stays "open follow-ups" until
 §3's open column is empty.
 
+**Re-verified 2026-11-17 (the v0.2.79 docs lane, on develop `916b279c1`).** Every item above is still in place:
+`VALUES_BY_DEFAULT.md`'s four decision corrections (items 1–4: "Corrected 2026-11-11", decision 18 rule 3's `Drop`
+sentence), `BORROW_CHECKER_COMPLETENESS.md` §2, §3 (R-DEREF, R-LEND/R-TEMP, R-CLOSURE-LIT, R-GLOBAL), §7 P9/P12, and the
+`ALGEBRAIC_EFFECTS` pages in both languages. The one item left in the original patch, `tests/move_only.test.yo:111`,
+reads "a by-value parameter borrows, a `sink` parameter moves" and no longer describes the old copy rule, so it is
+closed too. §5 is applied; what keeps this file open is §3's open column and §6's rows (the gates lane).
+
 **`plans/VALUES_BY_DEFAULT.md`**
 
 1. Decision 28, "Extended 2026-11-07 (VERDICTS-31 P9; v0.2.77)". Append: "**Corrected 2026-11-11 (audit D1):** the
