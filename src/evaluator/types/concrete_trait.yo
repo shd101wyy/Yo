@@ -48,9 +48,11 @@ evaluate_concrete_type :: (
   if(!(args.len() == usize(1)), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Concrete type constructor expects exactly 1 argument, got ${args.len()}. Usage: Concrete(T)`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Concrete type constructor expects exactly 1 argument, got ${args.len()}. Usage: Concrete(T)`
+          )
         )
       )
     );
@@ -68,9 +70,11 @@ evaluate_concrete_type :: (
     .None => {
       exn.throw(
         dyn(
-          format_eval_failure(
-            ast_expr_token(&concrete_type_expr),
-            `Failed to evaluate the concrete type expression for Concrete:\n${ast_expr_to_string(&concrete_type_expr)}`
+          Box.new(
+            format_eval_failure(
+              ast_expr_token(&concrete_type_expr),
+              `Failed to evaluate the concrete type expression for Concrete:\n${ast_expr_to_string(&concrete_type_expr)}`
+            )
           )
         )
       );
@@ -86,9 +90,11 @@ evaluate_concrete_type :: (
   if(!is_type_value(&inner_info.value()), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&concrete_type_expr),
-          `Concrete type constructor expects a type as its argument, but got:\n${ast_expr_to_string(&concrete_type_expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&concrete_type_expr),
+            `Concrete type constructor expects a type as its argument, but got:\n${ast_expr_to_string(&concrete_type_expr)}`
+          )
         )
       )
     );

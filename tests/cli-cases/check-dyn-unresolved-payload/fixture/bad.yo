@@ -4,10 +4,10 @@
 // The unknown name sits INSIDE dyn(...): as a throw payload and as a fn's
 // tail value.
 fail_unknown :: (fn(exn : Exception) -> unit)({
-  exn.throw(dyn(totally_unknown_fn()));
+  exn.throw(dyn(Box.new(totally_unknown_fn())));
 });
 make_err :: (fn() -> AnyError)(
-  dyn(String.from(totally_unknown_fn()))
+  dyn(Box.new(String.from(totally_unknown_fn())))
 );
 main :: (fn() -> unit)({
   println("ok");

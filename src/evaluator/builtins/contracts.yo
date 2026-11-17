@@ -137,9 +137,11 @@ _evaluate_contract_marker :: (
       .None => {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&arg),
-              String.from("Failed to evaluate argument of contract clause.")
+            Box.new(
+              format_error_message(
+                ast_expr_token(&arg),
+                String.from("Failed to evaluate argument of contract clause.")
+              )
             )
           )
         );
@@ -202,7 +204,7 @@ _reject_zero_arg_marker :: (fn(expr : &AstExpr, message : &String, exn : Excepti
     .Atom(_, _) => usize(0)
   );
   if(n == usize(0), {
-    exn.throw(dyn(format_error_message(ast_expr_token(expr), message)));
+    exn.throw(dyn(Box.new(format_error_message(ast_expr_token(expr), message))));
   });
 });
 evaluate_requires :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
@@ -257,9 +259,11 @@ evaluate_assumed :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalCont
   if(n != usize(0), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          String.from("'assumed()' takes no arguments: it marks the BODY as outside the verifiable subset, and the contracts themselves come from requires(...)/ensures(...)/decreases(...).")
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            String.from("'assumed()' takes no arguments: it marks the BODY as outside the verifiable subset, and the contracts themselves come from requires(...)/ensures(...)/decreases(...).")
+          )
         )
       )
     );
@@ -395,9 +399,11 @@ _evaluate_transparent_unary :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg),
-            String.from("Failed to evaluate argument of contract clause.")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg),
+              String.from("Failed to evaluate argument of contract clause.")
+            )
           )
         )
       );
@@ -484,10 +490,12 @@ evaluate_refine :: (
   if((args.len() != usize(1)) && (args.len() != usize(2)), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `'refine(...)' takes one or two arguments — refine(T) (a bare alias) or refine(T, p) with p a one-parameter ghost_fn — got ${args.len().to_string()}:
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `'refine(...)' takes one or two arguments — refine(T) (a bare alias) or refine(T, p) with p a one-parameter ghost_fn — got ${args.len().to_string()}:
 ${ast_expr_to_string(expr)}`
+          )
         )
       )
     );
@@ -522,9 +530,11 @@ ${ast_expr_to_string(expr)}`
                   if(!is_ghost_fn(pred_fid.clone()), {
                     exn.throw(
                       dyn(
-                        format_error_message(
-                          ast_expr_token(&arg),
-                          String.from("the refinement predicate must be a ghost_fn value — write refine(T, ghost_fn((fn(x : T) -> bool)(...))). Plain functions have runtime semantics, which a type-level predicate must not.")
+                        Box.new(
+                          format_error_message(
+                            ast_expr_token(&arg),
+                            String.from("the refinement predicate must be a ghost_fn value — write refine(T, ghost_fn((fn(x : T) -> bool)(...))). Plain functions have runtime semantics, which a type-level predicate must not.")
+                          )
                         )
                       )
                     );
@@ -540,9 +550,11 @@ ${ast_expr_to_string(expr)}`
         if(!matched && !((ai == usize(0)) || (ai == usize(1))), {
           exn.throw(
             dyn(
-              format_eval_failure(
-                ast_expr_token(&arg),
-                String.from("Failed to evaluate argument of refine(...).")
+              Box.new(
+                format_eval_failure(
+                  ast_expr_token(&arg),
+                  String.from("Failed to evaluate argument of refine(...).")
+                )
               )
             )
           );
@@ -551,9 +563,11 @@ ${ast_expr_to_string(expr)}`
       .None => {
         exn.throw(
           dyn(
-            format_eval_failure(
-              ast_expr_token(&arg),
-              String.from("Failed to evaluate argument of refine(...).")
+            Box.new(
+              format_eval_failure(
+                ast_expr_token(&arg),
+                String.from("Failed to evaluate argument of refine(...).")
+              )
             )
           )
         );
@@ -620,9 +634,11 @@ evaluate_ghost_fn :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalCon
   if(!ast_expr_is_fn_call_of(expr, BF_GHOST_FN, .Some(usize(1))), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `'ghost_fn(...)' takes exactly one argument, got:\n${ast_expr_to_string(expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `'ghost_fn(...)' takes exactly one argument, got:\n${ast_expr_to_string(expr)}`
+          )
         )
       )
     );
@@ -705,9 +721,11 @@ _evaluate_spec_collection :: (
       .None => {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&arg),
-              String.from("Failed to evaluate a spec-collection argument.")
+            Box.new(
+              format_error_message(
+                ast_expr_token(&arg),
+                String.from("Failed to evaluate a spec-collection argument.")
+              )
             )
           )
         );
@@ -820,9 +838,11 @@ _reject_not_ghost_context :: (fn(expr : &AstExpr, ctx : &EvalContext, exn : Exce
   if(!ctx.is_ghost_context, {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          String.from("ghost-only builtin (legal only inside contract clauses, ghost(...) bindings, and ghost_fn bodies — it has no runtime semantics; plans/backlog/FORMAL_VERIFICATION.md §6)")
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            String.from("ghost-only builtin (legal only inside contract clauses, ghost(...) bindings, and ghost_fn bodies — it has no runtime semantics; plans/backlog/FORMAL_VERIFICATION.md §6)")
+          )
         )
       )
     );
@@ -844,9 +864,11 @@ _evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut Eval
   if(args.len() < usize(2), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          String.from("a quantifier needs at least one binder (name : Type) and a predicate body")
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            String.from("a quantifier needs at least one binder (name : Type) and a predicate body")
+          )
         )
       )
     );
@@ -866,9 +888,11 @@ _evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut Eval
     if(!ast_expr_is_fn_call_of(&barg, ":", Option(usize).Some(usize(2))), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&barg),
-            String.from("quantifier binder must be (name : Type)")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&barg),
+              String.from("quantifier binder must be (name : Type)")
+            )
           )
         )
       );
@@ -896,9 +920,11 @@ _evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut Eval
       .None => {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&barg),
-              String.from("quantifier binder must be (name : Type)")
+            Box.new(
+              format_error_message(
+                ast_expr_token(&barg),
+                String.from("quantifier binder must be (name : Type)")
+              )
             )
           )
         );
@@ -914,9 +940,11 @@ _evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut Eval
       .Some(_) => {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&barg),
-              String.from("quantifier binder must be (name : Type)")
+            Box.new(
+              format_error_message(
+                ast_expr_token(&barg),
+                String.from("quantifier binder must be (name : Type)")
+              )
             )
           )
         );
@@ -925,9 +953,11 @@ _evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut Eval
       .None => {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&barg),
-              String.from("quantifier binder must be (name : Type)")
+            Box.new(
+              format_error_message(
+                ast_expr_token(&barg),
+                String.from("quantifier binder must be (name : Type)")
+              )
             )
           )
         );
@@ -1007,9 +1037,11 @@ evaluate_implies :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalCont
   if(args.len() != usize(2), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          String.from("'==>' takes exactly two arguments")
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            String.from("'==>' takes exactly two arguments")
+          )
         )
       )
     );
@@ -1030,9 +1062,11 @@ evaluate_implies :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalCont
       .None => {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&arg),
-              String.from("Failed to evaluate '==>' argument.")
+            Box.new(
+              format_error_message(
+                ast_expr_token(&arg),
+                String.from("Failed to evaluate '==>' argument.")
+              )
             )
           )
         );
@@ -1051,9 +1085,11 @@ evaluate_old :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext,
   if(!ast_expr_is_fn_call_of(expr, BF_OLD, .Some(usize(1))), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `'old(...)' takes exactly one argument, got:\n${ast_expr_to_string(expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `'old(...)' takes exactly one argument, got:\n${ast_expr_to_string(expr)}`
+          )
         )
       )
     );
@@ -3129,9 +3165,11 @@ _reject_law_clause :: (
         if(ast_expr_is_fn_call_of(&c, clause, Option(usize).None), {
           exn.throw(
             dyn(
-              format_error_message(
-                at,
-                `'law(...)' rejects the '${clause}(...)' clause — a law is a claim to be PROVED, and '${clause}(...)' would let it pass without proving anything.`
+              Box.new(
+                format_error_message(
+                  at,
+                  `'law(...)' rejects the '${clause}(...)' clause — a law is a claim to be PROVED, and '${clause}(...)' would let it pass without proving anything.`
+                )
               )
             )
           );
@@ -3162,9 +3200,11 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext,
   if(!ast_expr_is_fn_call_of(expr, BF_LAW, Option(usize).Some(usize(1))), {
     exn.throw(
       dyn(
-        format_error_message(
-          &law_tok,
-          `'law(...)' takes exactly one argument — a function type: 'law(fn(x : T, ensures(Q)) -> unit)'. Got:\n${ast_expr_to_string(expr)}`
+        Box.new(
+          format_error_message(
+            &law_tok,
+            `'law(...)' takes exactly one argument — a function type: 'law(fn(x : T, ensures(Q)) -> unit)'. Got:\n${ast_expr_to_string(expr)}`
+          )
         )
       )
     );
@@ -3187,9 +3227,11 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext,
   if(!(arrow_ok && fn_ok), {
     exn.throw(
       dyn(
-        format_error_message(
-          &law_tok,
-          `'law(...)' takes a function TYPE written out in place, not a name: 'law(fn(x : T, ensures(Q)) -> unit)'.`
+        Box.new(
+          format_error_message(
+            &law_tok,
+            `'law(...)' takes a function TYPE written out in place, not a name: 'law(fn(x : T, ensures(Q)) -> unit)'.`
+          )
         )
       )
     );
@@ -3250,16 +3292,18 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext,
   if(!is_func, {
     exn.throw(
       dyn(
-        format_error_message(&law_tok, `'law(...)' expects a function type; its argument did not evaluate to one.`)
+        Box.new(format_error_message(&law_tok, `'law(...)' expects a function type; its argument did not evaluate to one.`))
       )
     );
   });
   if(!ret_is_unit, {
     exn.throw(
       dyn(
-        format_error_message(
-          &law_tok,
-          `A law has no value: 'law(...)' requires a '-> unit' function type. Constrain the parameters in 'ensures(...)' instead.`
+        Box.new(
+          format_error_message(
+            &law_tok,
+            `A law has no value: 'law(...)' requires a '-> unit' function type. Constrain the parameters in 'ensures(...)' instead.`
+          )
         )
       )
     );
@@ -3269,9 +3313,11 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext,
   if(raw_enss.len() == usize(0), {
     exn.throw(
       dyn(
-        format_error_message(
-          &law_tok,
-          `A law must claim something: 'law(...)' requires at least one 'ensures(...)' predicate.`
+        Box.new(
+          format_error_message(
+            &law_tok,
+            `A law must claim something: 'law(...)' requires at least one 'ensures(...)' predicate.`
+          )
         )
       )
     );

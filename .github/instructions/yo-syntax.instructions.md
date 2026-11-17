@@ -301,7 +301,7 @@ next : (fn(self : &mut Self) -> Option(Self.Item))
 FuncType :: (fn() -> void)
 
 // `:` vs `=` — wrap the typed binding:
-(err1 : AnyError) = dyn(ErrA(`error A`));
+(err1 : AnyError) = dyn(Box.new(ErrA(`error A`)));
 
 // `:=` vs `&&` — wrap the operator RHS:
 is_neg := ((a == "-") && (b == 1));
@@ -1555,7 +1555,10 @@ own and live behind a pointer (`plans/VALUES_BY_DEFAULT.md` decision 49;
 `Box(Dyn(T))`, `dyn(Rc.new(v))` an `Rc(Dyn(T))`, `dyn(&v)`/`dyn(&mut v)` a
 `&Dyn(T)`/`&mut Dyn(T)` with no allocation, and `&b.*` lends an owned one.
 `downcast(&b.*, V)` gives `Option(&V)`; `upcast(p, Dyn(A))` keeps the pointer
-kind. Using an unsized type by value is E0619; `unsize(a)` of a value is E0620;
+kind. Using an unsized type by value is E0619; `unsize(a)` of a value is E0620,
+and so is `dyn(v)` of a plain value since v0.2.79 (decision 49 S3b: in v0.2.77
+and v0.2.78 it was the legacy alias of `dyn(Box.new(v))`; code written for
+v0.2.78 is migrated with `yo version install 0.2.78 && yo fix <path> --migrate unsized`);
 `generic(T : ?Sized)` opts a generic in.
 
 In v0.2.77 (S1) the older spellings are aliases: a bare `Dyn(T)` value type is
@@ -1569,25 +1572,26 @@ tree binary compiles, use the new ones. Until v0.2.78 a
 returning it E0912), `Rc(Dyn(T))` costs two allocations, and an owned
 `downcast(d, V)` keeps the copying `Option(V)` form.
 
-## A callable into a `Dyn(Fn(...))` slot is always `dyn(f)` (E0618)
+## A callable into a `Dyn(Fn(...))` slot is always `dyn(Box.new(f))` (E0618)
 
 Every erasure into a `Dyn` is spelled (`plans/VALUES_BY_DEFAULT.md` decision 44,
 amended 2026-10-12): a named closure, a named `fn`, an `Impl(Fn(...))` parameter
 or a closure literal passed BARE into a `Dyn(Fn(...))` binding, reassignment,
 field (constructor or write), argument, variant payload or result (a body tail or
-`return(f)`) is `error[E0618]`, whose help names `dyn(f)`. Write `dyn(f)`
-(`dyn` moves `f`, so one closure fills one slot); `yo fix <path>` wraps a
-named callable. An `Impl(Fn(...))` slot is the
+`return(f)`) is `error[E0618]`, whose help names the erasure over the pointer
+the slot takes: `dyn(Box.new(f))` for a `Box(Dyn(Fn(...)))`, `dyn(Rc.new(f))`
+for an `Rc`, `dyn(&f)` for a reference (`Box.new` moves `f`, so one closure
+fills one slot); `yo fix <path>` writes it for a named callable. An `Impl(Fn(...))` slot is the
 closure's own type, not an erasure, and still takes it bare. Until 2026-10-13 a
 named closure flowed bare and three of the four sites emitted invalid C
 (`issues/fixed/a-named-closure-flowing-bare-into-a-dyn-fn-slot-passes-check-and-emits-invalid-c.md`).
-`dyn(nine)` of a named `fn` (top-level, imported, or an `Impl(Fn(...))`
+`dyn(Box.new(nine))` of a named `fn` (top-level, imported, or an `Impl(Fn(...))`
 parameter bound to one) boxes the function's code pointer, and the `Dyn`'s
 call goes through it; no closure wrapper is needed
 (`issues/fixed/dyn-of-a-named-function-value-emits-invalid-c.md`). A generic
 type's function taken as a value (`ArrayList(i32).new`) is not emitted yet,
 with or without `dyn` (`issues/a-generic-types-function-taken-as-a-value-is-not-emitted.md`):
-wrap it in a closure, `dyn(() => ArrayList(i32).new())`.
+wrap it in a closure, `dyn(Box.new(() => ArrayList(i32).new()))`.
 
 ## A bare `fn(...)` slot type never mentions `Impl(Fn(...))`
 

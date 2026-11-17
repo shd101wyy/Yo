@@ -977,7 +977,7 @@ _arg_val_req :: (
   if((i + usize(1)) < argv.len(), {
     return(argv(i + usize(1)).clone());
   });
-  exn.throw(dyn(`compile: option '${flag}' requires a value`));
+  exn.throw(dyn(Box.new(`compile: option '${flag}' requires a value`)));
   String.from("")
 });
 /// Run the `check` subcommand — evaluator-only.
@@ -1102,6 +1102,20 @@ _expr_span_end :: (fn(runes : &ArrayList(rune), col : usize, scan_from : usize, 
   (depth : i64) = i64(0);
   (e : usize) = scan_from;
   while(e < runes.len(), {
+    // A string, char or template literal's contents are not brackets: jump
+    // to its closing quote, which is then the candidate end
+    // (issues/fixed/2026-11-15-migrate-unsized-lists-one-line-dyn-sites-holding-a-template-literal-or-a-bracket-in-a-string.md).
+    if(_is_quote_rune(runes(e).char), {
+      match(
+        _literal_close(runes, e),
+        .Some(q) => {
+          e = q;
+        },
+        .None => {
+          return(.None);
+        }
+      );
+    });
     r := runes(e);
     cond(
       ((r.char == u32(0x28)) || (r.char == u32(0x5B)) || (r.char == u32(0x7B))) => {
@@ -1132,6 +1146,32 @@ _expr_span_end :: (fn(runes : &ArrayList(rune), col : usize, scan_from : usize, 
       );
     });
     e = end;
+  });
+  .None
+});
+/// `"`, `'` or a backtick: the runes that open a string, char or template
+/// literal.
+_is_quote_rune :: (fn(c : u32) -> bool)(
+  (c == u32(0x22)) || (c == u32(0x27)) || (c == u32(0x60))
+);
+/// The index of the quote that closes the literal opened at `open` on this
+/// line (a `\` escapes the next rune), or `.None` when the line ends first.
+_literal_close :: (fn(runes : &ArrayList(rune), open : usize) -> Option(usize))({
+  q := runes(open).char;
+  (k : usize) = (open + usize(1));
+  while(k < runes.len(), {
+    c := runes(k).char;
+    cond(
+      (c == u32(0x5C)) => {
+        k = (k + usize(2));
+      },
+      (c == q) => {
+        return(.Some(k));
+      },
+      true => {
+        k = (k + usize(1));
+      }
+    );
   });
   .None
 });
@@ -2307,7 +2347,7 @@ _run_migrate_deref :: (
   verb := if(dry_run, String.from("would apply"), String.from("applied"));
   println(`fix: ${verb} ${n_done.to_string()} edit(s) (\`.*\`, capture labels, dropped \`&\` markers); ${n_skipped.to_string()} site(s) left as written (listed above); ${failed.to_string()} file(s) did not evaluate`);
   if(failed > usize(0), {
-    exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated references were not migrated`));
+    exn.throw(dyn(Box.new(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated references were not migrated`)));
   });
 });
 /// The callee name of a call node (`:=`, `=>`, `cond`, ...), or "" for an atom
@@ -2444,7 +2484,7 @@ _run_migrate_record_literal :: (fn(files : &ArrayList(String), dry_run : bool, i
   verb := if(dry_run, String.from("would rewrite"), String.from("rewrote"));
   println(`fix: ${verb} ${n_done.to_string()} record literal(s) to \`.{ ... }\`; ${failed.to_string()} file(s) did not parse`);
   if(failed > usize(0), {
-    exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not parse`));
+    exn.throw(dyn(Box.new(`fix: ${failed.to_string()} file(s) do not parse`)));
   });
 });
 /// A rune that continues an identifier (`[A-Za-z0-9_]`).
@@ -2506,23 +2546,21 @@ _str_type_arg_col :: (fn(runes : &ArrayList(rune), col : usize, index : usize) -
   .None
 });
 /// `yo fix <path> --migrate unsized` (plans/VALUES_BY_DEFAULT.md decision 49;
-/// VERDICTS-40 §5, VERDICTS-55, VERDICTS-61) over code in the v0.2.78
-/// spelling. Every file is evaluated with the recorder on
-/// (`record_unsized_site`): the legacy alias `dyn(v)` of a plain value becomes
-/// `dyn(Box.new(v))`, and a lend `&b` of a `Box(Dyn(T))` where a `&Dyn(T)` is
-/// taken becomes `&b.*` (VERDICTS-40 §5 family (d); v0.2.77's migration did
-/// not write it). Listed, never rewritten: a site that does not print back on
-/// one line, a `Box(Dyn(...))` temporary where a `&Dyn` is taken, `dyn(p)`
-/// over a raw pointer, `dyn(h)` over a named handle, and a file with a
-/// platform arm this target does not evaluate. The type
-/// spellings of v0.2.77, where a bare `Dyn(...)` was the owning box, are
-/// v0.2.77's mode (`yo version install 0.2.77`): here a bare by-value
-/// `Dyn(...)` is E0619, whose help says so, and `*Dyn(...)`, an alias body and
-/// `impl(Dyn(...), ...)` name the unsized object
+/// VERDICTS-40 §5, VERDICTS-55, VERDICTS-61). Every file is evaluated with the
+/// recorder on (`record_unsized_site`): a lend `&b` of a `Box(Dyn(T))` where a
+/// `&Dyn(T)` is taken becomes `&b.*` (VERDICTS-40 §5 family (d); v0.2.77's
+/// migration did not write it). Listed, never rewritten: a lend that does not
+/// print back on one line, a `Box(Dyn(...))` temporary where a `&Dyn` is
+/// taken, an owned `downcast`, `dyn(h)` over a named handle, and a file with a
+/// platform arm this target does not evaluate. Each earlier spelling is
+/// migrated by the release that last accepts it, then the next release is
+/// installed (the precedent of E0009): v0.2.77's type spellings, where a bare
+/// `Dyn(...)` was the owning box, by v0.2.77 (E0619's help says so), and
+/// v0.2.78's plain `dyn(v)`, the legacy alias of `dyn(Box.new(v))`, by
+/// v0.2.78 (E0620's help says so; decision 49 S3b)
 /// (issues/fixed/2026-11-15-what-does-migrate-unsized-do-under-the-binary-that-flips-dyn.md).
 _run_migrate_unsized :: (fn(files : &ArrayList(String), std_path : &String, dry_run : bool, io : Io, exn : Exception) -> unit)({
   (failed : usize) = usize(0);
-  (n_dyn : usize) = usize(0);
   (n_str : usize) = usize(0);
   (n_lend : usize) = usize(0);
   (n_listed : usize) = usize(0);
@@ -2584,7 +2622,6 @@ _run_migrate_unsized :: (fn(files : &ArrayList(String), std_path : &String, dry_
       line := match(lines.get_cloned(st.row), .Some(l) => l, .None => String.new());
       runes := _line_runes(line);
       cond(
-        (st.kind == u8(1)) => listed.push(`${pos}fix: ${at}: \`dyn(${st.text})\` boxes the raw pointer \`${st.text}\` today, and in v0.2.78 \`dyn\` over a raw pointer unsizes it to a \`*Dyn(...)\` instead: write \`dyn(Box.new(${st.text}))\` to keep the box, or keep \`dyn(${st.text})\` for the unsized pointer; left as written`),
         (st.kind == u8(5)) => listed.push(`${pos}fix: ${at}: \`dyn(${st.text})\` erases a named \`Rc\`/\`Arc\` handle, which v0.2.77 rejects: write \`dyn(Rc.new(v))\` to build the shared object where it is made, or \`dyn(Box.new(v))\` to own it; left as written`),
         // The `str` family (decision 49 S2): a value `str` type is the
         // legacy alias of `&(str, static)`, written as such.
@@ -2618,28 +2655,6 @@ _run_migrate_unsized :: (fn(files : &ArrayList(String), std_path : &String, dry_
           .None => listed.push(`${pos}fix: ${at}: \`${st.text}\` lends a \`Box(Dyn(...))\` where a reference to the \`Dyn\` is taken and does not print back on one line; write \`&${st.text}.*\` by hand; left as written`)
         ),
         (st.kind == u8(6)) => listed.push(`${pos}fix: ${at}: \`downcast(${st.text}, ...)\` copies the payload out of an owned Dyn; v0.2.78's owning form is \`Result(Box(V), Box(Dyn(...)))\`: write \`downcast(&${st.text}.*, ...)\` where only the payload is read; left as written`),
-        (st.kind == u8(2)) => {
-          // `dyn(<arg>)`: the argument starts after the `(` that follows
-          // `dyn`, and must print back as recorded on this line.
-          (k : usize) = (st.col + usize(3));
-          while((k < runes.len()) && runes(k).is_whitespace(), k = (k + usize(1)), ());
-          (arg_start : Option(usize)) = Option(usize).None;
-          if((k < runes.len()) && (runes(k).char == u32(0x28)), {
-            (a : usize) = (k + usize(1));
-            while((a < runes.len()) && runes(a).is_whitespace(), a = (a + usize(1)), ());
-            arg_start = Option(usize).Some(a);
-          });
-          span := match(arg_start, .Some(a) => match(_expr_span_end(&runes, a, a, &st.text, &file), .Some(e) => Option(Tuple(usize, usize)).Some((a, e)), .None => Option(Tuple(usize, usize)).None), .None => Option(Tuple(usize, usize)).None);
-          match(
-            span,
-            .Some((a, e)) => {
-              n_dyn = (n_dyn + usize(1));
-              checked.push(_PendingFix(row : st.row, col : e, len : usize(0), replacement : String.from(")"), description : at.clone()));
-              checked.push(_PendingFix(row : st.row, col : a, len : usize(0), replacement : String.from("Box.new("), description : at));
-            },
-            .None => listed.push(`${pos}fix: ${at}: \`dyn(${st.text})\` does not print back on one line; write it \`dyn(Box.new(${st.text}))\` by hand; left as written`)
-          );
-        },
         true => ()
       );
     });
@@ -2661,9 +2676,9 @@ _run_migrate_unsized :: (fn(files : &ArrayList(String), std_path : &String, dry_
   verb := if(dry_run, String.from("would rewrite"), String.from("rewrote"));
   // The `str` count is named only when a `str` type was rewritten.
   str_part := if(n_str > usize(0), ` and ${n_str.to_string()} \`str\` type(s) to \`&(str, static)\``, String.new());
-  println(`fix: ${verb} ${n_dyn.to_string()} \`dyn(...)\` site(s) to \`dyn(Box.new(...))\` and ${n_lend.to_string()} box lend(s) \`&b\` to \`&b.*\`${str_part}; ${n_listed.to_string()} site(s) listed for a hand rewrite; ${failed.to_string()} file(s) did not evaluate`);
+  println(`fix: ${verb} ${n_lend.to_string()} box lend(s) \`&b\` to \`&b.*\`${str_part}; ${n_listed.to_string()} site(s) listed for a hand rewrite; ${failed.to_string()} file(s) did not evaluate`);
   if(failed > usize(0), {
-    exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; what evaluation did not reach was not migrated`));
+    exn.throw(dyn(Box.new(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; what evaluation did not reach was not migrated`)));
   });
 });
 /// `yo fix <path> [--dry-run]` — apply the mechanical repairs the compiler
@@ -2683,7 +2698,7 @@ run_fix :: (
   ) -> unit
 )({
   if(argv.len() < usize(3), {
-    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate deref|record-literal|unsized]`));
+    exn.throw(dyn(Box.new(`fix: missing input file. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate deref|record-literal|unsized]`)));
   });
   target_paths := ArrayList(String).new();
   (dry_run : bool) = false;
@@ -2701,7 +2716,7 @@ run_fix :: (
       (a == "--target") => {
         next_t := (ai + usize(1));
         if(next_t >= argv.len(), {
-          exn.throw(dyn(`fix: --target takes a target triple, e.g. x86_64-pc-windows-msvc`));
+          exn.throw(dyn(Box.new(`fix: --target takes a target triple, e.g. x86_64-pc-windows-msvc`)));
         });
         target_triple = argv(next_t).clone();
         ai = (ai + usize(2));
@@ -2709,7 +2724,7 @@ run_fix :: (
       (a == "--migrate") => {
         next_m := (ai + usize(1));
         if((next_m >= argv.len()) || ((argv(next_m) != "deref") && (argv(next_m) != "record-literal") && (argv(next_m) != "unsized") && (argv(next_m) != "rc-clone")), {
-          exn.throw(dyn(`fix: --migrate takes one migration name: deref, record-literal, unsized or rc-clone`));
+          exn.throw(dyn(Box.new(`fix: --migrate takes one migration name: deref, record-literal, unsized or rc-clone`)));
         });
         migrate = argv(next_m).clone();
         ai = (ai + usize(2));
@@ -2724,7 +2739,7 @@ run_fix :: (
         });
       },
       a.starts_with(String.from("-")) => {
-        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate deref|record-literal|unsized]`));
+        exn.throw(dyn(Box.new(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate deref|record-literal|unsized]`)));
       },
       true => {
         target_paths.push(a.clone());
@@ -2733,7 +2748,7 @@ run_fix :: (
     );
   });
   if(target_paths.len() == usize(0), {
-    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir>... [--dry-run]`));
+    exn.throw(dyn(Box.new(`fix: missing input file. Usage: yo fix <input.yo | dir>... [--dry-run]`)));
   });
   // Evaluate for TARGET, as `compile --target` does: std's
   // `cond(platform == ...)` arms are selected during evaluation, so a repair
@@ -2745,7 +2760,7 @@ run_fix :: (
         set_current_target(&t);
         set_target_pointer_size(t.pointer_size_bits);
       },
-      .Err(e) => exn.throw(dyn(`fix: ${e}`))
+      .Err(e) => exn.throw(dyn(Box.new(`fix: ${e}`)))
     );
   });
   // Several paths are evaluated in ONE session, so a migration also
@@ -2770,7 +2785,7 @@ run_fix :: (
     });
   });
   if(files.len() == usize(0), {
-    exn.throw(dyn(`fix: no .yo files found at ${target_path}`));
+    exn.throw(dyn(Box.new(`fix: no .yo files found at ${target_path}`)));
   });
   // Same rule as `check`: a std tree is evaluated against its own root, not
   // the std the resolver found beside the binary
@@ -2800,7 +2815,7 @@ run_fix :: (
   // stashed diagnostics belonged to another path and `fix` reported "nothing
   // to fix" on a file `check` rejects.
   if(!mm_preload_prelude(std_path.clone(), false, io, exn), {
-    exn.throw(dyn(`fix: could not load the prelude from ${std_path}`));
+    exn.throw(dyn(Box.new(`fix: could not load the prelude from ${std_path}`)));
   });
   _index_std_exports(std_path.clone(), io, exn);
   if(migrate == "unsized", {
@@ -2969,7 +2984,7 @@ run_fix :: (
   if(!dry_run && (still_failing > usize(0)), {
     exn.throw(
       dyn(
-        `fix: ${still_failing.to_string()} file(s) still do not evaluate — run \`yo check ${target_path}\` for the remaining diagnostics`
+        Box.new(`fix: ${still_failing.to_string()} file(s) still do not evaluate — run \`yo check ${target_path}\` for the remaining diagnostics`)
       )
     );
   });
@@ -3038,7 +3053,7 @@ run_check :: (
   ) -> unit
 )({
   if(argv.len() < usize(3), {
-    exn.throw(dyn(`check: missing input file. Usage: yo check <input.yo | dir>`));
+    exn.throw(dyn(Box.new(`check: missing input file. Usage: yo check <input.yo | dir>`)));
   });
   // Positional + `--exclude <path>` (repeatable) in any order; unknown
   // options are errors (strict parsing).
@@ -3079,7 +3094,7 @@ run_check :: (
         ai = (ai + usize(2));
       },
       a.starts_with(String.from("-")) => {
-        exn.throw(dyn(`check: unknown option '${a}'. Usage: yo check <input.yo | dir> [--exclude PATH] [--test-bodies] [--watch | --watch-once] [--poll-ms N]`));
+        exn.throw(dyn(Box.new(`check: unknown option '${a}'. Usage: yo check <input.yo | dir> [--exclude PATH] [--test-bodies] [--watch | --watch-once] [--poll-ms N]`)));
       },
       true => {
         target_path = a.clone();
@@ -3088,11 +3103,11 @@ run_check :: (
     );
   });
   if(target_path.len() == usize(0), {
-    exn.throw(dyn(`check: missing input file. Usage: yo check <input.yo | dir>`));
+    exn.throw(dyn(Box.new(`check: missing input file. Usage: yo check <input.yo | dir>`)));
   });
   files := collect_check_files(target_path.clone(), &excludes, io, exn);
   if(files.len() == usize(0), {
-    exn.throw(dyn(`check: no .yo files found at ${target_path}`));
+    exn.throw(dyn(Box.new(`check: no .yo files found at ${target_path}`)));
   });
   // `--test-bodies`: stop SWALLOWING errors from the test-body trial. Off by
   // default because that trial has known false positives (it takes a
@@ -3165,7 +3180,7 @@ run_check :: (
     run_check_watch(&files, std_path.clone(), poll_ms, io, exn);
   });
   if(failed > usize(0), {
-    exn.throw(dyn(`check: ${failed.to_string()} file(s) failed evaluator coverage`));
+    exn.throw(dyn(Box.new(`check: ${failed.to_string()} file(s) failed evaluator coverage`)));
   });
 });
 /// Run the `verify` subcommand — the compile-time verifier driver
@@ -3234,7 +3249,7 @@ run_verify_cmd :: (
             rlimit_opt = Option(usize).Some(usize(n));
           },
           .None => {
-            exn.throw(dyn(`verify: --rlimit expects a non-negative integer, got '${v2}'`));
+            exn.throw(dyn(Box.new(`verify: --rlimit expects a non-negative integer, got '${v2}'`)));
           }
         );
         ai = (ai + _opt_step(&a_val));
@@ -3247,7 +3262,7 @@ run_verify_cmd :: (
           if(v3 == "text", {
             format_json = false;
           }, {
-            exn.throw(dyn(`verify: --format expects 'text' or 'json', got '${v3}'`));
+            exn.throw(dyn(Box.new(`verify: --format expects 'text' or 'json', got '${v3}'`)));
           });
         });
         ai = (ai + _opt_step(&a_val));
@@ -3284,7 +3299,7 @@ run_verify_cmd :: (
               if(!is_verify_outcome_name(piece.clone()), {
                 exn.throw(
                   dyn(
-                    `verify: --deny does not know the outcome '${piece}' — expected one of ${_verify_join_strs(verify_outcome_names(), String.from(", "))}`
+                    Box.new(`verify: --deny does not know the outcome '${piece}' — expected one of ${_verify_join_strs(verify_outcome_names(), String.from(", "))}`)
                   )
                 );
               });
@@ -3303,13 +3318,13 @@ run_verify_cmd :: (
       a.starts_with(String.from("-")) => {
         exn.throw(
           dyn(
-            `verify: unknown option '${a}'. Usage: yo verify [path] [--verify-mode runtime|verify|verify+] [--solver-path PATH] [--rlimit N] [--format text|json] [--explain FN] [--no-cache] [--elision] [--strict] [--deny <outcomes>]`
+            Box.new(`verify: unknown option '${a}'. Usage: yo verify [path] [--verify-mode runtime|verify|verify+] [--solver-path PATH] [--rlimit N] [--format text|json] [--explain FN] [--no-cache] [--elision] [--strict] [--deny <outcomes>]`)
           )
         );
       },
       true => {
         if(target_path.len() > usize(0), {
-          exn.throw(dyn(`verify: multiple paths given ('${target_path}' and '${a}') — verify one path per invocation`));
+          exn.throw(dyn(Box.new(`verify: multiple paths given ('${target_path}' and '${a}') — verify one path per invocation`)));
         });
         target_path = a.clone();
         ai = (ai + usize(1));
@@ -3329,17 +3344,17 @@ run_verify_cmd :: (
     .Some(_) => (),
     .None => {
       exn.throw(
-        dyn(`verify: --verify-mode expects 'runtime', 'verify', or 'verify+', got '${mode_str}'`)
+        dyn(Box.new(`verify: --verify-mode expects 'runtime', 'verify', or 'verify+', got '${mode_str}'`))
       );
     }
   );
   // Validate the target path up front (fail fast on a typo).
   if(target_path.len() == usize(0), {
-    exn.throw(dyn(`verify: missing input file. Usage: yo verify <input.yo | dir> [options]`));
+    exn.throw(dyn(Box.new(`verify: missing input file. Usage: yo verify <input.yo | dir> [options]`)));
   });
   files := collect_check_files(target_path.clone(), ArrayList(String).new(), io, exn);
   if(files.len() == usize(0), {
-    exn.throw(dyn(`verify: no .yo files found at ${target_path}`));
+    exn.throw(dyn(Box.new(`verify: no .yo files found at ${target_path}`)));
   });
   cfg := default_verify_run_config();
   cfg.solver_path = solver_path;
@@ -3359,7 +3374,7 @@ run_verify_cmd :: (
     resolve_solver_sync(&cfg),
     .Resolved(path) => path,
     .InvalidPath(path) => {
-      exn.throw(dyn(`verify: solver path '${path}' does not exist`));
+      exn.throw(dyn(Box.new(`verify: solver path '${path}' does not exist`)));
       String.new()
     },
     .Installable => io.await(ensure_z3(io, exn), IoExn(io : io, exn : exn))
@@ -3449,7 +3464,7 @@ run_verify_cmd :: (
     fi2 = (fi2 + usize(1));
   });
   if(eval_failed > usize(0), {
-    exn.throw(dyn(`verify: ${eval_failed.to_string()} file(s) failed evaluation`));
+    exn.throw(dyn(Box.new(`verify: ${eval_failed.to_string()} file(s) failed evaluation`)));
   });
   // D4 (BEND_LAWS_AND_AGENT_LOOP_LESSONS.md): the summary reports wall time
   // and query count, so checker speed is a number the campaign can improve
@@ -3469,7 +3484,7 @@ run_verify_cmd :: (
       all_reports.retain({ pat : &pat.* }(rp) => rp.fn_id.contains(pat.clone()));
       reports = all_reports;
       if(reports.len() == usize(0), {
-        exn.throw(dyn(`verify: --explain '${pat}' matched no verified function (of ${n_all.to_string()})`));
+        exn.throw(dyn(Box.new(`verify: --explain '${pat}' matched no verified function (of ${n_all.to_string()})`)));
       });
     },
     .None => {
@@ -3555,7 +3570,7 @@ run_verify_cmd :: (
   if(bad > usize(0), {
     exn.throw(
       dyn(
-        `verify: ${bad.to_string()} function(s) not verified (${refuted_n.to_string()} refuted) — see the report above`
+        Box.new(`verify: ${bad.to_string()} function(s) not verified (${refuted_n.to_string()} refuted) — see the report above`)
       )
     );
   });
@@ -4471,7 +4486,7 @@ _compile_chunks_parallel :: (
         seq = seq.arg(obj.clone());
         sst := io.await(seq.status(io), IoExn(io : io, exn : exn));
         if(sst.raw != i32(0), {
-          exn.throw(dyn(`compile: C compiler failed (exit ${sst.code().unwrap_or(i32(-1)).to_string()}) on ${cf}`));
+          exn.throw(dyn(Box.new(`compile: C compiler failed (exit ${sst.code().unwrap_or(i32(-1)).to_string()}) on ${cf}`)));
           return(objs);
         });
         li = (li + usize(1));
@@ -4500,7 +4515,7 @@ _compile_chunks_parallel :: (
       shcmd = shcmd.arg(script_path.clone());
       shst := io.await(shcmd.status(io), IoExn(io : io, exn : exn));
       if(shst.raw != i32(0), {
-        exn.throw(dyn(`compile: C compiler failed (exit ${shst.code().unwrap_or(i32(-1)).to_string()}) compiling chunks — see ${script_path}`));
+        exn.throw(dyn(Box.new(`compile: C compiler failed (exit ${shst.code().unwrap_or(i32(-1)).to_string()}) compiling chunks — see ${script_path}`)));
         return(objs);
       });
     }
@@ -4771,7 +4786,7 @@ _require_bundled_mimalloc :: (fn(command : String, std_root : &String, exn : Exc
     shown := Path.new(mim_static.clone()).normalize().to_string();
     exn.throw(
       dyn(
-        `${command}: --allocator mimalloc needs the bundled mimalloc, and ${shown} does not exist. In a source checkout, run \`git -c protocol.file.allow=always submodule update --init\`; a source install built from the published yo.c ships no mimalloc. Otherwise use the system allocator: ${_system_allocator_remedy}.`
+        Box.new(`${command}: --allocator mimalloc needs the bundled mimalloc, and ${shown} does not exist. In a source checkout, run \`git -c protocol.file.allow=always submodule update --init\`; a source install built from the published yo.c ships no mimalloc. Otherwise use the system allocator: ${_system_allocator_remedy}.`)
       )
     );
   });
@@ -5040,7 +5055,7 @@ _cc_plan_parse :: (fn(text : &String, exn : Exception) -> CcPlan)({
             plan.chunk_hashes.push(val);
           },
           true => {
-            exn.throw(dyn(`compile: unknown yo-cc-plan key "${key}"`));
+            exn.throw(dyn(Box.new(`compile: unknown yo-cc-plan key "${key}"`)));
           }
         );
       },
@@ -5322,7 +5337,7 @@ _run_cc_plan :: (fn(plan : &CcPlan, io : Io, exn : Exception) -> unit)({
     });
     cst := io.await(_cc_command(cc.clone(), &plan.argv).status(io), IoExn(io : io, exn : exn));
     if(cst.raw != i32(0), {
-      exn.throw(dyn(`compile: C compiler failed (exit ${cst.code().unwrap_or(i32(-1)).to_string()}) on ${plan.c_path}`));
+      exn.throw(dyn(Box.new(`compile: C compiler failed (exit ${cst.code().unwrap_or(i32(-1)).to_string()}) on ${plan.c_path}`)));
       return(())
     });
     mut(arcmd) := Command.new(String.from("ar"));
@@ -5338,7 +5353,7 @@ _run_cc_plan :: (fn(plan : &CcPlan, io : Io, exn : Exception) -> unit)({
     });
     ast := io.await(arcmd.status(io), IoExn(io : io, exn : exn));
     if(ast.raw != i32(0), {
-      exn.throw(dyn(`compile: ar failed (exit ${ast.code().unwrap_or(i32(-1)).to_string()}) creating ${plan.ar_out}`));
+      exn.throw(dyn(Box.new(`compile: ar failed (exit ${ast.code().unwrap_or(i32(-1)).to_string()}) creating ${plan.ar_out}`)));
     });
     return(())
   });
@@ -5421,11 +5436,11 @@ _run_cc_plan :: (fn(plan : &CcPlan, io : Io, exn : Exception) -> unit)({
       });
       st2 := io.await(_cc_command(cc.clone(), &plan.argv).status(io), IoExn(io : io, exn : exn));
       if(st2.raw != i32(0), {
-        exn.throw(dyn(`compile: C compiler failed (exit ${st2.code().unwrap_or(i32(-1)).to_string()}) on ${plan.c_path}`));
+        exn.throw(dyn(Box.new(`compile: C compiler failed (exit ${st2.code().unwrap_or(i32(-1)).to_string()}) on ${plan.c_path}`)));
       });
       return(())
     });
-    exn.throw(dyn(`compile: C compiler failed (exit ${link_st.code().unwrap_or(i32(-1)).to_string()}) on ${plan.c_path}`));
+    exn.throw(dyn(Box.new(`compile: C compiler failed (exit ${link_st.code().unwrap_or(i32(-1)).to_string()}) on ${plan.c_path}`)));
   });
 });
 /// Hand the C-compiler step to a fresh image when this process may be
@@ -5484,7 +5499,7 @@ run_compile :: (
   ) -> unit
 )({
   if(argv.len() < usize(3), {
-    exn.throw(dyn(`compile: missing input file. Usage: yo compile <input.yo> [-o out] [--c-compiler cc] [--target <triple>] [--emit-c]`));
+    exn.throw(dyn(Box.new(`compile: missing input file. Usage: yo compile <input.yo> [-o out] [--c-compiler cc] [--target <triple>] [--emit-c]`)));
   });
   // Parse args — the `compile` command options for the clang/gcc/zig path.
   (input_path : String) = String.from("");
@@ -5830,7 +5845,7 @@ run_compile :: (
             chunk_by_module = false;
           },
           true => {
-            exn.throw(dyn(`compile: --chunk-by expects 'module' or 'name', got '${cbv}'`));
+            exn.throw(dyn(Box.new(`compile: --chunk-by expects 'module' or 'name', got '${cbv}'`)));
           }
         );
         ai = (ai + usize(2));
@@ -5884,7 +5899,7 @@ run_compile :: (
         // Strict parsing: an unknown option is an
         // error. The old silent catch-all dropped mistyped flags — a
         // `--sanitizer address` typo compiled unsanitized with rc=0.
-        exn.throw(dyn(`compile: unknown option '${a}'`));
+        exn.throw(dyn(Box.new(`compile: unknown option '${a}'`)));
         ai = (ai + usize(1));
       },
       true => {
@@ -5895,10 +5910,10 @@ run_compile :: (
   });
   // ---- choices validation ----
   if((cc != "") && (cc != "cc") && (cc != "gcc") && (cc != "clang") && (cc != "zig") && (cc != "emcc"), {
-    exn.throw(dyn(`compile: invalid --c-compiler "${cc}". Choices: cc, gcc, clang, zig, emcc`));
+    exn.throw(dyn(Box.new(`compile: invalid --c-compiler "${cc}". Choices: cc, gcc, clang, zig, emcc`)));
   });
   if((allocator != "mimalloc") && (allocator != "system") && (allocator != "fixed") && (allocator != "debug"), {
-    exn.throw(dyn(`compile: invalid --allocator "${allocator}". Choices: mimalloc, system, fixed, debug`));
+    exn.throw(dyn(Box.new(`compile: invalid --allocator "${allocator}". Choices: mimalloc, system, fixed, debug`)));
   });
   // --heap-size / --debug-heap belong to the fixed-region allocator only
   // (plans/reference/FIXED_REGION_ALLOCATOR.md §2.2/§2.4): a silent ignore would
@@ -5913,7 +5928,7 @@ run_compile :: (
         heap_size = bytes;
       },
       .Err(why) => {
-        exn.throw(dyn(`compile: invalid --heap-size "${heap_size_raw}": ${why}`));
+        exn.throw(dyn(Box.new(`compile: invalid --heap-size "${heap_size_raw}": ${why}`)));
       }
     );
   });
@@ -5924,13 +5939,13 @@ run_compile :: (
   // it, so unlike a "z" level it needs no per-compiler gate (gcc has no -Oz).
   // It is what the build system's release-small level forwards.
   if((optimize != "") && (optimize != "0") && (optimize != "1") && (optimize != "2") && (optimize != "3") && (optimize != "s"), {
-    exn.throw(dyn(`compile: invalid --optimize "${optimize}". Choices: 0, 1, 2, 3, s`));
+    exn.throw(dyn(Box.new(`compile: invalid --optimize "${optimize}". Choices: 0, 1, 2, 3, s`)));
   });
   if((sanitize != "") && (sanitize != "address") && (sanitize != "leak") && (sanitize != "thread") && (sanitize != "undefined"), {
-    exn.throw(dyn(`compile: invalid --sanitize "${sanitize}". Choices: address, leak, thread, undefined`));
+    exn.throw(dyn(Box.new(`compile: invalid --sanitize "${sanitize}". Choices: address, leak, thread, undefined`)));
   });
   if((emcc_environment != "") && (emcc_environment != "web") && (emcc_environment != "node"), {
-    exn.throw(dyn(`compile: invalid --emcc-environment "${emcc_environment}". Choices: web, node`));
+    exn.throw(dyn(Box.new(`compile: invalid --emcc-environment "${emcc_environment}". Choices: web, node`)));
   });
   // Chunked emission drives multiple TU inputs through the executable link
   // line; the static-library path compiles ONE input to ONE `.o`.
@@ -6022,7 +6037,7 @@ run_compile :: (
     ),
     .Ok(t) => t,
     .Err(e) => {
-      exn.throw(dyn(`compile: ${e}`));
+      exn.throw(dyn(Box.new(`compile: ${e}`)));
       return(())
     }
   );
@@ -6035,7 +6050,7 @@ run_compile :: (
   // The fixed-region heap becomes a size_t-typed static array in the emitted
   // C; a 32-bit target's size_t cannot hold a 4 GiB byte count.
   if((allocator == "fixed") && (target.pointer_size_bits == u32(32)) && (heap_size > usize(4294967295)), {
-    exn.throw(dyn(`compile: --heap-size ${_format_heap_size(heap_size)} does not fit a 32-bit target (max 4294967295 bytes)`));
+    exn.throw(dyn(Box.new(`compile: --heap-size ${_format_heap_size(heap_size)} does not fit a 32-bit target (max 4294967295 bytes)`)));
   });
   // The pointer-size global feeds get_size_of_type's sizeof/alignof folding.
   // Without it, sizeof folds 64-bit pointer
@@ -6068,7 +6083,7 @@ run_compile :: (
   // mimalloc does not build for wasm. An explicit request for it is an error,
   // not a silent switch to the system allocator (see `_require_bundled_mimalloc`).
   if((allocator == "mimalloc") && is_target_wasm(&target), {
-    exn.throw(dyn(`compile: --allocator mimalloc is not available on wasm targets (${target.triple}). Use the system allocator: ${_system_allocator_remedy}.`));
+    exn.throw(dyn(Box.new(`compile: --allocator mimalloc is not available on wasm targets (${target.triple}). Use the system allocator: ${_system_allocator_remedy}.`)));
   });
   // Same rule as `check`: compiling a module that lives inside a std tree
   // must resolve std to THAT tree, not the bundle an installed binary finds
@@ -6284,7 +6299,7 @@ run_compile :: (
             _compile_fail(watch_mode, int(1));
             return(());
           },
-          .None => exn.throw(dyn(`compile: failed to evaluate module "${input_path}"`))
+          .None => exn.throw(dyn(Box.new(`compile: failed to evaluate module "${input_path}"`)))
         )
       );
       return(());
@@ -7002,7 +7017,7 @@ _collect_workspace_test_files :: (
     find_manifest(cwd_str.clone()),
     .Some(p) => p,
     .None => {
-      exn.throw(dyn(`test --workspace: no ${MANIFEST_FILENAME} here or above, so there is no workspace to test`));
+      exn.throw(dyn(Box.new(`test --workspace: no ${MANIFEST_FILENAME} here or above, so there is no workspace to test`)));
       String.new()
     }
   );
@@ -7016,7 +7031,7 @@ _collect_workspace_test_files :: (
   );
   if(root.workspace_members.len() == usize(0), {
     exn.throw(
-      dyn(`test --workspace: ${root_path} declares no [workspace] members, so it is a single package — run \`yo test\` without --workspace`)
+      dyn(Box.new(`test --workspace: ${root_path} declares no [workspace] members, so it is a single package — run \`yo test\` without --workspace`))
     );
   });
   members := io.await(expand_workspace_members(&root, io), IoExn(io : io, exn : exn));
@@ -7289,7 +7304,7 @@ _check_code_spill :: (fn(path : &String, expected : usize, io : Io, exn : Except
   size := src.size();
   io.await(src.close(io), b);
   if(size != i64(expected), {
-    exn.throw(dyn(_lost_code_spill_error(path, `holds ${size.to_string()} bytes`, expected)));
+    exn.throw(dyn(Box.new(_lost_code_spill_error(path, `holds ${size.to_string()} bytes`, expected))));
   });
 });
 /// Append the code spill at `src_path` to `dst` in 4 MiB pieces
@@ -7319,7 +7334,7 @@ _copy_code_spill_into :: (fn(src_path : &String, expected : usize, dst : &File, 
   valve_free(.Some((*void)(buf)));
   io.await(src.close(io), b);
   if(copied != expected, {
-    exn.throw(dyn(_lost_code_spill_error(src_path, `yielded ${copied.to_string()} bytes`, expected)));
+    exn.throw(dyn(Box.new(_lost_code_spill_error(src_path, `yielded ${copied.to_string()} bytes`, expected))));
   });
 });
 /// The process's peak resident set so far (`--profile` marks). Linux reads
@@ -7842,10 +7857,10 @@ run_test :: (
           .Some(bsv) => if(bsv > u32(0), {
             batch_size = usize(bsv);
           }, {
-            exn.throw(dyn(`test: --test-batch-size must be a positive integer, got '${bs_raw}'`));
+            exn.throw(dyn(Box.new(`test: --test-batch-size must be a positive integer, got '${bs_raw}'`)));
           }),
           .None => {
-            exn.throw(dyn(`test: --test-batch-size must be a positive integer, got '${bs_raw}'`));
+            exn.throw(dyn(Box.new(`test: --test-batch-size must be a positive integer, got '${bs_raw}'`)));
           }
         );
         ai = (ai + usize(2));
@@ -7897,7 +7912,7 @@ run_test :: (
         spec := _arg_val_req(argv, ai, a.clone(), exn);
         slash := spec.index_of(String.from("/"));
         if(slash.is_none(), {
-          exn.throw(dyn(`test: --shard expects <index>/<total>, got '${spec}'`));
+          exn.throw(dyn(Box.new(`test: --shard expects <index>/<total>, got '${spec}'`)));
         });
         cut := match(slash, .Some(k) => k, .None => usize(0));
         idx_raw := spec.substring(usize(0), cut);
@@ -7907,10 +7922,10 @@ run_test :: (
           .Some(t) => if(t > u32(0), {
             shard_total = usize(t);
           }, {
-            exn.throw(dyn(`test: --shard total must be at least 1, got '${spec}'`));
+            exn.throw(dyn(Box.new(`test: --shard total must be at least 1, got '${spec}'`)));
           }),
           .None => {
-            exn.throw(dyn(`test: --shard expects <index>/<total>, got '${spec}'`));
+            exn.throw(dyn(Box.new(`test: --shard expects <index>/<total>, got '${spec}'`)));
           }
         );
         match(
@@ -7918,20 +7933,20 @@ run_test :: (
           .Some(i2) => if(usize(i2) < shard_total, {
             shard_index = usize(i2);
           }, {
-            exn.throw(dyn(`test: --shard index must be below the total, got '${spec}'`));
+            exn.throw(dyn(Box.new(`test: --shard index must be below the total, got '${spec}'`)));
           }),
           .None => {
-            exn.throw(dyn(`test: --shard expects <index>/<total>, got '${spec}'`));
+            exn.throw(dyn(Box.new(`test: --shard expects <index>/<total>, got '${spec}'`)));
           }
         );
         ai = (ai + usize(2));
       },
       a.starts_with(String.from("-")) => {
         // Strict parsing: an unknown option is an error, never a path.
-        exn.throw(dyn(`test: unknown option '${a}'. Usage: yo test [path] [--bail] [--test-name-pattern REGEX] [--exclude PATH] [--shard I/N] [--workspace] [--list] [--json] — see 'yo test --help'`));
+        exn.throw(dyn(Box.new(`test: unknown option '${a}'. Usage: yo test [path] [--bail] [--test-name-pattern REGEX] [--exclude PATH] [--shard I/N] [--workspace] [--list] [--json] — see 'yo test --help'`)));
       },
       path_given => {
-        exn.throw(dyn(`test: one path per run, got '${target_path}' and '${a}'. Run each separately, or pass their common directory (with --exclude for what to skip)`));
+        exn.throw(dyn(Box.new(`test: one path per run, got '${target_path}' and '${a}'. Run each separately, or pass their common directory (with --exclude for what to skip)`)));
       },
       true => {
         target_path = a.clone();
@@ -7954,7 +7969,7 @@ run_test :: (
         name_regex = Option(Regex).Some(re);
       },
       .Err(re_err) => {
-        exn.throw(dyn(`test: invalid regex pattern '${name_pattern}': ${re_err}`));
+        exn.throw(dyn(Box.new(`test: invalid regex pattern '${name_pattern}': ${re_err}`)));
       }
     );
     if(human, {
@@ -7967,7 +7982,7 @@ run_test :: (
   (test_heap_size : usize) = usize(16777216);
   if(test_allocator.len() > usize(0), {
     if((test_allocator != "mimalloc") && (test_allocator != "system") && (test_allocator != "fixed") && (test_allocator != "debug"), {
-      exn.throw(dyn(`test: invalid --allocator "${test_allocator}". Choices: mimalloc, system, fixed, debug`));
+      exn.throw(dyn(Box.new(`test: invalid --allocator "${test_allocator}". Choices: mimalloc, system, fixed, debug`)));
     });
   });
   if(test_heap_size_raw.len() > usize(0), {
@@ -7980,7 +7995,7 @@ run_test :: (
         test_heap_size = bytes;
       },
       .Err(why) => {
-        exn.throw(dyn(`test: invalid --heap-size "${test_heap_size_raw}": ${why}`));
+        exn.throw(dyn(Box.new(`test: invalid --heap-size "${test_heap_size_raw}": ${why}`)));
       }
     );
   });
@@ -7999,7 +8014,7 @@ run_test :: (
         fork_workers = usize(fw_n);
       },
       .None => {
-        exn.throw(dyn(`test: YO_TEST_FORK must be a worker count, got '${fw_raw}'`));
+        exn.throw(dyn(Box.new(`test: YO_TEST_FORK must be a worker count, got '${fw_raw}'`)));
       }
     ),
     .None => ()
@@ -8118,7 +8133,7 @@ run_test :: (
       parse_target(wasm_target_kind.clone()),
       .Ok(t) => t,
       .Err(e) => {
-        exn.throw(dyn(`test: ${e}`));
+        exn.throw(dyn(Box.new(`test: ${e}`)));
         host_target()
       }
     );
@@ -8283,7 +8298,7 @@ run_test :: (
   // The batch compiles would each fail on these; fail once, before any runs.
   if(test_allocator == "mimalloc", {
     if(wasm_target_kind != "", {
-      exn.throw(dyn(`test: --allocator mimalloc is not available on wasm targets (${wasm_target_kind}). Pass \`--allocator system\`.`));
+      exn.throw(dyn(Box.new(`test: --allocator mimalloc is not available on wasm targets (${wasm_target_kind}). Pass \`--allocator system\`.`)));
     });
     test_std_root := resolve_std_path();
     _require_bundled_mimalloc(String.from("test"), &test_std_root, exn);
@@ -9093,7 +9108,7 @@ run_test :: (
     // `unsafe(exit(int(1)))` runs in the ctl-handler context, which exits
     // cleanly); a plain exit() here on the normal path aborts under the
     // self-compiled runtime (SIGABRT in teardown).
-    exn.throw(dyn(`${failed.to_string()} test(s) failed`));
+    exn.throw(dyn(Box.new(`${failed.to_string()} test(s) failed`)));
   });
 });
 /// `yo effects <path> [--exclude P] [--json]` — which effect capabilities each
@@ -9134,7 +9149,7 @@ run_effects :: (
         ai = (ai + usize(2));
       },
       a.starts_with(String.from("-")) => {
-        exn.throw(dyn(`effects: unknown option '${a}'. Usage: yo effects <file-or-dir> [--exclude PATH] [--json]`));
+        exn.throw(dyn(Box.new(`effects: unknown option '${a}'. Usage: yo effects <file-or-dir> [--exclude PATH] [--json]`)));
       },
       true => {
         target_path = a.clone();
@@ -9147,14 +9162,14 @@ run_effects :: (
   });
   files := collect_check_files(target_path.clone(), &excludes, io, exn);
   if(files.len() == usize(0), {
-    exn.throw(dyn(`effects: no .yo files found at ${target_path}`));
+    exn.throw(dyn(Box.new(`effects: no .yo files found at ${target_path}`)));
   });
   // Same rule as `check`: a std tree is evaluated against its own root
   // (issues/fixed/check-std-in-a-checkout-evaluates-two-copies-of-std.md).
   prefer_entry_std_root(&files);
   std_path := resolve_std_path();
   if(!mm_preload_prelude(std_path.clone(), false, io, exn), {
-    exn.throw(dyn(`effects: could not load the prelude from ${std_path}`));
+    exn.throw(dyn(Box.new(`effects: could not load the prelude from ${std_path}`)));
   });
   (failed : usize) = usize(0);
   if(as_json, {
@@ -9287,7 +9302,7 @@ run_effects :: (
     println(String.from("]"));
   });
   if(failed > usize(0), {
-    exn.throw(dyn(`effects: ${failed.to_string()} file(s) failed to evaluate`));
+    exn.throw(dyn(Box.new(`effects: ${failed.to_string()} file(s) failed to evaluate`)));
   });
 });
 /// The effect kinds a parameter of type `t` hands its callee: `ctl` (a struct
@@ -9446,10 +9461,10 @@ run_init :: (
         install_skills = false;
       },
       arg.starts_with(String.from("-")) => {
-        exn.throw(dyn(`init: unknown option '${arg}'. Usage: yo init [dir] [--name <name>] [--no-skills]`));
+        exn.throw(dyn(Box.new(`init: unknown option '${arg}'. Usage: yo init [dir] [--name <name>] [--no-skills]`)));
       },
       dir_seen => {
-        exn.throw(dyn(`init: unexpected extra argument '${arg}'. Usage: yo init [dir] [--name <name>] [--no-skills]`));
+        exn.throw(dyn(Box.new(`init: unexpected extra argument '${arg}'. Usage: yo init [dir] [--name <name>] [--no-skills]`)));
       },
       true => {
         dir = arg;
@@ -9486,7 +9501,7 @@ run_fmt :: (
       },
       arg.starts_with(String.from("-")) => {
         // Strict parsing: an unknown option is an error, never a path.
-        exn.throw(dyn(`fmt: unknown option '${arg}'. Usage: yo fmt [paths...] [--check]`));
+        exn.throw(dyn(Box.new(`fmt: unknown option '${arg}'. Usage: yo fmt [paths...] [--check]`)));
       },
       true => {
         input_paths.push(arg);
@@ -9554,11 +9569,11 @@ run_cache :: (
 )({
   usage := "Usage: yo cache <path|clean|gc>";
   if(argv.len() < usize(3), {
-    exn.throw(dyn(`cache: missing action. ${usage}`));
+    exn.throw(dyn(Box.new(`cache: missing action. ${usage}`)));
   });
   action := argv(usize(2)).clone();
   if(argv.len() > usize(3), {
-    exn.throw(dyn(`cache: unexpected extra argument '${argv(usize(3))}'. ${usage}`));
+    exn.throw(dyn(Box.new(`cache: unexpected extra argument '${argv(usize(3))}'. ${usage}`)));
   });
   cache_dir := get_global_cache_dir();
   cond(
@@ -9566,7 +9581,7 @@ run_cache :: (
     (action == "clean") => _cache_clean(&cache_dir, io, exn),
     (action == "gc") => _cache_gc(&cache_dir, io, exn),
     true => {
-      exn.throw(dyn(`cache: unknown action '${action}'. ${usage}`));
+      exn.throw(dyn(Box.new(`cache: unknown action '${action}'. ${usage}`)));
     }
   );
 });
@@ -9667,7 +9682,7 @@ run_add_cmd :: (
     cond(
       needs_value => {
         if((ai + usize(1)) >= argv.len(), {
-          exn.throw(dyn(`add: ${arg} requires a value. ${usage}`));
+          exn.throw(dyn(Box.new(`add: ${arg} requires a value. ${usage}`)));
         });
         value := argv(ai + usize(1)).clone();
         cond(
@@ -9693,10 +9708,10 @@ run_add_cmd :: (
         verbose = true;
       },
       arg.starts_with(String.from("-")) => {
-        exn.throw(dyn(`add: unknown option '${arg}'. ${usage}`));
+        exn.throw(dyn(Box.new(`add: unknown option '${arg}'. ${usage}`)));
       },
       package_seen => {
-        exn.throw(dyn(`add: unexpected extra argument '${arg}'. ${usage}`));
+        exn.throw(dyn(Box.new(`add: unexpected extra argument '${arg}'. ${usage}`)));
       },
       true => {
         package_spec = arg;
@@ -9706,7 +9721,7 @@ run_add_cmd :: (
     ai = (ai + usize(1));
   });
   if(!package_seen, {
-    exn.throw(dyn(`add: missing package. ${usage}`));
+    exn.throw(dyn(Box.new(`add: missing package. ${usage}`)));
   });
   io.await(
     run_add(
@@ -9748,10 +9763,10 @@ run_remove_cmd :: (
         verbose = true;
       },
       arg.starts_with(String.from("-")) => {
-        exn.throw(dyn(`remove: unknown option '${arg}'. ${usage}`));
+        exn.throw(dyn(Box.new(`remove: unknown option '${arg}'. ${usage}`)));
       },
       name_seen => {
-        exn.throw(dyn(`remove: unexpected extra argument '${arg}'. ${usage}`));
+        exn.throw(dyn(Box.new(`remove: unexpected extra argument '${arg}'. ${usage}`)));
       },
       true => {
         name = arg;
@@ -9761,7 +9776,7 @@ run_remove_cmd :: (
     ai = (ai + usize(1));
   });
   if(!name_seen, {
-    exn.throw(dyn(`remove: missing dependency name. ${usage}`));
+    exn.throw(dyn(Box.new(`remove: missing dependency name. ${usage}`)));
   });
   io.await(run_remove(&name, verbose, io, exn), IoExn(io : io, exn : exn));
 });
@@ -9798,10 +9813,10 @@ run_install_cmd :: (
         offline = true;
       },
       arg.starts_with(String.from("-")) => {
-        exn.throw(dyn(`install: unknown option '${arg}'. ${usage}`));
+        exn.throw(dyn(Box.new(`install: unknown option '${arg}'. ${usage}`)));
       },
       true => {
-        exn.throw(dyn(`install: unexpected argument '${arg}'. \`yo install\` fetches what yo.toml declares; add a dependency with \`yo add ${arg}\`.`));
+        exn.throw(dyn(Box.new(`install: unexpected argument '${arg}'. \`yo install\` fetches what yo.toml declares; add a dependency with \`yo add ${arg}\`.`)));
       }
     );
     ai = (ai + usize(1));
@@ -9845,7 +9860,7 @@ run_update_cmd :: (
         offline = true;
       },
       arg.starts_with(String.from("-")) => {
-        exn.throw(dyn(`update: unknown option '${arg}'. ${usage}`));
+        exn.throw(dyn(Box.new(`update: unknown option '${arg}'. ${usage}`)));
       },
       true => names.push(arg)
     );
@@ -9901,11 +9916,11 @@ _parse_jobs :: (fn(value : &String, exn : Exception) -> usize)(
   match(
     value.parse_u64(),
     .Some(n) => if(n > u64(0), usize(n), {
-      exn.throw(dyn(`build: -j needs a positive number of jobs, got "${value}"`));
+      exn.throw(dyn(Box.new(`build: -j needs a positive number of jobs, got "${value}"`)));
       usize(1)
     }),
     .None => {
-      exn.throw(dyn(`build: -j needs a positive number of jobs, got "${value}"`));
+      exn.throw(dyn(Box.new(`build: -j needs a positive number of jobs, got "${value}"`)));
       usize(1)
     }
   )
@@ -10075,7 +10090,7 @@ run_build_cmd :: (
         );
       },
       arg.starts_with(String.from("-")) => {
-        exn.throw(dyn(`build: unknown option '${arg}'. Usage: yo build [steps..] [--build-file <path>] [--list-steps] [--list-options] [-p <member>] [-j N] [--dry-run] [--locked] [--offline] [--verbose] [--summary] [-- <run args>]`));
+        exn.throw(dyn(Box.new(`build: unknown option '${arg}'. Usage: yo build [steps..] [--build-file <path>] [--list-steps] [--list-options] [-p <member>] [-j N] [--dry-run] [--locked] [--offline] [--verbose] [--summary] [-- <run args>]`)));
       },
       true => {
         steps.push(arg);
@@ -10220,7 +10235,7 @@ run_unsafe_report_cmd :: (
   target_exists := if(target == ".", true, io.await(exists(Path.new(target.clone()), io), io));
   if(!target_exists, {
     eprintln(`unsafe-report: path does not exist: ${target}`);
-    exn.throw(dyn(`unsafe-report: path does not exist`));
+    exn.throw(dyn(Box.new(`unsafe-report: path does not exist`)));
   });
   report := io.await(generate_unsafe_report(target.clone(), io, exn), IoExn(io : io, exn : exn));
   if(as_json, {
@@ -10258,7 +10273,7 @@ run_public_safe_report_cmd :: (
   target_exists := if(target == ".", true, io.await(exists(Path.new(target.clone()), io), io));
   if(!target_exists, {
     eprintln(`public-safe-report: path does not exist: ${target}`);
-    exn.throw(dyn(`public-safe-report: path does not exist`));
+    exn.throw(dyn(Box.new(`public-safe-report: path does not exist`)));
   });
   report := io.await(generate_public_safe_report(target.clone(), io, exn), IoExn(io : io, exn : exn));
   if(as_json, {
@@ -10363,11 +10378,11 @@ run_doc_cmd :: (
         allow_token_only = true;
       },
       arg.starts_with(String.from("-")) => {
-        exn.throw(dyn(`doc: unknown option '${arg}'. Usage: yo doc [path] [-o <dir>] [--title <t>] [--document-private] [-v] [-f html|markdown|json] [--version <v>] [--logo <path>] [--favicon <path>] [--allow-token-only]`));
+        exn.throw(dyn(Box.new(`doc: unknown option '${arg}'. Usage: yo doc [path] [-o <dir>] [--title <t>] [--document-private] [-v] [-f html|markdown|json] [--version <v>] [--logo <path>] [--favicon <path>] [--allow-token-only]`)));
       },
       true => {
         if(saw_input, {
-          exn.throw(dyn(`doc: unexpected extra positional '${arg}'`));
+          exn.throw(dyn(Box.new(`doc: unexpected extra positional '${arg}'`)));
         });
         input = arg.clone();
         saw_input = true;
@@ -10376,7 +10391,7 @@ run_doc_cmd :: (
     ai = (ai + usize(1));
   });
   if(!((format == "html") || (format == "markdown") || (format == "json")), {
-    exn.throw(dyn(`doc: invalid --format '${format}' (choices: html, markdown, json)`));
+    exn.throw(dyn(Box.new(`doc: invalid --format '${format}' (choices: html, markdown, json)`)));
   });
   run_doc(
     DocCommandOptions(
@@ -10418,7 +10433,7 @@ run_version_cmd :: (
         vi = (vi + usize(1));
       },
       a.starts_with("-") => {
-        exn.throw(dyn(`version: unknown option '${a}'`));
+        exn.throw(dyn(Box.new(`version: unknown option '${a}'`)));
         vi = (vi + usize(1));
       },
       (action == "") => {
@@ -10469,7 +10484,7 @@ run_version_cmd :: (
           rvi = (rvi + usize(1));
         });
         if(!found_pin, {
-          exn.throw(dyn(`Error: Yo version ${version_to_pin} is not available. Run \`yo version list --remote\` to see the published releases.`));
+          exn.throw(dyn(Box.new(`Error: Yo version ${version_to_pin} is not available. Run \`yo version list --remote\` to see the published releases.`)));
         });
       });
       io.await(write_string(Path.new(`${version_cwd}/.yo-version`), `${version_to_pin}\n`, io), IoExn(io : io, exn : exn));
@@ -10545,7 +10560,7 @@ run_version_cmd :: (
       });
     },
     true => {
-      exn.throw(dyn(`Unknown action: ${action}\nAvailable actions: pin, install, list, clean`));
+      exn.throw(dyn(Box.new(`Unknown action: ${action}\nAvailable actions: pin, install, list, clean`)));
     }
   );
 });
@@ -10848,7 +10863,7 @@ run_explain :: (
   });
   if(target.len() == usize(0), {
     exn.throw(
-      dyn(`explain: missing error code. Usage: yo explain <CODE> | yo explain --list`)
+      dyn(Box.new(`explain: missing error code. Usage: yo explain <CODE> | yo explain --list`))
     );
   });
   match(
@@ -10891,12 +10906,12 @@ run_explain :: (
         hint,
         .Some(h) => exn.throw(
           dyn(
-            `explain: unknown error code '${target}'\nhelp: did you mean '${h}'? Run 'yo explain --list' for all codes.`
+            Box.new(`explain: unknown error code '${target}'\nhelp: did you mean '${h}'? Run 'yo explain --list' for all codes.`)
           )
         ),
         .None => exn.throw(
           dyn(
-            `explain: unknown error code '${target}'. Run 'yo explain --list' for all codes.`
+            Box.new(`explain: unknown error code '${target}'. Run 'yo explain --list' for all codes.`)
           )
         )
       );
@@ -11217,14 +11232,13 @@ Options:
                             { ... } that is a record -> .{ ... };
                             binders and blocks are left alone. Reads the
                             parse only, so it needs no evaluation
-  --migrate unsized         Run decision 49's migration: the legacy
-                            dyn(v) -> dyn(Box.new(v)), and a lend &b of a
+  --migrate unsized         Run decision 49's migration: a lend &b of a
                             Box(Dyn(T)) where a &Dyn(T) is taken -> &b.*;
-                            dyn(p) over a raw pointer and dyn(h) over a
-                            named handle are listed. v0.2.77 code takes two
-                            steps: first v0.2.77's migration for the bare
-                            Dyn(...) types (yo version install 0.2.77),
-                            then this one for the lends
+                            dyn(h) over a named handle is listed. Older
+                            code steps through the release that last
+                            accepts its spelling: v0.2.77 for the bare
+                            Dyn(...) types, v0.2.78 for the plain dyn(v)
+                            (yo version install 0.2.78), then this one
   --target <triple>         Evaluate for this target, as compile --target
                             does, so the target's platform arms are
                             repaired or migrated (default: the host)
@@ -11253,13 +11267,12 @@ Examples:
                             表达式位置上作为记录的每个裸 { ... }
                             -> .{ ... }；绑定位置和代码块保持不变。
                             只读取解析结果，不需要求值
-  --migrate unsized         运行决定 49 的迁移：旧别名 dyn(v) ->
-                            dyn(Box.new(v))；在接受 &Dyn(T) 的位置借出
-                            Box(Dyn(T)) 的 &b -> &b.*；列出原始指针上的
-                            dyn(p) 与具名句柄上的 dyn(h)，留待手工改写。
-                            v0.2.77 的代码分两步：先用 v0.2.77 迁移裸
-                            Dyn(...) 类型（yo version install 0.2.77），
-                            再用本迁移改写借出
+  --migrate unsized         运行决定 49 的迁移：在接受 &Dyn(T) 的位置借出
+                            Box(Dyn(T)) 的 &b -> &b.*；列出具名句柄上的
+                            dyn(h)，留待手工改写。更旧的代码依次经过最后
+                            接受其拼写的版本：裸 Dyn(...) 类型用 v0.2.77，
+                            裸 dyn(v) 用 v0.2.78（yo version install
+                            0.2.78），再运行本迁移
   --target <triple>         按该目标求值（同 compile --target），从而修复
                             或迁移该目标的平台分支（默认：宿主平台）
   --std-path <dir>          覆盖 std 库目录
@@ -12043,7 +12056,7 @@ main :: (fn(io : Io) -> unit)({
         err_format = raw_argv0(ai0 + usize(1)).clone();
         ai0 = (ai0 + usize(1));
       }, {
-        exn.throw(dyn(`--error-format requires a value: human, short, json or sarif`));
+        exn.throw(dyn(Box.new(`--error-format requires a value: human, short, json or sarif`)));
       });
     }, {
       if(a0.starts_with(String.from("--error-format=")), {
@@ -12058,7 +12071,7 @@ main :: (fn(io : Io) -> unit)({
     if(!((err_format == "human") || (err_format == "short") || (err_format == "json") || (err_format == "sarif")), {
       exn.throw(
         dyn(
-          `Invalid --error-format '${err_format}' (expected: human, short, json or sarif). Set --error-format or YO_ERROR_FORMAT.`
+          Box.new(`Invalid --error-format '${err_format}' (expected: human, short, json or sarif). Set --error-format or YO_ERROR_FORMAT.`)
         )
       );
     });
@@ -12085,7 +12098,7 @@ main :: (fn(io : Io) -> unit)({
         color_mode = argv0(ci0 + usize(1)).clone();
         ci0 = (ci0 + usize(1));
       }, {
-        exn.throw(dyn(`--color requires a value: auto, always or never`));
+        exn.throw(dyn(Box.new(`--color requires a value: auto, always or never`)));
       });
     }, {
       if(c0.starts_with(String.from("--color=")), {
@@ -12100,7 +12113,7 @@ main :: (fn(io : Io) -> unit)({
     if(!((color_mode == "auto") || (color_mode == "always") || (color_mode == "never")), {
       exn.throw(
         dyn(
-          `Invalid --color '${color_mode}' (expected: auto, always or never). Set --color or YO_COLOR.`
+          Box.new(`Invalid --color '${color_mode}' (expected: auto, always or never). Set --color or YO_COLOR.`)
         )
       );
     });
@@ -12126,7 +12139,7 @@ main :: (fn(io : Io) -> unit)({
         set_std_path_override(raw_argv(ai + usize(1)).clone());
         ai = (ai + usize(1));
       }, {
-        exn.throw(dyn(`--std-path requires a directory argument`));
+        exn.throw(dyn(Box.new(`--std-path requires a directory argument`)));
       });
     }, {
       // Global `--imports <file>`: the build runner's per-artifact
@@ -12137,7 +12150,7 @@ main :: (fn(io : Io) -> unit)({
           set_imports_file_override(raw_argv(ai + usize(1)).clone());
           ai = (ai + usize(1));
         }, {
-          exn.throw(dyn(`--imports requires a file argument`));
+          exn.throw(dyn(Box.new(`--imports requires a file argument`)));
         });
       }, {
         if(a == "--lang", {
@@ -12145,7 +12158,7 @@ main :: (fn(io : Io) -> unit)({
             set_cli_lang_override(raw_argv(ai + usize(1)).clone());
             ai = (ai + usize(1));
           }, {
-            exn.throw(dyn(tr(`--lang requires a language code (e.g. en, zh-CN)`, `--lang 需要一个语言代码（例如 en、zh-CN）`)));
+            exn.throw(dyn(Box.new(tr(`--lang requires a language code (e.g. en, zh-CN)`, `--lang 需要一个语言代码（例如 en、zh-CN）`))));
           });
         }, {
           if(a.starts_with(String.from("--lang=")), {
@@ -12226,7 +12239,7 @@ main :: (fn(io : Io) -> unit)({
         bin_path := cached_binary_path(&cached_dir);
         bin_found := io.await(exists(Path.new(bin_path.clone()), io), io);
         if(!bin_found, {
-          exn.throw(dyn(`Error: Cached Yo v${pinned_v} is missing its compiler binary at ${bin_path}`));
+          exn.throw(dyn(Box.new(`Error: Cached Yo v${pinned_v} is missing its compiler binary at ${bin_path}`)));
         });
         _e1 := proc_env.set(String.from("YO_VERSION_DISPATCHED"), String.from("1"));
         _e2 := proc_env.set(String.from("YO_ORIGINAL_CWD"), dispatch_cwd.clone());
@@ -12344,7 +12357,7 @@ main :: (fn(io : Io) -> unit)({
   }, if(subcmd == "version", {
     run_version_cmd(&argv, io, exn);
   }, {
-    exn.throw(dyn(tr(`unknown subcommand '${subcmd}'. Usage: yo <${SUBCOMMAND_NAMES}> ... (yo --help lists them)`, `未知子命令 '${subcmd}'。用法：yo <${SUBCOMMAND_NAMES}> ...（yo --help 列出全部）`)));
+    exn.throw(dyn(Box.new(tr(`unknown subcommand '${subcmd}'. Usage: yo <${SUBCOMMAND_NAMES}> ... (yo --help lists them)`, `未知子命令 '${subcmd}'。用法：yo <${SUBCOMMAND_NAMES}> ...（yo --help 列出全部）`))));
   })))))))))))))))))))))));
   print_spec_report_if_requested();
   print_rprobe_stats_if_requested();

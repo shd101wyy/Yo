@@ -1296,11 +1296,13 @@ try_to_implement_function_by_function_type :: (
       if(!(__fm2.is_control) && type_is_control_bound(&result_box), {
         exn.throw(
           dyn(
-            format_error_message(
-              &tok,
-              `A function's result type cannot be control-bound (transitively contain a \`ctl(...) -> ret\` function type). A \`ctl\` handler unwinds the frame it is installed in at the throw site; returning one out of its defining function would let it be invoked after that frame is gone. Pass the handler (or the record holding it) downward as a parameter instead.
+            Box.new(
+              format_error_message(
+                &tok,
+                `A function's result type cannot be control-bound (transitively contain a \`ctl(...) -> ret\` function type). A \`ctl\` handler unwinds the frame it is installed in at the throw site; returning one out of its defining function would let it be invoked after that frame is gone. Pass the handler (or the record holding it) downward as a parameter instead.
 
 Result type: ${type_to_string(&result_box)}`
+              )
             )
           )
         );
@@ -1320,9 +1322,11 @@ Result type: ${type_to_string(&result_box)}`
       if(body_arg_len != usize(1), {
         exn.throw(
           dyn(
-            format_error_message(
-              &tok,
-              `Expected 1 argument for function body, got ${body_arg_len.to_string()}`
+            Box.new(
+              format_error_message(
+                &tok,
+                `Expected 1 argument for function body, got ${body_arg_len.to_string()}`
+              )
             )
           )
         );
@@ -1345,12 +1349,14 @@ Result type: ${type_to_string(&result_box)}`
           .Some(mt) => {
             exn.throw(
               dyn(
-                format_error_message(
-                  &mt,
-                  if(
-                    result_is_mut_ref,
-                    String.from("This function returns `&mut T`, so its result is a mutable place: write `&mut place`. A `&place` is a shared borrow and cannot be handed out as `&mut`."),
-                    String.from("This function returns `&T`, so its result is a shared place: write `&place`, not `&mut place`.")
+                Box.new(
+                  format_error_message(
+                    &mt,
+                    if(
+                      result_is_mut_ref,
+                      String.from("This function returns `&mut T`, so its result is a mutable place: write `&mut place`. A `&place` is a shared borrow and cannot be handed out as `&mut`."),
+                      String.from("This function returns `&T`, so its result is a shared place: write `&place`, not `&mut place`.")
+                    )
                   )
                 )
               )
@@ -2110,7 +2116,7 @@ Result type: ${type_to_string(&result_box)}`
             match(
               forward_ref_diagnostic(ts_fatal_msg.clone()),
               .Some(ts_fwd_msg) => {
-                exn.throw(dyn(format_error_message(ast_expr_token(&fb), &ts_fwd_msg)));
+                exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&fb), &ts_fwd_msg))));
               },
               .None => ()
             );
@@ -2121,7 +2127,7 @@ Result type: ${type_to_string(&result_box)}`
             match(
               ts_fatal_diags,
               .Some(ts_ds) => {
-                exn.throw(dyn(yo_error_from_diagnostics(&ts_ds)));
+                exn.throw(dyn(Box.new(yo_error_from_diagnostics(&ts_ds))));
               },
               .None => ()
             );
@@ -2178,7 +2184,7 @@ Result type: ${type_to_string(&result_box)}`
                     &ub_fam.offense,
                     .Some(ub_fo) => {
                       mark_fn_unemittable(fn_val_id.clone());
-                      exn.throw(dyn(format_error_message(ast_expr_token(&fb), `The body's value (type ${type_to_string(&ub_ty)}) cannot be returned as ${type_to_string(&result_box)}: ${ub_fo}.`)));
+                      exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&fb), `The body's value (type ${type_to_string(&ub_ty)}) cannot be returned as ${type_to_string(&result_box)}: ${ub_fo}.`))));
                     },
                     .None => ()
                   );
@@ -2186,7 +2192,7 @@ Result type: ${type_to_string(&result_box)}`
                     impl_param_unmet_trait(&result_box, &ub_ty, &flow_env, ub_fam.judged),
                     .Some(ub_rt) => {
                       mark_fn_unemittable(fn_val_id.clone());
-                      exn.throw(dyn(format_error_message(ast_expr_token(&fb), _impl_result_unmet_message(&ub_ty, &ub_rt, &result_box))));
+                      exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&fb), _impl_result_unmet_message(&ub_ty, &ub_rt, &result_box)))));
                     },
                     .None => ()
                   );
@@ -2202,7 +2208,7 @@ Result type: ${type_to_string(&result_box)}`
                 ub_dyn_lend_body := unsize_reference_mode(ast_expr_id(&ub_body)).is_some();
                 if(!ub_skip && result_is_ref && !ub_dyn_lend_body && !are_types_compatible(&ub_ty, &ub_place_ptr), {
                   mark_fn_unemittable(fn_val_id.clone());
-                  exn.throw(dyn(format_error_message(projection_tail_diag_token(&fb), projection_body_mismatch_message(&result_box, result_is_mut_ref, &ub_ty, &ub_body, ctx))));
+                  exn.throw(dyn(Box.new(format_error_message(projection_tail_diag_token(&fb), projection_body_mismatch_message(&result_box, result_is_mut_ref, &ub_ty, &ub_body, ctx)))));
                 });
                 if(!ub_skip && !result_is_ref && !are_types_compatible(&ub_ty, &result_box), {
                   // The registration above already happened; a definition
@@ -2216,9 +2222,11 @@ Result type: ${type_to_string(&result_box)}`
                   );
                   exn.throw(
                     dyn(
-                      format_error_message(
-                        ast_expr_token(&fb),
-                        `Function body has type \`${type_to_string(&ub_ty)}\`, but the declared result type is \`${type_to_string(&result_box)}\`.${ub_hint}`
+                      Box.new(
+                        format_error_message(
+                          ast_expr_token(&fb),
+                          `Function body has type \`${type_to_string(&ub_ty)}\`, but the declared result type is \`${type_to_string(&result_box)}\`.${ub_hint}`
+                        )
                       )
                     )
                   );
@@ -2231,7 +2239,7 @@ Result type: ${type_to_string(&result_box)}`
                     match(ub_info.value(), .Some(ub_v) => match(ub_v, .IntLit(ub_raw) => comptime_int_value_misfit(&ub_raw, &result_box), _ => Option(String).None), .None => Option(String).None),
                     .Some(ub_fit_msg) => {
                       mark_fn_unemittable(fn_val_id.clone());
-                      exn.throw(dyn(format_error_message(ast_expr_token(&fb), &ub_fit_msg)));
+                      exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&fb), &ub_fit_msg))));
                     },
                     .None => ()
                   );
@@ -2252,9 +2260,11 @@ Result type: ${type_to_string(&result_box)}`
           if(propagate_def_time_errors() && (flow_out.len() == usize(0)), {
             exn.throw(
               dyn(
-                format_error_message(
-                  ast_expr_token(&fb),
-                  String.from("Function body raised a compile-time error during definition-time evaluation.")
+                Box.new(
+                  format_error_message(
+                    ast_expr_token(&fb),
+                    String.from("Function body raised a compile-time error during definition-time evaluation.")
+                  )
                 )
               )
             );
@@ -2278,9 +2288,11 @@ Result type: ${type_to_string(&result_box)}`
             if(!is_flowable_expr(&seb, &flow_ctx, &slice_flow_opts), {
               exn.throw(
                 dyn(
-                  format_error_message(
-                    ast_expr_token(&seb),
-                    `Function returning '${type_to_string(&result_box)}' carries a raw pointer in its representation; the returned value must be rooted in caller-owned storage. The body's final expression is not flowable:\n  ${ast_expr_to_string(&seb)}`
+                  Box.new(
+                    format_error_message(
+                      ast_expr_token(&seb),
+                      `Function returning '${type_to_string(&result_box)}' carries a raw pointer in its representation; the returned value must be rooted in caller-owned storage. The body's final expression is not flowable:\n  ${ast_expr_to_string(&seb)}`
+                    )
                   )
                 )
               );
@@ -2456,7 +2468,7 @@ Result type: ${type_to_string(&result_box)}`
               if(!dg_fv_was, {
                 clear_flow_violation();
               });
-              exn.throw(dyn(yo_error_from_diagnostics(&dg_ct_diags)));
+              exn.throw(dyn(Box.new(yo_error_from_diagnostics(&dg_ct_diags))));
             });
             // P0 (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.6): this is the SILENT
             // swallow — but an unbound name that
@@ -2470,7 +2482,7 @@ Result type: ${type_to_string(&result_box)}`
                 .Some(fwd_msg) => {
                   fwd_code := _trial_swallow_code();
                   _clear_trial_swallow();
-                  exn.throw(dyn(with_code_carried(format_error_message(ast_expr_token(&body_expr), &fwd_msg), &fwd_code)));
+                  exn.throw(dyn(Box.new(with_code_carried(format_error_message(ast_expr_token(&body_expr), &fwd_msg), &fwd_code))));
                 },
                 .None => ()
               );
@@ -2504,7 +2516,7 @@ Result type: ${type_to_string(&result_box)}`
                   if(!dg_fv_was, {
                     clear_flow_violation();
                   });
-                  exn.throw(dyn(dg_indep));
+                  exn.throw(dyn(Box.new(dg_indep)));
                 },
                 .None => ()
               );
@@ -2634,9 +2646,11 @@ Result type: ${type_to_string(&result_box)}`
     _ => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            String.from("try_to_implement_function_by_function_type: expected Func type")
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              String.from("try_to_implement_function_by_function_type: expected Func type")
+            )
           )
         )
       );

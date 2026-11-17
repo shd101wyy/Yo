@@ -225,8 +225,8 @@ StructKind :: enum(Struct, Object, AtomicObject, NewType);
 ```
 
 - `Struct` — regular value-type struct
-- `Object` — reference-counted reference-semantics type (`ref(struct(...))`)
-- `AtomicObject` — atomic reference-counted reference-semantics type (`atomic(ref(struct(...)))`)
+- `Object` — a non-atomically counted cell (the cell behind `Rc`)
+- `AtomicObject` — an atomically counted cell (the cell behind `Arc`)
 - `NewType` — single-field wrapper type (`newtype(...)`)
 
 `Rc(T)` and `Arc(T)` reflect as their declared shape: a `NewType` with one field, an implementation field that holds the counted cell. The cell's own `Type.get_info` is an `Object` (for `Rc`) or an `AtomicObject` (for `Arc`) whose one field has the payload type `T`. Match on the kinds, not on the implementation field's name, which is private to the prelude and may change.

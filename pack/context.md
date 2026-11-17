@@ -159,11 +159,11 @@ the arm over `.Some(true)`/`.Some(false)` sibling arms.
 
 ```rust
 Point :: struct(x : i32, y : i32); // value semantics
-Node :: ref(struct(next : Option(Self), v : i32)); // reference semantics (RC)
+Node :: struct(next : Option(Rc(Self)), v : i32); // `Rc(T)`: shared, counted
 Shape :: enum(Circle(r : f64), Rect(w : f64, h : f64), Unit);
 // generic TYPE = type-fn:
 Tree :: (fn(comptime(T) : Type) -> comptime(Type))(
-  ref(enum(Leaf, Node2(l : Self, v : T, r : Self)))
+  enum(Leaf, Node2(l : Rc(Self), v : T, r : Rc(Self)))
 );
 
 Counter :: trait(
@@ -175,8 +175,9 @@ impl(Point, Counter(count : (fn(self : Self) -> i32)(self.x)));
 derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString, Default);
 ```
 
-- `struct` = value semantics (copied); `ref(struct(...))`/`ref(enum(...))` =
-  heap + RC, shared by handle. `Self` refers to the type being defined.
+- `struct` = value semantics (moved, or copied if it derives `Copy`);
+  sharing is `Rc(T)` / `Arc(T)`, and `Rc.clone(h)` is a second handle. `Self`
+  refers to the type being defined.
 - Constructors take named fields: `Point(x : i32(1), y : i32(2))`.
 - Generic types are TYPE-FUNCTIONS:
   `Name :: (fn(comptime(T) : Type) -> comptime(Type))(...);`. Generic
@@ -270,7 +271,7 @@ read :: (fn(p : Path, io : Io) -> String)({
 - Methods take the receiver explicitly: `self : &Self` to read,
   `self : &mut Self` for mutation, `self : Self` to consume.
 - Allocation is placement, RC is lifetime: a creation is global unless an
-  argument places it (`rc(v, alloc : .Some(a))`, `ArrayList(T).new(alloc : .Some(a))`);
+  argument places it (`Rc.new(v, alloc : .Some(a))`, `ArrayList(T).new(alloc : .Some(a))`);
   a block is always released to the allocator that made it.
 
 ## Async (single-threaded) and effects

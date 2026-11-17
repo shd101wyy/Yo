@@ -78,9 +78,11 @@ evaluate_tuple_elements_type :: (
         );
         exn.throw(
           dyn(
-            format_error_message(
-              &err_tok,
-              `Duplicate label "${field.label}" in tuple`
+            Box.new(
+              format_error_message(
+                &err_tok,
+                `Duplicate label "${field.label}" in tuple`
+              )
             )
           )
         );
@@ -88,7 +90,7 @@ evaluate_tuple_elements_type :: (
     });
     // A tuple element is stored by value (decision 49, E0619).
     if(!type_is_sized(&field.ty), {
-      exn.throw(dyn(unsized_by_value_error(&field.ty, &String.from("a tuple element"), &Option(String).None, &ast_expr_token(&arg))));
+      exn.throw(dyn(Box.new(unsized_by_value_error(&field.ty, &String.from("a tuple element"), &Option(String).None, &ast_expr_token(&arg)))));
     });
     field_labels.push(field.label.clone());
     field_types.push(Rc.clone(field.ty));
@@ -147,9 +149,11 @@ evaluate_tuple_type :: (
       arg := match(args.get(j), .Some(a) => a, .None => make_err_expr());
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg),
-            String.from("Tuple type cannot have default value.")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg),
+              String.from("Tuple type cannot have default value.")
+            )
           )
         )
       );

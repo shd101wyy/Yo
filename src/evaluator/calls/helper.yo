@@ -530,9 +530,11 @@ validate_function_return_type :: (
                 if(!found_transitively, {
                   exn.throw(
                     dyn(
-                      format_error_message(
-                        ast_expr_token(expr),
-                        String.from("Failed to infer the function call return type.\nPlease consider providing the expected type.")
+                      Box.new(
+                        format_error_message(
+                          ast_expr_token(expr),
+                          String.from("Failed to infer the function call return type.\nPlease consider providing the expected type.")
+                        )
                       )
                     )
                   );
@@ -758,9 +760,11 @@ strip_argument_label :: (fn(arg : &AstExpr, param_label : &String, exn : Excepti
   if(!ast_expr_is_atom(&cl_label_expr), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&cl_label_expr),
-          `Expected identifier for label, got:\n${ast_expr_to_string(&cl_label_expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&cl_label_expr),
+            `Expected identifier for label, got:\n${ast_expr_to_string(&cl_label_expr)}`
+          )
         )
       )
     );
@@ -769,12 +773,14 @@ strip_argument_label :: (fn(arg : &AstExpr, param_label : &String, exn : Excepti
   if(param_label.len() == usize(0), {
     exn.throw(
       dyn(
-        with_code(
-          format_error_message(
-            ast_expr_token(&cl_label_expr),
-            `The parameter at this position has no label, so its argument cannot be labeled "${cl_label}".`
-          ),
-          E_ARGUMENT_LABEL_MISMATCH
+        Box.new(
+          with_code(
+            format_error_message(
+              ast_expr_token(&cl_label_expr),
+              `The parameter at this position has no label, so its argument cannot be labeled "${cl_label}".`
+            ),
+            E_ARGUMENT_LABEL_MISMATCH
+          )
         )
       )
     );
@@ -782,12 +788,14 @@ strip_argument_label :: (fn(arg : &AstExpr, param_label : &String, exn : Excepti
   if(param_label.* != cl_label, {
     exn.throw(
       dyn(
-        with_code(
-          format_error_message(
-            ast_expr_token(&cl_label_expr),
-            `Argument label "${cl_label}" does not match the parameter "${param_label}" at this position. Labels document a call and never reorder it: pass the arguments in declaration order.`
-          ),
-          E_ARGUMENT_LABEL_MISMATCH
+        Box.new(
+          with_code(
+            format_error_message(
+              ast_expr_token(&cl_label_expr),
+              `Argument label "${cl_label}" does not match the parameter "${param_label}" at this position. Labels document a call and never reorder it: pass the arguments in declaration order.`
+            ),
+            E_ARGUMENT_LABEL_MISMATCH
+          )
         )
       )
     );
@@ -1012,12 +1020,14 @@ check_call_site_borrow_marker :: (
   keeps := if(param_is_ref, String.from("lends it exclusively and the callee may write it"), String.from("lends it read-only and the caller keeps it"));
   exn.throw(
     dyn(
-      with_code(
-        format_error_message(
-          ast_expr_token(place_arg),
-          `Parameter "${param_label}" is a \`${mode}\` borrow (\`${param_label} : ${mode_ty}\`): lend \`${place_text}\` with \`${marker}${place_text}\`. The call-site marker says what the call does to its argument: a bare \`${place_text}\` would pass it by value; \`${marker}${place_text}\` ${keeps}.`
-        ),
-        E_BORROW_MARKER_MISMATCH
+      Box.new(
+        with_code(
+          format_error_message(
+            ast_expr_token(place_arg),
+            `Parameter "${param_label}" is a \`${mode}\` borrow (\`${param_label} : ${mode_ty}\`): lend \`${place_text}\` with \`${marker}${place_text}\`. The call-site marker says what the call does to its argument: a bare \`${place_text}\` would pass it by value; \`${marker}${place_text}\` ${keeps}.`
+          ),
+          E_BORROW_MARKER_MISMATCH
+        )
       )
     )
   );
@@ -1119,12 +1129,14 @@ _t9_reference_param_takes_lend :: (fn(p_ty : &TypeValue, is_mut_marker : bool, p
       true => {
         exn.throw(
           dyn(
-            with_code(
-              format_error_message(
-                ast_expr_token(bare),
-                `Parameter "${p_label}" takes \`${type_to_string(p_ty)}\` by value: lend the place with \`${if(pr_mut.*, "&mut ", "&")}${place_text}\`.`
-              ),
-              E_BORROW_MARKER_MISMATCH
+            Box.new(
+              with_code(
+                format_error_message(
+                  ast_expr_token(bare),
+                  `Parameter "${p_label}" takes \`${type_to_string(p_ty)}\` by value: lend the place with \`${if(pr_mut.*, "&mut ", "&")}${place_text}\`.`
+                ),
+                E_BORROW_MARKER_MISMATCH
+              )
             )
           )
         );
@@ -1224,12 +1236,14 @@ apply_call_site_borrow_markers :: (
           );
           exn.throw(
             dyn(
-              with_code(
-                format_error_message(
-                  ast_expr_token(&bare),
-                  `\`&mut ${place_text}\` lends an exclusive borrow, but parameter "${p_label}" is not \`&mut T\`: ${mut_fix}.`
-                ),
-                E_BORROW_MARKER_MISMATCH
+              Box.new(
+                with_code(
+                  format_error_message(
+                    ast_expr_token(&bare),
+                    `\`&mut ${place_text}\` lends an exclusive borrow, but parameter "${p_label}" is not \`&mut T\`: ${mut_fix}.`
+                  ),
+                  E_BORROW_MARKER_MISMATCH
+                )
               )
             )
           );
@@ -1237,12 +1251,14 @@ apply_call_site_borrow_markers :: (
         p_is_ref => {
           exn.throw(
             dyn(
-              with_code(
-                format_error_message(
-                  ast_expr_token(&bare),
-                  `Parameter "${p_label}" is \`&mut T\`: lend the place with \`&mut ${place_text}\`, not \`&${place_text}\`.`
-                ),
-                E_BORROW_MARKER_MISMATCH
+              Box.new(
+                with_code(
+                  format_error_message(
+                    ast_expr_token(&bare),
+                    `Parameter "${p_label}" is \`&mut T\`: lend the place with \`&mut ${place_text}\`, not \`&${place_text}\`.`
+                  ),
+                  E_BORROW_MARKER_MISMATCH
+                )
               )
             )
           );
@@ -1251,12 +1267,14 @@ apply_call_site_borrow_markers :: (
         is_pointer_type(&p_ty) => {
           exn.throw(
             dyn(
-              with_code(
-                format_error_message(
-                  ast_expr_token(&bare),
-                  `Parameter "${p_label}" is a raw pointer (\`${type_to_string(&p_ty)}\`): take the address with \`addr_of(${place_text})\`. \`&${place_text}\` lends a borrow to a \`&T\` parameter and never makes a pointer.`
-                ),
-                E_BORROW_MARKER_MISMATCH
+              Box.new(
+                with_code(
+                  format_error_message(
+                    ast_expr_token(&bare),
+                    `Parameter "${p_label}" is a raw pointer (\`${type_to_string(&p_ty)}\`): take the address with \`addr_of(${place_text})\`. \`&${place_text}\` lends a borrow to a \`&T\` parameter and never makes a pointer.`
+                  ),
+                  E_BORROW_MARKER_MISMATCH
+                )
               )
             )
           );
@@ -1266,12 +1284,14 @@ apply_call_site_borrow_markers :: (
         p_is_owning => {
           exn.throw(
             dyn(
-              with_code(
-                format_error_message(
-                  ast_expr_token(&bare),
-                  `\`&${place_text}\` lends a borrow, but parameter "${p_label}" takes its argument by value: pass \`${place_text}\` (it moves, or is copied when it is \`Copy\`), or \`${place_text}.clone()\` to keep \`${place_text}\`. A raw pointer is \`addr_of(${place_text})\`.`
-                ),
-                E_BORROW_MARKER_MISMATCH
+              Box.new(
+                with_code(
+                  format_error_message(
+                    ast_expr_token(&bare),
+                    `\`&${place_text}\` lends a borrow, but parameter "${p_label}" takes its argument by value: pass \`${place_text}\` (it moves, or is copied when it is \`Copy\`), or \`${place_text}.clone()\` to keep \`${place_text}\`. A raw pointer is \`addr_of(${place_text})\`.`
+                  ),
+                  E_BORROW_MARKER_MISMATCH
+                )
               )
             )
           );
@@ -1715,9 +1735,11 @@ check_argument_for_parameter :: (
   if(future_view_drops_a_bundle(arg_ty, resolved_pt), {
     exn.throw(
       dyn(
-        format_error_message(
-          arg_tok,
-          `Incompatible types:\n- Expected: ${type_to_string(resolved_pt)}\n- Given   : ${type_to_string(arg_ty)}\nThe future carries an effect bundle the parameter's type does not name; an await or spawn through it would inject nothing. Name the bundle in the parameter (\`Impl(Future(T, E))\`).`
+        Box.new(
+          format_error_message(
+            arg_tok,
+            `Incompatible types:\n- Expected: ${type_to_string(resolved_pt)}\n- Given   : ${type_to_string(arg_ty)}\nThe future carries an effect bundle the parameter's type does not name; an await or spawn through it would inject nothing. Name the bundle in the parameter (\`Impl(Future(T, E))\`).`
+          )
         )
       )
     );
@@ -1725,10 +1747,12 @@ check_argument_for_parameter :: (
   if(param_is_ct && (!in_def_time_trial() && !ctx.is_analyzing_ctfe_capability) && runtime_value_for_comptime_param(arg_ty, &arg_info.value()), {
     exn.throw(
       dyn(
-        format_error_message_with_help(
-          arg_tok,
-          `Parameter \`${param_label}\` is \`comptime\` and requires a compile-time argument, but the argument is a runtime value of type ${type_to_string(arg_ty)}`,
-          Option(String).Some(String.from("pass a literal or a `::` constant, or compute the value with a comptime function; drop `comptime(...)` from the parameter if it may be runtime"))
+        Box.new(
+          format_error_message_with_help(
+            arg_tok,
+            `Parameter \`${param_label}\` is \`comptime\` and requires a compile-time argument, but the argument is a runtime value of type ${type_to_string(arg_ty)}`,
+            Option(String).Some(String.from("pass a literal or a `::` constant, or compute the value with a comptime function; drop `comptime(...)` from the parameter if it may be runtime"))
+          )
         )
       )
     );
@@ -1970,7 +1994,7 @@ check_if_function_parameter_matches_argument :: (
       .Some(us_info) => match(
         us_info.value(),
         .Some(.TypeVal(us_t)) => if(!type_is_sized(&us_t), {
-          exn.throw(dyn(unsized_by_value_error(&us_t, &`the type parameter \`${param_label}\``, &Option(String).Some(param_label.clone()), &ast_expr_token(&actual_arg))));
+          exn.throw(dyn(Box.new(unsized_by_value_error(&us_t, &`the type parameter \`${param_label}\``, &Option(String).Some(param_label.clone()), &ast_expr_token(&actual_arg)))));
         }),
         _ => ()
       ),
@@ -1997,9 +2021,11 @@ check_if_function_parameter_matches_argument :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&actual_arg),
-            String.from("check_if_function_parameter_matches_argument: arg has no ExprInfo")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&actual_arg),
+              String.from("check_if_function_parameter_matches_argument: arg has no ExprInfo")
+            )
           )
         )
       );
@@ -2179,9 +2205,11 @@ ${ast_expr_to_string(&actual_arg)}`
           });
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&actual_arg),
-                `Value mismatch for parameter "${param_label}"`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&actual_arg),
+                  `Value mismatch for parameter "${param_label}"`
+                )
               )
             )
           );
@@ -2296,9 +2324,11 @@ ${ast_expr_to_string(&actual_arg)}`
   if(!are_types_compatible(&arg_type, &final_pt), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&actual_arg),
-          `Type mismatch for parameter "${param_label}":\n- Expected: ${type_to_string(&final_pt)}\n- Got     : ${type_to_string(&arg_type)}${dyn_upcast_note(&final_pt, &arg_type)}${same_name_note(&final_pt, &arg_type)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&actual_arg),
+            `Type mismatch for parameter "${param_label}":\n- Expected: ${type_to_string(&final_pt)}\n- Got     : ${type_to_string(&arg_type)}${dyn_upcast_note(&final_pt, &arg_type)}${same_name_note(&final_pt, &arg_type)}`
+          )
         )
       )
     );
@@ -5090,7 +5120,7 @@ create_specialized_function_inline :: (
               // mode noted) is the projection of the lent place: the fat pair
               // it lowers to is the reference result, with no rewrite.
               if(sb_ret_is_ref && !has_any_control_flow(sb_info.control_flow()) && (get_all_some_types(&spec_ret_ty).len() == usize(0)) && (get_all_some_types(&sb_ty).len() == usize(0)) && unsize_reference_mode(ast_expr_id(&specialized_body)).is_none() && !are_types_compatible(&sb_ty, &t_ptr(&spec_ret_ty)), {
-                exn.throw(dyn(format_error_message(projection_tail_diag_token(&cloned_body), projection_body_mismatch_message(&spec_ret_ty, fn_result_is_mut_ref(&func_type.*), &sb_ty, &specialized_body, ctx))));
+                exn.throw(dyn(Box.new(format_error_message(projection_tail_diag_token(&cloned_body), projection_body_mismatch_message(&spec_ret_ty, fn_result_is_mut_ref(&func_type.*), &sb_ty, &specialized_body, ctx)))));
               });
               if(!sb_skip && !are_types_compatible(&sb_ty, &spec_ret_ty), {
                 sb_inst := String.new();
@@ -5117,9 +5147,11 @@ create_specialized_function_inline :: (
                 });
                 exn.throw(
                   dyn(
-                    format_error_message(
-                      ast_expr_token(&cloned_body),
-                      `Function body has type \`${type_to_string(&sb_ty)}\`, but the declared result type is \`${type_to_string(&spec_ret_ty)}\`${sb_inst}.`
+                    Box.new(
+                      format_error_message(
+                        ast_expr_token(&cloned_body),
+                        `Function body has type \`${type_to_string(&sb_ty)}\`, but the declared result type is \`${type_to_string(&spec_ret_ty)}\`${sb_inst}.`
+                      )
                     )
                   )
                 );
@@ -5643,7 +5675,7 @@ create_specialized_function_inline :: (
                                     g_reeval_closure_err.with(_c_first_yoerror),
                                     .Some(rc_err) => if(!propagate_def_time_errors() && match(rc_err.diagnostics.get_cloned(usize(0)), .Some(d) => d.generic_independent, .None => false), {
                                       g_reeval_closure_err.with_mut(xs => xs.clear());
-                                      exn.throw(dyn(rc_err));
+                                      exn.throw(dyn(Box.new(rc_err)));
                                     }),
                                     .None => ()
                                   );
@@ -6069,7 +6101,7 @@ _reject_unsized_type_binder_arguments :: (
           uk_fa.value,
           .Some(.TypeVal(uk_t)) => if(!type_is_sized(&uk_t), {
             uk_name := match(names.get_cloned(i), .Some(n) => n, .None => String.from("T"));
-            exn.throw(dyn(unsized_by_value_error(&uk_t, &`\`${callee_name}\`'s type binder \`${uk_name}\``, &Option(String).Some(uk_name.clone()), call_tok)));
+            exn.throw(dyn(Box.new(unsized_by_value_error(&uk_t, &`\`${callee_name}\`'s type binder \`${uk_name}\``, &Option(String).Some(uk_name.clone()), call_tok))));
           }),
           _ => ()
         ),
@@ -6133,7 +6165,7 @@ _with_instantiation_note :: (fn(err : AnyError, call_tok : &Token, description :
     }),
     .None => ()
   );
-  dyn(noted)
+  dyn(Box.new(noted))
 });
 _same_primary_span :: (fn(a : &YoError, b : &YoError) -> bool)(
   match(
@@ -6651,9 +6683,11 @@ validate_where_constraints_for_call :: (
                       .Some(fvm_o) => {
                         exn.throw(
                           dyn(
-                            format_error_message(
-                              tok,
-                              `The function type ${type_to_string(&bound_ty)} does not implement required trait ${type_to_string(&wce.trait_ty)}: ${fvm_o}.`
+                            Box.new(
+                              format_error_message(
+                                tok,
+                                `The function type ${type_to_string(&bound_ty)} does not implement required trait ${type_to_string(&wce.trait_ty)}: ${fvm_o}.`
+                              )
                             )
                           )
                         );
@@ -6689,9 +6723,11 @@ validate_where_constraints_for_call :: (
                   if(wc_implemented, {
                     exn.throw(
                       dyn(
-                        format_error_message(
-                          tok,
-                          `Type ${type_to_string(&bound_ty)} must NOT implement ${type_to_string(&wce.trait_ty)}, but it does.`
+                        Box.new(
+                          format_error_message(
+                            tok,
+                            `Type ${type_to_string(&bound_ty)} must NOT implement ${type_to_string(&wce.trait_ty)}, but it does.`
+                          )
                         )
                       )
                     );
@@ -6699,14 +6735,16 @@ validate_where_constraints_for_call :: (
                 }, {
                   // An `Escapable` bound is E0909 (decision 43, O10).
                   if(!wc_implemented && is_escapable_trait(&wce.trait_ty, callee_env), {
-                    exn.throw(dyn(escapable_bound_error(&bound_ty, &wce.lhs_label, tok)));
+                    exn.throw(dyn(Box.new(escapable_bound_error(&bound_ty, &wce.lhs_label, tok))));
                   });
                   if(!wc_implemented, {
                     exn.throw(
                       dyn(
-                        format_error_message(
-                          tok,
-                          `Type ${type_to_string(&bound_ty)} does not implement required trait ${type_to_string(&wce.trait_ty)}.`
+                        Box.new(
+                          format_error_message(
+                            tok,
+                            `Type ${type_to_string(&bound_ty)} does not implement required trait ${type_to_string(&wce.trait_ty)}.`
+                          )
                         )
                       )
                     );
@@ -7121,10 +7159,12 @@ reject_runtime_comptime_arguments :: (
               rc_pname := match(rc_params.get_cloned(rci), .Some(l) => l, .None => String.from("?"));
               exn.throw(
                 dyn(
-                  format_error_message_with_help(
-                    tok,
-                    `Parameter \`${rc_pname}\` is \`comptime\` and requires a compile-time argument, but the argument is a runtime value of type ${type_to_string(&rc_ae.arg_type)}`,
-                    Option(String).Some(String.from("pass a literal or a `::` constant, or compute the value with a comptime function; drop `comptime(...)` from the parameter if it may be runtime"))
+                  Box.new(
+                    format_error_message_with_help(
+                      tok,
+                      `Parameter \`${rc_pname}\` is \`comptime\` and requires a compile-time argument, but the argument is a runtime value of type ${type_to_string(&rc_ae.arg_type)}`,
+                      Option(String).Some(String.from("pass a literal or a `::` constant, or compute the value with a comptime function; drop `comptime(...)` from the parameter if it may be runtime"))
+                    )
                   )
                 )
               );
@@ -7486,9 +7526,11 @@ _check_forall_bindings_after_arg :: (
               .Some(pl) => if(pl.* != nl.*, {
                 exn.throw(
                   dyn(
-                    format_error_message(
-                      tok,
-                      `Incompatible types for generic parameter "${label}": it is length ${pl} from argument ${(prev.arg_index + usize(1)).to_string()} (${prev_name}) but length ${nl} from argument ${(arg_index + usize(1)).to_string()} (${now_name}). Every mention of a generic parameter in one call stands for one value.`
+                    Box.new(
+                      format_error_message(
+                        tok,
+                        `Incompatible types for generic parameter "${label}": it is length ${pl} from argument ${(prev.arg_index + usize(1)).to_string()} (${prev_name}) but length ${nl} from argument ${(arg_index + usize(1)).to_string()} (${now_name}). Every mention of a generic parameter in one call stands for one value.`
+                      )
                     )
                   )
                 );
@@ -7498,9 +7540,11 @@ _check_forall_bindings_after_arg :: (
             .None => if(prev.len_value.is_none() && (!are_types_compatible(&prev.ty, &now) && !are_types_compatible(&now, &prev.ty)), {
               exn.throw(
                 dyn(
-                  format_error_message(
-                    tok,
-                    `Incompatible types for generic parameter "${label}": it is ${type_to_string(&prev.ty)} from argument ${(prev.arg_index + usize(1)).to_string()} (${prev_name}) but ${type_to_string(&now)} from argument ${(arg_index + usize(1)).to_string()} (${now_name}). Every mention of a type parameter in one call stands for one type.`
+                  Box.new(
+                    format_error_message(
+                      tok,
+                      `Incompatible types for generic parameter "${label}": it is ${type_to_string(&prev.ty)} from argument ${(prev.arg_index + usize(1)).to_string()} (${prev_name}) but ${type_to_string(&now)} from argument ${(arg_index + usize(1)).to_string()} (${now_name}). Every mention of a type parameter in one call stands for one type.`
+                    )
                   )
                 )
               );
@@ -7806,9 +7850,11 @@ try_to_call_function_with_arguments :: (
         });
         exn.throw(
           dyn(
-            format_error_message(
-              &tok,
-              &count_msg
+            Box.new(
+              format_error_message(
+                &tok,
+                &count_msg
+              )
             )
           )
         );
@@ -9072,9 +9118,11 @@ try_to_call_function_with_arguments :: (
                   Rc(.Unit) => {
                     exn.throw(
                       dyn(
-                        format_error_message(
-                          ast_expr_token(&v_evaled),
-                          `A unit value cannot be passed as a variadic argument (a block tail followed by ";" yields unit — end the block with the value, or return(...))`
+                        Box.new(
+                          format_error_message(
+                            ast_expr_token(&v_evaled),
+                            `A unit value cannot be passed as a variadic argument (a block tail followed by ";" yields unit — end the block with the value, or return(...))`
+                          )
                         )
                       )
                     );
@@ -9145,9 +9193,11 @@ try_to_call_function_with_arguments :: (
                       ebc_arg := match(adjusted_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
                       exn.throw(
                         dyn(
-                          format_error_message(
-                            ast_expr_token(&ebc_arg),
-                            `Effect argument does not match the future's effect bundle:\n- The future's effect type: ${type_to_string(&ebc_te)}\n- The argument's type      : ${type_to_string(&ebc_eff_ty)}\nPass the future's own bundle (e.g. \`IoExn(io : io, exn : exn)\` or a record with exactly its fields, or forward \`e\` inside a handler) — a mismatched record corrupts the task's effect state.`
+                          Box.new(
+                            format_error_message(
+                              ast_expr_token(&ebc_arg),
+                              `Effect argument does not match the future's effect bundle:\n- The future's effect type: ${type_to_string(&ebc_te)}\n- The argument's type      : ${type_to_string(&ebc_eff_ty)}\nPass the future's own bundle (e.g. \`IoExn(io : io, exn : exn)\` or a record with exactly its fields, or forward \`e\` inside a handler) — a mismatched record corrupts the task's effect state.`
+                            )
                           )
                         )
                       );
@@ -9769,9 +9819,11 @@ try_to_call_function_with_arguments :: (
                         if(!are_types_compatible(&ua_info.ty(), &resolved_impl_type), {
                           exn.throw(
                             dyn(
-                              format_error_message(
-                                ast_expr_token(&ua_expr),
-                                `Incompatible type for implicit parameter "${impl_label}"`
+                              Box.new(
+                                format_error_message(
+                                  ast_expr_token(&ua_expr),
+                                  `Incompatible type for implicit parameter "${impl_label}"`
+                                )
                               )
                             )
                           );
@@ -9838,9 +9890,11 @@ try_to_call_function_with_arguments :: (
           if(!found_given, {
             exn.throw(
               dyn(
-                format_error_message(
-                  &tok,
-                  `No "given" variable found for implicit parameter "${impl_label}"`
+                Box.new(
+                  format_error_message(
+                    &tok,
+                    `No "given" variable found for implicit parameter "${impl_label}"`
+                  )
                 )
               )
             );
@@ -9873,9 +9927,11 @@ try_to_call_function_with_arguments :: (
             .None => {
               exn.throw(
                 dyn(
-                  format_error_message(
-                    &tok,
-                    `The "given" variable "${given_name}" has no compile-time value`
+                  Box.new(
+                    format_error_message(
+                      &tok,
+                      `The "given" variable "${given_name}" has no compile-time value`
+                    )
                   )
                 )
               );
@@ -9937,9 +9993,11 @@ try_to_call_function_with_arguments :: (
             if(s12_env_unbound, {
               exn.throw(
                 dyn(
-                  format_error_message(
-                    &tok,
-                    `Cannot infer the type parameter "${s12_name}" of this call: it appears in the result type ${type_to_string(&ret_b)}, and neither an argument nor the expected type determines it. Annotate the binding the result lands in, or pass the type with generic(...).`
+                  Box.new(
+                    format_error_message(
+                      &tok,
+                      `Cannot infer the type parameter "${s12_name}" of this call: it appears in the result type ${type_to_string(&ret_b)}, and neither an argument nor the expected type determines it. Annotate the binding the result lands in, or pass the type with generic(...).`
+                    )
                   )
                 )
               );

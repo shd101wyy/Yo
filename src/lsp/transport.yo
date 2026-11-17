@@ -66,7 +66,7 @@ read_lsp_message :: (
                   content_len = usize(n);
                 },
                 .None => {
-                  exn.throw(dyn(`lsp: malformed Content-Length header: ${line}`));
+                  exn.throw(dyn(Box.new(`lsp: malformed Content-Length header: ${line}`)));
                 }
               );
             });
@@ -77,21 +77,21 @@ read_lsp_message :: (
       .None => {
         // EOF.
         if(saw_header, {
-          exn.throw(dyn(`lsp: EOF inside a message frame's headers`));
+          exn.throw(dyn(Box.new(`lsp: EOF inside a message frame's headers`)));
         });
         return(Option(String).None);
       }
     );
   });
   if(content_len == usize(0), {
-    exn.throw(dyn(`lsp: frame without a Content-Length header`));
+    exn.throw(dyn(Box.new(`lsp: frame without a Content-Length header`)));
   });
   bytes_opt := io.await(reader.read_exact(content_len, io), b);
   match(
     bytes_opt,
     .Some(bytes) => Option(String).Some(String.from_bytes(bytes)),
     .None => {
-      exn.throw(dyn(`lsp: EOF inside a message frame's body (expected ${content_len} bytes)`));
+      exn.throw(dyn(Box.new(`lsp: EOF inside a message frame's body (expected ${content_len} bytes)`)));
       return(Option(String).None)
     }
   )

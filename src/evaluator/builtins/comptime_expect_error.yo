@@ -33,7 +33,9 @@
   branch_group_stack_len,
   truncate_branch_group_stack,
   module_global_recording_mark,
-  rollback_module_level_globals_to
+  rollback_module_level_globals_to,
+  unsized_sites_mark,
+  unsized_sites_rollback
 } :: import("../../expr_info.yo");
 { local_borrows_mark, local_borrows_truncate, local_borrow_flow_restore, dyn_copy_mark, dyn_copy_rollback } :: import("../utils.yo");
 { t_unit } :: import("../../types/creators.yo");
@@ -268,9 +270,13 @@ evaluate_comptime_expect_error :: (
   // abandoned impl (issues/fixed/abandoned-impl-members-survive-the-error.md).
   saved_depths := forcing_depths();
   dyn_mark := dyn_copy_mark();
+  unsized_mark := unsized_sites_mark();
   arg_threw := _comptime_expect_error_arg_threw(arg_expr.clone(), env, ctx);
   // The unique `Dyn`'s pending copies the argument made never happen.
   dyn_copy_rollback(dyn_mark);
+  // A negative row's `dyn` sites are what it tests: `yo fix --migrate
+  // unsized` leaves them as written.
+  unsized_sites_rollback(unsized_mark);
   observed_msgs := cee_observed_messages();
   clear_cee_observed_error();
   if(saved_observed, {
@@ -423,9 +429,11 @@ evaluate_comptime_expect_error :: (
           got := match(observed_msgs.get_cloned(usize(0)), .Some(m) => m, .None => String.from("(an error whose text was not recorded)"));
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(expr),
-                `comptime_expect_error: the expression raised an error, but not the expected one.\n- Expected text: ${want_text}\n- Raised: ${got}`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(expr),
+                  `comptime_expect_error: the expression raised an error, but not the expected one.\n- Expected text: ${want_text}\n- Raised: ${got}`
+                )
               )
             )
           );
@@ -455,7 +463,7 @@ evaluate_comptime_expect_error :: (
             msg_info.value(),
             .Some(v) => {
               err_msg := match(v, .StrLit(raw) => raw.clone(), _ => value_to_string(&v));
-              exn.throw(dyn(format_error_message(ast_expr_token(expr), &err_msg)));
+              exn.throw(dyn(Box.new(format_error_message(ast_expr_token(expr), &err_msg))));
             },
             .None => ()
           );
@@ -467,10 +475,12 @@ evaluate_comptime_expect_error :: (
   );
   exn.throw(
     dyn(
-      format_error_message(
-        ast_expr_token(expr),
-        String.from("Expected compile error, but the expression was evaluated successfully:\n") +
-          ast_expr_to_string(&arg_expr)
+      Box.new(
+        format_error_message(
+          ast_expr_token(expr),
+          String.from("Expected compile error, but the expression was evaluated successfully:\n") +
+            ast_expr_to_string(&arg_expr)
+        )
       )
     )
   );

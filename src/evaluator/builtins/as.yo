@@ -41,16 +41,18 @@ evaluate_as :: (
     expr,
     .FnCall(_, _, Rc(a), _, _) => a.clone(),
     _ => {
-      exn.throw(dyn(format_error_message(&tok, String.from("as: expected FnCall"))));
+      exn.throw(dyn(Box.new(format_error_message(&tok, String.from("as: expected FnCall")))));
       return(expr.*);
     }
   );
   if(args.len() != usize(2), {
     exn.throw(
       dyn(
-        format_error_message(
-          &tok,
-          `"as" function expects exactly 2 arguments, got ${args.len()}`
+        Box.new(
+          format_error_message(
+            &tok,
+            `"as" function expects exactly 2 arguments, got ${args.len()}`
+          )
         )
       )
     );
@@ -78,9 +80,11 @@ evaluate_as :: (
     .None => {
       exn.throw(
         dyn(
-          format_eval_failure(
-            ast_expr_token(&val_arg_expr),
-            `Failed to evaluate value argument for "as"`
+          Box.new(
+            format_eval_failure(
+              ast_expr_token(&val_arg_expr),
+              `Failed to evaluate value argument for "as"`
+            )
           )
         )
       );
@@ -98,9 +102,11 @@ evaluate_as :: (
     .None => {
       exn.throw(
         dyn(
-          format_eval_failure(
-            ast_expr_token(&type_arg_expr),
-            `Failed to evaluate type argument for "as"`
+          Box.new(
+            format_eval_failure(
+              ast_expr_token(&type_arg_expr),
+              `Failed to evaluate type argument for "as"`
+            )
           )
         )
       );
@@ -111,9 +117,11 @@ evaluate_as :: (
   if(!is_type_value(&type_info.value()), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&type_arg_expr),
-          `Second argument to "as" must be a type`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&type_arg_expr),
+            `Second argument to "as" must be a type`
+          )
         )
       )
     );
@@ -131,9 +139,11 @@ evaluate_as :: (
   if(!are_types_compatible(&source_type, &target_type), {
     exn.throw(
       dyn(
-        format_error_message(
-          &tok,
-          `Cannot cast from type "${type_to_string(&source_type)}" to type "${type_to_string(&target_type)}" - types are not compatible`
+        Box.new(
+          format_error_message(
+            &tok,
+            `Cannot cast from type "${type_to_string(&source_type)}" to type "${type_to_string(&target_type)}" - types are not compatible`
+          )
         )
       )
     );

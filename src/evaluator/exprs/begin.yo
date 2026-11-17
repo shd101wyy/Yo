@@ -610,9 +610,11 @@ _check_keyword_position :: (
   if(!ok, {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr_to_eval),
-          `The "${keyword}" keyword can only be used as the last expression.`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr_to_eval),
+            `The "${keyword}" keyword can only be used as the last expression.`
+          )
         )
       )
     );
@@ -2896,10 +2898,12 @@ _reject_brace_block_for_struct :: (fn(expr : &AstExpr, result : Option(TypeValue
         what := if(bb_field.len() == usize(0), String.from("the empty block (unit)"), `a block that yields \`${bb_field}\``);
         exn.throw(
           dyn(
-            format_error_message_with_help(
-              ast_expr_token(expr),
-              `Incompatible types: \`${written}\` is ${what}, but \`${type_to_string(&bb_et.ty)}\` is expected here`,
-              Option(String).Some(if(bb_field.len() == usize(0), String.from("the empty record is `.{}`"), `the one-field record is \`.{ ${bb_field} }\``))
+            Box.new(
+              format_error_message_with_help(
+                ast_expr_token(expr),
+                `Incompatible types: \`${written}\` is ${what}, but \`${type_to_string(&bb_et.ty)}\` is expected here`,
+                Option(String).Some(if(bb_field.len() == usize(0), String.from("the empty record is `.{}`"), `the one-field record is \`.{ ${bb_field} }\``))
+              )
             )
           )
         );
@@ -3117,9 +3121,11 @@ _evaluate_begin_expression_impl :: (
         if(!ctx.is_evaluating_function_body_or_async_block.is_some(), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&expr_to_eval),
-                String.from("The \"return\" keyword can only be used inside a function body or async block.")
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&expr_to_eval),
+                  String.from("The \"return\" keyword can only be used inside a function body or async block.")
+                )
               )
             )
           );
@@ -3214,9 +3220,11 @@ _evaluate_begin_expression_impl :: (
           if(ret_info_opt.is_none(), {
             exn.throw(
               dyn(
-                format_error_message(
-                  ast_expr_token(&ret_arg),
-                  String.from("Return expression is not evaluated correctly.")
+                Box.new(
+                  format_error_message(
+                    ast_expr_token(&ret_arg),
+                    String.from("Return expression is not evaluated correctly.")
+                  )
                 )
               )
             );
@@ -3278,9 +3286,11 @@ _evaluate_begin_expression_impl :: (
                       if(!is_flowable_expr(&evaluated_ret_arg, ctx, &ret_slice_opts), {
                         exn.throw(
                           dyn(
-                            format_error_message(
-                              ast_expr_token(&ret_arg),
-                              `'return(...)' from a function returning '${type_to_string(&rfb)}' carries a raw pointer in its representation; the returned value must be rooted in caller-owned storage. The returned expression is not flowable:\n  ${ast_expr_to_string(&ret_arg)}`
+                            Box.new(
+                              format_error_message(
+                                ast_expr_token(&ret_arg),
+                                `'return(...)' from a function returning '${type_to_string(&rfb)}' carries a raw pointer in its representation; the returned value must be rooted in caller-owned storage. The returned expression is not flowable:\n  ${ast_expr_to_string(&ret_arg)}`
+                              )
                             )
                           )
                         );
@@ -3345,7 +3355,7 @@ _evaluate_begin_expression_impl :: (
                             error_message : `Conflicting return has concrete type: ${type_to_string(&ret_info.ty())}`
                           )
                         );
-                        exn.throw(dyn(format_error_messages(&ir_entries)));
+                        exn.throw(dyn(Box.new(format_error_messages(&ir_entries))));
                       });
                     },
                     .None => ()
@@ -3385,9 +3395,11 @@ _evaluate_begin_expression_impl :: (
         if(!ctx.is_evaluating_loop_body.is_some(), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&expr_to_eval),
-                String.from("The \"break\" keyword can only be used inside a loop.")
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&expr_to_eval),
+                  String.from("The \"break\" keyword can only be used inside a loop.")
+                )
               )
             )
           );
@@ -3415,9 +3427,11 @@ _evaluate_begin_expression_impl :: (
         if(!ctx.is_evaluating_loop_body.is_some(), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&expr_to_eval),
-                String.from("The \"continue\" keyword can only be used inside a loop.")
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&expr_to_eval),
+                  String.from("The \"continue\" keyword can only be used inside a loop.")
+                )
               )
             )
           );
@@ -3445,9 +3459,11 @@ _evaluate_begin_expression_impl :: (
         if(!ctx.enclosing_function_return_type.is_some(), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&expr_to_eval),
-                String.from(UNWIND_WITHOUT_ENCLOSING_FN)
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&expr_to_eval),
+                  String.from(UNWIND_WITHOUT_ENCLOSING_FN)
+                )
               )
             )
           );
@@ -3462,9 +3478,11 @@ _evaluate_begin_expression_impl :: (
         if(esc_n_args > usize(1), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&expr_to_eval),
-                String.from("The \"unwind\" keyword accepts at most one argument.")
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&expr_to_eval),
+                  String.from("The \"unwind\" keyword accepts at most one argument.")
+                )
               )
             )
           );
@@ -3509,9 +3527,11 @@ _evaluate_begin_expression_impl :: (
           if(esc_info_opt.is_none(), {
             exn.throw(
               dyn(
-                format_error_message(
-                  ast_expr_token(&esc_arg),
-                  String.from("Unwind expression is not evaluated correctly.")
+                Box.new(
+                  format_error_message(
+                    ast_expr_token(&esc_arg),
+                    String.from("Unwind expression is not evaluated correctly.")
+                  )
                 )
               )
             );
@@ -3653,12 +3673,14 @@ _evaluate_begin_expression_impl :: (
                 );
                 exn.throw(
                   dyn(
-                    with_code(
-                      format_error_message(
-                        ast_expr_token(&evaluated),
-                        `This statement drops ${mu_kind}: its value is never used. ${mu_fix}`
-                      ),
-                      E_DISCARDED_MUST_USE
+                    Box.new(
+                      with_code(
+                        format_error_message(
+                          ast_expr_token(&evaluated),
+                          `This statement drops ${mu_kind}: its value is never used. ${mu_fix}`
+                        ),
+                        E_DISCARDED_MUST_USE
+                      )
                     )
                   )
                 );
@@ -3748,9 +3770,11 @@ _evaluate_begin_expression_impl :: (
   if(last_info_opt.is_none(), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&last_expr),
-          `Last expression in "begin" is not evaluated correctly:\n${ast_expr_to_string(&last_expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&last_expr),
+            `Last expression in "begin" is not evaluated correctly:\n${ast_expr_to_string(&last_expr)}`
+          )
         )
       )
     );
@@ -3809,9 +3833,11 @@ _evaluate_begin_expression_impl :: (
                       if(!is_some_type(&expected_ret) && !compat, {
                         exn.throw(
                           dyn(
-                            format_error_message(
-                              ast_expr_token(&last_expr),
-                              `Return type mismatch. Expected type "${type_to_string(&expected_ret)}", but got "${type_to_string(&return_type)}".`
+                            Box.new(
+                              format_error_message(
+                                ast_expr_token(&last_expr),
+                                `Return type mismatch. Expected type "${type_to_string(&expected_ret)}", but got "${type_to_string(&return_type)}".`
+                              )
                             )
                           )
                         );
@@ -3835,9 +3861,11 @@ _evaluate_begin_expression_impl :: (
                   if(!is_some_type(&et.ty) && !as_compat, {
                     exn.throw(
                       dyn(
-                        format_error_message(
-                          ast_expr_token(&last_expr),
-                          `Return type mismatch. Expected type "${type_to_string(&et.ty)}", but got "${type_to_string(&return_type)}".`
+                        Box.new(
+                          format_error_message(
+                            ast_expr_token(&last_expr),
+                            `Return type mismatch. Expected type "${type_to_string(&et.ty)}", but got "${type_to_string(&return_type)}".`
+                          )
                         )
                       )
                     );

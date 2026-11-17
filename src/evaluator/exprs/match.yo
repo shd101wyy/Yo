@@ -735,10 +735,12 @@ _decide_match_mode :: (
         text := ast_expr_to_string(&scr);
         exn.throw(
           dyn(
-            format_error_message_with_help(
-              ast_expr_token(&scr),
-              `Cannot match \`&mut ${text}\`: \`&mut\` lends a place, and \`${text}\` is a temporary.`,
-              Option(String).Some(`bind it to a local first (\`t := ${text}; match(&mut t, …)\`), or match it by value`)
+            Box.new(
+              format_error_message_with_help(
+                ast_expr_token(&scr),
+                `Cannot match \`&mut ${text}\`: \`&mut\` lends a place, and \`${text}\` is a temporary.`,
+                Option(String).Some(`bind it to a local first (\`t := ${text}; match(&mut t, …)\`), or match it by value`)
+              )
             )
           )
         );
@@ -746,13 +748,15 @@ _decide_match_mode :: (
       .Some(rv) => if(_variable_is_imm_borrow(&rv), {
         exn.throw(
           dyn(
-            with_code(
-              format_error_message_with_help(
-                ast_expr_token(&scr),
-                `Cannot match \`&mut ${ast_expr_to_string(&scr)}\`: \`${rv.name}\` is a \`&\` borrow, which is read-only.`,
-                Option(String).Some(`match it with \`&${ast_expr_to_string(&scr)}\`, or take \`${rv.name}\` as \`${rv.name} : &mut T\``)
-              ),
-              E_WRITE_THROUGH_BORROW
+            Box.new(
+              with_code(
+                format_error_message_with_help(
+                  ast_expr_token(&scr),
+                  `Cannot match \`&mut ${ast_expr_to_string(&scr)}\`: \`${rv.name}\` is a \`&\` borrow, which is read-only.`,
+                  Option(String).Some(`match it with \`&${ast_expr_to_string(&scr)}\`, or take \`${rv.name}\` as \`${rv.name} : &mut T\``)
+                ),
+                E_WRITE_THROUGH_BORROW
+              )
             )
           )
         );
@@ -1050,10 +1054,12 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
         if((own.unbound.len() > before_u) || (own.keeps.len() > before_k), {
           exn.throw(
             dyn(
-              format_error_message_with_help(
-                &own.tok,
-                `An or-pattern alternative of a consuming \`match\` leaves a part with a drop unbound (\`${pattern_to_string(&alts(ai))}\`): the alternatives would leave different parts to drop when the arm is entered (plans/VALUES_BY_DEFAULT.md decision 26).`,
-                Option(String).Some(`split the alternatives into arms of their own, bind the part, or match through a borrow (\`match(&x, …)\`)`)
+              Box.new(
+                format_error_message_with_help(
+                  &own.tok,
+                  `An or-pattern alternative of a consuming \`match\` leaves a part with a drop unbound (\`${pattern_to_string(&alts(ai))}\`): the alternatives would leave different parts to drop when the arm is entered (plans/VALUES_BY_DEFAULT.md decision 26).`,
+                  Option(String).Some(`split the alternatives into arms of their own, bind the part, or match through a borrow (\`match(&x, …)\`)`)
+                )
               )
             )
           );
@@ -1089,16 +1095,18 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
         if(bad, {
           exn.throw(
             dyn(
-              with_code(
-                format_error_message_with_help(
-                  &atok.*,
-                  cond(
-                    own.is_mut => `\`(${name} := …)\` binds \`${sn}\` inside it, and in a \`mut\` match both would be \`mut\` places over the same storage.`,
-                    true => `\`(${name} := …)\` takes the whole value, so \`${sn}\` inside it would be a copy, and its type \`${match(sty, .Some(t) => type_to_string(&t), .None => String.from("?"))}\` is not \`Copy\` (plans/VALUES_BY_DEFAULT.md decision 26).`
+              Box.new(
+                with_code(
+                  format_error_message_with_help(
+                    &atok.*,
+                    cond(
+                      own.is_mut => `\`(${name} := …)\` binds \`${sn}\` inside it, and in a \`mut\` match both would be \`mut\` places over the same storage.`,
+                      true => `\`(${name} := …)\` takes the whole value, so \`${sn}\` inside it would be a copy, and its type \`${match(sty, .Some(t) => type_to_string(&t), .None => String.from("?"))}\` is not \`Copy\` (plans/VALUES_BY_DEFAULT.md decision 26).`
+                    ),
+                    Option(String).Some(`bind only \`${name}\` and match it again, or match through a borrow (\`match(&x, …)\`)`)
                   ),
-                  Option(String).Some(`bind only \`${name}\` and match it again, or match through a borrow (\`match(&x, …)\`)`)
-                ),
-                E_USE_OF_MOVED_VALUE
+                  E_USE_OF_MOVED_VALUE
+                )
               )
             )
           );
@@ -1253,9 +1261,11 @@ evaluate_match :: (
   if(!(ast_expr_is_fn_call_of(expr, BK_MATCH, .None)), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected "match"`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected "match"`
+          )
         )
       )
     );
@@ -1269,9 +1279,11 @@ evaluate_match :: (
   if(all_args.len() < usize(2), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected at least 2 arguments for "match", got ${all_args.len()}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected at least 2 arguments for "match", got ${all_args.len()}`
+          )
         )
       )
     );
@@ -1362,9 +1374,11 @@ evaluate_match :: (
     deref_exempt_clear();
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&scrutinee_expr),
-          `Failed to evaluate the match scrutinee expression: ${ast_expr_to_string(&scrutinee_expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&scrutinee_expr),
+            `Failed to evaluate the match scrutinee expression: ${ast_expr_to_string(&scrutinee_expr)}`
+          )
         )
       )
     );
@@ -1376,9 +1390,11 @@ evaluate_match :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&scrutinee_expr),
-            `Internal error: no ExprInfo for scrutinee`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&scrutinee_expr),
+              `Internal error: no ExprInfo for scrutinee`
+            )
           )
         )
       );
@@ -1589,9 +1605,11 @@ evaluate_match :: (
     if(!(ast_expr_is_fn_call_of(&arm_expr, "=>", .Some(usize(2)))), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arm_expr),
-            `Expected "=>" for match arm, got ${ast_expr_to_string(&arm_expr)}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arm_expr),
+              `Expected "=>" for match arm, got ${ast_expr_to_string(&arm_expr)}`
+            )
           )
         )
       );
@@ -1613,9 +1631,11 @@ evaluate_match :: (
     if(ast_expr_is_capture_list_params(&pattern_ast), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&pattern_ast),
-            `A match arm's pattern cannot be \`${ast_expr_to_string(&pattern_ast)}\`: \`{ … }(params) => body\` is a closure with a capture list, accepted only where a closure is expected. A record pattern is \`{ x, y } => body\`; to match on a closure's result, call it in the scrutinee.`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&pattern_ast),
+              `A match arm's pattern cannot be \`${ast_expr_to_string(&pattern_ast)}\`: \`{ … }(params) => body\` is a closure with a capture list, accepted only where a closure is expected. A record pattern is \`{ x, y } => body\`; to match on a closure's result, call it in the scrutinee.`
+            )
           )
         )
       );
@@ -2016,9 +2036,11 @@ evaluate_match :: (
             if(!(are_types_compatible(&gi.ty(), t_bool())), {
               exn.throw(
                 dyn(
-                  format_error_message(
-                    ast_expr_token(&g),
-                    `Match guard must be bool, got ${type_to_string(&gi.ty())}`
+                  Box.new(
+                    format_error_message(
+                      ast_expr_token(&g),
+                      `Match guard must be bool, got ${type_to_string(&gi.ty())}`
+                    )
                   )
                 )
               );
@@ -2036,9 +2058,11 @@ evaluate_match :: (
           .None => {
             exn.throw(
               dyn(
-                format_error_message(
-                  ast_expr_token(&g),
-                  `Failed to evaluate the match guard: ${ast_expr_to_string(&g)}`
+                Box.new(
+                  format_error_message(
+                    ast_expr_token(&g),
+                    `Failed to evaluate the match guard: ${ast_expr_to_string(&g)}`
+                  )
                 )
               )
             );
@@ -2258,9 +2282,11 @@ evaluate_match :: (
       if(body_info_opt.is_none(), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&body_ast),
-              `Expected type for match result expression, got ${ast_expr_to_string(&body_ast)}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&body_ast),
+                `Expected type for match result expression, got ${ast_expr_to_string(&body_ast)}`
+              )
             )
           )
         );
@@ -2319,9 +2345,11 @@ evaluate_match :: (
             if(!(are_types_compatible(&body_info.ty(), &et.ty)), {
               exn.throw(
                 dyn(
-                  format_error_message(
-                    ast_expr_token(&evaluated_body),
-                    `Incompatible type with expected type:\n- Expected: ${type_to_string(&et.ty)}\n- Actual  : ${type_to_string(&body_info.ty())}`
+                  Box.new(
+                    format_error_message(
+                      ast_expr_token(&evaluated_body),
+                      `Incompatible type with expected type:\n- Expected: ${type_to_string(&et.ty)}\n- Actual  : ${type_to_string(&body_info.ty())}`
+                    )
                   )
                 )
               );
@@ -2380,13 +2408,15 @@ evaluate_match :: (
                 if(!(are_types_compatible(&body_info.ty(), &refined)), {
                   exn.throw(
                     dyn(
-                      mark_generic_independent(
-                        format_error_message(
-                          ast_expr_token(&evaluated_body),
-                          `GADT type mismatch in branch "${pattern_to_string(&arm.pattern)}":\n- Expected: ${type_to_string(&refined)}\n- Actual  : ${type_to_string(&body_info.ty())}`
-                        ),
-                        &refined,
-                        &body_info.ty()
+                      Box.new(
+                        mark_generic_independent(
+                          format_error_message(
+                            ast_expr_token(&evaluated_body),
+                            `GADT type mismatch in branch "${pattern_to_string(&arm.pattern)}":\n- Expected: ${type_to_string(&refined)}\n- Actual  : ${type_to_string(&body_info.ty())}`
+                          ),
+                          &refined,
+                          &body_info.ty()
+                        )
                       )
                     )
                   );
@@ -2416,9 +2446,11 @@ evaluate_match :: (
                 }, {
                   exn.throw(
                     dyn(
-                      format_error_message(
-                        ast_expr_token(&evaluated_body),
-                        `Incompatible types in match branches:\n- Previous: ${type_to_string(&rt)}\n- Current : ${type_to_string(&body_info.ty())}`
+                      Box.new(
+                        format_error_message(
+                          ast_expr_token(&evaluated_body),
+                          `Incompatible types in match branches:\n- Previous: ${type_to_string(&rt)}\n- Current : ${type_to_string(&body_info.ty())}`
+                        )
                       )
                     )
                   );
@@ -2581,7 +2613,7 @@ evaluate_match :: (
         ),
         .None => Option(String).Some(String.from(_GUARD_HELP))
       );
-      exn.throw(dyn(format_error_message_with_help(ast_expr_token(expr), &msg, &guard_help)));
+      exn.throw(dyn(Box.new(format_error_message_with_help(ast_expr_token(expr), &msg, &guard_help))));
       return(expr.*);
     },
     .None => ()
@@ -2604,9 +2636,11 @@ evaluate_match :: (
       .MatchesNothing(part, _) => {
         exn.throw(
           dyn(
-            format_error_message(
-              &ua_tok,
-              `Unreachable match arm: ${pattern_to_string(&part)} — no value of type ${type_to_string(&matched_type)} matches it`
+            Box.new(
+              format_error_message(
+                &ua_tok,
+                `Unreachable match arm: ${pattern_to_string(&part)} — no value of type ${type_to_string(&matched_type)} matches it`
+              )
             )
           )
         );
@@ -2616,9 +2650,11 @@ evaluate_match :: (
         by := cond(whole => "an earlier arm", true => "an earlier arm or an earlier alternative of its or-pattern");
         exn.throw(
           dyn(
-            format_error_message(
-              &ua_tok,
-              `Unreachable match arm: ${pattern_to_string(&part)} — every value it matches is already matched by ${by}`
+            Box.new(
+              format_error_message(
+                &ua_tok,
+                `Unreachable match arm: ${pattern_to_string(&part)} — every value it matches is already matched by ${by}`
+              )
             )
           )
         );
@@ -2654,9 +2690,11 @@ evaluate_match :: (
     if(has_case_without_cf_em && result_type_em.is_none(), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            `Failed to determine the type of value from the match.`
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              `Failed to determine the type of value from the match.`
+            )
           )
         )
       );
@@ -2831,9 +2869,11 @@ evaluate_match :: (
     if(control_flows_em.len() == usize(0), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            `No control flows found but expected some.`
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              `No control flows found but expected some.`
+            )
           )
         )
       );
@@ -2844,9 +2884,11 @@ evaluate_match :: (
         if(ctx.is_evaluating_function_body_or_async_block.is_none(), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(expr),
-                `All cases in match are returning from function, but not evaluating in function body.`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(expr),
+                  `All cases in match are returning from function, but not evaluating in function body.`
+                )
               )
             )
           );
@@ -2905,9 +2947,11 @@ evaluate_match :: (
           .None => {
             exn.throw(
               dyn(
-                format_error_message(
-                  ast_expr_token(expr),
-                  `Failed to determine the return type for match statement.`
+                Box.new(
+                  format_error_message(
+                    ast_expr_token(expr),
+                    `Failed to determine the return type for match statement.`
+                  )
                 )
               )
             );
@@ -2949,9 +2993,11 @@ evaluate_match :: (
         if(ctx.enclosing_function_return_type.is_none(), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(expr),
-                `All cases in match use "unwind", but not inside a function with an enclosing function.`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(expr),
+                  `All cases in match use "unwind", but not inside a function with an enclosing function.`
+                )
               )
             )
           );
@@ -2969,9 +3015,11 @@ evaluate_match :: (
         if(ctx.is_evaluating_loop_body.is_none(), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(expr),
-                `All cases in match are breaking from loop, but not inside a loop.`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(expr),
+                  `All cases in match are breaking from loop, but not inside a loop.`
+                )
               )
             )
           );
@@ -2989,9 +3037,11 @@ evaluate_match :: (
         if(ctx.is_evaluating_loop_body.is_none(), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(expr),
-                `All cases in match are continuing loop, but not inside a loop.`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(expr),
+                  `All cases in match are continuing loop, but not inside a loop.`
+                )
               )
             )
           );

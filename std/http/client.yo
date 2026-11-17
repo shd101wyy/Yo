@@ -545,7 +545,7 @@ _prepare :: (fn(url_str : &String, opts : &FetchOptions, keep_alive : bool, exn 
     url.host().clone(),
     .Some(h) => h,
     .None => {
-      exn.throw(dyn(HttpError.InvalidUrl(`missing host`)));
+      exn.throw(dyn(Box.new(HttpError.InvalidUrl(`missing host`))));
       `_` // unreachable
     }
   );
@@ -628,7 +628,7 @@ _connect :: (fn(prep : &_Prepared, io : Io) -> Impl(Future(_Transport, IoExn)))(
         addrs := e.io.await(lookup_host(&prep_owned.host, e.io), e);
         cond(
           (addrs.len() == usize(0)) => {
-            e.exn.throw(dyn(HttpError.ConnectionFailed(`DNS resolution failed for ${prep_owned.host}`)));
+            e.exn.throw(dyn(Box.new(HttpError.ConnectionFailed(`DNS resolution failed for ${prep_owned.host}`))));
           },
           true => ()
         );
@@ -767,7 +767,7 @@ _fetch_once :: (
           conn.close_sync();
           e.exn.throw(
             dyn(
-              HttpError.ConnectionFailed(`the server closed the connection without sending a response`)
+              Box.new(HttpError.ConnectionFailed(`the server closed the connection without sending a response`))
             )
           );
         },
@@ -997,7 +997,7 @@ _fetch_deadline :: (
             e.exn.throw(dyn(Box.new(HttpError.Timeout)));
           },
           .Aborted => {
-            e.exn.throw(dyn(HttpError.Other(`request task was aborted`)));
+            e.exn.throw(dyn(Box.new(HttpError.Other(`request task was aborted`))));
           }
         );
       }

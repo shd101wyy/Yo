@@ -57,9 +57,11 @@ evaluate_panic :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            String.from("__yo_panic() can only be called inside a function body or test block")
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              String.from("__yo_panic() can only be called inside a function body or test block")
+            )
           )
         )
       );
@@ -70,9 +72,11 @@ evaluate_panic :: (
   if(ctx.is_analyzing_ctfe_capability, {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          String.from("Cannot use \"__yo_panic\" during compile-time function evaluation analysis. Functions containing \"__yo_panic\" cannot be evaluated at compile time.")
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            String.from("Cannot use \"__yo_panic\" during compile-time function evaluation analysis. Functions containing \"__yo_panic\" cannot be evaluated at compile time.")
+          )
         )
       )
     );
@@ -116,9 +120,11 @@ evaluate_panic :: (
       .None => {
         exn.throw(
           dyn(
-            format_eval_failure(
-              ast_expr_token(&msg_expr),
-              String.from("Failed to evaluate panic message")
+            Box.new(
+              format_eval_failure(
+                ast_expr_token(&msg_expr),
+                String.from("Failed to evaluate panic message")
+              )
             )
           )
         );
@@ -164,9 +170,11 @@ evaluate_panic :: (
         if(!is_str && !is_comptime_str && !is_ptr_to_u8, {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&msg_expr),
-                String.from("__yo_panic message must be comptime_str, str, or *(u8)")
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&msg_expr),
+                  String.from("__yo_panic message must be comptime_str, str, or *(u8)")
+                )
               )
             )
           );
@@ -196,7 +204,7 @@ evaluate_panic :: (
       .Some(m) => `compile-time panic: ${m}`,
       .None => String.from("compile-time panic")
     );
-    exn.throw(dyn(format_error_message(ast_expr_token(expr), &panic_text)));
+    exn.throw(dyn(Box.new(format_error_message(ast_expr_token(expr), &panic_text))));
   });
   info := new_expr_info(&cur_env, &return_ty);
   // panic never returns a value — leave info.value as .None

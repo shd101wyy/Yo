@@ -23,8 +23,8 @@ Both are derived for structs, enums, unions, tuples and arrays:
 | ------------------------------------------------------------- | ------------------------- | ------------------------- |
 | a primitive (`i32`, `bool`, `f64`, `str`, …)                  | yes                       | yes                       |
 | a struct, enum, union, tuple or array                         | iff every field is `Send` | iff every field is `Sync` |
-| a non-atomic cell (`Rc(T)`, any `ref(struct(...))`)                       | no                        | no                        |
-| an atomic object (`Arc(T)`, `atomic(ref(struct(...)))`)       | iff every field is `Sync` | iff every field is `Sync` |
+| a non-atomic cell (`Rc(T)`)                                   | no                        | no                        |
+| an atomic object (`Arc(T)`, `Mutex(T)`, the `Atomic*` types)  | iff every field is `Sync` | iff every field is `Sync` |
 | a raw pointer `*(T)`                                          | no                        | no                        |
 | `Dyn(Trait)`                                                  | only as `Dyn(Trait, Send)`| only as `Dyn(Trait, Sync)`|
 | a closure                                                     | see below                 | see below                 |
@@ -34,7 +34,7 @@ Both are derived for structs, enums, unions, tuples and arrays:
 Point :: struct(x : i32, y : i32);
 
 // A non-atomic cell is neither — its count is not atomic
-MyObj :: ref(struct(data : Vec(i32)));
+Shared :: Rc(String);
 
 // A raw pointer is neither: nothing says who owns the pointee
 Raw :: struct(p : ?*u8);
@@ -50,18 +50,13 @@ only for `Send`: `Mutex(T)` and `Channel(T)` need `T <: Send`. So a type that is
 but opts out of `Sync` with `impl(T, !(Sync()))` can go in a `Mutex` or through a `Channel`, but
 not in an `Arc`.
 
-`String`, `ArrayList(T)`, `HashMap(K, V)` and `HashSet(T)` own their buffers uniquely: they are
-values, so moving one hands over its only owner. `String` is `Send` and `Sync`; `ArrayList(T)` and
-`HashSet(T)` are `Send` (`Sync`) when `T` is, and `HashMap(K, V)` when `K` and `V` are.
-A `String` or an `ArrayList(String)` moves into a `Thread(...).spawn` body, comes back through
-`join()`, and travels through a `Channel(String)`; using it on the sending side after the move is
-E0901. The other collections (`Deque`, `BTreeMap`, ...) are still shared, non-atomically
-counted cells until their own flips, so they do not cross a thread yet: share data that is `Send`
-and `Sync` through an `Arc`, rebuild the value on the receiving thread from `Send` parts, or
-serialize it. An `Rc` graph stays on its thread (Rust's
-rule); `Rc.try_unwrap` takes the value out of a uniquely held `Rc`, and that value moves when it
-is `Send`. The one-shot isolated handoff that used to cover this case was removed in v0.2.68
-(`plans/backlog/MACRO_AND_ISO_REMOVAL.md`).
+`String`, `ArrayList(T)`, `HashMap(K, V)`, `HashSet(T)`, `Deque(T)` and `BTreeMap(K, V)` own their
+buffers uniquely: they are values, so moving one hands over its only owner. `String` is `Send` and
+`Sync`; a collection is `Send` (`Sync`) when its elements are. A `String` or an `ArrayList(String)`
+moves into a `Thread(...).spawn` body, comes back through `join()`, and travels through a
+`Channel(String)`; using it on the sending side after the move is E0901. An `Rc` graph stays on
+its thread (Rust's rule); `Rc.try_unwrap` takes the value out of a uniquely held `Rc`, and that
+value moves when it is `Send`.
 
 ### Manual Send and Sync Impls Require Pragma
 
@@ -70,13 +65,13 @@ and a `// SAFETY:` comment explaining why the type is safe to move or share acro
 is how a type holding a raw pointer opts in (std's `Channel`, `Waker`), and it keeps
 every such claim auditable.
 
-## Atomic Objects vs Regular Objects
+## Atomic Objects vs Regular Cells
 
-|                          | `ref(struct(...))`           | `atomic(ref(struct(...)))`              |
+|                          | A non-atomic cell            | An atomic object                        |
 | ------------------------ | ---------------------------- | --------------------------------------- |
 | **Reference counting**   | Non-atomic RC (thread-local) | Atomic RC (thread-safe)                 |
 | **Cross-thread sharing** | Not allowed (not Send)       | Allowed (Send and Sync when all fields are Sync) |
-| **Example**              | `Rc(T)`, a user `ref(struct)` | `Arc(T)`, `Mutex(T)`, `Channel(T)`      |
+| **Example**              | `Rc(T)`                      | `Arc(T)`, `Mutex(T)`, `Channel(T)`      |
 
 ```yo
 // Regular object — thread-local only
@@ -140,7 +135,7 @@ wrapping on overflow, exactly like C11 `atomic_fetch_*`. `AtomicBool` has none
 of them: it is not an integer atomic.
 
 Every method takes `self : Self`, the same receiver convention the rest of
-`std/sync` uses for `atomic(ref(...))` types; only `compare_exchange`'s
+`std/sync` uses for its atomic types; only `compare_exchange`'s
 `expected` is `&mut`, because a failing exchange writes the observed value
 back into it. Every operation takes an explicit `MemoryOrder`:
 
@@ -248,7 +243,7 @@ local first). The [error reference](ERROR_DIAGNOSTICS.md) has the details. In sa
   `spawn_blocking` callback — anything bound to `Impl(FnOnce(...), Send)`, `Impl(Fn(...), Send)` or `Impl(Fn(...), Sync)`)
   may not reach a global whose type is not `Sync`, directly or through any function it calls. A
   global is shared by every thread, so sharing is the question. A non-atomic
-  reference-counted global (an `Rc`, any `ref(struct)`) stays legal for the main
+  reference-counted global (an `Rc`) stays legal for the main
   thread, but reading a field through such a handle updates a reference count, so no other
   thread may touch it;
 - a `Sync` value global (a scalar or a struct with no reference inside) that is WRITTEN
@@ -350,10 +345,12 @@ Fields whose names start with `_` are private to the **file and directory** that
 
 ```yo
 // In std/sync/mutex.yo:
-Mutex :: atomic(ref(struct(_handle : __YO_THREAD_SYNC_TYPE, _value : T)));
+Mutex :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
+  struct(_cell : __yo_atomic_cell(_MutexState(T)))
+);
 ```
 
-User code **cannot** access `mutex._value` or `mutex._handle` — the compiler rejects cross-directory `_`-prefixed field access. This closes the synchronized-interior read hole (reading `mutex._value` without acquiring the lock).
+User code **cannot** access `mutex._cell`, and so cannot reach the `_value` and `_handle` inside it — the compiler rejects cross-directory `_`-prefixed field access. This closes the synchronized-interior read hole (reading `mutex._value` without acquiring the lock).
 
 Same-directory access is allowed — `std/sync/` files access each other's `_`-prefixed internals.
 

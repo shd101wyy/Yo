@@ -181,9 +181,11 @@ evaluate_test :: (
   if(!ast_expr_is_fn_call_of(expr, BK_TEST, .None), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected test, got ${ast_expr_to_string(expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected test, got ${ast_expr_to_string(expr)}`
+          )
         )
       )
     );
@@ -197,9 +199,11 @@ evaluate_test :: (
   if(arg_count != usize(2), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `test expects 2 arguments (name, body), got ${arg_count}. Io is implicitly available via "io" — no using clause needed.`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `test expects 2 arguments (name, body), got ${arg_count}. Io is implicitly available via "io" — no using clause needed.`
+          )
         )
       )
     );
@@ -220,9 +224,11 @@ evaluate_test :: (
   if(!name_info_opt.is_some(), {
     exn.throw(
       dyn(
-        format_eval_failure(
-          ast_expr_token(&test_name_expr),
-          `Failed to evaluate test name: ${ast_expr_to_string(&test_name_expr)}`
+        Box.new(
+          format_eval_failure(
+            ast_expr_token(&test_name_expr),
+            `Failed to evaluate test name: ${ast_expr_to_string(&test_name_expr)}`
+          )
         )
       )
     );
@@ -239,9 +245,11 @@ evaluate_test :: (
   if(!name_is_str_lit, {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&test_name_expr),
-          `Expected string for test name, got ${ast_expr_to_string(&test_name_expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&test_name_expr),
+            `Expected string for test name, got ${ast_expr_to_string(&test_name_expr)}`
+          )
         )
       )
     );
@@ -253,9 +261,11 @@ evaluate_test :: (
   if(n_io == usize(0), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          String.from("Io module not found in environment. Is the prelude loaded?")
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            String.from("Io module not found in environment. Is the prelude loaded?")
+          )
         )
       )
     );
@@ -266,9 +276,11 @@ evaluate_test :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            String.from("Io module not found in environment.")
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              String.from("Io module not found in environment.")
+            )
           )
         )
       );
