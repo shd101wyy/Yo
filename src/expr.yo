@@ -501,12 +501,13 @@ ExprId :: usize;
 /// once `ArrayList` is a value (B8). Build a call with
 /// `AstExpr.FnCall(id, func, Rc.new(list), is_infix, token)`; an arm reads the
 /// list through the wrapper pattern, `.FnCall(_, _, Rc(args), _, _)`.
-AstExpr :: ref(
-  enum(
-    Atom(id : ExprId, token : Token),
-    FnCall(id : ExprId, func : Self, args : Rc(ArrayList(Self)), is_infix : bool, token : Token)
-  )
+AstExprNode :: enum(
+  Atom(id : ExprId, token : Token),
+  FnCall(id : ExprId, func : Rc(Self), args : Rc(ArrayList(Rc(Self))), is_infix : bool, token : Token)
 );
+/// A shared, read-only handle to an `AstExprNode` (plans/VALUES_BY_DEFAULT.md
+/// V5 part B, batch 3d): a copy is `Rc.clone(e)`, one count bump.
+AstExpr :: Rc(AstExprNode);
 // An AstExpr tree has no back edges. Nothing in src/ writes a payload
 // of a built node: the language admits a variant-field write (`e.func = e`
 // closes a cycle), and an audit of src/ (2026-10-21) found no `.func =` or
@@ -518,28 +519,6 @@ AstExpr :: ref(
 // body's statement list with a subset of its own elements, which cannot
 // close a cycle. So no node reaches itself (plans/VALUES_BY_DEFAULT.md
 // decision 21's trees).
-// SHARE-on-recursion Clone (replaces `derive(AstExpr, Clone)`). `AstExpr` is now
-// a `ref(enum)`, so its `func` (a `Self` handle) and `args` (an
-// `Rc(ArrayList(Self))`) fields are RC handles — cloning SHARES them (an RC bump;
-// `Rc.clone` for the list, decision 17) rather than deep-copying.
-// This is O(1), preserves node ids (matching the derived clone's id-keeping
-// semantics that the ExprInfo table relies on), and avoids the def-time
-// body-eval infinite recursion a deep clone hits on a shell-less recursive
-// ref-enum (`ArrayList(Self).clone` → `elem.clone` → here). Same rationale as the
-// manual `TypeValue` clone in `types/definitions.yo`. Use `clone_expr_fresh_ids`
-// (below) when fresh ids are needed.
-impl(
-  AstExpr,
-  Clone(
-    clone : (fn(self : &Self) -> Self)(
-      match(
-        self,
-        .Atom(aid, atok) => AstExpr.Atom(aid.*, atok.clone()),
-        .FnCall(fid, ffunc, fargs, finfix, ftok) => AstExpr.FnCall(fid.*, ffunc.*, Rc.clone(fargs), finfix.*, ftok.clone())
-      )
-    )
-  )
-);
 /// Global expression-id counter — moved here from parser.yo so SYNTHESIZED
 /// nodes (gensym, quote expansions, fresh-id clones below) can mint ids
 /// from the SAME sequence as parsed nodes. The ExprInfo table is keyed by
@@ -921,7 +900,7 @@ ast_expr_to_string :: (fn(e : &AstExpr) -> String)(
     }
   )
 );
-export(AstExpr, ExprId, BK_TUPLE, BK_TUPLE_TYPE, BK_ARRAY, BK_SLICE, BK_ARRAY_VAL, BK_BEGIN, BK_IMPORT, BK_ANON_STRUCT, BK_EXPORT);
+export(AstExpr, AstExprNode, ExprId, BK_TUPLE, BK_TUPLE_TYPE, BK_ARRAY, BK_SLICE, BK_ARRAY_VAL, BK_BEGIN, BK_IMPORT, BK_ANON_STRUCT, BK_EXPORT);
 export(BF_RUNTIME, BF_UNWIND, BF_RECUR, BF_DOT);
 export(BF_SIZE_OF, BF_ALIGN_OF, BF_SIZE_OF_VAL, BF_ALIGN_OF_VAL, BF_UNSIZE, BF_SLICE_LEN, BF_SLICE_PTR, BF_SLICE_FROM_RAW_PARTS, BF_TYPE_OF, BF_TYPE_ID, BF_ADDR_OF, BK_MUT, BK_IMM, BK_BORROW_MUT);
 export(BK_COMPTIME, BK_GIVEN, BK_GENERIC, BK_COLON, BK_ASSIGN, BK_INIT_ASSIGN, BK_CONST, BK_COND, BK_MATCH, BK_THREAD_LOCAL);
