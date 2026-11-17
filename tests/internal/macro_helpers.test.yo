@@ -8,7 +8,7 @@ pragma(Pragma.AllowUnsafe);
 import("std/fmt");
 { Exception } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
-{ Token, TokenKind } :: import("../../src/token.yo");
+{ Token, TokenKind, TokenData } :: import("../../src/token.yo");
 { EvalValue } :: import("../../src/value.yo");
 { has_comment_attribute, Evaluator } :: import("../../src/evaluator/index.yo");
 { assert, panic } :: import("std/assert");
@@ -233,16 +233,18 @@ test("macro helpers: a gensym'd token shares its source token's input", {
     )
   );
   source := Rc.new(String.from("gensym()\n// the rest of the module's source text\n"));
-  tok := Token(
-    kind : TokenKind.Identifier,
-    value : Rc.new(String.from("gensym")),
-    row : u32(0),
-    column : u32(0),
-    character : u32(0),
-    module_path : Rc.new(String.from("gensym_share_test.yo")),
-    input : Rc.clone(source)
+  tok := Rc.new(
+    TokenData(
+      kind : TokenKind.Identifier,
+      value : Rc.new(String.from("gensym")),
+      row : u32(0),
+      column : u32(0),
+      character : u32(0),
+      module_path : Rc.new(String.from("gensym_share_test.yo")),
+      input : Rc.clone(source)
+    )
   );
-  call := AstExpr.FnCall(usize(900001), AstExpr.Atom(usize(900002), tok), Rc.new(ArrayList(AstExpr).new()), false, tok);
+  call := AstExpr.FnCall(usize(900001), AstExpr.Atom(usize(900002), Rc.clone(tok)), Rc.new(ArrayList(AstExpr).new()), false, Rc.clone(tok));
   env := new_environment(Rc.new(String.from("gensym_share_test.yo")));
   mut(ctx) := eval_context_new(String.from(""), String.from("gensym_share_test.yo"));
   _r := evaluate_gensym(&call, &env, &mut ctx, exn);

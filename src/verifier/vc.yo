@@ -1974,7 +1974,7 @@ _expr_term :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))({
     match(
       ast_rewritten_node(e),
       .Atom(rd_id, rd_tok) => {
-        return(_expr_term(ctx, &AstExpr.Atom(rd_id, rd_tok)));
+        return(_expr_term(ctx, &AstExpr.Atom(rd_id, Rc.clone(rd_tok))));
       },
       _ => ()
     );
@@ -4353,7 +4353,7 @@ _args_through_deref :: (fn(args : &ArrayList(AstExpr)) -> ArrayList(AstExpr))({
           .FnCall(m_id, m_f, Rc(m_args), m_infix, m_tok) => {
             m_out := ArrayList(AstExpr).new();
             m_out.push(_deref_as_name(&m_args.get(usize(0)).unwrap()));
-            AstExpr.FnCall(m_id, m_f, Rc.new(m_out), m_infix, m_tok)
+            AstExpr.FnCall(m_id, m_f, Rc.new(m_out), m_infix, Rc.clone(m_tok))
           },
           _ => a
         ),
@@ -4370,7 +4370,7 @@ _deref_as_name :: (fn(a : &AstExpr) -> AstExpr)(
   cond(
     ast_expr_is_fn_call_of(a, ".", .Some(usize(2))) => match(
       ast_rewritten_node(a),
-      .Atom(rd_id, rd_tok) => AstExpr.Atom(rd_id, rd_tok),
+      .Atom(rd_id, rd_tok) => AstExpr.Atom(rd_id, Rc.clone(rd_tok)),
       _ => a.clone()
     ),
     true => a.clone()

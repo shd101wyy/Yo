@@ -3,7 +3,7 @@
 { String } :: import("std/string");
 { assert, panic } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
-{ TokenKind, Token } :: import("../../src/token.yo");
+{ TokenKind, Token, TokenData } :: import("../../src/token.yo");
 {
   EvalContext,
   eval_context_new,
@@ -30,14 +30,16 @@
 { AstExpr } :: import("../../src/expr.yo");
 { HashMap } :: import("std/collections/hash_map");
 make_token :: (fn(value : str) -> Token)(
-  Token(
-    kind : TokenKind.Identifier,
-    value : Rc.new(String.from(value)),
-    row : u32(0),
-    column : u32(0),
-    character : u32(0),
-    module_path : Rc.new(String.from("")),
-    input : Rc.new(String.from(""))
+  Rc.new(
+    TokenData(
+      kind : TokenKind.Identifier,
+      value : Rc.new(String.from(value)),
+      row : u32(0),
+      column : u32(0),
+      character : u32(0),
+      module_path : Rc.new(String.from("")),
+      input : Rc.new(String.from(""))
+    )
   )
 );
 test("eval_context_new: default fields", {
@@ -129,7 +131,7 @@ test("track_variable_usage: with function body context but var not in env → no
     &ctx.captured_variables,
     .None => assert(false, "map should still exist"),
     .Some(map) => match(
-      map.get(String.from("notfound")),
+      map.get_cloned(String.from("notfound")),
       .None => (),
       // correct: variable not tracked
       .Some(_) => assert(false, "should not have tracked variable")
@@ -158,7 +160,7 @@ test("track_variable_usage: a parameter shadowing an outer name is not a capture
   match(
     &ctx.captured_variables,
     .None => (),
-    .Some(map) => assert(map.get(String.from("io")).is_none(), "the parameter is not a capture")
+    .Some(map) => assert(map.get_cloned(String.from("io")).is_none(), "the parameter is not a capture")
   );
 });
 test("CallResultKind variants can be constructed", {

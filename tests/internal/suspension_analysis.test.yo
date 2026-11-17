@@ -5,7 +5,7 @@
 { RefCell } :: import("std/sync/refcell");
 { SuspensionPoint, SuspensionAnalysisResult } :: import("../../src/evaluator/shared/suspension_analysis_types.yo");
 { AstExpr, ast_expr_is_fn_call_of } :: import("../../src/expr.yo");
-{ TokenKind, Token } :: import("../../src/token.yo");
+{ TokenKind, Token, TokenData } :: import("../../src/token.yo");
 { ExprInfo, new_expr_info } :: import("../../src/expr_info.yo");
 { Environment } :: import("../../src/env.yo");
 { TypeValue } :: import("../../src/types/definitions.yo");
@@ -20,14 +20,16 @@
 // Test helpers
 // ---------------------------------------------------------------------------
 make_token :: (fn(kind : TokenKind, v : str) -> Token)(
-  Token(
-    kind : kind,
-    value : Rc.new(String.from(v)),
-    row : u32(0),
-    column : u32(0),
-    character : u32(0),
-    module_path : Rc.new(String.from("")),
-    input : Rc.new(String.from(""))
+  Rc.new(
+    TokenData(
+      kind : kind,
+      value : Rc.new(String.from(v)),
+      row : u32(0),
+      column : u32(0),
+      character : u32(0),
+      module_path : Rc.new(String.from("")),
+      input : Rc.new(String.from(""))
+    )
   )
 );
 make_ident_expr :: (fn(v : str) -> AstExpr)(

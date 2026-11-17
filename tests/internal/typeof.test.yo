@@ -5,7 +5,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
-{ Token, TokenKind } :: import("../../src/token.yo");
+{ Token, TokenKind, TokenData } :: import("../../src/token.yo");
 { AstExpr, ast_expr_id, BF_TYPE_OF } :: import("../../src/expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set }
 :: import("../../src/expr_info.yo");
@@ -22,14 +22,16 @@ import("std/fmt");
 { assert, panic } :: import("std/assert");
 // Helper: build a token with the given identifier value.
 mk_token :: (fn(value : str) -> Token)(
-  Token(
-    kind : TokenKind.Identifier,
-    value : Rc.new(String.from(value)),
-    row : u32(0),
-    column : u32(0),
-    character : u32(0),
-    module_path : Rc.new(String.from("test")),
-    input : Rc.new(String.from(""))
+  Rc.new(
+    TokenData(
+      kind : TokenKind.Identifier,
+      value : Rc.new(String.from(value)),
+      row : u32(0),
+      column : u32(0),
+      character : u32(0),
+      module_path : Rc.new(String.from("test")),
+      input : Rc.new(String.from(""))
+    )
   )
 );
 // Helper: build a typeof(arg_atom) FnCall expression with stable ids.
@@ -78,7 +80,7 @@ test("evaluate_typeof: writes TypeVal(i32) into the side table for typeof(x)", {
   assert(match(&info_opt, .Some(_) => true, .None => false), "typeof did not record an ExprInfo");
   info := match(
     info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => new_expr_info(&env, t_i32())
   );
   // value should be Some(TypeVal(i32))

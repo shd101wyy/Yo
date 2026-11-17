@@ -50,7 +50,7 @@ pragma(Pragma.AllowUnsafe);
 { parse_raw_float } :: import("../utils.yo");
 { evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
-{ Token, TokenKind, intern_token_str } :: import("../../token.yo");
+{ Token, TokenKind, intern_token_str, TokenData } :: import("../../token.yo");
 { Exception } :: import("std/error");
 /// Return the numeric bounds `[min, max]` for `type_val`, or `.None` if the type
 /// has no fixed bounds (floats, ComptimeInt, non-numeric types).
@@ -181,21 +181,23 @@ _make_yo_as_node :: (
 )({
   func_atom := AstExpr.Atom(
     orig_id,
-    Token(
-      kind : TokenKind.Identifier,
-      value : intern_token_str(String.from(BF_YO_AS)),
-      row : orig_tok.row,
-      column : orig_tok.column,
-      character : orig_tok.character,
-      byte_offset : orig_tok.byte_offset,
-      module_path : Rc.clone(orig_tok.module_path),
-      input : Rc.clone(orig_tok.input)
+    Rc.new(
+      TokenData(
+        kind : TokenKind.Identifier,
+        value : intern_token_str(String.from(BF_YO_AS)),
+        row : orig_tok.row,
+        column : orig_tok.column,
+        character : orig_tok.character,
+        byte_offset : orig_tok.byte_offset,
+        module_path : Rc.clone(orig_tok.module_path),
+        input : Rc.clone(orig_tok.input)
+      )
     )
   );
   mut(args) := ArrayList(AstExpr).new();
   args.push(evaluated.*);
   args.push(type_expr.*);
-  AstExpr.FnCall(orig_id, func_atom, Rc.new(args), false, orig_tok.*)
+  AstExpr.FnCall(orig_id, func_atom, Rc.new(args), false, Rc.clone(orig_tok.*))
 });
 /// Attempt to cast `arg_expr` to `target_type` as a numeric conversion.
 /// Returns `.None` if `target_type` is not a convertible numeric type.

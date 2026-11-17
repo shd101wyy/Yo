@@ -59,7 +59,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr_info.yo");
 { expr_info_set_origin, OriginRootPlace } :: import("../../expr_info.yo");
 { Environment, Variable, pop_env_frame, snapshot_env, env_adopt, variable_set_is_ref, variable_set_is_imm_borrow, variable_set_is_borrow_match_binding, variable_set_reference_mut } :: import("../../env.yo");
-{ Token, TokenKind, intern_token_str } :: import("../../token.yo");
+{ Token, TokenKind, intern_token_str, TokenData } :: import("../../token.yo");
 { add_variable_to_env, get_variables_from_env, find_variable_in_env, variable_set_inout_borrow_root_id, variable_mark_inout_borrow_root, mark_macro_pattern_binding } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, fn_ctx_returns_comptime, call_is_index_place } :: import("../context.yo");
 {
@@ -519,9 +519,9 @@ _throw_mut_match_copy :: (fn(b_atom : &AstExpr, ty : &TypeValue, ctx : &EvalCont
 _leftmost_token :: (fn(e : &AstExpr) -> Token)(
   match(
     e,
-    .Atom(_, t) => t.*,
+    .Atom(_, t) => Rc.clone(t.*),
     .FnCall(_, callee, Rc(args), is_infix, tok) => cond(
-      is_infix.* => match(args.get(usize(0)), .Some(a0) => recur(&a0), .None => tok.*),
+      is_infix.* => match(args.get(usize(0)), .Some(a0) => recur(&a0), .None => Rc.clone(tok.*)),
       true => recur(&callee.*)
     )
   )
@@ -723,10 +723,10 @@ _ArmOwnership :: struct(
   is_mut : bool
 );
 _ownership_hidden_bind :: (fn(own : &mut _ArmOwnership, ty : &TypeValue, env : &Environment) -> BindInfo)({
-  tok := own.tok;
+  tok := Rc.clone(own.tok);
   name := generate_new_temp_variable_name(&env.module_path().*, usize(tok.row), usize(tok.column), Option(String).Some(`mv${own.counter.to_string()}`), Option(String).Some(tok.module_path.*.clone()));
   own.counter = (own.counter + usize(1));
-  atok := Token(kind : TokenKind.Identifier, value : Rc.new(name.clone()), row : tok.row, column : tok.column, character : tok.character, byte_offset : tok.byte_offset, module_path : Rc.clone(tok.module_path), input : Rc.clone(tok.input));
+  atok := Rc.new(TokenData(kind : TokenKind.Identifier, value : Rc.new(name.clone()), row : tok.row, column : tok.column, character : tok.character, byte_offset : tok.byte_offset, module_path : Rc.clone(tok.module_path), input : Rc.clone(tok.input)));
   BindInfo(name : name, ty : Rc.clone(ty), value : Option(EvalValue).None, atom : AstExpr.Atom(alloc_global_expr_id(), atok))
 });
 _ownership_unbound :: (fn(own : &mut _ArmOwnership, ty : &TypeValue, env : &Environment) -> Pattern)({
@@ -888,7 +888,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
         });
         si = (si + usize(1));
       });
-      Pattern.At(name : name.clone(), token : atok.*, atom : aatom.*, sub : Box.new(new_sub))
+      Pattern.At(name : name.clone(), token : Rc.clone(atok.*), atom : aatom.*, sub : Box.new(new_sub))
     },
     .ThroughBox(box_ty, inner_ty, Box(sub)) => {
       tb := Pattern.ThroughBox(box_ty : Rc.clone(box_ty), inner_ty : Rc.clone(inner_ty), sub : Box.new(recur(&sub.*, &inner_ty.*, true, own, env, exn)));
@@ -1849,7 +1849,7 @@ evaluate_match :: (
         pattern_test_exprs(&arm.pattern, &mut tests);
         if(tests.len() > usize(0), {
           ptok := ast_expr_token(&arm_expr);
-          begin_atom := AstExpr.Atom(alloc_global_expr_id(), Token(kind : TokenKind.Identifier, value : intern_token_str(String.from(BK_BEGIN)), row : ptok.row, column : ptok.column, character : ptok.character, byte_offset : ptok.byte_offset, module_path : Rc.clone(ptok.module_path), input : Rc.clone(ptok.input)));
+          begin_atom := AstExpr.Atom(alloc_global_expr_id(), Rc.new(TokenData(kind : TokenKind.Identifier, value : intern_token_str(String.from(BK_BEGIN)), row : ptok.row, column : ptok.column, character : ptok.character, byte_offset : ptok.byte_offset, module_path : Rc.clone(ptok.module_path), input : Rc.clone(ptok.input))));
           arm_info := new_expr_info(&env, t_unit());
           expr_info_set_macro_expansion(&arm_info, Option(AstExpr).Some(AstExpr.FnCall(alloc_global_expr_id(), begin_atom, Rc.new(tests), false, ptok)));
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&arm_expr), &arm_info);

@@ -11,7 +11,7 @@
   SuspensionCapturedVariable
 } :: import("../../src/evaluator/shared/suspension_analysis_types.yo");
 { AstExpr } :: import("../../src/expr.yo");
-{ TokenKind, Token } :: import("../../src/token.yo");
+{ TokenKind, Token, TokenData } :: import("../../src/token.yo");
 { assert, panic } :: import("std/assert");
 {
   EffectCallPoint,
@@ -21,14 +21,16 @@
   effect_analysis_result_empty
 } :: import("../../src/evaluator/effects/effect_analysis_types.yo");
 make_token :: (fn(v : str) -> Token)(
-  Token(
-    kind : TokenKind.Identifier,
-    value : Rc.new(String.from(v)),
-    row : u32(0),
-    column : u32(0),
-    character : u32(0),
-    module_path : Rc.new(String.from("")),
-    input : Rc.new(String.from(""))
+  Rc.new(
+    TokenData(
+      kind : TokenKind.Identifier,
+      value : Rc.new(String.from(v)),
+      row : u32(0),
+      column : u32(0),
+      character : u32(0),
+      module_path : Rc.new(String.from("")),
+      input : Rc.new(String.from(""))
+    )
   )
 );
 make_sp :: (fn(idx : usize) -> SuspensionPoint)(
