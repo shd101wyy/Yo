@@ -94,11 +94,11 @@ pragma(Pragma.AllowUnsafe);
 { some_t_bounds, FuncMeta, TypeValue, TypeValueNode, t_refine_inner, no_types, no_flags, shared_list, SharedList, fn_param_mut_ref_at, fn_param_by_value_at, slot_pointee_at, t_slot_pointee, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_result_is_ref, fn_result_origin_names, fn_param_slots, fn_param_in_result_origin, t_slot_is_borrow, t_origin_kind, t_origin_named, t_maybe_sized_kind, is_maybe_sized_kind, fn_result_slot, fn_result_composite_origin_names, fn_param_pointee_in_result_origin, t_slot_is_by_value } :: import("../../types/definitions.yo");
 { type_to_string, type_key_epoch } :: import("../../types/string.yo");
 { t_unit, t_type, t_some_t, t_some_t_of_kind, t_usize, register_some_binder_kind, clear_some_binder_kind, generate_some_type_id, enum_phantom_positions } :: import("../../types/creators.yo");
-{ is_some_type, is_function_type, is_expr_type, is_type_hierarchy_type, is_future_trait_type, is_fn_trait_type, cell_handle_view } :: import("../../types/guards.yo");
+{ is_some_type, is_function_type, is_expr_type, is_type_hierarchy_type, is_future_trait_type, is_fn_trait_type, cell_handle_view, is_type_0 } :: import("../../types/guards.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { is_implicitly_unsafe_capable_file, is_prelude_or_generated_file, is_std_module_path } :: import("../memory_safety.yo");
 { Substitution, subst_new, subst_add, subst_add_len_var, subst_set_self, substitute } :: import("../../types/substitution.yo");
-{ get_all_some_types, fn_param_origins_narrower, type_mentions_some_type, is_bound_closure_identity, resolve_cell_chain, is_value_nominal_type, note_move_only_possible, bump_trait_impl_epoch, trait_impl_epoch, fn_param_is_ptr_borrow, type_is_sized, type_carries_origin } :: import("../../types/utils.yo");
+{ get_all_some_types, fn_param_origins_narrower, type_mentions_some_type, is_bound_closure_identity, resolve_cell_chain, is_value_nominal_type, note_move_only_possible, bump_trait_impl_epoch, trait_impl_epoch, fn_param_is_ptr_borrow, type_is_sized, type_carries_origin, is_legacy_value_str, legacy_value_str } :: import("../../types/utils.yo");
 { type_key, _tk_resolve_arg_slot, TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_identity_cacheable, type_key_memo_check_enabled } :: import("../../types/type_key.yo");
 { stable_func_id, debug_knob, display_module_path, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take, parse_raw_int } :: import("../../utils.yo");
 { register_func_type } :: import("../../function_value.yo");
@@ -134,6 +134,7 @@ pragma(Pragma.AllowUnsafe);
   impl_receiver_head_name
 } :: import("../context.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
+{ note_legacy_str_spelling } :: import("../utils.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./anonymous_module.yo");
 { format_error_message, render_any_error, reanchor_primary_at, YoError, with_code, format_error_message_with_help } :: import("../../error.yo");
 { E_WRITE_THROUGH_BORROW, E_ORIGIN_MISMATCH, E_DEREF_IMPL_SIZED_TARGET } :: import("../../diagnostics.yo");
@@ -4661,6 +4662,20 @@ _c3_eval_colon_pair :: (
       // and a recorded snapshot is shared between ExprInfos.
       st.env = expr_info_adopt_env(&fi);
       method_val := match(fi.value(), .Some(v) => v, .None => EvalValue.UnitVal);
+      // The legacy value `str` at an associated type (decision 49,
+      // `unsized_legacy_spellings`): `TryFrom(i32)(Error : str, …)` binds
+      // `Error := &(str, static)`, the sized type the value spelling means,
+      // as `ArrayList(str)` does at a `comptime(V) : Type` binder
+      // (issues/fixed/2026-11-17-a-legacy-str-associated-type-stays-the-unsized-str.md).
+      match(
+        &method_val,
+        .TypeVal(ls_t) => if(is_legacy_value_str(ls_t) && match(&expected_method_ty, .Some(ls_et) => is_type_0(ls_et), .None => false), {
+          note_legacy_str_spelling(&val_expr, false, &ctx.std_path);
+          method_val = EvalValue.TypeVal(legacy_value_str(ls_t));
+          fi.set_value(Option(EvalValue).Some(method_val.clone()));
+        }),
+        _ => ()
+      );
       // Make this field visible to later fields' `Self.X`
       // within the SAME trait entry. Only TYPE-valued fields
       // (associated types like `Output : u8`) — `Self.X` never
