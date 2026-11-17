@@ -46,13 +46,6 @@ pragma(Pragma.AllowUnsafe);
   desugar_program_if_calls,
   note_brace_block
 } :: import("./expr.yo");
-/// `yo fix --migrate record-literal` parses source written before Generation B
-/// of plans/reference/BRACE_BLOCKS.md, where a bare brace group of fields is a
-/// record value: while set, `_brace_pass` does not run.
-(mut(g_brace_legacy_records) : bool) = false;
-set_brace_legacy_records :: (fn(on : bool) -> unit)({
-  g_brace_legacy_records = on;
-});
 /// Result of parsing one expression: the expression and the next token index.
 ParseResult :: struct(
   expr : AstExpr,
@@ -2342,7 +2335,7 @@ impl(
         }
       );
     });
-    if(!g_brace_legacy_records && ((self.bare_groups.len() > usize(0)) || (self.dotted_groups.len() > usize(0))), {
+    if((self.bare_groups.len() > usize(0)) || (self.dotted_groups.len() > usize(0)), {
       (pi : usize) = usize(0);
       while(pi < exprs.len(), pi = (pi + usize(1)), {
         match(
@@ -2655,6 +2648,6 @@ generate_exprs_from_code :: (
   module_path := `auto-generated://\n// === START auto-generated code ===\n${code}\n// === END auto-generated code ===\n`;
   parse(code.clone(), &module_path, exn)
 });
-export(ParseResult, FnArgsResult, Parser, parse, set_brace_legacy_records);
+export(ParseResult, FnArgsResult, Parser, parse);
 export(extract_source_line, make_parse_error, make_parse_error_raw);
 export(generate_expr_from_code, generate_exprs_from_code);

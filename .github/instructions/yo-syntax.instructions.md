@@ -24,8 +24,9 @@ The whole rule (plans/reference/BRACE_BLOCKS.md, brace groups Generation B, v0.2
 - `(a, b)` is the only tuple spelling (`.{ 1, 2 }` is E0007 naming it), and `Point(x : 1, y : 2)` stays
   the constructor of a named struct.
 - Record fields use spaces around `:` and infix field values stay grouped: `.{ x : (1 + 2), y : 3 }`.
-- `yo fix <path> --migrate record-literal` rewrites source written before v0.2.78 (where a bare brace
-  group of fields was a record) to `.{ … }`; it retires in v0.2.79.
+- Source written before v0.2.78 (where a bare brace group of fields was a record) is E0007; its
+  migration `yo fix --migrate record-literal` retired in v0.2.79, so run it on v0.2.78 (`yo version
+  install 0.2.78`) and step to the next release.
 
 ```yo ignore
 r := .{ x : i32(1), y : i32(2) }; // a record

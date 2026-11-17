@@ -75,8 +75,6 @@ YO_COLOR=always yo build         # 通过环境变量设置
 
 迁移只触及求值能触及的代码，因此有两个选项扩大其范围。`yo fix ./std ./tests --migrate deref` 在同一会话中对多个路径求值：泛型 `std` 函数体在测试实例化它时被求值。不加 `--target` 时，若文件中按平台分支的 `cond` 留下主机不会求值的分支，就针对其他每种受支持的架构和操作系统再求值一次，两个目标读法不同的位置会被列出并保持原样；`--target <triple>` 只针对该目标求值，同 `compile --target`。无法求值的文件中，求值未触及的部分保持不变，`fix` 以非零退出并指出该文件。
 
-`yo fix <path> --migrate record-literal` 是花括号组规则（`plans/reference/BRACE_BLOCKS.md`）的迁移：自 v0.2.78 起，记录值在左花括号前加一个点书写，表达式位置的裸花括号是块；迁移读取此前写成的源码（其中由字段组成的裸花括号组是记录），在表达式位置的每个这样的组前写上点，单字段简写组和空组也包括在内。它在 v0.2.79 退役。它读取解析结果而不求值，因此不需要 prelude，能触及每个文件。它不触及任何绑定位置：`:=`、`=`、`::` 的左侧（解构、导入、通配）、`match` 模式与子模式、`for` 元素模式、闭包捕获列表和参数，以及代码块都保持原有花括号。已经带点的组保持原样，所以第二次运行不会改动任何内容；无法解析的文件会被点名，`fix` 以非零退出。
-
 `yo fix <path> --migrate unsized` 是决策 49（`plans/VALUES_BY_DEFAULT.md`）的迁移：`Dyn(...)` 是非定长类型，只能位于指针之后，因此 v0.2.77 中裸 `Dyn(...)` 值类型所指的拥有型 trait 对象写作 `Box(Dyn(...))`。迁移把每个裸 `Dyn(...)` 类型写法改写为 `Box(Dyn(...))`：绑定、形参、字段、元素或结果的类型，类型别名的定义体，`Type.impls`/`Type.eq`/`size_of` 的实参，以及指向拥有型盒子的 `*Dyn(...)`/`?*Dyn(...)`。作为 `Box`、`Rc`、`Arc`、`Weak`、`ArcWeak`、`&` 或 `&mut`（带或不带 origin）直接实参的 `Dyn(...)` 已经指非定长对象，保持不变，`upcast` 的目标也一样，所以第二次运行不会改动任何内容。在 v0.2.77 中两种写法是同一个类型，因此 `yo check` 的结论不变。类型写法读取自解析结果，因此能触及每个平台分支。迁移还会像 `yo check` 一样对每个文件求值，并打开记录器：普通值上的 `dyn(v)` 改写为 `dyn(Box.new(v))`，在拥有型 `Dyn` 位置上求值的 `dyn(Rc.new(e))`/`dyn(Arc.new(e))` 改写为 `dyn(Box.new(e))`（`alloc` 照原样保留）。以下位置会连同其位置一起列出而不改写：无法在一行内打印回来的写法；`Rc(Dyn(T)).new(...)`（一个共享对象写 `dyn(Rc.new(v))`，或用 `Rc(Box(Dyn(T))).new(...)` 保留盒子）；`impl(Dyn(...), ...)`（如今是拥有型的值，v0.2.78 起是非定长对象）；原始指针上的 `dyn(p)`（如今为指针装箱，v0.2.78 起把它非定长化）；具名 `Rc`/`Arc` 句柄上的 `dyn(h)`；对拥有型 `Dyn` 的 `downcast`（其拥有型形式在 v0.2.78 到来）；以及含有当前目标不求值的平台 `cond` 分支的文件（用 `--target` 再运行一次）。无法求值的文件会被点名，`fix` 以非零退出。
 
 以上是 v0.2.77 所附带的模式，v0.2.77 也是迁移 v0.2.77 代码的版本。从 v0.2.78 起 `Dyn(...)` 是非定长类型，按值的裸 `Dyn(...)` 是 E0619；为 v0.2.77 编写的代码分两步升级，E0619 的提示给出这两步：先在 v0.2.77 上运行 `yo version install 0.2.77 && yo fix <path> --migrate unsized` 改写类型写法，再在 v0.2.78 上运行 `yo fix <path> --migrate unsized` 改写借出。v0.2.78 的模式按 v0.2.78 的写法读取输入：`*Dyn(...)`、类型别名的定义体、`impl(Dyn(...), ...)` 以及 `size_of`/`Type.eq` 的实参都指非定长对象，因此它不改写任何类型写法。它把在接受 `&Dyn(T)` 的位置借出 `Box(Dyn(T))` 的 `&b` 改写为 `&b.*`（`&Box(Dyn(T))` 借出的是 box，没有任何隐式转换把它变成指向 box 所拥有对象的引用：E0601，其提示给出 `&b.*`），并把普通值上的旧别名 `dyn(v)` 改写为 `dyn(Box.new(v))`：按位置定位，因此模板字面量、字符串中的括号以及跨多行的实参也会被改写；`comptime_expect_error` 实参中的 `dyn` 位置正是被测试的错误，保持原样。它列出在接受 `&Dyn(T)` 的位置给出的 `Box(Dyn(T))` 临时值、原始指针上的 `dyn(p)`、具名句柄上的 `dyn(h)`、无法在一行内打印回来的借出，以及含有未求值平台分支的文件。
@@ -117,8 +115,9 @@ yo fix <path> --migrate borrow-spelling
 | `mutable-globals` | 给程序写入的每个模块级绑定加上 `mut(G)`（决策 47） | E0917 | v0.2.76 |
 | `mut-bindings` | 给程序写入的每个局部、模式和编译期绑定加上 `mut(x)`（决策 47 第二步） | E0917 | v0.2.76 |
 | `rc-clone` | 源值之后仍被使用的计数句柄隐式拷贝改写为 `Rc.clone(h)`/`Arc.clone(h)`/`e.clone()`，捕获句柄的闭包加上捕获列表（决策 17） | E0901 | v0.2.76 |
+| `record-literal` | 表达式位置上由字段组成的裸花括号组改写为记录 `.{ … }`（花括号组规则，`plans/reference/BRACE_BLOCKS.md`），单字段简写组和空组也包括在内 | E0007 | v0.2.78 |
 
-请按阶段顺序运行它们。早于决策 42 的代码要先运行 `borrow-spelling`，再运行 `mut-bindings`：这类代码中的 `mut(z) := x` 是已删除的局部借用写法，`mut-bindings` 会把它当作可变局部变量。绝不要在已经使用决策 47 的 `mut(x) := v` 写法的代码上运行 `borrow-spelling`。拷贝迁移在 v0.2.73 上按各自的顺序运行：`explicit-copy`、`cloned-accessors`，然后 `rc-clone`，之后再固定到 v0.2.74。`yo fix --migrate deref`、`yo fix --migrate record-literal` 和 `yo fix --migrate unsized` 是本版本携带的三个模式。
+请按阶段顺序运行它们。早于决策 42 的代码要先运行 `borrow-spelling`，再运行 `mut-bindings`：这类代码中的 `mut(z) := x` 是已删除的局部借用写法，`mut-bindings` 会把它当作可变局部变量。绝不要在已经使用决策 47 的 `mut(x) := v` 写法的代码上运行 `borrow-spelling`。拷贝迁移在 v0.2.73 上按各自的顺序运行：`explicit-copy`、`cloned-accessors`，然后 `rc-clone`，之后再固定到 v0.2.74。`yo fix --migrate deref` 和 `yo fix --migrate unsized` 是本版本携带的两个模式。
 
 ## 警告
 
