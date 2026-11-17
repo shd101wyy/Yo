@@ -515,17 +515,17 @@ _receiver_at :: (
 _expr_near_line :: (fn(e : &AstExpr, line : usize) -> bool)(
   match(
     e,
-    .Atom(
+    Rc(.Atom(
       _,
       tok
-    ) => (usize(tok.row) == line),
-    .FnCall(
+    )) => (usize(tok.row) == line),
+    Rc(.FnCall(
       _,
       func_box,
       Rc(args),
       _,
       tok2
-    ) => {
+    )) => {
       if(usize(tok2.row) == line, {
         return(true);
       });
@@ -559,9 +559,9 @@ _expected_enum_at :: (
   });
   match(
     e,
-    .Atom(_, _) => (),
-    .FnCall(_, func_box, Rc(args), _, _) => {
-      head := match(func_box, .Atom(_, ht) => ht.value.*.clone(), _ => String.new());
+    Rc(.Atom(_, _)) => (),
+    Rc(.FnCall(_, func_box, Rc(args), _, _)) => {
+      head := match(func_box, Rc(.Atom(_, ht)) => ht.value.*.clone(), _ => String.new());
       if((head == "=") && (args.len() >= usize(2)), {
         // NB: not named `near` — that is a legacy Windows macro (windef.h
         // defines it to nothing), and user locals keep their names in the
@@ -575,8 +575,8 @@ _expected_enum_at :: (
             args.get(usize(0)),
             .Some(lhs) => match(
               lhs,
-              .FnCall(_, lhs_func, Rc(lhs_args), _, _) => {
-                lhs_head := match(lhs_func, .Atom(_, lt) => lt.value.*.clone(), _ => String.new());
+              Rc(.FnCall(_, lhs_func, Rc(lhs_args), _, _)) => {
+                lhs_head := match(lhs_func, Rc(.Atom(_, lt)) => lt.value.*.clone(), _ => String.new());
                 if((lhs_head == ":") && (lhs_args.len() >= usize(2)), {
                   match(
                     lhs_args.get(usize(1)),
@@ -677,7 +677,7 @@ _scan_idents :: (
 )({
   match(
     e,
-    .Atom(_, tok) => {
+    Rc(.Atom(_, tok)) => {
       at_or_before := ((usize(tok.row) < line) || ((usize(tok.row) == line) && (usize(tok.column) <= character)));
       match(
         expr_info_table_get(info_table, ast_expr_id(e)),
@@ -721,7 +721,7 @@ _scan_idents :: (
         );
       });
     },
-    .FnCall(_, func_box, Rc(args), _, _) => {
+    Rc(.FnCall(_, func_box, Rc(args), _, _)) => {
       recur(&func_box.*, info_table, line, character, names, name_rows, name_cols, name_expr_ids, name_index, env_holder, env_depth);
       (i : usize) = usize(0);
       while(i < args.len(), {

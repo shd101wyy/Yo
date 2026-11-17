@@ -3,7 +3,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { TokenKind, Token, TokenData } :: import("../../src/token.yo");
-{ AstExpr } :: import("../../src/expr.yo");
+{ AstExpr, AstExprNode } :: import("../../src/expr.yo");
 { TypeValue } :: import("../../src/types/definitions.yo");
 { type_value_tag, t_bool, t_u32, t_comptime_int, t_comptime_float, t_comptime_string } :: import("../../src/types/creators.yo");
 { TypeTag } :: import("../../src/types/tags.yo");
@@ -26,16 +26,16 @@ make_token :: (fn(kind : TokenKind, value : str) -> Token)(
   )
 );
 make_atom :: (fn(kind : TokenKind, value : str) -> AstExpr)(
-  .Atom(usize(0), make_token(kind, value))
+  Rc.new(AstExprNode.Atom(usize(0), make_token(kind, value)))
 );
 make_fn_call_no_args :: (fn(name : str) -> AstExpr)(
-  .FnCall(
+  Rc.new(AstExprNode.FnCall(
     usize(0),
-    .Atom(usize(0), make_token(TokenKind.Identifier, name)),
+    Rc.new(AstExprNode.Atom(usize(0), make_token(TokenKind.Identifier, name))),
     Rc.new(ArrayList(AstExpr).new()),
     false,
     make_token(TokenKind.Identifier, name)
-  )
+  ))
 );
 check_tag :: (fn(result : &Option(TypeValue), expected : TypeTag, label : str) -> unit)(
   match(

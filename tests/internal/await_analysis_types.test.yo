@@ -9,7 +9,7 @@
   SuspensionPoint,
   SuspensionCapturedVariable
 } :: import("../../src/evaluator/shared/suspension_analysis_types.yo");
-{ AstExpr } :: import("../../src/expr.yo");
+{ AstExpr, AstExprNode } :: import("../../src/expr.yo");
 { TokenKind, Token, TokenData } :: import("../../src/token.yo");
 { assert, panic } :: import("std/assert");
 {
@@ -35,7 +35,7 @@ make_token :: (fn(v : str) -> Token)(
 make_sp :: (fn(idx : usize) -> SuspensionPoint)(
   SuspensionPoint(
     index : idx,
-    expr : AstExpr.Atom(usize(0), make_token("await_expr")),
+    expr : Rc.new(AstExprNode.Atom(usize(0), make_token("await_expr"))),
     target_variable_id : Option(String).None,
     is_inside_cond : Option(bool).None,
     is_body_result : Option(bool).None,
@@ -82,7 +82,7 @@ test("AwaitPoint future_type can be set", {
 test("AwaitPoint target_variable_id from parent assign", {
   sp := SuspensionPoint(
     index : usize(0),
-    expr : AstExpr.Atom(usize(0), make_token("await_call")),
+    expr : Rc.new(AstExprNode.Atom(usize(0), make_token("await_call"))),
     target_variable_id : Option(String).Some(String.from("var_0")),
     is_inside_cond : Option(bool).None,
     is_body_result : Option(bool).None,

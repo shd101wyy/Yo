@@ -5,7 +5,7 @@
 import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { Token, TokenKind, TokenData } :: import("../../src/token.yo");
-{ AstExpr, ast_expr_id, BF_UNWIND } :: import("../../src/expr.yo");
+{ AstExpr, AstExprNode, ast_expr_id, BF_UNWIND } :: import("../../src/expr.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -40,11 +40,11 @@ mk_token :: (fn(value : str) -> Token)(
   )
 );
 mk_escape_call :: (fn(arg_id : usize, arg_value : str, call_id : usize) -> AstExpr)({
-  arg_atom := AstExpr.Atom(arg_id, mk_token(arg_value));
-  callee := AstExpr.Atom(call_id + usize(1000), mk_token(BF_UNWIND));
+  arg_atom := Rc.new(AstExprNode.Atom(arg_id, mk_token(arg_value)));
+  callee := Rc.new(AstExprNode.Atom(call_id + usize(1000), mk_token(BF_UNWIND)));
   mut(args) := ArrayList(AstExpr).new();
   args.push(arg_atom);
-  AstExpr.FnCall(call_id, callee, Rc.new(args), false, mk_token(BF_UNWIND))
+  Rc.new(AstExprNode.FnCall(call_id, callee, Rc.new(args), false, mk_token(BF_UNWIND)))
 });
 stub_evaluate_i32 :: (
   fn(

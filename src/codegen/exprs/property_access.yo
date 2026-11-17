@@ -318,7 +318,7 @@ _reference_or_none :: (fn(t : Option(TypeValue)) -> Option(TypeValue))(
 /// fills the `T*` every `&T` slot and projection result lowers to.
 generate_field_access :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   code := _generate_field_access_raw(expr, indent, context);
-  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
   ref_ty := match(
     args.get(usize(0)),
     .Some(obj) => match(
@@ -345,7 +345,7 @@ generate_field_access :: (fn(expr : &AstExpr, indent : &String, context : &mut F
 });
 _generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* ERROR: field access not evaluated */")));
-  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
   if(args.len() != usize(2), {
     return(String.from("/* ERROR: field access requires exactly 2 arguments */"));
   });

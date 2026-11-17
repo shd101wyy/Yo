@@ -361,7 +361,7 @@ evaluate_import :: (
   // Get the path argument (first arg of the import call).
   module_arg := match(
     expr,
-    .FnCall(_, _, Rc(args), _, _) => match(
+    Rc(.FnCall(_, _, Rc(args), _, _)) => match(
       args.get(usize(0)),
       .Some(a) => a,
       .None => {
@@ -378,7 +378,7 @@ evaluate_import :: (
         expr.*
       }
     ),
-    .Atom(_, _) => {
+    Rc(.Atom(_, _)) => {
       exn.throw(
         dyn(
           Box.new(

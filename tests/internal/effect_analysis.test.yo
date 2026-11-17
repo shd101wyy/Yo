@@ -4,7 +4,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { TokenKind, Token, TokenData } :: import("../../src/token.yo");
-{ AstExpr } :: import("../../src/expr.yo");
+{ AstExpr, AstExprNode } :: import("../../src/expr.yo");
 { ExprInfo, new_expr_info } :: import("../../src/expr_info.yo");
 { t_unit } :: import("../../src/types/creators.yo");
 { assert, panic } :: import("std/assert");
@@ -43,41 +43,41 @@ make_token_at :: (fn(kind : TokenKind, v : str, character : usize) -> Token)(
   )
 );
 make_ident :: (fn(v : str) -> AstExpr)(
-  AstExpr.Atom(usize(0), make_token(TokenKind.Identifier, v))
+  Rc.new(AstExprNode.Atom(usize(0), make_token(TokenKind.Identifier, v)))
 );
 /// Create `func_name(arg)` — a simple call expression.
 make_simple_call :: (fn(func_name : str, arg : &AstExpr, char_pos : usize) -> AstExpr)({
   mut(args) := ArrayList(AstExpr).new();
   args.push(arg.*);
-  AstExpr.FnCall(
+  Rc.new(AstExprNode.FnCall(
     usize(0),
     make_ident(func_name),
     Rc.new(args),
     false,
     make_token_at(TokenKind.Identifier, func_name, char_pos)
-  )
+  ))
 });
 /// Create `module_name.method_name(arg)` — a dotted-access call expression.
 make_dot_call :: (fn(module_name : str, method_name : str, arg : &AstExpr) -> AstExpr)({
   mut(dot_args) := ArrayList(AstExpr).new();
   dot_args.push(make_ident(module_name));
-  dot_args.push(AstExpr.Atom(usize(0), make_token(TokenKind.Identifier, method_name)));
-  dot_fncall := AstExpr.FnCall(
+  dot_args.push(Rc.new(AstExprNode.Atom(usize(0), make_token(TokenKind.Identifier, method_name))));
+  dot_fncall := Rc.new(AstExprNode.FnCall(
     usize(0),
-    AstExpr.Atom(usize(0), make_token(TokenKind.Dot, ".")),
+    Rc.new(AstExprNode.Atom(usize(0), make_token(TokenKind.Dot, "."))),
     Rc.new(dot_args),
     true,
     make_token(TokenKind.Dot, ".")
-  );
+  ));
   mut(outer_args) := ArrayList(AstExpr).new();
   outer_args.push(arg.*);
-  AstExpr.FnCall(
+  Rc.new(AstExprNode.FnCall(
     usize(0),
     dot_fncall,
     Rc.new(outer_args),
     false,
     make_token(TokenKind.Identifier, method_name)
-  )
+  ))
 });
 /// get_info that always returns None (no type information).
 get_info_none :: (fn(e : &AstExpr) -> Option(ExprInfo))(

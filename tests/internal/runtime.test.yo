@@ -5,7 +5,7 @@
 import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { Token, TokenKind, TokenData } :: import("../../src/token.yo");
-{ AstExpr, ast_expr_id, BF_RUNTIME } :: import("../../src/expr.yo");
+{ AstExpr, AstExprNode, ast_expr_id, BF_RUNTIME } :: import("../../src/expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set }
 :: import("../../src/expr_info.yo");
 { Environment, new_environment } :: import("../../src/env.yo");
@@ -34,11 +34,11 @@ mk_token :: (fn(value : str) -> Token)(
 );
 // Helper: build a runtime(arg_atom) FnCall expression.
 mk_runtime_call :: (fn(arg_id : usize, arg_value : str, call_id : usize) -> AstExpr)({
-  arg_atom := AstExpr.Atom(arg_id, mk_token(arg_value));
-  callee := AstExpr.Atom(call_id + usize(1000), mk_token(BF_RUNTIME));
+  arg_atom := Rc.new(AstExprNode.Atom(arg_id, mk_token(arg_value)));
+  callee := Rc.new(AstExprNode.Atom(call_id + usize(1000), mk_token(BF_RUNTIME)));
   mut(args) := ArrayList(AstExpr).new();
   args.push(arg_atom);
-  AstExpr.FnCall(call_id, callee, Rc.new(args), false, mk_token(BF_RUNTIME))
+  Rc.new(AstExprNode.FnCall(call_id, callee, Rc.new(args), false, mk_token(BF_RUNTIME)))
 });
 // Stub evaluator: claims every input is `comptime_int`. After runtime(_),
 // the expression should be retyped to i32.

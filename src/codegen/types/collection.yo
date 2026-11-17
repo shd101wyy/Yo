@@ -708,7 +708,7 @@ _collect_types_from_node :: (fn(expr : &AstExpr, context : &mut CodeGenContext, 
   );
   match(
     expr,
-    .FnCall(_, func_box, Rc(args), _, _) => {
+    Rc(.FnCall(_, func_box, Rc(args), _, _)) => {
       // Skip test blocks — they should not generate code.
       if(ast_expr_is_fn_call_of(expr, BK_TEST, .None), {
         return(());
@@ -721,7 +721,7 @@ _collect_types_from_node :: (fn(expr : &AstExpr, context : &mut CodeGenContext, 
         i = (i + usize(1));
       });
     },
-    .Atom(_, _) => match(
+    Rc(.Atom(_, _)) => match(
       ei_opt,
       .Some(ei) => if(is_type_value(&ei.value()), {
         match(ei.value(), .Some(v) => match(v, .TypeVal(t) => collect_type(&t, context), _ => ()), .None => ());

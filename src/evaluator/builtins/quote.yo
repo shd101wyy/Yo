@@ -9,7 +9,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 {
-  AstExpr,
+  AstExpr, AstExprNode,
   ExprId,
   ast_expr_token,
   ast_expr_id,
@@ -69,7 +69,7 @@ process_unquotes_in_expr :: (
   // --- FnCall processing ---
   match(
     expr,
-    .FnCall(id, func_box, Rc(args), is_infix, tok) => {
+    Rc(.FnCall(id, func_box, Rc(args), is_infix, tok)) => {
       // Case 1: the NODE ITSELF is `unquote(x)` — evaluate the single
       // argument and return the expression it contains. NOTE: the test is
       // on `expr`, NOT on `func_box` — the test must be
@@ -155,8 +155,8 @@ process_unquotes_in_expr :: (
               // The unquote_splicing argument.
               splice_inner := match(
                 arg,
-                .FnCall(_, _, Rc(splice_args), _, _) => match(splice_args.get(usize(0)), .Some(a) => a, .None => arg),
-                .Atom(_, _) => arg
+                Rc(.FnCall(_, _, Rc(splice_args), _, _)) => match(splice_args.get(usize(0)), .Some(a) => a, .None => arg),
+                Rc(.Atom(_, _)) => arg
               );
               eval_splice := evaluate_expression_raw(&splice_inner, env, ctx, exn);
               opt_splice_info := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_splice));
@@ -229,9 +229,9 @@ process_unquotes_in_expr :: (
           }
         );
       });
-      AstExpr.FnCall(id.*, new_func, Rc.new(new_args), is_infix.*, Rc.clone(tok.*))
+      Rc.new(AstExprNode.FnCall(id.*, new_func, Rc.new(new_args), is_infix.*, Rc.clone(tok.*)))
     },
-    .Atom(_, _) => expr.*
+    Rc(.Atom(_, _)) => expr.*
   )
 });
 evaluate_quote :: (
@@ -244,7 +244,7 @@ evaluate_quote :: (
 )({
   arg := match(
     expr,
-    .FnCall(_, _, Rc(fargs), _, _) => match(
+    Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {

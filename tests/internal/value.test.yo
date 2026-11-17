@@ -4,7 +4,7 @@
 { Debug } :: import("std/fmt");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, make_err_expr } :: import("../../src/expr.yo");
+{ AstExpr, AstExprNode, make_err_expr } :: import("../../src/expr.yo");
 { TokenKind, Token, TokenData } :: import("../../src/token.yo");
 { TypeValue, shared_list, no_labels } :: import("../../src/types/definitions.yo");
 { assert, panic } :: import("std/assert");
@@ -295,7 +295,7 @@ test("ExprVal: structural equality", {
   assert(e1 == e2, "ExprVal structural equality: identical atoms are equal");
   // Different atoms should not be equal.
   other := EvalValue.ExprVal(
-    AstExpr.Atom(
+    Rc.new(AstExprNode.Atom(
       usize(0),
       Rc.new(
         TokenData(
@@ -308,7 +308,7 @@ test("ExprVal: structural equality", {
           input : Rc.new(String.from(""))
         )
       )
-    )
+    ))
   );
   assert(!(e1 == other), "ExprVal structural equality: different atoms are unequal");
 });

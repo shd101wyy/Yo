@@ -133,14 +133,14 @@ _evaluated_measure_for_verify :: (fn(dm : &AstExpr, env : &Environment, ctx : &m
     ast_expr_is_fn_call_of(dm, BF_DECREASES, Option(usize).None) => {
       match(
         dm,
-        .FnCall(_, _, Rc(comps), _, _) => {
+        Rc(.FnCall(_, _, Rc(comps), _, _)) => {
           (mci : usize) = usize(0);
           while(mci < comps.len(), {
             _ := evaluated_for_verify(comps.get(mci).unwrap(), env, ctx, exn);
             mci = (mci + usize(1));
           });
         },
-        .Atom(_, _) => ()
+        Rc(.Atom(_, _)) => ()
       );
       dm.*
     },
@@ -698,28 +698,28 @@ _share_def_time_frames :: (fn(env : &Environment, strip : bool) -> Environment)(
 /// The tokens are the AST's own handles, so nothing is minted per binding.
 _fn_literal_param_tokens :: (fn(fn_literal : &AstExpr) -> ArrayList(Token))({
   out := ArrayList(Token).new();
-  ft := match(fn_literal, .FnCall(_, ft_box, _, _, _) => ft_box.*, .Atom(_, _) => return(out));
+  ft := match(fn_literal, Rc(.FnCall(_, ft_box, _, _, _)) => ft_box.*, Rc(.Atom(_, _)) => return(out));
   if(!ast_expr_is_fn_call_of(&ft, "->", Option(usize).Some(usize(2))), {
     return(out);
   });
   decls := match(
     ft,
-    .FnCall(_, _, Rc(ft_args), _, _) => match(ft_args.get(usize(0)), .Some(.FnCall(_, _, Rc(head_args), _, _)) => head_args.clone(), _ => return(out)),
-    .Atom(_, _) => return(out)
+    Rc(.FnCall(_, _, Rc(ft_args), _, _)) => match(ft_args.get(usize(0)), .Some(Rc(.FnCall(_, _, Rc(head_args), _, _))) => head_args.clone(), _ => return(out)),
+    Rc(.Atom(_, _)) => return(out)
   );
   (di : usize) = usize(0);
   while(di < decls.len(), di = (di + usize(1)), {
     (d : AstExpr) = decls(di);
     if(ast_expr_is_fn_call_of(&d, "=", Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(&d, "?=", Option(usize).Some(usize(2))), {
-      d = match(d, .FnCall(_, _, Rc(dv_args), _, _) => dv_args(usize(0)), .Atom(_, _) => d);
+      d = match(d, Rc(.FnCall(_, _, Rc(dv_args), _, _)) => dv_args(usize(0)), Rc(.Atom(_, _)) => d);
     });
     if(ast_expr_is_fn_call_of(&d, ":", Option(usize).Some(usize(2))), {
-      d = match(d, .FnCall(_, _, Rc(lab_args), _, _) => lab_args(usize(0)), .Atom(_, _) => d);
+      d = match(d, Rc(.FnCall(_, _, Rc(lab_args), _, _)) => lab_args(usize(0)), Rc(.Atom(_, _)) => d);
       (peeling : bool) = true;
       while(peeling, {
         match(
           d,
-          .FnCall(_, _, Rc(w_args), is_infix, _) => cond(
+          Rc(.FnCall(_, _, Rc(w_args), is_infix, _)) => cond(
             (!is_infix && (w_args.len() == usize(1))) => {
               d = w_args(usize(0));
             },
@@ -727,17 +727,17 @@ _fn_literal_param_tokens :: (fn(fn_literal : &AstExpr) -> ArrayList(Token))({
               peeling = false;
             }
           ),
-          .Atom(_, _) => {
+          Rc(.Atom(_, _)) => {
             peeling = false;
           }
         );
       });
       match(
         d,
-        .Atom(_, label_tok) => if(label_tok.kind == TokenKind.Identifier, {
+        Rc(.Atom(_, label_tok)) => if(label_tok.kind == TokenKind.Identifier, {
           out.push(Rc.clone(label_tok));
         }),
-        .FnCall(_, _, _, _, _) => ()
+        Rc(.FnCall(_, _, _, _, _)) => ()
       );
     });
   });
@@ -1316,8 +1316,8 @@ Result type: ${type_to_string(&result_box)}`
       // the ArrayList handle never escapes the match as a copy.
       body_arg_len := match(
         expr,
-        .FnCall(_, _, Rc(a), _, _) => a.len(),
-        .Atom(_, _) => usize(0)
+        Rc(.FnCall(_, _, Rc(a), _, _)) => a.len(),
+        Rc(.Atom(_, _)) => usize(0)
       );
       if(body_arg_len != usize(1), {
         exn.throw(
@@ -1333,8 +1333,8 @@ Result type: ${type_to_string(&result_box)}`
       });
       body_expr_unprojected := match(
         expr,
-        .FnCall(_, _, Rc(a), _, _) => match(a.get(usize(0)), .Some(b) => b, .None => make_err_expr()),
-        .Atom(_, _) => make_err_expr()
+        Rc(.FnCall(_, _, Rc(a), _, _)) => match(a.get(usize(0)), .Some(b) => b, .None => make_err_expr()),
+        Rc(.Atom(_, _)) => make_err_expr()
       );
       // Decision 24: a projection's body yields a place with the sigil of its
       // result's mode; each result position becomes the marked
@@ -1377,8 +1377,8 @@ Result type: ${type_to_string(&result_box)}`
       // expr, the same key the `copy_*` re-keying below uses.
       contract_key := match(
         expr,
-        .FnCall(_, ck_ft_box, _, _, _) => ast_expr_id(&ck_ft_box.*).to_string(),
-        .Atom(_, _) => String.from("")
+        Rc(.FnCall(_, ck_ft_box, _, _, _)) => ast_expr_id(&ck_ft_box.*).to_string(),
+        Rc(.Atom(_, _)) => String.from("")
       );
       ck_requires := get_func_requires_exprs(contract_key.clone());
       ck_requires_checkable := ArrayList(bool).new();
@@ -1569,7 +1569,7 @@ Result type: ${type_to_string(&result_box)}`
       (ft_has_ct_param : bool) = false;
       match(
         expr,
-        .FnCall(_, ct_ft_box, _, _, _) => {
+        Rc(.FnCall(_, ct_ft_box, _, _, _)) => {
           ct_flags_ft := get_func_param_comptime(ast_expr_id(&ct_ft_box.*).to_string());
           (ct_fi : usize) = usize(0);
           while((ct_fi < ct_flags_ft.len()) && !ft_has_ct_param, {
@@ -1588,7 +1588,7 @@ Result type: ${type_to_string(&result_box)}`
             ct_fi = (ct_fi + usize(1));
           });
         },
-        .Atom(_, _) => ()
+        Rc(.Atom(_, _)) => ()
       );
       should_defer_ft := ((forall_labels.len() > usize(0)) || any_some_param_ft || self_has_some_ft || ft_has_ct_param);
       (flow_body : Option(AstExpr)) = if(
@@ -1631,7 +1631,7 @@ Result type: ${type_to_string(&result_box)}`
       // was evaluated to produce `function_type`, so their ids match.
       match(
         expr,
-        .FnCall(_, fn_type_box, _, _, _) => {
+        Rc(.FnCall(_, fn_type_box, _, _, _)) => {
           copy_func_param_defaults(ast_expr_id(&fn_type_box.*).to_string(), fn_val_id.clone());
           copy_func_param_default_exprs(ast_expr_id(&fn_type_box.*).to_string(), fn_val_id.clone());
           copy_func_param_type_exprs(ast_expr_id(&fn_type_box.*).to_string(), fn_val_id.clone());
@@ -1643,7 +1643,7 @@ Result type: ${type_to_string(&result_box)}`
           copy_func_where_constraints(ast_expr_id(&fn_type_box.*).to_string(), fn_val_id.clone());
           copy_func_contract_exprs(ast_expr_id(&fn_type_box.*).to_string(), fn_val_id.clone());
         },
-        .Atom(_, _) => ()
+        Rc(.Atom(_, _)) => ()
       );
       // V3 (plans/backlog/FORMAL_VERIFICATION.md §Architecture): RECORD a
       // pending verification task when this module is a verification target
@@ -1890,15 +1890,15 @@ Result type: ${type_to_string(&result_box)}`
         .Some(fb) => {
           def_where_entries := match(
             expr,
-            .FnCall(_, dwe_ft_box, _, _, _) =>
+            Rc(.FnCall(_, dwe_ft_box, _, _, _)) =>
               get_func_where_constraints(ast_expr_id(&dwe_ft_box.*).to_string()),
-            .Atom(_, _) => ArrayList(WhereConstraintEntry).new()
+            Rc(.Atom(_, _)) => ArrayList(WhereConstraintEntry).new()
           );
           def_ct_flags := match(
             expr,
-            .FnCall(_, ctf_ft_box, _, _, _) =>
+            Rc(.FnCall(_, ctf_ft_box, _, _, _)) =>
               get_func_param_comptime(ast_expr_id(&ctf_ft_box.*).to_string()),
-            .Atom(_, _) => ArrayList(bool).new()
+            Rc(.Atom(_, _)) => ArrayList(bool).new()
           );
           def_param_toks := _fn_literal_param_tokens(expr);
           flow_env := _build_def_time_body_env(
@@ -1918,7 +1918,7 @@ Result type: ${type_to_string(&result_box)}`
           // types/function.yo).
           match(
             expr,
-            .FnCall(_, vp_ft_box, _, _, _) => match(
+            Rc(.FnCall(_, vp_ft_box, _, _, _)) => match(
               get_func_variadic_param(ast_expr_id(&vp_ft_box.*).to_string()),
               .Some(vp_entry) => {
                 ___vp := add_variable_to_env(
@@ -1935,7 +1935,7 @@ Result type: ${type_to_string(&result_box)}`
               },
               .None => ()
             ),
-            .Atom(_, _) => ()
+            Rc(.Atom(_, _)) => ()
           );
           flow_fv := EvalValue.FuncVal(
             Rc.new(
@@ -2374,13 +2374,13 @@ Result type: ${type_to_string(&result_box)}`
           ), {
             dg_where := match(
               expr,
-              .FnCall(_, dg_ft_box, _, _, _) => get_func_where_constraints(ast_expr_id(&dg_ft_box.*).to_string()),
-              .Atom(_, _) => ArrayList(WhereConstraintEntry).new()
+              Rc(.FnCall(_, dg_ft_box, _, _, _)) => get_func_where_constraints(ast_expr_id(&dg_ft_box.*).to_string()),
+              Rc(.Atom(_, _)) => ArrayList(WhereConstraintEntry).new()
             );
             dg_ct_flags := match(
               expr,
-              .FnCall(_, dgc_ft_box, _, _, _) => get_func_param_comptime(ast_expr_id(&dgc_ft_box.*).to_string()),
-              .Atom(_, _) => ArrayList(bool).new()
+              Rc(.FnCall(_, dgc_ft_box, _, _, _)) => get_func_param_comptime(ast_expr_id(&dgc_ft_box.*).to_string()),
+              Rc(.Atom(_, _)) => ArrayList(bool).new()
             );
             dg_param_toks := _fn_literal_param_tokens(expr);
             dg_env := _build_def_time_body_env(

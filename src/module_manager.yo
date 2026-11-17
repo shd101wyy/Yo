@@ -829,8 +829,8 @@ mm_invalidate_document :: (fn(fs_path : &String) -> ArrayList(String))({
 _def_rhs :: (fn(def : &PendingDef) -> Option(AstExpr))(
   match(
     def.expr(),
-    .FnCall(_, _, Rc(cargs), _, _) => cargs.get(usize(1)),
-    .Atom(_, _) => Option(AstExpr).None
+    Rc(.FnCall(_, _, Rc(cargs), _, _)) => cargs.get(usize(1)),
+    Rc(.Atom(_, _)) => Option(AstExpr).None
   )
 );
 /// The `(fn(...) -> T)` HEAD of a fn-literal definition RHS — the callee of
@@ -838,7 +838,7 @@ _def_rhs :: (fn(def : &PendingDef) -> Option(AstExpr))(
 _def_fn_head :: (fn(rhs : &AstExpr) -> Option(AstExpr))(
   match(
     rhs,
-    .FnCall(_, callee, Rc(cargs), _, _) => {
+    Rc(.FnCall(_, callee, Rc(cargs), _, _)) => {
       // The fn-type head renders as `fn(...) -> T` (a leading source paren
       // is not part of the callee). `fn(` specifically — not any `fn…` name.
       head := ast_expr_to_string(&callee.*);
@@ -847,7 +847,7 @@ _def_fn_head :: (fn(rhs : &AstExpr) -> Option(AstExpr))(
         true => Option(AstExpr).None
       )
     },
-    .Atom(_, _) => Option(AstExpr).None
+    Rc(.Atom(_, _)) => Option(AstExpr).None
   )
 );
 /// True when a `::` definition may take the per-def path: a FN-LITERAL
@@ -894,17 +894,17 @@ _def_is_per_def_able :: (fn(old : &PendingDef, fresh : &PendingDef) -> bool)({
 _expr_mentions :: (fn(e : &AstExpr, names : &ArrayList(String)) -> bool)(
   match(
     e,
-    .Atom(
+    Rc(.Atom(
       _,
       tok
-    ) => names.contains(&tok.value.*),
-    .FnCall(
+    )) => names.contains(&tok.value.*),
+    Rc(.FnCall(
       _,
       func,
       Rc(args),
       _,
       _
-    ) => {
+    )) => {
       (hit : bool) = _expr_mentions(&func.*, names);
       (ai : usize) = usize(0);
       while((ai < args.len()) && !hit, {
@@ -953,7 +953,7 @@ _export_aliases_name :: (fn(exprs : &ArrayList(AstExpr), name : &String) -> bool
       .Some(e) => if(ast_expr_is_fn_call_of(&e, BK_EXPORT, .None), {
         match(
           e,
-          .FnCall(_, _, Rc(eargs), _, _) => {
+          Rc(.FnCall(_, _, Rc(eargs), _, _)) => {
             (ai : usize) = usize(0);
             while((ai < eargs.len()) && !hit, {
               match(
@@ -961,14 +961,14 @@ _export_aliases_name :: (fn(exprs : &ArrayList(AstExpr), name : &String) -> bool
                 .Some(arg) => if(ast_expr_is_fn_call_of(&arg, BK_COLON, .Some(usize(2))), {
                   match(
                     arg,
-                    .FnCall(_, _, Rc(pair), _, _) => match(
+                    Rc(.FnCall(_, _, Rc(pair), _, _)) => match(
                       pair.get(usize(1)),
                       .Some(orig) => if(ast_expr_is_atom(&orig) && (ast_expr_token(&orig).value.* == name.*), {
                         hit = true;
                       }),
                       .None => ()
                     ),
-                    .Atom(_, _) => ()
+                    Rc(.Atom(_, _)) => ()
                   );
                 }),
                 .None => ()
@@ -976,7 +976,7 @@ _export_aliases_name :: (fn(exprs : &ArrayList(AstExpr), name : &String) -> bool
               ai = (ai + usize(1));
             });
           },
-          .Atom(_, _) => ()
+          Rc(.Atom(_, _)) => ()
         );
       }),
       .None => ()
@@ -2267,15 +2267,15 @@ _scan_import_literals :: (
 )({
   match(
     e,
-    .Atom(_, _) => (),
-    .FnCall(_, func, Rc(args), _, _) => {
-      is_import := match(func, .Atom(_, ft) => (ft.value.* == BK_IMPORT), _ => false);
+    Rc(.Atom(_, _)) => (),
+    Rc(.FnCall(_, func, Rc(args), _, _)) => {
+      is_import := match(func, Rc(.Atom(_, ft)) => (ft.value.* == BK_IMPORT), _ => false);
       if(is_import && (args.len() == usize(1)), {
         match(
           args.get(usize(0)),
           .Some(arg) => match(
             arg,
-            .Atom(_, at) => {
+            Rc(.Atom(_, at)) => {
               raw := at.value.*.clone();
               n := raw.len();
               if((n >= usize(2)) && raw.starts_with(String.from("\"")) && raw.ends_with(String.from("\"")), {

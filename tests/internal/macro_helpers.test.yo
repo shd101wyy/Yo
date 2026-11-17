@@ -12,7 +12,7 @@ import("std/fmt");
 { EvalValue } :: import("../../src/value.yo");
 { has_comment_attribute, Evaluator } :: import("../../src/evaluator/index.yo");
 { assert, panic } :: import("std/assert");
-{ AstExpr, ast_expr_id, ast_expr_token } :: import("../../src/expr.yo");
+{ AstExpr, AstExprNode, ast_expr_id, ast_expr_token } :: import("../../src/expr.yo");
 { expr_info_table_get } :: import("../../src/expr_info.yo");
 { Environment, new_environment } :: import("../../src/env.yo");
 { eval_context_new } :: import("../../src/evaluator/context.yo");
@@ -244,7 +244,7 @@ test("macro helpers: a gensym'd token shares its source token's input", {
       input : Rc.clone(source)
     )
   );
-  call := AstExpr.FnCall(usize(900001), AstExpr.Atom(usize(900002), Rc.clone(tok)), Rc.new(ArrayList(AstExpr).new()), false, Rc.clone(tok));
+  call := Rc.new(AstExprNode.FnCall(usize(900001), Rc.new(AstExprNode.Atom(usize(900002), Rc.clone(tok))), Rc.new(ArrayList(AstExpr).new()), false, Rc.clone(tok)));
   env := new_environment(Rc.new(String.from("gensym_share_test.yo")));
   mut(ctx) := eval_context_new(String.from(""), String.from("gensym_share_test.yo"));
   _r := evaluate_gensym(&call, &env, &mut ctx, exn);

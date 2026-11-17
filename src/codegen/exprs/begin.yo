@@ -290,7 +290,7 @@ generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
   value_type := Rc.clone(ei.ty());
   indent2 := indent.clone();
   indent2.push_str("  ");
-  args := emitted_block_statements(match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new()));
+  args := emitted_block_statements(match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new()));
   match(
     &ei.variable_name(),
     .Some(temp_var) => {

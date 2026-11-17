@@ -298,7 +298,7 @@ _is_control_flow_code :: (fn(code : &String) -> bool)(
 );
 /// Args of a FnCall (empty for an Atom).
 _args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new())
 );
 /// True if `expr` is an or-pattern `a | b`.
 _is_or_pattern :: (fn(expr : &AstExpr) -> bool)(
@@ -880,7 +880,7 @@ _case_executed :: (fn(case_value : &AstExpr, context : &FunctionGenerationContex
 );
 /// The variant name of a `.Variant(...)` / `.Variant` pattern (its first arg's token).
 _variant_name :: (fn(case_value : &AstExpr) -> String)(
-  match(case_value, .FnCall(_, _, Rc(a), _, _) => match(a.get(usize(0)), .Some(v) => ast_expr_text(&v).*.clone(), .None => String.from("")), .Atom(_, _) => String.from(""))
+  match(case_value, Rc(.FnCall(_, _, Rc(a), _, _)) => match(a.get(usize(0)), .Some(v) => ast_expr_text(&v).*.clone(), .None => String.from("")), Rc(.Atom(_, _)) => String.from(""))
 );
 /// Nullable-pointer-optimized enum match → if/else (null vs pointer case).
 /// Add a name to the function's local-shadowed-variables set (creating it if

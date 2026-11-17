@@ -24,7 +24,7 @@ pragma(Pragma.AllowUnsafe);
 { replace, swap } :: import("std/mem");
 { panic } :: import("std/assert");
 {
-  AstExpr,
+  AstExpr, AstExprNode,
   ast_expr_token,
   ast_expr_id,
   ast_expr_is_fn_call_of,
@@ -554,8 +554,8 @@ validate_function_return_type :: (
 _h_get_fn_call_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
   match(
     e,
-    .FnCall(_, _, Rc(args), _, _) => args.clone(),
-    .Atom(_, _) => ArrayList(AstExpr).new()
+    Rc(.FnCall(_, _, Rc(args), _, _)) => args.clone(),
+    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
   )
 );
 // ---------------------------------------------------------------------------
@@ -913,8 +913,8 @@ reference_argument_as_referent :: (fn(written_arg : &AstExpr, evaled_arg : AstEx
   );
   ra_args := ArrayList(AstExpr).new();
   ra_args.push(evaled_arg.clone());
-  ra_args.push(AstExpr.Atom(alloc_global_expr_id(), ra_star));
-  ra_deref := AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), ra_dot.clone()), Rc.new(ra_args), true, ra_dot);
+  ra_args.push(Rc.new(AstExprNode.Atom(alloc_global_expr_id(), ra_star)));
+  ra_deref := Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), Rc.new(AstExprNode.Atom(alloc_global_expr_id(), ra_dot.clone())), Rc.new(ra_args), true, ra_dot));
   ra_saved_exp := ctx.expected_type.clone();
   ctx.expected_type = Option(ExpectedTypeCtx).None;
   mark_node_preevaluated(ast_expr_id(&evaled_arg));
@@ -926,7 +926,7 @@ reference_argument_as_referent :: (fn(written_arg : &AstExpr, evaled_arg : AstEx
 _marker_place_of_syntax :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> _MarkerPlace)(
   match(
     e,
-    .Atom(_, tok) => cond(
+    Rc(.Atom(_, tok)) => cond(
       (tok.kind != TokenKind.Identifier) => _MarkerPlace.NotAPlace,
       true => match(
         get_variables_from_env(env, &tok.value.*).last_cloned(),
@@ -946,13 +946,13 @@ _marker_place_of_syntax :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalCont
         .None => _MarkerPlace.NotAPlace
       )
     ),
-    .FnCall(_, mp_callee, Rc(mp_args), mp_infix, _) => cond(
+    Rc(.FnCall(_, mp_callee, Rc(mp_args), mp_infix, _)) => cond(
       // A reference field's read (N1e-2) passes the reference it holds, as
       // a borrow binding passed whole does.
       reference_field_read_type(ast_expr_id(e)).is_some() => _MarkerPlace.Borrow,
       ast_expr_is_fn_call_of(e, ".", .Some(usize(2))) => match(
         mp_args.get(usize(1)),
-        .Some(.Atom(_, _)) => match(
+        .Some(Rc(.Atom(_, _))) => match(
           recur(match(mp_args.get(usize(0)), .Some(b) => b, .None => make_err_expr()), env, ctx),
           .NotAPlace => _MarkerPlace.NotAPlace,
           _ => _MarkerPlace.Place
@@ -1111,8 +1111,8 @@ _lend_place_root_name :: (fn(e : &AstExpr) -> Option(String))({
   while(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
     cur = match(
       cur,
-      .FnCall(_, _, d_args, _, _) => match(d_args.get(usize(0)), .Some(b) => b, .None => make_err_expr()),
-      .Atom(_, _) => make_err_expr()
+      Rc(.FnCall(_, _, d_args, _, _)) => match(d_args.get(usize(0)), .Some(b) => b, .None => make_err_expr()),
+      Rc(.Atom(_, _)) => make_err_expr()
     );
   });
   cond(
@@ -1323,13 +1323,13 @@ apply_call_site_borrow_markers :: (
           ast_expr_is_fn_call_of(&arg, ":", .Some(usize(2))),
           match(
             arg,
-            .FnCall(l_id, l_fn, Rc(l_args), l_infix, l_tok) => {
+            Rc(.FnCall(l_id, l_fn, Rc(l_args), l_infix, l_tok)) => {
               l_new := ArrayList(AstExpr).new();
               l_new.push(match(l_args.get(usize(0)), .Some(l) => l, .None => make_err_expr()));
               l_new.push(place);
-              AstExpr.FnCall(l_id, l_fn, Rc.new(l_new), l_infix, Rc.clone(l_tok))
+              Rc.new(AstExprNode.FnCall(l_id, l_fn, Rc.new(l_new), l_infix, Rc.clone(l_tok)))
             },
-            .Atom(_, _) => place
+            Rc(.Atom(_, _)) => place
           ),
           place
         )
@@ -1358,7 +1358,7 @@ argument_root_name :: (fn(arg : &AstExpr) -> Option(String))({
         cur = match(_h_get_fn_call_args(&cur).get(usize(0)), .Some(b) => b, .None => make_err_expr());
       },
       ast_expr_is_fn_call(&cur) => {
-        cur = match(cur, .FnCall(_, fc, _, _, _) => fc, .Atom(_, _) => cur);
+        cur = match(cur, Rc(.FnCall(_, fc, _, _, _)) => fc, Rc(.Atom(_, _)) => cur);
       },
       true => {
         walking = false;
@@ -1507,14 +1507,14 @@ _mark_moved_temp_container_dups :: (fn(arg : &AstExpr, depth : usize, ctx : &Eva
   );
   match(
     arg,
-    .FnCall(_, f, Rc(fargs), _, _) => {
+    Rc(.FnCall(_, f, Rc(fargs), _, _)) => {
       recur(&f.*, depth, ctx);
       (ai : usize) = usize(0);
       while(ai < fargs.len(), ai = (ai + usize(1)), {
         match(fargs.get(ai), .Some(a) => recur(&a, depth, ctx), .None => ());
       });
     },
-    .Atom(_, _) => ()
+    Rc(.Atom(_, _)) => ()
   );
 });
 /// The argument-side ownership rule, one call per argument:
@@ -6974,10 +6974,10 @@ _func_type_has_runtime_some_param :: (fn(t : &TypeValue) -> bool)(
 _collect_atom_names_into :: (fn(e : &AstExpr, out : &mut ArrayList(String)) -> unit)(
   match(
     e,
-    .Atom(_, a_tok) => {
+    Rc(.Atom(_, a_tok)) => {
       out.push(a_tok.value.*.clone());
     },
-    .FnCall(_, a_fn, Rc(a_args), _, _) => {
+    Rc(.FnCall(_, a_fn, Rc(a_args), _, _)) => {
       recur(&a_fn.*, out);
       (a_i : usize) = usize(0);
       while(a_i < a_args.len(), {
@@ -7006,17 +7006,17 @@ _try_apply_early_where_clauses :: (
 _io_async_receiver_bundle_expr :: (fn(expr : &AstExpr) -> Option(AstExpr))(
   match(
     expr,
-    .Atom(_, _) => Option(AstExpr).None,
-    .FnCall(_, callee_box, _, _, _) => match(
+    Rc(.Atom(_, _)) => Option(AstExpr).None,
+    Rc(.FnCall(_, callee_box, _, _, _)) => match(
       callee_box,
-      .Atom(_, _) => Option(AstExpr).None,
-      .FnCall(_, dot_box, Rc(dot_args), dot_infix, _) => cond(
+      Rc(.Atom(_, _)) => Option(AstExpr).None,
+      Rc(.FnCall(_, dot_box, Rc(dot_args), dot_infix, _)) => cond(
         (dot_infix.* == false) => Option(AstExpr).None,
         (dot_args.len() != usize(2)) => Option(AstExpr).None,
         true => match(
           dot_box,
-          .FnCall(_, _, _, _, _) => Option(AstExpr).None,
-          .Atom(_, dot_tok) => cond(
+          Rc(.FnCall(_, _, _, _, _)) => Option(AstExpr).None,
+          Rc(.Atom(_, dot_tok)) => cond(
             (dot_tok.kind != TokenKind.Dot) => Option(AstExpr).None,
             true => match(
               dot_args.get(usize(0)),
@@ -7024,20 +7024,20 @@ _io_async_receiver_bundle_expr :: (fn(expr : &AstExpr) -> Option(AstExpr))(
               .Some(recv) => match(
                 recv,
                 // `<base>.io.async(...)` — the bundle is the BASE.
-                .FnCall(_, r_dot_box, Rc(r_args), r_infix, _) => cond(
+                Rc(.FnCall(_, r_dot_box, Rc(r_args), r_infix, _)) => cond(
                   (r_infix == false) => Option(AstExpr).None,
                   (r_args.len() != usize(2)) => Option(AstExpr).None,
                   true => match(
                     r_dot_box,
-                    .FnCall(_, _, _, _, _) => Option(AstExpr).None,
-                    .Atom(_, r_tok) => cond(
+                    Rc(.FnCall(_, _, _, _, _)) => Option(AstExpr).None,
+                    Rc(.Atom(_, r_tok)) => cond(
                       (r_tok.kind != TokenKind.Dot) => Option(AstExpr).None,
                       true => r_args.get(usize(0))
                     )
                   )
                 ),
                 // Bare variable receiver: the bundle IS the receiver.
-                .Atom(_, _) => Option(AstExpr).Some(recv)
+                Rc(.Atom(_, _)) => Option(AstExpr).Some(recv)
               )
             )
           )
@@ -7056,25 +7056,25 @@ _io_async_receiver_bundle_expr :: (fn(expr : &AstExpr) -> Option(AstExpr))(
 _io_async_closure_param_is_annotated :: (fn(expr : &AstExpr) -> bool)(
   match(
     expr,
-    .Atom(_, _) => false,
-    .FnCall(_, _, Rc(ap_args), _, _) => match(
+    Rc(.Atom(_, _)) => false,
+    Rc(.FnCall(_, _, Rc(ap_args), _, _)) => match(
       ap_args.get(usize(0)),
       .None => false,
       .Some(ap_closure) => match(
         ap_closure,
-        .Atom(_, _) => false,
-        .FnCall(_, _, Rc(ap_cl_args), _, _) => match(
+        Rc(.Atom(_, _)) => false,
+        Rc(.FnCall(_, _, Rc(ap_cl_args), _, _)) => match(
           ap_cl_args.get(usize(0)),
           .None => false,
           .Some(ap_param) => cond(
             ast_expr_is_capture_list_params(&ap_param) => match(
               ap_param,
-              .FnCall(_, _, Rc(cl_params), _, _) => match(
+              Rc(.FnCall(_, _, Rc(cl_params), _, _)) => match(
                 cl_params.get(usize(0)),
                 .None => false,
                 .Some(cl_p0) => ast_expr_is_fn_call_of(&cl_p0, ":", Option(usize).Some(usize(2)))
               ),
-              .Atom(_, _) => false
+              Rc(.Atom(_, _)) => false
             ),
             true => ast_expr_is_fn_call_of(&ap_param, ":", Option(usize).Some(usize(2)))
           )
@@ -7098,7 +7098,7 @@ _evaluated_expr_type :: (
     .Some(t) => Option(TypeValue).Some(Rc.clone(t)),
     .None => match(
       e,
-      .Atom(_, e_tok) => {
+      Rc(.Atom(_, e_tok)) => {
         e_vars := get_variables_from_env(caller_env, e_tok.value.*.to_string());
         cond(
           (e_vars.len() == usize(0)) => Option(TypeValue).None,
@@ -7183,7 +7183,7 @@ reject_runtime_comptime_arguments :: (
 _is_fn_literal_arg :: (fn(arg : &AstExpr) -> bool)({
   (a : AstExpr) = arg.*;
   if(ast_expr_is_fn_call_of(&a, ":", .Some(usize(2))), {
-    a = match(a, .FnCall(_, _, Rc(cl_as), _, _) => match(cl_as.get(usize(1)), .Some(v) => v, .None => a), _ => a);
+    a = match(a, Rc(.FnCall(_, _, Rc(cl_as), _, _)) => match(cl_as.get(usize(1)), .Some(v) => v, .None => a), _ => a);
   });
   ast_expr_is_fn_call_of(&a, "=>", .Some(usize(2))) || ast_expr_is_fn_call_of(&a, "->", .Some(usize(2)))
 });
@@ -7777,7 +7777,7 @@ try_to_call_function_with_arguments :: (
       written_args := adjusted_args.clone();
       adjusted_args = apply_call_site_borrow_markers(&adjusted_args, &pt.items, &pref.items, &pio.items, &pl.items, is_method_call, exn);
       // An operator's operands take no marker (decision 34).
-      call_is_operator := match(expr, .FnCall(_, op_f, _, op_infix, _) => (op_infix.* || match(op_f, .Atom(_, op_t) => (op_t.kind == TokenKind.Operator), _ => false)), .Atom(_, _) => false);
+      call_is_operator := match(expr, Rc(.FnCall(_, op_f, _, op_infix, _)) => (op_infix.* || match(op_f, Rc(.Atom(_, op_t)) => (op_t.kind == TokenKind.Operator), _ => false)), Rc(.Atom(_, _)) => false);
       // ----------------------------------------------------------------
       // Step 3: Argument count check.
       //
