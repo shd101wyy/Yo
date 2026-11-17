@@ -49,10 +49,10 @@ test("Test Arc passed to function", {
 });
 test("Test Arc rejects a non-Send payload type", {
   Counter :: struct(count : Rc(i32));
-  // The bound sits on `Arc.new` while `Arc`'s `?Sized` declaration cannot
-  // spell a `where` under the v0.2.77 seed (decision 49 S2); it returns to
-  // the declaration, and `Arc(Counter)` itself to an error, one release
-  // later (plans/backlog/SEED_VERSION_AUTOMATION.md).
+  // The bound sits on `Arc`'s declaration, so the type itself is the error
+  // (issues/fixed/2026-11-14-rc-of-a-reference-and-arc-of-a-non-send-type-check-as-types.md).
+  comptime_expect_error(Arc(Counter));
+  comptime_expect_error(ArcWeak(Counter));
   comptime_expect_error(Arc.new(Counter(Rc.new(i32(1)))));
 });
 test("Test Arc multiple copies", {

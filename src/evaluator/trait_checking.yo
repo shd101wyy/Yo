@@ -26,6 +26,7 @@ pragma(Pragma.AllowUnsafe);
   is_some_type,
   is_pointer_type,
   is_struct_type,
+  is_array_type,
   is_enum_type,
   is_reference_struct_type,
   is_reference_enum_type,
@@ -2686,17 +2687,18 @@ is_escapable_trait :: (fn(trait_type : &TypeValue, env : &Environment) -> bool)(
 // ---------------------------------------------------------------------------
 // deref_target_type
 // ---------------------------------------------------------------------------
-/// The payload type auto-dereference forwards to: `Target` of the prelude's
-/// `Deref` marker when `ty` implements it (`Rc(V)`, `Arc(V)` → `V`), else
-/// `.None` (plans/VALUES_BY_DEFAULT.md §3.3). Only a concrete struct can be a
-/// wrapper — a SomeT, pointer, Dyn or type value never auto-dereferences —
-/// and `Deref` is implementable only in the prelude (impl.yo), so a hit is
-/// always one of the known cells. A cell handle (`cell_handle_view`), which
-/// an unsafe-capable file may also give `Deref` (V5 decision D2), forwards to
-/// its cell's payload, whatever `Target` its impl names: the payload is the
-/// place `h.*` reads.
+/// The place type `w.*` names on a `Deref` type `ty`: `Target` of the
+/// prelude's `Deref` when `ty` implements it (`Rc(V)`, `Arc(V)` → `V`,
+/// `Array(T, N)` → `[T]`), else `.None` (plans/VALUES_BY_DEFAULT.md §3.3).
+/// Only a concrete struct or an array can implement it — a SomeT, pointer,
+/// Dyn or type value never auto-dereferences. A cell handle
+/// (`cell_handle_view`), which an unsafe-capable file may also give `Deref`
+/// (V5 decision D2), forwards to its cell's payload: the payload is the
+/// place `h.*` reads. A handle's `.*` is read natively
+/// (`is_deref_handle`); every other `Deref` type is an owner, whose `.*` is
+/// its `deref` projection's place (`deref_owner_target`, VERDICTS-63).
 deref_target_type :: (fn(ty : &TypeValue, env : &Environment) -> Option(TypeValue))({
-  if(!is_struct_type(ty), {
+  if(!is_struct_type(ty) && !is_array_type(ty), {
     return(Option(TypeValue).None);
   });
   match(
@@ -2712,6 +2714,32 @@ deref_target_type :: (fn(ty : &TypeValue, env : &Environment) -> Option(TypeValu
     )
   )
 });
+/// `ty` implements the prelude's `DerefMut` and not its `Deref`: a
+/// `DerefMut` impl needs a `Deref` impl with the same `Target` (VERDICTS-63
+/// decision 2), so such a type has no `.*`.
+implements_deref_mut_without_deref :: (fn(ty : &TypeValue, env : &Environment) -> bool)(
+  (is_struct_type(ty) || is_array_type(ty)) && match(
+    get_trait_type_from_env(env, String.from("DerefMut")),
+    .Some(dm_tt) => (type_implements_trait_bool(ty, &dm_tt, env) && match(get_trait_type_from_env(env, String.from("Deref")), .Some(d_tt) => !type_implements_trait_bool(ty, &d_tt, env), .None => true)),
+    .None => false
+  )
+);
+/// `ty` is a handle: a type whose `.*` the compiler reads natively through
+/// its payload pointer (`Box`, `Rc`, `Arc`, a D2 cell view). Decision 32's
+/// clash rule (E0616) is the handles' rule (VERDICTS-63 decision 7).
+is_deref_handle :: (fn(ty : &TypeValue) -> bool)(
+  cell_handle_view(ty).is_some() || unique_box_payload_type(ty).is_some()
+);
+/// The `Target` of an owner (VERDICTS-63 decision 3): a `Deref` type that is
+/// not a handle (`is_deref_handle`), whose `.*` is the place its `deref`
+/// projection yields and whose own members win over its view's. `.None` for
+/// a handle and for a type without `Deref`.
+deref_owner_target :: (fn(ty : &TypeValue, env : &Environment) -> Option(TypeValue))(
+  cond(
+    is_deref_handle(ty) => Option(TypeValue).None,
+    true => deref_target_type(ty, env)
+  )
+);
 // ---------------------------------------------------------------------------
 // type_implements_fn
 // ---------------------------------------------------------------------------
@@ -3728,7 +3756,7 @@ export(check_type_implements_self_constraints);
 export(type_implements_comptime, type_implements_runtime_full);
 export(begin_send_derivation, end_send_derivation);
 export(type_implements_send, type_implements_sync, type_implements_dispose, is_escapable_trait, is_sized_trait);
-export(deref_target_type, copy_structural_parts);
+export(deref_target_type, is_deref_handle, deref_owner_target, implements_deref_mut_without_deref, copy_structural_parts);
 export(set_flip_prelude_env, push_copy_pending, clear_copy_pending);
 export(type_implements_fn);
 export(resolve_assoc_type_for_target);

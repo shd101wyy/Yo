@@ -5,7 +5,7 @@ pragma(Pragma.SkipWasm32Wasi); // the atomic handle's thread test needs pthreads
 //! treats it as those cells by structure, so the wrappers of
 //! tests/fixtures/cell_handles.yo stand in for them here. This file is SAFE:
 //! E0919 and D3 must fire where user code runs.
-{ TRc, TArc, trc, tarc, treset, TLocked, tlocked, tmisnamed } :: import("./fixtures/cell_handles.yo");
+{ TRc, TArc, trc, tarc, treset, TLocked, tlocked } :: import("./fixtures/cell_handles.yo");
 { assert } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
 { yield } :: import("std/async");
@@ -230,10 +230,6 @@ test("S2: an atomic handle of an atomic ref enum is a box in a Send Dyn, as an A
   assert(d.*.area() == i32(7), "dispatched through the atomic handle");
   (e : Box(Dyn(_Area, Send))) = dyn(Box.new(_AE.A(n : i32(8))));
   assert(e.area() == i32(8), "and through the Arc");
-});
-test("D2: a handle auto-dereferences to its payload whatever Target its Deref impl names", {
-  m := tmisnamed(i32(3));
-  assert(m.x == i32(3), "m.x is m.*.x");
 });
 _count_later :: (fn(items : &ArrayList(i32), io : Io) -> Impl(Future(usize, Io)))(
   io.async({ items : &items.* }(io : Io) => {

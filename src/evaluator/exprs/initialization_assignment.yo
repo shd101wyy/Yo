@@ -108,7 +108,7 @@
 { type_implements_comptime, type_implements_runtime_full } :: import("../trait_checking.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
 { reject_dyn_place_by_value, is_valid_variable_name, in_compile_time_fn_body, note_second_class_binding, reject_malformed_mut_marker, place_require_mut, binding_require_mut, reject_write_through_rc, handle_payload_is_read_only, deref_reads_through_pointee, audit_copy_trait_enabled, audit_pending_copies_enabled } :: import("../utils.yo");
-{ is_mut_binding, is_thread_local_binding } :: import("../../expr.yo");
+{ is_mut_binding, is_thread_local_binding, owner_deref_object, ast_rewritten_node } :: import("../../expr.yo");
 { throw_rhs_contains_control_flow_expression_error, shared_borrow_param_root_of_place, reject_write_through_shared_borrow_param, throw_if_mut_lend_through_atomic_object } :: import("./assignment.yo");
 {
   evaluate_destructuring_assignment,
@@ -451,6 +451,15 @@ _evaluate_inout_local_binding :: (
   env_adopt(&env.*, &rhs_info.env());
   prohibit_void_type(&rhs_info.ty(), ast_expr_token(rhs), exn);
   require_expr_not_consumed(&evaluated_rhs, env, ctx, exn);
+  // `v := &x.*` on an owner is `v := x.deref()`, and `w := &mut x.*` is
+  // `w := x.deref_mut()` (VERDICTS-63 decision 4): the place is the
+  // projection's result, bound as a projection call's is, rooted at `x`.
+  if(owner_deref_object(&evaluated_rhs).is_some(), {
+    if(is_mut, {
+      call_promote_index_places_for_write(&evaluated_rhs, env, ctx, exn);
+    });
+    return(_bind_projection_result(expr, &name_expr, &ast_rewritten_node(&evaluated_rhs), is_compile_time_only, env, ctx, exn));
+  });
   // Outside privileged code a `*` hop is legal only as the deref of a handle
   // whose payload is read-only through it (an `Rc` or an `Arc`,
   // `handle_payload_is_read_only`; decision 43, REFERENCES_AND_ORIGINS.md O9):

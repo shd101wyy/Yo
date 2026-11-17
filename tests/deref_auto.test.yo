@@ -35,7 +35,8 @@ _take :: (fn(v : i32) -> i32)(v + i32(1));
 // A payload field holding a function, called through the wrapper.
 _H :: struct(f : (fn(x : i32) -> i32));
 derive(_H, Copy, Clone);
-// A user type may not implement `Deref` (concrete or generic impl).
+// A user wrapper over a sized payload may not implement `Deref` (concrete
+// or generic impl): E0622 (VERDICTS-63 decision 10).
 _UserWrap :: struct(v : i32);
 _UserGen :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T));
 test("auto-deref: field read through Rc", {
@@ -120,9 +121,9 @@ test("auto-deref: a function-typed payload field is callable", {
   h := Rc.new(_H(f : (fn(x : i32) -> i32)(x + i32(1))));
   assert(h.f(i32(1)) == i32(2), "h.f(x) calls h.*.f(x)");
 });
-test("auto-deref: only the prelude implements Deref", {
-  comptime_expect_error(impl(_UserWrap, Deref(Target : i32)), "Cannot implement Deref");
-  comptime_expect_error(impl(generic(T : Type), _UserGen(T), Deref(Target : T)), "Cannot implement Deref");
+test("auto-deref: outside the prelude a Deref impl needs an unsized Target (E0622)", {
+  comptime_expect_error(impl(_UserWrap, Deref(Target : i32)), "Cannot implement `Deref` for `_UserWrap`: its `Target` `i32` has a size");
+  comptime_expect_error(impl(generic(T : Type), _UserGen(T), Deref(Target : T)), "is a type variable, which may have a size");
   comptime_assert(Type.impls(Rc(_P), Deref), "Rc implements Deref");
   comptime_assert(Type.impls(Arc(_Q), Deref), "Arc implements Deref");
   comptime_assert(!Type.impls(_P, Deref), "a plain struct does not");
@@ -273,4 +274,25 @@ test("auto-deref: a rewritten field read and method call evaluated again in a lo
   });
   assert(total == i32(42), "b.n and b.get() read the payload on every iteration");
   assert(_read_n(&b) == i32(7), "a generic body over the Rc");
+});
+// `Deref` carries the projection `deref`, and `Box` the write half
+// `DerefMut` (VERDICTS-63 decisions 1-3): every handle implements the method
+// and keeps its native `.*`.
+_DP :: struct(n : i32);
+impl(_DP, get : (fn(self : &Self) -> i32)(self.n));
+_read_deref :: (fn(generic(D : Type), d : &D, where(D <: Deref(Target := _DP))) -> i32)(d.deref().n);
+test("auto-deref: the handles implement deref, and Box deref_mut", {
+  mut(b) := Box.new(_DP(n : i32(1)));
+  r := Rc.new(_DP(n : i32(2)));
+  a := Arc.new(_DP(n : i32(3)));
+  assert(Box.deref(&b).n == i32(1), "Box.deref");
+  assert(Rc.deref(&r).get() == i32(2), "Rc.deref");
+  assert(Arc.deref(&a).n == i32(3), "Arc.deref");
+  Box.deref_mut(&mut b).n = i32(7);
+  assert(b.n == i32(7), "written through Box.deref_mut");
+  assert(_read_deref(&b) == i32(7), "one generic body at a Box");
+  assert(_read_deref(&r) == i32(2), "and at an Rc");
+  comptime_assert(Type.impls(Box(_DP), DerefMut), "Box implements DerefMut");
+  comptime_assert(!Type.impls(Rc(_DP), DerefMut), "Rc has no DerefMut (decision 46)");
+  comptime_assert(!Type.impls(Arc(_DP), DerefMut), "nor Arc");
 });

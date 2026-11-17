@@ -138,6 +138,7 @@ pragma(Pragma.AllowUnsafe);
   type_implements_future,
   resolve_assoc_type_for_target,
   deref_target_type,
+  deref_owner_target,
   copy_structural_parts,
   type_implements_trait,
   type_clone_runs_no_user_code
@@ -834,7 +835,9 @@ _reject_wrapper_payload_clash :: (
       return(());
     }
   );
-  if(is_pointer_type(&recv_ty), {
+  // An owner's own member wins (VERDICTS-63 decision 7): decision 32 is the
+  // handles' rule (`Box`, `Rc`, `Arc`, raw pointers).
+  if(is_pointer_type(&recv_ty) || deref_owner_target(resolve_struct_shell(&recv_ty), env).is_some(), {
     return(());
   });
   payload_ty := match(
@@ -5389,7 +5392,14 @@ _call_value_loans :: (fn(slots : &ArrayList(Option(AstExpr)), env : &Environment
     match(
       slots.get_cloned(si),
       .Some(.Some(arg)) => {
-        (value : AstExpr) = match(_lent_argument_place(&arg), .Some(p) => p, .None => arg.clone());
+        (mut(value) : AstExpr) = match(_lent_argument_place(&arg), .Some(p) => p, .None => arg.clone());
+        // `&f(&x).*`, and an owner's `&b.*` (VERDICTS-63 decision 13), lend
+        // the place a projection call yields: the `.*` node reads as the
+        // call (`note_projection_call_deref`), whose roots are the loans.
+        vl_call := ast_rewritten_node(&value);
+        if(projection_call_mode_of(&vl_call, ctx).is_some(), {
+          value = vl_call;
+        });
         entries := ArrayList(OriginRootPlace).new();
         _value_loan_entries_into(&value, env, ctx, &mut entries, u32(0));
         if(entries.len() > usize(0), {
@@ -7947,6 +7957,22 @@ _is_concrete_nominal_operand :: (fn(t : &TypeValue) -> bool)(
     _ => false
   )
 );
+/// The help on E0601 for `f(&b)` where `b`'s type implements `Deref` with
+/// the slot's referent as its `Target` (VERDICTS-63 decision 8): nothing
+/// dereferences at a slot, so the view is lent as `&b.*`.
+_deref_view_lend_help :: (fn(arg_ty : &TypeValue, param_ty : &TypeValue, arg : &AstExpr, env : &Environment) -> Option(String))(
+  match(
+    deref_target_type(resolve_struct_shell(arg_ty), env),
+    .Some(dv_t) => cond(
+      (are_types_compatible(&dv_t, param_ty) && are_types_compatible(param_ty, &dv_t)) => {
+        dv_place := ast_expr_to_string(&ast_expr_strip_borrow_marker(arg));
+        Option(String).Some(`\`${type_to_string(arg_ty)}\` implements \`Deref\` with \`Target\` \`${type_to_string(&dv_t)}\`, and nothing dereferences at a parameter: lend its view with \`&${dv_place}.*\``)
+      },
+      true => Option(String).None
+    ),
+    .None => Option(String).None
+  )
+);
 _evaluate_funcval_runtime_call :: (
   fn(
     expr : &AstExpr,
@@ -8085,7 +8111,7 @@ _evaluate_funcval_runtime_call :: (
                       .None => false
                     );
                     if(!_ac_box_lend, {
-                      raise_flow_violation(format_error_message(&_ac_tok, &_ac_mmsg), ctx, exn);
+                      raise_flow_violation(format_error_message_with_help(&_ac_tok, &_ac_mmsg, _deref_view_lend_help(&_ac_aty, &_ac_pty, &_ac_arg, env)), ctx, exn);
                     });
                   });
                   // A FUNCTION-typed slot skips the check above (its type

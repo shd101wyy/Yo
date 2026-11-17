@@ -1318,7 +1318,8 @@ _apply_ref_amp :: (fn(args : &ArrayList(String), param_is_ref : &ArrayList(bool)
     // over a box, a reference binding `r`: `(*pair)`); the lend is the pair.
     c := match(args.get_cloned(i), .Some(x) => if(unsized_lend, unsized_lend_pair_code(&x), x), .None => String.from(""));
     // Decision 49 S2: an argument that is an unsized place (`"lit"` or `s`
-    // lent to a `&str` slot) or a reference to an unsized pointee (a `&str`
+    // lent to a `&str` slot, `b.*` of an owner, a projection call's
+    // `[T]` place) or a reference to an unsized pointee (a `&str`
     // value, a call's `&str` result) is passed as the fat pair it is: a
     // `(*fat)` place folds to `fat`, anything else is already the pair.
     fat_arg := (

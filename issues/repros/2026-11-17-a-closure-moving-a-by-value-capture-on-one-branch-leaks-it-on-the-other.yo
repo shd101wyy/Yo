@@ -1,0 +1,22 @@
+{ String } :: import("std/string");
+{ HashMap } :: import("std/collections/hash_map");
+{ RefCell } :: import("std/sync/refcell");
+(g_tbl : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
+note :: (fn(func_id : &String, writes : bool) -> unit)({
+  fid := func_id.clone();
+  g_tbl.with_mut({ fid, writes }(m) => {
+    if(writes, {
+      m.insert(fid, true);
+    }, {
+      m.remove(&fid);
+    });
+    ()
+  });
+});
+main :: (fn() -> unit)({
+  k := String.from("a-func-id-long-enough-to-be-on-the-heap");
+  note(&k, false);
+  note(&k, true);
+  note(&k, false);
+});
+export(main);
