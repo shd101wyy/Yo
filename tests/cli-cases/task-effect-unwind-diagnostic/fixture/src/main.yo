@@ -23,7 +23,7 @@ main :: (fn(io : Io) -> unit)({
   );
   task := io.async((e : IoExn) => {
     println("task: throwing");
-    e.exn.throw(dyn(MyError.Boom));
+    e.exn.throw(dyn(Box.new(MyError.Boom)));
   });
   io.spawn(task, IoExn(io : io, exn : exn));
   println("main: spawned fire-and-forget, returning");

@@ -1,5 +1,7 @@
-// `yo check --test-bodies` on a test body that auto-boxes a closure for a
-// `Dyn` (no explicit `box`). The synthesized `rc(...)` call was built with
+// `yo check --test-bodies` on a test body that boxes a closure for a `Dyn`.
+// It was written for the auto-box of a plain `dyn(f)` (the legacy alias,
+// deleted by decision 49 S3b, now spelled `dyn(Box.new(f))`), whose
+// synthesized `rc(...)` call was built with
 // node id 0, shared by every other such node, so the ExprInfo side table (keyed
 // by id) answered the callee atom with another node's entry: "box is not
 // callable: it has type unit".
@@ -10,9 +12,11 @@
 { assert } :: import("std/assert");
 test("an auto-boxed closure in a test body", {
   mut(x) := 1;
-  (mut(closure) : Box(Dyn(FnMut(y : i32) -> i32))) = dyn(y => {
-    x = (x + y);
-    return(x);
-  });
+  (mut(closure) : Box(Dyn(FnMut(y : i32) -> i32))) = dyn(
+    Box.new(y => {
+      x = (x + y);
+      return(x);
+    })
+  );
   assert(closure(1) == 2, "called");
 });

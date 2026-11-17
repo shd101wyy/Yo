@@ -34,7 +34,7 @@ make_node :: (fn(v : i32) -> Rc(Node))({
 // completes, so the old value must be dropped exactly once (the local's
 // scope drop), not also via the save temp.
 replace_or_throw :: (fn(old : &Rc(Node), exn : Exception) -> Rc(Node))({
-  exn.throw(dyn(String.from("no replacement available")));
+  exn.throw(dyn(Box.new(String.from("no replacement available"))));
   Rc.clone(old)
 });
 run_once :: (fn(i : i32) -> unit)({

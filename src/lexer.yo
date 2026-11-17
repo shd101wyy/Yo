@@ -188,7 +188,7 @@ tokenize_span :: (
         // `...#(xs)` was the operator spelling of `unquote_splicing(xs)`,
         // deleted 2026-10-10 (one spelling per operation): name the word.
         if((dot_run_len == usize(3)) && (next_after_dots.char == u32(0x23)), {
-          exn.throw(dyn(format_lexer_error(&module_path.*, &input.*, line, col, String.from(_REMOVED_SPLICE_OPERATOR_MESSAGE))));
+          exn.throw(dyn(Box.new(format_lexer_error(&module_path.*, &input.*, line, col, String.from(_REMOVED_SPLICE_OPERATOR_MESSAGE)))));
         });
         // A run of four or more dots is not in the closed set: without this
         // check the whole run became ONE Operator token that bypassed the
@@ -199,12 +199,14 @@ tokenize_span :: (
           dot_str := dot_sb.to_string();
           exn.throw(
             dyn(
-              format_lexer_error(
-                &module_path.*,
-                &input.*,
-                line,
-                col,
-                `unknown operator in '${dot_str}': Yo has a closed operator set (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md); separate the operators with spaces or parentheses`
+              Box.new(
+                format_lexer_error(
+                  &module_path.*,
+                  &input.*,
+                  line,
+                  col,
+                  `unknown operator in '${dot_str}': Yo has a closed operator set (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md); separate the operators with spaces or parentheses`
+                )
               )
             )
           );
@@ -255,18 +257,20 @@ tokenize_span :: (
           // `#(x)` was the operator spelling of `unquote(x)`, deleted
           // 2026-10-10 (one spelling per operation): name the word.
           if((tok_len == usize(0)) && (op_str.slice_copy(k .. (k + usize(1))) == "#"), {
-            exn.throw(dyn(format_lexer_error(&module_path.*, &input.*, line, col + k, String.from(_REMOVED_UNQUOTE_OPERATOR_MESSAGE))));
+            exn.throw(dyn(Box.new(format_lexer_error(&module_path.*, &input.*, line, col + k, String.from(_REMOVED_UNQUOTE_OPERATOR_MESSAGE)))));
             break;
           });
           if(tok_len == usize(0), {
             exn.throw(
               dyn(
-                format_lexer_error(
-                  &module_path.*,
-                  &input.*,
-                  line,
-                  col + k,
-                  `unknown operator in '${op_str}': Yo has a closed operator set (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md); separate the operators with spaces or parentheses`
+                Box.new(
+                  format_lexer_error(
+                    &module_path.*,
+                    &input.*,
+                    line,
+                    col + k,
+                    `unknown operator in '${op_str}': Yo has a closed operator set (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md); separate the operators with spaces or parentheses`
+                  )
                 )
               )
             );
@@ -379,7 +383,7 @@ tokenize_span :: (
           );
         });
         if(nesting > usize(0), {
-          exn.throw(dyn(format_lexer_error(&module_path.*, &input.*, bc_start_ln, col, `unterminated block comment`)));
+          exn.throw(dyn(Box.new(format_lexer_error(&module_path.*, &input.*, bc_start_ln, col, `unterminated block comment`))));
         });
         cm_str := cm_sb.to_string();
         tokens.push(Token(kind : block_kind, value : Rc.new(cm_str), row : u32(bc_start_ln), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : Rc.clone(module_path), input : Rc.clone(input)));
@@ -459,7 +463,7 @@ tokenize_span :: (
         });
         char_is_valid := ((utf16_len == usize(1)) || ((utf16_len == usize(2)) && first_is_backslash));
         if(!char_is_valid, {
-          exn.throw(dyn(format_lexer_error(&module_path.*, &input.*, line, col, `invalid char literal: expected char to have length 1`)));
+          exn.throw(dyn(Box.new(format_lexer_error(&module_path.*, &input.*, line, col, `invalid char literal: expected char to have length 1`))));
         });
         val_sb.write_byte(u8(0x27));
         tok_val := val_sb.to_string();
@@ -497,7 +501,7 @@ tokenize_span :: (
                 match(
                   scan_unicode_escape(&chars, k + usize(1)),
                   .Bad(msg) => exn.throw(
-                    dyn(format_lexer_error(&module_path.*, &input.*, line, col, &msg))
+                    dyn(Box.new(format_lexer_error(&module_path.*, &input.*, line, col, &msg)))
                   ),
                   // A LONE surrogate half is rejected exactly like the braced
                   // form's: the four-digit form spells an astral code point
@@ -528,7 +532,7 @@ tokenize_span :: (
                       });
                       if(!paired, {
                         exn.throw(
-                          dyn(format_lexer_error(&module_path.*, &input.*, line, col, surrogate_escape_error_message()))
+                          dyn(Box.new(format_lexer_error(&module_path.*, &input.*, line, col, surrogate_escape_error_message())))
                         );
                       });
                     });
@@ -589,12 +593,14 @@ tokenize_span :: (
         if(!str_closed, {
           exn.throw(
             dyn(
-              format_lexer_error(
-                &module_path.*,
-                &input.*,
-                line,
-                col,
-                `unterminated string literal — the line or file ended before the closing quote; use a backtick template for multiline text`
+              Box.new(
+                format_lexer_error(
+                  &module_path.*,
+                  &input.*,
+                  line,
+                  col,
+                  `unterminated string literal — the line or file ended before the closing quote; use a backtick template for multiline text`
+                )
               )
             )
           );
@@ -687,7 +693,7 @@ tokenize_span :: (
                   match(
                     scan_unicode_escape(&chars, k + usize(1)),
                     .Bad(msg) => exn.throw(
-                      dyn(format_lexer_error(&module_path.*, &input.*, line, col, &msg))
+                      dyn(Box.new(format_lexer_error(&module_path.*, &input.*, line, col, &msg)))
                     ),
                     .Ok(cp, consumed) => {
                       // A `\uXXXX` high surrogate combines with a following
@@ -719,7 +725,7 @@ tokenize_span :: (
                       // losing the whole literal part around it.
                       if((code >= u32(0xD800)) && (code <= u32(0xDFFF)), {
                         exn.throw(
-                          dyn(format_lexer_error(&module_path.*, &input.*, line, col, surrogate_escape_error_message()))
+                          dyn(Box.new(format_lexer_error(&module_path.*, &input.*, line, col, surrogate_escape_error_message())))
                         );
                       });
                       cond((code == u32(0x5C)) => ts_sb.write_str("\\\\"), true => ts_sb.write_rune(rune(code)));
@@ -777,7 +783,7 @@ tokenize_span :: (
           );
         });
         if(!template_closed, {
-          exn.throw(dyn(format_lexer_error(&module_path.*, &input.*, tpl_start_ln, col, `unterminated template string`)));
+          exn.throw(dyn(Box.new(format_lexer_error(&module_path.*, &input.*, tpl_start_ln, col, `unterminated template string`))));
         });
         ts_val := ts_sb.to_string();
         tokens.push(Token(kind : TokenKind.TemplateString, value : Rc.new(ts_val), row : u32(tpl_start_ln), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : Rc.clone(module_path), input : Rc.clone(input)));
@@ -978,12 +984,14 @@ tokenize_span :: (
         if((id_str == `∀`) || (id_str == `∃`), {
           exn.throw(
             dyn(
-              format_lexer_error(
-                &module_path.*,
-                &input.*,
-                line,
-                col,
-                `\`${id_str}\` is not part of the language — the ASCII spellings are \`forall(...)\` and \`exists(...)\` (plans/backlog/FORMAL_VERIFICATION.md §6)`
+              Box.new(
+                format_lexer_error(
+                  &module_path.*,
+                  &input.*,
+                  line,
+                  col,
+                  `\`${id_str}\` is not part of the language — the ASCII spellings are \`forall(...)\` and \`exists(...)\` (plans/backlog/FORMAL_VERIFICATION.md §6)`
+                )
               )
             )
           );
@@ -998,7 +1006,7 @@ tokenize_span :: (
       },
       // Unknown character: error
       true => {
-        exn.throw(dyn(format_lexer_error(&module_path.*, &input.*, line, col, `unexpected character`)));
+        exn.throw(dyn(Box.new(format_lexer_error(&module_path.*, &input.*, line, col, `unexpected character`))));
         i = (i + usize(1));
       }
     );

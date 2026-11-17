@@ -363,7 +363,7 @@ derive(DivError, Clone); // AnyError lists Clone (a v0.2.73 interim)
 
 safe_divide :: (fn(x : i32, y : i32, exn : Exception) -> i32)(
   cond(
-    (y == i32(0)) => exn.throw(dyn(DivError.DivByZero)),
+    (y == i32(0)) => exn.throw(dyn(Box.new(DivError.DivByZero))),
     true => (x / y)
   )
 );
@@ -389,7 +389,7 @@ export(main);
 
 - The struct constructor `Exception(...)` already pins the binding's type, so a plain `exn := Exception(...)` is enough — no `(exn : Exception) = ...` annotation needed. The annotation form is only required when the RHS is a raw lambda that has to commit to `ctl(...) -> R`.
 - `Exception` has a single field `throw : (ctl(error : AnyError) -> T)`.
-- `exn.throw(dyn(error))` calls the handler with a type-erased error.
+- `exn.throw(dyn(Box.new(error)))` calls the handler with a type-erased error (a plain `dyn(error)` is E0620 since v0.2.79).
 - Handler uses `unwind` to discard the continuation and exit the enclosing function.
 - Code after the escaped call is never reached.
 
@@ -432,7 +432,7 @@ To resume the throw site with a recovery value instead, the callee must take a
 
 safe_divide :: (fn(x : i32, y : i32, exn : ResumableException(i32)) -> i32)(
   cond(
-    (y == i32(0)) => exn.throw(dyn(`division by zero`)),
+    (y == i32(0)) => exn.throw(dyn(Box.new(`division by zero`))),
     true => (x / y)
   )
 );

@@ -76,7 +76,7 @@ test("a DNS failure is classified apart from a backend failure", {
   //
   // The positive case is the EXACT value std/net/dns.yo:76 throws.
   assert(
-    _is_dns_failure(dyn(NetError.DNSFailed(host : `example.com`.to_string(), reason : DnsError.TryAgain))),
+    _is_dns_failure(dyn(Box.new(NetError.DNSFailed(host : `example.com`.to_string(), reason : DnsError.TryAgain)))),
     "a DNSFailed throw is a resolution failure"
   );
   assert(
@@ -84,11 +84,11 @@ test("a DNS failure is classified apart from a backend failure", {
     "a refused connection is NOT a resolution failure"
   );
   assert(
-    !_is_dns_failure(dyn(NetError.Other(msg : `boom`.to_string()))),
+    !_is_dns_failure(dyn(Box.new(NetError.Other(msg : `boom`.to_string())))),
     "an Other error is NOT a resolution failure"
   );
   assert(
-    !_is_dns_failure(dyn(TlsError.Handshake(detail : `bad cert`.to_string()))),
+    !_is_dns_failure(dyn(Box.new(TlsError.Handshake(detail : `bad cert`.to_string())))),
     "a handshake failure is NOT a resolution failure — it must stay fatal under CI"
   );
 });

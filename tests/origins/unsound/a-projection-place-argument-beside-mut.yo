@@ -1,0 +1,25 @@
+// expect: E0910
+// `&first(&xs).*` lends the place the projection call yields: the argument
+// holds the call's `&` loan of `xs`, so `&mut xs` beside it is rejected as the
+// bare `first(&xs)` is (issues/fixed/2026-11-16-an-argument-lending-a-projection-calls-place-holds-no-loan.md).
+// Accepted (develop 223b188f4), the callee holds `&mut xs` beside a reference
+// into `xs` while its pushes reallocate the buffer. That build's lowering of the
+// argument happens to survive under ASan; the rejection is the gate.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+first :: (fn(xs : &ArrayList(String)) -> &String)(&xs(usize(0)));
+grow_then_read :: (fn(xs : &mut ArrayList(String), v : &String) -> usize)({
+  (mut(i) : usize) = usize(0);
+  while(i < usize(64), i = (i + usize(1)), {
+    xs.push(String.from("0123456789abcdefghijklmnopqrstuvwxyz"));
+  });
+  v.len()
+});
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("0123456789abcdefghijklmnopqrstuvwxyz"));
+  n := grow_then_read(&mut xs, &first(&xs).*);
+  println(&n);
+});
+export(main);

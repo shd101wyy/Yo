@@ -559,7 +559,9 @@ Explicit sharing must not mean writing `.*` everywhere.
     prelude `Deref`'s key and accepts an impl only in the prelude and in
     compiler-generated code.
   - Landed in #1191.
-  - **Amended 2026-11-15 (VERDICTS-63, not yet landed).** `Deref` carries
+  - **Amended 2026-11-15 (VERDICTS-63; Generation A landed in v0.2.79:
+    the two traits, the cells' and `Array`'s impls, an owner's `.*`, and
+    E0622 for a sized `Target` outside the prelude).** `Deref` carries
     `deref : fn(self : &Self) -> &Self.Target` and `DerefMut` carries
     `deref_mut : fn(self : &mut Self) -> &mut Self.Target`, chosen as
     `Index` and `IndexMut` are. A handle's (`Box`, `Rc`, `Arc`) `.*` is

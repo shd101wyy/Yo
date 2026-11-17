@@ -224,7 +224,7 @@ impl(
 /// `to_string` renders the whole chain, innermost last:
 ///
 /// ```yo
-/// e := Context.new(`while loading the config`, dyn(io_err));
+/// e := Context.new(`while loading the config`, dyn(Box.new(io_err)));
 /// println(e.to_string()); // while loading the config: no such file
 /// ```
 Context :: struct(
@@ -292,7 +292,7 @@ export(ResumableException);
 ///
 /// ```yo
 /// { root_cause } :: import("std/error");
-/// e := dyn(Context.new(`while loading the config`, dyn(io_err)));
+/// e := dyn(Box.new(Context.new(`while loading the config`, dyn(Box.new(io_err)))));
 /// println(root_cause(e).to_string()); // the io error, not the context
 /// ```
 ///
@@ -329,7 +329,7 @@ export(root_cause);
 /// ```yo
 /// { error_chain } :: import("std/error");
 ///
-/// (e : AnyError) = dyn(Context.new(`while loading config`, io_err));
+/// (e : AnyError) = dyn(Box.new(Context.new(`while loading config`, io_err)));
 /// (n : usize) = usize(0);
 /// mut(it) := error_chain(e);
 /// (going : bool) = true;

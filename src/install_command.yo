@@ -176,9 +176,11 @@ load_project_manifest :: (fn(exn : Exception) -> Manifest)({
     .None => {
       exn.throw(
         dyn(
-          format_coded_error(
-            E_MANIFEST_NOT_FOUND,
-            `no ${MANIFEST_FILENAME} found in ${start} or any directory above it. Run 'yo init' to create a project.`
+          Box.new(
+            format_coded_error(
+              E_MANIFEST_NOT_FOUND,
+              `no ${MANIFEST_FILENAME} found in ${start} or any directory above it. Run 'yo init' to create a project.`
+            )
           )
         )
       );
@@ -189,7 +191,7 @@ load_project_manifest :: (fn(exn : Exception) -> Manifest)({
     load_manifest(&path, exn),
     .Ok(m) => m,
     .Err(msg) => {
-      exn.throw(dyn(`Error: ${msg}`));
+      exn.throw(dyn(Box.new(`Error: ${msg}`)));
       // unreachable — the throw unwinds; the diverging arm satisfies the
       // type without an unwrap (safe-mode D7)
       __yo_panic("install: unreachable — exn.throw above unwinds")
@@ -278,7 +280,7 @@ run_add :: (
     parsed := match(
       parse_package_specifier(options.package_spec.clone()),
       .Err(msg) => {
-        e.exn.throw(dyn(`Error: ${msg}`));
+        e.exn.throw(dyn(Box.new(`Error: ${msg}`)));
         ParsedPackage.Path(String.new(), String.new())
       },
       .Ok(p) => p
@@ -353,12 +355,12 @@ run_add :: (
     });
     if(!_is_valid_package_name(&dep_name), {
       what := String.from("dependency name");
-      e.exn.throw(dyn(format_coded_error(E_INVALID_PACKAGE_NAME, `${_invalid_package_name_message(&what, &dep_name)}; pass --name <name> to choose a valid one`)));
+      e.exn.throw(dyn(Box.new(format_coded_error(E_INVALID_PACKAGE_NAME, `${_invalid_package_name_message(&what, &dep_name)}; pass --name <name> to choose a valid one`))));
     });
     if(is_path, {
       present := e.io.await(exists(Path.new(git_url.clone()), e.io), e.io);
       if(!present, {
-        e.exn.throw(dyn(`Error: Path does not exist: ${git_url}`));
+        e.exn.throw(dyn(Box.new(`Error: Path does not exist: ${git_url}`)));
       });
     });
     if(needs_latest, {
@@ -367,7 +369,7 @@ run_add :: (
       source = match(
         latest,
         .Err(msg) => {
-          e.exn.throw(dyn(format_coded_error(E_DEP_FETCH_FAILED, `${msg}\nEnsure the repository exists and is accessible: ${git_url}`)));
+          e.exn.throw(dyn(Box.new(format_coded_error(E_DEP_FETCH_FAILED, `${msg}\nEnsure the repository exists and is accessible: ${git_url}`))));
           Option(DependencySource).None
         },
         .Ok(tag_opt) => match(
@@ -411,7 +413,7 @@ run_add :: (
     match(
       manifest.find_dependency(dep_name.clone()),
       .Some(existing) => if(existing.dev != options.dev, {
-        e.exn.throw(dyn(`Error: "${dep_name}" is already declared in [${other_table}]; run 'yo remove ${dep_name}' first`));
+        e.exn.throw(dyn(Box.new(`Error: "${dep_name}" is already declared in [${other_table}]; run 'yo remove ${dep_name}' first`)));
       }),
       .None => ()
     );
@@ -420,7 +422,7 @@ run_add :: (
       set_entry(&text, table.clone(), dep_name.clone(), value.clone()),
       .Ok(t) => t,
       .Err(msg) => {
-        e.exn.throw(dyn(`Error: ${manifest.path}: ${msg}`));
+        e.exn.throw(dyn(Box.new(`Error: ${manifest.path}: ${msg}`)));
         String.new()
       }
     );
@@ -431,7 +433,7 @@ run_add :: (
       load_manifest(manifest.path.clone(), e.exn),
       .Ok(m) => m,
       .Err(msg) => {
-        e.exn.throw(dyn(`Error: ${msg}`));
+        e.exn.throw(dyn(Box.new(`Error: ${msg}`)));
         manifest
       }
     );
@@ -457,7 +459,7 @@ run_remove :: (
   io.async((e : IoExn) => {
     manifest := load_project_manifest(e.exn);
     if(manifest.find_dependency(owned_name.clone()).is_none(), {
-      e.exn.throw(dyn(`Error: ${manifest.path} declares no dependency "${owned_name}"`));
+      e.exn.throw(dyn(Box.new(`Error: ${manifest.path} declares no dependency "${owned_name}"`)));
     });
     text := e.io.await(read_to_string(Path.new(manifest.path.clone()), e.io), e);
     (edited : String) = text.clone();
@@ -470,7 +472,7 @@ run_remove :: (
       },
       .Ok(.None) => (),
       .Err(msg) => {
-        e.exn.throw(dyn(`Error: ${manifest.path}: ${msg}`));
+        e.exn.throw(dyn(Box.new(`Error: ${manifest.path}: ${msg}`)));
       }
     );
     if(removed_from.len() == usize(0), {
@@ -482,12 +484,12 @@ run_remove :: (
         },
         .Ok(.None) => (),
         .Err(msg) => {
-          e.exn.throw(dyn(`Error: ${manifest.path}: ${msg}`));
+          e.exn.throw(dyn(Box.new(`Error: ${manifest.path}: ${msg}`)));
         }
       );
     });
     if(removed_from.len() == usize(0), {
-      e.exn.throw(dyn(`Error: ${manifest.path}: could not locate the entry for "${owned_name}"`));
+      e.exn.throw(dyn(Box.new(`Error: ${manifest.path}: could not locate the entry for "${owned_name}"`)));
     });
     e.io.await(write_string(Path.new(manifest.path.clone()), &edited, e.io), e);
     println(`Removed ${owned_name} from [${removed_from}] in ${MANIFEST_FILENAME}`);
@@ -495,7 +497,7 @@ run_remove :: (
       load_manifest(manifest.path.clone(), e.exn),
       .Ok(m) => m,
       .Err(msg) => {
-        e.exn.throw(dyn(`Error: ${msg}`));
+        e.exn.throw(dyn(Box.new(`Error: ${msg}`)));
         manifest
       }
     );
@@ -576,7 +578,7 @@ _bump_ranges_to_latest :: (
           listed,
           .Ok(t) => t,
           .Err(msg) => {
-            e.exn.throw(dyn(format_coded_error(E_DEP_FETCH_FAILED, &msg)));
+            e.exn.throw(dyn(Box.new(format_coded_error(E_DEP_FETCH_FAILED, &msg))));
             String.new()
           }
         );
@@ -585,7 +587,7 @@ _bump_ranges_to_latest :: (
           parse_version_req(range_text.clone()),
           .Ok(r) => r,
           .Err(msg) => {
-            e.exn.throw(dyn(`Error: ${owned_manifest.path}: dependency "${dep.name}": version requirement "${range_text}": ${msg}`));
+            e.exn.throw(dyn(Box.new(`Error: ${owned_manifest.path}: dependency "${dep.name}": version requirement "${range_text}": ${msg}`)));
             // unreachable — the throw unwinds; "*" always parses, and the
             // diverging arm satisfies the type without an unwrap (safe-mode D7)
             __yo_panic("install: unreachable — exn.throw above unwinds")
@@ -606,7 +608,7 @@ _bump_ranges_to_latest :: (
               set_entry(edited.clone(), &table, dep.name.clone(), &value),
               .Ok(t) => t,
               .Err(msg) => {
-                e.exn.throw(dyn(`Error: ${owned_manifest.path}: ${msg}`));
+                e.exn.throw(dyn(Box.new(`Error: ${owned_manifest.path}: ${msg}`)));
                 String.new()
               }
             );
@@ -624,7 +626,7 @@ _bump_ranges_to_latest :: (
       load_manifest(owned_manifest.path.clone(), e.exn),
       .Ok(m) => m,
       .Err(msg) => {
-        e.exn.throw(dyn(`Error: ${msg}`));
+        e.exn.throw(dyn(Box.new(`Error: ${msg}`)));
         owned_manifest
       }
     )
@@ -646,7 +648,7 @@ run_install :: (
     (ni : usize) = usize(0);
     while(ni < options.names.len(), {
       if(manifest.find_dependency(&options.names(ni)).is_none(), {
-        e.exn.throw(dyn(`Error: ${manifest.path} declares no dependency "${options.names(ni)}"`));
+        e.exn.throw(dyn(Box.new(`Error: ${manifest.path} declares no dependency "${options.names(ni)}"`)));
       });
       ni = (ni + usize(1));
     });

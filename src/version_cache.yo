@@ -191,7 +191,7 @@ _host_bundle_name_base :: (fn(version : &String, exn : Exception) -> String)({
       platform_str := String.from(os_to_str(target.os));
       exn.throw(
         dyn(
-          `Unsupported platform for Yo release bundles: ${platform_str}. Available targets: linux-x64-musl, linux-arm64-musl, macos-arm64, macos-x64, windows-x64.`
+          Box.new(`Unsupported platform for Yo release bundles: ${platform_str}. Available targets: linux-x64-musl, linux-arm64-musl, macos-arm64, macos-x64, windows-x64.`)
         )
       );
       String.new()
@@ -204,7 +204,7 @@ _host_bundle_name_base :: (fn(version : &String, exn : Exception) -> String)({
     _ => {
       arch_str := String.from(arch_to_str(target.arch));
       exn.throw(
-        dyn(`Unsupported CPU architecture for Yo release bundles: ${arch_str}. Available: x64, arm64.`)
+        dyn(Box.new(`Unsupported CPU architecture for Yo release bundles: ${arch_str}. Available: x64, arm64.`))
       );
       String.new()
     }
@@ -252,7 +252,7 @@ host_bundle_triple_name :: (fn(version : &String, exn : Exception) -> String)({
     // supported platforms and architectures. If it ever stops throwing for a
     // host this table has no triple for, refuse rather than build a bogus name.
     _host_bundle_name_base(version, exn);
-    exn.throw(dyn(`No release-bundle target triple for this host.`));
+    exn.throw(dyn(Box.new(`No release-bundle target triple for this host.`)));
   });
   `yo-v${version}-${triple}`
 });
@@ -486,12 +486,12 @@ _http_get :: (
       // Unauthenticated GitHub API rate limit (60 requests/hour/IP).
       e.exn.throw(
         dyn(
-          `GitHub API rate limit reached (HTTP 403). Wait a bit and retry, or check https://github.com/${_github_repo()}/releases in a browser.`
+          Box.new(`GitHub API rate limit reached (HTTP 403). Wait a bit and retry, or check https://github.com/${_github_repo()}/releases in a browser.`)
         )
       );
     });
     if(resp.status.is_error(), {
-      e.exn.throw(dyn(`HTTP ${resp.status} fetching ${owned_url}`));
+      e.exn.throw(dyn(Box.new(`HTTP ${resp.status} fetching ${owned_url}`)));
     });
     resp.body.clone()
   })
@@ -633,7 +633,7 @@ download_version :: (
     if(compare_semver(&owned_version, &min_version) < i64(0), {
       e.exn.throw(
         dyn(
-          `Yo v${owned_version} predates the native release bundles (first bundled release: v${min_version}) and is no longer distributed — npm publishing stopped at v0.2.0. Pin v${min_version} or later.`
+          Box.new(`Yo v${owned_version} predates the native release bundles (first bundled release: v${min_version}) and is no longer distributed — npm publishing stopped at v0.2.0. Pin v${min_version} or later.`)
         )
       );
     });
@@ -644,7 +644,7 @@ download_version :: (
     if(!tls_available(), {
       e.exn.throw(
         dyn(
-          `TLS is unavailable in this build, and downloading Yo versions requires HTTPS. Install OpenSSL (macOS: brew install openssl@3; the Windows Schannel backend is still pending) and retry.`
+          Box.new(`TLS is unavailable in this build, and downloading Yo versions requires HTTPS. Install OpenSSL (macOS: brew install openssl@3; the Windows Schannel backend is still pending) and retry.`)
         )
       );
     });
@@ -711,7 +711,7 @@ download_version :: (
     });
     if(code >= i64(400), {
       e.io.await(_cleanup_failed_download(&version_dir, tmp_dir.path(), e.io, e.exn), e);
-      e.exn.throw(dyn(`HTTP ${code.to_string()} downloading ${url}`));
+      e.exn.throw(dyn(Box.new(`HTTP ${code.to_string()} downloading ${url}`)));
     });
     // 2. Extract; the tarball root is a `<bundleName>/` directory holding
     // bin/, std/ and vendor/ as SIBLINGS (the compiler resolves its std by
@@ -724,7 +724,7 @@ download_version :: (
     tar_out := e.io.await(tar_cmd.output(e.io), e);
     if(!tar_out.status.success(), {
       e.io.await(_cleanup_failed_download(&version_dir, tmp_dir.path(), e.io, e.exn), e);
-      e.exn.throw(dyn(`Failed to extract ${bundle_name}.tar.gz for Yo v${owned_version}`));
+      e.exn.throw(dyn(Box.new(`Failed to extract ${bundle_name}.tar.gz for Yo v${owned_version}`)));
     });
     // The tarball root is conventionally named after the asset, but do not
     // REQUIRE that: the asset-name/directory-name coupling is what forced the
@@ -748,7 +748,7 @@ download_version :: (
     });
     if(found_root == false, {
       e.io.await(_cleanup_failed_download(&version_dir, tmp_dir.path(), e.io, e.exn), e);
-      e.exn.throw(dyn(`Unexpected bundle layout in ${bundle_name}.tar.gz (no directory with bin/ and std/).`));
+      e.exn.throw(dyn(Box.new(`Unexpected bundle layout in ${bundle_name}.tar.gz (no directory with bin/ and std/).`)));
     });
     // 3. Remove any existing partial extraction (or a dead npm-shaped
     // entry), then MOVE the extracted bundle root to the version directory.
@@ -802,7 +802,7 @@ fetch_remote_versions :: (
     if(!tls_available(), {
       e.exn.throw(
         dyn(
-          `TLS is unavailable in this build, and listing remote versions requires HTTPS. Install OpenSSL (macOS: brew install openssl@3; the Windows Schannel backend is still pending) and retry.`
+          Box.new(`TLS is unavailable in this build, and listing remote versions requires HTTPS. Install OpenSSL (macOS: brew install openssl@3; the Windows Schannel backend is still pending) and retry.`)
         )
       );
     });
@@ -815,7 +815,7 @@ fetch_remote_versions :: (
       body := e.io.await(_http_get(&url, e.io), e);
       trimmed := body.trim();
       if(!trimmed.starts_with(String.from("[")), {
-        e.exn.throw(dyn(`Unexpected GitHub Releases API response shape.`));
+        e.exn.throw(dyn(Box.new(`Unexpected GitHub Releases API response shape.`)));
       });
       scanned := _scan_release_page(&body);
       i := usize(0);

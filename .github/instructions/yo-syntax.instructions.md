@@ -301,7 +301,7 @@ next : (fn(self : &mut Self) -> Option(Self.Item))
 FuncType :: (fn() -> void)
 
 // `:` vs `=` — wrap the typed binding:
-(err1 : AnyError) = dyn(ErrA(`error A`));
+(err1 : AnyError) = dyn(Box.new(ErrA(`error A`)));
 
 // `:=` vs `&&` — wrap the operator RHS:
 is_neg := ((a == "-") && (b == 1));
@@ -558,6 +558,7 @@ Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
 
 - `unit` is a type not value, `()` is the unit value.
 - **`Rc`/`Arc` auto-dereference** (`Deref`, plans/VALUES_BY_DEFAULT.md §3.3): `b.x`, `b.x = v`, `b.m()` and `b.items.push(v)` on a `Rc(P)` mean `b.*.x`, `b.*.x = v`, `b.*.m()`, `b.*.items.push(v)`; nested wrappers recurse (`bb.x` on `Rc(Rc(P))`). A name the wrapper and its payload both have is E0616: `b.clone()` on an `Rc(P)` with `P : Clone` must be written `Rc.clone(b)` (the Rc's) or `b.*.clone()` (the payload's). In a safe file a write through an `Arc` is still D3 (`a.n = v`, `a.bump()` with `self : &mut Self`). Callee position forwards too: `b.items(i)` indexes `b.*.items`, `b.f(x)` calls a function-typed payload field; a wrapper method against a payload field of the same name is E0616 too. Every seed since v0.2.52 (#1191) knows auto-deref, so `std/`/`src/` may rely on it: `Environment.frames : Rc(ArrayList(Frame))` is read as `env.frames.len()` / `env.frames.get(i)` throughout `src/` (checked with the v0.2.66 seed, 2026-10-20). Older code that spells `data.*.x` is equally valid.
+- **`Deref` owners** (VERDICTS-63, v0.2.79): `Deref` carries `deref : fn(self : &Self) -> &Self.Target` and `DerefMut` carries `deref_mut`, chosen as `Index`/`IndexMut` are (a write, a `&mut` lend, a `&mut self` receiver and `addr_of` call `deref_mut`). `Box`/`Rc`/`Arc` are handles whose `.*` is read natively; every other `Deref` type is an owner (`Array(T, N)` with `Target : [T]`, a user type over a `[T]`), whose `x.*` is its `deref` projection's place: `v := &x.*` binds `x.deref()` (rooted at `x`), `w := &mut x.*` binds `x.deref_mut()`. An owner's own member wins over its view's (`a.len()` is the array's); E0616 is the handles' rule. Nothing dereferences at a parameter: pass the view as `f(&s.*)`, never `f(&s)` (E0601, whose help names `&s.*`). Outside the prelude a `Deref`/`DerefMut` impl needs an unsized `Target` (`[T]`, `str`, a `Dyn`), else E0622. `ArrayList`/`String` gain `Deref` in v0.2.80 (the v0.2.78 seed rejects an impl outside the prelude).
 - **Copying an `Rc`/`Arc` needs `.clone()`** (plans/VALUES_BY_DEFAULT.md decision 17, V2c): `Rc(T)`'s and `Arc(T)`'s `Clone` is a second handle to the same cell (a count bump, no bound on `T`), spelled through the type, `Rc.clone(h)` / `Arc.clone(h)` (decision 32: `h.clone()` would also name the payload's). A handle's last use moves it; an implicit copy whose source is used again (`b := a` then `a.*`), and any copy out of a borrow, a field or a module-level binding (`return(h)` of a `&Rc(T)` parameter, `n.label`), is E0901. A value holding a handle (a struct field, `Option(Rc(T))`, a tuple) is explicit-copy too: `x.clone()` (derive `Clone`). A closure that needs its own handle lists it, `{ h : Rc.clone(h) }() => ...`; an implicit capture moves the handle in. `&Rc(T)` parameters borrow without a copy. A generic body's copy of a `T` that is a handle stays implicit (`ArrayList(Rc(T)).get(i)`, `Option(T)` combinators) until B6's accessors. E0901's help names the `Rc.clone(h)`. A deep copy is `Rc.new(h.*.clone())`. `TypeValue` and `SharedList(T)` (`src/types/definitions.yo`) use the prelude's impl; `Token`/`Frame` are `ref` types and still copy implicitly until V5. (A generic impl's `where` clause is still not consulted when its method is resolved: `issues/2026-10-20-rc-clone-of-a-non-clone-payload-fails-inside-the-prelude.md`.)
 - **Writing through an `Rc` of a collection** (decision 46, E0919): `h.*.push(x)`, `h.*(i).f = v` and `addr_of(h.*(i))` are all writes into the payload, even when the element is a `ref(struct)` handle whose own field is the target. Read the element handle out first (`h.get(i).unwrap().f = v` writes through the element, not the list), and route list writes through `Rc.make_mut(&mut h).push(x)`, which needs the payload `Clone`: a `ref(struct)` element has no `Clone` until one is written (`impl(Frame, Clone(clone : (fn(self : &Self) -> Self)(self)))`, a handle copy, as `src/env.yo` does for `Environment.frames`). Measured with the v0.2.66 seed, 2026-10-20.
 - **A tuple TYPE is `Tuple(A, B)`**, e.g. `(fn(x : i32) -> Tuple(String, usize))`. `(A, B)` in a type position is a tuple VALUE holding two types and fails with `Cannot store a type value in tuple, please use module instead`. Tuple values are `(a, b)`.
@@ -1555,7 +1556,10 @@ own and live behind a pointer (`plans/VALUES_BY_DEFAULT.md` decision 49;
 `Box(Dyn(T))`, `dyn(Rc.new(v))` an `Rc(Dyn(T))`, `dyn(&v)`/`dyn(&mut v)` a
 `&Dyn(T)`/`&mut Dyn(T)` with no allocation, and `&b.*` lends an owned one.
 `downcast(&b.*, V)` gives `Option(&V)`; `upcast(p, Dyn(A))` keeps the pointer
-kind. Using an unsized type by value is E0619; `unsize(a)` of a value is E0620;
+kind. Using an unsized type by value is E0619; `unsize(a)` of a value is E0620,
+and so is `dyn(v)` of a plain value since v0.2.79 (decision 49 S3b: in v0.2.77
+and v0.2.78 it was the legacy alias of `dyn(Box.new(v))`; code written for
+v0.2.78 is migrated with `yo version install 0.2.78 && yo fix <path> --migrate unsized`);
 `generic(T : ?Sized)` opts a generic in.
 
 In v0.2.77 (S1) the older spellings are aliases: a bare `Dyn(T)` value type is
@@ -1569,25 +1573,26 @@ tree binary compiles, use the new ones. Until v0.2.78 a
 returning it E0912), `Rc(Dyn(T))` costs two allocations, and an owned
 `downcast(d, V)` keeps the copying `Option(V)` form.
 
-## A callable into a `Dyn(Fn(...))` slot is always `dyn(f)` (E0618)
+## A callable into a `Dyn(Fn(...))` slot is always `dyn(Box.new(f))` (E0618)
 
 Every erasure into a `Dyn` is spelled (`plans/VALUES_BY_DEFAULT.md` decision 44,
 amended 2026-10-12): a named closure, a named `fn`, an `Impl(Fn(...))` parameter
 or a closure literal passed BARE into a `Dyn(Fn(...))` binding, reassignment,
 field (constructor or write), argument, variant payload or result (a body tail or
-`return(f)`) is `error[E0618]`, whose help names `dyn(f)`. Write `dyn(f)`
-(`dyn` moves `f`, so one closure fills one slot); `yo fix <path>` wraps a
-named callable. An `Impl(Fn(...))` slot is the
+`return(f)`) is `error[E0618]`, whose help names the erasure over the pointer
+the slot takes: `dyn(Box.new(f))` for a `Box(Dyn(Fn(...)))`, `dyn(Rc.new(f))`
+for an `Rc`, `dyn(&f)` for a reference (`Box.new` moves `f`, so one closure
+fills one slot); `yo fix <path>` writes it for a named callable. An `Impl(Fn(...))` slot is the
 closure's own type, not an erasure, and still takes it bare. Until 2026-10-13 a
 named closure flowed bare and three of the four sites emitted invalid C
 (`issues/fixed/a-named-closure-flowing-bare-into-a-dyn-fn-slot-passes-check-and-emits-invalid-c.md`).
-`dyn(nine)` of a named `fn` (top-level, imported, or an `Impl(Fn(...))`
+`dyn(Box.new(nine))` of a named `fn` (top-level, imported, or an `Impl(Fn(...))`
 parameter bound to one) boxes the function's code pointer, and the `Dyn`'s
 call goes through it; no closure wrapper is needed
 (`issues/fixed/dyn-of-a-named-function-value-emits-invalid-c.md`). A generic
 type's function taken as a value (`ArrayList(i32).new`) is not emitted yet,
 with or without `dyn` (`issues/a-generic-types-function-taken-as-a-value-is-not-emitted.md`):
-wrap it in a closure, `dyn(() => ArrayList(i32).new())`.
+wrap it in a closure, `dyn(Box.new(() => ArrayList(i32).new()))`.
 
 ## A bare `fn(...)` slot type never mentions `Impl(Fn(...))`
 

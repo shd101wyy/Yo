@@ -23,14 +23,13 @@ Options:
                             { ... } that is a record -> .{ ... };
                             binders and blocks are left alone. Reads the
                             parse only, so it needs no evaluation
-  --migrate unsized         Run decision 49's migration: the legacy
-                            dyn(v) -> dyn(Box.new(v)), and a lend &b of a
+  --migrate unsized         Run decision 49's migration: a lend &b of a
                             Box(Dyn(T)) where a &Dyn(T) is taken -> &b.*;
-                            dyn(p) over a raw pointer and dyn(h) over a
-                            named handle are listed. v0.2.77 code takes two
-                            steps: first v0.2.77's migration for the bare
-                            Dyn(...) types (yo version install 0.2.77),
-                            then this one for the lends
+                            dyn(h) over a named handle is listed. Older
+                            code steps through the release that last
+                            accepts its spelling: v0.2.77 for the bare
+                            Dyn(...) types, v0.2.78 for the plain dyn(v)
+                            (yo version install 0.2.78), then this one
   --target <triple>         Evaluate for this target, as compile --target
                             does, so the target's platform arms are
                             repaired or migrated (default: the host)

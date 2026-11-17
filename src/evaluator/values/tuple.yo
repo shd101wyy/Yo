@@ -113,9 +113,11 @@ evaluate_tuple_element_value :: (
     lhs_expr := match(args.get(usize(0)), .Some(a) => a, .None => expr.*);
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&lhs_expr),
-          String.from("Labelled field is not allowed in tuple value.")
+        Box.new(
+          format_error_message(
+            ast_expr_token(&lhs_expr),
+            String.from("Labelled field is not allowed in tuple value.")
+          )
         )
       )
     );
@@ -138,9 +140,11 @@ evaluate_tuple_element_value :: (
               .None => {
                 exn.throw(
                   dyn(
-                    format_error_message(
-                      ast_expr_token(expr),
-                      `Incompatible types: the tuple has more fields than the expected ${type_to_string(&et.ty)}.`
+                    Box.new(
+                      format_error_message(
+                        ast_expr_token(expr),
+                        `Incompatible types: the tuple has more fields than the expected ${type_to_string(&et.ty)}.`
+                      )
                     )
                   )
                 );
@@ -156,9 +160,11 @@ evaluate_tuple_element_value :: (
         ty_str := type_to_string(&et.ty);
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(expr),
-              `Incompatible types:\n- Expected: ${ty_str}\n- Given   : a tuple literal`
+            Box.new(
+              format_error_message(
+                ast_expr_token(expr),
+                `Incompatible types:\n- Expected: ${ty_str}\n- Given   : a tuple literal`
+              )
             )
           )
         );
@@ -224,9 +230,11 @@ evaluate_tuple_element_value :: (
     .None => {
       exn.throw(
         dyn(
-          format_eval_failure(
-            ast_expr_token(expr),
-            `Failed to evaluate the tuple field: ${ast_expr_to_string(expr)}`
+          Box.new(
+            format_eval_failure(
+              ast_expr_token(expr),
+              `Failed to evaluate the tuple field: ${ast_expr_to_string(expr)}`
+            )
           )
         )
       );
@@ -238,9 +246,11 @@ evaluate_tuple_element_value :: (
   if(is_type_value(&rhs_info.value()), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Cannot store a type value in tuple, please use module instead:\n  ${ast_expr_to_string(expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Cannot store a type value in tuple, please use module instead:\n  ${ast_expr_to_string(expr)}`
+          )
         )
       )
     );
@@ -252,9 +262,11 @@ evaluate_tuple_element_value :: (
     l_place := ast_place_text(&elem_expr);
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `\`${if(lend_is_mut, "&mut ", "&")}${l_place}\` cannot be lent into a tuple: a tuple's reference element lends a binding's place (\`&x\`, \`&x.f\`) or a raw pointer's referent (\`&p.*\`). Bind the place to a local first.`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `\`${if(lend_is_mut, "&mut ", "&")}${l_place}\` cannot be lent into a tuple: a tuple's reference element lends a binding's place (\`&x\`, \`&x.f\`) or a raw pointer's referent (\`&p.*\`). Bind the place to a local first.`
+          )
         )
       )
     );
@@ -342,9 +354,11 @@ evaluate_tuple_value :: (
   if(!ast_expr_is_fn_call_of(expr, BK_TUPLE, Option(usize).None), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          String.from("Expected tuple, got non-tuple expression")
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            String.from("Expected tuple, got non-tuple expression")
+          )
         )
       )
     );

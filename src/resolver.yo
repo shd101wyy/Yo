@@ -1039,7 +1039,7 @@ _add_requirement :: (
       if(!same, {
         first_via := if(existing.requirements.len() > usize(0), existing.requirements(usize(0)).requirer.clone(), String.from("<root>"));
         existing_text := if(existing.is_path, `path ${existing.dir}`, if(existing.subdir.len() > usize(0), `${existing.url} (path ${existing.subdir})`, existing.url.clone()));
-        exn.throw(dyn(`Error: dependency name "${dep.name}" refers to two different packages: ${existing_text} (via ${first_via}) and ${_source_text(dep)} (via ${requirer}). One import name means one package.`));
+        exn.throw(dyn(Box.new(`Error: dependency name "${dep.name}" refers to two different packages: ${existing_text} (via ${first_via}) and ${_source_text(dep)} (via ${requirer}). One import name means one package.`)));
       });
       rq := requirer.clone();
       state.packages.with_mut({ pi, rq, req }(ps) => _replace_requirement(&mut ps(pi).requirements, &rq, req));
@@ -1103,7 +1103,7 @@ _expand_package :: (
       parse_manifest(String.from_bytes(read_file_sync(manifest_path.clone(), exn)), manifest_path.clone()),
       .Ok(m) => m,
       .Err(msg) => {
-        exn.throw(dyn(`Error: dependency "${pkg_name}": ${msg}`));
+        exn.throw(dyn(Box.new(`Error: dependency "${pkg_name}": ${msg}`)));
         state.manifest.clone()
       }
     );
@@ -1185,7 +1185,7 @@ _resolve_package :: (
     // read every run anyway).
     if(pkg.is_path, {
       if(!file_exists_sync(pkg.dir.clone()), {
-        e.exn.throw(dyn(`Error: path dependency "${pkg.name}" points at ${pkg.dir}, which does not exist`));
+        e.exn.throw(dyn(Box.new(`Error: path dependency "${pkg.name}" points at ${pkg.dir}, which does not exist`)));
       });
       if(pkg.expanded_dir == pkg.dir, {
         return(false);
@@ -1249,7 +1249,7 @@ _resolve_package :: (
     });
     if(fetch_tags && state.options.offline && indexed.is_none(), {
       e.exn.throw(
-        dyn(format_coded_error(E_DEP_FETCH_FAILED, `--offline: resolving "${pkg.name}" needs the tags of ${pkg.url}, and the cache has no tag list for it`))
+        dyn(Box.new(format_coded_error(E_DEP_FETCH_FAILED, `--offline: resolving "${pkg.name}" needs the tags of ${pkg.url}, and the cache has no tag list for it`)))
       );
     });
     if(fetch_tags && state.options.offline, {
@@ -1269,7 +1269,7 @@ _resolve_package :: (
         listed,
         .Ok(t) => t.clone(),
         .Err(msg) => {
-          e.exn.throw(dyn(format_coded_error(E_DEP_FETCH_FAILED, &msg)));
+          e.exn.throw(dyn(Box.new(format_coded_error(E_DEP_FETCH_FAILED, &msg))));
           String.new()
         }
       );
@@ -1299,9 +1299,9 @@ _resolve_package :: (
           // own sentence (choose_ref's ranges-only miss), not a guess over
           // foreign text.
           if(msg.starts_with(String.from("no tag of ")), {
-            e.exn.throw(dyn(format_coded_error(E_NO_MATCHING_VERSION, &msg)));
+            e.exn.throw(dyn(Box.new(format_coded_error(E_NO_MATCHING_VERSION, &msg))));
           }, {
-            e.exn.throw(dyn(`Error: ${msg}`));
+            e.exn.throw(dyn(Box.new(`Error: ${msg}`)));
           });
           ChosenRef.DefaultBranch
         }
@@ -1317,7 +1317,7 @@ _resolve_package :: (
     resolve_branch := (is_default && (ref_text.len() == usize(0)) && cached_branch.is_none());
     if(resolve_branch && state.options.offline, {
       e.exn.throw(
-        dyn(format_coded_error(E_DEP_FETCH_FAILED, `--offline: resolving the default branch of ${pkg.url} ("${pkg.name}") needs the network`))
+        dyn(Box.new(format_coded_error(E_DEP_FETCH_FAILED, `--offline: resolving the default branch of ${pkg.url} ("${pkg.name}") needs the network`)))
       );
     });
     if(resolve_branch, {
@@ -1360,7 +1360,7 @@ _resolve_package :: (
     );
     new_dir := if(pkg.subdir.len() > usize(0), abs_under(fetched.dir.clone(), pkg.subdir.clone()), fetched.dir.clone());
     if(!file_exists_sync(new_dir.clone()), {
-      e.exn.throw(dyn(`Error: dependency "${pkg.name}": ${pkg.url} @ ${ref_text} has no directory "${pkg.subdir}"`));
+      e.exn.throw(dyn(Box.new(`Error: dependency "${pkg.name}": ${pkg.url} @ ${ref_text} has no directory "${pkg.subdir}"`)));
     });
     w_ref := ref_text.clone();
     w_commit := fetched.commit.clone();
@@ -1480,7 +1480,7 @@ resolve_and_fetch :: (
       &read.problem,
       .Some(msg) => {
         if(options.locked, {
-          e.exn.throw(dyn(format_coded_error(E_LOCK_MISMATCH, `--locked: ${msg}`)));
+          e.exn.throw(dyn(Box.new(format_coded_error(E_LOCK_MISMATCH, `--locked: ${msg}`))));
         });
         println(`Note: ${msg} — regenerating it.`);
       },
@@ -1488,7 +1488,7 @@ resolve_and_fetch :: (
     );
     if(options.locked && read.absent, {
       e.exn.throw(
-        dyn(format_coded_error(E_LOCK_MISMATCH, String.from("--locked: there is no yo.lock to obey. Run 'yo install' once without --locked.")))
+        dyn(Box.new(format_coded_error(E_LOCK_MISMATCH, String.from("--locked: there is no yo.lock to obey. Run 'yo install' once without --locked."))))
       );
     });
     state := Rc.new(
@@ -1531,9 +1531,11 @@ resolve_and_fetch :: (
     if(options.locked && !unchanged, {
       e.exn.throw(
         dyn(
-          format_coded_error(
-            E_LOCK_MISMATCH,
-            `--locked: yo.lock is out of date:${_lock_diff(&read.lock, &new_lock)}\nRun 'yo install' without --locked to update it.`
+          Box.new(
+            format_coded_error(
+              E_LOCK_MISMATCH,
+              `--locked: yo.lock is out of date:${_lock_diff(&read.lock, &new_lock)}\nRun 'yo install' without --locked to update it.`
+            )
           )
         )
       );

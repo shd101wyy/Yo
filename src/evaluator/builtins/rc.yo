@@ -51,9 +51,11 @@ evaluate_ref_count :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg_ast),
-            String.from("ref_count: failed to evaluate argument")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg_ast),
+              String.from("ref_count: failed to evaluate argument")
+            )
           )
         )
       );
@@ -65,10 +67,12 @@ evaluate_ref_count :: (
   if(is_unique_box_type(&arg_info.ty()), {
     exn.throw(
       dyn(
-        format_error_message_with_help(
-          ast_expr_token(&arg_ast),
-          `ref_count: \`${ast_expr_to_string(&arg_ast)}\` is a ${type_to_string(&arg_info.ty())}, a uniquely owned cell with no count.`,
-          Option(String).Some(String.from("only `Rc` and `Arc` are counted; a `Box` always has exactly one owner"))
+        Box.new(
+          format_error_message_with_help(
+            ast_expr_token(&arg_ast),
+            `ref_count: \`${ast_expr_to_string(&arg_ast)}\` is a ${type_to_string(&arg_info.ty())}, a uniquely owned cell with no count.`,
+            Option(String).Some(String.from("only `Rc` and `Arc` are counted; a `Box` always has exactly one owner"))
+          )
         )
       )
     );

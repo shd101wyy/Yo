@@ -3590,7 +3590,7 @@ _MoBoxed :: struct(_cell : Box(_MoFd));
 _mo_boxed_make :: (fn(fail : bool, n : i32, io : Io) -> Impl(Future(_MoBoxed, IoExn)))(
   io.async(e => {
     if(fail, {
-      e.exn.throw(dyn(`boom`));
+      e.exn.throw(dyn(Box.new(`boom`)));
     });
     _MoBoxed(_cell : Box.new(_MoFd(n : n)))
   })

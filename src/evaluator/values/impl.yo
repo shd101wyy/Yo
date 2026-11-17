@@ -91,7 +91,7 @@ pragma(Pragma.AllowUnsafe);
   visibility_report_enabled
 } :: import("./type_trait_methods.yo");
 { register_impl_inheritance_task, register_impl_variance_task } :: import("../builtins/contracts.yo");
-{ some_t_bounds, FuncMeta, TypeValue, TypeValueNode, no_types, no_flags, shared_list, SharedList, fn_param_mut_ref_at, fn_param_by_value_at, slot_pointee_at, t_slot_pointee, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_result_is_ref, fn_result_origin_names, fn_param_slots, fn_param_in_result_origin, t_slot_is_borrow, t_origin_kind, t_origin_named, t_maybe_sized_kind, is_maybe_sized_kind, fn_result_slot, fn_result_composite_origin_names, fn_param_pointee_in_result_origin, t_slot_is_by_value } :: import("../../types/definitions.yo");
+{ some_t_bounds, FuncMeta, TypeValue, TypeValueNode, t_refine_inner, no_types, no_flags, shared_list, SharedList, fn_param_mut_ref_at, fn_param_by_value_at, slot_pointee_at, t_slot_pointee, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_result_is_ref, fn_result_origin_names, fn_param_slots, fn_param_in_result_origin, t_slot_is_borrow, t_origin_kind, t_origin_named, t_maybe_sized_kind, is_maybe_sized_kind, fn_result_slot, fn_result_composite_origin_names, fn_param_pointee_in_result_origin, t_slot_is_by_value } :: import("../../types/definitions.yo");
 { type_to_string, type_key_epoch } :: import("../../types/string.yo");
 { t_unit, t_type, t_some_t, t_some_t_of_kind, t_usize, register_some_binder_kind, clear_some_binder_kind, generate_some_type_id, enum_phantom_positions } :: import("../../types/creators.yo");
 { is_some_type, is_function_type, is_expr_type, is_type_hierarchy_type, is_future_trait_type, is_fn_trait_type, cell_handle_view } :: import("../../types/guards.yo");
@@ -136,7 +136,7 @@ pragma(Pragma.AllowUnsafe);
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./anonymous_module.yo");
 { format_error_message, render_any_error, reanchor_primary_at, YoError, with_code, format_error_message_with_help } :: import("../../error.yo");
-{ E_WRITE_THROUGH_BORROW, E_ORIGIN_MISMATCH } :: import("../../diagnostics.yo");
+{ E_WRITE_THROUGH_BORROW, E_ORIGIN_MISMATCH, E_DEREF_IMPL_SIZED_TARGET } :: import("../../diagnostics.yo");
 { propagate_def_time_errors } :: import("../../types/flowability.yo");
 { Token } :: import("../../token.yo");
 { get_value_of_some_type_from_env, get_trait_type_from_env } :: import("../../types/env_lookup.yo");
@@ -2127,37 +2127,79 @@ find_matching_generic_impl :: (
 _impl_site_string :: (fn(tok : &Token) -> String)(
   `${display_module_path(&tok.module_path.*)}:${(usize(tok.row) + usize(1)).to_string()}:${(usize(tok.column) + usize(1)).to_string()}`
 );
-/// `Deref` (the auto-dereference marker, plans/VALUES_BY_DEFAULT.md §3.3) is
-/// implemented by the prelude's cells only: an impl anywhere else is an
-/// error, so every auto-dereference forwards through one of the known cells
-/// and never through a user wrapper. Checked on the RESOLVED trait — its
-/// nominal key against the prelude `Deref`'s — so an alias is caught too.
-/// One more cell may implement it: a cell handle (`cell_handle_view`, the
-/// shape V5 gives `Rc` and `Arc`) in a `pragma(Pragma.AllowUnsafe)` file,
-/// the only kind of file that can spell one (V5 decision D2). Its payload is
-/// the cell's, as the prelude cells' is.
-_throw_if_deref_impl_outside_prelude :: (fn(trait_ty : &Option(TypeValue), receiver_ty : &TypeValue, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+/// `Deref` and `DerefMut` (plans/VALUES_BY_DEFAULT.md §3.3, VERDICTS-63
+/// decision 10): outside the prelude an impl is accepted when its `Target`
+/// is an unsized type — `[T]`, `str`, a `Dyn`, a tail-unsized struct. Unsized
+/// content cannot be a field of a sized owner, so a projection is the only
+/// way to name it; a sized payload is a field, which the owner names itself
+/// (#1191 refused the implicitness forwarding would add). A sized `Target`
+/// and an open type variable (a `?Sized` one included) are rejected (E0622).
+/// Checked on the RESOLVED trait — its nominal key against the prelude
+/// trait's — so an alias is caught too. The prelude and a cell handle
+/// (`cell_handle_view`, the shape V5 gives `Rc` and `Arc`) in a
+/// `pragma(Pragma.AllowUnsafe)` file (V5 decision D2) are not checked.
+_throw_if_deref_impl_outside_prelude :: (fn(trait_ty : &Option(TypeValue), receiver_ty : &TypeValue, trait_ctor : &AstExpr, tok : &Token, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> unit)({
   if(is_prelude_or_generated_file(Option(String).Some(tok.module_path.*.clone()), ctx.std_path.clone()), {
     return(());
   });
   if(cell_handle_view(receiver_ty).is_some() && is_implicitly_unsafe_capable_file(Option(String).Some(tok.module_path.*.clone())), {
     return(());
   });
-  is_deref := match(
-    trait_ty,
-    .Some(tt) => match(
-      get_trait_type_from_env(env, String.from("Deref")),
-      .Some(deref_tt) => (get_trait_key(&tt.*) == get_trait_key(&deref_tt)),
-      .None => false
-    ),
-    .None => false
+  _is_prelude_trait :: (fn(tt : &TypeValue, name : str, env : &Environment) -> bool)(
+    match(get_trait_type_from_env(env, String.from(name)), .Some(p_tt) => (get_trait_key(&tt.*) == get_trait_key(&p_tt)), .None => false)
   );
-  if(is_deref, {
+  trait_name := match(
+    trait_ty,
+    .Some(tt) => cond(
+      _is_prelude_trait(&tt.*, "Deref", env) => String.from("Deref"),
+      _is_prelude_trait(&tt.*, "DerefMut", env) => String.from("DerefMut"),
+      true => return(())
+    ),
+    .None => return(())
+  );
+  // The impl's `Target : X` member, evaluated as a type.
+  (target_expr : Option(AstExpr)) = Option(AstExpr).None;
+  match(
+    trait_ctor,
+    .FnCall(_, _, Rc(tc_args), _, _) => {
+      (ti : usize) = usize(0);
+      while(ti < tc_args.len(), ti = (ti + usize(1)), {
+        a := tc_args(ti).clone();
+        if(ast_expr_is_fn_call_of(&a, BK_COLON, .Some(usize(2))), {
+          match(
+            a,
+            .FnCall(_, _, Rc(ca), _, _) => if(match(ca.get(usize(0)), .Some(l) => (ast_expr_text(&l).* == "Target"), .None => false), {
+              target_expr = ca.get(usize(1));
+            }),
+            .Atom(_, _) => ()
+          );
+        });
+      });
+    },
+    .Atom(_, _) => ()
+  );
+  // No `Target`: the conformance check names the missing member.
+  te := match(target_expr, .Some(e) => e, .None => return(()));
+  target_ev := evaluate_expression_raw(&te, env, ctx, exn);
+  target := match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&target_ev)),
+    .Some(tinfo) => match(tinfo.value(), .Some(.TypeVal(t)) => Rc.clone(t), _ => return(())),
+    .None => return(())
+  );
+  is_open_var := match(t_refine_inner(&target), Rc(.SomeT({ resolution : st_res })) => st_res.is_none(), _ => false);
+  if(is_open_var || type_is_sized(&target), {
+    has_size := if(is_open_var, `is a type variable, which may have a size`, `has a size`);
     exn.throw(
       dyn(
-        format_error_message(
-          tok,
-          `Cannot implement Deref here: only the prelude's Box, Rc and Arc implement it. Auto-dereference forwards a wrapper's members to its payload, and only those cells forward; a user wrapper reaches its payload through its own field or methods.`
+        Box.new(
+          with_code(
+            format_error_message_with_help(
+              tok,
+              `Cannot implement \`${trait_name}\` for \`${type_to_string(receiver_ty)}\`: its \`Target\` \`${type_to_string(&target)}\` ${has_size}. \`${trait_name}\` outside the prelude is for an owner of unsized content (\`[T]\`, \`str\`, a \`Dyn\`); a wrapper over a sized payload reaches it through its own field or methods.`,
+              Option(String).Some(`name the payload as a field (\`w.inner\`) or give the wrapper methods; to project a view, make the \`Target\` the unsized type the owner holds (\`[T]\`, \`str\`)`)
+            ),
+            E_DEREF_IMPL_SIZED_TARGET
+          )
         )
       )
     );
@@ -2184,9 +2226,11 @@ _throw_if_acyclic_impl :: (fn(trait_ty : &Option(TypeValue), tok : &Token, env :
   if(is_acyclic, {
     exn.throw(
       dyn(
-        format_error_message(
-          tok,
-          `\`Acyclic\` is derived from a type's structure and is never implemented by hand: a type is \`Acyclic\` exactly when no cycle of strong edges is reachable from its values, a \`Weak\`/\`ArcWeak\` edge excluded (docs/en-US/WEAK.md). Break the back edge with \`Weak\` or drop the bound; \`impl(T, !Acyclic)\` still opts out (plans/archive/WEAK_AND_UNCOLLECTED_RC.md §4).`
+        Box.new(
+          format_error_message(
+            tok,
+            `\`Acyclic\` is derived from a type's structure and is never implemented by hand: a type is \`Acyclic\` exactly when no cycle of strong edges is reachable from its values, a \`Weak\`/\`ArcWeak\` edge excluded (docs/en-US/WEAK.md). Break the back edge with \`Weak\` or drop the bound; \`impl(T, !Acyclic)\` still opts out (plans/archive/WEAK_AND_UNCOLLECTED_RC.md §4).`
+          )
         )
       )
     );
@@ -2270,9 +2314,11 @@ _check_concrete_impl_coherence :: (fn(receiver_ty : &TypeValue, trait_ty : &Type
           .Some(ge_b) => if(_trait_instances_agree(&ge, &ge_b, trait_ty), {
             exn.throw(
               dyn(
-                format_error_message(
-                  tok,
-                  `Trait "${type_to_string(trait_ty)}" is already implemented for type "${type_to_string(receiver_ty)}" by the generic impl at ${ge.site}, which covers it. A type implements a trait at most once; there is no specialization (plans/reference/TRAIT_COHERENCE.md).`
+                Box.new(
+                  format_error_message(
+                    tok,
+                    `Trait "${type_to_string(trait_ty)}" is already implemented for type "${type_to_string(receiver_ty)}" by the generic impl at ${ge.site}, which covers it. A type implements a trait at most once; there is no specialization (plans/reference/TRAIT_COHERENCE.md).`
+                  )
                 )
               )
             );
@@ -2470,9 +2516,11 @@ _check_generic_impl_coherence :: (fn(entry : &GenericImplEntry, env : &Environme
         .Some(prev) => {
           exn.throw(
             dyn(
-              format_error_message(
-                tok,
-                `Method "${f_name}" is already defined for type "${shown_receiver}" under the same bounds (first definition: ${prev}). Duplicate inherent method impls are not allowed — use a distinct name, or provide the second signature via a trait (plans/reference/FUNCTION_OVERLOADING_POLICY.md).`
+              Box.new(
+                format_error_message(
+                  tok,
+                  `Method "${f_name}" is already defined for type "${shown_receiver}" under the same bounds (first definition: ${prev}). Duplicate inherent method impls are not allowed — use a distinct name, or provide the second signature via a trait (plans/reference/FUNCTION_OVERLOADING_POLICY.md).`
+                )
               )
             )
           );
@@ -2496,9 +2544,11 @@ _check_generic_impl_coherence :: (fn(entry : &GenericImplEntry, env : &Environme
     .Some(prev) => {
       exn.throw(
         dyn(
-          format_error_message(
-            tok,
-            `Trait "${type_to_string(substitute(&shown, &entry.trait_type))}" is already implemented for type "${shown_receiver}" (first impl: ${prev}). A type implements a trait at most once (plans/reference/TRAIT_COHERENCE.md).`
+          Box.new(
+            format_error_message(
+              tok,
+              `Trait "${type_to_string(substitute(&shown, &entry.trait_type))}" is already implemented for type "${shown_receiver}" (first impl: ${prev}). A type implements a trait at most once (plans/reference/TRAIT_COHERENCE.md).`
+            )
           )
         )
       );
@@ -2515,9 +2565,11 @@ _check_generic_impl_coherence :: (fn(entry : &GenericImplEntry, env : &Environme
           .Some(cr_b) => if(_trait_instances_agree(entry, &cr_b, &cr.trait_ty), {
             exn.throw(
               dyn(
-                format_error_message(
-                  tok,
-                  `Trait "${type_to_string(&cr.trait_ty)}" is already implemented for type "${type_to_string(&cr.receiver_ty)}" (first impl: ${cr.site}), and this generic impl covers it too. A type implements a trait at most once; there is no specialization (plans/reference/TRAIT_COHERENCE.md).`
+                Box.new(
+                  format_error_message(
+                    tok,
+                    `Trait "${type_to_string(&cr.trait_ty)}" is already implemented for type "${type_to_string(&cr.receiver_ty)}" (first impl: ${cr.site}), and this generic impl covers it too. A type implements a trait at most once; there is no specialization (plans/reference/TRAIT_COHERENCE.md).`
+                  )
                 )
               )
             );
@@ -4329,13 +4381,15 @@ _impl_member_origin_checks :: (fn(actual : &TypeValue, expected : &TypeValue, re
     .Some(ro_msg) => {
       exn.throw(
         dyn(
-          with_code(
-            format_error_message_with_help(
-              name_tok,
-              `Type "${type_to_string(receiver_ty)}" does not implement required trait "${type_to_string(trait_ty)}" as written: member "${method_name}"'s result may point into ${ro_msg}, which the trait's result origin does not name. An impl may declare a narrower result origin than its trait, never a wider one: a call through the trait (a \`Dyn\`, or a generic body) frees the arguments the trait's origin leaves out (decision 43, O7).`,
-              Option(String).Some(`spell the member's result origin within the trait's, e.g. \`-> &(T, self)\` when the trait's is \`self\``)
-            ),
-            E_ORIGIN_MISMATCH
+          Box.new(
+            with_code(
+              format_error_message_with_help(
+                name_tok,
+                `Type "${type_to_string(receiver_ty)}" does not implement required trait "${type_to_string(trait_ty)}" as written: member "${method_name}"'s result may point into ${ro_msg}, which the trait's result origin does not name. An impl may declare a narrower result origin than its trait, never a wider one: a call through the trait (a \`Dyn\`, or a generic body) frees the arguments the trait's origin leaves out (decision 43, O7).`,
+                Option(String).Some(`spell the member's result origin within the trait's, e.g. \`-> &(T, self)\` when the trait's is \`self\``)
+              ),
+              E_ORIGIN_MISMATCH
+            )
           )
         )
       );
@@ -4350,13 +4404,15 @@ _impl_member_origin_checks :: (fn(actual : &TypeValue, expected : &TypeValue, re
     .Some(po_msg) => {
       exn.throw(
         dyn(
-          with_code(
-            format_error_message_with_help(
-              name_tok,
-              `Type "${type_to_string(receiver_ty)}" does not implement required trait "${type_to_string(trait_ty)}" as written: member "${method_name}" relates the origins of ${po_msg}, which the trait's signature leaves independent. Parameters are invariant: a call through the trait (a \`Dyn\`, or a generic body) passes arguments whose origins are unrelated, so the member could store one into the other past its scope (decision 43, O3 step 3, O7).`,
-              Option(String).Some(`declare the member's parameters as the trait does (each elided \`&\` its own origin), or relate them in the trait's signature`)
-            ),
-            E_ORIGIN_MISMATCH
+          Box.new(
+            with_code(
+              format_error_message_with_help(
+                name_tok,
+                `Type "${type_to_string(receiver_ty)}" does not implement required trait "${type_to_string(trait_ty)}" as written: member "${method_name}" relates the origins of ${po_msg}, which the trait's signature leaves independent. Parameters are invariant: a call through the trait (a \`Dyn\`, or a generic body) passes arguments whose origins are unrelated, so the member could store one into the other past its scope (decision 43, O3 step 3, O7).`,
+                Option(String).Some(`declare the member's parameters as the trait does (each elided \`&\` its own origin), or relate them in the trait's signature`)
+              ),
+              E_ORIGIN_MISMATCH
+            )
           )
         )
       );
@@ -4460,9 +4516,11 @@ _c3_eval_colon_pair :: (
       .Some(__prev_site) => {
         exn.throw(
           dyn(
-            format_error_message(
-              &name_tok,
-              `Method "${method_name}" is already defined for this type (first definition: ${__prev_site}). Duplicate inherent method impls are not allowed — use a distinct name (e.g. a comptime_ prefix), or provide the second signature via a trait (plans/reference/FUNCTION_OVERLOADING_POLICY.md).`
+            Box.new(
+              format_error_message(
+                &name_tok,
+                `Method "${method_name}" is already defined for this type (first definition: ${__prev_site}). Duplicate inherent method impls are not allowed — use a distinct name (e.g. a comptime_ prefix), or provide the second signature via a trait (plans/reference/FUNCTION_OVERLOADING_POLICY.md).`
+              )
             )
           )
         );
@@ -4505,9 +4563,11 @@ _c3_eval_colon_pair :: (
     .Some(unk_tt) => if(expected_method_ty.is_none(), {
       exn.throw(
         dyn(
-          format_error_message(
-            &name_tok,
-            `Type "${type_to_string(&st.receiver_ty)}" does not implement required trait "${type_to_string(&unk_tt.*)}" as written: "${method_name}" is not a member of the trait`
+          Box.new(
+            format_error_message(
+              &name_tok,
+              `Type "${type_to_string(&st.receiver_ty)}" does not implement required trait "${type_to_string(&unk_tt.*)}" as written: "${method_name}" is not a member of the trait`
+            )
           )
         )
       );
@@ -4543,9 +4603,11 @@ _c3_eval_colon_pair :: (
             if((get_all_some_types(&conf_exp).len() == usize(0)) && (get_all_some_types(&fi.ty()).len() == usize(0)) && !is_type_hierarchy_type(&conf_exp) && !are_types_compatible(_with_receiver_mode_of(&fi.ty(), &conf_exp), &conf_exp), {
               exn.throw(
                 dyn(
-                  format_error_message(
-                    &name_tok,
-                    `Type "${type_to_string(&st.receiver_ty)}" does not implement required trait "${type_to_string(&conf_tt.*)}" as written: member "${method_name}" has type ${type_to_string(&fi.ty())}, but the trait requires ${type_to_string(&conf_exp)}`
+                  Box.new(
+                    format_error_message(
+                      &name_tok,
+                      `Type "${type_to_string(&st.receiver_ty)}" does not implement required trait "${type_to_string(&conf_tt.*)}" as written: member "${method_name}" has type ${type_to_string(&fi.ty())}, but the trait requires ${type_to_string(&conf_exp)}`
+                    )
                   )
                 )
               );
@@ -4554,12 +4616,14 @@ _c3_eval_colon_pair :: (
             if(_receiver_writes_where_trait_reads(&fi.ty(), &conf_exp), {
               exn.throw(
                 dyn(
-                  with_code(
-                    format_error_message(
-                      &name_tok,
-                      `Type "${type_to_string(&st.receiver_ty)}" does not implement required trait "${type_to_string(&conf_tt.*)}" as written: member "${method_name}" takes \`self : &mut Self\`, but the trait lends its receiver read-only (\`self : &Self\`). A call through the trait (a \`Dyn\`, or a generic \`T <: ${type_to_string(&conf_tt.*)}\` body) passes a read-only borrow, so the member may not write it: declare \`self : &Self\`.`
-                    ),
-                    E_WRITE_THROUGH_BORROW
+                  Box.new(
+                    with_code(
+                      format_error_message(
+                        &name_tok,
+                        `Type "${type_to_string(&st.receiver_ty)}" does not implement required trait "${type_to_string(&conf_tt.*)}" as written: member "${method_name}" takes \`self : &mut Self\`, but the trait lends its receiver read-only (\`self : &Self\`). A call through the trait (a \`Dyn\`, or a generic \`T <: ${type_to_string(&conf_tt.*)}\` body) passes a read-only borrow, so the member may not write it: declare \`self : &Self\`.`
+                      ),
+                      E_WRITE_THROUGH_BORROW
+                    )
                   )
                 )
               );
@@ -4581,9 +4645,11 @@ _c3_eval_colon_pair :: (
           if(!dr_mut, {
             exn.throw(
               dyn(
-                format_error_message(
-                  &name_tok,
-                  `Type "${type_to_string(&st.receiver_ty)}" does not implement required trait "Drop" as written: member "drop" has type ${type_to_string(&fi.ty())}, but the trait requires the receiver \`self : &mut Self\` (Rust's \`drop(&mut self)\`, plans/VALUES_BY_DEFAULT.md decision 45): the destructor may write the value it drops.`
+                Box.new(
+                  format_error_message(
+                    &name_tok,
+                    `Type "${type_to_string(&st.receiver_ty)}" does not implement required trait "Drop" as written: member "drop" has type ${type_to_string(&fi.ty())}, but the trait requires the receiver \`self : &mut Self\` (Rust's \`drop(&mut self)\`, plans/VALUES_BY_DEFAULT.md decision 45): the destructor may write the value it drops.`
+                  )
                 )
               )
             );
@@ -5265,9 +5331,11 @@ evaluate_module_value :: (
   if(!ast_expr_is_fn_call_of(expr, BK_IMPL_LOWER, .None), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected "impl", got: ${ast_expr_token(expr).value.*}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected "impl", got: ${ast_expr_token(expr).value.*}`
+          )
         )
       )
     );
@@ -5619,7 +5687,7 @@ evaluate_module_value :: (
                 exn.throw(dyn(Box.new(match(&c2_pf.failure, .Some(m) => m.clone(), .None => String.from("impl member failed")))));
               },
               .Forcing => {
-                exn.throw(dyn(format_error_message(ast_expr_token(&mf_expr), `internal error: impl member "${c2_pf.label}" reached by the field loop while it is being forced`)));
+                exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&mf_expr), `internal error: impl member "${c2_pf.label}" reached by the field loop while it is being forced`))));
               },
               .Unforced => {
                 _sync_in_flight_ctx(&c2_rec, ctx);
@@ -5660,7 +5728,7 @@ evaluate_module_value :: (
           .Atom(_, _) => make_err_expr()
         );
         g_trait_ty_opt := _try_lookup_trait_type(&trait_fn_expr2, &forall_env, ctx, exn);
-        _throw_if_deref_impl_outside_prelude(&g_trait_ty_opt, &receiver_type_pattern, ast_expr_token(&mf_expr), &forall_env, ctx, exn);
+        _throw_if_deref_impl_outside_prelude(&g_trait_ty_opt, &receiver_type_pattern, &mf_expr, ast_expr_token(&mf_expr), &forall_env, ctx, exn);
         _throw_if_acyclic_impl(&g_trait_ty_opt, ast_expr_token(&mf_expr), &forall_env, exn);
         g_trait_ty := match(&g_trait_ty_opt, .Some(t) => Rc.clone(t), .None => t_unit());
         // `Drop` only on the receivers it accepts, as
@@ -5675,7 +5743,7 @@ evaluate_module_value :: (
             .Some(cof) => match(
               &cof(&receiver_type_pattern, &gtt.*, &forall_env),
               .Some(co_msg) => {
-                exn.throw(dyn(format_error_message(ast_expr_token(&mf_expr), &co_msg.*)));
+                exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&mf_expr), &co_msg.*))));
               },
               .None => ()
             ),
@@ -5720,7 +5788,7 @@ evaluate_module_value :: (
                     exn.throw(dyn(Box.new(match(&c2_ipf.failure, .Some(m) => m.clone(), .None => String.from("impl member failed")))));
                   },
                   .Forcing => {
-                    exn.throw(dyn(format_error_message(ast_expr_token(&inner_e2), `internal error: impl member "${c2_ipf.label}" reached by the field loop while it is being forced`)));
+                    exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&inner_e2), `internal error: impl member "${c2_ipf.label}" reached by the field loop while it is being forced`))));
                   },
                   .Unforced => {
                     _sync_in_flight_ctx(&c2_rec, ctx);
@@ -5899,9 +5967,11 @@ evaluate_module_value :: (
   if(n_args < usize(2), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          String.from("impl requires a receiver type and at least one field.")
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            String.from("impl requires a receiver type and at least one field.")
+          )
         )
       )
     );
@@ -6101,14 +6171,16 @@ evaluate_module_value :: (
           );
           neg_head := match(neg_inner, .FnCall(_, fbn, _, _, _) => fbn, .Atom(_, _) => neg_inner);
           if(ast_expr_is_atom(&neg_head) && (ast_expr_text(&neg_head).* == "Sized"), {
-            exn.throw(dyn(format_error_message(ast_expr_token(&field_expr), String.from(_SIZED_IS_DERIVED))));
+            exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&field_expr), String.from(_SIZED_IS_DERIVED)))));
           });
           if(ast_expr_is_atom(&neg_head) && (ast_expr_text(&neg_head).* == "Escapable"), {
             exn.throw(
               dyn(
-                format_error_message(
-                  ast_expr_token(&field_expr),
-                  `\`Escapable\` is derived from a type's structure and is never implemented by hand: a type is \`Escapable\` exactly when it holds no reference and no borrow (plans/backlog/REFERENCES_AND_ORIGINS.md O10).`
+                Box.new(
+                  format_error_message(
+                    ast_expr_token(&field_expr),
+                    `\`Escapable\` is derived from a type's structure and is never implemented by hand: a type is \`Escapable\` exactly when it holds no reference and no borrow (plans/backlog/REFERENCES_AND_ORIGINS.md O10).`
+                  )
                 )
               )
             );
@@ -6139,9 +6211,11 @@ evaluate_module_value :: (
               if(has_method, {
                 exn.throw(
                   dyn(
-                    format_error_message(
-                      ast_expr_token(&field_expr),
-                      `Cannot use '!(...)' — negative impls are only allowed for marker traits (traits without methods).`
+                    Box.new(
+                      format_error_message(
+                        ast_expr_token(&field_expr),
+                        `Cannot use '!(...)' — negative impls are only allowed for marker traits (traits without methods).`
+                      )
                     )
                   )
                 );
@@ -6166,14 +6240,16 @@ evaluate_module_value :: (
           // `Escapable` is the type's structure (decision 43, O10): no impl
           // can claim or deny it.
           if(pos_trait_name == "Sized", {
-            exn.throw(dyn(format_error_message(ast_expr_token(&field_expr), String.from(_SIZED_IS_DERIVED))));
+            exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&field_expr), String.from(_SIZED_IS_DERIVED)))));
           });
           if(pos_trait_name == "Escapable", {
             exn.throw(
               dyn(
-                format_error_message(
-                  ast_expr_token(&field_expr),
-                  `\`Escapable\` is derived from a type's structure and is never implemented by hand: a type is \`Escapable\` exactly when it holds no reference and no borrow (plans/backlog/REFERENCES_AND_ORIGINS.md O10).`
+                Box.new(
+                  format_error_message(
+                    ast_expr_token(&field_expr),
+                    `\`Escapable\` is derived from a type's structure and is never implemented by hand: a type is \`Escapable\` exactly when it holds no reference and no borrow (plans/backlog/REFERENCES_AND_ORIGINS.md O10).`
+                  )
                 )
               )
             );
@@ -6182,9 +6258,11 @@ evaluate_module_value :: (
             suffix := if(pos_trait_name == "Send", String.from("send across threads"), String.from("share across threads"));
             exn.throw(
               dyn(
-                format_error_message(
-                  ast_expr_token(&field_expr),
-                  `Manual 'impl(..., ${pos_trait_name}())' requires pragma(Pragma.AllowUnsafe). Add a '// SAFETY:' comment explaining why the type is safe to ${suffix}.`
+                Box.new(
+                  format_error_message(
+                    ast_expr_token(&field_expr),
+                    `Manual 'impl(..., ${pos_trait_name}())' requires pragma(Pragma.AllowUnsafe). Add a '// SAFETY:' comment explaining why the type is safe to ${suffix}.`
+                  )
                 )
               )
             );
@@ -6214,7 +6292,7 @@ evaluate_module_value :: (
             .Atom(_, _) => make_err_expr()
           );
           current_trait_ty = _try_lookup_trait_type(&trait_fn_expr, &local_env, ctx, exn);
-          _throw_if_deref_impl_outside_prelude(&current_trait_ty, &receiver_ty, ast_expr_token(&field_expr), &local_env, ctx, exn);
+          _throw_if_deref_impl_outside_prelude(&current_trait_ty, &receiver_ty, &field_expr, ast_expr_token(&field_expr), &local_env, ctx, exn);
           _throw_if_acyclic_impl(&current_trait_ty, ast_expr_token(&field_expr), &local_env, exn);
           // Record that this type implements the trait (by its base id) in the
           // type's trait list, so `Type.impls(T, Trait)` resolves by identity at
@@ -6236,7 +6314,7 @@ evaluate_module_value :: (
                   &cf(&receiver_ty, &ctt.*, &local_env),
                   .Some(sc_msg) => {
                     exn.throw(
-                      dyn(format_error_message(ast_expr_token(expr), &sc_msg.*))
+                      dyn(Box.new(format_error_message(ast_expr_token(expr), &sc_msg.*)))
                     );
                   },
                   .None => ()
@@ -6256,9 +6334,11 @@ evaluate_module_value :: (
                 .Some(coh_prev) => {
                   exn.throw(
                     dyn(
-                      format_error_message(
-                        &coh_tok,
-                        `Trait "${type_to_string(&ctt.*)}" is already implemented for type "${type_to_string(&receiver_ty)}" (first impl: ${coh_prev}). A type implements a trait at most once (plans/reference/TRAIT_COHERENCE.md).`
+                      Box.new(
+                        format_error_message(
+                          &coh_tok,
+                          `Trait "${type_to_string(&ctt.*)}" is already implemented for type "${type_to_string(&receiver_ty)}" (first impl: ${coh_prev}). A type implements a trait at most once (plans/reference/TRAIT_COHERENCE.md).`
+                        )
                       )
                     )
                   );
@@ -6379,7 +6459,7 @@ evaluate_module_value :: (
                     exn.throw(dyn(Box.new(match(&c3_pf.failure, .Some(m) => m.clone(), .None => String.from("impl member failed")))));
                   },
                   .Forcing => {
-                    exn.throw(dyn(format_error_message(ast_expr_token(&meth_expr), `internal error: impl member "${c3_pf.label}" reached by the field loop while it is being forced`)));
+                    exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&meth_expr), `internal error: impl member "${c3_pf.label}" reached by the field loop while it is being forced`))));
                   },
                   .Unforced => {
                     _sync_in_flight_ctx(&c3_rec, ctx);
@@ -6455,9 +6535,11 @@ evaluate_module_value :: (
                   if(!is_function_type(&d_ty) || get_trait_default(dtf_trait_id.clone(), d_label.clone()).is_none(), {
                     exn.throw(
                       dyn(
-                        format_error_message(
-                          ast_expr_token(&field_expr),
-                          `Type "${type_to_string(&receiver_ty)}" does not implement required trait "${type_to_string(&ctt2)}": member "${d_label}" is not provided and has no default`
+                        Box.new(
+                          format_error_message(
+                            ast_expr_token(&field_expr),
+                            `Type "${type_to_string(&receiver_ty)}" does not implement required trait "${type_to_string(&ctt2)}": member "${d_label}" is not provided and has no default`
+                          )
                         )
                       )
                     );
@@ -6611,10 +6693,12 @@ evaluate_module_value :: (
                                 g_mat_default_err.with_mut(xs => xs.clear());
                                 exn.throw(
                                   dyn(
-                                    reanchor_primary_at(
-                                      &d_err,
-                                      ast_expr_token(&field_expr),
-                                      `raised in the default body of "${d_label}", which trait ${type_to_string(&ctt2)} gives ${type_to_string(&receiver_ty)} because this impl does not provide it`
+                                    Box.new(
+                                      reanchor_primary_at(
+                                        &d_err,
+                                        ast_expr_token(&field_expr),
+                                        `raised in the default body of "${d_label}", which trait ${type_to_string(&ctt2)} gives ${type_to_string(&receiver_ty)} because this impl does not provide it`
+                                      )
                                     )
                                   )
                                 );
@@ -7246,14 +7330,14 @@ _check_copy_clone_exclusion :: (
         site_owned2 := site.clone();
         g_hand_written_clone_sites.with_mut({ site_owned2 }(m) => m.insert(site_owned2.clone(), true));
         if(_implements_via_hook(receiver_ty, &cc.copy_tt, env), {
-          exn.throw(dyn(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(receiver_ty, Option(String).None))));
+          exn.throw(dyn(Box.new(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(receiver_ty, Option(String).None)))));
         });
       });
       if(key == get_trait_key(&cc.copy_tt), {
         match(
           trait_impl_site_of(receiver_type_id, &clone_key),
           .Some(clone_site) => if(g_hand_written_clone_sites.with({ &clone_site }(m) => m.contains_key(clone_site.clone())), {
-            exn.throw(dyn(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(receiver_ty, Option(String).Some(clone_site)))));
+            exn.throw(dyn(Box.new(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(receiver_ty, Option(String).Some(clone_site))))));
           }),
           .None => ()
         );
@@ -7293,7 +7377,7 @@ _check_generic_copy_clone_exclusion :: (fn(entry : &GenericImplEntry, trait_tok 
         });
         g_hand_written_clone_sites.with_mut({ entry : entry.clone() }(m) => m.insert(entry.site.clone(), true));
         if(_pattern_implements_via_hook(&entry.receiver_type_pattern, &cc.copy_tt, &env), {
-          exn.throw(dyn(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(&entry.receiver_type_pattern, Option(String).None))));
+          exn.throw(dyn(Box.new(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(&entry.receiver_type_pattern, Option(String).None)))));
         });
       });
       if(entry.trait_key == get_base_trait_key(&cc.copy_tt), {
@@ -7303,7 +7387,7 @@ _check_generic_copy_clone_exclusion :: (fn(entry : &GenericImplEntry, trait_tok 
           match(
             bucket.get_cloned(bi),
             .Some(ce) => if(g_hand_written_clone_sites.with({ &ce }(m) => m.contains_key(ce.site.clone())) && _receiver_patterns_could_overlap(&ce.receiver_type_pattern, &entry.receiver_type_pattern) && _pattern_implements_via_hook(&ce.receiver_type_pattern, &cc.copy_tt, &ce.definition_env), {
-              exn.throw(dyn(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(&entry.receiver_type_pattern, Option(String).Some(ce.site.clone())))));
+              exn.throw(dyn(Box.new(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(&entry.receiver_type_pattern, Option(String).Some(ce.site.clone()))))));
             }),
             .None => ()
           );

@@ -322,9 +322,11 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
             .Forcing => {
               exn.throw(
                 dyn(
-                  format_error_message(
-                    ast_expr_token(&expr),
-                    `internal error: definition "${def.name}" reached by the module walk while it is being forced`
+                  Box.new(
+                    format_error_message(
+                      ast_expr_token(&expr),
+                      `internal error: definition "${def.name}" reached by the module walk while it is being forced`
+                    )
                   )
                 )
               );
@@ -374,9 +376,11 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                       if(ext_info_opt.is_none(), {
                         exn.throw(
                           dyn(
-                            format_error_message(
-                              ast_expr_token(&ext_mod_expr),
-                              String.from("Failed to evaluate the extended struct expression")
+                            Box.new(
+                              format_error_message(
+                                ast_expr_token(&ext_mod_expr),
+                                String.from("Failed to evaluate the extended struct expression")
+                              )
                             )
                           )
                         );
@@ -387,9 +391,11 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                       if(!is_module_type(&ext_mod_type), {
                         exn.throw(
                           dyn(
-                            format_error_message(
-                              ast_expr_token(&ext_mod_expr),
-                              `Expected struct type for export, got:\n${type_to_string(&ext_mod_type)}`
+                            Box.new(
+                              format_error_message(
+                                ast_expr_token(&ext_mod_expr),
+                                `Expected struct type for export, got:\n${type_to_string(&ext_mod_type)}`
+                              )
                             )
                           )
                         );
@@ -437,12 +443,14 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                                   if(_find_field_label_index(&efls.items, lbl.clone()).is_none(), {
                                     exn.throw(
                                       dyn(
-                                        with_code(
-                                          format_error_message(
-                                            ast_expr_token(&exclude_expr),
-                                            `Label "${lbl}" is not found in the extended module type.`
-                                          ),
-                                          E_MODULE_FIELD_NOT_FOUND
+                                        Box.new(
+                                          with_code(
+                                            format_error_message(
+                                              ast_expr_token(&exclude_expr),
+                                              `Label "${lbl}" is not found in the extended module type.`
+                                            ),
+                                            E_MODULE_FIELD_NOT_FOUND
+                                          )
                                         )
                                       )
                                     );
@@ -470,9 +478,11 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                                     if(!ast_expr_is_atom(&member_expr), {
                                       exn.throw(
                                         dyn(
-                                          format_error_message(
-                                            ast_expr_token(&member_expr),
-                                            `Expected identifier for excluded label, got:\n${ast_expr_to_string(&member_expr)}`
+                                          Box.new(
+                                            format_error_message(
+                                              ast_expr_token(&member_expr),
+                                              `Expected identifier for excluded label, got:\n${ast_expr_to_string(&member_expr)}`
+                                            )
                                           )
                                         )
                                       );
@@ -484,12 +494,14 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                                         if(_find_field_label_index(&efls.items, lbl.clone()).is_none(), {
                                           exn.throw(
                                             dyn(
-                                              with_code(
-                                                format_error_message(
-                                                  ast_expr_token(&member_expr),
-                                                  `Label "${lbl}" is not found in the extended module type.`
-                                                ),
-                                                E_MODULE_FIELD_NOT_FOUND
+                                              Box.new(
+                                                with_code(
+                                                  format_error_message(
+                                                    ast_expr_token(&member_expr),
+                                                    `Label "${lbl}" is not found in the extended module type.`
+                                                  ),
+                                                  E_MODULE_FIELD_NOT_FOUND
+                                                )
                                               )
                                             )
                                           );
@@ -506,9 +518,11 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                             true => {
                               exn.throw(
                                 dyn(
-                                  format_error_message(
-                                    ast_expr_token(&exclude_expr),
-                                    `Expected identifier or tuple for excluded labels, got:\n${ast_expr_to_string(&exclude_expr)}`
+                                  Box.new(
+                                    format_error_message(
+                                      ast_expr_token(&exclude_expr),
+                                      `Expected identifier or tuple for excluded labels, got:\n${ast_expr_to_string(&exclude_expr)}`
+                                    )
                                   )
                                 )
                               );
@@ -542,9 +556,11 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                               if(_find_field_label_index(&field_labels, ext_label.clone()).is_some(), {
                                 exn.throw(
                                   dyn(
-                                    format_error_message(
-                                      ast_expr_token(&export_expr),
-                                      `Element "${ext_label}" is already exported in the module.`
+                                    Box.new(
+                                      format_error_message(
+                                        ast_expr_token(&export_expr),
+                                        `Element "${ext_label}" is already exported in the module.`
+                                      )
                                     )
                                   )
                                 );
@@ -583,9 +599,11 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                           if(!is_valid_variable_name(&export_expr), {
                             exn.throw(
                               dyn(
-                                format_error_message(
-                                  ast_expr_token(&export_expr),
-                                  `Expected identifier for export, got:\n${ast_expr_to_string(&export_expr)}`
+                                Box.new(
+                                  format_error_message(
+                                    ast_expr_token(&export_expr),
+                                    `Expected identifier for export, got:\n${ast_expr_to_string(&export_expr)}`
+                                  )
                                 )
                               )
                             );
@@ -604,9 +622,11 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                           if(!ast_expr_is_atom(&label_expr), {
                             exn.throw(
                               dyn(
-                                format_error_message(
-                                  ast_expr_token(&label_expr),
-                                  `Expected identifier for export, got:\n${ast_expr_to_string(&label_expr)}`
+                                Box.new(
+                                  format_error_message(
+                                    ast_expr_token(&label_expr),
+                                    `Expected identifier for export, got:\n${ast_expr_to_string(&label_expr)}`
+                                  )
                                 )
                               )
                             );
@@ -614,9 +634,11 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                           if(!is_valid_variable_name(&label_expr), {
                             exn.throw(
                               dyn(
-                                format_error_message(
-                                  ast_expr_token(&label_expr),
-                                  `Expected identifier for export, got:\n${ast_expr_to_string(&label_expr)}`
+                                Box.new(
+                                  format_error_message(
+                                    ast_expr_token(&label_expr),
+                                    `Expected identifier for export, got:\n${ast_expr_to_string(&label_expr)}`
+                                  )
                                 )
                               )
                             );
@@ -625,9 +647,11 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                           if(!ast_expr_is_atom(&name_expr), {
                             exn.throw(
                               dyn(
-                                format_error_message(
-                                  ast_expr_token(&name_expr),
-                                  `Expected identifier for export, got:\n${ast_expr_to_string(&name_expr)}`
+                                Box.new(
+                                  format_error_message(
+                                    ast_expr_token(&name_expr),
+                                    `Expected identifier for export, got:\n${ast_expr_to_string(&name_expr)}`
+                                  )
                                 )
                               )
                             );
@@ -635,9 +659,11 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                           if(!is_valid_variable_name(&name_expr), {
                             exn.throw(
                               dyn(
-                                format_error_message(
-                                  ast_expr_token(&name_expr),
-                                  `Expected identifier for export, got:\n${ast_expr_to_string(&name_expr)}`
+                                Box.new(
+                                  format_error_message(
+                                    ast_expr_token(&name_expr),
+                                    `Expected identifier for export, got:\n${ast_expr_to_string(&name_expr)}`
+                                  )
                                 )
                               )
                             );
@@ -663,9 +689,11 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                           .NotPending => {
                             exn.throw(
                               dyn(
-                                format_error_message(
-                                  ast_expr_token(&export_expr),
-                                  `Variable "${given_var_name}" is not defined in the module.`
+                                Box.new(
+                                  format_error_message(
+                                    ast_expr_token(&export_expr),
+                                    `Variable "${given_var_name}" is not defined in the module.`
+                                  )
                                 )
                               )
                             );
@@ -695,9 +723,11 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                       if(_find_field_label_index(&field_labels, variable_name.clone()).is_some(), {
                         exn.throw(
                           dyn(
-                            format_error_message(
-                              ast_expr_token(&export_expr),
-                              `Variable "${variable_name}" is already exported in the module.`
+                            Box.new(
+                              format_error_message(
+                                ast_expr_token(&export_expr),
+                                `Variable "${variable_name}" is already exported in the module.`
+                              )
                             )
                           )
                         );
@@ -706,9 +736,11 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                       if(!the_var.is_compile_time_only(), {
                         exn.throw(
                           dyn(
-                            format_error_message(
-                              ast_expr_token(&export_expr),
-                              `Variable "${given_var_name}" is not a compile-time variable and cannot be exported.`
+                            Box.new(
+                              format_error_message(
+                                ast_expr_token(&export_expr),
+                                `Variable "${given_var_name}" is not a compile-time variable and cannot be exported.`
+                              )
                             )
                           )
                         );
@@ -735,9 +767,11 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                             ), {
                               exn.throw(
                                 dyn(
-                                  format_error_message(
-                                    ast_expr_token(&export_expr),
-                                    `Function overloading is not supported: "Call" here is a tuple of ${cand_fns.len()} candidates. Bind exactly one function to "Call" (the runtime/comptime operator pairs in std/prelude.yo are the only sanctioned overload sets — plans/reference/FUNCTION_OVERLOADING_POLICY.md).`
+                                  Box.new(
+                                    format_error_message(
+                                      ast_expr_token(&export_expr),
+                                      `Function overloading is not supported: "Call" here is a tuple of ${cand_fns.len()} candidates. Bind exactly one function to "Call" (the runtime/comptime operator pairs in std/prelude.yo are the only sanctioned overload sets — plans/reference/FUNCTION_OVERLOADING_POLICY.md).`
+                                    )
                                   )
                                 )
                               );

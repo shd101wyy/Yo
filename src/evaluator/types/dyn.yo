@@ -106,12 +106,14 @@ _reject_dyn_slot_name_clash :: (fn(traits : &ArrayList(TypeValue), tok : &Token,
           other := match(seen_owner.get_cloned(si), .Some(x) => x, .None => String.new());
           exn.throw(
             dyn(
-              with_code(
-                format_error_message(
-                  tok,
-                  `A Dyn cannot hold two methods named "${nm}": both ${other} and ${type_to_string(&tt)} declare one. A Dyn calls its methods by name, so the call could not say which trait it means.\nUse one of the traits in this Dyn, or rename one of the methods.`
-                ),
-                E_AMBIGUOUS_METHOD
+              Box.new(
+                with_code(
+                  format_error_message(
+                    tok,
+                    `A Dyn cannot hold two methods named "${nm}": both ${other} and ${type_to_string(&tt)} declare one. A Dyn calls its methods by name, so the call could not say which trait it means.\nUse one of the traits in this Dyn, or rename one of the methods.`
+                  ),
+                  E_AMBIGUOUS_METHOD
+                )
               )
             )
           );
@@ -136,9 +138,11 @@ evaluate_dyn_type :: (
   if(!ast_expr_is_fn_call_of(expr, BK_DYN_UPPER, .None), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected "Dyn", got:\n${ast_expr_to_string(expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected "Dyn", got:\n${ast_expr_to_string(expr)}`
+          )
         )
       )
     );
@@ -185,9 +189,11 @@ evaluate_dyn_type :: (
       .None => {
         exn.throw(
           dyn(
-            format_eval_failure(
-              ast_expr_token(&actual_arg),
-              `Failed to evaluate argument ${(i + usize(1))} of 'Dyn' expression.`
+            Box.new(
+              format_eval_failure(
+                ast_expr_token(&actual_arg),
+                `Failed to evaluate argument ${(i + usize(1))} of 'Dyn' expression.`
+              )
             )
           )
         );
@@ -204,9 +210,11 @@ evaluate_dyn_type :: (
     if(!is_type_value(&trait_info.value()), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&actual_arg),
-            `Expected a trait type for argument ${(i + usize(1))} of 'Dyn' expression.`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&actual_arg),
+              `Expected a trait type for argument ${(i + usize(1))} of 'Dyn' expression.`
+            )
           )
         )
       );
@@ -216,9 +224,11 @@ evaluate_dyn_type :: (
     if(match(&inner_ty, Rc(.OriginSet(_, _)) => true, _ => false), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&actual_arg),
-            `\`Dyn(Trait, ${ast_expr_to_string(&actual_arg)})\`, a payload bounded by an origin, arrives with first-class storage (decision 43 step 3, N2).`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&actual_arg),
+              `\`Dyn(Trait, ${ast_expr_to_string(&actual_arg)})\`, a payload bounded by an origin, arrives with first-class storage (decision 43 step 3, N2).`
+            )
           )
         )
       );
@@ -226,9 +236,11 @@ evaluate_dyn_type :: (
     if(!is_trait_type(&inner_ty), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&actual_arg),
-            `Expected a trait type for argument ${(i + usize(1))} of 'Dyn' expression, got:\n${type_to_string(&inner_ty)}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&actual_arg),
+              `Expected a trait type for argument ${(i + usize(1))} of 'Dyn' expression, got:\n${type_to_string(&inner_ty)}`
+            )
           )
         )
       );
@@ -249,9 +261,11 @@ evaluate_dyn_type :: (
       if(already, {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&actual_arg),
-              `Trait type ${type_to_string(&inner_ty)} is already included in negative constraints of 'Dyn' expression.`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&actual_arg),
+                `Trait type ${type_to_string(&inner_ty)} is already included in negative constraints of 'Dyn' expression.`
+              )
             )
           )
         );
@@ -282,9 +296,11 @@ evaluate_dyn_type :: (
       if(already, {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&actual_arg),
-              `Trait type ${type_to_string(&inner_ty)} is already included in 'Dyn' expression.`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&actual_arg),
+                `Trait type ${type_to_string(&inner_ty)} is already included in 'Dyn' expression.`
+              )
             )
           )
         );

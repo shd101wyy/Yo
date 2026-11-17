@@ -3918,6 +3918,18 @@ record_unsized_site :: (fn(tok : &Token, kind : u8, text : &String) -> unit)({
   site := UnsizedSite(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), kind : kind, text : text.clone());
   g_unsized_sites.with_mut({ site }(xs) => xs.push(site));
 });
+/// How many sites are recorded: the mark `unsized_sites_rollback` returns to.
+unsized_sites_mark :: (fn() -> usize)(g_unsized_sites.with_mut(xs => xs.len()));
+/// Forget the sites recorded since `mark`: a `comptime_expect_error`
+/// argument is a negative row whose `dyn` sites are the error under test, so
+/// the migration must not rewrite them.
+unsized_sites_rollback :: (fn(mark : usize) -> unit)({
+  dropped := g_unsized_sites.with_mut({ mark }(xs) => if(xs.len() > mark, xs.split_off(mark), ArrayList(UnsizedSite).new()));
+  for(&dropped, st => {
+    key := `${st.kind.to_string()}:${st.path}:${st.row.to_string()}:${st.col.to_string()}`;
+    _gone := g_unsized_site_keys.with_mut({ key }(s) => s.remove(&key));
+  });
+});
 take_unsized_sites :: (fn() -> ArrayList(UnsizedSite))({
   g_unsized_site_keys.with_mut(s => s.clear());
   g_unsized_handle_dyn_nodes.with_mut(s => s.clear());
@@ -3930,7 +3942,7 @@ note_unsized_handle_dyn_node :: (fn(id : usize) -> unit)({
 unsized_handle_dyn_node :: (fn(id : usize) -> bool)(
   g_unsized_handle_dyn_nodes.with_mut({ id }(s) => s.contains(&id))
 );
-export(UnsizedSite, set_migrate_unsized, migrate_unsized_on, record_unsized_site, take_unsized_sites, note_unsized_handle_dyn_node, unsized_handle_dyn_node);
+export(UnsizedSite, set_migrate_unsized, migrate_unsized_on, record_unsized_site, unsized_sites_mark, unsized_sites_rollback, take_unsized_sites, note_unsized_handle_dyn_node, unsized_handle_dyn_node);
 // ---------------------------------------------------------------------------
 // The arguments that run before a call moves an earlier argument
 // ---------------------------------------------------------------------------

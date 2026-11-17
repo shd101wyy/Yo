@@ -166,14 +166,14 @@ call_consume_but_keep_using :: (fn(p : Rc(i32)) -> unit)({
 Each heap allocated ARC value starts with a single owner. Its reference counter starts at 1.
 
 ```yo
-Point :: ref(struct(x : i32, y : i32));
+Point :: struct(x : i32, y : i32);
 
-Point(x : i32(3), y : i32(4)); // temp_var owns the Point(x: i32(3), y: i32(4)), RC = 1
+Rc.new(Point(x : i32(3), y : i32(4))); // temp_var owns the cell of Point(x: i32(3), y: i32(4)), RC = 1
 ```
 
 ### Reading the Count: `ref_count(x)`
 
-The builtin `ref_count(x)` returns the current reference count of the cell `x` holds, as a `usize`. For a value type (a plain `struct`, an integer) it is always `1`, known at compile time. Atomically counted handles (`Arc(T)`, `atomic(ref(...))`) are read with an atomic load.
+The builtin `ref_count(x)` returns the current reference count of the cell `x` holds, as a `usize`. For a value type (a plain `struct`, an integer) it is always `1`, known at compile time. Atomically counted handles (`Arc(T)`) are read with an atomic load.
 
 ```yo
 b := Rc(i32)(3);
