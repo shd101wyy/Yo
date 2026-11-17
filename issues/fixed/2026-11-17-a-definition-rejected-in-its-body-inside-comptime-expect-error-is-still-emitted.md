@@ -4,7 +4,7 @@
 `tests/dyn.test.yo` is red on develop `916b279c1` (#1980, the `str` flip). No program outside
 `comptime_expect_error` is affected: there, the first rejection stops compilation.
 
-**Status:** OPEN. Found 2026-11-17 by the S3b-`Dyn` lane while re-gating on develop `916b279c1`. A develop-built
+**Status:** FIXED on `fix/develop-v0279-reds` (the redfix lane). Found 2026-11-17 by the S3b-`Dyn` lane while re-gating on develop `916b279c1`. A develop-built
 binary (`yo build` of `916b279c1` with the v0.2.78 seed) gives the same error, so the S3b-`Dyn` branch did not cause it.
 
 ## Reproducer
@@ -64,3 +64,18 @@ function-literal evaluation records the `fn_val_id` it registered and marks it w
 `comptime_expect_error` marks every function registered after its mark when its argument throws, the way it already
 rolls back `dyn_copy` and `unsized_sites`. The test is the existing `tests/dyn.test.yo` row. It fails on `916b279c1`
 and passes with the fix.
+
+## Fix
+
+The first direction. `src/evaluator/calls/function_type.yo` marks the definition unemittable (`mark_fn_unemittable`)
+when its body's trial evaluation threw (an empty `flow_out`) inside a `comptime_expect_error` argument
+(`propagate_def_time_errors()`). The mark comes before any of the re-raises: the flow-violation re-raise, the fatal
+concrete-fn re-raise and the propagate-mode throw. Gating it on the `comptime_expect_error` mode keeps it off two other
+paths. Outside a `comptime_expect_error` the throw ends the compile. An enclosing generic trial can also keep the error
+and re-evaluate this literal later under the same stable id (`stable_func_id` has no specialization component), and
+there a mark would hide a valid later definition.
+
+## Verification
+
+The reproducer compiles and runs (exit 0). Before the fix the C failed to compile (a binary built from `b2155b8bf`).
+`tests/dyn.test.yo`: 0 of 66 ran before (the batch failed to compile); 67/67 pass after.
