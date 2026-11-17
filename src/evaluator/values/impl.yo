@@ -115,11 +115,18 @@ pragma(Pragma.AllowUnsafe);
   ImplInFlight,
   push_impl_in_flight,
   pop_impl_in_flight,
-  newest_impl_in_flight_for,
+  newest_impl_in_flight_index_for,
+  impl_in_flight_copy_at,
+  impl_in_flight_len,
+  _mutate_impl_in_flight_at,
+  _in_flight_env_at,
   make_impl_pending_field,
   impl_direct_field_at,
+  impl_direct_field_index_at,
   impl_inner_field_at,
+  impl_inner_field_index_at,
   impl_forcible_field,
+  impl_forcible_field_index,
   flag_pending_impl_force_error,
   push_forcing_def,
   pop_forcing_def,
@@ -4473,7 +4480,7 @@ _c3_eval_colon_pair :: (
   fn(
     meth_expr : &AstExpr,
     current_trait_ty : &Option(TypeValue),
-    st : &ImplInFlight,
+    st : &mut ImplInFlight,
     field_opt : &Option(ImplPendingField),
     ctx : &mut EvalContext,
     exn : Exception
@@ -4863,7 +4870,7 @@ _c2_register_member :: (
 /// source order, binds the bare label in the impl env, registers the member
 /// provisionally.
 _c2_eval_direct_field :: (
-  fn(pf : &ImplPendingField, st : &ImplInFlight, ctx : &mut EvalContext, exn : Exception) -> unit
+  fn(pf : &mut ImplPendingField, st : &mut ImplInFlight, ctx : &mut EvalContext, exn : Exception) -> unit
 )({
   mf_colon_args := match(
     Rc.clone(pf.colon_expr),
@@ -4912,7 +4919,7 @@ _c2_eval_direct_field :: (
         &mname_tok
       );
       if(st.recv_id != "", {
-        _c2_register_member(st, pf, &mname, &mfi.ty(), &m_to_push, String.from(""));
+        _c2_register_member(&st.*, &pf.*, &mname, &mfi.ty(), &m_to_push, String.from(""));
       });
     }
   );
@@ -4921,7 +4928,7 @@ _c2_eval_direct_field :: (
 /// (`Trait(name : fn_def, ...)`), with the trait's expected field type (Self
 /// substituted to the receiver pattern) and the entry's working bindings.
 _c2_eval_inner_field :: (
-  fn(pf : &ImplPendingField, st : &ImplInFlight, ctx : &mut EvalContext, exn : Exception) -> unit
+  fn(pf : &mut ImplPendingField, st : &mut ImplInFlight, ctx : &mut EvalContext, exn : Exception) -> unit
 )({
   g_colon_args := match(
     Rc.clone(pf.colon_expr),
@@ -5003,20 +5010,44 @@ _c2_eval_inner_field :: (
 /// from `force_in_flight_field`), with its forcing-stack entry pushed so
 /// `try_to_implement_function_by_function_type` publishes the phase-A FuncVal
 /// a re-entrant sibling reference binds.
-_run_impl_field :: (
-  fn(pf : &ImplPendingField, st : &ImplInFlight, ctx : &mut EvalContext, exn : Exception) -> unit
+/// Run ONE pending field, in place in the in-flight stack: the field is
+/// marked Forcing in the STACK before the evaluation starts (a sibling miss
+/// re-entering the hook mid-evaluation must find it), the evaluation runs on
+/// fresh copies (the RefCell must not stay borrowed across user code), and
+/// the field's results and the entry's env are written back in place at the
+/// end — the same boundaries at which the shared cell used to update.
+_run_impl_field_in_place :: (
+  fn(stack_idx : usize, field_idx : usize, ctx : &mut EvalContext, exn : Exception) -> unit
 )({
+  st := match(
+    impl_in_flight_copy_at(stack_idx),
+    .Some(r) => r,
+    .None => {
+      return(());
+    }
+  );
+  pf := match(
+    st.fields.get(field_idx),
+    .Some(f) => f,
+    .None => {
+      return(());
+    }
+  );
+  _mutate_impl_in_flight_at(stack_idx, rec => {
+    rec.fields.with(field_idx, f => {
+      f.state = ImplFieldState.Forcing;
+    });
+  });
   push_forcing_def(&pf.def);
-  pf.state = ImplFieldState.Forcing;
   cond(
     st.is_generic => cond(
-      pf.is_inner => _c2_eval_inner_field(pf, st, ctx, exn),
-      true => _c2_eval_direct_field(pf, st, ctx, exn)
+      pf.is_inner => _c2_eval_inner_field(&mut pf, &mut st, ctx, exn),
+      true => _c2_eval_direct_field(&mut pf, &mut st, ctx, exn)
     ),
     true => _c3_eval_colon_pair(
       &pf.colon_expr,
       cond(pf.is_inner => st.current_trait_ty.clone(), true => Option(TypeValue).None),
-      st,
+      &mut st,
       Option(ImplPendingField).Some(pf.*),
       ctx,
       exn
@@ -5024,6 +5055,16 @@ _run_impl_field :: (
   );
   pf.state = ImplFieldState.Done;
   pop_forcing_def();
+  _mutate_impl_in_flight_at(stack_idx, rec => {
+    rec.env = Rc.clone(st.env);
+    rec.fields.with(field_idx, f => {
+      f.state = pf.state;
+      f.failure = pf.failure.clone();
+      f.result_ty = pf.result_ty.clone();
+      f.result_value = pf.result_value.clone();
+      f.phase_a_registered = pf.phase_a_registered;
+    });
+  });
 });
 /// A forced member's failure, parked by the capture-free handler below.
 (mut(g_field_force_failure) : Option(String)) = Option(String).None;
@@ -5041,7 +5082,7 @@ _take_field_force_failure :: (fn() -> Option(String))({
 /// with it while the field loop's own context is lent down the stack. Before
 /// each field the loop runs, the copy takes the loop context's per-field
 /// state, so a force sees what an in-place evaluation would.
-_sync_in_flight_ctx :: (fn(rec : &ImplInFlight, ctx : &EvalContext) -> unit)({
+_sync_in_flight_ctx :: (fn(rec : &mut ImplInFlight, ctx : &EvalContext) -> unit)({
   rec.ctx.self_type = ctx.self_type.clone();
   rec.ctx.self_trait_type = ctx.self_trait_type.clone();
   rec.ctx.self_module_type = ctx.self_module_type.clone();
@@ -5050,7 +5091,11 @@ _sync_in_flight_ctx :: (fn(rec : &ImplInFlight, ctx : &EvalContext) -> unit)({
   rec.ctx.current_impl_trait_field_labels = ctx.current_impl_trait_field_labels.clone();
   rec.ctx.current_impl_trait_field_types = ctx.current_impl_trait_field_types.clone();
 });
-_force_field_eval :: (fn(pf : &ImplPendingField, st : &ImplInFlight) -> unit)({
+/// A forced member's evaluation: the record's context is lent to the field's
+/// evaluation through a copy (the record itself stays in the in-flight stack,
+/// where a re-entrant miss keeps finding it), and the copy's end state is
+/// written back IN PLACE, so the record keeps what the evaluation wrote.
+_force_field_eval :: (fn(stack_idx : usize, field_idx : usize) -> unit)({
   inner_exn := Exception(
     throw : (
       _err -> {
@@ -5059,12 +5104,17 @@ _force_field_eval :: (fn(pf : &ImplPendingField, st : &ImplInFlight) -> unit)({
       }
     )
   );
-  // The record's context is lent to the field's evaluation through a copy
-  // (the record itself is lent alongside it), and the copy's end state is
-  // written back, so the record keeps what the evaluation wrote.
-  force_ctx := copy_eval_context(&st.ctx);
-  _run_impl_field(pf, st, &mut force_ctx, inner_exn);
-  st.ctx = force_ctx;
+  force_ctx := match(
+    impl_in_flight_copy_at(stack_idx),
+    .Some(r) => copy_eval_context(&r.ctx),
+    .None => {
+      return(());
+    }
+  );
+  _run_impl_field_in_place(stack_idx, field_idx, &mut force_ctx, inner_exn);
+  _mutate_impl_in_flight_at(stack_idx, rec => {
+    rec.ctx = force_ctx;
+  });
   ()
 });
 /// env.yo's lookup-miss hook (plans/reference/LAZY_TOPLEVEL_BINDINGS.md P3): a method
@@ -5080,15 +5130,29 @@ _force_field_eval :: (fn(pf : &ImplPendingField, st : &ImplInFlight) -> unit)({
 force_in_flight_field :: (
   fn(type_id : &String, method_name : &String) -> bool
 )({
+  stack_idx := match(
+    newest_impl_in_flight_index_for(type_id),
+    .Some(i) => i,
+    .None => {
+      return(false);
+    }
+  );
   rec := match(
-    newest_impl_in_flight_for(type_id),
+    impl_in_flight_copy_at(stack_idx),
     .Some(r) => r,
     .None => {
       return(false);
     }
   );
+  field_idx := match(
+    impl_forcible_field_index(&rec, method_name),
+    .Some(j) => j,
+    .None => {
+      return(false);
+    }
+  );
   pf := match(
-    impl_forcible_field(&rec, method_name),
+    rec.fields.get(field_idx),
     .Some(f) => f,
     .None => {
       return(false);
@@ -5120,7 +5184,11 @@ force_in_flight_field :: (
         }, {
           register_type_trait_method(rec.recv_id.clone(), &pa_entry);
         });
-        pf.phase_a_registered = true;
+        _mutate_impl_in_flight_at(stack_idx, r2 => {
+          r2.fields.with(field_idx, f2 => {
+            f2.phase_a_registered = true;
+          });
+        });
         if(debug_knob(`YO_DEBUG_LAZY`).is_some(), {
           eprintln(`[force-field] phase-A ${type_id}.${method_name}`);
         });
@@ -5139,26 +5207,34 @@ force_in_flight_field :: (
       saved_exp := rec.ctx.expected_type.clone();
       saved_wt_labels := rec.ctx.current_impl_trait_field_labels.clone();
       saved_wt_types := rec.ctx.current_impl_trait_field_types.clone();
-      if(!pf.is_inner, {
-        rec.ctx.current_impl_trait_field_labels = ArrayList(String).new();
-        rec.ctx.current_impl_trait_field_types = ArrayList(TypeValue).new();
+      _mutate_impl_in_flight_at(stack_idx, r2 => {
+        if(!pf.is_inner, {
+          r2.ctx.current_impl_trait_field_labels = ArrayList(String).new();
+          r2.ctx.current_impl_trait_field_types = ArrayList(TypeValue).new();
+        });
       });
       depths := forcing_depths();
       ___cf := _take_field_force_failure();
-      _force_field_eval(&pf, &rec);
+      _force_field_eval(stack_idx, field_idx);
       failure := _take_field_force_failure();
-      rec.ctx.current_impl_trait_field_labels = saved_wt_labels;
-      rec.ctx.current_impl_trait_field_types = saved_wt_types;
-      rec.ctx.expected_type = saved_exp;
+      _mutate_impl_in_flight_at(stack_idx, r2 => {
+        r2.ctx.current_impl_trait_field_labels = saved_wt_labels;
+        r2.ctx.current_impl_trait_field_types = saved_wt_types;
+        r2.ctx.expected_type = saved_exp;
+      });
       restore_active_where_trait_ids(&saved_where);
       ___rt := set_in_def_time_trial(prev_trial);
       match(
         failure,
         .Some(msg) => {
           truncate_forcing_depths(depths);
-          pf.state = ImplFieldState.Failed;
           full := `${msg}\n  note: \`${pf.label}\` was evaluated here because a sibling method of this impl references it before its definition`;
-          pf.failure = Option(String).Some(full.clone());
+          _mutate_impl_in_flight_at(stack_idx, r2 => {
+            r2.fields.with(field_idx, f2 => {
+              f2.state = ImplFieldState.Failed;
+              f2.failure = Option(String).Some(full.clone());
+            });
+          });
           flag_pending_impl_force_error(&full);
           false
         },
@@ -5589,6 +5665,7 @@ evaluate_module_value :: (
       forall_names : forall_names.clone()
     );
     push_impl_in_flight(&c2_rec);
+    c2_stack_i := (impl_in_flight_len() - usize(1));
     // `where(...)` clauses may also appear AFTER the receiver
     // (`impl(generic(T), Channel(T), where(T <: Send), ...)`). Collect them
     // all before the field loop: every entry the loop registers carries the
@@ -5606,7 +5683,9 @@ evaluate_module_value :: (
     while(fj < n_args, {
       mf_expr := match(args.get_cloned(fj), .None => make_err_expr(), .Some(e) => e);
       fj = (fj + usize(1));
-      c2_rec.current_top_index = (fj - usize(1));
+      _mutate_impl_in_flight_at(c2_stack_i, r => {
+        r.current_top_index = (fj - usize(1));
+      });
       // Negative GENERIC impl: `impl(generic(...), Pattern, !(Trait))`. Register
       // the negated trait into the negative-generic registry (reusing this
       // impl's generic params + receiver pattern) so `Type.impls(Concrete, Trait)`
@@ -5646,37 +5725,60 @@ evaluate_module_value :: (
       if(ast_expr_is_fn_call(&mf_expr) && ast_expr_is_fn_call_of(&mf_expr, BK_COLON, .Some(usize(2))), {
         // Direct member — through its pending entry (a sibling may already
         // have forced it); its results are pushed HERE, in source order.
-        c2_rec.env = forall_env;
+        // The entry itself stays in the in-flight stack (the env-lookup hook
+        // keeps finding it): every read takes a copy, every write lands in
+        // place, and the field runs through `_run_impl_field_in_place`.
+        _mutate_impl_in_flight_at(c2_stack_i, r => {
+          r.env = forall_env;
+          _sync_in_flight_ctx(r, ctx);
+        });
         match(
-          impl_direct_field_at(&c2_rec, fj - usize(1)),
-          .Some(c2_pf) => {
-            match(
-              c2_pf.state,
-              .Done => (),
-              .Failed => {
-                exn.throw(dyn(Box.new(match(&c2_pf.failure, .Some(m) => m.clone(), .None => String.from("impl member failed")))));
-              },
-              .Forcing => {
-                exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&mf_expr), `internal error: impl member "${c2_pf.label}" reached by the field loop while it is being forced`))));
-              },
-              .Unforced => {
-                _sync_in_flight_ctx(&c2_rec, ctx);
-                _run_impl_field(&c2_pf, &c2_rec, ctx, exn);
-              }
-            );
-            match(
-              &c2_pf.result_ty,
-              .Some(c2_rt) => {
-                method_names.push(c2_pf.label.clone());
-                method_types.push(Rc.clone(c2_rt));
-                method_values.push(match(c2_pf.result_value, .Some(v) => v, .None => EvalValue.UnitVal));
+          impl_in_flight_copy_at(c2_stack_i),
+          .Some(c2_r0) => match(
+            impl_direct_field_index_at(&c2_r0, fj - usize(1)),
+            .Some(c2_fi) => match(
+              c2_r0.fields.get(c2_fi),
+              .Some(c2_pf) => {
+                match(
+                  c2_pf.state,
+                  .Done => (),
+                  .Failed => {
+                    exn.throw(dyn(Box.new(match(&c2_pf.failure, .Some(m) => m.clone(), .None => String.from("impl member failed")))));
+                  },
+                  .Forcing => {
+                    exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&mf_expr), `internal error: impl member "${c2_pf.label}" reached by the field loop while it is being forced`))));
+                  },
+                  .Unforced => {
+                    _run_impl_field_in_place(c2_stack_i, c2_fi, ctx, exn);
+                  }
+                );
+                // Fresh read: the run (or a sibling force inside it) wrote the
+                // results in place.
+                match(
+                  impl_in_flight_copy_at(c2_stack_i),
+                  .Some(c2_r1) => match(
+                    c2_r1.fields.get(c2_fi),
+                    .Some(c2_pf2) => match(
+                      &c2_pf2.result_ty,
+                      .Some(c2_rt) => {
+                        method_names.push(c2_pf2.label.clone());
+                        method_types.push(Rc.clone(c2_rt));
+                        method_values.push(match(c2_pf2.result_value, .Some(v) => v, .None => EvalValue.UnitVal));
+                      },
+                      .None => ()
+                    ),
+                    .None => ()
+                  ),
+                  .None => ()
+                );
               },
               .None => ()
-            );
-          },
+            ),
+            .None => ()
+          ),
           .None => ()
         );
-        forall_env = Rc.clone(c2_rec.env);
+        forall_env = _in_flight_env_at(c2_stack_i);
       });
       // Trait-constructor entry: `Trait(name : fn_def, ...)` or
       // `Trait(args)(name : fn_def, ...)` — e.g. ArrayList's
@@ -5734,7 +5836,9 @@ evaluate_module_value :: (
           Rc(.FnCall(_, _, Rc(tia2), _, _)) => tia2.clone(),
           Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
         );
-        c2_rec.current_trait_ty = g_trait_ty_opt;
+        _mutate_impl_in_flight_at(c2_stack_i, r => {
+          r.current_trait_ty = g_trait_ty_opt;
+        });
         (gti : usize) = usize(0);
         while(gti < trait_inner_args2.len(), {
           inner_e2 := match(trait_inner_args2.get_cloned(gti), .Some(x) => x, .None => make_err_expr());
@@ -5747,40 +5851,60 @@ evaluate_module_value :: (
             );
             // Through the member's pending entry (a sibling of THIS trait
             // entry may already have forced it); results pushed in order.
-            c2_rec.env = forall_env;
+            _mutate_impl_in_flight_at(c2_stack_i, r => {
+              r.env = forall_env;
+              _sync_in_flight_ctx(r, ctx);
+            });
             match(
-              impl_inner_field_at(&c2_rec, fj - usize(1), g_mname.clone()),
-              .Some(c2_ipf) => {
-                match(
-                  c2_ipf.state,
-                  .Done => (),
-                  .Failed => {
-                    exn.throw(dyn(Box.new(match(&c2_ipf.failure, .Some(m) => m.clone(), .None => String.from("impl member failed")))));
-                  },
-                  .Forcing => {
-                    exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&inner_e2), `internal error: impl member "${c2_ipf.label}" reached by the field loop while it is being forced`))));
-                  },
-                  .Unforced => {
-                    _sync_in_flight_ctx(&c2_rec, ctx);
-                    _run_impl_field(&c2_ipf, &c2_rec, ctx, exn);
-                  }
-                );
-                match(
-                  &c2_ipf.result_ty,
-                  .Some(g_rt) => {
-                    g_method_names.push(c2_ipf.label.clone());
-                    g_method_types.push(Rc.clone(g_rt));
-                    g_method_values.push(match(c2_ipf.result_value, .Some(v) => v, .None => EvalValue.UnitVal));
+              impl_in_flight_copy_at(c2_stack_i),
+              .Some(c2_ir0) => match(
+                impl_inner_field_index_at(&c2_ir0, fj - usize(1), g_mname.clone()),
+                .Some(c2_ifi) => match(
+                  c2_ir0.fields.get(c2_ifi),
+                  .Some(c2_ipf) => {
+                    match(
+                      c2_ipf.state,
+                      .Done => (),
+                      .Failed => {
+                        exn.throw(dyn(Box.new(match(&c2_ipf.failure, .Some(m) => m.clone(), .None => String.from("impl member failed")))));
+                      },
+                      .Forcing => {
+                        exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&inner_e2), `internal error: impl member "${c2_ipf.label}" reached by the field loop while it is being forced`))));
+                      },
+                      .Unforced => {
+                        _run_impl_field_in_place(c2_stack_i, c2_ifi, ctx, exn);
+                      }
+                    );
+                    match(
+                      impl_in_flight_copy_at(c2_stack_i),
+                      .Some(c2_ir1) => match(
+                        c2_ir1.fields.get(c2_ifi),
+                        .Some(c2_ipf2) => match(
+                          &c2_ipf2.result_ty,
+                          .Some(g_rt) => {
+                            g_method_names.push(c2_ipf2.label.clone());
+                            g_method_types.push(Rc.clone(g_rt));
+                            g_method_values.push(match(c2_ipf2.result_value, .Some(v) => v, .None => EvalValue.UnitVal));
+                          },
+                          .None => ()
+                        ),
+                        .None => ()
+                      ),
+                      .None => ()
+                    );
                   },
                   .None => ()
-                );
-              },
+                ),
+                .None => ()
+              ),
               .None => ()
             );
-            forall_env = Rc.clone(c2_rec.env);
+            forall_env = _in_flight_env_at(c2_stack_i);
           });
         });
-        c2_rec.current_trait_ty = Option(TypeValue).None;
+        _mutate_impl_in_flight_at(c2_stack_i, r => {
+          r.current_trait_ty = Option(TypeValue).None;
+        });
         ctx.current_impl_trait_field_labels = old_wt_labels;
         ctx.current_impl_trait_field_types = old_wt_values;
         // Fill trait `?=` DEFAULT methods the impl did not override — the
@@ -6108,6 +6232,7 @@ evaluate_module_value :: (
     forall_names : ArrayList(String).new()
   );
   push_impl_in_flight(&c3_rec);
+  c3_stack_i := (impl_in_flight_len() - usize(1));
   // Process each field expression: `name : fn_def` or a trait constructor
   // like `Trait(name: fn_def, ...)` whose inner args are colon pairs.
   (field_idx : usize) = usize(1);
@@ -6116,7 +6241,9 @@ evaluate_module_value :: (
       args.get_cloned(field_idx),
       .None => (),
       .Some(field_expr) => {
-        c3_rec.current_top_index = field_idx;
+        _mutate_impl_in_flight_at(c3_stack_i, r => {
+          r.current_top_index = field_idx;
+        });
         // Collect method colon-pair expressions from either the direct form
         // `name : fn_def` or from inside a trait constructor `Trait(name: fn_def, ...)`.
         // Also try to capture the trait TypeValue (when present) so each
@@ -6394,7 +6521,9 @@ evaluate_module_value :: (
         // Index's `Output : u8`, not the `Output : Self` an earlier Add
         // impl registered under the same receiver id in the global
         // registry — fields attach progressively to the current trait entry.
-        c3_rec.current_trait_ty = current_trait_ty.clone();
+        _mutate_impl_in_flight_at(c3_stack_i, r => {
+          r.current_trait_ty = current_trait_ty.clone();
+        });
         old_wt_labels_c3 := replace(&mut ctx.current_impl_trait_field_labels, ArrayList(String).new());
         old_wt_values_c3 := replace(&mut ctx.current_impl_trait_field_types, ArrayList(TypeValue).new());
         (mj : usize) = usize(0);
@@ -6407,10 +6536,21 @@ evaluate_module_value :: (
               // already have forced it — plans/reference/LAZY_TOPLEVEL_BINDINGS.md
               // P3): a direct one by position, a trait constructor's by its
               // label within this entry.
-              c3_pf_opt := cond(
-                current_trait_ty.is_none() => impl_direct_field_at(&c3_rec, field_idx),
-                true => impl_inner_field_at(
-                  &c3_rec,
+              _mutate_impl_in_flight_at(c3_stack_i, r => {
+                r.env = local_env;
+                _sync_in_flight_ctx(r, ctx);
+              });
+              c3_r0 := match(
+                impl_in_flight_copy_at(c3_stack_i),
+                .Some(r) => r,
+                .None => {
+                  return(());
+                }
+              );
+              c3_fi_opt := cond(
+                current_trait_ty.is_none() => impl_direct_field_index_at(&c3_r0, field_idx),
+                true => impl_inner_field_index_at(
+                  &c3_r0,
                   field_idx,
                   match(
                     Rc.clone(meth_expr),
@@ -6419,28 +6559,36 @@ evaluate_module_value :: (
                   )
                 )
               );
-              c3_rec.env = local_env;
               match(
-                c3_pf_opt,
-                .Some(c3_pf) => match(
-                  c3_pf.state,
-                  .Done => (),
-                  .Failed => {
-                    exn.throw(dyn(Box.new(match(&c3_pf.failure, .Some(m) => m.clone(), .None => String.from("impl member failed")))));
-                  },
-                  .Forcing => {
-                    exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&meth_expr), `internal error: impl member "${c3_pf.label}" reached by the field loop while it is being forced`))));
-                  },
-                  .Unforced => {
-                    _sync_in_flight_ctx(&c3_rec, ctx);
-                    _run_impl_field(&c3_pf, &c3_rec, ctx, exn);
-                  }
+                c3_fi_opt,
+                .Some(c3_fi) => match(
+                  c3_r0.fields.get(c3_fi),
+                  .Some(c3_pf) => match(
+                    c3_pf.state,
+                    .Done => (),
+                    .Failed => {
+                      exn.throw(dyn(Box.new(match(&c3_pf.failure, .Some(m) => m.clone(), .None => String.from("impl member failed")))));
+                    },
+                    .Forcing => {
+                      exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&meth_expr), `internal error: impl member "${c3_pf.label}" reached by the field loop while it is being forced`))));
+                    },
+                    .Unforced => {
+                      _run_impl_field_in_place(c3_stack_i, c3_fi, ctx, exn);
+                    }
+                  ),
+                  .None => ()
                 ),
                 .None => {
-                  _c3_eval_colon_pair(&meth_expr, &current_trait_ty, &c3_rec, Option(ImplPendingField).None, ctx, exn);
+                  // A member with no pending entry: evaluated directly, on a
+                  // copy, with the env it re-stamps written back in place.
+                  (mut(c3_direct) : ImplInFlight) = c3_r0;
+                  _c3_eval_colon_pair(&meth_expr, &current_trait_ty, &mut c3_direct, Option(ImplPendingField).None, ctx, exn);
+                  _mutate_impl_in_flight_at(c3_stack_i, r => {
+                    r.env = Rc.clone(c3_direct.env);
+                  });
                 }
               );
-              local_env = Rc.clone(c3_rec.env);
+              local_env = _in_flight_env_at(c3_stack_i);
             }
           );
           mj = (mj + usize(1));

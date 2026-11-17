@@ -17,7 +17,7 @@
 { trial_flag_get, trial_flag_set, t_unit, t_ptr, type_binding_name } :: import("../types/creators.yo");
 { note_move_only_possible, is_drop_trait_name } :: import("../types/utils.yo");
 { EvalValue } :: import("../value.yo");
-{ Environment, make_environment, Variable, Frame, _frame_first_position, snapshot_env, add_variable_to_env, get_variables_from_frame, invalidate_frame_index, new_frame, value_cell_of, variable_value_type, variable_set_value_type } :: import("../env.yo");
+{ Environment, make_environment, Variable, Frame, _frame_first_position, snapshot_env, add_variable_to_env, get_variables_from_frame, invalidate_frame_index, new_frame, value_cell_of, variable_value_type, variable_set_value_type, new_environment } :: import("../env.yo");
 {
   AstExpr,
   ExprId,
@@ -3650,9 +3650,65 @@ ImplInFlight :: struct(
 push_impl_in_flight :: (fn(rec : &ImplInFlight) -> unit)({
   g_impls_in_flight.with_mut(xs => xs.push(rec.*));
 });
+/// The stack's current depth — the index `push_impl_in_flight` just wrote.
+/// A field loop holds ITS entry's index: nested impls pushed during the
+/// loop land above it and pop before it does.
+impl_in_flight_len :: (fn() -> usize)(g_impls_in_flight.with(_c_len_5));
 pop_impl_in_flight :: (fn() -> unit)({
   g_impls_in_flight.with_mut(xs => xs.pop());
   ()
+});
+/// The stack index of the newest in-flight impl for `recv_id` — the in-place
+/// accessors below key on it. The record never leaves the stack (the env
+/// lookup hook keeps finding it while one of its fields is being evaluated,
+/// which a take-out would break); every read takes a copy and every write
+/// lands in place at the same boundary it used to hit the shared cell.
+newest_impl_in_flight_index_for :: (fn(recv_id : &String) -> Option(usize))({
+  (found : Option(usize)) = Option(usize).None;
+  (i : usize) = g_impls_in_flight.with(_c_len_5);
+  while((i > usize(0)) && found.is_none(), {
+    i = (i - usize(1));
+    match(
+      g_impls_in_flight.with(xs => xs.get(i)),
+      .Some(r) => if(r.recv_id == recv_id.*, {
+        found = Option(usize).Some(i);
+      }),
+      .None => ()
+    );
+  });
+  found
+});
+/// A copy of the in-flight entry at `index` (reads work on the copy; writes
+/// go through `_mutate_impl_in_flight_at` so they land in place).
+impl_in_flight_copy_at :: (fn(index : usize) -> Option(ImplInFlight))(
+  g_impls_in_flight.with(xs => xs.get(index))
+);
+/// Lend the in-flight entry at `index` `&mut`, IN PLACE. `body` must be a
+/// boundary write: it must not evaluate user code, or it would re-enter this
+/// RefCell (the field evaluators run on copies for exactly that reason).
+_mutate_impl_in_flight_at :: (fn(index : usize, body : &mut Impl(FnMut(rec : &mut ImplInFlight) -> unit)) -> unit)({
+  g_impls_in_flight.with_mut(xs => xs.with(index, body));
+});
+/// The in-flight entry's CURRENT env, read fresh: a sibling force completing
+/// while a field is being evaluated replaces the stack entry's env, and the
+/// running field's later env reads must see the replacement exactly as they
+/// did when the record was one shared cell.
+_in_flight_env_at :: (fn(index : usize) -> Environment)(
+  match(
+    g_impls_in_flight.with(xs => xs.get(index)),
+    .Some(r) => Rc.clone(r.env),
+    .None => new_environment(Rc.new(String.from("<no impl in flight>")))
+  )
+);
+/// Persist the in-flight entry's env at `index` (the re-stamp sites inside
+/// the field evaluators replace `st.env` on their working copy; this puts the
+/// new binding back where the hook and the field loop read it).
+_persist_in_flight_env_at :: (fn(index : usize, env : &Environment) -> unit)({
+  g_impls_in_flight.with_mut(
+    xs => xs.with(index, rec => {
+      rec.env = Rc.clone(env);
+    })
+  );
 });
 truncate_impls_in_flight :: (fn(depth : usize) -> unit)({
   while(g_impls_in_flight.with(_c_len_5) > depth, {
@@ -3680,21 +3736,6 @@ truncate_forcing_depths :: (fn(d : ForcingDepths) -> unit)({
   truncate_impls_in_flight(d.impls);
 });
 /// The newest in-flight impl on `recv_id`, if any.
-newest_impl_in_flight_for :: (fn(recv_id : &String) -> Option(ImplInFlight))({
-  (found : Option(ImplInFlight)) = Option(ImplInFlight).None;
-  (i : usize) = g_impls_in_flight.with(_c_len_5);
-  while((i > usize(0)) && found.is_none(), {
-    i = (i - usize(1));
-    match(
-      g_impls_in_flight.with(xs => xs.get(i)),
-      .Some(r) => if(r.recv_id == recv_id.*, {
-        found = Option(ImplInFlight).Some(r);
-      }),
-      .None => ()
-    );
-  });
-  found
-});
 make_impl_pending_field :: (fn(label : &String, colon_expr : &AstExpr, top_index : usize, is_inner : bool) -> ImplPendingField)(
   ImplPendingField(
     label : label.clone(),
@@ -3742,6 +3783,22 @@ impl_inner_field_at :: (fn(rec : &ImplInFlight, top_index : usize, label : &Stri
   });
   found
 });
+/// `impl_inner_field_at`'s INDEX (see `impl_direct_field_index_at`).
+impl_inner_field_index_at :: (fn(rec : &ImplInFlight, top_index : usize, label : &String) -> Option(usize))({
+  (found : Option(usize)) = Option(usize).None;
+  (i : usize) = usize(0);
+  while((i < rec.fields.len()) && found.is_none(), {
+    match(
+      rec.fields.get(i),
+      .Some(f) => if(f.is_inner && (f.top_index == top_index) && (f.label == label.*), {
+        found = Option(usize).Some(i);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
 /// The field a sibling miss on `label` may force: a direct field, or an inner
 /// field of the trait entry currently being evaluated.
 impl_forcible_field :: (fn(rec : &ImplInFlight, label : &String) -> Option(ImplPendingField))({
@@ -3752,6 +3809,39 @@ impl_forcible_field :: (fn(rec : &ImplInFlight, label : &String) -> Option(ImplP
       rec.fields.get(i),
       .Some(f) => if((f.label == label.*) && (!(f.is_inner) || (f.top_index == rec.current_top_index)), {
         found = Option(ImplPendingField).Some(f);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+/// `impl_direct_field_at`'s INDEX: the field evaluators write their results
+/// back in place, keyed by it.
+impl_direct_field_index_at :: (fn(rec : &ImplInFlight, top_index : usize) -> Option(usize))({
+  (found : Option(usize)) = Option(usize).None;
+  (i : usize) = usize(0);
+  while((i < rec.fields.len()) && found.is_none(), {
+    match(
+      rec.fields.get(i),
+      .Some(f) => if(!(f.is_inner) && (f.top_index == top_index), {
+        found = Option(usize).Some(i);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+/// `impl_forcible_field`'s INDEX (see `impl_direct_field_index_at`).
+impl_forcible_field_index :: (fn(rec : &ImplInFlight, label : &String) -> Option(usize))({
+  (found : Option(usize)) = Option(usize).None;
+  (i : usize) = usize(0);
+  while((i < rec.fields.len()) && found.is_none(), {
+    match(
+      rec.fields.get(i),
+      .Some(f) => if((f.label == label.*) && (!(f.is_inner) || (f.top_index == rec.current_top_index)), {
+        found = Option(usize).Some(i);
       }),
       .None => ()
     );
@@ -4050,11 +4140,19 @@ export(
   ForcingDepths,
   forcing_depths,
   truncate_forcing_depths,
-  newest_impl_in_flight_for,
+  newest_impl_in_flight_index_for,
+  impl_in_flight_copy_at,
+  impl_in_flight_len,
+  _mutate_impl_in_flight_at,
+  _in_flight_env_at,
+  _persist_in_flight_env_at,
   make_impl_pending_field,
   impl_direct_field_at,
+  impl_direct_field_index_at,
   impl_inner_field_at,
+  impl_inner_field_index_at,
   impl_forcible_field,
+  impl_forcible_field_index,
   flag_pending_impl_force_error,
   take_pending_impl_force_error,
   force_pending_impls_for_type_name,
