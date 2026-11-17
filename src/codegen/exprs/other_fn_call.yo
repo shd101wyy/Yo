@@ -2332,7 +2332,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               .Some(entry) => match(
                 entry.value.clone(),
                 .Some(mv) => if(is_func_val(&mv), {
-                  mfid := match(mv, Rc(.FuncVal(__fvd4, _)) => __fvd4.*.func_id.clone(), _ => String.from(""));
+                  mfid := match(Rc.clone(mv), Rc(.FuncVal(__fvd4, _)) => __fvd4.*.func_id.clone(), _ => String.from(""));
                   mc_name = _c_func_name(&mfid, context);
                   method_fv = Option(EvalValue).Some(Rc.clone(mv));
                 }),
