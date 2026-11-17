@@ -25,7 +25,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
     - [Composite types:](#composite-types)
     - [Pointer types:](#pointer-types)
     - [Static/Dynamic dispatch types:](#staticdynamic-dispatch-types)
-    - [Value Types vs Reference-Semantics Types](#value-types-vs-reference-semantics-types)
+    - [Value Types and Shared Cells](#value-types-and-shared-cells)
   - [Variable Declaration](#variable-declaration)
     - [No variable shadowing](#no-variable-shadowing)
     - [Discarding a call result](#discarding-a-call-result)
@@ -46,8 +46,8 @@ Our goal is to be a practical language that is easy to use and easy to learn.
     - [Associated constants](#associated-constants)
   - [Private members](#private-members)
   - [recur](#recur)
-  - [Reference-Semantics Types and Memory Management](#reference-semantics-types-and-memory-management)
-    - [Reference-Semantics Type](#reference-semantics-type)
+  - [Shared Cells and Memory Management](#shared-cells-and-memory-management)
+    - [Reference-Counted Cells](#reference-counted-cells)
     - [Compile-Time Reference Counting Optimization](#compile-time-reference-counting-optimization)
     - [Explicit Allocators](#explicit-allocators)
     - [Move-only values](#move-only-values)
@@ -114,7 +114,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Basic Closure Syntax](#basic-closure-syntax)
   - [Closure Capture Semantics](#closure-capture-semantics)
   - [Closure Type Restrictions](#closure-type-restrictions)
-  - [Closures with Reference-Semantics Types](#closures-with-reference-semantics-types)
+  - [Closures over Shared Cells](#closures-over-shared-cells)
 - [Box: the Uniquely Owned Cell](#box-the-uniquely-owned-cell)
 - [Rc and Reference-Counted Cells](#rc-and-reference-counted-cells)
   - [Rc Type](#rc-type)
@@ -158,7 +158,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
     - [Compile-Time Assertions](#compile-time-assertions)
   - [Testing Expected Errors](#testing-expected-errors)
   - [Test Organization](#test-organization)
-  - [Testing with Reference-Semantics Types](#testing-with-reference-semantics-types)
+  - [Testing Drop](#testing-drop)
   - [Test Files](#test-files)
 - [Meta-programming](#meta-programming)
   - [Macro functions](#macro-functions)
@@ -453,9 +453,9 @@ A type can have the following **Kind**:
 - Structs defined with `struct(...)`
 - Enums/ADTs defined with `enum(...)`
 - Unions defined with `union(...)`
-- Reference-counted reference-semantics types defined with `ref(struct(...))` or `ref(enum(...))` (and their atomic variants `atomic(ref(struct(...)))` / `atomic(ref(enum(...)))`)
+- Shared cells: `Rc(T)` (non-atomic reference counting) and `Arc(T)` (atomic reference counting), and `Box(T)`, the uniquely owned cell
 - Fixed-size arrays: `Array(T, N)` or `[T; N]`
-- The static string view: `str` (string literals; refers only to static data)
+- Strings: the unsized `str`, `&str` (a fat reference), and `String`, the owned buffer; a string literal is a `&(str, static)`
 - Newtypes defined with `newtype(...)`
 - Tuples: `Tuple(T1, T2, ...)` or `(T1; T2; ...)`
 
@@ -485,7 +485,7 @@ show :: (fn(generic(T : ?Sized), x : &T, where(T <: Show)) -> i32)(x.show());
 
 The standard library's methods on `[T]` (`len`, indexing, iteration) come with v0.2.78.
 
-#### Value Types vs Reference-Semantics Types
+#### Value Types and Shared Cells
 
 **Value Types** (stack-allocated, copied on assignment):
 
@@ -496,25 +496,21 @@ The standard library's methods on `[T]` (`len`, indexing, iteration) come with v
 - Fixed-size arrays: `Array(T, N)` or `[T; N]`
 - Tuples: `Tuple(T1, T2, ...)` or `(T1; T2; ...)`
 
-**Reference-Semantics Types** (heap-allocated, reference-counted):
+**Shared cells** (heap-allocated, reference-counted):
 
-- Types defined with `ref(struct(...))` or `ref(enum(...))` (and their atomic variants `atomic(ref(struct(...)))` / `atomic(ref(enum(...)))`)
+- `Rc(T)` and `Arc(T)`: a handle is a new owner, spelled `Rc.clone(h)`; the payload is read-only through the handle
 - Freed at the last handle; a reference cycle leaks unless a `Weak` breaks it
-- Thread-affinity for performance (objects stay on the thread that created them)
+- `Rc` stays on the thread that created it; `Arc` is the atomic form that threads share
 
 ```yo
-// Value type - stack-allocated, copied
+// Value type - stack-allocated; `Copy`, so `q := p` copies
 Point :: struct(x : i32, y : i32);
-p1 := Point(x : 3, y : 4);
-p2 := p1; // p2 is a copy of p1
-// Reference-semantics type - heap-allocated, reference-counted
-MyString :: ref(
-  struct(
-    _bytes : ArrayList(u8)
-  )
-);
-s1 := MyString.from("Hello");
-s2 := s1; // s2 and s1 point to the same object (reference counted)
+derive(Point, Copy, Clone);
+p := Point(x : 3, y : 4);
+q := p;
+// Shared cell - heap-allocated, reference-counted
+s1 := Rc.new(String.from("Hello"));
+s2 := Rc.clone(s1); // s2 and s1 point to the same cell (reference counted)
 ```
 
 ### Variable Declaration
@@ -664,7 +660,6 @@ my_int_2 := my_int; // my_int_2 is a copy
 my_int_array := [1, 2, 3]; // Array(i32, 3)
 // ArrayList is a value too: it owns its heap buffer
 (my_array_list : ArrayList(i32)) = ArrayList(i32).new(); // Heap-allocated buffer, one owner
-// Enum/ADT can be value or reference-semantics type depending on definition
 Person :: struct(name : String, age : i32); // Value type (its String field is a value too)
 p := Person(name : String.from("Alice"), age : 30);
 _(name, age) := p; // name : String, age : i32
@@ -745,7 +740,7 @@ p2 := BoolPoint(x : true, y : false);
 
 ### Parameter modes are part of the function type
 
-`fn(x : &mut i32) -> unit`, `fn(x : &String) -> usize` and `fn(x : String) -> usize` are three different types: a `&mut T` parameter is an exclusive borrow of the caller's place, a `&T` parameter is a read-only (shared) borrow, and a plain parameter is **by value**. A by-value parameter of a `Copy` type receives a copy, and one of an explicit-copy type (a move-only value, plain data without `Copy`, or an `Rc`/`Arc` handle, decision 17) consumes its argument: the caller's binding ends at the call. A kind that is still implicitly copyable (`String`, the collections, a `ref` handle) is passed the way `t := s` binds it, as a share, and the caller keeps its value; it moves with `t := s` when its phase of the values-by-default plan makes it explicit-copy. Until then the share is an alias, as `t := s` is: a callee that writes a by-value `String` or collection writes the caller's too, so write a `.clone()` instead. A `sink(x)` parameter, and a closure or function argument, always move. The mode is part of the type for every parameter type, `Copy` or not, so `fn(x : &i32)` and `fn(x : i32)` differ too. A function value only fits a slot whose parameters have the same modes (and the same implicit `using(...)` parameters), however it gets there: bound to a typed name, passed as an argument (to a `fn(...)` or an `Impl(Fn(...))` parameter), stored in a field, returned, or wrapped by `dyn(...)` into a `Dyn(Fn(...))`. A closure literal takes the modes of the slot it is written for:
+`fn(x : &mut i32) -> unit`, `fn(x : &String) -> usize` and `fn(x : String) -> usize` are three different types: a `&mut T` parameter is an exclusive borrow of the caller's place, a `&T` parameter is a read-only (shared) borrow, and a plain parameter is **by value**. A by-value parameter of a `Copy` type receives a copy, and one of an explicit-copy type (a move-only value, plain data without `Copy`, or an `Rc`/`Arc` handle, decision 17) consumes its argument: the caller's binding ends at the call. A `sink(x)` parameter, and a closure or function argument, always move. The mode is part of the type for every parameter type, `Copy` or not, so `fn(x : &i32)` and `fn(x : i32)` differ too. A function value only fits a slot whose parameters have the same modes (and the same implicit `using(...)` parameters), however it gets there: bound to a typed name, passed as an argument (to a `fn(...)` or an `Impl(Fn(...))` parameter), stored in a field, returned, or wrapped by `dyn(...)` into a `Dyn(Fn(...))`. A closure literal takes the modes of the slot it is written for:
 
 ```yo
 bump :: (fn(x : &mut i32) -> unit)({
@@ -1214,46 +1209,32 @@ no tail-call optimization is applied.
 );
 ```
 
-### Reference-Semantics Types and Memory Management
+### Shared Cells and Memory Management
 
-Yo uses **reference-semantics types** with [Compile-time Reference Counting with Ownership and Lifetime Analysis](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md) for safe and efficient memory management.
+Yo uses **reference-counted cells** (`Rc`, `Arc`) with [Compile-time Reference Counting with Ownership and Lifetime Analysis](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md) for safe and efficient memory management.
 
-#### Reference-Semantics Type
+#### Reference-Counted Cells
 
-Reference-semantics types are heap-allocated types with automatic reference counting:
+`Rc(T)` and `Arc(T)` are heap cells with automatic reference counting. A handle is a new owner, so a second handle is spelled `Rc.clone(h)`:
 
 ```yo
-// Define a reference-semantics type
-MyString :: ref(
-  struct(
-    _bytes : ArrayList(u8)
-  )
-);
+// A shared cell: `Rc(T)` counts the handles to one heap cell.
+Resource :: struct(id : i32);
 impl(
-  MyString,
-  // Methods
-  from : (fn(s : str) -> Self)(.{
-    // Implementation...
-  }),
-  length : (fn(self : Self) -> usize)(.{
-    // Implementation...
-  })
-);
-impl(
-  MyString,
+  Resource,
   Drop(
-    drop : (fn(self : &mut Self) -> unit)(.{
+    drop : (fn(self : &mut Self) -> unit)({
       // `drop` runs when the reference count reaches zero
     })
   )
 );
 
 // Usage
-s1 := MyString.from("Hello"); // RC = 1
-s2 := s1; // RC = 2 (both point to same object)
-s3 := s2; // RC = 3
+s1 := Rc.new(Resource(id : i32(1))); // RC = 1
+s2 := Rc.clone(s1); // RC = 2 (both handles point to the same cell)
+s3 := Rc.clone(s2); // RC = 3
 // When s1, s2, s3 go out of scope, RC decrements
-// When RC reaches 0, memory is freed
+// When RC reaches 0, the payload's `drop` runs and the cell is freed
 // In practice, we eliminate many RC operations via ownership analysis
 ```
 
@@ -1330,7 +1311,7 @@ The impl is checked. A `Clone` impl must cover the same instantiations, and the 
 
 #### Move-only values
 
-A resource (a file descriptor, a lock, a socket) is a value that must not be copied: two copies would release it twice. A value type (`struct`, `enum`, `newtype`) that implements `Drop` is **move-only**, and so is a plain value type that is neither `Copy` nor `Clone` (a token that must stay unique needs no `Drop`: declare neither), and every value that holds one: a struct field, an enum payload, a tuple or array element, a closure capture. `Option(Fd)` and `Tuple(Fd, i32)` are move-only. A reference type (`ref(struct(...))`, `Rc`, `Arc`) never is, whatever it holds, because its copies share one cell; its `Drop` runs once, when the count reaches zero.
+A resource (a file descriptor, a lock, a socket) is a value that must not be copied: two copies would release it twice. A value type (`struct`, `enum`, `newtype`) that implements `Drop` is **move-only**, and so is a plain value type that is neither `Copy` nor `Clone` (a token that must stay unique needs no `Drop`: declare neither), and every value that holds one: a struct field, an enum payload, a tuple or array element, a closure capture. `Option(Fd)` and `Tuple(Fd, i32)` are move-only. A counted handle (`Rc`, `Arc`) never is, whatever it holds, because its copies share one cell; its payload's `Drop` runs once, when the count reaches zero.
 
 ```yo
 { println } :: import("std/fmt");
@@ -1448,7 +1429,7 @@ float_ptr := (*f32)(ptr); // Cast pointer to *(f32)
 
 ### Pointer Arithmetic and Comparison
 
-Pointer arithmetic uses methods — `p.add(n)`, `p.sub(n)`, `p.offset_from(q)` — which require `unsafe(...)`. Pointer comparison uses the ordinary operators (`==`, `!=`, `<`, `<=`, `>`, `>=`) via the `Eq`/`Ord` impls on `*(T)` and stays safe — comparing addresses can't violate memory safety. Note that `*(T) ==` compares ADDRESSES (identity), while reference-semantics types compare VALUES via their own `Eq` impls.
+Pointer arithmetic uses methods — `p.add(n)`, `p.sub(n)`, `p.offset_from(q)` — which require `unsafe(...)`. Pointer comparison uses the ordinary operators (`==`, `!=`, `<`, `<=`, `>`, `>=`) via the `Eq`/`Ord` impls on `*(T)` and stays safe — comparing addresses can't violate memory safety. Note that `*(T) ==` compares ADDRESSES (identity), while a handle such as `Rc(T)` compares VALUES via its own `Eq` impl.
 
 ```yo
 test("Pointer arithmetic", {
@@ -1520,11 +1501,11 @@ match(
 );
 ```
 
-**Note**: Raw pointers are unsafe. Use reference-semantics types for safe memory management whenever possible.
+**Note**: Raw pointers are unsafe. Use `Rc`, `Arc`, `Box` and the owned collections for safe memory management whenever possible.
 
 ### `Option` of a handle is one pointer
 
-`Option(T)` where `T` is a raw pointer OR a reference-semantics handle (`ref(struct(...))` / `ref(enum(...))`, including every `String`, whose bytes live behind an `Option` of a handle newtype) lowers to the bare pointer, with `NULL` as `.None`. The same niche applies to any two-variant enum with one fieldless variant and one single-field handle payload. There is no tag word and no extra padding: `size_of` is the pointer's own, and a `match` on such a value compiles to a NULL test.
+`Option(T)` where `T` is a raw pointer OR a counted or boxed handle (`Rc`, `Arc`, `Box`) lowers to the bare pointer, with `NULL` as `.None`. The same niche applies to any two-variant enum with one fieldless variant and one single-field handle payload. There is no tag word and no extra padding: `size_of` is the pointer's own, and a `match` on such a value compiles to a NULL test.
 
 ```yo
 pragma(Pragma.AllowUnsafe); // only so size_of may name a pointer type
@@ -1541,7 +1522,7 @@ For the user-facing guide, see [MEMORY_SAFETY.md](MEMORY_SAFETY.md) — covers t
 
 Yo's safety model is layered (the design plan is [plans/reference/MEMORY_SAFETY.md](../../plans/reference/MEMORY_SAFETY.md)):
 
-- **Reference-semantics types** (`ref(struct(...))` / `ref(enum(...))`, and the `atomic(ref(...))` variants) are reference-counted and automatically freed at their last handle (a cycle leaks unless a `Weak` breaks it). Memory-safe by construction.
+- **`Rc(T)`** is a reference-counted cell, automatically freed at its last handle (a cycle leaks unless a `Weak` breaks it). Memory-safe by construction.
 - **`Arc(T)`** provides atomic-RC ownership for thread-shared cases; a `Send` value is transferred to another thread by moving it.
 - **`*(T)` raw pointers** are available only in a file that declares `pragma(Pragma.AllowUnsafe);`. Inside such a file the `unsafe(...)` wrap is the per-operation AUDIT MARKER that `yo unsafe-report` keys on — and the convention `std/`, `src/` and `tests/` follow — not a second compiler gate: a bare `p.*` in a pragma'd file compiles. In a file WITHOUT the pragma the whole raw-pointer surface is rejected, including the `*(T)` type itself.
 
@@ -1637,7 +1618,7 @@ double_both :: (fn(x : &mut i32, y : &mut i32) -> unit)({
 
 ### RAII (Resource Acquisition Is Initialization)
 
-Yo automatically manages memory for reference-semantics types through reference counting. When an object's reference count reaches zero, it is automatically freed.
+Yo manages memory automatically: an owned value is dropped at its owner's scope end, and a counted cell (`Rc`, `Arc`) is freed when its reference count reaches zero.
 
 ```yo
 test :: (fn() -> unit)({
@@ -1702,9 +1683,9 @@ the underlying buffer is freed are excluded by construction:
   static string data — `s(a..b)` on a `str` is a zero-copy window of
   static bytes, which can never dangle.
 - **Element access hands out values, never interior pointers** —
-  `xs.get(i)` returns the element (a handle for reference-semantics types, which
-  survives container growth; a copy for struct types, written back with
-  `xs(i) = v`). See [FLOWABILITY.md](./FLOWABILITY.md).
+  `xs.get(i)` returns the element (a copy for `Copy` types, written back with
+  `xs(i) = v`; `xs.get_cloned(i)` for the rest, a second handle for an `Rc` element, which
+  survives container growth). See [FLOWABILITY.md](./FLOWABILITY.md).
 
 ### Range with `..`
 
@@ -1970,7 +1951,7 @@ for(iter_expr, variable => .{
 });
 ```
 
-The `for` macro iterates **by value** — `for(coll, (x) => body)` lowers to `coll.into_iter()` followed by a standard `next()`-loop. `into_iter` takes the collection by value, so the value form **consumes** `coll`: the iterator owns it. A collection that is read again after the loop is walked in place with `for(&coll, x => body)` (below), or iterated as a copy, `for(coll.clone(), x => body)`. The same holds for the other iterators that hold their source: `chars()`, `bytes()`, `char_indices()` and `lines()` on a `String`, `keys()` and `values()` on a map, `chunks(n)` and `windows(n)` on a list. `String` and `ArrayList` are values (`plans/VALUES_BY_DEFAULT.md` B8), so a later use of one the loop consumed is E0901; the other collections are still shared handles until their own steps (B9–B11), and passing one by value shares it. A collection's `iter()` yields raw pointers into its storage and holds the storage, not the collection: it is for `pragma(Pragma.AllowUnsafe)` code, and the collection must outlive the walk. For reference-semantics element types (`ref(struct(...))`), `x` is a handle to the element, so mutating `x` in the body mutates the element in place. A value element is borrowed: writing its reference-counted data through `x` (a `String` element, a struct element's `String` field) is E0908. In-place mutation of value elements uses the borrow form `for(&mut coll, x => body)` below, or an index loop with index writes:
+The `for` macro iterates **by value** — `for(coll, (x) => body)` lowers to `coll.into_iter()` followed by a standard `next()`-loop. `into_iter` takes the collection by value, so the value form **consumes** `coll`: the iterator owns it. A collection that is read again after the loop is walked in place with `for(&coll, x => body)` (below), or iterated as a copy, `for(coll.clone(), x => body)`. The same holds for the other iterators that hold their source: `chars()`, `bytes()`, `char_indices()` and `lines()` on a `String`, `keys()` and `values()` on a map, `chunks(n)` and `windows(n)` on a list. The collections and `String` are values, so a later use of one the loop consumed is E0901. A collection's `iter()` yields raw pointers into its storage and holds the storage, not the collection: it is for `pragma(Pragma.AllowUnsafe)` code, and the collection must outlive the walk. A value element is borrowed: writing its data through `x` (a `String` element, a struct element's `String` field) is E0908. In-place mutation of value elements uses the borrow form `for(&mut coll, x => body)` below, or an index loop with index writes:
 
 ```yo
 // Value form — each `x` is yielded by value.
@@ -1981,11 +1962,11 @@ for(list, value => {
   println(&value);
 });
 
-// Reference-semantics elements are handles — mutation lands in the collection.
-Counter :: ref(struct(n : i32));
+// A borrowed `for` lends each element `&mut` — mutation lands in the collection.
+Counter :: struct(n : i32);
 mut(counters) := ArrayList(Counter).new();
 counters.push(Counter(n : i32(1)));
-for(counters, c => {
+for(&mut counters, c => {
   c.n = (c.n + i32(1));
 });
 
@@ -2346,7 +2327,7 @@ error (E0601).
 ```yo
 Open :: struct();
 Closed :: struct();
-Handle :: (fn(comptime(S) : Type) -> comptime(Type))(ref(struct(fd : i32)));
+Handle :: (fn(comptime(S) : Type) -> comptime(Type))(struct(fd : i32));
 
 open_h :: (fn(fd : i32) -> Handle(Open))(Handle(Open)(fd : fd));
 read_h :: (fn(h : Handle(Open)) -> i32)(h.fd);
@@ -2364,19 +2345,15 @@ export(main);
 The pattern is only sound when the old state CANNOT be used after a
 transition, so two rules apply:
 
-- **The handle is a `ref` type and the transition takes it with `sink(...)`.**
-  The move makes the old name unusable (E0901). A plain value struct is
-  COPIED into the call, so the closed handle and its `Open` copy would both
-  stay usable.
-- **No other alias keeps the old state.** A `ref` handle copied into a second
-  name before the transition still has the old type. Keep a typestate handle
-  in one name.
+- **The handle is move-only and the transition takes it with `sink(...)`.**
+  The move makes the old name unusable (E0901). A handle type that derives
+  `Copy` is COPIED into the call, so the closed handle and its `Open` copy
+  would both stay usable.
+- **No other alias keeps the old state.** A handle cloned into a second name
+  before the transition still has the old type. Keep a typestate handle in
+  one name.
 
-The phantom parameter must currently be on a `ref(struct(...))`. A method on
-a phantom generic ENUM is not yet found through a `comptime(K) : Type`
-parameter (`issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`).
-std's `File` and sockets keep their state at run time instead: they are
-shared RC handles by design.
+std's `File` and sockets keep their state at run time instead.
 
 ## C union
 
@@ -2678,7 +2655,7 @@ origin_only :: (fn(p : Point) -> bool)(
 );
 
 // A recursive enum through Rc: `Rc(p)` matches the inner List.
-List :: ref(enum(Nil, Cons(head : i32, tail : Rc(Self))));
+List :: enum(Nil, Cons(head : i32, tail : Rc(Self)));
 second :: (fn(l : List) -> i32)(
   match(
     l,
@@ -2735,11 +2712,11 @@ A `match` takes its scrutinee the way a parameter takes its argument
 | Scrutinee | The arms' bindings |
 | --- | --- |
 | an owned local, a by-value parameter or a temporary, of a type that is not implicitly copyable | the scrutinee is moved into the `match`: the selected arm's bindings own their parts |
-| an `imm` binding (an `imm` parameter, `imm(y) := …`, a binding of a borrowing `match`) | read-only borrows |
-| a `mut` binding (a `mut` parameter, `mut(y) := …`) | `mut` places: writing a binding writes the scrutinee |
+| a `&T` reference binding (a `x : &T` parameter, `y := &place`, a binding of a borrowing `match`) | read-only borrows |
+| a `&mut T` reference binding (a `x : &mut T` parameter, `y := &mut place`) | `mut` places: writing a binding writes the scrutinee |
 | `match(&x, …)` | read-only borrows; `x` stays usable |
 | `match(&mut x, …)` | `mut` places; `x` stays usable |
-| a `Copy` value, or a kind that is still implicitly copyable (`String`, a collection, a `ref` handle) | copies or shares, as a by-value parameter does |
+| a `Copy` value | copies, as a by-value parameter does |
 
 ```yo
 Fd :: struct(n : i32);
@@ -2756,7 +2733,7 @@ first :: (fn(p : Two) -> i32)(
   )
 );
 
-peek :: (fn(imm(p) : Two) -> i32)(
+peek :: (fn(p : &Two) -> i32)(
   match(p, .Two(a, _) => a.n, .Zero => i32(0)) // borrows: nothing moves
 );
 
@@ -2974,7 +2951,7 @@ literal — `${parts.join(":")}` — is never mistaken for a separator.
 
 Please check [std/collections](../std/collections) for the full list of collection types and their APIs.
 
-Yo provides efficient, reference-counted collection types in the standard library.
+Yo provides efficient, uniquely owned collection types in the standard library.
 
 ### Mutating a collection: mutators take `&mut self`
 
@@ -2985,10 +2962,7 @@ mutators of `ArrayList`, `HashMap`, `HashSet`, `Deque`, `BTreeMap`,
 including `StringBuilder.to_string`, which detaches the buffer). Read-only
 methods (`len`, `get`, `contains`, `iter`, …) take `self : Self`.
 
-The collections are still handles today, so a write through a copy of one
-reaches the original. That changes when they become uniquely owned values
-(`plans/VALUES_BY_DEFAULT.md` §6 V2b): a copy is then an explicit
-`.clone()`, and a write through it lands in the copy alone. Write the code so it is correct under both rules:
+The collections are values: a copy is an explicit `.clone()`, and a write through a clone lands in the clone alone. The rules that follow:
 
 - **A helper that fills a list takes it `&mut`:** `fill :: (fn(out :
   &mut ArrayList(i32)) -> unit)(...)`. A plain `out : ArrayList(i32)` parameter is
@@ -3003,13 +2977,6 @@ reaches the original. That changes when they become uniquely owned values
 - **A list two owners hold on purpose is an `Rc`:** `Rc(ArrayList(T))`, written
   through `b.*.push(x)`. A closure or an `io.async` body captures by value, so a
   closure that records into a list shares it this way (or returns the list).
-
-`YO_AUDIT_INOUT_BORROW=1 yo check <path>` lists every write the flip would
-change instead of reporting it: `[inout-borrow]` for a write through a by-value
-parameter or a `match`/`for` binding (a `&mut` argument or receiver, or an
-assignment into the place), `[inout-borrow-unresolved]` when the callee's
-mutation summary could not be resolved and the write is assumed, and
-`[inout-borrow-capture]` for a write to a variable a closure captured.
 
 ### ArrayList
 
@@ -3190,7 +3157,7 @@ A closure compiles to a **capture struct** holding the variables it uses. How th
 - **`Impl(Fn(...))` — static dispatch, not reference counted.** The compiler monomorphizes the closure into its own function, passes the capture struct **by value**, and emits a direct call. No heap allocation, no vtable, no reference count. Each closure has its own distinct type (see [Closure Type Restrictions](#closure-type-restrictions)), so this form cannot hold two different closures in one variable.
 - **`Box(Dyn(Fn(...)))` and `&Dyn(Fn(...))` — dynamic dispatch.** The value is a fat pointer of `{data, vtable}` ([DYN_DESIGN.md](./DYN_DESIGN.md)): `dyn(Box.new(f))` moves the capture struct into a heap box the `Box` owns, and `dyn(&f)` borrows a closure where it is, with no allocation. Use this when closures of different types must share one type — storing them in a collection, returning them from different branches, or accepting any callable. The erasure is always written, at a binding, a field, an argument and a result alike; in v0.2.77 `dyn(f)` of a closure, a named `fn` or an `Impl(Fn(...))` value is still the spelling of `dyn(Box.new(f))`. A callable passed bare into a `Dyn(Fn(...))` slot (`(d : Dyn(Fn() -> i32)) = f`, `run(f)`, `S(cb : f)`, a body ending in `f`) is error E0618, whose note names `dyn(f)`; `yo fix <path>` wraps a named callable. An `Impl(Fn(...))` slot is not an erasure and takes the closure bare.
 
-In both cases the *captured values* follow the usual rules: a captured reference-semantics value is retained by the capture and released when the capture is dropped.
+In both cases the *captured values* follow the usual rules: a captured `Rc` handle is owned by the capture and released when the capture is dropped.
 
 Please check [closure.test.yo](../tests/closure.test.yo) for closure examples and usage.
 
@@ -3240,29 +3207,27 @@ test_closure :: (fn() -> unit)({
 
 Closures capture variables from their environment:
 
-- **Value types** (primitives, structs) are captured by value (copied)
-- **Reference-semantics types** (reference-counted) are captured by reference
-- Captured variables maintain their mutability
+- **Value types** (primitives, structs) are captured by value: a `Copy` value is copied, any other is moved in
+- **A shared cell** (`Rc`, `Arc`) is captured as a handle the closure owns; a second handle is spelled in the capture list, `{ data : Rc.clone(data) }`
+- A closure may write its own by-value state only when it is typed `FnMut` or `FnOnce` (E0913 otherwise)
 
 ```yo
 test_capture :: (fn() -> unit)({
-  // Value type - captured by value
+  // Value type - the closure's own copy
   mut(counter) := i32(0);
 
-  // Reference-semantics type - captured by reference
+  // Shared cell - the closure owns a second handle
   data := Rc.new(RefCell(i32).new(i32(42))); // `std/sync/refcell`
 
-  (closure : Impl(Fn(increment : i32) -> i32)) = (
-    increment => {
-      counter = (counter + increment); // Modifies local copy
-      data.replace_with(v => (v + increment)); // Modifies shared object
-      return(counter);
-    }
-  );
+  (mut(closure) : Impl(FnMut(increment : i32) -> i32)) = ({ counter, data : Rc.clone(data) }(increment) => {
+    counter = (counter + increment); // Modifies the closure's own copy
+    data.replace_with(v => (v.* + increment)); // Modifies the shared cell
+    return(counter);
+  });
 
   closure(5);
-  // counter is still 0 (closure has its own copy)
-  // data.with(v => v) is now 47 (shared reference)
+  // counter is still 0 (the closure has its own copy)
+  // data.with(v => v.*) is now 47 (the shared cell)
 });
 ```
 
@@ -3495,31 +3460,30 @@ l1.push(k2); // error: k2 is a different closure type
 
 To keep different closures in one collection, store them as `Box(Dyn(Fn(...)))`.
 
-### Closures with Reference-Semantics Types
+### Closures over Shared Cells
 
-Closures work seamlessly with reference-semantics types:
+A closure that captures a shared cell owns a handle to it; the cell's payload changes through a `RefCell`:
 
 ```yo
-MyBox :: ref(
-  struct(
-    (*) : i32
-  )
-);
+{ assert } :: import("std/assert");
+{ RefCell } :: import("std/sync/refcell");
 
-make_incrementer :: (fn(start : MyBox) -> Impl(Fn() -> i32))({
+make_incrementer :: (fn(start : Rc(RefCell(i32))) -> Impl(Fn() -> i32))({
   return(() => {
-    start.* = (start.* + 1);
-    return(start.*);
+    start.with_mut((n : &mut i32) => {
+      n.* = (n.* + 1);
+    });
+    start.with((n : &i32) => n.*)
   });
 });
 
 test :: (fn() -> unit)({
-  counter := MyBox(0);
-  inc := make_incrementer(counter);
+  counter := Rc.new(RefCell(i32).new(0));
+  inc := make_incrementer(Rc.clone(counter));
 
-  assert(inc(()) == 1);
-  assert(inc(()) == 2);
-  assert(counter.* == 2);
+  assert(inc() == 1);
+  assert(inc() == 2);
+  assert(counter.with((n : &i32) => n.*) == 2);
 });
 ```
 
@@ -3615,29 +3579,20 @@ Yo provides `Rc` (built with `Rc.new`) for heap-allocating value types with auto
 > Read handle elements through the accessors that do not copy: `xs(i)` in
 > place, `xs.get_cloned(i)` for a second handle, or `xs.with(i, ...)`.
 >
-> Reference counting is Yo's *universal* object model, not one container's
-> opt-in policy: every `ref(struct(...))` is reference counted, and `Rc` is
-> simply the one-field case.
->
 > What this means in practice: sharing is silent, an `Rc` cycle leaks unless
 > broken (Rust's `Box` cannot form one; a `Weak` back edge breaks it, see
 > [Weak: a Handle That Does Not Own](#weak-a-handle-that-does-not-own)), and
 > `ref_count(b)` / `Rc.try_unwrap` are how you ask about uniqueness.
 >
-> The shared cell used to be spelled `Box(V)` / `box(v)`. `Box` is now a
-> different type: the uniquely owned, uncounted cell, like Rust's `Box<T>`
-> ([Box: the Uniquely Owned Cell](#box-the-uniquely-owned-cell)).
+> `Box` is a different type: the uniquely owned, uncounted cell, like Rust's
+> `Box<T>` ([Box: the Uniquely Owned Cell](#box-the-uniquely-owned-cell)).
 
-`Rc(T)` is a generic reference-semantics type that wraps any value type:
+`Rc(T)` is a generic cell type that wraps any value type:
 
 ```yo
 // Rc is defined in std/prelude.yo
-Rc :: (fn(comptime(V) : Type) -> comptime(Type))(
-  ref(
-    struct(
-      (*) : V
-    )
-  )
+Rc :: (fn(comptime(V) : ?Sized) -> comptime(Type))(
+  newtype(_cell : __yo_cell(V))
 );
 ```
 
@@ -3728,13 +3683,13 @@ test("Rc assignment behavior", {
 
 ### Rc and Reference Counting
 
-`Rc(T)` is an reference-semantics type, so it uses automatic reference counting:
+`Rc(T)` uses automatic reference counting; a second handle is `Rc.clone`:
 
 ```yo
 test("Rc reference counting", {
   original := Rc.new(42);
-  copy := original; // RC increment
-  another := copy; // RC increment
+  copy := Rc.clone(original); // RC increment
+  another := Rc.clone(copy); // RC increment
   // All three point to the same Rc
   assert(original.* == 42);
   assert(copy.* == 42); // Shared!
@@ -4306,15 +4261,15 @@ Please check [PARALLELISM.md](./PARALLELISM.md) for details on parallel programm
 ## Arc Types
 
 `Arc(T)` provides **shared ownership** with atomic reference counting. It is no longer
-a compiler built-in; it is defined in `std/prelude.yo` as a thin
-`atomic(ref(struct(...)))` wrapper. `Arc(T)` requires `T <: (Send, Sync)`: `Sync` because every handle reads the payload
+a compiler built-in; it is defined in `std/prelude.yo` as a newtype over an atomically
+counted cell. `Arc(T)` requires `T <: (Send, Sync)`: `Sync` because every handle reads the payload
 from its own thread, and `Send` because the last handle may be dropped (and the payload disposed) on
 any thread. So it only wraps thread-shareable values, and `Arc(T)` is itself `Send` and `Sync`
 under that bound. As in Rust, the payload need not be `Acyclic`: there is no
 cycle collector, so a cycle of `Arc` handles leaks unless a back edge is cleared first or is an
 `ArcWeak` (`Arc.downgrade(&h)`, [WEAK.md](./WEAK.md#arcweakt-the-thread-safe-form);
 [ARC.md](./ARC.md#cycles)). Use `Arc(T)` when you want to share a single value.
-Use `atomic(ref(struct(...)))` when defining your own shared types.
+To share your own type, write a plain `struct` and share it as `Arc(YourType)`.
 
 ```yo
 // Create with Arc.new
@@ -4597,31 +4552,30 @@ test("Division", {
 });
 ```
 
-### Testing with Reference-Semantics Types
+### Testing Drop
 
 Test cleanup and disposal:
 
 ```yo
-MyBox :: ref(
-  struct(
-    (*) : i32
-  )
-);
+{ println } :: import("std/fmt");
+{ assert } :: import("std/assert");
+
+MyBox :: struct(value : i32);
 impl(
   MyBox,
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
-      printf("Disposing MyBox with value: %d\n", self.*);
+      println(`Disposing MyBox with value: ${self.value}`);
     })
   )
 );
 
 test("Object disposal", {
   // MyBox is automatically dropped at end of scope
-  b := MyBox(42);
-  assert(b.* == 42);
-  b.* = 100;
-  assert(b.* == 100);
+  mut(b) := MyBox(value : 42);
+  assert(b.value == 42);
+  b.value = 100;
+  assert(b.value == 100);
   // drop runs automatically here; calling it by hand is E0915
 });
 ```

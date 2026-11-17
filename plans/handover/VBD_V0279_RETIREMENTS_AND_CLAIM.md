@@ -117,13 +117,37 @@ v0.2.78. Anything else open in clusters 1–8 or A40/A43 blocks (S) instead of b
 
 ## 4. What is not decided here
 
-- **K7 and K4** (`plans/backlog/AGENT_KNOWLEDGE_CONSOLIDATION.md`). K7 (the docs sweep) is this lane's work and is in
-  progress in this PR's branch and the PRs that follow it; its exit is that file's §5 item 5. **K4 (delete the shipped
-  skills and `yo skills install`) is not a docs item**: it deletes `src/skills_command.yo`, edits `src/main.yo`, three
-  cli cases, the `init*` goldens, `scripts/install.sh`, `scripts/bootstrap/gates_fast.sh` and `release.yml`'s bundles,
-  so it needs a build, `cli-diff-test` and a re-record. Recommendation: a separate small PR by whichever lane is idle
-  after the retype's first PR, because none of those files is in the retype's surface; it must not wait for K5, whose
-  snippet gate is the inventory K7 would use but not a dependency of the deletion.
+- **K7 and K4** (`plans/backlog/AGENT_KNOWLEDGE_CONSOLIDATION.md`).
+  - **K7, the docs sweep, first slice landed (2026-11-17, the docs lane's PR), both languages.** The declaration forms
+    `ref(struct(...))`, `ref(enum(...))` and `atomic(ref(...))` are gone from every user manual, `README.md` and
+    `pack/context.md`, each replaced by the spelling the language now has and each new snippet checked with a
+    develop-tree binary: `ARC`, `THREAD_SAFETY`, `PARALLELISM`, `MEMORY_SAFETY`, `FLOWABILITY`, `ALGEBRAIC_EFFECTS`
+    (the unwind example now writes through `&mut Ctx`), `TYPE_REFLECTION`, `INLINE_ASSEMBLY`, the README, and
+    `DESIGN`'s type overview, shared-cell chapter, closures, testing, typestate, match-scrutinee table and
+    collections. Three kinds of stale text that no grep list names came out with them, because each sat beside a `ref`
+    example: "the collections are still shared handles" (they are values and `Send` when their elements are), the
+    implicit-copy rule for `String` and collections at a by-value parameter, and the `imm(p)` parameter in
+    `DESIGN`'s `match` example (E0009 today). One example was invalid under v0.2.78 and is rewritten: the closure
+    in "Closure Capture Semantics" wrote an implicit capture from an `Fn` closure (E0913).
+  - **K7, what is left.** (1) Text that describes compiler behaviour that stays until the parser drop (R7) and goes
+    with it: `DESIGN` §"mut gates four writes" (the `ref` handle exemption), §"Replacing a `ref` declaration" and the
+    deleted-mode-words note; `ERROR_DIAGNOSTICS`' two `ref`-handle sentences in the E0917/E0916 paragraphs and its
+    `Retired migrations` table (rows stay: they are the record). (2) `DESIGN`'s `Rc` chapter, which predates the
+    read-only payload: "Rc with Assignments" and "Auto-dereference" show `p.x = 5` through an `Rc` (E0919), and
+    "Only `Box`, `Rc` and `Arc` implement `Deref`" is VERDICTS-63's to rewrite with its Generation A. (3)
+    `COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md` (both languages) is mostly history under its own banner but still
+    describes machinery that exists (`___dup`, the dup/drop pair optimizer, `ref_count`); it needs a decision, not a
+    sweep. Recommendation: rewrite it as a short "Reference counting in the generated C" page and delete the
+    ownership-model sections it already marks as history; README, `DESIGN` and two instruction files link to it.
+    (4) The doc comments in `std/`, `.github/instructions/` and the nine ` ```rust ` fences in `pack/context.md`
+    (K3's rework of the pack converts them). (5) K5's snippet gate has not run, so this slice is checked by hand for
+    what it touched only; the first K5 run is the inventory for the rest, and it will find more (`DESIGN.md` has 169 ` ```yo `
+    blocks, and the English manuals 483 in all).
+  - **K4 (delete the shipped skills and `yo skills install`) is not a docs item**: it deletes `src/skills_command.yo`,
+    edits `src/main.yo`, three cli cases, the `init*` goldens, `scripts/install.sh`, `scripts/bootstrap/gates_fast.sh`
+    and `release.yml`'s bundles, so it needs a build, `cli-diff-test` and a re-record. Recommendation: a separate small
+    PR by whichever lane is idle after the retype's first PR, because none of those files is in the retype's surface;
+    it must not wait for K5, whose snippet gate is the inventory K7 would use but not a dependency of the deletion.
 - **Kebab Part C and `--migrate module-names` (R11).** Part C was scheduled last in v0.2.78 "unless the flip has started
   merging"; the flip merged and Part C did not land, and no document gives it a new release. It renames most of std,
   src and tests, so it cannot share a window with the retype (decision 37's #1813 precedent). Recommendation: v0.2.80,

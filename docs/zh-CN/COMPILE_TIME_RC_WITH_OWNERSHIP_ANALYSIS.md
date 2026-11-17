@@ -148,14 +148,14 @@ call_consume_but_keep_using :: (fn(p : Rc(i32)) -> unit)({
 每个堆分配的 ARC 值在创建时有一个所有者，引用计数初始为 1。
 
 ```yo
-Point :: ref(struct(x : i32, y : i32));
+Point :: struct(x : i32, y : i32);
 
-Point(x : i32(3), y : i32(4)); // temp_var 拥有 Point(x: i32(3), y: i32(4))，RC = 1
+Rc.new(Point(x : i32(3), y : i32(4))); // temp_var 拥有 Point(x: i32(3), y: i32(4)) 的单元，RC = 1
 ```
 
 ### 读取计数：`ref_count(x)`
 
-内建函数 `ref_count(x)` 返回 `x` 所持有单元当前的引用计数，类型为 `usize`。对值类型（普通 `struct`、整数）它总是 `1`，在编译期即可确定。原子计数的句柄（`Arc(T)`、`atomic(ref(...))`）用原子加载读取。
+内建函数 `ref_count(x)` 返回 `x` 所持有单元当前的引用计数，类型为 `usize`。对值类型（普通 `struct`、整数）它总是 `1`，在编译期即可确定。原子计数的句柄（`Arc(T)`）用原子加载读取。
 
 ```yo
 b := Rc(i32)(3);

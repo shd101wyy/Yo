@@ -131,14 +131,14 @@ guarded call therefore never restores on the failure path:
 { String } :: import("std/string");
 
 Raise :: (ctl(msg : String) -> i32);
-Ctx :: ref(struct(depth : i32));
+Ctx :: struct(depth : i32);
 
 parse :: (fn(n : i32, raise : Raise) -> i32)(
   cond((n < i32(0)) => raise(`negative`), true => n)
 );
 
 // ✗ the handler is installed HERE, so its unwind exits `try_parse`
-try_parse :: (fn(n : i32, ctx : Ctx) -> i32)({
+try_parse :: (fn(n : i32, ctx : &mut Ctx) -> i32)({
   (raise : Raise) = (
     msg -> {
       unwind(i32(-1));
@@ -152,10 +152,10 @@ try_parse :: (fn(n : i32, ctx : Ctx) -> i32)({
 });
 
 main :: (fn() -> unit)({
-  ctx := Ctx(depth : i32(0));
-  a := try_parse(i32(5), ctx);
+  mut(ctx) := Ctx(depth : i32(0));
+  a := try_parse(i32(5), &mut ctx);
   println(`ok: r=${a} depth=${ctx.depth}`); // ok: r=5 depth=0
-  b := try_parse(i32(-5), ctx);
+  b := try_parse(i32(-5), &mut ctx);
   println(`raised: r=${b} depth=${ctx.depth}`); // raised: r=-1 depth=1
 });
 export(main);
@@ -177,14 +177,14 @@ _parse_or :: (fn(n : i32) -> i32)({
   parse(n, raise)
 });
 
-try_parse :: (fn(n : i32, ctx : Ctx) -> i32)({
+try_parse :: (fn(n : i32, ctx : &mut Ctx) -> i32)({
   saved := ctx.depth;
   ctx.depth = (ctx.depth + i32(1));
   r := _parse_or(n);
   ctx.depth = saved; // always runs
   r
 });
-// try_parse(i32(-5), ctx) now answers -1 and leaves ctx.depth at 0
+// try_parse(i32(-5), &mut ctx) now answers -1 and leaves ctx.depth at 0
 ```
 
 The failure is silent where it happens: the stale state surfaces only in
