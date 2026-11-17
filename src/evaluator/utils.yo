@@ -1320,7 +1320,7 @@ _is_implicit_closure_capture :: (fn(v : &Variable, env : &Environment, ctx : &Ev
 set_closure_writes_captures :: (fn(func_id : &String, writes : bool) -> unit)({
   // Two closures, not one that moves its `fid` capture on one branch only:
   // such a closure leaks the capture when the other branch runs
-  // (issues/2026-11-17-a-closure-moving-a-by-value-capture-on-one-branch-leaks-it-on-the-other.md).
+  // (issues/fixed/2026-11-17-a-closure-moving-a-by-value-capture-on-one-branch-leaks-it-on-the-other.md).
   if(writes, {
     fid := func_id.clone();
     g_capture_writing_closures.with_mut({ fid }(m) => {
