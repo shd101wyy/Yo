@@ -886,6 +886,13 @@ comptime_expect_error(
   "The bound `where(V <: Escapable)` requires an `Escapable` type"
 );
 comptime_expect_error(
+  bs_rc_of_ref_type :: (fn() -> unit)({
+    _t :: Rc(&i32);
+  }),
+  "The bound `where(V <: Escapable)` requires an `Escapable` type"
+);
+comptime_expect_error(Arc(&i32), "does not implement required trait Send");
+comptime_expect_error(
   bs_bound_rejects_view :: (fn() -> bool)({
     x := i32(1);
     v := BsView(x)(at : &x, lo : usize(0));

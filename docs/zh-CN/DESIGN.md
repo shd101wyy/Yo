@@ -3435,10 +3435,21 @@ assert(m.* == 20);
 
 ### 自动解引用
 
-`Box`、`Rc` 和 `Arc` 实现了 prelude 中的 `Deref` 标记 trait
-（`Deref :: trait(Target : Type)`，`Target` 即载荷类型）。对 `Deref` 类型，
-包装器自身没有的字段或方法会到载荷上查找：`w.field` 即 `w.*.field`，
-`w.method()` 即 `w.*.method()`。
+prelude 中的 `Deref` trait 给出 `w.*` 所代表的位置，`DerefMut` 是它的写入半边：
+
+```yo ignore
+Deref :: trait(Target : Type, deref : (fn(self : &Self) -> &Self.Target));
+DerefMut :: trait(Target : Type, deref_mut : (fn(self : &mut Self) -> &mut Self.Target));
+```
+
+二者的选择方式与 `Index` 和 `IndexMut` 相同：读取 `w.*` 调用 `deref`；写入、
+`&mut` 借出、`self : &mut Self` 接收者以及 `addr_of` 调用 `deref_mut`。只有
+`Deref` 而没有 `DerefMut` 的类型，其 `.*` 是只读的；两个实现共用同一个 `Target`。
+
+`Box`、`Rc` 和 `Arc` 是**句柄**：`w.*` 是其指针所指的载荷，由编译器直接读取，
+它们的 `deref` 是 `&self.*.*`。`Rc` 和 `Arc` 没有 `DerefMut`，因为通过句柄
+访问的载荷是只读的。对 `Deref` 类型，包装器自身没有的字段或方法会到载荷上查找：
+`w.field` 即 `w.*.field`，`w.method()` 即 `w.*.method()`。
 
 ```yo
 Point :: struct(x : i32, y : i32);
@@ -3461,8 +3472,10 @@ assert(pp.y == 2); // 嵌套包装器：pp.*.*.y
   （如 `p.items.push(v)`）都写入载荷。在没有 `pragma(Pragma.AllowUnsafe)`
   的文件中，通过 `Arc` 写入仍会被拒绝（`a.n = v`，或 `self : &mut Self` 的
   `a.bump()`）：请通过 `Mutex` 或原子类型修改 `Arc` 的载荷。
-- **只有 `Box`、`Rc` 和 `Arc` 实现 `Deref`。** `impl(MyWrapper, Deref(...))` 是
-  编译错误：用户自定义的包装器应通过自己的字段和方法暴露载荷。
+- **在 prelude 之外，`Deref` 需要非定长的 `Target`。** prelude 之外的 `Deref`
+  或 `DerefMut` 实现，只有当 `Target` 是 `[T]`、`str`、`Dyn(...)` 或尾部非定长的
+  结构体时才被接受。定长的 `Target` 和开放的类型变量是错误 E0622：包装定长
+  载荷的类型应通过自己的字段和方法暴露它。
 - 当包装器和载荷都没有这个名字时，错误信息会说明这一点：
   ``No field "z" on Rc(Point). `p` is a Rc(Point); its payload Point has no
   field "z" either.``（E0406；方法则为 E0610）。
@@ -3473,6 +3486,39 @@ assert(pp.y == 2); // 嵌套包装器：pp.*.*.y
   （例如传给 `&T` 参数，`takes_point(p.as_ref())`），`h.as_ref()` 把载荷借出；
   `Rc.as_ref(h)` 是通过类型写出的同一个调用。结果可以直接传给调用，或先绑定
   再使用（`q := p.as_ref(); q.clone()` 调用的是载荷的 `clone`）。
+
+**所有者。** 其他所有 `Deref` 类型都是非定长内容的所有者，它们的 `.*` 是其
+`deref` 投影给出的位置。prelude 中的 `Array(T, N)` 就是一个所有者
+（`Target : [T]`），持有 `[T]` 的用户类型也是：
+
+```yo
+Ring :: struct(items : Array(i32, 3));
+impl(Ring, len : (fn(self : &Self) -> usize)(usize(30)));
+impl(Ring, Deref(Target : [i32], deref : (fn(self : &Self) -> &Self.Target)(&self.items.*)));
+impl(Ring, DerefMut(Target : [i32], deref_mut : (fn(self : &mut Self) -> &mut Self.Target)(&mut self.items.*)));
+count :: (fn(xs : &[i32]) -> usize)(xs.len());
+main :: (fn() -> unit)({
+  mut(r) := Ring(items : Array(i32, 3)(1, 2, 3));
+  v := &r.*; // r.deref()：以 r 为根的视图
+  assert(count(v) == usize(3));
+  assert(r.len() == usize(30)); // 所有者自己的 len
+  assert(r.*.len() == usize(3)); // 视图的 len
+  assert(!r.is_empty()); // 只有视图有它：r.*.is_empty()
+  w := &mut r.*; // r.deref_mut()：w 存活期间独占
+  assert(count(w) == usize(3));
+});
+export(main);
+```
+
+- `&w.*` 即 `w.deref()`，`&mut w.*` 即 `w.deref_mut()`，其他位置的 `w.*` 是该
+  调用的位置。视图借用所有者，因此视图存活期间，所有者不能被写入、移动或以
+  `&mut` 借出（E0911）。
+- **所有者自己的成员优先。** 只有视图拥有的成员通过 `.*` 访问；所有者拥有的
+  成员属于所有者，因此上例中 `r.len()` 是 `Ring` 的，`r.*.len()` 是视图的。
+  决策 32 的 E0616 是句柄的规则。因此，给所有者新增成员会让原先访问视图同名
+  成员的调用改为解析到所有者。
+- **其他地方都不解引用。** `&Ring` 不能填入 `&[i32]` 形参：`count(&r)` 是
+  E0601，其帮助信息给出 `count(&r.*)`。运算符的操作数也从不解引用。
 
 ### Rc 与赋值
 
