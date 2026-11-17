@@ -236,11 +236,11 @@ impl(
   /// True when the place holds no value (a runtime variable's cell).
   is_empty : (fn(self : &Self) -> bool)(self.with({ self : &self.* }(xs) => xs.is_empty())),
   /// The value at `i`, or `.None` past the end.
-  get : (fn(self : &Self, i : usize) -> Option(EvalValue))(self.with({ i }(xs) => xs.get(i))),
+  get : (fn(self : &Self, i : usize) -> Option(EvalValue))(self.with({ i }(xs) => xs.get_cloned(i))),
   /// Store `v` at `i`, seen by every holder of the place; panics past the end.
   set : (fn(self : &Self, i : usize, v : EvalValue) -> unit)(
     self.with_mut(xs => {
-      xs(i) = v;
+      xs(i) = Rc.clone(v);
     })
   )
 );
@@ -280,7 +280,7 @@ impl(
   /// True when the list holds no elements.
   is_empty : (fn(self : &Self) -> bool)(self.items.is_empty()),
   /// The element at `i`, or `.None` past the end.
-  get : (fn(self : &Self, i : usize) -> Option(EvalValue))(self.items.get(i)),
+  get : (fn(self : &Self, i : usize) -> Option(EvalValue))(self.items.get_cloned(i)),
   /// `xs(i)` reads the element at `i` (a read projection); panics past the end.
   Index(usize)(
     Output : EvalValue,
@@ -310,7 +310,7 @@ impl(
   /// True when the list holds no elements.
   is_empty : (fn(self : &Self) -> bool)(self.items.is_empty()),
   /// The element at `i`, or `.None` past the end.
-  get : (fn(self : &Self, i : usize) -> Option(Option(EvalValue)))(self.items.get(i))
+  get : (fn(self : &Self, i : usize) -> Option(Option(EvalValue)))(self.items.get_cloned(i))
 );
 /// Element-wise equality for `EvalValue`.
 ///
