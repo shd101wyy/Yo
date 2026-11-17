@@ -58,10 +58,10 @@ test("inout(self) default writing a field through self", {
   assert(c.ro() == u64(11), "ro reads through a sibling");
   assert(c.snapshot() == u64(11), "by-value default still fine");
 });
-// A ref (heap) receiver takes the other pointer path; it must keep working.
-RefCounter :: ref(struct(state : u64));
+// A boxed (heap) receiver takes the other pointer path; it must keep working.
+RefCounterVal :: struct(state : u64);
 impl(
-  RefCounter,
+  RefCounterVal,
   Bumpable(
     bump : (fn(self : &mut Self, v : u64) -> unit)({
       self.state = (self.state + v);
@@ -69,12 +69,12 @@ impl(
     peek : (fn(self : &mut Self) -> u64)(self.state)
   )
 );
-test("ref-struct receiver: the same defaults", {
-  r := RefCounter(state : u64(0));
+test("boxed receiver: the same defaults", {
+  mut(r) := Box.new(RefCounterVal(state : u64(0)));
   r.twice(u64(3));
   r.direct(u64(1));
-  assert(r.state == u64(7), "ref receiver: 3+3+1");
-  assert(r.ro() == u64(7), "ref receiver ro");
+  assert(r.state == u64(7), "boxed receiver: 3+3+1");
+  assert(r.ro() == u64(7), "boxed receiver ro");
 });
 // A default whose receiver is BY VALUE owns it, as a provided method's does:
 // it may move a move-only receiver into a sibling that consumes it. Before the

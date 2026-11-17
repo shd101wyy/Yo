@@ -82,7 +82,6 @@ impl(
     drop : (fn(self : &mut Self) -> unit)(())
   )
 );
-_CtRef :: ref(struct(n : i32));
 _CtCopied :: struct(n : i32);
 derive(_CtCopied, Clone);
 impl(_CtCopied, Copy());
@@ -310,8 +309,11 @@ test("Copy: Copy and Drop exclude each other, in either order", {
   comptime_expect_error(impl(_CtFd, Copy()), "implements Drop");
   comptime_expect_error(impl(_CtCopied, Drop(drop : (fn(self : &mut Self) -> unit)(()))), "it implements Copy");
 });
-test("Copy: a reference type, a tuple and a blanket type parameter cannot declare Copy", {
-  comptime_expect_error(impl(_CtRef, Copy()), "it is a reference type");
+// The fourth rejection — "it is a reference type" — went with the
+// `ref(...)`/`atomic(...)` declarations in v0.2.79: a cell type is spelled
+// only by std (`__yo_cell`, unsafe-reserved), so a safe file can no longer
+// name one to impl `Copy` on.
+test("Copy: a tuple and a blanket type parameter cannot declare Copy", {
   comptime_expect_error(impl(generic(T : Type), T, Copy()), "only a value type");
 });
 // ---------------------------------------------------------------------------

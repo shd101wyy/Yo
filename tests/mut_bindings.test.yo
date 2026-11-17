@@ -4,14 +4,15 @@
 // bindings"). The marker gates four writes of the binding and every place
 // under it: reassignment, a field or element write, a `&mut` lend and a
 // `&mut self` call. Each is E0917 on an unmarked local, pattern,
-// destructuring or compile-time binding. A `ref` handle the binding holds
-// (today's collections) is a pointer: writing through it needs no marker,
-// and reassigning the binding does. Parameters take no `mut`: a body
+// destructuring or compile-time binding. A door the binding holds (a
+// `RefCell`, today's collections) is a pointer: writing through it needs no
+// marker, and reassigning the binding does. Parameters take no `mut`: a body
 // rebinds one (`mut(y) := x`), and `mut(x) : T` on a parameter is the
 // deleted borrow spelling, E0009. Module-level bindings are
 // tests/global_lend.test.yo.
 { assert } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
+{ RefCell } :: import("std/sync/refcell");
 { String } :: import("std/string");
 { Duration } :: import("std/time/duration");
 { Instant } :: import("std/time/instant");
@@ -28,7 +29,8 @@ _mb_bump :: (fn(p : &mut _MbPoint) -> unit)({
   p.y = (p.y + i32(1));
 });
 _mb_read :: (fn(p : &_MbPoint) -> i32)(p.x);
-_MbHandle :: ref(struct(n : i32));
+_MbHandleCell :: struct(n : i32);
+_MbHandle :: RefCell(_MbHandleCell);
 _MbToken :: struct(n : i32);
 
 test("each of the four writes is accepted on a mut(...) local", {
@@ -89,14 +91,16 @@ test("reading, `&` lends and `&self` calls need no mut", {
   assert(q.x == i32(4), "a copy out");
 });
 
-test("a ref handle is written through without mut, and reassigned with it", {
+test("a RefCell is written through without mut, and a handle is reassigned with it", {
   mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   xs.push(i32(2));
   assert(xs.len() == usize(2), "`&mut self` on a collection handle");
-  h := _MbHandle(n : i32(1));
-  h.n = i32(2);
-  assert(h.n == i32(2), "a field of a `ref` object");
+  h := _MbHandle.new(_MbHandleCell(n : i32(1)));
+  h.with_mut(c => {
+    c.n = i32(2);
+  });
+  assert(h.with(c => c.n) == i32(2), "a field through a `RefCell` door");
   comptime_expect_error({
     ys := ArrayList(i32).new();
     ys = ArrayList(i32).new();

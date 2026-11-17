@@ -83,10 +83,11 @@ test("AllowUnsafe + manual impl(T, Send()) for a wrapper type", {
 // the actual field contents must match the Send claim.
 // ============================================================================
 test("Phase F: manual Send impl on valid atomic object passes re-verification", {
-  // i32 and u32 are both Send, so this atomic object is valid
-  Pair :: atomic(ref(struct(a : i32, b : u32)));
-  // SAFETY: Pair's fields (i32, u32) are trivially Send value types.
-  impl(Pair, Send());
+  // i32 and u32 are both Send, so this atomic payload is valid
+  _PairPayload :: struct(a : i32, b : u32);
+  Pair :: Arc(_PairPayload);
+  // SAFETY: the payload's fields (i32, u32) are trivially Send value types.
+  impl(_PairPayload, Send());
   comptime_assert(Type.impls(Pair, Send), "Pair should impl Send");
 });
 // Phase F catches a manual Send impl on an atomic object whose fields
