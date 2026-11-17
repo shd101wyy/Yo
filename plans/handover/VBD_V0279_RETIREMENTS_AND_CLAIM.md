@@ -143,6 +143,8 @@ v0.2.78. Anything else open in clusters 1–8 or A40/A43 blocks (S) instead of b
     (K3's rework of the pack converts them). (5) K5's snippet gate has not run, so this slice is checked by hand for
     what it touched only; the first K5 run is the inventory for the rest, and it will find more (`DESIGN.md` has 169 ` ```yo `
     blocks, and the English manuals 483 in all).
+  - **K4 landed 2026-11-17** (the K4 PR; see the plan's K4 section). It is kept below as the record of why it was a
+    separate PR.
   - **K4 (delete the shipped skills and `yo skills install`) is not a docs item**: it deletes `src/skills_command.yo`,
     edits `src/main.yo`, three cli cases, the `init*` goldens, `scripts/install.sh`, `scripts/bootstrap/gates_fast.sh`
     and `release.yml`'s bundles, so it needs a build, `cli-diff-test` and a re-record. Recommendation: a separate small

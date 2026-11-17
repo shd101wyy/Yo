@@ -37,13 +37,12 @@ my-project/
 │   ├── README.md         ← 声明之墙：law（法则声明）在此，证明在代码里
 │   └── example.yo        ← 种子法则；`yo verify ./spec --strict` 可将其证毕
 ├── .gitignore
-├── AGENTS.md             ← AI 编码代理的指引（列出各技能）
-├── .agents/skills/       ← 捆绑的 agent 技能文件（见 yo skills install）
+├── AGENTS.md             ← AI 编码代理的指引（以 `yo context` 开头）
+├── CLAUDE.md             ← 一行：@AGENTS.md
 └── README.md
 ```
 
-传入 `--no-skills` 可跳过这些 agent 文件；已存在的文件不会被覆盖。升级 `yo`
-后可用 `yo skills install` 刷新技能文件。
+这些 agent 文件仅在不存在时创建。它们不携带语言知识的副本：`yo context` 从已安装的工具链打印与版本匹配的指南包，所以升级后不会过期。
 
 构建输出位于 `yo-out/<target>/` 目录下，按目标三元组组织（类似 Cargo）：
 
@@ -800,7 +799,6 @@ Arguments:
 
 Options:
   --name <name>          项目名称（默认：目录名）
-  --no-skills            跳过 agent 技能文件与 AGENTS.md
 ```
 
 创建以下文件：
@@ -813,11 +811,10 @@ Options:
 - `spec/README.md`、`spec/example.yo` — 验证规约：README 说明“声明之墙”（law 是人写在此处的声明，证明是代码中的契约与不变式），种子法则让新项目的 `yo verify ./spec --strict` 直接为绿
 - `.gitignore`、`README.md`
 
-随后（除非传入 `--no-skills`）会把捆绑的 agent 技能文件安装到项目的 agent
-配置目录（新项目中为 `.agents/skills/`），并写入两个面向 AI 编码代理的入口
-文件：
+随后会写入两个面向 AI 编码代理的入口文件，均仅在不存在时创建：
 
-- `AGENTS.md` — 列出已安装的技能及其描述，工具链配方包含 `yo verify ./spec --strict`；仅在不存在时创建
+- `AGENTS.md` — 工具链配方，第一条命令是 `yo context`（与版本匹配的语言指南包），并包含 `yo verify ./spec --strict`
+- `CLAUDE.md` — 只有一行 `@AGENTS.md`，因为 Claude Code 读取 `CLAUDE.md` 而不是 `AGENTS.md`
 
 ## 多目标构建
 

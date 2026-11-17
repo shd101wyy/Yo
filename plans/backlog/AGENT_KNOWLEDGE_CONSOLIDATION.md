@@ -223,6 +223,17 @@ pack before editing.)
 
 ### K4 — Delete the shipped skills and `yo skills install` (amended 2026-10-13)
 
+> **LANDED 2026-11-17 (v0.2.79).** Everything below shipped as written, ahead of K2/K3
+> (the ledger, `plans/handover/VBD_V0279_RETIREMENTS_AND_CLAIM.md` §4, decided K4 does
+> not wait: none of its files is in the retype's surface). Consequence for K2: the
+> compiler-dev content it was to move out of the shipped skills now lives only in git
+> history. Read it with `git show c121df6cb:.github/skills/<skill>/<file>` (the last tree
+> that has the six skills), and `yo-syntax`, `yo-core-patterns`, `yo-async-effects`,
+> `yo-project-workflow`, `yo-verification` and `yo-wasm-integration` are the six names.
+> K2 and K3 mine that tree instead of editing a live one. The "verify nothing unique is
+> left" step was not run as a line-by-line diff of the ~4,400 lines: the unique facts K1
+> rehomed are in the manuals, and the rest is K2/K3's list.
+
 The original K4 slimmed each `SKILL.md` and made `yo skills install` prune.
 With D1 reversed:
 

@@ -81,7 +81,6 @@ pragma(Pragma.AllowUnsafe);
 { stable_occurrence_reset, emission_occurrence_reset, set_owner_logs_enabled, set_codegen_tables_enabled, set_match_arms_table_enabled, canonical_module_path } :: import("./utils.yo");
 { MANIFEST_FILENAME, find_manifest, load_manifest, read_file_sync } :: import("./manifest.yo");
 { DocCommandOptions, run_doc } :: import("./doc_command.yo");
-{ run_skills_install } :: import("./skills_command.yo");
 { run_context } :: import("./context_command.yo");
 { context_lock, context_unlock, context_tree_key } :: import("./doc/context_index.yo");
 { set_cli_lang_override, cli_lang, tr } :: import("./cli_lang.yo");
@@ -8875,15 +8874,13 @@ _json_string_list :: (fn(xs : &ArrayList(String)) -> String)({
 /// Run the `init` subcommand — scaffold a new Yo project.
 ///
 /// Flag contract:
-///   yo init [dir] [--name <project-name>] [--no-skills]
+///   yo init [dir] [--name <project-name>]
 /// `dir` is a POSITIONAL defaulting to "." and `--name` overrides the project
 /// name that would otherwise be derived from the directory basename. Anything
 /// else is rejected rather than silently swallowed — `main.yo`'s other arg loops
 /// assign unrecognized tokens to a path, which is how `yo test ./tests --profile`
 /// ends up running against a path literally named `--profile`
 /// (plans/archive/P1_CLI_PARITY.md §3). Do not copy that shape here.
-/// `--no-skills` skips the bundled agent skill files and the
-/// AGENTS.md scaffolding.
 run_init :: (
   fn(
     argv : &ArrayList(String),
@@ -8894,7 +8891,6 @@ run_init :: (
   (dir : String) = String.from(".");
   (dir_seen : bool) = false;
   (name : Option(String)) = Option(String).None;
-  (install_skills : bool) = true;
   (ai : usize) = usize(2); // skip program name + "init"
   while(ai < argv.len(), {
     arg := argv(ai).clone();
@@ -8909,14 +8905,11 @@ run_init :: (
       arg.starts_with(String.from("--name=")) => {
         name = Option(String).Some(arg.substring(usize(7), arg.len()));
       },
-      (arg == "--no-skills") => {
-        install_skills = false;
-      },
       arg.starts_with(String.from("-")) => {
-        exn.throw(dyn(Box.new(`init: unknown option '${arg}'. Usage: yo init [dir] [--name <name>] [--no-skills]`)));
+        exn.throw(dyn(Box.new(`init: unknown option '${arg}'. Usage: yo init [dir] [--name <name>]`)));
       },
       dir_seen => {
-        exn.throw(dyn(Box.new(`init: unexpected extra argument '${arg}'. Usage: yo init [dir] [--name <name>] [--no-skills]`)));
+        exn.throw(dyn(Box.new(`init: unexpected extra argument '${arg}'. Usage: yo init [dir] [--name <name>]`)));
       },
       true => {
         dir = arg;
@@ -8926,13 +8919,10 @@ run_init :: (
     ai = (ai + usize(1));
   });
   project_dir := io.await(init_project(InitOptions(dir : dir, name : name), io, exn), IoExn(io : io, exn : exn));
-  // Agent scaffolding runs AFTER the scaffold itself and degrades to a note
-  // when the bundled skills are missing — it must never fail `yo init`.
-  // install_agent_files is SYNC (blocking awaits inside, like
-  // run_skills_install) — a plain call, no io.await.
-  if(install_skills, {
-    install_agent_files(&project_dir, io, exn);
-  });
+  // Agent scaffolding (AGENTS.md, CLAUDE.md) runs AFTER the scaffold itself.
+  // install_agent_files is SYNC (blocking awaits inside) — a plain call, no
+  // io.await.
+  install_agent_files(&project_dir, io, exn);
 });
 run_fmt :: (
   fn(
@@ -10021,7 +10011,7 @@ run_version_cmd :: (
 /// them. The unknown-subcommand error prints this list; it must name exactly
 /// the subcommands the dispatch below answers (a phantom `fetch` sat here
 /// for months after the subcommand was folded into `install`).
-SUBCOMMAND_NAMES :: "compile|build|init|add|remove|install|update|cache|test|check|fix|fmt|verify|doc|effects|explain|lsp|unsafe-report|public-safe-report|version|skills|context";
+SUBCOMMAND_NAMES :: "compile|build|init|add|remove|install|update|cache|test|check|fix|fmt|verify|doc|effects|explain|lsp|unsafe-report|public-safe-report|version|context";
 _top_level_help_text :: (fn() -> String)({
   (h : String) = String.from("The Yo Programming Language ");
   h.push_str(CURRENT_YO_VERSION);
@@ -10114,12 +10104,6 @@ Examples:
   $ yo version install 0.1.12      Pre-download a version
   $ yo version list                List cached versions
   $ yo version clean               Remove all cached versions
-
-yo skills install                Install AI agent skill files into this project
-Examples:
-  $ yo skills install             Copy skills into every agent config dir found
-                                  (.github, .agents, .claude, .opencode,
-                                  .openai, .cursor; defaults to .agents)
 
 yo effects <path> [--json]       Which effect capabilities each exported fn requires
 yo explain <CODE>                Explain a diagnostic code offline (--list, --format json)
@@ -10218,12 +10202,6 @@ yo version                       管理 Yo 版本
   $ yo version install 0.1.12      预下载某个版本
   $ yo version list                列出已缓存的版本
   $ yo version clean               删除所有缓存的版本
-
-yo skills install                把 AI 代理技能文件安装到本项目
-示例：
-  $ yo skills install             复制技能到每个已存在的 agent 配置目录
-                                  （.github、.agents、.claude、.opencode、
-                                  .openai、.cursor；默认建 .agents）
 
 yo effects <path> [--json]       列出每个导出函数需要的效果能力
 yo explain <CODE>                离线解释诊断代码（--list、--format json）
@@ -10923,25 +10901,23 @@ Examples:
         `Usage: yo init [dir] [options]
 
 Initialize a new Yo project (build.yo, src/, .gitignore, README.md), then
-install the bundled agent skill files and write AGENTS.md.
+write AGENTS.md and a one-line CLAUDE.md (@AGENTS.md) for AI coding agents.
 
 Options:
   --name <s>                Project name (default: directory name), written
                             in kebab-case (my_App → my-app)
-  --no-skills               Skip the agent skill files and AGENTS.md
 
 Examples:
   $ yo init
   $ yo init my-project --name my-project`,
         `用法：yo init [dir] [options]
 
-初始化一个新的 Yo 项目（build.yo、src/、.gitignore、README.md），然后安装随
-发行版捆绑的 agent 技能文件并生成 AGENTS.md。
+初始化一个新的 Yo 项目（build.yo、src/、.gitignore、README.md），然后为 AI
+编码代理生成 AGENTS.md 和只有一行的 CLAUDE.md（@AGENTS.md）。
 
 选项：
   --name <s>                项目名（默认：目录名），写成 kebab-case
                             （my_App → my-app）
-  --no-skills               跳过 agent 技能文件与 AGENTS.md
 
 示例：
   $ yo init
@@ -11316,36 +11292,6 @@ Example:
 
 示例：
   $ yo public-safe-report ./std`
-      )
-    ),
-    "skills" => Option(String).Some(
-      tr(
-        `Usage: yo skills <action>
-
-Manage Yo AI agent skill files for use with AI coding agents.
-
-Actions:
-  install   Copy bundled skill files into the current project
-
-The install action copies Yo skill files into all agent config directories
-found in the current project (.github, .agents, .claude, .opencode,
-.openai, .cursor). If none exist, .agents/skills/ is created.
-
-Examples:
-  $ yo skills install       Install skills in the current project`,
-        `用法：yo skills <action>
-
-管理供 AI 编码代理使用的 Yo 技能文件。
-
-动作：
-  install   把捆绑的技能文件复制到当前项目
-
-install 动作会把 Yo 技能文件复制到当前项目中已存在的所有 agent
-配置目录（.github、.agents、.claude、.opencode、.openai、.cursor）。
-如果都不存在，则创建 .agents/skills/。
-
-示例：
-  $ yo skills install       在当前项目中安装技能`
       )
     ),
     "context" => Option(String).Some(
@@ -11802,15 +11748,13 @@ main :: (fn(io : Io) -> unit)({
     run_unsafe_report_cmd(&argv, io, exn);
   }, if(subcmd == "public-safe-report", {
     run_public_safe_report_cmd(&argv, io, exn);
-  }, if(subcmd == "skills", {
-    run_skills_install(&argv, io, exn);
   }, if(subcmd == "context", {
     run_context(&argv, io, exn);
   }, if(subcmd == "version", {
     run_version_cmd(&argv, io, exn);
   }, {
     exn.throw(dyn(Box.new(tr(`unknown subcommand '${subcmd}'. Usage: yo <${SUBCOMMAND_NAMES}> ... (yo --help lists them)`, `未知子命令 '${subcmd}'。用法：yo <${SUBCOMMAND_NAMES}> ...（yo --help 列出全部）`))));
-  })))))))))))))))))))))));
+  }))))))))))))))))))))));
   print_spec_report_if_requested();
   print_rprobe_stats_if_requested();
   flush_user_warnings(resolve_std_path(), get_global_cache_dir());

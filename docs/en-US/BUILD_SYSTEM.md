@@ -37,14 +37,14 @@ my-project/
 │   ├── README.md         ← The claims wall: laws live here, proofs in the code
 │   └── example.yo        ← A seed law; `yo verify ./spec --strict` proves it green
 ├── .gitignore
-├── AGENTS.md             ← Guidance for AI coding agents (lists the skills)
-├── .agents/skills/       ← Bundled agent skill files (see yo skills install)
+├── AGENTS.md             ← Guidance for AI coding agents (starts with `yo context`)
+├── CLAUDE.md             ← One line: @AGENTS.md
 └── README.md
 ```
 
-The agent files are skipped when you pass `--no-skills`, and are only created
-if they do not already exist. Refresh the skill files after upgrading `yo`
-with `yo skills install`.
+The agent files are only created if they do not already exist. They carry no
+copy of the language knowledge: `yo context` prints the version-matched pack
+from the installed toolchain, so nothing goes stale on an upgrade.
 
 Build output goes to `yo-out/<target>/`, organized by target triple (like Cargo):
 
@@ -831,7 +831,6 @@ Arguments:
 
 Options:
   --name <name>          Project name (default: directory name)
-  --no-skills            Skip the agent skill files and AGENTS.md
 ```
 
 Creates the following files:
@@ -844,13 +843,12 @@ Creates the following files:
 - `spec/README.md`, `spec/example.yo` — the verification spec: the README states the claims/proofs wall (laws are claims written here by humans; proofs are the contracts and invariants in the code), and the seed law keeps `yo verify ./spec --strict` green on a fresh project
 - `.gitignore`, `README.md`
 
-Then, unless `--no-skills` is passed, it installs the bundled agent skill
-files into the project's agent config directories (`.agents/skills/` on a
-fresh project) and writes two entry points for AI coding agents:
+Then it writes two entry points for AI coding agents, each only if absent:
 
-- `AGENTS.md` — lists the installed skills with their descriptions and a
-  toolchain recipe that includes `yo verify ./spec --strict`; created only
-  if absent
+- `AGENTS.md` — a toolchain recipe whose first command is `yo context` (the
+  version-matched language pack) and that includes `yo verify ./spec --strict`
+- `CLAUDE.md` — one line, `@AGENTS.md`, because Claude Code reads `CLAUDE.md`
+  and not `AGENTS.md`
 
 ## Multi-Target Builds
 

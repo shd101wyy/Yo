@@ -8,8 +8,7 @@
 //! `--format json`. Exit codes (D4): 0 results, 1 no match, 2 usage or
 //! packaging error.
 //!
-//! The bundled-pack lookup mirrors `yo skills install`'s
-//! (`src/skills_command.yo`): `$YO_CONTEXT_PACK` env pin, then the running
+//! The bundled-pack lookup is: `$YO_CONTEXT_PACK` env pin, then the running
 //! executable's ancestors (dev flow: `yo-out/<target>/bin/yo` finds the
 //! checkout's own `pack/`), then the project directory's ancestors — the
 //! same exe-walk-up-then-cwd shape `resolve_std_path` uses for `std/`.
@@ -58,7 +57,7 @@ PACK_FILENAME :: "context.md";
 ///    THE pack; if it names nothing, the command fails rather than silently
 ///    printing some other pack — a wrong explicit pin must be loud, and a
 ///    deterministic error is what keeps the cli-case pin meaningful on any
-///    machine. This mirrors how the harness pins `YO_STD`/`YO_SKILLS`: a
+///    machine. This is how the harness pins `YO_STD` too: a
 ///    binary staged OUTSIDE its checkout (CI's stage-1 tree) can
 ///    exe-walk-up to neither `std/` nor `pack/`, so the gate scripts pin
 ///    the paths;
@@ -380,8 +379,7 @@ _parse_context_query :: (
 /// own resolution, so the `--std-path` pitfall cannot fire. Relative
 /// `--path` values resolve against the USER's working directory —
 /// `YO_ORIGINAL_CWD`, which main.yo records before it changes directory
-/// (the same authority `yo skills install` uses) — not against wherever the
-/// process happens to be.
+/// — not against wherever the process happens to be.
 _context_corpus_root :: (fn(explicit : &String, io : Io, exn : Exception) -> String)({
   if(explicit.len() == usize(0), {
     return(resolve_std_path());

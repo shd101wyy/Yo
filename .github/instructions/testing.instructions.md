@@ -777,7 +777,7 @@ that file that adds or removes lines above those definitions moves all three**
 — a doc sweep adding `///` comments did exactly that, and the case went
 GOLDEN-DIFF roughly 25 minutes into the tier-1 job.
 
-The fix is a re-record, like the skills cases:
+The fix is a re-record:
 
 ```bash
 YO_SELF_BIN=<your stage-1> bash scripts/cli-diff-test.sh --record lsp-member-definition
@@ -796,64 +796,16 @@ the reword, re-record that case with a binary built from the SAME tree
 (`scripts/cli-diff-test.sh --record explain-list`). A binary built before a
 merge from `develop` silently drops the other side's new codes.
 
-## Editing ANY file under `.github/skills/` re-records SEVEN cli-cases
+## `yo init` goldens hash only generated files
 
-`yo skills install` (restored in #412) copies the skill tree into a project, and
-`yo init` runs it — so the **content hash of every installed file** is recorded
-in the `expected_tree` of SEVEN cases, not two:
-
-```
-build-stamp-dotted-dir  init  init-build-test  init-cwd  init-existing
-skills-install  skills-install-zh
-```
-
-(This section said "two" until 2026-09-19. The under-count is not harmless: it
-landed on develop twice in one session — once from a `yo-syntax` cheatsheet
-edit that shipped with no re-record at all, and once from a `yo-async-effects`
-edit where re-recording only the two obvious cases would still have left five
-red.)
-
-So a one-line edit to, say, `.github/skills/yo-syntax/syntax-cheatsheet.md` —
-the file this repo asks you to update whenever you learn a Yo lesson — turns
-the tier-1 CLI gate red with
-
-```
-── GOLDEN-DIFF  skills-install  (rc=0; tree)
-    content-differs (vs recorded golden hash): ./.agents/skills/yo-syntax/syntax-cheatsheet.md
-```
-
-roughly 25 minutes into a PR's `Self-hosted \`test\` subcommand` job. The fix is
-a re-record, not a revert:
-
-```bash
-YO_SELF_BIN=<your stage-1> bash scripts/cli-diff-test.sh --record \
-  build-stamp-dotted-dir init init-build-test init-cwd init-existing \
-  skills-install skills-install-zh
-YO_SELF_BIN=<your stage-1> bash scripts/cli-diff-test.sh          # re-score, expect a clean card
-```
-
-**Run the WHOLE corpus before opening the PR, not just the cases you re-recorded.**
-That is what turns this from a red required check into a two-minute re-record:
-`check` + `fmt` + unit tests is an INCOMPLETE gate for any change touching
-`.github/skills/`, and the corpus is the only thing that says so.
-
-Review the diff before committing: it should be exactly one changed hash line
-per case per edited skill file. Anything else means the install copied
-something you did not intend.
-
-**Export `YO_SKILLS` when your stage-1 binary lives outside the checkout.**
-`yo skills install` finds the bundled tree by walking up from the EXECUTABLE,
-so a binary copied to `/tmp/yo-s1-*` finds no `.github/skills` and prints
-`note: bundled skill files not found; skipping agent scaffolding` — with
-**rc 1** for `skills-install` and a much shorter tree for the `init` cases.
-`--record` then happily writes that as the golden, and the diff is ~120
-deleted lines rather than one changed hash. `gates_fast.sh` exports it for
-you (`YO_SKILLS="$PWD/.github/skills"`); a hand-run re-record must do the same:
-
-```bash
-YO_SKILLS="$PWD/.github/skills" YO_SELF_BIN=/tmp/yo-s1-dev \
-  bash scripts/cli-diff-test.sh --record skills-install skills-install-zh init init-build-test init-cwd init-existing
-```
+`yo init` writes `AGENTS.md` and a one-line `CLAUDE.md` and copies no skill
+tree (`yo skills install` and `.github/skills/` were deleted by K4,
+`plans/backlog/AGENT_KNOWLEDGE_CONSOLIDATION.md`), so the `expected_tree` of
+`init`, `init-build-test`, `init-cwd`, `init-existing`, `init-kebab-name`,
+`build-stamp-dotted-dir` and `build-depfile-scoped-stamp` hash the files
+`src/init.yo` generates and nothing a documentation edit touches. Those
+goldens move only when `src/init.yo`'s templates do. A stage-1 binary staged
+outside the checkout needs no pin for them (`YO_SKILLS` is gone).
 
 ## Yo source also lives INSIDE scripts and workflows — GATE 8 checks it
 
@@ -1001,7 +953,7 @@ verified nothing.
     module_invalidation failures. The full directory is develop's battery's job.
     Watch that battery and fix forward.
 - **cli-diff** only when the diff can move CLI output: std (line-pinned LSP
-  goldens), diagnostics prose, a CLI command, `.github/skills/`, a `yo fix`
+  goldens), diagnostics prose, a CLI command, `yo init`'s templates, a `yo fix`
   migration. Read each GOLDEN-DIFF before `--record`.
 - **Split weights:** the gate is one weight-1 `heavy_take`; anything timed or
   above ~5 GB is a separate `exclusive` job queued after it, never a reason to

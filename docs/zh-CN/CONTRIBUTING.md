@@ -107,7 +107,7 @@ $ yo test ./tests/internal/parser.test.yo --parallel 1
 
 仓库本身已经为此做好准备：[`AGENTS.md`](../../AGENTS.md) 是 agent 应当最先阅读的入口；
 `.github/instructions/` 存放各领域的规则（C 代码生成、调试、测试、语言设计、语法）；
-`.github/skills/` 提供可复用的技能包。保持这些文档的准确本身就是有价值的贡献 —— 如果
+`pack/context.md` 是 `yo context` 打印的、与版本匹配的语言指南包。保持这些文档的准确本身就是有价值的贡献 —— 如果
 你在 Yo 上踩过坑并学到了什么，请把它写进去。
 
 ## 贡献的许可
