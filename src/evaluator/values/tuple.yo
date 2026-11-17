@@ -110,7 +110,7 @@ evaluate_tuple_element_value :: (
   // Reject labelled fields: `x: rhs`.
   if(ast_expr_is_fn_call_of(expr, ":", Option(usize).Some(usize(2))), {
     args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
-    lhs_expr := match(args.get(usize(0)), .Some(a) => a, .None => expr.*);
+    lhs_expr := match(args.get_cloned(usize(0)), .Some(a) => a, .None => Rc.clone(expr.*));
     exn.throw(
       dyn(
         Box.new(
@@ -200,7 +200,7 @@ evaluate_tuple_element_value :: (
   evaluated_rhs_gerr := evaluate_expression_guarded(&elem_expr, &env, ctx, &mut evaluated_rhs_gout);
   ctx.expected_type = saved_expected;
   match(evaluated_rhs_gerr, .Some(evaluated_rhs_ge) => exn.throw(evaluated_rhs_ge), .None => ());
-  evaluated_rhs := match(evaluated_rhs_gout.get(usize(0)), .Some(evaluated_rhs_g) => evaluated_rhs_g, .None => make_err_expr());
+  evaluated_rhs := match(evaluated_rhs_gout.get_cloned(usize(0)), .Some(evaluated_rhs_g) => evaluated_rhs_g, .None => make_err_expr());
   // `yo fix --migrate deref` reads code written before the deref rule, where
   // `&r` of a reference binding lent the referent: it records the `.*`
   // (E0926's edit), as at a constructor's reference field.
@@ -284,7 +284,7 @@ evaluate_tuple_element_value :: (
   });
   child_type := match(
     lend_ty,
-    .Some(lt) => lt,
+    .Some(lt) => Rc.clone(lt),
     .None => match(
       expected_field_type_opt,
       .Some(et) => cond(
@@ -319,7 +319,7 @@ evaluate_tuple_elements_value :: (
   runtime_arg_exprs_in_order := ArrayList(AstExpr).new();
   (i : usize) = usize(0);
   while(i < args.len(), {
-    arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
+    arg := match(args.get_cloned(i), .Some(a) => a, .None => make_err_expr());
     result := evaluate_tuple_element_value(
       &arg,
       i,
@@ -369,7 +369,7 @@ evaluate_tuple_value :: (
     info := new_expr_info(env, Rc.new(TypeValueNode.Unit));
     info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
-    return(expr.*);
+    return(Rc.clone(expr.*));
   });
   result := evaluate_tuple_elements_value(&args, env, ctx, exn);
   // Build the resulting tuple type and (if all elements known) tuple value.
@@ -436,7 +436,7 @@ evaluate_tuple_value :: (
   if(!all_known, {
     attach_temp_variable_to_expr(expr, true, ctx);
   });
-  expr.*
+  Rc.clone(expr.*)
 });
 export(
   evaluate_tuple_value,

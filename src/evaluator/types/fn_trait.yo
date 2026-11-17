@@ -78,8 +78,8 @@ evaluate_fn_trait_type :: (
     );
   });
   expr_args := _fn_trait_call_args(expr);
-  fn_call_expr := match(expr_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-  (return_type_expr : AstExpr) = match(expr_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+  fn_call_expr := match(expr_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
+  (return_type_expr : AstExpr) = match(expr_args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr());
   is_once := ast_expr_is_fn_call_of(&fn_call_expr, BK_FN_ONCE_TRAIT, Option(usize).None);
   is_mut := ast_expr_is_fn_call_of(&fn_call_expr, BK_FN_MUT_TRAIT, Option(usize).None);
   if(is_once || is_mut, {
@@ -131,7 +131,7 @@ evaluate_fn_trait_type :: (
   if(ast_expr_is_fn_call_of(&return_type_expr, BK_MUT, Option(usize).None) || ast_expr_is_fn_call_of(&return_type_expr, BK_IMM, Option(usize).None), {
     ret_is_ref = true;
     ret_is_mut_ref = ast_expr_is_fn_call_of(&return_type_expr, BK_MUT, Option(usize).None);
-    return_type_expr = match(_fn_trait_call_args(&return_type_expr).get(usize(0)), .Some(a) => a, .None => make_err_expr());
+    return_type_expr = match(_fn_trait_call_args(&return_type_expr).get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
   });
 
   // Evaluate the return type via the raw evaluator path so any
@@ -218,6 +218,6 @@ evaluate_fn_trait_type :: (
   out_info := new_expr_info(&env_mut, type_of_type(&fn_trait_type));
   out_info.set_value(.Some(create_type_value(&fn_trait_type)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 export(evaluate_fn_trait_type);

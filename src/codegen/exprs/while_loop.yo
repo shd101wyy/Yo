@@ -28,7 +28,7 @@ _args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
 );
 /// Strip a `comptime(x)` wrapper (evaluator-only) down to `x`.
 _strip_comptime :: (fn(e : &AstExpr) -> AstExpr)(
-  if(ast_expr_is_fn_call_of(e, BK_COMPTIME, .Some(usize(1))), match(_args(e).get(usize(0)), .Some(inner) => inner, .None => e.*), e.*)
+  if(ast_expr_is_fn_call_of(e, BK_COMPTIME, .Some(usize(1))), match(_args(e).get_cloned(usize(0)), .Some(inner) => inner, .None => Rc.clone(e.*)), Rc.clone(e.*))
 );
 /// Generate the step expression of a 3-arg while: a block, or any other
 /// expression (an `lhs = rhs` step included) through its own generator. The
@@ -85,7 +85,7 @@ _concat_drops :: (fn(current : &Option(ArrayList(AstExpr)), prev : &Option(Array
       (mut(i) : usize) = usize(0);
       while(i < n, {
         match(
-          cd.get(i),
+          cd.get_cloned(i),
           .Some(e) => {
             out.push(e);
           },
@@ -103,7 +103,7 @@ _concat_drops :: (fn(current : &Option(ArrayList(AstExpr)), prev : &Option(Array
       (mut(i) : usize) = usize(0);
       while(i < n, {
         match(
-          pp.get(i),
+          pp.get_cloned(i),
           .Some(e) => {
             out.push(e);
           },
@@ -139,7 +139,7 @@ generate_loop_body :: (fn(body_expr : &AstExpr, indent : &String, context : &mut
       (mut(i) : usize) = usize(0);
       while(i < n, {
         match(
-          args.get(i),
+          args.get_cloned(i),
           .Some(arg) => {
             note_line_position(&mut context.base.emitter, &arg);
             code := _call_generate_expr(&arg, indent.clone(), context);
@@ -170,7 +170,7 @@ generate_loop_body :: (fn(body_expr : &AstExpr, indent : &String, context : &mut
               match(
                 context.base.get_expr_info(&arg),
                 .Some(aei_flush) => {
-                  nxt := args.get(i + usize(1));
+                  nxt := args.get_cloned(i + usize(1));
                   _flush_stmt_lent_temp_drops(&arg, &nxt, &current_drops, &aei_flush, &indent.*, context);
                 },
                 .None => ()
@@ -188,7 +188,7 @@ generate_loop_body :: (fn(body_expr : &AstExpr, indent : &String, context : &mut
           (mut(di) : usize) = usize(0);
           while(di < nd, {
             match(
-              drops.get(di),
+              drops.get_cloned(di),
               .Some(de) => {
                 // Skip a drop already emitted at an inner point — a lent
                 // temporary's statement-end flush inside this body, or a
@@ -319,7 +319,7 @@ generate_while_loop :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
         n := bodies.len();
         (mut(i) : usize) = usize(0);
         while(i < n, {
-          match(bodies.get(i), .Some(b) => generate_loop_body(&b, indent.clone(), context), .None => ());
+          match(bodies.get_cloned(i), .Some(b) => generate_loop_body(&b, indent.clone(), context), .None => ());
           i = (i + usize(1));
         });
         return(String.from(""));
@@ -334,8 +334,8 @@ generate_while_loop :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
   body_indent.push_string(inner.clone());
   cond(
     (args.len() == usize(2)) => {
-      cond_expr := _strip_comptime(match(args.get(usize(0)), .Some(c) => c, .None => expr.*));
-      body_expr := match(args.get(usize(1)), .Some(b) => b, .None => expr.*);
+      cond_expr := _strip_comptime(match(args.get_cloned(usize(0)), .Some(c) => c, .None => Rc.clone(expr.*)));
+      body_expr := match(args.get_cloned(usize(1)), .Some(b) => b, .None => Rc.clone(expr.*));
       saved_loop := replace(&mut context.base.current_loop_label, Option(String).None);
       loop_tok := ast_expr_token(expr);
       loop_label := stable_label_id(String.from("loop_"), &loop_tok.module_path.*, usize(loop_tok.row), usize(loop_tok.column));
@@ -356,9 +356,9 @@ generate_while_loop :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
       String.from("")
     },
     (args.len() == usize(3)) => {
-      cond_expr := _strip_comptime(match(args.get(usize(0)), .Some(c) => c, .None => expr.*));
-      step_expr := match(args.get(usize(1)), .Some(s) => s, .None => expr.*);
-      body_expr := match(args.get(usize(2)), .Some(b) => b, .None => expr.*);
+      cond_expr := _strip_comptime(match(args.get_cloned(usize(0)), .Some(c) => c, .None => Rc.clone(expr.*)));
+      step_expr := match(args.get_cloned(usize(1)), .Some(s) => s, .None => Rc.clone(expr.*));
+      body_expr := match(args.get_cloned(usize(2)), .Some(b) => b, .None => Rc.clone(expr.*));
       saved_loop := replace(&mut context.base.current_loop_label, Option(String).None);
       saved_continue := replace(&mut context.base.current_continue_label, Option(String).None);
       loop3_tok := ast_expr_token(expr);

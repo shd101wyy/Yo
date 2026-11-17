@@ -162,7 +162,7 @@ evaluate_dyn_type :: (
   i := usize(0);
   while(i < args.len(), {
     trait_arg := match(
-      args.get(i),
+      args.get_cloned(i),
       .Some(a) => a,
       .None => make_err_expr()
     );
@@ -171,13 +171,13 @@ evaluate_dyn_type :: (
     actual_arg := if(
       is_negated,
       match(
-        trait_arg,
+        Rc.clone(trait_arg),
         Rc(.FnCall(_, _, Rc(inner_args), _, _)) => match(
-          inner_args.get(usize(0)),
+          inner_args.get_cloned(usize(0)),
           .Some(a) => a,
-          .None => trait_arg
+          .None => Rc.clone(trait_arg)
         ),
-        _ => trait_arg
+        _ => Rc.clone(trait_arg)
       ),
       trait_arg
     );
@@ -369,6 +369,6 @@ evaluate_dyn_type :: (
   out_info := new_expr_info(&cur_env, &meta_type);
   out_info.set_value(.Some(dyn_val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 export(evaluate_dyn_type);

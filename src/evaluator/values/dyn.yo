@@ -162,8 +162,8 @@ _dyn_cell_constructor_of :: (fn(callee : &AstExpr) -> Option(DynCellConstructor)
   match(
     callee,
     Rc(.FnCall(_, _, Rc(dot_args), _, _)) => cond(
-      (ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))) && match(dot_args.get(usize(1)), .Some(Rc(.Atom(_, m_tok))) => (m_tok.value.* == "new"), _ => false)) => match(
-        dot_args.get(usize(0)),
+      (ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))) && match(dot_args.get_cloned(usize(1)), .Some(Rc(.Atom(_, m_tok))) => (m_tok.value.* == "new"), _ => false)) => match(
+        dot_args.get_cloned(usize(0)),
         .Some(Rc(.Atom(r_id, r_tok))) => cond(
           (is_shared_cell_type_name(&r_tok.value.*) || (r_tok.value.* == "Arc") || (r_tok.value.* == "Box")) => .Some(DynCellConstructor(type_name : r_tok.value.*.clone(), unapplied_receiver : r_id)),
           true => .None
@@ -182,14 +182,14 @@ _dyn_cell_constructor_of :: (fn(callee : &AstExpr) -> Option(DynCellConstructor)
 /// consultation #7).
 _dyn_cell_args_recognized :: (fn(args : &ArrayList(AstExpr)) -> bool)(
   match(
-    args.get(usize(0)),
+    args.get_cloned(usize(0)),
     .Some(a0) => (
       ast_expr_is_fn_call_of(&a0, "=>", Option(usize).None) && cond(
         (args.len() == usize(1)) => true,
         (args.len() == usize(2)) => match(
-          args.get(usize(1)),
+          args.get_cloned(usize(1)),
           .Some(a1) => cond(
-            ast_expr_is_fn_call_of(&a1, ":", Option(usize).Some(usize(2))) => match(a1, Rc(.FnCall(_, _, Rc(la), _, _)) => match(la.get(usize(0)), .Some(Rc(.Atom(_, lt))) => (lt.value.* == "alloc"), _ => false), _ => false),
+            ast_expr_is_fn_call_of(&a1, ":", Option(usize).Some(usize(2))) => match(a1, Rc(.FnCall(_, _, Rc(la), _, _)) => match(la.get_cloned(usize(0)), .Some(Rc(.Atom(_, lt))) => (lt.value.* == "alloc"), _ => false), _ => false),
             true => true
           ),
           .None => false
@@ -902,7 +902,7 @@ _generic_impl_method_for_dyn :: (
           );
           mpi = (mpi + usize(1));
         });
-        call_expr := Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), callee_atom, Rc.new(call_args.clone()), false, recv_tok));
+        call_expr := Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), Rc.clone(callee_atom), Rc.new(call_args.clone()), false, recv_tok));
         ctx.pending_method_self_type = Option(TypeValue).Some(receiver_type.clone());
         // The synthetic call has no expected result: the surrounding
         // context's (the `Dyn` a `dyn(...)` argument is checked against)
@@ -983,7 +983,7 @@ _synthesize_dyn_clone_fn :: (fn(payload_in : &TypeValue, dyn_type : &TypeValue, 
       // `_generic_impl_method_for_dyn` passes its receiver.
       call_args := ArrayList(AstExpr).new();
       call_args.push(recv_atom);
-      call_expr := Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), callee_atom, Rc.new(call_args.clone()), false, recv_tok));
+      call_expr := Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), Rc.clone(callee_atom), Rc.new(call_args.clone()), false, recv_tok));
       ctx.expected_type = Option(ExpectedTypeCtx).None;
       res := try_to_call_function_with_arguments(Option(EvalValue).Some(fv), &fn_ty, &call_expr, &callee_atom, &call_args, caller_env, ctx, true, false, true, exn);
       ctx.expected_type = saved_expected.clone();
@@ -1387,7 +1387,7 @@ _evaluate_dyn_over_lend :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut E
     note_unsize_reference(ast_expr_id(expr), is_mut);
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   });
-  call
+  Rc.clone(call)
 });
 /// Whether `written` is `Box.new(...)`, `Rc.new(...)` or `Arc.new(...)`: an
 /// open payload's `dyn(Box.new(v))` evaluates through the prelude cell with
@@ -1399,7 +1399,7 @@ _written_cell_new :: (fn(written : &AstExpr) -> bool)(
       ast_expr_is_fn_call_of(w_callee, BF_DOT, Option(usize).Some(usize(2))),
       match(
         w_callee,
-        Rc(.FnCall(_, _, Rc(w_dot), _, _)) => (match(w_dot.get(usize(1)), .Some(Rc(.Atom(_, m_tok))) => (m_tok.value.* == "new"), _ => false) && match(w_dot.get(usize(0)), .Some(Rc(.Atom(_, r_tok))) => ((r_tok.value.* == "Box") || (r_tok.value.* == "Rc") || (r_tok.value.* == "Arc")), _ => false)),
+        Rc(.FnCall(_, _, Rc(w_dot), _, _)) => (match(w_dot.get_cloned(usize(1)), .Some(Rc(.Atom(_, m_tok))) => (m_tok.value.* == "new"), _ => false) && match(w_dot.get_cloned(usize(0)), .Some(Rc(.Atom(_, r_tok))) => ((r_tok.value.* == "Box") || (r_tok.value.* == "Rc") || (r_tok.value.* == "Arc")), _ => false)),
         Rc(.Atom(_, _)) => false
       ),
       false
@@ -1417,7 +1417,7 @@ _written_cell_payload_type :: (fn(written : &AstExpr, ctx : &EvalContext) -> Opt
     Option(TypeValue).None,
     match(
       written,
-      Rc(.FnCall(_, _, Rc(w_args), _, _)) => match(w_args.get(usize(0)), .Some(w_a0) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&w_a0)), .Some(w_ai) => Option(TypeValue).Some(Rc.clone(w_ai.ty())), .None => Option(TypeValue).None), .None => Option(TypeValue).None),
+      Rc(.FnCall(_, _, Rc(w_args), _, _)) => match(w_args.get_cloned(usize(0)), .Some(w_a0) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&w_a0)), .Some(w_ai) => Option(TypeValue).Some(Rc.clone(w_ai.ty())), .None => Option(TypeValue).None), .None => Option(TypeValue).None),
       Rc(.Atom(_, _)) => Option(TypeValue).None
     )
   )
@@ -1479,7 +1479,7 @@ evaluate_dyn_value :: (
   match(
     saved_et,
     .Some(se) => {
-      ctx.expected_type = se;
+      ctx.expected_type = se.clone();
     },
     .None => ()
   );
@@ -1489,7 +1489,7 @@ evaluate_dyn_value :: (
     match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&out)),
       .Some(oi) => if(is_dyn_type(&oi.ty()), {
-        rt_payload := match(oi.runtime_arg_exprs_in_order(), .Some(ra) => match(ra.get(usize(0)), .Some(r0) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&r0)), .Some(ri) => Option(TypeValue).Some(Rc.clone(ri.ty())), .None => Option(TypeValue).None), .None => Option(TypeValue).None), .None => Option(TypeValue).None);
+        rt_payload := match(oi.runtime_arg_exprs_in_order(), .Some(ra) => match(ra.get_cloned(usize(0)), .Some(r0) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&r0)), .Some(ri) => Option(TypeValue).Some(Rc.clone(ri.ty())), .None => Option(TypeValue).None), .None => Option(TypeValue).None), .None => Option(TypeValue).None);
         match(
           _create_box_type_via(&_erasure_handle_name(&rt_payload), &t_refine_inner(&oi.ty()), &expr_info_adopt_env(&oi), ctx, exn),
           .Some(bt) => {
@@ -1537,11 +1537,11 @@ _evaluate_dyn_erasure :: (
           )
         )
       );
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   (value_arg : AstExpr) = match(
-    args.get(usize(0)),
+    args.get_cloned(usize(0)),
     .Some(a) => a,
     .None => {
       exn.throw(
@@ -1554,7 +1554,7 @@ _evaluate_dyn_erasure :: (
           )
         )
       );
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   // `dyn(Box.new(v))` is `dyn(Rc.new(v))` here, the legacy owning Dyn.
@@ -1607,7 +1607,7 @@ _evaluate_dyn_erasure :: (
         // consultation #7). (`Rc(T)(...)` and `Rc(T).new(...)` are not
         // recognized; the constructor call covers the dyn-closure pattern.)
         dyn_cell_closure := match(
-          value_arg,
+          Rc.clone(value_arg),
           Rc(.FnCall(_, dbc_fn, Rc(dbc_args), _, _)) => cond(
             _dyn_cell_args_recognized(&dbc_args) => _dyn_cell_constructor_of(&dbc_fn),
             true => Option(DynCellConstructor).None
@@ -1626,7 +1626,7 @@ _evaluate_dyn_erasure :: (
                   .Some(dbc_callee) => {
                     dbc_callee_id := ast_expr_id(&dbc_callee);
                     rebuilt := match(
-                      value_arg,
+                      Rc.clone(value_arg),
                       Rc(.FnCall(dbc_id, _, Rc(dbc_call_args), dbc_flag, dbc_tok)) => Option(AstExpr).Some(Rc.new(AstExprNode.FnCall(dbc_id, dbc_callee, Rc.new(dbc_call_args.clone()), dbc_flag, dbc_tok.clone()))),
                       _ => Option(AstExpr).None
                     );
@@ -1634,7 +1634,7 @@ _evaluate_dyn_erasure :: (
                       rebuilt,
                       .Some(r) => {
                         dyn_cell_preset_receiver = Option(usize).Some(dbc_callee_id);
-                        value_arg = r;
+                        value_arg = Rc.clone(r);
                       },
                       .None => ()
                     );
@@ -1758,7 +1758,7 @@ _evaluate_dyn_erasure :: (
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
     // Attach the temp variable C codegen reads for the fat-pointer struct.
     attach_temp_variable_to_expr(expr, true, ctx);
-    return(expr.*);
+    return(Rc.clone(expr.*));
   });
   // --- Executing path ---
   // Evaluate the inner expression (with the inner-expected computed above).
@@ -1782,7 +1782,7 @@ _evaluate_dyn_erasure :: (
           )
         )
       );
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   (value_type : TypeValue) = Rc.clone(inner_info.ty());
@@ -1902,6 +1902,6 @@ _evaluate_dyn_erasure :: (
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   // Attach the temp variable C codegen reads for the fat-pointer struct.
   attach_temp_variable_to_expr(expr, true, ctx);
-  expr.*
+  Rc.clone(expr.*)
 });
 export(evaluate_dyn_value, apply_type_ctor_via);

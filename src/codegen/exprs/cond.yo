@@ -166,7 +166,7 @@ _concat_drops :: (fn(current : &Option(ArrayList(AstExpr)), prev : &Option(Array
       (mut(i) : usize) = usize(0);
       while(i < n, {
         match(
-          cd.get(i),
+          cd.get_cloned(i),
           .Some(e) => {
             out.push(e);
           },
@@ -184,7 +184,7 @@ _concat_drops :: (fn(current : &Option(ArrayList(AstExpr)), prev : &Option(Array
       (mut(i) : usize) = usize(0);
       while(i < n, {
         match(
-          pp.get(i),
+          pp.get_cloned(i),
           .Some(e) => {
             out.push(e);
           },
@@ -350,7 +350,7 @@ _generate_dup_arm_value :: (fn(value : &AstExpr, value_indent : &String, context
   (mut(dup_named) : bool) = false;
   arm_dup_list := match(expr_info_deferred_dup_expressions(&vei), .Some(d) => d, .None => ArrayList(AstExpr).new());
   match(
-    arm_dup_list.get(usize(0)),
+    arm_dup_list.get_cloned(usize(0)),
     .Some(vdup0) => match(
       context.base.get_expr_info(&vdup0),
       .Some(vdup_info) => match(
@@ -453,7 +453,7 @@ _emit_begin_arm :: (fn(value : &AstExpr, value_indent : &String, temp_var_opt : 
     (mut(stop) : bool) = false;
     while((j < (n - usize(1))) && !stop, {
       match(
-        begin_args.get(j),
+        begin_args.get_cloned(j),
         .Some(barg) => match(
           context.base.get_expr_info(&barg),
           .Some(bei) => {
@@ -468,7 +468,7 @@ _emit_begin_arm :: (fn(value : &AstExpr, value_indent : &String, temp_var_opt : 
             // A non-final statement's LENT temporaries drop here, at the
             // statement's end (the final expression's drop at the arm's end
             // IS its statement end).
-            nxt := begin_args.get(j + usize(1));
+            nxt := begin_args.get_cloned(j + usize(1));
             _flush_stmt_lent_temp_drops(&barg, &nxt, &cur_drops, &bei, &value_indent.*, context);
             if(has_any_control_flow(bei.control_flow()), {
               stop = true;
@@ -482,7 +482,7 @@ _emit_begin_arm :: (fn(value : &AstExpr, value_indent : &String, temp_var_opt : 
     });
     // Final expression → cond temp (or emit directly if control flow).
     match(
-      begin_args.get(n - usize(1)),
+      begin_args.get_cloned(n - usize(1)),
       .Some(final_expr) => match(
         context.base.get_expr_info(&final_expr),
         .Some(fei) => {
@@ -541,7 +541,7 @@ _emit_begin_arm :: (fn(value : &AstExpr, value_indent : &String, temp_var_opt : 
             (mut(dup_result_used) : bool) = false;
             f_dup_list := match(expr_info_deferred_dup_expressions(&fei), .Some(d) => d, .None => ArrayList(AstExpr).new());
             match(
-              f_dup_list.get(usize(0)),
+              f_dup_list.get_cloned(usize(0)),
               .Some(fdup0) => if(
                 ast_expr_is_fn_call(&fdup0) && element_wise_dup_target(&fdup0).is_none(),
                 match(
@@ -675,11 +675,11 @@ generate_cond_expression :: (fn(expr : &AstExpr, indent : &String, context : &mu
   (mut(i) : usize) = usize(0);
   while((i < nargs) && !found_nf, {
     match(
-      args.get(i),
+      args.get_cloned(i),
       .Some(arg) => if(ast_expr_is_fn_call_of(&arg, "=>", Option(usize).Some(usize(2))), {
         cargs := _arg_args(&arg);
         match(
-          cargs.get(usize(0)),
+          cargs.get_cloned(usize(0)),
           .Some(condition) => {
             is_false := match(_cond_bool(&condition, context), .Some(b) => !b, .None => false);
             if(!is_false, {
@@ -699,11 +699,11 @@ generate_cond_expression :: (fn(expr : &AstExpr, indent : &String, context : &mu
   (mut(can_opt) : bool) = false;
   if(found_nf, {
     match(
-      args.get(first_nf),
+      args.get_cloned(first_nf),
       .Some(first_arg) => if(ast_expr_is_fn_call_of(&first_arg, "=>", Option(usize).Some(usize(2))), {
         fcargs := _arg_args(&first_arg);
         match(
-          fcargs.get(usize(0)),
+          fcargs.get_cloned(usize(0)),
           .Some(fc) => match(
             _cond_bool(&fc, context),
             .Some(b) => if(b, {
@@ -743,11 +743,11 @@ generate_cond_expression :: (fn(expr : &AstExpr, indent : &String, context : &mu
   // Direct value generation.
   if(can_opt && found_nf, {
     match(
-      args.get(first_nf),
+      args.get_cloned(first_nf),
       .Some(arg) => if(ast_expr_is_fn_call_of(&arg, "=>", Option(usize).Some(usize(2))), {
         vargs := _arg_args(&arg);
         match(
-          vargs.get(usize(1)),
+          vargs.get_cloned(usize(1)),
           .Some(value) => {
             // A value arm that returns a borrowed or shared value carries
             // deferred `___dup`s, and owes the result the same balancing
@@ -851,9 +851,9 @@ generate_cond_expression :: (fn(expr : &AstExpr, indent : &String, context : &mu
     );
     // The collapsed arm's value node drops (see `_emit_value_arm`).
     match(
-      args.get(first_nf),
+      args.get_cloned(first_nf),
       .Some(arg) => match(
-        _arg_args(&arg).get(usize(1)),
+        _arg_args(&arg).get_cloned(usize(1)),
         .Some(cv) => if(has_pending_emittable_drop(&cv, context), {
           generate_deferred_drop_expressions(&cv, indent.clone(), context);
         }),
@@ -878,13 +878,13 @@ generate_cond_expression :: (fn(expr : &AstExpr, indent : &String, context : &mu
   (mut(i2) : usize) = usize(0);
   while((i2 < nargs) && !ct_true_emitted, {
     match(
-      args.get(i2),
+      args.get_cloned(i2),
       .Some(arg) => if(ast_expr_is_fn_call_of(&arg, "=>", Option(usize).Some(usize(2))), {
         pargs := _arg_args(&arg);
         match(
-          pargs.get(usize(0)),
+          pargs.get_cloned(usize(0)),
           .Some(condition) => match(
-            pargs.get(usize(1)),
+            pargs.get_cloned(usize(1)),
             .Some(value) => {
               cbool := _cond_bool(&condition, context);
               is_false := match(cbool, .Some(b) => !b, .None => false);

@@ -7,7 +7,8 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 {
-  AstExpr, AstExprNode,
+  AstExpr,
+  AstExprNode,
   ast_expr_token,
   ast_expr_id,
   ast_expr_to_string,
@@ -64,7 +65,7 @@ try_to_convert_to_pointer_type :: (
   evaluated_gerr := evaluate_expression_guarded(arg_expr, caller_env, ctx, &mut evaluated_gout);
   ctx.expected_type = saved_expected;
   match(evaluated_gerr, .Some(evaluated_ge) => exn.throw(evaluated_ge), .None => ());
-  evaluated := match(evaluated_gout.get(usize(0)), .Some(evaluated_g) => evaluated_g, .None => make_err_expr());
+  evaluated := match(evaluated_gout.get_cloned(usize(0)), .Some(evaluated_g) => evaluated_g, .None => make_err_expr());
   info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
   if(info_opt.is_none(), {
     exn.throw(
@@ -129,7 +130,7 @@ try_to_convert_to_pointer_type :: (
   orig_id := ast_expr_id(expr);
   type_expr := match(
     expr,
-    Rc(.FnCall(_, func_box, _, _, _)) => func_box.*,
+    Rc(.FnCall(_, func_box, _, _, _)) => Rc.clone(func_box.*),
     Rc(.Atom(_, _)) => make_err_expr()
   );
   // Lower the runtime pointer→pointer cast to a `__yo_as` node, attached to the
@@ -142,21 +143,23 @@ try_to_convert_to_pointer_type :: (
   // gets a FRESH id so codegen's re-dispatch onto it does not re-trigger the same
   // macro_expansion (infinite loop).
   fresh_id := alloc_global_expr_id();
-  func_atom := Rc.new(AstExprNode.Atom(
-    alloc_global_expr_id(),
-    Token(
-      kind : TokenKind.Identifier,
-      value : intern_token_str(String.from(BF_YO_AS)),
-      row : orig_tok.row,
-      column : orig_tok.column,
-      character : orig_tok.character,
-      byte_offset : orig_tok.byte_offset,
-      module_path : Rc.clone(orig_tok.module_path),
-      input : Rc.clone(orig_tok.input)
+  func_atom := Rc.new(
+    AstExprNode.Atom(
+      alloc_global_expr_id(),
+      Token(
+        kind : TokenKind.Identifier,
+        value : intern_token_str(String.from(BF_YO_AS)),
+        row : orig_tok.row,
+        column : orig_tok.column,
+        character : orig_tok.character,
+        byte_offset : orig_tok.byte_offset,
+        module_path : Rc.clone(orig_tok.module_path),
+        input : Rc.clone(orig_tok.input)
+      )
     )
-  ));
+  );
   call_args := ArrayList(AstExpr).new();
-  call_args.push(evaluated);
+  call_args.push(Rc.clone(evaluated));
   call_args.push(type_expr);
   yo_as_node := Rc.new(AstExprNode.FnCall(fresh_id, func_atom, Rc.new(call_args), false, orig_tok));
   yo_as_info := new_expr_info(&env, target_type);
@@ -180,6 +183,6 @@ try_to_convert_to_pointer_type :: (
   record_macro_expansion(ast_expr_id(expr), yo_as_node.clone());
   expr_info_set_macro_expansion(&out_info, Option(AstExpr).Some(yo_as_node));
   expr_info_table_set(&ctx.expr_info_table, orig_id, &out_info);
-  .Some(expr.*)
+  .Some(Rc.clone(expr.*))
 });
 export(try_to_convert_to_pointer_type);

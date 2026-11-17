@@ -22,7 +22,8 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 import("std/fmt");
 {
-  AstExpr, AstExprNode,
+  AstExpr,
+  AstExprNode,
   ast_expr_token,
   ast_expr_text,
   ast_expr_id,
@@ -72,7 +73,7 @@ _fn_call_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
 );
 /// Get the func expression of a FnCall (or the expr itself for Atom).
 _fn_call_func :: (fn(e : &AstExpr) -> AstExpr)(
-  match(e, Rc(.FnCall(_, fb, _, _, _)) => fb.*, Rc(.Atom(_, _)) => e.*)
+  match(e, Rc(.FnCall(_, fb, _, _, _)) => Rc.clone(fb.*), Rc(.Atom(_, _)) => Rc.clone(e.*))
 );
 /// Check if `variant_names` contains `name`.
 _has_variant :: (fn(variant_names : &ArrayList(String), name : &String) -> bool)({
@@ -404,7 +405,7 @@ evaluate_enum_type :: (
   args := _fn_call_args(expr);
   (i : usize) = usize(0);
   while(i < args.len(), {
-    enum_arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
+    enum_arg := match(args.get_cloned(i), .Some(a) => a, .None => make_err_expr());
     // -------------------------------------------------------------------
     // GADT detection. Detect `Variant -> recur(T…)` or
     // `(Variant -> recur(T…)) = disc`, capture the `recur(...)` return-type
@@ -414,32 +415,32 @@ evaluate_enum_type :: (
     is_gadt_arrow := ast_expr_is_fn_call_of(&enum_arg, "->", Option(usize).Some(usize(2)));
     is_gadt_eq_arrow := if(ast_expr_is_fn_call_of(&enum_arg, BK_ASSIGN, Option(usize).Some(usize(2))), {
       eq_args := _fn_call_args(&enum_arg);
-      lhs_eq := match(eq_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+      lhs_eq := match(eq_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
       ast_expr_is_fn_call_of(&lhs_eq, "->", Option(usize).Some(usize(2)))
     }, false);
     (gadt_ret : Option(AstExpr)) = Option(AstExpr).None;
     if(is_gadt_arrow, {
       arrow_args := _fn_call_args(&enum_arg);
-      gadt_ret = Option(AstExpr).Some(match(arrow_args.get(usize(1)), .Some(a) => a, .None => make_err_expr()));
-      enum_arg = match(arrow_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+      gadt_ret = Option(AstExpr).Some(match(arrow_args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr()));
+      enum_arg = match(arrow_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
     }, {
       if(is_gadt_eq_arrow, {
         eq_args := _fn_call_args(&enum_arg);
-        arrow_e := match(eq_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+        arrow_e := match(eq_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
         arrow_args := _fn_call_args(&arrow_e);
-        gadt_ret = Option(AstExpr).Some(match(arrow_args.get(usize(1)), .Some(a) => a, .None => make_err_expr()));
-        arrow_lhs := match(arrow_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-        eq_disc := match(eq_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+        gadt_ret = Option(AstExpr).Some(match(arrow_args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr()));
+        arrow_lhs := match(arrow_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
+        eq_disc := match(eq_args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr());
         // Reconstruct the `=` node stripped of the `->` wrapper.
         enum_arg = match(
-          enum_arg,
+          Rc.clone(enum_arg),
           Rc(.FnCall(fid, ffunc, _, finfix, ftok)) => {
             new_args := ArrayList(AstExpr).new();
             new_args.push(arrow_lhs);
             new_args.push(eq_disc);
-            Rc.new(AstExprNode.FnCall(fid, ffunc, Rc.new(new_args), finfix, ftok))
+            Rc.new(AstExprNode.FnCall(fid, Rc.clone(ffunc), Rc.new(new_args), finfix, ftok))
           },
-          Rc(.Atom(_, _)) => enum_arg
+          Rc(.Atom(_, _)) => Rc.clone(enum_arg)
         );
       });
     });
@@ -448,14 +449,14 @@ evaluate_enum_type :: (
     // -------------------------------------------------------------------
     is_atom_eq := if(ast_expr_is_fn_call(&enum_arg) && ast_expr_is_fn_call_of(&enum_arg, BK_ASSIGN, Option(usize).Some(usize(2))), {
       eq_args := _fn_call_args(&enum_arg);
-      lhs_eq := match(eq_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+      lhs_eq := match(eq_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
       ast_expr_is_atom(&lhs_eq)
     }, false);
     cond(
       is_atom_eq => {
         eq_args := _fn_call_args(&enum_arg);
-        variant_name_expr := match(eq_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-        discriminant_expr := match(eq_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+        variant_name_expr := match(eq_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
+        discriminant_expr := match(eq_args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr());
         if(!is_valid_variable_name(&variant_name_expr), {
           exn.throw(
             dyn(
@@ -548,12 +549,12 @@ evaluate_enum_type :: (
       // Variant with fields, possibly with `= discriminant`.
       // ---------------------------------------------------------------
       true => {
-        (variant_expr : AstExpr) = enum_arg;
+        (variant_expr : AstExpr) = Rc.clone(enum_arg);
         (custom_disc : Option(i64)) = Option(i64).None;
         if(ast_expr_is_fn_call_of(&enum_arg, BK_ASSIGN, Option(usize).Some(usize(2))), {
           eq_args := _fn_call_args(&enum_arg);
-          variant_expr = match(eq_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-          discriminant_expr := match(eq_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+          variant_expr = match(eq_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
+          discriminant_expr := match(eq_args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr());
           d := _evaluate_discriminant(&discriminant_expr, &env, ctx, exn);
           custom_disc = Option(i64).Some(d);
         });
@@ -600,7 +601,7 @@ evaluate_enum_type :: (
         v_field_labels := ArrayList(String).new();
         (j : usize) = usize(0);
         while(j < v_args.len(), {
-          field_arg := match(v_args.get(j), .Some(a) => a, .None => make_err_expr());
+          field_arg := match(v_args.get_cloned(j), .Some(a) => a, .None => make_err_expr());
           result := evaluate_type_field(&field_arg, j, &env, ctx, "enum", exn);
           field := result.field.clone();
           // Check for duplicate labels in this variant.
@@ -617,7 +618,7 @@ evaluate_enum_type :: (
             arg_args := _fn_call_args(&field_arg);
             err_tok := if(
               ast_expr_is_fn_call(&field_arg),
-              match(arg_args.get(usize(0)), .Some(fe) => ast_expr_token(&fe), .None => ast_expr_token(&field_arg)),
+              match(arg_args.get_cloned(usize(0)), .Some(fe) => ast_expr_token(&fe), .None => ast_expr_token(&field_arg)),
               ast_expr_token(&field_arg)
             );
             exn.throw(
@@ -688,7 +689,7 @@ evaluate_enum_type :: (
         this_variant_args := ArrayList(TypeValue).new();
         (gi : usize) = usize(0);
         while(gi < recur_args.len(), {
-          ra := match(recur_args.get(gi), .Some(a) => a, .None => make_err_expr());
+          ra := match(recur_args.get_cloned(gi), .Some(a) => a, .None => make_err_expr());
           evaluated_ra := evaluate_expression_raw(&ra, &env, ctx, exn);
           ra_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_ra));
           ra_info := match(ra_info_opt, .Some(ii) => Rc.clone(ii), .None => new_expr_info(&env, Rc.new(TypeValueNode.Unit)));
@@ -947,6 +948,6 @@ evaluate_enum_type :: (
   // Annotate callee (expr.func) with the same info.
   callee_expr := _fn_call_func(expr);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&callee_expr), &out_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 export(evaluate_enum_type, _type_reaches_root_by_value);

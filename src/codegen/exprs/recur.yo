@@ -41,7 +41,7 @@ generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
       (i : usize) = usize(0);
       while(i < n, {
         match(
-          arg_exprs.get(i),
+          arg_exprs.get_cloned(i),
           .Some(arg) => {
             arg_code := _call_generate_expr(&arg, indent.clone(), context);
             // Deferred `___dup` on a recur argument (aliasing Stage 0
@@ -85,7 +85,7 @@ generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
                   // argument itself was retained in place
                   // (`element_wise_dup_target`).
                   match(
-                    dups.get(usize(0)),
+                    dups.get_cloned(usize(0)),
                     .Some(de) => if(
                       ast_expr_is_fn_call(&de) && element_wise_dup_target(&de).is_none(),
                       match(

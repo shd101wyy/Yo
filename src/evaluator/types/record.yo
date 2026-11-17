@@ -115,8 +115,8 @@ evaluate_module_field :: (
     );
   });
   args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
-  label_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-  type_expr := match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+  label_expr := match(args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
+  type_expr := match(args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr());
   // Validate label identifier
   if(!is_valid_variable_name(&label_expr), {
     exn.throw(

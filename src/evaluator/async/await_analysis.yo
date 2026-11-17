@@ -96,7 +96,7 @@ _is_dot_access :: (fn(expr : &AstExpr, obj_name : str, method_name : str) -> boo
             (dot_tok.kind != TokenKind.Dot) => false,
             true => {
               obj_ok := match(
-                dot_args.get(usize(0)),
+                dot_args.get_cloned(usize(0)),
                 .None => false,
                 .Some(oe) => match(
                   oe,
@@ -116,7 +116,7 @@ _is_dot_access :: (fn(expr : &AstExpr, obj_name : str, method_name : str) -> boo
                       Rc(.Atom(_, inner_tok)) => cond(
                         (inner_tok.kind != TokenKind.Dot) => false,
                         true => match(
-                          inner_args.get(usize(1)),
+                          inner_args.get_cloned(usize(1)),
                           .None => false,
                           .Some(Rc(.FnCall(_, _, _, _, _))) => false,
                           .Some(Rc(.Atom(_, itok))) => (itok.value.* == obj_name)
@@ -130,7 +130,7 @@ _is_dot_access :: (fn(expr : &AstExpr, obj_name : str, method_name : str) -> boo
               cond(
                 (obj_ok == false) => false,
                 true => match(
-                  dot_args.get(usize(1)),
+                  dot_args.get_cloned(usize(1)),
                   .None => false,
                   .Some(Rc(.FnCall(_, _, _, _, _))) => false,
                   .Some(Rc(.Atom(_, tok))) => (tok.value.* == method_name)
@@ -204,7 +204,7 @@ is_join_handle_await_call :: (fn(expr : &AstExpr) -> bool)({
           Rc(.Atom(_, dot_tok)) => cond(
             (dot_tok.kind != TokenKind.Dot) => false,
             true => match(
-              dot_args.get(usize(1)),
+              dot_args.get_cloned(usize(1)),
               .None => false,
               .Some(Rc(.FnCall(_, _, _, _, _))) => false,
               .Some(Rc(.Atom(_, tok))) => (tok.value.* == "await")
@@ -301,7 +301,7 @@ detect_await_expr_ :: (
       // call-site marker (`io.await(w, io)`; decision 33).
       args := ast_call_args_unmarked(&expr_for_sp);
       await_arg := match(
-        args.get(usize(0)),
+        args.get_cloned(usize(0)),
         .None => {
           return(());
         },
@@ -441,8 +441,8 @@ analyze_await_points :: (
         Box.new({ await_extras : Rc.clone(await_extras), get_info : get_info.* }(expr, parent_expr) => {
           // `with_mut`'s body is a `sink` closure: it captures values, not the
           // detector's reference parameters (VERDICTS-64 decision 18).
-          d_expr := expr.*;
-          d_parent := parent_expr.*;
+          d_expr := Rc.clone(expr.*);
+          d_parent := parent_expr.*.clone();
           await_extras.with_mut(extras => {
             found := ArrayList(SuspensionPoint).new();
             detect_await_expr_(&d_expr, &d_parent, &mut found, extras, &get_info);
@@ -467,10 +467,10 @@ analyze_await_points :: (
       is_begin := (ast_expr_is_fn_call(&tail) && ast_expr_is_fn_call_of(&tail, BK_BEGIN, Option(usize).None));
       if(is_begin, {
         match(
-          tail,
+          Rc.clone(tail),
           Rc(.FnCall(_, _, Rc(a), _, _)) => if(a.len() > usize(0), {
             match(
-              a.last(),
+              a.last_cloned(),
               .Some(last) => {
                 tail = last;
               },
@@ -598,7 +598,7 @@ collect_variable_bindings_ :: (
         )
       );
       if(func_is_binding && (args.len() >= usize(2)), {
-        name_arg_opt := args.get(usize(0));
+        name_arg_opt := args.get_cloned(usize(0));
         match(
           name_arg_opt,
           .None => (),
@@ -612,7 +612,7 @@ collect_variable_bindings_ :: (
                   var_name := name_tok.value.*.clone();
                   // Get the type from the second argument (the value being bound)
                   match(
-                    args.get(usize(1)),
+                    args.get_cloned(usize(1)),
                     .None => (),
                     .Some(val_arg) => {
                       match(
@@ -682,7 +682,7 @@ collect_variable_bindings_ :: (
       (ai : usize) = usize(0);
       while(ai < n_args, {
         arg := match(
-          args.get(ai),
+          args.get_cloned(ai),
           .None => {
             break;
           },

@@ -126,7 +126,7 @@ _lv_span_end :: (fn(e : &AstExpr, w : &_LiveWalk) -> u64)({
       (i : usize) = usize(0);
       while(i < args.len(), i = (i + usize(1)), {
         match(
-          args.get(i),
+          args.get_cloned(i),
           .Some(a) => {
             ae := recur(&a, w);
             if(ae > m, {
@@ -200,9 +200,9 @@ _lv_use :: (fn(id : &String, at : u64, w : &_LiveWalk) -> unit)(
 _lv_place_root :: (fn(e : &AstExpr) -> AstExpr)(
   match(
     e.clone(),
-    Rc(.Atom(_, _)) => e.*,
+    Rc(.Atom(_, _)) => Rc.clone(e.*),
     Rc(.FnCall(_, func_box, Rc(args), _, _)) => cond(
-      ast_expr_is_fn_call_of(e.clone(), ".", Option(usize).Some(usize(2))) => match(args.get(usize(0)), .Some(obj) => recur(&obj), .None => e.*),
+      ast_expr_is_fn_call_of(e.clone(), ".", Option(usize).Some(usize(2))) => match(args.get_cloned(usize(0)), .Some(obj) => recur(&obj), .None => Rc.clone(e.*)),
       true => recur(&func_box)
     )
   )
@@ -238,15 +238,15 @@ _lv_mark_capture_list_borrows :: (fn(closure : &AstExpr, lhs : &AstExpr, w : &_L
   );
   (ei : usize) = usize(0);
   while(ei < entries.len(), ei = (ei + usize(1)), {
-    ent := match(entries.get(ei), .Some(x) => x, .None => return(()));
+    ent := match(entries.get_cloned(ei), .Some(x) => x, .None => return(()));
     // The pun `&x` / `&mut x`, or `y : &place` / `z : &mut place`.
     place := cond(
-      ast_expr_is_capture_mode_entry(&ent) => match(ent, Rc(.FnCall(_, _, Rc(pa), _, _)) => pa.get(usize(0)), Rc(.Atom(_, _)) => Option(AstExpr).None),
+      ast_expr_is_capture_mode_entry(&ent) => match(ent, Rc(.FnCall(_, _, Rc(pa), _, _)) => pa.get_cloned(usize(0)), Rc(.Atom(_, _)) => Option(AstExpr).None),
       ast_expr_is_fn_call_of(&ent, ":", Option(usize).Some(usize(2))) => match(
         ent,
         Rc(.FnCall(_, _, Rc(la), _, _)) => if(
-          match(la.get(usize(0)), .Some(lbl) => ast_expr_is_capture_mode_entry(&lbl), .None => false),
-          match(la.get(usize(1)), .Some(init) => match(init, Rc(.FnCall(_, _, Rc(ia), _, _)) => ia.get(usize(0)), Rc(.Atom(_, _)) => Option(AstExpr).None), .None => Option(AstExpr).None),
+          match(la.get_cloned(usize(0)), .Some(lbl) => ast_expr_is_capture_mode_entry(&lbl), .None => false),
+          match(la.get_cloned(usize(1)), .Some(init) => match(init, Rc(.FnCall(_, _, Rc(ia), _, _)) => ia.get_cloned(usize(0)), Rc(.Atom(_, _)) => Option(AstExpr).None), .None => Option(AstExpr).None),
           Option(AstExpr).None
         ),
         Rc(.Atom(_, _)) => Option(AstExpr).None
@@ -319,7 +319,7 @@ _lv_mark_call_lends :: (fn(call : &AstExpr, callee : &AstExpr, w : &_LiveWalk, c
   (i : usize) = usize(0);
   while(i < runtime_args.len(), i = (i + usize(1)), {
     if(match(abi_ptr.get(i), .Some(p) => p, .None => false), {
-      match(runtime_args.get(i), .Some(a) => _lv_mark_scope(_lv_place_root(&a), w, context), .None => ());
+      match(runtime_args.get_cloned(i), .Some(a) => _lv_mark_scope(_lv_place_root(&a), w, context), .None => ());
     });
   });
 });
@@ -342,7 +342,7 @@ _lv_pattern_bindings :: (fn(pat : &AstExpr, scope_end : u64, w : &_LiveWalk, con
       recur(&func_box, scope_end, w, context);
       (i : usize) = usize(0);
       while(i < args.len(), i = (i + usize(1)), {
-        match(args.get(i), .Some(a) => recur(&a, scope_end, w, context), .None => ());
+        match(args.get_cloned(i), .Some(a) => recur(&a, scope_end, w, context), .None => ());
       });
     }
   )
@@ -394,11 +394,11 @@ _lv_walk :: (fn(e : &AstExpr, stmt_end : u64, block_end : u64, w : &_LiveWalk, c
       });
       cond(
         // `x := v` / `(x : T) = v`: the initializer first, then the binding.
-        (ast_expr_is_fn_call_of(e.clone(), ":=", Option(usize).Some(usize(2))) || (ast_expr_is_fn_call_of(e.clone(), "=", Option(usize).Some(usize(2))) && match(args.get(usize(0)), .Some(l) => ast_expr_is_fn_call_of(&l, ":", Option(usize).None), .None => false))) => {
-          rhs := match(args.get(usize(1)), .Some(r) => r, .None => return(()));
+        (ast_expr_is_fn_call_of(e.clone(), ":=", Option(usize).Some(usize(2))) || (ast_expr_is_fn_call_of(e.clone(), "=", Option(usize).Some(usize(2))) && match(args.get_cloned(usize(0)), .Some(l) => ast_expr_is_fn_call_of(&l, ":", Option(usize).None), .None => false))) => {
+          rhs := match(args.get_cloned(usize(1)), .Some(r) => r, .None => return(()));
           recur(rhs.clone(), stmt_end, block_end, w, context);
-          lhs := match(args.get(usize(0)), .Some(l) => l, .None => return(()));
-          name_atom := match(lhs.clone(), Rc(.FnCall(_, _, Rc(la), _, _)) => match(la.get(usize(0)), .Some(n) => n, .None => lhs.clone()), Rc(.Atom(_, _)) => lhs.clone());
+          lhs := match(args.get_cloned(usize(0)), .Some(l) => l, .None => return(()));
+          name_atom := match(lhs.clone(), Rc(.FnCall(_, _, Rc(la), _, _)) => match(la.get_cloned(usize(0)), .Some(n) => n, .None => lhs.clone()), Rc(.Atom(_, _)) => lhs.clone());
           name := ast_expr_text(&name_atom).*.clone();
           match(
             _lv_resolve_keyed(ast_expr_id(name_atom.clone()), e.clone(), &name, w, context),
@@ -456,7 +456,7 @@ _lv_walk :: (fn(e : &AstExpr, stmt_end : u64, block_end : u64, w : &_LiveWalk, c
           (i : usize) = usize(0);
           while(i < args.len(), i = (i + usize(1)), {
             // The condition and the step run again every iteration.
-            match(args.get(i), .Some(a) => recur(&a, loop_end, block_end, w, context), .None => ());
+            match(args.get_cloned(i), .Some(a) => recur(&a, loop_end, block_end, w, context), .None => ());
           });
           _ls := w.loop_starts.pop();
           _le := w.loop_ends.pop();
@@ -465,7 +465,7 @@ _lv_walk :: (fn(e : &AstExpr, stmt_end : u64, block_end : u64, w : &_LiveWalk, c
           blk_end := _lv_span_end(e.clone(), w);
           (i : usize) = usize(0);
           while(i < args.len(), i = (i + usize(1)), {
-            match(args.get(i), .Some(a) => recur(a.clone(), _lv_span_end(&a, w), blk_end, w, context), .None => ());
+            match(args.get_cloned(i), .Some(a) => recur(a.clone(), _lv_span_end(&a, w), blk_end, w, context), .None => ());
           });
         },
         ast_expr_is_fn_call_of(e.clone(), BK_MATCH, Option(usize).None) => {
@@ -473,13 +473,13 @@ _lv_walk :: (fn(e : &AstExpr, stmt_end : u64, block_end : u64, w : &_LiveWalk, c
           (i : usize) = usize(0);
           while(i < args.len(), i = (i + usize(1)), {
             match(
-              args.get(i),
+              args.get_cloned(i),
               .Some(a) => if(ast_expr_is_fn_call_of(a.clone(), "=>", Option(usize).Some(usize(2))), {
                 arm_end := _lv_span_end(a.clone(), w);
                 match(
                   a.clone(),
                   Rc(.FnCall(_, _, Rc(arm_args), _, _)) => {
-                    match(arm_args.get(usize(0)), .Some(pat) => _lv_pattern_bindings(&pat, arm_end, w, context), .None => ());
+                    match(arm_args.get_cloned(usize(0)), .Some(pat) => _lv_pattern_bindings(&pat, arm_end, w, context), .None => ());
                     // A consuming arm's hidden bindings (the parts it drops on
                     // entry, the cells it keeps to its end; decision 26) are
                     // in the registered pattern only.
@@ -495,7 +495,7 @@ _lv_walk :: (fn(e : &AstExpr, stmt_end : u64, block_end : u64, w : &_LiveWalk, c
                               pattern_binding_atoms(&cga.pattern, &mut hidden);
                               (hi : usize) = usize(0);
                               while(hi < hidden.len(), hi = (hi + usize(1)), {
-                                match(hidden.get(hi), .Some(ha) => if(is_any_temp_variable_name(ast_expr_token(&ha).value.*.clone()), _lv_pattern_bindings(&ha, arm_end, w, context)), .None => ());
+                                match(hidden.get_cloned(hi), .Some(ha) => if(is_any_temp_variable_name(ast_expr_token(&ha).value.*.clone()), _lv_pattern_bindings(&ha, arm_end, w, context)), .None => ());
                               });
                             }),
                             .None => ()
@@ -504,7 +504,7 @@ _lv_walk :: (fn(e : &AstExpr, stmt_end : u64, block_end : u64, w : &_LiveWalk, c
                       },
                       .None => ()
                     );
-                    match(arm_args.get(usize(1)), .Some(body) => recur(&body, stmt_end, arm_end, w, context), .None => ());
+                    match(arm_args.get_cloned(usize(1)), .Some(body) => recur(&body, stmt_end, arm_end, w, context), .None => ());
                   },
                   Rc(.Atom(_, _)) => ()
                 );
@@ -517,19 +517,19 @@ _lv_walk :: (fn(e : &AstExpr, stmt_end : u64, block_end : u64, w : &_LiveWalk, c
         },
         // A closure literal with a capture list: its borrowed roots live to
         // the end of their scope (`_lv_mark_capture_list_borrows`).
-        (ast_expr_is_fn_call_of(e.clone(), "=>", Option(usize).Some(usize(2))) && match(args.get(usize(0)), .Some(cl_lhs) => ast_expr_is_capture_list_params(&cl_lhs), .None => false)) => {
-          match(args.get(usize(0)), .Some(cl_lhs) => _lv_mark_capture_list_borrows(e, &cl_lhs, w, context), .None => ());
+        (ast_expr_is_fn_call_of(e.clone(), "=>", Option(usize).Some(usize(2))) && match(args.get_cloned(usize(0)), .Some(cl_lhs) => ast_expr_is_capture_list_params(&cl_lhs), .None => false)) => {
+          match(args.get_cloned(usize(0)), .Some(cl_lhs) => _lv_mark_capture_list_borrows(e, &cl_lhs, w, context), .None => ());
           recur(&func_box, stmt_end, block_end, w, context);
           (i : usize) = usize(0);
           while(i < args.len(), i = (i + usize(1)), {
-            match(args.get(i), .Some(a) => recur(&a, stmt_end, block_end, w, context), .None => ());
+            match(args.get_cloned(i), .Some(a) => recur(&a, stmt_end, block_end, w, context), .None => ());
           });
         },
         // `&x` / `y := &mut x`: a pointer to the local can outlive any use
         // of its name, so it lives to the end of its scope.
         ast_expr_is_address_of_call(e.clone(), Option(usize).Some(usize(1))) => {
           match(
-            args.get(usize(0)),
+            args.get_cloned(usize(0)),
             .Some(a) => {
               _lv_mark_scope(a.clone(), w, context);
               recur(&a, stmt_end, block_end, w, context);
@@ -542,7 +542,7 @@ _lv_walk :: (fn(e : &AstExpr, stmt_end : u64, block_end : u64, w : &_LiveWalk, c
           recur(&func_box, stmt_end, block_end, w, context);
           (i : usize) = usize(0);
           while(i < args.len(), i = (i + usize(1)), {
-            match(args.get(i), .Some(a) => recur(&a, stmt_end, block_end, w, context), .None => ());
+            match(args.get_cloned(i), .Some(a) => recur(&a, stmt_end, block_end, w, context), .None => ());
           });
         }
       );
@@ -592,7 +592,7 @@ compute_cross_boundary_variables :: (
     match(
       ae,
       Rc(.FnCall(_, _, Rc(aargs), _, _)) => match(
-        aargs.get(usize(0)),
+        aargs.get_cloned(usize(0)),
         .Some(fut) => if(!ast_expr_is_atom(&fut), {
           match(
             context.base.get_expr_info(&fut),
@@ -621,7 +621,7 @@ compute_cross_boundary_variables :: (
         .Some(bes) => {
           (bj : usize) = usize(0);
           while(bj < bes.len(), bj = (bj + usize(1)), {
-            match(bes.get(bj), .Some(be) => note_await(&be, &mut sus, &mut consumed_temps, &w, context), .None => ());
+            match(bes.get_cloned(bj), .Some(be) => note_await(&be, &mut sus, &mut consumed_temps, &w, context), .None => ());
           });
           note_await(&ap.base.expr, &mut sus, &mut consumed_temps, &w, context);
         },
@@ -1126,7 +1126,7 @@ _build_combined_sm_variables :: (
   match(
     capture_type,
     .Some(ct) => {
-      flabels := match(ct, Rc(.Struct({ field_labels : fl })) => Rc.clone(fl), _ => no_labels());
+      flabels := match(Rc.clone(ct), Rc(.Struct({ field_labels : fl })) => Rc.clone(fl), _ => no_labels());
       ftypes := match(ct, Rc(.Struct({ field_types : ft })) => Rc.clone(ft), _ => no_types());
       (j : usize) = usize(0);
       while(j < flabels.len(), {
@@ -1365,7 +1365,7 @@ emit_effect_injection_for_sm :: (
 )({
   args := ast_call_args_unmarked(await_expr);
   match(
-    args.get(usize(0)),
+    args.get_cloned(usize(0)),
     .Some(fut_arg) => match(
       context.base.get_expr_info(&fut_arg),
       .Some(fei) => {
@@ -1402,7 +1402,7 @@ emit_effect_injection_for_sm :: (
                   // (or a member-wise record injection) forward
                   // (issues/fixed/io-await-effect-bundle-ignored-inside-io-async.md).
                   match(
-                    args.get(usize(1)),
+                    args.get_cloned(usize(1)),
                     .Some(bundle_arg) => {
                       bundle_code := _call_generate_expr(&bundle_arg, indent.clone(), context);
                       bundle_cast_ty := match(
@@ -1538,7 +1538,7 @@ _append_exprs :: (fn(dst : &mut ArrayList(AstExpr), src : &ArrayList(AstExpr)) -
   (i : usize) = usize(0);
   while(i < src.len(), {
     match(
-      src.get(i),
+      src.get_cloned(i),
       .Some(e) => {
         dst.push(e);
       },
@@ -1591,7 +1591,7 @@ inline_await_result_fields :: (fn(analysis : &AwaitAnalysisResult, context : &Fu
   add := (fn(e : &AstExpr, t : &TypeValue, out : &mut ArrayList(InlineAwaitResultField), seen : &mut HashSet(usize), prefix : &String) -> unit)({
     if(!seen.contains(ast_expr_id(e)) && !_inline_result_is_unit(t) && !g_local_await_results.with({ e : &e.* }(s) => s.contains(_site_of(ast_expr_token(e.clone())))), {
       seen.insert(ast_expr_id(e));
-      out.push(InlineAwaitResultField(name : `${prefix}__yo_await_result_${out.len().to_string()}`, ty : Rc.clone(t), expr : e.*));
+      out.push(InlineAwaitResultField(name : `${prefix}__yo_await_result_${out.len().to_string()}`, ty : Rc.clone(t), expr : Rc.clone(e.*)));
     });
   });
   (i : usize) = usize(0);
@@ -1603,7 +1603,7 @@ inline_await_result_fields :: (fn(analysis : &AwaitAnalysisResult, context : &Fu
         .Some(branch_exprs) => {
           (j : usize) = usize(0);
           while(j < branch_exprs.len(), j = (j + usize(1)), {
-            match(branch_exprs.get(j), .Some(be) => add(&be, _inline_await_result_type(&be, Option(AwaitAnalysisResult).None, context), &mut out, &mut seen, prefix.clone()), .None => ());
+            match(branch_exprs.get_cloned(j), .Some(be) => add(&be, _inline_await_result_type(&be, Option(AwaitAnalysisResult).None, context), &mut out, &mut seen, prefix.clone()), .None => ());
           });
         },
         .None => add(&ap.base.expr, &ap.result_type, &mut out, &mut seen, prefix.clone())
@@ -1697,7 +1697,7 @@ emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &mut Funct
   );
   args := ast_call_args_unmarked(expr);
   future_arg := match(
-    args.get(usize(0)),
+    args.get_cloned(usize(0)),
     .Some(a) => a,
     .None => {
       codegen_fatal(String.from("await without a future argument"));
@@ -1902,7 +1902,7 @@ generate_async_block_resume_function_inline :: (
   body_own_drops := match(context.base.get_expr_info(body_expr), .Some(bod_ei) => bod_ei.deferred_drop_expressions(), .None => Option(ArrayList(AstExpr)).None);
   body_exprs := if(ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), emitted_block_statements(match(body_expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), _ => ArrayList(AstExpr).new())), {
     single := ArrayList(AstExpr).new();
-    single.push(body_expr.*);
+    single.push(Rc.clone(body_expr.*));
     single
   });
   // The body, once: its statements, the final value into sm->result, the
@@ -1912,7 +1912,7 @@ generate_async_block_resume_function_inline :: (
   (bi : usize) = usize(0);
   while(bi < n_body, bi = (bi + usize(1)), {
     match(
-      body_exprs.get(bi),
+      body_exprs.get_cloned(bi),
       .Some(bexpr) => {
         is_tail := ((bi == (n_body - usize(1))) && !is_unit_result);
         // The tail value takes its deferred dups (a borrowed value, such as
@@ -1937,7 +1937,7 @@ generate_async_block_resume_function_inline :: (
             match(
               context.base.get_expr_info(&bexpr),
               .Some(bei) => {
-                nxt := body_exprs.get(bi + usize(1));
+                nxt := body_exprs.get_cloned(bi + usize(1));
                 _flush_stmt_lent_temp_drops(&bexpr, &nxt, &body_own_drops, &bei, &String.from("  "), context);
               },
               .None => ()
@@ -1953,7 +1953,7 @@ generate_async_block_resume_function_inline :: (
   // completed already. Only the TAIL counts: a `return` nested in an arm
   // leaves the fall-through path to complete here
   // (issues/fixed/build-smoke-hangs-registry-perturbation.md).
-  tail_returns := match(body_exprs.last(), .Some(le) => ast_expr_is_fn_call_of(&le, "return", Option(usize).None), .None => false);
+  tail_returns := match(body_exprs.last_cloned(), .Some(le) => ast_expr_is_fn_call_of(&le, "return", Option(usize).None), .None => false);
   if(!tail_returns, {
     match(
       match(context.base.get_expr_info(body_expr), .Some(bei) => bei.deferred_drop_expressions(), .None => Option(ArrayList(AstExpr)).None),
@@ -1961,7 +1961,7 @@ generate_async_block_resume_function_inline :: (
         (di : usize) = usize(0);
         while(di < drops.len(), di = (di + usize(1)), {
           match(
-            drops.get(di),
+            drops.get_cloned(di),
             // An owned capture list's drops belong to the dispose. The
             // emitted-once guard skips a drop a statement-end flush already
             // released (a lent temporary's drop, flushed right after its
