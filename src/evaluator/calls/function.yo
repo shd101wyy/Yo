@@ -10458,9 +10458,15 @@ _origin_names_text :: (fn(names : &SharedList(String)) -> String)({
 /// call's `_cloned` sibling, recorded at the method name.
 _record_accessor_copy :: (fn(call : &AstExpr, r : &AstExpr, env : &Environment, ctx : &EvalContext) -> unit)({
   ai := match(_copying_accessor_info(call, env, ctx), .Some(a) => a, .None => return(()));
-  // An element holding a counted handle without `Clone` has no `_cloned`
-  // sibling: the site is listed (`derive`), never passed over in silence.
-  ac_spelling := if(ai.cloned.is_empty() || ai.element_lacks_clone, String.from("derive"), `accessor:${ai.cloned}`);
+  // No `_cloned` sibling at all: a moving reader (`pop`, `unwrap`) or a
+  // `_cloned` call itself, which copies nothing implicitly.
+  if(ai.cloned.is_empty(), {
+    return(());
+  });
+  // A sibling registered for an element that holds a counted handle and has
+  // no `Clone` (`where(T <: Clone)` fails): the site is listed (`derive`),
+  // never passed over in silence.
+  ac_spelling := if(ai.element_lacks_clone, String.from("derive"), `accessor:${ai.cloned}`);
   rty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(r)), .Some(ri) => Rc.clone(ri.ty()), .None => return(()));
   if(!type_holds_counted_handle_ignoring_migration(&rty), {
     return(());
