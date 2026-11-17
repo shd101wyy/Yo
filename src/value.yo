@@ -320,7 +320,7 @@ impl(
 ///
 /// By writing the function with `recur` for recursive cases we break the cycle:
 /// the `Eq(ArrayList(EvalValue))` impl is only exercised at call time.
-eval_value_eq :: (fn(a : &EvalValue, b : &EvalValue) -> bool)(
+eval_value_node_eq :: (fn(a : &EvalValueNode, b : &EvalValueNode) -> bool)(
   match(
     a,
     .UnitVal =>
@@ -353,7 +353,7 @@ eval_value_eq :: (fn(a : &EvalValue, b : &EvalValue) -> bool)(
                     match(
                       bfs.get(i),
                       .Some(bf) => {
-                        ok = recur(&af, &bf);
+                        ok = recur(af.as_ref(), bf.as_ref());
                       },
                       .None => {
                         ok = false;
@@ -425,7 +425,7 @@ eval_value_eq :: (fn(a : &EvalValue, b : &EvalValue) -> bool)(
                       bvals.get(sf_i),
                       .Some(bv) => {
                         cond(
-                          !recur(&av, &bv) => {
+                          !recur(av.as_ref(), bv.as_ref()) => {
                             sf_ok = false;
                           },
                           true => ()
@@ -464,7 +464,7 @@ eval_value_eq :: (fn(a : &EvalValue, b : &EvalValue) -> bool)(
                     match(
                       bfs.get(tv_i),
                       .Some(bf) => {
-                        tv_ok = recur(&af, &bf);
+                        tv_ok = recur(af.as_ref(), bf.as_ref());
                       },
                       .None => {
                         tv_ok = false;
@@ -498,7 +498,7 @@ eval_value_eq :: (fn(a : &EvalValue, b : &EvalValue) -> bool)(
                     match(
                       bes.get(av_i),
                       .Some(be) => {
-                        av_ok = recur(&ae, &be);
+                        av_ok = recur(ae.as_ref(), be.as_ref());
                       },
                       .None => {
                         av_ok = false;
@@ -561,7 +561,7 @@ eval_value_eq :: (fn(a : &EvalValue, b : &EvalValue) -> bool)(
                           (ao.is_none() && bo.is_none()) => (),
                           (ao.is_some() && bo.is_some()) => {
                             cond(
-                              !recur(ao.unwrap(), bo.unwrap()) => {
+                              !eval_value_eq(ao.unwrap(), bo.unwrap()) => {
                                 tr_ok = false;
                               },
                               true => ()
@@ -604,7 +604,7 @@ eval_value_eq :: (fn(a : &EvalValue, b : &EvalValue) -> bool)(
                     match(
                       bes.get(cl_i),
                       .Some(be) => {
-                        cl_ok = recur(&ae, &be);
+                        cl_ok = recur(ae.as_ref(), be.as_ref());
                       },
                       .None => {
                         cl_ok = false;
@@ -635,11 +635,14 @@ eval_value_eq :: (fn(a : &EvalValue, b : &EvalValue) -> bool)(
   )
 );
 impl(
-  EvalValue,
-  Eq(EvalValue)(
-    (==) : (fn(a : &Self, b : &Self) -> bool)(eval_value_eq(a, b))
+  EvalValueNode,
+  Eq(EvalValueNode)(
+    (==) : (fn(a : &Self, b : &Self) -> bool)(eval_value_node_eq(a, b))
   )
 );
+/// Element-wise equality of two `EvalValue` handles: their nodes compare (`Rc`'s
+/// `Eq` is the prelude's blanket impl over the node's).
+eval_value_eq :: (fn(a : &EvalValue, b : &EvalValue) -> bool)(eval_value_node_eq(a.as_ref(), b.as_ref()));
 // ---------------------------------------------------------------------------
 // value_to_string
 // ---------------------------------------------------------------------------
