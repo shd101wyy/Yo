@@ -1109,6 +1109,17 @@ _reject_private_construction :: (
     i = (i + usize(1));
   });
 });
+/// A `str` view receiver of `clone()`: a `&str` (a literal's
+/// `&(str, static)`, the legacy value `str`), or the unsized `str` a `&str`
+/// binding reads as in receiver position. `str` is unsized (decision 49), so
+/// the view is what is cloned, and its clone is the copy as every `&T`'s is
+/// (Rust's `<&str as Clone>::clone`). The prelude's `impl(str, Clone)`
+/// returns the unsized `str` by value and stays only because the seed
+/// compiler still needs it (S3b-`str` deletes it): the call never reaches it
+/// (issues/fixed/2026-11-17-str-clone-returns-the-unsized-str-and-emits-invalid-c.md).
+_is_str_view_receiver_type :: (fn(t : &TypeValue) -> bool)(
+  is_str_reference_type(t) || match(t_refine_inner(t), Rc(.Str) => true, _ => false)
+);
 /// `x.clone()` on a value that is `Copy` structurally (decision 36): a `fn`
 /// pointer, a closure whose captures are all `Copy`, or an anonymous record
 /// whose fields are. No impl can name these types (a closure's capture
@@ -1168,7 +1179,12 @@ _try_structural_copy_clone :: (
   // A generic `T` bound to one of these types answers through its
   // resolution, a closure's type through its capture record.
   sc_target := resolve_cell_chain(&recv_ty);
-  if(is_pointer_type(&recv_ty) || copy_structural_parts(&sc_target).is_none(), {
+  // A `&str` (a literal's `&(str, static)`, the legacy value `str`) is `Copy`
+  // as every `&T` is, and the unsized `str` it points at has no `Clone`
+  // (decision 49: there is no sized `str`). Its clone is the copy, as Rust's
+  // `<&str as Clone>::clone` is: `s.clone()` is `s`.
+  str_view := _is_str_view_receiver_type(&recv_ty);
+  if(!str_view && (is_pointer_type(&recv_ty) || copy_structural_parts(&sc_target).is_none()), {
     return(Option(AstExpr).None);
   });
   is_copy := match(
@@ -1176,10 +1192,27 @@ _try_structural_copy_clone :: (
     .Some(copy_tt) => type_implements_trait(&sc_target, &copy_tt, env).implemented,
     .None => false
   );
-  if(!is_copy, {
+  if(!is_copy && !str_view, {
     return(structural_clone_expansion(expr, &recv, &recv_ty, &sc_target, env, ctx, exn));
   });
-  out_info := new_expr_info(env, &recv_ty);
+  // A `&str` binding read in receiver position is typed as the unsized
+  // `str` it points at; the clone is the view itself, typed as the binding's
+  // own `&str` slot (its origin included).
+  out_ty := cond(
+    (str_view && !is_str_reference_type(&recv_ty)) => match(
+      cond(
+        ast_expr_is_atom(&recv) => get_variables_from_env(env, &ast_expr_token(&recv).value.*).last_cloned(),
+        true => Option(Variable).None
+      ),
+      .Some(sv) => cond(
+        is_str_reference_type(&variable_slot_type(&sv)) => variable_slot_type(&sv),
+        true => t_static_str_ref()
+      ),
+      .None => t_static_str_ref()
+    ),
+    true => Rc.clone(recv_ty)
+  );
+  out_info := new_expr_info(env, &out_ty);
   out_info.set_value(ri.value());
   record_macro_expansion(ast_expr_id(expr), recv.clone());
   expr_info_set_macro_expansion(&out_info, Option(AstExpr).Some(recv));
@@ -1212,7 +1245,7 @@ _structural_clone_precedes_lookup :: (fn(callee : &AstExpr, arg_count : usize, c
     recv_ty,
     .Some(rt) => {
       sp_target := resolve_cell_chain(&rt);
-      is_some_type(&rt) && match(&sp_target, Rc(.Struct({ field_types : _ })) => copy_structural_parts(&sp_target).is_some(), _ => false)
+      _is_str_view_receiver_type(&rt) || (is_some_type(&rt) && match(&sp_target, Rc(.Struct({ field_types : _ })) => copy_structural_parts(&sp_target).is_some(), _ => false))
     },
     .None => false
   )
