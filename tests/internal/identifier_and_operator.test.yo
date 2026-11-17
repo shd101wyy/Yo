@@ -14,7 +14,7 @@ import("std/fmt");
 :: import("../../src/expr_info.yo");
 { Environment, add_variable_to_env, new_environment } :: import("../../src/env.yo");
 { EvalContext, eval_context_new } :: import("../../src/evaluator/context.yo");
-{ EvalValue, is_type_val } :: import("../../src/value.yo");
+{ EvalValue, EvalValueNode, is_type_val } :: import("../../src/value.yo");
 { TypeValue } :: import("../../src/types/definitions.yo");
 { t_i32, t_bool } :: import("../../src/types/creators.yo");
 { set_evaluate_expression_fn } :: import("../../src/evaluator/exprs/expr.yo");
@@ -117,7 +117,7 @@ test("evaluate_identifier_and_operator: defined variable returns type and value"
     &env,
     String.from("x"),
     t_i32(),
-    Option(EvalValue).Some(EvalValue.IntLit(String.from("42"))),
+    Option(EvalValue).Some(Rc.new(EvalValueNode.IntLit(String.from("42")))),
     true,
     // compile_time_only
     false,
@@ -141,7 +141,7 @@ test("evaluate_identifier_and_operator: defined variable returns type and value"
         info.value(),
         .Some(v) => match(
           v,
-          .IntLit(s) => assert(s == "42", "value is IntLit 42"),
+          Rc(.IntLit(s)) => assert(s == "42", "value is IntLit 42"),
           _ => assert(false, "value should be IntLit")
         ),
         .None => assert(false, "no value for x")

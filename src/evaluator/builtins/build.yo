@@ -58,7 +58,7 @@
 { new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue } :: import("../../value.yo");
+{ EvalValue, EvalValueNode } :: import("../../value.yo");
 { t_unit, t_bool, t_comptime_string } :: import("../../types/creators.yo");
 { host_target, parse_target, TargetInfo } :: import("../../target.yo");
 { format_error_message } :: import("../../error.yo");
@@ -736,7 +736,7 @@ _build_is_trial :: (
       .None => {
         trial = true;
       },
-      .Some(.UnknownVal(_, _)) => {
+      .Some(Rc(.UnknownVal(_, _))) => {
         trial = true;
       },
       _ => ()
@@ -750,7 +750,7 @@ _build_unit_result :: (
   fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext) -> AstExpr
 )({
   info := new_expr_info(env, t_unit());
-  info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
+  info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   expr.*
 });
@@ -765,7 +765,7 @@ _build_bool_result :: (
   // (`creators.yo` has `t_bool` and no comptime variant), and a `BoolVal` in
   // `ExprInfo.value` is what makes it compile-time known.
   info := new_expr_info(env, t_bool());
-  info.set_value(Option(EvalValue).Some(EvalValue.BoolVal(value)));
+  info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.BoolVal(value))));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   expr.*
 });
@@ -776,7 +776,7 @@ _build_string_result :: (
 )({
   raw := (String.from("\"") + value.clone() + String.from("\""));
   info := new_expr_info(env, t_comptime_string());
-  info.set_value(Option(EvalValue).Some(EvalValue.StrLit(raw)));
+  info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.StrLit(raw))));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   expr.*
 });
@@ -796,7 +796,7 @@ _build_extract_string :: (
     _build_arg_value(args, idx, ctx),
     .Some(v) => match(
       v,
-      .StrLit(raw) => {
+      Rc(.StrLit(raw)) => {
         n := raw.len();
         if(n < usize(2), String.new(), raw.substring(usize(1), n - usize(1)))
       },
@@ -836,7 +836,7 @@ _build_extract_bool :: (
 )(
   match(
     _build_arg_value(args, idx, ctx),
-    .Some(v) => match(v, .BoolVal(b) => b, .UnitVal => false, _ => true),
+    .Some(v) => match(v, Rc(.BoolVal(b)) => b, Rc(.UnitVal) => false, _ => true),
     .None => false
   )
 );
@@ -848,7 +848,7 @@ _build_extract_usize_or :: (
 )(
   match(
     _build_arg_value(args, idx, ctx),
-    .Some(v) => match(v, .IntLit(raw) => match(raw.parse_u64(), .Some(n) => usize(n), .None => fallback), _ => fallback),
+    .Some(v) => match(v, Rc(.IntLit(raw)) => match(raw.parse_u64(), .Some(n) => usize(n), .None => fallback), _ => fallback),
     .None => fallback
   )
 );
@@ -870,7 +870,7 @@ _build_extract_variant :: (
 )(
   match(
     _build_arg_value(args, idx, ctx),
-    .Some(.EnumVal(variant, _)) => Option(String).Some(
+    .Some(Rc(.EnumVal(variant, _))) => Option(String).Some(
       if(variant.starts_with(String.from(".")), variant.substring(usize(1), variant.len()), variant.clone())
     ),
     .Some(_) => Option(String).None,

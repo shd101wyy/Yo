@@ -43,7 +43,7 @@ import("std/fmt");
   TraitTypeCallResult,
   ExpectedTypeCtx
 } :: import("../context.yo");
-{ EvalValue, is_type_value, value_to_string, shared_opt_values } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, is_type_value, value_to_string, shared_opt_values } :: import("../../value.yo");
 { is_function_type } :: import("../../types/guards.yo");
 {
   MethodEntry,
@@ -228,7 +228,7 @@ try_to_specialize_trait_type :: (
       evaluated_info_opt,
       .Some(info) => match(
         info.value(),
-        .Some(v) => match(v, .TypeVal(tv) => Rc.clone(tv), _ => Rc.new(TypeValueNode.Unit)),
+        .Some(v) => match(v, Rc(.TypeVal(tv)) => Rc.clone(tv), _ => Rc.new(TypeValueNode.Unit)),
         .None => Rc.new(TypeValueNode.Unit)
       ),
       .None => Rc.new(TypeValueNode.Unit)
@@ -528,7 +528,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
     k = (k + usize(1));
   });
   // NOTE: where-clause checking (typeImplementsTraitBool) deferred to Phase 3.
-  trait_val := EvalValue.TraitVal(trait_name, shared_list(result_names), shared_opt_values(field_values));
+  trait_val := Rc.new(EvalValueNode.TraitVal(trait_name, shared_list(result_names), shared_opt_values(field_values)));
   TraitTypeCallResult(trait_value : trait_val, caller_env : caller_env)
 });
 export(try_to_specialize_trait_type);

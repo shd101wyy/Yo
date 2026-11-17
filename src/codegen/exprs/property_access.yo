@@ -77,7 +77,7 @@ _c_function_name :: (fn(context : &FunctionGenerationContext, func_id : String) 
 );
 /// Whether `object_value` is a TypeValue wrapping an enum type.
 _is_typevalue_enum :: (fn(object_value : &Option(EvalValue)) -> bool)(
-  match(object_value, .Some(v) => match(v, .TypeVal(t) => is_enum_type(&t.*), _ => false), .None => false)
+  match(object_value, .Some(v) => match(v, Rc(.TypeVal(t)) => is_enum_type(&t.*), _ => false), .None => false)
 );
 /// Enum field access: nullable-pointer optimization returns the pointer; else
 /// resolve `object.data.<Variant>.<field>` by locating the variant declaring it.
@@ -140,7 +140,7 @@ _typevalue_enum_access :: (fn(object_value : &Option(EvalValue), field_name : &S
     object_value,
     .Some(v) => match(
       v,
-      .TypeVal(t) => {
+      Rc(.TypeVal(t)) => {
         et := Rc.clone(t);
         match(
           &et,
@@ -394,7 +394,7 @@ _generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &
   match(
     ei.value(),
     .Some(v) => if(is_func_val(&v), {
-      fid := match(v, .FuncVal(__fvd1, _) => __fvd1.*.func_id.clone(), _ => String.from(""));
+      fid := match(v, Rc(.FuncVal(__fvd1, _)) => __fvd1.*.func_id.clone(), _ => String.from(""));
       return(_c_function_name(context, fid));
     }),
     .None => ()

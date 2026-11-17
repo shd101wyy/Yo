@@ -147,7 +147,7 @@ pragma(Pragma.AllowUnsafe);
 { generate_new_temp_variable_name, is_temp_variable_name, is_any_temp_variable_name, debug_knob, display_module_path, canonical_module_path }
 :: import("../utils.yo");
 { eprintln } :: import("std/fmt");
-{ EvalValue, is_unknown_val, is_type_value, is_var_ref, is_func_val } :: import("../value.yo");
+{ EvalValue, EvalValueNode, is_unknown_val, is_type_value, is_var_ref, is_func_val } :: import("../value.yo");
 { TypeValue, TypeValueNode, t_refine_inner, SharedList, no_flags, no_types, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_param_slots, fn_result_is_ref, fn_result_is_mut_ref, fn_result_origin_names, fn_result_composite_origin_names, fn_param_in_result_origin, fn_param_pointee_in_result_origin, fn_result_slot, shared_list, t_slot_is_mut_ref, t_slot_is_borrow, t_slot_pointee, t_reference, t_reference_with_origin, t_origin_named, t_origin_spelled_names, t_origin_elided } :: import("../types/definitions.yo");
 { is_never_type, is_unit_type, is_function_type, is_function_type_and_returns_comptime_value, is_box_type, is_unique_box_type, is_dyn_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_primitive_type, is_pointer_type, is_bool_type, is_array_type, is_struct_type, is_tuple_type, is_some_type, cell_handle_view, is_atomic_counted_handle_type, is_counted_cell_type, is_arc_type, is_counted_handle_value_type, unique_box_payload_type, is_fn_trait_type, is_type_0, is_comptime_string_type, is_str_reference_type } :: import("../types/guards.yo");
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
@@ -1244,7 +1244,7 @@ _closure_binding_site :: (fn(v : &Variable, env : &Environment, ctx : &EvalConte
     .Some(sub) => match(
       sub.kind,
       .FunctionBody => {
-        fid := match(sub.func_value, .Some(fv) => match(fv, .FuncVal(fvd, _) => fvd.*.func_id.clone(), _ => String.from("")), .None => String.from(""));
+        fid := match(sub.func_value, .Some(fv) => match(fv, Rc(.FuncVal(fvd, _)) => fvd.*.func_id.clone(), _ => String.from("")), .None => String.from(""));
         if((fid.len() == usize(0)) || !is_closure_fn(fid.clone()) || is_io_async_sm_closure(fid.clone()), {
           return(u8(0));
         });
@@ -1339,7 +1339,7 @@ set_closure_writes_captures :: (fn(func_id : &String, writes : bool) -> unit)({
 _current_closure_fid :: (fn(ctx : &EvalContext) -> String)(
   match(
     &ctx.is_evaluating_function_body_or_async_block,
-    .Some(sub) => match(sub.func_value, .Some(.FuncVal(fvd, _)) => fvd.*.func_id.clone(), _ => String.new()),
+    .Some(sub) => match(sub.func_value, .Some(Rc(.FuncVal(fvd, _))) => fvd.*.func_id.clone(), _ => String.new()),
     .None => String.new()
   )
 );
@@ -6022,13 +6022,13 @@ are_values_equal :: (
   match(
     val1,
     // val1 is VarRef — try to resolve from env1.
-    .VarRef(name1) => {
+    Rc(.VarRef(name1)) => {
       vars1 := get_variables_from_env(env1, name1.clone());
       resolved1 := _try_resolve_last_var(&vars1);
       match(
         val2,
         // Both VarRef: resolve both and compare; fall back to type compat.
-        .VarRef(name2) => {
+        Rc(.VarRef(name2)) => {
           vars2 := get_variables_from_env(env2, name2.clone());
           resolved2 := _try_resolve_last_var(&vars2);
           match(
@@ -6062,31 +6062,31 @@ are_values_equal :: (
       )
     },
     // val1 is UnknownVal: compare types with are_types_compatible.
-    .UnknownVal(ty1, _) => match(
+    Rc(.UnknownVal(ty1, _)) => match(
       val2,
-      .UnknownVal(ty2, _) => are_types_compatible(&ty1.*, &ty2.*),
+      Rc(.UnknownVal(ty2, _)) => are_types_compatible(&ty1.*, &ty2.*),
       _ => false
     ),
     // val1 is a concrete value.
     _ => match(
       val2,
       // val2 is VarRef: resolve and compare.
-      .VarRef(name2) => {
+      Rc(.VarRef(name2)) => {
         vars2 := get_variables_from_env(env2, name2.clone());
         resolved2 := _try_resolve_last_var(&vars2);
         match(resolved2, .Some(r2) => recur(val1, env1, &r2, env2), .None => false)
       },
       // val2 is UnknownVal: not equal to a concrete value.
-      .UnknownVal(_, _) => false,
+      Rc(.UnknownVal(_, _)) => false,
       // Two TYPE values compare by EXACT type compatibility, not structurally
       // (val1 is the expected side; the compat argument order is
       // (actual, expected)). Overload selection on `= <value>` type
       // parameters relies on this branch (calls/helper.yo
       // Step 5b): `TryInto(i32).try_into` vs `TryInto(i64).try_into` differ
       // ONLY in the assigned `_To` value.
-      .TypeVal(ty2) => match(
+      Rc(.TypeVal(ty2)) => match(
         val1,
-        .TypeVal(ty1) => are_types_compatible_exact(&ty2.*, &ty1.*),
+        Rc(.TypeVal(ty1)) => are_types_compatible_exact(&ty2.*, &ty1.*),
         _ => (val1.* == val2.*)
       ),
       // Both concrete: structural equality.
@@ -6188,7 +6188,7 @@ in_compile_time_fn_body :: (fn(ctx : &EvalContext) -> bool)(
         fctx.func_value,
         .Some(fv) => match(
           fv,
-          .FuncVal(fvd, _) => {
+          Rc(.FuncVal(fvd, _)) => {
             fid := fvd.*.func_id.clone();
             declared := get_func_type(fid.clone());
             cond(
@@ -6283,8 +6283,8 @@ legacy_str_type_arg :: (fn(param_ty : &TypeValue, value : &Option(EvalValue)) ->
   if(is_type_0(param_ty), {
     match(
       value,
-      .Some(.TypeVal(lt_t)) => if(is_legacy_value_str(lt_t), {
-        return(Option(EvalValue).Some(EvalValue.TypeVal(legacy_value_str(lt_t))));
+      .Some(Rc(.TypeVal(lt_t))) => if(is_legacy_value_str(lt_t), {
+        return(Option(EvalValue).Some(Rc.new(EvalValueNode.TypeVal(legacy_value_str(lt_t)))));
       }),
       _ => ()
     );
@@ -11279,7 +11279,7 @@ _body_param_labels :: (fn(ft : &TypeValue, ctx : &EvalContext) -> SharedList(Str
     &ctx.is_evaluating_function_body_or_async_block,
     .Some(fb) => match(
       &fb.func_value,
-      .Some(.FuncVal(pd_fv, _)) => if(pd_fv.*.*.params.len() == n, shared_list(pd_fv.*.*.params.clone()), _func_param_labels(ft)),
+      .Some(Rc(.FuncVal(pd_fv, _))) => if(pd_fv.*.*.params.len() == n, shared_list(pd_fv.*.*.params.clone()), _func_param_labels(ft)),
       _ => _func_param_labels(ft)
     ),
     .None => _func_param_labels(ft)
@@ -11665,7 +11665,7 @@ _shared_origin_repair :: (fn(variable : &Variable, v_name : &String, holder_name
   });
   // The parameters involved, in declaration order.
   (fb_ft : Option(TypeValue)) = match(&ctx.is_evaluating_function_body_or_async_block, .Some(fb) => fb.func_type.clone(), .None => Option(TypeValue).None);
-  (in_closure : bool) = match(&ctx.is_evaluating_function_body_or_async_block, .Some(fb) => match(&fb.func_value, .Some(.FuncVal(cfv, _)) => is_closure_fn(cfv.*.*.func_id.clone()), _ => false), .None => false);
+  (in_closure : bool) = match(&ctx.is_evaluating_function_body_or_async_block, .Some(fb) => match(&fb.func_value, .Some(Rc(.FuncVal(cfv, _))) => is_closure_fn(cfv.*.*.func_id.clone()), _ => false), .None => false);
   decls := ArrayList(String).new();
   match(
     &fb_ft,
@@ -11884,7 +11884,7 @@ note_fn_value_definition :: (fn(var_id : usize, rhs : &AstExpr, ctx : &EvalConte
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(rhs)),
     .Some(nf_ri) => match(
       nf_ri.value(),
-      .Some(.FuncVal(nf_fv, _)) => {
+      .Some(Rc(.FuncVal(nf_fv, _))) => {
         nf_ft := get_func_type(&nf_fv.*.func_id);
         g_fn_value_defs.with_mut({ var_id, nf_ft }(m) => m.insert(var_id, nf_ft));
       },

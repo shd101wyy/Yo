@@ -42,7 +42,7 @@ pragma(Pragma.AllowUnsafe);
 { Variable } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { EvalContext, ExpectedTypeCtx, fn_ctx_returns_comptime } :: import("../context.yo");
-{ EvalValue, create_unknown_val, is_bool_val, is_runtime_only_unknown_val } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, create_unknown_val, is_bool_val, is_runtime_only_unknown_val } :: import("../../value.yo");
 { TypeValue, t_slot_pointee, t_slot_is_borrow } :: import("../../types/definitions.yo");
 { t_bool, t_unit, t_never, t_ptr } :: import("../../types/creators.yo");
 {
@@ -260,7 +260,7 @@ evaluate_cond :: (
     updated_case_env := expr_info_adopt_env(&cond_info);
     // Last condition must be compile-time known `true`.
     is_last := (ec_i == (parsed_stmts.len() - usize(1)));
-    is_comptime_true := match(cond_val, .Some(v) => match(v, .BoolVal(b) => b, _ => false), .None => false);
+    is_comptime_true := match(cond_val, .Some(v) => match(v, Rc(.BoolVal(b)) => b, _ => false), .None => false);
     if(is_last && !is_comptime_true, {
       exn.throw(
         dyn(
@@ -297,7 +297,7 @@ evaluate_cond :: (
     (dead_arm : bool) = (evaluated_conds.len() < parsed_stmts.len());
     (dai : usize) = usize(0);
     while((dai < evaluated_conds.len()) && !dead_arm, dai = (dai + usize(1)), {
-      dead_arm = match(evaluated_conds(dai).cond_value, .Some(v) => match(v, .BoolVal(b) => !b, _ => false), .None => false);
+      dead_arm = match(evaluated_conds(dai).cond_value, .Some(v) => match(v, Rc(.BoolVal(b)) => !b, _ => false), .None => false);
     });
     if(dead_arm, {
       note_deref_dead_arm_file(ast_expr_token(expr));
@@ -318,7 +318,7 @@ evaluate_cond :: (
         return(expr.*);
       }
     );
-    is_comptime_true_here := match(ec_here.cond_value, .Some(v) => match(v, .BoolVal(b) => b, _ => false), .None => false);
+    is_comptime_true_here := match(ec_here.cond_value, .Some(v) => match(v, Rc(.BoolVal(b)) => b, _ => false), .None => false);
     if(is_comptime_true_here, {
       // Ensure all previous conditions were compile-time false.
       (all_prev_false : bool) = true;
@@ -327,7 +327,7 @@ evaluate_cond :: (
         match(
           evaluated_conds.get_cloned(j),
           .Some(prev) => {
-            prev_is_false := match(prev.cond_value, .Some(v) => match(v, .BoolVal(b) => !b, _ => false), .None => false);
+            prev_is_false := match(prev.cond_value, .Some(v) => match(v, Rc(.BoolVal(b)) => !b, _ => false), .None => false);
             if(!prev_is_false, {
               all_prev_false = false;
             });
@@ -483,7 +483,7 @@ evaluate_cond :: (
           .Some(ec_item) => {
             nb_i = (nb_i + usize(1));
             // Skip compile-time false conditions.
-            is_comptime_false := match(ec_item.cond_value, .Some(v) => match(v, .BoolVal(b) => !b, _ => false), .None => false);
+            is_comptime_false := match(ec_item.cond_value, .Some(v) => match(v, Rc(.BoolVal(b)) => !b, _ => false), .None => false);
             if(!is_comptime_false, {
               // Not in a CTFE-capability analysis: it binds the parameters to
               // unknowns, so a call on one yields a runtime-only placeholder
@@ -704,7 +704,7 @@ evaluate_cond :: (
             .Some(ci_info) => if(is_comptime_int_type(&ci_info.ty()) && !has_any_control_flow(ci_info.control_flow()), {
               match(
                 ci_info.value(),
-                .Some(ci_v) => match(ci_v, .IntLit(ci_raw) => check_comptime_int_value_fits(&ci_raw, &vts.ty, ast_expr_token(&ci_body), exn), _ => ()),
+                .Some(ci_v) => match(ci_v, Rc(.IntLit(ci_raw)) => check_comptime_int_value_fits(&ci_raw, &vts.ty, ast_expr_token(&ci_body), exn), _ => ()),
                 .None => ()
               );
             }),
@@ -928,7 +928,7 @@ evaluate_cond :: (
               );
             });
             out_brk_info := new_expr_info(&env, t_unit());
-            out_brk_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
+            out_brk_info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
             out_brk_info.set_control_flow(final_cf.clone());
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_brk_info);
           },
@@ -947,7 +947,7 @@ evaluate_cond :: (
               );
             });
             out_cnt_info := new_expr_info(&env, t_unit());
-            out_cnt_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
+            out_cnt_info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
             out_cnt_info.set_control_flow(final_cf);
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_cnt_info);
           },

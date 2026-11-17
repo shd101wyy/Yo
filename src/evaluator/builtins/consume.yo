@@ -23,7 +23,7 @@
   variable_value_type
 } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue } :: import("../../value.yo");
+{ EvalValue, EvalValueNode } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
@@ -202,7 +202,7 @@ evaluate_consume :: (
     &arg_info_opt,
     .Some(info) => match(
       info.value(),
-      .Some(v) => match(v, .TypeVal(_) => true, _ => false),
+      .Some(v) => match(v, Rc(.TypeVal(_)) => true, _ => false),
       .None => false
     ),
     .None => false
@@ -229,7 +229,7 @@ evaluate_consume :: (
     .None => ()
   );
   out_info := new_expr_info(&cur_env, t_unit());
-  out_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
+  out_info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr.*
 });

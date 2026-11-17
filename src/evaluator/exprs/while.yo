@@ -39,7 +39,7 @@
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { Variable } :: import("../../env.yo");
 { EvalContext, LoopBodyCtx, LoopKind, LoopFlowSnapshot } :: import("../context.yo");
-{ EvalValue, is_unknown_val } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, is_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { is_bool_type, is_unit_type } :: import("../../types/guards.yo");
@@ -508,7 +508,7 @@ evaluate_while :: (
   eff_cond_is_false := match(
     effective_condition_value,
     .None => false,
-    .Some(v) => match(v, .BoolVal(b) => !b, _ => false)
+    .Some(v) => match(v, Rc(.BoolVal(b)) => !b, _ => false)
   );
   if(eff_cond_is_false, {
     local_borrow_loop_end(loop_depth, expr, &loop_head, &body_expr, ctx, exn, check : false);
@@ -516,7 +516,7 @@ evaluate_while :: (
     out_info := new_expr_info(&env, t_unit());
     out_info.set_value(
       cond(
-        is_compile_time => Option(EvalValue).Some(EvalValue.UnitVal),
+        is_compile_time => Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)),
         true => Option(EvalValue).None
       )
     );
@@ -562,7 +562,7 @@ evaluate_while :: (
   // iteration evaluated after the previous one.
   local_borrow_loop_end(loop_depth, expr, &loop_head, &body_expr, ctx, exn, check : is_runtime_loop);
   local_borrow_flow_region_end(loop_region);
-  loop_has_normal_exit := !match(condition_value, .Some(cv) => match(cv, .BoolVal(cb) => cb, _ => false), .None => false);
+  loop_has_normal_exit := !match(condition_value, .Some(cv) => match(cv, Rc(.BoolVal(cb)) => cb, _ => false), .None => false);
   // Require ExprInfo for the body.
   body_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_body));
   if(body_info_opt.is_none(), {
@@ -595,7 +595,7 @@ evaluate_while :: (
       eff_cond_is_true_re := match(
         effective_condition_value,
         .None => false,
-        .Some(v) => match(v, .BoolVal(b) => b, _ => false)
+        .Some(v) => match(v, Rc(.BoolVal(b)) => b, _ => false)
       );
       if(eff_cond_is_true_re, {
         // Condition is compile-time true: propagate return/unwind, clear break/continue.
@@ -612,7 +612,7 @@ evaluate_while :: (
         out_info := new_expr_info(&env, t_unit());
         out_info.set_value(
           cond(
-            is_compile_time => Option(EvalValue).Some(EvalValue.UnitVal),
+            is_compile_time => Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)),
             true => Option(EvalValue).None
           )
         );
@@ -626,7 +626,7 @@ evaluate_while :: (
       out_info := new_expr_info(&body_info.env(), t_unit());
       out_info.set_value(
         cond(
-          is_compile_time => Option(EvalValue).Some(EvalValue.UnitVal),
+          is_compile_time => Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)),
           true => Option(EvalValue).None
         )
       );
@@ -668,7 +668,7 @@ evaluate_while :: (
       eff_is_bool_cont := match(
         effective_condition_value,
         .None => false,
-        .Some(v) => match(v, .BoolVal(_) => true, _ => false)
+        .Some(v) => match(v, Rc(.BoolVal(_)) => true, _ => false)
       );
       if(eff_is_bool_cont, {
         return(recur(expr, &updated_env_cont, ctx, comptime_iteration_count + usize(1), exn));
@@ -677,7 +677,7 @@ evaluate_while :: (
         out_info := new_expr_info(&updated_env_cont, t_unit());
         out_info.set_value(
           cond(
-            is_compile_time => Option(EvalValue).Some(EvalValue.UnitVal),
+            is_compile_time => Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)),
             true => Option(EvalValue).None
           )
         );
@@ -704,7 +704,7 @@ evaluate_while :: (
     eff_cond_is_true_lt := match(
       effective_condition_value,
       .None => false,
-      .Some(v) => match(v, .BoolVal(b) => b, _ => false)
+      .Some(v) => match(v, Rc(.BoolVal(b)) => b, _ => false)
     );
     if(eff_cond_is_true_lt, {
       // Direct atom: `true`
@@ -801,7 +801,7 @@ evaluate_while :: (
   eff_cond_is_true_main := match(
     effective_condition_value,
     .None => false,
-    .Some(v) => match(v, .BoolVal(b) => b, _ => false)
+    .Some(v) => match(v, Rc(.BoolVal(b)) => b, _ => false)
   );
   body_has_runtime_value := body_info.value().is_none();
   if(eff_cond_is_true_main && body_has_runtime_value, {
@@ -812,12 +812,12 @@ evaluate_while :: (
       .Some(ci) => ci.value(),
       .None => Option(EvalValue).None
     );
-    next_is_bool := match(next_cond_val, .Some(v) => match(v, .BoolVal(_) => true, _ => false), .None => false);
+    next_is_bool := match(next_cond_val, .Some(v) => match(v, Rc(.BoolVal(_)) => true, _ => false), .None => false);
     if(next_is_bool, {
       unrolled_bodies := ArrayList(AstExpr).new();
       unrolled_bodies.push(body_expr);
       (current_env : Environment) = Rc.clone(env);
-      (cond_still_true : bool) = match(next_cond_val, .Some(v) => match(v, .BoolVal(b) => b, _ => false), .None => false);
+      (cond_still_true : bool) = match(next_cond_val, .Some(v) => match(v, Rc(.BoolVal(b)) => b, _ => false), .None => false);
       (unroll_iter : usize) = usize(1);
       (unroll_abort : bool) = false;
       // Hoisted: the limit is memoized, but reading it once per loop keeps the
@@ -877,7 +877,7 @@ evaluate_while :: (
                 cond_val_u,
                 .Some(cv_u) => match(
                   cv_u,
-                  .BoolVal(b_u) => {
+                  Rc(.BoolVal(b_u)) => {
                     cond_still_true = b_u;
                   },
                   _ => {
@@ -929,7 +929,7 @@ evaluate_while :: (
     out_info := new_expr_info(&env, t_unit());
     out_info.set_value(
       cond(
-        is_compile_time => Option(EvalValue).Some(EvalValue.UnitVal),
+        is_compile_time => Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)),
         true => Option(EvalValue).None
       )
     );

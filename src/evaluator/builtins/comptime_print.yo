@@ -22,7 +22,7 @@
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue, value_to_string } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, value_to_string } :: import("../../value.yo");
 { t_unit } :: import("../../types/creators.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -109,7 +109,7 @@ evaluate_comptime_print :: (
       info.value(),
       .Some(v) => match(
         v,
-        .StrLit(raw) => {
+        Rc(.StrLit(raw)) => {
           // StrLit.raw includes surrounding quotes — strip them
           rn := raw.len();
           raw.substring(usize(1), rn - usize(1))
@@ -136,7 +136,7 @@ evaluate_comptime_print :: (
   });
   // Annotate the call expression with unit type.
   info := new_expr_info(&cur_env, t_unit());
-  info.set_value(.Some(EvalValue.UnitVal));
+  info.set_value(.Some(Rc.new(EvalValueNode.UnitVal)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   expr.*
 });

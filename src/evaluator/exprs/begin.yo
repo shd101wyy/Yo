@@ -83,7 +83,7 @@ pragma(Pragma.AllowUnsafe);
   ExpectedTypeCtx,
   ImplConcreteTypeInfo
 } :: import("../context.yo");
-{ EvalValue, is_type_value, value_contains_unknown } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, is_type_value, value_contains_unknown } :: import("../../value.yo");
 { TypeValue, TypeValueNode, t_refine_inner, t_slot_is_mut_ref, fn_param_by_value_flags, t_slot_pointee, t_slot_is_borrow } :: import("../../types/definitions.yo");
 { t_unit, t_ptr } :: import("../../types/creators.yo");
 { is_some_type, is_reference_struct_type, cell_handle_view, is_struct_type } :: import("../../types/guards.yo");
@@ -1485,7 +1485,7 @@ _call_lends_receiver_mut :: (fn(e : &AstExpr, f : &AstExpr, fargs : &ArrayList(A
   recv := match(f, .FnCall(_, _, Rc(dargs), _, _) => match(dargs.get(usize(0)), .Some(r) => r, .None => return(false)), .Atom(_, _) => return(false));
   recv_is_type := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)),
-    .Some(ri) => match(ri.value(), .Some(.TypeVal(_)) => true, .Some(.FuncVal(_, _)) => true, _ => false),
+    .Some(ri) => match(ri.value(), .Some(Rc(.TypeVal(_))) => true, .Some(Rc(.FuncVal(_, _))) => true, _ => false),
     .None => false
   );
   self_arg := if(recv_is_type, match(fargs.get(usize(0)), .Some(a0) => ast_expr_strip_borrow_marker(&a0), .None => return(false)), recv);
@@ -2432,7 +2432,7 @@ _evaluating_fnonce_closure_body :: (fn(ctx : &EvalContext) -> bool)(
     &ctx.is_evaluating_function_body_or_async_block,
     .Some(sub) => match(
       sub.func_value,
-      .Some(fv) => match(fv, .FuncVal(fvd, _) => is_fnonce_closure_fn(fvd.*.func_id.clone()), _ => false),
+      .Some(fv) => match(fv, Rc(.FuncVal(fvd, _)) => is_fnonce_closure_fn(fvd.*.func_id.clone()), _ => false),
       .None => false
     ),
     .None => false
@@ -2951,7 +2951,7 @@ _evaluate_begin_expression_impl :: (
   // Empty begin → unit result immediately.
   if(n_args == usize(0), {
     info := new_expr_info(&env, Rc.new(TypeValueNode.Unit));
-    info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
+    info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
     return(expr.*);
   });
@@ -3050,7 +3050,7 @@ _evaluate_begin_expression_impl :: (
         if(is_return_unit, {
           // `return` / `return()` with no argument → unit return.
           out := new_expr_info(&env, Rc.new(TypeValueNode.Unit));
-          out.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
+          out.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
           out.set_control_flow(Option(ControlFlowFlags).Some(control_flow_of(.Return)));
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&expr_to_eval), &out);
           last_expr = expr_to_eval;
@@ -3329,7 +3329,7 @@ _evaluate_begin_expression_impl :: (
           .None => ()
         );
         out := new_expr_info(&env, Rc.new(TypeValueNode.Unit));
-        out.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
+        out.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
         out.set_control_flow(Option(ControlFlowFlags).Some(control_flow_of(.Break)));
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&expr_to_eval), &out);
         last_expr = expr_to_eval;
@@ -3361,7 +3361,7 @@ _evaluate_begin_expression_impl :: (
           .None => ()
         );
         out := new_expr_info(&env, Rc.new(TypeValueNode.Unit));
-        out.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
+        out.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
         out.set_control_flow(Option(ControlFlowFlags).Some(control_flow_of(.Continue)));
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&expr_to_eval), &out);
         last_expr = expr_to_eval;
@@ -3652,7 +3652,7 @@ _evaluate_begin_expression_impl :: (
             &ev_info_opt,
             .Some(ei) => match(
               ei.value(),
-              .Some(v) => match(v, .UnknownVal(_, _) => true, _ => false),
+              .Some(v) => match(v, Rc(.UnknownVal(_, _)) => true, _ => false),
               .None => false
             ),
             .None => false
@@ -4470,7 +4470,7 @@ _evaluate_begin_expression_impl :: (
   carry_runtime_args := match(
     last_info.value(),
     .None => true,
-    .Some(v) => match(v, .UnitVal => true, _ => value_contains_unknown(&v))
+    .Some(v) => match(v, Rc(.UnitVal) => true, _ => value_contains_unknown(&v))
   );
   if(shared_with_tail && !carry_runtime_args, {
     out_info.set_runtime_arg_exprs_in_order(Option(ArrayList(AstExpr)).None);

@@ -27,7 +27,7 @@
 { ExprInfo, new_expr_info, expr_info_table_set, expr_info_table_get } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue } :: import("../../value.yo");
+{ EvalValue, EvalValueNode } :: import("../../value.yo");
 { t_comptime_string } :: import("../../types/creators.yo");
 { format_error_message } :: import("../../error.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -121,7 +121,7 @@ evaluate_comptime_read_file :: (
     arg_value,
     .Some(v) => match(
       v,
-      .StrLit(raw) => {
+      Rc(.StrLit(raw)) => {
         n := raw.len();
         if((n >= usize(2)) && raw.starts_with("\"") && raw.ends_with("\""), raw.substring(usize(1), n - usize(1)), raw.clone())
       },
@@ -208,10 +208,10 @@ evaluate_comptime_read_file :: (
   info.set_value(
     if(
       is_trial,
-      Option(EvalValue).Some(EvalValue.UnknownVal(t_comptime_string(), false)),
+      Option(EvalValue).Some(Rc.new(EvalValueNode.UnknownVal(t_comptime_string(), false))),
       // `StrLit` keeps its delimiters (codegen strips them positionally and
       // re-escapes), so the content travels verbatim — quotes, newlines and all.
-      Option(EvalValue).Some(EvalValue.StrLit(`"${content}"`))
+      Option(EvalValue).Some(Rc.new(EvalValueNode.StrLit(`"${content}"`)))
     )
   );
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);

@@ -82,9 +82,9 @@ _label_already_seen :: (fn(seen : &ArrayList(String), label : &String) -> bool)(
 _get_eval_value_field :: (fn(v : &EvalValue, index : usize) -> Option(EvalValue))(
   match(
     v,
-    .StructVal(_, _, field_values) => field_values.get(index),
-    .EnumVal(_, fields) => fields.get(index),
-    .TupleVal(fields) => fields.get(index),
+    Rc(.StructVal(_, _, field_values)) => field_values.get(index),
+    Rc(.EnumVal(_, fields)) => fields.get(index),
+    Rc(.TupleVal(fields)) => fields.get(index),
     _ => Option(EvalValue).None
   )
 );
@@ -217,7 +217,7 @@ _is_adopted_extern_c_field :: (fn(rhs_type : &TypeValue, fval_opt : &Option(Eval
       sns.* && is_extern_c_module_id(sid.clone()) &&
         match(
           fval_opt,
-          .Some(fv) => match(fv, .TypeVal(t) => get_adopted_extern_c_type(&t.*).is_some(), _ => false),
+          .Some(fv) => match(fv, Rc(.TypeVal(t)) => get_adopted_extern_c_type(&t.*).is_some(), _ => false),
           .None => false
         )
     ),

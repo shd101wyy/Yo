@@ -63,7 +63,7 @@ pragma(Pragma.AllowUnsafe);
 { add_variable_to_env, get_variables_from_env, find_variable_in_env, variable_set_inout_borrow_root_id, variable_mark_inout_borrow_root, mark_macro_pattern_binding } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, fn_ctx_returns_comptime, call_is_index_place } :: import("../context.yo");
 {
-  EvalValue,
+  EvalValue, EvalValueNode,
   create_unknown_val,
   is_runtime_only_unknown_val,
   is_enum_val,
@@ -239,12 +239,12 @@ is_matchable_primitive_type :: (fn(ty : &TypeValue) -> bool)(
 _is_literal_val :: (fn(v : &EvalValue) -> bool)(
   match(
     v,
-    .IntLit(_) => true,
-    .FloatLit(_) => true,
-    .BoolVal(_) => true,
-    .StrLit(_) => true,
-    .TupleVal(fields) => _all_literal_vals(&fields.*),
-    .StructVal(_, _, field_values) => _all_literal_vals(&field_values.*),
+    Rc(.IntLit(_)) => true,
+    Rc(.FloatLit(_)) => true,
+    Rc(.BoolVal(_)) => true,
+    Rc(.StrLit(_)) => true,
+    Rc(.TupleVal(fields)) => _all_literal_vals(&fields.*),
+    Rc(.StructVal(_, _, field_values)) => _all_literal_vals(&field_values.*),
     _ => false
   )
 );
@@ -1767,7 +1767,7 @@ evaluate_match :: (
             });
             match(
               gi.value(),
-              .Some(.BoolVal(b)) => {
+              .Some(Rc(.BoolVal(b))) => {
                 guard_val = Option(bool).Some(b);
               },
               .Some(_) => (),
@@ -2434,7 +2434,7 @@ evaluate_match :: (
         .Some(ci_mbi) => if(is_comptime_int_type(&ci_mbi.ty()) && !(has_any_control_flow(ci_mbi.control_flow())), {
           match(
             ci_mbi.value(),
-            .Some(ci_mv) => match(ci_mv, .IntLit(ci_mraw) => check_comptime_int_value_fits(&ci_mraw, &rt_em, ast_expr_token(&ci_mb), exn), _ => ()),
+            .Some(ci_mv) => match(ci_mv, Rc(.IntLit(ci_mraw)) => check_comptime_int_value_fits(&ci_mraw, &rt_em, ast_expr_token(&ci_mb), exn), _ => ()),
             .None => ()
           );
         }),
@@ -2559,7 +2559,7 @@ evaluate_match :: (
       // the CTFE-analysis placeholder and would slip past helper.yo's
       // Step-5 check).
       match(scrutinee_val_opt, .Some(sv_ro2) => is_runtime_only_unknown_val(&sv_ro2), .None => false) =>
-        Option(EvalValue).Some(EvalValue.UnknownVal(rt_em.clone(), true)),
+        Option(EvalValue).Some(Rc.new(EvalValueNode.UnknownVal(rt_em.clone(), true))),
       true => Option(EvalValue).Some(create_unknown_val(&rt_em))
     );
     result_ty_final_em := cond(
@@ -2745,7 +2745,7 @@ evaluate_match :: (
           return(expr.*);
         });
         out_brk_em := new_expr_info(&env, t_unit());
-        out_brk_em.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
+        out_brk_em.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
         out_brk_em.set_control_flow(final_cf_em.clone());
         if(is_primitive_switch, {
           expr_info_set_is_primitive_match(&out_brk_em, Option(bool).Some(true));
@@ -2767,7 +2767,7 @@ evaluate_match :: (
           return(expr.*);
         });
         out_cnt_em := new_expr_info(&env, t_unit());
-        out_cnt_em.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
+        out_cnt_em.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
         out_cnt_em.set_control_flow(final_cf_em);
         if(is_primitive_switch, {
           expr_info_set_is_primitive_match(&out_cnt_em, Option(bool).Some(true));

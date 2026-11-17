@@ -459,7 +459,7 @@ _receiver_at :: (
   (unwrapped : bool) = false;
   match(
     info.value(),
-    .Some(.TypeVal(t)) => {
+    .Some(Rc(.TypeVal(t))) => {
       recv = Rc.clone(t);
       unwrapped = true;
     },
@@ -478,7 +478,7 @@ _receiver_at :: (
           (var_unwrapped : bool) = false;
           match(
             sv.value().get(usize(0)),
-            .Some(.TypeVal(t2)) => {
+            .Some(Rc(.TypeVal(t2))) => {
               recv = Rc.clone(t2);
               var_unwrapped = true;
             },
@@ -586,7 +586,7 @@ _expected_enum_at :: (
                         (found : TypeValue) = Rc.clone(tinfo.ty());
                         match(
                           tinfo.value(),
-                          .Some(.TypeVal(t)) => {
+                          .Some(Rc(.TypeVal(t))) => {
                             found = Rc.clone(t);
                           },
                           .Some(_) => (),

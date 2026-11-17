@@ -46,7 +46,7 @@ pragma(Pragma.AllowUnsafe);
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { is_module_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ EvalValue, value_cell_new } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, value_cell_new } :: import("../../value.yo");
 {
   register_sns_module,
   record_module_ordered_read,
@@ -403,7 +403,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                       // Extract the source-namespace StructVal if available
                       ext_mod_val_opt := match(
                         ext_info.value(),
-                        .Some(.StructVal(sn, ns, vs)) => Option(EvalValue).Some(EvalValue.StructVal(sn.clone(), Rc.clone(ns), Rc.clone(vs))),
+                        .Some(Rc(.StructVal(sn, ns, vs))) => Option(EvalValue).Some(Rc.new(EvalValueNode.StructVal(sn.clone(), Rc.clone(ns), Rc.clone(vs)))),
                         .Some(_) => Option(EvalValue).None,
                         .None => Option(EvalValue).None
                       );
@@ -570,10 +570,10 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                                 ext_mod_val_opt,
                                 .Some(inner_mv) => match(
                                   inner_mv,
-                                  .StructVal(_, _, vs) => match(vs.get(k), .Some(v) => v, .None => EvalValue.UnitVal),
-                                  _ => EvalValue.UnitVal
+                                  Rc(.StructVal(_, _, vs)) => match(vs.get(k), .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal)),
+                                  _ => Rc.new(EvalValueNode.UnitVal)
                                 ),
-                                .None => EvalValue.UnitVal
+                                .None => Rc.new(EvalValueNode.UnitVal)
                               );
                               field_labels.push(ext_label.clone());
                               field_types.push(Rc.clone(ext_type));
@@ -710,7 +710,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                             __yo_panic("unreachable: vars.len() was checked above");
                             return(
                               AnonModuleResult(
-                                module_value : EvalValue.UnitVal,
+                                module_value : Rc.new(EvalValueNode.UnitVal),
                                 module_type : Rc.new(TypeValueNode.Unit),
                                 env : env,
                                 partial_module_error : Option(String).None
@@ -745,7 +745,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                           )
                         );
                       });
-                      the_val := match(the_var.value().get(usize(0)), .Some(v) => v, .None => EvalValue.UnitVal);
+                      the_val := match(the_var.value().get(usize(0)), .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal));
                       // Overload-set gate: an exported `Call` holding a TUPLE of
                       // two or more candidates is function overloading (the
                       // `_try_expand_call_overload` dispatch trial-calls every
@@ -760,7 +760,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                       if(variable_name == "Call", {
                         match(
                           the_val,
-                          .TupleVal(cand_fns) => if(cand_fns.len() >= usize(2), {
+                          Rc(.TupleVal(cand_fns)) => if(cand_fns.len() >= usize(2), {
                             if(!is_overload_set_capable_file(
                               Option(String).Some(ast_expr_token(&export_expr).module_path.*.clone()),
                               ctx.std_path.clone()
@@ -936,7 +936,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
       true // is_source_namespace
     )
   );
-  module_val := EvalValue.StructVal(sns_id.clone(), shared_list(module_names), value_cell_new(module_vals));
+  module_val := Rc.new(EvalValueNode.StructVal(sns_id.clone(), shared_list(module_names), value_cell_new(module_vals)));
   AnonModuleResult(
     module_value : module_val,
     module_type : module_type,
@@ -1081,7 +1081,7 @@ _run_module_walk :: (
         _flag_walk_abort(err);
         unwind(
           AnonModuleResult(
-            module_value : EvalValue.UnitVal,
+            module_value : Rc.new(EvalValueNode.UnitVal),
             module_type : Rc.new(TypeValueNode.Unit),
             env : new_environment(Rc.new(String.new())),
             partial_module_error : Option(String).None

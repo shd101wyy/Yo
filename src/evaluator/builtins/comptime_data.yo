@@ -18,7 +18,7 @@
 { ExprInfo, new_expr_info, expr_info_table_set, expr_info_table_get } :: import("../../expr_info.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue, value_cell_new, shared_values } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, value_cell_new, shared_values } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { format_error_message } :: import("../../error.yo");
@@ -36,7 +36,7 @@ _unquote :: (fn(raw : &String) -> String)({
 /// declaration order; the variant name is dot-prefixed, which is how every
 /// enum value is stored.
 _cv :: (fn(variant : &String, fields : &ArrayList(EvalValue)) -> EvalValue)(
-  EvalValue.EnumVal(`.${variant}`, shared_values(fields.clone()))
+  Rc.new(EvalValueNode.EnumVal(`.${variant}`, shared_values(fields.clone())))
 );
 _cv0 :: (fn(variant : &String) -> EvalValue)(_cv(variant, ArrayList(EvalValue).new()));
 _cv1 :: (fn(variant : &String, field : &EvalValue) -> EvalValue)({
@@ -55,16 +55,16 @@ _lift_json :: (fn(v : &JsonValue) -> EvalValue)(
   match(
     v,
     .Null => _cv0(String.from("Null")),
-    .Bool(b) => _cv1(String.from("Bool"), EvalValue.BoolVal(b.*)),
+    .Bool(b) => _cv1(String.from("Bool"), Rc.new(EvalValueNode.BoolVal(b.*))),
     // JsonValue.Int is the exact arm — no f64 round trip, so an integer beyond
     // 2^53 lifts to a comptime Int losslessly instead of being rounded.
-    .Int(i) => _cv1(String.from("Int"), EvalValue.IntLit(i.to_string())),
+    .Int(i) => _cv1(String.from("Int"), Rc.new(EvalValueNode.IntLit(i.to_string()))),
     .Number(n) => if(
       n.* == f64(i64(n.*)),
-      _cv1(String.from("Int"), EvalValue.IntLit(i64(n.*).to_string())),
-      _cv1(String.from("Float"), EvalValue.FloatLit(n.to_string()))
+      _cv1(String.from("Int"), Rc.new(EvalValueNode.IntLit(i64(n.*).to_string()))),
+      _cv1(String.from("Float"), Rc.new(EvalValueNode.FloatLit(n.to_string())))
     ),
-    .Str(s) => _cv1(String.from("Str"), EvalValue.StrLit(`"${s}"`)),
+    .Str(s) => _cv1(String.from("Str"), Rc.new(EvalValueNode.StrLit(`"${s}"`))),
     .Array(items) => {
       out := ArrayList(EvalValue).new();
       (i : usize) = usize(0);
@@ -72,20 +72,20 @@ _lift_json :: (fn(v : &JsonValue) -> EvalValue)(
         match(items.get_cloned(i), .Some(it) => out.push(_lift_json(&it)), .None => ());
         i = (i + usize(1));
       });
-      _cv1(String.from("List"), EvalValue.ComptimeListVal(value_cell_new(out)))
+      _cv1(String.from("List"), Rc.new(EvalValueNode.ComptimeListVal(value_cell_new(out))))
     },
     .Object(keys, values) => {
       ks := ArrayList(EvalValue).new();
       vs := ArrayList(EvalValue).new();
       (i : usize) = usize(0);
       while(i < keys.len(), {
-        match(keys.get_cloned(i), .Some(k) => ks.push(EvalValue.StrLit(`"${k}"`)), .None => ());
+        match(keys.get_cloned(i), .Some(k) => ks.push(Rc.new(EvalValueNode.StrLit(`"${k}"`))), .None => ());
         match(values.get_cloned(i), .Some(val) => vs.push(_lift_json(&val)), .None => ());
         i = (i + usize(1));
       });
       fs := ArrayList(EvalValue).new();
-      fs.push(EvalValue.ComptimeListVal(value_cell_new(ks)));
-      fs.push(EvalValue.ComptimeListVal(value_cell_new(vs)));
+      fs.push(Rc.new(EvalValueNode.ComptimeListVal(value_cell_new(ks))));
+      fs.push(Rc.new(EvalValueNode.ComptimeListVal(value_cell_new(vs))));
       _cv(String.from("Table"), &fs)
     }
   )
@@ -97,11 +97,11 @@ _lift_json :: (fn(v : &JsonValue) -> EvalValue)(
 _lift_toml :: (fn(v : &TomlValue) -> EvalValue)(
   match(
     v,
-    .Str(s) => _cv1(String.from("Str"), EvalValue.StrLit(`"${s}"`)),
-    .Int(n) => _cv1(String.from("Int"), EvalValue.IntLit(n.to_string())),
-    .Float(f) => _cv1(String.from("Float"), EvalValue.FloatLit(f.to_string())),
-    .Bool(b) => _cv1(String.from("Bool"), EvalValue.BoolVal(b.*)),
-    .Datetime(dt) => _cv1(String.from("Str"), EvalValue.StrLit(`"${dt.to_string()}"`)),
+    .Str(s) => _cv1(String.from("Str"), Rc.new(EvalValueNode.StrLit(`"${s}"`))),
+    .Int(n) => _cv1(String.from("Int"), Rc.new(EvalValueNode.IntLit(n.to_string()))),
+    .Float(f) => _cv1(String.from("Float"), Rc.new(EvalValueNode.FloatLit(f.to_string()))),
+    .Bool(b) => _cv1(String.from("Bool"), Rc.new(EvalValueNode.BoolVal(b.*))),
+    .Datetime(dt) => _cv1(String.from("Str"), Rc.new(EvalValueNode.StrLit(`"${dt.to_string()}"`))),
     .Array(items) => {
       out := ArrayList(EvalValue).new();
       (i : usize) = usize(0);
@@ -109,20 +109,20 @@ _lift_toml :: (fn(v : &TomlValue) -> EvalValue)(
         match(items.get_cloned(i), .Some(it) => out.push(_lift_toml(&it)), .None => ());
         i = (i + usize(1));
       });
-      _cv1(String.from("List"), EvalValue.ComptimeListVal(value_cell_new(out)))
+      _cv1(String.from("List"), Rc.new(EvalValueNode.ComptimeListVal(value_cell_new(out))))
     },
     .Table(keys, values) => {
       ks := ArrayList(EvalValue).new();
       vs := ArrayList(EvalValue).new();
       (i : usize) = usize(0);
       while(i < keys.len(), {
-        match(keys.get_cloned(i), .Some(k) => ks.push(EvalValue.StrLit(`"${k}"`)), .None => ());
+        match(keys.get_cloned(i), .Some(k) => ks.push(Rc.new(EvalValueNode.StrLit(`"${k}"`))), .None => ());
         match(values.get_cloned(i), .Some(val) => vs.push(_lift_toml(&val)), .None => ());
         i = (i + usize(1));
       });
       fs := ArrayList(EvalValue).new();
-      fs.push(EvalValue.ComptimeListVal(value_cell_new(ks)));
-      fs.push(EvalValue.ComptimeListVal(value_cell_new(vs)));
+      fs.push(Rc.new(EvalValueNode.ComptimeListVal(value_cell_new(ks))));
+      fs.push(Rc.new(EvalValueNode.ComptimeListVal(value_cell_new(vs))));
       _cv(String.from("Table"), &fs)
     }
   )
@@ -138,7 +138,7 @@ _comptime_value_type :: (fn(env : &Environment) -> Option(TypeValue))({
       vars.get_cloned(i),
       .Some(v) => match(
         v.value().get(usize(0)),
-        .Some(val) => match(val, .TypeVal(t) => return(Option(TypeValue).Some(Rc.clone(t))), _ => ()),
+        .Some(val) => match(val, Rc(.TypeVal(t)) => return(Option(TypeValue).Some(Rc.clone(t))), _ => ()),
         .None => ()
       ),
       .None => ()
@@ -176,8 +176,8 @@ _string_argument :: (
     ),
     .Some(v) => match(
       v,
-      .StrLit(raw) => Option(String).Some(_unquote(&raw)),
-      .UnknownVal(_t, _r) => Option(String).None,
+      Rc(.StrLit(raw)) => Option(String).Some(_unquote(&raw)),
+      Rc(.UnknownVal(_t, _r)) => Option(String).None,
       _ => {
         exn.throw(
           dyn(
@@ -208,7 +208,7 @@ evaluate_comptime_json_parse :: (
 )({
   src := _string_argument(String.from(BF_COMPTIME_JSON_PARSE), expr, env, ctx, exn);
   if(src.is_none(), {
-    return(_annotate(expr, Option(EvalValue).Some(EvalValue.UnknownVal(t_unit(), false)), env, ctx));
+    return(_annotate(expr, Option(EvalValue).Some(Rc.new(EvalValueNode.UnknownVal(t_unit(), false))), env, ctx));
   });
   text := src.unwrap_or(String.new());
   lifted := match(
@@ -235,7 +235,7 @@ evaluate_comptime_toml_parse :: (
 )({
   src := _string_argument(String.from(BF_COMPTIME_TOML_PARSE), expr, env, ctx, exn);
   if(src.is_none(), {
-    return(_annotate(expr, Option(EvalValue).Some(EvalValue.UnknownVal(t_unit(), false)), env, ctx));
+    return(_annotate(expr, Option(EvalValue).Some(Rc.new(EvalValueNode.UnknownVal(t_unit(), false))), env, ctx));
   });
   text := src.unwrap_or(String.new());
   lifted := match(

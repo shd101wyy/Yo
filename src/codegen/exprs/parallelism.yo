@@ -74,7 +74,7 @@ _closure_fn_c_name :: (fn(cb_ei_value : &Option(EvalValue), cb_closure_fn_val : 
   );
   match(
     fv_opt,
-    .Some(fv) => match(fv, .FuncVal(__fvd1, _) => match(context.base.get_function_entry(&__fvd1.*.func_id), .Some(e) => Option(String).Some(e.c_name.clone()), .None => Option(String).None), _ => Option(String).None),
+    .Some(fv) => match(fv, Rc(.FuncVal(__fvd1, _)) => match(context.base.get_function_entry(&__fvd1.*.func_id), .Some(e) => Option(String).Some(e.c_name.clone()), .None => Option(String).None), _ => Option(String).None),
     .None => Option(String).None
   )
 });
@@ -85,7 +85,7 @@ _closure_fid :: (fn(cb_ei_value : &Option(EvalValue), cb_closure_fn_val : &Optio
     .Some(fv) => Option(EvalValue).Some(fv.*),
     .None => match(cb_ei_value, .Some(v) => if(is_func_val(&v.*), Option(EvalValue).Some(v.*), Option(EvalValue).None), .None => Option(EvalValue).None)
   );
-  match(fv_opt, .Some(fv) => match(fv, .FuncVal(__fvd2, _) => __fvd2.*.func_id.clone(), _ => String.new()), .None => String.new())
+  match(fv_opt, .Some(fv) => match(fv, Rc(.FuncVal(__fvd2, _)) => __fvd2.*.func_id.clone(), _ => String.new()), .None => String.new())
 });
 /// `, (<cType>){0}, …` — zero-inits for the closure's runtime params (e.g. the
 /// `io : Io` of a `Thread.spawn` callback), as the spawn wrapper builds them.

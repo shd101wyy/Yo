@@ -23,7 +23,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue, create_unknown_val, create_unknown_val_with_name, value_cell_new } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, create_unknown_val, create_unknown_val_with_name, value_cell_new } :: import("../../value.yo");
 { stable_module_id } :: import("../../utils.yo");
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { t_usize, t_type } :: import("../../types/creators.yo");
@@ -99,7 +99,7 @@ evaluate_yo_comptime_list_car :: (
           )
         )
       );
-      EvalValue.UnitVal
+      Rc.new(EvalValueNode.UnitVal)
     }
   );
   out_info := new_expr_info(&cur_env, &child_ty);
@@ -114,7 +114,7 @@ evaluate_yo_comptime_list_car :: (
   out_info.set_value(.Some(create_unknown_val_with_name(&child_ty, &car_unk_name)));
   match(
     list_val,
-    .ComptimeListVal(elements) => {
+    Rc(.ComptimeListVal(elements)) => {
       if(elements.len() > usize(0), {
         match(
           elements.get(usize(0)),
@@ -208,14 +208,14 @@ evaluate_yo_comptime_list_cdr :: (
           )
         )
       );
-      EvalValue.UnitVal
+      Rc.new(EvalValueNode.UnitVal)
     }
   );
   out_info := new_expr_info(&cur_env, &list_ty);
   out_info.set_value(.Some(create_unknown_val(&list_ty)));
   match(
     list_val,
-    .ComptimeListVal(elements) => {
+    Rc(.ComptimeListVal(elements)) => {
       if(elements.len() > usize(0), {
         new_elems := ArrayList(EvalValue).new();
         (i : usize) = usize(1);
@@ -230,7 +230,7 @@ evaluate_yo_comptime_list_cdr :: (
           );
           i = (i + usize(1));
         });
-        out_info.set_value(.Some(EvalValue.ComptimeListVal(value_cell_new(new_elems))));
+        out_info.set_value(.Some(Rc.new(EvalValueNode.ComptimeListVal(value_cell_new(new_elems)))));
       }, {
         exn.throw(
           dyn(
@@ -316,7 +316,7 @@ evaluate_yo_comptime_list_cons :: (
           )
         )
       );
-      EvalValue.UnitVal
+      Rc.new(EvalValueNode.UnitVal)
     }
   );
   eval_cdr := evaluate_expression_raw(&cdr_arg_e, &cur_env, ctx, exn);
@@ -364,7 +364,7 @@ evaluate_yo_comptime_list_cons :: (
           )
         )
       );
-      EvalValue.UnitVal
+      Rc.new(EvalValueNode.UnitVal)
     }
   );
   child_ty := match(&cdr_info.ty(), Rc(.ComptimeListT(cb)) => Rc.clone(cb), _ => Rc.new(TypeValueNode.Unit));
@@ -385,7 +385,7 @@ evaluate_yo_comptime_list_cons :: (
   out_info.set_value(.Some(create_unknown_val(&list_ty)));
   match(
     cdr_val,
-    .ComptimeListVal(elements) => {
+    Rc(.ComptimeListVal(elements)) => {
       new_elems := ArrayList(EvalValue).new();
       new_elems.push(car_val);
       (i : usize) = usize(0);
@@ -400,7 +400,7 @@ evaluate_yo_comptime_list_cons :: (
         );
         i = (i + usize(1));
       });
-      out_info.set_value(.Some(EvalValue.ComptimeListVal(value_cell_new(new_elems))));
+      out_info.set_value(.Some(Rc.new(EvalValueNode.ComptimeListVal(value_cell_new(new_elems)))));
     },
     _ => ()
   );
@@ -486,7 +486,7 @@ evaluate_yo_comptime_list_append :: (
           )
         )
       );
-      EvalValue.UnitVal
+      Rc.new(EvalValueNode.UnitVal)
     }
   );
   eval_second := evaluate_expression_raw(&second_arg_e, &cur_env, ctx, exn);
@@ -534,7 +534,7 @@ evaluate_yo_comptime_list_append :: (
           )
         )
       );
-      EvalValue.UnitVal
+      Rc.new(EvalValueNode.UnitVal)
     }
   );
   if(!are_types_compatible(&first_info.ty(), &second_info.ty()), {
@@ -554,9 +554,9 @@ evaluate_yo_comptime_list_append :: (
   out_info.set_value(.Some(create_unknown_val(&first_ty)));
   match(
     first_val,
-    .ComptimeListVal(first_elems) => match(
+    Rc(.ComptimeListVal(first_elems)) => match(
       second_val,
-      .ComptimeListVal(second_elems) => {
+      Rc(.ComptimeListVal(second_elems)) => {
         new_elems := ArrayList(EvalValue).new();
         (i1 : usize) = usize(0);
         n1 := first_elems.len();
@@ -582,7 +582,7 @@ evaluate_yo_comptime_list_append :: (
           );
           i2 = (i2 + usize(1));
         });
-        out_info.set_value(.Some(EvalValue.ComptimeListVal(value_cell_new(new_elems))));
+        out_info.set_value(.Some(Rc.new(EvalValueNode.ComptimeListVal(value_cell_new(new_elems)))));
       },
       _ => ()
     ),
@@ -656,15 +656,15 @@ evaluate_yo_comptime_list_length :: (
           )
         )
       );
-      EvalValue.UnitVal
+      Rc.new(EvalValueNode.UnitVal)
     }
   );
   out_info := new_expr_info(&info.env(), t_usize());
   out_info.set_value(.Some(create_unknown_val(t_usize())));
   match(
     list_val,
-    .ComptimeListVal(elements) => {
-      out_info.set_value(.Some(EvalValue.IntLit(elements.len().to_string())));
+    Rc(.ComptimeListVal(elements)) => {
+      out_info.set_value(.Some(Rc.new(EvalValueNode.IntLit(elements.len().to_string()))));
     },
     _ => ()
   );
@@ -715,7 +715,7 @@ evaluate_yo_comptime_list_element_type :: (
     info.value(),
     .Some(v) => match(
       v,
-      .TypeVal(ty_box) => Rc.clone(ty_box),
+      Rc(.TypeVal(ty_box)) => Rc.clone(ty_box),
       _ => {
         exn.throw(
           dyn(
@@ -758,7 +758,7 @@ evaluate_yo_comptime_list_element_type :: (
   });
   child_ty := match(inner_ty, Rc(.ComptimeListT(cb)) => Rc.clone(cb), _ => Rc.new(TypeValueNode.Unit));
   out_info := new_expr_info(&info.env(), t_type());
-  out_info.set_value(.Some(EvalValue.TypeVal(child_ty)));
+  out_info.set_value(.Some(Rc.new(EvalValueNode.TypeVal(child_ty))));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr.*
 });
@@ -823,7 +823,7 @@ evaluate_yo_comptime_list_get :: (
     list_info.value(),
     .Some(list_v) => match(
       list_v,
-      .ComptimeListVal(elements) => {
+      Rc(.ComptimeListVal(elements)) => {
         list_len := elements.len();
         index_arg_e := match(
           expr,
@@ -846,7 +846,7 @@ evaluate_yo_comptime_list_get :: (
               idx_info.value(),
               .Some(idx_v) => match(
                 idx_v,
-                .IntLit(raw) => {
+                Rc(.IntLit(raw)) => {
                   match(
                     raw.parse_i64(),
                     .Some(idx_i64) => {

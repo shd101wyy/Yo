@@ -51,7 +51,7 @@
 :: import("../../expr_info.yo");
 { snapshot_env, Environment, add_variable_to_env, variable_set_is_ref, variable_set_is_imm_borrow } :: import("../../env.yo");
 { EvalContext, note_unlabeled_ensures_atom, is_module_ghost_fn_def } :: import("../context.yo");
-{ EvalValue, create_unknown_val } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, create_unknown_val } :: import("../../value.yo");
 { TypeValue, TypeValueNode, t_refine_inner, slot_pointee_at, t_slot_pointee, t_slot_is_borrow, t_slot_is_mut_ref } :: import("../../types/definitions.yo");
 { get_func_type } :: import("../../function_value.yo");
 { t_type, t_unit, t_bool, t_i64, t_u8 } :: import("../../types/creators.yo");
@@ -150,7 +150,7 @@ _evaluate_contract_marker :: (
     i = (i + usize(1));
   });
   out_info := new_expr_info(&cur_env, t_unit());
-  out_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
+  out_info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr.*
 });
@@ -362,7 +362,7 @@ evaluate_ghost :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContex
               .None => ()
             );
             out_info := new_expr_info(&r_info.env(), t_unit());
-            out_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
+            out_info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
             return(expr.*);
           });
@@ -518,13 +518,13 @@ ${ast_expr_to_string(expr)}`
           .Some(v) => {
             match(
               v,
-              .TypeVal(tv) => {
+              Rc(.TypeVal(tv)) => {
                 if(ai == usize(0), {
                   inner_ty = Rc.clone(tv);
                   matched = true;
                 });
               },
-              .FuncVal(fvd, _) => {
+              Rc(.FuncVal(fvd, _)) => {
                 if((ai == usize(1)) && (fvd.*.params.len() == usize(1)), {
                   pred_fid = fvd.*.func_id.clone();
                   if(!is_ghost_fn(pred_fid.clone()), {
@@ -621,7 +621,7 @@ ${ast_expr_to_string(expr)}`
     _ => ()
   );
   out_info := new_expr_info(&cur_env, t_type());
-  out_info.set_value(Option(EvalValue).Some(EvalValue.TypeVal(refined)));
+  out_info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.TypeVal(refined))));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr.*
 });
@@ -667,7 +667,7 @@ evaluate_ghost_fn :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalCon
             .Some(gv) => {
               match(
                 gv,
-                .FuncVal(gfvd, _) => {
+                Rc(.FuncVal(gfvd, _)) => {
                   register_ghost_fn(gfvd.*.func_id.clone());
                   // V6 task 3: record the def so type-level refinement
                   // predicates can be INLINED by the verifier's walk (the
@@ -936,7 +936,7 @@ _evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut Eval
     cur_env = expr_info_adopt_env(&ty_info);
     bt := match(
       ty_info.value(),
-      .Some(.TypeVal(tv)) => Rc.clone(tv),
+      .Some(Rc(.TypeVal(tv))) => Rc.clone(tv),
       .Some(_) => {
         exn.throw(
           dyn(
@@ -1708,7 +1708,7 @@ register_impl_inheritance_task :: (
   });
   match(
     method_val,
-    .FuncVal(__inh_fvd, _) => {
+    Rc(.FuncVal(__inh_fvd, _)) => {
       __fid := __inh_fvd.func_id.clone();
       // The impl method declares its own contracts (or already inherits via
       // the lambda origin-copy — the trait's own nodes, indistinguishable
@@ -2037,7 +2037,7 @@ _callsite_method_receiver :: (
   );
   recv_is_type := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)),
-    .Some(ri) => match(ri.value(), .Some(rv) => match(rv, .TypeVal(_) => true, _ => false), .None => false),
+    .Some(ri) => match(ri.value(), .Some(rv) => match(rv, Rc(.TypeVal(_)) => true, _ => false), .None => false),
     .None => false
   );
   cond(
@@ -2108,7 +2108,7 @@ _stash_callsite_contracts :: (
       ci.value(),
       .Some(v) => match(
         v,
-        .FuncVal(_, _) => Option(EvalValue).Some(v),
+        Rc(.FuncVal(_, _)) => Option(EvalValue).Some(v),
         _ => lookup_method_callee_value(ast_expr_id(e))
       ),
       .None => lookup_method_callee_value(ast_expr_id(e))
@@ -2119,7 +2119,7 @@ _stash_callsite_contracts :: (
     callee_val,
     .Some(cv) => match(
       cv,
-      .FuncVal(fvd, _) => fvd.*.func_id.clone(),
+      Rc(.FuncVal(fvd, _)) => fvd.*.func_id.clone(),
       _ => {
         return(());
       }
@@ -2141,7 +2141,7 @@ _stash_callsite_contracts :: (
     callee_val,
     .Some(v2) => match(
       v2,
-      .FuncVal(fvd2, _) => fvd2.*.params.clone(),
+      Rc(.FuncVal(fvd2, _)) => fvd2.*.params.clone(),
       _ => ArrayList(String).new()
     ),
     .None => ArrayList(String).new()
@@ -2578,7 +2578,7 @@ register_impl_variance_task :: (
       return_label : Option(String).None,
       table : ctx.expr_info_table.clone(),
       mode : __mode.clone(),
-      func_val : EvalValue.UnitVal,
+      func_val : Rc.new(EvalValueNode.UnitVal),
       requires_enforced : ArrayList(bool).new()
     )
   );
@@ -2621,7 +2621,7 @@ strip_proved_ensures_asserts :: (
 )(
   match(
     func_val,
-    .FuncVal(fvd, _) => {
+    Rc(.FuncVal(fvd, _)) => {
       body := fvd.body;
       match(
         body,
@@ -2852,7 +2852,7 @@ _contract_clause_runs :: (fn(pred : &AstExpr, table : &ExprInfoTable, allow_old 
       expr_info_table_get(table, ast_expr_id(pred)),
       .Some(ai) => match(
         ai.value(),
-        .Some(.FuncVal(afv, _)) => !is_ghost_fn(afv.*.func_id.clone()),
+        .Some(Rc(.FuncVal(afv, _))) => !is_ghost_fn(afv.*.func_id.clone()),
         _ => true
       ),
       .None => true
@@ -3244,13 +3244,13 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext,
   evaluated := evaluate_expression_raw(&arg, env, ctx, exn);
   // The law node itself is unit — the value the `::` binding takes.
   out_info := new_expr_info(env, t_unit());
-  out_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
+  out_info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   ft := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
     .Some(info) => match(
       info.value(),
-      .Some(v) => match(v, .TypeVal(t) => Rc.clone(t), _ => t_unit()),
+      .Some(v) => match(v, Rc(.TypeVal(t)) => Rc.clone(t), _ => t_unit()),
       .None => t_unit()
     ),
     .None => t_unit()
@@ -3417,7 +3417,7 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext,
       return_label : Option(String).None,
       table : ctx.expr_info_table.clone(),
       mode : law_mode.clone(),
-      func_val : EvalValue.UnitVal,
+      func_val : Rc.new(EvalValueNode.UnitVal),
       requires_enforced : ArrayList(bool).new()
     )
   );

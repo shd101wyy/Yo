@@ -48,7 +48,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible }
 :: import("../../types/compatibility.yo");
 {
-  EvalValue,
+  EvalValue, EvalValueNode,
   FuncValData,
   no_values
 } :: import("../../value.yo");
@@ -238,7 +238,7 @@ try_to_implement_closure_by_fn_module_type :: (
   );
   // Build a preliminary FuncVal for the evaluation context.
   closure_id := stable_func_id(String.from("closure_"), &tok.module_path.*, usize(tok.row), usize(tok.column));
-  func_val_pre := EvalValue.FuncVal(
+  func_val_pre := Rc.new(EvalValueNode.FuncVal(
     Rc.new(
       FuncValData(
         forall_names : ArrayList(String).new(),
@@ -254,7 +254,7 @@ try_to_implement_closure_by_fn_module_type :: (
       )
     ),
     no_values()
-  );
+  ));
   // Mark this function as a closure so codegen prepends the `void* closure_context`
   // capture parameter to its C prototype/definition.
   mark_as_closure_fn(closure_id.clone());

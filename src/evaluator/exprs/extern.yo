@@ -26,7 +26,7 @@ pragma(Pragma.AllowUnsafe);
 { stable_module_id, fnv1a64 } :: import("../../utils.yo");
 { Environment, Frame, new_frame, add_variable_to_env, frame_truncate_variables, env_adopt } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue, create_unknown_val_with_name, value_cell_new } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, create_unknown_val_with_name, value_cell_new } :: import("../../value.yo");
 { TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, t_slot_pointee } :: import("../../types/definitions.yo");
 { t_unit, t_extern_opaque } :: import("../../types/creators.yo");
 { type_contains_rc_type, type_carries_origin, no_origin_position_error } :: import("../../types/utils.yo");
@@ -147,7 +147,7 @@ User code should normally call stdlib wrappers (e.g. functions in
       lang_info.value(),
       .Some(v) => match(
         v,
-        .StrLit(s) => s.clone(),
+        Rc(.StrLit(s)) => s.clone(),
         _ => {
           exn.throw(
             dyn(
@@ -307,7 +307,7 @@ User code should normally call stdlib wrappers (e.g. functions in
     field_val := match(
       &result.field_type,
       Rc(.TypeUni(fv_lvl)) => cond(
-        (fv_lvl.* == usize(0)) => EvalValue.TypeVal(t_extern_opaque(result.label.clone(), String.new())),
+        (fv_lvl.* == usize(0)) => Rc.new(EvalValueNode.TypeVal(t_extern_opaque(result.label.clone(), String.new()))),
         true => create_unknown_val_with_name(&field_ty_with_extern, result.label.clone())
       ),
       _ => create_unknown_val_with_name(&field_ty_with_extern, result.label.clone())
@@ -358,7 +358,7 @@ User code should normally call stdlib wrappers (e.g. functions in
     )
   );
   mod_info := new_expr_info(&env, &module_type);
-  mod_info.set_value(.Some(EvalValue.StructVal(sns_id, shared_list(field_labels), value_cell_new(field_vals))));
+  mod_info.set_value(.Some(Rc.new(EvalValueNode.StructVal(sns_id, shared_list(field_labels), value_cell_new(field_vals)))));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &mod_info);
   // Annotate callee (the "extern" func node) with same info.
   callee_expr := match(expr, .FnCall(_, fb, _, _, _) => fb.*, .Atom(_, _) => expr.*);

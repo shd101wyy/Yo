@@ -119,7 +119,7 @@ _resolve_effect_arg :: (
           });
           effect_type := match(
             info.value(),
-            .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)),
+            .Some(v) => match(v, Rc(.TypeVal(b)) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)),
             .None => Rc.new(TypeValueNode.Unit)
           );
           label := _effect_label_for(&effect_type, effect_expr);
@@ -186,7 +186,7 @@ evaluate_future_type :: (
     o_ev := evaluate_origin_argument(&last_arg, env, ctx, exn);
     origin_type = match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&o_ev)),
-      .Some(oi) => match(oi.value(), .Some(.TypeVal(ot)) => Rc.clone(ot), _ => t_origin_elided()),
+      .Some(oi) => match(oi.value(), .Some(Rc(.TypeVal(ot))) => Rc.clone(ot), _ => t_origin_elided()),
       .None => t_origin_elided()
     );
     _dropped := expr_args.pop();
@@ -251,7 +251,7 @@ evaluate_future_type :: (
   });
   output_type := match(
     elem_info.value(),
-    .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)),
+    .Some(v) => match(v, Rc(.TypeVal(b)) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)),
     .None => Rc.new(TypeValueNode.Unit)
   );
   // Process effect arguments (args 1..N)

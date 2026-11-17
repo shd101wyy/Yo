@@ -1582,7 +1582,7 @@ _scope_value_installs :: (fn(v : &Option(EvalValue)) -> bool)(
     v,
     .Some(fv) => match(
       fv,
-      .FuncVal(d, _) => (is_control_fn(&d.func_id) || is_effect_record_member(&d.func_id) || _scope_type_installs(get_func_type(&d.func_id))),
+      Rc(.FuncVal(d, _)) => (is_control_fn(&d.func_id) || is_effect_record_member(&d.func_id) || _scope_type_installs(get_func_type(&d.func_id))),
       _ => false
     ),
     .None => false
@@ -3681,7 +3681,7 @@ purge_executed_clone_metadata :: (fn(table : &ExprInfoTable, root : &AstExpr, lo
   });
   defines_fn := match(
     table.data.with({ &id }(m) => m.get_cloned(&id.*)),
-    .Some(info) => match(info.value(), .Some(v) => match(v, .FuncVal(_, _) => true, _ => false), .None => false),
+    .Some(info) => match(info.value(), .Some(v) => match(v, Rc(.FuncVal(_, _)) => true, _ => false), .None => false),
     .None => false
   );
   if(defines_fn, {

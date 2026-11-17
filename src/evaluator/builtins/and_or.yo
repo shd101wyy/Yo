@@ -27,7 +27,7 @@
 { EvalContext } :: import("../context.yo");
 { drop_moves_of_skippable_operand, local_borrow_flow_region_begin, local_borrow_flow_region_end } :: import("../utils.yo");
 {
-  EvalValue,
+  EvalValue, EvalValueNode,
   is_bool_val,
   is_unknown_val,
   create_unknown_val,
@@ -60,7 +60,7 @@ evaluate_and_or :: (
   if(args.len() == usize(0), {
     bool_result := is_and;
     out_info := new_expr_info(env, t_bool());
-    out_info.set_value(.Some(EvalValue.BoolVal(bool_result)));
+    out_info.set_value(.Some(Rc.new(EvalValueNode.BoolVal(bool_result))));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
     return(expr.*);
   });
@@ -148,7 +148,7 @@ evaluate_and_or :: (
               });
             }, {
               if(is_bool_val(&av), {
-                bv := match(av, .BoolVal(b) => b, _ => false);
+                bv := match(av, Rc(.BoolVal(b)) => b, _ => false);
                 // `false && …` / `true || …` short-circuits: the operands
                 // after it never run. A runtime operand BEFORE it still runs
                 // (codegen emits it ahead of the constant), so the result is
@@ -173,12 +173,12 @@ evaluate_and_or :: (
   // Determine final result.
   (final_val : Option(EvalValue)) = match(
     short_circuit,
-    .Some(b) => .Some(EvalValue.BoolVal(b)),
+    .Some(b) => .Some(Rc.new(EvalValueNode.BoolVal(b))),
     .None => cond(
       has_runtime => .None,
       has_unknown => .Some(create_unknown_val(t_bool())),
       // Every operand was a compile-time identity.
-      true => .Some(EvalValue.BoolVal(is_and))
+      true => .Some(Rc.new(EvalValueNode.BoolVal(is_and)))
     )
   );
   out_info := new_expr_info(&cur_env, t_bool());

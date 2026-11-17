@@ -25,7 +25,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_table_get,
   expr_info_table_set
 } :: import("../../expr_info.yo");
-{ EvalValue } :: import("../../value.yo");
+{ EvalValue, EvalValueNode } :: import("../../value.yo");
 { is_array_type, is_tuple_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
@@ -142,7 +142,7 @@ evaluate_yo_decr_rc :: (
   _require_destroying_builtin_capable(BF_YO_DECR_RC, expr, exn);
   info := _eval_arg("evaluate_yo_decr_rc", expr, env, ctx, usize(0), exn);
   out := new_expr_info(&info.env(), t_unit());
-  out.set_value(.Some(EvalValue.UnitVal));
+  out.set_value(.Some(Rc.new(EvalValueNode.UnitVal)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr.*
 });
@@ -157,7 +157,7 @@ evaluate_yo_decr_rc_atomic :: (
   _require_destroying_builtin_capable(BF_YO_DECR_RC_ATOMIC, expr, exn);
   info := _eval_arg("evaluate_yo_decr_rc_atomic", expr, env, ctx, usize(0), exn);
   out := new_expr_info(&info.env(), t_unit());
-  out.set_value(.Some(EvalValue.UnitVal));
+  out.set_value(.Some(Rc.new(EvalValueNode.UnitVal)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr.*
 });
@@ -171,7 +171,7 @@ evaluate_yo_incr_rc :: (
 )({
   info := _eval_arg("evaluate_yo_incr_rc", expr, env, ctx, usize(0), exn);
   out := new_expr_info(&info.env(), t_unit());
-  out.set_value(.Some(EvalValue.UnitVal));
+  out.set_value(.Some(Rc.new(EvalValueNode.UnitVal)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr.*
 });
@@ -185,7 +185,7 @@ evaluate_yo_incr_rc_atomic :: (
 )({
   info := _eval_arg("evaluate_yo_incr_rc_atomic", expr, env, ctx, usize(0), exn);
   out := new_expr_info(&info.env(), t_unit());
-  out.set_value(.Some(EvalValue.UnitVal));
+  out.set_value(.Some(Rc.new(EvalValueNode.UnitVal)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr.*
 });
@@ -200,7 +200,7 @@ evaluate_yo_dyn_vtable_drop :: (
   _require_destroying_builtin_capable(BF_YO_DYN_DROP, expr, exn);
   info := _eval_arg("evaluate_yo_dyn_vtable_drop", expr, env, ctx, usize(0), exn);
   out := new_expr_info(&info.env(), t_unit());
-  out.set_value(.Some(EvalValue.UnitVal));
+  out.set_value(.Some(Rc.new(EvalValueNode.UnitVal)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr.*
 });
@@ -214,7 +214,7 @@ evaluate_yo_dyn_vtable_dup :: (
 )({
   info := _eval_arg("evaluate_yo_dyn_vtable_dup", expr, env, ctx, usize(0), exn);
   out := new_expr_info(&info.env(), t_unit());
-  out.set_value(.Some(EvalValue.UnitVal));
+  out.set_value(.Some(Rc.new(EvalValueNode.UnitVal)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr.*
 });
@@ -229,7 +229,7 @@ evaluate_yo_some_type_drop :: (
   _require_destroying_builtin_capable(BF_YO_SOMETYPE_DROP, expr, exn);
   info := _eval_arg("evaluate_yo_some_type_drop", expr, env, ctx, usize(0), exn);
   out := new_expr_info(&info.env(), t_unit());
-  out.set_value(.Some(EvalValue.UnitVal));
+  out.set_value(.Some(Rc.new(EvalValueNode.UnitVal)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr.*
 });
@@ -243,7 +243,7 @@ evaluate_yo_some_type_dup :: (
 )({
   info := _eval_arg("evaluate_yo_some_type_dup", expr, env, ctx, usize(0), exn);
   out := new_expr_info(&info.env(), t_unit());
-  out.set_value(.Some(EvalValue.UnitVal));
+  out.set_value(.Some(Rc.new(EvalValueNode.UnitVal)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr.*
 });
@@ -280,7 +280,7 @@ evaluate_yo_drop_array_element :: (
   info1 := _eval_arg("evaluate_yo_drop_array_element", expr, &info0.env(), ctx, usize(1), exn);
   info1;
   out := new_expr_info(&info0.env(), t_unit());
-  out.set_value(.Some(EvalValue.UnitVal));
+  out.set_value(.Some(Rc.new(EvalValueNode.UnitVal)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr.*
 });
@@ -297,7 +297,7 @@ evaluate_yo_drop_tuple_element :: (
   info1 := _eval_arg("evaluate_yo_drop_tuple_element", expr, &info0.env(), ctx, usize(1), exn);
   info1;
   out := new_expr_info(&info0.env(), t_unit());
-  out.set_value(.Some(EvalValue.UnitVal));
+  out.set_value(.Some(Rc.new(EvalValueNode.UnitVal)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr.*
 });
@@ -369,7 +369,7 @@ evaluate_yo_dup_tuple_element :: (
   });
   index_raw := match(
     info1.value(),
-    .Some(v) => match(v, .IntLit(raw) => raw.clone(), _ => String.from("0")),
+    .Some(v) => match(v, Rc(.IntLit(raw)) => raw.clone(), _ => String.from("0")),
     .None => String.from("0")
   );
   index_i64 := match(index_raw.parse_i64(), .Some(v) => v, .None => i64(0));

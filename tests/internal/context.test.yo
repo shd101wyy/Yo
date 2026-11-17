@@ -25,7 +25,7 @@
 } :: import("../../src/evaluator/context.yo");
 { TypeValue } :: import("../../src/types/definitions.yo");
 { t_unit, t_i32, t_func_simple } :: import("../../src/types/creators.yo");
-{ EvalValue } :: import("../../src/value.yo");
+{ EvalValue, EvalValueNode } :: import("../../src/value.yo");
 { Environment, Frame, new_frame, new_environment, make_environment } :: import("../../src/env.yo");
 { AstExpr } :: import("../../src/expr.yo");
 { HashMap } :: import("std/collections/hash_map");
@@ -211,7 +211,7 @@ test("create_function_body_evaluation_context: basic flags", {
   func_type := t_func_simple(ArrayList(String).new(), ArrayList(TypeValue).new(), t_unit());
   body_ctx := create_function_body_evaluation_context(
     &func_type,
-    EvalValue.UnitVal,
+    Rc.new(EvalValueNode.UnitVal),
     &env,
     &ctx
   );
@@ -228,7 +228,7 @@ test("create_function_body_evaluation_context: function body context embedded", 
   func_type := t_func_simple(ArrayList(String).new(), ArrayList(TypeValue).new(), t_unit());
   body_ctx := create_function_body_evaluation_context(
     &func_type,
-    EvalValue.UnitVal,
+    Rc.new(EvalValueNode.UnitVal),
     &env,
     &ctx
   );
@@ -261,7 +261,7 @@ test("create_function_body_evaluation_context: expected_type set to return(type)
   func_type := t_func_simple(ArrayList(String).new(), ArrayList(TypeValue).new(), t_unit());
   body_ctx := create_function_body_evaluation_context(
     &func_type,
-    EvalValue.UnitVal,
+    Rc.new(EvalValueNode.UnitVal),
     &env,
     &ctx
   );
@@ -283,7 +283,7 @@ test("create_function_body_evaluation_context: copies parent context fields", {
   func_type := t_func_simple(ArrayList(String).new(), ArrayList(TypeValue).new(), t_unit());
   body_ctx := create_function_body_evaluation_context(
     &func_type,
-    EvalValue.UnitVal,
+    Rc.new(EvalValueNode.UnitVal),
     &env,
     &ctx
   );

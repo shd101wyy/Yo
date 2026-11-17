@@ -37,7 +37,7 @@ import("std/fmt");
 { AstExpr, desugar_program_if_calls } :: import("../expr.yo");
 { Environment, build_prelude_var_cache, new_environment } :: import("../env.yo");
 { TypeValue, TypeValueNode } :: import("../types/definitions.yo");
-{ EvalValue } :: import("../value.yo");
+{ EvalValue, EvalValueNode } :: import("../value.yo");
 { register_evaluate_expression } :: import("./exprs/_expr.yo");
 { pre_scan_for_skip_prelude } :: import("./builtins/pragma.yo");
 { eval_context_new, LoadModuleResult } :: import("./context.yo");
@@ -62,13 +62,13 @@ _evaluator_ctx_load_module :: (fn(path : &String) -> LoadModuleResult)(
           module_error : Option(String).None
         ),
         .None => LoadModuleResult(
-          module_value : EvalValue.UnitVal,
+          module_value : Rc.new(EvalValueNode.UnitVal),
           module_type : Rc.new(TypeValueNode.Unit),
           module_error : Option(String).Some(`Module not found: ${path}`)
         )
       ),
     .None => LoadModuleResult(
-      module_value : EvalValue.UnitVal,
+      module_value : Rc.new(EvalValueNode.UnitVal),
       module_type : Rc.new(TypeValueNode.Unit),
       module_error : Option(String).Some(String.from("No module loader registered"))
     )
@@ -186,7 +186,7 @@ impl(
         .Some(pval) =>
           match(
             pval,
-            .StructVal(_, pnames, pvalues) => {
+            Rc(.StructVal(_, pnames, pvalues)) => {
               // Push a dedicated prelude frame so user code can shadow prelude names.
               env.push_frame(true);
               (pi : usize) = usize(0);

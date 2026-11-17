@@ -30,7 +30,7 @@ pragma(Pragma.AllowUnsafe);
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 {
-  EvalValue,
+  EvalValue, EvalValueNode,
   is_unknown_val,
   is_expr_val,
   is_comptime_list_val
@@ -112,7 +112,7 @@ process_unquotes_in_expr :: (
           arg_info.value(),
           .None => {
             exn.throw(dyn(Box.new(format_error_message(&tok.*, String.from("unquote: argument must have a compile-time value")))));
-            EvalValue.ExprVal(make_err_expr())
+            Rc.new(EvalValueNode.ExprVal(make_err_expr()))
           },
           .Some(v) => v
         );
@@ -131,7 +131,7 @@ process_unquotes_in_expr :: (
         // expansion; see the template-clone comment in `evaluate_quote`.
         inner_expr := match(
           val,
-          .ExprVal(eb) => clone_expr_fresh_ids(&eb),
+          Rc(.ExprVal(eb)) => clone_expr_fresh_ids(&eb),
           _ => {
             exn.throw(dyn(Box.new(format_error_message(&tok.*, String.from("unquote: expected ExprVal")))));
             make_err_expr()
@@ -192,7 +192,7 @@ process_unquotes_in_expr :: (
                         if(is_comptime_list_val(&splice_val), {
                           match(
                             splice_val,
-                            .ComptimeListVal(elems) => {
+                            Rc(.ComptimeListVal(elems)) => {
                               j := usize(0);
                               m := elems.len();
                               while(j < m, {
@@ -203,7 +203,7 @@ process_unquotes_in_expr :: (
                                   .None => (),
                                   .Some(elem) => {
                                     if(is_expr_val(&elem), {
-                                      inner_node := match(elem, .ExprVal(eb) => clone_expr_fresh_ids(&eb), _ => arg);
+                                      inner_node := match(elem, Rc(.ExprVal(eb)) => clone_expr_fresh_ids(&eb), _ => arg);
                                       new_args.push(inner_node);
                                     }, {
                                       new_args.push(arg);
@@ -264,7 +264,7 @@ evaluate_quote :: (
   // gives every expansion fresh ids under the id-keyed table.
   quoted := process_unquotes_in_expr(clone_expr_fresh_ids(&arg), env, ctx, exn);
   // Wrap result in ExprVal and register ExprInfo.
-  val := EvalValue.ExprVal(quoted);
+  val := Rc.new(EvalValueNode.ExprVal(quoted));
   out_info := new_expr_info(env, t_expr_t());
   out_info.set_value(Option(EvalValue).Some(val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);

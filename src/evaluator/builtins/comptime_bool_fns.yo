@@ -27,7 +27,7 @@
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue, is_bool_val, create_unknown_val, type_of_eval_value }
+{ EvalValue, EvalValueNode, is_bool_val, create_unknown_val, type_of_eval_value }
 :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_bool, t_comptime_string } :: import("../../types/creators.yo");
@@ -114,13 +114,13 @@ evaluate_yo_comptime_boolean_functions :: (
       ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_NOT, .Some(usize(1))) =>
         match(
           arg_val,
-          .Some(av) => match(av, .BoolVal(b) => EvalValue.BoolVal(!b), _ => create_unknown_val(t_bool())),
+          .Some(av) => match(av, Rc(.BoolVal(b)) => Rc.new(EvalValueNode.BoolVal(!b)), _ => create_unknown_val(t_bool())),
           .None => create_unknown_val(t_bool())
         ),
       ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_TO_COMPTIME_STRING, .Some(usize(1))) =>
         match(
           arg_val,
-          .Some(.BoolVal(b)) => EvalValue.StrLit(if(b, String.from("\"true\""), String.from("\"false\""))),
+          .Some(Rc(.BoolVal(b))) => Rc.new(EvalValueNode.StrLit(if(b, String.from("\"true\""), String.from("\"false\"")))),
           .Some(_) => create_unknown_val(t_comptime_string()),
           .None => create_unknown_val(t_comptime_string())
         ),
@@ -135,7 +135,7 @@ evaluate_yo_comptime_boolean_functions :: (
             )
           )
         );
-        EvalValue.UnitVal
+        Rc.new(EvalValueNode.UnitVal)
       }
     );
     // Result type from the VALUE'S TYPE, NOT the value tag: `to_comptime_string` on an
@@ -172,11 +172,11 @@ evaluate_yo_comptime_boolean_functions :: (
           lhs_val,
           .Some(lv) => match(
             lv,
-            .BoolVal(lb) => match(
+            Rc(.BoolVal(lb)) => match(
               rhs_val,
               .Some(rv) => match(
                 rv,
-                .BoolVal(rb) => EvalValue.BoolVal(lb && rb),
+                Rc(.BoolVal(rb)) => Rc.new(EvalValueNode.BoolVal(lb && rb)),
                 _ => create_unknown_val(t_bool())
               ),
               .None => create_unknown_val(t_bool())
@@ -190,9 +190,9 @@ evaluate_yo_comptime_boolean_functions :: (
           lhs_val,
           .Some(lv) => match(
             lv,
-            .BoolVal(lb) => match(
+            Rc(.BoolVal(lb)) => match(
               rhs_val,
-              .Some(.BoolVal(rb)) => EvalValue.BoolVal(lb || rb),
+              .Some(Rc(.BoolVal(rb))) => Rc.new(EvalValueNode.BoolVal(lb || rb)),
               .Some(_) => create_unknown_val(t_bool()),
               .None => create_unknown_val(t_bool())
             ),
@@ -205,9 +205,9 @@ evaluate_yo_comptime_boolean_functions :: (
           lhs_val,
           .Some(lv) => match(
             lv,
-            .BoolVal(lb) => match(
+            Rc(.BoolVal(lb)) => match(
               rhs_val,
-              .Some(.BoolVal(rb)) => EvalValue.BoolVal(lb == rb),
+              .Some(Rc(.BoolVal(rb))) => Rc.new(EvalValueNode.BoolVal(lb == rb)),
               .Some(_) => create_unknown_val(t_bool()),
               .None => create_unknown_val(t_bool())
             ),
@@ -220,9 +220,9 @@ evaluate_yo_comptime_boolean_functions :: (
           lhs_val,
           .Some(lv) => match(
             lv,
-            .BoolVal(lb) => match(
+            Rc(.BoolVal(lb)) => match(
               rhs_val,
-              .Some(.BoolVal(rb)) => EvalValue.BoolVal(!(lb == rb)),
+              .Some(Rc(.BoolVal(rb))) => Rc.new(EvalValueNode.BoolVal(!(lb == rb))),
               .Some(_) => create_unknown_val(t_bool()),
               .None => create_unknown_val(t_bool())
             ),
@@ -241,7 +241,7 @@ evaluate_yo_comptime_boolean_functions :: (
             )
           )
         );
-        EvalValue.UnitVal
+        Rc.new(EvalValueNode.UnitVal)
       }
     );
     out_info := new_expr_info(&cur_env, t_bool());

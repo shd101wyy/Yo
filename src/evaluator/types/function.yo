@@ -49,7 +49,7 @@ pragma(Pragma.AllowUnsafe);
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, expr_info_adopt_env, adopt_receiver_struct_instance, some_resolution, lookup_trait_ctor_fid, lookup_trait_type_args } :: import("../../expr_info.yo");
 { Environment, make_environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, snapshot_env, copy_env_frames, env_adopt, variable_value_type } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing, call_function_value_marker } :: import("../context.yo");
-{ EvalValue, create_type_value, create_unknown_val, is_type_value, is_runtime_only_unknown_val } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, create_type_value, create_unknown_val, is_type_value, is_runtime_only_unknown_val } :: import("../../value.yo");
 { t_binder_slot, some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, SharedList, t_maybe_sized_kind, is_maybe_sized_kind, t_slot, t_slot_pointee, slot_pointee_at, t_origin_named, t_origin_elided, t_origin_kind, t_reference_with_origin, is_origin_kind, t_reference, t_slot_is_borrow, type_spells_origin, t_origin_static, t_static_str_ref, t_value_slot, is_static_origin } :: import("../../types/definitions.yo");
 { t_some_t, t_some_t_with_kind, t_some_t_of_kind, t_type, t_type_1, t_unit, t_expr_t, t_comptime_list, type_has_computed_array_len } :: import("../../types/creators.yo");
 { type_key } :: import("../../types/type_key.yo");
@@ -1191,7 +1191,7 @@ _origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut EvalConte
     });
     return(());
   });
-  o_is_type := match(o_var.value().get(usize(0)), .Some(ov) => match(ov, .TypeVal(_) => true, _ => false), .None => false);
+  o_is_type := match(o_var.value().get(usize(0)), .Some(ov) => match(ov, Rc(.TypeVal(_)) => true, _ => false), .None => false);
   if(o_is_type, {
     exn.throw(
       dyn(
@@ -1330,7 +1330,7 @@ _type_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut Eval
   });
   o_var := match(o_vars.get_cloned(o_n - usize(1)), .Some(v) => v, .None => return(()));
   o_value := o_var.value().get(usize(0));
-  o_is_type := match(o_value, .Some(.TypeVal(_)) => !is_origin_kind(&variable_value_type(&o_var)), _ => false);
+  o_is_type := match(o_value, .Some(Rc(.TypeVal(_))) => !is_origin_kind(&variable_value_type(&o_var)), _ => false);
   if(o_is_type, {
     exn.throw(
       dyn(
@@ -1344,7 +1344,7 @@ _type_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut Eval
       )
     );
   });
-  if(match(o_value, .Some(.FuncVal(_, _)) => true, _ => false), {
+  if(match(o_value, .Some(Rc(.FuncVal(_, _))) => true, _ => false), {
     exn.throw(
       dyn(
         Box.new(
@@ -1455,7 +1455,7 @@ evaluate_reference_type :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut E
   );
   pointee := match(
     ev_info.value(),
-    .Some(.TypeVal(t)) => Rc.clone(t),
+    .Some(Rc(.TypeVal(t))) => Rc.clone(t),
     _ => {
       exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&pointee_expr), `\`${ast_expr_to_string(&pointee_expr)}\` is not a type: a reference type \`&T\` takes a type.`))));
       Rc.new(TypeValueNode.Unit)
@@ -1731,7 +1731,7 @@ _get_expr_type :: (
   });
   match(
     info.value(),
-    .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)),
+    .Some(v) => match(v, Rc(.TypeVal(b)) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)),
     .None => Rc.new(TypeValueNode.Unit)
   )
 });
@@ -1756,7 +1756,7 @@ _eval_and_update_env :: (
         .Some(
           match(
             info.value(),
-            .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)),
+            .Some(v) => match(v, Rc(.TypeVal(b)) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)),
             .None => Rc.new(TypeValueNode.Unit)
           )
         ),
@@ -2879,7 +2879,7 @@ use_id :: (fn(generic(T : Type),
       .Some(ev) => {
         match(
           ev,
-          .TypeVal(b) => {
+          Rc(.TypeVal(b)) => {
             if(is_some_type(&b), {
               existing_where_var = .Some(v);
               vi = usize(0); // break
@@ -2920,14 +2920,14 @@ use_id :: (fn(generic(T : Type),
     existing_where_var,
     .Some(wv) => {
       // Variable pre-created by where clause — reuse its SomeT
-      existing_some_ty := match(wv.value().get(usize(0)), .Some(ev) => match(ev, .TypeVal(b) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
+      existing_some_ty := match(wv.value().get(usize(0)), .Some(ev) => match(ev, Rc(.TypeVal(b)) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
       // If assigned_value is a SomeT, merge traits from it
       match(
         assigned_value,
         .Some(av) => {
           match(
             av,
-            .TypeVal(av_box) => {
+            Rc(.TypeVal(av_box)) => {
               if(is_some_type(&av_box), {
                 new_some := Rc.clone(av_box);
                 match(
@@ -2979,7 +2979,7 @@ use_id :: (fn(generic(T : Type),
         label_expr,
         .Some(le) => {
           le_info := new_expr_info(env_mut, &actual_param_type);
-          le_info.set_value(.Some(match(wv.value().get(usize(0)), .Some(v) => v, .None => EvalValue.UnitVal)));
+          le_info.set_value(.Some(match(wv.value().get(usize(0)), .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal))));
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&le), &le_info);
         },
         .None => ()
@@ -3079,7 +3079,7 @@ use_id :: (fn(generic(T : Type),
     .Some(le) => {
       if(ast_expr_id(&le) != ast_expr_id(expr), {
         outer_info := new_expr_info(env_mut, Rc.new(TypeValueNode.Unit));
-        outer_info.set_value(.Some(EvalValue.UnitVal));
+        outer_info.set_value(.Some(Rc.new(EvalValueNode.UnitVal)));
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &outer_info);
       });
     },
@@ -3211,7 +3211,7 @@ validate_concrete_type_constraints :: (
     if(is_type_value(&info.value()), {
       tv := match(
         info.value(),
-        .Some(.TypeVal(b)) => Rc.clone(b),
+        .Some(Rc(.TypeVal(b))) => Rc.clone(b),
         .Some(_) => {
           exn.throw(
             dyn(
@@ -3382,7 +3382,7 @@ apply_single_trait_constraint :: (
       .Some(ev) => {
         match(
           ev,
-          .TypeVal(b) => {
+          Rc(.TypeVal(b)) => {
             if(is_some_type(&b), {
               some_ty_opt = .Some(Rc.clone(b));
             }, {
@@ -3418,7 +3418,7 @@ apply_single_trait_constraint :: (
       return(false);
     });
     env_adopt(&env_mut.*, &info.env());
-    lhs_ty = match(info.value(), .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
+    lhs_ty = match(info.value(), .Some(v) => match(v, Rc(.TypeVal(b)) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
     if(is_some_type(&lhs_ty), {
       some_ty_opt = .Some(lhs_ty);
     }, {
@@ -3449,7 +3449,7 @@ apply_single_trait_constraint :: (
     return(false);
   });
   env_adopt(&env_mut.*, &info_rhs.env());
-  trait_ty = match(info_rhs.value(), .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
+  trait_ty = match(info_rhs.value(), .Some(v) => match(v, Rc(.TypeVal(b)) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
   if(!is_trait_type(&trait_ty), {
     exn.throw(
       dyn(
@@ -3579,7 +3579,7 @@ parse_where_clause_constraints :: (
           .Some(ev) => {
             match(
               ev,
-              .TypeVal(b) => {
+              Rc(.TypeVal(b)) => {
                 if(is_some_type(&b), {
                   some_ty_opt = .Some(Rc.clone(b));
                 }, {
@@ -3682,7 +3682,7 @@ parse_where_clause_constraints :: (
         );
       });
       env_adopt(&env_mut.*, &lhs_info.env());
-      lhs_tv := match(lhs_info.value(), .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
+      lhs_tv := match(lhs_info.value(), .Some(v) => match(v, Rc(.TypeVal(b)) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
       // HKT TypeApplication case: record `F(A) <: Trait` via the dedicated
       // type-application constraint table
       // (add_where_clause_constraint_for_type_application). The RHS trait parsing
@@ -3796,7 +3796,7 @@ parse_where_clause_constraints :: (
         continue;
       });
       env_adopt(&env_mut.*, &trait_info.env());
-      trait_ty2 = match(trait_info.value(), .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
+      trait_ty2 = match(trait_info.value(), .Some(v) => match(v, Rc(.TypeVal(b)) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
       if(!is_trait_type(&trait_ty2), {
         exn.throw(
           dyn(
@@ -5455,7 +5455,7 @@ evaluate_function_type :: (
           ct_vars.last_cloned(),
           .Some(ct_var) => match(
             ct_var.value().get(usize(0)),
-            .Some(.TypeVal(ct_tb)) => _collect_where_constraints_from_some_t(&wpp.label, &ct_tb, &mut where_constraint_entries),
+            .Some(Rc(.TypeVal(ct_tb))) => _collect_where_constraints_from_some_t(&wpp.label, &ct_tb, &mut where_constraint_entries),
             .Some(_) => (),
             .None => ()
           ),
