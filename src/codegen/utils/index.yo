@@ -125,25 +125,23 @@ _c_len_1 :: (fn(xs : &ArrayList(String)) -> usize)(xs.len());
 // TypeValue carries no general `cInclude`, so the entry carries it
 // (supplied at registration) rather than being read off the type.
 // ===========================================================================
-CodegenTypeEntry :: ref(struct(ty : TypeValue, c_name : String, c_include : Option(String)));
-CodegenExternFnEntry :: ref(struct(ty : TypeValue, c_name : String, c_include : Option(String)));
+CodegenTypeEntry :: struct(ty : TypeValue, c_name : String, c_include : Option(String));
+CodegenExternFnEntry :: struct(ty : TypeValue, c_name : String, c_include : Option(String));
 /// A reachable function to be generated. `value` is the FuncVal EvalValue;
 /// `def_module` is the defining module's path (the body token's), recorded at
 /// registration for by-module TU grouping
 /// (plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §5.4).
-CodegenFunctionEntry :: ref(struct(value : EvalValue, c_name : String, def_module : String));
+CodegenFunctionEntry :: struct(value : EvalValue, c_name : String, def_module : String);
 /// An entry in `impl_closure_call_map`: the resolved concrete capture-struct
 /// type id → the generated closure implementation function for that type.
-ImplClosureCallInfo :: ref(
-  struct(
-    function_c_name : String,
-    call_type_id : String,
-    call_type : Option(TypeValue),
-    consumed_captures : Option(ArrayList(String)),
-    /// The closure impl fn's func_id (for get_func_type → its runtime param types,
-    /// e.g. the spawn-wrapper's closure-arg zero-inits).
-    closure_fid : String
-  )
+ImplClosureCallInfo :: struct(
+  function_c_name : String,
+  call_type_id : String,
+  call_type : Option(TypeValue),
+  consumed_captures : Option(ArrayList(String)),
+  /// The closure impl fn's func_id (for get_func_type → its runtime param types,
+  /// e.g. the spawn-wrapper's closure-arg zero-inits).
+  closure_fid : String
 );
 ArrayStructInfo :: struct(child_type : String, length : i64);
 derive(ArrayStructInfo, Clone);
@@ -154,14 +152,12 @@ derive(ArrayStructInfo, Clone);
 /// data word is the payload's own address (a `dyn(&v)` / `dyn(&mut v)` /
 /// `dyn(p : *V)` Dyn pointer, decision 49), not the legacy cell holding it:
 /// its wrappers and slot functions read `*(V*)data`, and its key carries `_P`.
-DynImplEntry :: ref(
-  struct(
-    dyn_type : TypeValue,
-    concrete_type : TypeValue,
-    data_type : TypeValue,
-    trait_values : ArrayList(EvalValue),
-    payload_convention : bool
-  )
+DynImplEntry :: struct(
+  dyn_type : TypeValue,
+  concrete_type : TypeValue,
+  data_type : TypeValue,
+  trait_values : ArrayList(EvalValue),
+  payload_convention : bool
 );
 /// The convention suffix every key of a dyn impl carries: `_P` for a
 /// payload-convention instance, `_A` for a legacy instance over an atomically
@@ -182,7 +178,7 @@ dyn_impl_key_suffix :: (fn(payload_convention : bool, data_type : &TypeValue) ->
 /// specialization carries its original's, through the body token) and is
 /// empty for the header-routed runtime blocks; `--chunk-by module` groups
 /// translation units by it (plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §8).
-ChunkRange :: ref(struct(c_name : String, start_b : usize, end_b : usize, module : String));
+ChunkRange :: struct(c_name : String, start_b : usize, end_b : usize, module : String);
 /// The base C code generation context. See header above.
 CodeGenContext :: struct(
   /// Collected types that need to be generated (keyed by TypeId string).
@@ -835,7 +831,7 @@ std_allocator_abi_is_v2 :: (fn(env : &Environment, std_path : &String) -> bool)(
 });
 /// A runtime (non-comptime-only) struct field: its label and type, in
 /// declaration order.
-RuntimeStructField :: ref(struct(label : String, ty : TypeValue));
+RuntimeStructField :: struct(label : String, ty : TypeValue);
 /// The runtime (non-comptime-only) fields of a struct type, in declaration
 /// order. Non-struct types yield an empty
 /// list. A struct with no registered comptime-flags is treated as all-runtime.
