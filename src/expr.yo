@@ -622,7 +622,8 @@ ast_call_is_deref_read :: (fn(e : &AstExpr) -> bool)(
 (g_owner_deref_objects : RefCell(HashMap(ExprId, AstExpr))) = RefCell(HashMap(ExprId, AstExpr)).new(HashMap(ExprId, AstExpr).new());
 /// Record the `.*` node `star_id` as an owner's deref of `object`.
 note_owner_deref :: (fn(star_id : ExprId, object : &AstExpr) -> unit)({
-  _old := g_owner_deref_objects.with_mut(m => m.insert(star_id, object.clone()));
+  od_object := object.clone();
+  _old := g_owner_deref_objects.with_mut({ star_id, od_object }(m) => m.insert(star_id, od_object));
   ()
 });
 /// The object of an owner's `.*` node `e` (`note_owner_deref`), if `e` is one.
