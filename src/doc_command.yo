@@ -65,7 +65,7 @@ _resolve_path :: (fn(p : &String, exn : Exception) -> String)({
   base := match(
     cwd(),
     .Ok(c) => c,
-    .Err(e) => exn.throw(dyn(`doc: cannot determine cwd: ${e.to_string()}`))
+    .Err(e) => exn.throw(dyn(Box.new(`doc: cannot determine cwd: ${e.to_string()}`)))
   );
   base.join(&path).normalize().to_string()
 });
@@ -183,19 +183,19 @@ _find_yo_files :: (
   abs := _resolve_path(input_path, exn);
   path_exists := io.await(exists(Path.new(abs.clone()), io), io);
   if(!path_exists, {
-    exn.throw(dyn(`Path does not exist: ${abs}`));
+    exn.throw(dyn(Box.new(`Path does not exist: ${abs}`)));
   });
   meta := io.await(metadata(Path.new(abs.clone()), io), IoExn(io : io, exn : exn));
   if(meta.is_file(), {
     if(!abs.ends_with(String.from(".yo")), {
-      exn.throw(dyn(`Not a .yo file: ${abs}`));
+      exn.throw(dyn(Box.new(`Not a .yo file: ${abs}`)));
     });
     single := ArrayList(String).new();
     single.push(abs.clone());
     return(single);
   });
   if(!meta.is_dir(), {
-    exn.throw(dyn(`Not a file or directory: ${abs}`));
+    exn.throw(dyn(Box.new(`Not a file or directory: ${abs}`)));
   });
   files := ArrayList(String).new();
   _collect_yo_files(&abs, &mut files, io, exn);
@@ -470,7 +470,7 @@ run_doc :: (
   input_abs := _resolve_path(options.input.clone(), exn);
   input_exists := io.await(exists(Path.new(input_abs.clone()), io), io);
   if(!input_exists, {
-    exn.throw(dyn(`Path does not exist: ${input_abs}`));
+    exn.throw(dyn(Box.new(`Path does not exist: ${input_abs}`)));
   });
   input_meta := io.await(metadata(Path.new(input_abs.clone()), io), IoExn(io : io, exn : exn));
   base_path := if(
@@ -545,7 +545,7 @@ run_doc :: (
     );
     exn.throw(
       dyn(
-        `doc: ${degraded.len().to_string()} of ${modules.len().to_string()} module(s) failed to evaluate and would be documented from tokens only (no signatures, members untyped): ${String.from(", ").join(&names)}${more}. Pass --allow-token-only to accept token-only docs, or evaluate against the std tree these sources belong to (--std-path <dir>).`
+        Box.new(`doc: ${degraded.len().to_string()} of ${modules.len().to_string()} module(s) failed to evaluate and would be documented from tokens only (no signatures, members untyped): ${String.from(", ").join(&names)}${more}. Pass --allow-token-only to accept token-only docs, or evaluate against the std tree these sources belong to (--std-path <dir>).`)
       )
     );
   });

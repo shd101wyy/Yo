@@ -1074,7 +1074,7 @@ deleted_mode_spelling_error :: (fn(tok : &Token, old : &String) -> YoError)(
 reject_old_mode_spelling :: (fn(e : &AstExpr, exn : Exception) -> unit)(
   match(
     ast_expr_is_old_mode_spelling(e),
-    .Some(old) => exn.throw(dyn(deleted_mode_spelling_error(ast_expr_token(e), &old))),
+    .Some(old) => exn.throw(dyn(Box.new(deleted_mode_spelling_error(ast_expr_token(e), &old)))),
     .None => ()
   )
 );
@@ -1373,9 +1373,11 @@ expect_expr_to_be_fn_call_of :: (
   if(!ast_expr_is_fn_call(expr), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected function call, got atom:\n${ast_expr_to_string(expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected function call, got atom:\n${ast_expr_to_string(expr)}`
+          )
         )
       )
     );
@@ -1383,9 +1385,11 @@ expect_expr_to_be_fn_call_of :: (
   if(!ast_expr_is_fn_call_of(expr, func_name, .None), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected function call of "${String.from(func_name)}", got:\n${ast_expr_to_string(expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected function call of "${String.from(func_name)}", got:\n${ast_expr_to_string(expr)}`
+          )
         )
       )
     );
@@ -1401,9 +1405,11 @@ expect_expr_to_be_fn_call_of :: (
       if(actual != n, {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(expr),
-              `Expected ${n.to_string()} arguments, got ${actual.to_string()}:\n${ast_expr_to_string(expr)}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(expr),
+                `Expected ${n.to_string()} arguments, got ${actual.to_string()}:\n${ast_expr_to_string(expr)}`
+              )
             )
           )
         );
@@ -1424,9 +1430,11 @@ expect_expr_to_be_fn_call_of_any :: (
   if(!ast_expr_is_fn_call(expr), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected function call, got atom:\n${ast_expr_to_string(expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected function call, got atom:\n${ast_expr_to_string(expr)}`
+          )
         )
       )
     );
@@ -1434,9 +1442,11 @@ expect_expr_to_be_fn_call_of_any :: (
   if(!ast_expr_is_fn_call_of_any(expr, func_names, .None), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected function call of one of the expected names, got:\n${ast_expr_to_string(expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected function call of one of the expected names, got:\n${ast_expr_to_string(expr)}`
+          )
         )
       )
     );
@@ -1452,9 +1462,11 @@ expect_expr_to_be_fn_call_of_any :: (
       if(actual != n, {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(expr),
-              `Expected ${n.to_string()} arguments, got ${actual.to_string()}:\n${ast_expr_to_string(expr)}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(expr),
+                `Expected ${n.to_string()} arguments, got ${actual.to_string()}:\n${ast_expr_to_string(expr)}`
+              )
             )
           )
         );

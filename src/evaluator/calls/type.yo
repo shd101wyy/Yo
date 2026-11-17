@@ -97,9 +97,11 @@ try_to_call_type_with_arguments :: (
   if(n_args > n_fields, {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(function_callee_expr),
-          `Failed to call the type. Too many members provided. Expected ${n_fields.to_string()} arguments, got ${n_args.to_string()}.`
+        Box.new(
+          format_error_message(
+            ast_expr_token(function_callee_expr),
+            `Failed to call the type. Too many members provided. Expected ${n_fields.to_string()} arguments, got ${n_args.to_string()}.`
+          )
         )
       )
     );
@@ -107,9 +109,11 @@ try_to_call_type_with_arguments :: (
   if(is_union_type && !(n_args == usize(1)), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(function_callee_expr),
-          `Failed to call the union type. Expected exactly one argument, got ${n_args.to_string()}.`
+        Box.new(
+          format_error_message(
+            ast_expr_token(function_callee_expr),
+            `Failed to call the union type. Expected exactly one argument, got ${n_args.to_string()}.`
+          )
         )
       )
     );
@@ -130,7 +134,7 @@ try_to_call_type_with_arguments :: (
           .Some(ci) => match(&ci.value(), .Some(.TypeVal(ct)) => Rc.clone(ct), _ => Rc.clone(o_f.ty)),
           .None => Rc.clone(o_f.ty)
         );
-        exn.throw(dyn(format_error_message(ast_expr_token(function_callee_expr), origin_beyond_n2b_message(&o_shown))));
+        exn.throw(dyn(Box.new(format_error_message(ast_expr_token(function_callee_expr), origin_beyond_n2b_message(&o_shown)))));
       }),
       .None => ()
     );
@@ -167,9 +171,11 @@ try_to_call_type_with_arguments :: (
       .None => {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&arg_expr),
-              `No field at index ${i.to_string()} in type.`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&arg_expr),
+                `No field at index ${i.to_string()} in type.`
+              )
             )
           )
         );
@@ -188,7 +194,7 @@ try_to_call_type_with_arguments :: (
         label_sub_opt,
         .Some(s) => s,
         .None => {
-          exn.throw(dyn(format_error_message(ast_expr_token(&arg_expr), `Label arg missing label sub-expr.`)));
+          exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&arg_expr), `Label arg missing label sub-expr.`))));
           arg_expr
         }
       );
@@ -196,16 +202,18 @@ try_to_call_type_with_arguments :: (
         value_sub_opt,
         .Some(s) => s,
         .None => {
-          exn.throw(dyn(format_error_message(ast_expr_token(&arg_expr), `Label arg missing value sub-expr.`)));
+          exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&arg_expr), `Label arg missing value sub-expr.`))));
           arg_expr
         }
       );
       if(!ast_expr_is_atom(&label_sub), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&label_sub),
-              `Expected identifier for label, got:\n${ast_expr_to_string(&label_sub)}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&label_sub),
+                `Expected identifier for label, got:\n${ast_expr_to_string(&label_sub)}`
+              )
             )
           )
         );
@@ -240,9 +248,11 @@ try_to_call_type_with_arguments :: (
               if(found_field.assigned_value.is_some(), {
                 exn.throw(
                   dyn(
-                    format_error_message(
-                      ast_expr_token(&value_sub),
-                      `Cannot use label "${found_field.label}" for already assigned value:\n${found_field.label}: ${type_to_string(&found_field.ty)}`
+                    Box.new(
+                      format_error_message(
+                        ast_expr_token(&value_sub),
+                        `Cannot use label "${found_field.label}" for already assigned value:\n${found_field.label}: ${type_to_string(&found_field.ty)}`
+                      )
                     )
                   )
                 );
@@ -257,9 +267,11 @@ try_to_call_type_with_arguments :: (
         .None => {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&value_sub),
-                `Failed to find "${label_tok}" in the type.`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&value_sub),
+                  `Failed to find "${label_tok}" in the type.`
+                )
               )
             )
           );
@@ -270,9 +282,11 @@ try_to_call_type_with_arguments :: (
     if(match(checked_indices.get(&member_element_position_index), .Some(_) => true, .None => false), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&actual_arg_expr),
-            `Type member "${member_element.label}" is already implemented.`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&actual_arg_expr),
+              `Type member "${member_element.label}" is already implemented.`
+            )
           )
         )
       );
@@ -291,12 +305,14 @@ try_to_call_type_with_arguments :: (
           if(t9_is_mut_marker != t9_fm.*, {
             exn.throw(
               dyn(
-                with_code(
-                  format_error_message(
-                    ast_expr_token(&actual_arg_expr),
-                    `Field "${member_element.label}" takes \`${type_to_string(&member_element.ty)}\`: lend the place with \`${if(t9_fm.*, "&mut ", "&")}${ast_place_text(ast_expr_strip_borrow_marker(&actual_arg_expr))}\`.`
-                  ),
-                  E_BORROW_MARKER_MISMATCH
+                Box.new(
+                  with_code(
+                    format_error_message(
+                      ast_expr_token(&actual_arg_expr),
+                      `Field "${member_element.label}" takes \`${type_to_string(&member_element.ty)}\`: lend the place with \`${if(t9_fm.*, "&mut ", "&")}${ast_place_text(ast_expr_strip_borrow_marker(&actual_arg_expr))}\`.`
+                    ),
+                    E_BORROW_MARKER_MISMATCH
+                  )
                 )
               )
             );
@@ -345,9 +361,11 @@ try_to_call_type_with_arguments :: (
     if(arg_info_opt.is_none(), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&actual_arg_expr),
-            `Failed to evaluate argument expression:\n${ast_expr_to_string(&actual_arg_expr)}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&actual_arg_expr),
+              `Failed to evaluate argument expression:\n${ast_expr_to_string(&actual_arg_expr)}`
+            )
           )
         )
       );
@@ -478,12 +496,14 @@ try_to_call_type_with_arguments :: (
       // so the same code (E0601), whatever the message says.
       exn.throw(
         dyn(
-          with_code(
-            format_error_message(
-              ast_expr_token(&actual_arg_expr),
-              `Incompatible types for field "${member_element.label}":\n- Expected: ${type_to_string(&member_element.ty)}\n- Given  : ${type_to_string(&arg_type)}${same_name_note(&member_element.ty, &arg_type)}`
-            ),
-            E_INCOMPATIBLE_TYPES
+          Box.new(
+            with_code(
+              format_error_message(
+                ast_expr_token(&actual_arg_expr),
+                `Incompatible types for field "${member_element.label}":\n- Expected: ${type_to_string(&member_element.ty)}\n- Given  : ${type_to_string(&arg_type)}${same_name_note(&member_element.ty, &arg_type)}`
+              ),
+              E_INCOMPATIBLE_TYPES
+            )
           )
         )
       );

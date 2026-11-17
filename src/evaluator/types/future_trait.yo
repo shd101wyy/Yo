@@ -88,9 +88,11 @@ _resolve_effect_arg :: (
     is_spread => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(effect_expr),
-            `Future takes one effect argument, not a spread: write Future(T, E) for the bundle E, not Future(T, ${ast_expr_to_string(effect_expr)}).`
+          Box.new(
+            format_error_message(
+              ast_expr_token(effect_expr),
+              `Future takes one effect argument, not a spread: write Future(T, E) for the bundle E, not Future(T, ${ast_expr_to_string(effect_expr)}).`
+            )
           )
         )
       );
@@ -106,9 +108,11 @@ _resolve_effect_arg :: (
           if(!is_type_value(&info.value()), {
             exn.throw(
               dyn(
-                format_error_message(
-                  ast_expr_token(effect_expr),
-                  `Future effect argument must be an effect type (a bundle struct or a generic(E : Type.Struct) variable), but got:\n${ast_expr_to_string(effect_expr)}`
+                Box.new(
+                  format_error_message(
+                    ast_expr_token(effect_expr),
+                    `Future effect argument must be an effect type (a bundle struct or a generic(E : Type.Struct) variable), but got:\n${ast_expr_to_string(effect_expr)}`
+                  )
                 )
               )
             );
@@ -126,9 +130,11 @@ _resolve_effect_arg :: (
         .None => {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(effect_expr),
-                `Future effect argument must be an effect type (a bundle struct or a generic(E : Type.Struct) variable), but got:\n${ast_expr_to_string(effect_expr)}`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(effect_expr),
+                  `Future effect argument must be an effect type (a bundle struct or a generic(E : Type.Struct) variable), but got:\n${ast_expr_to_string(effect_expr)}`
+                )
               )
             )
           );
@@ -188,9 +194,11 @@ evaluate_future_type :: (
   if(expr_args.len() == usize(3), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          String.from("The third argument of `Future(T, E, p)` is an origin: a place, a tuple of places or `origin(...)`, not a type.\nTo combine multiple effects, declare a struct that bundles them and pass that struct as E.")
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            String.from("The third argument of `Future(T, E, p)` is an origin: a place, a tuple of places or `origin(...)`, not a type.\nTo combine multiple effects, declare a struct that bundles them and pass that struct as E.")
+          )
         )
       )
     );
@@ -198,9 +206,11 @@ evaluate_future_type :: (
   if((expr_args.len() < usize(1)) || (expr_args.len() > usize(2)), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          String.from("Future type constructor expects 1 to 3 arguments (output type, optional effect bundle struct, optional origin).\nUsage: Future(T), Future(T, E), Future(T, p) or Future(T, E, p).\nTo combine multiple effects, declare a struct that bundles them and pass that struct as E.")
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            String.from("Future type constructor expects 1 to 3 arguments (output type, optional effect bundle struct, optional origin).\nUsage: Future(T), Future(T, E), Future(T, p) or Future(T, E, p).\nTo combine multiple effects, declare a struct that bundles them and pass that struct as E.")
+          )
         )
       )
     );
@@ -215,9 +225,11 @@ evaluate_future_type :: (
     .None => {
       exn.throw(
         dyn(
-          format_eval_failure(
-            ast_expr_token(&element_type_expr),
-            `Failed to evaluate the element type expression for Future:\n${ast_expr_to_string(&element_type_expr)}`
+          Box.new(
+            format_eval_failure(
+              ast_expr_token(&element_type_expr),
+              `Failed to evaluate the element type expression for Future:\n${ast_expr_to_string(&element_type_expr)}`
+            )
           )
         )
       );
@@ -228,9 +240,11 @@ evaluate_future_type :: (
   if(!is_type_value(&elem_info.value()), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&element_type_expr),
-          `Future type constructor expects a type as its first argument, but got:\n${ast_expr_to_string(&element_type_expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&element_type_expr),
+            `Future type constructor expects a type as its first argument, but got:\n${ast_expr_to_string(&element_type_expr)}`
+          )
         )
       )
     );

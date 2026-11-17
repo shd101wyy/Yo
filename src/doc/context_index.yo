@@ -267,7 +267,7 @@ context_lock :: (fn(cache_root : &String, io : Io, exn : Exception) -> File)({
   lock_file := io.await(File.open(Path.new(lock_path.clone()), OpenMode.Append, io), IoExn(io : io, exn : exn));
   status := flock(lock_file.fd(), LOCK_EX);
   if(status < i32(0), {
-    exn.throw(dyn(`context: could not lock ${lock_path} (errno ${(i32(0) - status).to_string()})`));
+    exn.throw(dyn(Box.new(`context: could not lock ${lock_path} (errno ${(i32(0) - status).to_string()})`)));
   });
   lock_file
 });

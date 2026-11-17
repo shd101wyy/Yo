@@ -95,9 +95,11 @@ _reject_min_by_minus_one :: (fn(a : i64, b : i64, ty : &TypeValue, unsigned_64 :
     .Some(m) => if(!unsigned_64 && (a == m) && (b == i64(-1)), {
       exn.throw(
         dyn(
-          format_error_message(
-            tok,
-            `Integer overflow in compile-time evaluation: ${a.to_string()} / -1 does not fit in ${type_to_string(ty)}`
+          Box.new(
+            format_error_message(
+              tok,
+              `Integer overflow in compile-time evaluation: ${a.to_string()} / -1 does not fit in ${type_to_string(ty)}`
+            )
           )
         )
       );
@@ -248,11 +250,13 @@ check_int_overflow :: (
       );
       exn.throw(
         dyn(
-          format_error_message(
-            token,
-            `Integer overflow in compile-time evaluation
+          Box.new(
+            format_error_message(
+              token,
+              `Integer overflow in compile-time evaluation
   ${ua.to_string()} ${u_symbol} ${ub.to_string()} = ${uv.to_string()}
   Result ${uv.to_string()} exceeds ${type_to_string(ty)} range [0, ${rng.max.to_string()}]`
+            )
           )
         )
       );
@@ -273,11 +277,13 @@ check_int_overflow :: (
     );
     exn.throw(
       dyn(
-        format_error_message(
-          token,
-          `Integer overflow in compile-time evaluation
+        Box.new(
+          format_error_message(
+            token,
+            `Integer overflow in compile-time evaluation
   ${a.to_string()} ${op_symbol} ${b.to_string()} = ${value.to_string()}
   Result ${value.to_string()} exceeds ${type_to_string(ty)} range [${rng.min.to_string()}, ${rng.max.to_string()}]`
+          )
         )
       )
     );
@@ -313,9 +319,11 @@ eval_numeric_arg :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(arg),
-            `Expected numeric value for comptime numeric argument, got:\n${ast_expr_to_string(arg)}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(arg),
+              `Expected numeric value for comptime numeric argument, got:\n${ast_expr_to_string(arg)}`
+            )
           )
         )
       );
@@ -436,9 +444,11 @@ evaluate_yo_comptime_numeric_functions :: (
         if(is_unsigned_integer_type(&numeric_type), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(expr),
-                `Cannot apply negation to unsigned type: ${fn_name}`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(expr),
+                  `Cannot apply negation to unsigned type: ${fn_name}`
+                )
               )
             )
           );
@@ -475,9 +485,11 @@ evaluate_yo_comptime_numeric_functions :: (
                     if(neg_min, {
                       exn.throw(
                         dyn(
-                          format_error_message(
-                            ast_expr_token(expr),
-                            `Integer overflow in compile-time evaluation: -(${raw}) does not fit in ${type_to_string(&numeric_type)}`
+                          Box.new(
+                            format_error_message(
+                              ast_expr_token(expr),
+                              `Integer overflow in compile-time evaluation: -(${raw}) does not fit in ${type_to_string(&numeric_type)}`
+                            )
                           )
                         )
                       );
@@ -521,9 +533,11 @@ evaluate_yo_comptime_numeric_functions :: (
       true => {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(expr),
-              `Unexpected unary comptime numeric operation: ${op}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(expr),
+                `Unexpected unary comptime numeric operation: ${op}`
+              )
             )
           )
         );
@@ -590,12 +604,14 @@ evaluate_yo_comptime_numeric_functions :: (
                 if((op_s == "div") && (b == f64(0.0)), {
                   exn.throw(
                     dyn(
-                      with_code(
-                        format_error_message(
-                          ast_expr_token(&arg1),
-                          `Division by zero in compile-time evaluation: ${a.to_string()} / 0.0`
-                        ),
-                        E_COMPTIME_DIVISION_BY_ZERO
+                      Box.new(
+                        with_code(
+                          format_error_message(
+                            ast_expr_token(&arg1),
+                            `Division by zero in compile-time evaluation: ${a.to_string()} / 0.0`
+                          ),
+                          E_COMPTIME_DIVISION_BY_ZERO
+                        )
                       )
                     )
                   );
@@ -649,9 +665,11 @@ evaluate_yo_comptime_numeric_functions :: (
         (op_s == "mod") => {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(expr),
-                `Modulo operation not supported for floating point types: ${fn_name}`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(expr),
+                  `Modulo operation not supported for floating point types: ${fn_name}`
+                )
               )
             )
           );
@@ -659,9 +677,11 @@ evaluate_yo_comptime_numeric_functions :: (
         true => {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(expr),
-                `Unexpected binary comptime float operation: ${op}`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(expr),
+                  `Unexpected binary comptime float operation: ${op}`
+                )
               )
             )
           );
@@ -739,12 +759,14 @@ evaluate_yo_comptime_numeric_functions :: (
                 if(b == i64(0), {
                   exn.throw(
                     dyn(
-                      with_code(
-                        format_error_message(
-                          ast_expr_token(&arg1),
-                          `Division by zero in compile-time evaluation: ${cond(unsigned_64 => u64(a).to_string(), true => a.to_string())} / 0`
-                        ),
-                        E_COMPTIME_DIVISION_BY_ZERO
+                      Box.new(
+                        with_code(
+                          format_error_message(
+                            ast_expr_token(&arg1),
+                            `Division by zero in compile-time evaluation: ${cond(unsigned_64 => u64(a).to_string(), true => a.to_string())} / 0`
+                          ),
+                          E_COMPTIME_DIVISION_BY_ZERO
+                        )
                       )
                     )
                   );
@@ -776,12 +798,14 @@ evaluate_yo_comptime_numeric_functions :: (
                 if(b == i64(0), {
                   exn.throw(
                     dyn(
-                      with_code(
-                        format_error_message(
-                          ast_expr_token(&arg1),
-                          `Remainder by zero in compile-time evaluation: ${cond(unsigned_64 => u64(a).to_string(), true => a.to_string())} % 0`
-                        ),
-                        E_COMPTIME_DIVISION_BY_ZERO
+                      Box.new(
+                        with_code(
+                          format_error_message(
+                            ast_expr_token(&arg1),
+                            `Remainder by zero in compile-time evaluation: ${cond(unsigned_64 => u64(a).to_string(), true => a.to_string())} % 0`
+                          ),
+                          E_COMPTIME_DIVISION_BY_ZERO
+                        )
                       )
                     )
                   );
@@ -877,9 +901,11 @@ evaluate_yo_comptime_numeric_functions :: (
                 if((b < i64(0)) || (b >= i64(sh_w)), {
                   exn.throw(
                     dyn(
-                      format_error_message(
-                        ast_expr_token(expr),
-                        `Integer overflow in compile-time evaluation: shift count ${b.to_string()} is out of range for ${type_to_string(&numeric_type)} (0..${sh_w.to_string()})`
+                      Box.new(
+                        format_error_message(
+                          ast_expr_token(expr),
+                          `Integer overflow in compile-time evaluation: shift count ${b.to_string()} is out of range for ${type_to_string(&numeric_type)} (0..${sh_w.to_string()})`
+                        )
                       )
                     )
                   );
@@ -887,9 +913,11 @@ evaluate_yo_comptime_numeric_functions :: (
                 if((op_s == "shl") && is_comptime_int_type(&numeric_type) && (a != i64(0)) && (((a << b) >> b) != a), {
                   exn.throw(
                     dyn(
-                      format_error_message(
-                        ast_expr_token(expr),
-                        `Integer overflow in compile-time evaluation: ${a.to_string()} << ${b.to_string()} exceeds the compile-time integer range`
+                      Box.new(
+                        format_error_message(
+                          ast_expr_token(expr),
+                          `Integer overflow in compile-time evaluation: ${a.to_string()} << ${b.to_string()} exceeds the compile-time integer range`
+                        )
                       )
                     )
                   );
@@ -913,9 +941,11 @@ evaluate_yo_comptime_numeric_functions :: (
         true => {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(expr),
-                `Unexpected binary comptime integer operation: ${op}`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(expr),
+                  `Unexpected binary comptime integer operation: ${op}`
+                )
               )
             )
           );

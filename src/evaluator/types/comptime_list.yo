@@ -40,9 +40,11 @@ evaluate_comptime_list_type :: (
   if(!ast_expr_is_fn_call_of(expr, BK_COMPTIME_LIST_TYPE, .Some(usize(1))), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected "ComptimeList" with 1 argument, got:\n${ast_expr_to_string(expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected "ComptimeList" with 1 argument, got:\n${ast_expr_to_string(expr)}`
+          )
         )
       )
     );
@@ -66,9 +68,11 @@ evaluate_comptime_list_type :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&elem_expr),
-            `Failed to evaluate the element type expression:\n${ast_expr_to_string(&elem_expr)}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&elem_expr),
+              `Failed to evaluate the element type expression:\n${ast_expr_to_string(&elem_expr)}`
+            )
           )
         )
       );
@@ -84,9 +88,11 @@ evaluate_comptime_list_type :: (
   if(!is_type_value(&elem_info.value()), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&elem_expr),
-          `Expected type for element type, got:\n${ast_expr_to_string(&elem_expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&elem_expr),
+            `Expected type for element type, got:\n${ast_expr_to_string(&elem_expr)}`
+          )
         )
       )
     );

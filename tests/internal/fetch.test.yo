@@ -180,7 +180,7 @@ _fm_git :: (fn(dir : &String, io : Io, e : IoExn, (a : str) ?= "", (b : str) ?= 
   });
   status := e.io.await(cmd.status(e.io), e);
   if(!status.success(), {
-    e.exn.throw(dyn(`git ${a} failed in ${dir}`));
+    e.exn.throw(dyn(Box.new(`git ${a} failed in ${dir}`)));
   });
 });
 test("fetch_package: a mutated inner file of a stored tree is detected and the tree re-fetched", {

@@ -2532,7 +2532,7 @@ check_type_implements_self_constraints :: (
 )(
   match(
     check_self_constraints_violation_msg(target_type, trait_type, env),
-    .Some(msg) => exn.throw(dyn(format_error_message(error_token, &msg))),
+    .Some(msg) => exn.throw(dyn(Box.new(format_error_message(error_token, &msg)))),
     .None => ()
   )
 );
@@ -3575,7 +3575,7 @@ validate_type_availability :: (
   });
   if(!(type_implements_comptime(ty, env) || type_implements_runtime_full(ty, env)), {
     msg := `Type `.concat(type_to_string(ty)).concat(` has incompatible field contexts and cannot be used in any evaluation context.`);
-    exn.throw(dyn(format_error_message(token, &msg)));
+    exn.throw(dyn(Box.new(format_error_message(token, &msg))));
   })
 });
 // ---------------------------------------------------------------------------

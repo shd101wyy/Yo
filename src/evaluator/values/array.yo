@@ -54,9 +54,11 @@ evaluate_array_value :: (
   if(array_len == usize(0), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected at least one element in array, got ${array_len}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected at least one element in array, got ${array_len}`
+          )
         )
       )
     );
@@ -99,9 +101,11 @@ evaluate_array_value :: (
     if(elem_info_opt.is_none(), {
       exn.throw(
         dyn(
-          format_eval_failure(
-            ast_expr_token(&arg),
-            `Failed to evaluate array element`
+          Box.new(
+            format_eval_failure(
+              ast_expr_token(&arg),
+              `Failed to evaluate array element`
+            )
           )
         )
       );
@@ -142,9 +146,11 @@ evaluate_array_value :: (
                 elem_str := type_to_string(&elem_ty);
                 exn.throw(
                   dyn(
-                    format_error_message(
-                      ast_expr_token(&arg),
-                      `Array element type mismatch:\nExpected type: ${inferred_str}\nGiven type: ${elem_str}`
+                    Box.new(
+                      format_error_message(
+                        ast_expr_token(&arg),
+                        `Array element type mismatch:\nExpected type: ${inferred_str}\nGiven type: ${elem_str}`
+                      )
                     )
                   )
                 );
@@ -164,9 +170,11 @@ evaluate_array_value :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            `Failed to infer array element type`
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              `Failed to infer array element type`
+            )
           )
         )
       );

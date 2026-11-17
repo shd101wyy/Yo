@@ -1109,10 +1109,12 @@ _reject_empty_origin_in_safe_code :: (fn(e : &AstExpr, std_path : &String, exn :
   subject := if(_is_static_origin_spelling(e), String.from("The empty origin `static` is"), `\`${ast_expr_to_string(e)}\` is the empty origin \`static\`, which is`);
   exn.throw(
     dyn(
-      _origin_error(
-        e,
-        `${subject} not available in safe code in v0.2.77 (decision 49): it is unchecked until v0.2.78, so a reference typed over it would accept a reference to any place and freeze nothing.`,
-        String.from("elide the origin (`&T`) or name the place the reference points into (`&(T, x)`); only std and a file that declares `pragma(Pragma.AllowUnsafe);` may spell `static`, as an unchecked assertion")
+      Box.new(
+        _origin_error(
+          e,
+          `${subject} not available in safe code in v0.2.77 (decision 49): it is unchecked until v0.2.78, so a reference typed over it would accept a reference to any place and freeze nothing.`,
+          String.from("elide the origin (`&T`) or name the place the reference points into (`&(T, x)`); only std and a file that declares `pragma(Pragma.AllowUnsafe);` may spell `static`, as an unchecked assertion")
+        )
       )
     )
   );
@@ -1143,10 +1145,12 @@ _origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut EvalConte
   if(!ast_expr_is_atom(e) || !is_valid_variable_name(e), {
     exn.throw(
       dyn(
-        _origin_error(
-          e,
-          `\`${o_text}\` is not an origin: the second argument of \`&(T, o)\` names an origin parameter or a union of them, \`(p, q)\`.`,
-          String.from("declare the origin in the signature, `generic(p : Origin)`, and write `x : &(T, p)`")
+        Box.new(
+          _origin_error(
+            e,
+            `\`${o_text}\` is not an origin: the second argument of \`&(T, o)\` names an origin parameter or a union of them, \`(p, q)\`.`,
+            String.from("declare the origin in the signature, `generic(p : Origin)`, and write `x : &(T, p)`")
+          )
         )
       )
     );
@@ -1158,20 +1162,24 @@ _origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut EvalConte
     if(_origin_operand_is_type(e, env, ctx), {
       exn.throw(
         dyn(
-          _origin_error(
-            e,
-            `\`${o_text}\` is a type, not an origin: the second argument of \`&(T, o)\` is an origin.`,
-            `a reference to a tuple is \`&Tuple(A, ${o_text})\`; an origin is declared with \`generic(p : Origin)\``
+          Box.new(
+            _origin_error(
+              e,
+              `\`${o_text}\` is a type, not an origin: the second argument of \`&(T, o)\` is an origin.`,
+              `a reference to a tuple is \`&Tuple(A, ${o_text})\`; an origin is declared with \`generic(p : Origin)\``
+            )
           )
         )
       );
     });
     exn.throw(
       dyn(
-        _origin_error(
-          e,
-          `The origin \`${o_text}\` is not declared.`,
-          `declare it in the signature: \`generic(${o_text} : Origin)\``
+        Box.new(
+          _origin_error(
+            e,
+            `The origin \`${o_text}\` is not declared.`,
+            `declare it in the signature: \`generic(${o_text} : Origin)\``
+          )
         )
       )
     );
@@ -1187,20 +1195,24 @@ _origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut EvalConte
   if(o_is_type, {
     exn.throw(
       dyn(
-        _origin_error(
-          e,
-          `\`${o_text}\` is a type, not an origin: the second argument of \`&(T, o)\` is an origin.`,
-          `a reference to a tuple is \`&Tuple(A, ${o_text})\`; an origin is declared with \`generic(p : Origin)\``
+        Box.new(
+          _origin_error(
+            e,
+            `\`${o_text}\` is a type, not an origin: the second argument of \`&(T, o)\` is an origin.`,
+            `a reference to a tuple is \`&Tuple(A, ${o_text})\`; an origin is declared with \`generic(p : Origin)\``
+          )
         )
       )
     );
   });
   exn.throw(
     dyn(
-      _origin_error(
-        e,
-        `\`${o_text}\` is not an origin parameter: a parameter's type names origins declared with \`generic(p : Origin)\`.`,
-        `a parameter's own place is an origin in the RESULT type (\`-> &(T, ${o_text})\`); in a parameter type, declare \`generic(p : Origin)\``
+      Box.new(
+        _origin_error(
+          e,
+          `\`${o_text}\` is not an origin parameter: a parameter's type names origins declared with \`generic(p : Origin)\`.`,
+          `a parameter's own place is an origin in the RESULT type (\`-> &(T, ${o_text})\`); in a parameter type, declare \`generic(p : Origin)\``
+        )
       )
     )
   );
@@ -1255,13 +1267,15 @@ _type_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut Eval
     .Some(r) => if((ast_expr_text(&r).* == "self") && (get_variables_from_env(env, String.from("self")).len() == usize(0)), {
       exn.throw(
         dyn(
-          with_code(
-            format_error_message_with_help(
-              ast_expr_token(e),
-              `\`${o_text}\` names the value being defined: a type may not name its own fields or its own place as an origin (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O1), because a value that points into itself could not be moved.`,
-              Option(String).Some(String.from("point outward instead: declare `comptime(p) : Origin` on a type constructor and write the field as `&(T, p)`, or store an index into the value rather than a reference"))
-            ),
-            E_ORIGIN_NAMES_ITSELF
+          Box.new(
+            with_code(
+              format_error_message_with_help(
+                ast_expr_token(e),
+                `\`${o_text}\` names the value being defined: a type may not name its own fields or its own place as an origin (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O1), because a value that points into itself could not be moved.`,
+                Option(String).Some(String.from("point outward instead: declare `comptime(p) : Origin` on a type constructor and write the field as `&(T, p)`, or store an index into the value rather than a reference"))
+              ),
+              E_ORIGIN_NAMES_ITSELF
+            )
           )
         )
       );
@@ -1271,10 +1285,12 @@ _type_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut Eval
   if(!ast_expr_is_atom(e) || !is_valid_variable_name(e), {
     exn.throw(
       dyn(
-        _origin_error(
-          e,
-          `\`${o_text}\` is not an origin: the second argument of \`&(T, o)\` names an origin parameter, a binding whose place the reference points into, or a union of them, \`(p, q)\`.`,
-          String.from("name the binding itself (`&(T, x)`); a field path is not an origin yet (plans/backlog/REFERENCES_AND_ORIGINS.md §7)")
+        Box.new(
+          _origin_error(
+            e,
+            `\`${o_text}\` is not an origin: the second argument of \`&(T, o)\` names an origin parameter, a binding whose place the reference points into, or a union of them, \`(p, q)\`.`,
+            String.from("name the binding itself (`&(T, x)`); a field path is not an origin yet (plans/backlog/REFERENCES_AND_ORIGINS.md §7)")
+          )
         )
       )
     );
@@ -1286,10 +1302,12 @@ _type_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut Eval
     if(_origin_operand_is_type(e, env, ctx), {
       exn.throw(
         dyn(
-          _origin_error(
-            e,
-            `\`${o_text}\` is a type, not an origin: the second argument of \`&(T, o)\` is an origin.`,
-            `a reference to a tuple is \`&Tuple(A, ${o_text})\`; an origin is declared with \`comptime(p) : Origin\` on a type constructor`
+          Box.new(
+            _origin_error(
+              e,
+              `\`${o_text}\` is a type, not an origin: the second argument of \`&(T, o)\` is an origin.`,
+              `a reference to a tuple is \`&Tuple(A, ${o_text})\`; an origin is declared with \`comptime(p) : Origin\` on a type constructor`
+            )
           )
         )
       );
@@ -1300,10 +1318,12 @@ _type_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut Eval
   if(o_n == usize(0), {
     exn.throw(
       dyn(
-        _origin_error(
-          e,
-          `The origin \`${o_text}\` is not declared.`,
-          `declare it on the type constructor, \`comptime(${o_text}) : Origin\`, or on the function, \`generic(${o_text} : Origin)\`, or name a binding in scope`
+        Box.new(
+          _origin_error(
+            e,
+            `The origin \`${o_text}\` is not declared.`,
+            `declare it on the type constructor, \`comptime(${o_text}) : Origin\`, or on the function, \`generic(${o_text} : Origin)\`, or name a binding in scope`
+          )
         )
       )
     );
@@ -1314,10 +1334,12 @@ _type_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut Eval
   if(o_is_type, {
     exn.throw(
       dyn(
-        _origin_error(
-          e,
-          `\`${o_text}\` is a type, not an origin: the second argument of \`&(T, o)\` is an origin.`,
-          `a reference to a tuple is \`&Tuple(A, ${o_text})\`; an origin is declared with \`comptime(p) : Origin\` on a type constructor`
+        Box.new(
+          _origin_error(
+            e,
+            `\`${o_text}\` is a type, not an origin: the second argument of \`&(T, o)\` is an origin.`,
+            `a reference to a tuple is \`&Tuple(A, ${o_text})\`; an origin is declared with \`comptime(p) : Origin\` on a type constructor`
+          )
         )
       )
     );
@@ -1325,10 +1347,12 @@ _type_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut Eval
   if(match(o_value, .Some(.FuncVal(_, _)) => true, _ => false), {
     exn.throw(
       dyn(
-        _origin_error(
-          e,
-          `\`${o_text}\` is a function, not a place: an origin names an origin parameter or a binding a reference points into.`,
-          `declare an origin parameter, \`comptime(p) : Origin\`, or name the binding the reference borrows`
+        Box.new(
+          _origin_error(
+            e,
+            `\`${o_text}\` is a function, not a place: an origin names an origin parameter or a binding a reference points into.`,
+            `declare an origin parameter, \`comptime(p) : Origin\`, or name the binding the reference borrows`
+          )
         )
       )
     );
@@ -1382,13 +1406,15 @@ _reject_origin_union_naming :: (fn(o : &AstExpr, name : &String, exn : Exception
     .Some(r) => if(ast_expr_text(&r).* == name.*, {
       exn.throw(
         dyn(
-          with_code(
-            format_error_message_with_help(
-              ast_expr_token(o),
-              `\`${ast_place_text(o)}\` names the binding being declared: a binding's type may not name its own place as an origin (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O1), because a value that points into itself could not be moved.`,
-              Option(String).Some(`name the place the references point into (\`&(T, y)\`), or elide it (\`&T\`): the binding's flow set then records what it points into`)
-            ),
-            E_ORIGIN_NAMES_ITSELF
+          Box.new(
+            with_code(
+              format_error_message_with_help(
+                ast_expr_token(o),
+                `\`${ast_place_text(o)}\` names the binding being declared: a binding's type may not name its own place as an origin (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O1), because a value that points into itself could not be moved.`,
+                Option(String).Some(`name the place the references point into (\`&(T, y)\`), or elide it (\`&T\`): the binding's flow set then records what it points into`)
+              ),
+              E_ORIGIN_NAMES_ITSELF
+            )
           )
         )
       );
@@ -1431,7 +1457,7 @@ evaluate_reference_type :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut E
     ev_info.value(),
     .Some(.TypeVal(t)) => Rc.clone(t),
     _ => {
-      exn.throw(dyn(format_error_message(ast_expr_token(&pointee_expr), `\`${ast_expr_to_string(&pointee_expr)}\` is not a type: a reference type \`&T\` takes a type.`)));
+      exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&pointee_expr), `\`${ast_expr_to_string(&pointee_expr)}\` is not a type: a reference type \`&T\` takes a type.`))));
       Rc.new(TypeValueNode.Unit)
     }
   );
@@ -1486,10 +1512,12 @@ _result_origin_names_into :: (fn(e : &AstExpr, params : &FuncParamsResult, env :
   if(!ast_expr_is_atom(e) || !is_valid_variable_name(e), {
     exn.throw(
       dyn(
-        _origin_error(
-          e,
-          `\`${r_text}\` is not an origin: the second argument of a result \`-> &(T, o)\` names an origin parameter, a reference parameter, or a union of them, \`(p, xs)\`.`,
-          String.from("name a reference parameter, `-> &(T, xs)` for `xs : &T`, or an origin parameter declared with `generic(p : Origin)`")
+        Box.new(
+          _origin_error(
+            e,
+            `\`${r_text}\` is not an origin: the second argument of a result \`-> &(T, o)\` names an origin parameter, a reference parameter, or a union of them, \`(p, xs)\`.`,
+            String.from("name a reference parameter, `-> &(T, xs)` for `xs : &T`, or an origin parameter declared with `generic(p : Origin)`")
+          )
         )
       )
     );
@@ -1513,13 +1541,15 @@ _result_origin_names_into :: (fn(e : &AstExpr, params : &FuncParamsResult, env :
         if(!t_slot_is_borrow(&rp.ty), {
           exn.throw(
             dyn(
-              with_code(
-                format_error_message_with_help(
-                  ast_expr_token(e),
-                  `The result borrows from \`${r_text}\`, a by-value parameter: its place is the callee's own frame, which the call ends, so no reference into it outlives the call.`,
-                  Option(String).Some(`take it by reference, \`${r_text} : &T\`, and return \`-> &(T, ${r_text})\`, or return the value, \`-> T\``)
-                ),
-                E_LOCAL_BORROW_ESCAPES
+              Box.new(
+                with_code(
+                  format_error_message_with_help(
+                    ast_expr_token(e),
+                    `The result borrows from \`${r_text}\`, a by-value parameter: its place is the callee's own frame, which the call ends, so no reference into it outlives the call.`,
+                    Option(String).Some(`take it by reference, \`${r_text} : &T\`, and return \`-> &(T, ${r_text})\`, or return the value, \`-> T\``)
+                  ),
+                  E_LOCAL_BORROW_ESCAPES
+                )
               )
             )
           );
@@ -1553,10 +1583,12 @@ _result_origin_names_into :: (fn(e : &AstExpr, params : &FuncParamsResult, env :
       if(!named, {
         exn.throw(
           dyn(
-            _origin_error(
-              e,
-              `The origin \`${r_text}\` is the impl's, but no parameter's type names it: a call binds an impl's origin parameter from its arguments' types (the receiver's \`H(..., o)\` gives \`${r_text} := o\`), so this result's origin could not be determined.`,
-              `name it in a parameter's type (\`self : &Self\` for \`impl(generic(${r_text} : Origin), H(${r_text}), …)\`), declare it on the function, \`generic(${r_text} : Origin)\`, or name a reference parameter, \`-> &(T, xs)\` for \`xs : &T\``
+            Box.new(
+              _origin_error(
+                e,
+                `The origin \`${r_text}\` is the impl's, but no parameter's type names it: a call binds an impl's origin parameter from its arguments' types (the receiver's \`H(..., o)\` gives \`${r_text} := o\`), so this result's origin could not be determined.`,
+                `name it in a parameter's type (\`self : &Self\` for \`impl(generic(${r_text} : Origin), H(${r_text}), …)\`), declare it on the function, \`generic(${r_text} : Origin)\`, or name a reference parameter, \`-> &(T, xs)\` for \`xs : &T\``
+              )
             )
           )
         );
@@ -1574,10 +1606,12 @@ _result_origin_names_into :: (fn(e : &AstExpr, params : &FuncParamsResult, env :
     if(match(params.forall_params.get_cloned(rfi), .Some(fp) => (fp.label == r_name), .None => false), {
       exn.throw(
         dyn(
-          _origin_error(
-            e,
-            `\`${r_text}\` is a type parameter, not an origin: the second argument of a result \`-> &(T, o)\` is an origin.`,
-            String.from("name a reference parameter, `-> &(T, xs)` for `xs : &T`, or declare an origin, `generic(p : Origin)`")
+          Box.new(
+            _origin_error(
+              e,
+              `\`${r_text}\` is a type parameter, not an origin: the second argument of a result \`-> &(T, o)\` is an origin.`,
+              String.from("name a reference parameter, `-> &(T, xs)` for `xs : &T`, or declare an origin, `generic(p : Origin)`")
+            )
           )
         )
       );
@@ -1586,10 +1620,12 @@ _result_origin_names_into :: (fn(e : &AstExpr, params : &FuncParamsResult, env :
   });
   exn.throw(
     dyn(
-      _origin_error(
-        e,
-        `The origin \`${r_text}\` is not declared.`,
-        `declare it in the signature, \`generic(${r_text} : Origin)\`, or name a reference parameter, \`-> &(T, xs)\` for \`xs : &T\``
+      Box.new(
+        _origin_error(
+          e,
+          `The origin \`${r_text}\` is not declared.`,
+          `declare it in the signature, \`generic(${r_text} : Origin)\`, or name a reference parameter, \`-> &(T, xs)\` for \`xs : &T\``
+        )
       )
     )
   );
@@ -1670,9 +1706,11 @@ _get_expr_type :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            `Failed to get expr info after evaluation`
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              `Failed to get expr info after evaluation`
+            )
           )
         )
       );
@@ -1682,9 +1720,11 @@ _get_expr_type :: (
   if(!is_type_value(&info.value()), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected a type value, got ${ast_expr_to_string(expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected a type value, got ${ast_expr_to_string(expr)}`
+          )
         )
       )
     );
@@ -2109,9 +2149,11 @@ evaluate_function_parameter :: (
     }, {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&expr_mut),
-            `Use "?=" for default parameter values. Assigned values require an explicit type: (name : Type) = value.`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&expr_mut),
+              `Use "?=" for default parameter values. Assigned values require an explicit type: (name : Type) = value.`
+            )
           )
         )
       );
@@ -2121,9 +2163,11 @@ evaluate_function_parameter :: (
   if(ast_expr_is_fn_call_of(&expr_mut, ":=", .Some(usize(2))), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&expr_mut),
-          `":=" is not allowed in parameter lists. Use (name : Type) = value instead.`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&expr_mut),
+            `":=" is not allowed in parameter lists. Use (name : Type) = value instead.`
+          )
         )
       )
     );
@@ -2159,9 +2203,11 @@ evaluate_function_parameter :: (
   if(type_expr.is_none(), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          &_type_err_msg
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            &_type_err_msg
+          )
         )
       )
     );
@@ -2176,9 +2222,11 @@ evaluate_function_parameter :: (
         if(is_parameter_comptime_by_default, {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&lhs_mut),
-                `"generic"/"using" parameters are "comptime" by default. Not needed to use "comptime" modifier.`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&lhs_mut),
+                  `"generic"/"using" parameters are "comptime" by default. Not needed to use "comptime" modifier.`
+                )
               )
             )
           );
@@ -2188,9 +2236,11 @@ evaluate_function_parameter :: (
         if(!(c_args.len() == usize(1)), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&lhs_mut),
-                `Expected one argument for "comptime", got ${c_args.len()}`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&lhs_mut),
+                  `Expected one argument for "comptime", got ${c_args.len()}`
+                )
               )
             )
           );
@@ -2211,9 +2261,11 @@ evaluate_function_parameter :: (
         if(!(o_args.len() == usize(1)), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&lhs_mut),
-                `Expected one argument for "sink", got ${o_args.len()}`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&lhs_mut),
+                  `Expected one argument for "sink", got ${o_args.len()}`
+                )
               )
             )
           );
@@ -2230,15 +2282,17 @@ evaluate_function_parameter :: (
         m_args := _fn_call_args(&lhs_mut);
         if(!(m_args.len() == usize(1)), {
           exn.throw(
-            dyn(format_error_message(ast_expr_token(&lhs_mut), `Expected one argument for "imm", got ${m_args.len()}`))
+            dyn(Box.new(format_error_message(ast_expr_token(&lhs_mut), `Expected one argument for "imm", got ${m_args.len()}`)))
           );
         });
         if(is_owning_rc_value, {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&lhs_mut),
-                `Cannot combine \`sink\` with a borrow on the same parameter — \`sink(x) : T\` takes ownership and \`x : &T\` borrows.`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&lhs_mut),
+                  `Cannot combine \`sink\` with a borrow on the same parameter — \`sink(x) : T\` takes ownership and \`x : &T\` borrows.`
+                )
               )
             )
           );
@@ -2248,9 +2302,11 @@ evaluate_function_parameter :: (
         if(ast_expr_is_inout_mode_call(&lhs_mut, Option(usize).None), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&lhs_mut),
-                `A parameter is a read-only borrow (\`x : &T\`) or an exclusive one (\`x : &mut T\`), not both.`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&lhs_mut),
+                  `A parameter is a read-only borrow (\`x : &T\`) or an exclusive one (\`x : &mut T\`), not both.`
+                )
               )
             )
           );
@@ -2263,15 +2319,17 @@ evaluate_function_parameter :: (
         r_args := _fn_call_args(&lhs_mut);
         if(!(r_args.len() == usize(1)), {
           exn.throw(
-            dyn(format_error_message(ast_expr_token(&lhs_mut), `Expected one argument for "mut", got ${r_args.len()}`))
+            dyn(Box.new(format_error_message(ast_expr_token(&lhs_mut), `Expected one argument for "mut", got ${r_args.len()}`)))
           );
         });
         if(is_owning_rc_value, {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&lhs_mut),
-                `Cannot combine \`sink\` with \`&mut T\` on the same parameter — they have opposite calling conventions.`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&lhs_mut),
+                  `Cannot combine \`sink\` with \`&mut T\` on the same parameter — they have opposite calling conventions.`
+                )
               )
             )
           );
@@ -2283,9 +2341,11 @@ evaluate_function_parameter :: (
           // makes no sense.
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&lhs_mut),
-                `A \`generic\`/\`using\` parameter cannot be \`&mut T\` — it is erased at runtime and has no callee-side binding to mutate.`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&lhs_mut),
+                  `A \`generic\`/\`using\` parameter cannot be \`&mut T\` — it is erased at runtime and has no callee-side binding to mutate.`
+                )
               )
             )
           );
@@ -2300,9 +2360,11 @@ evaluate_function_parameter :: (
         if(!(q_args.len() == usize(1)), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&lhs_mut),
-                `Expected one argument for "quote" (or ":"), got ${q_args.len()}`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&lhs_mut),
+                  `Expected one argument for "quote" (or ":"), got ${q_args.len()}`
+                )
               )
             )
           );
@@ -2310,9 +2372,11 @@ evaluate_function_parameter :: (
         if(is_compile_time_only, {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&lhs_mut),
-                `Cannot use "comptime" with "quote" (or ":"). "quote" parameters means compile-time only, so "comptime" is redundant.`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&lhs_mut),
+                  `Cannot use "comptime" with "quote" (or ":"). "quote" parameters means compile-time only, so "comptime" is redundant.`
+                )
               )
             )
           );
@@ -2323,15 +2387,17 @@ evaluate_function_parameter :: (
       if(!ast_expr_is_atom(&lhs_mut) || !is_valid_variable_name(&lhs_mut), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&lhs_mut),
-              `Expected identifier for parameter label, got ${ast_expr_to_string(&lhs_mut)}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&lhs_mut),
+                `Expected identifier for parameter label, got ${ast_expr_to_string(&lhs_mut)}`
+              )
             )
           )
         );
       });
       if(ast_expr_token(&lhs_mut).value.* == "mut", {
-        exn.throw(dyn(format_error_message(ast_expr_token(&lhs_mut), reserved_builtin_binding_message(String.from("mut")))));
+        exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&lhs_mut), reserved_builtin_binding_message(String.from("mut"))))));
       });
       label = .Some(ast_expr_text(&lhs_mut).*.clone());
       label_expr = .Some(lhs_mut);
@@ -2342,9 +2408,11 @@ evaluate_function_parameter :: (
   if(label.is_none(), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected a label for function parameter, got ${ast_expr_to_string(expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected a label for function parameter, got ${ast_expr_to_string(expr)}`
+          )
         )
       )
     );
@@ -2353,9 +2421,11 @@ evaluate_function_parameter :: (
   if(match(&label, .Some(l) => (l.* == "Self"), .None => false), {
     exn.throw(
       dyn(
-        format_error_message(
-          match(label_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
-          String.from("Not allowed to use 'Self' as the label.")
+        Box.new(
+          format_error_message(
+            match(label_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
+            String.from("Not allowed to use 'Self' as the label.")
+          )
         )
       )
     );
@@ -2384,7 +2454,7 @@ evaluate_function_parameter :: (
       match(
         so_phase,
         .Some(sp) => {
-          exn.throw(dyn(format_error_message(ast_expr_token(&so_te), `\`${ast_expr_to_string(&so_te)}\` cannot be this parameter's type: ${sp}.`)));
+          exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&so_te), `\`${ast_expr_to_string(&so_te)}\` cannot be this parameter's type: ${sp}.`))));
         },
         .None => ()
       );
@@ -2408,9 +2478,11 @@ evaluate_function_parameter :: (
       if(av_ty_opt.is_none(), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&ave),
-              `Expected type value for = assignment, got ${ast_expr_to_string(&ave)}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&ave),
+                `Expected type value for = assignment, got ${ast_expr_to_string(&ave)}`
+              )
             )
           )
         );
@@ -2420,9 +2492,11 @@ evaluate_function_parameter :: (
       if(!is_compile_time_only, {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&ave),
-              `Assigned value (=) is only allowed for compile-time parameters. Use "comptime(${match(&label, .Some(l) => l.clone(), .None => String.from("?"))})" or put this in "generic(...)".`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&ave),
+                `Assigned value (=) is only allowed for compile-time parameters. Use "comptime(${match(&label, .Some(l) => l.clone(), .None => String.from("?"))})" or put this in "generic(...)".`
+              )
             )
           )
         );
@@ -2443,9 +2517,11 @@ evaluate_function_parameter :: (
       if(ty_opt.is_none(), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&te),
-              `(3) Failed to evaluate type expression: ${ast_expr_to_string(&te)}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&te),
+                `(3) Failed to evaluate type expression: ${ast_expr_to_string(&te)}`
+              )
             )
           )
         );
@@ -2514,7 +2590,7 @@ evaluate_function_parameter :: (
               // A comptime parameter's placeholder (`?= Lhs`) is
               // not runtime-only and stays legal: the call site decides it.
               if(is_runtime_only_unknown_val(&_dv_val), {
-                exn.throw(dyn(_param_default_not_comptime_error(&label, &param_type, &dv_ty, &dve)));
+                exn.throw(dyn(Box.new(_param_default_not_comptime_error(&label, &param_type, &dv_ty, &dve))));
               });
               match(
                 param_type.clone(),
@@ -2531,9 +2607,11 @@ evaluate_function_parameter :: (
                   if(!type_contains_some_type(&pt) && !are_types_compatible(&dv_ty, &pt), {
                     exn.throw(
                       dyn(
-                        format_error_message(
-                          ast_expr_token(&dve),
-                          `Incompatible default value type:\n- Expected: ${type_to_string(&pt)}\n- Got     : ${type_to_string(&dv_ty)}`
+                        Box.new(
+                          format_error_message(
+                            ast_expr_token(&dve),
+                            `Incompatible default value type:\n- Expected: ${type_to_string(&pt)}\n- Got     : ${type_to_string(&dv_ty)}`
+                          )
                         )
                       )
                     );
@@ -2542,16 +2620,18 @@ evaluate_function_parameter :: (
               );
             },
             .None => {
-              exn.throw(dyn(_param_default_not_comptime_error(&label, &param_type, &dv_ty, &dve)));
+              exn.throw(dyn(Box.new(_param_default_not_comptime_error(&label, &param_type, &dv_ty, &dve))));
             }
           );
         },
         .None => {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&dve),
-                `Failed to evaluate default value expression`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&dve),
+                  `Failed to evaluate default value expression`
+                )
               )
             )
           );
@@ -2567,9 +2647,11 @@ evaluate_function_parameter :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            String.from("Expected type for function parameter}")
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              String.from("Expected type for function parameter}")
+            )
           )
         )
       );
@@ -2585,9 +2667,11 @@ evaluate_function_parameter :: (
       parameter_type_contains_raw_ptr(&final_param_type), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Raw-pointer-carrying types ('${type_to_string(&final_param_type)}') are not available in safe code.\n\nUse owned collections (ArrayList/String), 'name : &mut T' parameters for in-place mutation, or 'str' for static string views. If this file genuinely needs the raw view, add 'pragma(Pragma.AllowUnsafe);' at the top.`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Raw-pointer-carrying types ('${type_to_string(&final_param_type)}') are not available in safe code.\n\nUse owned collections (ArrayList/String), 'name : &mut T' parameters for in-place mutation, or 'str' for static string views. If this file genuinely needs the raw view, add 'pragma(Pragma.AllowUnsafe);' at the top.`
+          )
         )
       )
     );
@@ -2600,16 +2684,18 @@ evaluate_function_parameter :: (
   // A by-value parameter holds its value (decision 49, E0619); an unsized
   // type is taken behind a reference (`x : &T`).
   if(!is_compile_time_only && !is_parameter_comptime_by_default && !is_param_ref && !has_imm_wrapper && !t_slot_is_borrow(&final_param_type) && !type_is_sized(&final_param_type), {
-    exn.throw(dyn(unsized_by_value_error(&final_param_type, &`the by-value parameter \`${match(&label, .Some(l) => l.clone(), .None => String.from("?"))}\``, &Option(String).None, &match(type_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)))));
+    exn.throw(dyn(Box.new(unsized_by_value_error(&final_param_type, &`the by-value parameter \`${match(&label, .Some(l) => l.clone(), .None => String.from("?"))}\``, &Option(String).None, &match(type_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr))))));
   });
   // `?Sized` is a binder's kind (decision 49): only a `generic(...)` binder
   // or a type constructor's `comptime(V)` has one.
   if(is_maybe_sized_kind(&final_param_type) && !is_parameter_comptime_by_default && !is_compile_time_only, {
     exn.throw(
       dyn(
-        format_error_message(
-          match(label_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
-          `\`?Sized\` is the kind of a type binder: declare it in the signature's \`generic(...)\` clause, \`generic(${match(&label, .Some(l) => l.clone(), .None => String.from("?"))} : ?Sized)\`, or as a type constructor's \`comptime(V) : ?Sized\`.`
+        Box.new(
+          format_error_message(
+            match(label_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
+            `\`?Sized\` is the kind of a type binder: declare it in the signature's \`generic(...)\` clause, \`generic(${match(&label, .Some(l) => l.clone(), .None => String.from("?"))} : ?Sized)\`, or as a type constructor's \`comptime(V) : ?Sized\`.`
+          )
         )
       )
     );
@@ -2617,9 +2703,11 @@ evaluate_function_parameter :: (
   if(is_origin_kind(&final_param_type) && !is_parameter_comptime_by_default && !is_compile_time_only, {
     exn.throw(
       dyn(
-        format_error_message(
-          match(label_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
-          `An origin is a compile-time kind: declare it in the signature's \`generic(...)\` clause, \`generic(${match(&label, .Some(l) => l.clone(), .None => String.from("?"))} : Origin)\`.`
+        Box.new(
+          format_error_message(
+            match(label_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
+            `An origin is a compile-time kind: declare it in the signature's \`generic(...)\` clause, \`generic(${match(&label, .Some(l) => l.clone(), .None => String.from("?"))} : Origin)\`.`
+          )
         )
       )
     );
@@ -2630,9 +2718,11 @@ evaluate_function_parameter :: (
       type_prohibits_comptime_modifier(&final_param_type), {
     exn.throw(
       dyn(
-        format_error_message(
-          match(label_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
-          `Parameter marked as "comptime" but type is not available at compile-time:\n${type_to_string(&final_param_type)}`
+        Box.new(
+          format_error_message(
+            match(label_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
+            `Parameter marked as "comptime" but type is not available at compile-time:\n${type_to_string(&final_param_type)}`
+          )
         )
       )
     );
@@ -2640,9 +2730,11 @@ evaluate_function_parameter :: (
   if(!is_compile_time_only && type_requires_comptime_modifier(&final_param_type), {
     exn.throw(
       dyn(
-        format_error_message(
-          match(label_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
-          `Parameter marked as runtime but type is not available at runtime:\n${type_to_string(&final_param_type)}`
+        Box.new(
+          format_error_message(
+            match(label_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
+            `Parameter marked as runtime but type is not available at runtime:\n${type_to_string(&final_param_type)}`
+          )
         )
       )
     );
@@ -2657,9 +2749,11 @@ evaluate_function_parameter :: (
     if(has_forall, {
       exn.throw(
         dyn(
-          format_error_message(
-            match(label_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
-            `Runtime function parameters with generic function types are not allowed:\n${type_to_string(&final_param_type)}\n\nGeneric functions must be compile-time known to enable monomorphization. Consider using:\ncomptime(${match(&label, .Some(l) => l.clone(), .None => String.from("?"))}) : ${type_to_string(&final_param_type)}`
+          Box.new(
+            format_error_message(
+              match(label_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
+              `Runtime function parameters with generic function types are not allowed:\n${type_to_string(&final_param_type)}\n\nGeneric functions must be compile-time known to enable monomorphization. Consider using:\ncomptime(${match(&label, .Some(l) => l.clone(), .None => String.from("?"))}) : ${type_to_string(&final_param_type)}`
+            )
           )
         )
       );
@@ -2677,10 +2771,12 @@ evaluate_function_parameter :: (
       .Some(fpi_impl) => {
         exn.throw(
           dyn(
-            format_error_message_with_help(
-              match(type_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
-              fn_type_unrepresentable_impl_message(`parameter "${match(&label, .Some(l) => l.clone(), .None => String.from("?"))}"`, &final_param_type, &fpi_impl),
-              Option(String).Some(fn_type_unrepresentable_impl_help())
+            Box.new(
+              format_error_message_with_help(
+                match(type_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
+                fn_type_unrepresentable_impl_message(`parameter "${match(&label, .Some(l) => l.clone(), .None => String.from("?"))}"`, &final_param_type, &fpi_impl),
+                Option(String).Some(fn_type_unrepresentable_impl_help())
+              )
             )
           )
         );
@@ -2694,9 +2790,11 @@ evaluate_function_parameter :: (
       !is_expr_list_type(&final_param_type), {
     exn.throw(
       dyn(
-        format_error_message(
-          match(label_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
-          `Expected Expr or ExprList type for "quote" (or ":") parameter, got ${type_to_string(&final_param_type)}`
+        Box.new(
+          format_error_message(
+            match(label_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
+            `Expected Expr or ExprList type for "quote" (or ":") parameter, got ${type_to_string(&final_param_type)}`
+          )
         )
       )
     );
@@ -2715,9 +2813,10 @@ evaluate_function_parameter :: (
     if(!has_receiver, {
       exn.throw(
         dyn(
-          format_error_message(
-            match(type_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
-            `Trait type without receiver type set cannot be used as function parameter type.
+          Box.new(
+            format_error_message(
+              match(type_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
+              `Trait type without receiver type set cannot be used as function parameter type.
         
 Please consider using "<:" to specify the receiver type for a trait type, for example:
 
@@ -2729,6 +2828,7 @@ use_id :: (fn(generic(T : Type),
           ) -> T)({
   return(val.id());
 })`
+            )
           )
         )
       );
@@ -3096,9 +3196,11 @@ validate_concrete_type_constraints :: (
       .None => {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&t_expr),
-              String.from("validate_concrete_type_constraints: failed to evaluate trait expression")
+            Box.new(
+              format_error_message(
+                ast_expr_token(&t_expr),
+                String.from("validate_concrete_type_constraints: failed to evaluate trait expression")
+              )
             )
           )
         );
@@ -3113,9 +3215,11 @@ validate_concrete_type_constraints :: (
         .Some(_) => {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&t_expr),
-                String.from("Expected trait type for right-hand side of where clause constraint.")
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&t_expr),
+                  String.from("Expected trait type for right-hand side of where clause constraint.")
+                )
               )
             )
           );
@@ -3124,9 +3228,11 @@ validate_concrete_type_constraints :: (
         .None => {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&t_expr),
-                String.from("Expected trait type for right-hand side of where clause constraint.")
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&t_expr),
+                  String.from("Expected trait type for right-hand side of where clause constraint.")
+                )
               )
             )
           );
@@ -3136,9 +3242,11 @@ validate_concrete_type_constraints :: (
       if(!is_trait_type(&tv), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&t_expr),
-              String.from("Expected trait type for right-hand side of where clause constraint, got: ").concat(type_to_string(&tv))
+            Box.new(
+              format_error_message(
+                ast_expr_token(&t_expr),
+                String.from("Expected trait type for right-hand side of where clause constraint, got: ").concat(type_to_string(&tv))
+              )
             )
           )
         );
@@ -3155,9 +3263,11 @@ validate_concrete_type_constraints :: (
               .Some(fvm_o) => {
                 exn.throw(
                   dyn(
-                    format_error_message(
-                      ast_expr_token(constraint_expr),
-                      `The function type ${type_to_string(concrete_type)} does not implement required trait ${type_to_string(&tv)}: ${fvm_o}.`
+                    Box.new(
+                      format_error_message(
+                        ast_expr_token(constraint_expr),
+                        `The function type ${type_to_string(concrete_type)} does not implement required trait ${type_to_string(&tv)}: ${fvm_o}.`
+                      )
                     )
                   )
                 );
@@ -3197,9 +3307,11 @@ validate_concrete_type_constraints :: (
         if(implemented, {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(constraint_expr),
-                String.from("Type ").concat(type_to_string(concrete_type)).concat(String.from(" must NOT implement ")).concat(type_to_string(&tv)).concat(String.from(", but it does."))
+              Box.new(
+                format_error_message(
+                  ast_expr_token(constraint_expr),
+                  String.from("Type ").concat(type_to_string(concrete_type)).concat(String.from(" must NOT implement ")).concat(type_to_string(&tv)).concat(String.from(", but it does."))
+                )
               )
             )
           );
@@ -3209,17 +3321,19 @@ validate_concrete_type_constraints :: (
           // An `Escapable` bound is E0909 (decision 43, O10).
           if(is_escapable_trait(&tv, env_mut), {
             esc_lhs := match(_fn_call_args(constraint_expr).get(usize(0)), .Some(l) => ast_expr_to_string(&l), .None => type_to_string(concrete_type));
-            exn.throw(dyn(escapable_bound_error(concrete_type, &esc_lhs, ast_expr_token(constraint_expr))));
+            exn.throw(dyn(Box.new(escapable_bound_error(concrete_type, &esc_lhs, ast_expr_token(constraint_expr)))));
           });
-          exn.throw(dyn(format_error_message(ast_expr_token(constraint_expr), _unmet_trait_message(concrete_type, &tv, env_mut))));
+          exn.throw(dyn(Box.new(format_error_message(ast_expr_token(constraint_expr), _unmet_trait_message(concrete_type, &tv, env_mut)))));
         });
       });
     }, {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&t_expr),
-            String.from("Expected trait type for right-hand side of where clause constraint.")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&t_expr),
+              String.from("Expected trait type for right-hand side of where clause constraint.")
+            )
           )
         )
       );
@@ -3339,9 +3453,11 @@ apply_single_trait_constraint :: (
   if(!is_trait_type(&trait_ty), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&unwrapped_trait_expr),
-          `Expected trait type for right-hand side of where clause constraint, got: ${type_to_string(&trait_ty)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&unwrapped_trait_expr),
+            `Expected trait type for right-hand side of where clause constraint, got: ${type_to_string(&trait_ty)}`
+          )
         )
       )
     );
@@ -3350,9 +3466,11 @@ apply_single_trait_constraint :: (
   if(_trait_has_receiver(&trait_ty), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&unwrapped_trait_expr),
-          String.from("Trait type in where clause already has a receiver type assigned.")
+        Box.new(
+          format_error_message(
+            ast_expr_token(&unwrapped_trait_expr),
+            String.from("Trait type in where clause already has a receiver type assigned.")
+          )
         )
       )
     );
@@ -3375,9 +3493,11 @@ apply_single_trait_constraint :: (
           .Some(fvm_o) => {
             exn.throw(
               dyn(
-                format_error_message(
-                  ast_expr_token(original_constraint_expr),
-                  `The function type ${type_to_string(&some_ty)} does not implement required trait ${type_to_string(&trait_ty)}: ${fvm_o}.`
+                Box.new(
+                  format_error_message(
+                    ast_expr_token(original_constraint_expr),
+                    `The function type ${type_to_string(&some_ty)} does not implement required trait ${type_to_string(&trait_ty)}: ${fvm_o}.`
+                  )
                 )
               )
             );
@@ -3429,9 +3549,11 @@ parse_where_clause_constraints :: (
     if(!ast_expr_is_fn_call_of(&constraint_expr, "<:", .Some(usize(2))), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&constraint_expr),
-            `Expected constraint in the form "T <: Trait" or "T <: (Trait1, Trait2)", got: ${ast_expr_to_string(&constraint_expr)}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&constraint_expr),
+              `Expected constraint in the form "T <: Trait" or "T <: (Trait1, Trait2)", got: ${ast_expr_to_string(&constraint_expr)}`
+            )
           )
         )
       );
@@ -3472,9 +3594,11 @@ parse_where_clause_constraints :: (
               _ => {
                 exn.throw(
                   dyn(
-                    format_error_message(
-                      ast_expr_token(&lhs_expr),
-                      `Expected type for left-hand side of where clause constraint, got variable "${var_name}".`
+                    Box.new(
+                      format_error_message(
+                        ast_expr_token(&lhs_expr),
+                        `Expected type for left-hand side of where clause constraint, got variable "${var_name}".`
+                      )
                     )
                   )
                 );
@@ -3484,9 +3608,11 @@ parse_where_clause_constraints :: (
           .None => {
             exn.throw(
               dyn(
-                format_error_message(
-                  ast_expr_token(&lhs_expr),
-                  `Expected type for left-hand side of where clause constraint, got variable "${var_name}".`
+                Box.new(
+                  format_error_message(
+                    ast_expr_token(&lhs_expr),
+                    `Expected type for left-hand side of where clause constraint, got variable "${var_name}".`
+                  )
                 )
               )
             );
@@ -3532,9 +3658,11 @@ parse_where_clause_constraints :: (
         .None => {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&lhs_expr),
-                String.from("Expected type for left-hand side of where clause constraint.")
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&lhs_expr),
+                  String.from("Expected type for left-hand side of where clause constraint.")
+                )
               )
             )
           );
@@ -3544,9 +3672,11 @@ parse_where_clause_constraints :: (
       if(!is_type_value(&lhs_info.value()), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&lhs_expr),
-              String.from("Expected type for left-hand side of where clause constraint.")
+            Box.new(
+              format_error_message(
+                ast_expr_token(&lhs_expr),
+                String.from("Expected type for left-hand side of where clause constraint.")
+              )
             )
           )
         );
@@ -3629,9 +3759,11 @@ parse_where_clause_constraints :: (
           if(!collect_pending, {
             exn.throw(
               dyn(
-                format_error_message(
-                  ast_expr_token(&unwrapped_te),
-                  String.from("Expected trait type for right-hand side of where clause constraint.")
+                Box.new(
+                  format_error_message(
+                    ast_expr_token(&unwrapped_te),
+                    String.from("Expected trait type for right-hand side of where clause constraint.")
+                  )
                 )
               )
             );
@@ -3648,9 +3780,11 @@ parse_where_clause_constraints :: (
         if(!collect_pending, {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&unwrapped_te),
-                String.from("Expected trait type for right-hand side of where clause constraint.")
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&unwrapped_te),
+                  String.from("Expected trait type for right-hand side of where clause constraint.")
+                )
               )
             )
           );
@@ -3666,9 +3800,11 @@ parse_where_clause_constraints :: (
       if(!is_trait_type(&trait_ty2), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&unwrapped_te),
-              `Expected trait type for right-hand side of where clause constraint, got: ${type_to_string(&trait_ty2)}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&unwrapped_te),
+                `Expected trait type for right-hand side of where clause constraint, got: ${type_to_string(&trait_ty2)}`
+              )
             )
           )
         );
@@ -3676,9 +3812,11 @@ parse_where_clause_constraints :: (
       if(_trait_has_receiver(&trait_ty2), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&unwrapped_te),
-              String.from("Trait type in where clause already has a receiver type assigned.")
+            Box.new(
+              format_error_message(
+                ast_expr_token(&unwrapped_te),
+                String.from("Trait type in where clause already has a receiver type assigned.")
+              )
             )
           )
         );
@@ -3707,9 +3845,11 @@ parse_where_clause_constraints :: (
                   .Some(fvm_o) => {
                     exn.throw(
                       dyn(
-                        format_error_message(
-                          ast_expr_token(&constraint_expr),
-                          `The function type ${type_to_string(&some_ty)} does not implement required trait ${type_to_string(&trait_ty2)}: ${fvm_o}.`
+                        Box.new(
+                          format_error_message(
+                            ast_expr_token(&constraint_expr),
+                            `The function type ${type_to_string(&some_ty)} does not implement required trait ${type_to_string(&trait_ty2)}: ${fvm_o}.`
+                          )
                         )
                       )
                     );
@@ -3933,7 +4073,7 @@ evaluate_function_parameters :: (
         // removed `...(E)` spread syntax; an effect row is a
         // `generic(E : Type.Struct)` parameter.
         if(_is_removed_row_spread(&tp_expr), {
-          exn.throw(dyn(format_error_message(ast_expr_token(&tp_expr), _removed_effect_row_spread_message(&tp_expr))));
+          exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&tp_expr), _removed_effect_row_spread_message(&tp_expr)))));
         });
         param := evaluate_function_parameter(&tp_expr, env_mut, ctx, true, true, exn);
         // Duplicate check (over the type and the origin binders: one namespace)
@@ -3957,9 +4097,11 @@ evaluate_function_parameters :: (
         if(dup_found, {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&tp_expr),
-                `Duplicate label "${param.label}" in type parameter`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&tp_expr),
+                  `Duplicate label "${param.label}" in type parameter`
+                )
               )
             )
           );
@@ -3990,9 +4132,11 @@ evaluate_function_parameters :: (
     if(using_count > usize(1), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&param_expr),
-            `Only one "..." clause is allowed per function signature. Combine all implicit parameters into a single , e.g.: a : TypeA, b : TypeB`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&param_expr),
+              `Only one "..." clause is allowed per function signature. Combine all implicit parameters into a single , e.g.: a : TypeA, b : TypeB`
+            )
           )
         )
       );
@@ -4005,7 +4149,7 @@ evaluate_function_parameters :: (
       // A `...(E)` spread of an effect row was removed: take the bundle as
       // one parameter `e : E` with `generic(E : Type.Struct)`.
       if(_is_removed_row_spread(&impl_expr), {
-        exn.throw(dyn(format_error_message(ast_expr_token(&impl_expr), _removed_effect_row_spread_message(&impl_expr))));
+        exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&impl_expr), _removed_effect_row_spread_message(&impl_expr)))));
       });
       // Bare types without labels are not allowed
       has_explicit_label := (
@@ -4017,9 +4161,11 @@ evaluate_function_parameters :: (
       if(!has_explicit_label, {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&impl_expr),
-              `Implicit parameter requires a label. Use "name : Type" instead of "Type".`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&impl_expr),
+                `Implicit parameter requires a label. Use "name : Type" instead of "Type".`
+              )
             )
           )
         );
@@ -4028,9 +4174,11 @@ evaluate_function_parameters :: (
       if(is_origin_kind(&param.ty), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&impl_expr),
-              `An origin parameter is declared in the signature's \`generic(...)\` clause (\`generic(${param.label} : Origin)\`), not in \`using(...)\`.`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&impl_expr),
+                `An origin parameter is declared in the signature's \`generic(...)\` clause (\`generic(${param.label} : Origin)\`), not in \`using(...)\`.`
+              )
             )
           )
         );
@@ -4056,9 +4204,11 @@ evaluate_function_parameters :: (
       if(dup_forall, {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&impl_expr),
-              `Duplicate label "${param.label}" in implicit parameter (already in generic)`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&impl_expr),
+                `Duplicate label "${param.label}" in implicit parameter (already in generic)`
+              )
             )
           )
         );
@@ -4083,9 +4233,11 @@ evaluate_function_parameters :: (
       if(dup_impl, {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&impl_expr),
-              `Duplicate label "${param.label}" in implicit parameter`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&impl_expr),
+                `Duplicate label "${param.label}" in implicit parameter`
+              )
             )
           )
         );
@@ -4143,9 +4295,11 @@ evaluate_function_parameters :: (
     if(z_zone < max_zone, {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&z_expr),
-            `${z_name} appears after ${max_name} in the function signature. The canonical clause order is: generic(...), parameters, where(...), requires(...), ensures(...), decreases(...), assumed(). Move ${z_name} before ${_zone_label(max_zone)}.`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&z_expr),
+              `${z_name} appears after ${max_name} in the function signature. The canonical clause order is: generic(...), parameters, where(...), requires(...), ensures(...), decreases(...), assumed(). Move ${z_name} before ${_zone_label(max_zone)}.`
+            )
           )
         )
       );
@@ -4174,9 +4328,11 @@ evaluate_function_parameters :: (
       if(c_args.len() == usize(0), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&c_expr),
-              String.from("'requires(...)' with zero arguments is a syntax error. Omit the clause entirely if there is no precondition.")
+            Box.new(
+              format_error_message(
+                ast_expr_token(&c_expr),
+                String.from("'requires(...)' with zero arguments is a syntax error. Omit the clause entirely if there is no precondition.")
+              )
             )
           )
         );
@@ -4184,9 +4340,11 @@ evaluate_function_parameters :: (
       if(seen_requires, {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&c_expr),
-              String.from("Multiple 'requires(...)' clauses in the same signature are a syntax error. Combine the predicates into one call: 'requires(P1, P2, ...)'.")
+            Box.new(
+              format_error_message(
+                ast_expr_token(&c_expr),
+                String.from("Multiple 'requires(...)' clauses in the same signature are a syntax error. Combine the predicates into one call: 'requires(P1, P2, ...)'.")
+              )
             )
           )
         );
@@ -4210,9 +4368,11 @@ evaluate_function_parameters :: (
       if(e_args.len() == usize(0), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&c_expr),
-              String.from("'ensures(...)' with zero arguments is a syntax error. Omit the clause entirely if there is no postcondition.")
+            Box.new(
+              format_error_message(
+                ast_expr_token(&c_expr),
+                String.from("'ensures(...)' with zero arguments is a syntax error. Omit the clause entirely if there is no postcondition.")
+              )
             )
           )
         );
@@ -4220,9 +4380,11 @@ evaluate_function_parameters :: (
       if(seen_ensures, {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&c_expr),
-              String.from("Multiple 'ensures(...)' clauses in the same signature are a syntax error. Combine the predicates into one call: 'ensures(Q1, Q2, ...)'.")
+            Box.new(
+              format_error_message(
+                ast_expr_token(&c_expr),
+                String.from("Multiple 'ensures(...)' clauses in the same signature are a syntax error. Combine the predicates into one call: 'ensures(Q1, Q2, ...)'.")
+              )
             )
           )
         );
@@ -4246,9 +4408,11 @@ evaluate_function_parameters :: (
       if(d_args.len() == usize(0), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&c_expr),
-              String.from("'decreases(...)' takes a measure: decreases(M), or a lexicographic tuple decreases(M1, M2, ...).")
+            Box.new(
+              format_error_message(
+                ast_expr_token(&c_expr),
+                String.from("'decreases(...)' takes a measure: decreases(M), or a lexicographic tuple decreases(M1, M2, ...).")
+              )
             )
           )
         );
@@ -4256,9 +4420,11 @@ evaluate_function_parameters :: (
       if(seen_decreases, {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&c_expr),
-              String.from("Multiple 'decreases(...)' clauses in the same signature are a syntax error.")
+            Box.new(
+              format_error_message(
+                ast_expr_token(&c_expr),
+                String.from("Multiple 'decreases(...)' clauses in the same signature are a syntax error.")
+              )
             )
           )
         );
@@ -4278,9 +4444,11 @@ evaluate_function_parameters :: (
       if(a_args.len() != usize(0), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&c_expr),
-              String.from("'assumed()' takes no arguments: it marks the BODY as outside the verifiable subset, and the contracts themselves come from requires(...)/ensures(...)/decreases(...).")
+            Box.new(
+              format_error_message(
+                ast_expr_token(&c_expr),
+                String.from("'assumed()' takes no arguments: it marks the BODY as outside the verifiable subset, and the contracts themselves come from requires(...)/ensures(...)/decreases(...).")
+              )
             )
           )
         );
@@ -4288,9 +4456,11 @@ evaluate_function_parameters :: (
       if(assumed_body, {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&c_expr),
-              String.from("Multiple 'assumed()' clauses in the same signature are a syntax error.")
+            Box.new(
+              format_error_message(
+                ast_expr_token(&c_expr),
+                String.from("Multiple 'assumed()' clauses in the same signature are a syntax error.")
+              )
             )
           )
         );
@@ -4305,9 +4475,11 @@ evaluate_function_parameters :: (
   if(assumed_body && !seen_requires && !seen_ensures && !seen_decreases, {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&assumed_clause),
-          String.from("'assumed()' without any contract clause: assumed() marks a contracted function's body as outside the verifiable subset while its requires/ensures/decreases still gate callers. Add a contract clause or drop assumed().")
+        Box.new(
+          format_error_message(
+            ast_expr_token(&assumed_clause),
+            String.from("'assumed()' without any contract clause: assumed() marks a contracted function's body as outside the verifiable subset while its requires/ensures/decreases still gate callers. Add a contract clause or drop assumed().")
+          )
         )
       )
     );
@@ -4396,9 +4568,11 @@ evaluate_function_parameters :: (
       if(where_args.len() == usize(0), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&where_param),
-              String.from("The where clause must have at least one constraint.")
+            Box.new(
+              format_error_message(
+                ast_expr_token(&where_param),
+                String.from("The where clause must have at least one constraint.")
+              )
             )
           )
         );
@@ -4426,9 +4600,11 @@ evaluate_function_parameters :: (
       if(!(current_i == usize(0)), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&param_expr),
-              `Expected type parameters to be the first argument, got ${(current_i + usize(1))}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&param_expr),
+                `Expected type parameters to be the first argument, got ${(current_i + usize(1))}`
+              )
             )
           )
         );
@@ -4501,9 +4677,11 @@ evaluate_function_parameters :: (
               }, {
                 exn.throw(
                   dyn(
-                    format_error_message(
-                      ast_expr_token(&vlhs_arg),
-                      `Expected a valid variable name for variadic parameter, got ${ast_expr_to_string(&vlhs_arg)}`
+                    Box.new(
+                      format_error_message(
+                        ast_expr_token(&vlhs_arg),
+                        `Expected a valid variable name for variadic parameter, got ${ast_expr_to_string(&vlhs_arg)}`
+                      )
                     )
                   )
                 );
@@ -4518,9 +4696,11 @@ evaluate_function_parameters :: (
             .None => {
               exn.throw(
                 dyn(
-                  format_error_message(
-                    ast_expr_token(&vtype_arg),
-                    `Expected type for variadic parameter, got ${ast_expr_to_string(&vtype_arg)}`
+                  Box.new(
+                    format_error_message(
+                      ast_expr_token(&vtype_arg),
+                      `Expected type for variadic parameter, got ${ast_expr_to_string(&vtype_arg)}`
+                    )
                   )
                 )
               );
@@ -4553,18 +4733,22 @@ evaluate_function_parameters :: (
                 vparam_name = ast_expr_text(&varg).*.clone();
                 exn.throw(
                   dyn(
-                    format_error_message(
-                      ast_expr_token(&varg),
-                      String.from("...(param_name) is not supported yet.")
+                    Box.new(
+                      format_error_message(
+                        ast_expr_token(&varg),
+                        String.from("...(param_name) is not supported yet.")
+                      )
                     )
                   )
                 );
               }, {
                 exn.throw(
                   dyn(
-                    format_error_message(
-                      ast_expr_token(&varg),
-                      `Expected a valid variable name for variadic parameter, got ${ast_expr_to_string(&varg)}`
+                    Box.new(
+                      format_error_message(
+                        ast_expr_token(&varg),
+                        `Expected a valid variable name for variadic parameter, got ${ast_expr_to_string(&varg)}`
+                      )
                     )
                   )
                 );
@@ -4619,9 +4803,11 @@ evaluate_function_parameters :: (
       if(find_variadic, {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&param_expr),
-              String.from("Expected variadic parameter to be the last parameter before the normal parameters.")
+            Box.new(
+              format_error_message(
+                ast_expr_token(&param_expr),
+                String.from("Expected variadic parameter to be the last parameter before the normal parameters.")
+              )
             )
           )
         );
@@ -4653,9 +4839,11 @@ evaluate_function_parameters :: (
       if(dup_p, {
         exn.throw(
           dyn(
-            format_error_message(
-              &_dup_err_tok,
-              `Duplicate label "${param.label}" in function parameter`
+            Box.new(
+              format_error_message(
+                &_dup_err_tok,
+                `Duplicate label "${param.label}" in function parameter`
+              )
             )
           )
         );
@@ -4683,9 +4871,11 @@ evaluate_function_parameters :: (
       if(!(eli == (params.len() - usize(1))), {
         exn.throw(
           dyn(
-            format_error_message(
-              &_eli_tok,
-              String.from("Expected ExprList type to be the last parameter.")
+            Box.new(
+              format_error_message(
+                &_eli_tok,
+                String.from("Expected ExprList type to be the last parameter.")
+              )
             )
           )
         );
@@ -4757,9 +4947,11 @@ evaluate_function_type :: (
   if(!ast_expr_is_fn_call_of(expr, "->", .Some(usize(2))), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected -> for function type, got:\n${ast_expr_to_string(expr)}\n\nNote: For closures, use Impl(Fn(...) -> ...) syntax.`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected -> for function type, got:\n${ast_expr_to_string(expr)}\n\nNote: For closures, use Impl(Fn(...) -> ...) syntax.`
+          )
         )
       )
     );
@@ -4777,9 +4969,11 @@ evaluate_function_type :: (
   ), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&arg_list_expr),
-          `Expected a "fn", "ctl", or "unsafe_fn" call for parameter list, got:\n${ast_expr_to_string(&arg_list_expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&arg_list_expr),
+            `Expected a "fn", "ctl", or "unsafe_fn" call for parameter list, got:\n${ast_expr_to_string(&arg_list_expr)}`
+          )
         )
       )
     );
@@ -4834,9 +5028,11 @@ evaluate_function_type :: (
     if(_is_borrow_result_mode(&rl_expr), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&rl_expr),
-            String.from("A borrow result is written on the type, not the label: `-> (name : &T)` or `-> (name : &mut T)`.")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&rl_expr),
+              String.from("A borrow result is written on the type, not the label: `-> (name : &T)` or `-> (name : &mut T)`.")
+            )
           )
         )
       );
@@ -4860,9 +5056,11 @@ evaluate_function_type :: (
       if(!(ct_args.len() == usize(1)), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&rl_expr),
-              `Expected one argument for "comptime", got ${ct_args.len()}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&rl_expr),
+                `Expected one argument for "comptime", got ${ct_args.len()}`
+              )
             )
           )
         );
@@ -4877,9 +5075,11 @@ evaluate_function_type :: (
       if(!(uq_args.len() == usize(1)), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&rl_expr),
-              `Expected one argument for "unquote", got ${uq_args.len()}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&rl_expr),
+                `Expected one argument for "unquote", got ${uq_args.len()}`
+              )
             )
           )
         );
@@ -4887,9 +5087,11 @@ evaluate_function_type :: (
       if(is_return_comptime_only, {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&rl_expr),
-              `Cannot use "comptime" with "unquote". "unquote" return type means compile-time only, so "comptime" is redundant.`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&rl_expr),
+                `Cannot use "comptime" with "unquote". "unquote" return type means compile-time only, so "comptime" is redundant.`
+              )
             )
           )
         );
@@ -4901,9 +5103,11 @@ evaluate_function_type :: (
     if(ast_expr_is_fn_call_of(&rl_expr, BK_QUOTE, Option(usize).None), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&rl_expr),
-            `To define a macro function, please use "unquote" for the return type, not "quote".`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&rl_expr),
+              `To define a macro function, please use "unquote" for the return type, not "quote".`
+            )
           )
         )
       );
@@ -4916,9 +5120,11 @@ evaluate_function_type :: (
     if(ast_expr_is_fn_call(&return_type_expr) && ast_expr_is_fn_call_of(&return_type_expr, BK_COMPTIME, Option(usize).None), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&return_type_expr),
-            String.from("In a labeled return slot, 'comptime' goes on the label, not the type. Use '-> (comptime(name) : T)' (or unlabeled '-> comptime(T)'), not '-> (name : comptime(T))'.")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&return_type_expr),
+              String.from("In a labeled return slot, 'comptime' goes on the label, not the type. Use '-> (comptime(name) : T)' (or unlabeled '-> comptime(T)'), not '-> (name : comptime(T))'.")
+            )
           )
         )
       );
@@ -4926,9 +5132,11 @@ evaluate_function_type :: (
     if(!is_valid_variable_name(&rl_expr), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&rl_expr),
-            `Expected a valid variable name for return label, got ${ast_expr_to_string(&rl_expr)}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&rl_expr),
+              `Expected a valid variable name for return label, got ${ast_expr_to_string(&rl_expr)}`
+            )
           )
         )
       );
@@ -4957,9 +5165,11 @@ evaluate_function_type :: (
       if(!(ct_args2.len() == usize(1)), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&return_type_expr),
-              `Expected one argument for "comptime", got ${ct_args2.len()}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&return_type_expr),
+                `Expected one argument for "comptime", got ${ct_args2.len()}`
+              )
             )
           )
         );
@@ -4973,9 +5183,11 @@ evaluate_function_type :: (
       if(!(uq_args2.len() == usize(1)), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&return_type_expr),
-              `Expected one argument for "unquote", got ${uq_args2.len()}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&return_type_expr),
+                `Expected one argument for "unquote", got ${uq_args2.len()}`
+              )
             )
           )
         );
@@ -4983,9 +5195,11 @@ evaluate_function_type :: (
       if(is_return_comptime_only, {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&return_type_expr),
-              `Cannot use "comptime" with "unquote". "unquote" return type means compile-time only, so "comptime" is redundant.`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&return_type_expr),
+                `Cannot use "comptime" with "unquote". "unquote" return type means compile-time only, so "comptime" is redundant.`
+              )
             )
           )
         );
@@ -4996,9 +5210,11 @@ evaluate_function_type :: (
     if(ast_expr_is_fn_call_of(&return_type_expr, BK_QUOTE, Option(usize).None), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&return_type_expr),
-            `To define a macro function, please use "unquote" for the return type, not "quote".`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&return_type_expr),
+              `To define a macro function, please use "unquote" for the return type, not "quote".`
+            )
           )
         )
       );
@@ -5010,9 +5226,11 @@ evaluate_function_type :: (
   if(ast_expr_is_fn_call(&return_type_expr) && _is_borrow_result_mode(&return_type_expr), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&return_type_expr),
-          String.from("A borrow result is one `&T` or `&mut T` on a run-time function (a projection, decision 24): it cannot be nested in `comptime(...)`, `unquote(...)` or another borrow.")
+        Box.new(
+          format_error_message(
+            ast_expr_token(&return_type_expr),
+            String.from("A borrow result is one `&T` or `&mut T` on a run-time function (a projection, decision 24): it cannot be nested in `comptime(...)`, `unquote(...)` or another borrow.")
+          )
         )
       )
     );
@@ -5020,9 +5238,11 @@ evaluate_function_type :: (
   if(is_return_type_ref && is_return_comptime_only, {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&return_type_expr),
-          String.from("A borrow result is one `&T` or `&mut T` on a run-time function (a projection, decision 24): it cannot be nested in `comptime(...)`, `unquote(...)` or another borrow.")
+        Box.new(
+          format_error_message(
+            ast_expr_token(&return_type_expr),
+            String.from("A borrow result is one `&T` or `&mut T` on a run-time function (a projection, decision 24): it cannot be nested in `comptime(...)`, `unquote(...)` or another borrow.")
+          )
         )
       )
     );
@@ -5038,9 +5258,11 @@ evaluate_function_type :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&return_type_expr),
-            `Expected a type for function return type, got:\n${ast_expr_to_string(&return_type_expr)}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&return_type_expr),
+              `Expected a type for function return type, got:\n${ast_expr_to_string(&return_type_expr)}`
+            )
           )
         )
       );
@@ -5052,9 +5274,11 @@ evaluate_function_type :: (
   if(is_return_type_ref && t_slot_is_borrow(&ret_type_val), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&return_type_expr),
-          `This result is a reference to a reference (its pointee is \`${type_to_string(&ret_type_val)}\`): it arrives with references as binding types (decision 43 step 2, N1e). A projection returns \`&T\`.`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&return_type_expr),
+            `This result is a reference to a reference (its pointee is \`${type_to_string(&ret_type_val)}\`): it arrives with references as binding types (decision 43 step 2, N1e). A projection returns \`&T\`.`
+          )
         )
       )
     );
@@ -5066,9 +5290,11 @@ evaluate_function_type :: (
     if(type_requires_comptime_modifier(&converted), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&return_type_expr),
-            `Expected a "comptime" for return type, like:\n\ncomptime(${ast_expr_to_string(&return_type_expr)})\n\nGiven type:\n${type_to_string(&return_type)}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&return_type_expr),
+              `Expected a "comptime" for return type, like:\n\ncomptime(${ast_expr_to_string(&return_type_expr)})\n\nGiven type:\n${type_to_string(&return_type)}`
+            )
           )
         )
       );
@@ -5089,7 +5315,7 @@ evaluate_function_type :: (
     note_legacy_str_spelling(&return_type_expr, false, &ctx.std_path);
   });
   if(!legacy_str_result && !is_return_comptime_only && !is_return_type_ref && !t_slot_is_borrow(&return_type) && !type_is_sized(&return_type), {
-    exn.throw(dyn(unsized_by_value_error(&return_type, &String.from("a by-value result"), &Option(String).None, &ast_expr_token(&return_type_expr))));
+    exn.throw(dyn(Box.new(unsized_by_value_error(&return_type, &String.from("a by-value result"), &Option(String).None, &ast_expr_token(&return_type_expr)))));
   });
   // A `comptime(p) : Origin` parameter belongs to a type constructor (decision
   // 43 step 3, N2a): the type it returns carries the origin. A function is
@@ -5102,9 +5328,11 @@ evaluate_function_type :: (
         .Some(op) => if(op.is_compile_time_only && is_origin_kind(&op.ty), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(match(param_exprs_for_error(&arg_list, opi), .Some(e) => e, .None => make_err_expr())),
-                `\`comptime(${op.label}) : Origin\` declares a type constructor's origin parameter, so the function must return \`comptime(Type)\`; a function is abstract over an origin through \`generic(${op.label} : Origin)\`.`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(match(param_exprs_for_error(&arg_list, opi), .Some(e) => e, .None => make_err_expr())),
+                  `\`comptime(${op.label}) : Origin\` declares a type constructor's origin parameter, so the function must return \`comptime(Type)\`; a function is abstract over an origin through \`generic(${op.label} : Origin)\`.`
+                )
               )
             )
           );
@@ -5123,10 +5351,12 @@ evaluate_function_type :: (
       .Some(fri_impl) => {
         exn.throw(
           dyn(
-            format_error_message_with_help(
-              ast_expr_token(&return_type_expr),
-              fn_type_unrepresentable_impl_message(String.from("a function result"), &return_type, &fri_impl),
-              Option(String).Some(fn_type_unrepresentable_impl_help())
+            Box.new(
+              format_error_message_with_help(
+                ast_expr_token(&return_type_expr),
+                fn_type_unrepresentable_impl_message(String.from("a function result"), &return_type, &fri_impl),
+                Option(String).Some(fn_type_unrepresentable_impl_help())
+              )
             )
           )
         );
@@ -5139,9 +5369,11 @@ evaluate_function_type :: (
       type_prohibits_comptime_modifier(&return_type), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&return_type_expr),
-          `Unexpected "comptime" for return type of ${type_to_string(&return_type)} which can only be used at runtime.`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&return_type_expr),
+            `Unexpected "comptime" for return type of ${type_to_string(&return_type)} which can only be used at runtime.`
+          )
         )
       )
     );
@@ -5161,9 +5393,11 @@ evaluate_function_type :: (
       if(!rp.is_compile_time_only, {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(match(param_exprs_for_error(&arg_list, rci), .Some(e) => e, .None => make_err_expr())),
-              String.from("Expected all parameters to be compile time only given the return type is compile time only.")
+            Box.new(
+              format_error_message(
+                ast_expr_token(match(param_exprs_for_error(&arg_list, rci), .Some(e) => e, .None => make_err_expr())),
+                String.from("Expected all parameters to be compile time only given the return type is compile time only.")
+              )
             )
           )
         );
@@ -5175,9 +5409,11 @@ evaluate_function_type :: (
   if(is_return_unquote && !is_expr_type(&return_type), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&return_type_expr),
-          `Expected Expr type for "unquote" return type, got ${type_to_string(&return_type)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&return_type_expr),
+            `Expected Expr type for "unquote" return type, got ${type_to_string(&return_type)}`
+          )
         )
       )
     );
@@ -5279,9 +5515,11 @@ evaluate_function_type :: (
     if(type_has_computed_array_len(t_slot_pointee(&pp.ty)), {
       exn.throw(
         dyn(
-          format_error_message(
-            match(pp.ty_expr, .Some(pte) => ast_expr_token(&pte), .None => ast_expr_token(expr)),
-            `Parameter "${pp.label}" has a COMPUTED array length in its type. A parameter's length is a matching position: bind it to a generic(N : usize) parameter and write the bare name (or a single associated constant such as T.BYTES) there; compute the length in the result type or in the body instead.`
+          Box.new(
+            format_error_message(
+              match(pp.ty_expr, .Some(pte) => ast_expr_token(&pte), .None => ast_expr_token(expr)),
+              `Parameter "${pp.label}" has a COMPUTED array length in its type. A parameter's length is a matching position: bind it to a generic(N : usize) parameter and write the bare name (or a single associated constant such as T.BYTES) there; compute the length in the result type or in the body instead.`
+            )
           )
         )
       );
@@ -5388,9 +5626,11 @@ evaluate_function_type :: (
           if(_atom_name_occurs(&ep, rl.clone()), {
             exn.throw(
               dyn(
-                format_error_message(
-                  ast_expr_token(&ep),
-                  `Unit-returning function has no return value to name: the return label "${rl}" cannot be referenced inside 'ensures(...)'. Constrain parameters or 'old(...)' expressions instead.`
+                Box.new(
+                  format_error_message(
+                    ast_expr_token(&ep),
+                    `Unit-returning function has no return value to name: the return label "${rl}" cannot be referenced inside 'ensures(...)'. Constrain parameters or 'old(...)' expressions instead.`
+                  )
                 )
               )
             );
@@ -5421,9 +5661,11 @@ evaluate_function_type :: (
     if(!is_macro_def_capable_file(Option(String).Some(ast_expr_token(expr).module_path.*.clone())), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            String.from("Defining a macro (a 'quote(...)' parameter or an 'unquote(...)' return type) requires 'pragma(Pragma.AllowMacroDef);' at the top of the file. See plans/reference/MACRO_POLICY.md.")
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              String.from("Defining a macro (a 'quote(...)' parameter or an 'unquote(...)' return type) requires 'pragma(Pragma.AllowMacroDef);' at the top of the file. See plans/reference/MACRO_POLICY.md.")
+            )
           )
         )
       );

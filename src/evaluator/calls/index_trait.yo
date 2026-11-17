@@ -595,9 +595,11 @@ _try_comptime_element_access :: (
         .None => {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(arg_expr),
-                String.from("Invalid integer literal for array/slice index")
+              Box.new(
+                format_error_message(
+                  ast_expr_token(arg_expr),
+                  String.from("Invalid integer literal for array/slice index")
+                )
               )
             )
           );
@@ -607,9 +609,11 @@ _try_comptime_element_access :: (
       if(idx_i64 < i64(0), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(arg_expr),
-              `Array/slice index out of bounds: ${idx_raw}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(arg_expr),
+                `Array/slice index out of bounds: ${idx_raw}`
+              )
             )
           )
         );
@@ -626,9 +630,11 @@ _try_comptime_element_access :: (
               if(idx_usize >= arr_len, {
                 exn.throw(
                   dyn(
-                    format_error_message(
-                      ast_expr_token(arg_expr),
-                      `Array index out of bounds: ${idx_raw}. Expected index in range [0, ${(arr_len - usize(1))}].`
+                    Box.new(
+                      format_error_message(
+                        ast_expr_token(arg_expr),
+                        `Array index out of bounds: ${idx_raw}. Expected index in range [0, ${(arr_len - usize(1))}].`
+                      )
                     )
                   )
                 );
@@ -639,9 +645,11 @@ _try_comptime_element_access :: (
                 .None => {
                   exn.throw(
                     dyn(
-                      format_error_message(
-                        ast_expr_token(arg_expr),
-                        String.from("Array index out of bounds")
+                      Box.new(
+                        format_error_message(
+                          ast_expr_token(arg_expr),
+                          String.from("Array index out of bounds")
+                        )
                       )
                     )
                   );
@@ -741,9 +749,11 @@ _try_comptime_array_index :: (
     .None => {
       exn.throw(
         dyn(
-          format_eval_failure(
-            ast_expr_token(arg_expr),
-            String.from("Failed to evaluate index argument")
+          Box.new(
+            format_eval_failure(
+              ast_expr_token(arg_expr),
+              String.from("Failed to evaluate index argument")
+            )
           )
         )
       );
@@ -792,9 +802,11 @@ _compute_comptime_string_index :: (
     if(!is_int_lit(arg_value), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(arg_expr),
-            String.from("Expected comptime_int index for comptime string index")
+          Box.new(
+            format_error_message(
+              ast_expr_token(arg_expr),
+              String.from("Expected comptime_int index for comptime string index")
+            )
           )
         )
       );
@@ -806,9 +818,11 @@ _compute_comptime_string_index :: (
       .None => {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(arg_expr),
-              String.from("Invalid integer literal for string index")
+            Box.new(
+              format_error_message(
+                ast_expr_token(arg_expr),
+                String.from("Invalid integer literal for string index")
+              )
             )
           )
         );
@@ -818,9 +832,11 @@ _compute_comptime_string_index :: (
     if(idx_i64 < i64(0), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(arg_expr),
-            `String index out of bounds: ${idx_raw}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(arg_expr),
+              `String index out of bounds: ${idx_raw}`
+            )
           )
         )
       );
@@ -830,9 +846,11 @@ _compute_comptime_string_index :: (
     if(idx_usize >= str_len, {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(arg_expr),
-            `String index out of bounds: ${idx_raw}. Expected index in range [0, ${(str_len - usize(1))}].`
+          Box.new(
+            format_error_message(
+              ast_expr_token(arg_expr),
+              `String index out of bounds: ${idx_raw}. Expected index in range [0, ${(str_len - usize(1))}].`
+            )
           )
         )
       );
@@ -847,9 +865,11 @@ _compute_comptime_string_index :: (
     if(!str_value.is_char_boundary(idx_usize), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(arg_expr),
-            `String index ${idx_raw} is not on a UTF-8 character boundary`
+          Box.new(
+            format_error_message(
+              ast_expr_token(arg_expr),
+              `String index ${idx_raw} is not on a UTF-8 character boundary`
+            )
           )
         )
       );
@@ -864,9 +884,11 @@ _compute_comptime_string_index :: (
   if(!is_struct_val(arg_value), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(arg_expr),
-          String.from("Expected comptime Range value for comptime string range index")
+        Box.new(
+          format_error_message(
+            ast_expr_token(arg_expr),
+            String.from("Expected comptime Range value for comptime string range index")
+          )
         )
       )
     );
@@ -878,9 +900,11 @@ _compute_comptime_string_index :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(arg_expr),
-            String.from("Expected numeric start/end in Range for comptime string range index")
+          Box.new(
+            format_error_message(
+              ast_expr_token(arg_expr),
+              String.from("Expected numeric start/end in Range for comptime string range index")
+            )
           )
         )
       );
@@ -893,9 +917,11 @@ _compute_comptime_string_index :: (
   if(start_idx > str_len, {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(arg_expr),
-          `String slice start index out of bounds: ${start_idx}. Expected index in range [0, ${str_len}].`
+        Box.new(
+          format_error_message(
+            ast_expr_token(arg_expr),
+            `String slice start index out of bounds: ${start_idx}. Expected index in range [0, ${str_len}].`
+          )
         )
       )
     );
@@ -903,9 +929,11 @@ _compute_comptime_string_index :: (
   if((end_idx < start_idx) || (end_idx > str_len), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(arg_expr),
-          `String slice end index out of bounds: ${end_idx}. Expected index in range [${start_idx}, ${str_len}].`
+        Box.new(
+          format_error_message(
+            ast_expr_token(arg_expr),
+            `String slice end index out of bounds: ${end_idx}. Expected index in range [${start_idx}, ${str_len}].`
+          )
         )
       )
     );
@@ -917,9 +945,11 @@ _compute_comptime_string_index :: (
   if(!str_value.is_char_boundary(start_idx), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(arg_expr),
-          `String slice start index ${start_idx} is not on a UTF-8 character boundary`
+        Box.new(
+          format_error_message(
+            ast_expr_token(arg_expr),
+            `String slice start index ${start_idx} is not on a UTF-8 character boundary`
+          )
         )
       )
     );
@@ -927,9 +957,11 @@ _compute_comptime_string_index :: (
   if(!str_value.is_char_boundary(end_idx), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(arg_expr),
-          `String slice end index ${end_idx} is not on a UTF-8 character boundary`
+        Box.new(
+          format_error_message(
+            ast_expr_token(arg_expr),
+            `String slice end index ${end_idx} is not on a UTF-8 character boundary`
+          )
         )
       )
     );
@@ -964,9 +996,11 @@ _try_comptime_string_index :: (
     .None => {
       exn.throw(
         dyn(
-          format_eval_failure(
-            ast_expr_token(arg_expr),
-            String.from("Failed to evaluate index argument for comptime string indexing")
+          Box.new(
+            format_eval_failure(
+              ast_expr_token(arg_expr),
+              String.from("Failed to evaluate index argument for comptime string indexing")
+            )
           )
         )
       );
@@ -979,9 +1013,11 @@ _try_comptime_string_index :: (
     .None => {
       exn.throw(
         dyn(
-          format_eval_failure(
-            ast_expr_token(arg_expr),
-            String.from("Failed to evaluate index argument for comptime string indexing")
+          Box.new(
+            format_eval_failure(
+              ast_expr_token(arg_expr),
+              String.from("Failed to evaluate index argument for comptime string indexing")
+            )
           )
         )
       );
@@ -1611,9 +1647,11 @@ try_to_call_with_index_trait :: (
   if(arg_exprs.len() != usize(1), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Index trait expects exactly 1 argument, got ${arg_exprs.len()}.`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Index trait expects exactly 1 argument, got ${arg_exprs.len()}.`
+          )
         )
       )
     );
@@ -1624,9 +1662,11 @@ try_to_call_with_index_trait :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            String.from("Index trait: missing argument")
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              String.from("Index trait: missing argument")
+            )
           )
         )
       );
@@ -1727,9 +1767,11 @@ try_to_call_with_index_trait :: (
     .None => {
       exn.throw(
         dyn(
-          format_eval_failure(
-            ast_expr_token(&arg_expr),
-            String.from("Failed to evaluate index argument")
+          Box.new(
+            format_eval_failure(
+              ast_expr_token(&arg_expr),
+              String.from("Failed to evaluate index argument")
+            )
           )
         )
       );
@@ -1767,9 +1809,11 @@ try_to_call_with_index_trait :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            String.from("Type does not implement Index for the given argument type.")
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              String.from("Type does not implement Index for the given argument type.")
+            )
           )
         )
       );
@@ -2008,9 +2052,13 @@ _promote_index_call :: (fn(call : &AstExpr, env : &Environment, ctx : &mut EvalC
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            &tok,
-            `Cannot write \`${place_text}\`: \`${type_to_string(&recv_ty)}\` implements \`Index\`, whose \`index\` is a read projection (\`-> &Self.Output\`), but not \`IndexMut\`, whose \`index_mut\` (\`self : &mut Self -> &mut Self.Output\`) every write through \`x(i)\` dispatches (decision 34). Implement \`IndexMut(${type_to_string(&arg_ty)})\` to make the element writable.`
+          Box.new(
+            Box.new(
+              format_error_message(
+                &tok,
+                `Cannot write \`${place_text}\`: \`${type_to_string(&recv_ty)}\` implements \`Index\`, whose \`index\` is a read projection (\`-> &Self.Output\`), but not \`IndexMut\`, whose \`index_mut\` (\`self : &mut Self -> &mut Self.Output\`) every write through \`x(i)\` dispatches (decision 34). Implement \`IndexMut(${type_to_string(&arg_ty)})\` to make the element writable.`
+              )
+            )
           )
         )
       );
@@ -2021,9 +2069,11 @@ _promote_index_call :: (fn(call : &AstExpr, env : &Environment, ctx : &mut EvalC
   if(!(are_types_compatible(&mut_shape.output, &read_shape.output) && are_types_compatible(&read_shape.output, &mut_shape.output)), {
     exn.throw(
       dyn(
-        format_error_message(
-          &tok,
-          `Cannot write \`${place_text}\`: \`index_mut\` yields \`${type_to_string(&mut_shape.output)}\` and \`index\` yields \`${type_to_string(&read_shape.output)}\`; \`IndexMut\` and \`Index\` share one \`Output\`.`
+        Box.new(
+          format_error_message(
+            &tok,
+            `Cannot write \`${place_text}\`: \`index_mut\` yields \`${type_to_string(&mut_shape.output)}\` and \`index\` yields \`${type_to_string(&read_shape.output)}\`; \`IndexMut\` and \`Index\` share one \`Output\`.`
+          )
         )
       )
     );
@@ -2035,22 +2085,24 @@ _promote_index_call :: (fn(call : &AstExpr, env : &Environment, ctx : &mut EvalC
     .Some(rv) => if(variable_is_imm_borrow(&rv), {
       exn.throw(
         dyn(
-          with_code(
-            cond(
-              // `addr_of` yields a `*T`, which can write the element (Yo has
-              // no const pointer), so it takes the element as a write
-              // (issues/fixed/2026-11-05-addr-of-an-element-through-a-read-only-borrow-is-reported-as-a-write.md).
-              is_addr_of => format_error_message_with_help(
-                &tok,
-                `Cannot take \`addr_of(${place_text})\`: it yields a \`*T\`, which can write the element, and \`${rv.name}\` is a read-only borrow.`,
-                Option(String).Some(`to read the element, use it in place: index it (\`${place_text}.f\`), match it through \`&${place_text}\`, or pass \`&${place_text}\` to a \`&T\` parameter; to write it, declare \`${rv.name} : &mut T\` (or borrow it with \`&mut\`)`)
+          Box.new(
+            with_code(
+              cond(
+                // `addr_of` yields a `*T`, which can write the element (Yo has
+                // no const pointer), so it takes the element as a write
+                // (issues/fixed/2026-11-05-addr-of-an-element-through-a-read-only-borrow-is-reported-as-a-write.md).
+                is_addr_of => format_error_message_with_help(
+                  &tok,
+                  `Cannot take \`addr_of(${place_text})\`: it yields a \`*T\`, which can write the element, and \`${rv.name}\` is a read-only borrow.`,
+                  Option(String).Some(`to read the element, use it in place: index it (\`${place_text}.f\`), match it through \`&${place_text}\`, or pass \`&${place_text}\` to a \`&T\` parameter; to write it, declare \`${rv.name} : &mut T\` (or borrow it with \`&mut\`)`)
+                ),
+                true => format_error_message(
+                  &tok,
+                  `Cannot write \`${place_text}\`: \`IndexMut.index_mut\` takes \`self : &mut Self\`, and \`${rv.name}\` is a read-only borrow. Declare it \`${rv.name} : &mut T\` (or borrow it with \`&mut\`) to write its elements.`
+                )
               ),
-              true => format_error_message(
-                &tok,
-                `Cannot write \`${place_text}\`: \`IndexMut.index_mut\` takes \`self : &mut Self\`, and \`${rv.name}\` is a read-only borrow. Declare it \`${rv.name} : &mut T\` (or borrow it with \`&mut\`) to write its elements.`
-              )
-            ),
-            E_WRITE_THROUGH_BORROW
+              E_WRITE_THROUGH_BORROW
+            )
           )
         )
       );
@@ -2119,9 +2171,11 @@ _promote_owner_deref :: (fn(star : &AstExpr, object : &AstExpr, env : &Environme
   if(!(are_types_compatible(&mut_ty, &read_ty) && are_types_compatible(&read_ty, &mut_ty)), {
     exn.throw(
       dyn(
-        format_error_message(
-          &tok,
-          `Cannot write \`${place_text}\`: \`deref_mut\` yields \`${type_to_string(&mut_ty)}\` and \`deref\` yields \`${type_to_string(&read_ty)}\`; \`DerefMut\` and \`Deref\` share one \`Target\`.`
+        Box.new(
+          format_error_message(
+            &tok,
+            `Cannot write \`${place_text}\`: \`deref_mut\` yields \`${type_to_string(&mut_ty)}\` and \`deref\` yields \`${type_to_string(&read_ty)}\`; \`DerefMut\` and \`Deref\` share one \`Target\`.`
+          )
         )
       )
     );
@@ -2176,12 +2230,14 @@ promote_index_places_for_write :: (fn(place : &AstExpr, env : &Environment, ctx 
           if(!match(projection_call_mode_of(&cur, ctx), .Some(pm) => pm, .None => false), {
             exn.throw(
               dyn(
-                with_code(
-                  format_error_message(
-                    ast_expr_token(&cur),
-                    `Cannot write \`${ast_expr_to_string(&cur)}\`: \`${ast_expr_to_string(&pw_callee)}\` is a read projection (\`-> &T\`), so the place it yields is read-only. Call a \`&mut\` projection (\`-> &mut T\`, e.g. \`index_mut\`) to write it.`
-                  ),
-                  E_WRITE_THROUGH_BORROW
+                Box.new(
+                  with_code(
+                    format_error_message(
+                      ast_expr_token(&cur),
+                      `Cannot write \`${ast_expr_to_string(&cur)}\`: \`${ast_expr_to_string(&pw_callee)}\` is a read projection (\`-> &T\`), so the place it yields is read-only. Call a \`&mut\` projection (\`-> &mut T\`, e.g. \`index_mut\`) to write it.`
+                    ),
+                    E_WRITE_THROUGH_BORROW
+                  )
                 )
               )
             );

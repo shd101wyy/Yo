@@ -72,13 +72,15 @@ _throw_assert_failed :: (
     .None => String.from("")
   );
   if(err_msg.len() > usize(0), {
-    exn.throw(dyn(format_error_message(ast_expr_token(expr), &err_msg)));
+    exn.throw(dyn(Box.new(format_error_message(ast_expr_token(expr), &err_msg))));
   }, {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Assertion failed for "comptime_assert":\n${ast_expr_to_string(arg_expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Assertion failed for "comptime_assert":\n${ast_expr_to_string(arg_expr)}`
+          )
         )
       )
     );
@@ -121,9 +123,11 @@ evaluate_comptime_assert :: (
             if(!is_bool_type(&ai.ty()) && !is_unknown_val(match(ai.value(), .Some(v) => v, .None => EvalValue.UnitVal)), {
               exn.throw(
                 dyn(
-                  format_error_message(
-                    ast_expr_token(&arg_expr),
-                    `Expected bool expression for "comptime_assert", got:\n${ast_expr_to_string(&arg_expr)}\n\nType:\n${String.from("unknown")}`
+                  Box.new(
+                    format_error_message(
+                      ast_expr_token(&arg_expr),
+                      `Expected bool expression for "comptime_assert", got:\n${ast_expr_to_string(&arg_expr)}\n\nType:\n${String.from("unknown")}`
+                    )
                   )
                 )
               );
@@ -185,9 +189,11 @@ evaluate_comptime_assert :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg_expr),
-            `Expected bool value for "comptime_assert", got:\n${ast_expr_to_string(&arg_expr)}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg_expr),
+              `Expected bool value for "comptime_assert", got:\n${ast_expr_to_string(&arg_expr)}`
+            )
           )
         )
       );
@@ -200,9 +206,11 @@ evaluate_comptime_assert :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg_expr),
-            `Expected bool value for "comptime_assert", got:\n${ast_expr_to_string(&arg_expr)}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg_expr),
+              `Expected bool value for "comptime_assert", got:\n${ast_expr_to_string(&arg_expr)}`
+            )
           )
         )
       );
@@ -212,9 +220,11 @@ evaluate_comptime_assert :: (
   if(!is_bool_val(&arg_val), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&arg_expr),
-          `Expected bool value for "comptime_assert", got:\n${ast_expr_to_string(&arg_expr)}\n\nValue:\n${value_to_string(&arg_val)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&arg_expr),
+            `Expected bool value for "comptime_assert", got:\n${ast_expr_to_string(&arg_expr)}\n\nValue:\n${value_to_string(&arg_val)}`
+          )
         )
       )
     );

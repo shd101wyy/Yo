@@ -164,7 +164,7 @@ raise_flow_violation :: (fn(err : &YoError, ctx : &EvalContext, exn : Exception)
   if(!ctx.is_in_function_call_checking_phase && !propagate_def_time_errors() && !flow_violation_pending(), {
     flag_flow_violation(err);
   });
-  exn.throw(dyn(err.*));
+  exn.throw(dyn(Box.new(err.*)));
 });
 /// Re-raise `err`, the rejection a definition-time trial swallowed, from that
 /// trial's caller: clear the flag the trial left, then raise it again through
@@ -773,9 +773,11 @@ require_ref_own_argument_exclusivity :: (
                             .Some(own_arg) =>
                               exn.throw(
                                 dyn(
-                                  format_error_message(
-                                    ast_expr_token(&own_arg),
-                                    `Cannot pass "${own_var.name}" to the sink parameter "${own_lbl}" in the same call where argument ${ref_idx + usize(1)} borrows from it (bound to the ref parameter "${ref_lbl}") — the callee takes ownership and may drop the object while the borrow is still in use. Copy the value out instead, or split the calls.`
+                                  Box.new(
+                                    format_error_message(
+                                      ast_expr_token(&own_arg),
+                                      `Cannot pass "${own_var.name}" to the sink parameter "${own_lbl}" in the same call where argument ${ref_idx + usize(1)} borrows from it (bound to the ref parameter "${ref_lbl}") — the callee takes ownership and may drop the object while the borrow is still in use. Copy the value out instead, or split the calls.`
+                                    )
                                   )
                                 )
                               ),
@@ -1059,7 +1061,7 @@ take_deferred_sibling_rules :: (fn(call_id : usize, borrowed : &ArrayList(Captur
   );
   match(
     first_unowned,
-    .Some(m) => exn.throw(dyn(m)),
+    .Some(m) => exn.throw(dyn(Box.new(m))),
     .None => ()
   );
 });
@@ -1176,9 +1178,11 @@ _reject_if_container_reachable :: (
   if(root_module, {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(ref_arg),
-          `A 'ref' argument ("${ast_expr_to_string(ref_arg)}") borrows into the module-level container "${cname}" — any callee could reach it and free/reallocate the storage the reference points into. ${fix}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(ref_arg),
+            `A 'ref' argument ("${ast_expr_to_string(ref_arg)}") borrows into the module-level container "${cname}" — any callee could reach it and free/reallocate the storage the reference points into. ${fix}`
+          )
         )
       )
     );
@@ -1283,7 +1287,7 @@ _reject_if_container_reachable :: (
         match(
           defer_call_id,
           .Some(did) => flag_deferred_sibling_rule(did.*, defer_label, &message),
-          .None => exn.throw(dyn(message))
+          .None => exn.throw(dyn(Box.new(message)))
         );
       });
     });
@@ -1410,9 +1414,11 @@ require_valid_ref_argument_places :: (
                       if(rv.is_module_level() && (root_is_object || ref_type_contains_rc), {
                         exn.throw(
                           dyn(
-                            format_error_message(
-                              &arg_tok,
-                              `A 'ref' argument cannot borrow a field of the module-level object "${ast_expr_text(&cur).*}" — a callee could reassign it and free the borrowed storage. Bind it to a local first:\n  h := ${ast_expr_text(&cur).*};\nand pass the field of "h" instead.`
+                            Box.new(
+                              format_error_message(
+                                &arg_tok,
+                                `A 'ref' argument cannot borrow a field of the module-level object "${ast_expr_text(&cur).*}" — a callee could reassign it and free the borrowed storage. Bind it to a local first:\n  h := ${ast_expr_text(&cur).*};\nand pass the field of "h" instead.`
+                              )
                             )
                           )
                         );

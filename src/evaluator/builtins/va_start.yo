@@ -58,9 +58,11 @@ evaluate_va_start :: (
         if(!ast_expr_is_atom(&arg) || !is_valid_variable_name(&arg), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&arg),
-                `Invalid argument for va_start. Expected identifier, got:\n${ast_expr_to_string(&arg)}`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&arg),
+                  `Invalid argument for va_start. Expected identifier, got:\n${ast_expr_to_string(&arg)}`
+                )
               )
             )
           );
@@ -72,12 +74,14 @@ evaluate_va_start :: (
           if(variables.len() == usize(0), {
             exn.throw(
               dyn(
-                with_code(
-                  format_error_message(
-                    ast_expr_token(&arg),
-                    `Variable "${var_name}" not found.`
-                  ),
-                  E_VARIABLE_NOT_FOUND
+                Box.new(
+                  with_code(
+                    format_error_message(
+                      ast_expr_token(&arg),
+                      `Variable "${var_name}" not found.`
+                    ),
+                    E_VARIABLE_NOT_FOUND
+                  )
                 )
               )
             );
@@ -118,12 +122,14 @@ evaluate_va_start :: (
           if(variables.len() == usize(0), {
             exn.throw(
               dyn(
-                with_code(
-                  format_error_message(
-                    ast_expr_token(&arg),
-                    `Variable "${var_name}" not found.`
-                  ),
-                  E_VARIABLE_NOT_FOUND
+                Box.new(
+                  with_code(
+                    format_error_message(
+                      ast_expr_token(&arg),
+                      `Variable "${var_name}" not found.`
+                    ),
+                    E_VARIABLE_NOT_FOUND
+                  )
                 )
               )
             );

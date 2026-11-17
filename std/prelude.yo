@@ -9839,9 +9839,9 @@ export(Result);
 /// as with Rust's `Rc<T>`; `w.*` names the payload, and `w.field` /
 /// `w.method()` reach it through auto-dereference (`Deref`).
 ///
-/// `Rc(V)` is the canonical shared cell (V1 step 1, Generation B): the cell
-/// the compiler synthesizes (`dyn(v)` auto-boxes into `Rc(T).new(v)`), and the one
-/// every std, src and test site spells. Its old name, `Box`, is free again:
+/// `Rc(V)` is the canonical shared cell (V1 step 1, Generation B): the one
+/// every std, src and test site spells, and the shared owner of a `Dyn`
+/// (`dyn(Rc.new(v))`). Its old name, `Box`, is free again:
 /// V1 step 2 reintroduces `Box` as the unique, uncounted cell.
 ///
 /// The payload is shared, so it is read-only through the handle, as Rust's
@@ -13491,10 +13491,10 @@ impl(
     __yo_join_handle_abort_raw((*void)(self.__future))
   )
 );
-/// `dyn(...)`'s cell constructor: `dyn(v)` boxes a payload whose type is a
-/// type variable (`dyn(f)` for `f : Impl(Fn(...))`, a closure literal) with
-/// `__yo_rc_cell(v)`, bound to the call by value, and so does a recognized
-/// `dyn(Rc.new(<closure>, alloc : a))`, whose `alloc` it forwards.
+/// `dyn(...)`'s cell constructor: a recognized `dyn(Rc.new(<closure>, alloc :
+/// a))` boxes a payload whose type is a type variable (a closure literal, an
+/// `Impl(Fn(...))` value) with `__yo_rc_cell(v)`, bound to the call by value,
+/// and forwards its `alloc`.
 /// Compiler-internal, not exported; `Rc.new` is the spelling to write. It
 /// survived the deletion of `rc` (static-argument inference B3), and goes when
 /// a generic constructor's specialization adopts its result type over the
@@ -13514,8 +13514,8 @@ __yo_rc_cell :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocato
   cell := Rc(V)(__yo_cell(V)(value, alloc));
   cell
 });
-/// `dyn(...)`'s owning box constructor (decision 49 S2): `dyn(v)` and
-/// `dyn(Box.new(<closure>, alloc : a))` box a payload whose type is a type
+/// `dyn(...)`'s owning box constructor (decision 49 S2):
+/// `dyn(Box.new(<closure>, alloc : a))` boxes a payload whose type is a type
 /// variable (a closure literal, an `Impl(Fn(...))` value) with
 /// `__yo_box_cell(v)`, `__yo_rc_cell`'s twin for `Box(Dyn(...))`.
 /// Compiler-internal, not exported; `Box.new` is the spelling to write. It goes

@@ -84,9 +84,11 @@ evaluate_array_type :: (
   if(!ast_expr_is_fn_call_of(expr, BK_ARRAY, Option(usize).Some(usize(2))), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected "Array(comptime(Type), comptime(usize))" with 2 arguments, like "Array(i32, 10)"\nGot:\n${ast_expr_to_string(expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected "Array(comptime(Type), comptime(usize))" with 2 arguments, like "Array(i32, 10)"\nGot:\n${ast_expr_to_string(expr)}`
+          )
         )
       )
     );
@@ -104,9 +106,11 @@ evaluate_array_type :: (
   if(elem_type_info_opt.is_none(), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&element_type_expr),
-          `Failed to evaluate the element type expression:\n${ast_expr_to_string(&element_type_expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&element_type_expr),
+            `Failed to evaluate the element type expression:\n${ast_expr_to_string(&element_type_expr)}`
+          )
         )
       )
     );
@@ -119,9 +123,11 @@ evaluate_array_type :: (
   if(!is_type_value(&elem_type_info.value()), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&element_type_expr),
-          `Expected type for element type, got:\n${ast_expr_to_string(&element_type_expr)}\n\nIf you are creating an array value with 1 element, please consider adding a "," in the end, like [1,]`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&element_type_expr),
+            `Expected type for element type, got:\n${ast_expr_to_string(&element_type_expr)}\n\nIf you are creating an array value with 1 element, please consider adding a "," in the end, like [1,]`
+          )
         )
       )
     );
@@ -141,9 +147,11 @@ evaluate_array_type :: (
       _ => {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&element_type_expr),
-              `Expected TypeVal for element type`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&element_type_expr),
+                `Expected TypeVal for element type`
+              )
             )
           )
         );
@@ -153,9 +161,11 @@ evaluate_array_type :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&element_type_expr),
-            `Expected type value for element type`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&element_type_expr),
+              `Expected type value for element type`
+            )
           )
         )
       );
@@ -164,7 +174,7 @@ evaluate_array_type :: (
   );
   // An array's element is stored by value (decision 49, E0619).
   if(!type_is_sized(&child_type), {
-    exn.throw(dyn(unsized_by_value_error(&child_type, &String.from("an array element"), &Option(String).None, &ast_expr_token(&element_type_expr))));
+    exn.throw(dyn(Box.new(unsized_by_value_error(&child_type, &String.from("an array element"), &Option(String).None, &ast_expr_token(&element_type_expr)))));
   });
   env_after_elem := expr_info_adopt_env(&elem_type_info);
   // `Array(T, _)` — underscore length INFERENCE: mint a
@@ -205,9 +215,11 @@ evaluate_array_type :: (
   if(len_info_opt.is_none(), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&length_expr),
-          `Failed to evaluate the length expression:\n${ast_expr_to_string(&length_expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&length_expr),
+            `Failed to evaluate the length expression:\n${ast_expr_to_string(&length_expr)}`
+          )
         )
       )
     );
@@ -226,9 +238,11 @@ evaluate_array_type :: (
   if(false, {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(length_expr),
-          `Expected compile-time known value for length, got:\n${ast_expr_to_string(length_expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(length_expr),
+            `Expected compile-time known value for length, got:\n${ast_expr_to_string(length_expr)}`
+          )
         )
       )
     );
@@ -258,9 +272,11 @@ evaluate_array_type :: (
       .None => {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&length_expr),
-              `Failed to parse array length as integer`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&length_expr),
+                `Failed to parse array length as integer`
+              )
             )
           )
         );
@@ -335,7 +351,7 @@ evaluate_slice_type :: (
   ) -> AstExpr
 )({
   if(!ast_expr_is_fn_call_of(expr, BK_SLICE, Option(usize).Some(usize(1))), {
-    exn.throw(dyn(format_error_message(ast_expr_token(expr), `Expected "Slice(comptime(Type))" with 1 argument, like "Slice(i32)" or "[i32]"\nGot:\n${ast_expr_to_string(expr)}`)));
+    exn.throw(dyn(Box.new(format_error_message(ast_expr_token(expr), `Expected "Slice(comptime(Type))" with 1 argument, like "Slice(i32)" or "[i32]"\nGot:\n${ast_expr_to_string(expr)}`))));
   });
   element_type_expr := match(
     expr,
@@ -347,7 +363,7 @@ evaluate_slice_type :: (
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_elem)),
     .Some(info) => Rc.clone(info),
     .None => {
-      exn.throw(dyn(format_error_message(ast_expr_token(&element_type_expr), `Failed to evaluate the element type expression:\n${ast_expr_to_string(&element_type_expr)}`)));
+      exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&element_type_expr), `Failed to evaluate the element type expression:\n${ast_expr_to_string(&element_type_expr)}`))));
       new_expr_info(env, t_usize())
     }
   );
@@ -355,14 +371,14 @@ evaluate_slice_type :: (
     elem_info.value(),
     .Some(.TypeVal(inner)) => Rc.clone(inner),
     _ => {
-      exn.throw(dyn(format_error_message(ast_expr_token(&element_type_expr), `Expected a type for the slice's element, got:\n${ast_expr_to_string(&element_type_expr)}`)));
+      exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&element_type_expr), `Expected a type for the slice's element, got:\n${ast_expr_to_string(&element_type_expr)}`))));
       t_usize()
     }
   );
   // `[str]` is a slice of the legacy value `str`, `&(str, static)` (decision
   // 49, `unsized_legacy_spellings`).
   if(!type_is_sized(&elem_ty) && !is_legacy_value_str(&elem_ty), {
-    exn.throw(dyn(unsized_by_value_error(&elem_ty, &String.from("a slice element"), &Option(String).None, &ast_expr_token(&element_type_expr))));
+    exn.throw(dyn(Box.new(unsized_by_value_error(&elem_ty, &String.from("a slice element"), &Option(String).None, &ast_expr_token(&element_type_expr)))));
   });
   if(is_legacy_value_str(&elem_ty), {
     note_legacy_str_spelling(&element_type_expr, false, &ctx.std_path);

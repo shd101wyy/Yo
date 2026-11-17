@@ -55,9 +55,11 @@ evaluate_gensym :: (
       if(n_args > usize(1), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(expr),
-              `Expected "gensym" with 0 or 1 argument, got more`
+            Box.new(
+              format_error_message(
+                ast_expr_token(expr),
+                `Expected "gensym" with 0 or 1 argument, got more`
+              )
             )
           )
         );
@@ -71,9 +73,11 @@ evaluate_gensym :: (
         .None => {
           exn.throw(
             dyn(
-              format_eval_failure(
-                ast_expr_token(&prefix_arg),
-                `Failed to evaluate the prefix argument for "gensym":\n${ast_expr_to_string(&prefix_arg)}`
+              Box.new(
+                format_eval_failure(
+                  ast_expr_token(&prefix_arg),
+                  `Failed to evaluate the prefix argument for "gensym":\n${ast_expr_to_string(&prefix_arg)}`
+                )
               )
             )
           );
@@ -87,9 +91,11 @@ evaluate_gensym :: (
           if(!is_str_lit(&pv), {
             exn.throw(
               dyn(
-                format_error_message(
-                  ast_expr_token(&prefix_arg),
-                  `Expected comptime_str for prefix argument, got:\n${ast_expr_to_string(&prefix_arg)}`
+                Box.new(
+                  format_error_message(
+                    ast_expr_token(&prefix_arg),
+                    `Expected comptime_str for prefix argument, got:\n${ast_expr_to_string(&prefix_arg)}`
+                  )
                 )
               )
             );
@@ -111,9 +117,11 @@ evaluate_gensym :: (
         .None => {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&prefix_arg),
-                `Expected comptime_str for prefix argument, got:\n${ast_expr_to_string(&prefix_arg)}`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&prefix_arg),
+                  `Expected comptime_str for prefix argument, got:\n${ast_expr_to_string(&prefix_arg)}`
+                )
               )
             )
           );

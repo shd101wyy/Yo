@@ -258,7 +258,7 @@ transform :: (fn(list : ArrayList(i32), f : Impl(Fn(x : i32) -> i32)) -> unit)({
 
 - `(params) => expr` — lambda / closure syntax
 - `Impl(Fn(params) -> ReturnType)` — STATIC closure type: monomorphized, capture struct passed BY VALUE, direct call, no heap allocation / vtable / refcount on the closure itself
-- `Box(Dyn(Fn(params) -> ReturnType))` — owned TYPE-ERASED closure type: the capture struct moves into a heap box, called through a `{data, vtable}` fat pointer: `(f : Box(Dyn(Fn(y : i32) -> i32))) = dyn(Box.new((y) => (y + 1)));`. `&Dyn(Fn(...))` borrows one with no allocation (`run(dyn(&f))`). In v0.2.77 `dyn(f)` is the older spelling of `dyn(Box.new(f))`. ALWAYS spelled (decision 44): a named closure, a named `fn`, an `Impl(Fn(...))` parameter or a closure literal passed BARE into a `Dyn(Fn(...))` binding, field, argument or result is E0618 (`run(f)` → `run(dyn(f))`, `S(cb : f)` → `S(cb : dyn(f))`, a body tail `g` → `dyn(g)`); `yo fix <path>` wraps a named callable. `dyn` moves its argument, so one closure fills one `Dyn` slot
+- `Box(Dyn(Fn(params) -> ReturnType))` — owned TYPE-ERASED closure type: the capture struct moves into a heap box, called through a `{data, vtable}` fat pointer: `(f : Box(Dyn(Fn(y : i32) -> i32))) = dyn(Box.new((y) => (y + 1)));`. `&Dyn(Fn(...))` borrows one with no allocation (`run(dyn(&f))`). A plain `dyn(f)` was the legacy alias of `dyn(Box.new(f))` in v0.2.77–v0.2.78 and is E0620 since v0.2.79. ALWAYS spelled (decision 44): a named closure, a named `fn`, an `Impl(Fn(...))` parameter or a closure literal passed BARE into a `Dyn(Fn(...))` binding, field, argument or result is E0618 (`run(f)` → `run(dyn(Box.new(f)))`, `S(cb : f)` → `S(cb : dyn(Box.new(f)))`, a body tail `g` → `dyn(Box.new(g))`); `yo fix <path>` writes it for a named callable. `dyn` moves its argument, so one closure fills one `Dyn` slot
 - `FnOnce(params) -> ReturnType` — the call-once trait: the call CONSUMES the closure (a second call is E0901). A capture-list closure typed `Impl(FnOnce(...))` owns its by-value captures and may move one out: `(send : Impl(FnOnce() -> i32)) = ({ t }() => take(t));`. `Fn` fills any `FnOnce` slot, never the reverse (E0913); an API calls it once only through `sink(f) : Impl(FnOnce(...))`
 - `FnMut(params) -> ReturnType` — the call-repeatedly trait: the call borrows the closure EXCLUSIVELY, so the body may write its capture-list by-value entries (state kept across calls) and `&mut` captures: `(mut(tick) : Impl(FnMut() -> i32)) = ({ n : i32(0) }() => { n = (n + i32(1)); n });`. Call it through `mut(f)` / `f : &mut Impl(FnMut(...))` / a temporary (E0917 unmarked, E0908 through `&`). `Fn` ⇒ `FnMut` ⇒ `FnOnce` (E0913 the other way); move-only
 - Value types are captured by copy; reference-semantics types by reference. In BOTH forms the captured value is what carries the refcount — the `Impl` closure itself has none
@@ -415,7 +415,7 @@ s := erased.to_string();
 - `Impl(Trait)` — static dispatch; concrete type chosen at compile time
 - `Dyn(Trait)` — dynamic dispatch via an UNSIZED trait object behind a pointer (decision 49): `Box(Dyn(T))` owns, `Rc(Dyn(T))` shares, `&Dyn(T)` borrows
 - `dyn(...)` erases the pointee of a pointer: `dyn(Box.new(v))`, `dyn(Rc.new(v))`, `dyn(&v)`, `dyn(&mut v)`
-- In v0.2.77 a bare `Dyn(T)` value type and `dyn(v)` of a plain value are the older spellings of `Box(Dyn(T))` and `dyn(Box.new(v))`; `src/`/`std/` keep them until v0.2.78 because the seed compiles them (`yo fix <path> --migrate unsized` writes the types the new way). A `dyn(&v)` reference is a call argument only until v0.2.78
+- A bare `Dyn(T)` value type (E0619 since v0.2.78) and `dyn(v)` of a plain value (E0620 since v0.2.79) were the older spellings of `Box(Dyn(T))` and `dyn(Box.new(v))`; `yo fix <path> --migrate unsized` migrates them on the last release that accepts each (v0.2.77 for the types, v0.2.78 for `dyn(v)`). A `dyn(&v)` reference is a call argument only until v0.2.78
 
 ## Naming conventions
 
@@ -836,12 +836,13 @@ call argument is fine (`f(a + b)`) because the parentheses of the call group
 it. `yo fmt` never adds these for you, and `yo check` reports one per run —
 so wrap every binary RHS as you write it.
 
-### `dyn(...)` needs a value that implements `Error` — a `str` literal does not
+### `dyn(Box.new(...))` needs a value that implements `Error` — a `str` literal does not
 
-`exn.throw(dyn("message"))` and `Result(T, String).Err("message")` fail with
+`exn.throw(dyn(Box.new("message")))` and `Result(T, String).Err("message")` fail with
 `Type mismatch … Expected: String, Got: str` / `str does not implement Error`.
-Write `dyn(String.from("message"))`, `.Err(String.from("…"))`, or a template
-literal (`` dyn(`… ${x}`) `` is a `String`).
+Write `dyn(Box.new(String.from("message")))`, `.Err(String.from("…"))`, or a template
+literal (`` dyn(Box.new(`… ${x}`)) `` is a `String` in a box). A plain `dyn(v)`
+of a value is E0620 since v0.2.79.
 
 ### `impl(...)` requires a trailing semicolon
 
@@ -2090,9 +2091,9 @@ mismatching a `()` sibling — restructure with a found-flag + trailing value,
 or use `__yo_panic("literal")` for diverging value-position arms (str only).
 
 Also the same class: an arm that only THROWS must have the throw as its TAIL
-expression. `.None => { exn.throw(dyn(err)); }` types the arm `unit` (the
+expression. `.None => { exn.throw(dyn(Box.new(err))); }` types the arm `unit` (the
 trailing `;` discards the diverging value) and mismatches a sibling arm's real
-type; write `.None => exn.throw(dyn(err))` with no braces and no semicolon.
+type; write `.None => exn.throw(dyn(Box.new(err)))` with no braces and no semicolon.
 
 ## A real newline inside `"…"` is a parse error — reported misleadingly
 

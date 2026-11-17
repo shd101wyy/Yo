@@ -54,9 +54,11 @@ try_to_implement_array_by_array_type :: (
     _ => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            `try_to_implement_array_by_array_type: expected Array type, got ${type_to_string(array_type)}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              `try_to_implement_array_by_array_type: expected Array type, got ${type_to_string(array_type)}`
+            )
           )
         )
       );
@@ -91,9 +93,11 @@ try_to_implement_array_by_array_type :: (
     );
     exn.throw(
       dyn(
-        format_error_message(
-          &func_tok,
-          `Array constructor expects ${expected_len.to_string()} elements, got ${n_args.to_string()}.`
+        Box.new(
+          format_error_message(
+            &func_tok,
+            `Array constructor expects ${expected_len.to_string()} elements, got ${n_args.to_string()}.`
+          )
         )
       )
     );
@@ -124,9 +128,11 @@ try_to_implement_array_by_array_type :: (
     if(arg_info_opt.is_none(), {
       exn.throw(
         dyn(
-          format_eval_failure(
-            ast_expr_token(&arg_expr),
-            `Failed to evaluate array element at index ${i.to_string()}.`
+          Box.new(
+            format_eval_failure(
+              ast_expr_token(&arg_expr),
+              `Failed to evaluate array element at index ${i.to_string()}.`
+            )
           )
         )
       );
@@ -145,9 +151,11 @@ try_to_implement_array_by_array_type :: (
     if(!are_types_compatible(&arg_info.ty(), &expected_element_type), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg_expr),
-            `Array element at index ${i.to_string()} has incompatible type:\n- Expected: ${type_to_string(&expected_element_type)}\n- Given   : ${type_to_string(&arg_info.ty())}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg_expr),
+              `Array element at index ${i.to_string()} has incompatible type:\n- Expected: ${type_to_string(&expected_element_type)}\n- Given   : ${type_to_string(&arg_info.ty())}`
+            )
           )
         )
       );

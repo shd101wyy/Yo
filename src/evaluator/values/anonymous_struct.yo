@@ -60,7 +60,7 @@ evaluate_anonymous_struct_value :: (
     expr,
     .FnCall(_, fb, _, _, _) => fb.*,
     .Atom(_, _) => {
-      exn.throw(dyn(format_error_message(&tok, String.from("evaluate_anonymous_struct_value: expected FnCall"))));
+      exn.throw(dyn(Box.new(format_error_message(&tok, String.from("evaluate_anonymous_struct_value: expected FnCall")))));
       make_err_expr()
     }
   );
@@ -74,9 +74,11 @@ evaluate_anonymous_struct_value :: (
   if(!is_underscore, {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&func_expr),
-          `Expected "_" for anonymous struct, got: ${ast_expr_to_string(&func_expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&func_expr),
+            `Expected "_" for anonymous struct, got: ${ast_expr_to_string(&func_expr)}`
+          )
         )
       )
     );
@@ -122,9 +124,11 @@ evaluate_anonymous_struct_value :: (
     if(ast_expr_is_capture_mode_entry(&arg) || ast_expr_is_capture_mode_entry(&entry_label), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg),
-            `\`${ast_expr_to_string(&arg)}\` is a borrow entry of a closure's capture list, which is written before the closure's parameters: \`{ &y }(x : i32) => ...\`. A record literal's field is \`name : value\`.`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg),
+              `\`${ast_expr_to_string(&arg)}\` is a borrow entry of a closure's capture list, which is written before the closure's parameters: \`{ &y }(x : i32) => ...\`. A record literal's field is \`name : value\`.`
+            )
           )
         )
       );
@@ -146,9 +150,11 @@ evaluate_anonymous_struct_value :: (
       if(!is_valid_variable_name(&lae), {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&lae),
-              `Expected identifier for anonymous struct field label, got: ${ast_expr_to_string(&lae)}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&lae),
+                `Expected identifier for anonymous struct field label, got: ${ast_expr_to_string(&lae)}`
+              )
             )
           )
         );
@@ -172,9 +178,11 @@ evaluate_anonymous_struct_value :: (
       .None => {
         exn.throw(
           dyn(
-            format_eval_failure(
-              ast_expr_token(&value_expr),
-              String.from("Failed to evaluate anonymous struct field expression")
+            Box.new(
+              format_eval_failure(
+                ast_expr_token(&value_expr),
+                String.from("Failed to evaluate anonymous struct field expression")
+              )
             )
           )
         );
