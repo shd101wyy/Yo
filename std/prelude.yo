@@ -8283,8 +8283,11 @@ export(TypeInfo);
 /// Defined after `TypeInfo` so the return type is available.
 impl(
   Type,
-  /// Return rich metadata about this type at compile-time.
-  get_info : (fn(comptime(self) : Type) -> comptime(TypeInfo))({
+  /// Return rich metadata about this type at compile-time. Any type,
+  /// unsized ones included (decision 49): `Type.get_info(str)` is `.Str`,
+  /// as `Type.impls(str, …)` asks about `str` itself, not the legacy
+  /// `&(str, static)` a sized `Type` binder reads it as.
+  get_info : (fn(comptime(self) : ?Sized) -> comptime(TypeInfo))({
     return(__yo_type_get_info(self));
   }),
   /// Return the list of struct fields for this type at compile-time.
