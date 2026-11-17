@@ -18,7 +18,7 @@ Yo takes Rust's memory model:
 Its references `&(T, p)` are parameterized by origins, which name *what* is
 borrowed (a set of places) rather than *how long* (decision 43). The target is
 a borrow checker with Rust-parity expressiveness and no soundness holes
-(decision 50). "Rust-parity" stays a target, not a v0.2.79 fact: v0.2.79
+(decision 50). "Rust-parity" stays a target, not a v0.2.80 fact: v0.2.80
 claims the language migration and a checker that is sound on what it accepts,
 and the parity claim is made when `DIVERGENCES.tsv` has no row "rejected
 pending a parity item"
@@ -110,8 +110,8 @@ What remains:
 | --- | --- |
 | **v0.2.77** | **Published 2026-11-13.** The `yo fix` migrations retire (every mode except `deref`); G2's borrowing collections (`impl(&C, IntoIterator)`); decision 49 S1 (`?Sized`, `str`, `[T]`, `Dyn`, compiler half) with `Box` layout L1; brace groups Generation A; the borrow-checker stack O-1…O-6, P3, P8, P9 and the audit's cut-gate fixes. The parser's `ref`/`atomic` drop moved to v0.2.79 |
 | **v0.2.78** | **Published 2026-11-16.** The audit's clusters 1–9 closed by rule or wall; brace groups Generation B; decision 49 S2's `Dyn` flip (`Box(Dyn)` over a fat `*Dyn`, `Box` layout L2) with the `unsized` sweep; the `deref` sweep's text; the borrow-program generator and the rustc differential corpus. Kebab-case module files (Part C) did not land |
-| **v0.2.79** (cut target 2026-12-11, latest 12-19) | Landed so far: the `deref` flip (std, src and dependencies read a reference binding with `.*`), decision 49 S2's `str` flip and S3b-`Dyn`'s `dyn(v)` deletion. Still to come: `Deref` on owners (compiler half), the three-tree retype (`Token`, `AstExpr`, `EvalValue`) and the parser drop of `ref`/`atomic`, the `record-literal` retirement, `Box` layout L3. **The language migration is complete except the value spelling of `str`; the soundness claim is asserted by the release-candidate tests, or listed as pending** |
-| **v0.2.80** | **The claim release.** S3b-`str` (the value `str` alias and `slice_copy` deleted), `--migrate deref` retires, the std impls of `Deref` for `ArrayList` and `String`. **The language migration is complete** (claim L), beside claim (S) if it moved from v0.2.79 |
+| **v0.2.79** (cut 2026-11-17/18) | Landed so far: the `deref` flip (std, src and dependencies read a reference binding with `.*`), decision 49 S2's `str` flip and S3b-`Dyn`'s `dyn(v)` deletion. Still to come: `Deref` on owners (compiler half), the three-tree retype (`Token`, `AstExpr`, `EvalValue`), the `record-literal` retirement and the parser drop of `ref`/`atomic` (re-admitted behind 3e by the maintainer's second override, 2026-11-17); `Box` layout L3 and test 7 move to v0.2.80 (maintainer override, 2026-11-17). **The language migration is complete except the value spelling of `str`; the soundness claim is listed as pending and made in v0.2.80** |
+| **v0.2.80** (cut target 2026-12-11, latest 12-19) | **The claim release.** S3b-`str` (the value `str` alias and `slice_copy` deleted), `--migrate deref` retires, the std impls of `Deref` for `ArrayList` and `String`, and the moved items: `Box` layout L3, test 7 (maintainer override, 2026-11-17). **The language migration is complete** (claim L), beside claim (S) |
 
 ## Next — after VBD (from v0.2.80)
 
