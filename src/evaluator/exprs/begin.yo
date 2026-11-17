@@ -671,7 +671,7 @@ _m3_token_is_before :: (fn(left : &Token, right : &Token) -> bool)(
 );
 _m3_max_comparable_token :: (fn(node : &AstExpr, reference : &Token, best : &Token) -> Token)({
   tok := ast_expr_token(node);
-  best2 := if(_m3_tokens_comparable(&tok, reference) && (tok.character > best.character), tok, Rc.clone(best.*));
+  best2 := if(_m3_tokens_comparable(&tok, reference) && (tok.character > best.character), tok, best.*);
   match(
     node,
     .FnCall(_, func, Rc(args), _, _) => {
@@ -695,12 +695,12 @@ _m3_max_comparable_token :: (fn(node : &AstExpr, reference : &Token, best : &Tok
 });
 _m3_last_comparable_token_in_expr :: (fn(expr : &AstExpr, reference : &Token) -> Token)({
   init := ast_expr_token(expr);
-  init2 := if(!_m3_tokens_comparable(&init, reference), Rc.clone(reference.*), init);
+  init2 := if(!_m3_tokens_comparable(&init, reference), reference.*, init);
   _m3_max_comparable_token(expr, reference, &init2)
 });
 _m3_min_comparable_token :: (fn(node : &AstExpr, reference : &Token, best : &Token) -> Token)({
   tok := ast_expr_token(node);
-  best2 := if(_m3_tokens_comparable(&tok, reference) && (tok.character < best.character), tok, Rc.clone(best.*));
+  best2 := if(_m3_tokens_comparable(&tok, reference) && (tok.character < best.character), tok, best.*);
   match(
     node,
     .FnCall(_, func, Rc(args), _, _) => {
@@ -746,9 +746,9 @@ _m3_span_contains :: (fn(node : &AstExpr, t : &Token) -> bool)({
 /// already handed to `parts`
 /// (issues/fixed/2026-10-23-an-exit-in-a-later-arm-than-the-move-skips-the-drop-of-the-moved-local.md).
 _m3_consumed_for_arm :: (fn(args : &ArrayList(AstExpr), i : usize, variable : &Variable, consumed : &Option(Token)) -> Option(Token))({
-  ct := match(consumed, .Some(t) => Rc.clone(t.*), .None => return(Option(Token).None));
+  ct := match(consumed, .Some(t) => t.*, .None => return(Option(Token).None));
   if((i == usize(0)) || !_m3_is_flow_logged_move(variable, &ct), {
-    return(consumed.*.clone());
+    return(consumed.*);
   });
   (j : usize) = usize(0);
   while(j < i, {
@@ -771,7 +771,7 @@ _m3_consumed_for_arm :: (fn(args : &ArrayList(AstExpr), i : usize, variable : &V
     );
     j = (j + usize(1));
   });
-  consumed.*.clone()
+  consumed.*
 });
 /// Whether the flow log kept `variable`'s move at `t` for the arm that made
 /// it (see `UndoneMove`).
@@ -780,7 +780,7 @@ _m3_is_flow_logged_move :: (fn(variable : &Variable, t : &Token) -> bool)({
   (k : usize) = usize(0);
   while(k < moves.len(), {
     match(
-      moves.get_cloned(k),
+      moves.get(k),
       .Some(m) => if(!m.arm_drop && _m3_tokens_comparable(&m.moved_at, t) && (m.moved_at.character == t.character), {
         return(true);
       }),
@@ -800,13 +800,13 @@ _m3_is_flow_logged_move :: (fn(variable : &Variable, t : &Token) -> bool)({
 /// tuple literal's earlier field and a by-value receiver (`T(…).eat(…)`)
 /// (issues/fixed/2026-11-11-a-temporary-argument-leaks-when-a-later-argument-returns-continues-or-unwinds.md).
 _m3_consumed_for_call_arg :: (fn(call : &AstExpr, args : &ArrayList(AstExpr), i : usize, variable : &Variable, consumed : &Option(Token), ctx : &EvalContext) -> Option(Token))({
-  ct := match(consumed, .Some(t) => Rc.clone(t.*), .None => return(Option(Token).None));
+  ct := match(consumed, .Some(t) => t.*, .None => return(Option(Token).None));
   // A block's statements run one by one: an earlier one is not an argument.
   if(ast_expr_is_fn_call_of(call, BK_BEGIN, Option(usize).None), {
-    return(consumed.*.clone());
+    return(consumed.*);
   });
   match(_m3_first_arg_after_move(call, args, variable, &ct, ctx), .Some(k) => if(i >= k, return(Option(Token).None)), .None => ());
-  consumed.*.clone()
+  consumed.*
 });
 /// Whether the call argument `a` is the by-value use that moved `variable` at
 /// `ct`: an atom spelling the variable's name at its move token, or the
@@ -927,7 +927,7 @@ _m3_note_arg_move_region :: (fn(expr : &AstExpr, variable : &Variable, ct : &Tok
             .Some(later) => {
               first := ast_comparable_token_bounds(&later, ct);
               whole := ast_comparable_token_bounds(expr, ct);
-              note_arg_move_region(variable.id(), Rc.clone(first.0), Rc.clone(whole.1));
+              note_arg_move_region(variable.id(), first.0, whole.1);
               return(true);
             },
             .None => ()
@@ -1163,7 +1163,7 @@ _m3_attach_to_returns :: (fn(expr : &AstExpr, variable : &Variable, drop_expr : 
         // return's own `sink(b)` — already released the value on this path,
         // though the tail's later move is what the variable still shows.
         if(!variable_moved_at_cleanup_point(variable, _m3_last_comparable_token_in_expr(expr, ast_expr_token(expr)), true), {
-          ref_tok := match(consumed, .Some(ct) => Rc.clone(ct.*), .None => ast_expr_token(expr));
+          ref_tok := match(consumed, .Some(ct) => ct.*, .None => ast_expr_token(expr));
           _attach_if_cleanup_needs_drop(expr, _m3_last_comparable_token_in_expr(expr, &ref_tok), variable, drop_expr, &init_tok, consumed, ctx);
         });
         return(());
@@ -2013,7 +2013,7 @@ _ic_merge :: (fn(acc : &mut _ICScan, sub : &_ICScan) -> unit)({
   if(sub.later, {
     acc.later = true;
     if(acc.later_tok.is_none(), {
-      acc.later_tok = sub.later_tok.clone();
+      acc.later_tok = sub.later_tok;
     });
   });
 });
@@ -2364,7 +2364,7 @@ judge_dyn_copies :: (fn(frame : &Frame, scanned : &ArrayList(AstExpr), ctx : &Ev
                   match(scanned.get(ci), .Some(c) => _ic_scan(&c, &v, &p.site, &mut acc, ctx), .None => ());
                 });
                 if(acc.later, {
-                  raise_flow_violation(dyn_copy_used_again_error(&p, acc.later_tok.clone()), ctx, exn);
+                  raise_flow_violation(dyn_copy_used_again_error(&p, acc.later_tok), ctx, exn);
                 });
               },
               .None => ()
@@ -3261,7 +3261,7 @@ _evaluate_begin_expression_impl :: (
                         );
                         ir_entries.push(
                           TokenAndError(
-                            token : Rc.clone(ir_first.token),
+                            token : ir_first.token,
                             error_message : `First return has concrete type: ${type_to_string(&ir_first.concrete_type)}`
                           )
                         );
@@ -4173,7 +4173,7 @@ _evaluate_begin_expression_impl :: (
                 !eligible => false,
                 true => {
                   if(block_start.is_none(), {
-                    block_start = .Some(Rc.clone(ast_comparable_token_bounds(expr, &begin_tok).0));
+                    block_start = .Some(ast_comparable_token_bounds(expr, &begin_tok).0);
                   });
                   match(&block_start, .Some(bs) => _m3_token_is_at_or_before(bs, &it), .None => false)
                 }
@@ -4187,7 +4187,7 @@ _evaluate_begin_expression_impl :: (
               consumed_escape_drops.push(evaluated);
               _m3_note_arg_move_region_in(&begin_args, &ev, ctx);
               (dai : usize) = usize(0);
-              ev_init := match(ev.initialized_at_token(), .Some(it) => it, .None => Rc.clone(begin_tok));
+              ev_init := match(ev.initialized_at_token(), .Some(it) => it, .None => begin_tok);
               while(dai < begin_args.len(), {
                 match(
                   begin_args.get(dai),

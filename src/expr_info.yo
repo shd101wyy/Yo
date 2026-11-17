@@ -2590,7 +2590,7 @@ record_flow_event :: (
   ) -> unit
 )({
   idx := g_branch_init_log.with(_c_len_5);
-  g_branch_init_log.with_mut({ after_consumed : after_consumed.*.clone(), after_init : after_init.*.clone(), before_consumed : before_consumed.*.clone(), before_init : before_init.*.clone(), capture : capture.clone(), kind, token : Rc.clone(token.*), ty : Rc.clone(ty), var_id }(xs) => xs.push(
+  g_branch_init_log.with_mut({ after_consumed : after_consumed.*, after_init : after_init.*, before_consumed : before_consumed.*, before_init : before_init.*, capture : capture.clone(), kind, token : token.*, ty : Rc.clone(ty), var_id }(xs) => xs.push(
     BranchInitRecord(
       var_id : var_id,
       ty : Rc.clone(ty),
@@ -2620,13 +2620,13 @@ record_branch_init :: (
     token.clone(),
     before_init,
     before_consumed,
-    match(before_init, .Some(bi) => Option(Token).Some(Rc.clone(bi.*)), .None => Option(Token).Some(Rc.clone(token.*))),
+    match(before_init, .Some(bi) => Option(Token).Some(bi.*), .None => Option(Token).Some(token.*)),
     Option(Token).None
   )
 );
 /// A move of a user-named variable.
 record_branch_consume :: (fn(var_id : usize, token : &Token, before_init : &Option(Token), before_consumed : &Option(Token)) -> unit)(
-  record_flow_event(var_id, Rc.new(TypeValueNode.Unit), Option(TypeValue).None, FlowEventKind.Consume, token.clone(), before_init.clone(), before_consumed, before_init, Option(Token).Some(Rc.clone(token.*)))
+  record_flow_event(var_id, Rc.new(TypeValueNode.Unit), Option(TypeValue).None, FlowEventKind.Consume, token.clone(), before_init.clone(), before_consumed, before_init, Option(Token).Some(token.*))
 );
 branch_init_log_len :: (fn() -> usize)(g_branch_init_log.with(_vh_branch_init_log_len));
 get_branch_init_record :: (fn(i : usize) -> Option(BranchInitRecord))(g_branch_init_log.with(xs => xs.get_cloned(i)));
@@ -3193,7 +3193,7 @@ record_spec_instantiation :: (fn(spec_fid : &String, call_token : &Token, descri
     description_owned := description.clone();
     // `call_token` is a `ref` handle, cheap to capture; the rest are owned
     // (`with_mut`'s callback is a sink parameter).
-    g_spec_instantiations.with_mut({ spec_fid_owned, description_owned, call_token : Rc.clone(call_token.*) }(m) => m.insert(spec_fid_owned.clone(), SpecInstantiation(call_token : call_token, description : description_owned)));
+    g_spec_instantiations.with_mut({ spec_fid_owned, description_owned, call_token : call_token.* }(m) => m.insert(spec_fid_owned.clone(), SpecInstantiation(call_token : call_token, description : description_owned)));
   });
   ()
 });
@@ -3978,7 +3978,7 @@ _amr_bounds :: (fn(node : &AstExpr, reference : &Token, lo : Token, hi : Token) 
         match(
           args.get(i),
           .Some(a) => {
-            acc = recur(&a, reference, Rc.clone(acc.0), Rc.clone(acc.1));
+            acc = recur(&a, reference, acc.0, acc.1);
           },
           .None => ()
         );

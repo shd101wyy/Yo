@@ -135,7 +135,7 @@ derive(SymbolEntry, Clone);
 _decl_name_tok :: (fn(lhs : &AstExpr) -> Option(Token))(
   match(
     lhs,
-    .Atom(_, t) => Option(Token).Some(Rc.clone(t.*)),
+    .Atom(_, t) => Option(Token).Some(t.*),
     .FnCall(_, _, Rc(targs), _, _) => if(ast_expr_is_fn_call_of(lhs, "thread_local", .Some(usize(1))) || ast_expr_is_fn_call_of(lhs, "mut", .Some(usize(1))), match(targs.get(usize(0)), .Some(inner) => recur(&inner), .None => Option(Token).None), Option(Token).None)
   )
 );

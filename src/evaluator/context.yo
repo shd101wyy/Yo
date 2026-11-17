@@ -891,7 +891,7 @@ track_variable_usage_resolved :: (
           new_entry := CapturedVarInfo(
             frame_level : actual_frame_level,
             usage : effective_usage,
-            token : Rc.clone(token.*)
+            token : token.*
           );
           // Taken out and stored back: a `match` binding is a copy of the
           // map once collections are values.
@@ -2075,7 +2075,7 @@ _clone_captured_variables :: (
     src,
     .Some(m) => {
       for(&m, (k, v) => {
-        dst.insert(k.clone(), v.*.clone());
+        dst.insert(k.clone(), v.*);
       });
       any = true;
     },

@@ -144,7 +144,7 @@ _find_token_at :: (
   n := tokens.len();
   while(i < n, {
     t := match(
-      tokens.get_cloned(i),
+      tokens.get(i),
       .Some(x) => x,
       .None => {
         return(Option(Token).None);
@@ -436,8 +436,8 @@ _find_member_access :: (
             .Some(a) => {
               mt := match(
                 a,
-                .Atom(_, at) => Rc.clone(at),
-                .FnCall(_, mf, _, _, ct) => match(mf, .Atom(_, ft) => Rc.clone(ft), .FnCall(_, _, _, _, _) => Rc.clone(ct))
+                .Atom(_, at) => at,
+                .FnCall(_, mf, _, _, ct) => match(mf, .Atom(_, ft) => ft, .FnCall(_, _, _, _, _) => ct)
               );
               if((mt.row == target.row) && (mt.column == target.column) && (mt.value.* == target.value.*), {
                 out.push(e.*);

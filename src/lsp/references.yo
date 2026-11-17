@@ -64,7 +64,7 @@ _binding_token_of :: (
     .Some(v) => match(
       v.initialized_at_token(),
       .Some(it) => Option(Token).Some(it),
-      .None => Option(Token).Some(Rc.clone(v.token))
+      .None => Option(Token).Some(v.token)
     ),
     .None => Option(Token).None
   )
@@ -101,7 +101,7 @@ _top_level_decl_token :: (fn(exprs : &ArrayList(AstExpr), name : &String) -> Opt
                 lhs,
                 .Atom(_, t) => {
                   if(t.value.* == name.*, {
-                    return(Option(Token).Some(Rc.clone(t)));
+                    return(Option(Token).Some(t));
                   });
                 },
                 .FnCall(_, _, _, _, _) => ()
@@ -161,7 +161,7 @@ _ScopedAtom :: struct(atom : AstExpr, scope : Option(Token));
 _decl_atom :: (fn(e : &AstExpr, name : &String) -> Option(Token))(
   match(
     e,
-    .Atom(_, t) => if((t.value.* == name.*) && (t.kind == TokenKind.Identifier), Option(Token).Some(Rc.clone(t.*)), Option(Token).None),
+    .Atom(_, t) => if((t.value.* == name.*) && (t.kind == TokenKind.Identifier), Option(Token).Some(t.*), Option(Token).None),
     .FnCall(_, _, Rc(args), _, _) => cond(
       ast_expr_is_fn_call_of(e, "where", Option(usize).None) => Option(Token).None,
       (ast_expr_is_fn_call_of(e, ":", Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(e, "=", Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(e, "?=", Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(e, "&&", Option(usize).Some(usize(2)))) => recur(&args(usize(0)), name),
@@ -308,7 +308,7 @@ _scoped_atoms :: (fn(e : &AstExpr, name : &String, scope : &Option(Token), out :
         ast_expr_is_fn_call_of(e, "=>", Option(usize).Some(usize(2))) => _closure_param_decl(&args(usize(0)), name),
         true => _fn_literal_decl(e, name)
       );
-      inner := match(own, .Some(d) => Option(Token).Some(Rc.clone(d)), .None => scope.clone());
+      inner := match(own, .Some(d) => Option(Token).Some(d), .None => scope.clone());
       recur(&callee.*, name, &inner, out);
       (k : usize) = usize(0);
       while(k < args.len(), k = (k + usize(1)), {
@@ -336,7 +336,7 @@ syntactic_decl_at :: (fn(exprs : &ArrayList(AstExpr), target : &Token) -> Option
   for(&scoped, sa => {
     t := ast_expr_token(&sa.atom);
     if((t.row == target.row) && (t.column == target.column), {
-      return(sa.scope.clone());
+      return(sa.scope);
     });
   });
   Option(Token).None
@@ -400,15 +400,15 @@ collect_symbol_occurrences_with_decl :: (
   // fall back to the syntactic top-level walk so the declaration occurrence
   // is still identified (includeDeclaration, documentHighlight's Write).
   match(
-    def.clone(),
+    def,
     .None => {
       def = _top_level_decl_token(exprs, target.value.*.clone());
     },
     .Some(_) => ()
   );
   match(
-    def.clone(),
-    .Some(d) => decl_out.push(Rc.clone(d)),
+    def,
+    .Some(d) => decl_out.push(d),
     .None => ()
   );
   seen := HashSet(String).new();
@@ -421,12 +421,12 @@ collect_symbol_occurrences_with_decl :: (
       // neither (the `name :: value` declaration atom, whose ExprInfo env
       // predates the binding; a name no scope declares) is kept by name.
       include := match(
-        def.clone(),
+        def,
         .None => true,
         .Some(d) => match(
           _binding_token_of(&sa.atom, &tok, info_table),
           .Some(bt) => _same_declaration(&bt, &d),
-          .None => match(sa.scope.clone(), .Some(sd) => _same_declaration(&sd, &d), .None => true)
+          .None => match(sa.scope, .Some(sd) => _same_declaration(&sd, &d), .None => true)
         )
       );
       if(include, {
@@ -479,10 +479,10 @@ handle_references :: (
   (oi : usize) = usize(0);
   while(oi < occurrences.len(), {
     match(
-      occurrences.get_cloned(oi),
+      occurrences.get(oi),
       .Some(tk) => {
         is_decl := match(
-          decl.get_cloned(usize(0)),
+          decl.get(usize(0)),
           .Some(d) => ((usize(tk.row) == usize(d.row)) && (usize(tk.column) == usize(d.column))),
           .None => false
         );
@@ -537,10 +537,10 @@ handle_document_highlight :: (
   (oi : usize) = usize(0);
   while(oi < occurrences.len(), {
     match(
-      occurrences.get_cloned(oi),
+      occurrences.get(oi),
       .Some(tk) => {
         is_decl := match(
-          decl.get_cloned(usize(0)),
+          decl.get(usize(0)),
           .Some(d) => ((usize(tk.row) == usize(d.row)) && (usize(tk.column) == usize(d.column))),
           .None => false
         );

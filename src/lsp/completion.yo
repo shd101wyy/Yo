@@ -880,7 +880,7 @@ _import_list_path :: (
   (last_before : Option(usize)) = Option(usize).None;
   (ti : usize) = usize(0);
   while(ti < tokens.len(), {
-    t := Rc.clone(tokens(ti));
+    t := tokens(ti);
     starts_before := ((usize(t.row) < line) || ((usize(t.row) == line) && (usize(t.column) < character)));
     if(starts_before, {
       last_before = Option(usize).Some(ti);
@@ -896,7 +896,7 @@ _import_list_path :: (
       (k : usize) = lb;
       (scanning : bool) = true;
       while(scanning, {
-        t := Rc.clone(tokens(k));
+        t := tokens(k);
         cond(
           (t.kind == TokenKind.LCurlyBracket) => {
             open_idx = Option(usize).Some(k);
@@ -931,7 +931,7 @@ _import_list_path :: (
   (close_idx : Option(usize)) = Option(usize).None;
   (walking : bool) = true;
   while(walking && (j < tokens.len()), {
-    t := Rc.clone(tokens(j));
+    t := tokens(j);
     cond(
       (t.kind == TokenKind.RCurlyBracket) => {
         close_idx = Option(usize).Some(j);
@@ -957,7 +957,7 @@ _import_list_path :: (
   tail := ArrayList(Token).new();
   (m : usize) = (ci + usize(1));
   while((m < tokens.len()) && (tail.len() < usize(4)), {
-    t := Rc.clone(tokens(m));
+    t := tokens(m);
     if(!_is_trivia_token(&t), {
       tail.push(t);
     });
@@ -1142,7 +1142,7 @@ handle_completion :: (
     (ti : usize) = usize(0);
     while(ti < tokens.len(), {
       t := match(
-        tokens.get_cloned(ti),
+        tokens.get(ti),
         .Some(x) => x,
         .None => {
           return(JsonValue.Array(items : items));
@@ -1157,7 +1157,7 @@ handle_completion :: (
         // to one has to be a rune count (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
         ends_at_dot := ((usize(t.row) == line) && ((usize(t.column) + t.value.*.clone().chars().count()) == dot_col));
         if(ends_at_dot && (t.kind == TokenKind.Identifier), {
-          receiver = Option(Token).Some(Rc.clone(t));
+          receiver = Option(Token).Some(t);
         });
         before_dot := ((usize(t.row) < line) || ((usize(t.row) == line) && ((usize(t.column) + t.value.*.clone().chars().count()) <= dot_col)));
         if(before_dot, {
@@ -1166,7 +1166,7 @@ handle_completion :: (
               (usize(t.row) > prev_row) || ((usize(t.row) == prev_row) && (usize(t.column) >= prev_col))
           );
           if(later, {
-            prev_tok = Option(Token).Some(Rc.clone(t));
+            prev_tok = Option(Token).Some(t);
             prev_row = usize(t.row);
             prev_col = usize(t.column);
           });

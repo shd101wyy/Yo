@@ -50,7 +50,7 @@ handle_folding_ranges :: (fn(text : &String, doc_abs : &String) -> JsonValue)({
   n := tokens.len();
   while(i < n, {
     t := match(
-      tokens.get_cloned(i),
+      tokens.get(i),
       .Some(x) => x,
       .None => {
         return(JsonValue.Array(items : out));
@@ -259,7 +259,7 @@ handle_semantic_tokens :: (
   (ti : usize) = usize(0);
   while(ti < tokens.len(), {
     t := match(
-      tokens.get_cloned(ti),
+      tokens.get(ti),
       .Some(x) => x,
       .None => {
         return(jb().put("data", JsonValue.Array(items : data)).obj());
@@ -319,7 +319,7 @@ handle_semantic_tokens :: (
     // comment, where one lost space is cosmetic.
     (end_byte : usize) = text.len();
     match(
-      tokens.get_cloned(ti),
+      tokens.get(ti),
       .Some(nx) => {
         end_byte = usize(nx.byte_offset);
       },

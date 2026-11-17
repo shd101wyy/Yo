@@ -269,7 +269,7 @@ previous_meaningful_token :: (fn(tokens : &ArrayList(Token), index : usize) -> O
   (done : bool) = false;
   while(!done, {
     match(
-      tokens.get_cloned(i),
+      tokens.get(i),
       .None => {
         done = true;
       },
@@ -300,7 +300,7 @@ next_meaningful_token :: (fn(tokens : &ArrayList(Token), index : usize, end_excl
   (done : bool) = false;
   while((i < end_exclusive) && !done, {
     match(
-      tokens.get_cloned(i),
+      tokens.get(i),
       .None => {
         done = true;
       },
@@ -320,8 +320,8 @@ next_meaningful_token :: (fn(tokens : &ArrayList(Token), index : usize, end_excl
 /// dot written right before a `{`. Layout treats the pair as the brace.
 is_record_dot_at :: (fn(tokens : &ArrayList(Token), index : usize) -> bool)(
   match(
-    tokens.get_cloned(index),
-    .Some(d) => ((d.kind == TokenKind.Dot) && match(tokens.get_cloned(index + usize(1)), .Some(c) => ((c.kind == TokenKind.LCurlyBracket) && (c.byte_offset == (d.byte_offset + u32(1)))), .None => false)),
+    tokens.get(index),
+    .Some(d) => ((d.kind == TokenKind.Dot) && match(tokens.get(index + usize(1)), .Some(c) => ((c.kind == TokenKind.LCurlyBracket) && (c.byte_offset == (d.byte_offset + u32(1)))), .None => false)),
     .None => false
   )
 );
@@ -331,7 +331,7 @@ token_range_has_comment :: (fn(tokens : &ArrayList(Token), start_inclusive : usi
   (found : bool) = false;
   while((i < end_exclusive) && !found, {
     match(
-      tokens.get_cloned(i),
+      tokens.get(i),
       .None => (),
       .Some(t) => if(is_comment_token(t.kind), {
         found = true;
@@ -348,7 +348,7 @@ has_any_token :: (fn(tokens : &ArrayList(Token), left_index : usize, right_index
   (found : bool) = false;
   while((i < right_index) && !found, {
     match(
-      tokens.get_cloned(i),
+      tokens.get(i),
       .None => (),
       .Some(t) => if(t.kind == kind, {
         found = true;
@@ -369,7 +369,7 @@ has_top_level_token :: (fn(tokens : &ArrayList(Token), left_index : usize, right
   (found : bool) = false;
   while((i < right_index) && !found, {
     match(
-      tokens.get_cloned(i),
+      tokens.get(i),
       .None => (),
       .Some(t) => cond(
         is_comment_token(t.kind) => (),
@@ -415,7 +415,7 @@ next_token :: (fn(tokens : &ArrayList(Token), skipped_indices : &HashSet(usize),
     cond(
       skipped_indices.contains(&next_index) => (),
       true => {
-        result = tokens.get_cloned(next_index);
+        result = tokens.get(next_index);
         done = true;
       }
     );
@@ -431,7 +431,7 @@ find_matching_paren_indices :: (fn(tokens : &ArrayList(Token)) -> HashMap(usize,
   (i : usize) = usize(0);
   while(i < n, {
     match(
-      tokens.get_cloned(i),
+      tokens.get(i),
       .None => (),
       .Some(t) => cond(
         (t.kind == TokenKind.LParen) => {
@@ -460,7 +460,7 @@ find_parent_paren_indices :: (fn(tokens : &ArrayList(Token)) -> HashMap(usize, u
   (i : usize) = usize(0);
   while(i < n, {
     match(
-      tokens.get_cloned(i),
+      tokens.get(i),
       .None => (),
       .Some(t) => cond(
         (t.kind == TokenKind.LParen) => {
@@ -499,7 +499,7 @@ find_inline_curly_indices :: (fn(tokens : &ArrayList(Token)) -> HashSet(usize))(
   (i : usize) = usize(0);
   while(i < n, {
     match(
-      tokens.get_cloned(i),
+      tokens.get(i),
       .None => (),
       .Some(t) => cond(
         (t.kind == TokenKind.LCurlyBracket) => {
@@ -563,7 +563,7 @@ find_multiline_bracket_indices :: (fn(tokens : &ArrayList(Token)) -> HashSet(usi
   (i : usize) = usize(0);
   while(i < n, {
     match(
-      tokens.get_cloned(i),
+      tokens.get(i),
       .None => (),
       .Some(t) => cond(
         (t.kind == TokenKind.LBracket) => {
@@ -573,7 +573,7 @@ find_multiline_bracket_indices :: (fn(tokens : &ArrayList(Token)) -> HashSet(usi
           if(stack.len() > usize(0), {
             left_idx := match(stack.last(), .Some(x) => x, .None => usize(0));
             _p := stack.pop();
-            left_tok := match(tokens.get_cloned(left_idx), .Some(lt) => lt, .None => Rc.clone(t));
+            left_tok := match(tokens.get(left_idx), .Some(lt) => lt, .None => t);
             if(t.row > left_tok.row, {
               multiline_indices.insert(left_idx);
               multiline_indices.insert(i);
@@ -597,7 +597,7 @@ find_multiline_inline_curly_indices :: (fn(tokens : &ArrayList(Token), inline_cu
   (i : usize) = usize(0);
   while(i < n, {
     match(
-      tokens.get_cloned(i),
+      tokens.get(i),
       .None => (),
       .Some(t) => cond(
         (t.kind == TokenKind.LCurlyBracket) => {
@@ -607,7 +607,7 @@ find_multiline_inline_curly_indices :: (fn(tokens : &ArrayList(Token), inline_cu
           if(stack.len() > usize(0), {
             left_idx := match(stack.last(), .Some(x) => x, .None => usize(0));
             _p := stack.pop();
-            left_tok := match(tokens.get_cloned(left_idx), .Some(lt) => lt, .None => Rc.clone(t));
+            left_tok := match(tokens.get(left_idx), .Some(lt) => lt, .None => t);
             if(inline_curly_indices.contains(&left_idx) && (t.row > left_tok.row), {
               multiline_indices.insert(left_idx);
               multiline_indices.insert(i);
@@ -671,7 +671,7 @@ has_top_level_curly_argument :: (
   (i : usize) = (left_index + usize(1));
   while((i < right_index) && !found, {
     match(
-      tokens.get_cloned(i),
+      tokens.get(i),
       .None => (),
       .Some(t) => cond(
         is_comment_token(t.kind) => (),
@@ -680,7 +680,7 @@ has_top_level_curly_argument :: (
           // Check curly-after-comma BEFORE depth updates
           if((t.kind == TokenKind.LCurlyBracket) && at_top_level, {
             match(
-              previous_top_level.clone(),
+              previous_top_level,
               .None => (),
               .Some(p) => if(p.kind == TokenKind.Comma, {
                 found = true;
@@ -732,7 +732,7 @@ has_top_level_field_block :: (
   (i : usize) = (left_index + usize(1));
   while((i < right_index) && !found, {
     match(
-      tokens.get_cloned(i),
+      tokens.get(i),
       .None => (),
       .Some(t) => cond(
         is_comment_token(t.kind) => (),
@@ -806,7 +806,7 @@ has_direct_top_level_closure_argument :: (
       (i : usize) = (left_index + usize(1));
       while((i < right_index) && !found, {
         match(
-          tokens.get_cloned(i),
+          tokens.get(i),
           .None => (),
           .Some(t) => cond(
             is_comment_token(t.kind) => (),
@@ -872,7 +872,7 @@ is_parenthesized_dot_deref :: (
   (i : usize) = (left_index + usize(1));
   while((i < right_index) && !early_exit, {
     match(
-      tokens.get_cloned(i),
+      tokens.get(i),
       .None => (),
       .Some(t) => cond(
         is_comment_token(t.kind) => (),
@@ -955,7 +955,7 @@ classify_group_content :: (
   (i : usize) = (left_index + usize(1));
   while((i < right_index) && !bad, {
     match(
-      tokens.get_cloned(i),
+      tokens.get(i),
       .None => (),
       .Some(t) => cond(
         is_comment_token(t.kind) => (),
@@ -1025,7 +1025,7 @@ previous_meaningful_token_index :: (fn(tokens : &ArrayList(Token), before : usiz
   while((i > usize(0)) && !done, {
     i = (i - usize(1));
     match(
-      tokens.get_cloned(i),
+      tokens.get(i),
       .None => (),
       .Some(t) => if(!is_comment_token(t.kind), {
         result = Option(usize).Some(i);
@@ -1079,7 +1079,7 @@ is_left_same_operator_flatten_group :: (
                 (i : usize) = (left_index + usize(1));
                 while((i < right_index) && !mismatch, {
                   match(
-                    tokens.get_cloned(i),
+                    tokens.get(i),
                     .None => (),
                     .Some(t) => cond(
                       is_comment_token(t.kind) => (),
@@ -1163,7 +1163,7 @@ next_meaningful_token_index :: (
   (done : bool) = false;
   while((i < end_exclusive) && !done, {
     match(
-      tokens.get_cloned(i),
+      tokens.get(i),
       .None => {
         done = true;
       },
@@ -1192,7 +1192,7 @@ first_inner_group_has_top_level_comma :: (
     .None => false,
     .Some(fi) =>
       match(
-        tokens.get_cloned(fi),
+        tokens.get(fi),
         .None => false,
         .Some(t) => cond(
           (t.kind != TokenKind.LParen) => false,
@@ -1203,7 +1203,7 @@ first_inner_group_has_top_level_comma :: (
             (i : usize) = (fi + usize(1));
             while((i < right_index) && !done, {
               match(
-                tokens.get_cloned(i),
+                tokens.get(i),
                 .None => {
                   done = true;
                 },
@@ -1254,7 +1254,7 @@ single_inner_group_not_atom_like :: (
     .None => false,
     .Some(fi) =>
       match(
-        tokens.get_cloned(fi),
+        tokens.get(fi),
         .None => false,
         .Some(t) => cond(
           (t.kind != TokenKind.LParen) => false,
@@ -1267,7 +1267,7 @@ single_inner_group_not_atom_like :: (
             (i : usize) = (fi + usize(1));
             while((i < right_index) && !found_end, {
               match(
-                tokens.get_cloned(i),
+                tokens.get(i),
                 .None => {
                   found_end = true;
                 },
@@ -1330,13 +1330,13 @@ prefix_call_paren_shape :: (
         .None => false,
         .Some(oi) =>
           match(
-            tokens.get_cloned(oi),
+            tokens.get(oi),
             .None => false,
             .Some(op) => cond(
               !is_prefix_capable_operator(&op) => false,
               true =>
                 match(
-                  tokens.get_cloned(left_index),
+                  tokens.get(left_index),
                   .None => false,
                   .Some(lp) => cond(
                     // The call form is exactly adjacency: `(` starts where the
@@ -1347,7 +1347,7 @@ prefix_call_paren_shape :: (
                       // makes it the infix spelling (`f -(x)`).
                       before_op := match(
                         previous_meaningful_token_index(tokens, oi),
-                        .Some(bi) => tokens.get_cloned(bi),
+                        .Some(bi) => tokens.get(bi),
                         .None => Option(Token).None
                       );
                       cond(
@@ -1446,7 +1446,7 @@ is_callee_prefix_call_paren :: (
           (nx.kind != TokenKind.LParen) => false,
           true =>
             match(
-              tokens.get_cloned(right_index),
+              tokens.get(right_index),
               .None => false,
               .Some(r) => ((usize(r.byte_offset) + r.value.*.len()) == usize(nx.byte_offset))
             )
@@ -1481,7 +1481,7 @@ is_non_prefix_operator_call_paren :: (
     .None => false,
     .Some(oi) =>
       match(
-        tokens.get_cloned(oi),
+        tokens.get(oi),
         .None => false,
         .Some(op) => cond(
           ((op.kind != TokenKind.Operator) || is_prefix_capable_operator(&op)) => false,
@@ -1491,7 +1491,7 @@ is_non_prefix_operator_call_paren :: (
             // operator's RHS operand, not its call.
             before_op := match(
               previous_meaningful_token_index(tokens, oi),
-              .Some(bi) => tokens.get_cloned(bi),
+              .Some(bi) => tokens.get(bi),
               .None => Option(Token).None
             );
             !paren_is_call_delimiter(&before_op)
@@ -1512,7 +1512,7 @@ is_redundant_grouping_paren :: (
       next := next_meaningful_token(tokens, right_index, tokens.len());
       first_inner := next_meaningful_token(tokens, left_index, right_index);
       cond(
-        match(first_inner.clone(), .None => true, .Some(_) => false) => false,
+        match(first_inner, .None => true, .Some(_) => false) => false,
         token_range_has_comment(tokens, left_index + usize(1), right_index) => false,
         paren_is_call_delimiter(&previous) => false,
         true => {
@@ -1531,7 +1531,7 @@ is_redundant_grouping_paren :: (
           // `op(operand)`, so its `(` is a call delimiter, never a removable
           // group.
           prev_prefix_defers_to_inner := match(
-            previous.clone(),
+            previous,
             .None => false,
             .Some(p) => (
               is_prefix_capable_operator(&p) &&
@@ -1539,7 +1539,7 @@ is_redundant_grouping_paren :: (
             )
           );
           prev_blocks := match(
-            previous.clone(),
+            previous,
             .None => false,
             .Some(p) => (
               ((p.kind == TokenKind.Operator) && !shape.atom_like) || (
@@ -1674,7 +1674,7 @@ find_redundant_grouping_paren_indices :: (fn(tokens : &ArrayList(Token)) -> Hash
   (i : usize) = usize(0);
   while(i < n, {
     match(
-      tokens.get_cloned(i),
+      tokens.get(i),
       .None => (),
       .Some(t) => if((t.kind == TokenKind.LParen) && matching_parens.contains_key(&i), {
         right_idx := match(matching_parens.get(&i), .Some(x) => x, .None => i);
@@ -1743,7 +1743,7 @@ canonicalize_callee_prefix_calls :: (fn(tokens : &ArrayList(Token)) -> ArrayList
   (i : usize) = usize(0);
   while(i < n, {
     match(
-      tokens.get_cloned(i),
+      tokens.get(i),
       .None => (),
       .Some(t) => if((t.kind == TokenKind.LParen) && matching_parens.contains_key(&i), {
         right_idx := match(matching_parens.get(&i), .Some(x) => x, .None => i);
@@ -1774,22 +1774,20 @@ canonicalize_callee_prefix_calls :: (fn(tokens : &ArrayList(Token)) -> ArrayList
       while(k < n, {
         if(close_before_indices.contains(&k), {
           match(
-            tokens.get_cloned(k),
+            tokens.get(k),
             .None => (),
             .Some(anchor) => {
               out.push(
-                Rc.new(
-                  TokenData(
-                    kind : TokenKind.RParen,
-                    value : Rc.new(String.from(")")),
-                    row : anchor.row,
-                    column : anchor.column,
-                    character : anchor.character,
-                    byte_offset : anchor.byte_offset,
-                    module_path : Rc.clone(anchor.module_path),
-                    input : Rc.clone(anchor.input)
-                  )
-                )
+                Rc.new(TokenData(
+                  kind : TokenKind.RParen,
+                  value : Rc.new(String.from(")")),
+                  row : anchor.row,
+                  column : anchor.column,
+                  character : anchor.character,
+                  byte_offset : anchor.byte_offset,
+                  module_path : Rc.clone(anchor.module_path),
+                  input : Rc.clone(anchor.input)
+                ))
               );
             }
           );
@@ -1799,28 +1797,26 @@ canonicalize_callee_prefix_calls :: (fn(tokens : &ArrayList(Token)) -> ArrayList
           true => {
             if(open_before_indices.contains(&k), {
               match(
-                tokens.get_cloned(k),
+                tokens.get(k),
                 .None => (),
                 .Some(anchor_o) => {
                   out.push(
-                    Rc.new(
-                      TokenData(
-                        kind : TokenKind.LParen,
-                        value : Rc.new(String.from("(")),
-                        row : anchor_o.row,
-                        column : anchor_o.column,
-                        character : anchor_o.character,
-                        byte_offset : anchor_o.byte_offset,
-                        module_path : Rc.clone(anchor_o.module_path),
-                        input : Rc.clone(anchor_o.input)
-                      )
-                    )
+                    Rc.new(TokenData(
+                      kind : TokenKind.LParen,
+                      value : Rc.new(String.from("(")),
+                      row : anchor_o.row,
+                      column : anchor_o.column,
+                      character : anchor_o.character,
+                      byte_offset : anchor_o.byte_offset,
+                      module_path : Rc.clone(anchor_o.module_path),
+                      input : Rc.clone(anchor_o.input)
+                    ))
                   );
                 }
               );
             });
             match(
-              tokens.get_cloned(k),
+              tokens.get(k),
               .None => (),
               .Some(tk) => {
                 out.push(tk);
@@ -1857,7 +1853,7 @@ find_multiline_paren_indices :: (
   (pi : usize) = usize(0);
   while(pi < n, pi = (pi + usize(1)), {
     opens_multirow := match(
-      tokens.get_cloned(pi),
+      tokens.get(pi),
       .None => false,
       .Some(pt) => cond(
         (pt.kind == TokenKind.LCurlyBracket) => !inline_curlies.contains(&pi),
@@ -1878,7 +1874,7 @@ find_multiline_paren_indices :: (
   (i : usize) = usize(0);
   while(i < n, {
     match(
-      tokens.get_cloned(i),
+      tokens.get(i),
       .None => (),
       .Some(t) => if((t.kind == TokenKind.LParen) && matching_parens.contains_key(&i), {
         right_idx := match(matching_parens.get(&i), .Some(x) => x, .None => i);
@@ -1894,7 +1890,7 @@ find_multiline_paren_indices :: (
             // Token row check: the source spans rows, or something strictly
             // inside will render on several rows.
             left_tok := t;
-            right_tok := match(tokens.get_cloned(right_idx), .Some(rt) => rt, .None => Rc.clone(left_tok));
+            right_tok := match(tokens.get(right_idx), .Some(rt) => rt, .None => left_tok);
             inner_multirow := (
               match(renders_multirow_prefix.get(right_idx), .Some(x) => x, .None => usize(0))
               > match(renders_multirow_prefix.get(i + usize(1)), .Some(x) => x, .None => usize(0))
@@ -1905,7 +1901,7 @@ find_multiline_paren_indices :: (
               true => {
                 first_inner := next_meaningful_token(tokens, i, right_idx);
                 (fi_idx : usize) = (i + usize(1));
-                while((fi_idx < right_idx) && match(tokens.get_cloned(fi_idx), .Some(fc) => is_comment_token(fc.kind), .None => false), fi_idx = (fi_idx + usize(1)), ());
+                while((fi_idx < right_idx) && match(tokens.get(fi_idx), .Some(fc) => is_comment_token(fc.kind), .None => false), fi_idx = (fi_idx + usize(1)), ());
                 first_is_curly := (
                   match(
                     first_inner,
@@ -2298,7 +2294,7 @@ read_raw_template_string :: (fn(input : &String, start : usize) -> String)({
 /// this re-reads from `input` (the lexer normalises template-string `value`s).
 raw_token_value :: (fn(input : &String, tokens : &ArrayList(Token), index : usize) -> String)(
   match(
-    tokens.get_cloned(index),
+    tokens.get(index),
     .None => String.new(),
     .Some(t) => cond(
       (t.kind == TokenKind.TemplateString) => read_raw_template_string(input, usize(t.byte_offset)),
@@ -2356,7 +2352,7 @@ _format_yo_source_impl :: (
         (ti : usize) = usize(0);
         while(ti < nt, {
           match(
-            all_tokens.get_cloned(ti),
+            all_tokens.get(ti),
             .Some(t) => if(t.kind != TokenKind.Whitespace, {
               significant_tokens.push(t);
             }),
@@ -2432,14 +2428,14 @@ _format_yo_source_impl :: (
           },
           true => {
             token := match(
-              significant_tokens.get_cloned(index),
+              significant_tokens.get(index),
               .Some(t) => t,
               .None => {
                 index = (index + usize(1));
                 continue;
               }
             );
-            previous := previous_token.clone();
+            previous := previous_token;
             next := next_token(&significant_tokens, &skipped_paren_indices, index);
             raw := match(raw_values.get_cloned(index), .Some(s) => s, .None => String.new());
             // ---- Comment handling ----
@@ -2624,7 +2620,7 @@ _format_yo_source_impl :: (
                             });
                             result.push_str("{");
                             indent_level = (indent_level + usize(1));
-                            next_is_rcurly := match(next.clone(), .None => false, .Some(nx) => (nx.kind == TokenKind.RCurlyBracket));
+                            next_is_rcurly := match(next, .None => false, .Some(nx) => (nx.kind == TokenKind.RCurlyBracket));
                             if(!next_is_rcurly && match(next, .None => false, .Some(_) => true), {
                               if(!result.ends_with(String.from("\n")), {
                                 result.push_str("\n");
@@ -2643,7 +2639,7 @@ _format_yo_source_impl :: (
                               at_line_start = false;
                             });
                             result.push_str("{");
-                            next_is_rcurly := match(next.clone(), .None => false, .Some(nx) => (nx.kind == TokenKind.RCurlyBracket));
+                            next_is_rcurly := match(next, .None => false, .Some(nx) => (nx.kind == TokenKind.RCurlyBracket));
                             if(!next_is_rcurly && match(next, .None => false, .Some(_) => true) && (!at_line_start && !result.ends_with(String.from(" "))), {
                               result.push_str(" ");
                             });
@@ -2780,7 +2776,7 @@ _format_yo_source_impl :: (
                     paren_depth = (paren_depth + usize(1));
                     if(is_multiline, {
                       indent_level = (indent_level + usize(1));
-                      next_is_rparen := match(next.clone(), .None => false, .Some(nx) => (nx.kind == TokenKind.RParen));
+                      next_is_rparen := match(next, .None => false, .Some(nx) => (nx.kind == TokenKind.RParen));
                       if(!next_is_rparen && match(next, .None => false, .Some(_) => true), {
                         if(!result.ends_with(String.from("\n")), {
                           result.push_str("\n");
@@ -2807,7 +2803,7 @@ _format_yo_source_impl :: (
                     result.push_str("[");
                     if(is_multiline, {
                       indent_level = (indent_level + usize(1));
-                      next_is_rbracket := match(next.clone(), .None => false, .Some(nx) => (nx.kind == TokenKind.RBracket));
+                      next_is_rbracket := match(next, .None => false, .Some(nx) => (nx.kind == TokenKind.RBracket));
                       if(!next_is_rbracket && match(next, .None => false, .Some(_) => true), {
                         if(!result.ends_with(String.from("\n")), {
                           result.push_str("\n");
@@ -2991,7 +2987,7 @@ _format_yo_source_impl :: (
                     });
                     result.push_str(",");
                     next_is_closer := match(
-                      next.clone(),
+                      next,
                       .None => false,
                       .Some(nx) => (
                         (nx.kind == TokenKind.RParen) || (nx.kind == TokenKind.RBracket) || (nx.kind == TokenKind.RCurlyBracket)
@@ -3002,7 +2998,7 @@ _format_yo_source_impl :: (
                     // the comment handler writes the newline after it. Breaking
                     // here would move the comment onto the NEXT item.
                     next_is_trailing_comment := match(
-                      next.clone(),
+                      next,
                       .None => false,
                       .Some(nx) => (is_line_comment_token(nx.kind) && (nx.row == token.row))
                     );
@@ -3125,8 +3121,8 @@ _format_yo_source_impl :: (
                     });
                   },
                   (token.kind == TokenKind.Semicolon) => {
-                    next_is_not_rbracket := match(next.clone(), .None => false, .Some(nx) => (nx.kind != TokenKind.RBracket));
-                    next_is_not_comment := match(next.clone(), .None => true, .Some(nx) => !is_comment_token(nx.kind));
+                    next_is_not_rbracket := match(next, .None => false, .Some(nx) => (nx.kind != TokenKind.RBracket));
+                    next_is_not_comment := match(next, .None => true, .Some(nx) => !is_comment_token(nx.kind));
                     cond(
                       ((bracket_depth > usize(0)) && next_is_not_rbracket && next_is_not_comment) => {
                         if(!at_line_start && !result.ends_with(String.from(" ")), {
@@ -3169,7 +3165,7 @@ _format_yo_source_impl :: (
                         });
                         result.push_str(";");
                         emit_newline := match(
-                          next.clone(),
+                          next,
                           .None => false,
                           .Some(nx) => (!is_comment_token(nx.kind) || (nx.row > token.row))
                         );
@@ -3269,7 +3265,7 @@ _format_yo_source_impl :: (
                       },
                       true => {
                         prev_is_open_bracket := match(
-                          previous.clone(),
+                          previous,
                           .None => false,
                           .Some(p) => (
                             (p.kind == TokenKind.LParen) ||

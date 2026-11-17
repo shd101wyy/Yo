@@ -123,7 +123,7 @@ _token_is_at_or_before :: (fn(left : &Token, right : &Token) -> bool)(
 /// The latest comparable token in `node`'s tree (max character).
 _max_comparable_token :: (fn(node : &AstExpr, reference : &Token, best : &Token) -> Token)({
   tok := ast_expr_token(node);
-  best2 := if(_tokens_are_comparable(&tok, reference) && (tok.character > best.character), tok, Rc.clone(best.*));
+  best2 := if(_tokens_are_comparable(&tok, reference) && (tok.character > best.character), tok, best.*);
   match(
     node,
     .FnCall(_, func, Rc(args), _, _) => {
@@ -147,7 +147,7 @@ _max_comparable_token :: (fn(node : &AstExpr, reference : &Token, best : &Token)
 });
 _get_last_comparable_token_in_expr :: (fn(expr : &AstExpr, reference : &Token) -> Token)({
   init := ast_expr_token(expr);
-  init2 := if(!_tokens_are_comparable(&init, reference), Rc.clone(reference.*), init);
+  init2 := if(!_tokens_are_comparable(&init, reference), reference.*, init);
   _max_comparable_token(expr, reference, &init2)
 });
 _variable_was_consumed_before_cleanup_point :: (fn(consumed_at_token : &Token, cleanup_expr : &AstExpr) -> bool)({
@@ -205,7 +205,7 @@ _resolve_drop_target_in_scope :: (fn(drop_expr : &AstExpr, variables : &ArrayLis
         by_id,
         .Some(v) => Option(Variable).Some(Rc.clone(v)),
         .None => {
-          decl_token := match(tv.initialized_at_token(), .Some(t) => t, .None => Rc.clone(tv.token));
+          decl_token := match(tv.initialized_at_token(), .Some(t) => t, .None => tv.token);
           if(_tokens_are_comparable(&decl_token, cleanup_token) && (decl_token.character > cleanup_token.character), Option(Variable).None, if(variables.len() == usize(0), Option(Variable).None, variables.last_cloned()))
         }
       )

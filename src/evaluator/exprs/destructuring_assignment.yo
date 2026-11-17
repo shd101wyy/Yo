@@ -170,13 +170,13 @@ _reject_shadowing :: (fn(env : &Environment, var_name : &String, at : &Token, ct
       mut(sh_entries) := ArrayList(TokenAndError).new();
       sh_entries.push(
         TokenAndError(
-          token : Rc.clone(at.*),
+          token : at.*,
           error_message : `Failed to define variable "${var_name}":`
         )
       );
       sh_entries.push(
         TokenAndError(
-          token : Rc.clone(shadow_var.token),
+          token : shadow_var.token,
           error_message : `Variable "${var_name}" is already defined here (variable shadowing is not allowed):`
         )
       );
@@ -770,7 +770,7 @@ evaluate_destructuring_assignment :: (
     );
     field_labels := match(field_labels_opt, .Some(l) => Rc.clone(l), .None => no_labels());
     field_types := match(field_types_opt, .Some(t) => Rc.clone(t), .None => no_types());
-    lhs_func := match(lhs, .FnCall(_, fb, _, _, _) => fb.*, .Atom(_, tok) => AstExpr.Atom(ast_expr_id(lhs), Rc.clone(tok.*)));
+    lhs_func := match(lhs, .FnCall(_, fb, _, _, _) => fb.*, .Atom(_, tok) => AstExpr.Atom(ast_expr_id(lhs), tok.*));
     lhs_args := match(lhs, .FnCall(_, _, Rc(args), _, _) => args.clone(), _ => ArrayList(AstExpr).new());
     return(
       handle_member_destructuring(
@@ -795,7 +795,7 @@ evaluate_destructuring_assignment :: (
   if(is_tuple_type(&rhs_type) && ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_TUPLE, Option(usize).None), {
     field_labels := match(&rhs_type, Rc(.Tuple(fl, _)) => Rc.clone(fl), _ => no_labels());
     field_types := match(&rhs_type, Rc(.Tuple(_, ft)) => Rc.clone(ft), _ => no_types());
-    lhs_func := match(lhs, .FnCall(_, fb, _, _, _) => fb.*, .Atom(_, tok) => AstExpr.Atom(ast_expr_id(lhs), Rc.clone(tok.*)));
+    lhs_func := match(lhs, .FnCall(_, fb, _, _, _) => fb.*, .Atom(_, tok) => AstExpr.Atom(ast_expr_id(lhs), tok.*));
     lhs_args := match(lhs, .FnCall(_, _, Rc(args), _, _) => args.clone(), _ => ArrayList(AstExpr).new());
     return(
       handle_member_destructuring(
@@ -878,7 +878,7 @@ evaluate_destructuring_assignment :: (
       field_labels.push(fi.to_string());
       fi = (fi + usize(1));
     });
-    lhs_func := match(lhs, .FnCall(_, fb, _, _, _) => fb.*, .Atom(_, tok) => AstExpr.Atom(ast_expr_id(lhs), Rc.clone(tok.*)));
+    lhs_func := match(lhs, .FnCall(_, fb, _, _, _) => fb.*, .Atom(_, tok) => AstExpr.Atom(ast_expr_id(lhs), tok.*));
     lhs_args := match(lhs, .FnCall(_, _, Rc(args), _, _) => args.clone(), _ => ArrayList(AstExpr).new());
     return(
       handle_member_destructuring(
