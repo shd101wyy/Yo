@@ -29,13 +29,15 @@ make_atom :: (fn(kind : TokenKind, value : str) -> AstExpr)(
   Rc.new(AstExprNode.Atom(usize(0), make_token(kind, value)))
 );
 make_fn_call_no_args :: (fn(name : str) -> AstExpr)(
-  Rc.new(AstExprNode.FnCall(
-    usize(0),
-    Rc.new(AstExprNode.Atom(usize(0), make_token(TokenKind.Identifier, name))),
-    Rc.new(ArrayList(AstExpr).new()),
-    false,
-    make_token(TokenKind.Identifier, name)
-  ))
+  Rc.new(
+    AstExprNode.FnCall(
+      usize(0),
+      Rc.new(AstExprNode.Atom(usize(0), make_token(TokenKind.Identifier, name))),
+      Rc.new(ArrayList(AstExpr).new()),
+      false,
+      make_token(TokenKind.Identifier, name)
+    )
+  )
 );
 check_tag :: (fn(result : &Option(TypeValue), expected : TypeTag, label : str) -> unit)(
   match(
