@@ -119,8 +119,7 @@ Measured on the S2 draft (`vbd/d49-s2`) with the installed v0.2.77 seed,
   `Arc.new`'s `where(V <: (Send, Sync, Escapable))` (their binder is named `V`, so
   E0909's text does not change; an impl-level bound reports a different message), and every other `Arc`/`ArcWeak` impl already states
   `where(T <: (Send, Sync))`. A type spelled `Rc(&T)` is accepted until then;
-  no safe constructor builds one. **Generation B (once `SEED_VERSION` carries
-  S2):** the three bounds go back on the declarations, from the `where` clauses of `Rc.new` and `Arc.new`.
+  no safe constructor builds one. **Generation B DONE (v0.2.79, with `SEED_VERSION` at v0.2.78):** the three bounds are back on the declarations, from the `where` clauses of `Rc.new` and `Arc.new`, and the constructor-level copies are dropped; `Rc(&T)`, `Arc(NonSend)` and `ArcWeak(NonSend)` are E0909 as types again (`issues/fixed/2026-11-14-rc-of-a-reference-and-arc-of-a-non-send-type-check-as-types.md`).
 - **`Deref` outside the prelude.** `impl(generic(T : Type), ArrayList(T),
   Deref(Target : [T]))` in `std/collections/array_list.yo` (and `String`'s
   `Deref(Target : str)`) is rejected: "Cannot implement Deref here: only the
