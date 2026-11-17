@@ -80,14 +80,14 @@ evaluate_comptime_expect_error :: (
   arg_expr := match(
     expr,
     Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
-      fargs.get(usize(0)),
+      fargs.get_cloned(usize(0)),
       .Some(a) => a,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     ),
     _ => {
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   // Evaluate the argument (a CLONE, so a partial/aborted eval doesn't pollute
@@ -399,11 +399,11 @@ evaluate_comptime_expect_error :: (
       expr,
       Rc(.FnCall(_, _, Rc(fargs), _, _)) => fargs.clone(),
       _ => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     );
     match(
-      args.get(usize(1)),
+      args.get_cloned(usize(1)),
       .Some(want_expr) => {
         want_eval := evaluate_expression_raw(&want_expr, env, ctx, exn);
         want_text := match(
@@ -436,13 +436,13 @@ evaluate_comptime_expect_error :: (
     out_unit := new_expr_info(env, t_unit());
     out_unit.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_unit);
-    return(expr.*);
+    return(Rc.clone(expr.*));
   });
   // No error was thrown — evaluate optional message argument for a better diagnostic.
   match(
     match(
       expr,
-      Rc(.FnCall(_, _, Rc(fargs), _, _)) => fargs.get(usize(1)),
+      Rc(.FnCall(_, _, Rc(fargs), _, _)) => fargs.get_cloned(usize(1)),
       _ => Option(AstExpr).None
     ),
     .Some(msg_expr) => {

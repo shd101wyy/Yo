@@ -103,7 +103,7 @@ _render_contract_block :: (
   (mut(ri) : usize) = usize(0);
   while(ri < reqs.len(), {
     match(
-      reqs.get(ri),
+      reqs.get_cloned(ri),
       .Some(r) => {
         sb.write_string(`\n- requires: ${ast_expr_to_string(&r)}`);
       },
@@ -114,7 +114,7 @@ _render_contract_block :: (
   (mut(ei) : usize) = usize(0);
   while(ei < enss.len(), {
     match(
-      enss.get(ei),
+      enss.get_cloned(ei),
       .Some(e) => {
         sb.write_string(`\n- ensures: ${ast_expr_to_string(&e)}`);
       },
@@ -177,7 +177,7 @@ _collect_candidates :: (
     e,
     Rc(.Atom(_, tok)) => {
       if((tok.value.* == target.value.*) && (tok.row == target.row) && (tok.column == target.column), {
-        out.push(e.*);
+        out.push(Rc.clone(e.*));
       });
     },
     Rc(.FnCall(_, func_box, Rc(args), _, _)) => {
@@ -185,7 +185,7 @@ _collect_candidates :: (
       (mut(i) : usize) = usize(0);
       while(i < args.len(), {
         match(
-          args.get(i),
+          args.get_cloned(i),
           .Some(a) => recur(&a, target, out),
           .None => ()
         );
@@ -202,7 +202,7 @@ _best_candidate :: (
   (mut(i) : usize) = usize(0);
   while(i < cands.len(), {
     match(
-      cands.get(i),
+      cands.get_cloned(i),
       .Some(c) => {
         if(expr_info_table_get(info_table, ast_expr_id(&c)).is_some(), {
           return(Option(AstExpr).Some(c));
@@ -212,7 +212,7 @@ _best_candidate :: (
     );
     i = (i + usize(1));
   });
-  cands.get(usize(0))
+  cands.get_cloned(usize(0))
 });
 
 /// Exact-position match first,
@@ -305,7 +305,7 @@ _mark_member :: (fn(a : &AstExpr, roles : &mut AtomRoles) -> unit)({
       (i : usize) = usize(0);
       while(i < cargs.len(), {
         match(
-          cargs.get(i),
+          cargs.get_cloned(i),
           .Some(ca) => _classify_roles(&ca, roles),
           .None => ()
         );
@@ -331,7 +331,7 @@ _classify_roles :: (fn(e : &AstExpr, roles : &mut AtomRoles) -> unit)({
           (start : usize) = usize(0);
           if(is_infix.*, {
             match(
-              args.get(usize(0)),
+              args.get_cloned(usize(0)),
               .Some(receiver) => recur(&receiver, roles),
               .None => ()
             );
@@ -340,7 +340,7 @@ _classify_roles :: (fn(e : &AstExpr, roles : &mut AtomRoles) -> unit)({
           (i : usize) = start;
           while(i < args.len(), {
             match(
-              args.get(i),
+              args.get_cloned(i),
               .Some(a) => _mark_member(&a, roles),
               .None => ()
             );
@@ -353,20 +353,20 @@ _classify_roles :: (fn(e : &AstExpr, roles : &mut AtomRoles) -> unit)({
           (j : usize) = usize(0);
           while(j < args.len(), {
             match(
-              args.get(j),
+              args.get_cloned(j),
               .Some(a) => {
                 (handled : bool) = false;
                 if(!declaring, {
                   match(
-                    a,
+                    Rc.clone(a),
                     Rc(.FnCall(_, pair_fn, Rc(pair_args), pair_infix, _)) => {
                       is_pair := (pair_infix && match(pair_fn, Rc(.Atom(_, pt)) => (pt.value.* == ":"), Rc(.FnCall(_, _, _, _, _)) => false));
                       if(is_pair && (pair_args.len() == usize(2)), {
                         handled = true;
                         match(
-                          pair_args.get(usize(0)),
+                          pair_args.get_cloned(usize(0)),
                           .Some(lhs) => match(
-                            lhs,
+                            Rc.clone(lhs),
                             Rc(.Atom(lid, _)) => {
                               roles.labels.insert(lid);
                             },
@@ -375,7 +375,7 @@ _classify_roles :: (fn(e : &AstExpr, roles : &mut AtomRoles) -> unit)({
                           .None => ()
                         );
                         match(
-                          pair_args.get(usize(1)),
+                          pair_args.get_cloned(usize(1)),
                           .Some(rhs) => recur(&rhs, roles),
                           .None => ()
                         );
@@ -403,7 +403,7 @@ classify_atom_roles :: (fn(exprs : &ArrayList(AstExpr)) -> AtomRoles)({
   (i : usize) = usize(0);
   while(i < exprs.len(), {
     match(
-      exprs.get(i),
+      exprs.get_cloned(i),
       .Some(e) => _classify_roles(&e, &mut roles),
       .None => ()
     );
@@ -432,7 +432,7 @@ _find_member_access :: (
         (i : usize) = cond(is_infix.* => usize(1), true => usize(0));
         while(i < args.len(), {
           match(
-            args.get(i),
+            args.get_cloned(i),
             .Some(a) => {
               mt := match(
                 a,
@@ -440,7 +440,7 @@ _find_member_access :: (
                 Rc(.FnCall(_, mf, _, _, ct)) => match(mf, Rc(.Atom(_, ft)) => ft, Rc(.FnCall(_, _, _, _, _)) => ct)
               );
               if((mt.row == target.row) && (mt.column == target.column) && (mt.value.* == target.value.*), {
-                out.push(e.*);
+                out.push(Rc.clone(e.*));
               });
             },
             .None => ()
@@ -452,7 +452,7 @@ _find_member_access :: (
       (j : usize) = usize(0);
       while(j < args.len(), {
         match(
-          args.get(j),
+          args.get_cloned(j),
           .Some(a2) => recur(&a2, target, out),
           .None => ()
         );
@@ -494,7 +494,7 @@ handle_hover :: (
   (ei : usize) = usize(0);
   while(ei < exprs.len(), {
     match(
-      exprs.get(ei),
+      exprs.get_cloned(ei),
       .Some(e) => _collect_candidates(&e, &target, &mut cands),
       .None => ()
     );
@@ -522,7 +522,7 @@ handle_hover :: (
     (ai : usize) = usize(0);
     while(ai < exprs.len(), {
       match(
-        exprs.get(ai),
+        exprs.get_cloned(ai),
         .Some(e) => _find_member_access(&e, &target, &mut accesses),
         .None => ()
       );
@@ -531,7 +531,7 @@ handle_hover :: (
     (mi : usize) = usize(0);
     while(mi < accesses.len(), {
       match(
-        accesses.get(mi),
+        accesses.get_cloned(mi),
         .Some(acc) => match(
           expr_info_table_get(info_table, ast_expr_id(&acc)),
           .Some(acc_info) => {

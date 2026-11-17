@@ -149,7 +149,7 @@ evaluate_yo_comptime_string_functions :: (
     expr,
     Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(),
     _ => {
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   is_unary := (
@@ -160,10 +160,10 @@ evaluate_yo_comptime_string_functions :: (
   is_slice := ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_SLICE, .None);
   if(is_unary, {
     arg0 := match(
-      args.get(usize(0)),
+      args.get_cloned(usize(0)),
       .Some(a) => a,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     );
     ai := eval_comptime_str_arg(&arg0, env, ctx, exn);
@@ -235,17 +235,17 @@ evaluate_yo_comptime_string_functions :: (
       );
     });
     str_arg := match(
-      args.get(usize(0)),
+      args.get_cloned(usize(0)),
       .Some(a) => a,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     );
     start_arg := match(
-      args.get(usize(1)),
+      args.get_cloned(usize(1)),
       .Some(a) => a,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     );
     str_info := eval_comptime_str_arg(&str_arg, env, ctx, exn);
@@ -255,7 +255,7 @@ evaluate_yo_comptime_string_functions :: (
     (end_info_opt : Option(ExprInfo)) = if(
       n_args == usize(3),
       match(
-        args.get(usize(2)),
+        args.get_cloned(usize(2)),
         .Some(end_arg) => {
           ei := eval_comptime_int_arg(&end_arg, &cur_env, ctx, exn);
           cur_env = expr_info_adopt_env(&ei);
@@ -350,17 +350,17 @@ evaluate_yo_comptime_string_functions :: (
   }, {
     // Binary operations.
     arg0 := match(
-      args.get(usize(0)),
+      args.get_cloned(usize(0)),
       .Some(a) => a,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     );
     arg1 := match(
-      args.get(usize(1)),
+      args.get_cloned(usize(1)),
       .Some(a) => a,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     );
     lhs_info := eval_comptime_str_arg(&arg0, env, ctx, exn);
@@ -470,6 +470,6 @@ evaluate_yo_comptime_string_functions :: (
     out_info.set_value(.Some(result_val));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   }));
-  expr.*
+  Rc.clone(expr.*)
 });
 export(evaluate_yo_comptime_string_functions);

@@ -127,15 +127,15 @@ _binding_value :: (fn(exprs : &ArrayList(AstExpr), head : &String) -> Option(Ast
   (i : usize) = usize(0);
   while(i < exprs.len(), {
     match(
-      exprs.get(i),
+      exprs.get_cloned(i),
       .Some(e) => {
         if(ast_expr_is_fn_call_of(&e, "::", .Some(usize(2))), {
           match(
             e,
             Rc(.FnCall(_, _, Rc(args), _, _)) => {
-              lhs_is_head := match(args.get(usize(0)), .Some(l) => _atom_is(&l, head.clone()), .None => false);
+              lhs_is_head := match(args.get_cloned(usize(0)), .Some(l) => _atom_is(&l, head.clone()), .None => false);
               if(lhs_is_head, {
-                return(args.get(usize(1)));
+                return(args.get_cloned(usize(1)));
               });
             },
             Rc(.Atom(_, _)) => ()
@@ -153,13 +153,13 @@ _binding_name_token :: (fn(exprs : &ArrayList(AstExpr), head : &String) -> Optio
   (i : usize) = usize(0);
   while(i < exprs.len(), {
     match(
-      exprs.get(i),
+      exprs.get_cloned(i),
       .Some(e) => {
         if(ast_expr_is_fn_call_of(&e, "::", .Some(usize(2))), {
           match(
             e,
             Rc(.FnCall(_, _, Rc(args), _, _)) => match(
-              args.get(usize(0)),
+              args.get_cloned(usize(0)),
               .Some(l) => if(_atom_is(&l, head.clone()), {
                 return(Option(Token).Some(ast_expr_token(&l)));
               }),
@@ -192,13 +192,13 @@ _find_field_label :: (fn(e : &AstExpr, member : &String, out : &mut ArrayList(To
         (i : usize) = usize(0);
         while(i < args.len(), {
           match(
-            args.get(i),
+            args.get_cloned(i),
             .Some(a) => {
               if(ast_expr_is_fn_call_of(&a, ":", .Some(usize(2))), {
                 match(
                   a,
                   Rc(.FnCall(_, _, Rc(pair), _, _)) => match(
-                    pair.get(usize(0)),
+                    pair.get_cloned(usize(0)),
                     .Some(lhs) => if(_atom_is(&lhs, member.clone()), {
                       out.push(ast_expr_token(&lhs));
                     }),
@@ -217,7 +217,7 @@ _find_field_label :: (fn(e : &AstExpr, member : &String, out : &mut ArrayList(To
       (j : usize) = usize(0);
       while(j < args.len(), {
         match(
-          args.get(j),
+          args.get_cloned(j),
           .Some(a2) => recur(&a2, member, out),
           .None => ()
         );
@@ -237,7 +237,7 @@ _find_variant_decl :: (fn(e : &AstExpr, variant : &String, out : &mut ArrayList(
         (i : usize) = usize(0);
         while(i < args.len(), {
           match(
-            args.get(i),
+            args.get_cloned(i),
             .Some(Rc(.Atom(_, at))) => if(at.value.* == variant.*, {
               out.push(at);
             }),
@@ -253,7 +253,7 @@ _find_variant_decl :: (fn(e : &AstExpr, variant : &String, out : &mut ArrayList(
       (j : usize) = usize(0);
       while(j < args.len(), {
         match(
-          args.get(j),
+          args.get_cloned(j),
           .Some(a2) => recur(&a2, variant, out),
           .None => ()
         );
@@ -278,7 +278,7 @@ _subtree_has_position :: (fn(e : &AstExpr, at : &Token) -> bool)({
       (i : usize) = usize(0);
       while(i < args.len(), {
         match(
-          args.get(i),
+          args.get_cloned(i),
           .Some(a) => if(recur(&a, at), {
             return(true);
           }),
@@ -301,11 +301,11 @@ _find_method_label :: (
     Rc(.Atom(_, _)) => (),
     Rc(.FnCall(_, func_box, Rc(args), _, _)) => {
       if(ast_expr_is_fn_call_of(e, ":", .Some(usize(2))), {
-        lhs_ok := match(args.get(usize(0)), .Some(l) => _atom_is(&l, member.clone()), .None => false);
-        rhs_ok := match(args.get(usize(1)), .Some(r) => _subtree_has_position(&r, body_at), .None => false);
+        lhs_ok := match(args.get_cloned(usize(0)), .Some(l) => _atom_is(&l, member.clone()), .None => false);
+        rhs_ok := match(args.get_cloned(usize(1)), .Some(r) => _subtree_has_position(&r, body_at), .None => false);
         if(lhs_ok && rhs_ok, {
           match(
-            args.get(usize(0)),
+            args.get_cloned(usize(0)),
             .Some(l2) => {
               out.push(ast_expr_token(&l2));
             },
@@ -317,7 +317,7 @@ _find_method_label :: (
       (i : usize) = usize(0);
       while(i < args.len(), {
         match(
-          args.get(i),
+          args.get_cloned(i),
           .Some(a) => recur(&a, member, body_at, out),
           .None => ()
         );
@@ -472,7 +472,7 @@ _method_decl :: (
   (i : usize) = usize(0);
   while(i < module_exprs.len(), {
     match(
-      module_exprs.get(i),
+      module_exprs.get_cloned(i),
       .Some(e) => _find_method_label(&e, member, &body_tok, &mut found),
       .None => ()
     );
@@ -500,7 +500,7 @@ _import_path_of_binding :: (fn(exprs : &ArrayList(AstExpr), name : &String) -> O
   match(
     value,
     Rc(.FnCall(_, _, Rc(args), _, _)) => match(
-      args.get(usize(0)),
+      args.get_cloned(usize(0)),
       .Some(a) => match(
         a,
         Rc(.Atom(_, t)) => cond(
@@ -563,17 +563,17 @@ _find_label_call :: (fn(e : &AstExpr, target : &Token, out : &mut ArrayList(AstE
       (i : usize) = usize(0);
       while(i < args.len(), {
         match(
-          args.get(i),
+          args.get_cloned(i),
           .Some(a) => {
             if(ast_expr_is_fn_call_of(&a, ":", .Some(usize(2))), {
               match(
-                a,
+                Rc.clone(a),
                 Rc(.FnCall(_, _, Rc(pair), _, _)) => match(
-                  pair.get(usize(0)),
+                  pair.get_cloned(usize(0)),
                   .Some(lhs) => {
                     lt := ast_expr_token(&lhs);
                     if((lt.row == target.row) && (lt.column == target.column) && (lt.value.* == target.value.*), {
-                      out.push(e.*);
+                      out.push(Rc.clone(e.*));
                     });
                   },
                   .None => ()
@@ -607,16 +607,16 @@ _member_definition :: (
   (ai : usize) = usize(0);
   while(ai < exprs.len(), {
     match(
-      exprs.get(ai),
+      exprs.get_cloned(ai),
       .Some(e) => _find_member_access(&e, target, &mut accesses),
       .None => ()
     );
     ai = (ai + usize(1));
   });
   match(
-    accesses.get(usize(0)),
+    accesses.get_cloned(usize(0)),
     .Some(acc) => match(
-      acc,
+      Rc.clone(acc),
       Rc(.FnCall(_, _, Rc(acc_args), acc_infix, _)) => {
         (owner : TypeValue) = Rc.new(TypeValueNode.Unit);
         (deref : TypeValue) = Rc.new(TypeValueNode.Unit);
@@ -624,9 +624,9 @@ _member_definition :: (
         (receiver_name : String) = String.new();
         if(acc_infix, {
           match(
-            acc_args.get(usize(0)),
+            acc_args.get_cloned(usize(0)),
             .Some(receiver) => match(
-              receiver,
+              Rc.clone(receiver),
               Rc(.Atom(_, rt)) => {
                 receiver_name = rt.value.*.clone();
                 out_recv := ArrayList(TypeValue).new();
@@ -742,14 +742,14 @@ _member_definition :: (
   (ci : usize) = usize(0);
   while(ci < exprs.len(), {
     match(
-      exprs.get(ci),
+      exprs.get_cloned(ci),
       .Some(e) => _find_label_call(&e, target, &mut calls),
       .None => ()
     );
     ci = (ci + usize(1));
   });
   match(
-    calls.get(usize(0)),
+    calls.get_cloned(usize(0)),
     .Some(call) => match(
       expr_info_table_get(info_table, ast_expr_id(&call)),
       .Some(cinfo) => _owner_member_decl(&cinfo.ty(), target.value.*.clone(), &cinfo.env(), doc_abs, exprs),
@@ -790,7 +790,7 @@ handle_definition :: (
   (ei : usize) = usize(0);
   while(ei < exprs.len(), {
     match(
-      exprs.get(ei),
+      exprs.get_cloned(ei),
       .Some(e) => _collect_candidates(&e, &target, &mut cands),
       .None => ()
     );
@@ -879,7 +879,7 @@ handle_type_definition :: (
   (ei : usize) = usize(0);
   while(ei < exprs.len(), {
     match(
-      exprs.get(ei),
+      exprs.get_cloned(ei),
       .Some(e) => _collect_candidates(&e, &target, &mut cands),
       .None => ()
     );
@@ -905,7 +905,7 @@ handle_type_definition :: (
     (ai : usize) = usize(0);
     while(ai < exprs.len(), {
       match(
-        exprs.get(ai),
+        exprs.get_cloned(ai),
         .Some(e) => _find_member_access(&e, &target, &mut accesses),
         .None => ()
       );
@@ -914,7 +914,7 @@ handle_type_definition :: (
     (mi : usize) = usize(0);
     while(mi < accesses.len(), {
       match(
-        accesses.get(mi),
+        accesses.get_cloned(mi),
         .Some(acc) => match(
           expr_info_table_get(info_table, ast_expr_id(&acc)),
           .Some(acc_info) => {

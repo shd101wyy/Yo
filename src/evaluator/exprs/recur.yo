@@ -149,7 +149,7 @@ evaluate_recur :: (
     // Extract callee and args from the recur(...) FnCall node.
     callee_expr := match(
       expr,
-      Rc(.FnCall(_, func_box, _, _, _)) => func_box.*,
+      Rc(.FnCall(_, func_box, _, _, _)) => Rc.clone(func_box.*),
       _ => make_err_expr()
     );
     arg_exprs := match(
@@ -208,7 +208,7 @@ evaluate_recur :: (
     // Attach a temp variable for RC drop tracking.
     // Stub: no-op for now.
     attach_temp_variable_to_expr(expr, true, ctx);
-    return(expr.*);
+    return(Rc.clone(expr.*));
   });
   // ------------------------------------------------------------------
   // Normal path: delegate to evaluate_function_call.

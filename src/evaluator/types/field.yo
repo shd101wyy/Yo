@@ -154,7 +154,7 @@ evaluate_type_field :: (
 )({
   (env : Environment) = Rc.clone(env_in);
   (label : Option(String)) = Option(String).None;
-  (expr_ : AstExpr) = expr.*;
+  (expr_ : AstExpr) = Rc.clone(expr.*);
   (label_expr : Option(AstExpr)) = Option(AstExpr).None;
   (type_expr : Option(AstExpr)) = Option(AstExpr).None;
   (default_value_expr : Option(AstExpr)) = Option(AstExpr).None;
@@ -166,16 +166,16 @@ evaluate_type_field :: (
   // --- Check for default value: `x ?= default` ---
   if(ast_expr_is_fn_call_of(&expr_, "?=", Option(usize).Some(usize(2))), {
     args := match(expr_, Rc(.FnCall(_, _, Rc(args_), _, _)) => args_.clone(), _ => ArrayList(AstExpr).new());
-    default_value_expr = Option(AstExpr).Some(match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()));
-    expr_ = match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+    default_value_expr = Option(AstExpr).Some(match(args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr()));
+    expr_ = match(args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
   });
   // --- Check for assigned value: `x = val` or `x :: val` ---
   if(ast_expr_is_fn_call_of(&expr_, BK_ASSIGN, Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(&expr_, BK_CONST, Option(usize).Some(usize(2))), {
     is_const := ast_expr_is_fn_call_of(&expr_, BK_CONST, Option(usize).Some(usize(2)));
     if(is_const, {
       is_comptime = true;
-      args := match(expr_, Rc(.FnCall(_, _, Rc(args_), _, _)) => args_.clone(), _ => ArrayList(AstExpr).new());
-      lhs_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+      args := match(Rc.clone(expr_), Rc(.FnCall(_, _, Rc(args_), _, _)) => args_.clone(), _ => ArrayList(AstExpr).new());
+      lhs_expr := match(args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
       if(!is_valid_variable_name(&lhs_expr), {
         exn.throw(
           dyn(
@@ -186,12 +186,12 @@ evaluate_type_field :: (
           )
         );
       });
-      label_expr = Option(AstExpr).Some(lhs_expr);
+      label_expr = Option(AstExpr).Some(Rc.clone(lhs_expr));
       label = Option(String).Some(ast_expr_text(&lhs_expr).*.clone());
     });
     args2 := match(expr_, Rc(.FnCall(_, _, Rc(args_), _, _)) => args_.clone(), _ => ArrayList(AstExpr).new());
-    assigned_value_expr = Option(AstExpr).Some(match(args2.get(usize(1)), .Some(a) => a, .None => make_err_expr()));
-    expr_ = match(args2.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+    assigned_value_expr = Option(AstExpr).Some(match(args2.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr()));
+    expr_ = match(args2.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
   });
   // Cannot have both default value and assigned value
   if(default_value_expr.is_some() && assigned_value_expr.is_some(), {
@@ -206,9 +206,9 @@ evaluate_type_field :: (
   });
   // --- Parse the lhs expr: `x: T`, `comptime(x): T`, or just `comptime(x)` ---
   if(ast_expr_is_fn_call_of(&expr_, ":", Option(usize).Some(usize(2))), {
-    colon_args := match(expr_, Rc(.FnCall(_, _, Rc(args_), _, _)) => args_.clone(), _ => ArrayList(AstExpr).new());
-    (lhs_ : AstExpr) = match(colon_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-    rhs := match(colon_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+    colon_args := match(Rc.clone(expr_), Rc(.FnCall(_, _, Rc(args_), _, _)) => args_.clone(), _ => ArrayList(AstExpr).new());
+    (lhs_ : AstExpr) = match(colon_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
+    rhs := match(colon_args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr());
     type_expr = Option(AstExpr).Some(rhs);
     // Check if it's `comptime(x): T`
     if(ast_expr_is_fn_call_of(&lhs_, BK_COMPTIME, Option(usize).Some(usize(1))), {
@@ -224,7 +224,7 @@ evaluate_type_field :: (
       });
       is_comptime = true;
       ct_args := match(lhs_, Rc(.FnCall(_, _, Rc(args_), _, _)) => args_.clone(), _ => ArrayList(AstExpr).new());
-      lhs_ = match(ct_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+      lhs_ = match(ct_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
     });
     if(!ast_expr_is_atom(&lhs_) || !is_valid_variable_name(&lhs_), {
       exn.throw(
@@ -236,7 +236,7 @@ evaluate_type_field :: (
         )
       );
     });
-    label_expr = Option(AstExpr).Some(lhs_);
+    label_expr = Option(AstExpr).Some(Rc.clone(lhs_));
     label = Option(String).Some(ast_expr_text(&lhs_).*.clone());
   }, if(ast_expr_is_fn_call_of(&expr_, BK_COMPTIME, Option(usize).Some(usize(1))), {
     if(is_comptime, {
@@ -250,8 +250,8 @@ evaluate_type_field :: (
       );
     });
     is_comptime = true;
-    ct_args := match(expr_, Rc(.FnCall(_, _, Rc(args_), _, _)) => args_.clone(), _ => ArrayList(AstExpr).new());
-    lhs_ := match(ct_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+    ct_args := match(Rc.clone(expr_), Rc(.FnCall(_, _, Rc(args_), _, _)) => args_.clone(), _ => ArrayList(AstExpr).new());
+    lhs_ := match(ct_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
     if(!ast_expr_is_atom(&lhs_) || !is_valid_variable_name(&lhs_), {
       exn.throw(
         dyn(
@@ -262,11 +262,11 @@ evaluate_type_field :: (
         )
       );
     });
-    label_expr = Option(AstExpr).Some(lhs_);
+    label_expr = Option(AstExpr).Some(Rc.clone(lhs_));
     label = Option(String).Some(ast_expr_text(&lhs_).*.clone());
   }, if(!default_value_expr.is_some() && !assigned_value_expr.is_some(), {
     // Bare type expression (positional tuple field, or `Self :: i32` shorthand)
-    type_expr = Option(AstExpr).Some(expr_);
+    type_expr = Option(AstExpr).Some(Rc.clone(expr_));
   })));
   // --- Determine expected type for this field (from context) ---
   (expected_tuple_element_type : Option(TypeValue)) = Option(TypeValue).None;
@@ -299,7 +299,7 @@ evaluate_type_field :: (
   });
   // --- Evaluate the type expression ---
   if(type_expr.is_some(), {
-    te := match(type_expr, .Some(t) => t, .None => make_err_expr());
+    te := match(type_expr.clone(), .Some(t) => Rc.clone(t), .None => make_err_expr());
     old_expected := ctx.expected_type.clone();
     if(expected_tuple_element_type.is_some(), {
       elem_env := match(&ctx.expected_type, .Some(e) => snapshot_env(&e.env), .None => Rc.clone(env));
@@ -367,7 +367,7 @@ evaluate_type_field :: (
   });
   // --- Evaluate assigned value expression ---
   if(assigned_value_expr.is_some(), {
-    av_expr := match(assigned_value_expr, .Some(e) => e, .None => make_err_expr());
+    av_expr := match(assigned_value_expr.clone(), .Some(e) => Rc.clone(e), .None => make_err_expr());
     if(!is_comptime, {
       exn.throw(
         dyn(
@@ -468,7 +468,7 @@ evaluate_type_field :: (
   });
   // --- Evaluate default value expression ---
   if(default_value_expr.is_some(), {
-    dv_expr := match(default_value_expr, .Some(e) => e, .None => make_err_expr());
+    dv_expr := match(default_value_expr.clone(), .Some(e) => Rc.clone(e), .None => make_err_expr());
     field_expected_ctx := if(
       field_type.is_some(),
       Option(ExpectedTypeCtx).Some(
@@ -588,7 +588,7 @@ evaluate_type_field :: (
   });
   // --- Annotate label_expr in expr_info_table ---
   if(label_expr.is_some(), {
-    le := match(label_expr, .Some(e) => e, .None => make_err_expr());
+    le := match(label_expr.clone(), .Some(e) => Rc.clone(e), .None => make_err_expr());
     doc_key := doc_comment_lookup_key_from_token(ast_expr_token(&le));
     field_doc_comment := match(
       &ctx.doc_comment_lookup,
@@ -611,7 +611,7 @@ evaluate_type_field :: (
   });
   // --- Annotate expr itself (if different from type_expr) ---
   is_same_as_type_expr := match(
-    type_expr,
+    type_expr.clone(),
     .Some(te) => (ast_expr_id(&te) == ast_expr_id(expr)),
     .None => false
   );
@@ -627,7 +627,7 @@ evaluate_type_field :: (
   // struct; it cannot live in a fixed-size field. Use `Dyn(Fn(...))` instead.
   if(((for_type == "struct") || (for_type == "enum") || (for_type == "union")) && is_some_type(&final_type) && type_implements_fn(&final_type), {
     if(type_expr.is_some(), {
-      te := match(type_expr, .Some(e) => e, .None => make_err_expr());
+      te := match(type_expr, .Some(e) => Rc.clone(e), .None => make_err_expr());
       if(ast_expr_is_fn_call_of(&te, BK_IMPL_UPPER, Option(usize).None), {
         exn.throw(
           dyn(

@@ -755,7 +755,7 @@ evaluate_comptime_fn_call :: (
   );
   body_box := match(
     function_value,
-    .FuncVal(__fvd2, _) => __fvd2.body,
+    .FuncVal(__fvd2, _) => Rc.clone(__fvd2.body),
     _ => {
       // Inside a DEFINITION-time body trial, a non-FuncVal callee is a
       // dispatch product with no impl value yet (a where-constraint trait
@@ -1434,7 +1434,7 @@ evaluate_comptime_fn_call :: (
       Rc(.Atom(_, ca_tok)) => ca_tok.value.*.clone(),
       Rc(.FnCall(_, ce_fn, Rc(ce_args), ce_infix, _)) => cond(
         (ce_infix.* && (ce_args.len() == usize(2)) && ast_expr_is_atom_of(&ce_fn.*, ".")) => match(
-          ce_args.get(usize(1)),
+          ce_args.get_cloned(usize(1)),
           .Some(member) => match(member, Rc(.Atom(_, m_tok)) => m_tok.value.*.clone(), Rc(.FnCall(_, _, _, _, _)) => String.from("")),
           .None => String.from("")
         ),

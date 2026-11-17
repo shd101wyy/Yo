@@ -10,7 +10,8 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 {
-  AstExpr, AstExprNode,
+  AstExpr,
+  AstExprNode,
   ast_expr_token,
   ast_expr_text,
   ast_expr_id,
@@ -309,7 +310,7 @@ handle_member_destructuring :: (
     // mutable (per name); `desugar_if_calls` stripped the marker and recorded
     // the name (`is_mut_binding`). A malformed marker is rejected here.
     reject_malformed_mut_marker(lhs, i, exn);
-    lhs_field := match(lhs_fields.get(i), .Some(f) => f, .None => make_err_expr());
+    lhs_field := match(lhs_fields.get_cloned(i), .Some(f) => f, .None => make_err_expr());
     if(ast_expr_is_fn_call_of(&lhs_field, BK_COLON, Option(usize).Some(usize(2))), {
       reject_malformed_mut_marker(&lhs_field, usize(1), exn);
     });
@@ -338,10 +339,10 @@ handle_member_destructuring :: (
       (
         ast_expr_is_fn_call_of(&lhs_field, BK_COLON, Option(usize).Some(usize(2))) &&
           match(
-            lhs_field,
+            Rc.clone(lhs_field),
             Rc(.FnCall(_, _, Rc(args), _, _)) => (
-              match(args.get(usize(0)), .Some(a) => (ast_expr_token(&a).value.* == "..."), .None => false) &&
-                match(args.get(usize(1)), .Some(b) => (ast_expr_token(&b).value.* == "..."), .None => false)
+              match(args.get_cloned(usize(0)), .Some(a) => (ast_expr_token(&a).value.* == "..."), .None => false) &&
+                match(args.get_cloned(usize(1)), .Some(b) => (ast_expr_token(&b).value.* == "..."), .None => false)
             ),
             _ => false
           )
@@ -430,17 +431,17 @@ handle_member_destructuring :: (
       is_labeled := ast_expr_is_fn_call_of(&lhs_field, BK_COLON, Option(usize).Some(usize(2)));
       if(is_labeled, {
         left_side_opt := match(
-          lhs_field,
-          Rc(.FnCall(_, _, Rc(args), _, _)) => args.get(usize(0)),
+          Rc.clone(lhs_field),
+          Rc(.FnCall(_, _, Rc(args), _, _)) => args.get_cloned(usize(0)),
           _ => Option(AstExpr).None
         );
         right_side_opt := match(
-          lhs_field,
-          Rc(.FnCall(_, _, Rc(args), _, _)) => args.get(usize(1)),
+          Rc.clone(lhs_field),
+          Rc(.FnCall(_, _, Rc(args), _, _)) => args.get_cloned(usize(1)),
           _ => Option(AstExpr).None
         );
-        left_side := match(left_side_opt, .Some(e) => e, .None => make_err_expr());
-        right_side := match(right_side_opt, .Some(e) => e, .None => make_err_expr());
+        left_side := match(left_side_opt, .Some(e) => Rc.clone(e), .None => make_err_expr());
+        right_side := match(right_side_opt, .Some(e) => Rc.clone(e), .None => make_err_expr());
         if(!(ast_expr_is_atom(&left_side) && is_valid_variable_name(&left_side)), {
           exn.throw(
             dyn(
@@ -451,7 +452,7 @@ handle_member_destructuring :: (
             )
           );
         });
-        label_expr_opt = Option(AstExpr).Some(left_side);
+        label_expr_opt = Option(AstExpr).Some(Rc.clone(left_side));
         label := ast_expr_text(&left_side).*.clone();
         fi_opt := _find_field_index(rhs_field_labels, label.clone());
         match(
@@ -474,7 +475,7 @@ handle_member_destructuring :: (
         _record_destructured_read(env, rhs_type, rhs_field_label.clone());
         _reject_private_destructure(rhs_type, rhs_field_label.clone(), ast_expr_token(&lhs_field), exn);
         if(ast_expr_is_atom(&right_side) && is_valid_variable_name(&right_side), {
-          rename_expr_opt = Option(AstExpr).Some(right_side);
+          rename_expr_opt = Option(AstExpr).Some(Rc.clone(right_side));
           variable_name_opt = Option(String).Some(ast_expr_token(&right_side).value.*.clone());
           variable_token_opt = Option(AstExpr).Some(right_side);
         }, {
@@ -570,7 +571,7 @@ handle_member_destructuring :: (
         _record_destructured_read(env, rhs_type, rhs_field_label.clone());
         _reject_private_destructure(rhs_type, rhs_field_label.clone(), ast_expr_token(&lhs_field), exn);
         variable_name_opt = Option(String).Some(pos_var_name);
-        variable_token_opt = Option(AstExpr).Some(lhs_field);
+        variable_token_opt = Option(AstExpr).Some(Rc.clone(lhs_field));
       });
       // -------------------------------------------------------------------
       // Branch 5: unsupported pattern
@@ -591,7 +592,7 @@ handle_member_destructuring :: (
       match(
         variable_name_opt,
         .Some(var_name) => {
-          var_tok_expr := match(variable_token_opt, .Some(e) => e, .None => lhs_field);
+          var_tok_expr := match(variable_token_opt, .Some(e) => Rc.clone(e), .None => Rc.clone(lhs_field));
           if(match(field_value_opt, .None => true, _ => false) && is_compile_time_only, {
             exn.throw(
               dyn(
@@ -740,7 +741,7 @@ evaluate_destructuring_assignment :: (
     );
     field_labels := match(field_labels_opt, .Some(l) => Rc.clone(l), .None => no_labels());
     field_types := match(field_types_opt, .Some(t) => Rc.clone(t), .None => no_types());
-    lhs_func := match(lhs, Rc(.FnCall(_, fb, _, _, _)) => fb.*, Rc(.Atom(_, tok)) => Rc.new(AstExprNode.Atom(ast_expr_id(lhs), tok.*)));
+    lhs_func := match(lhs, Rc(.FnCall(_, fb, _, _, _)) => Rc.clone(fb.*), Rc(.Atom(_, tok)) => Rc.new(AstExprNode.Atom(ast_expr_id(lhs), tok.*)));
     lhs_args := match(lhs, Rc(.FnCall(_, _, Rc(args), _, _)) => args.clone(), _ => ArrayList(AstExpr).new());
     return(
       handle_member_destructuring(
@@ -765,7 +766,7 @@ evaluate_destructuring_assignment :: (
   if(is_tuple_type(&rhs_type) && ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_TUPLE, Option(usize).None), {
     field_labels := match(&rhs_type, Rc(.Tuple(fl, _)) => Rc.clone(fl), _ => no_labels());
     field_types := match(&rhs_type, Rc(.Tuple(_, ft)) => Rc.clone(ft), _ => no_types());
-    lhs_func := match(lhs, Rc(.FnCall(_, fb, _, _, _)) => fb.*, Rc(.Atom(_, tok)) => Rc.new(AstExprNode.Atom(ast_expr_id(lhs), tok.*)));
+    lhs_func := match(lhs, Rc(.FnCall(_, fb, _, _, _)) => Rc.clone(fb.*), Rc(.Atom(_, tok)) => Rc.new(AstExprNode.Atom(ast_expr_id(lhs), tok.*)));
     lhs_args := match(lhs, Rc(.FnCall(_, _, Rc(args), _, _)) => args.clone(), _ => ArrayList(AstExpr).new());
     return(
       handle_member_destructuring(
@@ -842,7 +843,7 @@ evaluate_destructuring_assignment :: (
       field_labels.push(fi.to_string());
       fi = (fi + usize(1));
     });
-    lhs_func := match(lhs, Rc(.FnCall(_, fb, _, _, _)) => fb.*, Rc(.Atom(_, tok)) => Rc.new(AstExprNode.Atom(ast_expr_id(lhs), tok.*)));
+    lhs_func := match(lhs, Rc(.FnCall(_, fb, _, _, _)) => Rc.clone(fb.*), Rc(.Atom(_, tok)) => Rc.new(AstExprNode.Atom(ast_expr_id(lhs), tok.*)));
     lhs_args := match(lhs, Rc(.FnCall(_, _, Rc(args), _, _)) => args.clone(), _ => ArrayList(AstExpr).new());
     return(
       handle_member_destructuring(

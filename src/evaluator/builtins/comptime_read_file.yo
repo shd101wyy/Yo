@@ -106,7 +106,7 @@ evaluate_comptime_read_file :: (
       )
     );
   });
-  arg := match(args.get(usize(0)), .Some(a) => a, .None => expr.*);
+  arg := match(args.get_cloned(usize(0)), .Some(a) => a, .None => Rc.clone(expr.*));
   evaluated := evaluate_expression_raw(&arg, env, ctx, exn);
   arg_value := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
@@ -205,6 +205,6 @@ evaluate_comptime_read_file :: (
     )
   );
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
-  expr.*
+  Rc.clone(expr.*)
 });
 export(evaluate_comptime_read_file);

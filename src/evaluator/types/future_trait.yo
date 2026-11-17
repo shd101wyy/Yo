@@ -77,7 +77,7 @@ _resolve_effect_arg :: (
   is_spread := (
     ast_expr_is_fn_call(effect_expr) &&
       ast_expr_is_fn_call_of(effect_expr, "...", .Some(usize(1))) &&
-        match(_future_args(effect_expr).get(usize(0)), .Some(a) => ast_expr_is_atom(&a), .None => false)
+        match(_future_args(effect_expr).get_cloned(usize(0)), .Some(a) => ast_expr_is_atom(&a), .None => false)
   );
   cond(
     // `Future` takes exactly two arguments, the result type and ONE effect
@@ -175,7 +175,7 @@ evaluate_future_type :: (
   mut(expr_args) := _future_args(expr);
   // A trailing origin (`Future(T, p)`, `Future(T, E, p)`) is split off first.
   (origin_type : TypeValue) = t_origin_elided();
-  last_arg := match(expr_args.last(), .Some(a) => a, .None => make_err_expr());
+  last_arg := match(expr_args.last_cloned(), .Some(a) => a, .None => make_err_expr());
   if((expr_args.len() >= usize(2)) && (expr_args.len() <= usize(3)) && _is_origin_operand(&last_arg, env), {
     o_ev := evaluate_origin_argument(&last_arg, env, ctx, exn);
     origin_type = match(
@@ -206,7 +206,7 @@ evaluate_future_type :: (
     );
   });
   // Evaluate output type (first arg)
-  element_type_expr := match(expr_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+  element_type_expr := match(expr_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
   evaluated_elem_expr := evaluate_expression_raw(&element_type_expr, env, ctx, exn);
   elem_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_elem_expr));
   elem_info := match(
@@ -246,7 +246,7 @@ evaluate_future_type :: (
   (ei : usize) = usize(1);
   while(ei < expr_args.len(), {
     effect_expr := match(
-      expr_args.get(ei),
+      expr_args.get_cloned(ei),
       .Some(a) => a,
       .None => {
         ei = expr_args.len();
@@ -264,6 +264,6 @@ evaluate_future_type :: (
   out_info := new_expr_info(&env_mut, type_of_type(&future_type));
   out_info.set_value(.Some(create_type_value(&future_type)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 export(evaluate_future_type);

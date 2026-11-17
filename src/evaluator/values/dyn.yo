@@ -161,8 +161,8 @@ _dyn_cell_constructor_of :: (fn(callee : &AstExpr) -> Option(DynCellConstructor)
   match(
     callee,
     Rc(.FnCall(_, _, Rc(dot_args), _, _)) => cond(
-      (ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))) && match(dot_args.get(usize(1)), .Some(Rc(.Atom(_, m_tok))) => (m_tok.value.* == "new"), _ => false)) => match(
-        dot_args.get(usize(0)),
+      (ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))) && match(dot_args.get_cloned(usize(1)), .Some(Rc(.Atom(_, m_tok))) => (m_tok.value.* == "new"), _ => false)) => match(
+        dot_args.get_cloned(usize(0)),
         .Some(Rc(.Atom(r_id, r_tok))) => cond(
           (is_shared_cell_type_name(&r_tok.value.*) || (r_tok.value.* == "Arc") || (r_tok.value.* == "Box")) => .Some(DynCellConstructor(type_name : r_tok.value.*.clone(), unapplied_receiver : r_id)),
           true => .None
@@ -181,14 +181,14 @@ _dyn_cell_constructor_of :: (fn(callee : &AstExpr) -> Option(DynCellConstructor)
 /// consultation #7).
 _dyn_cell_args_recognized :: (fn(args : &ArrayList(AstExpr)) -> bool)(
   match(
-    args.get(usize(0)),
+    args.get_cloned(usize(0)),
     .Some(a0) => (
       ast_expr_is_fn_call_of(&a0, "=>", Option(usize).None) && cond(
         (args.len() == usize(1)) => true,
         (args.len() == usize(2)) => match(
-          args.get(usize(1)),
+          args.get_cloned(usize(1)),
           .Some(a1) => cond(
-            ast_expr_is_fn_call_of(&a1, ":", Option(usize).Some(usize(2))) => match(a1, Rc(.FnCall(_, _, Rc(la), _, _)) => match(la.get(usize(0)), .Some(Rc(.Atom(_, lt))) => (lt.value.* == "alloc"), _ => false), _ => false),
+            ast_expr_is_fn_call_of(&a1, ":", Option(usize).Some(usize(2))) => match(a1, Rc(.FnCall(_, _, Rc(la), _, _)) => match(la.get_cloned(usize(0)), .Some(Rc(.Atom(_, lt))) => (lt.value.* == "alloc"), _ => false), _ => false),
             true => true
           ),
           .None => false
@@ -242,7 +242,7 @@ _synthesized_cell_call :: (
     ctor_callee,
     .Some(callee) => {
       callee_id := ast_expr_id(&callee);
-      (Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), callee, Rc.new(call_args), false, at.*)), callee_id)
+      (Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), Rc.clone(callee), Rc.new(call_args), false, at.*)), callee_id)
     },
     .None => {
       recv_id := alloc_global_expr_id();
@@ -959,7 +959,7 @@ _generic_impl_method_for_dyn :: (
           );
           mpi = (mpi + usize(1));
         });
-        call_expr := Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), callee_atom, Rc.new(call_args.clone()), false, recv_tok));
+        call_expr := Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), Rc.clone(callee_atom), Rc.new(call_args.clone()), false, recv_tok));
         ctx.pending_method_self_type = Option(TypeValue).Some(receiver_type.clone());
         // The synthetic call has no expected result: the surrounding
         // context's (the `Dyn` a `dyn(...)` argument is checked against)
@@ -1040,7 +1040,7 @@ _synthesize_dyn_clone_fn :: (fn(payload_in : &TypeValue, dyn_type : &TypeValue, 
       // `_generic_impl_method_for_dyn` passes its receiver.
       call_args := ArrayList(AstExpr).new();
       call_args.push(recv_atom);
-      call_expr := Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), callee_atom, Rc.new(call_args.clone()), false, recv_tok));
+      call_expr := Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), Rc.clone(callee_atom), Rc.new(call_args.clone()), false, recv_tok));
       ctx.expected_type = Option(ExpectedTypeCtx).None;
       res := try_to_call_function_with_arguments(Option(EvalValue).Some(fv), &fn_ty, &call_expr, &callee_atom, &call_args, caller_env, ctx, true, false, true, exn);
       ctx.expected_type = saved_expected.clone();
@@ -1394,7 +1394,7 @@ _evaluate_dyn_over_lend :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut E
     note_unsize_reference(ast_expr_id(expr), is_mut);
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   });
-  call
+  Rc.clone(call)
 });
 /// `yo fix --migrate unsized` (decision 49 S1f; VERDICTS-40 §5, VERDICTS-43
 /// §4, VERDICTS-55): what the evaluation of one `dyn(arg)` tells the
@@ -1414,7 +1414,7 @@ _written_cell_new :: (fn(written : &AstExpr) -> bool)(
       ast_expr_is_fn_call_of(w_callee, BF_DOT, Option(usize).Some(usize(2))),
       match(
         w_callee,
-        Rc(.FnCall(_, _, Rc(w_dot), _, _)) => (match(w_dot.get(usize(1)), .Some(Rc(.Atom(_, m_tok))) => (m_tok.value.* == "new"), _ => false) && match(w_dot.get(usize(0)), .Some(Rc(.Atom(_, r_tok))) => ((r_tok.value.* == "Box") || (r_tok.value.* == "Rc") || (r_tok.value.* == "Arc")), _ => false)),
+        Rc(.FnCall(_, _, Rc(w_dot), _, _)) => (match(w_dot.get_cloned(usize(1)), .Some(Rc(.Atom(_, m_tok))) => (m_tok.value.* == "new"), _ => false) && match(w_dot.get_cloned(usize(0)), .Some(Rc(.Atom(_, r_tok))) => ((r_tok.value.* == "Box") || (r_tok.value.* == "Rc") || (r_tok.value.* == "Arc")), _ => false)),
         Rc(.Atom(_, _)) => false
       ),
       false
@@ -1480,7 +1480,7 @@ evaluate_dyn_value :: (
   match(
     saved_et,
     .Some(se) => {
-      ctx.expected_type = se;
+      ctx.expected_type = se.clone();
     },
     .None => ()
   );
@@ -1490,7 +1490,7 @@ evaluate_dyn_value :: (
     match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&out)),
       .Some(oi) => if(is_dyn_type(&oi.ty()), {
-        rt_payload := match(oi.runtime_arg_exprs_in_order(), .Some(ra) => match(ra.get(usize(0)), .Some(r0) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&r0)), .Some(ri) => Option(TypeValue).Some(Rc.clone(ri.ty())), .None => Option(TypeValue).None), .None => Option(TypeValue).None), .None => Option(TypeValue).None);
+        rt_payload := match(oi.runtime_arg_exprs_in_order(), .Some(ra) => match(ra.get_cloned(usize(0)), .Some(r0) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&r0)), .Some(ri) => Option(TypeValue).Some(Rc.clone(ri.ty())), .None => Option(TypeValue).None), .None => Option(TypeValue).None), .None => Option(TypeValue).None);
         match(
           _create_box_type_via(&_erasure_handle_name(&rt_payload), &t_refine_inner(&oi.ty()), &expr_info_adopt_env(&oi), ctx, exn),
           .Some(bt) => {
@@ -1538,11 +1538,11 @@ _evaluate_dyn_erasure :: (
           )
         )
       );
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   (value_arg : AstExpr) = match(
-    args.get(usize(0)),
+    args.get_cloned(usize(0)),
     .Some(a) => a,
     .None => {
       exn.throw(
@@ -1553,7 +1553,7 @@ _evaluate_dyn_erasure :: (
           )
         )
       );
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   // `dyn(Box.new(v))` is `dyn(Rc.new(v))` here, the legacy owning Dyn.
@@ -1606,7 +1606,7 @@ _evaluate_dyn_erasure :: (
         // consultation #7). (`Rc(T)(...)` and `Rc(T).new(...)` are not
         // recognized; the constructor call covers the dyn-closure pattern.)
         dyn_cell_closure := match(
-          value_arg,
+          Rc.clone(value_arg),
           Rc(.FnCall(_, dbc_fn, Rc(dbc_args), _, _)) => cond(
             _dyn_cell_args_recognized(&dbc_args) => _dyn_cell_constructor_of(&dbc_fn),
             true => Option(DynCellConstructor).None
@@ -1625,7 +1625,7 @@ _evaluate_dyn_erasure :: (
                   .Some(dbc_callee) => {
                     dbc_callee_id := ast_expr_id(&dbc_callee);
                     rebuilt := match(
-                      value_arg,
+                      Rc.clone(value_arg),
                       Rc(.FnCall(dbc_id, _, Rc(dbc_call_args), dbc_flag, dbc_tok)) => Option(AstExpr).Some(Rc.new(AstExprNode.FnCall(dbc_id, dbc_callee, Rc.new(dbc_call_args.clone()), dbc_flag, dbc_tok.clone()))),
                       _ => Option(AstExpr).None
                     );
@@ -1633,7 +1633,7 @@ _evaluate_dyn_erasure :: (
                       rebuilt,
                       .Some(r) => {
                         dyn_cell_preset_receiver = Option(usize).Some(dbc_callee_id);
-                        value_arg = r;
+                        value_arg = Rc.clone(r);
                       },
                       .None => ()
                     );
@@ -1792,14 +1792,14 @@ _evaluate_dyn_erasure :: (
       ),
       .None => ()
     );
-    (ne_final_expr : AstExpr) = inner_ne;
+    (ne_final_expr : AstExpr) = Rc.clone(inner_ne);
     // A cell handle (`cell_handle_view`) is a box already, as an `Rc` is.
     if(_dyn_payload_is_plain_value(&ne_value_type), {
       // The legacy alias (decision 49): a plain `dyn(v)` is `dyn(Box.new(v))`.
       match(
         _create_box_type_via(&String.from("Box"), &ne_box_inner_ty, env, ctx, exn),
         .Some(box_ty) => {
-          (ne_box_call, ne_box_recv) := _synthesized_cell_call(&box_ty, &String.from("Box"), &ne_box_inner_ty, inner_ne, &expr_tok, env, ctx);
+          (ne_box_call, ne_box_recv) := _synthesized_cell_call(&box_ty, &String.from("Box"), &ne_box_inner_ty, Rc.clone(inner_ne), &expr_tok, env, ctx);
           saved_bet := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : box_ty, env : Rc.clone(env))));
           // The inner value is evaluated once: as the box call's argument it
           // is pre-evaluated, so a closure's capture moves do not run again
@@ -1845,7 +1845,7 @@ _evaluate_dyn_erasure :: (
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
     // Attach the temp variable C codegen reads for the fat-pointer struct.
     attach_temp_variable_to_expr(expr, true, ctx);
-    return(expr.*);
+    return(Rc.clone(expr.*));
   });
   // --- Executing path ---
   // Evaluate the inner expression (with the inner-expected computed above).
@@ -1867,7 +1867,7 @@ _evaluate_dyn_erasure :: (
           )
         )
       );
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   (value_type : TypeValue) = Rc.clone(inner_info.ty());
@@ -1884,7 +1884,7 @@ _evaluate_dyn_erasure :: (
   // Send value is shared across threads, so its reference count must be
   // atomic. A plain `box` put a non-atomic count on two threads
   // (issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md).
-  (final_value_expr_ex : AstExpr) = eval_inner;
+  (final_value_expr_ex : AstExpr) = Rc.clone(eval_inner);
   // A cell handle (`cell_handle_view`) is a box already, as an `Rc` is.
   if(_dyn_payload_is_plain_value(&value_type), {
     // The legacy alias (decision 49): a plain `dyn(v)` is `dyn(Box.new(v))`.
@@ -1899,7 +1899,7 @@ _evaluate_dyn_erasure :: (
     boxed_info_opt := match(
       _create_box_type_via(&box_cell_name, &value_type, &cur_env, ctx, exn),
       .Some(box_cell_ty) => {
-        (box_call, box_recv) := _synthesized_cell_call(&box_cell_ty, &box_cell_name, &value_type, eval_inner, &expr_tok, &cur_env, ctx);
+        (box_call, box_recv) := _synthesized_cell_call(&box_cell_ty, &box_cell_name, &value_type, Rc.clone(eval_inner), &expr_tok, &cur_env, ctx);
         mark_node_preevaluated(ast_expr_id(&eval_inner));
         mark_node_preevaluated(box_recv);
         boxed_expr := evaluate_expression_raw(&box_call, &cur_env, ctx, exn);
@@ -1923,16 +1923,16 @@ _evaluate_dyn_erasure :: (
         bx_args.push(boxed_expr.clone());
         (bx_i : usize) = usize(1);
         while(bx_i < args.len(), bx_i = (bx_i + usize(1)), {
-          match(args.get(bx_i), .Some(bx_a) => bx_args.push(bx_a), .None => ());
+          match(args.get_cloned(bx_i), .Some(bx_a) => bx_args.push(bx_a), .None => ());
         });
         match(
           expr,
-          Rc(.FnCall(bx_id, bx_f, _, bx_infix, bx_tok)) => note_rewritten_node(&Rc.new(AstExprNode.FnCall(bx_id.*, bx_f.*, Rc.new(bx_args), bx_infix.*, bx_tok.*))),
+          Rc(.FnCall(bx_id, bx_f, _, bx_infix, bx_tok)) => note_rewritten_node(&Rc.new(AstExprNode.FnCall(bx_id.*, Rc.clone(bx_f.*), Rc.new(bx_args), bx_infix.*, bx_tok.*))),
           _ => ()
         );
         final_value_type = Rc.clone(bi.ty());
         cur_env = expr_info_adopt_env(&bi);
-        final_value_expr_ex = boxed_expr;
+        final_value_expr_ex = Rc.clone(boxed_expr);
       },
       .None => {
         exn.throw(
@@ -2052,6 +2052,6 @@ _evaluate_dyn_erasure :: (
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   // Attach the temp variable C codegen reads for the fat-pointer struct.
   attach_temp_variable_to_expr(expr, true, ctx);
-  expr.*
+  Rc.clone(expr.*)
 });
 export(evaluate_dyn_value, apply_type_ctor_via);

@@ -31,7 +31,7 @@
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
 /// The `i`-th argument of a FnCall (or `.None`).
 _arg :: (fn(expr : &AstExpr, i : usize) -> Option(AstExpr))(
-  match(expr, Rc(.FnCall(_, _, Rc(args), _, _)) => args.get(i), Rc(.Atom(_, _)) => Option(AstExpr).None)
+  match(expr, Rc(.FnCall(_, _, Rc(args), _, _)) => args.get_cloned(i), Rc(.Atom(_, _)) => Option(AstExpr).None)
 );
 /// The result type of an expression (Unit when it has no ExprInfo).
 _ty :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> TypeValue)(
@@ -96,7 +96,7 @@ _drop_operand :: (fn(arg : &AstExpr, indent : &String, context : &mut FunctionGe
     .Some(ei) => scope_variables(ast_expr_id(arg), &ei.env(), name.clone()).last_cloned(),
     .None => Option(Variable).None
   );
-  tv := match(target, .Some(v) => v, .None => return(_rc_operand(arg, indent, context)));
+  tv := match(target, .Some(v) => Rc.clone(v), .None => return(_rc_operand(arg, indent, context)));
   if(match(&innermost.decl, .Some(d) => _same_position(&d.*, &tv.token), .None => false), {
     return(_rc_operand(arg, indent, context));
   });

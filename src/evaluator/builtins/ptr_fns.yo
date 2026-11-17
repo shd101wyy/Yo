@@ -57,9 +57,9 @@ _aggregate_type_of :: (fn(place : &AstExpr, ctx : &EvalContext) -> Option(TypeVa
     Rc(.FnCall(_, callee, Rc(args), _, _)) => {
       mut(candidates) := ArrayList(AstExpr).new();
       if(!ast_expr_is_fn_call_of(place, BF_DOT, Option(usize).None), {
-        candidates.push(callee.*);
+        candidates.push(Rc.clone(callee.*));
       });
-      match(args.get(usize(0)), .Some(a0) => candidates.push(a0), .None => ());
+      match(args.get_cloned(usize(0)), .Some(a0) => candidates.push(a0), .None => ());
       (mut(found) : Option(TypeValue)) = .None;
       (mut(k) : usize) = usize(0);
       while((k < candidates.len()) && found.is_none(), k = (k + usize(1)), {
@@ -278,16 +278,16 @@ _projection_root_error :: (fn(place : &AstExpr, is_mut : bool, env : &Environmen
     Rc(.Atom(_, pr_tok)) => _projection_root_name_error(&pr_tok.value.*, is_mut, env, ctx),
     Rc(.FnCall(_, pr_callee, Rc(pr_args), _, _)) => cond(
       ast_expr_is_fn_call_of(place, BF_DOT, Option(usize).Some(usize(2))) => match(
-        pr_args.get(usize(1)),
+        pr_args.get_cloned(usize(1)),
         // A `.*` through a reference or a raw pointer: the place is wherever
         // it points. A `.*` on an OWNING handle (`Box`, `Rc`, `Arc`) is a
         // field step: the payload lives as long as the handle, so the place
         // is rooted where the handle is (O3's return rule, A30).
         .Some(f) => if(ast_expr_is_atom_of(&f, "*"), {
-          star_base := match(pr_args.get(usize(0)), .Some(b) => b, .None => make_err_expr());
+          star_base := match(pr_args.get_cloned(usize(0)), .Some(b) => b, .None => make_err_expr());
           if(deref_is_owning_handle_step(&star_base, ctx), _projection_root_error(&star_base, is_mut, env, ctx), Option(_ProjRootError).None)
         }, {
-          base := match(pr_args.get(usize(0)), .Some(b) => b, .None => make_err_expr());
+          base := match(pr_args.get_cloned(usize(0)), .Some(b) => b, .None => make_err_expr());
           // A reference field of a holder parameter (N1e-2: `v.r` with
           // `v : _View(p)`, `r : &(T, p)`) is a place OUTSIDE the holder,
           // in the places its origins name: the result's origin must list
@@ -524,9 +524,9 @@ _by_value_borrow_param_root :: (fn(place : &AstExpr, env : &Environment, ctx : &
     ),
     Rc(.FnCall(_, br_callee, Rc(br_args), _, _)) => cond(
       ast_expr_is_fn_call_of(place, BF_DOT, Option(usize).Some(usize(2))) => match(
-        br_args.get(usize(1)),
+        br_args.get_cloned(usize(1)),
         .Some(f) => if(ast_expr_is_atom_of(&f, "*"), Option(Variable).None, {
-          base := match(br_args.get(usize(0)), .Some(b) => b, .None => make_err_expr());
+          base := match(br_args.get_cloned(usize(0)), .Some(b) => b, .None => make_err_expr());
           if(_holds_its_places_inline(&base, ctx), _by_value_borrow_param_root(&base, env, ctx), Option(Variable).None)
         }),
         .None => Option(Variable).None
@@ -548,14 +548,14 @@ evaluate_address_call :: (
   arg_expr := match(
     expr,
     Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
-      fargs.get(usize(0)),
+      fargs.get_cloned(usize(0)),
       .Some(x) => x,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     ),
     _ => {
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   // A projection result written as a bare name (`return(key)`,
@@ -566,7 +566,7 @@ evaluate_address_call :: (
   if(projection_tail_is_read(expr), {
     pr_name := match(
       &arg_expr,
-      Rc(.FnCall(_, _, Rc(pr_args), _, _)) => match(pr_args.get(usize(0)), .Some(n) => n, .None => make_err_expr()),
+      Rc(.FnCall(_, _, Rc(pr_args), _, _)) => match(pr_args.get_cloned(usize(0)), .Some(n) => n, .None => make_err_expr()),
       Rc(.Atom(_, _)) => make_err_expr()
     );
     pr_var := get_variables_from_env(env, ast_expr_token(&pr_name).value.*.clone()).last_cloned();
@@ -575,7 +575,7 @@ evaluate_address_call :: (
       mut(pr_out) := ArrayList(AstExpr).new();
       pr_err := evaluate_expression_guarded(&pr_name, env, ctx, &mut pr_out);
       match(pr_err, .Some(pre) => exn.throw(pre), .None => ());
-      po := match(pr_out.get(usize(0)), .Some(po_e) => po_e, .None => make_err_expr());
+      po := match(pr_out.get_cloned(usize(0)), .Some(po_e) => po_e, .None => make_err_expr());
       // A by-value reference result (`VALUE_*_READ_PATH`) that is no reference
       // binding is the bare name: this node reads as it, under its own id.
       if(value_tail_mode(expr).is_some(), {
@@ -647,7 +647,7 @@ evaluate_address_call :: (
   eval_arg_gerr := evaluate_expression_guarded(&arg_expr, env, ctx, &mut eval_arg_gout);
   ctx.expected_type = old_expected;
   match(eval_arg_gerr, .Some(eval_arg_ge) => exn.throw(eval_arg_ge), .None => ());
-  eval_arg := match(eval_arg_gout.get(usize(0)), .Some(eval_arg_g) => eval_arg_g, .None => make_err_expr());
+  eval_arg := match(eval_arg_gout.get_cloned(usize(0)), .Some(eval_arg_g) => eval_arg_g, .None => make_err_expr());
   arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_arg));
   match(
     &arg_info_opt,
@@ -667,7 +667,7 @@ evaluate_address_call :: (
     arg_info_opt,
     .Some(i) => Rc.clone(i),
     .None => {
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   (cur_env : Environment) = expr_info_adopt_env(&arg_info);
@@ -714,7 +714,7 @@ evaluate_address_call :: (
       .Some(bp) => {
         bp_place := ast_place_text(&arg_expr);
         bp_ty := type_to_string(&variable_value_type(&bp));
-        bp_what := if(match(eval_arg, Rc(.Atom(_, _)) => true, _ => false), `\`${bp.name}\`, a \`&${bp_ty}\` parameter`, `a place inside \`${bp.name}\`, a \`&${bp_ty}\` parameter`);
+        bp_what := if(match(Rc.clone(eval_arg), Rc(.Atom(_, _)) => true, _ => false), `\`${bp.name}\`, a \`&${bp_ty}\` parameter`, `a place inside \`${bp.name}\`, a \`&${bp_ty}\` parameter`);
         exn.throw(
           dyn(
             with_code(
@@ -809,7 +809,7 @@ evaluate_address_call :: (
       vt_info.set_path_collection(arg_info.path_collection());
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &vt_info);
       attach_temp_variable_to_expr(expr, false, ctx);
-      return(expr.*);
+      return(Rc.clone(expr.*));
     },
     .None => ()
   );
@@ -847,7 +847,7 @@ evaluate_address_call :: (
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   // Attach a temp variable name (for ownership tracking / codegen).
   attach_temp_variable_to_expr(expr, false, ctx);
-  expr.*
+  Rc.clone(expr.*)
 });
 /// A lend `&place` / `&mut place` at a leaf of a `:=` initializer's result
 /// chain (R-TAIL, VERDICTS-41 Q1; P2's `&x` as an expression): the node is a
@@ -858,19 +858,19 @@ evaluate_address_call :: (
 evaluate_chain_lend :: (fn(expr : &AstExpr, is_mut : bool, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
   operand := match(
     expr,
-    Rc(.FnCall(_, _, Rc(l_args), _, _)) => match(l_args.get(usize(0)), .Some(a) => a, .None => return(expr.*)),
-    Rc(.Atom(_, _)) => return(expr.*)
+    Rc(.FnCall(_, _, Rc(l_args), _, _)) => match(l_args.get_cloned(usize(0)), .Some(a) => a, .None => return(Rc.clone(expr.*))),
+    Rc(.Atom(_, _)) => return(Rc.clone(expr.*))
   );
   l_gout := ArrayList(AstExpr).new();
   l_gerr := evaluate_expression_guarded(&operand, env, ctx, &mut l_gout);
   match(l_gerr, .Some(l_ge) => exn.throw(l_ge), .None => ());
-  evaluated := match(l_gout.get(usize(0)), .Some(g) => g, .None => make_err_expr());
+  evaluated := match(l_gout.get_cloned(usize(0)), .Some(g) => g, .None => make_err_expr());
   info := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
     .Some(i) => Rc.clone(i),
     .None => {
       exn.throw(dyn(format_error_message(ast_expr_token(&operand), String.from("&: failed to evaluate the place this lend borrows."))));
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   lend_ty := match(
@@ -885,11 +885,11 @@ evaluate_chain_lend :: (fn(expr : &AstExpr, is_mut : bool, env : &Environment, c
           )
         )
       );
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   out := new_expr_info(&expr_info_adopt_env(&info), &lend_ty);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-  expr.*
+  Rc.clone(expr.*)
 });
 export(evaluate_address_call, evaluate_chain_lend);

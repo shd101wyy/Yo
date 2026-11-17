@@ -9,7 +9,8 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 {
-  AstExpr, AstExprNode,
+  AstExpr,
+  AstExprNode,
   ast_expr_token,
   ast_expr_id,
   ast_expr_is_size_of_call,
@@ -74,14 +75,14 @@ evaluate_size_of :: (
   type_expr := match(
     expr,
     Rc(.FnCall(_, _, Rc(args), _, _)) => match(
-      args.get(usize(0)),
+      args.get_cloned(usize(0)),
       .Some(a) => a,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     ),
     Rc(.Atom(_, _)) => {
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   evaluated := evaluate_expression_raw(&type_expr, env, ctx, exn);
@@ -133,7 +134,7 @@ evaluate_size_of :: (
     }
   );
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 /// The arguments of a builtin call, evaluated in order, each with its info,
 /// and the call rebuilt over the evaluated arguments. The first argument is a
@@ -237,7 +238,7 @@ evaluate_size_of_val :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut Eval
     );
   });
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  call
+  Rc.clone(call)
 });
 /// The tail-unsized twin of the struct instance `st` (decision 49): its
 /// constructor applied again with the tail's `Array(E, N)` argument replaced
@@ -342,7 +343,7 @@ evaluate_unsize :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalConte
       )
     )
   );
-  call
+  Rc.clone(call)
 });
 /// The slice primitives the prelude writes `[T]`'s impls with (decision 49
 /// S2): `__yo_slice_len(r)` is the length a `&[T]`/`*[T]` carries;
@@ -382,6 +383,6 @@ evaluate_slice_primitive :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut 
   });
   out_info := new_expr_info(&expr_info_adopt_env(&info), &result_ty);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  call
+  Rc.clone(call)
 });
 export(evaluate_size_of, evaluate_size_of_val, evaluate_unsize, evaluate_slice_primitive, _eval_builtin_args);

@@ -663,7 +663,7 @@ mm_changed_definitions :: (fn(fs_path : &String) -> Option(DefDiff))({
   n := mod_exprs.len();
   while(i < n, {
     match(
-      mod_exprs.get(i),
+      mod_exprs.get_cloned(i),
       .Some(e) => match(
         classify_pending_def(&e, i),
         .None => {
@@ -694,7 +694,7 @@ mm_changed_definitions :: (fn(fs_path : &String) -> Option(DefDiff))({
   (j : usize) = usize(0);
   while(j < n, {
     match(
-      mod_exprs.get(j),
+      mod_exprs.get_cloned(j),
       .Some(e) => match(
         classify_pending_def(&e, j),
         .Some(d) => {
@@ -829,7 +829,7 @@ mm_invalidate_document :: (fn(fs_path : &String) -> ArrayList(String))({
 _def_rhs :: (fn(def : &PendingDef) -> Option(AstExpr))(
   match(
     def.expr(),
-    Rc(.FnCall(_, _, Rc(cargs), _, _)) => cargs.get(usize(1)),
+    Rc(.FnCall(_, _, Rc(cargs), _, _)) => cargs.get_cloned(usize(1)),
     Rc(.Atom(_, _)) => Option(AstExpr).None
   )
 );
@@ -843,7 +843,7 @@ _def_fn_head :: (fn(rhs : &AstExpr) -> Option(AstExpr))(
       // is not part of the callee). `fn(` specifically — not any `fn…` name.
       head := ast_expr_to_string(&callee.*);
       cond(
-        (head.starts_with(String.from("fn(")) || head.starts_with(String.from("(fn("))) => Option(AstExpr).Some(callee.*),
+        (head.starts_with(String.from("fn(")) || head.starts_with(String.from("(fn("))) => Option(AstExpr).Some(Rc.clone(callee.*)),
         true => Option(AstExpr).None
       )
     },
@@ -894,22 +894,26 @@ _def_is_per_def_able :: (fn(old : &PendingDef, fresh : &PendingDef) -> bool)({
 _expr_mentions :: (fn(e : &AstExpr, names : &ArrayList(String)) -> bool)(
   match(
     e,
-    Rc(.Atom(
-      _,
-      tok
-    )) => names.contains(&tok.value.*),
-    Rc(.FnCall(
-      _,
-      func,
-      Rc(args),
-      _,
-      _
-    )) => {
+    Rc(
+      .Atom(
+        _,
+        tok
+      )
+    ) => names.contains(&tok.value.*),
+    Rc(
+      .FnCall(
+        _,
+        func,
+        Rc(args),
+        _,
+        _
+      )
+    ) => {
       (hit : bool) = _expr_mentions(&func.*, names);
       (ai : usize) = usize(0);
       while((ai < args.len()) && !hit, {
         match(
-          args.get(ai),
+          args.get_cloned(ai),
           .Some(a) => if(_expr_mentions(&a, names), {
             hit = true;
           }),
@@ -929,7 +933,7 @@ _ordered_stmts_mention :: (fn(exprs : &ArrayList(AstExpr), names : &ArrayList(St
   (i : usize) = usize(0);
   while((i < exprs.len()) && !hit, {
     match(
-      exprs.get(i),
+      exprs.get_cloned(i),
       .Some(e) => if(
         classify_pending_def(&e, i).is_none() && !ast_expr_is_fn_call_of(&e, BK_EXPORT, .None),
         if(_expr_mentions(&e, names), {
@@ -949,7 +953,7 @@ _export_aliases_name :: (fn(exprs : &ArrayList(AstExpr), name : &String) -> bool
   (i : usize) = usize(0);
   while((i < exprs.len()) && !hit, {
     match(
-      exprs.get(i),
+      exprs.get_cloned(i),
       .Some(e) => if(ast_expr_is_fn_call_of(&e, BK_EXPORT, .None), {
         match(
           e,
@@ -957,12 +961,12 @@ _export_aliases_name :: (fn(exprs : &ArrayList(AstExpr), name : &String) -> bool
             (ai : usize) = usize(0);
             while((ai < eargs.len()) && !hit, {
               match(
-                eargs.get(ai),
+                eargs.get_cloned(ai),
                 .Some(arg) => if(ast_expr_is_fn_call_of(&arg, BK_COLON, .Some(usize(2))), {
                   match(
                     arg,
                     Rc(.FnCall(_, _, Rc(pair), _, _)) => match(
-                      pair.get(usize(1)),
+                      pair.get_cloned(usize(1)),
                       .Some(orig) => if(ast_expr_is_atom(&orig) && (ast_expr_token(&orig).value.* == name.*), {
                         hit = true;
                       }),
@@ -2255,7 +2259,7 @@ _record_static_import_edges :: (
   (i : usize) = usize(0);
   while(i < exprs.len(), {
     match(
-      exprs.get(i),
+      exprs.get_cloned(i),
       .Some(e) => _scan_import_literals(&e, importer.clone(), current_dir.clone(), std_path.clone()),
       .None => ()
     );
@@ -2272,7 +2276,7 @@ _scan_import_literals :: (
       is_import := match(func, Rc(.Atom(_, ft)) => (ft.value.* == BK_IMPORT), _ => false);
       if(is_import && (args.len() == usize(1)), {
         match(
-          args.get(usize(0)),
+          args.get_cloned(usize(0)),
           .Some(arg) => match(
             arg,
             Rc(.Atom(_, at)) => {
@@ -2295,7 +2299,7 @@ _scan_import_literals :: (
       (ai : usize) = usize(0);
       while(ai < args.len(), {
         match(
-          args.get(ai),
+          args.get_cloned(ai),
           .Some(a) => _scan_import_literals(&a, importer.clone(), current_dir.clone(), std_path.clone()),
           .None => ()
         );

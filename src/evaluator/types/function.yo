@@ -13,7 +13,8 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
 {
-  AstExpr, AstExprNode,
+  AstExpr,
+  AstExprNode,
   ast_expr_token,
   ast_expr_text,
   ast_place_text,
@@ -430,11 +431,11 @@ copy_func_param_comptime :: (fn(from_id : &String, to_id : &String) -> unit)({
 register_func_return_type_expr :: (fn(func_id : &String, e : &AstExpr) -> unit)({
   record_owned_func_id(func_id.clone());
   func_id_owned := func_id.clone();
-  g_func_return_type_expr.with_mut({ func_id_owned, e : e.* }(m) => m.insert(func_id_owned.clone(), e));
+  g_func_return_type_expr.with_mut({ func_id_owned, e : Rc.clone(e.*) }(m) => m.insert(func_id_owned.clone(), e));
 });
 copy_func_return_type_expr :: (fn(from_id : &String, to_id : &String) -> unit)({
   match(
-    g_func_return_type_expr.with({ from_id : &from_id.* }(m) => m.get(from_id.clone())),
+    g_func_return_type_expr.with({ from_id : &from_id.* }(m) => m.get_cloned(from_id.clone())),
     .Some(e) => {
       to_id_owned := to_id.clone();
       e_owned := e.clone();
@@ -444,7 +445,7 @@ copy_func_return_type_expr :: (fn(from_id : &String, to_id : &String) -> unit)({
   );
 });
 get_func_return_type_expr :: (fn(func_id : &String) -> Option(AstExpr))(
-  g_func_return_type_expr.with({ func_id : &func_id.* }(m) => m.get(func_id.clone()))
+  g_func_return_type_expr.with({ func_id : &func_id.* }(m) => m.get_cloned(func_id.clone()))
 );
 get_func_param_comptime :: (fn(func_id : &String) -> ArrayList(bool))(
   match(g_func_param_comptime.with({ func_id : &func_id.* }(m) => m.get_cloned(func_id.clone())), .Some(f) => f, .None => ArrayList(bool).new())
@@ -469,7 +470,7 @@ register_func_param_default_exprs :: (fn(func_id : &String, exprs : &ArrayList(O
   (i : usize) = usize(0);
   while((i < exprs.len()) && !any_default, {
     match(
-      exprs.get(i),
+      exprs.get_cloned(i),
       .Some(e) => if(e.is_some(), {
         any_default = true;
       }),
@@ -553,7 +554,7 @@ register_func_param_type_exprs :: (fn(func_id : &String, exprs : &ArrayList(Opti
   (tei : usize) = usize(0);
   while((tei < exprs.len()) && !any_te, {
     match(
-      exprs.get(tei),
+      exprs.get_cloned(tei),
       .Some(e) => if(e.is_some(), {
         any_te = true;
       }),
@@ -790,7 +791,7 @@ register_func_decreases_expr :: (fn(func_id : &String, measure : &Option(AstExpr
     .Some(m) => {
       record_owned_func_id(func_id.clone());
       func_id_owned := func_id.clone();
-      measure_expr := m.*;
+      measure_expr := Rc.clone(m.*);
       g_func_decreases_expr.with_mut({ func_id_owned, measure_expr }(tbl) => tbl.insert(func_id_owned.clone(), measure_expr));
     },
     .None => ()
@@ -815,7 +816,7 @@ has_func_assumed_body :: (fn(func_id : &String) -> bool)(
 );
 /// Return the `decreases(M)` measure for `func_id` (None when absent).
 get_func_decreases_expr :: (fn(func_id : &String) -> Option(AstExpr))(
-  g_func_decreases_expr.with({ func_id : &func_id.* }(m) => m.get(func_id.clone()))
+  g_func_decreases_expr.with({ func_id : &func_id.* }(m) => m.get_cloned(func_id.clone()))
 );
 /// Re-key both contract tables from the fn-type-expr id to the FuncVal id.
 copy_func_contract_exprs :: (fn(from_id : &String, to_id : &String) -> unit)({
@@ -838,7 +839,7 @@ copy_func_contract_exprs :: (fn(from_id : &String, to_id : &String) -> unit)({
     .None => ()
   );
   match(
-    g_func_decreases_expr.with({ from_id : &from_id.* }(m) => m.get(from_id.clone())),
+    g_func_decreases_expr.with({ from_id : &from_id.* }(m) => m.get_cloned(from_id.clone())),
     .Some(m) => {
       to_id_owned3 := to_id.clone();
       g_func_decreases_expr.with_mut({ to_id_owned3, m }(tbl) => tbl.insert(to_id_owned3.clone(), m));
@@ -1130,7 +1131,7 @@ _origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut EvalConte
     });
     (oi : usize) = usize(0);
     while(oi < o_args.len(), {
-      match(o_args.get(oi), .Some(oa) => _origin_names_into(&oa, env, ctx, out, exn), .None => ());
+      match(o_args.get_cloned(oi), .Some(oa) => _origin_names_into(&oa, env, ctx, out, exn), .None => ());
       oi = (oi + usize(1));
     });
     return(());
@@ -1216,7 +1217,7 @@ evaluate_param_origin :: (fn(e : &AstExpr, env : &Environment, ctx : &mut EvalCo
 _origin_place_root :: (fn(e : &AstExpr) -> Option(AstExpr))({
   (cur : AstExpr) = e.clone();
   while(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
-    cur = match(cur, Rc(.FnCall(_, _, d_args, _, _)) => match(d_args.get(usize(0)), .Some(b) => b, .None => make_err_expr()), Rc(.Atom(_, _)) => make_err_expr());
+    cur = match(Rc.clone(cur), Rc(.FnCall(_, _, d_args, _, _)) => match(d_args.get(usize(0)), .Some(b) => b, .None => make_err_expr()), Rc(.Atom(_, _)) => make_err_expr());
   });
   if(ast_expr_is_atom(&cur) && is_valid_variable_name(&cur), Option(AstExpr).Some(cur), Option(AstExpr).None)
 });
@@ -1237,7 +1238,7 @@ _type_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut Eval
     });
     (oi : usize) = usize(0);
     while(oi < o_args.len(), {
-      match(o_args.get(oi), .Some(oa) => _type_origin_names_into(&oa, env, ctx, out, exn), .None => ());
+      match(o_args.get_cloned(oi), .Some(oa) => _type_origin_names_into(&oa, env, ctx, out, exn), .None => ());
       oi = (oi + usize(1));
     });
     return(());
@@ -1355,11 +1356,11 @@ _reject_origin_naming_binding_in :: (fn(e : &AstExpr, name : &String, exn : Exce
     e,
     Rc(.FnCall(_, _, Rc(args), _, _)) => {
       if(is_origin_qualified_reference_expr(e), {
-        match(args.get(usize(1)), .Some(o) => _reject_origin_union_naming(&o, name, exn), .None => ());
+        match(args.get_cloned(usize(1)), .Some(o) => _reject_origin_union_naming(&o, name, exn), .None => ());
       });
       (ai : usize) = usize(0);
       while(ai < args.len(), {
-        match(args.get(ai), .Some(a) => _reject_origin_naming_binding_in(&a, name, exn), .None => ());
+        match(args.get_cloned(ai), .Some(a) => _reject_origin_naming_binding_in(&a, name, exn), .None => ());
         ai = (ai + usize(1));
       });
     },
@@ -1372,7 +1373,7 @@ _reject_origin_union_naming :: (fn(o : &AstExpr, name : &String, exn : Exception
     u_args := _fn_call_args(o);
     (ui : usize) = usize(0);
     while(ui < u_args.len(), {
-      match(u_args.get(ui), .Some(ua) => _reject_origin_union_naming(&ua, name, exn), .None => ());
+      match(u_args.get_cloned(ui), .Some(ua) => _reject_origin_union_naming(&ua, name, exn), .None => ());
       ui = (ui + usize(1));
     });
     return(());
@@ -1420,7 +1421,7 @@ evaluate_origin_argument :: (fn(e : &AstExpr, env : &Environment, ctx : &mut Eva
 /// (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P3).
 evaluate_reference_type :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, is_mut : bool, exn : Exception) -> AstExpr)({
   r_args := _fn_call_args(expr);
-  pointee_expr := match(r_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+  pointee_expr := match(r_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
   ev := evaluate_expression_raw(&pointee_expr, env, ctx, exn);
   ev_info := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev)),
@@ -1439,7 +1440,7 @@ evaluate_reference_type :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut E
   origin := cond(
     (r_args.len() == usize(2)) => {
       names := ArrayList(String).new();
-      _type_origin_names_into(match(r_args.get(usize(1)), .Some(o) => o, .None => make_err_expr()), &r_env, ctx, &mut names, exn);
+      _type_origin_names_into(match(r_args.get_cloned(usize(1)), .Some(o) => o, .None => make_err_expr()), &r_env, ctx, &mut names, exn);
       t_origin_named(&shared_list(names))
     },
     true => t_origin_elided()
@@ -1449,7 +1450,7 @@ evaluate_reference_type :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut E
   out := new_expr_info(&r_env, &type_of_type(&ref_ty));
   out.set_value(Option(EvalValue).Some(create_type_value(&ref_ty)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-  expr.*
+  Rc.clone(expr.*)
 });
 /// Collect the origin names a RESULT type `-> &(T, o)` spells into `out`
 /// (decision 43 step 2, N1b; plans/backlog/REFERENCES_AND_ORIGINS.md O1): an
@@ -1473,7 +1474,7 @@ _result_origin_names_into :: (fn(e : &AstExpr, params : &FuncParamsResult, env :
     });
     (ri : usize) = usize(0);
     while(ri < r_args.len(), {
-      match(r_args.get(ri), .Some(ra) => _result_origin_names_into(&ra, params, env, std_path, out, exn), .None => ());
+      match(r_args.get_cloned(ri), .Some(ra) => _result_origin_names_into(&ra, params, env, std_path, out, exn), .None => ());
       ri = (ri + usize(1));
     });
     return(());
@@ -1648,7 +1649,7 @@ _fn_call_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
 _fn_call_func :: (fn(e : &AstExpr) -> AstExpr)(
   match(
     e,
-    Rc(.FnCall(_, func_box, _, _, _)) => func_box.*,
+    Rc(.FnCall(_, func_box, _, _, _)) => Rc.clone(func_box.*),
     Rc(.Atom(_, _)) => make_err_expr()
   )
 );
@@ -1820,7 +1821,7 @@ _atom_name_occurs :: (fn(e : &AstExpr, name : &String) -> bool)(
         (ai : usize) = usize(0);
         while(ai < f_args.len(), {
           match(
-            f_args.get(ai),
+            f_args.get_cloned(ai),
             .Some(a) => {
               if(recur(&a, name.clone()), {
                 found = true;
@@ -1980,11 +1981,11 @@ extract_comptime_parameter_info :: (
     param_expr : &AstExpr
   ) -> Option(ExtractComptimeResult)
 )({
-  (expr : AstExpr) = param_expr.*;
+  (expr : AstExpr) = Rc.clone(param_expr.*);
   // Handle default value: (comptime(name) : Type) ?= defaultValue
   if(ast_expr_is_fn_call_of(&expr, "?=", .Some(usize(2))), {
     expr = match(
-      _fn_call_args(&expr).get(usize(0)),
+      _fn_call_args(&expr).get_cloned(usize(0)),
       .Some(a) => a,
       .None => return(Option(ExtractComptimeResult).None)
     );
@@ -1992,7 +1993,7 @@ extract_comptime_parameter_info :: (
   // Handle assigned value: (comptime(name) : Type) = value
   if(ast_expr_is_fn_call_of(&expr, "=", .Some(usize(2))), {
     expr = match(
-      _fn_call_args(&expr).get(usize(0)),
+      _fn_call_args(&expr).get_cloned(usize(0)),
       .Some(a) => a,
       .None => return(Option(ExtractComptimeResult).None)
     );
@@ -2002,14 +2003,14 @@ extract_comptime_parameter_info :: (
     return(Option(ExtractComptimeResult).None);
   });
   args := _fn_call_args(&expr);
-  lhs := match(args.get(usize(0)), .Some(a) => a, .None => return(Option(ExtractComptimeResult).None));
-  type_e := match(args.get(usize(1)), .Some(a) => a, .None => return(Option(ExtractComptimeResult).None));
+  lhs := match(args.get_cloned(usize(0)), .Some(a) => a, .None => return(Option(ExtractComptimeResult).None));
+  type_e := match(args.get_cloned(usize(1)), .Some(a) => a, .None => return(Option(ExtractComptimeResult).None));
   // Check if lhs is comptime(name)
   if(!ast_expr_is_fn_call_of(&lhs, BK_COMPTIME, .Some(usize(1))), {
     return(Option(ExtractComptimeResult).None);
   });
   name_expr := match(
-    _fn_call_args(&lhs).get(usize(0)),
+    _fn_call_args(&lhs).get_cloned(usize(0)),
     .Some(a) => a,
     .None => return(Option(ExtractComptimeResult).None)
   );
@@ -2065,7 +2066,7 @@ _is_borrow_result_mode :: (fn(e : &AstExpr) -> bool)(
 );
 /// The `T` of a borrow result `__yo_mut(T)` / `__yo_imm(T)`.
 _borrow_result_inner :: (fn(e : &AstExpr) -> AstExpr)(
-  match(_fn_call_args(e).get(usize(0)), .Some(a) => a, .None => make_err_expr())
+  match(_fn_call_args(e).get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr())
 );
 /// Evaluate a single function parameter expression.
 evaluate_function_parameter :: (
@@ -2095,17 +2096,17 @@ evaluate_function_parameter :: (
   // default-argument side-table so omitted args can be bound to it at
   // call sites. `.None` for a required parameter.
   (captured_default_value : Option(EvalValue)) = Option(EvalValue).None;
-  (expr_mut : AstExpr) = expr.*;
+  (expr_mut : AstExpr) = Rc.clone(expr.*);
   // Handle assigned value: (T : Type) = value
   if(ast_expr_is_fn_call_of(&expr_mut, "=", .Some(usize(2))), {
     if(ast_expr_is_fn_call_of(
-      match(_fn_call_args(&expr_mut).get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+      match(_fn_call_args(&expr_mut).get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()),
       ":",
       .Some(usize(2))
     ), {
-      lhs_expr = .Some(match(_fn_call_args(&expr_mut).get(usize(0)), .Some(a) => a, .None => make_err_expr()));
-      assigned_value_expr = .Some(match(_fn_call_args(&expr_mut).get(usize(1)), .Some(a) => a, .None => make_err_expr()));
-      expr_mut = match(_fn_call_args(&expr_mut).get(usize(0)), .Some(a) => a, .None => make_err_expr());
+      lhs_expr = .Some(match(_fn_call_args(&expr_mut).get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()));
+      assigned_value_expr = .Some(match(_fn_call_args(&expr_mut).get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr()));
+      expr_mut = match(_fn_call_args(&expr_mut).get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
     }, {
       exn.throw(
         dyn(
@@ -2130,14 +2131,14 @@ evaluate_function_parameter :: (
   });
   // Handle default value: (x: i32) ?= 13
   if(ast_expr_is_fn_call_of(&expr_mut, "?=", .Some(usize(2))), {
-    default_value_expr = .Some(match(_fn_call_args(&expr_mut).get(usize(1)), .Some(a) => a, .None => make_err_expr()));
-    lhs_expr = .Some(match(_fn_call_args(&expr_mut).get(usize(0)), .Some(a) => a, .None => make_err_expr()));
-    expr_mut = match(lhs_expr, .Some(e) => e, .None => make_err_expr());
+    default_value_expr = .Some(match(_fn_call_args(&expr_mut).get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr()));
+    lhs_expr = .Some(match(_fn_call_args(&expr_mut).get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()));
+    expr_mut = match(lhs_expr.clone(), .Some(e) => Rc.clone(e), .None => make_err_expr());
   });
   // Parse label and type: (x: i32)
   if(ast_expr_is_fn_call_of(&expr_mut, ":", .Some(usize(2))), {
-    lhs_expr = .Some(match(_fn_call_args(&expr_mut).get(usize(0)), .Some(a) => a, .None => make_err_expr()));
-    type_expr = .Some(match(_fn_call_args(&expr_mut).get(usize(1)), .Some(a) => a, .None => make_err_expr()));
+    lhs_expr = .Some(match(_fn_call_args(&expr_mut).get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()));
+    type_expr = .Some(match(_fn_call_args(&expr_mut).get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr()));
   }, {
     if(assigned_value_expr.is_none(), {
       if(default_value_expr.is_none(), {
@@ -2170,7 +2171,7 @@ evaluate_function_parameter :: (
   match(
     lhs_expr,
     .Some(lhs) => {
-      (lhs_mut : AstExpr) = lhs;
+      (lhs_mut : AstExpr) = Rc.clone(lhs);
       // comptime modifier
       if(ast_expr_is_fn_call_of(&lhs_mut, BK_COMPTIME, Option(usize).None), {
         if(is_parameter_comptime_by_default, {
@@ -2195,7 +2196,7 @@ evaluate_function_parameter :: (
             )
           );
         });
-        lhs_mut = match(c_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+        lhs_mut = match(c_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
       });
       // sink modifier — processed BEFORE mut, so
       // `sink(mut(x))` reaches the mut branch with the sink flag set and
@@ -2218,7 +2219,7 @@ evaluate_function_parameter :: (
             )
           );
         });
-        lhs_mut = match(o_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+        lhs_mut = match(o_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
       });
       _reject_old_param_mode(&lhs_mut, exn);
       // `imm(x)` (plans/VALUES_BY_DEFAULT.md decision 30, V3b Generation A):
@@ -2243,7 +2244,7 @@ evaluate_function_parameter :: (
             )
           );
         });
-        lhs_mut = match(m_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+        lhs_mut = match(m_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
         has_imm_wrapper = true;
         if(ast_expr_is_inout_mode_call(&lhs_mut, Option(usize).None), {
           exn.throw(
@@ -2291,7 +2292,7 @@ evaluate_function_parameter :: (
           );
         });
         is_param_ref = true;
-        lhs_mut = match(r_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+        lhs_mut = match(r_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
       });
       // quote modifier
       if(ast_expr_is_fn_call_of(&lhs_mut, BK_QUOTE, Option(usize).None), {
@@ -2318,7 +2319,7 @@ evaluate_function_parameter :: (
           );
         });
         is_compile_time_only = true;
-        lhs_mut = match(q_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+        lhs_mut = match(q_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
       });
       if(!ast_expr_is_atom(&lhs_mut) || !is_valid_variable_name(&lhs_mut), {
         exn.throw(
@@ -2354,7 +2355,7 @@ evaluate_function_parameter :: (
     exn.throw(
       dyn(
         format_error_message(
-          match(label_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
+          match(label_expr.clone(), .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
           String.from("Not allowed to use 'Self' as the label.")
         )
       )
@@ -2371,7 +2372,7 @@ evaluate_function_parameter :: (
   // §7 P3), evaluated as a type below.
   (spelled_origin_expr : Option(AstExpr)) = Option(AstExpr).None;
   match(
-    type_expr,
+    type_expr.clone(),
     .Some(so_te) => if(is_origin_qualified_reference_expr(&so_te) && !(has_imm_wrapper || is_param_ref), {
       so_is_mut := ast_expr_is_fn_call_of(&so_te, BK_BORROW_MUT, Option(usize).None);
       so_args := _fn_call_args(&so_te);
@@ -2393,8 +2394,8 @@ evaluate_function_parameter :: (
       }, {
         has_imm_wrapper = true;
       });
-      type_expr = .Some(match(so_args.get(usize(0)), .Some(a) => a, .None => make_err_expr()));
-      spelled_origin_expr = .Some(match(so_args.get(usize(1)), .Some(a) => a, .None => make_err_expr()));
+      type_expr = .Some(match(so_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()));
+      spelled_origin_expr = .Some(match(so_args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr()));
     }),
     .None => ()
   );
@@ -2432,7 +2433,7 @@ evaluate_function_parameter :: (
   );
   // Evaluate type expression
   match(
-    type_expr,
+    type_expr.clone(),
     // `T : ?Sized` (decision 49): the kind of a binder that may be unsized.
     // `?Sized` is read here, in a binder's kind slot; anywhere else `?X` is
     // `Option(X)`.
@@ -2474,7 +2475,7 @@ evaluate_function_parameter :: (
   // spurious `Expected a compile-time known value for default
   // parameter` error). Read the ExprInfo directly.
   match(
-    default_value_expr,
+    default_value_expr.clone(),
     .Some(dve) => {
       // Use raw evaluator path so throws (e.g. propagated from
       // nested type evaluations) reach the caller's exn cleanly
@@ -2600,7 +2601,7 @@ evaluate_function_parameter :: (
   // A by-value parameter holds its value (decision 49, E0619); an unsized
   // type is taken behind a reference (`x : &T`).
   if(!is_compile_time_only && !is_parameter_comptime_by_default && !is_param_ref && !has_imm_wrapper && !t_slot_is_borrow(&final_param_type) && !type_is_sized(&final_param_type), {
-    exn.throw(dyn(unsized_by_value_error(&final_param_type, &`the by-value parameter \`${match(&label, .Some(l) => l.clone(), .None => String.from("?"))}\``, &Option(String).None, &match(type_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)))));
+    exn.throw(dyn(unsized_by_value_error(&final_param_type, &`the by-value parameter \`${match(&label, .Some(l) => l.clone(), .None => String.from("?"))}\``, &Option(String).None, &match(type_expr.clone(), .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)))));
   });
   // `?Sized` is a binder's kind (decision 49): only a `generic(...)` binder
   // or a type constructor's `comptime(V)` has one.
@@ -2608,7 +2609,7 @@ evaluate_function_parameter :: (
     exn.throw(
       dyn(
         format_error_message(
-          match(label_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
+          match(label_expr.clone(), .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
           `\`?Sized\` is the kind of a type binder: declare it in the signature's \`generic(...)\` clause, \`generic(${match(&label, .Some(l) => l.clone(), .None => String.from("?"))} : ?Sized)\`, or as a type constructor's \`comptime(V) : ?Sized\`.`
         )
       )
@@ -2618,7 +2619,7 @@ evaluate_function_parameter :: (
     exn.throw(
       dyn(
         format_error_message(
-          match(label_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
+          match(label_expr.clone(), .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
           `An origin is a compile-time kind: declare it in the signature's \`generic(...)\` clause, \`generic(${match(&label, .Some(l) => l.clone(), .None => String.from("?"))} : Origin)\`.`
         )
       )
@@ -2631,7 +2632,7 @@ evaluate_function_parameter :: (
     exn.throw(
       dyn(
         format_error_message(
-          match(label_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
+          match(label_expr.clone(), .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
           `Parameter marked as "comptime" but type is not available at compile-time:\n${type_to_string(&final_param_type)}`
         )
       )
@@ -2641,7 +2642,7 @@ evaluate_function_parameter :: (
     exn.throw(
       dyn(
         format_error_message(
-          match(label_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
+          match(label_expr.clone(), .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
           `Parameter marked as runtime but type is not available at runtime:\n${type_to_string(&final_param_type)}`
         )
       )
@@ -2658,7 +2659,7 @@ evaluate_function_parameter :: (
       exn.throw(
         dyn(
           format_error_message(
-            match(label_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
+            match(label_expr.clone(), .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
             `Runtime function parameters with generic function types are not allowed:\n${type_to_string(&final_param_type)}\n\nGeneric functions must be compile-time known to enable monomorphization. Consider using:\ncomptime(${match(&label, .Some(l) => l.clone(), .None => String.from("?"))}) : ${type_to_string(&final_param_type)}`
           )
         )
@@ -2678,7 +2679,7 @@ evaluate_function_parameter :: (
         exn.throw(
           dyn(
             format_error_message_with_help(
-              match(type_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
+              match(type_expr.clone(), .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
               fn_type_unrepresentable_impl_message(`parameter "${match(&label, .Some(l) => l.clone(), .None => String.from("?"))}"`, &final_param_type, &fpi_impl),
               Option(String).Some(fn_type_unrepresentable_impl_help())
             )
@@ -2695,7 +2696,7 @@ evaluate_function_parameter :: (
     exn.throw(
       dyn(
         format_error_message(
-          match(label_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
+          match(label_expr.clone(), .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
           `Expected Expr or ExprList type for "quote" (or ":") parameter, got ${type_to_string(&final_param_type)}`
         )
       )
@@ -2703,7 +2704,7 @@ evaluate_function_parameter :: (
   });
   // Prohibit void type as parameter type
   if(!ctx.is_unsafe_function_type, {
-    prohibit_void_type(&final_param_type, match(type_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)), exn);
+    prohibit_void_type(&final_param_type, match(type_expr.clone(), .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)), exn);
   });
   // Validate trait type must have receiver type already set (error if not)
   if(is_trait_type(&final_param_type), {
@@ -2716,7 +2717,7 @@ evaluate_function_parameter :: (
       exn.throw(
         dyn(
           format_error_message(
-            match(type_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
+            match(type_expr.clone(), .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
             `Trait type without receiver type set cannot be used as function parameter type.
         
 Please consider using "<:" to specify the receiver type for a trait type, for example:
@@ -2742,7 +2743,7 @@ use_id :: (fn(generic(T : Type),
     .None => if(legacy_str_param, Option(TypeValue).Some(t_origin_static()), Option(TypeValue).None)
   );
   label_str := match(label, .Some(l) => l, .None => String.from("?"));
-  lbl_tok := match(label_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr));
+  lbl_tok := match(label_expr.clone(), .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr));
   // The flip (plans/VALUES_BY_DEFAULT.md decision 30, V3b Generation B step
   // 2): a plain runtime parameter is BY VALUE, owned by the callee exactly as
   // `sink(x)` spells it; `imm(x)` keeps the borrow. The flag is set for every
@@ -2876,7 +2877,7 @@ use_id :: (fn(generic(T : Type),
       actual_param_type = type_of_type(&existing_some_ty);
       // Set expr info on the label expr
       match(
-        label_expr,
+        label_expr.clone(),
         .Some(le) => {
           le_info := new_expr_info(env_mut, &actual_param_type);
           le_info.set_value(.Some(match(wv.value().get(usize(0)), .Some(v) => v, .None => EvalValue.UnitVal)));
@@ -2892,7 +2893,7 @@ use_id :: (fn(generic(T : Type),
           // Pre-added by comptime pre-scan pass — reuse it
           actual_param_type = variable_value_type(&pv);
           match(
-            label_expr,
+            label_expr.clone(),
             .Some(le) => {
               le_info := new_expr_info(env_mut, &actual_param_type);
               le_info.set_value(pv.value().get(usize(0)));
@@ -2961,7 +2962,7 @@ use_id :: (fn(generic(T : Type),
           );
           // Set expr info on label expr
           match(
-            label_expr,
+            label_expr.clone(),
             .Some(le) => {
               le_info := new_expr_info(env_mut, &actual_param_type);
               le_info.set_value(param_val);
@@ -3048,7 +3049,7 @@ validate_concrete_type_constraints :: (
     (i : usize) = usize(0);
     while(i < args.len(), {
       (arg : AstExpr) = match(
-        args.get(i),
+        args.get_cloned(i),
         .Some(a) => a,
         .None => {
           i = (i + usize(1));
@@ -3056,7 +3057,7 @@ validate_concrete_type_constraints :: (
         }
       );
       if(ast_expr_is_fn_call_of(&arg, "!", .Some(usize(1))), {
-        (inner : AstExpr) = match(_fn_call_args(&arg).get(usize(0)), .Some(a) => a, .None => arg);
+        (inner : AstExpr) = match(_fn_call_args(&arg).get_cloned(usize(0)), .Some(a) => a, .None => arg);
         trait_exprs.push(inner);
         trait_negated.push(true);
       }, {
@@ -3067,11 +3068,11 @@ validate_concrete_type_constraints :: (
     });
   }, {
     if(ast_expr_is_fn_call_of(rhs_expr, "!", .Some(usize(1))), {
-      (inner : AstExpr) = match(_fn_call_args(rhs_expr).get(usize(0)), .Some(a) => a, .None => rhs_expr.*);
+      (inner : AstExpr) = match(_fn_call_args(rhs_expr).get_cloned(usize(0)), .Some(a) => a, .None => Rc.clone(rhs_expr.*));
       trait_exprs.push(inner);
       trait_negated.push(true);
     }, {
-      trait_exprs.push(rhs_expr.*);
+      trait_exprs.push(Rc.clone(rhs_expr.*));
       trait_negated.push(false);
     });
   });
@@ -3079,7 +3080,7 @@ validate_concrete_type_constraints :: (
   (j : usize) = usize(0);
   while(j < trait_exprs.len(), {
     (t_expr : AstExpr) = match(
-      trait_exprs.get(j),
+      trait_exprs.get_cloned(j),
       .Some(e) => e,
       .None => {
         j = (j + usize(1));
@@ -3208,7 +3209,7 @@ validate_concrete_type_constraints :: (
         if(!implemented, {
           // An `Escapable` bound is E0909 (decision 43, O10).
           if(is_escapable_trait(&tv, env_mut), {
-            esc_lhs := match(_fn_call_args(constraint_expr).get(usize(0)), .Some(l) => ast_expr_to_string(&l), .None => type_to_string(concrete_type));
+            esc_lhs := match(_fn_call_args(constraint_expr).get_cloned(usize(0)), .Some(l) => ast_expr_to_string(&l), .None => type_to_string(concrete_type));
             exn.throw(dyn(escapable_bound_error(concrete_type, &esc_lhs, ast_expr_token(constraint_expr))));
           });
           exn.throw(dyn(format_error_message(ast_expr_token(constraint_expr), _unmet_trait_message(concrete_type, &tv, env_mut))));
@@ -3245,13 +3246,13 @@ apply_single_trait_constraint :: (
 )({
   // Check if trait expression is negated: !(Trait)
   (is_negated : bool) = false;
-  (unwrapped_trait_expr : AstExpr) = trait_expr.*;
+  (unwrapped_trait_expr : AstExpr) = Rc.clone(trait_expr.*);
   if(ast_expr_is_fn_call_of(trait_expr, "!", .Some(usize(1))), {
     is_negated = true;
     unwrapped_trait_expr = match(
-      _fn_call_args(trait_expr).get(usize(0)),
+      _fn_call_args(trait_expr).get_cloned(usize(0)),
       .Some(a) => a,
-      .None => trait_expr.*
+      .None => Rc.clone(trait_expr.*)
     );
   });
   // Resolve LHS to a SomeType
@@ -3418,7 +3419,7 @@ parse_where_clause_constraints :: (
   (ci : usize) = usize(0);
   while(ci < constraint_exprs.len(), {
     constraint_expr := match(
-      constraint_exprs.get(ci),
+      constraint_exprs.get_cloned(ci),
       .Some(e) => e,
       .None => {
         ci = constraint_exprs.len();
@@ -3437,8 +3438,8 @@ parse_where_clause_constraints :: (
       );
     });
     c_args := _fn_call_args(&constraint_expr);
-    lhs_expr := match(c_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-    rhs_expr := match(c_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+    lhs_expr := match(c_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
+    rhs_expr := match(c_args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr());
     // Resolve LHS
     (some_ty_opt : Option(TypeValue)) = Option(TypeValue).None;
     // HKT: set when the LHS is a TypeApplication `F(A)` (where-clause over a
@@ -3593,7 +3594,7 @@ parse_where_clause_constraints :: (
       rhs_args := _fn_call_args(&rhs_expr);
       (ri : usize) = usize(0);
       while(ri < rhs_args.len(), {
-        rte := match(rhs_args.get(ri), .Some(a) => a, .None => make_err_expr());
+        rte := match(rhs_args.get_cloned(ri), .Some(a) => a, .None => make_err_expr());
         rhs_trait_exprs.push(rte);
         ri = (ri + usize(1));
       });
@@ -3603,17 +3604,17 @@ parse_where_clause_constraints :: (
     // Evaluate each trait expression and apply constraint incrementally
     (ti : usize) = usize(0);
     while(ti < rhs_trait_exprs.len(), {
-      trait_expr_item := match(rhs_trait_exprs.get(ti), .Some(a) => a, .None => make_err_expr());
+      trait_expr_item := match(rhs_trait_exprs.get_cloned(ti), .Some(a) => a, .None => make_err_expr());
       ti = (ti + usize(1));
       // Check negation
       (is_neg : bool) = false;
-      (unwrapped_te : AstExpr) = trait_expr_item;
+      (unwrapped_te : AstExpr) = Rc.clone(trait_expr_item);
       if(ast_expr_is_fn_call_of(&trait_expr_item, "!", .Some(usize(1))), {
         is_neg = true;
         unwrapped_te = match(
-          _fn_call_args(&trait_expr_item).get(usize(0)),
+          _fn_call_args(&trait_expr_item).get_cloned(usize(0)),
           .Some(a) => a,
-          .None => trait_expr_item
+          .None => Rc.clone(trait_expr_item)
         );
       });
       // Try to evaluate trait expression
@@ -3636,7 +3637,7 @@ parse_where_clause_constraints :: (
               )
             );
           });
-          pending_traits.push(PendingConstraint(lhs_expr, trait_expr_item, constraint_expr));
+          pending_traits.push(PendingConstraint(Rc.clone(lhs_expr), Rc.clone(trait_expr_item), Rc.clone(constraint_expr)));
           skip_iter = true;
           new_expr_info(env_mut, Rc.new(TypeValueNode.Unit))
         }
@@ -3655,7 +3656,7 @@ parse_where_clause_constraints :: (
             )
           );
         });
-        pending_traits.push(PendingConstraint(lhs_expr, trait_expr_item, constraint_expr));
+        pending_traits.push(PendingConstraint(Rc.clone(lhs_expr), trait_expr_item, Rc.clone(constraint_expr)));
         skip_iter = true;
       });
       if(skip_iter, {
@@ -3768,7 +3769,7 @@ prepare_where_clause_variables :: (
   (ci : usize) = usize(0);
   while(ci < constraint_exprs.len(), {
     constraint_expr := match(
-      constraint_exprs.get(ci),
+      constraint_exprs.get_cloned(ci),
       .Some(e) => e,
       .None => {
         ci = constraint_exprs.len();
@@ -3780,7 +3781,7 @@ prepare_where_clause_variables :: (
       continue;
     });
     c_args := _fn_call_args(&constraint_expr);
-    lhs_expr := match(c_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+    lhs_expr := match(c_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
     // Ensure LHS variable exists — create SomeType if needed
     if(ast_expr_is_atom(&lhs_expr), {
       var_name := ast_expr_text(&lhs_expr).*.clone();
@@ -3877,7 +3878,7 @@ retry_pending_constraints :: (
 /// spread spelling (the variadic `...(comptime(rest) : T)` has a non-atom
 /// argument and is not matched).
 _is_removed_row_spread :: (fn(e : &AstExpr) -> bool)(
-  ast_expr_is_fn_call_of(e, "...", .Some(usize(1))) && match(_fn_call_args(e).get(usize(0)), .Some(a) => ast_expr_is_atom(&a), .None => false)
+  ast_expr_is_fn_call_of(e, "...", .Some(usize(1))) && match(_fn_call_args(e).get_cloned(usize(0)), .Some(a) => ast_expr_is_atom(&a), .None => false)
 );
 /// The diagnostic for a removed `...(E)` effect-row spread in a `generic(...)`
 /// or implicit-parameter position.
@@ -3922,12 +3923,12 @@ evaluate_function_parameters :: (
   // Pass 1 — process generic type parameters (first parameter only)
   // --------------------------------------------------------------------------
   if(param_exprs.len() > usize(0), {
-    first_param := match(param_exprs.get(usize(0)), .Some(e) => e, .None => make_err_expr());
+    first_param := match(param_exprs.get_cloned(usize(0)), .Some(e) => e, .None => make_err_expr());
     if(ast_expr_is_fn_call_of(&first_param, BK_GENERIC, Option(usize).None), {
       forall_args := _fn_call_args(&first_param);
       (j : usize) = usize(0);
       while(j < forall_args.len(), {
-        tp_expr := match(forall_args.get(j), .Some(a) => a, .None => make_err_expr());
+        tp_expr := match(forall_args.get_cloned(j), .Some(a) => a, .None => make_err_expr());
         j = (j + usize(1));
         // `generic(..., ...(E))` declared an effect-row variable for the
         // removed `...(E)` spread syntax; an effect row is a
@@ -3981,7 +3982,7 @@ evaluate_function_parameters :: (
   (using_count : usize) = usize(0);
   (ui : usize) = usize(0);
   while(ui < param_exprs.len(), {
-    param_expr := match(param_exprs.get(ui), .Some(e) => e, .None => make_err_expr());
+    param_expr := match(param_exprs.get_cloned(ui), .Some(e) => e, .None => make_err_expr());
     ui = (ui + usize(1));
     if(!ast_expr_is_fn_call_of(&param_expr, "using", Option(usize).None), {
       continue;
@@ -4000,7 +4001,7 @@ evaluate_function_parameters :: (
     using_args := _fn_call_args(&param_expr);
     (uj : usize) = usize(0);
     while(uj < using_args.len(), {
-      impl_expr := match(using_args.get(uj), .Some(a) => a, .None => make_err_expr());
+      impl_expr := match(using_args.get_cloned(uj), .Some(a) => a, .None => make_err_expr());
       uj = (uj + usize(1));
       // A `...(E)` spread of an effect row was removed: take the bundle as
       // one parameter `e : E` with `generic(E : Type.Struct)`.
@@ -4136,7 +4137,7 @@ evaluate_function_parameters :: (
   (max_name : String) = String.from("generic(...)");
   (zi : usize) = usize(0);
   while(zi < param_exprs.len(), {
-    z_expr := match(param_exprs.get(zi), .Some(e) => e, .None => make_err_expr());
+    z_expr := match(param_exprs.get_cloned(zi), .Some(e) => e, .None => make_err_expr());
     zi = (zi + usize(1));
     z_zone := _clause_zone(&z_expr);
     z_name := _clause_name(&z_expr);
@@ -4167,7 +4168,7 @@ evaluate_function_parameters :: (
   (assumed_clause : AstExpr) = make_err_expr();
   (ci : usize) = usize(0);
   while(ci < param_exprs.len(), {
-    c_expr := match(param_exprs.get(ci), .Some(e) => e, .None => make_err_expr());
+    c_expr := match(param_exprs.get_cloned(ci), .Some(e) => e, .None => make_err_expr());
     ci = (ci + usize(1));
     if(ast_expr_is_fn_call_of(&c_expr, BF_REQUIRES, Option(usize).None), {
       c_args := _fn_call_args(&c_expr);
@@ -4195,7 +4196,7 @@ evaluate_function_parameters :: (
       (cri : usize) = usize(0);
       while(cri < c_args.len(), {
         match(
-          c_args.get(cri),
+          c_args.get_cloned(cri),
           .Some(p) => {
             requires_exprs.push(p);
           },
@@ -4231,7 +4232,7 @@ evaluate_function_parameters :: (
       (cei : usize) = usize(0);
       while(cei < e_args.len(), {
         match(
-          e_args.get(cei),
+          e_args.get_cloned(cei),
           .Some(p) => {
             ensures_exprs.push(p);
           },
@@ -4268,7 +4269,7 @@ evaluate_function_parameters :: (
       // measure, stored as the decreases(...) call, whose components the
       // verifier reads back (A5 of plans/archive/ATS_LESSONS_BEYOND_INDEXED_TYPES.md).
       decreases_expr = cond(
-        (d_args.len() == usize(1)) => d_args.get(usize(0)),
+        (d_args.len() == usize(1)) => d_args.get_cloned(usize(0)),
         true => Option(AstExpr).Some(c_expr)
       );
       continue;
@@ -4318,7 +4319,7 @@ evaluate_function_parameters :: (
   (pre_added_indices : ArrayList(usize)) = ArrayList(usize).new();
   (pi3 : usize) = usize(0);
   while(pi3 < param_exprs.len(), {
-    param_expr := match(param_exprs.get(pi3), .Some(e) => e, .None => make_err_expr());
+    param_expr := match(param_exprs.get_cloned(pi3), .Some(e) => e, .None => make_err_expr());
     (current_idx : usize) = pi3;
     pi3 = (pi3 + usize(1));
     // Skip generic, using, where, ..., and Phase-0 contract clauses
@@ -4390,7 +4391,7 @@ evaluate_function_parameters :: (
   // (issues/fixed/2026-10-23-only-the-last-where-clause-of-a-signature-is-checked-at-a-call.md).
   (wpi : usize) = usize(0);
   while(wpi < param_exprs.len(), wpi = (wpi + usize(1)), {
-    where_param := match(param_exprs.get(wpi), .Some(e) => e, .None => make_err_expr());
+    where_param := match(param_exprs.get_cloned(wpi), .Some(e) => e, .None => make_err_expr());
     if(ast_expr_is_fn_call_of(&where_param, BK_WHERE, Option(usize).None), {
       where_args := _fn_call_args(&where_param);
       if(where_args.len() == usize(0), {
@@ -4405,7 +4406,7 @@ evaluate_function_parameters :: (
       });
       (wai : usize) = usize(0);
       while(wai < where_args.len(), wai = (wai + usize(1)), {
-        match(where_args.get(wai), .Some(we) => where_clause_exprs.push(we), .None => ());
+        match(where_args.get_cloned(wai), .Some(we) => where_clause_exprs.push(we), .None => ());
       });
     });
   });
@@ -4418,7 +4419,7 @@ evaluate_function_parameters :: (
   // --------------------------------------------------------------------------
   (pi5 : usize) = usize(0);
   while(pi5 < param_exprs.len(), {
-    param_expr := match(param_exprs.get(pi5), .Some(e) => e, .None => make_err_expr());
+    param_expr := match(param_exprs.get_cloned(pi5), .Some(e) => e, .None => make_err_expr());
     (current_i : usize) = pi5;
     pi5 = (pi5 + usize(1));
     // Skip generic (already processed in pass 1)
@@ -4463,10 +4464,10 @@ evaluate_function_parameters :: (
       (is_vcomptime : bool) = false;
       (is_vquote : bool) = false;
       (vparam_name : String) = String.from("...");
-      (vlabel_expr : AstExpr) = param_expr;
+      (vlabel_expr : AstExpr) = Rc.clone(param_expr);
       (vparam_type : TypeValue) = Rc.new(TypeValueNode.Unit);
       if(ast_expr_is_fn_call(&param_expr), {
-        varg := match(_fn_call_args(&param_expr).get(usize(0)), .Some(a) => a, .None => make_err_expr());
+        varg := match(_fn_call_args(&param_expr).get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
         // ...((lhsExpr : typeExpr)) — type-annotated variadic.
         //
         // The outer is a *colon pair* `lhs : type`, parsed as
@@ -4475,11 +4476,11 @@ evaluate_function_parameters :: (
         // and `BK_COLON` as separate constants, the correct spelling
         // is `BK_COLON.Some(2)`.
         if(ast_expr_is_fn_call_of(&varg, BK_COLON, .Some(usize(2))), {
-          vlhs_arg := match(_fn_call_args(&varg).get(usize(0)), .Some(a) => a, .None => make_err_expr());
-          vtype_arg := match(_fn_call_args(&varg).get(usize(1)), .Some(a) => a, .None => make_err_expr());
+          vlhs_arg := match(_fn_call_args(&varg).get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
+          vtype_arg := match(_fn_call_args(&varg).get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr());
           if(ast_expr_is_fn_call_of(&vlhs_arg, BK_COMPTIME, Option(usize).None), {
             is_vcomptime = true;
-            vlabel_expr = match(_fn_call_args(&vlhs_arg).get(usize(0)), .Some(a) => a, .None => make_err_expr());
+            vlabel_expr = match(_fn_call_args(&vlhs_arg).get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
             vparam_name = ast_expr_text(&vlabel_expr).*.clone();
           }, {
             // Inner LHS may be `quote(name)` (literal "quote") or
@@ -4492,11 +4493,11 @@ evaluate_function_parameters :: (
             if(vlhs_is_quote, {
               is_vcomptime = true;
               is_vquote = true;
-              vlabel_expr = match(_fn_call_args(&vlhs_arg).get(usize(0)), .Some(a) => a, .None => make_err_expr());
+              vlabel_expr = match(_fn_call_args(&vlhs_arg).get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
               vparam_name = ast_expr_text(&vlabel_expr).*.clone();
             }, {
               if(ast_expr_is_atom(&vlhs_arg) && is_valid_variable_name(&vlhs_arg), {
-                vlabel_expr = vlhs_arg;
+                vlabel_expr = Rc.clone(vlhs_arg);
                 vparam_name = ast_expr_text(&vlhs_arg).*.clone();
               }, {
                 exn.throw(
@@ -4531,7 +4532,7 @@ evaluate_function_parameters :: (
           // ...(comptime(name)) without type annotation
           if(ast_expr_is_fn_call_of(&varg, BK_COMPTIME, Option(usize).None), {
             is_vcomptime = true;
-            vlabel_expr = match(_fn_call_args(&varg).get(usize(0)), .Some(a) => a, .None => make_err_expr());
+            vlabel_expr = match(_fn_call_args(&varg).get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
             vparam_name = ast_expr_text(&vlabel_expr).*.clone();
             vparam_type = Rc.new(TypeValueNode.ComptimeListT(t_type()));
           }, {
@@ -4544,12 +4545,12 @@ evaluate_function_parameters :: (
             if(varg_is_quote, {
               is_vcomptime = true;
               is_vquote = true;
-              vlabel_expr = match(_fn_call_args(&varg).get(usize(0)), .Some(a) => a, .None => make_err_expr());
+              vlabel_expr = match(_fn_call_args(&varg).get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
               vparam_name = ast_expr_text(&vlabel_expr).*.clone();
               vparam_type = t_comptime_list(t_expr_t());
             }, {
               if(ast_expr_is_atom(&varg) && is_valid_variable_name(&varg), {
-                vlabel_expr = varg;
+                vlabel_expr = Rc.clone(varg);
                 vparam_name = ast_expr_text(&varg).*.clone();
                 exn.throw(
                   dyn(
@@ -4647,7 +4648,7 @@ evaluate_function_parameters :: (
       });
       _dup_err_tok := if(
         ast_expr_is_fn_call(&param_expr),
-        match(_fn_call_args(&param_expr).get(usize(0)), .Some(a) => ast_expr_token(&a), .None => ast_expr_token(&param_expr)),
+        match(_fn_call_args(&param_expr).get_cloned(usize(0)), .Some(a) => ast_expr_token(&a), .None => ast_expr_token(&param_expr)),
         ast_expr_token(&param_expr)
       );
       if(dup_p, {
@@ -4678,7 +4679,7 @@ evaluate_function_parameters :: (
         break;
       }
     );
-    _eli_tok := ast_expr_token(match(param_exprs.get(eli), .Some(e) => e, .None => make_err_expr()));
+    _eli_tok := ast_expr_token(match(param_exprs.get_cloned(eli), .Some(e) => e, .None => make_err_expr()));
     if(p.is_quote && is_expr_list_type(t_slot_pointee(&p.ty)), {
       if(!(eli == (params.len() - usize(1))), {
         exn.throw(
@@ -4716,7 +4717,7 @@ evaluate_function_parameters :: (
       );
       // Re-evaluate the failed constraint to get the error message
       one_failed := ArrayList(AstExpr).new();
-      one_failed.push(failed.original_constraint_expr);
+      one_failed.push(Rc.clone(failed.original_constraint_expr));
       _retry_errors := parse_where_clause_constraints(&one_failed, env_mut, ctx, false, exn);
     });
   });
@@ -4739,7 +4740,7 @@ evaluate_function_parameters :: (
 });
 // Helper to get a param expr for error reporting
 param_exprs_for_error :: (fn(arg_list : &ArrayList(AstExpr), idx : usize) -> Option(AstExpr))(
-  arg_list.get(idx)
+  arg_list.get_cloned(idx)
 );
 // ---------------------------------------------------------------------------
 // evaluate_function_type
@@ -4765,8 +4766,8 @@ evaluate_function_type :: (
     );
   });
   expr_args := _fn_call_args(expr);
-  arg_list_expr := match(expr_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-  return_expr := match(expr_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+  arg_list_expr := match(expr_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
+  return_expr := match(expr_args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr());
   // Expect fn(...), unsafe_fn(...), or ctl(...). `ctl` is the
   // control-function type constructor — parallel to `fn`, but its body
   // may contain `unwind` and the value is frame-bound.
@@ -4800,7 +4801,7 @@ evaluate_function_type :: (
   (dse_i : usize) = usize(0);
   while((dse_i < arg_list.len()) && def_scope_env.is_none(), {
     match(
-      arg_list.get(dse_i),
+      arg_list.get_cloned(dse_i),
       .Some(dse_a) => if(ast_expr_is_fn_call_of(&dse_a, "?=", .Some(usize(2))), {
         def_scope_env = .Some(snapshot_env(env));
       }),
@@ -4825,8 +4826,8 @@ evaluate_function_type :: (
   // -> (ret : i32) or -> (comptime(ret) : i32) or -> (unquote(ret) : Expr)
   if(ast_expr_is_fn_call_of(&return_type_expr, ":", .Some(usize(2))), {
     ret_args := _fn_call_args(&return_type_expr);
-    (rl_expr : AstExpr) = match(ret_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-    return_type_expr = match(ret_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+    (rl_expr : AstExpr) = match(ret_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
+    return_type_expr = match(ret_args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr());
     // `(name : &T)` / `(name : &mut T)`: a labeled projection result
     // (decision 24). The sigil goes on the type, never on the label.
     _reject_old_result_mode(&rl_expr, &env_mut, exn);
@@ -4850,8 +4851,8 @@ evaluate_function_type :: (
       is_return_type_ref = true;
       is_return_type_mut_ref = ast_expr_is_fn_call_of(&return_type_expr, BK_BORROW_MUT, Option(usize).None);
       ro_args := _fn_call_args(&return_type_expr);
-      return_origin = Option(TypeValue).Some(evaluate_result_origin(match(ro_args.get(usize(1)), .Some(a) => a, .None => make_err_expr()), &params_result, &env_mut, &ctx.std_path, exn));
-      return_type_expr = match(ro_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+      return_origin = Option(TypeValue).Some(evaluate_result_origin(match(ro_args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr()), &params_result, &env_mut, &ctx.std_path, exn));
+      return_type_expr = match(ro_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
     });
     // comptime modifier
     if(ast_expr_is_fn_call_of(&rl_expr, BK_COMPTIME, Option(usize).None), {
@@ -4867,7 +4868,7 @@ evaluate_function_type :: (
           )
         );
       });
-      rl_expr = match(ct_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+      rl_expr = match(ct_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
     });
     // unquote modifier: `-> unquote(...)`.
     rl_is_unquote := ast_expr_is_fn_call_of(&rl_expr, "unquote", Option(usize).None);
@@ -4895,7 +4896,7 @@ evaluate_function_type :: (
         );
       });
       is_return_comptime_only = true;
-      rl_expr = match(uq_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+      rl_expr = match(uq_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
     });
     // quote on return label is an error
     if(ast_expr_is_fn_call_of(&rl_expr, BK_QUOTE, Option(usize).None), {
@@ -4948,8 +4949,8 @@ evaluate_function_type :: (
       is_return_type_ref = true;
       is_return_type_mut_ref = ast_expr_is_fn_call_of(&return_type_expr, BK_BORROW_MUT, Option(usize).None);
       ro_args2 := _fn_call_args(&return_type_expr);
-      return_origin = Option(TypeValue).Some(evaluate_result_origin(match(ro_args2.get(usize(1)), .Some(a) => a, .None => make_err_expr()), &params_result, &env_mut, &ctx.std_path, exn));
-      return_type_expr = match(ro_args2.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+      return_origin = Option(TypeValue).Some(evaluate_result_origin(match(ro_args2.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr()), &params_result, &env_mut, &ctx.std_path, exn));
+      return_type_expr = match(ro_args2.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
     });
     if(ast_expr_is_fn_call_of(&return_type_expr, BK_COMPTIME, Option(usize).None), {
       is_return_comptime_only = true;
@@ -4964,7 +4965,7 @@ evaluate_function_type :: (
           )
         );
       });
-      return_type_expr = match(ct_args2.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+      return_type_expr = match(ct_args2.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
     });
     rte_is_unquote := ast_expr_is_fn_call_of(&return_type_expr, "unquote", Option(usize).None);
     if(rte_is_unquote, {
@@ -4991,7 +4992,7 @@ evaluate_function_type :: (
         );
       });
       is_return_comptime_only = true;
-      return_type_expr = match(uq_args2.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+      return_type_expr = match(uq_args2.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
     });
     if(ast_expr_is_fn_call_of(&return_type_expr, BK_QUOTE, Option(usize).None), {
       exn.throw(
@@ -5280,7 +5281,7 @@ evaluate_function_type :: (
       exn.throw(
         dyn(
           format_error_message(
-            match(pp.ty_expr, .Some(pte) => ast_expr_token(&pte), .None => ast_expr_token(expr)),
+            match(pp.ty_expr.clone(), .Some(pte) => ast_expr_token(&pte), .None => ast_expr_token(expr)),
             `Parameter "${pp.label}" has a COMPUTED array length in its type. A parameter's length is a matching position: bind it to a generic(N : usize) parameter and write the bare name (or a single associated constant such as T.BYTES) there; compute the length in the result type or in the body instead.`
           )
         )
@@ -5291,8 +5292,8 @@ evaluate_function_type :: (
     param_types.push(Rc.clone(pp.ty));
     param_is_sink.push(pp.is_sink);
     param_defaults.push(pp.default_value);
-    param_default_exprs.push(pp.default_value_expr);
-    param_type_exprs.push(pp.ty_expr);
+    param_default_exprs.push(pp.default_value_expr.clone());
+    param_type_exprs.push(pp.ty_expr.clone());
     param_comptime_flags.push(pp.is_compile_time_only);
     param_assigned_values.push(pp.assigned_value);
     if(pp.is_quote, {
@@ -5378,7 +5379,7 @@ evaluate_function_type :: (
         (uli : usize) = usize(0);
         while(uli < params_result.ensures_exprs.len(), {
           ep := match(
-            params_result.ensures_exprs.get(uli),
+            params_result.ensures_exprs.get_cloned(uli),
             .Some(p) => p,
             .None => {
               uli = params_result.ensures_exprs.len();
@@ -5568,7 +5569,7 @@ evaluate_function_type :: (
   out_info := new_expr_info(&env_mut, type_of_type(&func_type));
   out_info.set_value(.Some(create_type_value(&func_type)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 // ---------------------------------------------------------------------------
 // evaluate_function_parameter_type_again

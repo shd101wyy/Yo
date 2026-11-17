@@ -17,7 +17,7 @@ generate_consume :: (fn(expr : &AstExpr, indent : &String, context : &mut Functi
   match(
     expr,
     Rc(.FnCall(_, _, Rc(args), _, _)) => match(
-      args.get(usize(0)),
+      args.get_cloned(usize(0)),
       .Some(arg) => if(
         is_consume_release(ast_expr_id(expr)),
         generate_drop_of_operand(&arg, indent, context),

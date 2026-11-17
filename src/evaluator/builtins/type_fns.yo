@@ -109,14 +109,14 @@ evaluate_yo_type_to_string :: (
   arg0 := match(
     expr,
     Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
-      fargs.get(usize(0)),
+      fargs.get_cloned(usize(0)),
       .Some(x) => x,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     ),
     _ => {
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   eval_arg := evaluate_expression_raw(&arg0, env, ctx, exn);
@@ -181,7 +181,7 @@ evaluate_yo_type_to_string :: (
     }
   );
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 /// __yo_are_types_compatible(expected, given) -> bool
 /// Returns true if `given` type is compatible with `expected` type.
@@ -196,27 +196,27 @@ evaluate_yo_are_types_compatible :: (
   arg0 := match(
     expr,
     Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
-      fargs.get(usize(0)),
+      fargs.get_cloned(usize(0)),
       .Some(x) => x,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     ),
     _ => {
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   arg1 := match(
     expr,
     Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
-      fargs.get(usize(1)),
+      fargs.get_cloned(usize(1)),
       .Some(x) => x,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     ),
     _ => {
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   // Evaluate expected type (clear expected_type and self_type for arg eval).
@@ -228,7 +228,7 @@ evaluate_yo_are_types_compatible :: (
   ctx.expected_type = saved_expected.clone();
   ctx.self_type = saved_self.clone();
   match(eval_0_gerr, .Some(eval_0_ge) => exn.throw(eval_0_ge), .None => ());
-  eval_0 := match(eval_0_gout.get(usize(0)), .Some(eval_0_g) => eval_0_g, .None => make_err_expr());
+  eval_0 := match(eval_0_gout.get_cloned(usize(0)), .Some(eval_0_g) => eval_0_g, .None => make_err_expr());
   info_0 := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_0)),
     .Some(i) => i,
@@ -264,7 +264,7 @@ evaluate_yo_are_types_compatible :: (
   ctx.expected_type = saved_expected.clone();
   ctx.self_type = saved_self;
   match(eval_1_gerr, .Some(eval_1_ge) => exn.throw(eval_1_ge), .None => ());
-  eval_1 := match(eval_1_gout.get(usize(0)), .Some(eval_1_g) => eval_1_g, .None => make_err_expr());
+  eval_1 := match(eval_1_gout.get_cloned(usize(0)), .Some(eval_1_g) => eval_1_g, .None => make_err_expr());
   info_1 := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_1)),
     .Some(i) => i,
@@ -297,7 +297,7 @@ evaluate_yo_are_types_compatible :: (
   out_info := new_expr_info(&cur_env, t_bool());
   out_info.set_value(Option(EvalValue).Some(EvalValue.BoolVal(compatible)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 /// __yo_are_types_equal(a, b) -> bool
 /// Returns true if the two types are exactly equal (no implicit conversions).
@@ -312,27 +312,27 @@ evaluate_yo_are_types_equal :: (
   arg0 := match(
     expr,
     Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
-      fargs.get(usize(0)),
+      fargs.get_cloned(usize(0)),
       .Some(x) => x,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     ),
     _ => {
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   arg1 := match(
     expr,
     Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
-      fargs.get(usize(1)),
+      fargs.get_cloned(usize(1)),
       .Some(x) => x,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     ),
     _ => {
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
@@ -343,7 +343,7 @@ evaluate_yo_are_types_equal :: (
   ctx.expected_type = saved_expected.clone();
   ctx.self_type = saved_self.clone();
   match(eval_0_gerr, .Some(eval_0_ge) => exn.throw(eval_0_ge), .None => ());
-  eval_0 := match(eval_0_gout.get(usize(0)), .Some(eval_0_g) => eval_0_g, .None => make_err_expr());
+  eval_0 := match(eval_0_gout.get_cloned(usize(0)), .Some(eval_0_g) => eval_0_g, .None => make_err_expr());
   info_0 := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_0)),
     .Some(i) => i,
@@ -368,7 +368,7 @@ evaluate_yo_are_types_equal :: (
   ctx.expected_type = saved_expected.clone();
   ctx.self_type = saved_self;
   match(eval_1_gerr, .Some(eval_1_ge) => exn.throw(eval_1_ge), .None => ());
-  eval_1 := match(eval_1_gout.get(usize(0)), .Some(eval_1_g) => eval_1_g, .None => make_err_expr());
+  eval_1 := match(eval_1_gout.get_cloned(usize(0)), .Some(eval_1_g) => eval_1_g, .None => make_err_expr());
   info_1 := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_1)),
     .Some(i) => i,
@@ -391,7 +391,7 @@ evaluate_yo_are_types_equal :: (
   out_info := new_expr_info(&cur_env, t_bool());
   out_info.set_value(Option(EvalValue).Some(EvalValue.BoolVal(equal)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 /// __yo_type_contains_rc_type(T) -> bool
 /// Returns true if the type contains an RC-managed type.
@@ -407,14 +407,14 @@ evaluate_yo_type_contains_rc_type :: (
   arg0 := match(
     expr,
     Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
-      fargs.get(usize(0)),
+      fargs.get_cloned(usize(0)),
       .Some(x) => x,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     ),
     _ => {
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   eval_arg := evaluate_expression_raw(&arg0, env, ctx, exn);
@@ -448,7 +448,7 @@ evaluate_yo_type_contains_rc_type :: (
   out_info := new_expr_info(&arg_info.env(), t_bool());
   out_info.set_value(Option(EvalValue).Some(EvalValue.BoolVal(flag)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 /// __yo_type_impls(T, Trait) -> bool
 /// Returns true if T implements the given Trait.
@@ -464,27 +464,27 @@ evaluate_yo_type_impls :: (
   arg0 := match(
     expr,
     Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
-      fargs.get(usize(0)),
+      fargs.get_cloned(usize(0)),
       .Some(x) => x,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     ),
     _ => {
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   arg1 := match(
     expr,
     Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
-      fargs.get(usize(1)),
+      fargs.get_cloned(usize(1)),
       .Some(x) => x,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     ),
     _ => {
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   // Evaluate arg0 (the type to check).
@@ -561,7 +561,7 @@ evaluate_yo_type_impls :: (
     out := new_expr_info(&cur_env, t_bool());
     out.set_value(.Some(create_unknown_val(t_bool())));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-    return(expr.*);
+    return(Rc.clone(expr.*));
   });
   trait_type := match(
     trait_type_opt2,
@@ -582,7 +582,7 @@ evaluate_yo_type_impls :: (
   out := new_expr_info(&cur_env, t_bool());
   out.set_value(.Some(EvalValue.BoolVal(result)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-  expr.*
+  Rc.clone(expr.*)
 });
 // ---------------------------------------------------------------------------
 // Phase 3 private helpers — used by the five builtins below.
@@ -656,7 +656,7 @@ _ti_eval_code :: (
   result_ast_gerr := evaluate_expression_guarded(&code_expr, env_ptr, ctx, &mut result_ast_gout);
   ctx.force_compile_time_bindings = old_force;
   match(result_ast_gerr, .Some(result_ast_ge) => exn.throw(result_ast_ge), .None => ());
-  result_ast := match(result_ast_gout.get(usize(0)), .Some(result_ast_g) => result_ast_g, .None => make_err_expr());
+  result_ast := match(result_ast_gout.get_cloned(usize(0)), .Some(result_ast_g) => result_ast_g, .None => make_err_expr());
   result_info := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&result_ast)),
     .Some(i) => i,
@@ -691,7 +691,7 @@ _ti_bind_comptime_list :: (
     type_result_ast_gerr := evaluate_expression_guarded(&type_ast, env_ptr, ctx, &mut type_result_ast_gout);
     ctx.force_compile_time_bindings = old_force;
     match(type_result_ast_gerr, .Some(type_result_ast_ge) => exn.throw(type_result_ast_ge), .None => ());
-    type_result_ast := match(type_result_ast_gout.get(usize(0)), .Some(type_result_ast_g) => type_result_ast_g, .None => make_err_expr());
+    type_result_ast := match(type_result_ast_gout.get_cloned(usize(0)), .Some(type_result_ast_g) => type_result_ast_g, .None => make_err_expr());
     type_info := match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&type_result_ast)),
       .Some(i) => i,
@@ -1067,14 +1067,14 @@ evaluate_yo_type_get_info :: (
   arg0 := match(
     expr,
     Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
-      fargs.get(usize(0)),
+      fargs.get_cloned(usize(0)),
       .Some(x) => x,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     ),
     _ => {
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   eval0 := evaluate_expression_raw(&arg0, env, ctx, exn);
@@ -1104,7 +1104,7 @@ evaluate_yo_type_get_info :: (
     unit_result_gerr := evaluate_expression_guarded(&unit_ast, &local_env, ctx, &mut unit_result_gout);
     ctx.force_compile_time_bindings = old_force;
     match(unit_result_gerr, .Some(unit_result_ge) => exn.throw(unit_result_ge), .None => ());
-    unit_result := match(unit_result_gout.get(usize(0)), .Some(unit_result_g) => unit_result_g, .None => make_err_expr());
+    unit_result := match(unit_result_gout.get_cloned(usize(0)), .Some(unit_result_g) => unit_result_g, .None => make_err_expr());
     unit_info := match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&unit_result)),
       .Some(i) => i,
@@ -1115,7 +1115,7 @@ evaluate_yo_type_get_info :: (
     out := new_expr_info(&local_env, &ti_ty);
     out.set_value(Option(EvalValue).Some(unknown_val));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-    return(expr.*);
+    return(Rc.clone(expr.*));
   });
   // Build code string for each TypeValue variant.
   code := match(
@@ -1341,7 +1341,7 @@ evaluate_yo_type_get_info :: (
   result_ast_gerr := evaluate_expression_guarded(&info_expr, &local_env, ctx, &mut result_ast_gout);
   ctx.force_compile_time_bindings = old_force;
   match(result_ast_gerr, .Some(result_ast_ge) => exn.throw(result_ast_ge), .None => ());
-  result_ast := match(result_ast_gout.get(usize(0)), .Some(result_ast_g) => result_ast_g, .None => make_err_expr());
+  result_ast := match(result_ast_gout.get_cloned(usize(0)), .Some(result_ast_g) => result_ast_g, .None => make_err_expr());
   result_info := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&result_ast)),
     .Some(i) => i,
@@ -1360,7 +1360,7 @@ evaluate_yo_type_get_info :: (
   out := new_expr_info(&info0.env(), &result_info.ty());
   out.set_value(result_info.value());
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-  expr.*
+  Rc.clone(expr.*)
 });
 /// comptime_eval(code_string) -> ()
 /// Parses and evaluates a comptime_str as Yo code. Returns unit.
@@ -1375,14 +1375,14 @@ evaluate_comptime_eval :: (
   arg0 := match(
     expr,
     Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
-      fargs.get(usize(0)),
+      fargs.get_cloned(usize(0)),
       .Some(x) => x,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     ),
     _ => {
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   eval0 := evaluate_expression_raw(&arg0, env, ctx, exn);
@@ -1408,7 +1408,7 @@ evaluate_comptime_eval :: (
     out := new_expr_info(&local_env, t_unit());
     out.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-    return(expr.*);
+    return(Rc.clone(expr.*));
   });
   // Extract the code string from StrLit.raw.
   raw := match(
@@ -1427,14 +1427,14 @@ evaluate_comptime_eval :: (
   (ci : usize) = usize(0);
   n_exprs := code_exprs.len();
   while(ci < n_exprs, {
-    code_expr := match(code_exprs.get(ci), .Some(e) => e, .None => make_err_expr());
+    code_expr := match(code_exprs.get_cloned(ci), .Some(e) => e, .None => make_err_expr());
     old_force := ctx.force_compile_time_bindings;
     ctx.force_compile_time_bindings = false;
     ce_result_gout := ArrayList(AstExpr).new();
     ce_result_gerr := evaluate_expression_guarded(&code_expr, &local_env, ctx, &mut ce_result_gout);
     ctx.force_compile_time_bindings = old_force;
     match(ce_result_gerr, .Some(ce_result_ge) => exn.throw(ce_result_ge), .None => ());
-    ce_result := match(ce_result_gout.get(usize(0)), .Some(ce_result_g) => ce_result_g, .None => make_err_expr());
+    ce_result := match(ce_result_gout.get_cloned(usize(0)), .Some(ce_result_g) => ce_result_g, .None => make_err_expr());
     ce_info := match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ce_result)),
       .Some(i) => i,
@@ -1456,7 +1456,7 @@ evaluate_comptime_eval :: (
   out := new_expr_info(&local_env, t_unit());
   out.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-  expr.*
+  Rc.clone(expr.*)
 });
 /// __yo_comptime_string_to_expr(code : comptime_str) -> comptime(Expr)
 /// Parses a comptime_str as a Yo expression and returns it as a comptime Expr.
@@ -1471,14 +1471,14 @@ evaluate_comptime_string_to_expr :: (
   arg0 := match(
     expr,
     Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
-      fargs.get(usize(0)),
+      fargs.get_cloned(usize(0)),
       .Some(x) => x,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     ),
     _ => {
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   eval0 := evaluate_expression_raw(&arg0, env, ctx, exn);
@@ -1509,7 +1509,7 @@ evaluate_comptime_string_to_expr :: (
         out := new_expr_info(&local_env, t_expr_t());
         out.set_value(Option(EvalValue).Some(unknown_val));
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-        return(expr.*);
+        return(Rc.clone(expr.*));
       },
       .None => {
         exn.throw(
@@ -1541,7 +1541,7 @@ evaluate_comptime_string_to_expr :: (
   out := new_expr_info(&local_env, t_expr_t());
   out.set_value(Option(EvalValue).Some(expr_val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-  expr.*
+  Rc.clone(expr.*)
 });
 /// __yo_type_join_fields(T, mapper, combiner) -> comptime(Expr)
 /// For each field of struct T, calls mapper(FieldInfo) → Expr, then combines
@@ -1557,40 +1557,40 @@ evaluate_type_join_fields :: (
   arg0 := match(
     expr,
     Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
-      fargs.get(usize(0)),
+      fargs.get_cloned(usize(0)),
       .Some(x) => x,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     ),
     _ => {
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   arg1 := match(
     expr,
     Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
-      fargs.get(usize(1)),
+      fargs.get_cloned(usize(1)),
       .Some(x) => x,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     ),
     _ => {
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   arg2 := match(
     expr,
     Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
-      fargs.get(usize(2)),
+      fargs.get_cloned(usize(2)),
       .Some(x) => x,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     ),
     _ => {
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   // Evaluate T.
@@ -1618,7 +1618,7 @@ evaluate_type_join_fields :: (
     out := new_expr_info(&local_env, t_expr_t());
     out.set_value(Option(EvalValue).Some(unknown_val));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-    return(expr.*);
+    return(Rc.clone(expr.*));
   });
   if(!is_struct_type(&target_type), {
     exn.throw(
@@ -1693,7 +1693,7 @@ evaluate_type_join_fields :: (
   local_env = expr_info_adopt_env(&info2);
   combiner_expr := match(
     info2.value(),
-    .Some(.ExprVal(e_box)) => e_box,
+    .Some(.ExprVal(e_box)) => Rc.clone(e_box),
     .Some(_) => {
       exn.throw(
         dyn(
@@ -1797,7 +1797,7 @@ evaluate_type_join_fields :: (
     ctx.force_compile_time_bindings = old_force;
     ctx.expected_type = old_expected.clone();
     match(call_result_gerr, .Some(call_result_ge) => exn.throw(call_result_ge), .None => ());
-    call_result := match(call_result_gout.get(usize(0)), .Some(call_result_g) => call_result_g, .None => make_err_expr());
+    call_result := match(call_result_gout.get_cloned(usize(0)), .Some(call_result_g) => call_result_g, .None => make_err_expr());
     call_info := match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&call_result)),
       .Some(i) => i,
@@ -1806,7 +1806,7 @@ evaluate_type_join_fields :: (
     local_env = expr_info_adopt_env(&call_info);
     result_expr := match(
       call_info.value(),
-      .Some(.ExprVal(e_box)) => e_box,
+      .Some(.ExprVal(e_box)) => Rc.clone(e_box),
       .Some(_) => {
         exn.throw(
           dyn(
@@ -1835,10 +1835,10 @@ evaluate_type_join_fields :: (
   });
   // Combine all Exprs left-associatively using combiner token.
   tok := ast_expr_token(&combiner_expr);
-  (acc_expr : AstExpr) = match(result_exprs.get(usize(0)), .Some(e) => e, .None => make_err_expr());
+  (acc_expr : AstExpr) = match(result_exprs.get_cloned(usize(0)), .Some(e) => e, .None => make_err_expr());
   (ri : usize) = usize(1);
   while(ri < result_exprs.len(), {
-    rhs := match(result_exprs.get(ri), .Some(e) => e, .None => make_err_expr());
+    rhs := match(result_exprs.get_cloned(ri), .Some(e) => e, .None => make_err_expr());
     combine_args := ArrayList(AstExpr).new();
     combine_args.push(acc_expr);
     combine_args.push(rhs);
@@ -1852,7 +1852,7 @@ evaluate_type_join_fields :: (
   out := new_expr_info(&local_env, t_expr_t());
   out.set_value(Option(EvalValue).Some(combined_val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-  expr.*
+  Rc.clone(expr.*)
 });
 /// __yo_type_map_variants(T, mapper) -> comptime(ComptimeList(Expr))
 /// For each variant of enum T, calls mapper(VariantInfo) → Expr and returns
@@ -1868,27 +1868,27 @@ evaluate_type_map_variants :: (
   arg0 := match(
     expr,
     Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
-      fargs.get(usize(0)),
+      fargs.get_cloned(usize(0)),
       .Some(x) => x,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     ),
     _ => {
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   arg1 := match(
     expr,
     Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
-      fargs.get(usize(1)),
+      fargs.get_cloned(usize(1)),
       .Some(x) => x,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     ),
     _ => {
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   // Evaluate T.
@@ -1917,7 +1917,7 @@ evaluate_type_map_variants :: (
     out := new_expr_info(&local_env, &list_type);
     out.set_value(Option(EvalValue).Some(unknown_val));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-    return(expr.*);
+    return(Rc.clone(expr.*));
   });
   if(!is_enum_type(&target_type), {
     exn.throw(
@@ -2036,7 +2036,7 @@ evaluate_type_map_variants :: (
     ctx.force_compile_time_bindings = old_force;
     ctx.expected_type = old_expected.clone();
     match(call_result_gerr, .Some(call_result_ge) => exn.throw(call_result_ge), .None => ());
-    call_result := match(call_result_gout.get(usize(0)), .Some(call_result_g) => call_result_g, .None => make_err_expr());
+    call_result := match(call_result_gout.get_cloned(usize(0)), .Some(call_result_g) => call_result_g, .None => make_err_expr());
     call_info := match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&call_result)),
       .Some(i) => i,
@@ -2068,7 +2068,7 @@ evaluate_type_map_variants :: (
   out := new_expr_info(&local_env, &list_type);
   out.set_value(Option(EvalValue).Some(list_val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-  expr.*
+  Rc.clone(expr.*)
 });
 export(
   evaluate_yo_are_types_compatible,

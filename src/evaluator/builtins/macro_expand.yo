@@ -51,7 +51,7 @@ evaluate_macro_expand :: (
     Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(),
     _ => {
       exn.throw(dyn(format_error_message(&tok, String.from("macro_expand: expected FnCall"))));
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   n := args.len();
@@ -67,10 +67,10 @@ evaluate_macro_expand :: (
     );
   });
   arg_expr := match(
-    args.get(usize(0)),
+    args.get_cloned(usize(0)),
     .Some(a) => a,
     .None => {
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   eval_arg := evaluate_expression_raw(&arg_expr, env, ctx, exn);
@@ -86,7 +86,7 @@ evaluate_macro_expand :: (
           )
         )
       );
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   cur_env := expr_info_adopt_env(&arg_info);
@@ -104,10 +104,10 @@ evaluate_macro_expand :: (
   (max_expansion_level : Option(i64)) = Option(i64).None;
   if(n == usize(2), {
     level_arg := match(
-      args.get(usize(1)),
+      args.get_cloned(usize(1)),
       .Some(a) => a,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     );
     eval_level := evaluate_expression_raw(&level_arg, &cur_env, ctx, exn);
@@ -123,7 +123,7 @@ evaluate_macro_expand :: (
             )
           )
         );
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     );
     if(!is_comptime_int_type(&level_info.ty()), {
@@ -177,7 +177,7 @@ evaluate_macro_expand :: (
     .Some(v) => match(
       v,
       .ExprVal(expr_box) => {
-        (current_expr : AstExpr) = expr_box;
+        (current_expr : AstExpr) = Rc.clone(expr_box);
         (current_env : Environment) = cur_env;
         (expansion_count : i64) = i64(0);
         // Expand while it's a function call and we haven't hit the cap.
@@ -203,7 +203,7 @@ evaluate_macro_expand :: (
             // Note: Cannot use given() inner handler due to closure capture limitations.
             // Errors propagate to the outer exn handler.
             (expanded_ok : bool) = false;
-            (expanded_expr : AstExpr) = current_expr;
+            (expanded_expr : AstExpr) = Rc.clone(current_expr);
             expanded_expr = evaluate_function_call(
               &current_expr,
               &current_env,
@@ -225,7 +225,7 @@ evaluate_macro_expand :: (
                   .Some(ev) => match(
                     ev,
                     .ExprVal(new_expr_box) => {
-                      new_expr := new_expr_box;
+                      new_expr := Rc.clone(new_expr_box);
                       // If no change, stop to avoid infinite loop.
                       same := (ast_expr_to_string(&new_expr) == ast_expr_to_string(&current_expr));
                       if(same, {
@@ -273,6 +273,6 @@ evaluate_macro_expand :: (
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
     }
   );
-  expr.*
+  Rc.clone(expr.*)
 });
 export(evaluate_macro_expand);

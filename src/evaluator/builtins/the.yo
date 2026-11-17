@@ -37,27 +37,27 @@ evaluate_the :: (
   type_arg := match(
     expr,
     Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
-      fargs.get(usize(0)),
+      fargs.get_cloned(usize(0)),
       .Some(x) => x,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     ),
     _ => {
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   value_arg := match(
     expr,
     Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(
-      fargs.get(usize(1)),
+      fargs.get_cloned(usize(1)),
       .Some(x) => x,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     ),
     _ => {
-      return(expr.*);
+      return(Rc.clone(expr.*));
     }
   );
   // Evaluate the type expression.
@@ -114,7 +114,7 @@ evaluate_the :: (
   eval_val_gerr := evaluate_expression_guarded(&value_arg, &cur_env, ctx, &mut eval_val_gout);
   ctx.expected_type = saved_expected;
   match(eval_val_gerr, .Some(eval_val_ge) => exn.throw(eval_val_ge), .None => ());
-  eval_val := match(eval_val_gout.get(usize(0)), .Some(eval_val_g) => eval_val_g, .None => make_err_expr());
+  eval_val := match(eval_val_gout.get_cloned(usize(0)), .Some(eval_val_g) => eval_val_g, .None => make_err_expr());
   val_info := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_val)),
     .Some(i) => i,
@@ -147,6 +147,6 @@ evaluate_the :: (
   out_info.set_value(val_info.value());
   out_info.set_path_collection(val_info.path_collection());
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 export(evaluate_the);

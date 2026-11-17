@@ -67,7 +67,7 @@ evaluate_comptime_list_value :: (
   (env_loop : Environment) = Rc.clone(env);
   (j : usize) = usize(0);
   while(j < n_args, {
-    arg := match(args.get(j), .Some(a) => a, .None => make_err_expr());
+    arg := match(args.get_cloned(j), .Some(a) => a, .None => make_err_expr());
     evaluated_arg := evaluate_expression_raw(&arg, &env_loop, ctx, exn);
     arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg));
     // Elements must have a compile-time value.
@@ -152,6 +152,6 @@ evaluate_comptime_list_value :: (
   info := new_expr_info(&env_loop, &list_type);
   info.set_value(Option(EvalValue).Some(list_val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
-  expr.*
+  Rc.clone(expr.*)
 });
 export(evaluate_comptime_list_value);

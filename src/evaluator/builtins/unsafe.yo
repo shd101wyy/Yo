@@ -71,7 +71,7 @@ evaluate_unsafe :: (
   arg_expr := match(
     expr,
     Rc(.FnCall(_, _, Rc(args), _, _)) => match(
-      args.get(usize(0)),
+      args.get_cloned(usize(0)),
       .Some(a) => a,
       .None => make_err_expr()
     ),
@@ -104,6 +104,6 @@ evaluate_unsafe :: (
   // see the inner temp variable as if `unsafe(...)` weren't there. Reusing the
   // same ExprInfo object preserves all of it.
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &arg_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 export(evaluate_unsafe);

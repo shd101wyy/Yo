@@ -137,13 +137,13 @@ evaluate_unwind :: (
     unit_info := new_expr_info(env, t_unit());
     unit_info.set_control_flow(.Some(control_flow_of(.Unwind)));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &unit_info);
-    return(expr.*);
+    return(Rc.clone(expr.*));
   });
   // Pull arg out of the FnCall.
   arg_expr := match(
     expr,
     Rc(.FnCall(_, _, Rc(args), _, _)) => match(
-      args.get(usize(0)),
+      args.get_cloned(usize(0)),
       .Some(a) => a,
       .None => make_err_expr()
     ),
@@ -156,7 +156,7 @@ evaluate_unwind :: (
   evaluated_gerr := evaluate_expression_guarded(&arg_expr, env, ctx, &mut evaluated_gout);
   ctx.expected_type = saved_expected;
   match(evaluated_gerr, .Some(evaluated_ge) => exn.throw(evaluated_ge), .None => ());
-  evaluated := match(evaluated_gout.get(usize(0)), .Some(evaluated_g) => evaluated_g, .None => make_err_expr());
+  evaluated := match(evaluated_gout.get_cloned(usize(0)), .Some(evaluated_g) => evaluated_g, .None => make_err_expr());
   info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
   match(
     &info_opt,
@@ -185,6 +185,6 @@ evaluate_unwind :: (
   out_info := new_expr_info(env, &arg_info.ty());
   out_info.set_control_flow(.Some(control_flow_of(.Unwind)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 export(evaluate_unwind, throw_unwind_type_mismatch, UNWIND_WITHOUT_ENCLOSING_FN);

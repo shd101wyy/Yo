@@ -712,7 +712,7 @@ _build_arg_value :: (
   fn(args : &ArrayList(AstExpr), idx : usize, ctx : &EvalContext) -> Option(EvalValue)
 )(
   match(
-    args.get(idx),
+    args.get_cloned(idx),
     .Some(a) => match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&a)),
       .Some(info) => info.value(),
@@ -752,7 +752,7 @@ _build_unit_result :: (
   info := new_expr_info(env, t_unit());
   info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
-  expr.*
+  Rc.clone(expr.*)
 });
 /// Set the expr's result to a `comptime_str` carrying `value`.
 /// `StrLit` stores the quoted source
@@ -767,7 +767,7 @@ _build_bool_result :: (
   info := new_expr_info(env, t_bool());
   info.set_value(Option(EvalValue).Some(EvalValue.BoolVal(value)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
-  expr.*
+  Rc.clone(expr.*)
 });
 /// True when a build file is being evaluated (`g_build_registry_live`).
 _under_build :: (fn() -> bool)(g_build_registry_live);
@@ -778,7 +778,7 @@ _build_string_result :: (
   info := new_expr_info(env, t_comptime_string());
   info.set_value(Option(EvalValue).Some(EvalValue.StrLit(raw)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
-  expr.*
+  Rc.clone(expr.*)
 });
 /// Extract the (unquoted) comptime-string content of arg `idx`, throwing
 /// the build-function arg-type error otherwise.

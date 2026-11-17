@@ -152,7 +152,7 @@ evaluate_struct_type :: (
   fields := ArrayList(TypeField).new();
   (i : usize) = usize(0);
   while(i < args.len(), {
-    arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
+    arg := match(args.get_cloned(i), .Some(a) => a, .None => make_err_expr());
     result := evaluate_type_field(&arg, i, &env, ctx, "struct", exn);
     field := result.field.clone();
     // Check for duplicate labels
@@ -166,10 +166,10 @@ evaluate_struct_type :: (
       dup_idx = (dup_idx + usize(1));
     });
     if(has_dup, {
-      arg_args := match(arg, Rc(.FnCall(_, _, Rc(a2), _, _)) => a2.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+      arg_args := match(Rc.clone(arg), Rc(.FnCall(_, _, Rc(a2), _, _)) => a2.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
       err_tok := if(
         ast_expr_is_fn_call(&arg),
-        match(arg_args.get(usize(0)), .Some(fe) => ast_expr_token(&fe), .None => ast_expr_token(&arg)),
+        match(arg_args.get_cloned(usize(0)), .Some(fe) => ast_expr_token(&fe), .None => ast_expr_token(&arg)),
         ast_expr_token(&arg)
       );
       exn.throw(
@@ -198,10 +198,10 @@ evaluate_struct_type :: (
     // (get_runtime_struct_fields drops it), so `ref(struct(header :: 1))`
     // cannot collide and must stay legal.
     if(is_reference_semantics && !field.is_comptime && (field.label == "header"), {
-      res_args := match(arg, Rc(.FnCall(_, _, Rc(a3), _, _)) => a3.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+      res_args := match(Rc.clone(arg), Rc(.FnCall(_, _, Rc(a3), _, _)) => a3.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
       res_tok := if(
         ast_expr_is_fn_call(&arg),
-        match(res_args.get(usize(0)), .Some(fe2) => ast_expr_token(&fe2), .None => ast_expr_token(&arg)),
+        match(res_args.get_cloned(usize(0)), .Some(fe2) => ast_expr_token(&fe2), .None => ast_expr_token(&arg)),
         ast_expr_token(&arg)
       );
       exn.throw(
@@ -392,9 +392,9 @@ evaluate_struct_type :: (
   out_info.set_value(Option(EvalValue).Some(struct_val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   // Annotate callee (expr.func) with the same info
-  callee_expr := match(expr, Rc(.FnCall(_, f_box, _, _, _)) => f_box.*, Rc(.Atom(_, _)) => expr.*);
+  callee_expr := match(expr, Rc(.FnCall(_, f_box, _, _, _)) => Rc.clone(f_box.*), Rc(.Atom(_, _)) => Rc.clone(expr.*));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&callee_expr), &out_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 /// One instantiation of a cell primitive: its payload type and its struct id.
 _CellInstance :: struct(is_atomic : bool, payload : TypeValue, id : String);
@@ -497,7 +497,7 @@ evaluate_cell_type :: (
     );
     return(make_err_expr());
   });
-  payload_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+  payload_expr := match(args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
   payload_eval := evaluate_expression_raw(&payload_expr, &env, ctx, exn);
   payload_ty := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&payload_eval)),
@@ -594,8 +594,8 @@ evaluate_cell_type :: (
   out_info := new_expr_info(&env, &type_of_type(&cell_ty));
   out_info.set_value(Option(EvalValue).Some(create_type_value(&cell_ty)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  callee_expr := match(expr, Rc(.FnCall(_, f_box, _, _, _)) => f_box.*, Rc(.Atom(_, _)) => expr.*);
+  callee_expr := match(expr, Rc(.FnCall(_, f_box, _, _, _)) => Rc.clone(f_box.*), Rc(.Atom(_, _)) => Rc.clone(expr.*));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&callee_expr), &out_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 export(evaluate_struct_type, evaluate_cell_type);

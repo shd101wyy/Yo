@@ -60,8 +60,8 @@ _length_projection_text :: (fn(e : &AstExpr) -> Option(String))({
   if(parts.len() != usize(2), {
     return(Option(String).None);
   });
-  recv := match(parts.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-  memb := match(parts.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+  recv := match(parts.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
+  memb := match(parts.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr());
   if(!ast_expr_is_atom(&recv) || !ast_expr_is_atom(&memb), {
     return(Option(String).None);
   });
@@ -96,8 +96,8 @@ evaluate_array_type :: (
     Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(),
     Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
   );
-  element_type_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-  length_expr := match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+  element_type_expr := match(args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
+  length_expr := match(args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr());
   // Evaluate the element type expression.
   evaluated_elem_type := evaluate_expression_raw(&element_type_expr, env, ctx, exn);
   elem_type_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_elem_type));
@@ -195,7 +195,7 @@ evaluate_array_type :: (
     u_info := new_expr_info(&env_after_elem, &u_meta);
     u_info.set_value(Option(EvalValue).Some(u_val));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &u_info);
-    return(expr.*);
+    return(Rc.clone(expr.*));
   });
   // Evaluate the length expression with expected type usize.
   old_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t_usize(), env : Rc.clone(env_after_elem))));
@@ -322,7 +322,7 @@ evaluate_array_type :: (
   out_info := new_expr_info(&env_final, &meta_ty);
   out_info.set_value(Option(EvalValue).Some(array_type_val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 /// `Slice(T)`, which `[T]` parses to: the unsized slice of `T`
 /// (plans/VALUES_BY_DEFAULT.md decision 49). Its element is sized (E0619).
@@ -339,7 +339,7 @@ evaluate_slice_type :: (
   });
   element_type_expr := match(
     expr,
-    Rc(.FnCall(_, _, Rc(a), _, _)) => match(a.get(usize(0)), .Some(x) => x, .None => make_err_expr()),
+    Rc(.FnCall(_, _, Rc(a), _, _)) => match(a.get_cloned(usize(0)), .Some(x) => x, .None => make_err_expr()),
     Rc(.Atom(_, _)) => make_err_expr()
   );
   evaluated_elem := evaluate_expression_raw(&element_type_expr, env, ctx, exn);
@@ -371,6 +371,6 @@ evaluate_slice_type :: (
   out_info := new_expr_info(&expr_info_adopt_env(&elem_info), &type_of_type(&slice_ty));
   out_info.set_value(Option(EvalValue).Some(create_type_value(&slice_ty)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 export(evaluate_array_type, evaluate_slice_type);

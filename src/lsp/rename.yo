@@ -49,12 +49,12 @@ _parses_as_binding :: (fn(new_name : &String) -> bool)({
     parse_exn
   );
   match(
-    exprs.get(usize(0)),
+    exprs.get_cloned(usize(0)),
     .Some(e) => cond(
       ast_expr_is_fn_call_of(&e, "::", .Some(usize(2))) => match(
         e,
         Rc(.FnCall(_, _, Rc(args), _, _)) => match(
-          args.get(usize(0)),
+          args.get_cloned(usize(0)),
           .Some(lhs) => match(
             lhs,
             // Identifier KIND, not just shape: `123 :: i32;` also parses as

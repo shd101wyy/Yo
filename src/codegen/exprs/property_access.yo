@@ -37,7 +37,7 @@ _carries_call_scoped_share :: (fn(e : &AstExpr, context : &FunctionGenerationCon
     context.base.get_expr_info(e),
     .Some(ei) => match(
       expr_info_deferred_dup_expressions(&ei),
-      .Some(dups) => match(dups.get(usize(0)), .Some(d) => is_call_scoped_share_dup(ast_expr_id(&d)), .None => false),
+      .Some(dups) => match(dups.get_cloned(usize(0)), .Some(d) => is_call_scoped_share_dup(ast_expr_id(&d)), .None => false),
       .None => false
     ),
     .None => false
@@ -320,9 +320,9 @@ generate_field_access :: (fn(expr : &AstExpr, indent : &String, context : &mut F
   code := _generate_field_access_raw(expr, indent, context);
   args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
   ref_ty := match(
-    args.get(usize(0)),
+    args.get_cloned(usize(0)),
     .Some(obj) => match(
-      args.get(usize(1)),
+      args.get_cloned(usize(1)),
       .Some(fld) => if(ast_expr_is_atom(&fld), match(context.base.get_expr_info(&obj), .Some(oei) => _field_reference_type(&oei.ty(), &ast_expr_text(&fld).*.clone()), .None => Option(TypeValue).None), Option(TypeValue).None),
       .None => Option(TypeValue).None
     ),
@@ -349,8 +349,8 @@ _generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &
   if(args.len() != usize(2), {
     return(String.from("/* ERROR: field access requires exactly 2 arguments */"));
   });
-  object_expr := match(args.get(usize(0)), .Some(x) => x, .None => return(String.from("/* ERROR: invalid field access arguments */")));
-  field_expr := match(args.get(usize(1)), .Some(x) => x, .None => return(String.from("/* ERROR: invalid field access arguments */")));
+  object_expr := match(args.get_cloned(usize(0)), .Some(x) => x, .None => return(String.from("/* ERROR: invalid field access arguments */")));
+  field_expr := match(args.get_cloned(usize(1)), .Some(x) => x, .None => return(String.from("/* ERROR: invalid field access arguments */")));
   if(!ast_expr_is_atom(&field_expr), {
     return(String.from("/* ERROR: field name must be an identifier */"));
   });

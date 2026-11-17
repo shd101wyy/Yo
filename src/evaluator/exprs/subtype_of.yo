@@ -52,7 +52,7 @@ evaluate_subtype_of :: (
   lhs_expr := match(
     expr,
     Rc(.FnCall(_, _, Rc(args), _, _)) => match(
-      args.get(usize(0)),
+      args.get_cloned(usize(0)),
       .Some(a) => a,
       .None => make_err_expr()
     ),
@@ -61,7 +61,7 @@ evaluate_subtype_of :: (
   rhs_expr := match(
     expr,
     Rc(.FnCall(_, _, Rc(args), _, _)) => match(
-      args.get(usize(1)),
+      args.get_cloned(usize(1)),
       .Some(a) => a,
       .None => make_err_expr()
     ),
@@ -138,14 +138,14 @@ evaluate_subtype_of :: (
   if(rhs_is_tuple, {
     // Tuple form: (Trait1, Trait2, ...).
     rhs_args := match(
-      rhs_expr,
+      Rc.clone(rhs_expr),
       Rc(.FnCall(_, _, Rc(args), _, _)) => args.clone(),
       Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
     );
     (i : usize) = usize(0);
     while(i < rhs_args.len(), {
       trait_expr := match(
-        rhs_args.get(i),
+        rhs_args.get_cloned(i),
         .Some(a) => a,
         .None => make_err_expr()
       );
@@ -155,7 +155,7 @@ evaluate_subtype_of :: (
         match(
           trait_expr,
           Rc(.FnCall(_, _, Rc(inner_args), _, _)) => match(
-            inner_args.get(usize(0)),
+            inner_args.get_cloned(usize(0)),
             .Some(a) => a,
             .None => make_err_expr()
           ),
@@ -173,15 +173,15 @@ evaluate_subtype_of :: (
     actual_rhs := if(
       rhs_is_neg,
       match(
-        rhs_expr,
+        Rc.clone(rhs_expr),
         Rc(.FnCall(_, _, Rc(inner_args), _, _)) => match(
-          inner_args.get(usize(0)),
+          inner_args.get_cloned(usize(0)),
           .Some(a) => a,
           .None => make_err_expr()
         ),
         Rc(.Atom(_, _)) => make_err_expr()
       ),
-      rhs_expr
+      Rc.clone(rhs_expr)
     );
     trait_exprs_arr.push(actual_rhs);
     is_neg_arr.push(rhs_is_neg);
@@ -192,7 +192,7 @@ evaluate_subtype_of :: (
   (ti : usize) = usize(0);
   while(ti < trait_exprs_arr.len(), {
     te := match(
-      trait_exprs_arr.get(ti),
+      trait_exprs_arr.get_cloned(ti),
       .Some(e) => e,
       .None => make_err_expr()
     );
@@ -298,7 +298,7 @@ evaluate_subtype_of :: (
     out_info := new_expr_info(&env, lhs_ty.clone());
     out_info.set_value(.Some(lhs_type_val));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-    expr.*
+    Rc.clone(expr.*)
   }, {
     // Non-where-clause: only single trait allowed.
     if(trait_type_vals.len() > usize(1), {
@@ -373,7 +373,7 @@ evaluate_subtype_of :: (
     out_info := new_expr_info(&env, &trait_with_receiver_clone);
     out_info.set_value(.Some(trait_type_val));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-    expr.*
+    Rc.clone(expr.*)
   })
 });
 export(evaluate_subtype_of);

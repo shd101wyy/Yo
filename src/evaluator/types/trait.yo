@@ -272,13 +272,13 @@ _apply_single_constraint_for_trait :: (
 )({
   // Check if negated
   (is_negated : bool) = false;
-  (unwrapped_te : AstExpr) = trait_expr.*;
+  (unwrapped_te : AstExpr) = Rc.clone(trait_expr.*);
   if(ast_expr_is_fn_call_of(trait_expr, "!", .Some(usize(1))), {
     is_negated = true;
     unwrapped_te = match(
-      _fn_call_args(trait_expr).get(usize(0)),
+      _fn_call_args(trait_expr).get_cloned(usize(0)),
       .Some(a) => a,
-      .None => trait_expr.*
+      .None => Rc.clone(trait_expr.*)
     );
   });
   // Resolve LHS (use outer exn — hard failure).
@@ -365,7 +365,7 @@ _parse_trait_where_clauses :: (
   (ci : usize) = usize(0);
   while(ci < constraint_exprs.len(), {
     constraint_expr := match(
-      constraint_exprs.get(ci),
+      constraint_exprs.get_cloned(ci),
       .Some(e) => e,
       .None => {
         ci = constraint_exprs.len();
@@ -384,8 +384,8 @@ _parse_trait_where_clauses :: (
       );
     });
     c_args := _fn_call_args(&constraint_expr);
-    lhs_expr := match(c_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-    rhs_expr := match(c_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+    lhs_expr := match(c_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
+    rhs_expr := match(c_args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr());
     // Resolve LHS — when `collect_pending` is set, route failures through a
     // local exception handler so the constraint can be retried later
     // (e.g. `Self.Output <: Comptime` references the trait's own Output
@@ -406,7 +406,7 @@ _parse_trait_where_clauses :: (
       rhs_args := _fn_call_args(&rhs_expr);
       (ri : usize) = usize(0);
       while(ri < rhs_args.len(), {
-        rte := match(rhs_args.get(ri), .Some(a) => a, .None => make_err_expr());
+        rte := match(rhs_args.get_cloned(ri), .Some(a) => a, .None => make_err_expr());
         rhs_trait_exprs.push(rte);
         ri = (ri + usize(1));
       });
@@ -416,17 +416,17 @@ _parse_trait_where_clauses :: (
     // Evaluate each trait expr and apply constraint
     (ti : usize) = usize(0);
     while(ti < rhs_trait_exprs.len(), {
-      trait_expr_item := match(rhs_trait_exprs.get(ti), .Some(a) => a, .None => make_err_expr());
+      trait_expr_item := match(rhs_trait_exprs.get_cloned(ti), .Some(a) => a, .None => make_err_expr());
       ti = (ti + usize(1));
       // Check negation
       (is_neg : bool) = false;
-      (unwrapped_te : AstExpr) = trait_expr_item;
+      (unwrapped_te : AstExpr) = Rc.clone(trait_expr_item);
       if(ast_expr_is_fn_call_of(&trait_expr_item, "!", .Some(usize(1))), {
         is_neg = true;
         unwrapped_te = match(
-          _fn_call_args(&trait_expr_item).get(usize(0)),
+          _fn_call_args(&trait_expr_item).get_cloned(usize(0)),
           .Some(a) => a,
-          .None => trait_expr_item
+          .None => Rc.clone(trait_expr_item)
         );
       });
       // Evaluate trait expression
@@ -445,7 +445,7 @@ _parse_trait_where_clauses :: (
         .Some(i) => Rc.clone(i),
         .None => {
           if(collect_pending, {
-            pending_traits.push(_PendingTraitConstraint(lhs_expr, trait_expr_item, constraint_expr));
+            pending_traits.push(_PendingTraitConstraint(Rc.clone(lhs_expr), trait_expr_item, Rc.clone(constraint_expr)));
             continue;
           }, {
             exn.throw(
@@ -462,7 +462,7 @@ _parse_trait_where_clauses :: (
       );
       if(!is_type_value(&te_info.value()), {
         if(collect_pending, {
-          pending_traits.push(_PendingTraitConstraint(lhs_expr, trait_expr_item, constraint_expr));
+          pending_traits.push(_PendingTraitConstraint(Rc.clone(lhs_expr), trait_expr_item, Rc.clone(constraint_expr)));
           continue;
         }, {
           exn.throw(
@@ -579,11 +579,11 @@ _evaluate_trait_field :: (
   // Phase 1: detect `?=` outer wrapper
   (default_value_expr_opt : Option(AstExpr)) = Option(AstExpr).None;
   (assigned_value_expr_opt : Option(AstExpr)) = Option(AstExpr).None;
-  (expr_inner : AstExpr) = expr.*;
+  (expr_inner : AstExpr) = Rc.clone(expr.*);
   if(ast_expr_is_fn_call_of(expr, "?=", .Some(usize(2))), {
     inner_args := _fn_call_args(expr);
-    default_value_expr_opt = .Some(match(inner_args.get(usize(1)), .Some(a) => a, .None => make_err_expr()));
-    expr_inner = match(inner_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+    default_value_expr_opt = .Some(match(inner_args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr()));
+    expr_inner = match(inner_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
   });
   // Phase 2: detect `=` / `:=` / `::` assigned value
   if(ast_expr_is_fn_call_of(&expr_inner, BK_ASSIGN, .Some(usize(2))) ||
@@ -600,8 +600,8 @@ _evaluate_trait_field :: (
       );
     });
     av_args := _fn_call_args(&expr_inner);
-    assigned_value_expr_opt = .Some(match(av_args.get(usize(1)), .Some(a) => a, .None => make_err_expr()));
-    expr_inner = match(av_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+    assigned_value_expr_opt = .Some(match(av_args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr()));
+    expr_inner = match(av_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
   });
   // Cannot have both default and assigned
   if(default_value_expr_opt.is_some() && assigned_value_expr_opt.is_some(), {
@@ -621,8 +621,8 @@ _evaluate_trait_field :: (
   if(ast_expr_is_fn_call_of(&expr_inner, BK_COLON, .Some(usize(2))), {
     // `label : Type` form
     colon_args := _fn_call_args(&expr_inner);
-    lhs_label_expr := match(colon_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-    rhs_type_expr := match(colon_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+    lhs_label_expr := match(colon_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
+    rhs_type_expr := match(colon_args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr());
     // `comptime(label) : Type` is forbidden in traits
     if(ast_expr_is_fn_call_of(&lhs_label_expr, BK_COMPTIME, .Some(usize(1))), {
       exn.throw(
@@ -808,7 +808,7 @@ _evaluate_trait_field :: (
       ctx.self_type = old_self_type;
       ctx.self_trait_type = old_self_trait_type;
       match(evaluated_av_gerr, .Some(evaluated_av_ge) => exn.throw(evaluated_av_ge), .None => ());
-      evaluated_av := match(evaluated_av_gout.get(usize(0)), .Some(evaluated_av_g) => evaluated_av_g, .None => make_err_expr());
+      evaluated_av := match(evaluated_av_gout.get_cloned(usize(0)), .Some(evaluated_av_g) => evaluated_av_g, .None => make_err_expr());
       av_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_av));
       av_info := match(
         av_info_opt,
@@ -896,7 +896,7 @@ _evaluate_trait_field :: (
       ctx.self_type = old_self_type;
       ctx.self_trait_type = old_self_trait_type;
       match(evaluated_dv_gerr, .Some(evaluated_dv_ge) => exn.throw(evaluated_dv_ge), .None => ());
-      evaluated_dv := match(evaluated_dv_gout.get(usize(0)), .Some(evaluated_dv_g) => evaluated_dv_g, .None => make_err_expr());
+      evaluated_dv := match(evaluated_dv_gout.get_cloned(usize(0)), .Some(evaluated_dv_g) => evaluated_dv_g, .None => make_err_expr());
       dv_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_dv));
       dv_info := match(
         dv_info_opt,
@@ -1092,7 +1092,7 @@ evaluate_trait_type :: (
   // Find where clause exprs (last arg, if it's a where(...) call)
   (where_clause_exprs_opt : Option(ArrayList(AstExpr))) = Option(ArrayList(AstExpr)).None;
   if(args.len() > usize(0), {
-    last_arg := match(args.last(), .Some(a) => a, .None => make_err_expr());
+    last_arg := match(args.last_cloned(), .Some(a) => a, .None => make_err_expr());
     if(ast_expr_is_fn_call_of(&last_arg, BK_WHERE, .None), {
       w_args := _fn_call_args(&last_arg);
       if(w_args.len() == usize(0), {
@@ -1137,7 +1137,7 @@ evaluate_trait_type :: (
   (field_index : usize) = usize(0);
   (i : usize) = usize(0);
   while(i < args.len(), {
-    arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
+    arg := match(args.get_cloned(i), .Some(a) => a, .None => make_err_expr());
     i = (i + usize(1));
     if(ast_expr_is_fn_call_of(&arg, BK_WHERE, .None), {
       if(i != args.len(), {
@@ -1190,7 +1190,7 @@ evaluate_trait_type :: (
       exn.throw(
         dyn(
           format_error_message(
-            match(args.get(i - usize(1)), .Some(a) => ast_expr_token(&a), .None => ast_expr_token(expr)),
+            match(args.get_cloned(i - usize(1)), .Some(a) => ast_expr_token(&a), .None => ast_expr_token(expr)),
             `Duplicate label 3 "${field_result.label}" in trait`
           )
         )
@@ -1273,7 +1273,7 @@ evaluate_trait_type :: (
       match(
         pending_constraints.get(pi),
         .Some(p) => {
-          retry_list.push(p.original_constraint_expr);
+          retry_list.push(Rc.clone(p.original_constraint_expr));
         },
         .None => ()
       );
@@ -1365,6 +1365,6 @@ evaluate_trait_type :: (
     },
     Rc(.Atom(_, _)) => ()
   );
-  expr.*
+  Rc.clone(expr.*)
 });
 export(evaluate_trait_type);

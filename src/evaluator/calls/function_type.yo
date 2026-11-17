@@ -136,13 +136,13 @@ _evaluated_measure_for_verify :: (fn(dm : &AstExpr, env : &Environment, ctx : &m
         Rc(.FnCall(_, _, Rc(comps), _, _)) => {
           (mci : usize) = usize(0);
           while(mci < comps.len(), {
-            _ := evaluated_for_verify(comps.get(mci).unwrap(), env, ctx, exn);
+            _ := evaluated_for_verify(comps.get_cloned(mci).unwrap(), env, ctx, exn);
             mci = (mci + usize(1));
           });
         },
         Rc(.Atom(_, _)) => ()
       );
-      dm.*
+      Rc.clone(dm.*)
     },
     true => evaluated_for_verify(dm, env, ctx, exn)
   )
@@ -532,7 +532,7 @@ _ctor_binder_some_ids :: (
 _stash_clause_callsite_contracts :: (fn(clauses : &ArrayList(AstExpr), env : &Environment, ctx : &mut EvalContext, exn : Exception) -> unit)({
   (i : usize) = usize(0);
   while(i < clauses.len(), {
-    match(clauses.get(i), .Some(c) => prepare_callsite_contracts(&c, env, ctx, exn), .None => ());
+    match(clauses.get_cloned(i), .Some(c) => prepare_callsite_contracts(&c, env, ctx, exn), .None => ());
     i = (i + usize(1));
   });
 });
@@ -550,7 +550,7 @@ _record_ctor_phantom_positions :: (
   fn(fn_id : &String, binder_ids : &ArrayList(String), out : &ArrayList(AstExpr), ctx : &EvalContext) -> unit
 )({
   body_ty := match(
-    out.get(usize(0)),
+    out.get_cloned(usize(0)),
     .Some(b) => match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&b)),
       .Some(bi) => match(bi.value(), .Some(.TypeVal(t)) => resolve_enum_shell(&t), _ => Rc.new(TypeValueNode.Unit)),
@@ -698,30 +698,30 @@ _share_def_time_frames :: (fn(env : &Environment, strip : bool) -> Environment)(
 /// The tokens are the AST's own handles, so nothing is minted per binding.
 _fn_literal_param_tokens :: (fn(fn_literal : &AstExpr) -> ArrayList(Token))({
   out := ArrayList(Token).new();
-  ft := match(fn_literal, Rc(.FnCall(_, ft_box, _, _, _)) => ft_box.*, Rc(.Atom(_, _)) => return(out));
+  ft := match(fn_literal, Rc(.FnCall(_, ft_box, _, _, _)) => Rc.clone(ft_box.*), Rc(.Atom(_, _)) => return(out));
   if(!ast_expr_is_fn_call_of(&ft, "->", Option(usize).Some(usize(2))), {
     return(out);
   });
   decls := match(
     ft,
-    Rc(.FnCall(_, _, Rc(ft_args), _, _)) => match(ft_args.get(usize(0)), .Some(Rc(.FnCall(_, _, Rc(head_args), _, _))) => head_args.clone(), _ => return(out)),
+    Rc(.FnCall(_, _, Rc(ft_args), _, _)) => match(ft_args.get_cloned(usize(0)), .Some(Rc(.FnCall(_, _, Rc(head_args), _, _))) => head_args.clone(), _ => return(out)),
     Rc(.Atom(_, _)) => return(out)
   );
   (di : usize) = usize(0);
   while(di < decls.len(), di = (di + usize(1)), {
-    (d : AstExpr) = decls(di);
+    (d : AstExpr) = Rc.clone(decls(di));
     if(ast_expr_is_fn_call_of(&d, "=", Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(&d, "?=", Option(usize).Some(usize(2))), {
-      d = match(d, Rc(.FnCall(_, _, Rc(dv_args), _, _)) => dv_args(usize(0)), Rc(.Atom(_, _)) => d);
+      d = match(Rc.clone(d), Rc(.FnCall(_, _, Rc(dv_args), _, _)) => Rc.clone(dv_args(usize(0))), Rc(.Atom(_, _)) => Rc.clone(d));
     });
     if(ast_expr_is_fn_call_of(&d, ":", Option(usize).Some(usize(2))), {
-      d = match(d, Rc(.FnCall(_, _, Rc(lab_args), _, _)) => lab_args(usize(0)), Rc(.Atom(_, _)) => d);
+      d = match(Rc.clone(d), Rc(.FnCall(_, _, Rc(lab_args), _, _)) => Rc.clone(lab_args(usize(0))), Rc(.Atom(_, _)) => Rc.clone(d));
       (peeling : bool) = true;
       while(peeling, {
         match(
-          d,
+          Rc.clone(d),
           Rc(.FnCall(_, _, Rc(w_args), is_infix, _)) => cond(
             (!is_infix && (w_args.len() == usize(1))) => {
-              d = w_args(usize(0));
+              d = Rc.clone(w_args(usize(0)));
             },
             true => {
               peeling = false;
@@ -1329,7 +1329,7 @@ Result type: ${type_to_string(&result_box)}`
       });
       body_expr_unprojected := match(
         expr,
-        Rc(.FnCall(_, _, Rc(a), _, _)) => match(a.get(usize(0)), .Some(b) => b, .None => make_err_expr()),
+        Rc(.FnCall(_, _, Rc(a), _, _)) => match(a.get_cloned(usize(0)), .Some(b) => b, .None => make_err_expr()),
         Rc(.Atom(_, _)) => make_err_expr()
       );
       // Decision 24: a projection's body yields a place with the sigil of its
@@ -1378,7 +1378,7 @@ Result type: ${type_to_string(&result_box)}`
       ck_requires_checkable := ArrayList(bool).new();
       (ckr_i : usize) = usize(0);
       while(ckr_i < ck_requires.len(), {
-        ck_requires_checkable.push(match(ck_requires.get(ckr_i), .Some(ckp) => requires_is_runtime_checkable(&ckp, &ctx.expr_info_table), .None => false));
+        ck_requires_checkable.push(match(ck_requires.get_cloned(ckr_i), .Some(ckp) => requires_is_runtime_checkable(&ckp, &ctx.expr_info_table), .None => false));
         ckr_i = (ckr_i + usize(1));
       });
       ck_ensures := get_func_ensures_exprs(contract_key.clone());
@@ -1597,7 +1597,7 @@ Result type: ${type_to_string(&result_box)}`
             params : param_labels.items.clone(),
             param_type_names : param_type_names,
             evidence_params : implicit_labels.items.clone(),
-            body : body_expr,
+            body : Rc.clone(body_expr),
             cap_names : ArrayList(String).new(),
             cap_tys : ArrayList(TypeValue).new(),
             func_id : fn_val_id.clone(),
@@ -1739,7 +1739,7 @@ Result type: ${type_to_string(&result_box)}`
           (vr : usize) = usize(0);
           while(vr < raw_reqs.len(), {
             match(
-              raw_reqs.get(vr),
+              raw_reqs.get_cloned(vr),
               .Some(rp) => {
                 if(should_defer_ft, {
                   match(
@@ -1765,7 +1765,7 @@ Result type: ${type_to_string(&result_box)}`
           (ve : usize) = usize(0);
           while(ve < raw_enss.len(), {
             match(
-              raw_enss.get(ve),
+              raw_enss.get_cloned(ve),
               .Some(ep) => {
                 if(should_defer_ft, {
                   match(
@@ -2052,7 +2052,7 @@ Result type: ${type_to_string(&result_box)}`
           // mutual recursion).
           if(has_fwd_comptime_fn_cap, {
             pde_strip_outer := ctx.is_evaluating_function_body_or_async_block.is_some();
-            g_pending_def_evals.with_mut({ body_expr, pde_strip_outer, def_ct_flags, def_param_toks, def_where_entries, function_type : Rc.clone(function_type), fwd_cap_vars, param_labels : Rc.clone(param_labels), param_types : Rc.clone(param_types), result_box : Rc.clone(result_box) }(xs) => xs.push(
+            g_pending_def_evals.with_mut({ body_expr : Rc.clone(body_expr), pde_strip_outer, def_ct_flags, def_param_toks, def_where_entries, function_type : Rc.clone(function_type), fwd_cap_vars, param_labels : Rc.clone(param_labels), param_types : Rc.clone(param_types), result_box : Rc.clone(result_box) }(xs) => xs.push(
               PendingDefEval(
                 body : body_expr.clone(),
                 param_labels : param_labels.items.clone(),
@@ -2146,7 +2146,7 @@ Result type: ${type_to_string(&result_box)}`
           // a `Type`-kinded result (type constructors) is judged by its own
           // machinery. issues/fixed/concrete-fn-body-result-type-not-checked.md
           match(
-            flow_out.get(usize(0)),
+            flow_out.get_cloned(usize(0)),
             .Some(ub_body) => match(
               expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ub_body)),
               .Some(ub_info) => {
@@ -2265,9 +2265,9 @@ Result type: ${type_to_string(&result_box)}`
           if(type_representation_contains_raw_ptr(&result_box) && !result_is_comptime_only
           && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&fb).module_path.*.clone())), {
             seb := match(
-              flow_out.get(usize(0)),
+              flow_out.get_cloned(usize(0)),
               .Some(e) => e,
-              .None => fb
+              .None => Rc.clone(fb)
             );
             slice_flow_opts := FlowOptions(
               allow_same_frame_local : false,
@@ -2299,7 +2299,7 @@ Result type: ${type_to_string(&result_box)}`
             Rc(.SomeT({ id : _ })) => if(
               some_resolution(&result_box).is_none(),
               match(
-                flow_out.get(usize(0)),
+                flow_out.get_cloned(usize(0)),
                 .Some(dts_body) => match(
                   expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&dts_body)),
                   .Some(dts_binfo) => {
@@ -2533,7 +2533,7 @@ Result type: ${type_to_string(&result_box)}`
             });
             if(dg_check_result, {
               match(
-                dg_out.get(usize(0)),
+                dg_out.get_cloned(usize(0)),
                 .Some(dg_body) => match(
                   expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&dg_body)),
                   .Some(dg_info) => {
@@ -2629,7 +2629,7 @@ Result type: ${type_to_string(&result_box)}`
           });
         }
       );
-      expr.*
+      Rc.clone(expr.*)
     },
     _ => {
       exn.throw(
