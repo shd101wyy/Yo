@@ -95,19 +95,23 @@ programming, and a language designed for LLM authorship from day one.
   - decision 43's reference checker N0–N3
     ([`backlog/REFERENCES_AND_ORIGINS.md`](backlog/REFERENCES_AND_ORIGINS.md)).
 
-## Now — only VALUES_BY_DEFAULT (v0.2.78 → v0.2.79)
+## Now — only VALUES_BY_DEFAULT (v0.2.79 → v0.2.80)
 
 Every declared type is a value, `ref(...)`/`atomic(...)` leave the language,
 references carry origins, and the checker is sound on what it accepts
 ([`VALUES_BY_DEFAULT.md`](VALUES_BY_DEFAULT.md); release by release in
 [`handover/VBD_RELEASE_SCHEDULE.md`](handover/VBD_RELEASE_SCHEDULE.md), whose
-§5g defines the two claims "VBD complete" makes). What remains:
+§5g defines the two claims "VBD complete" makes; what each v0.2.79 PR retired
+and the claim's draft text are in
+[`handover/VBD_V0279_RETIREMENTS_AND_CLAIM.md`](handover/VBD_V0279_RETIREMENTS_AND_CLAIM.md)).
+What remains:
 
 | Release | Content |
 | --- | --- |
 | **v0.2.77** | **Published 2026-11-13.** The `yo fix` migrations retire (every mode except `deref`); G2's borrowing collections (`impl(&C, IntoIterator)`); decision 49 S1 (`?Sized`, `str`, `[T]`, `Dyn`, compiler half) with `Box` layout L1; brace groups Generation A; the borrow-checker stack O-1…O-6, P3, P8, P9 and the audit's cut-gate fixes. The parser's `ref`/`atomic` drop moved to v0.2.79 |
-| **v0.2.78** (cut target 2026-11-25, latest 11-27) | The sweeps: `deref` and brace groups Generation B (one window); decision 49 S2 (std over `?Sized`) with `Box` layout L2, then S3a (the `Dyn` deletions) and G3; kebab-case module files (Part C), last. The audit's clusters 1–8 close by rule or wall (wall date 2026-11-20); G-D now, then G-C; P1 behind cluster 4, P2 and P12 |
-| **v0.2.79** (cut target 2026-12-11, latest 12-19) | The three-tree retype (`Token`, `AstExpr`, `EvalValue`) and the parser drop of `ref`/`atomic`; S3b (`str`/`slice_copy`); the mode retirements; `Box` layout L3. **The language migration is complete; the soundness claim is asserted by the release-candidate tests, or listed as pending** |
+| **v0.2.78** | **Published 2026-11-16.** The audit's clusters 1–9 closed by rule or wall; brace groups Generation B; decision 49 S2's `Dyn` flip (`Box(Dyn)` over a fat `*Dyn`, `Box` layout L2) with the `unsized` sweep; the `deref` sweep's text; the borrow-program generator and the rustc differential corpus. Kebab-case module files (Part C) did not land |
+| **v0.2.79** (cut target 2026-12-11, latest 12-19) | Landed so far: the `deref` flip (std, src and dependencies read a reference binding with `.*`) and decision 49 S2's `str` flip. Still to come: S3b-`Dyn`, `Deref` on owners (compiler half), the three-tree retype (`Token`, `AstExpr`, `EvalValue`) and the parser drop of `ref`/`atomic`, the `record-literal` retirement, `Box` layout L3. **The language migration is complete except the value spelling of `str`; the soundness claim is asserted by the release-candidate tests, or listed as pending** |
+| **v0.2.80** | **The claim release.** S3b-`str` (the value `str` alias and `slice_copy` deleted), `--migrate deref` retires, the std impls of `Deref` for `ArrayList` and `String`. **The language migration is complete** (claim L), beside claim (S) if it moved from v0.2.79 |
 
 ## Next — after VBD (from v0.2.80)
 

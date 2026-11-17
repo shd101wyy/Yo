@@ -2,9 +2,10 @@
 
 **Status: BACKLOG — proposed 2026-11-08 by the coordinator, at the maintainer's
 request ("design a concrete plan for what you'd suggest us to do after the VBD
-campaign").** It starts the release after VBD completes. VBD completes in
-v0.2.79 per `plans/handover/VBD_RELEASE_SCHEDULE.md` §1, or later if decision
-49 S3 slips.
+campaign").** It starts the release after VBD completes. The campaign's last
+release is v0.2.80, which makes claim (L) (S3b-`str` is seed-forced past v0.2.79,
+`plans/handover/VBD_RELEASE_SCHEDULE.md` §5h decision 51); v0.2.79 makes it
+except the value spelling of `str`.
 
 This plan orders the work and names the owning doc for each item. The owning
 doc stays authoritative for the design. The input was a 63-document audit of
