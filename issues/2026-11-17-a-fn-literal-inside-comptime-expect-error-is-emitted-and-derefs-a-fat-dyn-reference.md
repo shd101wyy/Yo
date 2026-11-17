@@ -5,7 +5,7 @@ on develop `916b279c1`, so all 66 of its tests are reported failed.
 
 **Status:** open. Found 2026-11-17 by the closure-conditional-capture-move lane while running its Tier 1 with a stage 1
 built from develop `916b279c1`. The same file passes on the last green develop battery (`1397ee8d3`), so the regression
-falls in #1980 (decision 49 S2, the `str` flip). The installed v0.2.78 seed compiles the reproducer.
+falls in #1980 (decision 49 S2, the `str` flip). The installed v0.2.78 seed compiles the reproducer. A stage 1 of develop `70a203d0c` (#1981, with the closure-conditional-capture-move branch merged) fails identically: the reproducer, and every one of `tests/dyn.test.yo`'s 67 tests.
 
 ## Reproducer
 
