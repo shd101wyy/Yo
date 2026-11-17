@@ -9372,16 +9372,28 @@ _copying_accessor_info :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalCo
     ),
     _ => return(Option(AccessorCallInfo).None)
   );
-  ca_recv_ty := match(
+  (ca_recv_ty : TypeValue) = match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ca_recv)),
     .Some(ri) => match(&ri.ty(), Rc(.Pointer(pt)) => Rc.clone(pt), _ => Rc.clone(ri.ty())),
     .None => return(Option(AccessorCallInfo).None)
   );
+  ca_method := ca_name_tok.value.*.clone();
+  // LOCAL TOOL: a method reached through auto-dereference (`h.get(i)` on an
+  // `Rc(ArrayList(T))`) belongs to the first payload of the `Deref` chain that
+  // registers it, and its `_cloned` sibling resolves through the same chain.
+  while(get_type_trait_methods_by_name_from_env(env, &ca_method, &ca_recv_ty).is_empty(), {
+    match(
+      deref_target_type(&resolve_struct_shell(&ca_recv_ty), env),
+      .Some(dt) => {
+        ca_recv_ty = dt;
+      },
+      .None => return(Option(AccessorCallInfo).None)
+    );
+  });
   ca_rid := type_id_or_empty(&ca_recv_ty);
   if(ca_rid == "", {
     return(Option(AccessorCallInfo).None);
   });
-  ca_method := ca_name_tok.value.*.clone();
   ca_cloned := `${ca_method}_cloned`;
   ca_has_cloned := (get_type_trait_methods_by_name_from_env(env, &ca_cloned, &ca_recv_ty).len() > usize(0));
   // The sibling can be registered for an element without `Clone` (its
@@ -15694,4 +15706,3 @@ Fix: wrap the call:
 });
 export(evaluate_function_call, reject_destructor_member_read);
 export(MACRO_DISPATCH_ENABLED);
-
