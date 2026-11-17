@@ -4661,20 +4661,27 @@ _c3_eval_colon_pair :: (
       // Adopt a private copy: the in-flight env is pushed/popped on later
       // and a recorded snapshot is shared between ExprInfos.
       st.env = expr_info_adopt_env(&fi);
-      method_val := match(fi.value(), .Some(v) => v, .None => EvalValue.UnitVal);
       // The legacy value `str` at an associated type (decision 49,
       // `unsized_legacy_spellings`): `TryFrom(i32)(Error : str, …)` binds
       // `Error := &(str, static)`, the sized type the value spelling means,
       // as `ArrayList(str)` does at a `comptime(V) : Type` binder
       // (issues/fixed/2026-11-17-a-legacy-str-associated-type-stays-the-unsized-str.md).
-      match(
-        &method_val,
-        .TypeVal(ls_t) => if(is_legacy_value_str(ls_t) && match(&expected_method_ty, .Some(ls_et) => is_type_0(ls_et), .None => false), {
+      ls_aliased := match(
+        fi.value(),
+        .Some(.TypeVal(ls_t)) => cond(
+          (is_legacy_value_str(&ls_t) && match(&expected_method_ty, .Some(ls_et) => is_type_0(ls_et), .None => false)) => Option(TypeValue).Some(legacy_value_str(&ls_t)),
+          true => Option(TypeValue).None
+        ),
+        _ => Option(TypeValue).None
+      );
+      method_val := match(
+        ls_aliased,
+        .Some(ls_ty) => {
           note_legacy_str_spelling(&val_expr, false, &ctx.std_path);
-          method_val = EvalValue.TypeVal(legacy_value_str(ls_t));
-          fi.set_value(Option(EvalValue).Some(method_val.clone()));
-        }),
-        _ => ()
+          fi.set_value(Option(EvalValue).Some(EvalValue.TypeVal(ls_ty.clone())));
+          EvalValue.TypeVal(ls_ty)
+        },
+        .None => match(fi.value(), .Some(v) => v, .None => EvalValue.UnitVal)
       );
       // Make this field visible to later fields' `Self.X`
       // within the SAME trait entry. Only TYPE-valued fields
