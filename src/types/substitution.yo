@@ -650,15 +650,15 @@ _substitute_node :: (fn(s : &mut Substitution, ty : &TypeValue, is_root : bool) 
         // _mask_func_own_binders (capture avoidance); the root node is exempt
         // (see the `substitute` wrapper).
         Rc(.Func({ forall_types : fts, param_types : pts, implicit_types : its, where_types : wts, result : ret, meta : __fm1, variadic_types : vts })) => {
-          s_in := if(is_root, _subst_clone(s), _mask_func_own_binders(s, &__fm1.forall_labels.items));
-          new_fts := _subst_list(&s_in, &fts.*);
-          new_pts := _subst_slot_list(&s_in, &pts.*);
-          new_its := _subst_list(&s_in, &its.*);
-          new_wts := _subst_list(&s_in, &wts.*);
-          new_vts := _subst_list(&s_in, &vts.*);
+          mut(s_in) := if(is_root, _subst_clone(s), _mask_func_own_binders(s, &__fm1.forall_labels.items));
+          new_fts := _subst_list(&mut s_in, &fts.*);
+          new_pts := _subst_slot_list(&mut s_in, &pts.*);
+          new_its := _subst_list(&mut s_in, &its.*);
+          new_wts := _subst_list(&mut s_in, &wts.*);
+          new_vts := _subst_list(&mut s_in, &vts.*);
           // Preserve result_is_comptime_only + ref-tracking + variadic flag +
           // FFI metadata across substitution.
-          Rc.new(TypeValueNode.Func(new_fts, new_pts, new_its, new_wts, _subst_slot_at(&s_in, &ret.*), Rc.clone(__fm1), new_vts))
+          Rc.new(TypeValueNode.Func(new_fts, new_pts, new_its, new_wts, _subst_slot_at(&mut s_in, &ret.*), Rc.clone(__fm1), new_vts))
         },
         // TraitT — recurse into field types. (Source-namespace structs go
         // through the Struct arm above.)
@@ -687,12 +687,12 @@ _substitute_node :: (fn(s : &mut Substitution, ty : &TypeValue, is_root : bool) 
                   s.visited_trait_ids.push(tid.clone());
                 });
                 // Nominal boundary — see _without_len_vars.
-                s_nom_t := _without_len_vars(s);
+                mut(s_nom_t) := _without_len_vars(s);
                 new_fts := ArrayList(TypeValue).new();
                 i := usize(0);
                 while(i < fts.len(), {
                   elem := match(fts.get_cloned(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
-                  new_fts.push(_substitute_at(&s_nom_t, &elem, false));
+                  new_fts.push(_substitute_at(&mut s_nom_t, &elem, false));
                   i = (i + usize(1));
                 });
                 Rc.new(TypeValueNode.TraitT(n.clone(), trait_t_body(atns.clone(), fls.clone(), new_fts, scons.clone(), ncons.clone()), tid.clone(), ic.clone(), Rc.clone(atcl), Rc.clone(atct)))
@@ -759,12 +759,12 @@ _substitute_node :: (fn(s : &mut Substitution, ty : &TypeValue, is_root : bool) 
         // Struct / Enum / Union — recurse into field types.
         Rc(.Struct({ id, name, field_labels : labels, field_types : types, is_reference_semantics : is_ref, is_atomic_rc : is_atomic, is_newtype : is_nt, constructor_func_id : cfid, type_arguments : tyargs, is_source_namespace : is_sns })) => {
           // Nominal boundary — see _without_len_vars.
-          s_nom := _without_len_vars(s);
-          new_types := _subst_list(&s_nom, &types.*);
+          mut(s_nom) := _without_len_vars(s);
+          new_types := _subst_list(&mut s_nom, &types.*);
           // Substitute the stored type arguments too, so a generic pattern's
           // `type_arguments` (e.g. `[K, V]`) becomes the concrete `[String, V]`
           // after substitution — keeping them aligned with the substituted fields.
-          new_tyargs := _subst_list(&s_nom, &tyargs.*);
+          new_tyargs := _subst_list(&mut s_nom, &tyargs.*);
           // Preserve constructor_func_id across substitution so the
           // type-constructor identity travels with specialized instantiations.
           Rc.new(TypeValueNode.Struct(id.clone(), name.clone(), Rc.clone(labels), new_types, is_ref.*, is_atomic.*, is_nt.*, cfid.clone(), new_tyargs, is_sns.*))
@@ -772,13 +772,13 @@ _substitute_node :: (fn(s : &mut Substitution, ty : &TypeValue, is_root : bool) 
         // EnumT has variant_fields : ArrayList(ArrayList(TypeValue)) — nested.
         Rc(.EnumT(id, name, variant_names, variant_fields, svn, vfl, discs, eirs, eiar, etas)) => {
           // Nominal boundary — see _without_len_vars.
-          s_nom_e := _without_len_vars(s);
+          mut(s_nom_e) := _without_len_vars(s);
           new_variant_fields := ArrayList(SharedList(TypeValue)).new();
           (vf_changed : bool) = false;
           i := usize(0);
           while(i < variant_fields.len(), {
             vf := match(variant_fields.get(i), .Some(vf_inner) => vf_inner, .None => no_types());
-            new_vf := _subst_list(&s_nom_e, &vf);
+            new_vf := _subst_list(&mut s_nom_e, &vf);
             vf_changed = (vf_changed || !__yo_ptr_eq(&new_vf, &vf));
             new_variant_fields.push(new_vf);
             i = (i + usize(1));
@@ -792,7 +792,7 @@ _substitute_node :: (fn(s : &mut Substitution, ty : &TypeValue, is_root : bool) 
           // A compound argument usually also occurs in a payload the walk
           // above already rewrote; it is the same node, so the walk's node
           // memo (`_substitute_at`) answers it without a second walk.
-          new_etas := _subst_list(&s_nom_e, &etas.*);
+          new_etas := _subst_list(&mut s_nom_e, &etas.*);
           // A list no element of which changed is kept, not rebuilt.
           Rc.new(TypeValueNode.EnumT(id.clone(), name.clone(), Rc.clone(variant_names), if(vf_changed, shared_list(new_variant_fields), Rc.clone(variant_fields)), svn.clone(), Rc.clone(vfl), Rc.clone(discs), eirs.*, eiar.*, new_etas))
         },

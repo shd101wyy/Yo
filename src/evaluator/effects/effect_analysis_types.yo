@@ -76,6 +76,21 @@ EffectHandlerInfo ::
     operation_arg_types : ArrayList(TypeValue),
     operation_result_type : TypeValue
   );
+impl(
+  EffectHandlerInfo,
+  Clone(
+    clone : (fn(self : &Self) -> Self)(
+      EffectHandlerInfo(
+        effect_parameter_name : self.effect_parameter_name.clone(),
+        effect_parameter_type : Rc.clone(self.effect_parameter_type),
+        effect_field_path : self.effect_field_path.clone(),
+        handler_value : self.handler_value.clone(),
+        operation_arg_types : self.operation_arg_types.clone(),
+        operation_result_type : Rc.clone(self.operation_result_type)
+      )
+    )
+  )
+);
 // ---------------------------------------------------------------------------
 // EffectAnalysisResult
 // ---------------------------------------------------------------------------

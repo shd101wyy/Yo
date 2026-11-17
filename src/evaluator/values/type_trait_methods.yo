@@ -226,14 +226,23 @@ MethodEntry :: struct(
   /// method check (plans/reference/MEMBER_VISIBILITY.md).
   owner : String
 );
-/// `MethodEntry` is a `ref(...)`: every copy of one is a second handle to the same
-/// object, so its `clone` is that handle copy too. It lets a value aggregate
-/// holding a `MethodEntry` beside a counted handle `derive(..., Clone)` (decision 17,
-/// plans/VALUES_BY_DEFAULT.md V2c).
+/// A value aggregate holding a `MethodEntry` beside a counted handle can
+/// `derive(..., Clone)`: this impl is the field-wise clone that backs it
+/// (decision 17, plans/VALUES_BY_DEFAULT.md V2c).
 impl(
   MethodEntry,
   Clone(
-    clone : (fn(self : &Self) -> Self)(self.*)
+    clone : (fn(self : &Self) -> Self)(
+      MethodEntry(
+        label : self.label.clone(),
+        ty : Rc.clone(self.ty),
+        value : self.value.clone(),
+        source_trait_id : self.source_trait_id.clone(),
+        needs_pointer_conversion : self.needs_pointer_conversion,
+        self_type : self.self_type.clone(),
+        owner : self.owner.clone()
+      )
+    )
   )
 );
 /// Module-level storage: `type id` → list of method entries.
@@ -425,8 +434,9 @@ register_type_trait_method :: (
   fn(type_id : &String, entry : &MethodEntry) -> unit
 )({
   owner := _registration_owner.clone();
-  if(entry.owner.len() == usize(0), {
-    entry.owner = owner.clone();
+  mut(owned_entry) := entry.clone();
+  if(owned_entry.owner.len() == usize(0), {
+    owned_entry.owner = owner.clone();
   });
   // Taken out of the maps and stored back: a `get` copy is not the stored
   // list once collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
@@ -434,7 +444,7 @@ register_type_trait_method :: (
   // clones once per lookup and once per store-back.
   tm_key := type_id.clone();
   list := match(_type_trait_methods.with_mut({ tm_key }(m) => m.remove(&tm_key)), .Some(l) => l, .None => ArrayList(MethodEntry).new());
-  list.push(entry.*);
+  list.push(owned_entry);
   tm_key2 := type_id.clone();
   _type_trait_methods.with_mut({ tm_key2, list }(m) => m.insert(tm_key2, list));
   to_key := type_id.clone();
@@ -606,7 +616,7 @@ register_provisional_trait_method :: (
 )({
   type_id_own____ := type_id.clone();
   list := match(_provisional_trait_methods.with_mut({ type_id_own____ }(m) => m.remove(type_id_own____.clone())), .Some(l) => l, .None => ArrayList(MethodEntry).new());
-  list.push(entry.*);
+  list.push(entry.clone());
   type_id_own_____ := type_id.clone();
   _provisional_trait_methods.with_mut({ type_id_own_____, list : list.clone() }(m) => m.insert(type_id_own_____.clone(), list.clone()));
 });
@@ -626,12 +636,13 @@ update_type_trait_method_entry :: (
     true => _type_trait_methods.with_mut({ take_key }(m) => m.remove(&take_key))
   );
   list := match(src, .Some(l) => l, .None => ArrayList(MethodEntry).new());
+  ty_own := Rc.clone(&ty.*);
   (i : usize) = usize(0);
   while(i < list.len(), {
     list.with(i, entry => {
       entry_fid := match(entry.value, .Some(ev) => match(ev, .FuncVal(fd, _) => fd.*.func_id.clone(), _ => String.new()), .None => String.new());
       if((entry_fid.len() > usize(0)) && (entry_fid == match_fid.*), {
-        entry.ty = Rc.clone(ty);
+        entry.ty = Rc.clone(&ty_own);
         entry.value = Option(EvalValue).Some(value.*);
         if(source_trait_id.len() > usize(0), {
           entry.source_trait_id = source_trait_id.clone();
