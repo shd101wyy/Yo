@@ -9,7 +9,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 {
-  AstExpr,
+  AstExpr, AstExprNode,
   ast_expr_token,
   ast_expr_text,
   ast_expr_id,
@@ -315,8 +315,8 @@ make_variable_with_value :: (
 /// unchanged.
 get_root_expr_of_field_access :: (fn(expr : &AstExpr) -> AstExpr)(
   if(
-    ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, BF_DOT, .None) && (match(expr, .FnCall(_, _, Rc(args), _, _) => args.len(), .Atom(_, _) => usize(0)) >= usize(2)),
-    recur(match(expr, .FnCall(_, _, Rc(args), _, _) => match(args.get(usize(0)), .Some(a) => a, .None => expr.*), .Atom(_, _) => expr.*)),
+    ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, BF_DOT, .None) && (match(expr, Rc(.FnCall(_, _, Rc(args), _, _)) => args.len(), Rc(.Atom(_, _)) => usize(0)) >= usize(2)),
+    recur(match(expr, Rc(.FnCall(_, _, Rc(args), _, _)) => match(args.get(usize(0)), .Some(a) => a, .None => expr.*), Rc(.Atom(_, _)) => expr.*)),
     expr.*
   )
 );
@@ -365,12 +365,12 @@ _place_root_variable :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalConte
   while(!done, {
     (next : Option(AstExpr)) = match(
       cur,
-      .FnCall(_, callee, Rc(args), _, _) => cond(
+      Rc(.FnCall(_, callee, Rc(args), _, _)) => cond(
         ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))) => args.get(usize(0)),
         // An index write `a(i)`: the callee is the place.
         true => Option(AstExpr).Some(callee)
       ),
-      .Atom(_, _) => Option(AstExpr).None
+      Rc(.Atom(_, _)) => Option(AstExpr).None
     );
     match(
       next,
@@ -551,10 +551,10 @@ _check_capture_borrow_write :: (fn(lhs : &AstExpr, tok : &Token, env : &Environm
   while(walking, {
     match(
       cur,
-      .FnCall(_, w_callee, Rc(w_args), _, _) => {
+      Rc(.FnCall(_, w_callee, Rc(w_args), _, _)) => {
         cur = if(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), match(w_args.get(usize(0)), .Some(r) => r, .None => cur), w_callee);
       },
-      .Atom(_, _) => {
+      Rc(.Atom(_, _)) => {
         walking = false;
       }
     );
@@ -689,11 +689,11 @@ _index_place_root :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalContext)
   cond(
     (!ast_expr_is_atom(lhs) && !ast_expr_is_fn_call_of(lhs, BF_DOT, Option(usize).Some(usize(2))) && call_is_index_place(lhs, env, ctx)) => match(
       lhs,
-      .FnCall(_, ip_callee, _, _, _) => cond(
+      Rc(.FnCall(_, ip_callee, _, _, _)) => cond(
         ast_expr_is_atom(&ip_callee.*) => get_variables_from_env(env, ast_expr_token(&ip_callee.*).value.*.clone()).last_cloned(),
         true => _place_root_variable(&ip_callee.*, env, ctx, true)
       ),
-      .Atom(_, _) => Option(Variable).None
+      Rc(.Atom(_, _)) => Option(Variable).None
     ),
     true => Option(Variable).None
   )
@@ -705,11 +705,11 @@ _via_root_name :: (fn(via : &AstExpr) -> String)({
   while(!ast_expr_is_atom(&cur), {
     cur = match(
       cur,
-      .FnCall(_, callee, Rc(args), _, _) => cond(
+      Rc(.FnCall(_, callee, Rc(args), _, _)) => cond(
         ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))) => match(args.get(usize(0)), .Some(a) => a, .None => return(String.new())),
         true => callee
       ),
-      .Atom(_, _) => return(String.new())
+      Rc(.Atom(_, _)) => return(String.new())
     );
   });
   ast_expr_token(&cur).value.*.clone()
@@ -970,7 +970,7 @@ _d3_capture_conflict :: (fn(lbp : &LocalBorrowPlace, env : &Environment) -> Opti
 _d3_unlabeled_arg :: (fn(arg : AstExpr) -> AstExpr)(
   if(
     ast_expr_is_fn_call_of(&arg, BK_COLON, Option(usize).Some(usize(2))),
-    match(&arg, .FnCall(_, _, Rc(la), _, _) => match(la.get(usize(1)), .Some(v) => v, .None => arg.clone()), .Atom(_, _) => arg.clone()),
+    match(&arg, Rc(.FnCall(_, _, Rc(la), _, _)) => match(la.get(usize(1)), .Some(v) => v, .None => arg.clone()), Rc(.Atom(_, _)) => arg.clone()),
     arg
   )
 );
@@ -1027,7 +1027,7 @@ _CAPTURE_NOUN :: "a captured variable";
 get_root_expr_of_place :: (fn(expr : &AstExpr) -> AstExpr)(
   match(
     expr,
-    .FnCall(_, callee, Rc(args), _, _) => cond(
+    Rc(.FnCall(_, callee, Rc(args), _, _)) => cond(
       (ast_expr_is_fn_call_of(expr, BF_DOT, .None) && (args.len() >= usize(2))) => recur(
         match(args.get(usize(0)), .Some(a) => a, .None => expr.*)
       ),
@@ -1037,7 +1037,7 @@ get_root_expr_of_place :: (fn(expr : &AstExpr) -> AstExpr)(
       ),
       true => recur(&callee.*)
     ),
-    .Atom(_, _) => expr.*
+    Rc(.Atom(_, _)) => expr.*
   )
 );
 // ---------------------------------------------------------------------------
@@ -1572,7 +1572,7 @@ _reference_deref_write_target :: (fn(lhs : &AstExpr, env : &Environment, ctx : &
   if(deref_rule_recording() || !ast_expr_is_fn_call_of(lhs, BF_DOT, Option(usize).Some(usize(2))), {
     return(Option(AstExpr).None);
   });
-  rw_args := match(lhs, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
+  rw_args := match(lhs, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
   rw_recv := match(rw_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   rw_field := match(rw_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
   if(!ast_expr_is_atom(&rw_recv) || !ast_expr_is_atom(&rw_field) || (ast_expr_token(&rw_field).value.* != "*"), {
@@ -1616,13 +1616,13 @@ evaluate_assignment :: (
   });
   (lhs : AstExpr) = match(
     expr,
-    .FnCall(_, _, Rc(args), _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
-    .Atom(_, _) => make_err_expr()
+    Rc(.FnCall(_, _, Rc(args), _, _)) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+    Rc(.Atom(_, _)) => make_err_expr()
   );
   (rhs : AstExpr) = match(
     expr,
-    .FnCall(_, _, Rc(args), _, _) => match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
-    .Atom(_, _) => make_err_expr()
+    Rc(.FnCall(_, _, Rc(args), _, _)) => match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
+    Rc(.Atom(_, _)) => make_err_expr()
   );
   // -----------------------------------------------------------------------
   // Determine branch: atom LHS, typed-binding LHS, or property/index LHS
@@ -1654,15 +1654,15 @@ evaluate_assignment :: (
   if(ast_expr_is_fn_call_of(&lhs, BK_COLON, Option(usize).Some(usize(2))), {
     tl_name_pos := match(
       lhs,
-      .FnCall(_, _, Rc(tl_cargs), _, _) => match(tl_cargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
-      .Atom(_, _) => make_err_expr()
+      Rc(.FnCall(_, _, Rc(tl_cargs), _, _)) => match(tl_cargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+      Rc(.Atom(_, _)) => make_err_expr()
     );
     if(ast_expr_is_fn_call_of(&tl_name_pos, BK_THREAD_LOCAL, .Some(usize(1))) || ast_expr_is_fn_call_of(&tl_name_pos, BK_COMPTIME, .Some(usize(1))), reject_malformed_mut_marker(&tl_name_pos, usize(0), exn), reject_malformed_mut_marker(&lhs, usize(0), exn));
     if(ast_expr_is_fn_call_of(&tl_name_pos, BK_THREAD_LOCAL, .Some(usize(1))), {
       tl_atom := match(
         tl_name_pos,
-        .FnCall(_, _, Rc(tl_margs), _, _) => match(tl_margs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
-        .Atom(_, _) => make_err_expr()
+        Rc(.FnCall(_, _, Rc(tl_margs), _, _)) => match(tl_margs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+        Rc(.Atom(_, _)) => make_err_expr()
       );
       if(!ast_expr_is_atom(&tl_atom), {
         exn.throw(
@@ -1687,13 +1687,13 @@ evaluate_assignment :: (
     .Some(rw_name) => {
       rw_expr := match(
         expr,
-        .FnCall(_, rw_f, _, rw_infix, rw_tok) => {
+        Rc(.FnCall(_, rw_f, _, rw_infix, rw_tok)) => {
           rw_args := ArrayList(AstExpr).new();
           rw_args.push(rw_name.clone());
           rw_args.push(rhs.clone());
-          AstExpr.FnCall(alloc_global_expr_id(), rw_f.*, Rc.new(rw_args), rw_infix.*, rw_tok.*)
+          Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), rw_f.*, Rc.new(rw_args), rw_infix.*, rw_tok.*))
         },
-        .Atom(_, _) => expr.clone()
+        Rc(.Atom(_, _)) => expr.clone()
       );
       deref_exempt_mark(&rw_name);
       rw_evaluated := evaluate_expression_raw(&rw_expr, &env, ctx, exn);
@@ -1789,7 +1789,7 @@ evaluate_assignment :: (
     if(!ast_expr_is_fn_call_of(&lhs, BF_DOT, Option(usize).Some(usize(2))) && projection_call_mode_of(&evaluated_lhs, ctx).is_none(), {
       match(
         lhs,
-        .FnCall(_, lhs_callee, _, _, _) => match(
+        Rc(.FnCall(_, lhs_callee, _, _, _)) => match(
           expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&lhs_callee)),
           .Some(callee_info) => {
             if(is_function_type(&callee_info.ty()), {
@@ -1811,7 +1811,7 @@ evaluate_assignment :: (
           },
           .None => ()
         ),
-        .Atom(_, _) => ()
+        Rc(.Atom(_, _)) => ()
       );
     });
     expected_ty := Rc.clone(lhs_info.ty());

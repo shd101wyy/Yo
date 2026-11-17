@@ -88,8 +88,8 @@ try_to_implement_array_by_array_type :: (
   if((n_args != expected_len) && !len_var_present, {
     func_tok := match(
       expr,
-      .FnCall(_, func_box, _, _, _) => ast_expr_token(&func_box.*),
-      .Atom(_, tok) => tok.*
+      Rc(.FnCall(_, func_box, _, _, _)) => ast_expr_token(&func_box.*),
+      Rc(.Atom(_, tok)) => tok.*
     );
     exn.throw(
       dyn(

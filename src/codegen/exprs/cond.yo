@@ -121,7 +121,7 @@ _contains_word_return :: (fn(s : &String) -> bool)({
 });
 /// Args of a FnCall (empty for an Atom).
 _arg_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new())
 );
 /// The compile-time boolean value of `e`, if it has one.
 _cond_bool :: (fn(e : &AstExpr, context : &FunctionGenerationContext) -> Option(bool))(
@@ -667,7 +667,7 @@ generate_cond_expression :: (fn(expr : &AstExpr, indent : &String, context : &mu
   ret_is_ref := match(&context.current_function_type, .Some(t) => fn_result_is_ref(&t.*), .None => false);
 
   cond_outer_is_ptr := (ret_is_ref && is_pointer_type(&value_type));
-  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
   nargs := args.len();
   // First pass: index of the first non-(compile-time-false) arm.
   (mut(first_nf) : usize) = nargs;

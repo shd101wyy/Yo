@@ -118,10 +118,10 @@ extract_target_variable_id :: (
   // Extract args[0] from the FnCall
   var_expr := match(
     pe.clone(),
-    .Atom(_, _) => {
+    Rc(.Atom(_, _)) => {
       return(Option(String).None);
     },
-    .FnCall(_, _, Rc(args), _, _) => match(
+    Rc(.FnCall(_, _, Rc(args), _, _)) => match(
       args.get(usize(0)),
       .None => {
         return(Option(String).None);
@@ -132,8 +132,8 @@ extract_target_variable_id :: (
   // Must be an Identifier atom
   tok := match(
     var_expr.clone(),
-    .Atom(_, t) => t,
-    .FnCall(_, _, _, _, _) => {
+    Rc(.Atom(_, t)) => t,
+    Rc(.FnCall(_, _, _, _, _)) => {
       return(Option(String).None);
     }
   );
@@ -372,7 +372,7 @@ _capture_pattern_bindings :: (
 )(
   match(
     pat.clone(),
-    .Atom(_, tok) => if(tok.kind == TokenKind.Identifier, {
+    Rc(.Atom(_, tok)) => if(tok.kind == TokenKind.Identifier, {
       match(
         &get_info(pat),
         .Some(info) => {
@@ -389,7 +389,7 @@ _capture_pattern_bindings :: (
         .None => ()
       );
     }),
-    .FnCall(_, func_box, Rc(args), _, _) => {
+    Rc(.FnCall(_, func_box, Rc(args), _, _)) => {
       recur(&func_box, get_info, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
       (mut(i) : usize) = usize(0);
       while(i < args.len(), {
@@ -429,8 +429,8 @@ _capture_argument_temp :: (
 )({
   value := match(
     arg.clone(),
-    .FnCall(_, _, Rc(la), _, _) => if(ast_expr_is_fn_call_of(arg.clone(), ":", Option(usize).Some(usize(2))), match(la.get(usize(1)), .Some(v) => v, .None => arg.clone()), arg.clone()),
-    .Atom(_, _) => arg.clone()
+    Rc(.FnCall(_, _, Rc(la), _, _)) => if(ast_expr_is_fn_call_of(arg.clone(), ":", Option(usize).Some(usize(2))), match(la.get(usize(1)), .Some(v) => v, .None => arg.clone()), arg.clone()),
+    Rc(.Atom(_, _)) => arg.clone()
   );
   match(
     &get_info(&value),
@@ -479,7 +479,7 @@ walk_expr_ :: (
     // -----------------------------------------------------------------------
     // Atom — capture identifiers that cross suspension points
     // -----------------------------------------------------------------------
-    .Atom(_, tok) => {
+    Rc(.Atom(_, tok)) => {
       if(tok.kind == TokenKind.Identifier, {
         var_name := tok.value.*.clone();
         match(
@@ -494,7 +494,7 @@ walk_expr_ :: (
     // -----------------------------------------------------------------------
     // FnCall — while, cond/match, or a potential suspension point
     // -----------------------------------------------------------------------
-    .FnCall(_, func_box, Rc(args), _, _) => {
+    Rc(.FnCall(_, func_box, Rc(args), _, _)) => {
       // `:=` binding TARGET: capture it through the `:=` node's OWN
       // (post-binding) env. The recursion below visits the LHS atom, but its
       // recorded env PREDATES the binding, so the Atom case misses the fresh
@@ -507,7 +507,7 @@ walk_expr_ :: (
           args.get(usize(0)),
           .Some(lhs_e) => match(
             lhs_e,
-            .Atom(_, lhs_tok) => if(lhs_tok.kind == TokenKind.Identifier, {
+            Rc(.Atom(_, lhs_tok)) => if(lhs_tok.kind == TokenKind.Identifier, {
               match(
                 &get_info(expr_cloned.clone()),
                 .Some(binfo) => {
@@ -520,7 +520,7 @@ walk_expr_ :: (
             // owning local that pins the place's object when there is one
             // (the `inout(name)` node's `source_variable`). No atom of the
             // body names the pin, so it is captured here or not at all.
-            .FnCall(_, _, Rc(inout_args), _, _) => if(ast_expr_is_local_borrow_mode_call(lhs_e.clone(), Option(usize).Some(usize(1))), {
+            Rc(.FnCall(_, _, Rc(inout_args), _, _)) => if(ast_expr_is_local_borrow_mode_call(lhs_e.clone(), Option(usize).Some(usize(1))), {
               match(
                 &get_info(expr_cloned.clone()),
                 .Some(binfo) => {
@@ -528,8 +528,8 @@ walk_expr_ :: (
                     inout_args.get(usize(0)),
                     .Some(ref_name) => match(
                       ref_name,
-                      .Atom(_, ref_tok) => _capture_env_variable(ast_expr_id(&ref_name), ref_tok.value.*.clone(), &binfo.env(), Option(TypeValue).None, false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping),
-                      .FnCall(_, _, _, _, _) => ()
+                      Rc(.Atom(_, ref_tok)) => _capture_env_variable(ast_expr_id(&ref_name), ref_tok.value.*.clone(), &binfo.env(), Option(TypeValue).None, false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping),
+                      Rc(.FnCall(_, _, _, _, _)) => ()
                     ),
                     .None => ()
                   );
@@ -568,7 +568,7 @@ walk_expr_ :: (
       if(ast_expr_is_fn_call_of(expr_cloned.clone(), ".", Option(usize).Some(usize(2))), {
         member_is_name := match(
           args.get(usize(1)),
-          .Some(me) => match(me, .Atom(_, mt) => (mt.kind == TokenKind.Identifier), .FnCall(_, _, _, _, _) => false),
+          .Some(me) => match(me, Rc(.Atom(_, mt)) => (mt.kind == TokenKind.Identifier), Rc(.FnCall(_, _, _, _, _)) => false),
           .None => false
         );
         if(member_is_name, {
@@ -688,12 +688,12 @@ walk_expr_ :: (
             if(ast_expr_is_fn_call_of(expr_cloned.clone(), "match", Option(usize).None) && ast_expr_is_fn_call_of(arg2.clone(), "=>", Option(usize).Some(usize(2))), {
               match(
                 arg2.clone(),
-                .FnCall(_, _, Rc(arm_args), _, _) => match(
+                Rc(.FnCall(_, _, Rc(arm_args), _, _)) => match(
                   arm_args.get(usize(0)),
                   .Some(arm_pat) => _capture_pattern_bindings(&arm_pat, get_info, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping),
                   .None => ()
                 ),
-                .Atom(_, _) => ()
+                Rc(.Atom(_, _)) => ()
               );
             });
             recur(&arg2, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));

@@ -302,12 +302,12 @@ _shift_checked_expr :: (fn(args : &ArrayList(String), expr : &AstExpr, context :
 _as_saturating_expr :: (fn(args : &ArrayList(String), expr : &AstExpr, context : &mut FunctionGenerationContext) -> Option(String))({
   sty := match(
     expr,
-    .FnCall(_, _, Rc(ua), _, _) => match(
+    Rc(.FnCall(_, _, Rc(ua), _, _)) => match(
       ua.get(usize(0)),
       .Some(a0) => match(context.base.get_expr_info(&a0), .Some(aei) => Option(TypeValue).Some(Rc.clone(aei.ty())), .None => Option(TypeValue).None),
       .None => Option(TypeValue).None
     ),
-    .Atom(_, _) => Option(TypeValue).None
+    Rc(.Atom(_, _)) => Option(TypeValue).None
   );
   src_is_float := match(
     sty,
@@ -386,7 +386,7 @@ _unop :: (fn(args : &ArrayList(String), op : str) -> String)({
 _unary_operand_c_type :: (fn(expr : &AstExpr, context : &mut FunctionGenerationContext) -> Option(String))(
   match(
     expr,
-    .FnCall(_, _, Rc(ua), _, _) => match(
+    Rc(.FnCall(_, _, Rc(ua), _, _)) => match(
       ua.get(usize(0)),
       .Some(u0) => match(
         context.base.get_expr_info(&u0),
@@ -399,7 +399,7 @@ _unary_operand_c_type :: (fn(expr : &AstExpr, context : &mut FunctionGenerationC
       ),
       .None => Option(String).None
     ),
-    .Atom(_, _) => Option(String).None
+    Rc(.Atom(_, _)) => Option(String).None
   )
 );
 /// `((<operand C type>)(<op>(a)))` — a prefix ARITHMETIC unary, narrowed back
@@ -494,7 +494,7 @@ _void_effects :: (fn(args : &ArrayList(String)) -> String)({
 });
 /// Whether `__yo_as`'s source operand is a tagged (non-simple) enum.
 _as_source_is_tagged_enum :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> bool)(
-  match(expr, .FnCall(_, _, Rc(a), _, _) => match(a.get(usize(0)), .Some(a0) => match(context.base.get_expr_info(&a0), .Some(aei) => (is_enum_type(&aei.ty()) && !can_optimize_as_simple_enum(&aei.ty())), .None => false), .None => false), .Atom(_, _) => false)
+  match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => match(a.get(usize(0)), .Some(a0) => match(context.base.get_expr_info(&a0), .Some(aei) => (is_enum_type(&aei.ty()) && !can_optimize_as_simple_enum(&aei.ty())), .None => false), .None => false), Rc(.Atom(_, _)) => false)
 );
 /// Does the borrow-flag builtin's operand (`__yo_borrow_acquire(&c)` and its
 /// two siblings) have a flag to set? Only a reference type's cell header
@@ -603,7 +603,7 @@ generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayLi
         target_c_type := get_type_string(ei_ty(expr, context), &mut context.base);
         // A fat pointer source (decision 49): to the same fat type it is
         // itself, and to a thin type it is its address word.
-        src_ty := match(expr, .FnCall(_, _, Rc(sa), _, _) => match(sa.get(usize(0)), .Some(sa0) => match(context.base.get_expr_info(&sa0), .Some(sei) => Option(TypeValue).Some(Rc.clone(sei.ty())), .None => Option(TypeValue).None), .None => Option(TypeValue).None), .Atom(_, _) => Option(TypeValue).None);
+        src_ty := match(expr, Rc(.FnCall(_, _, Rc(sa), _, _)) => match(sa.get(usize(0)), .Some(sa0) => match(context.base.get_expr_info(&sa0), .Some(sei) => Option(TypeValue).Some(Rc.clone(sei.ty())), .None => Option(TypeValue).None), .None => Option(TypeValue).None), Rc(.Atom(_, _)) => Option(TypeValue).None);
         src_fat := match(&src_ty, .Some(st) => fat_address_member(st), .None => Option(String).None);
         if(src_fat.is_some() && match(&src_ty, .Some(st) => (get_type_string(st, &mut context.base) == target_c_type), .None => false), {
           return(`(${_a(args, usize(0))})`);
@@ -793,7 +793,7 @@ generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayLi
       // Safe mode Phase 1: the fixed-array subscript is bounds-checked; the
       // first argument's ExprInfo names the concrete Array(T, N) whose N is
       // the bound (plans/backlog/SAFE_MODE.md §4, closes H1).
-      arr_expr_opt := match(expr, .FnCall(_, _, Rc(ua), _, _) => ua.get(usize(0)), .Atom(_, _) => Option(AstExpr).None);
+      arr_expr_opt := match(expr, Rc(.FnCall(_, _, Rc(ua), _, _)) => ua.get(usize(0)), Rc(.Atom(_, _)) => Option(AstExpr).None);
       arr_idx := match(
         arr_expr_opt,
         .Some(ae) => match(

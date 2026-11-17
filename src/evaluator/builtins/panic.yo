@@ -98,8 +98,8 @@ evaluate_panic :: (
   // If there's a message argument, evaluate it and validate its type.
   args := match(
     expr,
-    .FnCall(_, _, Rc(a), _, _) => a.clone(),
-    .Atom(_, _) => ArrayList(AstExpr).new()
+    Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(),
+    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
   );
   (cur_env : Environment) = Rc.clone(env);
   // The message text when it is compile-time known (a `comptime_str`

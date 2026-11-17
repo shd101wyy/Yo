@@ -7,7 +7,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 {
-  AstExpr,
+  AstExpr, AstExprNode,
   ast_expr_token,
   ast_expr_id,
   ast_expr_to_string,
@@ -129,8 +129,8 @@ try_to_convert_to_pointer_type :: (
   orig_id := ast_expr_id(expr);
   type_expr := match(
     expr,
-    .FnCall(_, func_box, _, _, _) => func_box.*,
-    .Atom(_, _) => make_err_expr()
+    Rc(.FnCall(_, func_box, _, _, _)) => func_box.*,
+    Rc(.Atom(_, _)) => make_err_expr()
   );
   // Lower the runtime pointer→pointer cast to a `__yo_as` node, attached to the
   // ORIGINAL expr's ExprInfo as a `macro_expansion`. Codegen walks the original
@@ -142,7 +142,7 @@ try_to_convert_to_pointer_type :: (
   // gets a FRESH id so codegen's re-dispatch onto it does not re-trigger the same
   // macro_expansion (infinite loop).
   fresh_id := alloc_global_expr_id();
-  func_atom := AstExpr.Atom(
+  func_atom := Rc.new(AstExprNode.Atom(
     alloc_global_expr_id(),
     Token(
       kind : TokenKind.Identifier,
@@ -154,11 +154,11 @@ try_to_convert_to_pointer_type :: (
       module_path : Rc.clone(orig_tok.module_path),
       input : Rc.clone(orig_tok.input)
     )
-  );
+  ));
   call_args := ArrayList(AstExpr).new();
   call_args.push(evaluated);
   call_args.push(type_expr);
-  yo_as_node := AstExpr.FnCall(fresh_id, func_atom, Rc.new(call_args), false, orig_tok);
+  yo_as_node := Rc.new(AstExprNode.FnCall(fresh_id, func_atom, Rc.new(call_args), false, orig_tok));
   yo_as_info := new_expr_info(&env, target_type);
   yo_as_info.set_value(.None);
   // runtimeArgExprsInOrder: only the value arg (not the type).

@@ -175,12 +175,12 @@ _collect_candidates :: (
 )({
   match(
     e,
-    .Atom(_, tok) => {
+    Rc(.Atom(_, tok)) => {
       if((tok.value.* == target.value.*) && (tok.row == target.row) && (tok.column == target.column), {
         out.push(e.*);
       });
     },
-    .FnCall(_, func_box, Rc(args), _, _) => {
+    Rc(.FnCall(_, func_box, Rc(args), _, _)) => {
       recur(&func_box.*, target, out);
       (mut(i) : usize) = usize(0);
       while(i < args.len(), {
@@ -291,16 +291,16 @@ _is_declaring_callee :: (fn(callee : &String) -> bool)(
 _mark_member :: (fn(a : &AstExpr, roles : &mut AtomRoles) -> unit)({
   match(
     a,
-    .Atom(id, _) => {
+    Rc(.Atom(id, _)) => {
       roles.members.insert(id.*);
     },
-    .FnCall(_, func_box, Rc(cargs), _, _) => {
+    Rc(.FnCall(_, func_box, Rc(cargs), _, _)) => {
       match(
         func_box,
-        .Atom(fid, _) => {
+        Rc(.Atom(fid, _)) => {
           roles.members.insert(fid.*);
         },
-        .FnCall(_, _, _, _, _) => _classify_roles(&func_box.*, roles)
+        Rc(.FnCall(_, _, _, _, _)) => _classify_roles(&func_box.*, roles)
       );
       (i : usize) = usize(0);
       while(i < cargs.len(), {
@@ -317,12 +317,12 @@ _mark_member :: (fn(a : &AstExpr, roles : &mut AtomRoles) -> unit)({
 _classify_roles :: (fn(e : &AstExpr, roles : &mut AtomRoles) -> unit)({
   match(
     e,
-    .Atom(_, _) => (),
-    .FnCall(_, func_box, Rc(args), is_infix, _) => {
+    Rc(.Atom(_, _)) => (),
+    Rc(.FnCall(_, func_box, Rc(args), is_infix, _)) => {
       callee := match(
         func_box,
-        .Atom(_, _) => ast_expr_text(&func_box.*).*.clone(),
-        .FnCall(_, _, _, _, _) => String.new()
+        Rc(.Atom(_, _)) => ast_expr_text(&func_box.*).*.clone(),
+        Rc(.FnCall(_, _, _, _, _)) => String.new()
       );
       cond(
         (callee == ".") => {
@@ -359,18 +359,18 @@ _classify_roles :: (fn(e : &AstExpr, roles : &mut AtomRoles) -> unit)({
                 if(!declaring, {
                   match(
                     a,
-                    .FnCall(_, pair_fn, Rc(pair_args), pair_infix, _) => {
-                      is_pair := (pair_infix && match(pair_fn, .Atom(_, pt) => (pt.value.* == ":"), .FnCall(_, _, _, _, _) => false));
+                    Rc(.FnCall(_, pair_fn, Rc(pair_args), pair_infix, _)) => {
+                      is_pair := (pair_infix && match(pair_fn, Rc(.Atom(_, pt)) => (pt.value.* == ":"), Rc(.FnCall(_, _, _, _, _)) => false));
                       if(is_pair && (pair_args.len() == usize(2)), {
                         handled = true;
                         match(
                           pair_args.get(usize(0)),
                           .Some(lhs) => match(
                             lhs,
-                            .Atom(lid, _) => {
+                            Rc(.Atom(lid, _)) => {
                               roles.labels.insert(lid);
                             },
-                            .FnCall(_, _, _, _, _) => recur(&lhs, roles)
+                            Rc(.FnCall(_, _, _, _, _)) => recur(&lhs, roles)
                           ),
                           .None => ()
                         );
@@ -381,7 +381,7 @@ _classify_roles :: (fn(e : &AstExpr, roles : &mut AtomRoles) -> unit)({
                         );
                       });
                     },
-                    .Atom(_, _) => ()
+                    Rc(.Atom(_, _)) => ()
                   );
                 });
                 if(!handled, {
@@ -425,9 +425,9 @@ _find_member_access :: (
 )({
   match(
     e,
-    .Atom(_, _) => (),
-    .FnCall(_, func_box, Rc(args), is_infix, _) => {
-      is_dot := match(func_box, .Atom(_, t) => (t.value.* == "."), .FnCall(_, _, _, _, _) => false);
+    Rc(.Atom(_, _)) => (),
+    Rc(.FnCall(_, func_box, Rc(args), is_infix, _)) => {
+      is_dot := match(func_box, Rc(.Atom(_, t)) => (t.value.* == "."), Rc(.FnCall(_, _, _, _, _)) => false);
       if(is_dot, {
         (i : usize) = cond(is_infix.* => usize(1), true => usize(0));
         while(i < args.len(), {
@@ -436,8 +436,8 @@ _find_member_access :: (
             .Some(a) => {
               mt := match(
                 a,
-                .Atom(_, at) => at,
-                .FnCall(_, mf, _, _, ct) => match(mf, .Atom(_, ft) => ft, .FnCall(_, _, _, _, _) => ct)
+                Rc(.Atom(_, at)) => at,
+                Rc(.FnCall(_, mf, _, _, ct)) => match(mf, Rc(.Atom(_, ft)) => ft, Rc(.FnCall(_, _, _, _, _)) => ct)
               );
               if((mt.row == target.row) && (mt.column == target.column) && (mt.value.* == target.value.*), {
                 out.push(e.*);

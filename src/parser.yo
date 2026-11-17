@@ -15,7 +15,7 @@ pragma(Pragma.AllowUnsafe);
 { YoError, format_error_message, format_raw_error, format_error_message_with_repair_at } :: import("./error.yo");
 { Span } :: import("./diagnostics.yo");
 {
-  AstExpr,
+  AstExpr, AstExprNode,
   ExprId,
   alloc_global_expr_id,
   BK_TUPLE,
@@ -133,18 +133,18 @@ _e0003_tier :: (fn(v : &String) -> u8)(
 _e0003_fn_type_head :: (fn(e : &AstExpr) -> String)(
   match(
     e,
-    .FnCall(_, hf, _, h_infix, _) => cond(
+    Rc(.FnCall(_, hf, _, h_infix, _)) => cond(
       h_infix.* => String.new(),
       true => match(
         hf,
-        .Atom(_, ht) => cond(
+        Rc(.Atom(_, ht)) => cond(
           ((ht.value.* == BK_FN) || (ht.value.* == BK_UNSAFE_FN) || (ht.value.* == BK_CTL) || (ht.value.* == BK_FN_TRAIT) || (ht.value.* == BK_FN_ONCE_TRAIT) || (ht.value.* == BK_FN_MUT_TRAIT)) => ht.value.*.clone(),
           true => String.new()
         ),
-        .FnCall(_, _, _, _, _) => String.new()
+        Rc(.FnCall(_, _, _, _, _)) => String.new()
       )
     ),
-    .Atom(_, _) => String.new()
+    Rc(.Atom(_, _)) => String.new()
   )
 );
 /// A capture-list borrow pun in decision 42's spelling: `&y` or `&mut z`, a
@@ -154,14 +154,14 @@ _e0003_fn_type_head :: (fn(e : &AstExpr) -> String)(
 _is_capture_sigil_pun :: (fn(expr : &AstExpr) -> bool)(
   match(
     expr,
-    .FnCall(_, pf, Rc(pargs), p_infix, _) => (
-      !p_infix.* && (pargs.len() == usize(1)) && match(pf, .Atom(_, pt) => ((pt.value.* == "&") || (pt.value.* == "&mut")), .FnCall(_, _, _, _, _) => false) && match(
+    Rc(.FnCall(_, pf, Rc(pargs), p_infix, _)) => (
+      !p_infix.* && (pargs.len() == usize(1)) && match(pf, Rc(.Atom(_, pt)) => ((pt.value.* == "&") || (pt.value.* == "&mut")), Rc(.FnCall(_, _, _, _, _)) => false) && match(
         pargs.get(usize(0)),
-        .Some(a) => match(a, .Atom(_, at) => (at.kind == TokenKind.Identifier), .FnCall(_, _, _, _, _) => false),
+        .Some(a) => match(a, Rc(.Atom(_, at)) => (at.kind == TokenKind.Identifier), Rc(.FnCall(_, _, _, _, _)) => false),
         .None => false
       )
     ),
-    .Atom(_, _) => false
+    Rc(.Atom(_, _)) => false
   )
 );
 /// The deleted mode-word pun `imm(y)` / `mut(z)` / `inout(z)` on one
@@ -173,8 +173,8 @@ _is_old_capture_mode_pun :: (fn(expr : &AstExpr) -> bool)(
     .Some(w) => (
       (w != "own") && match(
         expr,
-        .FnCall(_, _, Rc(pargs), p_infix, _) => (!p_infix.* && match(pargs.get(usize(0)), .Some(a) => match(a, .Atom(_, at) => (at.kind == TokenKind.Identifier), .FnCall(_, _, _, _, _) => false), .None => false)),
-        .Atom(_, _) => false
+        Rc(.FnCall(_, _, Rc(pargs), p_infix, _)) => (!p_infix.* && match(pargs.get(usize(0)), .Some(a) => match(a, Rc(.Atom(_, at)) => (at.kind == TokenKind.Identifier), Rc(.FnCall(_, _, _, _, _)) => false), .None => false)),
+        Rc(.Atom(_, _)) => false
       )
     ),
     .None => false
@@ -369,7 +369,7 @@ impl(
       module_path : Rc.clone(ref_tok.module_path),
       input : Rc.clone(ref_tok.input)
     );
-    .FnCall(self.alloc_id(), .Atom(self.alloc_id(), unit_tok), Rc.new(ArrayList(AstExpr).new()), false, unit_tok)
+    Rc.new(AstExprNode.FnCall(self.alloc_id(), Rc.new(AstExprNode.Atom(self.alloc_id(), unit_tok)), Rc.new(ArrayList(AstExpr).new()), false, unit_tok))
   }),
   skip_ws_fwd : (fn(self : &mut Self, index : usize) -> usize)({
     i := index;
@@ -527,9 +527,9 @@ impl(
   )({
     prop_args := ArrayList(AstExpr).new();
     prop_args.push(recv);
-    prop_args.push(.Atom(self.alloc_id(), m_tok.*));
-    (prop : AstExpr) = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), d_tok.*), Rc.new(prop_args), true, d_tok.*);
-    .FnCall(self.alloc_id(), prop, Rc.new(args), false, outer_tok.*)
+    prop_args.push(Rc.new(AstExprNode.Atom(self.alloc_id(), m_tok.*)));
+    (prop : AstExpr) = Rc.new(AstExprNode.FnCall(self.alloc_id(), Rc.new(AstExprNode.Atom(self.alloc_id(), d_tok.*)), Rc.new(prop_args), true, d_tok.*));
+    Rc.new(AstExprNode.FnCall(self.alloc_id(), prop, Rc.new(args), false, outer_tok.*))
   }),
   /// `part.append_to(&mut <name_tok>)`: one interpolated part of a template
   /// appended to the builder local (D10).
@@ -537,9 +537,9 @@ impl(
     fn(self : &mut Self, part : &AstExpr, d_tok : &Token, append_tok : &Token, borrow_tok : &Token, name_tok : &Token, outer_tok : &Token) -> AstExpr
   )({
     borrow_args := ArrayList(AstExpr).new();
-    borrow_args.push(.Atom(self.alloc_id(), name_tok.*));
+    borrow_args.push(Rc.new(AstExprNode.Atom(self.alloc_id(), name_tok.*)));
     call_args := ArrayList(AstExpr).new();
-    call_args.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), borrow_tok.*), Rc.new(borrow_args), false, borrow_tok.*));
+    call_args.push(Rc.new(AstExprNode.FnCall(self.alloc_id(), Rc.new(AstExprNode.Atom(self.alloc_id(), borrow_tok.*)), Rc.new(borrow_args), false, borrow_tok.*)));
     self._template_method_call(part.*, d_tok, append_tok, call_args, outer_tok)
   }),
   parse_template_string : (fn(self : &mut Self, tok : &Token, index : usize, exn : Exception) -> ParseResult)({
@@ -641,9 +641,9 @@ impl(
     )({
       prop_args := ArrayList(AstExpr).new();
       prop_args.push(e.*);
-      prop_args.push(.Atom(id_ts_atom, ts_tok.*));
-      (prop : AstExpr) = .FnCall(id_prop, .Atom(id_dot_atom, d_tok.*), Rc.new(prop_args), true, d_tok.*);
-      .FnCall(id_outer, prop, Rc.new(ArrayList(AstExpr).new()), false, outer_tok.*)
+      prop_args.push(Rc.new(AstExprNode.Atom(id_ts_atom, ts_tok.*)));
+      (prop : AstExpr) = Rc.new(AstExprNode.FnCall(id_prop, Rc.new(AstExprNode.Atom(id_dot_atom, d_tok.*)), Rc.new(prop_args), true, d_tok.*));
+      Rc.new(AstExprNode.FnCall(id_outer, prop, Rc.new(ArrayList(AstExpr).new()), false, outer_tok.*))
     });
     // Twin of `make_ts_call` for a spec'd interpolation: emits
     // `e.format("<spec>")` instead of `e.to_string()`. The spec text can never
@@ -665,11 +665,11 @@ impl(
     )({
       prop_args := ArrayList(AstExpr).new();
       prop_args.push(e.*);
-      prop_args.push(.Atom(id_fmt_atom, fmt_tok.*));
-      (prop : AstExpr) = .FnCall(id_prop, .Atom(id_dot_atom, d_tok.*), Rc.new(prop_args), true, d_tok.*);
+      prop_args.push(Rc.new(AstExprNode.Atom(id_fmt_atom, fmt_tok.*)));
+      (prop : AstExpr) = Rc.new(AstExprNode.FnCall(id_prop, Rc.new(AstExprNode.Atom(id_dot_atom, d_tok.*)), Rc.new(prop_args), true, d_tok.*));
       outer_args := ArrayList(AstExpr).new();
-      outer_args.push(.Atom(id_spec_atom, spec_tok.*));
-      .FnCall(id_outer, prop, Rc.new(outer_args), false, outer_tok.*)
+      outer_args.push(Rc.new(AstExprNode.Atom(id_spec_atom, spec_tok.*)));
+      Rc.new(AstExprNode.FnCall(id_outer, prop, Rc.new(outer_args), false, outer_tok.*))
     });
     // `${expr:spec}` (STD_API_AUDIT D3.10). The spec is peeled off the RIGHT
     // END by walking backward over a CLOSED character set that deliberately
@@ -873,7 +873,7 @@ impl(
             module_path : Rc.clone(tok.module_path),
             input : Rc.clone(tok.input)
           );
-          (lit_atom : AstExpr) = .Atom(self.alloc_id(), str_tok);
+          (lit_atom : AstExpr) = Rc.new(AstExprNode.Atom(self.alloc_id(), str_tok));
           cond(
             single_part => make_ts_call(&lit_atom, &dot_tok, &to_str_tok, tok, self.alloc_id(), self.alloc_id(), self.alloc_id(), self.alloc_id()),
             true => {
@@ -881,7 +881,7 @@ impl(
               // straight from its static bytes.
               lit_args := ArrayList(AstExpr).new();
               lit_args.push(lit_atom);
-              (name_atom : AstExpr) = .Atom(self.alloc_id(), tpl_name_tok);
+              (name_atom : AstExpr) = Rc.new(AstExprNode.Atom(self.alloc_id(), tpl_name_tok));
               self._template_method_call(name_atom, &dot_tok, &tpl_push_str_tok, lit_args, tok)
             }
           )
@@ -908,15 +908,15 @@ impl(
       true => {
         // `mut(__yo_tpl_N) := "".to_string()`
         empty_tok := _template_syn_tok(tok, TokenKind.StringLit, &String.from("\"\""));
-        (empty_atom : AstExpr) = .Atom(self.alloc_id(), empty_tok);
+        (empty_atom : AstExpr) = Rc.new(AstExprNode.Atom(self.alloc_id(), empty_tok));
         empty_str := make_ts_call(&empty_atom, &dot_tok, &to_str_tok, tok, self.alloc_id(), self.alloc_id(), self.alloc_id(), self.alloc_id());
         mut_args := ArrayList(AstExpr).new();
-        mut_args.push(.Atom(self.alloc_id(), tpl_name_tok));
+        mut_args.push(Rc.new(AstExprNode.Atom(self.alloc_id(), tpl_name_tok)));
         bind_args := ArrayList(AstExpr).new();
-        bind_args.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), tpl_mut_tok), Rc.new(mut_args), false, tpl_mut_tok));
+        bind_args.push(Rc.new(AstExprNode.FnCall(self.alloc_id(), Rc.new(AstExprNode.Atom(self.alloc_id(), tpl_mut_tok)), Rc.new(mut_args), false, tpl_mut_tok)));
         bind_args.push(empty_str);
         block_args := ArrayList(AstExpr).new();
-        block_args.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), tpl_bind_tok), Rc.new(bind_args), true, tpl_bind_tok));
+        block_args.push(Rc.new(AstExprNode.FnCall(self.alloc_id(), Rc.new(AstExprNode.Atom(self.alloc_id(), tpl_bind_tok)), Rc.new(bind_args), true, tpl_bind_tok)));
         si := usize(0);
         while(si < tpl_stmts.len(), {
           match(tpl_stmts.get(si), .Some(st) => block_args.push(st), .None => ());
@@ -943,9 +943,9 @@ impl(
           ),
           .None => tpl_name_tok.clone()
         );
-        block_args.push(.Atom(self.alloc_id(), tpl_tail_tok));
+        block_args.push(Rc.new(AstExprNode.Atom(self.alloc_id(), tpl_tail_tok)));
         begin_tok := _template_syn_tok(tok, TokenKind.Identifier, &String.from(BK_BEGIN));
-        .FnCall(self.alloc_id(), .Atom(self.alloc_id(), begin_tok), Rc.new(block_args), false, begin_tok)
+        Rc.new(AstExprNode.FnCall(self.alloc_id(), Rc.new(AstExprNode.Atom(self.alloc_id(), begin_tok)), Rc.new(block_args), false, begin_tok))
       }
     );
     ParseResult(expr : final_expr, index : (index + usize(1)))
@@ -1046,7 +1046,7 @@ impl(
     fn_tok := ast_expr_token(func);
     fa := self.parse_fn_args(index, has_whitespace, exn);
     ParseResult(
-      expr : .FnCall(self.alloc_id(), func.*, Rc.new(fa.args.clone()), false, fn_tok),
+      expr : Rc.new(AstExprNode.FnCall(self.alloc_id(), func.*, Rc.new(fa.args.clone()), false, fn_tok)),
       index : fa.index
     )
   }),
@@ -1078,7 +1078,7 @@ impl(
       );
       return(
         ParseResult(
-          expr : .FnCall(self.alloc_id(), .Atom(self.alloc_id(), unit_tok), Rc.new(ArrayList(AstExpr).new()), false, unit_tok),
+          expr : Rc.new(AstExprNode.FnCall(self.alloc_id(), Rc.new(AstExprNode.Atom(self.alloc_id(), unit_tok)), Rc.new(ArrayList(AstExpr).new()), false, unit_tok)),
           index : (index + usize(2))
         )
       );
@@ -1168,7 +1168,7 @@ impl(
       input : Rc.clone(tok.input)
     );
     ParseResult(
-      expr : .FnCall(self.alloc_id(), .Atom(self.alloc_id(), func_tok), Rc.new(args), false, func_tok),
+      expr : Rc.new(AstExprNode.FnCall(self.alloc_id(), Rc.new(AstExprNode.Atom(self.alloc_id(), func_tok)), Rc.new(args), false, func_tok)),
       index : (idx + usize(1))
     )
   }),
@@ -1267,19 +1267,19 @@ impl(
       input : Rc.clone(tok.input)
     );
     ParseResult(
-      expr : .FnCall(self.alloc_id(), .Atom(self.alloc_id(), func_tok), Rc.new(args), false, func_tok),
+      expr : Rc.new(AstExprNode.FnCall(self.alloc_id(), Rc.new(AstExprNode.Atom(self.alloc_id(), func_tok)), Rc.new(args), false, func_tok)),
       index : (idx + usize(1))
     )
   }),
   is_valid_struct_field_arg : (fn(self : &mut Self, expr : &AstExpr) -> bool)(
     match(
       expr,
-      .Atom(_, field_tok) => ((field_tok.kind == TokenKind.Identifier) || (field_tok.value.* == "...")),
-      .FnCall(_, func_box, _, is_infix, _) => cond(
+      Rc(.Atom(_, field_tok)) => ((field_tok.kind == TokenKind.Identifier) || (field_tok.value.* == "...")),
+      Rc(.FnCall(_, func_box, _, is_infix, _)) => cond(
         is_infix.* => match(
           func_box,
-          .Atom(_, func_tok) => (func_tok.value.* == ":"),
-          .FnCall(_, _, _, _, _) => false
+          Rc(.Atom(_, func_tok)) => (func_tok.value.* == ":"),
+          Rc(.FnCall(_, _, _, _, _)) => false
         ),
         // `imm(y)` / `mut(z)` / `inout(z)`: the deleted mode-word spelling of
         // a capture-list borrow pun (decision 42 Generation B). It still
@@ -1289,8 +1289,8 @@ impl(
         _is_capture_sigil_pun(expr) => true,
         true => match(
           func_box,
-          .Atom(_, func_tok2) => (func_tok2.value.* == "..."),
-          .FnCall(_, _, _, _, _) => false
+          Rc(.Atom(_, func_tok2)) => (func_tok2.value.* == "..."),
+          Rc(.FnCall(_, _, _, _, _)) => false
         )
       )
     )
@@ -1389,7 +1389,7 @@ impl(
             module_path : Rc.clone(last_tok.module_path),
             input : Rc.clone(last_tok.input)
           );
-          args.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), unit_tok), Rc.new(ArrayList(AstExpr).new()), false, unit_tok));
+          args.push(Rc.new(AstExprNode.FnCall(self.alloc_id(), Rc.new(AstExprNode.Atom(self.alloc_id(), unit_tok)), Rc.new(ArrayList(AstExpr).new()), false, unit_tok)));
         });
         break;
       });
@@ -1476,7 +1476,7 @@ impl(
                   pair_args := ArrayList(AstExpr).with_capacity(usize(2));
                   pair_args.push(arg);
                   pair_args.push(arg_copy);
-                  .FnCall(self.alloc_id(), .Atom(self.alloc_id(), colon_tok), Rc.new(pair_args), true, colon_tok)
+                  Rc.new(AstExprNode.FnCall(self.alloc_id(), Rc.new(AstExprNode.Atom(self.alloc_id(), colon_tok)), Rc.new(pair_args), true, colon_tok))
                 },
                 true => arg
               );
@@ -1502,7 +1502,7 @@ impl(
           _old := self.bare_groups.insert(group_id, had_comma);
         });
         ParseResult(
-          expr : .FnCall(group_id, .Atom(self.alloc_id(), anon_tok), Rc.new(final_args), false, tok),
+          expr : Rc.new(AstExprNode.FnCall(group_id, Rc.new(AstExprNode.Atom(self.alloc_id(), anon_tok)), Rc.new(final_args), false, tok)),
           index : (idx + usize(1))
         )
       },
@@ -1519,7 +1519,7 @@ impl(
           input : Rc.clone(tok.input)
         );
         ParseResult(
-          expr : .FnCall(self.alloc_id(), .Atom(self.alloc_id(), begin_tok), Rc.new(args), false, begin_tok),
+          expr : Rc.new(AstExprNode.FnCall(self.alloc_id(), Rc.new(AstExprNode.Atom(self.alloc_id(), begin_tok)), Rc.new(args), false, begin_tok)),
           index : (idx + usize(1))
         )
       }
@@ -1590,43 +1590,43 @@ impl(
     // removed from the infix branch's rhs_is_chained_op.
     rhs_is_infix_non_dot := match(
       rhs,
-      .FnCall(_, rfb, _, ris_infix, _) => cond(
+      Rc(.FnCall(_, rfb, _, ris_infix, _)) => cond(
         (ris_infix.* == false) => false,
         true => match(
           rfb,
-          .Atom(_, ft) => (ft.kind != TokenKind.Dot),
-          .FnCall(_, _, _, _, _) => false
+          Rc(.Atom(_, ft)) => (ft.kind != TokenKind.Dot),
+          Rc(.FnCall(_, _, _, _, _)) => false
         )
       ),
-      .Atom(_, _) => false
+      Rc(.Atom(_, _)) => false
     );
     if(rhs_is_infix_non_dot, {
       (left_operand : AstExpr) = match(
         rhs,
-        .FnCall(_, _, Rc(rargs), _, _) => match(
+        Rc(.FnCall(_, _, Rc(rargs), _, _)) => match(
           rargs.get(usize(0)),
           .Some(a) => a,
           .None => exn.throw(dyn(Box.new(make_parse_error_raw(&self.module_path.*, `internal: missing left arg in rhs`))))
         ),
-        .Atom(_, _) => exn.throw(dyn(Box.new(make_parse_error_raw(&self.module_path.*, `internal: rhs is atom`))))
+        Rc(.Atom(_, _)) => exn.throw(dyn(Box.new(make_parse_error_raw(&self.module_path.*, `internal: rhs is atom`))))
       );
       (right_operand : AstExpr) = match(
         rhs,
-        .FnCall(_, _, Rc(rargs), _, _) => match(
+        Rc(.FnCall(_, _, Rc(rargs), _, _)) => match(
           rargs.get(usize(1)),
           .Some(a) => a,
           .None => exn.throw(dyn(Box.new(make_parse_error_raw(&self.module_path.*, `internal: missing right arg in rhs`))))
         ),
-        .Atom(_, _) => exn.throw(dyn(Box.new(make_parse_error_raw(&self.module_path.*, `internal: rhs is atom`))))
+        Rc(.Atom(_, _)) => exn.throw(dyn(Box.new(make_parse_error_raw(&self.module_path.*, `internal: rhs is atom`))))
       );
       rhs_func_tok := match(
         rhs,
-        .FnCall(_, rfb, _, _, _) => match(
+        Rc(.FnCall(_, rfb, _, _, _)) => match(
           rfb,
-          .Atom(_, ft) => ft.*,
-          .FnCall(_, _, _, _, ft) => ft.*
+          Rc(.Atom(_, ft)) => ft.*,
+          Rc(.FnCall(_, _, _, _, ft)) => ft.*
         ),
-        .Atom(_, t) => t.*
+        Rc(.Atom(_, t)) => t.*
       );
       // Splice at the BOTTOM of the rhs's left spine, not one level below
       // the top. The rhs of a FOUR-or-more-operand same-operator chain
@@ -1653,17 +1653,17 @@ impl(
         (step : Option(Tuple(Token, AstExpr, AstExpr))) = .None;
         match(
           cur,
-          .FnCall(_, cfb, Rc(cargs), cis_infix, _) => {
+          Rc(.FnCall(_, cfb, Rc(cargs), cis_infix, _)) => {
             (cand_tok : Option(Token)) = .None;
             if(cis_infix, {
               match(
                 cfb,
-                .Atom(_, ft) => {
+                Rc(.Atom(_, ft)) => {
                   if((ft.kind != TokenKind.Dot) && (ft.value.* == op_tok.value.*), {
                     cand_tok = Option(Token).Some(ft);
                   });
                 },
-                .FnCall(_, _, _, _, _) => ()
+                Rc(.FnCall(_, _, _, _, _)) => ()
               );
             });
             at_rhs_level := match(
@@ -1688,7 +1688,7 @@ impl(
               true => Option(Tuple(Token, AstExpr, AstExpr)).None
             );
           },
-          .Atom(_, _) => ()
+          Rc(.Atom(_, _)) => ()
         );
         match(
           step,
@@ -1708,7 +1708,7 @@ impl(
       spine_args := ArrayList(AstExpr).new();
       spine_args.push(primary.*);
       spine_args.push(cur);
-      (acc : AstExpr) = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), op_tok.*), Rc.new(spine_args), true, op_tok.*);
+      (acc : AstExpr) = Rc.new(AstExprNode.FnCall(self.alloc_id(), Rc.new(AstExprNode.Atom(self.alloc_id(), op_tok.*)), Rc.new(spine_args), true, op_tok.*));
       i := tail.len();
       while(i > usize(0), {
         i = (i - usize(1));
@@ -1717,14 +1717,14 @@ impl(
         lvl_args := ArrayList(AstExpr).new();
         lvl_args.push(acc);
         lvl_args.push(lvl_rhs);
-        acc = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), lvl_tok), Rc.new(lvl_args), true, lvl_tok);
+        acc = Rc.new(AstExprNode.FnCall(self.alloc_id(), Rc.new(AstExprNode.Atom(self.alloc_id(), lvl_tok)), Rc.new(lvl_args), true, lvl_tok));
       });
       self.parse_primary_end(&acc, index, exn)
     }, {
       simple_args := ArrayList(AstExpr).new();
       simple_args.push(primary.*);
       simple_args.push(rhs.*);
-      (simple_call : AstExpr) = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), op_tok.*), Rc.new(simple_args), true, op_tok.*);
+      (simple_call : AstExpr) = Rc.new(AstExprNode.FnCall(self.alloc_id(), Rc.new(AstExprNode.Atom(self.alloc_id(), op_tok.*)), Rc.new(simple_args), true, op_tok.*));
       self.parse_primary_end(&simple_call, index, exn)
     })
   }),
@@ -1738,11 +1738,11 @@ impl(
     cond(
       // Atom kinds
       ((tok.kind == TokenKind.Identifier) || (tok.kind == TokenKind.Operator) || (tok.kind == TokenKind.Bool) || (tok.kind == TokenKind.Integer) || (tok.kind == TokenKind.Float) || (tok.kind == TokenKind.StringLit) || (tok.kind == TokenKind.CharLit)) =>
-        ParseResult(expr : .Atom(self.alloc_id(), tok), index : (idx + usize(1))),
+        ParseResult(expr : Rc.new(AstExprNode.Atom(self.alloc_id(), tok)), index : (idx + usize(1))),
       (tok.kind == TokenKind.LParen) => self.parse_paren_expr(idx, exn),
       (tok.kind == TokenKind.LBracket) => self.parse_array_expr(idx, exn),
       (tok.kind == TokenKind.LCurlyBracket) => self.parse_curly_bracket_expr(idx, exn),
-      (tok.kind == TokenKind.Dot) => ParseResult(expr : .Atom(self.alloc_id(), tok), index : (idx + usize(1))),
+      (tok.kind == TokenKind.Dot) => ParseResult(expr : Rc.new(AstExprNode.Atom(self.alloc_id(), tok)), index : (idx + usize(1))),
       (tok.kind == TokenKind.TemplateString) => self.parse_template_string(&tok, idx, exn),
       true => exn.throw(dyn(Box.new(make_parse_error(&tok, `unexpected token: ${tok.value.*}`))))
     )
@@ -1778,8 +1778,8 @@ impl(
     });
     primary_is_dot := match(
       primary_expr,
-      .Atom(_, pt) => (pt.kind == TokenKind.Dot),
-      .FnCall(_, _, _, _, _) => false
+      Rc(.Atom(_, pt)) => (pt.kind == TokenKind.Dot),
+      Rc(.FnCall(_, _, _, _, _)) => false
     );
     // Dot at start of new line (method chaining across lines)
     is_dot_at_line_start := cond(
@@ -1828,7 +1828,7 @@ impl(
         rhs_idx := rhs_pr.index;
         dot_fn_tok := cond(
           primary_is_dot =>
-            match(primary_expr, .Atom(_, pt) => pt.*, .FnCall(_, _, _, _, pt) => pt.*),
+            match(primary_expr, Rc(.Atom(_, pt)) => pt.*, Rc(.FnCall(_, _, _, _, pt)) => pt.*),
           true => dot_tok
         );
         // `.{ … }` — a prefix dot ADJACENT to a record brace group IS that
@@ -1853,7 +1853,7 @@ impl(
         // Accumulate further immediate dot-chains (no whitespace)
         (cur_expr : AstExpr) = cond(
           is_dot_record => rhs_expr,
-          true => .FnCall(self.alloc_id(), .Atom(self.alloc_id(), dot_fn_tok), Rc.new(init_args), init_infix, dot_fn_tok)
+          true => Rc.new(AstExprNode.FnCall(self.alloc_id(), Rc.new(AstExprNode.Atom(self.alloc_id(), dot_fn_tok)), Rc.new(init_args), init_infix, dot_fn_tok))
         );
         cur_idx := rhs_idx;
         while(true, {
@@ -1870,7 +1870,7 @@ impl(
               chain_args := ArrayList(AstExpr).with_capacity(usize(2));
               chain_args.push(cur_expr);
               chain_args.push(chain_pr.expr);
-              cur_expr = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), dot_tok), Rc.new(chain_args), true, dot_tok);
+              cur_expr = Rc.new(AstExprNode.FnCall(self.alloc_id(), Rc.new(AstExprNode.Atom(self.alloc_id(), dot_tok)), Rc.new(chain_args), true, dot_tok));
               cur_idx = chain_pr.index;
             }
           );
@@ -1892,15 +1892,15 @@ impl(
         // silently ACCEPTED chains that must be rejected.
         rhs_is_chained_op := match(
           rhs,
-          .FnCall(_, rfb, _, ris_infix, _) => cond(
+          Rc(.FnCall(_, rfb, _, ris_infix, _)) => cond(
             (ris_infix == false) => false,
             true => match(
               rfb,
-              .Atom(_, ft) => (ft.kind != TokenKind.Dot),
-              .FnCall(_, _, _, _, _) => false
+              Rc(.Atom(_, ft)) => (ft.kind != TokenKind.Dot),
+              Rc(.FnCall(_, _, _, _, _)) => false
             )
           ),
-          .Atom(_, _) => false
+          Rc(.Atom(_, _)) => false
         );
         rhs_is_parenthesized := self.is_parenthesized_expr(rhs_start, rhs_end - usize(1));
         if(rhs_is_chained_op && (rhs_is_parenthesized == false), {
@@ -1910,12 +1910,12 @@ impl(
           // layout no longer affects grouping).
           rhs_op_value := match(
             rhs,
-            .FnCall(_, rfb2, _, _, _) => match(
+            Rc(.FnCall(_, rfb2, _, _, _)) => match(
               rfb2,
-              .Atom(_, ft2) => ft2.value.*.clone(),
-              .FnCall(_, _, _, _, _) => String.from("")
+              Rc(.Atom(_, ft2)) => ft2.value.*.clone(),
+              Rc(.FnCall(_, _, _, _, _)) => String.from("")
             ),
-            .Atom(_, _) => String.from("")
+            Rc(.Atom(_, _)) => String.from("")
           );
           cond(
             (tok.value.* == rhs_op_value) =>
@@ -1945,7 +1945,7 @@ impl(
           rhs_args.push(rhs);
           recur(
             self,
-            .FnCall(self.alloc_id(), .Atom(self.alloc_id(), tok), Rc.new(rhs_args), true, tok),
+            Rc.new(AstExprNode.FnCall(self.alloc_id(), Rc.new(AstExprNode.Atom(self.alloc_id(), tok)), Rc.new(rhs_args), true, tok)),
             rhs_end,
             exn
           )
@@ -2085,8 +2085,8 @@ impl(
     rhs_fn_head := cond(
       (rhs_op.* == "->") => match(
         rhs,
-        .FnCall(_, _, Rc(rargs), _, _) => match(rargs.get(usize(0)), .Some(rl) => _e0003_fn_type_head(&rl), .None => String.new()),
-        .Atom(_, _) => String.new()
+        Rc(.FnCall(_, _, Rc(rargs), _, _)) => match(rargs.get(usize(0)), .Some(rl) => _e0003_fn_type_head(&rl), .None => String.new()),
+        Rc(.Atom(_, _)) => String.new()
       ),
       true => String.new()
     );
@@ -2169,8 +2169,8 @@ impl(
     );
     prim_is_op_atom := match(
       cur_expr,
-      .Atom(_, at) => _is_prefix_op_token(&at),
-      .FnCall(_, _, _, _, _) => false
+      Rc(.Atom(_, at)) => _is_prefix_op_token(&at),
+      Rc(.FnCall(_, _, _, _, _)) => false
     );
     if(started_at_op && prim_is_op_atom, {
       // A no-whitespace `(` is the operator-CALL form — the postfix loop
@@ -2182,11 +2182,11 @@ impl(
       );
       operand_at := self.skip_ws_fwd(cur_idx);
       if(!nxt_is_immediate_lparen && self.token_starts_prefix_operand(operand_at), {
-        op_tok := match(cur_expr, .Atom(_, at) => at, .FnCall(_, _, _, _, ft) => ft);
+        op_tok := match(cur_expr, Rc(.Atom(_, at)) => at, Rc(.FnCall(_, _, _, _, ft)) => ft);
         inner := self.parse_prefix_operand(cur_idx, exn);
         operand_args := ArrayList(AstExpr).with_capacity(usize(1));
         operand_args.push(inner.expr);
-        cur_expr = .FnCall(self.alloc_id(), cur_expr, Rc.new(operand_args), false, op_tok);
+        cur_expr = Rc.new(AstExprNode.FnCall(self.alloc_id(), cur_expr, Rc.new(operand_args), false, op_tok));
         cur_idx = inner.index;
       });
     });
@@ -2218,7 +2218,7 @@ impl(
           dot_args := ArrayList(AstExpr).with_capacity(usize(2));
           dot_args.push(cur_expr);
           dot_args.push(rhs_pr.expr);
-          cur_expr = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), t), Rc.new(dot_args), true, t);
+          cur_expr = Rc.new(AstExprNode.FnCall(self.alloc_id(), Rc.new(AstExprNode.Atom(self.alloc_id(), t)), Rc.new(dot_args), true, t));
           cur_idx = rhs_pr.index;
         },
         true => {
@@ -2246,8 +2246,8 @@ impl(
     );
     prim_is_op_atom := match(
       pr.expr,
-      .Atom(_, at) => _is_prefix_op_token(&at),
-      .FnCall(_, _, _, _, _) => false
+      Rc(.Atom(_, at)) => _is_prefix_op_token(&at),
+      Rc(.FnCall(_, _, _, _, _)) => false
     );
     if(started_at_op && prim_is_op_atom, {
       immediate_lparen := match(
@@ -2257,11 +2257,11 @@ impl(
       );
       operand_at := self.skip_ws_fwd(pr.index);
       if(!immediate_lparen && self.token_starts_prefix_operand(operand_at), {
-        op_tok := match(pr.expr, .Atom(_, at) => at, .FnCall(_, _, _, _, ft) => ft);
+        op_tok := match(pr.expr, Rc(.Atom(_, at)) => at, Rc(.FnCall(_, _, _, _, ft)) => ft);
         operand := self.parse_prefix_operand(pr.index, exn);
         operand_args := ArrayList(AstExpr).with_capacity(usize(1));
         operand_args.push(operand.expr);
-        (prefix_call : AstExpr) = .FnCall(self.alloc_id(), pr.expr, Rc.new(operand_args), false, op_tok);
+        (prefix_call : AstExpr) = Rc.new(AstExprNode.FnCall(self.alloc_id(), pr.expr, Rc.new(operand_args), false, op_tok));
         return(self.parse_primary_end(&prefix_call, operand.index, exn));
       });
     });
@@ -2307,7 +2307,7 @@ impl(
               module_path : Rc.clone(last_tok.module_path),
               input : Rc.clone(last_tok.input)
             );
-            exprs.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), unit_tok), Rc.new(ArrayList(AstExpr).new()), false, unit_tok));
+            exprs.push(Rc.new(AstExprNode.FnCall(self.alloc_id(), Rc.new(AstExprNode.Atom(self.alloc_id(), unit_tok)), Rc.new(ArrayList(AstExpr).new()), false, unit_tok)));
           });
         }
       );
@@ -2340,8 +2340,8 @@ impl(
   _brace_pass : (fn(self : &mut Self, e : &AstExpr, mode : u8, exn : Exception) -> Option(AstExpr))(
     match(
       e,
-      .Atom(_, _) => Option(AstExpr).None,
-      .FnCall(id, callee, Rc(args), is_infix, ftok) => {
+      Rc(.Atom(_, _)) => Option(AstExpr).None,
+      Rc(.FnCall(id, callee, Rc(args), is_infix, ftok)) => {
         binder := (mode == u8(1));
         if(!binder && self.bare_groups.contains_key(&id.*), {
           return(Option(AstExpr).Some(self._brace_group_as_block(id.*, args, ftok, exn)));
@@ -2362,7 +2362,7 @@ impl(
             )
           );
         });
-        head := match(callee, .Atom(_, ht) => ht.value.*.clone(), .FnCall(_, _, _, _, _) => String.new());
+        head := match(callee, Rc(.Atom(_, ht)) => ht.value.*.clone(), Rc(.FnCall(_, _, _, _, _)) => String.new());
         n := args.len();
         binds := ((mode == u8(0)) && ((head == ":=") || (head == "::") || (head == "=") || (head == "=>")) && (n == usize(2)));
         guard := (binder && (head == "&&") && (n == usize(2)));
@@ -2389,7 +2389,7 @@ impl(
             .None => new_args.push(a)
           );
         });
-        if(!changed, Option(AstExpr).None, Option(AstExpr).Some(.FnCall(id.*, match(new_callee, .Some(nc) => nc, .None => callee.clone()), Rc.new(new_args), is_infix.*, ftok.clone())))
+        if(!changed, Option(AstExpr).None, Option(AstExpr).Some(Rc.new(AstExprNode.FnCall(id.*, match(new_callee, .Some(nc) => nc, .None => callee.clone()), Rc.new(new_args), is_infix.*, ftok.clone()))))
       }
     )
   ),
@@ -2408,7 +2408,7 @@ impl(
     if(!had_comma && (args.len() == usize(1)), {
       match(
         &args(usize(0)),
-        .FnCall(_, .Atom(_, pc_tok), Rc(pargs), true, _) => if((pc_tok.value.* == ":") && (pc_tok.byte_offset == tok.byte_offset) && (pargs.len() == usize(2)) && ast_expr_is_atom(&pargs(usize(0))), {
+        Rc(.FnCall(_, Rc(.Atom(_, pc_tok)), Rc(pargs), true, _)) => if((pc_tok.value.* == ":") && (pc_tok.byte_offset == tok.byte_offset) && (pargs.len() == usize(2)) && ast_expr_is_atom(&pargs(usize(0))), {
           body.push(pargs(usize(0)).clone());
           note_brace_block(tok, ast_expr_token(&pargs(usize(0))).value.*.clone());
         }),
@@ -2419,7 +2419,7 @@ impl(
     if((body.len() == usize(0)) && !had_comma && (args.len() == usize(1)), {
       match(
         &args(usize(0)),
-        .Atom(_, dots_tok) => if(dots_tok.value.* == "...", {
+        Rc(.Atom(_, dots_tok)) => if(dots_tok.value.* == "...", {
           body.push(args(usize(0)).clone());
         }),
         _ => ()
@@ -2451,7 +2451,7 @@ impl(
       module_path : Rc.clone(tok.module_path),
       input : Rc.clone(tok.input)
     );
-    .FnCall(self.alloc_id(), .Atom(self.alloc_id(), begin_tok), Rc.new(body), false, begin_tok)
+    Rc.new(AstExprNode.FnCall(self.alloc_id(), Rc.new(AstExprNode.Atom(self.alloc_id(), begin_tok)), Rc.new(body), false, begin_tok))
   }),
   /// The parsed program WITHOUT the template auto-import that `get_program`
   /// prepends — what a sub-parse of ONE expression needs. A template
@@ -2486,17 +2486,17 @@ impl(
         module_path : Rc.clone(self.module_path),
         input : Rc.clone(self.input_string)
       );
-      (import_atom : AstExpr) = .Atom(self.alloc_id(), import_tok);
-      (str_atom : AstExpr) = .Atom(self.alloc_id(), str_tok);
+      (import_atom : AstExpr) = Rc.new(AstExprNode.Atom(self.alloc_id(), import_tok));
+      (str_atom : AstExpr) = Rc.new(AstExprNode.Atom(self.alloc_id(), str_tok));
       import_args := ArrayList(AstExpr).with_capacity(usize(1));
       import_args.push(str_atom);
-      (import_expr : AstExpr) = .FnCall(
+      (import_expr : AstExpr) = Rc.new(AstExprNode.FnCall(
         self.alloc_id(),
         import_atom,
         Rc.new(import_args),
         false,
         import_tok
-      );
+      ));
       result := ArrayList(AstExpr).new();
       result.push(import_expr);
       i := usize(0);

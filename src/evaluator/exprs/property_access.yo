@@ -7,7 +7,7 @@ pragma(Pragma.AllowUnsafe);
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 {
-  AstExpr,
+  AstExpr, AstExprNode,
   ast_expr_token,
   ast_expr_text,
   ast_expr_id,
@@ -280,8 +280,8 @@ make_deref_expr :: (fn(obj : &AstExpr, dot_tok : &Token, at : &Token) -> AstExpr
   note_synthesized_deref_star(star_id);
   args := ArrayList(AstExpr).new();
   args.push(obj.*);
-  args.push(AstExpr.Atom(star_id, star_tok));
-  AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), dot_tok.*), Rc.new(args), true, dot_tok.*)
+  args.push(Rc.new(AstExprNode.Atom(star_id, star_tok)));
+  Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), Rc.new(AstExprNode.Atom(alloc_global_expr_id(), dot_tok.*)), Rc.new(args), true, dot_tok.*))
 });
 /// Whether the `*` atom `star` of a `.*` is written (in the source, or in a
 /// batch the test runner printed from it as `.(*)`): the auto-deref hooks
@@ -525,7 +525,7 @@ evaluate_property_access :: (
     ast_rewritten_node(expr),
     // `r.*` on a reference binding (N1e-1) was rewritten to the name `r`
     // itself: a re-evaluation reads the name.
-    .Atom(rw_id, rw_tok) => evaluate_expression_raw(&AstExpr.Atom(rw_id, rw_tok), env_in, ctx, exn),
+    Rc(.Atom(rw_id, rw_tok)) => evaluate_expression_raw(&Rc.new(AstExprNode.Atom(rw_id, rw_tok)), env_in, ctx, exn),
     // `f(x).*` on a projection call was rewritten to the call: a
     // re-evaluation evaluates the call and keeps the `.*` node, a value.
     rw_node => if(ast_expr_is_fn_call_of(&rw_node, BF_DOT, Option(usize).None), _evaluate_property_access_node(&rw_node, env_in, ctx, exn), {
@@ -612,7 +612,7 @@ _evaluate_property_access_node :: (
   // -------------------------------------------------------------------------
   // Short-circuit: Type.<KindName> — kind-constraint syntactic sugar.
   // -------------------------------------------------------------------------
-  dot_args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
+  dot_args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
   if(dot_args.len() == usize(2), {
     obj_expr := match(dot_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     prop_expr := match(dot_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
@@ -642,8 +642,8 @@ _evaluate_property_access_node :: (
   if(ast_expr_is_fn_call_of(expr, BF_DOT, .Some(usize(1))), {
     all_args_1 := match(
       expr,
-      .FnCall(_, _, Rc(args), _, _) => args.clone(),
-      .Atom(_, _) => ArrayList(AstExpr).new()
+      Rc(.FnCall(_, _, Rc(args), _, _)) => args.clone(),
+      Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
     );
     prop_expr_1 := match(
       all_args_1.get(usize(0)),
@@ -808,8 +808,8 @@ _evaluate_property_access_node :: (
   });
   all_args := match(
     expr,
-    .FnCall(_, _, Rc(args), _, _) => args.clone(),
-    .Atom(_, _) => ArrayList(AstExpr).new()
+    Rc(.FnCall(_, _, Rc(args), _, _)) => args.clone(),
+    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
   );
   (object_expr : AstExpr) = match(
     all_args.get(usize(0)),
@@ -903,7 +903,7 @@ _evaluate_property_access_node :: (
           out_dd.set_variable_name(dd_oi.variable_name());
           out_dd.set_source_variable(dd_oi.source_variable());
           out_dd.set_path_collection(dd_oi.path_collection());
-          dd_atom := AstExpr.Atom(ast_expr_id(expr), ast_expr_token(&object_expr));
+          dd_atom := Rc.new(AstExprNode.Atom(ast_expr_id(expr), ast_expr_token(&object_expr)));
           note_rewritten_node(&dd_atom);
           note_dyn_place(ast_expr_id(expr));
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_dd);
@@ -980,7 +980,7 @@ _evaluate_property_access_node :: (
             out_rd.set_variable_name(rd_oi.variable_name());
             out_rd.set_source_variable(rd_oi.source_variable());
             out_rd.set_path_collection(rd_oi.path_collection());
-            rd_atom := AstExpr.Atom(ast_expr_id(expr), rd_tok);
+            rd_atom := Rc.new(AstExprNode.Atom(ast_expr_id(expr), rd_tok));
             note_rewritten_node(&rd_atom);
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_rd);
             // The caller keeps the node it is handed (an argument list, a
@@ -1001,14 +1001,14 @@ _evaluate_property_access_node :: (
     // referent itself, and its `.*` is the referent's own.
     rf_mode := match(
       &object_expr,
-      .FnCall(_, _, Rc(rfm_args), _, _) => match(rfm_args.get(usize(1)), .Some(rfm_l) => if(is_reference_deref_site(&ast_expr_token(&rfm_l)), Option(TypeValue).None, reference_field_read_type(ast_expr_id(&object_expr))), .None => Option(TypeValue).None),
-      .Atom(_, _) => Option(TypeValue).None
+      Rc(.FnCall(_, _, Rc(rfm_args), _, _)) => match(rfm_args.get(usize(1)), .Some(rfm_l) => if(is_reference_deref_site(&ast_expr_token(&rfm_l)), Option(TypeValue).None, reference_field_read_type(ast_expr_id(&object_expr))), .None => Option(TypeValue).None),
+      Rc(.Atom(_, _)) => Option(TypeValue).None
     );
     rf_spelled := (rf_mode.is_some() && deref_rule_applies(ast_expr_token(&property_expr), ctx));
     if(rf_spelled && _is_written_star(&property_expr), {
       match(
         &object_expr,
-        .FnCall(_, rf_f, Rc(rf_args), rf_infix, rf_tok) => {
+        Rc(.FnCall(_, rf_f, Rc(rf_args), rf_infix, rf_tok)) => {
           rf_obj := match(rf_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
           rf_label := match(rf_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
           rf_label_tok := ast_expr_token(&rf_label);
@@ -1026,8 +1026,8 @@ _evaluate_property_access_node :: (
           note_reference_deref_site(&rf_new_tok);
           rf_new_args := ArrayList(AstExpr).new();
           rf_new_args.push(rf_obj);
-          rf_new_args.push(AstExpr.Atom(ast_expr_id(&rf_label), rf_new_tok));
-          rf_node := AstExpr.FnCall(ast_expr_id(expr), rf_f.clone(), Rc.new(rf_new_args), rf_infix.*, rf_tok.clone());
+          rf_new_args.push(Rc.new(AstExprNode.Atom(ast_expr_id(&rf_label), rf_new_tok)));
+          rf_node := Rc.new(AstExprNode.FnCall(ast_expr_id(expr), rf_f.clone(), Rc.new(rf_new_args), rf_infix.*, rf_tok.clone()));
           note_rewritten_node(&rf_node);
           match(&rf_mode, .Some(rf_rt) => note_reference_field_read(ast_expr_id(expr), &rf_rt.*), .None => ());
           match(
@@ -1046,7 +1046,7 @@ _evaluate_property_access_node :: (
           );
           return(rf_node);
         },
-        .Atom(_, _) => ()
+        Rc(.Atom(_, _)) => ()
       );
     });
     // `f(x).*` on a projection CALL (decision 24: the call's result is a
@@ -1064,7 +1064,7 @@ _evaluate_property_access_node :: (
     // and `yo fix --migrate deref` does not rewrite
     // (issues/fixed/2026-11-05-dereferencing-a-projection-call-result-is-an-internal-error.md).
     pc_object_written := match(all_args.get(usize(0)), .Some(pc_ow) => pc_ow, .None => make_err_expr());
-    pc_object_is_deref := match(&pc_object_written, .FnCall(_, _, Rc(pc_ow_args), _, _) => (ast_expr_is_fn_call_of(&pc_object_written, BF_DOT, Option(usize).Some(usize(2))) && match(pc_ow_args.get(usize(1)), .Some(pc_ow_p) => ast_expr_is_atom_of(&pc_ow_p, "*"), .None => false)), .Atom(_, _) => false);
+    pc_object_is_deref := match(&pc_object_written, Rc(.FnCall(_, _, Rc(pc_ow_args), _, _)) => (ast_expr_is_fn_call_of(&pc_object_written, BF_DOT, Option(usize).Some(usize(2))) && match(pc_ow_args.get(usize(1)), .Some(pc_ow_p) => ast_expr_is_atom_of(&pc_ow_p, "*"), .None => false)), Rc(.Atom(_, _)) => false);
     if(!pc_object_is_deref && _is_written_star(&property_expr) && projection_call_mode_of(&object_expr, ctx).is_some() && match(&obj_ty_deref, .Some(pc_referent) => (deref_rule_applies(ast_expr_token(&property_expr), ctx) && !deref_reads_through_pointee(&pc_referent.*)), .None => false), {
       note_projection_call_deref(expr, &object_expr, &env, ctx);
       // The caller keeps the `.*` node: a read of the referent, a value, so
@@ -1081,7 +1081,7 @@ _evaluate_property_access_node :: (
     // place it yields already.
     // R-PROBE's deref step on a reference-valued receiver synthesizes the
     // outer star of `r.*.*` (`_find_receiver_method_of`): a deref of a deref.
-    rr_deref_of_deref := (ast_expr_is_fn_call_of(&object_expr, BF_DOT, Option(usize).Some(usize(2))) && match(&object_expr, .FnCall(_, _, Rc(dd_args), _, _) => match(dd_args.get(usize(1)), .Some(dd_p) => ast_expr_is_atom_of(&dd_p, "*"), .None => false), .Atom(_, _) => false));
+    rr_deref_of_deref := (ast_expr_is_fn_call_of(&object_expr, BF_DOT, Option(usize).Some(usize(2))) && match(&object_expr, Rc(.FnCall(_, _, Rc(dd_args), _, _)) => match(dd_args.get(usize(1)), .Some(dd_p) => ast_expr_is_atom_of(&dd_p, "*"), .None => false), Rc(.Atom(_, _)) => false));
     if((_is_written_star(&property_expr) || rr_deref_of_deref) && (ast_expr_is_atom(&object_expr) || ast_expr_is_fn_call_of(&object_expr, BF_DOT, Option(usize).Some(usize(2)))), {
       match(
         &obj_ty_deref,
@@ -2424,7 +2424,7 @@ Raw pointer operations may dereference invalid memory.`
                   pa_deref_args := ArrayList(AstExpr).new();
                   pa_deref_args.push(make_deref_expr(&orig_obj, ast_expr_token(expr), ast_expr_token(&property_expr)));
                   pa_deref_args.push(property_expr.clone());
-                  pa_rewritten := match(expr, .FnCall(pa_id, pa_f, _, pa_infix, pa_tok) => AstExpr.FnCall(pa_id.*, pa_f.*, Rc.new(pa_deref_args), pa_infix.*, pa_tok.*), .Atom(_, _) => expr.clone());
+                  pa_rewritten := match(expr, Rc(.FnCall(pa_id, pa_f, _, pa_infix, pa_tok)) => Rc.new(AstExprNode.FnCall(pa_id.*, pa_f.*, Rc.new(pa_deref_args), pa_infix.*, pa_tok.*)), Rc(.Atom(_, _)) => expr.clone());
                   note_rewritten_node(&pa_rewritten);
                   obj_id := ast_expr_id(&orig_obj);
                   mark_node_preevaluated(obj_id);
