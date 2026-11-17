@@ -636,26 +636,36 @@ update_type_trait_method_entry :: (
     true => _type_trait_methods.with_mut({ take_key }(m) => m.remove(&take_key))
   );
   list := match(src, .Some(l) => l, .None => ArrayList(MethodEntry).new());
-  ty_own := Rc.clone(&ty.*);
+  // Rebuilt element-wise, not through `ArrayList.with`: its callback is
+  // `FnOnce`, so it OWNS every capture, while this loop only re-reads its
+  // `&` parameters per element — a `get_cloned` copy (MethodEntry is Clone)
+  // modified and pushed keeps the reads where they are.
+  rebuilt := ArrayList(MethodEntry).new();
   (i : usize) = usize(0);
   while(i < list.len(), {
-    list.with(i, entry => {
-      entry_fid := match(entry.value, .Some(ev) => match(ev, .FuncVal(fd, _) => fd.*.func_id.clone(), _ => String.new()), .None => String.new());
-      if((entry_fid.len() > usize(0)) && (entry_fid == match_fid.*), {
-        entry.ty = Rc.clone(&ty_own);
-        entry.value = Option(EvalValue).Some(value.*);
-        if(source_trait_id.len() > usize(0), {
-          entry.source_trait_id = source_trait_id.clone();
+    match(
+      list.get_cloned(i),
+      .Some(entry0) => {
+        mut(entry) := entry0;
+        entry_fid := match(entry.value, .Some(ev) => match(ev, .FuncVal(fd, _) => fd.*.func_id.clone(), _ => String.new()), .None => String.new());
+        if((entry_fid.len() > usize(0)) && (entry_fid == match_fid.*), {
+          entry.ty = Rc.clone(ty);
+          entry.value = Option(EvalValue).Some(value.*);
+          if(source_trait_id.len() > usize(0), {
+            entry.source_trait_id = source_trait_id.clone();
+          });
+          updated = true;
         });
-        updated = true;
-      });
-    });
+        rebuilt.push(entry);
+      },
+      .None => ()
+    );
     i = (i + usize(1));
   });
   put_key := type_id.clone();
   cond(
-    registry_provisional => _provisional_trait_methods.with_mut({ put_key, list }(m) => m.insert(put_key, list)),
-    true => _type_trait_methods.with_mut({ put_key, list }(m) => m.insert(put_key, list))
+    registry_provisional => _provisional_trait_methods.with_mut({ put_key, rebuilt : rebuilt.clone() }(m) => m.insert(put_key, rebuilt.clone())),
+    true => _type_trait_methods.with_mut({ put_key, rebuilt : rebuilt.clone() }(m) => m.insert(put_key, rebuilt.clone()))
   );
   updated
 });
@@ -670,7 +680,7 @@ get_provisional_trait_methods_by_name :: (
       (i : usize) = usize(0);
       while(i < n, {
         match(
-          all.get(i),
+          all.get_cloned(i),
           .Some(entry) => {
             if(entry.label == method_name.*, {
               result.push(entry);
@@ -699,7 +709,7 @@ get_type_trait_methods_by_name :: (
   (i : usize) = usize(0);
   while(i < n, {
     match(
-      all.get(i),
+      all.get_cloned(i),
       .Some(entry) => {
         if(entry.label == method_name.*, {
           result.push(entry);
@@ -730,7 +740,7 @@ get_visible_type_trait_methods_by_name :: (
   (i : usize) = usize(0);
   while(i < n, {
     match(
-      all.get(i),
+      all.get_cloned(i),
       .Some(entry) => if(owner_visible_from_current(entry.owner.clone()), {
         result.push(entry);
       }),
@@ -746,7 +756,7 @@ get_visible_type_trait_methods_by_name :: (
     (oi : usize) = usize(0);
     while(oi < n, {
       match(
-        all.get(oi),
+        all.get_cloned(oi),
         .Some(e) => eprintln(`[visibility] ${cur_owner} cannot see .${method_name} registered by ${e.owner}`),
         .None => ()
       );
@@ -1117,7 +1127,7 @@ find_associated_const_usize :: (
   n := entries.len();
   while(i < n, {
     match(
-      entries.get(i),
+      entries.get_cloned(i),
       .Some(e) => if(e.label == label.*, {
         match(
           e.value,
