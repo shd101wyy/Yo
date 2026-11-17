@@ -1877,8 +1877,11 @@ evaluate_match :: (
       // the `&` for those nested matches now: when the nested match is
       // evaluated the binding reads as a borrow (this match borrowed),
       // and the site would be invisible.
+      // A match through a reference binding (`match(r, …)`, deref flip)
+      // binds references, never owned values: nothing to record.
       if(migrate_rc_clone_on() && !consuming && !mut_places && !ct_known
       && (borrowed_match_scrutinee_kind(ast_expr_token(expr)) == u8(0))
+      && !_scrutinee_is_reference_binding(&scrutinee_expr, &env)
       && type_holds_counted_handle_ignoring_migration(&scr_info.ty())
       && type_holds_counted_handle_ignoring_migration(&b.ty)
       && !_names_contain(&rc_cell_borrowed, b.name.clone())
