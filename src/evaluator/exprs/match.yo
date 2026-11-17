@@ -2292,13 +2292,16 @@ evaluate_match :: (
           // already carry the test expansions recorded in the arm loop).
           (fi3 : usize) = usize(0);
           while(fi3 < arms.len(), {
-            arms.with(fi3, fa => match(
-              &fa.pattern,
-              .Variant(_, fidx, _, _, _, _, _) => if(fidx.* == target_idx, {
-                fa.classic = false;
-              }),
-              _ => ()
-            ));
+            arms.with(
+              fi3,
+              fa => match(
+                &fa.pattern,
+                .Variant(_, fidx, _, _, _, _, _) => if(fidx.* == target_idx, {
+                  fa.classic = false;
+                }),
+                _ => ()
+              )
+            );
             fi3 = (fi3 + usize(1));
           });
           all_classic = false;

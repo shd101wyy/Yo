@@ -3608,45 +3608,43 @@ type_head_name_for_impl_forcing :: (fn(ty : &TypeValue) -> String)({
 ImplFieldState :: enum(Unforced, Forcing, Done, Failed);
 derive(ImplFieldState, Copy, Clone);
 ImplPendingField :: struct(
-    label : String,
-    /// The `name : value` colon pair.
-    colon_expr : AstExpr,
-    /// Index of the impl argument this field belongs to — the field's own
-    /// index for a direct field, the trait constructor's for an inner one.
-    top_index : usize,
-    is_inner : bool,
-    state : ImplFieldState,
-    failure : Option(String),
-    /// The forcing-stack entry (phase-A publication target).
-    def : PendingDef,
-    /// Case 2 results, pushed into the impl's field arrays IN SOURCE ORDER by
-    /// the field loop whether the field was forced early or evaluated in place.
-    result_ty : Option(TypeValue),
-    result_value : Option(EvalValue),
-    /// True once a phase-A entry for this field is in the method registry
-    /// (the completing evaluation then updates that entry in place).
-    phase_a_registered : bool
-  )
+  label : String,
+  /// The `name : value` colon pair.
+  colon_expr : AstExpr,
+  /// Index of the impl argument this field belongs to — the field's own
+  /// index for a direct field, the trait constructor's for an inner one.
+  top_index : usize,
+  is_inner : bool,
+  state : ImplFieldState,
+  failure : Option(String),
+  /// The forcing-stack entry (phase-A publication target).
+  def : PendingDef,
+  /// Case 2 results, pushed into the impl's field arrays IN SOURCE ORDER by
+  /// the field loop whether the field was forced early or evaluated in place.
+  result_ty : Option(TypeValue),
+  result_value : Option(EvalValue),
+  /// True once a phase-A entry for this field is in the method registry
+  /// (the completing evaluation then updates that entry in place).
+  phase_a_registered : bool
 );
 ImplInFlight :: struct(
-    recv_id : String,
-    is_generic : bool,
-    receiver_ty : TypeValue,
-    receiver_name : String,
-    /// The impl's live env (Case 3 `local_env` / Case 2 `forall_env`); the loops
-    /// sync it in and out around each field so a force sees the env at the
-    /// current position.
-    env : Environment,
-    ctx : EvalContext,
-    fields : ArrayList(ImplPendingField),
-    /// The impl argument the field loop is on, and — inside a trait
-    /// constructor — that trait's type. An inner field is forcible only from
-    /// within its OWN trait entry (its expected type and working bindings
-    /// belong to that entry).
-    current_top_index : usize,
-    current_trait_ty : Option(TypeValue),
-    forall_names : ArrayList(String)
-  )
+  recv_id : String,
+  is_generic : bool,
+  receiver_ty : TypeValue,
+  receiver_name : String,
+  /// The impl's live env (Case 3 `local_env` / Case 2 `forall_env`); the loops
+  /// sync it in and out around each field so a force sees the env at the
+  /// current position.
+  env : Environment,
+  ctx : EvalContext,
+  fields : ArrayList(ImplPendingField),
+  /// The impl argument the field loop is on, and — inside a trait
+  /// constructor — that trait's type. An inner field is forcible only from
+  /// within its OWN trait entry (its expected type and working bindings
+  /// belong to that entry).
+  current_top_index : usize,
+  current_trait_ty : Option(TypeValue),
+  forall_names : ArrayList(String)
 );
 (g_impls_in_flight : RefCell(ArrayList(ImplInFlight))) = RefCell(ArrayList(ImplInFlight)).new(ArrayList(ImplInFlight).new());
 push_impl_in_flight :: (fn(rec : &ImplInFlight) -> unit)({

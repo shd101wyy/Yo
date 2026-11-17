@@ -21,40 +21,39 @@ pragma(Pragma.AllowUnsafe);
 // ============================================================================
 /// A VC sort. The verifiable subset starts at `bool` and exact-width
 /// bitvectors (the plan's sorts table); datatypes/arrays/Seq join in V3–V5.
-VcSort :: ref(
-  enum(
-    /// SMT `Bool`.
-    BoolS,
-    /// SMT `(_ BitVec <width>)` — widths 8/16/32/64 (and the target's usize).
-    BvS(width : usize),
-    /// A DECLARED DATATYPE sort (V3: value enums). The name is the
-    /// sanitized datatype name; the `(declare-datatypes ...)` block rides
-    /// `VcQuery.datatypes` (rendered once, before the constants).
-    DataS(name : String),
-    /// SMT `(Seq <elem>)` — z3's built-in sequences (V5 task 5: the
-    /// `std/spec` ghost collections' element carrier; also `str` content
-    /// as `Seq (_ BitVec 8)`).
-    SeqS(elem : Self),
-    /// SMT `(Array <domain> <range>)` — Set(T) is `Array T Bool` (membership),
-    /// Multiset(T) is `Array T (_ BitVec 64)` (element → count; 64-bit so
-    /// counts never wrap in any realistic spec).
-    FunS(domain : Self, range : Self),
-    /// SMT `(Array (_ BitVec 64) <elem>)` — a fixed-length `Array(T, N)`
-    /// value (V5 task 6). The SMT sort ignores `len` (SMT arrays are
-    /// unbounded); `len` is the compile-time element count the WALK uses
-    /// for index-bounds obligations and `ms_of` folding.
-    ArrS(elem : Self, len : usize),
-    /// V6 task 2 (FORMAL_VERIFICATION.md §680): an UNINTERPRETED sort —
-    /// the placeholder for a generic type parameter in an abstractly
-    /// verified body. Values of the sort support only equality and
-    /// pass-through; every other operation is a loud subset failure
-    /// (task 2's "type variables used opaquely" scope). The name is the
-    /// mangled SomeT identity, declared once per query via
-    /// `VcQuery.sorts` (`(declare-sort <name> 0)`).
-    Uninterpreted(name : String)
-  )
+VcSortE :: enum(
+  /// SMT `Bool`.
+  BoolS,
+  /// SMT `(_ BitVec <width>)` — widths 8/16/32/64 (and the target's usize).
+  BvS(width : usize),
+  /// A DECLARED DATATYPE sort (V3: value enums). The name is the
+  /// sanitized datatype name; the `(declare-datatypes ...)` block rides
+  /// `VcQuery.datatypes` (rendered once, before the constants).
+  DataS(name : String),
+  /// SMT `(Seq <elem>)` — z3's built-in sequences (V5 task 5: the
+  /// `std/spec` ghost collections' element carrier; also `str` content
+  /// as `Seq (_ BitVec 8)`).
+  SeqS(elem : VcSort),
+  /// SMT `(Array <domain> <range>)` — Set(T) is `Array T Bool` (membership),
+  /// Multiset(T) is `Array T (_ BitVec 64)` (element → count; 64-bit so
+  /// counts never wrap in any realistic spec).
+  FunS(domain : VcSort, range : VcSort),
+  /// SMT `(Array (_ BitVec 64) <elem>)` — a fixed-length `Array(T, N)`
+  /// value (V5 task 6). The SMT sort ignores `len` (SMT arrays are
+  /// unbounded); `len` is the compile-time element count the WALK uses
+  /// for index-bounds obligations and `ms_of` folding.
+  ArrS(elem : VcSort, len : usize),
+  /// V6 task 2 (FORMAL_VERIFICATION.md §680): an UNINTERPRETED sort —
+  /// the placeholder for a generic type parameter in an abstractly
+  /// verified body. Values of the sort support only equality and
+  /// pass-through; every other operation is a loud subset failure
+  /// (task 2's "type variables used opaquely" scope). The name is the
+  /// mangled SomeT identity, declared once per query via
+  /// `VcQuery.sorts` (`(declare-sort <name> 0)`).
+  Uninterpreted(name : String)
 );
-impl(VcSort, Clone(clone : (fn(self : &Self) -> Self)(self.*)));
+VcSort :: Rc(VcSortE);
+impl(VcSort, Clone(clone : (fn(self : &Self) -> Self)(Rc.clone(self.*))));
 derive(VcSort, Eq(VcSort));
 // A VcSort has no back edges. Its only children are `Self`
 // payloads (`SeqS`, `FunS`, `ArrS`), and it holds no list or cell. The

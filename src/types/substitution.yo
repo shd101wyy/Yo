@@ -20,49 +20,48 @@ pragma(Pragma.AllowUnsafe);
 // Substitution map — parallel arrays for (name, level) → TypeValue.
 // ---------------------------------------------------------------------------
 Substitution :: struct(
-    names : ArrayList(String),
-    levels : ArrayList(usize),
-    types : ArrayList(TypeValue),
-    // Trait `id`s currently being recursed into by `substitute`. Guards against
-    // infinite recursion on self-referential trait types — e.g. `Error`, whose
-    // `source` method returns `Option(Dyn(SelfTrait))`, forms a cyclic
-    // `DynT → TraitT → … → DynT` TypeValue graph. The set is fresh per
-    // top-level `substitute` (created by `subst_new`); once a trait id is
-    // recorded, `substitute` returns that TraitT unchanged rather than
-    // re-descending into its (already-bound) method types.
-    visited_trait_ids : ArrayList(String),
-    /// A `Self → concreteType` binding applied by
-    /// this same walk. 0 or 1 element each; empty = no Self binding.
-    self_from : ArrayList(TypeValue),
-    self_to : ArrayList(TypeValue),
-    /// VALUE-level bindings for const-generic array lengths — the `N` of
-    /// `impl(generic(T : Type, N : usize), Array(T, N), ...)`. A length var is
-    /// NOT a `SomeT`: `TypeValue.Array` stores it as the plain string
-    /// `length_var` (types/definitions.yo:155), so the name/level map above can
-    /// never reach it and `Array(T, N)` survived substitution as
-    /// `Array(u16, length = 0, length_var = "N")` — a type with no valid C
-    /// rendering, which codegen spells as the comment `// Unknown type: ...`.
-    /// Parallel arrays, name → concrete length.
-    len_var_names : ArrayList(String),
-    len_var_values : ArrayList(usize),
-    /// SomeT ids whose OWN resolution (`SomeT.resolution`) this walk
-    /// adopts: each occurrence that carries a resolution is replaced by it,
-    /// and an occurrence without one is left to the (name, level) entries.
-    /// Never a (name, level) entry of its own: two SomeTs often share one —
-    /// `map`'s and `filter`'s `F`, or two calls of `map` in one chain, whose
-    /// copies even share an id — and a name-keyed entry for one rewrote the
-    /// others (`ch.map(f).filter(g)` built `StreamFilter(_, <f's capture>)`).
-    own_resolution_ids : ArrayList(String),
-    /// Struct and enum nodes this walk already substituted, sorted by
-    /// address (`node_memo_from`, searched with `__yo_ptr_lt`), and their
-    /// results (`node_memo_to`). A TypeValue is a shared DAG and the walk was
-    /// a tree walk: two calls in one `check src/main.yo` re-substituted a
-    /// 36 KB-key type through 4.46 M nodes each (interning every one), ~16 s
-    /// (issues/fixed/substitute-walks-a-shared-type-as-a-tree.md). Per
-    /// object: a masked or length-stripped copy starts its own.
-    node_memo_from : ArrayList(TypeValue),
-    node_memo_to : ArrayList(TypeValue)
-  )
+  names : ArrayList(String),
+  levels : ArrayList(usize),
+  types : ArrayList(TypeValue),
+  // Trait `id`s currently being recursed into by `substitute`. Guards against
+  // infinite recursion on self-referential trait types — e.g. `Error`, whose
+  // `source` method returns `Option(Dyn(SelfTrait))`, forms a cyclic
+  // `DynT → TraitT → … → DynT` TypeValue graph. The set is fresh per
+  // top-level `substitute` (created by `subst_new`); once a trait id is
+  // recorded, `substitute` returns that TraitT unchanged rather than
+  // re-descending into its (already-bound) method types.
+  visited_trait_ids : ArrayList(String),
+  /// A `Self → concreteType` binding applied by
+  /// this same walk. 0 or 1 element each; empty = no Self binding.
+  self_from : ArrayList(TypeValue),
+  self_to : ArrayList(TypeValue),
+  /// VALUE-level bindings for const-generic array lengths — the `N` of
+  /// `impl(generic(T : Type, N : usize), Array(T, N), ...)`. A length var is
+  /// NOT a `SomeT`: `TypeValue.Array` stores it as the plain string
+  /// `length_var` (types/definitions.yo:155), so the name/level map above can
+  /// never reach it and `Array(T, N)` survived substitution as
+  /// `Array(u16, length = 0, length_var = "N")` — a type with no valid C
+  /// rendering, which codegen spells as the comment `// Unknown type: ...`.
+  /// Parallel arrays, name → concrete length.
+  len_var_names : ArrayList(String),
+  len_var_values : ArrayList(usize),
+  /// SomeT ids whose OWN resolution (`SomeT.resolution`) this walk
+  /// adopts: each occurrence that carries a resolution is replaced by it,
+  /// and an occurrence without one is left to the (name, level) entries.
+  /// Never a (name, level) entry of its own: two SomeTs often share one —
+  /// `map`'s and `filter`'s `F`, or two calls of `map` in one chain, whose
+  /// copies even share an id — and a name-keyed entry for one rewrote the
+  /// others (`ch.map(f).filter(g)` built `StreamFilter(_, <f's capture>)`).
+  own_resolution_ids : ArrayList(String),
+  /// Struct and enum nodes this walk already substituted, sorted by
+  /// address (`node_memo_from`, searched with `__yo_ptr_lt`), and their
+  /// results (`node_memo_to`). A TypeValue is a shared DAG and the walk was
+  /// a tree walk: two calls in one `check src/main.yo` re-substituted a
+  /// 36 KB-key type through 4.46 M nodes each (interning every one), ~16 s
+  /// (issues/fixed/substitute-walks-a-shared-type-as-a-tree.md). Per
+  /// object: a masked or length-stripped copy starts its own.
+  node_memo_from : ArrayList(TypeValue),
+  node_memo_to : ArrayList(TypeValue)
 );
 /// Create an empty substitution.
 subst_new :: (fn() -> Substitution)(

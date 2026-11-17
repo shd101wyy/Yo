@@ -6445,52 +6445,51 @@ _untracked_inout_borrowers :: (fn(bs : &ArrayList(Variable)) -> ArrayList(Variab
 /// below is its consumer.
 /// One local borrow in scope: `y := &place` or `y := &mut place`.
 LocalBorrowInfo :: struct(
-    name : String,
-    /// The binding's name token: the borrow variable's identity.
-    decl : Token,
-    /// The access tokens after this one (to `end`) are in the live range.
-    /// `decl`, except for a borrow a macro expansion declares in its own
-    /// template code: there it is the macro call's first token
-    /// (`local_borrow_enter_macro_site`).
-    start : Token,
-    /// The macro call whose expansion declared this borrow in its template
-    /// code (so `decl` is in the macro's module), for the E0911 message.
-    macro_site : Option(Token),
-    is_mut : bool,
-    /// The declared place, then the places re-points went through. The
-    /// declared place stays frozen for the whole live range (decision 25),
-    /// and the set is the union over every re-point (decision 38 A).
-    places : ArrayList(LocalBorrowPlace),
-    /// The last mention of the borrow in its block.
-    last_use : Token,
-    /// The end of the live range: the innermost statement holding the last
-    /// mention that is not a block or a branch (a whole loop, call or
-    /// assignment), so a back edge and a call that receives the borrow keep
-    /// it live. An access in `(decl, end]` conflicts.
-    end : Token,
-    /// The borrows this one is rooted at, nearest first. Each stays live as
-    /// long as this one (decision 38 A, transitive freezes).
-    parents : ArrayList(Self),
-    /// The declaration or a re-point passes through a reference cell.
-    crosses_cell : bool,
-    /// The declaration roots at a module-level place.
-    module_root : bool,
-    /// The hidden owning local that holds the cell a re-point stepped into
-    /// (decision 25), when the block re-points this borrow.
-    step_pin : Option(Variable),
-    /// A projection result bound with an ELIDED result origin over several
-    /// arguments (O2's union; decision 43 step 2, N1c): what the E0911 note
-    /// names when one of those arguments is accessed.
-    (elided_origin : Option(LocalBorrowElidedOrigin)) ?= Option(LocalBorrowElidedOrigin).None,
-    /// A join entry's GEN (cluster 4, `local_borrow_flow_region_begin`): the
-    /// flow sequence number it took, the exit count when it was made, and the
-    /// store. A KILL removes only the entries every path to it passed through
-    /// (`local_borrow_joins_clear`); the loop's back-edge check reads the
-    /// store. Zero and `.None` for a binding's own record.
-    (gen_seq : usize) ?= usize(0),
-    (gen_exits : usize) ?= usize(0),
-    (gen_tok : Option(Token)) ?= Option(Token).None
-  )
+  name : String,
+  /// The binding's name token: the borrow variable's identity.
+  decl : Token,
+  /// The access tokens after this one (to `end`) are in the live range.
+  /// `decl`, except for a borrow a macro expansion declares in its own
+  /// template code: there it is the macro call's first token
+  /// (`local_borrow_enter_macro_site`).
+  start : Token,
+  /// The macro call whose expansion declared this borrow in its template
+  /// code (so `decl` is in the macro's module), for the E0911 message.
+  macro_site : Option(Token),
+  is_mut : bool,
+  /// The declared place, then the places re-points went through. The
+  /// declared place stays frozen for the whole live range (decision 25),
+  /// and the set is the union over every re-point (decision 38 A).
+  places : ArrayList(LocalBorrowPlace),
+  /// The last mention of the borrow in its block.
+  last_use : Token,
+  /// The end of the live range: the innermost statement holding the last
+  /// mention that is not a block or a branch (a whole loop, call or
+  /// assignment), so a back edge and a call that receives the borrow keep
+  /// it live. An access in `(decl, end]` conflicts.
+  end : Token,
+  /// The borrows this one is rooted at, nearest first. Each stays live as
+  /// long as this one (decision 38 A, transitive freezes).
+  parents : ArrayList(Self),
+  /// The declaration or a re-point passes through a reference cell.
+  crosses_cell : bool,
+  /// The declaration roots at a module-level place.
+  module_root : bool,
+  /// The hidden owning local that holds the cell a re-point stepped into
+  /// (decision 25), when the block re-points this borrow.
+  step_pin : Option(Variable),
+  /// A projection result bound with an ELIDED result origin over several
+  /// arguments (O2's union; decision 43 step 2, N1c): what the E0911 note
+  /// names when one of those arguments is accessed.
+  (elided_origin : Option(LocalBorrowElidedOrigin)) ?= Option(LocalBorrowElidedOrigin).None,
+  /// A join entry's GEN (cluster 4, `local_borrow_flow_region_begin`): the
+  /// flow sequence number it took, the exit count when it was made, and the
+  /// store. A KILL removes only the entries every path to it passed through
+  /// (`local_borrow_joins_clear`); the loop's back-edge check reads the
+  /// store. Zero and `.None` for a binding's own record.
+  (gen_seq : usize) ?= usize(0),
+  (gen_exits : usize) ?= usize(0),
+  (gen_tok : Option(Token)) ?= Option(Token).None
 );
 /// The call a projection-result borrow came from and the parameters its
 /// elided result origin borrows, each with the root its argument lends.
@@ -8754,8 +8753,20 @@ local_borrow_register :: (
             while(xi < xs.len(), {
               xs.with(xi, info => {
                 if(_lb_same_decl(info.name.clone(), &info.decl, p.name.clone(), &p.decl), {
-                  match(extend_end, .Some(ne) => info.end = Rc.clone(ne), .None => ());
-                  match(extend_last_use, .Some(nl) => info.last_use = Rc.clone(nl), .None => ());
+                  match(
+                    extend_end,
+                    .Some(ne) => {
+                      info.end = Rc.clone(ne);
+                    },
+                    .None => ()
+                  );
+                  match(
+                    extend_last_use,
+                    .Some(nl) => {
+                      info.last_use = Rc.clone(nl);
+                    },
+                    .None => ()
+                  );
                 });
               });
               xi = (xi + usize(1));

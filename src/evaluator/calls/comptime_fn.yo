@@ -718,24 +718,27 @@ evaluate_comptime_fn_call :: (
         (us_i : usize) = usize(0);
         while(us_i < us_pts.len(), us_i = (us_i + usize(1)), {
           if(match(us_pts.get(us_i), .Some(us_pt) => is_type_0(&t_slot_pointee(&us_pt)), .None => false), {
-            arg_values.args.with(us_i, us_a => match(
-              us_a.value,
-              .Some(.TypeVal(us_t)) => cond(
-                // The legacy value `str` (decision 49,
-                // `unsized_legacy_spellings`): `ArrayList(str)` is
-                // `ArrayList(&(str, static))`.
-                is_legacy_value_str(&us_t) => {
-                  note_legacy_str_type_arg(&us_callee.*, us_i, &ctx.std_path);
-                  us_a.value = Option(EvalValue).Some(EvalValue.TypeVal(legacy_value_str(&us_t)));
-                },
-                !type_is_sized(&us_t) => {
-                  us_label := match(us_meta.param_labels.get(us_i), .Some(l) => l, .None => String.from("V"));
-                  exn.throw(dyn(Box.new(unsized_by_value_error(&us_t, &`\`${ast_expr_to_string(&us_callee.*)}\`'s type parameter \`${us_label}\``, &Option(String).Some(us_label.clone()), &ast_expr_token(&us_callee.*)))));
-                },
-                true => ()
-              ),
-              _ => ()
-            ));
+            arg_values.args.with(
+              us_i,
+              us_a => match(
+                us_a.value,
+                .Some(.TypeVal(us_t)) => cond(
+                  // The legacy value `str` (decision 49,
+                  // `unsized_legacy_spellings`): `ArrayList(str)` is
+                  // `ArrayList(&(str, static))`.
+                  is_legacy_value_str(&us_t) => {
+                    note_legacy_str_type_arg(&us_callee.*, us_i, &ctx.std_path);
+                    us_a.value = Option(EvalValue).Some(EvalValue.TypeVal(legacy_value_str(&us_t)));
+                  },
+                  !type_is_sized(&us_t) => {
+                    us_label := match(us_meta.param_labels.get(us_i), .Some(l) => l, .None => String.from("V"));
+                    exn.throw(dyn(Box.new(unsized_by_value_error(&us_t, &`\`${ast_expr_to_string(&us_callee.*)}\`'s type parameter \`${us_label}\``, &Option(String).Some(us_label.clone()), &ast_expr_token(&us_callee.*)))));
+                  },
+                  true => ()
+                ),
+                _ => ()
+              )
+            );
           });
         });
       },
