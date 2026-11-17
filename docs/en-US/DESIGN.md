@@ -1211,7 +1211,7 @@ no tail-call optimization is applied.
 
 ### Shared Cells and Memory Management
 
-Yo uses **reference-counted cells** (`Rc`, `Arc`) with [Compile-time Reference Counting with Ownership and Lifetime Analysis](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md) for safe and efficient memory management.
+Yo uses **reference-counted cells** (`Rc`, `Arc`) with [reference counting in the generated C](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md) for safe and efficient memory management.
 
 #### Reference-Counted Cells
 
@@ -1235,7 +1235,7 @@ s2 := Rc.clone(s1); // RC = 2 (both handles point to the same cell)
 s3 := Rc.clone(s2); // RC = 3
 // When s1, s2, s3 go out of scope, RC decrements
 // When RC reaches 0, the payload's `drop` runs and the cell is freed
-// In practice, we eliminate many RC operations via ownership analysis
+// In practice, the dup/drop pair optimizer eliminates many of these operations
 ```
 
 #### Replacing a `ref` declaration
@@ -1265,9 +1265,9 @@ std's former `ref` types show the method shapes. Each method has exactly one:
 
 #### Compile-Time Reference Counting Optimization
 
-The compiler performs [ownership analysis](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md) to eliminate unnecessary reference counting operations.
+The compiler cancels paired reference-count operations at compile time, so a value moved at its last use carries no count traffic.
 
-See [COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md) for details.
+See [COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md) for what the generated C contains and which operations the optimizer removes.
 
 #### Explicit Allocators
 
@@ -3647,13 +3647,15 @@ payload: `w.field` means `w.*.field` and `w.method()` means `w.*.method()`.
 
 ```yo
 Point :: struct(x : i32, y : i32);
-impl(Point, norm1 : (fn(self : Self) -> i32)(self.x + self.y));
+impl(Point, norm1 : (fn(self : &Self) -> i32)(self.x + self.y));
 p := Rc.new(Point(x : 3, y : 4));
 assert(p.x == 3); // p.*.x
-p.x = 5; // a place: writes p.*.x
-assert(p.norm1() == 9); // p.*.norm1()
+assert(p.norm1() == 7); // p.*.norm1()
 pp := Rc.new(Rc.new(Point(x : 1, y : 2)));
 assert(pp.y == 2); // nested wrappers: pp.*.*.y
+mut(b) := Box.new(Point(x : 3, y : 4));
+b.x = 5; // a place: writes b.*.x — only Box has DerefMut
+assert(b.norm1() == 9);
 ```
 
 - **A name both have is an error (E0616).** `Point` derives `Clone` and so
@@ -3663,11 +3665,13 @@ assert(pp.y == 2); // nested wrappers: pp.*.*.y
   them has needs no choice, and `p.*` is always the payload itself. A call
   inside a generic body, `x.clone()` under `where(T <: Clone)`, is the
   bound's method even when `T` is an `Rc`.
-- **Places.** A forwarded field is a place: `p.x = v` and a `&mut self`
-  call such as `p.items.push(v)` write the payload. In a file without
-  `pragma(Pragma.AllowUnsafe)`, a write through an `Arc` is still rejected
-  (`a.n = v`, `a.bump()` with `self : &mut Self`): mutate an `Arc`'s payload
-  through a `Mutex` or an atomic.
+- **Places.** On a `Box`, a forwarded field is a place: `b.x = v` and a
+  `&mut self` call such as `b.items.push(v)` write the payload. Through an
+  `Rc` the same spellings are E0919 (below): an `Rc` has no `DerefMut`, so
+  its payload is read-only through the handle. In a file without
+  `pragma(Pragma.AllowUnsafe)`, a write through an `Arc` is likewise
+  rejected (`a.n = v`, `a.bump()` with `self : &mut Self`): mutate an
+  `Arc`'s payload through a `Mutex` or an atomic.
 - **Outside the prelude, `Deref` needs an unsized `Target`.** A `Deref` or
   `DerefMut` impl outside the prelude is accepted when its `Target` is
   `[T]`, `str`, a `Dyn(...)` or a tail-unsized struct. A sized `Target` and
@@ -3723,9 +3727,12 @@ export(main);
 
 ### Rc with Assignments
 
+A reassignment needs a `mut` binding (decision 47), and the assignment
+expression is the OLD value of the handle:
+
 ```yo
 test("Rc assignment behavior", {
-  x := Rc.new(1);
+  mut(x) := Rc.new(1);
   y := (x = Rc.new(2)); // y gets the old value
   assert(x.* == 2); // x now points to the new Rc
   assert(y.* == 1); // y has the old Rc
