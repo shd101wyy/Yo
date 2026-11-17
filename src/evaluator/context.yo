@@ -2288,7 +2288,8 @@ reference_blanket_method_noted :: (fn(name : &String) -> bool)({
 /// borrowing parameter.
 note_borrowing_argument :: (fn(arg : &AstExpr) -> unit)({
   if(ast_expr_is_fn_call_of(arg, "=>", Option(usize).None), {
-    g_borrowing_closure_args.with_mut(m => m.insert(ast_expr_id(arg), true));
+    ba_id := ast_expr_id(arg);
+    g_borrowing_closure_args.with_mut({ ba_id }(m) => m.insert(ba_id, true));
   });
 });
 /// True when the closure literal `e` is the direct argument of a borrowing

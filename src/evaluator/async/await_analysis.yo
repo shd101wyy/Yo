@@ -438,12 +438,17 @@ analyze_await_points :: (
     get_info,
     SuspensionPointDetector(
       detect : dyn(
-        Box.new({ await_extras : Rc.clone(await_extras), get_info : get_info.* }(expr, parent_expr) =>
+        Box.new({ await_extras : Rc.clone(await_extras), get_info : get_info.* }(expr, parent_expr) => {
+          // `with_mut`'s body is a `sink` closure: it captures values, not the
+          // detector's reference parameters (VERDICTS-64 decision 18).
+          d_expr := expr.*;
+          d_parent := parent_expr.*;
           await_extras.with_mut(extras => {
             found := ArrayList(SuspensionPoint).new();
-            detect_await_expr_(expr, parent_expr, &mut found, extras, &get_info);
+            detect_await_expr_(&d_expr, &d_parent, &mut found, extras, &get_info);
             found
-          }))
+          })
+        })
       ),
       should_skip_body : dyn(Box.new(expr => is_io_async_call(expr))),
       follow_macro_expansions : true

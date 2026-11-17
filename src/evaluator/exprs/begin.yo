@@ -2749,7 +2749,7 @@ _stmt_always_exits :: (fn(e : &AstExpr) -> bool)(
         // `{ a; return(x); }` parses with a trailing `tuple()` after the last
         // `;`: the block's last STATEMENT is what decides.
         (k : usize) = args.len();
-        while((k > usize(0)) && (ast_expr_is_fn_call_of(&args(k - usize(1)), BK_TUPLE, .Some(usize(0))) || match(args(k - usize(1)), .Atom(_, ut) => (ut.value.* == "()"), .FnCall(_, _, _, _, _) => false)), {
+        while((k > usize(0)) && (ast_expr_is_fn_call_of(&args(k - usize(1)), BK_TUPLE, .Some(usize(0))) || match(&args(k - usize(1)), .Atom(_, ut) => (ut.value.* == "()"), .FnCall(_, _, _, _, _) => false)), {
           k = (k - usize(1));
         });
         (k > usize(0)) && _stmt_always_exits(&args(k - usize(1)))
