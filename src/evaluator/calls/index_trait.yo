@@ -2053,11 +2053,9 @@ _promote_index_call :: (fn(call : &AstExpr, env : &Environment, ctx : &mut EvalC
       exn.throw(
         dyn(
           Box.new(
-            Box.new(
-              format_error_message(
-                &tok,
-                `Cannot write \`${place_text}\`: \`${type_to_string(&recv_ty)}\` implements \`Index\`, whose \`index\` is a read projection (\`-> &Self.Output\`), but not \`IndexMut\`, whose \`index_mut\` (\`self : &mut Self -> &mut Self.Output\`) every write through \`x(i)\` dispatches (decision 34). Implement \`IndexMut(${type_to_string(&arg_ty)})\` to make the element writable.`
-              )
+            format_error_message(
+              &tok,
+              `Cannot write \`${place_text}\`: \`${type_to_string(&recv_ty)}\` implements \`Index\`, whose \`index\` is a read projection (\`-> &Self.Output\`), but not \`IndexMut\`, whose \`index_mut\` (\`self : &mut Self -> &mut Self.Output\`) every write through \`x(i)\` dispatches (decision 34). Implement \`IndexMut(${type_to_string(&arg_ty)})\` to make the element writable.`
             )
           )
         )
@@ -2145,12 +2143,14 @@ _promote_owner_deref :: (fn(star : &AstExpr, object : &AstExpr, env : &Environme
   if(!has_deref_mut, {
     exn.throw(
       dyn(
-        with_code(
-          format_error_message(
-            &tok,
-            `Cannot write \`${place_text}\`: \`${type_to_string(&recv_ty)}\` implements \`Deref\`, whose \`deref\` is a read projection (\`-> &Self.Target\`), but not \`DerefMut\`, whose \`deref_mut\` (\`self : &mut Self -> &mut Self.Target\`) every write through \`.*\` calls (VERDICTS-63 decision 2). Implement \`DerefMut\` to make the view writable.`
-          ),
-          E_WRITE_THROUGH_BORROW
+        Box.new(
+          with_code(
+            format_error_message(
+              &tok,
+              `Cannot write \`${place_text}\`: \`${type_to_string(&recv_ty)}\` implements \`Deref\`, whose \`deref\` is a read projection (\`-> &Self.Target\`), but not \`DerefMut\`, whose \`deref_mut\` (\`self : &mut Self -> &mut Self.Target\`) every write through \`.*\` calls (VERDICTS-63 decision 2). Implement \`DerefMut\` to make the view writable.`
+            ),
+            E_WRITE_THROUGH_BORROW
+          )
         )
       )
     );
