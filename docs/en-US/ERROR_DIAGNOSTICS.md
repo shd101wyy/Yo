@@ -123,20 +123,6 @@ written; `--target <triple>` evaluates for that one target, as
 `compile --target` does. A file that does not evaluate keeps what evaluation
 never reached, and `fix` exits non-zero naming it.
 
-`yo fix <path> --migrate record-literal` is the migration for the brace-group
-rule (`plans/reference/BRACE_BLOCKS.md`): since v0.2.78 a record value is
-spelled with a dot before the opening brace and a bare brace in expression
-position is a block, and the migration reads source written before that
-(where a bare brace group of fields was a record) and writes the dot before
-every such group in expression position, the punned one-field group and the
-empty group included. It retires in v0.2.79. It
-reads the parse and does not evaluate, so it needs no prelude and reaches
-every file. It touches no binder: the left side of `:=`, `=` and `::`
-(destructurings, imports, globs), match patterns and sub-patterns, `for`
-element patterns, closure capture lists and parameters, and blocks keep their
-braces. A group that already carries the dot is left alone, so a second run
-changes nothing; a file that does not parse is named and `fix` exits non-zero.
-
 `yo fix <path> --migrate unsized` is the migration for decision 49
 (`plans/VALUES_BY_DEFAULT.md`): `Dyn(...)` is unsized and lives behind a
 pointer, so the owning trait object that a bare `Dyn(...)` value type names
@@ -275,6 +261,7 @@ yo fix <path> --migrate borrow-spelling
 | `mutable-globals` | `mut(G)` on every module-level binding the program writes (decision 47) | E0917 | v0.2.76 |
 | `mut-bindings` | `mut(x)` on every local, pattern and compile-time binding the program writes (decision 47 step 2) | E0917 | v0.2.76 |
 | `rc-clone` | `Rc.clone(h)`/`Arc.clone(h)`/`e.clone()` on an implicit copy of a counted handle whose source is used again, and a capture list on a closure that captures one (decision 17) | E0901 | v0.2.76 |
+| `record-literal` | a bare brace group of fields in expression position to the record `.{ … }` (the brace-group rule, `plans/reference/BRACE_BLOCKS.md`), the punned one-field group and the empty group included | E0007 | v0.2.78 |
 
 Run them in phase order. Code older than decision 42 runs
 `borrow-spelling` before `mut-bindings`: there `mut(z) := x` is the deleted
@@ -282,7 +269,7 @@ local-borrow spelling, and `mut-bindings` would read it as a mutable local.
 Never run `borrow-spelling` on code that already spells decision 47's
 `mut(x) := v`. The copy migrations run on v0.2.73 in their own order,
 `explicit-copy`, `cloned-accessors`, then `rc-clone`, before pinning v0.2.74.
-`yo fix --migrate deref`, `yo fix --migrate record-literal` and `yo fix --migrate unsized` are the three modes this release ships.
+`yo fix --migrate deref` and `yo fix --migrate unsized` are the two modes this release ships.
 
 ## Warnings
 

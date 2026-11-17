@@ -3,7 +3,7 @@
 **Status:** landed. Decided 2026-11-10 (maintainer proposals; Fable consultations #46 and #47, #47 adopted), placed
 inside the VBD campaign (maintainer, 2026-11-10; Fable consultation #48; schedule §5f decision 38). Generation A
 (#1888) shipped in v0.2.77; Generation B (the regenerated `--migrate record-literal` sweep and the flip) lands in
-v0.2.78; the mode retires in v0.2.79. Supersedes `plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md` §4 (the
+v0.2.78; the mode retired in v0.2.79 (its last release is v0.2.78: install it there to migrate older source). Supersedes `plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md` §4 (the
 2026-09-16 rule), which stays frozen as a record, and the first version of this doc (#1869, consultation #46's comma
 rule, never shipped).
 
