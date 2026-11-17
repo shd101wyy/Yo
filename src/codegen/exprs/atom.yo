@@ -42,7 +42,7 @@
 { extract_future_trait_from_type } :: import("../../evaluator/trait_checking.yo");
 { emit_async_future_completion } :: import("./async_completion.yo");
 { generate_early_return_only_deferred_drop_expressions } :: import("./drop_dup.yo");
-{ EvalValue, is_unknown_val } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, is_unknown_val } :: import("../../value.yo");
 { panic, assert } :: import("std/assert");
 /// A shadowed name (a match-arm binding): its state-machine slot under the
 /// single-pass async lowering (`shadow_slots`), else its C local.
@@ -281,7 +281,7 @@ _generate_sm_atom :: (fn(expr : &AstExpr, var_name : &String, context : &mut Fun
               .None => false
             );
             if(is_ct_const, {
-              return(Option(String).Some(generate_comptime_value(match(ei5.value(), .Some(v2) => v2, .None => EvalValue.UnitVal), match(expr_info_converted_runtime_type(&ei5), .Some(crt) => crt, .None => Rc.clone(ei5.ty())), &mut context.base)));
+              return(Option(String).Some(generate_comptime_value(match(ei5.value(), .Some(v2) => v2, .None => Rc.new(EvalValueNode.UnitVal)), match(expr_info_converted_runtime_type(&ei5), .Some(crt) => crt, .None => Rc.clone(ei5.ty())), &mut context.base)));
             });
             // By the SOURCE TOKEN, as the general path below reads a plain
             // identifier: a bare reference used as a cond/match arm value can
