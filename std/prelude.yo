@@ -10981,32 +10981,62 @@ impl(
 );
 export(ArcWeak);
 /// === Deref ===
-/// Deref — marks a wrapper whose members forward to its payload `Target`
-/// (auto-dereference, plans/VALUES_BY_DEFAULT.md §3.3). Nothing is called at
-/// run time: `w.field` and `w.method()` on a `Deref` type whose own members
-/// lack that name mean `w.*.field` and `w.*.method()`, recursively through
-/// nested wrappers. A name both have is E0616 (decision 32): `Rc.clone(b)`
-/// is the `Rc`'s `clone`, `b.*.clone()` the payload's. `w.*` is the payload.
+/// Deref — the projection `w.*` names: `deref` lends the `Target` place a
+/// `Deref` type stands for (auto-dereference, plans/VALUES_BY_DEFAULT.md
+/// §3.3). `DerefMut` is its write half, chosen as `IndexMut` is chosen for
+/// `Index`: a read of `w.*` calls `deref`; a write, a `&mut` lend, a
+/// `self : &mut Self` receiver and `addr_of` call `deref_mut`.
 ///
-/// Implemented by `Box`, `Rc` and `Arc` only; any other `impl(..., Deref(...))` is
-/// a compile error, so every auto-dereference goes through one of the
-/// prelude's cells.
+/// Two kinds of type implement it:
+///
+/// - a **handle** (`Box`, `Rc`, `Arc`): `w.*` is the payload its pointer
+///   names, read natively, and `deref` is `&self.*.*`. `w.field` and
+///   `w.method()` on a handle whose own members lack that name mean
+///   `w.*.field` and `w.*.method()`; a name both have is E0616 (decision
+///   32): `Rc.clone(b)` is the `Rc`'s `clone`, `b.*.clone()` the payload's.
+///   `Rc` and `Arc` have no `DerefMut`: their payload is read-only through
+///   the handle (decision 46).
+/// - an **owner** (`Array(T, N)`, a user type over unsized content): `w.*`
+///   is the place its `deref` projection yields, `&w.*` is `deref(&w)` and
+///   `&mut w.*` is `deref_mut(&mut w)`. A member only the view has forwards
+///   through `.*`; a member the owner has is the owner's.
+///
+/// Outside the prelude a `Deref` or `DerefMut` impl needs an unsized
+/// `Target` (`[T]`, `str`, a `Dyn`): a wrapper over a sized payload reaches
+/// it through its own field or methods (VERDICTS-63 decision 10).
 ///
 /// ```yo
 /// P :: struct(n : i32);
-/// b := Rc.new(P(n : i32(1)));
-/// b.n = i32(2); // writes b.*.n
-/// assert(b.n == i32(2), "read through the cell");
+/// b := Box.new(P(n : i32(1)));
+/// assert(b.n == i32(1), "read through the box");
+/// a := Array(i32, 3)(i32(1), i32(2), i32(3));
+/// v := &a.*;
+/// assert(v.len() == usize(3), "an array's view is a slice");
 /// ```
 Deref :: trait(
   id := "Deref",
-  /// The payload type `w.*` names.
-  Target : Type
+  /// The place type `w.*` names.
+  Target : Type,
+  /// The place `w.*` names, lent shared.
+  deref : (fn(self : &Self) -> &Self.Target)
 );
-export(Deref);
-impl(generic(T : ?Sized), Rc(T), Deref(Target : T));
-impl(generic(T : ?Sized), Box(T), Deref(Target : T));
-impl(generic(T : ?Sized), where(T <: (Send, Sync)), Arc(T), Deref(Target : T));
+/// DerefMut — the write half of `Deref`: the place `w.*` names, lent
+/// exclusively. A `DerefMut` impl needs a `Deref` impl with the same
+/// `Target`, as `IndexMut` shares `Index`'s `Output`.
+DerefMut :: trait(
+  id := "DerefMut",
+  /// The place type `w.*` names: the `Deref` impl's.
+  Target : Type,
+  /// The place `w.*` names, lent exclusively.
+  deref_mut : (fn(self : &mut Self) -> &mut Self.Target)
+);
+export(Deref, DerefMut);
+impl(generic(T : ?Sized), Rc(T), Deref(Target : T, deref : (fn(self : &Self) -> &Self.Target)(&self.*.*)));
+impl(generic(T : ?Sized), Box(T), Deref(Target : T, deref : (fn(self : &Self) -> &Self.Target)(&self.*.*)));
+impl(generic(T : ?Sized), Box(T), DerefMut(Target : T, deref_mut : (fn(self : &mut Self) -> &mut Self.Target)(&mut self.*.*)));
+impl(generic(T : ?Sized), where(T <: (Send, Sync)), Arc(T), Deref(Target : T, deref : (fn(self : &Self) -> &Self.Target)(&self.*.*)));
+impl(generic(T : Type, N : usize), Array(T, N), Deref(Target : [T], deref : (fn(self : &Self) -> &Self.Target)(&unsize(&self.*).*)));
+impl(generic(T : Type, N : usize), Array(T, N), DerefMut(Target : [T], deref_mut : (fn(self : &mut Self) -> &mut Self.Target)(&mut unsize(&mut self.*).*)));
 /// === MaybeUninit ===
 extern(
   "Yo",

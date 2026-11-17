@@ -1,0 +1,13 @@
+{ assert } :: import("std/assert");
+W :: struct(items : Array(i32, 3));
+impl(W, view : (fn(self : &Self) -> &[i32])(unsize(&self.items)));
+f :: (fn(a : &Array(i32, 3)) -> &[i32])(unsize(a));
+main :: (fn() -> unit)({
+  w := W(items : Array(i32, 3)(1, 2, 3));
+  v := w.view();
+  assert(v.len() == usize(3), "view");
+  a := Array(i32, 3)(1, 2, 3);
+  r := f(&a);
+  assert(r.len() == usize(3), "f");
+});
+export(main);
