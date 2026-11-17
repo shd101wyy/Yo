@@ -23,13 +23,15 @@ mk_atom :: (fn(value : str, kind : TokenKind) -> AstExpr)(
 );
 mk_call :: (fn(func_value : str, func_kind : TokenKind) -> AstExpr)({
   args := ArrayList(AstExpr).new();
-  Rc.new(AstExprNode.FnCall(
-    usize(0),
-    mk_atom(func_value, func_kind),
-    Rc.new(args),
-    false,
-    mk_tok(func_value, func_kind)
-  ))
+  Rc.new(
+    AstExprNode.FnCall(
+      usize(0),
+      mk_atom(func_value, func_kind),
+      Rc.new(args),
+      false,
+      mk_tok(func_value, func_kind)
+    )
+  )
 });
 test("is_valid_variable_name: Identifier atom → true", {
   assert(
