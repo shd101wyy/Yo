@@ -60,7 +60,7 @@ Yo 的目标是 **简单** 和 **快速**（比 C 语言慢约 0% - 15%）。
 - [默认内存安全](./MEMORY_SAFETY.md) —— 用户代码无法在不显式声明 `pragma(Pragma.AllowUnsafe);` opt-in 的情况下写出 UB（无原始指针、无 FFI、无内联汇编）。原地修改使用 `name : &mut T` 参数；`yo unsafe-report` 用于审计 unsafe 表面。
 - [显式分配器](./EXPLICIT_ALLOCATORS.md) —— 与引用计数并存的 Zig 风格放置：默认使用全局分配器，在创建处传一个参数（`Rc.new(v, alloc : .Some(a))`、`ArrayList(T).new(alloc : .Some(a))`）就把内存块放进分配器 `a`；何时释放仍由 RC 决定，释放总是回到分配它的分配器。
 - 用 `Rc(T)` 与 `Arc(T)` 提供共享所有权，分别采用非原子与原子引用计数，与 Rust 相同：环会泄漏，除非用 [`Weak(T)`](./WEAK.md) 句柄打破它（[内存安全](./MEMORY_SAFETY.md#引用环会泄漏)）。
-- [基于所有权和生命周期分析的编译时引用计数](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md)。
+- [生成的 C 中的引用计数](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md)。
 - 每核并行模型（详见 [PARALLELISM.md](./PARALLELISM.md)）。
 - [形式化验证](./FORMAL_VERIFICATION.md) —— 契约（`requires`/`ensures`/`decreases`）、精化类型（`refine(T, p)`）与 ghost/量词规格在编译期经固定版本的 Z3 证明（`yo verify`）：被驳倒的义务给出反例，附带缓存遥测、`--strict` 门禁、JSON 报告与 LSP 契约悬停。
 - 受 Zig 和 Nix 启发的[声明式构建系统](./BUILD_SYSTEM.md)（`yo build`、`yo init`、WASM 目标）。

@@ -1171,7 +1171,7 @@ lambda 中，`recur` 指代该 lambda，而不是外层函数。`recur` 是一�
 
 ### 共享单元与内存管理
 
-Yo 使用**引用计数单元**（`Rc`、`Arc`），配合[编译期引用计数与所有权和生命周期分析](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md)来实现安全高效的内存管理。
+Yo 使用**引用计数单元**（`Rc`、`Arc`），配合[生成的 C 中的引用计数](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md)来实现安全高效的内存管理。
 
 #### 引用计数单元
 
@@ -1195,7 +1195,7 @@ s2 := Rc.clone(s1); // RC = 2（两个句柄指向同一个单元）
 s3 := Rc.clone(s2); // RC = 3
 // 当 s1、s2、s3 离开作用域时，RC 递减
 // 当 RC 降为零时，载荷的 `drop` 运行并释放单元
-// 实践中，我们通过所有权分析消除了许多 RC 操作
+// 实践中，dup/drop 配对优化器会消除许多这样的操作
 ```
 
 #### 替换 `ref` 声明
@@ -1223,9 +1223,9 @@ std 原先的 `ref` 类型展示了方法的形态，每个方法只有一种形
 
 #### 编译期引用计数优化
 
-编译器执行[所有权分析](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md)以消除不必要的引用计数操作。
+编译器在编译期抵消成对的引用计数操作，因此在最后一次使用处移动的值不产生计数流量。
 
-详见 [COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md)。
+生成的 C 里有什么、优化器消除哪些操作，详见 [COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md)。
 
 #### 显式分配器
 
@@ -3453,13 +3453,15 @@ DerefMut :: trait(Target : Type, deref_mut : (fn(self : &mut Self) -> &mut Self.
 
 ```yo
 Point :: struct(x : i32, y : i32);
-impl(Point, norm1 : (fn(self : Self) -> i32)(self.x + self.y));
+impl(Point, norm1 : (fn(self : &Self) -> i32)(self.x + self.y));
 p := Rc.new(Point(x : 3, y : 4));
 assert(p.x == 3); // p.*.x
-p.x = 5; // 是一个位置：写入 p.*.x
-assert(p.norm1() == 9); // p.*.norm1()
+assert(p.norm1() == 7); // p.*.norm1()
 pp := Rc.new(Rc.new(Point(x : 1, y : 2)));
 assert(pp.y == 2); // 嵌套包装器：pp.*.*.y
+mut(b) := Box.new(Point(x : 3, y : 4));
+b.x = 5; // 是一个位置：写入 b.*.x —— 只有 Box 有 DerefMut
+assert(b.norm1() == 9);
 ```
 
 - **两者都有的名字是错误（E0616）。** `Point` 派生了 `Clone`，`Rc` 也实现了
@@ -3468,10 +3470,12 @@ assert(pp.y == 2); // 嵌套包装器：pp.*.*.y
   `Point`）；`yo fix` 会把调用改写为 `Rc.clone(p)`。只有一方拥有的名字无需
   选择，`p.*` 永远就是载荷本身。泛型函数体中的调用，例如
   `where(T <: Clone)` 下的 `x.clone()`，即使 `T` 是 `Rc` 也是约束提供的方法。
-- **位置。** 转发得到的字段是一个位置：`p.x = v` 以及 `&mut self` 调用
-  （如 `p.items.push(v)`）都写入载荷。在没有 `pragma(Pragma.AllowUnsafe)`
-  的文件中，通过 `Arc` 写入仍会被拒绝（`a.n = v`，或 `self : &mut Self` 的
-  `a.bump()`）：请通过 `Mutex` 或原子类型修改 `Arc` 的载荷。
+- **位置。** 在 `Box` 上，转发得到的字段是一个位置：`b.x = v` 以及
+  `&mut self` 调用（如 `b.items.push(v)`）都写入载荷。通过 `Rc` 的同样写法
+  是 E0919（见下文）：`Rc` 没有 `DerefMut`，其载荷通过句柄只读。在没有
+  `pragma(Pragma.AllowUnsafe)` 的文件中，通过 `Arc` 写入同样会被拒绝
+  （`a.n = v`，或 `self : &mut Self` 的 `a.bump()`）：请通过 `Mutex` 或原子
+  类型修改 `Arc` 的载荷。
 - **在 prelude 之外，`Deref` 需要非定长的 `Target`。** prelude 之外的 `Deref`
   或 `DerefMut` 实现，只有当 `Target` 是 `[T]`、`str`、`Dyn(...)` 或尾部非定长的
   结构体时才被接受。定长的 `Target` 和开放的类型变量是错误 E0622：包装定长
@@ -3522,9 +3526,11 @@ export(main);
 
 ### Rc 与赋值
 
+重新赋值要求绑定以 `mut` 声明（决策 47），而赋值表达式的值是句柄的**旧值**：
+
 ```yo
 test("Rc assignment behavior", {
-  x := Rc.new(1);
+  mut(x) := Rc.new(1);
   y := (x = Rc.new(2)); // y 获得旧值
   assert(x.* == 2); // x 现在指向新的 Rc
   assert(y.* == 1); // y 持有旧的 Rc

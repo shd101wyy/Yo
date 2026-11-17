@@ -1,474 +1,118 @@
-# 编译期引用计数与所有权及生命周期分析
+# 生成的 C 中的引用计数
 
-> **状态（2026-11-12）。** 本页的大部分内容已成为历史。唯一所有权已经落地：按值绑定或传递一个
-> 拥有资源的值（`String`、集合、`Box`）会**移动**它，之后再使用源变量是 E0901；普通数据被复制；
-> `Rc`/`Arc` 句柄只能用 `.clone()` 复制；参数默认按值传递，除非写成 `x : &T` 或 `x : &mut T`，
-> 并由调用方写出借出（`f(&x)`、`f(&mut x)`）。“所有权模型”（1–4）各节以及 `___dup` 的规则
-> 描述的是这一变化之前的编译器。当前规则的概述见 [MEMORY_SAFETY.md](./MEMORY_SAFETY.md)，
-> 设计见 `plans/VALUES_BY_DEFAULT.md`。下面 2026-10-05 的说明作为当时计划的记录保留。
->
-> **状态（2026-10-05）。** 本页描述的是当时的编译器。Yo 当时正在转向带显式复制的唯一所有权
-> （[`plans/VALUES_BY_DEFAULT.md`](../../plans/VALUES_BY_DEFAULT.md) §0、§3.14）。
-> - **将被移除：**
->   - “每次赋值、构造器参数、返回值和块尾都插入 `___dup`”这条规则，以及抵消这些 dup 的
->     dup/drop 配对优化器。
->   - `sink()` 为借用实参插入的 `___dup`，以及 `sink` 本身。参数将默认按值传递：普通数据复制，
->     拥有所有权的值移动。借用写作 `x : &T`（只读）和 `x : &mut T`（独占），
->     见决定 30 与决定 42。
->   - `String`、集合、`Box` 和 `Dyn` 将在最后一次使用时移动，其他情况需要 `.clone()`。
->     复制 `Rc`/`Arc` 句柄同样需要 `.clone()`。
-> - **保留：** 借用（改写为 `&T`/`&mut T`）、作用域末尾的 drop 以及移动后使用检查。
->   E0908 保留为“`&` 借用是只读的”（§3.14）。
-> - **别名保护的变化：**
->   - 阶段 0 的 `+1` 被替换为：在实参经由的 `Rc` 单元上加共享借用标记（决定 28）。
->   - 运行时借用标志只用于 `Rc`/`Arc` 单元。
->   - 模块级根保持静态检查。
->
-> 本页会随各阶段落地逐步更新。到 V5 时，本页将被“所有权与借用”一页取代，其草稿见
-> [`plans/backlog/OWNERSHIP_AND_BORROWING_DOC_DRAFT.md`](../../plans/backlog/OWNERSHIP_AND_BORROWING_DOC_DRAFT.md)。
+> **状态（2026-11-17）。** 本页现在是 Yo 所生成的引用计数的简短指南。它早先的形态
+> “编译期引用计数与所有权及生命周期分析”记录的是唯一所有权落地之前的编译器所有权
+> 模型 —— 每次赋值都插入 `___dup`、参数默认借用、`sink()` 转移所有权 —— 这些章节
+> 已作为历史删除。语言层面的规则见 [MEMORY_SAFETY.md](./MEMORY_SAFETY.md)，
+> 设计见 [`plans/VALUES_BY_DEFAULT.md`](../../plans/VALUES_BY_DEFAULT.md)。
 
-Yo 对堆分配的对象使用非原子引用计数，并通过编译期**所有权分析**和**生命周期分析**来消除不必要的引用计数操作。
+Yo 用非原子引用计数统计 `Rc(T)` 单元，用原子引用计数统计 `Arc(T)` 单元，并在编译期删除它能证明不必要的引用计数操作。
 
-非原子引用计数在 Yo 中是安全的，因为 GC 管理的对象是**线程局部**的，除非显式标记为 `Send`，否则不会跨线程共享（参见 [PARALLELISM.md](./PARALLELISM.md)）。
+非原子 RC 在 Yo 中是安全的，因为被计数的对象是**线程局部**的，除非类型显式标记为 `Send`，否则不会跨线程共享（参见 [PARALLELISM.md](./PARALLELISM.md)）。
 
-## 所有权模型
+## 生成的 C
 
-Yo 采用一套规则清晰的简化所有权模型：
+每个被计数的单元都以一个头部开始（`__yo_ref_header_t`，别名 `__yo_rc_prefix_t`）：
+偏移 0 处的一个 `uint32_t` 计数（其最高位是显式分配器标记，因此计数读取会先做掩码），
+随后是类型 id，再是一个 16 位字：普通对象的内部借用标记，或 `Rc`/`Arc` 单元上的
+`Weak` 计数（[WEAK.md](./WEAK.md)）。操作本身是少量 `static inline` 辅助函数，
+发射进每个文件：
 
-### 1. 变量赋值：始终拥有所有权
+- `__yo_incr_rc` / `__yo_decr_rc` —— 非原子计数操作；
+- `__yo_incr_rc_atomic` / `__yo_decr_rc_atomic` —— 原子计数单元（`Arc`、原子引用
+  对象）使用的同一对操作；
+- `__yo_dyn_retain` / `__yo_dyn_release` / `__yo_dyn_clone` —— `Dyn` 载荷经由其
+  vtable 的计数；
+- `__yo_rc_weak_retain` / `__yo_rc_weak_release` / `__yo_rc_weak_upgrade` ——
+  `Weak`/`ArcWeak` 句柄；
+- `__yo_borrow_acquire` / `__yo_borrow_release` / `__yo_borrow_assert_unborrowed`
+  （外加 `_atomic` 三件套）—— 独占法则（Law of Exclusivity）的运行时兜底：指向
+  容器存储内部的内部引用会递增容器的借用标记，可能重新分配或释放该存储的操作在
+  标记未归零时 panic。`Rc`/`Arc` 单元从不携带借用标记；它的那个字是弱计数。
 
-`:=`（初始化）和 `=`（重新赋值）都会使左侧**拥有**该值的所有权：
+编译器还为每个类型派生 `___dup` / `___drop` / `___dispose` 辅助函数 —— dup 逐个
+克隆携带 RC 的字段，drop 逐个释放，dispose 运行载荷的 `Drop` 并释放。在分块发射
+（`--emit-chunks`）下每个翻译单元各有一份 `static` 副本：它们是 RC 的热路径。
 
-```yo
-x := Point(x : i32(3), y : i32(4)); // 构造器的结果移动到 x，RC = 1
-y := x; // ___dup(x)，y 获得所有权，RC = 2
-z = y; // ___dup(y)，___drop(旧 z)，z 获得所有权，RC = 3
-// 作用域结束：___drop(z)、___drop(y)、___drop(x)
-```
+## 读取计数：`ref_count(x)`
 
-**规则：** 变量始终拥有其值的所有权。从具名变量赋值会调用 `___dup`；新值（构造器或调用的结果）直接移入，不调用 dup。每次作用域退出都调用 `___drop`。
+内建 `ref_count(x)` 返回 `x` 所持单元的当前引用计数，类型为 `usize`。对值类型
+（普通 `struct`、整数）它恒为 `1`，编译期可知。原子计数的句柄（`Arc(T)`）用原子
+加载读取。`Box` 没有计数：`ref_count(b)` 是编译错误（“唯一拥有、不带计数的单元”）。
 
-### 2. 函数参数：默认借用
-
-函数参数默认**借用**（不改变引用计数）。没有 `sink()` 显式标记即表示参数是借用的：
-
-```yo
-print_point :: (fn(p : Point) -> unit)({
-  printf("(%d, %d)", p.x, p.y); // 仅读取，无 RC 开销
-});
-
-point := Point(x : i32(3), y : i32(4));
-print_point(point); // 调用处无 ___dup，p 借用 point
-```
-
-**规则：** 参数默认借用，除非显式使用 `sink()` 标记。没有 `sink()` 就意味着借用。
-
-**解构同样是借用的：**
-
-```yo
-// 解构赋值是借用
-{ x, y } := point; // x 和 y 从 point 借用，不调用 dup
-// match 解构也是借用
-match(
-  result,
-  .Ok(value) => printf("%d", value),
-  // value 从 result 借用
-  .Err(e) => printf("error")
-);
-```
-
-### 3. 参数修改：允许通过参数修改字段，禁止重新赋值参数
-
-可以**通过**参数修改字段，但不能**重新赋值**参数本身：
-
-```yo
-move_point :: (fn(p : Point, dx : i32, dy : i32) -> unit)({
-  p.x = (p.x + dx); // ✅ 允许：通过参数修改字段
-  p.y = (p.y + dy); // ✅ 允许：通过参数修改字段
-});
-
-broken :: (fn(p : Point) -> unit)({
-  p = Point(x : i32(0), y : i32(0)); // ❌ 错误：不能重新赋值参数
-});
-```
-
-**规则：** 参数**不可重新赋值**，以防止所有权状态变更。
-
-按值参数借用其值：它的存储是调用方值的一份副本，字段写入只改变这份副本。若字段的旧值含有 RC 数据（`String`、集合、`Rc` 等），则不能通过它写入，因为写入会释放调用方仍持有的数据（E0908）。`match` 或 `for` 的绑定同理；把这样的位置传给被调用方可能写入的 `&mut` 形参也一样，包括在其上调用 `push_str` 这类 `&mut self` 方法：写入只会落在借用的副本上。只读的 `&self` 方法（`clone`、`to_string`）和索引仍然允许。请把参数声明为 `sink(p) : T` 或 `p : &mut T`，或先把它复制到一个局部变量：
-
-```yo
-Named :: struct(s : String, n : i32);
-rename :: (fn(p : Named) -> Named)({
-  p.n = (p.n + i32(1)); // ✅ 允许：旧值不含 RC 数据
-  // p.s = String.from("x"); // ❌ E0908：调用方仍持有旧字符串
-  // p.s.push_str("!"); // ❌ E0908：push_str 写入借用的副本
-  q := p; // 一份拥有所有权的副本
-  q.s = String.from("x"); // ✅ 允许
-  q
-});
-```
-
-### 4. 显式所有权转移：`sink()` 关键字
-
-使用 `sink()` 将所有权转移给函数参数。
-
-**移动所有权语义：**
-
-- 如果实参已经**拥有** GC 值的所有权，调用会将所有权**移动**到被调用函数中（调用方的绑定变为已消费状态）。
-- 如果实参仅是**借用/非拥有**的（例如借用的参数），编译器会插入 `___dup` 以创建一个拥有所有权的临时值传入被调用函数，同时原始绑定仍会被**消费**（变为不可用），以保证 `sink()` 调用的线性/消费语义。
-
-```yo
-consume :: (fn(sink(box) : Rc(i32)) -> unit)({
-  printf("value: %d\n", box.*);
-  // box 在函数末尾被 drop
-});
-
-b := Rc.new(42); // b 拥有所有权
-consume(b); // 此后 b 不可再使用
-call_consume :: (fn(p : Rc(i32)) -> unit)({
-  // p 默认借用
-  consume(p); // 编译器插入 ___dup(p) 以满足 sink(box)
-  // p 在此处不可使用（已被 sink() 调用移动/消费）
-});
-
-call_consume_but_keep_using :: (fn(p : Rc(i32)) -> unit)({
-  // p 默认借用
-  p2 := p; // 编译器插入 ___dup(p)；p2 拥有所有权
-  consume(p2); // p2 被消费
-  // p 在此处仍可使用
-});
-```
-
-**规则：** `sink()` 参数获取所有权；传入拥有所有权的值会移动它，传入借用的值会通过 `___dup` 克隆并仍然消费实参绑定。
-
-## 基本模型
-
-### 所有权与引用计数
-
-每个堆分配的 ARC 值在创建时有一个所有者，引用计数初始为 1。
-
-```yo
-Point :: struct(x : i32, y : i32);
-
-Rc.new(Point(x : i32(3), y : i32(4))); // temp_var 拥有 Point(x: i32(3), y: i32(4)) 的单元，RC = 1
-```
-
-### 读取计数：`ref_count(x)`
-
-内建函数 `ref_count(x)` 返回 `x` 所持有单元当前的引用计数，类型为 `usize`。对值类型（普通 `struct`、整数）它总是 `1`，在编译期即可确定。原子计数的句柄（`Arc(T)`）用原子加载读取。
-
-```yo
-b := Rc(i32)(3);
-assert(ref_count(b) == usize(1), "one owner");
-```
-
-该计数反映编译器的 dup/drop 优化结果，被优化器抵消的复制不会体现出来；它用于唯一性检查（写时复制）和测试，而不是程序逻辑。
-
-计数由 `ref_count(x)` 读取；`Rc.new(v)` 分配一个引用计数单元：它取得 `v` 的所有权，返回一个 `ref_count` 为 `1` 的 `Rc(T)` 句柄。`Rc(T)` 是 Yo 的共享单元；它以前写作 `Box(T)`。`Box(T)` 现在是唯一所有、不计数的单元（`plans/VALUES_BY_DEFAULT.md`，V1 第 2 步）：一个带有释放其单元的 `Drop` 的仅可移动值，通过 `Box.clone(b)` 显式复制，因此该机制像追踪其他仅可移动值一样追踪它，从不为它生成计数操作。
+该计数反映编译器的 dup/drop 优化，被优化器取消的副本不会体现在其中；它用于唯一性
+检查（写时复制）和测试，而不是程序逻辑。
 
 ```yo
 a := Rc.new(i32(42));
-assert(ref_count(a) == usize(1), "a fresh cell has one owner");
+b := Rc.clone(a);
+assert(ref_count(b) == usize(2), "两个句柄，一个单元");
 ```
 
-prelude 的 `rc(v)`、`box(v)` 和 `arc(v)` 已被删除（静态实参推断 B3，v0.2.74）：调用它们会得到 E0401，其帮助信息给出构造函数（`rc(x)` 即 `Rc.new(x)`），`yo fix` 的修复会改写这个名字。`rc` 现在是普通名字，可以用作局部变量、形参或模式绑定。
+`Rc.new(v)` 分配单元并取得 `v` 的所有权；第二个句柄写作 `Rc.clone(h)`；`Arc(T)`
+以同样方式统计其句柄，只是改为原子操作，用于跨线程共享。
 
-### 赋值创建所有权
+## `___dup` 从哪里来
 
-新值移入它的第一个绑定；从具名变量初始化时会调用 `___dup` 以创建新的所有者：
+在唯一所有权下，dup 在为携带 RC 的数据创建**第二个所有者**时递增计数：`Rc.clone(h)`；
+以及值被存入字段、数组元素或 enum 载荷而其绑定还继续存活（下文的借用实参保护是
+又一种）。在最后一次使用处被移动的值不产生计数流量：存入的 dup 与绑定的作用域末尾
+drop 正是下文优化器抵消的那一对。普通数据（整数、由整数组成的 struct）的复制完全没有
+计数；`Box` 按移动传递，从不计数。
 
-```yo
-p1 := Point(x : i32(3), y : i32(4)); // 构造器的结果移动到 p1，RC = 1
-p2 := p1; // ___dup(p1)，p2 是第二个所有者，RC = 2
-```
+作用域退出时仍然 drop 它拥有的东西：对拥有所有权的绑定，drop 递减计数；计数归零时
+运行载荷的 `Drop` 并释放单元。
 
-当拥有所有权的变量离开作用域时，自动调用 `___drop`：
+## dup/drop 配对优化器
 
-```yo
-p1 := Point(x : i32(3), y : i32(4)); // p1 拥有所有权，RC = 1
-// 作用域结束
-___drop(p1); // RC = 0，内存释放
-```
+`_optimize_dup_drop_pairs`（`src/evaluator/exprs/begin.yo`）会把局部变量唯一的一次
+运行时 dup 与它的作用域末尾 drop 相抵消 —— 一次**移动（move）**：dup 消失，同时
+变量被标记为已消耗（consumed），因此任何路径都不再对它执行 drop。这只有在 **dup 在
+所有能到达作用域末尾的路径上都无条件执行**时才是健全的，因此优化器：
 
-### 函数参数借用
-
-函数参数不会增加引用计数：
-
-```yo
-use_point :: (fn(p : Point) -> unit)({
-  printf("(%d, %d)", p.x, p.y); // p 是借用的，不改变 RC
-});
-
-point := Point(x : i32(3), y : i32(4)); // point 拥有所有权，RC = 1
-use_point(point); // 不调用 ___dup，p 借用 point
-// 作用域结束：___drop(point)
-```
-
-## 生命周期问题
-
-**关键问题**：不经过生命周期分析的朴素借用会导致释放后使用（use-after-free）错误！
-
-```yo
-x := Rc.new(12); // x 拥有 Rc.new(12)，RC = 1
-{
-  y := Rc.new(13); // y 拥有 Rc.new(13)，RC = 1
-  x = y; // 如果 x 只是从 y 借用的话就危险了...
-  // 内层作用域结束
-  ___drop(y); // RC = 0，内存释放
-};
-
-printf("%d\n", x.*); // BUG：x 会指向已释放的内存！
-```
-
-**解决方案**：赋值时始终调用 `___dup` 以维持所有权。
-
-使用我们的模型（赋值始终拥有所有权）：
-
-```yo
-x := Rc.new(12); // x 拥有 Rc.new(12)，RC = 1
-{
-  y := Rc.new(13); // y 拥有 Rc.new(13)，RC = 1
-  x = y; // ___dup(y)，___drop(旧 x)，x 拥有新值
-  // Rc.new(13)：RC = 2；旧 Rc.new(12)：RC = 0，已释放
-  ___drop(y); // Rc.new(13)：RC = 1
-};
-
-printf("%d\n", x.*); // ✅ 安全：x 拥有 Rc.new(13)，RC = 1
-___drop(x); // Rc.new(13)：RC = 0，已释放
-```
-
-## 我们的方案：简洁的所有权模型与优化
-
-Yo 优先保证**安全性和简洁性**，同时为优化留有空间：
-
-1. **始终安全**：代码不会出现释放后使用的错误
-2. **规则简单**：赋值拥有所有权，参数借用
-3. **可预测**：何时发生 dup/drop 一目了然
-4. **可优化**：所有权分析可消除不必要的操作
-
-**示例——简洁且安全：**
-
-```yo
-x := Rc.new(12);
-{
-  y := Rc.new(13);
-  x = y; // 始终安全：___dup(y)，___drop(旧 x)
-};
-printf("%d\n", x.*); // 始终有效：x 拥有一个有效引用
-```
-
-**权衡：**
-
-- ✅ 简洁的思维模型（赋值始终拥有所有权）
-- ✅ 参数默认借用（读取时高效）
-- ⚠️ 赋值可能带来 RC 开销
-- ✅ 可通过所有权分析优化消除
-- ✅ **借用参数的别名（aliasing）缺口已封闭**（2026-08，采用 Lobster 风格的借用推断，
-  分两个阶段）。此前，当被调用函数在**循环内**通过另一个句柄重新赋值同一字段时，借用
-  参数会失效（直线代码由旧值 drop 延迟到作用域末尾来保护；循环内的 drop 无法跨迭代
-  延迟）。
-
-  - **阶段 0** —— 传给**借用**参数的 RC 类型**字段投影**，在调用期间获得一个由调用方
-    持有的 `+1`。普通局部变量保持 `+0`（调用方的绑定本身就让它存活），拥有所有权的临时
-    变量、`&mut` 参数以及 extern/内建被调用函数（其内部不运行任何 Yo 代码）同样保持
-    `+0`。
-  - **阶段 1** —— 按被调用函数计算**变更摘要（mutation summary）**
-    （`src/evaluator/effects/mutation_summary.yo`），回答“这次调用是否可能（递归地）
-    修改 RC 容器存储？”；占绝大多数的只读被调用函数因此恢复 `+0` 借用。仅有阶段 0 时
-    自举编译耗时增加 23%，阶段 1 不仅将其全部收回，还更进一步（`check ./std`：
-    45.3 秒 → 55.2 秒 → 38.5 秒），因此该缺口的封闭没有带来运行时开销。
-
-    满足以下任一条件的被调用函数即视为**可能变更（may-mutate）**：（递归地）对
-    RC 类型的位置赋值；执行**显式的 RC 递减**（`___drop`、`__yo_decr_rc` 等——
-    它们都可能释放借用所依赖的、由容器持有的那个引用）；调用属于运行时/分配器
-    家族的 extern、libc 的 `free`/`realloc`，或接受回调的 extern；通过 io 内建
-    让出事件循环；是控制函数（control function）；或调用了编译器无法解析的目标。
-    这是一个 MAY 分析：任何无法识别的情况都按“会变更”处理。编译器**自动生成**的
-    drop 不构成风险——它们只针对拥有其值的变量，而借用按定义是非拥有的。
-
-  复现程序、分阶段设计与落地记录见
-  `issues/fixed/borrowed-arg-invalidated-by-aliased-container-mutation.md`。
-
-## 何时调用 `___dup` 增加引用计数？
-
-### 规则 1：赋值时（`:=` 和 `=`）
-
-**赋值 ARC 值时，始终对右侧调用 `___dup`：**
-
-```yo
-p1 := Point(x : i32(3), y : i32(4)); // 结果移动到 p1（不调用 dup）
-p2 := Point(5, 6); // 移动到 p2
-p2 = p1; // ___dup(p1)，___drop(旧 p2)，p2 与 p1 共享该值
-// 作用域结束
-___drop(p2); // 减少 RC
-___drop(p1); // 减少 RC
-```
-
-**字段/索引赋值同样调用 `___dup`：**
-
-```yo
-data.point = p1; // ___dup(p1)，存入数据结构
-arr(0) = p1; // ___dup(p1)，存入数组
-```
-
-### 规则 2：传递给构造器
-
-**传递给 struct/enum/array 构造器时，始终调用 `___dup`：**
-
-```yo
-p1 := Point(x : i32(3), y : i32(4)); // p1 拥有所有权
-data := Data(p1); // ___dup(p1)，data 拥有副本
-arr := [p1,]; // ___dup(p1)，数组拥有副本
-result := Result(Point).Ok(p1); // ___dup(p1)，enum 拥有副本
-```
-
-### 规则 3：函数返回时
-
-**返回借用的参数时调用 `___dup`：**
-
-```yo
-identity :: (fn(p : Point) -> Point)({
-  // p 是借用的（参数）
-  return(p); // ___dup(p)，返回值拥有副本
-});
-
-create :: (fn() -> Point)({
-  p := Point(x : i32(3), y : i32(4)); // p 拥有所有权
-  return(p); // ___dup(p)，返回值拥有副本
-  // return 之后 ___drop(p)
-});
-```
-
-### 规则 4：离开作用域时
-
-**值离开其作用域时调用 `___dup`：**
-
-**begin 块：**
-
-```yo
-x := Rc.new(1);
-y := {
-  ();
-  x // 从 begin 块返回时调用 ___dup(x)
-};
-// y 现在拥有一个副本，x 仍然拥有它自己的副本
-```
-
-**match 表达式：**
-
-```yo
-optional := Option(Rc(i32)).Some(Rc.new(42)); // optional 拥有所有权
-x := match(
-  optional,
-  // 这里的 `value` 是借用的，不拥有所有权
-  // 此处插入 ___dup(value)
-  .Some(value) => value,
-  .None => Rc.new(0)
-);
-```
-
-**注意：** dup/drop 配对优化器（`_optimize_dup_drop_pairs`）通常会在 dup 调用与对应的 drop 调用配对时取消它们，从而有效地转移所有权而非创建不必要的副本。
-
-#### dup/drop 取消优化的健全性条件
-
-将 dup 与作用域末尾的 drop 抵消等价于一次**移动（move）**：dup 消失，同时变量被标记为
-已消耗（consumed），因此任何路径都不再对它执行 drop。这只有在 **dup 在所有能到达作用域
-末尾的路径上都无条件执行**时才是健全的。优化器（`src/evaluator/exprs/begin.yo` 中的
-`_optimize_dup_drop_pairs`）因此：
-
-- 对 `cond`/`match` 进行**分支感知**的 dup 收集：只在部分 fallthrough 分支中出现的 dup
-  会把变量标记进 `vars_with_partial_branch_dups`，配对被保留 —— 被执行的分支上有 dup，所有
-  路径上都有作用域末尾的 drop；
+- 对 `cond`/`match` 进行**分支感知**的 dup 收集：只在部分 fallthrough 分支中出现的
+  dup 会把变量标记进 `vars_with_partial_branch_dups`，配对被保留 —— 被执行的分支上
+  有 dup，所有路径上都有作用域末尾的 drop；
 - 每个分支都有 dup 时按分支各计一次，运行时 dup 计数大于 1 同样保留配对；
-- 沿 `ExprInfo.macro_expansion` 递归，而不是宏调用的原始参数 —— `if(...)` 在 AST 中保留宏调用
-  头，只有记录下来的 `cond` 展开才暴露分支结构。沿原始参数递归会把分支内的 dup 当作
-  无条件 dup 并错误地取消它 —— 在所有跳过该分支的路径上各泄漏一个引用
-  （`issues/fixed/where-constraints-arraylist-96b-leak.md`，2026-08-06 修复）；
+- 沿 `ExprInfo.macro_expansion` 递归，而不是宏调用的原始参数 —— `if(...)` 在 AST
+  中保留宏调用头，只有记录下来的 `cond` 展开才暴露分支结构。沿原始参数递归会把
+  分支内的 dup 当作无条件 dup 并错误地取消它 —— 在所有跳过该分支的路径上各泄漏
+  一个引用（`issues/fixed/where-constraints-arraylist-96b-leak.md`，2026-08-06 修复）；
 - 绝不跨 `while` 循环体优化（循环体内的 dup 执行 N 次，作用域末尾的 drop 只执行一次）；
 - 跳过 `io.async` 捕获（状态机同时需要 dup 和 drop）。
 
-### 规则 5：`sink()` 关键字
+## 借用实参的别名保护
 
-**`sink()` 参数获取所有权（可能时移动，否则 dup）：**
+传给借用（`&T`）参数的、位于 `Rc`/`Arc` 载荷内部的位置，可能在调用期间被被调用方
+经由另一个句柄释放其所在容器而悬空。该缺口已被封闭（2026-08，两阶段的 Lobster 风格
+借用推断；复现程序、分阶段设计与落地记录见
+`issues/fixed/borrowed-arg-invalidated-by-aliased-container-mutation.md`）：
 
-```yo
-consume :: (fn(sink(box) : Rc(i32)) -> unit)({
-  printf("value: %d\n", box.*);
-  // box 在函数末尾被 drop
-});
+- **阶段 0** —— 传给**借用**参数的 RC 类型字段**投影（projection）**为该调用获得一个
+  调用方持有的 `+1`；经由只读句柄到达的位置则在句柄上共享：被调用方运行期间单元保持
+  存活，即使某个闭包实参释放了最后一个其他句柄。普通局部变量保持 `+0`（调用方的绑定
+  使其存活），拥有的临时值、`&mut` 参数、extern/内建被调用方（其中不运行 Yo 代码）
+  也一样。
+- **阶段 1** —— 按被调用函数计算**变更摘要（mutation summary）**
+  （`src/evaluator/effects/mutation_summary.yo`），回答“这次调用是否可能（递归地）
+  修改 RC 容器存储？”；占绝大多数的只读被调用函数因此恢复 `+0` 借用。仅有阶段 0 时
+  自举编译耗时增加 23%，阶段 1 不仅将其全部收回，还更进一步（`check ./std`：
+  45.3 秒 → 55.2 秒 → 38.5 秒），因此该缺口的封闭没有带来运行时开销。
 
-b := Rc.new(42); // b 拥有所有权
-consume(b); // b 被消费
-// 此后 b 不可再使用
-// 如果实参是借用/非拥有的，编译器会插入 ___dup。
-// 示例：借用的参数传递给 sink() 参数。
-call_consume :: (fn(p : Rc(i32)) -> unit)({
-  consume(p); // 插入 ___dup(p)；p 被消费（此后不可使用）
-});
-```
+满足以下任一条件的被调用函数即视为**可能变更（may-mutate）**：（递归地）对
+RC 类型的位置赋值；执行**显式的 RC 递减**（`___drop`、`__yo_decr_rc` 等——
+它们都可能释放借用所依赖的、由容器持有的那个引用）；调用属于运行时/分配器
+家族的 extern、libc 的 `free`/`realloc`，或接受回调的 extern；通过 io 内建
+让出事件循环；是控制函数（control function）；或调用了编译器无法解析的目标。
+这是一个 MAY 分析：任何无法识别的情况都按“会变更”处理。编译器**自动生成**的
+drop 不构成风险——它们只针对拥有其值的变量，而借用按定义是非拥有的。
 
-### 例外：函数参数（默认借用）
+## 循环
 
-**传递给借用参数（没有 `sink()` 的参数）时不调用 `___dup`：**
-
-```yo
-print_point :: (fn(p : Point) -> unit)({
-  // p 是借用的（无 own 关键字）
-  printf("(%d, %d)", p.x, p.y);
-});
-
-point := Point(x : i32(3), y : i32(4)); // point 拥有所有权
-print_point(point); // 不调用 ___dup！p 借用 point
-```
-
-**match 表达式中的解构同样是借用的：**
-
-```yo
-match(
-  optional,
-  .Some(value) => {
-    // `value` 从 optional 借用，不调用 ___dup
-    // `value` 同样不可重新赋值。
-    printf("%d", value);
-  },
-  .None => ()
-);
-```
-
-## 特殊情况：循环
-
-在循环中，赋值遵循同样的"始终拥有所有权"规则：
-
-### 示例：链表遍历
-
-```yo
-current_opt := self.head; // ___dup(self.head)，current_opt 拥有所有权
-while(true, {
-  match(
-    current_opt,
-    .None => return(false),
-    .Some(current) => {
-      current_opt = current.next; // ___dup(current.next)
-      // ___drop(旧 current_opt)
-    }
-  );
-});
-// 作用域结束：___drop(current_opt)
-```
-
-**分析：**
-
-- 初始化：`___dup(self.head)` 创建拥有所有权的副本
-- 每次迭代：`___dup(current.next)` + `___drop(旧 current_opt)`
-- 结束：`___drop(current_opt)` 清理
-
-**开销：** 每次迭代 2 次 RC 操作（dup + drop）+ 1 次初始 dup + 1 次最终 drop = N 次迭代共 2N + 2 次操作。
-
-#### 自举编译器中没有遍历优化
-
-已退役的 TypeScript 编译器能识别这种循环，并移除其全部 RC 操作（2N + 2 → 0）。这项优化从未
-移植到自举编译器（见 `src/evaluator/exprs/begin.yo` 中配对优化器旁的注释），因此每次迭代都
-要付出上面的 dup 和 drop。`issues/fixed/loop-traversal-borrow-chain-mutation-uaf.md` 记录了
-它的修改保护所修复的 use-after-free。在唯一所有权下，由语言本身取代它：一个局部借用重新指向
-它已借用的节点内部，即可遍历链表（`plans/VALUES_BY_DEFAULT.md`，决定 25）。遍历 `Box` 节点时
-没有任何计数操作；遍历 `Rc` 节点时，每一步都会固定（pin）进入的单元，即一次增加和一次减少。
+已退役的 TypeScript 编译器能识别链表遍历循环并移除其全部 RC 操作。这项优化从未
+移植到自举编译器（见 `src/evaluator/exprs/begin.yo` 中配对优化器旁的注释）；
+`issues/fixed/loop-traversal-borrow-chain-mutation-uaf.md` 记录了它的修改保护所
+修复的 use-after-free。在唯一所有权下，由语言本身取代它：一个局部借用重新指向
+它已借用的节点内部，即可遍历链表（`plans/VALUES_BY_DEFAULT.md`，决定 25）。遍历
+`Box` 节点时没有任何计数操作；遍历 `Rc` 节点时，每一步都会固定（pin）进入的单元，
+即一次增加和一次减少。
