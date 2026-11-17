@@ -39,7 +39,7 @@ Yo aims to be **Simple** and **Fast** (around 0% - 15% slower than C).
 - [Contributing](#contributing)
 - [Editor Support](#editor-support)
 - [Version Management](#version-management)
-- [AI Agent Skills](#ai-agent-skills)
+- [AI Agents](#ai-agents)
   - [Using in your own project](#using-in-your-own-project)
 - [License](#license)
 
@@ -148,8 +148,8 @@ Hello, world!
 ```
 
 `yo init` generates a project with a manifest, a build file, source, and tests
-— plus the bundled agent skill files and `AGENTS.md` so AI coding agents pick up
-version-matched Yo knowledge (skip with `yo init --no-skills`):
+— plus an `AGENTS.md` and a one-line `CLAUDE.md` so AI coding agents know to run
+`yo context` for version-matched Yo knowledge:
 
 ```
 my-project/
@@ -164,8 +164,8 @@ my-project/
 ├── spec/
 │   ├── README.md         # The claims wall: laws live here, proofs in the code
 │   └── example.yo        # A seed law (`yo verify ./spec --strict` proves it)
-├── .agents/skills/       # Agent skill files (AGENTS.md lists them)
-├── AGENTS.md             # Guidance for AI coding agents
+├── AGENTS.md             # Guidance for AI coding agents (starts with `yo context`)
+├── CLAUDE.md             # One line: @AGENTS.md
 ├── .gitignore
 └── README.md
 ```
@@ -291,35 +291,16 @@ When a `.yo-version` file exists, the `yo` CLI automatically dispatches to the p
 
 See [docs/en-US/VERSION_MANAGEMENT.md](./docs/en-US/VERSION_MANAGEMENT.md) for full documentation.
 
-## AI Agent Skills
+## AI Agents
 
-This repository ships a set of **agent skill files** that teach AI agents how to write Yo programs. The skills are portable — you can copy the `.github/skills/` directory into any Yo project and agents will be able to use them there too.
-
-| Skill                                                                | Description                                                                        |
-| -------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| [`yo-syntax`](.github/skills/yo-syntax/SKILL.md)                     | Core language syntax: curly braces, cond/match, structs, enums, operators, modules |
-| [`yo-core-patterns`](.github/skills/yo-core-patterns/SKILL.md)       | Everyday patterns: types, generics, traits, error handling, collections, iterators |
-| [`yo-async-effects`](.github/skills/yo-async-effects/SKILL.md)       | Async/await, algebraic effects, Exception, Io, spawning tasks                      |
-| [`yo-project-workflow`](.github/skills/yo-project-workflow/SKILL.md) | `yo` CLI commands, `build.yo` project files, dependency management                 |
-
-### Using in your own project
-
-`yo init` installs the skills automatically (along with an `AGENTS.md` that lists them). For a project created another way, use the `yo` CLI:
-
-```bash
-yo skills install
-```
-
-This copies all skill files into every agent config directory found in the current project (`.github`, `.agents`, `.claude`, `.opencode`, `.openai`, `.cursor`). If none exist, `.agents/skills/` is created automatically.
-
-You can also copy them manually:
-
-```bash
-cp -r .github/skills /path/to/your-yo-project/.github/
-# or .agents, .claude, etc depending on your agent platform
-```
-
-Then in any AI agent session, invoke a skill by name (e.g. `@yo-syntax`) to give the agent contextual knowledge about the Yo language.
+Yo is not in any model's training data, so an agent needs the language from the
+toolchain itself. `yo context` prints the version-matched language pack (rules,
+sharp edges, the API index), and `yo context --docs` lists the bundled manuals.
+`yo init` writes an `AGENTS.md` (read natively by Codex, Cursor, Copilot and
+Gemini) and a one-line `CLAUDE.md` (`@AGENTS.md`, for Claude Code) whose command
+block opens with `yo context`, so an agent working in the project knows where to
+start. An existing `AGENTS.md` or `CLAUDE.md` is left alone. See
+[docs/en-US/CONTEXT.md](./docs/en-US/CONTEXT.md).
 
 ### CLI output language
 

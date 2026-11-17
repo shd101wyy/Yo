@@ -120,8 +120,8 @@ whether a person or a model wrote it. Concretely, before opening a PR:
 
 The repository is set up for this. [`AGENTS.md`](./AGENTS.md) is the entry point
 an agent should read first; `.github/instructions/` holds per-area rules (C
-codegen, debugging, testing, language design, syntax); and `.github/skills/`
-ships reusable skill packs. Keeping those current is itself a valued
+codegen, debugging, testing, language design, syntax); and `pack/context.md`
+is the version-matched language pack `yo context` prints. Keeping those current is itself a valued
 contribution — if you learn something about Yo the hard way, write it down
 there.
 

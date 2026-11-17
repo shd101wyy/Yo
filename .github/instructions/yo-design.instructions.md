@@ -208,7 +208,7 @@ result := unsafe.cast(ptr, *u8);
 
 ## Safe mode: how runtime failure works (`plans/backlog/SAFE_MODE.md`)
 
-A file without `pragma(Pragma.AllowUnsafe)` gets the following guarantees. When you change one, keep the evaluator, codegen, docs, and cheatsheets in step.
+A file without `pragma(Pragma.AllowUnsafe)` gets the following guarantees. When you change one, keep the evaluator, codegen, docs, and the context pack in step.
 
 - **Class-1 ban (D7, E0611).** A safe file may not call `unwrap` / `expect` / `unwrap_err` / `expect_err` on an `Option`/`Result`, because the type already carries the failure and the call would discard it. Exempt: `*.test.yo` files (and the runner's `.yo_selftest_batch_*` files), `AllowUnsafe` files, and `auto-generated://` code. **std has no blanket exemption:** its safe files follow the same rule. The predicates are `is_class1_panic_*` in `src/evaluator/memory_safety.yo`. Three gate sites use them: the two in `exprs/property_access.yo` and the dispatch gate in `calls/function.yo`. The criterion for adding a name: *does the call ignore failure information the type already gave the caller?* Value-level preconditions (indexing, `/`) are class 2. They trap at runtime and are not banned. The name list is checked against the source: `yo public-safe-report std` lists every `Option`/`Result` method that reaches `__yo_panic` as `gated`, `comptime`, or `UNGATED`, and `tests/internal/memory_safety_paths.test.yo` fails on an `UNGATED` one in the prelude. A new trapping extraction must be added to `is_class1_panic_method_name` in the same change (`Result.expect_err` shipped ungated until this check existed).
 - **Union member reads need `pragma(Pragma.AllowUnsafe)`.** Reading `u.x` or destructuring `{ x } := u` is raw-memory reinterpretation, because a union does not record which member was written. Reading another member's bytes as a `bool`, enum or reference is C undefined behavior. Construction and member writes (`u.x = v`, evaluated with `is_lhs_of_assignment`) stay legal. The predicate is `is_union_member_read_capable` in `src/evaluator/memory_safety.yo`; its two gate sites are the union arm of `exprs/property_access.yo` and `exprs/destructuring_assignment.yo` (issues/fixed/safe-code-can-read-an-inactive-union-member.md).
@@ -270,7 +270,7 @@ The guarantee is data-race freedom for every program that compiles without `prag
   explicit allocator" uses `Allocator.global()`, or a counting allocator
   defined in the test file when it counts blocks (`tests/explicit_allocators.test.yo`).
 - User-facing guide: `docs/en-US/EXPLICIT_ALLOCATORS.md` (and zh-CN). Keep it,
-  `MEMORY_SAFETY.md`'s section and the core-patterns cheatsheet in step when
+  `MEMORY_SAFETY.md`'s section and `pack/context.md` in step when
   the surface changes.
 
 ## SomeType

@@ -39,7 +39,7 @@ Yo 的目标是 **简单** 和 **快速**（比 C 语言慢约 0% - 15%）。
 - [贡献](#贡献)
 - [编辑器支持](#编辑器支持)
 - [版本管理](#版本管理)
-- [AI Agent 技能包](#ai-agent-技能包)
+- [AI Agent](#ai-agent)
   - [在自己的项目中使用](#在自己的项目中使用)
 - [许可证](#许可证)
 
@@ -271,35 +271,9 @@ yo version clean
 
 完整文档请参阅 [docs/zh-CN/VERSION_MANAGEMENT.md](./VERSION_MANAGEMENT.md)。
 
-## AI Agent 技能包
+## AI Agent
 
-本仓库内置了一套 **Agent 技能文件**，帮助 AI Agent 学习如何编写 Yo 程序。这些技能文件具有可移植性 —— 只需将 `.github/skills/` 目录复制到任意 Yo 项目中，Agent 即可在该项目中使用它们。
-
-| 技能                                                                       | 描述                                                             |
-| -------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| [`yo-syntax`](../../.github/skills/yo-syntax/SKILL.md)                     | 核心语言语法：花括号语义、cond/match、结构体、枚举、运算符、模块 |
-| [`yo-core-patterns`](../../.github/skills/yo-core-patterns/SKILL.md)       | 常用模式：类型、泛型、trait、错误处理、集合、迭代器              |
-| [`yo-async-effects`](../../.github/skills/yo-async-effects/SKILL.md)       | 异步/await、代数效应、Exception、Io、任务派生                    |
-| [`yo-project-workflow`](../../.github/skills/yo-project-workflow/SKILL.md) | `yo` CLI 命令、`build.yo` 项目文件、依赖管理                     |
-
-### 在自己的项目中使用
-
-最简单的方式是使用 `yo` CLI：
-
-```bash
-yo skills install
-```
-
-该命令会将所有技能文件复制到当前项目中发现的每个 Agent 配置目录（`.github`、`.agents`、`.claude`、`.opencode`、`.openai`、`.cursor`）。如果都不存在，会自动创建 `.agents/skills/`。
-
-你也可以手动复制：
-
-```bash
-cp -r .github/skills /path/to/your-yo-project/.github/
-# 或者 .agents, .claude, 等，取决于你的 Agent 平台
-```
-
-之后在任意 AI Agent 会话中，通过技能名称（例如 `@yo-syntax`）调用该技能，即可为 Agent 提供关于 Yo 语言的上下文知识。
+Yo 不在任何模型的训练数据里，所以 Agent 需要从工具链本身获得这门语言的知识。`yo context` 会打印与版本匹配的语言指南包（规则、易错点、API 索引），`yo context --docs` 列出随工具链捆绑的手册。`yo init` 会写入 `AGENTS.md`（Codex、Cursor、Copilot、Gemini 原生读取）和只有一行的 `CLAUDE.md`（内容为 `@AGENTS.md`，供 Claude Code 使用），其命令块以 `yo context` 开头，让项目里的 Agent 知道从哪里开始。已存在的 `AGENTS.md` 或 `CLAUDE.md` 不会被覆盖。详见 [CONTEXT.md](./CONTEXT.md)。
 
 ### CLI 输出语言
 
