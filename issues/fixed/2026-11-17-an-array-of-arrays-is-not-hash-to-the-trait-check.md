@@ -22,9 +22,20 @@ export(main);
 
 Step 8 of `type_implements_trait` (`src/evaluator/trait_checking.yo`) guards recursion with a key of the target's id
 and the trait's id. An enum instance keys by its id and type arguments; every other type keys by
-`_type_id_for_trait_check`, which is `Array` for every `Array(T, N)`. Checking `Array(Array(i32, 2), 2) <: Hash` matches
-the prelude's `impl(generic(T, U), where(T <: Hash), Array(T, U), Hash)`, whose where-pass checks
-`Array(i32, 2) <: Hash` under the same key `Array:Hash`. The guard read that as recursion and answered no.
+`_type_id_for_trait_check`, which is empty (`""`) for a `Array(T, N)` — and for every other structural type without a
+nominal id — so all of those checks shared the single guard key `":<trait>"`. Checking `Array(Array(i32, 2), 2) <: Hash`
+matches the prelude's `impl(generic(T, U), where(T <: Hash), Array(T, U), Hash)`, whose where-pass checks
+`Array(i32, 2) <: Hash` under the same key `:Hash`. The guard read that as recursion and answered no.
+
+The class is wider than arrays in principle, and measured wider in one more shape:
+`Type.impls([Array(i32, 2)], Hash)` was false the same way — a slice's own id is its element's id, empty over an
+array, so the slice `Hash` impl's where-pass collided under the same shared key; the array-arm fix cures it because the
+inner check now keys by the array's rendering. Nothing else is reachable today: tuples have only the conditional
+`Clone` family (Clone/Copy are answered structurally before the guard), pointers and anonymous records have no
+conditional impls to chain, and `&T`'s `Eq`/`Ord` where-traits are `Rhs`-specialized so the inner key differs
+(`Type.impls(&Array(i32, 2), Eq(&Array(i32, 2)))` measured true). The general fix — keying every empty-id target by
+`type_to_string`, exactly what the marker guard (step 4b in the same function) already does for this measured class
+(`*(*(i32))` is not Send, `Tuple(Tuple(i32))` is not Comptime) — is `v0279/structural-guard-key`.
 
 Why a derive over a nested array still compiled before #1983 was not traced. Measured: the same binary compiles the
 reproducer's derive against the std of `70a203d0c` and rejects it against the std of `b2155b8bf`, and commenting the two
