@@ -616,7 +616,7 @@ main :: (fn(io : Io) -> unit)({
     cwd(),
     .Ok(p) => p.to_string(),
     .Err(e) => {
-      exn.throw(dyn(`build-site: cannot determine cwd: ${e}`));
+      exn.throw(dyn(Box.new(`build-site: cannot determine cwd: ${e}`)));
       String.new()
     }
   );
@@ -732,7 +732,7 @@ main :: (fn(io : Io) -> unit)({
     src := `${root}/scripts/${inst}`;
     src_exists := io.await(exists(Path.new(src.clone()), io), io);
     if(!src_exists, {
-      exn.throw(dyn(`build-site: scripts/${inst} is missing. The published site would serve a 404 at /${inst}, and the documented one-liner pipes that into a shell. Refusing to build.`));
+      exn.throw(dyn(Box.new(`build-site: scripts/${inst} is missing. The published site would serve a 404 at /${inst}, and the documented one-liner pipes that into a shell. Refusing to build.`)));
     });
     _copy_file(src.clone(), `${output_dir}/${inst}`, ie);
     println(`  ✓ ${inst}`);
@@ -756,7 +756,7 @@ main :: (fn(io : Io) -> unit)({
   );
   doc_status := io.await(doc_cmd.status(io), ie);
   if(!doc_status.success(), {
-    exn.throw(dyn(`build-site: '${yo_bin} doc std/' failed with exit code ${doc_status.code().to_string()}`));
+    exn.throw(dyn(Box.new(`build-site: '${yo_bin} doc std/' failed with exit code ${doc_status.code().to_string()}`)));
   });
   println(String.from("  ✓ Standard library docs generated"));
   // Post-process: "← Home" links in the sidebar headers.
