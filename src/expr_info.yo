@@ -816,7 +816,7 @@ expr_info_set_capture_type :: (fn(info : &ExprInfo, v : &Option(TypeValue)) -> u
 _vh_expr_info_macro_expansion :: (fn(d : &ExprInfoData) -> Option(AstExpr))(
   match(
     &d.rare,
-    .Some(r) => r.macro_expansion,
+    .Some(r) => r.macro_expansion.clone(),
     .None => Option(AstExpr).None
   )
 );
@@ -829,14 +829,14 @@ expr_info_set_macro_expansion :: (fn(info : &ExprInfo, v : &Option(AstExpr)) -> 
     return(());
   });
   mut(r) := _expr_info_rare_take(info);
-  r.macro_expansion = v.*;
+  r.macro_expansion = v.*.clone();
   _expr_info_rare_put(info, r);
   ()
 });
 _vh_expr_info_original_expr :: (fn(d : &ExprInfoData) -> Option(AstExpr))(
   match(
     &d.rare,
-    .Some(r) => r.original_expr,
+    .Some(r) => r.original_expr.clone(),
     .None => Option(AstExpr).None
   )
 );
@@ -849,7 +849,7 @@ expr_info_set_original_expr :: (fn(info : &ExprInfo, v : &Option(AstExpr)) -> un
     return(());
   });
   mut(r) := _expr_info_rare_take(info);
-  r.original_expr = v.*;
+  r.original_expr = v.*.clone();
   _expr_info_rare_put(info, r);
   ()
 });
@@ -1211,13 +1211,13 @@ expr_info_set_consumed_variable_drop_expressions :: (
   r.consumed_variable_drop_expressions = v.clone();
   _expr_info_rare_put(info, r);
 });
-_vh_expr_info_async_stack_size :: (fn(d : &ExprInfoData) -> Option(AstExpr))(match(&d.rare, .Some(r) => r.async_stack_size, .None => Option(AstExpr).None));
+_vh_expr_info_async_stack_size :: (fn(d : &ExprInfoData) -> Option(AstExpr))(match(&d.rare, .Some(r) => r.async_stack_size.clone(), .None => Option(AstExpr).None));
 expr_info_async_stack_size :: (fn(info : &ExprInfo) -> Option(AstExpr))(
   info.with(_vh_expr_info_async_stack_size)
 );
 expr_info_set_async_stack_size :: (fn(info : &ExprInfo, v : &Option(AstExpr)) -> unit)({
   mut(r) := _expr_info_rare_take(info);
-  r.async_stack_size = v.*;
+  r.async_stack_size = v.*.clone();
   _expr_info_rare_put(info, r);
 });
 _vh_expr_info_async_state_machine_struct_name :: (fn(d : &ExprInfoData) -> Option(String))(
@@ -1362,7 +1362,7 @@ emitted_block_statements :: (fn(stmts : ArrayList(AstExpr)) -> ArrayList(AstExpr
   (i : usize) = usize(0);
   while(i < stmts.len(), i = (i + usize(1)), {
     match(
-      stmts.get(i),
+      stmts.get_cloned(i),
       .Some(st) => {
         if(!is_stripped_statement(ast_expr_id(&st)), {
           kept.push(st);
@@ -1520,10 +1520,10 @@ _drop_target_atom_of :: (fn(d : &AstExpr) -> Option(AstExpr))(
     Rc(.FnCall(_, func, Rc(args), _, _)) => cond(
       (args.len() == usize(0)) => match(
         func,
-        Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(fargs.get(usize(0)), .Some(a0) => match(a0, Rc(.Atom(_, _)) => Option(AstExpr).Some(a0), _ => Option(AstExpr).None), .None => Option(AstExpr).None),
+        Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(fargs.get_cloned(usize(0)), .Some(a0) => match(Rc.clone(a0), Rc(.Atom(_, _)) => Option(AstExpr).Some(Rc.clone(a0)), _ => Option(AstExpr).None), .None => Option(AstExpr).None),
         Rc(.Atom(_, _)) => Option(AstExpr).None
       ),
-      true => match(args.get(usize(0)), .Some(a0) => match(a0, Rc(.Atom(_, _)) => Option(AstExpr).Some(a0), _ => Option(AstExpr).None), .None => Option(AstExpr).None)
+      true => match(args.get_cloned(usize(0)), .Some(a0) => match(Rc.clone(a0), Rc(.Atom(_, _)) => Option(AstExpr).Some(Rc.clone(a0)), _ => Option(AstExpr).None), .None => Option(AstExpr).None)
     )
   )
 );
@@ -1533,7 +1533,7 @@ _scope_target_names :: (fn(lst : &Option(ArrayList(AstExpr)), out : &mut ArrayLi
     .Some(l) => {
       (k : usize) = usize(0);
       while(k < l.len(), {
-        match(l.get(k), .Some(d) => match(_drop_target_atom_of(&d), .Some(at) => match(at, Rc(.Atom(_, tok)) => out.push(tok.value.*.clone()), _ => ()), .None => ()), .None => ());
+        match(l.get_cloned(k), .Some(d) => match(_drop_target_atom_of(&d), .Some(at) => match(at, Rc(.Atom(_, tok)) => out.push(tok.value.*.clone()), _ => ()), .None => ()), .None => ());
         k = (k + usize(1));
       });
     },
@@ -2136,12 +2136,12 @@ lookup_io_builtin_call :: (fn(call_id : ExprId) -> Option(String))(
 (g_immediate_old_value_drops : RefCell(HashMap(ExprId, AstExpr))) = RefCell(HashMap(ExprId, AstExpr)).new(HashMap(ExprId, AstExpr).new());
 record_immediate_old_value_drop :: (fn(assign_id : ExprId, drop_expr : &AstExpr) -> unit)({
   record_owned_expr_id(assign_id);
-  od_expr := drop_expr.*;
+  od_expr := Rc.clone(drop_expr.*);
   g_immediate_old_value_drops.with_mut({ assign_id, od_expr }(m) => m.insert(assign_id, od_expr));
   ()
 });
 lookup_immediate_old_value_drop :: (fn(assign_id : ExprId) -> Option(AstExpr))(
-  g_immediate_old_value_drops.with(m => m.get(&assign_id))
+  g_immediate_old_value_drops.with(m => m.get_cloned(&assign_id))
 );
 /// Operand node id of `&&` / `||` → the `___drop(name)`s of the values that
 /// operand moves, which codegen emits on the path that SKIPS the operand
@@ -3203,13 +3203,13 @@ lookup_spec_instantiation :: (fn(spec_fid : &String) -> Option(SpecInstantiation
 /// Record the expanded form for a macro-call expr id.
 record_macro_expansion :: (fn(call_id : ExprId, expanded : &AstExpr) -> unit)({
   record_owned_expr_id(call_id);
-  me_expr := expanded.*;
+  me_expr := Rc.clone(expanded.*);
   g_macro_expansions.with_mut({ call_id, me_expr }(m) => m.insert(call_id, me_expr));
   ()
 });
 /// Look up the expanded form for a macro-call expr id, if recorded.
 lookup_macro_expansion :: (fn(call_id : ExprId) -> Option(AstExpr))(
-  g_macro_expansions.with(m => m.get(&call_id))
+  g_macro_expansions.with(m => m.get_cloned(&call_id))
 );
 derive(SpecInstantiation, Clone);
 // Module-level mutable-variable init expressions, collected during module-body
@@ -3228,7 +3228,7 @@ record_module_level_init_expr :: (fn(e : &AstExpr) -> unit)({
   already := match(g_module_level_init_seen.with(m => m.get(&eid)), .Some(_) => true, .None => false);
   if(!already, {
     g_module_level_init_seen.with_mut(m => m.insert(eid, true));
-    mi_expr := e.*;
+    mi_expr := Rc.clone(e.*);
     g_module_level_init_exprs.with_mut({ mi_expr }(xs) => xs.push(mi_expr));
   });
   ()
@@ -3697,7 +3697,7 @@ purge_executed_clone_metadata :: (fn(table : &ExprInfoTable, root : &AstExpr, lo
       purge_executed_clone_metadata(table, &callee.*, lo, hi);
       (ai : usize) = usize(0);
       while(ai < args.len(), {
-        match(args.get(ai), .Some(a) => purge_executed_clone_metadata(table, &a, lo, hi), .None => ());
+        match(args.get_cloned(ai), .Some(a) => purge_executed_clone_metadata(table, &a, lo, hi), .None => ());
         ai = (ai + usize(1));
       });
     },
@@ -3979,7 +3979,7 @@ _amr_bounds :: (fn(node : &AstExpr, reference : &Token, lo : Token, hi : Token) 
       (mut(i) : usize) = usize(0);
       while(i < args.len(), {
         match(
-          args.get(i),
+          args.get_cloned(i),
           .Some(a) => {
             acc = recur(&a, reference, Rc.clone(acc.0), Rc.clone(acc.1));
           },

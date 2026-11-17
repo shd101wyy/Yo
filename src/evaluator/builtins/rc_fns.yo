@@ -90,7 +90,7 @@ _eval_arg :: (
 )({
   arg_expr := match(
     expr,
-    Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(fargs.get(arg_idx), .Some(x) => x, .None => make_err_expr()),
+    Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(fargs.get_cloned(arg_idx), .Some(x) => x, .None => make_err_expr()),
     _ => make_err_expr()
   );
   eval_arg := evaluate_expression_raw(&arg_expr, env, ctx, exn);
@@ -122,7 +122,7 @@ _require_destroying_builtin_capable :: (fn(builtin : str, expr : &AstExpr, exn :
     name := String.from(builtin);
     place := match(
       expr,
-      Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(fargs.get(usize(0)), .Some(x) => ast_expr_to_string(&x), .None => String.new()),
+      Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(fargs.get_cloned(usize(0)), .Some(x) => ast_expr_to_string(&x), .None => String.new()),
       _ => String.new()
     );
     exn.throw(dyn(Box.new(format_error_message(&tok, destroying_builtin_error_message(&name, &place)))));
@@ -144,7 +144,7 @@ evaluate_yo_decr_rc :: (
   out := new_expr_info(&info.env(), t_unit());
   out.set_value(.Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-  expr.*
+  Rc.clone(expr.*)
 });
 evaluate_yo_decr_rc_atomic :: (
   fn(
@@ -159,7 +159,7 @@ evaluate_yo_decr_rc_atomic :: (
   out := new_expr_info(&info.env(), t_unit());
   out.set_value(.Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-  expr.*
+  Rc.clone(expr.*)
 });
 evaluate_yo_incr_rc :: (
   fn(
@@ -173,7 +173,7 @@ evaluate_yo_incr_rc :: (
   out := new_expr_info(&info.env(), t_unit());
   out.set_value(.Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-  expr.*
+  Rc.clone(expr.*)
 });
 evaluate_yo_incr_rc_atomic :: (
   fn(
@@ -187,7 +187,7 @@ evaluate_yo_incr_rc_atomic :: (
   out := new_expr_info(&info.env(), t_unit());
   out.set_value(.Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-  expr.*
+  Rc.clone(expr.*)
 });
 evaluate_yo_dyn_vtable_drop :: (
   fn(
@@ -202,7 +202,7 @@ evaluate_yo_dyn_vtable_drop :: (
   out := new_expr_info(&info.env(), t_unit());
   out.set_value(.Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-  expr.*
+  Rc.clone(expr.*)
 });
 evaluate_yo_dyn_vtable_dup :: (
   fn(
@@ -216,7 +216,7 @@ evaluate_yo_dyn_vtable_dup :: (
   out := new_expr_info(&info.env(), t_unit());
   out.set_value(.Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-  expr.*
+  Rc.clone(expr.*)
 });
 evaluate_yo_some_type_drop :: (
   fn(
@@ -231,7 +231,7 @@ evaluate_yo_some_type_drop :: (
   out := new_expr_info(&info.env(), t_unit());
   out.set_value(.Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-  expr.*
+  Rc.clone(expr.*)
 });
 evaluate_yo_some_type_dup :: (
   fn(
@@ -245,7 +245,7 @@ evaluate_yo_some_type_dup :: (
   out := new_expr_info(&info.env(), t_unit());
   out.set_value(.Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-  expr.*
+  Rc.clone(expr.*)
 });
 // ---------------------------------------------------------------------------
 // 1-arg -> arg type (rc_own passes ownership to caller, no comptime value)
@@ -262,7 +262,7 @@ evaluate_yo_rc_own :: (
   out := new_expr_info(&info.env(), &info.ty());
   out.set_value(.None);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-  expr.*
+  Rc.clone(expr.*)
 });
 // ---------------------------------------------------------------------------
 // 2-arg -> unit functions
@@ -282,7 +282,7 @@ evaluate_yo_drop_array_element :: (
   out := new_expr_info(&info0.env(), t_unit());
   out.set_value(.Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-  expr.*
+  Rc.clone(expr.*)
 });
 evaluate_yo_drop_tuple_element :: (
   fn(
@@ -299,7 +299,7 @@ evaluate_yo_drop_tuple_element :: (
   out := new_expr_info(&info0.env(), t_unit());
   out.set_value(.Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-  expr.*
+  Rc.clone(expr.*)
 });
 // ---------------------------------------------------------------------------
 // 2-arg -> element type (dup returns the duped element value)
@@ -319,7 +319,7 @@ evaluate_yo_dup_array_element :: (
   if(!is_array_type(&array_type), {
     tok := match(
       expr,
-      Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(fargs.get(usize(0)), .Some(x) => ast_expr_token(&x), .None => ast_expr_token(expr)),
+      Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(fargs.get_cloned(usize(0)), .Some(x) => ast_expr_token(&x), .None => ast_expr_token(expr)),
       _ => ast_expr_token(expr)
     );
     exn.throw(
@@ -337,7 +337,7 @@ evaluate_yo_dup_array_element :: (
   out := new_expr_info(&info0.env(), &element_type);
   out.set_value(.None);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-  expr.*
+  Rc.clone(expr.*)
 });
 evaluate_yo_dup_tuple_element :: (
   fn(
@@ -353,7 +353,7 @@ evaluate_yo_dup_tuple_element :: (
   if(!is_tuple_type(&tuple_type), {
     tok := match(
       expr,
-      Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(fargs.get(usize(0)), .Some(x) => ast_expr_token(&x), .None => ast_expr_token(expr)),
+      Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(fargs.get_cloned(usize(0)), .Some(x) => ast_expr_token(&x), .None => ast_expr_token(expr)),
       _ => ast_expr_token(expr)
     );
     exn.throw(
@@ -381,7 +381,7 @@ evaluate_yo_dup_tuple_element :: (
     .None => {
       tok := match(
         expr,
-        Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(fargs.get(usize(1)), .Some(x) => ast_expr_token(&x), .None => ast_expr_token(expr)),
+        Rc(.FnCall(_, _, Rc(fargs), _, _)) => match(fargs.get_cloned(usize(1)), .Some(x) => ast_expr_token(&x), .None => ast_expr_token(expr)),
         _ => ast_expr_token(expr)
       );
       exn.throw(
@@ -400,7 +400,7 @@ evaluate_yo_dup_tuple_element :: (
   out := new_expr_info(&info0.env(), &element_type);
   out.set_value(.None);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-  expr.*
+  Rc.clone(expr.*)
 });
 export(create_option_type);
 export(

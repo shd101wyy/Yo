@@ -9,7 +9,8 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 {
-  AstExpr, AstExprNode,
+  AstExpr,
+  AstExprNode,
   ast_expr_token,
   ast_expr_text,
   ast_expr_id,
@@ -316,8 +317,8 @@ make_variable_with_value :: (
 get_root_expr_of_field_access :: (fn(expr : &AstExpr) -> AstExpr)(
   if(
     ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, BF_DOT, .None) && (match(expr, Rc(.FnCall(_, _, Rc(args), _, _)) => args.len(), Rc(.Atom(_, _)) => usize(0)) >= usize(2)),
-    recur(match(expr, Rc(.FnCall(_, _, Rc(args), _, _)) => match(args.get(usize(0)), .Some(a) => a, .None => expr.*), Rc(.Atom(_, _)) => expr.*)),
-    expr.*
+    recur(match(expr, Rc(.FnCall(_, _, Rc(args), _, _)) => match(args.get_cloned(usize(0)), .Some(a) => a, .None => Rc.clone(expr.*)), Rc(.Atom(_, _)) => Rc.clone(expr.*))),
+    Rc.clone(expr.*)
   )
 );
 // ---------------------------------------------------------------------------
@@ -364,11 +365,11 @@ _place_root_variable :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalConte
   (done : bool) = false;
   while(!done, {
     (next : Option(AstExpr)) = match(
-      cur,
+      Rc.clone(cur),
       Rc(.FnCall(_, callee, Rc(args), _, _)) => cond(
-        ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))) => args.get(usize(0)),
+        ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))) => args.get_cloned(usize(0)),
         // An index write `a(i)`: the callee is the place.
-        true => Option(AstExpr).Some(callee)
+        true => Option(AstExpr).Some(Rc.clone(callee))
       ),
       Rc(.Atom(_, _)) => Option(AstExpr).None
     );
@@ -546,13 +547,13 @@ _literal_target_kind :: (fn(lhs : &AstExpr) -> Option(str))(
 /// `imm` capture inside a closure body is read-only (E0908). An `imm`
 /// capture is the one `is_ref` binding that is not reassignable.
 _check_capture_borrow_write :: (fn(lhs : &AstExpr, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
-  (cur : AstExpr) = lhs.*;
+  (cur : AstExpr) = Rc.clone(lhs.*);
   (walking : bool) = true;
   while(walking, {
     match(
-      cur,
+      Rc.clone(cur),
       Rc(.FnCall(_, w_callee, Rc(w_args), _, _)) => {
-        cur = if(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), match(w_args.get(usize(0)), .Some(r) => r, .None => cur), w_callee);
+        cur = if(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), match(w_args.get_cloned(usize(0)), .Some(r) => r, .None => Rc.clone(cur)), Rc.clone(w_callee));
       },
       Rc(.Atom(_, _)) => {
         walking = false;
@@ -704,10 +705,10 @@ _via_root_name :: (fn(via : &AstExpr) -> String)({
   (cur : AstExpr) = via.clone();
   while(!ast_expr_is_atom(&cur), {
     cur = match(
-      cur,
+      Rc.clone(cur),
       Rc(.FnCall(_, callee, Rc(args), _, _)) => cond(
-        ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))) => match(args.get(usize(0)), .Some(a) => a, .None => return(String.new())),
-        true => callee
+        ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))) => match(args.get_cloned(usize(0)), .Some(a) => a, .None => return(String.new())),
+        true => Rc.clone(callee)
       ),
       Rc(.Atom(_, _)) => return(String.new())
     );
@@ -803,7 +804,7 @@ require_no_inout_write_through_borrow :: (
   (i : usize) = usize(0);
   while(i < n, {
     if(match(param_is_ref.get(i), .Some(b) => b, .None => false), {
-      arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
+      arg := match(args.get_cloned(i), .Some(a) => a, .None => make_err_expr());
       arg_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&arg)), .Some(ai) => Rc.clone(ai.ty()), .None => t_unit());
       // A local borrow may be watching the place: judged once the callee's
       // mutation mask is known (`d3_check_pending`). A capture borrow is
@@ -820,7 +821,7 @@ require_no_inout_write_through_borrow :: (
             pending.push(
               D3PendingInout(
                 param_index : i,
-                place : arg,
+                place : Rc.clone(arg),
                 how : lb_how,
                 noun : String.from("local borrow"),
                 root_text : lbp.root_name.clone(),
@@ -857,7 +858,7 @@ require_no_inout_write_through_borrow :: (
             pending.push(
               D3PendingInout(
                 param_index : i,
-                place : arg,
+                place : Rc.clone(arg),
                 how : String.from("write through a `&T` parameter"),
                 noun : String.from("a `&T` parameter"),
                 root_text : sbv.name.clone(),
@@ -885,7 +886,7 @@ require_no_inout_write_through_borrow :: (
             pending.push(
               D3PendingInout(
                 param_index : i,
-                place : arg,
+                place : Rc.clone(arg),
                 how : String.from("write through a borrowed value"),
                 noun : String.from(what),
                 root_text : bv.name.clone(),
@@ -926,7 +927,7 @@ require_no_inout_write_through_borrow :: (
       // of the place whatever the callee's body does. Two-phase, as a `&mut`
       // argument the callee writes (`d3_check_pending`).
       if(loans_active(), {
-        ml_arg := _d3_unlabeled_arg(match(args.get(i), .Some(a) => a, .None => make_err_expr()));
+        ml_arg := _d3_unlabeled_arg(match(args.get_cloned(i), .Some(a) => a, .None => make_err_expr()));
         if(is_mut_lend_value(ast_expr_id(&ml_arg)), {
           match(
             local_borrow_place_of(&ml_arg, env, ctx),
@@ -935,7 +936,7 @@ require_no_inout_write_through_borrow :: (
               pending.push(
                 D3PendingInout(
                   param_index : i,
-                  place : ml_arg,
+                  place : Rc.clone(ml_arg),
                   how : `borrow \`${_place_source_text(&ml_arg)}\` with \`&mut\``,
                   noun : String.from("local borrow"),
                   root_text : ml_lbp.root_name.clone(),
@@ -970,7 +971,7 @@ _d3_capture_conflict :: (fn(lbp : &LocalBorrowPlace, env : &Environment) -> Opti
 _d3_unlabeled_arg :: (fn(arg : AstExpr) -> AstExpr)(
   if(
     ast_expr_is_fn_call_of(&arg, BK_COLON, Option(usize).Some(usize(2))),
-    match(&arg, Rc(.FnCall(_, _, Rc(la), _, _)) => match(la.get(usize(1)), .Some(v) => v, .None => arg.clone()), Rc(.Atom(_, _)) => arg.clone()),
+    match(&arg, Rc(.FnCall(_, _, Rc(la), _, _)) => match(la.get_cloned(usize(1)), .Some(v) => v, .None => arg.clone()), Rc(.Atom(_, _)) => arg.clone()),
     arg
   )
 );
@@ -1029,15 +1030,15 @@ get_root_expr_of_place :: (fn(expr : &AstExpr) -> AstExpr)(
     expr,
     Rc(.FnCall(_, callee, Rc(args), _, _)) => cond(
       (ast_expr_is_fn_call_of(expr, BF_DOT, .None) && (args.len() >= usize(2))) => recur(
-        match(args.get(usize(0)), .Some(a) => a, .None => expr.*)
+        match(args.get_cloned(usize(0)), .Some(a) => a, .None => Rc.clone(expr.*))
       ),
       // A labelled argument `label : place` — the place is the second child.
       ast_expr_is_fn_call_of(expr, BK_COLON, .Some(usize(2))) => recur(
-        match(args.get(usize(1)), .Some(a) => a, .None => expr.*)
+        match(args.get_cloned(usize(1)), .Some(a) => a, .None => Rc.clone(expr.*))
       ),
       true => recur(&callee.*)
     ),
-    Rc(.Atom(_, _)) => expr.*
+    Rc(.Atom(_, _)) => Rc.clone(expr.*)
   )
 );
 // ---------------------------------------------------------------------------
@@ -1151,7 +1152,7 @@ d3_record_inout_place :: (
       pending.push(
         D3PendingInout(
           param_index : param_index,
-          place : place.*,
+          place : Rc.clone(place.*),
           how : how.clone(),
           noun : String.from("atomic object"),
           root_text : ast_expr_to_string(&root_expr),
@@ -1165,7 +1166,7 @@ d3_record_inout_place :: (
       pending.push(
         D3PendingInout(
           param_index : param_index,
-          place : place.*,
+          place : Rc.clone(place.*),
           how : how.clone(),
           noun : String.from("atomic object"),
           root_text : String.new(),
@@ -1184,7 +1185,7 @@ d3_record_inout_place :: (
       pending.push(
         D3PendingInout(
           param_index : param_index,
-          place : place.*,
+          place : Rc.clone(place.*),
           how : how,
           noun : String.from("module-level global"),
           root_text : ast_expr_to_string(&root_expr),
@@ -1368,7 +1369,7 @@ d3_check_pending :: (
       pending.get_cloned(hi),
       .Some(entry) => if(entry.borrow_error.is_none() && entry.lb_place.is_none(), {
         if(entry.atomic_hop, {
-          hop_r = place_cell_hops(&entry.place, ctx).atomic_receiver;
+          hop_r = place_cell_hops(&entry.place, ctx).atomic_receiver.clone();
           if(hop_r.is_some(), {
             needs_mask = true;
           });
@@ -1398,7 +1399,7 @@ d3_check_pending :: (
             (is_write : bool) = true;
             if(entry.atomic_hop, {
               match(
-                match(hop_receivers.get(i), .Some(hr) => hr, .None => Option(AstExpr).None),
+                match(hop_receivers.get_cloned(i), .Some(hr) => hr, .None => Option(AstExpr).None),
                 .Some(r) => {
                   root_text = ast_expr_to_string(&r);
                   root_type = match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&r)), .Some(ri) => type_to_string(&ri.ty()), .None => String.from("?"));
@@ -1506,7 +1507,7 @@ _throw_if_write_through_atomic_hop :: (fn(ev_place : &AstExpr, how : String, ctx
     return(());
   });
   match(
-    place_cell_hops(ev_place, ctx).atomic_receiver,
+    place_cell_hops(ev_place, ctx).atomic_receiver.clone(),
     .Some(r) => {
       r_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&r)), .Some(ri) => type_to_string(&ri.ty()), .None => String.from("?"));
       exn.throw(
@@ -1573,8 +1574,8 @@ _reference_deref_write_target :: (fn(lhs : &AstExpr, env : &Environment, ctx : &
     return(Option(AstExpr).None);
   });
   rw_args := match(lhs, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
-  rw_recv := match(rw_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-  rw_field := match(rw_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+  rw_recv := match(rw_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
+  rw_field := match(rw_args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr());
   if(!ast_expr_is_atom(&rw_recv) || !ast_expr_is_atom(&rw_field) || (ast_expr_token(&rw_field).value.* != "*"), {
     return(Option(AstExpr).None);
   });
@@ -1616,12 +1617,12 @@ evaluate_assignment :: (
   });
   (lhs : AstExpr) = match(
     expr,
-    Rc(.FnCall(_, _, Rc(args), _, _)) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+    Rc(.FnCall(_, _, Rc(args), _, _)) => match(args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()),
     Rc(.Atom(_, _)) => make_err_expr()
   );
   (rhs : AstExpr) = match(
     expr,
-    Rc(.FnCall(_, _, Rc(args), _, _)) => match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
+    Rc(.FnCall(_, _, Rc(args), _, _)) => match(args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr()),
     Rc(.Atom(_, _)) => make_err_expr()
   );
   // -----------------------------------------------------------------------
@@ -1653,15 +1654,15 @@ evaluate_assignment :: (
   // modifier stays in the tree and is rejected here.
   if(ast_expr_is_fn_call_of(&lhs, BK_COLON, Option(usize).Some(usize(2))), {
     tl_name_pos := match(
-      lhs,
-      Rc(.FnCall(_, _, Rc(tl_cargs), _, _)) => match(tl_cargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+      Rc.clone(lhs),
+      Rc(.FnCall(_, _, Rc(tl_cargs), _, _)) => match(tl_cargs.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()),
       Rc(.Atom(_, _)) => make_err_expr()
     );
     if(ast_expr_is_fn_call_of(&tl_name_pos, BK_THREAD_LOCAL, .Some(usize(1))) || ast_expr_is_fn_call_of(&tl_name_pos, BK_COMPTIME, .Some(usize(1))), reject_malformed_mut_marker(&tl_name_pos, usize(0), exn), reject_malformed_mut_marker(&lhs, usize(0), exn));
     if(ast_expr_is_fn_call_of(&tl_name_pos, BK_THREAD_LOCAL, .Some(usize(1))), {
       tl_atom := match(
-        tl_name_pos,
-        Rc(.FnCall(_, _, Rc(tl_margs), _, _)) => match(tl_margs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+        Rc.clone(tl_name_pos),
+        Rc(.FnCall(_, _, Rc(tl_margs), _, _)) => match(tl_margs.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()),
         Rc(.Atom(_, _)) => make_err_expr()
       );
       if(!ast_expr_is_atom(&tl_atom), {
@@ -1691,7 +1692,7 @@ evaluate_assignment :: (
           rw_args := ArrayList(AstExpr).new();
           rw_args.push(rw_name.clone());
           rw_args.push(rhs.clone());
-          Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), rw_f.*, Rc.new(rw_args), rw_infix.*, Rc.clone(rw_tok.*)))
+          Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), Rc.clone(rw_f.*), Rc.new(rw_args), rw_infix.*, Rc.clone(rw_tok.*)))
         },
         Rc(.Atom(_, _)) => expr.clone()
       );
@@ -1710,7 +1711,7 @@ evaluate_assignment :: (
         },
         .None => ()
       );
-      return(expr.*);
+      return(Rc.clone(expr.*));
     },
     .None => ()
   );
@@ -1788,7 +1789,7 @@ evaluate_assignment :: (
     // was rejected as a write above).
     if(!ast_expr_is_fn_call_of(&lhs, BF_DOT, Option(usize).Some(usize(2))) && projection_call_mode_of(&evaluated_lhs, ctx).is_none(), {
       match(
-        lhs,
+        Rc.clone(lhs),
         Rc(.FnCall(_, lhs_callee, _, _, _)) => match(
           expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&lhs_callee)),
           .Some(callee_info) => {
@@ -2330,7 +2331,7 @@ evaluate_assignment :: (
     if(!is_comptime_only_prop, {
       attach_temp_variable_to_expr(expr, true, ctx);
     });
-    return(expr.*);
+    return(Rc.clone(expr.*));
   });
   // ------------------------------------------------------------------
   // Atom / typed-binding LHS path (unchanged from Phase 2v)
@@ -2339,7 +2340,7 @@ evaluate_assignment :: (
   // Derive variable_name and update env/lhs for both LHS kinds.
   // ------------------------------------------------------------------
   (variable_name : String) = String.from("");
-  (lhs_resolved : AstExpr) = lhs;
+  (lhs_resolved : AstExpr) = Rc.clone(lhs);
   cond(
     is_atom_lhs => {
       // Simple identifier: x = rhs
@@ -2362,7 +2363,7 @@ evaluate_assignment :: (
         .None => ()
       );
       variable_name = binding.variable_name.clone();
-      lhs_resolved = binding.variable_expr;
+      lhs_resolved = Rc.clone(binding.variable_expr);
     }
   );
   // -----------------------------------------------------------------------
@@ -3151,7 +3152,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
     // is_owning_the_same_rc_value_as optimization argument.)
     attach_temp_variable_to_expr(expr, true, ctx);
   });
-  expr.*
+  Rc.clone(expr.*)
 });
 export(
   throw_if_write_through_atomic_root,

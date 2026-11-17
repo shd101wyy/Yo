@@ -111,10 +111,10 @@ try_to_implement_array_by_array_type :: (
   (i : usize) = usize(0);
   while(i < n_args, {
     arg_expr := match(
-      arg_exprs.get(i),
+      arg_exprs.get_cloned(i),
       .Some(a) => a,
       .None => {
-        return(expr.*);
+        return(Rc.clone(expr.*));
       }
     );
     // Evaluate with expected element type set in context.
@@ -123,7 +123,7 @@ try_to_implement_array_by_array_type :: (
     evaluated_arg_gerr := evaluate_expression_guarded(&arg_expr, &env, ctx, &mut evaluated_arg_gout);
     ctx.expected_type = saved_expected;
     match(evaluated_arg_gerr, .Some(evaluated_arg_ge) => exn.throw(evaluated_arg_ge), .None => ());
-    evaluated_arg := match(evaluated_arg_gout.get(usize(0)), .Some(evaluated_arg_g) => evaluated_arg_g, .None => make_err_expr());
+    evaluated_arg := match(evaluated_arg_gout.get_cloned(usize(0)), .Some(evaluated_arg_g) => evaluated_arg_g, .None => make_err_expr());
     arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg));
     if(arg_info_opt.is_none(), {
       exn.throw(
@@ -201,6 +201,6 @@ try_to_implement_array_by_array_type :: (
     // array-literal path does.
     attach_temp_variable_to_expr(expr, true, ctx);
   });
-  expr.*
+  Rc.clone(expr.*)
 });
 export(try_to_implement_array_by_array_type);

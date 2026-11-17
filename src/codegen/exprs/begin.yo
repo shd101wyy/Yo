@@ -38,7 +38,7 @@ _concat_drops :: (fn(current : &Option(ArrayList(AstExpr)), prev : &Option(Array
       (mut(i) : usize) = usize(0);
       while(i < n, {
         match(
-          cd.get(i),
+          cd.get_cloned(i),
           .Some(e) => {
             out.push(e);
           },
@@ -56,7 +56,7 @@ _concat_drops :: (fn(current : &Option(ArrayList(AstExpr)), prev : &Option(Array
       (mut(i) : usize) = usize(0);
       while(i < n, {
         match(
-          pp.get(i),
+          pp.get_cloned(i),
           .Some(e) => {
             out.push(e);
           },
@@ -79,7 +79,7 @@ _emit_deferred_drops :: (fn(ei : &ExprInfo, indent : &String, context : &mut Fun
       (di : usize) = usize(0);
       while(di < nd, {
         match(
-          drops.get(di),
+          drops.get_cloned(di),
           .Some(drop_expr) => {
             _emit_one_deferred_drop(&drop_expr, ei, indent.clone(), context);
           },
@@ -169,7 +169,7 @@ _drop_list_has_id :: (fn(drops : &Option(ArrayList(AstExpr)), id : ExprId) -> bo
       (mut(i) : usize) = usize(0);
       while((i < ds.len()) && !found, {
         match(
-          ds.get(i),
+          ds.get_cloned(i),
           .Some(d) => {
             found = (ast_expr_id(&d) == id);
           },
@@ -236,7 +236,7 @@ _flush_stmt_lent_temp_drops :: (fn(stmt : &AstExpr, next_stmt : &Option(AstExpr)
         (pi : usize) = usize(0);
         while(pi < pending.len(), {
           match(
-            pending.get(pi),
+            pending.get_cloned(pi),
             .Some(de) => match(
               _get_deferred_drop_target_variable(&de, context),
               .Some(tv) => {
@@ -277,7 +277,7 @@ _flush_stmt_lent_temp_drops :: (fn(stmt : &AstExpr, next_stmt : &Option(AstExpr)
   (mi : usize) = usize(0);
   while(mi < matching.len(), {
     match(
-      matching.get(mi),
+      matching.get_cloned(mi),
       .Some(de) => _emit_one_deferred_drop(&de, ei, indent.clone(), context),
       .None => ()
     );
@@ -327,7 +327,7 @@ generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
       (last_arg_expr : Option(AstExpr)) = Option(AstExpr).None;
       while((idx < n) && !stop, {
         match(
-          args.get(idx),
+          args.get_cloned(idx),
           .Some(arg) => match(
             context.base.get_expr_info(&arg),
             .None => {
@@ -366,7 +366,7 @@ generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
               // statement's end (a final statement's drop at the block's end
               // IS its statement end: nothing runs in between).
               if(!is_last, {
-                nxt := args.get(idx + usize(1));
+                nxt := args.get_cloned(idx + usize(1));
                 _flush_stmt_lent_temp_drops(&arg, &nxt, &ei.deferred_drop_expressions(), &arg_ei, &indent2, context);
               });
               last_arg_code = result;
@@ -418,7 +418,7 @@ generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
       (idx : usize) = usize(0);
       while(idx < n, {
         match(
-          args.get(idx),
+          args.get_cloned(idx),
           .Some(arg) => {
             note_line_position(&mut context.base.emitter, &arg);
             arg_code := _call_generate_expr(&arg, indent2.clone(), context);
@@ -435,7 +435,7 @@ generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
               match(
                 context.base.get_expr_info(&arg),
                 .Some(fei) => {
-                  nxt := args.get(idx + usize(1));
+                  nxt := args.get_cloned(idx + usize(1));
                   _flush_stmt_lent_temp_drops(&arg, &nxt, &ei.deferred_drop_expressions(), &fei, &indent2, context);
                 },
                 .None => ()

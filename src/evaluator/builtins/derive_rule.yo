@@ -91,8 +91,8 @@ evaluate_derive_rule :: (
       )
     );
   });
-  trait_arg_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-  derive_fn_expr := match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+  trait_arg_expr := match(args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
+  derive_fn_expr := match(args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr());
   // Extract the registry key from the trait arg expression (before evaluation).
   key_opt := extract_derive_key(&trait_arg_expr);
   key := match(
@@ -171,7 +171,7 @@ evaluate_derive_rule :: (
   out := new_expr_info(env, t_unit());
   out.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-  expr.*
+  Rc.clone(expr.*)
 });
 export(evaluate_derive_rule);
 export(extract_derive_key, get_derive_rule, get_derive_rule_type);

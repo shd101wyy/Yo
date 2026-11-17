@@ -55,7 +55,7 @@ evaluate_typeof :: (
   type_expr := match(
     expr,
     Rc(.FnCall(_, _, Rc(args), _, _)) => match(
-      args.get(usize(0)),
+      args.get_cloned(usize(0)),
       .Some(a) => a,
       .None => make_err_expr()
     ),
@@ -95,6 +95,6 @@ evaluate_typeof :: (
   out_info := new_expr_info(&next_env, &meta_type);
   out_info.set_value(.Some(type_val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr.*
+  Rc.clone(expr.*)
 });
 export(evaluate_typeof);

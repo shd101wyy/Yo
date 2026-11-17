@@ -340,7 +340,7 @@ _emit_loop_body_drops_before_exit :: (fn(context : &mut FunctionGenerationContex
         (mut(i) : usize) = usize(0);
         while(i < emit_count, {
           match(
-            drops.get(i),
+            drops.get_cloned(i),
             .Some(drop_expr) => {
               // Skip a drop whose target C variable is not IN SCOPE at this
               // emission point. `x := match(...)`/`cond(...)` bindings emit
@@ -674,7 +674,7 @@ _generate_atom_read :: (fn(expr : &AstExpr, context : &mut FunctionGenerationCon
               (rdi : usize) = usize(0);
               while(rdi < dd.len(), {
                 match(
-                  dd.get(rdi),
+                  dd.get_cloned(rdi),
                   .Some(de) => {
                     dc := _call_generate_expr(&de, indent.clone(), context);
                     if((dc.len() > usize(0)) && dc.contains("sm->"), {
