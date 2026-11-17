@@ -135,27 +135,39 @@ clone_patterns :: (fn(xs : &ArrayList(Pattern)) -> ArrayList(Pattern))({
   out
 });
 /// One `pattern => body` arm after compilation.
-Arm :: ref(
-  struct(
-    pattern : Pattern,
-    /// `(p && (g)) => body` — the guard, evaluated with the pattern's
-    /// bindings in scope.
-    guard : Option(AstExpr),
-    body : AstExpr,
-    /// The `=>` node.
-    arm_expr : AstExpr,
-    /// The pattern side of the `=>` — the node `case_executed` is stamped on.
-    pattern_expr : AstExpr,
-    /// True when the arm is one of the shapes the pre-IR emitters lower to a
-    /// `switch`: `_`, `.V`, `.V(binders / _ / numeric literals)`,
-    /// `.V(label : binder)`, `.V({…})`, or a primitive literal / or-of-literals
-    /// arm — with no guard. Codegen keeps today's emitters (byte-identical C)
-    /// for a match whose every arm is classic and takes the general
-    /// test-chain lowering otherwise.
-    classic : bool
+Arm :: struct(
+  pattern : Pattern,
+  /// `(p && (g)) => body` — the guard, evaluated with the pattern's
+  /// bindings in scope.
+  guard : Option(AstExpr),
+  body : AstExpr,
+  /// The `=>` node.
+  arm_expr : AstExpr,
+  /// The pattern side of the `=>` — the node `case_executed` is stamped on.
+  pattern_expr : AstExpr,
+  /// True when the arm is one of the shapes the pre-IR emitters lower to a
+  /// `switch`: `_`, `.V`, `.V(binders / _ / numeric literals)`,
+  /// `.V(label : binder)`, `.V({…})`, or a primitive literal / or-of-literals
+  /// arm — with no guard. Codegen keeps today's emitters (byte-identical C)
+  /// for a match whose every arm is classic and takes the general
+  /// test-chain lowering otherwise.
+  classic : bool
+);
+impl(
+  Arm,
+  Clone(
+    clone : (fn(self : &Self) -> Self)(
+      Arm(
+        pattern : self.pattern.clone(),
+        guard : self.guard.clone(),
+        body : self.body.clone(),
+        arm_expr : self.arm_expr.clone(),
+        pattern_expr : self.pattern_expr.clone(),
+        classic : self.classic
+      )
+    )
   )
 );
-impl(Arm, Clone(clone : (fn(self : &Self) -> Self)(self.*)));
 // ---------------------------------------------------------------------------
 // Registry — arms per match node, keyed by the match expression's id.
 //

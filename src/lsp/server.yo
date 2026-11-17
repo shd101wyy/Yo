@@ -69,17 +69,16 @@ json :: import("std/encoding/json");
 /// (issues/fixed/lsp-analysis-state-lost-on-parse-and-eval-errors.md).
 /// Positions are matched against `text` by token (value, row, column), so a
 /// stale outcome answers only where the two still agree, never wrongly.
-DocState :: ref(
-  struct(
-    text : String,
-    lines : ArrayList(String),
-    entry_abs : String,
-    outcome : AnalyzeOutcome,
-    /// This version's diagnostics, kept for `textDocument/codeAction`: the
-    /// quickfixes are the `Repair`s they carry.
-    diags : ArrayList(LspDiag)
-  )
+DocState :: struct(
+  text : String,
+  lines : ArrayList(String),
+  entry_abs : String,
+  outcome : AnalyzeOutcome,
+  /// This version's diagnostics, kept for `textDocument/codeAction`: the
+  /// quickfixes are the `Repair`s they carry.
+  diags : ArrayList(LspDiag)
 );
+derive(DocState, Clone);
 
 /// Lifecycle state (LSP's `initialize`/`shutdown`/`exit` sequence): 0 =
 /// uninitialized (only `initialize` and `exit` are served), 1 = running,
@@ -288,8 +287,16 @@ _note_document_change :: (
   match(
     docs.get(uri.clone()),
     .Some(st) => {
-      st.text = text.clone();
-      st.lines = text.split(String.from("\n"));
+      docs.insert(
+        uri.clone(),
+        DocState(
+          text : text.clone(),
+          lines : text.split(String.from("\n")),
+          entry_abs : st.entry_abs.clone(),
+          outcome : st.outcome.clone(),
+          diags : st.diags.clone()
+        )
+      );
       mm_set_open_document(uri_to_fs_path(uri.clone()), text.clone());
       known := false;
       (i : usize) = usize(0);

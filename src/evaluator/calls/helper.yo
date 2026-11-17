@@ -6153,13 +6153,15 @@ _with_instantiation_note :: (fn(err : AnyError, call_tok : &Token, description :
     return(err);
   });
   note := `in ${description}, instantiated here`;
-  noted := YoError(diagnostics : ye.diagnostics.clone());
-  noted.diagnostics.push(note_diagnostic_of_token(call_tok, note.clone()));
+  (mut(noted_ds) : ArrayList(Diagnostic)) = ye.diagnostics.clone();
+  noted_ds.push(note_diagnostic_of_token(call_tok, note.clone()));
+  noted := YoError(diagnostics : noted_ds);
   match(
     flow_violation_error(),
     .Some(fv) => if(_same_primary_span(&fv, &ye), {
-      fv_noted := YoError(diagnostics : fv.diagnostics.clone());
-      fv_noted.diagnostics.push(note_diagnostic_of_token(call_tok, &note));
+      (mut(fv_ds) : ArrayList(Diagnostic)) = fv.diagnostics.clone();
+      fv_ds.push(note_diagnostic_of_token(call_tok, &note));
+      fv_noted := YoError(diagnostics : fv_ds);
       flag_flow_violation(&fv_noted);
     }),
     .None => ()
