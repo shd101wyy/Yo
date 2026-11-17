@@ -1245,7 +1245,9 @@ _structural_clone_precedes_lookup :: (fn(callee : &AstExpr, arg_count : usize, c
     recv_ty,
     .Some(rt) => {
       sp_target := resolve_cell_chain(&rt);
-      _is_str_view_receiver_type(&rt) || (is_some_type(&rt) && match(&sp_target, Rc(.Struct({ field_types : _ })) => copy_structural_parts(&sp_target).is_some(), _ => false))
+      _is_str_view_receiver_type(&rt) || (
+        is_some_type(&rt) && match(&sp_target, Rc(.Struct({ field_types : _ })) => copy_structural_parts(&sp_target).is_some(), _ => false)
+      )
     },
     .None => false
   )
