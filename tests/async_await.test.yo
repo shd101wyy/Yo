@@ -7421,24 +7421,10 @@ _inout_field :: (fn(io : Io) -> Impl(Future(i32, Io)))(
 test("an inout binding of a value-struct field across awaits", {
   assert(io.await(_inout_field(io), io) == i32(13), "the field is written through the binding");
 });
-// A pin exists only for a `ref` object: kept for the v0.2.77 parser PR.
-_InoutObj :: ref(struct(v : i32));
-_inout_pinned :: (fn(io : Io) -> Impl(Future(i32, Io)))(
-  io.async((e : Io) => {
-    mut(o) := _InoutObj(v : i32(1));
-    r := &mut o.v;
-    r.* = (r.* + i32(1));
-    // The binding's last use is above: a borrow through a reference cell may
-    // not be live across an await (decision 18, rule 4). Its pin holds the
-    // first object to the end of the scope, across the await.
-    o = _InoutObj(v : i32(100));
-    e.await(yield(e), e);
-    o.v + i32(2)
-  })
-);
-test("an inout binding through an object pins it to the end of its scope, across an await", {
-  assert(io.await(_inout_pinned(io), io) == i32(102), "r wrote the pinned object, o is the new one");
-});
+// The `ref`-object pin row that lived here (an inout binding of an object
+// field holding the first object alive across a rebind and an await) went
+// with the form in v0.2.79: below an `Rc` there is no `&mut` to bind, and a
+// `RefCell` door's borrows stay inside their closure.
 _inout_loop :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
     (mut(total) : i32) = i32(0);
@@ -7663,8 +7649,9 @@ _a2_items_later :: (fn(items : &ArrayList(i32), io : Io) -> Impl(Future(usize, I
     items.len()
   })
 );
-// A `ref` object reached from an `Rc` payload: kept for the v0.2.77 parser PR.
-_A2Node :: ref(struct(n : i32));
+// A value reached from an `Rc` payload: the borrow-under-a-cell rows below
+// fire through the `Rc` itself.
+_A2Node :: struct(n : i32);
 _A2WithNode :: struct(node : _A2Node);
 // `Future(T, E, p)` spells the places a future borrows (decision 43 step 4,
 // N3-1): the trailing origin is recognized by kind, here the `&mut`
@@ -7797,8 +7784,10 @@ test("a borrowing future may hold a & place lent through an Rc deref, not a &mut
 // so `r.m(io)` is accepted as the handle spelling `T.m(&r, io)` is. The
 // receiver used to read as an auto-dereferenced one and was E0909
 // (issues/fixed/2026-10-24-a-borrowing-method-future-on-a-ref-receiver-is-rejected-as-a-cell-lend.md).
-// Kept for the v0.2.77 parser PR (a `ref` receiver is its own handle).
-_A2RefCounter :: ref(struct(n : i32));
+// The handle-receiver row survives over `Rc`: a method whose future borrows
+// `self : &Self` lends the receiver binding, not a place inside the payload.
+_A2RefCounterPayload :: struct(n : i32);
+_A2RefCounter :: Rc(_A2RefCounterPayload);
 impl(
   _A2RefCounter,
   twice_later : (fn(self : &Self, io : Io) -> Impl(Future(i32, Io)))(
@@ -7808,8 +7797,8 @@ impl(
     })
   )
 );
-test("a borrowing method future on a ref receiver lends the handle (§3.13 A2)", {
-  r := _A2RefCounter(n : i32(4));
+test("a borrowing method future on a handle receiver lends the handle (§3.13 A2)", {
+  r := Rc.new(_A2RefCounterPayload(n : i32(4)));
   assert(io.await(r.twice_later(io), io) == i32(8), "the receiver spelling");
   assert(io.await(_A2RefCounter.twice_later(&r, io), io) == i32(8), "the handle spelling");
   k := Rc.new(_A2Counter(n : i32(3)));

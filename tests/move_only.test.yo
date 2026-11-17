@@ -33,7 +33,8 @@ _MoHolder :: struct(fd : _MoFd, tag : i32);
 // Neither `Copy` nor `Clone`: a token that stays unique without a `Drop`.
 _MoToken :: struct(id : i32);
 _MoChoice :: enum(Open(fd : _MoFd), Closed);
-_MoRef :: ref(struct(fd : _MoFd));
+_MoRefPayload :: struct(fd : _MoFd);
+_MoRef :: Rc(_MoRefPayload);
 _mo_take :: (fn(sink(f) : _MoFd) -> i32)(f.n);
 _mo_peek :: (fn(f : &_MoFd) -> i32)(f.n);
 _mo_make :: (fn(n : i32) -> _MoFd)({
@@ -87,9 +88,9 @@ test("move-only: Drop makes a value type move-only, and value aggregates inherit
   comptime_assert(!Type.impls(Array(_MoFd, 2), Copy) && !Type.impls(Array(_MoFd, 2), Clone), "an array of them is move-only");
   comptime_assert(Type.impls(i32, Copy), "i32 is copyable");
   comptime_assert(Type.contains_rc_type(_MoFd), "a move-only value has a drop to run");
-  // A reference type shares its payload: its copy is another handle, never a move.
-  r := _MoRef(fd : _MoFd(n : i32(4)));
-  r2 := r;
+  // A counted handle shares its payload: its copy is another handle, never a move.
+  r := Rc.new(_MoRefPayload(fd : _MoFd(n : i32(4))));
+  r2 := Rc.clone(&r);
   assert((r.fd.n + r2.fd.n) == i32(8), "both handles stay usable");
 });
 test("move-only: the impl-site gate", {
@@ -1220,9 +1221,9 @@ impl(
 );
 _MdShow :: trait(n_of : (fn(self : &Self) -> i32));
 impl(_MdOuter, _MdShow(n_of : (fn(self : &Self) -> i32)(self.n)));
-_MdRef :: ref(struct(inner : Option(_MdInner), n : i32));
+_MdRefPayload :: struct(inner : Option(_MdInner), n : i32);
 impl(
-  _MdRef,
+  _MdRefPayload,
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
       g_md_calls = (g_md_calls + i32(1));
@@ -1230,6 +1231,7 @@ impl(
     })
   )
 );
+_MdRef :: Rc(_MdRefPayload);
 _md_make :: (fn(n : i32) -> _MdOuter)(_MdOuter(inner : Option(_MdInner).Some(_MdInner(n : n)), n : n));
 _MdBad :: struct(n : i32);
 test("Drop: a destructor that takes a field out runs once on every drop path", {
@@ -1270,11 +1272,11 @@ test("Drop: a destructor that takes a field out runs once on every drop path", {
   };
   assert((g_md_calls == (c0 + i32(7))) && (g_md_inner == (i0 + i32(7))), "ArrayList elements: once each");
   {
-    h := _MdRef(inner : Option(_MdInner).Some(_MdInner(n : i32(8))), n : i32(8));
-    h2 := h;
-    assert(h2.n == i32(8), "reference type: live");
+    h := Rc.new(_MdRefPayload(inner : Option(_MdInner).Some(_MdInner(n : i32(8))), n : i32(8)));
+    h2 := Rc.clone(&h);
+    assert(h2.n == i32(8), "counted handle: live");
   };
-  assert((g_md_calls == (c0 + i32(8))) && (g_md_inner == (i0 + i32(8))), "reference type: once, with the last handle");
+  assert((g_md_calls == (c0 + i32(8))) && (g_md_inner == (i0 + i32(8))), "counted handle: once, with the last handle");
 });
 test("Drop: a drop declared with `self : &Self` does not conform", {
   comptime_expect_error(impl(_MdBad, Drop(drop : (fn(self : &Self) -> unit)(()))), "the trait requires the receiver");

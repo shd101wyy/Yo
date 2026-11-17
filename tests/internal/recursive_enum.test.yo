@@ -44,11 +44,11 @@ _load_fixture :: (fn(rel_path : &String, io : Io) -> LoadOutcomePair)({
   LoadOutcomePair(ok : outcome.ok, rendered : rendered)
 });
 
-test("plain enum recursive by VALUE is rejected with the ref(enum) hint", {
+test("plain enum recursive by VALUE is rejected with the indirection hint", {
   r := _load_fixture(String.from("./tests/spec/fixtures/invalid/plain_recursive_value_enum.yo"), io);
   assert(!r.ok, "the invalid fixture must fail to load");
   assert(r.rendered.contains(String.from("recursive value enum")), `the diagnostic must name the problem, got: ${r.rendered}`);
-  assert(r.rendered.contains(String.from("ref(enum")), "the diagnostic must carry the fix hint");
+  assert(r.rendered.contains(String.from("Box, ArrayList, or Rc")), "the diagnostic must carry the fix hint");
   assert(r.rendered.contains(String.from("Quant")), `the diagnostic must name the offending variant, got: ${r.rendered}`);
 });
 
