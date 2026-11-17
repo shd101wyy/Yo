@@ -108,7 +108,8 @@ pragma(Pragma.AllowUnsafe);
 { some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot_with_pointee, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_result_is_ref, fn_result_is_mut_ref, t_slot_is_borrow, fn_result_origin_names, fn_result_composite_origin_names, fn_param_in_result_origin, fn_param_pointee_in_result_origin, fn_result_slot } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_func_simple, t_ptr, generate_some_type_id } :: import("../../types/creators.yo");
 {
-  EvalValue, EvalValueNode,
+  EvalValue,
+  EvalValueNode,
   FuncValData,
   create_unknown_val,
   no_values,
@@ -2273,22 +2274,24 @@ evaluate_anonymous_function_implementation :: (
   // to the marked `addr_of(place)` as a named projection's is.
   proj_body := if(fn_result_is_ref(&function_type), _closure_projection_body(&body_expr, fn_result_is_mut_ref(&function_type), exn), body_expr.clone());
   body_for_def_eval := proj_body.clone();
-  func_val := Rc.new(EvalValueNode.FuncVal(
-    Rc.new(
-      FuncValData(
-        forall_names : forall_labels.items.clone(),
-        params : actual_param_labels.clone(),
-        param_type_names : param_type_names,
-        evidence_params : implicit_labels.items.clone(),
-        body : proj_body,
-        cap_names : ArrayList(String).new(),
-        cap_tys : ArrayList(TypeValue).new(),
-        func_id : func_id.clone(),
-        env_key : fv_env_key
-      )
-    ),
-    shared_values(cap_vals)
-  ));
+  func_val := Rc.new(
+    EvalValueNode.FuncVal(
+      Rc.new(
+        FuncValData(
+          forall_names : forall_labels.items.clone(),
+          params : actual_param_labels.clone(),
+          param_type_names : param_type_names,
+          evidence_params : implicit_labels.items.clone(),
+          body : proj_body,
+          cap_names : ArrayList(String).new(),
+          cap_tys : ArrayList(TypeValue).new(),
+          func_id : func_id.clone(),
+          env_key : fv_env_key
+        )
+      ),
+      shared_values(cap_vals)
+    )
+  );
   // Phase A of an impl member written as a literal (context.yo
   // `publish_pending_member_phase_a`), before the body trial below.
   publish_pending_member_phase_a(ast_expr_id(expr), &func_val, &function_type);
@@ -2575,23 +2578,25 @@ Result type: ${type_to_string(&decl_result_ty)}`
     // A separate preliminary FuncVal for the body-eval context (EvalValue is
     // not Clone; `func_val` above is consumed by the ExprInfo below). Same
     // pattern as closure_type.yo's `func_val_pre`.
-    body_ctx_func_val := Rc.new(EvalValueNode.FuncVal(
-      Rc.new(
-        FuncValData(
-          forall_names : ArrayList(String).new(),
-          // The parameter names as written: the body's own (the closure-capture
-          // rule, `_enclosing_param_names`), not the expected slot's labels.
-          params : actual_param_labels.clone(),
-          param_type_names : ArrayList(String).new(),
-          evidence_params : ArrayList(String).new(),
-          body : body_for_def_eval.clone(),
-          cap_names : ArrayList(String).new(),
-          cap_tys : ArrayList(TypeValue).new(),
-          func_id : func_id.clone()
-        )
-      ),
-      no_values()
-    ));
+    body_ctx_func_val := Rc.new(
+      EvalValueNode.FuncVal(
+        Rc.new(
+          FuncValData(
+            forall_names : ArrayList(String).new(),
+            // The parameter names as written: the body's own (the closure-capture
+            // rule, `_enclosing_param_names`), not the expected slot's labels.
+            params : actual_param_labels.clone(),
+            param_type_names : ArrayList(String).new(),
+            evidence_params : ArrayList(String).new(),
+            body : body_for_def_eval.clone(),
+            cap_names : ArrayList(String).new(),
+            cap_tys : ArrayList(TypeValue).new(),
+            func_id : func_id.clone()
+          )
+        ),
+        no_values()
+      )
+    );
     // The body evaluates against a SNAPSHOT of the live env (the param frame
     // is in scope; frame-list mutations during body eval cannot corrupt the
     // outer env's frame list — see snapshot_env / the recorded-env-aliasing
@@ -3159,25 +3164,27 @@ Result type: ${type_to_string(&decl_result_ty)}`
     // stays limited to a result that mentions a type variable.
     dgc_check_result := (get_all_some_types(&dgc_ret).len() > usize(0));
     {
-      dgc_fv := Rc.new(EvalValueNode.FuncVal(
-        Rc.new(
-          FuncValData(
-            forall_names : ArrayList(String).new(),
-            params : actual_param_labels.clone(),
-            param_type_names : ArrayList(String).new(),
-            evidence_params : ArrayList(String).new(),
-            body : body_for_def_eval.clone(),
-            cap_names : ArrayList(String).new(),
-            cap_tys : ArrayList(TypeValue).new(),
-            // THROWAWAY id: reusing the real func_id let trial registrations
-            // shadow the real definition's (codegen emitted the trial clone).
-            // Positional-occurrence like every fid — the throwaway
-            // takes this position's next ordinal, distinct from the real one.
-            func_id : stable_func_id(String.from("fn_"), &tok.module_path.*, usize(tok.row), usize(tok.column))
-          )
-        ),
-        no_values()
-      ));
+      dgc_fv := Rc.new(
+        EvalValueNode.FuncVal(
+          Rc.new(
+            FuncValData(
+              forall_names : ArrayList(String).new(),
+              params : actual_param_labels.clone(),
+              param_type_names : ArrayList(String).new(),
+              evidence_params : ArrayList(String).new(),
+              body : body_for_def_eval.clone(),
+              cap_names : ArrayList(String).new(),
+              cap_tys : ArrayList(TypeValue).new(),
+              // THROWAWAY id: reusing the real func_id let trial registrations
+              // shadow the real definition's (codegen emitted the trial clone).
+              // Positional-occurrence like every fid — the throwaway
+              // takes this position's next ordinal, distinct from the real one.
+              func_id : stable_func_id(String.from("fn_"), &tok.module_path.*, usize(tok.row), usize(tok.column))
+            )
+          ),
+          no_values()
+        )
+      );
       dgc_env := snapshot_env(env);
       dgc_ctx := create_function_body_evaluation_context(&function_type, &dgc_fv, &dgc_env, ctx);
       dgc_out := ArrayList(AstExpr).new();
