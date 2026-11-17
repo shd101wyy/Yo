@@ -21,7 +21,7 @@ pragma(Pragma.AllowUnsafe);
 // ============================================================================
 /// A VC sort. The verifiable subset starts at `bool` and exact-width
 /// bitvectors (the plan's sorts table); datatypes/arrays/Seq join in V3–V5.
-VcSortE :: enum(
+VcSortNode :: enum(
   /// SMT `Bool`.
   BoolS,
   /// SMT `(_ BitVec <width>)` — widths 8/16/32/64 (and the target's usize).
@@ -53,7 +53,7 @@ VcSortE :: enum(
   Uninterpreted(name : String)
 );
 VcSort :: Rc(VcSortE);
-impl(VcSort, Clone(clone : (fn(self : &Self) -> Self)(Rc.clone(self.*))));
+derive(VcSortNode, Clone);
 derive(VcSort, Eq(VcSort));
 // A VcSort has no back edges. Its only children are `Self`
 // payloads (`SeqS`, `FunS`, `ArrS`), and it holds no list or cell. The
@@ -67,13 +67,13 @@ impl(
     to_string : (fn(self : &Self) -> String)(
       match(
         self,
-        .BoolS => String.from("bool"),
-        .BvS(w) => `bv${w.to_string()}`,
-        .DataS(name) => name.clone(),
-        .SeqS(_) => String.from("seq"),
-        .FunS(_, _) => String.from("array"),
-        .ArrS(_, _) => String.from("array"),
-        .Uninterpreted(name) => name.clone()
+        Rc(.BoolS) => String.from("bool"),
+        Rc(.BvS(w)) => `bv${w.to_string()}`,
+        Rc(.DataS(name)) => name.clone(),
+        Rc(.SeqS(_)) => String.from("seq"),
+        Rc(.FunS(_, _)) => String.from("array"),
+        Rc(.ArrS(_, _)) => String.from("array"),
+        Rc(.Uninterpreted(name)) => name.clone()
       )
     )
   )
