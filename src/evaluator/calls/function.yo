@@ -10652,7 +10652,7 @@ _record_fnonce_callee_release :: (fn(call : &AstExpr, name : &String, env : &Env
 _attach_fnonce_callee_release :: (fn(call : &AstExpr, result : &AstExpr, ctx : &EvalContext) -> unit)({
   fr_id := ast_expr_id(call);
   match(
-    g_fnonce_release_after_call.with_mut({ fr_id }(m) => m.remove(fr_id)),
+    g_fnonce_release_after_call.with_mut({ fr_id }(m) => m.remove(&fr_id)),
     .Some(callee) => match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(result)),
       .Some(ci) => {
