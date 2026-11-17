@@ -210,8 +210,7 @@ type_id_or_empty :: (fn(t : &TypeValue) -> String)(
 /// resolve `Self` references inside the method's signature to the
 /// concrete receiver type. Direct-on-type registry hits leave it
 /// `.None` (the method's `Self` is already the concrete type).
-MethodEntry :: ref(
-  struct(
+MethodEntry :: struct(
     label : String,
     ty : TypeValue,
     value : Option(EvalValue),
@@ -611,6 +610,44 @@ register_provisional_trait_method :: (
   list.push(entry.*);
   type_id_own_____ := type_id.clone();
   _provisional_trait_methods.with_mut({ type_id_own_____, list : list.clone() }(m) => m.insert(type_id_own_____.clone(), list.clone()));
+});
+/// Update IN PLACE the registered entry whose `value` names `match_fid`:
+/// the impl block's completing evaluation refreshes the phase-A entry a
+/// forced sibling registered (`pa_e.ty`/`pa_e.value`/`pe.*` in
+/// `values/impl.yo`). A `get` copy is not the stored entry once collections
+/// are values, so the list is taken out, updated and stored back. Returns
+/// whether an entry was updated.
+update_type_trait_method_entry :: (
+  fn(registry_provisional : bool, type_id : &String, match_fid : &String, ty : &TypeValue, value : &EvalValue, source_trait_id : &String) -> bool
+)({
+  (updated : bool) = false;
+  take_key := type_id.clone();
+  src := cond(
+    registry_provisional => _provisional_trait_methods.with_mut({ take_key }(m) => m.remove(&take_key)),
+    true => _type_trait_methods.with_mut({ take_key }(m) => m.remove(&take_key))
+  );
+  list := match(src, .Some(l) => l, .None => ArrayList(MethodEntry).new());
+  (i : usize) = usize(0);
+  while(i < list.len(), {
+    list.with(i, entry => {
+      entry_fid := match(entry.value, .Some(ev) => match(ev, .FuncVal(fd, _) => fd.*.func_id.clone(), _ => String.new()), .None => String.new());
+      if((entry_fid.len() > usize(0)) && (entry_fid == match_fid.*), {
+        entry.ty = Rc.clone(ty);
+        entry.value = Option(EvalValue).Some(value.*);
+        if(source_trait_id.len() > usize(0), {
+          entry.source_trait_id = source_trait_id.clone();
+        });
+        updated = true;
+      });
+    });
+    i = (i + usize(1));
+  });
+  put_key := type_id.clone();
+  cond(
+    registry_provisional => _provisional_trait_methods.with_mut({ put_key, list }(m) => m.insert(put_key, list)),
+    true => _type_trait_methods.with_mut({ put_key, list }(m) => m.insert(put_key, list))
+  );
+  updated
 });
 get_provisional_trait_methods_by_name :: (
   fn(type_id : &String, method_name : &String) -> ArrayList(MethodEntry)

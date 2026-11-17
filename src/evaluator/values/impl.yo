@@ -4723,23 +4723,10 @@ _c3_eval_colon_pair :: (
           field_opt,
           .Some(pa_pf) => if(pa_pf.phase_a_registered, {
             pa_real_fid := match(method_val, .FuncVal(__pa_fvd, _) => __pa_fvd.*.func_id.clone(), _ => String.new());
-            pa_existing := get_type_trait_methods_by_name(&st.recv_id, &method_name);
-            (pa_i : usize) = usize(0);
-            while((pa_i < pa_existing.len()) && !updated_phase_a, {
-              match(
-                pa_existing.get(pa_i),
-                .Some(pa_e) => {
-                  pa_e_fid := match(pa_e.value, .Some(pa_v) => match(pa_v, .FuncVal(__pa_e_fvd, _) => __pa_e_fvd.*.func_id.clone(), _ => String.new()), .None => String.new());
-                  if((pa_e_fid.len() > usize(0)) && (pa_e_fid == pa_real_fid), {
-                    pa_e.ty = Rc.clone(fi.ty());
-                    pa_e.value = Option(EvalValue).Some(method_val);
-                    register_func_type(pa_real_fid.clone(), _retype_with_value_param_labels(&fi.ty(), &method_val));
-                    updated_phase_a = true;
-                  });
-                },
-                .None => ()
-              );
-              pa_i = (pa_i + usize(1));
+            (pa_stid : String) = String.new();
+            updated_phase_a = update_type_trait_method_entry(false, &st.recv_id, &pa_real_fid, &fi.ty(), &method_val, &pa_stid);
+            if(updated_phase_a, {
+              register_func_type(pa_real_fid.clone(), _retype_with_value_param_labels(&fi.ty(), &method_val));
             });
           }),
           .None => ()
@@ -4848,24 +4835,7 @@ _c2_register_member :: (
   (updated : bool) = false;
   if(pf.phase_a_registered, {
     real_fid := match(value, .FuncVal(__c2r_fvd, _) => __c2r_fvd.func_id.clone(), _ => String.new());
-    prior := get_provisional_trait_methods_by_name(&st.recv_id, label.clone());
-    (pi : usize) = usize(0);
-    while((pi < prior.len()) && !updated, {
-      match(
-        prior.get(pi),
-        .Some(pe) => {
-          pe_fid := match(pe.value, .Some(pv) => match(pv, .FuncVal(__c2p_fvd, _) => __c2p_fvd.*.func_id.clone(), _ => String.new()), .None => String.new());
-          if((pe_fid.len() > usize(0)) && (pe_fid == real_fid), {
-            pe.ty = Rc.clone(ty);
-            pe.value = Option(EvalValue).Some(value.*);
-            pe.source_trait_id = src_tid.clone();
-            updated = true;
-          });
-        },
-        .None => ()
-      );
-      pi = (pi + usize(1));
-    });
+    updated = update_type_trait_method_entry(true, &st.recv_id, &real_fid, ty, value, src_tid);
   });
   if(!updated, {
     // Registered PROVISIONALLY: Case 2 has no per-field permanent

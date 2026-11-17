@@ -11296,7 +11296,7 @@ _evaluate_function_call_unanchored :: (
           Option(AstExpr).Some(Rc.clone(func_expr)),
           &op_eff_m.ty,
           &op_fv,
-          &call_result_op.arg_values,
+          &mut call_result_op.arg_values,
           &call_result_op.caller_env,
           &op_env,
           ctx,
@@ -14347,7 +14347,7 @@ Fix: wrap the call:
             Option(AstExpr).Some(Rc.clone(func_expr)),
             &ct_func_type,
             &ct_func_value,
-            &ct_arg_values,
+            &mut ct_arg_values,
             env,
             &fresh_env,
             ctx,
@@ -15239,16 +15239,12 @@ Fix: wrap the call:
               match(
                 method_info.receiver_value,
                 .Some(rcv_val) => if(!is_unknown_val(&rcv_val), {
-                  match(
-                    call_result_m.arg_values.args.get(usize(0)),
-                    .Some(self_ae) => {
-                      self_needs_value := match(self_ae.value, .Some(sv) => is_unknown_val(&sv), .None => true);
-                      if(self_needs_value, {
-                        self_ae.value = Option(EvalValue).Some(rcv_val);
-                      });
-                    },
-                    .None => ()
-                  );
+                  call_result_m.arg_values.args.with(usize(0), self_ae => {
+                    self_needs_value := match(self_ae.value, .Some(sv) => is_unknown_val(&sv), .None => true);
+                    if(self_needs_value, {
+                      self_ae.value = Option(EvalValue).Some(rcv_val);
+                    });
+                  });
                 }),
                 .None => ()
               );
@@ -15289,7 +15285,7 @@ Fix: wrap the call:
               Option(AstExpr).Some(m_callee.clone()),
               &method_info.method_ty,
               &m_fv,
-              &call_result_m.arg_values,
+              &mut call_result_m.arg_values,
               &call_result_m.caller_env,
               &m_env,
               ctx,

@@ -21,8 +21,7 @@
 // ---------------------------------------------------------------------------
 /// Base type for any suspension point (an await call or an effect call).
 /// System-specific fields live in `AwaitPoint` / `EffectCallPoint` which embed this.
-SuspensionPoint :: ref(
-  struct(
+SuspensionPoint :: struct(
     /// 0-based index of this suspension point in the analysis result.
     index : usize,
     /// The suspension expression.
@@ -75,13 +74,12 @@ SuspensionPoint :: ref(
 /// Information about a local variable that needs to persist across suspension points.
 ///
 /// Note: the self-referential field `is_owning_the_same_rc_value_as`
-/// is a plain `Option(Self)`: a `ref` type is already a handle.
-SuspensionCapturedVariable :: ref(
-  struct(
-    id : String,
-    name : String,
-    ty : TypeValue,
-    is_owning_the_same_rc_value_as : Option(Self),
+/// is an `Option(Rc(Self))`: the indirection a value struct needs.
+SuspensionCapturedVariable :: struct(
+  id : String,
+  name : String,
+  ty : TypeValue,
+  is_owning_the_same_rc_value_as : Option(Rc(Self)),
     /// Declaration site (`module:row:col` from the Variable's decl token) —
     /// an identity that survives env re-stamping. Name-based SM
     /// lookups (atom.yo's fallback, the ref-collector's unification map) use

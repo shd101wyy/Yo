@@ -260,13 +260,16 @@ CalledComptimeFnCache :: struct(
 ///
 /// Stored globally in `EvalContext` instead of on the `FuncVal` to avoid
 /// circular imports between `value.yo` and `env.yo`.
-ComptimeFnCacheEntry :: ref(
-  struct(
-    func_id : String,
-    caches : ArrayList(CalledComptimeFnCache)
+ComptimeFnCacheEntry :: struct(
+  func_id : String,
+  caches : ArrayList(CalledComptimeFnCache)
+);
+impl(
+  ComptimeFnCacheEntry,
+  Clone(
+    clone : (fn(self : &Self) -> Self)(ComptimeFnCacheEntry(func_id : self.func_id.clone(), caches : self.caches.clone()))
   )
 );
-impl(ComptimeFnCacheEntry, Clone(clone : (fn(self : &Self) -> Self)(self.*)));
 // ---------------------------------------------------------------------------
 // Specialization cache types
 // ---------------------------------------------------------------------------
@@ -294,11 +297,9 @@ SpecializedFunctionCache :: struct(
   owner : String
 );
 /// Per-function bucket of specialization caches, keyed by `func_id`.
-SpecializedFunctionCacheEntry :: ref(
-  struct(
-    func_id : String,
-    caches : ArrayList(SpecializedFunctionCache)
-  )
+SpecializedFunctionCacheEntry :: struct(
+  func_id : String,
+  caches : ArrayList(SpecializedFunctionCache)
 );
 // ---------------------------------------------------------------------------
 // Main EvaluatorContext
@@ -527,31 +528,37 @@ eval_context_new :: (fn(std_path : &String, module_path : &String) -> EvalContex
 // ArgValues
 // ---------------------------------------------------------------------------
 /// One entry in the args / forallArgs / implicitArgs / variadicArgs arrays.
-ArgEntry :: ref(
-  struct(
-    value : Option(EvalValue),
-    parameter_type : TypeValue,
-    arg_type : TypeValue
-  )
+ArgEntry :: struct(
+  value : Option(EvalValue),
+  parameter_type : TypeValue,
+  arg_type : TypeValue
 );
 /// Variadic argument entry (no parameterType).
-VarArgEntry :: ref(
-  struct(
-    value : Option(EvalValue),
-    arg_type : TypeValue
+VarArgEntry :: struct(
+  value : Option(EvalValue),
+  arg_type : TypeValue
+);
+ArgValues :: struct(
+  forall_args : ArrayList(ArgEntry),
+  args : ArrayList(ArgEntry),
+  implicit_args : Option(ArrayList(ArgEntry)),
+  variadic_args : ArrayList(VarArgEntry)
+);
+/// A deep copy of the four lists (each `ArgEntry` is plain data over counted
+/// cells, so an element copy is the count bump it always was).
+impl(
+  ArgValues,
+  Clone(
+    clone : (fn(self : &Self) -> Self)(
+      ArgValues(
+        forall_args : self.forall_args.clone(),
+        args : self.args.clone(),
+        implicit_args : self.implicit_args.clone(),
+        variadic_args : self.variadic_args.clone()
+      )
+    )
   )
 );
-ArgValues :: ref(
-  struct(
-    forall_args : ArrayList(ArgEntry),
-    args : ArrayList(ArgEntry),
-    implicit_args : Option(ArrayList(ArgEntry)),
-    variadic_args : ArrayList(VarArgEntry)
-  )
-);
-/// A handle copy: `ArgValues` is still a `ref` (its `ArgEntry` elements are
-/// written in place), so a clone shares the record.
-impl(ArgValues, Clone(clone : (fn(self : &Self) -> Self)(self.*)));
 // ---------------------------------------------------------------------------
 // FunctionCallResult
 // ---------------------------------------------------------------------------
@@ -3600,8 +3607,7 @@ type_head_name_for_impl_forcing :: (fn(ty : &TypeValue) -> String)({
 // in-flight stack with the others; the evaluators live in values/impl.yo.
 ImplFieldState :: enum(Unforced, Forcing, Done, Failed);
 derive(ImplFieldState, Copy, Clone);
-ImplPendingField :: ref(
-  struct(
+ImplPendingField :: struct(
     label : String,
     /// The `name : value` colon pair.
     colon_expr : AstExpr,
@@ -3622,8 +3628,7 @@ ImplPendingField :: ref(
     phase_a_registered : bool
   )
 );
-ImplInFlight :: ref(
-  struct(
+ImplInFlight :: struct(
     recv_id : String,
     is_generic : bool,
     receiver_ty : TypeValue,

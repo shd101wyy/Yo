@@ -6444,8 +6444,7 @@ _untracked_inout_borrowers :: (fn(bs : &ArrayList(Variable)) -> ArrayList(Variab
 /// entry) lives in `src/expr_info.yo`, imported above; the borrow machinery
 /// below is its consumer.
 /// One local borrow in scope: `y := &place` or `y := &mut place`.
-LocalBorrowInfo :: ref(
-  struct(
+LocalBorrowInfo :: struct(
     name : String,
     /// The binding's name token: the borrow variable's identity.
     decl : Token,
@@ -8733,17 +8732,35 @@ local_borrow_register :: (
     module_root : module_root,
     step_pin : step_pin.clone()
   );
-  // Transitive freezes: a parent is live while this borrow is.
+  // Transitive freezes: a parent is live while this borrow is. The write
+  // lands on the REGISTRY entry (the `parents` copies are values now), found
+  // by the same name+decl identity `_lb_same_decl` reads.
   (qi : usize) = usize(0);
   while(qi < parents.len(), {
     match(
       parents.get(qi),
       .Some(p) => {
+        (extend_end : Option(Token)) = Option(Token).None;
+        (extend_last_use : Option(Token)) = Option(Token).None;
         if(_lb_tok_after(&end, &p.end), {
-          p.end = Rc.clone(end);
+          extend_end = Option(Token).Some(Rc.clone(end));
         });
         if(_lb_tok_after(&last_use, &p.last_use), {
-          p.last_use = Rc.clone(last_use);
+          extend_last_use = Option(Token).Some(Rc.clone(last_use));
+        });
+        if(extend_end.is_some() || extend_last_use.is_some(), {
+          g_local_borrows.with_mut(xs => {
+            (xi : usize) = usize(0);
+            while(xi < xs.len(), {
+              xs.with(xi, info => {
+                if(_lb_same_decl(info.name.clone(), &info.decl, p.name.clone(), &p.decl), {
+                  match(extend_end, .Some(ne) => info.end = Rc.clone(ne), .None => ());
+                  match(extend_last_use, .Some(nl) => info.last_use = Rc.clone(nl), .None => ());
+                });
+              });
+              xi = (xi + usize(1));
+            });
+          });
         });
       },
       .None => ()
@@ -10983,27 +11000,27 @@ _lb_join_root_end :: (fn(variable : &Variable, root_name : &String, end : &Token
 /// Every entry the holder `name` (declared at `decl`) registered ends at
 /// `end`, when it ended later.
 _lb_shorten_holder_entries :: (fn(name : &String, decl : &Token, end : &Token) -> unit)({
-  (i : usize) = g_local_borrows.with(_c_len_5);
-  while(i > usize(0), {
-    i = (i - usize(1));
-    match(
-      g_local_borrows.with(xs => xs.get(i)),
-      .Some(info) => if(_lb_same_decl(info.name.clone(), &info.decl, name.clone(), decl) && _lb_tok_after(&info.end, end), {
-        info.end = end.clone();
-      }),
-      .None => ()
-    );
+  g_local_borrows.with_mut(xs => {
+    (i : usize) = xs.len();
+    while(i > usize(0), {
+      i = (i - usize(1));
+      xs.with(i, info => {
+        if(_lb_same_decl(info.name.clone(), &info.decl, name.clone(), decl) && _lb_tok_after(&info.end, end), {
+          info.end = end.clone();
+        });
+      });
+    });
   });
-  (j : usize) = g_local_borrow_joins.with(_c_len_5);
-  while(j > usize(0), {
-    j = (j - usize(1));
-    match(
-      g_local_borrow_joins.with(xs => xs.get(j)),
-      .Some(info) => if(_lb_same_decl(info.name.clone(), &info.decl, name.clone(), decl) && _lb_tok_after(&info.end, end), {
-        info.end = end.clone();
-      }),
-      .None => ()
-    );
+  g_local_borrow_joins.with_mut(xs => {
+    (j : usize) = xs.len();
+    while(j > usize(0), {
+      j = (j - usize(1));
+      xs.with(j, info => {
+        if(_lb_same_decl(info.name.clone(), &info.decl, name.clone(), decl) && _lb_tok_after(&info.end, end), {
+          info.end = end.clone();
+        });
+      });
+    });
   });
 });
 /// The `:=` statement (or typed `=` declaration) that bound `variable`, out of the armed look-ahead
