@@ -69,9 +69,11 @@ try_to_convert_to_pointer_type :: (
   if(info_opt.is_none(), {
     exn.throw(
       dyn(
-        format_eval_failure(
-          ast_expr_token(arg_expr),
-          `Failed to evaluate argument: ${ast_expr_to_string(arg_expr)}`
+        Box.new(
+          format_eval_failure(
+            ast_expr_token(arg_expr),
+            `Failed to evaluate argument: ${ast_expr_to_string(arg_expr)}`
+          )
         )
       )
     );
@@ -114,9 +116,11 @@ try_to_convert_to_pointer_type :: (
   if(!is_pointer_type(&arg_type), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(arg_expr),
-          `Cannot cast ${type_to_string(&arg_type)} to ${type_to_string(target_type)}. Expected a pointer type or comptime_str.`
+        Box.new(
+          format_error_message(
+            ast_expr_token(arg_expr),
+            `Cannot cast ${type_to_string(&arg_type)} to ${type_to_string(target_type)}. Expected a pointer type or comptime_str.`
+          )
         )
       )
     );

@@ -55,9 +55,11 @@ eval_bool_arg :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(arg),
-            `Expected bool type for comptime_bool argument, got:\n${ast_expr_to_string(arg)}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(arg),
+              `Expected bool type for comptime_bool argument, got:\n${ast_expr_to_string(arg)}`
+            )
           )
         )
       );
@@ -67,9 +69,11 @@ eval_bool_arg :: (
   if(!is_bool_type(&info.ty()), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(arg),
-          `Expected bool type for comptime_bool argument, got:\n${ast_expr_to_string(arg)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(arg),
+            `Expected bool type for comptime_bool argument, got:\n${ast_expr_to_string(arg)}`
+          )
         )
       )
     );
@@ -123,9 +127,11 @@ evaluate_yo_comptime_boolean_functions :: (
       true => {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(expr),
-              String.from("Unexpected unary comptime_bool function")
+            Box.new(
+              format_error_message(
+                ast_expr_token(expr),
+                String.from("Unexpected unary comptime_bool function")
+              )
             )
           )
         );
@@ -227,9 +233,11 @@ evaluate_yo_comptime_boolean_functions :: (
       true => {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(expr),
-              `Unexpected function call for comptime_bool binary operations:\n${ast_expr_to_string(expr)}`
+            Box.new(
+              format_error_message(
+                ast_expr_token(expr),
+                `Unexpected function call for comptime_bool binary operations:\n${ast_expr_to_string(expr)}`
+              )
             )
           )
         );

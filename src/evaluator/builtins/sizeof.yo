@@ -64,9 +64,11 @@ evaluate_size_of :: (
   if(!ast_expr_is_size_of_call(expr, .Some(usize(1))), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected "size_of" with 1 argument`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected "size_of" with 1 argument`
+          )
         )
       )
     );
@@ -92,9 +94,11 @@ evaluate_size_of :: (
     .None => {
       exn.throw(
         dyn(
-          format_eval_failure(
-            ast_expr_token(&type_expr),
-            String.from("Failed to evaluate expression.")
+          Box.new(
+            format_eval_failure(
+              ast_expr_token(&type_expr),
+              String.from("Failed to evaluate expression.")
+            )
           )
         )
       );
@@ -112,7 +116,7 @@ evaluate_size_of :: (
   // An unsized type has no size of its own (decision 49, E0619);
   // `size_of_val(r)` measures a value through a reference.
   if(!type_is_sized(&type_to_check), {
-    exn.throw(dyn(unsized_by_value_error(&type_to_check, &String.from("`size_of`"), &Option(String).None, &ast_expr_token(&type_expr))));
+    exn.throw(dyn(Box.new(unsized_by_value_error(&type_to_check, &String.from("`size_of`"), &Option(String).None, &ast_expr_token(&type_expr)))));
   });
   // Convert size in bits to bytes (divide by 8). Unknown size → no value.
   size_bits_opt := get_size_of_type(&type_to_check);
@@ -143,7 +147,7 @@ evaluate_size_of :: (
 _eval_builtin_args :: (fn(expr : &AstExpr, n : usize, name : str, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> Tuple(AstExpr, ArrayList(ExprInfo)))({
   args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   if(args.len() != n, {
-    exn.throw(dyn(format_error_message(ast_expr_token(expr), `Expected "${name}" with ${n.to_string()} argument(s)`)));
+    exn.throw(dyn(Box.new(format_error_message(ast_expr_token(expr), `Expected "${name}" with ${n.to_string()} argument(s)`))));
   });
   out := ArrayList(ExprInfo).new();
   new_args := ArrayList(AstExpr).new();
@@ -162,7 +166,7 @@ _eval_builtin_args :: (fn(expr : &AstExpr, n : usize, name : str, env : &Environ
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev)),
       .Some(inf) => Rc.clone(inf),
       .None => {
-        exn.throw(dyn(format_eval_failure(ast_expr_token(&a), String.from("Failed to evaluate expression."))));
+        exn.throw(dyn(Box.new(format_eval_failure(ast_expr_token(&a), String.from("Failed to evaluate expression.")))));
         new_expr_info(env, t_usize())
       }
     );
@@ -171,7 +175,7 @@ _eval_builtin_args :: (fn(expr : &AstExpr, n : usize, name : str, env : &Environ
         lend_place_reference_type(&ev, &info, lend_mut, ctx),
         .Some(lt) => lt,
         .None => {
-          exn.throw(dyn(format_error_message(ast_expr_token(&a), `\`${name}\` lends a binding's place (\`&x\`, \`&x.f\`) or a raw pointer's referent (\`&p.*\`); bind the value to a local first.`)));
+          exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&a), `\`${name}\` lends a binding's place (\`&x\`, \`&x.f\`) or a raw pointer's referent (\`&p.*\`); bind the value to a local first.`))));
           t_usize()
         }
       );
@@ -224,7 +228,7 @@ evaluate_size_of_val :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut Eval
     _pointee_of(&info.ty()),
     .Some(p) => p,
     .None => {
-      exn.throw(dyn(format_error_message(ast_expr_token(expr), `\`${name}\` measures a value through a reference or a pointer (\`${name}(&x)\`), and its argument is a \`${type_to_string(&info.ty())}\`.`)));
+      exn.throw(dyn(Box.new(format_error_message(ast_expr_token(expr), `\`${name}\` measures a value through a reference or a pointer (\`${name}(&x)\`), and its argument is a \`${type_to_string(&info.ty())}\`.`))));
       t_usize()
     }
   );
@@ -331,13 +335,15 @@ evaluate_unsize :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalConte
     },
     .None => exn.throw(
       dyn(
-        with_code(
-          format_error_message_with_help(
-            ast_expr_token(expr),
-            `\`unsize(p)\` unsizes a pointer — \`&a\`, \`&mut a\` or a \`*T\` — to a fixed-size array or to a struct whose tail is one, and its argument is a \`${type_to_string(&arg_ty)}\`.`,
-            Option(String).Some(String.from("lend the value (`unsize(&a)`), or pass the pointer you already have"))
-          ),
-          E_UNSIZING_A_VALUE
+        Box.new(
+          with_code(
+            format_error_message_with_help(
+              ast_expr_token(expr),
+              `\`unsize(p)\` unsizes a pointer — \`&a\`, \`&mut a\` or a \`*T\` — to a fixed-size array or to a struct whose tail is one, and its argument is a \`${type_to_string(&arg_ty)}\`.`,
+              Option(String).Some(String.from("lend the value (`unsize(&a)`), or pass the pointer you already have"))
+            ),
+            E_UNSIZING_A_VALUE
+          )
         )
       )
     )
@@ -355,7 +361,7 @@ evaluate_slice_primitive :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut 
   name := cond(is_len => BF_SLICE_LEN, is_ptr => BF_SLICE_PTR, true => BF_SLICE_FROM_RAW_PARTS);
   ptok := ast_expr_token(expr);
   if(!is_len && !ctx.unsafe_context && !is_implicitly_unsafe_capable_file(Option(String).Some(ptok.module_path.*.clone())), {
-    exn.throw(dyn(format_error_message(&ptok, `\`${name}\` makes or reads a raw pointer, which is not available in safe code; add 'pragma(Pragma.AllowUnsafe);' at the top of a file that genuinely needs it.`)));
+    exn.throw(dyn(Box.new(format_error_message(&ptok, `\`${name}\` makes or reads a raw pointer, which is not available in safe code; add 'pragma(Pragma.AllowUnsafe);' at the top of a file that genuinely needs it.`))));
   });
   (call, infos) := _eval_builtin_args(expr, if(is_len || is_ptr, usize(1), usize(2)), name, env, ctx, exn);
   info := Rc.clone(infos(usize(0)));
@@ -364,7 +370,7 @@ evaluate_slice_primitive :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut 
       _pointee_of(&info.ty()),
       .Some(Rc(.SliceT(sp_elem))) => if(is_len, t_usize(), Rc.new(TypeValueNode.Pointer(Rc.clone(sp_elem)))),
       _ => {
-        exn.throw(dyn(format_error_message(&ptok, `\`${name}\` takes a pointer to a slice (\`&[T]\`, \`&mut [T]\` or \`*[T]\`); its argument is a \`${type_to_string(&info.ty())}\`.`)));
+        exn.throw(dyn(Box.new(format_error_message(&ptok, `\`${name}\` takes a pointer to a slice (\`&[T]\`, \`&mut [T]\` or \`*[T]\`); its argument is a \`${type_to_string(&info.ty())}\`.`))));
         t_usize()
       }
     ),
@@ -372,13 +378,13 @@ evaluate_slice_primitive :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut 
       t_refine_inner(&info.ty()),
       Rc(.Pointer(fp_elem)) => Rc.new(TypeValueNode.Pointer(t_slice(&fp_elem))),
       _ => {
-        exn.throw(dyn(format_error_message(&ptok, `\`${name}(p, n)\` takes a raw pointer to the first element (\`*T\`); its first argument is a \`${type_to_string(&info.ty())}\`.`)));
+        exn.throw(dyn(Box.new(format_error_message(&ptok, `\`${name}(p, n)\` takes a raw pointer to the first element (\`*T\`); its first argument is a \`${type_to_string(&info.ty())}\`.`))));
         t_usize()
       }
     )
   );
   if(!is_len && !is_ptr && !type_is_sized(&match(&result_ty, Rc(.Pointer(Rc(.SliceT(e)))) => Rc.clone(e), _ => t_usize())), {
-    exn.throw(dyn(unsized_by_value_error(&result_ty, &String.from("a slice element"), &Option(String).None, &ptok)));
+    exn.throw(dyn(Box.new(unsized_by_value_error(&result_ty, &String.from("a slice element"), &Option(String).None, &ptok))));
   });
   out_info := new_expr_info(&expr_info_adopt_env(&info), &result_ty);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);

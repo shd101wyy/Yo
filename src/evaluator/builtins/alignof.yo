@@ -39,9 +39,11 @@ evaluate_align_of :: (
   if(!ast_expr_is_align_of_call(expr, .Some(usize(1))), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected "align_of" with 1 argument`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected "align_of" with 1 argument`
+          )
         )
       )
     );
@@ -67,9 +69,11 @@ evaluate_align_of :: (
     .None => {
       exn.throw(
         dyn(
-          format_eval_failure(
-            ast_expr_token(&type_expr),
-            String.from("Failed to evaluate expression.")
+          Box.new(
+            format_eval_failure(
+              ast_expr_token(&type_expr),
+              String.from("Failed to evaluate expression.")
+            )
           )
         )
       );
@@ -87,7 +91,7 @@ evaluate_align_of :: (
   // An unsized type has no alignment of its own (decision 49, E0619);
   // `align_of_val(r)` measures a value through a reference.
   if(!type_is_sized(&type_to_check), {
-    exn.throw(dyn(unsized_by_value_error(&type_to_check, &String.from("`align_of`"), &Option(String).None, &ast_expr_token(&type_expr))));
+    exn.throw(dyn(Box.new(unsized_by_value_error(&type_to_check, &String.from("`align_of`"), &Option(String).None, &ast_expr_token(&type_expr)))));
   });
   // get_alignment_of_type returns bytes directly.
   align_opt := get_alignment_of_type(&type_to_check);

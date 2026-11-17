@@ -42,9 +42,11 @@ evaluate_typeof :: (
   if(!ast_expr_is_type_of_call(expr, .Some(usize(1))), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected "type_of" with 1 argument, got:\n${ast_expr_to_string(expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected "type_of" with 1 argument, got:\n${ast_expr_to_string(expr)}`
+          )
         )
       )
     );
@@ -68,9 +70,11 @@ evaluate_typeof :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&type_expr),
-            `Expected type for expression, got:\n${ast_expr_to_string(&type_expr)}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&type_expr),
+              `Expected type for expression, got:\n${ast_expr_to_string(&type_expr)}`
+            )
           )
         )
       );

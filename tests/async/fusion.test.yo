@@ -22,7 +22,7 @@ _checked :: (fn(n : i32, io : Io) -> Impl(Future(i32, IoExn)))({
   io.async(e => {
     r := e.io.await(_leaf(k, e.io), e.io);
     cond(
-      (r > i32(100)) => e.exn.throw(dyn(Boom(msg : `too big: ${r}`))),
+      (r > i32(100)) => e.exn.throw(dyn(Box.new(Boom(msg : `too big: ${r}`)))),
       true => r
     )
   })

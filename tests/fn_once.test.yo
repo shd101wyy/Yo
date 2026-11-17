@@ -243,8 +243,21 @@ comptime_expect_error(
   _dyn_fn_rejects_fnonce :: (fn() -> unit)({
     k := i32(1);
     (f : Impl(FnOnce() -> i32)) = ({ k }() => k);
-    (d : Box(Dyn(Fn() -> i32))) = dyn(f);
+    (d : Box(Dyn(Fn() -> i32))) = dyn(Box.new(f));
     _r := d();
+  }),
+  "Cannot box an `FnOnce(...)` closure as a `Dyn(Fn(...))`"
+);
+// The boxed and the lent erasure carry the check the deleted `dyn(f)` alias
+// did: before, `dyn(Box.new(f))` and `dyn(&f)` of an `FnOnce` closure into a
+// `Dyn(Fn(...))` passed, and a second call freed the moved captures twice
+// (issues/fixed/2026-11-16-a-boxed-fnonce-closure-erases-into-a-dyn-fn.md).
+_lent_fn_call :: (fn(d : &Dyn(Fn() -> i32)) -> i32)(d());
+comptime_expect_error(
+  _lent_fn_rejects_fnonce :: (fn() -> unit)({
+    k := i32(1);
+    (f : Impl(FnOnce() -> i32)) = ({ k }() => k);
+    _r := _lent_fn_call(dyn(&f));
   }),
   "Cannot box an `FnOnce(...)` closure as a `Dyn(Fn(...))`"
 );

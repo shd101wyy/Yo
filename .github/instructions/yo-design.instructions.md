@@ -160,10 +160,12 @@ structured repair rewrites the token (`_deleted_handle_ctor`, `exprs/identifer_a
 `Rc.new`/`Arc.new` declare `-> Rc(T)`/`-> Arc(T)`, not `-> Self`: a written return type is
 evaluated again per specialization, which types the capture-struct cell `dyn` builds; the baked
 `Self` did not.
-`dyn(v)` on a non-object synthesizes `Rc(T).new(v)` (`Arc(T).new` for a Send Dyn) with a
-receiver node preset to the cell type (`_synthesized_cell_call`, `values/dyn.yo`). A payload whose
-type mentions a type variable (`dyn(f)` for `f : Impl(Fn(...))`, a closure literal) is boxed by the
-prelude's `__yo_rc_cell`/`__yo_arc_cell` FUNCTION VALUE bound to the callee node (copies of
+A plain `dyn(v)` of a non-pointer value is E0620 since decision 49 S3b (the legacy alias that boxed
+it, and its `_synthesized_cell_call`, are deleted; the help names
+`yo version install 0.2.78 && yo fix <path> --migrate unsized`): the owner is spelled,
+`dyn(Box.new(v))`, `dyn(Rc.new(v))`, `dyn(Arc.new(v))`, or the place is lent, `dyn(&v)`. A cell
+payload whose type mentions a type variable (`dyn(Rc.new(f))` for `f : Impl(Fn(...))`, a closure
+literal) is boxed by the prelude's `__yo_rc_cell`/`__yo_arc_cell` FUNCTION VALUE bound to the callee node (copies of
 `Rc.new`/`Arc.new`'s bodies that survive B3, so no name is looked up; they and dyn.yo's three helpers
 go once the open S3 above is fixed, Fable consultation #7;
 plans/archive/STATIC_ARGUMENT_INFERENCE.md §5 H1): an unresolved variable other than an
@@ -784,13 +786,13 @@ Rules that follow from it:
 - **`Result(_, String)` is banned.** An error type is a real enum implementing
   `Error()`. A string error cannot be matched on, downcast, or wrapped, and it
   forces every caller into prose comparison. Since 2026-09-05 the `Error()`
-  marker is **enforced, not decorative**: `dyn(x)` checks that `x`'s type
+  marker is **enforced, not decorative**: `dyn(Box.new(x))` checks that `x`'s type
   implements every required trait of the `Dyn` it is boxed into, so
-  `exn.throw(dyn(e))` on an error enum without `impl(E, Error())` is a compile
+  `exn.throw(dyn(Box.new(e)))` on an error enum without `impl(E, Error())` is a compile
   error at the `dyn(...)` token (it used to fail inside the C compiler, naming a
   generated `__yo_wrap_…` symbol — see
   `issues/fixed/dyn-does-not-check-that-the-value-implements-the-traits.md`).
-  `AnyError` is `Dyn(Error, Clone)` (B13), so the type must be `Clone` too
+  `AnyError` is `Box(Dyn(Error, Clone))` (B13, decision 49), so the type must be `Clone` too
   (`derive(E, Clone)`). `throw` takes the error BY VALUE (B13-b): a handler
   owns the error it catches, keeps it by moving it (`unwind(.Some(e))`,
   `xs.push(e)`) and lends it with `&e` to a read-only helper. The `Clone`
@@ -1116,7 +1118,7 @@ io.async((e : IoExn) => {
 // CORRECT — all effects through e:
 io.async((e : IoExn) => {
   e.io.await(create_dir_all(path, e.io), e);
-  e.exn.throw(dyn(`error`));
+  e.exn.throw(dyn(Box.new(`error`)));
 });
 ```
 
@@ -1145,7 +1147,7 @@ needs `exn : Exception` as its last parameter, passed on to all callees:
 
 ```yo
 // Raise an error:
-exn.throw(dyn(format_error_message(...)));
+exn.throw(dyn(Box.new(format_error_message(...))));
 
 // Call a fallible helper — exn goes last:
 evaluate_type_annotation(expr, env, ctx, exn);

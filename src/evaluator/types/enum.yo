@@ -230,9 +230,11 @@ _evaluate_discriminant :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(discriminant_expr),
-            `Failed to evaluate discriminant value: ${ast_expr_to_string(discriminant_expr)}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(discriminant_expr),
+              `Failed to evaluate discriminant value: ${ast_expr_to_string(discriminant_expr)}`
+            )
           )
         )
       );
@@ -242,9 +244,11 @@ _evaluate_discriminant :: (
   if(disc_info.value().is_none(), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(discriminant_expr),
-          `Failed to evaluate discriminant value: ${ast_expr_to_string(discriminant_expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(discriminant_expr),
+            `Failed to evaluate discriminant value: ${ast_expr_to_string(discriminant_expr)}`
+          )
         )
       )
     );
@@ -258,9 +262,11 @@ _evaluate_discriminant :: (
   if(!is_int_lit_val && !is_comptime_int_type(&disc_info.ty()), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(discriminant_expr),
-          `Enum discriminant must be a compile-time integer, got: ${ast_expr_to_string(discriminant_expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(discriminant_expr),
+            `Enum discriminant must be a compile-time integer, got: ${ast_expr_to_string(discriminant_expr)}`
+          )
         )
       )
     );
@@ -268,9 +274,11 @@ _evaluate_discriminant :: (
   if(!is_int_lit_val, {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(discriminant_expr),
-          `Enum discriminant must be a compile-time known value, got: ${ast_expr_to_string(discriminant_expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(discriminant_expr),
+            `Enum discriminant must be a compile-time known value, got: ${ast_expr_to_string(discriminant_expr)}`
+          )
         )
       )
     );
@@ -286,9 +294,11 @@ _evaluate_discriminant :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(discriminant_expr),
-            `Failed to parse discriminant integer value: ${raw}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(discriminant_expr),
+              `Failed to parse discriminant integer value: ${raw}`
+            )
           )
         )
       );
@@ -313,9 +323,11 @@ evaluate_enum_type :: (
   if(!ast_expr_is_fn_call_of(expr, BK_ENUM, Option(usize).None), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected "enum", got:\n${ast_expr_to_string(expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected "enum", got:\n${ast_expr_to_string(expr)}`
+          )
         )
       )
     );
@@ -447,9 +459,11 @@ evaluate_enum_type :: (
         if(!is_valid_variable_name(&variant_name_expr), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&variant_name_expr),
-                `Expected identifier for enum variant, got:\n${ast_expr_to_string(&variant_name_expr)}`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&variant_name_expr),
+                  `Expected identifier for enum variant, got:\n${ast_expr_to_string(&variant_name_expr)}`
+                )
               )
             )
           );
@@ -458,9 +472,11 @@ evaluate_enum_type :: (
         if(_has_variant(&variant_names, variant_name.clone()), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&variant_name_expr),
-                `Duplicate variant name "${variant_name}" in enum`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&variant_name_expr),
+                  `Duplicate variant name "${variant_name}" in enum`
+                )
               )
             )
           );
@@ -484,9 +500,11 @@ evaluate_enum_type :: (
       ) => {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&enum_arg),
-              String.from("Please use \"impl\" block to define members/methods for enum types.")
+            Box.new(
+              format_error_message(
+                ast_expr_token(&enum_arg),
+                String.from("Please use \"impl\" block to define members/methods for enum types.")
+              )
             )
           )
         );
@@ -499,9 +517,11 @@ evaluate_enum_type :: (
         if(!is_valid_variable_name(&enum_arg), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&enum_arg),
-                `Expected identifier for enum variant, got:\n${ast_expr_to_string(&enum_arg)}`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&enum_arg),
+                  `Expected identifier for enum variant, got:\n${ast_expr_to_string(&enum_arg)}`
+                )
               )
             )
           );
@@ -509,9 +529,11 @@ evaluate_enum_type :: (
         if(_has_variant(&variant_names, variant_name.clone()), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&enum_arg),
-                `Duplicate variant name "${variant_name}" in enum`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&enum_arg),
+                  `Duplicate variant name "${variant_name}" in enum`
+                )
               )
             )
           );
@@ -538,9 +560,11 @@ evaluate_enum_type :: (
         if(ast_expr_is_fn_call_of(&variant_expr, ":", Option(usize).None), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&variant_expr),
-                String.from("Enum variant with : is not implemented yet")
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&variant_expr),
+                  String.from("Enum variant with : is not implemented yet")
+                )
               )
             )
           );
@@ -549,9 +573,11 @@ evaluate_enum_type :: (
           !is_valid_variable_name(_fn_call_func(&variant_expr)), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&variant_expr),
-                `Expected identifier for enum variant, got:\n${ast_expr_to_string(&variant_expr)}`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&variant_expr),
+                  `Expected identifier for enum variant, got:\n${ast_expr_to_string(&variant_expr)}`
+                )
               )
             )
           );
@@ -560,9 +586,11 @@ evaluate_enum_type :: (
         if(_has_variant(&variant_names, variant_name.clone()), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(_fn_call_func(&variant_expr)),
-                `Duplicate variant name "${variant_name}" in enum`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(_fn_call_func(&variant_expr)),
+                  `Duplicate variant name "${variant_name}" in enum`
+                )
               )
             )
           );
@@ -594,9 +622,11 @@ evaluate_enum_type :: (
             );
             exn.throw(
               dyn(
-                format_error_message(
-                  &err_tok,
-                  `Duplicate field label "${field.label}" in enum variant`
+                Box.new(
+                  format_error_message(
+                    &err_tok,
+                    `Duplicate field label "${field.label}" in enum variant`
+                  )
                 )
               )
             );
@@ -604,9 +634,11 @@ evaluate_enum_type :: (
           if(field.assigned_value.is_some(), {
             exn.throw(
               dyn(
-                format_error_message(
-                  ast_expr_token(&field_arg),
-                  String.from("Enum variant field cannot have compile-time assigned value.")
+                Box.new(
+                  format_error_message(
+                    ast_expr_token(&field_arg),
+                    String.from("Enum variant field cannot have compile-time assigned value.")
+                  )
                 )
               )
             );
@@ -614,11 +646,11 @@ evaluate_enum_type :: (
           // A reference enum outlives any one frame: no `ctl` handler in its
           // payload (the reference-struct rule, types/struct.yo).
           if((force_reference_semantics || is_atomic_rc) && type_is_control_bound(&field.ty), {
-            exn.throw(dyn(format_error_message(ast_expr_token(&field_arg), control_bound_field_message(&field.label, &field.ty))));
+            exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&field_arg), control_bound_field_message(&field.label, &field.ty)))));
           });
           // A variant's payload is stored by value (decision 49, E0619).
           if(!type_is_sized(&field.ty), {
-            exn.throw(dyn(unsized_by_value_error(&field.ty, &`the payload \`${field.label}\``, &Option(String).None, &ast_expr_token(&field_arg))));
+            exn.throw(dyn(Box.new(unsized_by_value_error(&field.ty, &`the payload \`${field.label}\``, &Option(String).None, &ast_expr_token(&field_arg)))));
           });
           v_field_types.push(Rc.clone(field.ty));
           v_field_labels.push(field.label.clone());
@@ -643,9 +675,11 @@ evaluate_enum_type :: (
         if(!ast_expr_is_fn_call_of(&gre, BF_RECUR, Option(usize).None), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(&gre),
-                `Expected recur(...) for GADT return type, got:\n${ast_expr_to_string(&gre)}`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(&gre),
+                  `Expected recur(...) for GADT return type, got:\n${ast_expr_to_string(&gre)}`
+                )
               )
             )
           );
@@ -661,9 +695,11 @@ evaluate_enum_type :: (
           if(!is_type_value(&ra_info.value()), {
             exn.throw(
               dyn(
-                format_error_message(
-                  ast_expr_token(&ra),
-                  `Expected type for GADT return type argument, got ${ast_expr_to_string(&ra)}`
+                Box.new(
+                  format_error_message(
+                    ast_expr_token(&ra),
+                    `Expected type for GADT return type argument, got ${ast_expr_to_string(&ra)}`
+                  )
                 )
               )
             );
@@ -777,9 +813,11 @@ evaluate_enum_type :: (
         if(_type_reaches_root_by_value(&ft, enum_id.clone(), shell_id.clone(), &mut visited), {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(expr),
-                `recursive value enum: variant '${vname}' contains the enum itself by value (a path with no reference indirection) — a plain 'enum(...)' would have infinite size. Make it 'ref(enum(...))', or route the recursion through a reference type (ArrayList, Rc, ref(struct)).`
+              Box.new(
+                format_error_message(
+                  ast_expr_token(expr),
+                  `recursive value enum: variant '${vname}' contains the enum itself by value (a path with no reference indirection) — a plain 'enum(...)' would have infinite size. Make it 'ref(enum(...))', or route the recursion through a reference type (ArrayList, Rc, ref(struct)).`
+                )
               )
             )
           );
@@ -891,9 +929,11 @@ evaluate_enum_type :: (
     if(fields_have_incompatible_contexts(&va_all_fields), {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            `Type ${type_to_string(&enum_ty)} has incompatible field contexts and cannot be used in any evaluation context.`
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              `Type ${type_to_string(&enum_ty)} has incompatible field contexts and cannot be used in any evaluation context.`
+            )
           )
         )
       );

@@ -297,7 +297,7 @@ call_registered_derive_rule :: (
     ctx_info.value(),
     .Some(v) => v,
     .None => {
-      exn.throw(dyn(format_error_message(&tok, String.from("derive: failed to create DeriveContext"))));
+      exn.throw(dyn(Box.new(format_error_message(&tok, String.from("derive: failed to create DeriveContext")))));
       EvalValue.UnitVal
     }
   );
@@ -349,9 +349,11 @@ call_registered_derive_rule :: (
     _clear_derive_impl_err();
     exn.throw(
       dyn(
-        format_error_message(
-          &tok,
-          `derive on "${type_to_string(target_type)}": the derive rule failed: ${_derive_strip_error_prefix(&rule_raw_msg)}`
+        Box.new(
+          format_error_message(
+            &tok,
+            `derive on "${type_to_string(target_type)}": the derive rule failed: ${_derive_strip_error_prefix(&rule_raw_msg)}`
+          )
         )
       )
     );
@@ -370,9 +372,11 @@ call_registered_derive_rule :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            &tok,
-            String.from("derive: the derive rule returned no comptime value (and raised no error)")
+          Box.new(
+            format_error_message(
+              &tok,
+              String.from("derive: the derive rule returned no comptime value (and raised no error)")
+            )
           )
         )
       );
@@ -383,7 +387,7 @@ call_registered_derive_rule :: (
     call_val,
     .ExprVal(e) => e,
     _ => {
-      exn.throw(dyn(format_error_message(&tok, `derive: derive rule must return(comptime(Expr)); got ${value_to_string(&call_val)}`)));
+      exn.throw(dyn(Box.new(format_error_message(&tok, `derive: derive rule must return(comptime(Expr)); got ${value_to_string(&call_val)}`))));
       make_err_expr()
     }
   );
@@ -415,12 +419,14 @@ call_registered_derive_rule :: (
     msg := _derive_strip_error_prefix(&raw_msg);
     exn.throw(
       dyn(
-        with_code_carried(
-          format_error_message(
-            &tok,
-            `derive on "${type_to_string(target_type)}" failed: ${msg}`
-          ),
-          &impl_code
+        Box.new(
+          with_code_carried(
+            format_error_message(
+              &tok,
+              `derive on "${type_to_string(target_type)}" failed: ${msg}`
+            ),
+            &impl_code
+          )
         )
       )
     );
@@ -460,9 +466,11 @@ process_trait_arg :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            &tok,
-            String.from("derive: trait argument must be a trait name or trait constructor call")
+          Box.new(
+            format_error_message(
+              &tok,
+              String.from("derive: trait argument must be a trait name or trait constructor call")
+            )
           )
         )
       );
@@ -477,9 +485,11 @@ process_trait_arg :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            &tok,
-            `derive: trait '${key}' does not have a derive rule. Use derive_rule() to register one.`
+          Box.new(
+            format_error_message(
+              &tok,
+              `derive: trait '${key}' does not have a derive rule. Use derive_rule() to register one.`
+            )
           )
         )
       );
@@ -600,9 +610,11 @@ _evaluate_derive_executing :: (
   if(args.len() < usize(2), {
     exn.throw(
       dyn(
-        format_error_message(
-          &tok,
-          String.from("derive requires at least 2 arguments: derive(Type, Trait1, ...).")
+        Box.new(
+          format_error_message(
+            &tok,
+            String.from("derive requires at least 2 arguments: derive(Type, Trait1, ...).")
+          )
         )
       )
     );
@@ -731,9 +743,11 @@ _evaluate_derive_executing :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            &tok,
-            String.from("derive requires a target type")
+          Box.new(
+            format_error_message(
+              &tok,
+              String.from("derive requires a target type")
+            )
           )
         )
       );
@@ -749,9 +763,11 @@ _evaluate_derive_executing :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            &tok,
-            String.from("derive: failed to evaluate target type")
+          Box.new(
+            format_error_message(
+              &tok,
+              String.from("derive: failed to evaluate target type")
+            )
           )
         )
       );
@@ -765,9 +781,11 @@ _evaluate_derive_executing :: (
     .Some(_) => {
       exn.throw(
         dyn(
-          format_error_message(
-            &tok,
-            String.from("derive: expected a type")
+          Box.new(
+            format_error_message(
+              &tok,
+              String.from("derive: expected a type")
+            )
           )
         )
       );
@@ -776,9 +794,11 @@ _evaluate_derive_executing :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            &tok,
-            String.from("derive: expected a type")
+          Box.new(
+            format_error_message(
+              &tok,
+              String.from("derive: expected a type")
+            )
           )
         )
       );
@@ -793,9 +813,11 @@ _evaluate_derive_executing :: (
     _ => {
       exn.throw(
         dyn(
-          format_error_message(
-            &tok,
-            String.from("derive only works on struct and enum types")
+          Box.new(
+            format_error_message(
+              &tok,
+              String.from("derive only works on struct and enum types")
+            )
           )
         )
       );
@@ -822,9 +844,11 @@ _evaluate_derive_executing :: (
   if(arg_idx >= n_args, {
     exn.throw(
       dyn(
-        format_error_message(
-          &tok,
-          String.from("derive requires at least one trait argument after the target type")
+        Box.new(
+          format_error_message(
+            &tok,
+            String.from("derive requires at least one trait argument after the target type")
+          )
         )
       )
     );

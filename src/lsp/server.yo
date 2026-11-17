@@ -1373,7 +1373,7 @@ run_lsp_server :: (fn(io : Io, exn : Exception) -> unit)({
     _flush_pending_analyses(std_path.clone(), &mut docs, &mut pending, io);
   });
   if(exit_code != i32(0), {
-    exn.throw(dyn(`lsp: exit notification received without a shutdown request`));
+    exn.throw(dyn(Box.new(`lsp: exit notification received without a shutdown request`)));
   });
 });
 export(run_lsp_server);

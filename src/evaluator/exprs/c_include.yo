@@ -147,9 +147,11 @@ _c_type_field_spelling :: (fn(arg : &AstExpr, exn : Exception) -> Option(String)
   if(spelling.len() == usize(0), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&rhs),
-          String.from("Expected `c_type(\"<C spelling>\")` with one string argument, such as:\n\n  stat_buf : c_type(\"struct stat\")")
+        Box.new(
+          format_error_message(
+            ast_expr_token(&rhs),
+            String.from("Expected `c_type(\"<C spelling>\")` with one string argument, such as:\n\n  stat_buf : c_type(\"struct stat\")")
+          )
         )
       )
     );
@@ -167,9 +169,11 @@ evaluate_c_include :: (
   if(!ast_expr_is_fn_call_of(expr, BK_C_INCLUDE, .None), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected c_include, got ${ast_expr_token(expr).value.*}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected c_include, got ${ast_expr_token(expr).value.*}`
+          )
         )
       )
     );
@@ -183,9 +187,10 @@ evaluate_c_include :: (
   if(!is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(expr).module_path.*.clone())), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `'c_include(...)' is not available in safe code.
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `'c_include(...)' is not available in safe code.
 
 C header imports declare 'extern "c"' symbols, which are outside Yo's
 type-checking reach. To use them, declare at the top of this file:
@@ -194,6 +199,7 @@ type-checking reach. To use them, declare at the top of this file:
 
 User code should normally call stdlib wrappers (e.g. functions in
 'std/sys', 'std/fs') instead of pulling in C headers directly.`
+          )
         )
       )
     );
@@ -205,9 +211,11 @@ User code should normally call stdlib wrappers (e.g. functions in
   if(!match(first_arg_opt, .Some(a) => ast_expr_is_atom(&a), .None => false), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          String.from("Expected C header file as first argument to c_include, such as:\n\nc_include \"<stdio.h>\" ...;")
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            String.from("Expected C header file as first argument to c_include, such as:\n\nc_include \"<stdio.h>\" ...;")
+          )
         )
       )
     );
@@ -225,9 +233,11 @@ User code should normally call stdlib wrappers (e.g. functions in
       _ => {
         exn.throw(
           dyn(
-            format_error_message(
-              ast_expr_token(&c_header_file_arg),
-              `Expected string for C header file argument`
+            Box.new(
+              format_error_message(
+                ast_expr_token(&c_header_file_arg),
+                `Expected string for C header file argument`
+              )
             )
           )
         );
@@ -237,9 +247,11 @@ User code should normally call stdlib wrappers (e.g. functions in
     .None => {
       exn.throw(
         dyn(
-          format_eval_failure(
-            ast_expr_token(&c_header_file_arg),
-            `Failed to evaluate C header file argument`
+          Box.new(
+            format_eval_failure(
+              ast_expr_token(&c_header_file_arg),
+              `Failed to evaluate C header file argument`
+            )
           )
         )
       );
@@ -256,9 +268,11 @@ User code should normally call stdlib wrappers (e.g. functions in
   if(c_header_file.len() == usize(0), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          String.from("Expected C header file as first argument to c_include, such as:\n\nc_include \"<stdio.h>\" ...;")
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            String.from("Expected C header file as first argument to c_include, such as:\n\nc_include \"<stdio.h>\" ...;")
+          )
         )
       )
     );
@@ -320,9 +334,11 @@ User code should normally call stdlib wrappers (e.g. functions in
       );
       exn.throw(
         dyn(
-          format_error_message(
-            &err_tok,
-            `Duplicate label "${result.label}" in module`
+          Box.new(
+            format_error_message(
+              &err_tok,
+              `Duplicate label "${result.label}" in module`
+            )
           )
         )
       );

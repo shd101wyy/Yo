@@ -1769,7 +1769,7 @@ evaluate_yo_capture_field :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut
     cap,
     Rc(.Struct({ field_types : cf_types })) => match(cf_types.get(idx), .Some(t) => t, .None => t_unit()),
     _ => {
-      exn.throw(dyn(format_error_message(ast_expr_token(expr), `__yo_capture_field: ${type_to_string(&recv_ty)} is not a closure`)));
+      exn.throw(dyn(Box.new(format_error_message(ast_expr_token(expr), `__yo_capture_field: ${type_to_string(&recv_ty)} is not a closure`))));
       t_unit()
     }
   );

@@ -43,9 +43,11 @@ evaluate_runtime :: (
   if(!ast_expr_is_fn_call_of(expr, BF_RUNTIME, .Some(usize(1))), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected runtime(expr), got:\n${ast_expr_to_string(expr)}`
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            `Expected runtime(expr), got:\n${ast_expr_to_string(expr)}`
+          )
         )
       )
     );
@@ -54,9 +56,11 @@ evaluate_runtime :: (
   if(ctx.is_analyzing_ctfe_capability, {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          String.from("Cannot use \"runtime\" during compile-time function evaluation analysis. The \"runtime\" keyword forces runtime evaluation and prevents CTFE.")
+        Box.new(
+          format_error_message(
+            ast_expr_token(expr),
+            String.from("Cannot use \"runtime\" during compile-time function evaluation analysis. The \"runtime\" keyword forces runtime evaluation and prevents CTFE.")
+          )
         )
       )
     );
@@ -80,9 +84,11 @@ evaluate_runtime :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&evaluated),
-            `Failed to evaluate runtime argument:\n${ast_expr_to_string(&evaluated)}`
+          Box.new(
+            format_error_message(
+              ast_expr_token(&evaluated),
+              `Failed to evaluate runtime argument:\n${ast_expr_to_string(&evaluated)}`
+            )
           )
         )
       );

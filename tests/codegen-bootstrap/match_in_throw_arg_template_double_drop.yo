@@ -20,10 +20,12 @@ throw_matched :: (fn(fail : bool, exn : Exception) -> i32)({
   if(fail, {
     exn.throw(
       dyn(
-        match(
-          msg,
-          .Some(m) => `failed: ${m}`,
-          .None => String.from("failed")
+        Box.new(
+          match(
+            msg,
+            .Some(m) => `failed: ${m}`,
+            .None => String.from("failed")
+          )
         )
       )
     );

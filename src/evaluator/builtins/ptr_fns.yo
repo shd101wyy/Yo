@@ -598,9 +598,11 @@ evaluate_address_call :: (
       pr_tok := ast_expr_token(&pr_name);
       exn.throw(
         dyn(
-          format_error_message(
-            &pr_tok,
-            `This function returns \`&mut T\`, an exclusive reference, and \`${pr_tok.value.*}\` is a \`&\` reference: it cannot be handed out as \`&mut\`.`
+          Box.new(
+            format_error_message(
+              &pr_tok,
+              `This function returns \`&mut T\`, an exclusive reference, and \`${pr_tok.value.*}\` is a \`&\` reference: it cannot be handed out as \`&mut\`.`
+            )
           )
         )
       );
@@ -614,9 +616,11 @@ evaluate_address_call :: (
   if(!ctx.unsafe_context && !is_implicitly_unsafe_capable_file(Option(String).Some(ptok.module_path.*.clone())), {
     exn.throw(
       dyn(
-        format_error_message(
-          &ptok,
-          `Taking an address with 'addr_of(...)' produces a raw pointer ('*(T)'), which is not available in safe code.\n\nFor in-place mutation of a value, use a 'name : &mut T' parameter on the receiving function (the caller lends with '&mut x'); to read without copying, a 'name : &T' parameter (the caller lends with '&x'). For collections, the safe types (Slice(T), ArrayList(T), HashMap(K, V)) own their interior pointers — don't take an address of an element manually. If this file genuinely needs raw pointers, add 'pragma(Pragma.AllowUnsafe);' at the top.`
+        Box.new(
+          format_error_message(
+            &ptok,
+            `Taking an address with 'addr_of(...)' produces a raw pointer ('*(T)'), which is not available in safe code.\n\nFor in-place mutation of a value, use a 'name : &mut T' parameter on the receiving function (the caller lends with '&mut x'); to read without copying, a 'name : &T' parameter (the caller lends with '&x'). For collections, the safe types (Slice(T), ArrayList(T), HashMap(K, V)) own their interior pointers — don't take an address of an element manually. If this file genuinely needs raw pointers, add 'pragma(Pragma.AllowUnsafe);' at the top.`
+          )
         )
       )
     );
@@ -655,9 +659,11 @@ evaluate_address_call :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg_expr),
-            String.from("&: failed to evaluate the argument expression for reference.")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg_expr),
+              String.from("&: failed to evaluate the argument expression for reference.")
+            )
           )
         )
       );
@@ -675,9 +681,11 @@ evaluate_address_call :: (
   if(is_type_value(&arg_info.value()), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&arg_expr),
-          String.from("Cannot create a pointer to a type. Did you mean to use \"*\"?")
+        Box.new(
+          format_error_message(
+            ast_expr_token(&arg_expr),
+            String.from("Cannot create a pointer to a type. Did you mean to use \"*\"?")
+          )
         )
       )
     );
@@ -696,7 +704,7 @@ evaluate_address_call :: (
       _projection_root_error(&eval_arg, pt_mut, env, ctx),
       .Some(pt_err) => {
         pt_e := format_error_message(ast_expr_token(&arg_expr), &pt_err.msg);
-        exn.throw(dyn(match(pt_err.code, .Some(c) => with_code(&pt_e, c), .None => pt_e)));
+        exn.throw(dyn(Box.new(match(pt_err.code, .Some(c) => with_code(&pt_e, c), .None => pt_e))));
       },
       .None => ()
     ),
@@ -717,15 +725,17 @@ evaluate_address_call :: (
         bp_what := if(match(eval_arg, .Atom(_, _) => true, _ => false), `\`${bp.name}\`, a \`&${bp_ty}\` parameter`, `a place inside \`${bp.name}\`, a \`&${bp_ty}\` parameter`);
         exn.throw(
           dyn(
-            with_code(
-              format_error_message_with_help(
-                &ptok,
-                `\`addr_of(${bp_place})\` takes the address of ${bp_what}, and a \`&T\` parameter has no stable address: it is passed as a copy (decision 34), so the pointer would point at the callee's copy, not at the caller's place, and dangle once the call returns.`,
-                Option(String).Some(
-                  `for the caller's address, declare the parameter \`${bp.name} : *${bp_ty}\` and pass \`addr_of(place)\` at the call, or \`${bp.name} : &mut ${bp_ty}\` (passed as a pointer); to read the value, use \`${bp.name}\` itself`
-                )
-              ),
-              E_ADDR_OF_BORROW_PARAM
+            Box.new(
+              with_code(
+                format_error_message_with_help(
+                  &ptok,
+                  `\`addr_of(${bp_place})\` takes the address of ${bp_what}, and a \`&T\` parameter has no stable address: it is passed as a copy (decision 34), so the pointer would point at the callee's copy, not at the caller's place, and dangle once the call returns.`,
+                  Option(String).Some(
+                    `for the caller's address, declare the parameter \`${bp.name} : *${bp_ty}\` and pass \`addr_of(place)\` at the call, or \`${bp.name} : &mut ${bp_ty}\` (passed as a pointer); to read the value, use \`${bp.name}\` itself`
+                  )
+                ),
+                E_ADDR_OF_BORROW_PARAM
+              )
             )
           )
         );
@@ -869,7 +879,7 @@ evaluate_chain_lend :: (fn(expr : &AstExpr, is_mut : bool, env : &Environment, c
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
     .Some(i) => Rc.clone(i),
     .None => {
-      exn.throw(dyn(format_error_message(ast_expr_token(&operand), String.from("&: failed to evaluate the place this lend borrows."))));
+      exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&operand), String.from("&: failed to evaluate the place this lend borrows.")))));
       return(expr.*);
     }
   );
@@ -879,9 +889,11 @@ evaluate_chain_lend :: (fn(expr : &AstExpr, is_mut : bool, env : &Environment, c
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            `\`${if(is_mut, "&mut ", "&")}${ast_place_text(&operand)}\` cannot be a block's or an arm's result: a result lends a binding's place (\`&x\`, \`&x.f\`) or a raw pointer's referent (\`&p.*\`). Bind the place to a local first.`
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              `\`${if(is_mut, "&mut ", "&")}${ast_place_text(&operand)}\` cannot be a block's or an arm's result: a result lends a binding's place (\`&x\`, \`&x.f\`) or a raw pointer's referent (\`&p.*\`). Bind the place to a local first.`
+            )
           )
         )
       );

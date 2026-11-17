@@ -61,9 +61,11 @@ set_variable_as_consumed :: (
   if(n_vars == usize(0), {
     exn.throw(
       dyn(
-        format_error_message(
-          token,
-          `Variable "${variable_name}" is not defined.`
+        Box.new(
+          format_error_message(
+            token,
+            `Variable "${variable_name}" is not defined.`
+          )
         )
       )
     );
@@ -92,7 +94,7 @@ set_variable_as_consumed :: (
             error_message : String.from("value moved here")
           )
         );
-        exn.throw(dyn(format_error_messages(&entries)));
+        exn.throw(dyn(Box.new(format_error_messages(&entries))));
       });
     },
     .None => {
@@ -185,9 +187,11 @@ evaluate_consume :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&arg_expr),
-            String.from("consume: failed to evaluate expression.")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&arg_expr),
+              String.from("consume: failed to evaluate expression.")
+            )
           )
         )
       );

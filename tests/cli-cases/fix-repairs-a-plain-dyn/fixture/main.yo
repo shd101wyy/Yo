@@ -1,0 +1,14 @@
+//! A plain `dyn(v)` is E0620 since v0.2.79 (decision 49 S3b): `dyn` unsizes
+//! a pointer. A named argument carries the repair `yo fix` applies,
+//! `dyn(Box.new(v))`.
+Speak :: trait(speak : (fn(self : &Self) -> i32));
+Cat :: struct(n : i32);
+impl(Cat, Speak(speak : (self -> self.n)));
+main :: (fn() -> unit)({
+  c := Cat(n : i32(1));
+  (a : Box(Dyn(Speak))) = dyn(c);
+  d := Cat(n : i32(2));
+  (b : Box(Dyn(Speak))) = dyn(d);
+  _n := (a.*.speak() + b.*.speak());
+});
+export(main);

@@ -68,9 +68,11 @@ evaluate_the :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&type_arg),
-            String.from("the: failed to evaluate type expression")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&type_arg),
+              String.from("the: failed to evaluate type expression")
+            )
           )
         )
       );
@@ -85,9 +87,11 @@ evaluate_the :: (
     .Some(_) => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&type_arg),
-            String.from("the: first argument must be a type")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&type_arg),
+              String.from("the: first argument must be a type")
+            )
           )
         )
       );
@@ -96,9 +100,11 @@ evaluate_the :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&type_arg),
-            String.from("the: first argument must be a compile-time type")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&type_arg),
+              String.from("the: first argument must be a compile-time type")
+            )
           )
         )
       );
@@ -121,9 +127,11 @@ evaluate_the :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&value_arg),
-            String.from("the: failed to evaluate value expression")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&value_arg),
+              String.from("the: failed to evaluate value expression")
+            )
           )
         )
       );
@@ -135,9 +143,11 @@ evaluate_the :: (
   if(!are_types_compatible(&val_info.ty(), &expected_type), {
     exn.throw(
       dyn(
-        format_error_message(
-          ast_expr_token(&value_arg),
-          `the: type mismatch: expected '${type_to_string(&expected_type)}', got '${type_to_string(&val_info.ty())}'`
+        Box.new(
+          format_error_message(
+            ast_expr_token(&value_arg),
+            `the: type mismatch: expected '${type_to_string(&expected_type)}', got '${type_to_string(&val_info.ty())}'`
+          )
         )
       )
     );

@@ -732,7 +732,7 @@ evaluate_comptime_fn_call :: (
                   },
                   !type_is_sized(&us_t) => {
                     us_label := match(us_meta.param_labels.get(us_i), .Some(l) => l, .None => String.from("V"));
-                    exn.throw(dyn(unsized_by_value_error(&us_t, &`\`${ast_expr_to_string(&us_callee.*)}\`'s type parameter \`${us_label}\``, &Option(String).Some(us_label.clone()), &ast_expr_token(&us_callee.*))));
+                    exn.throw(dyn(Box.new(unsized_by_value_error(&us_t, &`\`${ast_expr_to_string(&us_callee.*)}\`'s type parameter \`${us_label}\``, &Option(String).Some(us_label.clone()), &ast_expr_token(&us_callee.*)))));
                   },
                   true => ()
                 ),
@@ -780,13 +780,15 @@ evaluate_comptime_fn_call :: (
       });
       exn.throw(
         dyn(
-          format_error_message(
-            match(
-              function_callee_expr,
-              .Some(e) => ast_expr_token(&e.*),
-              .None => ast_expr_token(make_err_expr())
-            ),
-            String.from("evaluate_comptime_fn_call: function_value is not a FuncVal")
+          Box.new(
+            format_error_message(
+              match(
+                function_callee_expr,
+                .Some(e) => ast_expr_token(&e.*),
+                .None => ast_expr_token(make_err_expr())
+              ),
+              String.from("evaluate_comptime_fn_call: function_value is not a FuncVal")
+            )
           )
         )
       );
@@ -912,13 +914,15 @@ evaluate_comptime_fn_call :: (
   if(!collect_ok, {
     exn.throw(
       dyn(
-        format_error_message(
-          match(
-            function_callee_expr,
-            .Some(e) => ast_expr_token(&e.*),
-            .None => ast_expr_token(make_err_expr())
-          ),
-          String.from("Failed to call the function for compile-time. Some arguments are not compile-time evaluated correctly.")
+        Box.new(
+          format_error_message(
+            match(
+              function_callee_expr,
+              .Some(e) => ast_expr_token(&e.*),
+              .None => ast_expr_token(make_err_expr())
+            ),
+            String.from("Failed to call the function for compile-time. Some arguments are not compile-time evaluated correctly.")
+          )
         )
       )
     );
@@ -1304,9 +1308,11 @@ evaluate_comptime_fn_call :: (
       );
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&body_expr),
-            String.from("Function body is not evaluated correctly")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&body_expr),
+              String.from("Function body is not evaluated correctly")
+            )
           )
         )
       );
@@ -1327,9 +1333,11 @@ evaluate_comptime_fn_call :: (
       );
       exn.throw(
         dyn(
-          format_error_message(
-            ast_expr_token(&body_expr),
-            String.from("Function body is not evaluated correctly. Expected to return(a compile-time known value.)")
+          Box.new(
+            format_error_message(
+              ast_expr_token(&body_expr),
+              String.from("Function body is not evaluated correctly. Expected to return(a compile-time known value.)")
+            )
           )
         )
       );
