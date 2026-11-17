@@ -154,7 +154,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string, type_to_string_for_message } :: import("../types/string.yo");
 { type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, nominal_has_hidden_origin, type_reaches_user_drop, type_nominal_drop_uses_roots, note_origin_types_exist, type_is_typed_fnmut_closure, capture_struct_is_fnmut, future_unreturnable_borrow, future_origin_names, get_all_some_types, is_legacy_value_str, legacy_value_str, type_is_sized } :: import("../types/utils.yo");
-{ expr_info_table_set, is_mut_global, is_thread_local, migrate_unsized_on, record_unsized_site, migrate_deref_on, audit_deref_on, record_deref_site, record_deref_edit_site, deref_file_migrated, note_reference_read_copied, lookup_macro_expansion, is_reference_self_place, unsize_reference_mode } :: import("../expr_info.yo");
+{ expr_info_table_set, is_mut_global, is_thread_local, migrate_unsized_on, record_unsized_site, migrate_deref_on, audit_deref_on, record_deref_site, record_deref_edit_site, deref_file_migrated, note_reference_read_copied, lookup_macro_expansion, is_reference_self_place, unsize_reference_mode, mark_fnonce_capture_drop } :: import("../expr_info.yo");
 { is_global_mut_rule_exempt, is_deref_swept_tree, is_implicitly_unsafe_capable_file, is_std_module_path } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
@@ -1320,7 +1320,7 @@ _is_implicit_closure_capture :: (fn(v : &Variable, env : &Environment, ctx : &Ev
 set_closure_writes_captures :: (fn(func_id : &String, writes : bool) -> unit)({
   // Two closures, not one that moves its `fid` capture on one branch only:
   // such a closure leaks the capture when the other branch runs
-  // (issues/2026-11-17-a-closure-moving-a-by-value-capture-on-one-branch-leaks-it-on-the-other.md).
+  // (issues/fixed/2026-11-17-a-closure-moving-a-by-value-capture-on-one-branch-leaks-it-on-the-other.md).
   if(writes, {
     fid := func_id.clone();
     g_capture_writing_closures.with_mut({ fid }(m) => {
@@ -5051,6 +5051,14 @@ _drop_in_arms_that_keep :: (
   // of an unmoved local is; the join marks it moved afterwards.
   saved_consumed := v.consumed_at_token();
   v.set_consumed_at_token(Option(Token).None);
+  // A by-value capture of the `FnOnce(...)` closure whose body this is: the
+  // body owns it like a local (decision 37), but codegen skips every drop
+  // of a capture name in a closure body except one tagged as the body's own
+  // capture drop (`is_deferred_drop_for_closure_capture`). Untagged, the arm
+  // drop vanished and every call taking the arm that keeps the capture
+  // leaked it
+  // (issues/fixed/2026-11-17-a-closure-moving-a-by-value-capture-on-one-branch-leaks-it-on-the-other.md).
+  own_capture := is_own_fnonce_capture(v, env, ctx);
   (i : usize) = usize(0);
   while(i < bodies.len(), {
     keeps := match(consumed_at_tokens.get(i), .Some(.Some(_)) => false, _ => true);
@@ -5062,6 +5070,9 @@ _drop_in_arms_that_keep :: (
           .Some(bi) => {
             drop_expr := generate_expr_from_code(`${BF_DROP}(${v.name})`, exn);
             evaluated := evaluate_expression_raw(&drop_expr, env, ctx, exn);
+            if(own_capture, {
+              mark_fnonce_capture_drop(ast_expr_id(&evaluated));
+            });
             v.set_consumed_at_token(Option(Token).None);
             drops := match(&bi.deferred_drop_expressions(), .Some(l) => l.clone(), .None => ArrayList(AstExpr).new());
             drops.push(evaluated);
@@ -5123,7 +5134,12 @@ drop_moves_of_skippable_operand :: (
           moved_at := v.consumed_at_token();
           v.set_consumed_at_token(Option(Token).None);
           drop_expr := generate_expr_from_code(`${BF_DROP}(${v.name})`, exn);
-          drops.push(evaluate_expression_raw(&drop_expr, env, ctx, exn));
+          sc_drop := evaluate_expression_raw(&drop_expr, env, ctx, exn);
+          // An `FnOnce` closure's own capture: tagged as `_drop_in_arms_that_keep` does.
+          if(is_own_fnonce_capture(&v, env, ctx), {
+            mark_fnonce_capture_drop(ast_expr_id(&sc_drop));
+          });
+          drops.push(sc_drop);
           v.set_consumed_at_token(moved_at);
           record_flow_event(v.id(), Rc.new(TypeValueNode.Unit), Option(TypeValue).None, FlowEventKind.Join, &v.token, &r.before_init, &r.before_consumed, &v.initialized_at_token(), match(v.consumed_at_token(), .Some(jc) => Option(Token).Some(jc), .None => Option(Token).None));
           if(g_debug_sc_skip_drops, {
