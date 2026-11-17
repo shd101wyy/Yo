@@ -1055,7 +1055,7 @@ derive(_MovedLocal, Clone);
 _atom_tokens_of :: (fn(e : &AstExpr, out : &mut ArrayList(Token)) -> unit)(
   match(
     e,
-    .Atom(_, t) => out.push(t.*),
+    .Atom(_, t) => out.push(Rc.clone(t.*)),
     .FnCall(_, callee, Rc(args), _, _) => {
       recur(&callee.*, out);
       (i : usize) = usize(0);
@@ -1077,7 +1077,7 @@ _locals_moved_inside :: (fn(e : &AstExpr, env : &Environment) -> ArrayList(_Move
   (i : usize) = usize(0);
   while(i < toks.len(), i = (i + usize(1)), {
     match(
-      toks.get(i),
+      toks.get_cloned(i),
       .Some(t) => if(t.module_path == module, {
         if(t.character < lo, {
           lo = t.character;
@@ -1092,7 +1092,7 @@ _locals_moved_inside :: (fn(e : &AstExpr, env : &Environment) -> ArrayList(_Move
   i = usize(0);
   while(i < toks.len(), i = (i + usize(1)), {
     match(
-      toks.get(i),
+      toks.get_cloned(i),
       .Some(t) => match(
         find_variable_in_env(env, &t.value.*),
         .Some(v) => match(
@@ -1206,7 +1206,7 @@ _specialize_index_method :: (
     match(
       moved.get_cloned(mi),
       .Some(m) => {
-        m.variable.set_consumed_at_token(Option(Token).Some(m.at));
+        m.variable.set_consumed_at_token(Option(Token).Some(Rc.clone(m.at)));
       },
       .None => ()
     );

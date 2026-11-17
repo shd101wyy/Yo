@@ -89,7 +89,7 @@ try_to_implement_array_by_array_type :: (
     func_tok := match(
       expr,
       .FnCall(_, func_box, _, _, _) => ast_expr_token(&func_box.*),
-      .Atom(_, tok) => tok.*
+      .Atom(_, tok) => Rc.clone(tok.*)
     );
     exn.throw(
       dyn(

@@ -879,16 +879,18 @@ _generic_impl_method_for_dyn :: (
               cond(
                 (mp_is_ref || !mp_is_owning) => {
                   sigil_val := cond(mp_is_ref => String.from(BK_BORROW_MUT), true => String.from("&"));
-                  sigil_tok := Rc.new(TokenData(
-                    kind : TokenKind.Operator,
-                    value : intern_token_str(&sigil_val),
-                    row : arg_tok.row,
-                    column : arg_tok.column,
-                    character : arg_tok.character,
-                    byte_offset : arg_tok.byte_offset,
-                    module_path : Rc.clone(arg_tok.module_path),
-                    input : Rc.clone(arg_tok.input)
-                  ));
+                  sigil_tok := Rc.new(
+                    TokenData(
+                      kind : TokenKind.Operator,
+                      value : intern_token_str(&sigil_val),
+                      row : arg_tok.row,
+                      column : arg_tok.column,
+                      character : arg_tok.character,
+                      byte_offset : arg_tok.byte_offset,
+                      module_path : Rc.clone(arg_tok.module_path),
+                      input : Rc.clone(arg_tok.input)
+                    )
+                  );
                   lent_args := ArrayList(AstExpr).new();
                   lent_args.push(arg_atom);
                   call_args.push(AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), sigil_tok.clone()), Rc.new(lent_args), false, sigil_tok));
@@ -1479,7 +1481,7 @@ evaluate_dyn_value :: (
   match(
     saved_et,
     .Some(se) => {
-      ctx.expected_type = se;
+      ctx.expected_type = se.clone();
     },
     .None => ()
   );

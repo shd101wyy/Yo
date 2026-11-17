@@ -927,7 +927,7 @@ _reject_wrapper_payload_clash :: (
 _wrapper_member_repair :: (fn(receiver : &AstExpr, name_tok : &Token, ctor : &String, arg_count : usize) -> Option(Repair))({
   recv_tok := match(
     receiver,
-    .Atom(_, t) => t.*,
+    .Atom(_, t) => Rc.clone(t.*),
     _ => {
       return(Option(Repair).None);
     }
@@ -1039,16 +1039,18 @@ _reject_class1_panic_method_call :: (
 _synth_name_atom :: (fn(name : str, at : &Token) -> AstExpr)(
   AstExpr.Atom(
     alloc_global_expr_id(),
-    Rc.new(TokenData(
-      kind : TokenKind.Identifier,
-      value : intern_token_str(String.from(name)),
-      row : at.row,
-      column : at.column,
-      character : at.character,
-      byte_offset : at.byte_offset,
-      module_path : Rc.clone(at.module_path),
-      input : Rc.clone(at.input)
-    ))
+    Rc.new(
+      TokenData(
+        kind : TokenKind.Identifier,
+        value : intern_token_str(String.from(name)),
+        row : at.row,
+        column : at.column,
+        character : at.character,
+        byte_offset : at.byte_offset,
+        module_path : Rc.clone(at.module_path),
+        input : Rc.clone(at.input)
+      )
+    )
   )
 );
 /// `Option(Allocator)`, the type of a cell primitive's allocator argument
@@ -1058,7 +1060,7 @@ _synth_name_atom :: (fn(name : str, at : &Token) -> AstExpr)(
 _cell_allocator_type :: (fn(at : &Token, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> TypeValue)({
   ty_args := ArrayList(AstExpr).new();
   ty_args.push(_synth_name_atom("Allocator", at));
-  opt_expr := AstExpr.FnCall(alloc_global_expr_id(), _synth_name_atom("Option", at), Rc.new(ty_args), false, at.*);
+  opt_expr := AstExpr.FnCall(alloc_global_expr_id(), _synth_name_atom("Option", at), Rc.new(ty_args), false, Rc.clone(at.*));
   opt_eval := evaluate_expression_raw(&opt_expr, env, ctx, exn);
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&opt_eval)),
@@ -1259,7 +1261,7 @@ _strip_explicit_ref_receiver :: (fn(callee : &AstExpr, env : &Environment) -> As
   sx_new_args := ArrayList(AstExpr).new();
   sx_new_args.push(sx_operand);
   match(sx_args.get(usize(1)), .Some(m) => sx_new_args.push(m), .None => ());
-  stripped := match(callee, .FnCall(_, sx_fb, _, sx_infix, sx_tok) => AstExpr.FnCall(sx_id, sx_fb.*, Rc.new(sx_new_args), sx_infix.*, sx_tok.*), .Atom(_, _) => return(callee.*));
+  stripped := match(callee, .FnCall(_, sx_fb, _, sx_infix, sx_tok) => AstExpr.FnCall(sx_id, sx_fb.*, Rc.new(sx_new_args), sx_infix.*, Rc.clone(sx_tok.*)), .Atom(_, _) => return(callee.*));
   note_rewritten_node(&stripped);
   g_explicit_ref_receivers.with_mut({ sx_id, sx_mut }(m) => m.insert(sx_id, sx_mut));
   stripped
@@ -1315,7 +1317,7 @@ _r_probe_rank :: (fn(e : &MethodEntry, ref_mode : Option(bool)) -> usize)({
   // probe step from the reference it carries, as the slot `&C` always did.
   slot := match(
     fn_param_slots(&e.ty).get(usize(0)),
-    .Some(s) => match(&s, Rc(.ValueSlot(vs_inner)) => Rc.clone(vs_inner), _ => s),
+    .Some(s) => match(&s, Rc(.ValueSlot(vs_inner)) => Rc.clone(vs_inner), _ => Rc.clone(s)),
     .None => return(usize(9))
   );
   // 0: by value; 1: `&`; 2: `&mut`; 3: `& &`; 4: `&mut &`; 5: `& &mut`;
@@ -1744,7 +1746,7 @@ _find_receiver_method_of :: (
               dc_args.push(method_name_expr.clone());
               deref_callee := match(
                 callee,
-                .FnCall(_, dc_fb, _, dc_infix, dc_tok) => AstExpr.FnCall(alloc_global_expr_id(), dc_fb.*, Rc.new(dc_args), dc_infix.*, dc_tok.*),
+                .FnCall(_, dc_fb, _, dc_infix, dc_tok) => AstExpr.FnCall(alloc_global_expr_id(), dc_fb.*, Rc.new(dc_args), dc_infix.*, Rc.clone(dc_tok.*)),
                 _ => callee.*
               );
               match(
@@ -1755,7 +1757,7 @@ _find_receiver_method_of :: (
                   rw_args.push(method_name_expr.clone());
                   match(
                     callee,
-                    .FnCall(rw_id, rw_fb, _, rw_infix, rw_tok) => note_rewritten_node(&AstExpr.FnCall(rw_id.*, rw_fb.*, Rc.new(rw_args), rw_infix.*, rw_tok.*)),
+                    .FnCall(rw_id, rw_fb, _, rw_infix, rw_tok) => note_rewritten_node(&AstExpr.FnCall(rw_id.*, rw_fb.*, Rc.new(rw_args), rw_infix.*, Rc.clone(rw_tok.*))),
                     _ => ()
                   );
                   return(Option(ReceiverMethodResult).Some(deref_hit));
@@ -2920,16 +2922,18 @@ _build_receiver_call_args :: (
       recv_tok := ast_expr_token(receiver_expr);
       amp_atom := AstExpr.Atom(
         alloc_global_expr_id(),
-        Rc.new(TokenData(
-          kind : TokenKind.Identifier,
-          value : intern_token_str(String.from("addr_of")),
-          row : recv_tok.row,
-          column : recv_tok.column,
-          character : recv_tok.character,
-          byte_offset : recv_tok.byte_offset,
-          module_path : Rc.new(String.from(AUTO_REF_RECEIVER_PATH)),
-          input : Rc.clone(recv_tok.input)
-        ))
+        Rc.new(
+          TokenData(
+            kind : TokenKind.Identifier,
+            value : intern_token_str(String.from("addr_of")),
+            row : recv_tok.row,
+            column : recv_tok.column,
+            character : recv_tok.character,
+            byte_offset : recv_tok.byte_offset,
+            module_path : Rc.new(String.from(AUTO_REF_RECEIVER_PATH)),
+            input : Rc.clone(recv_tok.input)
+          )
+        )
       );
       amp_args := ArrayList(AstExpr).new();
       amp_args.push(receiver_expr.clone());
@@ -3702,7 +3706,7 @@ _try_rewrite_range_index_to_slice_copy :: (
   ma_args := ArrayList(AstExpr).new();
   ma_args.push(func_expr.*);
   ma_args.push(method_atom);
-  method_access := AstExpr.FnCall(alloc_global_expr_id(), dot_atom, Rc.new(ma_args), true, tok);
+  method_access := AstExpr.FnCall(alloc_global_expr_id(), dot_atom, Rc.new(ma_args), true, Rc.clone(tok));
   new_args := ArrayList(AstExpr).new();
   new_args.push(arg0);
   // Keep the ORIGINAL call id so the result's ExprInfo lands on the same
@@ -9166,7 +9170,7 @@ _restore_move_states :: (fn(saved_vars : &ArrayList(Variable), saved_moves : &Ar
     match(
       saved_vars.get_cloned(ri),
       .Some(v) => {
-        v.set_consumed_at_token(match(saved_moves.get(ri), .Some(m) => m, .None => Option(Token).None));
+        v.set_consumed_at_token(match(saved_moves.get_cloned(ri), .Some(m) => m, .None => Option(Token).None));
       },
       .None => ()
     );
@@ -9366,7 +9370,7 @@ _copying_accessor_info :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalCo
   ca_name_tok := match(
     ca_pargs.get(usize(1)),
     .Some(.Atom(_, nt)) => cond(
-      (nt.kind == TokenKind.Identifier) => nt,
+      (nt.kind == TokenKind.Identifier) => Rc.clone(nt),
       true => return(Option(AccessorCallInfo).None)
     ),
     _ => return(Option(AccessorCallInfo).None)
@@ -10632,7 +10636,7 @@ _record_fnonce_callee_release :: (fn(call : &AstExpr, name : &String, env : &Env
     match(
       same_name.get_cloned(ri),
       .Some(rv) => {
-        rv.set_consumed_at_token(match(saved.get(ri), .Some(t) => t, .None => Option(Token).None));
+        rv.set_consumed_at_token(match(saved.get_cloned(ri), .Some(t) => t, .None => Option(Token).None));
       },
       .None => ()
     );
@@ -14983,16 +14987,18 @@ Fix: wrap the call:
               recv_tok := ast_expr_token(&method_info.receiver_expr);
               amp_atom := AstExpr.Atom(
                 alloc_global_expr_id(),
-                Rc.new(TokenData(
-                  kind : TokenKind.Identifier,
-                  value : intern_token_str(String.from("addr_of")),
-                  row : recv_tok.row,
-                  column : recv_tok.column,
-                  character : recv_tok.character,
-                  byte_offset : recv_tok.byte_offset,
-                  module_path : Rc.new(String.from(AUTO_REF_RECEIVER_PATH)),
-                  input : Rc.clone(recv_tok.input)
-                ))
+                Rc.new(
+                  TokenData(
+                    kind : TokenKind.Identifier,
+                    value : intern_token_str(String.from("addr_of")),
+                    row : recv_tok.row,
+                    column : recv_tok.column,
+                    character : recv_tok.character,
+                    byte_offset : recv_tok.byte_offset,
+                    module_path : Rc.new(String.from(AUTO_REF_RECEIVER_PATH)),
+                    input : Rc.clone(recv_tok.input)
+                  )
+                )
               );
               amp_args := ArrayList(AstExpr).new();
               amp_args.push(method_info.receiver_expr);
