@@ -9861,7 +9861,7 @@ export(Result);
 /// b := Rc.clone(a); // a second handle to the same value
 /// assert(b.* == a.*, "a and b name the same value");
 /// ```
-Rc :: (fn(comptime(V) : ?Sized) -> comptime(Type))(
+Rc :: (fn(comptime(V) : ?Sized, where(V <: Escapable)) -> comptime(Type))(
   newtype(_cell : __yo_cell(V))
 );
 /// The constructor of `Rc` (plans/archive/STATIC_ARGUMENT_INFERENCE.md):
@@ -9880,7 +9880,7 @@ impl(
   /// a := Rc(i32).new(i32(42));
   /// assert(ref_count(a) == usize(1), "a fresh cell has one owner");
   /// ```
-  new : (fn(sink(value) : V, (alloc : Option(Allocator)) ?= .None, where(V <: Escapable)) -> Rc(V))({
+  new : (fn(sink(value) : V, (alloc : Option(Allocator)) ?= .None) -> Rc(V))({
     // The result is written `Rc(T)`, not `Self`: a specialization evaluates a
     // written return type again, which gives `dyn(...)`'s synthesized
     // `Rc(T).new(<closure>)` the concrete cell over the closure's capture
@@ -10636,7 +10636,7 @@ export(Box);
 /// a := Arc.new(i32(42));
 /// assert(a.* == i32(42), "inner value is 42");
 /// ```
-Arc :: (fn(comptime(V) : ?Sized) -> comptime(Type))(
+Arc :: (fn(comptime(V) : ?Sized, where(V <: (Send, Sync, Escapable))) -> comptime(Type))(
   newtype(_cell : __yo_atomic_cell(V))
 );
 /// The constructor of `Arc` (plans/archive/STATIC_ARGUMENT_INFERENCE.md):
@@ -10656,7 +10656,7 @@ impl(
   /// a := Arc(i32).new(i32(42));
   /// assert(a.* == i32(42), "the payload");
   /// ```
-  new : (fn(sink(value) : V, (alloc : Option(Allocator)) ?= .None, where(V <: (Send, Sync, Escapable))) -> Arc(V))({
+  new : (fn(sink(value) : V, (alloc : Option(Allocator)) ?= .None) -> Arc(V))({
     // `Arc(V)`, not `Self`, for `Rc.new`'s reason. The atomic cell takes the
     // allocator itself, as `Rc.new`'s does, and the handle is bound, not the
     // body's tail, for `Rc.new`'s reason
@@ -10877,7 +10877,7 @@ extern(
 /// consume(a);
 /// assert(w.upgrade().is_none(), "the last Arc dropped the payload");
 /// ```
-ArcWeak :: (fn(comptime(V) : ?Sized) -> comptime(Type))(
+ArcWeak :: (fn(comptime(V) : ?Sized, where(V <: (Send, Sync, Escapable))) -> comptime(Type))(
   // The cell's address, `.None` for `ArcWeak.new()`. As for `Weak`, it points
   // at the cell's header, is never dereferenced here, and is typed by the
   // payload so that an `ArcWeak(Mutex(Self))` field's `Self` is fixed up with
