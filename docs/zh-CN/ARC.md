@@ -1,8 +1,8 @@
 # Arc(T) — 基于原子引用计数的共享所有权
 
 `Arc(T)` 用于通过原子引用计数共享单个值的所有权。它**不再是编译器内置类型**。
-在当前设计里，`Arc` 在 `std/prelude.yo` 中被定义为一个薄包装的
-`atomic(ref(struct(...)))`，因此 `Arc` 与 `Arc.new(...)` 会通过 prelude 自动可用。
+在当前设计里，`Arc` 在 `std/prelude.yo` 中被定义为原子计数单元上的
+newtype，因此 `Arc` 与 `Arc.new(...)` 会通过 prelude 自动可用。
 `Arc(T)` 本身要求 `T <: (Send, Sync)`，这样就不会把非线程安全的值伪装成可跨线程共享的包装。每个约束各有原因：
 
 - `Sync`：每个句柄都在自己的线程上读取载荷。
@@ -15,18 +15,16 @@
 ## 当前定义
 
 ```yo
-Arc :: (fn(comptime(V) : Type, where(V <: (Send, Sync))) -> comptime(Type))(
-  atomic(
-    ref(
-      struct(
-        (*) : V
-      )
-    )
-  )
+Arc :: (fn(comptime(V) : ?Sized) -> comptime(Type))(
+  newtype(_cell : __yo_atomic_cell(V))
 );
 
-arc :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None, where(V <: (Send, Sync))) -> Arc(V))(
-  ...
+impl(
+  generic(V : Type),
+  Arc(V),
+  new : (fn(sink(value) : V, (alloc : Option(Allocator)) ?= .None, where(V <: (Send, Sync, Escapable))) -> Arc(V))(
+    ...
+  )
 );
 ```
 
@@ -36,16 +34,16 @@ arc :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .N
 ## 什么时候使用 `Arc`
 
 - 当你想在**线程或闭包之间共享一个现有值**时，使用 `Arc(T)`。
-- 当你要定义**自己的共享类型**时，使用 `atomic(ref(struct(...)))`。
-- 要把值**转移**到另一个线程而不是共享它，就移动它：`Send` 值可以移入派生的闭包或经由 `Channel` 发送。`Rc` 对象图只属于它所在的线程（Rust 的规则）；`Rc.try_unwrap` 从唯一持有的 `Rc` 中取出值。在 `String` 和各集合类型通过移动成为 `Send`（`plans/VALUES_BY_DEFAULT.md` V2b）之前，二者都不能跨线程：通过 `Arc` 共享同时满足 `Send` 和 `Sync` 的数据，在接收线程上用 `Send` 的部分重建该值，或将其序列化。（过去覆盖这种情况的一次性隔离移交已在 v0.2.68 中移除。）
-- `Arc(T)` 只接受同时实现了 `Send` 和 `Sync` 的子类型；普通 `ref(struct(...))` 两者都不满足。是 `Send` 但不是 `Sync` 的类型（用 `impl(T, !(Sync()))` 退出 `Sync` 的类型）应放进 `Mutex(T)`，由它串行化访问。
+- 要共享**自己的类型**，就写一个普通 `struct`，以 `Arc(YourType)` 共享它；需要内部可变性时使用 `Mutex(T)`、`RwLock(T)` 或原子类型。
+- 要把值**转移**到另一个线程而不是共享它，就移动它：`Send` 值可以移入派生的闭包或经由 `Channel` 发送。`Rc` 对象图只属于它所在的线程（Rust 的规则）；`Rc.try_unwrap` 从唯一持有的 `Rc` 中取出值。`String`，以及元素为 `Send` 的集合，本身是 `Send` 的，因此按值移动到另一个线程即可。
+- `Arc(T)` 只接受同时实现了 `Send` 和 `Sync` 的子类型；`Rc(T)` 两者都不满足。是 `Send` 但不是 `Sync` 的类型（用 `impl(T, !(Sync()))` 退出 `Sync` 的类型）应放进 `Mutex(T)`，由它串行化访问。
 - 对函数值（闭包或具名函数）调用 `Arc.new(f)` 时按值判断：它捕获的东西和它的代码触及的东西都必须是 `Send` 且 `Sync` 的（规则 D4 与 D9，见 `THREAD_SAFETY.md`）。
 
-许多标准库类型已经不再需要额外的 `Arc(...)` 包装。例如 `std/sync`
-原语本身就基于 `atomic(ref(struct(...)))` 实现，可以直接跨线程共享。
+许多标准库类型不需要额外的 `Arc(...)` 包装。例如 `std/sync`
+原语建立在原子计数单元之上，本身就是 `Send` 和 `Sync`，可以直接跨线程共享。
 
-如果你需要共享可变状态，应该先把这份状态定义成 `atomic(ref(struct(...)))`，
-然后直接共享它；只有在你确实需要“包裹一个单独值”时，再使用 `Arc(...)`。
+如果你需要共享可变状态，应该把它放在这些原语之后再共享：
+`Arc(Mutex(State))`、`RwLock` 或原子类型。
 
 ## 基本用法
 
@@ -130,13 +128,13 @@ Arc.make_mut(&mut b) = i32(2); // b 得到自己的单元
 assert((a.* == i32(1)) && (b.* == i32(2)), "a is unchanged");
 ```
 
-## `Arc` 与 `atomic(ref(struct(...)))` 的区别
+## 如何选择
 
-| 需求                            | 推荐工具                   |
-| ------------------------------- | -------------------------- |
-| 共享一个现有值                  | `Arc(T)`                   |
-| 定义可复用的共享引用计数类型    | `atomic(ref(struct(...)))` |
-| 把 `Send` 值交给另一个线程      | 移动（spawn、`Channel`）   |
+| 需求                       | 推荐工具                   |
+| -------------------------- | -------------------------- |
+| 共享一个现有值             | `Arc(T)`                   |
+| 共享会被写入的状态         | `Arc(Mutex(T))`、原子类型  |
+| 把 `Send` 值交给另一个线程 | 移动（spawn、`Channel`）   |
 
 ## 语义
 

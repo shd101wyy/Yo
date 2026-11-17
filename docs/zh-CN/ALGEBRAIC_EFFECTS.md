@@ -119,14 +119,14 @@ wrapper :: (fn(x : i32, raise : Raise) -> i32)(
 { String } :: import("std/string");
 
 Raise :: (ctl(msg : String) -> i32);
-Ctx :: ref(struct(depth : i32));
+Ctx :: struct(depth : i32);
 
 parse :: (fn(n : i32, raise : Raise) -> i32)(
   cond((n < i32(0)) => raise(`negative`), true => n)
 );
 
 // ✗ 处理器就安装在这里，所以它的 unwind 会退出 `try_parse`
-try_parse :: (fn(n : i32, ctx : Ctx) -> i32)({
+try_parse :: (fn(n : i32, ctx : &mut Ctx) -> i32)({
   (raise : Raise) = (
     msg -> {
       unwind(i32(-1));
@@ -140,10 +140,10 @@ try_parse :: (fn(n : i32, ctx : Ctx) -> i32)({
 });
 
 main :: (fn() -> unit)({
-  ctx := Ctx(depth : i32(0));
-  a := try_parse(i32(5), ctx);
+  mut(ctx) := Ctx(depth : i32(0));
+  a := try_parse(i32(5), &mut ctx);
   println(`ok: r=${a} depth=${ctx.depth}`); // ok: r=5 depth=0
-  b := try_parse(i32(-5), ctx);
+  b := try_parse(i32(-5), &mut ctx);
   println(`raised: r=${b} depth=${ctx.depth}`); // raised: r=-1 depth=1
 });
 export(main);
@@ -164,14 +164,14 @@ _parse_or :: (fn(n : i32) -> i32)({
   parse(n, raise)
 });
 
-try_parse :: (fn(n : i32, ctx : Ctx) -> i32)({
+try_parse :: (fn(n : i32, ctx : &mut Ctx) -> i32)({
   saved := ctx.depth;
   ctx.depth = (ctx.depth + i32(1));
   r := _parse_or(n);
   ctx.depth = saved; // 总会执行
   r
 });
-// 现在 try_parse(i32(-5), ctx) 返回 -1，且 ctx.depth 保持为 0
+// 现在 try_parse(i32(-5), &mut ctx) 返回 -1，且 ctx.depth 保持为 0
 ```
 
 这种失败在发生处是静默的：残留的状态只会在之后运行的代码里暴露出来。这也意味着，给已有代码

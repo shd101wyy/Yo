@@ -184,8 +184,8 @@ Containers hand out **values**, never pointers into their buffers:
 e := xs.get_cloned(i); // a String element: a copy (a String is a value
 //   since B8); it survives xs.push / realloc
 xs.with(i, s => s.push_str("!")); // write the element in place
-h := xs.get(i); // a `ref(struct(...))` element: a HANDLE to the
-//   object, which mutates it in place
+h := xs.get_cloned(i); // an `Rc(...)` element: a second HANDLE to the
+//   same cell, which writes through the cell's `RefCell`
 xs(i) = v; // index WRITE for in-place element replacement
 t := xs.get(i).unwrap(); // Copy struct elements: copy out …
 xs(i) = t2; //   … write back
