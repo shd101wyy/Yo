@@ -44,7 +44,7 @@ pragma(Pragma.AllowUnsafe);
   FuncOrAsyncBlockCtx
 } :: import("../context.yo");
 {
-  EvalValue,
+  EvalValue, EvalValueNode,
   create_unknown_val,
   is_type_val,
   is_str_lit
@@ -263,7 +263,7 @@ evaluate_test :: (
   // Io :: module(...) means io_module_var.value == .Some(.TypeVal(ModuleType)).
   io_module_type := match(
     io_module_var.value().get(usize(0)),
-    .Some(.TypeVal(ty)) => Rc.clone(ty),
+    .Some(Rc(.TypeVal(ty))) => Rc.clone(ty),
     .Some(_) => variable_value_type(&io_module_var),
     .None => variable_value_type(&io_module_var)
   );
@@ -330,7 +330,7 @@ evaluate_test :: (
   // NOTE: Don't propagate env.
   // Return unit — test has no compile-time value.
   result_info := new_expr_info(&env, t_unit());
-  result_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
+  result_info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &result_info);
   Rc.clone(expr.*)
 });

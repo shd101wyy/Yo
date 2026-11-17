@@ -21,7 +21,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue, create_unknown_val } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, create_unknown_val } :: import("../../value.yo");
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { t_bool, t_comptime_int, t_comptime_string } :: import("../../types/creators.yo");
 {
@@ -161,7 +161,7 @@ make_int_val :: (fn(n : i64, ty : &TypeValue) -> EvalValue)(
   if(
     is_c_compatible_type(ty),
     create_unknown_val(ty),
-    EvalValue.IntLit(apply_bounds(n, ty).to_string())
+    Rc.new(EvalValueNode.IntLit(apply_bounds(n, ty).to_string()))
   )
 );
 // ---------------------------------------------------------------------------
@@ -298,7 +298,7 @@ make_float_val :: (fn(v : f64, ty : &TypeValue) -> EvalValue)(
     create_unknown_val(ty),
     // ROUND-TRIP rendering — see f64_raw_roundtrip (utils.yo): plain
     // to_string is %g and truncated computed comptime floats to 6 digits.
-    EvalValue.FloatLit(f64_raw_roundtrip(v))
+    Rc.new(EvalValueNode.FloatLit(f64_raw_roundtrip(v)))
   )
 );
 // ---------------------------------------------------------------------------
@@ -437,7 +437,7 @@ evaluate_yo_comptime_numeric_functions :: (
     lhs_info := eval_numeric_arg(&arg0, env, ctx, exn);
     lhs_val := lhs_info.value();
     (cur_env : Environment) = expr_info_adopt_env(&lhs_info);
-    (result_val : EvalValue) = EvalValue.UnitVal;
+    (result_val : EvalValue) = Rc.new(EvalValueNode.UnitVal);
     (result_ty : TypeValue) = Rc.clone(numeric_type);
     cond(
       (op_s == "neg") => {
@@ -463,7 +463,7 @@ evaluate_yo_comptime_numeric_functions :: (
               // with "Got runtime value"; branch on the VALUE, not the type.
               (is_float_type(&numeric_type) || is_comptime_float_type(&numeric_type)) => match(
                 av,
-                .FloatLit(raw) => match(
+                Rc(.FloatLit(raw)) => match(
                   parse_raw_float(&raw),
                   .Some(v) => make_float_val(f64(0.0) - v, &numeric_type),
                   .None => create_unknown_val(&numeric_type)
@@ -472,7 +472,7 @@ evaluate_yo_comptime_numeric_functions :: (
               ),
               true => match(
                 av,
-                .IntLit(raw) => match(
+                Rc(.IntLit(raw)) => match(
                   parse_raw_int(&raw),
                   .Some(n) => {
                     // `-MIN` traps at run time; on a constant it is a compile
@@ -510,7 +510,7 @@ evaluate_yo_comptime_numeric_functions :: (
           lhs_val,
           .Some(av) => match(
             av,
-            .IntLit(raw) => match(
+            Rc(.IntLit(raw)) => match(
               parse_raw_int(&raw),
               .Some(n) => make_int_val(bit_not_int(n, &numeric_type), &numeric_type),
               .None => create_unknown_val(&numeric_type)
@@ -524,8 +524,8 @@ evaluate_yo_comptime_numeric_functions :: (
         result_ty = t_comptime_string();
         result_val = match(
           lhs_val,
-          .Some(.IntLit(raw)) => EvalValue.StrLit(str_lit_quote(&raw)),
-          .Some(.FloatLit(raw)) => EvalValue.StrLit(str_lit_quote(&raw)),
+          .Some(Rc(.IntLit(raw))) => Rc.new(EvalValueNode.StrLit(str_lit_quote(&raw))),
+          .Some(Rc(.FloatLit(raw))) => Rc.new(EvalValueNode.StrLit(str_lit_quote(&raw))),
           .Some(_) => create_unknown_val(t_comptime_string()),
           .None => create_unknown_val(t_comptime_string())
         );
@@ -574,7 +574,7 @@ evaluate_yo_comptime_numeric_functions :: (
     lhs_val := lhs_info.value();
     rhs_val := rhs_info.value();
     (cur_env : Environment) = expr_info_adopt_env(&rhs_info);
-    (result_val : EvalValue) = EvalValue.UnitVal;
+    (result_val : EvalValue) = Rc.new(EvalValueNode.UnitVal);
     (result_ty : TypeValue) = Rc.clone(numeric_type);
     // ComptimeFloat must take the float path too — same `is_float_type`
     // gap as the unary-neg note above: every `__yo_comptime_float_*`
@@ -584,13 +584,13 @@ evaluate_yo_comptime_numeric_functions :: (
       // ---- Float binary path. --------------------------------------------
       lhs_f := match(
         lhs_val,
-        .Some(.FloatLit(raw)) => parse_raw_float(&raw),
+        .Some(Rc(.FloatLit(raw))) => parse_raw_float(&raw),
         .Some(_) => Option(f64).None,
         .None => Option(f64).None
       );
       rhs_f := match(
         rhs_val,
-        .Some(.FloatLit(raw)) => parse_raw_float(&raw),
+        .Some(Rc(.FloatLit(raw))) => parse_raw_float(&raw),
         .Some(_) => Option(f64).None,
         .None => Option(f64).None
       );
@@ -651,7 +651,7 @@ evaluate_yo_comptime_numeric_functions :: (
                   (op_s == "gt") => (a > b),
                   true => (a >= b)
                 );
-                result_val = EvalValue.BoolVal(b_result);
+                result_val = Rc.new(EvalValueNode.BoolVal(b_result));
               },
               .None => {
                 result_val = create_unknown_val(t_bool());
@@ -691,13 +691,13 @@ evaluate_yo_comptime_numeric_functions :: (
       // ---- Integer binary path. ------------------------------------------
       lhs_n := match(
         lhs_val,
-        .Some(.IntLit(raw)) => parse_raw_int(&raw),
+        .Some(Rc(.IntLit(raw))) => parse_raw_int(&raw),
         .Some(_) => Option(i64).None,
         .None => Option(i64).None
       );
       rhs_n := match(
         rhs_val,
-        .Some(.IntLit(raw)) => parse_raw_int(&raw),
+        .Some(Rc(.IntLit(raw))) => parse_raw_int(&raw),
         .Some(_) => Option(i64).None,
         .None => Option(i64).None
       );
@@ -852,7 +852,7 @@ evaluate_yo_comptime_numeric_functions :: (
                   (op_s == "gt") => (a > b),
                   true => (a >= b)
                 );
-                result_val = EvalValue.BoolVal(b_result);
+                result_val = Rc.new(EvalValueNode.BoolVal(b_result));
               },
               .None => {
                 result_val = create_unknown_val(t_bool());

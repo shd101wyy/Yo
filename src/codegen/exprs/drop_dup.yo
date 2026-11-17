@@ -42,7 +42,7 @@ _method_c_name :: (fn(type : &TypeValue, method_name : str, context : &FunctionG
     return(Option(String).None);
   });
   methods := get_type_trait_methods_by_name(type_id_or_empty(type), String.from(method_name));
-  match(methods.get(usize(0)), .Some(entry) => match(entry.value, .Some(v) => match(v, .FuncVal(__fvd1, _) => match(context.base.get_function_entry(&__fvd1.*.func_id), .Some(e) => Option(String).Some(e.c_name.clone()), .None => Option(String).None), _ => Option(String).None), .None => Option(String).None), .None => Option(String).None)
+  match(methods.get(usize(0)), .Some(entry) => match(entry.value, .Some(v) => match(v, Rc(.FuncVal(__fvd1, _)) => match(context.base.get_function_entry(&__fvd1.*.func_id), .Some(e) => Option(String).Some(e.c_name.clone()), .None => Option(String).None), _ => Option(String).None), .None => Option(String).None), .None => Option(String).None)
 });
 /// The C name of `type`'s `___drop` function, if any.
 get_drop_function_for_type :: (fn(type : &TypeValue, context : &FunctionGenerationContext) -> Option(String))(
@@ -72,7 +72,7 @@ get_dispose_function_for_type :: (fn(type : &TypeValue, context : &FunctionGener
       entry.value,
       .Some(v) => match(
         v,
-        .FuncVal(__dfvd3, _) => match(
+        Rc(.FuncVal(__dfvd3, _)) => match(
           context.base.get_function_entry(&__dfvd3.*.func_id),
           .Some(e) => Option(String).Some(e.c_name.clone()),
           .None => Option(String).None

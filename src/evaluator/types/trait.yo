@@ -41,7 +41,7 @@ import("std/fmt");
 { new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
 { Environment, get_variables_from_env, add_variable_to_env, env_adopt } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
-{ EvalValue, create_type_value, create_unknown_val, is_type_value } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, create_type_value, create_unknown_val, is_type_value } :: import("../../value.yo");
 { TypeValue, TypeValueNode, trait_t_body, shared_list, no_types, no_labels, t_slot_pointee } :: import("../../types/definitions.yo");
 { t_some_t, generate_some_type_id } :: import("../../types/creators.yo");
 { is_some_type, is_trait_type, is_function_type } :: import("../../types/guards.yo");
@@ -142,7 +142,7 @@ _get_or_create_some_ty_for_trait :: (
         .Some(ev) => {
           match(
             ev,
-            .TypeVal(b) => {
+            Rc(.TypeVal(b)) => {
               if(is_some_type(&b), {
                 return(_SomeTyResolvedResult(Rc.clone(b), false));
               });
@@ -231,7 +231,7 @@ _get_or_create_some_ty_for_trait :: (
   env_adopt(&env_mut.*, &lhs_info.env());
   lhs_tv := match(
     lhs_info.value(),
-    .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)),
+    .Some(v) => match(v, Rc(.TypeVal(b)) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)),
     .None => Rc.new(TypeValueNode.Unit)
   );
   if(!is_some_type(&lhs_tv), {
@@ -324,7 +324,7 @@ _apply_single_constraint_for_trait :: (
   env_adopt(&env_mut.*, &te_info.env());
   trait_ty2 = match(
     te_info.value(),
-    .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)),
+    .Some(v) => match(v, Rc(.TypeVal(b)) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)),
     .None => Rc.new(TypeValueNode.Unit)
   );
   if(!is_trait_type(&trait_ty2), {
@@ -495,7 +495,7 @@ _parse_trait_where_clauses :: (
       env_adopt(&env_mut.*, &te_info.env());
       trait_ty2 = match(
         te_info.value(),
-        .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)),
+        .Some(v) => match(v, Rc(.TypeVal(b)) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)),
         .None => Rc.new(TypeValueNode.Unit)
       );
       if(!is_trait_type(&trait_ty2), {
@@ -787,7 +787,7 @@ _evaluate_trait_field :: (
       });
       ty := match(
         te_info.value(),
-        .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)),
+        .Some(v) => match(v, Rc(.TypeVal(b)) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)),
         .None => Rc.new(TypeValueNode.Unit)
       );
       field_ty_opt = .Some(ty);
@@ -879,7 +879,7 @@ _evaluate_trait_field :: (
               )
             )
           );
-          EvalValue.UnitVal
+          Rc.new(EvalValueNode.UnitVal)
         }
       );
       // Validate type compatibility if expected type is set
@@ -973,7 +973,7 @@ _evaluate_trait_field :: (
               )
             )
           );
-          EvalValue.UnitVal
+          Rc.new(EvalValueNode.UnitVal)
         }
       );
       // Validate type compatibility
@@ -1034,7 +1034,7 @@ _evaluate_trait_field :: (
   );
   // Set expr info on the field expr itself (unit value)
   unit_info := new_expr_info(env_mut, Rc.new(TypeValueNode.Unit));
-  unit_info.set_value(.Some(EvalValue.UnitVal));
+  unit_info.set_value(.Some(Rc.new(EvalValueNode.UnitVal)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &unit_info);
   // Phase 7: detect associated type (TypeUni(0) + !assignedValue + isForEvaluatingTraitType)
   (assoc_some_ty_opt : Option(TypeValue)) = Option(TypeValue).None;
@@ -1052,7 +1052,7 @@ _evaluate_trait_field :: (
             .Some(ev) => {
               match(
                 ev,
-                .TypeVal(b) => {
+                Rc(.TypeVal(b)) => {
                   if(is_some_type(&b), {
                     assoc_some_ty_opt = .Some(Rc.clone(b));
                     found_existing = true;
@@ -1281,7 +1281,7 @@ evaluate_trait_type :: (
                 .Some(ev) => {
                   match(
                     ev,
-                    .TypeVal(b) => {
+                    Rc(.TypeVal(b)) => {
                       if(is_some_type(&b), {
                         already_bound = true;
                       });

@@ -78,7 +78,7 @@
   pending_prebound_variable,
   record_pending_def_variable
 } :: import("../context.yo");
-{ EvalValue, create_unknown_val, is_runtime_only_unknown_val, is_type_value, is_module_val } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, create_unknown_val, is_runtime_only_unknown_val, is_type_value, is_module_val } :: import("../../value.yo");
 { TypeValue, TypeValueNode, trait_t_body, fn_result_origin_names, t_origin_named, t_reference_with_origin, shared_list, t_slot_is_borrow, t_slot_is_mut_ref, t_slot_pointee } :: import("../../types/definitions.yo");
 { t_unit, type_value_tag, register_type_binding_name } :: import("../../types/creators.yo");
 { TypeTag } :: import("../../types/tags.yo");
@@ -531,7 +531,7 @@ _evaluate_inout_local_binding :: (
       ann_val := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev_ann)), .Some(ai) => ai.value(), .None => Option(EvalValue).None);
       ann_ty := match(
         ann_val,
-        .Some(.TypeVal(at)) => Rc.clone(at),
+        .Some(Rc(.TypeVal(at))) => Rc.clone(at),
         _ => {
           exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&ann), `A local borrow's annotation is a type (\`(y : ${sig}T) = ${sig}place\`), got ${ast_expr_to_string(&ann)}.`))));
           t_unit()
@@ -713,7 +713,7 @@ _evaluate_inout_local_binding :: (
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&name_expr), &name_info);
   scope_release_note_binding(ast_expr_id(&name_expr), env, var_name.clone());
   lhs_info := new_expr_info(env, t_unit());
-  lhs_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
+  lhs_info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
   match(
     pin_var,
     .Some(pv) => {
@@ -724,7 +724,7 @@ _evaluate_inout_local_binding :: (
   );
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(lhs), &lhs_info);
   expr_info := new_expr_info(env, t_unit());
-  expr_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
+  expr_info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
   expr_info_set_is_compile_time_only_assignment(&expr_info, Option(bool).Some(false));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
   Rc.clone(expr.*)
@@ -1096,7 +1096,7 @@ _bind_projection_result :: (
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(name_expr), &name_info);
   scope_release_note_binding(ast_expr_id(name_expr), env, var_name.clone());
   expr_info := new_expr_info(env, t_unit());
-  expr_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
+  expr_info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
   expr_info_set_is_compile_time_only_assignment(&expr_info, Option(bool).Some(false));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
   Rc.clone(expr.*)
@@ -1404,7 +1404,7 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
   });
   variable_mark_inout_borrow_root(&root_var);
   lhs_info := new_expr_info(&env, t_unit());
-  lhs_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
+  lhs_info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
   match(
     step_pin,
     .Some(spv) => {
@@ -1415,7 +1415,7 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
   );
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&lhs), &lhs_info);
   expr_info := new_expr_info(&env, t_unit());
-  expr_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
+  expr_info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
   expr_info_set_is_compile_time_only_assignment(&expr_info, Option(bool).Some(false));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
   Rc.clone(expr.*)
@@ -1959,7 +1959,7 @@ Bound type: ${type_to_string(&rhs_info.ty())}`
         .Some(ri_ct) => if(is_comptime_int_type(&ri_ct.ty()), {
           match(
             ri_ct.value(),
-            .Some(ri_ctv) => match(ri_ctv, .IntLit(ri_raw) => check_comptime_int_value_fits(&ri_raw, &pre_type, ast_expr_token(&rhs), exn), _ => ()),
+            .Some(ri_ctv) => match(ri_ctv, Rc(.IntLit(ri_raw)) => check_comptime_int_value_fits(&ri_raw, &pre_type, ast_expr_token(&rhs), exn), _ => ()),
             .None => ()
           );
         }),
@@ -2062,7 +2062,7 @@ ${rhs_str}`
       rhs_value_opt,
       .Some(rv) => match(
         rv,
-        .TypeVal(tv_box) => {
+        Rc(.TypeVal(tv_box)) => {
           binding_name := ast_expr_token(&actual_lhs).value.*.clone();
           stamped_ty := match(
             tv_box,
@@ -2130,7 +2130,7 @@ ${rhs_str}`
           );
           match(
             stamped_ty,
-            .Some(new_ty) => Option(EvalValue).Some(EvalValue.TypeVal(Rc.clone(new_ty))),
+            .Some(new_ty) => Option(EvalValue).Some(Rc.new(EvalValueNode.TypeVal(Rc.clone(new_ty)))),
             .None => rhs_value_opt
           )
         },
@@ -2414,12 +2414,12 @@ Use \`::\` for compile-time definitions inside impl.`
     // Set ExprInfo on the outer given(...) / comptime(...) wrapper.
     if(is_implicit || is_comptime_wrapped, {
       lhs_info := new_expr_info(&env, t_unit());
-      lhs_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
+      lhs_info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&lhs), &lhs_info);
     });
     // Set ExprInfo on the whole :: / := expression.
     expr_info := new_expr_info(&env, t_unit());
-    expr_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
+    expr_info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
     expr_info_set_is_compile_time_only_assignment(&expr_info, Option(bool).Some(effective_is_compile_time_only));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
     Rc.clone(expr.*)
@@ -2468,7 +2468,7 @@ Use \`::\` for compile-time definitions inside impl.`
       audit_origin_totality("destructuring", &rhs, ctx);
     });
     expr_info := new_expr_info(&env, t_unit());
-    expr_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
+    expr_info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
     expr_info_set_runtime_destructurings(&expr_info, &destr_result.runtime_destructurings);
     expr_info_set_is_compile_time_only_assignment(&expr_info, Option(bool).Some(effective_is_compile_time_only));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);

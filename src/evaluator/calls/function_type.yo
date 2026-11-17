@@ -68,7 +68,7 @@ pragma(Pragma.AllowUnsafe);
   _is_verify_target,
   resolve_verify_mode
 } :: import("../builtins/contracts.yo");
-{ EvalValue, FuncValData, create_unknown_val, create_type_value, is_unknown_val, no_values, shared_values } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, FuncValData, create_unknown_val, create_type_value, is_unknown_val, no_values, shared_values } :: import("../../value.yo");
 { type_contains_some_type_for_codegen_param, impl_param_unmet_trait, judge_function_argument_markers } :: import("../trait_checking.yo");
 {
   is_flowable_expr,
@@ -519,7 +519,7 @@ _ctor_binder_some_ids :: (
     ids.push(
       match(
         find_variable_in_env(env, &lbl),
-        .Some(v) => match(v.value().get(usize(0)), .Some(.TypeVal(Rc(.SomeT({ id : sid })))) => sid.clone(), _ => String.from("")),
+        .Some(v) => match(v.value().get(usize(0)), .Some(Rc(.TypeVal(Rc(.SomeT({ id : sid }))))) => sid.clone(), _ => String.from("")),
         .None => String.from("")
       )
     );
@@ -553,7 +553,7 @@ _record_ctor_phantom_positions :: (
     out.get_cloned(usize(0)),
     .Some(b) => match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&b)),
-      .Some(bi) => match(bi.value(), .Some(.TypeVal(t)) => resolve_enum_shell(&t), _ => Rc.new(TypeValueNode.Unit)),
+      .Some(bi) => match(bi.value(), .Some(Rc(.TypeVal(t))) => resolve_enum_shell(&t), _ => Rc.new(TypeValueNode.Unit)),
       .None => Rc.new(TypeValueNode.Unit)
     ),
     .None => Rc.new(TypeValueNode.Unit)
@@ -863,7 +863,7 @@ _build_def_time_body_env :: (
                 rv.value().get(usize(0)),
                 .Some(rv_ev) => match(
                   rv_ev,
-                  .TypeVal(Rc(.SomeT(_, rv_sname, rv_slvl, _, _, _, _))) =>
+                  Rc(.TypeVal(Rc(.SomeT(_, rv_sname, rv_slvl, _, _, _, _)))) =>
                     resolve_some_binder_kind(&rv_sname, rv_slvl),
                   _ => Option(TypeValue).None,
                   _ => Option(TypeValue).None
@@ -1154,7 +1154,7 @@ _rerun_pending_def_evals :: (fn(caller_env : &Environment, ctx : &EvalContext) -
           &pd.param_decl_tokens
         );
         rp_tok := ast_expr_token(&pd.body);
-        rp_fv := EvalValue.FuncVal(
+        rp_fv := Rc.new(EvalValueNode.FuncVal(
           Rc.new(
             FuncValData(
               forall_names : ArrayList(String).new(),
@@ -1168,7 +1168,7 @@ _rerun_pending_def_evals :: (fn(caller_env : &Environment, ctx : &EvalContext) -
             )
           ),
           no_values()
-        );
+        ));
         if(debug_knob(`YO_DEBUG_CAPTURE`).is_some(), {
           eprintln(`[fbctx-fnty-rp]`);
         });
@@ -1596,7 +1596,7 @@ Result type: ${type_to_string(&result_box)}`
         Option(AstExpr).Some(body_expr.clone()),
         Option(AstExpr).None
       );
-      func_val := EvalValue.FuncVal(
+      func_val := Rc.new(EvalValueNode.FuncVal(
         Rc.new(
           FuncValData(
             forall_names : forall_labels.items.clone(),
@@ -1611,7 +1611,7 @@ Result type: ${type_to_string(&result_box)}`
           )
         ),
         shared_values(cap_vals)
-      );
+      ));
       // Phase A of a lazy top-level binding (plans/reference/LAZY_TOPLEVEL_BINDINGS.md
       // §4.3): when this application IS the RHS of the definition being
       // forced, publish the head FuncVal before the body trial below, so a
@@ -1937,7 +1937,7 @@ Result type: ${type_to_string(&result_box)}`
             ),
             Rc(.Atom(_, _)) => ()
           );
-          flow_fv := EvalValue.FuncVal(
+          flow_fv := Rc.new(EvalValueNode.FuncVal(
             Rc.new(
               FuncValData(
                 forall_names : ArrayList(String).new(),
@@ -1951,7 +1951,7 @@ Result type: ${type_to_string(&result_box)}`
               )
             ),
             no_values()
-          );
+          ));
           if(debug_knob(`YO_DEBUG_CAPTURE`).is_some(), {
             eprintln(`[fbctx-fnty-flow]`);
           });
@@ -2246,7 +2246,7 @@ Result type: ${type_to_string(&result_box)}`
                 // value-blind (issues/fixed/context-typed-integer-literal-is-not-range-checked.md).
                 if(!ub_skip && !result_is_ref && is_comptime_int_type(&ub_ty), {
                   match(
-                    match(ub_info.value(), .Some(ub_v) => match(ub_v, .IntLit(ub_raw) => comptime_int_value_misfit(&ub_raw, &result_box), _ => Option(String).None), .None => Option(String).None),
+                    match(ub_info.value(), .Some(ub_v) => match(ub_v, Rc(.IntLit(ub_raw)) => comptime_int_value_misfit(&ub_raw, &result_box), _ => Option(String).None), .None => Option(String).None),
                     .Some(ub_fit_msg) => {
                       mark_fn_unemittable(fn_val_id.clone());
                       exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&fb), &ub_fit_msg))));
@@ -2407,7 +2407,7 @@ Result type: ${type_to_string(&result_box)}`
             // A THROWAWAY FuncVal with a fresh id (same pattern as flow_fv
             // above): reusing the real one lets trial registrations shadow
             // the real definition's and codegen emits the trial body clone.
-            dg_fv := EvalValue.FuncVal(
+            dg_fv := Rc.new(EvalValueNode.FuncVal(
               Rc.new(
                 FuncValData(
                   forall_names : ArrayList(String).new(),
@@ -2421,7 +2421,7 @@ Result type: ${type_to_string(&result_box)}`
                 )
               ),
               no_values()
-            );
+            ));
             dg_ctx := create_function_body_evaluation_context(function_type, &dg_fv, &dg_env, ctx);
             dg_out := ArrayList(AstExpr).new();
             dg_fv_was := flow_violation_pending();

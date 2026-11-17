@@ -42,7 +42,7 @@ import("std/fmt");
 } :: import("../../expr_info.yo");
 { Environment, Variable, env_adopt } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
-{ EvalValue, is_type_value, is_unknown_val, value_cell_new } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, is_type_value, is_unknown_val, value_cell_new } :: import("../../value.yo");
 { TypeValue, TypeValueNode, shared_list } :: import("../../types/definitions.yo");
 {
   is_tuple_type,
@@ -367,7 +367,7 @@ evaluate_tuple_value :: (
   // Empty tuple → unit value.
   if(args.len() == usize(0), {
     info := new_expr_info(env, Rc.new(TypeValueNode.Unit));
-    info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
+    info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
     return(Rc.clone(expr.*));
   });
@@ -415,7 +415,7 @@ evaluate_tuple_value :: (
       );
       m = (m + usize(1));
     });
-    tuple_value_opt = Option(EvalValue).Some(EvalValue.TupleVal(value_cell_new(val_list)));
+    tuple_value_opt = Option(EvalValue).Some(Rc.new(EvalValueNode.TupleVal(value_cell_new(val_list))));
   });
   info := new_expr_info(&result.env, &tuple_ty);
   info.set_value(tuple_value_opt);

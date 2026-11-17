@@ -199,7 +199,7 @@ evaluate_downcast :: (
   cur_env = expr_info_adopt_env(&type_info);
   target_type := match(
     type_info.value(),
-    .Some(.TypeVal(ty_box)) => Rc.clone(ty_box),
+    .Some(Rc(.TypeVal(ty_box))) => Rc.clone(ty_box),
     .Some(_) => Rc.new(TypeValueNode.Unit),
     .None => Rc.new(TypeValueNode.Unit)
   );
@@ -398,7 +398,7 @@ evaluate_upcast :: (
   cur_env = expr_info_adopt_env(&type_info);
   target_type := match(
     type_info.value(),
-    .Some(v) => match(v, .TypeVal(ty_box) => Rc.clone(ty_box), _ => Rc.new(TypeValueNode.Unit)),
+    .Some(v) => match(v, Rc(.TypeVal(ty_box)) => Rc.clone(ty_box), _ => Rc.new(TypeValueNode.Unit)),
     .None => Rc.new(TypeValueNode.Unit)
   );
   if(!is_dyn_type(&target_type), {

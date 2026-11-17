@@ -20,7 +20,7 @@
 } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue, is_str_lit } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, is_str_lit } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_expr_t } :: import("../../types/creators.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
@@ -104,7 +104,7 @@ evaluate_gensym :: (
           // Extract the unquoted prefix string from StrLit.raw.
           match(
             pv,
-            .StrLit(raw) => {
+            Rc(.StrLit(raw)) => {
               n := raw.len();
               prefix = if(
                 n >= usize(2),
@@ -154,7 +154,7 @@ evaluate_gensym :: (
     )
   );
   // Wrap the atom as an ExprVal.
-  val := EvalValue.ExprVal(atom_expr);
+  val := Rc.new(EvalValueNode.ExprVal(atom_expr));
   info := new_expr_info(env, t_expr_t());
   info.set_value(.Some(val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);

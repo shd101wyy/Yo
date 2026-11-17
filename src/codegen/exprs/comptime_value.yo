@@ -9,7 +9,7 @@
 //! across helpers).
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ EvalValue, ValueCell } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, ValueCell } :: import("../../value.yo");
 { TypeValue, TypeValueNode, get_struct_field_comptime_flags, no_types, no_labels } :: import("../../types/definitions.yo");
 { is_unit_type, is_str_type, is_primitive_type, is_some_type, is_reference_enum_type, is_array_type, is_cell_primitive_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -179,13 +179,13 @@ _is_io_builtin_fn_type :: (fn(t : &TypeValue) -> bool)(
 comptime_value_allocates_rc_object :: (fn(value : &EvalValue, ty : &TypeValue) -> bool)(
   match(
     value,
-    .EnumVal(_, _) => cond(
+    Rc(.EnumVal(_, _)) => cond(
       !is_reference_enum_type(ty) => false,
       can_optimize_as_nullable_pointer(ty).is_some() => false,
       can_optimize_as_simple_enum(ty) => false,
       true => true
     ),
-    .StructVal(_, _, field_values) => match(
+    Rc(.StructVal(_, _, field_values)) => match(
       ty,
       Rc(.Struct({ field_types, is_reference_semantics, is_newtype })) => cond(
         // A newtype renders as a cast over its single underlying field.
@@ -219,7 +219,7 @@ _static_address :: (fn(value : &EvalValue, ty : &TypeValue, path : &String, cont
 generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &mut CodeGenContext) -> String)(
   match(
     value,
-    .IntLit(raw) => {
+    Rc(.IntLit(raw)) => {
       // `-9223372036854775808LL` is NOT a valid signed literal in C: the
       // digits 9223372036854775808 don't fit long long, so clang types the
       // literal `unsigned long long` (-Wimplicitly-unsigned-literal, hidden
@@ -235,7 +235,7 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &m
       out.push_str(suffix);
       out
     },
-    .FloatLit(raw) => {
+    Rc(.FloatLit(raw)) => {
       // The three NON-FINITE doubles come out of C `%g` as `inf`, `-inf` and
       // `nan` — none of which carries a radix point or an exponent, so the
       // float-marker test below appended `.0` and produced `inf.0`, which is
@@ -294,8 +294,8 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &m
       });
       base
     },
-    .BoolVal(b) => if(b.*, String.from("true"), String.from("false")),
-    .StrLit(raw_with_delims) => {
+    Rc(.BoolVal(b)) => if(b.*, String.from("true"), String.from("false")),
+    Rc(.StrLit(raw_with_delims)) => {
       // StrLit keeps the surrounding `"` delimiters; codegen emits
       // the CONTENT, so strip them before re-escaping / length computation.
       raw := _strip_str_delims(&raw_with_delims.*);
@@ -313,7 +313,7 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &m
       )
     },
     // --- enum (nullable-pointer / simple / tagged-union) ---
-    .EnumVal(variant_raw, fields) => {
+    Rc(.EnumVal(variant_raw, fields)) => {
       // An enum VALUE's variant name carries the leading `.` of the `.Variant`
       // source form (e.g. `.Just`); the EnumT's variant_names are clean. Strip
       // it so `_enum_variant_index` finds the variant (else None → the payload
@@ -325,7 +325,7 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &m
         (ptr_opt.is_some() && (fields.len() == usize(0))) => String.from("NULL"),
         (ptr_opt.is_some() && (fields.len() == usize(1))) => match(
           ptr_opt,
-          .Some(pt) => recur(match(fields.get(usize(0)), .Some(v) => v, .None => EvalValue.UnitVal), &pt, context),
+          .Some(pt) => recur(match(fields.get(usize(0)), .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal)), &pt, context),
           .None => String.from("NULL")
         ),
         can_optimize_as_simple_enum(ty) => get_enum_variant_c_name(ty, variant.clone(), context),
@@ -402,7 +402,7 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &m
         }
       )
     },
-    .TupleVal(fields) => match(
+    Rc(.TupleVal(fields)) => match(
       ty,
       Rc(.Tuple({ field_types })) => {
         out := String.from("(");
@@ -432,7 +432,7 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &m
       },
       _ => String.from("/* skip generating tuple value */")
     ),
-    .ArrayVal(elements) => match(
+    Rc(.ArrayVal(elements)) => match(
       ty,
       // `Array(unit, N)` is zero-sized: its wrapper has no `data` member
       // (types/generation.yo), so the literal is the empty struct.
@@ -460,7 +460,7 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &m
       _ => String.from("/* skip generating array value */")
     ),
     // --- struct (newtype / object-constructor / plain literal) ---
-    .StructVal(_, field_names, field_values) => match(
+    Rc(.StructVal(_, field_names, field_values)) => match(
       ty,
       Rc(.Struct({ id, field_types, is_reference_semantics, is_newtype })) => {
         c_name := match(context.get_type_c_name(type_key(ty)), .Some(cn) => cn, .None => String.from("__yo_unknown_struct"));
@@ -478,7 +478,7 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &m
         cond(
           (is_newtype.* && (field_types.len() == usize(1)) && (field_values.len() == usize(1))) => {
             uty := match(field_types.get(usize(0)), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
-            uval := match(field_values.get(usize(0)), .Some(v) => v, .None => EvalValue.UnitVal);
+            uval := match(field_values.get(usize(0)), .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal));
             out := String.from("((");
             out.push_string(&c_name);
             out.push_str(")(");
@@ -559,7 +559,7 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &m
     // name is structural (`int`, `size_t`, …). `sizeof(int)` on a target
     // whose `int` width is not folded reaches here as a runtime
     // `sizeof(<TypeVal>)` (issues/fixed/sizeof-of-a-c-platform-type-has-no-c-type-name.md).
-    .TypeVal(t) => cond(
+    Rc(.TypeVal(t)) => cond(
       is_str_type(&t.*) => String.from("__yo_str"),
       (is_primitive_type(&t.*) && !is_unit_type(&t.*)) => get_type_string(&t.*, context),
       // A SomeT is never in the collected-type registry either: it lowers
@@ -586,7 +586,7 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &m
     // i.e. a function pointer, through `fn_value_c_name`'s erased-signature
     // thunk when the function returns a concrete future. The
     // function must have been collected for codegen; if not, emit a diagnostic.
-    .FuncVal(__fvd1, _) => match(
+    Rc(.FuncVal(__fvd1, _)) => match(
       fn_value_c_name(&__fvd1.func_id, context),
       .Some(cn) => cn,
       .None => {
@@ -602,7 +602,7 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &m
     // fn pointer so the initializer is valid C. Detection is the
     // extern("Yo") name on the CARRIED type (the
     // declared field type on the Io struct is a plain unmarked Func).
-    .UnknownVal(unk_ty, _) => if(
+    Rc(.UnknownVal(unk_ty, _)) => if(
       _is_io_builtin_fn_type(&unk_ty.*) || _is_io_builtin_fn_type(ty),
       String.from("NULL"),
       String.from("/* skip generating value */")
@@ -615,7 +615,7 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &m
     // type of the aggregate it points into, and the WHOLE aggregate becomes
     // the static, so pointer arithmetic across an array stays inside it
     // (issues/fixed/address-of-an-element-of-a-compile-time-constant-emits-a-placeholder.md).
-    .PtrVal(cell, index, aggregate) => match(
+    Rc(.PtrVal(cell, index, aggregate)) => match(
       ty,
       Rc(.Pointer(pointee)) => match(
         cell.get(usize(0)),
@@ -624,11 +624,11 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &m
           // A whole value. An element list with no recorded aggregate type
           // cannot be told apart from its siblings: keep the placeholder.
           .None => cond(
-            (match(target, .ArrayVal(_) => true, .ComptimeListVal(_) => true, _ => false) && !is_array_type(&pointee.*)) => String.from("/* skip generating value */"),
+            (match(target, Rc(.ArrayVal(_)) => true, Rc(.ComptimeListVal(_)) => true, _ => false) && !is_array_type(&pointee.*)) => String.from("/* skip generating value */"),
             true => _static_address(&target, &pointee.*, String.new(), context)
           ),
           .Some(agg_ty) => {
-            parts := match(target, .ArrayVal(elems) => Option(ValueCell).Some(Rc.clone(elems)), .ComptimeListVal(elems) => .Some(Rc.clone(elems)), _ => .None);
+            parts := match(target, Rc(.ArrayVal(elems)) => Option(ValueCell).Some(Rc.clone(elems)), Rc(.ComptimeListVal(elems)) => .Some(Rc.clone(elems)), _ => .None);
             match(
               parts,
               .None => String.from("/* skip generating value */"),
@@ -636,12 +636,12 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &m
                 agg_ty,
                 Rc(.Struct({ field_labels : labels })) => match(
                   labels.get(index.*),
-                  .Some(label) => _static_address(EvalValue.StructVal(String.new(), Rc.clone(labels), Rc.clone(elems)), &agg_ty.*, `.${c_field_name(&agg_ty.*, &label)}`, context),
+                  .Some(label) => _static_address(Rc.new(EvalValueNode.StructVal(String.new(), Rc.clone(labels), Rc.clone(elems))), &agg_ty.*, `.${c_field_name(&agg_ty.*, &label)}`, context),
                   .None => String.from("/* skip generating value */")
                 ),
-                Rc(.Tuple(_, _)) => _static_address(EvalValue.TupleVal(Rc.clone(elems)), &agg_ty.*, `._${index}`, context),
+                Rc(.Tuple(_, _)) => _static_address(Rc.new(EvalValueNode.TupleVal(Rc.clone(elems))), &agg_ty.*, `._${index}`, context),
                 _ => cond(
-                  is_array_type(&agg_ty.*) => _static_address(EvalValue.ArrayVal(Rc.clone(elems)), &agg_ty.*, `.data[${index}]`, context),
+                  is_array_type(&agg_ty.*) => _static_address(Rc.new(EvalValueNode.ArrayVal(Rc.clone(elems))), &agg_ty.*, `.data[${index}]`, context),
                   true => String.from("/* skip generating value */")
                 )
               )

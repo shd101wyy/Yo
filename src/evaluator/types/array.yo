@@ -138,7 +138,7 @@ evaluate_array_type :: (
       v,
       // `Array(str, N)` holds the legacy value `str`, `&(str, static)`
       // (decision 49, `unsized_legacy_spellings`).
-      .TypeVal(inner) => {
+      Rc(.TypeVal(inner)) => {
         if(is_legacy_value_str(&inner), {
           note_legacy_str_spelling(&element_type_expr, false, &ctx.std_path);
         });
@@ -266,7 +266,7 @@ evaluate_array_type :: (
   (len_is_var : bool) = false;
   len_usize := match(
     len_value,
-    .IntLit(raw) => match(
+    Rc(.IntLit(raw)) => match(
       parse_raw_int(&raw),
       .Some(n) => usize(n),
       .None => {
@@ -283,7 +283,7 @@ evaluate_array_type :: (
         usize(0) // unreachable
       }
     ),
-    .UnknownVal(_, _) => {
+    Rc(.UnknownVal(_, _)) => {
       len_is_var = true;
       usize(0)
     },
@@ -369,7 +369,7 @@ evaluate_slice_type :: (
   );
   elem_ty := match(
     elem_info.value(),
-    .Some(.TypeVal(inner)) => Rc.clone(inner),
+    .Some(Rc(.TypeVal(inner))) => Rc.clone(inner),
     _ => {
       exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&element_type_expr), `Expected a type for the slice's element, got:\n${ast_expr_to_string(&element_type_expr)}`))));
       t_usize()

@@ -97,7 +97,7 @@ env_mod :: import("std/env");
 { purge_type_intern_owned_by } :: import("./types/intern.yo");
 { purge_specialization_caches_owned_by, specialization_recording_begin, specialization_recording_take } :: import("./evaluator/calls/helper.yo");
 { purge_match_arms } :: import("./pattern.yo");
-{ EvalValue, type_of_eval_value } :: import("./value.yo");
+{ EvalValue, EvalValueNode, type_of_eval_value } :: import("./value.yo");
 { TypeValue, TypeValueNode, slot_pointee_at, t_slot_pointee } :: import("./types/definitions.yo");
 { clear_type_display_names, type_to_string } :: import("./types/string.yo");
 { render_any_error, stash_error_diagnostics, format_error_message } :: import("./error.yo");
@@ -200,7 +200,7 @@ module_load_outcome_ctx :: (fn(sink(outcome) : ModuleLoadOutcome) -> EvalContext
 _failed_outcome :: (fn() -> ModuleLoadOutcome)(
   ModuleLoadOutcome(
     ok : false,
-    module_value : EvalValue.UnitVal,
+    module_value : Rc.new(EvalValueNode.UnitVal),
     module_type : Rc.new(TypeValueNode.Unit),
     env : new_environment(Rc.new(String.from(""))),
     ctx : eval_context_new(String.from(""), String.from(""))
@@ -2479,7 +2479,7 @@ _push_non_generic_fn_values :: (fn(src : &ArrayList(EvalValue), dst : &mut Array
       src.get(i),
       .Some(v) => match(
         v,
-        .FuncVal(fvd, _) => if(fvd.*.forall_names.len() == usize(0), {
+        Rc(.FuncVal(fvd, _)) => if(fvd.*.forall_names.len() == usize(0), {
           dst.push(v);
         }),
         _ => ()
@@ -2523,7 +2523,7 @@ demand_load_module :: (fn(path : &String) -> LoadModuleResult)({
     .Some(load_err) => {
       return(
         LoadModuleResult(
-          module_value : EvalValue.UnitVal,
+          module_value : Rc.new(EvalValueNode.UnitVal),
           module_type : Rc.new(TypeValueNode.Unit),
           module_error : Option(String).Some(load_err)
         )
@@ -2691,7 +2691,7 @@ mm_load_prelude_file :: (
 _reject_non_unit_main :: (fn(module_value : &EvalValue, exn : Exception) -> unit)({
   match(
     module_value,
-    .StructVal(_, labels, values) => {
+    Rc(.StructVal(_, labels, values)) => {
       (i : usize) = usize(0);
       while(i < labels.len(), {
         if(match(labels.get_cloned(i), .Some(l) => (l == "main"), .None => false), {
@@ -2699,7 +2699,7 @@ _reject_non_unit_main :: (fn(module_value : &EvalValue, exn : Exception) -> unit
             values.get(i),
             .Some(v) => match(
               v,
-              .FuncVal(__main_fvd, _) => {
+              Rc(.FuncVal(__main_fvd, _)) => {
                 main_fty := get_func_type(__main_fvd.*.func_id.clone());
                 main_result := match(
                   &main_fty,
@@ -2841,7 +2841,7 @@ mm_eval_entry_exprs :: (
     // `check`/`build` read only `ok` on this path.
     .None => ModuleLoadOutcome(
       ok : false,
-      module_value : EvalValue.UnitVal,
+      module_value : Rc.new(EvalValueNode.UnitVal),
       module_type : Rc.new(TypeValueNode.Unit),
       env : env,
       ctx : ctx

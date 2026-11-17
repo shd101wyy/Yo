@@ -29,7 +29,7 @@ import("std/fmt");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, path_collection_of_name, register_module_level_global } :: import("../../expr_info.yo");
 { Environment, add_variable_to_env, get_variables_from_env, env_adopt } :: import("../../env.yo");
 { EvalContext, in_def_time_trial } :: import("../context.yo");
-{ EvalValue, is_type_value, create_unknown_val } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, is_type_value, create_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 {
@@ -163,7 +163,7 @@ evaluate_binding :: (
   });
   user_defined_type_spelled := match(
     rhs_info.value(),
-    .Some(.TypeVal(bt)) => Rc.clone(bt),
+    .Some(Rc(.TypeVal(bt))) => Rc.clone(bt),
     .Some(_) => t_unit(),
     .None => t_unit()
   );
@@ -495,7 +495,7 @@ evaluate_binding :: (
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&lhs), &lhs_info);
   // Write ExprInfo for the whole ":" expression.
   expr_info := new_expr_info(&env, t_unit());
-  expr_info.set_value(.Some(EvalValue.UnitVal));
+  expr_info.set_value(.Some(Rc.new(EvalValueNode.UnitVal)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
   BindingResult(
     expr : Rc.clone(expr.*),

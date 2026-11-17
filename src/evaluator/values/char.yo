@@ -15,7 +15,7 @@ import("std/fmt");
 { ExprInfo, new_expr_info, expr_info_table_set } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue } :: import("../../value.yo");
+{ EvalValue, EvalValueNode } :: import("../../value.yo");
 { TokenKind, Token } :: import("../../token.yo");
 { t_comptime_int } :: import("../../types/creators.yo");
 { Exception } :: import("std/error");
@@ -97,7 +97,7 @@ evaluate_char_literal :: (
     );
   });
   char_code := parse_char_literal(tok.value.*.clone(), &tok, exn);
-  val := EvalValue.IntLit(char_code.to_string());
+  val := Rc.new(EvalValueNode.IntLit(char_code.to_string()));
   info := new_expr_info(env, t_comptime_int());
   info.set_value(.Some(val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);

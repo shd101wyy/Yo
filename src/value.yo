@@ -323,22 +323,22 @@ impl(
 eval_value_node_eq :: (fn(a : &EvalValueNode, b : &EvalValueNode) -> bool)(
   match(
     a,
-    .UnitVal =>
-      match(b, .UnitVal => true, _ => false),
-    .BoolVal(ab) =>
-      match(b, .BoolVal(bb) => (ab.* == bb.*), _ => false),
-    .IntLit(ar) =>
-      match(b, .IntLit(br) => (ar.* == br.*), _ => false),
-    .FloatLit(ar) =>
-      match(b, .FloatLit(br) => (ar.* == br.*), _ => false),
-    .StrLit(ar) =>
-      match(b, .StrLit(br) => (ar.* == br.*), _ => false),
-    .VarRef(an) =>
-      match(b, .VarRef(bn) => (an.* == bn.*), _ => false),
-    .EnumVal(av, afs) =>
+    Rc(.UnitVal) =>
+      match(b, Rc(.UnitVal) => true, _ => false),
+    Rc(.BoolVal(ab)) =>
+      match(b, Rc(.BoolVal(bb)) => (ab.* == bb.*), _ => false),
+    Rc(.IntLit(ar)) =>
+      match(b, Rc(.IntLit(br)) => (ar.* == br.*), _ => false),
+    Rc(.FloatLit(ar)) =>
+      match(b, Rc(.FloatLit(br)) => (ar.* == br.*), _ => false),
+    Rc(.StrLit(ar)) =>
+      match(b, Rc(.StrLit(br)) => (ar.* == br.*), _ => false),
+    Rc(.VarRef(an)) =>
+      match(b, Rc(.VarRef(bn)) => (an.* == bn.*), _ => false),
+    Rc(.EnumVal(av, afs)) =>
       match(
         b,
-        .EnumVal(bv, bfs) =>
+        Rc(.EnumVal(bv, bfs)) =>
           cond(
             !(av.* == bv.*) => false,
             (afs.len() != bfs.len()) => false,
@@ -370,11 +370,11 @@ eval_value_node_eq :: (fn(a : &EvalValueNode, b : &EvalValueNode) -> bool)(
           ),
         _ => false
       ),
-    .FuncVal(_, _) => false,
-    .ReturnVal(_, _) => false,
-    .BreakVal => match(b, .BreakVal => true, _ => false),
-    .ContinueVal => match(b, .ContinueVal => true, _ => false),
-    .TypeVal(at) =>
+    Rc(.FuncVal(_, _)) => false,
+    Rc(.ReturnVal(_, _)) => false,
+    Rc(.BreakVal) => match(b, Rc(.BreakVal) => true, _ => false),
+    Rc(.ContinueVal) => match(b, Rc(.ContinueVal) => true, _ => false),
+    Rc(.TypeVal(at)) =>
       // EXACT type identity (not lenient compatibility). `eval_value_eq` keys the
       // specialization cache (`_find_specialization_cache`, on compile-time arg VALUES —
       // which include the generic type args like a HashMap's `V`), so a lenient compare
@@ -383,11 +383,11 @@ eval_value_node_eq :: (fn(a : &EvalValueNode, b : &EvalValueNode) -> bool)(
       // but NOT identical — a lenient key let `Self._alloc_with_capacity`'s specialization
       // for one V be reused for the other, so the callee's `Result<Self>` return type
       // disagreed with the call site (stage-2 Family-C incompatible-type cluster).
-      match(b, .TypeVal(bt) => are_types_compatible_exact(&at.*, &bt.*), _ => false),
-    .StructVal(atn, anames, avals) =>
+      match(b, Rc(.TypeVal(bt)) => are_types_compatible_exact(&at.*, &bt.*), _ => false),
+    Rc(.StructVal(atn, anames, avals)) =>
       match(
         b,
-        .StructVal(btn, bnames, bvals) =>
+        Rc(.StructVal(btn, bnames, bvals)) =>
           cond(
             !(atn.* == btn.*) => false,
             (anames.len() != bnames.len()) => false,
@@ -447,10 +447,10 @@ eval_value_node_eq :: (fn(a : &EvalValueNode, b : &EvalValueNode) -> bool)(
         _ => false
       ),
     // Phase 2h variants ---------------------------------------------------------
-    .TupleVal(afs) =>
+    Rc(.TupleVal(afs)) =>
       match(
         b,
-        .TupleVal(bfs) =>
+        Rc(.TupleVal(bfs)) =>
           cond(
             (afs.len() != bfs.len()) => false,
             true => {
@@ -481,10 +481,10 @@ eval_value_node_eq :: (fn(a : &EvalValueNode, b : &EvalValueNode) -> bool)(
           ),
         _ => false
       ),
-    .ArrayVal(aes) =>
+    Rc(.ArrayVal(aes)) =>
       match(
         b,
-        .ArrayVal(bes) =>
+        Rc(.ArrayVal(bes)) =>
           cond(
             (aes.len() != bes.len()) => false,
             true => {
@@ -516,11 +516,11 @@ eval_value_node_eq :: (fn(a : &EvalValueNode, b : &EvalValueNode) -> bool)(
         _ => false
       ),
     // PtrVal: pointer alias identity is not portable; always unequal.
-    .PtrVal(_, _, _) => false,
-    .TraitVal(atn, afnames, afvals) =>
+    Rc(.PtrVal(_, _, _)) => false,
+    Rc(.TraitVal(atn, afnames, afvals)) =>
       match(
         b,
-        .TraitVal(btn, bfnames, bfvals) =>
+        Rc(.TraitVal(btn, bfnames, bfvals)) =>
           cond(
             !(atn.* == btn.*) => false,
             (afnames.len() != bfnames.len()) => false,
@@ -587,10 +587,10 @@ eval_value_node_eq :: (fn(a : &EvalValueNode, b : &EvalValueNode) -> bool)(
           ),
         _ => false
       ),
-    .ComptimeListVal(aes) =>
+    Rc(.ComptimeListVal(aes)) =>
       match(
         b,
-        .ComptimeListVal(bes) =>
+        Rc(.ComptimeListVal(bes)) =>
           cond(
             (aes.len() != bes.len()) => false,
             true => {
@@ -623,15 +623,15 @@ eval_value_node_eq :: (fn(a : &EvalValueNode, b : &EvalValueNode) -> bool)(
       ),
     // ExprVal: full structural equality — Atoms by token value, FnCalls by
     // callee + args recursively.
-    .ExprVal(a_ex) => match(
+    Rc(.ExprVal(a_ex)) => match(
       b,
-      .ExprVal(b_ex) => exprs_are_equal(&a_ex.*, &b_ex.*),
+      Rc(.ExprVal(b_ex)) => exprs_are_equal(&a_ex.*, &b_ex.*),
       _ => false
     ),
     // UnknownVal: two unknowns are equal if they represent the same type.
     // The `is_runtime_only` flag is provenance, not identity — equality
     // compares the TYPES only, so it is excluded here.
-    .UnknownVal(aty, _) => match(b, .UnknownVal(bty, _) => are_types_compatible(&aty.*, &bty.*), _ => false)
+    Rc(.UnknownVal(aty, _)) => match(b, Rc(.UnknownVal(bty, _)) => are_types_compatible(&aty.*, &bty.*), _ => false)
   )
 );
 impl(
@@ -652,13 +652,13 @@ eval_value_eq :: (fn(a : &EvalValue, b : &EvalValue) -> bool)(eval_value_node_eq
 value_to_string :: (fn(v : &EvalValue) -> String)(
   match(
     v,
-    .UnitVal => String.from("()"),
-    .BoolVal(b) => if(b.*, String.from("true"), String.from("false")),
-    .IntLit(raw) => raw.clone(),
-    .FloatLit(raw) => raw.clone(),
-    .StrLit(raw) => raw.clone(),
-    .VarRef(name) => name.clone(),
-    .EnumVal(variant, fields) =>
+    Rc(.UnitVal) => String.from("()"),
+    Rc(.BoolVal(b)) => if(b.*, String.from("true"), String.from("false")),
+    Rc(.IntLit(raw)) => raw.clone(),
+    Rc(.FloatLit(raw)) => raw.clone(),
+    Rc(.StrLit(raw)) => raw.clone(),
+    Rc(.VarRef(name)) => name.clone(),
+    Rc(.EnumVal(variant, fields)) =>
       cond(
         (fields.len() == usize(0)) => `${variant}`,
         true => {
@@ -685,7 +685,7 @@ value_to_string :: (fn(v : &EvalValue) -> String)(
           `${variant}(${parts})`
         }
       ),
-    .FuncVal(__fvd1, _) => {
+    Rc(.FuncVal(__fvd1, _)) => {
       param_str := String.from("");
       (pi : usize) = usize(0);
       n_p := __fvd1.params.len();
@@ -707,14 +707,14 @@ value_to_string :: (fn(v : &EvalValue) -> String)(
       });
       `<fn(${param_str})>`
     },
-    .ReturnVal(val, _) => {
+    Rc(.ReturnVal(val, _)) => {
       inner := recur(&val.*);
       `return(${inner})`
     },
-    .BreakVal => String.from("break"),
-    .ContinueVal => String.from("continue"),
-    .TypeVal(ty) => type_to_string(&ty.*),
-    .StructVal(ty_name, field_names, field_values) => {
+    Rc(.BreakVal) => String.from("break"),
+    Rc(.ContinueVal) => String.from("continue"),
+    Rc(.TypeVal(ty)) => type_to_string(&ty.*),
+    Rc(.StructVal(ty_name, field_names, field_values)) => {
       parts_sv := String.from("");
       (svi : usize) = usize(0);
       n_sv := field_names.len();
@@ -745,7 +745,7 @@ value_to_string :: (fn(v : &EvalValue) -> String)(
       });
       `${ty_name}(${parts_sv})`
     },
-    .TupleVal(fields) => {
+    Rc(.TupleVal(fields)) => {
       n_tup := fields.len();
       cond(
         (n_tup == usize(0)) => String.from("()"),
@@ -776,7 +776,7 @@ value_to_string :: (fn(v : &EvalValue) -> String)(
         }
       )
     },
-    .ArrayVal(elements) => {
+    Rc(.ArrayVal(elements)) => {
       n_arr := elements.len();
       parts_arr := String.from("");
       (arri : usize) = usize(0);
@@ -802,12 +802,12 @@ value_to_string :: (fn(v : &EvalValue) -> String)(
         true => `[${parts_arr}]`
       )
     },
-    .PtrVal(target_value, target_index, _) =>
+    Rc(.PtrVal(target_value, target_index, _)) =>
       match(
         target_value.get(usize(0)),
         .Some(cell0) => match(
           cell0,
-          .ArrayVal(elems) =>
+          Rc(.ArrayVal(elems)) =>
             match(
               elems.get(target_index.*),
               .Some(e) => {
@@ -823,7 +823,7 @@ value_to_string :: (fn(v : &EvalValue) -> String)(
         ),
         .None => String.from("<ptr to ?>")
       ),
-    .TraitVal(ty_name, field_names, field_values) => {
+    Rc(.TraitVal(ty_name, field_names, field_values)) => {
       parts_tr := String.from("");
       (tri : usize) = usize(0);
       n_tr_f := field_names.len();
@@ -861,7 +861,7 @@ value_to_string :: (fn(v : &EvalValue) -> String)(
       });
       `${ty_name}(${parts_tr})`
     },
-    .ComptimeListVal(elements) => {
+    Rc(.ComptimeListVal(elements)) => {
       parts_cl := String.from("");
       (cli : usize) = usize(0);
       n_cl_vs := elements.len();
@@ -884,8 +884,8 @@ value_to_string :: (fn(v : &EvalValue) -> String)(
       });
       `comptime_list(${parts_cl})`
     },
-    .ExprVal(_) => String.from("<expr>"),
-    .UnknownVal(ty, _) => {
+    Rc(.ExprVal(_)) => String.from("<expr>"),
+    Rc(.UnknownVal(ty, _)) => {
       ts := type_to_string(&ty.*);
       `<unknown: ${ts}>`
     }
@@ -894,31 +894,31 @@ value_to_string :: (fn(v : &EvalValue) -> String)(
 // ---------------------------------------------------------------------------
 // Type predicate functions
 // ---------------------------------------------------------------------------
-is_unit_val :: (fn(v : &EvalValue) -> bool)(match(v, .UnitVal => true, _ => false));
-is_bool_val :: (fn(v : &EvalValue) -> bool)(match(v, .BoolVal(_) => true, _ => false));
-is_int_lit :: (fn(v : &EvalValue) -> bool)(match(v, .IntLit(_) => true, _ => false));
-is_float_lit :: (fn(v : &EvalValue) -> bool)(match(v, .FloatLit(_) => true, _ => false));
-is_str_lit :: (fn(v : &EvalValue) -> bool)(match(v, .StrLit(_) => true, _ => false));
-is_var_ref :: (fn(v : &EvalValue) -> bool)(match(v, .VarRef(_) => true, _ => false));
-is_enum_val :: (fn(v : &EvalValue) -> bool)(match(v, .EnumVal(_, _) => true, _ => false));
-is_func_val :: (fn(v : &EvalValue) -> bool)(match(v, .FuncVal(_, _) => true, _ => false));
-is_return_val :: (fn(v : &EvalValue) -> bool)(match(v, .ReturnVal(_, _) => true, _ => false));
-is_break_val :: (fn(v : &EvalValue) -> bool)(match(v, .BreakVal => true, _ => false));
-is_continue_val :: (fn(v : &EvalValue) -> bool)(match(v, .ContinueVal => true, _ => false));
-is_type_val :: (fn(v : &EvalValue) -> bool)(match(v, .TypeVal(_) => true, _ => false));
-is_struct_val :: (fn(v : &EvalValue) -> bool)(match(v, .StructVal(_, _, _) => true, _ => false));
+is_unit_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.UnitVal) => true, _ => false));
+is_bool_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.BoolVal(_)) => true, _ => false));
+is_int_lit :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.IntLit(_)) => true, _ => false));
+is_float_lit :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.FloatLit(_)) => true, _ => false));
+is_str_lit :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.StrLit(_)) => true, _ => false));
+is_var_ref :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.VarRef(_)) => true, _ => false));
+is_enum_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.EnumVal(_, _)) => true, _ => false));
+is_func_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.FuncVal(_, _)) => true, _ => false));
+is_return_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.ReturnVal(_, _)) => true, _ => false));
+is_break_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.BreakVal) => true, _ => false));
+is_continue_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.ContinueVal) => true, _ => false));
+is_type_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.TypeVal(_)) => true, _ => false));
+is_struct_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.StructVal(_, _, _)) => true, _ => false));
 /// True for source-namespace struct values (anonymous modules / imports).
 /// Modules are StructValues with a
 /// source-namespace type (plans/archive/MODULE_AS_STRUCT_ALIGNMENT.md); the
 /// generated `source_namespace_` ty_name prefix is the value-side marker.
-is_module_val :: (fn(v : &EvalValue) -> bool)(match(v, .StructVal(n, _, _) => n.starts_with(`source_namespace_`), _ => false));
-is_tuple_val :: (fn(v : &EvalValue) -> bool)(match(v, .TupleVal(_) => true, _ => false));
-is_array_val :: (fn(v : &EvalValue) -> bool)(match(v, .ArrayVal(_) => true, _ => false));
-is_ptr_val :: (fn(v : &EvalValue) -> bool)(match(v, .PtrVal(_, _, _) => true, _ => false));
-is_trait_val :: (fn(v : &EvalValue) -> bool)(match(v, .TraitVal(_, _, _) => true, _ => false));
-is_comptime_list_val :: (fn(v : &EvalValue) -> bool)(match(v, .ComptimeListVal(_) => true, _ => false));
-is_expr_val :: (fn(v : &EvalValue) -> bool)(match(v, .ExprVal(_) => true, _ => false));
-is_unknown_val :: (fn(v : &EvalValue) -> bool)(match(v, .UnknownVal(_, _) => true, _ => false));
+is_module_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.StructVal(n, _, _)) => n.starts_with(`source_namespace_`), _ => false));
+is_tuple_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.TupleVal(_)) => true, _ => false));
+is_array_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.ArrayVal(_)) => true, _ => false));
+is_ptr_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.PtrVal(_, _, _)) => true, _ => false));
+is_trait_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.TraitVal(_, _, _)) => true, _ => false));
+is_comptime_list_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.ComptimeListVal(_)) => true, _ => false));
+is_expr_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.ExprVal(_)) => true, _ => false));
+is_unknown_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.UnknownVal(_, _)) => true, _ => false));
 /// True when `v` is — or recursively contains — an `UnknownVal` (a runtime
 /// hole). A bare runtime call yields `UnknownVal`, but a RUNTIME construction
 /// (`.Some((p &+ i).*)`, `Wrap(v : runtimeVal)`, `(f(), 1)`) yields an
@@ -928,11 +928,11 @@ is_unknown_val :: (fn(v : &EvalValue) -> bool)(match(v, .UnknownVal(_, _) => tru
 value_contains_unknown :: (fn(v : &EvalValue) -> bool)(
   match(
     v,
-    .UnknownVal(_, _) => true,
-    .EnumVal(_, fields) => _values_contain_unknown(&fields.items),
-    .StructVal(_, _, field_values) => field_values.with(_values_contain_unknown),
-    .TupleVal(fields) => fields.with(_values_contain_unknown),
-    .ArrayVal(elements) => elements.with(_values_contain_unknown),
+    Rc(.UnknownVal(_, _)) => true,
+    Rc(.EnumVal(_, fields)) => _values_contain_unknown(&fields.items),
+    Rc(.StructVal(_, _, field_values)) => field_values.with(_values_contain_unknown),
+    Rc(.TupleVal(fields)) => fields.with(_values_contain_unknown),
+    Rc(.ArrayVal(elements)) => elements.with(_values_contain_unknown),
     _ => false
   )
 );
@@ -953,27 +953,27 @@ _values_contain_unknown :: (fn(vs : &ArrayList(EvalValue)) -> bool)({
 });
 /// Is `v` a RUNTIME-ONLY unknown (see `UnknownVal.is_runtime_only`)?
 is_runtime_only_unknown_val :: (fn(v : &EvalValue) -> bool)(
-  match(v, .UnknownVal(_, ro) => ro.*, _ => false)
+  match(v, Rc(.UnknownVal(_, ro)) => ro.*, _ => false)
 );
 /// Check if `v` is a numeric literal (int or float). Numerics are stored as
 /// `IntLit` / `FloatLit` raw
 /// text; this helper is the disjunction of those two checks.
 is_number_val :: (fn(v : &EvalValue) -> bool)(
-  match(v, .IntLit(_) => true, .FloatLit(_) => true, _ => false)
+  match(v, Rc(.IntLit(_)) => true, Rc(.FloatLit(_)) => true, _ => false)
 );
 /// Check if `v` is a compile-time integer literal (`IntLit`).
 /// Integer literals are stored
 /// as raw text in `IntLit(raw)`; this helper is the
 /// canonical-named alias of `is_int_lit`.
 is_comptime_int_value :: (fn(v : &EvalValue) -> bool)(
-  match(v, .IntLit(_) => true, _ => false)
+  match(v, Rc(.IntLit(_)) => true, _ => false)
 );
 /// Check if `v` is a compile-time float literal (`FloatLit`).
 /// Float literals
 /// are stored as raw text in `FloatLit(raw)`; this helper
 /// is the canonical-named alias of `is_float_lit`.
 is_comptime_float_value :: (fn(v : &EvalValue) -> bool)(
-  match(v, .FloatLit(_) => true, _ => false)
+  match(v, Rc(.FloatLit(_)) => true, _ => false)
 );
 /// Check if `v` is a compile-time string literal (`StrLit`).
 /// Runtime-`str` and comptime-string are not distinguished at the EvalValue
@@ -981,13 +981,13 @@ is_comptime_float_value :: (fn(v : &EvalValue) -> bool)(
 /// representation; runtime `str` values are constructed via
 /// `convert_comptime_type_to_runtime_type`.
 is_comptime_string_value :: (fn(v : &EvalValue) -> bool)(
-  match(v, .StrLit(_) => true, _ => false)
+  match(v, Rc(.StrLit(_)) => true, _ => false)
 );
 /// Check if an `Option(EvalValue)` contains a `TypeVal`.
 is_type_value :: (fn(opt : &Option(EvalValue)) -> bool)(
   match(
     opt,
-    .Some(v) => match(v, .TypeVal(_) => true, _ => false),
+    .Some(v) => match(v, Rc(.TypeVal(_)) => true, _ => false),
     .None => false
   )
 );
@@ -998,12 +998,12 @@ is_type_value :: (fn(opt : &Option(EvalValue)) -> bool)(
 /// declared type is `Type` so that later expressions can use the name as a type
 /// (e.g. `INT_LEAST8_MIN : int_least8_t`).
 create_unknown_val :: (fn(ty : &TypeValue) -> EvalValue)(
-  EvalValue.UnknownVal(Rc.clone(ty), false)
+  Rc.new(EvalValueNode.UnknownVal(Rc.clone(ty), false))
 );
 /// Create a RUNTIME-ONLY unknown placeholder. Values are immutable copies,
 /// so the flag is set at construction instead of mutated afterwards.
 create_runtime_unknown_val :: (fn(ty : &TypeValue) -> EvalValue)(
-  EvalValue.UnknownVal(Rc.clone(ty), true)
+  Rc.new(EvalValueNode.UnknownVal(Rc.clone(ty), true))
 );
 /// Create a compile-time unknown placeholder, promoting to `TypeVal(SomeType)` when
 /// `ty` is the `Type` universe (i.e. the binding is type-level): a fresh
@@ -1012,8 +1012,8 @@ create_runtime_unknown_val :: (fn(ty : &TypeValue) -> EvalValue)(
 create_unknown_val_with_name :: (fn(ty : &TypeValue, name : &String) -> EvalValue)(
   cond(
     is_type_kind(ty) =>
-      EvalValue.TypeVal(t_some_t_of_kind(name, usize(0), ty)),
-    true => EvalValue.UnknownVal(Rc.clone(ty), false)
+      Rc.new(EvalValueNode.TypeVal(t_some_t_of_kind(name, usize(0), ty))),
+    true => Rc.new(EvalValueNode.UnknownVal(Rc.clone(ty), false))
   )
 );
 /// `create_unknown_val_with_name`, but RUNTIME-ONLY: the placeholder stands for a
@@ -1024,8 +1024,8 @@ create_unknown_val_with_name :: (fn(ty : &TypeValue, name : &String) -> EvalValu
 create_runtime_unknown_val_with_name :: (fn(ty : &TypeValue, name : &String) -> EvalValue)(
   cond(
     is_type_kind(ty) =>
-      EvalValue.TypeVal(t_some_t_of_kind(name, usize(0), ty)),
-    true => EvalValue.UnknownVal(Rc.clone(ty), true)
+      Rc.new(EvalValueNode.TypeVal(t_some_t_of_kind(name, usize(0), ty))),
+    true => Rc.new(EvalValueNode.UnknownVal(Rc.clone(ty), true))
   )
 );
 /// The result of evaluating a single `AstExpr` node.
@@ -1042,7 +1042,7 @@ eval_result :: (fn(value : &EvalValue, ty : &TypeValue) -> EvalResult)(
 /// Wrap a TypeValue as a TypeVal EvalValue. The "meta type" (TypeUni) is
 /// computed separately via `type_of_type` at call sites that need it.
 create_type_value :: (fn(ty : &TypeValue) -> EvalValue)(
-  EvalValue.TypeVal(Rc.clone(ty))
+  Rc.new(EvalValueNode.TypeVal(Rc.clone(ty)))
 );
 /// Best-effort recovery of a `TypeValue` from a comptime `EvalValue`.
 ///
@@ -1055,13 +1055,13 @@ create_type_value :: (fn(ty : &TypeValue) -> EvalValue)(
 type_of_eval_value :: (fn(v : &EvalValue) -> TypeValue)(
   match(
     v,
-    .UnitVal => t_unit(),
-    .BoolVal(_) => t_bool(),
-    .IntLit(_) => t_comptime_int(),
-    .FloatLit(_) => t_comptime_float(),
-    .StrLit(_) => t_comptime_string(),
-    .TypeVal(_) => t_type(),
-    .StructVal(name, labels, vals) => {
+    Rc(.UnitVal) => t_unit(),
+    Rc(.BoolVal(_)) => t_bool(),
+    Rc(.IntLit(_)) => t_comptime_int(),
+    Rc(.FloatLit(_)) => t_comptime_float(),
+    Rc(.StrLit(_)) => t_comptime_string(),
+    Rc(.TypeVal(_)) => t_type(),
+    Rc(.StructVal(name, labels, vals)) => {
       // Reconstruct a Struct type from parallel field info. Source-namespace
       // struct values (anonymous modules / imports)
       // carry their generated `source_namespace_<id>` as `ty_name`; recover
@@ -1085,7 +1085,7 @@ type_of_eval_value :: (fn(v : &EvalValue) -> TypeValue)(
         true => Rc.new(TypeValueNode.Struct(String.from(""), name.clone(), Rc.clone(labels), shared_list(tys), false, false, false, String.from(""), no_types(), false))
       )
     },
-    .UnknownVal(ty, _) => Rc.clone(ty),
+    Rc(.UnknownVal(ty, _)) => Rc.clone(ty),
     _ => t_unit()
   )
 );

@@ -44,7 +44,7 @@ test("macro helpers: ExprVal Atom equality via __yo_expr_eq", {
     },
     .Some(mv) => match(
       mv,
-      .StructVal(_, names, values) => {
+      Rc(.StructVal(_, names, values)) => {
         (mut(i) : usize) = usize(0);
         n := names.len();
         (mut(found) : Option(usize)) = .None;
@@ -73,7 +73,7 @@ test("macro helpers: ExprVal Atom equality via __yo_expr_eq", {
             },
             .Some(rv) => match(
               rv,
-              .IntLit(s) => assert(s == "1", "expr_eq(quote(x), quote(x)) should pick 1"),
+              Rc(.IntLit(s)) => assert(s == "1", "expr_eq(quote(x), quote(x)) should pick 1"),
               _ => {
                 assert(false, "v not IntLit");
               }
@@ -109,7 +109,7 @@ test("macro helpers: gensym produces fresh atoms", {
     },
     .Some(mv) => match(
       mv,
-      .StructVal(_, names, values) => {
+      Rc(.StructVal(_, names, values)) => {
         (mut(i) : usize) = usize(0);
         n := names.len();
         (mut(found) : Option(usize)) = .None;
@@ -138,7 +138,7 @@ test("macro helpers: gensym produces fresh atoms", {
             },
             .Some(rv) => match(
               rv,
-              .IntLit(s) => assert(s == "1", "two gensym(\"u\") atoms should differ"),
+              Rc(.IntLit(s)) => assert(s == "1", "two gensym(\"u\") atoms should differ"),
               _ => {
                 assert(false, "v not IntLit");
               }
@@ -174,7 +174,7 @@ test("macro helpers: .cdr on ComptimeListVal", {
     },
     .Some(mv) => match(
       mv,
-      .StructVal(_, names, values) => {
+      Rc(.StructVal(_, names, values)) => {
         (mut(i) : usize) = usize(0);
         n := names.len();
         (mut(found) : Option(usize)) = .None;
@@ -203,7 +203,7 @@ test("macro helpers: .cdr on ComptimeListVal", {
             },
             .Some(rv) => match(
               rv,
-              .IntLit(s) => assert(s == "4", "expected 4"),
+              Rc(.IntLit(s)) => assert(s == "4", "expected 4"),
               _ => {
                 assert(false, "v not IntLit");
               }
@@ -254,7 +254,7 @@ test("macro helpers: a gensym'd token shares its source token's input", {
       info.value(),
       .Some(v) => match(
         v,
-        .ExprVal(atom) => {
+        Rc(.ExprVal(atom)) => {
           synth := ast_expr_token(&atom);
           assert(synth.input.* == source.*, "the synthesized token carries the source text");
           // `ptr()` is buffer identity; `to_bytes()` would compare two fresh copies.

@@ -23,7 +23,7 @@ import("std/fmt");
 { new_expr_info, expr_info_table_set, expr_info_table_get, expr_info_adopt_env } :: import("../../expr_info.yo");
 { Environment, env_adopt } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue, create_type_value } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, create_type_value } :: import("../../value.yo");
 { TypeValue, TypeValueNode, register_struct_field_comptime_flags, shared_list, no_types, no_labels } :: import("../../types/definitions.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { format_error_message, format_error_message_with_help } :: import("../../error.yo");
@@ -434,13 +434,13 @@ derive(_CellInstance, Clone);
 /// one type, so both spellings get one id and one C type, as `Rc(Self)` and
 /// `Rc(Node)` do.
 _cell_instance_id :: (fn(is_atomic : bool, v : &TypeValue) -> String)({
-  given := EvalValue.TypeVal(v.clone());
+  given := Rc.new(EvalValueNode.TypeVal(v.clone()));
   n := g_cell_instances.with(_c_len_1);
   (i : usize) = usize(0);
   while(i < n, {
     match(
       g_cell_instances.with(xs => xs.get_cloned(i)),
-      .Some(inst) => if((inst.is_atomic == is_atomic) && _ctfe_args_equal(&EvalValue.TypeVal(inst.payload.clone()), &given), {
+      .Some(inst) => if((inst.is_atomic == is_atomic) && _ctfe_args_equal(&Rc.new(EvalValueNode.TypeVal(inst.payload.clone())), &given), {
         return(inst.id.clone());
       }),
       .None => ()
@@ -521,7 +521,7 @@ evaluate_cell_type :: (
       env = expr_info_adopt_env(&pi);
       match(
         pi.value(),
-        .Some(.TypeVal(pt)) => Option(TypeValue).Some(Rc.clone(pt)),
+        .Some(Rc(.TypeVal(pt))) => Option(TypeValue).Some(Rc.clone(pt)),
         _ => Option(TypeValue).None
       )
     },

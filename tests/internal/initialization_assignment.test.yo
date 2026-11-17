@@ -22,7 +22,7 @@ import("std/fmt");
 { ExprInfo, new_expr_info, expr_info_table_set, expr_info_table_get } :: import("../../src/expr_info.yo");
 { Environment, Variable, add_variable_to_env, new_environment } :: import("../../src/env.yo");
 { EvalContext, eval_context_new } :: import("../../src/evaluator/context.yo");
-{ EvalValue } :: import("../../src/value.yo");
+{ EvalValue, EvalValueNode } :: import("../../src/value.yo");
 { TypeValue } :: import("../../src/types/definitions.yo");
 { t_bool, t_i32, t_unit } :: import("../../src/types/creators.yo");
 { set_evaluate_expression_fn, set_evaluate_expression_raw_fn } :: import("../../src/evaluator/exprs/expr.yo");
@@ -84,7 +84,7 @@ stub_eval_bool :: (
   ) -> AstExpr
 )({
   info := new_expr_info(env, t_bool());
-  info.set_value(Option(EvalValue).Some(EvalValue.BoolVal(true)));
+  info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.BoolVal(true))));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   Rc.clone(expr.*)
 });
@@ -108,7 +108,7 @@ stub_eval_i32 :: (
   ) -> AstExpr
 )({
   info := new_expr_info(env, t_i32());
-  info.set_value(Option(EvalValue).Some(EvalValue.IntLit(String.from("42"))));
+  info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.IntLit(String.from("42")))));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   Rc.clone(expr.*)
 });

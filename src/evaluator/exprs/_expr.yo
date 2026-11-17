@@ -239,7 +239,7 @@ import("std/fmt");
 { t_unit } :: import("../../types/creators.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { is_some_type } :: import("../../types/guards.yo");
-{ EvalValue } :: import("../../value.yo");
+{ EvalValue, EvalValueNode } :: import("../../value.yo");
 { expr_info_table_get, expr_info_table_set, record_node_eval, node_is_preevaluated } :: import("../../expr_info.yo");
 { set_evaluate_expression_fn, set_evaluate_expression_raw_fn } :: import("./expr.yo");
 { BindingResult, evaluate_binding } :: import("./binding.yo");
@@ -802,7 +802,7 @@ _evaluate_expression :: (
             // assignment.
             if(
               expected_is_anon_struct && !is_some_type(&et_ty),
-              evaluate_function_call(expr, env, type_of_type(&et_ty), Option(EvalValue).Some(EvalValue.TypeVal(et_ty)), ctx, exn),
+              evaluate_function_call(expr, env, type_of_type(&et_ty), Option(EvalValue).Some(Rc.new(EvalValueNode.TypeVal(et_ty))), ctx, exn),
               evaluate_anonymous_struct_value(expr, env, ctx, exn)
             )
           },

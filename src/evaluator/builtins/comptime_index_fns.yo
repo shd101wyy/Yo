@@ -34,7 +34,7 @@ pragma(Pragma.AllowUnsafe);
 { Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 {
-  EvalValue,
+  EvalValue, EvalValueNode,
   is_int_lit,
   is_str_lit,
   is_struct_val,
@@ -162,8 +162,8 @@ ci_resolve_comptime_list :: (fn(val_opt : &Option(EvalValue)) -> Option(EvalValu
       if(is_ptr_val(&sv.*), {
         inner := match(
           sv,
-          .PtrVal(tgt_cell, _, _) => match(tgt_cell.get(usize(0)), .Some(t0) => t0, .None => EvalValue.UnitVal),
-          _ => EvalValue.UnitVal
+          Rc(.PtrVal(tgt_cell, _, _)) => match(tgt_cell.get(usize(0)), .Some(t0) => t0, .None => Rc.new(EvalValueNode.UnitVal)),
+          _ => Rc.new(EvalValueNode.UnitVal)
         );
         if(is_comptime_list_val(&inner), Option(EvalValue).Some(inner), Option(EvalValue).None)
       }, Option(EvalValue).None)
@@ -183,7 +183,7 @@ ci_extract_range_indices :: (
 )(
   match(
     range_ev,
-    .StructVal(_, _, field_values) => {
+    Rc(.StructVal(_, _, field_values)) => {
       start_field := match(
         field_values.get(usize(0)),
         .Some(v) => v,
@@ -203,14 +203,14 @@ ci_extract_range_indices :: (
       });
       start_raw := match(
         start_field,
-        .IntLit(r) => r.clone(),
+        Rc(.IntLit(r)) => r.clone(),
         _ => {
           return(Option(CiRange).None);
         }
       );
       end_raw := match(
         end_field,
-        .IntLit(r) => r.clone(),
+        Rc(.IntLit(r)) => r.clone(),
         _ => {
           return(Option(CiRange).None);
         }
@@ -289,7 +289,7 @@ ci_eval_list_index :: (
     .Some(list_ev) => {
       list_elems := match(
         list_ev,
-        .ComptimeListVal(elems) => Rc.clone(elems),
+        Rc(.ComptimeListVal(elems)) => Rc.clone(elems),
         _ => {
           return(Rc.clone(expr.*));
         }
@@ -300,7 +300,7 @@ ci_eval_list_index :: (
         idx_info.value(),
         .Some(iv) => {
           if(is_int_lit(&iv), {
-            idx_raw := match(iv, .IntLit(r) => r.clone(), _ => String.from("0"));
+            idx_raw := match(iv, Rc(.IntLit(r)) => r.clone(), _ => String.from("0"));
             idx_i64 := match(
               idx_raw.parse_i64(),
               .Some(n) => n,
@@ -358,7 +358,7 @@ ci_eval_list_index :: (
                     )
                   )
                 );
-                EvalValue.UnitVal
+                Rc.new(EvalValueNode.UnitVal)
               }
             );
             out_info.set_value(Option(EvalValue).Some(elem_val));
@@ -469,7 +469,7 @@ ci_eval_list_range_index :: (
     .Some(list_ev) => {
       list_elems := match(
         list_ev,
-        .ComptimeListVal(elems) => Rc.clone(elems),
+        Rc(.ComptimeListVal(elems)) => Rc.clone(elems),
         _ => {
           return(Rc.clone(expr.*));
         }
@@ -525,7 +525,7 @@ ci_eval_list_range_index :: (
         );
         i = (i + usize(1));
       });
-      new_list_val := EvalValue.ComptimeListVal(value_cell_new(sliced));
+      new_list_val := Rc.new(EvalValueNode.ComptimeListVal(value_cell_new(sliced)));
       out_info := new_expr_info(&cur_env, &result_ty);
       out_info.set_value(Option(EvalValue).Some(new_list_val));
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
@@ -590,14 +590,14 @@ ci_eval_array_index :: (
     .Some(sv) => {
       match(
         sv,
-        .ArrayVal(elements) => {
+        Rc(.ArrayVal(elements)) => {
           elem_ty := ci_child_of_array_ty(&self_info.ty());
           out_info := new_expr_info(&cur_env, &elem_ty);
           match(
             idx_info.value(),
             .Some(iv) => {
               if(is_int_lit(&iv), {
-                idx_raw := match(iv, .IntLit(r) => r.clone(), _ => String.from("0"));
+                idx_raw := match(iv, Rc(.IntLit(r)) => r.clone(), _ => String.from("0"));
                 idx_i64 := match(
                   idx_raw.parse_i64(),
                   .Some(n) => n,
@@ -655,7 +655,7 @@ ci_eval_array_index :: (
                         )
                       )
                     );
-                    EvalValue.UnitVal
+                    Rc.new(EvalValueNode.UnitVal)
                   }
                 );
                 out_info.set_value(Option(EvalValue).Some(elem_val));
@@ -684,8 +684,8 @@ ci_eval_array_index :: (
 /// A comptime pointer to a fresh cell holding the string literal `quoted`.
 _ci_str_pointer :: (fn(quoted : &String) -> EvalValue)({
   cell := ArrayList(EvalValue).new();
-  cell.push(EvalValue.StrLit(quoted.clone()));
-  EvalValue.PtrVal(value_cell_new(cell), usize(0), .None)
+  cell.push(Rc.new(EvalValueNode.StrLit(quoted.clone())));
+  Rc.new(EvalValueNode.PtrVal(value_cell_new(cell), usize(0), .None))
 });
 // ---------------------------------------------------------------------------
 // Handler: __yo_comptime_string_index / _range / _range_inclusive
@@ -752,7 +752,7 @@ ci_eval_string_index :: (
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
     return(Rc.clone(expr.*));
   });
-  raw := match(self_info.value(), .Some(sv) => match(sv, .StrLit(r) => r.clone(), _ => String.new()), .None => String.new());
+  raw := match(self_info.value(), .Some(sv) => match(sv, Rc(.StrLit(r)) => r.clone(), _ => String.new()), .None => String.new());
   unquoted := ci_str_unquote(&raw);
   if(!is_range, {
     // ----- Single character index -----
@@ -768,7 +768,7 @@ ci_eval_string_index :: (
     });
     idx_raw := match(
       idx_info.value(),
-      .Some(iv) => match(iv, .IntLit(r) => r.clone(), _ => String.from("0")),
+      .Some(iv) => match(iv, Rc(.IntLit(r)) => r.clone(), _ => String.from("0")),
       .None => String.from("0")
     );
     idx_i64 := match(

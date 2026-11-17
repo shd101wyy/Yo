@@ -37,7 +37,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue, TypeValueNode, t_origin_kind, t_origin_named, t_maybe_sized_kind, shared_list } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_expr_t, t_comptime_list } :: import("../../types/creators.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
-{ EvalValue, create_unknown_val_with_name, value_to_string, value_cell_new, create_type_value } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, create_unknown_val_with_name, value_to_string, value_cell_new, create_type_value } :: import("../../value.yo");
 { EvalContext } :: import("../context.yo");
 {
   ExprInfo,
@@ -202,7 +202,7 @@ _derive_bind_opt :: (
     arg_opt,
     .Some(ae) => {
       inner_var := `__derive_optI_${generate_variable_id(&env.module_path().*, prefix.clone())}`;
-      add_comptime_var(env, inner_var.clone(), t_expr_t(), EvalValue.ExprVal(ae.clone()));
+      add_comptime_var(env, inner_var.clone(), t_expr_t(), Rc.new(EvalValueNode.ExprVal(ae.clone())));
       `((${tmp} : Option(Expr)) = .Some(${inner_var}))`
     },
     .None => `((${tmp} : Option(Expr)) = .None)`
@@ -273,13 +273,13 @@ call_registered_derive_rule :: (
   ctx.force_compile_time_bindings = true;
   // 1. target type.
   type_var := `__derive_T_${generate_variable_id(&caller_env.module_path().*, String.from("dT"))}`;
-  add_comptime_var(caller_env, type_var.clone(), t_type(), EvalValue.TypeVal(target_type.clone()));
+  add_comptime_var(caller_env, type_var.clone(), t_type(), Rc.new(EvalValueNode.TypeVal(target_type.clone())));
   // 2. rule fn (bound by VALUE; the declared type is irrelevant to the call).
   rule_fn_name := `__derive_rule_${generate_variable_id(&caller_env.module_path().*, String.from("dr"))}`;
   add_comptime_var(caller_env, rule_fn_name.clone(), derive_rule_ty, derive_rule_val);
   // 3. target Expr value.
   target_expr_var := `__derive_te_${generate_variable_id(&caller_env.module_path().*, String.from("dte"))}`;
-  add_comptime_var(caller_env, target_expr_var.clone(), t_expr_t(), EvalValue.ExprVal(target_type_expr.clone()));
+  add_comptime_var(caller_env, target_expr_var.clone(), t_expr_t(), Rc.new(EvalValueNode.ExprVal(target_type_expr.clone())));
   // 4. forall_params / where_clause as Option(Expr).
   forall_expr_var := _derive_bind_opt(caller_env, String.from("dfp"), forall_arg_opt, ctx, exn);
   where_expr_var := _derive_bind_opt(caller_env, String.from("dwp"), where_arg_opt, ctx, exn);
@@ -298,7 +298,7 @@ call_registered_derive_rule :: (
     .Some(v) => v,
     .None => {
       exn.throw(dyn(Box.new(format_error_message(&tok, String.from("derive: failed to create DeriveContext")))));
-      EvalValue.UnitVal
+      Rc.new(EvalValueNode.UnitVal)
     }
   );
   add_comptime_var(caller_env, ctx_var.clone(), &ctx_info.ty(), &ctx_val);
@@ -310,7 +310,7 @@ call_registered_derive_rule :: (
     while(tpi < trait_params.len(), {
       pv := `__derive_tp_${generate_variable_id(&caller_env.module_path().*, String.from("dtp"))}`;
       pexpr := match(trait_params.get_cloned(tpi), .Some(p) => p, .None => make_err_expr());
-      add_comptime_var(caller_env, pv.clone(), t_expr_t(), EvalValue.ExprVal(pexpr.clone()));
+      add_comptime_var(caller_env, pv.clone(), t_expr_t(), Rc.new(EvalValueNode.ExprVal(pexpr.clone())));
       param_names.push(pv);
       tpi = (tpi + usize(1));
     });
@@ -330,10 +330,10 @@ call_registered_derive_rule :: (
       .Some(i) => i,
       .None => new_expr_info(caller_env, t_unit())
     );
-    list_val := match(list_info.value(), .Some(v) => v, .None => EvalValue.ComptimeListVal(value_cell_new(ArrayList(EvalValue).new())));
+    list_val := match(list_info.value(), .Some(v) => v, .None => Rc.new(EvalValueNode.ComptimeListVal(value_cell_new(ArrayList(EvalValue).new()))));
     add_comptime_var(caller_env, tps_var.clone(), &list_info.ty(), &list_val);
   }, {
-    add_comptime_var(caller_env, tps_var.clone(), t_comptime_list(t_expr_t()), EvalValue.ComptimeListVal(value_cell_new(ArrayList(EvalValue).new())));
+    add_comptime_var(caller_env, tps_var.clone(), t_comptime_list(t_expr_t()), Rc.new(EvalValueNode.ComptimeListVal(value_cell_new(ArrayList(EvalValue).new()))));
   });
   // 7. Call the rule via a generated call expression, under the guarded
   //    evaluator so the RULE'S OWN error reaches the user. See
@@ -380,12 +380,12 @@ call_registered_derive_rule :: (
           )
         )
       );
-      EvalValue.UnitVal
+      Rc.new(EvalValueNode.UnitVal)
     }
   );
   result_expr := match(
     call_val,
-    .ExprVal(e) => Rc.clone(e),
+    Rc(.ExprVal(e)) => Rc.clone(e),
     _ => {
       exn.throw(dyn(Box.new(format_error_message(&tok, `derive: derive rule must return(comptime(Expr)); got ${value_to_string(&call_val)}`))));
       make_err_expr()
@@ -493,7 +493,7 @@ process_trait_arg :: (
           )
         )
       );
-      EvalValue.UnitVal
+      Rc.new(EvalValueNode.UnitVal)
     }
   );
   // Look up the rule's Func type (needed to bind the rule fn callably).
@@ -777,7 +777,7 @@ _evaluate_derive_executing :: (
   // Expect target to be a TypeVal.
   target_type := match(
     target_info.value(),
-    .Some(.TypeVal(ty_box)) => Rc.clone(ty_box),
+    .Some(Rc(.TypeVal(ty_box))) => Rc.clone(ty_box),
     .Some(_) => {
       exn.throw(
         dyn(
@@ -890,7 +890,7 @@ _evaluate_derive_executing :: (
   });
   clear_copy_pending();
   out := new_expr_info(&result_env, t_unit());
-  out.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
+  out.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   Rc.clone(expr.*)
 });

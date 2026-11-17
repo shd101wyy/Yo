@@ -108,7 +108,7 @@ pragma(Pragma.AllowUnsafe);
 { some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot_with_pointee, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_result_is_ref, fn_result_is_mut_ref, t_slot_is_borrow, fn_result_origin_names, fn_result_composite_origin_names, fn_param_in_result_origin, fn_param_pointee_in_result_origin, fn_result_slot } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_func_simple, t_ptr, generate_some_type_id } :: import("../../types/creators.yo");
 {
-  EvalValue,
+  EvalValue, EvalValueNode,
   FuncValData,
   create_unknown_val,
   no_values,
@@ -469,7 +469,7 @@ _subst_some_types_from_env :: (fn(ty : &TypeValue, env2 : &Environment, allow : 
           ss_found.get_cloned(ss_bi),
           .Some(sv) => match(
             sv.value().get(usize(0)),
-            .Some(.TypeVal(stv)) => if(!is_some_type(&stv), {
+            .Some(Rc(.TypeVal(stv))) => if(!is_some_type(&stv), {
               ss_bound = Option(TypeValue).Some(Rc.clone(stv));
               ss_bi = usize(0);
             }),
@@ -723,7 +723,7 @@ _trial_eval_annotation_type :: (
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
     .Some(ann_ei) => match(
       ann_ei.value(),
-      .Some(.TypeVal(ann_tv)) => if(!is_some_type(&ann_tv), {
+      .Some(Rc(.TypeVal(ann_tv))) => if(!is_some_type(&ann_tv), {
         out.push(Rc.clone(ann_tv));
       }),
       .Some(_) => (),
@@ -1813,7 +1813,7 @@ evaluate_anonymous_function_implementation :: (
                   env,
                   ann_nm.clone(),
                   Rc.new(TypeValueNode.TypeUni(usize(0))),
-                  Option(EvalValue).Some(EvalValue.TypeVal(ann_user_ty)),
+                  Option(EvalValue).Some(Rc.new(EvalValueNode.TypeVal(ann_user_ty))),
                   true,
                   false,
                   false,
@@ -2031,7 +2031,7 @@ evaluate_anonymous_function_implementation :: (
       env,
       fl_name.clone(),
       Rc.new(TypeValueNode.TypeUni(usize(0))),
-      Option(EvalValue).Some(EvalValue.TypeVal(fl_ty)),
+      Option(EvalValue).Some(Rc.new(EvalValueNode.TypeVal(fl_ty))),
       true,
       false,
       false,
@@ -2091,7 +2091,7 @@ evaluate_anonymous_function_implementation :: (
             _st_bind_vars.get_cloned(_st_bi),
             .Some(sv) => match(
               sv.value().get(usize(0)),
-              .Some(.TypeVal(stv)) => if(!is_some_type(&stv), {
+              .Some(Rc(.TypeVal(stv))) => if(!is_some_type(&stv), {
                 _st_bound = Option(TypeValue).Some(Rc.clone(stv));
                 _st_bi = usize(0);
               }),
@@ -2215,7 +2215,7 @@ evaluate_anonymous_function_implementation :: (
               rpr_vars.get_cloned(rpr_vi),
               .Some(rv) => match(
                 rv.value().get(usize(0)),
-                .Some(.TypeVal(rvt)) => if(!is_some_type(&rvt), {
+                .Some(Rc(.TypeVal(rvt))) => if(!is_some_type(&rvt), {
                   rpr_conc = true;
                   rpr_vi = usize(0);
                 }),
@@ -2273,7 +2273,7 @@ evaluate_anonymous_function_implementation :: (
   // to the marked `addr_of(place)` as a named projection's is.
   proj_body := if(fn_result_is_ref(&function_type), _closure_projection_body(&body_expr, fn_result_is_mut_ref(&function_type), exn), body_expr.clone());
   body_for_def_eval := proj_body.clone();
-  func_val := EvalValue.FuncVal(
+  func_val := Rc.new(EvalValueNode.FuncVal(
     Rc.new(
       FuncValData(
         forall_names : forall_labels.items.clone(),
@@ -2288,7 +2288,7 @@ evaluate_anonymous_function_implementation :: (
       )
     ),
     shared_values(cap_vals)
-  );
+  ));
   // Phase A of an impl member written as a literal (context.yo
   // `publish_pending_member_phase_a`), before the body trial below.
   publish_pending_member_phase_a(ast_expr_id(expr), &func_val, &function_type);
@@ -2575,7 +2575,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
     // A separate preliminary FuncVal for the body-eval context (EvalValue is
     // not Clone; `func_val` above is consumed by the ExprInfo below). Same
     // pattern as closure_type.yo's `func_val_pre`.
-    body_ctx_func_val := EvalValue.FuncVal(
+    body_ctx_func_val := Rc.new(EvalValueNode.FuncVal(
       Rc.new(
         FuncValData(
           forall_names : ArrayList(String).new(),
@@ -2591,7 +2591,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
         )
       ),
       no_values()
-    );
+    ));
     // The body evaluates against a SNAPSHOT of the live env (the param frame
     // is in scope; frame-list mutations during body eval cannot corrupt the
     // outer env's frame list — see snapshot_env / the recorded-env-aliasing
@@ -3159,7 +3159,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
     // stays limited to a result that mentions a type variable.
     dgc_check_result := (get_all_some_types(&dgc_ret).len() > usize(0));
     {
-      dgc_fv := EvalValue.FuncVal(
+      dgc_fv := Rc.new(EvalValueNode.FuncVal(
         Rc.new(
           FuncValData(
             forall_names : ArrayList(String).new(),
@@ -3177,7 +3177,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
           )
         ),
         no_values()
-      );
+      ));
       dgc_env := snapshot_env(env);
       dgc_ctx := create_function_body_evaluation_context(&function_type, &dgc_fv, &dgc_env, ctx);
       dgc_out := ArrayList(AstExpr).new();

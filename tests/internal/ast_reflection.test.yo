@@ -47,7 +47,7 @@ test("AST reflection: ExprVal.is_atom() returns true for atoms", {
     },
     .Some(mv) => match(
       mv,
-      .StructVal(_, names, values) => {
+      Rc(.StructVal(_, names, values)) => {
         (mut(i) : usize) = usize(0);
         n := names.len();
         (mut(found) : Option(usize)) = .None;
@@ -76,7 +76,7 @@ test("AST reflection: ExprVal.is_atom() returns true for atoms", {
             },
             .Some(rv) => match(
               rv,
-              .IntLit(s) => assert(s == "1", "expected 1 (e was atom)"),
+              Rc(.IntLit(s)) => assert(s == "1", "expected 1 (e was atom)"),
               _ => {
                 assert(false, "r is not IntLit");
               }
@@ -117,7 +117,7 @@ test("AST reflection: ExprVal.is_fn_call() returns true for fn calls", {
     },
     .Some(mv) => match(
       mv,
-      .StructVal(_, names, values) => {
+      Rc(.StructVal(_, names, values)) => {
         (mut(i) : usize) = usize(0);
         n := names.len();
         (mut(found) : Option(usize)) = .None;
@@ -146,7 +146,7 @@ test("AST reflection: ExprVal.is_fn_call() returns true for fn calls", {
             },
             .Some(rv) => match(
               rv,
-              .IntLit(s) => assert(s == "1", "expected 1 (e was fn call)"),
+              Rc(.IntLit(s)) => assert(s == "1", "expected 1 (e was fn call)"),
               _ => {
                 assert(false, "r is not IntLit");
               }
@@ -188,7 +188,7 @@ test("AST reflection: get_callee and get_args extract structure", {
     },
     .Some(mv) => match(
       mv,
-      .StructVal(_, names, values) => {
+      Rc(.StructVal(_, names, values)) => {
         (mut(i) : usize) = usize(0);
         n := names.len();
         (mut(found) : Option(usize)) = .None;
@@ -217,7 +217,7 @@ test("AST reflection: get_callee and get_args extract structure", {
             },
             .Some(rv) => match(
               rv,
-              .IntLit(s) => assert(s == "1", "expected callee + and car(args) 3"),
+              Rc(.IntLit(s)) => assert(s == "1", "expected callee + and car(args) 3"),
               _ => {
                 assert(false, "v is not IntLit");
               }

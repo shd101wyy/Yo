@@ -47,7 +47,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalContext, ExpectedTypeCtx, record_module_member_read, sns_module_of, is_dot_callee } :: import("../context.yo");
 { get_struct_fields } :: import("../types/field.yo");
 {
-  EvalValue,
+  EvalValue, EvalValueNode,
   create_type_value,
   create_unknown_val,
   create_runtime_unknown_val,
@@ -756,7 +756,7 @@ _evaluate_property_access_node :: (
                   // Fieldless variant: Color.Red
                   _reject_origin_carrying_unit_variant(&new_en_ty_1, expr, ctx, exn);
                   dot_vname_1 := `.${ variant_name_1 }`;
-                  ev_1 := EvalValue.EnumVal(dot_vname_1, no_values());
+                  ev_1 := Rc.new(EvalValueNode.EnumVal(dot_vname_1, no_values()));
                   out_1 := new_expr_info(&env, &new_en_ty_1);
                   out_1.set_value(Option(EvalValue).Some(ev_1));
                   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_1);
@@ -1155,10 +1155,10 @@ _evaluate_property_access_node :: (
             out_hv.set_value(
               match(
                 match(obj_info_opt, .Some(oi) => oi.value(), .None => Option(EvalValue).None),
-                .Some(.UnknownVal(_, hv_ro)) => Option(EvalValue).Some(if(hv_ro, create_runtime_unknown_val(&hv_payload), create_unknown_val(&hv_payload))),
-                .Some(.StructVal(_, _, hv_wf)) => match(
+                .Some(Rc(.UnknownVal(_, hv_ro))) => Option(EvalValue).Some(if(hv_ro, create_runtime_unknown_val(&hv_payload), create_unknown_val(&hv_payload))),
+                .Some(Rc(.StructVal(_, _, hv_wf))) => match(
                   hv_wf.get(usize(0)),
-                  .Some(.StructVal(_, _, hv_cf)) => match(hv_cf.get(usize(0)), .Some(hv_v) => Option(EvalValue).Some(hv_v), .None => Option(EvalValue).Some(create_unknown_val(&hv_payload))),
+                  .Some(Rc(.StructVal(_, _, hv_cf))) => match(hv_cf.get(usize(0)), .Some(hv_v) => Option(EvalValue).Some(hv_v), .None => Option(EvalValue).Some(create_unknown_val(&hv_payload))),
                   _ => Option(EvalValue).Some(create_unknown_val(&hv_payload))
                 ),
                 .Some(_) => Option(EvalValue).Some(create_unknown_val(&hv_payload)),
@@ -1207,7 +1207,7 @@ Raw pointer operations may dereference invalid memory.`
             .Some(ov_deref) => {
               match(
                 ov_deref,
-                .PtrVal(target_cell, ptr_tgt_idx, _) => {
+                Rc(.PtrVal(target_cell, ptr_tgt_idx, _)) => {
                   // Compile-time pointer: dereference to the pointed-to value.
                   // Index the target when it is an aggregate —
                   // `dereferencedValue = target.elements[objectValue.targetIndex]`
@@ -1224,13 +1224,13 @@ Raw pointer operations may dereference invalid memory.`
                   target0 := match(
                     target_cell.get(usize(0)),
                     .Some(t0) => t0,
-                    .None => EvalValue.UnitVal
+                    .None => Rc.new(EvalValueNode.UnitVal)
                   );
                   (deref_val : EvalValue) = target0;
                   (deref_place : Option(ComptimeRef)) = Option(ComptimeRef).None;
                   match(
                     target0,
-                    .ArrayVal(deref_elems) => {
+                    Rc(.ArrayVal(deref_elems)) => {
                       deref_val = match(deref_elems.get(ptr_tgt_idx), .Some(de) => de, .None => target0);
                       deref_place = Option(ComptimeRef).Some(ComptimeRef.ArrayRef(Rc.clone(deref_elems), ptr_tgt_idx));
                     },
@@ -1255,7 +1255,7 @@ Raw pointer operations may dereference invalid memory.`
                   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_ptr);
                   return(Rc.clone(expr.*));
                 },
-                .UnknownVal(_, ptr_ro) => {
+                Rc(.UnknownVal(_, ptr_ro)) => {
                   // CHECKING PHASE ONLY: keep the comptime Unknown placeholder.
                   // In execution mode a call-chain result carries `UnknownVal`
                   // (the runtime-result convention) and takes the RUNTIME deref
@@ -1398,7 +1398,7 @@ Raw pointer operations may dereference invalid memory.`
   if(is_type_value(&obj_val_opt), {
     type_val_inner := match(
       obj_val_opt,
-      .Some(.TypeVal(ty_box)) => Rc.clone(ty_box),
+      .Some(Rc(.TypeVal(ty_box))) => Rc.clone(ty_box),
       .Some(_) => t_unit(),
       .None => t_unit()
     );
@@ -1649,7 +1649,7 @@ Raw pointer operations may dereference invalid memory.`
               if(!has_fields_tv, {
                 _reject_origin_carrying_unit_variant(&new_en_tv, expr, ctx, exn);
                 dot_tv_vname := `.${ variant_name_tv }`;
-                ev_tv_en := EvalValue.EnumVal(dot_tv_vname, no_values());
+                ev_tv_en := Rc.new(EvalValueNode.EnumVal(dot_tv_vname, no_values()));
                 out_tv_en := new_expr_info(&env, &new_en_tv);
                 out_tv_en.set_value(Option(EvalValue).Some(ev_tv_en));
                 out_tv_en.set_is_accessing_property(Option(bool).Some(true));
@@ -2126,7 +2126,7 @@ Raw pointer operations may dereference invalid memory.`
                       st_env_vars.last_cloned(),
                       .Some(st_ev) => match(
                         st_ev.value().get(usize(0)),
-                        .Some(.TypeVal(st_evt)) => {
+                        .Some(Rc(.TypeVal(st_evt))) => {
                           if(is_some_type(&st_evt), {
                             st_env_bound = Option(TypeValue).Some(Rc.clone(st_evt));
                           });
@@ -2351,7 +2351,7 @@ Raw pointer operations may dereference invalid memory.`
               .Some(ov_idx) => {
                 match(
                   ov_idx,
-                  .TupleVal(flds_t) => {
+                  Rc(.TupleVal(flds_t)) => {
                     match(
                       flds_t.get(idx),
                       .Some(fv) => {
@@ -2360,7 +2360,7 @@ Raw pointer operations may dereference invalid memory.`
                       .None => ()
                     );
                   },
-                  .StructVal(_, _, sflds_t) => {
+                  Rc(.StructVal(_, _, sflds_t)) => {
                     match(
                       sflds_t.get(idx),
                       .Some(fv) => {
@@ -2571,7 +2571,7 @@ Raw pointer operations may dereference invalid memory.`
                 match(
                   ov_lbl,
                   // Propagate `is_runtime_only` onto the field's unknown.
-                  .UnknownVal(_, ov_lbl_ro) => {
+                  Rc(.UnknownVal(_, ov_lbl_ro)) => {
                     out_lbl.set_value(
                       Option(EvalValue).Some(
                         if(
@@ -2592,12 +2592,12 @@ Raw pointer operations may dereference invalid memory.`
                       // "optional faithfulness completion" noted in
                       // issues/fixed/yo-self-comptime-pointer-place.md — index
                       // first.
-                      .PtrVal(tgt_cell_l, tgt_idx_l, _) => {
+                      Rc(.PtrVal(tgt_cell_l, tgt_idx_l, _)) => {
                         resolved_lbl = match(
                           tgt_cell_l.get(usize(0)),
                           .Some(t0l) => match(
                             t0l,
-                            .ArrayVal(t0l_elems) => match(t0l_elems.get(tgt_idx_l), .Some(t0e) => t0e, .None => t0l),
+                            Rc(.ArrayVal(t0l_elems)) => match(t0l_elems.get(tgt_idx_l), .Some(t0e) => t0e, .None => t0l),
                             _ => t0l
                           ),
                           .None => ov_lbl
@@ -2608,7 +2608,7 @@ Raw pointer operations may dereference invalid memory.`
                     );
                     match(
                       resolved_lbl,
-                      .TupleVal(flds_l) => {
+                      Rc(.TupleVal(flds_l)) => {
                         match(
                           flds_l.get(fi_lbl),
                           .Some(fv) => {
@@ -2635,7 +2635,7 @@ Raw pointer operations may dereference invalid memory.`
                           );
                         });
                       },
-                      .StructVal(_, _, sflds_l) => {
+                      Rc(.StructVal(_, _, sflds_l)) => {
                         match(
                           sflds_l.get(fi_lbl),
                           .Some(fv) => {
@@ -2757,7 +2757,7 @@ Raw pointer operations may dereference invalid memory.`
                 match(
                   ov_mod,
                   // Propagate `is_runtime_only`.
-                  .UnknownVal(_, ov_mod_ro) => {
+                  Rc(.UnknownVal(_, ov_mod_ro)) => {
                     out_mod.set_value(
                       Option(EvalValue).Some(
                         if(
@@ -2768,7 +2768,7 @@ Raw pointer operations may dereference invalid memory.`
                       )
                     );
                   },
-                  .StructVal(_, _, mvals) => {
+                  Rc(.StructVal(_, _, mvals)) => {
                     match(
                       mvals.get(fi_mod),
                       .Some(mfv) => {
@@ -2887,7 +2887,7 @@ Raw pointer operations may dereference invalid memory.`
                         .Some(eov) => {
                           match(
                             eov,
-                            .EnumVal(ev_vn, ev_flds) => {
+                            Rc(.EnumVal(ev_vn, ev_flds)) => {
                               dot_sel := `.${ sel_vname }`;
                               if(ev_vn == dot_sel, {
                                 match(
@@ -2961,7 +2961,7 @@ Raw pointer operations may dereference invalid memory.`
                   obj_val_main,
                   .Some(eov) => match(
                     eov,
-                    .EnumVal(ev_vn, ev_flds) => {
+                    Rc(.EnumVal(ev_vn, ev_flds)) => {
                       dv_name := match(ev_vnames.get_cloned(dv_idx), .Some(nm) => nm, .None => String.from(""));
                       dv_dot_sel := `.${ dv_name }`;
                       if(ev_vn == dv_dot_sel, {

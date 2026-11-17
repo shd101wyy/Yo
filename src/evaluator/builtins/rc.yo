@@ -14,7 +14,7 @@
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue, create_unknown_val } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, create_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_usize } :: import("../../types/creators.yo");
 { is_rc_type, is_unique_box_type, cell_handle_view } :: import("../../types/guards.yo");
@@ -88,7 +88,7 @@ evaluate_ref_count :: (
     attach_temp_variable_to_expr(expr, true, ctx);
   }, {
     // Value type: reference count is always 1
-    out_info.set_value(Option(EvalValue).Some(EvalValue.IntLit(String.from("1"))));
+    out_info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.IntLit(String.from("1")))));
   });
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   Rc.clone(expr.*)

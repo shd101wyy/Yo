@@ -25,7 +25,7 @@
 { Environment, Frame, frame_truncate_variables, env_frames_for_write } :: import("../../env.yo");
 { EvalContext, forcing_depths, truncate_forcing_depths, _clone_captured_variables } :: import("../context.yo");
 { format_error_message, error_message_text } :: import("../../error.yo");
-{ EvalValue, value_to_string } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, value_to_string } :: import("../../value.yo");
 {
   expr_info_table_get,
   new_expr_info,
@@ -414,7 +414,7 @@ evaluate_comptime_expect_error :: (
         want_eval := evaluate_expression_raw(&want_expr, env, ctx, exn);
         want_text := match(
           expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&want_eval)),
-          .Some(wi) => match(wi.value(), .Some(wv) => match(wv, .StrLit(raw) => str_lit_unquote_bytes(&raw), _ => value_to_string(&wv)), .None => String.new()),
+          .Some(wi) => match(wi.value(), .Some(wv) => match(wv, Rc(.StrLit(raw)) => str_lit_unquote_bytes(&raw), _ => value_to_string(&wv)), .None => String.new()),
           .None => String.new()
         );
         (matched : bool) = (want_text.len() == usize(0));
@@ -442,7 +442,7 @@ evaluate_comptime_expect_error :: (
       .None => ()
     );
     out_unit := new_expr_info(env, t_unit());
-    out_unit.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
+    out_unit.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_unit);
     return(Rc.clone(expr.*));
   });
@@ -462,7 +462,7 @@ evaluate_comptime_expect_error :: (
           match(
             msg_info.value(),
             .Some(v) => {
-              err_msg := match(v, .StrLit(raw) => raw.clone(), _ => value_to_string(&v));
+              err_msg := match(v, Rc(.StrLit(raw)) => raw.clone(), _ => value_to_string(&v));
               exn.throw(dyn(Box.new(format_error_message(ast_expr_token(expr), &err_msg))));
             },
             .None => ()

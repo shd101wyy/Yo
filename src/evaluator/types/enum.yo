@@ -257,7 +257,7 @@ _evaluate_discriminant :: (
   // Must be a comptime integer.
   is_int_lit_val := match(
     disc_info.value(),
-    .Some(v) => match(v, .IntLit(_) => true, _ => false),
+    .Some(v) => match(v, Rc(.IntLit(_)) => true, _ => false),
     .None => false
   );
   if(!is_int_lit_val && !is_comptime_int_type(&disc_info.ty()), {
@@ -286,7 +286,7 @@ _evaluate_discriminant :: (
   });
   raw := match(
     disc_info.value(),
-    .Some(v) => match(v, .IntLit(r) => r.clone(), _ => String.from("0")),
+    .Some(v) => match(v, Rc(.IntLit(r)) => r.clone(), _ => String.from("0")),
     .None => String.from("0")
   );
   match(
@@ -707,7 +707,7 @@ evaluate_enum_type :: (
           });
           ra_ty := match(
             ra_info.value(),
-            .Some(v) => match(v, .TypeVal(inner) => Rc.clone(inner), _ => Rc.new(TypeValueNode.Unit)),
+            .Some(v) => match(v, Rc(.TypeVal(inner)) => Rc.clone(inner), _ => Rc.new(TypeValueNode.Unit)),
             .None => Rc.new(TypeValueNode.Unit)
           );
           this_variant_args.push(ra_ty);
@@ -756,7 +756,7 @@ evaluate_enum_type :: (
                       vars.last_cloned(),
                       .Some(lastv) => match(
                         lastv.value().get(usize(0)),
-                        .Some(.TypeVal(tvb)) => {
+                        .Some(Rc(.TypeVal(tvb))) => {
                           tca.push(Rc.clone(tvb));
                         },
                         .Some(_) => (),

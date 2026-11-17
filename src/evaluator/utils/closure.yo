@@ -73,7 +73,7 @@
 /// silent 64-bit collision would merge two capture structs in the emitted C.
 (g_capture_struct_ids_r : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 {
-  EvalValue,
+  EvalValue, EvalValueNode,
   value_cell_new
 } :: import("../../value.yo");
 {
@@ -191,7 +191,7 @@ _capture_judgement_type :: (fn(ty : &TypeValue, value : &Option(EvalValue)) -> O
         value,
         .Some(v) => match(
           v,
-          .FuncVal(fvd, _) => match(
+          Rc(.FuncVal(fvd, _)) => match(
             get_closure_capture_info(fvd.func_id.clone()),
             .Some(cci) => Option(TypeValue).Some(Rc.clone(cci.capture_type)),
             .None => Option(TypeValue).None
@@ -588,7 +588,7 @@ function_value_marker :: (
   });
   match(
     witness,
-    .Some(.FuncVal(wfvd, _)) => {
+    .Some(Rc(.FuncVal(wfvd, _))) => {
       return(Option(Option(String)).Some(_function_value_offense(wfvd.func_id.clone(), Option(AstExpr).Some(Rc.clone(wfvd.body)), marker, env, ctx)));
     },
     .Some(_) => (),
@@ -626,7 +626,7 @@ function_value_marker :: (
                     v.value().get(usize(0)),
                     .Some(vv) => match(
                       vv,
-                      .FuncVal(fvd, _) => {
+                      Rc(.FuncVal(fvd, _)) => {
                         found = true;
                         match(
                           _function_value_offense(fvd.*.func_id.clone(), Option(AstExpr).Some(Rc.clone(fvd.*.body)), marker, env, ctx),
@@ -1346,11 +1346,11 @@ create_capture_type_and_value :: (
         });
         // Use struct_id as the type name for the StructVal.
         Option(EvalValue).Some(
-          EvalValue.StructVal(
+          Rc.new(EvalValueNode.StructVal(
             struct_id.clone(),
             Rc.clone(field_labels_s),
             value_cell_new(concrete_vals)
-          )
+          ))
         )
       }, Option(EvalValue).None);
       CaptureTypeAndValueResult(
@@ -1718,8 +1718,8 @@ structural_clone_expansion :: (
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&rec_callee)),
       .Some(rc_info) => match(
         rc_info.value(),
-        .Some(.TypeVal(_)) => {
-          rc_info.set_value(Option(EvalValue).Some(EvalValue.TypeVal(target.clone())));
+        .Some(Rc(.TypeVal(_))) => {
+          rc_info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.TypeVal(target.clone()))));
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&rec_callee), &rc_info);
         },
         _ => ()

@@ -546,7 +546,7 @@ _c_func_name :: (fn(func_id : &String, context : &FunctionGenerationContext) -> 
 _arg_fn_value_c_name :: (fn(key : ExprId, env : &Environment, name : &String, context : &mut FunctionGenerationContext) -> Option(String))({
   vars := scope_variables(key, env, name);
   m := vars.len();
-  if(m == usize(0), Option(String).None, match(vars.get_cloned(m - usize(1)), .Some(v) => match(v.value().get(usize(0)), .Some(val) => if(is_func_val(&val), match(val, .FuncVal(__fvd1, _) => fn_value_c_name(&__fvd1.*.func_id, &mut context.base), _ => Option(String).None), Option(String).None), .None => Option(String).None), .None => Option(String).None))
+  if(m == usize(0), Option(String).None, match(vars.get_cloned(m - usize(1)), .Some(v) => match(v.value().get(usize(0)), .Some(val) => if(is_func_val(&val), match(val, Rc(.FuncVal(__fvd1, _)) => fn_value_c_name(&__fvd1.*.func_id, &mut context.base), _ => Option(String).None), Option(String).None), .None => Option(String).None), .None => Option(String).None))
 });
 /// Whether the last binding for `name` (in node `key`'s recorded scope `env`)
 /// is compile-time-only.
@@ -951,7 +951,7 @@ _operand_is_constant_enum_ctor :: (fn(arg : &AstExpr, ei : &ExprInfo, context : 
       // runtime-construction branch below.
       callee_is_ctor := match(
         context.base.get_expr_info(&f.*),
-        .Some(fei) => match(fei.value(), .Some(.TypeVal(ewb)) => is_enum_type(&ewb), _ => false),
+        .Some(fei) => match(fei.value(), .Some(Rc(.TypeVal(ewb))) => is_enum_type(&ewb), _ => false),
         .None => false
       );
       if((n == usize(0)) && callee_is_ctor, {
@@ -965,7 +965,7 @@ _operand_is_constant_enum_ctor :: (fn(arg : &AstExpr, ei : &ExprInfo, context : 
         ftok := match(pargs.get_cloned(usize(1)), .Some(Rc(.Atom(_, t))) => Rc.clone(t), _ => return(false));
         base_is_type := match(
           context.base.get_expr_info(&base),
-          .Some(bei) => match(bei.value(), .Some(.TypeVal(_)) => true, _ => false),
+          .Some(bei) => match(bei.value(), .Some(Rc(.TypeVal(_))) => true, _ => false),
           .None => false
         );
         if(!base_is_type, {
@@ -1171,7 +1171,7 @@ _operand_may_write :: (fn(e : &AstExpr, context : &FunctionGenerationContext) ->
         true => {
           op := match(f, Rc(.Atom(_, ft)) => ft.value.*.clone(), Rc(.FnCall(_, _, _, _, _)) => String.new());
           is_label := ((op == ":") && (n == usize(2)) && ast_expr_is_atom(&a0));
-          is_ctor := match(context.base.get_expr_info(&f), .Some(fei) => match(fei.value(), .Some(.TypeVal(_)) => true, _ => false), .None => false);
+          is_ctor := match(context.base.get_expr_info(&f), .Some(fei) => match(fei.value(), .Some(Rc(.TypeVal(_))) => true, _ => false), .None => false);
           is_prim_op := (
             _is_primitive_operator_symbol(&op) && {
               (mut(all_prim) : bool) = true;
@@ -1254,7 +1254,7 @@ _closure_ref_spill_c_type :: (fn(default_cty : String, rei : &ExprInfo, context 
         );
         match(
           rei.value(),
-          .Some(.FuncVal(cfv_fvd, _)) => match(
+          .Some(Rc(.FuncVal(cfv_fvd, _))) => match(
             get_closure_capture_info(cfv_fvd.*.func_id.clone()),
             .Some(cci) => {
               s := get_type_string(&cci.capture_type, &mut context.base);
@@ -1361,7 +1361,7 @@ _apply_ref_amp :: (fn(args : &ArrayList(String), param_is_ref : &ArrayList(bool)
         context.base.get_expr_info(&ta),
         .Some(tei) => match(
           tei.value(),
-          .Some(tv) => match(tv, .EnumVal(_, tv_fields) => (tv_fields.len() == usize(0)), _ => false),
+          .Some(tv) => match(tv, Rc(.EnumVal(_, tv_fields)) => (tv_fields.len() == usize(0)), _ => false),
           .None => false
         ),
         .None => false
@@ -1850,7 +1850,7 @@ _generate_runtime_enum_construct :: (
   )
 });
 /// FuncVal func_id, or empty if not a FuncVal.
-_func_val_id :: (fn(v : &EvalValue) -> String)(match(v, .FuncVal(__fvd2, _) => __fvd2.func_id.clone(), _ => String.new()));
+_func_val_id :: (fn(v : &EvalValue) -> String)(match(v, Rc(.FuncVal(__fvd2, _)) => __fvd2.func_id.clone(), _ => String.new()));
 /// Whether a call to this callee might trigger an effect escape (it directly is
 /// a control/effect-record fn, its resolved type is `ctl(...)`, it has a
 /// fn-typed / ctl-bound param a handler may be threaded through, its body has
@@ -1870,7 +1870,7 @@ _call_may_unwind :: (fn(func_ei_value : &Option(EvalValue), function_type : &Typ
   ft_is_control := match(function_type, Rc(.Func({ meta : __fm2 })) => __fm2.is_control, _ => false);
   body_has_effects := match(
     func_ei_value,
-    .Some(v) => match(v, .FuncVal(__fvd3, _) => match(context.base.get_expr_info(&__fvd3.body), .Some(bei) => match(expr_info_effect_analysis(&bei), .Some(ea) => ea.has_effects, .None => false), .None => false), _ => false),
+    .Some(v) => match(v, Rc(.FuncVal(__fvd3, _)) => match(context.base.get_expr_info(&__fvd3.body), .Some(bei) => match(expr_info_effect_analysis(&bei), .Some(ea) => ea.has_effects, .None => false), .None => false), _ => false),
     .None => false
   );
   (mut(param_fn_or_ctl) : bool) = false;
@@ -2030,7 +2030,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
     expr,
     Rc(.FnCall(_, ecf, _, _, _)) => match(
       context.base.get_expr_info(&ecf.*),
-      .Some(ecfei) => match(ecfei.value(), .Some(ecfv) => match(ecfv, .TypeVal(ewb) => is_enum_type(&ewb), _ => false), .None => false),
+      .Some(ecfei) => match(ecfei.value(), .Some(ecfv) => match(ecfv, Rc(.TypeVal(ewb)) => is_enum_type(&ewb), _ => false), .None => false),
       .None => false
     ),
     Rc(.Atom(_, _)) => false
@@ -2043,7 +2043,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
     // the narrowed EnumT);
     // the callee source text (`.Some`) as a final fallback. All may carry a
     // leading `.`, which _generate_runtime_enum_construct strips.
-    from_val := match(ei.value(), .Some(ev) => match(ev, .EnumVal(vr, _) => vr.clone(), _ => String.new()), .None => String.new());
+    from_val := match(ei.value(), .Some(ev) => match(ev, Rc(.EnumVal(vr, _)) => vr.clone(), _ => String.new()), .None => String.new());
     from_ty := match(&ei.ty(), Rc(.EnumT({ selected_variant_name })) => match(selected_variant_name, .Some(v) => v.clone(), .None => String.new()), _ => String.new());
     from_callee := match(expr, Rc(.FnCall(_, f, _, _, _)) => ast_expr_to_string(&f.*), Rc(.Atom(_, _)) => String.new());
     variant_raw := if(from_val.len() > usize(0), from_val, if(from_ty.len() > usize(0), from_ty, from_callee));
@@ -2284,7 +2284,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
         context.base.get_expr_info(&recv_dot),
         .Some(rdi) => match(
           rdi.value(),
-          .Some(rv) => match(rv, .TypeVal(inner) => Rc.clone(inner), _ => Rc.clone(rdi.ty())),
+          .Some(rv) => match(rv, Rc(.TypeVal(inner)) => Rc.clone(inner), _ => Rc.clone(rdi.ty())),
           .None => Rc.clone(rdi.ty())
         ),
         .None => match(dm_runtime.get_cloned(usize(0)), .Some(rv) => match(context.base.get_expr_info(&rv), .Some(rvi) => Rc.clone(rvi.ty()), .None => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit))
@@ -2316,7 +2316,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
         match(
           lookup_method_callee_value(ast_expr_id(expr)),
           .Some(mcv) => if(is_func_val(&mcv), {
-            mfid2 := match(mcv, .FuncVal(__fvd5, _) => __fvd5.*.func_id.clone(), _ => String.from(""));
+            mfid2 := match(mcv, Rc(.FuncVal(__fvd5, _)) => __fvd5.*.func_id.clone(), _ => String.from(""));
             mc_name = _c_func_name(&mfid2, context);
             method_fv = Option(EvalValue).Some(mcv);
           }),
@@ -2332,7 +2332,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               .Some(entry) => match(
                 entry.value,
                 .Some(mv) => if(is_func_val(&mv), {
-                  mfid := match(mv, .FuncVal(__fvd4, _) => __fvd4.*.func_id.clone(), _ => String.from(""));
+                  mfid := match(mv, Rc(.FuncVal(__fvd4, _)) => __fvd4.*.func_id.clone(), _ => String.from(""));
                   mc_name = _c_func_name(&mfid, context);
                   method_fv = Option(EvalValue).Some(mv);
                 }),
@@ -2356,7 +2356,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             .Some(op) => {
               // The method's per-param ref flags: they gate the argument dups
               // (`_dispatch_arg_code`) and the ref-amp below.
-              m_fid_amp := match(mfv, .FuncVal(__fvd6, _) => __fvd6.*.func_id.clone(), _ => String.from(""));
+              m_fid_amp := match(mfv, Rc(.FuncVal(__fvd6, _)) => __fvd6.*.func_id.clone(), _ => String.from(""));
               ia_ft := get_func_type(&m_fid_amp);
               ia_pir := fn_abi_param_is_ptr(&ia_ft);
               mut(inline_args) := ArrayList(String).new();
@@ -2401,7 +2401,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             cm_param_is_ref := match(
               method_fv,
               .Some(mfv2) => {
-                cm_ft := get_func_type(match(mfv2, .FuncVal(__fvd7, _) => __fvd7.*.func_id.clone(), _ => String.from("")));
+                cm_ft := get_func_type(match(mfv2, Rc(.FuncVal(__fvd7, _)) => __fvd7.*.func_id.clone(), _ => String.from("")));
                 match(&cm_ft, Rc(.Func({ result : _ })) => fn_param_mut_ref_flags(&cm_ft), _ => no_flags())
               },
               .None => no_flags()
@@ -2411,7 +2411,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             cm_abi_ptr := match(
               method_fv,
               .Some(mfv3) => {
-                cm_ft := get_func_type(match(mfv3, .FuncVal(__fvd8, _) => __fvd8.*.func_id.clone(), _ => String.from("")));
+                cm_ft := get_func_type(match(mfv3, Rc(.FuncVal(__fvd8, _)) => __fvd8.*.func_id.clone(), _ => String.from("")));
                 fn_abi_param_is_ptr(&cm_ft)
               },
               .None => ArrayList(bool).new()
@@ -2577,7 +2577,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
     match(
       lookup_method_callee_value(ast_expr_id(expr)),
       .Some(rmv) => if(is_func_val(&rmv), {
-        rm_fid := match(rmv, .FuncVal(__fvdrm, _) => __fvdrm.*.func_id.clone(), _ => String.from(""));
+        rm_fid := match(rmv, Rc(.FuncVal(__fvdrm, _)) => __fvdrm.*.func_id.clone(), _ => String.from(""));
         match(
           _c_func_name(rm_fid.clone(), context),
           .Some(rmcn) => {
@@ -2718,7 +2718,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
       .Some(cc_fv) => if(is_func_val(&cc_fv), {
         match(
           cc_fv,
-          .FuncVal(cc_fvd, _) => {
+          Rc(.FuncVal(cc_fvd, _)) => {
             cc_ft := get_func_type(&cc_fvd.*.func_id);
             if(is_function_type(&cc_ft), {
               function_type = cc_ft;
@@ -2766,7 +2766,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
     func_ei.value(),
     .Some(fv) => match(
       fv,
-      .TypeVal(wrapped_box) => {
+      Rc(.TypeVal(wrapped_box)) => {
         wrapped := _constructed_struct_type(&wrapped_box, &ei.ty());
         if(is_reference_struct_type(&wrapped), {
           cname := match(context.base.get_type_c_name(type_key(wrapped.clone())), .Some(cn) => cn, .None => String.from("__yo_unknown_obj"));
@@ -3296,7 +3296,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
     .Some(fv) => if(is_func_val(&fv) && !cc_early_hit, {
       // Inline if the function body is a single builtin operator.
       match(is_function_value_with_only_builtin_yo_inline_function_call(&fv), .Some(op) => return(Option(String).Some(_inline_alias_call_code(&op, &args2, expr, context, indent))), .None => ());
-      fid := match(fv, .FuncVal(__fvd8, _) => __fvd8.*.func_id.clone(), _ => String.from(""));
+      fid := match(fv, Rc(.FuncVal(__fvd8, _)) => __fvd8.*.func_id.clone(), _ => String.from(""));
       match(
         _c_func_name(&fid, context),
         .Some(c_func_name) => {
@@ -3407,7 +3407,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                 .None => match(
                   _async_override_return_type(
                     &function_type,
-                    match(fv, .FuncVal(__ofnb, _) => Option(AstExpr).Some(Rc.clone(__ofnb.*.body)), _ => Option(AstExpr).None),
+                    match(fv, Rc(.FuncVal(__ofnb, _)) => Option(AstExpr).Some(Rc.clone(__ofnb.*.body)), _ => Option(AstExpr).None),
                     &mut context.base
                   ),
                   .Some(ot_ovr) => {

@@ -27,7 +27,7 @@ import("std/fmt");
 { Environment, env_adopt } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 {
-  EvalValue,
+  EvalValue, EvalValueNode,
   create_type_value,
   is_type_value,
   create_unknown_val
@@ -151,7 +151,7 @@ evaluate_module_field :: (
   });
   field_type := match(
     te_info.value(),
-    .Some(.TypeVal(inner)) => Rc.clone(inner),
+    .Some(Rc(.TypeVal(inner))) => Rc.clone(inner),
     .Some(_) => Rc.new(TypeValueNode.Unit),
     .None => Rc.new(TypeValueNode.Unit)
   );
@@ -161,7 +161,7 @@ evaluate_module_field :: (
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&label_expr), &label_info);
   // Set expr info on the field expr itself
   unit_info := new_expr_info(&env_mut, Rc.new(TypeValueNode.Unit));
-  unit_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
+  unit_info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &unit_info);
   EvalModuleFieldResult(label, field_type, env_mut)
 });

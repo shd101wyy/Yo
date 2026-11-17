@@ -67,7 +67,7 @@ test("quote/macro: quote(42) produces ExprVal", {
     },
     .Some(mv) => match(
       mv,
-      .StructVal(_, names, values) => {
+      Rc(.StructVal(_, names, values)) => {
         // names should contain "q"
         (mut(found_idx) : Option(usize)) = .None;
         (mut(i) : usize) = usize(0);
@@ -97,7 +97,7 @@ test("quote/macro: quote(42) produces ExprVal", {
             },
             .Some(qval) => match(
               qval,
-              .ExprVal(_) => (),
+              Rc(.ExprVal(_)) => (),
               _ => {
                 assert(false, "q is not an ExprVal");
               }
@@ -141,7 +141,7 @@ test("quote/macro: quote(unquote(x)) round-trips to ExprVal", {
     },
     .Some(mv) => match(
       mv,
-      .StructVal(_, names, values) => {
+      Rc(.StructVal(_, names, values)) => {
         (mut(found_idx) : Option(usize)) = .None;
         (mut(i) : usize) = usize(0);
         n := names.len();
@@ -170,7 +170,7 @@ test("quote/macro: quote(unquote(x)) round-trips to ExprVal", {
             },
             .Some(zval) => match(
               zval,
-              .ExprVal(_) => (),
+              Rc(.ExprVal(_)) => (),
               _ => {
                 assert(false, "z is not an ExprVal");
               }
