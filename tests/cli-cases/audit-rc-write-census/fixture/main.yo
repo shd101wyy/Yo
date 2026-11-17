@@ -1,44 +1,30 @@
 { ArrayList } :: import("std/collections/array_list");
 { RefCell } :: import("std/sync/refcell");
 Counter :: struct(n : i32, items : ArrayList(i32));
-Node :: ref(struct(n : i32, items : ArrayList(i32)));
 bump :: (fn(x : &mut i32) -> unit)({
   x.* = (x.* + i32(1));
 });
 peek :: (fn(x : &mut i32) -> i32)(x.*);
 apply :: (fn(f : &Impl(Fn() -> unit)) -> unit)(f());
-// Listed, unproved: the handle is a parameter, a caller may hold a borrow.
-through_param :: (fn(r : &Node) -> unit)({
-  r.n = i32(3);
-});
 main :: (fn() -> unit)({
-  // Listed, proved: the object is fresh in this function and never leaves it.
-  g := Node(n : i32(0), items : ArrayList(i32).new());
-  g.n = i32(9);
-  // Listed, unproved: `r` is captured by the closure below, which may run
-  // while a borrow of the object is live.
-  r := Node(n : i32(0), items : ArrayList(i32).new());
-  r.n = i32(1);
-  r.items.push(i32(4));
-  bump(&mut r.n);
-  // Not listed: the callee does not write its `&mut` parameter.
-  _p := peek(&mut r.n);
-  through_param(&r);
-  // Listed, unproved: inside a closure the handle is a capture.
-  apply(() => {
-    r.n = i32(5);
-  });
-  // Not listed: a value local, and a write behind RefCell's door. A write
-  // through an `Rc` is E0919 (decision 46), so none reaches codegen.
+  // Not listed: a value local.
   mut(c) := Counter(n : i32(0), items : ArrayList(i32).new());
   c.n = i32(7);
+  // Not listed: the callee does not write its `&mut` parameter.
+  _p := peek(&mut c.n);
+  // Not listed: a write behind RefCell's door.
   cell := Rc.new(RefCell(i32).new(i32(0)));
   cell.with_mut(v => {
     v.* = i32(8);
   });
-  // Listed, proved: a list placed by an explicit allocator is fresh storage
-  // too; the owner record it carries roots nothing.
-  h := Node(n : i32(0), items : ArrayList(i32).new(alloc : .Some(Allocator.global())));
-  h.n = i32(2);
+  // Not listed: `Rc.make_mut`'s result is a value place, not a write
+  // through a handle.
+  mut(h) := Rc.new(Counter(n : i32(1), items : ArrayList(i32).new()));
+  Rc.make_mut(&mut h).n = i32(4);
+  // A write through an `Rc` handle is E0919 (decision 46), so none reaches
+  // codegen: with the `ref(struct(...))` form deleted (v0.2.79) no
+  // user-spelled write through a counted handle can be listed at all — the
+  // census is empty for user code.
+  comptime_expect_error(h.n = i32(5), "read-only through the handle");
 });
 export(main);
