@@ -38,7 +38,7 @@ generate_panic :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
       msg_arg := match(args.get_cloned(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("panic missing argument"))));
       msg_ei := context.base.get_expr_info(&msg_arg);
       // Compile-time string message → fprintf the escaped literal.
-      comptime_msg := match(&msg_ei, .Some(mei) => match(mei.value(), .Some(v) => match(v, .StrLit(raw) => Option(String).Some(raw.clone()), _ => Option(String).None), .None => .None), .None => .None);
+      comptime_msg := match(&msg_ei, .Some(mei) => match(mei.value(), .Some(v) => match(v, Rc(.StrLit(raw)) => Option(String).Some(raw.clone()), _ => Option(String).None), .None => .None), .None => .None);
       match(
         comptime_msg,
         .Some(raw) => {

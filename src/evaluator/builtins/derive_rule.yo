@@ -13,7 +13,7 @@ pragma(Pragma.AllowUnsafe);
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr.yo");
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue, is_func_val } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, is_func_val } :: import("../../value.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -40,8 +40,8 @@ pragma(Pragma.AllowUnsafe);
 /// Look up a registered derive rule's Func type by trait name.
 get_derive_rule_type :: (fn(name : &String) -> Option(TypeValue))(
   match(
-    g_derive_rule_types.with({ name : &name.* }(m) => m.get(name)),
-    .Some(v) => match(v, .TypeVal(t) => Option(TypeValue).Some(Rc.clone(t)), _ => Option(TypeValue).None),
+    g_derive_rule_types.with({ name : &name.* }(m) => m.get_cloned(name)),
+    .Some(v) => match(v, Rc(.TypeVal(t)) => Option(TypeValue).Some(Rc.clone(t)), _ => Option(TypeValue).None),
     .None => Option(TypeValue).None
   )
 );
@@ -62,7 +62,7 @@ extract_derive_key :: (fn(e : &AstExpr) -> Option(String))(
 );
 /// Look up a registered derive rule by trait name.
 get_derive_rule :: (fn(name : &String) -> Option(EvalValue))(
-  g_derive_rules.with({ name : &name.* }(m) => m.get(name))
+  g_derive_rules.with({ name : &name.* }(m) => m.get_cloned(name))
 );
 evaluate_derive_rule :: (
   fn(
@@ -146,7 +146,7 @@ evaluate_derive_rule :: (
           )
         )
       );
-      EvalValue.UnitVal
+      Rc.new(EvalValueNode.UnitVal)
     }
   );
   if(!is_func_val(&derive_fn_val), {
@@ -166,10 +166,10 @@ evaluate_derive_rule :: (
   rule_key := key.clone();
   g_derive_rules.with_mut({ rule_key, derive_fn_val }(m) => m.insert(rule_key, derive_fn_val));
   type_key := key.clone();
-  rule_type := EvalValue.TypeVal(Rc.clone(derive_fn_info.ty()));
+  rule_type := Rc.new(EvalValueNode.TypeVal(Rc.clone(derive_fn_info.ty())));
   g_derive_rule_types.with_mut({ type_key, rule_type }(m) => m.insert(type_key, rule_type));
   out := new_expr_info(env, t_unit());
-  out.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
+  out.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   Rc.clone(expr.*)
 });

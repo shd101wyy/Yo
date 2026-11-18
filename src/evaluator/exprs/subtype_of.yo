@@ -14,7 +14,7 @@ pragma(Pragma.AllowUnsafe);
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
 { Environment, env_adopt } :: import("../../env.yo");
 { EvalContext, force_pending_impls_for_type_name, type_head_name_for_impl_forcing } :: import("../context.yo");
-{ EvalValue } :: import("../../value.yo");
+{ EvalValue, EvalValueNode } :: import("../../value.yo");
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { is_type_val } :: import("../../value.yo");
@@ -104,7 +104,7 @@ evaluate_subtype_of :: (
           )
         )
       );
-      EvalValue.UnitVal
+      Rc.new(EvalValueNode.UnitVal)
     }),
     .None => {
       exn.throw(
@@ -117,12 +117,12 @@ evaluate_subtype_of :: (
           )
         )
       );
-      EvalValue.UnitVal
+      Rc.new(EvalValueNode.UnitVal)
     }
   );
   lhs_ty := match(
-    lhs_type_val,
-    .TypeVal(b) => Rc.clone(b),
+    Rc.clone(lhs_type_val),
+    Rc(.TypeVal(b)) => Rc.clone(b),
     _ => t_unit()
   );
   // In a where clause, the LHS must be a SomeType (type parameter).
@@ -232,7 +232,7 @@ evaluate_subtype_of :: (
       te_info.value(),
       .Some(v) => match(
         v,
-        .TypeVal(b) => if(is_trait_type(&b), Rc.clone(b), {
+        Rc(.TypeVal(b)) => if(is_trait_type(&b), Rc.clone(b), {
           exn.throw(
             dyn(
               Box.new(
@@ -397,7 +397,7 @@ evaluate_subtype_of :: (
       _ => Rc.clone(trait_ty)
     );
     trait_with_receiver_clone := trait_with_receiver.clone();
-    trait_type_val := EvalValue.TypeVal(trait_with_receiver);
+    trait_type_val := Rc.new(EvalValueNode.TypeVal(trait_with_receiver));
     out_info := new_expr_info(&env, &trait_with_receiver_clone);
     out_info.set_value(.Some(trait_type_val));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);

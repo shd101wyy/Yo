@@ -134,8 +134,8 @@ evaluate_panic :: (
         msg_type := Rc.clone(info.ty());
         msg_value := info.value();
         match(
-          msg_value,
-          .Some(.StrLit(raw)) => {
+          msg_value.clone(),
+          .Some(Rc(.StrLit(raw))) => {
             ct_msg = .Some(_unquote_str_lit(&raw));
           },
           .Some(_) => (),
@@ -156,8 +156,8 @@ evaluate_panic :: (
         // single largest propagated def-eval failure (96 std files).
         is_comptime_str := match(
           msg_value,
-          .Some(.StrLit(_)) => true,
-          .Some(.UnknownVal(uty, _)) => is_comptime_string_type(&uty),
+          .Some(Rc(.StrLit(_))) => true,
+          .Some(Rc(.UnknownVal(uty, _))) => is_comptime_string_type(&uty),
           .Some(_) => false,
           .None => is_comptime_string_type(&msg_type)
         );

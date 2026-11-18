@@ -36,7 +36,7 @@
   resolve_solver_sync,
   verify_and_strip_tasks
 } :: import("../../src/verifier/driver.yo");
-{ EvalValue } :: import("../../src/value.yo");
+{ EvalValue, EvalValueNode } :: import("../../src/value.yo");
 { emitted_block_statements } :: import("../../src/expr_info.yo");
 { AstExpr, ast_expr_to_string, ast_expr_token } :: import("../../src/expr.yo");
 { VerifyTask } :: import("../../src/evaluator/builtins/contracts.yo");
@@ -89,8 +89,8 @@ _load_fixture_tasks :: (fn(rel : &String, io : Io) -> ArrayList(VerifyTask))({
 _task_func_val :: (fn(tasks : &ArrayList(VerifyTask)) -> EvalValue)(
   match(
     tasks.get_cloned(usize(0)),
-    .Some(t) => t.func_val,
-    .None => EvalValue.UnitVal
+    .Some(t) => Rc.clone(t.func_val),
+    .None => Rc.new(EvalValueNode.UnitVal)
   )
 );
 /// Count the spliced contract asserts of one label that the emitters emit
@@ -98,7 +98,7 @@ _task_func_val :: (fn(tasks : &ArrayList(VerifyTask)) -> EvalValue)(
 _count_contract_asserts :: (fn(func_val : &EvalValue, label : &String) -> usize)(
   match(
     func_val,
-    .FuncVal(fvd, _) => _count_labeled_asserts_in_body(&fvd.*.*.body, label.clone(), true),
+    Rc(.FuncVal(fvd, _)) => _count_labeled_asserts_in_body(&fvd.*.*.body, label.clone(), true),
     _ => usize(0)
   )
 );
@@ -107,7 +107,7 @@ _count_contract_asserts :: (fn(func_val : &EvalValue, label : &String) -> usize)
 _count_contract_asserts_in_ast :: (fn(func_val : &EvalValue, label : &String) -> usize)(
   match(
     func_val,
-    .FuncVal(fvd, _) => _count_labeled_asserts_in_body(&fvd.*.*.body, label.clone(), false),
+    Rc(.FuncVal(fvd, _)) => _count_labeled_asserts_in_body(&fvd.*.*.body, label.clone(), false),
     _ => usize(0)
   )
 );

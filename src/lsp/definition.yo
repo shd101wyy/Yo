@@ -446,7 +446,7 @@ _method_decl :: (
       match(
         entries.get(ei),
         .Some(en) => if(en.label == member.*, {
-          value = en.value;
+          value = en.value.clone();
         }),
         .None => ()
       );
@@ -459,7 +459,7 @@ _method_decl :: (
   });
   body_tok := match(
     value,
-    .Some(.FuncVal(data, _)) => ast_expr_token(&data.*.body),
+    .Some(Rc(.FuncVal(data, _))) => ast_expr_token(&data.*.body),
     .Some(_) => {
       return(Option(Token).None);
     },
@@ -645,7 +645,7 @@ _member_definition :: (
                   owner = Rc.clone(rinfo.ty());
                   match(
                     rinfo.value(),
-                    .Some(.TypeVal(tv)) => {
+                    .Some(Rc(.TypeVal(tv))) => {
                       owner = Rc.clone(tv);
                     },
                     .Some(_) => (),
@@ -940,7 +940,7 @@ handle_type_definition :: (
     info.value(),
     .Some(v) => match(
       v,
-      .TypeVal(t) => Option(TypeValue).Some(Rc.clone(t)),
+      Rc(.TypeVal(t)) => Option(TypeValue).Some(Rc.clone(t)),
       _ => Option(TypeValue).None
     ),
     .None => Option(TypeValue).None

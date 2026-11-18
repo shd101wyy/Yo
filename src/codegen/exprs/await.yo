@@ -128,8 +128,8 @@ resolve_evidence_field_from_given_bindings :: (fn(field_label : &String, context
       .Some(v) => match(
         v.value().get(usize(0)),
         .Some(val) => if(is_struct_val(&val), {
-          field_names := match(val, .StructVal(_, fns, _) => Rc.clone(fns), _ => no_labels());
-          field_values := match(val, .StructVal(_, _, fvs) => Rc.clone(fvs), _ => empty_value_cell());
+          field_names := match(Rc.clone(val), Rc(.StructVal(_, fns, _)) => Rc.clone(fns), _ => no_labels());
+          field_values := match(val, Rc(.StructVal(_, _, fvs)) => Rc.clone(fvs), _ => empty_value_cell());
           (mut(fi) : usize) = usize(0);
           while(fi < field_names.len(), {
             flbl := match(field_names.get_cloned(fi), .Some(l) => l, .None => String.from(""));
@@ -139,7 +139,7 @@ resolve_evidence_field_from_given_bindings :: (fn(field_label : &String, context
                 .Some(fv) => if(is_func_val(&fv), {
                   match(
                     fv,
-                    .FuncVal(__fvd1, _) => match(
+                    Rc(.FuncVal(__fvd1, _)) => match(
                       fn_value_c_name(&__fvd1.*.func_id, &mut context.base),
                       .Some(cn) => return(Option(String).Some(cn)),
                       .None => ()

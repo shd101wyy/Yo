@@ -43,188 +43,179 @@ derive(FuncValData, Clone);
 /// - `VarRef` represents a runtime variable reference: the type is known from
 ///   the environment, but the runtime value is unknown at compile time.
 /// - `UnitVal` is the value of the `()` unit expression.
-EvalValue :: ref(
-  enum(
-    /// The unit `()` value.
-    UnitVal,
-    /// Boolean constant from a `true`/`false` literal.
-    BoolVal(b : bool),
-    /// Integer literal — raw token text, e.g. `"42"`, `"0xFF"`, `"0b1010"`.
-    /// Char literals are decoded to their Unicode code point and stored as a
-    /// decimal string, e.g. `'a'` → `"97"`.
-    /// Full parsing (CTFE numeric evaluation) is deferred to Phase 3h.
-    IntLit(raw : String),
-    /// Float literal — raw token text, e.g. `"3.14"`.
-    FloatLit(raw : String),
-    /// String or template-string literal — raw token text.
-    /// For StringLit tokens the value includes surrounding `"` delimiters.
-    /// For TemplateString tokens the delimiters are stripped by the lexer.
-    StrLit(raw : String),
-    /// Runtime variable reference: type is known from the environment, but the
-    /// value is only available at runtime (non-comptime bindings).
-    VarRef(name : String),
-    /// A compile-time known enum variant value.
-    ///
-    /// `variant` stores the full dot-prefixed name (e.g. `".Some"`, `".None"`).
-    /// `fields` holds the evaluated values of the constructor arguments in
-    /// declaration order (positional).
-    EnumVal(variant : String, fields : SharedList(Self)),
-    /// A compiled function value: parameter names, unevaluated body expression,
-    /// and a snapshot of the definition-time environment for lexical scoping.
-    ///
-    /// Phase 3i: `cap_names`, `cap_tys`, and `cap_vals` hold a flat snapshot of
-    /// all variable bindings visible when the function was defined. At call time
-    /// a fresh `Environment` is rebuilt from these captures so the body sees the
-    /// correct lexical scope instead of the caller's dynamic env.
-    /// Runtime variables (no comptime value) are stored as `VarRef(name)` in
-    /// `cap_vals`; their type is preserved in the parallel `cap_tys` array.
-    ///
-    /// Phase 3l: `forall_names` holds the generic type parameter names extracted
-    /// from the function's `generic(T)` parameters. `param_type_names` holds the
-    /// type annotation identifier for each value parameter (empty string if the
-    /// annotation is complex or absent). These are used together at call time to
-    /// infer generic bindings: for each generic name `F`, if any value param has
-    /// type annotation `F`, the corresponding argument's type is bound as
-    /// `TypeVal(arg.ty)` under name `F` before value params are bound.
-    ///
-    /// Phase 3o: `evidence_params` holds the names of `name : Type`
-    /// parameters. At call time these are bound from explicit `name` args
-    /// (which evaluate to the named value from the caller's env).
-    /// `cap_vals` (closure capture VALUES) stays inline — it is `ArrayList(Self)`
-    /// (recursive). All other fields live in `data : Rc(FuncValData)` (P2: the
-    /// inline 9-handle variant set sizeof(EvalValue) ~80 B, wasted in every inline
-    /// Option(EvalValue) / nested ArrayList(EvalValue) copy).
-    FuncVal(
-      data : Rc(FuncValData),
-      cap_vals : SharedList(Self)
-    ),
-    /// Control-flow signal emitted by a `return(expr)` statement.
-    ///
-    /// Propagated upward through begin blocks and while loops until it reaches
-    /// the function call boundary, where it is unwrapped into the return value.
-    // `ty` is `Box`ed: it is the ONLY `EvalValue` variant that embedded a
-    // `TypeValue` inline (~126 B), which set `sizeof(EvalValue)` and inflated every
-    // inline `Option(EvalValue)` (Variable.value ×2.6M, ExprInfo.value, every
-    // ArrayList(EvalValue)) in the self-compile. Boxing it drops `sizeof(EvalValue)`
-    // to the next-biggest variant; the per-`return` box is transient (control-flow
-    // signals are short-lived) while the inline savings are retained (P2).
-    ReturnVal(val : Self, ty : TypeValue),
-    /// Control-flow signal emitted by a `break` statement inside a while or for loop.
-    ///
-    /// Propagated upward through begin blocks until it reaches the enclosing loop,
-    /// where it terminates iteration and the loop returns `UnitVal`.
-    BreakVal,
-    /// Control-flow signal emitted by a `continue` statement inside a loop.
-    ///
-    /// Propagated upward through begin blocks until it reaches the enclosing loop,
-    /// where it skips the rest of the body and continues to the next iteration.
-    ContinueVal,
-    /// A compile-time type value (Phase 3k).
-    ///
-    /// Represents a Yo type as a first-class compile-time value.  For example,
-    /// evaluating the bare identifier `i32` produces `TypeVal(Int(32, true))`.
-    /// This is needed for `generic(T: Type)` param binding, type-level lambdas
-    /// (`ArrayList(String)`), and any other context where a type appears as a
-    /// value.
-    ///
-    /// `ty` is heap-allocated via `Box` to keep the `EvalValue` enum size small —
-    /// `TypeValue` is large (the `Func` variant has 9 ArrayList fields) and
-    /// storing it inline would bloat every local `EvalValue` and stack frame.
-    TypeVal(ty : TypeValue),
-    /// A compile-time known struct/object value with named fields.
-    ///
-    /// `ty_name` is the struct type name (e.g. `"Token"`, `"EvalResult"`).
-    /// `field_names` and `field_values` are parallel arrays in field-declaration order.
-    StructVal(ty_name : String, field_names : SharedList(String), field_values : Rc(RefCell(ArrayList(Self)))),
-    // Phase 2h — remaining value types ---------------------------------------
-    /// An anonymous tuple value.
-    ///
-    /// `fields` holds the compile-time values of all tuple elements in order.
-    TupleVal(fields : Rc(RefCell(ArrayList(Self)))),
-    /// A compile-time array value.
-    ///
-    /// `elements` holds the element values in index order.
-    /// The element type is tracked in the surrounding `EvalResult.ty` (Array variant).
-    ArrayVal(elements : Rc(RefCell(ArrayList(Self)))),
-    /// A compile-time slice into an array.
-    ///
-    /// `source` is a `Rc(EvalValue)` wrapping an `ArrayVal`.
-    /// `start_idx` (inclusive) and `end_idx` (exclusive) delimit the view.
-    ///
-    /// Note: the `Rc` design preserves the backing-array reference concept
-    /// for pointer semantics but does not yet implement full mutable aliasing.
-    ///
-    /// A compile-time pointer to a value.
-    ///
-    /// `target_value` is a SINGLE-ELEMENT `ValueCell` holding the pointed-to
-    /// value — the SAME cell as the source variable's value cell, so mutations
-    /// through the pointer are visible to reads of the original (mutable
-    /// reference semantics; the arm-22 comptime scalar-pointer model). For
-    /// simple variables, `target_value(0)` is the value directly and
-    /// `target_index` is 0. For array-element pointers like `&(arr(2))`,
-    /// `target_value(0)` is the `ArrayVal` and `target_index` is 2.
-    ///
-    /// Equality is always `false` for pointers (alias identity is not portable
-    /// in the compile-time evaluator context).
-    ///
-    /// `aggregate_ty` is the type of the aggregate an element or field pointer
-    /// points INTO (`&(A(i))`, `&(K.f)`, `&(t.0)`) and `.None` for a pointer to
-    /// a whole value. The two share one cell shape (`ArrayVal` of the
-    /// elements or fields), so codegen needs the type to emit the aggregate
-    /// the pointer addresses
-    /// (issues/fixed/address-of-an-element-of-a-compile-time-constant-emits-a-placeholder.md).
-    PtrVal(target_value : Rc(RefCell(ArrayList(Self))), target_index : usize, aggregate_ty : Option(TypeValue)),
-    /// A compile-time trait object value.
-    ///
-    /// `ty_name` is the trait type name (e.g. `"Display"`).
-    /// `field_names` and `field_values` are parallel arrays in field-declaration
-    /// order. `field_values` uses `Option(Self)` so that runtime-only fields
-    /// (where the compile-time value is unknown) can be represented as `.None`.
-    TraitVal(ty_name : String, field_names : SharedList(String), field_values : SharedList(Option(Self))),
-    /// A compile-time list (used for variadics and metaprogramming).
-    ///
-    /// `elements` holds the element values. The element type is tracked in the
-    /// surrounding `EvalResult.ty` (ComptimeListT variant).
-    ComptimeListVal(elements : Rc(RefCell(ArrayList(Self)))),
-    /// An expression value (metaprogramming / quote).
-    ///
-    /// `expr` holds the quoted `AstExpr` node.
-    /// Equality is always `false` (no structural AST equality yet).
-    ExprVal(expr : AstExpr),
-    /// A compile-time placeholder for a variable whose value is not yet known.
-    ///
-    /// Used by `evaluateBinding` for `(x : T)` declarations before the
-    /// initializer runs.
-    /// The type is preserved so that subsequent type-checking can verify
-    /// compatibility without needing the concrete value.
-    ///
-    /// `TypeValue` keeps the enum size manageable — storing `TypeValue`
-    /// inline would inflate every local `EvalValue` variable causing ASAN stack overflow.
-    ///
-    /// NOT the same as `VarRef` — `VarRef` represents a known-at-runtime variable
-    /// reference, while `UnknownVal` is a compile-time placeholder.
-    ///
-    /// The `is_runtime_only` flag:
-    /// FALSE for an ordinary compile-time placeholder (the default, and what
-    /// `create_unknown_val` builds); TRUE only for a value produced by runtime
-    /// dispatch — Index-trait dispatch, a `recur`
-    /// result in a runtime-returning function, and anything
-    /// derived from one by property access. Consumers must treat only the TRUE
-    /// case as "this is a runtime value" — treating every unknown as runtime
-    /// made a comptime `self` parameter unfillable.
-    UnknownVal(ty : TypeValue, is_runtime_only : bool)
-  )
+EvalValueNode :: enum(
+  /// The unit `()` value.
+  UnitVal,
+  /// Boolean constant from a `true`/`false` literal.
+  BoolVal(b : bool),
+  /// Integer literal — raw token text, e.g. `"42"`, `"0xFF"`, `"0b1010"`.
+  /// Char literals are decoded to their Unicode code point and stored as a
+  /// decimal string, e.g. `'a'` → `"97"`.
+  /// Full parsing (CTFE numeric evaluation) is deferred to Phase 3h.
+  IntLit(raw : String),
+  /// Float literal — raw token text, e.g. `"3.14"`.
+  FloatLit(raw : String),
+  /// String or template-string literal — raw token text.
+  /// For StringLit tokens the value includes surrounding `"` delimiters.
+  /// For TemplateString tokens the delimiters are stripped by the lexer.
+  StrLit(raw : String),
+  /// Runtime variable reference: type is known from the environment, but the
+  /// value is only available at runtime (non-comptime bindings).
+  VarRef(name : String),
+  /// A compile-time known enum variant value.
+  ///
+  /// `variant` stores the full dot-prefixed name (e.g. `".Some"`, `".None"`).
+  /// `fields` holds the evaluated values of the constructor arguments in
+  /// declaration order (positional).
+  EnumVal(variant : String, fields : SharedList(Rc(Self))),
+  /// A compiled function value: parameter names, unevaluated body expression,
+  /// and a snapshot of the definition-time environment for lexical scoping.
+  ///
+  /// Phase 3i: `cap_names`, `cap_tys`, and `cap_vals` hold a flat snapshot of
+  /// all variable bindings visible when the function was defined. At call time
+  /// a fresh `Environment` is rebuilt from these captures so the body sees the
+  /// correct lexical scope instead of the caller's dynamic env.
+  /// Runtime variables (no comptime value) are stored as `VarRef(name)` in
+  /// `cap_vals`; their type is preserved in the parallel `cap_tys` array.
+  ///
+  /// Phase 3l: `forall_names` holds the generic type parameter names extracted
+  /// from the function's `generic(T)` parameters. `param_type_names` holds the
+  /// type annotation identifier for each value parameter (empty string if the
+  /// annotation is complex or absent). These are used together at call time to
+  /// infer generic bindings: for each generic name `F`, if any value param has
+  /// type annotation `F`, the corresponding argument's type is bound as
+  /// `TypeVal(arg.ty)` under name `F` before value params are bound.
+  ///
+  /// Phase 3o: `evidence_params` holds the names of `name : Type`
+  /// parameters. At call time these are bound from explicit `name` args
+  /// (which evaluate to the named value from the caller's env).
+  /// `cap_vals` (closure capture VALUES) stays inline — it is `ArrayList(Self)`
+  /// (recursive). All other fields live in `data : Rc(FuncValData)` (P2: the
+  /// inline 9-handle variant set sizeof(EvalValue) ~80 B, wasted in every inline
+  /// Option(EvalValue) / nested ArrayList(EvalValue) copy).
+  FuncVal(
+    data : Rc(FuncValData),
+    cap_vals : SharedList(Rc(Self))
+  ),
+  /// Control-flow signal emitted by a `return(expr)` statement.
+  ///
+  /// Propagated upward through begin blocks and while loops until it reaches
+  /// the function call boundary, where it is unwrapped into the return value.
+  // `ty` is `Box`ed: it is the ONLY `EvalValue` variant that embedded a
+  // `TypeValue` inline (~126 B), which set `sizeof(EvalValue)` and inflated every
+  // inline `Option(EvalValue)` (Variable.value ×2.6M, ExprInfo.value, every
+  // ArrayList(EvalValue)) in the self-compile. Boxing it drops `sizeof(EvalValue)`
+  // to the next-biggest variant; the per-`return` box is transient (control-flow
+  // signals are short-lived) while the inline savings are retained (P2).
+  ReturnVal(val : Rc(Self), ty : TypeValue),
+  /// Control-flow signal emitted by a `break` statement inside a while or for loop.
+  ///
+  /// Propagated upward through begin blocks until it reaches the enclosing loop,
+  /// where it terminates iteration and the loop returns `UnitVal`.
+  BreakVal,
+  /// Control-flow signal emitted by a `continue` statement inside a loop.
+  ///
+  /// Propagated upward through begin blocks until it reaches the enclosing loop,
+  /// where it skips the rest of the body and continues to the next iteration.
+  ContinueVal,
+  /// A compile-time type value (Phase 3k).
+  ///
+  /// Represents a Yo type as a first-class compile-time value.  For example,
+  /// evaluating the bare identifier `i32` produces `TypeVal(Int(32, true))`.
+  /// This is needed for `generic(T: Type)` param binding, type-level lambdas
+  /// (`ArrayList(String)`), and any other context where a type appears as a
+  /// value.
+  ///
+  /// `ty` is heap-allocated via `Box` to keep the `EvalValue` enum size small —
+  /// `TypeValue` is large (the `Func` variant has 9 ArrayList fields) and
+  /// storing it inline would bloat every local `EvalValue` and stack frame.
+  TypeVal(ty : TypeValue),
+  /// A compile-time known struct/object value with named fields.
+  ///
+  /// `ty_name` is the struct type name (e.g. `"Token"`, `"EvalResult"`).
+  /// `field_names` and `field_values` are parallel arrays in field-declaration order.
+  StructVal(ty_name : String, field_names : SharedList(String), field_values : Rc(RefCell(ArrayList(Rc(Self))))),
+  // Phase 2h — remaining value types ---------------------------------------
+  /// An anonymous tuple value.
+  ///
+  /// `fields` holds the compile-time values of all tuple elements in order.
+  TupleVal(fields : Rc(RefCell(ArrayList(Rc(Self))))),
+  /// A compile-time array value.
+  ///
+  /// `elements` holds the element values in index order.
+  /// The element type is tracked in the surrounding `EvalResult.ty` (Array variant).
+  ArrayVal(elements : Rc(RefCell(ArrayList(Rc(Self))))),
+  /// A compile-time slice into an array.
+  ///
+  /// `source` is a `Rc(EvalValue)` wrapping an `ArrayVal`.
+  /// `start_idx` (inclusive) and `end_idx` (exclusive) delimit the view.
+  ///
+  /// Note: the `Rc` design preserves the backing-array reference concept
+  /// for pointer semantics but does not yet implement full mutable aliasing.
+  ///
+  /// A compile-time pointer to a value.
+  ///
+  /// `target_value` is a SINGLE-ELEMENT `ValueCell` holding the pointed-to
+  /// value — the SAME cell as the source variable's value cell, so mutations
+  /// through the pointer are visible to reads of the original (mutable
+  /// reference semantics; the arm-22 comptime scalar-pointer model). For
+  /// simple variables, `target_value(0)` is the value directly and
+  /// `target_index` is 0. For array-element pointers like `&(arr(2))`,
+  /// `target_value(0)` is the `ArrayVal` and `target_index` is 2.
+  ///
+  /// Equality is always `false` for pointers (alias identity is not portable
+  /// in the compile-time evaluator context).
+  ///
+  /// `aggregate_ty` is the type of the aggregate an element or field pointer
+  /// points INTO (`&(A(i))`, `&(K.f)`, `&(t.0)`) and `.None` for a pointer to
+  /// a whole value. The two share one cell shape (`ArrayVal` of the
+  /// elements or fields), so codegen needs the type to emit the aggregate
+  /// the pointer addresses
+  /// (issues/fixed/address-of-an-element-of-a-compile-time-constant-emits-a-placeholder.md).
+  PtrVal(target_value : Rc(RefCell(ArrayList(Rc(Self)))), target_index : usize, aggregate_ty : Option(TypeValue)),
+  /// A compile-time trait object value.
+  ///
+  /// `ty_name` is the trait type name (e.g. `"Display"`).
+  /// `field_names` and `field_values` are parallel arrays in field-declaration
+  /// order. `field_values` uses `Option(Self)` so that runtime-only fields
+  /// (where the compile-time value is unknown) can be represented as `.None`.
+  TraitVal(ty_name : String, field_names : SharedList(String), field_values : SharedList(Option(Rc(Self)))),
+  /// A compile-time list (used for variadics and metaprogramming).
+  ///
+  /// `elements` holds the element values. The element type is tracked in the
+  /// surrounding `EvalResult.ty` (ComptimeListT variant).
+  ComptimeListVal(elements : Rc(RefCell(ArrayList(Rc(Self))))),
+  /// An expression value (metaprogramming / quote).
+  ///
+  /// `expr` holds the quoted `AstExpr` node.
+  /// Equality is always `false` (no structural AST equality yet).
+  ExprVal(expr : AstExpr),
+  /// A compile-time placeholder for a variable whose value is not yet known.
+  ///
+  /// Used by `evaluateBinding` for `(x : T)` declarations before the
+  /// initializer runs.
+  /// The type is preserved so that subsequent type-checking can verify
+  /// compatibility without needing the concrete value.
+  ///
+  /// `TypeValue` keeps the enum size manageable — storing `TypeValue`
+  /// inline would inflate every local `EvalValue` variable causing ASAN stack overflow.
+  ///
+  /// NOT the same as `VarRef` — `VarRef` represents a known-at-runtime variable
+  /// reference, while `UnknownVal` is a compile-time placeholder.
+  ///
+  /// The `is_runtime_only` flag:
+  /// FALSE for an ordinary compile-time placeholder (the default, and what
+  /// `create_unknown_val` builds); TRUE only for a value produced by runtime
+  /// dispatch — Index-trait dispatch, a `recur`
+  /// result in a runtime-returning function, and anything
+  /// derived from one by property access. Consumers must treat only the TRUE
+  /// case as "this is a runtime value" — treating every unknown as runtime
+  /// made a comptime `self` parameter unfillable.
+  UnknownVal(ty : TypeValue, is_runtime_only : bool)
 );
-/// `EvalValue` is a `ref(...)`: every copy of one is a second handle to the same
-/// object, so its `clone` is that handle copy too. It lets a value aggregate
-/// holding an `EvalValue` beside a counted handle `derive(..., Clone)` (decision 17,
-/// plans/VALUES_BY_DEFAULT.md V2c).
-impl(
-  EvalValue,
-  Clone(
-    clone : (fn(self : &Self) -> Self)(self.*)
-  )
-);
+/// A shared, read-only handle to an `EvalValueNode` (plans/VALUES_BY_DEFAULT.md
+/// V5 part B, batch 3e): a copy is `Rc.clone(v)`, one count bump.
+EvalValue :: Rc(EvalValueNode);
 /// A compile-time PLACE: the list of values a pointer or a field write
 /// reaches, shared by every holder (plans/VALUES_BY_DEFAULT.md V4,
 /// `EvalValue`). Four places alias on purpose — a variable's value cell
@@ -245,11 +236,11 @@ impl(
   /// True when the place holds no value (a runtime variable's cell).
   is_empty : (fn(self : &Self) -> bool)(self.with({ self : &self.* }(xs) => xs.is_empty())),
   /// The value at `i`, or `.None` past the end.
-  get : (fn(self : &Self, i : usize) -> Option(EvalValue))(self.with({ i }(xs) => xs.get(i))),
+  get : (fn(self : &Self, i : usize) -> Option(EvalValue))(self.with({ i }(xs) => xs.get_cloned(i))),
   /// Store `v` at `i`, seen by every holder of the place; panics past the end.
   set : (fn(self : &Self, i : usize, v : EvalValue) -> unit)(
     self.with_mut(xs => {
-      xs(i) = v;
+      xs(i) = Rc.clone(v);
     })
   )
 );
@@ -289,7 +280,7 @@ impl(
   /// True when the list holds no elements.
   is_empty : (fn(self : &Self) -> bool)(self.items.is_empty()),
   /// The element at `i`, or `.None` past the end.
-  get : (fn(self : &Self, i : usize) -> Option(EvalValue))(self.items.get(i)),
+  get : (fn(self : &Self, i : usize) -> Option(EvalValue))(self.items.get_cloned(i)),
   /// `xs(i)` reads the element at `i` (a read projection); panics past the end.
   Index(usize)(
     Output : EvalValue,
@@ -319,7 +310,7 @@ impl(
   /// True when the list holds no elements.
   is_empty : (fn(self : &Self) -> bool)(self.items.is_empty()),
   /// The element at `i`, or `.None` past the end.
-  get : (fn(self : &Self, i : usize) -> Option(Option(EvalValue)))(self.items.get(i))
+  get : (fn(self : &Self, i : usize) -> Option(Option(EvalValue)))(self.items.get_cloned(i))
 );
 /// Element-wise equality for `EvalValue`.
 ///
@@ -329,7 +320,7 @@ impl(
 ///
 /// By writing the function with `recur` for recursive cases we break the cycle:
 /// the `Eq(ArrayList(EvalValue))` impl is only exercised at call time.
-eval_value_eq :: (fn(a : &EvalValue, b : &EvalValue) -> bool)(
+eval_value_node_eq :: (fn(a : &EvalValueNode, b : &EvalValueNode) -> bool)(
   match(
     a,
     .UnitVal =>
@@ -362,7 +353,7 @@ eval_value_eq :: (fn(a : &EvalValue, b : &EvalValue) -> bool)(
                     match(
                       bfs.get(i),
                       .Some(bf) => {
-                        ok = recur(&af, &bf);
+                        ok = recur(af.as_ref(), bf.as_ref());
                       },
                       .None => {
                         ok = false;
@@ -434,7 +425,7 @@ eval_value_eq :: (fn(a : &EvalValue, b : &EvalValue) -> bool)(
                       bvals.get(sf_i),
                       .Some(bv) => {
                         cond(
-                          !recur(&av, &bv) => {
+                          !recur(av.as_ref(), bv.as_ref()) => {
                             sf_ok = false;
                           },
                           true => ()
@@ -473,7 +464,7 @@ eval_value_eq :: (fn(a : &EvalValue, b : &EvalValue) -> bool)(
                     match(
                       bfs.get(tv_i),
                       .Some(bf) => {
-                        tv_ok = recur(&af, &bf);
+                        tv_ok = recur(af.as_ref(), bf.as_ref());
                       },
                       .None => {
                         tv_ok = false;
@@ -507,7 +498,7 @@ eval_value_eq :: (fn(a : &EvalValue, b : &EvalValue) -> bool)(
                     match(
                       bes.get(av_i),
                       .Some(be) => {
-                        av_ok = recur(&ae, &be);
+                        av_ok = recur(ae.as_ref(), be.as_ref());
                       },
                       .None => {
                         av_ok = false;
@@ -570,7 +561,7 @@ eval_value_eq :: (fn(a : &EvalValue, b : &EvalValue) -> bool)(
                           (ao.is_none() && bo.is_none()) => (),
                           (ao.is_some() && bo.is_some()) => {
                             cond(
-                              !recur(ao.unwrap(), bo.unwrap()) => {
+                              !eval_value_eq(ao.unwrap(), bo.unwrap()) => {
                                 tr_ok = false;
                               },
                               true => ()
@@ -613,7 +604,7 @@ eval_value_eq :: (fn(a : &EvalValue, b : &EvalValue) -> bool)(
                     match(
                       bes.get(cl_i),
                       .Some(be) => {
-                        cl_ok = recur(&ae, &be);
+                        cl_ok = recur(ae.as_ref(), be.as_ref());
                       },
                       .None => {
                         cl_ok = false;
@@ -644,11 +635,14 @@ eval_value_eq :: (fn(a : &EvalValue, b : &EvalValue) -> bool)(
   )
 );
 impl(
-  EvalValue,
-  Eq(EvalValue)(
-    (==) : (fn(a : &Self, b : &Self) -> bool)(eval_value_eq(a, b))
+  EvalValueNode,
+  Eq(EvalValueNode)(
+    (==) : (fn(a : &Self, b : &Self) -> bool)(eval_value_node_eq(a, b))
   )
 );
+/// Element-wise equality of two `EvalValue` handles: their nodes compare (`Rc`'s
+/// `Eq` is the prelude's blanket impl over the node's).
+eval_value_eq :: (fn(a : &EvalValue, b : &EvalValue) -> bool)(eval_value_node_eq(a.as_ref(), b.as_ref()));
 // ---------------------------------------------------------------------------
 // value_to_string
 // ---------------------------------------------------------------------------
@@ -658,13 +652,13 @@ impl(
 value_to_string :: (fn(v : &EvalValue) -> String)(
   match(
     v,
-    .UnitVal => String.from("()"),
-    .BoolVal(b) => if(b.*, String.from("true"), String.from("false")),
-    .IntLit(raw) => raw.clone(),
-    .FloatLit(raw) => raw.clone(),
-    .StrLit(raw) => raw.clone(),
-    .VarRef(name) => name.clone(),
-    .EnumVal(variant, fields) =>
+    Rc(.UnitVal) => String.from("()"),
+    Rc(.BoolVal(b)) => if(b.*, String.from("true"), String.from("false")),
+    Rc(.IntLit(raw)) => raw.clone(),
+    Rc(.FloatLit(raw)) => raw.clone(),
+    Rc(.StrLit(raw)) => raw.clone(),
+    Rc(.VarRef(name)) => name.clone(),
+    Rc(.EnumVal(variant, fields)) =>
       cond(
         (fields.len() == usize(0)) => `${variant}`,
         true => {
@@ -691,7 +685,7 @@ value_to_string :: (fn(v : &EvalValue) -> String)(
           `${variant}(${parts})`
         }
       ),
-    .FuncVal(__fvd1, _) => {
+    Rc(.FuncVal(__fvd1, _)) => {
       param_str := String.from("");
       (pi : usize) = usize(0);
       n_p := __fvd1.params.len();
@@ -713,14 +707,14 @@ value_to_string :: (fn(v : &EvalValue) -> String)(
       });
       `<fn(${param_str})>`
     },
-    .ReturnVal(val, _) => {
+    Rc(.ReturnVal(val, _)) => {
       inner := recur(&val.*);
       `return(${inner})`
     },
-    .BreakVal => String.from("break"),
-    .ContinueVal => String.from("continue"),
-    .TypeVal(ty) => type_to_string(&ty.*),
-    .StructVal(ty_name, field_names, field_values) => {
+    Rc(.BreakVal) => String.from("break"),
+    Rc(.ContinueVal) => String.from("continue"),
+    Rc(.TypeVal(ty)) => type_to_string(&ty.*),
+    Rc(.StructVal(ty_name, field_names, field_values)) => {
       parts_sv := String.from("");
       (svi : usize) = usize(0);
       n_sv := field_names.len();
@@ -751,7 +745,7 @@ value_to_string :: (fn(v : &EvalValue) -> String)(
       });
       `${ty_name}(${parts_sv})`
     },
-    .TupleVal(fields) => {
+    Rc(.TupleVal(fields)) => {
       n_tup := fields.len();
       cond(
         (n_tup == usize(0)) => String.from("()"),
@@ -782,7 +776,7 @@ value_to_string :: (fn(v : &EvalValue) -> String)(
         }
       )
     },
-    .ArrayVal(elements) => {
+    Rc(.ArrayVal(elements)) => {
       n_arr := elements.len();
       parts_arr := String.from("");
       (arri : usize) = usize(0);
@@ -808,12 +802,12 @@ value_to_string :: (fn(v : &EvalValue) -> String)(
         true => `[${parts_arr}]`
       )
     },
-    .PtrVal(target_value, target_index, _) =>
+    Rc(.PtrVal(target_value, target_index, _)) =>
       match(
         target_value.get(usize(0)),
         .Some(cell0) => match(
-          cell0,
-          .ArrayVal(elems) =>
+          Rc.clone(cell0),
+          Rc(.ArrayVal(elems)) =>
             match(
               elems.get(target_index.*),
               .Some(e) => {
@@ -829,7 +823,7 @@ value_to_string :: (fn(v : &EvalValue) -> String)(
         ),
         .None => String.from("<ptr to ?>")
       ),
-    .TraitVal(ty_name, field_names, field_values) => {
+    Rc(.TraitVal(ty_name, field_names, field_values)) => {
       parts_tr := String.from("");
       (tri : usize) = usize(0);
       n_tr_f := field_names.len();
@@ -867,7 +861,7 @@ value_to_string :: (fn(v : &EvalValue) -> String)(
       });
       `${ty_name}(${parts_tr})`
     },
-    .ComptimeListVal(elements) => {
+    Rc(.ComptimeListVal(elements)) => {
       parts_cl := String.from("");
       (cli : usize) = usize(0);
       n_cl_vs := elements.len();
@@ -890,8 +884,8 @@ value_to_string :: (fn(v : &EvalValue) -> String)(
       });
       `comptime_list(${parts_cl})`
     },
-    .ExprVal(_) => String.from("<expr>"),
-    .UnknownVal(ty, _) => {
+    Rc(.ExprVal(_)) => String.from("<expr>"),
+    Rc(.UnknownVal(ty, _)) => {
       ts := type_to_string(&ty.*);
       `<unknown: ${ts}>`
     }
@@ -900,31 +894,31 @@ value_to_string :: (fn(v : &EvalValue) -> String)(
 // ---------------------------------------------------------------------------
 // Type predicate functions
 // ---------------------------------------------------------------------------
-is_unit_val :: (fn(v : &EvalValue) -> bool)(match(v, .UnitVal => true, _ => false));
-is_bool_val :: (fn(v : &EvalValue) -> bool)(match(v, .BoolVal(_) => true, _ => false));
-is_int_lit :: (fn(v : &EvalValue) -> bool)(match(v, .IntLit(_) => true, _ => false));
-is_float_lit :: (fn(v : &EvalValue) -> bool)(match(v, .FloatLit(_) => true, _ => false));
-is_str_lit :: (fn(v : &EvalValue) -> bool)(match(v, .StrLit(_) => true, _ => false));
-is_var_ref :: (fn(v : &EvalValue) -> bool)(match(v, .VarRef(_) => true, _ => false));
-is_enum_val :: (fn(v : &EvalValue) -> bool)(match(v, .EnumVal(_, _) => true, _ => false));
-is_func_val :: (fn(v : &EvalValue) -> bool)(match(v, .FuncVal(_, _) => true, _ => false));
-is_return_val :: (fn(v : &EvalValue) -> bool)(match(v, .ReturnVal(_, _) => true, _ => false));
-is_break_val :: (fn(v : &EvalValue) -> bool)(match(v, .BreakVal => true, _ => false));
-is_continue_val :: (fn(v : &EvalValue) -> bool)(match(v, .ContinueVal => true, _ => false));
-is_type_val :: (fn(v : &EvalValue) -> bool)(match(v, .TypeVal(_) => true, _ => false));
-is_struct_val :: (fn(v : &EvalValue) -> bool)(match(v, .StructVal(_, _, _) => true, _ => false));
+is_unit_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.UnitVal) => true, _ => false));
+is_bool_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.BoolVal(_)) => true, _ => false));
+is_int_lit :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.IntLit(_)) => true, _ => false));
+is_float_lit :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.FloatLit(_)) => true, _ => false));
+is_str_lit :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.StrLit(_)) => true, _ => false));
+is_var_ref :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.VarRef(_)) => true, _ => false));
+is_enum_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.EnumVal(_, _)) => true, _ => false));
+is_func_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.FuncVal(_, _)) => true, _ => false));
+is_return_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.ReturnVal(_, _)) => true, _ => false));
+is_break_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.BreakVal) => true, _ => false));
+is_continue_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.ContinueVal) => true, _ => false));
+is_type_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.TypeVal(_)) => true, _ => false));
+is_struct_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.StructVal(_, _, _)) => true, _ => false));
 /// True for source-namespace struct values (anonymous modules / imports).
 /// Modules are StructValues with a
 /// source-namespace type (plans/archive/MODULE_AS_STRUCT_ALIGNMENT.md); the
 /// generated `source_namespace_` ty_name prefix is the value-side marker.
-is_module_val :: (fn(v : &EvalValue) -> bool)(match(v, .StructVal(n, _, _) => n.starts_with(`source_namespace_`), _ => false));
-is_tuple_val :: (fn(v : &EvalValue) -> bool)(match(v, .TupleVal(_) => true, _ => false));
-is_array_val :: (fn(v : &EvalValue) -> bool)(match(v, .ArrayVal(_) => true, _ => false));
-is_ptr_val :: (fn(v : &EvalValue) -> bool)(match(v, .PtrVal(_, _, _) => true, _ => false));
-is_trait_val :: (fn(v : &EvalValue) -> bool)(match(v, .TraitVal(_, _, _) => true, _ => false));
-is_comptime_list_val :: (fn(v : &EvalValue) -> bool)(match(v, .ComptimeListVal(_) => true, _ => false));
-is_expr_val :: (fn(v : &EvalValue) -> bool)(match(v, .ExprVal(_) => true, _ => false));
-is_unknown_val :: (fn(v : &EvalValue) -> bool)(match(v, .UnknownVal(_, _) => true, _ => false));
+is_module_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.StructVal(n, _, _)) => n.starts_with(`source_namespace_`), _ => false));
+is_tuple_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.TupleVal(_)) => true, _ => false));
+is_array_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.ArrayVal(_)) => true, _ => false));
+is_ptr_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.PtrVal(_, _, _)) => true, _ => false));
+is_trait_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.TraitVal(_, _, _)) => true, _ => false));
+is_comptime_list_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.ComptimeListVal(_)) => true, _ => false));
+is_expr_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.ExprVal(_)) => true, _ => false));
+is_unknown_val :: (fn(v : &EvalValue) -> bool)(match(v, Rc(.UnknownVal(_, _)) => true, _ => false));
 /// True when `v` is — or recursively contains — an `UnknownVal` (a runtime
 /// hole). A bare runtime call yields `UnknownVal`, but a RUNTIME construction
 /// (`.Some((p &+ i).*)`, `Wrap(v : runtimeVal)`, `(f(), 1)`) yields an
@@ -934,11 +928,11 @@ is_unknown_val :: (fn(v : &EvalValue) -> bool)(match(v, .UnknownVal(_, _) => tru
 value_contains_unknown :: (fn(v : &EvalValue) -> bool)(
   match(
     v,
-    .UnknownVal(_, _) => true,
-    .EnumVal(_, fields) => _values_contain_unknown(&fields.items),
-    .StructVal(_, _, field_values) => field_values.with(_values_contain_unknown),
-    .TupleVal(fields) => fields.with(_values_contain_unknown),
-    .ArrayVal(elements) => elements.with(_values_contain_unknown),
+    Rc(.UnknownVal(_, _)) => true,
+    Rc(.EnumVal(_, fields)) => _values_contain_unknown(&fields.items),
+    Rc(.StructVal(_, _, field_values)) => field_values.with(_values_contain_unknown),
+    Rc(.TupleVal(fields)) => fields.with(_values_contain_unknown),
+    Rc(.ArrayVal(elements)) => elements.with(_values_contain_unknown),
     _ => false
   )
 );
@@ -947,7 +941,7 @@ _values_contain_unknown :: (fn(vs : &ArrayList(EvalValue)) -> bool)({
   (found : bool) = false;
   while((i < vs.len()) && !found, {
     match(
-      vs.get(i),
+      vs.get_cloned(i),
       .Some(f) => if(value_contains_unknown(&f), {
         found = true;
       }),
@@ -959,27 +953,27 @@ _values_contain_unknown :: (fn(vs : &ArrayList(EvalValue)) -> bool)({
 });
 /// Is `v` a RUNTIME-ONLY unknown (see `UnknownVal.is_runtime_only`)?
 is_runtime_only_unknown_val :: (fn(v : &EvalValue) -> bool)(
-  match(v, .UnknownVal(_, ro) => ro.*, _ => false)
+  match(v, Rc(.UnknownVal(_, ro)) => ro.*, _ => false)
 );
 /// Check if `v` is a numeric literal (int or float). Numerics are stored as
 /// `IntLit` / `FloatLit` raw
 /// text; this helper is the disjunction of those two checks.
 is_number_val :: (fn(v : &EvalValue) -> bool)(
-  match(v, .IntLit(_) => true, .FloatLit(_) => true, _ => false)
+  match(v, Rc(.IntLit(_)) => true, Rc(.FloatLit(_)) => true, _ => false)
 );
 /// Check if `v` is a compile-time integer literal (`IntLit`).
 /// Integer literals are stored
 /// as raw text in `IntLit(raw)`; this helper is the
 /// canonical-named alias of `is_int_lit`.
 is_comptime_int_value :: (fn(v : &EvalValue) -> bool)(
-  match(v, .IntLit(_) => true, _ => false)
+  match(v, Rc(.IntLit(_)) => true, _ => false)
 );
 /// Check if `v` is a compile-time float literal (`FloatLit`).
 /// Float literals
 /// are stored as raw text in `FloatLit(raw)`; this helper
 /// is the canonical-named alias of `is_float_lit`.
 is_comptime_float_value :: (fn(v : &EvalValue) -> bool)(
-  match(v, .FloatLit(_) => true, _ => false)
+  match(v, Rc(.FloatLit(_)) => true, _ => false)
 );
 /// Check if `v` is a compile-time string literal (`StrLit`).
 /// Runtime-`str` and comptime-string are not distinguished at the EvalValue
@@ -987,13 +981,13 @@ is_comptime_float_value :: (fn(v : &EvalValue) -> bool)(
 /// representation; runtime `str` values are constructed via
 /// `convert_comptime_type_to_runtime_type`.
 is_comptime_string_value :: (fn(v : &EvalValue) -> bool)(
-  match(v, .StrLit(_) => true, _ => false)
+  match(v, Rc(.StrLit(_)) => true, _ => false)
 );
 /// Check if an `Option(EvalValue)` contains a `TypeVal`.
 is_type_value :: (fn(opt : &Option(EvalValue)) -> bool)(
   match(
     opt,
-    .Some(v) => match(v, .TypeVal(_) => true, _ => false),
+    .Some(v) => match(v, Rc(.TypeVal(_)) => true, _ => false),
     .None => false
   )
 );
@@ -1004,12 +998,12 @@ is_type_value :: (fn(opt : &Option(EvalValue)) -> bool)(
 /// declared type is `Type` so that later expressions can use the name as a type
 /// (e.g. `INT_LEAST8_MIN : int_least8_t`).
 create_unknown_val :: (fn(ty : &TypeValue) -> EvalValue)(
-  EvalValue.UnknownVal(Rc.clone(ty), false)
+  Rc.new(EvalValueNode.UnknownVal(Rc.clone(ty), false))
 );
 /// Create a RUNTIME-ONLY unknown placeholder. Values are immutable copies,
 /// so the flag is set at construction instead of mutated afterwards.
 create_runtime_unknown_val :: (fn(ty : &TypeValue) -> EvalValue)(
-  EvalValue.UnknownVal(Rc.clone(ty), true)
+  Rc.new(EvalValueNode.UnknownVal(Rc.clone(ty), true))
 );
 /// Create a compile-time unknown placeholder, promoting to `TypeVal(SomeType)` when
 /// `ty` is the `Type` universe (i.e. the binding is type-level): a fresh
@@ -1018,8 +1012,8 @@ create_runtime_unknown_val :: (fn(ty : &TypeValue) -> EvalValue)(
 create_unknown_val_with_name :: (fn(ty : &TypeValue, name : &String) -> EvalValue)(
   cond(
     is_type_kind(ty) =>
-      EvalValue.TypeVal(t_some_t_of_kind(name, usize(0), ty)),
-    true => EvalValue.UnknownVal(Rc.clone(ty), false)
+      Rc.new(EvalValueNode.TypeVal(t_some_t_of_kind(name, usize(0), ty))),
+    true => Rc.new(EvalValueNode.UnknownVal(Rc.clone(ty), false))
   )
 );
 /// `create_unknown_val_with_name`, but RUNTIME-ONLY: the placeholder stands for a
@@ -1030,8 +1024,8 @@ create_unknown_val_with_name :: (fn(ty : &TypeValue, name : &String) -> EvalValu
 create_runtime_unknown_val_with_name :: (fn(ty : &TypeValue, name : &String) -> EvalValue)(
   cond(
     is_type_kind(ty) =>
-      EvalValue.TypeVal(t_some_t_of_kind(name, usize(0), ty)),
-    true => EvalValue.UnknownVal(Rc.clone(ty), true)
+      Rc.new(EvalValueNode.TypeVal(t_some_t_of_kind(name, usize(0), ty))),
+    true => Rc.new(EvalValueNode.UnknownVal(Rc.clone(ty), true))
   )
 );
 /// The result of evaluating a single `AstExpr` node.
@@ -1043,12 +1037,12 @@ EvalResult :: struct(
 );
 /// Construct an `EvalResult` with the given value and type.
 eval_result :: (fn(value : &EvalValue, ty : &TypeValue) -> EvalResult)(
-  EvalResult(value : value.*, ty : Rc.clone(ty))
+  EvalResult(value : Rc.clone(value.*), ty : Rc.clone(ty))
 );
 /// Wrap a TypeValue as a TypeVal EvalValue. The "meta type" (TypeUni) is
 /// computed separately via `type_of_type` at call sites that need it.
 create_type_value :: (fn(ty : &TypeValue) -> EvalValue)(
-  EvalValue.TypeVal(Rc.clone(ty))
+  Rc.new(EvalValueNode.TypeVal(Rc.clone(ty)))
 );
 /// Best-effort recovery of a `TypeValue` from a comptime `EvalValue`.
 ///
@@ -1061,13 +1055,13 @@ create_type_value :: (fn(ty : &TypeValue) -> EvalValue)(
 type_of_eval_value :: (fn(v : &EvalValue) -> TypeValue)(
   match(
     v,
-    .UnitVal => t_unit(),
-    .BoolVal(_) => t_bool(),
-    .IntLit(_) => t_comptime_int(),
-    .FloatLit(_) => t_comptime_float(),
-    .StrLit(_) => t_comptime_string(),
-    .TypeVal(_) => t_type(),
-    .StructVal(name, labels, vals) => {
+    Rc(.UnitVal) => t_unit(),
+    Rc(.BoolVal(_)) => t_bool(),
+    Rc(.IntLit(_)) => t_comptime_int(),
+    Rc(.FloatLit(_)) => t_comptime_float(),
+    Rc(.StrLit(_)) => t_comptime_string(),
+    Rc(.TypeVal(_)) => t_type(),
+    Rc(.StructVal(name, labels, vals)) => {
       // Reconstruct a Struct type from parallel field info. Source-namespace
       // struct values (anonymous modules / imports)
       // carry their generated `source_namespace_<id>` as `ty_name`; recover
@@ -1091,11 +1085,11 @@ type_of_eval_value :: (fn(v : &EvalValue) -> TypeValue)(
         true => Rc.new(TypeValueNode.Struct(String.from(""), name.clone(), Rc.clone(labels), shared_list(tys), false, false, false, String.from(""), no_types(), false))
       )
     },
-    .UnknownVal(ty, _) => Rc.clone(ty),
+    Rc(.UnknownVal(ty, _)) => Rc.clone(ty),
     _ => t_unit()
   )
 );
-export(EvalValue, FuncValData, EvalResult, eval_result, create_type_value, type_of_eval_value);
+export(EvalValue, EvalValueNode, FuncValData, EvalResult, eval_result, create_type_value, type_of_eval_value);
 export(ValueCell, value_cell_new, empty_value_cell, no_values, no_opt_values, shared_values, shared_opt_values);
 export(value_to_string);
 export(is_unit_val, is_bool_val, is_int_lit, is_float_lit, is_str_lit, is_var_ref);
@@ -1162,5 +1156,5 @@ register_type_ctor_value :: (fn(func_id : &String, v : &EvalValue) -> unit)({
     _prev := g_type_ctor_values.with_mut({ tc_key, tc_val }(m) => m.insert(tc_key, tc_val));
   });
 });
-lookup_type_ctor_value :: (fn(func_id : &String) -> Option(EvalValue))(g_type_ctor_values.with({ func_id : &func_id.* }(m) => m.get(func_id)));
+lookup_type_ctor_value :: (fn(func_id : &String) -> Option(EvalValue))(g_type_ctor_values.with({ func_id : &func_id.* }(m) => m.get_cloned(func_id)));
 export(register_type_ctor_value, lookup_type_ctor_value);

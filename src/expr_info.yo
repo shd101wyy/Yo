@@ -916,7 +916,7 @@ expr_info_set_index_method_type :: (fn(info : &ExprInfo, v : &Option(TypeValue))
 _vh_expr_info_index_method_value :: (fn(d : &ExprInfoData) -> Option(EvalValue))(
   match(
     &d.rare,
-    .Some(r) => r.index_method_value,
+    .Some(r) => r.index_method_value.clone(),
     .None => Option(EvalValue).None
   )
 );
@@ -929,7 +929,7 @@ expr_info_set_index_method_value :: (fn(info : &ExprInfo, v : &Option(EvalValue)
     return(());
   });
   mut(r) := _expr_info_rare_take(info);
-  r.index_method_value = v.*;
+  r.index_method_value = v.*.clone();
   _expr_info_rare_put(info, r);
   ()
 });
@@ -1274,7 +1274,7 @@ expr_info_set_effect_analysis :: (
 _vh_expr_info_closure_function_value :: (fn(d : &ExprInfoData) -> Option(EvalValue))(
   match(
     &d.rare,
-    .Some(r) => r.closure_function_value,
+    .Some(r) => r.closure_function_value.clone(),
     .None => Option(EvalValue).None
   )
 );
@@ -1285,7 +1285,7 @@ expr_info_set_closure_function_value :: (
   fn(info : &ExprInfo, v : &Option(EvalValue)) -> unit
 )({
   mut(r) := _expr_info_rare_take(info);
-  r.closure_function_value = v.*;
+  r.closure_function_value = v.*.clone();
   _expr_info_rare_put(info, r);
 });
 // ---------------------------------------------------------------------------
@@ -1582,7 +1582,7 @@ _scope_value_installs :: (fn(v : &Option(EvalValue)) -> bool)(
     v,
     .Some(fv) => match(
       fv,
-      .FuncVal(d, _) => (is_control_fn(&d.func_id) || is_effect_record_member(&d.func_id) || _scope_type_installs(get_func_type(&d.func_id))),
+      Rc(.FuncVal(d, _)) => (is_control_fn(&d.func_id) || is_effect_record_member(&d.func_id) || _scope_type_installs(get_func_type(&d.func_id))),
       _ => false
     ),
     .None => false
@@ -2245,13 +2245,13 @@ is_consume_release :: (fn(consume_id : ExprId) -> bool)(
 /// Record the resolved/specialized method FuncVal for a method-call expr id.
 record_method_callee_value :: (fn(call_id : ExprId, v : &EvalValue) -> unit)({
   record_owned_expr_id(call_id);
-  mc_value := v.*;
+  mc_value := Rc.clone(v.*);
   g_method_callee_values.with_mut({ call_id, mc_value }(m) => m.insert(call_id, mc_value));
   ()
 });
 /// Look up the resolved/specialized method FuncVal for a method-call expr id.
 lookup_method_callee_value :: (fn(call_id : ExprId) -> Option(EvalValue))(
-  g_method_callee_values.with(m => m.get(&call_id))
+  g_method_callee_values.with(m => m.get_cloned(&call_id))
 );
 /// Record the step pin of the local borrow bound by the `imm(y)`/`mut(y)`
 /// node `lhs_id`: codegen declares it (null) beside the binding, each re-point
@@ -3684,7 +3684,7 @@ purge_executed_clone_metadata :: (fn(table : &ExprInfoTable, root : &AstExpr, lo
   });
   defines_fn := match(
     table.data.with({ &id }(m) => m.get_cloned(&id.*)),
-    .Some(info) => match(info.value(), .Some(v) => match(v, .FuncVal(_, _) => true, _ => false), .None => false),
+    .Some(info) => match(info.value(), .Some(v) => match(v, Rc(.FuncVal(_, _)) => true, _ => false), .None => false),
     .None => false
   );
   if(defines_fn, {

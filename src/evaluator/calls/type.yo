@@ -131,7 +131,7 @@ try_to_call_type_with_arguments :: (
       .Some(o_f) => if(origin_beyond_n2b(&o_f.ty) && !is_std_module_path(&ast_expr_token(function_callee_expr).module_path.*, ctx.std_path.clone()), {
         o_shown := match(
           expr_info_table_get(&ctx.expr_info_table, ast_expr_id(function_callee_expr)),
-          .Some(ci) => match(&ci.value(), .Some(.TypeVal(ct)) => Rc.clone(ct), _ => Rc.clone(o_f.ty)),
+          .Some(ci) => match(&ci.value(), .Some(Rc(.TypeVal(ct))) => Rc.clone(ct), _ => Rc.clone(o_f.ty)),
           .None => Rc.clone(o_f.ty)
         );
         exn.throw(dyn(Box.new(format_error_message(ast_expr_token(function_callee_expr), origin_beyond_n2b_message(&o_shown)))));
@@ -546,8 +546,8 @@ try_to_call_type_with_arguments :: (
             }, {
               // Use default or assigned value.
               default_val := cond(
-                has_default => field.default_value,
-                has_assigned => field.assigned_value,
+                has_default => field.default_value.clone(),
+                has_assigned => field.assigned_value.clone(),
                 true => Option(EvalValue).None
               );
               values(ci) = default_val;

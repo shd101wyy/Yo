@@ -36,7 +36,7 @@ pragma(Pragma.AllowUnsafe);
   FuncOrAsyncBlockCtx,
   FuncOrAsyncBlockKind
 } :: import("../context.yo");
-{ EvalValue, FuncValData, create_unknown_val, no_values } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, FuncValData, create_unknown_val, no_values } :: import("../../value.yo");
 { register_func_type, mark_fn_unemittable, mark_fn_ctfe_clone } :: import("../../function_value.yo");
 {
   copy_func_param_defaults,
@@ -170,7 +170,7 @@ _eval_body_for_ctfe :: (
     cn := match(cap_names.get_cloned(cap_i), .Some(n) => n, .None => String.from(""));
     ct := match(cap_tys.get_cloned(cap_i), .Some(t) => t, .None => t_unit());
     cv := match(cap_vals.get(cap_i), .Some(v) => Option(EvalValue).Some(v), .None => Option(EvalValue).None);
-    is_ct := match(cv, .Some(_) => true, .None => false);
+    is_ct := match(cv.clone(), .Some(_) => true, .None => false);
     _add := add_variable_to_env(
       &ctfe_env,
       &cn,
@@ -193,7 +193,7 @@ _eval_body_for_ctfe :: (
     &ctfe_env,
     String.from("__recur_fn"),
     func_type,
-    Option(EvalValue).Some(func_value.*),
+    Option(EvalValue).Some(Rc.clone(func_value.*)),
     true,
     false,
     false,
@@ -241,7 +241,7 @@ _eval_body_for_ctfe :: (
     FuncOrAsyncBlockCtx(
       kind : FuncOrAsyncBlockKind.FunctionBody,
       func_type : Option(TypeValue).Some(Rc.clone(func_type)),
-      func_value : Option(EvalValue).Some(func_value.*),
+      func_value : Option(EvalValue).Some(Rc.clone(func_value.*)),
       eval_env : snapshot_env(&ctfe_env)
     )
   );
@@ -351,20 +351,20 @@ _build_comptime_clone :: (
     comptime_func_type : &TypeValue
   ) -> EvalValue
 )({
-  ct_fid := match(func_value, .FuncVal(__fvd9, _) => __fvd9.func_id.clone(), _ => String.new());
-  (out_val : EvalValue) = func_value.*;
+  ct_fid := match(func_value, Rc(.FuncVal(__fvd9, _)) => __fvd9.func_id.clone(), _ => String.new());
+  (out_val : EvalValue) = Rc.clone(func_value.*);
   if(ct_fid.len() > usize(0), {
     ct_new_id := `${ct_fid}_comptime`;
     ct_new_data := FuncValData(
-      forall_names : match(func_value, .FuncVal(__fvda, _) => __fvda.forall_names.clone(), _ => ArrayList(String).new()),
-      params : match(func_value, .FuncVal(__fvdb, _) => __fvdb.params.clone(), _ => ArrayList(String).new()),
-      param_type_names : match(func_value, .FuncVal(__fvdc, _) => __fvdc.param_type_names.clone(), _ => ArrayList(String).new()),
-      evidence_params : match(func_value, .FuncVal(__fvdd, _) => __fvdd.evidence_params.clone(), _ => ArrayList(String).new()),
+      forall_names : match(func_value, Rc(.FuncVal(__fvda, _)) => __fvda.forall_names.clone(), _ => ArrayList(String).new()),
+      params : match(func_value, Rc(.FuncVal(__fvdb, _)) => __fvdb.params.clone(), _ => ArrayList(String).new()),
+      param_type_names : match(func_value, Rc(.FuncVal(__fvdc, _)) => __fvdc.param_type_names.clone(), _ => ArrayList(String).new()),
+      evidence_params : match(func_value, Rc(.FuncVal(__fvdd, _)) => __fvdd.evidence_params.clone(), _ => ArrayList(String).new()),
       body : Rc.clone(body_box.*),
       cap_names : cap_names.clone(),
       cap_tys : cap_tys.clone(),
       func_id : ct_new_id.clone(),
-      env_key : match(func_value, .FuncVal(__fvde, _) => __fvde.env_key, _ => usize(0))
+      env_key : match(func_value, Rc(.FuncVal(__fvde, _)) => __fvde.env_key, _ => usize(0))
     );
     register_func_type(ct_new_id.clone(), comptime_func_type.clone());
     mark_fn_unemittable(ct_new_id.clone());
@@ -384,7 +384,7 @@ _build_comptime_clone :: (
     copy_func_variadic_param(ct_fid.clone(), ct_new_id.clone());
     copy_func_where_constraints(ct_fid.clone(), ct_new_id.clone());
     copy_func_contract_exprs(ct_fid.clone(), ct_new_id.clone());
-    out_val = EvalValue.FuncVal(Rc.new(ct_new_data), Rc.clone(cap_vals));
+    out_val = Rc.new(EvalValueNode.FuncVal(Rc.new(ct_new_data), Rc.clone(cap_vals)));
   });
   out_val
 });
@@ -432,7 +432,7 @@ analyze_ctfe_capability :: (
     });
     pti = (pti + usize(1));
   });
-  is_fn := match(func_value, .FuncVal(_, _) => true, _ => false);
+  is_fn := match(func_value, Rc(.FuncVal(_, _)) => true, _ => false);
   // Accumulated stepwise: a multi-line `:=` whose RHS chains `||` does not parse.
   (cannot : bool) = false;
   if(already_comptime, {
@@ -458,15 +458,15 @@ analyze_ctfe_capability :: (
         create_comptime_function_type(func_type),
         .None => (),
         .Some(comptime_func_type) => {
-          body_box := match(func_value, .FuncVal(__fvd1, _) => Rc.clone(__fvd1.body), _ => make_err_expr());
+          body_box := match(func_value, Rc(.FuncVal(__fvd1, _)) => Rc.clone(__fvd1.body), _ => make_err_expr());
           // Materialized: a registered FuncVal stores its capture names/types
           // on the shared handles (memory plan §0.7).
-          cap_names := match(func_value, .FuncVal(__fvd2, _) => fv_capture_names(__fvd2.as_ref()), _ => ArrayList(String).new());
-          cap_tys := match(func_value, .FuncVal(__fvd3, _) => fv_capture_tys(__fvd3.as_ref()), _ => ArrayList(TypeValue).new());
-          cap_vals := match(func_value, .FuncVal(_, cv) => Rc.clone(cv), _ => no_values());
+          cap_names := match(func_value, Rc(.FuncVal(__fvd2, _)) => fv_capture_names(__fvd2.as_ref()), _ => ArrayList(String).new());
+          cap_tys := match(func_value, Rc(.FuncVal(__fvd3, _)) => fv_capture_tys(__fvd3.as_ref()), _ => ArrayList(TypeValue).new());
+          cap_vals := match(func_value, Rc(.FuncVal(_, cv)) => Rc.clone(cv), _ => no_values());
           // The body sees every capture's value; the clone keeps the original's
           // (empty when it reads its handles, §0.16).
-          cap_val_list := match(func_value, .FuncVal(__fvd4, cv4) => fv_capture_vals(__fvd4.as_ref(), &cv4.*), _ => no_values());
+          cap_val_list := match(func_value, Rc(.FuncVal(__fvd4, cv4)) => fv_capture_vals(__fvd4.as_ref(), &cv4.*), _ => no_values());
           param_labels := match(func_type, Rc(.Func({ meta : m })) => Rc.clone(m.param_labels), _ => no_labels());
           ok := ArrayList(bool).new();
           // SAVE/RESTORE THE CTFE CONTEXT FLAGS HERE, not only inside

@@ -13,7 +13,7 @@
 pragma(Pragma.AllowUnsafe);
 import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ EvalValue, value_cell_new, shared_values, shared_opt_values } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, value_cell_new, shared_values, shared_opt_values } :: import("../../value.yo");
 /// Deep-clone `v`.
 ///
 /// When `preserve_pointer_refs` is `true` (default usage), `PtrVal`
@@ -25,29 +25,29 @@ clone_value :: (fn(v : &EvalValue, preserve_pointer_refs : bool) -> EvalValue)(
   match(
     v,
     // Primitive / immutable — return as-is
-    .UnitVal => EvalValue.UnitVal,
-    .BoolVal(_) => v.*,
-    .IntLit(_) => v.*,
-    .FloatLit(_) => v.*,
-    .StrLit(_) => v.*,
-    .VarRef(_) => v.*,
-    .BreakVal => v.*,
-    .ContinueVal => v.*,
-    .FuncVal(_, _) => v.*,
-    .TypeVal(_) => v.*,
-    .ExprVal(_) => v.*,
-    .UnknownVal(_, _) => v.*,
+    Rc(.UnitVal) => Rc.new(EvalValueNode.UnitVal),
+    Rc(.BoolVal(_)) => Rc.clone(v.*),
+    Rc(.IntLit(_)) => Rc.clone(v.*),
+    Rc(.FloatLit(_)) => Rc.clone(v.*),
+    Rc(.StrLit(_)) => Rc.clone(v.*),
+    Rc(.VarRef(_)) => Rc.clone(v.*),
+    Rc(.BreakVal) => Rc.clone(v.*),
+    Rc(.ContinueVal) => Rc.clone(v.*),
+    Rc(.FuncVal(_, _)) => Rc.clone(v.*),
+    Rc(.TypeVal(_)) => Rc.clone(v.*),
+    Rc(.ExprVal(_)) => Rc.clone(v.*),
+    Rc(.UnknownVal(_, _)) => Rc.clone(v.*),
     // ReturnVal — recursively clone the wrapped value
-    .ReturnVal(val : val_box, ty : ty) =>
-      EvalValue.ReturnVal(val : recur(&val_box.*, preserve_pointer_refs), ty : ty.clone()),
+    Rc(.ReturnVal(val : val_box, ty : ty)) =>
+      Rc.new(EvalValueNode.ReturnVal(val : recur(&val_box.*, preserve_pointer_refs), ty : ty.clone())),
     // PtrVal — preserve or deep-clone depending on flag. Preserving keeps
     // the SAME cell (reference semantics); cloning mints a FRESH 1-elem cell
     // around the cloned pointee (no aliasing dedup between cloned cells —
     // there is no identity-keyed map for `ValueCell`s, and CTFE-check
     // isolation only needs the copy).
-    .PtrVal(target_value : tgt_cell, target_index : idx, aggregate_ty : agg) =>
+    Rc(.PtrVal(target_value : tgt_cell, target_index : idx, aggregate_ty : agg)) =>
       cond(
-        preserve_pointer_refs => v.*,
+        preserve_pointer_refs => Rc.clone(v.*),
         true => {
           cv_new_cell := ArrayList(EvalValue).new();
           match(
@@ -57,55 +57,55 @@ clone_value :: (fn(v : &EvalValue, preserve_pointer_refs : bool) -> EvalValue)(
             },
             .None => ()
           );
-          EvalValue.PtrVal(target_value : value_cell_new(cv_new_cell), target_index : idx.*, aggregate_ty : agg.clone())
+          Rc.new(EvalValueNode.PtrVal(target_value : value_cell_new(cv_new_cell), target_index : idx.*, aggregate_ty : agg.clone()))
         }
       ),
     // EnumVal — recursively clone each field
-    .EnumVal(variant : vname, fields : flds) => {
+    Rc(.EnumVal(variant : vname, fields : flds)) => {
       new_fields := ArrayList(EvalValue).new();
       i := usize(0);
       while(i < flds.len(), {
-        elem := match(flds.get(i), .Some(e) => e, .None => EvalValue.UnitVal);
+        elem := match(flds.get(i), .Some(e) => e, .None => Rc.new(EvalValueNode.UnitVal));
         new_fields.push(recur(&elem, preserve_pointer_refs));
         i = (i + usize(1));
       });
-      EvalValue.EnumVal(variant : vname.clone(), fields : shared_values(new_fields))
+      Rc.new(EvalValueNode.EnumVal(variant : vname.clone(), fields : shared_values(new_fields)))
     },
     // StructVal — recursively clone field_values
-    .StructVal(ty_name : tname, field_names : fnames, field_values : fvals) => {
+    Rc(.StructVal(ty_name : tname, field_names : fnames, field_values : fvals)) => {
       new_fvals := ArrayList(EvalValue).new();
       i := usize(0);
       while(i < fvals.len(), {
-        elem := match(fvals.get(i), .Some(e) => e, .None => EvalValue.UnitVal);
+        elem := match(fvals.get(i), .Some(e) => e, .None => Rc.new(EvalValueNode.UnitVal));
         new_fvals.push(recur(&elem, preserve_pointer_refs));
         i = (i + usize(1));
       });
-      EvalValue.StructVal(ty_name : tname.clone(), field_names : Rc.clone(fnames), field_values : value_cell_new(new_fvals))
+      Rc.new(EvalValueNode.StructVal(ty_name : tname.clone(), field_names : Rc.clone(fnames), field_values : value_cell_new(new_fvals)))
     },
     // TupleVal — recursively clone fields
-    .TupleVal(fields : flds) => {
+    Rc(.TupleVal(fields : flds)) => {
       new_fields := ArrayList(EvalValue).new();
       i := usize(0);
       while(i < flds.len(), {
-        elem := match(flds.get(i), .Some(e) => e, .None => EvalValue.UnitVal);
+        elem := match(flds.get(i), .Some(e) => e, .None => Rc.new(EvalValueNode.UnitVal));
         new_fields.push(recur(&elem, preserve_pointer_refs));
         i = (i + usize(1));
       });
-      EvalValue.TupleVal(fields : value_cell_new(new_fields))
+      Rc.new(EvalValueNode.TupleVal(fields : value_cell_new(new_fields)))
     },
     // ArrayVal — recursively clone elements
-    .ArrayVal(elements : elems) => {
+    Rc(.ArrayVal(elements : elems)) => {
       new_elems := ArrayList(EvalValue).new();
       i := usize(0);
       while(i < elems.len(), {
-        elem := match(elems.get(i), .Some(e) => e, .None => EvalValue.UnitVal);
+        elem := match(elems.get(i), .Some(e) => e, .None => Rc.new(EvalValueNode.UnitVal));
         new_elems.push(recur(&elem, preserve_pointer_refs));
         i = (i + usize(1));
       });
-      EvalValue.ArrayVal(elements : value_cell_new(new_elems))
+      Rc.new(EvalValueNode.ArrayVal(elements : value_cell_new(new_elems)))
     },
     // TraitVal — recursively clone field_values (each is Option(EvalValue))
-    .TraitVal(ty_name : tname, field_names : fnames, field_values : fvals) => {
+    Rc(.TraitVal(ty_name : tname, field_names : fnames, field_values : fvals)) => {
       new_fvals := ArrayList(Option(EvalValue)).new();
       i := usize(0);
       while(i < fvals.len(), {
@@ -118,18 +118,18 @@ clone_value :: (fn(v : &EvalValue, preserve_pointer_refs : bool) -> EvalValue)(
         new_fvals.push(cloned_opt);
         i = (i + usize(1));
       });
-      EvalValue.TraitVal(ty_name : tname.clone(), field_names : Rc.clone(fnames), field_values : shared_opt_values(new_fvals))
+      Rc.new(EvalValueNode.TraitVal(ty_name : tname.clone(), field_names : Rc.clone(fnames), field_values : shared_opt_values(new_fvals)))
     },
     // ComptimeListVal — recursively clone elements
-    .ComptimeListVal(elements : elems) => {
+    Rc(.ComptimeListVal(elements : elems)) => {
       new_elems := ArrayList(EvalValue).new();
       i := usize(0);
       while(i < elems.len(), {
-        elem := match(elems.get(i), .Some(e) => e, .None => EvalValue.UnitVal);
+        elem := match(elems.get(i), .Some(e) => e, .None => Rc.new(EvalValueNode.UnitVal));
         new_elems.push(recur(&elem, preserve_pointer_refs));
         i = (i + usize(1));
       });
-      EvalValue.ComptimeListVal(elements : value_cell_new(new_elems))
+      Rc.new(EvalValueNode.ComptimeListVal(elements : value_cell_new(new_elems)))
     }
   )
 );

@@ -5,7 +5,7 @@ import("std/fmt");
 { ExprInfo, new_expr_info, expr_info_table_set } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue } :: import("../../value.yo");
+{ EvalValue, EvalValueNode } :: import("../../value.yo");
 { TokenKind } :: import("../../token.yo");
 { t_bool } :: import("../../types/creators.yo");
 { Exception } :: import("std/error");
@@ -32,7 +32,7 @@ evaluate_boolean_literal :: (
     );
   });
   b := (tok.value.* == "true");
-  val := EvalValue.BoolVal(b);
+  val := Rc.new(EvalValueNode.BoolVal(b));
   info := new_expr_info(env, t_bool());
   info.set_value(.Some(val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);

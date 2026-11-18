@@ -40,7 +40,7 @@
   is_function_type_and_is_type_function
 } :: import("../types/guards.yo");
 { type_to_string } :: import("../types/string.yo");
-{ EvalValue, value_to_string, empty_value_cell } :: import("../value.yo");
+{ EvalValue, EvalValueNode, value_to_string, empty_value_cell } :: import("../value.yo");
 { Environment } :: import("../env.yo");
 { MethodEntry, get_type_trait_methods_for_type } :: import("../evaluator/values/type_trait_methods.yo");
 { GenericImplDocEntry, get_generic_impl_doc_entries } :: import("../evaluator/values/impl.yo");
@@ -2875,7 +2875,7 @@ _resolve_inner_type :: (fn(field_type : &TypeValue, value : &EvalValue) -> TypeV
   if(is_function_type(field_type) && is_function_type_and_is_type_function(field_type), {
     match(
       value,
-      .FuncVal(data, _) => {
+      Rc(.FuncVal(data, _)) => {
         registered := get_func_type(&data.func_id);
         match(
           registered,
@@ -2924,7 +2924,7 @@ _function_params_to_doc_params :: (
         is_ct := match(comptime_flags.get(i), .Some(b) => b, .None => false);
         (default_str : Option(String)) = Option(String).None;
         match(
-          defaults.get(i),
+          defaults.get_cloned(i),
           .Some(.Some(v)) => {
             default_str = Option(String).Some(value_to_string(&v));
           },
@@ -3442,7 +3442,7 @@ build_doc_module :: (
     },
     _ => ()
   );
-  value_list := match(module_value, .StructVal(_, _, field_values) => Rc.clone(field_values), _ => empty_value_cell());
+  value_list := match(module_value, Rc(.StructVal(_, _, field_values)) => Rc.clone(field_values), _ => empty_value_cell());
   (i : usize) = usize(0);
   while(i < ns_field_labels.len(), {
     field_name := match(ns_field_labels.get_cloned(i), .Some(l) => l, .None => String.new());
@@ -3454,7 +3454,7 @@ build_doc_module :: (
         continue;
       }
     );
-    value := match(value_list.get(i), .Some(v) => v, .None => EvalValue.UnitVal);
+    value := match(value_list.get(i), .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal));
     doc := doc_lookup.get_cloned(field_name.clone());
     // Skip empty-label fields (anonymous impl blocks) and compiler-internal
     // names.
@@ -3465,8 +3465,8 @@ build_doc_module :: (
     // -- Type declarations (value holds the actual type) --
     (handled : bool) = false;
     match(
-      value,
-      .TypeVal(actual_type) => {
+      Rc.clone(value),
+      Rc(.TypeVal(actual_type)) => {
         handled = true;
         sections := extract_doc_sections(&doc);
         cond(

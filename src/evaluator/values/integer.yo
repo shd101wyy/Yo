@@ -10,7 +10,7 @@ import("std/fmt");
 { ExprInfo, new_expr_info, expr_info_table_set } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue } :: import("../../value.yo");
+{ EvalValue, EvalValueNode } :: import("../../value.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { integer_value_fits_type, integer_type_range_string, target_integer_type_range } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -114,7 +114,7 @@ comptime_numeric_slot_type :: (
     (is_comptime_int_type(arg_ty) && target_integer_type_range(slot_ty).is_some()) => {
       match(
         value,
-        .Some(v) => match(v, .IntLit(raw) => check_comptime_int_value_fits(&raw.*, slot_ty, tok, exn), _ => ()),
+        .Some(v) => match(v, Rc(.IntLit(raw)) => check_comptime_int_value_fits(&raw.*, slot_ty, tok, exn), _ => ()),
         .None => ()
       );
       Option(TypeValue).Some(Rc.clone(slot_ty))
@@ -188,7 +188,7 @@ evaluate_integer_literal :: (
   // The magnitude comes from the TOKEN, not `parsed`: a literal above
   // `i64::MAX` is carried as its i64 bit pattern.
   check_literal_fits(tok.value.*.clone(), &ty, &tok, exn);
-  val := EvalValue.IntLit(raw.clone());
+  val := Rc.new(EvalValueNode.IntLit(raw.clone()));
   info := new_expr_info(env, &ty);
   info.set_value(.Some(val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);

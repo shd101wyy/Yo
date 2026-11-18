@@ -47,7 +47,7 @@
 { Environment, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { replace } :: import("std/mem");
-{ EvalValue, is_unknown_val, ValueCell } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, is_unknown_val, ValueCell } :: import("../../value.yo");
 { TypeValue, TypeValueNode, no_labels, SharedList } :: import("../../types/definitions.yo");
 { t_bool, resolve_enum_shell } :: import("../../types/creators.yo");
 { is_enum_type, is_pointer_type, is_tuple_type, is_unique_box_type, is_struct_type, cell_handle_view } :: import("../../types/guards.yo");
@@ -208,11 +208,11 @@ _constant_in_scope :: (fn(name : &String, env : &Environment) -> bool)({
   });
   match(
     v.value().get(usize(0)),
-    .Some(.IntLit(_)) => true,
-    .Some(.FloatLit(_)) => true,
-    .Some(.BoolVal(_)) => true,
-    .Some(.StrLit(_)) => true,
-    .Some(.EnumVal(_, _)) => true,
+    .Some(Rc(.IntLit(_))) => true,
+    .Some(Rc(.FloatLit(_))) => true,
+    .Some(Rc(.BoolVal(_))) => true,
+    .Some(Rc(.StrLit(_))) => true,
+    .Some(Rc(.EnumVal(_, _))) => true,
     .Some(_) => false,
     .None => false
   )
@@ -278,7 +278,7 @@ _bind_subject_and_eval_test :: (
     env,
     subject.clone(),
     position_ty,
-    cond(known => value_opt.*, true => Option(EvalValue).None),
+    cond(known => value_opt.*.clone(), true => Option(EvalValue).None),
     known,
     false,
     false,
@@ -369,9 +369,11 @@ _test_subject :: (fn(test : &AstExpr) -> String)(
 _enum_const_to_variant :: (fn(value : &EvalValue, position_ty : &TypeValue) -> Option(Pattern))(
   match(
     value,
-    .EnumVal(
-      vname,
-      vfields
+    Rc(
+      .EnumVal(
+        vname,
+        vfields
+      )
     ) => {
       if(is_enum_type(position_ty) && (vfields.len() == usize(0)), {
         vns := _enum_variant_names(position_ty);
@@ -418,7 +420,7 @@ Supported patterns: _, a binding name, a compile-time constant, .Variant, .Varia
           )
         )
       );
-      return(EvalValue.UnitVal);
+      return(Rc.new(EvalValueNode.UnitVal));
     }
   );
   match(
@@ -435,7 +437,7 @@ Supported patterns: _, a binding name, a compile-time constant, .Variant, .Varia
             )
           )
         );
-        return(EvalValue.UnitVal);
+        return(Rc.new(EvalValueNode.UnitVal));
       });
       v
     },
@@ -450,7 +452,7 @@ Supported patterns: _, a binding name, a compile-time constant, .Variant, .Varia
           )
         )
       );
-      EvalValue.UnitVal
+      Rc.new(EvalValueNode.UnitVal)
     }
   )
 });
@@ -566,8 +568,8 @@ _compile_range :: (
     subject : subject,
     test : test,
     ty : Rc.clone(position_ty),
-    lo : match(bound_vals.get(usize(0)), .Some(v) => v, .None => Option(EvalValue).None),
-    hi : match(bound_vals.get(usize(1)), .Some(v) => v, .None => Option(EvalValue).None),
+    lo : match(bound_vals.get_cloned(usize(0)), .Some(v) => v, .None => Option(EvalValue).None),
+    hi : match(bound_vals.get_cloned(usize(1)), .Some(v) => v, .None => Option(EvalValue).None),
     inclusive : inclusive
   )
 });
@@ -744,7 +746,7 @@ _compile_variant :: (
     value_opt,
     .Some(v) => match(
       v,
-      .EnumVal(sv_name, sv_fields) => cond(
+      Rc(.EnumVal(sv_name, sv_fields)) => cond(
         _variant_name_eq(sv_name.clone(), vname.clone()) => Option(SharedList(EvalValue)).Some(Rc.clone(sv_fields)),
         true => Option(SharedList(EvalValue)).None
       ),
@@ -1023,7 +1025,7 @@ _struct_type_in_scope :: (fn(name : &String, env : &Environment) -> Option(TypeV
     v.value().get(usize(0)),
     .Some(val) => match(
       val,
-      .TypeVal(t) => cond(is_struct_type(&t) => Option(TypeValue).Some(Rc.clone(t)), true => Option(TypeValue).None),
+      Rc(.TypeVal(t)) => cond(is_struct_type(&t) => Option(TypeValue).Some(Rc.clone(t)), true => Option(TypeValue).None),
       _ => Option(TypeValue).None
     ),
     .None => Option(TypeValue).None
@@ -1071,7 +1073,7 @@ _compile_tuple :: (
   });
   (elem_vals : Option(ValueCell)) = match(
     value_opt,
-    .Some(.TupleVal(fs)) => Option(ValueCell).Some(Rc.clone(fs)),
+    .Some(Rc(.TupleVal(fs))) => Option(ValueCell).Some(Rc.clone(fs)),
     .Some(_) => Option(ValueCell).None,
     .None => Option(ValueCell).None
   );
@@ -1113,7 +1115,7 @@ _compile_struct :: (
   arity := field_tys.len();
   (field_vals : Option(ValueCell)) = match(
     value_opt,
-    .Some(.StructVal(_, _, fvs)) => Option(ValueCell).Some(Rc.clone(fvs)),
+    .Some(Rc(.StructVal(_, _, fvs))) => Option(ValueCell).Some(Rc.clone(fvs)),
     .Some(_) => Option(ValueCell).None,
     .None => Option(ValueCell).None
   );
@@ -1314,7 +1316,7 @@ _wrapper_pattern_ctor :: (fn(e : &AstExpr, env : &Environment) -> Option(_Wrappe
   });
   match(
     v.value().get(usize(0)),
-    .Some(.FuncVal(data, _)) => .Some(_WrapperCtor(name : nm, func_id : data.func_id.clone())),
+    .Some(Rc(.FuncVal(data, _))) => .Some(_WrapperCtor(name : nm, func_id : data.func_id.clone())),
     _ => .None
   )
 });
@@ -1408,7 +1410,7 @@ compile_pattern :: (
       bcf2 := match(position_ty.clone(), Rc(.Struct({ constructor_func_id : bcf })) => bcf.clone(), _ => String.from("-"));
       eprintln(`[tmint-bind] name=${nm} id=${bid2} n_ta=${bta2.to_string()} cfid=${bcf2} fields=${fs}`);
     });
-    pc.binds.push(BindInfo(name : nm.clone(), ty : Rc.clone(position_ty), value : value_opt.*, atom : Rc.clone(name_expr)));
+    pc.binds.push(BindInfo(name : nm.clone(), ty : Rc.clone(position_ty), value : value_opt.*.clone(), atom : Rc.clone(name_expr)));
     // The self-calls that can throw are by NAME, not `recur`: seeds up to
     // v0.2.45 emit `recur` without the escape check, so a seed-built compiler
     // continued past a throw here with a NULL sub-pattern
@@ -1448,7 +1450,7 @@ compile_pattern :: (
         bcf3 := match(position_ty.clone(), Rc(.Struct({ constructor_func_id : bcf4 })) => bcf4.clone(), _ => String.from("-"));
         eprintln(`[tmint-bind] name=${nm} id=${bid3} n_ta=${bta3.to_string()} cfid=${bcf3} fields=${fs2}`);
       });
-      pc.binds.push(BindInfo(name : nm.clone(), ty : Rc.clone(position_ty), value : value_opt.*, atom : Rc.clone(e.*)));
+      pc.binds.push(BindInfo(name : nm.clone(), ty : Rc.clone(position_ty), value : value_opt.*.clone(), atom : Rc.clone(e.*)));
       return(Pattern.Bind(name : nm, token : ast_expr_token(e), atom : Rc.clone(e.*)));
     });
   });
@@ -1486,7 +1488,7 @@ compile_pattern :: (
       // its cell, not the payload: the payload has no compile-time value here.
       inner_val := match(
         value_opt,
-        .Some(.StructVal(_, _, fvs)) => if(is_unique_box_type(&cell_ty) || cell_handle_view(&cell_ty).is_some(), Option(EvalValue).None, fvs.get(usize(0))),
+        .Some(Rc(.StructVal(_, _, fvs))) => if(is_unique_box_type(&cell_ty) || cell_handle_view(&cell_ty).is_some(), Option(EvalValue).None, fvs.get(usize(0))),
         .Some(_) => Option(EvalValue).None,
         .None => Option(EvalValue).None
       );
@@ -1682,7 +1684,7 @@ match_value :: (fn(p : &Pattern, value_opt : &Option(EvalValue), ctx : &EvalCont
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&test.*)),
       .Some(ti) => match(
         ti.value(),
-        .Some(v) => match(v, .BoolVal(b) => Option(bool).Some(b), _ => Option(bool).None),
+        .Some(v) => match(v, Rc(.BoolVal(b)) => Option(bool).Some(b), _ => Option(bool).None),
         .None => Option(bool).None
       ),
       .None => Option(bool).None
@@ -1691,7 +1693,7 @@ match_value :: (fn(p : &Pattern, value_opt : &Option(EvalValue), ctx : &EvalCont
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&test.*)),
       .Some(ti) => match(
         ti.value(),
-        .Some(v) => match(v, .BoolVal(b) => Option(bool).Some(b), _ => Option(bool).None),
+        .Some(v) => match(v, Rc(.BoolVal(b)) => Option(bool).Some(b), _ => Option(bool).None),
         .None => Option(bool).None
       ),
       .None => Option(bool).None
@@ -1701,7 +1703,7 @@ match_value :: (fn(p : &Pattern, value_opt : &Option(EvalValue), ctx : &EvalCont
       .None => Option(bool).None,
       .Some(v) => match(
         v,
-        .EnumVal(sv_name, sv_fields) => {
+        Rc(.EnumVal(sv_name, sv_fields)) => {
           if(!_variant_name_eq(sv_name.clone(), name.clone()), {
             return(Option(bool).Some(false));
           });
@@ -1759,7 +1761,7 @@ match_value :: (fn(p : &Pattern, value_opt : &Option(EvalValue), ctx : &EvalCont
       value_opt,
       .Some(v) => match(
         v,
-        .StructVal(_, _, fvs) => match(
+        Rc(.StructVal(_, _, fvs)) => match(
           fvs.get(usize(0)),
           .Some(inner) => recur(&sub.*, Option(EvalValue).Some(inner), ctx),
           .None => Option(bool).None
@@ -1772,7 +1774,7 @@ match_value :: (fn(p : &Pattern, value_opt : &Option(EvalValue), ctx : &EvalCont
       value_opt,
       .Some(v) => match(
         v,
-        .TupleVal(fields) => {
+        Rc(.TupleVal(fields)) => {
           (result : Option(bool)) = Option(bool).Some(true);
           (si : usize) = usize(0);
           while(si < subs.len(), {
@@ -1802,7 +1804,7 @@ match_value :: (fn(p : &Pattern, value_opt : &Option(EvalValue), ctx : &EvalCont
       value_opt,
       .Some(v) => match(
         v,
-        .StructVal(_, _, field_values) => {
+        Rc(.StructVal(_, _, field_values)) => {
           (result : Option(bool)) = Option(bool).Some(true);
           (si : usize) = usize(0);
           while(si < subs.len(), {
@@ -1911,7 +1913,7 @@ pattern_const_values :: (fn(p : &Pattern) -> ArrayList(Option(EvalValue)))({
   match(
     p,
     .Const(v, _, _, _, _) => {
-      out.push(Option(EvalValue).Some(v.*));
+      out.push(Option(EvalValue).Some(Rc.clone(v.*)));
     },
     .Or(alts) => {
       (i : usize) = usize(0);
@@ -1920,7 +1922,7 @@ pattern_const_values :: (fn(p : &Pattern) -> ArrayList(Option(EvalValue)))({
         (k : usize) = usize(0);
         while(k < inner.len(), {
           match(
-            inner.get(k),
+            inner.get_cloned(k),
             .Some(x) => {
               out.push(x);
             },

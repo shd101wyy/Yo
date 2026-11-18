@@ -355,9 +355,9 @@ impl(
       .None => Option(EvalValue).None
     );
     is_fv := match(
-      from_info,
-      .Some(.FuncVal(_, _)) => true,
-      .Some(.TypeVal(_)) => true,
+      from_info.clone(),
+      .Some(Rc(.FuncVal(_, _))) => true,
+      .Some(Rc(.TypeVal(_))) => true,
       .Some(_) => false,
       .None => false
     );
@@ -564,17 +564,17 @@ impl(
       info_opt,
       .Some(ci) => match(
         expr_info_index_method_value(&ci),
-        .Some(imv) => match(imv, .FuncVal(_, _) => Option(EvalValue).Some(imv), _ => Option(EvalValue).None),
+        .Some(imv) => match(Rc.clone(imv), Rc(.FuncVal(_, _)) => Option(EvalValue).Some(Rc.clone(imv)), _ => Option(EvalValue).None),
         .None => Option(EvalValue).None
       ),
       .None => Option(EvalValue).None
     );
-    callee_opt := match(index_callee, .Some(_) => index_callee, .None => _MsW.callee_value(e, &func_expr, table));
+    callee_opt := match(index_callee.clone(), .Some(_) => index_callee.clone(), .None => _MsW.callee_value(e, &func_expr, table));
     match(
       callee_opt,
       .Some(callee) => match(
         callee,
-        .TypeVal(_) => {
+        Rc(.TypeVal(_)) => {
           // Type application: a cast or a struct/enum construction —
           // allocates a fresh value, mutates nothing pre-existing.
           if(_MsW.walk(&func_expr, table, touched), {
@@ -582,7 +582,7 @@ impl(
           });
           return(_MsW.walk_args(&args, table, touched));
         },
-        .FuncVal(fvd, _) => {
+        Rc(.FuncVal(fvd, _)) => {
           fid := fvd.*.func_id.clone();
           if(is_control_fn(fid.clone()), {
             // Effect handler / ctl body — caller-side code runs mid-call.
@@ -1506,9 +1506,9 @@ impl(
       .Some(ci) => match(
         expr_info_index_method_value(&ci),
         .Some(imv) => match(
-          imv,
-          .FuncVal(_, _) => {
-            return(Option(EvalValue).Some(imv));
+          Rc.clone(imv),
+          Rc(.FuncVal(_, _)) => {
+            return(Option(EvalValue).Some(Rc.clone(imv)));
           },
           _ => ()
         ),
@@ -1521,7 +1521,7 @@ impl(
   is_index_call : (fn(e : &AstExpr, table : &ExprInfoTable) -> bool)(
     match(
       expr_info_table_get(table, ast_expr_id(e)),
-      .Some(ci) => match(expr_info_index_method_value(&ci), .Some(imv) => match(imv, .FuncVal(_, _) => true, _ => false), .None => false),
+      .Some(ci) => match(expr_info_index_method_value(&ci), .Some(imv) => match(imv, Rc(.FuncVal(_, _)) => true, _ => false), .None => false),
       .None => false
     )
   ),
@@ -1985,11 +1985,11 @@ impl(
       callee_opt,
       .Some(callee) => match(
         callee,
-        .TypeVal(_) => {
+        Rc(.TypeVal(_)) => {
           value_is_struct := match(info_opt, .Some(i4) => match(resolve_struct_shell(&i4.ty()), Rc(.Struct({ is_source_namespace : ns })) => !ns, _ => false), .None => false);
           return(_MsP.ctor_root(&args, ctx, value_is_ptr, value_is_struct));
         },
-        .FuncVal(fvd, _) => {
+        Rc(.FuncVal(fvd, _)) => {
           fid := fvd.*.func_id.clone();
           if(is_control_fn(fid.clone()), {
             return(_msp_root(MSP_ROOTED));
@@ -2191,7 +2191,7 @@ impl(
           _MsP.callee(e, &f.*, &ctx.table),
           .Some(cv) => match(
             cv,
-            .FuncVal(fvd, _) => {
+            Rc(.FuncVal(fvd, _)) => {
               fid := fvd.*.func_id.clone();
               (is_extern : bool) = false;
               match(
@@ -2288,7 +2288,7 @@ impl(
       _MsP.callee(e, func_expr, table),
       .Some(cv) => match(
         cv,
-        .FuncVal(fvd, _) => match(
+        Rc(.FuncVal(fvd, _)) => match(
           get_func_type(fvd.*.func_id.clone()),
           Rc(.Func({ param_types : p0, meta : cm, variadic_types : v0 })) => match(
             &cm.*.extern_name,
@@ -2705,8 +2705,8 @@ impl(
       callee_opt,
       .Some(cv) => match(
         cv,
-        .TypeVal(_) => (),
-        .FuncVal(fvd, _) => {
+        Rc(.TypeVal(_)) => (),
+        Rc(.FuncVal(fvd, _)) => {
           fid := fvd.*.func_id.clone();
           if(is_control_fn(fid.clone()), {
             _MsP.taint_all_args(&func_expr, &args, ctx);
@@ -3216,10 +3216,10 @@ impl(
       callee_opt,
       .Some(callee) => match(
         callee,
-        .TypeVal(_) => {
+        Rc(.TypeVal(_)) => {
           return(_MsP.walk_children(&func_expr, &args, ctx));
         },
-        .FuncVal(fvd, _) => {
+        Rc(.FuncVal(fvd, _)) => {
           fid := fvd.*.func_id.clone();
           if(is_control_fn(fid.clone()), {
             m.all = true;
@@ -3696,7 +3696,7 @@ _rcw_walk :: (fn(e : &AstExpr, ctx : &_MspCtx, in_closure_in : bool) -> unit)({
   });
   match(
     _MsP.callee(e, &func_expr, &ctx.table),
-    .Some(.FuncVal(fvd, _)) => {
+    .Some(Rc(.FuncVal(fvd, _))) => {
       cfid := fvd.*.func_id.clone();
       match(
         get_func_type(cfid.clone()),
@@ -4072,7 +4072,7 @@ _gr_walk_closure_callee :: (fn(f : &AstExpr, ctx : &_GrCtx) -> Option(String))({
       v.value().get(usize(0)),
       .Some(vv) => match(
         vv,
-        .FuncVal(fvd, _) => match({
+        Rc(.FuncVal(fvd, _)) => match({
           _gr_note_callee(ctx, fvd.*.func_id.clone());
           function_reaches_non_send_global(fvd.*.func_id.clone(), &fvd.*.body, &ctx.table, &env)
         }, .Some(m) => Option(String).Some(`calls '${ast_expr_to_string(f)}', which ${m}`), .None => Option(String).None),
@@ -4108,7 +4108,7 @@ _gr_value_function :: (fn(e : &AstExpr, ctx : &_GrCtx) -> Option(String))({
     fv,
     .Some(v) => match(
       v,
-      .FuncVal(fvd, _) => {
+      Rc(.FuncVal(fvd, _)) => {
         fid := fvd.*.func_id.clone();
         (is_extern : bool) = match(get_func_type(fid.clone()), Rc(.Func({ meta : cm })) => cm.*.extern_name.is_some(), _ => false);
         if(is_extern, {
@@ -4188,7 +4188,7 @@ _gr_walk :: (fn(e : &AstExpr, ctx : &_GrCtx) -> Option(String))({
           _MsP.callee(e, &f.*, &ctx.table),
           .Some(cv) => match(
             cv,
-            .FuncVal(fvd, _) => {
+            Rc(.FuncVal(fvd, _)) => {
               fid := fvd.*.func_id.clone();
               (is_extern : bool) = false;
               match(
@@ -4393,10 +4393,10 @@ summarize_function_bodies :: (fn(values : &ArrayList(EvalValue), table : &ExprIn
   (i : usize) = usize(0);
   while(i < values.len(), {
     match(
-      values.get(i),
+      values.get_cloned(i),
       .Some(v) => match(
         v,
-        .FuncVal(fvd, _) => {
+        Rc(.FuncVal(fvd, _)) => {
           fid := fvd.*.func_id.clone();
           (is_extern : bool) = match(get_func_type(fid.clone()), Rc(.Func({ meta : cm })) => cm.*.extern_name.is_some(), _ => false);
           if(!is_extern && expr_info_table_get(table, ast_expr_id(&fvd.*.body)).is_some(), {

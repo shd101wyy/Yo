@@ -37,7 +37,7 @@ _upcast_trait_values :: (fn(entry : &DynImplEntry, tgt : &TypeValue) -> ArrayLis
         st := match(src_req.get(si), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         if(_carries_trait_value(st.clone()), {
           if(are_types_compatible_exact(&st, tt.clone()), {
-            match(entry.trait_values.get(vi), .Some(v) => out.push(v), .None => ());
+            match(entry.trait_values.get_cloned(vi), .Some(v) => out.push(v), .None => ());
             found = true;
           });
           vi = (vi + usize(1));

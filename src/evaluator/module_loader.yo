@@ -25,7 +25,7 @@
 { String } :: import("std/string");
 { RefCell } :: import("std/sync/refcell");
 { ArrayList } :: import("std/collections/array_list");
-{ EvalValue } :: import("../value.yo");
+{ EvalValue, EvalValueNode } :: import("../value.yo");
 { TypeValue, TypeValueNode, shared_list } :: import("../types/definitions.yo");
 { Environment, Variable, variable_value_type } :: import("../env.yo");
 { LoadModuleResult } :: import("./context.yo");
@@ -318,7 +318,7 @@ register_module :: (fn(path : &String, module_value : &EvalValue, module_type : 
   if(!module_cache_has(path.clone()), {
     path_owned := path.clone();
     g_module_cache_keys.with_mut({ path_owned }(xs) => xs.push(path_owned.clone()));
-    module_value_owned := module_value.*;
+    module_value_owned := Rc.clone(module_value.*);
     g_module_cache_vals.with_mut({ module_value_owned }(xs) => xs.push(module_value_owned));
     g_module_cache_types.with_mut({ module_type : Rc.clone(module_type) }(xs) => xs.push(Rc.clone(module_type)));
   });
@@ -331,9 +331,9 @@ load_module_from_cache :: (fn(path : &String) -> LoadModuleResult)(
     _module_cache_index(path.clone()),
     .Some(i) => LoadModuleResult(
       module_value : match(
-        g_module_cache_vals.with(xs => xs.get(i)),
+        g_module_cache_vals.with(xs => xs.get_cloned(i)),
         .Some(v) => v,
-        .None => EvalValue.UnitVal
+        .None => Rc.new(EvalValueNode.UnitVal)
       ),
       module_type : match(
         g_module_cache_types.with(xs => xs.get_cloned(i)),
@@ -343,7 +343,7 @@ load_module_from_cache :: (fn(path : &String) -> LoadModuleResult)(
       module_error : Option(String).None
     ),
     .None => LoadModuleResult(
-      module_value : EvalValue.UnitVal,
+      module_value : Rc.new(EvalValueNode.UnitVal),
       module_type : Rc.new(TypeValueNode.Unit),
       module_error : Option(String).Some(`module not preloaded: ${path}`)
     )
@@ -412,11 +412,11 @@ update_module_cache_slot :: (fn(path : &String, name : &String, var : &Variable)
     .Some(i) => {
       (patched : bool) = false;
       match(
-        g_module_cache_vals.with(xs => xs.get(i)),
+        g_module_cache_vals.with(xs => xs.get_cloned(i)),
         .Some(mv) =>
           match(
             mv,
-            .StructVal(_, names, vals) => {
+            Rc(.StructVal(_, names, vals)) => {
               // The field values are the module value's `ValueCell`: the
               // write lands in the place every holder of the value shares.
               (ni : usize) = usize(0);
@@ -429,7 +429,7 @@ update_module_cache_slot :: (fn(path : &String, name : &String, var : &Variable)
                       match(
                         var.value().get(usize(0)),
                         .Some(v) => v,
-                        .None => EvalValue.UnitVal
+                        .None => Rc.new(EvalValueNode.UnitVal)
                       )
                     );
                     patched = true;

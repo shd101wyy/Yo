@@ -26,7 +26,7 @@ pragma(Pragma.AllowUnsafe);
 { Environment, env_adopt } :: import("../../env.yo");
 { register_sns_module, EvalContext, LoadModuleResult } :: import("../context.yo");
 { Diagnostic } :: import("../../diagnostics.yo");
-{ EvalValue, type_of_eval_value, value_cell_new } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, type_of_eval_value, value_cell_new } :: import("../../value.yo");
 { TypeValue, TypeValueNode, shared_list } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { YoError, format_error_message, take_error_diagnostics, note_diagnostic_of_token } :: import("../../error.yo");
@@ -332,7 +332,7 @@ _build_module_val_from_env :: (fn(env : &Environment) -> EvalValue)({
   });
   sns_id2 := stable_sns_module_id(&env.module_path().*);
   register_sns_module(sns_id2.clone(), &env.module_path().*);
-  EvalValue.StructVal(sns_id2, shared_list(names), value_cell_new(values))
+  Rc.new(EvalValueNode.StructVal(sns_id2, shared_list(names), value_cell_new(values)))
 });
 // ---------------------------------------------------------------------------
 // evaluate_import
@@ -418,7 +418,7 @@ evaluate_import :: (
   // Strip the leading and trailing quote character to get the raw path.
   raw_with_quotes := match(
     arg_info.value(),
-    .Some(.StrLit(s)) => s.clone(),
+    .Some(Rc(.StrLit(s))) => s.clone(),
     .Some(_) => {
       exn.throw(
         dyn(
@@ -582,7 +582,7 @@ evaluate_import :: (
     .None => ()
   );
   // Record the result.
-  mod_val := load_result.module_value;
+  mod_val := Rc.clone(load_result.module_value);
   // Prefer the CACHED namespace struct type (real member field types —
   // fn members especially, whose FuncVal values carry no type, so the
   // value-derived reconstruction makes every imported fn unit-typed and

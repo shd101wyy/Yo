@@ -37,7 +37,7 @@
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue, is_str_lit, is_int_lit, create_unknown_val, type_of_eval_value }
+{ EvalValue, EvalValueNode, is_str_lit, is_int_lit, create_unknown_val, type_of_eval_value }
 :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_bool, t_comptime_string, t_comptime_int } :: import("../../types/creators.yo");
@@ -183,14 +183,14 @@ evaluate_yo_comptime_string_functions :: (
           arg_val,
           .Some(av) => match(
             av,
-            .StrLit(raw) => {
+            Rc(.StrLit(raw)) => {
               unquoted := str_lit_unquote(&raw);
               // COMPTIME BYTE BASIS (STD_API_AUDIT_D4_PLAN §4 PR 7, O1c):
               // comptime `len` counts BYTES, matching the runtime
               // `String.len()` / `str.len()` after the D4 flip. This was
               // pinned to `char_len` in PR 2 so the flip could not change the
               // comptime language silently; PR 7 is the deliberate alignment.
-              EvalValue.IntLit(unquoted.len().to_string())
+              Rc.new(EvalValueNode.IntLit(unquoted.len().to_string()))
             },
             _ => create_unknown_val(t_comptime_int())
           ),
@@ -199,14 +199,14 @@ evaluate_yo_comptime_string_functions :: (
       ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_TO_UPPER, .Some(usize(1))) =>
         match(
           arg_val,
-          .Some(.StrLit(raw)) => EvalValue.StrLit(str_lit_quote(str_lit_unquote(&raw).to_uppercase())),
+          .Some(Rc(.StrLit(raw))) => Rc.new(EvalValueNode.StrLit(str_lit_quote(str_lit_unquote(&raw).to_uppercase()))),
           .Some(_) => create_unknown_val(t_comptime_string()),
           .None => create_unknown_val(t_comptime_string())
         ),
       ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_TO_LOWER, .Some(usize(1))) =>
         match(
           arg_val,
-          .Some(.StrLit(raw)) => EvalValue.StrLit(str_lit_quote(str_lit_unquote(&raw).to_lowercase())),
+          .Some(Rc(.StrLit(raw))) => Rc.new(EvalValueNode.StrLit(str_lit_quote(str_lit_unquote(&raw).to_lowercase()))),
           .Some(_) => create_unknown_val(t_comptime_string()),
           .None => create_unknown_val(t_comptime_string())
         ),
@@ -221,7 +221,7 @@ evaluate_yo_comptime_string_functions :: (
             )
           )
         );
-        EvalValue.UnitVal
+        Rc.new(EvalValueNode.UnitVal)
       }
     );
     // Derive the result type from the VALUE'S TYPE — NOT the value tag. For an unknown-valued
@@ -281,13 +281,13 @@ evaluate_yo_comptime_string_functions :: (
       str_info.value(),
       .Some(sv) => match(
         sv,
-        .StrLit(raw) => {
+        Rc(.StrLit(raw)) => {
           unquoted := str_lit_unquote(&raw);
           match(
             start_info.value(),
             .Some(sv2) => match(
               sv2,
-              .IntLit(start_raw) => {
+              Rc(.IntLit(start_raw)) => {
                 start_idx := match(
                   start_raw.parse_i64(),
                   .Some(n) => usize(n),
@@ -299,7 +299,7 @@ evaluate_yo_comptime_string_functions :: (
                     ei.value(),
                     .Some(ev) => match(
                       ev,
-                      .IntLit(end_raw) => match(
+                      Rc(.IntLit(end_raw)) => match(
                         end_raw.parse_i64(),
                         .Some(n) => usize(n),
                         .None => unquoted.len()
@@ -349,7 +349,7 @@ evaluate_yo_comptime_string_functions :: (
                   );
                 });
                 sliced := unquoted.substring(start_b, end_b);
-                EvalValue.StrLit(str_lit_quote(&sliced))
+                Rc.new(EvalValueNode.StrLit(str_lit_quote(&sliced)))
               },
               _ => create_unknown_val(t_comptime_string())
             ),
@@ -387,12 +387,12 @@ evaluate_yo_comptime_string_functions :: (
     // Extract unquoted strings for comparison / concat.
     (lhs_str_opt : Option(String)) = match(
       lhs_val,
-      .Some(lv) => match(lv, .StrLit(raw) => Option(String).Some(str_lit_unquote(&raw)), _ => Option(String).None),
+      .Some(lv) => match(lv, Rc(.StrLit(raw)) => Option(String).Some(str_lit_unquote(&raw)), _ => Option(String).None),
       .None => Option(String).None
     );
     (rhs_str_opt : Option(String)) = match(
       rhs_val,
-      .Some(rv) => match(rv, .StrLit(raw) => Option(String).Some(str_lit_unquote(&raw)), _ => Option(String).None),
+      .Some(rv) => match(rv, Rc(.StrLit(raw)) => Option(String).Some(str_lit_unquote(&raw)), _ => Option(String).None),
       .None => Option(String).None
     );
     (result_val : EvalValue) = cond(
@@ -401,7 +401,7 @@ evaluate_yo_comptime_string_functions :: (
           lhs_str_opt,
           .Some(ls) => match(
             rhs_str_opt,
-            .Some(rs) => EvalValue.StrLit(str_lit_quote(ls + rs)),
+            .Some(rs) => Rc.new(EvalValueNode.StrLit(str_lit_quote(ls + rs))),
             .None => create_unknown_val(t_comptime_string())
           ),
           .None => create_unknown_val(t_comptime_string())
@@ -411,7 +411,7 @@ evaluate_yo_comptime_string_functions :: (
           lhs_str_opt,
           .Some(ls) => match(
             rhs_str_opt,
-            .Some(rs) => EvalValue.BoolVal(ls == rs),
+            .Some(rs) => Rc.new(EvalValueNode.BoolVal(ls == rs)),
             .None => create_unknown_val(t_bool())
           ),
           .None => create_unknown_val(t_bool())
@@ -421,7 +421,7 @@ evaluate_yo_comptime_string_functions :: (
           lhs_str_opt,
           .Some(ls) => match(
             rhs_str_opt,
-            .Some(rs) => EvalValue.BoolVal(!(ls == rs)),
+            .Some(rs) => Rc.new(EvalValueNode.BoolVal(!(ls == rs))),
             .None => create_unknown_val(t_bool())
           ),
           .None => create_unknown_val(t_bool())
@@ -431,7 +431,7 @@ evaluate_yo_comptime_string_functions :: (
           lhs_str_opt,
           .Some(ls) => match(
             rhs_str_opt,
-            .Some(rs) => EvalValue.BoolVal(ls < rs),
+            .Some(rs) => Rc.new(EvalValueNode.BoolVal(ls < rs)),
             .None => create_unknown_val(t_bool())
           ),
           .None => create_unknown_val(t_bool())
@@ -441,7 +441,7 @@ evaluate_yo_comptime_string_functions :: (
           lhs_str_opt,
           .Some(ls) => match(
             rhs_str_opt,
-            .Some(rs) => EvalValue.BoolVal(!(rs < ls)),
+            .Some(rs) => Rc.new(EvalValueNode.BoolVal(!(rs < ls))),
             .None => create_unknown_val(t_bool())
           ),
           .None => create_unknown_val(t_bool())
@@ -451,7 +451,7 @@ evaluate_yo_comptime_string_functions :: (
           lhs_str_opt,
           .Some(ls) => match(
             rhs_str_opt,
-            .Some(rs) => EvalValue.BoolVal(rs < ls),
+            .Some(rs) => Rc.new(EvalValueNode.BoolVal(rs < ls)),
             .None => create_unknown_val(t_bool())
           ),
           .None => create_unknown_val(t_bool())
@@ -461,7 +461,7 @@ evaluate_yo_comptime_string_functions :: (
           lhs_str_opt,
           .Some(ls) => match(
             rhs_str_opt,
-            .Some(rs) => EvalValue.BoolVal(!(ls < rs)),
+            .Some(rs) => Rc.new(EvalValueNode.BoolVal(!(ls < rs))),
             .None => create_unknown_val(t_bool())
           ),
           .None => create_unknown_val(t_bool())
@@ -477,7 +477,7 @@ evaluate_yo_comptime_string_functions :: (
             )
           )
         );
-        EvalValue.UnitVal
+        Rc.new(EvalValueNode.UnitVal)
       }
     );
     // Derive the result type from the VALUE'S TYPE

@@ -32,7 +32,7 @@ pragma(Pragma.AllowUnsafe);
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { function_reaches_non_send_global, d1_note_thread_reach } :: import("../effects/mutation_summary.yo");
 { EvalContext, ExpectedTypeCtx, ArgEntry, ArgValues, VarArgEntry, call_function_value_marker } :: import("../context.yo");
-{ EvalValue, is_func_val, create_type_value, create_unknown_val, no_opt_values, shared_opt_values } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, is_func_val, create_type_value, create_unknown_val, no_opt_values, shared_opt_values } :: import("../../value.yo");
 { get_func_type } :: import("../../function_value.yo");
 { create_specialized_function_inline, try_to_call_function_with_arguments } :: import("../calls/helper.yo");
 { t_refine_inner, some_t_bounds, TypeValue, TypeValueNode, no_types, no_levels, slot_pointee_at, fn_param_by_value_at, fn_param_mut_ref_flags, no_flags, shared_list, no_labels, t_slot_pointee, fn_trait_base_serves, fn_trait_call_contract, fn_trait_slot_contract } :: import("../../types/definitions.yo");
@@ -143,7 +143,7 @@ apply_type_ctor_via :: (fn(ctor : &String, types : &ArrayList(TypeValue), env : 
       b_callee := Rc.new(AstExprNode.Atom(alloc_global_expr_id(), b_callee_tok));
       bres := evaluate_comptime_fn_call(Option(AstExpr).Some(b_callee), &box_ft, &bfv, &bav, env, &cenv, ctx, exn);
       cenv.pop_frame();
-      match(bres.value, .TypeVal(bt) => Option(TypeValue).Some(Rc.clone(bt)), _ => Option(TypeValue).None)
+      match(Rc.clone(bres.value), Rc(.TypeVal(bt)) => Option(TypeValue).Some(Rc.clone(bt)), _ => Option(TypeValue).None)
     }
   )
 });
@@ -603,10 +603,10 @@ _require_send_dyn_methods_reach_no_global :: (
   (ti : usize) = usize(0);
   while(ti < trait_vals.len(), {
     match(
-      trait_vals.get(ti),
+      trait_vals.get_cloned(ti),
       .Some(tv) => match(
         tv,
-        .TraitVal(_, fnames, fvals) => {
+        Rc(.TraitVal(_, fnames, fvals)) => {
           (fi : usize) = usize(0);
           while(fi < fvals.len(), {
             match(
@@ -615,7 +615,7 @@ _require_send_dyn_methods_reach_no_global :: (
                 fv_opt,
                 .Some(fv) => match(
                   fv,
-                  .FuncVal(fvd, _) => match({
+                  Rc(.FuncVal(fvd, _)) => match({
                     reach := function_reaches_non_send_global(fvd.*.func_id.clone(), &fvd.*.body, &ctx.expr_info_table, env);
                     // A Send dyn's methods may run on another thread: what
                     // they read is thread-reached, and already-written is a
@@ -667,8 +667,8 @@ _reject_dyn_borrowing_future_methods :: (
   (ti : usize) = usize(0);
   while(ti < trait_vals.len(), ti = (ti + usize(1)), {
     match(
-      trait_vals.get(ti),
-      .Some(.TraitVal(tname, fnames, fvals)) => {
+      trait_vals.get_cloned(ti),
+      .Some(Rc(.TraitVal(tname, fnames, fvals))) => {
         (fi : usize) = usize(0);
         while(fi < fvals.len(), fi = (fi + usize(1)), {
           // The method's result type, and its body's evaluated type: the
@@ -678,7 +678,7 @@ _reject_dyn_borrowing_future_methods :: (
           (body_ty : TypeValue) = Rc.new(TypeValueNode.Unit);
           match(
             fvals.get(fi),
-            .Some(.Some(.FuncVal(fvd, _))) => {
+            .Some(.Some(Rc(.FuncVal(fvd, _)))) => {
               res_ty = match(get_func_type(fvd.*.func_id.clone()), Rc(.Func({ result : r })) => t_slot_pointee(&r), _ => Rc.new(TypeValueNode.Unit));
               body_ty = match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&fvd.*.body)), .Some(bi) => Rc.clone(bi.ty()), .None => Rc.new(TypeValueNode.Unit));
             },
@@ -732,9 +732,9 @@ _monomorphize_default_fv :: (
   fn(fv : &EvalValue, default_fid : &String, value_type : &TypeValue, caller_env : &Environment, ctx : &mut EvalContext, exn : Exception) -> EvalValue
 )(
   cond(
-    !is_func_val(fv) => fv.*,
-    (default_fid.* == String.new()) => fv.*,
-    match(fv, .FuncVal(__mfv, _) => (__mfv.func_id == default_fid.*), _ => false) => {
+    !is_func_val(fv) => Rc.clone(fv.*),
+    (default_fid.* == String.new()) => Rc.clone(fv.*),
+    match(fv, Rc(.FuncVal(__mfv, _)) => (__mfv.func_id == default_fid.*), _ => false) => {
       default_ft := get_func_type(default_fid.clone());
       // Every parameter is a runtime argument of its declared type, `Self`
       // read as the receiver. `create_specialized_function_inline` takes the
@@ -748,7 +748,7 @@ _monomorphize_default_fv :: (
       sub_ft := _substitute_self_in_method_ty(&default_ft, value_type);
       sub_pts := match(&sub_ft, Rc(.Func({ param_types : sp })) => Rc.clone(sp), _ => no_types());
       sub_is_ref := match(&sub_ft, Rc(.Func({ result : _ })) => fn_param_mut_ref_flags(&sub_ft), _ => no_flags());
-      param_labels := match(fv, .FuncVal(__plfv, _) => __plfv.params.clone(), _ => ArrayList(String).new());
+      param_labels := match(fv, Rc(.FuncVal(__plfv, _)) => __plfv.params.clone(), _ => ArrayList(String).new());
       spec_args := ArrayList(ArgEntry).new();
       ___mdf := caller_env.push_frame(false);
       (spi : usize) = usize(0);
@@ -807,7 +807,7 @@ _monomorphize_default_fv :: (
       caller_env.pop_frame();
       spec_fv
     },
-    true => fv.*
+    true => Rc.clone(fv.*)
   )
 );
 /// The trait method `fname` the receiver gets from a GENERIC impl
@@ -843,7 +843,7 @@ _generic_impl_method_for_dyn :: (
   match(
     picked,
     .Some(pc) => match(
-      pc.method_value,
+      pc.method_value.clone(),
       .Some(fv) => if(is_func_val(&fv), {
         recv_name := `__yo_dyn_receiver_${fname}`;
         caller_env.push_frame(false);
@@ -910,10 +910,10 @@ _generic_impl_method_for_dyn :: (
         // context's (the `Dyn` a `dyn(...)` argument is checked against)
         // must not reach it.
         saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
-        res := try_to_call_function_with_arguments(Option(EvalValue).Some(fv), &pc.method_type, &call_expr, &callee_atom, &call_args, caller_env, ctx, true, false, true, exn);
+        res := try_to_call_function_with_arguments(Option(EvalValue).Some(Rc.clone(fv)), &pc.method_type, &call_expr, &callee_atom, &call_args, caller_env, ctx, true, false, true, exn);
         ctx.expected_type = saved_expected.clone();
         caller_env.pop_frame();
-        res.specialized_function_value
+        res.specialized_function_value.clone()
       }, Option(EvalValue).None),
       .None => Option(EvalValue).None
     ),
@@ -972,7 +972,7 @@ _synthesize_dyn_clone_fn :: (fn(payload_in : &TypeValue, dyn_type : &TypeValue, 
   match(
     generic_fv,
     .Some(fv) => {
-      fid := match(fv, .FuncVal(sfd, _) => sfd.*.func_id.clone(), _ => String.new());
+      fid := match(Rc.clone(fv), Rc(.FuncVal(sfd, _)) => sfd.*.func_id.clone(), _ => String.new());
       fn_ty := get_func_type(&fid);
       recv_name := String.from("__yo_dyn_clone_source");
       caller_env.push_frame(false);
@@ -987,10 +987,10 @@ _synthesize_dyn_clone_fn :: (fn(payload_in : &TypeValue, dyn_type : &TypeValue, 
       call_args.push(recv_atom);
       call_expr := Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), Rc.clone(callee_atom), Rc.new(call_args.clone()), false, recv_tok));
       ctx.expected_type = Option(ExpectedTypeCtx).None;
-      res := try_to_call_function_with_arguments(Option(EvalValue).Some(fv), &fn_ty, &call_expr, &callee_atom, &call_args, caller_env, ctx, true, false, true, exn);
+      res := try_to_call_function_with_arguments(Option(EvalValue).Some(Rc.clone(fv)), &fn_ty, &call_expr, &callee_atom, &call_args, caller_env, ctx, true, false, true, exn);
       ctx.expected_type = saved_expected.clone();
       caller_env.pop_frame();
-      res.specialized_function_value
+      res.specialized_function_value.clone()
     },
     .None => Option(EvalValue).None
   )
@@ -1071,7 +1071,7 @@ _resolve_dyn_trait_values :: (fn(dyn_type : &TypeValue, value_type : &TypeValue,
                     entries.get(k),
                     .Some(entry) => if(entry.label == fname, {
                       is_exact := (entry.source_trait_id == trait_id.*);
-                      ev := entry.value;
+                      ev := entry.value.clone();
                       if(is_exact, {
                         exact = ev;
                         have_exact = true;
@@ -1101,7 +1101,7 @@ _resolve_dyn_trait_values :: (fn(dyn_type : &TypeValue, value_type : &TypeValue,
                 // there) or via the get_trait_default fall-through.
                 default_fid_for_field := match(
                   get_trait_default(trait_id.clone(), fname.clone()),
-                  .Some(dfv) => if(is_func_val(&dfv), match(dfv, .FuncVal(__dfvd, _) => __dfvd.*.func_id.clone(), _ => String.new()), String.new()),
+                  .Some(dfv) => if(is_func_val(&dfv), match(dfv, Rc(.FuncVal(__dfvd, _)) => __dfvd.*.func_id.clone(), _ => String.new()), String.new()),
                   .None => String.new()
                 );
                 resolved_field := match(
@@ -1127,13 +1127,13 @@ _resolve_dyn_trait_values :: (fn(dyn_type : &TypeValue, value_type : &TypeValue,
                 field_vals.push(
                   match(
                     resolved_field,
-                    .Some(rf) => Option(EvalValue).Some(rf),
+                    .Some(rf) => Option(EvalValue).Some(Rc.clone(rf)),
                     .None => if(is_clone_trait_type(&tt) && (fname == "clone"), _synthesize_dyn_clone_fn(&method_lookup_type, dyn_type, caller_env, ctx, exn), Option(EvalValue).None)
                   )
                 );
                 j = (j + usize(1));
               });
-              trait_vals.push(EvalValue.TraitVal(tname.clone(), shared_list(field_names), shared_opt_values(field_vals)));
+              trait_vals.push(Rc.new(EvalValueNode.TraitVal(tname.clone(), shared_list(field_names), shared_opt_values(field_vals))));
               ()
             },
             // Fn trait (Dyn(Fn(...)) — e.g. a dyn'd CLOSURE stored in a struct
@@ -1145,10 +1145,12 @@ _resolve_dyn_trait_values :: (fn(dyn_type : &TypeValue, value_type : &TypeValue,
             // name).
             Rc(.FnTraitT(fn_base, _, _, _, _, _)) => {
               trait_vals.push(
-                EvalValue.TraitVal(
-                  fn_base.clone(),
-                  no_labels(),
-                  no_opt_values()
+                Rc.new(
+                  EvalValueNode.TraitVal(
+                    fn_base.clone(),
+                    no_labels(),
+                    no_opt_values()
+                  )
                 )
               );
               ()

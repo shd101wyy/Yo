@@ -23,6 +23,7 @@ pragma(Pragma.AllowUnsafe);
 { is_array_type, is_pointer_type, is_trait_type, is_struct_type, is_function_type, is_reference_struct_type, cell_handle_view } :: import("../../types/guards.yo");
 {
   EvalValue,
+  EvalValueNode,
   is_array_val,
   is_str_lit,
   is_struct_val,
@@ -136,7 +137,7 @@ _try_ctfe_range_ctor :: (
   ct_args := ArrayList(ArgEntry).new();
   ct_args.push(
     ArgEntry(
-      value : Option(EvalValue).Some(EvalValue.TypeVal(t_usize())),
+      value : Option(EvalValue).Some(Rc.new(EvalValueNode.TypeVal(t_usize()))),
       parameter_type : t_type(),
       arg_type : t_type()
     )
@@ -157,8 +158,8 @@ _try_ctfe_range_ctor :: (
     local_exn
   );
   match(
-    res.value,
-    .TypeVal(rt) => if(is_struct_type(rt.clone()), {
+    Rc.clone(res.value),
+    Rc(.TypeVal(rt)) => if(is_struct_type(rt.clone()), {
       out.push(Rc.clone(rt));
     }),
     _ => ()
@@ -316,7 +317,7 @@ _extract_range_indices :: (
 )(
   match(
     range_ev,
-    .StructVal(_, _, field_values) => {
+    Rc(.StructVal(_, _, field_values)) => {
       start_field := match(
         field_values.get(usize(0)),
         .Some(v) => v,
@@ -336,14 +337,14 @@ _extract_range_indices :: (
       });
       start_raw := match(
         start_field,
-        .IntLit(r) => r.clone(),
+        Rc(.IntLit(r)) => r.clone(),
         _ => {
           return(Option(_IdxRange).None);
         }
       );
       end_raw := match(
         end_field,
-        .IntLit(r) => r.clone(),
+        Rc(.IntLit(r)) => r.clone(),
         _ => {
           return(Option(_IdxRange).None);
         }
@@ -448,7 +449,7 @@ _find_all_index_methods :: (
             result.push(
               _IndexMethodEntry(
                 method_type : Rc.clone(m.ty),
-                method_value : m.value
+                method_value : m.value.clone()
               )
             );
           });
@@ -588,7 +589,7 @@ _try_comptime_element_access :: (
     arg_val,
     .Some(v) => if(is_int_lit(&v.*), {
       // Comptime integer index — direct element access
-      idx_raw := match(v, .IntLit(r) => r.clone(), _ => String.from("0"));
+      idx_raw := match(v, Rc(.IntLit(r)) => r.clone(), _ => String.from("0"));
       idx_i64 := match(
         idx_raw.parse_i64(),
         .Some(n) => n,
@@ -625,7 +626,7 @@ _try_comptime_element_access :: (
         .Some(av) => {
           match(
             av,
-            .ArrayVal(elements) => {
+            Rc(.ArrayVal(elements)) => {
               arr_len := elements.len();
               if(idx_usize >= arr_len, {
                 exn.throw(
@@ -653,7 +654,7 @@ _try_comptime_element_access :: (
                       )
                     )
                   );
-                  EvalValue.UnitVal
+                  Rc.new(EvalValueNode.UnitVal)
                 }
               );
               return(
@@ -795,7 +796,7 @@ _compute_comptime_string_index :: (
 )({
   // During type-checking with UnknownVal, return a placeholder
   if(is_unknown_val(arg_value), {
-    return(EvalValue.StrLit(_str_quote(String.from(""))));
+    return(Rc.new(EvalValueNode.StrLit(_str_quote(String.from("")))));
   });
   if(!is_range, {
     // Single character access
@@ -811,7 +812,7 @@ _compute_comptime_string_index :: (
         )
       );
     });
-    idx_raw := match(arg_value, .IntLit(r) => r.clone(), _ => String.from("0"));
+    idx_raw := match(arg_value, Rc(.IntLit(r)) => r.clone(), _ => String.from("0"));
     idx_i64 := match(
       idx_raw.parse_i64(),
       .Some(n) => n,
@@ -878,7 +879,7 @@ _compute_comptime_string_index :: (
       idx_usize,
       str_value.ceil_char_boundary(idx_usize + usize(1))
     );
-    return(EvalValue.StrLit(_str_quote(&char_str)));
+    return(Rc.new(EvalValueNode.StrLit(_str_quote(&char_str))));
   });
   // Range access
   if(!is_struct_val(arg_value), {
@@ -967,7 +968,7 @@ _compute_comptime_string_index :: (
     );
   });
   sliced := str_value.substring(start_idx, end_idx);
-  EvalValue.StrLit(_str_quote(&sliced))
+  Rc.new(EvalValueNode.StrLit(_str_quote(&sliced)))
 });
 // ---------------------------------------------------------------------------
 // _try_comptime_string_index
@@ -1021,7 +1022,7 @@ _try_comptime_string_index :: (
           )
         )
       );
-      EvalValue.UnitVal
+      Rc.new(EvalValueNode.UnitVal)
     }
   );
   caller_env := expr_info_adopt_env(&info);
@@ -1241,9 +1242,9 @@ _specialize_index_method_trial :: (
   inner_exn := Exception(throw : (_err -> unwind(())));
   r := try_to_call_function_with_arguments(mv, mty, expr, &recv, &margs, caller_env, ctx, true, false, false, inner_exn);
   match(
-    r.specialized_function_value,
+    r.specialized_function_value.clone(),
     .Some(sv) => {
-      out.push(sv);
+      out.push(Rc.clone(sv));
     },
     .None => ()
   );
@@ -1321,8 +1322,8 @@ _find_comptime_index_method :: (
                       if((p0_is_ptr || p0_is_ref) && p1_compatible && ret_is_ptr, {
                         // Comptime-parameter gate.
                         ci_flags := match(
-                          m.method_value,
-                          .Some(.FuncVal(__cifvd1, _)) => get_func_param_comptime(__cifvd1.*.func_id.clone()),
+                          m.method_value.clone(),
+                          .Some(Rc(.FuncVal(__cifvd1, _))) => get_func_param_comptime(__cifvd1.*.func_id.clone()),
                           .Some(_) => ArrayList(bool).new(),
                           .None => ArrayList(bool).new()
                         );
@@ -1430,7 +1431,7 @@ _try_comptime_custom_type_index :: (
   if(ct_method.method_value.is_none(), {
     return(Option(IndexCallResult).None);
   });
-  ct_fn_value := match(ct_method.method_value, .Some(mv) => mv, .None => EvalValue.UnitVal);
+  ct_fn_value := match(ct_method.method_value.clone(), .Some(mv) => Rc.clone(mv), .None => Rc.new(EvalValueNode.UnitVal));
   if(!is_func_val(&ct_fn_value), {
     return(Option(IndexCallResult).None);
   });
@@ -1444,8 +1445,8 @@ _try_comptime_custom_type_index :: (
   self_ptr_type := t_ptr(value_type);
   // Fresh 1-elem cell around self.
   self_ptr_cell := ArrayList(EvalValue).new();
-  self_ptr_cell.push(self_value.*);
-  self_ptr_value := EvalValue.PtrVal(value_cell_new(self_ptr_cell), usize(0), .None);
+  self_ptr_cell.push(Rc.clone(self_value.*));
+  self_ptr_value := Rc.new(EvalValueNode.PtrVal(value_cell_new(self_ptr_cell), usize(0), .None));
   ct_p0_ty := match(
     &ct_fn_type,
     Rc(.Func({ param_types : ct_pts0 })) => match(slot_pointee_at(&ct_pts0.*, usize(0)), .Some(t) => t, .None => t_unit()),
@@ -1468,8 +1469,8 @@ _try_comptime_custom_type_index :: (
   );
   // Rebuild the method's definition-time scope from its capture snapshot, then
   // push a frame with `self` / `idx` bound.
-  ct_cap_src := match(ct_fn_value, .FuncVal(__cifvd2, _) => fv_capture_source(&__cifvd2.*), _ => FvCaptureSource.Flat(ArrayList(String).new(), ArrayList(TypeValue).new()));
-  ct_cap_vals := match(ct_fn_value, .FuncVal(__cifvd3, __cicv) => fv_capture_vals(&__cifvd3.*, &__cicv), _ => no_values());
+  ct_cap_src := match(Rc.clone(ct_fn_value), Rc(.FuncVal(__cifvd2, _)) => fv_capture_source(&__cifvd2.*), _ => FvCaptureSource.Flat(ArrayList(String).new(), ArrayList(TypeValue).new()));
+  ct_cap_vals := match(Rc.clone(ct_fn_value), Rc(.FuncVal(__cifvd3, __cicv)) => fv_capture_vals(&__cifvd3.*, &__cicv), _ => no_values());
   ct_module_path := Rc.clone(ct_caller_env.module_path());
   ct_callee_env := new_environment(Rc.clone(ct_module_path));
   (ct_ci : usize) = usize(0);
@@ -1477,7 +1478,7 @@ _try_comptime_custom_type_index :: (
     ct_cn := fv_source_name(&ct_cap_src, ct_ci);
     ct_cty := fv_source_ty(&ct_cap_src, ct_ci);
     ct_cv := match(ct_cap_vals.get(ct_ci), .Some(v) => Option(EvalValue).Some(v), .None => Option(EvalValue).None);
-    ct_cv_is_ct := match(ct_cv, .Some(_) => true, .None => false);
+    ct_cv_is_ct := match(ct_cv.clone(), .Some(_) => true, .None => false);
     _ct_add_cap := add_variable_to_env(
       &ct_callee_env,
       ct_cn.clone(),
@@ -1499,7 +1500,7 @@ _try_comptime_custom_type_index :: (
     &ct_callee_env,
     ct_p0_label.clone(),
     &ct_p0_ty,
-    Option(EvalValue).Some(self_ptr_value),
+    Option(EvalValue).Some(Rc.clone(self_ptr_value)),
     true,
     false,
     false,
@@ -1510,7 +1511,7 @@ _try_comptime_custom_type_index :: (
     &ct_callee_env,
     ct_p1_label.clone(),
     &ct_p1_ty,
-    Option(EvalValue).Some(arg_value),
+    Option(EvalValue).Some(Rc.clone(arg_value)),
     true,
     false,
     false,
@@ -1553,11 +1554,11 @@ _try_comptime_custom_type_index :: (
     exn
   );
   ctx.is_validating_function_definition = ct_saved_validating;
-  ct_return_value := ct_result.value;
+  ct_return_value := Rc.clone(ct_result.value);
   // Also record the RUNTIME index method for codegen.
   ct_rt_method := _find_index_method(value_type, &arg_type, &ct_caller_env);
   ct_rt_method_type := match(&ct_rt_method, .Some(rm) => Option(TypeValue).Some(Rc.clone(rm.method_type)), .None => Option(TypeValue).None);
-  ct_rt_method_value := match(ct_rt_method, .Some(rm) => rm.method_value, .None => Option(EvalValue).None);
+  ct_rt_method_value := match(ct_rt_method, .Some(rm) => rm.method_value.clone(), .None => Option(EvalValue).None);
   // A PtrVal return derefs to the pointed-at element/field and yields the
   // ComptimeRef that makes `p(0) = v` and `&(p(0))` comptime places.
   //
@@ -1569,23 +1570,23 @@ _try_comptime_custom_type_index :: (
   // `StructRef` would (exprs/assignment.yo:672-678). The StructVal / TupleVal
   // arms cover the paths that hand back an unwrapped target.
   match(
-    ct_return_value,
-    .PtrVal(ct_target_cell, ct_index, _) => {
-      ct_target := match(ct_target_cell.get(usize(0)), .Some(t0) => t0, .None => EvalValue.UnitVal);
-      (ct_deref : EvalValue) = ct_target;
+    Rc.clone(ct_return_value),
+    Rc(.PtrVal(ct_target_cell, ct_index, _)) => {
+      ct_target := match(ct_target_cell.get(usize(0)), .Some(t0) => t0, .None => Rc.new(EvalValueNode.UnitVal));
+      (ct_deref : EvalValue) = Rc.clone(ct_target);
       (ct_cref : Option(ComptimeRef)) = Option(ComptimeRef).None;
       match(
-        ct_target,
-        .ArrayVal(ct_elements) => {
-          ct_deref = match(ct_elements.get(ct_index), .Some(e) => e, .None => ct_target);
+        Rc.clone(ct_target),
+        Rc(.ArrayVal(ct_elements)) => {
+          ct_deref = match(ct_elements.get(ct_index), .Some(e) => e, .None => Rc.clone(ct_target));
           ct_cref = Option(ComptimeRef).Some(ComptimeRef.ArrayRef(Rc.clone(ct_elements), ct_index));
         },
-        .StructVal(_, _, ct_fields_s) => {
-          ct_deref = match(ct_fields_s.get(ct_index), .Some(e) => e, .None => ct_target);
+        Rc(.StructVal(_, _, ct_fields_s)) => {
+          ct_deref = match(ct_fields_s.get(ct_index), .Some(e) => e, .None => Rc.clone(ct_target));
           ct_cref = Option(ComptimeRef).Some(ComptimeRef.StructRef(Rc.clone(ct_fields_s), ct_index));
         },
-        .TupleVal(ct_fields_t) => {
-          ct_deref = match(ct_fields_t.get(ct_index), .Some(e) => e, .None => ct_target);
+        Rc(.TupleVal(ct_fields_t)) => {
+          ct_deref = match(ct_fields_t.get(ct_index), .Some(e) => e, .None => Rc.clone(ct_target));
           ct_cref = Option(ComptimeRef).Some(ComptimeRef.TupleRef(Rc.clone(ct_fields_t), ct_index));
         },
         _ => ()
@@ -1678,14 +1679,14 @@ try_to_call_with_index_trait :: (
     self_value,
     .Some(v) => if(
       is_array_val(&v.*),
-      Option(EvalValue).Some(v.*),
+      Option(EvalValue).Some(Rc.clone(v.*)),
       Option(EvalValue).None
     ),
     .None => Option(EvalValue).None
   );
   string_raw_opt := match(
     self_value,
-    .Some(.StrLit(r)) => Option(String).Some(r.clone()),
+    .Some(Rc(.StrLit(r))) => Option(String).Some(r.clone()),
     .Some(_) => Option(String).None,
     .None => Option(String).None
   );
@@ -1871,13 +1872,13 @@ try_to_call_with_index_trait :: (
   spec_out := ArrayList(EvalValue).new();
   saved_idx_exp := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   match(
-    method.method_value,
+    method.method_value.clone(),
     .Some(_) => _specialize_index_method(&method.method_value, &method.method_type, expr, caller_env, ctx, &arg_expr, &mut spec_out),
     .None => ()
   );
   _record_index_unchecked_twin(value_type, &arg_type, &output_ty, expr, caller_env, ctx, &arg_expr);
   ctx.expected_type = saved_idx_exp;
-  spec_method_value := match(spec_out.get(usize(0)), .Some(sv) => Option(EvalValue).Some(sv), .None => method.method_value);
+  spec_method_value := match(spec_out.get_cloned(usize(0)), .Some(sv) => Option(EvalValue).Some(sv), .None => method.method_value.clone());
   IndexCallResult(
     value : Option(EvalValue).Some(result_val),
     ty : Rc.clone(output_ty),
@@ -1956,7 +1957,7 @@ _record_index_unchecked_twin :: (
         _ => false
       );
       if(same_output, {
-        picked = Option(_IndexMethodEntry).Some(_IndexMethodEntry(method_type : Rc.clone(c.ty), method_value : c.value));
+        picked = Option(_IndexMethodEntry).Some(_IndexMethodEntry(method_type : Rc.clone(c.ty), method_value : c.value.clone()));
       });
     });
     ci = (ci + usize(1));
@@ -1967,7 +1968,7 @@ _record_index_unchecked_twin :: (
       twin_out := ArrayList(EvalValue).new();
       _specialize_index_method(&tw.method_value, &tw.method_type, expr, caller_env, ctx, idx_expr, &mut twin_out);
       match(
-        twin_out.get(usize(0)),
+        twin_out.get_cloned(usize(0)),
         .Some(sv) => record_index_unchecked_twin(ast_expr_id(expr), &sv),
         .None => ()
       );
@@ -2110,7 +2111,7 @@ _promote_index_call :: (fn(call : &AstExpr, env : &Environment, ctx : &mut EvalC
   spec_out := ArrayList(EvalValue).new();
   saved_exp := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   match(
-    mut_m.method_value,
+    mut_m.method_value.clone(),
     .Some(_) => _specialize_index_method(&mut_m.method_value, &mut_m.method_type, call, env, ctx, &idx, &mut spec_out),
     .None => ()
   );
@@ -2119,7 +2120,7 @@ _promote_index_call :: (fn(call : &AstExpr, env : &Environment, ctx : &mut EvalC
   forget_index_unchecked_twin(ast_expr_id(call));
   _record_index_unchecked_twin(&recv_ty, &arg_ty, &read_shape.output, call, env, ctx, &idx, "IndexUncheckedMut", "index_unchecked_mut");
   ctx.expected_type = saved_exp;
-  new_value := match(spec_out.get(usize(0)), .Some(sv) => Option(EvalValue).Some(sv), .None => mut_m.method_value);
+  new_value := match(spec_out.get_cloned(usize(0)), .Some(sv) => Option(EvalValue).Some(sv), .None => mut_m.method_value.clone());
   expr_info_set_index_method_type(&info, Option(TypeValue).Some(Rc.clone(mut_m.method_type)));
   expr_info_set_index_method_value(&info, &new_value);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(call), &info);

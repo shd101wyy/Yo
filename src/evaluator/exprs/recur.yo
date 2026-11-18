@@ -148,8 +148,8 @@ evaluate_recur :: (
     //
     // When `functionValue` is a function value, pass it; otherwise pass None.
     function_val_opt := match(
-      func_body_ctx.func_value,
-      .Some(fv) => if(is_func_val(&fv), Option(EvalValue).Some(fv), Option(EvalValue).None),
+      func_body_ctx.func_value.clone(),
+      .Some(fv) => if(is_func_val(&fv), Option(EvalValue).Some(Rc.clone(fv)), Option(EvalValue).None),
       .None => Option(EvalValue).None
     );
     // Extract callee and args from the recur(...) FnCall node.

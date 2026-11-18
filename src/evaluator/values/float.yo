@@ -9,7 +9,7 @@ import("std/fmt");
 { ExprInfo, new_expr_info, expr_info_table_set } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue } :: import("../../value.yo");
+{ EvalValue, EvalValueNode } :: import("../../value.yo");
 { TokenKind } :: import("../../token.yo");
 { t_comptime_float, t_f32, t_f64 } :: import("../../types/creators.yo");
 { is_f32_type, is_f64_type } :: import("../../types/guards.yo");
@@ -68,7 +68,7 @@ evaluate_float_literal :: (
     ),
     .None => t_comptime_float()
   );
-  val := EvalValue.FloatLit(raw.clone());
+  val := Rc.new(EvalValueNode.FloatLit(raw.clone()));
   info := new_expr_info(env, &ty);
   info.set_value(.Some(val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);

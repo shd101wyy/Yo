@@ -33,7 +33,7 @@ import("std/fmt");
 { new_expr_info, expr_info_table_get, expr_info_table_set, expr_info_set_doc_comment } :: import("../../expr_info.yo");
 { Environment, snapshot_env, env_adopt } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
-{ EvalValue, is_unknown_val } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, is_unknown_val } :: import("../../value.yo");
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { is_some_type, is_tuple_type, is_struct_type, is_module_type, is_trait_type } :: import("../../types/guards.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
@@ -347,7 +347,7 @@ evaluate_type_field :: (
       te_info.value(),
       // A runtime field spelled `str` is the legacy value `str`, `&(str,
       // static)` (decision 49, `unsized_legacy_spellings`).
-      .Some(.TypeVal(inner)) => {
+      .Some(Rc(.TypeVal(inner))) => {
         if(!is_comptime && is_legacy_value_str(&inner), {
           note_legacy_str_spelling(&te, false, &ctx.std_path);
         });
@@ -460,7 +460,7 @@ evaluate_type_field :: (
     // Same UnknownVal hole as the ?= gate above, for the `name = value`
     // comptime-field form: a runtime call is not a compile-time value.
     match(
-      assigned_value,
+      assigned_value.clone(),
       .Some(avv) => if(is_unknown_val(&avv), {
         exn.throw(
           dyn(
@@ -565,7 +565,7 @@ evaluate_type_field :: (
     // MISMATCHED declared type is already rejected by the compatibility
     // check below).
     match(
-      default_value,
+      default_value.clone(),
       .Some(dvv) => if(is_unknown_val(&dvv), {
         exn.throw(
           dyn(
@@ -636,11 +636,11 @@ evaluate_type_field :: (
       .None => Option(String).None
     );
     le_val := match(
-      assigned_value,
-      .Some(av) => Option(EvalValue).Some(av),
+      assigned_value.clone(),
+      .Some(av) => Option(EvalValue).Some(Rc.clone(av)),
       .None => match(
-        default_value,
-        .Some(dv) => Option(EvalValue).Some(dv),
+        default_value.clone(),
+        .Some(dv) => Option(EvalValue).Some(Rc.clone(dv)),
         .None => Option(EvalValue).None
       )
     );
@@ -657,7 +657,7 @@ evaluate_type_field :: (
   );
   if(!is_same_as_type_expr, {
     expr_info := new_expr_info(&env, Rc.new(TypeValueNode.Unit));
-    expr_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
+    expr_info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
   });
   // --- Prohibit void type ---

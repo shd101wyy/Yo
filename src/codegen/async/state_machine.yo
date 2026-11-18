@@ -285,7 +285,7 @@ _lv_mark_capture_list_borrows :: (fn(closure : &AstExpr, lhs : &AstExpr, w : &_L
 _lv_call_abi_ptr_flags :: (fn(call : &AstExpr, callee : &AstExpr, context : &FunctionGenerationContext) -> ArrayList(bool))(
   match(
     lookup_method_callee_value(ast_expr_id(call)),
-    .Some(.FuncVal(mfv, _)) => {
+    .Some(Rc(.FuncVal(mfv, _))) => {
       mft := get_func_type(&mfv.*.func_id);
       fn_abi_param_is_ptr(&mft)
     },
@@ -1250,7 +1250,7 @@ emit_effect_record_injection_for_sm :: (
           using_arg_value,
           .Some(uav) => match(
             uav,
-            .StructVal(_, ulabels, uvals) => {
+            Rc(.StructVal(_, ulabels, uvals)) => {
               (ui : usize) = usize(0);
               while((ui < ulabels.len()) && member_code.is_none(), {
                 match(
@@ -1260,7 +1260,7 @@ emit_effect_record_injection_for_sm :: (
                       uvals.get(ui),
                       .Some(mv) => match(
                         mv,
-                        .FuncVal(__fvd1, _) => match(
+                        Rc(.FuncVal(__fvd1, _)) => match(
                           context.base.functions.get(&__fvd1.*.func_id),
                           .Some(fe) => {
                             member_code = Option(String).Some(fe.c_name.clone());
@@ -1313,7 +1313,7 @@ emit_effect_record_injection_for_sm :: (
                   v.value().get(usize(0)),
                   .Some(val) => match(
                     val,
-                    .StructVal(_, vlabels, vvals) => {
+                    Rc(.StructVal(_, vlabels, vvals)) => {
                       (vi : usize) = usize(0);
                       while((vi < vlabels.len()) && member_code.is_none(), {
                         match(
@@ -1323,7 +1323,7 @@ emit_effect_record_injection_for_sm :: (
                               vvals.get(vi),
                               .Some(fv) => match(
                                 fv,
-                                .FuncVal(__fvd2, _) => match(
+                                Rc(.FuncVal(__fvd2, _)) => match(
                                   context.base.functions.get(&__fvd2.*.func_id),
                                   .Some(fe) => {
                                     member_code = Option(String).Some(fe.c_name.clone());

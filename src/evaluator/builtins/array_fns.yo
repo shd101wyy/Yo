@@ -24,7 +24,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
-{ EvalValue, is_unknown_val, create_unknown_val, value_cell_new } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, is_unknown_val, create_unknown_val, value_cell_new } :: import("../../value.yo");
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { is_array_type } :: import("../../types/guards.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
@@ -89,7 +89,7 @@ evaluate_yo_array_fill :: (
   // Validate: must be TypeVal containing an Array type.
   at_tv_opt := match(
     at_info.value(),
-    .Some(v) => match(v, .TypeVal(ty) => Option(TypeValue).Some(Rc.clone(ty)), _ => Option(TypeValue).None),
+    .Some(v) => match(v, Rc(.TypeVal(ty)) => Option(TypeValue).Some(Rc.clone(ty)), _ => Option(TypeValue).None),
     .None => Option(TypeValue).None
   );
   array_type_tv := match(
@@ -183,7 +183,7 @@ evaluate_yo_array_fill :: (
           )
         )
       );
-      EvalValue.UnitVal
+      Rc.new(EvalValueNode.UnitVal)
     }
   );
   // If fill value is unknown, return an UnknownVal for the whole array.
@@ -197,10 +197,10 @@ evaluate_yo_array_fill :: (
     elements := ArrayList(EvalValue).new();
     (i : usize) = usize(0);
     while(i < length, {
-      elements.push(fill_value);
+      elements.push(Rc.clone(fill_value));
       i = (i + usize(1));
     });
-    array_val := EvalValue.ArrayVal(value_cell_new(elements));
+    array_val := Rc.new(EvalValueNode.ArrayVal(value_cell_new(elements)));
     out_info := new_expr_info(&cur_env, &array_type_tv);
     out_info.set_value(Option(EvalValue).Some(array_val));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);

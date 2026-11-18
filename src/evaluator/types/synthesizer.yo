@@ -73,7 +73,7 @@ _is_runtime_numeric :: (fn(t : &TypeValue) -> bool)(
 { get_value_of_some_type_from_env }
 :: import("../../types/env_lookup.yo");
 { type_to_string, type_to_string_key } :: import("../../types/string.yo");
-{ EvalValue, lookup_enum_cfid, lookup_type_ctor_value, value_to_string } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, lookup_enum_cfid, lookup_type_ctor_value, value_to_string } :: import("../../value.yo");
 { get_gadt_type_constructor_args } :: import("./gadt_registry.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
@@ -219,7 +219,7 @@ _has_type_pair :: (fn(pairs : &ArrayList(TypePair), exp_id : &String, giv_id : &
 _record_bound_some_id :: (fn(bound : &Option(Variable), name : &String, source_some_id : &String, val : &EvalValue) -> unit)(
   match(
     bound,
-    .Some(bv) => if((source_some_id.len() > usize(0)) && (name.len() > usize(0)) && (name.* != "Impl") && match(val, .TypeVal(bvt) => !is_some_type(&bvt.*), _ => false), {
+    .Some(bv) => if((source_some_id.len() > usize(0)) && (name.len() > usize(0)) && (name.* != "Impl") && match(val, Rc(.TypeVal(bvt)) => !is_some_type(&bvt.*), _ => false), {
       variable_set_bound_some_id(&bv.*, source_some_id);
     }),
     .None => ()
@@ -248,7 +248,7 @@ _bind_some_type :: (
   // the caller's ty.
   bind_ty := match(
     val,
-    .TypeVal(bt_payload) => type_of_type(&bt_payload.*),
+    Rc(.TypeVal(bt_payload)) => type_of_type(&bt_payload.*),
     _ => Rc.clone(ty)
   );
   vars := get_variables_from_env(env, name);
@@ -261,7 +261,7 @@ _bind_some_type :: (
           env,
           name,
           &bind_ty,
-          Option(EvalValue).Some(val.*),
+          Option(EvalValue).Some(Rc.clone(val.*)),
           true,
           // is_compile_time_only
           false,
@@ -311,7 +311,7 @@ _bind_some_type :: (
       // (issues/fixed/a-caller-binder-named-t-collides-with-io-async-t.md).
       found_slot_someid := match(
         old_var.value().get(usize(0)),
-        .Some(ov) => match(ov, .TypeVal(ovt) => match(ovt, Rc(.SomeT({ id : ovid })) => ovid.clone(), _ => variable_bound_some_id(&old_var)), _ => String.from("")),
+        .Some(ov) => match(ov, Rc(.TypeVal(ovt)) => match(ovt, Rc(.SomeT({ id : ovid })) => ovid.clone(), _ => variable_bound_some_id(&old_var)), _ => String.from("")),
         .None => String.from("")
       );
       identity_mismatch := ((source_some_id.len() > usize(0)) && (found_slot_someid.len() > usize(0)) && (found_slot_someid != source_some_id.*));
@@ -326,7 +326,7 @@ _bind_some_type :: (
       // predicate (iterator_combinators arm 18).
       val_is_self_marker := match(
         val,
-        .TypeVal(vmt) => match(vmt, Rc(.SomeT({ id : vmid })) => (vmid.* == source_some_id.*), _ => false),
+        Rc(.TypeVal(vmt)) => match(vmt, Rc(.SomeT({ id : vmid })) => (vmid.* == source_some_id.*), _ => false),
         _ => false
       );
       if(identity_mismatch && val_is_self_marker, {
@@ -344,7 +344,7 @@ _bind_some_type :: (
             env,
             name,
             &bind_ty,
-            Option(EvalValue).Some(val.*),
+            Option(EvalValue).Some(Rc.clone(val.*)),
             true,
             // is_compile_time_only
             false,
@@ -368,7 +368,7 @@ _bind_some_type :: (
         name : old_var.name.clone(),
         bound_ty : variable_value_type(&old_var),
         frame_level : old_var.frame_level,
-        value : value_cell_of(Option(EvalValue).Some(val.*)),
+        value : value_cell_of(Option(EvalValue).Some(Rc.clone(val.*))),
         is_owning_the_same_rc_value_as : old_var.is_owning_the_same_rc_value_as(),
         token : Rc.clone(old_var.token),
         initialized_at_token : old_var.initialized_at_token(),
@@ -963,21 +963,21 @@ _synthesize_types_impl :: (
     cond(
       !exp_bound_is_some => {
         // Expected is bound — use its value to bind given
-        val := EvalValue.TypeVal(Rc.clone(expected_bound));
+        val := Rc.new(EvalValueNode.TypeVal(Rc.clone(expected_bound)));
         _bind_some_type(&ge, match(given_ty, Rc(.SomeT(_, n, _, _, _, _, _)) => n.clone(), _ => ``), match(given_ty, Rc(.SomeT(gid9, _, _, _, _, _, _)) => gid9.clone(), _ => ``), &val, &expected_bound, &tok, exn);
       },
       !giv_bound_is_some => {
         // Given is bound — use its value to bind expected
-        val := EvalValue.TypeVal(Rc.clone(given_bound));
+        val := Rc.new(EvalValueNode.TypeVal(Rc.clone(given_bound)));
         _bind_some_type(&ee, match(expected_ty, Rc(.SomeT(_, n, _, _, _, _, _)) => n.clone(), _ => ``), match(expected_ty, Rc(.SomeT(eid9, _, _, _, _, _, _)) => eid9.clone(), _ => ``), &val, &given_bound, &tok, exn);
       },
       (exp_some_id == giv_some_id) => (),
       // Same SomeType — nothing to do
       true => {
         // Both unbound — bind expected to given.type (given is the unification target)
-        val := EvalValue.TypeVal(Rc.clone(given_ty));
+        val := Rc.new(EvalValueNode.TypeVal(Rc.clone(given_ty)));
         _bind_some_type(&ee, match(expected_ty, Rc(.SomeT(_, n, _, _, _, _, _)) => n.clone(), _ => ``), match(expected_ty, Rc(.SomeT(eid8, _, _, _, _, _, _)) => eid8.clone(), _ => ``), &val, given_ty, &tok, exn);
-        val2 := EvalValue.TypeVal(Rc.clone(given_ty));
+        val2 := Rc.new(EvalValueNode.TypeVal(Rc.clone(given_ty)));
         _bind_some_type(&ge, match(given_ty, Rc(.SomeT(_, n, _, _, _, _, _)) => n.clone(), _ => ``), match(given_ty, Rc(.SomeT(gid8, _, _, _, _, _, _)) => gid8.clone(), _ => ``), &val2, given_ty, &tok, exn);
       }
     );
@@ -1087,7 +1087,7 @@ _synthesize_types_impl :: (
           return(SynthesizeResult(expected_env : ee, given_env : ge));
         });
       };
-      val := EvalValue.TypeVal(Rc.clone(given_ty));
+      val := Rc.new(EvalValueNode.TypeVal(Rc.clone(given_ty)));
       _bind_some_type(&ee, &exp_name, &exp_id2, &val, given_ty, &tok, exn);
       // Recursively synthesize required trait type parameters
       n_et := exp_traits.len();
@@ -1157,7 +1157,7 @@ _synthesize_types_impl :: (
           return(SynthesizeResult(expected_env : ee, given_env : ge));
         });
       };
-      val := EvalValue.TypeVal(Rc.clone(expected_ty));
+      val := Rc.new(EvalValueNode.TypeVal(Rc.clone(expected_ty)));
       _bind_some_type(&ge, &giv_name, &giv_id2, &val, expected_ty, &tok, exn);
     });
     return(SynthesizeResult(expected_env : ee, given_env : ge));
@@ -1670,7 +1670,7 @@ _synthesize_types_impl :: (
         match(
           lvar_vars.last_cloned(),
           .Some(lvar_var) => {
-            lvar_var.set_value(value_cell_of(Option(EvalValue).Some(EvalValue.IntLit(giv_len.to_string()))));
+            lvar_var.set_value(value_cell_of(Option(EvalValue).Some(Rc.new(EvalValueNode.IntLit(giv_len.to_string())))));
           },
           .None => ()
         );
@@ -1679,7 +1679,7 @@ _synthesize_types_impl :: (
           &ee,
           exp_lvar.clone(),
           t_usize(),
-          Option(EvalValue).Some(EvalValue.IntLit(giv_len.to_string())),
+          Option(EvalValue).Some(Rc.new(EvalValueNode.IntLit(giv_len.to_string()))),
           true,
           false,
           false,

@@ -8,7 +8,7 @@
 { ExprInfo, new_expr_info, expr_info_table_set } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue } :: import("../../value.yo");
+{ EvalValue, EvalValueNode } :: import("../../value.yo");
 { TokenKind } :: import("../../token.yo");
 { t_comptime_string } :: import("../../types/creators.yo");
 { Exception } :: import("std/error");
@@ -179,7 +179,7 @@ evaluate_string_literal :: (
       )
     );
   });
-  val := EvalValue.StrLit(decode_str_lit_escapes(&tok.value.*));
+  val := Rc.new(EvalValueNode.StrLit(decode_str_lit_escapes(&tok.value.*)));
   info := new_expr_info(env, t_comptime_string());
   info.set_value(.Some(val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);

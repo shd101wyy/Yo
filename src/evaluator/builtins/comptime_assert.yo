@@ -21,6 +21,7 @@
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 {
   EvalValue,
+  EvalValueNode,
   is_bool_val,
   is_unknown_val,
   create_unknown_val,
@@ -57,8 +58,8 @@ _throw_assert_failed :: (
         .Some(mi) => match(
           mi.value(),
           .Some(mv) => match(
-            mv,
-            .StrLit(raw) => {
+            Rc.clone(mv),
+            Rc(.StrLit(raw)) => {
               rn := raw.len();
               raw.substring(usize(1), rn - usize(1))
             },
@@ -120,7 +121,7 @@ evaluate_comptime_assert :: (
         match(
           arg_info_opt,
           .Some(ai) => {
-            if(!is_bool_type(&ai.ty()) && !is_unknown_val(match(ai.value(), .Some(v) => v, .None => EvalValue.UnitVal)), {
+            if(!is_bool_type(&ai.ty()) && !is_unknown_val(match(ai.value(), .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal))), {
               exn.throw(
                 dyn(
                   Box.new(
@@ -145,7 +146,7 @@ evaluate_comptime_assert :: (
             // so this is two matches.
             (is_false : bool) = match(
               ai.value(),
-              .Some(v) => match(v, .BoolVal(b) => !b, _ => false),
+              .Some(v) => match(v, Rc(.BoolVal(b)) => !b, _ => false),
               .None => false
             );
             if(is_false, {
@@ -165,7 +166,7 @@ evaluate_comptime_assert :: (
     );
     (ret_val : Option(EvalValue)) = if(
       is_unit_type(&ret_type),
-      .Some(EvalValue.UnitVal),
+      .Some(Rc.new(EvalValueNode.UnitVal)),
       .Some(create_unknown_val(&ret_type))
     );
     out_info := new_expr_info(env, &ret_type);
@@ -214,7 +215,7 @@ evaluate_comptime_assert :: (
           )
         )
       );
-      EvalValue.UnitVal
+      Rc.new(EvalValueNode.UnitVal)
     }
   );
   if(!is_bool_val(&arg_val), {
@@ -229,11 +230,11 @@ evaluate_comptime_assert :: (
       )
     );
   });
-  bool_val := match(arg_val, .BoolVal(b) => b, _ => false);
+  bool_val := match(arg_val, Rc(.BoolVal(b)) => b, _ => false);
   if(bool_val, {
     // Assertion passed — return unit.
     out_info := new_expr_info(env, t_unit());
-    out_info.set_value(.Some(EvalValue.UnitVal));
+    out_info.set_value(.Some(Rc.new(EvalValueNode.UnitVal)));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   }, {
     _throw_assert_failed(expr, &arg_expr, &msg_expr_opt, env, ctx, exn);

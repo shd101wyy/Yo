@@ -713,7 +713,7 @@ _hollow_specialization_error :: (fn(rec : &HollowBodyError, si : &SpecInstantiat
 generate_function :: (fn(function_value : &EvalValue, c_function_name : &String, context : &mut FunctionGenerationContext) -> unit)(
   match(
     function_value,
-    .FuncVal(__fvm6, _) => {
+    Rc(.FuncVal(__fvm6, _)) => {
       body_box := Rc.clone(__fvm6.body);
       func_id := __fvm6.func_id.clone();
       function_type := get_func_type(func_id.clone());
@@ -1579,8 +1579,8 @@ generate_main_wrapper :: (fn(context : &mut FunctionGenerationContext, module_va
       .Some(entry) => if(entry.c_name == "__yo_user_main", {
         main_def_module = entry.def_module.clone();
         match(
-          entry.value,
-          .FuncVal(__fvd1, _) => {
+          Rc.clone(entry.value),
+          Rc(.FuncVal(__fvd1, _)) => {
             main_func_id = __fvd1.*.func_id.clone();
             found = true;
             break;

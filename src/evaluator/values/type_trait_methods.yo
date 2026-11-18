@@ -536,7 +536,7 @@ type_trait_method_values_owned_by :: (fn(owner : &String) -> ArrayList(EvalValue
             (i : usize) = usize(0);
             while((i < olist.len()) && (i < list.len()), {
               if(match(olist.get_cloned(i), .Some(o) => (o == owner.*), .None => false), {
-                match(list.get_cloned(i), .Some(m) => match(m.value, .Some(v) => out.push(v), .None => ()), .None => ());
+                match(list.get_cloned(i), .Some(m) => match(m.value.clone(), .Some(v) => out.push(Rc.clone(v)), .None => ()), .None => ());
               });
               i = (i + usize(1));
             });
@@ -899,7 +899,7 @@ purge_trait_defaults_owned_by :: (fn(owner : &String) -> unit)({
   });
 });
 get_trait_default :: (fn(trait_id : &String, label : &String) -> Option(EvalValue))(
-  _trait_method_defaults.with({ trait_id : &trait_id.*, label : &label.* }(m) => m.get(trait_id.clone() + String.from("::") + label.clone()))
+  _trait_method_defaults.with({ trait_id : &trait_id.*, label : &label.* }(m) => m.get_cloned(trait_id.clone() + String.from("::") + label.clone()))
 );
 /// Trait-method CONTRACT clauses (V6 task 1, FORMAL_VERIFICATION.md):
 /// each trait-field fn-type's `requires(...)`/`ensures(...)` ASTs plus its
@@ -1073,10 +1073,10 @@ find_associated_const_usize :: (
       entries.get(i),
       .Some(e) => if(e.label == label.*, {
         match(
-          e.value,
+          e.value.clone(),
           .Some(v) => match(
             v,
-            .IntLit(raw) => match(
+            Rc(.IntLit(raw)) => match(
               _parse_usize_literal(&raw),
               .Some(k) => {
                 return(Option(usize).Some(k));

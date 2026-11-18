@@ -120,7 +120,7 @@ test("the cached prelude loads as a module, not as Unit", {
   // (a TypeVal classifies as a struct/enum/trait; anything else falls through
   // to the constant list), so a namespace of labels with no values would
   // document every declaration as an untyped constant.
-  vals := match(&outcome.module_value, .StructVal(_, _, field_values) => Rc.clone(field_values), _ => empty_value_cell());
+  vals := match(&outcome.module_value, Rc(.StructVal(_, _, field_values)) => Rc.clone(field_values), _ => empty_value_cell());
   assert(vals.len() == labels.len(), `one value per label, got ${vals.len().to_string()} for ${labels.len().to_string()}`);
 });
 test("the cached prelude's parameterised bindings carry their fn field types", {

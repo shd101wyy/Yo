@@ -10,6 +10,7 @@
 { assert, panic } :: import("std/assert");
 {
   EvalValue,
+  EvalValueNode,
   value_to_string,
   is_unit_val,
   is_bool_val,
@@ -48,89 +49,89 @@ make_empty_list :: (fn() -> ArrayList(EvalValue))(
 // ---------------------------------------------------------------------------
 test("TupleVal: empty tuple construction and equality", {
   fields := ArrayList(EvalValue).new();
-  t1 := EvalValue.TupleVal(value_cell_new(fields));
-  t2 := EvalValue.TupleVal(value_cell_new(ArrayList(EvalValue).new()));
+  t1 := Rc.new(EvalValueNode.TupleVal(value_cell_new(fields)));
+  t2 := Rc.new(EvalValueNode.TupleVal(value_cell_new(ArrayList(EvalValue).new())));
   assert(t1 == t2, "empty tuples are equal");
-  assert(!(t1 == EvalValue.UnitVal), "TupleVal != UnitVal");
+  assert(!(t1 == Rc.new(EvalValueNode.UnitVal)), "TupleVal != UnitVal");
 });
 test("TupleVal: non-empty equality and inequality", {
   mut(a) := ArrayList(EvalValue).new();
-  a.push(.IntLit(String.from("1")));
-  a.push(.IntLit(String.from("2")));
+  a.push(Rc.new(EvalValueNode.IntLit(String.from("1"))));
+  a.push(Rc.new(EvalValueNode.IntLit(String.from("2"))));
   mut(b) := ArrayList(EvalValue).new();
-  b.push(.IntLit(String.from("1")));
-  b.push(.IntLit(String.from("2")));
+  b.push(Rc.new(EvalValueNode.IntLit(String.from("1"))));
+  b.push(Rc.new(EvalValueNode.IntLit(String.from("2"))));
   mut(c) := ArrayList(EvalValue).new();
-  c.push(.IntLit(String.from("1")));
-  c.push(.IntLit(String.from("99")));
-  assert(EvalValue.TupleVal(value_cell_new(a.clone())) == EvalValue.TupleVal(value_cell_new(b.clone())), "same tuples are equal");
-  assert(!(EvalValue.TupleVal(value_cell_new(a.clone())) == EvalValue.TupleVal(value_cell_new(c.clone()))), "different tuples are not equal");
+  c.push(Rc.new(EvalValueNode.IntLit(String.from("1"))));
+  c.push(Rc.new(EvalValueNode.IntLit(String.from("99"))));
+  assert(Rc.new(EvalValueNode.TupleVal(value_cell_new(a.clone()))) == Rc.new(EvalValueNode.TupleVal(value_cell_new(b.clone()))), "same tuples are equal");
+  assert(!(Rc.new(EvalValueNode.TupleVal(value_cell_new(a.clone()))) == Rc.new(EvalValueNode.TupleVal(value_cell_new(c.clone())))), "different tuples are not equal");
 });
 test("TupleVal: predicates", {
-  t := EvalValue.TupleVal(value_cell_new(ArrayList(EvalValue).new()));
+  t := Rc.new(EvalValueNode.TupleVal(value_cell_new(ArrayList(EvalValue).new())));
   assert(is_tuple_val(&t), "is_tuple_val true");
   assert(!is_array_val(&t), "is_array_val false for TupleVal");
   assert(!is_unit_val(&t), "is_unit_val false for TupleVal");
 });
 test("TupleVal: value_to_string empty", {
-  t := EvalValue.TupleVal(value_cell_new(ArrayList(EvalValue).new()));
+  t := Rc.new(EvalValueNode.TupleVal(value_cell_new(ArrayList(EvalValue).new())));
   assert(value_to_string(&t) == "()", "empty tuple string");
 });
 test("TupleVal: value_to_string singleton (trailing comma)", {
   mut(fs) := ArrayList(EvalValue).new();
-  fs.push(.IntLit(String.from("42")));
-  t := EvalValue.TupleVal(value_cell_new(fs));
+  fs.push(Rc.new(EvalValueNode.IntLit(String.from("42"))));
+  t := Rc.new(EvalValueNode.TupleVal(value_cell_new(fs)));
   assert(value_to_string(&t) == "(42,)", "singleton tuple string");
 });
 test("TupleVal: value_to_string multi", {
   mut(fs) := ArrayList(EvalValue).new();
-  fs.push(.IntLit(String.from("1")));
-  fs.push(.BoolVal(true));
-  t := EvalValue.TupleVal(value_cell_new(fs));
+  fs.push(Rc.new(EvalValueNode.IntLit(String.from("1"))));
+  fs.push(Rc.new(EvalValueNode.BoolVal(true)));
+  t := Rc.new(EvalValueNode.TupleVal(value_cell_new(fs)));
   assert(value_to_string(&t) == "(1, true)", "multi-element tuple string");
 });
 // ---------------------------------------------------------------------------
 // ArrayVal
 // ---------------------------------------------------------------------------
 test("ArrayVal: empty array equality", {
-  a := EvalValue.ArrayVal(value_cell_new(ArrayList(EvalValue).new()));
-  b := EvalValue.ArrayVal(value_cell_new(ArrayList(EvalValue).new()));
+  a := Rc.new(EvalValueNode.ArrayVal(value_cell_new(ArrayList(EvalValue).new())));
+  b := Rc.new(EvalValueNode.ArrayVal(value_cell_new(ArrayList(EvalValue).new())));
   assert(a == b, "empty arrays are equal");
 });
 test("ArrayVal: element-wise equality", {
   mut(a) := ArrayList(EvalValue).new();
-  a.push(.IntLit(String.from("10")));
+  a.push(Rc.new(EvalValueNode.IntLit(String.from("10"))));
   mut(b) := ArrayList(EvalValue).new();
-  b.push(.IntLit(String.from("10")));
+  b.push(Rc.new(EvalValueNode.IntLit(String.from("10"))));
   mut(c) := ArrayList(EvalValue).new();
-  c.push(.IntLit(String.from("99")));
-  assert(EvalValue.ArrayVal(value_cell_new(a.clone())) == EvalValue.ArrayVal(value_cell_new(b.clone())), "equal arrays");
-  assert(!(EvalValue.ArrayVal(value_cell_new(a.clone())) == EvalValue.ArrayVal(value_cell_new(c.clone()))), "unequal arrays");
+  c.push(Rc.new(EvalValueNode.IntLit(String.from("99"))));
+  assert(Rc.new(EvalValueNode.ArrayVal(value_cell_new(a.clone()))) == Rc.new(EvalValueNode.ArrayVal(value_cell_new(b.clone()))), "equal arrays");
+  assert(!(Rc.new(EvalValueNode.ArrayVal(value_cell_new(a.clone()))) == Rc.new(EvalValueNode.ArrayVal(value_cell_new(c.clone())))), "unequal arrays");
 });
 test("ArrayVal: length mismatch is not equal", {
   mut(a) := ArrayList(EvalValue).new();
-  a.push(.IntLit(String.from("1")));
+  a.push(Rc.new(EvalValueNode.IntLit(String.from("1"))));
   mut(b) := ArrayList(EvalValue).new();
-  b.push(.IntLit(String.from("1")));
-  b.push(.IntLit(String.from("2")));
-  assert(!(EvalValue.ArrayVal(value_cell_new(a.clone())) == EvalValue.ArrayVal(value_cell_new(b.clone()))), "different lengths unequal");
+  b.push(Rc.new(EvalValueNode.IntLit(String.from("1"))));
+  b.push(Rc.new(EvalValueNode.IntLit(String.from("2"))));
+  assert(!(Rc.new(EvalValueNode.ArrayVal(value_cell_new(a.clone()))) == Rc.new(EvalValueNode.ArrayVal(value_cell_new(b.clone())))), "different lengths unequal");
 });
 test("ArrayVal: predicates", {
-  v := EvalValue.ArrayVal(value_cell_new(ArrayList(EvalValue).new()));
+  v := Rc.new(EvalValueNode.ArrayVal(value_cell_new(ArrayList(EvalValue).new())));
   assert(is_array_val(&v), "is_array_val true");
   assert(!is_tuple_val(&v), "is_tuple_val false for ArrayVal");
 });
 test("ArrayVal: value_to_string", {
   mut(elems) := ArrayList(EvalValue).new();
-  elems.push(.IntLit(String.from("1")));
-  elems.push(.IntLit(String.from("2")));
-  v := EvalValue.ArrayVal(value_cell_new(elems));
+  elems.push(Rc.new(EvalValueNode.IntLit(String.from("1"))));
+  elems.push(Rc.new(EvalValueNode.IntLit(String.from("2"))));
+  v := Rc.new(EvalValueNode.ArrayVal(value_cell_new(elems)));
   assert(value_to_string(&v) == "[1, 2]", "array string [1, 2]");
 });
 test("ArrayVal: value_to_string singleton (trailing comma)", {
   mut(elems) := ArrayList(EvalValue).new();
-  elems.push(.IntLit(String.from("5")));
-  v := EvalValue.ArrayVal(value_cell_new(elems));
+  elems.push(Rc.new(EvalValueNode.IntLit(String.from("5"))));
+  v := Rc.new(EvalValueNode.ArrayVal(value_cell_new(elems)));
   assert(value_to_string(&v) == "[5,]", "singleton array string");
 });
 // ---------------------------------------------------------------------------
@@ -144,58 +145,66 @@ test("ArrayVal: value_to_string singleton (trailing comma)", {
 // the file failed to compile and all five reported as failures.
 _ptr_cell :: (fn(target : &EvalValue) -> ValueCell)({
   mut(cell) := ArrayList(EvalValue).new();
-  cell.push(target.*);
+  cell.push(Rc.clone(target.*));
   value_cell_new(cell)
 });
 test("PtrVal: always unequal", {
-  p1 := EvalValue.PtrVal(_ptr_cell(EvalValue.IntLit(String.from("42"))), usize(0), Option(TypeValue).None);
-  p2 := EvalValue.PtrVal(_ptr_cell(EvalValue.IntLit(String.from("42"))), usize(0), Option(TypeValue).None);
+  p1 := Rc.new(EvalValueNode.PtrVal(_ptr_cell(Rc.new(EvalValueNode.IntLit(String.from("42")))), usize(0), Option(TypeValue).None));
+  p2 := Rc.new(EvalValueNode.PtrVal(_ptr_cell(Rc.new(EvalValueNode.IntLit(String.from("42")))), usize(0), Option(TypeValue).None));
   // Pointer alias identity is not portable; always false.
   assert(!(p1 == p2), "PtrVal equality is always false");
 });
 test("PtrVal: predicates", {
-  p := EvalValue.PtrVal(_ptr_cell(EvalValue.UnitVal), usize(0), Option(TypeValue).None);
+  p := Rc.new(EvalValueNode.PtrVal(_ptr_cell(Rc.new(EvalValueNode.UnitVal)), usize(0), Option(TypeValue).None));
   assert(is_ptr_val(&p), "is_ptr_val true");
   assert(!is_array_val(&p), "is_array_val false for PtrVal");
 });
 test("PtrVal: value_to_string scalar target", {
-  p := EvalValue.PtrVal(_ptr_cell(EvalValue.IntLit(String.from("7"))), usize(0), Option(TypeValue).None);
+  p := Rc.new(EvalValueNode.PtrVal(_ptr_cell(Rc.new(EvalValueNode.IntLit(String.from("7")))), usize(0), Option(TypeValue).None));
   assert(value_to_string(&p) == "<ptr to 7>", "ptr to scalar");
 });
 test("PtrVal: value_to_string array element", {
   mut(elems) := ArrayList(EvalValue).new();
-  elems.push(.IntLit(String.from("10")));
-  elems.push(.IntLit(String.from("20")));
+  elems.push(Rc.new(EvalValueNode.IntLit(String.from("10"))));
+  elems.push(Rc.new(EvalValueNode.IntLit(String.from("20"))));
   // The ArrayVal lives INSIDE the cell; `target_index` then selects the element.
-  p := EvalValue.PtrVal(_ptr_cell(EvalValue.ArrayVal(value_cell_new(elems))), usize(1), Option(TypeValue).None);
+  p := Rc.new(EvalValueNode.PtrVal(_ptr_cell(Rc.new(EvalValueNode.ArrayVal(value_cell_new(elems)))), usize(1), Option(TypeValue).None));
   assert(value_to_string(&p) == "<ptr to 20>", "ptr to array element");
 });
 // ---------------------------------------------------------------------------
 // TraitVal
 // ---------------------------------------------------------------------------
 test("TraitVal: empty trait equality", {
-  t1 := EvalValue.TraitVal(
-    String.from("Display"),
-    no_labels(),
-    no_opt_values()
+  t1 := Rc.new(
+    EvalValueNode.TraitVal(
+      String.from("Display"),
+      no_labels(),
+      no_opt_values()
+    )
   );
-  t2 := EvalValue.TraitVal(
-    String.from("Display"),
-    no_labels(),
-    no_opt_values()
+  t2 := Rc.new(
+    EvalValueNode.TraitVal(
+      String.from("Display"),
+      no_labels(),
+      no_opt_values()
+    )
   );
   assert(t1 == t2, "empty same-named traits equal");
 });
 test("TraitVal: different name is not equal", {
-  t1 := EvalValue.TraitVal(
-    String.from("Display"),
-    no_labels(),
-    no_opt_values()
+  t1 := Rc.new(
+    EvalValueNode.TraitVal(
+      String.from("Display"),
+      no_labels(),
+      no_opt_values()
+    )
   );
-  t2 := EvalValue.TraitVal(
-    String.from("Debug"),
-    no_labels(),
-    no_opt_values()
+  t2 := Rc.new(
+    EvalValueNode.TraitVal(
+      String.from("Debug"),
+      no_labels(),
+      no_opt_values()
+    )
   );
   assert(!(t1 == t2), "different trait names not equal");
 });
@@ -204,17 +213,17 @@ test("TraitVal: Some/None field equality", {
   fnames.push(String.from("x"));
   fnames.push(String.from("y"));
   mut(fvals_a) := ArrayList(Option(EvalValue)).new();
-  fvals_a.push(Option(EvalValue).Some(.IntLit(String.from("1"))));
+  fvals_a.push(Option(EvalValue).Some(Rc.new(EvalValueNode.IntLit(String.from("1")))));
   fvals_a.push(Option(EvalValue).None);
   mut(fvals_b) := ArrayList(Option(EvalValue)).new();
-  fvals_b.push(Option(EvalValue).Some(.IntLit(String.from("1"))));
+  fvals_b.push(Option(EvalValue).Some(Rc.new(EvalValueNode.IntLit(String.from("1")))));
   fvals_b.push(Option(EvalValue).None);
   mut(fvals_c) := ArrayList(Option(EvalValue)).new();
-  fvals_c.push(Option(EvalValue).Some(.IntLit(String.from("99"))));
+  fvals_c.push(Option(EvalValue).Some(Rc.new(EvalValueNode.IntLit(String.from("99")))));
   fvals_c.push(Option(EvalValue).None);
-  t_a := EvalValue.TraitVal(String.from("T"), shared_list(fnames.clone()), shared_opt_values(fvals_a));
-  t_b := EvalValue.TraitVal(String.from("T"), shared_list(fnames.clone()), shared_opt_values(fvals_b));
-  t_c := EvalValue.TraitVal(String.from("T"), shared_list(fnames), shared_opt_values(fvals_c));
+  t_a := Rc.new(EvalValueNode.TraitVal(String.from("T"), shared_list(fnames.clone()), shared_opt_values(fvals_a)));
+  t_b := Rc.new(EvalValueNode.TraitVal(String.from("T"), shared_list(fnames.clone()), shared_opt_values(fvals_b)));
+  t_c := Rc.new(EvalValueNode.TraitVal(String.from("T"), shared_list(fnames), shared_opt_values(fvals_c)));
   assert(t_a == t_b, "matching Some/None fields are equal");
   assert(!(t_a == t_c), "different Some value not equal");
 });
@@ -222,18 +231,20 @@ test("TraitVal: Some vs None mismatch not equal", {
   mut(fnames) := ArrayList(String).new();
   fnames.push(String.from("x"));
   mut(fvals_some) := ArrayList(Option(EvalValue)).new();
-  fvals_some.push(Option(EvalValue).Some(.UnitVal));
+  fvals_some.push(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
   mut(fvals_none) := ArrayList(Option(EvalValue)).new();
   fvals_none.push(Option(EvalValue).None);
-  t_some := EvalValue.TraitVal(String.from("T"), shared_list(fnames.clone()), shared_opt_values(fvals_some));
-  t_none := EvalValue.TraitVal(String.from("T"), shared_list(fnames), shared_opt_values(fvals_none));
+  t_some := Rc.new(EvalValueNode.TraitVal(String.from("T"), shared_list(fnames.clone()), shared_opt_values(fvals_some)));
+  t_none := Rc.new(EvalValueNode.TraitVal(String.from("T"), shared_list(fnames), shared_opt_values(fvals_none)));
   assert(!(t_some == t_none), "Some vs None mismatch is not equal");
 });
 test("TraitVal: predicates", {
-  v := EvalValue.TraitVal(
-    String.from("Eq"),
-    no_labels(),
-    no_opt_values()
+  v := Rc.new(
+    EvalValueNode.TraitVal(
+      String.from("Eq"),
+      no_labels(),
+      no_opt_values()
+    )
   );
   assert(is_trait_val(&v), "is_trait_val true");
   assert(!is_struct_val(&v), "is_struct_val false for TraitVal");
@@ -242,8 +253,8 @@ test("TraitVal: value_to_string", {
   mut(fnames) := ArrayList(String).new();
   fnames.push(String.from("to_string"));
   mut(fvals) := ArrayList(Option(EvalValue)).new();
-  fvals.push(Option(EvalValue).Some(.BoolVal(true)));
-  v := EvalValue.TraitVal(String.from("Display"), shared_list(fnames), shared_opt_values(fvals));
+  fvals.push(Option(EvalValue).Some(Rc.new(EvalValueNode.BoolVal(true))));
+  v := Rc.new(EvalValueNode.TraitVal(String.from("Display"), shared_list(fnames), shared_opt_values(fvals)));
   assert(value_to_string(&v) == "Display(to_string: true)", "trait to string");
 });
 test("TraitVal: value_to_string with runtime (None) field", {
@@ -251,62 +262,64 @@ test("TraitVal: value_to_string with runtime (None) field", {
   fnames.push(String.from("f"));
   mut(fvals) := ArrayList(Option(EvalValue)).new();
   fvals.push(Option(EvalValue).None);
-  v := EvalValue.TraitVal(String.from("T"), shared_list(fnames), shared_opt_values(fvals));
+  v := Rc.new(EvalValueNode.TraitVal(String.from("T"), shared_list(fnames), shared_opt_values(fvals)));
   assert(value_to_string(&v) == "T(f: <runtime>)", "trait None field = <runtime>");
 });
 // ---------------------------------------------------------------------------
 // ComptimeListVal
 // ---------------------------------------------------------------------------
 test("ComptimeListVal: empty equality", {
-  a := EvalValue.ComptimeListVal(value_cell_new(ArrayList(EvalValue).new()));
-  b := EvalValue.ComptimeListVal(value_cell_new(ArrayList(EvalValue).new()));
+  a := Rc.new(EvalValueNode.ComptimeListVal(value_cell_new(ArrayList(EvalValue).new())));
+  b := Rc.new(EvalValueNode.ComptimeListVal(value_cell_new(ArrayList(EvalValue).new())));
   assert(a == b, "empty comptime lists equal");
 });
 test("ComptimeListVal: element-wise equality", {
   mut(e1) := ArrayList(EvalValue).new();
-  e1.push(.IntLit(String.from("1")));
+  e1.push(Rc.new(EvalValueNode.IntLit(String.from("1"))));
   mut(e2) := ArrayList(EvalValue).new();
-  e2.push(.IntLit(String.from("1")));
+  e2.push(Rc.new(EvalValueNode.IntLit(String.from("1"))));
   mut(e3) := ArrayList(EvalValue).new();
-  e3.push(.IntLit(String.from("2")));
-  assert(EvalValue.ComptimeListVal(value_cell_new(e1.clone())) == EvalValue.ComptimeListVal(value_cell_new(e2.clone())), "equal lists");
-  assert(!(EvalValue.ComptimeListVal(value_cell_new(e1.clone())) == EvalValue.ComptimeListVal(value_cell_new(e3.clone()))), "unequal lists");
+  e3.push(Rc.new(EvalValueNode.IntLit(String.from("2"))));
+  assert(Rc.new(EvalValueNode.ComptimeListVal(value_cell_new(e1.clone()))) == Rc.new(EvalValueNode.ComptimeListVal(value_cell_new(e2.clone()))), "equal lists");
+  assert(!(Rc.new(EvalValueNode.ComptimeListVal(value_cell_new(e1.clone()))) == Rc.new(EvalValueNode.ComptimeListVal(value_cell_new(e3.clone())))), "unequal lists");
 });
 test("ComptimeListVal: predicates", {
-  v := EvalValue.ComptimeListVal(value_cell_new(ArrayList(EvalValue).new()));
+  v := Rc.new(EvalValueNode.ComptimeListVal(value_cell_new(ArrayList(EvalValue).new())));
   assert(is_comptime_list_val(&v), "is_comptime_list_val true");
   assert(!is_array_val(&v), "is_array_val false for ComptimeListVal");
 });
 test("ComptimeListVal: value_to_string", {
   mut(elems) := ArrayList(EvalValue).new();
-  elems.push(.IntLit(String.from("3")));
-  elems.push(.IntLit(String.from("4")));
-  v := EvalValue.ComptimeListVal(value_cell_new(elems));
+  elems.push(Rc.new(EvalValueNode.IntLit(String.from("3"))));
+  elems.push(Rc.new(EvalValueNode.IntLit(String.from("4"))));
+  v := Rc.new(EvalValueNode.ComptimeListVal(value_cell_new(elems)));
   assert(value_to_string(&v) == "comptime_list(3, 4)", "comptime_list string");
 });
 // ---------------------------------------------------------------------------
 // ExprVal
 // ---------------------------------------------------------------------------
 test("ExprVal: structural equality", {
-  e1 := EvalValue.ExprVal(make_err_expr());
-  e2 := EvalValue.ExprVal(make_err_expr());
+  e1 := Rc.new(EvalValueNode.ExprVal(make_err_expr()));
+  e2 := Rc.new(EvalValueNode.ExprVal(make_err_expr()));
   // Phase 6f: structural Atom-token equality is now implemented.
   // Two calls to make_err_expr() produce identical Atom nodes, so they are equal.
   assert(e1 == e2, "ExprVal structural equality: identical atoms are equal");
   // Different atoms should not be equal.
-  other := EvalValue.ExprVal(
-    Rc.new(
-      AstExprNode.Atom(
-        usize(0),
-        Rc.new(
-          TokenData(
-            kind : TokenKind.Integer,
-            value : Rc.new(String.from("42")),
-            row : u32(0),
-            column : u32(0),
-            character : u32(0),
-            module_path : Rc.new(String.from("")),
-            input : Rc.new(String.from(""))
+  other := Rc.new(
+    EvalValueNode.ExprVal(
+      Rc.new(
+        AstExprNode.Atom(
+          usize(0),
+          Rc.new(
+            TokenData(
+              kind : TokenKind.Integer,
+              value : Rc.new(String.from("42")),
+              row : u32(0),
+              column : u32(0),
+              character : u32(0),
+              module_path : Rc.new(String.from("")),
+              input : Rc.new(String.from(""))
+            )
           )
         )
       )
@@ -315,32 +328,32 @@ test("ExprVal: structural equality", {
   assert(!(e1 == other), "ExprVal structural equality: different atoms are unequal");
 });
 test("ExprVal: predicates", {
-  v := EvalValue.ExprVal(make_err_expr());
+  v := Rc.new(EvalValueNode.ExprVal(make_err_expr()));
   assert(is_expr_val(&v), "is_expr_val true");
   assert(!is_tuple_val(&v), "is_tuple_val false for ExprVal");
   assert(!is_array_val(&v), "is_array_val false for ExprVal");
   assert(!is_comptime_list_val(&v), "is_comptime_list_val false for ExprVal");
 });
 test("ExprVal: value_to_string", {
-  v := EvalValue.ExprVal(make_err_expr());
+  v := Rc.new(EvalValueNode.ExprVal(make_err_expr()));
   assert(value_to_string(&v) == "<expr>", "expr val string is <expr>");
 });
 // ---------------------------------------------------------------------------
 // Predicate cross-checks: ensure each predicate is exclusive for different variants
 // ---------------------------------------------------------------------------
 test("predicates are exclusive across all variants", {
-  unit_v := EvalValue.UnitVal;
-  bool_v := EvalValue.BoolVal(true);
-  int_v := EvalValue.IntLit(String.from("0"));
-  float_v := EvalValue.FloatLit(String.from("0.0"));
-  str_v := EvalValue.StrLit(String.from("hi"));
-  varref_v := EvalValue.VarRef(String.from("x"));
-  tuple_v := EvalValue.TupleVal(value_cell_new(ArrayList(EvalValue).new()));
-  array_v := EvalValue.ArrayVal(value_cell_new(ArrayList(EvalValue).new()));
-  ptr_v := EvalValue.PtrVal(_ptr_cell(EvalValue.UnitVal), usize(0), Option(TypeValue).None);
-  trait_v := EvalValue.TraitVal(String.from("T"), no_labels(), no_opt_values());
-  cl_v := EvalValue.ComptimeListVal(value_cell_new(ArrayList(EvalValue).new()));
-  expr_v := EvalValue.ExprVal(make_err_expr());
+  unit_v := Rc.new(EvalValueNode.UnitVal);
+  bool_v := Rc.new(EvalValueNode.BoolVal(true));
+  int_v := Rc.new(EvalValueNode.IntLit(String.from("0")));
+  float_v := Rc.new(EvalValueNode.FloatLit(String.from("0.0")));
+  str_v := Rc.new(EvalValueNode.StrLit(String.from("hi")));
+  varref_v := Rc.new(EvalValueNode.VarRef(String.from("x")));
+  tuple_v := Rc.new(EvalValueNode.TupleVal(value_cell_new(ArrayList(EvalValue).new())));
+  array_v := Rc.new(EvalValueNode.ArrayVal(value_cell_new(ArrayList(EvalValue).new())));
+  ptr_v := Rc.new(EvalValueNode.PtrVal(_ptr_cell(Rc.new(EvalValueNode.UnitVal)), usize(0), Option(TypeValue).None));
+  trait_v := Rc.new(EvalValueNode.TraitVal(String.from("T"), no_labels(), no_opt_values()));
+  cl_v := Rc.new(EvalValueNode.ComptimeListVal(value_cell_new(ArrayList(EvalValue).new())));
+  expr_v := Rc.new(EvalValueNode.ExprVal(make_err_expr()));
   assert(is_unit_val(&unit_v), "unit → is_unit_val");
   assert(is_bool_val(&bool_v), "bool → is_bool_val");
   assert(is_int_lit(&int_v), "int → is_int_lit");
@@ -366,12 +379,12 @@ test("predicates are exclusive across all variants", {
 // ---------------------------------------------------------------------------
 test("ValueCell: a write through one handle is seen by every holder", {
   mut(elems) := ArrayList(EvalValue).new();
-  elems.push(.IntLit(String.from("1")));
-  elems.push(.IntLit(String.from("2")));
+  elems.push(Rc.new(EvalValueNode.IntLit(String.from("1"))));
+  elems.push(Rc.new(EvalValueNode.IntLit(String.from("2"))));
   cell := value_cell_new(elems);
-  arr := EvalValue.ArrayVal(Rc.clone(cell));
-  ptr := EvalValue.PtrVal(_ptr_cell(&arr), usize(1), Option(TypeValue).None);
-  cell.set(usize(1), .IntLit(String.from("20")));
+  arr := Rc.new(EvalValueNode.ArrayVal(Rc.clone(cell)));
+  ptr := Rc.new(EvalValueNode.PtrVal(_ptr_cell(&arr), usize(1), Option(TypeValue).None));
+  cell.set(usize(1), Rc.new(EvalValueNode.IntLit(String.from("20"))));
   assert(cell.len() == usize(2), "the place keeps its length");
   assert(value_to_string(&arr) == "[1, 20]", "the array value reads the write");
   assert(value_to_string(&ptr) == "<ptr to 20>", "a pointer into the array reads the write");
@@ -383,13 +396,13 @@ test("ValueCell: an empty place reads nothing", {
 });
 test("SharedList(EvalValue): an enum's fields read by index", {
   mut(fs) := ArrayList(EvalValue).new();
-  fs.push(.BoolVal(true));
-  v := EvalValue.EnumVal(String.from(".Some"), shared_values(fs));
+  fs.push(Rc.new(EvalValueNode.BoolVal(true)));
+  v := Rc.new(EvalValueNode.EnumVal(String.from(".Some"), shared_values(fs)));
   match(
     &v,
-    .EnumVal(_, fields) => {
+    Rc(.EnumVal(_, fields)) => {
       assert(fields.len() == usize(1), "one field");
-      assert(fields(usize(0)) == EvalValue.BoolVal(true), "the field reads back");
+      assert(fields(usize(0)) == Rc.new(EvalValueNode.BoolVal(true)), "the field reads back");
     },
     _ => panic("not an EnumVal")
   );

@@ -21,7 +21,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue, create_unknown_val } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, create_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_usize } :: import("../../types/creators.yo");
 { get_alignment_of_type } :: import("../../types/utils.yo");
@@ -84,7 +84,7 @@ evaluate_align_of :: (
   // Determine the type to measure: TypeVal → its wrapped type, otherwise expr type.
   (type_to_check : TypeValue) = match(
     info.value(),
-    .Some(.TypeVal(ty_box)) => Rc.clone(ty_box),
+    .Some(Rc(.TypeVal(ty_box))) => Rc.clone(ty_box),
     .Some(_) => Rc.clone(info.ty()),
     .None => Rc.clone(info.ty())
   );
@@ -99,7 +99,7 @@ evaluate_align_of :: (
   match(
     align_opt,
     .Some(bytes) => {
-      out_info.set_value(.Some(EvalValue.IntLit(bytes.to_string())));
+      out_info.set_value(.Some(Rc.new(EvalValueNode.IntLit(bytes.to_string()))));
     },
     .None => {
       // Unknown alignment (e.g. `alignof(T)` with T a SomeT at def-eval):

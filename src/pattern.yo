@@ -102,8 +102,8 @@ impl(
         self,
         .Wildcard => Pattern.Wildcard,
         .Bind(name, token, atom) => Pattern.Bind(name : name.clone(), token : Rc.clone(token.*), atom : Rc.clone(atom.*)),
-        .Const(value, ty, src, subject, test) => Pattern.Const(value : value.*, ty : Rc.clone(ty), src : Rc.clone(src.*), subject : subject.clone(), test : Rc.clone(test.*)),
-        .Range(src, subject, test, ty, lo, hi, inclusive) => Pattern.Range(src : Rc.clone(src.*), subject : subject.clone(), test : Rc.clone(test.*), ty : Rc.clone(ty), lo : lo.*, hi : hi.*, inclusive : inclusive.*),
+        .Const(value, ty, src, subject, test) => Pattern.Const(value : Rc.clone(value.*), ty : Rc.clone(ty), src : Rc.clone(src.*), subject : subject.clone(), test : Rc.clone(test.*)),
+        .Range(src, subject, test, ty, lo, hi, inclusive) => Pattern.Range(src : Rc.clone(src.*), subject : subject.clone(), test : Rc.clone(test.*), ty : Rc.clone(ty), lo : lo.*.clone(), hi : hi.*.clone(), inclusive : inclusive.*),
         .Variant(name, idx, field_idx, subs, enum_ty, through_ptr, arity) => Pattern.Variant(
           name : name.clone(),
           idx : idx.*,
@@ -1187,7 +1187,7 @@ _head_variant_name :: (fn(head : &Pattern) -> Option(String))(
 _head_bool_const :: (fn(head : &Pattern) -> Option(bool))(
   match(
     head,
-    .Const(v, _, _, _, _) => match(v, .BoolVal(b) => Option(bool).Some(b.*), _ => Option(bool).None),
+    .Const(v, _, _, _, _) => match(v, Rc(.BoolVal(b)) => Option(bool).Some(b.*), _ => Option(bool).None),
     _ => Option(bool).None
   )
 );
@@ -1309,7 +1309,7 @@ _int_domain :: (fn(ty : &TypeValue) -> Option(_IntDomain))(
 _int_key :: (fn(v : &EvalValue, d : _IntDomain) -> Option(u64))(
   match(
     v,
-    .IntLit(raw) => match(
+    Rc(.IntLit(raw)) => match(
       parse_raw_int(&raw.*),
       .Some(bits) => Option(u64).Some(cond(d.signed => (u64(bits) ^ _KEY_SIGN), true => u64(bits))),
       .None => Option(u64).None

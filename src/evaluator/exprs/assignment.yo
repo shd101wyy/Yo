@@ -58,6 +58,7 @@ pragma(Pragma.AllowUnsafe);
 { function_param_mutation_mask, param_mutation_mask_hits, param_mutation_mask_lends_mut, ParamMutationMask, d1_record_global_write } :: import("../effects/mutation_summary.yo");
 {
   EvalValue,
+  EvalValueNode,
   is_struct_val,
   is_array_val,
   is_enum_val,
@@ -264,9 +265,9 @@ rebuild_list_with_index :: (
   n := vals.len();
   (k : usize) = usize(0);
   while(k < n, {
-    old_v := match(vals.get(k), .Some(v) => v, .None => EvalValue.UnitVal);
+    old_v := match(vals.get(k), .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal));
     if(k == idx, {
-      result.push(new_val.*);
+      result.push(Rc.clone(new_val));
     }, {
       result.push(old_v);
     });
@@ -1806,7 +1807,7 @@ evaluate_assignment :: (
               );
             });
             // A struct literal `P(x : a, y : b)`: its callee is the type.
-            if(match(callee_info.value(), .Some(.TypeVal(_)) => true, _ => false), {
+            if(match(callee_info.value(), .Some(Rc(.TypeVal(_))) => true, _ => false), {
               _throw_not_a_place(&lhs, "a struct literal", exn);
             });
           },
@@ -2086,7 +2087,7 @@ evaluate_assignment :: (
             .None => make_err_variable(&env)
           );
           if(pc_var.is_compile_time_only() && pc_var.value().get(usize(0)).is_some(), {
-            pc_cur_val := match(pc_var.value().get(usize(0)), .Some(v) => v, .None => EvalValue.UnitVal);
+            pc_cur_val := match(pc_var.value().get(usize(0)), .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal));
             if(prop_rhs_info.value().is_some(), {
               is_comptime_only_prop = true;
             });
@@ -2125,7 +2126,7 @@ evaluate_assignment :: (
                   _ => ()
                 );
                 if((struct_fi >= i64(0)) && prop_rhs_info.value().is_some(), {
-                  pc_rhs_val := match(prop_rhs_info.value(), .Some(v) => v, .None => EvalValue.UnitVal);
+                  pc_rhs_val := match(prop_rhs_info.value(), .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal));
                   fi_us := usize(struct_fi);
                   is_ref_sem := match(
                     &variable_value_type(&pc_var),
@@ -2155,7 +2156,7 @@ evaluate_assignment :: (
                       if(is_same_val, {
                         new_ref_opt := match(
                           av.value().get(usize(0)),
-                          .Some(.StructVal(tn, fnames, fvals)) => Option(EvalValue).Some(EvalValue.StructVal(tn.clone(), Rc.clone(fnames), value_cell_new(rebuild_list_with_index(&fvals, fi_us, &pc_rhs_val)))),
+                          .Some(Rc(.StructVal(tn, fnames, fvals))) => Option(EvalValue).Some(Rc.new(EvalValueNode.StructVal(tn.clone(), Rc.clone(fnames), value_cell_new(rebuild_list_with_index(&fvals, fi_us, &pc_rhs_val))))),
                           .Some(_) => av.value().get(usize(0)),
                           .None => av.value().get(usize(0))
                         );
@@ -2169,15 +2170,15 @@ evaluate_assignment :: (
                       is_struct_val(&pc_cur_val) =>
                         match(
                           pc_cur_val,
-                          .StructVal(tn, fnames, fvals) =>
-                            Option(EvalValue).Some(EvalValue.StructVal(tn.clone(), Rc.clone(fnames), value_cell_new(rebuild_list_with_index(&fvals, fi_us, &pc_rhs_val)))),
+                          Rc(.StructVal(tn, fnames, fvals)) =>
+                            Option(EvalValue).Some(Rc.new(EvalValueNode.StructVal(tn.clone(), Rc.clone(fnames), value_cell_new(rebuild_list_with_index(&fvals, fi_us, &pc_rhs_val))))),
                           _ => pc_var.value().get(usize(0))
                         ),
                       true =>
                         match(
                           pc_cur_val,
-                          .TupleVal(fvals) =>
-                            Option(EvalValue).Some(EvalValue.TupleVal(value_cell_new(rebuild_list_with_index(&fvals, fi_us, &pc_rhs_val)))),
+                          Rc(.TupleVal(fvals)) =>
+                            Option(EvalValue).Some(Rc.new(EvalValueNode.TupleVal(value_cell_new(rebuild_list_with_index(&fvals, fi_us, &pc_rhs_val))))),
                           _ => pc_var.value().get(usize(0))
                         )
                     );
@@ -2188,14 +2189,14 @@ evaluate_assignment :: (
               is_array_val(&pc_cur_val) => {
                 arr_idx_i64 := match(parse_raw_int(&pc_field_or_idx), .Some(v) => v, .None => i64(-1));
                 if((arr_idx_i64 >= i64(0)) && prop_rhs_info.value().is_some(), {
-                  pc_rhs_arr := match(prop_rhs_info.value(), .Some(v) => v, .None => EvalValue.UnitVal);
+                  pc_rhs_arr := match(prop_rhs_info.value(), .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal));
                   arr_idx_us := usize(arr_idx_i64);
                   new_arr_opt := match(
                     pc_cur_val,
-                    .ArrayVal(elems) =>
+                    Rc(.ArrayVal(elems)) =>
                       cond(
                         (arr_idx_us < elems.len()) =>
-                          Option(EvalValue).Some(EvalValue.ArrayVal(value_cell_new(rebuild_list_with_index(&elems, arr_idx_us, &pc_rhs_arr)))),
+                          Option(EvalValue).Some(Rc.new(EvalValueNode.ArrayVal(value_cell_new(rebuild_list_with_index(&elems, arr_idx_us, &pc_rhs_arr))))),
                         true => pc_var.value().get(usize(0))
                       ),
                     _ => pc_var.value().get(usize(0))
@@ -2206,7 +2207,7 @@ evaluate_assignment :: (
               is_enum_val(&pc_cur_val) => {
                 match(
                   pc_cur_val,
-                  .EnumVal(ev_variant, ev_fields) => {
+                  Rc(.EnumVal(ev_variant, ev_fields)) => {
                     // Find variant index, then field index within that variant.
                     (ev_fi : i64) = i64(-1);
                     match(
@@ -2259,10 +2260,10 @@ evaluate_assignment :: (
                       );
                     });
                     if(prop_rhs_info.value().is_some(), {
-                      pc_rhs_enum := match(prop_rhs_info.value(), .Some(v) => v, .None => EvalValue.UnitVal);
+                      pc_rhs_enum := match(prop_rhs_info.value(), .Some(v) => v, .None => Rc.new(EvalValueNode.UnitVal));
                       ev_fi_us := usize(ev_fi);
                       new_ev_opt := Option(EvalValue).Some(
-                        EvalValue.EnumVal(ev_variant.clone(), shared_values(rebuild_list_with_index(&ev_fields, ev_fi_us, &pc_rhs_enum)))
+                        Rc.new(EvalValueNode.EnumVal(ev_variant.clone(), shared_values(rebuild_list_with_index(&ev_fields, ev_fi_us, &pc_rhs_enum))))
                       );
                       update_existing_variable(&env, &pc_var, make_variable_with_value(&pc_var, &new_ev_opt));
                     });
@@ -2658,7 +2659,7 @@ Bound type: ${type_to_string(&variable_value_type(&mcb_v))}`
     (dgc_proven : bool) = false;
     match(
       rhs_info.value(),
-      .Some(.FuncVal(dgc_fvd, _)) => {
+      .Some(Rc(.FuncVal(dgc_fvd, _))) => {
         dgc_proven = all_paths_unwind(&dgc_fvd.*.body);
       },
       .Some(_) => (),
@@ -3116,7 +3117,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // their call-site ExprInfos record the FuncVal before codegen reads them
   // (fn arm 14's mutual recursion).
   if(updated_variable.is_compile_time_only() && is_function_type(&variable_value_type(&updated_variable)), {
-    if(match(value_to_store, .Some(vts) => match(vts, .FuncVal(_, _) => true, _ => false), .None => false), {
+    if(match(value_to_store, .Some(vts) => match(vts, Rc(.FuncVal(_, _)) => true, _ => false), .None => false), {
       match(
         call_rerun_pending_def_evals(&env, ctx),
         .Some(rp_err) => exn.throw(dyn(Box.new(rp_err))),
@@ -3138,7 +3139,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
   //   drop-tracks it (balances the dup-on-store above).
   if(!is_mutating_defined_variable || lhs_consumed_by_rhs, {
     expr_info := new_expr_info(&env, t_unit());
-    expr_info.set_value(.Some(EvalValue.UnitVal));
+    expr_info.set_value(.Some(Rc.new(EvalValueNode.UnitVal)));
     expr_info_set_is_compile_time_only_assignment(&expr_info, .Some(variable.is_compile_time_only()));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
   }, {

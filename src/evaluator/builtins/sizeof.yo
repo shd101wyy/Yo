@@ -41,7 +41,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env, synthetic_token } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue, create_unknown_val, create_type_value } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, create_unknown_val, create_type_value } :: import("../../value.yo");
 { TypeValue, TypeValueNode, SharedList, no_types, t_slice, t_refine_inner, t_reference, t_slot_is_borrow } :: import("../../types/definitions.yo");
 { t_usize, t_unit, t_type } :: import("../../types/creators.yo");
 { type_key } :: import("../../types/type_key.yo");
@@ -110,7 +110,7 @@ evaluate_size_of :: (
   // Determine the type to measure: TypeVal → its wrapped type, otherwise expr type.
   (type_to_check : TypeValue) = match(
     info.value(),
-    .Some(.TypeVal(ty_box)) => Rc.clone(ty_box),
+    .Some(Rc(.TypeVal(ty_box))) => Rc.clone(ty_box),
     .Some(_) => Rc.clone(info.ty()),
     .None => Rc.clone(info.ty())
   );
@@ -126,7 +126,7 @@ evaluate_size_of :: (
     size_bits_opt,
     .Some(bits) => {
       bytes := (bits / usize(8));
-      out_info.set_value(.Some(EvalValue.IntLit(bytes.to_string())));
+      out_info.set_value(.Some(Rc.new(EvalValueNode.IntLit(bytes.to_string()))));
     },
     .None => {
       // Unknown size (e.g. `sizeof(T)` with T a SomeT at def-eval): return a
@@ -237,7 +237,7 @@ evaluate_size_of_val :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut Eval
   if(type_is_sized(&pointee) && !is_dyn_type(&pointee), {
     match(
       if(is_size, match(get_size_of_type(&pointee), .Some(bits) => Option(usize).Some(bits / usize(8)), .None => Option(usize).None), get_alignment_of_type(&pointee)),
-      .Some(n) => out_info.set_value(.Some(EvalValue.IntLit(n.to_string()))),
+      .Some(n) => out_info.set_value(.Some(Rc.new(EvalValueNode.IntLit(n.to_string())))),
       .None => ()
     );
   });
@@ -283,7 +283,7 @@ _tail_unsized_twin :: (fn(st : &TypeValue, at : &AstExpr, env : &Environment, ct
     return(.None);
   });
   callee_id := alloc_global_expr_id();
-  callee_info := new_expr_info(env, &get_func_type(match(&ctor, .FuncVal(cfv, _) => cfv.func_id.clone(), _ => return(.None))));
+  callee_info := new_expr_info(env, &get_func_type(match(&ctor, Rc(.FuncVal(cfv, _)) => cfv.func_id.clone(), _ => return(.None))));
   callee_info.set_value(Option(EvalValue).Some(ctor.clone()));
   expr_info_table_set(&ctx.expr_info_table, callee_id, &callee_info);
   call := Rc.new(AstExprNode.FnCall(alloc_global_expr_id(), Rc.new(AstExprNode.Atom(callee_id, synthetic_token(String.from("__yo_unsize_ctor"), &env.module_path().*))), Rc.new(call_args), false, tok));
@@ -292,7 +292,7 @@ _tail_unsized_twin :: (fn(st : &TypeValue, at : &AstExpr, env : &Environment, ct
   ev := evaluate_expression_raw(&call, env, ctx, exn);
   for(&arg_ids, id => unmark_node_preevaluated(id.*));
   unmark_node_preevaluated(callee_id);
-  twin := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev)), .Some(ti) => match(ti.value(), .Some(.TypeVal(t)) => Rc.clone(t), _ => return(.None)), .None => return(.None));
+  twin := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev)), .Some(ti) => match(ti.value(), .Some(Rc(.TypeVal(t))) => Rc.clone(t), _ => return(.None)), .None => return(.None));
   if(type_is_sized(&twin), {
     return(.None);
   });

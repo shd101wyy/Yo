@@ -23,7 +23,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue, is_func_val } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, is_func_val } :: import("../../value.yo");
 { TypeValue, no_types, no_labels, slot_pointee_at, t_slot_pointee } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { is_function_type_and_returns_comptime_value } :: import("../../types/guards.yo");
@@ -103,7 +103,7 @@ evaluate_comptime_fn :: (
           )
         )
       );
-      EvalValue.UnitVal
+      Rc.new(EvalValueNode.UnitVal)
     }
   );
   if(!is_func_val(&arg_val), {
@@ -197,7 +197,7 @@ evaluate_comptime_fn :: (
     analyze_ctfe_capability(&arg_val, &func_type, env, ctx),
     .Some(ctfe_ok) => {
       out_info := new_expr_info(env, &ctfe_ok.ty);
-      out_info.set_value(Option(EvalValue).Some(ctfe_ok.value));
+      out_info.set_value(Option(EvalValue).Some(Rc.clone(ctfe_ok.value)));
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
       Rc.clone(expr.*)
     },

@@ -1982,7 +1982,7 @@ fused_await_site :: (fn(await_expr : &AstExpr, report : bool, context : &Functio
   });
   wrapper_body := match(
     context.base.functions.get(cand.func_id.clone()),
-    .Some(fe) => match(fe.value, .FuncVal(wfvd, _) => Rc.clone(wfvd.*.body), _ => return(_fusion_not_lowered(await_expr, String.from("the wrapper has no body"), report))),
+    .Some(fe) => match(Rc.clone(fe.value), Rc(.FuncVal(wfvd, _)) => Rc.clone(wfvd.*.body), _ => return(_fusion_not_lowered(await_expr, String.from("the wrapper has no body"), report))),
     .None => return(_fusion_not_lowered(await_expr, String.from("the wrapper is not emitted"), report))
   );
   stmts := if(ast_expr_is_fn_call_of(&wrapper_body, BK_BEGIN, Option(usize).None), emitted_block_statements(match(Rc.clone(wrapper_body), Rc(.FnCall(_, _, Rc(sa), _, _)) => sa.clone(), _ => ArrayList(AstExpr).new())), {
@@ -2777,7 +2777,7 @@ io_async_await_analysis :: (fn(expr : &AstExpr, context : &FunctionGenerationCon
     fv,
     .Some(f) => match(
       f,
-      .FuncVal(__fvd1, _) => {
+      Rc(.FuncVal(__fvd1, _)) => {
         // The FuncVal reads above are DESTRUCTIVE moves — record the func_id
         // under the CALL expr id so later readers (a re-entrant analysis
         // probe, closure-param slot collection) stay idempotent after the
@@ -2838,7 +2838,7 @@ io_async_closure_body :: (fn(expr : &AstExpr, context : &FunctionGenerationConte
           );
           body_opt := match(
             fv_opt,
-            .Some(fv) => match(fv, .FuncVal(__fvd2, _) => Option(AstExpr).Some(Rc.clone(__fvd2.*.body)), _ => Option(AstExpr).None),
+            .Some(fv) => match(fv, Rc(.FuncVal(__fvd2, _)) => Option(AstExpr).Some(Rc.clone(__fvd2.*.body)), _ => Option(AstExpr).None),
             .None => Option(AstExpr).None
           );
           body_opt
@@ -3813,8 +3813,8 @@ preregister_async_block_types :: (fn(context : &mut FunctionGenerationContext) -
   bodies := ArrayList(AstExpr).new();
   for(&context.base.functions, (_fid, entry) => {
     match(
-      entry.value,
-      .FuncVal(__fvd3, _) => bodies.push(__fvd3.*.body.clone()),
+      Rc.clone(entry.value),
+      Rc(.FuncVal(__fvd3, _)) => bodies.push(__fvd3.*.body.clone()),
       _ => ()
     );
   });
@@ -3885,10 +3885,10 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
         result_type = rct;
       },
       .None => match(
-        result_closure_fv,
+        result_closure_fv.clone(),
         .Some(fv) => match(
           fv,
-          .FuncVal(__fvd4, _) => match(
+          Rc(.FuncVal(__fvd4, _)) => match(
             context.base.get_expr_info(&__fvd4.*.body),
             .Some(bei) => {
               bt := Rc.clone(bei.ty());
@@ -3923,7 +3923,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
       result_closure_fv,
       .Some(fv) => match(
         fv,
-        .FuncVal(__fvd5, _) => match(
+        Rc(.FuncVal(__fvd5, _)) => match(
           get_func_type(&__fvd5.*.func_id),
           Rc(.Func({ result : rb })) => if(!is_some_type(&t_slot_pointee(&rb)), {
             result_type = t_slot_pointee(&rb);
@@ -3969,10 +3969,10 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   // sync-future stub below would run nothing and silently complete (the C22
   // `_sync_fut_t` class — handover §0c). Reject it instead.
   match(
-    closure_fn_val,
+    closure_fn_val.clone(),
     .Some(fv) => match(
       fv,
-      .FuncVal(__fvdh, _) => match(
+      Rc(.FuncVal(__fvdh, _)) => match(
         context.base.get_expr_info(&__fvdh.*.body),
         .None => _report_hollow_async_body(&__fvdh.*.body, false),
         .Some(_) => ()
@@ -3983,7 +3983,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   );
   closure_function_c_name := match(
     closure_fn_val,
-    .Some(fv) => match(fv, .FuncVal(__fvd6, _) => match(context.base.get_function_entry(&__fvd6.*.func_id), .Some(e) => Option(String).Some(e.c_name.clone()), .None => Option(String).None), _ => Option(String).None),
+    .Some(fv) => match(fv, Rc(.FuncVal(__fvd6, _)) => match(context.base.get_function_entry(&__fvd6.*.func_id), .Some(e) => Option(String).Some(e.c_name.clone()), .None => Option(String).None), _ => Option(String).None),
     .None => Option(String).None
   );
   eff_capture_type := match(

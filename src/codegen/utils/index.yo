@@ -614,10 +614,10 @@ impl(
     );
     def_mod := match(
       value,
-      .FuncVal(fvd, _) => ast_expr_token(&fvd.body).module_path.*.clone(),
+      Rc(.FuncVal(fvd, _)) => ast_expr_token(&fvd.body).module_path.*.clone(),
       _ => String.new()
     );
-    self.functions.insert(func_id.clone(), CodegenFunctionEntry(value : value.*, c_name : final_name, def_module : def_mod));
+    self.functions.insert(func_id.clone(), CodegenFunctionEntry(value : Rc.clone(value.*), c_name : final_name, def_module : def_mod));
     ()
   }),
   /// True if a function with this func_id is already registered.
@@ -636,7 +636,7 @@ impl(
     // get_type_c_name above (the enum sibling-cname pollution).
     match(
       self.functions.get(func_id),
-      .Some(fe) => Option(CodegenFunctionEntry).Some(CodegenFunctionEntry(value : fe.value, c_name : fe.c_name.clone(), def_module : fe.def_module.clone())),
+      .Some(fe) => Option(CodegenFunctionEntry).Some(CodegenFunctionEntry(value : Rc.clone(fe.value), c_name : fe.c_name.clone(), def_module : fe.def_module.clone())),
       .None => Option(CodegenFunctionEntry).None
     )
   ),
@@ -796,7 +796,7 @@ std_allocator_abi_is_v2 :: (fn(env : &Environment, std_path : &String) -> bool)(
       vars.get_cloned(vi),
       .Some(var) => match(
         var.value().get(usize(0)),
-        .Some(.TypeVal(t)) => match(
+        .Some(Rc(.TypeVal(t))) => match(
           resolve_struct_shell(&t),
           Rc(.Struct({ id : sid, name : sname })) => {
             v := allocator_vtable_abi_version(&t);
@@ -1324,7 +1324,7 @@ _inline_unwrap_transparent :: (fn(e : &AstExpr) -> AstExpr)({
 });
 _inline_body_passes_params_through :: (fn(call : &AstExpr, fv : &EvalValue) -> bool)({
   args := match(call, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => return(false));
-  params := match(fv, .FuncVal(__fvd2, _) => __fvd2.params.clone(), _ => return(false));
+  params := match(fv, Rc(.FuncVal(__fvd2, _)) => __fvd2.params.clone(), _ => return(false));
   nparams := params.len();
   // Walk the body arguments, dropping type arguments, and require the ones that
   // remain to line up with the parameters in order.
@@ -1372,7 +1372,7 @@ _inline_body_passes_params_through :: (fn(call : &AstExpr, fv : &EvalValue) -> b
 is_function_value_with_only_builtin_yo_inline_function_call :: (
   fn(fv : &EvalValue) -> Option(String)
 )({
-  body_box := match(fv, .FuncVal(__fvd1, _) => Rc.clone(__fvd1.body), _ => return(.None));
+  body_box := match(fv, Rc(.FuncVal(__fvd1, _)) => Rc.clone(__fvd1.body), _ => return(.None));
   body := _unwrap_unsafe(&body_box);
   // The call node the operator name comes from — needed by the pass-through
   // check below, which must inspect THAT call's arguments and not the

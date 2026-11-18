@@ -30,6 +30,7 @@ pragma(Pragma.AllowUnsafe);
 { type_contains_some_type, get_all_some_types, is_bound_closure_identity, type_carries_origin, type_is_sized, unsized_by_value_error, is_legacy_value_str, legacy_value_str } :: import("../../types/utils.yo");
 {
   EvalValue,
+  EvalValueNode,
   eval_value_eq,
   is_type_val,
   is_unknown_val,
@@ -250,9 +251,9 @@ _ctfe_args_equal :: (
 )(
   match(
     cached_av,
-    .TypeVal(aty_b) => match(
+    Rc(.TypeVal(aty_b)) => match(
       given_av,
-      .TypeVal(bty_b) => {
+      Rc(.TypeVal(bty_b)) => {
         aty := Rc.clone(aty_b);
         bty := Rc.clone(bty_b);
         a_is_some := is_some_type(&aty);
@@ -386,7 +387,7 @@ lookup_recursive_type_ref :: (fn(some_id : &String) -> Option(RecursiveTypeRef))
 _resolved_type_of :: (fn(v : &EvalValue) -> Option(TypeValue))(
   match(
     v,
-    .TypeVal(tb) => {
+    Rc(.TypeVal(tb)) => {
       t := Rc.clone(tb);
       is_placeholder := match(
         &t,
@@ -411,9 +412,9 @@ _arg_vals_equal :: (fn(a : &ArrayList(EvalValue), b : &ArrayList(EvalValue)) -> 
   n := a.len();
   while((i < n) && ok, {
     match(
-      a.get(i),
+      a.get_cloned(i),
       .Some(av) => match(
-        b.get(i),
+        b.get_cloned(i),
         .Some(bv) => {
           ok = _ctfe_args_equal(&av, &bv);
         },
@@ -474,7 +475,7 @@ canonicalize_instantiation_via_ctfe_memo :: (fn(ty : &TypeValue) -> TypeValue)({
           if(type_contains_some_type(&t2), {
             return(Rc.clone(ty));
           });
-          want_args.push(EvalValue.TypeVal(t2));
+          want_args.push(Rc.new(EvalValueNode.TypeVal(t2)));
         },
         .None => {
           return(Rc.clone(ty));
@@ -626,7 +627,7 @@ _recursive_placeholder :: (
       sid := match(&placeholder, Rc(.SomeT(id : x)) => x.clone(), _ => String.from(""));
       recursive_ref := RecursiveTypeRef(some_id : sid.clone(), func_id : func_id.clone(), arg_values : arg_vals.clone());
       g_recursive_type_refs.with_mut({ recursive_ref }(xs) => xs.push(recursive_ref));
-      EvalValue.TypeVal(placeholder)
+      Rc.new(EvalValueNode.TypeVal(placeholder))
     },
     true => create_unknown_val(return_type)
   )
@@ -645,8 +646,8 @@ _instance_type_args :: (fn(arg_vals : &ArrayList(EvalValue)) -> SharedList(TypeV
   (i : usize) = usize(0);
   while(i < arg_vals.len(), {
     match(
-      arg_vals.get(i),
-      .Some(.TypeVal(t)) => out.push(Rc.clone(t)),
+      arg_vals.get_cloned(i),
+      .Some(Rc(.TypeVal(t))) => out.push(Rc.clone(t)),
       .Some(_) => out.push(Rc.new(TypeValueNode.Unit)),
       .None => ()
     );
@@ -665,7 +666,7 @@ _restamp_instance_origins :: (fn(v : EvalValue, arg_vals : &ArrayList(EvalValue)
   (carries : bool) = false;
   (i : usize) = usize(0);
   while((i < arg_vals.len()) && !carries, {
-    if(match(arg_vals.get(i), .Some(.TypeVal(t)) => type_carries_origin(&t), _ => false), {
+    if(match(arg_vals.get_cloned(i), .Some(Rc(.TypeVal(t))) => type_carries_origin(&t), _ => false), {
       carries = true;
     });
     i = (i + usize(1));
@@ -675,14 +676,14 @@ _restamp_instance_origins :: (fn(v : EvalValue, arg_vals : &ArrayList(EvalValue)
   });
   match(
     &v,
-    .TypeVal(Rc(.Struct({ id : sid, name : sname, field_labels : slabels, field_types : stypes, is_reference_semantics : sref, is_atomic_rc : satomic, is_newtype : snt, constructor_func_id : scfid, type_arguments : stas, is_source_namespace : sns }))) => if(
+    Rc(.TypeVal(Rc(.Struct({ id : sid, name : sname, field_labels : slabels, field_types : stypes, is_reference_semantics : sref, is_atomic_rc : satomic, is_newtype : snt, constructor_func_id : scfid, type_arguments : stas, is_source_namespace : sns })))) => if(
       stas.len() == arg_vals.len(),
-      EvalValue.TypeVal(Rc.new(TypeValueNode.Struct(sid.clone(), sname.clone(), Rc.clone(slabels), Rc.clone(stypes), sref.*, satomic.*, snt.*, scfid.clone(), _instance_type_args(arg_vals), sns.*))),
+      Rc.new(EvalValueNode.TypeVal(Rc.new(TypeValueNode.Struct(sid.clone(), sname.clone(), Rc.clone(slabels), Rc.clone(stypes), sref.*, satomic.*, snt.*, scfid.clone(), _instance_type_args(arg_vals), sns.*)))),
       v
     ),
-    .TypeVal(Rc(.EnumT(eid, enm, evns, evfs, esvn, evfl, edis, eirs, eiar, etas))) => if(
+    Rc(.TypeVal(Rc(.EnumT(eid, enm, evns, evfs, esvn, evfl, edis, eirs, eiar, etas)))) => if(
       etas.len() == arg_vals.len(),
-      EvalValue.TypeVal(Rc.new(TypeValueNode.EnumT(eid.clone(), enm.clone(), Rc.clone(evns), Rc.clone(evfs), esvn.clone(), Rc.clone(evfl), Rc.clone(edis), eirs.*, eiar.*, _instance_type_args(arg_vals)))),
+      Rc.new(EvalValueNode.TypeVal(Rc.new(TypeValueNode.EnumT(eid.clone(), enm.clone(), Rc.clone(evns), Rc.clone(evfs), esvn.clone(), Rc.clone(evfl), Rc.clone(edis), eirs.*, eiar.*, _instance_type_args(arg_vals))))),
       v
     ),
     _ => v
@@ -721,14 +722,14 @@ evaluate_comptime_fn_call :: (
             match(
               arg_values.args.get(us_i),
               .Some(us_a) => match(
-                us_a.value,
-                .Some(.TypeVal(us_t)) => cond(
+                us_a.value.clone(),
+                .Some(Rc(.TypeVal(us_t))) => cond(
                   // The legacy value `str` (decision 49,
                   // `unsized_legacy_spellings`): `ArrayList(str)` is
                   // `ArrayList(&(str, static))`.
                   is_legacy_value_str(&us_t) => {
                     note_legacy_str_type_arg(&us_callee.*, us_i, &ctx.std_path);
-                    us_a.value = Option(EvalValue).Some(EvalValue.TypeVal(legacy_value_str(&us_t)));
+                    us_a.value = Option(EvalValue).Some(Rc.new(EvalValueNode.TypeVal(legacy_value_str(&us_t))));
                   },
                   !type_is_sized(&us_t) => {
                     us_label := match(us_meta.param_labels.get(us_i), .Some(l) => l, .None => String.from("V"));
@@ -750,12 +751,12 @@ evaluate_comptime_fn_call :: (
   // Extract func_id and body from the FuncVal.
   func_id_str := match(
     function_value,
-    .FuncVal(__fvd1, _) => __fvd1.func_id.clone(),
+    Rc(.FuncVal(__fvd1, _)) => __fvd1.func_id.clone(),
     _ => String.from("")
   );
   body_box := match(
     function_value,
-    .FuncVal(__fvd2, _) => Rc.clone(__fvd2.body),
+    Rc(.FuncVal(__fvd2, _)) => Rc.clone(__fvd2.body),
     _ => {
       // Inside a DEFINITION-time body trial, a non-FuncVal callee is a
       // dispatch product with no impl value yet (a where-constraint trait
@@ -857,9 +858,9 @@ evaluate_comptime_fn_call :: (
     match(
       arg_values.forall_args.get(fai),
       .Some(e) => match(
-        e.value,
+        e.value.clone(),
         .Some(v) => {
-          all_arg_vals.push(v);
+          all_arg_vals.push(Rc.clone(v));
         },
         .None => {
           collect_ok = false;
@@ -877,9 +878,9 @@ evaluate_comptime_fn_call :: (
     match(
       arg_values.args.get(ai),
       .Some(e) => match(
-        e.value,
+        e.value.clone(),
         .Some(v) => {
-          all_arg_vals.push(v);
+          all_arg_vals.push(Rc.clone(v));
         },
         .None => {
           collect_ok = false;
@@ -897,9 +898,9 @@ evaluate_comptime_fn_call :: (
     match(
       arg_values.variadic_args.get(vai),
       .Some(e) => match(
-        e.value,
+        e.value.clone(),
         .Some(v) => {
-          all_arg_vals.push(v);
+          all_arg_vals.push(Rc.clone(v));
         },
         .None => {
           collect_ok = false;
@@ -932,7 +933,7 @@ evaluate_comptime_fn_call :: (
     (dbge_i : usize) = usize(0);
     while(dbge_i < all_arg_vals.len(), {
       match(
-        all_arg_vals.get(dbge_i),
+        all_arg_vals.get_cloned(dbge_i),
         .Some(dv) => {
           dbge_args.push_string(value_to_string(&dv));
           dbge_args.push_string(String.from(" | "));
@@ -961,7 +962,7 @@ evaluate_comptime_fn_call :: (
     (uai : usize) = usize(0);
     while((uai < all_arg_vals.len()) && !any_arg_unknown, {
       match(
-        all_arg_vals.get(uai),
+        all_arg_vals.get_cloned(uai),
         .Some(v) => if(is_unknown_val(&v), {
           any_arg_unknown = true;
         }),
@@ -989,7 +990,7 @@ evaluate_comptime_fn_call :: (
       (dbg_i : usize) = usize(0);
       while(dbg_i < all_arg_vals.len(), {
         match(
-          all_arg_vals.get(dbg_i),
+          all_arg_vals.get_cloned(dbg_i),
           .Some(dv) => {
             dbg_args.push_string(value_to_string(&dv));
             dbg_args.push_string(String.from(" | "));
@@ -1036,7 +1037,7 @@ evaluate_comptime_fn_call :: (
       (cti : usize) = usize(0);
       while((cti < all_arg_vals.len()) && ok2, {
         match(
-          all_arg_vals.get(cti),
+          all_arg_vals.get_cloned(cti),
           .Some(v) => if(!is_type_val(&v), {
             ok2 = false;
           }),
@@ -1066,10 +1067,10 @@ evaluate_comptime_fn_call :: (
     (sc_i : usize) = usize(0);
     while((sc_i < all_arg_vals.len()) && should_cache, {
       match(
-        all_arg_vals.get(sc_i),
+        all_arg_vals.get_cloned(sc_i),
         .Some(sc_v) => match(
           sc_v,
-          .TypeVal(sc_t) => {
+          Rc(.TypeVal(sc_t)) => {
             if(type_contains_some_type(&sc_t), {
               should_cache = false;
             });
@@ -1153,9 +1154,9 @@ evaluate_comptime_fn_call :: (
               n_av := all_arg_vals.len();
               while((ami < n_av) && args_match, {
                 match(
-                  cache.arg_values.get(ami),
+                  cache.arg_values.get_cloned(ami),
                   .Some(cached_av) => match(
-                    all_arg_vals.get(ami),
+                    all_arg_vals.get_cloned(ami),
                     .Some(given_av) => {
                       args_match = _ctfe_args_equal(&cached_av, &given_av);
                     },
@@ -1170,7 +1171,7 @@ evaluate_comptime_fn_call :: (
                 ami = (ami + usize(1));
               });
               if(args_match, {
-                cached_result = Option(EvalValue).Some(cache.value);
+                cached_result = Option(EvalValue).Some(Rc.clone(cache.value));
               });
             });
           });
@@ -1186,7 +1187,7 @@ evaluate_comptime_fn_call :: (
       if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
         eprintln(`[ctfe-hit] fid=${func_id_str} result=${value_to_string(&cached_val)}`);
       });
-      hit_val := _restamp_instance_origins(cached_val, &all_arg_vals);
+      hit_val := _restamp_instance_origins(Rc.clone(cached_val), &all_arg_vals);
       return(
         ComptimeFnCallResult(
           value : hit_val,
@@ -1243,7 +1244,7 @@ evaluate_comptime_fn_call :: (
     FuncOrAsyncBlockCtx(
       kind : FuncOrAsyncBlockKind.FunctionBody,
       func_type : Option(TypeValue).Some(Rc.clone(function_type)),
-      func_value : Option(EvalValue).Some(function_value.*),
+      func_value : Option(EvalValue).Some(Rc.clone(function_value.*)),
       eval_env : snapshot_env(callee_env),
       ctfe_live : ctfe_live,
       ctfe_arm_depth : ctx.ctfe_untaken_arm_depth
@@ -1261,7 +1262,7 @@ evaluate_comptime_fn_call :: (
   // its pointee (the comptime version's parameters are compile-time) reads as
   // that value through `p.*` (decision 43 step 2 N1e-1,
   // `is_ctfe_reference_param`).
-  match(function_value, .FuncVal(rp_fvd, _) => note_ctfe_reference_params(&rp_fvd.params, function_type, callee_env), _ => ());
+  match(function_value, Rc(.FuncVal(rp_fvd, _)) => note_ctfe_reference_params(&rp_fvd.params, function_type, callee_env), _ => ());
   // Evaluate a FRESH-ID CLONE of the function body — the
   // ExprInfo table is keyed by expr id, so executing the ORIGINAL
   // tree makes every call overwrite the same ids: `SortedSet(i32)`'s body
@@ -1350,8 +1351,8 @@ evaluate_comptime_fn_call :: (
   // instantiations of the same generic constructor by this id.
   // Record enum constructor identity (EnumT has no cfid field to stamp).
   match(
-    return_value,
-    .TypeVal(rv_eb) => {
+    Rc.clone(return_value),
+    Rc(.TypeVal(rv_eb)) => {
       match(
         rv_eb,
         Rc(.EnumT(eid, _, _, _, _, _, _, _, _, _)) => register_enum_cfid(&eid, func_id_str.clone()),
@@ -1372,11 +1373,11 @@ evaluate_comptime_fn_call :: (
   (tai : usize) = usize(0);
   while(tai < all_arg_vals.len(), {
     match(
-      all_arg_vals.get(tai),
+      all_arg_vals.get_cloned(tai),
       .Some(av) => {
         match(
           av,
-          .TypeVal(tb) => {
+          Rc(.TypeVal(tb)) => {
             inst_type_args_b.push(Rc.clone(tb));
           },
           _ => {
@@ -1421,7 +1422,7 @@ evaluate_comptime_fn_call :: (
       if(cni > usize(0), {
         nm.push_str(", ");
       });
-      match(all_arg_vals.get(cni), .Some(cav) => nm.push_string(value_to_string(&cav)), .None => ());
+      match(all_arg_vals.get_cloned(cni), .Some(cav) => nm.push_string(value_to_string(&cav)), .None => ());
       cni = (cni + usize(1));
     });
     nm.push_str(")");
@@ -1458,8 +1459,8 @@ evaluate_comptime_fn_call :: (
   head_is_ident := ((ctfe_display_head.len() > usize(0)) && (ctfe_display_head != "."));
   if(head_is_ident, {
     match(
-      return_value,
-      .TypeVal(rv_disp) => {
+      Rc.clone(return_value),
+      Rc(.TypeVal(rv_disp)) => {
         disp_id := match(
           rv_disp,
           Rc(.Struct({ id : d_sid, name : d_snm, is_source_namespace : d_ns })) => if((d_snm.len() == usize(0)) && !d_ns, d_sid.clone(), String.from("")),
@@ -1475,7 +1476,7 @@ evaluate_comptime_fn_call :: (
             if(dai > usize(0), {
               disp.push_str(", ");
             });
-            match(all_arg_vals.get(dai), .Some(dav) => disp.push_string(value_to_string(&dav)), .None => ());
+            match(all_arg_vals.get_cloned(dai), .Some(dav) => disp.push_string(value_to_string(&dav)), .None => ());
             dai = (dai + usize(1));
           });
           disp.push_str(")");
@@ -1486,7 +1487,7 @@ evaluate_comptime_fn_call :: (
           (has_origin_arg : bool) = false;
           (hoi : usize) = usize(0);
           while(hoi < all_arg_vals.len(), {
-            if(match(all_arg_vals.get(hoi), .Some(.TypeVal(Rc(.OriginSet(_, _)))) => true, _ => false), {
+            if(match(all_arg_vals.get_cloned(hoi), .Some(Rc(.TypeVal(Rc(.OriginSet(_, _))))) => true, _ => false), {
               has_origin_arg = true;
             });
             hoi = (hoi + usize(1));
@@ -1501,8 +1502,8 @@ evaluate_comptime_fn_call :: (
                 tpl.push_str(", ");
               });
               match(
-                all_arg_vals.get(tpl_i),
-                .Some(.TypeVal(Rc(.OriginSet(_, _)))) => tpl.push_str(DISPLAY_ORIGIN_MARK),
+                all_arg_vals.get_cloned(tpl_i),
+                .Some(Rc(.TypeVal(Rc(.OriginSet(_, _))))) => tpl.push_str(DISPLAY_ORIGIN_MARK),
                 .Some(tav) => tpl.push_string(value_to_string(&tav)),
                 .None => ()
               );
@@ -1517,8 +1518,8 @@ evaluate_comptime_fn_call :: (
     );
   });
   final_return_value := match(
-    return_value,
-    .TypeVal(rv_tb) => match(
+    Rc.clone(return_value),
+    Rc(.TypeVal(rv_tb)) => match(
       rv_tb,
       Rc(.Struct({ id : sid, name : sname, field_labels : slabels, field_types : stypes, is_reference_semantics : sref, is_atomic_rc : satomic, is_newtype : snt, constructor_func_id : scfid })) => if(scfid.len() == usize(0), {
         if(debug_knob(`YO_DEBUG_TMINT`).is_some(), {
@@ -1529,14 +1530,16 @@ evaluate_comptime_fn_call :: (
         register_struct_ctor_fid(sid.clone(), func_id_str.clone());
         register_struct_ctor_value(&func_id_str, function_value);
         stamped_name := if((sname.len() == usize(0)) && (ctfe_box_name.len() > usize(0)), ctfe_box_name.clone(), sname.clone());
-        EvalValue.TypeVal(
-          Rc.new(TypeValueNode.Struct(sid.clone(), stamped_name, Rc.clone(slabels), Rc.clone(stypes), sref, satomic, snt, func_id_str.clone(), inst_type_args.clone(), false))
+        Rc.new(
+          EvalValueNode.TypeVal(
+            Rc.new(TypeValueNode.Struct(sid.clone(), stamped_name, Rc.clone(slabels), Rc.clone(stypes), sref, satomic, snt, func_id_str.clone(), inst_type_args.clone(), false))
+          )
         )
       }, {
         if(debug_knob(`YO_DEBUG_TMINT`).is_some(), {
           eprintln(`[tmint-stamp] SKIP sid=${sid} cfid=${scfid}`);
         });
-        return_value
+        Rc.clone(return_value)
       }),
       // An enum instantiation's type arguments, the twin of the Struct stamp
       // above. Only an enum MINTED in CTFE is an instantiation of this
@@ -1548,8 +1551,8 @@ evaluate_comptime_fn_call :: (
       // instance that reports the same arguments.
       Rc(.EnumT(eid, enm, evns, evfs, esvn, evfl, edis, eirs, eiar, etas)) => if((etas.len() == usize(0)) && ((inst_type_args.len() > usize(0)) && !eid.starts_with("enum_decl_")), {
         stamp_enum_final_type_arguments(eid.clone(), &inst_type_args, ctor_phantom_flags(func_id_str.clone(), inst_type_args.len()));
-        EvalValue.TypeVal(Rc.new(TypeValueNode.EnumT(eid.clone(), enm.clone(), Rc.clone(evns), Rc.clone(evfs), esvn.clone(), Rc.clone(evfl), Rc.clone(edis), eirs, eiar, inst_type_args.clone())))
-      }, return_value),
+        Rc.new(EvalValueNode.TypeVal(Rc.new(TypeValueNode.EnumT(eid.clone(), enm.clone(), Rc.clone(evns), Rc.clone(evfs), esvn.clone(), Rc.clone(evfl), Rc.clone(edis), eirs, eiar, inst_type_args.clone()))))
+      }, Rc.clone(return_value)),
       // Trait returns: record the constructor funcId so the generic-impl
       // registry can key `Eq(Rc(i32))` and `Eq(Rc(T))` into ONE bucket.
       // Side-table only — TraitT carries no
@@ -1557,11 +1560,11 @@ evaluate_comptime_fn_call :: (
       Rc(.TraitT(_, _, ct_trait_id, _, _, _)) => {
         register_trait_ctor_fid(ct_trait_id.clone(), func_id_str.clone());
         register_trait_type_args(ct_trait_id.clone(), &inst_type_args.items);
-        return_value
+        Rc.clone(return_value)
       },
-      _ => return_value
+      _ => Rc.clone(return_value)
     ),
-    _ => return_value
+    _ => Rc.clone(return_value)
   );
   // Local copy — `callee_env` is an immutable parameter; thread the updated
   // env through `out_callee_env` and return it.
@@ -1571,7 +1574,7 @@ evaluate_comptime_fn_call :: (
     updated_cache := CalledComptimeFnCache(
       func_id : func_id_str.clone(),
       arg_values : all_arg_vals,
-      value : final_return_value
+      value : Rc.clone(final_return_value)
     );
     match(
       g_comptime_fn_caches.with(xs => xs.get(the_entry_idx)),

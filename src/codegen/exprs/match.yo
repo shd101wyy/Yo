@@ -356,7 +356,7 @@ _flatten_or_pattern :: (fn(expr : &AstExpr) -> ArrayList(AstExpr))(
 );
 /// A C literal for a compile-time value (number / bool).
 _c_literal_from_value :: (fn(value : &EvalValue) -> Option(String))(
-  match(value, .IntLit(r) => Option(String).Some(r.clone()), .FloatLit(r) => Option(String).Some(r.clone()), .BoolVal(b) => Option(String).Some(if(b.*, String.from("true"), String.from("false"))), _ => Option(String).None)
+  match(value, Rc(.IntLit(r)) => Option(String).Some(r.clone()), Rc(.FloatLit(r)) => Option(String).Some(r.clone()), Rc(.BoolVal(b)) => Option(String).Some(if(b.*, String.from("true"), String.from("false"))), _ => Option(String).None)
 );
 /// Concatenate `current` then `prev` (both optional) into a fresh drop list.
 _concat_drops :: (fn(current : &Option(ArrayList(AstExpr)), prev : &Option(ArrayList(AstExpr))) -> ArrayList(AstExpr))({
@@ -691,7 +691,7 @@ _generate_float_primitive_match :: (fn(expr : &AstExpr, indent : &String, contex
                   (mut(pi) : usize) = usize(0);
                   while(pi < pvs.len(), {
                     match(
-                      pvs.get(pi),
+                      pvs.get_cloned(pi),
                       .Some(vopt) => match(
                         vopt,
                         .Some(v) => {
@@ -795,7 +795,7 @@ generate_primitive_match_expression :: (fn(expr : &AstExpr, indent : &String, co
                   (mut(pi) : usize) = usize(0);
                   while(pi < np, {
                     match(
-                      pvs.get(pi),
+                      pvs.get_cloned(pi),
                       .Some(vopt) => match(
                         vopt,
                         .Some(v) => match(

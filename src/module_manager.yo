@@ -97,7 +97,7 @@ env_mod :: import("std/env");
 { purge_type_intern_owned_by } :: import("./types/intern.yo");
 { purge_specialization_caches_owned_by, specialization_recording_begin, specialization_recording_take } :: import("./evaluator/calls/helper.yo");
 { purge_match_arms } :: import("./pattern.yo");
-{ EvalValue, type_of_eval_value } :: import("./value.yo");
+{ EvalValue, EvalValueNode, type_of_eval_value } :: import("./value.yo");
 { TypeValue, TypeValueNode, slot_pointee_at, t_slot_pointee } :: import("./types/definitions.yo");
 { clear_type_display_names, type_to_string } :: import("./types/string.yo");
 { render_any_error, stash_error_diagnostics, format_error_message } :: import("./error.yo");
@@ -200,7 +200,7 @@ module_load_outcome_ctx :: (fn(sink(outcome) : ModuleLoadOutcome) -> EvalContext
 _failed_outcome :: (fn() -> ModuleLoadOutcome)(
   ModuleLoadOutcome(
     ok : false,
-    module_value : EvalValue.UnitVal,
+    module_value : Rc.new(EvalValueNode.UnitVal),
     module_type : Rc.new(TypeValueNode.Unit),
     env : new_environment(Rc.new(String.from(""))),
     ctx : eval_context_new(String.from(""), String.from(""))
@@ -1876,7 +1876,7 @@ mm_revalidate_apply :: (
                   _push_non_generic_fn_values(_walk_def_values(&defs), &mut reval_values);
                   (rmi : usize) = usize(0);
                   while(rmi < reval_minted.len(), {
-                    match(reval_minted.get(rmi), .Some(v) => reval_values.push(v), .None => ());
+                    match(reval_minted.get_cloned(rmi), .Some(v) => reval_values.push(v), .None => ());
                     rmi = (rmi + usize(1));
                   });
                   summarize_function_bodies(&reval_values, &wtable, &walk.env);
@@ -2181,7 +2181,7 @@ _eval_module_exprs_capturing_error :: (
     )
   );
   result := evaluate_anonymous_module_begin_exprs(mod_exprs, env, ctx, false, false, true, local_exn);
-  out.push(result.module_value);
+  out.push(Rc.clone(result.module_value));
   out_tys.push(Rc.clone(result.module_type));
   true
 });
@@ -2414,7 +2414,7 @@ _load_module_at_abs :: (fn(abs : &String) -> Option(String))({
   g_prof_child_load_ns = (prof_saved_child + prof_t0.elapsed().as_nanos());
   profile_record_module(fs_path.clone(), prof_parse_ns, prof_eval_ns);
   match(
-    out_vals.get(usize(0)),
+    out_vals.get_cloned(usize(0)),
     .Some(mv) => {
       reg_ty := match(out_tys.get_cloned(usize(0)), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
       register_module(abs.clone(), &mv, &reg_ty);
@@ -2449,7 +2449,7 @@ _summarize_module_bodies :: (fn(abs : &String, minted : &ArrayList(EvalValue), e
   );
   (mi : usize) = usize(0);
   while(mi < minted.len(), {
-    match(minted.get(mi), .Some(v) => values.push(v), .None => ());
+    match(minted.get_cloned(mi), .Some(v) => values.push(v), .None => ());
     mi = (mi + usize(1));
   });
   summarize_function_bodies(&values, table, env);
@@ -2476,11 +2476,11 @@ _push_non_generic_fn_values :: (fn(src : &ArrayList(EvalValue), dst : &mut Array
   (i : usize) = usize(0);
   while(i < src.len(), {
     match(
-      src.get(i),
+      src.get_cloned(i),
       .Some(v) => match(
-        v,
-        .FuncVal(fvd, _) => if(fvd.*.forall_names.len() == usize(0), {
-          dst.push(v);
+        Rc.clone(v),
+        Rc(.FuncVal(fvd, _)) => if(fvd.*.forall_names.len() == usize(0), {
+          dst.push(Rc.clone(v));
         }),
         _ => ()
       ),
@@ -2523,7 +2523,7 @@ demand_load_module :: (fn(path : &String) -> LoadModuleResult)({
     .Some(load_err) => {
       return(
         LoadModuleResult(
-          module_value : EvalValue.UnitVal,
+          module_value : Rc.new(EvalValueNode.UnitVal),
           module_type : Rc.new(TypeValueNode.Unit),
           module_error : Option(String).Some(load_err)
         )
@@ -2626,7 +2626,7 @@ mm_load_prelude_file :: (
     );
     (pmi : usize) = usize(0);
     while(pmi < prelude_minted.len(), {
-      match(prelude_minted.get(pmi), .Some(v) => prelude_values.push(v), .None => ());
+      match(prelude_minted.get_cloned(pmi), .Some(v) => prelude_values.push(v), .None => ());
       pmi = (pmi + usize(1));
     });
     summarize_function_bodies(&prelude_values, &prelude_ctx.expr_info_table, &prelude_env);
@@ -2660,7 +2660,7 @@ mm_load_prelude_file :: (
     // values AND per-field types. A namespace rebuilt from the env alone
     // cannot recover fn field types — a FuncVal carries none — so keep the
     // recorded pair for `_prelude_load_outcome`.
-    g_cached_prelude_module_value = Option(EvalValue).Some(prelude_result.module_value);
+    g_cached_prelude_module_value = Option(EvalValue).Some(Rc.clone(prelude_result.module_value));
     _prev_type := g_cached_prelude_module_type.replace(Option(TypeValue).Some(Rc.clone(prelude_result.module_type)));
   });
   true
@@ -2691,7 +2691,7 @@ mm_load_prelude_file :: (
 _reject_non_unit_main :: (fn(module_value : &EvalValue, exn : Exception) -> unit)({
   match(
     module_value,
-    .StructVal(_, labels, values) => {
+    Rc(.StructVal(_, labels, values)) => {
       (i : usize) = usize(0);
       while(i < labels.len(), {
         if(match(labels.get_cloned(i), .Some(l) => (l == "main"), .None => false), {
@@ -2699,7 +2699,7 @@ _reject_non_unit_main :: (fn(module_value : &EvalValue, exn : Exception) -> unit
             values.get(i),
             .Some(v) => match(
               v,
-              .FuncVal(__main_fvd, _) => {
+              Rc(.FuncVal(__main_fvd, _)) => {
                 main_fty := get_func_type(__main_fvd.*.func_id.clone());
                 main_result := match(
                   &main_fty,
@@ -2822,7 +2822,7 @@ mm_eval_entry_exprs :: (
   // issues/fixed/yo-self-dir-check-state-corruption-after-failure.md).
   unregister_loading(entry_abs.clone());
   match(
-    out_vals.get(usize(0)),
+    out_vals.get_cloned(usize(0)),
     .Some(mv) => {
       _reject_non_unit_main(&mv, exn);
       ModuleLoadOutcome(
@@ -2841,7 +2841,7 @@ mm_eval_entry_exprs :: (
     // `check`/`build` read only `ok` on this path.
     .None => ModuleLoadOutcome(
       ok : false,
-      module_value : EvalValue.UnitVal,
+      module_value : Rc.new(EvalValueNode.UnitVal),
       module_type : Rc.new(TypeValueNode.Unit),
       env : env,
       ctx : ctx
@@ -2879,8 +2879,8 @@ _prelude_load_outcome :: (fn(input_path : &String, std_path : &String) -> Module
     .None => new_environment(Rc.new(input_path.clone()))
   );
   prelude_val := match(
-    g_cached_prelude_module_value,
-    .Some(mv) => mv,
+    g_cached_prelude_module_value.clone(),
+    .Some(mv) => Rc.clone(mv),
     .None => _build_module_val_from_env(&prelude_env)
   );
   prelude_ty := match(
@@ -2959,7 +2959,7 @@ mm_load_file :: (
     return(
       ModuleLoadOutcome(
         ok : true,
-        module_value : mm_hit.module_value,
+        module_value : Rc.clone(mm_hit.module_value),
         module_type : Rc.clone(mm_hit.module_type),
         env : match(g_cached_prelude_env.clone(), .Some(pe) => Rc.clone(pe), .None => new_environment(Rc.new(input_path.clone()))),
         ctx : eval_context_new(std_path.clone(), input_path.clone())

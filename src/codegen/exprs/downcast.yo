@@ -72,7 +72,7 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
     return(String.from("/* ERROR: downcast expected Dyn type as first argument */"));
   });
   // Second argument: the target type T (comptime).
-  target_type := match(context.base.get_expr_info(&type_arg), .Some(tei) => match(tei.value(), .Some(v) => match(v, .TypeVal(t) => Rc.clone(t), _ => return(String.from("/* ERROR: downcast expected TypeValue as second argument */"))), .None => return(String.from("/* ERROR: downcast expected TypeValue as second argument */"))), .None => return(String.from("/* ERROR: downcast type arg not evaluated */")));
+  target_type := match(context.base.get_expr_info(&type_arg), .Some(tei) => match(tei.value(), .Some(v) => match(v, Rc(.TypeVal(t)) => Rc.clone(t), _ => return(String.from("/* ERROR: downcast expected TypeValue as second argument */"))), .None => return(String.from("/* ERROR: downcast expected TypeValue as second argument */"))), .None => return(String.from("/* ERROR: downcast type arg not evaluated */")));
   target_type_c_name := get_type_string(&target_type, &mut context.base);
   // Register the typeid static for the target type (address = canonical id).
   tid := type_key(&target_type);
@@ -426,15 +426,15 @@ dyn_impl_clone_fid :: (fn(req_traits : &ArrayList(TypeValue), trait_values : &Ar
   while(ti < req_traits.len(), {
     if(match(req_traits.get_cloned(ti), .Some(rt) => is_clone_trait_type(&rt), .None => false), {
       match(
-        trait_values.get(ti),
-        .Some(.TraitVal(_, cl_names, cl_vals)) => {
+        trait_values.get_cloned(ti),
+        .Some(Rc(.TraitVal(_, cl_names, cl_vals))) => {
           (fi : usize) = usize(0);
           while(fi < cl_names.len(), {
             if(match(cl_names.get_cloned(fi), .Some(l) => (l == "clone"), .None => false), {
               match(
                 cl_vals.get(fi),
                 .Some(.Some(fv)) => if(is_func_val(&fv), {
-                  return(match(fv, .FuncVal(fvd, _) => fvd.*.func_id.clone(), _ => String.new()));
+                  return(match(fv, Rc(.FuncVal(fvd, _)) => fvd.*.func_id.clone(), _ => String.new()));
                 }),
                 _ => ()
               );

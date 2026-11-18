@@ -42,6 +42,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 {
   EvalValue,
+  EvalValueNode,
   create_unknown_val,
   is_int_lit,
   is_float_lit,
@@ -138,9 +139,9 @@ _make_comptime_info :: (
   // integer source converts with the documented truncating semantics.
   out := new_expr_info(env, target_type);
   val := cond(
-    is_comptime_float_type(target_type) => EvalValue.FloatLit(raw.clone()),
-    is_float_type(target_type) => EvalValue.FloatLit(raw.clone()),
-    true => EvalValue.IntLit(raw.clone())
+    is_comptime_float_type(target_type) => Rc.new(EvalValueNode.FloatLit(raw.clone())),
+    is_float_type(target_type) => Rc.new(EvalValueNode.FloatLit(raw.clone())),
+    true => Rc.new(EvalValueNode.IntLit(raw.clone()))
   );
   out.set_value(.Some(val));
   out
@@ -250,12 +251,12 @@ try_to_convert_to_numeric_type :: (
   (mut(enum_disc_raw) : Option(String)) = Option(String).None;
   if(is_enum_type(&arg_type), {
     match(
-      arg_val,
+      arg_val.clone(),
       .Some(v) => {
         if(is_enum_val(&v), {
           match(
             v,
-            .EnumVal(variant, _) => {
+            Rc(.EnumVal(variant, _)) => {
               match(
                 &arg_type,
                 Rc(.EnumT(_, _, vnames, _, _, _, discs, _, _, _)) => {
@@ -349,10 +350,10 @@ try_to_convert_to_numeric_type :: (
     &enum_disc_raw,
     .Some(r) => .Some(r.clone()),
     .None => match(
-      arg_val,
+      arg_val.clone(),
       .Some(v) => cond(
-        is_int_lit(&v) => match(v, .IntLit(r) => Option(String).Some(r.clone()), _ => .None),
-        is_float_lit(&v) => match(v, .FloatLit(r) => Option(String).Some(r.clone()), _ => .None),
+        is_int_lit(&v) => match(v, Rc(.IntLit(r)) => Option(String).Some(r.clone()), _ => .None),
+        is_float_lit(&v) => match(v, Rc(.FloatLit(r)) => Option(String).Some(r.clone()), _ => .None),
         true => Option(String).None
       ),
       .None => Option(String).None

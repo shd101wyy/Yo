@@ -169,7 +169,7 @@ _scan_call_edges :: (
               fi.value(),
               .Some(v) => match(
                 v,
-                .FuncVal(fvd, _) => {
+                Rc(.FuncVal(fvd, _)) => {
                   // Normalize: the atom carries the SPECIALIZED id; the
                   // cliques are spelled in base (task) fids.
                   raw_callee := fvd.*.func_id.clone();
@@ -1809,8 +1809,8 @@ _int_lit_bits :: (fn(raw : &String) -> Option(u64))(
 _lit_term :: (fn(v : &EvalValue, sort : &VcSort) -> Option(VcTerm))(
   match(
     v,
-    .BoolVal(b) => Option(VcTerm).Some(Rc.new(VcTermNode.BoolLit(b.*))),
-    .IntLit(raw) => match(
+    Rc(.BoolVal(b)) => Option(VcTerm).Some(Rc.new(VcTermNode.BoolLit(b.*))),
+    Rc(.IntLit(raw)) => match(
       sort,
       .BvS(w) => match(
         _int_lit_bits(raw.clone()),
@@ -1863,7 +1863,7 @@ _term_sort_of :: (fn(t : &VcTerm) -> VcSort)(
 _str_bytes_term :: (fn(info : &ExprInfo) -> Option(VcTerm))({
   quoted := match(
     info.value(),
-    .Some(.StrLit(r)) => r.clone(),
+    .Some(Rc(.StrLit(r))) => r.clone(),
     .Some(_) => String.new(),
     .None => String.new()
   );
@@ -3278,12 +3278,12 @@ _call_written_names :: (fn(table : &ExprInfoTable, e : &AstExpr, out : &mut Arra
     Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
   );
   cv := _call_callee_value(table, e);
-  fid := match(cv, .Some(v) => _func_val_id(&v), .None => String.new());
+  fid := match(cv.clone(), .Some(v) => _func_val_id(&v), .None => String.new());
   params := match(
-    cv,
+    cv.clone(),
     .Some(v2) => match(
       v2,
-      .FuncVal(fvd, _) => fvd.*.params.clone(),
+      Rc(.FuncVal(fvd, _)) => fvd.*.params.clone(),
       _ => ArrayList(String).new()
     ),
     .None => ArrayList(String).new()
@@ -4190,7 +4190,7 @@ _quant_term :: (
       expr_info_table_get(&ctx.table, ast_expr_id(&ty_arg)),
       .Some(bi2) => match(
         bi2.value(),
-        .Some(.TypeVal(tv)) => _type_sort(&tv),
+        .Some(Rc(.TypeVal(tv))) => _type_sort(&tv),
         .Some(_) => _type_sort(&bi2.ty()),
         .None => _type_sort(&bi2.ty())
       ),
@@ -6429,7 +6429,7 @@ _ghost_fn_app_term :: (
     expr_info_table_get(&ctx.table, ast_expr_id(&callee_atom)),
     .Some(ci) => match(
       ci.value(),
-      .Some(.FuncVal(gfvd, _)) => {
+      .Some(Rc(.FuncVal(gfvd, _))) => {
         params = gfvd.*.params.clone();
         body = Rc.clone(gfvd.*.body);
         found = true;
@@ -6597,7 +6597,7 @@ _ghost_fn_inline_term :: (
         .Some(v) => {
           match(
             v,
-            .FuncVal(gfvd, _) => {
+            Rc(.FuncVal(gfvd, _)) => {
               params = gfvd.*.params.clone();
               body = Rc.clone(gfvd.*.body);
               found = true;
@@ -6705,7 +6705,7 @@ _callee_call_term :: (
     expr_info_table_get(&ctx.table, ast_expr_id(&callee_atom)),
     .Some(ci) => match(
       ci.value(),
-      .Some(.FuncVal(fvd, _)) => Option(String).Some(fvd.*.func_id.clone()),
+      .Some(Rc(.FuncVal(fvd, _))) => Option(String).Some(fvd.*.func_id.clone()),
       .Some(_) => Option(String).None,
       .None => Option(String).None
     ),
@@ -6722,7 +6722,7 @@ _callee_call_term :: (
       lookup_method_callee_value(ast_expr_id(e)),
       .Some(mv) => match(
         mv,
-        .FuncVal(mfvd, _) => Option(String).Some(mfvd.*.func_id.clone()),
+        Rc(.FuncVal(mfvd, _)) => Option(String).Some(mfvd.*.func_id.clone()),
         _ => Option(String).None
       ),
       .None => Option(String).None
@@ -6858,7 +6858,7 @@ _callee_call_term :: (
     expr_info_table_get(&ctx.table, ast_expr_id(&callee_atom)),
     .Some(ci2) => match(
       ci2.value(),
-      .Some(.FuncVal(fvd2, _)) => fvd2.*.params.clone(),
+      .Some(Rc(.FuncVal(fvd2, _))) => fvd2.*.params.clone(),
       .Some(_) => ArrayList(String).new(),
       .None => ArrayList(String).new()
     ),
@@ -6869,7 +6869,7 @@ _callee_call_term :: (
       lookup_method_callee_value(ast_expr_id(e)),
       .Some(mv2) => match(
         mv2,
-        .FuncVal(mfvd2, _) => mfvd2.*.params.clone(),
+        Rc(.FuncVal(mfvd2, _)) => mfvd2.*.params.clone(),
         _ => ArrayList(String).new()
       ),
       .None => ArrayList(String).new()
@@ -7255,7 +7255,7 @@ _method_effective_args :: (
   // is not an argument.
   recv_is_type := match(
     expr_info_table_get(&ctx.table, ast_expr_id(&recv)),
-    .Some(ri) => match(ri.value(), .Some(rv) => match(rv, .TypeVal(_) => true, _ => false), .None => false),
+    .Some(ri) => match(ri.value(), .Some(rv) => match(rv, Rc(.TypeVal(_)) => true, _ => false), .None => false),
     .None => false
   );
   if(recv_is_type, {
@@ -7810,7 +7810,7 @@ _call_callee_value :: (fn(table : &ExprInfoTable, e : &AstExpr) -> Option(EvalVa
 _func_val_id :: (fn(v : &EvalValue) -> String)(
   match(
     v,
-    .FuncVal(fvd, _) => fvd.func_id.clone(),
+    Rc(.FuncVal(fvd, _)) => fvd.func_id.clone(),
     _ => String.new()
   )
 );

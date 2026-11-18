@@ -32,7 +32,7 @@ pragma(Pragma.AllowUnsafe);
 { stable_module_id, fnv1a64 } :: import("../../utils.yo");
 { Environment, Frame, new_frame, add_variable_to_env, get_variables_from_env, frame_truncate_variables, env_adopt } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue, create_unknown_val_with_name, create_runtime_unknown_val_with_name, value_cell_new } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, create_unknown_val_with_name, create_runtime_unknown_val_with_name, value_cell_new } :: import("../../value.yo");
 { is_function_type } :: import("../../types/guards.yo");
 { TypeValue, TypeValueNode, FuncMeta, shared_list, no_types } :: import("../../types/definitions.yo");
 { t_unit, t_extern_opaque, t_type } :: import("../../types/creators.yo");
@@ -119,7 +119,7 @@ _adoptable_type_binding :: (fn(env : &Environment, name : &String) -> Option(Typ
   });
   v := match(vars.get_cloned(n - usize(1)), .Some(x) => x, .None => return(Option(TypeValue).None));
   val := match(v.value().get(usize(0)), .Some(x) => x, .None => return(Option(TypeValue).None));
-  ty := match(val, .TypeVal(t) => Rc.clone(t), _ => return(Option(TypeValue).None));
+  ty := match(val, Rc(.TypeVal(t)) => Rc.clone(t), _ => return(Option(TypeValue).None));
   match(type_decl_id(&ty), .Some(_) => Option(TypeValue).Some(ty), .None => Option(TypeValue).None)
 });
 /// A `label : c_type("<C spelling>")` field — an opaque C type whose C name
@@ -229,7 +229,7 @@ User code should normally call stdlib wrappers (e.g. functions in
     hdr_info.value(),
     .Some(v) => match(
       v,
-      .StrLit(s) => s.clone(),
+      Rc(.StrLit(s)) => s.clone(),
       _ => {
         exn.throw(
           dyn(
@@ -425,13 +425,13 @@ User code should normally call stdlib wrappers (e.g. functions in
                 &c_spelling,
                 c_header_file.clone()
               );
-              EvalValue.TypeVal(existing_ty)
+              Rc.new(EvalValueNode.TypeVal(existing_ty))
             },
             // A `c_include` type declaration (`pid_t : Type`) that adopts no
             // Yo type is an extern-C OPAQUE type exactly like
             // `extern("Yo", X : Type)`: a nominal `ExternOpaqueT` named by its
             // C spelling (types/definitions.yo).
-            .None => EvalValue.TypeVal(t_extern_opaque(result.label.clone(), &c_spelling))
+            .None => Rc.new(EvalValueNode.TypeVal(t_extern_opaque(result.label.clone(), &c_spelling)))
           )
         },
         true => create_unknown_val_with_name(&result.field_type, result.label.clone())
@@ -452,7 +452,7 @@ User code should normally call stdlib wrappers (e.g. functions in
         true => create_runtime_unknown_val_with_name(&field_ty_with_extern, result.label.clone())
       )
     );
-    field_vals.push(field_val);
+    field_vals.push(Rc.clone(field_val));
     // Bind the field so the remaining field declarations can refer to it
     // (compile-time only, unknown value placeholder); removed below.
     _var_opt := add_variable_to_env(
@@ -514,7 +514,7 @@ User code should normally call stdlib wrappers (e.g. functions in
     )
   );
   mod_info := new_expr_info(&env, &module_type);
-  mod_info.set_value(.Some(EvalValue.StructVal(sns_id, shared_list(field_labels), value_cell_new(field_vals))));
+  mod_info.set_value(.Some(Rc.new(EvalValueNode.StructVal(sns_id, shared_list(field_labels), value_cell_new(field_vals)))));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &mod_info);
   // Annotate callee (the "c_include" func node) with same info.
   callee_expr := match(expr, Rc(.FnCall(_, fb, _, _, _)) => Rc.clone(fb.*), Rc(.Atom(_, _)) => Rc.clone(expr.*));

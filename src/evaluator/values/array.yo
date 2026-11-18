@@ -21,7 +21,7 @@ import("std/fmt");
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
-{ EvalValue, is_unknown_val, value_cell_new } :: import("../../value.yo");
+{ EvalValue, EvalValueNode, is_unknown_val, value_cell_new } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_array, t_usize } :: import("../../types/creators.yo");
 { is_array_type } :: import("../../types/guards.yo");
@@ -191,7 +191,7 @@ evaluate_array_value :: (
   (all_have_values : bool) = true;
   (check_i : usize) = usize(0);
   while((check_i < element_values.len()) && all_have_values, {
-    opt_v := match(element_values.get(check_i), .Some(x) => x, .None => Option(EvalValue).None);
+    opt_v := match(element_values.get_cloned(check_i), .Some(x) => x, .None => Option(EvalValue).None);
     match(
       opt_v,
       .Some(kv) => if(is_unknown_val(&kv), {
@@ -208,17 +208,17 @@ evaluate_array_value :: (
       (elems : ArrayList(EvalValue)) = ArrayList(EvalValue).new();
       (build_i : usize) = usize(0);
       while(build_i < element_values.len(), {
-        opt_v := match(element_values.get(build_i), .Some(x) => x, .None => Option(EvalValue).None);
+        opt_v := match(element_values.get_cloned(build_i), .Some(x) => x, .None => Option(EvalValue).None);
         match(
           opt_v,
           .Some(v) => {
-            elems.push(v);
+            elems.push(Rc.clone(v));
           },
           .None => ()
         );
         build_i = (build_i + usize(1));
       });
-      Option(EvalValue).Some(EvalValue.ArrayVal(value_cell_new(elems)))
+      Option(EvalValue).Some(Rc.new(EvalValueNode.ArrayVal(value_cell_new(elems))))
     },
     true => Option(EvalValue).None
   );
