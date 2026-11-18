@@ -1,0 +1,19 @@
+// expect: E0910
+// One tuple lends `x` and moves it: the arm drops the moved box through `b` and then reads it
+// through `a`: heap-use-after-free.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+eat :: (fn(b : Box(String)) -> unit)(());
+main :: (fn() -> unit)({
+  x := Box.new(L());
+  match(
+    (&x, x),
+    (a, b) => {
+      eat(b);
+      println(`OUT: ${a.*.*}`);
+    }
+  );
+  ()
+});
+export(main);
