@@ -3579,7 +3579,15 @@ _eval_and_check_specialized_body :: (
         });
         reject_second_class_return(&sb_ty, ast_expr_token(cloned_body), callee_env, ctx, spec_trap);
       });
-      sb_skip := (has_any_control_flow(sb_info.control_flow()) || is_void_type(spec_ret_ty) || is_type_hierarchy_type(spec_ret_ty) || (get_all_some_types(spec_ret_ty).len() == usize(0)) || (get_all_some_types(&sb_ty).len() == usize(0)) || sb_ret_is_ref);
+      // `> usize(0)`, the pre-move guard's direction: skip only while a side
+      // still carries an OPEN SomeT (an impl-level binder this call does not
+      // bind); the transcription to `== usize(0)` in the move inverted it and
+      // skipped the comparison exactly when both sides are CONCRETE — the one
+      // case it exists for — so a specialized body with the wrong result type
+      // (`true` for `-> i32`) stopped raising E0604 and
+      // `comptime_expect_error` reported "evaluated successfully"
+      // (tests/type_soundness.test.yo, the v0.2.79 battery red).
+      sb_skip := (has_any_control_flow(sb_info.control_flow()) || is_void_type(spec_ret_ty) || is_type_hierarchy_type(spec_ret_ty) || (get_all_some_types(spec_ret_ty).len() > usize(0)) || (get_all_some_types(&sb_ty).len() > usize(0)) || sb_ret_is_ref);
       // A projection's specialized body yields its place's address,
       // the concrete path's decision-24 check per instantiation: a
       // tail that forwards another projection call (`r.get()` for
