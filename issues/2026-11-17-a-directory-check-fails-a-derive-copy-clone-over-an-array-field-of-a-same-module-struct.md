@@ -23,7 +23,10 @@ export(Matrix, VrStereoConfig);
 // main.yo
 { println } :: import("std/fmt");
 { Matrix, VrStereoConfig } :: import("./lib.yo");
-main :: (fn() -> unit)({ m := Matrix(m0 : f32(1), m1 : f32(2)); println(`${m.m0}`); });
+main :: (fn() -> unit)({
+  m := Matrix(m0 : f32(1), m1 : f32(2));
+  println(`${m.m0}`);
+});
 export(main);
 ```
 
