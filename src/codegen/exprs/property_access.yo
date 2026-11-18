@@ -457,7 +457,18 @@ _generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &
   // `p.*` on a place whose type is a reference (a `&&T`'s referent, a
   // `&mut &T` parameter's; plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7
   // P3): the place's C value is the pointer, so its referent is the
-  // pointer's dereference.
+  // pointer's dereference. A FAT reference (decision 49: an unsized
+  // pointee — `&str`, `&[T]`, `&Dyn(...)`, a tail struct) is the pair
+  // `{ptr,len}`/`{data,vtable}` BY VALUE, so reading it as a whole value is
+  // the pair itself — identity, never `(*pair)`: C cannot dereference a
+  // struct (`str.clone` and a specialized generic's `d.*` emitted exactly
+  // that; issues/fixed/2026-11-17-str-clone-derefs-its-fat-reference-receiver-and-emits-invalid-c.md).
+  // A place consumer still reaches the pair: `unsized_place_fat_code`
+  // accepts both spellings, and `&p.*` (a lend) folds an `(*X)` that no
+  // longer appears.
+  if((field_name == "*") && match(&object_type, Rc(.Reference(dr_pointee, _, _)) => !type_is_sized(&dr_pointee.*), _ => false), {
+    return(`(${object_code})`);
+  });
   if((field_name == "*") && match(&object_type, Rc(.Reference(_, _, _)) => true, _ => false), {
     out := String.from("(*");
     out.push_string(object_code.clone());
@@ -514,11 +525,14 @@ _generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &
     );
   });
   // A field of a tail struct's place (decision 49). An unsized place's code
-  // is `(*F)`, `F` its fat pointer: a sized field is read through the
-  // pointer's address, the tail is a place of its own whose fat pointer
-  // carries the same length.
-  if(is_struct_type(&object_type) && !is_reference_struct_type(&object_type) && !type_is_sized(&object_type) && object_code.starts_with("(*") && object_code.ends_with(")"), {
-    fat := object_code.substring(usize(2), object_code.len() - usize(1));
+  // is its fat pointer `F` — spelled `(*F)` when reached through a pointer,
+  // or the bare fat pair when the place is a fat reference binding read as
+  // the unsized place it refers to (a `&TailStruct` receiver's `r.*`, which
+  // has no other C representation): `unsized_place_fat_code` yields `F`
+  // from either. A sized field is read through the pointer's address, the
+  // tail is a place of its own whose fat pointer carries the same length.
+  if(is_struct_type(&object_type) && !is_reference_struct_type(&object_type) && !type_is_sized(&object_type), {
+    fat := unsized_place_fat_code(&object_code);
     sct := get_type_string(&object_type, &mut context.base);
     member := `((${sct}*)(${fat}).ptr)->${c_field_name(&object_type, &field_name)}`;
     return(if(type_is_sized(&ei.ty()), member, `(*((__yo_slice_t){ .ptr = (void*)&(${member}), .len = (${fat}).len }))`));
