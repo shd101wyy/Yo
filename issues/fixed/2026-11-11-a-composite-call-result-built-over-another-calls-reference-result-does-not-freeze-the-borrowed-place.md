@@ -23,7 +23,7 @@ finding (a composite result over a lend of a FIELD or ELEMENT place, `o := wrap(
 c40, c45, c62, c61, c46, o06, o05) is fixed by lane o6 (call-result origin naming, `~/Workspace/Yo-wt/o6-m`): checked
 on 2026-11-11, its binary rejects all nine with E0911. Lane o6 does NOT cover the nested form this document
 describes (probe c39): both repros below are accepted by it. Related:
-`issues/2026-11-11-a-temporary-reached-through-a-handle-deref-or-an-inner-projection-call-is-no-root-of-its-holder.md`
+`issues/fixed/2026-11-11-a-temporary-reached-through-a-handle-deref-or-an-inner-projection-call-is-no-root-of-its-holder.md`
 (A23, an inner projection call over a TEMPORARY).
 
 ## Reproducers
