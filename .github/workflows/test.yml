@@ -808,7 +808,18 @@ jobs:
   # campaign's later milestones gate themselves.
   verify-src:
     name: Self-verification sweep (front end, ratcheted)
-    needs: [changes, tree-hygiene]
+    # suite-candidate: the sweep must run under a TREE-BUILT binary. This job
+    # swept with the installed SEED, which can never observe a tree-side
+    # evaluator fix — measured on the v0.2.79 campaign: #2001 fixed the
+    # dropped callsite-ensures restore (`yo verify ./src/parser.yo` rc=0 under
+    # a tree-built stage-1, rc=1 under the v0.2.78 seed on the same tip), yet
+    # this job stayed red on the FIXED tip because the seed's evaluator still
+    # carries the defect — and it would stay red until a seed PAST the fix
+    # shipped, a catch-22 for any release that fixes an evaluator bug its own
+    # front end triggers. The candidate is already built for every full
+    # battery (the cross-emit chain consumes it), so this costs one artifact
+    # download, not a build.
+    needs: [changes, tree-hygiene, suite-candidate]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -851,7 +862,17 @@ jobs:
       - name: Signature census (which lever unblocks how much)
         run: python3 scripts/verify_src_census.py
 
+      - name: Download the tree-built candidate
+        uses: actions/download-artifact@v8
+        with:
+          name: suite-candidate
+
+      - name: Make the candidate executable
+        run: chmod +x yo-candidate && ./yo-candidate --version
+
       - name: Sweep the front end and ratchet
+        env:
+          YO: ./yo-candidate
         run: |
           bash scripts/verify-src-sweep.sh \
             --path ./src/lexer.yo \
