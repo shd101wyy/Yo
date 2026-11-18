@@ -20,9 +20,13 @@ main :: (fn() -> unit)({
     mut(ys) := ArrayList(String).new();
     ys.push(String.from("bb"));
     n := (&xs).into_iter().zip((&ys).into_iter()).next();
-    match(n, .Some(item) => {
-      o = .Some(item);
-    }, .None => ());
+    match(
+      n,
+      .Some(item) => {
+        o = .Some(item);
+      },
+      .None => ()
+    );
   };
   match(&o, .Some(p) => println(`OUT: ${(p.*._0).*}`), .None => println("none"));
 });
