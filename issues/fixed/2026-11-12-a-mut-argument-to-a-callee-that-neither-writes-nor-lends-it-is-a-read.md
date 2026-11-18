@@ -1,5 +1,16 @@
 # A `&mut` argument to a callee that neither writes nor lends it is a read
 
+**Status: item 1 FIXED in v0.2.79 — rule G landed.** `_d3_judge_local_borrows`
+(`src/evaluator/exprs/assignment.yo`) no longer gates a `&mut` argument's two-phase ACTIVATION on the callee's
+mutation summary: every pending entry it judges is a `&mut`-slot argument or receiver (both recorders run on
+`fn_param_mut_ref_flags` slots only), and each is now `local_borrow_access_at(…, Write)` at the call's activation
+— E0911 against a live `&` loan of an overlapping place — plus `local_borrow_require_writable`, whatever the
+body does. The mask still feeds the E0908 borrowed-value half (`_d3_judge_borrow_errors`) and D3's atomic
+entries. VERDICTS-57 §3.4's census turned up no sweep: nothing in std, src or tests lends `&mut` to a
+non-writing callee under a live `&` loan of the same place, so the flip needed no source changes. G-B rows:
+`tests/origins/unsound/a6-mut-arg-nonwriting-callee-live-loan.yo` (E0911, the `peek`/`grow` repro) and the
+flipped pin `v57-mut-self-nonwriting-live-loan-pos.yo` (E0911, was `accept`).
+
 **Severity:** S1 — `f(&mut xs)` beside a live `&` loan of `xs` is accepted when the callee's body neither writes the parameter nor makes a `&mut` reference value of it, and always when the callee had no body to read (a `Dyn(Fn)` value, a function pointer); that second form was a heap-use-after-free and is fixed (#1932, item 2 below). The first is open until rule G (v0.2.79).
 
 Filed 2026-11-12 by VERDICTS-57 §3.4 (the general rule, G; deferred from v0.2.78 to v0.2.79 by the coordinator's
