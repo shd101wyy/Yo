@@ -1,0 +1,18 @@
+// expect: E0911
+// The same with a holder: `h := mk(first(&xs))` builds `H(p)` over `first`'s reference; `xs` is
+// reassigned while `h` is live: heap-use-after-free.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+long :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+first :: (fn(xs : &ArrayList(String)) -> &String)(&xs(usize(0)));
+H :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(String, p)));
+mk :: (fn(generic(p : Origin), r : &(String, p)) -> H(p))(H(p)(r : r));
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(long());
+  h := mk(first(&xs));
+  xs = ArrayList(String).new();
+  println(`OUT: ${h.r.clone()}`);
+});
+export(main);

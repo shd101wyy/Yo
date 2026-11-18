@@ -9659,16 +9659,49 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
       // root's place — as the marker form's `_origin_push_lend` does.
       match(
         _lend_crossed_reference(&stripped, ctx),
-        .Some(crossed) => _origin_of_into(&crossed, env, ctx, out, (depth + u32(1))),
-        .None => _origin_push_place(&stripped, rec_mut, env, ctx, out)
+        .Some(crossed) => {
+          _origin_of_into(&crossed, env, ctx, out, (depth + u32(1)));
+          return(());
+        },
+        .None => ()
       );
-      return(());
+      // A recorded PLACE (a projection's, an index's, a reference-valued
+      // field's): its root. A COMPUTED reference — a call's result,
+      // `first(&xs)`, a method call over a temporary, `mkx().get()` — is no
+      // place: reading it as a lend of itself pushed nothing, so the value
+      // froze no one (audit A5, and A23's inner-projection half). It falls
+      // through to the call's own origin (R-CALL below) instead of
+      // returning that set.
+      if(local_borrow_place_of(&stripped, env, ctx).is_some(), {
+        _origin_push_place(&stripped, rec_mut, env, ctx, out);
+        return(());
+      });
     },
     _ => ()
   );
-  // R-NONE: an expression whose type carries no origin has no set.
+  // R-NONE: an expression whose type carries no origin has no set — EXCEPT a
+  // call whose callee's result IS a reference: a reference VALUE in an
+  // argument or binding position (a call's result passed bare to a `&`
+  // parameter, `wrap(first(&xs))`, a method's `mkx().get()`) is read at its
+  // POINTEE's type there (the read rule), so `fi.ty()` names the pointee
+  // while the value the position receives is the reference — R-CALL below
+  // computes its roots from the callee's own result (audit A5, A23's
+  // inner-projection half).
   if(!type_carries_origin(&fi.ty()), {
-    return(());
+    (callee_result_may_carry : bool) = match(
+      &stripped,
+      Rc(.FnCall(_, _, _, cnr_infix, _)) => (
+        !cnr_infix.* && match(
+          projection_call_callee_type(&stripped, ctx),
+          .Some(cnr_ft) => (fn_result_is_ref(&cnr_ft) || fn_result_is_mut_ref(&cnr_ft)),
+          .None => false
+        )
+      ),
+      _ => false
+    );
+    if(!callee_result_may_carry, {
+      return(());
+    });
   });
   // R-ASYNC: a borrowing future's recorded roots.
   if(is_future_value_type(&fi.ty()), {

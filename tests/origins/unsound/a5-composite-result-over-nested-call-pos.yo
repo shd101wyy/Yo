@@ -1,0 +1,17 @@
+// expect: accept
+// Positive control: the Option's last use is before `xs` is reassigned.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+long :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+first :: (fn(xs : &ArrayList(String)) -> &String)(&xs(usize(0)));
+wrap :: (fn(r : &String) -> Option(&String))(.Some(r));
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(long());
+  o := wrap(first(&xs));
+  match(o, .Some(r) => println(`OUT: ${r.clone()}`), .None => ());
+  xs = ArrayList(String).new();
+  println(`OUT: ${xs.len().to_string()}`);
+});
+export(main);

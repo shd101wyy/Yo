@@ -1,0 +1,17 @@
+// expect: E0911
+// `o := wrap(first(&xs))`: the Option's payload is `first`'s reference into `xs`, but `o`
+// freezes nothing, so `xs` is reassigned under it and the read is a heap-use-after-free.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+long :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+first :: (fn(xs : &ArrayList(String)) -> &String)(&xs(usize(0)));
+wrap :: (fn(r : &String) -> Option(&String))(.Some(r));
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(long());
+  o := wrap(first(&xs));
+  xs = ArrayList(String).new();
+  match(o, .Some(r) => println(`OUT: ${r.clone()}`), .None => ());
+});
+export(main);
