@@ -13,13 +13,19 @@ shares its cause with
 
 ## Status
 
+**FIXED in v0.2.79 (the inner-projection-call half).** Probe-measured root cause: the inner projection call's
+`ExprInfo.ty()` is its POINTEE (`String`) — the read rule types an argument position at the pointee — so
+`_origin_of_into`'s R-NONE returned the empty set before R-CALL's root-argument recursion could push the R-TEMP
+entry for the temporary receiver (`mkx()`). R-NONE now continues for a call whose callee's declared result is a
+reference (the change that fixed A5's nested-call form), so `v = mkv(mkx().get())` holds `#temporary(mkx())` and
+the store rejects with E0911, naming the temporary, as for the plain field form. G-B row:
+`tests/origins/unsound/a23-holder-from-inner-projection-call.yo` (E0911), beside the `.*` half's rows.
+
 The `.*` half is fixed with A30
 (`issues/fixed/2026-11-11-a-projection-may-return-a-reference-into-a-local-or-by-value-box-rc-or-arc-handle.md`):
 `is_temporary_operand` reads a `.*` on an owning handle as a field step (`deref_is_owning_handle_step`), so
 `long().*.s` and `Box.new(…).*` are temporaries. G-B rows `holder-from-temporary-rc-deref`,
-`holder-from-temporary-box-deref` and `holder-from-temporary-rc-deref-pos` in `tests/origins/unsound/`. This doc
-stays open for the inner-projection-call half (`…-projection-call.yo`, `mkv2(long().as_ref())`), which the fix does
-not touch.
+`holder-from-temporary-box-deref` and `holder-from-temporary-rc-deref-pos` in `tests/origins/unsound/`.
 
 ## Reproducers
 

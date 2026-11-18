@@ -1,0 +1,21 @@
+// expect: E0911
+// R-TEMP misses the temporary `mkx()` because it is lent to an inner projection call (`mkx().get()`) whose
+// result feeds the holder: `v` outlives the statement, and the `X` it points into is a dead stack temporary.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String, n : i32);
+longs :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+V :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(String, p)));
+mkv :: (fn(r : &String) -> V(r))(V(r)(r : r));
+impl(X, get : (fn(self : &Self) -> &String)(&self.s));
+mkx :: (fn() -> X)(X(s : longs(), n : i32(0)));
+main :: (fn() -> unit)({
+  k := longs();
+  mut(v) := mkv(&k);
+  {
+    v = mkv(mkx().get());
+  };
+  z := longs();
+  println(`OUT: ${v.r.len().to_string()} ${z.len().to_string()}`);
+});
+export(main);
