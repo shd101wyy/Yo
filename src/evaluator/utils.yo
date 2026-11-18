@@ -6491,6 +6491,7 @@ LocalBorrowInfo :: struct(
   (gen_exits : usize) ?= usize(0),
   (gen_tok : Option(Token)) ?= Option(Token).None
 );
+derive(LocalBorrowInfo, Clone);
 /// The call a projection-result borrow came from and the parameters its
 /// elided result origin borrows, each with the root its argument lends.
 LocalBorrowElidedOrigin :: struct(
@@ -6498,6 +6499,7 @@ LocalBorrowElidedOrigin :: struct(
   labels : ArrayList(String),
   roots : ArrayList(String)
 );
+derive(LocalBorrowElidedOrigin, Clone);
 /// (seed window) Concrete per-payload `with` bodies: a capture-free
 /// closure literal at `with`'s generic-`R` slot spills a `void*` C temp
 /// under a seed whose codegen predates the ref-spill fix. Inline the
@@ -6505,7 +6507,6 @@ LocalBorrowElidedOrigin :: struct(
 /// (issues/fixed/2026-11-06-a-closure-literal-at-a-generic-fnmut-ref-slot-spills-void.md).
 _vh_reference_reads_len :: (fn(m : &HashMap(usize, bool)) -> usize)(m.len());
 _vh_local_borrows_len :: (fn(xs : &ArrayList(LocalBorrowInfo)) -> usize)(xs.len());
-impl(LocalBorrowInfo, Clone(clone : (fn(self : &Self) -> Self)(self.*)));
 /// The innermost macro call whose expansion declares a borrow named at
 /// `decl`, when `decl` is template code of that macro (another module).
 _lb_macro_site_of :: (fn(decl : &Token) -> Option(LocalBorrowMacroSite))(
@@ -7620,7 +7621,7 @@ local_borrow_info_of :: (fn(name : &String, decl : &Token) -> Option(LocalBorrow
   while(i > usize(0), {
     i = (i - usize(1));
     match(
-      g_local_borrows.with(xs => xs.get(i)),
+      g_local_borrows.with(xs => xs.get_cloned(i)),
       .Some(info) => if(_lb_same_decl(info.name.clone(), &info.decl, name.clone(), decl), {
         return(Option(LocalBorrowInfo).Some(info));
       }),
@@ -7687,7 +7688,7 @@ local_borrow_pattern_source :: (fn(name : &String, decl : &Token) -> Option(Loca
     match(
       g_local_borrow_patterns.with(xs => xs.get_cloned(i)),
       .Some(pb) => if(_lb_same_decl(pb.name.clone(), &pb.decl, name.clone(), decl), {
-        return(Option(LocalBorrowInfo).Some(pb.borrow));
+        return(Option(LocalBorrowInfo).Some(pb.borrow.clone()));
       }),
       .None => ()
     );
@@ -7870,7 +7871,7 @@ _local_borrow_access_live :: (
   while(i > usize(0), {
     i = (i - usize(1));
     match(
-      g_local_borrows.with(xs => xs.get(i)),
+      g_local_borrows.with(xs => xs.get_cloned(i)),
       .Some(info) => if((info.is_mut || !_lb_is_read(kind)) && match(&activation, .Some(cs) => _lb_live_at_activation(&info, tok, live_tok, cs), .None => _lb_live_at(&info, tok)), {
         (pi : usize) = usize(0);
         while(pi < info.places.len(), {
@@ -7893,7 +7894,7 @@ _local_borrow_access_live :: (
   while(j > usize(0), {
     j = (j - usize(1));
     match(
-      g_local_borrow_joins.with(xs => xs.get(j)),
+      g_local_borrow_joins.with(xs => xs.get_cloned(j)),
       .Some(jinfo) => if((jinfo.is_mut || !_lb_is_read(kind)) && match(&activation, .Some(cs) => _lb_live_at_activation(&jinfo, tok, live_tok, cs), .None => _lb_live_at(&jinfo, tok)), {
         (pj : usize) = usize(0);
         while(pj < jinfo.places.len(), {
@@ -8120,7 +8121,7 @@ local_borrow_note_call :: (fn(tok : &Token, callee_text : &String, ctx : &EvalCo
   while(i > usize(0), {
     i = (i - usize(1));
     match(
-      g_local_borrows.with(xs => xs.get(i)),
+      g_local_borrows.with(xs => xs.get_cloned(i)),
       .Some(info) => if(info.module_root && _lb_live_at(&info, tok) && _lb_for_iterator_lends_mut_global(&info), {
         // The module-level place: a re-point (P1) may have added it after
         // the declared one.
@@ -8187,7 +8188,7 @@ local_borrow_note_await :: (fn(tok : &Token, ctx : &EvalContext, exn : Exception
   while(i > usize(0), {
     i = (i - usize(1));
     match(
-      g_local_borrows.with(xs => xs.get(i)),
+      g_local_borrows.with(xs => xs.get_cloned(i)),
       .Some(info) => if(info.crosses_cell || info.module_root, {
         match(
           _lb_first_site_in(&sites, &info.decl, &info.end),
@@ -8674,10 +8675,10 @@ local_borrow_register :: (
   match(
     local_borrow_info_of(place.root_name.clone(), &place.root_decl),
     .Some(parent) => {
-      parents.push(parent);
+      parents.push(parent.clone());
       (pi : usize) = usize(0);
       while(pi < parent.parents.len(), {
-        match(parent.parents.get(pi), .Some(pp) => parents.push(pp), .None => ());
+        match(parent.parents.get_cloned(pi), .Some(pp) => parents.push(pp), .None => ());
         pi = (pi + usize(1));
       });
       crosses = (crosses || parent.crosses_cell);
@@ -8737,7 +8738,7 @@ local_borrow_register :: (
   (qi : usize) = usize(0);
   while(qi < parents.len(), {
     match(
-      parents.get(qi),
+      parents.get_cloned(qi),
       .Some(p) => {
         (extend_end : Option(Token)) = Option(Token).None;
         (extend_last_use : Option(Token)) = Option(Token).None;
@@ -8751,23 +8752,23 @@ local_borrow_register :: (
           g_local_borrows.with_mut(xs => {
             (xi : usize) = usize(0);
             while(xi < xs.len(), {
-              xs.with(xi, info => {
-                if(_lb_same_decl(info.name.clone(), &info.decl, p.name.clone(), &p.decl), {
-                  match(
-                    extend_end,
-                    .Some(ne) => {
-                      info.end = Rc.clone(ne);
-                    },
-                    .None => ()
-                  );
-                  match(
-                    extend_last_use,
-                    .Some(nl) => {
-                      info.last_use = Rc.clone(nl);
-                    },
-                    .None => ()
-                  );
-                });
+              mut(xinfo) := xs(xi).clone();
+              if(_lb_same_decl(xinfo.name.clone(), &xinfo.decl, p.name.clone(), &p.decl), {
+                match(
+                  &extend_end,
+                  .Some(ne) => {
+                    xinfo.end = Rc.clone(ne);
+                  },
+                  .None => ()
+                );
+                match(
+                  &extend_last_use,
+                  .Some(nl) => {
+                    xinfo.last_use = Rc.clone(nl);
+                  },
+                  .None => ()
+                );
+                xs(xi) = xinfo;
               });
               xi = (xi + usize(1));
             });
@@ -8778,7 +8779,7 @@ local_borrow_register :: (
     );
     qi = (qi + usize(1));
   });
-  g_local_borrows.with_mut(xs => xs.push(info));
+  g_local_borrows.with_mut({ &info }(xs) => xs.push(info.clone()));
   info
 });
 /// Decision 38 A: re-pointing `info` at `tok` is an error while a borrow
@@ -8788,8 +8789,8 @@ local_borrow_require_no_live_derived :: (fn(info : &LocalBorrowInfo, tok : &Toke
   while(i > usize(0), {
     i = (i - usize(1));
     match(
-      g_local_borrows.with(xs => xs.get(i)),
-      .Some(d) => if(match(d.parents.get(usize(0)), .Some(p) => _lb_same_decl(p.name.clone(), &p.decl, info.name.clone(), &info.decl), .None => false) && _lb_live_at(&d, tok), {
+      g_local_borrows.with(xs => xs.get_cloned(i)),
+      .Some(d) => if(match(d.parents.get_cloned(usize(0)), .Some(p) => _lb_same_decl(p.name.clone(), &p.decl, info.name.clone(), &info.decl), .None => false) && _lb_live_at(&d, tok), {
         entries := ArrayList(TokenAndError).new();
         entries.push(
           TokenAndError(
@@ -10706,7 +10707,7 @@ _holder_roots_of_name :: (fn(h_name : String, h_tok : &Token, out : &mut ArrayLi
   while(j > usize(0), {
     j = (j - usize(1));
     match(
-      g_local_borrow_joins.with(xs => xs.get(j)),
+      g_local_borrow_joins.with(xs => xs.get_cloned(j)),
       .Some(jinfo) => if((jinfo.name == h_name) && (jinfo.decl.module_path == h_tok.module_path), {
         (pj : usize) = usize(0);
         while(pj < jinfo.places.len(), {
@@ -10733,7 +10734,7 @@ _holder_roots_named_into :: (fn(name : String, decl : &Token, out : &mut ArrayLi
   while((i > usize(0)) && !done, {
     i = (i - usize(1));
     match(
-      g_local_borrows.with(xs => xs.get(i)),
+      g_local_borrows.with(xs => xs.get_cloned(i)),
       .Some(info) => if((info.name == hv_name) && (info.decl.module_path == hv_decl.module_path), {
         found = true;
         (pi : usize) = usize(0);
@@ -11011,25 +11012,26 @@ _lb_join_root_end :: (fn(variable : &Variable, root_name : &String, end : &Token
 /// Every entry the holder `name` (declared at `decl`) registered ends at
 /// `end`, when it ended later.
 _lb_shorten_holder_entries :: (fn(name : &String, decl : &Token, end : &Token) -> unit)({
-  g_local_borrows.with_mut(xs => {
+  name_own := name.clone();
+  g_local_borrows.with_mut({ &decl, &name_own, &end }(xs) => {
     (i : usize) = xs.len();
     while(i > usize(0), {
       i = (i - usize(1));
-      xs.with(i, info => {
-        if(_lb_same_decl(info.name.clone(), &info.decl, name.clone(), decl) && _lb_tok_after(&info.end, end), {
-          info.end = end.clone();
-        });
+      mut(info) := xs(i).clone();
+      if(_lb_same_decl(info.name.clone(), &info.decl, name_own.clone(), decl) && _lb_tok_after(&info.end, end), {
+        info.end = end.clone();
+        xs(i) = info;
       });
     });
   });
-  g_local_borrow_joins.with_mut(xs => {
+  g_local_borrow_joins.with_mut({ &decl, &name_own, &end }(xs) => {
     (j : usize) = xs.len();
     while(j > usize(0), {
       j = (j - usize(1));
-      xs.with(j, info => {
-        if(_lb_same_decl(info.name.clone(), &info.decl, name.clone(), decl) && _lb_tok_after(&info.end, end), {
-          info.end = end.clone();
-        });
+      mut(info) := xs(j).clone();
+      if(_lb_same_decl(info.name.clone(), &info.decl, name_own.clone(), decl) && _lb_tok_after(&info.end, end), {
+        info.end = end.clone();
+        xs(j) = info;
       });
     });
   });
@@ -12589,7 +12591,7 @@ bind_join_roots_for :: (fn(variable : &Variable, roots : &ArrayList(OriginRootPl
           gen_exits : gen_exits,
           gen_tok : Option(Token).Some(at.clone())
         );
-        g_local_borrow_joins.with_mut(xs => {
+        g_local_borrow_joins.with_mut({ entry }(xs) => {
           xs.push(entry);
           ()
         });
@@ -12620,7 +12622,7 @@ local_borrow_joins_clear :: (fn(name : &String, decl : &Token) -> unit)({
     while(i > usize(0), {
       i = (i - usize(1));
       match(
-        xs.get(i),
+        xs.get_cloned(i),
         .Some(info) => if((info.name == clear_name) && (info.decl.module_path.* == clear_path) && (info.gen_seq >= since) && (info.gen_exits == exits), {
           _ := xs.remove(i);
           ()

@@ -4014,7 +4014,7 @@ create_specialized_function_inline :: (
                           .Some(zae) => match(
                             zae.value,
                             .Some(.TypeVal(ztb)) => if(!is_some_type(&ztb), {
-                              subst_add(&zs_ret, zrst_name.clone(), zrst_lvl, ztb.clone());
+                              subst_add(&mut zs_ret, zrst_name.clone(), zrst_lvl, ztb.clone());
                               zs_any = true;
                             }),
                             .Some(_) => (),
@@ -4035,7 +4035,7 @@ create_specialized_function_inline :: (
                 // registered against its id); only its carriers resolve.
                 spec_ret_ty = cond(
                   zret_is_wrapper => _substitute_wrapper_carriers(&zs_ret, &zdecl_ret),
-                  true => substitute(&zs_ret, &zdecl_ret)
+                  true => substitute(&mut zs_ret, &zdecl_ret)
                 );
               });
             });
@@ -5520,7 +5520,7 @@ create_specialized_function_inline :: (
                                                   .Some(cw_fav) => match(
                                                     cw_fav,
                                                     .TypeVal(cw_fat) => if(!is_some_type(&cw_fat) && (get_all_some_types(&cw_fat).len() == usize(0)), {
-                                                      subst_add(&cw_s, cw_st_nm.clone(), cw_st_lvl, cw_fat.clone());
+                                                      subst_add(&mut cw_s, cw_st_nm.clone(), cw_st_lvl, cw_fat.clone());
                                                     }),
                                                     _ => ()
                                                   ),
@@ -5548,7 +5548,7 @@ create_specialized_function_inline :: (
                                 (cw_pi : usize) = usize(0);
                                 while(cw_pi < cw_cpt.len(), {
                                   cw_pt0 := match(slot_pointee_at(&cw_cpt, cw_pi), .Some(x) => x, .None => t_unit());
-                                  cw_pt_res := substitute(&cw_s, &cw_pt0);
+                                  cw_pt_res := substitute(&mut cw_s, &cw_pt0);
                                   if(get_all_some_types(&cw_pt_res).len() > usize(0), {
                                     cw_all_conc = false;
                                   });
@@ -5556,7 +5556,7 @@ create_specialized_function_inline :: (
                                   cw_pi = (cw_pi + usize(1));
                                 });
                                 cw_new_pts := shared_list(cw_new_pts_b);
-                                cw_ret_res := substitute(&cw_s, &cw_cres);
+                                cw_ret_res := substitute(&mut cw_s, &cw_cres);
                                 if(get_all_some_types(&cw_ret_res).len() > usize(0), {
                                   cw_all_conc = false;
                                 });
@@ -5796,7 +5796,7 @@ create_specialized_function_inline :: (
                             .Some(yae) => match(
                               yae.value,
                               .Some(.TypeVal(ytb)) => if(!is_some_type(&ytb), {
-                                subst_add(&ys_ret, yrst_name.clone(), yrst_lvl, ytb.clone());
+                                subst_add(&mut ys_ret, yrst_name.clone(), yrst_lvl, ytb.clone());
                                 ys_added_names.push(yrst_name.clone());
                                 ys_any = true;
                               }),
@@ -5868,7 +5868,7 @@ create_specialized_function_inline :: (
                             spec_param_types.get_cloned(ydb),
                             .Some(ydb_ct) => {
                               if((get_all_some_types(&ydb_ct).len() == usize(0)) && !is_unit_type(&ydb_ct), {
-                                subst_add(&ys_ret, ydb_nm.clone(), ydb_lvl, ydb_ct.clone());
+                                subst_add(&mut ys_ret, ydb_nm.clone(), ydb_lvl, ydb_ct.clone());
                                 ys_added_names.push(ydb_nm.clone());
                                 ys_any = true;
                               });
@@ -5890,7 +5890,7 @@ create_specialized_function_inline :: (
                   // mint a second one (`Arc(V)` with `V := <param type>`)
                   // (issues/fixed/arc-of-a-capture-free-closure-emits-two-arc-typedefs.md).
                   if(!rte_adopted, {
-                    spec_result = substitute(&ys_ret, &sp_res_b);
+                    spec_result = substitute(&mut ys_ret, &sp_res_b);
                   });
                   // Rebuild the param list through the same substitution
                   // (ArrayList has no indexed set).
@@ -5900,7 +5900,7 @@ create_specialized_function_inline :: (
                     match(
                       spec_param_types.get_cloned(ypr),
                       .Some(ypt2) => if(get_all_some_types(&ypt2).len() > usize(0), {
-                        y_new_params.push(substitute(&ys_ret, &ypt2));
+                        y_new_params.push(substitute(&mut ys_ret, &ypt2));
                       }, {
                         y_new_params.push(ypt2);
                       }),
@@ -9438,7 +9438,7 @@ try_to_call_function_with_arguments :: (
                             // Wrappers resolve through their own resolutions / the
                             // rte re-eval below, never through a sibling's arg.
                             Rc(.SomeT(_, s9_rnm, s9_rlvl, _, _, _, _)) => if((s9_rnm == s9_pnm) && (s9_rnm != "Impl") && (s9_rnm.len() > usize(0)), {
-                              subst_add(&s9, s9_rnm.clone(), s9_rlvl, &s9_ae.arg_type);
+                              subst_add(&mut s9, s9_rnm.clone(), s9_rlvl, &s9_ae.arg_type);
                               s9_added.push(s9_rnm.clone());
                               s9_any = true;
                             }),
@@ -9490,7 +9490,7 @@ try_to_call_function_with_arguments :: (
                     if(!s9_seen2 && ((s9_rnm2.* != "Impl") && (s9_rnm2.len() > usize(0))), {
                       s9_env_res := get_value_of_some_type_from_env(&callee_env_m, &s9_rst2);
                       if(!is_some_type(&s9_env_res), {
-                        subst_add(&s9, s9_rnm2.clone(), s9_rlvl2.*, &s9_env_res);
+                        subst_add(&mut s9, s9_rnm2.clone(), s9_rlvl2.*, &s9_env_res);
                         s9_any = true;
                       });
                     });
@@ -9503,7 +9503,7 @@ try_to_call_function_with_arguments :: (
             });
           };
           if(s9_any, {
-            s9_cand := substitute(&s9, &return_type);
+            s9_cand := substitute(&mut s9, &return_type);
             if((get_all_some_types(&s9_cand).len() == usize(0)) || type_somes_all_resolve_concrete(&s9_cand), {
               return_type = s9_cand;
               if(s9_dbg, {

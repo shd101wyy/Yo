@@ -56,7 +56,7 @@
 /// (seed window) Concrete variants of refcell.yo's fillers: a fn value
 /// generic over its element keeps the variable abstract through the slot, so
 /// uses of the result needing methods fail (see refcell.yo's filler block).
-_c_first_yoerror :: (fn(xs : &ArrayList(YoError)) -> Option(YoError))(xs.get(usize(0)));
+_c_first_yoerror :: (fn(xs : &ArrayList(YoError)) -> Option(YoError))(xs.get_cloned(usize(0)));
 _c_clone_strings :: (fn(xs : &ArrayList(String)) -> ArrayList(String))(xs.clone());
 _c_first_bool :: (fn(xs : &ArrayList(bool)) -> Option(bool))(xs.get(usize(0)));
 _c_clone_sibling_rules :: (fn(xs : &ArrayList(_DeferredSiblingRule)) -> ArrayList(_DeferredSiblingRule))(xs.clone());
@@ -87,8 +87,9 @@ _c_len_1 :: (fn(xs : &ArrayList(YoError)) -> usize)(xs.len());
 /// Record `err` as a rejection for the def-time re-raise (unguarded: the
 /// caller decides; `raise_flow_violation` is the guarded flag-and-throw).
 flag_flow_violation :: (fn(err : &YoError) -> unit)({
+  err_own := err.clone();
   g_flow_violation_box.with_mut(xs => xs.clear());
-  g_flow_violation_box.with_mut(xs => xs.push(err.*));
+  g_flow_violation_box.with_mut({ err_own }(xs) => xs.push(err_own));
   ()
 });
 /// Reset the flag (called before each def-time body eval and after each catch).
@@ -164,7 +165,7 @@ raise_flow_violation :: (fn(err : &YoError, ctx : &EvalContext, exn : Exception)
   if(!ctx.is_in_function_call_checking_phase && !propagate_def_time_errors() && !flow_violation_pending(), {
     flag_flow_violation(err);
   });
-  exn.throw(dyn(Box.new(err.*)));
+  exn.throw(dyn(Box.new(err.clone())));
 });
 /// Re-raise `err`, the rejection a definition-time trial swallowed, from that
 /// trial's caller: clear the flag the trial left, then raise it again through
@@ -999,7 +1000,8 @@ flag_deferred_sibling_rule :: (fn(call_id : usize, label : &String, err : &YoErr
   label_owned := label.clone();
   // Owned key; `err` is a `ref` handle, cheap to capture (`with_mut`'s
   // callback is a sink parameter).
-  g_deferred_sibling_rules.with_mut({ label_owned, call_id : call_id.clone(), err : err.* }(xs) => xs.push(_DeferredSiblingRule(call_id : call_id, label : label_owned.clone(), err : err)));
+  err_owned := err.clone();
+  g_deferred_sibling_rules.with_mut({ label_owned, call_id : call_id.clone(), err : err_owned }(xs) => xs.push(_DeferredSiblingRule(call_id : call_id, label : label_owned.clone(), err : err)));
   ()
 });
 /// Settle the deferred rule-(b) rejections of call `call_id` now that A2 has
@@ -1034,7 +1036,7 @@ take_deferred_sibling_rules :: (fn(call_id : usize, borrowed : &ArrayList(Captur
             bi = (bi + usize(1));
           });
           if(!owned && first_unowned.is_none(), {
-            first_unowned = Option(YoError).Some(e.err);
+            first_unowned = Option(YoError).Some(e.err.clone());
           });
         }, {
           remaining.push(e);

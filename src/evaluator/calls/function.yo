@@ -2266,14 +2266,14 @@ _sai_normalize_binder_levels :: (fn(ty : &TypeValue, names : &ArrayList(String),
       match(
         all.get_cloned(ai),
         .Some(Rc(.SomeT({ name : a_name, frame_level : a_lvl }))) => if((a_name == b_name) && (a_lvl != b_lvl), {
-          subst_add(&s, &b_name, a_lvl, &b_some);
+          subst_add(&mut s, &b_name, a_lvl, &b_some);
           added = true;
         }),
         _ => ()
       );
     });
   });
-  cond(added => substitute(&s, ty), true => ty.clone())
+  cond(added => substitute(&mut s, ty), true => ty.clone())
 });
 /// Does `ty` mention one of the binders `names`?
 _sai_mentions_binder :: (fn(ty : &TypeValue, names : &ArrayList(String)) -> bool)({
@@ -2419,7 +2419,7 @@ _sai_instantiate :: (fn(c : &CtorMethodImpl, bindings : &ArrayList(Option(TypeVa
       bindings.get_cloned(bi),
       .Some(.Some(bty)) => match(
         c.binder_types.get_cloned(bi),
-        .Some(Rc(.SomeT({ frame_level : lvl }))) => subst_add(&s, &b_name, lvl, &bty),
+        .Some(Rc(.SomeT({ frame_level : lvl }))) => subst_add(&mut s, &b_name, lvl, &bty),
         _ => ()
       ),
       _ => ()
@@ -2432,7 +2432,7 @@ _sai_instantiate :: (fn(c : &CtorMethodImpl, bindings : &ArrayList(Option(TypeVa
     match(
       targs.get_cloned(ti),
       .Some(ta) => {
-        arg_ty := substitute(&s, &ta);
+        arg_ty := substitute(&mut s, &ta);
         aid := alloc_global_expr_id();
         a_info := new_expr_info(env, t_type());
         a_info.set_value(Option(EvalValue).Some(EvalValue.TypeVal(arg_ty.clone())));
@@ -6163,7 +6163,7 @@ _freshen_io_builtin_callee :: (fn(ft : &TypeValue) -> TypeValue)(
               fbntt := fbrtt_bnd.negative();
               fbntl := fbrtt_bnd.negative_levels();
               subst_add(
-                &fbs,
+                &mut fbs,
                 fbn.clone(),
                 fbl,
                 Rc.new(
@@ -6185,7 +6185,7 @@ _freshen_io_builtin_callee :: (fn(ft : &TypeValue) -> TypeValue)(
         );
         fb_i = (fb_i + usize(1));
       });
-      substitute(&fbs, ft.clone())
+      substitute(&mut fbs, ft.clone())
     },
     _ => Rc.clone(ft)
   )
@@ -6440,7 +6440,7 @@ _gc_freshen_all_sites :: (
           match(
             fresh_types.get_cloned(sk),
             .Some(s_rep) => {
-              subst_add(&gs, s_nm.clone(), s_lvl, &s_rep);
+              subst_add(&mut gs, s_nm.clone(), s_lvl, &s_rep);
             },
             .None => ()
           );
@@ -6450,7 +6450,7 @@ _gc_freshen_all_sites :: (
     });
     si = (si + usize(1));
   });
-  substitute(&gs, ft.clone())
+  substitute(&mut gs, ft.clone())
 });
 _gc_ids_str :: (fn(ids : &ArrayList(String)) -> String)({
   (out : String) = String.new();
@@ -7054,7 +7054,7 @@ _fv_refine_closure_expected :: (
           match(
             mentioned.get_cloned(ms_i),
             .Some(Rc(.SomeT({ name : sg_n, frame_level : sg_l }))) => if(sg_n == f_name, {
-              subst_add(&sb, &sg_n, sg_l, &ft);
+              subst_add(&mut sb, &sg_n, sg_l, &ft);
               any = true;
             }),
             .Some(_) => (),
@@ -7067,7 +7067,7 @@ _fv_refine_closure_expected :: (
     );
   });
   cond(
-    any => substitute(&sb, param_ty),
+    any => substitute(&mut sb, param_ty),
     true => Rc.clone(param_ty)
   )
 });
@@ -8184,7 +8184,7 @@ _evaluate_funcval_runtime_call :: (
               bn := match(fa_bound_names.get_cloned(bni), .Some(x) => x, .None => String.from(""));
               if(bn == rst_name, {
                 bt := match(fa_bound_types.get_cloned(bni), .Some(t) => t, .None => t_unit());
-                subst_add(&s_ret, rst_name.clone(), rst_lvl, &bt);
+                subst_add(&mut s_ret, rst_name.clone(), rst_lvl, &bt);
                 s_ret_any = true;
               });
               bni = (bni + usize(1));
@@ -8195,7 +8195,7 @@ _evaluate_funcval_runtime_call :: (
         rsi = (rsi + usize(1));
       });
       if(s_ret_any, {
-        resolved_ret = substitute(&s_ret, ret_type);
+        resolved_ret = substitute(&mut s_ret, ret_type);
       });
     });
   });
@@ -14472,7 +14472,7 @@ Fix: wrap the call:
                       ct_bn := match(fa_bound_names.get_cloned(ct_bni), .Some(x) => x, .None => String.from(""));
                       if(ct_bn == ct_rst_name, {
                         ct_bt := match(fa_bound_types.get_cloned(ct_bni), .Some(t) => t, .None => t_unit());
-                        subst_add(&s_ct_ret, ct_rst_name.clone(), ct_rst_lvl, &ct_bt);
+                        subst_add(&mut s_ct_ret, ct_rst_name.clone(), ct_rst_lvl, &ct_bt);
                         s_ct_any = true;
                       });
                       ct_bni = (ct_bni + usize(1));
@@ -14483,7 +14483,7 @@ Fix: wrap the call:
                 ctsi = (ctsi + usize(1));
               });
               if(s_ct_any, {
-                ct_res_ret = substitute(&s_ct_ret, &ct_res_ret);
+                ct_res_ret = substitute(&mut s_ct_ret, &ct_res_ret);
               });
             });
             ct_res_ret = evaluate_function_return_type_again(&ct_res_ret, &fresh_env, ctx);

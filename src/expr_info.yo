@@ -1240,7 +1240,7 @@ expr_info_set_async_state_machine_struct_name :: (
 _vh_expr_info_await_analysis :: (fn(d : &ExprInfoData) -> Option(AwaitAnalysisResult))(
   match(
     &d.rare,
-    .Some(r) => r.await_analysis,
+    .Some(r) => r.await_analysis.clone(),
     .None => Option(AwaitAnalysisResult).None
   )
 );
@@ -1251,13 +1251,13 @@ expr_info_set_await_analysis :: (
   fn(info : &ExprInfo, v : &Option(AwaitAnalysisResult)) -> unit
 )({
   mut(r) := _expr_info_rare_take(info);
-  r.await_analysis = v.*;
+  r.await_analysis = v.clone();
   _expr_info_rare_put(info, r);
 });
 _vh_expr_info_effect_analysis :: (fn(d : &ExprInfoData) -> Option(EffectAnalysisResult))(
   match(
     &d.rare,
-    .Some(r) => r.effect_analysis,
+    .Some(r) => r.effect_analysis.clone(),
     .None => Option(EffectAnalysisResult).None
   )
 );
@@ -1268,7 +1268,7 @@ expr_info_set_effect_analysis :: (
   fn(info : &ExprInfo, v : &Option(EffectAnalysisResult)) -> unit
 )({
   mut(r) := _expr_info_rare_take(info);
-  r.effect_analysis = v.*;
+  r.effect_analysis = v.clone();
   _expr_info_rare_put(info, r);
 });
 _vh_expr_info_closure_function_value :: (fn(d : &ExprInfoData) -> Option(EvalValue))(
