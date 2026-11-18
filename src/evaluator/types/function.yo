@@ -6056,7 +6056,7 @@ _resolve_wrapper_carriers_from_env :: (fn(wrapper : &TypeValue, env : &Environme
     i = (i + usize(1));
   });
   if(any, {
-    return(_substitute_wrapper_carriers(&ns, wrapper));
+    return(_substitute_wrapper_carriers(&mut ns, wrapper));
   });
   wrapper.clone()
 });
@@ -6147,7 +6147,7 @@ _resolve_some_types_deep :: (
       });
       nti = (nti + usize(1));
     });
-    return(cond(nbound => _substitute_wrapper_carriers(&ns, &r), true => r));
+    return(cond(nbound => _substitute_wrapper_carriers(&mut ns, &r), true => r));
   });
   some_types := get_all_some_types(ty);
   if(some_types.len() == usize(0), {

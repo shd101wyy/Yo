@@ -89,7 +89,7 @@ _generate_sm_atom :: (fn(expr : &AstExpr, var_name : &String, context : &mut Fun
                 // its own (SSA-renamed ids resolve to the canonical id).
                 (var_id : String) = sm_storage_id(&variable, &smv.*, &context.variable_id_remapping);
                 match(
-                  smv.get(var_id.clone()),
+                  smv.get_cloned(var_id.clone()),
                   .Some(cv) => {
                     // Phase 1b: aliased to an await_future_N field.
                     match(
@@ -195,7 +195,7 @@ _generate_sm_atom :: (fn(expr : &AstExpr, var_name : &String, context : &mut Fun
         });
         if(fallback_found, {
           match(
-            smv.get(fallback_key.clone()),
+            smv.get_cloned(fallback_key.clone()),
             .Some(cv2) => {
               field_name2 := match(
                 cv2.kind,

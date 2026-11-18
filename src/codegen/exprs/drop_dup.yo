@@ -42,7 +42,7 @@ _method_c_name :: (fn(type : &TypeValue, method_name : str, context : &FunctionG
     return(Option(String).None);
   });
   methods := get_type_trait_methods_by_name(type_id_or_empty(type), String.from(method_name));
-  match(methods.get(usize(0)), .Some(entry) => match(entry.value, .Some(v) => match(v, .FuncVal(__fvd1, _) => match(context.base.get_function_entry(&__fvd1.*.func_id), .Some(e) => Option(String).Some(e.c_name.clone()), .None => Option(String).None), _ => Option(String).None), .None => Option(String).None), .None => Option(String).None)
+  match(methods.get_cloned(usize(0)), .Some(entry) => match(entry.value, .Some(v) => match(v, .FuncVal(__fvd1, _) => match(context.base.get_function_entry(&__fvd1.*.func_id), .Some(e) => Option(String).Some(e.c_name.clone()), .None => Option(String).None), _ => Option(String).None), .None => Option(String).None), .None => Option(String).None)
 });
 /// The C name of `type`'s `___drop` function, if any.
 get_drop_function_for_type :: (fn(type : &TypeValue, context : &FunctionGenerationContext) -> Option(String))(
@@ -67,7 +67,7 @@ get_dispose_function_for_type :: (fn(type : &TypeValue, context : &FunctionGener
   });
   methods := get_type_trait_methods_by_name(type_key(type), String.from("___dispose"));
   match(
-    methods.get(usize(0)),
+    methods.get_cloned(usize(0)),
     .Some(entry) => match(
       entry.value,
       .Some(v) => match(
@@ -93,7 +93,7 @@ get_dispose_function_for_type :: (fn(type : &TypeValue, context : &FunctionGener
 /// (a field taken out, set to `.None`) is what the field drops then read.
 dispose_function_takes_pointer :: (fn(type : &TypeValue) -> bool)(
   match(
-    get_type_trait_methods_by_name(type_key(type), String.from("___dispose")).get(usize(0)),
+    get_type_trait_methods_by_name(type_key(type), String.from("___dispose")).get_cloned(usize(0)),
     .Some(entry) => match(fn_abi_param_is_ptr(&entry.ty).get(usize(0)), .Some(b) => b, .None => false),
     .None => false
   )
@@ -128,7 +128,7 @@ resolve_some_type_param_type :: (fn(value_arg : &AstExpr, value_type : &TypeValu
       (mut(i) : usize) = usize(0);
       while(i < n, {
         match(
-          pls.get(i),
+          pls.get_cloned(i),
           .Some(lbl) => if(lbl == var_name, {
             match(
               slot_pointee_at(&pts, i),
@@ -469,7 +469,7 @@ generate_drop_code_for_value :: (fn(value_code : &String, value_type : &TypeValu
     is_newtype_type(&concrete_type) => {
       nt_rfs := get_runtime_struct_fields(&concrete_type);
       match(
-        nt_rfs.get(usize(0)),
+        nt_rfs.get_cloned(usize(0)),
         .Some(nt_f) => cond(
           type_contains_rc_cell_or_move_only(&nt_f.ty) => recur(value_code.clone(), &nt_f.ty, context),
           true => String.from("")
@@ -498,7 +498,7 @@ generate_drop_code_for_value :: (fn(value_code : &String, value_type : &TypeValu
         (mut(vs_fi) : usize) = usize(0);
         while(vs_fi < vs_rfs.len(), {
           match(
-            vs_rfs.get(vs_fi),
+            vs_rfs.get_cloned(vs_fi),
             .Some(vs_f) => if(type_contains_rc_cell_or_move_only(&vs_f.ty), {
               mut(fref) := String.from("(");
               fref.push_string(value_code.clone());
@@ -677,7 +677,7 @@ generate_dup_code_for_value :: (fn(value_code : &String, value_type : &TypeValue
     is_newtype_type(&concrete_type) => {
       rfs := get_runtime_struct_fields(&concrete_type);
       match(
-        rfs.get(usize(0)),
+        rfs.get_cloned(usize(0)),
         .Some(f) => cond(
           type_contains_rc_cell_or_move_only(&f.ty) => recur(value_code.clone(), &f.ty, context),
           true => value_code.clone()
@@ -698,7 +698,7 @@ generate_dup_code_for_value :: (fn(value_code : &String, value_type : &TypeValue
       (mut(ci) : usize) = usize(0);
       while(ci < rfs.len(), {
         match(
-          rfs.get(ci),
+          rfs.get_cloned(ci),
           .Some(f) => if(type_contains_rc_cell_or_move_only(&f.ty), {
             has_rc = true;
           }),
@@ -721,7 +721,7 @@ generate_dup_code_for_value :: (fn(value_code : &String, value_type : &TypeValue
           (mut(fi) : usize) = usize(0);
           while(fi < rfs.len(), {
             match(
-              rfs.get(fi),
+              rfs.get_cloned(fi),
               .Some(f) => if(type_contains_rc_cell_or_move_only(&f.ty), {
                 mut(fref) := temp_var.clone();
                 fref.push_str(".");

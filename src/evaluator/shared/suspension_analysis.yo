@@ -292,7 +292,7 @@ _capture_env_variable :: (
                   id : owner_var.id().to_string(),
                   name : owner_var.name.clone(),
                   ty : variable_value_type(&owner_var),
-                  is_owning_the_same_rc_value_as : Option(SuspensionCapturedVariable).None,
+                  is_owning_the_same_rc_value_as : Option(Rc(SuspensionCapturedVariable)).None,
                   decl_site : `${owner_var.token.module_path.*}:${owner_var.token.row.to_string()}:${owner_var.token.column.to_string()}`
                 );
                 captured_variables.insert(owner_var.id().to_string(), owner_captured);
@@ -307,13 +307,13 @@ _capture_env_variable :: (
               // local of the body; an owner from outside it (a capture) has no
               // slot, and the variable then needs storage of its own.
               match(
-                captured_variables.get(owner_var.id().to_string()),
+                captured_variables.get_cloned(owner_var.id().to_string()),
                 .Some(owner_entry) => {
                   alias_captured := SuspensionCapturedVariable(
                     id : variable.id().to_string(),
                     name : var_name.clone(),
                     ty : variable_value_type(&variable),
-                    is_owning_the_same_rc_value_as : Option(SuspensionCapturedVariable).Some(owner_entry),
+                    is_owning_the_same_rc_value_as : Option(Rc(SuspensionCapturedVariable)).Some(Rc.new(owner_entry)),
                     decl_site : `${variable.token.module_path.*}:${variable.token.row.to_string()}:${variable.token.column.to_string()}`
                   );
                   captured_variables.insert(variable.id().to_string(), alias_captured);
@@ -340,7 +340,7 @@ _capture_env_variable :: (
                 id : variable.id().to_string(),
                 name : var_name.clone(),
                 ty : cap_ty,
-                is_owning_the_same_rc_value_as : Option(SuspensionCapturedVariable).None,
+                is_owning_the_same_rc_value_as : Option(Rc(SuspensionCapturedVariable)).None,
                 decl_site : `${variable.token.module_path.*}:${variable.token.row.to_string()}:${variable.token.column.to_string()}`
               );
               captured_variables.insert(variable.id().to_string(), sc);
@@ -637,19 +637,14 @@ walk_expr_ :: (
           if(new_count > initial_count, {
             (mut(wi) : usize) = initial_count;
             while(wi < new_count, {
-              sp := match(
-                points.get(wi),
-                .None => {
-                  wi = new_count;
-                  return(());
-                },
-                .Some(p) => p
-              );
-              sp.is_inside_while = Option(bool).Some(true);
-              current_depth := match(sp.while_nesting_depth, .None => usize(0), .Some(d) => d);
-              sp.while_nesting_depth = Option(usize).Some(current_depth + usize(1));
-              if(sp.enclosing_while_expr.is_none(), {
-                sp.enclosing_while_expr = Option(AstExpr).Some(expr_cloned.clone());
+              ec := expr_cloned.clone();
+              points.with(wi, { ec }(sp) => {
+                sp.is_inside_while = Option(bool).Some(true);
+                current_depth := match(sp.while_nesting_depth, .None => usize(0), .Some(d) => d);
+                sp.while_nesting_depth = Option(usize).Some(current_depth + usize(1));
+                if(sp.enclosing_while_expr.is_none(), {
+                  sp.enclosing_while_expr = Option(AstExpr).Some(ec);
+                });
               });
               wi = (wi + usize(1));
             });
@@ -702,15 +697,7 @@ walk_expr_ :: (
             (mut(bi) : usize) = branch_start;
             cur_len := points.len();
             while(bi < cur_len, {
-              sp2 := match(
-                points.get(bi),
-                .None => {
-                  bi = cur_len;
-                  return(());
-                },
-                .Some(p) => p
-              );
-              branch_pts.push(sp2);
+              match(points.get_cloned(bi), .Some(p) => branch_pts.push(p), .None => ());
               bi = (bi + usize(1));
             });
             per_branch_points.push(branch_pts);
@@ -768,7 +755,7 @@ walk_expr_ :: (
               while((bpi2 < n_branches) && !found_rep, {
                 if(pos < per_branch_points(bpi2).len(), {
                   sp3 := match(
-                    per_branch_points(bpi2).get(pos),
+                    per_branch_points(bpi2).get_cloned(pos),
                     .None => {
                       bpi2 = n_branches;
                       return(());
@@ -804,7 +791,7 @@ walk_expr_ :: (
                   while(bpi3 < n_branches, {
                     if(pos < per_branch_points(bpi3).len(), {
                       match(
-                        per_branch_points(bpi3).get(pos),
+                        per_branch_points(bpi3).get_cloned(pos),
                         .Some(p3) => {
                           // A branch whose point at this position is ITSELF a
                           // merged representative (a nested cond/match with
@@ -1039,7 +1026,7 @@ analyze_suspension_points :: (
       .Some(i) => i
     );
     cv := match(
-      captured_variables.get(id.clone()),
+      captured_variables.get_cloned(id.clone()),
       .None => {
         break;
       },

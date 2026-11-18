@@ -279,7 +279,7 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
   // recorded type itself. Only the evidence path needs the precise call type.
   call_type_opt := extract_fn_trait_from_type(&ei.ty());
   fid := match(closure_fv, .Some(.FuncVal(__fvd1, _)) => __fvd1.*.func_id.clone(), _ => String.from(""));
-  function_c_name := match(context.base.functions.get(&fid), .Some(fe) => fe.c_name.clone(), .None => if(is_rebuild, String.new(), return(codegen_fatal_expr(String.from("Closure implementation function not found in context")))));
+  function_c_name := match(context.base.functions.get_cloned(&fid), .Some(fe) => fe.c_name.clone(), .None => if(is_rebuild, String.new(), return(codegen_fatal_expr(String.from("Closure implementation function not found in context")))));
   if(is_dyn_type(&ei.ty()), {
     return(codegen_fatal_expr(String.from("Dyn(Fn(...)) closure construction not yet ported")));
   });

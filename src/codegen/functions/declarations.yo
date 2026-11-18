@@ -155,7 +155,7 @@ generate_function_prototype :: (
         // source name). Falls back to
         // `paramN` for an unlabeled parameter.
         pname := match(
-          param_labels.get(i),
+          param_labels.get_cloned(i),
           .Some(lbl) => if(lbl.len() > usize(0), sanitize_for_c_identifier(lbl.clone(), false), {
             mut(p) := String.from("param");
             p.push_string(i.to_string());
@@ -225,7 +225,7 @@ _object_decl_has_generic_fields :: (fn(fields : &ArrayList(RuntimeStructField)) 
   (mut(found) : bool) = false;
   while((i < n) && !found, {
     match(
-      fields.get(i),
+      fields.get_cloned(i),
       .Some(field) => if(type_contains_some_type(&field.ty), {
         found = true;
       }),
@@ -330,7 +330,7 @@ generate_object_constructor_declarations :: (fn(context : &mut CodeGenContext) -
           (mut(any_param) : bool) = false;
           while(pi < nf, {
             match(
-              runtime_fields.get(pi),
+              runtime_fields.get_cloned(pi),
               .Some(field) => if(!is_unit_type(&field.ty), {
                 if(any_param, {
                   params.push_str(", ");
@@ -899,7 +899,7 @@ static_dispatch_callee_return_type :: (
       cond(
         (sd_id.len() == usize(0)) => Option(String).None,
         true => match(
-          context.impl_closure_call_map.get(&sd_id),
+          context.impl_closure_call_map.get_cloned(&sd_id),
           .Some(sd_mp) => emitted_return_type_string(sd_mp.closure_fid.clone(), context),
           .None => Option(String).None
         )

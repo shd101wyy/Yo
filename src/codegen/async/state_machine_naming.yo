@@ -48,7 +48,7 @@ register_sm_captured_names :: (
   (i : usize) = usize(0);
   while(i < cvs.len(), {
     match(
-      cvs.get(i),
+      cvs.get_cloned(i),
       .Some(v) => match(
         v.kind,
         .Local => if(v.base.decl_site.len() > usize(0), {
@@ -113,7 +113,7 @@ sm_storage_id :: (fn(v : &Variable, smv : &HashMap(String, CapturedVariable), re
     .Some(ob) => {
       oid := canon(ob.id().to_string(), remap);
       match(
-        smv.get(oid.clone()),
+        smv.get_cloned(oid.clone()),
         .Some(ocv) => match(ocv.kind, .Local => oid, .Outer => own),
         .None => own
       )
@@ -144,7 +144,7 @@ sm_slot_of_variable :: (
   fn(v : &Variable, smv : &HashMap(String, CapturedVariable), remap : &Option(HashMap(String, String)), aliases : &Option(HashMap(String, String)), capture_slot : &String) -> Option(String)
 )({
   id := sm_storage_id(v, smv, remap);
-  cv := match(smv.get(id.clone()), .Some(c) => c, .None => return(Option(String).None));
+  cv := match(smv.get_cloned(id.clone()), .Some(c) => c, .None => return(Option(String).None));
   field := match(
     cv.kind,
     .Outer => `${capture_slot}.${sanitize_for_c_identifier(cv.base.name.clone(), false)}`,
@@ -214,11 +214,11 @@ sm_capture_move_flag_name :: (fn(label : String) -> String)(`__yo_mv___capture_$
 /// found as `_store_temp_var_to_state_machine_if_needed` finds it: by id key,
 /// then by the captured variable's name.
 sm_temp_slot_of :: (fn(temp_var : &String, smv : &HashMap(String, CapturedVariable)) -> Option(String))({
-  (found : Option(CapturedVariable)) = smv.get(temp_var.clone());
+  (found : Option(CapturedVariable)) = smv.get_cloned(temp_var.clone());
   if(found.is_none(), {
     for(&smv, (_k, cv) => {
       if(cv.base.name == temp_var.*, {
-        found = Option(CapturedVariable).Some(cv.*);
+        found = Option(CapturedVariable).Some(cv.clone());
         break;
       });
     });

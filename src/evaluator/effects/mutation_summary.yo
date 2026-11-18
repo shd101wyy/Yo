@@ -268,7 +268,7 @@ impl(
     ) -> bool
   )({
     match(
-      g_ms_summary_by_fid.with({ fid : &fid.* }(m) => m.get(fid.clone())),
+      g_ms_summary_by_fid.with({ fid : &fid.* }(m) => m.get_cloned(fid.clone())),
       .Some(m) => if(m.body_id == ast_expr_id(body), {
         return(m.mutates);
       }),
@@ -804,7 +804,7 @@ _msp_bits_or :: (fn(dst : &mut ArrayList(bool), src : &ArrayList(bool)) -> unit)
     i = (i + usize(1));
   });
 });
-_msp_mask_or :: (fn(dst : &ParamMutationMask, src : &ParamMutationMask) -> unit)({
+_msp_mask_or :: (fn(dst : &mut ParamMutationMask, src : &ParamMutationMask) -> unit)({
   if(src.all, {
     dst.all = true;
   });
@@ -813,7 +813,7 @@ _msp_mask_or :: (fn(dst : &ParamMutationMask, src : &ParamMutationMask) -> unit)
   _msp_bits_or(&mut dst.lends_mut, &src.lends_mut);
 });
 /// Record a mutation of the storage `r` names.
-_msp_mask_add_root :: (fn(m : &ParamMutationMask, r : _MspRoot, deep : bool) -> unit)({
+_msp_mask_add_root :: (fn(m : &mut ParamMutationMask, r : _MspRoot, deep : bool) -> unit)({
   cond(
     (r.kind == MSP_PARAM) => if(deep || r.deep, {
       _msp_bits_set(&mut m.deep, r.param);
@@ -1464,13 +1464,14 @@ _MspAnalysis :: struct(mask : ParamMutationMask, ret : _MspRoot);
 /// The memoized analysis and the body it was computed from (a func id can
 /// name a new body after a watch re-evaluation — see `_MsMemo`).
 _MspMemo :: struct(body_id : ExprId, analysis : _MspAnalysis);
+derive(_MspMemo, Clone);
 (g_msp_by_fid : RefCell(HashMap(String, _MspMemo))) = RefCell(HashMap(String, _MspMemo)).new(HashMap(String, _MspMemo).new());
 (g_msp_in_progress : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 /// The `&mut` markers the walk met as the argument of a `&mut` parameter:
 /// the callee's own summary judges those (`_MsP.lends_through_call`), so the
 /// marker itself is no lend of this body.
 (g_msp_slot_markers : RefCell(HashSet(ExprId))) = RefCell(HashSet(ExprId)).new(HashSet(ExprId).new());
-_msp_set_lends_all :: (fn(m : &ParamMutationMask, ctx : &mut _MspCtx) -> unit)({
+_msp_set_lends_all :: (fn(m : &mut ParamMutationMask, ctx : &mut _MspCtx) -> unit)({
   (i : usize) = usize(0);
   while(i < ctx.labels.len(), i = (i + usize(1)), {
     _msp_bits_set(&mut m.lends_mut, i);
@@ -1479,7 +1480,7 @@ _msp_set_lends_all :: (fn(m : &ParamMutationMask, ctx : &mut _MspCtx) -> unit)({
 /// Record a `&mut` reference value made of `place` (`lends_mut`): the `&mut`
 /// parameter it is rooted in, else the parameter its storage is
 /// (`classify`); unknown storage may be any parameter's.
-_msp_note_lend :: (fn(m : &ParamMutationMask, place : &AstExpr, ctx : &mut _MspCtx) -> unit)(
+_msp_note_lend :: (fn(m : &mut ParamMutationMask, place : &AstExpr, ctx : &mut _MspCtx) -> unit)(
   match(
     _msp_inout_param_of_place(place, ctx),
     .Some(pi) => _msp_bits_set(&mut m.lends_mut, pi),
@@ -1608,9 +1609,9 @@ impl(
     fn(fid : &String, body : &AstExpr, table : &ExprInfoTable, touched : &mut ArrayList(String)) -> _MspAnalysis
   )({
     match(
-      g_msp_by_fid.with({ fid : &fid.* }(m) => m.get(fid.clone())),
+      g_msp_by_fid.with({ fid : &fid.* }(m) => m.get_cloned(fid.clone())),
       .Some(m) => if(m.body_id == ast_expr_id(body), {
-        return(m.analysis);
+        return(m.analysis.clone());
       }),
       .None => ()
     );
@@ -1648,13 +1649,13 @@ impl(
     (go : bool) = true;
     while(go, {
       ctx.changed = false;
-      _MsP.collect(body, &ctx);
+      _MsP.collect(body, &mut ctx);
       iters = (iters + usize(1));
       if(!ctx.changed || (iters > usize(64)), {
         go = false;
       });
     });
-    mask := _MsP.walk(body, &ctx);
+    mask := _MsP.walk(body, &mut ctx);
     if(iters > usize(64), {
       mask.all = true;
     });
@@ -1710,7 +1711,7 @@ impl(
       match(
         rets.get_cloned(ri),
         .Some(re) => {
-          ret = _msp_join(ret, _MsP.classify(&re, &ctx));
+          ret = _msp_join(ret, _MsP.classify(&re, &mut ctx));
         },
         .None => ()
       );
@@ -1730,12 +1731,13 @@ impl(
       );
       li = (li + usize(1));
     });
+    (mask_all : bool) = mask.all;
     result := _MspAnalysis(mask : mask, ret : ret);
-    if(mask.all || (filtered.len() == usize(0)), {
+    if(mask_all || (filtered.len() == usize(0)), {
       // Owned captures (`with_mut`'s callback is a sink parameter); the
       // memo copies `result` (a handle and a Copy root), which is returned below.
       fid_owned3 := fid.clone();
-      memo := _MspMemo(body_id : ast_expr_id(body), analysis : result);
+      memo := _MspMemo(body_id : ast_expr_id(body), analysis : result.clone());
       g_msp_by_fid.with_mut({ fid_owned3, memo }(m) => m.insert(fid_owned3, memo));
     });
     (ti : usize) = usize(0);
@@ -1974,7 +1976,7 @@ impl(
     match(
       _MsP.extern_of(e, &func_expr, &ctx.table),
       .Some(ex) => {
-        return(_MsP.extern_result_root(ex, &func_expr, &args, ctx));
+        return(_MsP.extern_result_root(&ex, &func_expr, &args, ctx));
       },
       .None => ()
     );
@@ -2093,7 +2095,7 @@ impl(
         match(
           expr_info_macro_expansion(&info),
           .Some(mx) => {
-            _MsP.flowing(mx, ctx, out);
+            _MsP.flowing(&mx, ctx, out);
             return(());
           },
           .None => ()
@@ -2414,7 +2416,7 @@ impl(
         match(
           expr_info_macro_expansion(&info.*),
           .Some(mx) => {
-            _MsP.collect(mx, ctx);
+            _MsP.collect(&mx, ctx);
             return(());
           },
           .None => ()
@@ -2794,7 +2796,7 @@ impl(
     });
   }),
   /// Mutations of every argument's storage (an extern with raw pointers).
-  roots_of_args : (fn(m : &ParamMutationMask, func_expr : &AstExpr, args : &ArrayList(AstExpr), ctx : &mut _MspCtx) -> unit)({
+  roots_of_args : (fn(m : &mut ParamMutationMask, func_expr : &AstExpr, args : &ArrayList(AstExpr), ctx : &mut _MspCtx) -> unit)({
     if(ast_expr_is_fn_call_of(func_expr, BF_DOT, Option(usize).Some(usize(2))), {
       match(
         func_expr,
@@ -2832,7 +2834,7 @@ impl(
   /// our argument names. With the arguments unmapped, a callee that lends
   /// any parameter may lend any of ours.
   lends_through_call : (
-    fn(m : &ParamMutationMask, fid : &String, callee_mask : &ParamMutationMask, e : &AstExpr, func_expr : &AstExpr, args : &ArrayList(AstExpr), labels_len : usize, ctx : &mut _MspCtx) -> unit
+    fn(m : &mut ParamMutationMask, fid : &String, callee_mask : &ParamMutationMask, e : &AstExpr, func_expr : &AstExpr, args : &ArrayList(AstExpr), labels_len : usize, ctx : &mut _MspCtx) -> unit
   )({
     match(
       _MsP.argv(e, func_expr, args, labels_len, &ctx.table),
@@ -2886,7 +2888,7 @@ impl(
     m := _MsP.walk(func_expr, ctx);
     (i : usize) = usize(0);
     while(i < args.len(), {
-      match(args.get_cloned(i), .Some(a) => _msp_mask_or(&m, _MsP.walk(&a, ctx)), .None => ());
+      match(args.get_cloned(i), .Some(a) => _msp_mask_or(&mut m, _MsP.walk(&a, ctx)), .None => ());
       i = (i + usize(1));
     });
     m
@@ -2933,7 +2935,7 @@ impl(
     // into a by-value `&mut` slot, field or element; a `&mut` reference read
     // passed on): `lends_mut` of the parameter it is rooted in.
     if(is_mut_lend_value(ast_expr_id(e)), {
-      _msp_note_lend(&m, e, ctx);
+      _msp_note_lend(&mut m, e, ctx);
     });
     if(ast_expr_is_atom(e), {
       return(m);
@@ -2969,7 +2971,7 @@ impl(
             mm := _MsP.walk(&mo, ctx);
             mk_id := ast_expr_id(e);
             if((head == BK_BORROW_MUT) && !g_msp_slot_markers.with(s => s.contains(&mk_id)), {
-              _msp_note_lend(&mm, &mo, ctx);
+              _msp_note_lend(&mut mm, &mo, ctx);
             });
             mm
           },
@@ -3004,7 +3006,7 @@ impl(
                 .Some(wpi) => {
                   tr := _MsP.classify(&mo, ctx);
                   if((tr.kind == MSP_PARAM) && (tr.param == wpi), {
-                    _msp_mask_add_root(&inner, tr, tr.deep);
+                    _msp_mask_add_root(&mut inner, tr, tr.deep);
                   }, {
                     _msp_bits_set(&mut inner.shallow, wpi);
                   });
@@ -3047,7 +3049,7 @@ impl(
                   // Through an `inout` local binding: whatever it aliases.
                   v.is_ref() => {
                     br := match(ctx.roots.get(lt.value.*.clone()), .Some(r0) => r0, .None => _msp_root(MSP_ROOTED));
-                    _msp_mask_add_root(&m, br, br.deep);
+                    _msp_mask_add_root(&mut m, br, br.deep);
                   },
                   // A global whose type can root storage (an RC handle, a
                   // pointer) may alias any argument's storage, and a store
@@ -3086,7 +3088,7 @@ impl(
                 largs.get_cloned(ti),
                 .Some(el) => if(!ast_expr_is_atom(&el), {
                   tr0 := match(_msp_store_prefix(&el), .Some(p) => _MsP.classify(&p, ctx), .None => _msp_root(MSP_ROOTED));
-                  _msp_mask_add_root(&m, tr0, tr0.deep);
+                  _msp_mask_add_root(&mut m, tr0, tr0.deep);
                 }),
                 .None => ()
               );
@@ -3097,7 +3099,7 @@ impl(
             if(tr.kind == MSP_ROOTED, {
               _msp_debug_all(String.from("store-through-rooted"), &lhs);
             });
-            _msp_mask_add_root(&m, tr, tr.deep);
+            _msp_mask_add_root(&mut m, tr, tr.deep);
             // A value-field / index store through an `inout` parameter is a
             // write through it even when the parameter's type roots no RC
             // storage (rule D3 — see _msp_inout_param_of_place).
@@ -3107,18 +3109,18 @@ impl(
               .None => ()
             );
             // Index expressions inside the place may call.
-            _msp_mask_or(&m, _MsP.walk_children(lf, &largs, ctx));
+            _msp_mask_or(&mut m, _MsP.walk_children(lf, &largs, ctx));
           });
         }
       );
-      _msp_mask_or(&m, _MsP.walk(&rhs, ctx));
+      _msp_mask_or(&mut m, _MsP.walk(&rhs, ctx));
       return(m);
     });
     if(((head == ":=") || (head == "::")) && (args.len() == usize(2)), {
       return(match(args.get_cloned(usize(1)), .Some(r) => _MsP.walk(&r, ctx), .None => m));
     });
     if(head == "match", {
-      match(args.get_cloned(usize(0)), .Some(sc) => _msp_mask_or(&m, _MsP.walk(&sc, ctx)), .None => ());
+      match(args.get_cloned(usize(0)), .Some(sc) => _msp_mask_or(&mut m, _MsP.walk(&sc, ctx)), .None => ());
       (mi : usize) = usize(1);
       while(mi < args.len(), {
         match(
@@ -3130,9 +3132,9 @@ impl(
                 Rc(.FnCall(_, af, Rc(aargs), _, _)) => {
                   is_arm := (match(af, Rc(.Atom(_, at)) => ((at.value.* == "=>") || (at.value.* == "->")), _ => false) && (aargs.len() == usize(2)));
                   if(is_arm, {
-                    match(aargs.get_cloned(usize(1)), .Some(b) => _msp_mask_or(&m, _MsP.walk(&b, ctx)), .None => ());
+                    match(aargs.get_cloned(usize(1)), .Some(b) => _msp_mask_or(&mut m, _MsP.walk(&b, ctx)), .None => ());
                   }, {
-                    _msp_mask_or(&m, _MsP.walk(&arm, ctx));
+                    _msp_mask_or(&mut m, _MsP.walk(&arm, ctx));
                   });
                 },
                 Rc(.Atom(_, _)) => ()
@@ -3151,7 +3153,7 @@ impl(
         match(
           args.get_cloned(ci),
           .Some(arm) => if(!_msp_arm_is_dead(&arm, &ctx.table), {
-            _msp_mask_or(&m, _MsP.walk(&arm, ctx));
+            _msp_mask_or(&mut m, _MsP.walk(&arm, ctx));
           }),
           .None => ()
         );
@@ -3165,11 +3167,11 @@ impl(
         args.get_cloned(usize(0)),
         .Some(a0) => {
           r0 := _MsP.classify(&a0, ctx);
-          _msp_mask_add_root(&m, r0, true);
+          _msp_mask_add_root(&mut m, r0, true);
         },
         .None => ()
       );
-      _msp_mask_or(&m, _MsP.walk_children(&func_expr, &args, ctx));
+      _msp_mask_or(&mut m, _MsP.walk_children(&func_expr, &args, ctx));
       return(m);
     });
     if((head.len() > usize(0)) && _ms_head_is_safe_recurse(head.clone()), {
@@ -3201,12 +3203,12 @@ impl(
           args.get_cloned(usize(1)),
           .Some(wa1) => {
             wr1 := _MsP.classify(&wa1, ctx);
-            _msp_mask_add_root(&m, wr1, wr1.deep);
+            _msp_mask_add_root(&mut m, wr1, wr1.deep);
           },
           .None => ()
         );
       });
-      _msp_mask_or(&m, _MsP.walk_children(&func_expr, &args, ctx));
+      _msp_mask_or(&mut m, _MsP.walk_children(&func_expr, &args, ctx));
       return(m);
     });
     callee_opt := _MsP.callee(e, &func_expr, &ctx.table);
@@ -3244,18 +3246,18 @@ impl(
                   m.all = true;
                   _msp_debug_all(String.from("walk"), e);
                 },
-                _ms_extern_may_mutate(&en, &cpt, &cvt) => _MsP.roots_of_args(m, &func_expr, &args, ctx),
+                _ms_extern_may_mutate(&en, &cpt, &cvt) => _MsP.roots_of_args(&mut m, &func_expr, &args, ctx),
                 _msp_extern_writes_first_arg(&en) => match(
                   args.get_cloned(usize(0)),
                   .Some(a0) => {
                     r0 := _MsP.classify(&a0, ctx);
-                    _msp_mask_add_root(&m, r0, r0.deep);
+                    _msp_mask_add_root(&mut m, r0, r0.deep);
                   },
                   .None => ()
                 ),
                 true => ()
               );
-              _msp_mask_or(&m, _MsP.walk_children(&func_expr, &args, ctx));
+              _msp_mask_or(&mut m, _MsP.walk_children(&func_expr, &args, ctx));
               return(m);
             },
             .None => ()
@@ -3290,7 +3292,7 @@ impl(
                           if(rr.kind == MSP_ROOTED, {
                             _msp_debug_all(String.from("walk-all-receiver-rooted"), &recv);
                           });
-                          _msp_mask_add_root(&m, rr, true);
+                          _msp_mask_add_root(&mut m, rr, true);
                         },
                         .None => ()
                       ),
@@ -3306,7 +3308,7 @@ impl(
                         if(ra2.kind == MSP_ROOTED, {
                           _msp_debug_all(String.from("walk-all-arg-rooted"), &a2);
                         });
-                        _msp_mask_add_root(&m, ra2, true);
+                        _msp_mask_add_root(&mut m, ra2, true);
                         // Unknown effects reachable from a place rooted in one
                         // of OUR `inout` parameters: a write through it (D3).
                         match(
@@ -3368,8 +3370,8 @@ impl(
               });
             }
           );
-          _MsP.lends_through_call(&m, &fid, &an.mask, e, &func_expr, &args, labels.len(), ctx);
-          _msp_mask_or(&m, _MsP.walk_children(&func_expr, &args, ctx));
+          _MsP.lends_through_call(&mut m, &fid, &an.mask, e, &func_expr, &args, labels.len(), ctx);
+          _msp_mask_or(&mut m, _MsP.walk_children(&func_expr, &args, ctx));
           return(m);
         },
         _ => {
@@ -3407,18 +3409,18 @@ impl(
                 m.all = true;
                 _msp_debug_all(String.from("walk"), e);
               },
-              _ms_extern_may_mutate(&ten.*, &tpt, &tvt) => _MsP.roots_of_args(&m, &func_expr, &args, ctx),
+              _ms_extern_may_mutate(&ten.*, &tpt, &tvt) => _MsP.roots_of_args(&mut m, &func_expr, &args, ctx),
               _msp_extern_writes_first_arg(&ten.*) => match(
                 args.get_cloned(usize(0)),
                 .Some(a0) => {
                   r0 := _MsP.classify(&a0, ctx);
-                  _msp_mask_add_root(&m, r0, r0.deep);
+                  _msp_mask_add_root(&mut m, r0, r0.deep);
                 },
                 .None => ()
               ),
               true => ()
             );
-            _msp_mask_or(&m, _MsP.walk_children(&func_expr, &args, ctx));
+            _msp_mask_or(&mut m, _MsP.walk_children(&func_expr, &args, ctx));
             return(m);
           },
           .None => ()
@@ -3453,7 +3455,10 @@ function_param_mutation_mask :: (
   fn(fid : &String, body : &AstExpr, table : &ExprInfoTable) -> ParamMutationMask
 )({
   touched := ArrayList(String).new();
-  _MsP.analyze(fid, body, table, &mut touched).mask
+  {
+    analysis := _MsP.analyze(fid, body, table, &mut touched);
+    analysis.mask.clone()
+  }
 });
 // ===========================================================================
 // YO_AUDIT_RC_WRITE — decision 46 Generation A's census
@@ -3732,7 +3737,7 @@ _rcw_walk :: (fn(e : &AstExpr, ctx : &mut _MspCtx, in_closure_in : bool) -> unit
                           if(mask.is_none(), {
                             mask = Option(ParamMutationMask).Some(function_param_mutation_mask(&cfid, &fvd.*.body, &ctx.table));
                           });
-                          if(match(mask, .Some(mk) => param_mutation_mask_hits(&mk, j), .None => false), {
+                          if(match(&mask, .Some(mk) => param_mutation_mask_hits(mk, j), .None => false), {
                             // An argument that is itself a handle (`h.items` of
                             // an `ArrayList`) lends the callee that handle's
                             // storage: the write lands there.
@@ -3787,13 +3792,13 @@ audit_rc_writes :: (fn(fid : &String, body : &AstExpr, table : &ExprInfoTable) -
   (go : bool) = true;
   while(go, {
     ctx.changed = false;
-    _MsP.collect(body, &ctx);
+    _MsP.collect(body, &mut ctx);
     iters = (iters + usize(1));
     if(!ctx.changed || (iters > usize(64)), {
       go = false;
     });
   });
-  _rcw_walk(body, &ctx, is_closure_fn(fid.clone()));
+  _rcw_walk(body, &mut ctx, is_closure_fn(fid.clone()));
 });
 // ===========================================================================
 // GLOBAL-REACH mode — rule D1 (plans/reference/PARALLELISM_RULES.md)
@@ -4313,7 +4318,7 @@ function_reaches_non_send_global :: (
   // sharing, so the global must be `Sync` (Rust's `static: Sync`;
   // plans/VALUES_BY_DEFAULT.md §3.8).
   (mut(ctx) : _GrCtx) = _GrCtx(table : table.clone(), env : Rc.clone(env), send : get_trait_type_from_env(env, String.from("Sync")), fid : fid.clone());
-  r := _gr_walk(body, &ctx);
+  r := _gr_walk(body, &mut ctx);
   fid_owned5 := fid.clone();
   g_gr_in_progress.with_mut({ fid_owned5 }(m) => m.remove(fid_owned5.clone()));
   g_gr_depth = my_depth;

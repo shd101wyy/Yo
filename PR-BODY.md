@@ -1,12 +1,6 @@
 # R7 — the parser drops `ref(...)`/`atomic(...)` (WORK IN PROGRESS)
 
-**Status: INCOMPLETE — do not merge.** This branch is the parser-drop lane's
-work-in-progress handover. Package 2 (the tree's own remaining `ref`
-declarations — a scope discovered at diagnosis to be ~50 declarations, not the
-7 the task's single-line grep finds) is roughly two-thirds converted; the
-checker-fix loop has not converged yet, and packages 3–7 (the actual parser
-drop, the flag reread, tests, cli fixtures, docs) have not started. The
-commits are per subsystem so the remainder can be reviewed incrementally.
+**Status: packages 1, 2 (converging), 5, 6 (fixture half) and 7 done; package 3 (the drop) in flight.** The tree's own ~50 multi-line `ref` declarations are converted (the check-green loop is on its last families); every kept test family is rewritten (two commits); the 9 cli fixtures are rewritten (1 removed with its dead diagnostic); DESIGN and ERROR_DIAGNOSTICS carry the R7 edits in both languages. Remaining: the evaluator arms → E0009+repair, the LSP/registry/hint texts, the effect-records Copy checker half, the 163-site flag table below, the tree-binary verification pass and the golden re-records.
 
 ## Summary
 
@@ -128,6 +122,62 @@ Remaining in package 2:
    `tmp/audit_copy_write.py` (gitignored); its 20 findings were each triaged:
    fixed in this branch where real, or verified take-modify-put/local-push
    patterns that stay correct.
+
+### Package 4 — the `is_reference_semantics`/`is_atomic_rc` reread (163 sites)
+
+Post-drop the flags' only producer is `evaluate_cell_type`
+(`src/evaluator/types/struct.yo`), reached through the reserved
+`__yo_cell(V)`/`__yo_atomic_cell(V)` primitives inside std's `Rc`/`Arc`/
+`RefCell` construction (`src/prelude.yo`). Every reader below was reread
+against that input. Verdicts: **cell** = reads the cell-payload flag, fires
+for `Rc`/`Arc`/`RefCell` payloads exactly as it did for `ref(...)` — no
+change; **carry** = the flag rides a type node through a mechanical
+copy/compare/hash — no change; **dead** = reachable only through a user
+`ref(...)`/`atomic(...)` declaration, kept (harmless, and the reserved
+primitives can still spell the shape in an unsafe file); **edit** = wording
+or logic changed in this PR.
+
+| File | Sites | Verdict |
+| --- | --- | --- |
+| evaluator/types/struct.yo | 23 | 1 edit (the dead `header`-field check, deleted), 1 dead (the `force_reference_semantics` argument of the plain struct/enum paths — only the `__yo_cell` paths feed it now), rest cell/carry |
+| types/guards.yo | 22 | cell — `is_reference_struct_type` and friends are the predicate every E0911/E0919/E0910 rule consults; payloads of `Rc`/`Arc`/`RefCell` answer exactly as `ref(...)` did |
+| types/utils.yo | 17 | cell — control-bound/origin walks over flagged payloads (the ctl-return rule's input) |
+| evaluator/types/utils.yo | 10 | cell — `mark_generic_independent` and marker plumbing |
+| types/type_key.yo | 8 | carry — the flag is part of a type's identity key |
+| types/definitions.yo | 8 | carry — node constructors |
+| evaluator/types/enum.yo | 8 | cell + 1 edit (the recursive-value-enum hint names `Box`, `ArrayList`, `Rc`) |
+| codegen/types/generation.yo | 8 | cell — the counted-header C layout fires for `__yo_cell` payloads (`Rc`/`Arc`) |
+| evaluator/trait_checking.yo | 6 | cell — Send/Sync/Runtime/Comptime marker derivation for flagged payloads + 1 edit (the impl-site message's reference-type list) |
+| verifier/vc.yo | 4 | carry — sort nodes carry the flag |
+| types/creators.yo | 4 | carry |
+| evaluator/calls/helper.yo | 4 | cell — dispatch notes |
+| codegen/utils/index.yo | 4 | dead-ish — the `ref(enum)` Index arms are unreachable from user code now; the reserved primitives can still spell them (kept) |
+| codegen/exprs/comptime_value.yo | 4 | cell — embedding a comptime value of a flagged payload |
+| doc/builder.yo | 3 | cell — `StructKind.Object`/`AtomicObject` for cell payloads (tests/type_reflection pins both kinds through `__yo_cell`) |
+| types/compatibility.yo | 2 | carry — structural compare |
+| evaluator/values/anonymous_module.yo | 2 | cell — begin-expr ordering for flagged payloads |
+| evaluator/utils.yo | 2 + 2 | cell — `_lb_is_cell_type` (E0910/E0911 roots) + 2 edits (the move-only help texts' `ref(struct(...))` mention) |
+| evaluator/module_loader.yo | 2 | cell — deserialization stamps the flag |
+| evaluator/exprs/extern.yo, c_include.yo | 2 + 2 | cell — extern value marshalling |
+| evaluator/exprs/assignment.yo | 2 | cell — assignment through flagged payloads |
+| evaluator/calls/comptime_fn.yo | 2 | cell — comptime reflection over flagged payloads |
+| codegen/functions/dyn.yo | 2 | cell — the box rules for reference/atomic payloads (`Arc(Dyn)` interim cells) |
+| codegen/exprs/other_fn_call.yo | 2 | cell — call emission through handles |
+| types/substitution.yo, types/intern.yo, evaluator/values/impl.yo, evaluator/exprs/initialization_assignment.yo, evaluator/calls/index_trait.yo, evaluator/calls/function.yo, evaluator/builtins/type_fns.yo, evaluator/builtins/sizeof.yo, codegen/exprs/property_access.yo, codegen/exprs/await.yo | 1 each | cell — substitution carries, interning keys, phase-A registration, init-assignment through payloads, Index dispatch notes, call-site rules, `Type.get_info` kinds (pinned by tests), `sizeof` of a counted layout, property access through handles, the E0911 await check |
+
+Diagnostics text that named the deleted form (all edited here):
+`diagnostics_registry.yo` E0901 (both languages), E0910, E0911, E0919;
+`evaluator/utils.yo`'s two move-only helps; `trait_checking.yo`'s impl-site
+message; `public_safe_report.yo`'s `ref(name) : T` example;
+`evaluator/types/enum.yo`'s recursion hint. One check deleted outright:
+struct.yo's reserved-`header`-field rejection (its input was exclusively a
+user `ref(struct)`; the cli case that pinned it is removed with it).
+
+One behavioral consequence recorded for the audit lane: `YO_AUDIT_RC_WRITE`'s
+user-facing surface is empty post-drop — an `Rc`/`Arc` payload write is
+E0919, a `RefCell` door write is behind the door, and `Rc.make_mut`'s result
+is a value place, so no user-spelled write through a counted handle reaches
+codegen (tests/cli-cases/audit-rc-write-census now pins the negatives).
 
 ## Verification
 

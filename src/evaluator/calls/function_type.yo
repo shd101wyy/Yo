@@ -237,6 +237,7 @@ PendingDefEval :: struct(
   /// in the body (Phase 6 step 2, census site #4), not a forward reference.
   fwd_vars : ArrayList(Variable)
 );
+derive(PendingDefEval, Clone);
 (g_pending_def_evals : RefCell(ArrayList(PendingDefEval))) = RefCell(ArrayList(PendingDefEval)).new(ArrayList(PendingDefEval).new());
 (mut(g_rerunning_def_evals) : bool) = false;
 /// Trial-evaluates a definition-time body, non-fatally. On success the
@@ -1138,7 +1139,7 @@ _rerun_pending_def_evals :: (fn(caller_env : &Environment, ctx : &EvalContext) -
   (rp_i : usize) = usize(0);
   while(rp_i < g_pending_def_evals.with(_c_len_3), {
     match(
-      g_pending_def_evals.with({ rp_i }(xs) => xs.get(rp_i)),
+      g_pending_def_evals.with({ rp_i }(xs) => xs.get_cloned(rp_i)),
       .Some(pd) => {
         rp_env := _build_def_time_body_env(
           caller_env,

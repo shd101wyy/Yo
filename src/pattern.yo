@@ -1938,7 +1938,7 @@ _coverage_rows :: (fn(arms : &ArrayList(Arm), upto : usize, count_guarded : bool
   (i : usize) = usize(0);
   while(i < upto, {
     match(
-      arms.get(i),
+      arms.get_cloned(i),
       .Some(a) => {
         if(count_guarded || a.guard.is_none(), {
           rows.push(_row_of(&a.pattern));
@@ -2043,7 +2043,7 @@ _part_reach :: (fn(part : &Pattern, whole : bool, rows : &ArrayList(ArrayList(Pa
 /// index is the instantiation's, and an arm for a variant this instantiation
 /// excludes still serves the others.
 arm_reachability :: (fn(arms : &ArrayList(Arm), i : usize, scrutinee_ty : &TypeValue, gadt_exact : bool) -> ArmReach)({
-  arm := match(arms.get(i), .Some(a) => a, .None => return(ArmReach.Reachable));
+  arm := match(arms.get_cloned(i), .Some(a) => a, .None => return(ArmReach.Reachable));
   if(((i + usize(1)) == arms.len()) && arm.guard.is_none(), {
     if(_head_is_wild(&arm.pattern), {
       return(ArmReach.Reachable);
