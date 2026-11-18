@@ -979,9 +979,22 @@ _bind_projection_result :: (
       exn.throw(dyn(Box.new(with_code(format_error_message(ast_expr_token(&root.arg), _projection_temporary_message(&var_name, &call_text, &root.arg)), E_LOCAL_BORROW_CONFLICT))));
     });
     // A holder passed by value (N1e-2): the places its references point
-    // into, as its own binding froze them (`origin_of`).
+    // into, as its own binding froze them (`origin_of`). A reference
+    // BINDING passed bare (`pick(rx, ry)` with `rx := xs.index(0)`) is read
+    // at its POINTEE's type by the read rule, so the type gate alone misses
+    // it: its registered places — what `rx` itself borrows — are the
+    // result's roots (audit A56).
+    root_arg_is_ref_binding := match(
+      &root.arg,
+      Rc(.Atom(_, _)) => match(
+        get_variables_from_env(env, ast_expr_token(&root.arg).value.*.clone()).last_cloned(),
+        .Some(rarv) => variable_is_reference_binding(&rarv),
+        .None => false
+      ),
+      _ => false
+    );
     holder_roots := if(
-      !root.is_mut && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&root.arg)), .Some(hri) => type_carries_origin(&hri.ty()), .None => false),
+      !root.is_mut && (root_arg_is_ref_binding || match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&root.arg)), .Some(hri) => type_carries_origin(&hri.ty()), .None => false)),
       origin_of(&root.arg, env, ctx),
       ArrayList(OriginRootPlace).new()
     );

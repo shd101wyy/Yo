@@ -9669,10 +9669,26 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
       // field's): its root. A COMPUTED reference — a call's result,
       // `first(&xs)`, a method call over a temporary, `mkx().get()` — is no
       // place: reading it as a lend of itself pushed nothing, so the value
-      // froze no one (audit A5, and A23's inner-projection half). It falls
-      // through to the call's own origin (R-CALL below) instead of
-      // returning that set.
-      if(local_borrow_place_of(&stripped, env, ctx).is_some(), {
+      // froze no one (audit A5, and A23's inner-projection half). A call OF
+      // a closure or fn value (`pick(rx, ry)`, a local binding) computes its
+      // result too: the walk reads the callee's name as the place, which
+      // would freeze the closure instead of the places its reference
+      // arguments lend (audit A56). Both fall through to the call's own
+      // origin (R-CALL below) instead of returning that set.
+      (callee_is_value : bool) = match(
+        &stripped,
+        Rc(.FnCall(_, cr_callee, _, _, _)) => match(
+          cr_callee,
+          Rc(.Atom(_, _)) => match(
+            get_variables_from_env(env, ast_expr_token(cr_callee).value.*.clone()).last_cloned(),
+            .Some(sv) => !sv.is_compile_time_only(),
+            .None => false
+          ),
+          _ => false
+        ),
+        _ => false
+      );
+      if(!callee_is_value && local_borrow_place_of(&stripped, env, ctx).is_some(), {
         _origin_push_place(&stripped, rec_mut, env, ctx, out);
         return(());
       });
@@ -9682,11 +9698,11 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
   // R-NONE: an expression whose type carries no origin has no set — EXCEPT a
   // call whose callee's result IS a reference: a reference VALUE in an
   // argument or binding position (a call's result passed bare to a `&`
-  // parameter, `wrap(first(&xs))`, a method's `mkx().get()`) is read at its
-  // POINTEE's type there (the read rule), so `fi.ty()` names the pointee
-  // while the value the position receives is the reference — R-CALL below
-  // computes its roots from the callee's own result (audit A5, A23's
-  // inner-projection half).
+  // parameter, `wrap(first(&xs))`, a method's `mkx().get()`, a closure call
+  // `pick(rx, ry)`) is read at its POINTEE's type there (the read rule), so
+  // `fi.ty()` names the pointee while the value the position receives is the
+  // reference — R-CALL below computes its roots from the callee's own
+  // result (audit A5, A23's inner-projection half, A56).
   if(!type_carries_origin(&fi.ty()), {
     (callee_result_may_carry : bool) = match(
       &stripped,
@@ -9699,7 +9715,20 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
       ),
       _ => false
     );
-    if(!callee_result_may_carry, {
+    // An ATOM naming a reference binding is read at its POINTEE's type in
+    // the same positions (`pick(rx, ry)` with `rx := xs.index(0)`, audit
+    // A56): the binding's registered places are the value's origin (the
+    // atom branch below), never the pointee's empty set.
+    (root_is_ref_binding : bool) = match(
+      &stripped,
+      Rc(.Atom(_, _)) => match(
+        get_variables_from_env(env, ast_expr_token(&stripped).value.*.clone()).last_cloned(),
+        .Some(cnr_sv) => variable_is_reference_binding(&cnr_sv),
+        .None => false
+      ),
+      _ => false
+    );
+    if(!callee_result_may_carry && !root_is_ref_binding, {
       return(());
     });
   });

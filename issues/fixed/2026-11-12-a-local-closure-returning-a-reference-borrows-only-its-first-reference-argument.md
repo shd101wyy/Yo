@@ -1,5 +1,17 @@
 # A local closure returning a reference borrows only its first reference argument
 
+**Status: FIXED in v0.2.79.** Measured on the v0.2.79 develop tip, the call's result froze NOTHING (swapping the
+arguments was accepted too). Two gaps, both closed in `src/evaluator/`: (1) the closure call's `ExprInfo.ty()` is
+its POINTEE (`i32`) — the read rule types the value at the pointee — so `_origin_of_into`'s R-NONE returned the
+empty set before R-CALL could root the result at its reference arguments; R-NONE now continues for a call whose
+callee's declared result is a reference, and for an ATOM naming a reference binding (its registered places are the
+value's origin — `pick`'s `rx`/`ry` lend `(xs)`/`(ys)`); (2) `_bind_projection_result`
+(`exprs/initialization_assignment.yo`) read a root argument that is a reference binding by its pointee-typed
+`ExprInfo` only — it now also takes `origin_of` of one, so the binding registers the places the arguments
+themselves borrow. `picked` borrows both lists and `ys.push` is E0911. G-B rows:
+`tests/origins/unsound/a56-local-closure-ref-result-second-arg.yo` (E0911) and
+`a56-local-closure-ref-result-second-arg-pos.yo` (accept).
+
 **Severity:** S1 — use-after-free in safe code: `picked := pick(rx, ry)` through a local closure `(fn(a : &i32, b : &i32) -> &i32)(&b.*)` freezes only `rx`'s list, so `ys.push(...)` reallocates the buffer `picked` points into and the read after it is an ASan heap-use-after-free.
 
 - Filed: 2026-11-12 (smpick lane, while probing the shapes of the generic by-value result hole, `issues/fixed/2026-11-12-a-generic-by-value-result-at-a-reference-type-drops-its-second-arguments-origin.md`).
