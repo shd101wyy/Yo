@@ -1,5 +1,16 @@
 # A `match` arm binding over a reference bound from a call result does not keep the root frozen
 
+**Status: the remaining half WALLED in v0.2.79.** The `&mut` reference binding matched bare (m20, m04, m03e) is
+now REJECTED with E0910 at the scrutinee when the match is in `&mut` mode: the arm bindings would borrow the
+binding's referent while the place model cuts a place at `.*` (`r.* = …`, a write through the reference, and
+`r = …`, decision 25's re-point, are the same place `r`), so their loan cannot be registered without rejecting
+every legal re-point (`src/evaluator/exprs/match.yo`, the `mut_places` block). The wall names the safe spelling —
+`match(&mut r.*, …)` lends the referent explicitly and registers the arm bindings' loans at it (E0911 when a
+write overlaps them, accepted after their last use) — and a reference PARAMETER matched bare stays sound and
+accepted. A deref step in `LocalBorrowPlace` remains the real fix (shared with the `modes` and `flow` lanes).
+G-B row: `tests/origins/unsound/a3-match-mut-reference-binding-bare.yo` (E0910). Everything else in this
+document's tables was fixed by `fix/c3-value-origins` (2026-11-13, below).
+
 **Severity:** S1. `b := idr(&x); match(b, .Some(p) => { x = .None; p.*.s.len() }, …)` passes `yo check`: the arm
 overwrites the root while the payload binding `p` still points into it, and the read is a use-after-free (ASan:
 SEGV through the freed cell). Present in the released v0.2.76 as well as on develop.
