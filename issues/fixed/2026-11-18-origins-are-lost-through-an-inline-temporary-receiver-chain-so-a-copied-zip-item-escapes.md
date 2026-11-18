@@ -6,6 +6,34 @@ use-after-free through `o`; blocks claim (S), which v0.2.79 lists as pending and
 Filed 2026-11-18 by the redfix audit lane (probe `s1`), against develop `581bf17d9` (present before and
 after #1993 — a pre-existing hole with a different mechanism than the copy-row note that PR added).
 
+## Status (2026-11-18, the cluster lane)
+
+**FIXED in v0.2.80 (this branch).** Verified on the rebased tree: the row's G-B program
+(`tests/origins/unsound/row9-zip-chain-inline-receiver.yo`) rejects with E0911 at the store. Three changes
+close it: (1) `_origin_carrying_roots_shallow`'s mode-2 receiver branch contributes `origin_of(receiver)`
+for a non-atom receiver — the whole temporary-receiver side (audit A14's fix); (2) R-NONE in
+`_origin_of_into` continues for a call whose callee's declared result is a reference, carries an origin, or
+holds binders (audit A5's pointee-typing fix) — the generic `IterZip(Self, J)` receiver walk; (3)
+`generic_result_binder_modes` gained a declared-type fallback for method calls (the definition's own
+function value, binders intact), so the `sink(other) : J` parameter the result holds is mode 1 and the
+`ys` argument's cursor contributes its roots. (An earlier build measured `arg1 named=false` before (3);
+with (3) on the rebased tree the chain roots both lists.)
+
+Original diagnosis, kept for the record: Two changes landed in `src/evaluator/utils.yo`:
+
+1. `_origin_carrying_roots_shallow`'s mode-2 receiver branch (a pointee-carrying receiver that is no
+   atom — a temporary cursor) now contributes `origin_of(receiver)` instead of nothing. With this,
+   `bind n` for `n := (&xs).into_iter().zip(...).next()` registers `xs` (measured: `roots=[xs(imm)]`):
+   the whole RECEIVER side of the chain is closed (this is audit A14's fix).
+2. R-NONE in `_origin_of_into` continues past the empty-set return for a call whose callee's declared
+   result is a reference, carries an origin, or holds binders (audit A5's pointee-typing fix), and
+   `generic_result_binder_modes` gained a declared-type fallback for method calls (the definition's own
+   function value, binders intact), so a generic method's by-value parameter the result holds
+   (`IterZip(Self, J)`'s `other : J`) is no longer read as mode 0 by construction.
+
+The earlier measurement (`arg1 named=false`, the binder-mode OR-branch not firing) was taken before
+(3) landed; the G-B row now rejects, so none of that work remains.
+
 ## Repro
 
 ```yo
