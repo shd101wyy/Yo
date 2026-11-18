@@ -5158,6 +5158,86 @@ _check_call_value_root_overlap :: (fn(lends : &ArrayList(_CallLend), env : &Envi
     );
   });
 });
+/// Decision 28's argument-exclusivity rule over the ELEMENTS of a tuple
+/// literal (audit A17): the elements evaluate in order exactly as a call's
+/// arguments do, and the tuple holds each lend (`&x`, `&mut x`) from its
+/// element's evaluation for the literal's own life, so a place an element
+/// lends may not be moved, overwritten or lent `&mut` by a LATER element —
+/// `(&x, x)` drops the place the first element still points into,
+/// `(&mut x, &mut x)` gives two live `&mut` references to one place — the
+/// same rule a call's argument list runs
+/// (`_check_call_lent_place_moves`), with the tuple's message. Two `&`
+/// lends of one place (`(&x, &x)`) pass, as two `&` arguments do.
+check_tuple_element_lends :: (fn(elements : &ArrayList(AstExpr), env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+  // The gate: a tuple with no lend element (most tuples — plain values)
+  // checks nothing, and no pairwise walk runs.
+  (has_lend : bool) = false;
+  (ei : usize) = usize(0);
+  while(ei < elements.len(), ei = (ei + usize(1)), {
+    elem := match(elements.get_cloned(ei), .Some(a) => _dyn_lend_unwrapped(_unlabeled_argument(&a)), .None => make_err_expr());
+    if(_lent_argument_place(&elem).is_some(), {
+      has_lend = true;
+    });
+  });
+  if(!has_lend, {
+    return(());
+  });
+  (li : usize) = usize(0);
+  while(li < elements.len(), li = (li + usize(1)), {
+    lent_i := _dyn_lend_unwrapped(_unlabeled_argument(&match(elements.get_cloned(li), .Some(a) => a, .None => make_err_expr())));
+    match(
+      _lent_argument_place(&lent_i),
+      .Some(place) => match(
+        _lent_place_of(&place, ctx),
+        .Some(lp) => {
+          root := ast_expr_to_string(&lp.root);
+          match(
+            _lent_root_moved_at(&lp, env, ctx),
+            .Some(moved_atom) => {
+              raise_flow_violation(
+                with_code(
+                  format_error_message_with_help(
+                    ast_expr_token(&moved_atom),
+                    `This tuple literal's element moves \`${root}\`, which an earlier element of the same literal lends (\`${ast_expr_to_string(&lent_i)}\`): the tuple holds that borrow from the moment its element is evaluated, so a later element would drop the place it still points into (decision 28's argument exclusivity, plans/VALUES_BY_DEFAULT.md).`,
+                    Option(String).Some(String.from("compute the moving element before the tuple (`b := x; t := (&x, b)`), or lend and move different places"))
+                  ),
+                  E_BORROW_CONFLICT
+                ),
+                ctx,
+                exn
+              );
+            },
+            .None => ()
+          );
+          (aj : usize) = (li + usize(1));
+          while(aj < elements.len(), aj = (aj + usize(1)), {
+            elem_j := match(elements.get_cloned(aj), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr());
+            match(
+              _find_lent_place_access(&elem_j, &lp, ctx),
+              .Some(hit) => {
+                raise_flow_violation(
+                  with_code(
+                    format_error_message_with_help(
+                      ast_expr_token(&hit.0),
+                      `This tuple literal's element ${hit.1} \`${root}\`, which an earlier element of the same literal lends (\`${ast_expr_to_string(&lent_i)}\`): the tuple holds that borrow from the moment its element is evaluated, so it would hold a reference to a place a later element replaced, or one two borrows reach at once (decision 28's argument exclusivity, plans/VALUES_BY_DEFAULT.md).`,
+                      Option(String).Some(String.from("compute the later element before the tuple (`k := ...; t := (&x, k)`), or lend and move different places"))
+                    ),
+                    E_BORROW_CONFLICT
+                  ),
+                  ctx,
+                  exn
+                );
+              },
+              .None => ()
+            );
+          });
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+  });
+});
 /// Decision 43's ref-cell extension of decision 28's value-root rule
 /// (B8-Q3): within one call, a place an argument lends exclusively may not
 /// overlap a place below the same reference cell another argument lends.
@@ -15790,5 +15870,5 @@ Fix: wrap the call:
     }
   )
 });
-export(evaluate_function_call, reject_destructor_member_read);
+export(evaluate_function_call, reject_destructor_member_read, check_tuple_element_lends);
 export(MACRO_DISPATCH_ENABLED);
