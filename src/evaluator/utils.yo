@@ -9806,14 +9806,17 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
   // `pick(rx, ry)`) is read at its POINTEE's type there (the read rule), so
   // `fi.ty()` names the pointee while the value the position receives is the
   // reference — R-CALL below computes its roots from the callee's own
-  // result (audit A5, A23's inner-projection half, A56).
+  // result (audit A5, A23's inner-projection half, A56). A result whose
+  // declared type carries an origin or holds binders (a generic
+  // specialization, `IterZip(Self, B)`) continues too: its specialization
+  // may carry what the recorded node-level type dropped.
   if(!type_carries_origin(&fi.ty()), {
     (callee_result_may_carry : bool) = match(
       &stripped,
       Rc(.FnCall(_, _, _, cnr_infix, _)) => (
         !cnr_infix.* && match(
           projection_call_callee_type(&stripped, ctx),
-          .Some(cnr_ft) => (fn_result_is_ref(&cnr_ft) || fn_result_is_mut_ref(&cnr_ft)),
+          .Some(cnr_ft) => (fn_result_is_ref(&cnr_ft) || (fn_result_is_mut_ref(&cnr_ft) || (type_carries_origin(&fn_result_slot(&cnr_ft)) || (get_all_some_types(&fn_result_slot(&cnr_ft)).len() > usize(0))))),
           .None => false
         )
       ),
@@ -10599,7 +10602,19 @@ _origin_carrying_roots_shallow :: (fn(e : &AstExpr, env : &Environment, ctx : &E
           }, if(ast_expr_is_atom(&recv_place), _holder_roots_into(&recv_place, env, ctx, out))),
           .None => ()
         ),
-        (recv_mode == u8(2)) => if(ast_expr_is_atom(&recv_place), _holder_roots_into(&recv_place, env, ctx, out)),
+        (recv_mode == u8(2)) => if(
+          ast_expr_is_atom(&recv_place),
+          _holder_roots_into(&recv_place, env, ctx, out),
+          // A pointee-carrying receiver that is no atom — a temporary
+          // cursor, `(&xs).into_iter().next()`, an adapter's
+          // `.skip(…).next()` — contributes what the receiver EXPRESSION
+          // holds: the cursor a call made holds the places that call lent
+          // (R-CALL over the receiver), exactly as a bound cursor's
+          // registered entries do (audit A14; without this the item
+          // `next()` returns froze nothing and the collection could be
+          // reallocated under it).
+          _origin_of_into(&recv_place, env, ctx, out, u32(1))
+        ),
         true => ()
       );
     },
