@@ -38,14 +38,12 @@ Builder :: struct(
 
 impl(
   Builder,
-  {
-    first : (fn(self : &mut Self) -> unit)({
-      self.items.push(Rc.new(ElemNode.Leaf(i32(1))));
-    }),
-    second : (fn(self : &mut Self, more : i32) -> unit)({
-      self.items.push(Rc.new(ElemNode.Leaf(more)));
-    })
-  }
+  first : (fn(self : &mut Self) -> unit)({
+    self.items.push(Rc.new(ElemNode.Leaf(i32(1))));
+  }),
+  second : (fn(self : &mut Self, more : i32) -> unit)({
+    self.items.push(Rc.new(ElemNode.Leaf(more)));
+  })
 );
 ```
 
