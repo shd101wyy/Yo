@@ -1,5 +1,14 @@
 # The item `next()` returns from a temporary cursor carries no loan of the collection
 
+**Status: FIXED in v0.2.79.** `_origin_carrying_roots_shallow`'s receiver branch (`src/evaluator/utils.yo`) read a
+pointee-carrying receiver's (mode 2) holder roots only when the receiver was an ATOM — a bound cursor whose `bind`
+registered the collection. A receiver that is itself a call — the temporary cursor `(&xs).into_iter()`, an
+adapter's `.skip(…)` — now contributes `_origin_of_into(receiver)` instead: the cursor a call makes holds the
+places that call lent (R-CALL over the receiver), so `a := (&xs).into_iter().next()` carries `{(xs, &)}` and the
+`xs.push` that reallocates the list under `a` is E0911, exactly as the bound-cursor form already was. G-B rows:
+`tests/origins/unsound/a14-tmp-cursor-item-no-loan.yo`, `a14-tmp-user-cursor-item-no-loan.yo` (E0911) and
+`a14-tmp-cursor-item-pos.yo` (accept).
+
 **Severity:** S1. `a := (&xs).into_iter().next()` passes `yo check` with `a` carrying no loan of `xs`: the list is
 then grown (reallocated) and `a`'s `&String` is read (ASan: heap-use-after-free). The same with a user cursor
 built through `impl(&(Bag, p), IntoIterator)`, through the `skip`/`take` adapters, and through an identity
