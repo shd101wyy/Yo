@@ -42,7 +42,7 @@ about the caller for a property of the callee's signature.
 
 (An empty-bodied `reset` is accepted beside a live handle. That is the open
 rule-G item,
-`issues/2026-11-12-a-mut-argument-to-a-callee-that-neither-writes-nor-lends-it-is-a-read.md`,
+`issues/fixed/2026-11-12-a-mut-argument-to-a-callee-that-neither-writes-nor-lends-it-is-a-read.md`,
 not a new finding.)
 
 ## Options
