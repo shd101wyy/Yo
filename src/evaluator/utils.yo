@@ -13268,8 +13268,27 @@ return_check :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : 
       while(oi < roots.len(), {
         match(
           get_variables_from_env(env, roots(oi).place.root_name.clone()).last_cloned(),
-          .Some(rv) => if(
-            rv.is_parameter(),
+          .Some(rv) => if(rv.is_parameter(), {
+            // A by-value parameter's slot is a local of this function — the
+            // callee's own frame, which the call ends — so a result holding
+            // a root at it is E0912 whatever the result spells (audit A10;
+            // the signature's `_result_origin_names_into` rejects the
+            // spelled `-> &(T, xs)` form, this is the value side, and only
+            // a reference-typed parameter's place may be named).
+            if(!t_slot_is_borrow(&variable_slot_type(&rv)), {
+              raise_flow_violation(
+                with_code(
+                  format_error_message_with_help(
+                    ast_expr_token(e),
+                    `Cannot return a value holding \`${_lb_place_text(&roots(oi).place)}\`: the origin names the by-value parameter \`${rv.name}\`, whose place is the callee's own frame, which the call ends, so no reference into it outlives the call (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O3).`,
+                    Option(String).Some(`take it by reference, \`${rv.name} : &T\`, and name it in the result's origin, or return an owned value`)
+                  ),
+                  E_LOCAL_BORROW_ESCAPES
+                ),
+                ctx,
+                exn
+              );
+            });
             match(
               &cr_ft,
               .Some(cr_t) => match(
@@ -13298,22 +13317,21 @@ return_check :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : 
                 .None => ()
               ),
               .None => ()
-            ),
-            if(!rv.is_module_level(), {
-              raise_flow_violation(
-                with_code(
-                  format_error_message_with_help(
-                    ast_expr_token(e),
-                    `Cannot return a value holding \`${_lb_place_text(&roots(oi).place)}\`: the origin names a local of this function, and a result may name only origin parameters or reference-typed parameters' places (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O3).`,
-                    Option(String).Some(String.from("build the result over a parameter's place, or return an owned value"))
-                  ),
-                  E_LOCAL_BORROW_ESCAPES
+            );
+          }, if(!rv.is_module_level(), {
+            raise_flow_violation(
+              with_code(
+                format_error_message_with_help(
+                  ast_expr_token(e),
+                  `Cannot return a value holding \`${_lb_place_text(&roots(oi).place)}\`: the origin names a local of this function, and a result may name only origin parameters or reference-typed parameters' places (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O3).`,
+                  Option(String).Some(String.from("build the result over a parameter's place, or return an owned value"))
                 ),
-                ctx,
-                exn
-              );
-            })
-          ),
+                E_LOCAL_BORROW_ESCAPES
+              ),
+              ctx,
+              exn
+            );
+          })),
           // R-ARM's scope rule: a result over a binding of the block or arm
           // that produced it (its own local, gone before the caller reads).
           .None => if(roots(oi).place.root_name == ORIGIN_LOST_ROOT, {

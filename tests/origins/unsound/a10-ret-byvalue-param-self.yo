@@ -1,0 +1,17 @@
+// expect: E0912
+// The same through a by-value `self`: `head` consumes the bag and returns a reference into
+// its list, which is dropped with `self` when `head` returns: heap-use-after-free.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+long :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+Bag :: struct(items : ArrayList(String));
+impl(Bag, head : (fn(self : Self, a : &String) -> Option(&String))(.Some(self.items.index(usize(0)))));
+main :: (fn() -> unit)({
+  t := long();
+  mut(ys) := ArrayList(String).new();
+  ys.push(long());
+  o := Bag(items : ys).head(&t);
+  match(o, .Some(r) => println(`OUT: ${r.clone()}`), .None => ());
+});
+export(main);
