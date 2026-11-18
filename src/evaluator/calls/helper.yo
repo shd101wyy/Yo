@@ -3504,6 +3504,133 @@ _somes_are_closure_forall_args :: (fn(somes : &ArrayList(TypeValue), forall_args
   });
   true
 });
+/// The specialized body's evaluation plus its result-type checks (E0604),
+/// run under a TRAP: any error unwinds out of THIS fn carrying the error
+/// (`_create_specialization_trapped`'s trap pattern), so
+/// `create_specialized_function_inline` can restore the evaluation context
+/// it mutated (ctx.self_type, expected_type, captured_variables, the
+/// where-trait stack, ...) on EVERY exit before re-raising through its real
+/// `exn`. Without the trap, a handler installed far above — a verify-mode
+/// callsite-ensures drop (`_callsite_ensures_or_drop`), a definition-time
+/// body-trial swallow — catches the throw directly and the restores are
+/// skipped: the cleared `ctx.self_type` then leaks into every later
+/// evaluation of the file
+/// (issues/fixed/2026-11-18-a-dropped-callsite-ensures-clause-leaks-a-cleared-self-type-into-later-evaluations.md).
+/// The evaluated body is pushed to `out` on success only.
+_eval_and_check_specialized_body :: (
+  fn(
+    cloned_body : &AstExpr,
+    callee_env : &Environment,
+    ctx : &mut EvalContext,
+    spec_ret_ty : &TypeValue,
+    func_type : &TypeValue,
+    forall_names : &ArrayList(String),
+    forall_args : &ArrayList(ArgEntry),
+    out : &mut ArrayList(AstExpr)
+  ) -> Option(AnyError)
+)({
+  // A block, not a bare `e -> unwind(...)` body: a seed before v0.2.73
+  // releases a bare body's parameter before the operand reads it
+  // (issues/fixed/2026-10-29-a-handler-whose-body-is-a-bare-unwind-releases-its-parameter-before-the-operand-reads-it.md).
+  spec_trap := Exception(
+    throw : (
+      e -> {
+        unwind(Option(AnyError).Some(e));
+      }
+    )
+  );
+  specialized_body := evaluate_begin_expression(
+    cloned_body,
+    callee_env,
+    ctx,
+    ArrayList(Variable).new(),
+    true,
+    spec_trap
+  );
+  out.push(Rc.clone(specialized_body));
+  // Result-type check for a SPECIALIZED body (E0604): the concrete
+  // path's check in calls/function_type.yo skips any signature that
+  // mentions a SomeT, deferring to this point, where both sides are
+  // concrete. Nothing compared them here, so `(fn(comptime(T) :
+  // Type, x : T) -> i32)(true)` and `(fn(generic(T : Type), x : T) ->
+  // i32)(true)` compiled and returned a reinterpreted `bool`
+  // (issues/fixed/generic-fn-body-is-not-checked-against-its-declared-result-type.md).
+  // Same guards as the concrete path: a control-flow tail never
+  // falls through; `void`, `Type`-kinded and `ref` results are judged
+  // elsewhere; a SomeT that is still open after specialization (an
+  // impl-level binder the call does not bind) resolves further out.
+  match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&specialized_body)),
+    .Some(sb_info) => {
+      sb_ty := Rc.clone(sb_info.ty());
+      sb_ret_is_ref := fn_result_is_ref(func_type);
+      // A specialized body ending in a `never` expression adopts the
+      // declared result (Phase 3.6; the concrete twin is in
+      // calls/function_type.yo).
+      if(is_never_type(&sb_ty) && (get_all_some_types(spec_ret_ty).len() == usize(0)), {
+        adopt_never_type(&specialized_body, if(sb_ret_is_ref, t_ptr(spec_ret_ty), Rc.clone(spec_ret_ty.*)), ctx);
+      });
+      // Decision 38 A: a second-class value is never returned, which a
+      // specialization checks per instantiation (`Impl(Fn)` bodies).
+      if(!has_any_control_flow(sb_info.control_flow()), {
+        // Decision 44: a callable result into `Dyn(Fn(...))` is `dyn(f)`.
+        if(!sb_ret_is_ref, {
+          reject_bare_callable_result(spec_ret_ty, &sb_ty, cloned_body, ctx, spec_trap);
+        });
+        reject_second_class_return(&sb_ty, ast_expr_token(cloned_body), callee_env, ctx, spec_trap);
+      });
+      sb_skip := (has_any_control_flow(sb_info.control_flow()) || is_void_type(spec_ret_ty) || is_type_hierarchy_type(spec_ret_ty) || (get_all_some_types(spec_ret_ty).len() == usize(0)) || (get_all_some_types(&sb_ty).len() == usize(0)) || sb_ret_is_ref);
+      // A projection's specialized body yields its place's address,
+      // the concrete path's decision-24 check per instantiation: a
+      // tail that forwards another projection call (`r.get()` for
+      // `-> &T`) is typed `T` here, and codegen returned the value
+      // where the C function returns a pointer
+      // (issues/fixed/2026-11-08-a-generic-fn-forwarding-a-projection-call-as-its-reference-tail-emits-a-value.md).
+      // A `dyn(&v)` / reference-`upcast` tail (its unsize-reference
+      // mode noted) is the projection of the lent place: the fat pair
+      // it lowers to is the reference result, with no rewrite.
+      if(sb_ret_is_ref && !has_any_control_flow(sb_info.control_flow()) && (get_all_some_types(spec_ret_ty).len() == usize(0)) && (get_all_some_types(&sb_ty).len() == usize(0)) && unsize_reference_mode(ast_expr_id(&specialized_body)).is_none() && !are_types_compatible(&sb_ty, &t_ptr(spec_ret_ty)), {
+        spec_trap.throw(dyn(Box.new(format_error_message(projection_tail_diag_token(cloned_body), projection_body_mismatch_message(spec_ret_ty, fn_result_is_mut_ref(func_type), &sb_ty, &specialized_body, ctx)))));
+      });
+      if(!sb_skip && !are_types_compatible(&sb_ty, spec_ret_ty), {
+        sb_inst := String.new();
+        (sbi : usize) = usize(0);
+        while((sbi < forall_names.len()) && (sbi < forall_args.len()), {
+          match(
+            forall_args.get(sbi),
+            .Some(sb_fa) => match(
+              sb_fa.value.clone(),
+              .Some(sb_fv) => {
+                sb_inst.push_str(if(sb_inst.len() == usize(0), " (instantiated with ", ", "));
+                sb_inst.push_string(match(forall_names.get_cloned(sbi), .Some(n) => n, .None => String.new()));
+                sb_inst.push_str(" = ");
+                sb_inst.push_string(value_to_string(&sb_fv));
+              },
+              .None => ()
+            ),
+            .None => ()
+          );
+          sbi = (sbi + usize(1));
+        });
+        if(sb_inst.len() > usize(0), {
+          sb_inst.push_str(")");
+        });
+        spec_trap.throw(
+          dyn(
+            Box.new(
+              format_error_message(
+                ast_expr_token(cloned_body),
+                `Function body has type \`${type_to_string(&sb_ty)}\`, but the declared result type is \`${type_to_string(spec_ret_ty)}\`${sb_inst}.`
+              )
+            )
+          )
+        );
+      });
+    },
+    .None => ()
+  );
+  Option(AnyError).None
+});
 create_specialized_function_inline :: (
   fn(
     original_func_val : &EvalValue,
@@ -5071,95 +5198,34 @@ create_specialized_function_inline :: (
             });
           };
           push_active_where_trait_ids(&spec_where_ids);
-          specialized_body := evaluate_begin_expression(
+          // The body eval and its result-type checks run under a trap (the
+          // `_create_specialization_trapped` pattern): an error unwinds out
+          // of the helper carrying the error, so the context restores below
+          // run on EVERY exit before it is re-raised through the real `exn`.
+          // A handler installed far above — a verify-mode callsite-ensures
+          // drop, a definition-time body-trial swallow — would otherwise
+          // catch the throw with this fn's ctx mutations still in place:
+          // the `ctx.self_type` cleared by the b1 branch above stayed
+          // `None` after a dropped `ArrayList.push` ensures clause compared
+          // elements of a type without `Eq`, and `Self` stopped resolving
+          // in the NEXT impl member's signature
+          // (issues/fixed/2026-11-18-a-dropped-callsite-ensures-clause-leaks-a-cleared-self-type-into-later-evaluations.md).
+          sb_out := ArrayList(AstExpr).new();
+          sb_err := _eval_and_check_specialized_body(
             &cloned_body,
             callee_env,
             ctx,
-            ArrayList(Variable).new(),
-            true,
-            exn
+            &spec_ret_ty,
+            func_type,
+            &forall_names,
+            &arg_values.forall_args,
+            &mut sb_out
           );
           pop_active_where_trait_ids();
-          // Result-type check for a SPECIALIZED body (E0604): the concrete
-          // path's check in calls/function_type.yo skips any signature that
-          // mentions a SomeT, deferring to this point, where both sides are
-          // concrete. Nothing compared them here, so `(fn(comptime(T) :
-          // Type, x : T) -> i32)(true)` and `(fn(generic(T : Type), x : T) ->
-          // i32)(true)` compiled and returned a reinterpreted `bool`
-          // (issues/fixed/generic-fn-body-is-not-checked-against-its-declared-result-type.md).
-          // Same guards as the concrete path: a control-flow tail never
-          // falls through; `void`, `Type`-kinded and `ref` results are judged
-          // elsewhere; a SomeT that is still open after specialization (an
-          // impl-level binder the call does not bind) resolves further out.
-          match(
-            expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&specialized_body)),
-            .Some(sb_info) => {
-              sb_ty := Rc.clone(sb_info.ty());
-              sb_ret_is_ref := fn_result_is_ref(&func_type.*);
-              // A specialized body ending in a `never` expression adopts the
-              // declared result (Phase 3.6; the concrete twin is in
-              // calls/function_type.yo).
-              if(is_never_type(&sb_ty) && (get_all_some_types(&spec_ret_ty).len() == usize(0)), {
-                adopt_never_type(&specialized_body, if(sb_ret_is_ref, t_ptr(&spec_ret_ty), Rc.clone(spec_ret_ty)), ctx);
-              });
-              // Decision 38 A: a second-class value is never returned, which a
-              // specialization checks per instantiation (`Impl(Fn)` bodies).
-              if(!has_any_control_flow(sb_info.control_flow()), {
-                // Decision 44: a callable result into `Dyn(Fn(...))` is `dyn(f)`.
-                if(!sb_ret_is_ref, {
-                  reject_bare_callable_result(&spec_ret_ty, &sb_ty, &cloned_body, ctx, exn);
-                });
-                reject_second_class_return(&sb_ty, ast_expr_token(&cloned_body), callee_env, ctx, exn);
-              });
-              sb_skip := (has_any_control_flow(sb_info.control_flow()) || is_void_type(&spec_ret_ty) || is_type_hierarchy_type(&spec_ret_ty) || (get_all_some_types(&spec_ret_ty).len() > usize(0)) || (get_all_some_types(&sb_ty).len() > usize(0)) || sb_ret_is_ref);
-              // A projection's specialized body yields its place's address,
-              // the concrete path's decision-24 check per instantiation: a
-              // tail that forwards another projection call (`r.get()` for
-              // `-> &T`) is typed `T` here, and codegen returned the value
-              // where the C function returns a pointer
-              // (issues/fixed/2026-11-08-a-generic-fn-forwarding-a-projection-call-as-its-reference-tail-emits-a-value.md).
-              // A `dyn(&v)` / reference-`upcast` tail (its unsize-reference
-              // mode noted) is the projection of the lent place: the fat pair
-              // it lowers to is the reference result, with no rewrite.
-              if(sb_ret_is_ref && !has_any_control_flow(sb_info.control_flow()) && (get_all_some_types(&spec_ret_ty).len() == usize(0)) && (get_all_some_types(&sb_ty).len() == usize(0)) && unsize_reference_mode(ast_expr_id(&specialized_body)).is_none() && !are_types_compatible(&sb_ty, &t_ptr(&spec_ret_ty)), {
-                exn.throw(dyn(Box.new(format_error_message(projection_tail_diag_token(&cloned_body), projection_body_mismatch_message(&spec_ret_ty, fn_result_is_mut_ref(&func_type.*), &sb_ty, &specialized_body, ctx)))));
-              });
-              if(!sb_skip && !are_types_compatible(&sb_ty, &spec_ret_ty), {
-                sb_inst := String.new();
-                (sbi : usize) = usize(0);
-                while((sbi < forall_names.len()) && (sbi < arg_values.forall_args.len()), {
-                  match(
-                    arg_values.forall_args.get(sbi),
-                    .Some(sb_fa) => match(
-                      sb_fa.value.clone(),
-                      .Some(sb_fv) => {
-                        sb_inst.push_str(if(sb_inst.len() == usize(0), " (instantiated with ", ", "));
-                        sb_inst.push_string(match(forall_names.get_cloned(sbi), .Some(n) => n, .None => String.new()));
-                        sb_inst.push_str(" = ");
-                        sb_inst.push_string(value_to_string(&sb_fv));
-                      },
-                      .None => ()
-                    ),
-                    .None => ()
-                  );
-                  sbi = (sbi + usize(1));
-                });
-                if(sb_inst.len() > usize(0), {
-                  sb_inst.push_str(")");
-                });
-                exn.throw(
-                  dyn(
-                    Box.new(
-                      format_error_message(
-                        ast_expr_token(&cloned_body),
-                        `Function body has type \`${type_to_string(&sb_ty)}\`, but the declared result type is \`${type_to_string(&spec_ret_ty)}\`${sb_inst}.`
-                      )
-                    )
-                  )
-                );
-              });
-            },
-            .None => ()
+          specialized_body := match(
+            sb_out.get_cloned(usize(0)),
+            .Some(sb_b) => sb_b,
+            .None => make_err_expr()
           );
           // Snapshot the closure-spec capture recording BEFORE restoring.
           spec_recorded_caps := if(spec_is_closure, _clone_captured_variables(&ctx.captured_variables), Option(HashMap(String, CapturedVarInfo)).None);
@@ -5179,6 +5245,15 @@ create_specialized_function_inline :: (
           );
           spec_stack_r.pop();
           ctx.currently_specializing_function_stack = Option(ArrayList(SpecializingFunctionInfo)).Some(spec_stack_r);
+          // A trapped error re-raises through the real `exn` only NOW, after
+          // the restores: the throw's catcher (a verify-mode callsite-ensures
+          // drop, a body-trial swallow far above) must not observe this fn's
+          // ctx mutations.
+          match(
+            sb_err,
+            .Some(spec_e) => exn.throw(spec_e),
+            .None => ()
+          );
           // CLOSURE spec: build + register the capture struct from what THIS
           // body eval recorded — the deferred-generic closure skipped its
           // definition-time collection, so this is its only capture source
@@ -6138,6 +6213,58 @@ _create_specialization_trapped :: (
     )
   );
   out.push(create_specialized_function_inline(fv, ft, av, callee_env, caller_env, ctx, trap));
+  Option(AnyError).None
+});
+/// `try_to_call_function_with_arguments` under a trap that hands the error
+/// back, the result to `out` — `_create_specialization_trapped`'s pattern
+/// for the operator dispatch: it threads `Self` = the receiver into the
+/// call by SETTING `ctx.self_type` around it, and an error raised INSIDE
+/// the call (a matched operator whose specialized body throws, e.g. `Rc`'s
+/// `==` on a payload without `Eq`) must not skip that restore. The catcher
+/// can be a handler far above (a verify-mode callsite-ensures drop, a
+/// body-trial swallow), and the leaked receiver type then retypes `Self`
+/// for everything evaluated after it — the second layer of
+/// issues/fixed/2026-11-18-a-dropped-callsite-ensures-clause-leaks-a-cleared-self-type-into-later-evaluations.md.
+_try_call_fn_with_args_trapped :: (
+  fn(
+    func_val : &Option(EvalValue),
+    func_type : &TypeValue,
+    expr : &AstExpr,
+    callee_expr : &AstExpr,
+    arg_exprs : &ArrayList(AstExpr),
+    caller_env : &Environment,
+    ctx : &mut EvalContext,
+    is_method_call : bool,
+    skip_specialization : bool,
+    skip_ctfe_execution : bool,
+    out : &mut ArrayList(FuncCallResult)
+  ) -> Option(AnyError)
+)({
+  // A block, not a bare `e -> unwind(...)` body: a seed before v0.2.73
+  // releases a bare body's parameter before the operand reads it
+  // (issues/fixed/2026-10-29-a-handler-whose-body-is-a-bare-unwind-releases-its-parameter-before-the-operand-reads-it.md).
+  trap := Exception(
+    throw : (
+      e -> {
+        unwind(Option(AnyError).Some(e));
+      }
+    )
+  );
+  out.push(
+    try_to_call_function_with_arguments(
+      func_val,
+      func_type,
+      expr,
+      callee_expr,
+      arg_exprs,
+      caller_env,
+      ctx,
+      is_method_call,
+      skip_specialization,
+      skip_ctfe_execution,
+      trap
+    )
+  );
   Option(AnyError).None
 });
 /// `err`, raised while specializing a callee's body for a call, with a note
@@ -10344,6 +10471,7 @@ try_to_call_function_with_arguments :: (
   )
 });
 export(try_to_call_function_with_arguments, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder);
+export(_try_call_fn_with_args_trapped);
 /// Public name of `_forall_binding_now` for the inline FuncVal arm.
 forall_binding_now :: (fn(env : &Environment, label : &String) -> Option(TypeValue))(_forall_binding_now(env, label));
 export(closure_argument_owned_type);

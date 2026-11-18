@@ -1,0 +1,129 @@
+//! The callsite-ensures DROP regression test: a verify-mode load of a file
+//! whose impl member pushes an element WITHOUT `Eq` into an `ArrayList`
+//! (so the push callsite's element clause cannot evaluate and is dropped,
+//! `contracts.yo` `_callsite_ensures_or_drop`) must not corrupt the
+//! evaluation context for everything evaluated after it.
+//!
+//! The defect: `Rc(T)`'s `Eq` impl member `((lhs, rhs) -> unsafe(lhs._cell.* == rhs._cell.*))`
+//! specializes when the dropped clause is evaluated; the specialization's
+//! b1 branch CLEARS `ctx.self_type` (its restore sits after the body eval),
+//! and the `==` on the payload type raises E0610 that the drop handler
+//! catches FAR above — skipping the restore. The NEXT sibling impl member's
+//! signature then failed with `(3) Failed to evaluate type expression: Self`
+//! (`yo verify ./src/parser.yo` after the 3d retype gave `AstExprNode` no
+//! `Eq` derive, issues/fixed/2026-11-18-a-dropped-callsite-ensures-clause-leaks-a-cleared-self-type-into-later-evaluations.md).
+//!
+//! Gates: solver-free — the load succeeding IS the regression assertion
+//! (the pattern of `verifier_contract_splice.test.yo`'s runtime-mode test).
+{ String } :: import("std/string");
+{ Exception, IoExn } :: import("std/error");
+{ ArrayList } :: import("std/collections/array_list");
+{ assert } :: import("std/assert");
+{ env, temp_dir } :: import("std/env");
+{ create_dir_all } :: import("std/fs/dir");
+{ write_string } :: import("std/fs/file");
+{ remove_dir_all } :: import("std/fs/walker");
+{ Path } :: import("std/path");
+{ Rng } :: import("std/rand");
+{
+  mm_load_file,
+  mm_preload_prelude,
+  mm_resolve_entry_abs,
+  resolve_std_path,
+  _take_load_error
+} :: import("../../src/module_manager.yo");
+{ clear_module_cache } :: import("../../src/evaluator/module_loader.yo");
+{
+  set_verify_mode_override,
+  set_verify_target_paths,
+  take_verify_tasks
+} :: import("../../src/evaluator/builtins/contracts.yo");
+
+/// The trigger shape, minimized from `src/parser.yo`'s `Parser` impl: an
+/// enum payload with NO `Eq` derive behind an `Rc` handle, an impl member
+/// whose body pushes it into an `ArrayList` (the push callsite's ensures
+/// element clause compares elements with `==`, which this type lacks), and
+/// a LATER sibling member whose SIGNATURE resolves `Self`.
+_fixture_source :: (fn() -> String)(
+  `pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+
+ElemNode :: enum(
+  Leaf(n : i32)
+);
+Elem :: Rc(ElemNode);
+
+Builder :: struct(
+  items : ArrayList(Elem)
+);
+
+impl(
+  Builder,
+  /// The push callsite's ensures clause compares elements with \`==\`;
+  /// \`Rc(ElemNode)\`'s Eq needs \`ElemNode : Eq\`, deliberately absent,
+  /// so verify's callsite-ensures check DROPS the clause.
+  first : (fn(self : &mut Self) -> unit)({
+    self.items.push(Rc.new(ElemNode.Leaf(i32(1))));
+  }),
+  /// The next member's signature resolves \`Self\` through
+  /// ctx.self_type — the value the dropped clause's unwind used to
+  /// leave cleared.
+  second : (fn(self : &mut Self, more : i32) -> unit)({
+    self.items.push(Rc.new(ElemNode.Leaf(more)));
+  })
+);
+`
+);
+
+/// Arm the harness exactly like `run_verify_cmd` (mode override `verify`,
+/// target paths = the collected spelling + the resolved absolute form) and
+/// load one fixture. Solver-free: `mm_load_file` runs before any proving.
+_load_in_verify_mode :: (fn(path_str : &String, io : Io) -> bool)({
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `verifier_callsite_self_drop: unexpected throw: ${err}`);
+      }
+    )
+  );
+  std_path := resolve_std_path();
+  mut(targets) := ArrayList(String).new();
+  targets.push(path_str.clone());
+  targets.push(mm_resolve_entry_abs(path_str.clone(), std_path.clone()));
+  _ := take_verify_tasks();
+  set_verify_mode_override(Option(String).Some(String.from("verify")));
+  set_verify_target_paths(&targets);
+  clear_module_cache();
+  mm_preload_prelude(std_path.clone(), true, io, exn);
+  outcome := mm_load_file(path_str.clone(), std_path.clone(), true, io, exn);
+  set_verify_mode_override(Option(String).None);
+  set_verify_target_paths(ArrayList(String).new());
+  match(
+    _take_load_error(),
+    .Some(rendered) => {
+      assert(outcome.ok, `verify-mode load failed: ${rendered}`);
+    },
+    .None => ()
+  );
+  outcome.ok
+});
+
+test("a dropped callsite ensures clause does not clear Self for the next impl member", {
+  mut(rng) := Rng.from_entropy();
+  root := Path.new(temp_dir()).join(Path.new(`yo_vcsd_${rng.next_u64().to_string()}`));
+  mk := Exception(
+    throw : (
+      err -> {
+        assert(false, `fixture io failed: ${err}`);
+        unwind(());
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : mk);
+  io.await(create_dir_all(root.clone(), io), ioexn);
+  fixture := root.join(Path.new(String.from("main.yo")));
+  io.await(write_string(fixture.clone(), _fixture_source(), io), ioexn);
+  ok := _load_in_verify_mode(&fixture.to_string(), io);
+  assert(ok, "the verify-mode load must succeed (the drop must stay local to the dropped clause)");
+  io.await(remove_dir_all(root.clone(), io), ioexn);
+});

@@ -48,7 +48,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr.yo");
 { is_auto_generated_expansion, is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_std_module_path } :: import("../memory_safety.yo");
 { D3PendingInout, d3_record_inout_place, d3_check_pending, d3_check_pending_unresolved_callee, require_no_inout_write_through_borrow, shared_borrow_param_root_of_place, reject_write_through_shared_borrow_param } :: import("../exprs/assignment.yo");
-{ ExprInfo, is_thread_local, is_mut_global, new_expr_info, expr_info_closure_function_value, expr_info_table_get, expr_info_table_set, record_method_callee_type, lookup_method_callee_type, record_generic_callee_type, record_method_callee_value, lookup_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, lookup_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution, purge_executed_clone_metadata, mark_fnonce_post_call_release, expr_info_converted_runtime_type, expr_info_set_converted_runtime_type, is_reference_self_place, note_self_lend_operand, note_self_lend_forced } :: import("../../expr_info.yo");
+{ ExprInfo, is_thread_local, is_mut_global, new_expr_info, expr_info_closure_function_value, expr_info_table_get, expr_info_table_set, record_method_callee_type, lookup_method_callee_type, record_generic_callee_type, record_method_callee_value, lookup_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, lookup_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution, purge_executed_clone_metadata, mark_fnonce_post_call_release, expr_info_converted_runtime_type, expr_info_set_converted_runtime_type, is_reference_self_place, note_self_lend_operand, note_self_lend_forced, path_collection_new } :: import("../../expr_info.yo");
 {
   Variable,
   Environment,
@@ -97,6 +97,7 @@ pragma(Pragma.AllowUnsafe);
   ArgValues,
   ArgEntry,
   VarArgEntry,
+  FuncCallResult,
   in_def_time_trial,
   PendingImplOutcome,
   force_pending_impls_for_type_name,
@@ -168,7 +169,7 @@ MACRO_DISPATCH_ENABLED :: true;
 { try_to_convert_to_pointer_type } :: import("./pointer_type.yo");
 { CtorMethodImpl, instance_constructor_fid, impls_of_constructor_method, synthesize_impl_binders, first_failed_impl_where } :: import("../values/impl.yo");
 { TypeField, get_struct_fields } :: import("../types/field.yo");
-{ _somes_are_closure_forall_args, try_to_call_function_with_arguments, strip_argument_label, apply_call_site_borrow_markers, check_call_site_borrow_marker, _check_reference_argument, _unlabeled_argument, consume_argument_for_parameter, _param_accepts_second_class, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout, closure_argument_owned_type, resolve_param_types_from_expected, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder, forall_binding_now, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialization_at_call, reject_runtime_comptime_arguments, runtime_value_for_comptime_param, _type_has_array_len_var, _trial_eval_ret_type_expr, reference_argument_as_referent } :: import("./helper.yo");
+{ _somes_are_closure_forall_args, try_to_call_function_with_arguments, strip_argument_label, apply_call_site_borrow_markers, check_call_site_borrow_marker, _check_reference_argument, _unlabeled_argument, consume_argument_for_parameter, _param_accepts_second_class, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout, closure_argument_owned_type, resolve_param_types_from_expected, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder, forall_binding_now, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialization_at_call, reject_runtime_comptime_arguments, runtime_value_for_comptime_param, _type_has_array_len_var, _trial_eval_ret_type_expr, reference_argument_as_referent, _try_call_fn_with_args_trapped } :: import("./helper.yo");
 { get_func_type, register_func_type, is_control_fn, get_closure_body_type, is_fnonce_closure_fn, is_fnonce_capture_struct, get_closure_capture_info } :: import("../../function_value.yo");
 { structural_clone_expansion } :: import("../utils/closure.yo");
 { is_ghost_fn } :: import("../builtins/contracts.yo");
@@ -11146,7 +11147,15 @@ _evaluate_function_call_unanchored :: (
       // this its body emits "// Failed to transpile Self.(==)".
       saved_op_self := ctx.self_type.clone();
       ctx.self_type = Option(TypeValue).Some(Rc.clone(receiver_ty));
-      call_result_op := try_to_call_function_with_arguments(
+      // Trapped: the restores below must run on EVERY exit. A matched
+      // operator whose specialized body throws (Rc's `==` on a payload
+      // without `Eq`) unwinds to a handler far above — a verify-mode
+      // callsite-ensures drop, a body-trial swallow — and the skipped
+      // restore left `Self` retyped to this receiver for every later
+      // evaluation of the file
+      // (issues/fixed/2026-11-18-a-dropped-callsite-ensures-clause-leaks-a-cleared-self-type-into-later-evaluations.md).
+      op_call_out := ArrayList(FuncCallResult).new();
+      op_call_err := _try_call_fn_with_args_trapped(
         &first_m.value,
         &first_m.ty,
         expr,
@@ -11157,11 +11166,40 @@ _evaluate_function_call_unanchored :: (
         true,
         false,
         false,
-        exn
+        &mut op_call_out
       );
       unmark_node_preevaluated(ast_expr_id(&first_arg));
       ctx.self_type = saved_op_self;
       ctx.expected_type = saved_op_et;
+      match(
+        op_call_err,
+        .Some(op_e) => exn.throw(op_e),
+        .None => ()
+      );
+      call_result_op := match(
+        op_call_out.get_cloned(usize(0)),
+        .Some(op_r) => op_r,
+        // Unreachable: the trapped call either pushed its result or threw
+        // (re-raised above). The placeholder mirrors try_to_call's own soft
+        // fallback (helper.yo) so this arm still type-checks.
+        .None =>
+          FuncCallResult(
+            callee_env : Rc.clone(env),
+            caller_env : Rc.clone(env),
+            path_collection : path_collection_new(),
+            return_type : t_unit(),
+            return_value : Option(EvalValue).None,
+            arg_values : ArgValues(
+              forall_args : ArrayList(ArgEntry).new(),
+              args : ArrayList(ArgEntry).new(),
+              implicit_args : Option(ArrayList(ArgEntry)).None,
+              variadic_args : ArrayList(VarArgEntry).new()
+            ),
+            runtime_arg_exprs_in_order : ArrayList(AstExpr).new(),
+            specialized_function_value : Option(EvalValue).None,
+            deferred_drop_expressions : Option(ArrayList(AstExpr)).None
+          )
+      );
       // Resolve an associated-type return (`comptime(Self.Output)`) that came
       // back as a bare SomeT (`Output`) because the impl's associated-type
       // binding isn't in the callee env — it resolves by the receiver's
