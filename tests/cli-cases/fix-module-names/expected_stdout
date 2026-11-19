@@ -1,0 +1,54 @@
+$ yo check src/main_app.yo
+warning: module file name `string_util.yo` is not kebab-case
+  --> src/string_util.yo:1:1
+help: rename it `string-util.yo`: `yo fix . --module-names` renames every such file and directory under the project and rewrites the imports, `[modules]` entries and `build.yo` roots that reach them
+
+warning: module directory name `deep_dir` is not kebab-case
+  --> src/deep_dir:1:1
+help: rename it `deep-dir`: `yo fix . --module-names` renames every such file and directory under the project and rewrites the imports, `[modules]` entries and `build.yo` roots that reach them
+
+warning: module directory name `Widgets` is not kebab-case
+  --> src/Widgets:1:1
+help: rename it `widgets`: `yo fix . --module-names` renames every such file and directory under the project and rewrites the imports, `[modules]` entries and `build.yo` roots that reach them
+
+warning: module file name `main_app.yo` is not kebab-case
+  --> src/main_app.yo:1:1
+help: rename it `main-app.yo`: `yo fix . --module-names` renames every such file and directory under the project and rewrites the imports, `[modules]` entries and `build.yo` roots that reach them
+check: parsing <REPO>/std/prelude.yo
+check: parsed <PRELUDE_EXPRS> top-level exprs
+check: invoking evaluate_anonymous_module_begin_exprs (prelude)
+check: <REPO>/std/prelude.yo — evaluator OK
+check: parsing src/main_app.yo
+check: parsed 10 top-level exprs
+check: invoking evaluate_anonymous_module_begin_exprs
+check: src/main_app.yo — evaluator OK
+rc=0
+$ yo fix . --module-names --dry-run
+fix: rename src/Widgets/ -> src/widgets/
+fix: rename src/deep_dir/ -> src/deep-dir/
+fix: rename src/main_app.yo -> src/main-app.yo
+fix: rename src/string_util.yo -> src/string-util.yo
+fix: yo.toml: [modules] string_util -> string-util
+fix: would rename 2 file(s) and 2 directory(ies); would rewrite 6 import(s), 1 [modules] entry(ies) and 1 build.yo root(s)
+rc=0
+$ yo fix . --module-names
+fix: rename src/Widgets/ -> src/widgets/
+fix: rename src/deep_dir/ -> src/deep-dir/
+fix: rename src/main_app.yo -> src/main-app.yo
+fix: rename src/string_util.yo -> src/string-util.yo
+fix: yo.toml: [modules] string_util -> string-util
+fix: renamed 2 file(s) and 2 directory(ies); rewrote 6 import(s), 1 [modules] entry(ies) and 1 build.yo root(s)
+rc=0
+$ yo fix . --module-names
+fix: renamed 0 file(s) and 0 directory(ies); rewrote 0 import(s), 0 [modules] entry(ies) and 0 build.yo root(s)
+rc=0
+$ yo check src/main-app.yo
+check: parsing <REPO>/std/prelude.yo
+check: parsed <PRELUDE_EXPRS> top-level exprs
+check: invoking evaluate_anonymous_module_begin_exprs (prelude)
+check: <REPO>/std/prelude.yo — evaluator OK
+check: parsing src/main-app.yo
+check: parsed 10 top-level exprs
+check: invoking evaluate_anonymous_module_begin_exprs
+check: src/main-app.yo — evaluator OK
+rc=0

@@ -1,15 +1,16 @@
 # Kebab-case package, directory and file names
 
-> **Trued 2026-11-07 (plans audit after VBD):** Status (2026-11-07): Parts A (#1686, v0.2.74) and B (#1790, 2026-11-05) are done. Part C is inside VBD: the last PR of the v0.2.78 window, with `--migrate module-names` retiring in v0.2.79 (schedule §5f decision 32).
+> **Status (2026-11-19):** Parts A (#1686, v0.2.74) and B (#1790, 2026-11-05) are done. Part C ships in v0.2.79 as the last step before the cut (maintainer, 2026-11-19), regenerated on the release tip by `scripts/kebab-part-c.sh`. VERDICTS-67 replaced the `--migrate module-names` mode with a permanent `yo fix <path> --module-names` flag that never retires (the tool paragraph below).
 
 **Status:** decided 2026-10-30 by the maintainer, on Fable consultations #3 (package names, 2026-10-29) and #9
 (module file and directory names, 2026-10-30).
 - Part A is in progress: the package-name tooling and `markdown-yo` land in v0.2.74.
 - Part B is done (2026-11-05; the maintainer lifted its deferral): the example repositories are renamed and this tree
   names them in kebab-case. `markdown-it-yo`'s migration PR merges after v0.2.75.
-- Part C is part of the VBD campaign (maintainer, 2026-11-06; until then it waited for the campaign's end): it is
-  the last PR of the v0.2.78 window, and `--migrate module-names` retires in v0.2.79
-  (`plans/handover/VBD_RELEASE_SCHEDULE.md` §5f decision 32).
+- Part C is part of the VBD campaign (maintainer, 2026-11-06; until then it waited for the campaign's end). It was
+  planned as the last PR of the v0.2.78 window (`plans/handover/VBD_RELEASE_SCHEDULE.md` §5f decision 32), did not
+  land there, and ships in v0.2.79 as the last step before the cut (maintainer, 2026-11-19). Its tool is the permanent
+  `yo fix <path> --module-names` (VERDICTS-67), not a retiring `--migrate` mode.
 
 Until Part C lands, the tree keeps its snake_case module files. The current convention text still says so
 (`.github/skills/yo-syntax/syntax-cheatsheet.md` "Naming conventions", `docs/en-US/DESIGN.md` "Naming Convention",
@@ -124,25 +125,45 @@ src renames land in one commit.
 
 `plans/` and `issues/` keep their text. `AGENTS.md` gains a "translate as you read" line (`array_list` ⇒ `array-list`).
 
-**The tool: `yo fix <path> --migrate module-names`**, beside the existing `--migrate` family. For every `.yo` file or
-directory under the path whose name contains `_` or upper case, it computes the kebab-case name and renames it on disk.
-It then rewrites everything that RESOLVES to the renamed file:
+**The tool: `yo fix <path>... --module-names`** (VERDICTS-67, 2026-11-19; it replaced the `--migrate module-names` mode
+this paragraph first planned). It is a permanent, explicit, opt-in flag outside the `--migrate` family, and it never
+retires. For every `.yo` file or directory under the paths whose name contains `_` or upper case, it computes the
+kebab-case name (`_` → `-`, ASCII lower case, a leading or trailing `-` dropped; no CamelCase splitting) and renames it
+on disk. It then rewrites everything that RESOLVES to the renamed file:
 - every `import("…")` string;
 - every `[modules]` value and key;
 - every `build.yo` `root :` path.
 
 Resolution goes through `resolve_module_path` rather than a textual search, so `./foo_bar.yo`, `pkg/foo_bar` and
-`foo_bar/index` all move. The tool is idempotent and prints the rename map so downstream packages can apply it. It
-retires with the other migrations, one release after it ships.
+`foo_bar/index` all move. The tool is idempotent and prints the rename map so downstream packages can apply it.
+- `--dry-run` prints the rename map without touching disk.
+- A name whose new spelling already exists, or two names that become one, is refused before anything is written.
+- A case-only rename takes two steps (through a temporary name), for case-insensitive filesystems.
+- It is not folded into the plain `yo fix` repair loop: a `Repair` is a single span, and that loop skips files that
+  evaluate.
+- There is no old-name table, not even for one release. An import of a renamed module is a hard error with a
+  permanent, generic repair instead: when exactly one existing module matches the failed path under segment-wise
+  `_` → `-` plus lower-case normalization, the error carries help and a `Repair` on the import string; with zero or
+  several candidates, help only (VERDICTS-67 point 2; not cut-blocking).
+
+**In this tree (v0.2.79):** `scripts/kebab-part-c.sh <yo-binary>` regenerates the whole rename on a tip: the two
+`_expr.yo` files become `dispatch.yo` first (their kebab spelling `expr.yo` collides with a sibling), then the tool runs
+over `src std tests scripts build.yo` (test files included: nothing imports them, but the warning would fire on every
+one), then `std/fmt/to_string.yo` goes back to its name (the seed hold-back: the v0.2.78 seed's template-literal desugar
+injects `import("std/fmt/to_string")`, so the seed cannot build the tree without it;
+`issues/questions/2026-11-19-std-fmt-to-string-keeps-its-name-for-the-seed.md`), then a textual sweep applies the printed map to what the tool cannot see — comments, Markdown outside `plans/` and
+`issues/`, workflows, shell scripts, `known-failing.tsv`, cli-case goldens and string literals that hold a path.
 
 **Enforcement: a warning, never an error, and never `yo fmt`.**
 - `yo check` and `yo compile` warn once per project-local `.yo` file or directory name (under the nearest manifest, and
-  std) that contains `_` or an upper-case letter, with the `--migrate module-names` hint.
+  std) that contains `_` or an upper-case letter, with the `yo fix <root> --module-names` hint.
 - Exempt: dependencies in the content store, `tests/origins/corpus`, `issues/repros` and cli-case fixtures.
 - A file name is a git-level fact, so the compiler points and does not refuse. `fmt --check` formats contents and
   cannot rename files.
 
 **Convention text to change with Part C:**
-- `.github/skills/yo-syntax/syntax-cheatsheet.md` "Naming conventions". This moves the skill-tree cli goldens.
+- `.github/skills/yo-syntax/syntax-cheatsheet.md` "Naming conventions" (deleted with the shipped skills by K4,
+  2026-11-17; the convention went to `.github/instructions/yo-syntax.instructions.md` "Module imports" and
+  `pack/context.md` instead).
 - `docs/en-US/DESIGN.md` "Naming Convention", `docs/zh-CN/DESIGN.md`, and every docs example that names a multi-word
   module path.

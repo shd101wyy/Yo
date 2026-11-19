@@ -2142,6 +2142,13 @@ _register_manifest_import_roots :: (fn(fs_path : &String, exn : Exception) -> un
     }
   );
 });
+/// Register the import roots of the manifest above `fs_path`, re-reading it
+/// even when the same manifest was registered before: `yo fix
+/// --module-names` rewrites `[modules]` and then resolves through it again.
+mm_register_manifest_import_roots :: (fn(fs_path : &String, exn : Exception) -> unit)({
+  g_manifest_roots_for = Option(String).None;
+  _register_manifest_import_roots(fs_path, exn);
+});
 // ---------------------------------------------------------------------------
 // The demand loader
 // ---------------------------------------------------------------------------
@@ -3118,6 +3125,7 @@ export(
   mm_fresh_module_env,
   mm_resolve_entry_abs,
   mm_resolve_import_abs,
+  mm_register_manifest_import_roots,
   mm_invalidate_document,
   mm_set_open_document,
   mm_forget_open_document,

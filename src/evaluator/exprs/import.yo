@@ -140,6 +140,63 @@ lookup_import_root :: (fn(name : &String) -> Option(String))({
   Option(String).None
 });
 // ---------------------------------------------------------------------------
+// Module file and directory names (plans/backlog/KEBAB_CASE_NAMES.md Part C)
+// ---------------------------------------------------------------------------
+/// A module file or directory name breaks the naming rule when it holds `_`
+/// or an ASCII upper-case letter: a `.yo` file, a directory and a
+/// `[modules]` key are kebab-case, because a module path is only ever a
+/// string (an `import(…)` argument), never an identifier.
+module_name_offends :: (fn(name : &String) -> bool)({
+  (mut(i) : usize) = usize(0);
+  while(i < name.len(), i = (i + usize(1)), {
+    b := name.byte_at(i);
+    if((b == u8(95)) || ((b >= u8(65)) && (b <= u8(90))), {
+      return(true);
+    });
+  });
+  false
+});
+/// The kebab-case spelling of a module file or directory name: ASCII upper
+/// case lowered and `_` written `-`, with a `-` that would lead or trail a
+/// dot-separated part dropped (a name may not start with `-`: `yo check
+/// -foo.yo` reads it as a flag). `array_list.yo` → `array-list.yo`,
+/// `foo_bar.test.yo` → `foo-bar.test.yo`, `_fsm.yo` → `fsm.yo`. There is no
+/// CamelCase splitting (`FooBar` → `foobar`): the rule is one byte-wise
+/// normalization, so a name is recognized the same way everywhere.
+module_name_kebab :: (fn(name : &String) -> String)({
+  parts := name.split(String.from("."));
+  out_parts := ArrayList(String).new();
+  (mut(pi) : usize) = usize(0);
+  while(pi < parts.len(), pi = (pi + usize(1)), {
+    p := parts(pi).clone();
+    bytes := ArrayList(u8).new();
+    (mut(bi) : usize) = usize(0);
+    while(bi < p.len(), bi = (bi + usize(1)), {
+      b := p.byte_at(bi);
+      cond(
+        (b == u8(95)) => bytes.push(u8(45)),
+        ((b >= u8(65)) && (b <= u8(90))) => bytes.push(b + u8(32)),
+        true => bytes.push(b)
+      );
+    });
+    (mut(lo) : usize) = usize(0);
+    while((lo < bytes.len()) && (bytes(lo) == u8(45)), {
+      lo = (lo + usize(1));
+    });
+    (mut(hi) : usize) = bytes.len();
+    while((hi > lo) && (bytes((hi - usize(1))) == u8(45)), {
+      hi = (hi - usize(1));
+    });
+    kept := ArrayList(u8).new();
+    (mut(ki) : usize) = lo;
+    while(ki < hi, ki = (ki + usize(1)), {
+      kept.push(bytes(ki));
+    });
+    out_parts.push(String.from_bytes(kept));
+  });
+  String.from(".").join(&out_parts)
+});
+// ---------------------------------------------------------------------------
 // Module path resolution (shared with main.yo's preload_module_tree)
 // ---------------------------------------------------------------------------
 /// Result of resolving an `import("…")` path string to a concrete file.
@@ -600,4 +657,4 @@ evaluate_import :: (
 });
 export(evaluate_import, resolve_module_path, ModuleResolveResult, _build_module_val_from_env);
 export(set_import_root, set_import_unavailable, clear_import_roots, lookup_import_root, lookup_import_unavailable);
-export(resolve_module_path_ex);
+export(resolve_module_path_ex, module_name_offends, module_name_kebab);

@@ -1,0 +1,13 @@
+{ assert } :: import("std/assert");
+{ greeting } :: import("demo");
+{ shout } :: import("demo/string_util");
+{ thing } :: import("./deep_dir/thing");
+{ thing : thing_again } :: import("demo/deep_dir/thing");
+{ widget } :: import("./Widgets");
+{ ArrayList } :: import("std/collections/array_list");
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(i32).new();
+  xs.push(greeting() + shout());
+  assert((thing() + widget()) == (thing_again() + i32(3)), "the renamed modules are the same modules");
+});
+export(main);

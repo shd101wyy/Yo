@@ -290,6 +290,10 @@ _module_cache_index :: (fn(path : &String) -> Option(usize))({
   });
   idx
 });
+/// Every module path the cache holds, in registration order (the
+/// module-name warning reads which modules a command evaluated).
+_c_clone_keys :: (fn(xs : &ArrayList(String)) -> ArrayList(String))(xs.clone());
+module_cache_keys :: (fn() -> ArrayList(String))(g_module_cache_keys.with(_c_clone_keys));
 /// True iff a module value has already been registered for `path`.
 module_cache_has :: (fn(path : &String) -> bool)(
   _module_cache_index(path).is_some()
@@ -537,6 +541,7 @@ invalidate_module :: (fn(path : &String) -> ArrayList(String))({
 export(
   clear_module_cache,
   module_cache_has,
+  module_cache_keys,
   register_module,
   load_module_from_cache,
   register_loading,

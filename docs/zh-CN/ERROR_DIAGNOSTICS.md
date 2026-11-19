@@ -81,6 +81,8 @@ YO_COLOR=always yo build         # 通过环境变量设置
 
 以上是 v0.2.78 所附带的模式，v0.2.78 也是迁移 `dyn(v)` 别名的版本。从 v0.2.79 起裸 `dyn(v)` 是 E0620（`dyn` 对指针做非定长化，而值没有指针），其提示给出这一步：`yo version install 0.2.78 && yo fix <path> --migrate unsized`，之后再升级到下一个版本。v0.2.79 的模式保留借出改写（`&b` → `&b.*`）以及对具名句柄上的 `dyn(h)` 和拥有型 `downcast` 的列出。
 
+`yo fix <path>... --module-names` 不是迁移，也永不退役：它应用模块文件与目录的命名规则（`.yo` 文件、目录与 `[modules]` 键都使用 kebab-case，见 `DESIGN.md` 的命名规范）。路径下每个名字含 `_` 或大写字母的 `.yo` 文件或目录都会被重命名为其 kebab-case 写法（`_` 写作 `-`，大写转小写，去掉开头或结尾的 `-`：`array_list.yo` → `array-list.yo`，`_fsm.yo` → `fsm.yo`），所有解析到它的位置都会被改写：每个 `import("…")` 字符串按编译器的解析方式解析（因此 `./foo_bar.yo`、`../foo_bar`、`pkg/foo_bar`、std 也在路径中时的 `std/…/foo_bar`，以及目录模块 `foo_bar/index.yo` 都会随之改写），路径之上 `yo.toml` 的 `[modules]` 键与值，以及 `build.yo` 文件中 `root : "…"` 的路径。重命名映射会被打印出来（`fix: rename old -> new`；键则为 `[modules] old -> new`，它会改变下游包使用的导入名），下游包可以据此应用。`--dry-run` 只打印映射，不写入任何内容。若某个名字的新写法已经存在（`foo_bar.yo` 与 `foo-bar.yo` 并存：`-` 与 `_` 是不同的名字），或两个名字变成同一个，整次运行会在写入任何内容之前被拒绝。只改大小写的重命名会经过一个临时名字，因此大小写不敏感的文件系统也能看到它。cli-case 夹具、`tests/origins/corpus` 与 `issues/repros` 保持不变；第二次运行不会重命名任何东西。编译器无法识别为模块路径的字符串（注释、shell 脚本或测试字符串字面量中的路径）不会被改写。
+
 模块级或 `thread_local` 运行期绑定是不可变的（Rust 的 `static`），除非它的名字被包在 `mut(...)` 里（`static mut`，决策 47）。写入不可变的全局变量是 E0917：重新赋值、写入它所持有的值的字段或元素、把该值的位置以 `&mut` 借出，或在它上面调用 `&mut self` 方法。经由全局变量持有的“门”写入（`RefCell` 上的 `r.with_mut(...)`、`std/sync` 的各种门类型）不是对绑定的写入，不需要标记；只有对绑定本身重新赋值才需要。标记写在声明名上：`mut(G) := v`、`(mut(G) : T) = v`、`thread_local(mut(G))`。
 
 决策 18 规则 3 读取的正是这个标记：把 `mut(...)` 全局变量或它下面的位置借给调用（`&`/`&mut` 实参、借用的接收者、运算符借用的操作数、插值的值）是 E0916，因为被调用者可能按名字触及该全局变量，或在 await 期间被另一个任务写入，借用就会在它之下改变。先把它读到局部变量里（`v := G; f(&v)`），`&mut` 调用之后再写回。`String`、集合或持有它们的值用 `v := G.clone()` 读取：涉及的每个 `Clone` 实现都是派生的或来自 std 的 `clone()`，其接收者是唯一允许的借出，因为这样的 clone 不运行用户代码。未标记的全局变量可以自由借出。全局变量持有的门（`RefCell` 上的 `G.with_mut(...)`、`std/sync` 的门类型）不会把借用带出它的闭包，因此在门被写入时，没有借出能到达它背后的存储。
@@ -133,6 +135,16 @@ help: prefix the name with `_` to silence this warning
 ```
 
 读取变量即视为使用；仅赋值不算（`x := 1; x = 2;` 仍会警告 —— 该值从未影响任何东西）。名称加 `_` 前缀可消除警告；参数与模块级绑定从不警告；警告绝不改变退出码。在 `json` 渲染中它们以 `"severity":"warning"` 的 JSON Lines 出现，`short` 中则是 `warning:` 行。
+
+第二个家族是**模块名**。`check` 与 `compile` 对其求值过的、名字含 `_` 或大写字母的每个 `.yo` 文件或目录警告一次，前提是它属于项目本地：其所在位置或上方有 `yo.toml`，且它不是内容存储中的依赖（检出仓库自身的 `std` 属于项目本地，已安装的 std 不是；cli-case 夹具、`tests/origins/corpus` 与 `issues/repros` 豁免）——
+
+```text
+warning: module file name `string_util.yo` is not kebab-case
+ --> src/string_util.yo:1:1
+help: rename it `string-util.yo`: `yo fix . --module-names` renames every such file and directory under the project and rewrites the imports, `[modules]` entries and `build.yo` roots that reach them
+```
+
+它是警告而绝不是错误，`yo fmt` 也不会重命名文件：文件名是仓库层面的事实，因此编译器只指出它，由 `yo fix <root> --module-names`（见上文）完成重命名。
 
 ## 错误码与 `yo explain`
 

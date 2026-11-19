@@ -4213,18 +4213,21 @@ inc :: (fn() -> unit)({
 使用 2 个空格进行缩进。
 
 - `snake_case`
-  - `文件名`
-  - `目录名`
   - `函数`
   - `变量`
-  - `模块`
+  - 持有整个模块的绑定（`array_list :: import("std/collections/array-list");`）
 - `PascalCase`
   - `trait`
   - `类型`及其变体
 - `UPPER_SNAKE_CASE`
   - `常量`
-- `kebab-case`
-  - `包名`（`yo.toml` 的 `[package] name` 与依赖键，例如 `markdown-yo`；`-` 与 `_` 是不同的名字）
+- `kebab-case`：所有只作为字符串、从不作为标识符的名字
+  - `包名`（`yo.toml` 的 `[package] name` 与依赖键，例如 `markdown-yo`）
+  - `.yo` 文件名（`array-list.yo`、`hash-map.test.yo`）
+  - `目录名`
+  - `[modules]` 键
+
+模块路径只是 `import(...)` 的字符串：没有任何东西从它推导出标识符，因此整条路径使用同一种分隔符（`import("markdown-yo/block-parser")`）。`-` 与 `_` 是不同的名字，不会被互相规范化；名字可以包含 `[A-Za-z0-9_-]`，且不能以 `-` 开头或结尾（`yo check -foo.yo` 会被读成选项）。`check` 与 `compile` 会对名字含 `_` 或大写字母的项目本地模块文件或目录给出警告，`yo fix <path> --module-names` 会重命名它们，并改写指向它们的每个 import、`[modules]` 条目与 `build.yo` 的 root（`ERROR_DIAGNOSTICS.md`）。
 
 ## 测试
 

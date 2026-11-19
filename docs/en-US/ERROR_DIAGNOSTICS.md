@@ -177,6 +177,30 @@ unsizes a pointer, and a value has none), whose help names the step:
 release. v0.2.79's mode keeps the lends (`&b` → `&b.*`) and the listings of
 `dyn(h)` over a named handle and of an owned `downcast`.
 
+`yo fix <path>... --module-names` is not a migration and never retires: it
+applies the naming rule for module files and directories (a `.yo` file, a
+directory and a `[modules]` key are kebab-case, see the Naming Convention in
+`DESIGN.md`). Every `.yo` file or directory under the paths whose name holds
+`_` or an upper-case letter is renamed to its kebab-case spelling (`_` written
+`-`, upper case lowered, a leading or trailing `-` dropped:
+`array_list.yo` → `array-list.yo`, `_fsm.yo` → `fsm.yo`), and everything that
+resolves to it is rewritten: every `import("…")` string, resolved as the
+compiler resolves it (so `./foo_bar.yo`, `../foo_bar`, `pkg/foo_bar`,
+`std/…/foo_bar` when std is one of the paths, and a directory module
+`foo_bar/index.yo` all move), the `[modules]` keys and values of the
+`yo.toml` above the paths, and the `root : "…"` paths of `build.yo` files.
+The rename map is printed (`fix: rename old -> new`, and
+`[modules] old -> new` for a key, which renames an import name downstream
+packages use), so a downstream package can apply it. `--dry-run` prints the
+map and writes nothing. A name whose new spelling already exists (`foo_bar.yo`
+beside `foo-bar.yo`: `-` and `_` are different names), or two names that
+become one, refuse the whole run before anything is written. A case-only
+rename moves through a temporary name, so case-insensitive filesystems see it.
+cli-case fixtures, `tests/origins/corpus` and `issues/repros` are left alone,
+and a second run renames nothing. Strings the compiler cannot see as a module
+path (a path in a comment, a shell script or a test's string literal) are
+not rewritten.
+
 A module-level or `thread_local` runtime binding is immutable (Rust's
 `static`) unless its name is wrapped in `mut(...)` (`static mut`, decision
 47). Writing an immutable global is E0917: reassigning it, writing a field or
@@ -290,6 +314,23 @@ still warns — the value never influenced anything). A `_` name prefix silences
 the warning, parameters and module-level bindings are never warned, and
 warnings never change the exit code. In the `json` render they arrive as JSON
 Lines with `"severity":"warning"`, in `short` as `warning:` lines.
+
+The second family is **module names**. `check` and `compile` warn once per
+`.yo` file or directory they evaluated whose name holds `_` or an upper-case
+letter, when it is project-local: a `yo.toml` sits at or above it and it is not
+a dependency in the content store (a checkout's own `std` is project-local, an
+installed std is not; cli-case fixtures, `tests/origins/corpus` and
+`issues/repros` are exempt) —
+
+```text
+warning: module file name `string_util.yo` is not kebab-case
+ --> src/string_util.yo:1:1
+help: rename it `string-util.yo`: `yo fix . --module-names` renames every such file and directory under the project and rewrites the imports, `[modules]` entries and `build.yo` roots that reach them
+```
+
+It is a warning and never an error, and `yo fmt` does not rename files: a
+file name is a repository fact, so the compiler points at it and
+`yo fix <root> --module-names` (above) renames it.
 
 ## Error codes and `yo explain`
 
