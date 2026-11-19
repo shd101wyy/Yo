@@ -1118,3 +1118,25 @@ test("a derive-generated body: an exit between a move and a reassignment drops n
   assert(DeMoreHost.de_later_arm(i32(5)) == i32(5), "the moving arm");
   assert(g_de_exit_drops == i32(1), "by the callee");
 });
+// A `Deref` field (`Box(B)`) takes the derive rule's `(type_of(self.f) <:
+// Clone).clone(&self.f)` arm, whose `Box(B) <: Clone` asks `Box`'s
+// `where(T <: Clone)` for `B <: Clone`. `B`'s derives sit BELOW the holders'
+// here: the where-bound check forces them, as an impl lookup does
+// (issues/fixed/2026-11-19-derive-clone-of-a-deref-field-fails-when-the-payloads-clone-is-derived-later.md).
+DeLaterHolder :: struct(xs : Box(DeLaterPayload), n : i32);
+derive(DeLaterHolder, Clone, Hash);
+DeLaterEnum :: enum(Held(b : Box(DeLaterPayload)), Bare);
+derive(DeLaterEnum, Clone, Hash);
+DeLaterPayload :: struct(n : i32);
+derive(DeLaterPayload, Clone, Hash);
+test("derive Clone and Hash over a Box field whose payload derives them later", {
+  a := DeLaterHolder(xs : Box.new(DeLaterPayload(n : i32(2))), n : i32(1));
+  b := a.clone();
+  assert(b.xs.*.n == i32(2), "the payload is cloned");
+  assert(b.n == i32(1), "the plain field is cloned");
+  assert(hash_one(&a) == hash_one(&b), "a clone hashes like its source");
+  e := DeLaterEnum.Held(b : Box.new(DeLaterPayload(n : i32(7))));
+  f := e.clone();
+  assert(match(&f, .Held(fb) => (fb.*.n == i32(7)), .Bare => false), "the variant's payload is cloned");
+  assert(hash_one(&e) == hash_one(&f), "a cloned variant hashes like its source");
+});

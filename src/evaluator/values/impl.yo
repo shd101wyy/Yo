@@ -127,6 +127,7 @@ pragma(Pragma.AllowUnsafe);
   truncate_forcing_depths,
   call_evaluate_fn_body,
   force_pending_move_only_impls,
+  force_pending_impls_for_type_name,
   type_head_name_for_impl_forcing,
   note_reference_impl_head,
   note_reference_impl_method,
@@ -1798,11 +1799,27 @@ try_match_generic_impl :: (
           .Some(wcj_f) => {
             // The adapter writes the post-constraint bindings into match_env
             // IN PLACE (env.frames swap) — see the hook's doc above.
-            wcj_impl := wcj_f(&wcj_bound, &wcj_trait, &match_env);
-            if(!wcj_impl && (
+            (wcj_impl : bool) = wcj_f(&wcj_bound, &wcj_trait, &match_env);
+            wcj_enforced := (
               (enforce_all_where && (_is_marker_trait(&wcj_trait) || _where_trait_mentions_no_forall(&wcj_trait, &entry.forall_some_types)))
               || is_some_type(&entry.receiver_type_pattern)
-            ), {
+            );
+            // Lazy impls (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.4): the
+            // bound type's impl may sit later in its module — `Box(B) <:
+            // Clone` judged by a derive above `derive(B, Clone)`. Force the
+            // bound's pending impls and derives before rejecting, as the
+            // direct trait checks force the receiver's
+            // (issues/fixed/2026-11-19-derive-clone-of-a-deref-field-fails-when-the-payloads-clone-is-derived-later.md).
+            if(!wcj_impl && wcj_enforced && (get_all_some_types(&wcj_bound).len() == usize(0)), {
+              match(
+                force_pending_impls_for_type_name(type_head_name_for_impl_forcing(&wcj_bound), Option(String).None),
+                .Forced => {
+                  wcj_impl = wcj_f(&wcj_bound, &wcj_trait, &match_env);
+                },
+                _ => ()
+              );
+            });
+            if(!wcj_impl && wcj_enforced, {
               wc_ok = false;
             });
           },
