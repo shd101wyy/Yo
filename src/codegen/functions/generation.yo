@@ -1346,13 +1346,11 @@ static ${io_c} __yo_io_native(void);`);
 emit_io_native_definitions :: (fn(context : &mut CodeGenContext) -> unit)({
   io := match(_registered_std_io_type(context), .Some(t) => t, .None => return());
   io_c := get_type_string(&io, context);
-  out := String.from(
-    `
+  (out : String) = `
 // ============================================================================
 // The native Io (plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md §2)
 // ============================================================================
-`
-  );
+`;
   (io_body : String) = String.new();
   match(
     io_vtable_struct_of(&io),
@@ -1363,7 +1361,7 @@ emit_io_native_definitions :: (fn(context : &mut CodeGenContext) -> unit)({
       (fi : usize) = usize(0);
       while(fi < fields.len(), {
         match(
-          fields.get_cloned(fi),
+          fields.get(fi),
           .Some(f) => {
             callee := match(
               native_io_entry_c_name(&f.label),
@@ -1397,7 +1395,7 @@ emit_io_native_definitions :: (fn(context : &mut CodeGenContext) -> unit)({
                   arg_name := if(pi == usize(0), String.from("ctx"), `a${pi.to_string()}`);
                   params.push_string(`${get_type_string(&pt, context)} ${arg_name.clone()}`);
                   if(pi > usize(0), {
-                    call_args.push_string(arg_name);
+                    call_args.push_string(&arg_name);
                   });
                 },
                 .None => ()
@@ -1442,9 +1440,9 @@ _io_field_type :: (fn(io : &TypeValue, label : str) -> Option(TypeValue))({
   (i : usize) = usize(0);
   while(i < fields.len(), {
     match(
-      fields.get_cloned(i),
+      fields.get(i),
       .Some(f) => if(f.label == label, {
-        return(Option(TypeValue).Some(Rc.clone(f.ty)));
+        return(Option(TypeValue).Some(f.ty.clone()));
       }),
       .None => ()
     );

@@ -841,104 +841,6 @@ std_allocator_abi_is_v2 :: (fn(env : &Environment, std_path : &String) -> bool)(
   });
   version == usize(2)
 });
-/// The std prelude's `Io` struct as `env` sees it, `.None` when there is
-/// none (a `SkipPrelude` compile). Only a struct declared in the std tree at
-/// `std_path` counts, as for `std_allocator_abi_is_v2`: a program's own `Io`
-/// is not the runtime's.
-std_io_type :: (fn(env : &Environment, std_path : &String) -> Option(TypeValue))({
-  vars := get_variables_from_env(env, &String.from("Io"));
-  (vi : usize) = usize(0);
-  while(vi < vars.len(), {
-    match(
-      vars.get_cloned(vi),
-      .Some(var) => match(
-        var.value().get(usize(0)),
-        .Some(Rc(.TypeVal(t))) => {
-          shell := resolve_struct_shell(&t);
-          is_std := match(resolve_struct_shell(&t), Rc(.Struct({ id : sid })) => _is_std_declared_struct(&sid, std_path), _ => false);
-          if(is_std, {
-            return(Option(TypeValue).Some(shell));
-          });
-        },
-        _ => ()
-      ),
-      .None => ()
-    );
-    vi = (vi + usize(1));
-  });
-  Option(TypeValue).None
-});
-/// The `IoVTable` an `Io` type carries: `.Some(VT)` when `io_ty` has the
-/// interface shape, a `ctx` field and a `vtable : *VT` field with `VT` a
-/// struct (`Io :: struct(ctx : ?*void, vtable : *IoVTable)`,
-/// plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md §2); `.None` for the
-/// four-field `Io` whose value is never read, and for any other type.
-io_vtable_struct_of :: (fn(io_ty : &TypeValue) -> Option(TypeValue))({
-  fields := get_runtime_struct_fields(&resolve_struct_shell(io_ty));
-  (has_ctx : bool) = false;
-  (vt : Option(TypeValue)) = .None;
-  (fi : usize) = usize(0);
-  while(fi < fields.len(), {
-    match(
-      fields.get_cloned(fi),
-      .Some(f) => cond(
-        (f.label == "ctx") => {
-          has_ctx = true;
-        },
-        (f.label == "vtable") => match(
-          &f.ty,
-          Rc(.Pointer(pointee : p)) => {
-            pvt := resolve_struct_shell(p);
-            if(match(&pvt, Rc(.Struct(_)) => true, _ => false), {
-              vt = Option(TypeValue).Some(pvt);
-            });
-          },
-          _ => ()
-        ),
-        true => ()
-      ),
-      .None => ()
-    );
-    fi = (fi + usize(1));
-  });
-  if(has_ctx, vt, Option(TypeValue).None)
-});
-/// Whether `ty` is the std prelude's `Io` this compile emits the native Io
-/// for (`CodeGenContext.io_type`), by struct id.
-is_std_io_type :: (fn(ty : &TypeValue, context : &CodeGenContext) -> bool)(
-  match(
-    &context.io_type,
-    .Some(io) => match(
-      (resolve_struct_shell(ty), resolve_struct_shell(io)),
-      (Rc(.Struct({ id : a })), Rc(.Struct({ id : b }))) => (a == b),
-      _ => false
-    ),
-    .None => false
-  )
-);
-/// The C value an entry point hands to a runtime parameter of type `pt`:
-/// the calling thread's native `Io` (`__yo_io_native()`) for the prelude's
-/// `Io` (`main`'s `io`, a `Thread` or pool closure's `io`), a zeroed value
-/// for anything else (IO_INTERFACE_AND_STD_RUNTIME.md §2).
-entry_param_c_value :: (fn(pt : &TypeValue, context : &mut CodeGenContext) -> String)(
-  cond(
-    is_std_io_type(pt, context) => String.from("__yo_io_native()"),
-    true => `(${get_type_string(pt, context)}){0}`
-  )
-);
-/// A call through an `Io`'s table from emitted code: `io_code`'s `entry`
-/// (`spawn`, `run_until`) with its `ctx` and the future pointer `fut_code`.
-/// Both entries are `(ctx : ?*void, fut : *void) -> unit` (§2), the C type
-/// the cast spells. `io_ty` must have the interface shape
-/// (`io_vtable_struct_of` is `.Some`).
-io_vtable_future_call :: (fn(io_code : &String, io_ty : &TypeValue, entry : str, fut_code : &String) -> String)({
-  vt := match(io_vtable_struct_of(io_ty), .Some(v) => v, .None => return(String.new()));
-  io_shell := resolve_struct_shell(io_ty);
-  vt_member := c_field_name(&io_shell, &String.from("vtable"));
-  ctx_member := c_field_name(&io_shell, &String.from("ctx"));
-  entry_member := c_field_name(&vt, &String.from(entry));
-  `((void (*)(void*, void*))((${io_code}).${vt_member}->${entry_member}))((void*)(${io_code}).${ctx_member}, (void*)(${fut_code}))`
-});
 /// A runtime (non-comptime-only) struct field: its label and type, in
 /// declaration order.
 RuntimeStructField :: ref(struct(label : String, ty : TypeValue));
@@ -2086,6 +1988,104 @@ get_type_string :: (fn(t : &TypeValue, context : &mut CodeGenContext) -> String)
     }
   )
 );
+/// The std prelude's `Io` struct as `env` sees it, `.None` when there is
+/// none (a `SkipPrelude` compile). Only a struct declared in the std tree at
+/// `std_path` counts, as for `std_allocator_abi_is_v2`: a program's own `Io`
+/// is not the runtime's.
+std_io_type :: (fn(env : &Environment, std_path : &String) -> Option(TypeValue))({
+  vars := get_variables_from_env(env, &String.from("Io"));
+  (vi : usize) = usize(0);
+  while(vi < vars.len(), {
+    match(
+      vars.get_cloned(vi),
+      .Some(var) => match(
+        var.value().get(usize(0)),
+        .Some(Rc(.TypeVal(t))) => {
+          shell := resolve_struct_shell(&t);
+          is_std := match(resolve_struct_shell(&t), Rc(.Struct({ id : sid })) => _is_std_declared_struct(&sid, std_path), _ => false);
+          if(is_std, {
+            return(Option(TypeValue).Some(shell));
+          });
+        },
+        _ => ()
+      ),
+      .None => ()
+    );
+    vi = (vi + usize(1));
+  });
+  Option(TypeValue).None
+});
+/// The `IoVTable` an `Io` type carries: `.Some(VT)` when `io_ty` has the
+/// interface shape, a `ctx` field and a `vtable : *VT` field with `VT` a
+/// struct (`Io :: struct(ctx : ?*void, vtable : *IoVTable)`,
+/// plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md §2); `.None` for the
+/// four-field `Io` whose value is never read, and for any other type.
+io_vtable_struct_of :: (fn(io_ty : &TypeValue) -> Option(TypeValue))({
+  fields := get_runtime_struct_fields(&resolve_struct_shell(io_ty));
+  (has_ctx : bool) = false;
+  (vt : Option(TypeValue)) = .None;
+  (fi : usize) = usize(0);
+  while(fi < fields.len(), {
+    match(
+      fields.get(fi),
+      .Some(f) => cond(
+        (f.label == "ctx") => {
+          has_ctx = true;
+        },
+        (f.label == "vtable") => match(
+          &f.ty,
+          Rc(.Pointer(pointee : p)) => {
+            pvt := resolve_struct_shell(p);
+            if(match(&pvt, Rc(.Struct({ id : _ })) => true, _ => false), {
+              vt = Option(TypeValue).Some(pvt);
+            });
+          },
+          _ => ()
+        ),
+        true => ()
+      ),
+      .None => ()
+    );
+    fi = (fi + usize(1));
+  });
+  if(has_ctx, vt, Option(TypeValue).None)
+});
+/// Whether `ty` is the std prelude's `Io` this compile emits the native Io
+/// for (`CodeGenContext.io_type`), by struct id.
+is_std_io_type :: (fn(ty : &TypeValue, context : &CodeGenContext) -> bool)(
+  match(
+    &context.io_type,
+    .Some(io) => match(
+      (resolve_struct_shell(ty), resolve_struct_shell(io)),
+      (Rc(.Struct({ id : a })), Rc(.Struct({ id : b }))) => (a == b),
+      _ => false
+    ),
+    .None => false
+  )
+);
+/// The C value an entry point hands to a runtime parameter of type `pt`:
+/// the calling thread's native `Io` (`__yo_io_native()`) for the prelude's
+/// `Io` (`main`'s `io`, a `Thread` or pool closure's `io`), a zeroed value
+/// for anything else (IO_INTERFACE_AND_STD_RUNTIME.md §2).
+entry_param_c_value :: (fn(pt : &TypeValue, context : &mut CodeGenContext) -> String)(
+  cond(
+    is_std_io_type(pt, context) => String.from("__yo_io_native()"),
+    true => `(${get_type_string(pt, context)}){0}`
+  )
+);
+/// A call through an `Io`'s table from emitted code: `io_code`'s `entry`
+/// (`spawn`, `run_until`) with its `ctx` and the future pointer `fut_code`.
+/// Both entries are `(ctx : ?*void, fut : *void) -> unit` (§2), the C type
+/// the cast spells. `io_ty` must have the interface shape
+/// (`io_vtable_struct_of` is `.Some`).
+io_vtable_future_call :: (fn(io_code : &String, io_ty : &TypeValue, entry : str, fut_code : &String) -> String)({
+  vt := match(io_vtable_struct_of(io_ty), .Some(v) => v, .None => return(String.new()));
+  io_shell := resolve_struct_shell(io_ty);
+  vt_member := c_field_name(&io_shell, &String.from("vtable"));
+  ctx_member := c_field_name(&io_shell, &String.from("ctx"));
+  entry_member := c_field_name(&vt, &String.from(entry));
+  `((void (*)(void*, void*))((${io_code}).${vt_member}->${entry_member}))((void*)(${io_code}).${ctx_member}, (void*)(${fut_code}))`
+});
 /// The C type a Yo type is DECLARED with in a by-value PARAMETER position.
 /// `unit` is a zero-sized type: every STORAGE position erases it outright (a
 /// struct/tuple field emits no member, an enum variant field is erased from the
