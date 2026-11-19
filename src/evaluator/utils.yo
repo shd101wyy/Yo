@@ -11031,7 +11031,7 @@ _lb_join_root_end :: (fn(variable : &Variable, root_name : &String, end : &Token
 /// `end`, when it ended later.
 _lb_shorten_holder_entries :: (fn(name : &String, decl : &Token, end : &Token) -> unit)({
   name_own := name.clone();
-  g_local_borrows.with_mut({ &decl, &name_own, &end }(xs) => {
+  g_local_borrows.with_mut({ decl : &decl.*, &name_own, end : &end.* }(xs) => {
     (i : usize) = xs.len();
     while(i > usize(0), {
       i = (i - usize(1));
@@ -11042,7 +11042,7 @@ _lb_shorten_holder_entries :: (fn(name : &String, decl : &Token, end : &Token) -
       });
     });
   });
-  g_local_borrow_joins.with_mut({ &decl, &name_own, &end }(xs) => {
+  g_local_borrow_joins.with_mut({ decl : &decl.*, &name_own, end : &end.* }(xs) => {
     (j : usize) = xs.len();
     while(j > usize(0), {
       j = (j - usize(1));

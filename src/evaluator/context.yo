@@ -3774,7 +3774,7 @@ impl_in_flight_ctx_copy_at :: (fn(index : usize) -> Option(EvalContext))(
 /// second-class captures), clones the env handle, and syncs the same ctx
 /// fields `_run_impl_field_in_place` lent out.
 sync_in_flight_ctx_at :: (fn(index : usize, env : &Environment, ctx : &EvalContext) -> unit)(
-  g_impls_in_flight.with_mut({ index, &env, &ctx }(xs) => {
+  g_impls_in_flight.with_mut({ index, env : &env.*, ctx : &ctx.* }(xs) => {
     if(index < xs.len(), {
       mut(rec) := xs(index).clone();
       rec.env = Rc.clone(env);
@@ -3880,7 +3880,7 @@ impl_direct_field_at :: (fn(index : usize, top_index : usize) -> Option(ImplPend
 );
 /// The INNER field `label` of the trait constructor at `top_index`.
 impl_inner_field_at :: (fn(index : usize, top_index : usize, label : &String) -> Option(ImplPendingField))(
-  g_impls_in_flight.with({ index, top_index, &label }(xs) => {
+  g_impls_in_flight.with({ index, top_index, label : &label.* }(xs) => {
     (found : Option(ImplPendingField)) = Option(ImplPendingField).None;
     match(
       (index < xs.len()),
@@ -3900,7 +3900,7 @@ impl_inner_field_at :: (fn(index : usize, top_index : usize, label : &String) ->
 );
 /// `impl_inner_field_at`'s INDEX (see `impl_direct_field_index_at`).
 impl_inner_field_index_at :: (fn(index : usize, top_index : usize, label : &String) -> Option(usize))(
-  g_impls_in_flight.with({ index, top_index, &label }(xs) => {
+  g_impls_in_flight.with({ index, top_index, label : &label.* }(xs) => {
     (found : Option(usize)) = Option(usize).None;
     match(
       (index < xs.len()),
@@ -3921,7 +3921,7 @@ impl_inner_field_index_at :: (fn(index : usize, top_index : usize, label : &Stri
 /// The field a sibling miss on `label` may force: a direct field, or an inner
 /// field of the trait entry currently being evaluated.
 impl_forcible_field_at :: (fn(index : usize, label : &String) -> Option(ImplPendingField))(
-  g_impls_in_flight.with({ index, &label }(xs) => {
+  g_impls_in_flight.with({ index, label : &label.* }(xs) => {
     (found : Option(ImplPendingField)) = Option(ImplPendingField).None;
     match(
       (index < xs.len()),
@@ -3961,7 +3961,7 @@ impl_direct_field_index_at :: (fn(index : usize, top_index : usize) -> Option(us
   })
 );
 impl_forcible_field_index_at :: (fn(index : usize, label : &String) -> Option(usize))(
-  g_impls_in_flight.with({ index, &label }(xs) => {
+  g_impls_in_flight.with({ index, label : &label.* }(xs) => {
     (found : Option(usize)) = Option(usize).None;
     match(
       (index < xs.len()),
