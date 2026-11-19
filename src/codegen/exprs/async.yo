@@ -3067,7 +3067,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
       (mut(ki) : usize) = usize(0);
       while(ki < src_kcvs.len(), {
         match(
-          src_kcvs.get(ki),
+          src_kcvs.get_cloned(ki),
           .Some(v) => cond(
             is_capture(&v, cap_id.clone()) => {
               remapped_cvs.push(CapturedVariable(base : v.base, kind : CapturedVariableKind.Outer, is_owning_the_same_rc_value_as : v.is_owning_the_same_rc_value_as));
