@@ -449,11 +449,13 @@ _generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &
   // table (the four-field `Io`) or the prelude's `Io` (the interface shape,
   // whose builtins are methods), so a user struct with an `io` field is
   // untouched.
-  if((field_name == "io") && is_struct_type(&object_type) && (is_prelude_io_struct(&object_type) || match(
-    &object_type,
-    Rc(.Struct({ id : oid })) => lookup_io_builtin_struct_field(oid.clone(), String.from("await")).is_some(),
-    _ => false
-  )), {
+  if((field_name == "io") && is_struct_type(&object_type) && (
+    is_prelude_io_struct(&object_type) || match(
+      &object_type,
+      Rc(.Struct({ id : oid })) => lookup_io_builtin_struct_field(oid.clone(), String.from("await")).is_some(),
+      _ => false
+    )
+  ), {
     return(object_code.clone());
   });
   // `p.*` on a place whose type is a reference (a `&&T`'s referent, a

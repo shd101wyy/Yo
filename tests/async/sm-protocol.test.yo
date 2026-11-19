@@ -482,10 +482,13 @@ test("a future born completed resolves to its result without a tick", {
 // cold alone, and now is the monotonic clock in nanoseconds.
 test("the native executor entries drive and leave tasks as the table promises", {
   t0 := __yo_io_now_ns();
-  h := io.spawn(io.async((io : Io) => {
-    io.await(sleep(u64(2)), io);
-    i32(9)
-  }), io);
+  h := io.spawn(
+    io.async((io : Io) => {
+      io.await(sleep(u64(2)), io);
+      i32(9)
+    }),
+    io
+  );
   assert(!h.is_finished(), "the task is parked on its timer");
   __yo_io_spawn_task(h.as_ptr());
   __yo_io_run_until(h.as_ptr());

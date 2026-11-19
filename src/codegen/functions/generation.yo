@@ -1309,9 +1309,11 @@ io_native_needs_reactor :: (fn(context : &CodeGenContext) -> bool)(
 emit_io_native_declarations :: (fn(context : &mut CodeGenContext) -> unit)({
   io := match(_registered_std_io_type(context), .Some(t) => t, .None => return());
   io_c := get_type_string(&io, context);
-  context.emitter.emit_declaration_string_line(`
+  context.emitter.emit_declaration_string_line(
+    `
 // The calling thread's native Io (plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md §2).
-static ${io_c} __yo_io_native(void);`);
+static ${io_c} __yo_io_native(void);`
+  );
   match(
     io_vtable_struct_of(&io),
     .Some(vt) => {
