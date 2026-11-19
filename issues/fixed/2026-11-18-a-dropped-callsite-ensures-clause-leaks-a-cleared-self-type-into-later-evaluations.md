@@ -9,6 +9,11 @@ targets), so the blast radius is `yo verify` on a file with the trigger shape.
 `Rc(AstExprNode)`); every tip since was red. The 3c retype (#1986, `Token` is `Rc(TokenData)`) stayed green because
 `TokenData` derives `Eq(TokenData)` and `AstExprNode` deliberately does not.
 
+Follow-up: the fix's rebase transcribed `_eval_and_check_specialized_body`'s `sb_skip` guard inverted
+(`== usize(0)`), which #2003 restored to `> usize(0)`; #2003 also re-pointed the self-verification sweep job at the
+tree-built suite candidate (`issues/fixed/2026-11-18-an-inverted-skip-guard-kills-the-specialized-body-result-type-check.md`,
+`issues/fixed/2026-11-18-the-verify-src-sweep-job-runs-the-seed-and-cannot-see-tree-side-evaluator-fixes.md`).
+
 ## Reproducer
 
 ```text

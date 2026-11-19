@@ -7,7 +7,7 @@ programs compile and return a reinterpreted value
 `comptime_expect_error` on such a call reports "evaluated successfully", which failed the whole
 `tests/type_soundness.test.yo` batch (0 of 75 ran) on the v0.2.79 develop battery.
 
-**Status:** OPEN, filed 2026-11-18. Introduced by #2001 (develop `b482d44d8`), the same commit that
+**Status:** FIXED by #2003 (develop `d8f0d89fa`, 2026-11-19): the guard reads `> usize(0)` again. Filed 2026-11-18. Introduced by #2001 (develop `b482d44d8`), the same commit that
 landed the trap-and-re-raise fix for the dropped callsite-ensures restore: moving the E0604 check
 from `create_specialized_function_inline`'s body into `_eval_and_check_specialized_body`
 transcribed the `sb_skip` guard with `== usize(0)` where the original had `> usize(0)`.
