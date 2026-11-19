@@ -513,6 +513,14 @@ _occurs_check :: (fn(some_type_id : &String, some_type_name : &String, ty : &Typ
     Rc(.ComptimeListT(child)) => recur(some_type_id, some_type_name, &child.*, visited, exn),
     // Don't check inside pointer types (valid indirection)
     Rc(.Pointer(_)) => false,
+    // A reference is structural: `&T` contains `T`, so `T := &T` is an
+    // infinite type. Without this arm a failed overload trial bound a generic
+    // body's own `K := &K` (a blanket `impl(generic(T), &T, …)` candidate
+    // offering `self : &Self` at `Self := &K` to a receiver place of type
+    // `K`), and the binding outlived the trial in the impl's frame
+    // (issues/fixed/2026-11-13-a-blanket-hash-impl-over-a-reference-rebinds-a-generic-impls-key-to-a-reference-of-itself.md).
+    Rc(.Reference(ref_pointee, _, _)) => recur(some_type_id, some_type_name, &ref_pointee.*, visited, exn),
+    Rc(.ValueSlot(vs_inner)) => recur(some_type_id, some_type_name, &vs_inner.*, visited, exn),
     Rc(.Func({ param_types, implicit_types, result, meta : __fm1 })) => {
       forall_labels := Rc.clone(__fm1.forall_labels);
       // A generic declared by this Func's OWN signature SHADOWS the
