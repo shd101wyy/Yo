@@ -1388,13 +1388,16 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
   if(place.through_cell, {
     info.crosses_cell = true;
   });
+  // A module-level place: decision 18's rules 3 and 4 (no call, no await
+  // while `cur` is live) now hold for `cur`, and they name this place.
+  if(unrelated && place.module_root, {
+    info.module_root = true;
+    info.places.push(place.clone());
+  });
+  // `info` is a copy of the registry entry (`LocalBorrowInfo` is a value):
+  // the re-point's facts reach the rules through the registry.
+  local_borrow_update(&info);
   if(unrelated, {
-    // A module-level place: decision 18's rules 3 and 4 (no call, no await
-    // while `cur` is live) now hold for `cur`, and they name this place.
-    if(place.module_root, {
-      info.module_root = true;
-      info.places.push(place.clone());
-    });
     // The join (BCC §3 `bind`): `cur`'s loans are the reaching
     // definitions'. This one KILLs what an earlier re-point on every path to
     // it joined, and GENs the new place; §7's scope check rejects it when
