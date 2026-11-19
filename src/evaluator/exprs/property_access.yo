@@ -2501,6 +2501,31 @@ Raw pointer operations may dereference invalid memory.`
               exn.throw(dyn(Box.new(with_code(format_error_message(ast_expr_token(&property_expr), unknown_field_message(&label_str, &base_ty, &fields_labels.items)), unknown_field_code(&base_ty)))));
               return(Rc.clone(expr.*));
             });
+            // A method of the prelude's `Io` bound to an io builtin
+            // (`impl(Io, await : __yo_io_await, ...)`, the interface-shaped
+            // `Io`, plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md §2) reads
+            // like the four-field `Io`'s field: the callee is the builtin's
+            // own function type, with no receiver, and the call dispatches
+            // and lowers exactly as `io.await` always has.
+            if(is_prelude_io_struct(&base_ty), {
+              match(
+                _io_builtin_method_type(&env, &label_str, &base_ty),
+                .Some(ibm_ty) => {
+                  out_ibm := new_expr_info(&env, &ibm_ty);
+                  out_ibm.set_is_accessing_property(Option(bool).Some(true));
+                  match(
+                    obj_val_main.clone(),
+                    .Some(Rc(.UnknownVal(_, ibm_ro))) => out_ibm.set_value(Option(EvalValue).Some(if(ibm_ro, create_runtime_unknown_val(&ibm_ty), create_unknown_val(&ibm_ty)))),
+                    .Some(_) => out_ibm.set_value(Option(EvalValue).Some(create_runtime_unknown_val(&ibm_ty))),
+                    .None => ()
+                  );
+                  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_ibm);
+                  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_ibm);
+                  return(Rc.clone(expr.*));
+                },
+                .None => ()
+              );
+            });
             // A method call — return without setting ExprInfo.
             return(Rc.clone(expr.*));
           },
@@ -3004,4 +3029,31 @@ Raw pointer operations may dereference invalid memory.`
   });
   Rc.clone(expr.*)
 });
+/// The function type of the prelude `Io`'s method `label` when that method
+/// IS an io builtin (bound to `extern("Yo") __yo_io_async` / `__yo_io_await`
+/// / `__yo_io_state` / `__yo_io_spawn`), `.None` otherwise.
+_io_builtin_method_type :: (fn(env : &Environment, label : &String, io_ty : &TypeValue) -> Option(TypeValue))({
+  entries := get_receiver_methods_by_name_from_env(env, label, io_ty, false);
+  (i : usize) = usize(0);
+  while(i < entries.len(), {
+    match(
+      entries.get(i),
+      .Some(e) => match(
+        &e.ty,
+        Rc(.Func({ meta : ibm_m })) => match(
+          &ibm_m.extern_name,
+          .Some(en) => if((en.* == "__yo_io_async") || (en.* == "__yo_io_await") || (en.* == "__yo_io_state") || (en.* == "__yo_io_spawn"), {
+            return(Option(TypeValue).Some(e.ty.clone()));
+          }),
+          .None => ()
+        ),
+        _ => ()
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  Option(TypeValue).None
+});
+
 export(evaluate_property_access, make_deref_expr, note_projection_call_deref);
