@@ -1,5 +1,7 @@
 # A `str` call result in a template is E0610 once a blanket over `&T` provides the method
 
+**Status:** FIXED 2026-11-20 on `v0279/blanket-tostring` by VERDICTS-69's probe order (see "Fix" below).
+
 **Severity:** S2 — with std's planned `impl(generic(T), where(T <: ToString), &T, ToString(...))` in place, `${f()}`
 where `f` returns `str` (the legacy value `str`, a `&str` value) is rejected with E0610, so the compiler's own
 `src/evaluator/utils.yo` (`${_lb_verb(kind)}`) stops `check ./src`; a `&String` call result and a bound `str` local are
@@ -56,7 +58,24 @@ longer fires; R-PROBE's value-receiver filter keeps only candidates whose impl r
 and its `&&str` slot needs the receiver's own storage, which a call result does not have
 (`_lend_reference_receiver_at_double_slot`, E0610).
 
-## Recommendation
+## Fix
+
+VERDICTS-69 (Fable, adopted) rejected the recommendation below as a patch: the discriminator is the receiver slot,
+not whether the impl is a blanket (a concrete `impl(&str, Wh)` taking `self : &Self` reproduces the same E0610, and
+`rr.*.wh()` on `rr : &&C` breaks the same way). A receiver of type `&U` probes the slot `&U` first, then `&&U` (only a
+binding can lend its storage, else E0610), then deref, so an impl over references never shadows the referent's own
+method. In `src/evaluator/calls/function.yo`:
+
+- The Q-B arm fires unless `&str` has a candidate at the slot `&str` (`_has_slot_step_zero`, probe step 0) and `str`
+  has the method, so `str`'s own method (slot `&str`) wins over `&&str` candidates; a method of `&str` alone stays the
+  answer.
+- R-PROBE's value-receiver filter keeps a reference impl's candidate only when no dropped candidate of the referent
+  has an earlier step; otherwise `hits` is left empty and the deref step answers. A tie at the same step keeps both, so
+  two trait methods are E0616 and an inherent method wins.
+
+With the ToString half of the blanket patch applied, `check ./src` is 273/273.
+
+## Recommendation (superseded by VERDICTS-69)
 
 The arm's question is whether the receiver's method comes from `str` or from an impl written for references. Read "no
 method of its own" as "no method other than a reference blanket's" (a candidate whose impl pattern is `&T` or `T`,
@@ -66,7 +85,8 @@ must check `src` against a std carrying the blanket needs this fix: binding the 
 (with `${_lb_verb(kind)}` bound, `check ./src` stops at the next placeholder on the same line, `${_lb_mode(info)}`, 135
 reports again; every `str`-returning call inside a template is a site).
 
-## Test that will pin it
+## Test
 
-`tests/impl_ref.test.yo`: a user blanket of a user trait over `&T` (a `self : &Self` method) beside a `str`-returning
-function; `verb(...).m()` takes `str`'s own method.
+`tests/impl_ref.test.yo` `(vii-d)`: VERDICTS-69's six rows (a `str` call result beside a blanket over `&T` and beside
+a concrete `impl(&str, …)`; a `str` binding and the blanket's qualified call; a method of `&str` alone at `&&str`, E0610
+for a call result; two methods at the slot `&str`, E0616; `rr.*.m()` on `rr : &&C`).
