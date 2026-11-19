@@ -3141,7 +3141,7 @@ _select_matching_overload :: (
   (hi : usize) = usize(0);
   while(hi < base.all_hits.len(), {
     match(
-      base.all_hits.get(hi),
+      base.all_hits.get_cloned(hi),
       .Some(cand) => match(
         cand.value.clone(),
         .Some(cv) => {
@@ -3206,7 +3206,7 @@ _select_matching_overload :: (
     (aw_done : bool) = false;
     while((aw_mi < matching.len()) && !aw_done, {
       aw_idx := match(matching.get(aw_mi), .Some(i) => i, .None => usize(0));
-      aw_src := match(base.all_hits.get(aw_idx), .Some(c) => c.source_trait_id.clone(), .None => String.from(""));
+      aw_src := match(base.all_hits.get_cloned(aw_idx), .Some(c) => c.source_trait_id.clone(), .None => String.from(""));
       if(aw_src != "", {
         (aw_wi : usize) = usize(0);
         while((aw_wi < aw_ids.len()) && !aw_done, {
@@ -3239,17 +3239,17 @@ _select_matching_overload :: (
     while(mi < matching.len(), {
       m_idx := match(matching.get(mi), .Some(i) => i, .None => usize(0));
       m_ct := match(
-        base.all_hits.get(m_idx),
+        base.all_hits.get_cloned(m_idx),
         .Some(mc) => match(&mc.ty, Rc(.Func({ meta : __smm1 })) => __smm1.result_is_comptime_only, _ => false),
         .None => false
       );
       // One entry per trait: the same comptime impl can be registered
       // twice (prelude `neg`), and a duplicate is not a second candidate.
-      m_tid := match(base.all_hits.get(m_idx), .Some(mc) => mc.source_trait_id.clone(), .None => String.new());
+      m_tid := match(base.all_hits.get_cloned(m_idx), .Some(mc) => mc.source_trait_id.clone(), .None => String.new());
       (m_dup : bool) = false;
       (mdi : usize) = usize(0);
       while(mdi < ct_matches.len(), {
-        prev_tid := match(base.all_hits.get(match(ct_matches.get(mdi), .Some(i) => i, .None => usize(0))), .Some(pc) => pc.source_trait_id.clone(), .None => String.new());
+        prev_tid := match(base.all_hits.get_cloned(match(ct_matches.get(mdi), .Some(i) => i, .None => usize(0))), .Some(pc) => pc.source_trait_id.clone(), .None => String.new());
         if((prev_tid == m_tid) && (m_tid != ""), {
           m_dup = true;
         });
@@ -3282,7 +3282,7 @@ _select_matching_overload :: (
     while(ami < matching.len(), {
       am_idx := match(matching.get(ami), .Some(i) => i, .None => usize(0));
       match(
-        base.all_hits.get(am_idx),
+        base.all_hits.get_cloned(am_idx),
         .Some(amc) => {
           am_ct := match(&amc.ty, Rc(.Func({ meta : __amm })) => __amm.result_is_comptime_only, _ => false);
           cond(
@@ -3316,13 +3316,13 @@ _select_matching_overload :: (
         winner_hi = ih;
       },
       .None => if(amb_traits.len() > usize(1), {
-        amb_name := match(base.all_hits.get(winner_hi), .Some(w) => w.label.clone(), .None => String.new());
+        amb_name := match(base.all_hits.get_cloned(winner_hi), .Some(w) => w.label.clone(), .None => String.new());
         exn.throw(dyn(Box.new(with_code(format_error_message(ast_expr_token(func_expr), _ambiguous_method_message(base, &amb_name, &amb_traits, &amb_entries, env, ctx)), E_AMBIGUOUS_METHOD))));
       })
     );
   });
   match(
-    base.all_hits.get(winner_hi),
+    base.all_hits.get_cloned(winner_hi),
     .Some(w_cand) => ReceiverMethodResult(
       method_val_opt : w_cand.value.clone(),
       method_ty : Rc.clone(w_cand.ty),

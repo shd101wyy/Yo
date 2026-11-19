@@ -504,13 +504,13 @@ _generate_spawn_call :: (fn(expr : &AstExpr, indent : &String, context : &mut Fu
   closure_fn := match(
     _closure_fn_c_name(&cei.value(), expr_info_closure_function_value(&cei), context),
     .Some(n) => n,
-    .None => match(mapped_opt, .Some(m) => m.function_c_name.clone(), .None => return(Option(String).Some(String.from("/* Error: spawn cb has no closure function */"))))
+    .None => match(&mapped_opt, .Some(m) => m.function_c_name.clone(), .None => return(Option(String).Some(String.from("/* Error: spawn cb has no closure function */"))))
   );
   closure_fid_direct := _closure_fid(&cei.value(), expr_info_closure_function_value(&cei));
   closure_fid := if(
     closure_fid_direct.len() > usize(0),
     closure_fid_direct,
-    match(mapped_opt, .Some(m) => m.closure_fid.clone(), .None => String.from(""))
+    match(&mapped_opt, .Some(m) => m.closure_fid.clone(), .None => String.from(""))
   );
   runtime_args := _closure_runtime_arg_zeroinits(&closure_fid, context);
   wrapper := _generate_spawn_wrapper(&closure_fn, capture_c_name.clone(), &capture_type, &runtime_args, is_fnonce_closure_fn(&closure_fid), context);
