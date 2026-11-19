@@ -31,7 +31,7 @@
 { is_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { is_target_posix, is_target_windows } :: import("../../target.yo");
 { get_func_type, is_closure_fn, get_closure_capture_info, is_effect_record_member, is_index_entry_method } :: import("../../function-value.yo");
-{ declare_c_var_name, get_deferred_drop_target_atom_name, push_declared_scope, get_type_string, pointer_c_type_string, get_variable_type_string, sanitize_for_c_identifier, get_variable_name_for_codegen, ChunkRange, get_uses_tls, note_line_position, get_variable_name_for_codegen_at, is_self_named_atom } :: import("../utils/index.yo");
+{ declare_c_var_name, get_deferred_drop_target_atom_name, push_declared_scope, get_type_string, pointer_c_type_string, get_variable_type_string, sanitize_for_c_identifier, get_variable_name_for_codegen, ChunkRange, get_uses_tls, note_line_position, get_variable_name_for_codegen_at, is_self_named_atom, CodeGenContext, type_key, get_runtime_struct_fields, c_field_name, c_symbol_name, io_vtable_struct_of, entry_param_c_value } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("./context.yo");
 { generate_function_prototype, should_skip_function_codegen, _return_type_override } :: import("./declarations.yo");
 { _call_generate_expr } :: import("../exprs/dispatch.yo");
@@ -40,11 +40,12 @@
 { unwind_origin_id, unwind_catches_of_body } :: import("../exprs/async-completion.yo");
 { generate_deferred_drop_expressions, generate_deferred_dup_expressions, is_closure_construction } :: import("../exprs/drop-dup.yo");
 { _flush_stmt_lent_temp_drops } :: import("../exprs/begin.yo");
-{ t_unit } :: import("../../types/creators.yo");
+{ t_unit, resolve_struct_shell } :: import("../../types/creators.yo");
 { eprintln } :: import("std/fmt");
 { collect_unwind_value_ctypes, generate_atomic_gc_runtime_functions } :: import("./gc-runtime.yo");
 { generate_sys_runtime, generate_tls_runtime } :: import("../async/runtime-io-common.yo");
 { generate_async_runtime } :: import("../async/runtime.yo");
+{ native_io_entry_c_name } :: import("../async/runtime-core.yo");
 { generate_parallelism_runtime } :: import("../parallelism/runtime.yo");
 { generate_ref_struct_constructor_functions, generate_ref_enum_constructor_functions, generate_closure_constructor_functions } :: import("./constructors.yo");
 { codegen_fatal, codegen_report_error } :: import("../constants.yo");
@@ -1191,6 +1192,8 @@ generate_all_functions :: (fn(context : &mut FunctionGenerationContext) -> unit)
   if(context.uses_parallelism, {
     generate_parallelism_runtime(&mut context.base.emitter, context.base.debug_parallelism, &context.base.target_info, context.uses_async, context.base.allocator == "debug");
   });
+  // The native Io: its table calls into the runtimes above.
+  emit_io_native_definitions(&mut context.base);
   // TLS backend: emitted independently of uses_async — a SYNC program probing
   // tls_available() must still link the __yo_tls_ ABI. Target selection
   // (OpenSSL vs stubs) lives in the emitted C's preprocessor guard, so wasm
@@ -1254,8 +1257,9 @@ generate_all_functions :: (fn(context : &mut FunctionGenerationContext) -> unit)
     fi = (fi + usize(1));
   });
 });
-/// The C argument list for the `__yo_user_main` call: each runtime parameter
-/// zero-initialized as `(<cType>){0}` (e.g. `io : Io` → `(Io){0}`).
+/// The C argument list for the `__yo_user_main` call: the calling thread's
+/// native Io (`__yo_io_native()`) for an `io : Io` parameter, every other
+/// runtime parameter zero-initialized as `(<cType>){0}` (`entry_param_c_value`).
 /// (Evidence-param mains are unimplemented.)
 _main_call_args :: (fn(main_func_id : &String, context : &mut FunctionGenerationContext) -> String)({
   pts := match(get_func_type(main_func_id), Rc(.Func({ param_types : pt })) => Rc.clone(pt), _ => no_types());
@@ -1269,9 +1273,7 @@ _main_call_args :: (fn(main_func_id : &String, context : &mut FunctionGeneration
     match(
       slot_pointee_at(&pts, i),
       .Some(pt) => {
-        out.push_str("(");
-        out.push_string(get_type_string(&pt, &mut context.base));
-        out.push_str("){0}");
+        out.push_string(entry_param_c_value(&pt, &mut context.base));
       },
       .None => ()
     );
@@ -1279,6 +1281,176 @@ _main_call_args :: (fn(main_func_id : &String, context : &mut FunctionGeneration
   });
   out.push_str(")");
   out
+});
+/// The std prelude's `Io` when this program's types include it (its C type
+/// is registered): the condition for emitting the native Io at all.
+_registered_std_io_type :: (fn(context : &CodeGenContext) -> Option(TypeValue))(
+  match(
+    &context.io_type,
+    .Some(io) => if(context.get_type_c_name(&type_key(io)).is_some(), Option(TypeValue).Some(Rc.clone(io)), Option(TypeValue).None),
+    .None => Option(TypeValue).None
+  )
+);
+/// Whether this program links the reactor for its `Io`: the prelude's `Io`
+/// has the interface shape (a `ctx` and a `vtable`), and the program's
+/// types include it. Then `__yo_io_native()` builds the value from the
+/// calling thread's loop and the native table, which the async runtime
+/// defines (plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md §2). The
+/// four-field `Io` is never read, and needs no runtime.
+io_native_needs_reactor :: (fn(context : &CodeGenContext) -> bool)(
+  match(_registered_std_io_type(context), .Some(io) => io_vtable_struct_of(&io).is_some(), .None => false)
+);
+/// The native Io's declarations, emitted after the function prototypes:
+/// `__yo_io_native`, which every entry point that hands an `io : Io` to its
+/// body calls (`entry_param_c_value`), and, for the interface-shaped `Io`,
+/// the native table `__yo_io_native_vtable` (`extern("Yo",
+/// __yo_io_native_vtable : IoVTable)`; extern in the shared header under
+/// chunked emission, defined in chunk 0). Nothing without an `Io` type.
+emit_io_native_declarations :: (fn(context : &mut CodeGenContext) -> unit)({
+  io := match(_registered_std_io_type(context), .Some(t) => t, .None => return());
+  io_c := get_type_string(&io, context);
+  context.emitter.emit_declaration_string_line(`
+// The calling thread's native Io (plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md §2).
+static ${io_c} __yo_io_native(void);`);
+  match(
+    io_vtable_struct_of(&io),
+    .Some(vt) => {
+      if(context.get_type_c_name(&type_key(&vt)).is_none(), {
+        codegen_fatal(&String.from("internal: the prelude's Io has a vtable, but its IoVTable struct was not collected"));
+        return();
+      });
+      vt_c := get_type_string(&vt, context);
+      context.emitter.emit_declaration_string_line(
+        cond(
+          context.chunk_mode => `extern ${vt_c} __yo_io_native_vtable;`,
+          true => `static ${vt_c} __yo_io_native_vtable;`
+        )
+      );
+    },
+    .None => ()
+  );
+});
+/// The native Io's definitions, emitted after the runtimes.
+///
+/// For the interface-shaped `Io`, one `__yo_io_vt_<label>` wrapper per
+/// `IoVTable` field, built from the field's own Yo signature: it takes the
+/// field's parameters and passes all but the leading `ctx` to the native
+/// entry `native_io_entry_c_name` names. The table is filled by field label,
+/// so the prelude's declaration alone decides the table's shape and order;
+/// a field the native Io has no operation for is an internal compiler
+/// error. `__yo_io_native()` then returns `{ ctx = this thread's loop,
+/// vtable = &__yo_io_native_vtable }`.
+///
+/// For the four-field `Io` (whose value is never read) it returns a zeroed
+/// value, the `(Io){0}` the entry points passed before.
+emit_io_native_definitions :: (fn(context : &mut CodeGenContext) -> unit)({
+  io := match(_registered_std_io_type(context), .Some(t) => t, .None => return());
+  io_c := get_type_string(&io, context);
+  out := String.from(
+    `
+// ============================================================================
+// The native Io (plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md §2)
+// ============================================================================
+`
+  );
+  (io_body : String) = String.new();
+  match(
+    io_vtable_struct_of(&io),
+    .Some(vt) => {
+      vt_c := get_type_string(&vt, context);
+      fields := get_runtime_struct_fields(&vt);
+      (inits : String) = String.new();
+      (fi : usize) = usize(0);
+      while(fi < fields.len(), {
+        match(
+          fields.get_cloned(fi),
+          .Some(f) => {
+            callee := match(
+              native_io_entry_c_name(&f.label),
+              .Some(c) => c,
+              .None => {
+                codegen_fatal(&`the prelude's IoVTable field \`${f.label}\` names no operation of the native Io (native_io_entry_c_name, src/codegen/async/runtime_core.yo)`);
+                return();
+              }
+            );
+            pts := match(&f.ty, Rc(.Func({ param_types : fpt })) => Rc.clone(fpt), _ => no_types());
+            if(pts.len() == usize(0), {
+              codegen_fatal(&`the prelude's IoVTable field \`${f.label}\` must be a function whose first parameter is the Io's \`ctx\``);
+              return();
+            });
+            result_ty := match(&f.ty, Rc(.Func({ result : r })) => t_slot_pointee(&r.*), _ => t_unit());
+            result_c := if(is_unit_type(&result_ty), String.from("void"), get_type_string(&result_ty, context));
+            wrapper := `__yo_io_vt_${c_symbol_name(&f.label)}`;
+            (params : String) = String.new();
+            (call_args : String) = String.new();
+            (pi : usize) = usize(0);
+            while(pi < pts.len(), {
+              match(
+                slot_pointee_at(&pts, pi),
+                .Some(pt) => {
+                  if(pi > usize(0), {
+                    params.push_str(", ");
+                  });
+                  if(pi > usize(1), {
+                    call_args.push_str(", ");
+                  });
+                  arg_name := if(pi == usize(0), String.from("ctx"), `a${pi.to_string()}`);
+                  params.push_string(`${get_type_string(&pt, context)} ${arg_name.clone()}`);
+                  if(pi > usize(0), {
+                    call_args.push_string(arg_name);
+                  });
+                },
+                .None => ()
+              );
+              pi = (pi + usize(1));
+            });
+            call := `${callee}(${call_args})`;
+            out.push_string(
+              `static ${result_c.clone()} ${wrapper.clone()}(${params}) {
+  (void)ctx;
+  ${if(is_unit_type(&result_ty), String.new(), String.from("return "))}${call};
+}
+`
+            );
+            inits.push_string(`  .${c_field_name(&vt, &f.label)} = (void*)${wrapper},\n`);
+          },
+          .None => ()
+        );
+        fi = (fi + usize(1));
+      });
+      out.push_string(`${if(context.chunk_mode, String.new(), String.from("static "))}${vt_c} __yo_io_native_vtable = {\n${inits}};\n`);
+      io_shell := resolve_struct_shell(&io);
+      ctx_ty := match(_io_field_type(&io_shell, "ctx"), .Some(t) => t, .None => t_unit());
+      io_body.push_string(`  io.${c_field_name(&io_shell, &String.from("ctx"))} = (${get_type_string(&ctx_ty, context)})__yo_async_loop_self_ptr();\n`);
+      io_body.push_string(`  io.${c_field_name(&io_shell, &String.from("vtable"))} = &__yo_io_native_vtable;\n`);
+    },
+    .None => ()
+  );
+  out.push_string(
+    `static ${io_c.clone()} __yo_io_native(void) {
+  ${io_c} io;
+  memset(&io, 0, sizeof(io));
+${io_body}  return io;
+}
+`
+  );
+  context.emitter.emit_string(&out);
+});
+/// The type of `io`'s runtime field `label`.
+_io_field_type :: (fn(io : &TypeValue, label : str) -> Option(TypeValue))({
+  fields := get_runtime_struct_fields(io);
+  (i : usize) = usize(0);
+  while(i < fields.len(), {
+    match(
+      fields.get_cloned(i),
+      .Some(f) => if(f.label == label, {
+        return(Option(TypeValue).Some(Rc.clone(f.ty)));
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  Option(TypeValue).None
 });
 /// A module-level mutable variable prepared for codegen: its resolved C name and
 /// its initializer RHS. Returned by `emit_module_level_variable_declarations` so
@@ -1880,4 +2052,5 @@ ${abort_report}${belt_block}${dbg_mark}${heap_report_call}  return 0;
   });
 });
 export(generate_function_body, generate_function, generate_all_functions, generate_main_wrapper);
+export(io_native_needs_reactor, emit_io_native_declarations, emit_io_native_definitions);
 export(ModuleLevelVarEntry, emit_module_level_variable_declarations, emit_thread_local_accessors);
