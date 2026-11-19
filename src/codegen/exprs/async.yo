@@ -2975,7 +2975,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
   // would find the value consumed and spuriously panic.
   analysis := match(
     analysis_in,
-    .Some(a) => a.*,
+    .Some(a) => a.clone(),
     .None => match(io_async_await_analysis(expr, context), .Some(a2) => a2, .None => __yo_panic("Missing await analysis for async block. This should have been computed during evaluation."))
   );
   // io.async: the capture struct + its deferred dups live on the CLOSURE ARG's
@@ -3272,13 +3272,13 @@ _make_sm_captured_variable :: (fn(id : &String, name : &String, ty : &TypeValue,
     is_owning_the_same_rc_value_as : Option(Rc(CapturedVariable)).None
   )
 );
-/// A new list holding the same await points: `AwaitPoint` is a `ref` handle,
-/// so a rebuilt analysis shares each point with the original, which stays
-/// intact for its other readers.
+/// A copy of the await points: `AwaitPoint` is a value, so a rebuilt
+/// analysis holds its own copy of each point and the original stays intact
+/// for its other readers.
 _share_await_points :: (fn(src : &ArrayList(AwaitPoint)) -> ArrayList(AwaitPoint))({
   mut(out) := ArrayList(AwaitPoint).with_capacity(src.len());
   for(&src, ap => {
-    out.push(ap.*);
+    out.push(ap.clone());
   });
   out
 });
