@@ -73,7 +73,7 @@ say "(L) complete except the value spelling of `str`", and (L) is asserted in v0
 on the v0.2.79 release candidate; if test 7 has not passed at the cut, the notes say so and (S) moves to v0.2.80 too.
 The release and the claim are decoupled (VERDICTS-58 decision 8).
 Test 7 itself is v0.2.80 (maintainer override, 2026-11-17; schedule §5k), so the release asserts §3.3's "(S) pending"
-variant.
+variant. §3.6 is how test 7 runs and what passing means.
 
 ### 3.3 Draft sentences for the v0.2.79 release notes
 
@@ -115,6 +115,39 @@ still under `issues/` and not `issues/fixed/` or `issues/retired/`, plus the ope
 release. The allowed families are A41, A42 and A44; B1–B3 and B5–B7 (loud compiler failures: a crash or invalid C,
 never a wrong binary); C1–C13; and every wall (N2c–N2f, P4, P5, P6, P7, P10, P11, P15). B4 and B8 were fixed in
 v0.2.78. Anything else open in clusters 1–8 or A40/A43 blocks (S) instead of being listed.
+
+### 3.6 Test 7: how to run it, and what "passed" means
+
+Test 7 is VERDICTS-58 decision 7's four legs, on the release candidate (since §5k, the v0.2.80 candidate). Legs (a)
+and (b) are one command; (c) is a CI run the same command reads; (d) is agents.
+
+```bash
+# on a detached worktree of the candidate, with a stage 1 built from it (`yo build --std-path ./std`), clang on PATH
+systemd-run --user --unit=test7 -p MemoryMax=16G --working-directory="$PWD" bash -c \
+  'source scripts/heavy-lock.sh; heavy_take "test7: <sha>"; bash scripts/test7.sh --yo <stage1>; heavy_drop'
+cat tmp/test7-<sha>/summary.txt                                  # the verdict of (a) and (b), and the [n] slots
+bash scripts/test7.sh --gd-howto                                  # (c): how to dispatch G-D on the candidate
+bash scripts/test7.sh --gd-verdict <run-id> --sha <sha>           # (c): read that run
+```
+
+| Leg | What runs | Passed means |
+| --- | --- | --- |
+| (a) | test.yml's `origins-corpus` steps: `check-origin-sinks.sh`, `origins-corpus.sh today`, `origins-unsound.sh`, `check-origin-sinks.sh --totality` | every one exits 0: G-A `n/n` passed, G-B `n/n` passed, "origin sinks: ok", "origin totality: 0" |
+| (b) | the audit's frozen probe corpus (`scripts/test7/audit-corpus.tar.gz`: the ten areas' probes, the audit's 231 reproducers, the re-probe's 40 pass-2 programs; 2,047 files) — `yo check`, then for an accepted program an ASan compile (`--optimize 1 --sanitize address --allocator system`) and a run with `detect_stack_use_after_return=1` | every program ran, and **zero BLOCKING dirty programs**: an accepted program whose run reports `ERROR: AddressSanitizer` is attributed (`scripts/test7/attribution.tsv`, or a reproducer's basename) to an audit row; it blocks when the row is in clusters 1–8, is A40, A43 or an S1 row §9 does not place (A55–A57), or when it is not attributed yet |
+| (c) | `origins-generator.yml` on the candidate SHA (it checks out `develop`, so dispatch it while the candidate is develop's tip, or take the nightly that ran on it) | the run's head is the candidate, it succeeded, the generator printed "0 new", and every `tests/origins/gen-known.tsv` row is a listable issue |
+| (d) | `plans/handover/TEST7_ADVERSARIAL_BRIEF.md`: ten agents, one day, after the parser drop | zero new S1 in clusters 1–8 that are neither fixed nor walled |
+
+What (b) does not count against the claim, and lists instead: a LeakSanitizer-only report (a leak, not a
+use-after-free), a C compile failure or a checker crash (B class, loud), a run that fails without a sanitizer report
+(a panic), and a dirty program attributed to A41, A42, A44, a B or C row, or `none:<reason>`. A program that turns the
+unsafe gate off (`Pragma.AllowUnsafe`) is outside safe code and is skipped. The corpus is frozen while the language
+moves, so the summary also prints its drift (positives now rejected, negatives rejected with another code): a drifted
+negative no longer reaches the shape it was written for, which narrows what (b) proves without failing it. A std
+module renamed since the corpus was written (kebab-case Part C) is followed automatically
+(`scripts/test7/respell_imports.py`).
+
+**Rehearsal, 2026-11-19, develop `939fe7160`** (stage 1 of `d8f0d89fa`, the same `src/` and `std/`): see the PR that
+added this section for the counts; it is the shape a candidate run reports.
 
 ## 4. What is not decided here
 
