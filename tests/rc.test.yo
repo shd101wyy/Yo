@@ -3344,9 +3344,11 @@ test("a closure capturing a named tuple retains it", {
   {
     x1 := (Rc.new(_TupCopyInner(v : i32(1))), Rc.new(_TupCopyInner(v : i32(2))));
     {
-      (f : Impl(Fn() -> i32)) = (() => (x1.0.v + x1.1.v));
+      (f : Impl(Fn() -> i32)) = ({ c1 : (Rc.clone(x1.0), Rc.clone(x1.1)) }() => (c1.0.v + c1.1.v));
       assert(f() == i32(3), "the closure reads both fields");
+      assert(ref_count(x1.0) == usize(2), "the capture retains each cell");
     };
+    assert(ref_count(x1.0) == usize(1), "the closure released its handles");
     assert((x1.0.v + x1.1.v) == i32(3), "the source outlives the closure");
   };
   assert(g_tup_copy_drops == (before + i32(3)), `each cell dropped once, got ${(g_tup_copy_drops - before).to_string()}`);
@@ -3357,9 +3359,14 @@ test("a closure capturing a nested tuple and an array retains every cell", {
     x1 := ((Rc.new(_TupCopyInner(v : i32(1))), Rc.new(_TupCopyInner(v : i32(2)))), Rc.new(_TupCopyInner(v : i32(4))));
     a := [Rc.new(_TupCopyInner(v : i32(8))), Rc.new(_TupCopyInner(v : i32(16)))];
     {
-      (f : Impl(Fn() -> i32)) = (() => (x1.0.0.v + x1.0.1.v + x1.1.v + (a(usize(0)).v + a(usize(1)).v)));
+      (f : Impl(Fn() -> i32)) = ({
+        c1 : ((Rc.clone(x1.0.0), Rc.clone(x1.0.1)), Rc.clone(x1.1)),
+        c2 : [Rc.clone(a(usize(0))), Rc.clone(a(usize(1)))]
+      }() => (c1.0.0.v + c1.0.1.v + c1.1.v + (c2(usize(0)).v + c2(usize(1)).v)));
       assert(f() == i32(31), "the closure reads every field");
+      assert((ref_count(x1.0.0) == usize(2)) && (ref_count(a(usize(1))) == usize(2)), "the captures retain every cell");
     };
+    assert((ref_count(x1.0.0) == usize(1)) && (ref_count(a(usize(1))) == usize(1)), "the closure released its handles");
     assert((x1.1.v + a(usize(1)).v) == i32(20), "the sources outlive the closure");
   };
   assert(g_tup_copy_drops == (before + i32(31)), `each cell dropped once, got ${(g_tup_copy_drops - before).to_string()}`);
