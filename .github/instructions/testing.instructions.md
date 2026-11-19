@@ -925,6 +925,20 @@ verified nothing.
 - **Always:** `yo build --std-path ./std` (when `src/` changed),
   `check ./src` and `check ./std` (each with `--std-path ./std`), `yo fmt --check` on the
   changed `.yo` files, `bash scripts/check-issue-refs.sh`. About 15 min.
+- **A tree-binary `check ./src` when the `src/` diff touches rules the tree
+  enforces more strictly than the seed.** That means capture lists, borrow and
+  reference spellings (`&x`, `&mut x`, `.*`), or any rule a recent PR
+  tightened. The seed's `check ./src` and `yo build` only prove the SEED
+  accepts the tree. The bootstrap fixpoint compiles `src/` with the tree
+  binary, and every `tests/internal` file does the same.
+  - Run it as
+    `YO_MAIN_STACK_MB=4096 yo-out/<target>/bin/yo check ./src --std-path ./std`.
+  - Measured 2026-11-19 on the R7 parser drop: nine capture lists of the form
+    `{ &env }` over a `&T` parameter passed the v0.2.78 seed. The tree binary
+    rejected them with E0926 (`` `env` is a reference … spelled `&env.*` ``),
+    so every `tests/internal` file importing `src/evaluator/context.yo` failed
+    to compile.
+  - The fix is `{ env : &env.* }`.
 - **Feature tests: grep for what changed.** Take the `tests/**/*.test.yo` files
   (minus `tests/internal` and `tests/cli-cases`) that name a renamed or
   changed identifier, plus the feature's own new tests. **`yo test` takes ONE
