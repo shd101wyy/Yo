@@ -1587,7 +1587,7 @@ inline_await_result_fields :: (fn(analysis : &AwaitAnalysisResult, context : &Fu
         .Some(branch_exprs) => {
           (j : usize) = usize(0);
           while(j < branch_exprs.len(), j = (j + usize(1)), {
-            match(branch_exprs.get_cloned(j), .Some(be) => add(&be, _inline_await_result_type(&be, Option(AwaitAnalysisResult).None, context), &mut out, &mut seen, prefix.clone()), .None => ());
+            match(branch_exprs.get_cloned(j), .Some(be) => add(&be, _inline_await_result_type(&be, &Option(AwaitAnalysisResult).None, context), &mut out, &mut seen, prefix.clone()), .None => ());
           });
         },
         .None => add(&ap.base.expr, &ap.result_type, &mut out, &mut seen, prefix.clone())
@@ -1604,7 +1604,7 @@ inline_await_result_fields :: (fn(analysis : &AwaitAnalysisResult, context : &Fu
 /// suspension between the await and its statement's use of it); `.None` when
 /// it is unit or lives in the task.
 inline_await_local_result_type :: (fn(expr : &AstExpr, analysis : &AwaitAnalysisResult, context : &FunctionGenerationContext) -> Option(TypeValue))({
-  rty := _inline_await_result_type(expr, Option(AwaitAnalysisResult).Some(analysis.clone()), context);
+  rty := _inline_await_result_type(expr, &Option(AwaitAnalysisResult).Some(analysis.clone()), context);
   cond(
     _inline_result_is_unit(&rty) => Option(TypeValue).None,
     g_local_await_results.with({ expr : &expr.* }(s) => s.contains(_site_of(ast_expr_token(expr.clone())))) => Option(TypeValue).Some(rty),
@@ -1769,7 +1769,7 @@ emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &mut Funct
         _emit_await_result_store(local.clone(), &acc, &rty, false, indent.clone(), context);
         out = local;
       },
-      .None => if(!_inline_result_is_unit(_inline_await_result_type(expr, Option(AwaitAnalysisResult).Some(low_analysis), context)), {
+      .None => if(!_inline_result_is_unit(_inline_await_result_type(expr, &Option(AwaitAnalysisResult).Some(low_analysis), context)), {
         codegen_fatal(`the single-pass async lowering reached await ${eid.to_string()}, which the suspension analysis did not record`);
       })
     )
