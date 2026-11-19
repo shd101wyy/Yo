@@ -127,7 +127,8 @@ bodies: with expression bodies the in-place write lands in a frame `entries` doe
 
 A failed overload trial's given-side bindings still go to the argument's environment rather than a scratch frame
 (`try_match_generic_impl` isolates its given side; parameter synthesis does not). With the occurs check whole, the trials
-seen here bind nothing; no other leak was observed, so that isolation is left as it is.
+seen here bind nothing. No other leak was observed, so that isolation is left as it is and filed as the latent
+`issues/2026-11-19-a-failed-overload-trials-given-side-bindings-land-in-the-arguments-environment.md`.
 
 ## What it blocked
 
