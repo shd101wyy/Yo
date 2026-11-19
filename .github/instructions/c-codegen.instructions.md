@@ -1372,11 +1372,14 @@ comment block sits above `__YO_FUTURE_PREFIX`. Change it only together with
 §3 and the async suite.
 
 In the interface shape, `impl(Io, async : __yo_io_async, …)` binds the builtins
-as methods. The evaluator records their marker from the method's
-`extern_name` (`_io_builtin_method_marker`, `src/evaluator/calls/function.yo`),
-and such a method takes **no receiver**: the externs keep their receiver-less
-signatures, and the receiver only names the `Io` the lowering goes through. The
-prelude's `Io` is an opaque handle in safe code, like `Allocator`
+as methods. Such a method reads like the four-field `Io`'s field: the property
+access types the callee as the builtin's own function type
+(`_io_builtin_method_type`, `src/evaluator/exprs/property_access.yo`), and the
+call skips method dispatch (`_io_builtin_method_marker`,
+`src/evaluator/calls/function.yo`). So it takes **no receiver**: the externs
+keep their receiver-less signatures, the marker is recorded from the callee's
+`extern_name` as before, and the receiver only names the `Io` the lowering goes
+through. The prelude's `Io` is an opaque handle in safe code, like `Allocator`
 (`parameter_type_contains_raw_ptr`).
 
 ### Extern functions and `#include` emission
