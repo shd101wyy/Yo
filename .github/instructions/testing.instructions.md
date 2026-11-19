@@ -939,6 +939,21 @@ verified nothing.
     so every `tests/internal` file importing `src/evaluator/context.yo` failed
     to compile.
   - The fix is `{ env : &env.* }`.
+- **`yo check` does not evaluate `test(...)` bodies**, so a `src/` change that
+  alters a type the `tests/internal` files construct or copy (a record turned
+  from a shared handle into a value, a field retyped) is invisible to
+  `check ./tests/internal`; only the ~20-40 min `yo test` compile of each file
+  finds it. A cheaper sweep is to check each file in the shape `yo test`
+  compiles: the file's non-test lines, then a `main` whose `cond` arms hold
+  the test bodies (the batch `src/main.yo` synthesizes). Name each generated
+  file `*.yo_selftest_batch_*.yo` so the test-file exemptions (E0611 `unwrap`)
+  apply, put them in a sibling directory at the same depth as `tests/internal`
+  so `../../src` imports resolve, and run one `check` over that directory.
+  - Measured 2026-11-20 on the R7 parser drop: one `check` over 109 generated
+    files took about 40 min and named 7 broken `tests/internal` files (`.get`
+    reads of converted records, `Option(Self)` alias fields that became
+    `Option(Rc(Self))`, written results needing `mut(r)`, a `YoError` moved into
+    a `Dyn`) that the seed and tree `check ./src` had both passed.
 - **Feature tests: grep for what changed.** Take the `tests/**/*.test.yo` files
   (minus `tests/internal` and `tests/cli-cases`) that name a renamed or
   changed identifier, plus the feature's own new tests. **`yo test` takes ONE
