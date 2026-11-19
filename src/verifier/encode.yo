@@ -130,7 +130,7 @@ encode_fun_decl :: (fn(d : &VcFunDecl) -> String)({
     if(ai > usize(0), {
       sb.write_byte(u8(0x20));
     });
-    sb.write_string(encode_sort(d.args.get(ai).unwrap()));
+    sb.write_string(encode_sort(d.args.get_cloned(ai).unwrap()));
     ai = (ai + usize(1));
   });
   sb.write_string(`) ${encode_sort(&d.result)})`);
@@ -248,7 +248,7 @@ encode_term :: (fn(t : &VcTerm) -> String)(
       while(i < names.len(), {
         n := match(names.get_cloned(i), .Some(x) => x, .None => String.from("_"));
         s := match(
-          sorts.get(i),
+          sorts.get_cloned(i),
           .Some(x) => encode_sort(&x),
           .None => String.from("Bool")
         );
@@ -483,7 +483,7 @@ encode_content :: (fn(q : &VcQuery) -> String)({
   (fi : usize) = usize(0);
   while(fi < q.fundecls.len(), {
     match(
-      q.fundecls.get(fi),
+      q.fundecls.get_cloned(fi),
       .Some(fs) => {
         sb.write_string(`${encode_fundecl(&fs)}\n`);
       },

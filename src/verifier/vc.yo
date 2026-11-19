@@ -429,7 +429,7 @@ _list_sort_elem :: (fn(s : &VcSort) -> Option(VcSort))(
       (li : usize) = usize(0);
       while((li < g_list_elem_sorts.with(_c_len_2)) && found.is_none(), {
         match(
-          g_list_elem_sorts.with({ li }(xs) => xs.get(li)),
+          g_list_elem_sorts.with({ li }(xs) => xs.get_cloned(li)),
           .Some(es) => if(_list_dt_name(&es) == ds_name.*, {
             found = Option(VcSort).Some(es);
           }),
@@ -483,7 +483,7 @@ _is_list_len_acc :: (fn(acc : &String) -> bool)({
   (li : usize) = usize(0);
   while((li < g_list_elem_sorts.with(_c_len_2)) && !found, {
     match(
-      g_list_elem_sorts.with({ li }(xs) => xs.get(li)),
+      g_list_elem_sorts.with({ li }(xs) => xs.get_cloned(li)),
       .Some(es) => if(_list_len_acc(&es) == acc.*, {
         found = true;
       }),
@@ -499,7 +499,7 @@ _list_elem_of_contents_acc :: (fn(acc : &String) -> Option(VcSort))({
   (li : usize) = usize(0);
   while((li < g_list_elem_sorts.with(_c_len_2)) && found.is_none(), {
     match(
-      g_list_elem_sorts.with({ li }(xs) => xs.get(li)),
+      g_list_elem_sorts.with({ li }(xs) => xs.get_cloned(li)),
       .Some(es) => if(_list_contents_acc(&es) == acc.*, {
         found = Option(VcSort).Some(es);
       }),
@@ -515,7 +515,7 @@ _list_sort_of_ctor :: (fn(name : &String) -> Option(VcSort))({
   (li : usize) = usize(0);
   while((li < g_list_elem_sorts.with(_c_len_2)) && found.is_none(), {
     match(
-      g_list_elem_sorts.with({ li }(xs) => xs.get(li)),
+      g_list_elem_sorts.with({ li }(xs) => xs.get_cloned(li)),
       .Some(es) => if(_list_ctor_name(&es) == name.*, {
         found = Option(VcSort).Some(Rc.new(VcSortNode.DataS(name : _list_dt_name(&es))));
       }),
@@ -1316,7 +1316,7 @@ _emit :: (
       sorted_keys.get_cloned(ki),
       .Some(k) => {
         match(
-          declared.get(k.clone()),
+          declared.get_cloned(k.clone()),
           .Some(srt) => {
             q.declare(mangle_vc_name(ctx.fn_name.clone(), k.clone()), &srt);
             ();
@@ -1376,7 +1376,7 @@ _emit :: (
   (fdi : usize) = usize(0);
   while(fdi < ctx.fundecls.len(), {
     match(
-      ctx.fundecls.get(fdi),
+      ctx.fundecls.get_cloned(fdi),
       .Some(fs) => {
         q.fundecls.push(fs);
       },
@@ -1674,7 +1674,7 @@ _collect_declared :: (fn(t : &VcTerm, out : &mut HashMap(String, VcSort)) -> uni
           kit.next(),
           .Some(kn) => {
             match(
-              inner.get(kn.clone()),
+              inner.get_cloned(kn.clone()),
               .Some(ks) => {
                 if(!out.contains_key(kn.clone()), {
                   out.insert(kn.clone(), ks);
@@ -3579,10 +3579,10 @@ _vc_term_sort :: (fn(ctx : &VcCtx, t : &VcTerm) -> Option(VcSort))(
     Rc(.Ctor(cn, _)) => match(
       _list_sort_of_ctor(&cn.*),
       .Some(ls) => Option(VcSort).Some(ls),
-      .None => ctx.ctor_sorts.get(cn.clone())
+      .None => ctx.ctor_sorts.get_cloned(cn.clone())
     ),
     Rc(.Proj(pacc, _, _)) => match(
-      ctx.acc_sorts.get(pacc.clone()),
+      ctx.acc_sorts.get_cloned(pacc.clone()),
       .Some(ps) => Option(VcSort).Some(ps),
       .None => cond(
         _is_list_len_acc(&pacc.*) => Option(VcSort).Some(Rc.new(VcSortNode.BvS(width : usize(64)))),
@@ -3609,7 +3609,7 @@ _vc_term_sort :: (fn(ctx : &VcCtx, t : &VcTerm) -> Option(VcSort))(
 /// the term's own (`_vc_term_sort`), else the width guess.
 _binding_sort :: (fn(ctx : &VcCtx, name : &String, cur : &VcTerm) -> VcSort)(
   match(
-    ctx.array_sorts.get(name.clone()),
+    ctx.array_sorts.get_cloned(name.clone()),
     .Some(asrt) => asrt,
     .None => match(
       _vc_term_sort(ctx, cur),
@@ -3628,7 +3628,7 @@ _havoc_assigned :: (fn(ctx : &mut VcCtx, assigned : &ArrayList(String)) -> unit)
     srt := match(
       ctx.vars.get_cloned(name.clone()),
       .Some(old) => _binding_sort(ctx, &name, &old),
-      .None => match(ctx.array_sorts.get(name.clone()), .Some(asrt) => asrt, .None => Rc.new(VcSortNode.BoolS))
+      .None => match(ctx.array_sorts.get_cloned(name.clone()), .Some(asrt) => asrt, .None => Rc.new(VcSortNode.BoolS))
     );
     hv := `__yo_hv${ctx.havoc.to_string()}_${name.clone()}`;
     ctx.vars.insert(name.clone(), Rc.new(VcTermNode.Var(name : hv, sort : srt)));
@@ -5075,7 +5075,7 @@ _call_term :: (
   // would be unprovable nonsense).
   if(n == usize(1), {
     bound_arr := match(
-      ctx.array_sorts.get(head.clone()),
+      ctx.array_sorts.get_cloned(head.clone()),
       .Some(srt) => match(
         srt,
         Rc(.ArrS(_, _)) => Option(VcSort).Some(srt),
@@ -5899,7 +5899,7 @@ _index_write_target :: (fn(ctx : &mut VcCtx, lhs : &AstExpr) -> Option(String))(
   match(
     _index_write_name_shape(lhs),
     .Some(nm) => match(
-      ctx.array_sorts.get(nm.clone()),
+      ctx.array_sorts.get_cloned(nm.clone()),
       .Some(_) => Option(String).Some(nm),
       .None => Option(String).None
     ),
@@ -6198,7 +6198,7 @@ _begin_term :: (fn(ctx : &mut VcCtx, args : &ArrayList(AstExpr)) -> Option(VcTer
                     .None => Rc.new(VcTermNode.BoolLit(true))
                   );
                   alen := match(
-                    ctx.array_sorts.get(aname.clone()),
+                    ctx.array_sorts.get_cloned(aname.clone()),
                     .Some(Rc(.ArrS(_, l2))) => l2,
                     .Some(_) => usize(0),
                     .None => usize(0)
@@ -6338,7 +6338,7 @@ _sorts_copy :: (fn(src : &ArrayList(VcSort)) -> ArrayList(VcSort))({
   out := ArrayList(VcSort).new();
   (si : usize) = usize(0);
   while(si < src.len(), {
-    out.push(src.get(si).unwrap());
+    out.push(src.get_cloned(si).unwrap());
     si = (si + usize(1));
   });
   out
@@ -6523,7 +6523,7 @@ _ghost_fn_app_term :: (
     (bi : usize) = usize(0);
     while(bi < params.len(), {
       bname := `__yo_gfp${bi.to_string()}`;
-      bvar := Rc.new(VcTermNode.Var(name : bname.clone(), sort : arg_sorts.get(bi).unwrap()));
+      bvar := Rc.new(VcTermNode.Var(name : bname.clone(), sort : arg_sorts.get_cloned(bi).unwrap()));
       binder_names.push(bname);
       binder_terms.push(Rc.clone(bvar));
       pn2 := params.get_cloned(bi).unwrap();
@@ -7082,7 +7082,7 @@ _callee_call_term :: (
             .None => Option(VcSort).None
           );
           hsort := match(
-            ctx.array_sorts.get(hnm.clone()),
+            ctx.array_sorts.get_cloned(hnm.clone()),
             .Some(asrt) => asrt,
             .None => match(typed_sort, .Some(ts) => ts, .None => _havoc_binding_sort(&hpre))
           );

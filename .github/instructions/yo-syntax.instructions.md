@@ -393,7 +393,7 @@ The same applies at call sites: don't wrap reference-semantics arguments with `a
 When choosing between `self : &mut Self` and `self : Self` for a method receiver:
 
 - If the receiver type is fundamentally a value type (anything other than `ref(struct(...))` / `ref(enum(...))`), use `self : &mut Self` for mutators.
-- If the receiver type is a reference-semantics type (`ref(struct(...))` / `ref(enum(...))`), plain `self : Self` is the idiom — the methods documented in `src/env.yo`, `src/emitter.yo`, etc. follow this. **Exception: the std collections** (the list in the table above) are `ref` today but are values-in-waiting: every mutator takes `self : &mut Self` and every helper that writes one takes it as a `&mut` parameter (VALUES_BY_DEFAULT V2a). `YO_AUDIT_INOUT_BORROW=1 yo check <path>` lists the writes through a borrowed copy that the V2b flip would lose.
+- A receiver the method writes is `self : &mut Self`; there are no user-declared reference-semantics types since the v0.2.79 parser drop (`ref(...)` / `atomic(...)` are E0009), and data shared on purpose is an `Rc(S)` whose payload is read-only (E0919; mutate through an `Rc(RefCell(S))` door). **The std collections** (the list in the table above) are `ref` today but are values-in-waiting: every mutator takes `self : &mut Self` and every helper that writes one takes it as a `&mut` parameter (VALUES_BY_DEFAULT V2a). `YO_AUDIT_INOUT_BORROW=1 yo check <path>` lists the writes through a borrowed copy that the V2b flip would lose.
 - Trait declarations should match the dominant case of their impl targets. A method that writes its receiver (`Hasher.write*`, `Iterator.next`) takes `self : &mut Self`; one that only reads it takes `self : &Self`, as Rust's `Clone::clone(&self)`, `ToString::to_string(&self)` `Hash::hash(&self, ..)` and `Hasher::finish(&self)` do: `Clone.clone`, `ToString.to_string`, `Hash.hash`, `Hasher.finish`, `Debug.debug_string`, `Format.format`, `ToJson.to_json`, `Error.source` (`issues/fixed/clone-and-to-string-take-their-receiver-mutably.md`, `issues/fixed/hash-debug-format-to-json-and-source-take-their-receiver-mutably.md`), so an element reached through a `&` borrow can still be cloned, hashed or rendered. `log.Sink.write_line` writes (a sink accumulates) and keeps `&mut Self`. New traits that are reference-semantics-specific can use plain `self : Self`.
 
 ## Recursion requires `recur`
@@ -598,7 +598,7 @@ Safe code cannot even HOLD a raw pointer value (2026-09-07): an expression whose
 Inside an unsafe-capable file, the following operations are wrapped in `unsafe(...)` (so the unsafe surface stays greppable). The compiler enforces the wrap only on `extern "c"` call sites; on the rest it is the audit convention `yo unsafe-report` keys off, and the pragma alone is what admits them (`docs/en-US/MEMORY_SAFETY.md`):
 
 - Pointer dereference: `p.*` (read), `p.* = v` (write). `.*` on a REFERENCE binding (`v.*` with `v : &T`/`&mut T`, `y.*` with `y := &x`, a `for(&xs, x => …)` element, a `match(&x, …)` binding) is the reference's own deref (N1e-1; std, src and fetched dependencies too since the deref flip, v0.2.79): a whole-value read or write of the referent is spelled `v.*` / `v.* = e`, and the bare name in a by-value position (an operand, a by-value argument, an initializer, a return, `v = e`, `&v`) is E0926; receivers (`v.f`, `v.m()`, `v(i)`), `f(v)` into a reference parameter, the re-point `v = &place` and a `match(v, …)` scrutinee (it matches through the reference; its bindings borrow the payload) stay bare, and `match(&v, …)` on a reference is E0926 (the marker is redundant; the migration drops it). Through a reference to a `Box`/`Rc`/pointer the payload is `v.*.*`. An `io.async` capture of a reference parameter borrows it whole as `{ p : &p.* }` (`{ &p }` is E0926), and a by-value capture entry `{ r }` of a reference binding copies the reference (`{ r : r.* }` copies the referent). Only compiler-synthesized code keeps the old reading. `yo fix <path> --migrate deref` rewrites code written before the rule (v0.2.79 is its last release). Note `r.* = (a + b)`: an assignment's right-hand side operator chain is parenthesized, as everywhere (E0003)
-- `addr_of(x)` of a `&T` parameter (`self : &Self` included), or of a place inside it (a field of a value struct or tuple, an element of an array it holds), is E0921: codegen passes every `&T` parameter of a non-projection function as a copy (`fn_param_is_ptr_borrow`, whatever the size of `T`), so the pointer is the callee's copy and dangles once the call returns. The caller's address comes from a `x : *T` parameter (the caller passes `addr_of(place)`) or `x : &mut T` (passed as a pointer). Not E0921: a field of a `ref(struct)` handle or anything behind a raw pointer (`addr_of(self.*)`, `addr_of(self.f)` on an `atomic(ref(struct))`, both in shared cells), and a projection's (`-> &T`) `&T` parameter, which is passed as a pointer (`issues/retired/2026-10-25-should-addr-of-a-borrowed-parameter-be-rejected.md`)
+- `addr_of(x)` of a `&T` parameter (`self : &Self` included), or of a place inside it (a field of a value struct or tuple, an element of an array it holds), is E0921: codegen passes every `&T` parameter of a non-projection function as a copy (`fn_param_is_ptr_borrow`, whatever the size of `T`), so the pointer is the callee's copy and dangles once the call returns. The caller's address comes from a `x : *T` parameter (the caller passes `addr_of(place)`) or `x : &mut T` (passed as a pointer). Not E0921: a field of a counted cell or anything behind a raw pointer (`addr_of(self.*)`, `addr_of(self._cell…)` on std's atomics, which hold a `__yo_atomic_cell`), and a projection's (`-> &T`) `&T` parameter, which is passed as a pointer (`issues/retired/2026-10-25-should-addr-of-a-borrowed-parameter-be-rejected.md`)
 - Pointer arithmetic: `.add(n)`, `.sub(n)`, `.offset_from(q)`
 - `consume(p.* = v)` (deref-and-init)
 - Destroying a value in place: `drop_in_place(p)` (prelude, `p : *(T)`; Rust's `ptr::drop_in_place`). The slot is dead afterwards: re-initialize it with `consume(p.* = v)` or free it. Its body, the std-internal `___drop(place)` builtin, is a compile error in a file without the pragma, even inside a pragma'd caller's `unsafe(...)` around a call into that file
@@ -888,9 +888,6 @@ Verify with `yo public-safe-report ./std` (or `./src`). It scans every top-level
 for(list, x => {
   process(x);
 }); // value form: list.into_iter()
-for(counters, c => {
-  c.n = (c.n + 1);
-}); // ref(struct(...)) elements are HANDLES: mutates in place
 for(&mut names, s => {
   s.push_str("!");
 }); // value elements (String, …): the borrowed form writes in place
@@ -1269,7 +1266,7 @@ Point :: struct(x : i32, y : i32);
 // CORRECT — named fields:
 p := Point(x : i32(1), y : i32(2));
 
-// WRONG — positional construction for struct/ref(struct(...)) is not supported:
+// WRONG — positional construction for a struct is not supported:
 p := Point(i32(1), i32(2));
 ```
 

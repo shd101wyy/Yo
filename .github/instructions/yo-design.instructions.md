@@ -9,7 +9,7 @@ description: "Use when making design decisions about the Yo language, writing st
 
 - Lowercase for value types (non-reference-counted): `rune`, `i32`, `u32`, `bool`
 - Use `struct(...)` for value types
-- Use `ref(struct(...))` / `ref(enum(...))` for reference-counted (reference-semantics) types; `atomic(ref(struct(...)))` / `atomic(ref(enum(...)))` for atomic RC
+- Shared ownership is `Rc(S)` (an `Rc(RefCell(S))` when handles mutate the payload), atomic shared ownership `Arc(S)`; a single-owner record is a plain `struct(...)` with `self : &mut Self` mutators. The `ref(...)` / `atomic(...)` declaration forms were deleted in v0.2.79 (E0009)
 - Use `newtype(...)` instead of `struct(...)` when the type has only a single field (e.g., `FilePermission :: newtype(mode : u32)`)
 - Imported source-file namespaces are represented as structs. Do not introduce
   `module(...)`, `Module`, or `SelfModule` syntax; use `struct(...)`, `Type`,

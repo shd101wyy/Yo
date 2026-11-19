@@ -1682,19 +1682,21 @@ test("extend consumes the other list; extend_cloned keeps it", {
   g.extend(ArrayList(i32).new());
   assert(g.len() == usize(0), "an empty list adds nothing");
 });
-// A ref-root place lent `&mut` and `&` to one call is E0910 (decision 43's
-// ref-cell extension of decision 28): the `&ArrayList` argument would be a
-// copy of the list's fields taken at the call, whose buffer the growth frees
-// (issues/fixed/2026-10-31-a-ref-root-place-lent-mut-and-shared-to-one-call-reads-a-stale-copy.md).
+// A field place lent `&mut` and `&` to one call is E0910 (decision 28's
+// value-root rule, which covers a place below the root): the `&ArrayList`
+// argument would be a copy of the list's fields taken at the call, whose
+// buffer the growth frees
+// (issues/fixed/2026-10-31-a-ref-root-place-lent-mut-and-shared-to-one-call-reads-a-stale-copy.md;
+// its `ref`-root form went with the v0.2.79 parser drop).
 // A clone extends the list with its own elements.
-_AlCell :: ref(struct(xs : ArrayList(String)));
-test("extend_cloned of a list with itself through a ref root is E0910; a copy appends", {
+_AlCell :: struct(xs : ArrayList(String));
+test("extend_cloned of a list field with itself is E0910; a copy appends", {
   comptime_expect_error({
-    o := _AlCell(xs : ArrayList(String).with_capacity(usize(2)));
+    mut(o) := _AlCell(xs : ArrayList(String).with_capacity(usize(2)));
     o.xs.extend_cloned(&o.xs)
-  }, "both root at the reference cell");
+  }, "which overlaps it");
   // Full at two, so the first appended element reallocates the buffer.
-  o := _AlCell(xs : ArrayList(String).with_capacity(usize(2)));
+  mut(o) := _AlCell(xs : ArrayList(String).with_capacity(usize(2)));
   o.xs.push(String.from("a-yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"));
   o.xs.push(String.from("b-yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"));
   t := o.xs.clone();
