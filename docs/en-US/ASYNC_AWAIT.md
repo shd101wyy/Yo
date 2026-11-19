@@ -455,12 +455,12 @@ main :: (fn(io : Io) -> unit)({
 export(main);
 ```
 
-A place lent to a borrowing Future may not pass through a `ref` object, a
-pointer or an index into a collection (`io.await(count(&h.items, io), io)`
-with `h` a `ref` object, and `io.await(bump(&mut xs(i), io), io)`, are E0909):
+A place lent to a borrowing Future may not pass through an `Rc`, a pointer or
+an index into a collection (`io.await(count(&h.*.items, io), io)` with `h` an
+`Rc`, and `io.await(bump(&mut xs(i), io), io)`, are E0909):
 the borrow lasts across the suspension, and nothing would notice another task
 writing or reallocating through its own handle meanwhile. Lend the handle
-instead and read `h.items` inside the Future at each use, or own the value in
+instead and read `h.*.items` inside the Future at each use, or own the value in
 the task. An element of a fixed-size array is
 part of the array's own storage and may be lent.
 

@@ -90,8 +90,8 @@ assert(parent_value == i32(1), "the leaf reaches its parent");
 
 ## `Acyclic` 标记
 
-`T <: Acyclic` 表示从 `T` 的值出发，到达不了任何由强边构成的环。值的环上必须有一个共享单元（`Rc`、`Arc`、
-`ref` 对象）：经由值或 `Box` 的递归（`Option(Box(Self))`）只构成树，而 `Weak` 或 `ArcWeak`
+`T <: Acyclic` 表示从 `T` 的值出发，到达不了任何由强边构成的环。值的环上必须有一个共享单元（`Rc` 或
+`Arc`）：经由值或 `Box` 的递归（`Option(Box(Self))`）只构成树，而 `Weak` 或 `ArcWeak`
 边根本不是边。该标记是推导出来的，std 中没有任何地方要求它；
 `where(T <: Acyclic)` 约束是 API 承诺其值不会持有泄漏环的方式。
 

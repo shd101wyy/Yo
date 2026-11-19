@@ -1357,7 +1357,7 @@ Every I/O method's future borrows the resource until it completes, because the d
 
 - Await it where it is made. It cannot be bound to a name, spawned or returned (E0909).
 - Its effect bundle must be a place. Write `b := IoExn(io : io, exn : exn); io.await(f.read_to_string(io), b)`; an inline `IoExn(...)` in the `io.await` is E0910.
-- The borrowed resource cannot live inside a `ref` object or a pointer dereference (E0909): hold it as an `Rc` field.
+- The borrowed resource cannot live inside an `Rc` payload or behind a pointer dereference (E0909): lend the handle instead.
 
 For the same reason there is no `Dyn(Reader)` or `Dyn(Writer)` any more. The traits' defaults (`read_to_end`, `read_to_string`, `write_all`) return futures that borrow the reader or writer, and a vtable's future type carries no borrow, so `dyn(r)` as either trait object is E0909 for every implementor. Take one through a generic `Impl(Reader)` / `Impl(Writer)` parameter instead.
 
@@ -3275,7 +3275,7 @@ count := i32(0);
   capture stays implicit.
 - **What a borrow may name.** A place rooted at a named local binding: not a
   temporary, not a module-level binding, and not through an `Rc`/`Arc` (or any
-  `ref` object or pointer dereference) — capture the handle instead,
+  pointer dereference) — capture the handle instead,
   `{ &r }() => r.*.items.len()`. A `&mut` place must be writable. A `&`
   capture is read-only in the body.
 - **A borrowing closure is second-class**, and so is anything built from it (a
