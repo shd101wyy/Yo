@@ -1398,7 +1398,7 @@ _r_probe_candidates :: (
   (bi : usize) = usize(0);
   while(bi < base_hits.len(), {
     match(
-      base_hits.get(bi),
+      base_hits.get_cloned(bi),
       .Some(h) => {
         if(probe_refs, {
           seen.push(_method_entry_identity(&h));
@@ -1486,8 +1486,8 @@ _rprobe_audit_gate :: (
   (ai : usize) = usize(0);
   while(same && (ai < full.hits.len()), {
     same = match(
-      full.hits.get(ai),
-      .Some(fh) => match(gated.hits.get(ai), .Some(gh) => (_method_entry_identity(&fh) == _method_entry_identity(&gh)), .None => false),
+      full.hits.get_cloned(ai),
+      .Some(fh) => match(gated.hits.get_cloned(ai), .Some(gh) => (_method_entry_identity(&fh) == _method_entry_identity(&gh)), .None => false),
       .None => false
     );
     ai = (ai + usize(1));
@@ -1699,7 +1699,7 @@ _find_receiver_method_of :: (
         while(pf_i < probed.hits.len(), {
           keep := match(probed.receivers.get_cloned(pf_i), .Some(pr) => t_slot_is_borrow(&pr), .None => true);
           if(keep, {
-            match(probed.hits.get(pf_i), .Some(h) => hits.push(h), .None => ());
+            match(probed.hits.get_cloned(pf_i), .Some(h) => hits.push(h), .None => ());
             match(probed.ranks.get(pf_i), .Some(r) => probe_ranks.push(r), .None => ());
             match(probed.receivers.get_cloned(pf_i), .Some(pr) => probe_receivers.push(pr), .None => ());
           });
@@ -9089,7 +9089,7 @@ _operator_reference_operand :: (
   rhs_ty := variable_slot_type(&rhs_v);
   (ci : usize) = usize(0);
   while(ci < cands.len(), ci = (ci + usize(1)), {
-    c_slots := match(cands.get(ci), .Some(c) => fn_param_slots(&c.ty), .None => return(false));
+    c_slots := match(cands.get_cloned(ci), .Some(c) => fn_param_slots(&c.ty), .None => return(false));
     match(
       (c_slots.get(usize(0)), c_slots.get(usize(1))),
       (.Some(lhs_slot), .Some(rhs_slot)) => {
@@ -11037,7 +11037,7 @@ _evaluate_function_call_unanchored :: (
     });
     if(op_methods.len() > usize(0), {
       first_m_0 := match(
-        op_methods.get(usize(0)),
+        op_methods.get_cloned(usize(0)),
         .Some(m) => m,
         .None => return(Rc.clone(expr.*))
       );
@@ -11066,7 +11066,7 @@ _evaluate_function_call_unanchored :: (
             (osi : usize) = usize(0);
             (osel : bool) = false;
             while((osi < op_methods.len()) && !osel, {
-              ocand := match(op_methods.get(osi), .Some(m) => m, .None => first_m_0);
+              ocand := match(op_methods.get_cloned(osi), .Some(m) => m, .None => first_m_0);
               ocand_p1 := match(
                 &ocand.ty,
                 Rc(.Func({ param_types : ocpt })) => match(slot_pointee_at(&ocpt.*, usize(1)), .Some(t) => t, .None => t_unit()),
@@ -11083,7 +11083,7 @@ _evaluate_function_call_unanchored :: (
         );
       });
       first_m := match(
-        op_methods.get(chosen_idx),
+        op_methods.get_cloned(chosen_idx),
         .Some(m) => m,
         .None => first_m_0
       );
@@ -11220,7 +11220,7 @@ _evaluate_function_call_unanchored :: (
         (ocm_i : usize) = usize(0);
         while((ocm_i < op_methods.len()) && op_comptime_m.is_none(), {
           match(
-            op_methods.get(ocm_i),
+            op_methods.get_cloned(ocm_i),
             .Some(ocm) => if(match(&ocm.ty, Rc(.Func({ meta : __fm1 })) => __fm1.result_is_comptime_only, _ => false), {
               op_comptime_m = Option(MethodEntry).Some(ocm);
             }),
