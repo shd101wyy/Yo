@@ -232,8 +232,8 @@ import("std/fmt");
 { TokenKind } :: import("../../token.yo");
 { Environment, Variable } :: import("../../env.yo");
 { EvalContext, is_dot_callee } :: import("../context.yo");
-{ format_error_message, format_error_message_with_help, note_eval_attempt, note_swallowed_error, format_eval_failure, warning_diagnostic_of_token } :: import("../../error.yo");
-{ emit_warning } :: import("../../diagnostics.yo");
+{ format_error_message, format_error_message_with_help, format_error_message_with_repair, with_code, note_eval_attempt, note_swallowed_error, format_eval_failure } :: import("../../error.yo");
+{ E_DELETED_SPELLING } :: import("../../diagnostics.yo");
 { TypeValue, t_reference, t_slot_is_borrow } :: import("../../types/definitions.yo");
 { projection_call_mode_of, binder_read_take, reference_read_wanted, reference_field_read_type, note_reference_read, chain_ref_leaf_is } :: import("../utils.yo");
 { t_unit } :: import("../../types/creators.yo");
@@ -814,153 +814,49 @@ _evaluate_expression :: (
           evaluate_comptime_list_value(expr, env, ctx, exn),
         ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BK_DYN_LOWER, .None)) =>
           evaluate_dyn_value(expr, env, ctx, exn),
+        // `atomic(...)` and `ref(...)` were deleted with the v0.2.79 parser
+        // drop: shared ownership is `Rc(S)` (`Rc(RefCell(S))`
+        // when handles mutate the payload), atomic shared ownership `Arc(S)`,
+        // a single-owner record a plain `struct(...)`. The cell layout they
+        // produced is reached only through std's reserved `__yo_cell` /
+        // `__yo_atomic_cell` primitives below. `ref` carries a mechanical
+        // repair (`ref` -> `Rc`); `atomic(ref(S))` does not, because a
+        // one-span edit cannot drop both its head words and the surplus `)`.
         ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BK_ATOMIC, .None)) => {
-          n_args := match(
-            expr,
-            Rc(.Atom(_, _)) => usize(0),
-            Rc(.FnCall(_, _, Rc(args), _, _)) => args.len()
-          );
-          cond(
-            (n_args != usize(1)) => {
-              exn.throw(
-                dyn(
-                  Box.new(
-                    format_error_message(
-                      ast_expr_token(expr),
-                      `"atomic" expects exactly one argument: atomic object(...)`
-                    )
-                  )
+          exn.throw(
+            dyn(
+              Box.new(
+                with_code(
+                  &format_error_message_with_help(
+                    &ast_expr_token(expr),
+                    &String.from("`atomic(...)` was deleted: atomic shared ownership is spelled `Arc(S)` (plans/VALUES_BY_DEFAULT.md decision 46; removed in v0.2.79)"),
+                    &Option(String).Some(String.from("rewrite `atomic(ref(S))` as `Arc(S)`; share a value across threads as `Arc(T)` (an `Arc(Mutex(T))` when it is mutated), or compose the `std/sync` types over plain values"))
+                  ),
+                  E_DELETED_SPELLING
                 )
-              );
-              make_err_expr()
-            },
-            true => {
-              inner_expr := match(
-                expr,
-                Rc(.Atom(_, _)) => make_err_expr(),
-                Rc(.FnCall(_, _, Rc(args), _, _)) =>
-                  match(args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr())
-              );
-              cond(
-                ast_expr_is_fn_call_of(&inner_expr, BK_REF, .None) => {
-                  // atomic(ref(struct(...))) — canonical reference-semantics form.
-                  // V5 Generation A warns on each use of the mode words the
-                  // parser keeps until Generation B deletes them
-                  // (plans/VALUES_BY_DEFAULT.md §V5).
-                  emit_warning(
-                    warning_diagnostic_of_token(
-                      ast_expr_token(expr),
-                      `the "atomic(...)" type spelling is deprecated by values-by-default (V5) and will be removed`,
-                      Option(String).Some(
-                        `share a value across threads as "Arc(T)", or compose the "std/sync" types ("Mutex(T)", "Channel(T)", the "Atomic*" wrappers) over plain values`
-                      )
-                    )
-                  );
-                  ref_inner := match(
-                    inner_expr,
-                    Rc(.Atom(_, _)) => make_err_expr(),
-                    Rc(.FnCall(_, _, Rc(rargs), _, _)) =>
-                      match(rargs.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr())
-                  );
-                  cond(
-                    ast_expr_is_fn_call_of(&ref_inner, BK_STRUCT, .None) =>
-                      evaluate_struct_type(&ref_inner, env, ctx, true, true, exn),
-                    ast_expr_is_fn_call_of(&ref_inner, BK_ENUM, .None) =>
-                      evaluate_enum_type(&ref_inner, env, ctx, true, true, exn),
-                    true => {
-                      exn.throw(
-                        dyn(
-                          Box.new(
-                            format_error_message(
-                              ast_expr_token(&ref_inner),
-                              `"atomic(ref(...))" wraps an inline "struct(...)" or "enum(...)" literal. Got:\n${ast_expr_to_string(&ref_inner)}`
-                            )
-                          )
-                        )
-                      );
-                      make_err_expr()
-                    }
-                  )
-                },
-                true => {
-                  exn.throw(
-                    dyn(
-                      Box.new(
-                        format_error_message(
-                          ast_expr_token(&inner_expr),
-                          `"atomic" modifier is only valid before "ref(struct(...))". Got:\n${ast_expr_to_string(&inner_expr)}`
-                        )
-                      )
-                    )
-                  );
-                  make_err_expr()
-                }
               )
-            }
-          )
+            )
+          );
+          make_err_expr()
         },
         ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BK_REF, .None)) => {
-          // ref(struct(...)) / ref(enum(...)) — reference-semantics type
-          // constructor. Wraps an inline struct/enum literal only.
-          n_ref_args := match(
-            expr,
-            Rc(.Atom(_, _)) => usize(0),
-            Rc(.FnCall(_, _, Rc(args), _, _)) => args.len()
-          );
-          cond(
-            (n_ref_args != usize(1)) => {
-              exn.throw(
-                dyn(
-                  Box.new(
-                    format_error_message(
-                      ast_expr_token(expr),
-                      `"ref" expects exactly one argument: ref(struct(...))`
-                    )
-                  )
+          exn.throw(
+            dyn(
+              Box.new(
+                with_code(
+                  &format_error_message_with_repair(
+                    &ast_expr_token(expr),
+                    &String.from("`ref(...)` was deleted: shared ownership is spelled `Rc(S)`, with a `RefCell` payload when handles mutate it (plans/VALUES_BY_DEFAULT.md decision 46; removed in v0.2.79)"),
+                    &Option(String).Some(String.from("a single-owner record is a plain `struct(...)` with `self : &mut Self` mutators; data shared on purpose is held as `Rc(T)` at the sharing site, `Arc(T)` across threads")),
+                    &String.from("Rc"),
+                    &String.from("rewrite `ref` as `Rc`; when handles mutate the payload, make it `Rc(RefCell(S))`")
+                  ),
+                  E_DELETED_SPELLING
                 )
-              );
-              make_err_expr()
-            },
-            true => {
-              ref_inner := match(
-                expr,
-                Rc(.Atom(_, _)) => make_err_expr(),
-                Rc(.FnCall(_, _, Rc(args), _, _)) =>
-                  match(args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr())
-              );
-              // V5 Generation A warns on each use of the mode words the
-              // parser keeps until Generation B deletes them
-              // (plans/VALUES_BY_DEFAULT.md §V5).
-              emit_warning(
-                warning_diagnostic_of_token(
-                  ast_expr_token(expr),
-                  `the "ref(...)" type spelling is deprecated by values-by-default (V5) and will be removed`,
-                  Option(String).Some(
-                    `a single-owner record is "struct(...)" with "self : &mut Self" mutators; data shared on purpose is held as "Rc(T)" at the sharing site`
-                  )
-                )
-              );
-              cond(
-                ast_expr_is_fn_call_of(&ref_inner, BK_STRUCT, .None) =>
-                  evaluate_struct_type(&ref_inner, env, ctx, false, true, exn),
-                ast_expr_is_fn_call_of(&ref_inner, BK_ENUM, .None) =>
-                  evaluate_enum_type(&ref_inner, env, ctx, false, true, exn),
-                true => {
-                  exn.throw(
-                    dyn(
-                      Box.new(
-                        format_error_message(
-                          ast_expr_token(&ref_inner),
-                          `"ref(...)" wraps an inline "struct(...)" or "enum(...)" literal. Got:\n${ast_expr_to_string(&ref_inner)}`
-                        )
-                      )
-                    )
-                  );
-                  make_err_expr()
-                }
               )
-            }
-          )
+            )
+          );
+          make_err_expr()
         },
         // The private cell primitives (plans/VALUES_BY_DEFAULT.md §3.5).
         ((__dk_len == usize(9)) && ast_expr_is_fn_call_of(expr, BK_YO_CELL, .None)) =>

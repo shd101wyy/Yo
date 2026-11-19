@@ -79,7 +79,8 @@ pragma(Pragma.AllowUnsafe);
   flow_violation_error,
   raise_flow_violation,
   reraise_flow_violation,
-  propagate_def_time_errors
+  propagate_def_time_errors,
+  in_derive_impl
 } :: import("../../types/flowability.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
@@ -1294,7 +1295,7 @@ try_to_implement_function_by_function_type :: (
       // conservatively not control-bound, so generic and async
       // (`Impl(Future(...))`) results pass. The `->`/`=>` literal path has
       // the same check (values/anonymous_function.yo).
-      if(!(__fm2.is_control) && type_is_control_bound(&result_box), {
+      if(!(__fm2.is_control) && !in_derive_impl() && type_is_control_bound(&result_box), {
         exn.throw(
           dyn(
             Box.new(

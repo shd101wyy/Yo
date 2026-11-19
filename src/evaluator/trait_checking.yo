@@ -2448,7 +2448,7 @@ receiver_kind_trait_violation_msg :: (
   cond(
     (is_value_nominal || is_reference) => Option(String).None,
     true => Option(String).Some(
-      `Type "${type_to_string(target_type)}" cannot implement "${trait_name}": only a value type (struct, enum, newtype), which ${trait_name} makes move-only, or a reference type (ref(struct(...)), ref(enum(...)) or their atomic(...) forms) may implement it.`
+      `Type "${type_to_string(target_type)}" cannot implement "${trait_name}": only a value type (struct, enum, newtype), which ${trait_name} makes move-only, or a cell payload (the \`Rc\`/\`Arc\`/\`RefCell\` payloads std spells through the reserved cell primitives) may implement it.`
     )
   )
 });

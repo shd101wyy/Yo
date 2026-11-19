@@ -765,7 +765,7 @@ move_only_help :: (fn(name : &String, ty : &TypeValue) -> Option(String))(
     // how a `Dyn` copies (`Clone` in its trait list), not the box's `Drop`.
     if(_is_box_of_dyn(ty), Option(String).None, move_only_reason(ty)),
     .Some(why) => Option(String).Some(
-      `\`${name}\` is move-only (${why}): move it (\`sink(${name})\`), lend it to a \`&mut T\` parameter, or share it through a reference type (\`Rc\`, \`Arc\`, a \`ref(struct(...))\`). A \`&T\` parameter borrows it without a copy (the call lends it with \`&${name}\`).${_clone_hint(name, ty)}`
+      `\`${name}\` is move-only (${why}): move it (\`sink(${name})\`), lend it to a \`&mut T\` parameter, or share it through a reference type (\`Rc\`, \`Arc\` or an \`Rc(RefCell(...))\`). A \`&T\` parameter borrows it without a copy (the call lends it with \`&${name}\`).${_clone_hint(name, ty)}`
     ),
     .None => cond(
       (type_holds_dyn_by_value(ty) || _is_box_of_dyn(ty)) => Option(String).Some(_dyn_copy_note(name, ty)),
@@ -850,7 +850,7 @@ move_only_type_help :: (fn(ty : &TypeValue) -> Option(String))(
   match(
     move_only_reason(ty),
     .Some(why) => Option(String).Some(
-      `\`${type_to_string_for_message(ty)}\` is move-only (${why}): a value of it is moved, never copied. Lend it to a \`&T\` or \`&mut T\` parameter, move its whole owner, or share it through a reference type (\`Rc\`, \`Arc\`, a \`ref(struct(...))\`).`
+      `\`${type_to_string_for_message(ty)}\` is move-only (${why}): a value of it is moved, never copied. Lend it to a \`&T\` or \`&mut T\` parameter, move its whole owner, or share it through a reference type (\`Rc\`, \`Arc\` or an \`Rc(RefCell(...))\`).`
     ),
     .None => cond(
       type_holds_dyn_by_value(ty) => Option(String).Some(_dyn_copy_note(String.from("the value"), ty)),

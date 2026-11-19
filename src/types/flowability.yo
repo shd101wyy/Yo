@@ -115,6 +115,29 @@ flow_violation_error :: (fn() -> Option(YoError))(g_flow_violation_box.with(_c_f
 /// false again deterministically (the eval's local-unwinding exn returns control
 /// to the caller, which clears it), so no non-expect-error path is affected.
 (g_propagate_def_time_errors_box : RefCell(ArrayList(bool))) = RefCell(ArrayList(bool)).new(ArrayList(bool).new());
+/// Derive-scope depth: the derived-impl evaluation (builtins/derive.yo's
+/// `_derive_eval_guarded`) is running. The ctl-return rule (a function's
+/// declared result may not be control-bound) exempts functions evaluated
+/// inside this scope: a derived `clone` of an effect record — a record whose
+/// fields include `ctl(...) -> ret` handler slots — copies each field of the
+/// `&Self` receiver it was handed; it creates no handler and extends no
+/// handler's lifetime past a frame (the record already sits wherever its
+/// owner put it). Hand-written functions keep the full rule. The counter is
+/// a depth (derives nest); the guarded eval's exception handler pops too, so
+/// an unwind leaves it balanced.
+(g_in_derive_impl_box : RefCell(ArrayList(usize))) = RefCell(ArrayList(usize)).new(ArrayList(usize).new());
+push_in_derive_impl :: (fn() -> unit)(
+  g_in_derive_impl_box.with_mut(xs => xs.push(usize(1)))
+);
+pop_in_derive_impl :: (fn() -> unit)(
+  g_in_derive_impl_box.with_mut(xs => {
+    _ := xs.pop();
+  })
+);
+/// True iff a derive-synthesized impl is being evaluated.
+in_derive_impl :: (fn() -> bool)(
+  g_in_derive_impl_box.with(xs => (xs.len() > usize(0)))
+);
 /// Enter/leave "propagate all def-time body-eval errors" mode.
 set_propagate_def_time_errors :: (fn(on : bool) -> unit)({
   g_propagate_def_time_errors_box.with_mut(xs => xs.clear());
