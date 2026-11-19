@@ -2196,9 +2196,9 @@ _note_enum_datatype :: (fn(ctx : &mut VcCtx, t : &TypeValue) -> unit)(
             });
             sb.write_string(_enum_ctor_name(e_id.clone(), vname.clone()));
             match(
-              dt_sort,
+              &dt_sort,
               .Some(ds) => {
-                ctx.ctor_sorts.insert(_enum_ctor_name(e_id.clone(), vname.clone()), ds);
+                ctx.ctor_sorts.insert(_enum_ctor_name(e_id.clone(), vname.clone()), Rc.clone(ds));
                 ()
               },
               .None => ()
@@ -5134,8 +5134,8 @@ _call_term :: (
             idx,
             .Some(it) => {
               alen := match(
-                srt,
-                Rc(.ArrS(_, l2)) => l2,
+                &srt,
+                Rc(.ArrS(_, l2)) => l2.*,
                 _ => usize(0)
               );
               if(ctx.quant_depth == usize(0), {
@@ -6073,9 +6073,9 @@ _note_array_binding :: (fn(ctx : &mut VcCtx, name : &String, rhs : &AstExpr) -> 
     .Some(ri) => match(
       _type_sort(&ri.ty()),
       .Some(rsort) => match(
-        rsort,
+        &rsort,
         Rc(.ArrS(_, _)) => {
-          ctx.array_sorts.insert(name.clone(), rsort);
+          ctx.array_sorts.insert(name.clone(), Rc.clone(rsort));
           ()
         },
         _ => {
@@ -7529,11 +7529,11 @@ verify_function_body :: (fn(input : &VerifyFnInput) -> VcBodyResult)({
             match(
               _type_sort(&pt),
               .Some(sort) => {
-                ctx.vars.insert(pn.clone(), Rc.new(VcTermNode.Var(name : pn.clone(), sort : sort)));
+                ctx.vars.insert(pn.clone(), Rc.new(VcTermNode.Var(name : pn.clone(), sort : Rc.clone(sort))));
                 match(
-                  sort,
+                  &sort,
                   Rc(.ArrS(_, _)) => {
-                    ctx.array_sorts.insert(pn.clone(), sort);
+                    ctx.array_sorts.insert(pn.clone(), Rc.clone(sort));
                     ()
                   },
                   _ => ()
