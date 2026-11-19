@@ -100,6 +100,7 @@ The repairs the compiler computes today:
 | E0007 `.{ a; b }` — a dotted block | delete the `.` |
 | E0618 a named callable passed bare into a `Dyn(Fn(...))` slot | erase the name over the pointer the slot takes: `run(f)` → `run(dyn(Box.new(f)))` (`dyn(Rc.new(f))` for an `Rc`, `dyn(&f)` for a reference; a longer value gives help only) |
 | E0620 `dyn(v)` of a named plain value | box it: `dyn(v)` → `dyn(Box.new(v))` (a longer value gives help only) |
+| `Module not found` for an import whose kebab-case spelling reaches exactly one module (a module renamed to kebab-case) | rewrite the import string to that spelling (`./string_util.yo` → `./string-util.yo`); segment-wise `_` → `-` and lower case, no other guess. Several matches, or none for a path that breaks the naming rule, give help only, and the old name never resolves |
 
 `yo fix <path> --migrate deref` runs a migration rather than a repair, for
 decision 43 step 2 (N1e-1): a reference binding reads and writes the value it refers to with `.*`. It
@@ -191,7 +192,11 @@ compiler resolves it (so `./foo_bar.yo`, `../foo_bar`, `pkg/foo_bar`,
 `yo.toml` above the paths, and the `root : "…"` paths of `build.yo` files.
 The rename map is printed (`fix: rename old -> new`, and
 `[modules] old -> new` for a key, which renames an import name downstream
-packages use), so a downstream package can apply it. `--dry-run` prints the
+packages use), so a downstream package can apply it. An import that no longer
+resolves (a std or dependency module renamed upstream) is pointed at the one
+module its kebab-case spelling reaches, the same candidate the error's repair
+names; several candidates are listed and left as written. So a package
+upgrading past a rename runs `yo fix . --module-names` once. `--dry-run` prints the
 map and writes nothing. A name whose new spelling already exists (`foo_bar.yo`
 beside `foo-bar.yo`: `-` and `_` are different names), or two names that
 become one, refuse the whole run before anything is written. A case-only

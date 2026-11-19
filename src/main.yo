@@ -164,7 +164,7 @@ json :: import("std/encoding/json");
 { evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous_module.yo");
 { decode_str_lit_escapes } :: import("./evaluator/values/string.yo");
 { clear_module_cache, module_cache_keys } :: import("./evaluator/module_loader.yo");
-{ resolve_module_path_ex, lookup_import_root, module_name_offends, module_name_kebab } :: import("./evaluator/exprs/import.yo");
+{ resolve_module_path_ex, lookup_import_root, module_name_offends, module_name_kebab, renamed_module_candidates } :: import("./evaluator/exprs/import.yo");
 { reset_trait_type_args } :: import("./expr_info.yo");
 { run_check_watch, run_watch_once, watch_snapshot, wait_for_change, invalidate_changed_files } :: import("./check_watch.yo");
 {
@@ -2558,6 +2558,7 @@ _run_module_names :: (
   verify_target := ArrayList(String).new();
   verify_at := ArrayList(String).new();
   (mut(n_imports) : usize) = usize(0);
+  (mut(n_repointed) : usize) = usize(0);
   (mut(n_roots) : usize) = usize(0);
   (mut(n_unparsed) : usize) = usize(0);
   (mut(fk) : usize) = usize(0);
@@ -2592,14 +2593,38 @@ _run_module_names :: (
             continue;
           });
           spec := lit.raw.substring(usize(1), lit.raw.len() - usize(1));
+          // What the import reaches now: itself, or, when it no longer
+          // resolves (a std or dependency module renamed upstream), the ONE
+          // module its kebab-case spelling reaches (`renamed_module_candidates`,
+          // the repair `check` offers on the same error).
+          (mut(reach) : String) = String.new();
+          (mut(spec_now) : String) = spec.clone();
           // An explicit `.yo` path resolves without a probe, so a missing
           // file counts as not resolving.
-          reach := match(
+          reach = match(
             resolve_module_path_ex(spec.clone(), file_dir.clone(), std_abs.clone(), true),
             .Found(p) => if(file_exists_sync(p.replace(String.from("file://"), String.new())), p, String.new()),
             _ => String.new()
           );
-          spec_now := spec.clone();
+          // An exempt file (a cli-case fixture) keeps a broken import as
+          // written: it may be the error under test.
+          if(reach.is_empty() && file_renamable(fk), {
+            cands := renamed_module_candidates(&spec, &file_dir, &std_abs);
+            if(cands.len() == usize(1), {
+              spec_now = cands(usize(0)).clone();
+              match(
+                resolve_module_path_ex(spec_now.clone(), file_dir.clone(), std_abs.clone(), true),
+                .Found(p) => {
+                  reach = p;
+                  n_repointed = (n_repointed + usize(1));
+                },
+                _ => ()
+              );
+            });
+            if(cands.len() > usize(1), {
+              println(`fix: ${_mn_display(&file)}:${(lit.row + usize(1)).to_string()}:${(lit.col + usize(1)).to_string()}: import("${spec}") does not resolve and several modules match its kebab-case spelling (${String.from(", ").join(&cands)}); left as written`);
+            });
+          });
           if(!reach.is_empty(), {
             new_spec := match(
               _mn_new_import(&spec_now, &file_dir, &std_abs, &ren, &key_ren),
@@ -2734,8 +2759,10 @@ _run_module_names :: (
   });
   verb := if(dry_run, String.from("would rename"), String.from("renamed"));
   verb2 := if(dry_run, String.from("would rewrite"), String.from("rewrote"));
+  // The repointed count is named only when an import no longer resolved.
+  repointed_part := if(n_repointed > usize(0), ` (${n_repointed.to_string()} of them no longer resolved and now reach the one module their kebab-case spelling names)`, String.new());
   println(
-    `fix: ${verb} ${n_files.to_string()} file(s) and ${n_dirs.to_string()} directory(ies); ${verb2} ${n_imports.to_string()} import(s), ${n_modules.to_string()} [modules] entry(ies) and ${n_roots.to_string()} build.yo root(s)`
+    `fix: ${verb} ${n_files.to_string()} file(s) and ${n_dirs.to_string()} directory(ies); ${verb2} ${n_imports.to_string()} import(s)${repointed_part}, ${n_modules.to_string()} [modules] entry(ies) and ${n_roots.to_string()} build.yo root(s)`
   );
   if(n_unparsed > usize(0), {
     exn.throw(dyn(Box.new(`fix: ${n_unparsed.to_string()} file(s) do not parse; their imports were not rewritten`)));
@@ -11286,8 +11313,10 @@ Options:
                             name holds _ or upper case to kebab-case
                             (array_list.yo -> array-list.yo) and rewrite
                             the imports, [modules] entries and build.yo
-                            roots that reach them. Prints the rename
-                            map; not a migration, never retired
+                            roots that reach them; an import that no
+                            longer resolves is pointed at the one module
+                            its kebab-case spelling reaches. Prints the
+                            rename map; not a migration, never retired
   --target <triple>         Evaluate for this target, as compile --target
                             does, so the target's platform arms are
                             repaired or migrated (default: the host)
@@ -11322,8 +11351,9 @@ Examples:
   --module-names            把名字含 _ 或大写字母的每个模块文件与目录重命名
                             为 kebab-case（array_list.yo -> array-list.yo），
                             并改写指向它们的 import、[modules] 条目与
-                            build.yo 的 root。打印重命名映射；它不是迁移，
-                            永不退役
+                            build.yo 的 root；不再能解析的 import 改为指向其
+                            kebab-case 写法所指的唯一模块。打印重命名映射；
+                            它不是迁移，永不退役
   --target <triple>         按该目标求值（同 compile --target），从而修复
                             或迁移该目标的平台分支（默认：宿主平台）
   --std-path <dir>          覆盖 std 库目录
