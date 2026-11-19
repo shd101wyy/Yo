@@ -7,7 +7,7 @@ v0.2.79 tip that CONTAINS #2001's fix, blocking the cut until either the job is 
 or a seed past the fix ships (a catch-22 for every release that fixes an evaluator bug its own
 front end triggers).
 
-**Status:** OPEN, filed 2026-11-18. Red since #1992 (3d) put the trigger shape
+**Status:** FIXED by #2003 (develop `d8f0d89fa`, 2026-11-19): the sweep job now sweeps with the tree-built suite candidate; battery 44347272330 ran it green. Filed 2026-11-18. Red since #1992 (3d) put the trigger shape
 (`Rc(AstExprNode)` without `Eq`) into `src/parser.yo`; #2001 fixed the tree but the job did not
 change color.
 
