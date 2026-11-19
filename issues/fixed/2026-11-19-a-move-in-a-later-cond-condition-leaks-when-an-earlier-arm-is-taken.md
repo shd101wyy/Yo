@@ -101,9 +101,12 @@ the move, so it already drops the value there.
   by-value parameter, a returning earlier arm). With the v0.2.78 seed the
   first three fail (exit 6, the dispose counts are short) and the returning
   canary passes. All four pass with the tree binary.
-- The G4-shaped run: an ASan build of the stage-2 C checking `tmp/lk/f.yo`
-  (a CTFE function matching a local `::` enum value, called three times) and
-  an empty file. See the PR for the numbers.
+- The G4-shaped runs, with an ASan build of the stage-2 C, d8f0d89fa →
+  this fix: `check` of an empty file 4,175 B in 132 allocations → no leak;
+  a CTFE function matching a local `::` enum value, called three times,
+  4,890 B in 155 → no leak; the `info.is_struct()` and `match(info, …)`
+  shapes 5,315 B in 166 → no leak. `std/collections/hash_map.yo`,
+  `std/fmt/index.yo` and `tests/match_structs.test.yo` check with no leak.
 
 ## Related
 
