@@ -69,7 +69,7 @@
 { get_trait_type_from_env } :: import("../../types/env_lookup.yo");
 { is_thread_local } :: import("../../expr_info.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ ast_expr_to_string, BK_MUT, BK_IMM, projection_tail_mode } :: import("../../expr.yo");
+{ ast_expr_to_string, BK_MUT, BK_IMM, BF_COMPTIME_EXPECT_ERROR, projection_tail_mode } :: import("../../expr.yo");
 { eprintln } :: import("std/fmt");
 {
   is_io_async_call,
@@ -3688,6 +3688,13 @@ _rcw_walk :: (fn(e : &AstExpr, ctx : &mut _MspCtx, in_closure_in : bool) -> unit
       return(());
     }
   );
+  // A `comptime_expect_error` operand is evaluated at compile time and never
+  // reaches codegen, so a write it holds (the E0919 row a test pins) is not
+  // in the census
+  // (issues/fixed/2026-11-19-the-rc-write-census-lists-a-write-inside-comptime-expect-error.md).
+  if(ast_expr_is_fn_call_of(e, BF_COMPTIME_EXPECT_ERROR, Option(usize).None), {
+    return(());
+  });
   if(ast_expr_is_fn_call_of(e, "=", Option(usize).Some(usize(2))), {
     match(
       args.get_cloned(usize(0)),
