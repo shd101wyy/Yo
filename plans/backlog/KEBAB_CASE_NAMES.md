@@ -150,7 +150,8 @@ Resolution goes through `resolve_module_path` rather than a textual search, so `
 `_expr.yo` files become `dispatch.yo` first (their kebab spelling `expr.yo` collides with a sibling), then the tool runs
 over `src std tests scripts build.yo` (test files included: nothing imports them, but the warning would fire on every
 one), then `std/fmt/to_string.yo` goes back to its name (the seed hold-back: the v0.2.78 seed's template-literal desugar
-injects `import("std/fmt/to_string")`, so the seed cannot build the tree without it;
+injects `import("std/fmt/to_string")`, so the seed cannot build the tree without it; the tree's desugar injects
+`import("std/fmt")`, so v0.2.80 renames the file with no forwarder;
 `issues/questions/2026-11-19-std-fmt-to-string-keeps-its-name-for-the-seed.md`), then a textual sweep applies the printed map to what the tool cannot see — comments, Markdown outside `plans/` and
 `issues/`, workflows, shell scripts, `known-failing.tsv`, cli-case goldens and string literals that hold a path.
 

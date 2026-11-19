@@ -121,7 +121,7 @@ TemplateString ::= '`' TemplateChar* '`'
 ;; (no spaces, brackets or quotes — the spec walk can then never leave the
 ;; interpolation). `${expr:spec}` calls `.format("<spec>")` instead of
 ;; `.to_string()`, and a template with any spec auto-imports
-;; `std/fmt/format` instead of `std/fmt/to_string`.
+;; `std/fmt/format` instead of `std/fmt`.
 
 CharLiteral ::= "'" (CharChar | EscapeSequence) "'"
 ;; The content must be exactly ONE character (or a backslash plus one

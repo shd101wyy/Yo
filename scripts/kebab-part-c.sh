@@ -66,13 +66,14 @@ git grep -l -E '/_expr\.yo"' -- src tests | xargs -r sed -i -E 's#/_expr\.yo"#/d
 "$YO" --std-path ./std fix src std tests scripts build.yo --module-names | tee "$MAP.tool"
 
 # ── 2b. The seed hold-back ──────────────────────────────────────────────────
-# `std/fmt/to_string.yo` keeps its name in v0.2.79: the seed's parser (v0.2.78)
-# desugars every template literal with an injected `import("std/fmt/to_string")`
-# (src/parser.yo `get_program`), so the seed cannot build a tree without that
-# file, and the tree's parser injects the same path. Its contents and its own
-# imports are migrated; only the name and the strings naming it go back.
-# issues/questions/2026-11-19-std-fmt-to-string-keeps-its-name-for-the-seed.md
-# records how it moves later.
+# `std/fmt/to_string.yo` keeps its name in v0.2.79: the v0.2.78 seed's parser
+# desugars every template literal with an injected `import("std/fmt/to_string")`,
+# so the seed cannot build a tree without that file. Its contents and its own
+# imports are migrated; only the name and the strings naming it go back. This
+# tree's parser injects `import("std/fmt")` instead (src/parser.yo
+# `get_program`), so v0.2.80, built by the v0.2.79 seed, renames the file with
+# `yo fix std src tests --module-names` and no forwarder
+# (issues/questions/2026-11-19-std-fmt-to-string-keeps-its-name-for-the-seed.md).
 if [ -f std/fmt/to-string.yo ] && [ ! -e std/fmt/to_string.yo ]; then
   mv std/fmt/to-string.yo std/fmt/to_string.yo
   # Plain grep: the renamed files are not in the index yet.

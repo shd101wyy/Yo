@@ -1,5 +1,7 @@
 # `std/fmt/to_string.yo` keeps its snake_case name in v0.2.79: the template-literal desugar imports it by path
 
+**Kind:** design question
+
 Kebab-case Part C (`plans/backlog/KEBAB_CASE_NAMES.md`) renames every multi-word module file in std, src and tests.
 One file cannot move in v0.2.79: `std/fmt/to_string.yo`.
 
@@ -39,7 +41,30 @@ restored. In a checkout, `yo check` warns about this one std file until it moves
 
 ## Recommendation
 
-Option 2. Land the desugar change (inject `import("std/fmt")`) in v0.2.80 as a Generation A, gated on a run of the
-language suite and a `check ./std` RSS/time A/B. Then rename `std/fmt/to_string.yo` in v0.2.81 with
-`yo fix std --module-names`, which needs no forwarder and no old name. If the cycle check fails, fall back to option 1,
-with the forwarder living exactly one release. v0.2.79 ships with the hold-back described above.
+Option 2, moved one release earlier, as the verdict below records. v0.2.79 itself makes the injected import name-stable,
+and v0.2.80 renames the file with no forwarder and no old name.
+
+## Verdict (2026-11-20, coordinator): option 2, in v0.2.79
+
+The v0.2.78 seed matters only while it builds the v0.2.79 tree. `std/fmt/to_string.yo` still exists under that name in
+v0.2.79, so the seed's injection keeps resolving. The v0.2.79 parser injects `import("std/fmt")` (`src/parser.yo`
+`get_program`). Stage 2, the v0.2.79 release, and therefore the v0.2.80 seed all inject the package path, never the file.
+A template that uses a format spec still injects `import("std/fmt/format")`, whose name is already kebab-case.
+
+Precondition, checked:
+- `std/fmt/index.yo` re-exports `ToString` and `Debug` from `./to_string.yo`, and `Format` from `./format.yo`.
+- The injection binds no name. It only loads the module so that the `ToString` impls register, and `std/fmt` loads
+  `to_string.yo`, so the same impls register through the same resolution.
+
+The one thing in the way was a cycle, and it needed no shim:
+- `std/fmt/to_string.yo` was the only module in `std/fmt`'s import closure that held a template literal.
+- With the new injection, a load that reached `to_string.yo` first (through `std/error`, for example) imported
+  `std/fmt` first, and `std/fmt` destructured `ToString` from the half-loaded module (E0403 `No member "ToString"`;
+  simulated with the v0.2.79 tool binary on a scratch std).
+- Its twenty template literals are now explicit `String.from` / `push_str` / `append_to` calls, the same calls a template
+  lowers to. The module doc records why.
+
+Every other module in that closure is template-free (measured over the 18 files `std/fmt/index.yo` reaches).
+
+**v0.2.80:** `yo fix std src tests scripts --module-names` renames `to_string.yo` to `to-string.yo` along with every
+import of it. Then drop step 2b of `scripts/kebab-part-c.sh`, or retire the script, since the rename is done.
