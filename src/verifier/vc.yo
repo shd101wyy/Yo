@@ -472,7 +472,7 @@ _register_list_datatype :: (fn(elem : &VcSort) -> unit)({
     // writes it: the encoder's segment scanner consumes exactly one group.
     decl := `${dt}|${ctor} ((${_list_contents_acc(elem)} (Array (_ BitVec 64) ${encode_sort(elem)})) (${_list_len_acc(elem)} (_ BitVec 64)))`;
     g_list_datatypes.with_mut(xs => xs.push(decl.clone()));
-    g_list_elem_sorts.with_mut(xs => xs.push(elem.*));
+    g_list_elem_sorts.with_mut({ e : Rc.clone(elem) }(xs) => xs.push(e));
   });
   ()
 });
@@ -3570,12 +3570,12 @@ _havoc_binding_sort :: (fn(old : &VcTerm) -> VcSort)(
 _vc_term_sort :: (fn(ctx : &VcCtx, t : &VcTerm) -> Option(VcSort))(
   match(
     t,
-    Rc(.Var(_, s)) => Option(VcSort).Some(s.*),
+    Rc(.Var(_, s)) => Option(VcSort).Some(Rc.clone(s)),
     Rc(.BvLit(_, w)) => Option(VcSort).Some(Rc.new(VcSortNode.BvS(width : w.*))),
     Rc(.BoolLit(_)) => Option(VcSort).Some(Rc.new(VcSortNode.BoolS)),
     Rc(.Test(_, _)) => Option(VcSort).Some(Rc.new(VcSortNode.BoolS)),
     Rc(.Quant(_, _, _, _, _)) => Option(VcSort).Some(Rc.new(VcSortNode.BoolS)),
-    Rc(.ArrConst(cs, _)) => Option(VcSort).Some(cs.*),
+    Rc(.ArrConst(cs, _)) => Option(VcSort).Some(Rc.clone(cs)),
     Rc(.Ctor(cn, _)) => match(
       _list_sort_of_ctor(&cn.*),
       .Some(ls) => Option(VcSort).Some(ls),
@@ -4280,7 +4280,7 @@ _list_operand_elem :: (fn(ctx : &mut VcCtx, a : &AstExpr) -> Option(VcSort))(
 /// Declared once per element sort.
 _list_append_contents :: (fn(ctx : &mut VcCtx, elem : &VcSort, c1 : &VcTerm, l1 : &VcTerm, c2 : &VcTerm) -> VcTerm)({
   fname := `__yo_lapp_${_msof_key(elem)}`;
-  arr := Rc.new(VcSortNode.ArrS(elem : elem.*, len : usize(0)));
+  arr := Rc.new(VcSortNode.ArrS(elem : Rc.clone(elem), len : usize(0)));
   if(!ctx.gfn_keys.contains(fname.clone()), {
     ctx.gfn_keys.push(fname.clone());
     dargs := ArrayList(VcSort).new();
@@ -5921,11 +5921,11 @@ _note_ms_of :: (
     ctx.ms_axiom_keys.push(key.clone());
     if(!ctx.fundecl_keys.contains(`__yo_msof_${_msof_key(elem)}`), {
       ctx.fundecl_keys.push(`__yo_msof_${_msof_key(elem)}`);
-      ctx.fundecls.push(elem.*);
+      ctx.fundecls.push(Rc.clone(elem));
     });
     // The counted ELEMENT is the binder — sort `elem`, NOT the count
     // array's sort.
-    x := Rc.new(VcTermNode.Var(name : String.from("__yo_msx"), sort : elem.*));
+    x := Rc.new(VcTermNode.Var(name : String.from("__yo_msx"), sort : Rc.clone(elem)));
     lhs := _app2(VcOp.SelectOp, msf, &x);
     sum := Rc.new(VcTermNode.BvLit(value : u64(0), width : usize(64)));
     one := Rc.new(VcTermNode.BvLit(value : u64(1), width : usize(64)));
@@ -5946,7 +5946,7 @@ _note_ms_of :: (
     names := ArrayList(String).new();
     names.push(String.from("__yo_msx"));
     sorts := ArrayList(VcSort).new();
-    sorts.push(elem.*);
+    sorts.push(Rc.clone(elem));
     triggers := ArrayList(VcTerm).new();
     triggers.push(lhs);
     ctx.axioms.push(
