@@ -1,0 +1,10 @@
+//! A call returning `&[T]` whose result is read where the call may unwind
+//! emits its unwind temp as `// Unknown type: Slice(i32) __yo_ref_spill_0 = …`.
+{ assert } :: import("std/assert");
+Row :: struct(a : Array(i32, 3));
+view :: (fn(x : &Row) -> &[i32])(&x.a.*);
+main :: (fn() -> unit)({
+  r := Row(a : Array(i32, 3)(i32(1), i32(2), i32(3)));
+  assert(view(&r).len() == usize(3), "three");
+});
+export(main);

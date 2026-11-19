@@ -102,3 +102,19 @@ test("a closure captures a &[i32] binding by value", {
   (f : Impl(Fn() -> i32)) = ({ v }() => _up_sum(v));
   assert(f() == i32(6), "the captured view reads the array");
 });
+// A call returning `&[T]` or `&str` whose result is used where the call may
+// unwind (any `test` body) spills the fat pair into a temp of the
+// reference's C type, not of the pointee's
+// (issues/fixed/2026-11-19-an-unsized-projection-call-that-may-unwind-spills-into-an-undeclared-temp.md).
+_UpRow :: struct(a : Array(i32, 3), s : &str);
+_up_row_view :: (fn(x : &_UpRow) -> &[i32])(&x.a.*);
+_up_row_name :: (fn(x : &_UpRow) -> &str)(&x.s.*);
+_up_any_view :: (fn(generic(T : ?Sized), x : &T) -> &T)(&x.*);
+test("an unsized projection call result is read where the call may unwind", {
+  r := _UpRow(a : Array(i32, 3)(i32(1), i32(2), i32(3)), s : "abcd");
+  assert(_up_row_view(&r).len() == usize(3), "a free &[i32] projection");
+  v := _up_row_view(&r);
+  assert(v.len() == usize(3), "bound, then read");
+  assert(_up_row_name(&r).len() == usize(4), "a free &str projection");
+  assert(_up_any_view(&r.a.*).len() == usize(3), "a generic projection at T = [i32]");
+});

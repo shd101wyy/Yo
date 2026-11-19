@@ -1672,6 +1672,18 @@ _projection_result_unsized :: (fn(t : &TypeValue) -> bool)(
     _ => !type_is_sized(t)
   )
 );
+/// The C type of an unsized projection result's fat pair (decision 49), for
+/// the unwind temp that holds it: a pointer to its pointee (`__yo_slice_t`,
+/// `__yo_str`, a `Dyn`'s fat struct). `t` is the reference or its pointee;
+/// the pointee's own type string is no C type for `[T]` or `str`
+/// (issues/fixed/2026-11-19-an-unsized-projection-call-that-may-unwind-spills-into-an-undeclared-temp.md).
+_projection_result_unsized_c_type :: (fn(t : &TypeValue, context : &mut FunctionGenerationContext) -> String)(
+  match(
+    t_refine_inner(t),
+    Rc(.Reference(prc, _, _)) => pointer_c_type_string(&prc, &mut context.base),
+    _ => pointer_c_type_string(t, &mut context.base)
+  )
+);
 /// Index of `name` in an EnumT's `variant_names` (local copy — comptime_value's
 /// is not exported). `name` must be the clean variant (no leading `.`).
 _enum_variant_index :: (fn(enum_ty : &TypeValue, name : &String) -> Option(usize))(
@@ -2477,7 +2489,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                   g_ref_spill_counter = (cm_n + usize(1));
                   cm_pt := `__yo_ref_spill_${cm_n.to_string()}`;
                   context.base.emitter.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
-                  emit_text4 := `${indent.clone()}${get_type_string(&ei.ty(), &mut context.base)} ${cm_pt.clone()} = ${cm_call};`;
+                  emit_text4 := `${indent.clone()}${_projection_result_unsized_c_type(&ei.ty(), context)} ${cm_pt.clone()} = ${cm_call};`;
                   context.base.emitter.emit_string_line(&emit_text4);
                   generate_call_deferred_drops(expr, indent.clone(), context, true);
                   emit_effect_unwind_check(indent.clone(), context, cm_is_install, expr);
@@ -3327,7 +3339,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                 g_ref_spill_counter = (proj_n + usize(1));
                 proj_tmp := `__yo_ref_spill_${proj_n.to_string()}`;
                 context.base.emitter.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
-                emit_text7 := `${indent.clone()}${get_type_string(&result_type, &mut context.base)} ${proj_tmp.clone()} = ${proj_call};`;
+                emit_text7 := `${indent.clone()}${_projection_result_unsized_c_type(&result_type, context)} ${proj_tmp.clone()} = ${proj_call};`;
                 context.base.emitter.emit_string_line(&emit_text7);
                 generate_call_deferred_drops(expr, indent.clone(), context, true);
                 emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr);
@@ -3709,7 +3721,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
         g_ref_spill_counter = (fpj_n + usize(1));
         fpj_tmp := `__yo_ref_spill_${fpj_n.to_string()}`;
         context.base.emitter.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
-        emit_text8 := `${indent.clone()}${get_type_string(&result_type, &mut context.base)} ${fpj_tmp.clone()} = ${out.clone()};`;
+        emit_text8 := `${indent.clone()}${_projection_result_unsized_c_type(&result_type, context)} ${fpj_tmp.clone()} = ${out.clone()};`;
         context.base.emitter.emit_string_line(&emit_text8);
         generate_call_deferred_drops(expr, indent.clone(), context, true);
         emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr);
