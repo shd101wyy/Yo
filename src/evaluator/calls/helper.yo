@@ -861,8 +861,8 @@ _marker_place_of :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) ->
 /// reference holds (`*lhs`), never the reference's own address. Only a BARE
 /// argument: `written_arg` (label stripped, before evaluation) whose marker
 /// was peeled is a lend of that place (`g_peeled_lend_ids`). A slot whose
-/// pointee is itself that reference (`& &U`, §7 P3), a generic one, a
-/// receiver (evaluated before its call, `node_is_preevaluated`) and a
+/// pointee is itself that reference (`& &U`, §7 P3), a generic one other
+/// than the referent itself, a receiver (evaluated before its call, `node_is_preevaluated`) and a
 /// `&mut U` argument (not `Copy` below a `&`, E0901) keep `evaled_arg`.
 reference_argument_as_referent :: (fn(written_arg : &AstExpr, evaled_arg : AstExpr, resolved_pt : &TypeValue, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
   // `&r` / `&lhs.*` written with its marker lends that place (a `&&U`):
@@ -880,7 +880,13 @@ reference_argument_as_referent :: (fn(written_arg : &AstExpr, evaled_arg : AstEx
   if(is_str_reference_type(&ra_ty) && is_legacy_value_str(resolved_pt), {
     return(evaled_arg);
   });
-  if(is_some_type(resolved_pt) || (get_all_some_types(resolved_pt).len() > usize(0)) || are_types_compatible(&ra_ty, resolved_pt) || !are_types_compatible(&t_slot_pointee(&ra_ty), resolved_pt), {
+  // A generic slot keeps the argument (its binder may be the reference),
+  // unless the slot's type IS the referent, type variables included: inside
+  // the generic body `T.(==)(lhs.*, rhs.*)` at `lhs : &&T`, the only other
+  // reading binds `T := &T`, an infinite type
+  // (issues/fixed/2026-11-13-a-blanket-hash-impl-over-a-reference-rebinds-a-generic-impls-key-to-a-reference-of-itself.md).
+  referent_is_slot := (type_key(&t_slot_pointee(&ra_ty)) == type_key(resolved_pt));
+  if(!referent_is_slot && (is_some_type(resolved_pt) || (get_all_some_types(resolved_pt).len() > usize(0)) || are_types_compatible(&ra_ty, resolved_pt) || !are_types_compatible(&t_slot_pointee(&ra_ty), resolved_pt)), {
     return(evaled_arg);
   });
   // The node `arg.*` as a user's `lhs.*.*` reads: a written star (not
