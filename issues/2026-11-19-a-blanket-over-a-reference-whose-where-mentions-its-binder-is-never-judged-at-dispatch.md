@@ -23,7 +23,7 @@ impl(
   generic(T : Type),
   where(T <: Sh(T)),
   &T,
-  Sh(&T)(sh : (fn(self : &Self, other : &(&T)) -> i32)(T.sh(self.*, other.*) + i32(100)))
+  Sh(&T)(sh : (fn(self : &Self, other : & &T) -> i32)(T.sh(self.*, other.*) + i32(100)))
 );
 mk :: (fn() -> Rc(C))(Rc.new(C(v : i32(7))));
 main :: (fn() -> unit)({
