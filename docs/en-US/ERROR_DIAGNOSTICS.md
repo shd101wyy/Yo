@@ -197,12 +197,9 @@ and the borrow would then change under it. Read it into a local first
 collection or a value holding one is read with `v := G.clone()`: the receiver
 of a `clone()` whose every `Clone` impl is derived or std's is the one lend
 allowed, since that clone runs no user code. An unmarked global
-is lent freely. A global holding a shared door (`Rc(RefCell(T))`, an
-`Arc(Mutex(T))`) adds two conflicts, each reported wherever the compiler sees
-the second site: a lend into the storage behind it (`&g(i)`) is E0916 when a
-`&mut self` method is called on it anywhere, and a lend of a field written
-through the door (`&r.*.name` after a write inside `with_mut`) is E0916 too.
-Both errors apply everywhere, `std` and the compiler's own sources included.
+is lent freely. A door the global holds (`G.with_mut(...)` on a `RefCell`, the
+door types of `std/sync`) lends nothing past its closure, so no lend reaches the
+storage behind it while the door is written.
 
 Decision 47's second step applies the same rule below module level: a local,
 a pattern or destructuring binding and a compile-time binding (`x :: v`,

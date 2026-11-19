@@ -8239,7 +8239,7 @@ _lb_first_site_in :: (fn(sites : &ArrayList(Token), decl : &Token, end : &Token)
 /// reference cell or module-level place. `decl_note` follows the name in
 /// the declaration note.
 _lb_raise_across_await :: (fn(name : String, info : &LocalBorrowInfo, decl : &Token, last_use : &Token, decl_note : String, at : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
-  why := cond(info.module_root => "a module-level place", true => "a reference cell (`Rc`, `Arc` or a `ref` object)");
+  why := cond(info.module_root => "a module-level place", true => "a reference cell (`Rc` or `Arc`)");
   // The hidden borrow of a desugared `for` (macro plan B1) spans the loop.
   for_site := match(info.macro_site.clone(), .Some(fs) => if((name == info.name) && for_desugar_site_of(&fs).is_some(), Option(Token).Some(Rc.clone(fs)), Option(Token).None), .None => Option(Token).None);
   entries := ArrayList(TokenAndError).new();
