@@ -1,0 +1,130 @@
+//! Pins the native `Io`'s runtime pieces (plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md
+//! §2, §3, IO-1a) by calling the emitters and asserting on the emitted C (the
+//! technique of tests/internal/uring_runtime.test.yo):
+//!
+//! 1. the executor entries the native `IoVTable` calls (`spawn`, `run_until`,
+//!    `now`) and `IoFuture.completed`'s future born completed;
+//! 2. the native table's operation map (`native_io_entry_c_name`): every
+//!    operation it names is defined by every backend, because the table
+//!    references each entry an `IoVTable` field names on every target.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ Emitter } :: import("../../src/emitter.yo");
+{ generate_async_runtime_core, generate_async_runtime_io_entries, native_io_entry_c_name } :: import("../../src/codegen/async/runtime-core.yo");
+{ generate_async_runtime_io_linux } :: import("../../src/codegen/async/runtime-io-linux.yo");
+{ generate_async_runtime_io_macos } :: import("../../src/codegen/async/runtime-io-macos.yo");
+{ generate_async_runtime_io_windows } :: import("../../src/codegen/async/runtime-io-windows.yo");
+{ generate_async_runtime_io_wasm } :: import("../../src/codegen/async/runtime-io-wasm.yo");
+{ generate_async_runtime_io_common } :: import("../../src/codegen/async/runtime-io-common.yo");
+{ host_target } :: import("../../src/target.yo");
+{ assert } :: import("std/assert");
+emit_entries :: (fn() -> String)({
+  mut(em) := Emitter.new();
+  generate_async_runtime_io_entries(&mut em, host_target());
+  em.print()
+});
+emit_core :: (fn() -> String)({
+  mut(em) := Emitter.new();
+  generate_async_runtime_core(&mut em, host_target());
+  em.print()
+});
+/// What a non-wasm backend emits: its own I/O runtime plus the common layer.
+emit_with_common :: (fn(backend : String) -> String)({
+  mut(em) := Emitter.new();
+  cond(
+    (backend == "linux") => generate_async_runtime_io_linux(&mut em),
+    (backend == "macos") => generate_async_runtime_io_macos(&mut em),
+    true => generate_async_runtime_io_windows(&mut em)
+  );
+  generate_async_runtime_io_common(&mut em, host_target());
+  em.print()
+});
+emit_wasm :: (fn() -> String)({
+  mut(em) := Emitter.new();
+  generate_async_runtime_io_wasm(&mut em, host_target());
+  em.print()
+});
+/// Every operation label the native table offers (the field names an
+/// `IoVTable` may declare).
+NATIVE_IO_LABELS :: "spawn run_until now sleep park yield spawn_cwd read write openat close statx mkdirat unlinkat renameat symlinkat linkat fsync fdatasync ftruncate getdents scandir opendir readdir closedir socket bind listen accept connect send stream_write recv sendto recvfrom shutdown setsockopt getsockopt waitpid getaddrinfo getnameinfo poll_init poll_start poll_stop poll_close fs_event_init fs_event_start fs_event_stop fs_event_close";
+/// The labels, split.
+native_labels :: (fn() -> ArrayList(String))({
+  out := ArrayList(String).new();
+  (cur : String) = String.new();
+  s := String.from(NATIVE_IO_LABELS);
+  (i : usize) = usize(0);
+  while(i < s.len(), {
+    b := s.byte_at(i);
+    if(b == u8(32), {
+      out.push(cur.clone());
+      cur = String.new();
+    }, {
+      cur.push_byte(b);
+    });
+    i = (i + usize(1));
+  });
+  out.push(cur);
+  out
+});
+/// Whether `c` DEFINES the C function `name` (a `static` definition line).
+defines :: (fn(c : &String, name : &String) -> bool)(
+  c.contains(`${name.*}(`) && (c.contains(`* ${name.*}(`) || c.contains(` ${name.*}(void`) || c.contains(`int32_t ${name.*}(`) || c.contains(`void ${name.*}(`) || c.contains(`uint64_t ${name.*}(`) || c.contains(`int ${name.*}(`))
+);
+test("entries: IoFuture.completed builds a future born completed", {
+  c := emit_entries();
+  assert(c.contains(String.from("static __yo_io_future_t* __yo_io_future_completed(int32_t result) {")), "the completed-future constructor");
+  assert(c.contains(String.from("atomic_init(&f->state, -1);")), "born completed (-1)");
+  assert(c.contains(String.from("f->result = result;")), "carrying its result");
+});
+test("entries: spawn cold-starts a future and takes the task's reference", {
+  c := emit_entries();
+  assert(c.contains(String.from("static void __yo_io_spawn_task(void* fut) {")), "the spawn entry");
+  assert(c.contains(String.from("if (f->state == 0 && f->vt && f->vt->resume) {")), "only a cold future starts");
+});
+test("entries: run_until drives the loop until the future is terminal", {
+  c := emit_entries();
+  assert(c.contains(String.from("static void __yo_io_run_until(void* fut) {")), "the run_until entry");
+  assert(c.contains(String.from("while (f->state != -1 && f->state != -2) {")), "until completed or aborted");
+  assert(c.contains(String.from("__yo_async_poll_step();")), "by polling this thread's loop");
+});
+test("entries: now reads the monotonic clock in nanoseconds", {
+  c := emit_entries();
+  assert(c.contains(String.from("static uint64_t __yo_io_now_ns(void) {")), "the now entry");
+  assert(c.contains(String.from("1000000000ull")), "seconds scaled to nanoseconds");
+});
+test("map: every native label names an entry, an unknown label none", {
+  labels := native_labels();
+  (i : usize) = usize(0);
+  while(i < labels.len(), {
+    l := labels(i).clone();
+    assert(native_io_entry_c_name(&l).is_some(), `the native table offers ${l}`);
+    i = (i + usize(1));
+  });
+  assert(native_io_entry_c_name(&String.from("no_such_op")).is_none(), "an unknown label");
+  assert(native_io_entry_c_name(&String.from("openat")) == Option(String).Some(String.from("__yo_async_openat_start")), "an operation keeps its _start entry");
+  assert(native_io_entry_c_name(&String.from("spawn_cwd")) == Option(String).Some(String.from("__yo_async_spawn_start_cwd")), "spawn_cwd");
+  assert(native_io_entry_c_name(&String.from("poll_start")) == Option(String).Some(String.from("__yo_poll_start")), "a watch registration");
+});
+test("map: every backend defines every native entry", {
+  core := emit_core();
+  entries := emit_entries();
+  labels := native_labels();
+  backends := ArrayList(String).new();
+  backends.push(String.from("linux"));
+  backends.push(String.from("macos"));
+  backends.push(String.from("windows"));
+  backends.push(String.from("wasm"));
+  (bi : usize) = usize(0);
+  while(bi < backends.len(), {
+    b := backends(bi).clone();
+    text := if(b == "wasm", emit_wasm(), emit_with_common(b.clone()));
+    (i : usize) = usize(0);
+    while(i < labels.len(), {
+      l := labels(i).clone();
+      entry := match(native_io_entry_c_name(&l), .Some(e) => e, .None => String.new());
+      assert(defines(&text, &entry) || defines(&core, &entry) || defines(&entries, &entry), `${b} defines ${entry} (IoVTable.${l})`);
+      i = (i + usize(1));
+    });
+    bi = (bi + usize(1));
+  });
+});

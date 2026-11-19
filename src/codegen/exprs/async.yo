@@ -135,7 +135,13 @@ is_async_runtime_extern_name :: (fn(name : &String) -> bool)(
     name.starts_with("__yo_fs_event_") ||
       name.starts_with("__yo_async_") ||
         name.starts_with("__yo_waker_") ||
-          name.starts_with("__yo_join_")
+          name.starts_with("__yo_join_") ||
+            // The native Io's entries (async/runtime_core.yo,
+            // generate_async_runtime_io_entries).
+            (name.* == "__yo_io_future_completed") ||
+              (name.* == "__yo_io_spawn_task") ||
+                (name.* == "__yo_io_run_until") ||
+                  (name.* == "__yo_io_now_ns")
 );
 /// The FIRST effect type of an io.async call's own recorded Future trait type,
 /// when it is CONCRETE (not a SomeT). This is the per-call stamp: for the
