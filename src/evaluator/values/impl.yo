@@ -138,7 +138,7 @@ pragma(Pragma.AllowUnsafe);
   truncate_forcing_depths,
   call_evaluate_fn_body,
   force_pending_move_only_impls,
-  force_pending_impls_for_type_name,
+  force_pending_trait_impls_for_type_name,
   type_head_name_for_impl_forcing,
   note_reference_impl_head,
   note_reference_impl_method,
@@ -1819,12 +1819,12 @@ try_match_generic_impl :: (
             // Lazy impls (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.4): the
             // bound type's impl may sit later in its module — `Box(B) <:
             // Clone` judged by a derive above `derive(B, Clone)`. Force the
-            // bound's pending impls and derives before rejecting, as the
-            // direct trait checks force the receiver's
+            // bound's pending impls and derives that name the trait before
+            // rejecting, as the direct trait checks force the receiver's
             // (issues/fixed/2026-11-19-derive-clone-of-a-deref-field-fails-when-the-payloads-clone-is-derived-later.md).
             if(!wcj_impl && wcj_enforced && (get_all_some_types(&wcj_bound).len() == usize(0)), {
               match(
-                force_pending_impls_for_type_name(type_head_name_for_impl_forcing(&wcj_bound), Option(String).None),
+                force_pending_trait_impls_for_type_name(type_head_name_for_impl_forcing(&wcj_bound), type_head_name_for_impl_forcing(&wcj_trait)),
                 .Forced => {
                   wcj_impl = wcj_f(&wcj_bound, &wcj_trait, &match_env);
                 },
