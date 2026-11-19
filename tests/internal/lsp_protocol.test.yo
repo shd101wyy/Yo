@@ -107,7 +107,7 @@ _PARSE_ERR :: "add_one :: (fn(x : i32) -> i32)((x + i32(1)));\nmain :: (fn() -> 
 _analyze :: (fn(doc_path : &String, text : &String, std_path : &String, io : Io) -> Option(AnalyzeOutcome))({
   mut(out) := ArrayList(AnalyzeOutcome).new();
   _diags := analyze_document(doc_path.clone(), text, std_path, io, &mut out);
-  out.get(usize(0))
+  out.get_cloned(usize(0))
 });
 
 test("analysis state survives evaluation and parse errors", {
