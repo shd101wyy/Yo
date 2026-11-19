@@ -5004,7 +5004,7 @@ and in git, not a silent edit.
       `xs`; `ArrayList(T)` and `Array(T, N)` implement `Deref(Target :
       [T])`, `String` implements `Deref(Target : str)` (`Deref.Target :
       ?Sized`, which waits on
-      `issues/2026-11-15-an-associated-type-declared-sized-opt-out-breaks-self-target.md`;
+      `issues/fixed/2026-11-15-an-associated-type-declared-sized-opt-out-breaks-self-target.md`;
       VERDICTS-63: `Deref` on `Array` is v0.2.79, on `ArrayList`/`String`
       v0.2.80), and R-PROBE's deref step reaches the slice's and `str`'s
       methods and impls from them.

@@ -48,7 +48,7 @@ Decided (VERDICTS-63, 2026-11-15): option 1, amended. Decisions 1-4, 7 and 10 of
 
 1. **`x.*` on a `Deref` type is the `Target` place its `deref` projection yields.** `Deref` carries
    `deref : fn(self : &Self) -> &Self.Target`; `Target : Type` stays (decision 49's `?Sized` waits on
-   `issues/2026-11-15-an-associated-type-declared-sized-opt-out-breaks-self-target.md`).
+   `issues/fixed/2026-11-15-an-associated-type-declared-sized-opt-out-breaks-self-target.md`).
 2. **The write half is `DerefMut`**, chosen as `IndexMut` is: a read calls `deref`; a write, a `&mut` lend, a
    `self : &mut Self` receiver and `addr_of` call `deref_mut`. A `DerefMut` impl needs a `Deref` impl with the same
    `Target`. `Box` implements both; `Rc` and `Arc` implement `Deref` only; `ArrayList` and `Array` implement both;
@@ -75,6 +75,6 @@ Not started. Bugs found by the probes, filed 2026-11-15:
 
 - `issues/fixed/2026-11-15-a-closure-capturing-a-fat-reference-by-value-emits-invalid-c.md` (S2, fixed on `vbd/d49-str`)
 - `issues/2026-11-15-a-generic-impl-omitting-a-required-trait-member-is-accepted.md` (S2)
-- `issues/2026-11-15-an-associated-type-declared-sized-opt-out-breaks-self-target.md` (S3)
+- `issues/fixed/2026-11-15-an-associated-type-declared-sized-opt-out-breaks-self-target.md` (S3)
 - `issues/2026-11-15-returning-a-projection-call-of-a-local-reports-e0901-where-e0912-is-due.md` (S3)
 - `issues/2026-11-15-a-unit-index-argument-emits-an-empty-c-argument.md` (S3)
