@@ -49,10 +49,10 @@ emit_wasm :: (fn() -> String)({
 NATIVE_IO_LABELS :: "spawn run_until now sleep park yield spawn_cwd read write openat close statx mkdirat unlinkat renameat symlinkat linkat fsync fdatasync ftruncate getdents scandir opendir readdir closedir socket bind listen accept connect send stream_write recv sendto recvfrom shutdown setsockopt getsockopt waitpid getaddrinfo getnameinfo poll_init poll_start poll_stop poll_close fs_event_init fs_event_start fs_event_stop fs_event_close";
 /// The labels, split.
 native_labels :: (fn() -> ArrayList(String))({
-  out := ArrayList(String).new();
-  (cur : String) = String.new();
+  mut(out) := ArrayList(String).new();
+  (mut(cur) : String) = String.new();
   s := String.from(NATIVE_IO_LABELS);
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < s.len(), {
     b := s.byte_at(i);
     if(b == u8(32), {
@@ -94,7 +94,7 @@ test("entries: now reads the monotonic clock in nanoseconds", {
 });
 test("map: every native label names an entry, an unknown label none", {
   labels := native_labels();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < labels.len(), {
     l := labels(i).clone();
     assert(native_io_entry_c_name(&l).is_some(), `the native table offers ${l}`);
@@ -109,16 +109,16 @@ test("map: every backend defines every native entry", {
   core := emit_core();
   entries := emit_entries();
   labels := native_labels();
-  backends := ArrayList(String).new();
+  mut(backends) := ArrayList(String).new();
   backends.push(String.from("linux"));
   backends.push(String.from("macos"));
   backends.push(String.from("windows"));
   backends.push(String.from("wasm"));
-  (bi : usize) = usize(0);
+  (mut(bi) : usize) = usize(0);
   while(bi < backends.len(), {
     b := backends(bi).clone();
     text := if(b == "wasm", emit_wasm(), emit_with_common(b.clone()));
-    (i : usize) = usize(0);
+    (mut(i) : usize) = usize(0);
     while(i < labels.len(), {
       l := labels(i).clone();
       entry := match(native_io_entry_c_name(&l), .Some(e) => e, .None => String.new());

@@ -15028,7 +15028,19 @@ Fix: wrap the call:
           .None => ()
         );
       });
-      method_info_opt0 := _try_find_receiver_method(&evaluated_callee, &callee_env, ctx);
+      // A method that IS an io builtin (`impl(Io, await : __yo_io_await,
+      // ...)`, the interface-shaped `Io`,
+      // plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md §2) is not dispatched as
+      // a method: the property access typed the callee as the builtin itself
+      // (`_io_builtin_method_type`), with no receiver, and the call takes the
+      // valueless-callee path below exactly as the four-field `Io`'s field
+      // does. The receiver only names the `Io` codegen lowers `io.spawn` and
+      // a sync-context await through.
+      method_info_opt0 := match(
+        _try_find_receiver_method(&evaluated_callee, &callee_env, ctx),
+        .Some(fm0) => if(_io_builtin_method_marker(&fm0.method_ty).is_some(), Option(ReceiverMethodResult).None, Option(ReceiverMethodResult).Some(fm0)),
+        .None => Option(ReceiverMethodResult).None
+      );
       // A payload retry records the callee as rewritten (`w.m` → `w.*.m`,
       // `note_rewritten_node`): the rest of the call reads it so.
       m_callee := ast_rewritten_node(&evaluated_callee);
@@ -15065,15 +15077,6 @@ Fix: wrap the call:
           // it into the `.`/2 callee node's
           // ExprInfo instead is destructive (regressed std 151→15).
           record_method_callee_type(ast_expr_id(expr), &method_info.method_ty);
-          // A method that IS an io builtin (`impl(Io, async : __yo_io_async,
-          // ...)`, the interface-shaped `Io`,
-          // plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md §2) is recognised by
-          // its extern marker, like the four-field `Io`'s field, and takes no
-          // receiver: `io.await(f, e)` is the builtin applied to the call's
-          // own arguments. The receiver only names the `Io` codegen lowers
-          // `io.spawn` and a sync-context await through.
-          io_builtin_method := _io_builtin_method_marker(&method_info.method_ty);
-          match(&io_builtin_method, .Some(ibm) => record_io_builtin_call(ast_expr_id(expr), ibm), .None => ());
           // Per-call identity for the METHOD's own forall binders — the same
           // surgery the FuncVal arm does above, for the same reason. The
           // method arm already pins its result per call through the
@@ -15089,7 +15092,7 @@ Fix: wrap the call:
           m_forall := match(&method_info.method_ty, Rc(.Func({ meta : __mfm })) => Rc.clone(__mfm.forall_labels), _ => no_labels());
           m_callee_ty := _freshen_generic_closure_callee(&method_info.method_ty, &m_forall.items);
           all_args := ArrayList(AstExpr).new();
-          if(!method_info.is_static && io_builtin_method.is_none(), {
+          if(!method_info.is_static, {
             // When the method's self param is `*(T)` and the receiver is a
             // compatible value, wrap the receiver in `&(...)` so the self
             // argument type-checks (and codegen inserts the address-of).

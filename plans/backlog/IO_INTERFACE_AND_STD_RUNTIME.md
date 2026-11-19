@@ -340,6 +340,44 @@ NO_LIBC's std-only P3 and P7 are unaffected and may run at any time.
   and as today otherwise.
 - The §3 ABI comment block is emitted.
 
+**IO-1a as implemented (the contract IO-1b writes against):**
+- **The builtins stay receiver-less.** IO-1b binds them unchanged:
+  `impl(Io, async : __yo_io_async, await : __yo_io_await, state :
+  __yo_io_state, spawn : __yo_io_spawn)`, with the four `extern("Yo", …)`
+  signatures exactly as today. A method of the prelude's `Io` whose value is
+  one of these externs reads like the four-field `Io`'s field. It takes no
+  receiver, and the receiver only names the `Io` that `io.spawn` and a
+  sync-context await lower through
+  (`_io_builtin_method_type`, `src/evaluator/exprs/property_access.yo`).
+- **The native table is built from IO-1b's `IoVTable` declaration.** It
+  is filled field by field, by label, so the prelude alone decides which
+  entries exist and in what order.
+  - The labels the native Io offers are `native_io_entry_c_name`
+    (`src/codegen/async/runtime_core.yo`):
+    - `spawn`, `run_until`, `now`, `sleep`, `park` and `yield`;
+    - every `__yo_async_<op>_start` as `<op>` (`openat`, `read`, …,
+      `getnameinfo`), with `__yo_async_spawn_start_cwd` as `spawn_cwd`;
+    - the watch registrations `poll_init`/`poll_start`/`poll_stop`/
+      `poll_close` and `fs_event_init`/`fs_event_start`/`fs_event_stop`/
+      `fs_event_close`.
+  - Each field's first parameter is `ctx : ?*void`. The rest are the
+    entry's parameters, typed as `std/sys/externs.yo` types them today.
+  - An unknown label is an internal compiler error.
+- **The externs IO-1b declares:**
+  - `__yo_io_native : (fn() -> Io)`, behind `Io.native()`;
+  - `__yo_io_future_completed : (fn(result : i32) -> IoFuture)`, behind
+    `IoFuture.completed`;
+  - `__yo_io_native_vtable : IoVTable`, the table.
+- **The prelude's `Io` is an opaque handle in safe code**, like `Allocator`
+  (`parameter_type_contains_raw_ptr`). A safe file can take and pass an
+  `io : Io` whose fields are raw pointers.
+- **A program whose types include the interface-shaped `Io` links the
+  reactor** (`io_native_needs_reactor`).
+- **Open for IO-1b:** a bundled future viewed as a bundle-less
+  `Impl(Future(T))` runs with a zeroed bundle. That is sound only while
+  `Io` is never read
+  (`issues/questions/2026-11-19-a-future-viewed-as-bundle-less-runs-with-a-zeroed-io.md`).
+
 **IO-1b contents:**
 - The prelude flips: `IoVTable`, `Io :: struct(ctx, vtable)`, the
   `impl(Io, …)` methods, and `IoFuture` moved up.
