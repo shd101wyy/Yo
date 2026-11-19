@@ -950,10 +950,10 @@ verified nothing.
   apply, put them in a sibling directory at the same depth as `tests/internal`
   so `../../src` imports resolve, and run one `check` over that directory.
   - Measured 2026-11-20 on the R7 parser drop: one `check` over 109 generated
-    files took about 40 min and named 7 broken `tests/internal` files (`.get`
-    reads of converted records, `Option(Self)` alias fields that became
-    `Option(Rc(Self))`, written results needing `mut(r)`, a `YoError` moved into
-    a `Dyn`) that the seed and tree `check ./src` had both passed.
+    files took about 40 min. Beyond the 4 files a `.get(` grep had found, it
+    named 5 more broken `tests/internal` files (`Option(Self)` alias fields that
+    became `Option(Rc(Self))`, written results needing `mut(r)`, a `YoError`
+    moved into a `Dyn`). The seed and tree `check ./src` had both passed.
 - **Feature tests: grep for what changed.** Take the `tests/**/*.test.yo` files
   (minus `tests/internal` and `tests/cli-cases`) that name a renamed or
   changed identifier, plus the feature's own new tests. **`yo test` takes ONE
