@@ -3545,7 +3545,7 @@ _continue_obligations :: (fn(ctx : &mut VcCtx, at : &AstExpr) -> bool)({
 _havoc_binding_sort :: (fn(old : &VcTerm) -> VcSort)(
   match(
     old,
-    Rc(.Var(_, s)) => s.*,
+    Rc(.Var(_, s)) => Rc.clone(s),
     Rc(.Ctor(cn, _)) => match(
       _list_sort_of_ctor(&cn.*),
       .Some(ls) => ls,
@@ -5003,7 +5003,7 @@ _call_term :: (
       match(
         a,
         .Some(at) => {
-          es := match(&at, Rc(.Var(_, s)) => s.*, _ => _term_sort_of(&at));
+          es := match(&at, Rc(.Var(_, s)) => Rc.clone(s), _ => _term_sort_of(&at));
           empty := cond(
             (head.* == "ms_single") => Rc.new(VcTermNode.ArrConst(sort : Rc.new(VcSortNode.FunS(domain : es, range : Rc.new(VcSortNode.BvS(width : usize(64))))), lit : Rc.new(VcTermNode.BvLit(value : u64(0), width : usize(64))))),
             true => Rc.new(VcTermNode.ArrConst(sort : Rc.new(VcSortNode.FunS(domain : es, range : Rc.new(VcSortNode.BoolS))), lit : Rc.new(VcTermNode.BoolLit(false))))
