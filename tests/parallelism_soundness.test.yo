@@ -123,18 +123,11 @@ comptime_expect_error({
 // (issues/fixed/2026-10-24-a-mut-match-scrutinee-writes-through-an-rc-or-an-atomic-object.md).
 comptime_expect_error({
   _d3_mut_borrow_binding :: (fn() -> unit)({
-    s := Shared(counter : Counter(n : i32(0)));
-    m := &mut s.counter;
+    a := Arc.new(Counter(n : i32(0)));
+    m := &mut a.*;
     m.bump();
   });
   _d3_mut_borrow_binding();
-}, "atomic object");
-comptime_expect_error({
-  _d3_mut_match_scrutinee :: (fn() -> unit)({
-    s := Shared(counter : Counter(n : i32(0)));
-    match(&mut s.counter, c => c.bump());
-  });
-  _d3_mut_match_scrutinee();
 }, "atomic object");
 comptime_expect_error({
   _d3_arc_mut_match_scrutinee :: (fn() -> unit)({
@@ -148,12 +141,12 @@ comptime_expect_error({
 test("D3 canary: a `&mut` lend of a plain place or of the atomic binding itself is legal", {
   mut(c) := Counter(n : i32(0));
   match(&mut c, k => k.bump());
-  mut(s) := Shared(counter : Counter(n : i32(1)));
+  mut(s) := Arc.new(Counter(n : i32(1)));
   {
     r := &mut s;
-    r.* = Shared(counter : Counter(n : i32(5)));
+    r.* = Arc.new(Counter(n : i32(5)));
   };
-  assert((c.n == i32(1)) && (s.counter.n == i32(5)), "both lends wrote their own place");
+  assert((c.n == i32(1)) && (s.*.n == i32(5)), "both lends wrote their own place");
 });
 // Canary: the struct that holds the `Arc` is still a plain value: its own
 // fields are written, and the `Arc`'s payload is read, as before.

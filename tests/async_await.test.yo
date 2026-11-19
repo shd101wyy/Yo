@@ -7762,9 +7762,11 @@ test("a borrowing future may hold a & place lent through an Rc deref, not a &mut
   assert(io.await(_a2_tenfold_later(&k.*, io), io) == i32(30), "the whole payload lent &");
   comptime_expect_error(io.await(_a2_push(&mut r.*.items, io), io), "read-only through the handle");
   comptime_expect_error(io.await(k.bump(io), io), "read-only through the handle");
-  // A `ref` object reached from the payload is still a shared mutable cell.
+  // A value field nested in the payload is lent like any other field of it
+  // (the `ref`-object row that was a shared mutable cell here went with the
+  // form in v0.2.79).
   w := Rc.new(_A2WithNode(node : _A2Node(n : i32(1))));
-  comptime_expect_error(io.await(_a2_read_i32_later(&w.*.node.n, io), io), "lives in a shared mutable cell");
+  assert(io.await(_a2_read_i32_later(&w.*.node.n, io), io) == i32(1), "a nested value field of the payload crosses the await");
   // Shared state another task writes goes through a RefCell door.
   cell := Rc.new(RefCell(_A2Shared).new(_A2Shared(items : ArrayList(i32).new())));
   cell.with_mut(s => s.items.push(i32(1)));
@@ -7808,15 +7810,19 @@ test("a borrowing method future on a handle receiver lends the handle (§3.13 A2
 // wrapper hides it: a `cond`/`if`/`match` arm or a block tail
 // (issues/fixed/a-wrapped-await-operand-skips-the-shared-cell-check.md).
 test("a borrowing future made in an arm or a block tail is checked where it is made (decision 38 D, §3.13 A2)", {
-  w := Rc.new(_A2WithNode(node : _A2Node(n : i32(1))));
+  // An element reached through an index lives in the list's buffer, a
+  // shared mutable cell (the rows below; they read a `ref` object's field
+  // before v0.2.79).
+  mut(w) := ArrayList(i32).new();
+  w.push(i32(1));
   b := true;
-  comptime_expect_error(io.await(if(b, _a2_read_i32_later(&w.*.node.n, io), _a2_read_i32_later(&w.*.node.n, io)), io), "lives in a shared mutable cell");
-  comptime_expect_error(io.await(cond(b => _a2_read_i32_later(&w.*.node.n, io), true => _a2_read_i32_later(&w.*.node.n, io)), io), "lives in a shared mutable cell");
-  comptime_expect_error(io.await(match(b, true => _a2_read_i32_later(&w.*.node.n, io), false => _a2_read_i32_later(&w.*.node.n, io)), io), "lives in a shared mutable cell");
+  comptime_expect_error(io.await(if(b, _a2_read_i32_later(&w(usize(0)), io), _a2_read_i32_later(&w(usize(0)), io)), io), "lives in a shared mutable cell");
+  comptime_expect_error(io.await(cond(b => _a2_read_i32_later(&w(usize(0)), io), true => _a2_read_i32_later(&w(usize(0)), io)), io), "lives in a shared mutable cell");
+  comptime_expect_error(io.await(match(b, true => _a2_read_i32_later(&w(usize(0)), io), false => _a2_read_i32_later(&w(usize(0)), io)), io), "lives in a shared mutable cell");
   comptime_expect_error(
     io.await({
       u := i32(0);
-      _a2_read_i32_later(&w.*.node.n, io)
+      _a2_read_i32_later(&w(usize(0)), io)
     }, io),
     "lives in a shared mutable cell"
   );
@@ -7937,9 +7943,10 @@ test("a future made through a function value is assumed to borrow what the call 
     io.await(f, io)
   }, "Cannot write `c.n` here");
   comptime_expect_error(io.spawn(fp(&mut c, io), io), "spawned or moved into a by-value parameter");
-  w := Rc.new(_A2WithNode(node : _A2Node(n : i32(1))));
+  mut(w) := ArrayList(i32).new();
+  w.push(i32(1));
   gp := _a2_read_i32_later;
-  comptime_expect_error(io.await(gp(&w.*.node.n, io), io), "lives in a shared mutable cell");
+  comptime_expect_error(io.await(gp(&w(usize(0)), io), io), "lives in a shared mutable cell");
   io.await(fp(&mut c, io), io);
   assert(c.n == i32(1), "awaited in place, the call through the function value runs");
 });

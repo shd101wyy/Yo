@@ -463,16 +463,22 @@ _dyn_clone_fn_name :: (fn(impl_key : &String) -> String)(`__yo_dyn_clone_${impl_
 /// allocator; the auto-boxed `dyn(v)`'s box is global, as its source's is.
 /// What the impl's `clone` allocates itself is global: there is no
 /// allocation scope (plans/backlog/ALLOCATOR_PLACEMENT.md §6 B2b). A
-/// reference payload is the impl's result itself.
+/// reference payload is the impl's result itself. A payload-convention impl
+/// reads its payload where the data word points, whatever the payload is (an
+/// `Rc` handle included), as its method wrappers and slot functions do; only
+/// a legacy boxed cell reads the cell's field.
 /// The impl's `clone` comes from the `Clone` evidence the evaluator resolved
 /// for this `dyn(...)` (`_resolve_dyn_trait_values`), which it guarantees for
 /// a payload put into a `Dyn` that lists `Clone`.
 _emit_dyn_clone_function :: (
-  fn(impl_key : &String, req_traits : &ArrayList(TypeValue), trait_values : &ArrayList(EvalValue), data_type : &TypeValue, concrete_type : &TypeValue, context : &mut FunctionGenerationContext) -> unit
+  fn(impl_key : &String, req_traits : &ArrayList(TypeValue), trait_values : &ArrayList(EvalValue), data_type : &TypeValue, concrete_type : &TypeValue, payload_convention : bool, context : &mut FunctionGenerationContext) -> unit
 )({
   // The impl's `clone`: the `clone` field of the `Clone` trait's evidence.
   clone_fid := dyn_impl_clone_fid(req_traits, trait_values);
-  is_boxed := is_boxed_type(data_type.clone());
+  // A payload-convention impl is never read as a boxed cell, even when its
+  // data type is a cell handle (`dyn(Box.new(Rc.new(v)))`): the data word
+  // points AT the handle (issues/fixed/2026-11-19-a-dyn-clone-of-a-boxed-rc-payload-reads-the-cell-as-the-handle.md).
+  is_boxed := (!payload_convention && is_boxed_type(data_type.clone()));
   context.base.emitter.emit_declaration_string_line(`static void* ${_dyn_clone_fn_name(impl_key)}(void* self_ptr) {`);
   (clone_entry : Option(CodegenFunctionEntry)) = if(clone_fid.is_empty(), Option(CodegenFunctionEntry).None, context.base.get_function_entry(clone_fid.clone()));
   match(
@@ -491,7 +497,7 @@ _emit_dyn_clone_function :: (
       // slot hands back — never a cast of `self_ptr` to the struct itself,
       // which is not even valid C. A REFERENCE-struct payload is the pointer
       // the data word holds, as before the flip.
-      value_payload := (!is_boxed && !is_reference_struct_type(concrete_type));
+      value_payload := (payload_convention || (!is_boxed && !is_reference_struct_type(concrete_type)));
       if(is_boxed, {
         boxed_cname := _boxed_c_name(data_type.clone(), context);
         field_name := _box_field_name(data_type.clone());
@@ -1006,7 +1012,7 @@ generate_dyn_wrapper_functions :: (fn(context : &mut FunctionGenerationContext) 
         });
         // Pass 3: the clone slot of a Dyn that lists Clone.
         if(dyn_type_lists_clone(impl_entry.dyn_type.clone()), {
-          _emit_dyn_clone_function(&impl_key, &req_traits.items, &impl_entry.trait_values, &data_type, &impl_entry.concrete_type, context);
+          _emit_dyn_clone_function(&impl_key, &req_traits.items, &impl_entry.trait_values, &data_type, &impl_entry.concrete_type, impl_entry.payload_convention, context);
         });
       },
       .None => ()

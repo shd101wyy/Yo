@@ -296,14 +296,15 @@ _hd_peek :: (fn(c : &_HdCell, act : &Impl(Fn() -> unit)) -> i32)({
   _hd_drops + (c.n - c.n)
 });
 // An `ArrayList` is a value since B8, so a second handle to ONE list is
-// spelled with a `RefCell` around it: `hs2 := RefCell.clone(hs)` shares the
-// cell, and `hs2.with_mut(xs => xs.clear())` empties the list the receiver
-// borrows from.
+// spelled `Rc(RefCell(...))`: `hs2 := Rc.clone(hs)` shares the cell, and
+// `hs2.with_mut(xs => xs.clear())` empties the list the receiver's handle
+// came from (the `with` that read the element has returned, so the clear
+// takes no conflicting borrow).
 test("a receiver reached through a cell handle element outlives a closure that drops the last other handle", {
   _hd_drops = i32(0);
-  hs := RefCell(ArrayList(TRc(_HdCell))).new(ArrayList(TRc(_HdCell)).new());
+  hs := Rc.new(RefCell(ArrayList(TRc(_HdCell))).new(ArrayList(TRc(_HdCell)).new()));
   hs.with_mut(xs => xs.push(trc(_HdCell(n : i32(1)))));
-  hs2 := RefCell.clone(hs);
+  hs2 := Rc.clone(hs);
   assert(
     hs.with(xs => TRc.clone(&xs(usize(0)))).peek(() => {
       hs2.with_mut(xs => xs.clear());
@@ -312,12 +313,14 @@ test("a receiver reached through a cell handle element outlives a closure that d
   );
   assert(_hd_drops == i32(1), "and is destroyed once, after it");
   hs.with_mut(xs => xs.push(trc(_HdCell(n : i32(2)))));
-  elem := hs.with(xs => TRc.clone(&xs(usize(0))));
-  assert(
-    _hd_peek(&elem.*, () => {
-      hs2.with_mut(xs => xs.clear());
-    }) == i32(1),
-    "a `&` argument through the handle"
-  );
+  {
+    elem := hs.with(xs => TRc.clone(&xs(usize(0))));
+    assert(
+      _hd_peek(&elem.*, () => {
+        hs2.with_mut(xs => xs.clear());
+      }) == i32(1),
+      "a `&` argument through the handle"
+    );
+  };
   assert(_hd_drops == i32(2), "destroyed once");
 });

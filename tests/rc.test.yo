@@ -2501,21 +2501,23 @@ test("a dyn of a closure capturing a generic fn's Impl(Fn) parameter boxes throu
   assert(_rc_dyn_run((x : i32) => (x + n)) == i32(13), "the closure, called through the Dyn");
 });
 // A `cond` whose first live arm is compile-time true collapses to that arm;
-// a borrowed handle it returns still takes the balancing count a runtime
-// `cond` gives it, so the caller's copy and the owner each hold one
+// the handle its arm makes keeps exactly the count a runtime `cond` gives
+// it, so the caller's copy and the owner each hold one
 // (issues/fixed/2026-10-22-a-cond-with-a-compile-time-condition-returns-a-borrowed-handle-without-a-dup.md).
+// Since `ref(...)` was deleted (v0.2.79) the second handle is spelled
+// `Rc.clone(q)`; the counts check the collapse neither leaks nor drops it.
 _CondBoxInner :: struct(n : i32);
 _CondCtBox :: Rc(_CondBoxInner);
 _cond_ct_after_false :: (fn(q : &_CondCtBox) -> _CondCtBox)(
   cond(
-    false => q,
+    false => Rc.clone(q),
     true => Rc.clone(q)
   )
 );
 _cond_ct_only_true :: (fn(q : &_CondCtBox) -> _CondCtBox)(cond(true => Rc.clone(q)));
 _cond_ct_folded :: (fn(q : &_CondCtBox) -> _CondCtBox)(
   cond(
-    (i32(1) == i32(2)) => q,
+    (i32(1) == i32(2)) => Rc.clone(q),
     true => Rc.clone(q)
   )
 );
@@ -2561,8 +2563,8 @@ test("a compile-time-collapsed cond dups the borrowed handle it returns", {
 test("a compile-time-collapsed cond in a binding dups the local it names", {
   r := Rc.new(_CondBoxInner(n : i32(6)));
   x := cond(
-    false => r,
-    true => r
+    false => Rc.clone(r),
+    true => Rc.clone(r)
   );
   assert(ref_count(r) == usize(2), "x and r each hold a count");
   assert((x.n + r.n) == i32(12), "both read the object");
@@ -2577,10 +2579,10 @@ _cond_ct_nested_in_runtime :: (fn(k : bool, q : &_CondCtBox) -> _CondCtBox)(
     true => Rc.clone(q)
   )
 );
-_cond_ct_if :: (fn(q : &_CondCtBox) -> _CondCtBox)(if(true, Rc.clone(q), q));
+_cond_ct_if :: (fn(q : &_CondCtBox) -> _CondCtBox)(if(true, Rc.clone(q), Rc.clone(q)));
 _cond_ct_field :: (fn(h : &_CondCtHolder) -> _CondCtBox)(cond(true => Rc.clone(h.r)));
 _cond_ct_take :: (fn(b : _CondCtBox) -> i32)(b.n);
-_cond_ct_async :: (fn(q : &_CondCtBox, io : Io) -> Impl(Future(_CondCtBox, Io)))(
+_cond_ct_async :: (fn(sink(q) : _CondCtBox, io : Io) -> Impl(Future(_CondCtBox, Io)))(
   io.async((io : Io) => {
     io.await(yield(io), io);
     cond(
@@ -2598,13 +2600,13 @@ test("a compile-time-collapsed cond dups through nesting, if, fields, arguments 
     assert(ref_count(r) == usize(3), "a collapsed cond inside a runtime arm");
     c := _cond_ct_if(&r);
     assert(ref_count(r) == usize(4), "if(true, q, q)");
-    h := _CondCtHolder(r : r, k : i32(1));
+    h := _CondCtHolder(r : Rc.clone(r), k : i32(1));
     assert(ref_count(r) == usize(5), "the holder's copy");
     d := _cond_ct_field(&h);
     assert(ref_count(r) == usize(6), "a borrowed struct's field");
-    t := _cond_ct_take(cond(true => r));
+    t := _cond_ct_take(cond(true => Rc.clone(r)));
     assert(ref_count(r) == usize(6), "a call argument: the callee released its own count");
-    e := io.await(_cond_ct_async(&r, io), io);
+    e := io.await(_cond_ct_async(Rc.clone(r), io), io);
     assert(ref_count(r) == usize(7), "an async body after an await");
     assert((a.n + b.n + (c.n + d.n) + (e.n + t)) == i32(12), "every copy reads the shared object");
   };
@@ -2614,18 +2616,18 @@ test("a compile-time-collapsed cond dups through nesting, if, fields, arguments 
 // (issues/fixed/2026-10-23-a-compile-time-collapsed-cond-arm-return-releases-the-returned-value.md).
 _cond_ct_return_then_tail :: (fn(q : &_CondCtBox) -> _CondCtBox)({
   cond(true => return(Rc.clone(q)));
-  q
+  Rc.clone(q)
 });
 _cond_ct_return_before_runtime_arm :: (fn(k : bool, q : &_CondCtBox) -> _CondCtBox)({
   cond(
     true => return(Rc.clone(q)),
     k => ()
   );
-  q
+  Rc.clone(q)
 });
 _cond_ct_return_owned :: (fn(q : &_CondCtBox) -> _CondCtBox)({
-  cond(true => return(_CondCtBox(n : (q.n + i32(1)))));
-  q
+  cond(true => return(Rc.new(_CondBoxInner(n : (q.n + i32(1))))));
+  Rc.clone(q)
 });
 _cond_ct_return_body :: (fn(q : &_CondCtBox) -> _CondCtBox)(cond(true => return(Rc.clone(q))));
 _cond_ct_return_after_local :: (fn(q : &_CondCtBox) -> _CondCtBox)({
@@ -2652,7 +2654,7 @@ test("a compile-time-collapsed cond's return arm keeps the returned value alive"
 });
 // The same collapse in an `io.async` body after an await, where the body
 // owns a local that the return arm releases.
-_cond_ct_async_return :: (fn(q : &_CondCtBox, io : Io) -> Impl(Future(_CondCtBox, Io)))(
+_cond_ct_async_return :: (fn(sink(q) : _CondCtBox, io : Io) -> Impl(Future(_CondCtBox, Io)))(
   io.async((io : Io) => {
     x := Rc.new(_CondBoxInner(n : i32(100)));
     io.await(yield(io), io);
@@ -2663,7 +2665,7 @@ _cond_ct_async_return :: (fn(q : &_CondCtBox, io : Io) -> Impl(Future(_CondCtBox
 test("a compile-time-collapsed cond's return arm in an async body releases the body's locals", {
   r := Rc.new(_CondBoxInner(n : i32(4)));
   {
-    a := io.await(_cond_ct_async_return(&r, io), io);
+    a := io.await(_cond_ct_async_return(Rc.clone(r), io), io);
     assert(ref_count(r) == usize(2), "an async body's return arm after an await");
     assert(a.n == i32(4), "the returned handle reads its object");
   };
@@ -2703,7 +2705,7 @@ test("a compile-time-collapsed cond's break and continue arms after a collapsed 
 // with the collapsed conds, is emitted twice in sibling C blocks.
 _cond_ct_fused :: (fn(q : &_CondCtBox, io : Io) -> Impl(Future(i32, Io)))({
   x := cond(
-    false => q,
+    false => Rc.clone(q),
     true => Rc.clone(q)
   );
   y := cond(true => Rc.clone(q));
@@ -2712,16 +2714,16 @@ _cond_ct_fused :: (fn(q : &_CondCtBox, io : Io) -> Impl(Future(i32, Io)))({
     x.n + y.n
   })
 });
-_cond_ct_fused_twice :: (fn(q : &_CondCtBox, io : Io) -> Impl(Future(i32, Io)))(
+_cond_ct_fused_twice :: (fn(sink(q) : _CondCtBox, io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
-    a := io.await(_cond_ct_fused(q, io), io);
-    b := io.await(_cond_ct_fused(q, io), io);
+    a := io.await(_cond_ct_fused(&q, io), io);
+    b := io.await(_cond_ct_fused(&q, io), io);
     a + b
   })
 );
 test("a compile-time-collapsed cond in a wrapper awaited twice by one task", {
   r := Rc.new(_CondBoxInner(n : i32(5)));
-  assert(io.await(_cond_ct_fused_twice(&r, io), io) == i32(20), "each await reads the handle twice");
+  assert(io.await(_cond_ct_fused_twice(Rc.clone(r), io), io) == i32(20), "each await reads the handle twice");
   assert(ref_count(r) == usize(1), "every collapsed copy released its count");
 });
 // A `&Self` receiver, or a `&` argument, reached through an `Rc`/`Arc`
@@ -2754,56 +2756,58 @@ impl(
 _RcvField :: struct(r : Rc(_RcvCell));
 derive(_RcvField, Clone);
 // The aliased list the receiver is reached through. An `ArrayList` is a value
-// since B8, so a second handle to ONE list is spelled with a `RefCell`
-// around it; `hs2 := hs` shares the cell, and `hs2.with_mut(xs => xs.clear())`
-// empties the list the receiver borrows from.
-_RcvHolder :: struct(bag : RefCell(ArrayList(Rc(_RcvCell))));
-impl(_RcvHolder, first : (fn(self : &Self) -> Rc(_RcvCell))(self.bag.with(xs => xs(usize(0)))));
+// since B8, and `ref(...)` (the unchecked shared object these cases used)
+// was deleted in v0.2.79, so the second name for ONE list is a raw pointer:
+// `hs2 := addr_of(hs)`, and `hs2.*.clear()` empties the list the receiver
+// borrows from behind the borrow checker's back, as the shared object did.
+_RcvHolder :: struct(bag : ArrayList(Rc(_RcvCell)));
+impl(_RcvHolder, first : (fn(self : &Self) -> &Rc(_RcvCell))(&self.bag(usize(0))));
 _rcv_peek :: (fn(c : &_RcvCell, act : &Impl(Fn() -> unit)) -> i32)({
   act();
   _rcv_drops + (c.n - c.n)
 });
 test("a receiver reached through an Rc element outlives a closure that drops the last other handle", {
   _rcv_drops = i32(0);
-  hs := RefCell(ArrayList(Rc(_RcvCell))).new(ArrayList(Rc(_RcvCell)).new());
-  hs.with_mut(xs => xs.push(Rc.new(_RcvCell(n : i32(1)))));
-  hs2 := hs;
+  mut(hs) := ArrayList(Rc(_RcvCell)).new();
+  hs.push(Rc.new(_RcvCell(n : i32(1))));
+  hs2 := addr_of(hs);
   assert(
-    hs.with(xs => xs(usize(0))).peek(() => {
-      hs2.with_mut(xs => xs.clear());
+    hs(usize(0)).peek(() => {
+      hs2.*.clear();
     }) == i32(0),
     "auto-dereferenced receiver: the cell outlives the call"
   );
   assert(_rcv_drops == i32(1), "and is destroyed once, after it");
-  hs.with_mut(xs => xs.push(Rc.new(_RcvCell(n : i32(2)))));
+  hs.push(Rc.new(_RcvCell(n : i32(2))));
   assert(
-    hs.with(xs => xs(usize(0))).*.peek(() => {
-      hs2.with_mut(xs => xs.clear());
+    hs(usize(0)).*.peek(() => {
+      hs2.*.clear();
     }) == i32(1),
     "written `.*` receiver"
   );
   assert(_rcv_drops == i32(2), "destroyed once");
-  hs.with_mut(xs => xs.push(Rc.new(_RcvCell(n : i32(3)))));
+  hs.push(Rc.new(_RcvCell(n : i32(3))));
   assert(
-    _rcv_peek(&hs.with(xs => xs(usize(0))), () => {
-      hs2.with_mut(xs => xs.clear());
+    _rcv_peek(&hs(usize(0)).*, () => {
+      hs2.*.clear();
     }) == i32(2),
     "a `&` argument through the handle"
   );
   assert(_rcv_drops == i32(3), "destroyed once");
-  h := _RcvHolder(bag : hs);
-  hs2.with_mut(xs => xs.push(Rc.new(_RcvCell(n : i32(4)))));
+  mut(h) := _RcvHolder(bag : hs);
+  hb := addr_of(h.bag);
+  hb.*.push(Rc.new(_RcvCell(n : i32(4))));
   assert(
-    h.bag.with(xs => xs(usize(0))).peek(() => {
-      hs2.with_mut(xs => xs.clear());
+    h.bag(usize(0)).peek(() => {
+      hb.*.clear();
     }) == i32(3),
     "an element of a field"
   );
   assert(_rcv_drops == i32(4), "destroyed once");
-  hs2.with_mut(xs => xs.push(Rc.new(_RcvCell(n : i32(5)))));
+  hb.*.push(Rc.new(_RcvCell(n : i32(5))));
   assert(
     h.first().peek(() => {
-      hs2.with_mut(xs => xs.clear());
+      hb.*.clear();
     }) == i32(4),
     "a handle returned by a projection call"
   );
@@ -2811,42 +2815,42 @@ test("a receiver reached through an Rc element outlives a closure that drops the
 });
 test("a receiver behind a field, nested handles or an Arc outlives the closure too", {
   _rcv_drops = i32(0);
-  fs := RefCell(ArrayList(_RcvField)).new(ArrayList(_RcvField).new());
-  fs.with_mut(xs => xs.push(_RcvField(r : Rc.new(_RcvCell(n : i32(1))))));
-  fs2 := fs;
+  mut(fs) := ArrayList(_RcvField).new();
+  fs.push(_RcvField(r : Rc.new(_RcvCell(n : i32(1)))));
+  fs2 := addr_of(fs);
   assert(
-    fs.with(xs => xs(usize(0))).r.peek(() => {
-      fs2.with_mut(xs => xs.clear());
+    fs(usize(0)).r.peek(() => {
+      fs2.*.clear();
     }) == i32(0),
     "an Rc field of an element"
   );
   assert(_rcv_drops == i32(1), "destroyed once");
-  nested := RefCell(ArrayList(Rc(Rc(_RcvCell)))).new(ArrayList(Rc(Rc(_RcvCell))).new());
-  nested.with_mut(xs => xs.push(Rc.new(Rc.new(_RcvCell(n : i32(2))))));
-  nested2 := nested;
+  mut(nested) := ArrayList(Rc(Rc(_RcvCell))).new();
+  nested.push(Rc.new(Rc.new(_RcvCell(n : i32(2)))));
+  nested2 := addr_of(nested);
   assert(
-    nested.with(xs => xs(usize(0))).peek(() => {
-      nested2.with_mut(xs => xs.clear());
+    nested(usize(0)).peek(() => {
+      nested2.*.clear();
     }) == i32(1),
     "Rc(Rc(T)): the inner handle holds the payload"
   );
   assert(_rcv_drops == i32(2), "destroyed once");
-  boxed := RefCell(ArrayList(Rc(Box(_RcvCell)))).new(ArrayList(Rc(Box(_RcvCell))).new());
-  boxed.with_mut(xs => xs.push(Rc.new(Box.new(_RcvCell(n : i32(3))))));
-  boxed2 := boxed;
+  mut(boxed) := ArrayList(Rc(Box(_RcvCell))).new();
+  boxed.push(Rc.new(Box.new(_RcvCell(n : i32(3)))));
+  boxed2 := addr_of(boxed);
   assert(
-    boxed.with(xs => xs(usize(0))).peek(() => {
-      boxed2.with_mut(xs => xs.clear());
+    boxed(usize(0)).peek(() => {
+      boxed2.*.clear();
     }) == i32(2),
     "Rc(Box(T)): the Rc owns the box"
   );
   assert(_rcv_drops == i32(3), "destroyed once");
-  shared := RefCell(ArrayList(Arc(_RcvCell))).new(ArrayList(Arc(_RcvCell)).new());
-  shared.with_mut(xs => xs.push(Arc.new(_RcvCell(n : i32(4)))));
-  shared2 := shared;
+  mut(shared) := ArrayList(Arc(_RcvCell)).new();
+  shared.push(Arc.new(_RcvCell(n : i32(4))));
+  shared2 := addr_of(shared);
   assert(
-    shared.with(xs => xs(usize(0))).peek(() => {
-      shared2.with_mut(xs => xs.clear());
+    shared(usize(0)).peek(() => {
+      shared2.*.clear();
     }) == i32(3),
     "an Arc element"
   );
@@ -2856,12 +2860,12 @@ test("a receiver behind a field, nested handles or an Arc outlives the closure t
 // state machine's path too, across the awaits around the call.
 _rcv_in_task :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
-    hs := RefCell(ArrayList(Rc(_RcvCell))).new(ArrayList(Rc(_RcvCell)).new());
-    hs.with_mut(xs => xs.push(Rc.new(_RcvCell(n : i32(1)))));
-    hs2 := hs;
+    mut(hs) := ArrayList(Rc(_RcvCell)).new();
+    hs.push(Rc.new(_RcvCell(n : i32(1))));
     io.await(yield(io), io);
-    seen := hs.with(xs => xs(usize(0))).peek(() => {
-      hs2.with_mut(xs => xs.clear());
+    hs2 := addr_of(hs);
+    seen := hs(usize(0)).peek(() => {
+      hs2.*.clear();
     });
     io.await(yield(io), io);
     seen
@@ -2883,21 +2887,21 @@ impl(
 );
 _RcvTextField :: struct(t : _RcvText);
 test("a copyable receiver behind a Box or a value field of an element keeps its value", {
-  bs := RefCell(ArrayList(Box(_RcvText))).new(ArrayList(Box(_RcvText)).new());
-  bs.with_mut(xs => xs.push(Box.new(_RcvText(s : String.from("hello")))));
-  bs2 := bs;
+  mut(bs) := ArrayList(Box(_RcvText)).new();
+  bs.push(Box.new(_RcvText(s : String.from("hello"))));
+  bs2 := addr_of(bs);
   assert(
-    bs.with(xs => xs(usize(0))).peek_len(() => {
-      bs2.with_mut(xs => xs.clear());
+    bs(usize(0)).peek_len(() => {
+      bs2.*.clear();
     }) == usize(5),
     "Box element"
   );
-  vs := RefCell(ArrayList(_RcvTextField)).new(ArrayList(_RcvTextField).new());
-  vs.with_mut(xs => xs.push(_RcvTextField(t : _RcvText(s : String.from("hello")))));
-  vs2 := vs;
+  mut(vs) := ArrayList(_RcvTextField).new();
+  vs.push(_RcvTextField(t : _RcvText(s : String.from("hello"))));
+  vs2 := addr_of(vs);
   assert(
-    vs.with(xs => xs(usize(0))).t.peek_len(() => {
-      vs2.with_mut(xs => xs.clear());
+    vs(usize(0)).t.peek_len(() => {
+      vs2.*.clear();
     }) == usize(5),
     "a value field of an element"
   );
@@ -3005,8 +3009,8 @@ test("an exit from a later argument releases the share a receiver took through a
 });
 // The share is released by exits that leave the call, not by an exit inside
 // the argument (a loop's `break`) or inside the closure (its `return`).
-_rcv_exit_inner :: (fn(hs : &_RcvBag(Rc(_RcvCell)), hs2 : _RcvBag(Rc(_RcvCell))) -> i32)(
-  hs.xs(usize(0)).peek_k({
+_rcv_exit_inner :: (fn(hs : &ArrayList(Rc(_RcvCell)), hs2 : *ArrayList(Rc(_RcvCell))) -> i32)(
+  hs(usize(0)).peek_k({
     mut(s) := i32(0);
     while(true, {
       s = (s + i32(1));
@@ -3014,18 +3018,18 @@ _rcv_exit_inner :: (fn(hs : &_RcvBag(Rc(_RcvCell)), hs2 : _RcvBag(Rc(_RcvCell)))
     });
     s
   }, { hs2 }() => {
-    hs2.xs.clear();
+    hs2.*.clear();
     cond(true => return(()), true => ());
     _rcv_drops = (_rcv_drops + i32(100));
   })
 );
 test("an exit inside a later argument or its closure keeps the receiver's share", {
   _rcv_drops = i32(0);
-  // One list behind two handles (`_RcvBag`, as above): the closure empties
-  // the list the receiver is read from.
-  hs := _RcvBag(Rc(_RcvCell))(xs : ArrayList(Rc(_RcvCell)).new());
-  hs.xs.push(Rc.new(_RcvCell(n : i32(1))));
-  hs2 := hs;
+  // One list behind two names (a raw pointer, as above): the closure
+  // empties the list the receiver is read from.
+  mut(hs) := ArrayList(Rc(_RcvCell)).new();
+  hs.push(Rc.new(_RcvCell(n : i32(1))));
+  hs2 := addr_of(hs);
   assert(_rcv_exit_inner(&hs, hs2) == i32(4), "the cell outlives the call");
   assert(_rcv_drops == i32(1), "and is destroyed once, after it");
 });

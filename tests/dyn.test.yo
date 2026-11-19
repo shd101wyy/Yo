@@ -1353,6 +1353,11 @@ test("a downcast of a boxed Rc payload reads the object", {
   (e : AnyError) = dyn(Box.new(Rc.new(_DrsObjInner(n : i32(7)))));
   assert(_drs_n(&e) == i32(7), "the Rc handle behind the box");
   assert(e.to_string() == String.from("drs"), "and the erased value still dispatches");
+  // The `Dyn`'s clone slot reads the handle where the data word points, not
+  // the cell's field (issues/fixed/2026-11-19-a-dyn-clone-of-a-boxed-rc-payload-reads-the-cell-as-the-handle.md).
+  e2 := e.clone();
+  assert(_drs_n(&e2) == i32(7), "the clone's handle reads the same object");
+  assert(e2.to_string() == String.from("drs"), "and the clone dispatches");
 });
 // Decision 49 S2's ASan rows (VERDICTS-61 decision 15) the files above do not
 // already hold: a closure's captures through `Box(Dyn(Fn))` and the interim
