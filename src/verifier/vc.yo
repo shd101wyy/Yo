@@ -2524,7 +2524,7 @@ _match_arms_ir :: (
       tail := _match_arms_ir(ctx, at, scrut, arms, from + usize(1), e_ty, ph);
       match(
         tail,
-        .Some(tail_t) => _match_arm_conditioned_ir(ctx, arms.get(from).unwrap(), scrut, &tail_t, e_ty, ph),
+        .Some(tail_t) => _match_arm_conditioned_ir(ctx, arms.get_cloned(from).unwrap(), scrut, &tail_t, e_ty, ph),
         .None => Option(VcTerm).None
       )
     }
@@ -2539,7 +2539,7 @@ _match_arms_ir :: (
 _match_last_arm_ir :: (
   fn(ctx : &mut VcCtx, at : &AstExpr, scrut : &VcTerm, arms : &ArrayList(Arm), idx : usize, e_ty : &TypeValue, ph : &mut _MatchPhi) -> Option(VcTerm)
 )({
-  arm := arms.get(idx).unwrap();
+  arm := arms.get_cloned(idx).unwrap();
   if(arm.guard.is_some(), {
     _fail_subset(ctx, String.from("guarded final match arm (outside the subset)"), &arm.arm_expr);
     return(Option(VcTerm).None);
@@ -2646,7 +2646,7 @@ _match_phi_new :: (fn(ctx : &mut VcCtx, arms : &ArrayList(Arm)) -> _MatchPhi)({
   names := ArrayList(String).new();
   (ai : usize) = usize(0);
   while(ai < arms.len(), {
-    arm := arms.get(ai).unwrap();
+    arm := arms.get_cloned(ai).unwrap();
     match(
       arm.guard.clone(),
       .Some(g) => _scan_assigned_in(ctx, &g, &mut names),

@@ -789,7 +789,7 @@ emit_async_block_struct_definition :: (
     (mut(li) : usize) = usize(0);
     while(li < local_variables.len(), {
       match(
-        local_variables.get(li),
+        local_variables.get_cloned(li),
         .Some(variable) => {
           var_type_c_name := get_type_string(&variable.base.ty, &mut context.base);
           field_name := get_state_machine_field_name(variable.base.id.to_string(), Option(HashMap(String, String)).None);
@@ -3265,7 +3265,7 @@ _make_sm_captured_variable :: (fn(id : &String, name : &String, ty : &TypeValue,
       id : id.clone(),
       name : name.clone(),
       ty : Rc.clone(ty),
-      is_owning_the_same_rc_value_as : Option(SuspensionCapturedVariable).None,
+      is_owning_the_same_rc_value_as : Option(Rc(SuspensionCapturedVariable)).None,
       decl_site : String.from("")
     ),
     kind : kind,

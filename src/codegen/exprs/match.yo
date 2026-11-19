@@ -2266,7 +2266,7 @@ _emit_pattern_chain :: (
       fcode := if(is_unique_box_type(&box_ty.*), box_payload_place_code(&box_ty.*, &base, &mut context.base), {
         fields := get_runtime_struct_fields(&_through_box_cell_type(&box_ty.*));
         label := match(
-          fields.get(usize(0)),
+          fields.get_cloned(usize(0)),
           .Some(f) => sanitize_for_c_identifier(f.label.clone(), false),
           .None => String.from("_u42_")
         );
@@ -2748,7 +2748,7 @@ _generate_match_expression_body :: (fn(expr : &AstExpr, indent : &String, contex
           cell_base := if(is_pointer_type(&match_value_type), `(*${matched_value_code})`, matched_value_code.clone());
           fields := get_runtime_struct_fields(&_through_box_cell_type(&cell_ty));
           match(
-            fields.get(usize(0)),
+            fields.get_cloned(usize(0)),
             .Some(f) => {
               payload_ty := resolve_enum_shell(&f.ty);
               // Only the tagged-union switch reads through a wrapper arm. Any
