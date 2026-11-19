@@ -226,6 +226,26 @@ _SaiMemo :: struct(epoch : u64, arg_keys : ArrayList(Option(String)), receiver :
 /// The receiver slot types R-PROBE tried for a `.` callee whose lookup found
 /// no method, by the callee's id: E0610's "probed" line.
 (g_probed_receiver_slots : RefCell(HashMap(usize, String))) = RefCell(HashMap(usize, String)).new(HashMap(usize, String).new());
+/// The io builtin a resolved method IS: the marker of an `extern("Yo")`
+/// `__yo_io_async` / `__yo_io_await` / `__yo_io_state` / `__yo_io_spawn` the
+/// method is bound to (`impl(Io, async : __yo_io_async, ...)`), `.None` for
+/// any other method. (`JoinHandle.await`'s builtin takes its handle as
+/// `self` and stays an ordinary method.)
+_io_builtin_method_marker :: (fn(method_ty : &TypeValue) -> Option(String))(
+  match(
+    method_ty,
+    Rc(.Func({ meta : ibm_m })) => match(
+      &ibm_m.extern_name,
+      .Some(ibm_en) => if(
+        (ibm_en.* == "__yo_io_async") || (ibm_en.* == "__yo_io_await") || (ibm_en.* == "__yo_io_state") || (ibm_en.* == "__yo_io_spawn"),
+        Option(String).Some(ibm_en.clone()),
+        Option(String).None
+      ),
+      .None => Option(String).None
+    ),
+    _ => Option(String).None
+  )
+);
 // ---------------------------------------------------------------------------
 // ReceiverMethodResult — carries the resolved method info when a property-
 // access callee (`.`) is matched to a registered impl method.
@@ -15045,6 +15065,15 @@ Fix: wrap the call:
           // it into the `.`/2 callee node's
           // ExprInfo instead is destructive (regressed std 151→15).
           record_method_callee_type(ast_expr_id(expr), &method_info.method_ty);
+          // A method that IS an io builtin (`impl(Io, async : __yo_io_async,
+          // ...)`, the interface-shaped `Io`,
+          // plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md §2) is recognised by
+          // its extern marker, like the four-field `Io`'s field, and takes no
+          // receiver: `io.await(f, e)` is the builtin applied to the call's
+          // own arguments. The receiver only names the `Io` codegen lowers
+          // `io.spawn` and a sync-context await through.
+          io_builtin_method := _io_builtin_method_marker(&method_info.method_ty);
+          match(&io_builtin_method, .Some(ibm) => record_io_builtin_call(ast_expr_id(expr), ibm), .None => ());
           // Per-call identity for the METHOD's own forall binders — the same
           // surgery the FuncVal arm does above, for the same reason. The
           // method arm already pins its result per call through the
@@ -15060,7 +15089,7 @@ Fix: wrap the call:
           m_forall := match(&method_info.method_ty, Rc(.Func({ meta : __mfm })) => Rc.clone(__mfm.forall_labels), _ => no_labels());
           m_callee_ty := _freshen_generic_closure_callee(&method_info.method_ty, &m_forall.items);
           all_args := ArrayList(AstExpr).new();
-          if(!method_info.is_static, {
+          if(!method_info.is_static && io_builtin_method.is_none(), {
             // When the method's self param is `*(T)` and the receiver is a
             // compatible value, wrap the receiver in `&(...)` so the self
             // argument type-checks (and codegen inserts the address-of).

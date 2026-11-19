@@ -21,7 +21,7 @@
 { AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_token, ast_expr_text } :: import("../../expr.yo");
 { EvalValue, is_func_val, is_struct_val, is_unknown_val, value_contains_unknown } :: import("../../value.yo");
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
-{ is_unit_type, is_struct_type, is_enum_type, is_pointer_type, is_tuple_type, is_reference_struct_type, is_reference_enum_type, is_newtype_type, is_module_type, is_unique_box_type, cell_handle_view, is_dyn_cell_type } :: import("../../types/guards.yo");
+{ is_unit_type, is_struct_type, is_enum_type, is_pointer_type, is_tuple_type, is_reference_struct_type, is_reference_enum_type, is_newtype_type, is_module_type, is_unique_box_type, cell_handle_view, is_dyn_cell_type, is_prelude_io_struct } :: import("../../types/guards.yo");
 { Environment } :: import("../../env.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
@@ -446,12 +446,14 @@ _generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &
   // (evaluator twin in evaluator/exprs/property_access.yo): a bundle-style
   // body (`e.io.await(f, e.io)`) whose effect bound to the bare Io emits
   // `e`, not a nonexistent `e.io` field. Keyed on the io-builtin side
-  // table, so a user struct with an `io` field is untouched.
-  if((field_name == "io") && is_struct_type(&object_type) && match(
+  // table (the four-field `Io`) or the prelude's `Io` (the interface shape,
+  // whose builtins are methods), so a user struct with an `io` field is
+  // untouched.
+  if((field_name == "io") && is_struct_type(&object_type) && (is_prelude_io_struct(&object_type) || match(
     &object_type,
     Rc(.Struct({ id : oid })) => lookup_io_builtin_struct_field(oid.clone(), String.from("await")).is_some(),
     _ => false
-  ), {
+  )), {
     return(object_code.clone());
   });
   // `p.*` on a place whose type is a reference (a `&&T`'s referent, a
