@@ -5,7 +5,9 @@
 **Status:** DECIDED 2026-11-15 (VERDICTS-63). Filed 2026-11-14 by the decision 49 S2 lane; the
 mechanism was chosen by a Fable consult at the start of v0.2.79. Generation A (the compiler and the prelude) is one
 PR in v0.2.79; Generation B (the `ArrayList` and `String` impls) is the first std PR of v0.2.80. The doc closes with
-Generation B.
+Generation B. **2026-11-19:** Generation B's `ArrayList` half (`Deref` and `DerefMut`, `Target : [T]`) is written on
+`v0280/deref-std-impls`; the `String` half waits for S3b-`str`, because an associated type written `str` is still the
+legacy alias `&(str, static)` (`impl.yo`'s `ls_aliased` arm), so `Deref(Target : str)` declares `deref -> &&str`.
 
 ## What
 
