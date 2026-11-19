@@ -3598,7 +3598,7 @@ _vc_term_sort :: (fn(ctx : &VcCtx, t : &VcTerm) -> Option(VcSort))(
       ),
       .SelectOp => match(
         _vc_term_sort(ctx, aargs.get_cloned(usize(0)).unwrap()),
-        .Some(Rc(.ArrS(ael, _))) => Option(VcSort).Some(ael),
+        .Some(Rc(.ArrS(ael, _))) => Option(VcSort).Some(Rc.clone(ael)),
         _ => Option(VcSort).None
       ),
       _ => Option(VcSort).None
@@ -5077,8 +5077,8 @@ _call_term :: (
     bound_arr := match(
       ctx.array_sorts.get_cloned(head.clone()),
       .Some(srt) => match(
-        srt,
-        Rc(.ArrS(_, _)) => Option(VcSort).Some(srt),
+        &srt,
+        Rc(.ArrS(_, _)) => Option(VcSort).Some(Rc.clone(srt)),
         _ => Option(VcSort).None
       ),
       .None => Option(VcSort).None
@@ -5171,8 +5171,8 @@ _call_term :: (
       .Some(ai) => match(
         _type_sort(&ai.ty()),
         .Some(srt) => match(
-          srt,
-          Rc(.ArrS(_, _)) => Option(VcSort).Some(srt),
+          &srt,
+          Rc(.ArrS(_, _)) => Option(VcSort).Some(Rc.clone(srt)),
           _ => Option(VcSort).None
         ),
         .None => Option(VcSort).None
@@ -5188,13 +5188,13 @@ _call_term :: (
             arr_t,
             .Some(at) => {
               es := match(
-                srt,
-                Rc(.ArrS(e2, _)) => e2,
+                &srt,
+                Rc(.ArrS(e2, _)) => Rc.clone(e2),
                 _ => Rc.new(VcSortNode.BoolS)
               );
               m := match(
-                srt,
-                Rc(.ArrS(_, l2)) => l2,
+                &srt,
+                Rc(.ArrS(_, l2)) => l2.*,
                 _ => usize(0)
               );
               // The application: a Ctor term named `__yo_msof_<elem-key>`
