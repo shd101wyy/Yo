@@ -142,16 +142,17 @@ _try_ctfe_range_ctor :: (
       arg_type : t_type()
     )
   );
+  (mut(ct_av) : ArgValues) = ArgValues(
+    forall_args : ArrayList(ArgEntry).new(),
+    args : ct_args,
+    implicit_args : Option(ArrayList(ArgEntry)).None,
+    variadic_args : ArrayList(VarArgEntry).new()
+  );
   res := evaluate_comptime_fn_call(
     Option(AstExpr).None,
     fn_ty,
     fn_val,
-    ArgValues(
-      forall_args : ArrayList(ArgEntry).new(),
-      args : ct_args,
-      implicit_args : Option(ArrayList(ArgEntry)).None,
-      variadic_args : ArrayList(VarArgEntry).new()
-    ),
+    &mut ct_av,
     env,
     env,
     ctx,
@@ -443,7 +444,7 @@ _find_all_index_methods :: (
     (ri : usize) = usize(0);
     while(ri < reg_methods.len(), {
       match(
-        reg_methods.get(ri),
+        reg_methods.get_cloned(ri),
         .Some(m) => {
           if(match(&m.ty, Rc(.Func({ result : _ })) => true, _ => false), {
             result.push(
@@ -1547,7 +1548,7 @@ _try_comptime_custom_type_index :: (
     Option(AstExpr).Some(match(expr, Rc(.FnCall(_, ct_func_slot2, _, _, _)) => Rc.clone(ct_func_slot2.*), Rc(.Atom(_, _)) => Rc.clone(expr.*))),
     &ct_fn_type,
     &ct_fn_value,
-    &ct_arg_values,
+    &mut ct_arg_values,
     &ct_caller_env,
     &ct_callee_env,
     ctx,
@@ -1942,7 +1943,7 @@ _record_index_unchecked_twin :: (
   (picked : Option(_IndexMethodEntry)) = Option(_IndexMethodEntry).None;
   (ci : usize) = usize(0);
   while((ci < cands.len()) && picked.is_none(), {
-    c := cands(ci);
+    c := cands.get_cloned(ci).unwrap();
     if((c.source_trait_id == trait_id) && c.value.is_some(), {
       // Its element is the subscript's: the pointee of a pre-V2b
       // `*(Output)`, or a projection's result.

@@ -530,82 +530,6 @@ test("a moved-out local is dropped on a return hidden in an if or match arm", {
   assert(m3_two_locals(false) == i32(77), "two-locals fallthrough returns 33 + 44");
   assert((g_m3_hidden_disposed - before) == i32(8), "both locals disposed via their own-arg transfers");
 });
-// --- Inline `ref(enum)` payload-free variant construction ---
-// Regression for issues/fixed/ref-enum-unit-variant-inline-construction-leak.md.
-//
-// A payload-free variant of a `ref(enum)` heap-allocates exactly like the
-// payload-carrying form — codegen emits `__yo_new_<Enum>_<Variant>()`, which
-// mallocs with ref_count = 1 — but the evaluator never attached an owning temp
-// variable to it, so nothing was ever registered to drop the allocation.
-// Passing one inline as an argument leaked it once per evaluation: the callee
-// treats the parameter as borrowed and dups whatever it retains, so the
-// constructor's own +1 was never released. LeakSanitizer caught this in
-// tests/internal/context.test.yo, where `EvalValue.UnitVal` is passed inline to
-// create_function_body_evaluation_context.
-//
-// The `ref_count()` assertions are the deterministic gate. The argument temp is
-// released at `mk_*`'s scope end, so a caller reading the retained field
-// afterwards sees rc == 1 when the release happened and rc == 2 when it leaked.
-// That holds on every platform, unlike LeakSanitizer (Linux only) or macOS
-// `leaks` (at -O2, LLVM deletes an allocation whose result is discarded, which
-// hides exactly the non-argument positions covered by the second test).
-//
-// `mk_unit` / `mk_payload` use bare tail-expression bodies, so this test also
-// gates the bare-tail scope-end drop: the self-hosted compiler used to emit no
-// drop at all for the argument temp of a bare tail-expression body (both arms
-// reported rc == 2 under it even though TS emitted the drop) — see
-// issues/fixed/yo-self-tail-expression-arg-temp-drop-missing.md.
-test("Inline ref-enum unit-variant argument is released by the caller", {
-  Val :: ref(enum(UnitVal, IntVal(v : i32)));
-  Held :: struct(v : Val);
-  keep :: (fn(x : &Val) -> Held)(Held(v : x.*));
-  mk_unit :: (fn() -> Held)(keep(Val.UnitVal));
-  mk_payload :: (fn() -> Held)(keep(Val.IntVal(v : i32(7))));
-  u := mk_unit();
-  assert(ref_count(u.v) == 1, "payload-free variant: the caller must release its argument temp");
-  p := mk_payload();
-  assert(ref_count(p.v) == 1, "payload-carrying variant: unchanged");
-  // A direct binding must TRANSFER ownership of the temp, not add a second owner.
-  a := Val.UnitVal;
-  assert(ref_count(a) == 1, "binding a unit variant owns exactly one reference");
-  // Struct-literal field: the aggregate takes the allocation by move.
-  h := Held(v : Val.UnitVal);
-  assert(ref_count(h.v) == 1, "struct-literal field takes the unit variant by move");
-});
-test("Inline ref-enum unit-variant in non-argument positions does not leak", {
-  Val :: ref(enum(UnitVal, IntVal(v : i32)));
-  is_unit :: (fn(x : &Val) -> bool)(
-    match(
-      x,
-      .UnitVal => true,
-      .IntVal(v) => false
-    )
-  );
-  // Discarded statement expression.
-  Val.UnitVal;
-  // Match subject.
-  match(Val.UnitVal, .UnitVal => (), .IntVal(v) => ());
-  // Condition and short-circuit operand positions, inside a loop so a
-  // per-iteration leak accumulates instead of costing one object.
-  (mut(i) : usize) = usize(0);
-  while(i < usize(3), {
-    c := cond(is_unit(Val.UnitVal) => true, true => false);
-    assert(c, "cond condition");
-    b := (is_unit(Val.UnitVal) && is_unit(Val.IntVal(v : i32(1))));
-    assert(!b, "short-circuit operands");
-    i = (i + usize(1));
-  });
-  // Enum-payload position: the outer variant takes the inner one by move.
-  o := Option(Val).Some(Val.UnitVal);
-  assert(
-    match(
-      o,
-      .Some(v) => is_unit(&v),
-      .None => false
-    ),
-    "Option payload"
-  );
-});
 // Regression: a local dup'd inside ONE arm of an `if` (a macro expanding to
 // cond) must keep its scope-end drop. The dup/drop pair optimizer used to
 // reach the arm's dup through the raw macro-call args (branch-blind), cancel
@@ -643,42 +567,6 @@ test("Conditional move into a struct field balances both paths", {
 // mutates the structure it traverses. Severing head.next while current_opt
 // borrowed the severed sublist freed the nodes mid-walk — the traversal then
 // read freed memory and visited garbage (use-after-free, found 2026-08-06).
-TraversalNode :: ref(struct(value : i32, next : Option(Self)));
-traversal_walk_with_sever :: (fn(head : &TraversalNode) -> i32)({
-  (mut(current_opt) : Option(TraversalNode)) = head.next;
-  (mut(first) : bool) = true;
-  (mut(total) : i32) = 0;
-  while(true, {
-    match(
-      current_opt,
-      .None => return(total),
-      .Some(current) => {
-        if(first, {
-          first = false;
-          head.next = Option(TraversalNode).None;
-        });
-        total = (total + current.value);
-        current_opt = current.next;
-      }
-    );
-  });
-  total
-});
-test("Loop traversal keeps ownership when the loop mutates the structure", {
-  head := TraversalNode(
-    value : 1,
-    next : Option(TraversalNode).Some(
-      TraversalNode(
-        value : 2,
-        next : Option(TraversalNode).Some(TraversalNode(value : 3, next : Option(TraversalNode).None))
-      )
-    )
-  );
-  assert(
-    traversal_walk_with_sever(&head) == 5,
-    "severed traversal must still visit nodes 2 and 3 (owned, not borrowed)"
-  );
-});
 // Regression: a fn whose ENTIRE body is a bare `___ := <owned value>`
 // statement. The self-hosted compiler once flushed the body-level deferred
 // drops BEFORE the statement, emitting `___drop(___)` against a binding not
@@ -705,302 +593,6 @@ test("Bare discard-statement fn body compiles and drops the discarded value", {
   assert(
     ref_count(survivor) == 2,
     "discarded value must be dropped (rc 2, not 3)"
-  );
-});
-// Regression (issues/fixed/borrowed-arg-invalidated-by-aliased-container-mutation.md,
-// aliasing Stage 0): an RC-typed field PROJECTION passed to a BORROWING
-// parameter gets a caller-owned +1 for the call. Without it, `poke(w, w.b)`
-// reassigning `w.b` in a LOOP freed the old box mid-call (the loop cannot
-// defer the old-value drop across iterations) — the borrowed parameter then
-// read a RECYCLED allocation (printed 101, the newest box, instead of 42).
-AliasWrap :: ref(struct(b : Rc(i32)));
-alias_poke_loop :: (fn(w : &AliasWrap, borrowed : &Rc(i32)) -> unit)({
-  (mut(i) : i32) = i32(0);
-  while(i < i32(2), {
-    w.b = Rc.new(i32(100) + i);
-    i = (i + i32(1));
-  });
-  assert(borrowed.*.* == i32(42), "borrowed projection reads the pre-mutation value");
-});
-test("borrowed projection argument survives aliased container mutation", {
-  w := AliasWrap(b : Rc.new(i32(42)));
-  b0 := Rc.clone(w.b);
-  assert(ref_count(b0) == 2, "w.b + b0 before the call");
-  {
-    alias_poke_loop(&w, &w.b);
-  };
-  // Asserted AFTER the enclosing statement scope, deliberately. The two
-  // compilers release the Stage-0 +1 at different points — yo-self drops it
-  // post-call (its dup temp is consumed at creation and balanced by an
-  // explicit call-node drop), TS at scope end (its dup temp stays owning and
-  // the normal scope-end machinery drops it). Both are sound; the difference
-  // is only WHEN, and it is only observable through `ref_count`. Checking here, once
-  // both release points have passed, asserts the property that actually
-  // matters and is identical in both: the +1 is released EXACTLY once.
-  //
-  // rc 2 here = the +1 leaked (which is precisely what yo-self's
-  // runtime-call path did before that drop was wired — the previous version
-  // of this test asserted rc 2 right after the call and so encoded the leak
-  // as expected behaviour). rc 0 / a crash = it was released twice.
-  assert(ref_count(b0) == 1, "the Stage-0 +1 is released exactly once");
-  assert(b0.* == i32(42), "original box intact after the aliased mutation");
-});
-// Aliasing Stage 1 (mutation summaries): a READ-ONLY callee cannot
-// invalidate the borrowed projection, so the Stage-0 +1 is elided — during
-// the call the box's rc stays 2 (w.b + b0), not 3. The non-generic callee
-// exercises the mark-time skip; the generic one exercises the
-// post-specialization unmark.
-stage1_read_borrow :: (fn(w : &AliasWrap, borrowed : &Rc(i32)) -> usize)(
-  ref_count(borrowed.*)
-);
-stage1_rc_of :: (fn(generic(T : Type), borrowed : &T) -> usize)(
-  ref_count(borrowed.*)
-);
-test("read-only callee elides the Stage-0 borrowed-projection dup", {
-  w := AliasWrap(b : Rc.new(i32(42)));
-  b0 := Rc.clone(w.b);
-  assert(ref_count(b0) == 2, "w.b + b0 before the calls");
-  assert(
-    stage1_read_borrow(&w, &w.b) == 2,
-    "non-generic read-only callee sees rc 2 (mark-time skip)"
-  );
-  assert(
-    stage1_rc_of(&w.b) == 2,
-    "generic read-only callee sees rc 2 (post-specialization unmark)"
-  );
-  assert(ref_count(b0) == 2, "ref_count balanced after both elided calls");
-});
-// Aliasing Stage 1 SOUNDNESS: the mutation-summary walk must not be fooled by
-// a mutation hidden behind a STATEMENT. An assignment carries a compile-time
-// UNIT value simply because that is its type — not because it was folded away
-// — so a walk that treats "has a compile-time value" as "emits no runtime
-// code" skips the statement whole, never sees the mutating call on its
-// right-hand side, and wrongly reports the caller read-only. That would elide
-// the Stage-0 dup and reopen the aliasing hole this whole arc closes.
-stage1_poke :: (fn(w : &AliasWrap, seed : i32) -> i32)({
-  w.b = Rc.new(i32(100) + seed);
-  w.b.*
-});
-// The mutating call sits on the RHS of a REASSIGNMENT statement.
-stage1_sneaky :: (fn(w : &AliasWrap, borrowed : &Rc(i32), seed : i32) -> i32)({
-  (mut(t) : i32) = i32(0);
-  t = stage1_poke(w, seed);
-  borrowed.*.* + (t - t)
-});
-// Control: the same mutation behind a `:=` declaration.
-stage1_honest :: (fn(w : &AliasWrap, borrowed : &Rc(i32), seed : i32) -> i32)({
-  t := stage1_poke(w, seed);
-  borrowed.*.* + (t - t)
-});
-// Regression (issues/fixed/array-of-rc-constructor-emits-invalid-c.md): the
-// `Array(T, N)(...)` CONSTRUCTOR used to manufacture UnknownValue placeholders
-// for runtime elements and then stamp the array as a compile-time constant, so
-// codegen emitted `.data = { /* skip generating */, ... }` — an empty
-// initializer slot — and every array of RC elements failed to compile. The
-// array-LITERAL form already guarded correctly, so the two must agree.
-test("arrays of RC elements build at runtime, constructor and literal alike", {
-  b1 := Rc.new(i32(42));
-  lit := [Rc.clone(b1), Rc.new(i32(7)),];
-  assert(lit(0).* == i32(42), "literal element 0");
-  assert(lit(1).* == i32(7), "literal element 1");
-  b2 := Rc.new(i32(42));
-  ctor := Array(Rc(i32), 2)(Rc.clone(b2), Rc.new(i32(7)));
-  assert(ctor(0).* == i32(42), "constructor element 0");
-  assert(ctor(1).* == i32(7), "constructor element 1");
-  // The two forms must not diverge in ownership either.
-  assert(ref_count(b1) == ref_count(b2), "constructor and literal agree on element rc");
-  // A fully compile-time array still folds to a constant.
-  c :: Array(i32, 3)(1, 2, 3);
-  assert(c(2) == 3, "comptime array still folds");
-});
-// Aliasing STAGE 0 SOUNDNESS — the rules deciding WHICH arguments get
-// protected at all. Stage 1 can only elide a dup Stage 0 created, so a shape
-// Stage 0 declines to mark is unprotected whatever Stage 1 concludes.
-//
-// The borrowed argument here is an INDEX read, not a field access. The
-// projection predicate used to require a 2-arg dot, and the marker used to
-// skip any argument carrying a `$.value` — but a runtime element read carries
-// an `UnknownValue`, a value OBJECT meaning "type known, value not". Between
-// them every indexed borrow went unprotected: this read 101 (the recycled
-// allocation) instead of 42. A fixed-size Array is the shape that
-// discriminates — ArrayList index reads go through the Index trait and yield
-// an OWNING temp, so they were already safe at +0.
-Stage0Arr :: ref(struct(a : Array(Rc(i32), 2)));
-stage0_poke_index :: (fn(h : &Stage0Arr, borrowed : &Rc(i32)) -> i32)({
-  (mut(i) : i32) = i32(0);
-  while(i < i32(2), {
-    h.a(0) = Rc.new(i32(100) + i);
-    i = (i + i32(1));
-  });
-  borrowed.*.*
-});
-test("an INDEXED borrowed argument is protected like a field projection", {
-  h := Stage0Arr(a : Array(Rc(i32), 2)(Rc.new(i32(42)), Rc.new(i32(7))));
-  assert(
-    stage0_poke_index(&h, &h.a(0)) == i32(42),
-    "an element read is a place into container storage too"
-  );
-});
-// Aliasing Stage 1 SOUNDNESS — one probe per "this callee is read-only"
-// decision rule in the mutation-summary walk. Each callee below invalidates
-// the borrowed projection through a DIFFERENT mechanism; every one must be
-// classified may-mutate so the Stage-0 +1 is kept. A rule that wrongly
-// answers read-only shows up here as a use-after-free, not as a subtle
-// slowdown — which is why these are asserted on VALUE, not just rc balance.
-//
-// An explicit RC decrement releases the container-held reference directly,
-// without any assignment for the walk's assignment rule to see. Both the
-// high-level drop and the raw primitive count.
-// NOTE on shape: the decrement must target a handle the callee OWNS. An
-// explicit `___drop(w.b)` on a place the callee does not own is an
-// unbalanced program — it releases the container's reference without
-// clearing the field, so dropping the container later double-frees. (macOS's
-// allocator tolerates that; glibc aborts. It is a bug in the test, not in
-// the compiler.) Raw `__yo_decr_rc` is unbalanced in EVERY shape — it does
-// not consume its operand, so the scope-end drop decrements a second time —
-// so no valid program exercises it and it gets no test; the classification
-// rule still lists it, documented in mutation-summary.ts.
-stage1_drop_owned :: (fn(sink(h) : Rc(i32), borrowed : &Rc(i32)) -> usize)({
-  ___drop(h);
-  ref_count(borrowed.*)
-});
-// The mutation happens only on the BACK EDGE of a mutual recursion, so the
-// walk meets the cycle guard before it ever reaches the assignment.
-Stage1Rec :: struct(_d : i32);
-impl(
-  Stage1Rec,
-  even : (fn(w : &AliasWrap, borrowed : &Rc(i32), n : i32) -> i32)(
-    cond(
-      (n == i32(0)) => borrowed.*.*,
-      true => Stage1Rec.odd(w, borrowed, n - i32(1))
-    )
-  ),
-  odd : (fn(w : &AliasWrap, borrowed : &Rc(i32), n : i32) -> i32)({
-    w.b = Rc.new(i32(777));
-    Stage1Rec.even(w, borrowed, n - i32(1))
-  })
-);
-// The mutation is inside an immediately-invoked closure — the walk skips
-// function DEFINITIONS, so it must still catch the CALL.
-stage1_closure :: (fn(w : &AliasWrap, borrowed : &Rc(i32)) -> i32)({
-  f := (fn(ww : &AliasWrap) -> i32)({
-    ww.b = Rc.new(i32(888));
-    i32(0)
-  });
-  z := f(w);
-  borrowed.*.* + z
-});
-// The mutation sits in a runtime-selected cond arm, then a match arm — the
-// walk must not let arm-skipping (`caseExecuted`) hide a live branch.
-stage1_cond_arm :: (fn(w : &AliasWrap, borrowed : &Rc(i32), go : bool) -> i32)({
-  cond(
-    (go == true) => {
-      w.b = Rc.new(i32(555));
-      i32(0)
-    },
-    true => i32(0)
-  );
-  borrowed.*.*
-});
-stage1_match_arm :: (fn(w : &AliasWrap, borrowed : &Rc(i32), o : Option(i32)) -> i32)({
-  match(
-    o,
-    .Some(_) => {
-      w.b = Rc.new(i32(666));
-      ()
-    },
-    .None => ()
-  );
-  borrowed.*.*
-});
-// Transitivity: the mutation is three calls deep.
-stage1_deep3 :: (fn(w : &AliasWrap) -> unit)({
-  w.b = Rc.new(i32(333));
-});
-stage1_deep2 :: (fn(w : &AliasWrap) -> unit)(
-  stage1_deep3(w)
-);
-stage1_deep1 :: (fn(w : &AliasWrap, borrowed : &Rc(i32)) -> i32)({
-  stage1_deep2(w);
-  borrowed.*.*
-});
-// Over-conservatism guard: a callee whose only "effect" is a benign extern
-// (printf takes no callback and is not the runtime/allocator family) must
-// STILL be read-only, so the +1 is elided. If this starts failing, the
-// extern rule has become too broad and Stage 1 is losing its benefit.
-stage1_benign_extern :: (fn(w : &AliasWrap, borrowed : &Rc(i32)) -> usize)({
-  unsafe(printf(""));
-  ref_count(borrowed.*)
-});
-test("mutation inside a runtime cond arm keeps the borrow alive", {
-  w := AliasWrap(b : Rc.new(i32(42)));
-  assert(
-    stage1_cond_arm(&w, &w.b, true) == i32(42),
-    "a live cond arm's mutation must count"
-  );
-});
-test("mutation inside a match arm keeps the borrow alive", {
-  w := AliasWrap(b : Rc.new(i32(42)));
-  assert(
-    stage1_match_arm(&w, &w.b, Option(i32).Some(i32(1))) == i32(42),
-    "a live match arm's mutation must count"
-  );
-});
-test("mutation three calls deep keeps the borrow alive", {
-  w := AliasWrap(b : Rc.new(i32(42)));
-  assert(
-    stage1_deep1(&w, &w.b) == i32(42),
-    "the summary must be transitive through the call graph"
-  );
-});
-test("a benign extern does not defeat the read-only elision", {
-  w := AliasWrap(b : Rc.new(i32(42)));
-  b0 := Rc.clone(w.b);
-  assert(ref_count(b0) == 2, "w.b + b0 before the call");
-  assert(
-    stage1_benign_extern(&w, &w.b) == 2,
-    "printf must not make a callee may-mutate (elision preserved)"
-  );
-});
-test("a callee containing an explicit ___drop keeps the borrow alive", {
-  w := AliasWrap(b : Rc.new(i32(42)));
-  // rc during the call: the container's 1, the own-param's dup, and the
-  // Stage-0 borrow dup = 3; `___drop(h)` consumes the own-param's, leaving
-  // 2. A 1 here would mean the borrow dup was elided — i.e. a callee that
-  // explicitly releases RC storage was classified read-only, which is how
-  // `___drop` sitting in the safe-recurse list used to read.
-  assert(
-    stage1_drop_owned(Rc.clone(w.b), &w.b) == 2,
-    "an explicit ___drop must not be walked through as safe"
-  );
-  assert(w.b.* == i32(42), "the container's own handle is still valid");
-});
-test("mutation on a mutual-recursion back edge keeps the borrow alive", {
-  w := AliasWrap(b : Rc.new(i32(42)));
-  assert(
-    Stage1Rec.even(&w, &w.b, i32(2)) == i32(42),
-    "cycle-guard optimism must not hide the back edge's mutation"
-  );
-});
-test("mutation inside an invoked closure keeps the borrow alive", {
-  w := AliasWrap(b : Rc.new(i32(42)));
-  assert(
-    stage1_closure(&w, &w.b) == i32(42),
-    "skipping closure DEFINITIONS must not skip the closure CALL"
-  );
-});
-test("statement-hidden mutation keeps the borrowed-projection dup", {
-  w := AliasWrap(b : Rc.new(i32(42)));
-  // The callee reassigns `w.b`, dropping the 42-box's container reference.
-  // Without the caller's Stage-0 +1 the borrow would read recycled memory.
-  assert(
-    stage1_sneaky(&w, &w.b, i32(0)) == i32(42),
-    "borrow survives a mutation hidden behind a reassignment statement"
-  );
-  w2 := AliasWrap(b : Rc.new(i32(42)));
-  assert(
-    stage1_honest(&w2, &w2.b, i32(0)) == i32(42),
-    "borrow survives a mutation behind a declaration"
   );
 });
 // Regression: aliasing a ref local must drop each object EXACTLY ONCE.
@@ -1935,54 +1527,13 @@ test("a plain call with an own parameter still retains a field argument", {
   };
   assert(g_own_m_disposed == (before + i32(1)), `released exactly once, got ${(g_own_m_disposed - before).to_string()}`);
 });
-// The same method-dispatch emitters also dropped the Stage-0 +1 of a borrowed
-// field projection passed as the RECEIVER (`o.inner.poke(o)`): the plain call
-// `poke_f(o.inner, o)` holds the projected value for the call, the method call
-// did not, and a callee that replaced `o.inner` freed the receiver it was still
-// reading.
-_AlInner :: ref(struct(v : i32));
-_AlOuter :: ref(struct(inner : _AlInner));
-_al_replace :: (fn(o : &_AlOuter) -> unit)({
-  o.inner = _AlInner(v : i32(0));
-});
-impl(
-  _AlInner,
-  poke : (fn(self : &Self, o : &_AlOuter) -> i32)({
-    _al_replace(o);
-    self.v
-  })
-);
-_al_poke_f :: (fn(i : &_AlInner, o : &_AlOuter) -> i32)({
-  _al_replace(o);
-  i.v
-});
-test("a receiver projection outlives a method that replaces it", {
-  o := _AlOuter(inner : _AlInner(v : i32(7)));
-  assert(_al_poke_f(&o.inner, &o) == i32(7), "plain call: the argument survived the replacement");
-  o2 := _AlOuter(inner : _AlInner(v : i32(8)));
-  assert(o2.inner.poke(&o2) == i32(8), "method call: the receiver survived the replacement");
-  assert((o.inner.v + o2.inner.v) == i32(0), "both owners see the replacement");
-});
 // `ref_count(x)` reads the count of the cell `x` holds, in every shape
-// (plans/VALUES_BY_DEFAULT.md V1 step 0): 1 for a value, the live count for a
-// `ref` struct, an `Rc`, an `Arc` (read atomically) and a collection handle.
-RcNode :: ref(struct(v : i32));
+// (plans/VALUES_BY_DEFAULT.md V1 step 0): 1 for a value, the live count for
+// an `Rc`, an `Arc` (read atomically) and a collection handle.
 test("ref_count(x) reads the count of every cell shape", {
   // A value: 1, at compile time.
   p := Point(1, 2);
   assert(ref_count(p) == usize(1), "ref_count(p) == 1");
-  // ref(struct(...))
-  n1 := RcNode(v : i32(1));
-  assert(ref_count(n1) == usize(1), "ref_count(n1) == 1");
-  {
-    n2 := n1;
-    {
-      n3 := n2;
-      assert(ref_count(n1) == usize(2), "ref_count(n1) == 2");
-      assert(ref_count(n3) == usize(2), "ref_count(n3) == 2");
-    };
-  };
-  assert(ref_count(n1) == usize(1), "ref_count(n1) == 1 after the copies died");
   // Rc
   b1 := Rc(i32).new(3);
   {
@@ -2767,15 +2318,15 @@ test("an early return after or before a consume releases the local once", {
 // 2): an `Rc`'s payload is read-only through the handle, so every write
 // through one is E0919, whose text names the doors.
 // ---------------------------------------------------------------------------
-_RoNode :: ref(struct(n : i32));
-_RoShared :: struct(n : i32, items : ArrayList(i32), node : _RoNode);
+_RoNode :: struct(n : i32);
+_RoShared :: struct(n : i32, items : ArrayList(i32), node : Rc(_RoNode));
 _ro_bump :: (fn(x : &mut i32) -> unit)({
   x.* = (x.* + i32(1));
 });
 _ro_peek :: (fn(x : &mut i32) -> i32)(x.*);
 _ro_read :: (fn(x : &i32) -> i32)(x.*);
 _ro_run :: (fn(f : &Impl(Fn() -> unit)) -> unit)(f());
-_ro_make :: (fn() -> Rc(_RoShared))(Rc.new(_RoShared(n : i32(1), items : ArrayList(i32).new(), node : _RoNode(n : i32(2)))));
+_ro_make :: (fn() -> Rc(_RoShared))(Rc.new(_RoShared(n : i32(1), items : ArrayList(i32).new(), node : Rc.new(_RoNode(n : i32(2))))));
 _RoHolder :: struct(h : Rc(_RoShared));
 _ro_set_gen :: (fn(generic(T : Type), dst : &mut T, v : T) -> unit)({
   dst.* = v;
@@ -2784,7 +2335,7 @@ test("a write through an Rc handle is E0919, naming the doors", {
   h := _ro_make();
   // An assignment to the payload, to a field under it, to an element under it.
   comptime_expect_error({
-    h.* = _RoShared(n : i32(0), items : ArrayList(i32).new(), node : _RoNode(n : i32(0)));
+    h.* = _RoShared(n : i32(0), items : ArrayList(i32).new(), node : Rc.new(_RoNode(n : i32(0))));
   }, "read-only through the handle");
   comptime_expect_error({
     h.n = i32(3);
@@ -2810,7 +2361,7 @@ test("a write through an Rc handle is E0919, naming the doors", {
   comptime_expect_error(_ro_peek(&mut h.n), "read-only through the handle");
   // A generic `&mut T` parameter: a place under the handle is still the payload.
   comptime_expect_error(_ro_set_gen(&mut h.n, i32(3)), "read-only through the handle");
-  comptime_expect_error(_ro_set_gen(&mut h.*, _RoShared(n : i32(0), items : ArrayList(i32).new(), node : _RoNode(n : i32(0)))), "read-only through the handle");
+  comptime_expect_error(_ro_set_gen(&mut h.*, _RoShared(n : i32(0), items : ArrayList(i32).new(), node : Rc.new(_RoNode(n : i32(0))))), "read-only through the handle");
   // A local `&mut` borrow of a place in the payload.
   comptime_expect_error({
     r := &mut h.n;
@@ -2820,7 +2371,7 @@ test("a write through an Rc handle is E0919, naming the doors", {
   comptime_expect_error(h.items.push(i32(1)), "read-only through the handle");
   xs := Rc.new(ArrayList(i32).new());
   comptime_expect_error(xs.push(i32(1)), "read-only through the handle");
-  // A `ref` object reached from the payload is in the payload.
+  // An `Rc` reached from the payload is in the payload.
   comptime_expect_error({
     h.node.n = i32(5);
   }, "read-only through the handle");
@@ -2890,15 +2441,11 @@ test("reads, & lends, the handle itself and the doors are not E0919", {
   assert((g.* == i32(3)) && (other_g.* == i32(1)), "the handle is rebound; the other handle still sees the old cell");
   _ro_set_gen(&mut holder.h, _ro_make());
   assert(holder.h.n == i32(1), "a field holding a handle, through a generic parameter");
-  // A `ref(struct)` handle is not an `Rc`: its own fields are written through it.
-  node := _RoNode(n : i32(0));
-  node.n = i32(7);
-  assert(node.n == i32(7), "a ref object is written through its handle");
   // The doors.
   p := Rc.new(i32(1));
   Rc.make_mut(&mut p) = i32(8);
   assert(p.* == i32(8), "make_mut on the only handle");
-  cell := Rc.new(RefCell(_RoShared).new(_RoShared(n : i32(0), items : ArrayList(i32).new(), node : _RoNode(n : i32(0)))));
+  cell := Rc.new(RefCell(_RoShared).new(_RoShared(n : i32(0), items : ArrayList(i32).new(), node : Rc.new(_RoNode(n : i32(0))))));
   other := Rc.clone(cell);
   other.with_mut(s => {
     s.n = i32(9);
@@ -2957,30 +2504,31 @@ test("a dyn of a closure capturing a generic fn's Impl(Fn) parameter boxes throu
 // a borrowed handle it returns still takes the balancing count a runtime
 // `cond` gives it, so the caller's copy and the owner each hold one
 // (issues/fixed/2026-10-22-a-cond-with-a-compile-time-condition-returns-a-borrowed-handle-without-a-dup.md).
-_CondCtBox :: ref(struct(n : i32));
+_CondBoxInner :: struct(n : i32);
+_CondCtBox :: Rc(_CondBoxInner);
 _cond_ct_after_false :: (fn(q : &_CondCtBox) -> _CondCtBox)(
   cond(
     false => q,
-    true => q.*
+    true => Rc.clone(q)
   )
 );
-_cond_ct_only_true :: (fn(q : &_CondCtBox) -> _CondCtBox)(cond(true => q.*));
+_cond_ct_only_true :: (fn(q : &_CondCtBox) -> _CondCtBox)(cond(true => Rc.clone(q)));
 _cond_ct_folded :: (fn(q : &_CondCtBox) -> _CondCtBox)(
   cond(
     (i32(1) == i32(2)) => q,
-    true => q.*
+    true => Rc.clone(q)
   )
 );
 _cond_ct_runtime :: (fn(k : bool, q : &_CondCtBox) -> _CondCtBox)(
   cond(
-    k => q.*,
-    true => q.*
+    k => Rc.clone(q),
+    true => Rc.clone(q)
   )
 );
 _cond_ct_deref :: (fn(p : *_CondCtBox) -> _CondCtBox)(
   cond(
-    false => p.*,
-    true => p.*
+    false => Rc.clone(&p.*),
+    true => Rc.clone(&p.*)
   )
 );
 _cond_ct_read :: (fn(generic(T : Type), p : *T) -> T)(
@@ -2990,7 +2538,7 @@ _cond_ct_read :: (fn(generic(T : Type), p : *T) -> T)(
   )
 );
 test("a compile-time-collapsed cond dups the borrowed handle it returns", {
-  r := _CondCtBox(n : i32(5));
+  r := Rc.new(_CondBoxInner(n : i32(5)));
   {
     a := _cond_ct_after_false(&r);
     assert(ref_count(r) == usize(2), "false => q, true => q: the result holds its own count");
@@ -3011,7 +2559,7 @@ test("a compile-time-collapsed cond dups the borrowed handle it returns", {
   assert(_cond_ct_read(addr_of(x)) == i32(9), "the generic accessor at a Copy type takes the first arm");
 });
 test("a compile-time-collapsed cond in a binding dups the local it names", {
-  r := _CondCtBox(n : i32(6));
+  r := Rc.new(_CondBoxInner(n : i32(6)));
   x := cond(
     false => r,
     true => r
@@ -3022,27 +2570,27 @@ test("a compile-time-collapsed cond in a binding dups the local it names", {
 // More collapsed shapes: a nested collapse (in a runtime arm too), the `if`
 // spelling, a borrowed struct's field, a call argument, and an async body.
 _CondCtHolder :: struct(r : _CondCtBox, k : i32);
-_cond_ct_nested :: (fn(q : &_CondCtBox) -> _CondCtBox)(cond(true => cond(true => q.*)));
+_cond_ct_nested :: (fn(q : &_CondCtBox) -> _CondCtBox)(cond(true => cond(true => Rc.clone(q))));
 _cond_ct_nested_in_runtime :: (fn(k : bool, q : &_CondCtBox) -> _CondCtBox)(
   cond(
-    k => cond(true => q.*),
-    true => q.*
+    k => cond(true => Rc.clone(q)),
+    true => Rc.clone(q)
   )
 );
-_cond_ct_if :: (fn(q : &_CondCtBox) -> _CondCtBox)(if(true, q.*, q));
-_cond_ct_field :: (fn(h : &_CondCtHolder) -> _CondCtBox)(cond(true => h.r));
+_cond_ct_if :: (fn(q : &_CondCtBox) -> _CondCtBox)(if(true, Rc.clone(q), q));
+_cond_ct_field :: (fn(h : &_CondCtHolder) -> _CondCtBox)(cond(true => Rc.clone(h.r)));
 _cond_ct_take :: (fn(b : _CondCtBox) -> i32)(b.n);
 _cond_ct_async :: (fn(q : &_CondCtBox, io : Io) -> Impl(Future(_CondCtBox, Io)))(
   io.async((io : Io) => {
     io.await(yield(io), io);
     cond(
-      false => q,
-      true => q.*
+      false => Rc.clone(q),
+      true => Rc.clone(q)
     )
   })
 );
 test("a compile-time-collapsed cond dups through nesting, if, fields, arguments and async", {
-  r := _CondCtBox(n : i32(2));
+  r := Rc.new(_CondBoxInner(n : i32(2)));
   {
     a := _cond_ct_nested(&r);
     assert(ref_count(r) == usize(2), "cond(true => cond(true => q))");
@@ -3065,12 +2613,12 @@ test("a compile-time-collapsed cond dups through nesting, if, fields, arguments 
 // A collapsed cond whose arm is `return(x)` moves the returned value out
 // (issues/fixed/2026-10-23-a-compile-time-collapsed-cond-arm-return-releases-the-returned-value.md).
 _cond_ct_return_then_tail :: (fn(q : &_CondCtBox) -> _CondCtBox)({
-  cond(true => return(q.*));
+  cond(true => return(Rc.clone(q)));
   q
 });
 _cond_ct_return_before_runtime_arm :: (fn(k : bool, q : &_CondCtBox) -> _CondCtBox)({
   cond(
-    true => return(q.*),
+    true => return(Rc.clone(q)),
     k => ()
   );
   q
@@ -3079,14 +2627,14 @@ _cond_ct_return_owned :: (fn(q : &_CondCtBox) -> _CondCtBox)({
   cond(true => return(_CondCtBox(n : (q.n + i32(1)))));
   q
 });
-_cond_ct_return_body :: (fn(q : &_CondCtBox) -> _CondCtBox)(cond(true => return(q.*)));
+_cond_ct_return_body :: (fn(q : &_CondCtBox) -> _CondCtBox)(cond(true => return(Rc.clone(q))));
 _cond_ct_return_after_local :: (fn(q : &_CondCtBox) -> _CondCtBox)({
-  x := _CondCtBox(n : i32(0));
-  cond(true => return(q.*));
+  x := Rc.new(_CondBoxInner(n : i32(0)));
+  cond(true => return(Rc.clone(q)));
   x
 });
 test("a compile-time-collapsed cond's return arm keeps the returned value alive", {
-  r := _CondCtBox(n : i32(3));
+  r := Rc.new(_CondBoxInner(n : i32(3)));
   {
     a := _cond_ct_return_then_tail(&r);
     assert(ref_count(r) == usize(2), "cond(true => return(q)); q");
@@ -3106,14 +2654,14 @@ test("a compile-time-collapsed cond's return arm keeps the returned value alive"
 // owns a local that the return arm releases.
 _cond_ct_async_return :: (fn(q : &_CondCtBox, io : Io) -> Impl(Future(_CondCtBox, Io)))(
   io.async((io : Io) => {
-    x := _CondCtBox(n : i32(100));
+    x := Rc.new(_CondBoxInner(n : i32(100)));
     io.await(yield(io), io);
-    cond(true => return(q.*));
+    cond(true => return(Rc.clone(q)));
     x
   })
 );
 test("a compile-time-collapsed cond's return arm in an async body releases the body's locals", {
-  r := _CondCtBox(n : i32(4));
+  r := Rc.new(_CondBoxInner(n : i32(4)));
   {
     a := io.await(_cond_ct_async_return(&r, io), io);
     assert(ref_count(r) == usize(2), "an async body's return arm after an await");
@@ -3126,7 +2674,7 @@ test("a compile-time-collapsed cond's return arm in an async body releases the b
 _cond_ct_loop_break :: (fn(q : &_CondCtBox) -> i32)({
   mut(i) := i32(0);
   while(i < i32(3), {
-    t := cond(true => q.*);
+    t := cond(true => Rc.clone(q));
     i = (i + t.n);
     cond(true => break);
   });
@@ -3138,14 +2686,14 @@ _cond_ct_for_continue :: (fn(q : &_CondCtBox) -> i32)({
   xs.push(i32(2));
   mut(s) := i32(0);
   for(&xs, x => {
-    t := cond(true => q.*);
+    t := cond(true => Rc.clone(q));
     s = (s + (t.n * x.*));
     cond(true => continue);
   });
   s
 });
 test("a compile-time-collapsed cond's break and continue arms after a collapsed value in a loop body", {
-  r := _CondCtBox(n : i32(4));
+  r := Rc.new(_CondBoxInner(n : i32(4)));
   assert(_cond_ct_loop_break(&r) == i32(4), "a collapsed value, then a collapsed break");
   assert(ref_count(r) == usize(1), "the loop body's copy released its count");
   assert(_cond_ct_for_continue(&r) == i32(12), "a collapsed value, then a collapsed continue");
@@ -3156,9 +2704,9 @@ test("a compile-time-collapsed cond's break and continue arms after a collapsed 
 _cond_ct_fused :: (fn(q : &_CondCtBox, io : Io) -> Impl(Future(i32, Io)))({
   x := cond(
     false => q,
-    true => q.*
+    true => Rc.clone(q)
   );
-  y := cond(true => q.*);
+  y := cond(true => Rc.clone(q));
   io.async((io : Io) => {
     io.await(yield(io), io);
     x.n + y.n
@@ -3172,7 +2720,7 @@ _cond_ct_fused_twice :: (fn(q : &_CondCtBox, io : Io) -> Impl(Future(i32, Io)))(
   })
 );
 test("a compile-time-collapsed cond in a wrapper awaited twice by one task", {
-  r := _CondCtBox(n : i32(5));
+  r := Rc.new(_CondBoxInner(n : i32(5)));
   assert(io.await(_cond_ct_fused_twice(&r, io), io) == i32(20), "each await reads the handle twice");
   assert(ref_count(r) == usize(1), "every collapsed copy released its count");
 });
@@ -3206,57 +2754,56 @@ impl(
 _RcvField :: struct(r : Rc(_RcvCell));
 derive(_RcvField, Clone);
 // The aliased list the receiver is reached through. An `ArrayList` is a value
-// since B8, so a second handle to ONE list is spelled with a `ref` object
-// around it; `hs2 := hs` shares the object, and `hs2.xs.clear()` empties the
-// list the receiver borrows from.
-_RcvBag :: (fn(comptime(T) : Type) -> comptime(Type))(ref(struct(xs : ArrayList(T))));
-_RcvHolder :: struct(bag : _RcvBag(Rc(_RcvCell)));
-impl(_RcvHolder, first : (fn(self : &Self) -> &Rc(_RcvCell))(&self.bag.xs(usize(0))));
+// since B8, so a second handle to ONE list is spelled with a `RefCell`
+// around it; `hs2 := hs` shares the cell, and `hs2.with_mut(xs => xs.clear())`
+// empties the list the receiver borrows from.
+_RcvHolder :: struct(bag : RefCell(ArrayList(Rc(_RcvCell))));
+impl(_RcvHolder, first : (fn(self : &Self) -> Rc(_RcvCell))(self.bag.with(xs => xs(usize(0)))));
 _rcv_peek :: (fn(c : &_RcvCell, act : &Impl(Fn() -> unit)) -> i32)({
   act();
   _rcv_drops + (c.n - c.n)
 });
 test("a receiver reached through an Rc element outlives a closure that drops the last other handle", {
   _rcv_drops = i32(0);
-  hs := _RcvBag(Rc(_RcvCell))(xs : ArrayList(Rc(_RcvCell)).new());
-  hs.xs.push(Rc.new(_RcvCell(n : i32(1))));
+  hs := RefCell(ArrayList(Rc(_RcvCell))).new(ArrayList(Rc(_RcvCell)).new());
+  hs.with_mut(xs => xs.push(Rc.new(_RcvCell(n : i32(1)))));
   hs2 := hs;
   assert(
-    hs.xs(usize(0)).peek(() => {
-      hs2.xs.clear();
+    hs.with(xs => xs(usize(0))).peek(() => {
+      hs2.with_mut(xs => xs.clear());
     }) == i32(0),
     "auto-dereferenced receiver: the cell outlives the call"
   );
   assert(_rcv_drops == i32(1), "and is destroyed once, after it");
-  hs.xs.push(Rc.new(_RcvCell(n : i32(2))));
+  hs.with_mut(xs => xs.push(Rc.new(_RcvCell(n : i32(2)))));
   assert(
-    hs.xs(usize(0)).*.peek(() => {
-      hs2.xs.clear();
+    hs.with(xs => xs(usize(0))).*.peek(() => {
+      hs2.with_mut(xs => xs.clear());
     }) == i32(1),
     "written `.*` receiver"
   );
   assert(_rcv_drops == i32(2), "destroyed once");
-  hs.xs.push(Rc.new(_RcvCell(n : i32(3))));
+  hs.with_mut(xs => xs.push(Rc.new(_RcvCell(n : i32(3)))));
   assert(
-    _rcv_peek(&hs.xs(usize(0)).*, () => {
-      hs2.xs.clear();
+    _rcv_peek(&hs.with(xs => xs(usize(0))), () => {
+      hs2.with_mut(xs => xs.clear());
     }) == i32(2),
     "a `&` argument through the handle"
   );
   assert(_rcv_drops == i32(3), "destroyed once");
   h := _RcvHolder(bag : hs);
-  hs2.xs.push(Rc.new(_RcvCell(n : i32(4))));
+  hs2.with_mut(xs => xs.push(Rc.new(_RcvCell(n : i32(4)))));
   assert(
-    h.bag.xs(usize(0)).peek(() => {
-      hs2.xs.clear();
+    h.bag.with(xs => xs(usize(0))).peek(() => {
+      hs2.with_mut(xs => xs.clear());
     }) == i32(3),
     "an element of a field"
   );
   assert(_rcv_drops == i32(4), "destroyed once");
-  hs2.xs.push(Rc.new(_RcvCell(n : i32(5))));
+  hs2.with_mut(xs => xs.push(Rc.new(_RcvCell(n : i32(5)))));
   assert(
     h.first().peek(() => {
-      hs2.xs.clear();
+      hs2.with_mut(xs => xs.clear());
     }) == i32(4),
     "a handle returned by a projection call"
   );
@@ -3264,42 +2811,42 @@ test("a receiver reached through an Rc element outlives a closure that drops the
 });
 test("a receiver behind a field, nested handles or an Arc outlives the closure too", {
   _rcv_drops = i32(0);
-  fs := _RcvBag(_RcvField)(xs : ArrayList(_RcvField).new());
-  fs.xs.push(_RcvField(r : Rc.new(_RcvCell(n : i32(1)))));
+  fs := RefCell(ArrayList(_RcvField)).new(ArrayList(_RcvField).new());
+  fs.with_mut(xs => xs.push(_RcvField(r : Rc.new(_RcvCell(n : i32(1))))));
   fs2 := fs;
   assert(
-    fs.xs(usize(0)).r.peek(() => {
-      fs2.xs.clear();
+    fs.with(xs => xs(usize(0))).r.peek(() => {
+      fs2.with_mut(xs => xs.clear());
     }) == i32(0),
     "an Rc field of an element"
   );
   assert(_rcv_drops == i32(1), "destroyed once");
-  nested := _RcvBag(Rc(Rc(_RcvCell)))(xs : ArrayList(Rc(Rc(_RcvCell))).new());
-  nested.xs.push(Rc.new(Rc.new(_RcvCell(n : i32(2)))));
+  nested := RefCell(ArrayList(Rc(Rc(_RcvCell)))).new(ArrayList(Rc(Rc(_RcvCell))).new());
+  nested.with_mut(xs => xs.push(Rc.new(Rc.new(_RcvCell(n : i32(2))))));
   nested2 := nested;
   assert(
-    nested.xs(usize(0)).peek(() => {
-      nested2.xs.clear();
+    nested.with(xs => xs(usize(0))).peek(() => {
+      nested2.with_mut(xs => xs.clear());
     }) == i32(1),
     "Rc(Rc(T)): the inner handle holds the payload"
   );
   assert(_rcv_drops == i32(2), "destroyed once");
-  boxed := _RcvBag(Rc(Box(_RcvCell)))(xs : ArrayList(Rc(Box(_RcvCell))).new());
-  boxed.xs.push(Rc.new(Box.new(_RcvCell(n : i32(3)))));
+  boxed := RefCell(ArrayList(Rc(Box(_RcvCell)))).new(ArrayList(Rc(Box(_RcvCell))).new());
+  boxed.with_mut(xs => xs.push(Rc.new(Box.new(_RcvCell(n : i32(3))))));
   boxed2 := boxed;
   assert(
-    boxed.xs(usize(0)).peek(() => {
-      boxed2.xs.clear();
+    boxed.with(xs => xs(usize(0))).peek(() => {
+      boxed2.with_mut(xs => xs.clear());
     }) == i32(2),
     "Rc(Box(T)): the Rc owns the box"
   );
   assert(_rcv_drops == i32(3), "destroyed once");
-  shared := _RcvBag(Arc(_RcvCell))(xs : ArrayList(Arc(_RcvCell)).new());
-  shared.xs.push(Arc.new(_RcvCell(n : i32(4))));
+  shared := RefCell(ArrayList(Arc(_RcvCell))).new(ArrayList(Arc(_RcvCell)).new());
+  shared.with_mut(xs => xs.push(Arc.new(_RcvCell(n : i32(4)))));
   shared2 := shared;
   assert(
-    shared.xs(usize(0)).peek(() => {
-      shared2.xs.clear();
+    shared.with(xs => xs(usize(0))).peek(() => {
+      shared2.with_mut(xs => xs.clear());
     }) == i32(3),
     "an Arc element"
   );
@@ -3309,12 +2856,12 @@ test("a receiver behind a field, nested handles or an Arc outlives the closure t
 // state machine's path too, across the awaits around the call.
 _rcv_in_task :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
-    hs := _RcvBag(Rc(_RcvCell))(xs : ArrayList(Rc(_RcvCell)).new());
-    hs.xs.push(Rc.new(_RcvCell(n : i32(1))));
+    hs := RefCell(ArrayList(Rc(_RcvCell))).new(ArrayList(Rc(_RcvCell)).new());
+    hs.with_mut(xs => xs.push(Rc.new(_RcvCell(n : i32(1)))));
     hs2 := hs;
     io.await(yield(io), io);
-    seen := hs.xs(usize(0)).peek(() => {
-      hs2.xs.clear();
+    seen := hs.with(xs => xs(usize(0))).peek(() => {
+      hs2.with_mut(xs => xs.clear());
     });
     io.await(yield(io), io);
     seen
@@ -3336,21 +2883,21 @@ impl(
 );
 _RcvTextField :: struct(t : _RcvText);
 test("a copyable receiver behind a Box or a value field of an element keeps its value", {
-  bs := _RcvBag(Box(_RcvText))(xs : ArrayList(Box(_RcvText)).new());
-  bs.xs.push(Box.new(_RcvText(s : String.from("hello"))));
+  bs := RefCell(ArrayList(Box(_RcvText))).new(ArrayList(Box(_RcvText)).new());
+  bs.with_mut(xs => xs.push(Box.new(_RcvText(s : String.from("hello")))));
   bs2 := bs;
   assert(
-    bs.xs(usize(0)).peek_len(() => {
-      bs2.xs.clear();
+    bs.with(xs => xs(usize(0))).peek_len(() => {
+      bs2.with_mut(xs => xs.clear());
     }) == usize(5),
     "Box element"
   );
-  vs := _RcvBag(_RcvTextField)(xs : ArrayList(_RcvTextField).new());
-  vs.xs.push(_RcvTextField(t : _RcvText(s : String.from("hello"))));
+  vs := RefCell(ArrayList(_RcvTextField)).new(ArrayList(_RcvTextField).new());
+  vs.with_mut(xs => xs.push(_RcvTextField(t : _RcvText(s : String.from("hello")))));
   vs2 := vs;
   assert(
-    vs.xs(usize(0)).t.peek_len(() => {
-      vs2.xs.clear();
+    vs.with(xs => xs(usize(0))).t.peek_len(() => {
+      vs2.with_mut(xs => xs.clear());
     }) == usize(5),
     "a value field of an element"
   );
@@ -3697,22 +3244,23 @@ test("a generic recursive enum held 12 struct levels deep drops every node once"
 // captured tuple was never retained. Each `_TupCopyT` adds its `v` to the
 // counter when dropped, so a sum checks every cell is dropped exactly once.
 (mut(g_tup_copy_drops) : i32) = i32(0);
-_TupCopyT :: ref(struct(v : i32));
+_TupCopyInner :: struct(v : i32);
 impl(
-  _TupCopyT,
+  _TupCopyInner,
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
       g_tup_copy_drops = (g_tup_copy_drops + self.v);
     })
   )
 );
+_TupCopyT :: Rc(_TupCopyInner);
 _tup_copy_sum :: (fn(p : Tuple(_TupCopyT, _TupCopyT), n : i32) -> i32)(
   cond((n == i32(0)) => (p.0.v + p.1.v), true => recur(p, n - i32(1)))
 );
 test("a named tuple copied into a tuple literal keeps every counted field", {
   before := g_tup_copy_drops;
   {
-    x1 := (_TupCopyT(v : i32(1)), _TupCopyT(v : i32(2)));
+    x1 := (Rc.new(_TupCopyInner(v : i32(1))), Rc.new(_TupCopyInner(v : i32(2))));
     x2 := (x1, i32(0));
     assert((x2.0.0.v == i32(1)) && (x2.0.1.v == i32(2)), "both fields of the copy");
     assert((x1.0.v + x1.1.v) == i32(3), "the source is intact");
@@ -3722,7 +3270,7 @@ test("a named tuple copied into a tuple literal keeps every counted field", {
 test("a tuple holding one cell twice, copied into a tuple literal, drops it once", {
   before := g_tup_copy_drops;
   {
-    x0 := _TupCopyT(v : i32(4));
+    x0 := Rc.new(_TupCopyInner(v : i32(4)));
     x1 := (x0, x0);
     x2 := (x1, i32(0));
     assert((x2.0.0.v + x2.0.1.v) == i32(8), "both fields of the copy");
@@ -3732,7 +3280,7 @@ test("a tuple holding one cell twice, copied into a tuple literal, drops it once
 test("a named tuple copied into an array literal keeps every counted field", {
   before := g_tup_copy_drops;
   {
-    x1 := (_TupCopyT(v : i32(1)), _TupCopyT(v : i32(2)));
+    x1 := (Rc.new(_TupCopyInner(v : i32(1))), Rc.new(_TupCopyInner(v : i32(2))));
     a := [x1, x1];
     assert((a(usize(0)).0.v + a(usize(1)).1.v) == i32(3), "fields of both copies");
     assert((x1.0.v + x1.1.v) == i32(3), "the source is intact");
@@ -3742,7 +3290,7 @@ test("a named tuple copied into an array literal keeps every counted field", {
 test("a named tuple passed to recur keeps every counted field", {
   before := g_tup_copy_drops;
   {
-    x1 := (_TupCopyT(v : i32(5)), _TupCopyT(v : i32(6)));
+    x1 := (Rc.new(_TupCopyInner(v : i32(5))), Rc.new(_TupCopyInner(v : i32(6))));
     assert(_tup_copy_sum(x1, i32(3)) == i32(11), "recur saw both fields");
     assert(_tup_copy_sum(x1, i32(2)) == i32(11), "the source is intact");
   };
@@ -3751,7 +3299,7 @@ test("a named tuple passed to recur keeps every counted field", {
 test("a closure capturing a named tuple retains it", {
   before := g_tup_copy_drops;
   {
-    x1 := (_TupCopyT(v : i32(1)), _TupCopyT(v : i32(2)));
+    x1 := (Rc.new(_TupCopyInner(v : i32(1))), Rc.new(_TupCopyInner(v : i32(2))));
     {
       (f : Impl(Fn() -> i32)) = (() => (x1.0.v + x1.1.v));
       assert(f() == i32(3), "the closure reads both fields");
@@ -3763,8 +3311,8 @@ test("a closure capturing a named tuple retains it", {
 test("a closure capturing a nested tuple and an array retains every cell", {
   before := g_tup_copy_drops;
   {
-    x1 := ((_TupCopyT(v : i32(1)), _TupCopyT(v : i32(2))), _TupCopyT(v : i32(4)));
-    a := [_TupCopyT(v : i32(8)), _TupCopyT(v : i32(16))];
+    x1 := ((Rc.new(_TupCopyInner(v : i32(1))), Rc.new(_TupCopyInner(v : i32(2)))), Rc.new(_TupCopyInner(v : i32(4))));
+    a := [Rc.new(_TupCopyInner(v : i32(8))), Rc.new(_TupCopyInner(v : i32(16)))];
     {
       (f : Impl(Fn() -> i32)) = (() => (x1.0.0.v + x1.0.1.v + x1.1.v + (a(usize(0)).v + a(usize(1)).v)));
       assert(f() == i32(31), "the closure reads every field");
@@ -3776,7 +3324,7 @@ test("a closure capturing a nested tuple and an array retains every cell", {
 test("a named tuple copied as a block's last expression in a cond arm keeps every counted field", {
   before := g_tup_copy_drops;
   {
-    x1 := (_TupCopyT(v : i32(1)), _TupCopyT(v : i32(2)));
+    x1 := (Rc.new(_TupCopyInner(v : i32(1))), Rc.new(_TupCopyInner(v : i32(2))));
     c := (g_tup_copy_drops >= i32(0));
     y := cond(
       c => {
@@ -3795,7 +3343,7 @@ test("a named tuple copied as a block's last expression in a cond arm keeps ever
 // read through an `Rc` stayed an inline C expression and ran after a later
 // argument released the handle; `_SeqRcH`'s destructor overwrites the field,
 // so the late read sees -100 (and ASan reports the heap-use-after-free). A
-// field read through a `ref` handle ran after a later argument wrote it
+// field read through a `RefCell` door ran after a later argument wrote it
 // through an alias
 // (issues/fixed/2026-10-25-an-rc-field-operand-is-read-after-a-later-argument-releases-the-handle.md).
 _SeqAcc :: struct(base : i32);
@@ -3816,11 +3364,14 @@ _seq_rc :: (fn() -> Rc(_SeqRcH))(Rc.new(_SeqRcH(tag : i32(2), acc : _SeqAcc(base
 _seq_eat :: (fn(sink(h) : Rc(_SeqRcH)) -> i32)(h.tag);
 _seq_sub :: (fn(a : i32, b : i32) -> i32)(a - b);
 _SeqPair :: struct(a : i32, b : i32);
-_SeqObj :: ref(struct(a : i32, b : i32));
+_SeqObj :: struct(a : i32, b : i32);
 _SeqE :: enum(P(a : i32, b : i32), Q);
-_SeqCell :: ref(struct(n : i32));
+_SeqCellInner :: struct(n : i32);
+_SeqCell :: RefCell(_SeqCellInner);
 _seq_set :: (fn(c : _SeqCell) -> i32)({
-  c.n = i32(10);
+  c.with_mut(v => {
+    v.n = i32(10);
+  });
   i32(1)
 });
 test("an Rc field operand is read before a later operand releases the handle", {
@@ -3848,8 +3399,8 @@ test("an Rc field operand is read before a later operand releases the handle", {
   };
   {
     h := _seq_rc();
-    o := _SeqObj(a : h.tag, b : _seq_eat(h));
-    assert((o.a - o.b) == i32(0), "ref-struct constructor");
+    o := Rc.new(_SeqObj(a : h.tag, b : _seq_eat(h)));
+    assert((o.a - o.b) == i32(0), "Rc-struct constructor");
   };
   {
     h := _seq_rc();
@@ -3872,22 +3423,22 @@ test("an Rc field operand is read before a later operand releases the handle", {
     assert(f(h.tag, _seq_eat(h)) == i32(0), "closure call argument");
   };
 });
-test("a ref-handle field operand is read before a later operand writes it through an alias", {
+test("a RefCell field operand is read before a later operand writes it through an alias", {
   {
-    c := _SeqCell(n : i32(3));
+    c := _SeqCell(_SeqCellInner).new(_SeqCellInner(n : i32(3)));
     c2 := c;
-    assert((c.n - _seq_set(c2)) == i32(2), "operator");
+    assert((c.with(v => v.n) - _seq_set(c2)) == i32(2), "operator");
   };
   {
-    c := _SeqCell(n : i32(3));
+    c := _SeqCell(_SeqCellInner).new(_SeqCellInner(n : i32(3)));
     c2 := c;
-    t := (c.n, _seq_set(c2));
+    t := (c.with(v => v.n), _seq_set(c2));
     assert((t.0 - t.1) == i32(2), "tuple");
   };
   {
-    c := _SeqCell(n : i32(3));
+    c := _SeqCell(_SeqCellInner).new(_SeqCellInner(n : i32(3)));
     c2 := c;
-    p := _SeqPair(a : c.n, b : _seq_set(c2));
+    p := _SeqPair(a : c.with(v => v.n), b : _seq_set(c2));
     assert((p.a - p.b) == i32(2), "constructor");
   };
 });

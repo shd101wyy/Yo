@@ -54,13 +54,13 @@ mangle_vc_name :: (fn(fn_prefix : &String, name : &String) -> String)(
 encode_sort :: (fn(s : &VcSort) -> String)(
   match(
     s,
-    .BoolS => String.from("Bool"),
-    .BvS(w) => `(_ BitVec ${w.to_string()})`,
-    .DataS(name) => name.clone(),
-    .SeqS(elem) => `(Seq ${encode_sort(&elem.*)})`,
-    .FunS(domain, range) => `(Array ${encode_sort(&domain.*)} ${encode_sort(&range.*)})`,
-    .ArrS(elem, _) => `(Array (_ BitVec 64) ${encode_sort(&elem.*)})`,
-    .Uninterpreted(name) => name.clone()
+    Rc(.BoolS) => String.from("Bool"),
+    Rc(.BvS(w)) => `(_ BitVec ${w.to_string()})`,
+    Rc(.DataS(name)) => name.clone(),
+    Rc(.SeqS(elem)) => `(Seq ${encode_sort(&elem.*)})`,
+    Rc(.FunS(domain, range)) => `(Array ${encode_sort(&domain.*)} ${encode_sort(&range.*)})`,
+    Rc(.ArrS(elem, _)) => `(Array (_ BitVec 64) ${encode_sort(&elem.*)})`,
+    Rc(.Uninterpreted(name)) => name.clone()
   )
 );
 // ============================================================================
@@ -144,13 +144,13 @@ encode_fundecl :: (fn(elem : &VcSort) -> String)(
 _msof_key :: (fn(elem : &VcSort) -> String)(
   match(
     elem,
-    .BoolS => String.from("bool"),
-    .BvS(w) => `bv${w.to_string()}`,
-    .DataS(name) => name.clone(),
-    .SeqS(e) => `seq_${_msof_key(&e.*)}`,
-    .FunS(d, r) => `arr_${_msof_key(&d.*)}_${_msof_key(&r.*)}`,
-    .ArrS(e, _) => `arr_${_msof_key(&e.*)}`,
-    .Uninterpreted(name) => name.clone()
+    Rc(.BoolS) => String.from("bool"),
+    Rc(.BvS(w)) => `bv${w.to_string()}`,
+    Rc(.DataS(name)) => name.clone(),
+    Rc(.SeqS(e)) => `seq_${_msof_key(&e.*)}`,
+    Rc(.FunS(d, r)) => `arr_${_msof_key(&d.*)}_${_msof_key(&r.*)}`,
+    Rc(.ArrS(e, _)) => `arr_${_msof_key(&e.*)}`,
+    Rc(.Uninterpreted(name)) => name.clone()
   )
 );
 // ============================================================================

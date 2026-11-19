@@ -352,7 +352,7 @@ _reject_private_method_call :: (
     }
   );
   name_tok := ast_expr_token(&name_expr);
-  owner := match(mi.all_hits.get(usize(0)), .Some(h) => h.owner.clone(), .None => String.new());
+  owner := match(mi.all_hits.get_cloned(usize(0)), .Some(h) => h.owner.clone(), .None => String.new());
   owner_opt := cond((owner.len() > usize(0)) => Option(String).Some(owner), true => Option(String).None);
   if(private_member_blocked(name_tok.value.*.clone(), &owner_opt, &name_tok.module_path.*), {
     recv_str := cond(
@@ -601,7 +601,7 @@ _reject_explicit_destructor_call :: (fn(callee : &AstExpr, call_args : Option(Ar
         (hi : usize) = usize(0);
         while(hi < hits.len(), hi = (hi + usize(1)), {
           match(
-            hits.get(hi),
+            hits.get_cloned(hi),
             .Some(h) => cond(
               h.source_trait_id.is_empty() => {
                 inherent = true;
@@ -1434,7 +1434,7 @@ _r_probe_candidates :: (
   (bi : usize) = usize(0);
   while(bi < base_hits.len(), {
     match(
-      base_hits.get(bi),
+      base_hits.get_cloned(bi),
       .Some(h) => {
         if(probe_refs, {
           seen.push(_method_entry_identity(&h));
@@ -1456,7 +1456,7 @@ _r_probe_candidates :: (
     (ri : usize) = usize(0);
     while(ri < ref_hits.len(), {
       match(
-        ref_hits.get(ri),
+        ref_hits.get_cloned(ri),
         .Some(h) => {
           hid := _method_entry_identity(&h);
           (dup : bool) = false;
@@ -1486,7 +1486,7 @@ _r_probe_candidates :: (
   pool_ranks := ArrayList(usize).new();
   (pi : usize) = usize(0);
   while(pi < pool.len(), {
-    match(pool.get(pi), .Some(h) => pool_ranks.push(_r_probe_rank(&h, ref_mode)), .None => pool_ranks.push(usize(9)));
+    match(pool.get_cloned(pi), .Some(h) => pool_ranks.push(_r_probe_rank(&h, ref_mode)), .None => pool_ranks.push(usize(9)));
     pi = (pi + usize(1));
   });
   (rank : usize) = usize(0);
@@ -1495,7 +1495,7 @@ _r_probe_candidates :: (
     while(qi < pool.len(), {
       if(match(pool_ranks.get(qi), .Some(r) => (r == rank), .None => false), {
         match(
-          pool.get(qi),
+          pool.get_cloned(qi),
           .Some(h) => {
             out_hits.push(h);
             out_ranks.push(rank);
@@ -1522,8 +1522,8 @@ _rprobe_audit_gate :: (
   (ai : usize) = usize(0);
   while(same && (ai < full.hits.len()), {
     same = match(
-      full.hits.get(ai),
-      .Some(fh) => match(gated.hits.get(ai), .Some(gh) => (_method_entry_identity(&fh) == _method_entry_identity(&gh)), .None => false),
+      full.hits.get_cloned(ai),
+      .Some(fh) => match(gated.hits.get_cloned(ai), .Some(gh) => (_method_entry_identity(&fh) == _method_entry_identity(&gh)), .None => false),
       .None => false
     );
     ai = (ai + usize(1));
@@ -1735,7 +1735,7 @@ _find_receiver_method_of :: (
         while(pf_i < probed.hits.len(), {
           keep := match(probed.receivers.get_cloned(pf_i), .Some(pr) => t_slot_is_borrow(&pr), .None => true);
           if(keep, {
-            match(probed.hits.get(pf_i), .Some(h) => hits.push(h), .None => ());
+            match(probed.hits.get_cloned(pf_i), .Some(h) => hits.push(h), .None => ());
             match(probed.ranks.get(pf_i), .Some(r) => probe_ranks.push(r), .None => ());
             match(probed.receivers.get_cloned(pf_i), .Some(pr) => probe_receivers.push(pr), .None => ());
           });
@@ -1818,7 +1818,7 @@ _find_receiver_method_of :: (
   // Take the first hit ("first match wins" contract — the call site does
   // parameter unification later).
   first := match(
-    hits.get(usize(0)),
+    hits.get_cloned(usize(0)),
     .Some(m) => m,
     .None => {
       return(Option(ReceiverMethodResult).None);
@@ -2223,7 +2223,7 @@ _sai_instance_method_takes_self :: (fn(env : &Environment, m : &String, self_ty 
   (found : bool) = false;
   (hi : usize) = usize(0);
   while((hi < hits.len()) && !found, hi = (hi + usize(1)), {
-    found = match(hits.get(hi), .Some(h) => _sai_param0_is_self(&h.ty, self_ty), .None => false);
+    found = match(hits.get_cloned(hi), .Some(h) => _sai_param0_is_self(&h.ty, self_ty), .None => false);
   });
   found
 });
@@ -2302,14 +2302,14 @@ _sai_normalize_binder_levels :: (fn(ty : &TypeValue, names : &ArrayList(String),
       match(
         all.get_cloned(ai),
         .Some(Rc(.SomeT({ name : a_name, frame_level : a_lvl }))) => if((a_name == b_name) && (a_lvl != b_lvl), {
-          subst_add(&s, &b_name, a_lvl, &b_some);
+          subst_add(&mut s, &b_name, a_lvl, &b_some);
           added = true;
         }),
         _ => ()
       );
     });
   });
-  cond(added => substitute(&s, ty), true => ty.clone())
+  cond(added => substitute(&mut s, ty), true => ty.clone())
 });
 /// Does `ty` mention one of the binders `names`?
 _sai_mentions_binder :: (fn(ty : &TypeValue, names : &ArrayList(String)) -> bool)({
@@ -2455,7 +2455,7 @@ _sai_instantiate :: (fn(c : &CtorMethodImpl, bindings : &ArrayList(Option(TypeVa
       bindings.get_cloned(bi),
       .Some(.Some(bty)) => match(
         c.binder_types.get_cloned(bi),
-        .Some(Rc(.SomeT({ frame_level : lvl }))) => subst_add(&s, &b_name, lvl, &bty),
+        .Some(Rc(.SomeT({ frame_level : lvl }))) => subst_add(&mut s, &b_name, lvl, &bty),
         _ => ()
       ),
       _ => ()
@@ -2468,7 +2468,7 @@ _sai_instantiate :: (fn(c : &CtorMethodImpl, bindings : &ArrayList(Option(TypeVa
     match(
       targs.get_cloned(ti),
       .Some(ta) => {
-        arg_ty := substitute(&s, &ta);
+        arg_ty := substitute(&mut s, &ta);
         aid := alloc_global_expr_id();
         a_info := new_expr_info(env, t_type());
         a_info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.TypeVal(arg_ty.clone()))));
@@ -6199,7 +6199,7 @@ _freshen_io_builtin_callee :: (fn(ft : &TypeValue) -> TypeValue)(
               fbntt := fbrtt_bnd.negative();
               fbntl := fbrtt_bnd.negative_levels();
               subst_add(
-                &fbs,
+                &mut fbs,
                 fbn.clone(),
                 fbl,
                 Rc.new(
@@ -6221,7 +6221,7 @@ _freshen_io_builtin_callee :: (fn(ft : &TypeValue) -> TypeValue)(
         );
         fb_i = (fb_i + usize(1));
       });
-      substitute(&fbs, ft.clone())
+      substitute(&mut fbs, ft.clone())
     },
     _ => Rc.clone(ft)
   )
@@ -6476,7 +6476,7 @@ _gc_freshen_all_sites :: (
           match(
             fresh_types.get_cloned(sk),
             .Some(s_rep) => {
-              subst_add(&gs, s_nm.clone(), s_lvl, &s_rep);
+              subst_add(&mut gs, s_nm.clone(), s_lvl, &s_rep);
             },
             .None => ()
           );
@@ -6486,7 +6486,7 @@ _gc_freshen_all_sites :: (
     });
     si = (si + usize(1));
   });
-  substitute(&gs, ft.clone())
+  substitute(&mut gs, ft.clone())
 });
 _gc_ids_str :: (fn(ids : &ArrayList(String)) -> String)({
   (out : String) = String.new();
@@ -7090,7 +7090,7 @@ _fv_refine_closure_expected :: (
           match(
             mentioned.get_cloned(ms_i),
             .Some(Rc(.SomeT({ name : sg_n, frame_level : sg_l }))) => if(sg_n == f_name, {
-              subst_add(&sb, &sg_n, sg_l, &ft);
+              subst_add(&mut sb, &sg_n, sg_l, &ft);
               any = true;
             }),
             .Some(_) => (),
@@ -7103,7 +7103,7 @@ _fv_refine_closure_expected :: (
     );
   });
   cond(
-    any => substitute(&sb, param_ty),
+    any => substitute(&mut sb, param_ty),
     true => Rc.clone(param_ty)
   )
 });
@@ -8220,7 +8220,7 @@ _evaluate_funcval_runtime_call :: (
               bn := match(fa_bound_names.get_cloned(bni), .Some(x) => x, .None => String.from(""));
               if(bn == rst_name, {
                 bt := match(fa_bound_types.get_cloned(bni), .Some(t) => t, .None => t_unit());
-                subst_add(&s_ret, rst_name.clone(), rst_lvl, &bt);
+                subst_add(&mut s_ret, rst_name.clone(), rst_lvl, &bt);
                 s_ret_any = true;
               });
               bni = (bni + usize(1));
@@ -8231,7 +8231,7 @@ _evaluate_funcval_runtime_call :: (
         rsi = (rsi + usize(1));
       });
       if(s_ret_any, {
-        resolved_ret = substitute(&s_ret, ret_type);
+        resolved_ret = substitute(&mut s_ret, ret_type);
       });
     });
   });
@@ -9125,7 +9125,7 @@ _operator_reference_operand :: (
   rhs_ty := variable_slot_type(&rhs_v);
   (ci : usize) = usize(0);
   while(ci < cands.len(), ci = (ci + usize(1)), {
-    c_slots := match(cands.get(ci), .Some(c) => fn_param_slots(&c.ty), .None => return(false));
+    c_slots := match(cands.get_cloned(ci), .Some(c) => fn_param_slots(&c.ty), .None => return(false));
     match(
       (c_slots.get(usize(0)), c_slots.get(usize(1))),
       (.Some(lhs_slot), .Some(rhs_slot)) => {
@@ -11073,7 +11073,7 @@ _evaluate_function_call_unanchored :: (
     });
     if(op_methods.len() > usize(0), {
       first_m_0 := match(
-        op_methods.get(usize(0)),
+        op_methods.get_cloned(usize(0)),
         .Some(m) => m,
         .None => return(Rc.clone(expr.*))
       );
@@ -11102,7 +11102,7 @@ _evaluate_function_call_unanchored :: (
             (osi : usize) = usize(0);
             (osel : bool) = false;
             while((osi < op_methods.len()) && !osel, {
-              ocand := match(op_methods.get(osi), .Some(m) => m, .None => first_m_0);
+              ocand := match(op_methods.get_cloned(osi), .Some(m) => m, .None => first_m_0);
               ocand_p1 := match(
                 &ocand.ty,
                 Rc(.Func({ param_types : ocpt })) => match(slot_pointee_at(&ocpt.*, usize(1)), .Some(t) => t, .None => t_unit()),
@@ -11119,7 +11119,7 @@ _evaluate_function_call_unanchored :: (
         );
       });
       first_m := match(
-        op_methods.get(chosen_idx),
+        op_methods.get_cloned(chosen_idx),
         .Some(m) => m,
         .None => first_m_0
       );
@@ -11293,7 +11293,7 @@ _evaluate_function_call_unanchored :: (
         (ocm_i : usize) = usize(0);
         while((ocm_i < op_methods.len()) && op_comptime_m.is_none(), {
           match(
-            op_methods.get(ocm_i),
+            op_methods.get_cloned(ocm_i),
             .Some(ocm) => if(match(&ocm.ty, Rc(.Func({ meta : __fm1 })) => __fm1.result_is_comptime_only, _ => false), {
               op_comptime_m = Option(MethodEntry).Some(ocm);
             }),
@@ -11319,7 +11319,7 @@ _evaluate_function_call_unanchored :: (
         oac_n := call_result_op.arg_values.args.len();
         while((oac_i < oac_n) && all_conc, {
           match(
-            call_result_op.arg_values.args.get(oac_i),
+            call_result_op.arg_values.args.get_cloned(oac_i),
             .Some(ae) => match(
               ae.value.clone(),
               .Some(v) => if(is_unknown_val(&v), {
@@ -11358,7 +11358,7 @@ _evaluate_function_call_unanchored :: (
             (opi : usize) = usize(0);
             while(opi < op_pnames.len(), {
               opn := match(op_pnames.get_cloned(opi), .Some(n) => n, .None => String.from(""));
-              oa := match(call_result_op.arg_values.args.get(opi), .Some(e) => e, .None => ArgEntry(value : Option(EvalValue).None, parameter_type : t_unit(), arg_type : t_unit()));
+              oa := match(call_result_op.arg_values.args.get_cloned(opi), .Some(e) => e, .None => ArgEntry(value : Option(EvalValue).None, parameter_type : t_unit(), arg_type : t_unit()));
               _oap := add_variable_to_env(&op_env, &opn, &oa.arg_type, &oa.value, match(oa.value.clone(), .Some(_) => true, .None => false), false, false, false, synthetic_token(&opn, &op_env.module_path().*));
               opi = (opi + usize(1));
             });
@@ -11369,7 +11369,7 @@ _evaluate_function_call_unanchored :: (
           Option(AstExpr).Some(Rc.clone(func_expr)),
           &op_eff_m.ty,
           &op_fv,
-          &call_result_op.arg_values,
+          &mut call_result_op.arg_values,
           &call_result_op.caller_env,
           &op_env,
           ctx,
@@ -14424,7 +14424,7 @@ Fix: wrap the call:
             Option(AstExpr).Some(Rc.clone(func_expr)),
             &ct_func_type,
             &ct_func_value,
-            &ct_arg_values,
+            &mut ct_arg_values,
             env,
             &fresh_env,
             ctx,
@@ -14549,7 +14549,7 @@ Fix: wrap the call:
                       ct_bn := match(fa_bound_names.get_cloned(ct_bni), .Some(x) => x, .None => String.from(""));
                       if(ct_bn == ct_rst_name, {
                         ct_bt := match(fa_bound_types.get_cloned(ct_bni), .Some(t) => t, .None => t_unit());
-                        subst_add(&s_ct_ret, ct_rst_name.clone(), ct_rst_lvl, &ct_bt);
+                        subst_add(&mut s_ct_ret, ct_rst_name.clone(), ct_rst_lvl, &ct_bt);
                         s_ct_any = true;
                       });
                       ct_bni = (ct_bni + usize(1));
@@ -14560,7 +14560,7 @@ Fix: wrap the call:
                 ctsi = (ctsi + usize(1));
               });
               if(s_ct_any, {
-                ct_res_ret = substitute(&s_ct_ret, &ct_res_ret);
+                ct_res_ret = substitute(&mut s_ct_ret, &ct_res_ret);
               });
             });
             ct_res_ret = evaluate_function_return_type_again(&ct_res_ret, &fresh_env, ctx);
@@ -15248,7 +15248,7 @@ Fix: wrap the call:
                       (rm_done : bool) = false;
                       while((rm_ei < rm_entries.len()) && !rm_done, {
                         match(
-                          rm_entries.get(rm_ei),
+                          rm_entries.get_cloned(rm_ei),
                           .Some(rm_e) => match(
                             rm_e.value.clone(),
                             .Some(rm_ev) => {
@@ -15316,16 +15316,12 @@ Fix: wrap the call:
               match(
                 method_info.receiver_value.clone(),
                 .Some(rcv_val) => if(!is_unknown_val(&rcv_val), {
-                  match(
-                    call_result_m.arg_values.args.get(usize(0)),
-                    .Some(self_ae) => {
-                      self_needs_value := match(self_ae.value.clone(), .Some(sv) => is_unknown_val(&sv), .None => true);
-                      if(self_needs_value, {
-                        self_ae.value = Option(EvalValue).Some(Rc.clone(rcv_val));
-                      });
-                    },
-                    .None => ()
-                  );
+                  call_result_m.arg_values.args.with(usize(0), self_ae => {
+                    self_needs_value := match(self_ae.value.clone(), .Some(sv) => is_unknown_val(&sv), .None => true);
+                    if(self_needs_value, {
+                      self_ae.value = Option(EvalValue).Some(Rc.clone(rcv_val));
+                    });
+                  });
                 }),
                 .None => ()
               );
@@ -15355,7 +15351,7 @@ Fix: wrap the call:
                 (mpi : usize) = usize(0);
                 while(mpi < m_pnames.len(), {
                   mpn := match(m_pnames.get_cloned(mpi), .Some(n) => n, .None => String.from(""));
-                  ma := match(call_result_m.arg_values.args.get(mpi), .Some(e) => e, .None => ArgEntry(value : Option(EvalValue).None, parameter_type : t_unit(), arg_type : t_unit()));
+                  ma := match(call_result_m.arg_values.args.get_cloned(mpi), .Some(e) => e, .None => ArgEntry(value : Option(EvalValue).None, parameter_type : t_unit(), arg_type : t_unit()));
                   _map := add_variable_to_env(&m_env, &mpn, &ma.arg_type, &ma.value, match(ma.value.clone(), .Some(_) => true, .None => false), false, false, false, synthetic_token(&mpn, &m_env.module_path().*));
                   mpi = (mpi + usize(1));
                 });
@@ -15366,7 +15362,7 @@ Fix: wrap the call:
               Option(AstExpr).Some(m_callee.clone()),
               &method_info.method_ty,
               &m_fv,
-              &call_result_m.arg_values,
+              &mut call_result_m.arg_values,
               &call_result_m.caller_env,
               &m_env,
               ctx,

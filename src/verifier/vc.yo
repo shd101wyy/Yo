@@ -406,9 +406,9 @@ _list_elem_sort :: (fn(t : &TypeValue) -> Option(VcSort))(
     _list_elem_type(t),
     .Some(let_t) => match(
       _int_width(t_refine_inner(&let_t)),
-      .Some(lw) => Option(VcSort).Some(VcSort.BvS(width : lw)),
+      .Some(lw) => Option(VcSort).Some(Rc.new(VcSortNode.BvS(width : lw))),
       .None => cond(
-        _is_bool_type(t_refine_inner(&let_t)) => Option(VcSort).Some(VcSort.BoolS),
+        _is_bool_type(t_refine_inner(&let_t)) => Option(VcSort).Some(Rc.new(VcSortNode.BoolS)),
         true => Option(VcSort).None
       )
     ),
@@ -424,7 +424,7 @@ _list_len_acc :: (fn(elem : &VcSort) -> String)(`${_list_ctor_name(elem)}_len`);
 _list_sort_elem :: (fn(s : &VcSort) -> Option(VcSort))(
   match(
     s,
-    .DataS(ds_name) => {
+    Rc(.DataS(ds_name)) => {
       (found : Option(VcSort)) = Option(VcSort).None;
       (li : usize) = usize(0);
       while((li < g_list_elem_sorts.with(_c_len_2)) && found.is_none(), {
@@ -517,7 +517,7 @@ _list_sort_of_ctor :: (fn(name : &String) -> Option(VcSort))({
     match(
       g_list_elem_sorts.with({ li }(xs) => xs.get(li)),
       .Some(es) => if(_list_ctor_name(&es) == name.*, {
-        found = Option(VcSort).Some(VcSort.DataS(name : _list_dt_name(&es)));
+        found = Option(VcSort).Some(Rc.new(VcSortNode.DataS(name : _list_dt_name(&es))));
       }),
       .None => ()
     );
@@ -536,7 +536,7 @@ _type_sort :: (fn(t : &TypeValue) -> Option(VcSort))(
       srt := _uninterpreted_sort_of(t);
       match(
         srt,
-        .Uninterpreted(nm) => {
+        Rc(.Uninterpreted(nm)) => {
           _register_uninterpreted_sort(nm.clone());
         },
         _ => ()
@@ -545,15 +545,15 @@ _type_sort :: (fn(t : &TypeValue) -> Option(VcSort))(
     },
     true => match(
       _int_width(t_refine_inner(t)),
-      .Some(w) => Option(VcSort).Some(VcSort.BvS(width : w)),
+      .Some(w) => Option(VcSort).Some(Rc.new(VcSortNode.BvS(width : w))),
       .None => cond(
-        _is_bool_type(t_refine_inner(t)) => Option(VcSort).Some(VcSort.BoolS),
+        _is_bool_type(t_refine_inner(t)) => Option(VcSort).Some(Rc.new(VcSortNode.BoolS)),
         // ArrayList(T) over a subset element type: the `List_<elem>` pair
         // datatype (R1 slice 1, above).
         _list_elem_sort(t).is_some() => {
           les := _list_elem_sort(t).unwrap();
           _register_list_datatype(&les);
-          Option(VcSort).Some(VcSort.DataS(name : _list_dt_name(&les)))
+          Option(VcSort).Some(Rc.new(VcSortNode.DataS(name : _list_dt_name(&les))))
         },
         // Fixed-length Array(T, N) (V5 task 6): a BV64-indexed SMT array;
         // the length rides the sort for bounds/ms_of. A `length_var`
@@ -563,7 +563,7 @@ _type_sort :: (fn(t : &TypeValue) -> Option(VcSort))(
           Rc(.Array(elem, len, lv)) => cond(
             ((lv.len() == usize(0)) && (len > usize(0))) => match(
               _type_sort(&elem),
-              .Some(es) => Option(VcSort).Some(VcSort.ArrS(elem : es, len : len)),
+              .Some(es) => Option(VcSort).Some(Rc.new(VcSortNode.ArrS(elem : es, len : len))),
               .None => Option(VcSort).None
             ),
             true => Option(VcSort).None
@@ -581,7 +581,7 @@ _enum_sort_or_none :: (fn(t : &TypeValue) -> Option(VcSort))(
     t,
     Rc(.EnumT({ id : e_id, is_reference_semantics : e_ref })) => cond(
       (e_ref.* || (e_id.len() == usize(0))) => Option(VcSort).None,
-      true => Option(VcSort).Some(VcSort.DataS(name : _enum_dt_name(e_id.clone())))
+      true => Option(VcSort).Some(Rc.new(VcSortNode.DataS(name : _enum_dt_name(e_id.clone()))))
     ),
     _ => Option(VcSort).None
   )
@@ -633,10 +633,12 @@ _is_some_t_type :: (fn(t : &TypeValue) -> bool)(
 _uninterpreted_sort_of :: (fn(t : &TypeValue) -> VcSort)(
   match(
     t,
-    Rc(.SomeT(id, name, _, _, _, _, _)) => VcSort.Uninterpreted(
-      name : `__yo_T_${_smt_sanitize(`${name}_${id}`)}`
+    Rc(.SomeT(id, name, _, _, _, _, _)) => Rc.new(
+      VcSortNode.Uninterpreted(
+        name : `__yo_T_${_smt_sanitize(`${name}_${id}`)}`
+      )
     ),
-    _ => VcSort.Uninterpreted(name : String.from("__yo_T_unknown"))
+    _ => Rc.new(VcSortNode.Uninterpreted(name : String.from("__yo_T_unknown")))
   )
 );
 /// Map every non-[A-Za-z0-9_] rune of `s` to `_` (SMT identifier rules).
@@ -1812,7 +1814,7 @@ _lit_term :: (fn(v : &EvalValue, sort : &VcSort) -> Option(VcTerm))(
     Rc(.BoolVal(b)) => Option(VcTerm).Some(Rc.new(VcTermNode.BoolLit(b.*))),
     Rc(.IntLit(raw)) => match(
       sort,
-      .BvS(w) => match(
+      Rc(.BvS(w)) => match(
         _int_lit_bits(raw.clone()),
         .Some(bits) => Option(VcTerm).Some(Rc.new(VcTermNode.BvLit(value : bits, width : w.*))),
         .None => Option(VcTerm).None
@@ -1855,8 +1857,8 @@ _app3 :: (fn(op : VcOp, a : &VcTerm, b : &VcTerm, c : &VcTerm) -> VcTerm)({
 /// a derived expression rather than a Var).
 _term_sort_of :: (fn(t : &VcTerm) -> VcSort)(
   cond(
-    (_term_width(t) > usize(1)) => VcSort.BvS(width : _term_width(t)),
-    true => VcSort.BoolS
+    (_term_width(t) > usize(1)) => Rc.new(VcSortNode.BvS(width : _term_width(t))),
+    true => Rc.new(VcSortNode.BoolS)
   )
 );
 /// A comptime str literal's bytes as a right-nested seq.++ of seq.unit.
@@ -1913,8 +1915,8 @@ _untyped_opaque_term :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))({
   if(lhs.is_none() || rhs.is_none(), {
     return(Option(VcTerm).None);
   });
-  ls := match(_term_sort(lhs.clone().unwrap()), .Some(.Uninterpreted(ln)) => ln.clone(), _ => String.new());
-  rs := match(_term_sort(rhs.clone().unwrap()), .Some(.Uninterpreted(rn)) => rn.clone(), _ => String.new());
+  ls := match(_term_sort(lhs.clone().unwrap()), .Some(Rc(.Uninterpreted(ln))) => ln.clone(), _ => String.new());
+  rs := match(_term_sort(rhs.clone().unwrap()), .Some(Rc(.Uninterpreted(rn))) => rn.clone(), _ => String.new());
   if((ls.len() == usize(0)) || (ls != rs), {
     return(Option(VcTerm).None);
   });
@@ -3547,16 +3549,16 @@ _havoc_binding_sort :: (fn(old : &VcTerm) -> VcSort)(
     Rc(.Ctor(cn, _)) => match(
       _list_sort_of_ctor(&cn.*),
       .Some(ls) => ls,
-      .None => VcSort.BoolS
+      .None => Rc.new(VcSortNode.BoolS)
     ),
     Rc(.App(.IteOp, iargs)) => match(
       iargs.get_cloned(usize(1)),
       .Some(then_t) => _havoc_binding_sort(&then_t),
-      .None => VcSort.BoolS
+      .None => Rc.new(VcSortNode.BoolS)
     ),
     _ => cond(
-      (_term_width(old) > usize(1)) => VcSort.BvS(width : _term_width(old)),
-      true => VcSort.BoolS
+      (_term_width(old) > usize(1)) => Rc.new(VcSortNode.BvS(width : _term_width(old))),
+      true => Rc.new(VcSortNode.BoolS)
     )
   )
 );
@@ -3569,10 +3571,10 @@ _vc_term_sort :: (fn(ctx : &VcCtx, t : &VcTerm) -> Option(VcSort))(
   match(
     t,
     Rc(.Var(_, s)) => Option(VcSort).Some(s.*),
-    Rc(.BvLit(_, w)) => Option(VcSort).Some(VcSort.BvS(width : w.*)),
-    Rc(.BoolLit(_)) => Option(VcSort).Some(VcSort.BoolS),
-    Rc(.Test(_, _)) => Option(VcSort).Some(VcSort.BoolS),
-    Rc(.Quant(_, _, _, _, _)) => Option(VcSort).Some(VcSort.BoolS),
+    Rc(.BvLit(_, w)) => Option(VcSort).Some(Rc.new(VcSortNode.BvS(width : w.*))),
+    Rc(.BoolLit(_)) => Option(VcSort).Some(Rc.new(VcSortNode.BoolS)),
+    Rc(.Test(_, _)) => Option(VcSort).Some(Rc.new(VcSortNode.BoolS)),
+    Rc(.Quant(_, _, _, _, _)) => Option(VcSort).Some(Rc.new(VcSortNode.BoolS)),
     Rc(.ArrConst(cs, _)) => Option(VcSort).Some(cs.*),
     Rc(.Ctor(cn, _)) => match(
       _list_sort_of_ctor(&cn.*),
@@ -3583,7 +3585,7 @@ _vc_term_sort :: (fn(ctx : &VcCtx, t : &VcTerm) -> Option(VcSort))(
       ctx.acc_sorts.get(pacc.clone()),
       .Some(ps) => Option(VcSort).Some(ps),
       .None => cond(
-        _is_list_len_acc(&pacc.*) => Option(VcSort).Some(VcSort.BvS(width : usize(64))),
+        _is_list_len_acc(&pacc.*) => Option(VcSort).Some(Rc.new(VcSortNode.BvS(width : usize(64)))),
         true => Option(VcSort).None
       )
     ),
@@ -3596,7 +3598,7 @@ _vc_term_sort :: (fn(ctx : &VcCtx, t : &VcTerm) -> Option(VcSort))(
       ),
       .SelectOp => match(
         _vc_term_sort(ctx, aargs.get_cloned(usize(0)).unwrap()),
-        .Some(.ArrS(ael, _)) => Option(VcSort).Some(ael),
+        .Some(Rc(.ArrS(ael, _))) => Option(VcSort).Some(ael),
         _ => Option(VcSort).None
       ),
       _ => Option(VcSort).None
@@ -3626,7 +3628,7 @@ _havoc_assigned :: (fn(ctx : &mut VcCtx, assigned : &ArrayList(String)) -> unit)
     srt := match(
       ctx.vars.get_cloned(name.clone()),
       .Some(old) => _binding_sort(ctx, &name, &old),
-      .None => match(ctx.array_sorts.get(name.clone()), .Some(asrt) => asrt, .None => VcSort.BoolS)
+      .None => match(ctx.array_sorts.get(name.clone()), .Some(asrt) => asrt, .None => Rc.new(VcSortNode.BoolS))
     );
     hv := `__yo_hv${ctx.havoc.to_string()}_${name.clone()}`;
     ctx.vars.insert(name.clone(), Rc.new(VcTermNode.Var(name : hv, sort : srt)));
@@ -4082,7 +4084,7 @@ _loop_core :: (
   bs := ArrayList(VcTerm).new();
   (ki : usize) = usize(0);
   while(ki < sites.len(), {
-    bs.push(Rc.new(VcTermNode.Var(name : `__yo_br${ctx.havoc.to_string()}_${ki.to_string()}`, sort : VcSort.BoolS)));
+    bs.push(Rc.new(VcTermNode.Var(name : `__yo_br${ctx.havoc.to_string()}_${ki.to_string()}`, sort : Rc.new(VcSortNode.BoolS))));
     ki = (ki + usize(1));
   });
   (ni : usize) = usize(0);
@@ -4278,12 +4280,12 @@ _list_operand_elem :: (fn(ctx : &mut VcCtx, a : &AstExpr) -> Option(VcSort))(
 /// Declared once per element sort.
 _list_append_contents :: (fn(ctx : &mut VcCtx, elem : &VcSort, c1 : &VcTerm, l1 : &VcTerm, c2 : &VcTerm) -> VcTerm)({
   fname := `__yo_lapp_${_msof_key(elem)}`;
-  arr := VcSort.ArrS(elem : elem.*, len : usize(0));
+  arr := Rc.new(VcSortNode.ArrS(elem : elem.*, len : usize(0)));
   if(!ctx.gfn_keys.contains(fname.clone()), {
     ctx.gfn_keys.push(fname.clone());
     dargs := ArrayList(VcSort).new();
     dargs.push(arr);
-    dargs.push(VcSort.BvS(width : usize(64)));
+    dargs.push(Rc.new(VcSortNode.BvS(width : usize(64))));
     dargs.push(arr);
     ctx.fun_decls.push(VcFunDecl(name : fname.clone(), args : dargs, result : arr));
     names := ArrayList(String).new();
@@ -4293,13 +4295,13 @@ _list_append_contents :: (fn(ctx : &mut VcCtx, elem : &VcSort, c1 : &VcTerm, l1 
     names.push(String.from("__yo_la_i"));
     sorts := ArrayList(VcSort).new();
     sorts.push(arr);
-    sorts.push(VcSort.BvS(width : usize(64)));
+    sorts.push(Rc.new(VcSortNode.BvS(width : usize(64))));
     sorts.push(arr);
-    sorts.push(VcSort.BvS(width : usize(64)));
+    sorts.push(Rc.new(VcSortNode.BvS(width : usize(64))));
     bc1 := Rc.new(VcTermNode.Var(name : String.from("__yo_la_c1"), sort : arr));
-    bl1 := Rc.new(VcTermNode.Var(name : String.from("__yo_la_l1"), sort : VcSort.BvS(width : usize(64))));
+    bl1 := Rc.new(VcTermNode.Var(name : String.from("__yo_la_l1"), sort : Rc.new(VcSortNode.BvS(width : usize(64)))));
     bc2 := Rc.new(VcTermNode.Var(name : String.from("__yo_la_c2"), sort : arr));
-    bi := Rc.new(VcTermNode.Var(name : String.from("__yo_la_i"), sort : VcSort.BvS(width : usize(64))));
+    bi := Rc.new(VcTermNode.Var(name : String.from("__yo_la_i"), sort : Rc.new(VcSortNode.BvS(width : usize(64)))));
     fargs := ArrayList(VcTerm).new();
     fargs.push(Rc.clone(bc1));
     fargs.push(Rc.clone(bl1));
@@ -4322,11 +4324,11 @@ _list_append_contents :: (fn(ctx : &mut VcCtx, elem : &VcSort, c1 : &VcTerm, l1 
 _list_ext_eq :: (fn(ctx : &mut VcCtx, elem : &VcSort, a : &VcTerm, b : &VcTerm) -> VcTerm)({
   la := _list_len_term(elem, a);
   kn := `__yo_lk${_next_fresh(ctx).to_string()}`;
-  k := Rc.new(VcTermNode.Var(name : kn.clone(), sort : VcSort.BvS(width : usize(64))));
+  k := Rc.new(VcTermNode.Var(name : kn.clone(), sort : Rc.new(VcSortNode.BvS(width : usize(64)))));
   names := ArrayList(String).new();
   names.push(kn);
   sorts := ArrayList(VcSort).new();
-  sorts.push(VcSort.BvS(width : usize(64)));
+  sorts.push(Rc.new(VcSortNode.BvS(width : usize(64))));
   sel_a := _app2(VcOp.SelectOp, _list_contents_term(elem, a), &k);
   body := _app2(VcOp.ImpOp, _app2(VcOp.BvUlt, &k, &la), _app2(VcOp.EqOp, &sel_a, _app2(VcOp.SelectOp, _list_contents_term(elem, b), &k)));
   _app2(
@@ -4461,8 +4463,8 @@ _call_term :: (
     // expressible) — fail the subset loudly instead of emitting an
     // ill-typed SMT application.
     if((op != VcOp.EqOp) && (op != VcOp.DistinctOp) && (op != VcOp.AndOp) && (op != VcOp.OrOp), {
-      a_uninterp := match(_term_sort(&at), .Some(so) => match(so, .Uninterpreted(_) => true, _ => false), .None => false);
-      b_uninterp := match(_term_sort(&bt), .Some(so) => match(so, .Uninterpreted(_) => true, _ => false), .None => false);
+      a_uninterp := match(_term_sort(&at), .Some(so) => match(so, Rc(.Uninterpreted(_)) => true, _ => false), .None => false);
+      b_uninterp := match(_term_sort(&bt), .Some(so) => match(so, Rc(.Uninterpreted(_)) => true, _ => false), .None => false);
       if(a_uninterp || b_uninterp, {
         _fail_subset(ctx, String.from("operation over an opaque type parameter (task 2 abstract scope: equality only)"), e);
         return(Option(VcTerm).None);
@@ -5003,8 +5005,8 @@ _call_term :: (
         .Some(at) => {
           es := match(&at, Rc(.Var(_, s)) => s.*, _ => _term_sort_of(&at));
           empty := cond(
-            (head.* == "ms_single") => Rc.new(VcTermNode.ArrConst(sort : VcSort.FunS(domain : es, range : VcSort.BvS(width : usize(64))), lit : Rc.new(VcTermNode.BvLit(value : u64(0), width : usize(64))))),
-            true => Rc.new(VcTermNode.ArrConst(sort : VcSort.FunS(domain : es, range : VcSort.BoolS), lit : Rc.new(VcTermNode.BoolLit(false))))
+            (head.* == "ms_single") => Rc.new(VcTermNode.ArrConst(sort : Rc.new(VcSortNode.FunS(domain : es, range : Rc.new(VcSortNode.BvS(width : usize(64))))), lit : Rc.new(VcTermNode.BvLit(value : u64(0), width : usize(64))))),
+            true => Rc.new(VcTermNode.ArrConst(sort : Rc.new(VcSortNode.FunS(domain : es, range : Rc.new(VcSortNode.BoolS))), lit : Rc.new(VcTermNode.BoolLit(false))))
           );
           one := cond(
             (head.* == "ms_single") => Rc.new(VcTermNode.BvLit(value : u64(1), width : usize(64))),
@@ -5076,7 +5078,7 @@ _call_term :: (
       ctx.array_sorts.get(head.clone()),
       .Some(srt) => match(
         srt,
-        .ArrS(_, _) => Option(VcSort).Some(srt),
+        Rc(.ArrS(_, _)) => Option(VcSort).Some(srt),
         _ => Option(VcSort).None
       ),
       .None => Option(VcSort).None
@@ -5133,7 +5135,7 @@ _call_term :: (
             .Some(it) => {
               alen := match(
                 srt,
-                .ArrS(_, l2) => l2,
+                Rc(.ArrS(_, l2)) => l2,
                 _ => usize(0)
               );
               if(ctx.quant_depth == usize(0), {
@@ -5170,7 +5172,7 @@ _call_term :: (
         _type_sort(&ai.ty()),
         .Some(srt) => match(
           srt,
-          .ArrS(_, _) => Option(VcSort).Some(srt),
+          Rc(.ArrS(_, _)) => Option(VcSort).Some(srt),
           _ => Option(VcSort).None
         ),
         .None => Option(VcSort).None
@@ -5187,12 +5189,12 @@ _call_term :: (
             .Some(at) => {
               es := match(
                 srt,
-                .ArrS(e2, _) => e2,
-                _ => VcSort.BoolS
+                Rc(.ArrS(e2, _)) => e2,
+                _ => Rc.new(VcSortNode.BoolS)
               );
               m := match(
                 srt,
-                .ArrS(_, l2) => l2,
+                Rc(.ArrS(_, l2)) => l2,
                 _ => usize(0)
               );
               // The application: a Ctor term named `__yo_msof_<elem-key>`
@@ -6059,7 +6061,7 @@ _list_dt_of_type :: (fn(t : &TypeValue) -> Option(String))(
   cond(
     _list_elem_type(t).is_some() => match(
       _type_sort(t),
-      .Some(.DataS(dn)) => Option(String).Some(dn.clone()),
+      .Some(Rc(.DataS(dn))) => Option(String).Some(dn.clone()),
       _ => Option(String).None
     ),
     true => Option(String).None
@@ -6072,7 +6074,7 @@ _note_array_binding :: (fn(ctx : &mut VcCtx, name : &String, rhs : &AstExpr) -> 
       _type_sort(&ri.ty()),
       .Some(rsort) => match(
         rsort,
-        .ArrS(_, _) => {
+        Rc(.ArrS(_, _)) => {
           ctx.array_sorts.insert(name.clone(), rsort);
           ()
         },
@@ -6197,7 +6199,7 @@ _begin_term :: (fn(ctx : &mut VcCtx, args : &ArrayList(AstExpr)) -> Option(VcTer
                   );
                   alen := match(
                     ctx.array_sorts.get(aname.clone()),
-                    .Some(.ArrS(_, l2)) => l2,
+                    .Some(Rc(.ArrS(_, l2))) => l2,
                     .Some(_) => usize(0),
                     .None => usize(0)
                   );
@@ -7125,7 +7127,7 @@ _callee_call_term :: (
   ret_sort := match(
     _type_sort(&info.ty()),
     .Some(s) => s,
-    .None => VcSort.BoolS
+    .None => Rc.new(VcSortNode.BoolS)
   );
   fresh_idx := _next_fresh(ctx);
   ret_name := `__ret_${fresh_idx.to_string()}`;
@@ -7395,8 +7397,8 @@ _term_sort :: (fn(t : &VcTerm) -> Option(VcSort))(
   match(
     t,
     Rc(.Var(_, sort)) => Option(VcSort).Some(sort.*),
-    Rc(.BvLit(_, w)) => Option(VcSort).Some(VcSort.BvS(width : w.*)),
-    Rc(.BoolLit(_)) => Option(VcSort).Some(VcSort.BoolS),
+    Rc(.BvLit(_, w)) => Option(VcSort).Some(Rc.new(VcSortNode.BvS(width : w.*))),
+    Rc(.BoolLit(_)) => Option(VcSort).Some(Rc.new(VcSortNode.BoolS)),
     _ => Option(VcSort).None
   )
 );
@@ -7432,7 +7434,7 @@ _arg_width :: (fn(args : &ArrayList(VcTerm), i : usize) -> usize)(
 _sort_width :: (fn(s : &VcSort) -> usize)(
   match(
     s,
-    .BvS(w) => w.*,
+    Rc(.BvS(w)) => w.*,
     _ => usize(1)
   )
 );
@@ -7441,8 +7443,8 @@ _sort_width :: (fn(s : &VcSort) -> usize)(
 _array_elem_width :: (fn(t : &VcTerm) -> usize)(
   match(
     t,
-    Rc(.Var(_, .ArrS(ael, _))) => _sort_width(&ael.*),
-    Rc(.Var(_, .FunS(_, frg))) => _sort_width(&frg.*),
+    Rc(.Var(_, Rc(.ArrS(ael, _)))) => _sort_width(&ael.*),
+    Rc(.Var(_, Rc(.FunS(_, frg)))) => _sort_width(&frg.*),
     Rc(.Proj(pacc, _, _)) => match(
       _list_elem_of_contents_acc(&pacc.*),
       .Some(pel) => _sort_width(&pel),
@@ -7461,7 +7463,7 @@ _array_elem_width :: (fn(t : &VcTerm) -> usize)(
 _term_width :: (fn(t : &VcTerm) -> usize)(
   match(
     t,
-    Rc(.Var(_, .BvS(w))) => w.*,
+    Rc(.Var(_, Rc(.BvS(w)))) => w.*,
     Rc(.Var(_, _)) => usize(1),
     Rc(.BvLit(_, w)) => w.*,
     Rc(.BoolLit(_)) => usize(1),
@@ -7530,7 +7532,7 @@ verify_function_body :: (fn(input : &VerifyFnInput) -> VcBodyResult)({
                 ctx.vars.insert(pn.clone(), Rc.new(VcTermNode.Var(name : pn.clone(), sort : sort)));
                 match(
                   sort,
-                  .ArrS(_, _) => {
+                  Rc(.ArrS(_, _)) => {
                     ctx.array_sorts.insert(pn.clone(), sort);
                     ()
                   },
@@ -7993,7 +7995,7 @@ _callee_param_is_mut_ref :: (fn(fid : &String, i : usize) -> bool)(
 _sort_holds_list :: (fn(ctx : &VcCtx, s : &VcSort) -> bool)(
   match(
     s,
-    .DataS(dn) => cond(
+    Rc(.DataS(dn)) => cond(
       _list_sort_elem(s).is_some() => true,
       true => {
         (holds : bool) = false;
@@ -8019,8 +8021,8 @@ _sort_holds_list :: (fn(ctx : &VcCtx, s : &VcSort) -> bool)(
         holds
       }
     ),
-    .ArrS(elem, _) => _sort_holds_list(ctx, &elem.*),
-    .Uninterpreted(_) => true,
+    Rc(.ArrS(elem, _)) => _sort_holds_list(ctx, &elem.*),
+    Rc(.Uninterpreted(_)) => true,
     _ => false
   )
 );

@@ -641,8 +641,8 @@ _ca_merge_ranges :: (
   (i : usize) = usize(0);
   (j : usize) = usize(0);
   while((i < a.len()) || (j < b.len()), {
-    ai := a.get(i);
-    bj := b.get(j);
+    ai := a.get_cloned(i);
+    bj := b.get_cloned(j);
     match(
       ai,
       .Some(ra) => match(
@@ -704,7 +704,7 @@ assemble_chunks :: (
   (hi : usize) = usize(0);
   while(hi < header_ranges.len(), {
     match(
-      header_ranges.get(hi),
+      header_ranges.get_cloned(hi),
       .Some(hr) => _ca_collect_static_def_names(_ca_slice(&code_bytes, hr.start_b, hr.end_b), &mut header_defined),
       .None => ()
     );
@@ -713,7 +713,7 @@ assemble_chunks :: (
   (ri : usize) = usize(0);
   while(ri < fn_ranges.len(), {
     match(
-      fn_ranges.get(ri),
+      fn_ranges.get_cloned(ri),
       .Some(fr) => if(_ca_is_rc_helper(fr.c_name.clone()), {
         header_defined.insert(fr.c_name.clone());
         ()
@@ -732,7 +732,7 @@ assemble_chunks :: (
   (ai : usize) = usize(0);
   while(ai < all_ranges.len(), {
     match(
-      all_ranges.get(ai),
+      all_ranges.get_cloned(ai),
       .Some(rr) => {
         (ci : usize) = prev_end;
         while(ci < rr.start_b, {
@@ -762,7 +762,7 @@ assemble_chunks :: (
   (fi : usize) = usize(0);
   while(fi < fn_ranges.len(), {
     match(
-      fn_ranges.get(fi),
+      fn_ranges.get_cloned(fi),
       .Some(fr) => if(_ca_is_rc_helper(fr.c_name.clone()), {
         assigned.push(n);
       }, {
@@ -784,7 +784,7 @@ assemble_chunks :: (
     while(gi < fn_ranges.len(), {
       if(match(assigned.get_cloned(gi), .Some(x) => (x == mi), .None => false), {
         match(
-          fn_ranges.get(gi),
+          fn_ranges.get_cloned(gi),
           .Some(fr) => body.push_string(_ca_dequalify_statics(_ca_slice(&code_bytes, fr.start_b, fr.end_b), &header_defined)),
           .None => ()
         );
@@ -814,7 +814,7 @@ assemble_chunks :: (
   (sh : usize) = usize(0);
   while(sh < header_ranges.len(), {
     match(
-      header_ranges.get(sh),
+      header_ranges.get_cloned(sh),
       .Some(hr) => _ca_collect_yo_refs(_ca_slice(&code_bytes, hr.start_b, hr.end_b), &mut referenced),
       .None => ()
     );
@@ -854,7 +854,7 @@ assemble_chunks :: (
   (h2 : usize) = usize(0);
   while(h2 < header_ranges.len(), {
     match(
-      header_ranges.get(h2),
+      header_ranges.get_cloned(h2),
       .Some(hr) => header_text.push_string(_ca_slice(&code_bytes, hr.start_b, hr.end_b)),
       .None => ()
     );
@@ -863,7 +863,7 @@ assemble_chunks :: (
   (r2 : usize) = usize(0);
   while(r2 < fn_ranges.len(), {
     match(
-      fn_ranges.get(r2),
+      fn_ranges.get_cloned(r2),
       .Some(fr) => if(_ca_is_rc_helper(fr.c_name.clone()), {
         header_text.push_string(_ca_slice(&code_bytes, fr.start_b, fr.end_b));
       }),

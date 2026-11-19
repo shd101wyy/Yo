@@ -12,12 +12,13 @@
 import("std/fmt");
 { String } :: import("std/string");
 
-Holder :: ref(struct(s : String, n : i32));
-Wrapper :: ref(struct(inner : Holder));
-// The value record the place rules apply to since V5 (`Holder`/`Wrapper`
-// stay `ref` only for the object-hop, handle-alias and module-object cases,
-// which go with `ref` in v0.2.77).
+// The value records the place rules apply to since V5. The `ref`-object
+// rows this file carried (the intermediate-object hop with a callee writing
+// through a shared handle, the handle-alias sink, the `_StrLists` second
+// handle) went with the `ref` form in v0.2.79; their surviving analogs are
+// the `_MixedBox` `Rc`-shared rows below.
 Rec :: struct(s : String, n : i32);
+RecOuter :: struct(inner : Rec, tag : i32);
 
 bump :: (fn(v : &mut i32) -> unit)({
   v.* = (v.* + i32(1));
@@ -47,43 +48,20 @@ test("value-struct field place", {
   assert(p.x == i32(2), "stack-struct field write through the ref param");
 });
 
-// --- The place rule (intermediate object hop) ---
-// Borrowing through an intermediate OBJECT (`w.inner.n` — `w.inner` is
-// an object-typed field) is dangerous ONLY when a callee can reach the
-// root `w` and reassign `w.inner`, freeing the borrowed allocation.
-// Reachable = the root is passed alongside, an alias, or module-level,
-// or any other argument could hold a handle to it.
-comptime_expect_error(
-  nested_object_hop_with_root_rejected :: (fn() -> unit)({
-    soak :: (fn(v : &mut i32, victim : &Wrapper) -> unit)({
-      victim.inner = Holder(s : String.from("replaced"), n : i32(0));
-      v.* = i32(99);
-    });
-    w := Wrapper(inner : Holder(s : String.from("x"), n : i32(1)));
-    soak(&mut w.inner.n, &w);
-  })
-);
-
-// Element-only intermediate hop is SAFE: the root `w` is a local the
-// callee cannot reach, so nothing can free `w.inner` mid-call.
-test("intermediate object hop is allowed when the root is unreachable", {
-  w := Wrapper(inner : Holder(s : String.from("x"), n : i32(9)));
+// --- The place rule (intermediate record hop) ---
+// A hop through an intermediate record field is safe when the root is a
+// local the callee cannot reach (the `ref`-object version — a callee
+// writing `victim.inner` through a SHARED handle mid-call — went with the
+// `ref` form in v0.2.79).
+test("intermediate record hop is allowed when the root is unreachable", {
+  mut(w) := RecOuter(inner : Rec(s : String.from("x"), n : i32(9)), tag : i32(0));
   bump(&mut w.inner.n);
   assert(w.inner.n == i32(10), "write landed through the intermediate hop");
 });
 
-// The recipe for the rejected case: bind the intermediate object to a
-// local — the local handle keeps it alive for as long as the local lives.
-test("bind the intermediate object to a local first", {
-  w := Wrapper(inner : Holder(s : String.from("x"), n : i32(9)));
-  b := w.inner;
-  bump(&mut b.n);
-  assert(w.inner.n == i32(10), "write landed through the local handle");
-});
-
 // A field chain rooted at a MODULE-LEVEL variable is rejected — any
 // callee could reassign the global and free the object.
-g_holder := Holder(s : String.from("g"), n : i32(0));
+g_holder := Rec(s : String.from("g"), n : i32(0));
 comptime_expect_error(
   module_root_field_rejected :: (fn() -> unit)({
     bump(&mut g_holder.n);
@@ -115,19 +93,6 @@ comptime_expect_error(
     consume(n);
   }),
   "borrows from it"
-);
-
-// An ALIAS of an owning `ref` handle is caught too.
-comptime_expect_error(
-  ref_and_own_alias_same_call :: (fn() -> unit)({
-    use_and_sink :: (fn(x : &mut String, sink(victim) : Holder) -> usize)(
-      x.len()
-    );
-    h := Holder(s : String.from("element-zero"), n : i32(1));
-    h2 := h;
-    n := use_and_sink(&mut h.s, h2);
-    consume(n);
-  })
 );
 
 // Positive: a borrow and a sink of DISTINCT values in one call is fine.
@@ -412,7 +377,6 @@ _put_str :: (fn(dst : &mut String, v : String) -> String)({
   dst.* = v;
   old
 });
-_StrLists :: ref(struct(lists : ArrayList(String), tag : String));
 test("an element borrow beside a value that cannot reach the container", {
   mut(xs) := ArrayList(String).new();
   xs.push(String.from("a"));
@@ -437,22 +401,12 @@ _ListBox :: struct(lists : ArrayList(String));
 _MixedBox :: struct(copy : ArrayList(String), shared : Rc(ArrayList(String)));
 test("an element borrow beside a value that can reach the container", {
   hold_beside :: (fn(dst : &mut String, other : &_ListBox) -> unit)(());
-  owner_beside :: (fn(dst : &mut String, other : &_StrLists) -> unit)(());
-  owner_value_beside :: (fn(dst : &mut String, other : _StrLists) -> unit)(());
   mut(xs) := ArrayList(String).new();
   xs.push(String.from("a"));
   b := _ListBox(lists : ArrayList(String).new());
   comptime_expect_error(hold_beside(&mut xs(usize(0)), &b), "could hold a handle");
-  h := _StrLists(lists : ArrayList(String).new(), tag : String.from("t"));
-  h.lists.push(String.from("x"));
-  h2 := h;
-  comptime_expect_error(owner_beside(&mut h.lists(usize(0)), &h2), "could hold a handle");
-  // By value, the second handle to the same owner is the call-site
-  // exclusivity rule's (a sink of what argument 1 borrows from); any other
-  // value of the `ref` type may be a handle to it too.
-  comptime_expect_error(owner_value_beside(&mut h.lists(usize(0)), h2), "borrows from it");
-  h3 := _StrLists(lists : ArrayList(String).new(), tag : String.from("u"));
-  comptime_expect_error(owner_value_beside(&mut h.lists(usize(0)), h3), "could hold a handle");
+  // The second-handle rows over a `ref`-struct owner went with the form in
+  // v0.2.79; the `_MixedBox` rows below carry the shared-container shape.
   mixed_beside :: (fn(dst : &mut String, other : _MixedBox) -> unit)(());
   shared := Rc.new(ArrayList(String).new());
   m := _MixedBox(copy : ArrayList(String).new(), shared : Rc.clone(shared));
@@ -479,10 +433,10 @@ test("an element borrow beside a value that owns a list of the container's type"
   assert((xs.len() == usize(1)) && (xs(usize(0)) == "w"), "the element written in place, xs not grown");
   grow_box_beside(&mut xs(usize(0)), _ListBox(lists : ArrayList(String).new()));
   assert((xs.len() == usize(1)) && (xs(usize(0)) == "v"), "a list inside a by-value struct is not xs");
-  h := _StrLists(lists : ArrayList(String).new(), tag : String.from("t"));
+  mut(h) := _ListBox(lists : ArrayList(String).new());
   h.lists.push(String.from("x"));
   grow_beside(&mut h.lists(usize(0)), ArrayList(String).new());
-  assert((h.lists.len() == usize(1)) && (h.lists(usize(0)) == "w"), "through a ref owner's field");
+  assert((h.lists.len() == usize(1)) && (h.lists(usize(0)) == "w"), "through an owner record's field");
 });
 // A recursive value type: a node's children list holds nodes, and a
 // replacement node carries lists of its own. The new node is owned by the

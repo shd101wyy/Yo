@@ -116,7 +116,7 @@
 { replace } :: import("std/mem");
 /// One injectable effect-field mapping: the effect label (possibly dotted for
 /// nested bundle fields) and the C access path into the future's capture/bundle.
-EffectFieldMapping :: ref(struct(effect_label : String, access_path : String));
+EffectFieldMapping :: struct(effect_label : String, access_path : String);
 /// True if the extern name is defined in the async runtime (poll / fs_event /
 /// async / waker / join prefixes). The `__yo_waker_*` family lives in
 /// runtime_core: a program that only stores a `Waker` (its Drop calls
@@ -370,7 +370,7 @@ get_injectable_future_effect_field_mappings :: (
 /// The synthetic closure-param slot for a SYNC future: io.await/io.spawn passes
 /// the effect bundle via `__yo_future_set_bundle(fut, &value)`, copied into this
 /// dedicated `__yo_param_<i>` field.
-SyncParamSlot :: ref(struct(field_name : String, c_type : String));
+SyncParamSlot :: struct(field_name : String, c_type : String);
 /// The first struct-typed effect type on a `FutureTraitT` (the bundle effect), or
 /// `.None`.
 _first_struct_effect_type :: (fn(future_trait_type : &TypeValue) -> Option(TypeValue))({
@@ -485,21 +485,19 @@ generate_future_effect_setter :: (
 /// The full description of one async-block state machine, passed to the struct /
 /// dispose / constructor emitters. `Set<string>` → `HashSet(String)`,
 /// `Map<string,string>` → `HashMap(String, String)`.
-AsyncBlockStructInfo :: ref(
-  struct(
-    async_block_id : String,
-    struct_name : String,
-    result_type : TypeValue,
-    result_type_c_name : String,
-    capture_type : Option(TypeValue),
-    analysis : AwaitAnalysisResult,
-    cross_boundary_ids : Option(HashSet(String)),
-    await_future_temp_var_aliases : Option(HashMap(String, String)),
-    overlapping_slot_aliases : Option(HashMap(String, String)),
-    overlapping_slots : Option(ArrayList(OverlappingSlot)),
-    closure_param_slots : Option(ArrayList(ClosureParamSlot)),
-    operand_holds : ArrayList(OperandHold)
-  )
+AsyncBlockStructInfo :: struct(
+  async_block_id : String,
+  struct_name : String,
+  result_type : TypeValue,
+  result_type_c_name : String,
+  capture_type : Option(TypeValue),
+  analysis : AwaitAnalysisResult,
+  cross_boundary_ids : Option(HashSet(String)),
+  await_future_temp_var_aliases : Option(HashMap(String, String)),
+  overlapping_slot_aliases : Option(HashMap(String, String)),
+  overlapping_slots : Option(ArrayList(OverlappingSlot)),
+  closure_param_slots : Option(ArrayList(ClosureParamSlot)),
+  operand_holds : ArrayList(OperandHold)
 );
 /// The result type (`T` of `Future(T)`) each async block's emission resolved,
 /// keyed by `<output SomeT id>@@<async block id>`, so the block and its await
@@ -3271,7 +3269,7 @@ _make_sm_captured_variable :: (fn(id : &String, name : &String, ty : &TypeValue,
       decl_site : String.from("")
     ),
     kind : kind,
-    is_owning_the_same_rc_value_as : Option(CapturedVariable).None
+    is_owning_the_same_rc_value_as : Option(Rc(CapturedVariable)).None
   )
 );
 /// A new list holding the same await points: `AwaitPoint` is a `ref` handle,

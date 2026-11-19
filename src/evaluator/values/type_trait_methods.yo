@@ -210,32 +210,39 @@ type_id_or_empty :: (fn(t : &TypeValue) -> String)(
 /// resolve `Self` references inside the method's signature to the
 /// concrete receiver type. Direct-on-type registry hits leave it
 /// `.None` (the method's `Self` is already the concrete type).
-MethodEntry :: ref(
-  struct(
-    label : String,
-    ty : TypeValue,
-    value : Option(EvalValue),
-    source_trait_id : String,
-    needs_pointer_conversion : bool,
-    self_type : Option(TypeValue),
-    /// MEMBER VISIBILITY: the `file://` module whose evaluation registered
-    /// this entry — stamped by `register_type_trait_method` from
-    /// `registration_owner()` (a generic-impl candidate carries its impl's
-    /// owner instead; the prelude's entries carry its `${std_path}/prelude.yo`
-    /// key, stamped by mm_load_prelude_file around the prelude's evaluation).
-    /// `""` = unknown, never enforced. Read by function.yo's `_`-prefixed
-    /// method check (plans/reference/MEMBER_VISIBILITY.md).
-    owner : String
-  )
+MethodEntry :: struct(
+  label : String,
+  ty : TypeValue,
+  value : Option(EvalValue),
+  source_trait_id : String,
+  needs_pointer_conversion : bool,
+  self_type : Option(TypeValue),
+  /// MEMBER VISIBILITY: the `file://` module whose evaluation registered
+  /// this entry — stamped by `register_type_trait_method` from
+  /// `registration_owner()` (a generic-impl candidate carries its impl's
+  /// owner instead; the prelude's entries carry its `${std_path}/prelude.yo`
+  /// key, stamped by mm_load_prelude_file around the prelude's evaluation).
+  /// `""` = unknown, never enforced. Read by function.yo's `_`-prefixed
+  /// method check (plans/reference/MEMBER_VISIBILITY.md).
+  owner : String
 );
-/// `MethodEntry` is a `ref(...)`: every copy of one is a second handle to the same
-/// object, so its `clone` is that handle copy too. It lets a value aggregate
-/// holding a `MethodEntry` beside a counted handle `derive(..., Clone)` (decision 17,
-/// plans/VALUES_BY_DEFAULT.md V2c).
+/// A value aggregate holding a `MethodEntry` beside a counted handle can
+/// `derive(..., Clone)`: this impl is the field-wise clone that backs it
+/// (decision 17, plans/VALUES_BY_DEFAULT.md V2c).
 impl(
   MethodEntry,
   Clone(
-    clone : (fn(self : &Self) -> Self)(self.*)
+    clone : (fn(self : &Self) -> Self)(
+      MethodEntry(
+        label : self.label.clone(),
+        ty : Rc.clone(self.ty),
+        value : self.value.clone(),
+        source_trait_id : self.source_trait_id.clone(),
+        needs_pointer_conversion : self.needs_pointer_conversion,
+        self_type : self.self_type.clone(),
+        owner : self.owner.clone()
+      )
+    )
   )
 );
 /// Module-level storage: `type id` → list of method entries.
@@ -427,8 +434,9 @@ register_type_trait_method :: (
   fn(type_id : &String, entry : &MethodEntry) -> unit
 )({
   owner := _registration_owner.clone();
-  if(entry.owner.len() == usize(0), {
-    entry.owner = owner.clone();
+  mut(owned_entry) := entry.clone();
+  if(owned_entry.owner.len() == usize(0), {
+    owned_entry.owner = owner.clone();
   });
   // Taken out of the maps and stored back: a `get` copy is not the stored
   // list once collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
@@ -436,7 +444,7 @@ register_type_trait_method :: (
   // clones once per lookup and once per store-back.
   tm_key := type_id.clone();
   list := match(_type_trait_methods.with_mut({ tm_key }(m) => m.remove(&tm_key)), .Some(l) => l, .None => ArrayList(MethodEntry).new());
-  list.push(entry.*);
+  list.push(owned_entry);
   tm_key2 := type_id.clone();
   _type_trait_methods.with_mut({ tm_key2, list }(m) => m.insert(tm_key2, list));
   to_key := type_id.clone();
@@ -608,9 +616,58 @@ register_provisional_trait_method :: (
 )({
   type_id_own____ := type_id.clone();
   list := match(_provisional_trait_methods.with_mut({ type_id_own____ }(m) => m.remove(type_id_own____.clone())), .Some(l) => l, .None => ArrayList(MethodEntry).new());
-  list.push(entry.*);
+  list.push(entry.clone());
   type_id_own_____ := type_id.clone();
   _provisional_trait_methods.with_mut({ type_id_own_____, list : list.clone() }(m) => m.insert(type_id_own_____.clone(), list.clone()));
+});
+/// Update IN PLACE the registered entry whose `value` names `match_fid`:
+/// the impl block's completing evaluation refreshes the phase-A entry a
+/// forced sibling registered (`pa_e.ty`/`pa_e.value`/`pe.*` in
+/// `values/impl.yo`). A `get` copy is not the stored entry once collections
+/// are values, so the list is taken out, updated and stored back. Returns
+/// whether an entry was updated.
+update_type_trait_method_entry :: (
+  fn(registry_provisional : bool, type_id : &String, match_fid : &String, ty : &TypeValue, value : &EvalValue, source_trait_id : &String) -> bool
+)({
+  (updated : bool) = false;
+  take_key := type_id.clone();
+  src := cond(
+    registry_provisional => _provisional_trait_methods.with_mut({ take_key }(m) => m.remove(&take_key)),
+    true => _type_trait_methods.with_mut({ take_key }(m) => m.remove(&take_key))
+  );
+  list := match(src, .Some(l) => l, .None => ArrayList(MethodEntry).new());
+  // Rebuilt element-wise, not through `ArrayList.with`: its callback is
+  // `FnOnce`, so it OWNS every capture, while this loop only re-reads its
+  // `&` parameters per element — a `get_cloned` copy (MethodEntry is Clone)
+  // modified and pushed keeps the reads where they are.
+  rebuilt := ArrayList(MethodEntry).new();
+  (i : usize) = usize(0);
+  while(i < list.len(), {
+    match(
+      list.get_cloned(i),
+      .Some(entry0) => {
+        mut(entry) := entry0;
+        entry_fid := match(entry.value.clone(), .Some(ev) => match(ev, Rc(.FuncVal(fd, _)) => fd.*.func_id.clone(), _ => String.new()), .None => String.new());
+        if((entry_fid.len() > usize(0)) && (entry_fid == match_fid.*), {
+          entry.ty = Rc.clone(ty);
+          entry.value = Option(EvalValue).Some(Rc.clone(value));
+          if(source_trait_id.len() > usize(0), {
+            entry.source_trait_id = source_trait_id.clone();
+          });
+          updated = true;
+        });
+        rebuilt.push(entry);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  put_key := type_id.clone();
+  cond(
+    registry_provisional => _provisional_trait_methods.with_mut({ put_key, rebuilt : rebuilt.clone() }(m) => m.insert(put_key, rebuilt.clone())),
+    true => _type_trait_methods.with_mut({ put_key, rebuilt : rebuilt.clone() }(m) => m.insert(put_key, rebuilt.clone()))
+  );
+  updated
 });
 get_provisional_trait_methods_by_name :: (
   fn(type_id : &String, method_name : &String) -> ArrayList(MethodEntry)
@@ -623,7 +680,7 @@ get_provisional_trait_methods_by_name :: (
       (i : usize) = usize(0);
       while(i < n, {
         match(
-          all.get(i),
+          all.get_cloned(i),
           .Some(entry) => {
             if(entry.label == method_name.*, {
               result.push(entry);
@@ -652,7 +709,7 @@ get_type_trait_methods_by_name :: (
   (i : usize) = usize(0);
   while(i < n, {
     match(
-      all.get(i),
+      all.get_cloned(i),
       .Some(entry) => {
         if(entry.label == method_name.*, {
           result.push(entry);
@@ -683,7 +740,7 @@ get_visible_type_trait_methods_by_name :: (
   (i : usize) = usize(0);
   while(i < n, {
     match(
-      all.get(i),
+      all.get_cloned(i),
       .Some(entry) => if(owner_visible_from_current(entry.owner.clone()), {
         result.push(entry);
       }),
@@ -699,7 +756,7 @@ get_visible_type_trait_methods_by_name :: (
     (oi : usize) = usize(0);
     while(oi < n, {
       match(
-        all.get(oi),
+        all.get_cloned(oi),
         .Some(e) => eprintln(`[visibility] ${cur_owner} cannot see .${method_name} registered by ${e.owner}`),
         .None => ()
       );
@@ -1070,7 +1127,7 @@ find_associated_const_usize :: (
   n := entries.len();
   while(i < n, {
     match(
-      entries.get(i),
+      entries.get_cloned(i),
       .Some(e) => if(e.label == label.*, {
         match(
           e.value.clone(),
@@ -1174,6 +1231,7 @@ export(
   hook_func_return_label,
   hook_register_func_contracts,
   register_type_trait_method,
+  update_type_trait_method_entry,
   note_inherent_method_site,
   purge_inherent_method_sites_owned_by,
   inherent_method_site_count,

@@ -16,10 +16,11 @@
 /// tests/local_borrows.test.yo).
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-// `Holder`/`Outer` stay `ref` only for the P4 pin cases, which go with
-// `ref` in v0.2.77; every other case binds into a value record.
-Holder :: ref(struct(s : String, n : i32));
-Outer :: ref(struct(inner : Holder, tag : i32));
+// The P4 cases below bind into value records: the `ref`-object pin rows
+// (count arithmetic on shared handles, writes read through an alias) went
+// with the `ref` form in v0.2.79; the freeze a `&mut` field binding puts
+// on its root — and its release at scope end, break, return and unwind —
+// is value-struct semantics and stays.
 Rec :: struct(s : String, n : i32);
 RecOuter :: struct(inner : Rec, tag : i32);
 Point :: struct(x : i32, y : i32);
@@ -103,22 +104,17 @@ test("inout binding to a field of a value-struct local", {
   assert(sh.origin.y == i32(3), "nested value-struct field chain");
 });
 
-// --- P4: fields of RC objects (pinned) -----------------------------------
-test("inout binding to an object field: write-through, and the pin outlives a handle reassignment", {
-  mut(h) := Holder(s : String.from("one"), n : i32(1));
-  h2 := h;
-  assert(ref_count(h2) == 2, "two handles");
+// --- P4: fields (the root is frozen while the binding is live) ------------
+test("inout binding to a struct field: write-through, and the root is writable after the scope", {
+  mut(h) := Rec(s : String.from("one"), n : i32(1));
   {
     n := &mut h.n;
-    assert(ref_count(h2) == 3, "h, h2 and the binding's pin");
     n.* = (n.* + i32(1));
-    assert(h2.n == i32(2), "write through the field binding, read through an alias the static check cannot see");
     n.* = i32(42);
   };
-  assert(ref_count(h2) == 2, "the pin is released at the binding's scope end");
-  h = Holder(s : String.from("other"), n : i32(100));
-  assert(h.n == i32(100), "h names the new object after the binding ended");
-  assert(h2.n == i32(42), "final value");
+  assert(h.n == i32(42), "the writes through the field binding landed");
+  h = Rec(s : String.from("other"), n : i32(100));
+  assert(h.n == i32(100), "the root is writable once the binding ended");
 });
 // Reassigning the borrowed root while the binding is live is E0911.
 comptime_expect_error(
@@ -130,18 +126,15 @@ comptime_expect_error(
   }),
   "Cannot write `h` here"
 );
-test("inout binding through an intermediate object hop pins the innermost object", {
-  o := Outer(inner : Holder(s : String.from("in"), n : i32(5)), tag : i32(0));
-  keep := o.inner;
+test("inout binding through an intermediate record hop writes the innermost field", {
+  mut(o) := RecOuter(inner : Rec(s : String.from("in"), n : i32(5)), tag : i32(0));
   {
     n := &mut o.inner.n;
-    assert(ref_count(keep) == 3, "o.inner, keep, pin");
     n.* = i32(77);
   };
-  assert(keep.n == i32(77), "the write landed in the pinned object");
-  assert(ref_count(keep) == 2, "pin released");
-  o.inner = Holder(s : String.from("replaced"), n : i32(0));
-  assert(o.inner.n == i32(0), "the replacement object untouched");
+  assert(o.inner.n == i32(77), "the write landed through the hop");
+  o.inner = Rec(s : String.from("replaced"), n : i32(0));
+  assert(o.inner.n == i32(0), "the replacement value untouched");
 });
 comptime_expect_error(
   overwrite_the_borrowed_slot :: (fn() -> unit)({
@@ -167,9 +160,8 @@ test("RC-typed object field through a binding: dup/drop balance", {
   assert(h.s == "new", "replaced the field's value through the binding");
   assert(ref_count(h.s) == 1, "the field owns its value exactly once");
 });
-test("pin is released on break and on early return", {
-  h := Holder(s : String.from("b"), n : i32(0));
-  h2 := h;
+test("the freeze is released on break and on early return", {
+  mut(h) := Rec(s : String.from("b"), n : i32(0));
   mut(i) := i32(0);
   while(true, {
     n := &mut h.n;
@@ -179,10 +171,8 @@ test("pin is released on break and on early return", {
       break;
     });
   });
-  assert(h2.n == i32(3), "three writes");
-  // `h2 := h` with `h` never reassigned shares ONE count (alias elision).
-  assert(ref_count(h2) == 1, "no pin leaked across break / iterations");
-  early :: (fn(target : &Holder) -> i32)({
+  assert(h.n == i32(3), "three writes");
+  early :: (fn(target : &mut Rec) -> i32)({
     n := &mut target.n;
     if(n.* > i32(0), {
       v := n.*;
@@ -192,14 +182,13 @@ test("pin is released on break and on early return", {
     v := n.*;
     v
   });
-  assert(early(&h) == i32(3), "early return through a live pin");
-  assert(ref_count(h2) == 1, "pin released on the return path");
+  assert(early(&mut h) == i32(3), "early return through a live binding");
+  assert(h.n == i32(3), "the root is readable after the return path");
 });
-test("pin is released when an effect unwinds through the binding's scope", {
+test("the freeze is released when an effect unwinds through the binding's scope", {
   Raise :: (ctl() -> unit);
-  h := Holder(s : String.from("u"), n : i32(0));
-  h2 := h;
-  run_and_unwind :: (fn(target : &Holder) -> unit)({
+  mut(h) := Rec(s : String.from("u"), n : i32(0));
+  run_and_unwind :: (fn(target : &mut Rec) -> unit)({
     (raise : Raise) = (
       () -> {
         unwind(());
@@ -210,9 +199,8 @@ test("pin is released when an effect unwinds through the binding's scope", {
     raise();
     n.* = i32(-9); // unreachable
   });
-  run_and_unwind(&h);
-  assert(h2.n == i32(9), "the write before the unwind landed");
-  assert(ref_count(h2) == 1, "the pin was released on the unwind path (h2 := h shares one count)");
+  run_and_unwind(&mut h);
+  assert(h.n == i32(9), "the write before the unwind landed");
 });
 
 // --- Interaction with moves (B2 consume gate, B2′ optimizer) --------------

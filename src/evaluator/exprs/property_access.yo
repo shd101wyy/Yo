@@ -405,7 +405,7 @@ _reject_private_static_member :: (
     return(());
   });
   entries := get_type_trait_methods_by_name(type_id.clone(), prop_name.clone());
-  entry_owner := match(entries.get(usize(0)), .Some(e) => e.owner.clone(), .None => String.new());
+  entry_owner := match(entries.get_cloned(usize(0)), .Some(e) => e.owner.clone(), .None => String.new());
   decl := cond(
     (entry_owner.len() > usize(0)) => Option(String).Some(entry_owner),
     true => type_decl_module(type_id)
@@ -488,7 +488,7 @@ _try_resolve_associated_type :: (
     (rm_idx : usize) = usize(0);
     while(rm_idx < registry_methods.len(), {
       match(
-        registry_methods.get(rm_idx),
+        registry_methods.get_cloned(rm_idx),
         .Some(rm) => match(
           rm.value.clone(),
           .Some(rmv) => {
@@ -1427,7 +1427,7 @@ Raw pointer operations may dereference invalid memory.`
           (pm_done : bool) = false;
           while((pm_idx < prim_methods.len()) && !pm_done, {
             match(
-              prim_methods.get(pm_idx),
+              prim_methods.get_cloned(pm_idx),
               .Some(pm) => match(
                 pm.value.clone(),
                 .Some(pmv) => {
@@ -1799,7 +1799,7 @@ Raw pointer operations may dereference invalid memory.`
           (su_oi : usize) = usize(0);
           while(su_oi < registry_methods.len(), {
             match(
-              registry_methods.get(su_oi),
+              registry_methods.get_cloned(su_oi),
               .Some(su_om) => if(is_function_type(&su_om.ty), {
                 su_fn_overloads = (su_fn_overloads + usize(1));
               }),
@@ -1816,7 +1816,7 @@ Raw pointer operations may dereference invalid memory.`
           (rm_done : bool) = false;
           while((rm_idx < registry_methods.len()) && !rm_done, {
             match(
-              registry_methods.get(rm_idx),
+              registry_methods.get_cloned(rm_idx),
               .Some(rm) => {
                 match(
                   rm.value.clone(),
@@ -1950,7 +1950,7 @@ Raw pointer operations may dereference invalid memory.`
             (tt_ki : usize) = usize(0);
             while(tt_ki < tt_conc.len(), {
               match(
-                tt_conc.get(tt_ki),
+                tt_conc.get_cloned(tt_ki),
                 .Some(tt_km) => if((tt_km.source_trait_id == tt_trait_id) || (tt_km.source_trait_id == tt_trait_key), {
                   out_wc := new_expr_info(&env, &tt_km.ty);
                   out_wc.set_value(tt_km.value.clone());

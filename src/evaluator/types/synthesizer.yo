@@ -83,16 +83,14 @@ _is_runtime_numeric :: (fn(t : &TypeValue) -> bool)(
 // Public data types
 // ---------------------------------------------------------------------------
 /// Options controlling type synthesis behavior.
-SynthesizeOptions :: ref(
-  struct(
-    /// Optional source token for variable bindings created during synthesis.
-    token : Option(Token),
-    /// The pair's orientation. Most callers synthesize (destination, source):
-    /// a parameter against its argument. A call's return type against the
-    /// caller's expected type is (source, destination), so it sets this.
-    /// Only a directional coercion reads it (`_flow_coercion_without_binders`).
-    expected_is_source : bool
-  )
+SynthesizeOptions :: struct(
+  /// Optional source token for variable bindings created during synthesis.
+  token : Option(Token),
+  /// The pair's orientation. Most callers synthesize (destination, source):
+  /// a parameter against its argument. A call's return type against the
+  /// caller's expected type is (source, destination), so it sets this.
+  /// Only a directional coercion reads it (`_flow_coercion_without_binders`).
+  expected_is_source : bool
 );
 /// Return type of `synthesize_types`.
 SynthesizeResult :: struct(
@@ -103,12 +101,11 @@ SynthesizeResult :: struct(
 // Checked-pair anti-circularity state
 // ---------------------------------------------------------------------------
 /// A pair of type IDs used to detect circular synthesis.
-TypePair :: ref(
-  struct(
-    expected_id : String,
-    given_id : String
-  )
+TypePair :: struct(
+  expected_id : String,
+  given_id : String
 );
+derive(TypePair, Clone);
 // ---------------------------------------------------------------------------
 // synthesize_types — global function pointer (like evaluate_expression)
 // ---------------------------------------------------------------------------
@@ -196,7 +193,7 @@ _has_type_pair :: (fn(pairs : &ArrayList(TypePair), exp_id : &String, giv_id : &
   (found : bool) = false;
   while((i < n) && !found, {
     p := match(
-      pairs.get(i),
+      pairs.get_cloned(i),
       .Some(p) => p,
       .None => {
         i = n;

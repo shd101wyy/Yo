@@ -229,7 +229,7 @@ _sm_local_slot :: (fn(v : &Variable, context : &FunctionGenerationContext) -> Op
       id := v.id().to_string();
       canon := match(&context.variable_id_remapping, .Some(rm) => match(rm.get_cloned(id.clone()), .Some(m) => m, .None => id), .None => id);
       match(
-        smv.get(&canon),
+        smv.get_cloned(&canon),
         .Some(cv) => match(
           cv.kind,
           .Local => Option(String).Some(`sm->${get_state_machine_field_name(cv.base.id.to_string(), &context.state_machine_field_aliases)}`),

@@ -172,7 +172,7 @@ _emit_capture_dispose_lines :: (
         // the inner type with the SAME ref (no  member at the C ABI).
         nt_fields := get_runtime_struct_fields(&concrete);
         match(
-          nt_fields.get(usize(0)),
+          nt_fields.get_cloned(usize(0)),
           .Some(nt_f) => _emit_capture_dispose_lines(ref_code.clone(), &nt_f.ty, context, depth + u32(1)),
           .None => ()
         );
@@ -181,7 +181,7 @@ _emit_capture_dispose_lines :: (
         (mut(ds_i) : usize) = usize(0);
         while(ds_i < ds_fields.len(), {
           match(
-            ds_fields.get(ds_i),
+            ds_fields.get_cloned(ds_i),
             .Some(ds_f) => {
               mut(ds_ref) := String.from("(");
               ds_ref.push_string(ref_code.clone());
@@ -354,7 +354,7 @@ _emit_capture_drop_lines :: (
   (mut(cd_i) : usize) = usize(0);
   while(cd_i < cd_fields.len(), {
     match(
-      cd_fields.get(cd_i),
+      cd_fields.get_cloned(cd_i),
       .Some(cd_f) => {
         cd_ty := resolve_some_type_to_concrete(&cd_f.ty);
         mut(cd_ref) := String.from("(");
@@ -499,7 +499,7 @@ _generate_spawn_call :: (fn(expr : &AstExpr, indent : &String, context : &mut Fu
     Rc(.SomeT({ id : cb_sid })) => cb_sid.clone(),
     _ => type_key(capture_type.clone())
   );
-  mapped_opt := context.base.impl_closure_call_map.get(&cb_map_key);
+  mapped_opt := context.base.impl_closure_call_map.get_cloned(&cb_map_key);
   capture_c_name := _capture_type_c_name(capture_type.clone(), context);
   closure_fn := match(
     _closure_fn_c_name(&cei.value(), expr_info_closure_function_value(&cei), context),

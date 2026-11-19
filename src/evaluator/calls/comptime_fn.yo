@@ -56,7 +56,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../context.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
 { note_ctfe_reference_params, note_legacy_str_type_arg } :: import("../utils.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, YoError } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { RefCell } :: import("std/sync/refcell");
 /// (seed window) Concrete per-payload variants of refcell.yo's generic
@@ -499,7 +499,7 @@ canonicalize_instantiation_via_ctfe_memo :: (fn(ty : &TypeValue) -> TypeValue)({
     n_b := g_comptime_fn_caches.with(_c_len_2);
     while((bi < n_b) && canon_bucket.is_none(), {
       match(
-        g_comptime_fn_caches.with(xs => xs.get(bi)),
+        g_comptime_fn_caches.with(xs => xs.get_cloned(bi)),
         .Some(e) => if(e.func_id == cfid, {
           canon_bucket = Option(ComptimeFnCacheEntry).Some(e);
         }),
@@ -550,9 +550,9 @@ resolve_recursive_type_ref :: (fn(some_ty : &TypeValue, ctx : &EvalContext) -> O
   {
     (ci : usize) = usize(0);
     n_c := g_comptime_fn_caches.with(_c_len_2);
-    while((ci < n_c) && match(bucket_opt, .None => true, .Some(_) => false), {
+    while((ci < n_c) && match(&bucket_opt, .None => true, .Some(_) => false), {
       match(
-        g_comptime_fn_caches.with(xs => xs.get(ci)),
+        g_comptime_fn_caches.with(xs => xs.get_cloned(ci)),
         .Some(e) => if(e.func_id == rref.func_id, {
           bucket_opt = Option(ComptimeFnCacheEntry).Some(e);
         }),
@@ -694,7 +694,7 @@ evaluate_comptime_fn_call :: (
     function_callee_expr : &Option(AstExpr),
     function_type : &TypeValue,
     function_value : &EvalValue,
-    arg_values : &ArgValues,
+    arg_values : &mut ArgValues,
     caller_env : &Environment,
     callee_env : &Environment,
     ctx : &mut EvalContext,
@@ -719,9 +719,11 @@ evaluate_comptime_fn_call :: (
         (us_i : usize) = usize(0);
         while(us_i < us_pts.len(), us_i = (us_i + usize(1)), {
           if(match(us_pts.get(us_i), .Some(us_pt) => is_type_0(&t_slot_pointee(&us_pt)), .None => false), {
-            match(
-              arg_values.args.get(us_i),
-              .Some(us_a) => match(
+            // Read-modify-writeback, not a `with` sink: a sink closure can
+            // hold neither `exn` (control-bound) nor the `&`/`&mut` params.
+            if(us_i < arg_values.args.len(), {
+              mut(us_a) := arg_values.args(us_i).clone();
+              match(
                 us_a.value.clone(),
                 .Some(Rc(.TypeVal(us_t))) => cond(
                   // The legacy value `str` (decision 49,
@@ -738,9 +740,9 @@ evaluate_comptime_fn_call :: (
                   true => ()
                 ),
                 _ => ()
-              ),
-              .None => ()
-            );
+              );
+              arg_values.args(us_i) = us_a;
+            });
           });
         });
       },
@@ -856,7 +858,7 @@ evaluate_comptime_fn_call :: (
   (fai : usize) = usize(0);
   while((fai < n_fa) && collect_ok, {
     match(
-      arg_values.forall_args.get(fai),
+      arg_values.forall_args.get_cloned(fai),
       .Some(e) => match(
         e.value.clone(),
         .Some(v) => {
@@ -876,7 +878,7 @@ evaluate_comptime_fn_call :: (
   (ai : usize) = usize(0);
   while((ai < n_a) && collect_ok, {
     match(
-      arg_values.args.get(ai),
+      arg_values.args.get_cloned(ai),
       .Some(e) => match(
         e.value.clone(),
         .Some(v) => {
@@ -896,7 +898,7 @@ evaluate_comptime_fn_call :: (
   (vai : usize) = usize(0);
   while((vai < n_va) && collect_ok, {
     match(
-      arg_values.variadic_args.get(vai),
+      arg_values.variadic_args.get_cloned(vai),
       .Some(e) => match(
         e.value.clone(),
         .Some(v) => {
@@ -1118,7 +1120,7 @@ evaluate_comptime_fn_call :: (
     n_c := g_comptime_fn_caches.with(_c_len_2);
     while((ci < n_c) && match(entry_idx_opt, .None => true, .Some(_) => false), {
       match(
-        g_comptime_fn_caches.with(xs => xs.get(ci)),
+        g_comptime_fn_caches.with(xs => xs.get_cloned(ci)),
         .Some(e) => if(e.func_id == func_id_str, {
           entry_idx_opt = Option(usize).Some(ci);
         }),
@@ -1144,7 +1146,7 @@ evaluate_comptime_fn_call :: (
   cached_result := Option(EvalValue).None;
   if(should_cache, {
     match(
-      g_comptime_fn_caches.with(xs => xs.get(the_entry_idx)),
+      g_comptime_fn_caches.with(xs => xs.get_cloned(the_entry_idx)),
       .Some(entry) => {
         for(&entry.caches, cache => {
           if(cached_result.is_none(), {
@@ -1207,14 +1209,14 @@ evaluate_comptime_fn_call :: (
     value : _recursive_placeholder(&return_type, &func_id_str, &all_arg_vals)
   );
   match(
-    g_comptime_fn_caches.with(xs => xs.get(the_entry_idx)),
+    g_comptime_fn_caches.with(xs => xs.get_cloned(the_entry_idx)),
     .Some(entry) => {
       entry.caches.push(temp_cache);
     },
     .None => ()
   );
   temp_cache_index := match(
-    g_comptime_fn_caches.with(xs => xs.get(the_entry_idx)),
+    g_comptime_fn_caches.with(xs => xs.get_cloned(the_entry_idx)),
     .Some(entry) => (entry.caches.len() - usize(1)),
     .None => usize(0)
   );
@@ -1301,7 +1303,7 @@ evaluate_comptime_fn_call :: (
     .None => {
       // Remove the temp cache entry to avoid leaving a stale placeholder.
       match(
-        g_comptime_fn_caches.with(xs => xs.get(the_entry_idx)),
+        g_comptime_fn_caches.with(xs => xs.get_cloned(the_entry_idx)),
         .Some(entry) => {
           entry.caches.drain(temp_cache_index .. (temp_cache_index + usize(1)));
         },
@@ -1326,7 +1328,7 @@ evaluate_comptime_fn_call :: (
     .None => {
       // Remove the temp cache entry.
       match(
-        g_comptime_fn_caches.with(xs => xs.get(the_entry_idx)),
+        g_comptime_fn_caches.with(xs => xs.get_cloned(the_entry_idx)),
         .Some(entry) => {
           entry.caches.drain(temp_cache_index .. (temp_cache_index + usize(1)));
         },
@@ -1577,7 +1579,7 @@ evaluate_comptime_fn_call :: (
       value : Rc.clone(final_return_value)
     );
     match(
-      g_comptime_fn_caches.with(xs => xs.get(the_entry_idx)),
+      g_comptime_fn_caches.with(xs => xs.get_cloned(the_entry_idx)),
       .Some(entry) => {
         // ArrayList has no in-place element assignment; replace the temp
         // placeholder by removing it and pushing the finalized entry.
@@ -1590,7 +1592,7 @@ evaluate_comptime_fn_call :: (
     );
   }, {
     match(
-      g_comptime_fn_caches.with(xs => xs.get(the_entry_idx)),
+      g_comptime_fn_caches.with(xs => xs.get_cloned(the_entry_idx)),
       .Some(entry) => {
         entry.caches.drain(temp_cache_index .. (temp_cache_index + usize(1)));
       },

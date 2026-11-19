@@ -2302,16 +2302,15 @@ evaluate_match :: (
           // already carry the test expansions recorded in the arm loop).
           (fi3 : usize) = usize(0);
           while(fi3 < arms.len(), {
-            match(
-              arms.get(fi3),
-              .Some(fa) => match(
+            arms.with(
+              fi3,
+              fa => match(
                 &fa.pattern,
                 .Variant(_, fidx, _, _, _, _, _) => if(fidx.* == target_idx, {
                   fa.classic = false;
                 }),
                 _ => ()
-              ),
-              .None => ()
+              )
             );
             fi3 = (fi3 + usize(1));
           });

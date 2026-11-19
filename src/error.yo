@@ -287,10 +287,8 @@ _diagnostic_of_token :: (
 /// Compiler error: a group of diagnostics — entry 0 the primary error,
 /// every later entry a related location rendered as a `note:` block
 /// (D6 — they used to render with an `Error:` prefix).
-YoError :: ref(
-  struct(
-    diagnostics : ArrayList(Diagnostic)
-  )
+YoError :: struct(
+  diagnostics : ArrayList(Diagnostic)
 );
 impl(
   YoError,
@@ -323,11 +321,9 @@ impl(
 /// error object on stdout — and exits with `code`. Throw it instead of
 /// calling `exit()`: a plain exit on the normal path aborts in the
 /// self-compiled runtime's teardown, the handler's does not.
-ExitWith :: ref(
-  struct(
-    code : i32,
-    message : String
-  )
+ExitWith :: struct(
+  code : i32,
+  message : String
 );
 impl(
   ExitWith,
@@ -688,7 +684,7 @@ with_code :: (fn(err : &YoError, code : str) -> YoError)(_with_primary_code(err,
 /// generated body) carries that error's code over with this; `.None` leaves
 /// `err` as it is.
 with_code_carried :: (fn(err : &YoError, code : &Option(String)) -> YoError)(
-  match(code, .Some(_) => _with_primary_code(err, code), .None => err.*)
+  match(code, .Some(_) => _with_primary_code(err, code), .None => err.clone())
 );
 /// `err` with a mechanical repair on its PRIMARY diagnostic: replace
 /// `token`'s own text with `replacement` (`yo fix` applies it,

@@ -1,16 +1,17 @@
 //! Downcasts through a reference are views: `yo fix --migrate unsized` lists
-//! none of them, a `ref` target included.
+//! none of them, an `Rc` target included.
 { println } :: import("std/fmt");
 Speak :: trait(speak : (fn(self : &Self) -> i32));
 Cat :: struct(n : i32);
 impl(Cat, Speak(speak : ((self : &Self) -> self.n)));
-Robj :: ref(struct(n : i32));
+RobjPayload :: struct(n : i32);
+Robj :: Rc(RobjPayload);
 impl(Robj, Speak(speak : ((self : &Self) -> self.n)));
 _view_ref :: (fn(e : &Dyn(Speak)) -> i32)(match(downcast(e, Robj), .Some(o) => o.n, .None => i32(0)));
 _view_box_ref :: (fn(b : &Box(Dyn(Speak))) -> i32)(match(downcast(b, Robj), .Some(o) => o.n, .None => i32(0)));
 _view_val :: (fn(b : &Box(Dyn(Speak))) -> i32)(match(downcast(&b.*, Cat), .Some(c) => c.n, .None => i32(0)));
 main :: (fn() -> unit)({
-  (d : Box(Dyn(Speak))) = dyn(Box.new(Robj(n : i32(4))));
+  (d : Box(Dyn(Speak))) = dyn(Box.new(Rc.new(RobjPayload(n : i32(4)))));
   (c : Box(Dyn(Speak))) = dyn(Box.new(Cat(n : i32(3))));
   total := (_view_ref(&d.*) + _view_box_ref(&d) + _view_val(&c));
   println(&total);

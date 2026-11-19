@@ -1,12 +1,14 @@
 { ArrayList } :: import("std/collections/array_list");
 { yield } :: import("std/async");
-Holder :: ref(struct(items : ArrayList(i32)));
+HolderInner :: struct(items : ArrayList(i32));
+Holder :: Rc(HolderInner);
 main :: (fn(io : Io) -> unit)({
-  h := Holder(items : ArrayList(i32).new());
-  h.items.push(i32(1));
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  h := Rc.new(HolderInner(items : xs));
   t := io.async((e : Io) => {
-    for(&mut h.items, x => {
-      x.* = (x.* + i32(1));
+    for(&h.*.items, x => {
+      _ := x.*;
       e.await(yield(e), e);
     });
   });

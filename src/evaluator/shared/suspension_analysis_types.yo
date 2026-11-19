@@ -21,77 +21,75 @@
 // ---------------------------------------------------------------------------
 /// Base type for any suspension point (an await call or an effect call).
 /// System-specific fields live in `AwaitPoint` / `EffectCallPoint` which embed this.
-SuspensionPoint :: ref(
-  struct(
-    /// 0-based index of this suspension point in the analysis result.
-    index : usize,
-    /// The suspension expression.
-    expr : AstExpr,
-    /// The variable that should receive the result of resuming (if assigned via `:=`).
-    target_variable_id : Option(String),
-    /// Whether this suspension is inside a `cond` expression.
-    is_inside_cond : Option(bool),
-    /// True when this suspension's value is the BODY'S OWN RESULT — the await
-    /// is the final expression of the async block
-    /// (`io.async((e) => e.io.await(f, e))`). It has no target variable, so
-    /// the linear-await "result is unused, skip storage" optimization must NOT
-    /// apply: the resume stores into `sm->await_result_N` and the completion
-    /// segment assigns it to `sm->result`. Set by `analyze_await_points`
-    /// (and asserted by `split_into_state_segments` in codegen).
-    is_body_result : Option(bool),
-    /// Whether this suspension is inside a `while` loop.
-    is_inside_while : Option(bool),
-    /// The number of nested `while` loops this suspension is inside.
-    while_nesting_depth : Option(usize),
-    /// For sequential suspensions within the same cond/match branch,
-    /// references the index of the first suspension in that cond/match.
-    cond_branch_source_index : Option(usize),
-    /// Whether this suspension needs its own `cond_branch_X` field in the
-    /// state machine struct.
-    needs_own_cond_branch_field : Option(bool),
-    /// The enclosing while loop expression.
-    enclosing_while_expr : Option(AstExpr),
-    /// Set on a merged cond/match representative: EVERY branch's suspension
-    /// expr at this depth position, in branch order. A shared cond await point
-    /// stands in for one suspension per awaiting branch, and those can await
-    /// futures of different C types, mix named and anonymous futures, or mix
-    /// io/state-machine future kinds — everything downstream that used to
-    /// assume the representative's shape consults this list instead. See
-    /// issues/fixed/async-cond-shared-await-point-only-models-representative-branch.md.
-    cond_branch_suspension_exprs : Option(ArrayList(AstExpr)),
-    /// Parallel to `cond_branch_suspension_exprs`: whether THAT branch's
-    /// suspension sits inside a `while` of its own arm. The representative's
-    /// `is_inside_while` describes only the arm it was taken from, so a
-    /// match whose `.None` arm awaits once and whose `.Some` arm awaits inside
-    /// a loop merged into a point with no loop-ness at all — the state struct
-    /// then never declared `while_loop_N_active` while the looping arm's body
-    /// wrote it (issues/fixed/while-await-inside-match-arm-missing-loop-field.md).
-    cond_branch_suspension_in_while : Option(ArrayList(bool))
-  )
+SuspensionPoint :: struct(
+  /// 0-based index of this suspension point in the analysis result.
+  index : usize,
+  /// The suspension expression.
+  expr : AstExpr,
+  /// The variable that should receive the result of resuming (if assigned via `:=`).
+  target_variable_id : Option(String),
+  /// Whether this suspension is inside a `cond` expression.
+  is_inside_cond : Option(bool),
+  /// True when this suspension's value is the BODY'S OWN RESULT — the await
+  /// is the final expression of the async block
+  /// (`io.async((e) => e.io.await(f, e))`). It has no target variable, so
+  /// the linear-await "result is unused, skip storage" optimization must NOT
+  /// apply: the resume stores into `sm->await_result_N` and the completion
+  /// segment assigns it to `sm->result`. Set by `analyze_await_points`
+  /// (and asserted by `split_into_state_segments` in codegen).
+  is_body_result : Option(bool),
+  /// Whether this suspension is inside a `while` loop.
+  is_inside_while : Option(bool),
+  /// The number of nested `while` loops this suspension is inside.
+  while_nesting_depth : Option(usize),
+  /// For sequential suspensions within the same cond/match branch,
+  /// references the index of the first suspension in that cond/match.
+  cond_branch_source_index : Option(usize),
+  /// Whether this suspension needs its own `cond_branch_X` field in the
+  /// state machine struct.
+  needs_own_cond_branch_field : Option(bool),
+  /// The enclosing while loop expression.
+  enclosing_while_expr : Option(AstExpr),
+  /// Set on a merged cond/match representative: EVERY branch's suspension
+  /// expr at this depth position, in branch order. A shared cond await point
+  /// stands in for one suspension per awaiting branch, and those can await
+  /// futures of different C types, mix named and anonymous futures, or mix
+  /// io/state-machine future kinds — everything downstream that used to
+  /// assume the representative's shape consults this list instead. See
+  /// issues/fixed/async-cond-shared-await-point-only-models-representative-branch.md.
+  cond_branch_suspension_exprs : Option(ArrayList(AstExpr)),
+  /// Parallel to `cond_branch_suspension_exprs`: whether THAT branch's
+  /// suspension sits inside a `while` of its own arm. The representative's
+  /// `is_inside_while` describes only the arm it was taken from, so a
+  /// match whose `.None` arm awaits once and whose `.Some` arm awaits inside
+  /// a loop merged into a point with no loop-ness at all — the state struct
+  /// then never declared `while_loop_N_active` while the looping arm's body
+  /// wrote it (issues/fixed/while-await-inside-match-arm-missing-loop-field.md).
+  cond_branch_suspension_in_while : Option(ArrayList(bool))
 );
+derive(SuspensionPoint, Clone);
+derive(SuspensionCapturedVariable, Clone);
 // ---------------------------------------------------------------------------
 // SuspensionCapturedVariable
 // ---------------------------------------------------------------------------
 /// Information about a local variable that needs to persist across suspension points.
 ///
 /// Note: the self-referential field `is_owning_the_same_rc_value_as`
-/// is a plain `Option(Self)`: a `ref` type is already a handle.
-SuspensionCapturedVariable :: ref(
-  struct(
-    id : String,
-    name : String,
-    ty : TypeValue,
-    is_owning_the_same_rc_value_as : Option(Self),
-    /// Declaration site (`module:row:col` from the Variable's decl token) —
-    /// an identity that survives env re-stamping. Name-based SM
-    /// lookups (atom.yo's fallback, the ref-collector's unification map) use
-    /// it to disambiguate DISTINCT same-named variables: without it, a
-    /// re-stamped read of one `i` name-fell back to ANOTHER branch's `i`
-    /// that was legitimately slot-packed with a live variable (the bufio
-    /// "read partial then remaining" wrong-bytes bug). Empty when unknown
-    /// (synthesized closure-param / capture-field entries).
-    decl_site : String
-  )
+/// is an `Option(Rc(Self))`: the indirection a value struct needs.
+SuspensionCapturedVariable :: struct(
+  id : String,
+  name : String,
+  ty : TypeValue,
+  is_owning_the_same_rc_value_as : Option(Rc(Self)),
+  /// Declaration site (`module:row:col` from the Variable's decl token) —
+  /// an identity that survives env re-stamping. Name-based SM
+  /// lookups (atom.yo's fallback, the ref-collector's unification map) use
+  /// it to disambiguate DISTINCT same-named variables: without it, a
+  /// re-stamped read of one `i` name-fell back to ANOTHER branch's `i`
+  /// that was legitimately slot-packed with a live variable (the bufio
+  /// "read partial then remaining" wrong-bytes bug). Empty when unknown
+  /// (synthesized closure-param / capture-field entries).
+  decl_site : String
 );
 // ---------------------------------------------------------------------------
 // SuspensionAnalysisResult

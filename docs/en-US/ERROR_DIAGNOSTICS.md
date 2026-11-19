@@ -181,9 +181,10 @@ A module-level or `thread_local` runtime binding is immutable (Rust's
 `static`) unless its name is wrapped in `mut(...)` (`static mut`, decision
 47). Writing an immutable global is E0917: reassigning it, writing a field or
 element of a value it holds, lending a place of that value as `&mut`, or
-calling a `&mut self` method on it. A write through a `ref` handle the global
-holds (`g.push(x)` on an `ArrayList`, `h.name = …` on a `ref(struct)`) is not
-a write of the binding and needs no marker; only reassigning the binding does.
+calling a `&mut self` method on it. A write through a door the
+global holds (`r.with_mut(...)` on a `RefCell`, the door types of
+`std/sync`) is not a write of the binding and needs no marker; only
+reassigning the binding does.
 The marker goes on the declared name: `mut(G) := v`, `(mut(G) : T) = v`,
 `thread_local(mut(G))`.
 
@@ -196,12 +197,12 @@ and the borrow would then change under it. Read it into a local first
 collection or a value holding one is read with `v := G.clone()`: the receiver
 of a `clone()` whose every `Clone` impl is derived or std's is the one lend
 allowed, since that clone runs no user code. An unmarked global
-is lent freely. A global holding a `ref` handle adds two conflicts, each
-reported wherever the compiler sees the second site: a lend into the storage
-behind it (`&g(i)`) is E0916 when a `&mut self` method is called on it
-anywhere, and a lend of a field written through it (`&h.name` after
-`h.name = …`) is E0916 too. Both errors apply everywhere, `std` and the
-compiler's own sources included.
+is lent freely. A global holding a shared door (`Rc(RefCell(T))`, an
+`Arc(Mutex(T))`) adds two conflicts, each reported wherever the compiler sees
+the second site: a lend into the storage behind it (`&g(i)`) is E0916 when a
+`&mut self` method is called on it anywhere, and a lend of a field written
+through the door (`&r.*.name` after a write inside `with_mut`) is E0916 too.
+Both errors apply everywhere, `std` and the compiler's own sources included.
 
 Decision 47's second step applies the same rule below module level: a local,
 a pattern or destructuring binding and a compile-time binding (`x :: v`,

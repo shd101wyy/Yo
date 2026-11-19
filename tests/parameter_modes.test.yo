@@ -10,6 +10,7 @@
 { assert } :: import("std/assert");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
+{ RefCell } :: import("std/sync/refcell");
 { sleep } :: import("std/sys/timer");
 { DefaultHasher } :: import("std/hash");
 { ToString, Debug, Format } :: import("std/fmt");
@@ -528,7 +529,7 @@ test("the scrutinee is reached only through a live mut place", {
 // A field or a dereference scrutinee is a place too: the arm writes it, not a
 // copy (issues/fixed/2026-10-16-a-mut-match-on-a-field-or-a-dereference-writes-a-copy.md).
 _PmPlaceHolder :: struct(o : Option(String), k : i32);
-_PmCell :: ref(struct(o : Option(i32)));
+_PmCellInner :: struct(o : Option(i32));
 test("a mut match on a field or a dereference writes the scrutinee's part", {
   (mut(s) : _PmPlaceHolder) = _PmPlaceHolder(o : .Some(String.from("a")), k : i32(0));
   match(
@@ -539,15 +540,17 @@ test("a mut match on a field or a dereference writes the scrutinee's part", {
     .None => ()
   );
   assert(match(&s.o, .Some(v) => v.len(), .None => usize(0)) == usize(3), "the field's payload was replaced in place");
-  h := _PmCell(o : .Some(i32(1)));
-  match(
-    &mut h.o,
-    .Some(n) => {
-      n.* = (n.* + i32(1));
-    },
-    .None => ()
-  );
-  assert(match(h.o, .Some(v) => v, .None => i32(0)) == i32(2), "a ref object's field was written");
+  h := RefCell(_PmCellInner).new(_PmCellInner(o : Option(i32).Some(i32(1))));
+  h.with_mut(c => {
+    match(
+      &mut c.o,
+      .Some(n) => {
+        n.* = (n.* + i32(1));
+      },
+      .None => ()
+    );
+  });
+  assert(h.with(c => match(c.o, .Some(v) => v, .None => i32(0))) == i32(2), "a cell door's field was written");
   (o5 : Option(i32)) = .Some(i32(5));
   mut(b) := Box.new(o5);
   match(
@@ -618,6 +621,18 @@ test("the deleted mode words imm and mut are E0009 naming the sigil spelling", {
     "`for(coll, mut(x) => ...)` was deleted"
   );
   assert(xs(usize(0)) == i32(1), "nothing was written");
+});
+
+test("the deleted declaration forms ref and atomic are E0009 naming the handle spelling", {
+  comptime_expect_error({
+    _PmRefGone :: ref(struct(n : i32));
+  }, "`ref(...)` was deleted: shared ownership is spelled `Rc(S)`, with a `RefCell` payload when handles mutate it");
+  comptime_expect_error({
+    _PmEnumGone :: ref(enum(A, B));
+  }, "`ref(...)` was deleted: shared ownership is spelled `Rc(S)`, with a `RefCell` payload when handles mutate it");
+  comptime_expect_error({
+    _PmAtomicGone :: atomic(ref(struct(n : i32)));
+  }, "`atomic(...)` was deleted: atomic shared ownership is spelled `Arc(S)`");
 });
 
 // Decision 28's argument exclusivity across the argument list: the arguments
@@ -796,14 +811,6 @@ _pm_field_pair :: (fn(s : &mut String, k : &i32) -> i32)({
   s.push_str("?");
   k.* + i32(1)
 });
-_PmObj :: ref(struct(n : i32));
-impl(
-  _PmObj,
-  absorb : (fn(self : &mut Self, other : &Self) -> i32)({
-    self.n = (self.n + other.n);
-    self.n
-  })
-);
 // A closure-valued field's call yields a temporary, which overlaps no
 // argument: lending it beside `&mut` of its holder, or using it as the
 // `&mut self` receiver beside `&` of its holder, passes.
@@ -857,8 +864,9 @@ test("a `&mut` argument may not overlap another argument rooted at the same valu
   assert(_pm_field_pair(&mut p.s, &p.k) == i32(1), "disjoint fields of one root pass");
   assert(p.s == "abab!?", "both writes landed");
   assert(_pm_peek(&a, _pm_peek(&a, i32(0))) == i32(6), "two `&` lends may overlap");
-  c := _PmObj(n : i32(2));
-  assert(c.absorb(&c) == i32(4), "a root that is a reference cell is decision 28's `Rc` arm, not this rule");
+  // The `ref`-object row (a `&mut self` call beside `&` of the same cell
+  // root) went with the form in v0.2.79: an `Rc`'s payload is read-only
+  // through the handle, so the call no longer spells.
   mut(cbh) := _PmCbHolder(n : i32(1), cb : dyn(Box.new((x : i32) => (x + i32(1)))));
   assert(_pm_cb_apply(&mut cbh, &cbh.cb(i32(2))) == i32(4), "a closure field's call result is a temporary");
   mkh := _PmMk(tag : i32(5), mk : dyn(Box.new((x : i32) => _PmRes(n : x))));
@@ -1021,7 +1029,7 @@ _pm_seq_bump_acc :: (fn(p : &mut _PmSeqAcc) -> i32)({
   i32(1)
 });
 _PmSeqPair :: struct(a : i32, b : i32);
-_PmSeqObj :: ref(struct(a : i32, b : i32));
+_PmSeqObj :: struct(a : i32, b : i32);
 _PmSeqE :: enum(P(a : i32, b : i32), Q);
 _pm_seq_first_len :: (fn(a : String, b : usize) -> usize)(a.len());
 test("a by-value operand is read before a later &mut argument writes it", {
@@ -1041,8 +1049,8 @@ test("a by-value operand is read before a later &mut argument writes it", {
   p := _PmSeqPair(a : x, b : _pm_seq_bump(&mut x));
   assert((p.a - p.b) == i32(2), "value-struct constructor");
   x = i32(3);
-  o := _PmSeqObj(a : x, b : _pm_seq_bump(&mut x));
-  assert((o.a - o.b) == i32(2), "ref-struct constructor");
+  o := Rc.new(_PmSeqObj(a : x, b : _pm_seq_bump(&mut x)));
+  assert((o.a - o.b) == i32(2), "Rc-struct constructor");
   x = i32(3);
   e := _PmSeqE.P(a : x, b : _pm_seq_bump(&mut x));
   assert(match(e, .P(a, b) => (a - b), .Q => i32(-1)) == i32(2), "enum constructor");

@@ -2675,3 +2675,22 @@ test("a ctl operation resumes with its own reference parameter", {
   );
   assert(_eff_holder_use(hold) == i32(7), "a holder of the operation's parameter");
 });
+
+// A record holding a `ctl` handler (an effect record) derives `Copy` and
+// `Clone`: the derived `clone` copies the `&Self` receiver's fields — it
+// creates no handler and extends no handler's lifetime past a frame — so the
+// ctl-return rule (a function's declared result may not be control-bound)
+// exempts derive-synthesized impls. The v0.2.78 seed rejected this
+// unconditionally; std's own derives over its effect records are Generation
+// B (v0.2.80), this pins the checker half.
+test("derive(Copy, Clone) on an effect record copies the handler slots", {
+  Probe :: (ctl(k : i32) -> i32);
+  Bundle :: struct(p : Probe, n : i32);
+  derive(Bundle, Copy, Clone);
+  b := Bundle(p : (k -> (k + i32(1))), n : i32(5));
+  b2 := b.clone();
+  assert(b2.n == i32(5), "the clone copied the record");
+  assert(b.n == i32(5), "the original is intact");
+  c := b;
+  assert((c.n + b2.n) == i32(10), "a Copy binding reads both");
+});

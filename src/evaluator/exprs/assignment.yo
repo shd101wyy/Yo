@@ -1202,7 +1202,7 @@ d3_record_inout_place :: (
 /// The E0908 half of `d3_check_pending`: each borrowed-value entry the
 /// callee's mask says it writes is an error (or, under the audit, a line).
 _d3_judge_borrow_errors :: (
-  fn(pending : &ArrayList(D3PendingInout), borrow_mask : Option(ParamMutationMask), callee_fid : &String, ctx : &EvalContext, exn : Exception) -> unit
+  fn(pending : &ArrayList(D3PendingInout), borrow_mask : &Option(ParamMutationMask), callee_fid : &String, ctx : &EvalContext, exn : Exception) -> unit
 )({
   (bi : usize) = usize(0);
   while(bi < pending.len(), {
@@ -1211,7 +1211,7 @@ _d3_judge_borrow_errors :: (
       .Some(entry) => match(
         &entry.borrow_error,
         .Some(berr) => {
-          if(match(borrow_mask, .Some(bm) => param_mutation_mask_hits(&bm, entry.param_index), .None => false), {
+          if(match(borrow_mask, .Some(bm) => param_mutation_mask_hits(bm, entry.param_index), .None => false), {
             if(_g_audit_inout_borrow, {
               // `-unresolved`: the analysis could not resolve the callee's
               // mask (`all`), so the write is assumed, not seen.
@@ -1252,7 +1252,7 @@ _d3_judge_borrow_errors :: (
 /// no mask (`.None`: an unresolved callee) only the `lends_mut` entries are
 /// judged.
 _d3_judge_local_borrows :: (
-  fn(pending : &ArrayList(D3PendingInout), borrow_mask : Option(ParamMutationMask), call : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit
+  fn(pending : &ArrayList(D3PendingInout), borrow_mask : &Option(ParamMutationMask), call : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit
 )({
   (carriers : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
   (carriers_ready : bool) = false;
@@ -1267,7 +1267,7 @@ _d3_judge_local_borrows :: (
           // a live closure borrows, whatever the callee's body does
           // (`cap_conflict`, audit A32).
           match(&entry.cap_conflict, .Some(cc) => raise_capture_freeze_conflict(cc, LocalBorrowAccess.Exclusive, ast_expr_token(&entry.place), ctx, exn), .None => ());
-          if(entry.lends_mut || match(borrow_mask, .Some(bm) => (param_mutation_mask_hits(&bm, entry.param_index) || param_mutation_mask_lends_mut(&bm, entry.param_index)), .None => false), {
+          if(entry.lends_mut || match(borrow_mask, .Some(bm) => (param_mutation_mask_hits(bm, entry.param_index) || param_mutation_mask_lends_mut(bm, entry.param_index)), .None => false), {
             local_borrow_require_writable(&lbp.*, entry.lb_read_only, entry.how.clone(), ast_expr_token(&entry.place), ctx, exn);
             if(!carriers_ready, {
               carriers = call_origin_operands(call, ctx);
@@ -1356,8 +1356,8 @@ d3_check_pending :: (
   // files and are exactly the writes this rejects. A mask the analysis cannot
   // resolve (`all`) counts as a write, as it does for D3: `push_str` writes
   // through `ArrayList`'s raw pointers, which the analysis does not follow.
-  _d3_judge_borrow_errors(pending, borrow_mask, callee_fid, ctx, exn);
-  _d3_judge_local_borrows(pending, borrow_mask, call, ctx, exn);
+  _d3_judge_borrow_errors(pending, &borrow_mask, callee_fid, ctx, exn);
+  _d3_judge_local_borrows(pending, &borrow_mask, call, ctx, exn);
   // An `atomic_hop` entry is a candidate only: it counts when its evaluated
   // place passes through an atomic object. Resolve those first, so a call
   // whose candidates all fall away computes no mutation mask.

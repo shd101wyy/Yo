@@ -390,7 +390,7 @@ collect_type :: (fn(type_in : &TypeValue, context : &mut CodeGenContext) -> unit
         (mut(i) : usize) = usize(0);
         while(i < n, {
           match(
-            runtime_fields.get(i),
+            runtime_fields.get_cloned(i),
             .Some(rf) => if(!is_function_type(&rf.ty), {
               recur(&rf.ty, context);
             }),
@@ -562,7 +562,7 @@ collect_pointer_pointees :: (fn(context : &mut CodeGenContext) -> unit)({
           nf := rfs.len();
           (mut(fi) : usize) = usize(0);
           while(fi < nf, {
-            match(rfs.get(fi), .Some(rf) => _collect_field_pointees(&rf.ty, context), .None => ());
+            match(rfs.get_cloned(fi), .Some(rf) => _collect_field_pointees(&rf.ty, context), .None => ());
             fi = (fi + usize(1));
           });
         },
