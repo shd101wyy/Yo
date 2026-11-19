@@ -828,8 +828,8 @@ result temps did not, so a `match`/`cond` passed as a call argument leaked its
 value in every program, and the compiler leaked ~7 M TypeValues per self-check
 (`issues/fixed/match-or-cond-call-argument-result-is-never-released.md`). When
 a scheduled drop is "missing" from the C, check this set before the evaluator.
-To confirm a suspected leak, use a `Drop` counter on a `ref(struct)` /
-`ref(enum)` and read it after the scope that owns the value (statement temps are
+To confirm a suspected leak, use a `Drop` counter on a payload held in an
+`Rc` and read it after the scope that owns the value (statement temps are
 released at SCOPE end, not after the statement — EXCEPT a temp the statement
 LENDS: `&temp` call arguments and a borrowed `match` scrutinee are dropped
 right after their statement, Rust's temporary lifetime,
