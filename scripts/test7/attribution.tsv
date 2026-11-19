@@ -2,6 +2,30 @@
 # scripts/test7/classify.py reads it). One row per program or glob, first match wins:
 #   <path relative to the corpus root, fnmatch glob>	<row>	<note>
 # <row> is an audit row (A1..A57, B1..B9, C1..C14: plans/backlog/OWNERSHIP_BORROWING_ORIGINS_AUDIT.md §3),
-# `new:<issue basename>` for a hole filed after the audit, or `none:<reason>` for a dirty run that is not a
-# memory-safety hole of the checker (say why). A reproducer under repros/ needs no row: its basename names
+# `new:<issue basename>` for a hole filed after the audit, `residual:<what>` for a known hole the audit kept outside
+# its §3 rows (it blocks), or `none:<reason>` for a dirty run that is not a memory-safety hole of the checker (say why). A reproducer under repros/ needs no row: its basename names
 # its audit row. A dirty program with no row is UNATTRIBUTED and blocks the claim until it is triaged here.
+# --- 2026-11-19 rehearsal on develop 939fe7160, from the audit ledger (audit-boo/tmp/probes/LEDGER.md) ---
+probes/calls/r0[37]_*.yo	A10	ledger K-F4: an Option(&T) result over a by-value parameter
+probes/calls/r1[1-8]_*.yo	A10	ledger K-F4
+probes/calls/m05_opt_through_call_byvalue.yo	A10	ledger K-F4
+probes/cells/rc04j_byval_param_holder.yo	A10	ledger C-F1 rc04j: the spelled holder V(b) over a by-value Box (audit A10, moved from A30)
+probes/calls/c39_local_result_holder_then_write.yo	A5	ledger K-F3: a composite call result over a lend
+probes/cells/F3b_*.yo	A23	ledger C-F3: R-TEMP through an inner projection call
+probes/cells/tm2[245]_*.yo	A23	ledger C-F3: R-TEMP family
+probes/iteration/a0[28].yo	A14	ledger I-F4: next() on a temporary cursor
+probes/iteration/a1[17].yo	A14	ledger I-F4
+probes/iteration/a23.yo	A14	ledger I-F4
+probes/patterns-flow/m04.yo	A3	ledger F1: match on a reference binding
+probes/patterns-flow/m20.yo	A3	ledger F1, the &mut form (walled on v0279/clusters)
+probes/async-effects/w0[12].yo	A5	ledger AE-F7 (an A1 neighbour through an effect operation): a holder built over a call's reference result; closed on v0279/clusters by A5's fix
+probes/patterns-flow/p07.yo	A15	ledger F2: a Box sub-pattern of a &mut match, written in the arm; E0910 on v0279/clusters (the A3 wall)
+probes/patterns-flow/t14.yo	A17	ledger F4: a tuple scrutinee lends and moves one place
+probes/ownership/v07_ref_param_copy_realloc.yo	residual:audit §8 f(&h.xs, h2)	the ref-era residual below a `ref` object, issues/2026-10-23-a-move-only-element-borrowed-for-a-call-is-freed-when-an-argument-clears-its-container-through-another-handle.md; closes with the parser drop (R7: E0009)
+# --- still dirty on v0279/clusters 76f6aaf03: filed 2026-11-19 (block claim (S) until fixed or walled) ---
+probes/async-effects/n02m.yo	new:2026-11-19-a-function-forwarding-another-calls-borrowing-future-gives-its-result-no-origin	A52/A51 neighbour, cluster 7 (and 5)
+probes/calls/c19_closure_call.yo	new:2026-11-19-a-mut-argument-to-a-local-closure-is-not-checked-against-a-reference-argument-of-the-same-call	A6 bodyless half, cluster 2 (A1 family)
+probes/cells/gl0[23]_*.yo	new:2026-11-19-a-reference-read-through-a-temporary-guard-outlives-the-guards-drop	A31/A23 residual, cluster 6
+probes/closures/h16.yo	new:2026-11-19-an-fnmut-closure-stores-its-per-call-reference-parameter-through-a-method-of-a-mut-capture	A35/A50 neighbour, cluster 7
+probes/generics/v0[26]*.yo	new:2026-11-19-an-invariant-origin-is-widened-through-a-returned-holder-or-a-generic-wrapper	A24 residual, cluster 5
+probes/patterns-flow/g02[bd].yo	new:2026-11-19-a-match-guard-may-write-the-scrutinee-while-the-arms-pattern-bindings-borrow-it	A15 residual, cluster 3

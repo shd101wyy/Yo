@@ -14,7 +14,9 @@
 #
 # Usage, from the repository root of the CANDIDATE tree (its std is the one the programs see):
 #   bash scripts/test7.sh --yo <yo binary> [--phase all|gates|corpus|classify] [--out DIR] [--jobs N]
-#                         [--limit N] [--std DIR]
+#                         [--limit N] [--only LIST] [--std DIR]
+#   --only LIST: run only the corpus paths listed in LIST (one per line, relative to the corpus root, e.g. the
+#   first column of an earlier run's dirty.tsv): re-runs a dirty set on a fix branch's binary and std.
 #   bash scripts/test7.sh --gd-verdict <run-id> [--sha <candidate sha>]
 #   bash scripts/test7.sh --gd-howto [--sha <candidate sha>]
 #
@@ -76,7 +78,7 @@ one() {
   rc=$?
   rm -f "$wd/p.bin"
   if grep -q 'ERROR: AddressSanitizer' "$wd/run.log"; then
-    kind=$(grep -m1 -oE 'ERROR: AddressSanitizer: [a-z-]+' "$wd/run.log" | sed 's/.*: //')
+    kind=$(grep -m1 -oE 'ERROR: AddressSanitizer: [A-Za-z-]+' "$wd/run.log" | sed 's/.*: //')
     emit DIRTY "$kind" "$(grep -m1 -E '^SUMMARY' "$wd/run.log" | cut -c1-160 | tr '\t' ' ')"
   elif grep -q 'ERROR: LeakSanitizer' "$wd/run.log"; then
     emit LEAK leak "$(grep -m1 -E '^SUMMARY' "$wd/run.log" | cut -c1-160 | tr '\t' ' ')"
@@ -102,6 +104,7 @@ PHASE=all
 OUT=
 JOBS=8
 LIMIT=0
+ONLY=
 STD=$ROOT/std
 GD_RUN=
 GD_HOWTO=0
@@ -113,6 +116,7 @@ while [ $# -gt 0 ]; do
   --out) OUT=$2; shift 2 ;;
   --jobs) JOBS=$2; shift 2 ;;
   --limit) LIMIT=$2; shift 2 ;;
+  --only) ONLY=$(cd "$(dirname "$2")" && pwd)/$(basename "$2"); shift 2 ;;
   --std) STD=$2; shift 2 ;;
   --gd-verdict) GD_RUN=$2; shift 2 ;;
   --gd-howto) GD_HOWTO=1; shift ;;
@@ -228,6 +232,7 @@ corpus() {
   fi
   list=$OUT/programs.list
   (cd "$c/audit-corpus" && find . -name '*.yo' | sed 's#^\./##' | LC_ALL=C sort) >"$list"
+  [ -n "$ONLY" ] && { grep -v '^#' "$ONLY" | cut -f1 | grep -Fxf - "$list" >"$list.only"; mv "$list.only" "$list"; }
   [ "$LIMIT" -gt 0 ] && { head -n "$LIMIT" "$list" >"$list.lim" && mv "$list.lim" "$list"; }
   mkdir -p "$OUT/results" "$OUT/work"
   echo "(b) corpus: $(wc -l <"$list") programs, --jobs $JOBS, results in $OUT/results"

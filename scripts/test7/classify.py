@@ -56,6 +56,8 @@ def row_class(row):
         return ("not-ownership", False)
     if row.startswith("new:"):
         return ("new", True)
+    if row.startswith("residual:"):
+        return ("residual", True)
     return ("unknown-row", True)
 
 
@@ -205,6 +207,8 @@ def main():
         else:
             label, blocks = row_class(row)
             base = rows.get(row)
+            if row.startswith("new:"):
+                base = row[4:]
             state = doc_state(repo, base) if base else "-"
         by_cluster[label] += 1
         blocking += 1 if blocks else 0

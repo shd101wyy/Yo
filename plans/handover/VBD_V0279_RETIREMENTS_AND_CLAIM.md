@@ -142,12 +142,24 @@ use-after-free), a C compile failure or a checker crash (B class, loud), a run t
 (a panic), and a dirty program attributed to A41, A42, A44, a B or C row, or `none:<reason>`. A program that turns the
 unsafe gate off (`Pragma.AllowUnsafe`) is outside safe code and is skipped. The corpus is frozen while the language
 moves, so the summary also prints its drift (positives now rejected, negatives rejected with another code): a drifted
-negative no longer reaches the shape it was written for, which narrows what (b) proves without failing it. A std
-module renamed since the corpus was written (kebab-case Part C) is followed automatically
-(`scripts/test7/respell_imports.py`).
+negative no longer reaches the shape it was written for, which narrows what (b) proves without failing it (`drift.tsv`
+lists them). **Before (S) is claimed in v0.2.80, the drifted negatives of clusters 1–8 are respelled** to today's
+language, in the tarball, so (b) reaches their shapes again (coordinator's decision, 2026-11-19). A std module renamed
+since the corpus was written (kebab-case Part C) is followed automatically (`scripts/test7/respell_imports.py`).
+`scripts/test7/audit-corpus.tar.gz` is the canonical copy of the audit's probe corpus; the audit worktree's
+`tmp/probes/` is not needed.
 
-**Rehearsal, 2026-11-19, develop `939fe7160`** (stage 1 of `d8f0d89fa`, the same `src/` and `std/`): see the PR that
-added this section for the counts; it is the shape a candidate run reports.
+**Rehearsal, 2026-11-19, develop `939fe7160`** (stage 1 of `d8f0d89fa`, the same `src/` and `std/`; about 3 h on the
+shared box, G-B the long pole). (a) passed: sinks ok, G-A 150/150, G-B 392/392, totality 0. (c) passed: nightly run
+44451066581 ran on `939fe7160` with 291 programs and "0 new". (b) failed: of 2,047 programs (9 excluded as unsafe),
+1,614 were rejected, 6 crashed the checker, and 418 were accepted. The accepted ones split into 334 clean, 7 leak-only,
+17 C compile failures, 13 runs that failed without a sanitizer report, and **47 ASan-dirty**, all of them blocking.
+Drift: 94 positives rejected, 342 negatives rejected with another code, 93 negatives accepted (47 are the dirty set, 42 run clean, 4 fail to compile).
+The 47 dirty programs, re-run with `--only` on a stage 1 of the pending cluster branch `v0279/clusters`
+(`76f6aaf03`), went to 36 rejected (A3, A5, A10, A14, A15, A17, A23) and 11 still dirty. Ten of the 11 are six
+issues filed 2026-11-19 (`issues/2026-11-19-*.md`: clusters 2, 3, 5, 6 and 7), and one is the ref-era residual
+(`f(&h.xs, h2)`, audit §8), which the parser drop closes. So on develop plus the cluster branch, (b) would report
+**11 blocking**: the claim needs those six issues fixed or walled first.
 
 ## 4. What is not decided here
 
