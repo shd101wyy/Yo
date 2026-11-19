@@ -5,10 +5,9 @@ pragma(Pragma.SkipWasm32Wasi); // the atomic handle's thread test needs pthreads
 //! treats it as those cells by structure, so the wrappers of
 //! tests/fixtures/cell_handles.yo stand in for them here. This file is SAFE:
 //! E0919 and D3 must fire where user code runs.
-{ TRc, TArc, trc, tarc, treset, TLocked, tlocked } :: import("./fixtures/cell_handles.yo");
+{ TRc, TArc, trc, tarc, treset, TLocked, tlocked, talias, tclear } :: import("./fixtures/cell_handles.yo");
 { assert } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
-{ RefCell } :: import("std/sync/refcell");
 { yield } :: import("std/async");
 { Thread } :: import("std/thread");
 _P :: struct(x : i32, items : ArrayList(i32));
@@ -295,32 +294,28 @@ _hd_peek :: (fn(c : &_HdCell, act : &Impl(Fn() -> unit)) -> i32)({
   act();
   _hd_drops + (c.n - c.n)
 });
-// An `ArrayList` is a value since B8, so a second handle to ONE list is
-// spelled `Rc(RefCell(...))`: `hs2 := Rc.clone(hs)` shares the cell, and
-// `hs2.with_mut(xs => xs.clear())` empties the list the receiver's handle
-// came from (the `with` that read the element has returned, so the clear
-// takes no conflicting borrow).
+// An `ArrayList` is a value since B8, and `ref(...)` (the shared object that
+// gave ONE list a second name) was deleted in v0.2.79: the fixture's
+// `talias(&mut hs)` is that second name, and `tclear(&hs2)` empties the list
+// the receiver borrows from.
 test("a receiver reached through a cell handle element outlives a closure that drops the last other handle", {
   _hd_drops = i32(0);
-  hs := Rc.new(RefCell(ArrayList(TRc(_HdCell))).new(ArrayList(TRc(_HdCell)).new()));
-  hs.with_mut(xs => xs.push(trc(_HdCell(n : i32(1)))));
-  hs2 := Rc.clone(hs);
+  mut(hs) := ArrayList(TRc(_HdCell)).new();
+  hs.push(trc(_HdCell(n : i32(1))));
+  hs2 := talias(&mut hs);
   assert(
-    hs.with(xs => TRc.clone(&xs(usize(0)))).peek(() => {
-      hs2.with_mut(xs => xs.clear());
+    hs(usize(0)).peek(() => {
+      tclear(&hs2);
     }) == i32(0),
     "auto-dereferenced receiver: the cell outlives the call"
   );
   assert(_hd_drops == i32(1), "and is destroyed once, after it");
-  hs.with_mut(xs => xs.push(trc(_HdCell(n : i32(2)))));
-  {
-    elem := hs.with(xs => TRc.clone(&xs(usize(0))));
-    assert(
-      _hd_peek(&elem.*, () => {
-        hs2.with_mut(xs => xs.clear());
-      }) == i32(1),
-      "a `&` argument through the handle"
-    );
-  };
+  hs.push(trc(_HdCell(n : i32(2))));
+  assert(
+    _hd_peek(&hs(usize(0)).*, () => {
+      tclear(&hs2);
+    }) == i32(1),
+    "a `&` argument through the handle"
+  );
   assert(_hd_drops == i32(2), "destroyed once");
 });
