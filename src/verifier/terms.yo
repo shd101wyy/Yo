@@ -53,8 +53,7 @@ VcSortNode :: enum(
   Uninterpreted(name : String)
 );
 VcSort :: Rc(VcSortNode);
-derive(VcSortNode, Clone);
-derive(VcSort, Eq(VcSort));
+derive(VcSortNode, Clone, Eq(VcSortNode));
 // A VcSort has no back edges. Its only children are `Self`
 // payloads (`SeqS`, `FunS`, `ArrS`), and it holds no list or cell. The
 // language admits a variant-field write (`s.elem = s` would close a cycle),
@@ -262,7 +261,7 @@ impl(
   VcQuery,
   /// Builder: push a declaration.
   declare : (fn(self : &mut Self, name : &String, sort : &VcSort) -> unit)({
-    self.declarations.push(VcDecl(name : name.clone(), sort : sort.*));
+    self.declarations.push(VcDecl(name : name.clone(), sort : Rc.clone(sort)));
   }),
   /// Builder: push an unnamed assumption.
   assume : (fn(self : &mut Self, term : &VcTerm) -> unit)({

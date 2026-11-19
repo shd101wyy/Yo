@@ -1603,7 +1603,7 @@ _collect_declared :: (fn(t : &VcTerm, out : &mut HashMap(String, VcSort)) -> uni
     t,
     Rc(.Var(name, sort)) => {
       if(!out.contains_key(name.clone()), {
-        out.insert(name.clone(), sort.*);
+        out.insert(name.clone(), Rc.clone(sort));
       });
     },
     Rc(.BvLit(_, _)) => (),
@@ -1697,12 +1697,12 @@ _rename_vars :: (fn(t : &VcTerm, map : &HashMap(String, String)) -> VcTerm)(
     t,
     Rc(.Var(name, sort)) => match(
       map.get_cloned(name.clone()),
-      .Some(m) => Rc.new(VcTermNode.Var(name : m.clone(), sort : sort.*)),
+      .Some(m) => Rc.new(VcTermNode.Var(name : m.clone(), sort : Rc.clone(sort))),
       .None => Rc.clone(t)
     ),
     Rc(.BvLit(_, _)) => Rc.clone(t),
     Rc(.BoolLit(_)) => Rc.clone(t),
-    Rc(.ArrConst(sort, lit)) => Rc.new(VcTermNode.ArrConst(sort : sort.*, lit : _rename_vars(&lit.*, map))),
+    Rc(.ArrConst(sort, lit)) => Rc.new(VcTermNode.ArrConst(sort : Rc.clone(sort), lit : _rename_vars(&lit.*, map))),
     Rc(.App(op, args)) => {
       out := ArrayList(VcTerm).new();
       (i : usize) = usize(0);
@@ -7396,7 +7396,7 @@ _lt_unsigned_term :: (fn(a : &VcTerm, b : &VcTerm) -> VcTerm)(_app2(VcOp.BvUlt, 
 _term_sort :: (fn(t : &VcTerm) -> Option(VcSort))(
   match(
     t,
-    Rc(.Var(_, sort)) => Option(VcSort).Some(sort.*),
+    Rc(.Var(_, sort)) => Option(VcSort).Some(Rc.clone(sort)),
     Rc(.BvLit(_, w)) => Option(VcSort).Some(Rc.new(VcSortNode.BvS(width : w.*))),
     Rc(.BoolLit(_)) => Option(VcSort).Some(Rc.new(VcSortNode.BoolS)),
     _ => Option(VcSort).None
