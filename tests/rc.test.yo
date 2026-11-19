@@ -2536,7 +2536,8 @@ _cond_ct_deref :: (fn(p : *_CondCtBox) -> _CondCtBox)(
 _cond_ct_read :: (fn(generic(T : Type), p : *T) -> T)(
   cond(
     Type.impls(T, Copy) => p.*,
-    true => p.*
+    // A counted handle is copied only explicitly (decision 17).
+    true => p.*.clone()
   )
 );
 test("a compile-time-collapsed cond dups the borrowed handle it returns", {
