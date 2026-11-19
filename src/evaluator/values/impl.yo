@@ -502,6 +502,13 @@ get_base_trait_key :: (fn(trait_ty : &TypeValue) -> String)(
     _ => get_trait_key(trait_ty)
   )
 );
+/// A blanket receiver pattern: a bare binder (`T`) or a reference to one
+/// (`&T`, `&mut T`). Such a pattern matches every type (every reference), so
+/// its `where` clause is all that keeps it off a type that does not meet the
+/// bound.
+_is_blanket_receiver_pattern :: (fn(pattern : &TypeValue) -> bool)(
+  is_some_type(pattern) || (t_slot_is_borrow(pattern) && is_some_type(&t_slot_pointee(pattern)))
+);
 /// Register a new generic impl entry.
 register_generic_impl :: (fn(entry : &GenericImplEntry) -> unit)({
   bump_trait_impl_epoch();
@@ -509,7 +516,7 @@ register_generic_impl :: (fn(entry : &GenericImplEntry) -> unit)({
   // unifies with `&C`, so every method it registers can answer the lookup on a
   // reference.
   rp_pattern := Rc.clone(entry.receiver_type_pattern);
-  if(is_some_type(&rp_pattern) || (t_slot_is_borrow(&rp_pattern) && is_some_type(&t_slot_pointee(&rp_pattern))), {
+  if(_is_blanket_receiver_pattern(&rp_pattern), {
     (rp_i : usize) = usize(0);
     while(rp_i < entry.field_names.len(), {
       note_reference_blanket_method(&entry.field_names(rp_i));
@@ -1723,10 +1730,14 @@ try_match_generic_impl :: (
   // ENFORCEMENT is scoped by `enforce_all_where`:
   //
   //   false (METHOD DISPATCH — find_methods_from_generic_impls and friends):
-  //     only BLANKET impls (bare-SomeT receiver pattern) are rejected on a
-  //     failed clause. A blanket matches every type, so its where-clause is
-  //     the only thing keeping it off non-satisfying types; specific-pattern
-  //     impls already constrain via their pattern, and enforcing their
+  //     only BLANKET impls (a bare-SomeT receiver pattern or a reference to
+  //     one, `_is_blanket_receiver_pattern`) are rejected on a failed clause.
+  //     A blanket matches every type (or every reference), so its where-clause
+  //     is the only thing keeping it off non-satisfying types: R-PROBE's
+  //     lookup on `&Rc(String)` took `impl(generic(T), where(T <: ToString),
+  //     &T, …)` at `T := Rc(String)` and gave the handle a method only its
+  //     payload has (issues/fixed/2026-11-13-a-blanket-tostring-impl-over-a-reference-answers-an-rc-receiver-whose-payload-has-the-method.md).
+  //     Specific-pattern impls already constrain via their pattern, and enforcing their
   //     clauses HERE would drop a method wherever the trait-implements
   //     predicate has a load-order false negative (e.g. `String <: Hash`
   //     breaking `HashMap(String, _).new()`).
@@ -1814,7 +1825,7 @@ try_match_generic_impl :: (
             // IN PLACE (env.frames swap) — see the hook's doc above.
             (wcj_impl : bool) = wcj_f(&wcj_bound, &wcj_trait, &match_env);
             wcj_enforced := (
-              (enforce_all_where && (_is_marker_trait(&wcj_trait) || _where_trait_mentions_no_forall(&wcj_trait, &entry.forall_some_types)))
+              ((enforce_all_where || _is_blanket_receiver_pattern(&entry.receiver_type_pattern)) && (_is_marker_trait(&wcj_trait) || _where_trait_mentions_no_forall(&wcj_trait, &entry.forall_some_types)))
               || is_some_type(&entry.receiver_type_pattern)
             );
             // Lazy impls (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.4): the
