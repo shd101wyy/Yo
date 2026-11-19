@@ -201,6 +201,26 @@ test("(vii) a user blanket impl(generic(T), where(T <: Show), &T, Show(…))", {
   assert(c.show() == i32(7), "c.show(): impl(_ShC, _ShShow)");
   assert((&c).show() == i32(1007), "(&c).show(): the blanket over &T");
 });
+// (vii-c) A blanket over `&T` answers only where its `where` holds: the
+// lookup on `&Rc(_WhC)` matches the pattern at `T := Rc(_WhC)`, which does
+// not meet `_WhShow`, so `r.wh()` on an `Rc(_WhC)` auto-derefs to the
+// payload's method instead of finding a "method of the Rc" that clashes with
+// it (decision 32's E0616). The shape is std's `ToString(&T)`
+// (issues/fixed/2026-11-13-a-blanket-tostring-impl-over-a-reference-answers-an-rc-receiver-whose-payload-has-the-method.md).
+_WhShow :: trait(wh : (fn(self : &Self) -> i32));
+_WhC :: struct(n : i32);
+impl(_WhC, _WhShow(wh : (fn(self : &Self) -> i32)(self.n)));
+impl(generic(T : Type), where(T <: _WhShow), &T, _WhShow(wh : (fn(self : &Self) -> i32)(T.wh(self.*) + i32(100))));
+_wh_mk :: (fn(n : i32) -> Rc(_WhC))(Rc.new(_WhC(n : n)));
+test("(vii-c) a blanket over &T whose where fails at T := Rc(C) leaves r.m() to the payload", {
+  comptime_assert(!Type.impls(Rc(_WhC), _WhShow), "Rc(_WhC) does not meet the bound");
+  r := _wh_mk(i32(7));
+  assert(r.wh() == i32(7), "r.wh(): the payload's method through auto-deref");
+  c := _WhC(n : i32(3));
+  assert(c.wh() == i32(3), "c.wh(): impl(_WhC, _WhShow)");
+  rc := &c;
+  assert((&_WhC).wh(&rc) == i32(103), "(&_WhC).wh(&rc): the blanket at T := _WhC");
+});
 // (viii) Coherence: the origin is not part of a reference receiver's key, and
 // a bare-variable blanket covers `&C` too.
 _CoC :: struct(n : i32);

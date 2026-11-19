@@ -1730,13 +1730,17 @@ try_match_generic_impl :: (
   // ENFORCEMENT is scoped by `enforce_all_where`:
   //
   //   false (METHOD DISPATCH — find_methods_from_generic_impls and friends):
-  //     only BLANKET impls (a bare-SomeT receiver pattern or a reference to
-  //     one, `_is_blanket_receiver_pattern`) are rejected on a failed clause.
-  //     A blanket matches every type (or every reference), so its where-clause
-  //     is the only thing keeping it off non-satisfying types: R-PROBE's
-  //     lookup on `&Rc(String)` took `impl(generic(T), where(T <: ToString),
-  //     &T, …)` at `T := Rc(String)` and gave the handle a method only its
-  //     payload has (issues/fixed/2026-11-13-a-blanket-tostring-impl-over-a-reference-answers-an-rc-receiver-whose-payload-has-the-method.md).
+  //     only BLANKET impls are rejected on a failed clause. A blanket matches
+  //     every type, so its where-clause is the only thing keeping it off
+  //     non-satisfying types. A bare-SomeT pattern is rejected on any failed
+  //     clause; a reference to one (`&T`, `&mut T`, matching every reference)
+  //     on a clause that can be judged from what is stored, as the
+  //     trait-predicate mode below judges it (a marker, or a trait that
+  //     mentions none of the impl's binders: `T <: ToString` is judged,
+  //     `T <: Eq(T)` is not). Without it R-PROBE's lookup on `&Rc(String)`
+  //     took `impl(generic(T), where(T <: ToString), &T, …)` at
+  //     `T := Rc(String)` and gave the handle a method only its payload has
+  //     (issues/fixed/2026-11-13-a-blanket-tostring-impl-over-a-reference-answers-an-rc-receiver-whose-payload-has-the-method.md).
   //     Specific-pattern impls already constrain via their pattern, and enforcing their
   //     clauses HERE would drop a method wherever the trait-implements
   //     predicate has a load-order false negative (e.g. `String <: Hash`
