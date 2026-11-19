@@ -1560,7 +1560,9 @@ kind. Using an unsized type by value is E0619; `unsize(a)` of a value is E0620,
 and so is `dyn(v)` of a plain value since v0.2.79 (decision 49 S3b: in v0.2.77
 and v0.2.78 it was the legacy alias of `dyn(Box.new(v))`; code written for
 v0.2.78 is migrated with `yo version install 0.2.78 && yo fix <path> --migrate unsized`);
-`generic(T : ?Sized)` opts a generic in.
+`generic(T : ?Sized)` opts a generic in, and a trait's associated type opts in
+the same way (`Target : ?Sized`; `Self.Target` then lives only behind a
+pointer).
 
 In v0.2.77 (S1) the older spellings are aliases: a bare `Dyn(T)` value type is
 `Box(Dyn(T))` and `dyn(v)` of a plain value is `dyn(Box.new(v))`.
