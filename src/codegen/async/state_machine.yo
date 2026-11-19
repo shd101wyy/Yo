@@ -1769,7 +1769,7 @@ emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &mut Funct
         _emit_await_result_store(local.clone(), &acc, &rty, false, indent.clone(), context);
         out = local;
       },
-      .None => if(!_inline_result_is_unit(_inline_await_result_type(expr, &Option(AwaitAnalysisResult).Some(low_analysis), context)), {
+      .None => if(!_inline_result_is_unit(_inline_await_result_type(expr, &Option(AwaitAnalysisResult).Some(low_analysis.clone()), context)), {
         codegen_fatal(`the single-pass async lowering reached await ${eid.to_string()}, which the suspension analysis did not record`);
       })
     )
