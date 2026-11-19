@@ -11302,7 +11302,7 @@ _evaluate_function_call_unanchored :: (
           ocm_i = (ocm_i + usize(1));
         });
       };
-      op_eff_m := match(op_comptime_m, .Some(m) => m, .None => first_m);
+      op_eff_m := match(op_comptime_m, .Some(m) => m, .None => first_m.clone());
       op_is_comptime := match(&op_eff_m.ty, Rc(.Func({ meta : __fm2 })) => __fm2.result_is_comptime_only, _ => false);
       // Only FOLD the operator at comptime when EVERY operand is a concrete
       // value (present and not an `UnknownVal`). With a runtime-unknown operand
