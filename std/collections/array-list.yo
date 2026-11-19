@@ -971,6 +971,57 @@ impl(
 impl(
   generic(T : Type),
   ArrayList(T),
+  // The address the list's `[T]` view starts at: the buffer, or before the
+  // first allocation a dangling address aligned for `T` (Rust's
+  // `NonNull::dangling`). That view has length 0, so nothing reads it.
+  _view_ptr : (fn(self : &Self) -> *T)(
+    match(
+      self._ptr,
+      .Some(p) => p,
+      .None => {
+        dangling := align_of(T);
+        // SAFETY: reads the bits of a `usize` as a `*T`; the address is
+        // non-null and aligned, and is never dereferenced.
+        unsafe(unsafe.cast(addr_of(dangling), **T).*)
+      }
+    )
+  )
+);
+/// `list.*` is the list's elements as a `[T]` (VERDICTS-63): `&list.*` lends
+/// them as a `&[T]`, and a method only `[T]` has (`list.contains(&x)`) reads
+/// through it. A member the list has itself (`len`, `is_empty`) is the list's.
+/// The view borrows the list, so `push` and `clear` are rejected while it is
+/// live (E0911).
+impl(
+  generic(T : Type),
+  ArrayList(T),
+  Deref(
+    Target : [T],
+    deref : (fn(self : &Self) -> &Self.Target)({
+      // SAFETY: the first `_length` slots at the buffer are initialized,
+      // and the view borrows `self`, so the buffer outlives it.
+      view := unsafe(__yo_slice_from_raw_parts(self._view_ptr(), self._length));
+      &view.*
+    })
+  )
+);
+/// `&mut list.*` lends the elements as a `&mut [T]`: a `[T]` method that
+/// writes reaches them in place.
+impl(
+  generic(T : Type),
+  ArrayList(T),
+  DerefMut(
+    Target : [T],
+    deref_mut : (fn(self : &mut Self) -> &mut Self.Target)({
+      // SAFETY: as `deref`, lent exclusively.
+      view := unsafe(__yo_slice_from_raw_parts(self._view_ptr(), self._length));
+      &mut view.*
+    })
+  )
+);
+impl(
+  generic(T : Type),
+  ArrayList(T),
   Drop(
     /// Drops every live element and frees the buffer. Runs when the last
     /// reference to the list goes away, not at the end of the binding's
