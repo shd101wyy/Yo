@@ -1659,7 +1659,7 @@ emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &mut Funct
   // place through the context (sm_lowering_* in functions/context.yo).
   (low_analysis, low_resume_fn, low_block_id) := match(
     &context.sm_inline_lowering,
-    .Some(l) => (l.analysis, l.resume_function_name.clone(), l.async_block_id.clone()),
+    .Some(l) => (l.analysis.clone(), l.resume_function_name.clone(), l.async_block_id.clone()),
     .None => {
       codegen_fatal(String.from("emit_inline_await outside the single-pass lowering"));
       return(String.from(""));

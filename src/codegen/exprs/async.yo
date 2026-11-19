@@ -1105,7 +1105,7 @@ emit_deferred_async_block_struct_definitions :: (fn(context : &mut FunctionGener
             result_type : Rc.clone(b.result_type),
             result_type_c_name : b.result_type_c_name.clone(),
             capture_type : b.capture_type.clone(),
-            analysis : b.analysis,
+            analysis : b.analysis.clone(),
             cross_boundary_ids : Option(HashSet(String)).Some(replace(&mut cbr.cross_boundary_ids, HashSet(String).new())),
             await_future_temp_var_aliases : Option(HashMap(String, String)).Some(cbr.await_future_temp_var_aliases.clone()),
             overlapping_slot_aliases : Option(HashMap(String, String)).Some(osr.slot_aliases.clone()),
@@ -2698,7 +2698,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut 
   saved_smv2 := replace(&mut context.state_machine_variables, Option(HashMap(String, CapturedVariable)).Some(_fused_sm_variables(&site)));
   context.state_machine_field_aliases = Option(HashMap(String, String)).Some(_fused_sm_aliases(&site));
   context.variable_id_remapping = Option(HashMap(String, String)).Some(site.block.analysis.variable_id_remapping.clone());
-  saved_scope := sm_lowering_enter_scope(context, site.block.analysis);
+  saved_scope := sm_lowering_enter_scope(context, site.block.analysis.clone());
   // The block's own drops, and no caller's: what its own state machine has.
   mut(pdd) := ArrayList(AstExpr).new();
   match(context.base.get_expr_info(&site.block.body_expr), .Some(bei) => match(&bei.deferred_drop_expressions(), .Some(d) => _append_expr_list(&mut pdd, &d.*), .None => ()), .None => ());
@@ -3621,7 +3621,7 @@ generate_deferred_async_blocks :: (fn(context : &mut FunctionGenerationContext) 
                 result_type : Rc.clone(nb.result_type),
                 result_type_c_name : nb.result_type_c_name.clone(),
                 capture_type : nb.capture_type.clone(),
-                analysis : nb.analysis,
+                analysis : nb.analysis.clone(),
                 cross_boundary_ids : Option(HashSet(String)).Some(replace(&mut ncbr.cross_boundary_ids, HashSet(String).new())),
                 await_future_temp_var_aliases : Option(HashMap(String, String)).Some(ncbr.await_future_temp_var_aliases.clone()),
                 overlapping_slot_aliases : Option(HashMap(String, String)).Some(nosr.slot_aliases.clone()),

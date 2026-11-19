@@ -33,16 +33,16 @@ VcSortNode :: enum(
   /// SMT `(Seq <elem>)` — z3's built-in sequences (V5 task 5: the
   /// `std/spec` ghost collections' element carrier; also `str` content
   /// as `Seq (_ BitVec 8)`).
-  SeqS(elem : VcSort),
+  SeqS(elem : Rc(Self)),
   /// SMT `(Array <domain> <range>)` — Set(T) is `Array T Bool` (membership),
   /// Multiset(T) is `Array T (_ BitVec 64)` (element → count; 64-bit so
   /// counts never wrap in any realistic spec).
-  FunS(domain : VcSort, range : VcSort),
+  FunS(domain : Rc(Self), range : Rc(Self)),
   /// SMT `(Array (_ BitVec 64) <elem>)` — a fixed-length `Array(T, N)`
   /// value (V5 task 6). The SMT sort ignores `len` (SMT arrays are
   /// unbounded); `len` is the compile-time element count the WALK uses
   /// for index-bounds obligations and `ms_of` folding.
-  ArrS(elem : VcSort, len : usize),
+  ArrS(elem : Rc(Self), len : usize),
   /// V6 task 2 (FORMAL_VERIFICATION.md §680): an UNINTERPRETED sort —
   /// the placeholder for a generic type parameter in an abstractly
   /// verified body. Values of the sort support only equality and

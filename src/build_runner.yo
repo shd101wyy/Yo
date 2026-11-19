@@ -1783,7 +1783,7 @@ export(level_wants_debug_symbols);
 compile_artifact :: (
   fn(
     sink(artifact) : BuildArtifact,
-    ctx : &ExecutionContext,
+    sink(ctx) : Rc(ExecutionContext),
     io : Io,
     exn : Exception
   ) -> Impl(Future(Result(unit, String), IoExn))
@@ -2306,7 +2306,7 @@ run_executable :: (
   fn(
     sink(artifact) : BuildArtifact,
     args : &ArrayList(String),
-    ctx : &ExecutionContext,
+    sink(ctx) : Rc(ExecutionContext),
     io : Io,
     exn : Exception
   ) -> Impl(Future(Result(unit, String), IoExn))
@@ -2382,7 +2382,7 @@ run_executable :: (
 run_verify_step :: (
   fn(
     sink(cfg) : BuildVerifyConfig,
-    ctx : &ExecutionContext,
+    sink(ctx) : Rc(ExecutionContext),
     io : Io,
     exn : Exception
   ) -> Impl(Future(Result(unit, String), IoExn))
@@ -2421,7 +2421,7 @@ run_verify_step :: (
 run_test_suite :: (
   fn(
     sink(suite) : BuildTestSuite,
-    ctx : &ExecutionContext,
+    sink(ctx) : Rc(ExecutionContext),
     io : Io,
     exn : Exception
   ) -> Impl(Future(Result(unit, String), IoExn))
@@ -2515,7 +2515,7 @@ _push_all_strings :: (fn(dst : &mut ArrayList(String), src : &ArrayList(String))
 execute_node :: (
   fn(
     sink(node) : DAGNode,
-    ctx : &ExecutionContext,
+    sink(ctx) : Rc(ExecutionContext),
     io : Io,
     exn : Exception
   ) -> Impl(Future(StepResult, IoExn))
@@ -2537,7 +2537,7 @@ execute_node :: (
               .Executable => "exe"
             );
             description = `compile ${kind_label} ${artifact.name}`;
-            result := e.io.await(compile_artifact(artifact.clone(), ctx, e.io, e.exn), e);
+            result := e.io.await(compile_artifact(artifact.clone(), Rc.clone(ctx), e.io, e.exn), e);
             match(
               result,
               .Ok(_) => (),
@@ -2559,7 +2559,7 @@ execute_node :: (
           // frees the binding twice (plans/backlog/SEED_VERSION_AUTOMATION.md).
           .Some(test_suite) => {
             description = `test ${test_suite.name}`;
-            result := e.io.await(run_test_suite(test_suite.clone(), ctx, e.io, e.exn), e);
+            result := e.io.await(run_test_suite(test_suite.clone(), Rc.clone(ctx), e.io, e.exn), e);
             match(
               result,
               .Ok(_) => (),
@@ -2596,7 +2596,7 @@ execute_node :: (
                   run_argv.push(ctx.run_args(ra_i).clone());
                   ra_i = (ra_i + usize(1));
                 });
-                result := e.io.await(run_executable(artifact.clone(), &run_argv, ctx, e.io, e.exn), e);
+                result := e.io.await(run_executable(artifact.clone(), &run_argv, Rc.clone(ctx), e.io, e.exn), e);
                 match(
                   result,
                   .Ok(_) => (),
@@ -2617,7 +2617,7 @@ execute_node :: (
           .None => (),
           .Some(vcfg) => {
             description = `verify ${vcfg.name}`;
-            result := e.io.await(run_verify_step(vcfg.clone(), ctx, e.io, e.exn), e);
+            result := e.io.await(run_verify_step(vcfg.clone(), Rc.clone(ctx), e.io, e.exn), e);
             match(
               result,
               .Ok(_) => (),
@@ -2707,7 +2707,7 @@ _execute_node_unless_blocked :: (
   fn(
     sink(node) : DAGNode,
     blocked : bool,
-    ctx : &ExecutionContext,
+    sink(ctx) : Rc(ExecutionContext),
     io : Io,
     exn : Exception
   ) -> Impl(Future(StepResult, IoExn))
@@ -2726,7 +2726,7 @@ _execute_node_unless_blocked :: (
       );
     });
     node_t0 := Instant.now();
-    r := e.io.await(execute_node(node.clone(), ctx, e.io, e.exn), e);
+    r := e.io.await(execute_node(node.clone(), Rc.clone(ctx), e.io, e.exn), e);
     r.duration_ms = node_t0.elapsed().as_millis();
     r
   })
@@ -2745,7 +2745,7 @@ _execute_batch :: (
   fn(
     batch : &ArrayList(DAGNode),
     results : &HashMap(String, StepResult),
-    ctx : &ExecutionContext,
+    sink(ctx) : Rc(ExecutionContext),
     io : Io,
     exn : Exception
   ) -> Impl(Future(ArrayList(StepResult), IoExn))
@@ -2763,7 +2763,7 @@ _execute_batch :: (
     while(i < owned_batch.len(), {
       node := owned_batch(i).clone();
       blocked := owned_blocked(i);
-      handles.push(e.io.spawn(_execute_node_unless_blocked(node, blocked, ctx, e.io, e.exn), e));
+      handles.push(e.io.spawn(_execute_node_unless_blocked(node, blocked, Rc.clone(ctx), e.io, e.exn), e));
       i = (i + usize(1));
     });
     // `join_all` is a future (plans/archive/ASYNC_IO_API_AUDIT.md A1): awaiting it
@@ -2802,7 +2802,7 @@ _execute_batch :: (
 execute_dag :: (
   fn(
     dag : &ArrayList(DAGNode),
-    ctx : &ExecutionContext,
+    sink(ctx) : Rc(ExecutionContext),
     io : Io,
     exn : Exception
   ) -> Impl(Future(HashMap(String, StepResult), IoExn))
@@ -2872,7 +2872,7 @@ execute_dag :: (
           bi = (bi + usize(1));
         });
         k = (k + batch.len());
-        batch_results := e.io.await(_execute_batch(&batch, &results, ctx, e.io, e.exn), e);
+        batch_results := e.io.await(_execute_batch(&batch, &results, Rc.clone(ctx), e.io, e.exn), e);
         (ri : usize) = usize(0);
         while(ri < batch_results.len(), {
           br := batch_results(ri).clone();
@@ -3084,7 +3084,7 @@ _print_plan :: (fn(step_name : &String, dag : &ArrayList(DAGNode)) -> unit)({
 execute_step :: (
   fn(
     step_name : &String,
-    ctx : &ExecutionContext,
+    sink(ctx) : Rc(ExecutionContext),
     dry_run : bool,
     io : Io,
     exn : Exception
@@ -3098,12 +3098,12 @@ execute_step :: (
     // The early return keeps the await below a top-level statement: an await
     // nested in an if-branch loses its continuation
     // (issues/retired/async-await-nested-if-lost-continuation.md).
-    dag := _plan_step(owned_step_name.clone(), ctx, e.exn);
+    dag := _plan_step(owned_step_name.clone(), &ctx.*, e.exn);
     if(dry_run, {
       _print_plan(owned_step_name.clone(), &dag);
       return(());
     });
-    results := e.io.await(execute_dag(&dag, ctx, e.io, e.exn), e);
+    results := e.io.await(execute_dag(&dag, Rc.clone(ctx), e.io, e.exn), e);
     if(ctx.summary, print_build_summary(&results, &dag, &owned_step_name));
     // A failed step must fail the build. execute_node folds per-step errors
     // into StepResult.success so the DAG finishes and the summary can show
@@ -3466,20 +3466,24 @@ run_build :: (
         });
       });
     });
-    ctx := ExecutionContext(
-      registry : registry,
-      project_dir : project_dir,
-      project_name : project_name,
-      c_compiler : c_compiler,
-      target_triple : owned_options.target_triple.clone(),
-      sysroot : owned_options.sysroot.clone(),
-      verbose : owned_options.verbose,
-      dry_run : owned_options.dry_run,
-      summary : owned_options.summary,
-      run_args : owned_options.run_args.clone(),
-      jobs : owned_options.jobs,
-      in_process_compile_fn : g_in_process_compile_fn,
-      watch_round : owned_options.watch_in_process
+    // Shared, read-only, by every node future of the build (spawned ones
+    // too), so one counted handle rather than a copy per task.
+    ctx := Rc.new(
+      ExecutionContext(
+        registry : registry,
+        project_dir : project_dir,
+        project_name : project_name,
+        c_compiler : c_compiler,
+        target_triple : owned_options.target_triple.clone(),
+        sysroot : owned_options.sysroot.clone(),
+        verbose : owned_options.verbose,
+        dry_run : owned_options.dry_run,
+        summary : owned_options.summary,
+        run_args : owned_options.run_args.clone(),
+        jobs : owned_options.jobs,
+        in_process_compile_fn : g_in_process_compile_fn,
+        watch_round : owned_options.watch_in_process
+      )
     );
     requested := if(owned_options.steps.len() == usize(0), {
       defaults := ArrayList(String).new();
@@ -3496,7 +3500,7 @@ run_build :: (
       // graph without running it", and printing one line per requested step
       // promised nothing (the plan's B7). `execute_step` itself branches,
       // after planning and before its only await.
-      e.io.await(execute_step(&step_name, &ctx, owned_options.dry_run, e.io, e.exn), e);
+      e.io.await(execute_step(&step_name, Rc.clone(ctx), owned_options.dry_run, e.io, e.exn), e);
       i = (i + usize(1));
     });
   })
