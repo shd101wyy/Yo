@@ -2238,7 +2238,7 @@ evaluate_match :: (
     (gci : usize) = usize(0);
     while(gci < arms.len(), {
       match(
-        arms.get(gci),
+        arms.get_cloned(gci),
         .Some(ga) => match(
           &ga.pattern,
           .Variant(_, gvidx, _, _, _, _, _) => {
@@ -2276,7 +2276,7 @@ evaluate_match :: (
       (ai3 : usize) = usize(0);
       while(ai3 < arms.len(), {
         match(
-          arms.get(ai3),
+          arms.get_cloned(ai3),
           .Some(aa) => match(
             &aa.pattern,
             .Variant(an, aidx, _, _, aety, aptr, aar) => if(aidx.* == target_idx, {
@@ -2353,7 +2353,7 @@ evaluate_match :: (
   (ui : usize) = usize(0);
   while(ui < arms.len(), {
     ua := match(
-      arms.get(ui),
+      arms.get_cloned(ui),
       .Some(a) => a,
       .None => {
         return(Rc.clone(expr.*));

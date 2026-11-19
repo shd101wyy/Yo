@@ -603,7 +603,7 @@ compute_cross_boundary_variables :: (
   (pi : usize) = usize(0);
   while(pi < analysis.await_points.len(), pi = (pi + usize(1)), {
     match(
-      analysis.await_points.get(pi),
+      analysis.await_points.get_cloned(pi),
       .Some(ap) => match(
         &ap.base.cond_branch_suspension_exprs,
         .Some(bes) => {
@@ -649,7 +649,7 @@ compute_cross_boundary_variables :: (
   (ai : usize) = usize(0);
   while(ai < captured_variables.len(), ai = (ai + usize(1)), {
     match(
-      captured_variables.get(ai),
+      captured_variables.get_cloned(ai),
       .Some(cv) => match(
         cv.kind,
         .Local => if(!is_unit_type(&cv.base.ty), {
@@ -735,7 +735,7 @@ _find_captured_by_id :: (
   (found : Option(CapturedVariable)) = Option(CapturedVariable).None;
   while((i < eligible.len()) && found.is_none(), {
     match(
-      eligible.get(i),
+      eligible.get_cloned(i),
       .Some(v) => if(v.base.id == id.*, {
         found = Option(CapturedVariable).Some(v);
       }),
@@ -778,7 +778,7 @@ compute_overlapping_slots :: (
   (o0 : usize) = usize(0);
   while(o0 < captured_variables.len(), o0 = (o0 + usize(1)), {
     match(
-      captured_variables.get(o0),
+      captured_variables.get_cloned(o0),
       .Some(ov) => match(
         ov.is_owning_the_same_rc_value_as,
         .Some(ob) => {
@@ -793,7 +793,7 @@ compute_overlapping_slots :: (
   (e0 : usize) = usize(0);
   while(e0 < captured_variables.len(), {
     match(
-      captured_variables.get(e0),
+      captured_variables.get_cloned(e0),
       .Some(v) => {
         is_local := match(v.kind, .Local => true, .Outer => false);
         vid0 := v.base.id.to_string();
@@ -814,7 +814,7 @@ compute_overlapping_slots :: (
   (r0 : usize) = usize(0);
   while(r0 < eligible.len(), {
     match(
-      eligible.get(r0),
+      eligible.get_cloned(r0),
       .Some(v) => match(
         variable_segments.get_cloned(v.base.id.to_string()),
         .Some(segs) => {
@@ -865,7 +865,7 @@ compute_overlapping_slots :: (
   (g0 : usize) = usize(0);
   while(g0 < eligible.len(), {
     match(
-      eligible.get(g0),
+      eligible.get_cloned(g0),
       .Some(v) => {
         vid := v.base.id.to_string();
         if(ranges.contains_key(vid.clone()), {
@@ -1099,7 +1099,7 @@ _build_combined_sm_variables :: (
   (i : usize) = usize(0);
   while(i < cvs.len(), {
     match(
-      cvs.get(i),
+      cvs.get_cloned(i),
       .Some(v) => {
         combined.insert(v.base.id.to_string(), v);
       },
@@ -1245,7 +1245,7 @@ emit_effect_record_injection_for_sm :: (
                       .Some(mv) => match(
                         mv,
                         Rc(.FuncVal(__fvd1, _)) => match(
-                          context.base.functions.get(&__fvd1.*.func_id),
+                          context.base.functions.get_cloned(&__fvd1.*.func_id),
                           .Some(fe) => {
                             member_code = Option(String).Some(fe.c_name.clone());
                           },
@@ -1308,7 +1308,7 @@ emit_effect_record_injection_for_sm :: (
                               .Some(fv) => match(
                                 fv,
                                 Rc(.FuncVal(__fvd2, _)) => match(
-                                  context.base.functions.get(&__fvd2.*.func_id),
+                                  context.base.functions.get_cloned(&__fvd2.*.func_id),
                                   .Some(fe) => {
                                     member_code = Option(String).Some(fe.c_name.clone());
                                   },
@@ -1543,7 +1543,7 @@ _inline_await_result_type :: (fn(expr : &AstExpr, analysis : &Option(AwaitAnalys
       (i : usize) = usize(0);
       while(i < a.await_points.len(), i = (i + usize(1)), {
         match(
-          a.await_points.get(i),
+          a.await_points.get_cloned(i),
           .Some(ap) => if(ast_expr_id(&ap.base.expr) == eid, {
             return(Rc.clone(ap.result_type));
           }),
@@ -1581,7 +1581,7 @@ inline_await_result_fields :: (fn(analysis : &AwaitAnalysisResult, context : &Fu
   (i : usize) = usize(0);
   while(i < analysis.await_points.len(), i = (i + usize(1)), {
     match(
-      analysis.await_points.get(i),
+      analysis.await_points.get_cloned(i),
       .Some(ap) => match(
         &ap.base.cond_branch_suspension_exprs,
         .Some(branch_exprs) => {

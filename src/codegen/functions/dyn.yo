@@ -71,7 +71,7 @@ generate_dyn_dup_drop :: (fn(context : &mut FunctionGenerationContext) -> unit)(
   while(i < n, {
     key := match(keys.get_cloned(i), .Some(k) => k, .None => String.from(""));
     match(
-      context.base.dyn_impls.get(key.clone()),
+      context.base.dyn_impls.get_cloned(key.clone()),
       .Some(impl_entry) => {
         dyn_key := type_key(impl_entry.dyn_type.clone());
         dyn_c := match(context.base.get_type_c_name(dyn_key.clone()), .Some(cn) => cn, .None => `__yo_dyn_${dyn_key}`);
@@ -123,7 +123,7 @@ generate_dyn_box_functions :: (fn(context : &mut FunctionGenerationContext) -> u
   while(i < n, {
     key := match(keys.get_cloned(i), .Some(k) => k, .None => String.from(""));
     match(
-      context.base.dyn_impls.get(key.clone()),
+      context.base.dyn_impls.get_cloned(key.clone()),
       .Some(impl_entry) => {
         // Resolve SomeT concretes before keying — see types/generation.yo's
         // box-typedef note (the same miss emitted an undeclared
@@ -256,7 +256,7 @@ generate_dyn_slot_functions :: (fn(context : &mut FunctionGenerationContext) -> 
   while(i < n, {
     key := match(keys.get_cloned(i), .Some(k) => k, .None => String.from(""));
     match(
-      context.base.dyn_impls.get(key.clone()),
+      context.base.dyn_impls.get_cloned(key.clone()),
       .Some(entry) => if(_slot_functions_exist(&entry), {
         res := resolve_some_type_to_concrete(entry.concrete_type.clone());
         vs := _slot_payload_c(&entry, context);
@@ -556,7 +556,7 @@ generate_dyn_wrapper_functions :: (fn(context : &mut FunctionGenerationContext) 
   while(ki < nk, {
     impl_key := match(keys.get_cloned(ki), .Some(k) => k, .None => String.from(""));
     match(
-      context.base.dyn_impls.get(impl_key.clone()),
+      context.base.dyn_impls.get_cloned(impl_key.clone()),
       .Some(impl_entry) => {
         data_type := impl_entry.data_type.clone();
         is_boxed := is_boxed_type(data_type.clone());
@@ -607,7 +607,7 @@ generate_dyn_wrapper_functions :: (fn(context : &mut FunctionGenerationContext) 
                     ),
                     _ => String.from("")
                   );
-                  cc_info := if(cc_struct_id.len() > usize(0), context.base.impl_closure_call_map.get(&cc_struct_id), Option(ImplClosureCallInfo).None);
+                  cc_info := if(cc_struct_id.len() > usize(0), context.base.impl_closure_call_map.get_cloned(&cc_struct_id), Option(ImplClosureCallInfo).None);
                   fn_payload := dyn_concrete_func_type(impl_entry.concrete_type.clone());
                   if(impl_entry.payload_convention && (match(cc_info, .Some(_) => true, .None => false) || fn_payload.is_some()), {
                     if(match(cc_info, .Some(_) => true, .None => false), {
@@ -1036,7 +1036,7 @@ generate_dyn_vtables :: (fn(context : &mut FunctionGenerationContext) -> unit)({
   while(ti < nk, {
     impl_key := match(keys.get_cloned(ti), .Some(k) => k, .None => String.from(""));
     match(
-      context.base.dyn_impls.get(impl_key.clone()),
+      context.base.dyn_impls.get_cloned(impl_key.clone()),
       .Some(impl_entry) => {
         concrete_cname := match(dyn_concrete_c_name(impl_entry.concrete_type.clone(), &context.base), .Some(cn) => cn, .None => `unknown_${type_key(impl_entry.concrete_type.clone())}`);
         typeid_name := `__yo_typeid_${concrete_cname}`;
@@ -1067,7 +1067,7 @@ generate_dyn_vtables :: (fn(context : &mut FunctionGenerationContext) -> unit)({
     while(fi < nk, {
       fkey := match(keys.get_cloned(fi), .Some(k) => k, .None => String.from(""));
       match(
-        context.base.dyn_impls.get(fkey.clone()),
+        context.base.dyn_impls.get_cloned(fkey.clone()),
         .Some(fentry) => {
           f_dyn_c := match(context.base.get_type_c_name(type_key(fentry.dyn_type.clone())), .Some(cn) => cn, .None => `__yo_dyn_${type_key(fentry.dyn_type.clone())}`);
           context.base.emitter.emit_declaration_string_line(`static const ${f_dyn_c}_vtable __yo_vtable_${fkey};`);
@@ -1096,7 +1096,7 @@ generate_dyn_vtables :: (fn(context : &mut FunctionGenerationContext) -> unit)({
   while(vi < nk, {
     impl_key := match(keys.get_cloned(vi), .Some(k) => k, .None => String.from(""));
     match(
-      context.base.dyn_impls.get(impl_key.clone()),
+      context.base.dyn_impls.get_cloned(impl_key.clone()),
       .Some(impl_entry) => {
         dyn_cname := match(context.base.get_type_c_name(type_key(impl_entry.dyn_type.clone())), .Some(cn) => cn, .None => `__yo_dyn_${type_key(impl_entry.dyn_type.clone())}`);
         concrete_cname := match(dyn_concrete_c_name(impl_entry.concrete_type.clone(), &context.base), .Some(cn) => cn, .None => `unknown_${type_key(impl_entry.concrete_type.clone())}`);
@@ -1192,7 +1192,7 @@ generate_dyn_vtables :: (fn(context : &mut FunctionGenerationContext) -> unit)({
           while((uk < nk) && !u_found, {
             cand := match(keys.get_cloned(uk), .Some(k) => k, .None => String.from(""));
             match(
-              context.base.dyn_impls.get(cand.clone()),
+              context.base.dyn_impls.get_cloned(cand.clone()),
               .Some(ce) => if((type_key(ce.dyn_type.clone()) == ut_key) && (type_key(ce.concrete_type.clone()) == concrete_key) && (dyn_impl_key_suffix(ce.payload_convention, &ce.data_type) == dyn_impl_key_suffix(impl_entry.payload_convention, &impl_entry.data_type)), {
                 context.base.emitter.emit_declaration_string_line(`  .__yo_up_${ut_c} = &__yo_vtable_${cand},`);
                 u_found = true;

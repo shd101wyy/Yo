@@ -2349,7 +2349,7 @@ _lookthrough_switch_cell :: (fn(arms : &ArrayList(Arm)) -> Option(TypeValue))({
   (cell_key : String) = String.new();
   (i : usize) = usize(0);
   while(i < arms.len(), i = (i + usize(1)), {
-    arm := match(arms.get(i), .Some(a) => a, .None => return(.None));
+    arm := match(arms.get_cloned(i), .Some(a) => a, .None => return(.None));
     if(arm.guard.is_some(), {
       return(.None);
     });
@@ -2402,7 +2402,7 @@ _arms_all_classic :: (fn(arms : &ArrayList(Arm)) -> bool)({
   (ok : bool) = true;
   (i : usize) = usize(0);
   while((i < arms.len()) && ok, {
-    ok = match(arms.get(i), .Some(a) => a.classic, .None => false);
+    ok = match(arms.get_cloned(i), .Some(a) => a.classic, .None => false);
     i = (i + usize(1));
   });
   ok
@@ -2427,7 +2427,7 @@ _gen_general_match :: (fn(expr : &AstExpr, arms : &ArrayList(Arm), indent : &Str
   (k : usize) = usize(0);
   while(k < n, {
     match(
-      arms.get(k),
+      arms.get_cloned(k),
       .Some(arm) => {
         if(_case_executed(&arm.pattern_expr, context), {
           fail_label := cond(

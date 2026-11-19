@@ -2328,7 +2328,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           (mut(mei) : usize) = usize(0);
           while((mei < nme) && mc_name.is_none(), {
             match(
-              entries.get(mei),
+              entries.get_cloned(mei),
               .Some(entry) => match(
                 entry.value.clone(),
                 .Some(mv) => if(is_func_val(&mv), {
@@ -2558,7 +2558,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
     resolve_some_type_to_concrete(&func_ei.ty()),
     Rc(.Struct({ id : cc_eid })) => if(
       cc_eid.len() > usize(0),
-      context.base.impl_closure_call_map.get(&cc_eid).is_some(),
+      context.base.impl_closure_call_map.get_cloned(&cc_eid).is_some(),
       false
     ),
     _ => false
@@ -2735,7 +2735,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
       match(
         resolve_some_type_to_concrete(&func_ei.ty()),
         Rc(.Struct({ id : cc_rid })) => match(
-          context.base.impl_closure_call_map.get(&cc_rid),
+          context.base.impl_closure_call_map.get_cloned(&cc_rid),
           .Some(cc_mp) => {
             match(
               &cc_mp.call_type,
@@ -3497,7 +3497,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
     .Some(cei) => match(resolve_some_type_to_concrete(&cei.ty()), Rc(.Struct({ id : i })) => i.clone(), Rc(.SomeT({ id : i })) => i.clone(), _ => String.from("")),
     .None => String.from("")
   );
-  cc_mapped := if(cc_id.len() > usize(0), context.base.impl_closure_call_map.get(&cc_id), Option(ImplClosureCallInfo).None);
+  cc_mapped := if(cc_id.len() > usize(0), context.base.impl_closure_call_map.get_cloned(&cc_id), Option(ImplClosureCallInfo).None);
   // The C return-type spelling the CALLEE's prototype was emitted with. A cc_
   // hit is a STATIC dispatch to a known closure impl fn, so the callee's own
   // signature is the ground truth for whether this call has a value — and the

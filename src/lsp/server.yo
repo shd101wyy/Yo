@@ -205,7 +205,7 @@ _analyze_and_publish :: (
   diags := analyze_document(fs_path.clone(), text.clone(), std_path, io, &mut out_state);
   lines := text.split(String.from("\n"));
   match(
-    out_state.get(usize(0)),
+    out_state.get_cloned(usize(0)),
     .Some(oc) => {
       // A text that did not parse keeps the last parsed outcome (see
       // DocState); an evaluation error keeps this run's program + partial
@@ -213,7 +213,7 @@ _analyze_and_publish :: (
       retained := cond(
         oc.parsed => oc,
         true => match(
-          docs.get(uri.clone()),
+          docs.get_cloned(uri.clone()),
           .Some(prev) => prev.outcome,
           .None => oc
         )
@@ -285,7 +285,7 @@ _note_document_change :: (
   fn(uri : &String, text : &String, std_path : &String, docs : &mut HashMap(String, DocState), pending : &mut PendingAnalysis, io : Io) -> unit
 )(
   match(
-    docs.get(uri.clone()),
+    docs.get_cloned(uri.clone()),
     .Some(st) => {
       docs.insert(
         uri.clone(),
@@ -342,7 +342,7 @@ _flush_pending_analyses :: (
     match(
       due.get_cloned(i),
       .Some(u) => match(
-        docs.get(u.clone()),
+        docs.get_cloned(u.clone()),
         .Some(st) => _analyze_and_publish(u.clone(), st.text.clone(), std_path.clone(), docs, io),
         .None => ()
       ),
@@ -720,7 +720,7 @@ _handle_message :: (
       match(
         params_opt,
         .Some(params) => match(
-          docs.get(_params_uri(&params)),
+          docs.get_cloned(_params_uri(&params)),
           .Some(st) => {
             pos := _rune_position(&params, &st.lines);
             match(
@@ -742,7 +742,7 @@ _handle_message :: (
       match(
         params_opt,
         .Some(params) => match(
-          docs.get(_params_uri(&params)),
+          docs.get_cloned(_params_uri(&params)),
           .Some(st) => {
             pos := _rune_position(&params, &st.lines);
             match(
@@ -768,7 +768,7 @@ _handle_message :: (
       match(
         params_opt,
         .Some(params) => match(
-          docs.get(_params_uri(&params)),
+          docs.get_cloned(_params_uri(&params)),
           .Some(st) => {
             pos := _rune_position(&params, &st.lines);
             match(
@@ -790,7 +790,7 @@ _handle_message :: (
       match(
         params_opt,
         .Some(params) => match(
-          docs.get(_params_uri(&params)),
+          docs.get_cloned(_params_uri(&params)),
           .Some(st) => {
             pos := _rune_position(&params, &st.lines);
             match(
@@ -812,7 +812,7 @@ _handle_message :: (
       match(
         params_opt,
         .Some(params) => match(
-          docs.get(_params_uri(&params)),
+          docs.get_cloned(_params_uri(&params)),
           .Some(st) => {
             pos := _rune_position(&params, &st.lines);
             impl_result = handle_implementations(
@@ -836,7 +836,7 @@ _handle_message :: (
       match(
         params_opt,
         .Some(params) => match(
-          docs.get(_params_uri(&params)),
+          docs.get_cloned(_params_uri(&params)),
           .Some(st) => {
             pos := _rune_position(&params, &st.lines);
             dh_result = handle_document_highlight(&st.text, &st.entry_abs, &st.lines, &st.outcome.exprs, &st.outcome.info_table, pos.line, pos.character);
@@ -852,7 +852,7 @@ _handle_message :: (
       match(
         params_opt,
         .Some(params) => match(
-          docs.get(_params_uri(&params)),
+          docs.get_cloned(_params_uri(&params)),
           .Some(st) => {
             // Hierarchical DocumentSymbol[] only for clients that declared
             // the capability; flat SymbolInformation[] otherwise.
@@ -908,7 +908,7 @@ _handle_message :: (
             .None => true
           );
           match(
-            docs.get(uri.clone()),
+            docs.get_cloned(uri.clone()),
             .Some(st) => {
               pos := _rune_position(&params, &st.lines);
               refs_result = handle_references(&st.text, &st.entry_abs, &st.lines, uri.clone(), &st.outcome.exprs, &st.outcome.info_table, pos.line, pos.character, include_decl);
@@ -925,7 +925,7 @@ _handle_message :: (
       match(
         params_opt,
         .Some(params) => match(
-          docs.get(_params_uri(&params)),
+          docs.get_cloned(_params_uri(&params)),
           .Some(st) => {
             fold_result = handle_folding_ranges(&st.text, &st.entry_abs);
           },
@@ -940,7 +940,7 @@ _handle_message :: (
       match(
         params_opt,
         .Some(params) => match(
-          docs.get(_params_uri(&params)),
+          docs.get_cloned(_params_uri(&params)),
           .Some(st) => {
             st_result = handle_semantic_tokens(&st.text, &st.entry_abs, &st.outcome.exprs, &st.outcome.info_table);
           },
@@ -955,7 +955,7 @@ _handle_message :: (
       match(
         params_opt,
         .Some(params) => match(
-          docs.get(_params_uri(&params)),
+          docs.get_cloned(_params_uri(&params)),
           .Some(st) => {
             pos := _rune_position(&params, &st.lines);
             match(
@@ -1000,7 +1000,7 @@ _handle_message :: (
             },
             .None => {
               match(
-                docs.get(uri.clone()),
+                docs.get_cloned(uri.clone()),
                 .Some(st) => {
                   pos := _rune_position(&params, &st.lines);
                   match(
@@ -1034,7 +1034,7 @@ _handle_message :: (
         .Some(params) => {
           uri := _params_uri(&params);
           match(
-            docs.get(uri.clone()),
+            docs.get_cloned(uri.clone()),
             .Some(st) => {
               (from_line : usize) = usize(0);
               (to_line : usize) = usize(0);
@@ -1086,7 +1086,7 @@ _handle_message :: (
       match(
         params_opt,
         .Some(params) => match(
-          docs.get(_params_uri(&params)),
+          docs.get_cloned(_params_uri(&params)),
           .Some(st) => {
             fmt_result = _format_document(&st.text, &st.entry_abs);
           },
@@ -1101,7 +1101,7 @@ _handle_message :: (
       match(
         params_opt,
         .Some(params) => match(
-          docs.get(_params_uri(&params)),
+          docs.get_cloned(_params_uri(&params)),
           .Some(st) => {
             pos := _rune_position(&params, &st.lines);
             match(
@@ -1123,7 +1123,7 @@ _handle_message :: (
       match(
         params_opt,
         .Some(params) => match(
-          docs.get(_params_uri(&params)),
+          docs.get_cloned(_params_uri(&params)),
           .Some(st) => {
             pos := _rune_position(&params, &st.lines);
             comp_result = handle_completion(&st.text, &st.entry_abs, std_path.clone(), &st.outcome.exprs, &st.outcome.info_table, pos.line, pos.character, io);
@@ -1139,7 +1139,7 @@ _handle_message :: (
       match(
         params_opt,
         .Some(params) => match(
-          docs.get(_params_uri(&params)),
+          docs.get_cloned(_params_uri(&params)),
           .Some(st) => {
             links_result = handle_document_links(&st.text, &st.entry_abs, &st.lines, std_path.clone());
           },
@@ -1270,7 +1270,7 @@ _handle_message :: (
               match(
                 open_uris.get_cloned(oi),
                 .Some(u) => match(
-                  docs.get(u.clone()),
+                  docs.get_cloned(u.clone()),
                   .Some(st) => {
                     open_texts.push(st.text.clone());
                   },

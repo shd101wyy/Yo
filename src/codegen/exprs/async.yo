@@ -167,7 +167,7 @@ _add_mapping :: (fn(mappings : &mut ArrayList(EffectFieldMapping), label : &Stri
   (mut(i) : usize) = usize(0);
   while((i < mappings.len()) && !exists, {
     match(
-      mappings.get(i),
+      mappings.get_cloned(i),
       .Some(m) => if((m.effect_label == label.*) && (m.access_path == path.*), {
         exists = true;
       }),
@@ -452,7 +452,7 @@ generate_future_effect_setter :: (
     (mut(mi) : usize) = usize(0);
     while(mi < mappings.len(), {
       match(
-        mappings.get(mi),
+        mappings.get_cloned(mi),
         .Some(m) => {
           keyword := if(first_case, String.from("if"), String.from("else if"));
           first_case = false;
@@ -761,7 +761,7 @@ emit_async_block_struct_definition :: (
   (mut(ci) : usize) = usize(0);
   while(ci < cvs.len(), {
     match(
-      cvs.get(ci),
+      cvs.get_cloned(ci),
       .Some(v) => {
         is_outer := match(v.kind, .Outer => true, _ => false);
         if(!is_outer, {
@@ -933,7 +933,7 @@ _build_deferred_deps :: (
   (mut(i) : usize) = usize(0);
   while(i < cvs.len(), {
     match(
-      cvs.get(i),
+      cvs.get_cloned(i),
       .Some(v) => match(
         _dep_type_string(&v.base.ty, context),
         .Some(t) => match(
@@ -1492,7 +1492,7 @@ generate_async_block_state_dispose_function :: (
   (mut(i) : usize) = usize(0);
   while(i < cvs.len(), {
     match(
-      cvs.get(i),
+      cvs.get_cloned(i),
       .Some(v) => {
         is_local := match(v.kind, .Local => true, _ => false);
         is_owning := match(v.is_owning_the_same_rc_value_as, .Some(_) => true, .None => false);
@@ -1527,7 +1527,7 @@ generate_async_block_state_dispose_function :: (
   (mut(osi) : usize) = usize(0);
   while(osi < overlapping_slots.len(), osi = (osi + usize(1)), {
     match(
-      overlapping_slots.get(osi),
+      overlapping_slots.get_cloned(osi),
       .Some(os) => if(type_contains_rc_cell_or_move_only(&os.ty), {
         match(
           _rc_field_drop_line(`sm->${os.field_name.clone()}`, &os.ty, String.from("    "), context),
@@ -1979,7 +1979,7 @@ fused_await_site :: (fn(await_expr : &AstExpr, report : bool, context : &Functio
     return(Option(FusedAwaitSite).None);
   });
   wrapper_body := match(
-    context.base.functions.get(cand.func_id.clone()),
+    context.base.functions.get_cloned(cand.func_id.clone()),
     .Some(fe) => match(Rc.clone(fe.value), Rc(.FuncVal(wfvd, _)) => Rc.clone(wfvd.*.body), _ => return(_fusion_not_lowered(await_expr, String.from("the wrapper has no body"), report))),
     .None => return(_fusion_not_lowered(await_expr, String.from("the wrapper is not emitted"), report))
   );
@@ -2110,7 +2110,7 @@ _collect_fused_sites :: (
   (mut(i) : usize) = usize(0);
   while(i < analysis.await_points.len(), i = (i + usize(1)), {
     match(
-      analysis.await_points.get(i),
+      analysis.await_points.get_cloned(i),
       .Some(ap) => {
         exprs := match(
           &ap.base.cond_branch_suspension_exprs,
@@ -2164,7 +2164,7 @@ _fused_local_fields :: (fn(site : &FusedAwaitSite) -> ArrayList(FusedLocalField)
   (mut(i) : usize) = usize(0);
   while(i < cvs.len(), i = (i + usize(1)), {
     match(
-      cvs.get(i),
+      cvs.get_cloned(i),
       .Some(v) => if(match(v.kind, .Local => true, _ => false) && site.cross_ids.contains(v.base.id.to_string()), {
         out.push(FusedLocalField(id : v.base.id.to_string(), name : v.base.name.clone(), field_name : sm_local_field_name(v.base.id.to_string()), ty : Rc.clone(v.base.ty)));
       }),
@@ -2372,7 +2372,7 @@ _fused_sm_variables :: (fn(site : &FusedAwaitSite) -> HashMap(String, CapturedVa
   (mut(i) : usize) = usize(0);
   while(i < cvs.len(), i = (i + usize(1)), {
     match(
-      cvs.get(i),
+      cvs.get_cloned(i),
       .Some(v) => if(match(v.kind, .Local => true, _ => false) && site.cross_ids.contains(v.base.id.to_string()), {
         vars.insert(v.base.id.to_string(), v);
       }),
@@ -3363,7 +3363,7 @@ _block_cross_boundary :: (fn(block : &DeferredAsyncBlock, context : &FunctionGen
   (mut(bli) : usize) = usize(0);
   while(bli < block.analysis.captured_variables.len(), bli = (bli + usize(1)), {
     match(
-      block.analysis.captured_variables.get(bli),
+      block.analysis.captured_variables.get_cloned(bli),
       .Some(bv) => match(
         bv.kind,
         .Local => {
@@ -3377,7 +3377,7 @@ _block_cross_boundary :: (fn(block : &DeferredAsyncBlock, context : &FunctionGen
   (mut(ali) : usize) = usize(0);
   while(ali < block.analysis.captured_variables.len(), ali = (ali + usize(1)), {
     match(
-      block.analysis.captured_variables.get(ali),
+      block.analysis.captured_variables.get_cloned(ali),
       .Some(av) => match(
         av.is_owning_the_same_rc_value_as,
         .Some(ob) => if(body_locals.contains(ob.base.id.to_string()), {
@@ -3401,7 +3401,7 @@ _block_cross_boundary :: (fn(block : &DeferredAsyncBlock, context : &FunctionGen
     );
     (mut(dci) : usize) = usize(0);
     while(dci < block.analysis.captured_variables.len(), dci = (dci + usize(1)), {
-      match(block.analysis.captured_variables.get(dci), .Some(dcv) => eprintln(`[async-layout] ${block.async_block_id} local ${dcv.base.name} id=${dcv.base.id} site=${dcv.base.decl_site} field=${cbr.cross_boundary_ids.contains(dcv.base.id.to_string()).to_string()}`), .None => ());
+      match(block.analysis.captured_variables.get_cloned(dci), .Some(dcv) => eprintln(`[async-layout] ${block.async_block_id} local ${dcv.base.name} id=${dcv.base.id} site=${dcv.base.decl_site} field=${cbr.cross_boundary_ids.contains(dcv.base.id.to_string()).to_string()}`), .None => ());
     });
   });
   cbr
@@ -4031,7 +4031,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   match(&eff_capture_type, .Some(slot_cap_ty) => _emit_lent_param_slots(&slot_cap_ty.*, context), .None => ());
   (si : usize) = usize(0);
   while(si < sync_param_slots.len(), {
-    match(sync_param_slots.get(si), .Some(slot) => context.base.emitter.emit_declaration_string_line(`  ${slot.c_type.clone()} ${slot.field_name.clone()};`), .None => ());
+    match(sync_param_slots.get_cloned(si), .Some(slot) => context.base.emitter.emit_declaration_string_line(`  ${slot.c_type.clone()} ${slot.field_name.clone()};`), .None => ());
     si = (si + usize(1));
   });
   context.base.emitter.emit_declaration_line("};");
@@ -4055,7 +4055,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   (si2 : usize) = usize(0);
   while(si2 < sync_param_slots.len(), {
     match(
-      sync_param_slots.get(si2),
+      sync_param_slots.get_cloned(si2),
       .Some(slot) => {
         shim_args.push(`sm->${slot.field_name.clone()}`);
       },
@@ -4078,7 +4078,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   // against the sync future's own capture type only.
   sync_saved_smv := replace(&mut context.state_machine_variables, Option(HashMap(String, CapturedVariable)).None);
   sync_saved_smfa := replace(&mut context.state_machine_field_aliases, Option(HashMap(String, String)).None);
-  sync_vt_bundle := generate_future_effect_setter(struct_name.clone(), sync_set_effect_function_name.clone(), &future_trait_type, &eff_capture_type, context, match(sync_param_slots.get(usize(0)), .Some(s) => Option(SyncParamSlot).Some(s), .None => Option(SyncParamSlot).None));
+  sync_vt_bundle := generate_future_effect_setter(struct_name.clone(), sync_set_effect_function_name.clone(), &future_trait_type, &eff_capture_type, context, match(sync_param_slots.get_cloned(usize(0)), .Some(s) => Option(SyncParamSlot).Some(s), .None => Option(SyncParamSlot).None));
   context.state_machine_variables = sync_saved_smv;
   context.state_machine_field_aliases = sync_saved_smfa;
   context.base.emitter.emit_declaration_line("");
