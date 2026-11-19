@@ -1,0 +1,8 @@
+//! A `-> &str` projection whose body is a `match` over `str` values: the arms are
+//! unified against `*(str)`, not `&str`.
+pragma(Pragma.AllowUnsafe);
+{ ArrayList } :: import("std/collections/array_list");
+_S :: struct(_bytes : ArrayList(u8));
+_peek :: (fn(self : &_S) -> &str)(match(self._bytes.ptr(), .Some(p) => unsafe(__yo_str_from_raw_parts(p, self._bytes.len())), .None => ""));
+main :: (fn() -> unit)({});
+export(main);
