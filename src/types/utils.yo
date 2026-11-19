@@ -70,6 +70,7 @@ pragma(Pragma.AllowUnsafe);
   cell_handle_view,
   is_weak_handle_type,
   is_prelude_allocator_struct,
+  is_prelude_io_struct,
   is_counted_handle_value_type,
   is_fn_trait_type
 }
@@ -4107,10 +4108,13 @@ _type_repr_contains_raw_ptr :: (fn(ty : &TypeValue, depth : usize) -> bool)(
     },
     is_reference_struct_type(ty) => false,
     is_dyn_type(ty) => false,
-    // The parameter gate's opaque handle: safe code can hold and pass on an
-    // `Allocator` but not dereference its words (`a.alloc(n)` stays gated by
-    // the raw-value rule).
-    (g_repr_allocator_opaque && is_prelude_allocator_struct(ty)) => false,
+    // The parameter gate's opaque handles: safe code can hold and pass on an
+    // `Allocator` or an `Io` but not dereference their words (`a.alloc(n)`,
+    // `io.vtable`, stay gated by the raw-value rule). The interface-shaped
+    // `Io` is two raw words like `Allocator`
+    // (plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md §2), and every async
+    // signature takes one.
+    (g_repr_allocator_opaque && (is_prelude_allocator_struct(ty) || is_prelude_io_struct(ty))) => false,
     // The unique `Box`'s cell pointer is an owned cell, not a raw view: it
     // carries what its payload carries.
     unique_box_payload_type(ty).is_some() => match(unique_box_payload_type(ty), .Some(payload) => recur(&payload, depth - usize(1)), .None => false),

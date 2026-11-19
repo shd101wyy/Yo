@@ -1492,4 +1492,114 @@ static void __yo_join_wait_add(__yo_io_future_t* w, void* task) {
 }`
   );
 });
-export(generate_async_runtime_core);
+/// The native `Io`'s executor primitives (plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md
+/// §2, §3): what the `IoVTable` entries `spawn`, `run_until` and `now` call,
+/// and the future a Yo-written `Io` builds an answered operation from
+/// (`IoFuture.completed`). Emitted after the target's backend, so every
+/// `__yo_async_*` entry the native table's `__yo_io_vt_*` wrappers call is
+/// defined above them (`emit_io_native_definitions`, functions/generation.yo).
+generate_async_runtime_io_entries :: (
+  fn(emitter : &mut Emitter, target_info : &TargetInfo) -> unit
+)({
+  // `std/sys/clock`'s CLOCK_MONOTONIC: the platform's number (6 on macOS,
+  // 1 elsewhere; the Windows shim accepts either), so `now` reads the clock
+  // `Instant.now` reads.
+  monotonic_id := if(is_target_macos(target_info), String.from("6"), String.from("1"));
+  emitter.emit_string_line(
+    `
+// ============================================================================
+// The native Io: executor entries (IO_INTERFACE_AND_STD_RUNTIME.md §2, §3)
+// ============================================================================
+// An Io value is { ctx, vtable }. The native one's ctx is the calling
+// thread's loop (__yo_async_loop_self_ptr) and is valid only on that thread;
+// every entry below runs on it, so the per-thread runtime state the entries
+// reach is the loop ctx names.
+
+// IoFuture.completed(result): a future born completed. A Yo-written Io
+// answers an operation it can answer at once with one; an await reads -1
+// and takes the inline fast path, so nothing ever schedules it.
+static __yo_io_future_t* __yo_io_future_completed(int32_t result) {
+  __yo_io_future_t* f = (__yo_io_future_t*)__yo_rc_alloc(sizeof(__yo_io_future_t));
+  memset(f, 0, sizeof(__yo_io_future_t));
+  f->header.ref_count = 1;
+  atomic_init(&f->state, -1);
+  f->result = result;
+  atomic_init(&f->continuation_fn, NULL);
+  atomic_init(&f->continuation_sm, NULL);
+  return f;
+}
+
+// IoVTable.spawn: start a cold future as a task on this loop. It runs
+// inline to its first suspension; the reference taken here is the task's
+// own, released when it finishes. A future that is not cold (already
+// started, completed or aborted) is left as it is.
+static void __yo_io_spawn_task(void* fut) {
+  __yo_future_header_t* f = (__yo_future_header_t*)fut;
+  if (f->state == 0 && f->vt && f->vt->resume) {
+    __yo_incr_rc(fut);
+    f->vt->resume(fut);
+  }
+}
+
+// IoVTable.run_until: an await from a sync context (main, a plain
+// function, JoinHandle.await). Cold-starts the future like spawn (the
+// reference is the event loop's), then drives this loop until the future
+// is terminal (-1 completed, -2 aborted).
+static void __yo_io_run_until(void* fut) {
+  __yo_future_header_t* f = (__yo_future_header_t*)fut;
+  if (f->state == 0 && f->vt && f->vt->resume) {
+    __yo_incr_rc(fut);
+    f->vt->resume(fut);
+  }
+  while (f->state != -1 && f->state != -2) {
+    __yo_async_poll_step();
+  }
+}
+
+// IoVTable.now: the loop's monotonic clock in nanoseconds (the clock
+// Instant.now reads; a failed read is 0).
+static uint64_t __yo_io_now_ns(void) {
+  int64_t sec = 0;
+  int64_t nsec = 0;
+  if (__yo_sync_clock_gettime(${monotonic_id}, &sec, &nsec) != 0) {
+    return 0;
+  }
+  return ((uint64_t)sec * 1000000000ull) + (uint64_t)nsec;
+}`
+  );
+});
+/// The native C entry an `IoVTable` field named `label` calls, or `.None`
+/// when the native Io has no such operation. This is the whole native table
+/// (plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md §2): the executor entries,
+/// the reactor's `__yo_async_*_start` operations under their names without
+/// the `__yo_async_`/`_start` affixes (`__yo_async_spawn_start_cwd` is
+/// `spawn_cwd`), and the watch registrations (`poll_*`, `fs_event_*`). Every
+/// backend defines each of them. A field's generated `__yo_io_vt_<label>`
+/// wrapper takes the field's own parameters and passes all but the leading
+/// `ctx` on to the entry.
+native_io_entry_c_name :: (fn(label : &String) -> Option(String))(
+  cond(
+    (label.* == "spawn") => Option(String).Some(String.from("__yo_io_spawn_task")),
+    (label.* == "run_until") => Option(String).Some(String.from("__yo_io_run_until")),
+    (label.* == "now") => Option(String).Some(String.from("__yo_io_now_ns")),
+    (label.* == "spawn_cwd") => Option(String).Some(String.from("__yo_async_spawn_start_cwd")),
+    (
+      (label.* == "sleep") || (label.* == "park") || (label.* == "yield")
+      || (label.* == "read") || (label.* == "write") || (label.* == "openat") || (label.* == "close")
+      || (label.* == "statx") || (label.* == "mkdirat") || (label.* == "unlinkat") || (label.* == "renameat")
+      || (label.* == "symlinkat") || (label.* == "linkat") || (label.* == "fsync") || (label.* == "fdatasync")
+      || (label.* == "ftruncate") || (label.* == "getdents") || (label.* == "scandir") || (label.* == "opendir")
+      || (label.* == "readdir") || (label.* == "closedir") || (label.* == "socket") || (label.* == "bind")
+      || (label.* == "listen") || (label.* == "accept") || (label.* == "connect") || (label.* == "send")
+      || (label.* == "stream_write") || (label.* == "recv") || (label.* == "sendto") || (label.* == "recvfrom")
+      || (label.* == "shutdown") || (label.* == "setsockopt") || (label.* == "getsockopt") || (label.* == "waitpid")
+      || (label.* == "getaddrinfo") || (label.* == "getnameinfo")
+    ) => Option(String).Some(`__yo_async_${label.*}_start`),
+    (
+      (label.* == "poll_init") || (label.* == "poll_start") || (label.* == "poll_stop") || (label.* == "poll_close")
+      || (label.* == "fs_event_init") || (label.* == "fs_event_start") || (label.* == "fs_event_stop") || (label.* == "fs_event_close")
+    ) => Option(String).Some(`__yo_${label.*}`),
+    true => Option(String).None
+  )
+);
+export(generate_async_runtime_core, generate_async_runtime_io_entries, native_io_entry_c_name);

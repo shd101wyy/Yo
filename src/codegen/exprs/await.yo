@@ -49,7 +49,9 @@
   get_deferred_drop_target_atom_name,
   fresh_local_name,
   sanitize_for_c_identifier,
-  c_variant_member_name
+  c_variant_member_name,
+  io_vtable_struct_of,
+  io_vtable_future_call
 } :: import("../utils/index.yo");
 { get_dup_function_for_type, generate_dup_code_for_value } :: import("./drop_dup.yo");
 { _call_generate_expr } :: import("./_expr.yo");
@@ -306,6 +308,40 @@ emit_effect_injection_for_await :: (fn(expr : &AstExpr, future_var : &String, in
     )
   );
 });
+/// The receiver of a method-shaped call (`io` in `io.spawn(f, e)`,
+/// `io.await(f, e)`, `e.io.await(f, e)`), `.None` for any other call shape.
+io_call_receiver :: (fn(expr : &AstExpr) -> Option(AstExpr))(
+  match(
+    expr,
+    Rc(.FnCall(_, callee, _, _, _)) => match(
+      callee,
+      Rc(.FnCall(_, _, Rc(dot_args), true, _)) => if(dot_args.len() == usize(2), dot_args.get_cloned(usize(0)), Option(AstExpr).None),
+      _ => Option(AstExpr).None
+    ),
+    _ => Option(AstExpr).None
+  )
+);
+/// The C code of the `Io` an executor lowering goes through, when that `Io`
+/// has the interface shape (a `ctx` and a `vtable`): `io.spawn` and a
+/// sync-context `io.await` / `JoinHandle.await` then call the table's
+/// `spawn` / `run_until` (plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md
+/// §2.1). `.None` for the four-field `Io`, which keeps today's inline
+/// lowering, and for an `Io` expression codegen has no type for.
+io_vtable_lowering_code :: (fn(io_expr : &Option(AstExpr), indent : &String, context : &mut FunctionGenerationContext) -> Option(String))({
+  ie := match(io_expr, .Some(e) => Rc.clone(e), .None => return(Option(String).None));
+  io_ty := match(context.base.get_expr_info(&ie), .Some(ei) => Rc.clone(ei.ty()), .None => return(Option(String).None));
+  if(io_vtable_struct_of(&io_ty).is_none(), {
+    return(Option(String).None);
+  });
+  Option(String).Some(_call_generate_expr(&ie, indent.clone(), context))
+});
+/// `io_code`'s table entry `entry` called on the future `fut_code`
+/// (`io_vtable_future_call`); `io_expr` is the `Io` expression whose type
+/// `io_vtable_lowering_code` accepted.
+io_vtable_entry_statement :: (fn(io_expr : &Option(AstExpr), io_code : &String, entry : str, fut_code : &String, context : &mut FunctionGenerationContext) -> String)({
+  io_ty := match(io_expr, .Some(e) => match(context.base.get_expr_info(e), .Some(ei) => Rc.clone(ei.ty()), .None => return(String.new())), .None => return(String.new()));
+  `${io_vtable_future_call(io_code, &io_ty, entry, fut_code)};`
+});
 /// `await` — extract a value from a Future. Inside a state machine, returns "" (the
 /// FSM resume generator handles the suspension). For `io.await` outside a state
 /// machine, emits a synchronous blocking wait (cold-start, poll, extract).
@@ -409,19 +445,39 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
   context.base.emitter.emit_string_line(`${indent.clone()}int ${pre_await_state_var.clone()} = ${sync_future_var.clone()}->state;`);
   // Only cold-start state-machine futures; Io futures are already submitted.
   is_io_future := is_io_future_type(&future_type);
-  if(!is_io_future, {
-    context.base.emitter.emit_string_line(`${indent.clone()}if (${pre_await_state_var.clone()} == 0 && ${sync_future_var.clone()}->vt && ${sync_future_var.clone()}->vt->resume) {`);
-    emit_effect_injection_for_await(expr, sync_future_var.clone(), indent.clone(), context);
-    context.base.emitter.emit_string_line(`${indent.clone()}  __yo_incr_rc((void*)${sync_future_var.clone()});  // event loop reference`);
-    context.base.emitter.emit_string_line(`${indent.clone()}  ${sync_future_var.clone()}->vt->resume((void*)${sync_future_var.clone()});`);
-    context.base.emitter.emit_string_line(`${indent.clone()}}`);
-  });
-  context.base.emitter.emit_string_line(`${indent.clone()}{`);
-  context.base.emitter.emit_string_line(`${indent.clone()}  int __await_state = ${sync_future_var.clone()}->state;`);
-  context.base.emitter.emit_string_line(`${indent.clone()}  while (__await_state != -1 && __await_state != -2) {`);
-  context.base.emitter.emit_string_line(`${indent.clone()}    __yo_async_poll_step();`);
-  context.base.emitter.emit_string_line(`${indent.clone()}    __await_state = ${sync_future_var.clone()}->state;`);
-  context.base.emitter.emit_string_line(`${indent.clone()}  }`);
+  // An interface-shaped Io drives the wait through its table's `run_until`,
+  // after the compiler-owned bundle injection (§2.1); the four-field Io
+  // keeps the inline cold start and poll loop.
+  io_expr := io_call_receiver(expr);
+  vt_io_code := io_vtable_lowering_code(&io_expr, indent, context);
+  match(
+    &vt_io_code,
+    .Some(io_code) => {
+      if(!is_io_future, {
+        context.base.emitter.emit_string_line(`${indent.clone()}if (${pre_await_state_var.clone()} == 0 && ${sync_future_var.clone()}->vt && ${sync_future_var.clone()}->vt->resume) {`);
+        emit_effect_injection_for_await(expr, sync_future_var.clone(), indent.clone(), context);
+        context.base.emitter.emit_string_line(`${indent.clone()}}`);
+      });
+      context.base.emitter.emit_string_line(`${indent.clone()}${io_vtable_entry_statement(&io_expr, io_code, "run_until", &sync_future_var, context)}`);
+      context.base.emitter.emit_string_line(`${indent.clone()}{`);
+      context.base.emitter.emit_string_line(`${indent.clone()}  int __await_state = ${sync_future_var.clone()}->state;`);
+    },
+    .None => {
+      if(!is_io_future, {
+        context.base.emitter.emit_string_line(`${indent.clone()}if (${pre_await_state_var.clone()} == 0 && ${sync_future_var.clone()}->vt && ${sync_future_var.clone()}->vt->resume) {`);
+        emit_effect_injection_for_await(expr, sync_future_var.clone(), indent.clone(), context);
+        context.base.emitter.emit_string_line(`${indent.clone()}  __yo_incr_rc((void*)${sync_future_var.clone()});  // event loop reference`);
+        context.base.emitter.emit_string_line(`${indent.clone()}  ${sync_future_var.clone()}->vt->resume((void*)${sync_future_var.clone()});`);
+        context.base.emitter.emit_string_line(`${indent.clone()}}`);
+      });
+      context.base.emitter.emit_string_line(`${indent.clone()}{`);
+      context.base.emitter.emit_string_line(`${indent.clone()}  int __await_state = ${sync_future_var.clone()}->state;`);
+      context.base.emitter.emit_string_line(`${indent.clone()}  while (__await_state != -1 && __await_state != -2) {`);
+      context.base.emitter.emit_string_line(`${indent.clone()}    __yo_async_poll_step();`);
+      context.base.emitter.emit_string_line(`${indent.clone()}    __await_state = ${sync_future_var.clone()}->state;`);
+      context.base.emitter.emit_string_line(`${indent.clone()}  }`);
+    }
+  );
   context.base.emitter.emit_string_line(`${indent.clone()}  if (__await_state == -2) {`);
   // Awaiting an unwind-aborted task observes the abort, so it is not
   // "unhandled", and takes over the unwind that caused it (below: caught here
@@ -613,6 +669,11 @@ generate_join_handle_await :: (fn(expr : &AstExpr, indent : &String, context : &
     match(args.get_cloned(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("JoinHandle.await requires a self argument"))))
   });
   handle_code := _call_generate_expr(&handle_arg, indent.clone(), context);
+  // `h.await(io)`'s io (`JoinHandle.await(h, io)` spelled as a call: the
+  // second argument): an interface-shaped Io drives the wait through its
+  // table's `run_until` (§2.1).
+  jh_io_expr := if(func_is_call, ast_call_args_unmarked(expr).get_cloned(usize(0)), ast_call_args_unmarked(expr).get_cloned(usize(1)));
+  jh_vt_io_code := io_vtable_lowering_code(&jh_io_expr, indent, context);
   // The handle keeps its reference until its Drop: a `ref` handle reads
   // the future through its cell, a value handle holds it in its field.
   handle_is_value := match(context.base.get_expr_info(&handle_arg), .Some(hei) => join_handle_is_value_struct(&hei.ty()), .None => false);
@@ -654,11 +715,20 @@ generate_join_handle_await :: (fn(expr : &AstExpr, indent : &String, context : &
   context.base.emitter.emit_string_line(`${indent.clone()}    ${result_type_name.clone()} result;`);
   context.base.emitter.emit_string_line(`${indent.clone()}  };`);
   context.base.emitter.emit_string_line(`${indent.clone()}  struct ${header_struct_name.clone()}* ${header_var.clone()} = (struct ${header_struct_name.clone()}*)${fut_var.clone()};`);
-  context.base.emitter.emit_string_line(`${indent.clone()}  int __jh_state = ${header_var.clone()}->state;`);
-  context.base.emitter.emit_string_line(`${indent.clone()}  while (__jh_state != -1 && __jh_state != -2) {`);
-  context.base.emitter.emit_string_line(`${indent.clone()}    __yo_async_poll_step();`);
-  context.base.emitter.emit_string_line(`${indent.clone()}    __jh_state = ${header_var.clone()}->state;`);
-  context.base.emitter.emit_string_line(`${indent.clone()}  }`);
+  match(
+    &jh_vt_io_code,
+    .Some(io_code) => {
+      context.base.emitter.emit_string_line(`${indent.clone()}  ${io_vtable_entry_statement(&jh_io_expr, io_code, "run_until", &fut_var, context)}`);
+      context.base.emitter.emit_string_line(`${indent.clone()}  int __jh_state = ${header_var.clone()}->state;`);
+    },
+    .None => {
+      context.base.emitter.emit_string_line(`${indent.clone()}  int __jh_state = ${header_var.clone()}->state;`);
+      context.base.emitter.emit_string_line(`${indent.clone()}  while (__jh_state != -1 && __jh_state != -2) {`);
+      context.base.emitter.emit_string_line(`${indent.clone()}    __yo_async_poll_step();`);
+      context.base.emitter.emit_string_line(`${indent.clone()}    __jh_state = ${header_var.clone()}->state;`);
+      context.base.emitter.emit_string_line(`${indent.clone()}  }`);
+    }
+  );
   context.base.emitter.emit_string_line(`${indent.clone()}  if (__jh_state == -1) {`);
   if(is_result_unit, {
     context.base.emitter.emit_string_line(`${indent.clone()}    ${result_var.clone()} = (${option_type_name.clone()}){ .tag = ${some_tag.clone()} };`);
@@ -736,5 +806,8 @@ export(
   generate_state,
   generate_join_handle_await,
   join_handle_is_value_struct,
-  join_handle_future_field_c_type
+  join_handle_future_field_c_type,
+  io_call_receiver,
+  io_vtable_lowering_code,
+  io_vtable_entry_statement
 );
