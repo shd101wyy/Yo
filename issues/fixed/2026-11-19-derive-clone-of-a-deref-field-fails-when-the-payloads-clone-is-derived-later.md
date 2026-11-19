@@ -5,7 +5,7 @@ Generation B: with `ArrayList(T)` implementing `Deref`, `check ./src` fails in 2
 `derive(VariableRare, Clone)`.
 
 **Status:** FIXED by `v0279/derive-later-clone` (v0.2.79): a generic impl's `where` bound forces the bound type's
-pending impls and derives before it rejects the candidate.
+pending impls and derives that name the bound's trait before it rejects the candidate.
 
 Found 2026-11-19 by the v0.2.80 Deref lane (`v0280/deref-std-impls`), with a tree binary of develop `d8f0d89fa`
 (no `src/` change up to `939fe7160`) and develop's std.
@@ -54,10 +54,18 @@ the call, after the module's derives ran.
 
 ## Fix
 
-The `where` pass of `try_match_generic_impl` forces the pending impls and derives of a concrete bound type's head
-(`force_pending_impls_for_type_name`) when an enforced clause fails, then re-judges the clause. Every trait check that
-reaches a generic impl (the `<:` cast, a callee's `where` bound, a nested instantiation like `Box(Option(B))`) now
-sees the module's later impls of the bound type, as the direct checks already did for the receiver's own impls.
+When an enforced clause of `try_match_generic_impl`'s `where` pass fails on a concrete bound type, it forces that
+type's pending impls and derives that NAME the clause's trait (`force_pending_trait_impls_for_type_name`,
+`src/evaluator/context.yo`: `impl(B, Clone(...))`, `derive(B, Clone, Hash)`, a qualified `M.Clone(...)`), then
+re-judges the clause. Every trait check that reaches a generic impl (the `<:` cast, a callee's `where` bound, a nested
+instantiation like `Box(Option(B))`) now sees the module's later impls of the bound type.
+
+Forcing EVERY pending impl of the bound type, as the receiver-side checks do, was the first attempt and broke
+`check ./src` (36/273): a `where` bound also fails legitimately, and for a recursive type the trait-check recursion
+guard answers `false` mid-definition. Defining `std/encoding/json.yo`'s `JsonKV` (field `value : JsonValue`) cut
+`JsonValue`'s own marker check, the pass forced the unrelated `impl(JsonValue, …)` whose `as_object` names `JsonKV`,
+and the module failed with `cyclic definition: JsonKV → impl(JsonValue, …) → as_object → JsonKV`. Only an impl that
+names the trait can change the answer, so only those are forced.
 
 ## What it blocks
 
