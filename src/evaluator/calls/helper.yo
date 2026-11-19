@@ -2944,35 +2944,27 @@ _store_specialization_cache :: (
     specialized_func_value : Rc.clone(specialized_func_val.*),
     owner : registration_owner()
   );
-  // Find existing entry for this func_id
-  n_entries := g_specialized_fn_caches.with(_c_len_2);
-  (ei : usize) = usize(0);
-  (found : Option(SpecializedFunctionCacheEntry)) = Option(SpecializedFunctionCacheEntry).None;
-  while((ei < n_entries) && found.is_none(), {
-    entry_opt := g_specialized_fn_caches.with(xs => xs.get_cloned(ei));
+  // Push into the existing entry for this func_id, or add one, in place: an
+  // entry is a value, so a copy's push would be lost.
+  g_specialized_fn_caches.with_mut({ want : func_id.clone(), c : new_cache }(xs) => {
+    (found : Option(usize)) = Option(usize).None;
+    (i : usize) = usize(0);
+    while((i < xs.len()) && found.is_none(), {
+      if(xs(i).func_id == want, {
+        found = Option(usize).Some(i);
+      });
+      i = (i + usize(1));
+    });
     match(
-      entry_opt,
-      .Some(entry) => {
-        if(entry.func_id == func_id.*, {
-          found = Option(SpecializedFunctionCacheEntry).Some(entry);
-        });
-      },
-      .None => ()
+      found,
+      .Some(fi) => xs.with(fi, { c }(e) => e.caches.push(c)),
+      .None => {
+        new_caches := ArrayList(SpecializedFunctionCache).new();
+        new_caches.push(c);
+        xs.push(SpecializedFunctionCacheEntry(func_id : want.clone(), caches : new_caches));
+      }
     );
-    ei = (ei + usize(1));
   });
-  match(
-    found,
-    // Push into the existing entry's caches
-    .Some(entry) => entry.caches.push(new_cache),
-    .None => {
-      // Create new entry
-      new_caches := ArrayList(SpecializedFunctionCache).new();
-      new_caches.push(new_cache);
-      entry := SpecializedFunctionCacheEntry(func_id : func_id.clone(), caches : new_caches);
-      g_specialized_fn_caches.with_mut({ entry }(xs) => xs.push(entry));
-    }
-  );
 });
 /// Specializations minted while a recording is open
 /// (`specialization_recording_begin`). `check` gives each demand-loaded module
@@ -3021,23 +3013,22 @@ purge_specialization_caches_owned_by :: (fn(owner : &String) -> unit)({
   if(owner.len() == usize(0), {
     return(());
   });
-  (ei : usize) = usize(0);
-  while(ei < g_specialized_fn_caches.with(_c_len_2), {
-    match(
-      g_specialized_fn_caches.with(xs => xs.get_cloned(ei)),
-      .Some(entry) => {
+  // In place: an entry is a value, so a copy's drain would be lost.
+  g_specialized_fn_caches.with_mut({ want : owner.clone() }(xs) => {
+    (ei : usize) = usize(0);
+    while(ei < xs.len(), {
+      xs.with(ei, { &want }(entry) => {
         (ci : usize) = entry.caches.len();
         while(ci > usize(0), {
           ci = (ci - usize(1));
-          hit := (entry.caches(ci).owner == owner.*);
+          hit := (entry.caches(ci).owner == want.*);
           if(hit, {
             entry.caches.drain(ci .. (ci + usize(1)));
           });
         });
-      },
-      .None => ()
-    );
-    ei = (ei + usize(1));
+      });
+      ei = (ei + usize(1));
+    });
   });
 });
 /// Number of cached specializations across all functions (the B2 plateau
