@@ -955,7 +955,7 @@ _build_deferred_deps :: (
   (mut(j) : usize) = usize(0);
   while(j < aps.len(), {
     match(
-      aps.get(j),
+      aps.get_cloned(j),
       .Some(ap) => match(
         &ap.future_variable_id,
         .Some(_) => (),
@@ -3349,7 +3349,7 @@ _block_cross_boundary :: (fn(block : &DeferredAsyncBlock, context : &FunctionGen
     pcvs := &block.analysis.captured_variables;
     while(pci < pcvs.len(), {
       match(
-        pcvs.get(pci),
+        pcvs.get_cloned(pci),
         .Some(pv) => if(match(pv.kind, .Local => true, .Outer => false) && param_sites.contains(pv.base.decl_site.clone()), {
           _removed := cbr.cross_boundary_ids.remove(pv.base.id.to_string());
         }),
@@ -3422,7 +3422,7 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &mu
   (mut(ci) : usize) = usize(0);
   while(ci < src_cvs.len(), {
     match(
-      src_cvs.get(ci),
+      src_cvs.get_cloned(ci),
       .Some(v) => {
         is_outer := match(v.kind, .Outer => true, _ => false);
         keep := (is_outer || cbr.cross_boundary_ids.contains(v.base.id.to_string()) || await_future_temp_var_aliases.contains_key(v.base.id.to_string()) || overlapping_slot_aliases.contains_key(v.base.id.to_string()));
@@ -3466,7 +3466,7 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &mu
   fcvs := &filtered_analysis.captured_variables;
   while(fi < fcvs.len(), {
     match(
-      fcvs.get(fi),
+      fcvs.get_cloned(fi),
       .Some(v) => {
         sm_var_map.insert(v.base.id.to_string(), v);
       },
