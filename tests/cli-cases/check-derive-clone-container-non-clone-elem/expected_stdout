@@ -1,16 +1,21 @@
 $ yo check main.yo
-error[E0610]: derive on "S" failed: No method "clone" on R: the type has no field or method with that name.
-Receiver slot types probed: R, &R, &mut R, &&R.
-     --> <REPO>/std/collections/array-list.yo:1675:26
+error: derive on "S" failed: error: Type "ArrayList(R)" does not implement trait "Clone".
+  --> auto-generated://
+// === START auto-generated code ===
+Self(self.x.clone(), (type_of(self.rel) <: Clone).clone(&self.rel))
+// === END auto-generated code ===
+:1:41
+  |
+1 | Self(self.x.clone(), (type_of(self.rel) <: Clone).clone(&self.rel))
+  |                                         ^^
+     --> <REPO>/std/prelude.yo:8837:27
      |
-1675 |       result.push(self(i).clone());
-     |                          ^
-help: run `yo explain E0610` for more information
+8837 |             clone : (self -> unquote(clone_body.to_expr()))
+     |                           ^^
    --> main.yo:13:11
    |
 13 | derive(S, Clone);
    |           ^^^^^
-help: run `yo explain E0610` for more information
 yo: error: check: 1 file(s) failed evaluator coverage
 check: parsing <REPO>/std/prelude.yo
 check: parsed <PRELUDE_EXPRS> top-level exprs
