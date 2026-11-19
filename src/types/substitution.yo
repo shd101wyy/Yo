@@ -99,22 +99,6 @@ subst_add_len_var :: (fn(s : &mut Substitution, name : &String, value : usize) -
   s.len_var_names.push(name.clone());
   s.len_var_values.push(value);
 });
-/// The same substitution with the const-generic LENGTH bindings dropped.
-///
-/// A NOMINAL type (Struct / EnumT / TraitT) owns its own field types: they were
-/// produced by the type constructor's own evaluation and their spelling is part
-/// of the type's identity — `type_key` hashes them, and the ctfe instantiation
-/// memo canonicalizes a def-era instance to its concrete twin by that key.
-/// Rewriting `Array(T, N)` inside a struct field therefore mints a key no memo
-/// entry matches: MEASURED, resolving `_ArrayIter(T, N)._arr` split one Yo
-/// struct id into two C typedefs and `into_iter` returned the wrong one
-/// ("returning '__yo_t18' from a function with incompatible result type
-/// '__yo_t38'" on tests/array.test.yo). Length resolution therefore applies to
-/// the SPINE — parameters, results, locals, pointers, tuples — and stops at a
-/// nominal boundary. `.None` when there is nothing to drop: the caller walks `s`
-/// itself, so the nested walk shares its trait-recursion guard and node memo
-/// with the enclosing one (the shared-handle semantics this record had as a
-/// `ref`; a copy lost the nested walk's writes).
 /// A field-wise copy of `s` (a `Substitution` is move-only over its arrays).
 _subst_clone :: (fn(s : &Substitution) -> Substitution)(
   Substitution(
@@ -131,6 +115,22 @@ _subst_clone :: (fn(s : &Substitution) -> Substitution)(
     node_memo_to : s.node_memo_to.clone()
   )
 );
+/// The same substitution with the const-generic LENGTH bindings dropped.
+///
+/// A NOMINAL type (Struct / EnumT / TraitT) owns its own field types: they were
+/// produced by the type constructor's own evaluation and their spelling is part
+/// of the type's identity — `type_key` hashes them, and the ctfe instantiation
+/// memo canonicalizes a def-era instance to its concrete twin by that key.
+/// Rewriting `Array(T, N)` inside a struct field therefore mints a key no memo
+/// entry matches: MEASURED, resolving `_ArrayIter(T, N)._arr` split one Yo
+/// struct id into two C typedefs and `into_iter` returned the wrong one
+/// ("returning '__yo_t18' from a function with incompatible result type
+/// '__yo_t38'" on tests/array.test.yo). Length resolution therefore applies to
+/// the SPINE — parameters, results, locals, pointers, tuples — and stops at a
+/// nominal boundary. `.None` when there is nothing to drop: the caller walks `s`
+/// itself, so the nested walk shares its trait-recursion guard and node memo
+/// with the enclosing one (the shared-handle semantics this record had as a
+/// `ref`; a copy lost the nested walk's writes).
 _without_len_vars :: (fn(s : &mut Substitution) -> Option(Substitution))(
   cond(
     (s.len_var_names.len() == usize(0)) => Option(Substitution).None,
