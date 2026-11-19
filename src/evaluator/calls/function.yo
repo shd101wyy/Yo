@@ -1746,13 +1746,31 @@ _find_receiver_method_of :: (
     // reaches it only through the deref step below (`rr.*.*.m()`). Only a
     // method whose impl receiver is itself a reference answers the value
     // directly.
+    // A reference impl's candidate is kept only when no candidate of `C` it
+    // drops has an earlier probe step: `C`'s `self : &Self` method has the
+    // slot `&C` the value fills, so it wins over a blanket over `&T` (slot
+    // `&&C`), and the call is left to the deref step (VERDICTS-69 Q1).
     value_receiver := (t_slot_is_borrow(&receiver_type) && !is_pointer_type(&receiver_type) && !probe_explicit && !ast_expr_is_atom(&receiver_expr_r));
     cond(
       value_receiver => {
         hits = ArrayList(MethodEntry).new();
+        (dropped_min_rank : usize) = usize(10);
+        (pd_i : usize) = usize(0);
+        while(pd_i < probed.hits.len(), {
+          if(!match(probed.receivers.get_cloned(pd_i), .Some(pr) => t_slot_is_borrow(&pr), .None => true), {
+            match(
+              probed.ranks.get(pd_i),
+              .Some(r) => if(r < dropped_min_rank, {
+                dropped_min_rank = r;
+              }),
+              .None => ()
+            );
+          });
+          pd_i = (pd_i + usize(1));
+        });
         (pf_i : usize) = usize(0);
         while(pf_i < probed.hits.len(), {
-          keep := match(probed.receivers.get_cloned(pf_i), .Some(pr) => t_slot_is_borrow(&pr), .None => true);
+          keep := (match(probed.receivers.get_cloned(pf_i), .Some(pr) => t_slot_is_borrow(&pr), .None => true) && match(probed.ranks.get(pf_i), .Some(r) => (r <= dropped_min_rank), .None => true));
           if(keep, {
             match(probed.hits.get(pf_i), .Some(h) => hits.push(h), .None => ());
             match(probed.ranks.get(pf_i), .Some(r) => probe_ranks.push(r), .None => ());
