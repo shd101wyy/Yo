@@ -473,7 +473,14 @@ test("(G2 piece 3) mixed shapes have no impl: the operand is E0926", {
 // The blanket is written above the generic impl, which is what forced the
 // trial in time.
 _BhHash :: trait(bh : (fn(generic(H : Type), self : &Self, acc : &mut H, where(H <: Integer)) -> unit));
-impl(i32, _BhHash(bh : (fn(generic(H : Type), self : &Self, acc : &mut H, where(H <: Integer)) -> unit)({ acc.* = (acc.* + H(self.*)); })));
+impl(
+  i32,
+  _BhHash(
+    bh : (fn(generic(H : Type), self : &Self, acc : &mut H, where(H <: Integer)) -> unit)({
+      acc.* = (acc.* + H(self.*));
+    })
+  )
+);
 impl(
   generic(T : Type),
   where(T <: _BhHash),
