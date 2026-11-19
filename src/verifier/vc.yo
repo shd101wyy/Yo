@@ -2236,9 +2236,9 @@ _note_enum_datatype :: (fn(ctx : &mut VcCtx, t : &TypeValue) -> unit)(
                 sb.write_byte(u8(0x20));
                 f_sort := _type_sort(&fty);
                 match(
-                  f_sort,
+                  &f_sort,
                   .Some(fs0) => {
-                    ctx.acc_sorts.insert(`${_enum_ctor_name(e_id.clone(), vname.clone())}_${flabel}`, fs0);
+                    ctx.acc_sorts.insert(`${_enum_ctor_name(e_id.clone(), vname.clone())}_${flabel}`, Rc.clone(fs0));
                     ()
                   },
                   .None => ()
@@ -4284,21 +4284,21 @@ _list_append_contents :: (fn(ctx : &mut VcCtx, elem : &VcSort, c1 : &VcTerm, l1 
   if(!ctx.gfn_keys.contains(fname.clone()), {
     ctx.gfn_keys.push(fname.clone());
     dargs := ArrayList(VcSort).new();
-    dargs.push(arr);
+    dargs.push(Rc.clone(arr));
     dargs.push(Rc.new(VcSortNode.BvS(width : usize(64))));
-    dargs.push(arr);
-    ctx.fun_decls.push(VcFunDecl(name : fname.clone(), args : dargs, result : arr));
+    dargs.push(Rc.clone(arr));
+    ctx.fun_decls.push(VcFunDecl(name : fname.clone(), args : dargs, result : Rc.clone(arr)));
     names := ArrayList(String).new();
     names.push(String.from("__yo_la_c1"));
     names.push(String.from("__yo_la_l1"));
     names.push(String.from("__yo_la_c2"));
     names.push(String.from("__yo_la_i"));
     sorts := ArrayList(VcSort).new();
-    sorts.push(arr);
+    sorts.push(Rc.clone(arr));
     sorts.push(Rc.new(VcSortNode.BvS(width : usize(64))));
-    sorts.push(arr);
+    sorts.push(Rc.clone(arr));
     sorts.push(Rc.new(VcSortNode.BvS(width : usize(64))));
-    bc1 := Rc.new(VcTermNode.Var(name : String.from("__yo_la_c1"), sort : arr));
+    bc1 := Rc.new(VcTermNode.Var(name : String.from("__yo_la_c1"), sort : Rc.clone(arr)));
     bl1 := Rc.new(VcTermNode.Var(name : String.from("__yo_la_l1"), sort : Rc.new(VcSortNode.BvS(width : usize(64)))));
     bc2 := Rc.new(VcTermNode.Var(name : String.from("__yo_la_c2"), sort : arr));
     bi := Rc.new(VcTermNode.Var(name : String.from("__yo_la_i"), sort : Rc.new(VcSortNode.BvS(width : usize(64)))));
