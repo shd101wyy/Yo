@@ -1634,15 +1634,19 @@ _find_receiver_method_of :: (
   method_name := method_tok.value.*.clone();
   // The Q-B arm's receiver half (`unsized_legacy_spellings`, VERDICTS-62
   // decision 5): a `&str` VALUE receiver (a call's result, the legacy value
-  // `str`) with no method at the slot `&str` selects `str`'s, and the
-  // reference value fills the `&Self` slot as a `&str` argument does. A
-  // method of `&str` at a deeper slot (`&&str`: a blanket over `&T`, an
-  // `impl(&str, …)` taking `self : &Self`) does not shadow `str`'s own, which
-  // has the earlier slot (VERDICTS-69 Q1). S3b-`str` deletes it.
+  // `str`) with no method of its own selects `str`'s, and the reference value
+  // fills the `&Self` slot as a `&str` argument does. A method of `&str` at a
+  // deeper slot (`&&str`: a blanket over `&T`, an `impl(&str, …)` taking
+  // `self : &Self`) does not shadow a method of `str`, which has the earlier
+  // slot `&str` (VERDICTS-69 Q1); with no method of `str` it is the answer.
+  // S3b-`str` deletes it.
   match(
     str_reference_pointee(&receiver_type),
-    .Some(sr_p) => if(!match(receiver_value.clone(), .Some(sr_v) => is_type_val(&sr_v), .None => false) && !_has_slot_step_zero(&get_receiver_methods_by_name_from_env(env, method_name.clone(), &receiver_type, false)), {
-      receiver_type = sr_p;
+    .Some(sr_p) => if(!match(receiver_value.clone(), .Some(sr_v) => is_type_val(&sr_v), .None => false), {
+      sr_ref_hits := get_receiver_methods_by_name_from_env(env, method_name.clone(), &receiver_type, false);
+      if((sr_ref_hits.len() == usize(0)) || (!_has_slot_step_zero(&sr_ref_hits) && (get_receiver_methods_by_name_from_env(env, method_name.clone(), &sr_p, false).len() > usize(0))), {
+        receiver_type = sr_p;
+      });
     }),
     .None => ()
   );
@@ -1768,9 +1772,21 @@ _find_receiver_method_of :: (
           });
           pd_i = (pd_i + usize(1));
         });
+        // A reference impl's candidate at the same step as a dropped one ties
+        // with it: both stay, and the selection reports the ambiguity (E0616).
+        (tie_at_min : bool) = false;
+        (pt_i : usize) = usize(0);
+        while(pt_i < probed.hits.len(), {
+          if(match(probed.receivers.get_cloned(pt_i), .Some(pr) => t_slot_is_borrow(&pr), .None => true) && match(probed.ranks.get(pt_i), .Some(r) => (r == dropped_min_rank), .None => false), {
+            tie_at_min = true;
+          });
+          pt_i = (pt_i + usize(1));
+        });
         (pf_i : usize) = usize(0);
         while(pf_i < probed.hits.len(), {
-          keep := (match(probed.receivers.get_cloned(pf_i), .Some(pr) => t_slot_is_borrow(&pr), .None => true) && match(probed.ranks.get(pf_i), .Some(r) => (r <= dropped_min_rank), .None => true));
+          is_ref_impl := match(probed.receivers.get_cloned(pf_i), .Some(pr) => t_slot_is_borrow(&pr), .None => true);
+          pf_rank := match(probed.ranks.get(pf_i), .Some(r) => r, .None => usize(9));
+          keep := cond(is_ref_impl => (pf_rank <= dropped_min_rank), true => (tie_at_min && (pf_rank == dropped_min_rank)));
           if(keep, {
             match(probed.hits.get_cloned(pf_i), .Some(h) => hits.push(h), .None => ());
             match(probed.ranks.get(pf_i), .Some(r) => probe_ranks.push(r), .None => ());

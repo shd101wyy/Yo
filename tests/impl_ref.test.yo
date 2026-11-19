@@ -221,6 +221,52 @@ test("(vii-c) a blanket over &T whose where fails at T := Rc(C) leaves r.m() to 
   rc := &c;
   assert((&_WhC).wh(&rc) == i32(103), "(&_WhC).wh(&rc): the blanket at T := _WhC");
 });
+// (vii-d) VERDICTS-69's probe order for a receiver of reference type `&U`,
+// whatever its expression: the slot `&U` first (`impl(U)`'s `self : &Self`
+// methods, `impl(&U)`'s `self : Self` ones, the reference the argument), then
+// `&&U` (only a binding can lend its storage, else E0610), then deref. An impl
+// over references never shadows the referent's own method
+// (issues/2026-11-19-a-str-call-result-in-a-template-is-e0610-once-a-blanket-over-a-reference-provides-the-method.md).
+_PoA :: trait(po_a : (fn(self : &Self) -> usize));
+impl(str, _PoA(po_a : (fn(self : &Self) -> usize)(self.len())));
+impl(generic(T : Type), where(T <: _PoA), &T, _PoA(po_a : (fn(self : &Self) -> usize)(T.po_a(self.*) + usize(100))));
+_PoB :: trait(po_b : (fn(self : &Self) -> usize));
+impl(str, _PoB(po_b : (fn(self : &Self) -> usize)(self.len())));
+impl(&str, _PoB(po_b : (fn(self : &Self) -> usize)(usize(200))));
+_PoM :: trait(po_m : (fn(self : &Self) -> usize));
+impl(&str, _PoM(po_m : (fn(self : &Self) -> usize)(usize(5))));
+_PoE1 :: trait(po_e : (fn(self : &Self) -> usize));
+_PoE2 :: trait(po_e : (fn(self : Self) -> usize));
+impl(str, _PoE1(po_e : (fn(self : &Self) -> usize)(usize(1))));
+impl(generic(T : Type), where(T <: _PoE1), &T, _PoE2(po_e : (fn(self : Self) -> usize)(usize(2))));
+_PoC :: struct(v : usize);
+impl(_PoC, _PoA(po_a : (fn(self : &Self) -> usize)(self.v)));
+_po_verb :: (fn(k : i32) -> str)(cond((k == i32(0)) => "read", true => "write"));
+test("(vii-d) a str call result: str's own method at the slot &str beats a blanket over &T", {
+  assert(_po_verb(i32(0)).po_a() == usize(4), "verb().po_a(): impl(str, _PoA)");
+});
+test("(vii-d) a str call result: str's own method beats impl(&str, …) taking self : &Self", {
+  assert(_po_verb(i32(0)).po_b() == usize(4), "verb().po_b(): impl(str, _PoB)");
+});
+test("(vii-d) a str binding: str's own method; the blanket by its qualified name", {
+  v := _po_verb(i32(0));
+  assert(v.po_a() == usize(4), "v.po_a(): impl(str, _PoA)");
+  assert((&str).po_a(&v) == usize(104), "(&str).po_a(&v): the blanket at T := str");
+});
+test("(vii-d) only impl(&str, M) at the slot &&str: a binding lends, a call result is E0610", {
+  v := _po_verb(i32(0));
+  assert(v.po_m() == usize(5), "v.po_m(): the binding lends its storage");
+  comptime_expect_error(_po_verb(i32(0)).po_m(), "bind the reference to a local first");
+});
+test("(vii-d) two methods at the slot &str (impl(str, A) by &Self, a blanket B by Self) are E0616", {
+  comptime_expect_error(_po_verb(i32(0)).po_e(), "E0616");
+});
+test("(vii-d) rr.*.m() on rr : &&C takes C's method at the slot &C, not the blanket", {
+  c := _PoC(v : usize(7));
+  r := &c;
+  rr := &r;
+  assert(rr.*.po_a() == usize(7), "rr.*.po_a(): impl(_PoC, _PoA)");
+});
 // (viii) Coherence: the origin is not part of a reference receiver's key, and
 // a bare-variable blanket covers `&C` too.
 _CoC :: struct(n : i32);
