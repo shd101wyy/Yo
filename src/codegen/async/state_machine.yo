@@ -477,7 +477,7 @@ _lv_walk :: (fn(e : &AstExpr, stmt_end : u64, block_end : u64, w : &mut _LiveWal
                         (cgi : usize) = usize(0);
                         while(cgi < cg_arms.len(), cgi = (cgi + usize(1)), {
                           match(
-                            cg_arms.get(cgi),
+                            cg_arms.get_cloned(cgi),
                             .Some(cga) => if(ast_expr_id(&cga.arm_expr) == ast_expr_id(a.clone()), {
                               hidden := ArrayList(AstExpr).new();
                               pattern_binding_atoms(&cga.pattern, &mut hidden);

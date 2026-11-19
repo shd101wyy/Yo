@@ -8782,6 +8782,24 @@ local_borrow_register :: (
   g_local_borrows.with_mut({ &info }(xs) => xs.push(info.clone()));
   info
 });
+/// Write `info` back over its registry entry (the newest entry with its
+/// name+decl identity). `local_borrow_register` returns a COPY of what it
+/// registered (`LocalBorrowInfo` is a value), so a caller that completes the
+/// record afterwards (re-point places, an elided result origin) stores it here.
+local_borrow_update :: (fn(info : &LocalBorrowInfo) -> unit)({
+  upd := info.clone();
+  g_local_borrows.with_mut({ upd }(xs) => {
+    (i : usize) = xs.len();
+    (done : bool) = false;
+    while((i > usize(0)) && !done, {
+      i = (i - usize(1));
+      if(_lb_same_decl(xs(i).name.clone(), &xs(i).decl, upd.name.clone(), &upd.decl), {
+        xs(i) = upd.clone();
+        done = true;
+      });
+    });
+  });
+});
 /// Decision 38 A: re-pointing `info` at `tok` is an error while a borrow
 /// derived from its current target is live.
 local_borrow_require_no_live_derived :: (fn(info : &LocalBorrowInfo, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
@@ -13618,6 +13636,7 @@ export(
   local_borrow_is_scalar_type,
   local_borrow_range_of,
   local_borrow_register,
+  local_borrow_update,
   local_borrow_require_no_live_derived,
   local_borrow_result_is_place,
   local_borrow_result_borrow_of,

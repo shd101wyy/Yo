@@ -80,6 +80,53 @@ _c_len_2 :: (fn(xs : &ArrayList(ComptimeFnCacheEntry)) -> usize)(xs.len());
 // Hence a module-level global keyed by func_id.
 // ---------------------------------------------------------------------------
 (g_comptime_fn_caches : RefCell(ArrayList(ComptimeFnCacheEntry))) = RefCell(ArrayList(ComptimeFnCacheEntry)).new(ArrayList(ComptimeFnCacheEntry).new());
+// A bucket is a value (`ComptimeFnCacheEntry` is a plain struct), so a
+// `get_cloned` copy of one is detached from the cache: every write goes
+// through the in-place helpers below, and a lookup compares ids in place
+// instead of cloning each bucket's whole `caches` list to read its id.
+/// The index of `fid`'s bucket, compared in place.
+_cfc_bucket_index :: (fn(fid : &String) -> Option(usize))(
+  g_comptime_fn_caches.with({ want : fid.clone() }(xs) => {
+    (found : Option(usize)) = Option(usize).None;
+    (i : usize) = usize(0);
+    while((i < xs.len()) && found.is_none(), {
+      if(xs(i).func_id == want, {
+        found = Option(usize).Some(i);
+      });
+      i = (i + usize(1));
+    });
+    found
+  })
+);
+/// A copy of `fid`'s bucket (read-only: writes go through `_cfc_push` /
+/// `_cfc_drop_at`).
+_cfc_bucket :: (fn(fid : &String) -> Option(ComptimeFnCacheEntry))(
+  match(
+    _cfc_bucket_index(fid),
+    .Some(bi) => g_comptime_fn_caches.with(xs => xs.get_cloned(bi)),
+    .None => Option(ComptimeFnCacheEntry).None
+  )
+);
+/// Append `c` to the bucket at `idx`, in place.
+_cfc_push :: (fn(idx : usize, c : CalledComptimeFnCache) -> unit)(
+  g_comptime_fn_caches.with_mut({ idx, c }(xs) => {
+    if(idx < xs.len(), {
+      xs.with(idx, { c }(e) => e.caches.push(c));
+    });
+  })
+);
+/// Remove the cache at position `k` of the bucket at `idx`, in place.
+_cfc_drop_at :: (fn(idx : usize, k : usize) -> unit)(
+  g_comptime_fn_caches.with_mut({ idx, k }(xs) => {
+    if(idx < xs.len(), {
+      xs.with(idx, { k }(e) => {
+        if(k < e.caches.len(), {
+          e.caches.drain(k .. (k + usize(1)));
+        });
+      });
+    });
+  })
+);
 // Internal helper: compare two EvalValues for CTFE cache lookup.
 //
 // For TypeVal arguments:
@@ -493,21 +540,7 @@ canonicalize_instantiation_via_ctfe_memo :: (fn(ty : &TypeValue) -> TypeValue)({
     return(Rc.clone(ty));
   });
   // Find the ctor's bucket, then an era-equal-arg entry with a resolved value.
-  (canon_bucket : Option(ComptimeFnCacheEntry)) = Option(ComptimeFnCacheEntry).None;
-  {
-    (bi : usize) = usize(0);
-    n_b := g_comptime_fn_caches.with(_c_len_2);
-    while((bi < n_b) && canon_bucket.is_none(), {
-      match(
-        g_comptime_fn_caches.with(xs => xs.get_cloned(bi)),
-        .Some(e) => if(e.func_id == cfid, {
-          canon_bucket = Option(ComptimeFnCacheEntry).Some(e);
-        }),
-        .None => ()
-      );
-      bi = (bi + usize(1));
-    });
-  };
+  canon_bucket := _cfc_bucket(&cfid);
   match(
     canon_bucket,
     .Some(bucket) => {
@@ -546,21 +579,7 @@ resolve_recursive_type_ref :: (fn(some_ty : &TypeValue, ctx : &EvalContext) -> O
     }
   );
   // Locate the cache bucket for the recursive function.
-  (bucket_opt : Option(ComptimeFnCacheEntry)) = Option(ComptimeFnCacheEntry).None;
-  {
-    (ci : usize) = usize(0);
-    n_c := g_comptime_fn_caches.with(_c_len_2);
-    while((ci < n_c) && match(&bucket_opt, .None => true, .Some(_) => false), {
-      match(
-        g_comptime_fn_caches.with(xs => xs.get_cloned(ci)),
-        .Some(e) => if(e.func_id == rref.func_id, {
-          bucket_opt = Option(ComptimeFnCacheEntry).Some(e);
-        }),
-        .None => ()
-      );
-      ci = (ci + usize(1));
-    });
-  };
+  bucket_opt := _cfc_bucket(&rref.func_id);
   bucket := match(
     bucket_opt,
     .Some(b) => b,
@@ -1114,21 +1133,7 @@ evaluate_comptime_fn_call :: (
     });
   });
   // Find or create the cache bucket for this func_id in g_comptime_fn_caches.
-  (entry_idx_opt : Option(usize)) = Option(usize).None;
-  {
-    (ci : usize) = usize(0);
-    n_c := g_comptime_fn_caches.with(_c_len_2);
-    while((ci < n_c) && match(entry_idx_opt, .None => true, .Some(_) => false), {
-      match(
-        g_comptime_fn_caches.with(xs => xs.get_cloned(ci)),
-        .Some(e) => if(e.func_id == func_id_str, {
-          entry_idx_opt = Option(usize).Some(ci);
-        }),
-        .None => ()
-      );
-      ci = (ci + usize(1));
-    });
-  };
+  (entry_idx_opt : Option(usize)) = _cfc_bucket_index(&func_id_str);
   match(
     entry_idx_opt,
     .None => {
@@ -1208,13 +1213,7 @@ evaluate_comptime_fn_call :: (
     arg_values : all_arg_vals.clone(),
     value : _recursive_placeholder(&return_type, &func_id_str, &all_arg_vals)
   );
-  match(
-    g_comptime_fn_caches.with(xs => xs.get_cloned(the_entry_idx)),
-    .Some(entry) => {
-      entry.caches.push(temp_cache);
-    },
-    .None => ()
-  );
+  _cfc_push(the_entry_idx, temp_cache);
   temp_cache_index := match(
     g_comptime_fn_caches.with(xs => xs.get_cloned(the_entry_idx)),
     .Some(entry) => (entry.caches.len() - usize(1)),
@@ -1302,13 +1301,7 @@ evaluate_comptime_fn_call :: (
     .Some(i) => Rc.clone(i),
     .None => {
       // Remove the temp cache entry to avoid leaving a stale placeholder.
-      match(
-        g_comptime_fn_caches.with(xs => xs.get_cloned(the_entry_idx)),
-        .Some(entry) => {
-          entry.caches.drain(temp_cache_index .. (temp_cache_index + usize(1)));
-        },
-        .None => ()
-      );
+      _cfc_drop_at(the_entry_idx, temp_cache_index);
       exn.throw(
         dyn(
           Box.new(
@@ -1327,13 +1320,7 @@ evaluate_comptime_fn_call :: (
     .Some(v) => v,
     .None => {
       // Remove the temp cache entry.
-      match(
-        g_comptime_fn_caches.with(xs => xs.get_cloned(the_entry_idx)),
-        .Some(entry) => {
-          entry.caches.drain(temp_cache_index .. (temp_cache_index + usize(1)));
-        },
-        .None => ()
-      );
+      _cfc_drop_at(the_entry_idx, temp_cache_index);
       exn.throw(
         dyn(
           Box.new(
@@ -1578,26 +1565,13 @@ evaluate_comptime_fn_call :: (
       arg_values : all_arg_vals,
       value : Rc.clone(final_return_value)
     );
-    match(
-      g_comptime_fn_caches.with(xs => xs.get_cloned(the_entry_idx)),
-      .Some(entry) => {
-        // ArrayList has no in-place element assignment; replace the temp
-        // placeholder by removing it and pushing the finalized entry.
-        // (Recursive sub-calls only append AFTER temp_cache_index, so it is
-        // still the correct slot to drop; lookups match by content, not index.)
-        entry.caches.drain(temp_cache_index .. (temp_cache_index + usize(1)));
-        entry.caches.push(updated_cache);
-      },
-      .None => ()
-    );
+    // Replace the temp placeholder: drop it and push the finalized entry.
+    // (Recursive sub-calls only append AFTER temp_cache_index, so it is
+    // still the correct slot to drop; lookups match by content, not index.)
+    _cfc_drop_at(the_entry_idx, temp_cache_index);
+    _cfc_push(the_entry_idx, updated_cache);
   }, {
-    match(
-      g_comptime_fn_caches.with(xs => xs.get_cloned(the_entry_idx)),
-      .Some(entry) => {
-        entry.caches.drain(temp_cache_index .. (temp_cache_index + usize(1)));
-      },
-      .None => ()
-    );
+    _cfc_drop_at(the_entry_idx, temp_cache_index);
   });
   if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
     eprintln(`[ctfe-out] fid=${func_id_str} result=${value_to_string(&final_return_value)}`);

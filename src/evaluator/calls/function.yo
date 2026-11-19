@@ -9347,15 +9347,15 @@ _no_method_message :: (fn(func_expr : &AstExpr, ctx : &EvalContext) -> String)({
 /// Hand-written bodies keep the plain error.
 _generated_no_method_independence :: (fn(err : &YoError, func_expr : &AstExpr, ctx : &EvalContext) -> YoError)(
   cond(
-    !ast_expr_token(func_expr).module_path.*.starts_with(String.from("auto-generated://")) => err.*,
+    !ast_expr_token(func_expr).module_path.*.starts_with(String.from("auto-generated://")) => err.clone(),
     true => match(
       match(func_expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.get_cloned(usize(0)), _ => Option(AstExpr).None),
       .Some(recv) => match(
         expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)),
         .Some(ri) => mark_generic_independent(err, &ri.ty(), &ri.ty()),
-        .None => err.*
+        .None => err.clone()
       ),
-      .None => err.*
+      .None => err.clone()
     )
   )
 );
