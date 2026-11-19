@@ -464,3 +464,75 @@ test("(G2 piece 3) mixed shapes have no impl: the operand is E0926", {
   comptime_expect_error(rx == x, "reading the value it refers to is spelled");
   comptime_expect_error(rx + i32(1), "reading the value it refers to is spelled");
 });
+// A user blanket over `&T` whose method a generic impl calls on a `&K`
+// receiver (the shape of a blanket `Hash(&T)` beside `HashMap(K, V)`): R-PROBE
+// trials the blanket at `Self := &K` against the receiver place of type `K`,
+// and that trial bound the impl's own `K := &K` (the occurs check did not look
+// inside a reference), so the next member's `ArrayList(_BhEntry(K))` read `&K`
+// (issues/fixed/2026-11-13-a-blanket-hash-impl-over-a-reference-rebinds-a-generic-impls-key-to-a-reference-of-itself.md).
+// The blanket is written above the generic impl, which is what forced the
+// trial in time.
+_BhHash :: trait(bh : (fn(generic(H : Type), self : &Self, acc : &mut H, where(H <: Integer)) -> unit));
+impl(i32, _BhHash(bh : (fn(generic(H : Type), self : &Self, acc : &mut H, where(H <: Integer)) -> unit)({ acc.* = (acc.* + H(self.*)); })));
+impl(
+  generic(T : Type),
+  where(T <: _BhHash),
+  &T,
+  _BhHash(bh : (fn(generic(H : Type), self : &Self, acc : &mut H, where(H <: Integer)) -> unit)(T.bh(self.*, acc)))
+);
+_BhEntry :: (fn(comptime(K) : Type) -> comptime(Type))(struct(k : K));
+_BhMap :: (fn(comptime(K) : Type, comptime(V) : Type, where(K <: (Eq(K), _BhHash))) -> comptime(Type))(struct(data : ArrayList(_BhEntry(K)), k0 : u64, v : V));
+impl(
+  generic(K : Type, V : Type),
+  where(K <: (Eq(K), _BhHash)),
+  _BhMap(K, V),
+  _h : (fn(self : &Self, key : &K) -> u64)({
+    mut(h) := self.k0;
+    key.bh(&mut h);
+    h
+  }),
+  get : (fn(self : &Self, key : &K) -> Option(u64))({
+    hash := self._h(key);
+    .Some(hash)
+  }),
+  get_entries : (fn(self : &mut Self, key : &K) -> Option(ArrayList(_BhEntry(K))))({
+    hash := self._h(key);
+    cond((hash == u64(0)) => .None, true => .Some(ArrayList(_BhEntry(K)).new()))
+  })
+);
+test("a blanket impl over &T leaves a generic impl's key binder K, not &K", {
+  mut(m) := _BhMap(i32, i32)(data : ArrayList(_BhEntry(i32)).new(), k0 : u64(10), v : i32(0));
+  k := i32(5);
+  assert(m.get(&k) == .Some(u64(15)), "get hashes the key as i32");
+  assert(m.get_entries(&k).is_some(), "get_entries's element type is _BhEntry(i32)");
+  r := &k;
+  mut(acc) := u64(1);
+  (&i32 <: _BhHash).bh(&r, &mut acc);
+  assert(acc == u64(6), "the blanket at T := i32 forwards to i32's impl");
+});
+// The same trial with std alone: the prelude's blanket `Ord(&T)` provides
+// `cmp`, so `a.cmp(b)` on `a : &K` trialled it at `Self := &K` and bound
+// `K := &K` for the next member's signature.
+_BoEntry :: (fn(comptime(K) : Type) -> comptime(Type))(struct(k : K));
+_BoMap :: (fn(comptime(K) : Type, where(K <: Ord(K))) -> comptime(Type))(struct(data : ArrayList(_BoEntry(K))));
+impl(
+  generic(K : Type),
+  where(K <: Ord(K)),
+  _BoMap(K),
+  _less : (fn(self : &Self, a : &K, b : &K) -> bool)({
+    o := a.cmp(b);
+    match(o, .Less => true, _ => false)
+  }),
+  lt : (fn(self : &Self, a : &K, b : &K) -> bool)(self._less(a, b)),
+  entries : (fn(self : &Self, a : &K, b : &K) -> Option(ArrayList(_BoEntry(K))))({
+    l := self._less(a, b);
+    cond(l => .None, true => .Some(ArrayList(_BoEntry(K)).new()))
+  })
+);
+test("the prelude's Ord(&T) leaves a generic impl's binder K when `a.cmp(b)` runs on `a : &K`", {
+  m := _BoMap(i32)(data : ArrayList(_BoEntry(i32)).new());
+  x := i32(1);
+  y := i32(2);
+  assert(m.lt(&x, &y), "1 < 2 through K.cmp");
+  assert(m.entries(&y, &x).is_some(), "entries' element type is _BoEntry(i32)");
+});
