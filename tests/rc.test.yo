@@ -3249,8 +3249,9 @@ test("a generic recursive enum held 12 struct levels deep drops every node once"
 // captured tuple was never retained. Each `_TupCopyT` adds its `v` to the
 // counter when dropped, so a sum checks every cell is dropped exactly once.
 // Since `ref(...)` was deleted (v0.2.79) no tuple holding a counted field is
-// copyable (an `Rc` is copied only explicitly), so the copy rows went with
-// the form; the capture rows, which only read the tuple, stay.
+// copied implicitly (an `Rc` is copied only explicitly), so each row spells
+// the second handle with `Rc.clone` or moves the tuple, and checks the counts
+// and that every cell is dropped exactly once.
 (mut(g_tup_copy_drops) : i32) = i32(0);
 _TupCopyInner :: struct(v : i32);
 impl(
@@ -3262,6 +3263,82 @@ impl(
   )
 );
 _TupCopyT :: Rc(_TupCopyInner);
+_tup_copy_sum :: (fn(sink(p) : Tuple(_TupCopyT, _TupCopyT), n : i32) -> i32)(
+  cond((n == i32(0)) => (p.0.v + p.1.v), true => recur(p, n - i32(1)))
+);
+test("a named tuple copied into a tuple literal keeps every counted field", {
+  before := g_tup_copy_drops;
+  {
+    x1 := (Rc.new(_TupCopyInner(v : i32(1))), Rc.new(_TupCopyInner(v : i32(2))));
+    x2 := ((Rc.clone(x1.0), Rc.clone(x1.1)), i32(0));
+    assert((x2.0.0.v == i32(1)) && (x2.0.1.v == i32(2)), "both fields of the copy");
+    assert((ref_count(x1.0) == usize(2)) && (ref_count(x1.1) == usize(2)), "each cell has two handles");
+    assert((x1.0.v + x1.1.v) == i32(3), "the source is intact");
+    x3 := (x1, i32(1));
+    assert((ref_count(x3.0.0) == usize(2)) && ((x3.0.0.v + x3.0.1.v) == i32(3)), "a moved tuple keeps its counts");
+  };
+  assert(g_tup_copy_drops == (before + i32(3)), `each cell dropped once, got ${(g_tup_copy_drops - before).to_string()}`);
+});
+test("a tuple holding one cell twice, copied into a tuple literal, drops it once", {
+  before := g_tup_copy_drops;
+  {
+    x0 := Rc.new(_TupCopyInner(v : i32(4)));
+    x1 := (Rc.clone(x0), x0);
+    assert(ref_count(x1.0) == usize(2), "one cell, two handles");
+    x2 := (x1, i32(0));
+    assert((x2.0.0.v + x2.0.1.v) == i32(8), "both fields of the moved tuple");
+    x3 := ((Rc.clone(x2.0.0), Rc.clone(x2.0.1)), i32(1));
+    assert(ref_count(x3.0.0) == usize(4), "the copy adds a handle per field");
+  };
+  assert(g_tup_copy_drops == (before + i32(4)), `the cell dropped once, got ${(g_tup_copy_drops - before).to_string()}`);
+});
+test("a named tuple copied into an array literal keeps every counted field", {
+  before := g_tup_copy_drops;
+  {
+    x1 := (Rc.new(_TupCopyInner(v : i32(1))), Rc.new(_TupCopyInner(v : i32(2))));
+    y1 := (Rc.clone(x1.0), Rc.clone(x1.1));
+    a := [(Rc.clone(x1.0), Rc.clone(x1.1)), y1];
+    assert((a(usize(0)).0.v + a(usize(1)).1.v) == i32(3), "fields of both copies");
+    assert(ref_count(x1.0) == usize(3), "the source and two array elements");
+    assert((x1.0.v + x1.1.v) == i32(3), "the source is intact");
+  };
+  assert(g_tup_copy_drops == (before + i32(3)), `each cell dropped once, got ${(g_tup_copy_drops - before).to_string()}`);
+});
+test("a named tuple passed to recur keeps every counted field", {
+  before := g_tup_copy_drops;
+  {
+    x1 := (Rc.new(_TupCopyInner(v : i32(5))), Rc.new(_TupCopyInner(v : i32(6))));
+    assert(_tup_copy_sum((Rc.clone(x1.0), Rc.clone(x1.1)), i32(3)) == i32(11), "recur saw both fields");
+    assert((ref_count(x1.0) == usize(1)) && (ref_count(x1.1) == usize(1)), "recur released the copy's handles");
+    assert(_tup_copy_sum(x1, i32(2)) == i32(11), "the moved source, through recur");
+  };
+  assert(g_tup_copy_drops == (before + i32(11)), `each cell dropped once, got ${(g_tup_copy_drops - before).to_string()}`);
+});
+test("a named tuple copied as a block's last expression in a cond arm keeps every counted field", {
+  before := g_tup_copy_drops;
+  {
+    x1 := (Rc.new(_TupCopyInner(v : i32(1))), Rc.new(_TupCopyInner(v : i32(2))));
+    c := (g_tup_copy_drops >= i32(0));
+    y := cond(
+      c => {
+        _k := i32(1);
+        (Rc.clone(x1.0), Rc.clone(x1.1))
+      },
+      true => (Rc.clone(x1.0), Rc.clone(x1.1))
+    );
+    assert((y.0.v + y.1.v) == i32(3), "both fields of the copy");
+    assert(ref_count(x1.0) == usize(2), "the arm's copy holds one handle per field");
+    z := cond(
+      c => {
+        _k := i32(2);
+        x1
+      },
+      true => (Rc.new(_TupCopyInner(v : i32(0))), Rc.new(_TupCopyInner(v : i32(0))))
+    );
+    assert((z.0.v + z.1.v) == i32(3), "the moved source, through the arm");
+  };
+  assert(g_tup_copy_drops == (before + i32(3)), `each cell dropped once, got ${(g_tup_copy_drops - before).to_string()}`);
+});
 test("a closure capturing a named tuple retains it", {
   before := g_tup_copy_drops;
   {
