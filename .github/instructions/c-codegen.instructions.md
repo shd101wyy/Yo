@@ -1371,6 +1371,49 @@ handle's `Drop` does that.
 
 For `Option(unit)` return types, the `.Some` variant has no data field — only the tag is set.
 
+### The native `Io` (`plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md` §2, §3)
+
+The prelude's `Io` decides what an `io : Io` value is at run time. Codegen reads
+its shape once per compile (`std_io_type`, `CodeGenContext.io_type`):
+
+- **Four-field `Io`** (`async`/`await`/`state`/`spawn` fields, the value is never
+  read): `__yo_io_native()` returns a zeroed `Io`, and every lowering is inline
+  (cold start + `__yo_async_poll_step` loop).
+- **Interface `Io`** (`ctx` + `vtable : *IoVTable`): `__yo_io_native()` returns
+  `{ ctx = __yo_async_loop_self_ptr(), vtable = &__yo_io_native_vtable }`, and
+  `io.spawn` / a sync-context `io.await` / `JoinHandle.await` call the table's
+  `spawn` / `run_until` after the compiler-owned bundle injection
+  (`io_vtable_lowering_code`, `src/codegen/exprs/await.yo`). Inside a task,
+  `io.await` stays the inline protocol. A program whose types include this `Io`
+  always links the async runtime (`io_native_needs_reactor`).
+
+Every entry point hands an `io : Io` parameter `__yo_io_native()`, called on the
+thread that runs the body: the main wrapper (`_main_call_args`) and the
+`Thread`/pool spawn wrappers (`_closure_runtime_arg_zeroinits`), both through
+`entry_param_c_value`. Other runtime parameters stay `(T){0}`.
+
+`__yo_io_native_vtable` is BUILT from the prelude's `IoVTable` declaration:
+one `__yo_io_vt_<label>` wrapper per field, typed by the field's own Yo
+signature, passing everything after `ctx` to the entry `native_io_entry_c_name`
+(`src/codegen/async/runtime_core.yo`) maps the label to. The table is filled by
+field label, so the prelude alone decides the table's fields and order. A label
+the map does not know is an internal compiler error, and every mapped entry must
+exist on every backend (`tests/internal/io_native_runtime.test.yo` pins both).
+Under chunked emission the table is `extern` in the shared header and defined in
+chunk 0. The executor entries (`__yo_io_spawn_task`, `__yo_io_run_until`,
+`__yo_io_now_ns`) and `__yo_io_future_completed` (`IoFuture.completed`) are
+emitted after the backend (`generate_async_runtime_io_entries`). The §3 ABI
+comment block sits above `__YO_FUTURE_PREFIX`. Change it only together with
+§3 and the async suite.
+
+In the interface shape, `impl(Io, async : __yo_io_async, …)` binds the builtins
+as methods. The evaluator records their marker from the method's
+`extern_name` (`_io_builtin_method_marker`, `src/evaluator/calls/function.yo`),
+and such a method takes **no receiver**: the externs keep their receiver-less
+signatures, and the receiver only names the `Io` the lowering goes through. The
+prelude's `Io` is an opaque handle in safe code, like `Allocator`
+(`parameter_type_contains_raw_ptr`).
+
 ### Extern functions and `#include` emission
 
 - The header for a `c_include`d symbol comes from extern-function REGISTRATION
