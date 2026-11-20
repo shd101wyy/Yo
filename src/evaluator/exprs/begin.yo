@@ -25,6 +25,7 @@ pragma(Pragma.AllowUnsafe);
   BK_RETURN,
   BK_BREAK,
   BK_WHILE,
+  BF_DUP,
   BF_DROP,
   BF_UNWIND,
   BK_ASSIGN,
@@ -149,6 +150,49 @@ pragma(Pragma.AllowUnsafe);
 ///
 is_unit_value_expression :: (fn(expr : &AstExpr) -> bool)(
   ast_expr_is_fn_call_of(expr, BK_TUPLE, .Some(usize(0)))
+);
+/// If `e` is an evaluated `___dup` call, return the duped variable's NAME.
+/// Matches BOTH shapes: the method-resolved `(x.___dup)()` and the bare
+/// `___dup(x)` builtin call (the shape
+/// set_expr_as_needs_to_call_dup mints via generate_expr_from_code).
+_dup_call_target_name :: (fn(e : &AstExpr) -> Option(String))(
+  match(
+    e,
+    Rc(.FnCall(_, f, Rc(eargs), _, _)) => {
+      if((eargs.len() == usize(0)) && ast_expr_is_fn_call_of(&f.*, ".", Option(usize).Some(usize(2))), {
+        match(
+          f,
+          Rc(.FnCall(_, _, Rc(fargs), _, _)) => {
+            a0 := match(
+              fargs.get_cloned(usize(0)),
+              .Some(x) => x,
+              .None => return(Option(String).None)
+            );
+            a1 := match(
+              fargs.get_cloned(usize(1)),
+              .Some(x) => x,
+              .None => return(Option(String).None)
+            );
+            if(ast_expr_is_atom(&a0) && ast_expr_is_atom(&a1) && ast_expr_is_atom_of(&a1, BF_DUP), {
+              return(Option(String).Some(ast_expr_text(&a0).*.clone()));
+            });
+          },
+          Rc(.Atom(_, _)) => ()
+        );
+      });
+      if(ast_expr_is_fn_call_of(e, BF_DUP, Option(usize).Some(usize(1))), {
+        match(
+          eargs.get_cloned(usize(0)),
+          .Some(arg0) => if(ast_expr_is_atom(&arg0), {
+            return(Option(String).Some(ast_expr_text(&arg0).*.clone()));
+          }),
+          .None => ()
+        );
+      });
+      Option(String).None
+    },
+    Rc(.Atom(_, _)) => Option(String).None
+  )
 );
 // ---------------------------------------------------------------------------
 // _try_synthesize_return_type
