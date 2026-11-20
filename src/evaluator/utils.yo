@@ -148,7 +148,7 @@ pragma(Pragma.AllowUnsafe);
 :: import("../utils.yo");
 { eprintln } :: import("std/fmt");
 { EvalValue, EvalValueNode, is_unknown_val, is_type_value, is_var_ref, is_func_val } :: import("../value.yo");
-{ TypeValue, TypeValueNode, t_refine_inner, SharedList, no_flags, no_types, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_param_slots, fn_result_is_ref, fn_result_is_mut_ref, fn_result_origin_names, fn_result_composite_origin_names, fn_param_in_result_origin, fn_param_pointee_in_result_origin, fn_result_slot, shared_list, t_slot_is_mut_ref, t_slot_is_borrow, t_slot_pointee, t_reference, t_reference_with_origin, t_origin_named, t_origin_spelled_names, t_origin_elided } :: import("../types/definitions.yo");
+{ TypeValue, TypeValueNode, t_refine_inner, SharedList, no_flags, no_types, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_param_slots, fn_result_is_ref, fn_result_is_mut_ref, fn_result_origin_names, fn_result_composite_origin_names, fn_param_in_result_origin, fn_param_pointee_in_result_origin, fn_result_slot, shared_list, t_slot_is_mut_ref, t_slot_is_borrow, t_slot_pointee, t_reference, t_reference_with_origin, t_origin_named, t_origin_spelled_names, t_origin_elided, origin_names_contain } :: import("../types/definitions.yo");
 { is_never_type, is_unit_type, is_function_type, is_function_type_and_returns_comptime_value, is_box_type, is_unique_box_type, is_dyn_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_primitive_type, is_pointer_type, is_bool_type, is_array_type, is_struct_type, is_tuple_type, is_some_type, cell_handle_view, is_atomic_counted_handle_type, is_counted_cell_type, is_arc_type, is_counted_handle_value_type, unique_box_payload_type, is_fn_trait_type, is_type_0, is_comptime_string_type, is_str_reference_type } :: import("../types/guards.yo");
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function-value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
@@ -322,6 +322,16 @@ derive(BorrowMatchSourceDecl, Clone);
 /// where the future is made (`calls/function.yo`), read by the binding
 /// freeze and the return rule (`origin_of`).
 (g_future_roots : RefCell(HashMap(usize, ArrayList(FutureRoot)))) = RefCell(HashMap(usize, ArrayList(FutureRoot))).new(HashMap(usize, ArrayList(FutureRoot)).new());
+/// The parameters each function's returned borrowing future is rooted at,
+/// by the function's id (`_note_fn_future_result_roots`). A future's type
+/// names the places it holds by its MAKER's parameters (`self` for a method
+/// whose `io.async` captures `self`), so a function that returns another
+/// call's future (`fwd(w) -> Impl(Future(...))` over `w.show(io)`) types
+/// its result with names that are not its own. The return rule judged the
+/// future's roots in the body's frame, and those roots are what the result
+/// holds (O3's return rule, O8 forwarding): a call site maps them to its
+/// arguments (`_note_future_producing_call`).
+(g_fn_future_result_origins : RefCell(HashMap(String, ArrayList(String)))) = RefCell(HashMap(String, ArrayList(String))).new(HashMap(String, ArrayList(String)).new());
 /// The block statements after each pending borrow binding, for its live
 /// range: one frame per binding statement, set by `evaluate_begin_expression`
 /// just before it evaluates the binding and read by the binding's range by
@@ -13604,12 +13614,207 @@ return_check :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : 
         );
         oi = (oi + usize(1));
       });
+      // A returned borrowing future names the parameters its places are
+      // rooted at (R-CALL for `Impl(Future)` results, decision 43 step 4):
+      // recorded for the call sites, which map them to their arguments.
+      if(is_future_value_type(&ri.ty()), {
+        _note_fn_future_result_roots(&roots, env, ctx);
+      });
+      match(&cr_ft, .Some(cr_t) => _return_check_invariant_origins(e, &fn_result_slot(&cr_t.*), &ri.ty(), ctx, exn), .None => ());
     }),
     .None => ()
   );
   _return_check_drop_param(e, env, ctx, exn);
 });
-export(FutureRoot, note_future_roots, future_roots_of);
+/// Record the parameters among `roots` (the returned future's roots, judged
+/// by `return_check`) for the function whose body is being evaluated. Every
+/// `return` and the tail add theirs: the result may be any of them.
+_note_fn_future_result_roots :: (fn(roots : &ArrayList(OriginRootPlace), env : &Environment, ctx : &EvalContext) -> unit)({
+  fid := match(
+    &ctx.is_evaluating_function_body_or_async_block,
+    .Some(fb) => match(
+      fb.kind,
+      .FunctionBody => match(&fb.func_value, .Some(Rc(.FuncVal(nf_fv, _))) => nf_fv.*.*.func_id.clone(), _ => return(())),
+      _ => return(())
+    ),
+    .None => return(())
+  );
+  names := ArrayList(String).new();
+  (ri : usize) = usize(0);
+  while(ri < roots.len(), ri = (ri + usize(1)), {
+    rn := roots(ri).place.root_name.clone();
+    match(
+      get_variables_from_env(env, rn.clone()).last_cloned(),
+      .Some(rv) => if(rv.is_parameter() && !names.contains(&rn), {
+        names.push(rn);
+      }),
+      .None => ()
+    );
+  });
+  if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
+    eprintln(`[n2b] fn-future-result ${fid}: [${_origin_list_text(&shared_list(names.clone()))}]`);
+  });
+  if(names.len() == usize(0), {
+    return(());
+  });
+  g_fn_future_result_origins.with_mut({ fid, names }(m) => {
+    mut(cur) := match(m.remove(&fid), .Some(l) => l, .None => ArrayList(String).new());
+    (ni : usize) = usize(0);
+    while(ni < names.len(), ni = (ni + usize(1)), {
+      if(!cur.contains(&names(ni)), {
+        cur.push(names(ni).clone());
+      });
+    });
+    m.insert(fid, cur);
+  });
+});
+/// The parameters the function `fid`'s returned borrowing future is rooted
+/// at (`_note_fn_future_result_roots`); `.None` when it returns none.
+fn_future_result_origins :: (fn(fid : &String) -> Option(ArrayList(String)))(
+  g_fn_future_result_origins.with({ fid : &fid.* }(m) => m.get_cloned(fid))
+);
+/// `a, b` for a list of origin names.
+_origin_list_text :: (fn(names : &SharedList(String)) -> String)({
+  out := String.new();
+  (i : usize) = usize(0);
+  while(i < names.len(), i = (i + usize(1)), {
+    if(i > usize(0), {
+      out.push_str(", ");
+    });
+    out.push_string(match(names.get_cloned(i), .Some(n) => n, .None => String.new()));
+  });
+  out
+});
+/// O3 step 3 at a result (audit A24's residual, decision 43): an origin
+/// reached through a `&mut` pointee is invariant, so the value returned must
+/// carry exactly the origin the declared result spells there. `widen(s :
+/// Slot(p), …) -> Slot((p, q))` returning `s` would hand the caller a holder
+/// whose `&mut` field accepts a reference into `q`, while the place it
+/// points into was typed over `p` alone: a later store of a `q` reference
+/// through it outlives `q` in that place. A covariant position (`View(p)`'s
+/// `&(T, p)` field, a reference's own origin) still widens, and a position
+/// the value leaves elided (flow-inferred) is judged by the return rule's
+/// roots above.
+_return_check_invariant_origins :: (fn(e : &AstExpr, result : &TypeValue, value : &TypeValue, ctx : &EvalContext, exn : Exception) -> unit)({
+  if(t_slot_is_borrow(result) || !type_carries_origin(result), {
+    return(());
+  });
+  out_r := ArrayList(TypeValue).new();
+  out_v := ArrayList(TypeValue).new();
+  seen := ArrayList(String).new();
+  _invariant_origin_pairs(result, value, false, &mut out_r, &mut out_v, &mut seen, u32(0));
+  (k : usize) = usize(0);
+  while(k < out_r.len(), k = (k + usize(1)), {
+    match(
+      t_origin_spelled_names(&out_r(k)),
+      .Some(rn) => match(
+        t_origin_spelled_names(&out_v(k)),
+        .Some(vn) => if(!_origin_name_sets_equal(&rn, &vn), {
+          raise_flow_violation(
+            with_code(
+              format_error_message_with_help(
+                ast_expr_token(e),
+                `Cannot return this value as \`${type_to_string(result)}\`: its origin \`${_origin_list_text(&vn)}\` sits under a \`&mut\` pointee, where the declared result spells \`${_origin_list_text(&rn)}\`. An origin reached through a \`&mut\` pointee is invariant (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O3 step 3): a result that changed it would let the caller store, through the \`&mut\`, a reference the place it points into was never typed to hold.`,
+                Option(String).Some(`declare the result over exactly \`${_origin_list_text(&vn)}\` at that position, or build a new value over the wider origin instead of converting this one`)
+              ),
+              E_ORIGIN_MISMATCH
+            ),
+            ctx,
+            exn
+          );
+        }),
+        .None => ()
+      ),
+      .None => ()
+    );
+  });
+});
+/// The origin pairs `r` (a declared type) and `v` (a value's type) share at
+/// INVARIANT positions, below a `&mut` pointee, walked in parallel through
+/// reference pointees, struct fields, enum payloads and tuple components (a
+/// struct's fields carry its origin arguments, so `Slot(p)`'s `dst : &mut
+/// Option(&(T, p))` pairs `p` with the value's argument there). `seen`
+/// stops a recursive type at its second visit in one mode.
+_invariant_origin_pairs :: (
+  fn(r : &TypeValue, v : &TypeValue, under_mut : bool, out_r : &mut ArrayList(TypeValue), out_v : &mut ArrayList(TypeValue), seen : &mut ArrayList(String), depth : u32) -> unit
+)({
+  if(depth > u32(16), {
+    return(());
+  });
+  match(
+    r,
+    Rc(.Reference(ip_rp, ip_rm, ip_ro)) => match(
+      v,
+      Rc(.Reference(ip_vp, _, ip_vo)) => {
+        if(under_mut, {
+          out_r.push(Rc.clone(ip_ro));
+          out_v.push(Rc.clone(ip_vo));
+        });
+        _invariant_origin_pairs(&ip_rp.*, &ip_vp.*, (under_mut || ip_rm.*), out_r, out_v, seen, (depth + u32(1)));
+      },
+      _ => ()
+    ),
+    Rc(.Struct({ id : ip_rid, field_types : ip_rfs })) => match(
+      v,
+      Rc(.Struct({ field_types : ip_vfs })) => {
+        key := `${ip_rid.*}:${under_mut.to_string()}`;
+        if(!seen.contains(&key), {
+          seen.push(key);
+          _invariant_origin_pairs_list(&ip_rfs.*, &ip_vfs.*, under_mut, out_r, out_v, seen, depth);
+          _ := seen.pop();
+          ()
+        });
+      },
+      _ => ()
+    ),
+    Rc(.EnumT({ id : ip_eid, variant_fields : ip_rvf })) => match(
+      v,
+      Rc(.EnumT({ variant_fields : ip_vvf })) => {
+        key := `${ip_eid.*}:${under_mut.to_string()}`;
+        if(!seen.contains(&key) && (ip_rvf.len() == ip_vvf.len()), {
+          seen.push(key);
+          (vi : usize) = usize(0);
+          while(vi < ip_rvf.len(), vi = (vi + usize(1)), {
+            match(ip_rvf.get(vi), .Some(rf) => match(ip_vvf.get(vi), .Some(vf) => _invariant_origin_pairs_list(&rf, &vf, under_mut, out_r, out_v, seen, depth), .None => ()), .None => ());
+          });
+          _ := seen.pop();
+          ()
+        });
+      },
+      _ => ()
+    ),
+    Rc(.Tuple({ field_types : ip_rts })) => match(v, Rc(.Tuple({ field_types : ip_vts })) => _invariant_origin_pairs_list(&ip_rts.*, &ip_vts.*, under_mut, out_r, out_v, seen, depth), _ => ()),
+    _ => ()
+  )
+});
+_invariant_origin_pairs_list :: (
+  fn(rs : &SharedList(TypeValue), vs : &SharedList(TypeValue), under_mut : bool, out_r : &mut ArrayList(TypeValue), out_v : &mut ArrayList(TypeValue), seen : &mut ArrayList(String), depth : u32) -> unit
+)({
+  if(rs.len() != vs.len(), {
+    return(());
+  });
+  (i : usize) = usize(0);
+  while(i < rs.len(), i = (i + usize(1)), {
+    match(rs.get(i), .Some(rt) => match(vs.get(i), .Some(vt) => _invariant_origin_pairs(&rt, &vt, under_mut, out_r, out_v, seen, (depth + u32(1))), .None => ()), .None => ());
+  });
+});
+/// `a` and `b` list the same origin names.
+_origin_name_sets_equal :: (fn(a : &SharedList(String), b : &SharedList(String)) -> bool)({
+  (i : usize) = usize(0);
+  while(i < a.len(), i = (i + usize(1)), {
+    if(!match(a.get_cloned(i), .Some(n) => origin_names_contain(b, &n), .None => true), {
+      return(false);
+    });
+  });
+  (j : usize) = usize(0);
+  while(j < b.len(), j = (j + usize(1)), {
+    if(!match(b.get_cloned(j), .Some(n) => origin_names_contain(a, &n), .None => true), {
+      return(false);
+    });
+  });
+  true
+});
+export(FutureRoot, note_future_roots, future_roots_of, fn_future_result_origins);
 /// Record that the pattern binding `var_id` binds a reference payload of
 /// `scrutinee`'s value.
 note_ref_payload_source :: (fn(var_id : usize, scrutinee : &AstExpr) -> unit)({
