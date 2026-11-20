@@ -10280,9 +10280,6 @@ _lend_through_solve :: (
               ti = (ti + usize(1));
             });
           });
-          if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
-            eprintln(`[n2b] lend-through step3 x=${ast_expr_to_string(&x_arg)} slot=${type_to_string(&x_slot)} carries=${type_carries_origin(&x_slot).to_string()} names_it=${names_it.to_string()}`);
-          });
           if(names_it, {
             stored.push(x_arg.clone());
             x_roots := origin_of(&x_arg, env, ctx);
@@ -10353,18 +10350,6 @@ _lend_write_back_into :: (
     return(());
   });
   bind_join_roots_for(holder, solved, at, env, ctx, exn, kill : kill);
-});
-/// `a, b` (a debug rendering).
-_names_text :: (fn(names : &ArrayList(String)) -> String)({
-  out := String.new();
-  (i : usize) = usize(0);
-  while(i < names.len(), i = (i + usize(1)), {
-    if(i > usize(0), {
-      out.push_str(", ");
-    });
-    out.push_string(&names(i));
-  });
-  out
 });
 /// O-2's `lend_through` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3):
 /// the one place O3 step 1's substitution and step 3's exact unification are
@@ -10487,13 +10472,6 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
             p_os := ArrayList(TypeValue).new();
             a_os := ArrayList(TypeValue).new();
             _argument_origin_pairs(&arg, &slot, env, ctx, &mut p_os, &mut a_os);
-            if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
-              eprintln(`[n2b] lend-through step2 arg=${ast_expr_to_string(&arg)} slot=${type_to_string(&slot)} pairs=${p_os.len().to_string()} fixed=[${_names_text(&fixed_names)}]`);
-              (dk : usize) = usize(0);
-              while(dk < p_os.len(), dk = (dk + usize(1)), {
-                eprintln(`[n2b]   pair ${type_to_string(&p_os(dk))} <- ${type_to_string(&a_os(dk))}`);
-              });
-            });
             (k : usize) = usize(0);
             while(k < p_os.len(), {
               match(
@@ -10616,9 +10594,6 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
             (by_type_argument : bool) = ((w_names.len() == usize(0)) && ((w_tvars.len() == usize(0)) && type_carries_origin(&t_slot_pointee(&w_slot))));
             if(by_type_argument, {
               unfixed = true;
-            });
-            if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
-              eprintln(`[n2b] lend-through step3 pointee=${type_to_string(&t_slot_pointee(&w_slot))} names=${w_names.len().to_string()} tvars=${w_tvars.len().to_string()} by_type_argument=${by_type_argument.to_string()}`);
             });
             (ni : usize) = usize(0);
             while(ni < w_names.len(), {

@@ -13641,17 +13641,17 @@ _note_fn_future_result_roots :: (fn(roots : &ArrayList(OriginRootPlace), env : &
     .None => return(())
   );
   // A specialization of a generic function evaluates its body under the
-  // specialized function value and a re-evaluated result type, while its
-  // call sites name the generic definition: the record is kept under that
-  // definition's id too.
+  // generic function value and a re-evaluated result type, while its call
+  // sites reach the specialized function value: the record is kept under
+  // the specialization's id too.
   keys := ArrayList(String).new();
   if(fid.len() > usize(0), {
     keys.push(fid);
   });
   match(
     &ctx.currently_specializing_function,
-    .Some(sf) => if(match(&ctx.is_evaluating_function_body_or_async_block, .Some(sfb) => match(&sfb.func_value, .Some(Rc(.FuncVal(sf_fv, _))) => (sf_fv.*.*.func_id == sf.specialized_func_id), _ => false), .None => false), {
-      keys.push(`fn:${sf.original_func_id}`);
+    .Some(sf) => if(match(&ctx.is_evaluating_function_body_or_async_block, .Some(sfb) => match(&sfb.func_value, .Some(Rc(.FuncVal(sf_fv, _))) => ((sf_fv.*.*.func_id == sf.original_func_id) || (sf_fv.*.*.func_id == sf.specialized_func_id)), _ => false), .None => false), {
+      keys.push(`fn:${sf.specialized_func_id}`);
     }),
     .None => ()
   );
@@ -13696,7 +13696,7 @@ _note_fn_future_result_roots :: (fn(roots : &ArrayList(OriginRootPlace), env : &
 /// result type: the declared `Impl(Future(...))` with its resolution)
 /// returns a borrowing future rooted at (`_note_fn_future_result_roots`),
 /// or, for a generic callee whose specialization re-evaluated its result,
-/// what its specializations recorded under `callee_func_id`; `.None` when
+/// what that specialization recorded under `callee_func_id`; `.None` when
 /// it returns none.
 fn_future_result_origins :: (fn(result : &TypeValue, callee_func_id : &String) -> Option(ArrayList(String)))({
   fid := _fn_future_result_key(result);
