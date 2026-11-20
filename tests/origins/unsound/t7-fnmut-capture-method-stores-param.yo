@@ -1,0 +1,18 @@
+// expect: E0923
+// An FnMut closure stores its per-call `v` into the caller's `slot` through `Option.replace` on its `&mut` capture:
+// the specialized generic-container method's `value : T` at `T := &Rc(X)` (a `ValueSlot`) is what the store puts there.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+each :: (fn(f : &mut Impl(FnMut(v : &Rc(X)) -> unit)) -> unit)({
+  k := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+  f(&k);
+});
+main :: (fn() -> unit)({
+  mut(slot) := Option(&Rc(X)).None;
+  each(&mut ({ s : &mut slot }(v : &Rc(X)) => {
+    _old := s.replace(v);
+  }));
+  match(slot, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => println("none"));
+});
+export(main);

@@ -323,7 +323,8 @@ derive(BorrowMatchSourceDecl, Clone);
 /// freeze and the return rule (`origin_of`).
 (g_future_roots : RefCell(HashMap(usize, ArrayList(FutureRoot)))) = RefCell(HashMap(usize, ArrayList(FutureRoot))).new(HashMap(usize, ArrayList(FutureRoot)).new());
 /// The parameters each function's returned borrowing future is rooted at,
-/// by the function's id (`_note_fn_future_result_roots`). A future's type
+/// by the function's definition site (`_fn_future_result_key`, recorded by
+/// `_note_fn_future_result_roots`). A future's type
 /// names the places it holds by its MAKER's parameters (`self` for a method
 /// whose `io.async` captures `self`), so a function that returns another
 /// call's future (`fwd(w) -> Impl(Future(...))` over `w.show(io)`) types
@@ -13634,7 +13635,7 @@ _note_fn_future_result_roots :: (fn(roots : &ArrayList(OriginRootPlace), env : &
     &ctx.is_evaluating_function_body_or_async_block,
     .Some(fb) => match(
       fb.kind,
-      .FunctionBody => match(&fb.func_value, .Some(Rc(.FuncVal(nf_fv, _))) => nf_fv.*.*.func_id.clone(), _ => return(())),
+      .FunctionBody => match(&fb.func_value, .Some(Rc(.FuncVal(nf_fv, _))) => _fn_future_result_key(&nf_fv.*.*.body), _ => return(())),
       _ => return(())
     ),
     .None => return(())
@@ -13668,11 +13669,21 @@ _note_fn_future_result_roots :: (fn(roots : &ArrayList(OriginRootPlace), env : &
     m.insert(fid, cur);
   });
 });
-/// The parameters the function `fid`'s returned borrowing future is rooted
-/// at (`_note_fn_future_result_roots`); `.None` when it returns none.
-fn_future_result_origins :: (fn(fid : &String) -> Option(ArrayList(String)))(
-  g_fn_future_result_origins.with({ fid : &fid.* }(m) => m.get_cloned(fid))
-);
+/// The parameters the function whose body is `body` returns a borrowing
+/// future rooted at (`_note_fn_future_result_roots`); `.None` when it
+/// returns none.
+fn_future_result_origins :: (fn(body : &AstExpr) -> Option(ArrayList(String)))({
+  fid := _fn_future_result_key(body);
+  g_fn_future_result_origins.with({ fid : &fid }(m) => m.get_cloned(fid))
+});
+/// A function's definition site, by its body's position: the definition's
+/// function value and every value minted from it (the definition-time
+/// trial, a specialization) share it, while their ids differ in the
+/// occurrence suffix.
+_fn_future_result_key :: (fn(body : &AstExpr) -> String)({
+  tok := ast_expr_token(body);
+  `${canonical_module_path(&tok.module_path.*)}:${tok.row.to_string()}:${tok.column.to_string()}`
+});
 /// `a, b` for a list of origin names.
 _origin_list_text :: (fn(names : &SharedList(String)) -> String)({
   out := String.new();
@@ -13703,6 +13714,9 @@ _return_check_invariant_origins :: (fn(e : &AstExpr, result : &TypeValue, value 
   out_v := ArrayList(TypeValue).new();
   seen := ArrayList(String).new();
   _invariant_origin_pairs(result, value, false, &mut out_r, &mut out_v, &mut seen, u32(0));
+  if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
+    eprintln(`[n2b] return-invariance result=${type_to_string(result)} value=${type_to_string(value)} pairs=${out_r.len().to_string()}`);
+  });
   (k : usize) = usize(0);
   while(k < out_r.len(), k = (k + usize(1)), {
     match(
@@ -13722,6 +13736,7 @@ _return_check_invariant_origins :: (fn(e : &AstExpr, result : &TypeValue, value 
             ctx,
             exn
           );
+          return(());
         }),
         .None => ()
       ),
@@ -13754,9 +13769,26 @@ _invariant_origin_pairs :: (
       },
       _ => ()
     ),
-    Rc(.Struct({ id : ip_rid, field_types : ip_rfs })) => match(
+    // An origin argument of a type constructor below a `&mut` pointee
+    // (`&mut Slot(p)`).
+    Rc(.OriginSet(_, _)) => if(under_mut, {
+      match(
+        v,
+        Rc(.OriginSet(_, _)) => {
+          out_r.push(Rc.clone(r));
+          out_v.push(Rc.clone(v));
+        },
+        _ => ()
+      );
+    }),
+    // An instance's own type arguments (below a `&mut`, each is invariant),
+    // then its fields once per definition and mode.
+    Rc(.Struct({ id : ip_rid, field_types : ip_rfs, type_arguments : ip_rtas })) => match(
       v,
-      Rc(.Struct({ field_types : ip_vfs })) => {
+      Rc(.Struct({ field_types : ip_vfs, type_arguments : ip_vtas })) => {
+        if(under_mut, {
+          _invariant_origin_pairs_list(&ip_rtas.*, &ip_vtas.*, under_mut, out_r, out_v, seen, depth);
+        });
         key := `${ip_rid.*}:${under_mut.to_string()}`;
         if(!seen.contains(&key), {
           seen.push(key);
@@ -13767,9 +13799,12 @@ _invariant_origin_pairs :: (
       },
       _ => ()
     ),
-    Rc(.EnumT({ id : ip_eid, variant_fields : ip_rvf })) => match(
+    Rc(.EnumT({ id : ip_eid, variant_fields : ip_rvf, type_arguments : ip_retas })) => match(
       v,
-      Rc(.EnumT({ variant_fields : ip_vvf })) => {
+      Rc(.EnumT({ variant_fields : ip_vvf, type_arguments : ip_vetas })) => {
+        if(under_mut, {
+          _invariant_origin_pairs_list(&ip_retas.*, &ip_vetas.*, under_mut, out_r, out_v, seen, depth);
+        });
         key := `${ip_eid.*}:${under_mut.to_string()}`;
         if(!seen.contains(&key) && (ip_rvf.len() == ip_vvf.len()), {
           seen.push(key);

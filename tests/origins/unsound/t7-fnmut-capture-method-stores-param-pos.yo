@@ -1,0 +1,19 @@
+// expect: accept
+// The positive twin of t7-fnmut-capture-method-stores-param: `replace` stores a reference the closure captured
+// from outside (`r : &x`), which outlives the call.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+each :: (fn(f : &mut Impl(FnMut(v : &Rc(X)) -> unit)) -> unit)({
+  k := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+  f(&k);
+});
+main :: (fn() -> unit)({
+  x := Rc.new(X(s : String.from("outer")));
+  mut(slot) := Option(&Rc(X)).None;
+  each(&mut ({ s : &mut slot, r : &x }(v : &Rc(X)) => {
+    _old := s.replace(r);
+  }));
+  match(slot, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => println("none"));
+});
+export(main);

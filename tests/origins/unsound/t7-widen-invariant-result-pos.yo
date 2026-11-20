@@ -1,0 +1,26 @@
+// expect: accept
+// The positive twin of t7-widen-invariant-result: the holder is returned at its own origin, and the store through
+// it names a place that outlives the slot.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+Slot :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(dst : &mut Option(&(Rc(X), p))));
+View :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(Rc(X), p)));
+put :: (fn(generic(p : Origin), s : &mut Slot(p), v : &(Rc(X), p)) -> unit)({
+  s.dst.* = .Some(v);
+});
+LONG :: "0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz";
+same :: (fn(generic(p : Origin, q : Origin), s : Slot(p), w : &(Rc(X), q)) -> Slot(p))(s);
+main :: (fn() -> unit)({
+  x := Rc.new(X(s : String.from("x")));
+  x2 := Rc.new(X(s : String.from("x2")));
+  mut(slot) := Option(&(Rc(X), (x, x2))).Some(&x);
+  {
+    y := Rc.new(X(s : String.from(LONG)));
+    mut(s2) := same(Slot((x, x2))(dst : &mut slot), &y);
+    put(&mut s2, &x2);
+  };
+  match(slot, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => println("none"));
+  ()
+});
+export(main);

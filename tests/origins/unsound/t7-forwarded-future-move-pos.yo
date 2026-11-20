@@ -1,0 +1,24 @@
+// expect: accept
+// The positive twin of t7-forwarded-future-move: the forwarded future is awaited (and a second one made
+// and awaited) before `w` moves.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+W :: struct(s : String);
+impl(W, show : (fn(self : &Self, io : Io) -> Impl(Future(unit, Io)))(
+  io.async({ self : &self.* }(io : Io) => {
+    io.await(yield(io), io);
+    println(`OUT: ${self.*.s}`);
+  })
+));
+fwd :: (fn(w : &W, io : Io) -> Impl(Future(unit, Io)))(w.show(io));
+eat :: (fn(w : W) -> unit)(());
+LONG :: "0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz";
+main :: (fn(io : Io) -> unit)({
+  w := W(s : String.from(LONG));
+  f := fwd(&w, io);
+  io.await(f, io);
+  io.await(fwd(&w, io), io);
+  eat(w);
+});
+export(main);

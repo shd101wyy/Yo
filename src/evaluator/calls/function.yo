@@ -4486,14 +4486,14 @@ _callee_is_opaque_function_value :: (fn(call : &AstExpr, callee : &AstExpr, ctx 
 /// (`fn_future_result_origins`); `.None` for any other callee or a function
 /// that returns no borrowing future.
 _callee_future_result_origins :: (fn(call : &AstExpr, callee : &AstExpr, ctx : &EvalContext) -> Option(ArrayList(String)))({
-  fid := match(
+  body := match(
     match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(callee)), .Some(ci) => ci.value(), .None => Option(EvalValue).None),
-    .Some(Rc(.FuncVal(cf_fv, _))) => cf_fv.*.func_id.clone(),
-    _ => match(lookup_method_callee_value(ast_expr_id(call)), .Some(Rc(.FuncVal(cm_fv, _))) => cm_fv.*.func_id.clone(), _ => return(Option(ArrayList(String)).None))
+    .Some(Rc(.FuncVal(cf_fv, _))) => cf_fv.*.body.clone(),
+    _ => match(lookup_method_callee_value(ast_expr_id(call)), .Some(Rc(.FuncVal(cm_fv, _))) => cm_fv.*.body.clone(), _ => return(Option(ArrayList(String)).None))
   );
-  found := fn_future_result_origins(&fid);
+  found := fn_future_result_origins(&body);
   if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
-    eprintln(`[n2b] callee-future-result ${fid}: found=${found.is_some().to_string()} at ${ast_expr_to_string(call)}`);
+    eprintln(`[n2b] callee-future-result found=${found.is_some().to_string()} at ${ast_expr_to_string(call)}`);
   });
   found
 });
@@ -9889,8 +9889,19 @@ _origin_position_pairs :: (fn(p : &TypeValue, a : &TypeValue, out_p : &mut Array
   if(depth > u32(16), {
     return(());
   });
+  // A binder-typed by-value slot specialized to a reference (`value : T` at
+  // `T := &(X, p)`, R3's `ValueSlot`) holds that reference's positions.
+  match(
+    a,
+    Rc(.ValueSlot(op_av)) => {
+      _origin_position_pairs(p, &op_av.*, out_p, out_a, depth + u32(1));
+      return(());
+    },
+    _ => ()
+  );
   match(
     p,
+    Rc(.ValueSlot(op_pv)) => _origin_position_pairs(&op_pv.*, a, out_p, out_a, depth + u32(1)),
     Rc(.Reference(pp, _, po)) => match(
       a,
       Rc(.Reference(ap, _, ao)) => {
@@ -10367,6 +10378,18 @@ _lend_write_back_into :: (
   });
   bind_join_roots_for(holder, solved, at, env, ctx, exn, kill : kill);
 });
+/// `a, b` (a debug rendering).
+_names_text :: (fn(names : &ArrayList(String)) -> String)({
+  out := String.new();
+  (i : usize) = usize(0);
+  while(i < names.len(), i = (i + usize(1)), {
+    if(i > usize(0), {
+      out.push_str(", ");
+    });
+    out.push_string(&names(i));
+  });
+  out
+});
 /// O-2's `lend_through` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3):
 /// the one place O3 step 1's substitution and step 3's exact unification are
 /// applied at a call — a `&mut` argument fixes the origin parameters its
@@ -10485,6 +10508,13 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
             p_os := ArrayList(TypeValue).new();
             a_os := ArrayList(TypeValue).new();
             _argument_origin_pairs(&arg, &slot, env, ctx, &mut p_os, &mut a_os);
+            if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
+              eprintln(`[n2b] lend-through step2 arg=${ast_expr_to_string(&arg)} slot=${type_to_string(&slot)} pairs=${p_os.len().to_string()} fixed=[${_names_text(&fixed_names)}]`);
+              (dk : usize) = usize(0);
+              while(dk < p_os.len(), dk = (dk + usize(1)), {
+                eprintln(`[n2b]   pair ${type_to_string(&p_os(dk))} <- ${type_to_string(&a_os(dk))}`);
+              });
+            });
             (k : usize) = usize(0);
             while(k < p_os.len(), {
               match(
