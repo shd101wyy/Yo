@@ -374,10 +374,17 @@ NO_LIBC's std-only P3 and P7 are unaffected and may run at any time.
   `io : Io` whose fields are raw pointers.
 - **A program whose types include the interface-shaped `Io` links the
   reactor** (`io_native_needs_reactor`).
-- **Open for IO-1b:** a bundled future viewed as a bundle-less
-  `Impl(Future(T))` runs with a zeroed bundle. That is sound only while
-  `Io` is never read
-  (`issues/questions/2026-11-19-a-future-viewed-as-bundle-less-runs-with-a-zeroed-io.md`).
+- **Decided for v0.2.80 (VERDICTS-68):** a bundled future is never viewed as
+  a bundle-less `Impl(Future(T))`. Option A, unconditional and not
+  shape-keyed: the `Io` exemption in `src/types/compatibility.yo`
+  (`future_view_drops_a_bundle`, the `flat_e_types.len() == 0` arm) is
+  deleted in its own v0.2.80 PR, the std signatures that used the view
+  (`sleep`, `Interval.tick`, `yield`, `Mutex.lock`, `Mutex.with_lock`,
+  `send`/`recv` on both channel types) spell `Impl(Future(T, Io))`, and E0605
+  names the fix. Fallback: the identical PR lands first in v0.2.81, stacked
+  under the prelude flip. IO-1b audits every site that starts a future
+  without `set_bundle`. The decision is recorded in
+  `issues/questions/2026-11-19-a-future-viewed-as-bundle-less-runs-with-a-zeroed-io.md`.
 
 **IO-1b contents:**
 - The prelude flips: `IoVTable`, `Io :: struct(ctx, vtable)`, the

@@ -2,8 +2,8 @@
 
 **Kind:** design question — an open decision, not a defect.
 
-**Status:** OPEN. It must be decided before IO-1b (v0.2.81) flips the prelude.
-Filed 2026-11-19 by the IO-1a lane
+**Status:** DECIDED 2026-11-19 (VERDICTS-68): option A, unconditional, in
+v0.2.80 as its own PR (not shape-keyed). Filed 2026-11-19 by the IO-1a lane
 ([`plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md`](../../plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md) §6).
 
 ## The question
@@ -85,3 +85,49 @@ The same program with `-> Impl(Future(u64, Io))` runs.
 If A is adopted, IO-1a (or a follow-up before IO-1b) adds the shape-keyed
 rejection to `src/types/compatibility.yo`, and IO-1b's sweep fixes the
 signatures in the same PR as the prelude flip.
+
+## Verdict
+
+Decided (VERDICTS-68, Fable 5.2, 2026-11-19; adopted by the coordinator):
+option A, **unconditional**, in v0.2.80 as its own PR. No shape key, no
+option B.
+
+- Delete the `Io` exemption: a bundled future is never viewed as bundle-less.
+  `Future(T)` stays the type of a future that reads no bundle (a raw
+  `IoFuture`), and it still flows into any bundle.
+- Why not shape-keyed: every seed already accepts the spelling
+  `Impl(Future(T, Io))`; a dormant rule would ship untested in the v0.2.80
+  seed; IO-1c would then have to delete it as scaffolding.
+- Why v0.2.80: the rule has three enforcement paths, and a path it misses
+  becomes a segfault once `Io` is read (IO-1b). Landing it one release early
+  lets the suite and the example repos find holes cheaply. Fallback: the
+  identical PR lands first in v0.2.81, stacked under the prelude flip, and is
+  never shape-keyed.
+- **The PR (checker):** remove `is_prelude_io_struct` from
+  `future_view_drops_a_bundle` and from the `flat_e_types.len() == 0` arm in
+  `src/types/compatibility.yo`, and fix the comment there. Check the three
+  enforcement paths: the `_compat_impl` pre-check, the `FutureTraitT` arm, and
+  the per-call `Impl` binding in `src/evaluator/calls/helper.yo`.
+- **The PR (std):** about nine signatures: `sleep`, `Interval.tick`, `yield`,
+  `Mutex.lock`, `Mutex.with_lock`, and `send`/`recv` on both channel types.
+  The compiler enumerates them. Also swept: tests, about ten cli fixtures
+  (read each golden diff), both doc languages, the pack,
+  `.github/instructions`.
+- **Diagnostic:** keep E0605 and extend its text: "...The future's body takes
+  its `io` from the effect bundle, and `Future(unit)` names no bundle: an
+  await or spawn through it would inject nothing. Name the bundle:
+  `Impl(Future(unit, Io))`." `yo fix` inserts `, Io` when the expected type is
+  a written annotation and the dropped bundle is exactly the prelude's `Io`;
+  at an await that passes a non-`Io` bundle for such a future, a hint
+  suggests passing the `Io` as the bundle.
+- **Tests, rejection PR:** flip `tests/async/effect-bundle.test.yo` "an
+  Io-bundled future can still be viewed as Future(T)" to
+  `comptime_expect_error`; add negatives for the return-position view, the
+  parameter view, a `Dyn(Future(T))` slot, spawn through the view, and a
+  generic `R` (`with_lock`); add positives for an `IoFuture` flowing into
+  `Future(T, Io)`, and a struct-bundle task awaiting `sleep(d, ctx.io)` with
+  `ctx.io` as the bundle. The IO-1a PR adds nothing for this and leaves that
+  test untouched.
+- **Claim:** v0.2.80's claim is unaffected (with the four-field prelude
+  nothing reads the zeroed `Io`). v0.2.81's claim depends on this rule, so
+  IO-1b audits every site that starts a future without `set_bundle`.
