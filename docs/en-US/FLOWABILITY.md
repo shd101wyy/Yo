@@ -100,6 +100,11 @@ append :: (fn(list : &mut List, v : i32) -> unit)({
 });
 ```
 
+While a binding of a `&mut` match is live, the matched reference is reached
+only through that binding; `cur = &mut n.next` is the one statement that may
+name `cur`, because it re-points the binding and does not touch what it points
+at.
+
 A place of another variable (`cur = &mut other.head`) is a new loan, checked
 as a declaration's is: `other` needs `mut` for `&mut`, no live borrow of it
 may conflict, and `cur` may not be used after `other`'s scope ends (E0911 at

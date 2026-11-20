@@ -8861,16 +8861,19 @@ local_borrow_update :: (fn(info : &LocalBorrowInfo) -> unit)({
     });
   });
 });
-/// `d` is on the chain a re-point goes through (the binding it names, or one
-/// that binding is derived from) and is not mentioned after the re-point's
-/// right-hand side, which ends at `rhs_end`.
+/// `d` is on the chain a re-point goes through: the binding it names
+/// (`chain(0)`), which the re-point freezes whole for `cur`'s live range, so
+/// a later mention of it is judged there ("Cannot read `n`"), or a binding
+/// that one is derived from (a nested walk's outer `n`), which nothing
+/// freezes, so it must not be mentioned after the right-hand side, which
+/// ends at `rhs_end`.
 _lb_repoint_goes_through :: (fn(d : &LocalBorrowInfo, chain : &ArrayList(LocalBorrowInfo), rhs_end : &Token) -> bool)({
   (ci : usize) = usize(0);
   while(ci < chain.len(), ci = (ci + usize(1)), {
     match(
       chain.get_cloned(ci),
       .Some(c) => if(_lb_same_decl(c.name.clone(), &c.decl, d.name.clone(), &d.decl), {
-        return(!_lb_tok_after(&d.last_use, rhs_end));
+        return((ci == usize(0)) || !_lb_tok_after(&d.last_use, rhs_end));
       }),
       .None => ()
     );
@@ -8880,11 +8883,11 @@ _lb_repoint_goes_through :: (fn(d : &LocalBorrowInfo, chain : &ArrayList(LocalBo
 /// Decision 38 A: re-pointing `info` at `tok` is an error while a borrow
 /// derived from its current target is live. `through` is the `match`
 /// binding the re-point goes through (`cur = &mut n.next`), and `rhs_end`
-/// the right-hand side's last token: that binding, and a binding it is
-/// derived from on the way to `info` (a nested walk's outer `n`), is not
-/// left behind when its last mention is inside the right-hand side
-/// (VERDICTS-71 rule (c), refinement 2). Any other live derived borrow
-/// still rejects the re-point.
+/// the right-hand side's last token: that binding is not left behind (the
+/// re-point freezes it whole for `cur`), and a binding it is derived from on
+/// the way to `info` (a nested walk's outer `n`) is not either when its last
+/// mention is inside the right-hand side (VERDICTS-71 rule (c), refinement
+/// 2). Any other live derived borrow still rejects the re-point.
 local_borrow_require_no_live_derived :: (fn(info : &LocalBorrowInfo, tok : &Token, through : &Option(Variable), rhs_end : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
   chain := ArrayList(LocalBorrowInfo).new();
   match(

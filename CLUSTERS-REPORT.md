@@ -8,7 +8,7 @@ pre-fmt rebased tree (`yo-r1.exe`).
 
 | Row | Verdict | Mechanism | Test added | Issue-doc disposition |
 | --- | --- | --- | --- | --- |
-| A3 (the `&mut`-binding-matched-bare half) | **WALLED** | `match(r, …)` on a bare local `&mut` reference binding is E0910 at the scrutinee (`src/evaluator/exprs/match.yo`, the `mut_places` block): the place model cuts a place at `.*`, so the arm bindings' loan of the referent cannot be registered without rejecting every legal re-point. Help names the safe spelling `match(&mut r.*, …)`; parameters (and `with_mut` callback borrow-params, `variable_is_borrow_parameter`) stay accepted — that exclusion is what keeps `std/log.yo` green. | `tests/origins/unsound/a3-match-mut-reference-binding-bare.yo` (E0910) | Status line "WALLED in v0.2.79"; STAYS in `issues/` (wall list) |
+| A3 (the `&mut`-binding-matched-bare half) | **FIXED** (VERDICTS-71 rule (c), replacing the first wall) | Each place binding of a `&mut` match is an exclusive local borrow of the scrutinee's place, derived from the local borrow it is reached from, in either spelling (`src/evaluator/exprs/match.yo`). The re-point's name is no access of `cur`, and `local_borrow_require_no_live_derived` skips the binding the re-point goes through (and, when not mentioned after the right-hand side, the bindings it derives from). The earlier E0910 wall closed nothing, because `match(&mut r.*, …)` was the same unchecked program. | `tests/origins/unsound/a3-*.yo`: E0911 rows p3/q5/q7/r6/m04/m20, each bare and spelled, plus r2; accepted walk rows | Moved to `issues/fixed/` |
 | A5 | **FIXED** | A reference VALUE in an argument position is typed at its POINTEE (the read rule), so `_origin_of_into`'s R-NONE returned ∅ before R-CALL ran. R-NONE now continues for a call whose callee's result is a reference (or carries an origin / holds binders); the T9 branch also falls through for computed references and calls of closure values. `wrap(first(&xs))` freezes `xs` → E0911 at `xs = …`. | `a5-composite-result-over-nested-call.yo`, `a5-holder-ctor-over-nested-call.yo` (E0911), `-pos.yo` | FIXED in v0.2.79; moved to `issues/fixed/` |
 | A6 (rule G, item 1) | **FIXED** | `_d3_judge_local_borrows` no longer gates a `&mut` argument's two-phase activation on the callee's mutation summary — every pending entry is a `&mut`-slot argument (both recorders run on `fn_param_mut_ref_flags`), each is now a Write at activation + `require_writable`. The mask still feeds E0908 and D3. VERDICTS-57 §3.4's census found no sweep targets: `check ./std` 171/171, `check ./src` clean. | `a6-mut-arg-nonwriting-callee-live-loan.yo` (E0911); `v57-mut-self-nonwriting-live-loan-pos.yo` flipped from `accept` to E0911 | FIXED in v0.2.79; moved to `issues/fixed/` |
 | A10 | **FIXED** | `return_check`'s parameter branch rejects a root at a parameter whose slot is not a reference — a by-value parameter's place is the callee's own frame — E0912 with the signature rule's message, whatever the result spells. | `a10-ret-byvalue-param-composite.yo`, `a10-ret-byvalue-param-self.yo` (E0912), `-pos.yo` | FIXED in v0.2.79; moved to `issues/fixed/` |
@@ -23,7 +23,7 @@ pre-fmt rebased tree (`yo-r1.exe`).
 All on the final fmt'd tree with the tree-built stage-1 `yo-r4.exe` (one earlier rebuild, r3, had a
 one-line E0601 in new code that never reached a verdict; r4 is the binary every number below is from):
 
-- Flip matrix, run with `yo-r4.exe`: A3 E0910, A5 E0911 ×2, A6 E0911, A10 E0912 ×2, A14 E0911 ×2,
+- Flip matrix, run with `yo-r4.exe`: A3 E0910 (the first wall; rule (c) later replaced it with E0911 rows), A5 E0911 ×2, A6 E0911, A10 E0912 ×2, A14 E0911 ×2,
   A17 E0910 ×2, A23 E0911, A56 E0911, row 9 E0911, and the flipped v57 positive E0911 — 14/14;
   every `-pos` control accepted (5/5).
 - `yo check ./std --std-path ./std` = 171/171 (the first wall draft broke `std/log.yo:276`; the
@@ -48,8 +48,7 @@ one-line E0601 in new code that never reached a verdict; r4 is the binary every 
 
 - The eight fixed/walled rows map to the audit's clusters 2 (A6), 3 (A3, A5, A10, A14, A17), 5 (A56),
   and 6 (A23). Row 9 is the coordinator-added 2026-11-18 zip-chain finding.
-- The wall (A3) is the audit's listed-wall kind: the issue doc stays under `issues/`, Status
-  "WALLED in v0.2.79".
+- A3 is fixed by VERDICTS-71 rule (c), which replaced the first E0910 wall. The doc is in `issues/fixed/`.
 - The strictness-gap question the redfix audit lane flagged (a PARAMETER scrutinee contributes an empty
   held set by design, bypassing the O2/A29 subset discipline through a match) is the audit lane's to
   file in `issues/questions/`; this PR does not change that behavior.
