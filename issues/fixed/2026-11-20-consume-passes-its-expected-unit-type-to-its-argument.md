@@ -2,8 +2,8 @@
 
 **Severity:** S2 — a valid `consume(e)` whose own expected type is `unit` (an argument to a `unit` parameter, the tail of a `-> unit` body, a `(x : unit) =` binding) is rejected with E0601 when `e` is not unit.
 
-- Filed: 2026-11-20 (found while probing `issues/2026-11-20-a-side-effecting-builtin-is-deleted-when-its-unit-value-is-bound-or-folded.md`).
-- Status: open.
+- Filed: 2026-11-20 (found while probing `issues/fixed/2026-11-20-a-side-effecting-builtin-is-deleted-when-its-unit-value-is-bound-or-folded.md`).
+- Status: FIXED on branch `v0280/extern-dce`.
 - Test: `tests/unit-value-side-effects.test.yo` ("consume under a unit expected type accepts a non-unit argument").
 
 ## Reproducer

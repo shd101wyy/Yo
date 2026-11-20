@@ -3,7 +3,7 @@
 **Severity:** S1 — accepted code silently loses a reference-count change, a `consume`d call or a `consume(p.* = v)` store, which leaks or frees a live object (use after free in the original probe).
 
 - Filed: 2026-11-20 (v0.2.80 bug lane; found by a Fable consultation on the v0.2.70 probes `~/Workspace/Yo-wt/v0273/fable/v70-probes/dce.yo` and `clone_no_dup.yo`).
-- Status: open.
+- Status: FIXED on branch `v0280/extern-dce`.
 - Reproducer: `issues/repros/2026-11-20-a-side-effecting-builtin-is-deleted-when-its-unit-value-is-bound-or-folded.yo`.
 - Test: `tests/unit-value-side-effects.test.yo`.
 
@@ -85,3 +85,7 @@ Two halves:
   unit place.
 
 No special case names `__yo_incr_rc`.
+
+The consultation's `clone_no_dup.yo` (`_p := __yo_incr_rc(…)` in a hand-written
+clone) is a heap-use-after-free under `--sanitize address` before the fix and
+prints `1 2 43 1 43` cleanly after it.
