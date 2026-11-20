@@ -1,8 +1,8 @@
 # A user `extern` member named like a compiler builtin is silently shadowed
 
-**Kind:** design question — an open decision, not a defect.
+**Kind:** design question — answered by VERDICTS-72 (option 1, widened to a rule about the name).
 
-**Status:** OPEN — found 2026-11-21 while fixing
+**Status:** RESOLVED in v0.2.80 — found 2026-11-21 while fixing
 `issues/fixed/2026-11-20-a-side-effecting-builtin-is-deleted-when-its-unit-value-is-bound-or-folded.md`.
 
 ## What happens
@@ -52,3 +52,10 @@ builtins and the unchecked runtime symbols. std's own `extern("Yo", __yo_…)`
 blocks (`std/prelude.yo`, `std/allocator.yo`, `std/sys/externs.yo`,
 `std/crypto/tls.yo`) are exempt by living in the std tree. A `yo fix` repair can
 delete a user declaration that only re-declares a builtin.
+
+## Resolution (VERDICTS-72)
+
+A name that starts with `__yo_` is the compiler's namespace, and no file outside the std tree may bind one.
+
+- Rule (a), landed: every `extern(...)` member label (both ABIs) and every `c_include(...)` member label in the namespace, declared outside the std tree, is **E0407** (`E_RESERVED_NAME`), anchored at the label, pragma or not (`reject_reserved_ffi_member`, `src/evaluator/exprs/extern.yo`; the std-tree test is `may_bind_yo_namespace_name`, `src/evaluator/memory-safety.yo`). The uncoded "names a builtin" error of `is_reserved_builtin_binding_name` takes E0407 too. The sweep: `src/main.yo`, `src/manifest.yo` and `src/verifier/z3.yo` call `std/libc/errno`'s `last_errno` and `std/sys/process`'s `reset_io_backend`; `scripts/bench/io-budget.yo` imports its counters from `std/sys/externs`; `tests/debug-allocator.test.yo` moved to `std/allocator.test.yo`; `tests/arc.test.yo` and `tests/process/command.test.yo` use the std declarations; `tests/c-include-module-value.test.yo` and `tests/extern-unsafe-wrap.test.yo` use C's `toupper`/`abs`; two cli-case fixtures renamed their invented members. Tests: `tests/reserved-yo-namespace.test.yo`, the cli-cases `check-reserved-yo-namespace-extern-member` and `check-reserved-yo-namespace-std-look-alike`.
+- Rule (b), every other binder (`::`, `:=`, parameters, patterns, import renames): `issues/2026-11-21-a-user-binding-named-in-the-yo-namespace-hijacks-or-is-hijacked.md`.

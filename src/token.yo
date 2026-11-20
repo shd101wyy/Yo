@@ -134,9 +134,11 @@ is_reserved_operator_name :: (fn(name : &String) -> bool)(
 /// typeable). Structural keywords (begin/cond/match/while/if/return/…)
 /// never lex as identifiers and need no entry. `std/prelude.yo` is exempt at
 /// the gate sites (its `unsafe :: impl(…)` namespace module predates the
-/// rule). The `__yo` runtime prefix is NOT reserved yet: src/ binds 133
-/// `__yo_*` names for the runtime's own C symbols, and the evaluator mints
-/// `__yo_self`/`__yo_pat_s`/`__yo_contract_result` into user modules. The V3b
+/// rule). The `__yo_` prefix is the compiler's namespace (VERDICTS-72): an
+/// `extern`/`c_include` member in it is E0407 outside std
+/// (`reject_reserved_ffi_member`), but other binders are not checked yet,
+/// because the evaluator mints `__yo_self`/`__yo_pat_s`/`__yo_contract_result`
+/// into user modules (issues/2026-11-21-a-user-binding-named-in-the-yo-namespace-hijacks-or-is-hijacked.md). The V3b
 /// snake_case synonyms (`type_of` `size_of` `align_of` `type_id`) and the
 /// `addr_of` address-of builtin are on the first line
 /// (plans/VALUES_BY_DEFAULT.md V3b Generation A). Of the `__yo` names only the
