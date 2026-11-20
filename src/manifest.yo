@@ -6,7 +6,7 @@
 //! `std/build`, no code from any package runs to read it, so the same reader
 //! serves `yo add`/`yo install`, `yo build`, and — through
 //! `resolve_import_roots` — every command that resolves an `import("name")`
-//! (compile, check, test, doc, lsp): `module_manager.yo` discovers the
+//! (compile, check, test, doc, lsp): `module-manager.yo` discovers the
 //! manifest above the entry file and registers the closure with the module
 //! resolver's rule 0.
 //!
@@ -31,15 +31,15 @@
 //!
 //! Everything here is SYNCHRONOUS: the module resolver runs before any Io
 //! context exists, so the reads are libc calls (`read_file_sync`,
-//! `file_exists_sync` — `module_manager.yo` uses the same two).
+//! `file_exists_sync` — `module-manager.yo` uses the same two).
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 { Path } :: import("std/path");
 { Exception } :: import("std/error");
 { ToString } :: import("std/fmt");
 { parse, TomlValue } :: import("std/encoding/toml");
-{ parse_lock_file, find_lock_entry } :: import("./lock_file.yo");
+{ parse_lock_file, find_lock_entry } :: import("./lock-file.yo");
 { get_global_cache_dir, store_tree_dir } :: import("./cache.yo");
 { E_INVALID_PACKAGE_NAME } :: import("./diagnostics.yo");
 /// The manifest's file name, looked up in the entry file's directory and every
@@ -69,7 +69,7 @@ file_exists_sync :: (fn(path : &String) -> bool)({
 extern(
   "Yo",
   // errno as a CALL — the C macro is an int LVALUE, not a pointer (same
-  // shape as module_manager.yo's).
+  // shape as module-manager.yo's).
   __yo_errno : (fn() -> i32)
 );
 /// Read a whole file synchronously. Errors (a missing file, a permission

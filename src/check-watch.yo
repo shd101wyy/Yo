@@ -1,0 +1,452 @@
+//! `yo check --watch` — Phase C (revised) of plans/reference/INCREMENTAL_COMPILATION.md.
+//!
+//! Long-lived incremental checking on the Phase B machinery: after the
+//! initial full pass (run by `run_check` in main.yo), this loop polls the
+//! checked files' mtime/size, and on a change runs ONE incremental round:
+//! `mm_invalidate_document` (B1 reverse-closure drop + B2 registry purge)
+//! for each changed file, then re-checks ONLY the entry files whose module
+//! key fell out of the cache. Everything else is a module-cache hit, so a
+//! leaf edit re-checks in LSP-edit time (~tens of ms) instead of a full
+//! `check ./src` (~95 s).
+//!
+//! v1 scope (deliberate):
+//!   - The file SET is fixed at startup — a newly created `.yo` file needs a
+//!     watch restart. Deleted files are invalidated and dropped from the set.
+//!   - Polling only (default 200 ms). The `std/sys/events` fs_event layer is
+//!     a wakeup-only signal on macOS (no path in the callback) and per-dir on
+//!     Linux, so the mtime sweep would still be the source of truth — the
+//!     sweep alone is ~1-3 ms for a src/-sized set, so v1 skips the extra
+//!     platform surface.
+//!   - Editing the prelude (or anything under the std path) exits with a
+//!     restart message: the cached prelude env is deliberately outside
+//!     `mm_invalidate_document`'s reach, and an in-process prelude reload
+//!     double-registers the owner-less prelude registrations.
+//!   - `--watch-once`: deterministic test mode — instead of watching, read
+//!     changed filesystem paths from stdin (one per line, EOF-terminated),
+//!     run exactly ONE round, and exit with the round's failure count. Used
+//!     by the cli-case harness, which cannot mutate files concurrently.
+pragma(Pragma.AllowUnsafe);
+{ String } :: import("std/string");
+{ println, eprintln } :: import("std/fmt");
+{ emit_rendered_text, flush_user_warnings } :: import("./diagnostics.yo");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashMap } :: import("std/collections/hash-map");
+{ HashSet } :: import("std/collections/hash-set");
+{ metadata } :: import("std/fs/metadata");
+{ Path } :: import("std/path");
+{ IoExn, Exception } :: import("std/error");
+{ exit } :: import("std/process");
+{ stdout, fflush } :: import("std/libc/stdio");
+env_mod :: import("std/env");
+{ get_global_cache_dir } :: import("./cache.yo");
+{ Instant } :: import("std/time/instant");
+sleep_mod :: import("std/sys/timer");
+{ BufReader } :: import("std/io/bufio");
+{ Stdin, stdin } :: import("std/io/stdio");
+{
+  mm_load_file,
+  mm_invalidate_document,
+  mm_definitions_changed,
+  mm_revalidate_plan,
+  mm_revalidate_apply,
+  mm_resolve_entry_abs,
+  _take_load_error
+} :: import("./module-manager.yo");
+/// `"${mtime}:${size}"` for a path, or `.None` when the stat fails (file
+/// deleted / transient editor rename). One string keeps the sweep's compare
+/// and store to a single map.
+_stat_key :: (fn(p : &String, io : Io) -> Option(String))({
+  swallow := Exception(throw : (_e -> unwind(Option(String).None)));
+  md := io.await(metadata(Path.new(p.clone()), io), IoExn(io : io, exn : swallow));
+  Option(String).Some(`${md.modified_time().to_string()}:${md.size().to_string()}`)
+});
+/// One incremental round: invalidate every changed path (B1+B2), then
+/// re-check the entry files whose module key fell out of the cache, in the
+/// (sorted) order of `files`. Returns the number of failed files.
+watch_round :: (
+  fn(
+    changed : &ArrayList(String),
+    files : &ArrayList(String),
+    std_path : &String,
+    io : Io,
+    exn : Exception
+  ) -> usize
+)({
+  round_t0 := Instant.now();
+  removed := HashSet(String).new();
+  (failed : usize) = usize(0);
+  (revalidated : usize) = usize(0);
+  (ci : usize) = usize(0);
+  while(ci < changed.len(), {
+    match(
+      changed.get_cloned(ci),
+      .Some(p) => {
+        // Canonicalize: `collect_check_files` yields paths relative to the
+        // CWD for a relative target (`yo check ./src --watch`), while the
+        // module cache keys absolute `file://` paths. Resolve through the
+        // same helper the cache-hit guard uses, then strip the scheme —
+        // `mm_invalidate_document` re-prefixes it.
+        p_key := mm_resolve_entry_abs(p.clone(), std_path.clone());
+        p_abs := p_key.replace(String.from("file://"), String.new());
+        // Phase 3 (§6): a parse-only diff first. When every definition and
+        // the ordered-statement sequence hash the same (a comment-only or
+        // whitespace-only edit), NOTHING needs invalidating at any
+        // granularity — the round skips the file entirely instead of
+        // dropping its reverse import closure.
+        // NOTE: `.Some(v) => !(v)` rather than `.Some(false) => true` —
+        // enum patterns with boolean-literal payloads do not compare the
+        // literal yet (issues/fixed/enum-pattern-bool-payload-not-compared.md).
+        skip := match(
+          mm_definitions_changed(&p_abs),
+          .Some(v) => !v,
+          .None => false
+        );
+        cond(
+          skip => {
+            if(env_mod.env.get(`YO_DEBUG_P3DIFF`).is_some(), {
+              eprintln(`[p3round] ${p}: skip=true`);
+            });
+          },
+          true => {
+            // Phase 3b (§6 step 4): try the per-DEFINITION path first —
+            // reset + re-force the changed definitions and their reverse-edge
+            // dependents, patching the cached module values' slots in place.
+            // Importers whose ordered statements COPIED a revalidated value
+            // (destructured imports, spreads) still take the file-level drop.
+            plan := mm_revalidate_plan(p_abs.clone());
+            match(
+              plan,
+              .Some(pl) => {
+                // Fallback modules drop BEFORE apply, so the apply skips
+                // whatever the drops (and their cascades) removed.
+                dropped_pre := ArrayList(String).new();
+                (fi0 : usize) = usize(0);
+                while(fi0 < pl.fallback_modules.len(), {
+                  match(
+                    pl.fallback_modules.get_cloned(fi0),
+                    .Some(mk) => {
+                      m_fs := mk.replace(String.from("file://"), String.new());
+                      if(m_fs.len() > usize(0), {
+                        (di : usize) = usize(0);
+                        dropped_by_m := mm_invalidate_document(m_fs.clone());
+                        while(di < dropped_by_m.len(), {
+                          match(
+                            dropped_by_m.get_cloned(di),
+                            .Some(k) => {
+                              removed.insert(k);
+                              ()
+                            },
+                            .None => ()
+                          );
+                          di = (di + usize(1));
+                        });
+                      });
+                    },
+                    .None => ()
+                  );
+                  fi0 = (fi0 + usize(1));
+                });
+                excluded := HashSet(String).new();
+                (ei : usize) = usize(0);
+                while(ei < pl.fallback_modules.len(), {
+                  match(
+                    pl.fallback_modules.get_cloned(ei),
+                    .Some(mk) => {
+                      _ := excluded.insert(mk.clone());
+                    },
+                    .None => ()
+                  );
+                  ei = (ei + usize(1));
+                });
+                for(&removed, rk => {
+                  _ := excluded.insert(rk.clone());
+                });
+                outcome := mm_revalidate_apply(&pl, &excluded);
+                // Aliased-export fallbacks surface only during apply — drop
+                // them too (correct, the work is just wasted).
+                (fi1 : usize) = usize(0);
+                while(fi1 < outcome.fallback_modules.len(), {
+                  match(
+                    outcome.fallback_modules.get_cloned(fi1),
+                    .Some(mk) => {
+                      m_fs := mk.replace(String.from("file://"), String.new());
+                      if(m_fs.len() > usize(0), {
+                        (di : usize) = usize(0);
+                        dropped_by_m := mm_invalidate_document(m_fs.clone());
+                        while(di < dropped_by_m.len(), {
+                          match(
+                            dropped_by_m.get_cloned(di),
+                            .Some(k) => {
+                              removed.insert(k);
+                              ()
+                            },
+                            .None => ()
+                          );
+                          di = (di + usize(1));
+                        });
+                      });
+                    },
+                    .None => ()
+                  );
+                  fi1 = (fi1 + usize(1));
+                });
+                revalidated = (revalidated + outcome.revalidated);
+                if(outcome.failures.len() > usize(0), {
+                  failed = (failed + usize(1));
+                  (mi : usize) = usize(0);
+                  while(mi < outcome.failures.len(), {
+                    match(
+                      outcome.failures.get_cloned(mi),
+                      .Some(msg) => emit_rendered_text(msg.clone()),
+                      .None => ()
+                    );
+                    mi = (mi + usize(1));
+                  });
+                  println(`watch: ${p} — FAILED`);
+                });
+                if(env_mod.env.get(`YO_DEBUG_P3DIFF`).is_some(), {
+                  eprintln(
+                    `[p3round] ${p}: per-def revalidated=${outcome.revalidated.to_string()} fallbacks=${outcome.fallback_modules.len().to_string()} failures=${outcome.failures.len().to_string()}`
+                  );
+                });
+              },
+              .None => {
+                // Not per-def-able (structural edit, impl/extern/type-producer
+                // changed, ordered statements touched): today's file-level
+                // drop of the changed file's reverse closure.
+                dropped := mm_invalidate_document(p_abs.clone());
+                if(env_mod.env.get(`YO_DEBUG_P3DIFF`).is_some(), {
+                  eprintln(`[p3round] ${p}: file-level dropped=${dropped.len().to_string()}`);
+                });
+                (di : usize) = usize(0);
+                while(di < dropped.len(), {
+                  match(
+                    dropped.get_cloned(di),
+                    .Some(k) => {
+                      removed.insert(k);
+                      ()
+                    },
+                    .None => ()
+                  );
+                  di = (di + usize(1));
+                });
+              }
+            );
+          }
+        );
+      },
+      .None => ()
+    );
+    ci = (ci + usize(1));
+  });
+  (rechecked : usize) = usize(0);
+  (fi : usize) = usize(0);
+  while(fi < files.len(), {
+    match(
+      files.get_cloned(fi),
+      .Some(fp) => {
+        key := mm_resolve_entry_abs(fp.clone(), std_path.clone());
+        if(removed.contains(&key), {
+          rechecked = (rechecked + usize(1));
+          ok := mm_load_file(fp.clone(), std_path.clone(), true, io, exn).ok;
+          cond(
+            ok => println(`watch: ${fp} — OK`),
+            true => {
+              // The loader's handlers only stash the rendered diagnostic (the
+              // P1 single-print rule) — the watch round owns the print.
+              match(
+                _take_load_error(),
+                .Some(rendered) => emit_rendered_text(&rendered),
+                .None => ()
+              );
+              failed = (failed + usize(1));
+              println(`watch: ${fp} — FAILED`);
+            }
+          );
+        });
+      },
+      .None => ()
+    );
+    fi = (fi + usize(1));
+  });
+  round_ms := round_t0.elapsed().as_millis();
+  println(
+    `watch: revalidated ${revalidated.to_string()} definition(s), rechecked ${rechecked.to_string()} file(s), ${failed.to_string()} failed (${round_ms.to_string()}ms)`
+  );
+  // Watch runs are killed, piped, and read by harnesses — flush per round so
+  // buffered stdout is never lost (`fflush` takes `?(*(FILE))`).
+  unsafe(fflush(.Some(stdout)));
+  // Surface this round's warnings with the round's report; the stash is
+  // taken, so the next round collects fresh (a fixed file stops warning).
+  flush_user_warnings(std_path.clone(), get_global_cache_dir());
+  failed
+});
+/// Read changed paths from stdin (one per line, until EOF), run ONE round,
+/// exit with the round's failure count. The harness-facing `--watch-once`.
+run_watch_once :: (
+  fn(
+    files : &ArrayList(String),
+    std_path : &String,
+    io : Io,
+    exn : Exception
+  ) -> unit
+)({
+  changed := ArrayList(String).new();
+  rd := BufReader(Stdin).new(stdin());
+  // `read_line`'s future borrows `rd`, so its bundle must be a place (E0910).
+  b := IoExn(io : io, exn : exn);
+  (eof : bool) = false;
+  while(!eof, {
+    // The generic BufReader throws through IoExn instead of returning a
+    // Result, so a read error propagates rather than silently ending the list
+    // of changed files (D5: plans/archive/STD_API_AUDIT.md).
+    match(
+      io.await(rd.read_line(io), b),
+      .Some(line) => {
+        t := line.trim();
+        if(t.len() > usize(0), {
+          changed.push(t);
+        });
+      },
+      .None => {
+        eof = true;
+      }
+    );
+  });
+  failed := watch_round(&changed, files, std_path, io, exn);
+  exit(failed);
+});
+/// Fill `stats` with the current `"${mtime}:${size}"` per path.
+watch_snapshot :: (
+  fn(files : &ArrayList(String), stats : &mut HashMap(String, String), io : Io) -> unit
+)({
+  (si : usize) = usize(0);
+  while(si < files.len(), {
+    match(
+      files.get_cloned(si),
+      .Some(p) => match(
+        _stat_key(p.clone(), io),
+        .Some(k) => {
+          stats.insert(p.clone(), k);
+          ()
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+    si = (si + usize(1));
+  });
+});
+/// Block (polling every `poll_ms`, debounced) until at least one of `files`
+/// changes on disk; returns the changed set and updates `stats`. A stat MISS
+/// (deleted file) reports the path once, then stops reporting it.
+wait_for_change :: (
+  fn(
+    files : &ArrayList(String),
+    stats : &mut HashMap(String, String),
+    poll_ms : u64,
+    io : Io
+  ) -> ArrayList(String)
+)({
+  while(true, {
+    _t := io.await(sleep_mod.sleep(poll_ms), io);
+    changed := ArrayList(String).new();
+    (wi : usize) = usize(0);
+    while(wi < files.len(), {
+      match(
+        files.get_cloned(wi),
+        .Some(p) => match(
+          _stat_key(p.clone(), io),
+          .Some(k) => {
+            prev := match(stats.get_cloned(p.clone()), .Some(sv) => sv, .None => String.new());
+            if(!(prev == k), {
+              stats.insert(p.clone(), k);
+              changed.push(p.clone());
+            });
+          },
+          .None => {
+            if(stats.get_cloned(p.clone()).is_some(), {
+              _c := stats.remove(p.clone());
+              changed.push(p.clone());
+            });
+          }
+        ),
+        .None => ()
+      );
+      wi = (wi + usize(1));
+    });
+    if(changed.len() > usize(0), {
+      // Debounce: editors write-then-rename; give the burst a beat to finish.
+      _d := io.await(sleep_mod.sleep(u64(50)), io);
+      return(changed);
+    });
+  });
+  ArrayList(String).new()
+});
+/// The live watch loop: poll mtime/size at `poll_ms`, debounce, round.
+run_check_watch :: (
+  fn(
+    files : &ArrayList(String),
+    std_path : &String,
+    poll_ms : u64,
+    io : Io,
+    exn : Exception
+  ) -> unit
+)({
+  stats := HashMap(String, String).new();
+  watch_snapshot(files, &mut stats, io);
+  println(`watch: watching ${files.len().to_string()} file(s), polling every ${poll_ms.to_string()}ms — Ctrl-C to exit`);
+  unsafe(fflush(.Some(stdout)));
+  while(true, {
+    changed := wait_for_change(files, &mut stats, poll_ms, io);
+    // The std path (prelude and everything under it) is outside the
+    // invalidation machinery's reach — restart instead of corrupting.
+    (std_edit : bool) = false;
+    (pi : usize) = usize(0);
+    while(pi < changed.len(), {
+      match(
+        changed.get_cloned(pi),
+        .Some(p) => {
+          if(p.contains(std_path.clone()) || p.ends_with(String.from("prelude.yo")), {
+            std_edit = true;
+          });
+        },
+        .None => ()
+      );
+      pi = (pi + usize(1));
+    });
+    if(std_edit, {
+      println(String.from("watch: a std/prelude file changed — restart the watch (the cached prelude env cannot be invalidated in-process)"));
+      exit(usize(2));
+    });
+    _r := watch_round(&changed, files, std_path, io, exn);
+    ()
+  });
+});
+/// `yo build --watch`'s round preparation: drop every changed file's module
+/// and its reverse import closure (B1 + B2) from the warm module cache, so the
+/// round's in-process artifact compiles re-read them. Without it the round
+/// reused the cached module of an edited IMPORT, so the rebuilt binary kept
+/// the old code and a broken import still built
+/// (issues/fixed/build-watch-reuses-a-stale-imported-module.md). Returns how
+/// many cached modules were dropped.
+invalidate_changed_files :: (fn(changed : &ArrayList(String), std_path : &String) -> usize)({
+  (total : usize) = usize(0);
+  (ci : usize) = usize(0);
+  while(ci < changed.len(), {
+    match(
+      changed.get_cloned(ci),
+      .Some(p) => {
+        // Same canonicalization as watch_round: the cache keys absolute
+        // `file://` paths, and `mm_invalidate_document` re-prefixes it.
+        p_key := mm_resolve_entry_abs(p.clone(), std_path.clone());
+        dropped := mm_invalidate_document(p_key.replace(String.from("file://"), String.new()));
+        total = (total + dropped.len());
+      },
+      .None => ()
+    );
+    ci = (ci + usize(1));
+  });
+  total
+});
+export(watch_round, run_watch_once, run_check_watch, watch_snapshot, wait_for_change, invalidate_changed_files);

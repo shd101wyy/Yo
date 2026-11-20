@@ -58,17 +58,17 @@ Building it needs an existing `yo`: a **seed release** (the previous published v
 | `src/`                            | The Yo compiler. `src/README.md` has the layout and test instructions                                                                                |
 | `src/main.yo`                     | CLI entry point: argument parsing and subcommand dispatch                                                                                            |
 | `src/lexer.yo`, `src/token.yo`, `src/parser.yo`, `src/expr.yo` | Tokens → AST; `expr.yo` holds the core node types and the builtin keyword constants                                                     |
-| `src/expr_info.yo`                | `ExprInfo`: the per-expression annotation side table the evaluator fills in and codegen reads                                                        |
+| `src/expr-info.yo`                | `ExprInfo`: the per-expression annotation side table the evaluator fills in and codegen reads                                                        |
 | `src/evaluator/`                  | Type checking, CTFE, trait resolution; `exprs/` per node, `calls/` specialization and dispatch, `effects/` algebraic-effects analysis, `builtins/`     |
 | `src/verifier/`                   | The formal verifier: `terms.yo` (VC IR), `vc.yo` (symbolic walk), `encode.yo` (SMT-LIB 2), `z3.yo` (solver harness), `driver.yo`. Plan: `plans/backlog/FORMAL_VERIFICATION.md` |
-| `src/codegen/`                    | C11 emission; `exprs/` per node, `async/` state machines + per-platform I/O runtimes, `functions/`, `parallelism/`, `c/allocator_fixed.yo` (TLSF allocator) |
+| `src/codegen/`                    | C11 emission; `exprs/` per node, `async/` state machines + per-platform I/O runtimes, `functions/`, `parallelism/`, `c/allocator-fixed.yo` (TLSF allocator) |
 | `src/emitter.yo`                  | The header / declaration / code buffers everything writes into                                                                                       |
 | `src/types/`                      | Type values and compatibility helpers                                                                                                                |
-| `src/module_manager.yo`           | "Evaluate a `.yo` file and read its exports": demand loader, cached prelude env, shared codegen `ExprInfoTable`, std-path resolution                  |
-| `src/manifest.yo`, `src/resolver.yo`, `src/fetch.yo`, `src/lock_file.yo`, `src/cache.yo`, `src/install_command.yo`, `src/toml_edit.yo` | `yo.toml` / `yo.lock` v2 / the content-addressed store / `yo add\|remove\|install\|update` / `yo cache` |
-| `src/build_runner.yo`             | `yo build`: the build DAG, its level-based scheduler, artifact compilation                                                                            |
-| `src/formatter.yo`, `src/lsp/`, `src/doc/`, `src/doc_command.yo` | `yo fmt`, `yo lsp` (one module per feature), `yo doc`                                                                                    |
-| `src/init.yo`, `src/cli_lang.yo`, `src/version.yo`, `src/version_cache.yo`, `src/pkg_config.yo`, `src/target.yo` | `yo init`, `--lang`/`YO_LANG` (en + zh-CN), `.yo-version`, release-bundle cache, pkg-config, target triples |
+| `src/module-manager.yo`           | "Evaluate a `.yo` file and read its exports": demand loader, cached prelude env, shared codegen `ExprInfoTable`, std-path resolution                  |
+| `src/manifest.yo`, `src/resolver.yo`, `src/fetch.yo`, `src/lock-file.yo`, `src/cache.yo`, `src/install-command.yo`, `src/toml-edit.yo` | `yo.toml` / `yo.lock` v2 / the content-addressed store / `yo add\|remove\|install\|update` / `yo cache` |
+| `src/build-runner.yo`             | `yo build`: the build DAG, its level-based scheduler, artifact compilation                                                                            |
+| `src/formatter.yo`, `src/lsp/`, `src/doc/`, `src/doc-command.yo` | `yo fmt`, `yo lsp` (one module per feature), `yo doc`                                                                                    |
+| `src/init.yo`, `src/cli-lang.yo`, `src/version.yo`, `src/version-cache.yo`, `src/pkg-config.yo`, `src/target.yo` | `yo init`, `--lang`/`YO_LANG` (en + zh-CN), `.yo-version`, release-bundle cache, pkg-config, target triples |
 | `std/`                            | The standard library; `std/build.yo` is the build API; `std/spec/` the verification vocabulary                                                        |
 | `tests/`                          | Language tests (`*.test.yo`); `tests/spec/` the verifier's; `tests/internal/` the compiler's own (heavy: each file compiles the compiler)              |
 | `tests/cli-cases/`, `scripts/cli-diff-test.sh` | CLI subcommand goldens: each case runs in a sandbox (own project dir, own `HOME`) comparing rc + stdout + trees; `--record` writes goldens |
@@ -112,7 +112,7 @@ The compiler is the `yo` binary on your PATH (install with `scripts/install.sh`;
 ```bash
 yo build --std-path ./std     # build the compiler → yo-out/<target>/bin/yo. --std-path is LOAD-BEARING: without it the seed compiles its own std, so a std change the seed cannot lower passes locally and breaks CI (#996)
 yo check ./src --std-path ./std   # type-check the whole compiler tree (evaluator-only) — run this FIRST. --std-path matters: an installed yo otherwise resolves `std` to its BUNDLED copy, so src using a std export newer than the seed fails (`No member "pid"`, measured 2026-10-04 with v0.2.50)
-yo check ./std --std-path ./std   # the flag is optional for a compiler carrying the entry-side fix (a seed older than that fix still imports its BUNDLED std beside ./std; every entry inside one std tree makes check/test/compile/fix/verify/effects/doc resolve THAT tree, issues/fixed/check-std-in-a-checkout-evaluates-two-copies-of-std.md); keeping it spelled out pins the root explicitly. No solver needed: since #760 a missing Z3 is a skip-with-hint for `check` (it ships nothing) and stays a hard failure for `compile` (verify-mode binaries carry no runtime asserts). The FV CI job owns the proofs; `yo verify std/collections/array_list.yo` installs the pinned Z3 if you want them locally
+yo check ./std --std-path ./std   # the flag is optional for a compiler carrying the entry-side fix (a seed older than that fix still imports its BUNDLED std beside ./std; every entry inside one std tree makes check/test/compile/fix/verify/effects/doc resolve THAT tree, issues/fixed/check-std-in-a-checkout-evaluates-two-copies-of-std.md); keeping it spelled out pins the root explicitly. No solver needed: since #760 a missing Z3 is a skip-with-hint for `check` (it ships nothing) and stays a hard failure for `compile` (verify-mode binaries carry no runtime asserts). The FV CI job owns the proofs; `yo verify std/collections/array-list.yo` installs the pinned Z3 if you want them locally
 yo compile src/main.yo --skip-c-compiler   # ~3 min; catches the one async rule `check` cannot see (a hollow `io.async` body, E0905, fires in codegen)
 
 # The C compiler: gcc and clang do NOT agree on emitted-C warnings. The driver's optimized arm passes
@@ -135,8 +135,8 @@ yo compile src/main.yo --emit-chunks auto --jobs 8 --profile   # N translation u
 YO_TEST_IN_PROCESS=1 YO_TEST_MAX_RSS_MB=12000 yo test ./tests/internal/<file>.test.yo --parallel 1   # in-process knob, ~10 GB resident: never CI, and never the whole directory as a gate (see Tier 1)
 
 # Language tests. --parallel 1 for single files. Always save verbose output to a file.
-yo test ./tests/algebraic_effects.test.yo --bail -v --parallel 1 &> output.txt
-yo test ./tests/algebraic_effects.test.yo --test-name-pattern "Test fn unwind" --parallel 1
+yo test ./tests/algebraic-effects.test.yo --bail -v --parallel 1 &> output.txt
+yo test ./tests/algebraic-effects.test.yo --test-name-pattern "Test fn unwind" --parallel 1
 
 # Fast language suite (~30 min on a Mac Mini M4; mirrors CI). Both excludes matter:
 # tests/internal compiles the compiler ~60 times; tests/cli-cases fixtures contain
@@ -156,7 +156,7 @@ yo test ./tests/internal/parser.test.yo --parallel 1
 # exits 1 with no JSON, because fixtures/negative and fixtures/invalid hold inputs that fail evaluation by design
 yo verify ./std/spec --format json
 yo verify ./std/collections --format json
-yo verify ./tests/spec/verify_straight_line.test.yo --strict
+yo verify ./tests/spec/verify-straight-line.test.yo --strict
 for p in tests/spec/*.test.yo tests/spec/fixtures/valid tests/spec/fixtures/elision; do yo verify ./$p --format json; done
 
 # Self-hosted gate batteries (need a built binary in $S1)

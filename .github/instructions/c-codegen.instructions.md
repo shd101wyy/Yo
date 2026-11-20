@@ -17,7 +17,7 @@ description: "Use when working on C code generation, the codegen transpiler, emi
 ## `#line` directives (`--line-directives`, plans/reference/LINE_DIRECTIVES.md)
 
 - **Statement flush points** (the begin/function-body/loop-body/case-body/
-  cond-arm statement loops in `begin.yo`, `while_loop.yo`, `match.yo`,
+  cond-arm statement loops in `begin.yo`, `while-loop.yo`, `match.yo`,
   `cond.yo`, `functions/generation.yo`) call `note_line_position(em, expr)`
   (`src/codegen/utils/index.yo`) before `_call_generate_expr`. The emitter
   dedupes: adjacent statements from one `.yo` line pay zero directives.
@@ -27,7 +27,7 @@ description: "Use when working on C code generation, the codegen transpiler, emi
   are a MARKER, because the real number is unknowable at emission time (the
   declarations buffer keeps growing after bodies are emitted). The patch
   passes — `Emitter.patch_restore_line_numbers` (via `sections`/`print`) and
-  `_ca_patch_chunk_markers` in chunk_assembly.yo — rewrite the digits in
+  `_ca_patch_chunk_markers` in chunk-assembly.yo — rewrite the digits in
   place against the final layout. Never emit a zero-padded number yourself:
   a leading-zero pp-number reads as octal and clang warns.
 - **Pseudo-paths never map**: `_` (error nodes), `drop` (synthesized drops)
@@ -53,7 +53,7 @@ both learned the hard way:
    200-column-deep ladder that is unreadable and unreviewable (the TLS backend
    was 73 nested `+`s before it was flattened). A real newline inside a backtick
    literal is just a newline, and `"` needs no escaping there — so the C reads as
-   C. `src/codegen/async/runtime_io_macos.yo`'s kqueue block is the model.
+   C. `src/codegen/async/runtime-io-macos.yo`'s kqueue block is the model.
 2. **A lone `\r` or `\n` inside that literal becomes a REAL control character in
    the emitted C.** `sysmsg[n-1] == '\r'` silently emits `'<CR>'` and clang says
    `error: expected expression` pointing at a line that looks fine in the `.yo`.
@@ -98,7 +98,7 @@ both learned the hard way:
    implicit declaration), not as a warning. Two places this bites: a runtime
    helper defined after the loop drivers that call it (hoist the thread-local
    state and a forward declaration into the flags block —
-   `src/codegen/async/runtime_core.yo` does this for the waker), and
+   `src/codegen/async/runtime-core.yo` does this for the waker), and
    declaration-buffer code calling an RC primitive (`generate_object_constructor_declarations`
    in `src/codegen/functions/declarations.yo` forward-declares
    `__yo_decr_rc`/`__yo_incr_rc` and their `_atomic` counterparts for exactly
@@ -111,7 +111,7 @@ both learned the hard way:
    callers also swap `context.base.emitter` for a scratch emitter and splice
    `scratch.print()` into a function body, so anything file-scope written
    through it lands inside a function. The pattern is the value-enum
-   drop/dup functions (`_value_enum_rc_fn`, `src/codegen/exprs/drop_dup.yo`):
+   drop/dup functions (`_value_enum_rc_fn`, `src/codegen/exprs/drop-dup.yo`):
    a `void*` prototype that names no type goes to a `CodeGenContext` buffer
    that `compile_module` appends to the headers; the `static inline`
    definition, built under a scratch emitter, goes to a second buffer that
@@ -142,7 +142,7 @@ emits the macro name too — so a hardcoded `-100` in a runtime template
 resurrects a shadow constant table whose agreement with the Yo value is a
 per-target coincidence, and dead-codes the non-`*at()` fast path on macOS
 (issues/fixed/emitted-c-hardcodes-linux-at-fdcwd.md;
-`tests/internal/uring_runtime.test.yo` pins the macro spellings per target).
+`tests/internal/uring-runtime.test.yo` pins the macro spellings per target).
 The Windows CRT defines none of them: that template's `#ifndef AT_FDCWD`-style
 fallback block is the one sanctioned place a literal may appear, and it is
 what lets BOTH the runtime's comparison and the Yo call site's macro reference
@@ -159,7 +159,7 @@ buffer (measured 2026-10-03 on a `mklink /J` junction AND a system junction:
 carries a `ULONG Flags` between the four name ushorts and `PathBuffer`; the
 mount-point variant does not — compute `PathBuffer`'s base per tag. Winsock
 errors never reach `errno`: every socket-error site must translate
-(`__yo_wsa_to_errno` in `runtime_io_windows.yo`) or `IoError.from_errno`
+(`__yo_wsa_to_errno` in `runtime-io-windows.yo`) or `IoError.from_errno`
 reports "unknown I/O error (os error 10048)"-style noise.
 
 ## Spelling a Yo name in C: `__yo_v_` (src/codegen/utils/index.yo)
@@ -195,7 +195,7 @@ is already declared in an open enclosing block is declared under a fresh name
 (`shadow_binding_decl_name`), and the arm's reads go through
 `shadow_binding_c_name`. Never paste a binding's sanitized name into emitted C
 yourself. A drop the compiler emits inside an arm resolves its target by
-identity (`_drop_operand`, `src/codegen/exprs/rc_fns.yo`), so an early return
+identity (`_drop_operand`, `src/codegen/exprs/rc-fns.yo`), so an early return
 or an unwind in the arm still releases the enclosing local the binding hides
 (issues/fixed/2026-11-05-a-match-arm-binding-that-shadows-a-local-is-never-dropped.md).
 
@@ -249,7 +249,7 @@ Each OS thread has its own **single-threaded event loop**. Within a single threa
 
 An `io.async` body is emitted ONCE, by the ordinary expression generators,
 into its resume function (`generate_async_block_resume_function_inline`,
-`src/codegen/async/state_machine.yo`; plan: `plans/archive/ASYNC_STATE_MACHINE_GENERATION.md`
+`src/codegen/async/state-machine.yo`; plan: `plans/archive/ASYNC_STATE_MACHINE_GENERATION.md`
 phase 5). There are no segments, continuation functions, or per-construct
 async emitters: `await` is legal in any expression position and suspends in
 source order.
@@ -373,7 +373,7 @@ source order.
   A field in the SM struct that no state stores into is this class of bug.
   The alias and its owner are then ONE storage holding one reference: the
   binding `sb := s` into the owner's own slot emits no dup
-  (`init_assignment.yo`), and the two names' scope-end drops release the slot
+  (`init-assignment.yo`), and the two names' scope-end drops release the slot
   once (the first zeroes it). A dup there was a reference nothing released
   (issues/fixed/2026-10-16-an-alias-sharing-its-owners-task-slot-is-retained-but-released-once.md).
 - **A capture is identified by its declaration site, never its name.** The
@@ -409,7 +409,7 @@ source order.
   `/*yo_mv:…*/` marker): the evaluator's `consumed_at_token` is that atom. A
   temp's slot is zeroed; a named local's slot sets its move flag.
   A drop or RC builtin's operand is NOT a move (`InlineSmLowering.rc_operand`,
-  set by `_rc_operand` in `rc_fns.yo`): the evaluator records a deferred
+  set by `_rc_operand` in `rc-fns.yo`): the evaluator records a deferred
   drop's operand as the consuming read, and the drop is emitted again on
   every exit path.
   Because the move is recognized by POSITION, a desugar that synthesizes
@@ -430,7 +430,7 @@ source order.
   constructor allocates with `__yo_sm_take(<pool>, sizeof)`
   (`_sm_alloc_call`), and `__yo_dispose_dispatch` returns 1 when it gave the
   memory to `__yo_sm_give`. Every caller of the dispatch must then skip
-  `__yo_free`; both release paths in `gc_runtime.yo` do.
+  `__yo_free`; both release paths in `gc-runtime.yo` do.
   - Anything else that frees a future's memory must go through the dispatch
     too.
   - The pools are thread-local, capped at 32 blocks, drained by
@@ -444,11 +444,11 @@ source order.
     `__yo_sm_give` refuses a block with `ref_count & __YO_RC_TAG`, which
     `__yo_rc_free` returns to its owner. `__yo_sm_pools_drain` can then free
     with `__yo_free`. Keep this invariant if a pool ever accepts a give from
-    another thread (`tests/explicit_allocators.test.yo`, "never to the task
+    another thread (`tests/explicit-allocators.test.yo`, "never to the task
     pool" and "never takes a pooled global block").
 - **The thread-exit release is the teardown of a thread no loop driver ends.**
   A test body or a plain `main(io)` is driven by synchronous awaits, so
-  `__yo_async_thread_exit_release` (`runtime_core.yo`) is where its pending
+  `__yo_async_thread_exit_release` (`runtime-core.yo`) is where its pending
   work is freed or never. It quiesces the cross-thread inbox first, as a loop
   driver does before its teardown, and it runs a queued `__yo_join_wait_fire`
   entry even when the wait is already Completed (that entry owns a reference
@@ -507,10 +507,10 @@ of the variables of its names (`variable_name`, deferred drop/dup/consumed
 targets, the name a binder bound, a property atom's token).
 
 Rules for codegen code and for the evaluator analyses codegen calls late
-(`mutation_summary.yo`, `await_analysis.yo`, `suspension_analysis.yo`):
+(`mutation-summary.yo`, `await-analysis.yo`, `suspension-analysis.yo`):
 
 - **Never call `get_variables_from_env(ei.env, name)` on a recorded env.** Call
-  `scope_variables(key, env, name)` from `src/expr_info.yo`, or
+  `scope_variables(key, env, name)` from `src/expr-info.yo`, or
   `get_variable_name_for_codegen_at(key, name, env)` for a C name. A live env
   falls through to the plain lookup; a husk answers from the records of `key`.
 - **`key` is the node whose record holds `name`**, which is not always the node
@@ -559,7 +559,7 @@ Rules for codegen code and for the evaluator analyses codegen calls late
   `-I scripts/bootstrap/libc_mimalloc` (the work ratchet does).
 - `--allocator fixed` — hand-written TLSF over ONE static `.bss` region
   (`plans/reference/FIXED_REGION_ALLOCATOR.md`). The implementation is emitted
-  by `src/codegen/c/allocator_fixed.yo`: defines + external prototypes in the
+  by `src/codegen/c/allocator-fixed.yo`: defines + external prototypes in the
   header section, the region/control block/functions ONCE in the code section
   (chunked emission keeps a single copy in chunk 0 — never move the state into
   the header, or every TU gets its own region). One family only:
@@ -570,7 +570,7 @@ Rules for codegen code and for the evaluator analyses codegen calls late
   `--debug-heap` (fixed only) prints peak/live-at-exit at process exit.
 - **`--allocator debug`** is a tracking allocator over the system heap
   (`plans/backlog/ZIG_ADOPTION_CANDIDATES.md` Z11), emitted by
-  `src/codegen/c/allocator_debug.yo` with the same header/code split and one
+  `src/codegen/c/allocator-debug.yo` with the same header/code split and one
   family (`__yo_aligned_free` IS `__yo_debug_free`). Each block carries a
   header (system pointer, size, allocation number, address-keyed canary),
   sits on a live list and is registered in a block table keyed by payload
@@ -637,12 +637,12 @@ process switched them — nested `yo test` batches) or when no console is
 attached (piped runs read 0). `WIN32_LEAN_AND_MEAN` excludes `<wincon.h>` from
 `<windows.h>`, so the wrapper emits its own `#include <wincon.h>`; the four
 functions are kernel32, the module `CreateThread` already links against. Test:
-`tests/internal/main_wrapper_console_cp.test.yo`
+`tests/internal/main-wrapper-console-cp.test.yo`
 (issues/fixed/windows-console-non-ascii-mojibake-under-legacy-code-page.md).
 
 ### RC headers: one layout
 
-Every RC cell carries the one `__yo_ref_header_t` (`ref_count` u32, `type_id` u16, `borrow_count` u16); `__yo_rc_prefix_t` is a typedef of it, kept so runtime C reads a header through one name. There is no cycle collector, no large header and no `traverse_fn` (decision 48 W6b, `plans/archive/WEAK_AND_UNCOLLECTED_RC.md` §6): dispose runs through the type-tag `__yo_dispose_dispatch`. `tests/internal/gc_runtime_atomics.test.yo` pins the runtime text.
+Every RC cell carries the one `__yo_ref_header_t` (`ref_count` u32, `type_id` u16, `borrow_count` u16); `__yo_rc_prefix_t` is a typedef of it, kept so runtime C reads a header through one name. There is no cycle collector, no large header and no `traverse_fn` (decision 48 W6b, `plans/archive/WEAK_AND_UNCOLLECTED_RC.md` §6): dispose runs through the type-tag `__yo_dispose_dispatch`. `tests/internal/gc-runtime-atomics.test.yo` pins the runtime text.
 
 **Explicit allocators changed this C contract** (`plans/reference/EXPLICIT_ALLOCATORS.md`, P0–P5 landed 2026-09-30):
 
@@ -696,7 +696,7 @@ projection of the payload (`b.*`, `b.field`, `b.method()`, `&b.*`,
 `(*((BoxT)((uintptr_t)(b) & ~(uintptr_t)1)))`; never spell `(*b)` for a
 `Box`. A place that takes the address back strips the outer `(*…)` and keeps
 the masked pointer. Until decision 49 S2 stores the bit (L2) the mask is the
-identity; `tests/box_layout.test.yo` sets the bit by hand to prove every
+identity; `tests/box-layout.test.yo` sets the bit by hand to prove every
 projection reads through it.
 
 ### A pointer to an unsized type is the fat `__yo_slice_t`
@@ -721,7 +721,7 @@ helper returns `__yo_slice_t` for an unsized pointee and `T*` otherwise. A
   walk (`src/codegen/types/generation.yo`) orders the struct after `E`, as it
   does for an `Array(E, N)` field.
 - **`unsize(&a)` is a projection call.** Its ExprInfo type is the unsized
-  place and its mode is in `unsize_reference_mode` (`src/expr_info.yo`), so
+  place and its mode is in `unsize_reference_mode` (`src/expr-info.yo`), so
   `call_projection_mode` and the evaluator's `projection_call_mode_of` treat
   it like a function returning `&T`. Never give a call's ExprInfo a reference
   type for a reference it yields: the read rule marks the reference read only
@@ -730,7 +730,7 @@ helper returns `__yo_slice_t` for an unsized pointee and `T*` otherwise. A
   `round_up(offsetof(tail) + len * sizeof(E), alignment)`, and of `[E]` it is
   `len * sizeof(E)`.
 - **`___drop` of an unsized place** (`_emit_unsized_place_drop`,
-  `src/codegen/exprs/rc_fns.yo`) drops a tail struct's fields and then loops
+  `src/codegen/exprs/rc-fns.yo`) drops a tail struct's fields and then loops
   over the elements. The loop's variables are declared before the element's
   drop is emitted, because that drop's code names them.
 
@@ -800,7 +800,7 @@ A move-only value type (a value `struct`/`enum`/`newtype` with a `Drop` impl, or
 - **A closure construction's deferred dups belong to the closure emitter.**
   They are its captures' references, written into the capture struct's
   initializer. `generate_deferred_dup_expressions` emits nothing for a closure
-  construction (`is_closure_construction`, `drop_dup.yo`), and a site that
+  construction (`is_closure_construction`, `drop-dup.yo`), and a site that
   treats a tail or returned value's dups as a borrowed value's must test it
   too (`functions/generation.yo`)
   (issues/fixed/2026-10-16-a-closure-returned-from-a-function-retains-its-captures-twice.md).
@@ -818,7 +818,7 @@ A move-only value type (a value `struct`/`enum`/`newtype` with a `Drop` impl, or
 
 ### A hand-written C declaration must be registered, or its drops vanish
 
-`generate_deferred_drop_expressions` (`src/codegen/exprs/drop_dup.yo`) silently
+`generate_deferred_drop_expressions` (`src/codegen/exprs/drop-dup.yo`) silently
 skips a `___drop` whose target temp is not in `declared_c_var_names` (the guard
 against drops of temps whose declaration was elided). `get_variable_type_string`
 records every name it declares; a site that writes its own
@@ -850,7 +850,7 @@ operand that is not already its temp. A `&self` method receiver and a discarded
 statement do not. `downcast` and `upcast` returned
 a bare expression, so `downcast(d, T).is_some()` leaked the payload on every
 evaluation. An emitter that renders one expression declares its temp through
-`bind_owning_result_temp` (`exprs/other_fn_call.yo`;
+`bind_owning_result_temp` (`exprs/other-fn-call.yo`;
 `issues/fixed/2026-10-16-a-downcast-result-used-as-a-method-receiver-is-never-released.md`).
 To check a new producer, compare `x := e`, `e.m()` (a `&self` method) and `e;`
 under `--sanitize address`.
@@ -874,7 +874,7 @@ projection passed to a borrowing parameter gets a +1 the caller releases after
 the call. Both ride on the argument as a deferred `___dup`, so any emitter that
 generates call arguments must honor it — the plain call through
 `_materialize_arg`, the method-dispatch emitters through `_dispatch_arg_code`
-(`src/codegen/exprs/other_fn_call.yo`). A bare `_call_generate_expr(arg)` in an
+(`src/codegen/exprs/other-fn-call.yo`). A bare `_call_generate_expr(arg)` in an
 argument loop drops the dup: a `sink` callee then releases a reference it was
 never given, and the caller-side drop silently vanishes with its undeclared temp
 (`issues/fixed/a-field-passed-to-an-own-parameter-of-a-method-call-is-not-retained.md`).
@@ -903,9 +903,9 @@ closure tail (a `fn`-pointer field, a `Dyn(Fn …)` vtable call, a static
 (`issues/fixed/2026-10-24-a-dyn-closure-field-call-operand-runs-after-a-later-hoisted-argument.md`).
 
 A plain operand that is no call (`h.tag`, a local `x`) is settled by
-`sequence_operand` (`src/codegen/exprs/other_fn_call.yo`): every operand loop —
+`sequence_operand` (`src/codegen/exprs/other-fn-call.yo`): every operand loop —
 the plain-call, method-dispatch, dyn, constructor, primitive-operator
-(`generation.yo`), tuple (`tuple_fn.yo`), array (`array_fns.yo`) and fused-await
+(`generation.yo`), tuple (`tuple-fn.yo`), array (`array-fns.yo`) and fused-await
 (`async.yo`) paths — passes each earlier by-value operand's final code (after
 its deferred dup) to it, and a later operand that names the operand's local
 root or may write spills the value into a fresh `__yo_seq_<n>` local declared
@@ -924,7 +924,7 @@ itself in the nearest begin-block frame, and its scope-end drop runs at that
 block's end — EXCEPT a temp the statement LENDS (a call argument whose
 parameter slot is a `Reference` — marker, exempt or receiver spelling — and a
 borrowed `match` scrutinee): the evaluator marks only the lent expression's
-SOURCE TOKEN (`note_lent_temporary`, `src/expr_info.yo`, at the marker-peel
+SOURCE TOKEN (`note_lent_temporary`, `src/expr-info.yo`, at the marker-peel
 convergence `apply_call_site_borrow_markers` and the match scrutinee; a call
 argument is evaluated several times and each pass mints its own temp NAME, so
 the token is the one stable fact), and the statement loops correlate it with
@@ -992,7 +992,7 @@ the declaration line. Without the store, the drop releases calloc zero and the
 value leaks on every iteration of a loop body: `read_dir` leaked every entry's
 name, 2,060 blocks per 20 calls
 (`issues/fixed/async-loop-body-temp-drops-leak-one-allocation-per-iteration.md`).
-Every temp-declaring site in `other_fn_call.yo` does this; a new one must too.
+Every temp-declaring site in `other-fn-call.yo` does this; a new one must too.
 A consumer that reads such a temp after a later operand's await must read the
 slot, never the C local: `_sm_lent_temp_slot` maps the temp's name to its slot
 for a by-value argument (`_apply_ref_amp`), a pointer argument and a borrowing
@@ -1026,9 +1026,9 @@ This function generates C code for `value(arg)` dispatched through the Index tra
 - For non-builtin methods (ArrayList, HashMap, etc.): generates a named function call
 - Auto-dereferences the pointer result unless wrapped in `addr_of()` (checked via the `ExprInfo.is_index_trait_address_of` flag)
 
-### `ptr_fns.yo` address-of optimization
+### `ptr-fns.yo` address-of optimization
 
-`addr_of(arr(i))` where `arr(i)` uses Index trait dispatch skips the auto-deref. `generate_address_of` in `src/codegen/exprs/ptr_fns.yo` detects `is_index_trait_address_of` and inlines the builtin directly, producing `(&((&arr)->data[i]))` without the outer `*` deref.
+`addr_of(arr(i))` where `arr(i)` uses Index trait dispatch skips the auto-deref. `generate_address_of` in `src/codegen/exprs/ptr-fns.yo` detects `is_index_trait_address_of` and inlines the builtin directly, producing `(&((&arr)->data[i]))` without the outer `*` deref.
 
 ### Why Index methods use inline expansion
 
@@ -1043,7 +1043,7 @@ to C names by `fixup_dyn_impl_keys`, and then read by everything that emits dyn
 machinery — the box typedefs (`generate_dyn_box_types`), the box ctor/dispose
 and wrapper functions, and the vtables with their `__yo_typeid_<concrete>`
 statics (`src/codegen/functions/dyn.yo`). Because collection runs before any
-function body is emitted (`src/codegen/codegen_c.yo`), a body emitter can treat
+function body is emitted (`src/codegen/codegen-c.yo`), a body emitter can treat
 the registry as complete.
 
 Two consequences worth knowing before touching `src/codegen/exprs/downcast.yo`:
@@ -1090,7 +1090,7 @@ slot's `__yo_once_r`, say) must also test the rendered return type
 > does not resolve, grep the emitted C string (e.g. `__yo_effect_escaped`)
 > instead of the identifier.
 
-- Functions with `generic(E : Type.Struct)` polymorphic over an effect bundle have generic bodies where sub-expression type info may be missing. The TypeScript compiler ran a codegen-phase effect pre-pass (`preRegisterEffectfulFunctions`) for them. **The self-hosted compiler has no such pass** — `ExprInfo.effect_analysis` is never written in a self-emit (see the rare-field note in `src/expr_info.yo`), so its readers in `codegen/functions/collection.yo` and `codegen/functions/declarations.yo` always see `.None`, and effect codegen is driven instead by the evidence parameters collected at declaration time (`collect_evidence_from_record` / `get_evidence_parameters` in `src/codegen/functions/declarations.yo`).
+- Functions with `generic(E : Type.Struct)` polymorphic over an effect bundle have generic bodies where sub-expression type info may be missing. The TypeScript compiler ran a codegen-phase effect pre-pass (`preRegisterEffectfulFunctions`) for them. **The self-hosted compiler has no such pass** — `ExprInfo.effect_analysis` is never written in a self-emit (see the rare-field note in `src/expr-info.yo`), so its readers in `codegen/functions/collection.yo` and `codegen/functions/declarations.yo` always see `.None`, and effect codegen is driven instead by the evidence parameters collected at declaration time (`collect_evidence_from_record` / `get_evidence_parameters` in `src/codegen/functions/declarations.yo`).
 
 ### Evidence passing for effects
 
@@ -1121,8 +1121,8 @@ See `issues/fixed/sync-effect-inlining-inside-async-context.md` for the full des
 
 **Forall function-type effects (e.g., `Raise :: ctl(generic(T), msg: String) -> T`):**
 
-- Bare function-type effect handlers from local `(raise : Raise) = ((msg) -> { ... })` bindings are marked as effect-record members in the evaluator (`src/evaluator/exprs/initialization_assignment.yo`; the predicate is `is_effect_record_member` in `src/function_value.yo`). This historical flag means "effect member function" and ensures their C function body is generated despite having generic parameters (the generic types are erased at runtime).
-- The evaluator includes generic function effects in async closure capture structs (`src/evaluator/values/anonymous_function.yo`). They are stored as `void*` and cast at each call site.
+- Bare function-type effect handlers from local `(raise : Raise) = ((msg) -> { ... })` bindings are marked as effect-record members in the evaluator (`src/evaluator/exprs/initialization-assignment.yo`; the predicate is `is_effect_record_member` in `src/function-value.yo`). This historical flag means "effect member function" and ensures their C function body is generated despite having generic parameters (the generic types are erased at runtime).
+- The evaluator includes generic function effects in async closure capture structs (`src/evaluator/values/anonymous-function.yo`). They are stored as `void*` and cast at each call site.
 - Effect injection at `io.await`/`io.spawn` writes the handler function pointer into the future's capture struct for both struct-record and generic function-type effects (`emit_effect_injection_for_await` in `src/codegen/exprs/await.yo`).
 
 **Mixed unwind+return handlers:**
@@ -1175,7 +1175,7 @@ Destructors are ordinary code, and every may-unwind call in one starts by cleari
 
 The `__yo_effect_escaped` and `__yo_unwind_value` variables are declared via the emitter's `emit_declaration_line` (in the declaration section of the C output) so they are available to sync_fut_t resume functions which are also emitted in the declaration section.
 
-Key files (all under `src/codegen/`): `functions/context.yo` (`is_effect_record_member_function`), `functions/generation.yo` (declaration + context flag), `exprs/return.yo` (flag set in `generate_unwind`), `exprs/other_fn_call.yo` (flag check + abort at call site), `exprs/async.yo` (unwind check in sync_fut_t resume).
+Key files (all under `src/codegen/`): `functions/context.yo` (`is_effect_record_member_function`), `functions/generation.yo` (declaration + context flag), `exprs/return.yo` (flag set in `generate_unwind`), `exprs/other-fn-call.yo` (flag check + abort at call site), `exprs/async.yo` (unwind check in sync_fut_t resume).
 
 ### Function collection for evidence-bearing functions
 
@@ -1191,11 +1191,11 @@ Functions with evidence parameters (from `io: Io` or algebraic effect parameters
 
 A specialization function value always has a specialized type set but inherits `value.type` from the original generic function value. So a specialization is "concrete at the C ABI" yet still answers `is_function_type_hard_generic(value.type) == true`. Without a carve-out, the hard-generic skip in `src/codegen/functions/declarations.yo` / `generation.yo` would drop both the base AND its specializations, leaving call sites that reference the specialized C name with no matching decl/def.
 
-Use the predicate "has a specialized type AND no specialized-function caches" to exempt specializations from those skips. The pass that emits the specialized bodies must use `type_contains_some_type_for_codegen_param` (`src/evaluator/trait_checking.yo`), not the strict `type_contains_some_type`, when probing for "still-generic" parameters — struct fields whose type is a `Function` (effect-record handlers like `throw : ctl(generic(ResumeType), ...) -> ResumeType`) are type-erased fn pointers at the C ABI, so their inner generic does NOT make the outer struct still-generic for codegen.
+Use the predicate "has a specialized type AND no specialized-function caches" to exempt specializations from those skips. The pass that emits the specialized bodies must use `type_contains_some_type_for_codegen_param` (`src/evaluator/trait-checking.yo`), not the strict `type_contains_some_type`, when probing for "still-generic" parameters — struct fields whose type is a `Function` (effect-record handlers like `throw : ctl(generic(ResumeType), ...) -> ResumeType`) are type-erased fn pointers at the C ABI, so their inner generic does NOT make the outer struct still-generic for codegen.
 
 ### Effect-record handlers whose body uses `return(value)`
 
-When a struct field declared as `throw : ctl(generic(ResumeType), ...) -> ResumeType` is bound to a lambda, that lambda's body would normally have its evaluation DEFERRED (`should_defer_body` in `src/evaluator/values/anonymous_function.yo`, `should_defer_ft` in `src/evaluator/calls/function_type.yo`) because its parameter types are still `SomeT`. The handler nonetheless needs a REAL C function body, because its address is stored as `void*` in the effect record's capture struct (via `emit_effect_record_injection` in `src/codegen/exprs/await.yo`) and called through that pointer.
+When a struct field declared as `throw : ctl(generic(ResumeType), ...) -> ResumeType` is bound to a lambda, that lambda's body would normally have its evaluation DEFERRED (`should_defer_body` in `src/evaluator/values/anonymous-function.yo`, `should_defer_ft` in `src/evaluator/calls/function-type.yo`) because its parameter types are still `SomeT`. The handler nonetheless needs a REAL C function body, because its address is stored as `void*` in the effect record's capture struct (via `emit_effect_record_injection` in `src/codegen/exprs/await.yo`) and called through that pointer.
 
 So `ctl_force` in `evaluate_anonymous_function_implementation` clears `should_defer_body` for every `ctl` handler: the body IS evaluated at definition time (behind the def-eval wall), its sub-expressions get their `ExprInfo`, and codegen emits the real body — `return(v)` resumes (a plain C `return v;`, `__yo_effect_escaped` left at 0), `unwind(v)` escapes (`__yo_effect_escaped = 1` plus the `__yo_unwind_value` store, `generate_unwind` in `src/codegen/exprs/return.yo`). There is **no** `__yo_effect_escaped = 1; return ZERO;` stub gate for `return`-bodied handlers any more; an older revision of this file described one.
 
@@ -1219,7 +1219,7 @@ When an `io.await` detects a Future abort (state == -2), the behavior depends on
 
 - **Propagation** — The function receives the effect via an evidence parameter (e.g. `raise : Raise` in its own signature). When escaped, it re-sets `__yo_effect_escaped = 1` and returns a dummy value `(ReturnType){0}` so the caller can detect and handle the unwind.
 
-The helper `_call_is_handler_installation` (`src/codegen/exprs/other_fn_call.yo`) determines this by locating the handler binding locally — a direct control/effect-record callee (or its name) bound in a begin-block frame of the enclosing function, or a fn-typed/ctl-bound parameter whose threaded argument resolves to one — and `emit_effect_unwind_check`'s `is_handler_installation` parameter (`src/codegen/exprs/return.yo`) carries the verdict into the emitted check.
+The helper `_call_is_handler_installation` (`src/codegen/exprs/other-fn-call.yo`) determines this by locating the handler binding locally — a direct control/effect-record callee (or its name) bound in a begin-block frame of the enclosing function, or a fn-typed/ctl-bound parameter whose threaded argument resolves to one — and `emit_effect_unwind_check`'s `is_handler_installation` parameter (`src/codegen/exprs/return.yo`) carries the verdict into the emitted check.
 
 ### Effect member return types
 
@@ -1234,7 +1234,7 @@ The `override_return_type_str` field on `FunctionGenerationContext` (`src/codege
 
 ### Evidence function pointer casts must use void for generic handlers
 
-When calling an evidence handler through a function pointer cast (the evidence call-site path in `src/codegen/exprs/other_fn_call.yo`), the cast return type **must** match the handler's actual C return type. For generic handlers (e.g., `Exception.throw :: (fn(generic(T), error: AnyError) -> T)`), the C return type is `void` (SomeType → void). Using the call-site concrete type (e.g., `JsonValue`) creates an ABI mismatch — **undefined behavior** in C11 that crashes on WASM (`RuntimeError: unreachable`) and corrupts the stack on native.
+When calling an evidence handler through a function pointer cast (the evidence call-site path in `src/codegen/exprs/other-fn-call.yo`), the cast return type **must** match the handler's actual C return type. For generic handlers (e.g., `Exception.throw :: (fn(generic(T), error: AnyError) -> T)`), the C return type is `void` (SomeType → void). Using the call-site concrete type (e.g., `JsonValue`) creates an ABI mismatch — **undefined behavior** in C11 that crashes on WASM (`RuntimeError: unreachable`) and corrupts the stack on native.
 
 The "handler returns void" branch handles this: it declares a zero-initialized temp var, calls the handler as void, checks `__yo_effect_escaped`, and propagates unwind. See `issues/fixed/evidence-fn-ptr-void-return-abi-mismatch.md`.
 
@@ -1306,7 +1306,7 @@ and abort. `__yo_io_future_t` spells the prefix out with `_Atomic` fields, and
 with the macro. Never re-spell the fields, and never put anything ahead of
 them (issues/fixed/join-handle-of-a-raw-io-future-uses-the-state-machine-header-layout.md).
 
-The protocol on that prefix lives in `src/codegen/async/runtime_core.yo`:
+The protocol on that prefix lives in `src/codegen/async/runtime-core.yo`:
 
 - **Waiters.** `continuation_fn`/`continuation_sm` is one inline waiter slot.
   Register with `__yo_future_add_waiter(fut, fn, sm)`, never by storing into
@@ -1341,7 +1341,7 @@ For `Option(unit)` return types, the `.Some` variant has no data field — only 
 - The header for a `c_include`d symbol comes from extern-function REGISTRATION
   during codegen collection, not from module evaluation. `FuncMeta` has no
   `c_include` field — the header lives in an evaluator side-table keyed by
-  extern symbol name (`src/evaluator/exprs/c_include.yo`,
+  extern symbol name (`src/evaluator/exprs/c-include.yo`,
   `get_c_include_for_extern`) and is looked up by `_register_extern_fn_callee`
   in `src/codegen/functions/collection.yo`.
 - **A `c_include`/extern callee's expr-info VALUE is `Some(UnknownVal)`, not
@@ -1354,13 +1354,13 @@ For `Option(unit)` return types, the `.Some` variant has no data field — only 
   A function's C name rides `FuncMeta.extern_name` and an opaque type's rides
   the SomeT name, but a global's (`stdout : *FILE`) lived only in the Yo
   variable name. `{ stdout : out } :: c_include(...)` therefore records
-  `out → stdout` (`register_extern_c_global_alias`, `src/expr_info.yo`, called
+  `out → stdout` (`register_extern_c_global_alias`, `src/expr-info.yo`, called
   from the destructurer when the RHS id is a `c_include` module —
   `is_extern_c_module_id`); `get_variable_name_for_codegen` emits
   `extern_c_global_c_name(name)` and `_register_extern_global_header` looks
   the header up by it. A module-qualified read (`c.stdout`) has NO variable:
   the property atom is matched by name + declared type (its ExprInfo carries
-  `is_accessing_property`) in both `property_access.yo` (raw C name, no
+  `is_accessing_property`) in both `property-access.yo` (raw C name, no
   reserved-word prefix) and the header registration.
 - **A `c_include` pointer parameter must match the header's type, and the C
   compile step enforces it with `-Werror=incompatible-pointer-types` at every

@@ -47,13 +47,13 @@ pragma(Pragma.AllowUnsafe);
   is_maybe_sized_kind_spelling
 }
 :: import("../../expr.yo");
-{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, expr_info_adopt_env, adopt_receiver_struct_instance, some_resolution, lookup_trait_ctor_fid, lookup_trait_type_args } :: import("../../expr_info.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, expr_info_adopt_env, adopt_receiver_struct_instance, some_resolution, lookup_trait_ctor_fid, lookup_trait_type_args } :: import("../../expr-info.yo");
 { Environment, make_environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, snapshot_env, copy_env_frames, env_adopt, variable_value_type } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing, call_function_value_marker } :: import("../context.yo");
 { EvalValue, EvalValueNode, create_type_value, create_unknown_val, is_type_value, is_runtime_only_unknown_val } :: import("../../value.yo");
 { t_binder_slot, some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, SharedList, t_maybe_sized_kind, is_maybe_sized_kind, t_slot, t_slot_pointee, slot_pointee_at, t_origin_named, t_origin_elided, t_origin_kind, t_reference_with_origin, is_origin_kind, t_reference, t_slot_is_borrow, type_spells_origin, t_origin_static, t_static_str_ref, t_value_slot, is_static_origin } :: import("../../types/definitions.yo");
 { t_some_t, t_some_t_with_kind, t_some_t_of_kind, t_type, t_type_1, t_unit, t_expr_t, t_comptime_list, type_has_computed_array_len } :: import("../../types/creators.yo");
-{ type_key } :: import("../../types/type_key.yo");
+{ type_key } :: import("../../types/type-key.yo");
 { is_some_type, is_trait_type, is_function_type, is_type_0, is_type_kind, is_unit_type } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { is_expr_type, is_expr_list_type, is_fn_trait_type, is_type_application_type }
@@ -80,25 +80,25 @@ pragma(Pragma.AllowUnsafe);
   is_legacy_value_str
 }
 :: import("../../types/utils.yo");
-{ is_implicitly_unsafe_capable_file, is_macro_def_capable_file, is_std_module_path } :: import("../memory_safety.yo");
+{ is_implicitly_unsafe_capable_file, is_macro_def_capable_file, is_std_module_path } :: import("../memory-safety.yo");
 { subst_new, subst_add, subst_adopt_own_resolution, substitute, Substitution } :: import("../../types/substitution.yo");
 {
   get_value_of_some_type_from_env,
   convert_comptime_type_to_runtime_type,
   convert_comptime_type_to_runtime_type_with_expected
-} :: import("../../types/env_lookup.yo");
+} :: import("../../types/env-lookup.yo");
 { format_error_message, format_error_message_with_help, with_code, YoError } :: import("../../error.yo");
 { E_COMPTIME_PARAM_DEFAULT, E_ORIGIN_NOT_DECLARED, E_ORIGIN_NAMES_ITSELF, E_LOCAL_BORROW_ESCAPES } :: import("../../diagnostics.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_valid_variable_name, note_legacy_str_spelling } :: import("../utils.yo");
 { debug_knob } :: import("../../utils.yo");
-{ type_implements_trait, TraitCheckResult, resolve_assoc_type_for_target, is_escapable_trait } :: import("../trait_checking.yo");
+{ type_implements_trait, TraitCheckResult, resolve_assoc_type_for_target, is_escapable_trait } :: import("../trait-checking.yo");
 { Exception } :: import("std/error");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ ArrayList } :: import("std/collections/array_list");
-{ HashMap } :: import("std/collections/hash_map");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashMap } :: import("std/collections/hash-map");
 { Token, TokenKind, reserved_builtin_binding_message, empty_token_text, TokenData } :: import("../../token.yo");
-{ set_func_contract_hooks, set_refine_annotation_hook, record_owned_func_id } :: import("../values/type_trait_methods.yo");
+{ set_func_contract_hooks, set_refine_annotation_hook, record_owned_func_id } :: import("../values/type-trait-methods.yo");
 { RefCell } :: import("std/sync/refcell");
 /// (seed window) Concrete per-payload variants of refcell.yo's generic
 /// fillers: a fn value generic over its element keeps the variable abstract
@@ -288,7 +288,7 @@ copy_func_param_defaults :: (fn(from_id : &String, to_id : &String) -> unit)({
 /// parameter's NAME and TYPE. `TypeValue.Func` only keeps the
 /// `has_variadic` presence bit, which loses the binding name the
 /// def-time body evaluation must bring into scope (`...(quote(elems))`
-/// in std/collections/array_list.yo's `array_list` macro — `elems` was
+/// in std/collections/array-list.yo's `array_list` macro — `elems` was
 /// unresolved in the body).
 VariadicParamEntry :: struct(label : String, ty : TypeValue);
 derive(VariadicParamEntry, Clone);
@@ -919,16 +919,16 @@ register_func_contracts_bundle :: (
   register_func_return_label(func_id.clone(), ret);
 });
 // V6 task 1: install the contract-table hooks into the trait-method
-// registry (values/type_trait_methods.yo) — impl.yo reads/writes the
+// registry (values/type-trait-methods.yo) — impl.yo reads/writes the
 // func-contract tables through these pointers because it cannot import
-// this module (function.yo → trait_checking.yo → impl.yo). The
+// this module (function.yo → trait-checking.yo → impl.yo). The
 // `_name := (fn() -> bool)({...})();` shape is REQUIRED, not style: a
 // bare module-level call evaluates during the evaluator's module walk
 // (so `yo check` sees the hooks) but codegen collects only `:=` /
 // `(x : T) =` / `x =` inits as module-level initializers — a bare call
 // statement is DROPPED from the compiled binary, silently leaving the
 // hooks uninstalled there (the `_trait_checking_init` precedent above
-// the exports of trait_checking.yo exists for exactly this reason).
+// the exports of trait-checking.yo exists for exactly this reason).
 _func_contract_hooks_init := (fn() -> bool)({
   set_func_contract_hooks(
     get_func_requires_exprs,
@@ -940,7 +940,7 @@ _func_contract_hooks_init := (fn() -> bool)({
 })();
 // V6 task 3: install the refine()-annotation registry write hook for
 // contracts.yo (evaluate_refine) — see the RefineAnnotationRegisterFn
-// note in values/type_trait_methods.yo.
+// note in values/type-trait-methods.yo.
 _refine_annotation_hook_init := (fn() -> bool)({
   set_refine_annotation_hook(register_refine_annotation);
   true
@@ -5854,7 +5854,7 @@ collect_wrapper_trait_somes :: (fn(wrapper : &TypeValue) -> ArrayList(TypeValue)
       // raw declared `Impl(Future(T, E))` even though Step 6b had already
       // bound `T := i32` / `E := Io` in callee_env from the annotation —
       // the assignment's compat check then rejected two identically-
-      // printing Impl SomeTs (tests/async_await.test.yo arm 65;
+      // printing Impl SomeTs (tests/async-await.test.yo arm 65;
       // scratchpad/t5/B_io_variant.yo). The no-expected case is unaffected:
       // an unbound T/E resolves to itself and the substitution below no-ops,
       // so the async pipeline's unresolved-SomeT registrations keep their
@@ -6270,7 +6270,7 @@ _cta_seen :: (fn(cta_v : &ArrayList(String), cta_id : &String) -> bool)({
 /// (types/substitution.yo:290-298) — the gap is only in the MAP, so a forall
 /// occurring solely as an instantiation ARGUMENT is never a substitution key.
 /// `type_key` keys an instance as `gs_<ctor_fid>_<type_arguments>`
-/// (types/type_key.yo:137), so a raw SomeT in an argument slot emits a SECOND
+/// (types/type-key.yo:137), so a raw SomeT in an argument slot emits a SECOND
 /// C struct with the same layout (tests/where_clause_fn_inference).
 ///
 /// `visited_ids` is the same cycle guard `_collect_some_types_into` needs
@@ -6488,7 +6488,7 @@ evaluate_function_return_type_again :: (
     .None => resolved
   );
   // Applied AFTER the adopt, never before: `adopt_receiver_struct_instance`'s
-  // tyarg gate (expr_info.yo:857-890) treats an UNRESOLVED ret tyarg as a
+  // tyarg gate (expr-info.yo:857-890) treats an UNRESOLVED ret tyarg as a
   // wildcard and requires a RESOLVED one to match the receiver's by rendered
   // type, so concretising first could flip a currently-passing adopt to
   // `.None` and silently switch off the Gap-6 attempt-#8(a) fix.

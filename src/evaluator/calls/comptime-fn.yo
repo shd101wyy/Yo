@@ -1,0 +1,1594 @@
+//! evaluator/calls/comptime-fn — evaluate_comptime_fn_call.
+//!
+//! Phase 3a — full implementation.
+//!
+//! `evaluate_comptime_fn_call` executes a compile-time function (CTFE),
+//! caches the result (keyed by func_id + arg values), and handles recursive
+//! CTFE by inserting a temporary `UnknownVal` placeholder to break cycles.
+//!
+//! Design notes:
+//!   - The per-function cache lives in `g_comptime_fn_caches` (a global keyed
+//!     by func_id) to avoid circular imports.
+//!   - No AST cloning needed (Yo uses ExprInfoTable — AST re-evaluation is safe).
+//!   - TypeValue is a pure enum: no display-name or FuncVal back-patching.
+//!   - SomeType id comparison uses `SomeT.id` for exact identity.
+pragma(Pragma.AllowUnsafe);
+{ String } :: import("std/string");
+{ eprintln } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashMap } :: import("std/collections/hash-map");
+{ replace, swap } :: import("std/mem");
+{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string, ast_expr_is_atom_of, make_err_expr, clone_expr_fresh_ids, next_global_expr_id } :: import("../../expr.yo");
+{ register_type_display_name, register_type_display_origin_template, DISPLAY_ORIGIN_MARK } :: import("../../types/string.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, register_struct_ctor_fid, register_struct_ctor_value, lookup_struct_ctor_fid, register_trait_ctor_fid, register_trait_type_args, ComptimeRef, expr_info_adopt_env, expr_info_comptime_ref, purge_executed_clone_metadata } :: import("../../expr-info.yo");
+{ Variable, Environment, snapshot_env } :: import("../../env.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types, no_type_lists, t_slot_pointee, SharedList } :: import("../../types/definitions.yo");
+{ t_unit, t_some_t, stamp_enum_final_type_arguments, ctor_phantom_flags } :: import("../../types/creators.yo");
+{ are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
+{ is_some_type, is_type_hierarchy_type, is_type_0, is_struct_type, is_shared_cell_type_name } :: import("../../types/guards.yo");
+{ macro_return_is_unquote } :: import("../types/function.yo");
+{ type_contains_some_type, get_all_some_types, is_bound_closure_identity, type_carries_origin, type_is_sized, unsized_by_value_error, is_legacy_value_str, legacy_value_str } :: import("../../types/utils.yo");
+{
+  EvalValue,
+  EvalValueNode,
+  eval_value_eq,
+  is_type_val,
+  is_unknown_val,
+  create_unknown_val,
+  create_unknown_val_with_name,
+  register_enum_cfid,
+  lookup_enum_cfid,
+  register_type_ctor_value,
+  value_to_string
+} :: import("../../value.yo");
+{ stable_module_id, debug_knob } :: import("../../utils.yo");
+{
+  EvalContext,
+  ArgValues,
+  CalledComptimeFnCache,
+  CapturedVarInfo,
+  ComptimeFnCacheEntry,
+  ComptimeFnCallResult,
+  FuncOrAsyncBlockCtx,
+  FuncOrAsyncBlockKind,
+  ImplConcreteTypeInfo,
+  in_def_time_trial
+} :: import("../context.yo");
+{ evaluate_begin_expression } :: import("../exprs/begin.yo");
+{ note_ctfe_reference_params, note_legacy_str_type_arg } :: import("../utils.yo");
+{ format_error_message, YoError } :: import("../../error.yo");
+{ Exception } :: import("std/error");
+{ RefCell } :: import("std/sync/refcell");
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `ArrayList(ComptimeFnCacheEntry)` (4 uses)
+_c_len_2 :: (fn(xs : &ArrayList(ComptimeFnCacheEntry)) -> usize)(xs.len());
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Global CTFE cache.
+//
+// One GLOBAL cache per function identity, shared by every module.
+// Keeping them on the EvalContext failed: the demand loader creates a
+// FRESH context per imported
+// module, so each module minted its OWN `ArrayList(u8)` instantiation
+// (different struct ids) and cross-module unification failed
+// ("Cannot unify <struct:A> and <struct:B>" for the same written type —
+// the std/glob `as_bytes()` vs local `ArrayList(u8)` param family).
+// Hence a module-level global keyed by func_id.
+// ---------------------------------------------------------------------------
+(g_comptime_fn_caches : RefCell(ArrayList(ComptimeFnCacheEntry))) = RefCell(ArrayList(ComptimeFnCacheEntry)).new(ArrayList(ComptimeFnCacheEntry).new());
+// A bucket is a value (`ComptimeFnCacheEntry` is a plain struct), so a
+// `get_cloned` copy of one is detached from the cache: every write goes
+// through the in-place helpers below, and a lookup compares ids in place
+// instead of cloning each bucket's whole `caches` list to read its id.
+/// The index of `fid`'s bucket, compared in place.
+_cfc_bucket_index :: (fn(fid : &String) -> Option(usize))(
+  g_comptime_fn_caches.with({ want : fid.clone() }(xs) => {
+    (found : Option(usize)) = Option(usize).None;
+    (i : usize) = usize(0);
+    while((i < xs.len()) && found.is_none(), {
+      if(xs(i).func_id == want, {
+        found = Option(usize).Some(i);
+      });
+      i = (i + usize(1));
+    });
+    found
+  })
+);
+/// A copy of `fid`'s bucket (read-only: writes go through `_cfc_push` /
+/// `_cfc_drop_at`).
+_cfc_bucket :: (fn(fid : &String) -> Option(ComptimeFnCacheEntry))(
+  match(
+    _cfc_bucket_index(fid),
+    .Some(bi) => g_comptime_fn_caches.with(xs => xs.get_cloned(bi)),
+    .None => Option(ComptimeFnCacheEntry).None
+  )
+);
+/// Append `c` to the bucket at `idx`, in place.
+_cfc_push :: (fn(idx : usize, c : CalledComptimeFnCache) -> unit)(
+  g_comptime_fn_caches.with_mut({ idx, c }(xs) => {
+    if(idx < xs.len(), {
+      xs.with(idx, { c }(e) => e.caches.push(c));
+    });
+  })
+);
+/// Remove the cache at position `k` of the bucket at `idx`, in place.
+_cfc_drop_at :: (fn(idx : usize, k : usize) -> unit)(
+  g_comptime_fn_caches.with_mut({ idx, k }(xs) => {
+    if(idx < xs.len(), {
+      xs.with(idx, { k }(e) => {
+        if(k < e.caches.len(), {
+          e.caches.drain(k .. (k + usize(1)));
+        });
+      });
+    });
+  })
+);
+// Internal helper: compare two EvalValues for CTFE cache lookup.
+//
+// For TypeVal arguments:
+//   - Both SomeT: compare by SomeT.id (exact identity).
+//   - One SomeT, other not: false.
+//   - Either contains SomeT: use exact structural comparison.
+//   - Otherwise: use standard type compatibility.
+// For non-TypeVal arguments: use eval_value_eq.
+// ---------------------------------------------------------------------------
+/// TRUE when `ty` still carries a GENUINELY ABSTRACT `SomeT` anywhere inside it.
+///
+/// `get_all_some_types` (types/utils.yo) is the DEEP walk — it recurses through
+/// `Pointer`/`Struct`/`Func`/… where `type_contains_some_type` only looks at the
+/// top level — but it collects every `SomeT` raw. The two carve-outs below are
+/// the same ones `type_contains_some_type`'s own `SomeT` arm makes, for the same
+/// reason: an `extern(...)` opaque and a `SomeT` that already carries a resolved
+/// concrete are CONCRETE, and counting them as abstract splits one memo entry
+/// into two (the era hazard `_ctfe_types_era_equal` exists to avoid).
+_has_abstract_some :: (fn(ty : &TypeValue) -> bool)({
+  somes := get_all_some_types(ty);
+  (i : usize) = usize(0);
+  (found : bool) = false;
+  while((i < somes.len()) && !found, {
+    match(
+      somes.get_cloned(i),
+      .Some(Rc(.SomeT({ resolution : has_rc }))) => if(has_rc.is_none(), {
+        found = true;
+      }),
+      .Some(_) => (),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+/// ERA-equivalence for CTFE cache identity (depth-bounded): two type values
+/// are the SAME instantiation when their ids match — or when they are ERA
+/// INSTANCES of one instantiation: same constructor fid AND (for structs)
+/// pairwise era-equal type_arguments. This is the CREATION-side
+/// canonicalization (the gap-6 attempt-#8 lesson): without it,
+/// `Option(Node-era-A)` and `Option(Node-era-B)` landed in SEPARATE memo
+/// entries whenever Node itself had split eras, so callers and callees kept
+/// diverging one level up (the imm_sorted_map/imm_threading caller-arg
+/// struct-to-struct casts). Enums carry no type_arguments; their cfid match
+/// falls back to pairwise era-equal variant FIELD lists. Concrete same-shape
+/// but different-ctor types still take the EXACT fallback (the MapEntry/ME
+/// cache-collision hazard).
+/// Equal struct or enum ids decide identity only when the two sides' recorded
+/// type arguments agree pairwise: `substitute()` keeps the declaration's id on
+/// every instantiation, so `Iter(usize)` and `Iter(String)` share one
+/// (issues/fixed/ctfe-memo-shared-struct-id-fast-path-smell.md), and so do
+/// `Option(i32)` and `Option(bool)` built from one generic producer's
+/// `Option(T)` (`JoinHandle(T).join`'s result at two `T`s,
+/// issues/fixed/2026-10-20-a-type-built-from-a-binder-bound-to-a-substituted-enum-reuses-another-instantiation.md).
+/// A recursive declaration's self-shell shares both the id and the arguments
+/// (or records none), so it still unifies.
+_ctfe_same_id_type_args_agree :: (fn(aty : &TypeValue, bty : &TypeValue, d : usize) -> bool)({
+  a_ta := match(aty, Rc(.Struct({ type_arguments : t })) => Rc.clone(t), Rc(.EnumT({ type_arguments : t })) => Rc.clone(t), _ => no_types());
+  b_ta := match(bty, Rc(.Struct({ type_arguments : t })) => Rc.clone(t), Rc(.EnumT({ type_arguments : t })) => Rc.clone(t), _ => no_types());
+  if(a_ta.len() != b_ta.len(), {
+    // One era recorded its arguments and the other did not (a pattern-era
+    // copy): the id is all there is to go on.
+    return((a_ta.len() == usize(0)) || (b_ta.len() == usize(0)));
+  });
+  (i : usize) = usize(0);
+  while(i < a_ta.len(), {
+    if(!_ctfe_types_era_equal(match(a_ta.get(i), .Some(t) => t, .None => t_unit()), match(b_ta.get(i), .Some(t) => t, .None => t_unit()), d + usize(1)), {
+      return(false);
+    });
+    i = (i + usize(1));
+  });
+  true
+});
+_ctfe_types_era_equal :: (fn(aty : &TypeValue, bty : &TypeValue, d : usize) -> bool)({
+  if(d > usize(6), {
+    return(are_types_compatible_exact(aty, bty));
+  });
+  a_sid := match(aty, Rc(.Struct({ id : x })) => x.clone(), _ => String.from(""));
+  b_sid := match(bty, Rc(.Struct({ id : x })) => x.clone(), _ => String.from(""));
+  if((a_sid.len() > usize(0)) && (a_sid == b_sid), {
+    return(_ctfe_same_id_type_args_agree(aty, bty, d));
+  });
+  a_eid := match(aty, Rc(.EnumT(x, _, _, _, _, _, _, _, _, _)) => x.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
+  b_eid := match(bty, Rc(.EnumT(x, _, _, _, _, _, _, _, _, _)) => x.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
+  if((a_eid.len() > usize(0)) && (a_eid == b_eid), {
+    return(_ctfe_same_id_type_args_agree(aty, bty, d));
+  });
+  // Struct era instances: same ctor fid + era-equal type arguments.
+  if((a_sid.len() > usize(0)) && (b_sid.len() > usize(0)), {
+    a_cf := match(lookup_struct_ctor_fid(&a_sid), .Some(f) => f, .None => String.from(""));
+    b_cf := match(lookup_struct_ctor_fid(&b_sid), .Some(f) => f, .None => String.from(""));
+    if((a_cf.len() > usize(0)) && (a_cf == b_cf), {
+      a_ta := match(aty, Rc(.Struct({ type_arguments : t })) => Rc.clone(t), _ => no_types());
+      b_ta := match(bty, Rc(.Struct({ type_arguments : t })) => Rc.clone(t), _ => no_types());
+      if((a_ta.len() == b_ta.len()) && (a_ta.len() > usize(0)), {
+        (tai : usize) = usize(0);
+        (ta_ok : bool) = true;
+        while((tai < a_ta.len()) && ta_ok, {
+          at2 := match(a_ta.get(tai), .Some(t) => t, .None => t_unit());
+          bt2 := match(b_ta.get(tai), .Some(t) => t, .None => t_unit());
+          if(!recur(&at2, &bt2, d + usize(1)), {
+            ta_ok = false;
+          });
+          tai = (tai + usize(1));
+        });
+        if(ta_ok, {
+          return(true);
+        });
+      });
+    });
+    return(are_types_compatible_exact(aty, bty));
+  });
+  // Enum era instances: same cfid + era-equal variant field lists.
+  if((a_eid.len() > usize(0)) && (b_eid.len() > usize(0)), {
+    a_ecf := lookup_enum_cfid(&a_eid);
+    b_ecf := lookup_enum_cfid(&b_eid);
+    if((a_ecf.len() > usize(0)) && (a_ecf == b_ecf), {
+      a_vf := match(aty, Rc(.EnumT(_, _, _, vf, _, _, _, _, _, _)) => Rc.clone(vf), _ => no_type_lists());
+      b_vf := match(bty, Rc(.EnumT(_, _, _, vf, _, _, _, _, _, _)) => Rc.clone(vf), _ => no_type_lists());
+      if(a_vf.len() == b_vf.len(), {
+        (vfi : usize) = usize(0);
+        (vf_ok : bool) = true;
+        while((vfi < a_vf.len()) && vf_ok, {
+          a_fl := match(a_vf.get(vfi), .Some(f) => f, .None => no_types());
+          b_fl := match(b_vf.get(vfi), .Some(f) => f, .None => no_types());
+          if(a_fl.len() != b_fl.len(), {
+            vf_ok = false;
+          }, {
+            (ffi : usize) = usize(0);
+            while((ffi < a_fl.len()) && vf_ok, {
+              af2 := match(a_fl.get(ffi), .Some(t) => t, .None => t_unit());
+              bf2 := match(b_fl.get(ffi), .Some(t) => t, .None => t_unit());
+              if(!recur(&af2, &bf2, d + usize(1)), {
+                vf_ok = false;
+              });
+              ffi = (ffi + usize(1));
+            });
+          });
+          vfi = (vfi + usize(1));
+        });
+        // Era instances of ONE instantiation also agree on its recorded
+        // type arguments: `P(i32)` and `P(bool)` of a phantom-indexed enum
+        // have identical variant fields and must still be two memo keys.
+        a_eta := match(aty, Rc(.EnumT({ type_arguments : t })) => Rc.clone(t), _ => no_types());
+        b_eta := match(bty, Rc(.EnumT({ type_arguments : t })) => Rc.clone(t), _ => no_types());
+        if(vf_ok && (a_eta.len() > usize(0)) && (a_eta.len() == b_eta.len()), {
+          (etai : usize) = usize(0);
+          while((etai < a_eta.len()) && vf_ok, {
+            if(!recur(match(a_eta.get(etai), .Some(t) => t, .None => t_unit()), match(b_eta.get(etai), .Some(t) => t, .None => t_unit()), d + usize(1)), {
+              vf_ok = false;
+            });
+            etai = (etai + usize(1));
+          });
+        });
+        if(vf_ok, {
+          return(true);
+        });
+      });
+    });
+    return(are_types_compatible_exact(aty, bty));
+  });
+  are_types_compatible_exact(aty, bty)
+});
+_ctfe_args_equal :: (
+  fn(
+    cached_av : &EvalValue,
+    given_av : &EvalValue
+  ) -> bool
+)(
+  match(
+    cached_av,
+    Rc(.TypeVal(aty_b)) => match(
+      given_av,
+      Rc(.TypeVal(bty_b)) => {
+        aty := Rc.clone(aty_b);
+        bty := Rc.clone(bty_b);
+        a_is_some := is_some_type(&aty);
+        b_is_some := is_some_type(&bty);
+        // Type values are copies, not shared objects, so cached type args
+        // compare by identity-carrying ids: a
+        // struct/enum ID is unique per definition and SHARED between a
+        // mid-definition self-shell and its final (struct.yo mints one id for
+        // both) — so same-id means same type. Without this, a
+        // self-recursive constructor's `Option(Self)` (arg = fieldless shell)
+        // and the post-definition `Option(RBNode(K, V))` (arg = stamped final)
+        // land in SEPARATE memo entries, splitting one type into two
+        // enum instances.
+        a_struct_id := match(&aty, Rc(.Struct({ id : as_id })) => as_id.clone(), _ => String.from(""));
+        b_struct_id := match(&bty, Rc(.Struct({ id : bs_id })) => bs_id.clone(), _ => String.from(""));
+        // ENUM self-shells carry a `__self_shell` id SUFFIX (unlike struct
+        // shells, which share the final's id exactly — see the comment
+        // above). Strip it so `ArrayList(Self)` inside a recursive enum's
+        // OWN declaration (arg = the suffixed shell) memo-hits the
+        // post-definition `ArrayList(MyExpr)` (arg = the final): without
+        // this the two calls landed in SEPARATE memo entries, minting TWO
+        // ArrayList(MyExpr) instantiations -> two C types whose
+        // traverse/drop machinery cross-corrupted the heap (the
+        // recursive-enum Rc(Self)+ArrayList(Self) OOM/segv,
+        // issues/repros/recursive-enum-box-plus-arraylist-self.yo).
+        a_enum_id := match(&aty, Rc(.EnumT(ae_id, _, _, _, _, _, _, _, _, _)) => ae_id.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
+        b_enum_id := match(&bty, Rc(.EnumT(be_id, _, _, _, _, _, _, _, _, _)) => be_id.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
+        cond(
+          ((a_struct_id.len() > usize(0)) && (a_struct_id == b_struct_id)) => _ctfe_same_id_type_args_agree(&aty, &bty, usize(0)),
+          ((a_enum_id.len() > usize(0)) && (a_enum_id == b_enum_id)) => _ctfe_same_id_type_args_agree(&aty, &bty, usize(0)),
+          // Two closure identities are one type exactly when their
+          // resolutions are (plans/reference/TYPE_IDENTITY.md). The id says
+          // nothing: every `(k : Impl(Fn() -> unit))` annotation evaluates to
+          // one memoized wrapper id, and each closure's COPY carries its own
+          // capture struct as its resolution, so `ArrayList(typeof(k2))` memo-hit
+          // `ArrayList(typeof(k1))`
+          // (issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
+          (is_bound_closure_identity(&aty) && is_bound_closure_identity(&bty)) => are_types_compatible_exact(&aty, &bty),
+          (a_is_some && b_is_some && (is_bound_closure_identity(&aty) || is_bound_closure_identity(&bty))) => false,
+          // Both bare SomeT: must be the exact same id
+          (a_is_some && b_is_some) => (
+            match(aty, Rc(.SomeT(id : aid)) => aid.clone(), _ => String.from("")) ==
+              match(bty, Rc(.SomeT(id : bid)) => bid.clone(), _ => String.from(""))
+          ),
+          // One bare SomeT, other not: different types
+          (a_is_some || b_is_some) => false,
+          // NESTED analogue of the rule above: one side still carries an
+          // unresolved SomeT somewhere inside and the other does not, so one is
+          // an ABSTRACT instantiation and the other a CONCRETE one — never the
+          // same memo entry. `type_contains_some_type` below is SHALLOW (top
+          // level `SomeT`/`TypeAppT` only), so it cannot see into a `Pointer`,
+          // and `are_types_compatible_exact` is a SUBTYPING predicate that
+          // answers TRUE for an unconstrained `SomeT` against anything. With
+          // neither able to tell them apart, a concrete `Option(*(Dyn(Trait)))`
+          // request memo-hit the abstract `Option(*(T))` shell (and, while an
+          // extern opaque was a bound-less SomeT, the `Option(*(FILE))` entry
+          // `std/libc/stdio` creates) — so `ArrayList(T)._ptr : ?(*(T))`
+          // at `T = Dyn(Trait)` bound to a payload that was not `*(Dyn(Trait))`,
+          // and `_ptr.add(self._length)` in `push` had no `.add` to resolve.
+          // `_has_abstract_some` is the DEEP walk, and a `DynT` contributes no
+          // SomeTs at all — which is the whole distinction.
+          // issues/fixed/an-extern-opaque-type-unifies-with-every-dyn.md
+          (_has_abstract_some(&aty) != _has_abstract_some(&bty)) => false,
+          // Either side contains a SomeT inside: require exact structural match
+          (type_contains_some_type(&aty) || type_contains_some_type(&bty)) =>
+            are_types_compatible_exact(&aty, &bty),
+          // ERA INSTANCES of one instantiation (same ctor fid + era-equal
+          // args/fields) memo-hit — see _ctfe_types_era_equal. This is what
+          // keeps Option(Node-era-A) and Option(Node-era-B) in ONE memo
+          // entry so eras converge instead of propagating upward.
+          _ctfe_types_era_equal(&aty, &bty, usize(0)) => true,
+          // Concrete types: require EXACT match for cache identity, NOT lenient
+          // compatibility. Lenient `are_types_compatible` treats two distinct
+          // same-shaped structs as equal (e.g. a user `object(name, kind)` vs
+          // `MapEntry(key, value)`), causing a CACHE COLLISION: a later
+          // `(?*)(MapEntry(String, ArrayList(ME)))` wrongly hit a cached
+          // `(?*)(ME)` entry and returned `Option(*(ME))` — making
+          // `HashMap(.., ArrayList(<RC>)).new()`'s data field `?(*(ME))` and
+          // failing method resolution. See
+          // issues/fixed/phase3-nested-generic-method-resolution-unit.md.
+          true => are_types_compatible_exact(&aty, &bty)
+        )
+      },
+      _ => false
+    ),
+    _ => eval_value_eq(cached_av, given_av)
+  )
+);
+// ---------------------------------------------------------------------------
+// Recursive-type-reference side-table.
+//
+// When a type constructor recursively references itself during CTFE, the
+// recursive call hits the in-progress temp cache and must return a placeholder
+// that is a LEAF in the type graph (so the resulting TypeValue is a finite DAG
+// and `type_to_string`/`synthesize`/`substitute` terminate), resolved lazily
+// when the type is used as a constructor.
+//
+// `SomeT` (in `definitions.yo`) cannot carry `EvalValue` arg-values
+// (circular import), so we keep the placeholder a bare `SomeT` and record the
+// resolution info in this module-level side-table, keyed by the placeholder
+// SomeT's unique id. `resolve_recursive_type_ref` (in `function.yo`) reads it.
+// Mutated via `push` (never reassigned), mirroring `impl.yo`'s registry.
+// ---------------------------------------------------------------------------
+RecursiveTypeRef :: struct(
+  /// The placeholder `SomeT`'s `id` — the lookup key.
+  some_id : String,
+  /// The type-constructor function's `func_id` (→ `g_comptime_fn_caches`).
+  func_id : String,
+  /// The argument values of the in-progress instantiation (for exact match).
+  arg_values : ArrayList(EvalValue)
+);
+derive(RecursiveTypeRef, Clone);
+(g_recursive_type_refs : RefCell(ArrayList(RecursiveTypeRef))) = RefCell(ArrayList(RecursiveTypeRef)).new(ArrayList(RecursiveTypeRef).new());
+/// Look up the recursive-type-ref for a placeholder SomeT id, if any.
+lookup_recursive_type_ref :: (fn(some_id : &String) -> Option(RecursiveTypeRef))(
+  g_recursive_type_refs.with({ some_id : &some_id.* }(xs) => {
+    (found : Option(RecursiveTypeRef)) = Option(RecursiveTypeRef).None;
+    (i : usize) = usize(0);
+    while((i < xs.len()) && found.is_none(), {
+      if(xs(i).some_id == some_id.*, {
+        found = Option(RecursiveTypeRef).Some(xs(i).clone());
+      });
+      i = (i + usize(1));
+    });
+    found
+  })
+);
+/// Is `v` a TypeVal carrying a RESOLVED type (not a recursion placeholder)?
+/// A placeholder is a `SomeT` whose id is registered in the side-table; any
+/// other TypeVal is resolved. Returns the inner type when resolved.
+_resolved_type_of :: (fn(v : &EvalValue) -> Option(TypeValue))(
+  match(
+    v,
+    Rc(.TypeVal(tb)) => {
+      t := Rc.clone(tb);
+      is_placeholder := match(
+        &t,
+        Rc(.SomeT(id : sid2)) => match(lookup_recursive_type_ref(&sid2.*), .Some(_) => true, .None => false),
+        _ => false
+      );
+      cond(
+        is_placeholder => Option(TypeValue).None,
+        true => Option(TypeValue).Some(t)
+      )
+    },
+    _ => Option(TypeValue).None
+  )
+);
+/// Pairwise-equal two CTFE arg-value lists (same length + `_ctfe_args_equal`).
+_arg_vals_equal :: (fn(a : &ArrayList(EvalValue), b : &ArrayList(EvalValue)) -> bool)({
+  if(a.len() != b.len(), {
+    return(false);
+  });
+  (i : usize) = usize(0);
+  (ok : bool) = true;
+  n := a.len();
+  while((i < n) && ok, {
+    match(
+      a.get_cloned(i),
+      .Some(av) => match(
+        b.get_cloned(i),
+        .Some(bv) => {
+          ok = _ctfe_args_equal(&av, &bv);
+        },
+        .None => {
+          ok = false;
+        }
+      ),
+      .None => {
+        ok = false;
+      }
+    );
+    i = (i + usize(1));
+  });
+  ok
+});
+/// Canonicalize a SUBSTITUTION-ERA nominal instantiation through the CTFE
+/// ctor memo. `substitute()` rewrites a struct instance's type_arguments IN
+/// PLACE while KEEPING the def-era `id`/`constructor_func_id`
+/// (types/substitution.yo, Struct arm) — so a trait method declared as
+/// `-> Range(Self)` registers, for every concrete impl, a return instance
+/// whose id is the TRAIT-DEFINITION era's, distinct from the instance the
+/// ctor memo hands every ordinary `Range(usize)` call. A call site stamped
+/// with that era instance can never dispatch impls registered on the memo
+/// instance (the range-op era split,
+/// issues/fixed/range-op-result-era-split-blocks-iteration.md). Given such a type,
+/// return the memo's canonical instance for the SAME (ctor, concrete args)
+/// instantiation when one exists; otherwise return the input unchanged.
+/// Struct-only and top-level-only — the demonstrated class is a nominal
+/// struct return. An enum needs no era repair here: its C type is keyed by
+/// its payloads and its phantom arguments, so era instances of one instantiation are one C type, and
+/// adopting the memo's instance was measured to be wrong — the memo's
+/// comparator matched `Option(_osf_env)` to an `Option(Self)` entry minted
+/// for ANOTHER ref struct of the same shape, and the caller's local took that
+/// struct's C type
+/// (issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md).
+/// Type arguments carrying SomeTs are excluded (per-call
+/// closure families keep their capture identity), and the abstract memo
+/// entry (SomeT args) can never match a concrete key, so only a genuine
+/// concrete instantiation of the same constructor is ever adopted.
+canonicalize_instantiation_via_ctfe_memo :: (fn(ty : &TypeValue) -> TypeValue)({
+  sid := match(ty, Rc(.Struct({ id : x })) => x.clone(), _ => String.from(""));
+  if(sid.len() == usize(0), {
+    return(Rc.clone(ty));
+  });
+  tyargs := match(ty, Rc(.Struct({ type_arguments : t })) => Rc.clone(t), _ => no_types());
+  if(tyargs.len() == usize(0), {
+    return(Rc.clone(ty));
+  });
+  // The memo lookup key: each concrete type argument as a TypeVal argument.
+  want_args := ArrayList(EvalValue).new();
+  {
+    (cvi : usize) = usize(0);
+    n_ta := tyargs.len();
+    while(cvi < n_ta, {
+      match(
+        tyargs.get(cvi),
+        .Some(t2) => {
+          if(type_contains_some_type(&t2), {
+            return(Rc.clone(ty));
+          });
+          want_args.push(Rc.new(EvalValueNode.TypeVal(t2)));
+        },
+        .None => {
+          return(Rc.clone(ty));
+        }
+      );
+      cvi = (cvi + usize(1));
+    });
+  };
+  cfid := match(
+    lookup_struct_ctor_fid(&sid),
+    .Some(f) => f,
+    .None => match(ty, Rc(.Struct({ constructor_func_id : c })) => c.clone(), _ => String.from(""))
+  );
+  if(cfid.len() == usize(0), {
+    return(Rc.clone(ty));
+  });
+  // Find the ctor's bucket, then an era-equal-arg entry with a resolved value.
+  canon_bucket := _cfc_bucket(&cfid);
+  match(
+    canon_bucket,
+    .Some(bucket) => {
+      for(&bucket.caches, cache => {
+        if(_arg_vals_equal(&cache.arg_values, &want_args), {
+          match(
+            _resolved_type_of(&cache.value),
+            .Some(rt) => if(is_struct_type(&rt), {
+              return(rt);
+            }),
+            .None => ()
+          );
+        });
+      });
+    },
+    .None => ()
+  );
+  Rc.clone(ty)
+});
+/// Resolve a recursion-placeholder `SomeT` to its actual type, in priority
+/// order: (1) the cache entry of the
+/// same func with exactly-matching args whose value is resolved; (2)
+/// `ctx.self_type` when it is a struct/object; (3) ANY resolved cache entry of
+/// the same func (all instantiations share the same structure). Returns `.None`
+/// when `some_ty` is not a registered placeholder or nothing has resolved yet.
+resolve_recursive_type_ref :: (fn(some_ty : &TypeValue, ctx : &EvalContext) -> Option(TypeValue))({
+  sid := match(some_ty, Rc(.SomeT(id : x)) => x.clone(), _ => String.from(""));
+  if(sid.len() == usize(0), {
+    return(Option(TypeValue).None);
+  });
+  rref := match(
+    lookup_recursive_type_ref(&sid),
+    .Some(r) => r,
+    .None => {
+      return(Option(TypeValue).None);
+    }
+  );
+  // Locate the cache bucket for the recursive function.
+  bucket_opt := _cfc_bucket(&rref.func_id);
+  bucket := match(
+    bucket_opt,
+    .Some(b) => b,
+    .None => {
+      return(Option(TypeValue).None);
+    }
+  );
+  // Strategy 1: exact-arg-match cache entry with a resolved value.
+  {
+    for(&bucket.caches, cache => {
+      if(_arg_vals_equal(&cache.arg_values, &rref.arg_values), {
+        match(
+          _resolved_type_of(&cache.value),
+          .Some(rt) => return(Option(TypeValue).Some(rt)),
+          .None => ()
+        );
+      });
+    });
+  };
+  // Strategy 2: ctx.self_type when it is a struct/object.
+  match(
+    &ctx.self_type,
+    .Some(st) => if(is_struct_type(&st.*), {
+      return(Option(TypeValue).Some(Rc.clone(st)));
+    }),
+    .None => ()
+  );
+  // Strategy 3: any resolved cache entry of the same function.
+  {
+    for(&bucket.caches, cache => {
+      match(
+        _resolved_type_of(&cache.value),
+        .Some(rt) => return(Option(TypeValue).Some(rt)),
+        .None => ()
+      );
+    });
+  };
+  Option(TypeValue).None
+});
+/// Named CTFE unknown: a CTFE short-circuit (analysis pass, unknown args,
+/// gate skips) that returns an unknown RESULT must promote Type-universe
+/// returns to `TypeVal(SomeT)` — a bare UnknownVal of type Type is not
+/// usable as a type.
+/// Without this, `types.first()` on an unknown variadic ComptimeList(Type)
+/// produced a bare unknown that `__yo_are_types_compatible` rejects
+/// (tests/variadic-comptime.test.yo). Name built without a template
+/// string (hot path — template-string Rc corruption family).
+_ctfe_unknown :: (fn(return_type : &TypeValue, env : &Environment) -> EvalValue)({
+  nm := stable_module_id(String.from("ctfe_result_"), &env.module_path().*);
+  create_unknown_val_with_name(return_type, &nm)
+});
+/// Build the in-progress recursion placeholder for a type-constructor call.
+/// When the return is the `Type` universe (level 0) — i.e. a type constructor —
+/// the placeholder is a fresh `SomeT` LEAF, and we record
+/// `(some_id → func_id, arg_values)` so it can
+/// be resolved later. Otherwise it stays a bare `UnknownVal`. `arg_vals` is
+/// the flattened argument-value list of this call.
+_recursive_placeholder :: (
+  fn(return_type : &TypeValue, func_id : &String, arg_vals : &ArrayList(EvalValue)) -> EvalValue
+)(
+  cond(
+    is_type_0(return_type) => {
+      placeholder := t_some_t(`recur_${func_id}`, usize(0));
+      sid := match(&placeholder, Rc(.SomeT(id : x)) => x.clone(), _ => String.from(""));
+      recursive_ref := RecursiveTypeRef(some_id : sid.clone(), func_id : func_id.clone(), arg_values : arg_vals.clone());
+      g_recursive_type_refs.with_mut({ recursive_ref }(xs) => xs.push(recursive_ref));
+      Rc.new(EvalValueNode.TypeVal(placeholder))
+    },
+    true => create_unknown_val(return_type)
+  )
+);
+// ---------------------------------------------------------------------------
+// evaluate_comptime_fn_call
+// ---------------------------------------------------------------------------
+/// Execute a compile-time function call (CTFE), returning the evaluated value
+/// together with updated caller/callee environments.
+///
+///
+/// The type-valued arguments of one instantiation, in parameter order, with
+/// `Unit` for a non-type argument: the `type_arguments` an instance records.
+_instance_type_args :: (fn(arg_vals : &ArrayList(EvalValue)) -> SharedList(TypeValue))({
+  out := ArrayList(TypeValue).new();
+  (i : usize) = usize(0);
+  while(i < arg_vals.len(), {
+    match(
+      arg_vals.get_cloned(i),
+      .Some(Rc(.TypeVal(t))) => out.push(Rc.clone(t)),
+      .Some(_) => out.push(Rc.new(TypeValueNode.Unit)),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  shared_list(out)
+});
+/// A memoized instantiation served to a call whose arguments carry origins
+/// (decision 43 step 3, N2a): origins are erased from the constructor memo
+/// (`_ctfe_args_equal` compares types with origins ignored), so `_View(x)`
+/// and `_View(y)`, or `Option(&(i32, x))` and `Option(&(i32, y))`, share one
+/// struct. The instance records ITS origins in `type_arguments`, which the
+/// memo's copy holds for the first call. Every other call returns the memo's
+/// value unchanged.
+_restamp_instance_origins :: (fn(v : EvalValue, arg_vals : &ArrayList(EvalValue)) -> EvalValue)({
+  (carries : bool) = false;
+  (i : usize) = usize(0);
+  while((i < arg_vals.len()) && !carries, {
+    if(match(arg_vals.get_cloned(i), .Some(Rc(.TypeVal(t))) => type_carries_origin(&t), _ => false), {
+      carries = true;
+    });
+    i = (i + usize(1));
+  });
+  if(!carries, {
+    return(v);
+  });
+  match(
+    &v,
+    Rc(.TypeVal(Rc(.Struct({ id : sid, name : sname, field_labels : slabels, field_types : stypes, is_reference_semantics : sref, is_atomic_rc : satomic, is_newtype : snt, constructor_func_id : scfid, type_arguments : stas, is_source_namespace : sns })))) => if(
+      stas.len() == arg_vals.len(),
+      Rc.new(EvalValueNode.TypeVal(Rc.new(TypeValueNode.Struct(sid.clone(), sname.clone(), Rc.clone(slabels), Rc.clone(stypes), sref.*, satomic.*, snt.*, scfid.clone(), _instance_type_args(arg_vals), sns.*)))),
+      v
+    ),
+    Rc(.TypeVal(Rc(.EnumT(eid, enm, evns, evfs, esvn, evfl, edis, eirs, eiar, etas)))) => if(
+      etas.len() == arg_vals.len(),
+      Rc.new(EvalValueNode.TypeVal(Rc.new(TypeValueNode.EnumT(eid.clone(), enm.clone(), Rc.clone(evns), Rc.clone(evfs), esvn.clone(), Rc.clone(evfl), Rc.clone(edis), eirs.*, eiar.*, _instance_type_args(arg_vals))))),
+      v
+    ),
+    _ => v
+  )
+});
+evaluate_comptime_fn_call :: (
+  fn(
+    function_callee_expr : &Option(AstExpr),
+    function_type : &TypeValue,
+    function_value : &EvalValue,
+    arg_values : &mut ArgValues,
+    caller_env : &Environment,
+    callee_env : &Environment,
+    ctx : &mut EvalContext,
+    exn : Exception
+  ) -> ComptimeFnCallResult
+)({
+  // Extract the return type from the function type.
+  return_type := match(
+    function_type,
+    Rc(.Func({ result : result_b })) => t_slot_pointee(&result_b.*),
+    _ => t_unit()
+  );
+  // A `comptime(V) : Type` parameter carries `where(V <: Sized)` (decision
+  // 49): an unsized type argument is E0619 at the call, `comptime(V) :
+  // ?Sized` takes it. A type constructor's call reaches here without
+  // passing the argument-by-argument check of an ordinary call.
+  match(
+    function_callee_expr,
+    .Some(us_callee) => match(
+      function_type,
+      Rc(.Func({ param_types : us_pts, meta : us_meta })) => {
+        (us_i : usize) = usize(0);
+        while(us_i < us_pts.len(), us_i = (us_i + usize(1)), {
+          if(match(us_pts.get(us_i), .Some(us_pt) => is_type_0(&t_slot_pointee(&us_pt)), .None => false), {
+            // Read-modify-writeback, not a `with` sink: a sink closure can
+            // hold neither `exn` (control-bound) nor the `&`/`&mut` params.
+            if(us_i < arg_values.args.len(), {
+              mut(us_a) := arg_values.args(us_i).clone();
+              match(
+                us_a.value.clone(),
+                .Some(Rc(.TypeVal(us_t))) => cond(
+                  // The legacy value `str` (decision 49,
+                  // `unsized_legacy_spellings`): `ArrayList(str)` is
+                  // `ArrayList(&(str, static))`.
+                  is_legacy_value_str(&us_t) => {
+                    note_legacy_str_type_arg(&us_callee.*, us_i, &ctx.std_path);
+                    us_a.value = Option(EvalValue).Some(Rc.new(EvalValueNode.TypeVal(legacy_value_str(&us_t))));
+                  },
+                  !type_is_sized(&us_t) => {
+                    us_label := match(us_meta.param_labels.get(us_i), .Some(l) => l, .None => String.from("V"));
+                    exn.throw(dyn(Box.new(unsized_by_value_error(&us_t, &`\`${ast_expr_to_string(&us_callee.*)}\`'s type parameter \`${us_label}\``, &Option(String).Some(us_label.clone()), &ast_expr_token(&us_callee.*)))));
+                  },
+                  true => ()
+                ),
+                _ => ()
+              );
+              arg_values.args(us_i) = us_a;
+            });
+          });
+        });
+      },
+      _ => ()
+    ),
+    .None => ()
+  );
+  // Extract func_id and body from the FuncVal.
+  func_id_str := match(
+    function_value,
+    Rc(.FuncVal(__fvd1, _)) => __fvd1.func_id.clone(),
+    _ => String.from("")
+  );
+  body_box := match(
+    function_value,
+    Rc(.FuncVal(__fvd2, _)) => Rc.clone(__fvd2.body),
+    _ => {
+      // Inside a DEFINITION-time body trial, a non-FuncVal callee is a
+      // dispatch product with no impl value yet (a where-constraint trait
+      // method on an abstract receiver — prelude's `~`/`-` comptime
+      // variants, roots #14/#15 of
+      // issues/fixed/def-eval-swallow-remaining-roots.md). Such calls degrade
+      // to an unknown of the return type, scoped to
+      // the trial; everywhere else the throw stays (a genuine
+      // calling-a-non-function error must not be silently absorbed).
+      if(in_def_time_trial(), {
+        if(debug_knob(`YO_DEBUG_CTFE`).is_some(), {
+          eprintln(`[ctfe-nonfv] fid=${func_id_str}`);
+        });
+        return(
+          ComptimeFnCallResult(
+            value : _ctfe_unknown(&return_type, caller_env),
+            caller_env : Rc.clone(caller_env),
+            callee_env : Rc.clone(callee_env),
+            comptime_ref : Option(ComptimeRef).None
+          )
+        );
+      });
+      exn.throw(
+        dyn(
+          Box.new(
+            format_error_message(
+              match(
+                function_callee_expr,
+                .Some(e) => ast_expr_token(&e.*),
+                .None => ast_expr_token(make_err_expr())
+              ),
+              String.from("evaluate_comptime_fn_call: function_value is not a FuncVal")
+            )
+          )
+        )
+      );
+      make_err_expr()
+    }
+  );
+  // During CTFE capability analysis, return an UnknownVal immediately without
+  // executing the body. This prevents infinite recursion in the analysis pass.
+  if(ctx.is_analyzing_ctfe_capability, {
+    if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
+      eprintln(`[ctfe-ana-gate] fid=${func_id_str}`);
+    });
+    return(
+      ComptimeFnCallResult(
+        value : _ctfe_unknown(&return_type, caller_env),
+        caller_env : Rc.clone(caller_env),
+        callee_env : Rc.clone(callee_env),
+        comptime_ref : Option(ComptimeRef).None
+      )
+    );
+  });
+  // During the function-call CHECKING phase (overload trial dry-runs),
+  // skip execution ONLY for non-type CTFE functions — that is a
+  // comptime-only return AND NOT an unquote
+  // macro AND NOT a type-returning constructor AND no generic params
+  // (type constructors MUST still execute so the
+  // trial can resolve argument types). Trials are TYPE checks only: without
+  // any gate, each overload dry-run re-evaluated its cloned arg exprs
+  // INCLUDING macro expansion + nested CTFE —
+  // exponential in nested operator chains (std/glob.yo never finished).
+  ctfe_gate_result_is_comptime := match(
+    function_type,
+    Rc(.Func({ meta : __fm1 })) => __fm1.result_is_comptime_only,
+    _ => false
+  );
+  ctfe_gate_forall_n := match(
+    function_type,
+    Rc(.Func({ meta : __fm2 })) => __fm2.forall_labels.len(),
+    _ => usize(0)
+  );
+  if(ctx.is_in_function_call_checking_phase && ctfe_gate_result_is_comptime &&
+    !is_type_hierarchy_type(&return_type)
+    &&
+      !macro_return_is_unquote(func_id_str.clone())
+      &&
+        (ctfe_gate_forall_n == usize(0)), {
+    if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
+      eprintln(`[ctfe-check-gate] fid=${func_id_str}`);
+    });
+    return(
+      ComptimeFnCallResult(
+        value : _ctfe_unknown(&return_type, caller_env),
+        caller_env : Rc.clone(caller_env),
+        callee_env : Rc.clone(callee_env),
+        comptime_ref : Option(ComptimeRef).None
+      )
+    );
+  });
+  // Collect all argument values from forall_args, args, and variadic_args.
+  // All must be compile-time-known (Some); otherwise it's an error.
+  all_arg_vals := ArrayList(EvalValue).new();
+  (collect_ok : bool) = true;
+  n_fa := arg_values.forall_args.len();
+  (fai : usize) = usize(0);
+  while((fai < n_fa) && collect_ok, {
+    match(
+      arg_values.forall_args.get_cloned(fai),
+      .Some(e) => match(
+        e.value.clone(),
+        .Some(v) => {
+          all_arg_vals.push(Rc.clone(v));
+        },
+        .None => {
+          collect_ok = false;
+        }
+      ),
+      .None => {
+        collect_ok = false;
+      }
+    );
+    fai = (fai + usize(1));
+  });
+  n_a := arg_values.args.len();
+  (ai : usize) = usize(0);
+  while((ai < n_a) && collect_ok, {
+    match(
+      arg_values.args.get_cloned(ai),
+      .Some(e) => match(
+        e.value.clone(),
+        .Some(v) => {
+          all_arg_vals.push(Rc.clone(v));
+        },
+        .None => {
+          collect_ok = false;
+        }
+      ),
+      .None => {
+        collect_ok = false;
+      }
+    );
+    ai = (ai + usize(1));
+  });
+  n_va := arg_values.variadic_args.len();
+  (vai : usize) = usize(0);
+  while((vai < n_va) && collect_ok, {
+    match(
+      arg_values.variadic_args.get_cloned(vai),
+      .Some(e) => match(
+        e.value.clone(),
+        .Some(v) => {
+          all_arg_vals.push(Rc.clone(v));
+        },
+        .None => {
+          collect_ok = false;
+        }
+      ),
+      .None => {
+        collect_ok = false;
+      }
+    );
+    vai = (vai + usize(1));
+  });
+  if(!collect_ok, {
+    exn.throw(
+      dyn(
+        Box.new(
+          format_error_message(
+            match(
+              function_callee_expr,
+              .Some(e) => ast_expr_token(&e.*),
+              .None => ast_expr_token(make_err_expr())
+            ),
+            String.from("Failed to call the function for compile-time. Some arguments are not compile-time evaluated correctly.")
+          )
+        )
+      )
+    );
+  });
+  if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
+    (dbge_args : String) = String.from("");
+    (dbge_i : usize) = usize(0);
+    while(dbge_i < all_arg_vals.len(), {
+      match(
+        all_arg_vals.get_cloned(dbge_i),
+        .Some(dv) => {
+          dbge_args.push_string(value_to_string(&dv));
+          dbge_args.push_string(String.from(" | "));
+        },
+        .None => ()
+      );
+      dbge_i = (dbge_i + usize(1));
+    });
+    dbge_callee := match(
+      function_callee_expr,
+      .Some(fce) => ast_expr_to_string(&fce.*),
+      .None => String.from("<none>")
+    );
+    eprintln(`[ctfe-in] fid=${func_id_str} callee=${dbge_callee} args=${dbge_args}`);
+  });
+  // Execution gate for unknown arguments. Runtime-unknowns are represented
+  // as `UnknownVal` (value.yo), which
+  // passes that check — so an unknown-arg CTFE body would execute, and a
+  // RECURSIVE comptime fn (e.g. `__yo_comptime_fold_range`, `__sN`) recurses
+  // forever: the unknown termination cond evaluates both branches, and the
+  // growing accumulator argument never matches the in-progress cache entry.
+  // Return `UnknownVal(return_type)` without executing — the correct
+  // non-executing outcome whether the unknown is runtime- or type-known.
+  (any_arg_unknown : bool) = false;
+  {
+    (uai : usize) = usize(0);
+    while((uai < all_arg_vals.len()) && !any_arg_unknown, {
+      match(
+        all_arg_vals.get_cloned(uai),
+        .Some(v) => if(is_unknown_val(&v), {
+          any_arg_unknown = true;
+        }),
+        .None => ()
+      );
+      uai = (uai + usize(1));
+    });
+  };
+  // TRIAL carve-out from the gate below: a TYPE-returning
+  // constructor's body executes even with unknown-value args, so a
+  // def-time trial calling
+  // `_ArrayIter(T, N)` with the impl's value binder `N : usize` bound to an
+  // unknown must RUN the body — the degraded `_ctfe_unknown(Type)` is a
+  // fresh bare SomeT, which the callee-dispatch then cannot call ("TypeVal
+  // SomeT callee without FnTrait", root 7623 of
+  // issues/fixed/def-eval-swallow-remaining-roots.md). Scope: def-time trials
+  // AND type-hierarchy returns only. The gate's recursion concern
+  // (fold_range) is about VALUE-returning recursive fns — type ctors at
+  // trial time already execute today with SomeT type args (roots 7942/7973
+  // measured executing) under the same no-durable-cache regime.
+  trial_type_ctor_unknown_ok := (in_def_time_trial() && is_type_hierarchy_type(&return_type));
+  if(any_arg_unknown && !trial_type_ctor_unknown_ok, {
+    if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
+      (dbg_args : String) = String.from("");
+      (dbg_i : usize) = usize(0);
+      while(dbg_i < all_arg_vals.len(), {
+        match(
+          all_arg_vals.get_cloned(dbg_i),
+          .Some(dv) => {
+            dbg_args.push_string(value_to_string(&dv));
+            dbg_args.push_string(String.from(" | "));
+          },
+          .None => ()
+        );
+        dbg_i = (dbg_i + usize(1));
+      });
+      eprintln(`[ctfe-unk-arg] fid=${func_id_str} args=${dbg_args}`);
+    });
+    return(
+      ComptimeFnCallResult(
+        value : _ctfe_unknown(&return_type, caller_env),
+        caller_env : Rc.clone(caller_env),
+        callee_env : Rc.clone(callee_env),
+        comptime_ref : Option(ComptimeRef).None
+      )
+    );
+  });
+  // A trial-time unknown-arg type-ctor execution must NEVER cache (the
+  // unknown arg would collide distinct instantiations in the memo); the
+  // SomeT carve-outs below already disable caching for the common case,
+  // but unknown VALUE args (IntLit-typed binders) are invisible to them.
+  (trial_unknown_nocache : bool) = (any_arg_unknown && trial_type_ctor_unknown_ok);
+  // Only cache CTFE calls that return a Type (TypeHierarchyType / TypeUni).
+  // Pure type-constructor functions like Rc(T), Vec(T) etc. are safe to cache.
+  // Functions returning runtime values may have side effects and must not be cached.
+  // Cache type-returning calls. `is_type_hierarchy_type` catches bare-`Type`
+  // returns — and ONLY that. Do NOT widen to
+  // `result_is_comptime_only`: a comptime-VALUE-returning fn (e.g. a
+  // `Type.map_variants` mapper `-> comptime(Expr)`) is not identified by its
+  // non-type args here — all N per-variant calls collided on one memo entry
+  // and every variant received the FIRST variant's Expr
+  // (issues/fixed/yo-self-derive-mapvariants-mapper-ctfe.md).
+  // A call whose arguments are ALL compile-time type VALUES is a
+  // type-constructor instantiation; cache it (keyed by func_id + type args) so
+  // every instantiation is one stable-id TypeValue (terminates the
+  // synthesizer's id-keyed cycle guard) and is stamped. Mirrors the routing
+  // widening in `function.yo`'s gate.
+  all_args_are_types := cond(
+    (all_arg_vals.len() == usize(0)) => false,
+    true => {
+      (ok2 : bool) = true;
+      (cti : usize) = usize(0);
+      while((cti < all_arg_vals.len()) && ok2, {
+        match(
+          all_arg_vals.get_cloned(cti),
+          .Some(v) => if(!is_type_val(&v), {
+            ok2 = false;
+          }),
+          .None => {
+            ok2 = false;
+          }
+        );
+        cti = (cti + usize(1));
+      });
+      ok2
+    }
+  );
+  (should_cache : bool) = ((is_type_hierarchy_type(&return_type) || all_args_are_types) && !trial_unknown_nocache);
+  // Checking-phase guard (SomeT surgery slice 2b): a ctfe call whose TYPE
+  // args still CONTAIN unresolved SomeTs (analysis/validation generations
+  // evaluating a declaration with `Self` bound to a fresh SomeT — the
+  // `Rc(V)` placeholder instantiations) must NOT create durable memo
+  // entries: the placeholder result (payload = unresolved SomeT -> void*)
+  // otherwise gets served to later real calls and its instantiation struct
+  // reaches codegen as a SECOND C type for the logical Rc(T) — the
+  // recursive-enum construct+drop heap corruption
+  // (issues/repros/recursive-enum-box-plus-arraylist-self.yo: emitted C
+  // carried `Rc(V)` + `Rc(shell)` and NO `Rc(final)`).
+  // type_contains_some_type carves out resolved/Fn/Future SomeTs, so
+  // concrete-at-codegen args keep caching exactly as before.
+  if(should_cache, {
+    (sc_i : usize) = usize(0);
+    while((sc_i < all_arg_vals.len()) && should_cache, {
+      match(
+        all_arg_vals.get_cloned(sc_i),
+        .Some(sc_v) => match(
+          sc_v,
+          Rc(.TypeVal(sc_t)) => {
+            if(type_contains_some_type(&sc_t), {
+              should_cache = false;
+            });
+            // DEEP check one level: a struct ARG whose type_arguments carry
+            // SomeTs is a DEF-ERA instance (itself a nocache mint) —
+            // `type_contains_some_type` is SHALLOW and walks right past
+            // type_arguments, so `Option(RBNode(K, V))` at DEF time (arg =
+            // the K/V-SomeT-argumented Node instance) got CACHED, and every
+            // later CONCRETE `Option(RBNode(i32, i32))` lookup missed
+            // against it (era mismatch) while OTHER def-time evaluations
+            // HIT it — splitting one logical Option instantiation into two
+            // C enums (`__yo_t42`/`__yo_t43`, the imm_threading
+            // struct-to-struct casts). Never cache on def-era args.
+            if(should_cache, {
+              match(
+                sc_t,
+                Rc(.Struct({ type_arguments : sc_ta })) => {
+                  (sc_tai : usize) = usize(0);
+                  while((sc_tai < sc_ta.len()) && should_cache, {
+                    match(
+                      sc_ta.get(sc_tai),
+                      .Some(sc_tat) => if(is_some_type(&sc_tat) || type_contains_some_type(&sc_tat), {
+                        should_cache = false;
+                      }),
+                      .None => ()
+                    );
+                    sc_tai = (sc_tai + usize(1));
+                  });
+                },
+                _ => ()
+              );
+            });
+          },
+          _ => ()
+        ),
+        .None => ()
+      );
+      sc_i = (sc_i + usize(1));
+    });
+  });
+  // Find or create the cache bucket for this func_id in g_comptime_fn_caches.
+  (entry_idx_opt : Option(usize)) = _cfc_bucket_index(&func_id_str);
+  match(
+    entry_idx_opt,
+    .None => {
+      new_entry := ComptimeFnCacheEntry(
+        func_id : func_id_str.clone(),
+        caches : ArrayList(CalledComptimeFnCache).new()
+      );
+      g_comptime_fn_caches.with_mut({ new_entry }(xs) => xs.push(new_entry));
+      entry_idx_opt = Option(usize).Some(g_comptime_fn_caches.with(_c_len_2) - usize(1));
+    },
+    .Some(_) => ()
+  );
+  the_entry_idx := match(entry_idx_opt, .Some(i) => i, .None => usize(0));
+  // Look up an existing cache entry if caching is enabled.
+  cached_result := Option(EvalValue).None;
+  if(should_cache, {
+    match(
+      g_comptime_fn_caches.with(xs => xs.get_cloned(the_entry_idx)),
+      .Some(entry) => {
+        for(&entry.caches, cache => {
+          if(cached_result.is_none(), {
+            if(cache.arg_values.len() == all_arg_vals.len(), {
+              (args_match : bool) = true;
+              (ami : usize) = usize(0);
+              n_av := all_arg_vals.len();
+              while((ami < n_av) && args_match, {
+                match(
+                  cache.arg_values.get_cloned(ami),
+                  .Some(cached_av) => match(
+                    all_arg_vals.get_cloned(ami),
+                    .Some(given_av) => {
+                      args_match = _ctfe_args_equal(&cached_av, &given_av);
+                    },
+                    .None => {
+                      args_match = false;
+                    }
+                  ),
+                  .None => {
+                    args_match = false;
+                  }
+                );
+                ami = (ami + usize(1));
+              });
+              if(args_match, {
+                cached_result = Option(EvalValue).Some(Rc.clone(cache.value));
+              });
+            });
+          });
+        });
+      },
+      .None => ()
+    );
+  });
+  // If a cache hit was found, return it immediately.
+  match(
+    cached_result,
+    .Some(cached_val) => {
+      if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
+        eprintln(`[ctfe-hit] fid=${func_id_str} result=${value_to_string(&cached_val)}`);
+      });
+      hit_val := _restamp_instance_origins(Rc.clone(cached_val), &all_arg_vals);
+      return(
+        ComptimeFnCallResult(
+          value : hit_val,
+          caller_env : Rc.clone(caller_env),
+          callee_env : Rc.clone(callee_env),
+          comptime_ref : Option(ComptimeRef).None
+        )
+      );
+    },
+    .None => ()
+  );
+  // No cache hit.  Push a temporary "in-progress" cache entry to detect
+  // recursive calls (they will hit this entry and return the UnknownVal).
+  temp_cache := CalledComptimeFnCache(
+    func_id : func_id_str.clone(),
+    arg_values : all_arg_vals.clone(),
+    value : _recursive_placeholder(&return_type, &func_id_str, &all_arg_vals)
+  );
+  _cfc_push(the_entry_idx, temp_cache);
+  temp_cache_index := match(
+    g_comptime_fn_caches.with(xs => xs.get_cloned(the_entry_idx)),
+    .Some(entry) => (entry.caches.len() - usize(1)),
+    .None => usize(0)
+  );
+  // Set up the context modifications for function body evaluation.
+  // Save old values so we can restore after the call.
+  old_fn_ctx := ctx.is_evaluating_function_body_or_async_block.clone();
+  old_loop_ctx := ctx.is_evaluating_loop_body.clone();
+  old_executing := ctx.is_executing;
+  old_force_ct := ctx.force_compile_time_bindings;
+  // LIVE execution (a panic it reaches is a compile error): every argument
+  // is known, and the call is not inside an untaken arm of an enclosing
+  // comptime body — `ctfe_untaken_arm_depth` counts only those arms, so it
+  // must still equal the depth the nearest live body entered at (0 when no
+  // comptime body encloses the call; a runtime body's arms are not counted,
+  // because the value of a comptime call there is needed for codegen either
+  // way).
+  ctfe_outer_depth := match(
+    old_fn_ctx.clone(),
+    .Some(ofc) => cond(
+      ofc.ctfe_live => ofc.ctfe_arm_depth,
+      true => usize(0)
+    ),
+    .None => usize(0)
+  );
+  ctfe_live := (!any_arg_unknown && (ctx.ctfe_untaken_arm_depth == ctfe_outer_depth));
+  ctx.is_evaluating_function_body_or_async_block = Option(FuncOrAsyncBlockCtx).Some(
+    FuncOrAsyncBlockCtx(
+      kind : FuncOrAsyncBlockKind.FunctionBody,
+      func_type : Option(TypeValue).Some(Rc.clone(function_type)),
+      func_value : Option(EvalValue).Some(Rc.clone(function_value.*)),
+      eval_env : snapshot_env(callee_env),
+      ctfe_live : ctfe_live,
+      ctfe_arm_depth : ctx.ctfe_untaken_arm_depth
+    )
+  );
+  ctx.is_evaluating_loop_body = .None;
+  mut(old_cap_vars) := replace(&mut ctx.captured_variables, Option(HashMap(String, CapturedVarInfo)).None);
+  ctx.is_executing = !ctx.is_validating_function_definition;
+  mut(old_ret_impl) := replace(
+    &mut ctx.function_return_impl_concrete_type,
+    Option(ArrayList(ImplConcreteTypeInfo)).Some(ArrayList(ImplConcreteTypeInfo).new())
+  );
+  ctx.force_compile_time_bindings = true;
+  // A `&T` / `&mut T` parameter the caller bound as a compile-time value of
+  // its pointee (the comptime version's parameters are compile-time) reads as
+  // that value through `p.*` (decision 43 step 2 N1e-1,
+  // `is_ctfe_reference_param`).
+  match(function_value, Rc(.FuncVal(rp_fvd, _)) => note_ctfe_reference_params(&rp_fvd.params, function_type, callee_env), _ => ());
+  // Evaluate a FRESH-ID CLONE of the function body — the
+  // ExprInfo table is keyed by expr id, so executing the ORIGINAL
+  // tree makes every call overwrite the same ids: `SortedSet(i32)`'s body
+  // then read the T-era `SortedMap(T, bool)` instances annotated by the
+  // impl-registration call — splitting one type identity into two chains.
+  clone_lo := next_global_expr_id();
+  body_expr := clone_expr_fresh_ids(&body_box);
+  clone_hi := next_global_expr_id();
+  // Track CTFE depth around the body eval: struct/enum declaration eval mints
+  // DECLARATION-STABLE ids only at depth 0 (module level) — inside a comptime
+  // constructor call (generic INSTANTIATION), ids stay eval-fresh so
+  // Option(i32)/Option(String) never share identity (SomeT surgery slice 2;
+  // see context.yo ctfe_depth).
+  ctx.ctfe_depth = (ctx.ctfe_depth + usize(1));
+  evaled_body := evaluate_begin_expression(
+    &body_expr,
+    callee_env,
+    ctx,
+    ArrayList(Variable).new(),
+    true,
+    exn
+  );
+  ctx.ctfe_depth = (ctx.ctfe_depth - usize(1));
+  // Restore context.
+  ctx.is_evaluating_function_body_or_async_block = old_fn_ctx.clone();
+  ctx.is_evaluating_loop_body = old_loop_ctx;
+  swap(&mut ctx.captured_variables, &mut old_cap_vars);
+  ctx.is_executing = old_executing;
+  swap(&mut ctx.function_return_impl_concrete_type, &mut old_ret_impl);
+  ctx.force_compile_time_bindings = old_force_ct;
+  // Extract the return value from the ExprInfoTable.
+  body_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaled_body));
+  body_info := match(
+    body_info_opt,
+    .Some(i) => Rc.clone(i),
+    .None => {
+      // Remove the temp cache entry to avoid leaving a stale placeholder.
+      _cfc_drop_at(the_entry_idx, temp_cache_index);
+      exn.throw(
+        dyn(
+          Box.new(
+            format_error_message(
+              ast_expr_token(&body_expr),
+              String.from("Function body is not evaluated correctly")
+            )
+          )
+        )
+      );
+      new_expr_info(callee_env, t_unit())
+    }
+  );
+  return_value := match(
+    body_info.value(),
+    .Some(v) => v,
+    .None => {
+      // Remove the temp cache entry.
+      _cfc_drop_at(the_entry_idx, temp_cache_index);
+      exn.throw(
+        dyn(
+          Box.new(
+            format_error_message(
+              ast_expr_token(&body_expr),
+              String.from("Function body is not evaluated correctly. Expected to return(a compile-time known value.)")
+            )
+          )
+        )
+      );
+      create_unknown_val(&return_type)
+    }
+  );
+  // Stamp the returned type with this constructor's func_id.
+  // Only set when currently empty. TypeValue is immutable, so rebuild the
+  // Struct with the field populated. The synthesizer then unifies two
+  // instantiations of the same generic constructor by this id.
+  // Record enum constructor identity (EnumT has no cfid field to stamp).
+  match(
+    Rc.clone(return_value),
+    Rc(.TypeVal(rv_eb)) => {
+      match(
+        rv_eb,
+        Rc(.EnumT(eid, _, _, _, _, _, _, _, _, _)) => register_enum_cfid(&eid, func_id_str.clone()),
+        _ => ()
+      );
+      // The constructor's own value, for inferring a kind-annotated binder
+      // from an instantiation (value.yo `g_type_ctor_values`).
+      register_type_ctor_value(func_id_str.clone(), function_value);
+    },
+    _ => ()
+  );
+  // Collect this instantiation's type-valued arguments, in parameter order, to
+  // record on the returned Struct (faithful stand-in for `StructType.env`): a
+  // method later dispatched on the instantiation binds its `generic` params
+  // positionally from these. Non-type args become `Unit` placeholders so the
+  // positions still line up with the constructor's parameters.
+  inst_type_args_b := ArrayList(TypeValue).new();
+  (tai : usize) = usize(0);
+  while(tai < all_arg_vals.len(), {
+    match(
+      all_arg_vals.get_cloned(tai),
+      .Some(av) => {
+        match(
+          av,
+          Rc(.TypeVal(tb)) => {
+            inst_type_args_b.push(Rc.clone(tb));
+          },
+          _ => {
+            inst_type_args_b.push(Rc.new(TypeValueNode.Unit));
+          }
+        );
+      },
+      .None => ()
+    );
+    tai = (tai + usize(1));
+  });
+  // Built once, then shared by every node and registry it is stamped into.
+  inst_type_args := shared_list(inst_type_args_b);
+  // Stamp the returned type's display name `Rc(arg)` for the prelude's
+  // shared cell only: `Rc`, or its legacy name `Box` (`is_shared_cell_type_name`,
+  // types/guards.yo, holds the list). Naming every instantiation is NOT possible: the
+  // compatibility layer treats the struct NAME as nominal identity
+  // (compatibility.yo:430), so broadly naming generic instantiations breaks
+  // type unification (HashMap/ArrayList/nested generics — corpus 90→55). But
+  // `is_boxed_type` (types/guards.yo) keys off a `Rc(`-prefixed name, and the
+  // boxed-dyn vtable path (`dyn(Rc.new(Sq))`) needs it to recognise the box and
+  // resolve trait methods on the UNDERLYING type. Rc instantiations are
+  // structurally unambiguous (single `*` field) and never unify with user
+  // types, so naming ONLY them is safe. FuncVal carries no funcName, so
+  // read it from the callee expr (the `Rc` atom).
+  // `Arc` is the ATOMIC box, stamped for the same reason: a `Dyn(..., Send)`
+  // boxes its payload with `arc`, and `is_boxed_type` must recognise that box
+  // (issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md). It is
+  // equally unambiguous: `atomic(ref(struct((*) : V)))`.
+  ctfe_fn_name := match(function_callee_expr, .Some(ce) => ast_expr_token(&ce.*).value.*.clone(), .None => String.from(""));
+  // The unique `Box` (V1 step 2) is stamped too: `unique_box_payload_type`
+  // (types/guards.yo) identifies it by this name plus its newtype shape, and
+  // a prelude name cannot be shadowed, so a `Box` callee is always it.
+  // `Weak` and `ArcWeak` (decision 48 W3/W4) are stamped for the same
+  // reason: `is_weak_handle_type` identifies them by this name plus their
+  // newtype shape, so the cycle walk does not follow a weak edge.
+  ctfe_box_name := if(!(is_shared_cell_type_name(&ctfe_fn_name) || (ctfe_fn_name == "Arc") || (ctfe_fn_name == "Box") || (ctfe_fn_name == "Weak") || (ctfe_fn_name == "ArcWeak")), String.from(""), {
+    nm := ctfe_fn_name.clone();
+    nm.push_str("(");
+    (cni : usize) = usize(0);
+    while(cni < all_arg_vals.len(), {
+      if(cni > usize(0), {
+        nm.push_str(", ");
+      });
+      match(all_arg_vals.get_cloned(cni), .Some(cav) => nm.push_string(value_to_string(&cav)), .None => ());
+      cni = (cni + usize(1));
+    });
+    nm.push_str(")");
+    nm
+  });
+  // Every OTHER constructor's result gets a DISPLAY name — `ArrayList(i32)`,
+  // `Option(String)`, `HashMap(K, V)` — in the renderer's side table
+  // (types/string.yo), never in the type's `name` (nominal identity, see the
+  // Rc note above). `type_to_string` shows it wherever the type has no
+  // written name: hover, completion details, diagnostics
+  // (issues/fixed/lsp-shows-internal-type-placeholders-to-users.md). The
+  // constructor's name comes from the callee expression: a bare atom
+  // (identifier or operator), or the member of a `mod.Ctor(...)` access.
+  ctfe_display_head := match(
+    function_callee_expr,
+    .Some(ce) => match(
+      ce,
+      Rc(.Atom(_, ca_tok)) => ca_tok.value.*.clone(),
+      Rc(.FnCall(_, ce_fn, Rc(ce_args), ce_infix, _)) => cond(
+        (ce_infix.* && (ce_args.len() == usize(2)) && ast_expr_is_atom_of(&ce_fn.*, ".")) => match(
+          ce_args.get_cloned(usize(1)),
+          .Some(member) => match(member, Rc(.Atom(_, m_tok)) => m_tok.value.*.clone(), Rc(.FnCall(_, _, _, _, _)) => String.from("")),
+          .None => String.from("")
+        ),
+        true => String.from("")
+      )
+    ),
+    .None => String.from("")
+  );
+  // Any written callee spells a type the user could have typed — an
+  // identifier (`ArrayList`) or an operator constructor (`?` for `?(T)`, the
+  // prelude's Option shorthand); only a member-access callee that did not
+  // reduce to its member name above is skipped.
+  head_is_ident := ((ctfe_display_head.len() > usize(0)) && (ctfe_display_head != "."));
+  if(head_is_ident, {
+    match(
+      Rc.clone(return_value),
+      Rc(.TypeVal(rv_disp)) => {
+        disp_id := match(
+          rv_disp,
+          Rc(.Struct({ id : d_sid, name : d_snm, is_source_namespace : d_ns })) => if((d_snm.len() == usize(0)) && !d_ns, d_sid.clone(), String.from("")),
+          Rc(.EnumT(d_eid, d_enm, _, _, _, _, _, _, _, _)) => if(d_enm.len() == usize(0), d_eid.clone(), String.from("")),
+          _ => String.from("")
+        );
+        if(disp_id.len() > usize(0), {
+          disp := String.from("");
+          disp.push_string(ctfe_display_head.clone());
+          disp.push_str("(");
+          (dai : usize) = usize(0);
+          while(dai < all_arg_vals.len(), {
+            if(dai > usize(0), {
+              disp.push_str(", ");
+            });
+            match(all_arg_vals.get_cloned(dai), .Some(dav) => disp.push_string(value_to_string(&dav)), .None => ());
+            dai = (dai + usize(1));
+          });
+          disp.push_str(")");
+          register_type_display_name(&disp_id, &disp);
+          // An origin argument is the call's own (the memo shares the id
+          // across origins): its template marks each one for the instance's
+          // rendering to fill.
+          (has_origin_arg : bool) = false;
+          (hoi : usize) = usize(0);
+          while(hoi < all_arg_vals.len(), {
+            if(match(all_arg_vals.get_cloned(hoi), .Some(Rc(.TypeVal(Rc(.OriginSet(_, _))))) => true, _ => false), {
+              has_origin_arg = true;
+            });
+            hoi = (hoi + usize(1));
+          });
+          if(has_origin_arg, {
+            tpl := String.from("");
+            tpl.push_string(ctfe_display_head.clone());
+            tpl.push_str("(");
+            (tpl_i : usize) = usize(0);
+            while(tpl_i < all_arg_vals.len(), {
+              if(tpl_i > usize(0), {
+                tpl.push_str(", ");
+              });
+              match(
+                all_arg_vals.get_cloned(tpl_i),
+                .Some(Rc(.TypeVal(Rc(.OriginSet(_, _))))) => tpl.push_str(DISPLAY_ORIGIN_MARK),
+                .Some(tav) => tpl.push_string(value_to_string(&tav)),
+                .None => ()
+              );
+              tpl_i = (tpl_i + usize(1));
+            });
+            tpl.push_str(")");
+            register_type_display_origin_template(&disp_id, &tpl);
+          });
+        });
+      },
+      _ => ()
+    );
+  });
+  final_return_value := match(
+    Rc.clone(return_value),
+    Rc(.TypeVal(rv_tb)) => match(
+      rv_tb,
+      Rc(.Struct({ id : sid, name : sname, field_labels : slabels, field_types : stypes, is_reference_semantics : sref, is_atomic_rc : satomic, is_newtype : snt, constructor_func_id : scfid })) => if(scfid.len() == usize(0), {
+        if(debug_knob(`YO_DEBUG_TMINT`).is_some(), {
+          eprintln(`[tmint-stamp] STAMP sid=${sid} nargs=${inst_type_args.len().to_string()}`);
+        });
+        // Mirror the shared-object stamp for copies that predate this one
+        // (self-recursive shells, memoized embedders) — see expr-info.yo.
+        register_struct_ctor_fid(sid.clone(), func_id_str.clone());
+        register_struct_ctor_value(&func_id_str, function_value);
+        stamped_name := if((sname.len() == usize(0)) && (ctfe_box_name.len() > usize(0)), ctfe_box_name.clone(), sname.clone());
+        Rc.new(
+          EvalValueNode.TypeVal(
+            Rc.new(TypeValueNode.Struct(sid.clone(), stamped_name, Rc.clone(slabels), Rc.clone(stypes), sref, satomic, snt, func_id_str.clone(), inst_type_args.clone(), false))
+          )
+        )
+      }, {
+        if(debug_knob(`YO_DEBUG_TMINT`).is_some(), {
+          eprintln(`[tmint-stamp] SKIP sid=${sid} cfid=${scfid}`);
+        });
+        Rc.clone(return_value)
+      }),
+      // An enum instantiation's type arguments, the twin of the Struct stamp
+      // above. Only an enum MINTED in CTFE is an instantiation of this
+      // constructor: a module-level declaration (`enum_decl_` id) returned by
+      // an alias constructor is the same type whatever the alias's arguments
+      // are. Only when currently empty: the innermost constructor that minted
+      // the enum is the one whose parameters it is indexed by. The enum-final
+      // registry's copy is stamped too, so a leaked self-shell resolves to an
+      // instance that reports the same arguments.
+      Rc(.EnumT(eid, enm, evns, evfs, esvn, evfl, edis, eirs, eiar, etas)) => if((etas.len() == usize(0)) && ((inst_type_args.len() > usize(0)) && !eid.starts_with("enum_decl_")), {
+        stamp_enum_final_type_arguments(eid.clone(), &inst_type_args, ctor_phantom_flags(func_id_str.clone(), inst_type_args.len()));
+        Rc.new(EvalValueNode.TypeVal(Rc.new(TypeValueNode.EnumT(eid.clone(), enm.clone(), Rc.clone(evns), Rc.clone(evfs), esvn.clone(), Rc.clone(evfl), Rc.clone(edis), eirs, eiar, inst_type_args.clone()))))
+      }, Rc.clone(return_value)),
+      // Trait returns: record the constructor funcId so the generic-impl
+      // registry can key `Eq(Rc(i32))` and `Eq(Rc(T))` into ONE bucket.
+      // Side-table only — TraitT carries no
+      // fid field; first stamp wins inside the register fn.
+      Rc(.TraitT(_, _, ct_trait_id, _, _, _)) => {
+        register_trait_ctor_fid(ct_trait_id.clone(), func_id_str.clone());
+        register_trait_type_args(ct_trait_id.clone(), &inst_type_args.items);
+        Rc.clone(return_value)
+      },
+      _ => Rc.clone(return_value)
+    ),
+    _ => Rc.clone(return_value)
+  );
+  // Local copy — `callee_env` is an immutable parameter; thread the updated
+  // env through `out_callee_env` and return it.
+  (out_callee_env : Environment) = expr_info_adopt_env(&body_info);
+  // Update or remove the temp cache entry based on whether caching is enabled.
+  if(should_cache, {
+    updated_cache := CalledComptimeFnCache(
+      func_id : func_id_str.clone(),
+      arg_values : all_arg_vals,
+      value : Rc.clone(final_return_value)
+    );
+    // Replace the temp placeholder: drop it and push the finalized entry.
+    // (Recursive sub-calls only append AFTER temp_cache_index, so it is
+    // still the correct slot to drop; lookups match by content, not index.)
+    _cfc_drop_at(the_entry_idx, temp_cache_index);
+    _cfc_push(the_entry_idx, updated_cache);
+  }, {
+    _cfc_drop_at(the_entry_idx, temp_cache_index);
+  });
+  if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
+    eprintln(`[ctfe-out] fid=${func_id_str} result=${value_to_string(&final_return_value)}`);
+  });
+  // comptimeRef: the evaluated body's comptime_ref. Read before the purge
+  // below, like the value and the callee env above.
+  body_comptime_ref := expr_info_comptime_ref(&body_info);
+  // The call's value is out: the executed clone's own metadata is dead.
+  purge_executed_clone_metadata(&ctx.expr_info_table, &body_expr, clone_lo, clone_hi);
+  ComptimeFnCallResult(
+    value : final_return_value,
+    caller_env : Rc.clone(caller_env),
+    callee_env : out_callee_env,
+    comptime_ref : body_comptime_ref
+  )
+});
+export(evaluate_comptime_fn_call);
+export(ComptimeFnCallResult);
+export(RecursiveTypeRef, lookup_recursive_type_ref, resolve_recursive_type_ref);
+export(canonicalize_instantiation_via_ctfe_memo, _ctfe_args_equal);

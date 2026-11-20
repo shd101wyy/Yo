@@ -3,7 +3,7 @@
 //! A few helpers live elsewhere or stay deferred:
 //!
 //!   * `is_comptime_only_type` / `is_runtime_only_type` (env-aware
-//!     versions): live in `evaluator/trait_checking.yo` as
+//!     versions): live in `evaluator/trait-checking.yo` as
 //!     `type_is_comptime_only_full` / `type_is_runtime_only` because
 //!     they depend on the env-aware `type_implements_comptime`. The
 //!     tag-only fast path is still here as `type_is_comptime_only`.
@@ -34,9 +34,9 @@ pragma(Pragma.AllowUnsafe);
 { RefCell } :: import("std/sync/refcell");
 { eprintln } :: import("std/fmt");
 { debug_knob } :: import("../utils.yo");
-{ ArrayList } :: import("std/collections/array_list");
-{ HashMap } :: import("std/collections/hash_map");
-{ HashSet } :: import("std/collections/hash_set");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashMap } :: import("std/collections/hash-map");
+{ HashSet } :: import("std/collections/hash-set");
 /// Set once some future type carries a non-elided origin (decision 43 step 4,
 /// N3-1: an `io.async` that captures a borrow, or a spelled
 /// `Future(T, E, p)`). Until then no future borrows anything and the borrow
@@ -216,7 +216,7 @@ can_comptime_float_cast_to :: (fn(target_type : &TypeValue) -> bool)(
 // NOTE: `create_str_type`, `pointer_target_is_byte_`,
 // `convert_comptime_type_to_runtime_type`, and
 // `convert_comptime_type_to_runtime_type_with_expected` have been
-// moved to `types/env_lookup.yo` so that this file no longer imports
+// moved to `types/env-lookup.yo` so that this file no longer imports
 // from `env.yo`. The move breaks the env.yo ↔ types/utils.yo import
 // cycle and lets `env.yo` import `type_contains_rc_type` from here
 // for `get_variables_needing_drop`.
@@ -449,7 +449,7 @@ type_implements_runtime :: (fn(ty : &TypeValue) -> bool)(
 /// flag test per nominal type visited.
 MoveOnlyNominalFn :: (fn(ty : &TypeValue) -> String);
 (mut(g_move_only_nominal_fn) : Option(MoveOnlyNominalFn)) = Option(MoveOnlyNominalFn).None;
-/// Install the nominal move-only answer (`evaluator/trait_checking.yo` does at
+/// Install the nominal move-only answer (`evaluator/trait-checking.yo` does at
 /// init).
 set_move_only_nominal_fn :: (fn(f : Option(MoveOnlyNominalFn)) -> unit)({
   g_move_only_nominal_fn = f;
@@ -462,7 +462,7 @@ set_move_only_nominal_fn :: (fn(f : Option(MoveOnlyNominalFn)) -> unit)({
 /// `MoveOnlyNominalFn`.
 GenericOwnerDropFn :: (fn(ty : &TypeValue) -> bool);
 (mut(g_generic_owner_drop_fn) : Option(GenericOwnerDropFn)) = Option(GenericOwnerDropFn).None;
-/// Install the generic owner `Drop` answer (`evaluator/trait_checking.yo`
+/// Install the generic owner `Drop` answer (`evaluator/trait-checking.yo`
 /// does at init).
 set_generic_owner_drop_fn :: (fn(f : Option(GenericOwnerDropFn)) -> unit)({
   g_generic_owner_drop_fn = f;
@@ -844,7 +844,7 @@ type_carries_origin :: (fn(ty : &TypeValue) -> bool)(
 /// read the places `ty`'s origins name (`nominal_drop_uses_roots`).
 DropUsesRootsFn :: (fn(ty : &TypeValue, std_path : &String) -> bool);
 (mut(g_drop_uses_roots_fn) : Option(DropUsesRootsFn)) = Option(DropUsesRootsFn).None;
-/// Install the per-nominal answer (`evaluator/trait_checking.yo` does at init).
+/// Install the per-nominal answer (`evaluator/trait-checking.yo` does at init).
 set_drop_uses_roots_fn :: (fn(f : Option(DropUsesRootsFn)) -> unit)({
   g_drop_uses_roots_fn = f;
 });
@@ -1966,7 +1966,7 @@ type_is_move_only :: (fn(ty : &TypeValue) -> bool)({
 /// Decision 36's flip (plans/VALUES_BY_DEFAULT.md, Generation B): a
 /// plain-data type (no owned buffer, no counted cell) that is not `Copy` is
 /// explicit-copy too. The `Copy` question needs the trait registry and an
-/// environment, which this module cannot reach, so `trait_checking.yo`
+/// environment, which this module cannot reach, so `trait-checking.yo`
 /// installs it (`type_lacks_copy_for_flip`, memoized there). Compile-time-only,
 /// control-bound and C-opaque types answer false: their copies stay implicit.
 (mut(g_type_lacks_copy_fn) : Option(fn(ty : &TypeValue) -> bool)) = Option(fn(ty : &TypeValue) -> bool).None;
@@ -1983,7 +1983,7 @@ trait_impl_epoch :: (fn() -> u64)(g_trait_impl_epoch);
 set_type_lacks_copy_fn :: (fn(f : (fn(ty : &TypeValue) -> bool)) -> unit)({
   g_type_lacks_copy_fn = Option(fn(ty : &TypeValue) -> bool).Some(f);
 });
-/// Whether a type lacks `Clone` (installed by `evaluator/trait_checking.yo`):
+/// Whether a type lacks `Clone` (installed by `evaluator/trait-checking.yo`):
 /// a plain-data type with neither `Copy` nor `Clone` is move-only, which is
 /// how a diagnostic names it (decision 36: move-only is "neither").
 (mut(g_type_lacks_clone_fn) : Option(fn(ty : &TypeValue) -> bool)) = Option(fn(ty : &TypeValue) -> bool).None;
@@ -2797,8 +2797,8 @@ _collect_some_types_into :: (
   ) -> unit
 )({
   // Resolve struct/enum SHELLS before walking — the SAME convention
-  // `type_key` (types/type_key.yo:86) and `stable_type_identity`
-  // (types/type_key.yo:505) already follow, and creators.yo:559-568 mandates
+  // `type_key` (types/type-key.yo:86) and `stable_type_identity`
+  // (types/type-key.yo:505) already follow, and creators.yo:559-568 mandates
   // for every FIELD-READING site (`_type_contains_rc_inner` below calls
   // itself the fifth shell-consumption site; this is the sixth). A recursive
   // generic (`ListNode(T)`) leaks a 0-FIELD struct shell into its enclosing
@@ -3334,7 +3334,7 @@ is_closure_capture_struct :: (fn(t : &TypeValue) -> bool)(
   match(t, Rc(.Struct({ id : ccs_id })) => ccs_id.starts_with("capture_"), _ => false)
 );
 /// A closure's own type used as a type: an annotation wrapper (the reserved
-/// name "Impl", builtins/impl_constraint.yo) whose resolution chain reaches a
+/// name "Impl", builtins/impl-constraint.yo) whose resolution chain reaches a
 /// concrete type, e.g. `(k : Impl(Fn() -> unit))` resolved to k's capture
 /// struct. It is a type in its own right, not a type variable: codegen lowers
 /// it to its resolution, so it is keyed (`type_key`), compared (identity and
@@ -3847,7 +3847,7 @@ get_size_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
   // empty shell walks to size 0, so `sizeof(T)` on a recursive enum folded to
   // 0 and ArrayList.push allocated `0 * new_capacity` bytes → heap
   // corruption (the recursive_enum / encoding/json crashes). Resolve to the
-  // registered final first — same convention as type_key.yo.
+  // registered final first — same convention as type-key.yo.
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
   // V6 task 3: a refinement is erased for layout — sizeof(refine(T, p))
   // == sizeof(T) (the zero-runtime-cost rule).
@@ -4387,7 +4387,7 @@ export(can_comptime_int_cast_to);
 export(can_comptime_float_cast_to);
 // create_str_type, convert_comptime_type_to_runtime_type, and
 // convert_comptime_type_to_runtime_type_with_expected moved to
-// `types/env_lookup.yo` (cycle break — see top of file).
+// `types/env-lookup.yo` (cycle break — see top of file).
 export(prohibit_void_type);
 export(type_requires_comptime_modifier, type_prohibits_comptime_modifier);
 export(type_implements_runtime_builtin, type_implements_runtime, type_is_comptime_only);

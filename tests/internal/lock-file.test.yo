@@ -1,0 +1,212 @@
+{ String } :: import("std/string");
+import("std/fmt");
+{ ArrayList } :: import("std/collections/array-list");
+{ assert, panic } :: import("std/assert");
+{
+  LOCK_VERSION,
+  LockEntry,
+  LockFile,
+  git_source,
+  path_source,
+  parse_lock_file,
+  write_lock_file_content,
+  find_lock_entry,
+  lock_files_equal
+} :: import("../../src/lock-file.yo");
+_entry :: (fn(name : str, version : str, source : &String, commit : str, integrity : str) -> LockEntry)(
+  LockEntry(
+    name : String.from(name),
+    version : String.from(version),
+    source : source.clone(),
+    commit : String.from(commit),
+    integrity : String.from(integrity),
+    dependencies : ArrayList(String).new()
+  )
+);
+_lock_of :: (fn(entries : &ArrayList(LockEntry)) -> LockFile)(LockFile(packages : entries.clone()));
+_parsed :: (fn(content : &String) -> LockFile)(
+  match(
+    parse_lock_file(content),
+    .Ok(l) => l,
+    .Err(msg) => {
+      panic(`parse_lock_file failed: ${msg}`);
+      LockFile.empty()
+    }
+  )
+);
+// ---------------------------------------------------------------------------
+// parse_lock_file
+// ---------------------------------------------------------------------------
+test("parse_lock_file: empty string is an empty v2 lock", {
+  lock := _parsed(String.from(""));
+  assert(lock.packages.len() == usize(0), "empty content → no packages");
+});
+test("parse_lock_file: one git package with every field", {
+  content := String.from("version = 2\n\n[[package]]\nname = \"raylib_yo\"\nversion = \"0.0.6\"\nsource = \"git+https://github.com/shd101wyy/raylib_yo#v0.0.6\"\ncommit = \"973b8cb6c1e362839534df8c16a735aa8a684dc9\"\nintegrity = \"sha256-abc\"\ndependencies = [\"utils\"]\n");
+  lock := _parsed(&content);
+  assert(lock.packages.len() == usize(1), "one package");
+  p := lock.packages(usize(0)).clone();
+  assert(p.name == "raylib_yo", "name");
+  assert(p.version == "0.0.6", "version");
+  assert(p.is_git(), "git source");
+  assert(p.url() == "https://github.com/shd101wyy/raylib_yo", "url from source");
+  assert(p.ref() == "v0.0.6", "ref from source");
+  assert(p.path().len() == usize(0), "no path for a git source");
+  assert(p.commit == "973b8cb6c1e362839534df8c16a735aa8a684dc9", "commit");
+  assert(p.integrity == "sha256-abc", "integrity");
+  assert(p.dependencies.len() == usize(1), "one dependency name");
+  assert(p.dependencies(usize(0)) == "utils", "dependency name");
+});
+test("parse_lock_file: a path package has only name and source", {
+  content := String.from("version = 2\n[[package]]\nname = \"mylib\"\nsource = \"path+../mylib\"\n");
+  lock := _parsed(&content);
+  p := lock.packages(usize(0)).clone();
+  assert(!p.is_git(), "not git");
+  assert(p.path() == "../mylib", "path from source");
+  assert(p.url().len() == usize(0), "no url");
+  assert(p.ref().len() == usize(0), "no ref");
+  assert(p.version.len() == usize(0), "no version");
+  assert(p.commit.len() == usize(0), "no commit");
+  assert(p.dependencies.len() == usize(0), "no dependencies");
+});
+test("parse_lock_file: a URL containing '#' keeps the LAST '#' as the ref separator", {
+  content := String.from("version = 2\n[[package]]\nname = \"x\"\nsource = \"git+https://host/a#b/x#main\"\n");
+  p := _parsed(&content).packages(usize(0)).clone();
+  assert(p.url() == "https://host/a#b/x", "url keeps its own #");
+  assert(p.ref() == "main", "ref after the last #");
+});
+test("parse_lock_file: comments and blank lines are fine", {
+  content := String.from("# yo.lock — generated\n\nversion = 2\n\n[[package]]\n# a comment\nname = \"x\"\nsource = \"git+https://example.com/x.git#HEAD\"\ncommit = \"ccc\"\n");
+  lock := _parsed(&content);
+  assert(lock.packages.len() == usize(1), "one package");
+  assert(lock.packages(usize(0)).commit == "ccc", "commit");
+});
+test("parse_lock_file: a v1 lock is rejected with a regeneration hint", {
+  content := String.from("[[dependencies]]\nname = \"json-parser\"\nurl = \"https://github.com/user/json-parser.git\"\nref = \"v1.0.0\"\ncommit = \"abc123\"\nhash = \"sha256-XXXXX\"\n");
+  match(
+    parse_lock_file(&content),
+    .Ok(_) => assert(false, "a v1 lock must not parse as v2"),
+    .Err(msg) => {
+      assert(msg.contains(String.from("format version 0 is not 2")), `message names the versions: ${msg}`);
+      assert(msg.contains(String.from("yo install")), "message says how to regenerate");
+    }
+  );
+});
+test("parse_lock_file: a future version is rejected", {
+  match(
+    parse_lock_file(String.from("version = 3\n")),
+    .Ok(_) => assert(false, "v3 must not parse"),
+    .Err(msg) => assert(msg.contains(String.from("format version 3")), "names the version")
+  );
+});
+test("parse_lock_file: a package without a source is an error", {
+  match(
+    parse_lock_file(String.from("version = 2\n[[package]]\nname = \"x\"\n")),
+    .Ok(_) => assert(false, "must fail"),
+    .Err(msg) => assert(msg.contains(String.from("needs name and source")), `message: ${msg}`)
+  );
+});
+test("parse_lock_file: an unknown source kind is an error", {
+  match(
+    parse_lock_file(String.from("version = 2\n[[package]]\nname = \"x\"\nsource = \"svn+https://x\"\n")),
+    .Ok(_) => assert(false, "must fail"),
+    .Err(msg) => assert(msg.contains(String.from("unknown source kind")), `message: ${msg}`)
+  );
+});
+test("parse_lock_file: malformed TOML is an error", {
+  match(
+    parse_lock_file(String.from("version = 2\n[[package\nname = \"x\"\n")),
+    .Ok(_) => assert(false, "must fail"),
+    .Err(msg) => assert(msg.starts_with(String.from("yo.lock:")), `message: ${msg}`)
+  );
+});
+// ---------------------------------------------------------------------------
+// write_lock_file_content
+// ---------------------------------------------------------------------------
+test("write_lock_file_content: an empty lock is the header and the version", {
+  out := write_lock_file_content(LockFile.empty());
+  assert(out.starts_with(String.from("# yo.lock")), "header comment first");
+  assert(out.contains(String.from("version = 2")), "version line");
+  assert(!out.contains(String.from("[[package]]")), "no packages");
+  assert(_parsed(&out).packages.len() == usize(0), "round-trips empty");
+});
+test("write_lock_file_content: round-trips a git package", {
+  mut(entries) := ArrayList(LockEntry).new();
+  mut(e) := _entry("mylib", "2.0.0", git_source(String.from("https://github.com/user/mylib.git"), String.from("v2.0.0")), "deadbeef", "sha256-FFFF");
+  e.dependencies.push(String.from("a"));
+  e.dependencies.push(String.from("b"));
+  entries.push(e);
+  out := write_lock_file_content(_lock_of(&entries));
+  assert(out.contains(String.from("source = \"git+https://github.com/user/mylib.git#v2.0.0\"")), `source line: ${out}`);
+  p := _parsed(&out).packages(usize(0)).clone();
+  assert(p.name == "mylib", "name");
+  assert(p.version == "2.0.0", "version");
+  assert(p.url() == "https://github.com/user/mylib.git", "url");
+  assert(p.ref() == "v2.0.0", "ref");
+  assert(p.commit == "deadbeef", "commit");
+  assert(p.integrity == "sha256-FFFF", "integrity");
+  assert(p.dependencies.len() == usize(2), "two dependency names");
+  assert((p.dependencies(usize(0)) == "a") && (p.dependencies(usize(1)) == "b"), "dependency names in order");
+});
+test("write_lock_file_content: a path package omits its empty fields", {
+  mut(entries) := ArrayList(LockEntry).new();
+  entries.push(_entry("mylib", "", path_source(String.from("../mylib")), "", ""));
+  out := write_lock_file_content(_lock_of(&entries));
+  assert(out.contains(String.from("source = \"path+../mylib\"")), "source line");
+  assert(!out.contains(String.from("commit =")), "no commit line");
+  assert(!out.contains(String.from("integrity =")), "no integrity line");
+  assert(!out.contains(String.from("dependencies =")), "no dependencies line");
+  assert(!out.contains(String.from("version = \"")), "no version string");
+});
+test("write_lock_file_content: packages are written sorted by name", {
+  mut(entries) := ArrayList(LockEntry).new();
+  entries.push(_entry("zeta", "1.0.0", git_source(String.from("https://z"), String.from("v1.0.0")), "z", "sha256-z"));
+  entries.push(_entry("alpha", "1.0.0", git_source(String.from("https://a"), String.from("v1.0.0")), "a", "sha256-a"));
+  entries.push(_entry("mid", "", path_source(String.from("./mid")), "", ""));
+  out := write_lock_file_content(_lock_of(&entries));
+  za := out.index_of(String.from("name = \"zeta\"")).unwrap();
+  aa := out.index_of(String.from("name = \"alpha\"")).unwrap();
+  ma := out.index_of(String.from("name = \"mid\"")).unwrap();
+  assert((aa < ma) && (ma < za), "alpha < mid < zeta");
+  reparsed := _parsed(&out);
+  assert(reparsed.packages.len() == usize(3), "three after round-trip");
+});
+// ---------------------------------------------------------------------------
+// find_lock_entry / lock_files_equal
+// ---------------------------------------------------------------------------
+test("find_lock_entry: None for an unknown name, the entry otherwise", {
+  mut(entries) := ArrayList(LockEntry).new();
+  entries.push(_entry("a", "1.0.0", git_source(String.from("https://a"), String.from("v1.0.0")), "aaa", "sha256-a"));
+  lock := _lock_of(&entries);
+  match(find_lock_entry(&lock, String.from("unknown")), .Some(_) => assert(false, "expected None"), .None => ());
+  match(
+    find_lock_entry(&lock, String.from("a")),
+    .None => assert(false, "expected the entry"),
+    .Some(e) => assert(e.commit == "aaa", "the right entry")
+  );
+});
+test("lock_files_equal: order-insensitive, field-sensitive", {
+  mut(a) := ArrayList(LockEntry).new();
+  a.push(_entry("x", "1.0.0", git_source(String.from("https://x"), String.from("v1.0.0")), "x1", "sha256-x"));
+  a.push(_entry("y", "", path_source(String.from("./y")), "", ""));
+  mut(b) := ArrayList(LockEntry).new();
+  b.push(_entry("y", "", path_source(String.from("./y")), "", ""));
+  b.push(_entry("x", "1.0.0", git_source(String.from("https://x"), String.from("v1.0.0")), "x1", "sha256-x"));
+  assert(lock_files_equal(_lock_of(&a), _lock_of(&b)), "same packages in another order are equal");
+  mut(c) := ArrayList(LockEntry).new();
+  c.push(_entry("x", "1.0.0", git_source(String.from("https://x"), String.from("v1.0.0")), "x2", "sha256-x"));
+  c.push(_entry("y", "", path_source(String.from("./y")), "", ""));
+  assert(!lock_files_equal(_lock_of(&a), _lock_of(&c)), "a different commit is a different lock");
+  mut(d) := ArrayList(LockEntry).new();
+  d.push(_entry("x", "1.0.0", git_source(String.from("https://x"), String.from("v1.0.0")), "x1", "sha256-x"));
+  assert(!lock_files_equal(_lock_of(&a), _lock_of(&d)), "a missing package is a different lock");
+  mut(e) := ArrayList(LockEntry).new();
+  mut(ex) := _entry("x", "1.0.0", git_source(String.from("https://x"), String.from("v1.0.0")), "x1", "sha256-x");
+  ex.dependencies.push(String.from("y"));
+  e.push(ex);
+  e.push(_entry("y", "", path_source(String.from("./y")), "", ""));
+  assert(!lock_files_equal(_lock_of(&a), _lock_of(&e)), "a different dependency list is a different lock");
+});
+test("LOCK_VERSION is 2", {
+  assert(LOCK_VERSION == i64(2), "v2");
+});

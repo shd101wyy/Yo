@@ -238,7 +238,7 @@ those shadowing-shaped bindings.
 - Prefix operators may use the call form (`&(x)`, `!(ready)`) or bind one bare postfix expression (`&x`, `!ready`, `-value` — plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1; see "Unary (prefix) operators" below, including the src/std seed constraint). A no-whitespace `(` after the operator is always the call form.
 - Inside `quote(...)`, unquote with `unquote(expr)` and splice with `unquote_splicing(exprs)`: words, the only spellings. The operator spellings `#(expr)` and `...#(exprs)` were deleted 2026-10-10; the lexer rejects them with a message naming the word.
 - **The operator token set is CLOSED** (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md): a run of operator characters is split greedily against the fixed table in `src/lexer.yo` (`_is_two_char_operator`/`_is_one_char_operator`); an unknown run is a lex error, and `**x` lexes as `*`,`*`,`x`. Reserved operators (`= := :: : => -> <: ?= && ||`, ranges) can never be bound or overloaded (`is_reserved_operator_name` in `src/token.yo`, gated in `evaluator/exprs/binding.yo`). Adding a new operator = editing the lexer table deliberately, like a keyword.
-- **DEFINING a macro (a `quote(...)` parameter or `unquote(...)` return type) requires `pragma(Pragma.AllowMacroDef);` at the top of the file** (plans/reference/MACRO_POLICY.md). Calling macros and working with quoted `Expr` values (the derive-rule mechanism) is ungated. std has no exemption: each std file that defines a macro declares the pragma too (`is_macro_def_capable_file` in `src/evaluator/memory_safety.yo`). The std `try` macro was REMOVED — match on the `Result`, or define a local equivalent under the pragma.
+- **DEFINING a macro (a `quote(...)` parameter or `unquote(...)` return type) requires `pragma(Pragma.AllowMacroDef);` at the top of the file** (plans/reference/MACRO_POLICY.md). Calling macros and working with quoted `Expr` values (the derive-rule mechanism) is ungated. std has no exemption: each std file that defines a macro declares the pragma too (`is_macro_def_capable_file` in `src/evaluator/memory-safety.yo`). The std `try` macro was REMOVED — match on the `Result`, or define a local equivalent under the pragma.
 - **Builtin dispatch names are reserved for bindings** (2026-09-27): a user definition of any plain-named builtin is rejected at every binding site (`::`, `:=`, `(x : T) =`, destructuring rename) with `"…" names a builtin: every call with this name dispatches to the builtin, so a user binding could never run`. The set (`is_reserved_builtin_binding_name`, `src/token.yo`): `type_of` `size_of` `align_of` `type_id` `addr_of` `runtime` `unwind` `recur` `consume` `unsafe` `pragma` `asm` `global_asm` `macro_expand` `va_start` `comptime_assert` `comptime_fn` `comptime_print` `comptime_eval` `comptime_read_file` `comptime_json_parse` `comptime_toml_parse` `requires` `ensures` `invariant` `decreases` `assumed` `___drop` `___dup` `dyn` `the` `as` `clone` `quote`. (The `__yo` runtime prefix is not reserved yet, except the two private cell primitives `__yo_cell` and `__yo_atomic_cell`, which the evaluator dispatches on by name; plans/VALUES_BY_DEFAULT.md §3.5.) Probed motivation: a user `consume` was silently hijacked (the call never ran, the argument was marked consumed, its reference leaked); everything except `as`/`clone` hijacked the same way, and `as`/`clone` only fragilely deferred. `std/prelude.yo` is exempt (its `unsafe` namespace module predates the rule). The rejection goes through `raise_flow_violation`: `yo compile` and the test runner enforce it; a plain `yo check` of a file whose only error is this rejection still exits 0 (known check-driver gap).
 - Dynamic field access with unquote requires grouping after the dot: `value.(unquote(field_expr))`.
 
@@ -507,7 +507,7 @@ Use destructured imports for files in the same directory:
 node_module :: import("./node.yo");
 
 // CORRECT — named import for std library modules:
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 { String } :: import("std/string");
 
 // CORRECT — glob destructure when you really want every export in scope
@@ -573,7 +573,7 @@ Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
 - Pointer comparison is plain `==`/`!=`/`<`/`<=`/`>`/`>=` (Eq/Ord impls on `*(T)`, address identity). Pointer arithmetic is METHODS: `p.add(n)`, `p.sub(n)` (offset by `usize` elements), `p.offset_from(q)` (signed element distance → `isize`). Comparisons are safe; arithmetic methods require `unsafe(...)`.
 - **A `?=` default must be a compile-time known VALUE** (DESIGN §Default parameter values): `i32(18)` and `.None` (a payload-free variant, even of `Option(Allocator)`) qualify; `Allocator.global()` (holds a global's address) and `seven()` (a call) do not. For a runtime default, use `(p : Option(T)) ?= .None` and branch in the body; callers pass `.Some(x)` (no implicit `T` → `Option(T)` wrap: E0601). A runtime-call default is rejected at the definition as E1105 (`issues/fixed/a-default-parameter-value-that-is-not-compile-time-known-emits-invalid-c.md`); names in a default resolve where the function is defined, not in the caller's module (`issues/fixed/a-default-parameter-value-resolves-names-in-the-callers-module.md`). A struct FIELD default follows the same rule: `(root_decl : String) ?= String.new()` is rejected ("`(String.new)()` is a runtime call"), so a `String` or collection field is spelled at every construction site.
 - **Associated-type binding syntax works only on BARE trait names, not parameterized trait constructors.** `where(Self <: Iterator(Item := A))` is fine (`Iterator` is a bare trait); `where(T <: Add(T, Output := T))` is REJECTED ("Argument count mismatch: expected 1, got 2") because `Add` is a trait CONSTRUCTOR (`Add(Rhs)`) and the binding parses as a second argument. Use the plain bound (`where(T <: (Add(T), Default))`) and let per-call specialization resolve `Output` — measured working end-to-end (prelude `Iterator.sum`).
-- **A module-level `NAME :: <backtick String literal>` is REJECTED** ("Expected compile-time value for NAME"): `::` constants must be comptime values, and a backtick literal (like `String.from(...)`) constructs a runtime RC `String`. Double-quoted `str` (`app_name :: "yo-demo";`) and numeric constants (`_COMMA :: u8(44);`) are fine — `str` is static. For big `String` data (e.g. an embedded table), put the backtick literal INSIDE the function that consumes it (`data := ` + blob) — it is one C string literal there; a module-level `:=` global also works but runs at module init and module globals get unmangled C names (alias hazard). Precedent: `std/encoding/html_entities.yo`.
+- **A module-level `NAME :: <backtick String literal>` is REJECTED** ("Expected compile-time value for NAME"): `::` constants must be comptime values, and a backtick literal (like `String.from(...)`) constructs a runtime RC `String`. Double-quoted `str` (`app_name :: "yo-demo";`) and numeric constants (`_COMMA :: u8(44);`) are fine — `str` is static. For big `String` data (e.g. an embedded table), put the backtick literal INSIDE the function that consumes it (`data := ` + blob) — it is one C string literal there; a module-level `:=` global also works but runs at module init and module globals get unmangled C names (alias hazard). Precedent: `std/encoding/html-entities.yo`.
 - **A leading UTF-8 BOM (U+FEFF) in a `.yo` file is skipped by the lexer** (byte 0 only; a U+FEFF elsewhere is an ordinary identifier rune). Row/column/`character` are as if the file had no BOM; `Token.byte_offset` still counts the 3 BOM bytes. Files written by Windows PowerShell 5.1's `Set-Content -Encoding UTF8` carry such a BOM (PS 7 does not add one), which is how `scripts/install.ps1`'s verification step once failed with `Variable "<BOM>open" not found` (`issues/fixed/lexer-rejects-leading-utf8-bom.md`). When a script must write `.yo` source BOM-less on BOTH PowerShell generations, use `[System.IO.File]::WriteAllText` (UTF-8 without BOM by default).
 
 ## `unsafe(...)` and `pragma(Pragma.AllowUnsafe);` for raw pointer operations
@@ -726,7 +726,7 @@ The builtin `Slice(T)` and the view methods `String.as_str()` /
   parameter annotation requires `pragma(Pragma.AllowUnsafe);` (a
   representation-based gate, not just the `*(T)` syntax gate).
 - `name : &mut T` flowability (rules R1–R4) is unchanged. See
-  `docs/en-US/FLOWABILITY.md` and `tests/flowability_comprehensive.test.yo`.
+  `docs/en-US/FLOWABILITY.md` and `tests/flowability-comprehensive.test.yo`.
 
 ### Return-slot modifiers: a borrow is BANNED; `comptime` goes on the label
 
@@ -738,7 +738,7 @@ The builtin `Slice(T)` and the view methods `String.as_str()` /
 | `-> &T`, `-> &mut T`, `-> (name : &mut T)`                        | ✅ a projection (decision 24): the body yields `&place` / `&mut place` rooted at a borrow parameter |
 | `-> (name : comptime(T))`                                         | ❌ rejected — modifier goes on the label      |
 
-Enforced at function-type evaluation (`src/evaluator/types/function.yo`). See `tests/ref_return_ban.test.yo`.
+Enforced at function-type evaluation (`src/evaluator/types/function.yo`). See `tests/ref-return-ban.test.yo`.
 
 ### Integer overflow TRAPS at run time and is a compile error on constants
 
@@ -875,7 +875,7 @@ A bare named place to a `&T`/`&mut T` parameter is E0914, always on (std include
 
 Every public top-level `fn(...)` in `std/` should take and return value types or take `&`/`&mut` parameters. Raw `*(T)` in a public signature is allowed only when (a) the function lives in an FFI directory (`libc/`, `linux/`, `darwin/`, `cuda/`, `sys/`, `sync/`), or (b) the function name signals raw-pointer use by contract (`*_cstr`, `*_ptr`, `from_raw_parts`, `as_ptr`, names starting with `raw_`). Anything else is a leak — migrate to owned collections (`ArrayList(u8)`/`String`) for buffers, `name : &mut T` for in-place mutation, or a borrowed slice (`buf : &mut [u8]`; `*[T]` for pragma'd internals).
 
-Verify with `yo public-safe-report ./std` (or `./src`). It scans every top-level public `fn(...)` declaration, skips `extern(...)` blocks and the directories/name patterns above, and reports any remaining raw-pointer leak. A parameter NAMED `witness` / `written` / `spare` is exempt — a pointer-typed parameter with one of those names is a safe-mode privilege token (the gate itself: only unsafe-capable code can produce it), not API surface. Source: `src/public_safe_report.yo`. Keep the finding count from growing when adding new stdlib surface.
+Verify with `yo public-safe-report ./std` (or `./src`). It scans every top-level public `fn(...)` declaration, skips `extern(...)` blocks and the directories/name patterns above, and reports any remaining raw-pointer leak. A parameter NAMED `witness` / `written` / `spare` is exempt — a pointer-typed parameter with one of those names is a safe-mode privilege token (the gate itself: only unsafe-capable code can produce it), not API surface. Source: `src/public-safe-report.yo`. Keep the finding count from growing when adding new stdlib surface.
 
 ## `for` loop macro — correct form
 
@@ -1019,7 +1019,7 @@ Rules that follow:
   `E0609` invalid pattern (`yo explain E0607`).
 - **Inside an `io.async` arm that awaits, every pattern form is lowered**
   (nested/or/guard/string/range/catch-all/`:=`/tuple/struct/`Rc`/`Rc(p)`;
-  `tests/match_async_arms.test.yo` is the spec). Bindings an arm reads after
+  `tests/match-async-arms.test.yo` is the spec). Bindings an arm reads after
   an await are routed through the state machine's fields. Since #1018's
   single-pass lowering, `io.await(...)` may appear anywhere in an arm —
   including a cond condition (the old rejection,
@@ -1057,7 +1057,7 @@ match(
 **Preferred form: curly shorthand `.Variant({field1, field2: alias})`** —
 names only the fields the arm needs, so adding a new field to the variant
 later does not silently shift positions in every arm. The
-`tests/match_curly.test.yo` spec covers this form end-to-end.
+`tests/match-curly.test.yo` spec covers this form end-to-end.
 
 Curly destructuring rules:
 
@@ -1069,7 +1069,7 @@ Curly destructuring rules:
   (the zero case of partial curly). Bare `.Variant` (no parens) does the same —
   both work even for variants WITH fields ("ignore all fields"), so you don't
   need `.Variant(_, _, …)`. (Intentionally more permissive than Rust.)
-  `tests/match_bind_nothing.test.yo` is the spec.
+  `tests/match-bind-nothing.test.yo` is the spec.
 - Bare `_` (e.g., `{_}`) is rejected — use `{label: _}` to ignore a specific field.
 - In a VARIANT payload the struct sub-pattern takes the NAMED form:
   `.Holding(Outer(inner : { a, b }, tag))` — an anonymous curly directly in
@@ -1177,14 +1177,14 @@ foo();
 bar();
 ```
 
-**Prefer the bare call over `_ := foo();` / `___ := foo();` when the result is unused** (a 2026-09-11 tree sweep removed 45 such discard bindings). Two cases where the binding is load-bearing — leave it: drop/borrow fixtures that count `ref_count(...)` or test the discard's own scope-end drop, and compile-error fixtures whose diagnostic fires only on the value-evaluation path a binding forces (a bare statement can skip it — e.g. the `list(i).*` clear-error fixture in `tests/collections/array_list.test.yo` errors under `_ := bad_list(usize(0)).*;` but passes as a bare `bad_list(usize(0)).*;` statement).
+**Prefer the bare call over `_ := foo();` / `___ := foo();` when the result is unused** (a 2026-09-11 tree sweep removed 45 such discard bindings). Two cases where the binding is load-bearing — leave it: drop/borrow fixtures that count `ref_count(...)` or test the discard's own scope-end drop, and compile-error fixtures whose diagnostic fires only on the value-evaluation path a binding forces (a bare statement can skip it — e.g. the `list(i).*` clear-error fixture in `tests/collections/array-list.test.yo` errors under `_ := bad_list(usize(0)).*;` but passes as a bare `bad_list(usize(0)).*;` statement).
 
 ## ArrayList indexing via `arr(index)`
 
 `ArrayList(T)` implements the `Index` trait, so elements can be accessed with call syntax:
 
 ```yo
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 
 mut(list) := ArrayList(i32).new();
 list.push(i32(10));
@@ -1249,7 +1249,7 @@ eval_atom :: (fn(tok : Token, env : Env) -> Option(Result))(...);
 
 What stays **ordered**: imports (`{ a } :: import(...)`, `x :: import(...)`, `{ ... } :: import(...)`), `pragma(...)`, module-level runtime globals (`x := v`, `(g : T) = v`), the declare-then-assign `comptime(x) : T; x = v` spelling, `comptime_assert`, bare expression statements, and the bindings inside an `impl({ ... })` block. Referencing one of those before it is bound is still an error (`forward reference to "X" (bound at line N) — imports, pragmas and runtime bindings are evaluated in order …`). A definition forced early sees only the statements before the reference that forced it — keep imports at the top of the file. The same holds for module globals a forced **function** reads: if `f :: (fn …)` reads `(g : T) = v` and some earlier definition calls `f`, then `f` is forced at that call, `g` is not bound yet, and you get `E0906` (or `E0610` on `!g`, whose type is still unknown). Define the ordered globals above the first definition that (transitively) reaches `f`, not just above `f`. Cycles between constants or types are `cyclic definition: a (line N) → b (line M) → a` errors; a definition that fails while being forced reports its own error plus a `note: … was evaluated here because it is referenced before its definition`.
 
-**Seed gate LIFTED (2026-09-05, `plans/reference/LAZY_TOPLEVEL_BINDINGS.md` P5):** `std/` and `src/` may use forward references — `SEED_VERSION` carries the feature (the first release after v0.2.24). The first uses in `src/` are `module_manager.yo`'s `_load_module_at_abs` referencing `demand_load_module` below it and `evaluator/types/synthesizer.yo`'s helpers calling `_synthesize_types_impl` directly; there is no need for global function-pointer slots, IIFE wiring or holder variables to express mutual recursion any more. The general seed rule still holds for any NEWER compiler feature: `yo build` compiles `std/` and `src/` with the seed, so a feature is usable there only once a release carrying it is `SEED_VERSION` (`plans/backlog/SEED_VERSION_AUTOMATION.md`); `tests/` are compiled by the tree's stage-1.
+**Seed gate LIFTED (2026-09-05, `plans/reference/LAZY_TOPLEVEL_BINDINGS.md` P5):** `std/` and `src/` may use forward references — `SEED_VERSION` carries the feature (the first release after v0.2.24). The first uses in `src/` are `module-manager.yo`'s `_load_module_at_abs` referencing `demand_load_module` below it and `evaluator/types/synthesizer.yo`'s helpers calling `_synthesize_types_impl` directly; there is no need for global function-pointer slots, IIFE wiring or holder variables to express mutual recursion any more. The general seed rule still holds for any NEWER compiler feature: `yo build` compiles `std/` and `src/` with the seed, so a feature is usable there only once a release carrying it is `SEED_VERSION` (`plans/backlog/SEED_VERSION_AUTOMATION.md`); `tests/` are compiled by the tree's stage-1.
 
 Inside one `impl(...)` block, sibling methods reference each other through `self.method()` / `Self.method()`; bare-name sibling references are not forward-bound there (they would shadow same-named locals in other method bodies). From inside an `impl(T, …)` block, a method defined in a LATER `impl(T, …)` block is still not reachable (misses on `T` while one of its impls is being evaluated are the in-block sibling case, never a force) — put methods that call each other in one block; free functions, generic bodies and other types' impls may use any later block.
 

@@ -12,9 +12,9 @@
 pragma(Pragma.AllowUnsafe);
 { replace } :: import("std/mem");
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
-{ HashSet } :: import("std/collections/hash_set");
-{ HashMap } :: import("std/collections/hash_map");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashSet } :: import("std/collections/hash-set");
+{ HashMap } :: import("std/collections/hash-map");
 {
   AstExpr,
   ExprId,
@@ -95,7 +95,7 @@ pragma(Pragma.AllowUnsafe);
   record_skipped_operand_drops,
   clear_skipped_operand_drops,
   is_dyn_place
-} :: import("../expr_info.yo");
+} :: import("../expr-info.yo");
 {
   Environment,
   Variable,
@@ -126,7 +126,7 @@ pragma(Pragma.AllowUnsafe);
   variable_set_value_type,
   variable_slot_type
 } :: import("../env.yo");
-{ get_value_of_some_type_from_env } :: import("../types/env_lookup.yo");
+{ get_value_of_some_type_from_env } :: import("../types/env-lookup.yo");
 { Token, TokenKind, TokenData } :: import("../token.yo");
 { EvalContext, ExpectedTypeCtx, LoopBodyCtx, LoopFlowSnapshot, FuncOrAsyncBlockKind, copy_trait_blockers_via_hook, type_head_name_for_impl_forcing } :: import("./context.yo");
 { atof } :: import("std/libc/stdlib");
@@ -150,12 +150,12 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, EvalValueNode, is_unknown_val, is_type_value, is_var_ref, is_func_val } :: import("../value.yo");
 { TypeValue, TypeValueNode, t_refine_inner, SharedList, no_flags, no_types, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_param_slots, fn_result_is_ref, fn_result_is_mut_ref, fn_result_origin_names, fn_result_composite_origin_names, fn_param_in_result_origin, fn_param_pointee_in_result_origin, fn_result_slot, shared_list, t_slot_is_mut_ref, t_slot_is_borrow, t_slot_pointee, t_reference, t_reference_with_origin, t_origin_named, t_origin_spelled_names, t_origin_elided } :: import("../types/definitions.yo");
 { is_never_type, is_unit_type, is_function_type, is_function_type_and_returns_comptime_value, is_box_type, is_unique_box_type, is_dyn_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_primitive_type, is_pointer_type, is_bool_type, is_array_type, is_struct_type, is_tuple_type, is_some_type, cell_handle_view, is_atomic_counted_handle_type, is_counted_cell_type, is_arc_type, is_counted_handle_value_type, unique_box_payload_type, is_fn_trait_type, is_type_0, is_comptime_string_type, is_str_reference_type } :: import("../types/guards.yo");
-{ get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
+{ get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function-value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string, type_to_string_for_message } :: import("../types/string.yo");
 { type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, nominal_has_hidden_origin, type_reaches_user_drop, type_nominal_drop_uses_roots, note_origin_types_exist, type_is_typed_fnmut_closure, capture_struct_is_fnmut, future_unreturnable_borrow, future_origin_names, get_all_some_types, is_legacy_value_str, legacy_value_str, type_is_sized } :: import("../types/utils.yo");
-{ expr_info_table_set, is_mut_global, is_thread_local, migrate_unsized_on, record_unsized_site, migrate_deref_on, audit_deref_on, record_deref_site, record_deref_edit_site, deref_file_migrated, note_reference_read_copied, lookup_macro_expansion, is_reference_self_place, unsize_reference_mode, mark_fnonce_capture_drop } :: import("../expr_info.yo");
-{ is_global_mut_rule_exempt, is_deref_swept_tree, is_implicitly_unsafe_capable_file, is_std_module_path } :: import("./memory_safety.yo");
+{ expr_info_table_set, is_mut_global, is_thread_local, migrate_unsized_on, record_unsized_site, migrate_deref_on, audit_deref_on, record_deref_site, record_deref_edit_site, deref_file_migrated, note_reference_read_copied, lookup_macro_expansion, is_reference_self_place, unsize_reference_mode, mark_fnonce_capture_drop } :: import("../expr-info.yo");
+{ is_global_mut_rule_exempt, is_deref_swept_tree, is_implicitly_unsafe_capable_file, is_std_module_path } :: import("./memory-safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
 // late-binding dispatcher (it imports neither utils.yo nor any handler).
@@ -202,7 +202,7 @@ _c_len_9 :: (fn(xs : &ArrayList(RefPayloadSource)) -> usize)(xs.len());
 /// A `match` pattern binding of a reference payload (decision 43 step 3):
 /// the binding's variable id and the scrutinee its reference came out of.
 /// The projection root rule follows a returned payload binding to that
-/// scrutinee's own roots (`builtins/ptr_fns.yo`, `_projection_root_error`).
+/// scrutinee's own roots (`builtins/ptr-fns.yo`, `_projection_root_error`).
 RefPayloadSource :: struct(var_id : usize, scrutinee : AstExpr);
 derive(RefPayloadSource, Clone);
 (g_ref_payload_sources : RefCell(ArrayList(RefPayloadSource))) = RefCell(ArrayList(RefPayloadSource)).new(ArrayList(RefPayloadSource).new());
@@ -284,7 +284,7 @@ derive(BorrowMatchSourceDecl, Clone);
 (mut(g_binder_read_id) : usize) = usize(0);
 (mut(g_binder_read_armed) : bool) = false;
 /// The receivers `r` of the `r.*` reference derefs rewritten to `r` itself
-/// (N1e-1, `property_access.yo`), by source position: the name there is the
+/// (N1e-1, `property-access.yo`), by source position: the name there is the
 /// deref, never a whole-value read, in this node and in every clone of it.
 (g_reference_deref_sites : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 /// Reference bindings read as their referent at a binder argument, by source
@@ -310,7 +310,7 @@ derive(BorrowMatchSourceDecl, Clone);
 (g_synthesized_deref_stars : RefCell(HashSet(usize))) = RefCell(HashSet(usize)).new(HashSet(usize).new());
 /// The compile-time bindings CTFE gives a `&T` or `&mut T` parameter, by
 /// variable id: its capability analysis (`_eval_body_for_ctfe`,
-/// `ctfe/ctfe_analysis.yo`) and a compile-time call
+/// `ctfe/ctfe-analysis.yo`) and a compile-time call
 /// (`evaluate_comptime_fn_call`, whose callers bind the comptime version's
 /// parameters) bind such a parameter as a compile-time value of its pointee,
 /// so it is no reference binding (`variable_is_reference_binding`), yet its
@@ -1688,7 +1688,7 @@ reject_second_class_escape :: (fn(ty : &TypeValue, how : &String, tok : &Token, 
 /// issues/fixed/2026-10-15-d3-trusts-every-mutator-defined-in-a-pragma-file-so-std-writes-through-an-arc.md),
 /// so its payload changes only through a `Mutex` or an atomic inside it, as in
 /// Rust. The `Arc` is identified as `Box` is (`unique_box_payload_type`): the
-/// comptime-fn call stamps its name `Arc(V)` (`evaluator/calls/comptime_fn.yo`)
+/// comptime-fn call stamps its name `Arc(V)` (`evaluator/calls/comptime-fn.yo`)
 /// and a prelude name cannot be shadowed, so the stamped name plus the
 /// `atomic(ref(struct((*) : V)))` shape is the prelude's type. Any other atomic
 /// object (`std/sync/atomic.yo`'s handles, a user's `atomic(ref(...))`) is a
@@ -3299,7 +3299,7 @@ place_require_mut :: (fn(place : &AstExpr, tok : &Token, how : &String, handle_o
 /// E0901 unless the sweep gives the type `Copy`. One stderr line per site:
 /// `file:line:col [copy-trait] <first blocker> <type> <path> source=<kind>
 /// needs=<A,B> \`<source>\``, where `needs` lists the named types
-/// (`copy_trait_blockers`, trait_checking.yo) that must implement `Copy`.
+/// (`copy_trait_blockers`, trait-checking.yo) that must implement `Copy`.
 ///
 /// The copy points are the explicit-copy audit's (`binding`, `assign`,
 /// `field-store`, `element`, `return`, `capture`), plus `argument`: a value
@@ -5613,7 +5613,7 @@ merge_and_check_envs :: (
           n_cases := case_envs.len();
           // ---- Cross-branch type checks ----
           // Per-branch assigned types come from the branch-init LOG (see
-          // expr_info.yo BranchInitRecord) — the shared mutable
+          // expr-info.yo BranchInitRecord) — the shared mutable
           // Variable cannot carry them. Each body's [start,end) window was
           // registered by the arm evaluator; records matching this
           // variable's id give the per-branch (ty, capture).
@@ -6498,7 +6498,7 @@ _untracked_inout_borrowers :: (fn(bs : &ArrayList(Variable)) -> ArrayList(Variab
 });
 /// A place a local borrow freezes, or a place an access touches:
 /// `LocalBorrowPlace` (with `OriginRootPlace`, O-1's `ExprInfo.origin`
-/// entry) lives in `src/expr_info.yo`, imported above; the borrow machinery
+/// entry) lives in `src/expr-info.yo`, imported above; the borrow machinery
 /// below is its consumer.
 /// One local borrow in scope: `y := &place` or `y := &mut place`.
 LocalBorrowInfo :: struct(
@@ -8963,7 +8963,7 @@ local_borrow_note_match_place :: (fn(borrow : &LocalBorrowInfo, name : &String, 
 /// `&mut T`): `.Some(is_mut)`, read from its evaluated callee's type. A
 /// subscript (`x(i)`, whose dispatch records the `Index` method on the call)
 /// is not one. The call's result is a place of type `T`
-/// (codegen's twin: `call_projection_mode`, codegen/exprs/_expr.yo).
+/// (codegen's twin: `call_projection_mode`, codegen/exprs/dispatch.yo).
 projection_call_mode_of :: (fn(e : &AstExpr, ctx : &EvalContext) -> Option(bool))(
   match(
     e,
@@ -9018,7 +9018,7 @@ _bare_projection_tail_text :: (fn(e : &AstExpr) -> String)({
 });
 /// The decision-24 mismatch of a projection body (`-> &T` / `-> &mut T`)
 /// whose value is not the place's address: one text for a concrete body
-/// (calls/function_type.yo) and a specialized generic one (calls/helper.yo).
+/// (calls/function-type.yo) and a specialized generic one (calls/helper.yo).
 /// A body that forwards ANOTHER projection — its tail is a direct projection
 /// call — is the common user shape (a collection's `walk_elem` forwarding
 /// its inner list's), and the missing marker is the whole error: name the
@@ -9383,7 +9383,7 @@ _param_label_at :: (fn(ft : &TypeValue, i : usize) -> String)(
   match(ft, Rc(.Func({ meta : pla_m })) => match(pla_m.param_labels.get_cloned(i), .Some(l) => l, .None => String.new()), _ => String.new())
 );
 /// One ground place an origin-carrying composite freezes, with the mode the
-/// reference holding it has: `OriginRootPlace` lives in `src/expr_info.yo`
+/// reference holding it has: `OriginRootPlace` lives in `src/expr-info.yo`
 /// (O-1's `ExprInfo.origin` entry), imported above.
 /// One place a borrowing future holds, by the caller's name for it (decision
 /// 43 step 4, VERDICTS-18 §B): the root binding's name, the field hops, and
@@ -13508,7 +13508,7 @@ export(lend_place_reference_type, chain_ref_leaf_register, chain_ref_leaf_forget
 /// reference binding matched bare, VERDICTS-13 §14): the binding's variable
 /// id and the scrutinee place it is a place inside. The projection root rule
 /// follows a yielded binding to that place's own root
-/// (`builtins/ptr_fns.yo`, `_projection_root_error`).
+/// (`builtins/ptr-fns.yo`, `_projection_root_error`).
 /// Record that the binding `var_id` of a borrowed `match`, declared at
 /// `decl`, is a place inside `scrutinee`.
 note_borrow_match_source :: (fn(var_id : usize, decl : &Token, scrutinee : &AstExpr) -> unit)({

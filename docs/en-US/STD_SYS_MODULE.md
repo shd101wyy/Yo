@@ -172,11 +172,11 @@ The C runtime is split into focused modules under `src/codegen/async/`:
 | File                    | Responsibility                                                                           |
 | ----------------------- | ---------------------------------------------------------------------------------------- |
 | `runtime.yo`            | Thin coordinator — calls the other runtime modules                                       |
-| `runtime_core.yo`       | Core scheduler: continuation queue, spawn, wait, concurrency helpers                     |
-| `runtime_io_linux.yo`   | Linux io_uring async I/O                                                                 |
-| `runtime_io_macos.yo`   | macOS kqueue async I/O (non-blocking sockets/pipes, sync pread/pwrite for regular files) |
-| `runtime_io_windows.yo` | Windows IOCP async I/O                                                                   |
-| `runtime_io_common.yo`  | Cross-platform: stat helpers, timer, file extras, DNS, signals, TTY, FS events, poll     |
+| `runtime-core.yo`       | Core scheduler: continuation queue, spawn, wait, concurrency helpers                     |
+| `runtime-io-linux.yo`   | Linux io_uring async I/O                                                                 |
+| `runtime-io-macos.yo`   | macOS kqueue async I/O (non-blocking sockets/pipes, sync pread/pwrite for regular files) |
+| `runtime-io-windows.yo` | Windows IOCP async I/O                                                                   |
+| `runtime-io-common.yo`  | Cross-platform: stat helpers, timer, file extras, DNS, signals, TTY, FS events, poll     |
 
 ### Per-Platform Feature Matrix
 

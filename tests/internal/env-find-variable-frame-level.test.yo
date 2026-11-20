@@ -1,0 +1,97 @@
+/// Tests for `get_variables_from_frame` and
+/// `find_variable_frame_level` in src/env.yo.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ Token, TokenKind, TokenData } :: import("../../src/token.yo");
+{ EvalValue } :: import("../../src/value.yo");
+{ TypeValue } :: import("../../src/types/definitions.yo");
+{ t_i32 } :: import("../../src/types/creators.yo");
+{ assert, panic } :: import("std/assert");
+{
+  Environment,
+  Frame,
+  add_variable_to_env,
+  get_variables_from_frame,
+  find_variable_frame_level,
+  new_environment
+} :: import("../../src/env.yo");
+placeholder_token :: (fn() -> Token)(
+  Rc.new(
+    TokenData(
+      kind : TokenKind.Identifier,
+      value : Rc.new(String.from("")),
+      row : u32(0),
+      column : u32(0),
+      character : u32(0),
+      module_path : Rc.new(String.from("")),
+      input : Rc.new(String.from(""))
+    )
+  )
+);
+add_var :: (fn(env : &Environment, name : str) -> unit)({
+  _r := add_variable_to_env(
+    env,
+    String.from(name),
+    t_i32(),
+    Option(EvalValue).None,
+    false,
+    false,
+    false,
+    false,
+    placeholder_token()
+  );
+});
+test("get_variables_from_frame: empty frame → empty list", {
+  env := new_environment(Rc.new(String.from("test")));
+  match(
+    env.frame_at(usize(0)),
+    .Some(f) => {
+      out := get_variables_from_frame(&f, String.from("missing"));
+      assert(out.len() == usize(0), "no vars");
+    },
+    .None => assert(false, "expected outer frame")
+  );
+});
+test("get_variables_from_frame: only matching-name vars are returned", {
+  env := new_environment(Rc.new(String.from("test")));
+  add_var(&env, "x");
+  add_var(&env, "y");
+  add_var(&env, "x");
+  match(
+    env.frame_at(usize(0)),
+    .Some(f) => {
+      out := get_variables_from_frame(&f, String.from("x"));
+      assert(out.len() == usize(2), "two x bindings");
+    },
+    .None => assert(false, "expected outer frame")
+  );
+});
+test("find_variable_frame_level: missing variable → None", {
+  env := new_environment(Rc.new(String.from("test")));
+  add_var(&env, "x");
+  assert(
+    find_variable_frame_level(&env, String.from("not_defined")).is_none(),
+    "missing → None"
+  );
+});
+test("find_variable_frame_level: outermost frame match", {
+  env := new_environment(Rc.new(String.from("test")));
+  add_var(&env, "x");
+  match(
+    find_variable_frame_level(&env, String.from("x")),
+    .Some(idx) => assert(idx == usize(0), "frame 0"),
+    .None => assert(false, "expected Some")
+  );
+});
+test("find_variable_frame_level: innermost frame wins when shadowed", {
+  env := new_environment(Rc.new(String.from("test")));
+  add_var(&env, "x"); // outer x at frame 0
+  // Push a new frame and add another x in it.
+  _idx := env.push_frame(true);
+  add_var(&env, "x"); // inner x at frame 1
+  match(
+    find_variable_frame_level(&env, String.from("x")),
+    .Some(idx) => assert(idx == usize(1), "innermost frame index"),
+    .None => assert(false, "expected Some")
+  );
+});

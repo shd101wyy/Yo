@@ -276,7 +276,7 @@ append :: (
 
 ```yo
 pragma(Pragma.Verify);
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 
 copy :: (fn(xs : ArrayList(i32), ensures(seq_of(r) == seq_of(xs))) -> (r : ArrayList(i32)))({
   mut(out) := ArrayList(i32).new();
@@ -642,7 +642,7 @@ havoc 状态（每个被赋值名都换成全新无约束常量）上假设
 —— N 展开后是纯粹的数组合同推理。V5 出口样例 —— 对
 `Array(i64, 8)` 的原地插入排序，通过这两条量词式不变式同时证明
 有序性与置换性 —— 见
-`tests/spec/fixtures/valid/spec_insertion_sort.yo`。
+`tests/spec/fixtures/valid/spec-insertion-sort.yo`。
 
 ## 求解器
 
@@ -690,7 +690,7 @@ yo verify ./src --solver-path /usr/bin/z3 --rlimit 20000000
 每个负例夹具都配有一个必然被驳倒的孪生错误版本：
 
 ```bash
-yo verify ./tests/spec/verify_straight_line.test.yo
+yo verify ./tests/spec/verify-straight-line.test.yo
 ```
 
 要让证明成为项目构建的一部分、而不是靠人记得去跑的命令，在 `build.yo` 里声明

@@ -1,0 +1,143 @@
+//! evaluator/builtins/comptime-print — implements evaluate_comptime_print.
+//!
+//! `comptime_print(args...)` accepts any number of arguments (≥ 1), evaluates
+//! each at compile time, and prints them to stdout when executing.  Returns unit.
+{ String } :: import("std/string");
+{ print } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array-list");
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_is_fn_call_of,
+  BF_COMPTIME_PRINT,
+  ast_expr_to_string
+} :: import("../../expr.yo");
+{
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_set,
+  expr_info_table_get,
+  expr_info_adopt_env
+} :: import("../../expr-info.yo");
+{ Environment, snapshot_env } :: import("../../env.yo");
+{ EvalContext } :: import("../context.yo");
+{ EvalValue, EvalValueNode, value_to_string } :: import("../../value.yo");
+{ t_unit } :: import("../../types/creators.yo");
+{ format_error_message, format_eval_failure } :: import("../../error.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
+{ Exception } :: import("std/error");
+evaluate_comptime_print :: (
+  fn(
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &mut EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)({
+  // Validate: at least 1 argument
+  match(
+    expr,
+    Rc(.FnCall(_, _, Rc(args), _, _)) => {
+      if(args.len() == usize(0), {
+        exn.throw(
+          dyn(
+            Box.new(
+              format_error_message(
+                ast_expr_token(expr),
+                `Expected at least 1 argument for "comptime_print", got 0`
+              )
+            )
+          )
+        );
+      });
+    },
+    Rc(.Atom(_, _)) => {
+      exn.throw(
+        dyn(
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              String.from("comptime_print: expected FnCall")
+            )
+          )
+        )
+      );
+    }
+  );
+  // Collect evaluated string representations for each argument.
+  parts := ArrayList(String).new();
+  args := match(
+    expr,
+    Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(),
+    Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
+  );
+  (i : usize) = usize(0);
+  (cur_env : Environment) = Rc.clone(env);
+  while(i < args.len(), {
+    arg_expr := match(
+      args.get_cloned(i),
+      .Some(a) => a,
+      .None => {
+        i = args.len();
+        return(Rc.clone(expr.*));
+      }
+    );
+    evaluated := evaluate_expression_raw(&arg_expr, &cur_env, ctx, exn);
+    info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
+    info := match(
+      info_opt,
+      .Some(inf) => Rc.clone(inf),
+      .None => {
+        exn.throw(
+          dyn(
+            Box.new(
+              format_eval_failure(
+                ast_expr_token(&arg_expr),
+                `Failed to evaluate argument for "comptime_print": ${ast_expr_to_string(&arg_expr)}`
+              )
+            )
+          )
+        );
+        new_expr_info(&cur_env, t_unit())
+      }
+    );
+    cur_env = expr_info_adopt_env(&info);
+    // Convert to string: comptime strings yield their unquoted content;
+    // everything else goes through value_to_string.
+    s := match(
+      info.value(),
+      .Some(v) => match(
+        Rc.clone(v),
+        Rc(.StrLit(raw)) => {
+          // StrLit.raw includes surrounding quotes — strip them
+          rn := raw.len();
+          raw.substring(usize(1), rn - usize(1))
+        },
+        _ => value_to_string(&v)
+      ),
+      .None => String.from("undefined")
+    );
+    parts.push(s);
+    i = (i + usize(1));
+  });
+  // Print only when executing (not during function-definition validation).
+  if(!ctx.is_validating_function_definition && ctx.is_executing, {
+    (j : usize) = usize(0);
+    while(j < parts.len(), {
+      part := match(parts.get_cloned(j), .Some(p) => p, .None => String.new());
+      if(j > usize(0), {
+        print(" ");
+      });
+      print(&part);
+      j = (j + usize(1));
+    });
+    print("\n");
+  });
+  // Annotate the call expression with unit type.
+  info := new_expr_info(&cur_env, t_unit());
+  info.set_value(.Some(Rc.new(EvalValueNode.UnitVal)));
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
+  Rc.clone(expr.*)
+});
+export(evaluate_comptime_print);

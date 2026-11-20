@@ -13,8 +13,8 @@
 //! effects-state-machine context check is not modeled;
 //! `Variable.value` is a single `Option(EvalValue)`.
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
-{ HashSet } :: import("std/collections/hash_set");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashSet } :: import("std/collections/hash-set");
 { AstExpr, ast_expr_id, ast_call_args_unmarked } :: import("../../expr.yo");
 { EvalValue, is_func_val, is_struct_val, empty_value_cell } :: import("../../value.yo");
 { TypeValue, TypeValueNode, no_types, no_labels, t_slot_pointee } :: import("../../types/definitions.yo");
@@ -28,18 +28,18 @@
 } :: import("../../types/guards.yo");
 { type_contains_rc_cell_or_move_only } :: import("../../types/utils.yo");
 { Variable, Environment, get_variables_from_env_by_filter } :: import("../../env.yo");
-{ sm_slot_of } :: import("../async/state_machine_naming.yo");
-{ scope_release_note_hard, some_resolution } :: import("../../expr_info.yo");
-{ is_io_await_call } :: import("../../evaluator/async/await_analysis.yo");
+{ sm_slot_of } :: import("../async/state-machine-naming.yo");
+{ scope_release_note_hard, some_resolution } :: import("../../expr-info.yo");
+{ is_io_await_call } :: import("../../evaluator/async/await-analysis.yo");
 {
   extract_future_trait_from_type,
   type_implements_future
-} :: import("../../evaluator/trait_checking.yo");
+} :: import("../../evaluator/trait-checking.yo");
 {
   is_io_future_type,
   uses_generic_future_interface,
   emit_future_effect_injection_line
-} :: import("../async/state_machine.yo");
+} :: import("../async/state-machine.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 {
   get_type_string,
@@ -51,13 +51,13 @@
   sanitize_for_c_identifier,
   c_variant_member_name
 } :: import("../utils/index.yo");
-{ get_dup_function_for_type, generate_dup_code_for_value } :: import("./drop_dup.yo");
-{ _call_generate_expr } :: import("./_expr.yo");
-{ _call_emit_inline_await } :: import("../async/_fsm.yo");
+{ get_dup_function_for_type, generate_dup_code_for_value } :: import("./drop-dup.yo");
+{ _call_generate_expr } :: import("./dispatch.yo");
+{ _call_emit_inline_await } :: import("../async/fsm.yo");
 { generate_pending_deferred_drops } :: import("./return.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 { fn_value_c_name } :: import("../functions/declarations.yo");
-{ unwind_catch_condition } :: import("./async_completion.yo");
+{ unwind_catch_condition } :: import("./async-completion.yo");
 { replace } :: import("std/mem");
 /// One effect on a Future trait (the first — `FutureTraitT` carries effect
 /// arrays).

@@ -8,7 +8,7 @@
 //! # Layering
 //!
 //! This module deliberately imports only `std/string/rune` and
-//! `std/collections/array_list`. It must stay below `std/error` and `std/fmt`,
+//! `std/collections/array-list`. It must stay below `std/error` and `std/fmt`,
 //! because `std/string/string.yo` — which both of those import — is itself a
 //! consumer. That is also why `Utf8Error` carries an inherent `message()`
 //! returning `str` instead of a `ToString`/`Error()` impl: those traits live
@@ -19,7 +19,7 @@
 //!
 //! ```yo
 //! { decode, encode_into, validate } :: import("std/encoding/utf8");
-//! { ArrayList } :: import("std/collections/array_list");
+//! { ArrayList } :: import("std/collections/array-list");
 //!
 //! bytes := `héllo`.to_bytes();
 //! match(validate(bytes), .Ok(_) => (), .Err(e) => println(e.message()));
@@ -46,7 +46,7 @@
 //! It has not moved since the D8 consolidation (#286) folded four scattered
 //! decoders into this one; every change since has been documentation. It has
 //! the tree's widest internal consumer set — `std/string/string.yo`,
-//! `rune.yo`, `string_builder.yo`, `unicode.yo`,
+//! `rune.yo`, `string-builder.yo`, `unicode.yo`,
 //! `std/fmt/to_string.yo`, `std/regex/{index,parser,vm}.yo` and
 //! `std/encoding/{json,utf16}.yo` all sit on it — so a signature change here
 //! is a signature change to `String` itself, and the 35 tests in
@@ -69,7 +69,7 @@
 //! ever permits it is additive, and a caller matching the variants is
 //! unaffected either way.
 { rune } :: import("../string/rune.yo");
-{ ArrayList } :: import("../collections/array_list.yo");
+{ ArrayList } :: import("../collections/array-list.yo");
 // ============================================================================
 // Error type
 // ============================================================================

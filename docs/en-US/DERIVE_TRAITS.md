@@ -190,7 +190,7 @@ Each field type in the struct or enum must already implement the trait being der
 A type can derive through a field that names the type itself, such as `ArrayList(Self)` or `Rc(Self)`. The derived method reaches the inner values through the container's own impl: `Node`'s derived `==` below compares `children` with `ArrayList(Node)`'s `==`, which calls `Node`'s `==` again.
 
 ```yo
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 { println, ToString } :: import("std/fmt");
 
 Node :: enum(Leaf, Branch(children : ArrayList(Self)));

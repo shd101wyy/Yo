@@ -307,7 +307,7 @@ read :: (fn(p : Path, io : Io) -> String)({
 
 ```rust
 { assert } :: import("std/assert"); // REQUIRED — assert is not in the prelude
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 
 test("push then len", {
   xs := ArrayList(i32).new();

@@ -4,15 +4,15 @@
 //!
 //! * Interfaces are Yo `object` types; optional fields (`field?: T`) are
 //!   `Option(T)` fields; discriminated-union result fields are Yo enum variants.
-//! * `Map<K,V>` → `HashMap(K, V)` from std/collections/hash_map.
-//! * `Set<K>` → `HashSet(K)` from std/collections/hash_set.
+//! * `Map<K,V>` → `HashMap(K, V)` from std/collections/hash-map.
+//! * `Set<K>` → `HashSet(K)` from std/collections/hash-set.
 //! * `PathCollection` → `PathCollection :: ArrayList(ArrayList(String))`
-//!   imported from `src/expr_info.yo`.
+//!   imported from `src/expr-info.yo`.
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
-{ ArrayList } :: import("std/collections/array_list");
-{ HashMap } :: import("std/collections/hash_map");
-{ HashSet } :: import("std/collections/hash_set");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashMap } :: import("std/collections/hash-map");
+{ HashSet } :: import("std/collections/hash-set");
 { TypeValue, t_slot_pointee, t_slot_is_borrow } :: import("../types/definitions.yo");
 { trial_flag_get, trial_flag_set, t_unit, t_ptr, type_binding_name } :: import("../types/creators.yo");
 { note_move_only_possible, is_drop_trait_name } :: import("../types/utils.yo");
@@ -46,7 +46,7 @@
   BF_DERIVE,
   BF_GHOST_FN
 } :: import("../expr.yo");
-{ PathCollection, path_collection_new, ExprInfoTable, expr_info_table_new, is_module_level_global, ComptimeRef, ExprInfo } :: import("../expr_info.yo");
+{ PathCollection, path_collection_new, ExprInfoTable, expr_info_table_new, is_module_level_global, ComptimeRef, ExprInfo } :: import("../expr-info.yo");
 { Token } :: import("../token.yo");
 { YoError } :: import("../error.yo");
 { Exception } :: import("std/error");
@@ -84,7 +84,7 @@ _module_ordered_read_keys :: (fn(m : &HashMap(String, HashMap(String, HashSet(St
 /// Node ids of identifier atoms inside `ensures(...)` predicates spliced into
 /// bodies of UNLABELED non-unit-return functions. Populated by
 /// `wrap_function_body_with_contracts` (builtins/contracts.yo) at splice time;
-/// read by the identifier resolver (exprs/identifer_and_operator.yo) so the
+/// read by the identifier resolver (exprs/identifer-and-operator.yo) so the
 /// ordinary `Variable "x" not found.` error can append the label-the-return
 /// hint (decision D3: no magic `result` identifier). With a LABELED return an
 /// unbound name is an ordinary typo and nothing registers here.
@@ -140,7 +140,7 @@ FuncOrAsyncBlockCtx :: struct(
   /// function called with every argument known, not reached through an
   /// untaken arm of an enclosing comptime body. A `__yo_panic` it reaches
   /// is a compile error (`evaluate_panic`). Set only by
-  /// `calls/comptime_fn.yo`.
+  /// `calls/comptime-fn.yo`.
   (ctfe_live : bool) ?= false,
   /// `EvalContext.ctfe_untaken_arm_depth` at this body's entry: a panic at
   /// a deeper count sits in an arm the execution does not take.
@@ -930,7 +930,7 @@ track_variable_usage_resolved :: (
 // records call-site ExprInfos with no FuncVal — codegen's fn-pointer
 // fallback then emits the raw identifier. The def-time trial eval is
 // therefore re-run after the forward declaration is FILLED (assignment.yo
-// calls through this hook into function_type.yo's pending table).
+// calls through this hook into function-type.yo's pending table).
 /// Returns the first re-run that still fails once every forward declaration
 /// it waited for is filled — the caller, which has `exn`, raises it.
 RerunPendingDefEvalsFn :: (fn(env : &Environment, ctx : &EvalContext) -> Option(YoError));
@@ -948,9 +948,9 @@ call_rerun_pending_def_evals :: (fn(env : &Environment, ctx : &EvalContext) -> O
 );
 // --- write-position `Index` promotion hook (VALUES_BY_DEFAULT V2b) ----------
 // A write through `x(i)` re-dispatches the element access to `index_mut`
-// (calls/index_trait.yo's `promote_index_places_for_write`). The write
+// (calls/index-trait.yo's `promote_index_places_for_write`). The write
 // sites (assignment, `&mut` arguments, `addr_of`, `&mut` local borrows)
-// cannot import calls/index_trait.yo without a cycle, so they call through
+// cannot import calls/index-trait.yo without a cycle, so they call through
 // this hook, installed by `register_evaluate_expression`.
 /// `is_addr_of`: the write is `addr_of(place)`, which a diagnostic names.
 PromoteIndexPlacesFn :: (fn(place : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception, is_addr_of : bool) -> unit);
@@ -968,9 +968,9 @@ call_promote_index_places_for_write :: (fn(place : &AstExpr, env : &Environment,
 );
 // --- index-place detection hook (a marked match scrutinee's route) ---------
 // `recv(i)` whose receiver is a runtime binding of a type that dispatches
-// `Index` (calls/index_trait.yo's `has_index_impl`). exprs/match.yo cannot
-// import calls/index_trait.yo without a cycle, so it asks through this hook,
-// installed by index_trait.yo's `register_promote_index_places`.
+// `Index` (calls/index-trait.yo's `has_index_impl`). exprs/match.yo cannot
+// import calls/index-trait.yo without a cycle, so it asks through this hook,
+// installed by index-trait.yo's `register_promote_index_places`.
 IsIndexPlaceFn :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> bool);
 (mut(g_is_index_place_fn) : Option(IsIndexPlaceFn)) = Option(IsIndexPlaceFn).None;
 set_is_index_place_fn :: (fn(f : IsIndexPlaceFn) -> unit)({
@@ -988,7 +988,7 @@ call_is_index_place :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext)
 // Evaluate an expression AS A FUNCTION BODY (through the begin machinery, so a
 // bare `return(...)` body resolves `return`), for modules that cannot import
 // exprs/begin.yo without a cycle (values/impl.yo's trait-default
-// materialization). Installed by calls/function_type.yo.
+// materialization). Installed by calls/function-type.yo.
 EvaluateFnBodyFn :: (fn(body : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr);
 (mut(g_evaluate_fn_body_fn) : Option(EvaluateFnBodyFn)) = Option(EvaluateFnBodyFn).None;
 set_evaluate_fn_body_fn :: (fn(f : EvaluateFnBodyFn) -> unit)({
@@ -1003,9 +1003,9 @@ call_evaluate_fn_body :: (fn(body : &AstExpr, env : &Environment, ctx : &mut Eva
   )
 );
 // --- P0 forward-reference diagnostic plumbing (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.6) ---
-// The module walker (values/anonymous_module.yo) records the begin_exprs
+// The module walker (values/anonymous-module.yo) records the begin_exprs
 // list it is currently walking and how far in it is, so a def-time trial
-// that swallows an unbound-name error (calls/function_type.yo's trial cell)
+// that swallows an unbound-name error (calls/function-type.yo's trial cell)
 // can tell "bound LATER in this module" from "never bound" — the former is
 // a forward reference, which must ERROR at check time instead of hollowing
 // the body silently. Nested module loads save/restore around their own
@@ -1220,7 +1220,7 @@ hard_swallow_diagnostic :: (fn(msg : &String) -> Option(String))(_hard_swallow_c
 hard_swallow_diagnostic_in_generic_trial :: (fn(msg : &String) -> Option(String))(_hard_swallow_classes(msg, false));
 // --- Lazy top-level bindings (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4, P1 + P2) ---
 //
-// A module walk (values/anonymous_module.yo) PRE-SCANS its begin_exprs and
+// A module walk (values/anonymous-module.yo) PRE-SCANS its begin_exprs and
 // records every deferrable statement — a `name :: <rhs>` definition (P1) or an
 // `impl(<receiver>, ...)` registration (P2) — as a PendingDef. The walk still
 // evaluates statements in source order, but a statement whose entry was
@@ -1233,7 +1233,7 @@ hard_swallow_diagnostic_in_generic_trial :: (fn(msg : &String) -> Option(String)
 //
 // The model lives HERE (every evaluator module imports context.yo) while the
 // forcing itself — which needs `evaluate_expression_raw` — is installed by
-// anonymous_module.yo through `set_force_pending_def_fn` (the
+// anonymous-module.yo through `set_force_pending_def_fn` (the
 // g_rerun_pending_def_evals_fn pattern: a fn slot cannot take the propagating
 // `Exception`, so the forcer reports failure as a message and the caller, which
 // has `exn` in scope, throws it).
@@ -1751,13 +1751,13 @@ record_module_member_read :: (fn(importer : &String, target_module : &String, fi
 //
 // On a real definition edit the watch round no longer drops the changed
 // module's whole reverse import closure: the invalidator
-// (`mm_revalidate_plan` / `mm_revalidate_apply`, module_manager.yo)
+// (`mm_revalidate_plan` / `mm_revalidate_apply`, module-manager.yo)
 // grafts the re-parsed statement onto the walk's PendingDef, resets it plus every reverse-edge
 // dependent in `g_def_deps`, re-forces in walk order, and patches the cached
 // module value's slot IN PLACE (importers share the StructVal). These are the
 // evaluator half; the orchestration and its conservative file-level
 // fallbacks (impls, type producers, ordered-statement readers, structural
-// edits) live in module_manager.yo.
+// edits) live in module-manager.yo.
 // ---------------------------------------------------------------------------
 /// Total `force_pending_def` invocations this process — the watch tests'
 /// oracle for "only the changed definition (+ its dependents) re-evaluated".
@@ -2009,7 +2009,7 @@ set_force_pending_def_fn :: (fn(f : ForcePendingDefFn) -> unit)({
 // captured state is AND its code reaches no thread-affine module global
 // (issues/fixed/function-values-bypass-the-d1-reach-walk.md). The judgement lives
 // in `utils/closure.yo` (it needs the D1 reach walk, which imports
-// `trait_checking.yo`); `trait_checking.yo` and `types/function.yo` reach it
+// `trait-checking.yo`); `trait-checking.yo` and `types/function.yo` reach it
 // through this slot, registered by `register_evaluate_expression`.
 //
 // `witness` is the value when the caller has it (an argument, a captured
@@ -2307,7 +2307,7 @@ note_borrowing_argument :: (fn(arg : &AstExpr) -> unit)({
 /// True when the closure literal `e` is the direct argument of a borrowing
 /// parameter (`note_borrowing_argument`).
 closure_literal_is_borrowed :: (fn(e : &AstExpr) -> bool)(g_borrowing_closure_args.with({ e : &e.* }(m) => m.contains_key(ast_expr_id(e))));
-/// `YO_AUDIT_COPY_TRAIT`'s question, answered by trait_checking.yo (installed
+/// `YO_AUDIT_COPY_TRAIT`'s question, answered by trait-checking.yo (installed
 /// at init, which this module cannot import): the named types `ty` is not
 /// `Copy` through, the types decision 36's sweep must give `Copy` before a
 /// copy of `ty` stays implicit (`copy_trait_blockers`).
@@ -4081,7 +4081,7 @@ take_pending_impl_force_error :: (fn() -> Option(String))({
   r
 });
 /// True while a DEFINITION-time body trial is running
-/// (`_trial_eval_fn_body`, calls/function_type.yo — set/restored at its
+/// (`_trial_eval_fn_body`, calls/function-type.yo — set/restored at its
 /// call sites, since a swallowed error unwinds out of the helper itself).
 /// Read by impl.yo's `_resolve_one_forall_binding`: the NAME-channel
 /// acceptance of an abstract (different-SomeT) generic binding is scoped

@@ -1282,7 +1282,7 @@ See [COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md](./COMPILE_TIME_RC_WITH_OWNERSHI
 RC decides when an object dies; an explicit allocator decides where it lives. A creation with no allocator argument goes to the global allocator; a placement is one argument at the creation site: `alloc : .Some(a)`, for `Box.new`, `Rc.new` and `Arc.new` and for the containers' `new` / `with_capacity`:
 
 ```yo
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 Point :: struct(x : i32, y : i32);
 
 // `a` is any `Allocator` value, e.g. `Allocator.global()`.
@@ -2846,7 +2846,7 @@ A write lands where it is written:
 ```yo
 { String } :: import("std/string");
 { println } :: import("std/fmt");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 
 // A `&mut T` parameter passes the caller's variable itself.
 append_mut :: (fn(out : &mut String) -> unit)({
@@ -2991,7 +2991,7 @@ The collections are values: a copy is an explicit `.clone()`, and a write throug
 Dynamic array with automatic resizing.
 
 ```yo
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 
 // Create a new ArrayList
 mut(list) := ArrayList(i32).new();
@@ -3036,7 +3036,7 @@ list.shrink_to_fit();
 Hash map with key-value pairs.
 
 ```yo
-{ HashMap } :: import("std/collections/hash_map");
+{ HashMap } :: import("std/collections/hash-map");
 
 // Create a new HashMap
 mut(map) := HashMap(i32, i32).new();
@@ -3091,7 +3091,7 @@ map.clear();
 Hash set for unique values.
 
 ```yo
-{ HashSet } :: import("std/collections/hash_set");
+{ HashSet } :: import("std/collections/hash-set");
 
 // Create a new HashSet
 mut(set) := HashSet(i32).new();
@@ -4394,9 +4394,9 @@ test_module :: import("./test.yo"); // Import everything from test.yo and put it
 Every imported name is a binding, so the no-shadowing rule applies to imports: binding the same name twice is an error (`Failed to define variable "ArrayList"` … `variable shadowing is not allowed`), whether both lines name it or a `{ ... }` glob already brought it in. Several import lines from one path are fine as long as each binds different names, and a name may be imported again under a new one:
 
 ```yo
-{ ArrayList } :: import("std/collections/array_list");
-{ ArrayListIter } :: import("std/collections/array_list"); // fine: a different name
-{ ArrayList : List } :: import("std/collections/array_list"); // fine: bound under a new name
+{ ArrayList } :: import("std/collections/array-list");
+{ ArrayListIter } :: import("std/collections/array-list"); // fine: a different name
+{ ArrayList : List } :: import("std/collections/array-list"); // fine: bound under a new name
 xs := List(i32).new();
 ```
 
@@ -4664,7 +4664,7 @@ Yo test files typically use the `.test.yo` extension:
 - `basic.test.yo` - Basic language features
 - `array.test.yo` - Array operations
 - `closure.test.yo` - Closure functionality
-- `async_await.test.yo` - Async/await features
+- `async-await.test.yo` - Async/await features
 - `collections/*.test.yo` - Collection types
 
 For comprehensive test examples, see the [tests/](../tests/) directory.

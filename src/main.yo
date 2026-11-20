@@ -26,7 +26,7 @@ pragma(Pragma.AllowUnsafe);
   clean_version_cache,
   ensure_cached_version,
   fetch_remote_versions
-} :: import("./version_cache.yo");
+} :: import("./version-cache.yo");
 { Regex } :: import("std/regex");
 { run_lsp_server } :: import("./lsp/server.yo");
 { Path } :: import("std/path");
@@ -66,27 +66,27 @@ pragma(Pragma.AllowUnsafe);
 { environ, execve } :: import("std/libc/unistd");
 { GlobalAllocator } :: import("std/allocator");
 { malloc : valve_malloc, free : valve_free } :: GlobalAllocator;
-{ ArrayList } :: import("std/collections/array_list");
-{ HashSet } :: import("std/collections/hash_set");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashSet } :: import("std/collections/hash-set");
 { AstExpr, ExprId, BK_IMPORT, BK_TEST, BK_CONST, BK_EXPORT, BF_DOT, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_token, ast_expr_to_string, make_err_expr } :: import("./expr.yo");
-{ ExprInfoTable, expr_info_table_new, print_spec_report_if_requested, ExprInfo } :: import("./expr_info.yo");
+{ ExprInfoTable, expr_info_table_new, print_spec_report_if_requested, ExprInfo } :: import("./expr-info.yo");
 { Token, TokenKind } :: import("./token.yo");
 { parse, Parser } :: import("./parser.yo");
 { tokenize } :: import("./lexer.yo");
 { InitOptions, init_project, install_agent_files } :: import("./init.yo");
 { get_global_cache_dir, get_git_mirrors_dir, get_index_dir, store_lock_path, projects_registry_path } :: import("./cache.yo");
-{ AddOptions, run_add, run_remove, InstallOptions, run_install } :: import("./install_command.yo");
-{ BuildOptions, run_build, expand_workspace_members, set_in_process_compile_fn } :: import("./build_runner.yo");
+{ AddOptions, run_add, run_remove, InstallOptions, run_install } :: import("./install-command.yo");
+{ BuildOptions, run_build, expand_workspace_members, set_in_process_compile_fn } :: import("./build-runner.yo");
 { file_exists_sync } :: import("./manifest.yo");
 { stable_occurrence_reset, emission_occurrence_reset, set_owner_logs_enabled, set_codegen_tables_enabled, set_match_arms_table_enabled, canonical_module_path } :: import("./utils.yo");
 { MANIFEST_FILENAME, find_manifest, load_manifest, read_file_sync } :: import("./manifest.yo");
-{ DocCommandOptions, run_doc } :: import("./doc_command.yo");
-{ run_context } :: import("./context_command.yo");
-{ context_lock, context_unlock, context_tree_key } :: import("./doc/context_index.yo");
-{ set_cli_lang_override, cli_lang, tr } :: import("./cli_lang.yo");
-{ generate_unsafe_report, format_unsafe_report, unsafe_report_to_json } :: import("./unsafe_report.yo");
-{ generate_public_safe_report, format_public_safe_report, public_safe_report_to_json } :: import("./public_safe_report.yo");
-{ HashMap } :: import("std/collections/hash_map");
+{ DocCommandOptions, run_doc } :: import("./doc-command.yo");
+{ run_context } :: import("./context-command.yo");
+{ context_lock, context_unlock, context_tree_key } :: import("./doc/context-index.yo");
+{ set_cli_lang_override, cli_lang, tr } :: import("./cli-lang.yo");
+{ generate_unsafe_report, format_unsafe_report, unsafe_report_to_json } :: import("./unsafe-report.yo");
+{ generate_public_safe_report, format_public_safe_report, public_safe_report_to_json } :: import("./public-safe-report.yo");
+{ HashMap } :: import("std/collections/hash-map");
 { remove_dir_all, gc_store } :: import("./fetch.yo");
 {
   verify_mode_of_string,
@@ -115,7 +115,7 @@ json :: import("std/encoding/json");
 { JsonValue } :: import("std/encoding/json");
 { Environment, new_environment } :: import("./env.yo");
 // The demand-driven module loader, the cached prelude env, the shared codegen
-// ExprInfoTable and std-path resolution all live in `module_manager.yo` so that
+// ExprInfoTable and std-path resolution all live in `module-manager.yo` so that
 // every subcommand that needs to evaluate a `.yo` file (build, fetch, install,
 // doc) shares one copy instead of growing its own.
 {
@@ -138,10 +138,10 @@ json :: import("std/encoding/json");
   mm_load_file,
   mm_preload_prelude,
   _take_load_error
-} :: import("./module_manager.yo");
-{ record_input_file, reset_input_files, input_files, input_file_entries, set_input_hashing, input_hashing_enabled } :: import("./input_record.yo");
+} :: import("./module-manager.yo");
+{ record_input_file, reset_input_files, input_files, input_file_entries, set_input_hashing, input_hashing_enabled } :: import("./input-record.yo");
 { YoError, ExitWith, render_any_error, take_error_diagnostics } :: import("./error.yo");
-{ set_migrate_unsized, take_unsized_sites, DerefSite, set_migrate_deref, take_deref_sites, take_deref_migrated_files, take_deref_clean_sites, take_deref_dead_arm_files, note_deref_assumed_migrated } :: import("./expr_info.yo");
+{ set_migrate_unsized, take_unsized_sites, DerefSite, set_migrate_deref, take_deref_sites, take_deref_migrated_files, take_deref_clean_sites, take_deref_dead_arm_files, note_deref_assumed_migrated } :: import("./expr-info.yo");
 { Diagnostic, Span, Severity } :: import("./diagnostics.yo");
 { set_strict_test_bodies } :: import("./evaluator/exprs/test.yo");
 {
@@ -160,28 +160,28 @@ json :: import("std/encoding/json");
   register_std_export
 } :: import("./diagnostics.yo");
 { eval_context_new, set_retain_walk_contexts, print_rprobe_stats_if_requested } :: import("./evaluator/context.yo");
-{ register_evaluate_expression, set_evaluator_deadline, evaluator_deadline_tripped, evaluator_deadline_message } :: import("./evaluator/exprs/_expr.yo");
-{ evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous_module.yo");
+{ register_evaluate_expression, set_evaluator_deadline, evaluator_deadline_tripped, evaluator_deadline_message } :: import("./evaluator/exprs/dispatch.yo");
+{ evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous-module.yo");
 { decode_str_lit_escapes } :: import("./evaluator/values/string.yo");
-{ clear_module_cache, module_cache_keys } :: import("./evaluator/module_loader.yo");
+{ clear_module_cache, module_cache_keys } :: import("./evaluator/module-loader.yo");
 { resolve_module_path_ex, lookup_import_root, module_name_offends, module_name_kebab, renamed_module_candidates } :: import("./evaluator/exprs/import.yo");
-{ reset_trait_type_args } :: import("./expr_info.yo");
-{ run_check_watch, run_watch_once, watch_snapshot, wait_for_change, invalidate_changed_files } :: import("./check_watch.yo");
+{ reset_trait_type_args } :: import("./expr-info.yo");
+{ run_check_watch, run_watch_once, watch_snapshot, wait_for_change, invalidate_changed_files } :: import("./check-watch.yo");
 {
   lookup_explain,
   registry_entries,
   suggest_code,
   explain_to_json
-} :: import("./diagnostics_registry.yo");
+} :: import("./diagnostics-registry.yo");
 { format_yo_source, format_yo_files, FormatYoFilesOptions } :: import("./formatter.yo");
 { host_target, set_current_target, get_current_target, comptime_distinct_targets, parse_target, TargetInfo, clang_triple, is_target_linux, is_target_windows, is_target_macos, is_target_wasm, is_target_standalone_wasi, _find_available_compiler } :: import("./target.yo");
 { set_target_pointer_size, type_lacks_clone } :: import("./types/utils.yo");
 { TypeValue, TypeValueNode, SharedList, no_types, no_labels, slot_pointee_at, t_slot_pointee } :: import("./types/definitions.yo");
 { is_function_type } :: import("./types/guards.yo");
 { type_to_string } :: import("./types/string.yo");
-{ compile_module } :: import("./codegen/codegen_c.yo");
+{ compile_module } :: import("./codegen/codegen-c.yo");
 { get_needs_intel_asm_syntax, get_uses_parallelism, fresh_local_counts_reset } :: import("./codegen/utils/index.yo");
-{ ref_spill_counter_reset } :: import("./codegen/exprs/other_fn_call.yo");
+{ ref_spill_counter_reset } :: import("./codegen/exprs/other-fn-call.yo");
 { closure_capture_counter_reset } :: import("./codegen/exprs/closures.yo");
 { panic, assert } :: import("std/assert");
 { RefCell, cell_map_len } :: import("std/sync/refcell");
@@ -649,8 +649,8 @@ _index_std_dir :: (
       continue;
     });
     full := `${dir}/${name}`;
-    // `<root>/fmt/index.yo` → `std/fmt`; `<root>/collections/array_list.yo`
-    // → `std/collections/array_list`.
+    // `<root>/fmt/index.yo` → `std/fmt`; `<root>/collections/array-list.yo`
+    // → `std/collections/array-list`.
     rel := full.substring(root.len(), full.len() - usize(3));
     spec := `std${rel}`;
     if(spec.ends_with(String.from("/index")), {
@@ -835,7 +835,7 @@ collect_check_files :: (
 /// diagnostic has already been printed by the time the throw fires, so the
 /// caller just needs to log which file failed.
 ///
-/// The loading itself lives in `module_manager.yo` — `check` is one caller of
+/// The loading itself lives in `module-manager.yo` — `check` is one caller of
 /// that service, not its owner.
 /// V3 (plan task 6, the check/compile integration): drain the VerifyTask
 /// registry after an evaluation whose entry file was armed as a
@@ -3035,7 +3035,7 @@ run_fix :: (
       //
       // This used to fire for EVERY evaluator error, because the def-time
       // trial flattened the diagnostics to text before the typed stash saw
-      // them (fixed: evaluator/calls/function_type.yo now re-raises the typed
+      // them (fixed: evaluator/calls/function-type.yo now re-raises the typed
       // error; issues/fixed/evaluator-diagnostics-are-flattened-to-strings-before-the-typed-stash.md).
       // Both paths are pinned: fix-applies-an-evaluator-rename asserts the
       // repair lands, fix-says-what-it-cannot-repair asserts this message.
@@ -3264,7 +3264,7 @@ run_check :: (
   name_scope.extend(files.clone());
   warn_module_names(&name_scope, &files(usize(0)));
   // Watch modes survive a failing initial pass — that is their whole point.
-  // (Phase C, plans/reference/INCREMENTAL_COMPILATION.md; src/check_watch.yo.)
+  // (Phase C, plans/reference/INCREMENTAL_COMPILATION.md; src/check-watch.yo.)
   if(watch_once, {
     run_watch_once(&files, std_path.clone(), io, exn);
   });
@@ -5641,7 +5641,7 @@ run_compile :: (
   (emcc_environment : String) = String.new();
   // Cooperative evaluator deadline in milliseconds; empty = disarmed. Set by
   // the test runner on its batch-compile children (see `set_evaluator_deadline`
-  // in evaluator/exprs/_expr.yo for why this travels as a flag).
+  // in evaluator/exprs/dispatch.yo for why this travels as a flag).
   (compile_timeout_ms : String) = String.new();
   // Phase 0 (plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §3): print the
   // per-phase / per-module timing table on stderr after the compile, and
@@ -5864,7 +5864,7 @@ run_compile :: (
       // build then falls back to the whole-tree walk — conservative, which is
       // the safe direction for a cache.
       //
-      // The hash is recorded AS EACH FILE IS READ (input_record.yo), which is
+      // The hash is recorded AS EACH FILE IS READ (input-record.yo), which is
       // what makes the build runner's recorded stamp describe the bytes this
       // compile consumed rather than whatever is on disk when it finishes
       // (issues/fixed/yo-build-artifact-cache-serves-a-stale-binary.md). Hashing is
@@ -6287,7 +6287,7 @@ run_compile :: (
       // std module a second time in one round (26 loads for 16 modules,
       // duplicate impl registrations), and the re-evaluation degraded
       // `Array(u8, usize(20)).fill` to a valueless callee — "No matching
-      // call found" at std/string/string_builder.yo:182
+      // call found" at std/string/string-builder.yo:182
       // (issues/fixed/warm-in-process-array-fill-call-stops-matching.md).
       // Cache
       // coherence in watch mode belongs to mm_revalidate_plan's per-def
@@ -6858,7 +6858,7 @@ run_compile :: (
       // joins the link line for this allocator.
       println(`Using fixed-region allocator (${_format_heap_size(heap_size)} heap)`);
     }, {
-      // The debug arm (src/codegen/c/allocator_debug.yo) tracks blocks over
+      // The debug arm (src/codegen/c/allocator-debug.yo) tracks blocks over
       // the system heap: nothing joins the link line either.
       println(if(allocator == "debug", String.from("Using debug allocator (leak check at exit)"), String.from("Using system allocator")));
     });
@@ -8414,7 +8414,7 @@ run_test :: (
   // (issues/fixed/concurrent-yo-test-runs-in-one-directory-overwrite-each-others-batches.md).
   // YO_EXE: this process's own executable, exported so a batch's tests can
   // re-invoke the compiler running them
-  // (tests/internal/concurrent_test_runs.test.yo).
+  // (tests/internal/concurrent-test-runs.test.yo).
   // An RSS-valve exec-restart re-executes this block in the resumed process,
   // which keeps the SAME pid — the names stay consistent across the restart.
   runner_pid := pid().to_string();
@@ -8898,7 +8898,7 @@ run_test :: (
         );
         // The same flag stages the `--allocator debug` verdict off: the test
         // binary reads YO_DEBUG_ALLOC_VERDICT and, at 0, lists its live blocks
-        // without failing the exit (src/codegen/c/allocator_debug.yo).
+        // without failing the exit (src/codegen/c/allocator-debug.yo).
         debug_alloc_verdict := if(leak_verdict, String.from("1"), String.from("0"));
         if(test_allocator == "debug", {
           _sv_dbg := proc_env.set(String.from("YO_DEBUG_ALLOC_VERDICT"), debug_alloc_verdict.clone());
@@ -8997,7 +8997,7 @@ run_test :: (
           // unless staged off via YO_TEST_LEAK_VERDICT=0 (hoisted above,
           // where it also disables LSan's own exit-code).
           has_asan_leak := (leak_verdict && (test_cc != "emcc") && use_asan && (combined.contains("LeakSanitizer") || combined.contains("detected memory leaks") || combined.contains("Direct leak") || combined.contains("Indirect leak")));
-          // `--allocator debug` (src/codegen/c/allocator_debug.yo): the test
+          // `--allocator debug` (src/codegen/c/allocator-debug.yo): the test
           // binary itself fails with status 23 and this line when the test
           // body returned with blocks still live. Named as a leak, not as a
           // bare exit status.
@@ -10200,7 +10200,7 @@ run_build_cmd :: (
   if(watch, {
     // Hash from the start: the build-file evaluation loads modules the
     // in-process artifact compiles then find cached, and a cached module
-    // replays the hashes its load recorded (input_record.yo).
+    // replays the hashes its load recorded (input-record.yo).
     set_input_hashing(true);
     set_in_process_compile_fn(
       (fn(argv : &ArrayList(String), io : Io, exn : Exception) -> bool)({
@@ -10294,7 +10294,7 @@ run_build_cmd :: (
 /// (html|markdown|json, default html), --version, --logo, --favicon,
 /// --allow-token-only.
 /// `yo unsafe-report [path] [--json]` — the unsafe-surface audit (scanning
-/// lives in unsafe_report.yo). A nonexistent
+/// lives in unsafe-report.yo). A nonexistent
 /// path reports on stderr and exits 1.
 run_unsafe_report_cmd :: (
   fn(
@@ -10333,7 +10333,7 @@ run_unsafe_report_cmd :: (
 });
 /// `yo public-safe-report [path] [--json]` — the public-signature raw-
 /// pointer lint (scanning lives in
-/// public_safe_report.yo). Informational: findings do NOT fail the exit.
+/// public-safe-report.yo). Informational: findings do NOT fail the exit.
 run_public_safe_report_cmd :: (
   fn(
     argv : &ArrayList(String),
@@ -10889,7 +10889,7 @@ run_explain :: (
   (show_list : bool) = false;
   (as_json : bool) = false;
   // The global `--lang` pre-scan and YO_LANG both resolve here now
-  // (src/cli_lang.yo); explain keeps no private language handling.
+  // (src/cli-lang.yo); explain keeps no private language handling.
   lang := cli_lang();
   (target : String) = String.new();
   (ai : usize) = usize(1);
@@ -11440,7 +11440,7 @@ Examples:
   $ yo verify ./src
   $ yo verify --solver-path /usr/bin/z3 --format json
   $ yo verify ./spec --strict
-  $ yo verify ./tests/spec/verify_straight_line.test.yo --explain abs`,
+  $ yo verify ./tests/spec/verify-straight-line.test.yo --explain abs`,
         `用法：yo verify [路径] [选项]
 
 使用固定版本的 Z3 求解器做编译期验证（Dafny/SPARK 模型；
@@ -11474,7 +11474,7 @@ plans/backlog/FORMAL_VERIFICATION.md 的 V2+V3 阶段）。目标集合中的每
   $ yo verify ./src
   $ yo verify --solver-path /usr/bin/z3 --format json
   $ yo verify ./spec --strict
-  $ yo verify ./tests/spec/verify_straight_line.test.yo --explain abs`
+  $ yo verify ./tests/spec/verify-straight-line.test.yo --explain abs`
       )
     ),
     "fmt" => Option(String).Some(
@@ -11958,7 +11958,7 @@ an index of the bundled std, built once on first use and cached by content.
 Queries:
   yo context --list              Every module, one line each, with item counts
   yo context <module>            One module's items (a full path such as
-                                 std/collections/array_list, a unique last
+                                 std/collections/array-list, a unique last
                                  segment such as array_list, or a unique suffix)
   yo context <module> <name>     One item's full entry; a method is <Type>.<name>
   yo context <name>              A name across the corpus: one hit prints its
@@ -11992,7 +11992,7 @@ $YO_CONTEXT_CACHE overrides where the index is cached.
 Examples:
   $ yo context
   $ yo context --search hash
-  $ yo context collections/array_list ArrayList.push
+  $ yo context collections/array-list ArrayList.push
   $ yo context --doc MEMORY_SAFETY
   $ yo context --deps --list --format json`,
         `用法：yo context [<module> [<name>] | <name>] [选项]
@@ -12004,7 +12004,7 @@ Examples:
 查询：
   yo context --list              列出全部模块，每行一个，附条目数
   yo context <module>            某个模块的条目（完整路径如
-                                 std/collections/array_list、唯一的末段如
+                                 std/collections/array-list、唯一的末段如
                                  array_list，或唯一的后缀）
   yo context <module> <name>     某个条目的完整说明；方法写作 <Type>.<name>
   yo context <name>              在整个语料中查找名字：唯一命中时输出其说明，
@@ -12035,7 +12035,7 @@ $YO_CONTEXT_CACHE 可覆盖索引的缓存位置。
 示例：
   $ yo context
   $ yo context --search hash
-  $ yo context collections/array_list ArrayList.push
+  $ yo context collections/array-list ArrayList.push
   $ yo context --doc MEMORY_SAFETY
   $ yo context --deps --list --format json`
       )
@@ -12178,7 +12178,7 @@ main :: (fn(io : Io) -> unit)({
   raw_argv := argv1;
   // Global `--std-path <dir>` flag: strip it from argv before subcommand
   // dispatch and stash the override with the module manager.
-  // The global `--lang <lc>` flag (CLI output language, src/cli_lang.yo)
+  // The global `--lang <lc>` flag (CLI output language, src/cli-lang.yo)
   // strips the same way and also matches anywhere in argv.
   argv := ArrayList(String).new();
   ai := usize(0);
@@ -12194,7 +12194,7 @@ main :: (fn(io : Io) -> unit)({
     }, {
       // Global `--imports <file>`: the build runner's per-artifact
       // `name=/abs/root.yo` mapping for bare `import("name")` resolution
-      // (module_manager.yo loads it on the first module load).
+      // (module-manager.yo loads it on the first module load).
       if(a == "--imports", {
         if((ai + usize(1)) < raw_argv.len(), {
           set_imports_file_override(raw_argv(ai + usize(1)).clone());

@@ -51,7 +51,7 @@ shows a counting one; the code below places the same way with either.
 
 ```yo
 { println } :: import("std/fmt");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 
 Point :: struct(x : i32, y : i32);
 
@@ -96,7 +96,7 @@ safe file (one without `pragma(Pragma.AllowUnsafe)`); using the handle's raw
 words, as `a.alloc(n, align)` does, still needs the pragma:
 
 ```yo
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 
 Node :: struct(name : i32, kids : ArrayList(i32));
 make_node :: (fn(name : i32, (alloc : Option(Allocator)) ?= .None) -> Rc(Node))(
@@ -134,7 +134,7 @@ global, and so are the types built on them (`String`, an interpolation):
 | `String`        |                                          | `clone_in(a)`  |
 
 ```yo
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 
 main :: (fn() -> unit)({
   a := Allocator.global(); // any `Allocator` value

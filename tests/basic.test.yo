@@ -2481,7 +2481,7 @@ test("Test comptime match branch elimination", {
 });
 // Test: return in match branch should be treated as never type
 test("return in match branch type compatibility", {
-  { ArrayList } :: import("std/collections/array_list");
+  { ArrayList } :: import("std/collections/array-list");
   test_fn :: (fn() -> unit)({
     (mut(list) : ArrayList(u8)) = ArrayList(u8).new();
     list.push(u8(42));
@@ -2516,7 +2516,7 @@ test("single-expression function body without braces", {
 });
 // Test: indexing a function call result directly (temporary)
 test("index function call result", {
-  { ArrayList } :: import("std/collections/array_list");
+  { ArrayList } :: import("std/collections/array-list");
   get_list :: (fn() -> ArrayList(u8))({
     (mut(list) : ArrayList(u8)) = ArrayList(u8).new();
     list.push(u8(10));
@@ -2641,7 +2641,7 @@ test("enum tag participates in alignment and struct tail padding", {
   assert(size_of(TagPadded) == usize(24), "struct: 20 + 2 rounded up to align 4");
   // Functional roundtrip across a growth boundary — the ASan legs check the
   // memory behavior, every leg checks the values.
-  { ArrayList } :: import("std/collections/array_list");
+  { ArrayList } :: import("std/collections/array-list");
   mut(l) := ArrayList(TagPadded).new();
   mut(k) := u16(0);
   while(k < u16(6), {
@@ -2725,7 +2725,7 @@ test("cond: a comptime-true condition after a runtime arm is the final else", {
   assert(_ct_stmt(i32(0)) == i32(2), "statement position: comptime-true arm is the else");
 });
 // A local may shadow a C-INTEROP type name. The builtin type table in
-// evaluator/exprs/identifer_and_operator.yo resolves before any env lookup, so
+// evaluator/exprs/identifer-and-operator.yo resolves before any env lookup, so
 // a binding called `long`/`int`/`char`/`short`/`uint`/`void` used to be
 // unreachable — and the diagnostic blamed the METHOD ("No matching call found
 // ... (long.push)"), not the shadowing.
@@ -2755,7 +2755,7 @@ test("the C type still resolves where it is NOT shadowed", {
 //
 // See issues/fixed/tuple-type-has-no-forward-declaration.md.
 test("a tuple element type inside a generic container declares its C name in time", {
-  { ArrayList } :: import("std/collections/array_list");
+  { ArrayList } :: import("std/collections/array-list");
   { String } :: import("std/string");
   mut(xs) := ArrayList(Tuple(String, String)).new();
   xs.push((`k`, `v`));
@@ -2786,7 +2786,7 @@ test("assignment to the result of a function call is a check error", {
   // issues/fixed/assignment-to-call-expression-silently-accepted.md: `f(1) = 2`
   // was evaluated and its value discarded, at check AND at runtime. Index
   // places (`arr(0) = v`, a value callee) and fields (`x.a = v`) stay writable.
-  { ArrayList } :: import("std/collections/array_list");
+  { ArrayList } :: import("std/collections/array-list");
   f :: (fn(x : i32) -> i32)(x);
   comptime_expect_error(f(1) = 2);
   mut(arr) := ArrayList(i32).new();

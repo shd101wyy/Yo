@@ -281,7 +281,7 @@ without one.
 | `src/lsp/references.yo`       | `textDocument/references`, `documentHighlight` and the occurrence walker |
 | `src/lsp/rename.yo`           | `textDocument/rename` and `prepareRename`            |
 | `src/lsp/symbols.yo`          | `textDocument/documentSymbol`, `workspace/symbol` and `implementation` |
-| `src/lsp/signature_help.yo`   | `textDocument/signatureHelp`                         |
+| `src/lsp/signature-help.yo`   | `textDocument/signatureHelp`                         |
 | `src/lsp/folding.yo`          | `textDocument/foldingRange` and `semanticTokens`     |
 
 ## Testing
@@ -295,5 +295,5 @@ class of bug that once killed every Windows client.
 `scripts/lsp-strict-handshake.py` drives the same strict session against any
 `yo` binary and runs in the release workflow's Windows bundle smoke legs.
 The pure helpers (URI conversion, position encoding) and the analysis-state
-guarantees are covered by `tests/internal/lsp_protocol.test.yo`; module
-invalidation by `tests/internal/module_invalidation.test.yo`.
+guarantees are covered by `tests/internal/lsp-protocol.test.yo`; module
+invalidation by `tests/internal/module-invalidation.test.yo`.

@@ -1,0 +1,695 @@
+//! Reference-counting runtime prelude:
+//!   * borrow runtime primitives      (Law-of-Exclusivity backstop)
+//!   * collect_unwind_value_ctypes    (sizes the unwind-value buffer)
+//!   * the unwind-value buffer        (thread-local unwind-value storage)
+//!   * the RC functions               (type-tag dispose dispatch, weak counts)
+//!
+//! This is the prelude that `generate_all_functions` emits before the function loop —
+//! without it the emitted translation unit does not link (`__yo_incr_rc` /
+//! `__yo_decr_rc` / borrow primitives are referenced by every RC-managed value).
+//! There is no cycle collector (decision 48 W6b,
+//! plans/archive/WEAK_AND_UNCOLLECTED_RC.md §6): a reference cycle leaks unless a
+//! `Weak` breaks it, as in Rust.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashSet } :: import("std/collections/hash-set");
+{ AstExpr, ast_expr_is_fn_call, ast_expr_is_fn_call_of, BF_UNWIND } :: import("../../expr.yo");
+{ EvalValue } :: import("../../value.yo");
+{ is_unit_type } :: import("../../types/guards.yo");
+{ get_type_string, ChunkRange } :: import("../utils/index.yo");
+{ FunctionGenerationContext } :: import("./context.yo");
+// ---------------------------------------------------------------------------
+// collectUnwindValueCTypes
+// ---------------------------------------------------------------------------
+/// Recursively collect the C type strings of every non-unit `unwind(value)`
+/// argument reachable from `expr`.
+/// Returns a flat list (deduped by the caller into a HashSet).
+_collect_unwind_value_ctypes_from_expr :: (fn(expr : &AstExpr, context : &mut FunctionGenerationContext) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  if(ast_expr_is_fn_call_of(expr, BF_UNWIND, Option(usize).None), {
+    match(
+      expr,
+      Rc(.FnCall(_, _, Rc(args), _, _)) => match(
+        args.get_cloned(usize(0)),
+        .Some(arg0) => match(
+          context.base.get_expr_info(&arg0),
+          .Some(ei) => if(!is_unit_type(&ei.ty()), {
+            out.push(get_type_string(&ei.ty(), &mut context.base));
+          }),
+          .None => ()
+        ),
+        .None => ()
+      ),
+      Rc(.Atom(_, _)) => ()
+    );
+  });
+  if(ast_expr_is_fn_call(expr), {
+    match(
+      expr,
+      Rc(.FnCall(_, func, Rc(args), _, _)) => {
+        n := args.len();
+        (ai : usize) = usize(0);
+        while(ai < n, {
+          match(
+            args.get_cloned(ai),
+            .Some(arg) => {
+              sub := recur(&arg, context);
+              sn := sub.len();
+              (sj : usize) = usize(0);
+              while(sj < sn, {
+                match(
+                  sub.get_cloned(sj),
+                  .Some(s) => {
+                    out.push(s.clone());
+                  },
+                  .None => ()
+                );
+                sj = (sj + usize(1));
+              });
+            },
+            .None => ()
+          );
+          ai = (ai + usize(1));
+        });
+        fsub := recur(&func.*, context);
+        fn := fsub.len();
+        (fk : usize) = usize(0);
+        while(fk < fn, {
+          match(
+            fsub.get_cloned(fk),
+            .Some(s) => {
+              out.push(s.clone());
+            },
+            .None => ()
+          );
+          fk = (fk + usize(1));
+        });
+      },
+      Rc(.Atom(_, _)) => ()
+    );
+  });
+  out
+});
+/// Populate `context.unwind_value_c_types` from every function body in the
+/// program. MUST run before the unwind-value buffer is declared.
+collect_unwind_value_ctypes :: (fn(context : &mut FunctionGenerationContext) -> unit)({
+  into := HashSet(String).new();
+  // The bodies are gathered first: the walk borrows `context` for its whole
+  // extent, and the collector takes it `&mut`.
+  bodies := ArrayList(AstExpr).new();
+  for(
+    &context.base.functions,
+    (_fid, entry) => match(
+      Rc.clone(entry.value),
+      Rc(.FuncVal(__fvd1, _)) => bodies.push(__fvd1.*.body.clone()),
+      _ => ()
+    )
+  );
+  for(&bodies, body => {
+    found := _collect_unwind_value_ctypes_from_expr(body, context);
+    fnlen := found.len();
+    (fj : usize) = usize(0);
+    while(fj < fnlen, {
+      match(
+        found.get_cloned(fj),
+        .Some(s) => {
+          into.insert(s.clone());
+        },
+        .None => ()
+      );
+      fj = (fj + usize(1));
+    });
+  });
+  context.unwind_value_c_types = Option(HashSet(String)).Some(into);
+});
+// ---------------------------------------------------------------------------
+// emitUnwindValueBuffer
+// ---------------------------------------------------------------------------
+/// Emit the thread-local `__yo_unwind_value` buffer declaration. With one or
+/// more non-unit unwound values it is a union sized to the largest (plus a
+/// 64-byte floor); with none it is a plain 64-byte buffer.
+emit_unwind_value_buffer :: (fn(context : &mut FunctionGenerationContext) -> unit)({
+  empty := match(
+    &context.unwind_value_c_types,
+    .Some(types) => types.is_empty(),
+    .None => true
+  );
+  if(empty, {
+    // Chunked emission: one TLS definition (chunk 0), extern in the header —
+    // the buffer is written/read from every chunk's unwind paths.
+    if(context.base.chunk_mode, {
+      context.base.emitter.emit_declaration_line("extern _Thread_local _Alignas(16) char __yo_unwind_value[64];  // Thread-local buffer for unwind value storage");
+      context.base.chunk_globals.push_string(String.from("_Thread_local _Alignas(16) char __yo_unwind_value[64];\n"));
+    }, {
+      context.base.emitter.emit_declaration_line("static _Thread_local _Alignas(16) char __yo_unwind_value[64];  // Thread-local buffer for unwind value storage");
+    });
+    context.base.emitter.emit_declaration_line("#define __YO_UNWIND_VALUE_SIZE 64");
+    return();
+  });
+  decl := String.from("// Thread-local buffer for unwind value storage, sized (via a union) to the\n");
+  decl.push_str("// largest unwound value in the program so 'unwind(v)' never overflows it.\n");
+  // Chunked emission: the union type must be NAMED (a typedef) so the header's
+  // extern declaration and chunk 0's definition agree on one type — two
+  // anonymous unions are incompatible redeclarations in the including TU.
+  decl.push_str(if(context.base.chunk_mode, "typedef union {\n", "static _Thread_local _Alignas(16) union {\n"));
+  decl.push_str("    char __pad[64];\n");
+  match(
+    &context.unwind_value_c_types,
+    .Some(types) => {
+      (idx : usize) = usize(0);
+      for(&types, t => {
+        decl.push_str("    ");
+        decl.push_string(t.clone());
+        decl.push_str(" __m");
+        decl.push_string(idx.to_string());
+        decl.push_str(";\n");
+        idx = (idx + usize(1));
+      });
+    },
+    .None => ()
+  );
+  if(context.base.chunk_mode, {
+    decl.push_str("} __yo_unwind_value_storage_t;\n");
+    decl.push_str("extern _Thread_local _Alignas(16) __yo_unwind_value_storage_t __yo_unwind_value_storage;\n");
+    decl.push_str("#define __yo_unwind_value ((char*)&__yo_unwind_value_storage)");
+    context.base.chunk_globals.push_string(String.from("_Thread_local _Alignas(16) __yo_unwind_value_storage_t __yo_unwind_value_storage;\n"));
+  }, {
+    decl.push_str("} __yo_unwind_value_storage;\n");
+    decl.push_str("#define __yo_unwind_value ((char*)&__yo_unwind_value_storage)");
+  });
+  decl.push_str("\n#define __YO_UNWIND_VALUE_SIZE sizeof(__yo_unwind_value_storage)");
+  context.base.emitter.emit_declaration_string_line(&decl);
+});
+// ---------------------------------------------------------------------------
+// emitTaskAbortRegistry
+// ---------------------------------------------------------------------------
+/// Emit the registry of async tasks an effect unwind aborted and nobody has
+/// observed yet (safe mode 0a). The unwind-side -2 writers REGISTER the task;
+/// every read of that Aborted state by an awaiter, `JoinHandle.await`,
+/// `JoinHandle.state` or `io.state` OBSERVES it (silently); the state
+/// machine's dispose RELEASES it, printing the diagnostic if it was never
+/// observed; and the main wrapper REPORTS whatever is still registered when
+/// the program body returns (a bound handle that was never awaited keeps its
+/// task alive, so no dispose ever runs for it). Printing at abort time
+/// instead fired for every awaited handle whose `.None` the program handles
+/// (issues/fixed/an-awaited-task-abort-is-reported-as-unhandled.md).
+/// Entries are always live state machines: the dispose removes a task before
+/// it is freed, so a reused address can never match a stale entry.
+emit_task_abort_registry :: (fn(context : &mut FunctionGenerationContext) -> unit)({
+  // Each entry also carries the unwind that aborted the task: its target (the
+  // handler whose `unwind` it was, `__yo_unwind_target`) and a copy of the
+  // unwound value. Between a task's abort and the moment its awaiter reads it,
+  // other tasks run and may unwind themselves, so the thread-local pair is
+  // stale by then; the entry is what the awaiter restores
+  // (issues/fixed/unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md).
+  context.base.emitter.emit_declaration_line("typedef struct { void* fut; uint64_t target; void* value; } __yo_task_abort_entry_t;");
+  context.base.emitter.emit_declaration_line("typedef struct { __yo_task_abort_entry_t* items; size_t len; size_t cap; } __yo_task_abort_registry_t;");
+  if(context.base.chunk_mode, {
+    context.base.emitter.emit_declaration_line("extern _Thread_local __yo_task_abort_registry_t __yo_task_aborts;  // Effect-unwind task aborts nobody has observed yet");
+    context.base.emitter.emit_declaration_line("extern _Thread_local uint64_t __yo_unwind_target;  // The handler the in-flight unwind belongs to (0: none)");
+    context.base.chunk_globals.push_string(String.from("_Thread_local __yo_task_abort_registry_t __yo_task_aborts;\n"));
+    context.base.chunk_globals.push_string(String.from("_Thread_local uint64_t __yo_unwind_target;\n"));
+  }, {
+    context.base.emitter.emit_declaration_line("static _Thread_local __yo_task_abort_registry_t __yo_task_aborts;  // Effect-unwind task aborts nobody has observed yet");
+    context.base.emitter.emit_declaration_line("static _Thread_local uint64_t __yo_unwind_target;  // The handler the in-flight unwind belongs to (0: none)");
+  });
+  context.base.emitter.emit_declaration_string_line(
+    `static void __yo_task_abort_register(void* fut) {
+  if (__yo_task_aborts.len == __yo_task_aborts.cap) {
+    size_t cap = (__yo_task_aborts.cap == 0) ? 8 : (__yo_task_aborts.cap * 2);
+    __yo_task_abort_entry_t* items = (__yo_task_abort_entry_t*)__yo_realloc(__yo_task_aborts.items, cap * sizeof(__yo_task_abort_entry_t));
+    if (items == NULL) __yo_alloc_fail(cap * sizeof(__yo_task_abort_entry_t));
+    __yo_task_aborts.items = items;
+    __yo_task_aborts.cap = cap;
+  }
+  void* value = NULL;
+  if (__yo_unwind_target != 0) {
+    value = __yo_malloc(__YO_UNWIND_VALUE_SIZE);
+    if (value == NULL) __yo_alloc_fail(__YO_UNWIND_VALUE_SIZE);
+    memcpy(value, __yo_unwind_value, __YO_UNWIND_VALUE_SIZE);
+  }
+  __yo_task_abort_entry_t e = { fut, __yo_unwind_target, value };
+  __yo_task_aborts.items[__yo_task_aborts.len++] = e;
+  __yo_unwind_target = 0;
+}
+// Release the (empty) registry's array. The registry is per-thread state that
+// nothing else frees on a thread whose async runtime never armed the exit hook
+// (a task that unwound synchronously, awaited in place, with the state-machine
+// pools off): the array outlived the thread. Freeing it once the last entry is
+// gone ties its lifetime to the aborts it records.
+static void __yo_task_abort_registry_free(void) {
+  __yo_free(__yo_task_aborts.items);
+  __yo_task_aborts.items = NULL;
+  __yo_task_aborts.cap = 0;
+}
+// Remove fut's entry. With restore, its unwind becomes the in-flight one
+// again (target 0 when the task was cancelled rather than unwound).
+static int __yo_task_abort_take_entry(void* fut, int restore) {
+  if (restore) __yo_unwind_target = 0;
+  for (size_t i = __yo_task_aborts.len; i > 0; i--) {
+    __yo_task_abort_entry_t* e = &__yo_task_aborts.items[i - 1];
+    if (e->fut == fut) {
+      if (e->value) {
+        if (restore) {
+          __yo_unwind_target = e->target;
+          memcpy(__yo_unwind_value, e->value, __YO_UNWIND_VALUE_SIZE);
+        }
+        __yo_free(e->value);
+      }
+      *e = __yo_task_aborts.items[--__yo_task_aborts.len];
+      if (__yo_task_aborts.len == 0) __yo_task_abort_registry_free();
+      return 1;
+    }
+  }
+  return 0;
+}
+static int __yo_task_abort_take(void* fut) {
+  return __yo_task_abort_take_entry(fut, 0);
+}
+// An awaiter or handle read the Aborted state: the abort is handled.
+static void __yo_task_abort_observed(void* fut) {
+  if (__yo_task_aborts.len != 0) (void)__yo_task_abort_take(fut);
+}
+// An awaiter read the Aborted state and takes over the unwind that caused it:
+// it either catches it (its own handler unwound) or propagates it.
+static void __yo_task_abort_take_unwind(void* fut) {
+  (void)__yo_task_abort_take_entry(fut, 1);
+}
+`
+  );
+  context.base.emitter.emit_declaration_string_line(
+    `// The task's last reference is gone: nobody can observe the abort any more.
+static void __yo_task_abort_released(void* fut) {
+  if (__yo_task_aborts.len != 0 && __yo_task_abort_take(fut)) {
+    fprintf(stderr, "unhandled effect unwind aborted an async task that was never awaited\\n");
+  }
+}
+// The program body returned: every task still registered was never observed.
+static void __yo_task_abort_report_unobserved(void) {
+  for (size_t i = 0; i < __yo_task_aborts.len; i++) {
+    fprintf(stderr, "unhandled effect unwind aborted an async task that was never awaited\\n");
+    if (__yo_task_aborts.items[i].value) __yo_free(__yo_task_aborts.items[i].value);
+  }
+  __yo_task_aborts.len = 0;
+  __yo_task_abort_registry_free();
+}`
+  );
+});
+// ---------------------------------------------------------------------------
+// generateBorrowRuntimePrimitives
+// ---------------------------------------------------------------------------
+/// Emit the Law-of-Exclusivity borrow primitives. Emitted unconditionally.
+generate_borrow_runtime_primitives :: (fn(context : &mut FunctionGenerationContext) -> unit)({
+  context.base.emitter.emit_string_line(
+    `
+// Law of Exclusivity (Swift-style runtime backstop). An interior 'ref'
+// into a container's storage (e.g. xs(i)) increments the container's
+// borrow_count for the borrow's lifetime; a container operation that
+// could reallocate/free that storage asserts borrow_count == 0. This
+// turns the one statically-unprovable interior-ref residual (a container
+// reached through a global and grown while borrowed) into a deterministic
+// panic instead of a use-after-free. Cost: a same-cache-line load + a
+// predicted-not-taken branch (measured ~0% even on a tight push loop).
+static inline void __yo_borrow_acquire(void* ptr) {
+  if (ptr == NULL) return;
+  if (((__yo_rc_prefix_t*)ptr)->borrow_count == 0xFFFF) {
+    fflush(stdout); fprintf(stderr, "panic: too many live interior references into one container (borrow counter saturated)\\n");
+    __yo_abort();
+  }
+  ((__yo_rc_prefix_t*)ptr)->borrow_count++;
+}
+static inline void __yo_borrow_release(void* ptr) {
+  if (ptr == NULL) return;
+  ((__yo_rc_prefix_t*)ptr)->borrow_count--;
+}
+static inline void __yo_borrow_assert_unborrowed(void* ptr) {
+  if (ptr == NULL) return;
+  if (((__yo_rc_prefix_t*)ptr)->borrow_count != 0) {
+    fflush(stdout); fprintf(stderr, "panic: container operation while an interior reference (a 'ref' into an element/field) borrows from it\\n");
+    __yo_abort();
+  }
+}
+// The same three for an ATOMIC object (atomic(ref(...)), Arc, Mutex, ...):
+// it is shared across threads by design, so two threads taking an interior
+// reference into it at once must not race on the counter — a lost update
+// left it stuck non-zero (every later operation panicked) or wrapped it to
+// 0xFFFF (issues/fixed/borrow-count-on-an-atomic-object-is-non-atomic-and-a-user-index-impl-panics-on-it.md).
+// Same uint16_t word, accessed atomically, exactly as ref_count is.
+static inline void __yo_borrow_acquire_atomic(void* ptr) {
+  if (ptr == NULL) return;
+  _Atomic uint16_t* bc = (_Atomic uint16_t*)&((__yo_rc_prefix_t*)ptr)->borrow_count;
+  uint16_t cur = atomic_load_explicit(bc, memory_order_relaxed);
+  do {
+    if (cur == 0xFFFF) {
+      fflush(stdout); fprintf(stderr, "panic: too many live interior references into one container (borrow counter saturated)\\n");
+      __yo_abort();
+    }
+  } while (!atomic_compare_exchange_weak_explicit(bc, &cur, (uint16_t)(cur + 1), memory_order_acquire, memory_order_relaxed));
+}
+static inline void __yo_borrow_release_atomic(void* ptr) {
+  if (ptr == NULL) return;
+  atomic_fetch_sub_explicit((_Atomic uint16_t*)&((__yo_rc_prefix_t*)ptr)->borrow_count, 1, memory_order_release);
+}
+static inline void __yo_borrow_assert_unborrowed_atomic(void* ptr) {
+  if (ptr == NULL) return;
+  if (atomic_load_explicit((_Atomic uint16_t*)&((__yo_rc_prefix_t*)ptr)->borrow_count, memory_order_acquire) != 0) {
+    fflush(stdout); fprintf(stderr, "panic: container operation while an interior reference (a 'ref' into an element/field) borrows from it\\n");
+    __yo_abort();
+  }
+}`
+  );
+});
+// ---------------------------------------------------------------------------
+// _weak_count_primitives
+// ---------------------------------------------------------------------------
+/// The weak-count primitives `Weak(T)` and `ArcWeak(T)` call (std/prelude.yo's extern "Yo"
+/// hooks), shared by both reference-counting runtimes: they read only the
+/// layout-agnostic header prefix. Header-only `static inline` functions, so
+/// under `--emit-chunks` they ride the RC primitives' shared-header range.
+_weak_count_primitives :: (fn() -> String)(
+  `// Weak(T) and ArcWeak(T) (plans/archive/WEAK_AND_UNCOLLECTED_RC.md §3.2-§3.4).
+// A counted cell's weak count lives in the 16 bits of \`borrow_count\`. A
+// cell never carries borrow marks there: codegen emits no borrow primitive on
+// an Rc or Arc cell (\`is_counted_cell_type\`, plans/VALUES_BY_DEFAULT.md
+// decision 46), and every other object's marks are back to 0 by its last
+// release. Bits 0-14 count the Weak handles and saturate at
+// __YO_WEAK_COUNT: a saturated cell is never freed (a leak, never a dangle).
+// Bit 15, __YO_WEAK_DEAD, says the payload is dropped and the strong side has
+// handed the allocation to the Weak handles: the last one frees it. Exactly
+// one side frees: the strong side sets the bit and frees when the count it
+// read back is 0; a Weak release frees when the word it left is the bit alone.
+#define __YO_WEAK_DEAD 0x8000u
+#define __YO_WEAK_COUNT 0x7fffu
+static inline void __yo_rc_weak_retain(void* ptr) {
+  __yo_rc_prefix_t* h = (__yo_rc_prefix_t*)ptr;
+  if ((h->borrow_count & __YO_WEAK_COUNT) != __YO_WEAK_COUNT) h->borrow_count++;
+}
+static inline void __yo_rc_weak_release(void* ptr) {
+  __yo_rc_prefix_t* h = (__yo_rc_prefix_t*)ptr;
+  uint16_t w = h->borrow_count;
+  if ((w & __YO_WEAK_COUNT) == __YO_WEAK_COUNT) return;
+  w = (uint16_t)(w - 1u);
+  h->borrow_count = w;
+  if (w == __YO_WEAK_DEAD) __yo_rc_free(ptr);
+}
+// The payload is alive while the strong count is non-zero and the cell is not
+// dead. The collector runs user code (a Drop in its dispose pass) only after
+// every live cell's count is restored, and a cell it is freeing has a strong
+// count of 0 then, so the count answers during a collection too.
+static inline bool __yo_rc_weak_upgrade(void* ptr) {
+  __yo_rc_prefix_t* h = (__yo_rc_prefix_t*)ptr;
+  if ((h->borrow_count & __YO_WEAK_DEAD) || (h->ref_count & __YO_RC_COUNT) == 0) return false;
+  h->ref_count++;
+  return true;
+}
+static inline size_t __yo_rc_weak_strong_count(void* ptr) {
+  __yo_rc_prefix_t* h = (__yo_rc_prefix_t*)ptr;
+  if (h->borrow_count & __YO_WEAK_DEAD) return 0;
+  return (size_t)(h->ref_count & __YO_RC_COUNT);
+}
+static inline size_t __yo_rc_weak_weak_count(void* ptr) {
+  __yo_rc_prefix_t* h = (__yo_rc_prefix_t*)ptr;
+  uint16_t w = h->borrow_count;
+  if ((w & __YO_WEAK_DEAD) || (h->ref_count & __YO_RC_COUNT) == 0) return 0;
+  if ((w & __YO_WEAK_COUNT) == __YO_WEAK_COUNT) return SIZE_MAX;
+  return (size_t)(w & __YO_WEAK_COUNT);
+}
+// ArcWeak(T): the same word on an Arc cell, which other threads update at the
+// same time, read and written atomically. An upgrade takes a strong count
+// only while it is non-zero (an Arc cell is never collected, so a zero
+// strong count is the payload gone); the strong side, after the payload's
+// drop, sets the dead bit with one RMW, and a release frees when its RMW
+// turned the word into the bit alone, so the two sides agree on one free.
+static inline void __yo_arc_weak_retain(void* ptr) {
+  _Atomic uint16_t* w = (_Atomic uint16_t*)&((__yo_rc_prefix_t*)ptr)->borrow_count;
+  uint16_t cur = atomic_load_explicit(w, memory_order_relaxed);
+  do {
+    if ((cur & __YO_WEAK_COUNT) == __YO_WEAK_COUNT) return;
+  } while (!atomic_compare_exchange_weak_explicit(w, &cur, (uint16_t)(cur + 1u), memory_order_relaxed, memory_order_relaxed));
+}
+static inline void __yo_arc_weak_release(void* ptr) {
+  _Atomic uint16_t* w = (_Atomic uint16_t*)&((__yo_rc_prefix_t*)ptr)->borrow_count;
+  uint16_t cur = atomic_load_explicit(w, memory_order_relaxed);
+  do {
+    if ((cur & __YO_WEAK_COUNT) == __YO_WEAK_COUNT) return;
+  } while (!atomic_compare_exchange_weak_explicit(w, &cur, (uint16_t)(cur - 1u), memory_order_acq_rel, memory_order_relaxed));
+  if (cur == (uint16_t)(__YO_WEAK_DEAD | 1u)) __yo_rc_free(ptr);
+}
+static inline bool __yo_arc_weak_upgrade(void* ptr) {
+  _Atomic uint32_t* rc = (_Atomic uint32_t*)&((__yo_rc_prefix_t*)ptr)->ref_count;
+  uint32_t cur = atomic_load_explicit(rc, memory_order_relaxed);
+  do {
+    if ((cur & __YO_RC_COUNT) == 0) return false;
+  } while (!atomic_compare_exchange_weak_explicit(rc, &cur, cur + 1u, memory_order_acquire, memory_order_relaxed));
+  return true;
+}
+static inline size_t __yo_arc_weak_strong_count(void* ptr) {
+  return (size_t)(atomic_load_explicit((_Atomic uint32_t*)&((__yo_rc_prefix_t*)ptr)->ref_count, memory_order_acquire) & __YO_RC_COUNT);
+}
+static inline size_t __yo_arc_weak_weak_count(void* ptr) {
+  if (__yo_arc_weak_strong_count(ptr) == 0) return 0;
+  uint16_t w = atomic_load_explicit((_Atomic uint16_t*)&((__yo_rc_prefix_t*)ptr)->borrow_count, memory_order_acquire);
+  if ((w & __YO_WEAK_COUNT) == __YO_WEAK_COUNT) return SIZE_MAX;
+  return (size_t)(w & __YO_WEAK_COUNT);
+}
+// The uniqueness lock behind Arc.make_mut and Arc.try_unwrap: Rust's CAS of
+// the strong count from 1 to 0
+// (issues/fixed/2026-10-28-arc-make-mut-and-try-unwrap-race-an-arcweak-upgrade-on-another-thread.md).
+// Two plain loads (strong == 1, then weak == 0) leave a window in which an
+// ArcWeak.upgrade on another thread takes a strong count; one CAS closes it.
+// While the count is 0 the caller's handle is the cell's only strong handle
+// and no other can appear: an upgrade refuses a zero count, and every other
+// way to a strong handle copies one. Acquire on success, so the holder sees
+// every write the other handles made before they went. The tag bit survives
+// both transitions.
+static inline bool __yo_arc_lock_unique(void* ptr) {
+  _Atomic uint32_t* rc = (_Atomic uint32_t*)&((__yo_rc_prefix_t*)ptr)->ref_count;
+  uint32_t cur = atomic_load_explicit(rc, memory_order_relaxed);
+  do {
+    if ((cur & __YO_RC_COUNT) != 1u) return false;
+  } while (!atomic_compare_exchange_weak_explicit(rc, &cur, cur & __YO_RC_TAG, memory_order_acquire, memory_order_relaxed));
+  return true;
+}
+// Gives the strong count of 1 back. Release, so an upgrade that follows sees
+// what the holder wrote under the lock.
+static inline void __yo_arc_unlock_unique(void* ptr) {
+  atomic_fetch_add_explicit((_Atomic uint32_t*)&((__yo_rc_prefix_t*)ptr)->ref_count, 1u, memory_order_release);
+}
+// The ArcWeak count of a cell the caller has locked. __yo_arc_weak_weak_count
+// answers 0 for the zero strong count the lock leaves; this reads the word
+// itself (SIZE_MAX when it saturated). An ArcWeak may still go on another
+// thread but none can come: making one takes a strong handle or an ArcWeak.
+static inline size_t __yo_arc_weak_count_raw(void* ptr) {
+  uint16_t w = atomic_load_explicit((_Atomic uint16_t*)&((__yo_rc_prefix_t*)ptr)->borrow_count, memory_order_acquire);
+  if ((w & __YO_WEAK_COUNT) == __YO_WEAK_COUNT) return SIZE_MAX;
+  return (size_t)(w & __YO_WEAK_COUNT);
+}
+// The strong side's end of a locked cell whose payload the holder moved out.
+// slot is the address of the holder's handle (an Arc variable), not the cell:
+// the count stays 0, so no upgrade succeeds, and one RMW hands the allocation
+// to the ArcWeak handles as dead (as __yo_arc_release_weak_held does after a
+// drop), freeing it here when no ArcWeak is left. The handle owns no count
+// afterwards; an Arc is a copyable handle with no way to forget it, so the
+// slot is cleared, and the handle's own release of NULL is a no-op.
+static inline void __yo_arc_release_locked(void* slot) {
+  void* ptr = *(void**)slot;
+  *(void**)slot = NULL;
+  uint16_t old = atomic_fetch_or_explicit((_Atomic uint16_t*)&((__yo_rc_prefix_t*)ptr)->borrow_count, (uint16_t)__YO_WEAK_DEAD, memory_order_acq_rel);
+  if ((old & __YO_WEAK_COUNT) == 0) __yo_rc_free(ptr);
+}`
+);
+// ---------------------------------------------------------------------------
+// generate_lightweight_rc_functions
+// ---------------------------------------------------------------------------
+/// Emit the RC functions: incr/decr, the weak-count primitives, the type-tag
+/// dispose dispatch declaration and the thread-exit hook.
+generate_lightweight_rc_functions :: (fn(context : &mut FunctionGenerationContext) -> unit)({
+  // Forward-declare the dispose dispatch function (defined after all dispose functions).
+  context.base.emitter.emit_declaration_line("static int __yo_dispose_dispatch(void* ptr); // Type-tag based dispose dispatch; 1 = it kept the memory");
+  // Chunked emission: the RC primitives are the hot path and must be per-TU
+  // `static inline` copies, not one external definition in chunk 0 (measured
+  // 16.5% slower). This whole block is header-routable as-is: it touches only
+  // the object header, `__yo_rc_free` (a declaration-section static inline,
+  // types/generation.yo) and the externally-declared `__yo_dispose_dispatch`.
+  rc_lw_start := if(context.base.chunk_mode, context.base.emitter.code.len(), usize(0));
+  context.base.emitter.emit_string_line(_weak_count_primitives());
+  context.base.emitter.emit_string_line(
+    `// Lightweight reference counting — no cycle detection needed
+// Uses type_id dispatch instead of function pointer for dispose
+// (WASM: br_table ~2 cycles vs call_indirect ~20+ cycles)
+// The last strong handle of a cell some Weak still names: the payload is
+// dropped with the strong count at 0 (an upgrade from the payload's own Drop
+// finds no strong handle), then the allocation goes to the Weak handles, and
+// it is freed here only if the drop released the last of them.
+static inline void __yo_rc_release_weak_held(void* ptr) {
+  __yo_ref_header_t* h = (__yo_ref_header_t*)ptr;
+  h->ref_count &= __YO_RC_TAG;
+  if (h->type_id) {
+    // A pooled state machine keeps its memory; no Weak names one.
+    if (__yo_dispose_dispatch(ptr)) return;
+    h->type_id = 0;
+  }
+  uint16_t w = (uint16_t)(h->borrow_count | __YO_WEAK_DEAD);
+  h->borrow_count = w;
+  if ((w & __YO_WEAK_COUNT) == 0) __yo_rc_free(ptr);
+}
+
+static inline void __yo_decr_rc(void* ptr) {
+  if (ptr == NULL) return;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+  if ((header->ref_count & __YO_RC_COUNT) == 1) {
+    if (header->borrow_count) {
+      __yo_rc_release_weak_held(ptr);
+      return;
+    }
+    // A pooled state machine's memory goes back to its pool, not to free.
+    if (header->type_id && __yo_dispose_dispatch(ptr)) {
+      return;
+    }
+    __yo_rc_free(ptr);
+  } else {
+    header->ref_count--;
+  }
+}
+
+static inline void* __yo_incr_rc(void* ptr) {
+  if (ptr == NULL) return NULL;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+  header->ref_count++;
+  return ptr;
+}
+
+// Rc.try_unwrap / Arc.try_unwrap: the payload was moved out bitwise of a cell
+// the caller holds the ONLY reference to. Clearing the type tag makes the
+// last release free the cell without dispatching the payload's dispose.
+static inline void __yo_rc_forget_payload(void* ptr) {
+  ((__yo_rc_prefix_t*)ptr)->type_id = 0;
+}`
+  );
+  if(context.base.chunk_mode, {
+    context.base.chunk_header_ranges.push(
+      ChunkRange(c_name : String.from("__rc_primitives_lightweight"), start_b : rc_lw_start, end_b : context.base.emitter.code.len(), module : String.new())
+    );
+  });
+  context.base.emitter.emit_string_line(
+    `
+// Atomic reference counting functions for atomic ref objects (Arc; thread-safe)
+// Memory ordering follows the standard Arc pattern (Rust, Swift, C++ shared_ptr):
+//   - Increment: relaxed (no ordering needed for new reference creation)
+//   - Decrement: acq_rel (acquire on last drop to see all prior writes; release to publish our writes)
+//   - ref_count() check: acquire (see all prior writes before acting on uniqueness)
+static void* __yo_incr_rc_atomic(void* ptr) {
+  if (ptr == NULL) return NULL;
+  __yo_rc_prefix_t* header = (__yo_rc_prefix_t*)ptr;
+  atomic_fetch_add_explicit((_Atomic uint32_t*)&header->ref_count, 1, memory_order_relaxed);
+  return ptr;
+}
+
+// The last strong handle of an Arc cell some ArcWeak still names: the
+// strong count is already 0, so no upgrade on another thread succeeds while
+// the payload is dropped; then one RMW sets the dead bit and reads the weak
+// count it found, and the cell is freed here only if no ArcWeak was left.
+static void __yo_arc_release_weak_held(void* ptr) {
+  __yo_rc_prefix_t* h = (__yo_rc_prefix_t*)ptr;
+  if (h->type_id && __yo_dispose_dispatch(ptr)) return;
+  uint16_t old = atomic_fetch_or_explicit((_Atomic uint16_t*)&h->borrow_count, (uint16_t)__YO_WEAK_DEAD, memory_order_acq_rel);
+  if ((old & __YO_WEAK_COUNT) == 0) __yo_rc_free(ptr);
+}
+
+static void __yo_decr_rc_atomic(void* ptr) {
+  if (ptr == NULL) return;
+  __yo_rc_prefix_t* header = (__yo_rc_prefix_t*)ptr;
+  uint32_t old_count = atomic_fetch_sub_explicit((_Atomic uint32_t*)&header->ref_count, 1, memory_order_acq_rel);
+  if ((old_count & __YO_RC_COUNT) == 1) {
+    // No ArcWeak can appear now: making one takes a strong or a weak handle.
+    if (atomic_load_explicit((_Atomic uint16_t*)&header->borrow_count, memory_order_acquire)) {
+      __yo_arc_release_weak_held(ptr);
+      return;
+    }
+    if (header->type_id && __yo_dispose_dispatch(ptr)) {
+      return;
+    }
+    __yo_rc_free(ptr);
+  }
+}
+
+// A Dyn's data word is dropped, measured, cloned and released through its
+// VTABLE. The prefix is { type_id, size, align, drop_in_place, clone_into,
+// payload_of, retain, release, clone } (plans/VALUES_BY_DEFAULT.md decision
+// 49). size and align are the payload's own; drop_in_place(data) drops the
+// payload and frees nothing; clone_into(data, dst) writes an independent copy
+// of it at dst (NULL without Clone); payload_of(data) is the payload's address
+// (a legacy Dyn's data word is its cell, a reference-kind Dyn's is the
+// payload). retain, release and clone are the legacy cell's and go with it:
+// the RC functions are the concrete payload's own, atomic for an atomically
+// counted payload (a Dyn(..., Send) boxes with arc), plain otherwise. The
+// static Dyn type cannot choose: a
+// Dyn(Fn, Send) upcast to Dyn(Fn) still shares its box with other threads
+// (issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md).
+// __yo_clone makes an independent payload for d.clone() on a
+// Dyn(..., Clone) (plans/VALUES_BY_DEFAULT.md decision 7): NULL in the
+// vtable of a Dyn without Clone.
+typedef struct {
+  uintptr_t __yo_type_id;
+  size_t __yo_size;
+  size_t __yo_align;
+  void (*__yo_drop_in_place)(void*);
+  void (*__yo_clone_into)(void*, void*);
+  void* (*__yo_payload_of)(void*);
+  void* (*__yo_retain)(void*);
+  void (*__yo_release)(void*);
+  void* (*__yo_clone)(void*);
+} __yo_vtable_prefix_t;
+
+static inline void* __yo_dyn_retain(void* data, const void* vtable) {
+  if (data == NULL) return NULL;
+  return ((const __yo_vtable_prefix_t*)vtable)->__yo_retain(data);
+}
+
+static inline void __yo_dyn_release(void* data, const void* vtable) {
+  if (data == NULL) return;
+  ((const __yo_vtable_prefix_t*)vtable)->__yo_release(data);
+}
+
+static inline void* __yo_dyn_clone(void* data, const void* vtable) {
+  if (data == NULL) return NULL;
+  return ((const __yo_vtable_prefix_t*)vtable)->__yo_clone(data);
+}`
+  );
+  // Effect unwind flag and value buffer (always needed).
+  if(context.base.chunk_mode, {
+    context.base.emitter.emit_declaration_line("extern _Thread_local int __yo_effect_escaped;  // Thread-local flag for effect record unwind detection");
+    context.base.chunk_globals.push_string(String.from("_Thread_local int __yo_effect_escaped = 0;\n"));
+  }, {
+    context.base.emitter.emit_declaration_line("static _Thread_local int __yo_effect_escaped = 0;  // Thread-local flag for effect record unwind detection");
+  });
+  emit_unwind_value_buffer(context);
+  emit_task_abort_registry(context);
+  // A worker thread's exit: free its async runtime pools.
+  context.base.emitter.emit_string_line(`static void __yo_cleanup_thread(void) { if (__yo_async_thread_exit_hook) __yo_async_thread_exit_hook(); }`);
+});
+// ---------------------------------------------------------------------------
+// generate_atomic_gc_runtime_functions
+// ---------------------------------------------------------------------------
+/// Emit the borrow primitives + the RC runtime.
+generate_atomic_gc_runtime_functions :: (fn(context : &mut FunctionGenerationContext) -> unit)({
+  // Chunked emission: the borrow primitives are the per-container-access hot
+  // path, have no prototypes anywhere, and are called from every chunk —
+  // route them into the shared header (per-TU `static inline` copies).
+  bp_start := if(context.base.chunk_mode, context.base.emitter.code.len(), usize(0));
+  generate_borrow_runtime_primitives(context);
+  if(context.base.chunk_mode, {
+    context.base.chunk_header_ranges.push(
+      ChunkRange(c_name : String.from("__borrow_primitives"), start_b : bp_start, end_b : context.base.emitter.code.len(), module : String.new())
+    );
+  });
+  generate_lightweight_rc_functions(context);
+});
+export(
+  collect_unwind_value_ctypes,
+  emit_unwind_value_buffer,
+  emit_task_abort_registry,
+  generate_borrow_runtime_primitives,
+  generate_lightweight_rc_functions,
+  generate_atomic_gc_runtime_functions
+);

@@ -25,8 +25,8 @@ pragma(Pragma.SkipWasm32Emscripten); // no process model in WASM
 pragma(Pragma.SkipWasm32Wasi); // no process model in WASM
 { assert } :: import("std/assert");
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
-{ HashSet } :: import("std/collections/hash_set");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashSet } :: import("std/collections/hash-set");
 { Exception, IoExn } :: import("std/error");
 { args, env, cwd } :: import("std/env");
 { exit } :: import("std/libc/stdlib");
@@ -184,7 +184,7 @@ test("a value enum's drop and dup are one function each, not a switch per site",
   scratch := `${cwd_str}/tmp-venum-drop-it`;
   io.await(create_dir_all(Path.new(scratch.clone()), io), IoExn(io : io, exn : exn));
   fixture := String.from(
-    "{ ArrayList } :: import(\"std/collections/array_list\");\n{ println } :: import(\"std/fmt\");\nVe :: enum(VeNone, VeHold(p : Rc(i32)), VePair(a : Rc(i32), b : ArrayList(Self)));\nve_make :: (fn(n : i32) -> Ve)({\n  a := Ve.VeHold(p : Rc.new(n));\n  b := Ve.VeHold(p : Rc.new(n));\n  if(n > i32(3), { return(Ve.VeNone); });\n  Ve.VePair(a : Rc.new(n), b : ArrayList(Ve).new())\n});\nve_seen :: (fn(e : &Ve) -> usize)(usize(1));\nve_count :: (fn(xs : &ArrayList(Ve)) -> usize)({\n  (mut(k) : usize) = usize(0);\n  (mut(i) : usize) = usize(0);\n  while(i < xs.len(), i = (i + usize(1)), {\n    k = (k + ve_seen(&(xs(i))));\n  });\n  k\n});\nmain :: (fn() -> unit)({\n  mut(xs) := ArrayList(Ve).new();\n  xs.push(ve_make(i32(1)));\n  xs.push(ve_make(i32(5)));\n  y := ve_make(i32(2));\n  println(ve_count(&xs));\n});\nexport(main);\n"
+    "{ ArrayList } :: import(\"std/collections/array-list\");\n{ println } :: import(\"std/fmt\");\nVe :: enum(VeNone, VeHold(p : Rc(i32)), VePair(a : Rc(i32), b : ArrayList(Self)));\nve_make :: (fn(n : i32) -> Ve)({\n  a := Ve.VeHold(p : Rc.new(n));\n  b := Ve.VeHold(p : Rc.new(n));\n  if(n > i32(3), { return(Ve.VeNone); });\n  Ve.VePair(a : Rc.new(n), b : ArrayList(Ve).new())\n});\nve_seen :: (fn(e : &Ve) -> usize)(usize(1));\nve_count :: (fn(xs : &ArrayList(Ve)) -> usize)({\n  (mut(k) : usize) = usize(0);\n  (mut(i) : usize) = usize(0);\n  while(i < xs.len(), i = (i + usize(1)), {\n    k = (k + ve_seen(&(xs(i))));\n  });\n  k\n});\nmain :: (fn() -> unit)({\n  mut(xs) := ArrayList(Ve).new();\n  xs.push(ve_make(i32(1)));\n  xs.push(ve_make(i32(5)));\n  y := ve_make(i32(2));\n  println(ve_count(&xs));\n});\nexport(main);\n"
   );
   io.await(write_string(Path.new(`${scratch}/fx.yo`), &fixture, io), IoExn(io : io, exn : exn));
   mut(compile_argv) := ArrayList(String).new();
@@ -242,7 +242,7 @@ test("a specialization reached through a call gets the hashed C name, not its ra
   scratch := `${cwd_str}/tmp-long-fn-name-it`;
   io.await(create_dir_all(Path.new(scratch.clone()), io), IoExn(io : io, exn : exn));
   fixture := String.from(
-    "{ ArrayList } :: import(\"std/collections/array_list\");\n{ println } :: import(\"std/fmt\");\n{ String } :: import(\"std/string\");\nBig :: enum(\n  Alpha(first_field : i32, second_field : i64),\n  Beta(third_field : u8, fourth_field : String),\n  Gamma(fifth_field : bool, sixth_field : f64),\n  Delta(seventh_field : ArrayList(i32))\n);\nbig_tag :: (fn(b : &Big) -> i32)(match(b, .Alpha(_, _) => i32(1), .Beta(_, _) => i32(2), .Gamma(_, _) => i32(3), .Delta(_) => i32(4)));\nmain :: (fn() -> unit)({\n  h := Rc.new(Big.Alpha(first_field : i32(1), second_field : i64(2)));\n  println(big_tag(&h.*));\n});\nexport(main);\n"
+    "{ ArrayList } :: import(\"std/collections/array-list\");\n{ println } :: import(\"std/fmt\");\n{ String } :: import(\"std/string\");\nBig :: enum(\n  Alpha(first_field : i32, second_field : i64),\n  Beta(third_field : u8, fourth_field : String),\n  Gamma(fifth_field : bool, sixth_field : f64),\n  Delta(seventh_field : ArrayList(i32))\n);\nbig_tag :: (fn(b : &Big) -> i32)(match(b, .Alpha(_, _) => i32(1), .Beta(_, _) => i32(2), .Gamma(_, _) => i32(3), .Delta(_) => i32(4)));\nmain :: (fn() -> unit)({\n  h := Rc.new(Big.Alpha(first_field : i32(1), second_field : i64(2)));\n  println(big_tag(&h.*));\n});\nexport(main);\n"
   );
   io.await(write_string(Path.new(`${scratch}/fx.yo`), &fixture, io), IoExn(io : io, exn : exn));
   mut(compile_argv) := ArrayList(String).new();

@@ -7,7 +7,7 @@
 pragma(Pragma.AllowUnsafe);
 { replace } :: import("std/mem");
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 {
   AstExpr,
   AstExprNode,
@@ -36,7 +36,7 @@ pragma(Pragma.AllowUnsafe);
   alloc_global_expr_id,
   ast_rewritten_node
 } :: import("../../expr.yo");
-{ ExprInfo, ComptimeRef, new_expr_info, record_macro_expansion, expr_info_set_macro_expansion, expr_info_table_set, expr_info_table_get, ControlFlowFlags, has_any_control_flow, control_flow_to_string, record_branch_init, has_dominating_branch_init, path_collection_of_name, expr_info_set_converted_runtime_type, register_thread_local, is_thread_local, register_mut_global, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_trait_ptr_type, expr_info_set_is_compile_time_only_assignment, some_resolution, is_reference_self_place, expr_info_converted_runtime_type, is_mut_lend_value } :: import("../../expr_info.yo");
+{ ExprInfo, ComptimeRef, new_expr_info, record_macro_expansion, expr_info_set_macro_expansion, expr_info_table_set, expr_info_table_get, ControlFlowFlags, has_any_control_flow, control_flow_to_string, record_branch_init, has_dominating_branch_init, path_collection_of_name, expr_info_set_converted_runtime_type, register_thread_local, is_thread_local, register_mut_global, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_trait_ptr_type, expr_info_set_is_compile_time_only_assignment, some_resolution, is_reference_self_place, expr_info_converted_runtime_type, is_mut_lend_value } :: import("../../expr-info.yo");
 {
   Environment,
   Variable,
@@ -55,7 +55,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { EvalContext, ExpectedTypeCtx, CaptureUsage, track_variable_usage, call_rerun_pending_def_evals, fn_ctx_returns_comptime } :: import("../context.yo");
-{ function_param_mutation_mask, param_mutation_mask_hits, param_mutation_mask_lends_mut, ParamMutationMask, d1_record_global_write } :: import("../effects/mutation_summary.yo");
+{ function_param_mutation_mask, param_mutation_mask_hits, param_mutation_mask_lends_mut, ParamMutationMask, d1_record_global_write } :: import("../effects/mutation-summary.yo");
 {
   EvalValue,
   EvalValueNode,
@@ -92,10 +92,10 @@ pragma(Pragma.AllowUnsafe);
   convert_comptime_type_to_runtime_type,
   convert_comptime_type_to_runtime_type_with_expected,
   get_value_of_some_type_from_env
-} :: import("../../types/env_lookup.yo");
-{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
+} :: import("../../types/env-lookup.yo");
+{ is_implicitly_unsafe_capable_file } :: import("../memory-safety.yo");
 { type_to_string, type_display_name } :: import("../../types/string.yo");
-{ judge_function_argument_markers, function_value_slot_mismatch, raise_function_value_origin_mismatch } :: import("../trait_checking.yo");
+{ judge_function_argument_markers, function_value_slot_mismatch, raise_function_value_origin_mismatch } :: import("../trait-checking.yo");
 { is_flowable_expr, FlowOptions, flag_flow_violation, raise_flow_violation }
 :: import("../../types/flowability.yo");
 { type_representation_contains_raw_ptr, type_contains_rc_type, dyn_upcast_note, type_is_control_bound, mark_generic_independent, type_carries_origin, no_origin_position_error, type_is_sized, unsized_by_value_error } :: import("../../types/utils.yo");
@@ -105,7 +105,7 @@ pragma(Pragma.AllowUnsafe);
 { comptime_numeric_slot_type } :: import("../values/integer.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
 { evaluate_binding, set_defer_generic_fn_type_check } :: import("./binding.yo");
-{ all_paths_unwind } :: import("../../expr_traversal.yo");
+{ all_paths_unwind } :: import("../../expr-traversal.yo");
 {
   reject_dyn_place_by_value,
   require_expr_not_consumed,
@@ -644,15 +644,15 @@ _is_v2_value_collection_type :: (fn(t : &TypeValue) -> bool)(
           // no name of its own; its display name is registered by id.
           sname := if(sname0.len() > usize(0), sname0.clone(), match(type_display_name(sid.clone()), .Some(d) => d, .None => String.new()));
           cond(
-            _type_name_is(&sname, "ArrayList") => m.ends_with("collections/array_list.yo"),
-            _type_name_is(&sname, "HashMap") => m.ends_with("collections/hash_map.yo"),
-            _type_name_is(&sname, "HashSet") => m.ends_with("collections/hash_set.yo"),
+            _type_name_is(&sname, "ArrayList") => m.ends_with("collections/array-list.yo"),
+            _type_name_is(&sname, "HashMap") => m.ends_with("collections/hash-map.yo"),
+            _type_name_is(&sname, "HashSet") => m.ends_with("collections/hash-set.yo"),
             _type_name_is(&sname, "Deque") => m.ends_with("collections/deque.yo"),
-            _type_name_is(&sname, "BTreeMap") => m.ends_with("collections/btree_map.yo"),
-            _type_name_is(&sname, "PriorityQueue") => m.ends_with("collections/priority_queue.yo"),
-            _type_name_is(&sname, "OrderedMap") => m.ends_with("collections/ordered_map.yo"),
+            _type_name_is(&sname, "BTreeMap") => m.ends_with("collections/btree-map.yo"),
+            _type_name_is(&sname, "PriorityQueue") => m.ends_with("collections/priority-queue.yo"),
+            _type_name_is(&sname, "OrderedMap") => m.ends_with("collections/ordered-map.yo"),
             _type_name_is(&sname, "HeaderMap") => m.ends_with("http/http.yo"),
-            _type_name_is(&sname, "StringBuilder") => m.ends_with("string/string_builder.yo"),
+            _type_name_is(&sname, "StringBuilder") => m.ends_with("string/string-builder.yo"),
             true => false
           )
         },
@@ -1316,7 +1316,7 @@ d3_check_pending_unresolved_callee :: (
 /// parameter. `self : &mut Self` is also Yo's plain by-reference receiver
 /// (`ToString`, `Hash`, `Sender.clone`, ...), so "every inout is a write" would
 /// reject printing an `Arc`'s value; the per-parameter mutation mask of
-/// `effects/mutation_summary.yo` (a MAY-analysis: a field/index store, an RC
+/// `effects/mutation-summary.yo` (a MAY-analysis: a field/index store, an RC
 /// decrement, a mutating callee, or anything unresolvable) is what decides.
 /// The mask decides for EVERY callee, wherever it is defined: a prelude or
 /// std mutator (`Option.take`, `ArrayList.push`) writing a place under an
@@ -1640,7 +1640,7 @@ evaluate_assignment :: (
   // path below runs unchanged, with the registry alone carrying the
   // thread-local-ness (plans/reference/THREAD_LOCAL_STORAGE.md).
   //
-  // The tree must not keep the modifier: `anonymous_module.yo` records a
+  // The tree must not keep the modifier: `anonymous-module.yo` records a
   // module-level init only when the `=` LHS is a `:` pair whose own LHS is an
   // ATOM, and `_module_init_var_atom` (codegen) resolves the declared atom the
   // same way. Measured 2026-09-17 on the earlier spelling: rebinding only the
@@ -1917,7 +1917,7 @@ evaluate_assignment :: (
       if(!is_flowable_expr(&prop_rhs, ctx, &prop_flow_opts), {
         prop_viol_msg := `Writing into '${ast_expr_to_string(&lhs)}' (type '${type_to_string(&expected_ty)}') a value that carries a raw pointer in its representation; the value must be rooted in storage that outlives the field's container. The assigned expression is not flowable:\n  ${ast_expr_to_string(&rhs)}\n\nThis would let the slice/pointer outlive its backing storage through the container — a use-after-free.\n\nFlowable sources: a 'ref'-bound parameter; a non-'ref' parameter; a 'comptime' constant or string literal; a local whose scope encloses the container; '.field' on a flowable base; a call returning ref or slice with flowable arguments; or a 'cond'/'match' whose arms are all flowable.`;
         // Flag so a def-time trial-eval swallow re-raises it via the real `exn`
-        // (function_type.yo), mirroring the simple-variable assignment gate.
+        // (function-type.yo), mirroring the simple-variable assignment gate.
         prop_viol_err := format_error_message(ast_expr_token(&rhs), &prop_viol_msg);
         flag_flow_violation(&prop_viol_err);
         exn.throw(dyn(Box.new(prop_viol_err)));
@@ -2429,7 +2429,7 @@ evaluate_assignment :: (
     register_thread_local(&tl_tok.module_path.*, variable_name.clone());
   });
   // §4 escape boundary 2 for the typed form `(g : T) = init` at module level
-  // (the `:=` form is checked in initialization_assignment.yo): a module-level
+  // (the `:=` form is checked in initialization-assignment.yo): a module-level
   // binding outlives every call frame, so it cannot hold a `ctl` handler —
   // one invoked later would unwind into a frame that no longer exists
   // (issues/fixed/module-level-control-bound-binding-not-rejected.md).
@@ -2524,7 +2524,7 @@ Bound type: ${type_to_string(&variable_value_type(&mcb_v))}`
   // identifier evaluator; without this, a closure whose only reference to an
   // outer variable is an assignment (`(...) => { x = v; }`) recorded NO
   // capture and the ref-capture gate never saw `x`
-  // (tests/ref_closure_capture.test.yo `make_writer`). The tracking helper
+  // (tests/ref-closure-capture.test.yo `make_writer`). The tracking helper
   // itself guards on the body-evaluation context, the outer-frame threshold,
   // and compile-time-only variables.
   track_variable_usage(
@@ -2709,7 +2709,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
     if(!is_flowable_expr(&rhs_evaled, ctx, &assign_flow_opts), {
       viol_msg := `Assigning to '${variable_name}' (type '${type_to_string(&variable_value_type(&variable))}') a value that carries a raw pointer in its representation; the value must be rooted in storage that outlives '${variable_name}'. The assigned expression is not flowable:\n  ${ast_expr_to_string(&rhs)}`;
       // Flag the violation so a def-time trial-eval swallow re-raises it via the
-      // real `exn` (function_type.yo), mirroring the `name := &mut place` binding-site.
+      // real `exn` (function-type.yo), mirroring the `name := &mut place` binding-site.
       viol_err := format_error_message(ast_expr_token(&rhs), &viol_msg);
       flag_flow_violation(&viol_err);
       exn.throw(dyn(Box.new(viol_err)));
@@ -2940,7 +2940,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // caller-scope storage).
   //
   // A frame-level oracle over the LIVE env is unreliable with mutable
-  // shared frames — measured on tests/codegen-bootstrap/arraylist_index_call.yo,
+  // shared frames — measured on tests/codegen-bootstrap/arraylist-index-call.yo,
   // a body-local `(b : u8) = al(i)` inside `while` carried frame_level 3 against
   // a loop-entry frame count of 4, so such a gate wrongly fired and the swallowed
   // throw dropped the loop from the emitted C (corpus DIFF).
@@ -2950,7 +2950,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
     // zero times, and iteration 2 would re-init). Compare against the
     // entry_frame_count SNAPSHOT taken by while.yo: reading the LIVE env's
     // frame count — grown past loop entry by the time the gate runs — makes
-    // body-locals compare as "outside" (corpus DIFF on arraylist_index_call.yo).
+    // body-locals compare as "outside" (corpus DIFF on arraylist-index-call.yo).
     match(
       &ctx.is_evaluating_loop_body,
       .Some(loop_ctx) => {
@@ -3001,7 +3001,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
     );
   });
   // Record FIRST-INITIALIZATIONS into the per-branch init log — consumed by
-  // merge_and_check_envs's cross-branch type checks (see expr_info.yo's
+  // merge_and_check_envs's cross-branch type checks (see expr-info.yo's
   // BranchInitRecord: the shared mutable Variable cannot carry per-branch
   // types). The RHS's closure capture struct rides along for the Impl(...)
   // static-dispatch rule.
@@ -3113,7 +3113,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // A comptime fn-typed variable just received its FuncVal — a FORWARD
   // DECLARATION (`comptime(is_odd) : (fn ...)`) is now filled. Re-run any
   // pending def-time body evals whose captures referenced it while it was
-  // valueless (function_type.yo's pending table, via context.yo's hook) so
+  // valueless (function-type.yo's pending table, via context.yo's hook) so
   // their call-site ExprInfos record the FuncVal before codegen reads them
   // (fn arm 14's mutual recursion).
   if(updated_variable.is_compile_time_only() && is_function_type(&variable_value_type(&updated_variable)), {

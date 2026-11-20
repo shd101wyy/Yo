@@ -281,8 +281,8 @@ Rust 的两阶段借用规则。请移动一份副本（`eat(a.clone())`），�
 
 ## 测试
 
-`tests/ref_binding.test.yo`、`tests/ref_local_binding.test.yo`、
-`tests/ref_params.test.yo`、`tests/ref_field_borrow.test.yo`（含所有者
-pin 与 ref/own 调用门）、`tests/ref_borrow_invalidation.test.yo`（门矩
-阵 + get 句柄模型）、`tests/ref_return_ban.test.yo`、以及
-`tests/flowability_comprehensive.test.yo`。
+`tests/ref-binding.test.yo`、`tests/ref-local-binding.test.yo`、
+`tests/ref-params.test.yo`、`tests/ref-field-borrow.test.yo`（含所有者
+pin 与 ref/own 调用门）、`tests/ref-borrow-invalidation.test.yo`（门矩
+阵 + get 句柄模型）、`tests/ref-return-ban.test.yo`、以及
+`tests/flowability-comprehensive.test.yo`。

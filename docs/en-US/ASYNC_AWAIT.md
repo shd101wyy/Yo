@@ -764,7 +764,7 @@ worklist instead: one future in total, and the pending work is an `ArrayList`.
 ```yo
 { println } :: import("std/fmt");
 { yield } :: import("std/async");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 
 // Split `n` into halves until every piece is 1, awaiting once per piece.
 count_leaves :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
@@ -825,7 +825,7 @@ kind, so one spelling works in `main` and inside a task alike:
 ```yo
 { println } :: import("std/fmt");
 { join_all, yield } :: import("std/async");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 
 work :: (fn(id : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
@@ -1063,10 +1063,10 @@ Similarly, the **parallelism runtime** (thread pool, worker spawn, hardware dete
 
 | Platform | Backend                                         | File                    |
 | -------- | ----------------------------------------------- | ----------------------- |
-| Linux    | `io_uring` (vendored ring layer), epoll fallback | `src/codegen/async/runtime_io_linux.yo`   |
-| macOS    | `kqueue` (kevent readiness + sync pread/pwrite) | `src/codegen/async/runtime_io_macos.yo`   |
-| Windows  | I/O Completion Ports (IOCP)                     | `src/codegen/async/runtime_io_windows.yo` |
-| WASM     | POSIX I/O (NODERAWFS) + timer queue             | `src/codegen/async/runtime_io_wasm.yo`    |
+| Linux    | `io_uring` (vendored ring layer), epoll fallback | `src/codegen/async/runtime-io-linux.yo`   |
+| macOS    | `kqueue` (kevent readiness + sync pread/pwrite) | `src/codegen/async/runtime-io-macos.yo`   |
+| Windows  | I/O Completion Ports (IOCP)                     | `src/codegen/async/runtime-io-windows.yo` |
+| WASM     | POSIX I/O (NODERAWFS) + timer queue             | `src/codegen/async/runtime-io-wasm.yo`    |
 
 #### WASM Async Support
 

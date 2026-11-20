@@ -13,7 +13,7 @@
 //!   paths returned by `Path.join` are used directly.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 {
   AstExpr,
   ast_expr_token,
@@ -23,7 +23,7 @@ pragma(Pragma.AllowUnsafe);
   BK_IMPORT
 } :: import("../../expr.yo");
 { stable_sns_module_id } :: import("../../utils.yo");
-{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr-info.yo");
 { Environment, env_adopt } :: import("../../env.yo");
 { register_sns_module, EvalContext, LoadModuleResult } :: import("../context.yo");
 { Diagnostic } :: import("../../diagnostics.yo");
@@ -50,7 +50,7 @@ _c_len_1 :: (fn(xs : &ArrayList(String)) -> usize)(xs.len());
 // ---------------------------------------------------------------------------
 /// Synchronous file existence check via libc `stat` — portable to Windows
 /// (MSVC has stat in <sys/stat.h>; POSIX `access`/`F_OK` broke the v0.2.0
-/// windows seed leg). Matches module_manager.yo's `_path_exists_sync`.
+/// windows seed leg). Matches module-manager.yo's `_path_exists_sync`.
 _file_exists_sync :: (fn(absolute_path : &String) -> bool)({
   { malloc, free } :: GlobalAllocator;
   cstr := absolute_path.to_cstr();
@@ -68,7 +68,7 @@ _file_exists_sync :: (fn(absolute_path : &String) -> bool)({
 /// `import("mylib")` / `import("mylib/sub")` resolve through this table: the
 /// project's `yo.toml` closure — its own `[modules]`, every dependency's
 /// modules under the dependency's name, transitively — as computed by
-/// `manifest.resolve_import_roots`. module_manager.yo registers it from the
+/// `manifest.resolve_import_roots`. module-manager.yo registers it from the
 /// manifest it discovers above the entry file, or from the build runner's
 /// explicit `--imports <file>` mapping (plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md
 /// §4.5.1). Empty for a file outside any project, where only `std/`,

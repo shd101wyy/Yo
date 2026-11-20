@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Yo's async runtime against libuv on the same box, same workloads:
-# scripts/bench/io_bench.yo and its libuv twin
+# scripts/bench/io-bench.yo and its libuv twin
 # scripts/bench/async-vs-libuv/io_bench_uv.c — a socketpair echo, loopback-TCP
 # echo over 1 and 64 connections, zero-delay timer churn, a 16 KiB file
 # write+read cycle. Runs REPS alternating rounds, optionally pinned to one CPU,
@@ -40,7 +40,7 @@ LINUX=0
 if [ "$(uname -s)" = "Linux" ]; then LINUX=1; fi
 # shellcheck disable=SC2086
 ${CC:-cc} -O2 ${UV_CFLAGS} "${HERE}/bench/async-vs-libuv/io_bench_uv.c" -o "${OUT}/libuv_bench" ${UV_LIBS}
-"${YO}" compile "${HERE}/bench/io_bench.yo" --optimize 2 -o "${OUT}/yo_bench" >/dev/null
+"${YO}" compile "${HERE}/bench/io-bench.yo" --optimize 2 -o "${OUT}/yo_bench" >/dev/null
 
 for r in $(seq "${REPS}"); do
   YO_BENCH_DIR="${OUT}" "${PIN[@]}" "${OUT}/yo_bench" > "${OUT}/yo.${r}"

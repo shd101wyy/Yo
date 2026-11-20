@@ -69,7 +69,7 @@ assert(w.upgrade().is_none(), "nothing to upgrade to");
 
 ```yo
 { RefCell } :: import("std/sync/refcell");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 
 Node :: struct(
   value : i32,

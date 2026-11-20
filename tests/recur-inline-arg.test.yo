@@ -1,0 +1,105 @@
+{ assert } :: import("std/assert");
+// Regression tests for: recur(...) result not hoisted into a temp when used
+// as an argument, causing RC-typed return values to leak.
+// Tracking issue: issues/fixed/recur-call-result-not-hoisted-as-arg.md
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+// ---------- Test 1: recur returning RC type as argument ----------
+//
+// Without the fix, each recursive `recur(...)` call leaks one String per
+// call because String.concat would inline the recur result without a drop.
+Token :: struct(name : String);
+derive(Token, Clone);
+to_str :: (fn(toks : &ArrayList(Token), i : usize) -> String)({
+  n := toks.len();
+  cond(
+    (i >= n) => `done`,
+    true => match(
+      toks.get_cloned(i),
+      .Some(p) => String.concat(&p.name, recur(toks, i + usize(1))),
+      .None => `none`
+    )
+  )
+});
+test("recur returning RC type as argument does not leak", {
+  mut(toks) := ArrayList(Token).new();
+  toks.push(Token(name : `a`));
+  toks.push(Token(name : `b`));
+  toks.push(Token(name : `c`));
+  s := to_str(&toks, usize(0));
+  assert(s == `abcdone`, "concatenated string");
+});
+// ---------- Test 2: recur returning non-RC value (sanity check) ----------
+factorial :: (fn(n : i32) -> i32)(
+  cond(
+    (n <= i32(1)) => i32(1),
+    true => (n * recur(n - i32(1)))
+  )
+);
+test("recur with non-RC return type still works", {
+  assert(factorial(i32(5)) == i32(120), "5! = 120");
+});
+// ---------- Test 3: multi-arg recur ----------
+sum_range :: (fn(lo : i32, hi : i32, acc : i32) -> i32)(
+  cond(
+    (lo > hi) => acc,
+    true => recur(lo + i32(1), hi, acc + lo)
+  )
+);
+test("multi-arg recur", {
+  assert(sum_range(i32(1), i32(5), i32(0)) == i32(15), "1+2+3+4+5 = 15");
+});
+// ---------- Test 4: recur returning RC type assigned to local ----------
+build_tag :: (fn(n : i32) -> String)(
+  cond(
+    (n <= i32(0)) => `end`,
+    true => {
+      tail := recur(n - i32(1));
+      String.concat(`x`, &tail)
+    }
+  )
+);
+test("recur returning RC type bound to local", {
+  s := build_tag(i32(3));
+  assert(s == `xxxend`, "should be xxxend");
+});
+// ---------- Test 3: unit recur releases a composite argument's dup ----------
+//
+// A unit-returning `recur` has no result temp, and its deferred drops (the
+// balancing drop of a by-value composite argument's dup) were flushed only on
+// the result-temp path — so every `recur(items(i), ...)` leaked one interior
+// reference. std/encoding/json.yo `_stringify_into` was the CI red (the
+// verifier's cache-store `stringify`).
+// Tracking issue: issues/fixed/unit-recur-never-flushes-its-argument-drops.md
+Leaf :: struct(name : String);
+Node :: enum(
+  One(leaf : Rc(Leaf)),
+  Many(items : ArrayList(Self))
+);
+count_leaves :: (fn(n : &Node, acc : &mut ArrayList(usize)) -> unit)({
+  match(
+    n,
+    .One(_) => {
+      acc.push(usize(1));
+    },
+    .Many(items) => {
+      mut(i) := usize(0);
+      while(i < items.len(), i = (i + usize(1)), {
+        recur(&items(i), acc);
+      });
+    }
+  );
+});
+test("unit recur releases the dup of a composite argument", {
+  leaf := Rc.new(Leaf(name : `x`));
+  mut(items) := ArrayList(Node).new();
+  items.push(Node.One(leaf : Rc.clone(&leaf)));
+  items.push(Node.One(leaf : Rc.clone(&leaf)));
+  root := Node.Many(items : items);
+  before := ref_count(leaf);
+  mut(acc) := ArrayList(usize).new();
+  count_leaves(&root, &mut acc);
+  count_leaves(&root, &mut acc);
+  assert(acc.len() == usize(4), "four leaves visited");
+  assert(ref_count(leaf) == before, "recur(items(i), acc) leaves no reference behind");
+});

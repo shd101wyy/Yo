@@ -1,0 +1,280 @@
+/// Verifies: gensym, .car/.cdr, ExprVal Atom equality — the quote/gensym
+/// layer that outlives the macro removal
+/// (plans/backlog/MACRO_AND_ISO_REMOVAL.md §0.1). Until 2026-10-24 the
+/// module-source cases ran these builtins inside gated user macro
+/// definitions; they now run them in module-level comptime bindings (C5).
+pragma(Pragma.AllowUnsafe);
+{ String } :: import("std/string");
+import("std/fmt");
+{ Exception } :: import("std/error");
+{ ArrayList } :: import("std/collections/array-list");
+{ Token, TokenKind, TokenData } :: import("../../src/token.yo");
+{ EvalValue } :: import("../../src/value.yo");
+{ has_comment_attribute, Evaluator } :: import("../../src/evaluator/index.yo");
+{ assert, panic } :: import("std/assert");
+{ AstExpr, AstExprNode, ast_expr_id, ast_expr_token } :: import("../../src/expr.yo");
+{ expr_info_table_get } :: import("../../src/expr-info.yo");
+{ Environment, new_environment } :: import("../../src/env.yo");
+{ eval_context_new } :: import("../../src/evaluator/context.yo");
+{ evaluate_gensym } :: import("../../src/evaluator/builtins/gensym.yo");
+noop_loader :: (fn(_path : &String) -> Option(EvalValue))(
+  Option(EvalValue).None
+);
+test("macro helpers: ExprVal Atom equality via __yo_expr_eq", {
+  // Was skipped on issues/fixed/yo-self-expr-eq-macro-body-false.md (macro-body
+  // `__yo_expr_eq(quote(x), quote(x))` FALSE); fixed by the 2026-07-16
+  // env/ctx restore fixes — the check-path differential passes with a
+  // correct negative control (re-verified 2026-07-17).
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected error");
+        unwind(());
+      }
+    )
+  );
+  // 1 only when `quote(x) == quote(x)` AND `quote(x) != quote(y)`.
+  src := String.from("pragma(Pragma.SkipPrelude);\nv :: cond(__yo_expr_eq(quote(x), quote(x)) => cond(__yo_expr_eq(quote(x), quote(y)) => 0, true => 1), true => 0);\nexport(v);\n");
+  eval := Evaluator.new(String.from("<phase6f1>"), String.from("<no-std>"), noop_loader, &src, exn);
+  assert(eval.get_module_error().is_none(), "module error");
+  match(
+    eval.get_module_value(),
+    .None => {
+      assert(false, "no module value");
+    },
+    .Some(mv) => match(
+      mv,
+      Rc(.StructVal(_, names, values)) => {
+        (mut(i) : usize) = usize(0);
+        n := names.len();
+        (mut(found) : Option(usize)) = .None;
+        while(i < n, {
+          match(
+            names.get(i),
+            .Some(nm) => cond(
+              (nm == "v") => {
+                found = .Some(i);
+              },
+              true => ()
+            ),
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+        match(
+          found,
+          .None => {
+            assert(false, "v not found");
+          },
+          .Some(idx) => match(
+            values.get(idx),
+            .None => {
+              assert(false, "v idx missing");
+            },
+            .Some(rv) => match(
+              rv,
+              Rc(.IntLit(s)) => assert(s == "1", "expr_eq(quote(x), quote(x)) should pick 1"),
+              _ => {
+                assert(false, "v not IntLit");
+              }
+            )
+          )
+        );
+      },
+      _ => {
+        assert(false, "not ModuleVal");
+      }
+    )
+  );
+});
+test("macro helpers: gensym produces fresh atoms", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected error");
+        unwind(());
+      }
+    )
+  );
+  // Comptime `::` bindings, no operators — `+`/`==` need the prelude.
+  // Freshness: two gensyms with the SAME prefix are distinct atoms, while
+  // an atom still equals itself (the control) → 1.
+  src := String.from("pragma(Pragma.SkipPrelude);\na :: gensym(\"u\");\nb :: gensym(\"u\");\nv :: cond(__yo_expr_eq(a, a) => cond(__yo_expr_eq(a, b) => 0, true => 1), true => 0);\nexport(v);\n");
+  eval := Evaluator.new(String.from("<phase6f2>"), String.from("<no-std>"), noop_loader, &src, exn);
+  assert(eval.get_module_error().is_none(), "module error");
+  match(
+    eval.get_module_value(),
+    .None => {
+      assert(false, "no module value");
+    },
+    .Some(mv) => match(
+      mv,
+      Rc(.StructVal(_, names, values)) => {
+        (mut(i) : usize) = usize(0);
+        n := names.len();
+        (mut(found) : Option(usize)) = .None;
+        while(i < n, {
+          match(
+            names.get(i),
+            .Some(nm) => cond(
+              (nm == "v") => {
+                found = .Some(i);
+              },
+              true => ()
+            ),
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+        match(
+          found,
+          .None => {
+            assert(false, "v not found");
+          },
+          .Some(idx) => match(
+            values.get(idx),
+            .None => {
+              assert(false, "v idx missing");
+            },
+            .Some(rv) => match(
+              rv,
+              Rc(.IntLit(s)) => assert(s == "1", "two gensym(\"u\") atoms should differ"),
+              _ => {
+                assert(false, "v not IntLit");
+              }
+            )
+          )
+        );
+      },
+      _ => {
+        assert(false, "not ModuleVal");
+      }
+    )
+  );
+});
+test("macro helpers: .cdr on ComptimeListVal", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected error");
+        unwind(());
+      }
+    )
+  );
+  // Raw builtins — the `.get_args()/.cdr()/.len()` method sugar and `==`
+  // need the prelude. car(cdr(args((3 + 4)))) is `4` (.cdr drops the first
+  // arg) → 4; the control `car(args)` is `3`, not `4`.
+  src := String.from("pragma(Pragma.SkipPrelude);\nargs :: __yo_expr_get_args(quote((3 + 4)));\nv :: cond(__yo_expr_eq(__yo_comptime_list_car(__yo_comptime_list_cdr(args)), quote(4)) => cond(__yo_expr_eq(__yo_comptime_list_car(args), quote(4)) => 0, true => 4), true => 0);\nexport(v);\n");
+  eval := Evaluator.new(String.from("<phase6f3>"), String.from("<no-std>"), noop_loader, &src, exn);
+  assert(eval.get_module_error().is_none(), "module error");
+  match(
+    eval.get_module_value(),
+    .None => {
+      assert(false, "no module value");
+    },
+    .Some(mv) => match(
+      mv,
+      Rc(.StructVal(_, names, values)) => {
+        (mut(i) : usize) = usize(0);
+        n := names.len();
+        (mut(found) : Option(usize)) = .None;
+        while(i < n, {
+          match(
+            names.get(i),
+            .Some(nm) => cond(
+              (nm == "v") => {
+                found = .Some(i);
+              },
+              true => ()
+            ),
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+        match(
+          found,
+          .None => {
+            assert(false, "v not found");
+          },
+          .Some(idx) => match(
+            values.get(idx),
+            .None => {
+              assert(false, "v idx missing");
+            },
+            .Some(rv) => match(
+              rv,
+              Rc(.IntLit(s)) => assert(s == "4", "expected 4"),
+              _ => {
+                assert(false, "v not IntLit");
+              }
+            )
+          )
+        );
+      },
+      _ => {
+        assert(false, "not ModuleVal");
+      }
+    )
+  );
+});
+test("macro helpers: a gensym'd token shares its source token's input", {
+  // Synthesized tokens used to COPY the source token's `input` (the module's
+  // whole source text) with `String.clone`, which copies the bytes: every
+  // gensym, match-arm test block and numeric/pointer conversion atom kept a
+  // private copy. At `check src/main.yo` exit, 14,559 such buffers (216 MB)
+  // hung off `g_macro_expansions` alone
+  // (issues/fixed/synthetic-tokens-copy-their-source-text.md).
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected error");
+        unwind(());
+      }
+    )
+  );
+  source := Rc.new(String.from("gensym()\n// the rest of the module's source text\n"));
+  tok := Rc.new(
+    TokenData(
+      kind : TokenKind.Identifier,
+      value : Rc.new(String.from("gensym")),
+      row : u32(0),
+      column : u32(0),
+      character : u32(0),
+      module_path : Rc.new(String.from("gensym_share_test.yo")),
+      input : Rc.clone(source)
+    )
+  );
+  call := Rc.new(AstExprNode.FnCall(usize(900001), Rc.new(AstExprNode.Atom(usize(900002), Rc.clone(tok))), Rc.new(ArrayList(AstExpr).new()), false, Rc.clone(tok)));
+  env := new_environment(Rc.new(String.from("gensym_share_test.yo")));
+  mut(ctx) := eval_context_new(String.from(""), String.from("gensym_share_test.yo"));
+  _r := evaluate_gensym(&call, &env, &mut ctx, exn);
+  match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&call)),
+    .Some(info) => match(
+      info.value(),
+      .Some(v) => match(
+        v,
+        Rc(.ExprVal(atom)) => {
+          synth := ast_expr_token(&atom);
+          assert(synth.input.* == source.*, "the synthesized token carries the source text");
+          // `ptr()` is buffer identity; `to_bytes()` would compare two fresh copies.
+          assert(synth.input.*.ptr() == source.*.ptr(), "the synthesized token SHARES the source text instead of copying it");
+          assert(synth.module_path.*.ptr() == tok.module_path.*.ptr(), "the synthesized token shares the module path");
+          // `Token.input`/`module_path` are `Rc` cells: the synthesized
+          // token holds its origin token's cells, not fresh cells over the
+          // same buffer (a fresh cell would be a deep copy once `String` is a
+          // value).
+          synth_input := Rc.clone(synth.input);
+          tok_input := Rc.clone(tok.input);
+          synth_path := Rc.clone(synth.module_path);
+          tok_path := Rc.clone(tok.module_path);
+          assert(unsafe(__yo_ptr_eq(&synth_input, &tok_input)), "the synthesized token shares the source CELL");
+          assert(unsafe(__yo_ptr_eq(&synth_path, &tok_path)), "the synthesized token shares the module path CELL");
+        },
+        _ => assert(false, "gensym did not produce an ExprVal")
+      ),
+      .None => assert(false, "gensym recorded no value")
+    ),
+    .None => assert(false, "gensym recorded no ExprInfo")
+  );
+});

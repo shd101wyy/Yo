@@ -14,8 +14,8 @@
 //! (Phase 5). The state-machine branches are gated on `in_async_state_machine`
 //! being `.Some` — dead for the corpus.
 { String } :: import("std/string");
-{ type_implements_future } :: import("../../evaluator/trait_checking.yo");
-{ ArrayList } :: import("std/collections/array_list");
+{ type_implements_future } :: import("../../evaluator/trait-checking.yo");
+{ ArrayList } :: import("std/collections/array-list");
 { AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_to_string, BK_COLON, BK_COMPTIME, BF_DOT, BF_YO_ARRAY_INDEX, ast_rewritten_node } :: import("../../expr.yo");
 { Environment } :: import("../../env.yo");
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
@@ -23,17 +23,17 @@
 { is_array_type, is_unit_type } :: import("../../types/guards.yo");
 { type_contains_rc_cell_or_move_only, type_is_sized } :: import("../../types/utils.yo");
 { FunctionGenerationContext, sm_owns_fnonce_captures } :: import("../functions/context.yo");
-{ CapturedVariable } :: import("../../evaluator/async/await_analysis_types.yo");
-{ _call_generate_expr } :: import("./_expr.yo");
+{ CapturedVariable } :: import("../../evaluator/async/await-analysis-types.yo");
+{ _call_generate_expr } :: import("./dispatch.yo");
 // §C dup-on-store: a field/index/deref store of a borrowed RC value must dup it
 // (the slot takes a new owned ref) so the value survives the source's scope-end
 // drop. The eval marks the RHS via set_expr_as_needs_to_call_dup (assignment.yo
 // eval :388); this emits it.
-{ emit_deferred_dup_or_code } :: import("./drop_dup.yo");
-{ sm_local_field_name, sm_move_flag_of } :: import("../async/state_machine_naming.yo");
+{ emit_deferred_dup_or_code } :: import("./drop-dup.yo");
+{ sm_local_field_name, sm_move_flag_of } :: import("../async/state-machine-naming.yo");
 { declare_c_var_name, get_type_string, get_variable_type_string, sanitize_for_c_identifier, is_function_value_with_only_builtin_yo_inline_function_call } :: import("../utils/index.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
-{ expr_info_is_compile_time_only_assignment, expr_info_index_method_value, scope_variables, lookup_immediate_old_value_drop, expr_info_converted_runtime_type } :: import("../../expr_info.yo");
+{ expr_info_is_compile_time_only_assignment, expr_info_index_method_value, scope_variables, lookup_immediate_old_value_drop, expr_info_converted_runtime_type } :: import("../../expr-info.yo");
 /// The last binding for `name` (in node `key`'s recorded scope `env`) is a
 /// module-level global.
 _last_is_module_level :: (fn(key : ExprId, env : &Environment, name : &String) -> bool)({
@@ -457,7 +457,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
       line.push_str(" = ");
       // An `Impl(Future(T, E))` place is the type-erased future interface:
       // a concrete future stored into it is upcast, as at a constructor
-      // (`_future_field_upcast`, other_fn_call.yo).
+      // (`_future_field_upcast`, other-fn-call.yo).
       is_future_iface := (type_implements_future(&lhs_type) && c_type_string.ends_with("*"));
       line.push_string(if(is_future_iface, `((${c_type_string})(${rhs_code}))`, rhs_code));
       line.push_str(";");

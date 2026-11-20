@@ -42,7 +42,7 @@ Yo 不检查的是分配器自身的生命周期：它的上下文和 vtable 必
 
 ```yo
 { println } :: import("std/fmt");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 
 Point :: struct(x : i32, y : i32);
 
@@ -85,7 +85,7 @@ c := Arc.new(i32(3), alloc : .Some(a));
 例如 `a.alloc(n, align)`，仍然需要该 pragma：
 
 ```yo
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 
 Node :: struct(name : i32, kids : ArrayList(i32));
 make_node :: (fn(name : i32, (alloc : Option(Allocator)) ?= .None) -> Rc(Node))(
@@ -122,7 +122,7 @@ make_node :: (fn(name : i32, (alloc : Option(Allocator)) ?= .None) -> Rc(Node))(
 | `String`        |                                                  | `clone_in(a)`  |
 
 ```yo
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 
 main :: (fn() -> unit)({
   a := Allocator.global(); // 任意 `Allocator` 值

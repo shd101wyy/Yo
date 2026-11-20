@@ -12,11 +12,11 @@
 { replace } :: import("std/mem");
 { String } :: import("std/string");
 { RefCell } :: import("std/sync/refcell");
-{ function_reaches_non_send_global, d1_reach_memo, d1_note_thread_reach } :: import("../effects/mutation_summary.yo");
-{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
+{ function_reaches_non_send_global, d1_reach_memo, d1_note_thread_reach } :: import("../effects/mutation-summary.yo");
+{ is_implicitly_unsafe_capable_file } :: import("../memory-safety.yo");
 { eprintln } :: import("std/fmt");
-{ ArrayList } :: import("std/collections/array_list");
-{ HashMap } :: import("std/collections/hash_map");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashMap } :: import("std/collections/hash-map");
 {
   AstExpr,
   AstExprNode,
@@ -39,12 +39,12 @@
 } :: import("../../env.yo");
 { TypeValue, TypeValueNode, shared_list, no_types, slot_pointee_at, t_slot_pointee, t_slot_is_borrow, t_slot_is_mut_ref } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
-{ get_trait_type_from_env } :: import("../../types/env_lookup.yo");
-{ type_key } :: import("../../types/type_key.yo");
+{ get_trait_type_from_env } :: import("../../types/env-lookup.yo");
+{ type_key } :: import("../../types/type-key.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_fn_trait_type, is_some_type, is_function_type } :: import("../../types/guards.yo");
 { format_error_message } :: import("../../error.yo");
-{ type_implements_trait_bool, extract_fn_trait_from_type } :: import("../trait_checking.yo");
+{ type_implements_trait_bool, extract_fn_trait_from_type } :: import("../trait-checking.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 {
   some_resolution,
@@ -58,8 +58,8 @@
   record_macro_expansion,
   expr_info_index_trait_ptr_type,
   expr_info_index_method_type
-} :: import("../../expr_info.yo");
-{ get_closure_capture_info, get_func_type } :: import("../../function_value.yo");
+} :: import("../../expr-info.yo");
+{ get_closure_capture_info, get_func_type } :: import("../../function-value.yo");
 // Deterministic capture-struct ids: keyed by the closure's source position +
 // capture field signature, so the SAME closure (re-evaluated across the eval and
 // codegen passes) gets the SAME capture-struct id. A fresh `random_id` per call
@@ -164,7 +164,7 @@ build_path_collection_from_captured_variables :: (
 // ---------------------------------------------------------------------------
 /// Raise a capture-trait violation so it SURVIVES the def-time trial wall. A
 /// closure body is usually created inside a def-time TRIAL evaluation, which
-/// swallows thrown errors (anonymous_function.yo's def-eval wall); a `Send`
+/// swallows thrown errors (anonymous-function.yo's def-eval wall); a `Send`
 /// violation is a deliberate rejection, so it takes the wall's re-raise
 /// channel — flag a flow violation first, then throw — the same shape as the
 /// callable-argument and C19 checks in calls/helper.yo.
@@ -224,7 +224,7 @@ _capture_judgement_type :: (fn(ty : &TypeValue, value : &Option(EvalValue)) -> O
 ///
 /// Deliberately narrow: only a trait the declared wrapper itself lists. A
 /// capture whose declared type carries NO such bound is judged exactly as
-/// before, which is what keeps `tests/thread_safety.test.yo`'s
+/// before, which is what keeps `tests/thread-safety.test.yo`'s
 /// `_spawn_with_closure_over_ref` negative firing — `worker` there is declared
 /// `Impl(Fn() -> unit)`, with no `Send`, so nothing here applies to it.
 _declared_bound_requires :: (fn(ty : &TypeValue, trait_type : &TypeValue) -> bool)(
@@ -1198,7 +1198,7 @@ create_capture_type_and_value :: (
         // capture struct). One shared struct froze the FIRST era's field
         // types, so the resolved-era spec initialized a void* field with a
         // concrete struct value (clang error; the forwarded-closure family,
-        // tests/closure_param_forwarding.test.yo arm 2). Append the resolved
+        // tests/closure-param-forwarding.test.yo arm 2). Append the resolved
         // identity so the two eras mint DISTINCT capture structs.
         match(
           field_types.get_cloned(csi),
@@ -1572,7 +1572,7 @@ _clone_address_is_pure :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
   )
 );
 /// `e` was dispatched as an element read through an `Index` method
-/// (mirrors `_is_index_call`, evaluator/calls/index_trait.yo, spelled here
+/// (mirrors `_is_index_call`, evaluator/calls/index-trait.yo, spelled here
 /// to keep utils/ from importing calls/: the two ExprInfo markers it reads
 /// say the same thing).
 _is_index_read_place :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(

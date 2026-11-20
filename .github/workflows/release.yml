@@ -425,7 +425,7 @@ jobs:
           files: vscode-extension/*.vsix
 
       # Yo-native as of P2.5 B7 (user decision 2026-08-18): the site builder
-      # is scripts/build_site.yo, compiled and run by the SEED compiler — no
+      # is scripts/build-site.yo, compiled and run by the SEED compiler — no
       # bun/node in this step. Verified byte-identical to the TS original
       # (160 files, homepage md5 equal) before the swap.
       # The seed is a dynamically linked Linux binary and the async runtime
@@ -440,7 +440,7 @@ jobs:
         with:
           # Back on env.SEED_VERSION as of the v0.2.16 seed. Pinned to
           # v0.2.14 while v0.2.15 was the seed (its memory regression OOM'd
-          # the hosted runner compiling scripts/build_site.yo — v0.2.16's
+          # the hosted runner compiling scripts/build-site.yo — v0.2.16's
           # first attempt died exactly here, run 32567883597).
           version: ${{ env.SEED_VERSION }}
 
@@ -453,11 +453,11 @@ jobs:
         run: |
           # YO_STD: the SEED's BUNDLED std predates the tree's API (the D2/S2
           # renames — `insert`, `read_to_string` — landed 2026-08-25); the
-          # markdown-yo and build_site.yo speak the TREE std, so both
+          # markdown-yo and build-site.yo speak the TREE std, so both
           # the site-builder compile and the `yo doc` runs the site binary
           # spawns must resolve std from the checkout, exactly like the
           # `yo build` bootstrap does.
-          yo compile scripts/build_site.yo --optimize 2 -o /tmp/build-site
+          yo compile scripts/build-site.yo --optimize 2 -o /tmp/build-site
           /tmp/build-site --output yo-out/site --version "v${{ steps.version.outputs.version }}" --yo yo
 
       # Uploaded here, DEPLOYED by the deploy-site job at the bottom of this

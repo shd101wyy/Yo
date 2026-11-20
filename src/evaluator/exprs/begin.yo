@@ -5,9 +5,9 @@
 //!   collect_dup_calls_conservatively, evaluate_begin_expression
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
-{ is_fnonce_closure_fn } :: import("../../function_value.yo");
-{ ArrayList } :: import("std/collections/array_list");
-{ HashMap } :: import("std/collections/hash_map");
+{ is_fnonce_closure_fn } :: import("../../function-value.yo");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashMap } :: import("std/collections/hash-map");
 {
   AstExpr,
   ast_expr_token,
@@ -75,8 +75,8 @@ pragma(Pragma.AllowUnsafe);
   lookup_method_callee_type,
   expr_info_set_origin,
   OriginRootPlace
-} :: import("../../expr_info.yo");
-{ scope_release_active, scope_release_depth, scope_release_set_depth, scope_release_mark, scope_release_body, is_call_once_capture_dup, is_moved_container_dup, mark_fnonce_capture_drop, record_immediate_old_value_drop, is_by_value_param_share_dup, is_call_scoped_share_dup, note_arg_move_region, ast_comparable_token_bounds } :: import("../../expr_info.yo");
+} :: import("../../expr-info.yo");
+{ scope_release_active, scope_release_depth, scope_release_set_depth, scope_release_mark, scope_release_body, is_call_once_capture_dup, is_moved_container_dup, mark_fnonce_capture_drop, record_immediate_old_value_drop, is_by_value_param_share_dup, is_call_scoped_share_dup, note_arg_move_region, ast_comparable_token_bounds } :: import("../../expr-info.yo");
 { Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_is_inout_borrow_root, variable_keep_alias_dups, variable_mark_keep_alias_dups, variable_moved_at_cleanup_point, variable_undone_moves, snapshot_env, is_fnonce_capture_frame, env_adopt, variable_value_type } :: import("../../env.yo");
 {
   EvalContext,
@@ -87,9 +87,9 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue, TypeValueNode, t_refine_inner, t_slot_is_mut_ref, fn_param_by_value_flags, t_slot_pointee, t_slot_is_borrow } :: import("../../types/definitions.yo");
 { t_unit, t_ptr } :: import("../../types/creators.yo");
 { is_some_type, is_reference_struct_type, cell_handle_view, is_struct_type } :: import("../../types/guards.yo");
-{ HashSet } :: import("std/collections/hash_set");
-{ is_io_async_call, is_io_await_call } :: import("../async/await_analysis.yo");
-{ expr_tree_contains_return } :: import("../../expr_traversal.yo");
+{ HashSet } :: import("std/collections/hash-set");
+{ is_io_async_call, is_io_await_call } :: import("../async/await-analysis.yo");
+{ expr_tree_contains_return } :: import("../../expr-traversal.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { synthesize_types, TypePair, SynthesizeOptions } :: import("../types/synthesizer.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -100,10 +100,10 @@ pragma(Pragma.AllowUnsafe);
 { is_temp_variable_name, is_any_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
 { generate_expr_from_code } :: import("../../parser.yo");
-{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
+{ is_implicitly_unsafe_capable_file } :: import("../memory-safety.yo");
 { format_error_message, format_error_message_with_help, format_error_messages, TokenAndError, with_code } :: import("../../error.yo");
 { Severity, Diagnostic, Span, warnings_enabled, emit_warning, E_DISCARDED_MUST_USE } :: import("../../diagnostics.yo");
-{ extract_future_trait_from_type } :: import("../trait_checking.yo");
+{ extract_future_trait_from_type } :: import("../trait-checking.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
 {
   attach_temp_variable_to_expr,
@@ -288,7 +288,7 @@ _search_dup_calls :: (fn(expr : &AstExpr, res : &mut DupCallsResult, ctx : &Eval
   // Skip a CLOSURE DEFINITION's captures for the same reason, and this is the
   // general case the io.async guard above is one instance of. A closure
   // definition's `deferred_dup_expressions` are its capture-struct FIELD
-  // INITIALIZERS (evaluator/values/anonymous_function.yo, via
+  // INITIALIZERS (evaluator/values/anonymous-function.yo, via
   // generate_captured_variable_dup_expressions) — not stores into a container
   // that shares this scope's lifetime. The capture struct is moved into the
   // closure value and released by whatever owns that value: a spawn wrapper,
@@ -357,7 +357,7 @@ _search_dup_calls :: (fn(expr : &AstExpr, res : &mut DupCallsResult, ctx : &Eval
   // pair candidate: the callee frees it at its return, before the caller's
   // later reads (`_mark_by_value_param_shares`, calls/helper.yo). Nor is an
   // aliased argument's caller-owned +1, which its own post-call drop
-  // balances (`mark_call_scoped_share_dup`, expr_info.yo).
+  // balances (`mark_call_scoped_share_dup`, expr-info.yo).
   if(is_by_value_param_share_dup(ast_expr_id(expr)) || is_call_scoped_share_dup(ast_expr_id(expr)), {
     return(());
   });
@@ -900,7 +900,7 @@ _m3_first_arg_after_move :: (fn(call : &AstExpr, args : &ArrayList(AstExpr), var
 });
 /// Record, for codegen's exit gate, the span of the arguments that run
 /// after a by-value operand of a plain call moved `variable` and before the
-/// call itself (`ArgMoveRegion`, expr_info.yo): an effect escape there still
+/// call itself (`ArgMoveRegion`, expr-info.yo): an effect escape there still
 /// owns the value. The walk visits what the M3 walks visit: no function
 /// boundary, a macro call through its expansion, and the operands of plain
 /// calls only (a block's statements, a `cond`/`match` and a loop are not
@@ -1298,7 +1298,7 @@ _m3_attach_to_loop_exits :: (fn(expr : &AstExpr, variable : &Variable, drop_expr
   )
 });
 /// Macro-aware `expr_tree_contains_return` for the optimizer's earliest-return
-/// detection. The expr_traversal.yo baseline cannot check
+/// detection. The expr-traversal.yo baseline cannot check
 /// `macro_expansion` (no ctx). An `if(cond, { ... return(...) })` statement hides its return in the
 /// recorded expansion — missing it left `earliest_ret` unset, the
 /// return-before-dup guard never fired, and a later child's dup+drop pair was
@@ -2445,7 +2445,7 @@ _evaluating_fnonce_closure_body :: (fn(ctx : &EvalContext) -> bool)(
 /// Is `v` an owning local this scope must drop at its end? The gates
 /// `_schedule_scope_end_drops` applies, factored out so the module walk can
 /// reuse them verbatim (`_attach_module_init_temp_drops`,
-/// evaluator/values/anonymous_module.yo).
+/// evaluator/values/anonymous-module.yo).
 /// Any owning local
 /// whose type CONTAINS an RC-managed type needs a scope-end drop —
 /// including value-structs with RC fields (e.g. MapEntry(K, V) locals in
@@ -2674,7 +2674,7 @@ _enclosing_fn_result_type :: (fn(ctx : &EvalContext) -> Option(TypeValue))(
 /// (tail-expression) form already takes
 /// (issues/fixed/io-async-variant-inference-passes-check-but-fails-compile.md).
 /// A SomeT output (a generic fn's own parameter) must NOT flow: the
-/// SomeT-clearing rule in values/anonymous_function.yo exists because a
+/// SomeT-clearing rule in values/anonymous-function.yo exists because a
 /// SomeT expected type coerces operator-bodied closure results.
 _variant_local_hint :: (
   fn(
@@ -3231,7 +3231,7 @@ _evaluate_begin_expression_impl :: (
           // the same concrete type. The first return's concrete type is
           // recorded in `ctx.function_return_impl_concrete_type` (seeded FRESH per
           // body/specialization eval by create_function_body_evaluation_context
-          // and the helper.yo / comptime_fn.yo save-restore sites); each later
+          // and the helper.yo / comptime-fn.yo save-restore sites); each later
           // return must be compatible with it.
           (ir_declared_impl : bool) = match(
             &ctx.is_evaluating_function_body_or_async_block,
@@ -3418,7 +3418,7 @@ _evaluate_begin_expression_impl :: (
         // block. The with-arg path below fed a make_err_expr() into
         // evaluation here, so `unwind();` never stamped and codegen emitted
         // "// Failed to transpile unwind();" — the handler then fell
-        // through instead of exiting (tests/algebraic_effects.test.yo
+        // through instead of exiting (tests/algebraic-effects.test.yo
         // "Test zero-arg unwind exits unit function", the file's one
         // genuinely failing test).
         if(esc_n_args == usize(0), {
@@ -4036,7 +4036,7 @@ _evaluate_begin_expression_impl :: (
   // an own param that the body moved into a local was never released —
   // ref_count() stayed +1 (the arm of
   // issues/fixed/own-param-discard-leak.md, caught by
-  // tests/ref_field_borrow.test.yo under the self-hosted runner).
+  // tests/ref-field-borrow.test.yo under the self-hosted runner).
   if(is_evaluating_function_body_begin_block && (env.frames_len() >= usize(2)), {
     match(
       env.frame_at(env.frames_len() - usize(2)),

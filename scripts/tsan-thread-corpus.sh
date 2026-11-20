@@ -23,12 +23,12 @@ mkdir -p "$OUT"
 # went with the atomic-object form, so every later run of it was HOLLOW.
 FILES=(
   tests/thread.test.yo
-  tests/thread_pool.test.yo
+  tests/thread-pool.test.yo
   tests/arc.test.yo
-  tests/send_sync.test.yo
-  tests/cross_thread_wake.test.yo
-  tests/spawn_blocking.test.yo
-  tests/parallelism_soundness.test.yo
+  tests/send-sync.test.yo
+  tests/cross-thread-wake.test.yo
+  tests/spawn-blocking.test.yo
+  tests/parallelism-soundness.test.yo
   tests/encoding/html.test.yo
 )
 known() { grep -v '^#' "$KNOWN" 2>/dev/null | awk -F'\t' -v f="$1" '$1==f{print "yes"; exit}'; }

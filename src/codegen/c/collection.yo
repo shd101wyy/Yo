@@ -5,12 +5,12 @@
 //! (CodegenTypeEntry / CodegenExternFnEntry, supplied at registration) and
 //! read from there here.
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 { CodeGenContext } :: import("../utils/index.yo");
 { Emitter } :: import("../../emitter.yo");
 { is_target_windows, is_target_macos } :: import("../../target.yo");
-{ emit_fixed_allocator_defines, emit_fixed_allocator_impl } :: import("./allocator_fixed.yo");
-{ emit_debug_allocator_defines, emit_debug_allocator_impl } :: import("./allocator_debug.yo");
+{ emit_fixed_allocator_defines, emit_fixed_allocator_impl } :: import("./allocator-fixed.yo");
+{ emit_debug_allocator_defines, emit_debug_allocator_impl } :: import("./allocator-debug.yo");
 /// Collect C include headers from the collected types and extern functions.
 collect_c_includes :: (fn(context : &mut CodeGenContext) -> unit)({
   // Collect C includes from all collected types, then from all extern
@@ -51,7 +51,7 @@ collect_c_includes :: (fn(context : &mut CodeGenContext) -> unit)({
 /// Hoisting it here also removes the duplicate the old trailing block left.
 ///
 /// Pure and list-in/list-out so the order is unit-testable without a
-/// `CodeGenContext` (`tests/internal/c_include_order.test.yo`); non-Windows
+/// `CodeGenContext` (`tests/internal/c-include-order.test.yo`); non-Windows
 /// output is unchanged from the pre-hoist emission, element for element.
 ordered_c_includes :: (
   fn(registered : &ArrayList(String), is_windows : bool, is_macos : bool) -> ArrayList(String)
@@ -101,7 +101,7 @@ ordered_c_includes :: (
 /// missing vendor/mimalloc (maintainer decision 2026-10-24,
 /// issues/retired/explicit-allocator-mimalloc-falls-back-to-malloc-when-vendor-is-missing.md).
 /// A compiler without __has_include fails at the #include instead. Pinned by
-/// tests/internal/c_include_order.test.yo.
+/// tests/internal/c-include-order.test.yo.
 emit_mimalloc_allocator_defines :: (fn(emitter : &mut Emitter) -> unit)({
   emitter.emit_header_line("// mimalloc allocator (--allocator mimalloc): compile with -I<vendor>/mimalloc/include and link <vendor>/mimalloc/src/static.c");
   emitter.emit_header_line("#ifdef __has_include");
@@ -184,12 +184,12 @@ _Noreturn static inline void __yo_abort(void) {
     (context.allocator == "fixed") => {
       // The TLSF fixed-region arm: defines + external prototypes in the
       // header, the implementation defined once in the code section (see
-      // allocator_fixed.yo for the chunked-emission reasoning).
+      // allocator-fixed.yo for the chunked-emission reasoning).
       emit_fixed_allocator_defines(&mut context.emitter);
       emit_fixed_allocator_impl(context);
     },
     (context.allocator == "debug") => {
-      // The tracking arm (allocator_debug.yo): the same header/code split.
+      // The tracking arm (allocator-debug.yo): the same header/code split.
       emit_debug_allocator_defines(&mut context.emitter);
       emit_debug_allocator_impl(context);
     },

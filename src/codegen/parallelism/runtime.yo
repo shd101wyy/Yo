@@ -9,7 +9,7 @@
 //!
 //! NOTE: the C body is emitted as many `emit_string_line` calls (each a pure
 //! literal or a single conditional value, 0 interpolations per call),
-//! mirroring `async/runtime_core.yo`. A single ~380-line template with 16
+//! mirroring `async/runtime-core.yo`. A single ~380-line template with 16
 //! `${}` interpolations desugars to a deep string-concat AST that the
 //! compiler processes pathologically slowly; the sibling async-runtime files
 //! use the same split-emit idiom for the same reason.
@@ -20,7 +20,7 @@ generate_parallelism_runtime :: (
   fn(emitter : &mut Emitter, debug_parallelism : bool, target_info : &TargetInfo, uses_async : bool, debug_alloc : bool) -> unit
 )({
   debug_parallelism;
-  // `--allocator debug` (src/codegen/c/allocator_debug.yo): the worker array
+  // `--allocator debug` (src/codegen/c/allocator-debug.yo): the worker array
   // lives as long as the process (the atexit shutdown frees nothing, a worker
   // may still be running against it), so it is a root of the exit report's
   // reachability scan rather than a leak.
@@ -442,7 +442,7 @@ static void __yo_worker_pool_shutdown(void) {
 }
 
 // __yo_get_hardware_threads / __yo_get_cpu_id are emitted by the sys runtime
-// (always present) — see runtime_io_common.yo.
+// (always present) — see runtime-io-common.yo.
 
 // Set the number of worker threads (must be called before first spawn)
 static void __yo_worker_set_num_threads(size_t num) {`

@@ -1,0 +1,506 @@
+//! evaluator/calls/numeric-type — numeric-type conversion helpers.
+//!
+//! Exports:
+//!   `get_numeric_bounds`             — returns the [min, max] range for an integer type.
+//!   `is_convertible_numeric_type`    — checks whether a type supports `type(value)` cast syntax.
+//!   `try_to_convert_to_numeric_type` — attempts to cast an argument to a numeric type.
+pragma(Pragma.AllowUnsafe);
+{ replace } :: import("std/mem");
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{
+  AstExpr,
+  AstExprNode,
+  ExprId,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_to_string,
+  make_err_expr,
+  alloc_global_expr_id,
+  BF_YO_AS
+} :: import("../../expr.yo");
+{
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_get,
+  expr_info_table_set,
+  record_macro_expansion,
+  expr_info_adopt_env,
+  expr_info_set_macro_expansion
+} :: import("../../expr-info.yo");
+{ Environment, snapshot_env } :: import("../../env.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ is_float_type, is_numeric_type, is_some_type, is_unit_type, is_bool_type } :: import("../../types/guards.yo");
+{
+  is_comptime_int_type,
+  is_comptime_float_type,
+  is_c_compatible_type,
+  is_enum_type
+} :: import("../../types/guards.yo");
+{ IntRange, get_integer_type_range } :: import("../../types/utils.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ EvalContext, ExpectedTypeCtx } :: import("../context.yo");
+{
+  EvalValue,
+  EvalValueNode,
+  create_unknown_val,
+  is_int_lit,
+  is_float_lit,
+  is_enum_val
+} :: import("../../value.yo");
+{ check_comptime_int_value_fits } :: import("../values/integer.yo");
+{ parse_raw_float } :: import("../utils.yo");
+{ evaluate_expression_guarded } :: import("../exprs/expr.yo");
+{ format_error_message, format_eval_failure } :: import("../../error.yo");
+{ Token, TokenKind, intern_token_str, TokenData } :: import("../../token.yo");
+{ Exception } :: import("std/error");
+/// Return the numeric bounds `[min, max]` for `type_val`, or `.None` if the type
+/// has no fixed bounds (floats, ComptimeInt, non-numeric types).
+///
+///
+/// Note: returns `.None` for `ComptimeInt` (unbounded) — callers skip bounds checking.
+get_numeric_bounds :: (fn(type_val : &TypeValue) -> Option(IntRange))(
+  get_integer_type_range(type_val)
+);
+/// Return `true` if `type_val` supports the `type(value)` numeric-cast syntax.
+///
+///
+/// Covers: all integer types (Int, Usize, Isize, ComptimeInt), Float, ComptimeFloat,
+/// and all C-compatible types.
+is_convertible_numeric_type :: (fn(type_val : &TypeValue) -> bool)(
+  cond(
+    is_numeric_type(type_val) => true,
+    is_c_compatible_type(type_val) => true,
+    // An extern-C OPAQUE type (`extern("c", pid_t : Type)`, an
+    // `ExternOpaqueT`) is an integer alias at the C ABI
+    // and converts via `__yo_as` like any C int. Without this,
+    // `i32(unsafe(getpid()))` took the non-numeric soft fallback (UnknownVal,
+    // no __yo_as rewrite) and codegen FTT'd the call — the sys/signal red
+    // (issues/fixed/yo-self-sys-signal-i32-extern-cast-ftt.md).
+    match(type_val, Rc(.ExternOpaqueT(_, _)) => true, _ => false) => true,
+    true => false
+  )
+);
+/// Extract the discriminant of an `EnumVal` from its parent `EnumT` type.
+/// `variant` is stored as `".Some"` (with leading dot);
+/// `variant_names` in `EnumT` stores `"Some"` (without leading dot).
+/// Strips the leading dot before comparison.
+///
+///
+_get_enum_discriminant :: (
+  fn(
+    variant : &String,
+    variant_names : &ArrayList(String),
+    discs : &ArrayList(i64)
+  ) -> Option(i64)
+)({
+  // Strip leading '.' from variant name (e.g. ".Some" → "Some")
+  stripped := cond(
+    variant.starts_with(`.`) => variant.substring(usize(1), variant.len()),
+    true => variant.clone()
+  );
+  n := variant_names.len();
+  (mut(i) : usize) = usize(0);
+  (mut(result) : Option(i64)) = Option(i64).None;
+  while((i < n) && result.is_none(), {
+    match(
+      variant_names.get_cloned(i),
+      .Some(name) => {
+        if(name == stripped, {
+          match(
+            discs.get(i),
+            .Some(d) => {
+              result = .Some(d);
+            },
+            .None => ()
+          );
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  result
+});
+/// Create an `ExprInfo` with a comptime numeric value of the target type from a raw string.
+/// `raw` is the decimal representation of the integer/float.
+///
+_make_comptime_info :: (
+  fn(
+    raw : &String,
+    target_type : &TypeValue,
+    env : &Environment,
+    expr_tok : &Token,
+    exn : Exception
+  ) -> ExprInfo
+)({
+  // No range gate here: a `comptime_int` source is range-checked by the
+  // caller (check_comptime_int_value_fits, values/integer.yo), and a TYPED
+  // integer source converts with the documented truncating semantics.
+  out := new_expr_info(env, target_type);
+  val := cond(
+    is_comptime_float_type(target_type) => Rc.new(EvalValueNode.FloatLit(raw.clone())),
+    is_float_type(target_type) => Rc.new(EvalValueNode.FloatLit(raw.clone())),
+    true => Rc.new(EvalValueNode.IntLit(raw.clone()))
+  );
+  out.set_value(.Some(val));
+  out
+});
+/// The integer a comptime float `raw` converts to in `target_type`: truncated
+/// toward zero. A value the C conversion cannot represent — NaN, an infinity,
+/// or outside the target's range, all undefined behaviour in C — is an error
+/// (the range check is `check_comptime_int_value_fits`'s E1102).
+_float_raw_to_int_raw :: (fn(raw : &String, target_type : &TypeValue, tok : &Token, exn : Exception) -> String)({
+  v := match(
+    parse_raw_float(raw.clone()),
+    .Some(x) => x,
+    .None => {
+      exn.throw(dyn(Box.new(format_error_message(tok, `Cannot read the float value ${raw} to convert it to ${type_to_string(target_type)}`))));
+      return(String.from("0"));
+    }
+  );
+  // NaN compares unequal to itself; an infinity is beyond every bound below.
+  if(!(v == v) || (v >= f64(18446744073709551616.0)) || (v <= f64(-9223372036854775809.0)), {
+    exn.throw(dyn(Box.new(format_error_message(tok, `The value ${raw} is outside the range of ${type_to_string(target_type)}: converting it is undefined`))));
+    return(String.from("0"));
+  });
+  truncated := cond(
+    (v >= f64(9223372036854775808.0)) => u64(v).to_string(),
+    true => i64(v).to_string()
+  );
+  check_comptime_int_value_fits(truncated.clone(), target_type, tok, exn);
+  truncated
+});
+/// Build a synthetic `__yo_as(arg, TargetType)` FnCall node.
+/// Reuses the original expression's `ExprId` so ExprInfo lookups remain consistent.
+_make_yo_as_node :: (
+  fn(
+    orig_id : ExprId,
+    orig_tok : &Token,
+    evaluated : &AstExpr,
+    type_expr : &AstExpr
+  ) -> AstExpr
+)({
+  func_atom := Rc.new(
+    AstExprNode.Atom(
+      orig_id,
+      Rc.new(
+        TokenData(
+          kind : TokenKind.Identifier,
+          value : intern_token_str(String.from(BF_YO_AS)),
+          row : orig_tok.row,
+          column : orig_tok.column,
+          character : orig_tok.character,
+          byte_offset : orig_tok.byte_offset,
+          module_path : Rc.clone(orig_tok.module_path),
+          input : Rc.clone(orig_tok.input)
+        )
+      )
+    )
+  );
+  mut(args) := ArrayList(AstExpr).new();
+  args.push(Rc.clone(evaluated.*));
+  args.push(Rc.clone(type_expr.*));
+  Rc.new(AstExprNode.FnCall(orig_id, func_atom, Rc.new(args), false, Rc.clone(orig_tok.*)))
+});
+/// Attempt to cast `arg_expr` to `target_type` as a numeric conversion.
+/// Returns `.None` if `target_type` is not a convertible numeric type.
+/// Returns `.Some(result_expr)` on success.
+///
+///
+try_to_convert_to_numeric_type :: (
+  fn(
+    target_type : &TypeValue,
+    arg_expr : &AstExpr,
+    expr : &AstExpr,
+    caller_env : &Environment,
+    ctx : &mut EvalContext,
+    exn : Exception
+  ) -> Option(AstExpr)
+)({
+  if(!is_convertible_numeric_type(target_type), {
+    return(Option(AstExpr).None);
+  });
+  // Evaluate the argument with no expectedType (let it resolve its natural type).
+  saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
+  mut(evaluated_gout) := ArrayList(AstExpr).new();
+  evaluated_gerr := evaluate_expression_guarded(arg_expr, caller_env, ctx, &mut evaluated_gout);
+  ctx.expected_type = saved_expected;
+  match(evaluated_gerr, .Some(evaluated_ge) => exn.throw(evaluated_ge), .None => ());
+  evaluated := match(evaluated_gout.get_cloned(usize(0)), .Some(evaluated_g) => evaluated_g, .None => make_err_expr());
+  info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
+  if(info_opt.is_none(), {
+    exn.throw(
+      dyn(
+        Box.new(
+          format_eval_failure(
+            ast_expr_token(arg_expr),
+            `Failed to evaluate argument: ${ast_expr_to_string(arg_expr)}`
+          )
+        )
+      )
+    );
+  });
+  arg_info := match(info_opt, .Some(i) => Rc.clone(i), .None => new_expr_info(caller_env, target_type));
+  env := expr_info_adopt_env(&arg_info);
+  arg_val := arg_info.value();
+  arg_type := Rc.clone(arg_info.ty());
+  // -----------------------------------------------------------------------
+  // Case 0: Enum value → integer discriminant
+  // -----------------------------------------------------------------------
+  (mut(enum_disc_raw) : Option(String)) = Option(String).None;
+  if(is_enum_type(&arg_type), {
+    match(
+      arg_val.clone(),
+      .Some(v) => {
+        if(is_enum_val(&v), {
+          match(
+            v,
+            Rc(.EnumVal(variant, _)) => {
+              match(
+                &arg_type,
+                Rc(.EnumT(_, _, vnames, _, _, _, discs, _, _, _)) => {
+                  match(
+                    _get_enum_discriminant(&variant, &vnames.items, &discs.items),
+                    .Some(d) => {
+                      enum_disc_raw = .Some(d.to_string());
+                    },
+                    .None => {
+                      exn.throw(
+                        dyn(
+                          Box.new(
+                            format_error_message(
+                              ast_expr_token(arg_expr),
+                              `Failed to get discriminant for enum variant "${variant}"`
+                            )
+                          )
+                        )
+                      );
+                    }
+                  );
+                },
+                _ => ()
+              );
+            },
+            _ => ()
+          );
+        });
+      },
+      .None => ()
+    );
+    // Enum with known discriminant + comptime-capable target → direct comptime conversion
+    match(
+      &enum_disc_raw,
+      .Some(disc_raw) => {
+        if(is_numeric_type(target_type), {
+          out_info := _make_comptime_info(&disc_raw.*, target_type, &env, ast_expr_token(expr), exn);
+          expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
+          return(.Some(Rc.clone(expr.*)));
+        });
+      },
+      .None => ()
+    );
+  });
+  // -----------------------------------------------------------------------
+  // Validate source type — must be numeric, comptime-numeric, or enum
+  // -----------------------------------------------------------------------
+  // A `bool` value-initializes an extern-opaque C type (`atomic_bool(false)`
+  // is C's `(atomic_bool)false`) — the same rule `are_types_compatible`
+  // applies to a slot of that type, so the explicit conversion and the
+  // implicit one agree (issues/fixed/atomic-bool-conversion-rejects-a-bool.md).
+  // A NUMERIC target still rejects a `bool` (`usize(flag)` stays an error).
+  bool_to_opaque := (is_bool_type(&arg_type) && match(target_type, Rc(.ExternOpaqueT(_, _)) => true, _ => false));
+  if(!is_convertible_numeric_type(&arg_type) &&
+    !is_comptime_int_type(&arg_type) &&
+      !is_comptime_float_type(&arg_type) &&
+        !is_enum_type(&arg_type) &&
+          !bool_to_opaque, {
+    // A source the evaluator has not RESOLVED yet — the `t_unit()`
+    // placeholder an unresolved operator-trait call leaves behind, or a type
+    // variable still open in a definition-time trial — gets an `UnknownVal`
+    // of the target type so the enclosing definition can be typed; the
+    // specialization that resolves the source converts for real.
+    if(is_unit_type(&arg_type) || is_some_type(&arg_type), {
+      out_unk := new_expr_info(&env, target_type);
+      out_unk.set_value(Option(EvalValue).Some(create_unknown_val(target_type)));
+      expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_unk);
+      return(.Some(Rc.clone(expr.*)));
+    });
+    // A CONCRETE non-numeric source is an error HERE, not in codegen. This
+    // arm used to hand every non-numeric source the same UnknownVal, so
+    // `usize(some_string)`, `usize(flag)` and `usize(raw_pointer)` checked
+    // clean and became `// Failed to transpile` stubs that abort when reached
+    // (issues/fixed/numeric-conversion-of-a-non-numeric-source-checks-clean-and-emits-a-hollow-stub.md).
+    exn.throw(
+      dyn(
+        Box.new(
+          format_error_message(
+            ast_expr_token(arg_expr),
+            `Cannot convert a value of type ${type_to_string(&arg_type)} to ${type_to_string(target_type)}: \`${type_to_string(target_type)}(x)\` converts integers, floats, enum discriminants and C-compatible values only`
+          )
+        )
+      )
+    );
+    return(.None);
+  });
+  // -----------------------------------------------------------------------
+  // Extract comptime raw string value (IntLit or FloatLit), or from enum disc.
+  // -----------------------------------------------------------------------
+  (comptime_raw : Option(String)) = match(
+    &enum_disc_raw,
+    .Some(r) => .Some(r.clone()),
+    .None => match(
+      arg_val.clone(),
+      .Some(v) => cond(
+        is_int_lit(&v) => match(v, Rc(.IntLit(r)) => Option(String).Some(r.clone()), _ => .None),
+        is_float_lit(&v) => match(v, Rc(.FloatLit(r)) => Option(String).Some(r.clone()), _ => .None),
+        true => Option(String).None
+      ),
+      .None => Option(String).None
+    )
+  );
+  // -----------------------------------------------------------------------
+  // Case 1: Compile-time value → comptime-capable target type
+  // -----------------------------------------------------------------------
+  match(
+    &comptime_raw,
+    .Some(raw) => {
+      if(is_numeric_type(target_type), {
+        // `T(comptime_int)` is a checked conversion: `u8(300)` is an E1102
+        // range error, not the constant 44. A conversion from a TYPED
+        // integer (`u32(i32(-1))`) keeps the documented truncating cast
+        // semantics, at compile time as at run time (docs DESIGN.md,
+        // "Arithmetic and Failure Semantics")
+        // (issues/fixed/context-typed-integer-literal-is-not-range-checked.md).
+        if(is_comptime_int_type(&arg_type), {
+          check_comptime_int_value_fits(raw.clone(), target_type, ast_expr_token(arg_expr), exn);
+        });
+        // A comptime FLOAT to an integer type truncates toward zero, as the
+        // runtime C cast does. Its raw text used to become the integer's
+        // (`i32(f32(100.5))` held `IntLit("100.5")`), a value no comparison
+        // could read, so `comptime_assert(i32(a) == i32(100))` passed
+        // vacuously as `<unknown>`.
+        int_raw := cond(
+          (!is_float_type(target_type) && !is_comptime_float_type(target_type) && match(arg_val, .Some(av) => is_float_lit(&av), .None => false)) =>
+            _float_raw_to_int_raw(raw.clone(), target_type, ast_expr_token(arg_expr), exn),
+          true => raw.clone()
+        );
+        out_info := _make_comptime_info(&int_raw, target_type, &env, ast_expr_token(expr), exn);
+        expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
+        return(.Some(Rc.clone(expr.*)));
+      });
+    },
+    .None => ()
+  );
+  // -----------------------------------------------------------------------
+  // Case 2: Converting TO comptime_int or comptime_float requires comptime source
+  // -----------------------------------------------------------------------
+  if(is_comptime_int_type(target_type) || is_comptime_float_type(target_type), {
+    if(comptime_raw.is_none(), {
+      exn.throw(
+        dyn(
+          Box.new(
+            format_error_message(
+              ast_expr_token(arg_expr),
+              `Cannot convert runtime value to ${type_to_string(target_type)}. Only compile-time values can be converted to ${type_to_string(target_type)}.`
+            )
+          )
+        )
+      );
+    });
+    // comptime_raw is Some here — already handled in Case 1 (unreachable)
+  });
+  // -----------------------------------------------------------------------
+  // Case 2.5: Arg type is comptime (checking phase — no value yet) and target
+  //           supports comptime → produce UnknownVal with target type.
+  // -----------------------------------------------------------------------
+  if((is_comptime_int_type(&arg_type) || is_comptime_float_type(&arg_type)) &&
+    is_numeric_type(target_type), {
+    match(
+      &comptime_raw,
+      .Some(raw) => {
+        // Already covered by Case 1, but handle here for completeness.
+        out_info := _make_comptime_info(&raw.*, target_type, &env, ast_expr_token(expr), exn);
+        expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
+        return(.Some(Rc.clone(expr.*)));
+      },
+      .None => {
+        out_info := new_expr_info(&env, target_type);
+        out_info.set_value(.Some(create_unknown_val(target_type)));
+        expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
+        return(.Some(Rc.clone(expr.*)));
+      }
+    );
+  });
+  // -----------------------------------------------------------------------
+  // Case 3: Runtime conversion → __yo_as(arg, TargetType) call
+  // -----------------------------------------------------------------------
+  if(is_c_compatible_type(target_type) || comptime_raw.is_none(), {
+    type_expr := match(
+      expr,
+      Rc(.FnCall(_, func_box, _, _, _)) => Rc.clone(func_box.*),
+      Rc(.Atom(_, _)) => make_err_expr()
+    );
+    // Lower the runtime cast to a `__yo_as` node, then attach it to the ORIGINAL
+    // expr's ExprInfo as a `macro_expansion`. Codegen walks the original parsed
+    // node (which keeps its `i32(...)` structure — codegen does NOT see returned
+    // rewrites), so the lowering must travel via the ExprInfo the original node's
+    // id maps to — the enum node cannot be mutated in place, so the existing
+    // macro_expansion mechanism carries it (codegen generation.yo checks it
+    // before the
+    // structural dispatch). The `__yo_as` node gets a FRESH id so codegen's
+    // re-dispatch onto it does not re-trigger the same macro_expansion (infinite
+    // loop); its `runtime_arg_exprs_in_order` is the value arg only (not the type).
+    yo_as_node := _make_yo_as_node(alloc_global_expr_id(), ast_expr_token(expr), &evaluated, &type_expr);
+    yo_as_info := new_expr_info(&env, target_type);
+    yo_as_info.set_value(.None);
+    mut(yo_as_rt) := ArrayList(AstExpr).new();
+    // `evaluated` is already owned by the __yo_as node's args (above); push an
+    // independent handle here so `runtime_arg_exprs` does not share that single
+    // ref (codegen omits the dup for a variable passed to a function
+    // then reused, so both structures owned the one ref → stage-2 UAF). Clone
+    // keeps the id (runtime-arg materialization looks up its ExprInfo).
+    yo_as_rt.push(evaluated.clone());
+    yo_as_info.set_runtime_arg_exprs_in_order(Option(ArrayList(AstExpr)).Some(yo_as_rt));
+    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&yo_as_node), &yo_as_info);
+    out_info := new_expr_info(&env, target_type);
+    out_info.set_value(.None);
+    // ALSO record in the durable id-keyed side-table: a later eval pass (e.g.
+    // a cond-arm re-eval or branch-merge trial) can overwrite this expr's
+    // ExprInfo WITHOUT macro_expansion, losing the lowering — codegen then
+    // FTTs the conversion (`u32(n)`/`i32(perm.mode)` in arm-result position,
+    // the stage-2 conversion cluster). Same durable-table pattern as the
+    // if-macro fix (see record_macro_expansion / lookup_macro_expansion).
+    record_macro_expansion(ast_expr_id(expr), yo_as_node.clone());
+    expr_info_set_macro_expansion(&out_info, Option(AstExpr).Some(yo_as_node));
+    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
+    return(.Some(Rc.clone(expr.*)));
+  });
+  // -----------------------------------------------------------------------
+  // Case 4: Fallback (comptime value, non-comptime target — shouldn't happen)
+  // -----------------------------------------------------------------------
+  match(
+    &comptime_raw,
+    .Some(raw) => {
+      out_info := _make_comptime_info(&raw.*, target_type, &env, ast_expr_token(expr), exn);
+      expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
+      .Some(Rc.clone(expr.*))
+    },
+    .None => {
+      exn.throw(
+        dyn(
+          Box.new(
+            format_error_message(
+              ast_expr_token(expr),
+              String.from("Unexpected case in numeric type conversion")
+            )
+          )
+        )
+      );
+      Option(AstExpr).None
+    }
+  )
+});
+export(get_numeric_bounds);
+export(is_convertible_numeric_type);
+export(try_to_convert_to_numeric_type);

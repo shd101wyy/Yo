@@ -1,0 +1,1001 @@
+// The read rule (decision 43 step 2 N1e-2b; VERDICTS-23 R1, VERDICTS-25):
+// a reference-typed expression — a reference binding, a reference field, a
+// projection call — is the reference VALUE where its position expects one:
+// a `&T` payload, field or slot, a type binder already bound to a
+// reference, or an unbound type binder (which it binds `T := &U`).
+// Everywhere else it reads as the place it refers to.
+{ assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array-list");
+{ String } :: import("std/string");
+// A projection's result into a reference payload: `.Some(self.xs.index(self.i))`.
+// VERDICTS-25's cursor, generic over the element type: `T` is inferred through
+// the origin-parameterized composite `RrCursor(T, p)` (the synthesizer's
+// Reference+Reference arm,
+// issues/fixed/2026-11-05-a-type-parameter-is-not-inferred-through-an-origin-parameterized-composite.md),
+// so the runtime checks walk the GENERIC cursor through `&mut` — the N1e-2b
+// acceptance test. Walking it needs a `mut` holder of a `&` lend to be
+// writable, which this change makes it
+// (issues/fixed/2026-11-05-a-mut-holder-of-a-shared-lend-is-read-only.md).
+RrCursor :: (fn(comptime(T) : Type, comptime(p) : Origin) -> comptime(Type))(struct(xs : &(ArrayList(T), p), i : usize));
+rr_next_at :: (fn(generic(T : Type, p : Origin), self : &mut RrCursor(T, p)) -> Option(&(T, p)))(.Some(self.xs.index(self.i)));
+// A reference field into a reference payload: `.Some(self.r)`.
+RrHeld :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(i32, p)));
+rr_held :: (fn(generic(p : Origin), self : &RrHeld(p)) -> Option(&(i32, p)))(.Some(self.r));
+// A reference binding into a reference payload: `.Some(r)`.
+rr_wrap :: (fn(r : &i32) -> Option(&(i32, r)))(.Some(r));
+rr_payload :: (fn(generic(p : Origin), o : Option(&(i32, p))) -> i32)(
+  match(
+    o,
+    .Some(v) => v.*,
+    .None => i32(-1)
+  )
+);
+test("A reference read into a reference payload is the reference", {
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(10));
+  xs.push(i32(20));
+  mut(c) := RrCursor(i32, xs)(xs : &xs, i : usize(0));
+  assert(rr_payload(rr_next_at(&mut c)) == i32(10), "`.Some(self.xs.index(self.i))`");
+  mut(d) := RrCursor(i32, xs)(xs : &xs, i : usize(1));
+  assert(rr_payload(rr_next_at(&mut d)) == i32(20), "the second item");
+  x := i32(7);
+  h := RrHeld(x)(r : &x);
+  assert(rr_payload(rr_held(&h)) == i32(7), "`.Some(self.r)` of a reference field");
+  assert(rr_payload(rr_wrap(&x)) == i32(7), "`.Some(r)` of a reference binding");
+});
+// An unbound type binder binds the reference itself: `id(r)` binds
+// `T := &i32`, so the read is no whole-value read (E0926) of `r`. The
+// specialization keeps the declared shape of its slots (VERDICTS-23 R3): a
+// `-> T` and a `v : T` at `T := &U` are by-value slots holding a reference, so
+// the result is a reference VALUE (a pointer), not a projection, and the
+// parameter is the pointer, not a borrow of it.
+rr_id :: (fn(generic(T : Type), v : T) -> T)(v);
+rr_id_of_reference :: (fn(r : &i32) -> unit)({
+  _s := rr_id(r);
+});
+rr_store_g :: (fn(generic(T : Type), dst : &mut Option(T), v : T) -> unit)({
+  dst.* = .Some(v);
+});
+rr_some_ref :: (fn(r : &i32) -> Option(&i32))(.Some(r));
+test("a generic result at T := &U is a reference value", {
+  y := i32(6);
+  r := &y;
+  s := rr_id(r);
+  assert(s.* == i32(6), "the reference comes back from `-> T`");
+  s2 := rr_id(s);
+  assert(s2.* == i32(6), "and again from a by-value reference");
+});
+test("a generic function stores its by-value reference parameter", {
+  y := i32(7);
+  mut(slot) := Option(&i32).None;
+  ry := &y;
+  rr_store_g(&mut slot, ry);
+  match(slot, .Some(r) => assert(r.* == i32(7), "the stored reference reads the place"), .None => assert(false, "stored"));
+});
+test("Option(&T).unwrap returns the reference", {
+  x := i32(4);
+  o := rr_some_ref(&x);
+  v := o.unwrap();
+  assert(v.* == i32(4), "unwrap of a reference payload");
+});
+// A holder of a reference with a Drop impl is dropped like any value: at
+// its STATEMENT's end as a temporary (Rust's temporary lifetime,
+// plans/VALUES_BY_DEFAULT.md "`&temp` is allowed"), at its scope's end when
+// bound, and when an effect handler unwinds past it. Dropping it never drops the place
+// it refers to.
+(mut(g_rr_dropped) : i32) = i32(0);
+RrHolder :: (fn(comptime(T) : Type, comptime(p) : Origin) -> comptime(Type))(struct(r : &(T, p)));
+impl(
+  generic(T : Type, p : Origin),
+  RrHolder(T, p),
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_rr_dropped = (g_rr_dropped + i32(1));
+    })
+  )
+);
+rr_holder_read :: (fn(generic(p : Origin), h : &RrHolder(i32, p)) -> i32)(h.r.*);
+rr_bound :: (fn(x : &i32) -> i32)({
+  h := RrHolder(i32, x)(r : x);
+  n := h.r.*;
+  assert(g_rr_dropped == i32(1), "a bound holder lives to its scope's end");
+  n
+});
+RrRaise :: (ctl() -> unit);
+rr_raises :: (fn(x : &i32, raise : RrRaise) -> unit)({
+  h := RrHolder(i32, x)(r : x);
+  _n := h.r.*;
+  raise();
+  assert(false, "the handler unwinds");
+});
+rr_unwinds :: (fn(x : &i32) -> unit)({
+  (raise : RrRaise) = (
+    () -> {
+      unwind(());
+    }
+  );
+  rr_raises(x, raise);
+});
+test("A holder of a reference with a Drop impl drops at its statement's end as a temporary, at scope end when bound, and on unwind", {
+  x := i32(3);
+  t := rr_holder_read(&RrHolder(i32, x)(r : &x));
+  assert(t == i32(3), "a temporary holder reads its place");
+  assert(g_rr_dropped == i32(1), "a temporary holder drops at its statement's end");
+  assert(rr_bound(&x) == i32(3), "a bound holder reads its place");
+  assert(g_rr_dropped == i32(2), "a bound holder drops at its scope's end");
+  rr_unwinds(&x);
+  assert(g_rr_dropped == i32(3), "an unwind drops the holder it passes");
+  assert(x == i32(3), "dropping a holder leaves its place alone");
+});
+// A `mut` holder of a `&` lend is writable: read-only is a property of a
+// reference binding (its slot is `&T`), not of the freeze the holder puts on
+// the place it lends (issues/fixed/2026-11-05-a-mut-holder-of-a-shared-lend-is-read-only.md).
+RrCounted :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(i32, p), n : i32));
+rr_bump :: (fn(generic(p : Origin), h : &mut RrCounted(p)) -> unit)({
+  h.n = (h.n + i32(1));
+});
+rr_clear :: (fn(generic(p : Origin), dst : &mut Option(&(i32, p))) -> unit)({
+  dst.* = .None;
+});
+test("A mut holder of a shared lend is writable", {
+  x := i32(7);
+  mut(slot) := Option(&i32).Some(&x);
+  slot = .None;
+  assert(slot.is_none(), "a holder reassigned");
+  mut(kept) := Option(&(i32, x)).Some(&x);
+  rr_clear(&mut kept);
+  assert(kept.is_none(), "a holder passed `&mut`");
+  mut(h) := RrCounted(x)(r : &x, n : i32(0));
+  rr_bump(&mut h);
+  h.n = (h.n + i32(5));
+  assert(h.n == i32(6), "a holder's own field written");
+  assert(h.r.* == i32(7), "the lent place is unchanged");
+});
+// A `mut` holder of a NAMED origin-parameterized struct is reassigned whole
+// (`h = RrCounted(x)(...)`), as the `Option` holder is: its slot is a value
+// of a struct type, not a `&` binding, so the write is not E0908
+// (issues/fixed/2026-11-07-reassigning-a-mut-holder-of-a-named-origin-struct-is-a-false-e0908.md).
+test("a mut holder of a named origin struct is reassignable", {
+  x := i32(7);
+  mut(h) := RrCounted(x)(r : &x, n : i32(1));
+  h = RrCounted(x)(r : &x, n : i32(2));
+  assert(h.n == i32(2), "the holder was reassigned");
+  assert(h.r.* == i32(7), "it still lends x");
+  mut(g) := RrCounted(x)(r : &x, n : i32(3));
+  g.n = h.n;
+  h = RrCounted(x)(r : g.r, n : g.n);
+  assert(h.n == i32(2), "reassigned from another holder's parts");
+});
+comptime_expect_error(
+  rr_holder_still_freezes :: (fn() -> unit)({
+    mut(x) := i32(1);
+    mut(h) := RrCounted(x)(r : &x, n : i32(0));
+    rr_bump(&mut h);
+    x = i32(2);
+    h.n = i32(3);
+  }),
+  "`h` borrows `x` with `&` and is still live"
+);
+// `.*` on a projection CALL's result is the reference's deref: the call
+// itself, a place of the referent's type (decision 24), read, compared and
+// written in place. A referent that `.*` reads through (`Box`, `Rc`, a
+// pointer) keeps the payload reading
+// (issues/fixed/2026-11-05-dereferencing-a-projection-call-result-is-an-internal-error.md).
+RrPair :: struct(a : i32, b : i32);
+rr_first :: (fn(p : &RrPair) -> &i32)(&p.a);
+rr_first_mut :: (fn(p : &mut RrPair) -> &mut i32)(&mut p.a);
+RrHolds :: struct(v : i32, b : Box(i32), name : String);
+impl(
+  RrHolds,
+  get : (fn(self : &Self) -> &i32)(&self.v),
+  name_ref : (fn(self : &Self) -> &String)(&self.name),
+  get_mut : (fn(self : &mut Self) -> &mut i32)(&mut self.v),
+  boxed : (fn(self : &Self) -> &Box(i32))(&self.b)
+);
+// A `Drop` holder over a lent place, read through a projection off it.
+RrGuard :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(c : &(RrHolds, p)));
+impl(generic(p : Origin), RrGuard(p), get : (fn(self : &Self) -> &i32)(&self.c.v));
+impl(generic(p : Origin), RrGuard(p), Drop(drop : (fn(self : &mut Self) -> unit)(())));
+rr_guard :: (fn(c : &RrHolds) -> RrGuard(c))(RrGuard(c)(c : c));
+test("The deref of a projection call's result reads the place it names", {
+  q := RrPair(a : i32(1), b : i32(2));
+  n := rr_first(&q).*;
+  assert(n == i32(1), "bound");
+  assert(rr_first(&q).* == i32(1), "an operand");
+  s := RrHolds(v : i32(5), b : Box.new(i32(8)), name : `abc`);
+  assert(s.get().* == i32(5), "a method projection in an operand");
+  m := s.get().*;
+  assert(m == i32(5), "a method projection bound");
+  // A referent `.*` reads through keeps the old reading: the payload.
+  assert(s.boxed().* == i32(8), "a `Box` referent's `.*` is its payload");
+  g := rr_guard(&s);
+  assert(g.get().* == i32(5), "through a bound holder");
+  assert(rr_guard(&s).get().* == i32(5), "through a temporary holder");
+  // A move-only referent is read in place, never moved out of its place.
+  assert(s.name_ref().* == `abc`, "a move-only referent compared in place");
+  assert(s.name_ref().*.len() == usize(3), "a move-only referent's method");
+  c := s.name_ref().*.clone();
+  assert(c == s.name, "a move-only referent cloned out");
+});
+// Binding it moves nothing out of the place: like `r.*`, it is E0901.
+comptime_expect_error(
+  rr_deref_call_cannot_move :: (fn() -> unit)({
+    s := RrHolds(v : i32(5), b : Box.new(i32(8)), name : `abc`);
+    t := s.name_ref().*;
+  }),
+  "use of moved value"
+);
+test("The deref of a mutable projection call's result is written in place", {
+  mut(q) := RrPair(a : i32(1), b : i32(2));
+  rr_first_mut(&mut q).* = i32(10);
+  assert(q.a == i32(10), "a free projection written through `.*`");
+  mut(s) := RrHolds(v : i32(5), b : Box.new(i32(8)), name : `abc`);
+  s.get_mut().* = (s.get_mut().* + i32(1));
+  assert(s.v == i32(6), "a method projection read and written through `.*`");
+});
+// Both operands of `==` are derefs of reference-returning calls, directly
+// and through a generic body (was an internal error, "arg has no ExprInfo":
+// issues/fixed/2026-11-08-a-deref-of-a-reference-returning-call-as-an-operand-is-an-internal-error.md).
+rr_rc_eq :: (fn(generic(T : Type), a : &Rc(T), b : &Rc(T), where(T <: Eq(T))) -> bool)(a.as_ref().* == b.as_ref().*);
+test("Both operands of an operator can be derefs of reference-returning calls", {
+  a := RrPair(a : i32(5), b : i32(0));
+  b := RrPair(a : i32(5), b : i32(1));
+  c := RrPair(a : i32(6), b : i32(0));
+  assert(rr_first(&a).* == rr_first(&b).*, "equal through two calls");
+  assert(!(rr_first(&a).* == rr_first(&c).*), "unequal through two calls");
+  x := Rc.new(i32(7));
+  y := Rc.new(i32(7));
+  z := Rc.new(i32(8));
+  assert(rr_rc_eq(&x, &y) && !rr_rc_eq(&x, &z), "the same through as_ref in a generic body");
+});
+// A subscript place lent into a reference payload: `.Some(&xs(i))`, also off
+// a `&` match binding, is the reference the lend names, as `xs.index(i)` is
+// (issues/fixed/2026-11-08-a-subscript-place-cannot-fill-a-reference-payload.md).
+RrSubV :: enum(Num(n : i32), Arr(items : ArrayList(i32)));
+rr_sub_get :: (fn(v : &RrSubV, i : usize) -> Option(&(i32, v)))(
+  match(
+    v,
+    .Arr(items) => Option(&(i32, v)).Some(&items(i)),
+    _ => Option(&(i32, v)).None
+  )
+);
+test("A lent subscript place fills a reference payload", {
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(2));
+  xs.push(i32(3));
+  o := Option(&i32).Some(&xs(usize(1)));
+  assert(rr_payload(o) == i32(3), "`.Some(&xs(i))`");
+  v := RrSubV.Arr(items : xs.clone());
+  assert(rr_payload(rr_sub_get(&v, usize(0))) == i32(2), "off a `&` match binding");
+});
+// O-4 (D1, H6): a holder whose type reaches a user `Drop` is live to its
+// scope-end drop, not only to its last use: its `drop` may read the roots.
+RrDropG :: (fn(comptime(T) : Type) -> comptime(Type))(struct(t : T));
+impl(
+  RrDropG(&i32),
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      _ := self.t.*;
+    })
+  )
+);
+comptime_expect_error(
+  rr_drop_holder_root_written :: (fn() -> unit)({
+    mut(x) := i32(1);
+    _g := RrDropG(&i32)(t : &x);
+    x = i32(2);
+  }),
+  "`_g` borrows `x` with `&` and is still live"
+);
+comptime_expect_error(
+  rr_drop_holder_root_declared_after :: (fn() -> unit)({
+    x := i32(1);
+    mut(g) := RrDropG(&i32)(t : &x);
+    y := i32(2);
+    g = RrDropG(&i32)(t : &y);
+  }),
+  "is dropped first (bindings drop in reverse declaration order)"
+);
+comptime_expect_error(
+  rr_drop_holder_inner_root :: (fn() -> unit)({
+    x := i32(1);
+    mut(g) := RrDropG(&i32)(t : &x);
+    {
+      y := i32(2);
+      g = RrDropG(&i32)(t : &y);
+    };
+  }),
+  "is live to its drop at the end of its own block"
+);
+comptime_expect_error(
+  rr_drop_holder_inner_root_maybe_back :: (fn(c : bool) -> unit)({
+    x := i32(1);
+    mut(g) := RrDropG(&i32)(t : &x);
+    {
+      y := i32(2);
+      g = RrDropG(&i32)(t : &y);
+      if(c, {
+        g = RrDropG(&i32)(t : &x);
+      });
+    };
+  }),
+  "is live to its drop at the end of its own block"
+);
+test("a user-Drop holder re-pointed at an inner-block root and back before the block ends", {
+  x := i32(1);
+  mut(g) := RrDropG(&i32)(t : &x);
+  {
+    y := i32(2);
+    g = RrDropG(&i32)(t : &y);
+    assert(g.t.* == i32(2), "the holder reads the inner root");
+    g = RrDropG(&i32)(t : &x);
+  };
+  assert(g.t.* == i32(1), "the holder is back on the outer root");
+});
+test("a user-Drop holder re-pointed at a root declared before it", {
+  x := i32(1);
+  y := i32(2);
+  mut(g) := RrDropG(&i32)(t : &x);
+  g = RrDropG(&i32)(t : &y);
+  assert(g.t.* == i32(2), "the holder reads its new root");
+});
+test("a plain holder's root is free after the holder's last use", {
+  mut(x) := i32(1);
+  h := RrCounted(x)(r : &x, n : i32(0));
+  assert(h.r.* == i32(1), "read through the holder");
+  x = i32(2);
+  assert(x == i32(2), "no Drop: the holder's range ended at its last use");
+});
+// An early `return` inside a `&` match arm follows the arm's binding to the
+// scrutinee, as the same value in tail position does
+// (issues/fixed/2026-11-08-an-early-return-does-not-follow-a-match-binding-to-its-scrutinee.md).
+RrFindV :: enum(Num(n : i32), Arr(items : ArrayList(i32)));
+rr_find :: (fn(v : &RrFindV, k : &i32) -> Option(&(i32, v)))(
+  match(
+    v,
+    .Arr(items) => {
+      mut(i) := usize(0);
+      while(i < items.len(), i = (i + usize(1)), {
+        if(items(i) == k.*, {
+          return(Option(&(i32, v)).Some(items.index(i)));
+        });
+      });
+      Option(&(i32, v)).None
+    },
+    _ => Option(&(i32, v)).None
+  )
+);
+test("An early return in a match arm follows the binding to its scrutinee", {
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(4));
+  xs.push(i32(9));
+  v := RrFindV.Arr(items : xs.clone());
+  assert(rr_payload(rr_find(&v, &i32(9))) == i32(9), "found by an early return");
+  assert(rr_find(&v, &i32(5)).is_none(), "not found falls to the tail");
+});
+// A binding of the arm's own local is still a local of the function.
+comptime_expect_error(
+  rr_early_return_local :: (fn(v : &RrFindV) -> Option(&(i32, v)))(
+    match(
+      v,
+      .Arr(items) => {
+        local := items.clone();
+        return(Option(&(i32, v)).Some(local.index(usize(0))));
+      },
+      _ => Option(&(i32, v)).None
+    )
+  ),
+  "Cannot return a value holding"
+);
+// O-5 (R-TEMP): a temporary lent to a reference parameter is a hidden local of
+// its statement; a value holding it may not outlive the statement.
+RrTmpH :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(i32, p)));
+rr_tmp_mk :: (fn(x : &i32) -> RrTmpH(x))(RrTmpH(x)(r : x));
+rr_tmp_make :: (fn() -> i32)(i32(7));
+RrTmpCell :: struct(v : i32);
+RrTmpGuard :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(c : &(RrTmpCell, p)));
+impl(RrTmpCell, borrow : (fn(self : &Self) -> RrTmpGuard(self))(RrTmpGuard(self)(c : self)));
+impl(generic(p : Origin), RrTmpGuard(p), get : (fn(self : &Self) -> &i32)(&self.c.v));
+comptime_expect_error(
+  rr_tmp_bound :: (fn() -> unit)({
+    h := rr_tmp_mk(&rr_tmp_make());
+    _ := h.r.*;
+  }),
+  "a temporary that ends with this statement, while `h` lives on"
+);
+comptime_expect_error(
+  rr_tmp_stored :: (fn() -> unit)({
+    x := i32(1);
+    mut(h) := rr_tmp_mk(&x);
+    h = rr_tmp_mk(&rr_tmp_make());
+    _ := h.r.*;
+  }),
+  "Cannot store a reference into `rr_tmp_make()` in `h` here"
+);
+comptime_expect_error(
+  rr_tmp_returned :: (fn(y : &i32) -> RrTmpH(y))(rr_tmp_mk(&rr_tmp_make())),
+  "it is a temporary of this statement"
+);
+comptime_expect_error(
+  rr_tmp_projection_off_guard :: (fn() -> unit)({
+    c := RrTmpCell(v : i32(5));
+    r := c.borrow().get();
+    _ := r.*;
+  }),
+  "which is a temporary that ends with this statement"
+);
+test("a temporary lent within its statement, and a bound guard's projection", {
+  assert(rr_tmp_mk(&rr_tmp_make()).r.* == i32(7), "read inside the statement");
+  c := RrTmpCell(v : i32(5));
+  g := c.borrow();
+  r := g.get();
+  assert(r.* == i32(5), "the guard outlives the projection");
+});
+
+// `.*` on a plain value is E0621: a value is its own place, there is nothing
+// to read through (VERDICTS-41 Q1; was an internal "arg has no ExprInfo",
+// issues/fixed/2026-11-09-a-deref-of-a-plain-value-is-an-internal-error-not-a-diagnostic.md).
+comptime_expect_error(
+  rr_deref_of_scalar_value :: (fn() -> unit)({
+    x := i32(1);
+    assert(x.* == i32(1), "m");
+  }),
+  "`x` has type `i32`, a value"
+);
+comptime_expect_error(
+  rr_deref_of_scalar_value_bound :: (fn() -> unit)({
+    x := i32(1);
+    q := x.*;
+  }),
+  "`.*` reads through a reference"
+);
+comptime_expect_error(
+  rr_deref_of_struct_value :: (fn() -> unit)({
+    s := RrPair(a : i32(1), b : i32(2));
+    t := s.*;
+  }),
+  "`s` has type `RrPair`, a value"
+);
+comptime_expect_error(
+  rr_deref_of_non_atom_value :: (fn() -> unit)({
+    x := i32(1);
+    q := (x + i32(1)).*;
+  }),
+  "this expression has type"
+);
+test("`.*` reads through a reference and a Deref handle (a raw pointer needs unsafe: std covers it)", {
+  x := i32(7);
+  r := &x;
+  assert(r.* == i32(7), "a reference binding");
+  b := Box.new(i32(8));
+  assert(b.* == i32(8), "a Box");
+  h := Rc.new(i32(9));
+  assert(h.* == i32(9), "an Rc");
+});
+
+// A projection's tail that lends the deref of another projection call
+// (`&mut f(&mut x).*`) is rooted where that call's place is: a local's
+// place does not escape
+// (issues/fixed/2026-11-08-a-projection-body-lending-a-projection-calls-deref-escapes-the-root-rule.md).
+comptime_expect_error(
+  rr_deref_call_local_escapes :: (fn() -> &mut i32)({
+    mut(q) := RrPair(a : i32(1), b : i32(2));
+    &mut rr_first_mut(&mut q).*
+  }),
+  "`q` is a local: its storage ends with the call"
+);
+// O-4: a holder with a user `Drop` that is MOVED out runs its drop in its new
+// owner, so its live range ends with the statement that moves it
+// (issues/fixed/2026-11-09-a-drop-holder-moved-into-a-call-stays-live-to-its-scope-end.md).
+RrSlots :: struct(a : i32, b : i32);
+RrEntry :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(m : &mut(RrSlots, p)));
+impl(
+  generic(p : Origin),
+  RrEntry(p),
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      self.m.a = i32(-1);
+    })
+  )
+);
+impl(generic(p : Origin), RrEntry(p), rr_finish : (fn(self : Self) -> unit)(()));
+test("a moved user-Drop holder frees its root at the move", {
+  mut(s) := RrSlots(a : i32(0), b : i32(0));
+  e := RrEntry(s)(m : &mut s);
+  e.rr_finish();
+  assert(s.a == i32(-1), "the holder dropped inside the call");
+  s.b = i32(7);
+  assert(s.b == i32(7), "the root is writable again");
+});
+comptime_expect_error(
+  rr_drop_holder_maybe_moved :: (fn(c : bool) -> unit)({
+    mut(s) := RrSlots(a : i32(0), b : i32(0));
+    e := RrEntry(s)(m : &mut s);
+    if(c, {
+      e.rr_finish();
+    });
+    _ := s.a;
+  }),
+  "`e` borrows `s` with `&mut` and is still live"
+);
+
+// A scalar field read through a local borrow is a copy of the field, not the
+// borrow: `{ v := r.as_ref(); v.m }` returns the `i32`
+// (issues/fixed/2026-11-08-e0912-flags-a-scalar-field-read-through-a-local-borrow-as-returning-the-borrow.md).
+RrS :: struct(m : i32);
+rr_field_tail :: (fn(r : &Rc(RrS)) -> i32)({
+  v := r.as_ref();
+  v.m
+});
+rr_field_return :: (fn(r : &Rc(RrS)) -> i32)({
+  v := r.as_ref();
+  return(v.m);
+});
+test("A scalar field read through a bound borrow is returnable", {
+  a := Rc.new(RrS(m : i32(5)));
+  assert(rr_field_tail(&a) == i32(5), "the tail `v.m`");
+  assert(rr_field_return(&a) == i32(5), "`return(v.m)`");
+});
+// The bare borrow is still the borrow.
+comptime_expect_error(
+  rr_borrow_tail_still_rejected :: (fn(r : &Rc(RrS)) -> i32)({
+    v := r.as_ref();
+    v
+  }),
+  "Cannot return the local borrow `v`"
+);
+
+// The move can sit in a `match` scrutinee or a `cond`'s first condition: both
+// run on every path, so the holder is dead after the statement
+// (issues/fixed/2026-11-09-a-drop-holder-moved-in-a-match-scrutinee-stays-live-to-its-scope-end.md).
+impl(generic(p : Origin), RrEntry(p), rr_peek : (fn(self : Self) -> Option(i32))(.None));
+test("a user-Drop holder moved in a match scrutinee frees its root after the match", {
+  mut(s) := RrSlots(a : i32(0), b : i32(0));
+  e := RrEntry(s)(m : &mut s);
+  match(
+    e.rr_peek(),
+    .Some(_) => (),
+    .None => ()
+  );
+  s.b = i32(9);
+  assert((s.a == i32(-1)) && (s.b == i32(9)), "dropped inside the call; the root is writable after the match");
+});
+// A `&T` result written as a reference binding (plans/backlog/BORROW_CHECKER_COMPLETENESS.md
+// §7 P8): the binding read where the result expects a reference is the
+// reference itself (R1), `&key.*` — in a `fn`, a generic one, and a closure.
+rr_proj_param :: (fn(key : &i32) -> &(i32, key))(key);
+rr_proj_return :: (fn(key : &mut i32) -> &mut(i32, key))({
+  return(key);
+});
+rr_proj_generic :: (fn(generic(T : Type), x : &T) -> &T)(x);
+RrProjBox :: struct(v : i32);
+rr_proj_local :: (fn(b : &RrProjBox) -> &(i32, b))({
+  r := &b.v;
+  r
+});
+test("a projection's result written as a reference binding", {
+  n := i32(9);
+  assert(rr_proj_param(&n).* == i32(9), "the parameter comes back");
+  assert(rr_proj_generic(&n).* == i32(9), "the parameter comes back from a generic projection");
+  mut(m) := i32(1);
+  s := rr_proj_return(&mut m);
+  s.* = i32(5);
+  assert(m == i32(5), "a `&mut` result writes the caller's place");
+  b := RrProjBox(v : i32(4));
+  assert(rr_proj_local(&b).* == i32(4), "a local reference binding into the parameter");
+  pick := (fn(k : &i32) -> &i32)(k);
+  assert(pick(&n).* == i32(9), "a closure's reference result");
+});
+// A closure LITERAL returning its reference parameter, into an
+// `Impl(Fn(v : &i32) -> &i32)` slot
+// (issues/fixed/2026-11-07-a-closure-literal-returning-its-reference-parameter-fails-to-evaluate.md).
+rr_apply_closure :: (fn(f : Impl(Fn(v : &i32) -> &i32), v : &i32) -> i32)({
+  r := f(v);
+  r.*
+});
+test("a closure literal returns its reference parameter", {
+  x := i32(7);
+  assert(rr_apply_closure((v : &i32) => v, &x) == i32(7), "the parameter comes back through the closure");
+});
+comptime_expect_error(
+  rr_proj_shared_as_mut :: (fn(key : &mut i32) -> &mut(i32, key))({
+    r := &key.*;
+    r
+  }),
+  "is a `&` reference: it cannot be handed out as `&mut`"
+);
+comptime_expect_error(
+  rr_proj_value_name :: (fn(key : &i32) -> &(i32, key))({
+    v := key.*;
+    v
+  }),
+  "a projection (decision 24)"
+);
+comptime_expect_error(
+  rr_proj_local_of_local :: (fn(b : &RrProjBox) -> &(i32, b))({
+    c := RrProjBox(v : b.v);
+    r := &c.v;
+    r
+  }),
+  "`c` is a local: its storage ends with the call"
+);
+// A `.*` on an OWNING handle (`Box`, `Rc`, `Arc`) is a field step, not a way
+// out of the frame (REFERENCES_AND_ORIGINS.md O3's return rule, made precise
+// 2026-11-11; audit A30): `&b.*` and `&h.*.s` / `&h.s` are rooted at the
+// handle, so a local or by-value handle is E0912 like `&x.s` of a by-value
+// struct (issues/fixed/2026-11-11-a-projection-may-return-a-reference-into-a-local-or-by-value-box-rc-or-arc-handle.md).
+// Only a `.*` through a reference or a raw pointer leaves the frame.
+RrHandled :: struct(s : String);
+RrHandleW :: struct(h : Rc(RrHandled));
+comptime_expect_error(
+  rr_owning_local_box :: (fn(a : &String) -> &String)({
+    b := Box.new(String.from("b"));
+    &b.*
+  }),
+  "`b` is a local: its storage ends with the call"
+);
+comptime_expect_error(
+  rr_owning_local_box_return :: (fn(a : &String) -> &String)({
+    b := Box.new(String.from("b"));
+    return(&b.*);
+  }),
+  "`b` is a local: its storage ends with the call"
+);
+comptime_expect_error(
+  rr_owning_local_box_mut :: (fn(a : &mut String) -> &mut String)({
+    mut(b) := Box.new(String.from("b"));
+    &mut b.*
+  }),
+  "`b` is a local: its storage ends with the call"
+);
+comptime_expect_error(
+  rr_owning_local_rc :: (fn(a : &String) -> &String)({
+    h := Rc.new(RrHandled(s : String.from("h")));
+    &h.*.s
+  }),
+  "`h` is a local: its storage ends with the call"
+);
+comptime_expect_error(
+  rr_owning_local_rc_auto :: (fn(a : &String) -> &String)({
+    h := Rc.new(RrHandled(s : String.from("h")));
+    &h.s
+  }),
+  "`h` is a local: its storage ends with the call"
+);
+comptime_expect_error(
+  rr_owning_byvalue_rc :: (fn(h : Rc(RrHandled)) -> &String)(&h.s),
+  "`h` is a by-value parameter: its storage ends with the call"
+);
+comptime_expect_error(
+  rr_owning_byvalue_rc_star :: (fn(h : Rc(RrHandled)) -> &String)(&h.*.s),
+  "`h` is a by-value parameter: its storage ends with the call"
+);
+comptime_expect_error(
+  rr_owning_byvalue_box :: (fn(b : Box(RrHandled)) -> &String)(&b.*.s),
+  "`b` is a by-value parameter: its storage ends with the call"
+);
+comptime_expect_error(
+  rr_owning_byvalue_arc :: (fn(a : Arc(i32)) -> &i32)(&a.*),
+  "`a` is a by-value parameter: its storage ends with the call"
+);
+comptime_expect_error(
+  impl(RrHandleW, rr_owning_self_field : (fn(self : Self) -> &String)(&self.h.*.s)),
+  "`self` is a by-value parameter: its storage ends with the call"
+);
+rr_owning_ref_box :: (fn(b : &Box(String)) -> &String)(&b.*.*);
+rr_owning_ref_rc :: (fn(h : &Rc(RrHandled)) -> &String)(&h.*.*.s);
+rr_owning_ref_rc_auto :: (fn(h : &Rc(RrHandled)) -> &String)(&h.s);
+rr_owning_mut_box :: (fn(b : &mut Box(String)) -> &mut String)(&mut b.*.*);
+impl(RrHandleW, rr_owning_ref_self : (fn(self : &Self) -> &String)(&self.h.*.s));
+test("a `.*` on a handle reached through a reference parameter stays in the caller's storage", {
+  mut(b) := Box.new(String.from("box"));
+  assert(rr_owning_ref_box(&b).len() == usize(3), "`&b.*.*` through `&Box`");
+  rr_owning_mut_box(&mut b).push_str("ed");
+  assert(b.*.len() == usize(5), "`&mut b.*.*` through `&mut Box` writes the caller's payload");
+  h := Rc.new(RrHandled(s : String.from("rc")));
+  assert(rr_owning_ref_rc(&h).len() == usize(2), "`&h.*.*.s` through `&Rc`");
+  assert(rr_owning_ref_rc_auto(&h).len() == usize(2), "`&h.s` through `&Rc`");
+  w := RrHandleW(h : Rc.new(RrHandled(s : String.from("self"))));
+  assert(w.rr_owning_ref_self().len() == usize(4), "`&self.h.*.s` through `self : &Self`");
+});
+// VERDICTS-45 (R-RESULT): the result position is a reference slot, and each
+// result leaf is `&place` or a reference binding read. Both spellings stay
+// legal (`&x.*` is `&place` with the place `x.*`).
+// A `&mut` binding handed out as a `&T` result is a shared reborrow.
+rr_res_downgrade :: (fn(k : &mut i32) -> &i32)(k);
+// `cond` and `match` arms that are bare bindings, and a chain mixing a
+// binding with a lend.
+rr_res_cond :: (fn(c : bool, a : &i32, b : &i32) -> &i32)(cond(c => a, true => b));
+rr_res_match :: (fn(o : Option(i32), a : &i32, b : &i32) -> &i32)(
+  match(
+    o,
+    .Some(_) => a,
+    .None => b
+  )
+);
+rr_res_mixed :: (fn(c : bool, a : &i32, b : &RrProjBox) -> &i32)(cond(c => a, true => &b.v));
+// A move-only pointee through the generic id: no copy of the `String`.
+rr_res_id :: (fn(generic(T : Type), x : &T) -> &T)(x);
+rr_res_id_lend :: (fn(generic(T : Type), x : &T) -> &T)(&x.*);
+test("a bare reference binding is a result leaf", {
+  mut(m) := i32(3);
+  assert(rr_res_downgrade(&mut m).* == i32(3), "a `&mut` binding into a `&T` result");
+  a := i32(1);
+  b := i32(2);
+  assert(rr_res_cond(true, &a, &b).* == i32(1), "the first cond arm");
+  assert(rr_res_cond(false, &a, &b).* == i32(2), "the second cond arm");
+  assert(rr_res_match(.Some(i32(0)), &a, &b).* == i32(1), "the first match arm");
+  assert(rr_res_match(.None, &a, &b).* == i32(2), "the second match arm");
+  bx := RrProjBox(v : i32(8));
+  assert(rr_res_mixed(true, &a, &bx).* == i32(1), "the binding leaf");
+  assert(rr_res_mixed(false, &a, &bx).* == i32(8), "the lend leaf");
+  s := String.from("move-only");
+  assert(rr_res_id(&s).len() == usize(9), "the pointee is read in place");
+  assert(rr_res_id_lend(&s).len() == usize(9), "the `&x.*` spelling is still legal");
+  assert(s.len() == usize(9), "the owner is untouched");
+});
+// An origin that does not name the binding's parameter is the same error
+// `&b.*` gives.
+comptime_expect_error(
+  rr_res_origin_bare :: (fn(a : &i32, b : &i32) -> &(i32, a))(b),
+  "which that origin does not name"
+);
+comptime_expect_error(
+  rr_res_origin_lend :: (fn(a : &i32, b : &i32) -> &(i32, a))(&b.*),
+  "which that origin does not name"
+);
+// The caller's loan is the parameter's: a write to the lent place while the
+// result is live is E0911.
+rr_res_g :: (fn(k : &mut i32) -> &mut i32)(k);
+comptime_expect_error(
+  rr_res_caller :: (fn() -> unit)({
+    mut(a) := i32(1);
+    r := rr_res_g(&mut a);
+    a = i32(4);
+    r.* = i32(3);
+  }),
+  "`r` borrows `a` with `&mut` and is still live"
+);
+// A closure returning a captured reference bare is per-call: E0923.
+rr_res_apply :: (fn(f : Impl(Fn(v : &i32) -> &i32), v : &i32) -> i32)(f(v).*);
+comptime_expect_error(
+  rr_res_capture :: (fn() -> unit)({
+    x := i32(1);
+    y := i32(2);
+    _ := rr_res_apply({ c : &y }(v : &i32) => c, &x);
+    ()
+  }),
+  "which the closure captures"
+);
+// A `&T`-typed argument is the reference where a `&T` slot expects it, by its
+// type and not its syntax: `lhs.*` with `lhs : & &i32` is a `&i32` place, and
+// the call-site marker check (E0914) must not ask for `&lhs.*`
+// (issues/fixed/2026-11-10-e0914-asks-for-a-marker-on-a-reference-typed-deref-argument.md).
+// The run-time canary: the callee receives the LOADED pointer (`*lhs`), not
+// `lhs`, so it reads the `i32`, not a pointer's bits.
+rr_load :: (fn(p : &i32) -> i32)(p.*);
+rr_pass_deref :: (fn(lhs : & &i32) -> i32)(rr_load(lhs.*));
+rr_pass_relend :: (fn(lhs : & &i32) -> i32)(rr_load(&lhs.*.*));
+rr_eq_deref :: (fn(lhs : & &i32, rhs : & &i32) -> bool)(i32.(==)(lhs.*, rhs.*));
+test("A reference-typed `lhs.*` passes bare to a `&T` slot and the callee receives the loaded pointer", {
+  x := i32(7);
+  y := i32(8);
+  rx := &x;
+  ry := &y;
+  assert(rr_pass_deref(&rx) == i32(7), "rr_load(lhs.*) reads the referent, not the pointer to the pointer");
+  assert(rr_pass_relend(&rx) == i32(7), "`&lhs.*.*` relends the referent and stays legal");
+  assert(rr_eq_deref(&rx, &rx), "i32.(==)(lhs.*, rhs.*) on equal referents");
+  assert(!rr_eq_deref(&rx, &ry), "i32.(==)(lhs.*, rhs.*) compares referents, not addresses");
+});
+// VERDICTS-23 R3 / VERDICTS-49 gap 2 (VERDICTS-54: a bound's method on a
+// by-value reference parameter is a separate, pinned class, `issues/2026-11-11-a-bound-method-on-a-by-value-reference-parameter-is-rejected.md`):
+// a generic taking `a : T` / `b : T` is instantiated at `T := &i32` and at
+// `T := i32` in one program. The reference instance picks a pointer VALUE (not
+// the pointee: it was emitted as `(int32_t, int32_t)` and crashed) and is a
+// separate instance from the by-value one.
+_sm_pick :: (fn(generic(T : Type), a : T, b : T, first : bool) -> T)(if(first, a, b));
+test("a generic over a by-value slot is instantiated at a reference type and at its referent type", {
+  x := i32(1);
+  y := i32(2);
+  rx := &x;
+  ry := &y;
+  picked := _sm_pick(rx, ry, false);
+  assert(picked.* == i32(2), "the reference instance returns the second reference");
+  first := _sm_pick(rx, ry, true);
+  assert(first.* == i32(1), "and the first");
+  assert(_sm_pick(i32(3), i32(4), false) == i32(4), "the by-value instance beside it");
+  assert(_sm_pick(i32(3), i32(4), true) == i32(3), "and it still differs");
+});
+
+// R-TAIL (VERDICTS-41 Q1): an unannotated `:=` whose initializer is a block,
+// `cond` or `match` every result-chain leaf of which is a reference (a lend,
+// a projection call) binds the REFERENCE
+// (issues/fixed/2026-11-08-a-projection-call-as-a-blocks-tail-binds-without-exprinfo.md).
+rr_tail_first :: (fn(p : &i32) -> &i32)(&p.*);
+rr_tail_first_s :: (fn(p : &String) -> &String)(&p.*);
+test("A block, cond or match whose every leaf is a reference binds the reference", {
+  x := i32(1);
+  y := i32(2);
+  z := {
+    w := i32(9);
+    rr_tail_first(&x)
+  };
+  assert(z.* == i32(1), "a projection call as a block's tail");
+  l := {
+    w := i32(9);
+    &x
+  };
+  assert(l.* == i32(1), "a lend as a block's tail");
+  c := true;
+  a := cond(c => rr_tail_first(&x), true => rr_tail_first(&y));
+  assert(a.* == i32(1), "a two-arm cond of projections");
+  m := match(c, true => &x, false => &y);
+  assert(m.* == i32(1), "a match of lends");
+  s := String.from("hello");
+  t := {
+    w := i32(9);
+    rr_tail_first_s(&s)
+  };
+  assert(t.len() == usize(5), "a move-only referent is read in place");
+  assert(s.len() == usize(5), "and stays in its place");
+});
+test("A mixed chain is the value", {
+  x := i32(1);
+  c := true;
+  v := cond(c => rr_tail_first(&x).*, true => i32(0));
+  assert(v == i32(1), "a mixed cond binds an i32");
+});
+// A block-local root is E0911 at the block's end (Q1 item 3).
+comptime_expect_error(
+  rr_tail_block_local_root :: (fn() -> unit)({
+    z := {
+      w := i32(2);
+      rr_tail_first(&w)
+    };
+    z.*;
+  }),
+  "Cannot end this block while its result borrows `w`"
+);
+comptime_expect_error(
+  rr_tail_block_local_lend :: (fn() -> unit)({
+    z := {
+      w := i32(2);
+      &w
+    };
+    z.*;
+  }),
+  "Cannot end this block while its result borrows `w`"
+);
+// Both roots of a two-arm cond stay frozen while the binding lives.
+comptime_expect_error(
+  rr_tail_cond_roots_frozen :: (fn() -> unit)({
+    mut(x) := i32(1);
+    mut(y) := i32(2);
+    c := true;
+    a := cond(c => rr_tail_first(&x), true => rr_tail_first(&y));
+    y = i32(5);
+    a.*;
+  }),
+  "`a` borrows `y` with `&` and is still live"
+);
+// A bare reference-binding read binds the reference too (VERDICTS-23 R1,
+// VERDICTS-45 §11, VERDICTS-44 PR 3): `q := y` and an untyped tuple
+// component, alone and as a block's tail.
+test("A reference binding read at a := binds the reference", {
+  x := i32(1);
+  k := &x;
+  r := k;
+  assert(r.* == i32(1), "r := k");
+  r2 := {
+    w := i32(2);
+    k
+  };
+  assert(r2.* == i32(1), "r := { ...; k }");
+  t := (k, i32(3));
+  assert(t.0.* == i32(1), "an untyped tuple component");
+  assert(t.1 == i32(3), "the other component");
+});
+// KNOWN GAP (issues/2026-11-10-a-method-call-leaf-of-a-block-tail-is-not-classified-before-evaluation.md):
+// a METHOD-call projection leaf (`s.get()`) is not recognized before the
+// chain is evaluated, so a block ending in one reads its value (today's
+// behaviour, pinned here), where a free-function leaf (`rr_tail_first(&x)`
+// above) binds the reference.
+test("A method-call projection leaf of a block tail reads as its value today", {
+  s := RrHolds(v : i32(5), b : Box.new(i32(8)), name : `abc`);
+  z := {
+    w := i32(0);
+    s.get()
+  };
+  assert(z == i32(5), "the value of the projection");
+});
+// A tuple element that is a reference VALUE (a by-value `a : T` at
+// `T := &i32`, a `-> T` call's result there) is the pointer the element
+// holds: the literal took its address, `&(b)` on a `const int32_t *`
+// parameter and `&(call())` on a C rvalue
+// (issues/fixed/2026-11-12-a-tuple-of-by-value-reference-parameters-emits-invalid-c.md).
+_tr_swap :: (fn(generic(T : Type), a : T, b : T) -> Tuple(T, T))((b, a));
+_tr_with_one :: (fn(generic(T : Type), a : T) -> Tuple(T, i32))((a, i32(1)));
+_tr_first_of_pair :: (fn(generic(T : Type), a : T, b : T) -> i32)({
+  p := (a, b);
+  (v : i32) = p.0.*;
+  v
+});
+test("a tuple of by-value reference parameters holds the references", {
+  x := i32(1);
+  y := i32(2);
+  rx := &x;
+  ry := &y;
+  p := _tr_swap(rx, ry);
+  assert(p.0.* == i32(2), "the swapped first element reads y");
+  assert(p.1.* == i32(1), "the swapped second element reads x");
+  m := _tr_with_one(ry);
+  assert(m.0.* == i32(2), "a reference element beside a value");
+  assert(m.1 == i32(1), "and the value");
+  assert(_tr_first_of_pair(rx, ry) == i32(1), "a local tuple of the parameters");
+  c := (rr_id(ry), i32(3));
+  assert(c.0.* == i32(2), "a `-> T` call's reference result as an element");
+  assert(c.1 == i32(3), "beside a value");
+  v := _tr_swap(i32(5), i32(6));
+  assert(v.0 == i32(6), "the by-value instance beside it");
+  assert(v.1 == i32(5), "swaps the values");
+});
+// `t := a.*` on `a : &mut &i32` copies the reference `a.*` holds: the
+// rewritten `a.*`'s receiver is no reference-binding leaf of R-TAIL when the
+// generic body is evaluated again per call, and the C binding is `T* t = *a`,
+// not `T** t = a` (tests/ref-of-ref.test.yo's `rr_swap`).
+_rt_swap_refs_g :: (fn(generic(r : Origin), a : &mut&(i32, r), b : &mut&(i32, r)) -> unit)({
+  t := a.*;
+  a.* = b.*;
+  b.* = t;
+});
+test("R-TAIL: `t := a.*` through a `&mut &i32` copies the reference", {
+  x := i32(1);
+  y := i32(2);
+  mut(ra) := &x;
+  mut(rb) := &y;
+  _rt_swap_refs_g(&mut ra, &mut rb);
+  assert(ra.* == i32(2), "ra refers to y");
+  assert(rb.* == i32(1), "rb refers to x");
+});
+// A12 at a block or arm tail (VERDICTS-58 decision 12): a holder over the
+// block's own local is E0911 at the block's end, as a reference is.
+_RtH :: struct(r : &String, n : i32);
+comptime_expect_error({
+  _rt_holder_block_local :: (fn() -> usize)({
+    h := {
+      y := String.from("abc");
+      _RtH(r : &y, n : i32(1))
+    };
+    h.r.len()
+  });
+  _rt_holder_block_local();
+}, "Cannot end this block while its result borrows `y`");
+comptime_expect_error({
+  _rt_holder_arm_local :: (fn(c : bool) -> usize)({
+    z := String.from("z");
+    h := cond(
+      c => {
+        y := String.from("abc");
+        _RtH(r : &y, n : i32(1))
+      },
+      true => _RtH(r : &z, n : i32(0))
+    );
+    h.r.len()
+  });
+  _rt_holder_arm_local(true);
+}, "Cannot end this block while its result borrows `y`");
+_rt_holder_outer :: (fn(c : bool) -> usize)({
+  z := String.from("zz");
+  h := cond(
+    c => {
+      y := String.from("abc");
+      _ := y.len();
+      _RtH(r : &z, n : i32(1))
+    },
+    true => _RtH(r : &z, n : i32(0))
+  );
+  h.r.len()
+});
+test("A12: a block-tail holder over an outer local is accepted", {
+  assert(_rt_holder_outer(true) == usize(2), "the holder reads z");
+});

@@ -71,8 +71,8 @@ the fastest way to see which body failed and why:
 
 | line | emitted by | covers |
 | --- | --- | --- |
-| `[trial] <pos>` / `[swallow] <err>` | `evaluator/calls/function_type.yo` | named `fn`/`ctl` bodies |
-| `[anon-trial] <pos>` / `[anon-swallow] <err>` | `evaluator/values/anonymous_function.yo` | closure (`=>`) and `->` bodies, including every `io.async` closure |
+| `[trial] <pos>` / `[swallow] <err>` | `evaluator/calls/function-type.yo` | named `fn`/`ctl` bodies |
+| `[anon-trial] <pos>` / `[anon-swallow] <err>` | `evaluator/values/anonymous-function.yo` | closure (`=>`) and `->` bodies, including every `io.async` closure |
 | `[mat-default-swallow] <err>` | `evaluator/values/impl.yo` | the per-impl materialization of a trait `?=` default |
 | `[reeval-swallow] <err>` | `evaluator/calls/helper.yo` | a closure body re-evaluated at a specialization with its parameter types substituted |
 | `[kept] site=<s> code=<c> owner=<pos>` | each of the above | the swallow above it was NOT re-raised, and why: `dg`/`dgc` (a generic fn/closure trial: the error waits for a call and is recorded against the body), `anon-abstract`/`anon-ct` (a closure with type-variable or `comptime(x)` parameters), `fn-fwd` (a concrete fn waiting for a forward comptime fn), `reeval-concrete`/`reeval-abstract`, `mat-default` |
@@ -121,7 +121,7 @@ Two tells, both cheap:
   means to enforce), followed by an unrelated error. The rejection is the real
   answer; whatever came after is fallout.
 - **A missing post-trial marker.** Each trial site prints something after the
-  call returns (`[flow-post]` for the `function_type.yo` flow site). A `[trial]`
+  call returns (`[flow-post]` for the `function-type.yo` flow site). A `[trial]`
   with no matching post-line means control left between them — i.e. something
   after the trial threw for real. That is where to look, not inside the body.
 
@@ -183,7 +183,7 @@ binder means Step 7's re-evaluation lost a binding that Step 6 made
   reached the return re-evaluation.
 - **Which predicate decides that a definition defers** (its body is checked
   per call instead of at definition): `should_defer_ft`,
-  `src/evaluator/calls/function_type.yo`. It reads
+  `src/evaluator/calls/function-type.yo`. It reads
   `type_contains_some_type_for_codegen_param`, not `get_all_some_types`.
 - **Evaluator changes rebuild in ~12–17 min, not ~25**, with
   `yo compile src/main.yo --emit-chunks auto --jobs 16 --optimize 1 -o /tmp/yo-dbg`
@@ -216,7 +216,7 @@ binder means Step 7's re-evaluation lost a binding that Step 6 made
   request up to a 512-byte size class; one more 24-byte field crosses it and
   corrupts the heap. Until `SEED_VERSION` carries the fix, keep such a boxed
   struct's size where it is (a side table instead of a new field, as
-  `g_skipped_operand_drops` in `src/expr_info.yo` does) and compare the seed's
+  `g_skipped_operand_drops` in `src/expr-info.yo` does) and compare the seed's
   number (`grep` the `Box.new` specialization in the emitted `yo.c` for its
   `NNNULL` constant) against C's `sizeof`.
 
@@ -226,7 +226,7 @@ binder means Step 7's re-evaluation lost a binding that Step 6 made
   finishes** (`compile` and `test` share one). A walk over a callee's evaluated
   body (rule D1's reach walk, the parameter mutation masks) therefore reads another
   module's function through the memo `summarize_function_bodies`
-  (`src/evaluator/effects/mutation_summary.yo`) took at that module's end. A
+  (`src/evaluator/effects/mutation-summary.yo`) took at that module's end. A
   `check`-only E0906 "never evaluated" on code
   `compile` accepts means a body was not summarized: `YO_DEBUG_BODY_SUMMARY=1`
   prints `[body-summary] <module> offered=N summarized=M` per load
@@ -242,7 +242,7 @@ binder means Step 7's re-evaluation lost a binding that Step 6 made
 
 ## Two C types for one Yo type: diff the two `type_key`s
 
-`type_key` (`src/types/type_key.yo`) is history-dependent. Its cycle guard
+`type_key` (`src/types/type-key.yo`) is history-dependent. Its cycle guard
 (`g_tk_visited`, reset per top-level call) renders an already-seen node
 id-only, and `g_struct_cfid_keys` poisons a shared struct id to `!AMBIG`.
 So the same Yo type can key two ways, depending on the copy and the moment.
@@ -399,7 +399,7 @@ Added 2026-08-26 while fixing the generic-fn async-closure capture loss
 (issues/fixed/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md).
 All are stderr prints, active only with `YO_DEBUG_CAPTURE` set:
 
-- `[cap-fb]` (exprs/identifer_and_operator.yo) — every FunctionBody-arm
+- `[cap-fb]` (exprs/identifer-and-operator.yo) — every FunctionBody-arm
   capture classification: name, the frame the lookup found it at, the ctx
   snapshot's frame count, the stamped frame level, the inner verdict, plus
   the eval_env/current-env top-frame ids (generation mismatches show here).
@@ -408,10 +408,10 @@ All are stderr prints, active only with `YO_DEBUG_CAPTURE` set:
 - `[cap-enr]` (utils/closure.yo) — enrichment input per name: recorded
   level, env frame count, how many same-named bindings were found and how
   many are comptime.
-- `[cap-reg]` / `[fid-src]` (function_value.yo) — every capture-struct
+- `[cap-reg]` / `[fid-src]` (function-value.yo) — every capture-struct
   registration (fid, source key, field list) and every fid→source-key mint.
 - `[fbctx-closure-call]` / `[fbctx-fnty-rp]` / `[fbctx-fnty-flow]`
-  (calls/closure_type.yo, calls/function_type.yo) — which site created a
+  (calls/closure-type.yo, calls/function-type.yo) — which site created a
   FunctionBody evaluation context.
 
 Read them together: a name that is `inner=false` in `[cap-fb]`, survives

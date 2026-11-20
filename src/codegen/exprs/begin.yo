@@ -14,17 +14,17 @@
 //! generate_deferred_dup_expressions (Phase 4). The no-RC corpus has no
 //! deferred dups, so the last expression is assigned to the result temp as-is.
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 { AstExpr, ExprId, ast_expr_id, ast_expr_token } :: import("../../expr.yo");
 { Token } :: import("../../token.yo");
-{ ExprInfo, has_any_control_flow, expr_info_consumed_variable_drop_expressions, emitted_block_statements, is_lent_temp_token, lent_temp_token_key } :: import("../../expr_info.yo");
+{ ExprInfo, has_any_control_flow, expr_info_consumed_variable_drop_expressions, emitted_block_statements, is_lent_temp_token, lent_temp_token_key } :: import("../../expr-info.yo");
 { is_unit_type } :: import("../../types/guards.yo");
 { is_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
 { take_short_circuit_handled, FunctionGenerationContext, sm_owns_fnonce_captures } :: import("../functions/context.yo");
 { _get_deferred_drop_target_variable } :: import("./return.yo");
-{ _call_generate_expr, chain_leaf_pointer_code } :: import("./_expr.yo");
-{ _looks_like_minted_temp, arm_value_with_dups } :: import("./drop_dup.yo");
+{ _call_generate_expr, chain_leaf_pointer_code } :: import("./dispatch.yo");
+{ _looks_like_minted_temp, arm_value_with_dups } :: import("./drop-dup.yo");
 { declare_c_var_name, get_type_string, is_deferred_drop_for_closure_capture, get_deferred_drop_target_atom_name, sanitize_for_c_identifier, note_line_position, scope_stack_contains } :: import("../utils/index.yo");
 { replace } :: import("std/mem");
 (g_debug_scope_drops : bool) = debug_knob(`YO_DEBUG_SCOPE_DROPS`).is_some();
@@ -96,7 +96,7 @@ _emit_deferred_drops :: (fn(ei : &ExprInfo, indent : &String, context : &mut Fun
 /// the emitted-once guard, closure-capture skip, the undeclared-temp and
 /// closed-scope checks, and the short-circuit branch skip.
 _emit_one_deferred_drop :: (fn(drop_expr : &AstExpr, ei : &ExprInfo, indent : String, context : &mut FunctionGenerationContext) -> unit)({
-  // Emitted-once guard — same contract as drop_dup.yo's
+  // Emitted-once guard — same contract as drop-dup.yo's
   // generate_deferred_drop_expressions (see the long note there):
   // a shared single-expression begin node is flushed from several
   // points, and this set is what keeps each drop to one emission
@@ -109,7 +109,7 @@ _emit_one_deferred_drop :: (fn(drop_expr : &AstExpr, ei : &ExprInfo, indent : St
   if(!context.emitted_deferred_drop_ids.contains(ast_expr_id(drop_expr)), {
     skip_capture := is_deferred_drop_for_closure_capture(drop_expr, &context.current_closure_captures, sm_owns_fnonce_captures(context));
     // Skip a drop whose target TEMP was never emitted as a C
-    // declaration — same gate as drop_dup.yo's
+    // declaration — same gate as drop-dup.yo's
     // generate_deferred_drop_expressions (an arm/expression whose C
     // emission was elided leaves its eval-minted temp undeclared while
     // the deferred-drop survives on the scope's ExprInfo; emitting
@@ -133,7 +133,7 @@ _emit_one_deferred_drop :: (fn(drop_expr : &AstExpr, ei : &ExprInfo, indent : St
     // the same signal atom.yo's loop-exit emitter uses. The value
     // was released inside that block (a three-argument while's
     // assignment step saves and releases its replaced value inside
-    // the loop, src/codegen/exprs/while_loop.yo) or died with it.
+    // the loop, src/codegen/exprs/while-loop.yo) or died with it.
     closed_scope_temp := match(
       get_deferred_drop_target_atom_name(drop_expr),
       .Some(nm2) => {
@@ -148,7 +148,7 @@ _emit_one_deferred_drop :: (fn(drop_expr : &AstExpr, ei : &ExprInfo, indent : St
         drop_code := _call_generate_expr(drop_expr, indent.clone(), context);
         // Record unconditionally, emit conditionally — the drop
         // generator writes a multi-line enum/Option drop itself and
-        // returns "" (see drop_dup.yo's generate_deferred_drop_expressions).
+        // returns "" (see drop-dup.yo's generate_deferred_drop_expressions).
         context.emitted_deferred_drop_ids.insert(ast_expr_id(drop_expr));
         if(drop_code.len() > usize(0), {
           line := indent.clone();

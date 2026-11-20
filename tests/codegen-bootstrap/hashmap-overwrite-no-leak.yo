@@ -1,0 +1,49 @@
+// Regression for the stage-2 self-compile OOM: `HashMap.set` on an EXISTING
+// key must free the replaced value. The self-hosted codegen leaked it because
+// `_find_bucket`'s `bucket := (data_ptr &+ i).*` (a value-struct copy holding
+// an RC field) was neither dup'd at the copy site nor dropped on its early
+// `return .Some(idx)` path — so every probe hit stole/leaked the map's own
+// reference. Since the compiler's `expr_info_table_set` overwrites the same
+// expr-ids millions of times during def-time re-eval, that per-overwrite leak
+// is what ballooned `s2 compile src/main.yo` until it OOM-killed.
+//
+// Fix (codegen/exprs/init-assignment.yo): register the scalar `:=` local's C
+// name via `get_variable_type_string` (so its scope/early-return drop is not
+// skipped) AND dup the raw-deref struct copy at the copy site
+// (`generate_dup_code_for_value`), matching TS.
+//
+// Observable: `Node`'s `Drop` counts the nodes dropped against the ones the
+// loop makes. With the fix exactly one is live after the overwrite loop (the
+// map holds ONE value); the pre-fix leak left one live Node per overwrite and
+// trips the assert (non-zero exit in the corpus harness).
+{ assert } :: import("std/assert");
+{ println } :: import("std/fmt");
+{ HashMap } :: import("std/collections/hash-map");
+
+(mut(g_dropped) : i64) = i64(0);
+(mut(g_made) : i64) = i64(0);
+Node :: struct(x : i32, next : Option(Rc(Self)));
+impl(
+  Node,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_dropped = (g_dropped + i64(1));
+    })
+  )
+);
+
+main :: (fn() -> unit)({
+  mut(m) := HashMap(i32, Node).new();
+  (mut(j) : i32) = i32(0);
+  while(j < i32(64), {
+    m.insert(i32(7), Node(x : j, next : .None));
+    g_made = (g_made + i64(1));
+    j = (j + i32(1));
+  });
+  // Map holds exactly one entry (key 7); every replaced Node must have been
+  // dropped.
+  assert((g_made - g_dropped) == i64(1), "hashmap same-key overwrite leaked the replaced value");
+  assert(m.len() == usize(1), "map holds exactly one entry");
+  println(`hashmap-overwrite ok`);
+});
+export(main);

@@ -20,7 +20,7 @@
 //!     so we read that.
 //!   * Options are passed as a `FlowOptions` object.
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 {
   AstExpr,
   ast_expr_token,
@@ -38,7 +38,7 @@
   ast_expr_to_string
 } :: import("../expr.yo");
 { ExprInfo, expr_info_table_get, has_any_control_flow, lookup_method_callee_type, expr_info_closure_function_value }
-:: import("../expr_info.yo");
+:: import("../expr-info.yo");
 { Variable, Environment, get_variables_from_env, snapshot_env, variable_value_type } :: import("../env.yo");
 { format_error_message, error_message_text, YoError } :: import("../error.yo");
 { Exception, AnyError } :: import("std/error");
@@ -47,11 +47,11 @@
 { TypeValue, TypeValueNode, no_types, no_flags, t_refine_inner, slot_pointee_at, fn_param_mut_ref_flags, fn_result_is_ref, fn_result_pointee } :: import("./definitions.yo");
 { is_function_type, is_pointer_type, is_counted_handle_type, is_reference_enum_type, is_weak_handle_type, unique_box_payload_type } :: import("./guards.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("./creators.yo");
-{ type_key } :: import("./type_key.yo");
-{ HashSet } :: import("std/collections/hash_set");
+{ type_key } :: import("./type-key.yo");
+{ HashSet } :: import("std/collections/hash-set");
 { type_to_string } :: import("./string.yo");
 { eprintln } :: import("std/fmt");
-{ expr_info_adopt_env, expr_info_capture_type, expr_info_index_trait_ptr_type, expr_info_is_anonymous_function_definition } :: import("../expr_info.yo");
+{ expr_info_adopt_env, expr_info_capture_type, expr_info_index_trait_ptr_type, expr_info_is_anonymous_function_definition } :: import("../expr-info.yo");
 { RefCell } :: import("std/sync/refcell");
 /// (seed window) Concrete variants of refcell.yo's fillers: a fn value
 /// generic over its element keeps the variable abstract through the slot, so
@@ -210,7 +210,7 @@ FlowOptions :: struct(
   /// Accept a same-frame (non-module) local (the assignment-target checks).
   /// Bounded by `max_local_frame_level` when that is `.Some`. (`inout(name)
   /// = …` bindings do not use this rule: their place shape is validated in
-  /// `_evaluate_inout_local_binding`, evaluator/exprs/initialization_assignment.yo.)
+  /// `_evaluate_inout_local_binding`, evaluator/exprs/initialization-assignment.yo.)
   allow_same_frame_local : bool,
   /// Accept a parameter of the enclosing function (slice-flowability).
   allow_parameter_source : bool,
@@ -1258,7 +1258,7 @@ _reject_if_container_reachable :: (
         expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&other)),
         .Some(oi) => {
           // The anonymous-fn eval does NOT set closure_function_value (documented
-          // convention in anonymous_function.yo — downstream must fall
+          // convention in anonymous-function.yo — downstream must fall
           // back); capture_type and closure_function_value are stamped
           // under the SAME closure-creation gate, so on an anon-fn ExprInfo
           // capture_type-is-set is the equivalent signal.

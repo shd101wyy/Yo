@@ -20,7 +20,7 @@ import("std/fmt");
   BK_YO_CELL,
   BK_YO_ATOMIC_CELL
 } :: import("../../expr.yo");
-{ new_expr_info, expr_info_table_set, expr_info_table_get, expr_info_adopt_env } :: import("../../expr_info.yo");
+{ new_expr_info, expr_info_table_set, expr_info_table_get, expr_info_adopt_env } :: import("../../expr-info.yo");
 { Environment, env_adopt } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, EvalValueNode, create_type_value } :: import("../../value.yo");
@@ -39,16 +39,16 @@ import("std/fmt");
 { eprintln } :: import("std/fmt");
 { register_struct_final, _patch_self_shell } :: import("../../types/creators.yo");
 { _type_reaches_root_by_value } :: import("./enum.yo");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 { auto_derive_traits_for_struct_type, enforce_atomic_object_send } :: import("./utils.yo");
 { fields_have_incompatible_contexts, type_is_control_bound, control_bound_field_message, type_pointee_second_class, type_contains_some_type, type_is_sized, unsized_by_value_error } :: import("../../types/utils.yo");
 { register_type_decl_module } :: import("../../types/guards.yo");
 { reject_second_class_escape } :: import("../utils.yo");
-{ type_key } :: import("../../types/type_key.yo");
-{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
+{ type_key } :: import("../../types/type-key.yo");
+{ is_implicitly_unsafe_capable_file } :: import("../memory-safety.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ type_is_comptime_only_full } :: import("../trait_checking.yo");
-{ _ctfe_args_equal } :: import("../calls/comptime_fn.yo");
+{ type_is_comptime_only_full } :: import("../trait-checking.yo");
+{ _ctfe_args_equal } :: import("../calls/comptime-fn.yo");
 { RefCell } :: import("std/sync/refcell");
 /// (seed window) Concrete per-payload variants of refcell.yo's generic
 /// fillers: a fn value generic over its element keeps the variable abstract
@@ -133,7 +133,7 @@ evaluate_struct_type :: (
   old_self_type := ctx.self_type.clone();
   ctx.self_type = Option(TypeValue).Some(prelim_ty);
   // RC functions (___drop/___dup) for reference-semantics structs are lowered
-  // DIRECTLY in codegen (drop_dup.yo: `is_reference_struct_type` →
+  // DIRECTLY in codegen (drop-dup.yo: `is_reference_struct_type` →
   // `__yo_decr_rc`/`__yo_incr_rc`). Evaluator-side ___drop/___dup method
   // synthesis does not apply: it would need to mutate
   // `SelfType.trait.fields`, and the TypeValue is a value enum with NO
@@ -378,7 +378,7 @@ evaluate_struct_type :: (
 _CellInstance :: struct(is_atomic : bool, payload : TypeValue, id : String);
 derive(_CellInstance, Clone);
 /// Every cell instantiation so far, in creation order. Global for the reason
-/// the CTFE memo is (`g_comptime_fn_caches`, calls/comptime_fn.yo): a module
+/// the CTFE memo is (`g_comptime_fn_caches`, calls/comptime-fn.yo): a module
 /// loaded on demand evaluates in a fresh context, and it must still name the
 /// same cell type.
 (g_cell_instances : RefCell(ArrayList(_CellInstance))) = RefCell(ArrayList(_CellInstance)).new(ArrayList(_CellInstance).new());

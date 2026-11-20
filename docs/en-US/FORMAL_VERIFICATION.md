@@ -325,7 +325,7 @@ index, as in Creusot. The copy loop needs no index of its own:
 
 ```yo
 pragma(Pragma.Verify);
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 
 copy :: (fn(xs : ArrayList(i32), ensures(seq_of(r) == seq_of(xs))) -> (r : ArrayList(i32)))({
   mut(out) := ArrayList(i32).new();
@@ -786,7 +786,7 @@ the array's N elements into a ghost Multiset (elem→count), so
 ms_count(ms_of(old(s)), x))` — plain array congruence once N unrolls.
 The V5 exit fixture — an in-place insertion sort over `Array(i64, 8)`
 proving sortedness AND the permutation through those two quantified
-invariants — is `tests/spec/fixtures/valid/spec_insertion_sort.yo`.
+invariants — is `tests/spec/fixtures/valid/spec-insertion-sort.yo`.
 
 ## The solver
 
@@ -841,7 +841,7 @@ there proves, and each negative fixture next to it has a deliberately
 bugged twin that must refute:
 
 ```bash
-yo verify ./tests/spec/verify_straight_line.test.yo
+yo verify ./tests/spec/verify-straight-line.test.yo
 ```
 
 To make proofs part of a project's build rather than a command someone

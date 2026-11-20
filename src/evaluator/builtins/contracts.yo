@@ -9,7 +9,7 @@
 //! Also here: `wrap_function_body_with_contracts` — the signature→assert
 //! lowering that turns `requires(...)` / `ensures(...)` in a function SIGNATURE
 //! into runtime `assert(...)` / `comptime_assert(...)` calls wrapping the body
-//! (wired from calls/function_type.yo). The runtime assert callee is the
+//! (wired from calls/function-type.yo). The runtime assert callee is the
 //! dependency-free `cond(pred => (), true => __yo_panic(msg))` guard — see `_build_assert_call`.
 { String } :: import("std/string");
 { StringBuilder, eprintln } :: import("std/fmt");
@@ -49,21 +49,21 @@
   make_err_expr
 } :: import("../../expr.yo");
 { ExprInfo, ExprInfoTable, new_expr_info, expr_info_table_get, expr_info_table_set }
-:: import("../../expr_info.yo");
+:: import("../../expr-info.yo");
 { snapshot_env, Environment, add_variable_to_env, variable_set_is_ref, variable_set_is_imm_borrow } :: import("../../env.yo");
 { EvalContext, note_unlabeled_ensures_atom, is_module_ghost_fn_def } :: import("../context.yo");
 { EvalValue, EvalValueNode, create_unknown_val } :: import("../../value.yo");
 { TypeValue, TypeValueNode, t_refine_inner, slot_pointee_at, t_slot_pointee, t_slot_is_borrow, t_slot_is_mut_ref } :: import("../../types/definitions.yo");
-{ get_func_type } :: import("../../function_value.yo");
+{ get_func_type } :: import("../../function-value.yo");
 { t_type, t_unit, t_bool, t_i64, t_u8 } :: import("../../types/creators.yo");
 { Token, TokenKind, TokenData } :: import("../../token.yo");
-{ file_has_pragma } :: import("../memory_safety.yo");
-{ hook_register_refine_annotation } :: import("../values/type_trait_methods.yo");
-{ ArrayList } :: import("std/collections/array_list");
+{ file_has_pragma } :: import("../memory-safety.yo");
+{ hook_register_refine_annotation } :: import("../values/type-trait-methods.yo");
+{ ArrayList } :: import("std/collections/array-list");
 // V6 task 1: the trait-method contract tables (inheritance + variance).
 // The func-contract side tables are reached through HOOKS in the same
 // registry — types/function.yo is not importable here (it pulls
-// trait_checking.yo → impl.yo, which imports this module).
+// trait-checking.yo → impl.yo, which imports this module).
 {
   trait_method_requires,
   trait_method_ensures,
@@ -72,15 +72,15 @@
   hook_func_ensures,
   hook_func_return_label,
   hook_register_func_contracts
-} :: import("../values/type_trait_methods.yo");
-{ HashMap } :: import("std/collections/hash_map");
-{ HashSet } :: import("std/collections/hash_set");
+} :: import("../values/type-trait-methods.yo");
+{ HashMap } :: import("std/collections/hash-map");
+{ HashSet } :: import("std/collections/hash-set");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { display_module_path, canonical_module_path, debug_knob } :: import("../../utils.yo");
 { Exception } :: import("std/error");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { assert, panic } :: import("std/assert");
-{ expr_info_adopt_env, expr_info_macro_expansion, lookup_method_callee_value, note_stripped_statement, is_stripped_statement } :: import("../../expr_info.yo");
+{ expr_info_adopt_env, expr_info_macro_expansion, lookup_method_callee_value, note_stripped_statement, is_stripped_statement } :: import("../../expr-info.yo");
 { RefCell } :: import("std/sync/refcell");
 /// (seed window) Concrete variants of refcell.yo's fillers: a fn value
 /// generic over its element keeps the variable abstract through the slot, so
@@ -298,7 +298,7 @@ BF_SET_CONTAINS :: "set_contains";
 /// for spec use ONLY (contract clauses, ghost code, ghost_fn bodies, and —
 /// in VERIFICATION targets — assert predicates) in EVERY mode: the binding
 /// never reaches codegen, and ordinary code reading it gets the escape
-/// error (identifer_and_operator.yo's ghost-name check). Without this, a
+/// error (identifer-and-operator.yo's ghost-name check). Without this, a
 /// runtime-mode assert reading a ghost binding emitted an UNDECLARED C
 /// identifier — the evaluator resolved the name (Phase 0's marker bound it)
 /// while codegen erased the binding. Other `ghost(...)` shapes keep the
@@ -348,7 +348,7 @@ evaluate_ghost :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContex
               ast_expr_token(&first)
             );
             // Mark the RESOLVED Variable itself as the spec-only binding —
-            // the escape gate (identifer_and_operator.yo) reads this flag,
+            // the escape gate (identifer-and-operator.yo) reads this flag,
             // NOT a process-global name set. A global name set rejected an
             // unrelated binding that merely shares the name in another
             // module (or another function of the same module): loading a
@@ -1698,7 +1698,7 @@ take_verify_tasks :: (fn() -> ArrayList(VerifyTask))({
 ///      every later consumer — a dispatch call site's requires/ensures
 ///      assumptions (`_callee_call_term` reads the callee FuncVal's id) —
 ///      carries them. The lambda-written impl shape already gets this copy
-///      through its expected type's `origin_id` (anonymous_function.yo);
+///      through its expected type's `origin_id` (anonymous-function.yo);
 ///      this is the named/colon-pair twin.
 ///   2. a SYNTHETIC verify task proves the impl's BODY against the trait's
 ///      contracts — the method's own task registered at its application,

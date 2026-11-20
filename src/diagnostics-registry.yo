@@ -1,0 +1,1318 @@
+//! src/diagnostics-registry — the bilingual explanation registry for Yo's
+//! diagnostic codes (P2, plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md §5–§6).
+//!
+//! Every entry carries English AND Simplified Chinese prose from day one
+//! (maintainer decision, §11.3): `title`/`title_zh`, `summary`/`summary_zh`,
+//! `explanation`/`explanation_zh`, and the example's `why`/`why_zh` — the
+//! bad/good snippets themselves are language-neutral. The registry ships
+//! inside the binary, so `yo explain` works offline; codes are never
+//! renumbered once published.
+//!
+//! The registry test (tests/internal/diagnostics-registry.test.yo) enforces
+//! completeness: every code the classifier can emit has an entry, no prose
+//! field is empty in either language, and every entry has its example pair.
+{ String } :: import("std/string");
+import("std/fmt");
+{ ArrayList } :: import("std/collections/array-list");
+json :: import("std/encoding/json");
+{ JsonValue } :: import("std/encoding/json");
+{
+  E_UNEXPECTED_TOKEN,
+  E_EXPECTED_TOKEN,
+  E_ADJACENT_OPERATORS,
+  E_UNTERMINATED,
+  E_UNEXPECTED_CHARACTER,
+  E_UNKNOWN_OPERATOR,
+  E_STRUCT_LITERAL_VS_BLOCK,
+  E_CALL_SYNTAX,
+  E_DELETED_SPELLING,
+  E_VARIABLE_NOT_FOUND,
+  E_ENUM_VARIANT_NOT_FOUND,
+  E_MODULE_FIELD_NOT_FOUND,
+  E_FIELD_NOT_FOUND,
+  E_NOT_DEFINED,
+  E_PRIVATE_MEMBER,
+  E_INCOMPATIBLE_TYPES,
+  E_TRAIT_NOT_IMPLEMENTED,
+  E_ARGUMENT_COUNT_MISMATCH,
+  E_RETURN_TYPE_MISMATCH,
+  E_TYPE_MISMATCH,
+  E_NOT_CALLABLE,
+  E_MATCH_NOT_EXHAUSTIVE,
+  E_MATCH_UNREACHABLE_ARM,
+  E_INVALID_PATTERN,
+  E_USE_OF_MOVED_VALUE,
+  E_CANNOT_REASSIGN,
+  E_MAYBE_UNINITIALIZED,
+  E_NO_MATCHING_CALL,
+  E_OPTIMISTIC_PANIC,
+  E_CONFLICTING_IMPL,
+  E_CANNOT_INFER,
+  E_DYN_UNCALLABLE,
+  E_ARGUMENT_LABEL_MISMATCH,
+  E_AMBIGUOUS_METHOD,
+  E_DISCARDED_MUST_USE,
+  E_BARE_CALLABLE_INTO_DYN,
+  E_UNSIZED_BY_VALUE,
+  E_UNSIZING_A_VALUE,
+  E_DEREF_OF_VALUE,
+  E_DEREF_IMPL_SIZED_TARGET,
+  E_NEVER_FULLY_EVALUATED,
+  E_FORWARD_REFERENCE,
+  E_MOVED_ON_SOME_PATHS,
+  E_WRITE_THROUGH_BORROW,
+  E_BORROW_ESCAPES,
+  E_BORROW_CONFLICT,
+  E_LOCAL_BORROW_CONFLICT,
+  E_LOCAL_BORROW_ESCAPES,
+  E_CLOSURE_TRAIT_TOO_WEAK,
+  E_BORROW_MARKER_MISMATCH,
+  E_EXPLICIT_DESTRUCTOR_CALL,
+  E_GLOBAL_LENT_TO_CALL,
+  E_IMMUTABLE_BINDING_WRITE,
+  E_COMPTIME_BINDING_RUNTIME_WRITE,
+  E_RC_PAYLOAD_WRITE,
+  E_DEREF_OF_BORROW,
+  E_ADDR_OF_BORROW_PARAM,
+  E_ORIGIN_NOT_DECLARED,
+  E_ORIGIN_MISMATCH,
+  E_ORIGIN_NAMES_ITSELF,
+  E_REFERENCE_READ_WITHOUT_DEREF,
+  E_COMPTIME_ARGUMENT,
+  E_COMPTIME_OVERFLOW,
+  E_COMPTIME_DIVISION_BY_ZERO,
+  E_COMPTIME_RUNTIME_BINDING,
+  E_COMPTIME_PARAM_DEFAULT,
+  E_INTERNAL_COMPILER_ERROR,
+  E_DEP_FETCH_FAILED,
+  E_MANIFEST_NOT_FOUND,
+  E_LOCK_MISMATCH,
+  E_STORE_INTEGRITY_MISMATCH,
+  E_NO_MATCHING_VERSION,
+  E_INVALID_PACKAGE_NAME,
+  suggest_name
+} :: import("./diagnostics.yo");
+/// One registry entry: a code, its bilingual prose, and one bad→good
+/// example pair (snippets are language-neutral; the `why` is bilingual).
+Explain :: struct(
+  code : String,
+  title : String,
+  title_zh : String,
+  summary : String,
+  summary_zh : String,
+  explanation : String,
+  explanation_zh : String,
+  bad : String,
+  good : String,
+  why : String,
+  why_zh : String
+);
+derive(Explain, Clone);
+_mk_explain :: (
+  fn(
+    code : str,
+    title : str,
+    title_zh : str,
+    summary : str,
+    summary_zh : str,
+    explanation : str,
+    explanation_zh : str,
+    bad : str,
+    good : str,
+    why : str,
+    why_zh : str
+  ) -> Explain
+)(
+  Explain(
+    code : String.from(code),
+    title : String.from(title),
+    title_zh : String.from(title_zh),
+    summary : String.from(summary),
+    summary_zh : String.from(summary_zh),
+    explanation : String.from(explanation),
+    explanation_zh : String.from(explanation_zh),
+    bad : String.from(bad),
+    good : String.from(good),
+    why : String.from(why),
+    why_zh : String.from(why_zh)
+  )
+);
+/// The registry, one entry per diagnostic code. Literals live inside this
+/// function on purpose (module-level backtick String literals are not
+/// comptime values — see the yo-syntax notes).
+registry_entries :: (fn() -> ArrayList(Explain))({
+  out := ArrayList(Explain).new();
+  out.push(
+    _mk_explain(
+      E_UNEXPECTED_TOKEN,
+      "unexpected token",
+      "意外的记号",
+      "The parser met a token it cannot use at this position.",
+      "解析器在此位置遇到了无法使用的记号。",
+      "The grammar expects a specific shape here and the token does not fit it. Read the caret line: the offending token is underlined. Common causes: a stray `;` or `,`, a missing operator, or an expression that ended too early.",
+      "此处的语法有特定的形状要求，而这个记号不符合。查看插入符号行：出错的记号已被标出。常见原因：多余的分号或逗号、缺少运算符，或表达式过早结束。",
+      "main :: (fn() -> unit)({\n  _x := (i32(1) + ;\n});\nexport(main);\n",
+      "main :: (fn() -> unit)({\n  _x := (i32(1) + i32(2));\n});\nexport(main);\n",
+      "The `;` cannot follow `+` — the right operand is missing.",
+      "`;` 不能紧跟在 `+` 之后 —— 缺少右侧操作数。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_EXPECTED_TOKEN,
+      "expected a specific token",
+      "缺少特定的记号",
+      "A delimiter or keyword is missing from the surrounding construct.",
+      "所在构造缺少一个分隔符或关键字。",
+      "Yo has no operator precedence, so grouping is explicit: every `( ... )`, `[ ... ]` and `{ ...; ... }` must close with the matching token, and calls need their argument list complete. The message names what was expected (for example `expected )`).",
+      "Yo 没有运算符优先级，因此分组是完全显式的：每个 `( ... )`、`[ ... ]` 和 `{ ...; ... }` 都必须以匹配的记号闭合，调用也需要完整的参数列表。错误信息会指出期望的内容（例如 `expected )`）。",
+      "P :: struct(x : i32;\nmain :: (fn() -> unit)(());\nexport(main);\n",
+      "P :: struct(x : i32);\nmain :: (fn() -> unit)(());\nexport(main);\n",
+      "The `(` of `struct(` is never closed: the `;` comes before its `)`.",
+      "`struct(` 的 `(` 没有闭合：`;` 出现在它的 `)` 之前。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_ADJACENT_OPERATORS,
+      "adjacent different operators need parentheses",
+      "相邻的不同运算符需要括号",
+      "Two different operators sit next to each other with no grouping.",
+      "两个不同的运算符相邻出现且没有分组。",
+      "Yo deliberately has NO operator precedence. A chain of the SAME operator is fine (`a + b + c`), but as soon as two DIFFERENT operators are adjacent you must choose the grouping explicitly with parentheses. When the mix has exactly one canonical grouping (`x := a + b`, `x : i32 = 5`, an annotated parameter `x : i32 => x`) the message names it; a mix with two real groupings, like the one below, gets no hint.",
+      "Yo 刻意不设运算符优先级。同一个运算符的链没有问题（`a + b + c`），但一旦两个不同的运算符相邻，就必须用括号明确指定分组。当混用只有一种规范分组时（`x := a + b`、`x : i32 = 5`、带标注的参数 `x : i32 => x`），错误信息会指明它；有两种真实分组的混用（如下例）不给提示。",
+      "y :: (fn(a : i32, b : i32, c : i32) -> i32)(a + b * c);\n",
+      "y :: (fn(a : i32, b : i32, c : i32) -> i32)(a + (b * c));\n",
+      "Yo has no precedence: `+` next to `*` must say which binds first.",
+      "Yo 没有优先级：`+` 与 `*` 相邻时必须写明先算哪个。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_UNTERMINATED,
+      "unterminated literal or comment",
+      "未闭合的字面量或注释",
+      "A string, block comment, template string, or char literal was never closed.",
+      "字符串、块注释、模板字符串或字符字面量没有闭合。",
+      "A \"\" string cannot span lines: a line break (or end of file) before the closing quote is unterminated — use a backtick template for multiline text. For comments, templates, and char literals, the lexer reached end of file while still inside the construct: find its opening delimiter (`/*`, a backtick, a quote) and close it.",
+      "\"\" 字符串不能跨行：闭合引号之前出现换行（或文件结束）即为未闭合 —— 多行文本请使用反引号模板。对于注释、模板与字符字面量，词法分析器在该构造内部就到达了文件末尾：找到它的起始定界符（`/*`、反引号、引号）并将其闭合。",
+      "s := \"line1\n",
+      "s := \"line1\";\n",
+      "The closing quote is missing; a `\"` string ends on its own line.",
+      "缺少闭合引号；`\"` 字符串必须在同一行结束。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_UNEXPECTED_CHARACTER,
+      "unexpected character",
+      "意外字符",
+      "The lexer met a character that cannot start any Yo token.",
+      "词法分析器遇到了不能作为任何 Yo 记号开头的字符。",
+      "This is usually a full-width punctuation mark from an IME (，；（）) or an invisible control character. Replace it with the ASCII equivalent.",
+      "这通常来自输入法的全角标点（，；（））或不可见的控制字符。请替换为对应的 ASCII 字符。",
+      "x := i32(1);\ny := x \u0001 x;\n",
+      "x := i32(1);\ny := (x + x);\n",
+      "A control character (U+0001) sits between the operands — pasted or corrupted text. Printable non-ASCII characters are identifier or operator characters and report a different code.",
+      "操作数之间有一个控制字符（U+0001）—— 粘贴或损坏的文本。可打印的非 ASCII 字符属于标识符或运算符字符，会报告别的错误码。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_UNKNOWN_OPERATOR,
+      "unknown operator run",
+      "未知的运算符序列",
+      "A run of operator characters is not any operator Yo knows.",
+      "一串运算符字符不是 Yo 认识的任何运算符。",
+      "Yo has a CLOSED operator set (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md): operator characters are split greedily against the fixed table, and an unknown run is a lex error. Separate the operators with spaces or parentheses, or use the named method.",
+      "Yo 的运算符集合是封闭的（plans/reference/OPERATOR_SET_AND_PRECEDENCE.md）：运算符字符会按固定表贪婪切分，未知的序列是词法错误。请用空格或括号分隔运算符，或改用命名方法。",
+      "x := (i32(1) \\ i32(2));\n",
+      "x := (i32(1) / i32(2));\n",
+      "`\\` is not an operator: Yo's operator set is closed (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md).",
+      "`\\` 不是运算符：Yo 的运算符集合是封闭的（plans/reference/OPERATOR_SET_AND_PRECEDENCE.md）。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_STRUCT_LITERAL_VS_BLOCK,
+      "a bare { ... } in expression position is a block",
+      "表达式位置的裸 { ... } 是块",
+      "A brace group with a `,` or a `label : value` pair is not a record value; a record literal is written `.{ ... }`.",
+      "带 `,` 或 `label : value` 对的花括号组不是记录值；记录字面量写作 `.{ ... }`。",
+      "`.{ ... }` builds a record, `{ names }` on a binding side picks fields, and every other `{ ... }` is a block: `{ e }` yields `e` and `{}` is unit (plans/reference/BRACE_BLOCKS.md, since v0.2.78). A `,` or a `label : value` pair directly inside a bare expression brace is this error, and `yo fix` inserts the dot. A dot on the binding side (`.{ a } := s`, `.V(.{ x })` in a pattern) is this error too, and `yo fix` deletes it; `.{ a; b }` (a dotted block) and `.{ 1, 2 }` (a tuple is `(1, 2)`) are as well. Source written before v0.2.78 migrates with `yo version install 0.2.78 && yo fix <path> --migrate record-literal`, then upgrades.",
+      "`.{ ... }` 构造记录，绑定一侧的 `{ names }` 选取字段，其余所有 `{ ... }` 都是块：`{ e }` 的值是 `e`，`{}` 是 unit（plans/reference/BRACE_BLOCKS.md，自 v0.2.78 起）。裸表达式花括号内直接出现 `,` 或 `label : value` 对就是这个错误，`yo fix` 会补上点。绑定一侧带点（`.{ a } := s`、模式中的 `.V(.{ x })`）也是这个错误，`yo fix` 会删掉点；带点的块 `.{ a; b }` 和 `.{ 1, 2 }`（元组写作 `(1, 2)`）同样如此。v0.2.78 之前写成的源码用 `yo version install 0.2.78 && yo fix <path> --migrate record-literal` 迁移，之后再升级。",
+      "main :: (fn() -> unit)({\n  p := { x : i32(1), y : i32(2) };\n  _x := p.x;\n});\nexport(main);\n",
+      "main :: (fn() -> unit)({\n  p := .{ x : i32(1), y : i32(2) };\n  _x := p.x;\n});\nexport(main);\n",
+      "Without the dot the braces are a block, and a block separates statements with `;`. `yo fix` inserts the dot: the record `.{ x : i32(1), y : i32(2) }`.",
+      "没有点时花括号是块，而块用 `;` 分隔语句。`yo fix` 会补上点：记录 `.{ x : i32(1), y : i32(2) }`。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_CALL_SYNTAX,
+      "call syntax",
+      "调用语法",
+      "Function calls need immediate parentheses with no space before them.",
+      "函数调用的圆括号必须紧跟函数名，前面不能有空格。",
+      "Calls are `f(a, b)` — never `f (a, b)` and never paren-less. The no-whitespace rule is what lets the parser tell a call from an expression list, and it applies to every keyword call too (`return(x)`, not `return (x)`).",
+      "调用写作 `f(a, b)` —— 不能是 `f (a, b)`，也不能省略括号。无空格规则让解析器能够区分调用与表达式列表，它同样适用于所有关键字调用（`return(x)` 而非 `return (x)`）。",
+      "helper :: (fn() -> unit)(());\nmain :: (fn() -> unit)({\n  helper ();\n});\nexport(main);\n",
+      "helper :: (fn() -> unit)(());\nmain :: (fn() -> unit)({\n  helper();\n});\nexport(main);\n",
+      "The space before `(` makes `helper` a bare identifier followed by a parenthesised expression.",
+      "`(` 前的空格让 `helper` 成为一个裸标识符，后面跟着一个括号表达式。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_DELETED_SPELLING,
+      "deleted spelling",
+      "已删除的写法",
+      "This spelling was deleted: a borrow is written with the sigil of the call site.",
+      "这种写法已被删除：借用使用与调用处相同的符号书写。",
+      "A borrow is spelled `x : &T` (read-only) or `x : &mut T` (exclusive) in every slot that holds one: a parameter, a receiver (`self : &Self`), a closure parameter, an `Fn(...)` slot, a local borrow (`y := &place`, `y := &mut place`), a capture list (`{ &y, z : &mut p }`) and the borrowed loop (`for(&mut xs, x => ...)`). The mode words `imm(x)`, `mut(x)` and the older `inout(x)` were deleted (plans/VALUES_BY_DEFAULT.md decision 42), as was `own(x)`, now `sink(x)`. The `ref(...)` and `atomic(...)` declaration forms went with the v0.2.79 parser drop: shared ownership is `Rc(S)` (an `Rc(RefCell(S))` when handles mutate the payload), atomic shared ownership `Arc(S)`, and a single-owner record a plain `struct(...)` with `self : &mut Self` mutators. Older code is upgraded on the last release that ships the migrations: `yo version install 0.2.76 && yo fix <path> --migrate borrow-spelling` (and `--migrate modes` for `own`), then step to the next release.",
+      "借用在每个容纳它的位置都写作 `x : &T`（只读）或 `x : &mut T`（独占）：参数、接收者（`self : &Self`）、闭包参数、`Fn(...)` 位置、局部借用（`y := &place`、`y := &mut place`）、捕获列表（`{ &y, z : &mut p }`）以及借用循环（`for(&mut xs, x => ...)`）。模式关键字 `imm(x)`、`mut(x)` 以及更早的 `inout(x)` 已被删除（plans/VALUES_BY_DEFAULT.md 决策 42），`own(x)` 也已删除，现写作 `sink(x)`。`ref(...)` 与 `atomic(...)` 声明形式随 v0.2.79 的解析器删除而移除：共享所有权写作 `Rc(S)`（句柄需要修改载荷时用 `Rc(RefCell(S))`），原子共享所有权写作 `Arc(S)`，单一所有者的记录用普通 `struct(...)` 加 `self : &mut Self` 的修改方法。旧代码请在最后一个携带这些迁移的版本上升级：`yo version install 0.2.76 && yo fix <path> --migrate borrow-spelling`（`own` 用 `--migrate modes`），之后再升级到下一个版本。",
+      "{ String } :: import(\"std/string\");\nlen_of :: (fn(imm(s) : String) -> usize)(s.len());\nexport(len_of);\n",
+      "{ String } :: import(\"std/string\");\nlen_of :: (fn(s : &String) -> usize)(s.len());\nexport(len_of);\n",
+      "`imm(s) : String` is the deleted mode-word spelling of the read-only borrow `s : &String`.",
+      "`imm(s) : String` 是只读借用 `s : &String` 已删除的模式关键字写法。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_VARIABLE_NOT_FOUND,
+      "name not found",
+      "找不到名称",
+      "No binding with this name is visible at this point.",
+      "此处没有可见的同名绑定。",
+      "Check the spelling first. Module-level `::` definitions and `impl` registrations are order-independent, so a helper defined below its caller is fine — but imports, pragmas and runtime bindings (`x := v`) are evaluated in order and must come before their first use. An identifier from another module needs the module imported, and a type from it is reached through the module value. The prelude's `rc(x)`, `box(x)` and `arc(x)` were deleted: they are `Rc.new(x)`, `Box.new(x)` and `Arc.new(x)`, and `yo fix` rewrites the name.",
+      "先检查拼写。模块级 `::` 定义与 `impl` 注册与顺序无关，辅助函数定义在调用者之后也没问题；但 import、pragma 和运行时绑定（`x := v`）按顺序求值，必须出现在首次使用之前。来自其他模块的标识符需要先 import，并通过模块值访问。prelude 的 `rc(x)`、`box(x)` 和 `arc(x)` 已被删除：它们分别是 `Rc.new(x)`、`Box.new(x)` 和 `Arc.new(x)`，`yo fix` 会改写这个名字。",
+      "main :: (fn() -> unit)({\n  helpr();\n});\nhelper :: (fn() -> unit)(());\n",
+      "main :: (fn() -> unit)({\n  helper();\n});\nhelper :: (fn() -> unit)(());\n",
+      "`helpr` is a typo — the binding is `helper` (its position below the caller is fine).",
+      "`helpr` 是拼写错误 —— 绑定名是 `helper`（它定义在调用者之后没有问题）。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_ENUM_VARIANT_NOT_FOUND,
+      "enum variant not found",
+      "找不到枚举变体",
+      "The enum has no variant with this name.",
+      "该枚举没有这个名字的变体。",
+      "Variants are constructed with a leading dot (`.Some(1)`). If the spelling is right, the name may live on a DIFFERENT enum than the one the type checker resolved — qualify it through the enum's module or bind the enum to a local first.",
+      "变体用前导点构造（`.Some(1)`）。如果拼写没错，这个名称可能在类型检查器解析到的另一个枚举上 —— 通过枚举所在模块限定它，或先把枚举绑定到局部变量。",
+      "Color :: enum(Red, Green);\nc := Color.Reed;\n",
+      "Color :: enum(Red, Green);\nc := Color.Red;\n",
+      "`Reed` is not a variant of `Color`; the help names the closest one.",
+      "`Reed` 不是 `Color` 的变体；帮助信息会指出最接近的那个。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_MODULE_FIELD_NOT_FOUND,
+      "module field not found",
+      "找不到模块字段",
+      "The imported module does not export a member with this name.",
+      "导入的模块没有导出这个名字的成员。",
+      "A module's public surface is exactly its `export(...)` list. Either the member is not exported, or it is spelled differently — check the module's export line, or open the module to see its names.",
+      "模块的公开接口就是它的 `export(...)` 列表。要么该成员未被导出，要么拼写不同 —— 查看模块的 export 行，或 open 该模块查看其名称。",
+      "fmt :: import(\"std/fmt\");\nmain :: (fn() -> unit)({\n  fmt.printlnn(\"x\");\n});\nexport(main);\n",
+      "fmt :: import(\"std/fmt\");\nmain :: (fn() -> unit)({\n  fmt.println(\"x\");\n});\nexport(main);\n",
+      "`std/fmt` exports `println`, not `printlnn`.",
+      "`std/fmt` 导出的是 `println`，不是 `printlnn`。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_FIELD_NOT_FOUND,
+      "no such field",
+      "没有这个字段",
+      "A field read names no field of the struct, tuple or union.",
+      "字段读取所用的名字不是该结构体、元组或联合体的字段。",
+      "The message lists the fields the type has and, when one is close, suggests it. A method is reached only through a call — `p.len()`, not `p.len` — so a name that is a method still needs its parentheses. On a `Rc` or `Arc` (a `Deref` type) a field the wrapper lacks is looked up on its payload (auto-dereference, `b.x` is `b.*.x`); when the payload lacks it too, the message names the payload and lists its fields.",
+      "错误信息会列出该类型拥有的字段，名字相近时还会给出建议。方法只能通过调用访问 —— 写 `p.len()`，而不是 `p.len` —— 所以即使这个名字是方法，也需要加上括号。对 `Rc` 或 `Arc`（`Deref` 类型），包装器没有的字段会到其载荷上查找（自动解引用，`b.x` 即 `b.*.x`）；若载荷也没有，错误信息会指出载荷并列出它的字段。",
+      "P :: struct(x : i32, y : i32);\nmain :: (fn() -> unit)({\n  p := P(x : i32(1), y : i32(2));\n  _z := p.xx;\n});\nexport(main);\n",
+      "P :: struct(x : i32, y : i32);\nmain :: (fn() -> unit)({\n  p := P(x : i32(1), y : i32(2));\n  _z := p.x;\n});\nexport(main);\n",
+      "`P` has the fields `x` and `y`; `xx` is neither.",
+      "`P` 的字段是 `x` 和 `y`；`xx` 两者都不是。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_NOT_DEFINED,
+      "variable used before initialization",
+      "变量在初始化前被使用",
+      "A binding declared without a value is read before any assignment.",
+      "一个未带值声明的绑定在任何赋值之前被读取。",
+      "`(v : T)` declares `v` with a type and no value so a later `v = …` can initialise it (a branch, a loop). Reading it before that assignment is an error. Give it a value at the declaration (`(v : T) = default`), or assign on every path before the read.",
+      "`(v : T)` 只带类型、不带值地声明 `v`，以便之后用 `v = …` 初始化（在分支或循环里）。在那次赋值之前读取它是错误。请在声明处就给值（`(v : T) = default`），或在读取前的每条路径上都赋值。",
+      "main :: (fn() -> unit)({\n  (v : i32);\n  _y := (v + i32(1));\n});\nexport(main);\n",
+      "main :: (fn() -> unit)({\n  (v : i32) = i32(0);\n  _y := (v + i32(1));\n});\nexport(main);\n",
+      "`(v : i32)` declares `v` without a value; reading it before any assignment is an error.",
+      "`(v : i32)` 只声明了 `v` 而没有赋值；在任何赋值之前读取它是错误。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_PRIVATE_MEMBER,
+      "private member used outside its module",
+      "在模块外使用了私有成员",
+      "A `_`-prefixed field or method is used outside the module that declares it.",
+      "以 `_` 开头的字段或方法在声明它的模块之外被使用。",
+      "A member whose name starts with `_` is private: it can be read, called, constructed or destructured only from the module that declares its type or impl, and from that module's same-directory siblings. Call a public method of the type instead, or add one that exposes what you need. A struct with any private field cannot be built or destructured by literal from outside.",
+      "名称以 `_` 开头的成员是私有的：只能在声明其类型或 impl 的模块及其同目录的兄弟模块中读取、调用、构造或解构。请改为调用该类型的公开方法，或新增一个公开方法来暴露所需内容。含有任何私有字段的结构体不能在外部通过字面量构造或解构。",
+      "{ ArrayList } :: import(\"std/collections/array-list\");\nmain :: (fn() -> unit)({\n  mut(xs) := ArrayList(i32).new();\n  xs._free_elements();\n});\nexport(main);\n",
+      "{ ArrayList } :: import(\"std/collections/array-list\");\nmain :: (fn() -> unit)({\n  mut(xs) := ArrayList(i32).new();\n  xs.push(i32(1));\n});\nexport(main);\n",
+      "`_free_elements` is underscore-private to `array-list.yo`; only that module (and its sibling tests) may call it.",
+      "`_free_elements` 是 `array-list.yo` 的下划线私有成员；只有该模块（及其同级测试）可以调用。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_INCOMPATIBLE_TYPES,
+      "incompatible types",
+      "类型不兼容",
+      "The value's type does not satisfy the expected type at this position.",
+      "值的类型不满足此位置期望的类型。",
+      "Yo checks structurally but nominally for enums/traits. Read the Expected/Given pair in the message: convert explicitly (`i32(x)`, `String.from(...)`), or fix the producing expression. Numeric types never implicitly convert — every width change is a named conversion. Nor does a reference to a box convert to a reference to what it owns: `&b` of a `Box(Dyn(T))` where a `&Dyn(T)` is taken lends the box, and the object is lent with `&b.*` (decision 49; v0.2.77 code is upgraded on v0.2.78 by `yo fix <path> --migrate unsized`, after v0.2.77's own `--migrate unsized`).",
+      "Yo 对结构体做结构化检查，但对枚举/trait 采用名义类型。请阅读错误信息中的 Expected/Given：显式转换（`i32(x)`、`String.from(...)`），或修正产生该值的表达式。数值类型从不隐式转换 —— 每次位宽改变都是一次显式命名转换。指向 box 的引用也不会转换为指向它所拥有对象的引用：在接受 `&Dyn(T)` 的位置写 `Box(Dyn(T))` 的 `&b` 借出的是 box，对象用 `&b.*` 借出（决策 49；v0.2.77 的代码先用 v0.2.77 自己的 `--migrate unsized`，再在 v0.2.78 上用 `yo fix <path> --migrate unsized` 升级）。",
+      "(x : i32) = i64(5);\n",
+      "(x : i32) = i32(5);\n",
+      "An `i64` value cannot initialise an `i32` binding; convert explicitly.",
+      "`i64` 值不能初始化 `i32` 绑定；请显式转换。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_TRAIT_NOT_IMPLEMENTED,
+      "required trait not implemented",
+      "未实现必需的 trait",
+      "A where-clause bound is not satisfied by the type.",
+      "类型不满足 where 子句的约束。",
+      "The call site requires `T <: SomeTrait` and the type's impls do not provide it. Add the `impl(T, SomeTrait(...))` near the type (and register it BEFORE first use — impls are bindings too), or relax the bound. If you wrote `must NOT implement`, this is its positive twin.",
+      "调用点要求 `T <: SomeTrait`，而该类型的 impl 没有提供。请在类型附近添加 `impl(T, SomeTrait(...))`（并在首次使用之前注册 —— impl 也是绑定），或放宽约束。",
+      "Point :: struct(x : i32);\nsame :: (fn(generic(T : Type), a : T, b : T, where(T <: Eq(T))) -> bool)(a == b);\n_r := same(Point(x : i32(1)), Point(x : i32(1)));\n",
+      "Point :: struct(x : i32);\nderive(Point, Eq(Point));\nsame :: (fn(generic(T : Type), a : T, b : T, where(T <: Eq(T))) -> bool)(a == b);\n_r := same(Point(x : i32(1)), Point(x : i32(1)));\n",
+      "The bound `T <: Eq(T)` needs an `Eq` impl for `Point`; `derive(Point, Eq(Point))` provides it.",
+      "约束 `T <: Eq(T)` 需要 `Point` 的 `Eq` impl；`derive(Point, Eq(Point))` 提供了它。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_ARGUMENT_COUNT_MISMATCH,
+      "argument count mismatch",
+      "参数数量不匹配",
+      "The call passes a different number of arguments than the callee takes.",
+      "调用传入的参数数量与被调用方不一致。",
+      "The message shows `expected N, got M` against the resolved callee, or names the one missing field of a constructor call (`P(x : 1)` for a `P` with fields `x` and `y`). Only a parameter or field declared with a default (`(x : T) ?= v`) may be left out. For closures note that the count includes every parameter, including the receiver for methods.",
+      "错误信息会针对解析到的被调用方显示 `expected N, got M`，或指出构造器调用缺少的那个字段（`P` 有字段 `x` 和 `y` 时的 `P(x : 1)`）。只有声明了默认值的参数或字段（`(x : T) ?= v`）可以省略。注意计数包括所有参数（方法的计数含接收者）。",
+      "f :: (fn(a : i32, b : i32) -> i32)(a + b);\nr := f(i32(1), i32(2), i32(3));\n",
+      "f :: (fn(a : i32, b : i32) -> i32)(a + b);\nr := f(i32(1), i32(2));\n",
+      "`f` takes two arguments; three were passed.",
+      "`f` 接受两个参数，却传了三个。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_RETURN_TYPE_MISMATCH,
+      "return type mismatch",
+      "返回类型不匹配",
+      "The value produced by the function does not match its declared return type.",
+      "函数产生的值与其声明的返回类型不匹配。",
+      "The declared `-> T` governs every exit path: the tail expression AND every explicit `return(...)`. Convert the value, or change the declaration. For functions returning `unit`, a trailing expression that is not unit is this same error.",
+      "声明的 `-> T` 约束所有退出路径：尾部表达式和每个显式 `return(...)`。请转换该值，或修改声明。对返回 `unit` 的函数，非 unit 的尾表达式也会触发此错误。",
+      "{ String } :: import(\"std/string\");\nf :: (fn() -> i32)(String.from(\"text\"));\n",
+      "{ String } :: import(\"std/string\");\nf :: (fn() -> String)(String.from(\"text\"));\n",
+      "The body is a `String`; the declaration says `i32`.",
+      "函数体是 `String`，而声明是 `i32`。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_TYPE_MISMATCH,
+      "type mismatch",
+      "类型不匹配",
+      "Two types that must agree do not.",
+      "两个必须一致的类型不一致。",
+      "A more general sibling of E0601: parameter types, struct field types, or trait obligations disagreed. The message names both sides — reconcile them with an explicit conversion or by fixing one side's type.",
+      "E0601 的更泛化形式：参数类型、结构体字段类型或 trait 义务不一致。错误信息会给出双方 —— 通过显式转换或修正一侧的类型使其一致。",
+      "xs := [i32(1), true];\n",
+      "xs := [i32(1), i32(2)];\n",
+      "An array literal is homogeneous: the second element must be an `i32` like the first.",
+      "数组字面量是同类的：第二个元素必须像第一个一样是 `i32`。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_NOT_CALLABLE,
+      "value is not callable",
+      "值不可调用",
+      "A value that is not a function is called, or is passed where a function is expected.",
+      "调用了一个不是函数的值，或把它传给了期望函数的位置。",
+      "Only a function value can be called: `n(1)` where `n : i32` has nothing to call, and a type is callable only as a conversion (`i32(x)`) or a constructor (`P(x : 1)`) — `bool(true)` is neither, write `true`. An `Impl(Fn(...))` parameter is a callable slot: the callee invokes it. Only a function value fits — a closure (`x => ...`), an arrow literal (`(x) -> ...`), a named `fn` passed by name, or another `Impl(Fn(...))` / `Dyn(Fn(...))` value. An integer, string, struct or enum has no code to jump to, so it is rejected here rather than lowered into a function-pointer call. The same rule applies to `io.async(...)`, whose `action` parameter is an ordinary `Impl(Fn(e : E) -> T)` slot: pass a closure, never a bare block or a value.",
+      "只有函数值可以被调用：`n : i32` 时的 `n(1)` 没有可调用的东西；类型只能作为转换（`i32(x)`）或构造器（`P(x : 1)`）来调用 —— `bool(true)` 两者都不是，请直接写 `true`。`Impl(Fn(...))` 参数是可调用槽位：被调函数会调用它。只有函数值才合适 —— 闭包（`x => ...`）、箭头字面量（`(x) -> ...`）、按名字传入的具名 `fn`，或另一个 `Impl(Fn(...))` / `Dyn(Fn(...))` 值。整数、字符串、结构体或枚举没有可跳转的代码，因此在此处直接报错，而不是把它降级成函数指针调用。同样的规则适用于 `io.async(...)`：它的 `action` 参数就是普通的 `Impl(Fn(e : E) -> T)` 槽位，必须传闭包，不能传裸代码块或普通值。",
+      "apply :: (fn(f : Impl(Fn(x : i32) -> i32)) -> i32)(f(i32(3)));\nr := apply(i32(5));",
+      "apply :: (fn(f : Impl(Fn(x : i32) -> i32)) -> i32)(f(i32(3)));\nr := apply(x => (x + i32(5)));",
+      "`i32(5)` is a number, not something `f(...)` can call.",
+      "`i32(5)` 是一个数字，`f(...)` 无法调用它。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_USE_OF_MOVED_VALUE,
+      "use of moved value",
+      "使用了被移动的值",
+      "A value was moved and is used again afterwards, or a move-only value is copied.",
+      "值已被移动，之后又被使用；或者复制了一个只能移动的值。",
+      "Passing an argument to a by-value parameter (a plain parameter of a type that is not `Copy`, or `sink`) transfers ownership: the caller's binding ends at the call. Re-order the uses, clone first (`x.clone()`), or take the parameter `x : &T` to borrow instead. (A `sink(x)` parameter always moves, even a still implicitly copyable value such as a `String` that a plain parameter shares.) A move-only value (a value type that implements `Drop`, a plain-data type that is neither `Copy` nor `Clone`, or one holding such a value) is moved by every copy point: `y := x`, `=`, a by-value argument, a field or element store, a return and a closure capture, so reading `x` afterwards is this error. It cannot be copied out of storage it does not own either: a `&T` parameter or a `match`/`for` binding borrows it, a field is part of its holder (there are no partial moves), and a module-level binding is never moved. Copying `r.*` out of a reference `r : &T` is this error too: the value it refers to stays with its owner, so pass `r` itself to a `&T` parameter or read through it where the value is used (`r.field`, `r.method()`), or copy it explicitly with `r.*.clone()`. Pass it to a `&T` parameter to lend it, take the parameter by value to keep it, lend it to a `&mut T` parameter, or share it through a reference type (`Rc`, `Arc` or an `Rc(RefCell(...))`); a type that implements `Clone` is copied explicitly with `x.clone()`. Code written against a std older than the `BTreeMap` flip is upgraded on the last release that ships its copy migrations: `yo version install 0.2.73 && yo fix <path> --migrate explicit-copy` (then `--migrate cloned-accessors`, then `--migrate rc-clone`), then step to the next release. A builder method that consumes its receiver (`self : Self -> Self`, as `Command.arg` and `HttpResponse.header` do) moves it too: after a statement `cmd.arg(x);` the receiver was consumed by a builder, so write `cmd = cmd.arg(x);` on a `mut(cmd)` binding, or chain the calls.",
+      "把实参传给按值参数（类型不是 `Copy` 的普通参数，或 `sink`）会转移所有权：调用方的绑定在调用处结束。请调整使用顺序、先克隆（`x.clone()`），或把参数声明为 `x : &T` 改为借用。（`sink(x)` 参数总是移动，即使是 `String` 这类普通参数会共享的、仍可隐式复制的值。）只能移动的值（实现了 `Drop` 的值类型、既不是 `Copy` 也不是 `Clone` 的纯数据类型，或包含这种值的值）在每个复制点都会被移动：`y := x`、`=`、按值实参、字段或元素写入、返回以及闭包捕获，因此之后再读取 `x` 就是这个错误。它也不能从并不拥有它的存储中复制出来：`&T` 参数以及 `match`/`for` 绑定只是借用它，字段属于其持有者（没有部分移动），模块级绑定永远不会被移动。从引用 `r : &T` 中复制 `r.*` 也是这个错误：它所引用的值仍归其所有者，因此请把 `r` 本身传给 `&T` 参数，或在使用值的地方经由它读取（`r.field`、`r.method()`），或用 `r.*.clone()` 显式复制。请把它传给 `&T` 参数来借出，按值接受参数来保留它，借给 `&mut T` 参数，或通过引用类型（`Rc`、`Arc` 或 `Rc(RefCell(...))`）共享；实现了 `Clone` 的类型可以用 `x.clone()` 显式复制。针对 `BTreeMap` 切换之前的 std 编写的代码，请在最后一个携带其拷贝迁移的版本上升级：`yo version install 0.2.73 && yo fix <path> --migrate explicit-copy`（然后是 `--migrate cloned-accessors`，再是 `--migrate rc-clone`），之后再升级到下一个版本。消耗接收者的构建器方法（`self : Self -> Self`，如 `Command.arg` 与 `HttpResponse.header`）同样会移动它：语句 `cmd.arg(x);` 之后，接收者已被构建器消耗，请在 `mut(cmd)` 绑定上写 `cmd = cmd.arg(x);`，或把调用串成链。",
+      "_take :: (fn(sink(_b) : Rc(i32)) -> unit)(());\nmain :: (fn() -> unit)({\n  x := Rc(i32).new(42);\n  _take(x);\n  _y := x;\n});\nexport(main);\n",
+      "_take :: (fn(sink(_b) : Rc(i32)) -> unit)(());\nmain :: (fn() -> unit)({\n  x := Rc(i32).new(42);\n  _y := Rc.clone(x);\n  _take(x);\n});\nexport(main);\n",
+      "`_take(x)` passes `x` to a `sink` parameter, which takes ownership; the later `x` reads a moved value.",
+      "`_take(x)` 把 `x` 传给 `sink` 参数，所有权随之转移；后面的 `x` 读到的是已移动的值。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_CANNOT_REASSIGN,
+      "cannot reassign",
+      "不能重新赋值",
+      "A parameter or an implicit (`given`) binding cannot be rebound with `=`.",
+      "参数或隐式（`given`）绑定不能用 `=` 重新绑定。",
+      "`=` reassigns an EXISTING binding, and a parameter or an implicit (`given`) binding never accepts it. A body that changes a by-value argument rebinds it to a mutable local (`mut(y) := x;`, plans/VALUES_BY_DEFAULT.md decision 47); one that should change the caller's value takes `x : &mut T`. If you meant a new value, use a fresh name (`x2 := ...`).",
+      "`=` 只能为已存在的绑定重新赋值，而参数和隐式（`given`）绑定从不接受重新赋值。需要修改按值实参的函数体应把它重新绑定到一个可变局部变量（`mut(y) := x;`，见 plans/VALUES_BY_DEFAULT.md 决策 47）；需要修改调用方的值则改用 `x : &mut T`。若是想要新值，请换一个新名字（`x2 := ...`）。",
+      "f :: (fn(a : i32) -> i32)({\n  a = i32(2);\n  a\n});\n",
+      "f :: (fn(a : i32) -> i32)({\n  b := (a + i32(1));\n  b\n});\n",
+      "Parameters are not reassignable; bind a new local instead.",
+      "参数不可重新赋值；请绑定一个新的局部变量。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_MAYBE_UNINITIALIZED,
+      "variable may be uninitialized",
+      "变量可能未初始化",
+      "A variable is initialized on some branches but not all of them.",
+      "变量在某些分支上初始化，但并非所有分支。",
+      "The message lists the branches where it MIGHT and where it is NOT initialized. Initialize before the branch (`x : T = default`), or provide the binding in every arm, or restructure so the join always has a value.",
+      "错误信息会列出可能初始化与未初始化的分支。请在分支前初始化（`x : T = default`），或在每个分支都提供绑定，或重构为汇合点总有值。",
+      "main :: (fn(io : Io) -> unit)({\n  c := runtime(true);\n  (v : i32);\n  cond(c => {\n    v = i32(1);\n  }, true => {\n    ();\n  });\n  _y := v;\n});\nexport(main);\n",
+      "main :: (fn(io : Io) -> unit)({\n  c := runtime(true);\n  (mut(v) : i32) = i32(0);\n  cond(\n    c => {\n      v = i32(1);\n    },\n    true => {\n      ();\n    }\n  );\n  _y := v;\n});\nexport(main);\n",
+      "Only the first arm assigns `v`, so after the `cond` it is initialized on one path only.",
+      "只有第一个分支给 `v` 赋值，因此 `cond` 之后它只在一条路径上被初始化。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_NEVER_FULLY_EVALUATED,
+      "body was never fully evaluated",
+      "函数体从未被完整求值",
+      "A function body's definition-time evaluation never completed.",
+      "函数体在定义期的求值没有完成。",
+      "The evaluator trial-evaluates bodies at definition time; when that aborts early (usually an error swallowed by the def-eval wall), codegen has no metadata and the body would emit hollow. Surface the underlying error with YO_DEBUG_SWALLOW=1 yo check — it points at the real defect inside the body.",
+      "求值器会在定义期试算函数体；如果提前中止（通常是 def-eval 墙吞掉的错误），codegen 就没有元数据，函数体会变成空壳。用 YO_DEBUG_SWALLOW=1 yo check 显露出底层错误 —— 它会指向函数体内真正的缺陷。",
+      "g :: (fn() -> i32)(missing_helper());\n",
+      "helper :: (fn() -> i32)(i32(1));\ng :: (fn() -> i32)(helper());\n",
+      "At `check` this is E0401; E0905 is what `compile` reports when a definition-time failure was swallowed and the body reached codegen hollow. `YO_DEBUG_SWALLOW=1 yo check` shows the swallowed error.",
+      "在 `check` 阶段这是 E0401；E0905 是 `compile` 在定义期失败被吞掉、函数体以空壳到达 codegen 时报告的错误。`YO_DEBUG_SWALLOW=1 yo check` 会显示被吞掉的错误。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_FORWARD_REFERENCE,
+      "forward reference",
+      "前向引用",
+      "An ordered statement's binding — an import, a pragma, or a module-level runtime binding — is used before the statement that binds it.",
+      "某个有序语句的绑定（import、pragma 或模块级运行时绑定）在绑定它的语句之前就被使用了。",
+      "Module-level `::` definitions and `impl` registrations are order-independent, but imports, pragmas and runtime bindings (`x := v`, `(g : T) = v`) are evaluated in source order, and a definition forced early sees only the statements before the reference that forced it. Move the statement above the definition that uses it — keep imports at the top of the file.",
+      "模块级 `::` 定义与 `impl` 注册与顺序无关，但 import、pragma 和运行时绑定（`x := v`、`(g : T) = v`）按源码顺序求值，而被提前强制求值的定义只能看到触发它的引用之前的语句。把该语句移到使用它的定义之前 —— import 放在文件顶部。",
+      "main :: (fn() -> unit)({\n  _p := fmt.println;\n});\nfmt :: import(\"std/fmt\");\nexport(main);\n",
+      "fmt :: import(\"std/fmt\");\nmain :: (fn() -> unit)({\n  _p := fmt.println;\n});\nexport(main);\n",
+      "`fmt` is bound by an import BELOW its use; imports, pragmas and runtime bindings are evaluated in order.",
+      "`fmt` 由位于使用处下方的 import 绑定；import、pragma 和运行时绑定按顺序求值。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_MOVED_ON_SOME_PATHS,
+      "value moved on some ways out of a loop only",
+      "值只在循环的部分出口上被移动",
+      "A value is moved on some ways out of a loop and not on others.",
+      "值在循环的一些出口上被移动，在另一些出口上没有。",
+      "Yo decides every drop statically. Where the arms of a `cond`/`match` meet, a value moved in some arms is dropped at the end of the others, so it is gone on every path. The ways out of a loop (each `break`, and the condition turning false) are not arms the compiler can append a drop to, so there a value must be moved on all of them or on none. Move it after the loop instead: record what the loop found and move it once, outside. A loop also may not move a value from outside it without giving it a new value before the next iteration: the next iteration would read the moved value.",
+      "Yo 静态地决定每一次 drop。在 `cond`/`match` 的各分支汇合处，在部分分支中被移动的值会在其余分支末尾被 drop，所以它在每条路径上都已不存在。循环的各个出口（每个 `break`，以及条件变为假时）不是编译器能追加 drop 的分支，因此在那里一个值必须在所有出口上都被移动，或都不被移动。请改为在循环之后移动它：记录循环找到的结果，在循环外移动一次。循环也不能移动来自循环外的值而不在下一次迭代前给它新值：下一次迭代会读到已被移动的值。",
+      "{ ArrayList } :: import(\"std/collections/array-list\");\ntake_list :: (fn(sink(xs) : ArrayList(i32)) -> unit)(());\nmain :: (fn(io : Io) -> unit)({\n  xs := ArrayList(i32).new();\n  (mut(i) : i32) = 0;\n  while(i < 3, {\n    if(runtime(i == 1), {\n      take_list(xs);\n      break;\n    });\n    i = (i + 1);\n  });\n});\nexport(main);\n",
+      "{ ArrayList } :: import(\"std/collections/array-list\");\ntake_list :: (fn(sink(xs) : ArrayList(i32)) -> unit)(());\nmain :: (fn(io : Io) -> unit)({\n  xs := ArrayList(i32).new();\n  (mut(i) : i32) = 0;\n  (mut(found) : bool) = false;\n  while(i < 3, {\n    if(runtime(i == 1), {\n      found = true;\n      break;\n    });\n    i = (i + 1);\n  });\n  if(found, {\n    take_list(xs);\n  });\n});\nexport(main);\n",
+      "The `break` path moves `xs` and the loop's normal exit does not. Moving it after the loop, in an `if`, is fine: the `if`'s other arm drops it.",
+      "`break` 路径移动了 `xs`，而循环的正常出口没有。在循环之后的 `if` 里移动它则没有问题：`if` 的另一个分支会 drop 它。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_WRITE_THROUGH_BORROW,
+      "write through a borrowed value",
+      "通过借用的值写入",
+      "A write (a field or element assignment, or a `mut` argument the callee may write) would change or release a value that the binding it goes through does not own.",
+      "一次写入（字段或元素的赋值，或被调用方可能写入的 `mut` 实参）会改变或释放一个其所经由的绑定并不拥有的值。",
+      "A `&T` parameter and a `match` or `for` binding borrow their value: the storage is a copy of the caller's (or the matched value's), and the RC data inside it still belongs to the caller. Writing a field whose old value holds RC data (a `String`, a collection, an `Rc`, …) would release that data while its owner still holds it, so it is rejected. The same holds for passing such a place to a `&mut T` parameter the callee may write, including calling a `self : &mut Self` method such as `push_str` on it: the write would land in the borrowed copy alone. A `&T` parameter is read-only: writing any field or element of its value (a plain-data field such as an `i32` too, through nested value fields, fixed-array elements and a `Box`'s payload), borrowing such a place with `&mut`, or passing it to a `&mut T` parameter the callee writes, is E0908, because the write would land in the callee's copy and the caller would never see it. A door reached through it (the `RefCell` of an `Rc(RefCell(T))`) shares its storage with the caller, so writing through the door (`h.cell.with_mut(...)`) is not such a write. A `match` or `for` binding's fields without RC data can still be written; the write changes only the local copy. Take the parameter by value (`p : T`, without `&`: the function owns it) or as `p : &mut T` (the write reaches the caller's place), or copy the value into a local first (`q := p;`) and write the copy. A `&` local borrow (`y := &place`) is read-only too: assigning through it, passing it to a `&mut T` parameter or calling a method that writes it, and borrowing a place under it with `&mut`, are E0908. So is a trait impl member that takes `self : &mut Self` where the trait declares `self : &Self`: a call through the trait (a `Dyn`, or a generic `T <: Trait` body) lends the receiver read-only, so the member must not write it.",
+      "`&T` 参数以及 `match` 或 `for` 的绑定都借用其值：存储是调用方（或被匹配值）的一份副本，其中的 RC 数据仍属于调用方。写入一个旧值含有 RC 数据（`String`、集合、`Rc` 等）的字段，会在其所有者仍持有这些数据时释放它们，因此被拒绝。把这样的位置传给被调用方可能写入的 `&mut T` 形参也是如此，包括在其上调用 `push_str` 这类 `self : &mut Self` 方法：写入只会落在借用的副本上。`&T` 参数是只读的：写入其值的任何字段或元素（包括 `i32` 这类纯数据字段，经由嵌套的值字段、定长数组元素和 `Box` 的载荷），用 `&mut` 借用这样的位置，或把它传给被调用方会写入的 `&mut T` 形参，都是 E0908，因为写入会落在被调用方的副本上，调用方永远看不到。经由它到达的门（`Rc(RefCell(T))` 中的 `RefCell`）与调用方共享存储，因此通过门写入（`h.cell.with_mut(...)`）不属于这种写入。`match` 或 `for` 绑定中不含 RC 数据的字段仍可写入；写入只改变本地副本。请按值接受参数（`p : T`，不写 `&`：函数拥有它）或声明为 `p : &mut T`（写入会到达调用方的位置），或先把值复制到一个局部变量（`q := p;`）再写入该副本。`&` 局部借用（`y := &place`）同样是只读的：通过它赋值、把它传给 `&mut T` 形参或调用会写入它的方法，以及用 `&mut` 借用它之下的位置，都是 E0908。trait 实现的成员在 trait 声明 `self : &Self` 时却接收 `self : &mut Self`，同样是 E0908：经由 trait 的调用（`Dyn`，或泛型 `T <: Trait` 函数体）以只读方式借出接收者，因此该成员不得写入它。",
+      "{ String } :: import(\"std/string\");\nP :: struct(s : String);\nrename :: (fn(p : &P) -> unit)({\n  p.s = String.from(\"new\");\n});\nexport(rename);\n",
+      "{ String } :: import(\"std/string\");\nP :: struct(s : String);\nrename :: (fn(p : P) -> P)({\n  mut(q) := p;\n  q.s = String.from(\"new\");\n  q\n});\nexport(rename);\n",
+      "`p` is a `&P` parameter: it borrows the caller's `P`, and releasing its old `s` would free a string the caller still holds. Taken by value, `p` is the function's own and may be written.",
+      "`p` 是 `&P` 参数：它借用了调用方的 `P`，释放它旧的 `s` 会释放调用方仍持有的字符串。按值接受时，`p` 归函数所有，可以写入。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_BORROW_ESCAPES,
+      "a borrowing value escapes",
+      "借用值逃逸",
+      "A value that holds a closure's capture-list borrow (`y : &y`, `z : &mut z`) would outlive the place it borrows.",
+      "一个持有闭包捕获列表借用（`y : &y`、`z : &mut z`）的值会比它借用的位置活得更久。",
+      "A closure with a `&` or `&mut` capture borrows a place, so it is second-class, and so is any value built from it: a tuple, a record, an `Option` payload, a copy, or another closure that captures it. Such a value may be bound to a local declared after (and no further out than) what it borrows, lent to a call and called. It may not be returned, stored in a field or a `Dyn`, moved into a `sink` parameter, captured by an `io.async` body, named as a type argument (`ArrayList(type_of(f))`), or carried out of the block that declares the borrowed binding. Capture a value instead (`{ s2 : s.clone() }`), or keep the closure in the scope that owns the place. A borrowing future (an `io.async` body with a borrow capture, or a call that returns one) follows the same rules and is awaited where it is made (`io.await(m.lock(io), io)`). A place lent to one may not pass through an `Rc`, a pointer or an index into a collection, because the borrow lasts across the suspension; a shared borrow may pass through `Arc` dereferences, whose payload no handle writes (`io.await(a.*.lock(io), io)` with `a : Arc(Mutex(T))`), but a `&mut` borrow may not. Nor may it be rooted in a `mut(G)` module-level or `thread_local(mut(x))` binding, which another task on the thread can reassign while this one waits: lend a local copy, or read the global by name inside the future. A global declared without `mut` is immutable (decision 47) and may be lent.",
+      "带有 `&` 或 `&mut` 捕获的闭包借用一个位置，因此是二等值，由它构成的任何值也是：元组、记录、`Option` 载荷、副本，或捕获它的另一个闭包。这样的值可以绑定到一个在被借用者之后声明（且不在其外层）的局部变量，可以借给调用并被调用；但不能被返回、存入字段或 `Dyn`、移入 `sink` 形参、被 `io.async` 体捕获、用作类型实参（`ArrayList(type_of(f))`），也不能被带出声明被借用绑定的代码块。请改为捕获一个值（`{ s2 : s.clone() }`），或把闭包留在拥有该位置的作用域中。借用的 Future（带借用捕获的 `io.async` 体，或返回它的调用）遵循同样的规则，要在创建处被等待（`io.await(m.lock(io), io)`）。借给它的位置不能经过 `Rc`、指针或对集合的索引，因为借用会跨越挂起点；共享借用可以经过 `Arc` 解引用，因为没有句柄会写入它的载荷（`a : Arc(Mutex(T))` 时的 `io.await(a.*.lock(io), io)`），但 `&mut` 借用不行。它也不能以 `mut(G)` 模块级绑定或 `thread_local(mut(x))` 绑定为根，因为同一线程上的另一个任务可能在本任务等待期间给它重新赋值：请借出一个局部副本，或在 Future 内按名字读取该全局变量。没有用 `mut` 声明的全局变量是不可变的（决策 47），可以借出。",
+      "keep :: (fn(sink(f) : Impl(Fn() -> i32)) -> i32)(f());\nmain :: (fn() -> unit)({\n  w := i32(1);\n  keep({ &w }() => w.*);\n});\nexport(main);\n",
+      "keep :: (fn(sink(f) : Impl(Fn() -> i32)) -> i32)(f());\nmain :: (fn() -> unit)({\n  w := i32(1);\n  keep({ w }() => w);\n});\nexport(main);\n",
+      "`keep` owns its argument and could keep it after `w` is gone; capturing `w` by value gives the closure its own copy.",
+      "`keep` 拥有其实参，可能在 `w` 消失后仍保留它；按值捕获 `w` 让闭包持有自己的副本。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_LOCAL_BORROW_CONFLICT,
+      "access conflicts with a live local borrow",
+      "访问与仍存活的局部借用冲突",
+      "A place is accessed while a local borrow (`y := &place`, `y := &mut place`) that freezes it is still live.",
+      "在冻结某个位置的局部借用（`y := &place`、`y := &mut place`）仍存活时访问了该位置。",
+      "A local borrow is live from its binding to its last use, and freezes its place for that range: while a `&` borrow is live, the borrowed place, the places inside it and the places containing it are not written or moved; while a `&mut` borrow is live, they are not accessed at all except through the borrow. Sibling fields of a value stay free. Below a reference cell (an `Rc`, `Arc` or `RefCell`) the cell is the unit, because other handles reach it. A loop that uses the borrow keeps it live for the whole loop. The same code reports a borrow of a module-level place whose live range contains a call (a callee can reach the place by name), a borrow through a reference cell or a module-level place that is live across an `await`, and a re-point (`cur = &mut place`) while a borrow derived from the old target is live. Move the access after the borrow's last use, or make it through the borrow. A destructor is an access: the scope-end drop of a holder whose type has a `Drop` impl, and the end-of-body drop of a by-value parameter whose `Drop` runs while the result borrows a place through the parameter's `&mut` field (Rust's E0713), conflict with a live borrow like any other access.",
+      "局部借用从绑定处一直存活到它的最后一次使用，并在这段范围内冻结它的位置：`&` 借用存活时，被借用的位置、它内部的位置以及包含它的位置都不能被写入或移动；`&mut` 借用存活时，除通过该借用外完全不能访问它们。值的兄弟字段不受影响。在引用单元（`Rc`、`Arc` 或 `RefCell`）之下，整个单元是一个单位，因为其他句柄也能到达它。使用该借用的循环会让它在整个循环内保持存活。同一错误码还报告：存活范围内包含调用的模块级位置借用（被调用方可以按名字访问该位置）、经由引用单元或模块级位置且跨越 `await` 存活的借用，以及在派生自旧目标的借用仍存活时的重新指向（`cur = &mut place`）。请把访问移到借用的最后一次使用之后，或通过该借用进行访问。 析构也是一种访问：类型带有 `Drop` 实现的持有者在作用域末尾的丢弃，以及按值形参的函数体末尾丢弃——其 `Drop` 运行时结果正通过该形参的 `&mut` 字段借用某个位置（Rust 的 E0713）——都与存活的借用冲突，和其他访问一样。",
+      "main :: (fn() -> unit)({\n  mut(x) := i32(1);\n  y := &mut x;\n  x = i32(2);\n  y.* = i32(3);\n});\nexport(main);\n",
+      "main :: (fn() -> unit)({\n  mut(x) := i32(1);\n  y := &mut x;\n  y.* = i32(3);\n  x = i32(2);\n});\nexport(main);\n",
+      "`y` is used after `x = i32(2)`, so it is still live there and `x` is frozen.",
+      "`x = i32(2)` 之后还使用了 `y`，因此 `y` 在那里仍然存活，`x` 被冻结。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_BORROW_CONFLICT,
+      "access conflicts with a live borrow",
+      "访问与存活的借用冲突",
+      "A place is used while a closure borrows it, or a call passes a closure that borrows a place next to an argument that reaches the same place.",
+      "在闭包借用某个位置期间使用了该位置，或一次调用在传入借用某位置的闭包的同时，又传入了能到达同一位置的实参。",
+      "While a closure with a `z : &mut z` capture lives, `z` may not be read or written except through the closure; while one with a `y : &y` capture lives, `y` may be read but not written, moved or lent `&mut` (a `&mut` argument or receiver, a local `&mut` borrow, a `&mut` scrutinee, another closure's `&mut` entry), whatever the callee does. In Generation A the closure lives until the end of its binding's scope. Call arguments are exclusive: a `&mut` argument, or a closure holding a `&mut` capture (lent exclusively even to a read-only parameter), may not overlap any place another argument of the same call reaches; the receiver and a called closure count as arguments. The arguments are evaluated in order, so a place an argument lends (`&x`, `&mut x`, `&mut x.f`, a borrowed receiver, an operand its operator borrows as in `a == b`) is borrowed from the moment that argument is evaluated until the call returns, and a later argument may not move it, assign to it or lend it `&mut` (`f(&mut a, eat(a))`, `peek(&p.s, { p = q; k })`, in a nested call or a block too); a read, or a `&` relend of a `&` lend, is fine: move a copy (`eat(a.clone())`) or compute the later argument before the call. Two places one call lends may not overlap when one is lent `&mut` and both are rooted at the same value local, in either order (decision 28's value-root rule): `s.push_string(&s)` and `f(&mut p, &p.name)` are rejected, while two `&` lends and disjoint fields pass; copy one side first (`t := s.clone(); s.push_string(&t)`). End the closure's scope before touching the place (put the closure and its calls in a block), pass the place through the closure alone, or split the call.",
+      "带有 `z : &mut z` 捕获的闭包存活期间，除通过该闭包外不得读写 `z`；带有 `y : &y` 捕获的闭包存活期间，可以读 `y`，但不得写入或移动它。在第一代实现中，闭包存活到其绑定作用域结束。调用实参是互斥的：`&mut` 实参，或持有 `&mut` 捕获的闭包（即使传给只读形参也按独占方式借出），不得与同一调用中其他实参能到达的任何位置重叠；接收者和被调用的闭包都算作实参。实参按顺序求值，因此某个实参借出的位置（`&x`、`&mut x`、`&mut x.f`、被借用的接收者、被运算符借用的操作数，如 `a == b` 中的 `a`）从该实参求值起直到调用返回都处于被借用状态，后续实参不得移动它、给它赋值或以 `&mut` 再借出它（`f(&mut a, eat(a))`、`peek(&p.s, { p = q; k })`，嵌套调用或代码块中同样如此）；读取，或对 `&` 借出的位置以 `&` 再借出，则允许：请移动一份副本（`eat(a.clone())`），或在调用之前先算好后续实参。同一调用借出的两个位置，若其中一个以 `&mut` 借出且两者都以同一个值局部变量为根，则不得重叠，先后顺序不限（决策 28 的值根规则）：`s.push_string(&s)` 与 `f(&mut p, &p.name)` 会被拒绝，而两个 `&` 借出以及互不重叠的字段可以；请先复制其中一方（`t := s.clone(); s.push_string(&t)`）。请在访问该位置前结束闭包的作用域（把闭包和对它的调用放进一个代码块），只通过闭包传递该位置，或拆分调用。",
+      "bump :: (fn(f : &Impl(Fn() -> i32), z : &mut i32) -> i32)({\n  z.* = (z.* + i32(1));\n  f()\n});\nmain :: (fn() -> unit)({\n  z := i32(0);\n  bump({ &z }() => z.*, &mut z);\n});\nexport(main);\n",
+      "bump :: (fn(f : &Impl(Fn() -> i32), z : &mut i32) -> i32)({\n  z.* = (z.* + i32(1));\n  f()\n});\nmain :: (fn() -> unit)({\n  mut(z) := i32(0);\n  bump({ z }() => z, &mut z);\n});\nexport(main);\n",
+      "The closure reads `z` through its borrow while `bump` writes `z` through its `mut` parameter; a by-value capture copies `z` before the call.",
+      "闭包通过借用读取 `z`，而 `bump` 通过其 `mut` 形参写入 `z`；按值捕获会在调用前复制 `z`。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_LOCAL_BORROW_ESCAPES,
+      "a local borrow crosses the function boundary",
+      "局部借用量跨越了函数边界",
+      "A function's result expression names a local borrow (`y := &place`, `y := &mut place`): the borrow itself is `return(...)`'s argument or the body's result expression.",
+      "函数的结果表达式指名了一个局部借用（`y := &place`、`y := &mut place`）：借用本身就是 `return(...)` 的实参或函数体的结果表达式。",
+      "A local borrow is second-class (decision 18 rule 1, decision 38 A): it may not be returned, stored, captured by an escaping closure or spawned — the value it names may be read through, but the borrow itself never crosses the function boundary. `return(y)` and a body whose result expression is `y` (or a place reached from it, `y.x`) therefore name the borrow, not its value, and are rejected; the same holds for a nested block that the body's result ends in. Until the parameter-convention phases, reading through a borrow of an implicitly copyable type produces a copy, so the rejected shapes happen to return that copy — the rule is about the spelling: when borrows stop copying, `return(y)` would have to move the borrowed place or escape the borrow itself. Copy the value into an owned local first and return that (`v := y;` then `return(v)`), or return the value of an operation on it (`return(y + i32(0))` for a scalar). E0911 reports the exclusivity rules for the same borrows.",
+      "局部借用是二等公民（决策 18 规则 1、决策 38 A）：它不能被返回、存储、被逃逸闭包捕获或 spawn——通过它可以读取它命名的值，但借用本身永远不会跨越函数边界。因此 `return(y)` 与以 `y`（或从它到达的位置 `y.x`）作为结果表达式的函数体指名的是借用而非它的值，都会被拒绝；函数体结果所终止于的嵌套块同理。在参数约定阶段落地之前，通过一个可隐式复制类型的借用读取会得到一份副本，因此被拒绝的写法碰巧返回的是这份副本——这条规则针对的是拼写本身：当借用不再复制时，`return(y)` 就只能移动被借用的位置或让借用本身逃逸。请先把值复制到一个自有局部变量中再返回它（`v := y;` 然后 `return(v)`），或返回对它的某个运算的结果（对标量是 `return(y + i32(0))`）。同一借用的排他性规则由 E0911 报告。",
+      "get :: (fn() -> i32)({\n  x := i32(1);\n  y := &x;\n  return(y);\n});\nexport(get);\n",
+      "get :: (fn() -> i32)({\n  x := i32(1);\n  y := &x;\n  v := y.*;\n  return(v);\n});\nexport(get);\n",
+      "`return(y)` names the borrow itself; `v := y` reads through it, and `v` owns the copy it gets.",
+      "`return(y)` 指名的是借用本身；`v := y` 通过它读取，`v` 拥有它得到的副本。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_CLOSURE_TRAIT_TOO_WEAK,
+      "a closure's call trait is weaker than its slot's (it moves a capture out or writes its state)",
+      "闭包的调用 trait 弱于其位置所要求的（它移出了捕获或写入了自身状态）",
+      "A closure body moves a by-value capture out where the closure is typed `Fn(...)` or `FnMut(...)` (or passed where one is required), or the capture is implicit; or a closure typed `FnMut(...)` or `FnOnce(...)` reaches a slot that requires a stronger trait (`Fn(...)`, or `FnMut(...)` for an `FnOnce`), as an argument or boxed into a `Dyn`.",
+      "闭包体在闭包类型为 `Fn(...)` 或 `FnMut(...)`（或被传给要求它们的地方）时移出了按值捕获，或者该捕获是隐式的；或者类型为 `FnMut(...)` 或 `FnOnce(...)` 的闭包到达了要求更强 trait 的位置（`Fn(...)`，或对 `FnOnce` 而言的 `FnMut(...)`），无论是作为实参还是装箱进 `Dyn`。",
+      "The three closure traits differ in how a call uses the closure (decision 37): an `Fn(...)` call borrows it (`self : &Self`), so the closure can run again and even twice at once; an `FnMut(...)` call borrows it exclusively (`self : &mut Self`), so the body may write its own state and `&mut` captures, one call at a time; an `FnOnce(...)` call consumes it (`self`), so the body owns its captures and may move one out. `Fn` implies `FnMut`, which implies `FnOnce`, never the reverse. So a body that moves a capture out is called once: type it `FnOnce(...)`, whose body owns its captures and drops the ones it does not move; moving one out under `Fn` or `FnMut` would leave the next call reading moved storage. And a closure typed `FnOnce(...)` passed to an `FnMut(...)` or `Fn(...)` parameter, or one typed `FnMut(...)` passed to an `Fn(...)` parameter (or boxed as the stronger `Dyn`), is this error too: the slot may call it again, or from a shared borrow. In Generation A the body owns only the by-value entries of a capture list (`{ t }() => take(t)`), so moving an implicit capture out is rejected with the capture-list spelling. A literal that writes a `&mut` capture is `FnMut(...)` by its captures alone, so at an `Fn(...)` slot (or annotated `Fn`, or boxed into a `Dyn(Fn(...))`) it is this error: std's non-escaping callback slots take `&mut Impl(FnMut(...))` (decision 43 N3, VERDICTS-28 Q1), so the fix is an `FnMut(...)` slot or a `&` capture.",
+      "三种闭包 trait 的区别在于调用如何使用闭包（决策 37）：`Fn(...)` 调用借用它（`self : &Self`），因此闭包可以再次运行，甚至同时运行两次；`FnMut(...)` 调用独占借用它（`self : &mut Self`），因此函数体可以写入自身状态和 `&mut` 捕获，但一次只能有一个调用；`FnOnce(...)` 调用消耗它（`self`），因此函数体拥有其捕获并可以移出其中之一。`Fn` 蕴含 `FnMut`，`FnMut` 蕴含 `FnOnce`，反之不成立。因此移出捕获的函数体只会被调用一次：请把它的类型写成 `FnOnce(...)`，其函数体拥有其捕获，并 drop 没有移出的那些；在 `Fn` 或 `FnMut` 下移出捕获会让下一次调用读到已被移走的存储。把类型为 `FnOnce(...)` 的闭包传给 `FnMut(...)` 或 `Fn(...)` 形参，或把类型为 `FnMut(...)` 的闭包传给 `Fn(...)` 形参（或装箱为更强的 `Dyn`），也是此错误：该位置可能再次调用它，或通过共享借用调用它。在第一代实现中，函数体只拥有捕获列表的按值条目（`{ t }() => take(t)`），因此移出隐式捕获会被拒绝，并给出捕获列表的写法。写入 `&mut` 捕获的字面量仅凭其捕获就是 `FnMut(...)`，因此传给 `Fn(...)` 位置（或注解为 `Fn`，或装箱进 `Dyn(Fn(...))`）即为此错误：std 的非逃逸回调位置接受 `&mut Impl(FnMut(...))`（决策 43 N3、VERDICTS-28 Q1），修复方法是改用 `FnMut(...)` 位置或 `&` 捕获。",
+      "Tok :: struct(n : i32);\ntake :: (fn(sink(t) : Tok) -> i32)(t.n);\nmain :: (fn() -> unit)({\n  t := Tok(n : i32(5));\n  (f : Impl(Fn() -> i32)) = ({ t }() => take(t));\n  _r := f();\n});\nexport(main);\n",
+      "Tok :: struct(n : i32);\ntake :: (fn(sink(t) : Tok) -> i32)(t.n);\nmain :: (fn() -> unit)({\n  t := Tok(n : i32(5));\n  (f : Impl(FnOnce() -> i32)) = ({ t }() => take(t));\n  _r := f();\n});\nexport(main);\n",
+      "Typed `Fn(...)`, the closure could be called again after `take(t)` moved its capture; typed `FnOnce(...)`, its one call consumes it and owns `t`.",
+      "类型为 `Fn(...)` 时，闭包在 `take(t)` 移走其捕获后仍可能再次被调用；类型为 `FnOnce(...)` 时，它唯一的一次调用会消耗它并拥有 `t`。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_BORROW_MARKER_MISMATCH,
+      "a call-site borrow marker does not match the parameter's mode",
+      "调用处的借用标记与形参的模式不符",
+      "A named place is passed bare to a `&T` or `&mut T` parameter, or its `&`/`&mut` marker does not fit the parameter it is passed to.",
+      "具名位置被裸传给 `&T` 或 `&mut T` 形参，或者它的 `&`/`&mut` 标记与所传给的形参不符。",
+      "The call site says what a call does to each argument (decision 33): a bare `x` passes it by value (it moves, or is copied when it is `Copy`), `&x` lends it read-only to a `&T` parameter and the caller keeps it, and `&mut x` lends it exclusively to a `&mut T` parameter, which may write it. So a named place (a variable, a field path such as `p.name`, an element such as `xs(i)`) passed to a `&T` parameter is written `&x`, and to a `&mut T` parameter `&mut x`, for every type, `Copy` included, as in Rust. A mismatch is an error, never a conversion: `&x` to a by-value parameter, `&x` to a `&mut T` one, `&mut x` to one that is not `&mut T`, and `&x` to a raw-pointer parameter (which takes `addr_of(x)`). Exempt: method receivers (`s.len()`), temporaries, literals and closure literals, operator operands (decision 34), and a borrow binding passed whole: a `&T`/`&mut T` parameter or a local borrow (`y := &place`) already holds a borrow and is passed bare, as Rust passes a `&T` binding bare (`&p` is accepted as a reborrow); and ghost code (a `requires`/`ensures`/`invariant` predicate, a `ghost_fn` body), which never moves or writes. Older code is upgraded on the last release that ships its migration: `yo version install 0.2.76 && yo fix <path> --migrate markers`, then step to the next release.",
+      "调用处写明调用对每个实参做什么（决策 33）：裸 `x` 按值传递（移动它，`Copy` 时复制），`&x` 把它只读借给 `&T` 形参且调用方保留它，`&mut x` 把它独占借给可以写它的 `&mut T` 形参。因此传给 `&T` 形参的具名位置（变量、`p.name` 这样的字段路径、`xs(i)` 这样的元素）写作 `&x`，传给 `&mut T` 形参写作 `&mut x`，对所有类型都如此，包括 `Copy` 类型，与 Rust 相同。不匹配是错误，而不是转换：`&x` 传给按值形参、`&x` 传给 `&mut T` 形参、`&mut x` 传给不是 `&mut T` 的形参，以及 `&x` 传给裸指针形参（它接受 `addr_of(x)`）。豁免：方法接收者（`s.len()`）、临时值、字面量和闭包字面量、运算符操作数（决策 34），以及整体传递的借用绑定：`&T`/`&mut T` 形参或局部借用（`y := &place`）本身已持有借用，裸传即可，正如 Rust 裸传 `&T` 绑定（`&p` 作为再借用也被接受）；以及幽灵代码（`requires`/`ensures`/`invariant` 谓词、`ghost_fn` 函数体），它从不移动或写入。旧代码请在最后一个携带其迁移的版本上升级：`yo version install 0.2.76 && yo fix <path> --migrate markers`，之后再升级到下一个版本。",
+      "{ String } :: import(\"std/string\");\nshow :: (fn(s : &String) -> usize)(s.len());\nmain :: (fn() -> unit)({\n  s := String.from(\"hi\");\n  _n := show(s);\n});\nexport(main);\n",
+      "{ String } :: import(\"std/string\");\nshow :: (fn(s : &String) -> usize)(s.len());\nmain :: (fn() -> unit)({\n  s := String.from(\"hi\");\n  _n := show(&s);\n});\nexport(main);\n",
+      "`show` borrows its parameter (`s : &String`), so the call lends `s` with `&s` and keeps it; a bare `s` would say the call takes it by value.",
+      "`show` 借用它的形参（`s : &String`），因此调用以 `&s` 借出 `s` 并保留它；裸 `s` 表示调用按值取走它。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_EXPLICIT_DESTRUCTOR_CALL,
+      "explicit call of a destructor",
+      "显式调用析构函数",
+      "A `Drop` method is called by hand: `x.drop()`, `T.drop(&x)` or `(T <: Drop).drop(&x)`; or it is read as a value, `f := T.drop`, which a later call would use the same way.",
+      "手动调用了 `Drop` 方法：`x.drop()`、`T.drop(&x)` 或 `(T <: Drop).drop(&x)`；或者把它当作值读取（`f := T.drop`），之后的调用会以同样的方式使用它。",
+      "A type's destructor runs automatically, exactly once: when the owner of a value type drops it (at the end of its scope, when it is overwritten, or when it is moved into a callee that drops it), and when the last `Rc`/`Arc` reference to a shared value goes away. A call by hand would run it a second time, on a value that is still live, so it is rejected, as Rust rejects it (its E0040). To end a value before its scope does, write `drop(x)`: the prelude function moves `x` in, and the value is dropped when the call returns; a later use of `x` is a use of a moved value (E0901). Inside a destructor, never call a field's destructor: the fields drop by themselves after the destructor returns. `Drop` is the new name of `Dispose` (plans/VALUES_BY_DEFAULT.md decision 45). Code written against the old trait, `x.dispose()` included, is upgraded on the last release that ships its migration: `yo version install 0.2.76 && yo fix <path> --migrate drop-trait`, then step to the next release.",
+      "类型的析构函数会自动运行且恰好运行一次：值类型的所有者 drop 它时（作用域结束、被覆盖，或被移入一个会 drop 它的被调函数时），以及共享值的最后一个 `Rc`/`Arc` 引用消失时。手动调用会在值仍然存活时再运行一次，因此被拒绝，与 Rust 相同（其 E0040）。要在作用域结束之前结束一个值，请写 `drop(x)`：这个 prelude 函数把 `x` 移入，值在调用返回时被 drop；之后再使用 `x` 就是使用已移动的值（E0901）。在析构函数内部，不要调用字段的析构函数：析构函数返回后字段会自行 drop。`Drop` 是 `Dispose` 的新名字（plans/VALUES_BY_DEFAULT.md 决策 45）。按旧 trait 编写的代码（包括 `x.dispose()`）请在最后一个携带其迁移的版本上升级：`yo version install 0.2.76 && yo fix <path> --migrate drop-trait`，之后再升级到下一个版本。",
+      "Fd :: struct(n : i32);\nimpl(Fd, Drop(drop : (fn(self : &mut Self) -> unit)(())));\nmain :: (fn() -> unit)({\n  f := Fd(n : i32(3));\n  f.drop();\n});\nexport(main);\n",
+      "Fd :: struct(n : i32);\nimpl(Fd, Drop(drop : (fn(self : &mut Self) -> unit)(())));\nmain :: (fn() -> unit)({\n  f := Fd(n : i32(3));\n  drop(f);\n});\nexport(main);\n",
+      "`f.drop()` would run the destructor, and `f`'s scope end would run it again; `drop(f)` moves `f` in, so it is dropped once, now.",
+      "`f.drop()` 会运行析构函数，而 `f` 的作用域结束时会再运行一次；`drop(f)` 把 `f` 移入，因此它现在被 drop，且只 drop 一次。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_GLOBAL_LENT_TO_CALL,
+      "a mutable module-level binding is lent to a call",
+      "可变的模块级绑定被借给了一次调用",
+      "A place rooted in a `mut(G)` module-level or `thread_local` binding is lent to a call (an `&G`/`&mut G.f` argument, the receiver of a method whose `self` is a borrow, an operand its operator borrows, the source of a borrowed `for(&G, …)` / `for(&mut G, …)`), or a lend reaches into the storage behind a handle a global holds while another site replaces that storage.",
+      "一个根在 `mut(G)` 模块级或 `thread_local` 绑定上的位置被借给了一次调用（`&G`/`&mut G.f` 实参、`self` 为借用的方法的接收者、被运算符借用的操作数、借用 `for(&G, …)` / `for(&mut G, …)` 的来源），或者某次借出深入到全局变量所持句柄背后的存储，而另一处代码会替换该存储。",
+      "A module-level binding is reachable by name from every function, and from every task on the thread, and it has no run-time borrow flag. A module-level binding declared without `mut` is immutable, as a Rust `static` is (decision 47), so a call may borrow it freely: nothing can change it while the callee holds the borrow. That covers `&self` methods, interpolation (`${G}`), atomics and a `RawMutex`. A `mut(G)` binding is Rust's `static mut`: any function the callee calls could reassign or write it, and so could another task while the callee awaits, and the callee would then read a value that was already released. So lending a `mut(G)` binding, or a place under it, to a call is rejected. Copy it into a local, lend the local and write it back after the call (`v := G; f(&mut v); G = v;`), or keep the binding immutable and hold the changing state in an atomic or a `Mutex(T)`. One lend is allowed: the receiver of a structural `G.clone()`, whose every `Clone` impl is derived or std's, so it copies the value and runs no user code; `v := G.clone()` is how a `String`, a collection or a value holding one is copied out. A `clone()` that reaches a hand-written `Clone` outside std is rejected like any other call. A door the global holds (`G.with_mut(...)` on a `RefCell`, the door types of `std/sync`) is written through without `mut`, because that does not change the binding, and its borrows stay inside the closure, so no lend reaches the storage behind it. A `::` constant has no runtime storage and is lent freely.",
+      "模块级绑定可以被每个函数、以及该线程上的每个任务按名字访问，并且它没有运行时借用标志。没有用 `mut` 声明的模块级绑定是不可变的，就像 Rust 的 `static`（决策 47），因此调用可以自由借用它：在被调函数持有借用期间，没有任何东西能改变它。这包括 `&self` 方法、插值（`${G}`）、原子类型和 `RawMutex`。`mut(G)` 绑定相当于 Rust 的 `static mut`：被调函数调用的任何函数都可能重新赋值或写入它，被调函数 await 期间另一个任务也可能这样做，之后被调函数就会读到已经被释放的值。因此，把 `mut(G)` 绑定或其下的位置借给一次调用会被拒绝。请把它复制到一个局部变量中，借出该局部变量，并在调用之后写回（`v := G; f(&mut v); G = v;`），或者让该绑定保持不可变，把变化的状态放在原子类型或 `Mutex(T)` 中。只有一种借出是允许的：结构化的 `G.clone()` 的接收者，其涉及的每个 `Clone` 实现都是派生的或来自 std，因此它只复制值，不运行任何用户代码；`String`、集合或持有它们的值就用 `v := G.clone()` 复制出来。触及 std 之外手写 `Clone` 的 `clone()` 与其他调用一样会被拒绝。全局变量持有的门（`RefCell` 上的 `G.with_mut(...)`、`std/sync` 的门类型）不需要 `mut` 就能通过它写入，因为这不会改变绑定本身；它的借用留在闭包之内，因此没有借出能到达它背后的存储。`::` 常量没有运行时存储，可以自由借出。",
+      "Gauge :: struct(n : i64);\nderive(Gauge, Copy, Clone);\nmut(G) := Gauge(n : i64(7));\nread :: (fn(g : &Gauge) -> i64)(g.n);\nbump :: (fn() -> unit)({\n  G = Gauge(n : i64(8));\n});\nmain :: (fn() -> unit)({\n  bump();\n  _v := read(&G);\n});\nexport(main);\n",
+      "Gauge :: struct(n : i64);\nderive(Gauge, Copy, Clone);\nmut(G) := Gauge(n : i64(7));\nread :: (fn(g : &Gauge) -> i64)(g.n);\nbump :: (fn() -> unit)({\n  G = Gauge(n : i64(8));\n});\nmain :: (fn() -> unit)({\n  bump();\n  v := G;\n  _r := read(&v);\n});\nexport(main);\n",
+      "`G` is `mut`, so `read(&G)` would hold a borrow of a binding `bump` can reassign; `v := G` copies the `Copy` value into a local that only `main` can reach, and the call borrows that.",
+      "`G` 是 `mut` 的，因此 `read(&G)` 会持有一个 `bump` 可以重新赋值的绑定的借用；`v := G` 把这个 `Copy` 值复制到只有 `main` 能到达的局部变量中，调用借用的是这个局部变量。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_IMMUTABLE_BINDING_WRITE,
+      "a write to an immutable binding",
+      "写入了不可变的绑定",
+      "A binding declared without `mut(name)` is reassigned, has a field or element written, is lent `&mut`, or has a `&mut self` method called on it: a local, a pattern or destructuring binding, a compile-time binding (`x :: v`, `comptime(x) := v`), a parameter, or a module-level or `thread_local` runtime binding.",
+      "一个没有用 `mut(name)` 声明的绑定被重新赋值、被写入字段或元素、被以 `&mut` 借出，或在其上调用了 `&mut self` 方法：局部变量、模式或解构绑定、编译期绑定（`x :: v`、`comptime(x) := v`）、参数，或模块级或 `thread_local` 运行时绑定。",
+      "A binding is immutable unless its name is wrapped in `mut(...)` (decision 47, Rust's `let mut`). The marker wraps the name in every binding position: `mut(x) := v`, `(mut(x) : T) = v`, `mut(x) :: v` and `comptime(mut(x)) := v` (mutable at compile time, in a block), `.Some(mut(v))` in a pattern, `{ a, mut(b) }` in a destructuring. A module-level runtime binding is the same rule: an unmarked one is Rust's `static`, `mut(G) := v` (or `thread_local(mut(G))`) is `static mut`, and a `mut` global cannot be lent to a call (E0916). Parameters and capture-list entries take no `mut`: rebind one to a mutable local (`mut(y) := x;`, a move for an owning value), or take `x : &mut T` when the caller's value should change; a closure whose state should persist across calls is typed `FnMut(...)`, whose exclusive call lets its body write its capture-list entries (decision 37). Calling an `FnMut(...)` closure is a `&mut self` call too: its binding is declared `mut(f)`. A door the binding holds (`r.with_mut(...)` on a `RefCell`, the door types of `std/sync`) is written through without `mut`; reassigning the binding needs it. A borrow (`x : &mut T`, `y := &mut place`) is written through, not written. `yo fix <path>` repairs one such write by wrapping the declared name in `mut(...)` (a parameter or capture-list entry gets no repair). Older code is upgraded on the last release that ships the migrations: `yo version install 0.2.76 && yo fix <path> --migrate mutable-globals` (every written global), then `--migrate mut-bindings` (every written local, pattern and compile-time binding), then step to the next release. In this generation the rule for locals, patterns and compile-time bindings applies everywhere except the compiler's own source and the repository's scripts and build file, which are swept in the next release; std is swept and checked, and the rule for module-level bindings applies everywhere.",
+      "绑定是不可变的，除非它的名字被包在 `mut(...)` 中（决策 47，即 Rust 的 `let mut`）。该标记在每个绑定位置都包住名字：`mut(x) := v`、`(mut(x) : T) = v`、`mut(x) :: v` 与 `comptime(mut(x)) := v`（在块中，编译期可变）、模式中的 `.Some(mut(v))`、解构中的 `{ a, mut(b) }`。模块级运行时绑定遵循同一规则：未标记的相当于 Rust 的 `static`，`mut(G) := v`（或 `thread_local(mut(G))`）相当于 `static mut`，且 `mut` 全局变量不能借给调用（E0916）。参数和捕获列表条目不接受 `mut`：把它重新绑定到一个可变局部变量（`mut(y) := x;`，对拥有所有权的值是移动），或在调用方的值应当改变时改用 `x : &mut T`；若闭包的状态应在多次调用之间保留，就把它的类型写成 `FnMut(...)`，其独占调用允许函数体写入捕获列表条目（决策 37）。调用 `FnMut(...)` 闭包也是 `&mut self` 调用：它的绑定要声明为 `mut(f)`。绑定持有的门（`RefCell` 上的 `r.with_mut(...)`、`std/sync` 的门类型）通过它写入时不需要 `mut`；重新赋值该绑定则需要。借用（`x : &mut T`、`y := &mut place`）是被“透过”写入，而不是被写入。`yo fix <path>` 会修复这样的一处写入：把声明的名字包在 `mut(...)` 中（参数或捕获列表条目没有修复）。旧代码请在最后一个携带这些迁移的版本上升级：`yo version install 0.2.76 && yo fix <path> --migrate mutable-globals`（每个被写入的全局变量），然后 `--migrate mut-bindings`（每个被写入的局部、模式和编译期绑定），之后再升级到下一个版本。在这一代中，针对局部变量、模式和编译期绑定的规则在除编译器自身源码以及仓库的脚本和构建文件之外的所有地方生效，这些代码将在下一个版本中迁移；std 已完成迁移并受此检查，针对模块级绑定的规则在所有地方生效。",
+      "main :: (fn() -> unit)({\n  total := i64(0);\n  total = (total + i64(1));\n  _t := total;\n});\nexport(main);\n",
+      "main :: (fn() -> unit)({\n  mut(total) := i64(0);\n  total = (total + i64(1));\n  _t := total;\n});\nexport(main);\n",
+      "`total` is reassigned, so it is declared `mut(total)`; without the marker it is immutable.",
+      "`total` 被重新赋值，因此声明为 `mut(total)`；没有该标记时它是不可变的。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_COMPTIME_BINDING_RUNTIME_WRITE,
+      "a compile-time constant is assigned at runtime",
+      "在运行时给编译期常量赋值",
+      "Code that runs when the program runs assigns a `::` binding: a function body writes a module-level `::` or one declared in an enclosing function, or writes a runtime value to a `::` local.",
+      "程序运行时执行的代码给 `::` 绑定赋值：函数体写入模块级的 `::` 或外层函数中声明的 `::`，或者把运行时值写入一个 `::` 局部绑定。",
+      "A `::` binding (and `comptime(name) := v`) is a compile-time constant: it is evaluated while compiling, and every use of it is folded to its value. A write in a function body that runs when the program runs cannot reach those folded uses, so the program would compute with two values for one name; with `G :: i32(1); H :: (G + i32(10));`, a function that runs `G = i32(3)` and returns `G + H` would see `G` as 3 while `H` was folded from 1. Such a write is therefore rejected where it is written, naming the binding and its definition. A binding the program writes at runtime is a runtime binding: declare it with `:=` (`mut(G) := i32(1);` at module level, since a written global needs `mut` (decision 47, E0917); `a := i32(1);` in a body). Writes that run while compiling stay legal: a body declared `-> comptime(...)`, a function executed at compile time, and a body's own `a :: 1; a = 2;` with a compile-time value, which reassigns the constant before any code is generated (plans/VALUES_BY_DEFAULT.md decision 47 will spell that `mut(a) :: 1`).",
+      "`::` 绑定（以及 `comptime(name) := v`）是编译期常量：它在编译时求值，对它的每次使用都会被折叠为它的值。程序运行时执行的函数体中的写入无法影响这些已折叠的使用，因此程序会对同一个名字使用两个不同的值；例如 `G :: i32(1); H :: (G + i32(10));`，一个执行 `G = i32(3)` 并返回 `G + H` 的函数会看到 `G` 为 3，而 `H` 是由 1 折叠得到的。因此这样的写入会在写入处被拒绝，并指出该绑定及其定义。程序在运行时写入的绑定是运行时绑定：请用 `:=` 声明它（模块级写作 `mut(G) := i32(1);`，因为被写入的全局变量需要 `mut`（决策 47，E0917）；函数体内写作 `a := i32(1);`）。在编译时执行的写入仍然合法：声明为 `-> comptime(...)` 的函数体、在编译期执行的函数，以及函数体自身以编译期值写的 `a :: 1; a = 2;`，它在生成任何代码之前就重新赋值了该常量（plans/VALUES_BY_DEFAULT.md 决策 47 将把它写作 `mut(a) :: 1`）。",
+      "G :: i32(1);\nbump :: (fn() -> i32)({\n  G = i32(3);\n  G\n});\nexport(bump);\n",
+      "mut(G) := i32(1);\nbump :: (fn() -> i32)({\n  G = i32(3);\n  G\n});\nexport(bump);\n",
+      "`G :: i32(1)` is folded wherever it is used, so `bump`'s runtime write could not reach those uses; `mut(G) := i32(1)` is a mutable runtime binding (decision 47), which `bump` writes and reads like any variable.",
+      "`G :: i32(1)` 在每个使用处都被折叠，因此 `bump` 的运行时写入无法影响这些使用；`mut(G) := i32(1)` 是可变的运行时绑定（决策 47），`bump` 像读写普通变量一样读写它。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_RC_PAYLOAD_WRITE,
+      "a write through an `Rc` handle",
+      "经由 `Rc` 句柄的写入",
+      "A place in an `Rc`'s payload is written: an assignment to `h.*` or to a place under it, a `&mut` argument, or a `self : &mut Self` receiver whose place crosses the handle's dereference.",
+      "写入了 `Rc` 载荷中的位置：对 `h.*` 或其下的位置赋值，或者以 `&mut` 实参、`self : &mut Self` 接收者的形式借出跨过句柄解引用的位置。",
+      "An `Rc(T)` is Rust's `Rc`: copying the handle shares one cell, so the payload is read-only through the handle (plans/VALUES_BY_DEFAULT.md decision 46). A write through one handle would be seen through every other handle to the cell, and a borrow of the payload held elsewhere (a `&` lent to a future across an `await`, for one) would change under it. Shared state that is mutated goes through a door instead. `RefCell(T)` (`std/sync/refcell`) is the usual one: share an `Rc(RefCell(T))` and write inside `h.with_mut(v => ...)`, which checks at run time that no other access is running. `Rc.get_mut(&mut h)` gives `.Some(&mut T)` when no other `Rc` or `Weak` shares the cell, and `.None` otherwise; it never clones. `Rc.make_mut(&mut h)` (`T <: Clone`) gives `&mut T` after moving `h` to a fresh cell when the cell is shared, so the other handles keep the old value. `Rc.try_unwrap(h)` takes the payload out of the only handle. A value that is not shared at all is owned uniquely: a plain value, or a `Box(T)` for a stable address. Across threads, use `Arc(Mutex(T))`, `Arc(RwLock(T))` or atomics.",
+      "`Rc(T)` 就是 Rust 的 `Rc`：复制句柄会共享同一个单元，因此载荷经由句柄是只读的（plans/VALUES_BY_DEFAULT.md 决策 46）。经由一个句柄的写入会被指向该单元的所有其他句柄看到，而别处持有的载荷借用（例如跨越 `await` 借给 future 的 `&`）会在其下发生改变。需要修改的共享状态应改走“门”。最常用的是 `RefCell(T)`（`std/sync/refcell`）：共享 `Rc(RefCell(T))`，并在 `h.with_mut(v => ...)` 中写入，它会在运行时检查没有其他访问正在进行。`Rc.get_mut(&mut h)` 在没有其他 `Rc` 或 `Weak` 共享该单元时给出 `.Some(&mut T)`，否则为 `.None`；它从不克隆。`Rc.make_mut(&mut h)`（要求 `T <: Clone`）在单元被共享时先把 `h` 移到一个新单元，再给出 `&mut T`，因此其他句柄保留旧值。`Rc.try_unwrap(h)` 从唯一的句柄中取出载荷。根本不共享的值应唯一拥有：普通值，或需要稳定地址时用 `Box(T)`。跨线程请使用 `Arc(Mutex(T))`、`Arc(RwLock(T))` 或原子类型。",
+      "count := Rc.new(i32(0));\nother := Rc.clone(count);\nother.* = i32(1);\n",
+      "{ RefCell } :: import(\"std/sync/refcell\");\ncount := Rc.new(RefCell(i32).new(i32(0)));\nother := Rc.clone(count);\nother.with_mut(v => {\n  v.* = i32(1);\n});\n",
+      "`other` and `count` are two handles to one cell, whose payload is read-only through either; the `RefCell` inside the cell is the door that lets a handle write it, and `count.with(v => v)` then reads 1.",
+      "`other` 与 `count` 是指向同一单元的两个句柄，经由任一句柄载荷都是只读的；单元内的 `RefCell` 是让句柄写入它的门，之后 `count.with(v => v)` 读到 1。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_DEREF_OF_BORROW,
+      "a dereference (`.*`) is written on a borrow",
+      "对借用写了解引用（`.*`）",
+      "`v.*` where `v` is a `&T`/`&mut T` parameter or a local borrow (`y := &x`): a borrow is a mode on the binding, not a type, and it already reads as its value.",
+      "`v.*` 中的 `v` 是 `&T`/`&mut T` 参数或局部借用（`y := &x`）：借用是绑定上的模式，不是类型，而且它本来就按其值读取。",
+      "A borrow is not a pointer: `x : &T` and `y := &x` name the caller's storage directly, so reading `v` already IS reading the value — there is no extra level for `.*` to remove. `.*` is for raw pointers (`unsafe(p.*)`, a `*(T)` value), `Deref` wrappers (`b.*` on a `Box`/`Rc`/`Arc`), and a type's own field named `*` (read as `self.*` on `self : &Self`). Writing `.*` on a borrow itself arrives with decision 43, which makes references types; until then it is this error. Before the code existed, the same program failed with an evaluator internal (`check_if_function_parameter_matches_argument: arg has no ExprInfo`) far from the `.*`, or with E0406 \"No field `*` on S\" for a struct pointee. Read the value directly: `v`, `v.f`, `v(i)`.",
+      "借用不是指针：`x : &T` 和 `y := &x` 直接命名调用方的存储，因此读 `v` 本身就已经是在读值 —— 不存在供 `.*` 去掉的额外一层。`.*` 用于裸指针（`unsafe(p.*)`，即 `*(T)` 值）、`Deref` 包装（`Box`/`Rc`/`Arc` 上的 `b.*`），以及类型自己名为 `*` 的字段（在 `self : &Self` 上读作 `self.*`）。对借用本身写 `.*` 要等决策 43 把引用变成类型；在那之前就是这个错误。在该错误码存在之前，同样的程序会在远离 `.*` 的地方以求值器内部错误失败（`check_if_function_parameter_matches_argument: arg has no ExprInfo`），或在结构体点类型上报 E0406 \"No field `*` on S\"。请直接读值：`v`、`v.f`、`v(i)`。",
+      "probe :: (fn(v : &i32) -> bool)(v.* < i32(20));\nmain :: (fn() -> unit)({\n  x := i32(5);\n  _r := probe(&x);\n});\nexport(main);\n",
+      "probe :: (fn(v : &i32) -> bool)(v < i32(20));\nmain :: (fn() -> unit)({\n  x := i32(5);\n  _r := probe(&x);\n});\nexport(main);\n",
+      "`v : &i32` is a borrow, and a borrow reads as its value: `v` alone is the `i32`; `v.*` names no place until decision 43.",
+      "`v : &i32` 是借用，借用按其值读取：单独的 `v` 就是那个 `i32`；在决策 43 之前 `v.*` 不指代任何位置。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_ADDR_OF_BORROW_PARAM,
+      "`addr_of` of a `&T` parameter",
+      "对 `&T` 参数取 `addr_of`",
+      "`addr_of(x)` where `x` is a `&T` parameter, or a place inside one (a field of a value struct or tuple, an element of an array it holds): the parameter is the callee's copy, so the pointer is not the caller's address and dangles when the call returns.",
+      "`addr_of(x)` 中的 `x` 是 `&T` 参数，或是其中的位置（值结构体或元组的字段、它持有的数组的元素）：该参数是被调用方的副本，因此指针不是调用方的地址，并在调用返回时悬空。",
+      "A `&T` parameter is a read-only borrow, and the borrow is a mode on the binding, not an address: codegen passes it as a copy of the caller's value (decision 34), whatever the size of `T`, and in generic code the choice depends only on the instantiated type. So `addr_of(x)` inside the callee names the callee's copy. The pointer reads the same bytes while the call runs, but it is not the caller's place: a write through it is lost, a comparison with the caller's `addr_of` fails, and once the function returns the pointer dangles. Unsafe code that needs the caller's address says so in the signature: a `x : *T` parameter that the caller fills with `addr_of(place)`, or a `x : &mut T` parameter, which is passed as a pointer. To read the value, use `x` itself. A projection's `&T` parameter (a function returning `&T` or `&mut T`, decision 24) is passed as a pointer and is not this error.",
+      "`&T` 参数是只读借用，而借用是绑定上的模式，不是地址：代码生成把它作为调用方值的副本传入（决策 34），与 `T` 的大小无关；在泛型代码中，这一选择只取决于实例化后的类型。因此被调用方中的 `addr_of(x)` 指向被调用方的副本。在调用期间该指针读到相同的字节，但它不是调用方的位置：经由它的写入会丢失，与调用方的 `addr_of` 比较不相等，函数返回后指针悬空。需要调用方地址的 unsafe 代码应在签名中写明：调用方以 `addr_of(place)` 填入的 `x : *T` 参数，或按指针传递的 `x : &mut T` 参数。只是读取值时直接使用 `x`。投影（返回 `&T` 或 `&mut T` 的函数，决策 24）的 `&T` 参数按指针传递，不属于此错误。",
+      "pragma(Pragma.AllowUnsafe);\nS :: struct(n : usize);\nwhere_is :: (fn(s : &S) -> *S)(addr_of(s.*));\nmain :: (fn() -> unit)({\n  s := S(n : usize(1));\n  _p := where_is(&s);\n});\nexport(main);\n",
+      "pragma(Pragma.AllowUnsafe);\nS :: struct(n : usize);\nwhere_is :: (fn(s : *S) -> *S)(s);\nmain :: (fn() -> unit)({\n  s := S(n : usize(1));\n  _p := where_is(addr_of(s));\n});\nexport(main);\n",
+      "`s : &S` is the callee's copy, so `addr_of(s)` is not the address of `main`'s `s`; a `*S` parameter receives the caller's `addr_of(s)` itself.",
+      "`s : &S` 是被调用方的副本，因此 `addr_of(s)` 不是 `main` 中 `s` 的地址；`*S` 参数接收的就是调用方的 `addr_of(s)` 本身。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_ORIGIN_NOT_DECLARED,
+      "an origin that is not declared",
+      "未声明的 origin",
+      "The second argument of a reference type `&(T, o)` or `&mut(T, o)` is not an origin: a name no `generic(o : Origin)` declares, a type, or a parameter's place in a parameter type.",
+      "引用类型 `&(T, o)` 或 `&mut(T, o)` 的第二个参数不是 origin：它是没有被任何 `generic(o : Origin)` 声明的名字、一个类型，或出现在参数类型中的某个参数的位置。",
+      "An origin is a set of places a reference may point into (decision 43). A signature spells it as the trailing argument of a reference type, and every origin it names is declared before use, in the signature's `generic(...)` clause, as a type parameter is: `generic(p : Origin)`. A union of declared origins is written as a tuple, `&(T, (p, q))`. The second argument is read by its kind: a type there is an error rather than a tuple, because Yo spells a tuple type `Tuple(A, B)` (a reference to one is `&Tuple(A, B)`). A parameter's own place (`xs` in `xs : &T`) is an origin in the RESULT type only (`-> &(T, xs)`); in a parameter type, declare an origin parameter and use it in both positions.",
+      "origin 是引用可能指向的位置集合（决策 43）。签名把它写成引用类型的末尾参数；它所命名的每个 origin 都必须先声明后使用，与类型参数一样写在签名的 `generic(...)` 子句中：`generic(p : Origin)`。多个已声明 origin 的并集写成元组：`&(T, (p, q))`。第二个参数按其种类解读：那里出现类型是错误而不是元组，因为 Yo 把元组类型写作 `Tuple(A, B)`（指向元组的引用是 `&Tuple(A, B)`）。参数自身的位置（`xs : &T` 中的 `xs`）只在结果类型中是 origin（`-> &(T, xs)`）；在参数类型中，请声明一个 origin 参数并在两处使用它。",
+      "first :: (fn(v : &(i32, q)) -> i32)(v.*);\nmain :: (fn() -> unit)({\n  x := i32(1);\n  _ := first(&x);\n});\nexport(main);\n",
+      "first :: (fn(generic(q : Origin), v : &(i32, q)) -> i32)(v.*);\nmain :: (fn() -> unit)({\n  x := i32(1);\n  _ := first(&x);\n});\nexport(main);\n",
+      "`q` names no origin; `generic(q : Origin)` declares it, and the call instantiates it with the place `&x` lends.",
+      "`q` 没有命名任何 origin；`generic(q : Origin)` 声明了它，调用时用 `&x` 借出的位置实例化它。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_ORIGIN_MISMATCH,
+      "a reference outside its declared origin",
+      "引用超出其声明的 origin",
+      "A projection whose result spells its origin, `-> &(T, o)`, yields a place reached from a parameter the origin does not name; or a trait impl declares a method result origin wider than the trait's.",
+      "结果写出 origin 的投影 `-> &(T, o)` 产出的位置来自该 origin 未列出的参数；或 trait 的 impl 为方法结果声明了比 trait 更宽的 origin。",
+      "A result origin is the set of places the returned reference may point into (decision 43). Elided, it is every reference parameter (O2); spelled, it names the parameters (`-> &(T, xs)`) or origin parameters (`-> &(T, p)`) the result borrows, and a call freezes only those arguments. The body is checked against it: the place a projection yields must be reached from a parameter the origin names. An impl of a trait method may declare a narrower origin than the trait (a subset), never a wider one: callers through the trait, a `Dyn` included, rely on the trait's.",
+      "结果 origin 是返回的引用可能指向的位置集合（决策 43）。省略时它是所有引用参数（O2）；写出时它列出结果借用的参数（`-> &(T, xs)`）或 origin 参数（`-> &(T, p)`），调用只冻结这些实参。函数体按它检查：投影产出的位置必须来自 origin 列出的参数。trait 方法的 impl 可以声明比 trait 更窄的 origin（子集），不能更宽：通过 trait 调用的代码（包括 `Dyn`）依赖 trait 的 origin。",
+      "Pair :: struct(a : i32, b : i32);\npick :: (fn(s : &Pair, t : &Pair) -> &(i32, s))(&t.a);\nmain :: (fn() -> unit)({\n  p := Pair(a : i32(1), b : i32(2));\n  _ := pick(&p, &p);\n});\nexport(main);\n",
+      "Pair :: struct(a : i32, b : i32);\npick :: (fn(s : &Pair, t : &Pair) -> &(i32, s))(&s.a);\nmain :: (fn() -> unit)({\n  p := Pair(a : i32(1), b : i32(2));\n  _ := pick(&p, &p);\n});\nexport(main);\n",
+      "the result is declared to point into `s`, so its place must be reached from `s`.",
+      "结果声明指向 `s`，因此其位置必须来自 `s`。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_ORIGIN_NAMES_ITSELF,
+      "an origin that names the value itself",
+      "命名值自身的 origin",
+      "A type definition names one of its own fields as an origin (`struct(value : i32, next : &(i32, self.value))`), or a binding's type names the binding's own place.",
+      "类型定义把自己的字段当作 origin（`struct(value : i32, next : &(i32, self.value))`），或者绑定的类型命名了该绑定自身的位置。",
+      "Every reference inside a value points outward, at a place some enclosing frame owns (decision 43, O1). A reference into the value's own fields would make the value self-referential: moving it would leave the reference pointing at the old location. Yo makes that state unrepresentable instead of pinning values (O5), so a type may name only origins declared before it: a type constructor's `comptime(p) : Origin` parameter, which each instance fills with a place outside the value. To relate parts of one value, store an index or an offset instead of a reference.",
+      "值内部的每个引用都指向外部，指向某个外层帧拥有的位置（决策 43，O1）。指向值自身字段的引用会让值自引用：移动它之后，引用仍指向旧位置。Yo 让这种状态无法表示，而不是固定（pin）值（O5），因此类型只能命名在它之前声明的 origin：类型构造器的 `comptime(p) : Origin` 参数，每个实例用值外部的位置填充它。若要关联同一个值的不同部分，请存储索引或偏移量，而不是引用。",
+      "_Node :: struct(value : i32, next : &(i32, self.value));\nmain :: (fn() -> unit)({\n  (n : Option(_Node)) = .None;\n  _ := n.is_none();\n});\nexport(main);\n",
+      "_Node :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(value : i32, next : &(i32, p)));\nmain :: (fn() -> unit)({\n  x := i32(1);\n  NodeOfX :: _Node(x);\n  _ := x;\n});\nexport(main);\n",
+      "`self.value` is the node's own field; an origin parameter `p` names a place outside the node, which `_Node(x)` fills with `x`.",
+      "`self.value` 是节点自身的字段；origin 参数 `p` 命名节点外部的位置，`_Node(x)` 用 `x` 填充它。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_REFERENCE_READ_WITHOUT_DEREF,
+      "a reference is read or written as a whole value without `.*`",
+      "未用 `.*` 就把引用当作整个值读写",
+      "A `&T`/`&mut T` parameter, a local borrow, a borrow capture or a `for`/`match` borrow binding is used as a whole value — an operator operand, a by-value argument, an initializer, a result, `r = v`, or a borrow capture `{ y : &r }` — without `.*`.",
+      "`&T`/`&mut T` 参数、局部借用、借用捕获或 `for`/`match` 借用绑定被当作整个值使用 —— 运算符操作数、按值实参、初始化式、结果、`r = v` 或借用捕获 `{ y : &r }` —— 却没有写 `.*`。",
+      "A reference is a value of its own type, `&T`, not the `T` it points to (decision 43): `r.*` names the referent, as `p.*` names a raw pointer's target. So a whole-value read is `r.*` (`n.* + 1`, `f(r.*)`, `t := r.*`, `return(r.*)`), a write through a `&mut T` is `r.* = v`, and a reference to the referent is `&r.*` or `&mut r.*`; `&r` itself lends the reference `r`, a `&&T` (and `&mut r` on a `mut(r)` binding a `&mut &T`), which nothing coerces back to a `&T`. Operators never dereference: `n + 1` with `n : &i32` is this error, as it is in Rust. Four uses need no `.*`: an auto-dereferencing access (`r.field`, `r.method()`, `r(i)`), passing the reference itself to a reference parameter (`f(r)`), re-pointing a local borrow (`r = &place`), and the scrutinee of `match(r, …)`, which matches through the reference (its bindings borrow the payload). `match(&r, …)` is this error too: the marker is redundant on a reference. When `T` is not implicitly copyable, write `r.*` where the value is only read in place (an operand such as `r.* == other`). Where it would be copied — a by-value parameter, a `:=` binding, a return — pass `r` itself to a `&T` parameter, read through it (`r.field`, `r.method()`), or copy it explicitly with `r.*.clone()`. `yo fix <path> --migrate deref` inserts every `.*` at the reads and lists those copies, drops a redundant `match` marker, and turns a `v.*` that meant the `Box`/`Rc` deref through a reference into `v.*.*`.",
+      "引用本身是一个值，类型为 `&T`，而不是它所指向的 `T`（决策 43）：`r.*` 命名被引用的值，就像 `p.*` 命名裸指针的目标。因此整值读取写作 `r.*`（`n.* + 1`、`f(r.*)`、`t := r.*`、`return(r.*)`），经由 `&mut T` 的写入写作 `r.* = v`，指向被引用值的引用写作 `&r.*` 或 `&mut r.*`；`&r` 本身借出的是引用 `r`，即 `&&T`（对 `mut(r)` 绑定写 `&mut r` 得到 `&mut &T`），没有任何转换会把它变回 `&T`。运算符从不自动解引用：`n : &i32` 时 `n + 1` 就是这个错误，与 Rust 相同。有四种用法不需要 `.*`：自动解引用的访问（`r.field`、`r.method()`、`r(i)`）、把引用本身传给引用形参（`f(r)`）、让局部借用重新指向（`r = &place`），以及 `match(r, …)` 的被匹配值，它经由引用匹配（其绑定借用载荷）。`match(&r, …)` 也是这个错误：对引用而言这个标记是多余的。当 `T` 不可隐式复制时，只在原地读取值的地方写 `r.*`（如 `r.* == other` 这样的操作数）。在值会被复制的地方 —— 按值形参、`:=` 绑定、返回 —— 请把 `r` 本身传给 `&T` 形参、经由它读取（`r.field`、`r.method()`），或用 `r.*.clone()` 显式复制。`yo fix <path> --migrate deref` 会在读取处插入所有 `.*` 并列出这些复制点，删掉 `match` 中多余的标记，并把经由引用表示 `Box`/`Rc` 解引用的 `v.*` 改写为 `v.*.*`。std 与编译器源码树保留较早的读法（借用按其值读取），直到迁移它们的版本。",
+      "add_one :: (fn(n : &i32) -> i32)(n + i32(1));\nmain :: (fn() -> unit)({\n  x := i32(5);\n  _r := add_one(&x);\n});\nexport(main);\n",
+      "add_one :: (fn(n : &i32) -> i32)(n.* + i32(1));\nmain :: (fn() -> unit)({\n  x := i32(5);\n  _r := add_one(&x);\n});\nexport(main);\n",
+      "`n` is a `&i32`, not an `i32`: `n.*` reads the value it refers to, and `+` never dereferences.",
+      "`n` 是 `&i32` 而不是 `i32`：`n.*` 读取它所引用的值，而 `+` 从不自动解引用。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_COMPTIME_ARGUMENT,
+      "comptime argument error",
+      "comptime 参数错误",
+      "A comptime builtin or a `comptime(...)` parameter received an argument of the wrong shape.",
+      "comptime 内建函数或 `comptime(...)` 参数收到了形状错误的参数。",
+      "The comptime builtins (`comptime_assert`, `comptime_expect_error`, …) check their argument kinds at compile time, and a parameter declared `comptime(x) : T` needs a compile-time argument — the function is specialized on its value. Give it the shape it names: for `comptime_assert` a comptime-known bool, for a `comptime` parameter a literal, a `::` constant or the result of a comptime function, never a runtime value.",
+      "comptime 内建函数（`comptime_assert`、`comptime_expect_error` 等）在编译期检查参数种类；声明为 `comptime(x) : T` 的参数需要编译期实参 —— 函数会按其值特化。请提供它所要求的形状：`comptime_assert` 需要编译期已知的 bool，`comptime` 参数需要字面量、`::` 常量或 comptime 函数的结果，而不是运行时值。",
+      "x := i32(1);\ncomptime_assert((x > i32(0)));\n",
+      "comptime_assert(1 > 0);\n",
+      "`x` is a runtime value; `comptime_assert` needs a compile-time `bool`.",
+      "`x` 是运行时值；`comptime_assert` 需要编译期 `bool`。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_COMPTIME_OVERFLOW,
+      "compile-time integer overflow",
+      "编译期整数溢出",
+      "A compile-time integer does not fit its target integer type.",
+      "编译期整数放不进目标整数类型。",
+      "When BOTH operands are compile-time constants, Yo selects the checked comptime operator and rejects overflow instead of wrapping. The same range check applies when a literal or a `comptime_int` constant is given a fixed-width type — by context (`(y : u8) = 300`, an `a : u8` argument, a return value) or by conversion (`u8(300)`). Widen the type, or use a value in range; a conversion between two typed integers (`u8(some_i32)`) truncates by definition and is not checked.",
+      "当两个操作数都是编译期常量时，Yo 会选用带检查的 comptime 运算符并拒绝溢出而非回绕。字面量或 `comptime_int` 常量被赋予定宽类型时 —— 无论是由上下文（`(y : u8) = 300`、`a : u8` 参数、返回值）还是由转换（`u8(300)`）—— 也做同样的范围检查。请加宽类型或使用范围内的值；两个带类型整数之间的转换（`u8(some_i32)`）按定义截断，不做检查。",
+      "x :: (i32(2147483647) + i32(1));\n",
+      "x :: (i64(2147483647) + i64(1));\n",
+      "The typed sum overflows `i32` while it is folded at compile time.",
+      "带类型的和在编译期折叠时溢出了 `i32`。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_COMPTIME_DIVISION_BY_ZERO,
+      "compile-time division by zero",
+      "编译期除以零",
+      "A compile-time `/` or `%` has a zero divisor.",
+      "编译期的 `/` 或 `%` 的除数为零。",
+      "When both operands are compile-time constants, Yo evaluates the division while compiling, and a zero divisor has no result. Fix the divisor, or guard the division so it is not evaluated with zero. At runtime the same operation traps.",
+      "当两个操作数都是编译期常量时，Yo 在编译时求值该除法，而除数为零没有结果。请修正除数，或加以保护，使其不会以零求值。运行时的同一运算会触发陷阱。",
+      "x :: (i32(7) / i32(0));\n",
+      "x :: (i32(7) / i32(1));\n",
+      "The divisor is the constant `0`.",
+      "除数是常量 `0`。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_COMPTIME_RUNTIME_BINDING,
+      "runtime variable in a compile-time context",
+      "编译期上下文中的运行时变量",
+      "A local is declared with a runtime form, but this function body runs only at compile time.",
+      "局部变量用运行时形式声明，但这个函数体只在编译期执行。",
+      "`:=` and `(name : T) = …` (or a bare `name : T`) declare runtime variables, and a local borrow (`name := &place`, `name := &mut place`) binds a reference to runtime storage. The body of a function declared to return a compile-time value (`-> comptime(T)`, `-> Type`, `-> Expr`, …) has no runtime, so its locals use the compile-time forms: `name :: value`, `(comptime(name) : T) = value`, `comptime(name) := value` or `comptime(name) : T`. They are still mutable: reassign them with `=` in a loop as usual. A function literal nested inside such a body is judged by its own return type, so a runtime method or closure defined there keeps its runtime locals. `yo fix` rewrites `:=` to `::` and `name` to `comptime(name)`.",
+      "`:=` 与 `(name : T) = …`（以及单独的 `name : T`）声明运行时变量，局部借用（`name := &place`、`name := &mut place`）绑定指向运行时存储的引用。声明为返回编译期值的函数（`-> comptime(T)`、`-> Type`、`-> Expr` 等）的函数体没有运行时，因此其局部变量要用编译期形式：`name :: value`、`(comptime(name) : T) = value`、`comptime(name) := value` 或 `comptime(name) : T`。它们依然可变：可以像平常一样在循环中用 `=` 重新赋值。嵌套在这种函数体内的函数字面量按它自己的返回类型判断，所以在其中定义的运行时方法或闭包可以保留运行时局部变量。`yo fix` 会把 `:=` 改写为 `::`，把 `name` 改写为 `comptime(name)`。",
+      "sum :: (fn(comptime(n) : i32) -> comptime(i32))({\n  acc := i32(0);\n  (step : i32) = n;\n  (acc + step)\n});\n",
+      "sum :: (fn(comptime(n) : i32) -> comptime(i32))({\n  acc :: i32(0);\n  (comptime(step) : i32) = n;\n  acc + step\n});\n",
+      "`acc` and `step` are locals of a compile-time function body, so they use the compile-time forms `::` and `comptime(step)`.",
+      "`acc` 与 `step` 是编译期函数体的局部变量，因此使用编译期形式 `::` 与 `comptime(step)`。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_COMPTIME_PARAM_DEFAULT,
+      "parameter default is not compile-time known",
+      "参数默认值不是编译期已知的",
+      "A function parameter's `?=` default is computed at runtime, but defaults must be compile-time known values.",
+      "函数参数的 `?=` 默认值在运行时计算，但默认值必须是编译期已知的值。",
+      "A `?=` default is fixed when the function is defined: literals (`i32(18)`, `\"text\"`, `false`), constants (`K`, `usize.MAX`), payload-free enum variants (`.None`, `Mode.Fast`) and other compile-time values. A runtime call such as `seven()` or `String.new()`, or a runtime variable, has no value until the program runs, so it cannot be a default. When the default really has to be computed, make the parameter optional: declare it as `(p : Option(T)) ?= .None` and branch in the body, computing the value when the caller passed nothing. A default may name an earlier compile-time parameter (`(comptime(Rhs) : Type) ?= Lhs`); that is decided per call. Names in a default always resolve where the function is defined, never at the caller.",
+      "`?=` 默认值在函数定义时就已确定：字面量（`i32(18)`、`\"text\"`、`false`）、常量（`K`、`usize.MAX`）、无载荷的枚举变体（`.None`、`Mode.Fast`）以及其他编译期值。像 `seven()` 或 `String.new()` 这样的运行时调用，或者运行时变量，在程序运行前都没有值，因此不能作为默认值。如果默认值确实需要计算，请把参数改为可选：声明为 `(p : Option(T)) ?= .None`，并在函数体中分支，在调用方未传值时计算该值。默认值可以引用前面的编译期参数（`(comptime(Rhs) : Type) ?= Lhs`），它按每次调用确定。默认值中的名字总是在函数定义处解析，而不是在调用方解析。",
+      "seven :: (fn() -> i32)(i32(7));\ng :: (fn((x : i32) ?= seven()) -> i32)(x);\n",
+      "seven :: (fn() -> i32)(i32(7));\ng :: (fn((x : Option(i32)) ?= .None) -> i32)(match(x, .Some(v) => v, .None => seven()));\n",
+      "`seven()` runs at runtime; the optional parameter computes it in the body when the caller omits `x`.",
+      "`seven()` 在运行时执行；可选参数在调用方省略 `x` 时于函数体中计算它。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_MATCH_NOT_EXHAUSTIVE,
+      "match is not exhaustive",
+      "match 未覆盖所有情况",
+      "Some value of the scrutinee's type is matched by no arm.",
+      "被匹配值的类型中存在没有任何分支能匹配的值。",
+      "Every `match` must cover every value. For an enum that means every reachable variant, with nested payload patterns counted structurally (`.Some(true)` covers only `.Some(true)`, so `.Some(false)` is a missing case); for `bool` both values; for a fixed-width integer every value of its type, where constants and ranges count as intervals (`(0..=255)` alone covers a `u8`). `usize` and `isize`, whose range differs between targets, floats and strings need a wildcard `_` or a binding arm. The message names one missing value in Yo pattern syntax, an integer gap as a range; a guarded arm never counts as covering its pattern, because the guard can fail, and the help line says when a guard is what leaves the value unmatched.",
+      "每个 `match` 都必须覆盖所有取值。对枚举意味着覆盖每个可达的变体，且嵌套的载荷模式按结构计算（`.Some(true)` 只覆盖 `.Some(true)`，因此 `.Some(false)` 是缺失情况）；对 `bool` 需要两个值；对定宽整数需要覆盖其类型的每个值，常量和范围按区间计算（单独一个 `(0..=255)` 就覆盖了 `u8`）。`usize` 和 `isize` 的取值范围随目标平台而不同，它们以及浮点数和字符串都需要通配符 `_` 或绑定分支。错误信息会以 Yo 模式语法给出一个缺失的值，整数缺口以范围给出；带守卫的分支不算覆盖其模式，因为守卫可能失败，当正是守卫使该值未被匹配时，help 行会指出这一点。",
+      "f :: (fn(o : Option(bool)) -> i32)(match(o, .Some(true) => i32(1), .None => i32(0)));\n",
+      "f :: (fn(o : Option(bool)) -> i32)(match(o, .Some(true) => i32(1), .Some(false) => i32(2), .None => i32(0)));\n",
+      "`.Some(false)` is never matched; the message names it as the missing case.",
+      "`.Some(false)` 从未被匹配；错误信息会把它列为缺失的情况。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_MATCH_UNREACHABLE_ARM,
+      "unreachable match arm",
+      "不可达的 match 分支",
+      "Every value this arm matches is already matched by an earlier arm.",
+      "该分支能匹配的所有值都已被前面的分支匹配。",
+      "Arms are tried in source order and the first match wins, so an arm can never run when one earlier arm alone already takes every value it matches (a second `.Red`, a literal after `_`, `(5..=7)` after `(0..10)`), when an earlier alternative of its own or-pattern does (`(1 | 1)`), or when no value of the scrutinee's type matches it (the empty range `(5..5)`, a GADT variant the scrutinee's type excludes). These are errors. An arm the earlier arms cover only together, such as `.Some(_)` after `.Some(true)` and `.Some(false)`, is a warning, and a trailing `_` or binding arm is always accepted. Reorder the arms or delete the dead one.",
+      "分支按源码顺序尝试，首个匹配者胜出，因此在以下情况下分支永远不会执行：前面的某一个分支单独就占据了它能匹配的全部取值（重复的 `.Red`、`_` 之后的字面量、`(0..10)` 之后的 `(5..=7)`）；它自己的或模式中更早的选项已经如此（`(1 | 1)`）；或者被匹配值的类型中没有任何值能匹配它（空范围 `(5..5)`、被匹配值类型所排除的 GADT 变体）。这些都是错误。前面的分支只有合在一起才能覆盖的分支，例如 `.Some(true)` 和 `.Some(false)` 之后的 `.Some(_)`，只给出警告；末尾的 `_` 或绑定分支总是被接受。请调整分支顺序或删除无效分支。",
+      "Color :: enum(Red, Green);\nf :: (fn(c : Color) -> i32)(match(c, .Red => i32(1), _ => i32(2), .Green => i32(3)));\n",
+      "Color :: enum(Red, Green);\nf :: (fn(c : Color) -> i32)(match(c, .Red => i32(1), .Green => i32(3), _ => i32(2)));\n",
+      "The `_` arm already matches `.Green`; the arm after it can never run.",
+      "`_` 分支已经匹配了 `.Green`；其后的分支永远不会执行。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_INVALID_PATTERN,
+      "invalid match pattern",
+      "无效的 match 模式",
+      "The arm's pattern cannot match a value of the scrutinee's type, or is not a pattern form.",
+      "该分支的模式无法匹配被匹配值的类型，或者不是合法的模式形式。",
+      "A pattern is `_`, a binding name, a compile-time constant (a literal, a `::` constant, a typed literal such as `i32(5)`, a string), `.Variant`, `.Variant(p, …)` with sub-patterns at any depth, `.Variant(label : p)`, `.Variant({…})`, `(p | q)`, `(name := p)`, `(lo..hi)` / `(lo..=hi)`, `(p && (guard))`, a tuple `(p, q)`, a struct `S(x : p)` / `{x : p}`, or a wrapper `Rc(p)` / `Arc(p)` / `Box(p)` that looks through the cell at its position. At an `Rc(T)` or `Arc(T)` position the wrapper is required: a structural pattern `p` there without it is this error, written `Rc(p)` (older code: `yo version install 0.2.76 && yo fix <path> --migrate rc-pattern` wraps every such pattern, then step to the next release). A constant must fold at compile time and must be comparable with `==` to the value at its position; range bounds must be constants; a guard must be `bool`; or-pattern alternatives must bind the same names. Because Yo has no operator precedence, an infix pattern needs its own parentheses.",
+      "模式可以是 `_`、绑定名、编译期常量（字面量、`::` 常量、如 `i32(5)` 的带类型字面量、字符串）、`.Variant`、任意深度嵌套子模式的 `.Variant(p, …)`、`.Variant(label : p)`、`.Variant({…})`、`(p | q)`、`(name := p)`、`(lo..hi)` / `(lo..=hi)`、`(p && (guard))`、元组 `(p, q)`、结构体 `S(x : p)` / `{x : p}`，或穿透该位置单元的包装 `Rc(p)` / `Arc(p)` / `Box(p)`。在 `Rc(T)` 或 `Arc(T)` 位置上必须写出包装：不写包装的结构化模式 `p` 就是这个错误，应写作 `Rc(p)`（旧代码：`yo version install 0.2.76 && yo fix <path> --migrate rc-pattern` 会为每个这样的模式加上包装，之后再升级到下一个版本）。常量必须能在编译期折叠，并且必须能与该位置的值用 `==` 比较；范围边界必须是常量；守卫必须是 `bool`；或模式的各选项必须绑定相同的名字。由于 Yo 没有运算符优先级，中缀模式需要自己的括号。",
+      "f :: (fn(n : i32) -> i32)(match(n, \"a\" => i32(1), _ => i32(0)));\n",
+      "f :: (fn(n : i32) -> i32)(match(n, 1 => i32(1), _ => i32(0)));\n",
+      "A string literal cannot match an `i32` scrutinee: there is no `==` between them. Match a constant of the scrutinee's type, a range, a variant or a binding.",
+      "字符串字面量不能匹配 `i32` 被匹配值：两者之间没有 `==`。请匹配与被匹配值同类型的常量、范围、变体或绑定。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_NO_MATCHING_CALL,
+      "no matching call",
+      "没有匹配的调用",
+      "No candidate accepts this call: the receiver has no such method, or no overload fits the arguments.",
+      "没有候选者接受这次调用：接收者没有这个方法，或者没有重载适配这些参数。",
+      "The message lists the arguments as seen by the compiler. Most often the method comes from a trait whose impls live in a std module that is not imported (`to_string` from `std/fmt`), the receiver is a different type than intended, or the type needs a `derive(...)`/`impl(...)` for that trait. Check the receiver's type in the message first. On a `Rc` or `Arc` (a `Deref` type) a method the wrapper lacks is looked up on its payload (auto-dereference, `b.m()` is `b.*.m()`); when the payload lacks it too, the message says so and names the payload.",
+      "错误信息会列出编译器看到的参数。最常见的原因：该方法来自某个 trait，而其 impl 位于未导入的 std 模块（`std/fmt` 的 `to_string`）；接收者类型与预期不同；或该类型需要针对此 trait 的 `derive(...)`/`impl(...)`。请先核对信息中接收者的类型。对 `Rc` 或 `Arc`（`Deref` 类型），包装器没有的方法会到其载荷上查找（自动解引用，`b.m()` 即 `b.*.m()`）；若载荷也没有，错误信息会说明这一点并指出载荷。",
+      "Point :: struct(x : i32);\np := Point(x : i32(1));\n_s := p.norm();\n",
+      "Point :: struct(x : i32);\nnorm :: (fn(p : &Point) -> i32)(p.x);\np := Point(x : i32(1));\n_s := norm(&p);\n",
+      "`Point` has no `norm` method and no impl provides one, so the method-call syntax finds no candidate; define the function (or an `impl(Point, ...)` method) first. The same code fires when a trait method's impl lives in a std module that was not imported (`to_string` from `std/fmt`).",
+      "`Point` 没有 `norm` 方法，也没有 impl 提供它，因此方法调用语法找不到候选者；请先定义该函数（或 `impl(Point, ...)` 方法）。当某个 trait 方法的 impl 位于未导入的 std 模块时（`std/fmt` 的 `to_string`），也会报同一错误码。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_OPTIMISTIC_PANIC,
+      "the optimistic panic vocabulary is banned in safe files",
+      "安全文件中禁用乐观恐慌词汇",
+      "`unwrap` / `expect` / `unwrap_err` / `expect_err` on an Option/Result in a safe file discards the failure case the type already carries, and calling it would abort the program.",
+      "在安全文件中对 Option/Result 调用 `unwrap` / `expect` / `unwrap_err` / `expect_err` 会丢弃类型已经携带的失败信息，调用它会中止程序。",
+      "Safe mode rule D7: a call may not erase a failure the receiver's type carries. Handle the failure instead — `match` on `.Some`/`.None` (or `.Ok`/`.Err`), supply a default with `unwrap_or`, compute one with `unwrap_or_else`, or propagate the Option/Result to your caller. The ban is a call-site gate: the methods still exist for `pragma(Pragma.AllowUnsafe)` files and `tests/*.test.yo`, where an unwrapped failure is either the author's explicit decision or the test doing its job.",
+      "安全模式规则 D7：调用不得抹掉接收者类型所携带的失败信息。请改为处理失败情形 —— 用 `match` 匹配 `.Some`/`.None`（或 `.Ok`/`.Err`），用 `unwrap_or` 提供默认值，用 `unwrap_or_else` 计算默认值，或者把 Option/Result 传播给你的调用方。该禁令是调用点门控：在 `pragma(Pragma.AllowUnsafe)` 文件和 `tests/*.test.yo` 中这些方法仍然可用。",
+      "{ println } :: import(\"std/fmt\");\n\nmain :: (fn() -> unit)({\n  scores := Option(i32).Some(i32(9));\n  best := scores.unwrap();\n  println(`best=${best}`);\n});\nexport(main);\n",
+      "{ println } :: import(\"std/fmt\");\n\nmain :: (fn() -> unit)({\n  scores := Option(i32).Some(i32(9));\n  best := scores.unwrap_or(i32(0));\n  println(`best=${best}`);\n});\nexport(main);\n",
+      "The receiver's type already says the value might be absent; `unwrap` throws that information away and aborts on the failure case, so the failure handling must be written out.",
+      "接收者的类型已经表明值可能缺失；`unwrap` 丢弃了这一信息并在失败分支中止程序，因此必须把失败处理显式写出来。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_CONFLICTING_IMPL,
+      "two impls give one type the same trait or method",
+      "两个 impl 为同一类型提供了同一个 trait 或方法",
+      "A type implements a trait at most once, and defines an inherent method of a given name once; a second impl of the same trait for the same type — in this module, in an imported one, or in the prelude — or a second inherent method of the same name has no meaning to give it.",
+      "一个类型最多实现某个 trait 一次，同名的固有方法也只能定义一次；同一 trait 对同一类型的第二个 impl —— 无论在本模块、被导入的模块还是 prelude 中 —— 或第二个同名固有方法，都无法赋予意义。",
+      "Yo has no overloading and no specialization, so two impls of one (type, trait) pair would be two answers to one question; the first used to win silently and the second was dead code. Keep one impl: delete the duplicate, or, if the second really is a different behaviour, give it its own trait or its own wrapper type. A blanket impl over a bound (`impl(generic(T), where(T <: X), T, Trait(...))`) conflicts the same way with a concrete impl of the trait for a type the bound covers, and two blanket inherent impls over the same bound may not define one method name. See plans/reference/TRAIT_COHERENCE.md and plans/reference/FUNCTION_OVERLOADING_POLICY.md.",
+      "Yo 没有重载也没有特化，所以对同一 (类型, trait) 的两个 impl 等于对同一个问题给出两个答案；过去第一个会静默胜出，第二个成为死代码。只保留一个 impl：删除重复的那个；如果第二个确实代表不同行为，就给它单独的 trait 或包装类型。覆盖某个约束的一揽子 impl（`impl(generic(T), where(T <: X), T, Trait(...))`）与该约束所覆盖类型的具体 impl 也以同样方式冲突；同一约束上的两个一揽子固有 impl 不能定义同名方法。见 plans/reference/TRAIT_COHERENCE.md 与 plans/reference/FUNCTION_OVERLOADING_POLICY.md。",
+      "Speak :: trait(speak : (fn(self : Self) -> i32));\nDog :: struct(x : i32);\nimpl(Dog, Speak(speak : (self -> self.x)));\nimpl(Dog, Speak(speak : (self -> i32(2))));\n",
+      "Speak :: trait(speak : (fn(self : Self) -> i32));\nDog :: struct(x : i32);\nimpl(Dog, Speak(speak : (self -> self.x)));\n",
+      "The second `impl(Dog, Speak(...))` is a second answer to one question; keep one.",
+      "第二个 `impl(Dog, Speak(...))` 是对同一个问题的第二个答案；只保留一个。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_CANNOT_INFER,
+      "a type parameter of a call cannot be inferred",
+      "调用的类型参数无法推断",
+      "A generic function's type parameter is fixed by the call: by an argument whose type mentions it, or by the type the call's result is expected to have. When neither mentions it — a `generic(T)` that appears only in the result, called where nothing says what the result should be — there is no type to specialize the function at.",
+      "泛型函数的类型参数由调用确定：要么来自类型中提到它的实参，要么来自调用结果被期望的类型。两者都没有提到它时 —— 例如只出现在结果类型中的 `generic(T)`，而调用处没有任何信息说明结果应是什么类型 —— 就没有可以用来特化该函数的类型。",
+      "Annotate the binding the result lands in, `(x : Option(i32)) = mk()`, or pass the type explicitly, `mk(generic(i32))`. Before this was an error the call specialized the function at an unresolved type, `check` passed, and `compile` failed with an internal compiler error. A method called through an unapplied generic type constructor infers the constructor's arguments: from its first argument, the receiver, when the method takes `Self` first (`Rc.clone(b)`, where that argument must be an instance of the constructor), and otherwise from every argument whose parameter's declared type mentions them (`Pair.make(i32(1), true)`, `Rc.new(x)`). A closure, an enum shorthand `.X`, a `dyn(...)` value, a defaulted argument and the type the result is expected to have bind nothing, so a call with no arguments (`ArrayList.new()`), `Rc.new(.None)`, a type parameter no argument mentions, and a call that two impls both fit need the arguments written: `Rc(Option(i32)).new(.None)`.",
+      "为接收结果的绑定标注类型 `(x : Option(i32)) = mk()`，或显式传入类型 `mk(generic(i32))`。在这成为错误之前，调用会以未解析的类型特化函数，`check` 通过，而 `compile` 以内部编译器错误失败。通过未应用的泛型类型构造器调用的方法会推断构造器的实参：方法的第一个参数是 `Self` 时，从第一个实参（即接收者）推断（`Rc.clone(b)`，该实参必须是这个构造器的实例）；否则从每个参数声明类型提到它们的实参推断（`Pair.make(i32(1), true)`、`Rc.new(x)`）。闭包、枚举简写 `.X`、`dyn(...)` 值、取默认值的实参以及结果被期望的类型都不绑定任何东西，所以没有实参的调用（`ArrayList.new()`）、`Rc.new(.None)`、没有实参提到的类型参数，以及两个 impl 都适配的调用，都需要写出类型实参：`Rc(Option(i32)).new(.None)`。",
+      "mk :: (fn(generic(T : Type)) -> Option(T))(.None);\nx := mk();\n",
+      "mk :: (fn(generic(T : Type)) -> Option(T))(.None);\n(x : Option(i32)) = mk();\n",
+      "Nothing says what `T` is: the result's type is the only mention of it.",
+      "没有任何信息说明 `T` 是什么：它只出现在结果的类型中。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_DYN_UNCALLABLE,
+      "a trait method cannot be called through a Dyn",
+      "trait 方法无法通过 Dyn 调用",
+      "A `Dyn(Trait)` value erases its concrete type and calls its methods through a vtable, one function per method. A method whose signature mentions `Self` anywhere but the receiver (a `Self` parameter, a `Self` or `Option(Self)` result) has no single C type at the call once the concrete type is erased, and a method with `generic(...)` parameters has no single function to put in the vtable. Such methods get no vtable slot, so calling one through a `Dyn` is an error. Forming the `Dyn` and calling its other methods is fine. A method that takes `self` by value has no slot either, and forming a `Dyn` over its trait is rejected for every payload (plans/VALUES_BY_DEFAULT.md decision 49): a `Dyn` is unsized and lives behind the pointer that owns it, so there is no value to hand the method, and a call would move the payload out of that pointer.",
+      "`Dyn(Trait)` 值会擦除具体类型，并通过 vtable（每个方法一个函数）调用方法。签名中除接收者外还提到 `Self` 的方法（`Self` 参数、`Self` 或 `Option(Self)` 结果）在具体类型被擦除后，在调用处没有唯一的 C 类型；带 `generic(...)` 参数的方法也没有唯一的函数可以放进 vtable。这类方法没有 vtable 槽位，因此通过 `Dyn` 调用它们是错误。构造该 `Dyn` 并调用其他方法不受影响。按值接收 `self` 的方法同样没有槽位，并且无论载荷是什么，都不能在包含它的 trait 上构造 `Dyn`（plans/VALUES_BY_DEFAULT.md 决策 49）：`Dyn` 是非定长的，只能位于拥有它的指针之后，因此没有可以交给该方法的值，调用会把载荷从那个指针中移出。",
+      "Call the method on a concrete value instead, or declare it so that `Self` appears only as the receiver and it takes no `generic(...)` parameters. Before this was an error the call passed `check` and failed inside the C compiler.",
+      "改为在具体值上调用该方法，或把它声明为 `Self` 只作为接收者出现、且不带 `generic(...)` 参数。在这成为错误之前，这种调用能通过 `check`，却在 C 编译器中失败。",
+      "Sp :: trait(speak : (fn(self : &Self) -> i32), me : (fn(self : &Self) -> Self));\nCat :: struct(n : i32);\nderive(Cat, Copy, Clone);\nimpl(Cat, Sp(speak : (fn(self : &Self) -> i32)(self.n), me : (fn(self : &Self) -> Self)(self.*)));\nmain :: (fn() -> unit)({\n  (d : Box(Dyn(Sp))) = dyn(Box.new(Cat(n : i32(3))));\n  c := d.me();\n});\n",
+      "Sp :: trait(speak : (fn(self : &Self) -> i32), me : (fn(self : &Self) -> Self));\nCat :: struct(n : i32);\nderive(Cat, Copy, Clone);\nimpl(Cat, Sp(speak : (fn(self : &Self) -> i32)(self.n), me : (fn(self : &Self) -> Self)(self.*)));\nmain :: (fn() -> unit)({\n  (d : Box(Dyn(Sp))) = dyn(Box.new(Cat(n : i32(3))));\n  n := d.speak();\n});\n",
+      "`me` returns `Self`, whose concrete type the `Dyn(Sp)` erased; `speak` returns `i32` and is callable.",
+      "`me` 返回 `Self`，而它的具体类型已被 `Dyn(Sp)` 擦除；`speak` 返回 `i32`，可以调用。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_ARGUMENT_LABEL_MISMATCH,
+      "argument label does not match the parameter",
+      "实参标签与形参不符",
+      "An argument's label names a different parameter than the one at its position.",
+      "实参的标签指向的形参不是它所在位置的那个。",
+      "Arguments are positional. A label (`f(x : 1, y : 2)`) documents which parameter an argument is for and is checked against the parameter at that position; it never reorders the call. Pass the arguments in declaration order with their own labels, or drop the labels. A parameter declared without a label takes an unlabeled argument.",
+      "实参是按位置传递的。标签（`f(x : 1, y : 2)`）说明实参对应哪个形参，并与该位置上的形参核对；它从不改变参数顺序。请按声明顺序传参并写对应的标签，或者去掉标签。没有标签的形参只接受不带标签的实参。",
+      "f :: (fn(x : i32, y : i32) -> i32)(x + y);\nr := f(y : i32(2), x : i32(1));\n",
+      "f :: (fn(x : i32, y : i32) -> i32)(x + y);\nr := f(x : i32(1), y : i32(2));\n",
+      "The first parameter is `x`; the label `y` does not move the argument to `y`.",
+      "第一个形参是 `x`；标签 `y` 不会把实参挪到 `y`。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_AMBIGUOUS_METHOD,
+      "a method name has two readings",
+      "一个方法名有两种解读",
+      "Two traits, or a wrapper and its payload, both supply a member with this name, and nothing says which one is meant.",
+      "两个 trait，或者一个包装类型和它的载荷，都提供了这个名字的成员，而代码没有说明指的是哪一个。",
+      "When a type implements two traits that both declare `get`, an unqualified `x.get()` could mean either, and which impl ran used to depend on the order the impls were registered. Name the trait with the qualified form `(T <: Trait).get(x)`, or call it inside a function whose `where(T <: Trait)` bound selects one. A type's own inherent method is never ambiguous with a trait method. A `Dyn` calls its methods through a vtable by name, so a `Dyn` may not carry two traits that both declare a method it can call under one name at all: keep only one of the two traits in the `Dyn`, or rename one of the methods. A `Deref` wrapper (`Box`, `Rc`, `Arc`) forwards a member it lacks to its payload, so when the wrapper and its payload both have the member, `w.clone()` could mean the wrapper's or the payload's: write `Rc.clone(w)` for the wrapper's own member, or `w.*.clone()` for the payload's. `yo fix` rewrites the call to `Rc.clone(w)`, the meaning it had before this was an error.",
+      "当一个类型实现了两个都声明了 `get` 的 trait 时，不加限定的 `x.get()` 可能指其中任何一个，以前实际运行哪个 impl 取决于 impl 的注册顺序。请用限定形式 `(T <: Trait).get(x)` 指明 trait，或在由 `where(T <: Trait)` 约束选定其一的函数中调用。类型自身的固有方法永远不会与 trait 方法产生歧义。`Dyn` 通过 vtable 按名字调用方法，因此一个 `Dyn` 根本不能同时带有两个都声明了同名可调用方法的 trait：请在 `Dyn` 中只保留其中一个 trait，或者给其中一个方法改名。`Deref` 包装类型（`Rc`、`Arc`）会把自身没有的成员转发给载荷，因此当包装类型和载荷都有这个成员时，`w.clone()` 既可能指包装类型的成员，也可能指载荷的：用 `Rc.clone(w)` 调用包装类型自己的成员，用 `w.*.clone()` 调用载荷的。`yo fix` 会把调用改写为 `Rc.clone(w)`，即它在成为错误之前的含义。",
+      "A :: trait(get : (fn(self : Self) -> i32));\nB :: trait(get : (fn(self : Self) -> i32));\nf :: (fn(d : &Dyn(A, B)) -> i32)(i32(0));\n",
+      "A :: trait(get : (fn(self : Self) -> i32));\nB :: trait(get_b : (fn(self : Self) -> i32));\nf :: (fn(d : &Dyn(A, B)) -> i32)(i32(0));\n",
+      "`A` and `B` both give `Dyn(A, B)` a `get` slot; renaming `B`'s method removes the clash.",
+      "`A` 和 `B` 都给 `Dyn(A, B)` 提供了 `get` 槽位；给 `B` 的方法改名即可消除冲突。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_DISCARDED_MUST_USE,
+      "a Result or a future is dropped by an expression statement",
+      "表达式语句丢弃了 Result 或 future",
+      "This statement computes a `Result` or a future and throws it away.",
+      "这条语句计算出一个 `Result` 或 future，然后把它丢掉了。",
+      "A `Result` that nobody looks at hides its error, and a future that nobody awaits never runs. A statement whose value is either is an error. Handle the value (`match`, `?`), await a future with `io.await(...)`, or discard it on purpose with `_ := expr;`. A future that borrows (plans/VALUES_BY_DEFAULT.md §3.13 A2) cannot be discarded: await it. The last expression of a block is its value, not a statement, so it is never flagged.",
+      "没人查看的 `Result` 会把错误藏起来，没人 await 的 future 永远不会运行。值为二者之一的语句是错误。请处理这个值（`match`、`?`），用 `io.await(...)` 等待 future，或用 `_ := expr;` 有意丢弃。借用的 future（plans/VALUES_BY_DEFAULT.md §3.13 A2）不能丢弃，只能 await。块的最后一个表达式是块的值而不是语句，因此不会被报告。",
+      "parse :: (fn(s : i32) -> Result(i32, i32))(cond((s > i32(0)) => .Ok(s), true => .Err(s)));\nmain :: (fn() -> unit)({\n  parse(i32(1));\n  ()\n});\nexport(main);\n",
+      "parse :: (fn(s : i32) -> Result(i32, i32))(cond((s > i32(0)) => .Ok(s), true => .Err(s)));\nmain :: (fn() -> unit)({\n  _ := parse(i32(1));\n  ()\n});\nexport(main);\n",
+      "`_ := parse(i32(1));` says the result is dropped on purpose.",
+      "`_ := parse(i32(1));` 表明结果是有意丢弃的。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_BARE_CALLABLE_INTO_DYN,
+      "a callable flows bare into a Dyn(Fn(...)) slot",
+      "可调用值被裸传入 Dyn(Fn(...)) 位置",
+      "A named closure, a named `fn` or a closure literal is used where a `Dyn(Fn(...))` is expected, without `dyn(...)`.",
+      "在需要 `Dyn(Fn(...))` 的位置直接使用了具名闭包、具名 `fn` 或闭包字面量，没有写 `dyn(...)`。",
+      "Every erasure into a `Dyn` is spelled (plans/VALUES_BY_DEFAULT.md decision 44): a value becomes a `Dyn` only where the program writes `dyn(...)`, which moves it into the `Dyn`'s heap cell. A trait object over a nominal value is written `dyn(Box.new(point))`; a callable follows the same rule, so a closure or a named `fn` in a `Box(Dyn(Fn(...)))` binding, field, argument or result is written `dyn(Box.new(f))`, and one lent to a `&Dyn(Fn(...))` slot `dyn(&f)`. An `Impl(Fn(...))` slot is not an erasure: it is the closure's own static type, and a closure flows into it bare. Older code is upgraded on the last release that ships its migration: `yo version install 0.2.76 && yo fix <path> --migrate dyn-spelling`, then step to the next release.",
+      "每一次擦除为 `Dyn` 都要写出来（plans/VALUES_BY_DEFAULT.md 决策 44）：只有程序写出 `dyn(...)` 的地方，值才会变成 `Dyn`，它把值移入 `Dyn` 的堆单元。名义类型值的 trait 对象写作 `dyn(Box.new(point))`；可调用值遵循同一规则，因此 `Box(Dyn(Fn(...)))` 绑定、字段、实参或结果中的闭包或具名 `fn` 写作 `dyn(Box.new(f))`，借给 `&Dyn(Fn(...))` 位置的则写作 `dyn(&f)`。`Impl(Fn(...))` 位置不是擦除：它是闭包自身的静态类型，闭包可以直接流入。旧代码请在最后一个携带其迁移的版本上升级：`yo version install 0.2.76 && yo fix <path> --migrate dyn-spelling`，之后再升级到下一个版本。",
+      "run :: (fn(d : Box(Dyn(Fn() -> i32))) -> i32)(d());\nmain :: (fn() -> unit)({\n  n := i32(3);\n  (f : Impl(Fn() -> i32)) = (() => n);\n  _x := run(f);\n});\nexport(main);\n",
+      "run :: (fn(d : Box(Dyn(Fn() -> i32))) -> i32)(d());\nmain :: (fn() -> unit)({\n  n := i32(3);\n  (f : Impl(Fn() -> i32)) = (() => n);\n  _x := run(dyn(Box.new(f)));\n});\nexport(main);\n",
+      "`dyn(Box.new(f))` boxes the closure as the `Box(Dyn(Fn() -> i32))` the parameter takes.",
+      "`dyn(Box.new(f))` 把闭包装箱为形参所需的 `Box(Dyn(Fn() -> i32))`。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_UNSIZED_BY_VALUE,
+      "an unsized type is used by value",
+      "按值使用了非定长类型",
+      "A type with no size of its own — `[T]` (`Slice(T)`), a `?Sized` type variable, or a struct whose last field is unsized — is used where a value of it would have to be stored, copied or measured.",
+      "没有自身大小的类型 —— `[T]`（`Slice(T)`）、`?Sized` 类型变量，或最后一个字段非定长的结构体 —— 被用在需要存储、复制或度量其值的位置。",
+      "An unsized type lives only behind a pointer (plans/VALUES_BY_DEFAULT.md decision 49): `&T`, `&mut T`, `*T`, or an owning handle. A local, a by-value parameter or result, a field other than a struct's last, an element or payload, `size_of(T)`, and the argument of a `generic(T : Type)` or `comptime(V) : Type` binder all need a size, because every such binder carries the implicit bound `where(T <: Sized)`. A generic whose body uses `T` only behind a pointer declares `generic(T : ?Sized)` and accepts unsized types; the check then runs where the generic is defined, so a `?Sized` body that binds, returns or stores a `T` by value is rejected there. `size_of_val(r)` measures a value through a reference. `Dyn(...)` is unsized too: an owned trait object is `Box(Dyn(...))`. Code written for v0.2.77 or earlier, where a bare `Dyn(...)` was the owning box, is upgraded in two steps: on the last release that reads it, `yo version install 0.2.77 && yo fix <path> --migrate unsized` (it writes `Box(Dyn(...))` and `dyn(Box.new(v))`); then on v0.2.78, `yo fix <path> --migrate unsized` writes each lend `&b` of a `Box(Dyn(...))` where a `&Dyn(...)` is taken as `&b.*` (a reference to the box is not a reference to the object it owns, E0601).",
+      "非定长类型只能位于指针之后（plans/VALUES_BY_DEFAULT.md 决策 49）：`&T`、`&mut T`、`*T` 或拥有所有权的句柄。局部变量、按值的形参或返回值、结构体最后一个字段以外的字段、元素或载荷、`size_of(T)`，以及 `generic(T : Type)` 或 `comptime(V) : Type` 绑定器的实参都需要大小，因为每个这样的绑定器都隐含约束 `where(T <: Sized)`。函数体只在指针之后使用 `T` 的泛型应声明 `generic(T : ?Sized)`，从而接受非定长类型；此时检查在泛型定义处进行，因此按值绑定、返回或存储 `T` 的 `?Sized` 函数体会在那里被拒绝。`size_of_val(r)` 通过引用度量一个值。`Dyn(...)` 同样是非定长类型：拥有所有权的 trait 对象写作 `Box(Dyn(...))`。为 v0.2.77 及更早版本编写、以裸 `Dyn(...)` 作为拥有所有权的盒子的代码分两步升级：先在最后一个能读懂它的版本上运行 `yo version install 0.2.77 && yo fix <path> --migrate unsized`（它会写出 `Box(Dyn(...))` 与 `dyn(Box.new(v))`）；再在 v0.2.78 上运行 `yo fix <path> --migrate unsized`，把在接受 `&Dyn(...)` 的位置借出 `Box(Dyn(...))` 的每个 `&b` 改写为 `&b.*`（指向 box 的引用不是指向它所拥有对象的引用，E0601）。",
+      "n :: size_of(Slice(i32));\nmain :: (fn() -> unit)({\n  _m := n;\n});\nexport(main);\n",
+      "n :: size_of(Array(i32, 4));\nmain :: (fn() -> unit)({\n  _m := n;\n});\nexport(main);\n",
+      "`[i32]` has no size of its own; a fixed-size `Array(i32, 4)` does.",
+      "`[i32]` 没有自身的大小；定长的 `Array(i32, 4)` 有。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_DEREF_OF_VALUE,
+      "a dereference (`.*`) is written on a value",
+      "对值写了解引用（`.*`）",
+      "`x.*` where `x` is a plain value: its type is not a reference (`&T`, `&mut T`), a raw pointer (`*T`) or a `Deref` type (`Box`, `Rc`, `Arc`), so there is nothing to read through.",
+      "`x.*` 中的 `x` 是普通的值：它的类型不是引用（`&T`、`&mut T`）、裸指针（`*T`）或 `Deref` 类型（`Box`、`Rc`、`Arc`），因此没有可供读取的间接层。",
+      "`.*` reads through a reference, a raw pointer or a `Deref` handle to the place it refers to. A value such as an `i32`, a struct or a tuple is not one of those: it is the place itself, so `x` already is what `x.*` would name. The error is Rust's E0614 (the type cannot be dereferenced). It also appears behind a block, `cond` or `match` that yields a value: the result of `z := { ...; w }` is the value of `w`, a copy, and `z.*` has nothing to read through. Read the value directly: `x`, `x.field`, `x(i)`. To bind a reference to a value, write `r := &x` and read `r.*`. Before the code existed the same program failed with an evaluator internal (`check_if_function_parameter_matches_argument: arg has no ExprInfo`) or with `Failed to evaluate, got (x.(*))`.",
+      "`.*` 经由引用、裸指针或 `Deref` 句柄读取它所指向的位置。`i32`、结构体或元组这样的值不是其中任何一种：它就是位置本身，因此 `x` 已经就是 `x.*` 所指代的东西。该错误对应 Rust 的 E0614（该类型不能被解引用）。当块、`cond` 或 `match` 产生的是值时也会出现：`z := { ...; w }` 的结果是 `w` 的值（一份拷贝），`z.*` 没有可读取的间接层。请直接读值：`x`、`x.field`、`x(i)`。要绑定指向某个值的引用，请写 `r := &x` 并读取 `r.*`。在该错误码存在之前，同样的程序会以求值器内部错误（`check_if_function_parameter_matches_argument: arg has no ExprInfo`）或 `Failed to evaluate, got (x.(*))` 失败。",
+      "main :: (fn() -> unit)({\n  x := i32(1);\n  y := x.*;\n  _z := y;\n});\nexport(main);\n",
+      "main :: (fn() -> unit)({\n  x := i32(1);\n  y := x;\n  _z := y;\n});\nexport(main);\n",
+      "`x : i32` is a value, so `x.*` has no reference to read through; `x` alone is the `i32` (to refer to it, `r := &x` and `r.*`).",
+      "`x : i32` 是值，因此 `x.*` 没有可读取的引用；单独的 `x` 就是那个 `i32`（要引用它，写 `r := &x` 再读 `r.*`）。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_UNSIZING_A_VALUE,
+      "an unsizing is applied to a value, not a pointer",
+      "对值而非指针做了非定长化",
+      "`unsize(p)` is given a value where it takes a pointer to a fixed-size array, or to a struct whose tail is one; `dyn(v)` is given a plain value where it takes a pointer.",
+      "`unsize(p)` 需要一个指向定长数组（或尾部为定长数组的结构体）的指针，却得到了一个值；`dyn(v)` 需要指针，却得到了普通值。",
+      "Unsizing changes a pointer's type, never a value's (plans/VALUES_BY_DEFAULT.md decision 49): `unsize(&a)` turns `&Array(T, N)` into `&[T]`, `unsize(&mut a)` gives `&mut [T]` and `unsize(p)` over `*Array(T, N)` gives `*[T]`; the length moves from the type into the pointer and nothing is copied or allocated. A value has no pointer to unsize, and `[T]` has no value form, so `unsize(a)` is rejected. Lend the value (`unsize(&a)`), or pass the pointer you already have. The same holds for `dyn(v)` of a plain value `v`: it is an unsizing of the pointer that owns the value, so the owner is spelled, `dyn(Box.new(v))`, and a place that stays where it is is lent, `dyn(&v)`. Until v0.2.79 a bare `dyn(v)` boxed `v` itself; code written for v0.2.78 is upgraded on that release, `yo version install 0.2.78 && yo fix <path> --migrate unsized`, then step to the next release.",
+      "非定长化改变的是指针的类型，而不是值的类型（plans/VALUES_BY_DEFAULT.md 决策 49）：`unsize(&a)` 把 `&Array(T, N)` 变为 `&[T]`，`unsize(&mut a)` 得到 `&mut [T]`，作用于 `*Array(T, N)` 的 `unsize(p)` 得到 `*[T]`；长度从类型移入指针，不发生任何复制或分配。值没有可以非定长化的指针，`[T]` 也没有值形式，因此 `unsize(a)` 被拒绝。请借出该值（`unsize(&a)`），或传入你已有的指针。`dyn(v)` 作用于普通值 `v` 也是同理：它是对拥有该值的指针做非定长化，因此要写出所有者 `dyn(Box.new(v))`，原地不动的位置则借出，写 `dyn(&v)`。v0.2.79 之前裸 `dyn(v)` 会为 `v` 本身装箱；为 v0.2.78 编写的代码请在该版本上升级：`yo version install 0.2.78 && yo fix <path> --migrate unsized`，之后再升级到下一个版本。",
+      "main :: (fn() -> unit)({\n  a := Array(i32, 2)(1, 2);\n  _s := unsize(a);\n});\nexport(main);\n",
+      "main :: (fn() -> unit)({\n  a := Array(i32, 2)(1, 2);\n  s := unsize(&a);\n  _n := size_of_val(s);\n});\nexport(main);\n",
+      "`unsize(&a)` lends the array and gives the `&[i32]` over it.",
+      "`unsize(&a)` 借出数组，得到指向它的 `&[i32]`。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_DEREF_IMPL_SIZED_TARGET,
+      "a Deref impl outside the prelude has a sized Target",
+      "prelude 之外的 Deref 实现使用了定长的 Target",
+      "A `Deref` or `DerefMut` impl outside the prelude names a `Target` that has a size, or a type variable that may have one.",
+      "prelude 之外的 `Deref` 或 `DerefMut` 实现所给的 `Target` 有大小，或是一个可能有大小的类型变量。",
+      "`w.*` on a `Deref` type is the place its `deref` projection yields, and a member only that place has is reached through `w.*` (plans/VALUES_BY_DEFAULT.md §3.3, VERDICTS-63). Outside the prelude this is for an owner of unsized content: a `[T]`, a `str` or a `Dyn` cannot be a field of a sized owner, so a projection is the only way to name it, and forwarding is the only way to reach its methods without writing each one twice. A sized payload is a field: the owner names it as `w.inner`, and forwarding would add only implicitness. So a `Deref` or `DerefMut` impl outside the prelude needs a `Target` that is unsized: `[T]`, `str`, a `Dyn(...)` or a struct whose last field is unsized. A sized `Target` and an open type variable (a `?Sized` one included) are rejected. The prelude's handles (`Box`, `Rc`, `Arc`) and `Array(T, N)` implement it there. Reach a sized payload through the wrapper's own field or methods.",
+      "`Deref` 类型上的 `w.*` 是其 `deref` 投影给出的位置，只有该位置才有的成员通过 `w.*` 访问（plans/VALUES_BY_DEFAULT.md §3.3，VERDICTS-63）。在 prelude 之外，这一机制用于拥有非定长内容的所有者：`[T]`、`str` 或 `Dyn` 不能作为定长所有者的字段，因此投影是指代它的唯一方式，而转发是无需把每个方法写两遍就能调用其方法的唯一方式。定长载荷就是一个字段：所有者用 `w.inner` 指代它，转发只会增加隐式性。因此 prelude 之外的 `Deref` 或 `DerefMut` 实现需要一个非定长的 `Target`：`[T]`、`str`、`Dyn(...)`，或最后一个字段非定长的结构体。定长的 `Target` 和开放的类型变量（包括 `?Sized` 的）都会被拒绝。prelude 的句柄（`Box`、`Rc`、`Arc`）和 `Array(T, N)` 在 prelude 中实现它。请通过包装类型自己的字段或方法访问定长载荷。",
+      "W :: struct(n : i32);\nimpl(W, Deref(Target : i32, deref : (fn(self : &Self) -> &Self.Target)(&self.n)));\nmain :: (fn() -> unit)({\n  w := W(n : i32(1));\n  _m := w.n;\n});\nexport(main);\n",
+      "W :: struct(items : Array(i32, 3));\nimpl(W, Deref(Target : [i32], deref : (fn(self : &Self) -> &Self.Target)(&self.items.*)));\nmain :: (fn() -> unit)({\n  w := W(items : Array(i32, 3)(1, 2, 3));\n  _n := w.*.len();\n});\nexport(main);\n",
+      "`[i32]` has no size of its own, so `W`'s `deref` is the only way to name its view; a sized `i32` payload is the field `w.n`.",
+      "`[i32]` 没有自身的大小，因此 `W` 的 `deref` 是指代其视图的唯一方式；定长的 `i32` 载荷就是字段 `w.n`。"
+    )
+  );
+  // ── Internal codegen (E13xx) and CLI/build/deps (E15xx) ──────────────────
+  // These codes are raised OUTSIDE the evaluator — the ICE wrapper and the
+  // dependency toolchain — so their examples are command and manifest
+  // transcripts, not Yo programs (the examples harness exempts the band).
+  out.push(
+    _mk_explain(
+      E_INTERNAL_COMPILER_ERROR,
+      "internal compiler error",
+      "编译器内部错误",
+      "The compiler reached a state its own emitters declare impossible — a bug in the Yo compiler, not in your program.",
+      "编译器进入了它自己的发射器声明不可能出现的状态 —— 这是 Yo 编译器的缺陷，而不是你的程序的问题。",
+      "This code is raised only by the codegen ICE wrapper, which guards emitter preconditions no source the evaluator accepted can reach (a builtin that reached codegen with the wrong arity, an expression with no type information). Do not try to fix your program: reduce the failing file to the smallest reproducer and open an issue at https://github.com/shd101wyy/Yo/issues, or update to the newest release — the newest seed may already carry the fix.",
+      "此错误码只由 codegen 的 ICE 包裹层抛出，它守护的是“求值器已接受的源码不可能到达”的发射器前置条件（内建函数以错误的参数个数到达 codegen、没有类型信息的表达式等）。请不要试图修改你的程序：把出错的文件缩减为最小的复现，到 https://github.com/shd101wyy/Yo/issues 提交 issue，或更新到最新版本 —— 最新的 seed 可能已携带修复。",
+      "# No Yo source reproduces E1301 by construction — the wrapper guards\n# emitter preconditions no accepted source can reach.\n$ yo compile app.yo\nerror[E1301]: internal compiler error: emit_expr: no type info for expr 4711\nThis is a bug in the Yo compiler, not in your program — please report it:\nhttps://github.com/shd101wyy/Yo/issues\nhelp: run `yo explain E1301` for more information",
+      "$ yo compile app.yo   # the same program under a compiler without the bug\n$ # a clean compile; if you do hit E1301, report the file at\n$ # https://github.com/shd101wyy/Yo/issues",
+      "E1301 is the wrapper's own code: a compiler bug, never a program bug — report it, don't chase it in your source.",
+      "E1301 是该包裹层专属的错误码：它是编译器的缺陷，绝不是程序的缺陷 —— 请报告它，不要在你的源码里找原因。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_DEP_FETCH_FAILED,
+      "a dependency could not be fetched",
+      "依赖无法获取",
+      "The dependency toolchain could not get a package: the network was needed and refused (--offline, nothing cached), or the repository is unreachable.",
+      "依赖工具链无法获取某个包：需要联网却被拒绝（--offline 且缓存中没有），或者仓库无法访问。",
+      "yo install / yo add / yo update fetch git dependencies through a local cache: a bare mirror and a tag index per repository, one content-addressed tree per commit. This code covers every way getting one can fail: an --offline run whose cache lacks the mirror, tag list, commit or tree the lock names (run once WITHOUT --offline to fill the cache); a clone or git ls-remote that failed (network down, no credentials, wrong URL); a repository that does not exist or is not accessible; a commit no ref reaches and the remote refuses to fetch directly. Check the URL in yo.toml first, then the network, then run yo install once online.",
+      "yo install / yo add / yo update 通过本地缓存获取 git 依赖：每个仓库一个裸镜像和一个标签索引，每个提交一棵按内容寻址的树。此错误码覆盖获取失败的所有方式：--offline 运行时缓存缺少锁所指定的镜像、标签列表、提交或树（先不带 --offline 运行一次以填充缓存）；clone 或 git ls-remote 失败（断网、没有凭据、URL 写错）；仓库不存在或无法访问；没有任何 ref 指向该提交且远端拒绝直接抓取。先检查 yo.toml 里的 URL，再检查网络，最后联网运行一次 yo install。",
+      "$ yo install --offline       # fresh clone, the cache is empty\nerror[E1501]: --offline: resolving \"markdown-yo\" needs the tags of https://github.com/o/markdown-yo, and the cache has no tag list for it\nhelp: run `yo explain E1501` for more information",
+      "$ yo install                 # once online: fills the cache\n  markdown-yo → v0.0.9 (8f14e45fceec)\n$ yo install --offline       # now the cache answers\n  markdown-yo → v0.0.9 (8f14e45fceec)",
+      "--offline never touches the network; the first online install records the tag list and mirror the offline run needs.",
+      "--offline 绝不联网；第一次联网安装会记录离线运行所需的标签列表与镜像。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_MANIFEST_NOT_FOUND,
+      "no yo.toml at or above the working directory",
+      "工作目录及其上级目录中没有 yo.toml",
+      "yo add / yo remove / yo install / yo update need a project: a yo.toml in the working directory or somewhere above it.",
+      "yo add / yo remove / yo install / yo update 需要一个项目：工作目录或其上级某处存在 yo.toml。",
+      "The dependency commands look for the NEAREST yo.toml walking up from where you ran yo, and none was found — you are outside any project. Run yo init to create one (it also scaffolds the agent skill files), or cd into the project, or point YO_ORIGINAL_CWD at it when driving yo from a script. A yo.toml that exists but does not parse is a different failure — that message names the parse error.",
+      "依赖类命令从你运行 yo 的位置向上查找最近的 yo.toml，但没有找到 —— 你在任何项目之外。运行 yo init 创建一个（它还会生成 agent 技能文件），或 cd 进项目目录，或在脚本驱动 yo 时用 YO_ORIGINAL_CWD 指向项目。yo.toml 存在但解析失败是另一种错误 —— 那条信息会指出解析问题。",
+      "$ cd ~/notes                 # not a project\n$ yo install\nerror[E1502]: no yo.toml found in /home/you/notes or any directory above it. Run 'yo init' to create a project.\nhelp: run `yo explain E1502` for more information",
+      "$ yo init my-app --name my-app\n$ cd my-app && yo install\nNo dependencies declared in /home/you/my-app/yo.toml.",
+      "The install family's front door is a manifest; yo init writes one.",
+      "依赖类命令的入口是清单；yo init 会写出一个。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_LOCK_MISMATCH,
+      "yo.lock disagrees with yo.toml",
+      "yo.lock 与 yo.toml 不一致",
+      "Under --locked the lock file must satisfy the manifest exactly; here it is absent, unusable, or out of date.",
+      "在 --locked 下，锁文件必须与清单完全一致；这里它缺失、不可用，或已过期。",
+      "--locked is the CI contract: install must not change yo.lock. It fails when there is no yo.lock to obey (run yo install once without --locked to write it), when the file is present but does not parse (a normal install regenerates it — check it into git), or when resolving against it would pick different refs than it records (yo.toml, or a dependency's own yo.toml, changed; run yo install without --locked to update it, then commit the new yo.lock). The message shows the diff between the recorded and the re-resolved entries.",
+      "--locked 是 CI 的契约：install 不得更改 yo.lock。它在以下情况失败：没有可遵守的 yo.lock（先不带 --locked 运行一次 yo install 生成它）；文件存在但无法解析（正常安装会重新生成 —— 请把它提交进 git）；或者依据它解析会得到与记录不同的 ref（yo.toml 或某个依赖自己的 yo.toml 变了；不带 --locked 运行 yo install 更新，然后提交新的 yo.lock）。错误信息会给出记录条目与重新解析条目之间的差异。",
+      "$ yo install --locked        # CI, yo.lock is stale\nerror[E1503]: --locked: yo.lock is out of date:\n~ markdown-yo: git+https://github.com/o/markdown-yo#v0.0.8 @ 8f14e45f… → git+…#v0.0.9 @ a1b2c3d4…\nRun 'yo install' without --locked to update it.\nhelp: run `yo explain E1503` for more information",
+      "$ yo install                 # locally: update the lock\n  markdown-yo → v0.0.9 (a1b2c3d4)\n$ git commit yo.lock\n$ yo install --locked        # CI: green",
+      "--locked refuses to write; one unlocked install re-records what changed.",
+      "--locked 拒绝写入；一次非 locked 的安装会重新记录变化。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_STORE_INTEGRITY_MISMATCH,
+      "the fetched tree does not match yo.lock's hash",
+      "获取到的树与 yo.lock 记录的哈希不符",
+      "The dependency's contents hash to something other than what yo.lock recorded for it.",
+      "依赖内容算出的哈希与 yo.lock 为它记录的不一致。",
+      "The store is content-addressed: a tree lands under store/sha256/<hash of its contents>, and yo.lock pins that hash per package. A fetched tree that hashes differently means the lock and the repository tell different stories — most often the dependency's history was rewritten (a force-push re-tagged v1.2.3 onto different commits), or the lock was hand-edited. The store self-heals the other direction by itself: a stored tree that does not hash to its name is re-fetched. Run yo update <name> to re-resolve the package and rewrite its lock entry.",
+      "存储按内容寻址：一棵树落在 store/sha256/<其内容的哈希> 之下，yo.lock 为每个包固定该哈希。获取到的树哈希不同，意味着锁与仓库各执一词 —— 最常见的是依赖的历史被重写（force-push 把 v1.2.3 重新指向了不同的提交），或锁被手改过。反方向存储会自愈：一棵哈希与其名字不符的已存树会被重新获取。运行 yo update <name> 重新解析该包并改写它的锁条目。",
+      "$ yo install                 # upstream force-pushed a new v1.2.3\nerror[E1504]: integrity mismatch for \"util\" at 8f14e45fceec: yo.lock records sha256-2c26b46b…, the fetched tree hashes to sha256-7688b6ef…. If the dependency's history was rewritten, run `yo update util`.\nhelp: run `yo explain E1504` for more information",
+      "$ yo update util             # re-resolve and rewrite the lock entry\n  util → v1.2.3 (a1b2c3d4)\n$ git commit yo.lock",
+      "One name must mean one tree; when history moves, the lock entry moves with it via yo update.",
+      "一个名字必须对应一棵树；当历史变动时，锁条目要通过 yo update 随之更新。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_NO_MATCHING_VERSION,
+      "no tag satisfies every requirement",
+      "没有标签能满足所有要求",
+      "No single tag of the dependency fits every version requirement the graph places on it.",
+      "该依赖没有任何一个标签能同时满足依赖图对它的全部版本要求。",
+      "Every requirer of a package — your yo.toml, and each dependency's own yo.toml — places a requirement on it, and one import name means one version: a single tag must satisfy them all. This code says none does: the repository has no release tag inside the range (the range is wrong, or the release you expect is not tagged), or two requirers' ranges have no tag in common. The message lists each requirer and what it requires. Widen or correct the version in yo.toml (or the dependency's), or pin an exact tag you know exists.",
+      "一个包的每个需求方 —— 你的 yo.toml 以及每个依赖自己的 yo.toml —— 都对它提出要求，而一个 import 名意味着一个版本：必须存在单独一个标签同时满足全部要求。此错误码表示不存在这样的标签：仓库没有范围内的发布标签（范围写错了，或你期望的版本没有打标签），或两个需求方的范围没有共同的标签。错误信息会列出每个需求方及其要求。放宽或修正 yo.toml（或依赖的 yo.toml）中的 version，或固定一个你确定存在的确切 tag。",
+      "# yo.toml asks for ^2; the repository's releases are v1.x\n[dependencies]\nutil = { git = \"https://github.com/o/util\", version = \"^2\" }\n$ yo install\nerror[E1505]: no tag of https://github.com/o/util satisfies every requirement on \"util\":\n  - <root> requires version \"^2\"\nhelp: run `yo explain E1505` for more information",
+      "[dependencies]\nutil = { git = \"https://github.com/o/util\", version = \"^1\" }\n$ yo install\n  util → v1.4.2 (8f14e45fceec)",
+      "One import name is one version: some tag must fit every requirement, and here none does.",
+      "一个 import 名就是一个版本：必须有某个标签满足所有要求，而这里一个都没有。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_INVALID_PACKAGE_NAME,
+      "not a valid package name",
+      "不是合法的包名",
+      "A package name — `[package] name`, a `[dependencies]`/`[dev-dependencies]` key, or the name `yo add` uses — may contain only ASCII letters, digits, `_` and `-`.",
+      "包名 —— `[package] name`、`[dependencies]`/`[dev-dependencies]` 的键，或 `yo add` 使用的名字 —— 只能包含 ASCII 字母、数字、`_` 和 `-`。",
+      "A package name is a TOML key in yo.toml and yo.lock, the directory yo-out/<target>/deps/<name>/, a yo add / yo remove argument and the string importers write in import(\"<name>\"), so it is one or more of [A-Za-z0-9_-]: a space, a quote, `.`, `/` or `\\` is rejected wherever the name comes from — your own manifest, a fetched dependency's manifest, or yo add (which derives the name from the repository or directory basename unless you pass --name). The convention is kebab-case (markdown-yo, json-yo, my-project), and yo init writes that form; `_` and upper case are still accepted, and `-` and `_` are different names — nothing treats markdown-yo and markdown-yo as the same package. Rename the key or the [package] name, or pass yo add --name <name>.",
+      "包名是 yo.toml 与 yo.lock 中的 TOML 键、yo-out/<target>/deps/<name>/ 目录、yo add / yo remove 的参数，也是导入方在 import(\"<name>\") 中写的字符串，所以它由一个或多个 [A-Za-z0-9_-] 字符组成：无论名字来自哪里 —— 你自己的清单、获取到的依赖的清单，还是 yo add（除非传入 --name，否则它从仓库或目录的基本名推导名字）—— 空格、引号、`.`、`/` 或 `\\` 都会被拒绝。约定是 kebab-case（markdown-yo、json-yo、my-project），yo init 也会写出这种形式；`_` 和大写字母仍被接受，并且 `-` 与 `_` 是不同的名字 —— 没有任何地方把 markdown-yo 和 markdown-yo 视为同一个包。请重命名该键或 [package] name，或者给 yo add 传入 --name <name>。",
+      "[dependencies]\n\"my lib\" = { path = \"../my lib\" }\n$ yo install\nError: /home/you/app/yo.toml: [dependencies] key \"my lib\" is not a valid package name: use only ASCII letters, digits, \"_\" and \"-\" (package names are kebab-case by convention, e.g. \"markdown-yo\")\nhelp: run `yo explain E1506` for more information\n$ yo add ./libs/my.lib\nerror[E1506]: dependency name \"my.lib\" is not a valid package name: use only ASCII letters, digits, \"_\" and \"-\" (package names are kebab-case by convention, e.g. \"markdown-yo\"); pass --name <name> to choose a valid one\nhelp: run `yo explain E1506` for more information",
+      "[dependencies]\nmy-lib = { path = \"../my lib\" }\n$ yo install\n$ yo add ./libs/my.lib --name my-lib\nAdded my-lib = { path = \"libs/my.lib\" } to [dependencies] in yo.toml",
+      "The key is the import name, not the path: `import(\"my-lib\")` resolves the dependency whatever its directory is called.",
+      "键是导入名而不是路径：无论依赖所在目录叫什么，`import(\"my-lib\")` 都能解析到它。"
+    )
+  );
+  out
+});
+/// Find the registry entry for `code`.
+lookup_explain :: (fn(code : &String) -> Option(Explain))({
+  entries := registry_entries();
+  (i : usize) = usize(0);
+  while(i < entries.len(), {
+    match(
+      entries.get_cloned(i),
+      .Some(e) => {
+        if(e.code == code.*, {
+          return(Option(Explain).Some(e));
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  Option(Explain).None
+});
+/// All registered codes, in registration order.
+all_registry_codes :: (fn() -> ArrayList(String))({
+  entries := registry_entries();
+  out := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < entries.len(), {
+    match(
+      entries.get_cloned(i),
+      .Some(e) => {
+        out.push(e.code.clone());
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
+});
+/// The closest registered code within distance 2, for did-you-mean. Codes are
+/// `E` + 4 digits: distance 1 is a mistyped digit and distance 2 a transposed
+/// one — both real typos worth suggesting — while distance 3 of a 5-character
+/// string (E99999 → E0909, matched on two nines) is noise. The identifier
+/// engine's default threshold is 3 (`suggest_name`); codes pass 2 explicitly
+/// so the registry can densify without re-arming the far-miss probe.
+suggest_code :: (fn(code : &String) -> Option(String))(suggest_name(code, all_registry_codes(), usize(2)));
+/// One registry entry as JSON (for `yo explain --format json`): both
+/// languages always included.
+explain_to_json :: (fn(e : &Explain) -> String)({
+  keys := ArrayList(String).new();
+  vals := ArrayList(JsonValue).new();
+  keys.push(String.from("code"));
+  vals.push(JsonValue.Str(value : e.code.clone()));
+  keys.push(String.from("title"));
+  vals.push(JsonValue.Str(value : e.title.clone()));
+  keys.push(String.from("title_zh"));
+  vals.push(JsonValue.Str(value : e.title_zh.clone()));
+  keys.push(String.from("summary"));
+  vals.push(JsonValue.Str(value : e.summary.clone()));
+  keys.push(String.from("summary_zh"));
+  vals.push(JsonValue.Str(value : e.summary_zh.clone()));
+  keys.push(String.from("explanation"));
+  vals.push(JsonValue.Str(value : e.explanation.clone()));
+  keys.push(String.from("explanation_zh"));
+  vals.push(JsonValue.Str(value : e.explanation_zh.clone()));
+  keys.push(String.from("bad"));
+  vals.push(JsonValue.Str(value : e.bad.clone()));
+  keys.push(String.from("good"));
+  vals.push(JsonValue.Str(value : e.good.clone()));
+  keys.push(String.from("why"));
+  vals.push(JsonValue.Str(value : e.why.clone()));
+  keys.push(String.from("why_zh"));
+  vals.push(JsonValue.Str(value : e.why_zh.clone()));
+  json.stringify(JsonValue.Object(keys : keys, values : vals))
+});
+export(Explain, registry_entries, lookup_explain, all_registry_codes);
+export(suggest_code, explain_to_json);

@@ -1,0 +1,54 @@
+// Regression (round 5 of the stage-2 double-free hunt): a match-arm BEGIN
+// body whose FINAL expression is a borrowed value (a param or a field read)
+// must emit the balancing `___dup` before the arm result is assigned. The
+// self-hosted codegen's `generate_case_body` begin branch emitted the final
+// expression bare while the non-begin branch carried the full port of
+// match.ts:105-150 — so `_resolve_effect_arg`'s
+// `.Some(info) => { ...; info.env }` / `.None => { throw; env }` arms
+// (evaluator/types/future-trait.yo) returned the Environment at net -1 per
+// call, freeing an env still referenced by live ExprInfos — the
+// `s2 compile src/parser.yo` rc=139 UAF (GC mark-gray traversal read
+// the freed env). Fixed by extracting `_arm_value_with_dups` and applying
+// it to the begin-branch final expression too. See
+// issues/fixed/yo-self-dyn-throw-double-drop.md. Expected output: "2 2 done".
+// Since V5 part B the shared record is an `Rc(Krate)` and the +1 is the
+// explicit `Rc.clone`; the counts are the same.
+{ println, print } :: import("std/fmt");
+import("std/string");
+
+Krate :: struct(
+  v : i32
+);
+
+Info :: struct(
+  e : Rc(Krate)
+);
+
+// Begin-body arm tails: borrowed field (.Some) and borrowed param (.None).
+pick_match_tail :: (fn(o : &Option(Info), fallback : &Rc(Krate)) -> Rc(Krate))(
+  match(
+    o,
+    .Some(info) => {
+      x := 1;
+      _x := (x + 1);
+      Rc.clone(&info.e)
+    },
+    .None => {
+      y := 2;
+      _y := (y + 1);
+      Rc.clone(fallback)
+    }
+  )
+);
+
+main :: (fn() -> unit)({
+  fb := Rc.new(Krate(v : 1));
+  o := Option(Info).Some(Info(e : Rc.new(Krate(v : 2))));
+  a := pick_match_tail(&o, &fb);
+  print(ref_count(a));
+  print(" ");
+  b := pick_match_tail(.None, &fb);
+  println(`${ref_count(fb)} done`);
+});
+
+export(main);

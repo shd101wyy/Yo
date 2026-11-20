@@ -1,0 +1,275 @@
+//! Tests for src/diagnostics-registry.yo — the P2 gates
+//! (plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md §5): every code the classifier can
+//! emit has a bilingual registry entry, no prose field is empty in either
+//! language, every entry carries its bad/good example pair, and the
+//! did-you-mean suggestion machinery works.
+{ String } :: import("std/string");
+import("std/fmt");
+{ ArrayList } :: import("std/collections/array-list");
+{ assert, panic } :: import("std/assert");
+{
+  Explain,
+  registry_entries,
+  lookup_explain,
+  all_registry_codes,
+  suggest_code,
+  explain_to_json
+} :: import("../../src/diagnostics-registry.yo");
+{
+  E_UNEXPECTED_TOKEN,
+  E_EXPECTED_TOKEN,
+  E_ADJACENT_OPERATORS,
+  E_UNTERMINATED,
+  E_UNEXPECTED_CHARACTER,
+  E_UNKNOWN_OPERATOR,
+  E_STRUCT_LITERAL_VS_BLOCK,
+  E_CALL_SYNTAX,
+  E_VARIABLE_NOT_FOUND,
+  E_ENUM_VARIANT_NOT_FOUND,
+  E_MODULE_FIELD_NOT_FOUND,
+  E_NOT_DEFINED,
+  E_INCOMPATIBLE_TYPES,
+  E_TRAIT_NOT_IMPLEMENTED,
+  E_ARGUMENT_COUNT_MISMATCH,
+  E_RETURN_TYPE_MISMATCH,
+  E_TYPE_MISMATCH,
+  E_NOT_CALLABLE,
+  E_USE_OF_MOVED_VALUE,
+  E_CANNOT_REASSIGN,
+  E_MAYBE_UNINITIALIZED,
+  E_NO_MATCHING_CALL,
+  E_NEVER_FULLY_EVALUATED,
+  E_FORWARD_REFERENCE,
+  E_COMPTIME_ARGUMENT,
+  E_COMPTIME_OVERFLOW,
+  E_MATCH_NOT_EXHAUSTIVE,
+  E_MATCH_UNREACHABLE_ARM,
+  E_INVALID_PATTERN,
+  E_INTERNAL_COMPILER_ERROR,
+  E_DEP_FETCH_FAILED,
+  E_MANIFEST_NOT_FOUND,
+  E_LOCK_MISMATCH,
+  E_STORE_INTEGRITY_MISMATCH,
+  E_NO_MATCHING_VERSION,
+  E_INVALID_PACKAGE_NAME
+} :: import("../../src/diagnostics.yo");
+_check_entry :: (fn(e : &Explain, label : &String) -> unit)({
+  assert(e.title.len() > usize(0), `${label}: English title empty`);
+  assert(e.title_zh.len() > usize(0), `${label}: Chinese title empty`);
+  assert(e.summary.len() > usize(0), `${label}: English summary empty`);
+  assert(e.summary_zh.len() > usize(0), `${label}: Chinese summary empty`);
+  assert(e.explanation.len() > usize(0), `${label}: English explanation empty`);
+  assert(e.explanation_zh.len() > usize(0), `${label}: Chinese explanation empty`);
+  assert(e.bad.len() > usize(0), `${label}: bad example empty`);
+  assert(e.good.len() > usize(0), `${label}: good example empty`);
+  assert(e.why.len() > usize(0), `${label}: English why empty`);
+  assert(e.why_zh.len() > usize(0), `${label}: Chinese why empty`);
+});
+test("every code the classifier emits has a registry entry", {
+  mut(codes) := ArrayList(String).new();
+  codes.push(String.from(E_UNEXPECTED_TOKEN));
+  codes.push(String.from(E_EXPECTED_TOKEN));
+  codes.push(String.from(E_ADJACENT_OPERATORS));
+  codes.push(String.from(E_UNTERMINATED));
+  codes.push(String.from(E_UNEXPECTED_CHARACTER));
+  codes.push(String.from(E_UNKNOWN_OPERATOR));
+  codes.push(String.from(E_STRUCT_LITERAL_VS_BLOCK));
+  codes.push(String.from(E_CALL_SYNTAX));
+  codes.push(String.from(E_VARIABLE_NOT_FOUND));
+  codes.push(String.from(E_ENUM_VARIANT_NOT_FOUND));
+  codes.push(String.from(E_MODULE_FIELD_NOT_FOUND));
+  codes.push(String.from(E_NOT_DEFINED));
+  codes.push(String.from(E_INCOMPATIBLE_TYPES));
+  codes.push(String.from(E_TRAIT_NOT_IMPLEMENTED));
+  codes.push(String.from(E_ARGUMENT_COUNT_MISMATCH));
+  codes.push(String.from(E_RETURN_TYPE_MISMATCH));
+  codes.push(String.from(E_TYPE_MISMATCH));
+  codes.push(String.from(E_NOT_CALLABLE));
+  codes.push(String.from(E_USE_OF_MOVED_VALUE));
+  codes.push(String.from(E_CANNOT_REASSIGN));
+  codes.push(String.from(E_MAYBE_UNINITIALIZED));
+  codes.push(String.from(E_NO_MATCHING_CALL));
+  codes.push(String.from(E_NEVER_FULLY_EVALUATED));
+  codes.push(String.from(E_FORWARD_REFERENCE));
+  codes.push(String.from(E_COMPTIME_ARGUMENT));
+  codes.push(String.from(E_COMPTIME_OVERFLOW));
+  codes.push(String.from(E_MATCH_NOT_EXHAUSTIVE));
+  codes.push(String.from(E_MATCH_UNREACHABLE_ARM));
+  codes.push(String.from(E_INVALID_PATTERN));
+  codes.push(String.from(E_INTERNAL_COMPILER_ERROR));
+  codes.push(String.from(E_DEP_FETCH_FAILED));
+  codes.push(String.from(E_MANIFEST_NOT_FOUND));
+  codes.push(String.from(E_LOCK_MISMATCH));
+  codes.push(String.from(E_STORE_INTEGRITY_MISMATCH));
+  codes.push(String.from(E_NO_MATCHING_VERSION));
+  codes.push(String.from(E_INVALID_PACKAGE_NAME));
+  (mut(i) : usize) = usize(0);
+  while(i < codes.len(), {
+    c := match(
+      codes.get_cloned(i),
+      .Some(x) => x,
+      .None => String.new()
+    );
+    found := lookup_explain(&c);
+    assert(found.is_some(), `code ${c} must have a registry entry`);
+    match(
+      found,
+      .Some(e) => _check_entry(&e, &c),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+test("registry entries are unique and code-shaped", {
+  entries := registry_entries();
+  assert(entries.len() >= usize(25), `at least 25 entries, got ${entries.len()}`);
+  mut(seen) := ArrayList(String).new();
+  (mut(i) : usize) = usize(0);
+  while(i < entries.len(), {
+    e := match(
+      entries.get_cloned(i),
+      .Some(x) => x,
+      .None => __yo_panic("missing registry entry")
+    );
+    assert(e.code.len() == usize(5), `code shape EXXXX: ${e.code}`);
+    assert(e.code.starts_with(String.from("E")), `codes start with E: ${e.code}`);
+    (mut(dup) : bool) = false;
+    (mut(j) : usize) = usize(0);
+    while(j < seen.len(), {
+      match(
+        seen.get_cloned(j),
+        .Some(s) => {
+          if(s == e.code, {
+            dup = true;
+          });
+        },
+        .None => ()
+      );
+      j = (j + usize(1));
+    });
+    assert(!dup, `duplicate registry code ${e.code}`);
+    seen.push(e.code.clone());
+    _check_entry(&e, &e.code);
+    i = (i + usize(1));
+  });
+});
+test("lookup a known code", {
+  found := lookup_explain(String.from("E0401"));
+  assert(found.is_some(), "E0401 must resolve");
+  match(
+    found,
+    .Some(e) => {
+      assert(e.code == "E0401", "code round-trips");
+      assert(e.title.contains(String.from("name")), "E0401 title");
+    },
+    .None => ()
+  );
+});
+test("lookup the member-visibility code", {
+  match(
+    lookup_explain(String.from("E0405")),
+    .Some(e) => {
+      assert(e.code == "E0405", "E0405 round-trips");
+      assert(e.title.contains(String.from("private")), "E0405 title names privacy");
+      assert(e.explanation.contains(String.from("`_`")), "E0405 explanation names the prefix");
+    },
+    .None => assert(false, "E0405 must resolve")
+  );
+});
+test("lookup an unknown code is None", {
+  assert(lookup_explain(String.from("E9999")).is_none(), "E9999 unknown");
+});
+test("suggest_code finds near misses", {
+  // E1404 is NOT a registered code and E0404 is its UNIQUE nearest entry —
+  // no tie for first-listed-wins to hide behind. (E0402, the original pick,
+  // IS registered: suggest_name deliberately returns None when the target
+  // itself exists — and so is E0405 since member visibility landed; as a
+  // typo it would have tied E0005 and E0404 at distance 1 with the
+  // earlier-listed E0005 winning.) E1400 is distance 2 from E0401 (and from
+  // the rest of the E04xx family) — the transposed-digit class the
+  // code-specific threshold keeps.
+  match(
+    suggest_code(String.from("E1404")),
+    .Some(h) => assert(h == "E0404", `typo E1404 suggests E0404, got ${h}`),
+    .None => assert(false, "a near miss must suggest")
+  );
+  match(
+    suggest_code(String.from("E1400")),
+    .Some(h2) => assert(h2 == "E0401", `typo E1400 suggests E0401, got ${h2}`),
+    .None => assert(false, "a distance-2 typo must suggest")
+  );
+  // The far miss is beyond the CODE threshold (2), not merely far from
+  // today's registry: codes are `E` + 4 digits, and distance 3 of a
+  // 5-character string matches on noise (E99999 → E0909 shared two nines
+  // under the old identifier threshold of 3 — the second time a denser
+  // registry had re-armed a "far" probe, after E9999 hit the E09xx family).
+  assert(
+    suggest_code(String.from("E99999")).is_none(),
+    "a far miss suggests nothing"
+  );
+});
+test("explain_to_json carries both languages", {
+  match(
+    lookup_explain(String.from("E0601")),
+    .Some(e) => {
+      js := explain_to_json(&e);
+      assert(js.contains(String.from("\"code\":\"E0601\"")), "code field");
+      assert(js.contains(String.from("\"title_zh\":")), "Chinese title field");
+      assert(js.contains(String.from("\"explanation_zh\":")), "Chinese explanation field");
+      assert(js.contains(String.from("\"good\":")), "good example field");
+    },
+    .None => assert(false, "E0601 must resolve")
+  );
+});
+test("all_registry_codes matches registry_entries length", {
+  codes := all_registry_codes();
+  entries := registry_entries();
+  assert(
+    codes.len() == entries.len(),
+    `codes ${codes.len()} == entries ${entries.len()}`
+  );
+});
+test("the reserved E13xx and E15xx bands are allocated with full entries", {
+  // plans/archive/LLM_AUTHORING_AUDIT_2026-09-19.md §3.3 reserved E13xx for
+  // internal codegen and E15xx for CLI/build/deps;
+  // issues/fixed/explain-registry-e13xx-e15xx-bands-unallocated.md asked for the
+  // allocation: the ICE wrapper and the install/fetch family's raises are
+  // coded, so `yo explain` has an entry behind every code the CLI can print.
+  mut(band) := ArrayList(String).new();
+  band.push(String.from(E_INTERNAL_COMPILER_ERROR));
+  band.push(String.from(E_DEP_FETCH_FAILED));
+  band.push(String.from(E_MANIFEST_NOT_FOUND));
+  band.push(String.from(E_LOCK_MISMATCH));
+  band.push(String.from(E_STORE_INTEGRITY_MISMATCH));
+  band.push(String.from(E_NO_MATCHING_VERSION));
+  band.push(String.from(E_INVALID_PACKAGE_NAME));
+  (mut(i) : usize) = usize(0);
+  while(i < band.len(), {
+    c := match(
+      band.get_cloned(i),
+      .Some(x) => x,
+      .None => String.new()
+    );
+    match(
+      lookup_explain(&c),
+      .Some(e) => {
+        assert(e.code == c, `${c} round-trips`);
+        _check_entry(&e, &c);
+      },
+      .None => assert(false, `${c} must have a registry entry`)
+    );
+    i = (i + usize(1));
+  });
+  // The bands are where the audit reserved them: E1301 for the ICE, E1501+ for
+  // the dependency toolchain (codes are never renumbered once published).
+  match(
+    lookup_explain(String.from(E_INTERNAL_COMPILER_ERROR)),
+    .Some(e) => assert(e.code == "E1301", `the ICE code is E1301, got ${e.code}`),
+    .None => ()
+  );
+  match(
+    lookup_explain(String.from(E_DEP_FETCH_FAILED)),
+    .Some(e) => assert(e.code == "E1501", `the fetch-failure code is E1501, got ${e.code}`),
+    .None => ()
+  );
+});

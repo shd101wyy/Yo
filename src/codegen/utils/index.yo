@@ -24,10 +24,10 @@
 // (issues/fixed/module-init-env-get-template-string-leaks.md).
 (g_debug_mg : bool) = cgu_env.get("YO_DEBUG_MG").is_some();
 { eprintln } :: import("std/fmt");
-{ ArrayList } :: import("std/collections/array_list");
-{ HashSet } :: import("std/collections/hash_set");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashSet } :: import("std/collections/hash-set");
 { RefCell } :: import("std/sync/refcell");
-{ HashMap } :: import("std/collections/hash_map");
+{ HashMap } :: import("std/collections/hash-map");
 { fnv1a64, stable_id_module_path } :: import("../../utils.yo");
 { TokenKind } :: import("../../token.yo");
 { TypeValue, TypeValueNode, get_struct_field_comptime_flags, no_labels, t_slot_pointee, t_slot_is_mut_ref, fn_param_slots, fn_result_pointee, fn_result_is_ref, t_refine_inner } :: import("../../types/definitions.yo");
@@ -48,11 +48,11 @@
 { type_to_string } :: import("../../types/string.yo");
 { fn_abi_param_is_ptr, type_is_sized } :: import("../../types/utils.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
-{ type_key } :: import("../../types/type_key.yo");
+{ type_key } :: import("../../types/type-key.yo");
 { Environment, Variable, get_variables_from_env, variable_value_type } :: import("../../env.yo");
 { Emitter } :: import("../../emitter.yo");
 { guard_site_is_proved } :: import("../../evaluator/builtins/contracts.yo");
-{ is_std_module_path } :: import("../../evaluator/memory_safety.yo");
+{ is_std_module_path } :: import("../../evaluator/memory-safety.yo");
 { TargetInfo } :: import("../../target.yo");
 // Module-level mirror of `needs_intel_asm_syntax` (the per-run context flag):
 // main.yo builds the C-compiler command AFTER compile_module returns only the
@@ -81,7 +81,7 @@ mark_uses_tls :: (fn() -> unit)({
   g_uses_tls = true;
 });
 get_uses_tls :: (fn() -> bool)(g_uses_tls);
-{ ExprInfoTable, ExprInfo, expr_info_table_get, get_extern_c_global_types, extern_c_global_c_name, is_module_level_global, module_global_c_suffix, is_thread_local, some_resolution, scope_variables, is_fnonce_capture_drop, is_fnonce_post_call_release } :: import("../../expr_info.yo");
+{ ExprInfoTable, ExprInfo, expr_info_table_get, get_extern_c_global_types, extern_c_global_c_name, is_module_level_global, module_global_c_suffix, is_thread_local, some_resolution, scope_variables, is_fnonce_capture_drop, is_fnonce_post_call_release } :: import("../../expr-info.yo");
 {
   AstExpr,
   ast_expr_is_address_of_call,
@@ -103,7 +103,7 @@ get_uses_tls :: (fn() -> bool)(g_uses_tls);
   ast_rewritten_node
 } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
-{ is_io_async_call } :: import("../../evaluator/async/await_analysis.yo");
+{ is_io_async_call } :: import("../../evaluator/async/await-analysis.yo");
 { is_builtin_yo_inline_function, codegen_fatal } :: import("../constants.yo");
 { panic, assert } :: import("std/assert");
 /// (seed window) Concrete per-payload variants of refcell.yo's generic
@@ -301,7 +301,7 @@ CodeGenContext :: struct(
   /// addressing the same value shares one object → its C name.
   comptime_pointer_statics : HashMap(String, String),
   /// C names of type BODIES the on-demand declare hook already emitted
-  /// (_on_demand_collect_and_declare, codegen_c.yo). The declaration passes
+  /// (_on_demand_collect_and_declare, codegen-c.yo). The declaration passes
   /// (types/generation.yo) SKIP these — one C name must have exactly one
   /// definition, and a type first resolved lazily DURING a pass (e.g. a dyn
   /// method's Future-trait return type minted while its vtable renders) is
@@ -414,7 +414,7 @@ CodeGenContext :: struct(
   /// declarations go to the declarations section (the shared header).
   chunk_globals : String,
   /// C names of the per-type drop / dup functions of tagged value enums
-  /// already generated (`_value_enum_rc_fn`, exprs/drop_dup.yo). Keyed by
+  /// already generated (`_value_enum_rc_fn`, exprs/drop-dup.yo). Keyed by
   /// the function's C name, which is derived from the enum's C type name, so
   /// two type keys aliasing onto one C type share one function.
   value_enum_rc_fns : HashSet(String),
@@ -1186,7 +1186,7 @@ extern_c_global_matches :: (fn(name : &String, ty : &TypeValue) -> bool)({
 _mangle_c_identifier_bytes :: (fn(s : &String) -> String)({
   mut(sanitized) := String.new();
   // BYTE count — the loop reads byte_at; String.len() counts RUNES
-  // (multibyte content under-walks; see other_fn_call.yo's splitter fix).
+  // (multibyte content under-walks; see other-fn-call.yo's splitter fix).
   n := s.len();
   (mut(i) : usize) = usize(0);
   while(i < n, {
@@ -1305,9 +1305,9 @@ _unwrap_unsafe :: (fn(e : &AstExpr) -> AstExpr)(
 ///
 /// Every consumer of `is_function_value_with_only_builtin_yo_inline_function_call`
 /// ELIDES the wrapper function and emits the builtin at the call site with the
-/// caller's already-generated argument codes (`other_fn_call.yo`, `ptr_fns.yo`,
+/// caller's already-generated argument codes (`other-fn-call.yo`, `ptr-fns.yo`,
 /// `generation.yo`; `declarations.yo` then skips emitting the definition). The
-/// emitters in `inline_fns.yo` read `_a(args, 0)` / `_a(args, 1)` — those are the
+/// emitters in `inline-fns.yo` read `_a(args, 0)` / `_a(args, 1)` — those are the
 /// CALL SITE's arguments. The body's own argument list never reaches them.
 ///
 /// So a wrapper is transparent exactly when its PARAMETERS, in order, are what

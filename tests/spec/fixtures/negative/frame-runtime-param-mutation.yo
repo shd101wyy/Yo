@@ -1,0 +1,15 @@
+// The related variant of
+// issues/fixed/2026-10-23-the-call-site-frame-misses-a-list-reached-through-a-refcell-global.md:
+// no cell is involved. The runtime-mode `grow` pushes onto the list it is
+// passed under `ensures(true)`, so `probe_grow` returns 1. Its frame is
+// checked nowhere, so the call must not leave `xs` at its pre-call value.
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array-list");
+{ grow } :: import("./frame-runtime-param-mutation-grow.yo");
+
+probe_grow :: (fn(ensures(r == usize(0))) -> (r : usize))({
+  mut(xs) := ArrayList(i32).new();
+  grow(&mut xs);
+  xs.len()
+});
+export(probe_grow);

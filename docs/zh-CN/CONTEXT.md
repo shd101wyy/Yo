@@ -8,8 +8,8 @@
 ```bash
 yo context                                   # 上下文包（语言指南）
 yo context --list                            # 列出全部标准库模块，每行一个
-yo context collections/array_list            # 某个模块的条目
-yo context collections/array_list ArrayList.push   # 某个条目的完整说明
+yo context collections/array-list            # 某个模块的条目
+yo context collections/array-list ArrayList.push   # 某个条目的完整说明
 yo context push                              # 在整个语料中查找一个名字
 yo context --search hash                     # 排序搜索
 yo context --docs                            # 随附的手册
@@ -81,8 +81,8 @@ yo context --doc memory_safety.md --format json   # {"name", "title", "citation"
 | `yo context <name>`           | 在整个语料中查找这个名字（见下文）                     |
 | `yo context --search <query>` | 在名字、模块、签名和文档首行中进行排序搜索             |
 
-**模块**参数可以是完整路径（`std/collections/array_list`）、唯一的末段
-（`array_list`）或唯一的后缀（`collections/array_list`）。匹配多个模块的参数会
+**模块**参数可以是完整路径（`std/collections/array-list`）、唯一的末段
+（`array_list`）或唯一的后缀（`collections/array-list`）。匹配多个模块的参数会
 列出这些模块并以退出码 1 退出。
 
 **条目**是一个普通名字，方法则写作 `Type.name`（`ArrayList.push`）。当一个模块
@@ -115,7 +115,7 @@ yo context --doc memory_safety.md --format json   # {"name", "title", "citation"
 
 ```text
 yo: error: context: no module or item 'hashmap' in the corpus
-  Did you mean: std/collections/hash_map
+  Did you mean: std/collections/hash-map
 ```
 
 ### JSON 输出

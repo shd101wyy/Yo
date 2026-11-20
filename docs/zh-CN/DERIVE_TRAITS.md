@@ -190,7 +190,7 @@ derive(Shape, Eq(Shape), Clone, ToString);
 类型可以通过引用自身的字段进行派生，例如 `ArrayList(Self)` 或 `Rc(Self)`。派生出的方法借助容器自己的 impl 访问内部的值：下面 `Node` 派生的 `==` 用 `ArrayList(Node)` 的 `==` 比较 `children`，而后者又会调用 `Node` 的 `==`。
 
 ```yo
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 { println, ToString } :: import("std/fmt");
 
 Node :: enum(Leaf, Branch(children : ArrayList(Self)));

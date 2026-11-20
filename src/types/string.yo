@@ -4,8 +4,8 @@
 //! variants currently representable in `src/types/type.yo`.
 { String } :: import("std/string");
 import("std/fmt");
-{ ArrayList } :: import("std/collections/array_list");
-{ HashMap } :: import("std/collections/hash_map");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashMap } :: import("std/collections/hash-map");
 { TypeValue, SharedList, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_slot_is_borrow, t_slot_is_value_ref } :: import("./definitions.yo");
 { RefCell } :: import("std/sync/refcell");
 
@@ -16,22 +16,22 @@ import("std/fmt");
 // EMPTY `name`: the evaluator cannot stamp one, because the compatibility
 // layer treats a struct/enum NAME as nominal identity (compatibility.yo — a
 // stamped name on every instantiation broke unification, corpus 90→55; only
-// `Rc(...)` is stamped, see comptime_fn.yo). So the renderer keeps its own
+// `Rc(...)` is stamped, see comptime-fn.yo). So the renderer keeps its own
 // side table, keyed by the instantiation's type id and filled by the comptime
 // constructor call that produced it (`Ctor(rendered args)`). Rendering-only:
 // nothing but `type_to_string` reads it, so identity is untouched
 // (issues/fixed/lsp-shows-internal-type-placeholders-to-users.md).
 (g_type_display_names : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 /// The type-key epoch: bumped whenever a registry that `type_key`
-/// (types/type_key.yo) reads gains or changes an entry. `type_key` and
+/// (types/type-key.yo) reads gains or changes an entry. `type_key` and
 /// `type_to_string` of one `TypeValue` handle are functions of the handle's
 /// node and of these registries: this table, the struct/enum finals, the
 /// phantom-position tables (types/creators.yo), and the cfid-key and
-/// enum-signature tables (types/type_key.yo). For a type that mentions no
+/// enum-signature tables (types/type-key.yo). For a type that mentions no
 /// `SomeT` the node does not change while the handle is alive, so within one
 /// epoch such a handle always renders the same, and a memo keyed by
 /// `type_key` may be fronted by an identity cache that is cleared when the
-/// epoch moves (`type_identity_slot`, types/type_key.yo).
+/// epoch moves (`type_identity_slot`, types/type-key.yo).
 (mut(g_type_key_epoch) : u64) = u64(0);
 bump_type_key_epoch :: (fn() -> unit)({
   g_type_key_epoch = (g_type_key_epoch + u64(1));
@@ -131,7 +131,7 @@ _tts_seen :: (fn(xs : &ArrayList(String), s : &String) -> bool)({
 /// circular references by type ID); the depth cap
 /// alone does NOT bound it, because the cost is fanout^depth, not depth.
 ///
-/// MEASURED (2026-07-26, tests/collections/priority_queue.test.yo): without
+/// MEASURED (2026-07-26, tests/collections/priority-queue.test.yo): without
 /// this guard 100% of samples sat in ONE `_tts` render reached from
 /// `_impl_type_captures_sig` → `value_to_signature_string`, at 6.8 GB RSS and
 /// climbing after 7 minutes — the file is one of the six cluster-A "stalls".
@@ -140,7 +140,7 @@ _tts_seen :: (fn(xs : &ArrayList(String), s : &String) -> bool)({
 /// which bounds a shared-but-acyclic type graph too — the same deliberate
 /// choice, for the same measured reason, as the two sibling key
 /// functions: `type_intern_key` (types/intern.yo, "Never-pop keeps rendering
-/// deterministic (=> injective)") and `_type_key_at` (types/type_key.yo,
+/// deterministic (=> injective)") and `_type_key_at` (types/type-key.yo,
 /// whose `g_tk_visited` header records the identical pathology: multi-MB key
 /// strings, 7→62 GB footprint). Rendering stays DETERMINISTIC — the traversal
 /// is fixed and the set starts empty on every top-level call — and the

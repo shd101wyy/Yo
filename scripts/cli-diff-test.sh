@@ -238,7 +238,7 @@ strip_ansi() { "${SED[@]}" $'s/\x1b\\[[0-9;]*m//g'; }
 # still compared exactly.
 # <CONTEXT_KEY> is RELEASE-specific the same way <VERSION> is: `yo context`'s
 # index key hashes the toolchain version (a new compiler must rebuild the
-# index — context_tree_key in src/doc/context_index.yo), so the progress line
+# index — context_tree_key in src/doc/context-index.yo), so the progress line
 # `Building the context index for ... (key <12 hex>)...` changed in all twelve
 # context cases on the v0.2.40 bump. Only that `(key <hex>)` form is rewritten.
 # $1 = project dir, $2 = home dir

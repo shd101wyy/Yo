@@ -1,0 +1,576 @@
+//! Field / property access emitter.
+//!
+//! Lowers `object.field` for structs, objects (ref-semantics), enums, pointers
+//! (deref + arrow), tuples (label→index), dyn (vtable), newtypes (zero-cost),
+//! and module namespaces (compile-time field values). A field access that
+//! resolves to a method (the expr's value is a function) emits the method's C
+//! function name directly.
+//!
+//! KNOWN LIMITATIONS (documented):
+//!  * Evidence-param field access + state-machine `sm->__capture` / `sm->var_N`
+//!    routing (Phase 5; FGC has no currentEvidenceParams, in_async only).
+//!  * Late-dispatch trait-walk + Rc-method (___drop/dup/dispose) trait lookup:
+//!    Struct/EnumT carry NO `.trait` field — methods live in a separate
+//!    type-method registry; these need routing through that registry
+//!    (Phase 3/4).
+//!  * Module-namespace UnknownValue.variableName resolution: `UnknownVal(ty)`
+//!    carries no variableName, so that sub-branch falls through
+//!    to the plain identifier lookup.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_token, ast_expr_text } :: import("../../expr.yo");
+{ EvalValue, is_func_val, is_struct_val, is_unknown_val, value_contains_unknown } :: import("../../value.yo");
+{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ is_unit_type, is_struct_type, is_enum_type, is_pointer_type, is_tuple_type, is_reference_struct_type, is_reference_enum_type, is_newtype_type, is_module_type, is_unique_box_type, cell_handle_view, is_dyn_cell_type } :: import("../../types/guards.yo");
+{ Environment } :: import("../../env.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ _call_generate_expr } :: import("./dispatch.yo");
+{ sanitize_for_c_identifier, c_field_name, c_variant_member_name, get_variable_name_for_codegen, get_enum_variant_c_name, can_optimize_as_nullable_pointer, type_key, extern_c_global_matches, get_variable_name_for_codegen_at, get_type_string, box_payload_place_code, unsized_place_fat_code } :: import("../utils/index.yo");
+{ generate_comptime_value } :: import("./comptime-value.yo");
+{ lookup_io_builtin_struct_field, expr_info_deferred_dup_expressions, is_call_scoped_share_dup } :: import("../../expr-info.yo");
+{ emit_deferred_dup_or_code } :: import("./drop-dup.yo");
+{ dyn_type_has_vtable_slot, dyn_dispatch_receiver_type, type_is_sized } :: import("../../types/utils.yo");
+/// `e` carries a deferred dup that is the caller-owned share of a call
+/// (`mark_call_scoped_share_dup`): its emission is the dereferencing access's.
+_carries_call_scoped_share :: (fn(e : &AstExpr, context : &FunctionGenerationContext) -> bool)(
+  match(
+    context.base.get_expr_info(e),
+    .Some(ei) => match(
+      expr_info_deferred_dup_expressions(&ei),
+      .Some(dups) => match(dups.get_cloned(usize(0)), .Some(d) => is_call_scoped_share_dup(ast_expr_id(&d)), .None => false),
+      .None => false
+    ),
+    .None => false
+  )
+);
+/// True if `s` is all ASCII digits (non-empty).
+_all_digits :: (fn(s : &String) -> bool)({
+  // BYTE count — the loop reads byte_at; String.len() counts RUNES
+  // (multibyte content under-walks; see other-fn-call.yo's splitter fix).
+  n := s.len();
+  if(n == usize(0), false, {
+    (i : usize) = usize(0);
+    (ok : bool) = true;
+    while(i < n, {
+      b := s.byte_at(i);
+      if(!((b >= u8(48)) && (b <= u8(57))), {
+        ok = false;
+      });
+      i = (i + usize(1));
+    });
+    ok
+  })
+});
+/// `n` asterisks.
+_stars :: (fn(n : usize) -> String)({
+  out := String.from("");
+  (i : usize) = usize(0);
+  while(i < n, {
+    out.push_str("*");
+    i = (i + usize(1));
+  });
+  out
+});
+/// The C function name for a func id (registered cName, else the id itself).
+_c_function_name :: (fn(context : &FunctionGenerationContext, func_id : String) -> String)(
+  match(context.base.get_function_entry(func_id.clone()), .Some(e) => e.c_name.clone(), .None => func_id)
+);
+/// Whether `object_value` is a TypeValue wrapping an enum type.
+_is_typevalue_enum :: (fn(object_value : &Option(EvalValue)) -> bool)(
+  match(object_value, .Some(v) => match(v, Rc(.TypeVal(t)) => is_enum_type(&t.*), _ => false), .None => false)
+);
+/// Enum field access: nullable-pointer optimization returns the pointer; else
+/// resolve `object.data.<Variant>.<field>` by locating the variant declaring it.
+_enum_field_access :: (fn(object_type : &TypeValue, object_code : &String, field_name : &String, context : &FunctionGenerationContext) -> String)(
+  match(
+    can_optimize_as_nullable_pointer(object_type),
+    .Some(_) => object_code.clone(),
+    .None => match(
+      object_type,
+      Rc(.EnumT({ variant_names : vnames, variant_field_labels : vlabels, name : ename })) => {
+        nv := vnames.len();
+        (vi : usize) = usize(0);
+        while(vi < nv, {
+          match(
+            vlabels.get(vi),
+            .Some(lbls) => {
+              nl := lbls.len();
+              (li : usize) = usize(0);
+              while(li < nl, {
+                match(
+                  lbls.get(li),
+                  .Some(lbl) => if(lbl == field_name.*, {
+                    vname := match(vnames.get_cloned(vi), .Some(v) => v, .None => String.from(""));
+                    out := object_code.clone();
+                    // A reference-semantics enum (`ref(enum(…))`) value is a pointer,
+                    // so its variant data is reached with `->`, not `.` (as in match).
+                    if(is_reference_enum_type(object_type), {
+                      out.push_str("->data.");
+                    }, {
+                      out.push_str(".data.");
+                    });
+                    out.push_string(c_variant_member_name(&vname));
+                    out.push_str(".");
+                    out.push_string(sanitize_for_c_identifier(field_name.clone(), false));
+                    return(out);
+                  }),
+                  .None => ()
+                );
+                li = (li + usize(1));
+              });
+            },
+            .None => ()
+          );
+          vi = (vi + usize(1));
+        });
+        err := String.from("/* ERROR: field ");
+        err.push_string(field_name);
+        err.push_str(" not found in enum ");
+        err.push_string(&ename.*);
+        err.push_str(" */");
+        err
+      },
+      _ => String.from("/* ERROR: not an enum */")
+    )
+  )
+);
+/// `EnumType.Variant` (fieldless variant) → a C compound literal with the tag.
+_typevalue_enum_access :: (fn(object_value : &Option(EvalValue), field_name : &String, context : &FunctionGenerationContext) -> String)(
+  match(
+    object_value,
+    .Some(v) => match(
+      v,
+      Rc(.TypeVal(t)) => {
+        et := Rc.clone(t);
+        match(
+          &et,
+          Rc(.EnumT({ variant_names : vnames, variant_fields : vfields })) => {
+            nv := vnames.len();
+            (vi : usize) = usize(0);
+            while(vi < nv, {
+              match(
+                vnames.get(vi),
+                .Some(vn) => if(vn == field_name.*, {
+                  fields_empty := match(vfields.get(vi), .Some(fs) => (fs.len() == usize(0)), .None => true);
+                  // A nullable-pointer enum's fieldless variant is NULL.
+                  if(fields_empty && can_optimize_as_nullable_pointer(&et).is_some(), {
+                    return(String.from("NULL"));
+                  });
+                  if(
+                    fields_empty,
+                    match(
+                      context.base.get_type_c_name(type_key(&et)),
+                      .Some(c_name) => {
+                        tag_name := get_enum_variant_c_name(&et, field_name.clone(), &context.base);
+                        out := String.from("(");
+                        out.push_string(&c_name);
+                        out.push_str("){ .tag = ");
+                        out.push_string(&tag_name);
+                        out.push_str(", .data = {  } }");
+                        return(out);
+                      },
+                      .None => ()
+                    )
+                  );
+                }),
+                .None => ()
+              );
+              vi = (vi + usize(1));
+            });
+            String.from("/* ERROR: field name must be an identifier */")
+          },
+          _ => String.from("/* ERROR: field name must be an identifier */")
+        )
+      },
+      _ => String.from("/* ERROR: field name must be an identifier */")
+    ),
+    .None => String.from("/* ERROR: field name must be an identifier */")
+  )
+);
+/// Pointer/reference field access: dereference to the value type (extra level
+/// for ref-semantics objects), then `->`/`.` as appropriate.
+_ptr_field_access :: (fn(object_type : &TypeValue, object_code : &String, field_name : &String) -> String)(
+  if(field_name.* == "*", {
+    out := String.from("(*");
+    out.push_string(object_code);
+    out.push_str(")");
+    out
+  }, {
+    (deref_level : usize) = usize(0);
+    (current_type : TypeValue) = Rc.clone(object_type);
+    while(is_pointer_type(&current_type), {
+      current_type = match(&current_type, Rc(.Pointer(p)) => Rc.clone(p), _ => Rc.clone(current_type));
+      deref_level = (deref_level + usize(1));
+    });
+    // Reference-semantics structs are already pointers in C — one more deref.
+    ref_sem := match(&current_type, Rc(.Struct({ is_reference_semantics : rs })) => rs.*, _ => false);
+    if((deref_level > usize(0)) && ref_sem, {
+      deref_level = (deref_level + usize(1));
+    });
+    // Newtype field through a pointer is just the dereference.
+    nt_match := if(is_newtype_type(&current_type), match(&current_type, Rc(.Struct({ field_labels : fls })) => if(fls.len() == usize(1), match(fls.get(usize(0)), .Some(lbl) => (lbl == field_name.*), .None => false), false), _ => false), false);
+    if(nt_match, {
+      res := if(deref_level == usize(1), {
+        out := String.from("(*");
+        out.push_string(object_code.clone());
+        out.push_str(")");
+        out
+      }, {
+        out := _stars(deref_level);
+        out.push_str("(");
+        out.push_string(object_code.clone());
+        out.push_str(")");
+        out
+      });
+      return(res);
+    });
+    if(deref_level > usize(0), if(deref_level == usize(1), {
+      out := object_code.clone();
+      out.push_str("->");
+      out.push_string(c_field_name(&current_type, field_name.clone()));
+      out
+    }, {
+      deref := String.from("(");
+      deref.push_string(_stars(deref_level - usize(1)));
+      deref.push_string(object_code.clone());
+      deref.push_str(")");
+      deref.push_str("->");
+      deref.push_string(c_field_name(&current_type, field_name.clone()));
+      deref
+    }), {
+      out := object_code.clone();
+      out.push_str(".");
+      out.push_string(c_field_name(&current_type, field_name.clone()));
+      out
+    })
+  })
+);
+/// Tuple field access: numeric `._N` directly, else label → positional index.
+_tuple_field_access :: (fn(object_type : &TypeValue, object_code : &String, field_name : &String) -> String)(
+  if(_all_digits(field_name), {
+    out := object_code.clone();
+    out.push_str("._");
+    out.push_string(field_name);
+    out
+  }, match(
+    object_type,
+    Rc(.Tuple({ field_labels : fls })) => {
+      n := fls.len();
+      (i : usize) = usize(0);
+      (idx : usize) = usize(0);
+      (found : bool) = false;
+      while((i < n) && !found, {
+        match(
+          fls.get(i),
+          .Some(lbl) => if(lbl == field_name.*, {
+            idx = i;
+            found = true;
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      out := object_code.clone();
+      out.push_str("._");
+      out.push_string(idx.to_string());
+      out
+    },
+    _ => {
+      out := object_code.clone();
+      out.push_str("._0");
+      out
+    }
+  ))
+);
+/// Generate field access for structs, objects, enums, pointers, tuples, dyn,
+/// newtypes, and module namespaces.
+/// The reference type of the field `field_name` of `object_type` (through
+/// raw pointers), when that field is a reference (decision 43 step 3, N2b's
+/// `const T*` / `T*` field).
+_field_reference_type :: (fn(object_type : &TypeValue, field_name : &String) -> Option(TypeValue))({
+  (t : TypeValue) = Rc.clone(object_type);
+  while(is_pointer_type(&t), {
+    t = match(&t, Rc(.Pointer(p)) => Rc.clone(p), _ => Rc.clone(t));
+  });
+  labels := match(&t, Rc(.Struct({ field_labels : fl })) => Rc.clone(fl), Rc(.Tuple(tl, _)) => Rc.clone(tl), _ => return(Option(TypeValue).None));
+  types := match(&t, Rc(.Struct({ field_types : ft })) => Rc.clone(ft), Rc(.Tuple(_, tt)) => Rc.clone(tt), _ => return(Option(TypeValue).None));
+  (i : usize) = usize(0);
+  while(i < labels.len(), {
+    if(match(labels.get(i), .Some(l) => (l == field_name.*), .None => false), {
+      return(_reference_or_none(types.get(i)));
+    });
+    i = (i + usize(1));
+  });
+  // A tuple's element is named by its index.
+  match(
+    field_name.parse_i64(),
+    .Some(ix) => if(is_tuple_type(&t), _reference_or_none(types.get(usize(ix))), Option(TypeValue).None),
+    .None => Option(TypeValue).None
+  )
+});
+_reference_or_none :: (fn(t : Option(TypeValue)) -> Option(TypeValue))(
+  match(t, .Some(rt) => if(match(&rt, Rc(.Reference(_, _, _)) => true, _ => false), Option(TypeValue).Some(Rc.clone(rt)), Option(TypeValue).None), .None => Option(TypeValue).None)
+);
+/// A field access. A reference field (N1e-2) reads as the place it refers
+/// to: its C is the pointer's dereference, which a lend folds back to the
+/// pointer (`_apply_ref_amp`). A `&` field's `const T*` is read through a
+/// `T*`: the checker keeps the place read-only, and the place's address
+/// fills the `T*` every `&T` slot and projection result lowers to.
+generate_field_access :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
+  code := _generate_field_access_raw(expr, indent, context);
+  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+  ref_ty := match(
+    args.get_cloned(usize(0)),
+    .Some(obj) => match(
+      args.get_cloned(usize(1)),
+      .Some(fld) => if(ast_expr_is_atom(&fld), match(context.base.get_expr_info(&obj), .Some(oei) => _field_reference_type(&oei.ty(), &ast_expr_text(&fld).*.clone()), .None => Option(TypeValue).None), Option(TypeValue).None),
+      .None => Option(TypeValue).None
+    ),
+    .None => Option(TypeValue).None
+  );
+  match(
+    ref_ty,
+    .Some(Rc(.Reference(gf_pointee, gf_mut, _))) => cond(
+      (code.len() == usize(0)) => code,
+      // A fat reference field (`&str`, `&[T]`, decision 49): read as the
+      // unsized place it is `(*field)`, the convention a lend folds back to
+      // the pair; read as the reference (the legacy value `str`) it is the
+      // pair itself.
+      !type_is_sized(&gf_pointee) => if(match(context.base.get_expr_info(expr), .Some(gf_ei) => !type_is_sized(&gf_ei.ty()), .None => true), `(*${code})`, code),
+      gf_mut => `(*${code})`,
+      true => `(*((${get_type_string(&gf_pointee, &mut context.base)}*)${code}))`
+    ),
+    _ => code
+  )
+});
+_generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
+  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* ERROR: field access not evaluated */")));
+  args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+  if(args.len() != usize(2), {
+    return(String.from("/* ERROR: field access requires exactly 2 arguments */"));
+  });
+  object_expr := match(args.get_cloned(usize(0)), .Some(x) => x, .None => return(String.from("/* ERROR: invalid field access arguments */")));
+  field_expr := match(args.get_cloned(usize(1)), .Some(x) => x, .None => return(String.from("/* ERROR: invalid field access arguments */")));
+  if(!ast_expr_is_atom(&field_expr), {
+    return(String.from("/* ERROR: field name must be an identifier */"));
+  });
+  field_name := ast_expr_text(&field_expr).*.clone();
+  object_code_raw := _call_generate_expr(&object_expr, indent.clone(), context);
+  // `h.*` whose handle carries the caller-owned share of a call it is lent
+  // to (Aliasing Stage 0 on an `Rc`/`Arc` handle, `consume_argument_for_parameter`):
+  // the place is reached through the dup, which keeps the cell alive until the
+  // call's post-call drop.
+  object_code := if(
+    (field_name == "*") && _carries_call_scoped_share(&object_expr, context),
+    emit_deferred_dup_or_code(&object_expr, &object_code_raw, indent, context),
+    object_code_raw
+  );
+  obj_ei_opt := context.base.get_expr_info(&object_expr);
+  object_type := match(&obj_ei_opt, .Some(oei) => Rc.clone(oei.ty()), .None => Rc.new(TypeValueNode.Unit));
+  object_value := match(obj_ei_opt, .Some(oei) => oei.value(), .None => Option(EvalValue).None);
+  // Dyn method access takes PRIORITY over static method resolution: even when
+  // the evaluator resolved `obj.method` to a concrete impl FuncVal, a dyn
+  // receiver must dispatch through the vtable (`obj.vtable->method`), not call
+  // the impl statically. The call site (other_fn_call) supplies `(obj).data` as
+  // self. Without this guard the funcval branch below emits a static method
+  // name that isn't collected for a dyn call → the call fails to transpile.
+  // Only a vtable SLOT: a blanket inherent method has none (see the call
+  // site in other-fn-call.yo) and takes the static path below.
+  // A `&Dyn`-typed reference binding (a named dyn local, decision 49) reaches
+  // here with `object_type` = the reference; unwrap it
+  // (`dyn_dispatch_receiver_type`) so the access still dispatches through the
+  // vtable.
+  match(
+    dyn_dispatch_receiver_type(&object_type),
+    .Some(odt) => if(dyn_type_has_vtable_slot(&odt, field_name.clone()), {
+      out := unsized_place_fat_code(&object_code);
+      out.push_str(".vtable->");
+      out.push_string(sanitize_for_c_identifier(&field_name, false));
+      return(out);
+    }, ()),
+    .None => ()
+  );
+  // Method access: the field resolved to a function → emit its C name.
+  match(
+    ei.value(),
+    .Some(v) => if(is_func_val(&v), {
+      fid := match(v, Rc(.FuncVal(__fvd1, _)) => __fvd1.*.func_id.clone(), _ => String.from(""));
+      return(_c_function_name(context, fid));
+    }),
+    .None => ()
+  );
+  // A `unit`-typed field (struct/tuple member, or the pointee of a `*unit`
+  // deref) has NO C storage — `unit` is a zero-sized type and the declaration
+  // emitters leave the member out (types/generation.yo). The read has no C
+  // form and no value to carry, so it emits nothing, like every other unit
+  // expression (a unit binding declares no variable, a unit argument feeds a
+  // placeholder). Only the object expression's code is dropped, and
+  // `_call_generate_expr` has already emitted any statement-level side effect
+  // it had. Dyn/method/module accesses above are NOT unit-typed values and
+  // never reach this rule.
+  if(is_unit_type(&ei.ty()) && (is_struct_type(&object_type) || is_tuple_type(&object_type) || is_pointer_type(&object_type)), {
+    return(String.from(""));
+  });
+  // Module namespace / compile-time struct-value field access. A struct value
+  // with a runtime leaf (`P(x : f(), y : i32(1))`, or a `match` binding of
+  // one) is a runtime construction (`value_contains_unknown`): its field is
+  // read from the object's C value below. Taken down this path, a runtime
+  // field's NAME was resolved as a variable, an undeclared `__yo_v_x`
+  // (issues/fixed/2026-11-05-a-method-on-a-field-of-a-match-binding-over-an-inline-literal-emits-an-undeclared-identifier.md).
+  if(is_module_type(&object_type) || match(object_value.clone(), .Some(v) => (is_struct_val(&v) && !value_contains_unknown(&v)), .None => false), {
+    match(
+      ei.value(),
+      .Some(fv) => if(
+        !is_unknown_val(&fv),
+        if(!is_struct_val(&fv), {
+          return(generate_comptime_value(&fv, &ei.ty(), &mut context.base));
+        })
+      ),
+      .None => ()
+    );
+    // Only a module's runtime member is a variable of its own, reached by
+    // name; a compile-time struct's struct-valued field is read from the
+    // object's C value below.
+    if(is_module_type(&object_type), {
+      // An extern-C GLOBAL read through a bound `c_include` module value
+      // (`c.stdout`): no variable carries it, so resolve it the way the atom
+      // resolver does — by name + declared type — and keep the REAL C name
+      // (no reserved-word prefix). plans/reference/C_INCLUDE_EXTERN_MODULE_VALUE.md §3.4.
+      if(extern_c_global_matches(field_name.clone(), &ei.ty()), {
+        return(sanitize_for_c_identifier(field_name.clone(), true));
+      });
+      return(get_variable_name_for_codegen_at(ast_expr_id(expr), field_name.clone(), Option(Environment).Some(ei.env())));
+    });
+  });
+  // The bare `Io` effect struct's `.io` member is the IDENTITY projection
+  // (evaluator twin in evaluator/exprs/property-access.yo): a bundle-style
+  // body (`e.io.await(f, e.io)`) whose effect bound to the bare Io emits
+  // `e`, not a nonexistent `e.io` field. Keyed on the io-builtin side
+  // table, so a user struct with an `io` field is untouched.
+  if((field_name == "io") && is_struct_type(&object_type) && match(
+    &object_type,
+    Rc(.Struct({ id : oid })) => lookup_io_builtin_struct_field(oid.clone(), String.from("await")).is_some(),
+    _ => false
+  ), {
+    return(object_code.clone());
+  });
+  // `p.*` on a place whose type is a reference (a `&&T`'s referent, a
+  // `&mut &T` parameter's; plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7
+  // P3): the place's C value is the pointer, so its referent is the
+  // pointer's dereference. A FAT reference (decision 49: an unsized
+  // pointee — `&str`, `&[T]`, `&Dyn(...)`, a tail struct) is the pair
+  // `{ptr,len}`/`{data,vtable}` BY VALUE, so reading it as a whole value is
+  // the pair itself — identity, never `(*pair)`: C cannot dereference a
+  // struct (`str.clone` and a specialized generic's `d.*` emitted exactly
+  // that; issues/fixed/2026-11-17-str-clone-derefs-its-fat-reference-receiver-and-emits-invalid-c.md).
+  // A place consumer still reaches the pair: `unsized_place_fat_code`
+  // accepts both spellings, and `&p.*` (a lend) folds an `(*X)` that no
+  // longer appears.
+  if((field_name == "*") && match(&object_type, Rc(.Reference(dr_pointee, _, _)) => !type_is_sized(&dr_pointee.*), _ => false), {
+    return(`(${object_code})`);
+  });
+  if((field_name == "*") && match(&object_type, Rc(.Reference(_, _, _)) => true, _ => false), {
+    out := String.from("(*");
+    out.push_string(object_code.clone());
+    out.push_str(")");
+    return(out);
+  });
+  // `b.*` on the unique `Box` (V1 step 2): the box is a C-transparent newtype
+  // over its cell pointer, so the payload place is that pointer's dereference,
+  // with the handle's placed bit masked off (`box_payload_place_code`).
+  if((field_name == "*") && is_unique_box_type(&object_type), {
+    return(box_payload_place_code(&object_type, &object_code, &mut context.base));
+  });
+  // `h.*` on a cell handle (`cell_handle_view`): the handle is a
+  // C-transparent newtype over its cell, so its value is the cell pointer and
+  // the payload is the cell's `*` field behind it.
+  if(field_name == "*", {
+    match(
+      cell_handle_view(&object_type),
+      // The cell of an `Rc(Dyn(T))` is the fat pair itself (decision 49 S2),
+      // and the handle's C value is that pair BY VALUE: the payload's place
+      // IS the handle's storage — identity, so `&h.*` names the pair.
+      .Some(dhv) => if(is_dyn_cell_type(&dhv.cell), {
+        return(`(${object_code.clone()})`);
+      }),
+      .None => ()
+    );
+    match(
+      cell_handle_view(&object_type),
+      .Some(hv) => {
+        out := object_code.clone();
+        out.push_str("->");
+        out.push_string(c_field_name(&hv.cell, &field_name));
+        return(out);
+      },
+      .None => ()
+    );
+  });
+  // Newtype: accessing the single field returns the value itself (zero-cost).
+  // A by-`ref` receiver is already dereferenced by generate_atom (`(*self)`), so
+  // `object_code` is the newtype VALUE here — just return it.
+  if(is_newtype_type(&object_type), {
+    match(
+      &object_type,
+      Rc(.Struct({ field_labels : fls })) => if(fls.len() == usize(1), {
+        match(
+          fls.get(usize(0)),
+          .Some(lbl) => if(lbl == field_name, {
+            return(object_code.clone());
+          }),
+          .None => ()
+        );
+      }),
+      _ => ()
+    );
+  });
+  // A field of a tail struct's place (decision 49). An unsized place's code
+  // is its fat pointer `F` — spelled `(*F)` when reached through a pointer,
+  // or the bare fat pair when the place is a fat reference binding read as
+  // the unsized place it refers to (a `&TailStruct` receiver's `r.*`, which
+  // has no other C representation): `unsized_place_fat_code` yields `F`
+  // from either. A sized field is read through the pointer's address, the
+  // tail is a place of its own whose fat pointer carries the same length.
+  if(is_struct_type(&object_type) && !is_reference_struct_type(&object_type) && !type_is_sized(&object_type), {
+    fat := unsized_place_fat_code(&object_code);
+    sct := get_type_string(&object_type, &mut context.base);
+    member := `((${sct}*)(${fat}).ptr)->${c_field_name(&object_type, &field_name)}`;
+    return(if(type_is_sized(&ei.ty()), member, `(*((__yo_slice_t){ .ptr = (void*)&(${member}), .len = (${fat}).len }))`));
+  });
+  // Value-shape field access, mutually exclusive branches.
+  cond(
+    is_enum_type(&object_type) => _enum_field_access(&object_type, &object_code, &field_name, context),
+    _is_typevalue_enum(&object_value) => _typevalue_enum_access(&object_value, &field_name, context),
+    is_pointer_type(&object_type) => _ptr_field_access(&object_type, &object_code, &field_name),
+    is_tuple_type(&object_type) => _tuple_field_access(&object_type, &object_code, &field_name),
+    // The dyn cell's C value IS the fat pair (decision 49 S2): `cell.*`'s
+    // place is that storage — identity, not a `->payload` read through a
+    // "pointer" the remapped name no longer is (`&mut` projections such as
+    // Rc's `_payload_mut` rely on this naming the pair).
+    is_dyn_cell_type(&object_type) => {
+      out := String.from("(");
+      out.push_string(object_code.clone());
+      out.push_str(")");
+      out
+    },
+    dyn_dispatch_receiver_type(&object_type).is_some() => {
+      out := unsized_place_fat_code(&object_code);
+      out.push_str(".vtable->");
+      out.push_string(sanitize_for_c_identifier(&field_name, false));
+      out
+    },
+    is_reference_struct_type(&object_type) => {
+      out := object_code.clone();
+      out.push_str("->");
+      out.push_string(c_field_name(&object_type, &field_name));
+      out
+    },
+    true => {
+      out := object_code.clone();
+      out.push_str(".");
+      out.push_string(c_field_name(&object_type, &field_name));
+      out
+    }
+  )
+});
+export(generate_field_access);

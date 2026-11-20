@@ -9,7 +9,7 @@
 pragma(Pragma.AllowUnsafe);
 { replace } :: import("std/mem");
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 { AstExpr, AstExprNode, ast_expr_token, ast_expr_id, alloc_global_expr_id, ast_expr_is_fn_call_of, ast_expr_is_atom, BF_DOT, BK_BORROW_MUT, BF_ADDRESS_OF, ast_expr_to_string } :: import("../../expr.yo");
 {
   ExprInfo,
@@ -26,31 +26,31 @@ pragma(Pragma.AllowUnsafe);
   unsized_handle_dyn_node,
   unsize_reference_mode,
   expr_info_set_origin_type
-} :: import("../../expr_info.yo");
+} :: import("../../expr-info.yo");
 { Environment, Variable, synthetic_token, get_variables_from_env, add_variable_to_env, by_value_param_owns, snapshot_env, variable_value_type, variable_set_is_ref, variable_set_is_imm_borrow } :: import("../../env.yo");
 { Token, TokenKind, intern_token_str, TokenData } :: import("../../token.yo");
-{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
-{ function_reaches_non_send_global, d1_note_thread_reach } :: import("../effects/mutation_summary.yo");
+{ is_implicitly_unsafe_capable_file } :: import("../memory-safety.yo");
+{ function_reaches_non_send_global, d1_note_thread_reach } :: import("../effects/mutation-summary.yo");
 { EvalContext, ExpectedTypeCtx, ArgEntry, ArgValues, VarArgEntry, call_function_value_marker } :: import("../context.yo");
 { EvalValue, EvalValueNode, is_func_val, create_type_value, create_unknown_val, no_opt_values, shared_opt_values } :: import("../../value.yo");
-{ get_func_type } :: import("../../function_value.yo");
+{ get_func_type } :: import("../../function-value.yo");
 { create_specialized_function_inline, try_to_call_function_with_arguments } :: import("../calls/helper.yo");
 { t_refine_inner, some_t_bounds, TypeValue, TypeValueNode, no_types, no_levels, slot_pointee_at, fn_param_by_value_at, fn_param_mut_ref_flags, no_flags, shared_list, no_labels, t_slot_pointee, fn_trait_base_serves, fn_trait_call_contract, fn_trait_slot_contract } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_dyn, t_dyn_payload_wrapper } :: import("../../types/creators.yo");
 { is_dyn_type, is_some_type, is_function_type, is_reference_struct_type, is_boxed_type, is_shared_cell_type_name, cell_handle_view, is_atomic_counted_handle_type, is_pointer_type, can_optimize_as_nullable_pointer, is_unique_box_type, unique_box_payload_type } :: import("../../types/guards.yo");
 { resolve_cell_chain, is_closure_capture_struct, type_contains_some_type_deep, get_all_some_types, type_is_move_only, move_only_reason, dyn_member_is_method, dyn_member_unsafe_reason, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, is_future_value_type, is_clone_trait_type } :: import("../../types/utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
-{ get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
+{ get_value_of_some_type_from_env } :: import("../../types/env-lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ type_implements_trait_bool, extract_fn_trait_from_type, function_value_slot_mismatch } :: import("../trait_checking.yo");
+{ type_implements_trait_bool, extract_fn_trait_from_type, function_value_slot_mismatch } :: import("../trait-checking.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { format_error_message, format_error_message_with_help, format_error_message_with_repair, with_code } :: import("../../error.yo");
 { E_TYPE_MISMATCH, E_CLOSURE_TRAIT_TOO_WEAK, E_DYN_UNCALLABLE, E_BORROW_ESCAPES, E_UNSIZING_A_VALUE } :: import("../../diagnostics.yo");
-{ evaluate_comptime_fn_call } :: import("../calls/comptime_fn.yo");
+{ evaluate_comptime_fn_call } :: import("../calls/comptime-fn.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { attach_temp_variable_to_expr, set_expr_as_needs_to_call_dup, reject_second_class_escape, judge_capture_fnmut_at_fn_slot } :: import("../utils.yo");
 { closure_identity_of } :: import("../utils/closure.yo");
-{ get_type_trait_methods_for_type, type_id_or_empty, get_trait_default } :: import("./type_trait_methods.yo");
+{ get_type_trait_methods_for_type, type_id_or_empty, get_trait_default } :: import("./type-trait-methods.yo");
 { find_methods_from_generic_impls, MethodCandidate, _substitute_self_in_method_ty } :: import("./impl.yo");
 { Exception } :: import("std/error");
 { _eval_builtin_args } :: import("../builtins/sizeof.yo");
@@ -64,7 +64,7 @@ pragma(Pragma.AllowUnsafe);
 /// (`Sq`, its single `*` field) so trait methods resolve on the concrete type the
 /// impl is registered against; non-boxed passes through. The codegen wrapper's
 /// is_boxed branch then unboxes `Rc* -> &rc->*` at the call. Requires the box's
-/// `Rc(...)` name (stamped in comptime_fn.yo) so is_boxed_type recognises it.
+/// `Rc(...)` name (stamped in comptime-fn.yo) so is_boxed_type recognises it.
 /// `<ctor>(inner_type)` for a prelude cell type constructor `ctor` — the
 /// shared cell (`Box`/`Rc`), or the atomic box `Arc(inner_type)` a
 /// `Dyn(..., Send)` payload takes — evaluated like the constructor call it
@@ -131,7 +131,7 @@ apply_type_ctor_via :: (fn(ctor : &String, types : &ArrayList(TypeValue), env : 
         variadic_args : ArrayList(VarArgEntry).new()
       );
       // The callee expr must be a synthetic atom naming the constructor, not
-      // `.None`: the `Rc(arg)` display-name stamp in comptime_fn.yo reads the
+      // `.None`: the `Rc(arg)` display-name stamp in comptime-fn.yo reads the
       // constructor NAME off the callee expr token (FuncVals carry no
       // funcName), and `is_boxed_type` keys off that `Rc(`-prefixed name. With
       // `.None` this site minted the MEMOIZED canonical `Rc(T)` instance
@@ -507,7 +507,7 @@ _require_dyn_traits_implemented :: (
           // the flow-violation channel so the def-time caller re-raises it via
           // the real exn — the def-eval wall otherwise SWALLOWS the throw and
           // the enclosing body silently hollows (same pattern as
-          // anonymous_function.yo's return-type rejection).
+          // anonymous-function.yo's return-type rejection).
           raise_flow_violation(format_error_message(token, &msg), ctx, exn);
         });
         i = (i + usize(1));

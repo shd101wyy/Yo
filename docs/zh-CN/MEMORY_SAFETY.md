@@ -30,7 +30,7 @@ Yo **默认是内存安全的**。作为普通用户编写的代码无法解引�
 这是默认的用户体验。不需要 pragma、不需要 `addr_of(...)` 调用、不需要 `*(T)` 类型、不需要 `unsafe(...)` 包装：
 
 ```yo
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 
 main :: (fn() -> unit)({
   mut(list) := ArrayList(i32).new();
@@ -136,7 +136,7 @@ main :: (fn() -> unit)({
 显式分配器决定一块内存**放在哪里**，引用计数仍然决定它**何时释放**。由显式分配器放置的对象和其他对象一样，最后一个引用消失时立即释放，释放会被路由回分配它的那个分配器：每个块在 16 字节前缀中记录自己的所有者，所以不可能被释放到错误的分配器。
 
 ```yo
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 
 Point :: struct(x : i32, y : i32);
 
@@ -308,7 +308,7 @@ Top extern callees (by unsafe-wrapped call-site count):
      ...
 
 Findings (file:line:col):
-  std/collections/array_list.yo:521:24: unsafe(arith) — .Some(_ptr) => unsafe(_ptr.add(pos)),
+  std/collections/array-list.yo:521:24: unsafe(arith) — .Some(_ptr) => unsafe(_ptr.add(pos)),
     SAFETY: assert above bounds `pos < self._length` and the
   ...
 ```

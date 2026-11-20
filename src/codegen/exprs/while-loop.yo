@@ -1,0 +1,422 @@
+//! While-loop emitter.
+//!
+//! Supports `while(cond, body)` (→ C `while(true){ if(!cond)break; body; }`)
+//! and `while(cond, step, body)` (→ + continue-label + step), plus
+//! comptime-unrolled loops (bodies emitted sequentially, no C loop). The file
+//! is named while-loop.yo (`while` is a keyword).
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ AstExpr, ast_expr_id, ast_expr_is_fn_call_of, ast_expr_token, BK_BEGIN, BK_COMPTIME, BK_ASSIGN } :: import("../../expr.yo");
+{ take_short_circuit_handled, FunctionGenerationContext } :: import("../functions/context.yo");
+{ Emitter } :: import("../../emitter.yo");
+{ _call_generate_expr } :: import("./dispatch.yo");
+{ _looks_like_minted_temp, generate_deferred_drop_expressions, has_pending_emittable_drop } :: import("./drop-dup.yo");
+{ _flush_stmt_lent_temp_drops } :: import("./begin.yo");
+{ get_deferred_drop_target_atom_name, sanitize_for_c_identifier, note_line_position, fresh_local_name } :: import("../utils/index.yo");
+{ is_temp_variable_name, stable_label_id } :: import("../../utils.yo");
+{ expr_info_consumed_variable_drop_expressions, expr_info_comptime_unrolled_bodies } :: import("../../expr-info.yo");
+{ replace } :: import("std/mem");
+/// Emit `<indent><text>` + newline.
+_emit_line :: (fn(em : &mut Emitter, indent : &String, text : &String) -> unit)({
+  mut(line) := indent.clone();
+  line.push_string(text);
+  em.emit_string_line(&line);
+});
+/// Args of a FnCall (empty for an Atom).
+_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
+  match(e, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new())
+);
+/// Strip a `comptime(x)` wrapper (evaluator-only) down to `x`.
+_strip_comptime :: (fn(e : &AstExpr) -> AstExpr)(
+  if(ast_expr_is_fn_call_of(e, BK_COMPTIME, .Some(usize(1))), match(_args(e).get_cloned(usize(0)), .Some(inner) => inner, .None => Rc.clone(e.*)), Rc.clone(e.*))
+);
+/// Generate the step expression of a 3-arg while: a block, or any other
+/// expression (an `lhs = rhs` step included) through its own generator. The
+/// code returned is a C expression statement, or empty when the step emitted
+/// itself.
+///
+/// A block step (`{ t := f(i); i = t; }`) is emitted as a real C block at
+/// `indent`: its declarations, statements and scope-end drops are the begin
+/// generator's, and its unit value is discarded. Rendering only its `=`
+/// statements, comma-joined, dropped every other statement, and a later
+/// `i = t` then read a `t` that was never declared
+/// (issues/fixed/a-begin-block-step-in-a-three-argument-while-reads-an-undeclared-local.md).
+///
+/// An assignment step goes through the assignment generator like a statement:
+/// it dups an RC right side into its place, saves and releases the replaced
+/// value, and materializes a place that runs a call once. The hand-built
+/// `lhs = rhs` this replaces was a bitwise move — `s = mk(i).s` in a step
+/// moved the String into `s` with no dup, skipped the old value's release,
+/// and the step frame's drop then freed the field under its new owner
+/// (a use-after-free found by the new step test in
+/// tests/continue-rc-cleanup.test.yo).
+generate_step_expression :: (fn(step_expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)(
+  cond(
+    ast_expr_is_fn_call_of(step_expr, BK_BEGIN, .None) => {
+      _emit_line(&mut context.base.emitter, indent.clone(), String.from("{"));
+      mut(inner) := indent.clone();
+      inner.push_str("  ");
+      _call_generate_expr(step_expr, &inner, context);
+      _emit_line(&mut context.base.emitter, indent.clone(), String.from("}"));
+      String.from("")
+    },
+    ast_expr_is_fn_call_of(step_expr, BK_ASSIGN, .Some(usize(2))) => {
+      // Statement position: the assignment generator emits the statement
+      // itself, and its RETURN value (the old-value save's name,
+      // generate_assignment's last line) is an expression result, not a
+      // statement. Emitting `<save>;` was a dead but legal statement in sync
+      // code (the save is a C local); inside a state machine the save lives
+      // in an `sm->var_<name>_<id>` slot, so the bare name is an undeclared
+      // identifier (found by review: an RC-place assignment step of a
+      // three-argument `while` inside `io.async`). Discard the return.
+      _call_generate_expr(step_expr, indent.clone(), context);
+      String.from("")
+    },
+    true => _call_generate_expr(step_expr, indent.clone(), context)
+  )
+);
+/// Concatenate `current` then `prev` (cloned) into a fresh drop list.
+_concat_drops :: (fn(current : &Option(ArrayList(AstExpr)), prev : &Option(ArrayList(AstExpr))) -> ArrayList(AstExpr))({
+  mut(out) := ArrayList(AstExpr).new();
+  match(
+    current,
+    .Some(cd) => {
+      n := cd.len();
+      (mut(i) : usize) = usize(0);
+      while(i < n, {
+        match(
+          cd.get_cloned(i),
+          .Some(e) => {
+            out.push(e);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .None => ()
+  );
+  match(
+    prev,
+    .Some(pp) => {
+      n := pp.len();
+      (mut(i) : usize) = usize(0);
+      while(i < n, {
+        match(
+          pp.get_cloned(i),
+          .Some(e) => {
+            out.push(e);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .None => ()
+  );
+  out
+});
+/// Emit a loop body. begin blocks emit their statements directly (with
+/// pending-drop bookkeeping for early-exit drops); other expressions emit
+/// normally.
+generate_loop_body :: (fn(body_expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> unit)(
+  cond(
+    ast_expr_is_fn_call_of(body_expr, BK_BEGIN, .None) => {
+      ei_opt := context.base.get_expr_info(body_expr);
+      current_drops := match(&ei_opt, .Some(ei) => ei.deferred_drop_expressions(), .None => .None);
+      current_consumed := match(&ei_opt, .Some(ei) => expr_info_consumed_variable_drop_expressions(&ei.*), .None => Option(ArrayList(AstExpr)).None);
+      prev_pending := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
+      prev_consumed := replace(&mut context.consumed_var_pending_drops, Option(ArrayList(AstExpr)).None);
+      context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&current_drops, &prev_pending));
+      context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&current_consumed, &prev_consumed));
+      // Scope-marker: C block for begin-local variables (as in begin.yo:137).
+      // Required so deferred drops of locals declared here scope-clean.
+      mut(hdr) := indent.clone();
+      hdr.push_str("{ // begin block (loop body)");
+      context.base.emitter.emit_string_line(&hdr);
+      args := _args(body_expr);
+      n := args.len();
+      (mut(i) : usize) = usize(0);
+      while(i < n, {
+        match(
+          args.get_cloned(i),
+          .Some(arg) => {
+            note_line_position(&mut context.base.emitter, &arg);
+            code := _call_generate_expr(&arg, indent.clone(), context);
+            if(code.len() > usize(0), {
+              // Bare-temp-name skip (same gate as generate_state_segment_code,
+              // state-code-gen.yo): a statement whose generation already
+              // emitted its C lines returns just its eval temp name — for a
+              // unit/inline-emitted statement the temp was never DECLARED, so
+              // emitting `temp;` here is an undeclared-identifier C error
+              // (the SM loop-body `i = i + 1` tail class, fs/file + bufio
+              // flag-on).
+              is_bare_temp := match(
+                context.base.get_expr_info(&arg),
+                .Some(aei) => is_temp_variable_name(&aei.env().module_path().*, code.clone()),
+                .None => false
+              );
+              if(!is_bare_temp, {
+                mut(line) := indent.clone();
+                line.push_string(&code);
+                line.push_str(";");
+                context.base.emitter.emit_string_line(&line);
+              });
+            });
+            // A non-final statement's LENT temporaries drop here, at the
+            // statement's end (the last statement's drop at the body's end
+            // IS its statement end).
+            if(i != (n - usize(1)), {
+              match(
+                context.base.get_expr_info(&arg),
+                .Some(aei_flush) => {
+                  nxt := args.get_cloned(i + usize(1));
+                  _flush_stmt_lent_temp_drops(&arg, &nxt, &current_drops, &aei_flush, &indent.*, context);
+                },
+                .None => ()
+              );
+            });
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      match(
+        current_drops,
+        .Some(drops) => {
+          nd := drops.len();
+          (mut(di) : usize) = usize(0);
+          while(di < nd, {
+            match(
+              drops.get_cloned(di),
+              .Some(de) => {
+                // Skip a drop already emitted at an inner point — a lent
+                // temporary's statement-end flush inside this body, or a
+                // short-circuit branch — through the same emitted-once set
+                // begin.yo's scope-end pass and drop-dup.yo consult. The
+                // body's own statement loop flushes a lent temp's drop right
+                // after its statement; re-emitting it here would release the
+                // value twice
+                // (issues/fixed/2026-11-06-a-borrowed-temporary-is-dropped-
+                // at-its-blocks-end-not-its-statements.md). Checked before
+                // the gates so their state (the short-circuit set) is
+                // untouched for an already-emitted drop; recorded
+                // unconditionally, emitted conditionally.
+                if(!context.emitted_deferred_drop_ids.contains(ast_expr_id(&de)), {
+                  // Skip a drop whose target TEMP was never emitted as a C
+                  // declaration — same gate as begin.yo's _emit_deferred_drops /
+                  // drop-dup.yo's generate_deferred_drop_expressions (an
+                  // expression whose C emission was elided leaves its
+                  // eval-minted temp undeclared while the deferred-drop
+                  // survives; `__yo_decr_rc(undeclared_temp)` is an
+                  // undeclared-identifier error — the await-analysis loop-tail
+                  // stage-2 hole). Safe: a never-declared C variable cannot be
+                  // double-freed and holds no value to leak.
+                  undeclared_temp := match(
+                    get_deferred_drop_target_atom_name(&de),
+                    .Some(nm) => {
+                      cn := sanitize_for_c_identifier(&nm, false);
+                      (is_temp_variable_name(match(&ei_opt, .Some(e2) => e2.env().module_path().*.clone(), .None => String.from("")), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.with({ &cn }(dn_s) => dn_s.contains(&cn.*))
+                    },
+                    .None => false
+                  );
+                  if(!undeclared_temp, {
+                    // Skip a drop already emitted inside a short-circuit
+                    // conditional branch (and-or.yo) — same guard as begin.yo's
+                    // scope-end pass. Without it
+                    // an owned temp created in a `||`/`&&` RHS in a
+                    // loop body was re-dropped at the loop scope end:
+                    // issues/fixed/ts-while-loop-body-drops-missing-guards.md.
+                    sc_skip := match(get_deferred_drop_target_atom_name(&de), .Some(target) => take_short_circuit_handled(context, &target), .None => false);
+                    if(!sc_skip, {
+                      code := _call_generate_expr(&de, indent.clone(), context);
+                      context.emitted_deferred_drop_ids.insert(ast_expr_id(&de));
+                      if(code.len() > usize(0), {
+                        mut(line) := indent.clone();
+                        line.push_string(&code);
+                        line.push_str(";");
+                        context.base.emitter.emit_string_line(&line);
+                      });
+                    });
+                  });
+                });
+              },
+              .None => ()
+            );
+            di = (di + usize(1));
+          });
+        },
+        .None => ()
+      );
+      mut(ftr) := indent.clone();
+      ftr.push_str("} // end begin block (loop body)");
+      context.base.emitter.emit_string_line(&ftr);
+      context.pending_deferred_drops = prev_pending;
+      context.consumed_var_pending_drops = prev_consumed;
+    },
+    true => {
+      // A bare body's scope-end drops ride its node's list; feed them into
+      // the pending path like the begin branch does, so a short-circuit
+      // operand inside the body drops its branch-scoped temps in the branch
+      // (issues/fixed/short-circuit-rhs-temp-in-bare-arm-body-drops-out-of-scope.md).
+      bei_opt := context.base.get_expr_info(body_expr);
+      body_drops := match(&bei_opt, .Some(ei) => ei.deferred_drop_expressions(), .None => .None);
+      body_consumed := match(bei_opt, .Some(ei) => expr_info_consumed_variable_drop_expressions(&ei), .None => Option(ArrayList(AstExpr)).None);
+      prev_pending := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
+      prev_consumed := replace(&mut context.consumed_var_pending_drops, Option(ArrayList(AstExpr)).None);
+      context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&body_drops, &prev_pending));
+      context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&body_consumed, &prev_consumed));
+      note_line_position(&mut context.base.emitter, body_expr);
+      code := _call_generate_expr(body_expr, indent.clone(), context);
+      context.pending_deferred_drops = prev_pending;
+      context.consumed_var_pending_drops = prev_consumed;
+      if(code.len() > usize(0), {
+        mut(line) := indent.clone();
+        line.push_string(&code);
+        line.push_str(";");
+        context.base.emitter.emit_string_line(&line);
+      });
+    }
+  )
+);
+/// Emit `if (!(<cond>)) { break; }` at the loop head. The evaluator gives the
+/// condition its own begin frame (`evaluate_begin_expression`), and that
+/// frame's scope-end drops ride the condition node, which shares its id with
+/// the condition's tail. A call tail flushes them after the call, but a field
+/// read or an operator tail (`RI(v : j).v < 3`) flushes nothing, so each
+/// evaluation leaked its temporaries. When such a drop is still pending after
+/// the condition renders, materialize the condition into a bool, flush the
+/// drops, then branch, so they run once per evaluation on the exit edge and on
+/// the body edge (and so on `continue`, `break` and `return`, which leave after
+/// the head). The condition's drops are also pending while it renders, for an
+/// early exit inside it. Same shape as `cond.yo`'s `_emit_cond_if_head`
+/// (issues/fixed/2026-10-24-a-temporary-object-built-in-a-while-condition-leaks-once-per-iteration.md).
+_emit_while_cond_break :: (fn(cond_expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> unit)({
+  cnd_drops := match(context.base.get_expr_info(cond_expr), .Some(cnd_ei) => cnd_ei.deferred_drop_expressions(), .None => Option(ArrayList(AstExpr)).None);
+  cnd_prev := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
+  context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&cnd_drops, &cnd_prev));
+  cc := _call_generate_expr(cond_expr, indent.clone(), context);
+  context.pending_deferred_drops = cnd_prev;
+  test := if(has_pending_emittable_drop(cond_expr, context), {
+    cv := fresh_local_name(String.from("__yo_while_"), &context.base.current_function_name);
+    _emit_line(&mut context.base.emitter, indent.clone(), `bool ${cv.clone()} = ${cc};`);
+    generate_deferred_drop_expressions(cond_expr, indent.clone(), context);
+    cv
+  }, cc);
+  _emit_line(&mut context.base.emitter, indent.clone(), `if (!(${test})) {`);
+  _emit_line(&mut context.base.emitter, indent.clone(), String.from("  break;"));
+  _emit_line(&mut context.base.emitter, indent.clone(), String.from("}"));
+});
+/// Generate C for a while-loop expression.
+generate_while_loop :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
+  ei_opt := context.base.get_expr_info(expr);
+  // Comptime-unrolled loop: emit bodies sequentially, no C loop.
+  match(
+    ei_opt,
+    .Some(ei) => match(
+      expr_info_comptime_unrolled_bodies(&ei),
+      .Some(bodies) => {
+        n := bodies.len();
+        (mut(i) : usize) = usize(0);
+        while(i < n, {
+          match(bodies.get_cloned(i), .Some(b) => generate_loop_body(&b, indent.clone(), context), .None => ());
+          i = (i + usize(1));
+        });
+        return(String.from(""));
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
+  args := _args(expr);
+  inner := String.from("  ");
+  mut(body_indent) := indent.clone();
+  body_indent.push_string(inner.clone());
+  cond(
+    (args.len() == usize(2)) => {
+      cond_expr := _strip_comptime(match(args.get_cloned(usize(0)), .Some(c) => c, .None => Rc.clone(expr.*)));
+      body_expr := match(args.get_cloned(usize(1)), .Some(b) => b, .None => Rc.clone(expr.*));
+      saved_loop := replace(&mut context.base.current_loop_label, Option(String).None);
+      loop_tok := ast_expr_token(expr);
+      loop_label := stable_label_id(String.from("loop_"), &loop_tok.module_path.*, usize(loop_tok.row), usize(loop_tok.column));
+      context.base.current_loop_label = Option(String).Some(loop_label.clone());
+      saved_baseline := context.loop_body_drops_baseline_count;
+      context.loop_body_drops_baseline_count = Option(usize).Some(match(&context.pending_deferred_drops, .Some(p) => p.len(), .None => usize(0)));
+      _emit_line(&mut context.base.emitter, indent.clone(), String.from("while (true) {"));
+      _emit_while_cond_break(&cond_expr, body_indent.clone(), context);
+      generate_loop_body(&body_expr, body_indent.clone(), context);
+      _emit_line(&mut context.base.emitter, indent.clone(), String.from("}"));
+      _emit_line(&mut context.base.emitter, indent.clone(), {
+        s := loop_label.clone();
+        s.push_str(":;");
+        s
+      });
+      context.loop_body_drops_baseline_count = saved_baseline;
+      context.base.current_loop_label = saved_loop;
+      String.from("")
+    },
+    (args.len() == usize(3)) => {
+      cond_expr := _strip_comptime(match(args.get_cloned(usize(0)), .Some(c) => c, .None => Rc.clone(expr.*)));
+      step_expr := match(args.get_cloned(usize(1)), .Some(s) => s, .None => Rc.clone(expr.*));
+      body_expr := match(args.get_cloned(usize(2)), .Some(b) => b, .None => Rc.clone(expr.*));
+      saved_loop := replace(&mut context.base.current_loop_label, Option(String).None);
+      saved_continue := replace(&mut context.base.current_continue_label, Option(String).None);
+      loop3_tok := ast_expr_token(expr);
+      loop_label := stable_label_id(String.from("loop_"), &loop3_tok.module_path.*, usize(loop3_tok.row), usize(loop3_tok.column));
+      continue_label := stable_label_id(String.from("continue_"), &loop3_tok.module_path.*, usize(loop3_tok.row), usize(loop3_tok.column));
+      context.base.current_loop_label = Option(String).Some(loop_label.clone());
+      context.base.current_continue_label = Option(String).Some(continue_label.clone());
+      saved_baseline := context.loop_body_drops_baseline_count;
+      context.loop_body_drops_baseline_count = Option(usize).Some(match(&context.pending_deferred_drops, .Some(p) => p.len(), .None => usize(0)));
+      _emit_line(&mut context.base.emitter, indent.clone(), String.from("while (true) {"));
+      _emit_while_cond_break(&cond_expr, body_indent.clone(), context);
+      generate_loop_body(&body_expr, body_indent.clone(), context);
+      _emit_line(&mut context.base.emitter, indent.clone(), {
+        s := continue_label.clone();
+        s.push_str(":;");
+        s
+      });
+      // A non-block step is a one-expression block in the evaluator (its own
+      // frame, like the condition): its drops ride the step node and run right
+      // after the step, inside the C block that declares its temps; they are
+      // pending while it renders, for an early exit inside it. A block step's
+      // drops are its own begin generator's.
+      step_is_block := ast_expr_is_fn_call_of(&step_expr, BK_BEGIN, .None);
+      (step_prev : Option(ArrayList(AstExpr))) = Option(ArrayList(AstExpr)).None;
+      if(!step_is_block, {
+        step_drops := match(context.base.get_expr_info(&step_expr), .Some(st_ei) => st_ei.deferred_drop_expressions(), .None => Option(ArrayList(AstExpr)).None);
+        step_prev = replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
+        context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&step_drops, &step_prev));
+      });
+      step_code := generate_step_expression(&step_expr, body_indent.clone(), context);
+      if(!step_is_block, {
+        context.pending_deferred_drops = step_prev;
+      });
+      if(step_code.len() > usize(0), {
+        _emit_line(&mut context.base.emitter, body_indent.clone(), {
+          s := step_code;
+          s.push_str(";");
+          s
+        });
+      });
+      if(!step_is_block, {
+        generate_deferred_drop_expressions(&step_expr, body_indent.clone(), context);
+      });
+      _emit_line(&mut context.base.emitter, indent.clone(), String.from("}"));
+      _emit_line(&mut context.base.emitter, indent.clone(), {
+        s := loop_label.clone();
+        s.push_str(":;");
+        s
+      });
+      context.loop_body_drops_baseline_count = saved_baseline;
+      context.base.current_loop_label = saved_loop;
+      context.base.current_continue_label = saved_continue;
+      String.from("")
+    },
+    true => {
+      _emit_line(&mut context.base.emitter, indent.clone(), String.from("/* Error: while loop expects 2 or 3 arguments */"));
+      String.from("")
+    }
+  )
+});
+export(generate_step_expression, generate_loop_body, generate_while_loop);

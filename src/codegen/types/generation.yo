@@ -7,13 +7,13 @@
 //! type-walk).
 { String } :: import("std/string");
 { resolve_some_type_to_concrete } :: import("../exprs/closures.yo");
-{ ArrayList } :: import("std/collections/array_list");
-{ HashSet } :: import("std/collections/hash_set");
-{ HashMap } :: import("std/collections/hash_map");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashSet } :: import("std/collections/hash-set");
+{ HashMap } :: import("std/collections/hash-map");
 { TypeValue, TypeValueNode, no_types, no_labels, t_slot_pointee, t_refine_inner } :: import("../../types/definitions.yo");
 { is_unit_type, is_struct_type, is_enum_type, is_tuple_type, is_reference_struct_type, is_newtype_type, is_dyn_type, is_union_type, is_future_trait_type, is_function_type, is_fn_trait_type, is_some_type, is_array_type } :: import("../../types/guards.yo");
 { type_contains_some_type, dyn_member_is_method, dyn_member_unsafe_reason, is_destructor_trait_member } :: import("../../types/utils.yo");
-{ some_resolution } :: import("../../expr_info.yo");
+{ some_resolution } :: import("../../expr-info.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_target_windows, is_target_macos } :: import("../../target.yo");
 {
@@ -176,7 +176,7 @@ generate_str_type_declaration :: (fn(context : &mut CodeGenContext) -> unit)({
 /// opening line is emitted.
 ///
 /// `get_type_string` can fire the ON-DEMAND declaration hook
-/// (`_on_demand_collect_and_declare`, src/codegen/codegen_c.yo), which writes a
+/// (`_on_demand_collect_and_declare`, src/codegen/codegen-c.yo), which writes a
 /// `typedef` and a full type body straight into the DECLARATION buffer. Called
 /// from inside `_emit_runtime_fields`, that append lands between the
 /// `struct X_struct {` line and the field that demanded it — a storage-class
@@ -223,8 +223,8 @@ _emit_runtime_fields :: (fn(fields : &ArrayList(RuntimeStructField), context : &
       // consumer of the layout skips the same fields: the `__yo_new_` ctor's
       // parameters and stores (functions/constructors.yo, declarations.yo),
       // the ctor call and the value-struct compound literal
-      // (exprs/other_fn_call.yo, exprs/comptime_value.yo), and a read of the
-      // field (exprs/property_access.yo). A struct whose every field is `unit`
+      // (exprs/other-fn-call.yo, exprs/comptime-value.yo), and a read of the
+      // field (exprs/property-access.yo). A struct whose every field is `unit`
       // is an empty C struct (GNU extension, sizeof 0 — same as Rust).
       .Some(field) => if(!is_unit_type(&field.ty), {
         fname := sanitize_for_c_identifier(field.label.clone(), false);
@@ -1134,8 +1134,8 @@ static inline void* __yo_rc_owner_vtable(void* p) {
 }
 ${alloc_in_fn}`
   );
-  // Whether the program runs on `--allocator debug` (allocator_debug.yo), as
-  // the program can read it (extern "Yo"): tests/debug_allocator.test.yo
+  // Whether the program runs on `--allocator debug` (allocator-debug.yo), as
+  // the program can read it (extern "Yo"): tests/debug-allocator.test.yo
   // checks the allocator's aborts only when they are armed.
   context.emitter.emit_declaration_line(
     cond(
@@ -1196,7 +1196,7 @@ static inline void __yo_future_set_bundle(void* fut, const void* value) {
 // async runtime (a sync future nothing awaits), which has no thread-exit hook
 // to drain them. The pools and these functions are defined at the end of the
 // program, where the number of pooled types is known (emit_sm_pools,
-// codegen_c.yo).
+// codegen-c.yo).
 #define __YO_SM_POOL_CAP 32
 #if defined(__SANITIZE_ADDRESS__)
 #define __YO_SM_POOLS 0
@@ -1691,7 +1691,7 @@ generate_dyn_declaration :: (fn(type : &TypeValue, c_name : &String, context : &
   context.emitter.emit_declaration_string_line(`typedef struct ${vtable_name}_s { // Vtable for ${type_to_string(type)}`);
   context.emitter.emit_declaration_line("  uintptr_t __yo_type_id; // Runtime type identity (address of unique static per concrete type)");
   // The payload's RC functions and its clone, in `__yo_vtable_prefix_t`'s
-  // layout (functions/gc_runtime.yo): `__yo_dyn_retain` / `__yo_dyn_release`
+  // layout (functions/gc-runtime.yo): `__yo_dyn_retain` / `__yo_dyn_release`
   // / `__yo_dyn_clone`.
   context.emitter.emit_declaration_line("  size_t __yo_size; // size_of_val: the payload's size");
   context.emitter.emit_declaration_line("  size_t __yo_align; // align_of_val: the payload's alignment");

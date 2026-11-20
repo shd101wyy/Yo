@@ -19,7 +19,7 @@
 //! would double-free; documented in
 //! issues/fixed/yo-self-parallelism-emitter-gated-on-closure-codegen.md).
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 { AstExpr, ast_expr_id } :: import("../../expr.yo");
 { Environment } :: import("../../env.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
@@ -27,20 +27,20 @@
 { is_unit_type, is_array_type, is_tuple_type, is_enum_type, is_newtype_type } :: import("../../types/guards.yo");
 { type_contains_rc_cell_or_move_only, type_is_move_only, is_value_nominal_type } :: import("../../types/utils.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
-{ get_func_type, is_fnonce_closure_fn } :: import("../../function_value.yo");
+{ get_func_type, is_fnonce_closure_fn } :: import("../../function-value.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { get_type_string, get_variable_name_for_codegen_at, type_key, fresh_local_name, get_runtime_struct_fields, sanitize_for_c_identifier, get_enum_variant_c_name, c_variant_member_name, can_optimize_as_nullable_pointer } :: import("../utils/index.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
-{ expr_info_closure_function_value, expr_info_capture_type } :: import("../../expr_info.yo");
+{ expr_info_closure_function_value, expr_info_capture_type } :: import("../../expr-info.yo");
 {
   get_drop_function_for_type,
   get_dispose_function_for_type,
   dispose_call_on_value,
   generate_drop_code_for_value
-} :: import("./drop_dup.yo");
-{ HashSet } :: import("std/collections/hash_set");
+} :: import("./drop-dup.yo");
+{ HashSet } :: import("std/collections/hash-set");
 { RefCell } :: import("std/sync/refcell");
-{ _call_generate_expr } :: import("./_expr.yo");
+{ _call_generate_expr } :: import("./dispatch.yo");
 /// C name of the capture struct for `capture_type`: the registered type-entry
 /// c_name if present, else `async_capture_<id>`. (Same lookup as async.yo's
 /// `_find_capture_type_c_name`; duplicated to avoid importing the heavy async

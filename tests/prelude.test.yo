@@ -275,7 +275,7 @@ test("Test 'MaybeUninit'", {
 // ============================================================================
 test("Default trait provides zero values, .None, and empty containers", {
   { String } :: import("std/string");
-  { ArrayList } :: import("std/collections/array_list");
+  { ArrayList } :: import("std/collections/array-list");
   assert(i32.default() == i32(0), "i32 default");
   assert(u64.default() == u64(0), "u64 default");
   assert(f64.default() == f64(0.0), "f64 default");
@@ -357,7 +357,7 @@ test("Option completion: expect, is_some_and, inspect, take, replace", {
   assert(!none.is_some_and(v => (v.* > i32(0))), "is_some_and on None");
   // Closures capture locals BY VALUE, so the closure borrows the list it
   // writes (`{ &mut seen }`).
-  { ArrayList } :: import("std/collections/array_list");
+  { ArrayList } :: import("std/collections/array-list");
   mut(seen) := ArrayList(i32).new();
   echoed := some.inspect({ &mut seen }(v) => {
     seen.push(v.*);
@@ -398,7 +398,7 @@ test("Result completion: unwrap_or, unwrap_or_default, expect, inspect, flatten,
   assert(ok.expect("must be ok") == i32(4), "expect on Ok");
   assert(err.expect_err("must be err") == u8(1), "expect_err on Err");
   // Closures capture locals BY VALUE — the closures borrow the lists they write.
-  { ArrayList } :: import("std/collections/array_list");
+  { ArrayList } :: import("std/collections/array-list");
   mut(seen_ok) := ArrayList(i32).new();
   mut(seen_err) := ArrayList(u8).new();
   _ := ok.inspect({ &mut seen_ok }(v) => {
