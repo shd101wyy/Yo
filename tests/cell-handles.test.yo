@@ -128,10 +128,9 @@ test("S19: ref_count counts the handles, not the constant 1", {
   assert(ref_count(b) == usize(2), `two atomic handles: ${ref_count(b)}`);
   assert(b.* == i32(2), "the copy");
 });
-// A copy whose source lives on shares the source's count when the dup/drop
-// pair optimizer cancels the pair, as for an `Rc` (`_optimize_dup_drop_pairs`):
-// a handle is one cell pointer in C, not a value with counted fields.
-test("a handle's dup/drop pair cancels as an Rc's does", {
+// A handle's copy counts as an `Rc`'s does: a handle is one cell pointer in
+// C, not a value with counted fields.
+test("a handle's copy counts as an Rc's does", {
   g := trc(i32(1));
   g2 := TRc.clone(g);
   r := Rc.new(i32(1));
