@@ -57,8 +57,8 @@ pragma(Pragma.AllowUnsafe);
   no_values
 } :: import("../../value.yo");
 { TypeValue, TypeValueNode, no_types, no_labels, SharedList, t_slot_is_borrow, t_refine_inner } :: import("../../types/definitions.yo");
-{ t_unit, t_type, t_some_t, resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
-{ is_pointer_type, is_enum_type, is_reference_enum_type, is_struct_type, is_union_type, is_module_type, is_trait_type, is_tuple_type, is_some_type, is_type_0, is_function_type, type_decl_module, unique_box_payload_type, cell_handle_view, is_dyn_type, is_str_reference_type } :: import("../../types/guards.yo");
+{ t_unit, t_type, t_some_t_of_kind, resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
+{ is_pointer_type, is_enum_type, is_reference_enum_type, is_struct_type, is_union_type, is_module_type, is_trait_type, is_tuple_type, is_some_type, is_type_kind, is_function_type, type_decl_module, unique_box_payload_type, cell_handle_view, is_dyn_type, is_str_reference_type } :: import("../../types/guards.yo");
 { private_member_blocked, is_private_member_name, debug_knob } :: import("../../utils.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -2119,7 +2119,7 @@ Raw pointer operations may dereference invalid memory.`
                 // carried the constraint, field types carried `Output#85`
                 // with an empty required list).
                 (placeholder_ty : TypeValue) = Rc.clone(st_ft);
-                if(is_type_0(&st_ft), {
+                if(is_type_kind(&st_ft), {
                   (st_env_bound : Option(TypeValue)) = Option(TypeValue).None;
                   st_env_vars := get_variables_from_env(&env, &st_prop_name);
                   if(st_env_vars.len() > usize(0), {
@@ -2141,11 +2141,11 @@ Raw pointer operations may dereference invalid memory.`
                   placeholder_ty = match(
                     st_env_bound,
                     .Some(st_bt) => Rc.clone(st_bt),
-                    .None => t_some_t(st_prop_name.clone(), env.frames_len())
+                    .None => t_some_t_of_kind(st_prop_name.clone(), env.frames_len(), &st_ft)
                   );
                 });
                 ev_st := if(
-                  is_type_0(&st_ft),
+                  is_type_kind(&st_ft),
                   create_type_value(&placeholder_ty),
                   create_unknown_val(&st_ft)
                 );

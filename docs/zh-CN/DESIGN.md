@@ -470,6 +470,14 @@ Show :: trait(show : (fn(self : &Self) -> i32));
 show :: (fn(generic(T : ?Sized), x : &T, where(T <: Show)) -> i32)(x.show());
 ```
 
+trait 的关联类型也接受同样的种类：写作 `Target : ?Sized` 时，impl 既可以把它绑定为 `[T]` 或 `str`，也可以绑定为定长类型；trait 只在指针后面使用 `Self.Target`（按值使用 `Self.Target` 在 trait 处就是 E0619）。写作 `Target : Type` 时它是定长的，为它写的值类型 `str` 是 `&(str, static)` 的旧别名。
+
+```yo
+Peek :: trait(Target : ?Sized, peek : (fn(self : &Self) -> &Self.Target));
+Row :: struct(a : Array(i32, 3));
+impl(Row, Peek(Target : [i32], peek : (fn(self : &Self) -> &Self.Target)(&self.a.*)));
+```
+
 标准库中 `[T]` 上的方法（`len`、索引、迭代）随 v0.2.78 提供。
 
 #### 值类型与共享单元

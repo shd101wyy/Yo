@@ -50,4 +50,9 @@ The same function with the tail `&b.view().*` reports E0912 (probe p3c).
 E0912, the escape-of-a-local text, for both spellings: the tail is a `&[i32]` rooted at the local `b` by the
 projection-call rule (decision 24, R-CALL), so the escape check applies before the copy check.
 
+The same E0901 text answers a VALID receiver's bare forward (found 2026-11-19 by the `?Sized` lane): `_a :: (fn(x :
+&Row) -> &[i32])(x.view())` is E0901 ("cannot copy `(x.view)()`, whose type `Slice(i32)` is move-only"), where the
+sized `(fn(x : &Row) -> &i32)(x.num())` gets the projection-forward hint ("write `&x.num()`"). `&x.view()` is the
+spelling either way; the unsized case should give the same hint.
+
 Fix: not started (v0.2.79).

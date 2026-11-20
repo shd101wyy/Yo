@@ -483,6 +483,14 @@ Show :: trait(show : (fn(self : &Self) -> i32));
 show :: (fn(generic(T : ?Sized), x : &T, where(T <: Show)) -> i32)(x.show());
 ```
 
+A trait's associated type takes the same kind: with `Target : ?Sized` an impl may bind it to `[T]` or `str` as well as to a sized type, and the trait uses `Self.Target` only behind a pointer (a by-value `Self.Target` is E0619 at the trait). With `Target : Type` it is sized, and a value `str` written for it is the legacy alias of `&(str, static)`.
+
+```yo
+Peek :: trait(Target : ?Sized, peek : (fn(self : &Self) -> &Self.Target));
+Row :: struct(a : Array(i32, 3));
+impl(Row, Peek(Target : [i32], peek : (fn(self : &Self) -> &Self.Target)(&self.a.*)));
+```
+
 The standard library's methods on `[T]` (`len`, indexing, iteration) come with v0.2.78.
 
 #### Value Types and Shared Cells
