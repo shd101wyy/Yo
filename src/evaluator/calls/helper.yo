@@ -1478,11 +1478,11 @@ _mark_by_value_param_shares :: (fn(arg : &AstExpr, ctx : &EvalContext) -> unit)(
 );
 /// `YO_DEBUG_GUARD_OFF=1` turns the borrowed-argument guard (4c of
 /// `consume_argument_for_parameter`, Aliasing Stage 0) off: no caller-owned
-/// +1 is taken for a projection or an `Rc`/`Arc` payload place lent to a
+/// +1 is held for a projection or an `Rc`/`Arc` payload place lent to a
 /// call, so Stage 1 has nothing to elide. A debug knob for the evidence run
 /// that gates deleting the guard (VERDICTS-70 row 5): a program that is
 /// accepted and ASan-dirty only with it set is a hole the +1 masks
-/// (`tests/guard-probes/`, `scripts/guard-off-probes.sh`).
+/// (`tests/origins/guard/`, `scripts/guard-off-probes.sh`).
 (g_debug_guard_off : bool) = debug_knob(`YO_DEBUG_GUARD_OFF`).is_some();
 /// The argument-side ownership rule, one call per argument:
 ///
