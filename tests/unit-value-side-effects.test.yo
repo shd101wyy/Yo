@@ -101,6 +101,32 @@ test("A consume releasing a handle in a valued block still releases it", {
   assert(ref_count(a) == usize(1), "the consume released its handle");
 });
 
+test("An initializing assignment in a tuple element still stores", {
+  mut(n) := i32(0);
+  (a : i32);
+  t := ((a = bump(addr_of(n))), i32(2));
+  assert(n == i32(1), "the right side ran");
+  assert(a == i32(1), "the store ran");
+  assert(t.1 == i32(2), "the other element");
+});
+
+test("An initializing assignment bound, in a valued block or consumed still stores", {
+  mut(n) := i32(0);
+  (b : i32);
+  _u := (b = bump(addr_of(n)));
+  assert(b == i32(1), "the bound store ran");
+  (c : i32);
+  x := {
+    (c = bump(addr_of(n)));
+    i32(5)
+  };
+  assert(x == i32(5), "the block's value");
+  assert(c == i32(2), "the block's store ran");
+  (e : i32);
+  _v := consume(e = bump(addr_of(n)));
+  assert(e == i32(3), "the consumed store ran");
+});
+
 // `consume(e)` accepts any `e`: a unit expected type on the consume (an
 // argument to a `unit` parameter, the tail of a `-> unit` body) is not `e`'s
 // (issues/fixed/2026-11-20-consume-passes-its-expected-unit-type-to-its-argument.md).

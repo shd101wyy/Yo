@@ -44,6 +44,8 @@ v0.2.78 and with a tree binary built from `df9927b92` (the repro prints
 | `x := { consume(f(p)); i32(5) }` | call deleted |
 | `x := { consume(b); i32(6) }` (`b` an `Rc`) | release deleted: leak |
 | `_a := consume(unsafe(memset(…)))` / `consume(unsafe(putchar(…)))` | extern call deleted |
+| `t := ((a = f(p)), i32(2))` (`(a : i32);` declared, not yet set) | store and call deleted |
+| `_u := (b = f(p))`, `x := { (c = f(p)); 5 }`, `consume(e = f(p))` on an unset local | emitted |
 | statement `__yo_incr_rc(c);`, `consume(__yo_incr_rc(c));` | emitted |
 | a struct field, record field, argument, `if`/`match` arm | emitted |
 
@@ -55,8 +57,10 @@ Two halves:
    builtins (`__yo_incr_rc`, `__yo_decr_rc`, their atomic forms,
    `__yo_dyn_drop`/`__yo_dyn_dup`, `__yo_sometype_drop`/`__yo_sometype_dup`,
    `__yo_drop_array_element`, `__yo_drop_tuple_element`) in
-   `src/evaluator/builtins/rc-fns.yo`, `va_start`, and `consume` set
-   `ExprInfo.value` to `UnitVal` unconditionally. A known value is the
+   `src/evaluator/builtins/rc-fns.yo`, `va_start`, `consume`, and an
+   assignment that initializes a declared-but-unset local
+   (`src/evaluator/exprs/assignment.yo`) set `ExprInfo.value` to `UnitVal`
+   unconditionally. A known value is the
    evaluator's statement that the expression needs no runtime code (AGENTS.md:
    `.None` means a runtime value). The begin evaluator
    (`src/evaluator/exprs/begin.yo`, `has_runtime_side_effects`) folds a block
@@ -77,6 +81,10 @@ Two halves:
 ## Fix
 
 - The RC builtins and `va_start` record `.None` (a runtime value).
+- An initializing assignment records a known `()` only for a compile-time
+  variable; a runtime store records `.None`. The begin fold already counted a
+  runtime assignment as an effect, which is why only the tuple position lost
+  one.
 - `consume(e)` records a known `()` only when it runs nothing: `e` is a type
   value, or a concretely known value that is neither an assignment nor
   released by the consume. Otherwise `.None`.
@@ -85,6 +93,10 @@ Two halves:
   unit place.
 
 No special case names `__yo_incr_rc`.
+
+A user `extern("Yo", __yo_incr_rc : …)` declaration being silently shadowed
+by the builtin is a separate design decision:
+`issues/questions/2026-11-21-a-user-extern-member-named-like-a-compiler-builtin-is-silently-shadowed.md`.
 
 The consultation's `clone_no_dup.yo` (`_p := __yo_incr_rc(…)` in a hand-written
 clone) is a heap-use-after-free under `--sanitize address` before the fix and
