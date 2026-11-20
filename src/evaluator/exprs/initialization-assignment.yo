@@ -137,6 +137,7 @@
   local_borrow_info_of_variable,
   local_borrow_pattern_source,
   local_borrow_require_no_live_derived,
+  _last_token_of,
   local_borrow_place_of_variable,
   local_borrow_info_placeholder,
   projection_call_mode_of,
@@ -1339,8 +1340,11 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
       )
     );
   });
-  // Decision 38 A: no borrow derived from the current target may be live.
-  local_borrow_require_no_live_derived(&info, &lhs_tok, ctx, exn);
+  // Decision 38 A: no borrow derived from the current target may be live,
+  // except the binding this re-point goes through, when the right-hand side
+  // is its last mention (VERDICTS-71 rule (c)).
+  (rp_through : Option(Variable)) = if(via_pattern, Option(Variable).Some(root_var.clone()), Option(Variable).None);
+  local_borrow_require_no_live_derived(&info, &lhs_tok, &rp_through, &_last_token_of(&rhs, &ast_expr_token(&rhs)), ctx, exn);
   // The step's cell: the innermost reference cell on the chain.
   (pin_expr : Option(AstExpr)) = Option(AstExpr).None;
   (pin_type : TypeValue) = t_unit();

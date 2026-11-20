@@ -7753,14 +7753,18 @@ local_borrow_pattern_source :: (fn(name : &String, decl : &Token) -> Option(Loca
   Option(LocalBorrowInfo).None
 });
 /// The local borrow a `match` scrutinee is reached from: a place rooted at a
-/// local borrow, or at a `match` binding over one.
+/// local borrow, or at a `match` binding over one. A binding of a `&mut`
+/// match over a local borrow is a registered borrow too (VERDICTS-71 rule
+/// (c)), so its pattern source is read first: a nested walk
+/// (`match(&mut n.next, .Some(m) => { cur = &mut m.next; })`) goes through
+/// `n` to `cur`, the borrow its re-point names.
 local_borrow_scrutinee_source :: (fn(scrutinee : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(LocalBorrowInfo))(
   match(
     local_borrow_place_of(scrutinee, env, ctx),
     .Some(p) => match(
-      local_borrow_info_of(p.root_name.clone(), &p.root_decl),
+      local_borrow_pattern_source(p.root_name.clone(), &p.root_decl),
       .Some(info) => Option(LocalBorrowInfo).Some(info),
-      .None => local_borrow_pattern_source(p.root_name.clone(), &p.root_decl)
+      .None => local_borrow_info_of(p.root_name.clone(), &p.root_decl)
     ),
     .None => Option(LocalBorrowInfo).None
   )
@@ -8857,15 +8861,53 @@ local_borrow_update :: (fn(info : &LocalBorrowInfo) -> unit)({
     });
   });
 });
+/// `d` is on the chain a re-point goes through (the binding it names, or one
+/// that binding is derived from) and is not mentioned after the re-point's
+/// right-hand side, which ends at `rhs_end`.
+_lb_repoint_goes_through :: (fn(d : &LocalBorrowInfo, chain : &ArrayList(LocalBorrowInfo), rhs_end : &Token) -> bool)({
+  (ci : usize) = usize(0);
+  while(ci < chain.len(), ci = (ci + usize(1)), {
+    match(
+      chain.get_cloned(ci),
+      .Some(c) => if(_lb_same_decl(c.name.clone(), &c.decl, d.name.clone(), &d.decl), {
+        return(!_lb_tok_after(&d.last_use, rhs_end));
+      }),
+      .None => ()
+    );
+  });
+  false
+});
 /// Decision 38 A: re-pointing `info` at `tok` is an error while a borrow
-/// derived from its current target is live.
-local_borrow_require_no_live_derived :: (fn(info : &LocalBorrowInfo, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
+/// derived from its current target is live. `through` is the `match`
+/// binding the re-point goes through (`cur = &mut n.next`), and `rhs_end`
+/// the right-hand side's last token: that binding, and a binding it is
+/// derived from on the way to `info` (a nested walk's outer `n`), is not
+/// left behind when its last mention is inside the right-hand side
+/// (VERDICTS-71 rule (c), refinement 2). Any other live derived borrow
+/// still rejects the re-point.
+local_borrow_require_no_live_derived :: (fn(info : &LocalBorrowInfo, tok : &Token, through : &Option(Variable), rhs_end : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
+  chain := ArrayList(LocalBorrowInfo).new();
+  match(
+    through,
+    .Some(tv) => match(
+      local_borrow_info_of(tv.name.clone(), &tv.token),
+      .Some(ti) => {
+        chain.push(ti.clone());
+        (ci : usize) = usize(0);
+        while(ci < ti.parents.len(), ci = (ci + usize(1)), {
+          match(ti.parents.get_cloned(ci), .Some(tp) => chain.push(tp), .None => ());
+        });
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
   (i : usize) = g_local_borrows.with(_c_len_5);
   while(i > usize(0), {
     i = (i - usize(1));
     match(
       g_local_borrows.with(xs => xs.get_cloned(i)),
-      .Some(d) => if(match(d.parents.get_cloned(usize(0)), .Some(p) => _lb_same_decl(p.name.clone(), &p.decl, info.name.clone(), &info.decl), .None => false) && _lb_live_at(&d, tok), {
+      .Some(d) => if(match(d.parents.get_cloned(usize(0)), .Some(p) => _lb_same_decl(p.name.clone(), &p.decl, info.name.clone(), &info.decl), .None => false) && _lb_live_at(&d, tok) && !_lb_repoint_goes_through(&d, &chain, rhs_end), {
         entries := ArrayList(TokenAndError).new();
         entries.push(
           TokenAndError(

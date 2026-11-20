@@ -90,7 +90,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../types/guards.yo");
 { type_contains_some_type, type_mentions_impl_fn_or_future, mark_generic_independent, type_requires_explicit_copy, type_contains_rc_cell_or_move_only, type_is_bitwise_copy, type_carries_origin, is_static_view_slot } :: import("../../types/utils.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
-{ E_USE_OF_MOVED_VALUE, E_WRITE_THROUGH_BORROW, E_BORROW_CONFLICT } :: import("../../diagnostics.yo");
+{ E_USE_OF_MOVED_VALUE, E_WRITE_THROUGH_BORROW } :: import("../../diagnostics.yo");
 { with_code } :: import("../../error.yo");
 { generate_new_temp_variable_name, is_temp_variable_name, canonical_module_path } :: import("../../utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
@@ -106,7 +106,7 @@ pragma(Pragma.AllowUnsafe);
 { origin_of, variable_holder_roots, origin_scope_close, origin_scrutinee_temporary_place, origin_close_scrutinee_temporary, is_temporary_operand, local_borrow_place_of_variable, local_borrow_access_at, _last_token_of } :: import("../utils.yo");
 { reject_dyn_place_by_value, reject_guard_moves, merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, dyn_copy_pending_exists, dyn_copy_rule_applies, note_dyn_copy_pending, audit_note_match_binding, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding, note_second_class_binding, reject_malformed_pattern_mut_markers, reject_malformed_mut_marker, place_require_mut, reject_write_through_rc, _lb_arrow_shadows, _lb_fn_literal_binds, local_borrow_flow_region_begin, local_borrow_flow_region_end } :: import("../utils.yo");
 { throw_if_mut_lend_through_atomic_object } :: import("./assignment.yo");
-{ set_expr_as_consumed, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, reject_reference_without_deref, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, LocalBorrowPlace, LocalBorrowAccess, local_borrow_place_of, access_place, local_borrow_require_writable, local_borrow_root_is_shared_reference, variable_is_mut_borrow, variable_is_imm_borrow, local_borrow_info_of_variable, variable_is_borrow_parameter, deref_operand_is_raw_pointer } :: import("../utils.yo");
+{ set_expr_as_consumed, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, reject_reference_without_deref, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, LocalBorrowPlace, LocalBorrowAccess, local_borrow_place_of, access_place, local_borrow_require_writable, local_borrow_root_is_shared_reference, variable_is_mut_borrow, variable_is_imm_borrow, local_borrow_info_of_variable, deref_operand_is_raw_pointer } :: import("../utils.yo");
 { evaluate_begin_expression, attach_consumed_binding_exit_drops, audit_judge_arm_copies, audit_commit_arm_copies, judge_dyn_copies, discard_dyn_copies } :: import("./begin.yo");
 { evaluate_expression, evaluate_expression_raw, evaluate_expression_guarded } :: import("./expr.yo");
 {
@@ -1310,36 +1310,6 @@ evaluate_match :: (
     mut_scr_place := ast_expr_strip_borrow_marker(&evaluated_scrutinee);
     throw_if_mut_lend_through_atomic_object(&mut_scr_place, &env, String.from("lend `&mut` (a `&mut` match scrutinee) a place in"), ctx, exn);
     reject_write_through_rc(&mut_scr_place, "mut-borrow", Option(TypeValue).None, ctx, exn);
-    // WALL (audit A3's open half, m20/m04/m03e): a `&mut` REFERENCE BINDING
-    // matched bare, `r := &mut o; match(r, .Some(x) => { r.* = .None; ... })`.
-    // The arm bindings borrow `r`'s referent, but the place model cuts a
-    // place at `.*` (`r.* = .None`, a write through `r`, and `r = ...`,
-    // decision 25's re-point, are the same place `r`), so their loan cannot
-    // be registered without falsely rejecting every re-point: the write
-    // under the binding is accepted and reads freed memory. Until the place
-    // model grows a deref step, the bare form is rejected; the spelled lend
-    // `match(&mut r.*, ...)` registers the bindings' loans at `r`'s referent
-    // and judges the writes under them (E0911 when they overlap, accepted
-    // after the bindings' last use). A reference PARAMETER matched bare is
-    // sound (registered against its place) and passes.
-    if((borrowed_match_scrutinee_kind(ast_expr_token(expr)) == u8(0)) && ast_expr_is_atom(&scrutinee_expr) && match(
-      get_variables_from_env(&env, ast_expr_token(&scrutinee_expr).value.*.clone()).last_cloned(),
-      .Some(wv) => (!wv.is_parameter() && !variable_is_borrow_parameter(&wv) && _variable_is_mut_borrow(&wv)),
-      .None => false
-    ), {
-      raise_flow_violation(
-        with_code(
-          format_error_message_with_help(
-            ast_expr_token(&scrutinee_expr),
-            `Cannot match \`${ast_expr_token(&scrutinee_expr).value.*}\` bare: it is a local \`&mut\` reference binding, and the arm bindings would borrow its referent while the place model cannot tell a write through the reference (\`${ast_expr_token(&scrutinee_expr).value.*}.* = ...\`) from a re-point of the binding itself, so the borrow cannot be checked (decision 26, plans/VALUES_BY_DEFAULT.md; audit A3).`,
-            Option(String).Some(`lend the referent explicitly: \`match(&mut ${ast_expr_token(&scrutinee_expr).value.*}.*, ...)\` checks the arm bindings' borrows, or match a place you own`)
-          ),
-          E_BORROW_CONFLICT
-        ),
-        ctx,
-        exn
-      );
-    });
     // Behind a raw pointer the bindings borrow no place of the root binding.
     mut_root = if(_scrutinee_crosses_raw_pointer(&scrutinee_expr, ctx), Option(Variable).None, _scrutinee_root_variable(&scrutinee_expr, &env));
     mut_place = local_borrow_place_of(&scrutinee_expr, &env, ctx);
@@ -1963,11 +1933,10 @@ evaluate_match :: (
         while(ci0 < cell_copy_vars.len(), ci0 = (ci0 + usize(1)), {
           match(
             cell_copy_vars.get_cloned(ci0),
-            .Some(cv) => match(
-              &lb_scr_source,
-              .Some(lbs) => local_borrow_note_match_place(&lbs.*, cv.name.clone(), &cv.token, &body_ast),
-              .None => match(&mut_place, .Some(lp) => local_borrow_register_match_place(cv.name.clone(), &cv.token, &lp.*, &body_ast), .None => ())
-            ),
+            .Some(cv) => {
+              match(&lb_scr_source, .Some(lbs) => local_borrow_note_match_place(&lbs.*, cv.name.clone(), &cv.token, &body_ast), .None => ());
+              match(&mut_place, .Some(lp) => local_borrow_register_match_place(cv.name.clone(), &cv.token, &lp.*, &body_ast), .None => ());
+            },
             .None => ()
           );
         });
@@ -1985,20 +1954,22 @@ evaluate_match :: (
                 },
                 .None => ()
               );
-              // A scrutinee reached from a local borrow (decision 25's
-              // cursor, `match(cur, .Some(n) => { mut(cur) = n.next; })`):
-              // its bindings are already tracked as places a re-point goes
-              // through (`local_borrow_note_pattern_binding`), and the
-              // re-point must not read as an access of `cur` while `n` lives.
+              // Each place binding is an exclusive borrow of the scrutinee's
+              // place (R-ARM), whatever the scrutinee is rooted at: while it
+              // lives, the scrutinee is reached only through it, so a write,
+              // read or call through `cur` (or its root) under it is E0911
+              // (audit A3; VERDICTS-71 rule (c)). Reached from a local borrow
+              // (decision 25's cursor, `match(cur, .Some(n) => { cur = &mut
+              // n.next; })`), it is also a place a re-point goes through
+              // (`local_borrow_note_pattern_binding`): the re-point names
+              // `cur` without touching what it points at, and skips the
+              // binding it goes through (`local_borrow_require_no_live_derived`).
               // In an `io.async` body the place may live across an await:
               // rule 4 rejects it there when the borrow it points through
               // passes through a cell or a module-level place, judged at
               // each await (issues/fixed/a-mut-match-place-binding-cannot-live-across-an-await.md).
-              match(
-                &lb_scr_source,
-                .Some(lbs) => local_borrow_note_match_place(&lbs.*, pv.name.clone(), &pv.token, &body_ast),
-                .None => match(&mut_place, .Some(lp) => local_borrow_register_match_place(pv.name.clone(), &pv.token, &lp.*, &body_ast), .None => ())
-              );
+              match(&lb_scr_source, .Some(lbs) => local_borrow_note_match_place(&lbs.*, pv.name.clone(), &pv.token, &body_ast), .None => ());
+              match(&mut_place, .Some(lp) => local_borrow_register_match_place(pv.name.clone(), &pv.token, &lp.*, &body_ast), .None => ());
             },
             .None => ()
           );
