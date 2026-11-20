@@ -272,7 +272,7 @@ This is structurally guaranteed by the compiler, so the lock window cannot escap
 
 Unlock is automatic — a private unlocker object releases the lock on both normal return and `unwind(...)`, guaranteeing structured unlock pairing.
 
-**Re-entrant locking deadlocks.** Calling `with_lock` from inside another `with_lock` on the same mutex will deadlock (matching Rust's `std::sync::Mutex`). Yo does not provide a reentrant mutex.
+**Re-entrant locking panics.** Calling `with_lock` from inside another `with_lock` on the same mutex, on the same thread, panics with `Mutex: locked again by the thread that already holds it` on every platform (rule D5), where Rust's `std::sync::Mutex` may deadlock or panic. Yo does not provide a reentrant mutex.
 
 On one thread, the closure-scoped counterpart is `RefCell(T)` (`std/sync/refcell`): `with` and `with_mut` check exclusivity at run time and panic on a conflict instead of blocking. A `RefCell` is `Send` when `T` is and never `Sync`, so `Arc(RefCell(T))` is rejected: across threads, use `Arc(Mutex(T))`.
 

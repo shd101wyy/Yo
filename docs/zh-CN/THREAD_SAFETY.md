@@ -210,7 +210,7 @@ t.join();
 
 闭包接收 `v : &mut T` — 一个**二级引用**，不能逃逸闭包作用域。
 
-解锁是自动的——私有解锁器对象在正常返回和 `unwind(...)` 时都会释放锁，保证结构化解锁配对。**可重入锁定会导致死锁。**
+解锁是自动的——私有解锁器对象在正常返回和 `unwind(...)` 时都会释放锁，保证结构化解锁配对。**可重入锁定会 panic。** 同一线程在同一个互斥锁的 `with_lock` 内部再次调用 `with_lock`，会在所有平台上以 `Mutex: locked again by the thread that already holds it` panic（规则 D5），而 Rust 的 `std::sync::Mutex` 可能死锁或 panic。Yo 不提供可重入互斥锁。
 
 在单个线程上，对应的闭包作用域类型是 `RefCell(T)`（`std/sync/refcell`）：`with` 和 `with_mut` 在运行时检查独占性，冲突时 panic 而不是阻塞。`RefCell` 在 `T` 是 `Send` 时是 `Send`，但永远不是 `Sync`，因此 `Arc(RefCell(T))` 会被拒绝：跨线程请使用 `Arc(Mutex(T))`。
 

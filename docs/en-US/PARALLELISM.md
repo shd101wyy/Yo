@@ -435,7 +435,7 @@ thread.join();
 
 // Thread pool task
 pool := ThreadPool.new(usize(4));
-spawn(pool, (io : Io) => { /* work */ });
+spawn(&pool, (io : Io) => { /* work */ });
 pool.join_all();
 
 // Communication
