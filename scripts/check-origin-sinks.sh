@@ -9,8 +9,14 @@
 #   2. The conflict check `_lb_raise_conflict` is called only from
 #      `_local_borrow_access_live`, the one `access` (`local_borrow_access` and
 #      `local_borrow_access_at` delegate to it); the loan table
-#      `g_local_borrows` is written only by the registrar and the block-end
-#      truncation.
+#      `g_local_borrows` is written only by the registrar, the block-end
+#      truncation and the two entry updates (`local_borrow_update`, which
+#      writes a binding form's completed record back over the entry it
+#      registered, and `_lb_shorten_holder_entries`, which moves an entry's
+#      end earlier). The updates replace an existing entry in place and never
+#      add a loan; they were always writers, but until v0.2.79 the entry was a
+#      `ref` record mutated through shared identity, which this grep could not
+#      see. As a value struct the write goes through `with_mut`.
 #   3. Every lowering of §5's table calls its sink at least once in the file
 #      that lowers it (LOWERINGS below, one line per lowering). A new lowering
 #      adds a row to §5 and a line here in the same PR.
@@ -121,6 +127,9 @@ done < <(callers_of '_lb_raise_conflict\(' $(grep -rlE '_lb_raise_conflict\(' sr
 while read -r site fn; do
   case "$fn" in
     local_borrow_register | local_borrows_truncate) ;;
+    # Entry updates, not registrars: each overwrites an entry found by its
+    # name+decl identity and never pushes (see the header).
+    local_borrow_update | _lb_shorten_holder_entries) ;;
     *) problem "$site: the loan table \`g_local_borrows\` is written from \`$fn\`" ;;
   esac
 done < <(callers_of 'g_local_borrows\.with_mut' $(grep -rlE 'g_local_borrows\.with_mut' src --include='*.yo'))
