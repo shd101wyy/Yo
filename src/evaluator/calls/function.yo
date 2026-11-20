@@ -5077,12 +5077,12 @@ _closure_capture_lends :: (fn(e : &AstExpr) -> ArrayList(Tuple(AstExpr, bool, As
     en := match(entries.get_cloned(ei), .Some(x) => x, .None => return(out));
     cond(
       ast_expr_is_capture_mode_entry(&en) => {
-        name_atom := match(en, Rc(.FnCall(_, _, Rc(en_args), _, _)) => match(en_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()), Rc(.Atom(_, _)) => make_err_expr());
+        name_atom := match(&en, Rc(.FnCall(_, _, Rc(en_args), _, _)) => match(en_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()), Rc(.Atom(_, _)) => make_err_expr());
         fresh := Rc.new(AstExprNode.Atom(alloc_global_expr_id(), ast_expr_token(&name_atom)));
         out.push((fresh, ast_expr_is_fn_call_of(&en, BK_MUT, Option(usize).Some(usize(1))), en.clone()));
       },
       ast_expr_is_fn_call_of(&en, BK_COLON, Option(usize).Some(usize(2))) => {
-        init := match(en, Rc(.FnCall(_, _, Rc(lb_args), _, _)) => match(lb_args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr()), Rc(.Atom(_, _)) => make_err_expr());
+        init := match(&en, Rc(.FnCall(_, _, Rc(lb_args), _, _)) => match(lb_args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr()), Rc(.Atom(_, _)) => make_err_expr());
         match(_lent_argument_place(&init), .Some(place) => out.push((place, ast_expr_is_fn_call_of(&init, "&mut", .Some(usize(1))), en.clone())), .None => ());
       },
       true => ()
@@ -5559,6 +5559,9 @@ _call_lends :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(_CallLend))
     // A `dyn(&v)` / `dyn(&mut v)` argument lends `v` as the bare `&v` /
     // `&mut v` would, for as long as the statement (VERDICTS-43).
     lent := _dyn_lend_unwrapped(match(op_args.get_cloned(ai), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr()));
+    // The capture-list borrows of a closure literal the argument passes
+    // (read before the match below moves `lent`).
+    cls := _closure_capture_lends(&match(_lent_argument_place(&lent), .Some(inner) => inner, .None => lent.clone()));
     match(
       _lent_argument_place(&lent),
       .Some(place) => {
@@ -5591,8 +5594,6 @@ _call_lends :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(_CallLend))
     // A closure literal the argument passes (`f(&mut ({ &mut xs }() => …))`)
     // holds its capture-list borrows for the whole call: each is a lend of
     // the argument's, against the call's other arguments in either order.
-    closure_arg := match(_lent_argument_place(&lent), .Some(inner) => inner, .None => lent.clone());
-    cls := _closure_capture_lends(&closure_arg);
     (ci : usize) = usize(0);
     while(ci < cls.len(), ci = (ci + usize(1)), {
       c_mut := cls(ci).1;
