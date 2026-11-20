@@ -1,0 +1,40 @@
+//! VERDICTS-72 rule (a): a name that starts with `__yo_` is the compiler's
+//! namespace. An `extern(...)` member label (both ABIs) or a `c_include(...)`
+//! member label in that namespace, declared outside the std tree, is E0407,
+//! and `pragma(Pragma.AllowUnsafe)` (declared here) does not unlock it. Before
+//! the rule each declaration below was accepted and lost silently: a builtin
+//! the evaluator dispatches by spelling ran instead (`__yo_incr_rc`), or the
+//! call bound a runtime symbol whose signature the compiler owns.
+//! issues/questions/2026-11-21-a-user-extern-member-named-like-a-compiler-builtin-is-silently-shadowed.md
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+{ Exception } :: import("std/error");
+// std's own declarations stay legal under the demand-loaded `file://`
+// spelling: `std/crypto/random` declares `__yo_errno` and `__yo_getrandom`.
+{ random_u32 } :: import("std/crypto/random");
+_RESERVED :: "starts with `__yo_`, the compiler's namespace";
+// A `"Yo"` member that is a builtin the evaluator dispatches by name.
+comptime_expect_error(extern("Yo", __yo_incr_rc : (fn(cell : *void) -> *void)), _RESERVED);
+// A `"Yo"` member that names no symbol at all.
+comptime_expect_error(extern("Yo", __yo_made_up : (fn(a : i32) -> i32)), _RESERVED);
+// A `"c"` member: codegen matches `__yo_errno` by name whatever the ABI.
+comptime_expect_error(extern("c", __yo_errno : (fn() -> i64)), _RESERVED);
+// A `c_include` member.
+comptime_expect_error(c_include("<stdlib.h>", __yo_incr_rc : (fn(a : i32) -> i32)), _RESERVED);
+// The rename form: the check is on the member label, not the bound name.
+comptime_expect_error({
+  { __yo_errno : e } :: extern("Yo", __yo_errno : (fn() -> i32));
+  e
+}, _RESERVED);
+// Every other spelling of the prefix is an ordinary name: only the five
+// bytes `__yo_` are reserved. None of these is called, so none needs a symbol.
+extern("Yo", user_lib_add : (fn(a : i32, b : i32) -> i32));
+extern("c", getpid : (fn() -> i32));
+extern("Yo", __yox : (fn() -> i32), _yo_x : (fn() -> i32), __YO_X : (fn() -> i32));
+test("calling a builtin by name without declaring it stays legal", {
+  assert(__yo_op_add(i32(2), i32(3)) == i32(5), "the prelude's __yo_op_add");
+});
+test("a std module that declares __yo_ members imports and runs", {
+  exn := Exception(throw : (_err -> unwind(())));
+  _n := random_u32(exn);
+});

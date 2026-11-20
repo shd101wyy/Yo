@@ -7593,16 +7593,10 @@ _exec_argv :: (fn(exec_cstrs : &ArrayList(ArrayList(u8))) -> unit)({
 // the runner replays in file order, so the stream, the totals and the exit
 // code are the sequential runner's. POSIX only (Linux, macOS).
 //
-// Two runtime symbols (src/codegen/async/runtime_io_*.yo):
-// - `__yo_io_cleanup`: the async runtime's per-thread backend teardown, the
-//   call its thread-exit hook and async-main driver make. It is idempotent,
-//   and the next submission creates the backend again.
-// - `__yo_errno`: errno as a call (the C macro is an lvalue).
-extern(
-  "Yo",
-  __yo_io_cleanup : (fn() -> unit),
-  __yo_errno : (fn() -> i32)
-);
+// `reset_io_backend` is the async runtime's per-thread backend teardown
+// (std/sys/process); `last_errno` reads errno (std/libc/errno).
+{ reset_io_backend } :: import("std/sys/process");
+{ last_errno } :: import("std/libc/errno");
 /// A `YO_TEST_FORK` worker that exited: its pid (-1 when no child is left)
 /// and its raw wait status.
 _TestForkExit :: struct(pid : i32, status : i32);
@@ -7660,7 +7654,7 @@ _test_fork_posix :: (fn() -> i32)({
   { fork } :: import("std/libc/unistd");
   unsafe(fflush(.Some(stdout)));
   unsafe(fflush(.Some(stderr)));
-  __yo_io_cleanup();
+  reset_io_backend();
   i32(unsafe(fork()))
 });
 /// In a worker: send stdout and stderr to `<base>.out` and `<base>.err`, the
@@ -7715,7 +7709,7 @@ _test_fork_wait_any_posix :: (fn() -> _TestForkExit)({
   { EINTR } :: import("std/libc/errno");
   (st : int) = int(0);
   (r : int) = unsafe(waitpid(int(-1), addr_of(st), int(0)));
-  while((r < int(0)) && (__yo_errno() == i32(EINTR)), {
+  while((r < int(0)) && (last_errno() == i32(EINTR)), {
     r = unsafe(waitpid(int(-1), addr_of(st), int(0)));
   });
   _TestForkExit(pid : i32(r), status : i32(st))

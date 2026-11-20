@@ -271,6 +271,28 @@ is_std_module_path :: (fn(mp : &String, std_path : &String) -> bool)({
     }
   )
 });
+/// Does `name` start with `__yo_`, the compiler's namespace (VERDICTS-72)?
+/// A name there is a builtin the evaluator or codegen dispatches by spelling,
+/// or a runtime symbol whose signature the compiler owns.
+is_yo_namespace_name :: (fn(name : &String) -> bool)(
+  name.starts_with(String.from("__yo_"))
+);
+/// May source at `module_path` bind a `__yo_` name (E0407)? Only the std tree
+/// (`is_std_module_path`, which absolutizes the as-typed entry spelling and the
+/// `file://<abs>` demand-loaded one alike) and compiler-synthesized
+/// `auto-generated://` code. `pragma(Pragma.AllowUnsafe)` does not unlock it,
+/// and `src/`, `tests/` and fetched dependencies are user code.
+may_bind_yo_namespace_name :: (fn(module_path : &String, std_path : &String) -> bool)(
+  module_path.starts_with(String.from("auto-generated://")) || is_std_module_path(module_path, std_path)
+);
+/// The E0407 message for a binder named `name` in the `__yo_` namespace.
+reserved_yo_name_message :: (fn(name : &String) -> String)(
+  `"${name}" starts with \`__yo_\`, the compiler's namespace: a name there is a compiler builtin or a runtime symbol the compiler owns, so this declaration could never be what a call reaches.`
+);
+/// The E0407 help line.
+reserved_yo_name_help :: (fn() -> String)(
+  String.from("delete it and call the std API for the facility, or give your own symbol its own name.")
+);
 /// Decision 47 step 2 (locals), Generation A (plans/VALUES_BY_DEFAULT.md):
 /// the mutability rule for a binding below module level (a write to an
 /// unmarked local, pattern or compile-time binding, E0917) is enforced
@@ -496,5 +518,9 @@ export(
   is_class1_panic_receiver_type,
   is_class1_panic_exempt_file,
   is_std_module_path,
+  is_yo_namespace_name,
+  may_bind_yo_namespace_name,
+  reserved_yo_name_message,
+  reserved_yo_name_help,
   _lex_abs_path
 );
