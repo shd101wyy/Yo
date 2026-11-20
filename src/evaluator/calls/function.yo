@@ -4915,7 +4915,16 @@ _lent_place_of :: (fn(e : &AstExpr, ctx : &EvalContext) -> Option(_LentPlace))({
           // Behind a raw pointer the steps go on as a separate path under
           // `*`: `p.*.a` and `p.*.b` are disjoint, as `s.a` and `s.b` are
           // (issues/fixed/2026-11-05-a-mut-match-through-a-raw-pointer-parameter-is-rejected-as-a-read-only-borrow.md).
+          // A raw pointer a call computes (`base.add(i).*`) points into no
+          // place of a binding: the call's result is a temporary, so the
+          // pointee is unchecked unsafe storage, as `*p.add(i)` is in Rust.
+          // Walking on would read the method call as an index of `base` and
+          // judge `(&mut base.add(i).*, &mut base.add(j).*)` as two lends of
+          // one place (tests/origins/corpus/get2-mut-pair.yo).
           (ast_expr_is_atom_of(&fld, "*") && deref_operand_is_raw_pointer(&cur, ctx)) => {
+            if(match(ast_rewritten_node(&cur), Rc(.FnCall(_, _, _, _, _)) => !ast_expr_is_fn_call_of(&ast_rewritten_node(&cur), BF_DOT, Option(usize).Some(usize(2))), Rc(.Atom(_, _)) => false), {
+              return(Option(_LentPlace).None);
+            });
             rev.push(String.from("*"));
           },
           true => {

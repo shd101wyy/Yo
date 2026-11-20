@@ -12,6 +12,8 @@
 # returns `r.*`, a scalar read through the local borrow `r`, which is no longer E0912; their `today` column
 # now records the handler's own first error, which the old over-rejection masked.
 # 2026-11-09 (P8, BORROW_CHECKER_COMPLETENESS.md §7): closure-returns-param and closure-returns-capture re-recorded.
+# 2026-11-20 (audit A5/A56, the R-NONE continuation for a reference binding): bare-reference-store-widen re-recorded
+# from accept to its expected E0923.
 # id	anchor	kind	phase	expect	today
 wf-self-binding	O1 well-formedness	neg	N2	WF_SELF	E0924|names the binding being declared
 wf-self-field	O1 well-formedness, O5	neg	N2	WF_SELF	E0924|names the value being defined
@@ -140,7 +142,7 @@ call-result-origin-name-capture	O-6 G-E, R-CALL: a call result names its callee'
 method-store-widen-named-holder	O-6, §5 call row: the receiver counts as an argument	neg	N1	ORIGIN_MISMATCH	E0923|`&yb.*` carries origin `yb`, outside `a`
 qualified-method-store-widen-named-holder	O-6, §5 call row: a qualified method call binds the definition's slots	neg	N1	ORIGIN_MISMATCH	E0923|outside `a`
 fn-value-store-widen-named-holder	O-6, §5 call row: a local bound to a fn value remembers its definition	neg	N1	ORIGIN_MISMATCH	E0923|outside `a`
-bare-reference-store-widen	O-6 G-E, a reference binding passed bare to a store	neg	N1	ORIGIN_MISMATCH	accept
+bare-reference-store-widen	O-6 G-E, a reference binding passed bare to a store	neg	N1	ORIGIN_MISMATCH	E0923|carries origin `yb`, outside `x`
 impl-origin-name-collides-with-local	O-6, #1846 impl origin vs a caller local of the same name	pos	N1	ACCEPT	-|the projection borrows no argument
 block-tail-projection	P2, R-TAIL (VERDICTS-41 Q1)	pos	N1	ACCEPT	accept
 block-tail-projection-local	P2, R-TAIL, a block-local root is E0911 (VERDICTS-41 Q1 item 3)	neg	N1	E0911	E0911|Cannot end this block while its result borrows `w`
