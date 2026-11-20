@@ -7,13 +7,15 @@
 # the debug knob that skips the guard arm.
 #
 # Headers (the first lines of each program):
-#   // expect: accept | panic | E0xxx | reject   the verdict with the guard on, the
-#                                          shipped compiler (the same `expect`
-#                                          header test 7 and G-B read)
-#   // guard-off: same | <VERDICT> [<kind>]  the verdict with the knob set:
-#                                          `same` = what `expect` says, or a
-#                                          recorded verdict below (`DIRTY
-#                                          heap-use-after-free`, `LEAK`, ...)
+#   // expect: accept | panic | E0xxx | reject | <VERDICT>
+#       the verdict with the guard on, the shipped compiler (`accept`, `panic`
+#       and `E0xxx` are the `expect` header test 7 and G-B read). A recorded
+#       <VERDICT> (`DIRTY heap-use-after-free`) is a known open hole, and
+#       the program then carries an `// issue:` line naming its open doc.
+#   // guard-off: same | <VERDICT>
+#       the verdict with the knob set: `same` = what `expect` says.
+#   // issue: issues/<doc>.md   (optional) the open bug a recorded verdict
+#       stands for; fixing it changes the verdict, and the fix re-records it.
 #
 # A verdict is one of:
 #   REJECTED <code>   `yo check` fails with that first error code (`-` for
@@ -29,8 +31,9 @@
 #
 # A program whose guard-off verdict is DIRTY or LEAK while its default one is
 # clean is the evidence that blocks deleting the guard (VERDICTS-70 Q3): the
-# checker must reject or wall it first. A changed verdict in either column is
-# progress (re-record the header) or a regression.
+# checker must reject or wall it first (a `both` run lists them at the end).
+# A changed verdict in either column is progress (re-record the header) or a
+# regression.
 #
 # Usage (from the repository root, clang on PATH: inside the nix shell for a
 # tree binary):
@@ -110,6 +113,7 @@ expected() { # <expect header value> -> verdict
 
 pass=0
 fail=0
+only_off=()
 progs=()
 if [ ${#ONLY[@]} -gt 0 ]; then
   for id in "${ONLY[@]}"; do progs+=("$DIR/$id.yo"); done
@@ -127,9 +131,15 @@ for prog in "${progs[@]}"; do
   fi
   want_default=$(expected "$exp")
   if [ "$off" = same ]; then want_off=$want_default; else want_off=$(expected "$off"); fi
+  got_default=
   for mode in $MODES; do
     if [ "$mode" = default ]; then want=$want_default; else want=$want_off; fi
     got=$(verdict "$prog" "$mode")
+    if [ "$mode" = default ]; then
+      got_default=$got
+    elif [ -n "$got_default" ] && [[ $got =~ ^(DIRTY|LEAK) ]] && ! [[ $got_default =~ ^(DIRTY|LEAK) ]]; then
+      only_off+=("$id")
+    fi
     if [ "$got" = "$want" ]; then
       echo "ok   $mode $id: $got"
       pass=$((pass + 1))
@@ -139,5 +149,7 @@ for prog in "${progs[@]}"; do
     fi
   done
 done
+[ "$MODES" = "default guard-off" ] &&
+  echo "accepted and dirty only with the guard off: ${only_off[*]:-none}"
 echo "guard-off probes: $pass passed, $fail failed"
 [ $fail -eq 0 ]
