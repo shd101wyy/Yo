@@ -146,44 +146,55 @@ impl(
   )
 );
 /// The queue every handle on one channel shares, through an `Arc`.
-_ChannelState :: (fn(comptime(T) : Type) -> comptime(Type))(
-  struct(
-    _data : *T,
-    _head : usize,
-    _len : AtomicUsize,
-    _capacity : usize,
-    _mutex : Mutex(bool),
-    _not_empty : Cond,
-    _not_full : Cond,
-    _closed : AtomicBool,
-    /// How many live `Sender(T)` handles share this queue. Zero for a
-    /// `Channel` created with `new` and used directly: nothing counts
-    /// down, so nothing auto-closes. `receiver()` and `pair()` start it
-    /// at one, and every `Sender.clone()` adds another.
-    _senders : AtomicUsize,
-    /// Set once the `Receiver(T)` handle has been dropped, which makes
-    /// every further `send` fail instead of blocking on a queue nobody
-    /// will drain. False forever for a directly-used `Channel`.
-    _recv_dropped : AtomicBool
-  )
+///
+/// It is not generic: the ring buffer it indexes is held, typed, by every
+/// `Channel(T)` handle (`_slots`), and the handle that drops the last count
+/// (`_handles`) releases the queued values and frees the ring. An
+/// `Arc(_ChannelState(T))` in `Channel`'s definition is checked against the
+/// abstract `T` there, and the seed that builds `std/thread.yo` for the
+/// compiler rejects that check
+/// (issues/fixed/2026-11-21-an-arc-of-a-generic-type-with-an-explicit-marker-impl-is-rejected-inside-a-type-function.md).
+_ChannelCore :: struct(
+  _head : usize,
+  _len : AtomicUsize,
+  _capacity : usize,
+  _mutex : Mutex(bool),
+  _not_empty : Cond,
+  _not_full : Cond,
+  _closed : AtomicBool,
+  /// How many live `Sender(T)` handles share this queue. Zero for a
+  /// `Channel` created with `new` and used directly: nothing counts
+  /// down, so nothing auto-closes. `receiver()` and `pair()` start it
+  /// at one, and every `Sender.clone()` adds another.
+  _senders : AtomicUsize,
+  /// Set once the `Receiver(T)` handle has been dropped, which makes
+  /// every further `send` fail instead of blocking on a queue nobody
+  /// will drain. False forever for a directly-used `Channel`.
+  _recv_dropped : AtomicBool,
+  /// How many live `Channel(T)` handles share this queue (each `Sender` and
+  /// `Receiver` holds one). The handle that takes it to zero releases the
+  /// queued values and frees the ring; the `Arc` then frees the rest.
+  _handles : AtomicUsize
 );
-// SAFETY: `_data` is the ring buffer the queue owns. Every slot access and
-// every write of `_head` happens under `_mutex`, and a value is moved in by
-// `send` and out by `recv`, so the queue may be moved and shared across
-// threads when `T` may be moved (plans/VALUES_BY_DEFAULT.md decision 38 E: a
-// type holding a raw pointer opts in).
-impl(generic(T : Type), where(T <: Send), _ChannelState(T), Send());
-impl(generic(T : Type), where(T <: Send), _ChannelState(T), Sync());
 /// Thread-safe bounded channel for passing values between threads. `T` must
 /// implement `Send` (values transfer between threads).
 ///
-/// A handle on a shared queue — `Arc(_ChannelState(T))` — with `Clone`:
-/// `ch.clone()` names the same queue, as Rust's `Sender::clone` does, and
-/// the queue is freed with the last handle. An implicit copy is E0901.
+/// A handle on a shared queue — an `Arc` of it — with `Clone`: `ch.clone()`
+/// names the same queue, as Rust's `Sender::clone` does, and the queue is
+/// freed with the last handle. An implicit copy is E0901.
 Channel :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
-  struct(_shared : Arc(_ChannelState(T)))
+  struct(
+    _shared : Arc(_ChannelCore),
+    /// The ring buffer: `_shared._capacity` slots of `T`, the same address
+    /// in every handle on the queue.
+    _slots : *T
+  )
 );
-// SAFETY: the queue's own impls above.
+// SAFETY: `_slots` is the ring buffer the queue owns. Every slot access
+// happens under `_mutex`, and a value is moved in by `send` and out by
+// `recv`, so the channel may be moved and shared across threads when `T`
+// may be moved (plans/VALUES_BY_DEFAULT.md decision 38 E: a type holding a
+// raw pointer opts in).
 impl(generic(T : Type), where(T <: Send), Channel(T), Send());
 impl(generic(T : Type), where(T <: Send), Channel(T), Sync());
 impl(
@@ -191,8 +202,43 @@ impl(
   Channel(T),
   where(T <: Send),
   /// Another handle on the same queue.
+  ///
+  /// The count is `Relaxed`, exactly as `Arc::clone`'s is: the new handle
+  /// cannot reach another thread except by a synchronizing transfer.
   Clone(
-    clone : (fn(self : &Self) -> Self)(Self(_shared : Arc.clone(self._shared)))
+    clone : (fn(self : &Self) -> Self)({
+      _prev := self._shared._handles.fetch_add(usize(1), MemoryOrder.Relaxed);
+      Self(_shared : Arc.clone(self._shared), _slots : self._slots)
+    })
+  )
+);
+impl(
+  generic(T : Type),
+  Channel(T),
+  where(T <: Send),
+  /// Dropping the LAST handle releases the values still queued and frees
+  /// the ring; the `Arc` frees the lock, the condvars and the counters.
+  ///
+  /// `AcqRel`, as `Arc`'s own release: every handle's pushes and pops
+  /// precede its decrement, and the handle that reads `1` must see them all
+  /// before it walks the ring.
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      (prev : usize) = self._shared._handles.fetch_sub(usize(1), MemoryOrder.AcqRel);
+      if(prev == usize(1), {
+        (current_len : usize) = self._shared._len.load(MemoryOrder.Relaxed);
+        (mut(i) : usize) = usize(0);
+        while(i < current_len, {
+          (idx : usize) = ((self._shared._head + i) % self._shared._capacity);
+          // SAFETY: every slot of the live run `[_head, _head + len)` owns
+          // its value and nothing reads it after this; the ring is freed
+          // below, and no other handle is left to reach it.
+          drop_in_place(self._slots.add(idx));
+          i = (i + usize(1));
+        });
+        free(.Some((*void)(self._slots)));
+      });
+    })
   )
 );
 impl(
@@ -211,8 +257,7 @@ impl(
     return(
       Self(
         _shared : Arc.new(
-          _ChannelState(T)(
-            _data : ptr,
+          _ChannelCore(
             _head : usize(0),
             _len : AtomicUsize.new(usize(0)),
             _capacity : capacity,
@@ -221,9 +266,11 @@ impl(
             _not_full : Cond.new(),
             _closed : AtomicBool.new(false),
             _senders : AtomicUsize.new(usize(0)),
-            _recv_dropped : AtomicBool.new(false)
+            _recv_dropped : AtomicBool.new(false),
+            _handles : AtomicUsize.new(usize(1))
           )
-        )
+        ),
+        _slots : ptr
       )
     );
   }),
@@ -261,7 +308,7 @@ impl(
     // so it holds no value (never written, or moved out by a receive). A
     // bitwise write moves `value` in without dropping those dead bytes and
     // without copying `value`, which a move-only `T` forbids.
-    __yo_ptr_write(self._shared._data.add(tail), value);
+    __yo_ptr_write(self._slots.add(tail), value);
     self._shared._len.store(current_len + usize(1), MemoryOrder.Release);
     self._shared._not_empty.signal();
     self._shared._mutex._raw_unlock();
@@ -288,7 +335,7 @@ impl(
     // under the mutex). A bitwise read moves it out, and advancing `_head`
     // below makes the slot dead, so neither the queue nor `drop` touches the
     // value again. A copy (`p.*`) would be E0901 for a move-only `T`.
-    (val : T) = __yo_ptr_read(self._shared._data.add(self._shared._head));
+    (val : T) = __yo_ptr_read(self._slots.add(self._shared._head));
     unsafe(consume(self._st().*._head = ((self._shared._head + usize(1)) % self._shared._capacity)));
     self._shared._len.store(self._shared._len.load(MemoryOrder.Relaxed) - usize(1), MemoryOrder.Release);
     self._shared._not_full.signal();
@@ -318,7 +365,7 @@ impl(
     // so it holds no value (never written, or moved out by a receive). A
     // bitwise write moves `value` in without dropping those dead bytes and
     // without copying `value`, which a move-only `T` forbids.
-    __yo_ptr_write(self._shared._data.add(tail), value);
+    __yo_ptr_write(self._slots.add(tail), value);
     self._shared._len.store(current_len + usize(1), MemoryOrder.Release);
     self._shared._not_empty.signal();
     self._shared._mutex._raw_unlock();
@@ -348,7 +395,7 @@ impl(
     // under the mutex). A bitwise read moves it out, and advancing `_head`
     // below makes the slot dead, so neither the queue nor `drop` touches the
     // value again. A copy (`p.*`) would be E0901 for a move-only `T`.
-    (val : T) = __yo_ptr_read(self._shared._data.add(self._shared._head));
+    (val : T) = __yo_ptr_read(self._slots.add(self._shared._head));
     unsafe(consume(self._st().*._head = ((self._shared._head + usize(1)) % self._shared._capacity)));
     self._shared._len.store(self._shared._len.load(MemoryOrder.Relaxed) - usize(1), MemoryOrder.Release);
     self._shared._not_full.signal();
@@ -381,7 +428,7 @@ impl(
   }),
   // The queue in the `Arc`: `_head` is written through it, under `_mutex`
   // (an `Arc`'s payload is read-only through the handle).
-  _st : (fn(self : &Self) -> *_ChannelState(T))(addr_of(self._shared.*)),
+  _st : (fn(self : &Self) -> *_ChannelCore)(addr_of(self._shared.*)),
   /// Check if the channel is closed (lock-free atomic load).
   is_closed : (fn(self : &Self) -> bool)(
     self._shared._closed.load(MemoryOrder.Acquire)
@@ -395,27 +442,6 @@ impl(
   /// Check if the channel buffer is empty (lock-free atomic load).
   is_empty : (fn(self : &Self) -> bool)(
     self._shared._len.load(MemoryOrder.Acquire) == usize(0)
-  )
-);
-// Drop: drop remaining elements and free the buffer. The impl lives on the
-// cell's state (V5's shape), so it fires exactly once, when the last handle
-// to the queue goes away.
-impl(
-  generic(T : Type),
-  _ChannelState(T),
-  Drop(
-    drop : (fn(self : &mut Self) -> unit)({
-      (current_len : usize) = self._len.load(MemoryOrder.Relaxed);
-      (mut(i) : usize) = usize(0);
-      while(i < current_len, {
-        (idx : usize) = ((self._head + i) % self._capacity);
-        // SAFETY: every slot of the live run `[_head, _head + len)` owns its
-        // value and nothing reads it after this; the buffer is freed below.
-        drop_in_place(self._data.add(idx));
-        i = (i + usize(1));
-      });
-      free(.Some((*void)(self._data)));
-    })
   )
 );
 /// The sending half of a `Channel(T).receiver`/`pair` split — Rust's

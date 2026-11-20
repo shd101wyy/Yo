@@ -3319,6 +3319,19 @@ validate_concrete_type_constraints :: (
           );
         });
       }, {
+        // A type an instantiation carries a type variable in — through a
+        // field or only through its TYPE ARGUMENTS (`type_mentions_some_type`)
+        // — is not concrete: a type function's body names `Arc(Mutex(T))`
+        // with `T` abstract, and the generic impl that makes `Mutex(T)`
+        // `Sync` cannot bind an abstract `T` outside a definition-time trial,
+        // so judging it here rejected every generic type holding an
+        // `Arc(Mutex(T))`. Each instantiation evaluates the body again with
+        // its concrete arguments, and that check decides
+        // (issues/fixed/2026-11-21-an-arc-of-a-generic-type-with-an-explicit-marker-impl-is-rejected-inside-a-type-function.md).
+        if(!implemented && type_mentions_some_type(concrete_type), {
+          j = (j + usize(1));
+          continue;
+        });
         if(!implemented, {
           // An `Escapable` bound is E0909 (decision 43, O10).
           if(is_escapable_trait(&tv, env_mut), {
