@@ -1,0 +1,20 @@
+// expect: E0911
+// The `&` loan as the FIRST argument and `&mut xs` second: the loan is still carried into the closure's body, so the
+// `&mut` argument's activation meets it (E0911).
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
+first :: (fn(xs : &ArrayList(String)) -> &String)(&xs(usize(0)));
+long :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(long());
+  (c : Impl(Fn(r : &String, ys : &mut ArrayList(String)) -> usize)) = ((r : &String, ys : &mut ArrayList(String)) => {
+    ys.clear();
+    r.clone().len()
+  });
+  e := first(&xs);
+  v := c(e, &mut xs);
+  println(`OUT: ${v.to_string()}`);
+});
+export(main);

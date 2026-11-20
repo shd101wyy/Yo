@@ -1,0 +1,27 @@
+// expect: accept
+// The positive twins: the guard reads `s` and the body writes `o` after `s`'s last use; a guard that reads `o`
+// while `s` is never used; a guard that writes `o` while `s` is never used.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+kill :: (fn(p : &mut Option(Box(String))) -> unit)({
+  p.* = .None;
+});
+peek :: (fn(p : &Option(Box(String))) -> bool)(p.is_some());
+main :: (fn() -> unit)({
+  mut(o) := Option(Box(String)).Some(Box.new(L()));
+  match(&mut o, (.Some(Box(s)) && {
+    println(`OUT: ${s}`);
+    true
+  }) => {
+    o = .None;
+  }, _ => ());
+  mut(o2) := Option(Box(String)).Some(Box.new(L()));
+  match(&mut o2, (.Some(Box(s2)) && peek(&o2)) => println("OUT: peeked"), _ => ());
+  match(&mut o2, (.Some(Box(s3)) && {
+    o2 = .None;
+    true
+  }) => println("OUT: cleared"), _ => ());
+  ()
+});
+export(main);

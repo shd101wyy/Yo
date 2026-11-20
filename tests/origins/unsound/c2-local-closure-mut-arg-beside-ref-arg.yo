@@ -1,0 +1,22 @@
+// expect: E0911
+// A local `Impl(Fn)` closure called with `&mut xs` beside `e`, a `&` loan into `xs` (test 7, probe c19). The closure's
+// `r : &String` parameter carries the loan into the body, so it is live at the call's activation, where `&mut xs` is an
+// exclusive access: the closure clears `ys` and then reads `r` (heap-use-after-free). The same call to a named function
+// was already E0911; a closure's slots were read only when it returned a reference.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
+first :: (fn(xs : &ArrayList(String)) -> &String)(&xs(usize(0)));
+long :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(long());
+  (c : Impl(Fn(ys : &mut ArrayList(String), r : &String) -> usize)) = ((ys : &mut ArrayList(String), r : &String) => {
+    ys.clear();
+    r.clone().len()
+  });
+  e := first(&xs);
+  v := c(&mut xs, e);
+  println(`OUT: ${v.to_string()}`);
+});
+export(main);

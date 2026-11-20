@@ -1,0 +1,20 @@
+// expect: E0911
+// A guard runs after the pattern has bound its names (test 7, probe g02d): `s` borrows `o`'s box exclusively while the
+// guard `{ o = .None; true }` frees it, and the arm then reads `s`. The arm's place loans are registered before the
+// guard is evaluated, so the write is E0911 as the same write in the body is.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+kill :: (fn(p : &mut Option(Box(String))) -> unit)({
+  p.* = .None;
+});
+peek :: (fn(p : &Option(Box(String))) -> bool)(p.is_some());
+main :: (fn() -> unit)({
+  mut(o) := Option(Box(String)).Some(Box.new(L()));
+  match(&mut o, (.Some(Box(s)) && {
+    o = .None;
+    true
+  }) => println(`OUT: ${s}`), _ => ());
+  ()
+});
+export(main);

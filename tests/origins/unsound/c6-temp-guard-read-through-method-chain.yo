@@ -1,0 +1,27 @@
+// expect: E0911
+// The method-chain form (test 7, probe gl03): `.me()` returns the temporary guard by reference, and `.get()` reads
+// through it, so `r` points into the guard `c.borrow_mut()`, which ends with the statement (R-TEMP).
+{ ArrayList } :: import("std/collections/array-list");
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+longs :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+Cell :: struct(xs : ArrayList(String));
+Guard :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(c : &mut(Cell, p)));
+impl(generic(p : Origin), Guard(p), Drop(drop : (fn(self : &mut Self) -> unit)({
+  self.c.xs = ArrayList(String).new();
+})));
+impl(Cell, borrow_mut : (fn(self : &mut Self) -> Guard(self))(Guard(self)(c : self)));
+impl(generic(p : Origin), Guard(p), get : (fn(self : &Self) -> &String)(&self.c.xs(usize(0))));
+impl(generic(p : Origin), Guard(p), me : (fn(self : &Self) -> &Self)(self));
+id :: (fn(a : &String) -> &String)(a);
+mkc :: (fn() -> Cell)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(longs());
+  Cell(xs : xs)
+});
+main :: (fn() -> unit)({
+  mut(c) := mkc();
+  r := c.borrow_mut().me().get();
+  println(`OUT: ${r.*}`);
+});
+export(main);

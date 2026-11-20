@@ -1,0 +1,19 @@
+// expect: E0911
+// The binding's only use is in the guard itself, after the write: its live range covers the guard, not just the
+// body (the range read the body alone, so the loan ended at the binding).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+kill :: (fn(p : &mut Option(Box(String))) -> unit)({
+  p.* = .None;
+});
+peek :: (fn(p : &Option(Box(String))) -> bool)(p.is_some());
+main :: (fn() -> unit)({
+  mut(o) := Option(Box(String)).Some(Box.new(L()));
+  match(&mut o, (.Some(Box(s)) && {
+    o = .None;
+    s.len() > usize(0)
+  }) => println("OUT: taken"), _ => ());
+  ()
+});
+export(main);
