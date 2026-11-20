@@ -1409,13 +1409,9 @@ _r_probe_rank :: (fn(e : &MethodEntry, ref_mode : Option(bool)) -> usize)({
 _has_slot_step_zero :: (fn(hits : &ArrayList(MethodEntry)) -> bool)({
   (i : usize) = usize(0);
   while(i < hits.len(), {
-    match(
-      hits.get(i),
-      .Some(h) => if(_r_probe_rank(&h, Option(bool).Some(false)) == usize(0), {
-        return(true);
-      }),
-      .None => ()
-    );
+    if(_r_probe_rank(&hits(i), Option(bool).Some(false)) == usize(0), {
+      return(true);
+    });
     i = (i + usize(1));
   });
   false
