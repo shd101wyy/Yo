@@ -82,6 +82,13 @@ since before 3e; what changed is the type. Before #1997 `EvalValue` was
 `ref(enum(...))`, which a by-value use copies, so the `match` moved nothing.
 As `Rc(EvalValueNode)` it is move-only, so the `match` consumes it.
 
+A digit-normalized emit-diff of the compiler (this fix vs the R7 tip
+binary, on the same tree) shows exactly one other site of the class:
+`generate_function_declarations` (`src/codegen/functions/declarations.yo`),
+whose second condition `match(tag, .Some(s) => (s == "c"), …)` moves `tag`.
+Every extern function whose first arm (`tag == "yo"`) was taken leaked its
+tag `String` during codegen; it is dropped now.
+
 ## Fix
 
 `cond_condition_moves` (`src/evaluator/utils.yo`) records, right after each
