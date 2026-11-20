@@ -101,5 +101,6 @@ The same change fixes a false rejection. `r := id(id(&x))` was E0911 "a place in
 temporary", because the place walk found no place in the inner call. Its roots are now R-CALL's, here `x`.
 
 Tests (G-B): `c6-temp-guard-read-through-id.yo` (gl02), `c6-temp-guard-read-through-method-chain.yo` (gl03),
-`-id-typed.yo`, `-id-holder.yo`, the positive twin `c6-temp-guard-read-through-id-pos.yo` (the read inside the
+`-id-typed.yo`, `-id-holder.yo`, the direct forms `c6-temp-guard-read-typed.yo` and `c6-temp-guard-read-holder.yo`
+(holes through the deduplication alone), the positive twin `c6-temp-guard-read-through-id-pos.yo` (the read inside the
 statement, and a named guard), and `c6-nested-identity-projection-pos.yo`.

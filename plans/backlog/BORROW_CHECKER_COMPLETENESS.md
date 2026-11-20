@@ -370,7 +370,7 @@ Filed 2026-11-07 from VERDICTS-30/31; each names its repro under `issues/repros/
   as the same call (they are deduplicated by place identity now);
   `r := id(id(&x))`, falsely rejected as a temporary, is accepted. Third, a `match` arm binding is live in the arm's
   guard: its range reads the guard when the body does not mention it, and a guarded `&mut` arm registers its places'
-  loans before the guard runs, so a guard writing the scrutinee under them is E0911 (Rust's E0510). 16 G-B files
+  loans before the guard runs, so a guard writing the scrutinee under them is E0911 (Rust's E0510). 18 G-B files
   (`c2-local-closure-*`, `c6-*`, `c3-match-guard-*`;
   `issues/fixed/2026-11-19-a-mut-argument-to-a-local-closure-is-not-checked-against-a-reference-argument-of-the-same-call.md`,
   `issues/fixed/2026-11-19-a-reference-read-through-a-temporary-guard-outlives-the-guards-drop.md`,
