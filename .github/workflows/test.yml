@@ -634,9 +634,14 @@ jobs:
           chmod +x yo-stage1
           mv yo-stage1 /tmp/yo-stage1
 
+      # --compile-timeout-ms on every verifier step: each file compiles the
+      # whole compiler, and the runner's default 600 s batch deadline is
+      # too tight once R7 grew the evaluator's work (verifier-negative hit
+      # it on 44700622640 and 44757876591;
+      # issues/fixed/2026-11-21-verifier-negative-hits-the-600-second-batch-deadline.md).
       - name: Verifier unit tests (real solver)
         if: matrix.part == 'harness'
-        run: /tmp/yo-stage1 test ./tests/internal/verifier.test.yo --bail -v
+        run: /tmp/yo-stage1 test ./tests/internal/verifier.test.yo --bail -v --compile-timeout-ms 1200000
 
       # V3: the per-function pass over the negative fixtures (subset
       # errors run solver-free; refutations need the Z3 above). Stage 1
@@ -651,7 +656,7 @@ jobs:
         if: matrix.part == 'harness'
         env:
           YO_TEST_LEAK_VERDICT: "0"
-        run: /tmp/yo-stage1 test ./tests/internal/verifier-negative.test.yo --bail -v
+        run: /tmp/yo-stage1 test ./tests/internal/verifier-negative.test.yo --bail -v --compile-timeout-ms 1200000
 
       # V6 task 5 (plans/backlog/FORMAL_VERIFICATION.md): the `assumed()`
       # marker — contracts gate callers, subset-external bodies are not
@@ -660,7 +665,7 @@ jobs:
         if: matrix.part == 'harness'
         env:
           YO_TEST_LEAK_VERDICT: "0"
-        run: /tmp/yo-stage1 test ./tests/internal/verifier-assumed.test.yo --bail -v
+        run: /tmp/yo-stage1 test ./tests/internal/verifier-assumed.test.yo --bail -v --compile-timeout-ms 1200000
 
       # V6 task 3 slice 1 (plans/backlog/FORMAL_VERIFICATION.md §7): the
       # refine(T, p) refinement annotations — modular VCs (callee assumes,
@@ -669,7 +674,7 @@ jobs:
         if: matrix.part == 'harness'
         env:
           YO_TEST_LEAK_VERDICT: "0"
-        run: /tmp/yo-stage1 test ./tests/internal/verifier-refine.test.yo --bail -v
+        run: /tmp/yo-stage1 test ./tests/internal/verifier-refine.test.yo --bail -v --compile-timeout-ms 1200000
 
       # The ArrayList list model (R1 slice 1 of ATS_STYLE_INDEXED_TYPES.md):
       # len/is_empty/index reads over a runtime collection, modular length
@@ -678,7 +683,7 @@ jobs:
         if: matrix.part == 'list-model'
         env:
           YO_TEST_LEAK_VERDICT: "0"
-        run: /tmp/yo-stage1 test ./tests/internal/verifier-list-len.test.yo --bail -v
+        run: /tmp/yo-stage1 test ./tests/internal/verifier-list-len.test.yo --bail -v --compile-timeout-ms 1200000
 
       - name: yo verify harness report (JSON)
         if: matrix.part == 'harness'
