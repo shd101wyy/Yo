@@ -190,8 +190,8 @@ test("compat: SomeT different level", {
 // Substitution engine
 // ---------------------------------------------------------------------------
 test("subst_lookup: not found", {
-  s := subst_new();
-  result := subst_lookup(&s, `T`, usize(0));
+  mut(s) := subst_new();
+  result := subst_lookup(&mut s, `T`, usize(0));
   match(
     result,
     .Some(_) => assert(false, "should not find"),
@@ -199,9 +199,9 @@ test("subst_lookup: not found", {
   );
 });
 test("subst_lookup: found after add", {
-  s := subst_new();
-  subst_add(&s, `T`, usize(0), t_i32());
-  result := subst_lookup(&s, `T`, usize(0));
+  mut(s) := subst_new();
+  subst_add(&mut s, `T`, usize(0), t_i32());
+  result := subst_lookup(&mut s, `T`, usize(0));
   match(
     result,
     .Some(t) => assert(are_types_compatible(&t, t_i32()), "should be i32"),
@@ -209,10 +209,10 @@ test("subst_lookup: found after add", {
   );
 });
 test("subst_add: overwrite existing", {
-  s := subst_new();
-  subst_add(&s, `T`, usize(0), t_i32());
-  subst_add(&s, `T`, usize(0), t_bool());
-  result := subst_lookup(&s, `T`, usize(0));
+  mut(s) := subst_new();
+  subst_add(&mut s, `T`, usize(0), t_i32());
+  subst_add(&mut s, `T`, usize(0), t_bool());
+  result := subst_lookup(&mut s, `T`, usize(0));
   match(
     result,
     .Some(t) => assert(are_types_compatible(&t, t_bool()), "should be bool after overwrite"),
@@ -220,40 +220,40 @@ test("subst_add: overwrite existing", {
   );
 });
 test("substitute: SomeT replaced", {
-  s := subst_new();
-  subst_add(&s, `T`, usize(0), t_i32());
+  mut(s) := subst_new();
+  subst_add(&mut s, `T`, usize(0), t_i32());
   tv := t_some_t(`T`, usize(0));
-  res := substitute(&s, &tv);
+  res := substitute(&mut s, &tv);
   assert(are_types_compatible(&res, t_i32()), "SomeT should be replaced with i32");
 });
 test("substitute: SomeT not in subst unchanged", {
-  s := subst_new();
+  mut(s) := subst_new();
   tv := t_some_t(`U`, usize(0));
-  res := substitute(&s, &tv);
+  res := substitute(&mut s, &tv);
   assert(are_types_compatible(&res, &tv), "unreferenced SomeT should be unchanged");
 });
 test("substitute: primitive unchanged", {
-  s := subst_new();
-  subst_add(&s, `T`, usize(0), t_i32());
-  res := substitute(&s, t_bool());
+  mut(s) := subst_new();
+  subst_add(&mut s, `T`, usize(0), t_i32());
+  res := substitute(&mut s, t_bool());
   assert(are_types_compatible(&res, t_bool()), "primitive should be unchanged");
 });
 test("substitute: nested in pointer", {
-  s := subst_new();
-  subst_add(&s, `T`, usize(0), t_i32());
+  mut(s) := subst_new();
+  subst_add(&mut s, `T`, usize(0), t_i32());
   tv := t_ptr(t_some_t(`T`, usize(0)));
-  res := substitute(&s, &tv);
+  res := substitute(&mut s, &tv);
   assert(are_types_compatible(&res, t_ptr(t_i32())), "SomeT inside pointer should be replaced");
 });
 test("substitute: inside func param", {
-  s := subst_new();
-  subst_add(&s, `T`, usize(0), t_i32());
+  mut(s) := subst_new();
+  subst_add(&mut s, `T`, usize(0), t_i32());
   mut(ls) := ArrayList(String).new();
   mut(ts) := ArrayList(TypeValue).new();
   ls.push(`x`);
   ts.push(t_some_t(`T`, usize(0)));
   f := t_func_simple(ls.clone(), ts.clone(), t_some_t(`T`, usize(0)));
-  res := substitute(&s, &f);
+  res := substitute(&mut s, &f);
   mut(ls2) := ArrayList(String).new();
   mut(ts2) := ArrayList(TypeValue).new();
   ls2.push(`x`);
@@ -262,12 +262,12 @@ test("substitute: inside func param", {
   assert(are_types_compatible(&res, &expected), "SomeT in func should be substituted");
 });
 test("substitute_all: list of types", {
-  s := subst_new();
-  subst_add(&s, `T`, usize(0), t_bool());
+  mut(s) := subst_new();
+  subst_add(&mut s, `T`, usize(0), t_bool());
   mut(tys) := ArrayList(TypeValue).new();
   tys.push(t_some_t(`T`, usize(0)));
   tys.push(t_i32());
-  res := substitute_all(&s, &tys);
+  res := substitute_all(&mut s, &tys);
   assert(res.len() == usize(2), "length should be 2");
   t0 := match(res.get_cloned(usize(0)), .Some(t) => t, .None => t_unit());
   t1 := match(res.get_cloned(usize(1)), .Some(t) => t, .None => t_unit());
@@ -326,9 +326,9 @@ test("substitute: a shared struct DAG is substituted once per node", {
     ty = _dag_level(i, &ty);
     i = (i + usize(1));
   });
-  s := subst_new();
-  subst_add(&s, `T`, usize(0), t_i32());
-  (mut(cur) : TypeValue) = substitute(&s, &ty);
+  mut(s) := subst_new();
+  subst_add(&mut s, `T`, usize(0), t_i32());
+  (mut(cur) : TypeValue) = substitute(&mut s, &ty);
   (mut(depth) : usize) = usize(0);
   while(match(&cur, Rc(.Struct({ id : _ })) => true, _ => false), {
     cur = match(&cur, Rc(.Struct({ field_types : fts })) => match(fts.get(usize(1)), .Some(t) => t, .None => t_unit()), _ => t_unit());

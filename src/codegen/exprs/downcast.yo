@@ -193,7 +193,7 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
       .Some(box_ty) => {
         box_cname := get_type_string(&box_ty, &mut context.base);
         box_fields := get_runtime_struct_fields(&box_ty);
-        field_c := match(box_fields.get(usize(0)), .Some(f) => sanitize_for_c_identifier(&f.label, false), .None => String.from("_u42_"));
+        field_c := match(box_fields.get_cloned(usize(0)), .Some(f) => sanitize_for_c_identifier(&f.label, false), .None => String.from("_u42_"));
         extract := String.from("((");
         extract.push_string(&box_cname);
         extract.push_str(")");

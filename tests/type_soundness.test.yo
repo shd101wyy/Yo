@@ -717,7 +717,7 @@ _p31_anon_other_fields :: Type.is_compatible_with(struct(y : bool), _P31Named);
 _p31_anon_vs_anon :: Type.is_compatible_with(struct(x : i32), struct(y : bool, z : f64));
 _p31_newtype_vs_anon :: Type.is_compatible_with(_P31Newt, struct(v : i32));
 _p31_anon_vs_newtype :: Type.is_compatible_with(struct(v : i32), _P31Newt);
-_p31_ref_vs_anon :: Type.is_compatible_with(ref(struct(x : i32)), struct(x : i32));
+_p31_ref_vs_anon :: Type.is_compatible_with(Rc(struct(x : i32)), struct(x : i32));
 _p31_enum_vs_enum :: Type.is_compatible_with(enum(Blue), _P31Colors);
 _p31_union_vs_union :: Type.is_compatible_with(union(a : i32), union(b : f64, c : u8));
 _p31_anon_same_fields :: Type.is_compatible_with(struct(x : i32), _P31Named);
@@ -731,7 +731,7 @@ test("soundness: a name match or an anonymous side is not struct compatibility",
   assert(!_p31_anon_vs_anon, "two anonymous records with different fields");
   assert(!_p31_newtype_vs_anon, "a newtype is nominal against an anonymous record");
   assert(!_p31_anon_vs_newtype, "an anonymous record is not a newtype");
-  assert(!_p31_ref_vs_anon, "a ref object is not a value record");
+  assert(!_p31_ref_vs_anon, "a counted handle is not a value record");
   assert(!_p31_enum_vs_enum, "an anonymous enum with other variants");
   assert(!_p31_union_vs_union, "a union with other fields");
 });

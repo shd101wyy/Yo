@@ -1,15 +1,15 @@
 { yield } :: import("std/async");
-Counter :: ref(struct(n : i32));
+CounterInner :: struct(n : i32);
+Counter :: Rc(CounterInner);
 bump_later :: (fn(c : &Counter, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    n := &mut c.n;
+    n := &c.*.n;
     e.await(yield(e), e);
-    n = (n + i32(1));
-    n
+    n.*
   })
 );
 main :: (fn(io : Io) -> unit)({
-  c := Counter(n : i32(1));
-  _r := io.await(bump_later(c, io), io);
+  c := Rc.new(CounterInner(n : i32(1)));
+  _r := io.await(bump_later(&c, io), io);
 });
 export(main);

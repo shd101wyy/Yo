@@ -104,7 +104,7 @@ Dropping `root` drops the tree: the only strong edges point down.
 ## The `Acyclic` marker
 
 `T <: Acyclic` holds when no cycle of strong edges is reachable from a value of
-`T`. A cycle of values needs a shared cell on it (`Rc`, `Arc`, a `ref` object):
+`T`. A cycle of values needs a shared cell on it (`Rc` or `Arc`):
 a recursion through a value or a `Box` (`Option(Box(Self))`) builds a tree, and
 a `Weak` or `ArcWeak` edge is no edge.
 The marker is derived, and std requires it nowhere; a `where(T <: Acyclic)`

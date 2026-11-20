@@ -2640,18 +2640,18 @@ test("s.push_string(&s) is E0910; a copy of s appends", {
   s.push_string(&t);
   assert(s == "abab", "a copy of itself appends");
 });
-// A `ref` root is outside decision 28's value-root rule, but decision 43's
-// ref-cell extension covers it: a place below a `ref` cell lent `&mut` and
-// `&` to one call is E0910, since the `&` argument is a bitwise copy of the
-// place taken at the call
-// (issues/fixed/2026-10-31-a-ref-root-place-lent-mut-and-shared-to-one-call-reads-a-stale-copy.md).
-_StrCell :: ref(struct(s : String));
-test("a string pushed onto itself through a ref root is E0910; a copy appends", {
+// A field place lent `&mut` and `&` to one call is E0910 too (decision 28's
+// value-root rule covers a place below the root, not only the whole local):
+// the `&` argument would be a bitwise copy of the place taken at the call
+// (issues/fixed/2026-10-31-a-ref-root-place-lent-mut-and-shared-to-one-call-reads-a-stale-copy.md;
+// its `ref`-root form went with the v0.2.79 parser drop).
+_StrCell :: struct(s : String);
+test("a string field pushed onto itself is E0910; a copy appends", {
   comptime_expect_error({
-    o := _StrCell(s : String.from("ab-yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"));
+    mut(o) := _StrCell(s : String.from("ab-yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"));
     o.s.push_string(&o.s)
-  }, "both root at the reference cell");
-  o := _StrCell(s : String.from("ab-yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"));
+  }, "which overlaps it");
+  mut(o) := _StrCell(s : String.from("ab-yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"));
   t := o.s.clone();
   o.s.push_string(&t);
   assert(o.s == `${t}${t}`, "a copy of itself appends");

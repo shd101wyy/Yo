@@ -603,7 +603,7 @@ sm_lowering_restore_scope :: (fn(context : &mut FunctionGenerationContext, sink(
     .Some(scope) => match(
       &mut context.sm_inline_lowering,
       .Some(low) => {
-        low.analysis = scope.analysis;
+        low.analysis = scope.analysis.clone();
         low.emitted = scope.emitted.clone();
         low.moved_reads = scope.moved_reads.clone();
       },
@@ -614,7 +614,7 @@ sm_lowering_restore_scope :: (fn(context : &mut FunctionGenerationContext, sink(
 );
 /// The suspension analysis of the body being lowered.
 sm_lowering_analysis :: (fn(context : &FunctionGenerationContext) -> Option(AwaitAnalysisResult))(
-  match(&context.sm_inline_lowering, .Some(low) => Option(AwaitAnalysisResult).Some(low.analysis), .None => Option(AwaitAnalysisResult).None)
+  match(&context.sm_inline_lowering, .Some(low) => Option(AwaitAnalysisResult).Some(low.analysis.clone()), .None => Option(AwaitAnalysisResult).None)
 );
 export(
   record_declared_temp_var,

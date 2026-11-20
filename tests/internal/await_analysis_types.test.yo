@@ -118,11 +118,11 @@ test("CapturedVariable base fields and kind", {
       id : String.from("v0"),
       name : String.from("x"),
       ty : t_unit(),
-      is_owning_the_same_rc_value_as : Option(SuspensionCapturedVariable).None,
+      is_owning_the_same_rc_value_as : Option(Rc(SuspensionCapturedVariable)).None,
       decl_site : String.from("")
     ),
     kind : CapturedVariableKind.Local,
-    is_owning_the_same_rc_value_as : Option(CapturedVariable).None
+    is_owning_the_same_rc_value_as : Option(Rc(CapturedVariable)).None
   );
   assert(cv.base.id == "v0", "id");
   assert(cv.base.name == "x", "name");
@@ -135,11 +135,11 @@ test("CapturedVariable Outer kind for captured-from-outer-scope variable", {
       id : String.from("outer_v"),
       name : String.from("captured"),
       ty : t_unit(),
-      is_owning_the_same_rc_value_as : Option(SuspensionCapturedVariable).None,
+      is_owning_the_same_rc_value_as : Option(Rc(SuspensionCapturedVariable)).None,
       decl_site : String.from("")
     ),
     kind : CapturedVariableKind.Outer,
-    is_owning_the_same_rc_value_as : Option(CapturedVariable).None
+    is_owning_the_same_rc_value_as : Option(Rc(CapturedVariable)).None
   );
   is_outer := match(cv.kind, .Local => false, .Outer => true);
   assert(is_outer, "kind Outer");
@@ -151,28 +151,28 @@ test("CapturedVariable self-referential field (Option(Self))", {
         id : String.from("v1"),
         name : String.from("temp"),
         ty : t_unit(),
-        is_owning_the_same_rc_value_as : Option(SuspensionCapturedVariable).None,
+        is_owning_the_same_rc_value_as : Option(Rc(SuspensionCapturedVariable)).None,
         decl_site : String.from("")
       ),
       kind : CapturedVariableKind.Local,
-      is_owning_the_same_rc_value_as : Option(CapturedVariable).None
+      is_owning_the_same_rc_value_as : Option(Rc(CapturedVariable)).None
     );
   outer := CapturedVariable(
     base : SuspensionCapturedVariable(
       id : String.from("v2"),
       name : String.from("owner"),
       ty : t_unit(),
-      is_owning_the_same_rc_value_as : Option(SuspensionCapturedVariable).None,
+      is_owning_the_same_rc_value_as : Option(Rc(SuspensionCapturedVariable)).None,
       decl_site : String.from("")
     ),
     kind : CapturedVariableKind.Local,
-    is_owning_the_same_rc_value_as : Option(CapturedVariable).Some(inner)
+    is_owning_the_same_rc_value_as : Option(Rc(CapturedVariable)).Some(Rc.new(inner))
   );
-  has_alias := match(outer.is_owning_the_same_rc_value_as, .Some(_) => true, .None => false);
+  has_alias := match(&outer.is_owning_the_same_rc_value_as, .Some(_) => true, .None => false);
   assert(has_alias, "outer has alias");
 });
 test("AwaitAnalysisResult can hold await points", {
-  r := await_analysis_result_empty();
+  mut(r) := await_analysis_result_empty();
   ap := AwaitPoint(
     base : make_sp(usize(0)),
     result_type : t_unit(),
@@ -186,7 +186,7 @@ test("AwaitAnalysisResult can hold await points", {
   assert(r.has_awaits, "has_awaits true");
 });
 test("AwaitAnalysisResult variable_id_remapping", {
-  r := await_analysis_result_empty();
+  mut(r) := await_analysis_result_empty();
   r.variable_id_remapping.insert(String.from("ssa_v1"), String.from("orig_v0"));
   got := r.variable_id_remapping.get_cloned(&String.from("ssa_v1"));
   result := match(got, .Some(v) => v, .None => String.from(""));

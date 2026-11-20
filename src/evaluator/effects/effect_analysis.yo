@@ -703,7 +703,7 @@ analyze_effect_call_points :: (
   (pi : usize) = usize(0);
   while(pi < n_pts, {
     sp := match(
-      result.suspension_points.get(pi),
+      result.suspension_points.get_cloned(pi),
       .None => {
         break;
       },
@@ -739,7 +739,7 @@ analyze_effect_call_points :: (
   (ci : usize) = usize(0);
   while(ci < n_cv, {
     sv := match(
-      result.captured_variables.get(ci),
+      result.captured_variables.get_cloned(ci),
       .None => {
         break;
       },
@@ -747,7 +747,7 @@ analyze_effect_call_points :: (
     );
     ecv := EffectCapturedVariable(
       base : sv,
-      is_owning_the_same_rc_value_as : Option(EffectCapturedVariable).None
+      is_owning_the_same_rc_value_as : Option(Rc(EffectCapturedVariable)).None
     );
     captured_variables.push(ecv);
     ci = (ci + usize(1));

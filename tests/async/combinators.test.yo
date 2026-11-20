@@ -215,6 +215,25 @@ test("Test timeout distinguishes an aborted task from an elapsed deadline", {
     "a task cancelled before its deadline joins as .None, in time"
   );
 });
+// Two `timeout` calls at ONE `T` (`Option(unit)`, a join future's output)
+// share one specialization; its two inner joins (`Option(T)` and the
+// deadline's `Option(unit)`) keep their own result types. A lost write to the
+// specialization cache once minted the generic twice, and the second mint's
+// await slot read the deadline join's type (C: assigning `Option(unit)` to
+// `Option(Option(unit))`).
+_tmo_unit_task :: (fn(io : Io) -> Impl(Future(unit, Io)))(
+  io.async((io : Io) => {
+    ()
+  })
+);
+test("Test two timeouts of join futures at one T", {
+  t1 := io.spawn(_tmo_unit_task(io), io);
+  t2 := io.spawn(_tmo_unit_task(io), io);
+  r1 := io.await(timeout(t1.join(io), Duration.from_millis(i64(5000)), io), io);
+  r2 := io.await(timeout(t2.join(io), Duration.from_millis(i64(5000)), io), io);
+  assert(match(r1, .Ok(v) => v.is_some(), .Err(_) => false), "the first join resolves in time");
+  assert(match(r2, .Ok(v) => v.is_some(), .Err(_) => false), "the second join resolves in time");
+});
 // ---------------------------------------------------------------------------
 // 7. timeout — deadline aborts the task
 // ---------------------------------------------------------------------------

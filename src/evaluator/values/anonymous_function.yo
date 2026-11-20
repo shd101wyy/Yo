@@ -185,7 +185,8 @@ _c_len_1 :: (fn(xs : &ArrayList(String)) -> usize)(xs.len());
   flow_violation_error,
   raise_flow_violation,
   reraise_flow_violation,
-  propagate_def_time_errors
+  propagate_def_time_errors,
+  in_derive_impl
 } :: import("../../types/flowability.yo");
 /// Walk a parameter-declaration AST (`(a, b)` tuple or single atom)
 /// and append each param-name token-value to `out`. Used to
@@ -2548,7 +2549,7 @@ evaluate_anonymous_function_implementation :: (
   // not control-bound, so generic/async (`Impl(Future(...))`) results pass.
   if(!ctl_force, {
     decl_result_ty := match(&function_type, Rc(.Func({ result : __rr })) => t_slot_pointee(&__rr.*), _ => t_unit());
-    if(type_is_control_bound(&decl_result_ty), {
+    if(!in_derive_impl() && type_is_control_bound(&decl_result_ty), {
       exn.throw(
         dyn(
           Box.new(

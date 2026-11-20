@@ -125,24 +125,53 @@ _c_len_1 :: (fn(xs : &ArrayList(String)) -> usize)(xs.len());
 // TypeValue carries no general `cInclude`, so the entry carries it
 // (supplied at registration) rather than being read off the type.
 // ===========================================================================
-CodegenTypeEntry :: ref(struct(ty : TypeValue, c_name : String, c_include : Option(String)));
-CodegenExternFnEntry :: ref(struct(ty : TypeValue, c_name : String, c_include : Option(String)));
+CodegenTypeEntry :: struct(ty : TypeValue, c_name : String, c_include : Option(String));
+derive(CodegenTypeEntry, Clone);
+CodegenExternFnEntry :: struct(ty : TypeValue, c_name : String, c_include : Option(String));
+impl(
+  CodegenExternFnEntry,
+  Clone(
+    clone : (fn(self : &Self) -> Self)(
+      CodegenExternFnEntry(ty : Rc.clone(&self.ty), c_name : self.c_name.clone(), c_include : self.c_include.clone())
+    )
+  )
+);
 /// A reachable function to be generated. `value` is the FuncVal EvalValue;
 /// `def_module` is the defining module's path (the body token's), recorded at
 /// registration for by-module TU grouping
 /// (plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §5.4).
-CodegenFunctionEntry :: ref(struct(value : EvalValue, c_name : String, def_module : String));
+CodegenFunctionEntry :: struct(value : EvalValue, c_name : String, def_module : String);
+impl(
+  CodegenFunctionEntry,
+  Clone(
+    clone : (fn(self : &Self) -> Self)(
+      CodegenFunctionEntry(value : Rc.clone(&self.value), c_name : self.c_name.clone(), def_module : self.def_module.clone())
+    )
+  )
+);
 /// An entry in `impl_closure_call_map`: the resolved concrete capture-struct
 /// type id → the generated closure implementation function for that type.
-ImplClosureCallInfo :: ref(
-  struct(
-    function_c_name : String,
-    call_type_id : String,
-    call_type : Option(TypeValue),
-    consumed_captures : Option(ArrayList(String)),
-    /// The closure impl fn's func_id (for get_func_type → its runtime param types,
-    /// e.g. the spawn-wrapper's closure-arg zero-inits).
-    closure_fid : String
+ImplClosureCallInfo :: struct(
+  function_c_name : String,
+  call_type_id : String,
+  call_type : Option(TypeValue),
+  consumed_captures : Option(ArrayList(String)),
+  /// The closure impl fn's func_id (for get_func_type → its runtime param types,
+  /// e.g. the spawn-wrapper's closure-arg zero-inits).
+  closure_fid : String
+);
+impl(
+  ImplClosureCallInfo,
+  Clone(
+    clone : (fn(self : &Self) -> Self)(
+      ImplClosureCallInfo(
+        function_c_name : self.function_c_name.clone(),
+        call_type_id : self.call_type_id.clone(),
+        call_type : self.call_type.clone(),
+        consumed_captures : self.consumed_captures.clone(),
+        closure_fid : self.closure_fid.clone()
+      )
+    )
   )
 );
 ArrayStructInfo :: struct(child_type : String, length : i64);
@@ -154,13 +183,25 @@ derive(ArrayStructInfo, Clone);
 /// data word is the payload's own address (a `dyn(&v)` / `dyn(&mut v)` /
 /// `dyn(p : *V)` Dyn pointer, decision 49), not the legacy cell holding it:
 /// its wrappers and slot functions read `*(V*)data`, and its key carries `_P`.
-DynImplEntry :: ref(
-  struct(
-    dyn_type : TypeValue,
-    concrete_type : TypeValue,
-    data_type : TypeValue,
-    trait_values : ArrayList(EvalValue),
-    payload_convention : bool
+DynImplEntry :: struct(
+  dyn_type : TypeValue,
+  concrete_type : TypeValue,
+  data_type : TypeValue,
+  trait_values : ArrayList(EvalValue),
+  payload_convention : bool
+);
+impl(
+  DynImplEntry,
+  Clone(
+    clone : (fn(self : &Self) -> Self)(
+      DynImplEntry(
+        dyn_type : Rc.clone(&self.dyn_type),
+        concrete_type : Rc.clone(&self.concrete_type),
+        data_type : Rc.clone(&self.data_type),
+        trait_values : self.trait_values.clone(),
+        payload_convention : self.payload_convention
+      )
+    )
   )
 );
 /// The convention suffix every key of a dyn impl carries: `_P` for a
@@ -182,7 +223,8 @@ dyn_impl_key_suffix :: (fn(payload_convention : bool, data_type : &TypeValue) ->
 /// specialization carries its original's, through the body token) and is
 /// empty for the header-routed runtime blocks; `--chunk-by module` groups
 /// translation units by it (plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §8).
-ChunkRange :: ref(struct(c_name : String, start_b : usize, end_b : usize, module : String));
+ChunkRange :: struct(c_name : String, start_b : usize, end_b : usize, module : String);
+derive(ChunkRange, Clone);
 /// The base C code generation context. See header above.
 CodeGenContext :: struct(
   /// Collected types that need to be generated (keyed by TypeId string).
@@ -555,11 +597,11 @@ impl(
   /// Look up a registered type entry by id (following one alias level).
   get_type_entry : (fn(self : &Self, id : &String) -> Option(CodegenTypeEntry))(
     match(
-      self.types.get(id.clone()),
+      self.types.get_cloned(id.clone()),
       .Some(e) => .Some(e),
       .None => match(
         self.type_key_aliases.get_cloned(id),
-        .Some(target) => self.types.get(&target),
+        .Some(target) => self.types.get_cloned(&target),
         .None => Option(CodegenTypeEntry).None
       )
     )
@@ -594,7 +636,7 @@ impl(
     });
     (mut(final_name) : String) = c_name.clone();
     match(
-      self.functions.get(func_id),
+      self.functions.get_cloned(func_id),
       .Some(existing) => {
         // Same func_id re-registered: keep the FIRST name it was given (the
         // plain-label path re-registers exports; renaming here would strand
@@ -635,7 +677,7 @@ impl(
     // def named `fn_x(&(*frame_ptr)->variables, j)`). Same hardening as
     // get_type_c_name above (the enum sibling-cname pollution).
     match(
-      self.functions.get(func_id),
+      self.functions.get_cloned(func_id),
       .Some(fe) => Option(CodegenFunctionEntry).Some(CodegenFunctionEntry(value : Rc.clone(fe.value), c_name : fe.c_name.clone(), def_module : fe.def_module.clone())),
       .None => Option(CodegenFunctionEntry).None
     )
@@ -657,7 +699,7 @@ impl(
   }),
   /// Register a dyn() usage (idempotent on key).
   register_dyn_impl : (fn(self : &mut Self, key : &String, entry : &DynImplEntry) -> unit)({
-    self.dyn_impls.insert(key.clone(), entry.*);
+    self.dyn_impls.insert(key.clone(), entry.*.clone());
     ()
   }),
   /// Record one `upcast(src, tgt)` (idempotent per target).
@@ -835,7 +877,8 @@ std_allocator_abi_is_v2 :: (fn(env : &Environment, std_path : &String) -> bool)(
 });
 /// A runtime (non-comptime-only) struct field: its label and type, in
 /// declaration order.
-RuntimeStructField :: ref(struct(label : String, ty : TypeValue));
+RuntimeStructField :: struct(label : String, ty : TypeValue);
+derive(RuntimeStructField, Clone);
 /// The runtime (non-comptime-only) fields of a struct type, in declaration
 /// order. Non-struct types yield an empty
 /// list. A struct with no registered comptime-flags is treated as all-runtime.

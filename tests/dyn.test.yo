@@ -1341,18 +1341,23 @@ test("a Box(Dyn) and a *Dyn are two words, and a struct holding one is laid out 
   b := Box.new(_SzHolder(tag : usize(7), err : inner));
   assert(b.*.tag == usize(7), "the boxed holder reads back");
 });
-// A `ref` object erased by the alias is boxed (decision 49 S2): the box's
-// payload slot holds the handle, so a downcast through an `&AnyError` loads it
-// there (issues/fixed/2026-11-15-a-downcast-of-a-boxed-ref-struct-reads-the-payload-slot-as-the-object.md).
-_DrsObj :: ref(struct(n : i32));
+// An `Rc` erased by the alias is boxed (decision 49 S2): the box's payload
+// slot holds the handle, so a downcast through an `&AnyError` loads it there
+// (issues/fixed/2026-11-15-a-downcast-of-a-boxed-ref-struct-reads-the-payload-slot-as-the-object.md).
+_DrsObjInner :: struct(n : i32);
+_DrsObj :: Rc(_DrsObjInner);
 impl(_DrsObj, ToString(to_string : (fn(self : &Self) -> String)(String.from("drs"))));
 impl(_DrsObj, Error());
-impl(_DrsObj, Clone(clone : (fn(self : &Self) -> Self)(_DrsObj(n : self.n))));
 _drs_n :: (fn(err : &AnyError) -> i32)(match(downcast(err, _DrsObj), .Some(o) => o.n, .None => i32(0)));
-test("a downcast of a boxed ref-struct payload reads the object", {
-  (e : AnyError) = dyn(Box.new(_DrsObj(n : i32(7))));
-  assert(_drs_n(&e) == i32(7), "the ref object behind the box");
+test("a downcast of a boxed Rc payload reads the object", {
+  (e : AnyError) = dyn(Box.new(Rc.new(_DrsObjInner(n : i32(7)))));
+  assert(_drs_n(&e) == i32(7), "the Rc handle behind the box");
   assert(e.to_string() == String.from("drs"), "and the erased value still dispatches");
+  // The `Dyn`'s clone slot reads the handle where the data word points, not
+  // the cell's field (issues/fixed/2026-11-19-a-dyn-clone-of-a-boxed-rc-payload-reads-the-cell-as-the-handle.md).
+  e2 := e.clone();
+  assert(_drs_n(&e2) == i32(7), "the clone's handle reads the same object");
+  assert(e2.to_string() == String.from("drs"), "and the clone dispatches");
 });
 // Decision 49 S2's ASan rows (VERDICTS-61 decision 15) the files above do not
 // already hold: a closure's captures through `Box(Dyn(Fn))` and the interim

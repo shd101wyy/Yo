@@ -334,8 +334,6 @@ yo compile main.yo --allocator fixed --debug-heap -o app && ./app
   可以满足任意 2 的幂的对齐，对齐超过 16 的类型的全局 `Box` 由对齐分配族提供。全局的
   `Rc`/`Arc` 单元只按 16 对齐，所以这种类型的 `Rc` 或 `Arc` 必须被放置。目前没有 Yo
   类型的对齐超过 16；`extern` C 类型可能超过。
-- **不能放置 `ref` 对象。** `ref` 构造器不接受 `alloc` 参数。把类型改成值结构体，
-  再用 `Rc.new(v, alloc : .Some(a))` 放置。
 
 设计记录（含测量数据和各阶段的历史）见 `plans/archive/EXPLICIT_ALLOCATORS.md`，
 已落地的决定汇总在 `plans/reference/EXPLICIT_ALLOCATORS.md`，放置规则（“默认全局，

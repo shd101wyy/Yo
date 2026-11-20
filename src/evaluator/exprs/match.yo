@@ -1563,7 +1563,7 @@ evaluate_match :: (
       if(!b_ct_known, {
         match(&_added, .Some(sc_var) => note_second_class_binding(&sc_var.*, &b.ty, ast_expr_token(&b.atom), &env, ctx, exn), .None => ());
       });
-      match(lb_scr_source, .Some(lbs) => local_borrow_note_pattern_binding(b.name.clone(), ast_expr_token(&b.atom), &lbs), .None => ());
+      match(&lb_scr_source, .Some(lbs) => local_borrow_note_pattern_binding(b.name.clone(), ast_expr_token(&b.atom), &lbs.*), .None => ());
       // A binding of a `match(&x, …)`, or of a reference binding matched
       // bare (`match(r, …)`, VERDICTS-13 §14), borrows the part it
       // binds: it reads as a whole value with `.*`
@@ -1724,7 +1724,7 @@ evaluate_match :: (
       all_classic = false;
     });
     arm := Arm(pattern : pat, guard : guard_ast.clone(), body : Rc.clone(body_ast), arm_expr : Rc.clone(arm_expr), pattern_expr : Rc.clone(pattern_ast), classic : classic);
-    arms.push(arm);
+    arms.push(arm.clone());
     match(
       arm_pat,
       .Some(ap) => cg_arms.push(Arm(pattern : ap, guard : guard_ast.clone(), body : Rc.clone(body_ast), arm_expr : Rc.clone(arm_expr), pattern_expr : Rc.clone(pattern_ast), classic : false)),
@@ -1934,8 +1934,8 @@ evaluate_match :: (
           match(
             cell_copy_vars.get_cloned(ci0),
             .Some(cv) => match(
-              lb_scr_source,
-              .Some(lbs) => local_borrow_note_match_place(&lbs, cv.name.clone(), &cv.token, &body_ast),
+              &lb_scr_source,
+              .Some(lbs) => local_borrow_note_match_place(&lbs.*, cv.name.clone(), &cv.token, &body_ast),
               .None => match(&mut_place, .Some(lp) => local_borrow_register_match_place(cv.name.clone(), &cv.token, &lp.*, &body_ast), .None => ())
             ),
             .None => ()
@@ -1965,8 +1965,8 @@ evaluate_match :: (
               // passes through a cell or a module-level place, judged at
               // each await (issues/fixed/a-mut-match-place-binding-cannot-live-across-an-await.md).
               match(
-                lb_scr_source,
-                .Some(lbs) => local_borrow_note_match_place(&lbs, pv.name.clone(), &pv.token, &body_ast),
+                &lb_scr_source,
+                .Some(lbs) => local_borrow_note_match_place(&lbs.*, pv.name.clone(), &pv.token, &body_ast),
                 .None => match(&mut_place, .Some(lp) => local_borrow_register_match_place(pv.name.clone(), &pv.token, &lp.*, &body_ast), .None => ())
               );
             },
@@ -2238,7 +2238,7 @@ evaluate_match :: (
     (gci : usize) = usize(0);
     while(gci < arms.len(), {
       match(
-        arms.get(gci),
+        arms.get_cloned(gci),
         .Some(ga) => match(
           &ga.pattern,
           .Variant(_, gvidx, _, _, _, _, _) => {
@@ -2276,7 +2276,7 @@ evaluate_match :: (
       (ai3 : usize) = usize(0);
       while(ai3 < arms.len(), {
         match(
-          arms.get(ai3),
+          arms.get_cloned(ai3),
           .Some(aa) => match(
             &aa.pattern,
             .Variant(an, aidx, _, _, aety, aptr, aar) => if(aidx.* == target_idx, {
@@ -2302,16 +2302,15 @@ evaluate_match :: (
           // already carry the test expansions recorded in the arm loop).
           (fi3 : usize) = usize(0);
           while(fi3 < arms.len(), {
-            match(
-              arms.get(fi3),
-              .Some(fa) => match(
+            arms.with(
+              fi3,
+              fa => match(
                 &fa.pattern,
                 .Variant(_, fidx, _, _, _, _, _) => if(fidx.* == target_idx, {
                   fa.classic = false;
                 }),
                 _ => ()
-              ),
-              .None => ()
+              )
             );
             fi3 = (fi3 + usize(1));
           });
@@ -2354,7 +2353,7 @@ evaluate_match :: (
   (ui : usize) = usize(0);
   while(ui < arms.len(), {
     ua := match(
-      arms.get(ui),
+      arms.get_cloned(ui),
       .Some(a) => a,
       .None => {
         return(Rc.clone(expr.*));

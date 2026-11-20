@@ -48,7 +48,7 @@ it freezes its place:
 - while a `&mut` borrow is live, they are not accessed at all except through
   the borrow;
 - **sibling fields stay free**: `a := &mut p.x; b := &mut p.y;` is accepted;
-- below a reference cell (`Rc`, `Arc`, a `ref` object) **the cell is
+- below a reference cell (`Rc`, `Arc`, `RefCell`) **the cell is
   the unit**, because other handles reach it: `a := &mut h.n; b := &mut h.s;`
   is rejected;
 - a loop that uses the borrow keeps it live for the whole loop (the next
@@ -321,8 +321,7 @@ rule, E0910), in either order: `s.push_string(&s)` (the receiver is lent
 `f(&mut p.name, &p)` are rejected, because the callee would write the place
 while it reads it through the other argument. Two `&` lends may overlap, and
 so may disjoint fields (`f(&mut p.s, &p.k)`). A place rooted at a reference
-cell (an `Rc`, an `Arc`, a `ref` object, and a collection until it becomes a
-value) is not a value root: other handles reach the cell anyway. Copy one
+cell (an `Rc` or an `Arc`) is not a value root: other handles reach the cell anyway. Copy one
 side first (`t := s.clone(); s.push_string(&t)`).
 
 With no local bindings there is nothing left to "invalidate": the old

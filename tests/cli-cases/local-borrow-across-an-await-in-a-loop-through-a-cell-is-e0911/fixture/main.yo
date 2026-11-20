@@ -17,24 +17,24 @@ impl(
     )
   )
 );
-Holder :: ref(struct(o : Option(i32)));
+HolderInner :: struct(o : Option(i32));
+Holder :: Rc(HolderInner);
 main :: (fn(io : Io) -> unit)({
-  h := Holder(o : .Some(i32(1)));
+  h := Rc.new(HolderInner(o : Option(i32).Some(i32(1))));
   t := io.async((e : Io) => {
-    cur := &mut h.o;
+    cur := &h.*.o;
     mut(s) := Countdown(_n : i32(3));
     while(true, {
       n := e.await(s.next(e), e);
       match(
         n,
-        .Some(x) => {
-          cur = .Some(x);
-        },
+        .Some(_) => (),
         .None => {
           break;
         }
       );
     });
+    _v := cur.*;
   });
   io.await(t, io);
 });

@@ -1180,7 +1180,7 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &mut
                       );
                       smb_has = match(
                         &context.state_machine_variables,
-                        .Some(smv) => smv.get(smb_id.clone()).is_some(),
+                        .Some(smv) => smv.contains_key(&smb_id),
                         .None => false
                       );
                     },
@@ -1833,13 +1833,11 @@ _gen_tagged_union_match :: (fn(expr : &AstExpr, indent : &String, context : &mut
 // borrow (a plain C copy, no dup), as the classic emitters' do.
 // ---------------------------------------------------------------------------
 /// Per-match label allocator for the general lowering.
-_MatchLabels :: ref(
-  struct(
-    prefix : String,
-    next : usize
-  )
+_MatchLabels :: struct(
+  prefix : String,
+  next : usize
 );
-_fresh_label :: (fn(labels : &_MatchLabels, tag : str) -> String)({
+_fresh_label :: (fn(labels : &mut _MatchLabels, tag : str) -> String)({
   l := labels.prefix.clone();
   l.push_str("_");
   l.push_str(tag);
@@ -2014,7 +2012,7 @@ _emit_pattern_chain :: (
     /// alternative that binds.
     emit_tests : bool,
     indent : &String,
-    labels : &_MatchLabels,
+    labels : &mut _MatchLabels,
     shadows : &mut ArrayList(String),
     context : &mut FunctionGenerationContext,
     /// A `mut` match (decision 26): bindings are C pointers to their parts,
@@ -2268,7 +2266,7 @@ _emit_pattern_chain :: (
       fcode := if(is_unique_box_type(&box_ty.*), box_payload_place_code(&box_ty.*, &base, &mut context.base), {
         fields := get_runtime_struct_fields(&_through_box_cell_type(&box_ty.*));
         label := match(
-          fields.get(usize(0)),
+          fields.get_cloned(usize(0)),
           .Some(f) => sanitize_for_c_identifier(f.label.clone(), false),
           .None => String.from("_u42_")
         );
@@ -2351,7 +2349,7 @@ _lookthrough_switch_cell :: (fn(arms : &ArrayList(Arm)) -> Option(TypeValue))({
   (cell_key : String) = String.new();
   (i : usize) = usize(0);
   while(i < arms.len(), i = (i + usize(1)), {
-    arm := match(arms.get(i), .Some(a) => a, .None => return(.None));
+    arm := match(arms.get_cloned(i), .Some(a) => a, .None => return(.None));
     if(arm.guard.is_some(), {
       return(.None);
     });
@@ -2404,7 +2402,7 @@ _arms_all_classic :: (fn(arms : &ArrayList(Arm)) -> bool)({
   (ok : bool) = true;
   (i : usize) = usize(0);
   while((i < arms.len()) && ok, {
-    ok = match(arms.get(i), .Some(a) => a.classic, .None => false);
+    ok = match(arms.get_cloned(i), .Some(a) => a.classic, .None => false);
     i = (i + usize(1));
   });
   ok
@@ -2420,7 +2418,7 @@ _gen_general_match :: (fn(expr : &AstExpr, arms : &ArrayList(Arm), indent : &Str
   // machine), so the prefix is fresh per emission, not the node id alone
   // (issues/fixed/2026-10-31-a-wrapper-whose-match-is-fused-at-two-awaits-redefines-its-c-labels.md).
   prefix := fresh_local_name(`__yo_m${ast_expr_id(expr).to_string()}_`, &context.base.current_function_name);
-  labels := _MatchLabels(prefix : prefix.clone(), next : usize(0));
+  (mut(labels) : _MatchLabels) = _MatchLabels(prefix : prefix.clone(), next : usize(0));
   end_label := prefix.clone();
   end_label.push_str("_end");
   places := (lookup_match_mode(ast_expr_id(expr)) == MATCH_MODE_MUT);
@@ -2429,11 +2427,11 @@ _gen_general_match :: (fn(expr : &AstExpr, arms : &ArrayList(Arm), indent : &Str
   (k : usize) = usize(0);
   while(k < n, {
     match(
-      arms.get(k),
+      arms.get_cloned(k),
       .Some(arm) => {
         if(_case_executed(&arm.pattern_expr, context), {
           fail_label := cond(
-            ((k + usize(1)) < n) => _fresh_label(&labels, "a"),
+            ((k + usize(1)) < n) => _fresh_label(&mut labels, "a"),
             true => end_label.clone()
           );
           open := indent.clone();
@@ -2442,12 +2440,12 @@ _gen_general_match :: (fn(expr : &AstExpr, arms : &ArrayList(Arm), indent : &Str
           shadows := ArrayList(String).new();
           // The last unguarded arm of an exhaustive match needs no tests.
           is_last := ((k + usize(1)) == n);
-          _emit_pattern_chain(&arm.pattern, matched_value_code.clone(), match_value_type, fail_label.clone(), false, !(is_last && arm.guard.is_none()), body_indent.clone(), &labels, &mut shadows, context, places, refs, false);
+          _emit_pattern_chain(&arm.pattern, matched_value_code.clone(), match_value_type, fail_label.clone(), false, !(is_last && arm.guard.is_none()), body_indent.clone(), &mut labels, &mut shadows, context, places, refs, false);
           match(
             arm.guard.clone(),
             .Some(g) => {
               gcode := _call_generate_expr(&g, body_indent.clone(), context);
-              gvar := _fresh_label(&labels, "g");
+              gvar := _fresh_label(&mut labels, "g");
               gl := body_indent.clone();
               gl.push_str("bool ");
               gl.push_string(gvar.clone());
@@ -2750,7 +2748,7 @@ _generate_match_expression_body :: (fn(expr : &AstExpr, indent : &String, contex
           cell_base := if(is_pointer_type(&match_value_type), `(*${matched_value_code})`, matched_value_code.clone());
           fields := get_runtime_struct_fields(&_through_box_cell_type(&cell_ty));
           match(
-            fields.get(usize(0)),
+            fields.get_cloned(usize(0)),
             .Some(f) => {
               payload_ty := resolve_enum_shell(&f.ty);
               // Only the tagged-union switch reads through a wrapper arm. Any

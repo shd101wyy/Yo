@@ -493,13 +493,11 @@ analyze_await_points :: (
     n_sp := result.suspension_points.len();
     (mi : usize) = usize(0);
     while(mi < n_sp, {
-      match(
-        result.suspension_points.get(mi),
-        .Some(sp_m) => if(ast_expr_id(&sp_m.expr) == tail_id, {
+      result.suspension_points.with(mi, sp_m => {
+        if(ast_expr_id(&sp_m.expr) == tail_id, {
           sp_m.is_body_result = Option(bool).Some(true);
-        }),
-        .None => ()
-      );
+        });
+      });
       mi = (mi + usize(1));
     });
   };
@@ -509,7 +507,7 @@ analyze_await_points :: (
   (pi : usize) = usize(0);
   while(pi < n_pts, {
     sp := match(
-      result.suspension_points.get(pi),
+      result.suspension_points.get_cloned(pi),
       .None => {
         break;
       },
@@ -539,7 +537,7 @@ analyze_await_points :: (
   (ci : usize) = usize(0);
   while(ci < n_cv, {
     sv := match(
-      result.captured_variables.get(ci),
+      result.captured_variables.get_cloned(ci),
       .None => {
         break;
       },
@@ -547,13 +545,14 @@ analyze_await_points :: (
     );
     // A variable that shares its owner's RC value does not own a reference
     // of its own (the dispose and slot sharing skip it).
+    sv_owner_opt := sv.is_owning_the_same_rc_value_as.clone();
     cv := CapturedVariable(
       base : sv,
       kind : CapturedVariableKind.Local,
       is_owning_the_same_rc_value_as : match(
-        sv.is_owning_the_same_rc_value_as,
-        .Some(owner_sv) => Option(CapturedVariable).Some(CapturedVariable(base : owner_sv, kind : CapturedVariableKind.Local, is_owning_the_same_rc_value_as : Option(CapturedVariable).None)),
-        .None => Option(CapturedVariable).None
+        sv_owner_opt,
+        .Some(owner_sv) => Option(Rc(CapturedVariable)).Some(Rc.new(CapturedVariable(base : owner_sv.*.clone(), kind : CapturedVariableKind.Local, is_owning_the_same_rc_value_as : Option(Rc(CapturedVariable)).None))),
+        .None => Option(Rc(CapturedVariable)).None
       )
     );
     captured_variables.push(cv);
@@ -648,12 +647,12 @@ collect_variable_bindings_ :: (
                                               name : var_name.clone(),
                                               ty : var_type.clone(),
                                               is_owning_the_same_rc_value_as :
-                                                Option(SuspensionCapturedVariable).None,
+                                                Option(Rc(SuspensionCapturedVariable)).None,
                                               decl_site : `${variable.token.module_path.*}:${variable.token.row.to_string()}:${variable.token.column.to_string()}`
                                             ),
                                             kind : CapturedVariableKind.Local,
                                             is_owning_the_same_rc_value_as :
-                                              Option(CapturedVariable).None
+                                              Option(Rc(CapturedVariable)).None
                                           );
                                           variables.push(cv);
                                           seen.insert(variable.id().to_string(), true);
@@ -737,12 +736,12 @@ register_closure_await_analysis :: (fn(func_id : &String, result : &AwaitAnalysi
   });
   func_id_owned := func_id.clone();
   // A handle copy: the analysis is a `ref` object shared with codegen.
-  result_handle := result.*;
+  result_handle := result.*.clone();
   g_closure_await_analysis.with_mut({ func_id_owned, result_handle }(m) => m.insert(func_id_owned, result_handle));
 });
 /// The await analysis recorded for `func_id`, if any.
 get_closure_await_analysis :: (fn(func_id : &String) -> Option(AwaitAnalysisResult))(
-  g_closure_await_analysis.with({ func_id : &func_id.* }(m) => m.get(func_id.clone()))
+  g_closure_await_analysis.with({ func_id : &func_id.* }(m) => m.get_cloned(func_id.clone()))
 );
 export(
   // Types (re-exported for convenience — canonical home is await_analysis_types.yo)

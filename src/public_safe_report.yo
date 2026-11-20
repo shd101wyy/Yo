@@ -854,7 +854,7 @@ format_public_safe_report :: (fn(report : &PublicSafeReport) -> String)({
     out.write_string(`  ${f.file}:${f.line}:${f.column}: ${f.decl_name} ${f.slot} exposes ${f.pointer_type} — ${f.snippet}\n`);
   });
   out.write_str("\n");
-  out.write_str("These public signatures expose raw pointer types. Migrate to value types (e.g. Slice(u8), ref(name) : T) where the raw pointer is not part of the API contract. Names ending in _cstr, _ptr, _raw, or from_raw_parts / as_ptr are exempt — they signal raw-pointer use by contract. A parameter named witness / written / spare is exempt too — it is a safe-mode privilege token (a pointer only unsafe-capable code can produce), not API surface.");
+  out.write_str("These public signatures expose raw pointer types. Migrate to value types (e.g. Slice(u8), name : &T) where the raw pointer is not part of the API contract. Names ending in _cstr, _ptr, _raw, or from_raw_parts / as_ptr are exempt — they signal raw-pointer use by contract. A parameter named witness / written / spare is exempt too — it is a safe-mode privilege token (a pointer only unsafe-capable code can produce), not API surface.");
   out.write_string(_format_class1_section(report));
   out.to_string()
 });

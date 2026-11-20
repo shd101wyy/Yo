@@ -5967,7 +5967,7 @@ collect_wrapper_trait_somes :: (fn(wrapper : &TypeValue) -> ArrayList(TypeValue)
 /// turning a Future result into the action closure's `fn` type
 /// (issues/fixed/a-caller-binder-named-t-collides-with-io-async-t.md). The
 /// wrapper keeps its identity; only its carriers resolve.
-_substitute_wrapper_carriers :: (fn(ns : &Substitution, wrapper : &TypeValue) -> TypeValue)(
+_substitute_wrapper_carriers :: (fn(ns : &mut Substitution, wrapper : &TypeValue) -> TypeValue)(
   match(
     wrapper,
     Rc(.SomeT(sw_id, sw_nm, sw_fl, sw_pt, sw_rtt_bnd, sw_kft, sw_rc)) => {
@@ -6045,7 +6045,7 @@ _resolve_wrapper_carriers_from_env :: (fn(wrapper : &TypeValue, env : &Environme
           // keeps its occurrence: substituting it would clobber the identity
           // async codegen registered.
           if(!is_some_type(&r) && !is_unit_type(&r), {
-            subst_add(&ns, &c_name.*, c_lvl.*, &r);
+            subst_add(&mut ns, &c_name.*, c_lvl.*, &r);
             any = true;
           });
         },
@@ -6056,7 +6056,7 @@ _resolve_wrapper_carriers_from_env :: (fn(wrapper : &TypeValue, env : &Environme
     i = (i + usize(1));
   });
   if(any, {
-    return(_substitute_wrapper_carriers(&ns, wrapper));
+    return(_substitute_wrapper_carriers(&mut ns, wrapper));
   });
   wrapper.clone()
 });
@@ -6139,7 +6139,7 @@ _resolve_some_types_deep :: (
         match(
           nst,
           Rc(.SomeT(_, nst_name, nst_lvl, _, _, _, _)) => {
-            subst_add(&ns, &nst_name, nst_lvl, &nres);
+            subst_add(&mut ns, &nst_name, nst_lvl, &nres);
             nbound = true;
           },
           _ => ()
@@ -6147,7 +6147,7 @@ _resolve_some_types_deep :: (
       });
       nti = (nti + usize(1));
     });
-    return(cond(nbound => _substitute_wrapper_carriers(&ns, &r), true => r));
+    return(cond(nbound => _substitute_wrapper_carriers(&mut ns, &r), true => r));
   });
   some_types := get_all_some_types(ty);
   if(some_types.len() == usize(0), {
@@ -6195,7 +6195,7 @@ _resolve_some_types_deep :: (
       match(
         st,
         Rc(.SomeT(_, st_name, st_lvl, _, _, _, _)) => {
-          subst_add(&s, &st_name, st_lvl, &resolved);
+          subst_add(&mut s, &st_name, st_lvl, &resolved);
           bound_any = true;
         },
         _ => ()
@@ -6204,7 +6204,7 @@ _resolve_some_types_deep :: (
     sti = (sti + usize(1));
   });
   cond(
-    bound_any => substitute(&s, ty),
+    bound_any => substitute(&mut s, ty),
     true => Rc.clone(ty)
   )
 });
@@ -6434,9 +6434,9 @@ _resolve_type_arg_somes :: (fn(ty : &TypeValue, env : &Environment) -> TypeValue
             tas_st,
             Rc(.SomeT(tas_id, tas_name, tas_lvl, _, _, _, _)) => {
               if(tas_own && (tas_id.len() > usize(0)), {
-                subst_adopt_own_resolution(&tas_s, &tas_id);
+                subst_adopt_own_resolution(&mut tas_s, &tas_id);
               }, {
-                subst_add(&tas_s, &tas_name, tas_lvl, &tas_r);
+                subst_add(&mut tas_s, &tas_name, tas_lvl, &tas_r);
               });
               tas_bound_any = true;
             },
@@ -6449,7 +6449,7 @@ _resolve_type_arg_somes :: (fn(ty : &TypeValue, env : &Environment) -> TypeValue
     tas_i = (tas_i + usize(1));
   });
   cond(
-    tas_bound_any => substitute(&tas_s, ty),
+    tas_bound_any => substitute(&mut tas_s, ty),
     true => Rc.clone(ty)
   )
 });

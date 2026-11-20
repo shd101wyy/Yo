@@ -376,9 +376,6 @@ bytes (the owner and the cell's extent), and a placed container buffer's is
   global `Rc`/`Arc` cell is only 16-aligned, so an `Rc` or `Arc` of such a type
   must be placed. No Yo type is aligned above 16 today; an `extern` C type can
   be.
-- **No placed `ref` objects.** A `ref` constructor takes no `alloc`
-  argument. Make the type a value struct and place it with
-  `Rc.new(v, alloc : .Some(a))`.
 
 The design record, with measurements and the phase-by-phase history, is
 `plans/archive/EXPLICIT_ALLOCATORS.md`. The landed decisions are summarized in

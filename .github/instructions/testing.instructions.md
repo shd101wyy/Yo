@@ -925,6 +925,35 @@ verified nothing.
 - **Always:** `yo build --std-path ./std` (when `src/` changed),
   `check ./src` and `check ./std` (each with `--std-path ./std`), `yo fmt --check` on the
   changed `.yo` files, `bash scripts/check-issue-refs.sh`. About 15 min.
+- **A tree-binary `check ./src` when the `src/` diff touches rules the tree
+  enforces more strictly than the seed.** That means capture lists, borrow and
+  reference spellings (`&x`, `&mut x`, `.*`), or any rule a recent PR
+  tightened. The seed's `check ./src` and `yo build` only prove the SEED
+  accepts the tree. The bootstrap fixpoint compiles `src/` with the tree
+  binary, and every `tests/internal` file does the same.
+  - Run it as
+    `YO_MAIN_STACK_MB=4096 yo-out/<target>/bin/yo check ./src --std-path ./std`.
+  - Measured 2026-11-19 on the R7 parser drop: nine capture lists of the form
+    `{ &env }` over a `&T` parameter passed the v0.2.78 seed. The tree binary
+    rejected them with E0926 (`` `env` is a reference … spelled `&env.*` ``),
+    so every `tests/internal` file importing `src/evaluator/context.yo` failed
+    to compile.
+  - The fix is `{ env : &env.* }`.
+- **`yo check` does not evaluate `test(...)` bodies**, so a `src/` change that
+  alters a type the `tests/internal` files construct or copy (a record turned
+  from a shared handle into a value, a field retyped) is invisible to
+  `check ./tests/internal`; only the ~20-40 min `yo test` compile of each file
+  finds it. A cheaper sweep is to check each file in the shape `yo test`
+  compiles: the file's non-test lines, then a `main` whose `cond` arms hold
+  the test bodies (the batch `src/main.yo` synthesizes). Name each generated
+  file `*.yo_selftest_batch_*.yo` so the test-file exemptions (E0611 `unwrap`)
+  apply, put them in a sibling directory at the same depth as `tests/internal`
+  so `../../src` imports resolve, and run one `check` over that directory.
+  - Measured 2026-11-20 on the R7 parser drop: one `check` over 109 generated
+    files took about 40 min. Beyond the 4 files a `.get(` grep had found, it
+    named 5 more broken `tests/internal` files (`Option(Self)` alias fields that
+    became `Option(Rc(Self))`, written results needing `mut(r)`, a `YoError`
+    moved into a `Dyn`). The seed and tree `check ./src` had both passed.
 - **Feature tests: grep for what changed.** Take the `tests/**/*.test.yo` files
   (minus `tests/internal` and `tests/cli-cases`) that name a renamed or
   changed identifier, plus the feature's own new tests. **`yo test` takes ONE

@@ -7,6 +7,7 @@
 //! Only an unsafe-capable file can spell the field type; a safe file names
 //! the wrappers (tests/cell_handles.test.yo).
 pragma(Pragma.AllowUnsafe);
+{ ArrayList } :: import("std/collections/array_list");
 TRc :: (fn(comptime(V) : ?Sized) -> comptime(Type))(
   newtype(_cell : __yo_cell(V))
 );
@@ -43,4 +44,16 @@ tlocked :: (fn(generic(V : Type), sink(v) : V) -> TLocked(V))(TLocked(V)(_cell :
 TPt :: struct(x : i32);
 TMisnamed :: newtype(_cell : __yo_cell(TPt));
 comptime_expect_error(impl(TMisnamed, Deref(Target : bool, deref : (fn(self : &Self) -> &Self.Target)(&self.*.*))), "This function returns `&bool`");
-export(TRc, TArc, trc, tarc, treset, TLocked, tlocked, TPt);
+/// An unchecked second name for ONE list, the aliasing a `ref` object over
+/// the list gave before `ref(...)` was deleted (v0.2.79): `a := talias(&mut
+/// xs)` keeps the list's address, and `tclear(&a)` empties it behind the
+/// borrow checker's back. Safe code cannot spell this (a `RefCell` door's
+/// borrow flag would panic first), so the receiver keep-alive rows, which need
+/// a closure to drop the last other handle while a receiver reached through
+/// the list is borrowed, get it from this unsafe-capable fixture.
+TAlias :: (fn(comptime(E) : Type) -> comptime(Type))(struct(p : *ArrayList(E)));
+talias :: (fn(generic(E : Type), xs : &mut ArrayList(E)) -> TAlias(E))(TAlias(E)(p : addr_of(xs.*)));
+tclear :: (fn(generic(E : Type), a : &TAlias(E)) -> unit)({
+  a.p.*.clear();
+});
+export(TRc, TArc, trc, tarc, treset, TLocked, tlocked, TPt, TAlias, talias, tclear);

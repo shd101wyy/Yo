@@ -1,14 +1,15 @@
 { yield } :: import("std/async");
-Holder :: ref(struct(o : Option(i32)));
+HolderInner :: struct(o : Option(i32));
+Holder :: Rc(HolderInner);
 main :: (fn(io : Io) -> unit)({
-  h := Holder(o : .Some(i32(1)));
+  h := Rc.new(HolderInner(o : Option(i32).Some(i32(1))));
   t := io.async((e : Io) => {
-    cur := &mut h.o;
+    cur := &h.*.o;
     match(
       cur,
       .Some(n) => {
         e.await(yield(e), e);
-        n = (n + i32(1));
+        _v := n.*;
       },
       .None => ()
     );

@@ -293,13 +293,13 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
           match(
             &context.state_machine_variables,
             .Some(smv) => {
-              (mut(found_cv) : Option(CapturedVariable)) = smv.get(temp_var_name.clone());
+              (mut(found_cv) : Option(CapturedVariable)) = smv.get_cloned(temp_var_name.clone());
               if(found_cv.is_none(), {
                 // First-match-by-name reading ENTRY fields — never derive
                 // emitted names from map keys (the PR #92 capture lesson).
                 for(&smv, (_k, cv) => {
                   if(cv.base.name == temp_var_name.*, {
-                    found_cv = Option(CapturedVariable).Some(cv.*);
+                    found_cv = Option(CapturedVariable).Some(cv.clone());
                     break;
                   });
                 });

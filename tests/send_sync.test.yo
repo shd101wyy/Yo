@@ -170,10 +170,10 @@ comptime_expect_error({
   _SsClaimsSync :: struct(n : i32);
   impl(_SsClaimsSync, Sync());
 }, "requires pragma(Pragma.AllowUnsafe)");
-// An atomic object is shared by every copy, so each field must be Sync.
+// An `Arc`'s payload is shared by every handle, so it must be Send.
 comptime_expect_error({
-  _SsAtomicRc :: atomic(ref(struct(r : Rc(i32))));
-}, "atomic object must implement Sync");
+  _SsArcRc :: Arc(struct(r : Rc(i32)));
+}, "does not implement required trait Send");
 
 // ============================================================================
 // Closures (decision 38 E)

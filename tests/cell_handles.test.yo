@@ -5,7 +5,7 @@ pragma(Pragma.SkipWasm32Wasi); // the atomic handle's thread test needs pthreads
 //! treats it as those cells by structure, so the wrappers of
 //! tests/fixtures/cell_handles.yo stand in for them here. This file is SAFE:
 //! E0919 and D3 must fire where user code runs.
-{ TRc, TArc, trc, tarc, treset, TLocked, tlocked } :: import("./fixtures/cell_handles.yo");
+{ TRc, TArc, trc, tarc, treset, TLocked, tlocked, talias, tclear } :: import("./fixtures/cell_handles.yo");
 { assert } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
 { yield } :: import("std/async");
@@ -221,14 +221,14 @@ test("a list of optional cell handles orders its struct after the handle's typed
   assert(xs.len() == usize(2), "two slots");
   assert(match(xs.get_cloned(usize(0)), .Some(.Some(h)) => (h.* == i32(1)), _ => false), "the handle's payload");
 });
-// An atomic `ref` enum is no object of its own for the box rule, as with
-// `Arc`: `dyn` of an atomic handle over one boxes it for a `Send` `Dyn`.
-_AE :: atomic(ref(enum(A(n : i32), B)));
-impl(_AE, _Area(area : (fn(self : &Self) -> i32)(match(self, .A(n) => n.*, .B => i32(0)))));
-test("S2: an atomic handle of an atomic ref enum is a box in a Send Dyn, as an Arc of one is", {
-  (d : Arc(Dyn(_Area, Send, Sync))) = dyn(tarc(_AE.A(n : i32(7))));
+// An `Arc`'s payload is no object of its own for the box rule: `dyn` of an
+// atomic handle over one boxes it for a `Send` `Dyn`.
+_AEPayload :: enum(A(n : i32), B);
+impl(_AEPayload, _Area(area : (fn(self : &Self) -> i32)(match(self, .A(n) => n.*, .B => i32(0)))));
+test("S2: an atomic handle of a payload enum is a box in a Send Dyn, as an Arc of one is", {
+  (d : Arc(Dyn(_Area, Send, Sync))) = dyn(tarc(_AEPayload.A(n : i32(7))));
   assert(d.*.area() == i32(7), "dispatched through the atomic handle");
-  (e : Box(Dyn(_Area, Send))) = dyn(Box.new(_AE.A(n : i32(8))));
+  (e : Box(Dyn(_Area, Send))) = dyn(Box.new(_AEPayload.A(n : i32(8))));
   assert(e.area() == i32(8), "and through the Arc");
 });
 _count_later :: (fn(items : &ArrayList(i32), io : Io) -> Impl(Future(usize, Io)))(
@@ -294,26 +294,26 @@ _hd_peek :: (fn(c : &_HdCell, act : &Impl(Fn() -> unit)) -> i32)({
   act();
   _hd_drops + (c.n - c.n)
 });
-// An `ArrayList` is a value since B8, so a second handle to ONE list is
-// spelled with a `ref` object around it: `hs2 := hs` shares the object, and
-// `hs2.xs.clear()` empties the list the receiver borrows from.
-_HdBag :: ref(struct(xs : ArrayList(TRc(_HdCell))));
+// An `ArrayList` is a value since B8, and `ref(...)` (the shared object that
+// gave ONE list a second name) was deleted in v0.2.79: the fixture's
+// `talias(&mut hs)` is that second name, and `tclear(&hs2)` empties the list
+// the receiver borrows from.
 test("a receiver reached through a cell handle element outlives a closure that drops the last other handle", {
   _hd_drops = i32(0);
-  hs := _HdBag(xs : ArrayList(TRc(_HdCell)).new());
-  hs.xs.push(trc(_HdCell(n : i32(1))));
-  hs2 := hs;
+  mut(hs) := ArrayList(TRc(_HdCell)).new();
+  hs.push(trc(_HdCell(n : i32(1))));
+  hs2 := talias(&mut hs);
   assert(
-    hs.xs(usize(0)).peek(() => {
-      hs2.xs.clear();
+    hs(usize(0)).peek(() => {
+      tclear(&hs2);
     }) == i32(0),
     "auto-dereferenced receiver: the cell outlives the call"
   );
   assert(_hd_drops == i32(1), "and is destroyed once, after it");
-  hs.xs.push(trc(_HdCell(n : i32(2))));
+  hs.push(trc(_HdCell(n : i32(2))));
   assert(
-    _hd_peek(&hs.xs(usize(0)).*, () => {
-      hs2.xs.clear();
+    _hd_peek(&hs(usize(0)).*, () => {
+      tclear(&hs2);
     }) == i32(1),
     "a `&` argument through the handle"
   );

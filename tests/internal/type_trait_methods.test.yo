@@ -295,7 +295,7 @@ test("get_receiver_methods_by_name_from_env: SomeT with required trait", {
   );
   assert(hits.len() == usize(1), "one greet method via SomeT required-trait walk");
   match(
-    hits.get(usize(0)),
+    hits.get_cloned(usize(0)),
     .Some(m) =>
       assert(
         m.source_trait_id == String.from("trait_greeter"),
@@ -370,7 +370,7 @@ test("get_receiver_methods_by_name_from_env: Dyn vtable dispatch", {
   );
   assert(hits.len() == usize(1), "one greet method via Dyn vtable");
   match(
-    hits.get(usize(0)),
+    hits.get_cloned(usize(0)),
     .Some(m) => assert(
       m.source_trait_id == String.from("trait_greeter_dyn"),
       "method carries the source trait id"
@@ -473,7 +473,7 @@ test("get_receiver_methods_by_name_from_env: TypeApplication HKT walk", {
   );
   assert(hits.len() == usize(1), "one fmap method via TypeApp where-clause");
   match(
-    hits.get(usize(0)),
+    hits.get_cloned(usize(0)),
     .Some(m) => assert(
       m.source_trait_id == String.from("trait_functor"),
       "method carries the source trait id"
@@ -548,7 +548,7 @@ test("get_receiver_methods_by_name_from_env: infix call keeps *(Self)-first-para
   );
   assert(hits_infix.len() == usize(1), "infix call keeps *(Self) method");
   match(
-    hits_infix.get(usize(0)),
+    hits_infix.get_cloned(usize(0)),
     .Some(m) => assert(
       !m.needs_pointer_conversion,
       "infix call does not mark pointer conversion"
@@ -608,7 +608,7 @@ test("get_receiver_methods_by_name_from_env: non-infix call sets needs_pointer_c
   );
   assert(hits.len() == usize(1), "one incr method via direct receiver");
   match(
-    hits.get(usize(0)),
+    hits.get_cloned(usize(0)),
     .Some(m) =>
       assert(m.needs_pointer_conversion, "ptr-conversion flag set on non-infix *(T) method"),
     .None => assert(false, "expected a method entry")
@@ -700,7 +700,7 @@ test("get_receiver_methods_by_name_from_env: env-frames compatible-SomeType scan
     "env-frames scan finds method via compatible-SomeType match"
   );
   match(
-    hits.get(usize(0)),
+    hits.get_cloned(usize(0)),
     .Some(m) => assert(
       m.source_trait_id == String.from("trait_greeter_envscan"),
       "method carries the source trait id"
@@ -742,7 +742,7 @@ test("a where-bound restated on each method of a generic impl is recorded once",
   mm_set_open_document(doc_path.clone(), String.from(_WHERE_DOC));
   mut(out) := ArrayList(AnalyzeOutcome).new();
   _diags := analyze_document(doc_path.clone(), String.from(_WHERE_DOC), std_path.clone(), io, &mut out);
-  assert(match(out.get(usize(0)), .Some(oc) => oc.ok, .None => false), "the fixture analyzes clean");
+  assert(match(out.get_cloned(usize(0)), .Some(oc) => oc.ok, .None => false), "the fixture analyzes clean");
   counts := generic_impl_binder_bound_counts(&String.from("Kw"));
   assert(counts.len() > usize(0), "the fixture's generic impl is registered");
   (mut(i) : usize) = usize(0);

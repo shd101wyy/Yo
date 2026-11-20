@@ -60,7 +60,7 @@ _doc_round :: (fn(doc_path : &String, text : &String, std_path : &String, io : I
   _inv := mm_invalidate_document(doc_path.clone());
   mut(out) := ArrayList(AnalyzeOutcome).new();
   _diags := analyze_document(doc_path.clone(), text, std_path.clone(), io, &mut out);
-  match(out.get(usize(0)), .Some(oc) => oc.ok, .None => false)
+  match(out.get_cloned(usize(0)), .Some(oc) => oc.ok, .None => false)
 });
 /// A trait with a DEFAULT method, reached through a generic impl on a
 /// comptime-built type: exercises the trait-default registry, the forall
@@ -71,7 +71,7 @@ _TRAIT_DOC :: "Named :: trait(\n  name : (fn(self : &Self) -> i32),\n  (twice : 
 _analyze_app_ok :: (fn(app_path : &String, std_path : &String, io : Io) -> bool)({
   mut(out) := ArrayList(AnalyzeOutcome).new();
   _diags := analyze_document(app_path.clone(), String.from(_APP), std_path.clone(), io, &mut out);
-  match(out.get(usize(0)), .Some(oc) => oc.ok, .None => false)
+  match(out.get_cloned(usize(0)), .Some(oc) => oc.ok, .None => false)
 });
 
 test("B1: imported-file edit visible after overlay + invalidation", {

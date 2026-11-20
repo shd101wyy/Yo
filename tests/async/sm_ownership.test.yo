@@ -509,50 +509,11 @@ test("aborting a task in the second of two sibling scopes that share a slot", {
   assert(seen == i32(1), "the first block's value is gone, the second is held");
   assert(g_disposed == i32(2), "the abort disposes the second value once");
 });
-// An `inout` binding through an object pins it (a hidden owning local); in a
-// state machine the pin lives in a task slot, released once at the end of its
-// scope or by the abort dispose. The binding itself ends before the await (a
-// borrow through a reference cell may not be live across one, decision 18
-// rule 4), but its pin holds the first object to the end of the scope. Pins
-// exist only for `ref` objects, and so does the implicit-copy alias below
-// (`_AliasW`): `_RefThing` stays `ref` for the v0.2.77 parser PR. (It also
-// carries the aborted-binding case above until its leak is fixed.)
-_RefThing :: ref(struct(n : i32));
-impl(
-  _RefThing,
-  Drop(
-    drop : (fn(self : &mut Self) -> unit)({
-      g_disposed = (g_disposed + i32(1));
-    })
-  )
-);
-_pin_across_await :: (fn(nap : u64, io : Io) -> Impl(Future(i32, Io)))(
-  io.async((e : Io) => {
-    mut(o) := _RefThing(n : i32(1));
-    r := &mut o.n;
-    r.* = (r.* + i32(1));
-    o = _RefThing(n : i32(5));
-    e.await(sleep(nap), e);
-    o.n + i32(2)
-  })
-);
-test("a pinned object is released once when the task completes", {
-  g_disposed = i32(0);
-  r := io.await(_pin_across_await(u64(0), io), io);
-  assert(r == i32(7), "the binding wrote the pinned object, o is the new one");
-  assert(g_disposed == i32(2), "the pinned object and the new one are each disposed once");
-});
-_abort_pinned :: (fn(io : Io) -> unit)({
-  h := io.spawn(_pin_across_await(u64(50), io), io);
-  io.await(sleep(u64(10)), io);
-  h.abort();
-  _r := h.await(io);
-});
-test("a pinned object is released once when the task is aborted", {
-  g_disposed = i32(0);
-  _abort_pinned(io);
-  assert(g_disposed == i32(2), "the abort disposes the pin and the handle's object once each");
-});
+// The `ref`-object pin rows that lived here (an inout binding of an object
+// field holding the first object across a rebind and an await, released once
+// when the task completes or aborts) went with the form in v0.2.79: below an
+// `Rc` there is no `&mut` to bind, and a `RefCell` door's borrows stay
+// inside their closure.
 // issues/fixed/a-local-copied-from-a-captured-value-in-an-io-async-body-does-not-compile.md
 _alias_sleeper :: (fn(sink(t) : Thing, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
@@ -1307,12 +1268,22 @@ test("a future and a copy captured by a nested io.async inside a state machine a
 // an alias of a body local (`wb := w`) is stored in its owner's task slot, so
 // the two names hold ONE reference; the binding retained a second one that
 // the shared slot's single release never dropped.
-_AliasW :: struct(t : _RefThing);
+_RefThingPayload :: struct(n : i32);
+impl(
+  _RefThingPayload,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_disposed = (g_disposed + i32(1));
+    })
+  )
+);
+_AliasW :: struct(t : Rc(_RefThingPayload));
+derive(_AliasW, Clone);
 test("an alias of a local that crosses an await is released with its owner", {
   g_disposed = i32(0);
   f := io.async((io : Io) => {
-    w := _AliasW(t : _RefThing(n : i32(4)));
-    wb := w;
+    w := _AliasW(t : Rc.new(_RefThingPayload(n : i32(4))));
+    wb := w.clone();
     io.await(yield(io), io);
     (w.t.n + wb.t.n)
   });

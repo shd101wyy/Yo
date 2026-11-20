@@ -69,15 +69,9 @@ comptime_expect_error({
   });
   _d3_index_assignment();
 });
-// D3 (Phase 1): the same through a user atomic object, not just `Arc`.
-Shared :: atomic(ref(struct(counter : Counter)));
-comptime_expect_error({
-  _d3_user_atomic_receiver :: (fn() -> unit)({
-    s := Shared(counter : Counter(n : i32(0)));
-    s.counter.bump();
-  });
-  _d3_user_atomic_receiver();
-});
+// The user-atomic-object twin of the row above (`Shared :: atomic(ref(...))`
+// with a `&mut self` call through it) went with the form in v0.2.79: `Arc`
+// is the only atomic shared spelling left, and the row above covers it.
 // D3 past the root: the `Arc` is reached through a field, a tuple element or
 // another cell, so the place's ROOT is not an atomic object
 // (issues/fixed/2026-10-14-d3-misses-a-write-through-an-arc-that-is-not-the-place-root.md).
@@ -129,18 +123,11 @@ comptime_expect_error({
 // (issues/fixed/2026-10-24-a-mut-match-scrutinee-writes-through-an-rc-or-an-atomic-object.md).
 comptime_expect_error({
   _d3_mut_borrow_binding :: (fn() -> unit)({
-    s := Shared(counter : Counter(n : i32(0)));
-    m := &mut s.counter;
+    a := Arc.new(Counter(n : i32(0)));
+    m := &mut a.*;
     m.bump();
   });
   _d3_mut_borrow_binding();
-}, "atomic object");
-comptime_expect_error({
-  _d3_mut_match_scrutinee :: (fn() -> unit)({
-    s := Shared(counter : Counter(n : i32(0)));
-    match(&mut s.counter, c => c.bump());
-  });
-  _d3_mut_match_scrutinee();
 }, "atomic object");
 comptime_expect_error({
   _d3_arc_mut_match_scrutinee :: (fn() -> unit)({
@@ -154,12 +141,12 @@ comptime_expect_error({
 test("D3 canary: a `&mut` lend of a plain place or of the atomic binding itself is legal", {
   mut(c) := Counter(n : i32(0));
   match(&mut c, k => k.bump());
-  mut(s) := Shared(counter : Counter(n : i32(1)));
+  mut(s) := Arc.new(Counter(n : i32(1)));
   {
     r := &mut s;
-    r.* = Shared(counter : Counter(n : i32(5)));
+    r.* = Arc.new(Counter(n : i32(5)));
   };
-  assert((c.n == i32(1)) && (s.counter.n == i32(5)), "both lends wrote their own place");
+  assert((c.n == i32(1)) && (s.*.n == i32(5)), "both lends wrote their own place");
 });
 // Canary: the struct that holds the `Arc` is still a plain value: its own
 // fields are written, and the `Arc`'s payload is read, as before.

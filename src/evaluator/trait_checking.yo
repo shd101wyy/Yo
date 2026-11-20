@@ -887,7 +887,7 @@ resolve_assoc_type_for_target :: (
       (rat_i : usize) = usize(0);
       while((rat_i < rat_entries.len()) && resolved_opt.is_none(), {
         match(
-          rat_entries.get(rat_i),
+          rat_entries.get_cloned(rat_i),
           .Some(re) => match(
             re.value.clone(),
             .Some(Rc(.TypeVal(re_t))) => {
@@ -961,7 +961,7 @@ _check_associated_type_constraints :: (
         (ae_i : usize) = usize(0);
         while((ae_i < atc_entries.len()) && resolved_opt.is_none(), {
           match(
-            atc_entries.get(ae_i),
+            atc_entries.get_cloned(ae_i),
             .Some(ae) => match(
               ae.value.clone(),
               .Some(Rc(.TypeVal(ae_t))) => {
@@ -2448,7 +2448,7 @@ receiver_kind_trait_violation_msg :: (
   cond(
     (is_value_nominal || is_reference) => Option(String).None,
     true => Option(String).Some(
-      `Type "${type_to_string(target_type)}" cannot implement "${trait_name}": only a value type (struct, enum, newtype), which ${trait_name} makes move-only, or a reference type (ref(struct(...)), ref(enum(...)) or their atomic(...) forms) may implement it.`
+      `Type "${type_to_string(target_type)}" cannot implement "${trait_name}": only a value type (struct, enum, newtype), which ${trait_name} makes move-only, or a cell payload (the \`Rc\`/\`Arc\`/\`RefCell\` payloads std spells through the reserved cell primitives) may implement it.`
     )
   )
 });

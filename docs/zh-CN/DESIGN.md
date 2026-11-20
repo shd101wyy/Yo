@@ -566,9 +566,9 @@ r := match(
 - 以 `&mut` 借出（`f(&mut x)`、`y := &mut x.f`、`match(&mut x, …)`、`&mut x` 捕获）；
 - 调用 `&mut self` 方法（在 `String` 上调用 `s.push_str("!")`）。
 
-对没有该标记的绑定做其中任何一种写入都是错误 E0917。绑定持有的 `ref` 句柄（目前的集合、
-`ref(struct(...))` 对象）是一个指针：经由它写入字段或调用 `&mut self` 方法写入的是对象，
-而不是绑定本身，不需要标记；重新赋值该绑定则需要。借用（`x : &mut T`、`y := &mut place`）
+对没有该标记的绑定做其中任何一种写入都是错误 E0917。共享句柄之后的“门”经由自己的方法写入：
+`RefCell.with_mut` 接收 `&self` 并写入载荷，因此 `RefCell` 绑定改变它所持有的内容不需要标记；
+重新赋值该绑定仍然需要。借用（`x : &mut T`、`y := &mut place`）
 是被“透过”写入，而不是被写入。没有初值声明的绑定（`(x : T);`）的第一次赋值是它的初始化。
 
 参数不接受 `mut`：参数保持不可变，参数位置上的 `mut(x) : T` 是已删除的借用写法（E0009）。
@@ -748,7 +748,7 @@ second_of :: (fn(s : &mut Pair) -> &mut(i32, s))(&mut s.b);
 
 **引用上的 impl**（决策 43 N1f-2；[`plans/VALUES_BY_DEFAULT.md`](../../plans/VALUES_BY_DEFAULT.md) 决策 43，R-PROBE）。impl 的接收者可以是引用：`impl(&C, Tr(...))`、`impl(&mut C, Tr(...))`、`impl(generic(p : Origin), &(C, p), Tr(...))`，或通用实现 `impl(generic(T), where(T <: Tr), &T, Tr(...))`。其中 `Self` 就是该引用，所以 `self : Self` 以 `&C` 接收接收者。`impl(C, Tr)`、`impl(&C, Tr)` 与 `impl(&mut C, Tr)` 是三个不同的接收者；origin 不属于接收者，因此 `impl(&(C, p), Tr)` 与 `impl(&C, Tr)` 并存是错误 E0612，裸类型变量的通用实现 `impl(generic(T), T, Tr)` 与二者之一并存也是（它同样覆盖 `&C`）。方法调用按**接收者槽位类型**解析：方法的槽位是其第一个参数代入 `Self` 后的类型（`impl(&C, …)` 上的 `self : Self` 与 `impl(C, …)` 上的 `self : &Self` 槽位都是 `&C`）。对类型为 `R` 的接收者，探测依次尝试 `R`，然后 `&R` 与 `&mut R`，再对 `R` 解引用一次并尝试其借用，第一个有方法适用的步骤胜出；同一步骤中固有方法优先于 trait 方法，同一步骤中两个 trait 方法是错误 E0616，其消息列出每个 impl 以及它们共享的槽位。因此拥有所有权的 `c` 优先采用 `C` 上按值的 `self`（`xs.into_iter()` 消耗它），只有没有按值方法时才借用；`(&c).m()` 与 `(&mut c).m()` 是显式借用，探测从 `&C` 开始（`(&xs).into_iter()` 借用）。显式借用绝不会把值从 `c` 中移出（对非 `Copy` 类型按值的 `self` 是 E0901），`(&c)` 也到达不了 `&mut Self` 方法（E0908）。引用接收者上找不到方法时，消息列出探测过的槽位类型。接收者槽位 `&&C`（`impl(&C, …)` 上的 `self : &Self`，接收 `&Self` 的 trait 会强制出现）被接受：引用绑定 `r : &C` 作为接收者时借出自身的存储，与 `(&r).m()` 相同；自有的值、调用结果或显式的 `(&c)` 没有可借出的存储，调用报错并提示先把引用绑定到局部变量。中缀运算符按同一规则选择：作为引用绑定的操作数以其引用类型参与选择，所以 `ra, rb : &C` 上的 `ra == rb` 是 `&C` 上的 impl（Rust 的 `impl PartialEq<&B> for &A`），其 `lhs : &Self` 与 `rhs : &Rhs` 槽位由两个绑定自身的存储填充；它绝不是解引用。没有 `&C` 上的 impl 接受这些操作数时（`c : C` 时的 `ra == c`、`ra + 1`，或 `C` 没有这样的 impl），该操作数是整值读取，E0926 要求写 `ra.*`。prelude 为每个具有 `Eq(T)` / `Ord(T)` 的定长 `T` 提供 `Eq(&T)` 与 `Ord(&T)`（Rust 的 `impl PartialEq<&B> for &A`）：两个引用按其所指的值比较与排序，因此 `ra == rb`、`ra < rb` 以及 `T := &U` 处的泛型代码（`max`、约束 `where(T <: Ord(T))`）都可用；与之并存的用户 `impl(&C, Eq(&C))` 是 E0612。`&T` 上的 `Hash` 与 `ToString` 尚未提供。
 
-旧的关键字写法（`imm(x) : T`、`mut(x) : T`、`inout(x) : T`、`imm(self) : Self`、`mut(self) : Self`、`imm(y) := place`、`for(xs, mut(x) => ...)`）已在[值默认计划](../../plans/VALUES_BY_DEFAULT.md)的 Generation B 中删除（决定 42）：它是错误 E0009，错误信息给出借用符号写法；旧代码请在最后携带这些迁移的版本（[ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md)“已退役的迁移”）上升级。`imm` 是普通标识符；`mut` 仍是保留字，只出现在 `&` 之后。
+旧的关键字写法（`imm(x) : T`、`mut(x) : T`、`inout(x) : T`、`imm(self) : Self`、`mut(self) : Self`、`imm(y) := place`、`for(xs, mut(x) => ...)`）已在[值默认计划](../../plans/VALUES_BY_DEFAULT.md)的 Generation B 中删除（决定 42），引用类型声明形式 `ref(struct(...))`、`ref(enum(...))` 与 `atomic(...)` 也随之删除（V5，v0.2.79）：两者都是错误 E0009，错误信息给出符号写法（后者给出 `Rc(S)` / `Arc(S)` 的共享形式）；旧代码请在最后携带这些迁移的版本（[ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md)“已退役的迁移”）上升级。`imm` 是普通标识符；`mut` 仍是保留字，只出现在 `&` 之后。
 
 运算符 trait 也以同样方式写出操作数的模式，每个 impl 都必须完全照写这些模式（决定 34）。比较 trait `Eq` 与 `Ord` 借用操作数，即 `(==) : (fn(lhs : &Self, rhs : &Rhs) -> bool)`，因此 `a == b` 之后两个操作数都仍可使用。算术、位运算与一元 trait（`Add` 到 `BitRightShift`、`Negate`、`LogicalNot`、`BitNot` 及其 `Comptime*` 对应版本）与 Rust 一样按值接收操作数：`(+) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)`。按值操作数遵循上面的参数规则：`Copy` 操作数被复制，`String` 被共享，仅可移动的操作数被移动进运算符。trait 按值接收而 impl 借用的操作数（反之亦然）会以 "as written" 被拒绝。`Dyn` 没有可交给按值操作数的值，所以方法按值接收 `self` 的 trait（`LogicalNot`、`Negate`、`Add` 等）无论载荷是什么都不能放到 `Dyn` 后面（E0614）。
 
@@ -1200,8 +1200,9 @@ s3 := Rc.clone(s2); // RC = 3
 
 #### 替换 `ref` 声明
 
-`ref(struct(...))` 与 `ref(enum(...))` 正在退役（plans/VALUES_BY_DEFAULT.md
-V5），自 v0.2.76 起 std 中不再有这两种声明。两个问题决定 `ref` 类型的替代形式：
+`ref(struct(...))`、`ref(enum(...))` 与 `atomic(...)` 已在 v0.2.79 删除（错误 E0009；
+plans/VALUES_BY_DEFAULT.md V5），自 v0.2.76 起 std 中不再有这些声明。
+两个问题决定了 `ref` 类型的替代形式：
 
 1. 构造之后它会被写入吗？
 2. 它是否被两个所有者需要，而这两个所有者的生存期超出彼此的调用？
@@ -1315,7 +1316,7 @@ export(main);
 
 - 在创建它的地方 await。它不能被绑定到名字、被 spawn 或被返回（E0909）。
 - 它的 effect bundle 必须是一个位置。写成 `b := IoExn(io : io, exn : exn); io.await(f.read_to_string(io), b)`；在 `io.await` 里内联 `IoExn(...)` 是 E0910。
-- 被借用的资源不能位于 `ref` 对象或指针解引用之内（E0909）：把它存为 `Rc` 字段。
+- 被借用的资源不能位于 `Rc` 载荷之内或指针解引用之后（E0909）：改为借出句柄。
 
 出于同样的原因，`Dyn(Reader)` 和 `Dyn(Writer)` 已不再可用。这两个 trait 的默认方法（`read_to_end`、`read_to_string`、`write_all`）返回借用 reader 或 writer 的 future，而 vtable 的 future 类型不携带借用，因此对任何实现者，把 `dyn(r)` 当作这两种 trait 对象都是 E0909。请改用泛型 `Impl(Reader)` / `Impl(Writer)` 参数。
 
@@ -3138,7 +3139,7 @@ count := i32(0);
 - **列表是穷尽的。** 有列表时，闭包体只能读取列出的捕获和模块级项；`{}()` 不捕获任何东西。
   没有列表时，捕获仍是隐式的。
 - **借用可以指向什么。** 以具名局部绑定为根的位置：不能是临时值，不能是模块级绑定，
-  也不能穿过 `Rc`/`Arc`（或任何 `ref` 对象、指针解引用）——请改为捕获句柄：
+  也不能穿过 `Rc`/`Arc`（或任何指针解引用）——请改为捕获句柄：
   `{ &r }() => r.*.items.len()`。`&mut` 位置必须可写。`&` 捕获在闭包体中只读。
 - **借用型闭包是二等值**，由它构成的任何值（副本、持有它的元组或记录、捕获它的闭包）
   也是。它可以绑定到局部变量、被调用、传给形参，但不能被返回、存入字段或 `Dyn`、

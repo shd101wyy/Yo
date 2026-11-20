@@ -1,14 +1,12 @@
 # plans/VALUES_BY_DEFAULT.md §6 "Decision 46": YO_AUDIT_RC_WRITE lists every
-# write through a reference cell that reaches codegen, without failing: an
-# assignment into a place under a `ref(struct(...))` handle (`r.n = v`), a
-# `&mut` argument (`bump(&mut r.n)`) or `self : &mut Self` receiver
-# (`r.items.push(v)`) whose callee writes it, with `proved=yes` when the
-# object is fresh in the function (§3.10 outcome (a)) and `proved=no`
-# otherwise (a parameter, a closure capture). A write through an `Rc` is
-# E0919 since decision 46's Generation B, so the census lists no
-# `handle=rc` line for a program that compiles. A value local, a `&mut`
-# argument the callee only reads, and a write through `RefCell`'s
-# `with_mut` are not listed.
+# write through a reference cell that reaches codegen, without failing. With
+# the `ref(struct(...))` form deleted (v0.2.79) no user-spelled write
+# through a counted handle reaches codegen — an `Rc`/`Arc` payload is
+# read-only through the handle (E0919), a `RefCell` door's write is behind
+# the door, and `Rc.make_mut`'s result is a value place — so the census is
+# EMPTY for user code and this fixture pins the negatives. The golden is the
+# whole (empty) output: the C goes to a file (no `--emit-c`), and the
+# rejected write inside `comptime_expect_error` is not listed
+# (issues/fixed/2026-11-19-the-rc-write-census-lists-a-write-inside-comptime-expect-error.md).
 env=YO_AUDIT_RC_WRITE=1
-stdout_keep_match=^main\.yo:[0-9]+:[0-9]+ \[rc-write\].*
 timeout=120

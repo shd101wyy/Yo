@@ -53,25 +53,24 @@
 { RefCell } :: import("std/sync/refcell");
 { replace } :: import("std/mem");
 CLEANUP_SEGMENT :: usize.MAX;
-CrossBoundaryResult :: ref(
-  struct(
-    /// Variable IDs that must be stored as struct fields (cross await boundaries).
-    cross_boundary_ids : HashSet(String),
-    /// Maps temp variable IDs to their `await_future_N` field name (dedup).
-    await_future_temp_var_aliases : HashMap(String, String),
-    /// Maps each captured variable id to the segment indices where it is referenced.
-    variable_segments : HashMap(String, HashSet(usize)),
-    /// The ids of match-arm pattern bindings. A binding's slot borrows its
-    /// scrutinee's payload, so it never shares an owning slot.
-    pattern_binding_ids : HashSet(String)
-  )
+CrossBoundaryResult :: struct(
+  /// Variable IDs that must be stored as struct fields (cross await boundaries).
+  cross_boundary_ids : HashSet(String),
+  /// Maps temp variable IDs to their `await_future_N` field name (dedup).
+  await_future_temp_var_aliases : HashMap(String, String),
+  /// Maps each captured variable id to the segment indices where it is referenced.
+  variable_segments : HashMap(String, HashSet(usize)),
+  /// The ids of match-arm pattern bindings. A binding's slot borrows its
+  /// scrutinee's payload, so it never shares an owning slot.
+  pattern_binding_ids : HashSet(String)
 );
 /// A body local's live range for the single-pass lowering, in source-position
 /// keys (`_lv_pos`): it holds a value from `def_end` (the end of its
 /// initializer, or its pattern binding) to `last` (its last use, counted at
 /// the end of the statement that uses it), extended to `scope_end` when it
 /// must survive to a scope-end drop or has its address taken.
-_LiveVar :: ref(struct(def_end : u64, last : u64, scope_end : u64, to_scope_end : bool));
+_LiveVar :: struct(def_end : u64, last : u64, scope_end : u64, to_scope_end : bool);
+derive(_LiveVar, Copy, Clone);
 /// Await sites (`module:row:col`) whose result needs no task field: no later
 /// await in the same statement can suspend between the result's extraction
 /// and its use, so it is a C local (phase 6). Filled by
@@ -80,38 +79,36 @@ _LiveVar :: ref(struct(def_end : u64, last : u64, scope_end : u64, to_scope_end 
 (g_local_await_results : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 _site_of :: (fn(tok : &Token) -> String)(`${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`);
 /// State of the live-range walk over one `io.async` body.
-_LiveWalk :: ref(
-  struct(
-    module_path : String,
-    /// A node from another module was seen (a macro expansion): positions are
-    /// not comparable, so every local is treated as live across the awaits.
-    foreign : bool,
-    vars : HashMap(String, _LiveVar),
-    remap : HashMap(String, String),
-    loop_starts : ArrayList(u64),
-    loop_ends : ArrayList(u64),
-    span_ends : HashMap(usize, u64),
-    /// Every await the walk meets: its site, position, and the end of the
-    /// statement it is in.
-    await_sites : ArrayList(String),
-    await_pos : ArrayList(u64),
-    await_stmt_end : ArrayList(u64),
-    /// The ids of the pattern bindings the walk declared.
-    bindings : HashSet(String),
-    /// The ids declared under each source name: a read the walk cannot
-    /// resolve (its node carries no environment) counts as a use of each.
-    names : HashMap(String, ArrayList(String))
-  )
+_LiveWalk :: struct(
+  module_path : String,
+  /// A node from another module was seen (a macro expansion): positions are
+  /// not comparable, so every local is treated as live across the awaits.
+  foreign : bool,
+  vars : HashMap(String, _LiveVar),
+  remap : HashMap(String, String),
+  loop_starts : ArrayList(u64),
+  loop_ends : ArrayList(u64),
+  span_ends : HashMap(usize, u64),
+  /// Every await the walk meets: its site, position, and the end of the
+  /// statement it is in.
+  await_sites : ArrayList(String),
+  await_pos : ArrayList(u64),
+  await_stmt_end : ArrayList(u64),
+  /// The ids of the pattern bindings the walk declared.
+  bindings : HashSet(String),
+  /// The ids declared under each source name: a read the walk cannot
+  /// resolve (its node carries no environment) counts as a use of each.
+  names : HashMap(String, ArrayList(String))
 );
 /// A token's source position as one ordered key (row major).
-_lv_pos :: (fn(tok : &Token, w : &_LiveWalk) -> u64)({
+_lv_pos :: (fn(tok : &Token, w : &mut _LiveWalk) -> u64)({
   if(!(tok.module_path.* == w.module_path), {
     w.foreign = true;
   });
   (u64(tok.row) * u64(1048576)) + u64(tok.column)
 });
 /// The last source position inside `e` (memoized by node id).
-_lv_span_end :: (fn(e : &AstExpr, w : &_LiveWalk) -> u64)({
+_lv_span_end :: (fn(e : &AstExpr, w : &mut _LiveWalk) -> u64)({
   eid := ast_expr_id(e);
   match(w.span_ends.get(&eid), .Some(v) => return(v), .None => ());
   (m : u64) = _lv_pos(ast_expr_token(e), w);
@@ -166,7 +163,7 @@ _lv_id :: (fn(v : &Variable, w : &_LiveWalk) -> String)({
   match(w.remap.get_cloned(id.clone()), .Some(orig) => orig, .None => id)
 });
 /// Declare the local `name` at `def_end` (its scope ends at `scope_end`).
-_lv_declare :: (fn(id : &String, name : &String, def_end : u64, scope_end : u64, w : &_LiveWalk) -> unit)({
+_lv_declare :: (fn(id : &String, name : &String, def_end : u64, scope_end : u64, w : &mut _LiveWalk) -> unit)({
   if(!w.vars.contains_key(id.clone()), {
     w.vars.insert(id.clone(), _LiveVar(def_end : def_end, last : def_end, scope_end : scope_end, to_scope_end : false));
     ids := match(w.names.get_cloned(name.clone()), .Some(l) => l, .None => ArrayList(String).new());
@@ -176,21 +173,36 @@ _lv_declare :: (fn(id : &String, name : &String, def_end : u64, scope_end : u64,
 });
 /// Record a use of `id` at `at`: a local defined before an enclosing loop is
 /// live through the whole loop (the loop comes back to it).
-_lv_use :: (fn(id : &String, at : u64, w : &_LiveWalk) -> unit)(
+_lv_use :: (fn(id : &String, at : u64, w : &mut _LiveWalk) -> unit)(
   match(
     w.vars.get(id),
     .Some(lv) => {
-      if(at > lv.last, {
-        lv.last = at;
+      (mut(m) : _LiveVar) = lv;
+      if(at > m.last, {
+        m.last = at;
       });
       (li : usize) = usize(0);
       while(li < w.loop_starts.len(), li = (li + usize(1)), {
         ls := match(w.loop_starts.get(li), .Some(x) => x, .None => u64(0));
         le := match(w.loop_ends.get(li), .Some(x) => x, .None => u64(0));
-        if((lv.def_end < ls) && (le > lv.last), {
-          lv.last = le;
+        if((m.def_end < ls) && (le > m.last), {
+          m.last = le;
         });
       });
+      w.vars.insert(id.clone(), m);
+    },
+    .None => ()
+  )
+);
+/// Set one `_LiveVar` flag in place (the write the handle spelling used to
+/// give through `w.vars.get`): read, modify, insert.
+_lv_set_to_scope_end :: (fn(id : &String, w : &mut _LiveWalk) -> unit)(
+  match(
+    w.vars.get(id),
+    .Some(lv) => {
+      (mut(m) : _LiveVar) = lv;
+      m.to_scope_end = true;
+      w.vars.insert(id.clone(), m);
     },
     .None => ()
   )
@@ -207,18 +219,12 @@ _lv_place_root :: (fn(e : &AstExpr) -> AstExpr)(
     )
   )
 );
-_lv_mark_scope :: (fn(e : &AstExpr, w : &_LiveWalk, context : &FunctionGenerationContext) -> unit)(
+_lv_mark_scope :: (fn(e : &AstExpr, w : &mut _LiveWalk, context : &FunctionGenerationContext) -> unit)(
   match(
     e.clone(),
     Rc(.Atom(_, tok)) => match(
       _lv_resolve(e, tok.value.*.clone(), w, context),
-      .Some(v) => match(
-        w.vars.get(_lv_id(&v, w)),
-        .Some(lv) => {
-          lv.to_scope_end = true;
-        },
-        .None => ()
-      ),
+      .Some(v) => _lv_set_to_scope_end(_lv_id(&v, w), w),
       .None => ()
     ),
     Rc(.FnCall(_, _, _, _, _)) => ()
@@ -230,7 +236,7 @@ _lv_mark_scope :: (fn(e : &AstExpr, w : &_LiveWalk, context : &FunctionGeneratio
 /// a suspension. Nothing names `x` there, so each borrowed root lives to the
 /// end of its scope, as an `&x` argument's does
 /// (issues/fixed/a-local-borrowed-by-a-closure-in-an-async-body-is-not-hoisted.md).
-_lv_mark_capture_list_borrows :: (fn(closure : &AstExpr, lhs : &AstExpr, w : &_LiveWalk, context : &FunctionGenerationContext) -> unit)({
+_lv_mark_capture_list_borrows :: (fn(closure : &AstExpr, lhs : &AstExpr, w : &mut _LiveWalk, context : &FunctionGenerationContext) -> unit)({
   entries := match(
     lhs,
     Rc(.FnCall(_, cl_callee, _, _, _)) => match(cl_callee, Rc(.FnCall(_, _, Rc(ents), _, _)) => ents.clone(), Rc(.Atom(_, _)) => return(())),
@@ -261,13 +267,7 @@ _lv_mark_capture_list_borrows :: (fn(closure : &AstExpr, lhs : &AstExpr, w : &_L
           root,
           Rc(.Atom(_, rtok)) => match(
             _lv_resolve(closure, rtok.value.*.clone(), w, context),
-            .Some(v) => match(
-              w.vars.get(_lv_id(&v, w)),
-              .Some(lv) => {
-                lv.to_scope_end = true;
-              },
-              .None => ()
-            ),
+            .Some(v) => _lv_set_to_scope_end(_lv_id(&v, w), w),
             .None => ()
           ),
           Rc(.FnCall(_, _, _, _, _)) => ()
@@ -308,7 +308,7 @@ _lv_call_abi_ptr_flags :: (fn(call : &AstExpr, callee : &AstExpr, context : &Fun
 /// (`MaybeUninit.as_ptr` returns it), so, exactly as for `&x`, the place's
 /// root local lives to the end of its scope
 /// (issues/fixed/2026-10-15-a-local-whose-address-a-method-takes-is-a-dangling-c-local-across-an-await.md).
-_lv_mark_call_lends :: (fn(call : &AstExpr, callee : &AstExpr, w : &_LiveWalk, context : &FunctionGenerationContext) -> unit)({
+_lv_mark_call_lends :: (fn(call : &AstExpr, callee : &AstExpr, w : &mut _LiveWalk, context : &FunctionGenerationContext) -> unit)({
   runtime_args := match(
     context.base.get_expr_info(call),
     .Some(ei) => match(&ei.runtime_arg_exprs_in_order(), .Some(ra) => ra.clone(), .None => return(())),
@@ -325,7 +325,7 @@ _lv_mark_call_lends :: (fn(call : &AstExpr, callee : &AstExpr, w : &_LiveWalk, c
 });
 /// Declare the names a match arm's pattern binds (identifier atoms whose
 /// variable is declared at that very atom).
-_lv_pattern_bindings :: (fn(pat : &AstExpr, scope_end : u64, w : &_LiveWalk, context : &FunctionGenerationContext) -> unit)(
+_lv_pattern_bindings :: (fn(pat : &AstExpr, scope_end : u64, w : &mut _LiveWalk, context : &FunctionGenerationContext) -> unit)(
   match(
     pat.clone(),
     Rc(.Atom(_, tok)) => if(tok.kind == TokenKind.Identifier, {
@@ -350,7 +350,7 @@ _lv_pattern_bindings :: (fn(pat : &AstExpr, scope_end : u64, w : &_LiveWalk, con
 /// Walk `e`: `stmt_end` is where the statement being walked ends (a read is
 /// emitted no earlier than the awaits before it in the same statement), and
 /// `block_end` where the innermost block ends (its locals' scope).
-_lv_walk :: (fn(e : &AstExpr, stmt_end : u64, block_end : u64, w : &_LiveWalk, context : &FunctionGenerationContext) -> unit)({
+_lv_walk :: (fn(e : &AstExpr, stmt_end : u64, block_end : u64, w : &mut _LiveWalk, context : &FunctionGenerationContext) -> unit)({
   match(
     lookup_macro_expansion(ast_expr_id(e)),
     .Some(expanded) => {
@@ -417,13 +417,7 @@ _lv_walk :: (fn(e : &AstExpr, stmt_end : u64, block_end : u64, w : &_LiveWalk, c
               .Some(sp) => if(!is_unit_type(&variable_value_type(&sp)), {
                 sp_id := _lv_id(&sp, w);
                 _lv_declare(sp_id.clone(), sp.name.clone(), _lv_span_end(rhs.clone(), w), block_end, w);
-                match(
-                  w.vars.get(&sp_id),
-                  .Some(slv) => {
-                    slv.to_scope_end = true;
-                  },
-                  .None => ()
-                );
+                _lv_set_to_scope_end(&sp_id, w);
               }),
               .None => ()
             );
@@ -434,13 +428,7 @@ _lv_walk :: (fn(e : &AstExpr, stmt_end : u64, block_end : u64, w : &_LiveWalk, c
                 .Some(pin) => {
                   pin_id := _lv_id(&pin, w);
                   _lv_declare(pin_id.clone(), pin.name.clone(), _lv_span_end(&rhs, w), block_end, w);
-                  match(
-                    w.vars.get(&pin_id),
-                    .Some(plv) => {
-                      plv.to_scope_end = true;
-                    },
-                    .None => ()
-                  );
+                  _lv_set_to_scope_end(&pin_id, w);
                 },
                 .None => ()
               ),
@@ -489,7 +477,7 @@ _lv_walk :: (fn(e : &AstExpr, stmt_end : u64, block_end : u64, w : &_LiveWalk, c
                         (cgi : usize) = usize(0);
                         while(cgi < cg_arms.len(), cgi = (cgi + usize(1)), {
                           match(
-                            cg_arms.get(cgi),
+                            cg_arms.get_cloned(cgi),
                             .Some(cga) => if(ast_expr_id(&cga.arm_expr) == ast_expr_id(a.clone()), {
                               hidden := ArrayList(AstExpr).new();
                               pattern_binding_atoms(&cga.pattern, &mut hidden);
@@ -568,7 +556,7 @@ compute_cross_boundary_variables :: (
 )({
   captured_variables := &analysis.captured_variables;
   body_tok := ast_expr_token(body_expr.clone());
-  w := _LiveWalk(
+  (mut(w) : _LiveWalk) = _LiveWalk(
     module_path : body_tok.module_path.*.clone(),
     foreign : false,
     vars : HashMap(String, _LiveVar).new(),
@@ -582,12 +570,12 @@ compute_cross_boundary_variables :: (
     bindings : HashSet(String).new(),
     names : HashMap(String, ArrayList(String)).new()
   );
-  body_end := _lv_span_end(body_expr.clone(), &w);
-  _lv_walk(body_expr.clone(), body_end, body_end, &w, context);
+  body_end := _lv_span_end(body_expr.clone(), &mut w);
+  _lv_walk(body_expr.clone(), body_end, body_end, &mut w, context);
   // Suspension positions, and the future temps each await consumes.
   sus := ArrayList(u64).new();
   consumed_temps := HashSet(String).new();
-  note_await := (fn(ae : &AstExpr, sus : &mut ArrayList(u64), consumed : &mut HashSet(String), w : &_LiveWalk, context : &FunctionGenerationContext) -> unit)({
+  note_await := (fn(ae : &AstExpr, sus : &mut ArrayList(u64), consumed : &mut HashSet(String), w : &mut _LiveWalk, context : &FunctionGenerationContext) -> unit)({
     sus.push(_lv_pos(ast_expr_token(ae.clone()), w));
     match(
       ae,
@@ -615,17 +603,17 @@ compute_cross_boundary_variables :: (
   (pi : usize) = usize(0);
   while(pi < analysis.await_points.len(), pi = (pi + usize(1)), {
     match(
-      analysis.await_points.get(pi),
+      analysis.await_points.get_cloned(pi),
       .Some(ap) => match(
         &ap.base.cond_branch_suspension_exprs,
         .Some(bes) => {
           (bj : usize) = usize(0);
           while(bj < bes.len(), bj = (bj + usize(1)), {
-            match(bes.get_cloned(bj), .Some(be) => note_await(&be, &mut sus, &mut consumed_temps, &w, context), .None => ());
+            match(bes.get_cloned(bj), .Some(be) => note_await(&be, &mut sus, &mut consumed_temps, &mut w, context), .None => ());
           });
-          note_await(&ap.base.expr, &mut sus, &mut consumed_temps, &w, context);
+          note_await(&ap.base.expr, &mut sus, &mut consumed_temps, &mut w, context);
         },
-        .None => note_await(&ap.base.expr, &mut sus, &mut consumed_temps, &w, context)
+        .None => note_await(&ap.base.expr, &mut sus, &mut consumed_temps, &mut w, context)
       ),
       .None => ()
     );
@@ -661,7 +649,7 @@ compute_cross_boundary_variables :: (
   (ai : usize) = usize(0);
   while(ai < captured_variables.len(), ai = (ai + usize(1)), {
     match(
-      captured_variables.get(ai),
+      captured_variables.get_cloned(ai),
       .Some(cv) => match(
         cv.kind,
         .Local => if(!is_unit_type(&cv.base.ty), {
@@ -721,27 +709,24 @@ _SlotRange :: struct(min : usize, max : usize);
 derive(_SlotRange, Copy, Clone);
 /// An overlapping storage slot shared by ≥2 non-RC value vars with disjoint live
 /// ranges.
-OverlappingSlot :: ref(
-  struct(
-    /// The struct field name, e.g. `slot_0`.
-    field_name : String,
-    /// The C type string for this slot.
-    c_type : String,
-    /// The members' type (they share one C type): the dispose drops an RC
-    /// slot once, through it.
-    ty : TypeValue,
-    /// Variable names sharing this slot (for comments).
-    variable_names : ArrayList(String)
-  )
+OverlappingSlot :: struct(
+  /// The struct field name, e.g. `slot_0`.
+  field_name : String,
+  /// The C type string for this slot.
+  c_type : String,
+  /// The members' type (they share one C type): the dispose drops an RC
+  /// slot once, through it.
+  ty : TypeValue,
+  /// Variable names sharing this slot (for comments).
+  variable_names : ArrayList(String)
 );
+derive(OverlappingSlot, Clone);
 /// Result of overlapping storage analysis.
-OverlappingStorageResult :: ref(
-  struct(
-    /// Maps variable IDs to their aliased slot field name.
-    slot_aliases : HashMap(String, String),
-    /// Slot field definitions for the struct.
-    slots : ArrayList(OverlappingSlot)
-  )
+OverlappingStorageResult :: struct(
+  /// Maps variable IDs to their aliased slot field name.
+  slot_aliases : HashMap(String, String),
+  /// Slot field definitions for the struct.
+  slots : ArrayList(OverlappingSlot)
 );
 /// Find the eligible captured variable with the given id. Helper for slot naming.
 _find_captured_by_id :: (
@@ -751,7 +736,7 @@ _find_captured_by_id :: (
   (found : Option(CapturedVariable)) = Option(CapturedVariable).None;
   while((i < eligible.len()) && found.is_none(), {
     match(
-      eligible.get(i),
+      eligible.get_cloned(i),
       .Some(v) => if(v.base.id == id.*, {
         found = Option(CapturedVariable).Some(v);
       }),
@@ -794,9 +779,9 @@ compute_overlapping_slots :: (
   (o0 : usize) = usize(0);
   while(o0 < captured_variables.len(), o0 = (o0 + usize(1)), {
     match(
-      captured_variables.get(o0),
+      captured_variables.get_cloned(o0),
       .Some(ov) => match(
-        ov.is_owning_the_same_rc_value_as,
+        ov.is_owning_the_same_rc_value_as.clone(),
         .Some(ob) => {
           rc_owners.insert(ob.base.id.to_string());
         },
@@ -809,7 +794,7 @@ compute_overlapping_slots :: (
   (e0 : usize) = usize(0);
   while(e0 < captured_variables.len(), {
     match(
-      captured_variables.get(e0),
+      captured_variables.get_cloned(e0),
       .Some(v) => {
         is_local := match(v.kind, .Local => true, .Outer => false);
         vid0 := v.base.id.to_string();
@@ -830,7 +815,7 @@ compute_overlapping_slots :: (
   (r0 : usize) = usize(0);
   while(r0 < eligible.len(), {
     match(
-      eligible.get(r0),
+      eligible.get_cloned(r0),
       .Some(v) => match(
         variable_segments.get_cloned(v.base.id.to_string()),
         .Some(segs) => {
@@ -881,7 +866,7 @@ compute_overlapping_slots :: (
   (g0 : usize) = usize(0);
   while(g0 < eligible.len(), {
     match(
-      eligible.get(g0),
+      eligible.get_cloned(g0),
       .Some(v) => {
         vid := v.base.id.to_string();
         if(ranges.contains_key(vid.clone()), {
@@ -1115,7 +1100,7 @@ _build_combined_sm_variables :: (
   (i : usize) = usize(0);
   while(i < cvs.len(), {
     match(
-      cvs.get(i),
+      cvs.get_cloned(i),
       .Some(v) => {
         combined.insert(v.base.id.to_string(), v);
       },
@@ -1137,11 +1122,11 @@ _build_combined_sm_variables :: (
             id : lbl.clone(),
             name : lbl.clone(),
             ty : ty,
-            is_owning_the_same_rc_value_as : Option(SuspensionCapturedVariable).None,
+            is_owning_the_same_rc_value_as : Option(Rc(SuspensionCapturedVariable)).None,
             decl_site : String.from("")
           ),
           kind : CapturedVariableKind.Outer,
-          is_owning_the_same_rc_value_as : Option(CapturedVariable).None
+          is_owning_the_same_rc_value_as : Option(Rc(CapturedVariable)).None
         );
         combined.insert(lbl.clone(), cv);
         j = (j + usize(1));
@@ -1261,7 +1246,7 @@ emit_effect_record_injection_for_sm :: (
                       .Some(mv) => match(
                         mv,
                         Rc(.FuncVal(__fvd1, _)) => match(
-                          context.base.functions.get(&__fvd1.*.func_id),
+                          context.base.functions.get_cloned(&__fvd1.*.func_id),
                           .Some(fe) => {
                             member_code = Option(String).Some(fe.c_name.clone());
                           },
@@ -1324,7 +1309,7 @@ emit_effect_record_injection_for_sm :: (
                               .Some(fv) => match(
                                 fv,
                                 Rc(.FuncVal(__fvd2, _)) => match(
-                                  context.base.functions.get(&__fvd2.*.func_id),
+                                  context.base.functions.get_cloned(&__fvd2.*.func_id),
                                   .Some(fe) => {
                                     member_code = Option(String).Some(fe.c_name.clone());
                                   },
@@ -1559,7 +1544,7 @@ _inline_await_result_type :: (fn(expr : &AstExpr, analysis : &Option(AwaitAnalys
       (i : usize) = usize(0);
       while(i < a.await_points.len(), i = (i + usize(1)), {
         match(
-          a.await_points.get(i),
+          a.await_points.get_cloned(i),
           .Some(ap) => if(ast_expr_id(&ap.base.expr) == eid, {
             return(Rc.clone(ap.result_type));
           }),
@@ -1597,13 +1582,13 @@ inline_await_result_fields :: (fn(analysis : &AwaitAnalysisResult, context : &Fu
   (i : usize) = usize(0);
   while(i < analysis.await_points.len(), i = (i + usize(1)), {
     match(
-      analysis.await_points.get(i),
+      analysis.await_points.get_cloned(i),
       .Some(ap) => match(
         &ap.base.cond_branch_suspension_exprs,
         .Some(branch_exprs) => {
           (j : usize) = usize(0);
           while(j < branch_exprs.len(), j = (j + usize(1)), {
-            match(branch_exprs.get_cloned(j), .Some(be) => add(&be, _inline_await_result_type(&be, Option(AwaitAnalysisResult).None, context), &mut out, &mut seen, prefix.clone()), .None => ());
+            match(branch_exprs.get_cloned(j), .Some(be) => add(&be, _inline_await_result_type(&be, &Option(AwaitAnalysisResult).None, context), &mut out, &mut seen, prefix.clone()), .None => ());
           });
         },
         .None => add(&ap.base.expr, &ap.result_type, &mut out, &mut seen, prefix.clone())
@@ -1620,7 +1605,7 @@ inline_await_result_fields :: (fn(analysis : &AwaitAnalysisResult, context : &Fu
 /// suspension between the await and its statement's use of it); `.None` when
 /// it is unit or lives in the task.
 inline_await_local_result_type :: (fn(expr : &AstExpr, analysis : &AwaitAnalysisResult, context : &FunctionGenerationContext) -> Option(TypeValue))({
-  rty := _inline_await_result_type(expr, Option(AwaitAnalysisResult).Some(analysis.*), context);
+  rty := _inline_await_result_type(expr, &Option(AwaitAnalysisResult).Some(analysis.clone()), context);
   cond(
     _inline_result_is_unit(&rty) => Option(TypeValue).None,
     g_local_await_results.with({ expr : &expr.* }(s) => s.contains(_site_of(ast_expr_token(expr.clone())))) => Option(TypeValue).Some(rty),
@@ -1675,7 +1660,7 @@ emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &mut Funct
   // place through the context (sm_lowering_* in functions/context.yo).
   (low_analysis, low_resume_fn, low_block_id) := match(
     &context.sm_inline_lowering,
-    .Some(l) => (l.analysis, l.resume_function_name.clone(), l.async_block_id.clone()),
+    .Some(l) => (l.analysis.clone(), l.resume_function_name.clone(), l.async_block_id.clone()),
     .None => {
       codegen_fatal(String.from("emit_inline_await outside the single-pass lowering"));
       return(String.from(""));
@@ -1785,7 +1770,7 @@ emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &mut Funct
         _emit_await_result_store(local.clone(), &acc, &rty, false, indent.clone(), context);
         out = local;
       },
-      .None => if(!_inline_result_is_unit(_inline_await_result_type(expr, Option(AwaitAnalysisResult).Some(low_analysis), context)), {
+      .None => if(!_inline_result_is_unit(_inline_await_result_type(expr, &Option(AwaitAnalysisResult).Some(low_analysis.clone()), context)), {
         codegen_fatal(`the single-pass async lowering reached await ${eid.to_string()}, which the suspension analysis did not record`);
       })
     )
@@ -1877,7 +1862,7 @@ generate_async_block_resume_function_inline :: (
     async_block_id : async_block_id.clone(),
     resume_function_name : resume_function_name.clone(),
     next_state : usize(1),
-    analysis : analysis.*,
+    analysis : analysis.clone(),
     suspensions : ArrayList(InlineSuspension).new(),
     emitted : HashSet(usize).new(),
     moved_into_slot : HashSet(String).new(),

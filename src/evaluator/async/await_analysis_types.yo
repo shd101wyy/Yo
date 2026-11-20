@@ -35,26 +35,25 @@ derive(CapturedVariableKind, Copy, Clone);
 // ---------------------------------------------------------------------------
 /// Information about a single await expression found in an async function.
 /// Embeds `SuspensionPoint` as a `base` field.
-AwaitPoint :: ref(
-  struct(
-    /// Shared suspension-point fields (index, expr, target_variable_id, …).
-    base : SuspensionPoint,
-    /// The type of the value being awaited (the T in Future(T)).
-    result_type : TypeValue,
-    /// The full Future type being awaited (Impl Future(T) or similar).
-    /// Stored to help codegen determine the correct C type for `await_future_X` fields.
-    future_type : Option(TypeValue),
-    /// The variable ID of the Future being awaited.
-    /// Used to reference the captured Future variable instead of creating a separate
-    /// `await_future_X` field.
-    future_variable_id : Option(String),
-    /// The await's result REASSIGNS an existing variable (`x = io.await(…)`)
-    /// rather than binding a fresh one (`x := …`): the extraction must release
-    /// the value it overwrites
-    /// (issues/fixed/reassigning-a-heap-local-from-an-await-leaks-the-old-value.md).
-    target_is_reassign : bool
-  )
+AwaitPoint :: struct(
+  /// Shared suspension-point fields (index, expr, target_variable_id, …).
+  base : SuspensionPoint,
+  /// The type of the value being awaited (the T in Future(T)).
+  result_type : TypeValue,
+  /// The full Future type being awaited (Impl Future(T) or similar).
+  /// Stored to help codegen determine the correct C type for `await_future_X` fields.
+  future_type : Option(TypeValue),
+  /// The variable ID of the Future being awaited.
+  /// Used to reference the captured Future variable instead of creating a separate
+  /// `await_future_X` field.
+  future_variable_id : Option(String),
+  /// The await's result REASSIGNS an existing variable (`x = io.await(…)`)
+  /// rather than binding a fresh one (`x := …`): the extraction must release
+  /// the value it overwrites
+  /// (issues/fixed/reassigning-a-heap-local-from-an-await-leaks-the-old-value.md).
+  target_is_reassign : bool
 );
+derive(AwaitPoint, Clone);
 // ---------------------------------------------------------------------------
 // CapturedVariable
 // ---------------------------------------------------------------------------
@@ -62,37 +61,46 @@ AwaitPoint :: ref(
 /// Embeds the base fields in `base` and adds async-specific fields.
 /// The self-referential `is_owning_the_same_rc_value_as`
 /// is overridden with the async-typed version.
-CapturedVariable :: ref(
-  struct(
-    /// Shared captured-variable fields (id, name, ty).
-    base : SuspensionCapturedVariable,
-    /// The kind of variable being captured (local or outer-scope).
-    kind : CapturedVariableKind,
-    /// Async-typed self-referential override for `is_owning_the_same_rc_value_as`.
-    /// A plain `Option(Self)`: a `ref` type is already a handle.
-    is_owning_the_same_rc_value_as : Option(Self)
-  )
+CapturedVariable :: struct(
+  /// Shared captured-variable fields (id, name, ty).
+  base : SuspensionCapturedVariable,
+  /// The kind of variable being captured (local or outer-scope).
+  kind : CapturedVariableKind,
+  /// Async-typed self-referential override for `is_owning_the_same_rc_value_as`.
+  /// An `Option(Rc(Self))`: the indirection a value struct needs.
+  is_owning_the_same_rc_value_as : Option(Rc(Self))
 );
+derive(CapturedVariable, Clone);
 // ---------------------------------------------------------------------------
 // AwaitAnalysisResult
 // ---------------------------------------------------------------------------
 /// Result of analyzing an async function for await points.
-AwaitAnalysisResult :: ref(
-  struct(
-    /// All await points found in the function, in order of appearance.
-    await_points : ArrayList(AwaitPoint),
-    /// All local variables that need to be captured in the state machine.
-    captured_variables : ArrayList(CapturedVariable),
-    /// Whether this function contains any await expressions.
-    has_awaits : bool,
-    /// Maps SSA-renamed variable IDs to their original/canonical IDs.
-    /// Allows codegen to resolve all versions of a variable to the same state machine field.
-    variable_id_remapping : HashMap(String, String)
+AwaitAnalysisResult :: struct(
+  /// All await points found in the function, in order of appearance.
+  await_points : ArrayList(AwaitPoint),
+  /// All local variables that need to be captured in the state machine.
+  captured_variables : ArrayList(CapturedVariable),
+  /// Whether this function contains any await expressions.
+  has_awaits : bool,
+  /// Maps SSA-renamed variable IDs to their original/canonical IDs.
+  /// Allows codegen to resolve all versions of a variable to the same state machine field.
+  variable_id_remapping : HashMap(String, String)
+);
+/// A deep copy of the four collections (the points and variables are plain
+/// values; `ExprInfoRare` derives `Clone` over it).
+impl(
+  AwaitAnalysisResult,
+  Clone(
+    clone : (fn(self : &Self) -> Self)(
+      AwaitAnalysisResult(
+        await_points : self.await_points.clone(),
+        captured_variables : self.captured_variables.clone(),
+        has_awaits : self.has_awaits,
+        variable_id_remapping : self.variable_id_remapping.clone()
+      )
+    )
   )
 );
-/// A `ref(...)` handle: its `clone` is a second handle to the same result
-/// (`ExprInfoRare` derives `Clone` over it).
-impl(AwaitAnalysisResult, Clone(clone : (fn(self : &Self) -> Self)(self.*)));
 // ---------------------------------------------------------------------------
 // Constructor helpers
 // ---------------------------------------------------------------------------

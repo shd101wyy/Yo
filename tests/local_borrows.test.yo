@@ -14,11 +14,14 @@
 Point :: struct(x : i32, y : i32);
 derive(Point, Copy, Clone);
 Shape :: struct(origin : Point, name : String);
-Holder :: ref(struct(n : i32, s : String));
-// A `ref` object, not an `Rc`: the cursor walk writes `next` through each
-// node, and an `Rc`'s payload is read-only (decision 46).
-Node :: ref(struct(value : i32, next : Option(Self)));
-List :: struct(head : Option(Node));
+// The cursor walk writes `next` through each node, so the indirection is a
+// `Box`, not an `Rc` (an `Rc`'s payload is read-only, decision 46). The
+// `ref`-object rows this file carried (a field borrow pinning the object,
+// two fields of one cell overlapping) went with the form in v0.2.79: below
+// a surviving cell (`Rc`, `Arc`, `RefCell`) there is no `&mut` to overlap.
+Node :: struct(value : i32, next : Option(Box(Self)));
+derive(Node, Clone);
+List :: struct(head : Option(Box(Node)));
 (mut(g_count) : i32) = i32(0);
 g_list := List(head : .None);
 bump :: (fn(n : &mut i32) -> unit)({
@@ -131,16 +134,6 @@ test("a mut borrow passed to a mut parameter", {
   bump(y);
   assert(x == i32(3), "both calls wrote x through y");
 });
-test("an object field borrow pins the object; the cell is the unit", {
-  h := Holder(n : i32(1), s : String.from("h"));
-  {
-    n := &mut h.n;
-    n.* = (n.* + i32(1));
-  };
-  assert(h.n == i32(2), "written through the pinned object");
-  assert(ref_count(h) == usize(1), "the pin was released at the borrow's scope end");
-});
-
 // --- Decision 25: the cursor walk ---------------------------------------------
 append :: (fn(list : &mut List, v : i32) -> unit)({
   cur := &mut list.head;
@@ -153,7 +146,7 @@ append :: (fn(list : &mut List, v : i32) -> unit)({
       .None => ()
     );
   });
-  cur.* = .Some(Node(value : v, next : .None));
+  cur.* = .Some(Box.new(Node(value : v, next : .None)));
 });
 sum_list :: (fn(list : &List) -> i32)({
   (mut(total) : i32) = i32(0);
@@ -187,7 +180,7 @@ first_over :: (fn(list : &List, k : i32) -> i32)({
   i32(-1)
 });
 head_count :: (fn(list : &List) -> usize)(
-  match(list.head, .Some(b) => ref_count(b), .None => usize(0))
+  match(&list.head, .Some(_) => usize(1), .None => usize(0))
 );
 test("a re-point to a sibling local's place reads and writes that place (P1)", {
   mut(a) := i32(1);
@@ -207,7 +200,7 @@ test("the cursor walk appends at the tail slot (decision 25)", {
   before := head_count(&l);
   append(&mut l, i32(4));
   assert(sum_list(&l) == i32(10), "a fourth at the tail");
-  assert(head_count(&l) == before, "each step's pin was released when the walk ended");
+  assert(head_count(&l) == before, "the walk left the list intact");
 });
 test("an early return mid-walk releases the cell the last step pinned", {
   mut(l) := List(head : .None);
@@ -217,7 +210,7 @@ test("an early return mid-walk releases the cell the last step pinned", {
   before := head_count(&l);
   assert(first_over(&l, i32(4)) == i32(5), "found the second node");
   assert(first_over(&l, i32(100)) == i32(-1), "walked off the end");
-  assert(head_count(&l) == before, "no pin outlived the walk");
+  assert(head_count(&l) == before, "the list is unchanged after the walk");
 });
 
 // --- Rejected: writes through imm (E0908) --------------------------------------
@@ -339,16 +332,6 @@ comptime_expect_error(
   "Cannot borrow with `&mut` `x` here"
 );
 comptime_expect_error(
-  two_fields_of_one_cell_overlap :: (fn() -> unit)({
-    h := Holder(n : i32(1), s : String.from("h"));
-    n := &mut h.n;
-    s := &mut h.s;
-    s.push_str("!");
-    n = i32(2);
-  }),
-  "the cell is the unit"
-);
-comptime_expect_error(
   loop_back_edge_keeps_the_borrow_live :: (fn() -> unit)({
     mut(x) := i32(1);
     i := i32(0);
@@ -455,7 +438,7 @@ comptime_expect_error(
   }),
   "Cannot call `noop` while `c` is live: `c` borrows `g_count`"
 );
-head_of :: (fn(l : &List) -> Option(Node))(l.head);
+head_of :: (fn(l : &List) -> Option(Box(Node)))(match(&l.head, .Some(b) => Option(Box(Node)).Some(Box.new(Node.clone(&b.*.*))), .None => Option(Box(Node)).None));
 comptime_expect_error(
   repoint_to_a_place_a_callee_could_reach_rejected :: (fn() -> unit)({
     mut(l1) := List(head : .None);

@@ -252,7 +252,7 @@ pragma(Pragma.AllowUnsafe);
 { generate_expr_from_code } :: import("../../parser.yo");
 { format_error_message, format_error_message_with_help, with_code, YoError, note_diagnostic_of_token } :: import("../../error.yo");
 { is_std_module_path, is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
-{ E_ARGUMENT_LABEL_MISMATCH, E_CLOSURE_TRAIT_TOO_WEAK, E_BORROW_MARKER_MISMATCH, E_INCOMPATIBLE_TYPES } :: import("../../diagnostics.yo");
+{ E_ARGUMENT_LABEL_MISMATCH, E_CLOSURE_TRAIT_TOO_WEAK, E_BORROW_MARKER_MISMATCH, E_INCOMPATIBLE_TYPES, Diagnostic } :: import("../../diagnostics.yo");
 { require_ref_own_argument_exclusivity, require_valid_ref_argument_places, flag_flow_violation, flow_violation_pending, flow_violation_error, propagate_def_time_errors, raise_flow_violation } :: import("../../types/flowability.yo");
 {
   mark_as_control_fn,
@@ -276,7 +276,7 @@ pragma(Pragma.AllowUnsafe);
 /// (seed window) Concrete variants of refcell.yo's fillers: a fn value
 /// generic over its element keeps the variable abstract through the slot, so
 /// uses of the result needing methods fail (see refcell.yo's filler block).
-_c_first_yoerror :: (fn(xs : &ArrayList(YoError)) -> Option(YoError))(xs.get(usize(0)));
+_c_first_yoerror :: (fn(xs : &ArrayList(YoError)) -> Option(YoError))(xs.get_cloned(usize(0)));
 /// (seed window) Concrete per-payload variants of refcell.yo's generic
 /// fillers: a fn value generic over its element keeps the variable abstract
 /// through the slot and its specializations COLLAPSE across element types
@@ -2543,7 +2543,7 @@ compute_compile_time_signature :: (
         val_opt := if(
           fpi < n_fa,
           match(
-            arg_values.forall_args.get(fpi),
+            arg_values.forall_args.get_cloned(fpi),
             .Some(ae) => ae.value.clone(),
             .None => Option(EvalValue).None
           ),
@@ -2588,7 +2588,7 @@ compute_compile_time_signature :: (
       (iai : usize) = usize(0);
       while(iai < n_ia, {
         sig_str := match(
-          impl_args.get(iai),
+          impl_args.get_cloned(iai),
           .Some(ae) => match(
             ae.value.clone(),
             .Some(v) => sanitize_for_sig(value_to_signature_string(&v)),
@@ -2618,7 +2618,7 @@ compute_compile_time_signature :: (
     is_ct := match(param_comptime.get(pci), .Some(b) => b, .None => false);
     if(is_ct && (pci < n_ar), {
       ct_sig := match(
-        arg_values.args.get(pci),
+        arg_values.args.get_cloned(pci),
         .Some(ae) => match(
           ae.value.clone(),
           .Some(v) => sanitize_for_sig(value_to_signature_string(&v)),
@@ -2756,7 +2756,7 @@ _find_specialization_cache :: (
   (ei : usize) = usize(0);
   (result : Option(EvalValue)) = Option(EvalValue).None;
   while((ei < n_entries) && result.is_none(), {
-    entry_opt := g_specialized_fn_caches.with(xs => xs.get(ei));
+    entry_opt := g_specialized_fn_caches.with(xs => xs.get_cloned(ei));
     match(
       entry_opt,
       .Some(entry) => {
@@ -2944,35 +2944,27 @@ _store_specialization_cache :: (
     specialized_func_value : Rc.clone(specialized_func_val.*),
     owner : registration_owner()
   );
-  // Find existing entry for this func_id
-  n_entries := g_specialized_fn_caches.with(_c_len_2);
-  (ei : usize) = usize(0);
-  (found : Option(SpecializedFunctionCacheEntry)) = Option(SpecializedFunctionCacheEntry).None;
-  while((ei < n_entries) && found.is_none(), {
-    entry_opt := g_specialized_fn_caches.with(xs => xs.get(ei));
+  // Push into the existing entry for this func_id, or add one, in place: an
+  // entry is a value, so a copy's push would be lost.
+  g_specialized_fn_caches.with_mut({ want : func_id.clone(), c : new_cache }(xs) => {
+    (found : Option(usize)) = Option(usize).None;
+    (i : usize) = usize(0);
+    while((i < xs.len()) && found.is_none(), {
+      if(xs(i).func_id == want, {
+        found = Option(usize).Some(i);
+      });
+      i = (i + usize(1));
+    });
     match(
-      entry_opt,
-      .Some(entry) => {
-        if(entry.func_id == func_id.*, {
-          found = Option(SpecializedFunctionCacheEntry).Some(entry);
-        });
-      },
-      .None => ()
+      found,
+      .Some(fi) => xs.with(fi, { c }(e) => e.caches.push(c)),
+      .None => {
+        new_caches := ArrayList(SpecializedFunctionCache).new();
+        new_caches.push(c);
+        xs.push(SpecializedFunctionCacheEntry(func_id : want.clone(), caches : new_caches));
+      }
     );
-    ei = (ei + usize(1));
   });
-  match(
-    found,
-    // Push into the existing entry's caches
-    .Some(entry) => entry.caches.push(new_cache),
-    .None => {
-      // Create new entry
-      new_caches := ArrayList(SpecializedFunctionCache).new();
-      new_caches.push(new_cache);
-      entry := SpecializedFunctionCacheEntry(func_id : func_id.clone(), caches : new_caches);
-      g_specialized_fn_caches.with_mut({ entry }(xs) => xs.push(entry));
-    }
-  );
 });
 /// Specializations minted while a recording is open
 /// (`specialization_recording_begin`). `check` gives each demand-loaded module
@@ -3021,23 +3013,22 @@ purge_specialization_caches_owned_by :: (fn(owner : &String) -> unit)({
   if(owner.len() == usize(0), {
     return(());
   });
-  (ei : usize) = usize(0);
-  while(ei < g_specialized_fn_caches.with(_c_len_2), {
-    match(
-      g_specialized_fn_caches.with(xs => xs.get(ei)),
-      .Some(entry) => {
+  // In place: an entry is a value, so a copy's drain would be lost.
+  g_specialized_fn_caches.with_mut({ want : owner.clone() }(xs) => {
+    (ei : usize) = usize(0);
+    while(ei < xs.len(), {
+      xs.with(ei, { &want }(entry) => {
         (ci : usize) = entry.caches.len();
         while(ci > usize(0), {
           ci = (ci - usize(1));
-          hit := (entry.caches(ci).owner == owner.*);
+          hit := (entry.caches(ci).owner == want.*);
           if(hit, {
             entry.caches.drain(ci .. (ci + usize(1)));
           });
         });
-      },
-      .None => ()
-    );
-    ei = (ei + usize(1));
+      });
+      ei = (ei + usize(1));
+    });
   });
 });
 /// Number of cached specializations across all functions (the B2 plateau
@@ -3047,7 +3038,7 @@ specialization_cache_count :: (fn() -> usize)({
   (ei : usize) = usize(0);
   while(ei < g_specialized_fn_caches.with(_c_len_2), {
     match(
-      g_specialized_fn_caches.with(xs => xs.get(ei)),
+      g_specialized_fn_caches.with(xs => xs.get_cloned(ei)),
       .Some(entry) => {
         n = (n + entry.caches.len());
       },
@@ -3066,7 +3057,7 @@ specialization_capture_value_count :: (fn() -> usize)({
   (ei : usize) = usize(0);
   while(ei < g_specialized_fn_caches.with(_c_len_2), {
     match(
-      g_specialized_fn_caches.with(xs => xs.get(ei)),
+      g_specialized_fn_caches.with(xs => xs.get_cloned(ei)),
       .Some(entry) => {
         for(&entry.caches, c => {
           match(
@@ -3092,7 +3083,7 @@ specialization_flat_capture_count :: (fn() -> usize)({
   (ei : usize) = usize(0);
   while(ei < g_specialized_fn_caches.with(_c_len_2), {
     match(
-      g_specialized_fn_caches.with(xs => xs.get(ei)),
+      g_specialized_fn_caches.with(xs => xs.get_cloned(ei)),
       .Some(entry) => {
         for(&entry.caches, c => {
           match(
@@ -3357,7 +3348,7 @@ _spec_bindings_are_concrete :: (fn(forall_args : &ArrayList(ArgEntry), runtime_p
   (fi : usize) = usize(0);
   while(fi < forall_args.len(), {
     match(
-      forall_args.get(fi),
+      forall_args.get_cloned(fi),
       .Some(fa) => match(
         fa.value.clone(),
         .Some(Rc(.TypeVal(ft))) => if(type_contains_some_type_for_codegen_param(&ft, ArrayList(String).new()), {
@@ -3463,7 +3454,7 @@ _somes_are_closure_forall_args :: (fn(somes : &ArrayList(TypeValue), forall_args
   (fi : usize) = usize(0);
   while(fi < forall_args.len(), {
     match(
-      forall_args.get(fi),
+      forall_args.get_cloned(fi),
       .Some(fa) => match(
         fa.value.clone(),
         .Some(fv) => match(
@@ -3605,7 +3596,7 @@ _eval_and_check_specialized_body :: (
         (sbi : usize) = usize(0);
         while((sbi < forall_names.len()) && (sbi < forall_args.len()), {
           match(
-            forall_args.get(sbi),
+            forall_args.get_cloned(sbi),
             .Some(sb_fa) => match(
               sb_fa.value.clone(),
               .Some(sb_fv) => {
@@ -3669,7 +3660,7 @@ create_specialized_function_inline :: (
       n_fa := arg_values.forall_args.len();
       while(fai < n_fa, {
         match(
-          arg_values.forall_args.get(fai),
+          arg_values.forall_args.get_cloned(fai),
           .Some(ae) => match(
             ae.value.clone(),
             .Some(v) => {
@@ -3689,7 +3680,7 @@ create_specialized_function_inline :: (
           n_ia := impl_args.len();
           while(iai < n_ia, {
             match(
-              impl_args.get(iai),
+              impl_args.get_cloned(iai),
               .Some(ae) => match(
                 ae.value.clone(),
                 .Some(v) => {
@@ -3719,7 +3710,7 @@ create_specialized_function_inline :: (
       n_a := arg_values.args.len();
       while(ai < n_a, {
         match(
-          arg_values.args.get(ai),
+          arg_values.args.get_cloned(ai),
           .Some(ae) => {
             sp_ai_ct := match(spec_param_ct_flags.get(ai), .Some(f) => f, .None => false);
             if(sp_ai_ct, {
@@ -3784,7 +3775,7 @@ create_specialized_function_inline :: (
           if(ectp_ct, {
             ectp_label := match(params.get_cloned(ectp_i), .Some(l) => l, .None => String.from(""));
             match(
-              arg_values.args.get(ectp_i),
+              arg_values.args.get_cloned(ectp_i),
               .Some(ectp_ae) => match(
                 ectp_ae.value.clone(),
                 .Some(ectp_v) => {
@@ -3873,7 +3864,7 @@ create_specialized_function_inline :: (
         n_cfa := arg_values.args.len();
         while(cfi < n_cfa, {
           match(
-            arg_values.args.get(cfi),
+            arg_values.args.get_cloned(cfi),
             .Some(cf_ae) => match(
               cf_ae.value.clone(),
               .Some(cf_v) => match(
@@ -3979,7 +3970,7 @@ create_specialized_function_inline :: (
               // main).
               zb_kind := match(zb_ft.get(zb_i), .Some(t) => t, .None => t_unit());
               match(
-                arg_values.forall_args.get(zb_i),
+                arg_values.forall_args.get_cloned(zb_i),
                 .Some(zb_ae) => match(
                   zb_ae.value.clone(),
                   .Some(zb_v) => match(
@@ -4023,7 +4014,7 @@ create_specialized_function_inline :: (
                           if((zb_decl_nm.len() > usize(0)) && (zb_decl_nm == zb_name), {
                             (zb_conc : Option(TypeValue)) = Option(TypeValue).None;
                             match(
-                              arg_values.args.get(zbp),
+                              arg_values.args.get_cloned(zbp),
                               .Some(zb_ae2) => {
                                 match(
                                   zb_ae2.value.clone(),
@@ -4148,11 +4139,11 @@ create_specialized_function_inline :: (
                       zbn := match(forall_names.get_cloned(zbni), .Some(n) => n, .None => String.from(""));
                       if((zbn == zrst_name) && (zbni < arg_values.forall_args.len()), {
                         match(
-                          arg_values.forall_args.get(zbni),
+                          arg_values.forall_args.get_cloned(zbni),
                           .Some(zae) => match(
                             zae.value.clone(),
                             .Some(Rc(.TypeVal(ztb))) => if(!is_some_type(&ztb), {
-                              subst_add(&zs_ret, zrst_name.clone(), zrst_lvl, ztb.clone());
+                              subst_add(&mut zs_ret, zrst_name.clone(), zrst_lvl, ztb.clone());
                               zs_any = true;
                             }),
                             .Some(_) => (),
@@ -4172,8 +4163,8 @@ create_specialized_function_inline :: (
                 // A wrapper keeps its identity (the async state machine is
                 // registered against its id); only its carriers resolve.
                 spec_ret_ty = cond(
-                  zret_is_wrapper => _substitute_wrapper_carriers(&zs_ret, &zdecl_ret),
-                  true => substitute(&zs_ret, &zdecl_ret)
+                  zret_is_wrapper => _substitute_wrapper_carriers(&mut zs_ret, &zdecl_ret),
+                  true => substitute(&mut zs_ret, &zdecl_ret)
                 );
               });
             });
@@ -4241,7 +4232,7 @@ create_specialized_function_inline :: (
                 pte_p0_is_self := match(params.get_cloned(usize(0)), .Some(l) => (l == "self"), .None => false);
                 if(pte_p0_is_self, {
                   match(
-                    arg_values.args.get(usize(0)),
+                    arg_values.args.get_cloned(usize(0)),
                     .Some(pte_rcv) => {
                       ctx.self_type = Option(TypeValue).Some(Rc.clone(pte_rcv.arg_type));
                     },
@@ -4320,7 +4311,7 @@ create_specialized_function_inline :: (
                   rte_p0_is_self := match(params.get_cloned(usize(0)), .Some(l) => (l == "self"), .None => false);
                   if(rte_p0_is_self, {
                     match(
-                      arg_values.args.get(usize(0)),
+                      arg_values.args.get_cloned(usize(0)),
                       .Some(rte_rcv) => {
                         ctx.self_type = Option(TypeValue).Some(Rc.clone(rte_rcv.arg_type));
                       },
@@ -4586,7 +4577,7 @@ create_specialized_function_inline :: (
             // resolved type still carries an Fn-trait carrier, so the
             // capture-struct rebuild below is unaffected.
             match(
-              arg_values.args.get(rbp_i),
+              arg_values.args.get_cloned(rbp_i),
               .Some(rp_ae) => if(match(&rp_ae.parameter_type, Rc(.SomeT({ id : _ })) => extract_fn_trait_from_type(&rp_ae.parameter_type).is_some(), _ => false), {
                 decl_pt = Rc.clone(rp_ae.parameter_type);
               }),
@@ -4645,7 +4636,7 @@ create_specialized_function_inline :: (
                       // RAW arg type's own wrapper.
                       if(!is_some_type(&fw_arg), {
                         match(
-                          arg_values.args.get(rbp_i),
+                          arg_values.args.get_cloned(rbp_i),
                           .Some(fw_ae_raw) => if(is_some_type(&fw_ae_raw.arg_type) &&
                             match(&fw_ae_raw.arg_type, Rc(.SomeT({ id : fw_raw_id })) => (fw_raw_id.* != fw_id.*), _ => false), {
                             fw_res_src = Option(TypeValue).Some(fw_ae_raw.arg_type.clone());
@@ -4806,7 +4797,7 @@ create_specialized_function_inline :: (
                 cap_ty_fixed.clone(),
                 .Some(ct_probe) => if(!match(ct_probe, Rc(.Struct({ id : _ })) => true, _ => false), {
                   match(
-                    arg_values.args.get(rbp_i),
+                    arg_values.args.get_cloned(rbp_i),
                     .Some(cb_ae2) => match(
                       cb_ae2.value.clone(),
                       .Some(cb_v2) => match(
@@ -4876,7 +4867,7 @@ create_specialized_function_inline :: (
                   // closure, for a marker judgement of the parameter's type
                   // inside the body (`function_value_marker`).
                   match(
-                    arg_values.args.get(rbp_i),
+                    arg_values.args.get_cloned(rbp_i),
                     .Some(cb_ae3) => match(
                       cb_ae3.value.clone(),
                       .Some(Rc(.FuncVal(cb_fvd3, _))) => note_closure_for_some_id(fresh_some_id.clone(), cb_fvd3.*.func_id.clone()),
@@ -4916,7 +4907,7 @@ create_specialized_function_inline :: (
                       fn_tr,
                       Rc(.FnTraitT(_, _, _, fn_res, _, _)) => if(is_some_type(&fn_res), {
                         match(
-                          arg_values.args.get(rbp_i),
+                          arg_values.args.get_cloned(rbp_i),
                           .Some(cl_ae3) => match(
                             cl_ae3.value.clone(),
                             .Some(cl_v3) => match(
@@ -5094,7 +5085,7 @@ create_specialized_function_inline :: (
             is_self_first := match(params.get_cloned(usize(0)), .Some(l) => (l == "self"), .None => false);
             if(is_self_first, {
               match(
-                arg_values.args.get(usize(0)),
+                arg_values.args.get_cloned(usize(0)),
                 .Some(rcv_ae) => {
                   ctx.self_type = Option(TypeValue).Some(Rc.clone(rcv_ae.arg_type));
                   spec_self_set = true;
@@ -5520,7 +5511,7 @@ create_specialized_function_inline :: (
                 // (red cluster 3 / the closure-forall emission residual).
                 (closure_cap_ty : Option(TypeValue)) = Option(TypeValue).None;
                 match(
-                  arg_values.args.get(spi),
+                  arg_values.args.get_cloned(spi),
                   .Some(cc_ae) => match(
                     cc_ae.value.clone(),
                     .Some(cc_v) => match(
@@ -5602,13 +5593,13 @@ create_specialized_function_inline :: (
                                             cw_bn := match(forall_names.get_cloned(cw_bi), .Some(n) => n, .None => String.new());
                                             if((cw_bn == cw_st_nm) && (cw_bi < arg_values.forall_args.len()), {
                                               match(
-                                                arg_values.forall_args.get(cw_bi),
+                                                arg_values.forall_args.get_cloned(cw_bi),
                                                 .Some(cw_fae) => match(
                                                   cw_fae.value.clone(),
                                                   .Some(cw_fav) => match(
                                                     cw_fav,
                                                     Rc(.TypeVal(cw_fat)) => if(!is_some_type(&cw_fat) && (get_all_some_types(&cw_fat).len() == usize(0)), {
-                                                      subst_add(&cw_s, cw_st_nm.clone(), cw_st_lvl, cw_fat.clone());
+                                                      subst_add(&mut cw_s, cw_st_nm.clone(), cw_st_lvl, cw_fat.clone());
                                                     }),
                                                     _ => ()
                                                   ),
@@ -5636,7 +5627,7 @@ create_specialized_function_inline :: (
                                 (cw_pi : usize) = usize(0);
                                 while(cw_pi < cw_cpt.len(), {
                                   cw_pt0 := match(slot_pointee_at(&cw_cpt, cw_pi), .Some(x) => x, .None => t_unit());
-                                  cw_pt_res := substitute(&cw_s, &cw_pt0);
+                                  cw_pt_res := substitute(&mut cw_s, &cw_pt0);
                                   if(get_all_some_types(&cw_pt_res).len() > usize(0), {
                                     cw_all_conc = false;
                                   });
@@ -5644,7 +5635,7 @@ create_specialized_function_inline :: (
                                   cw_pi = (cw_pi + usize(1));
                                 });
                                 cw_new_pts := shared_list(cw_new_pts_b);
-                                cw_ret_res := substitute(&cw_s, &cw_cres);
+                                cw_ret_res := substitute(&mut cw_s, &cw_cres);
                                 if(get_all_some_types(&cw_ret_res).len() > usize(0), {
                                   cw_all_conc = false;
                                 });
@@ -5880,11 +5871,11 @@ create_specialized_function_inline :: (
                         ybn := match(forall_names.get_cloned(ybni), .Some(n) => n, .None => String.from(""));
                         if((ybn == yrst_name) && (ybni < arg_values.forall_args.len()), {
                           match(
-                            arg_values.forall_args.get(ybni),
+                            arg_values.forall_args.get_cloned(ybni),
                             .Some(yae) => match(
                               yae.value.clone(),
                               .Some(Rc(.TypeVal(ytb))) => if(!is_some_type(&ytb), {
-                                subst_add(&ys_ret, yrst_name.clone(), yrst_lvl, ytb.clone());
+                                subst_add(&mut ys_ret, yrst_name.clone(), yrst_lvl, ytb.clone());
                                 ys_added_names.push(yrst_name.clone());
                                 ys_any = true;
                               }),
@@ -5956,7 +5947,7 @@ create_specialized_function_inline :: (
                             spec_param_types.get_cloned(ydb),
                             .Some(ydb_ct) => {
                               if((get_all_some_types(&ydb_ct).len() == usize(0)) && !is_unit_type(&ydb_ct), {
-                                subst_add(&ys_ret, ydb_nm.clone(), ydb_lvl, ydb_ct.clone());
+                                subst_add(&mut ys_ret, ydb_nm.clone(), ydb_lvl, ydb_ct.clone());
                                 ys_added_names.push(ydb_nm.clone());
                                 ys_any = true;
                               });
@@ -5978,7 +5969,7 @@ create_specialized_function_inline :: (
                   // mint a second one (`Arc(V)` with `V := <param type>`)
                   // (issues/fixed/arc-of-a-capture-free-closure-emits-two-arc-typedefs.md).
                   if(!rte_adopted, {
-                    spec_result = substitute(&ys_ret, &sp_res_b);
+                    spec_result = substitute(&mut ys_ret, &sp_res_b);
                   });
                   // Rebuild the param list through the same substitution
                   // (ArrayList has no indexed set).
@@ -5988,7 +5979,7 @@ create_specialized_function_inline :: (
                     match(
                       spec_param_types.get_cloned(ypr),
                       .Some(ypt2) => if(get_all_some_types(&ypt2).len() > usize(0), {
-                        y_new_params.push(substitute(&ys_ret, &ypt2));
+                        y_new_params.push(substitute(&mut ys_ret, &ypt2));
                       }, {
                         y_new_params.push(ypt2);
                       }),
@@ -6010,7 +6001,7 @@ create_specialized_function_inline :: (
               sr_is_self_first := match(params.get_cloned(usize(0)), .Some(l) => (l == "self"), .None => false);
               if(sr_is_self_first, {
                 match(
-                  arg_values.args.get(usize(0)),
+                  arg_values.args.get_cloned(usize(0)),
                   .Some(sr_rcv) => {
                     sr_recv_ty = Option(TypeValue).Some(Rc.clone(sr_rcv.arg_type));
                   },
@@ -6153,7 +6144,7 @@ _instantiation_description :: (fn(callee : &String, names : &ArrayList(String), 
   (i : usize) = usize(0);
   while((i < names.len()) && (i < forall_args.len()), {
     match(
-      forall_args.get(i),
+      forall_args.get_cloned(i),
       .Some(fa) => match(
         fa.value.clone(),
         .Some(fv) => {
@@ -6183,7 +6174,7 @@ _reject_unsized_type_binder_arguments :: (
   while(i < kinds.len(), i = (i + usize(1)), {
     if(match(kinds.get(i), .Some(uk_k) => is_type_0(&uk_k), .None => false), {
       match(
-        av.forall_args.get(i),
+        av.forall_args.get_cloned(i),
         .Some(uk_fa) => match(
           uk_fa.value.clone(),
           .Some(Rc(.TypeVal(uk_t))) => if(!type_is_sized(&uk_t), {
@@ -6293,13 +6284,15 @@ _with_instantiation_note :: (fn(err : AnyError, call_tok : &Token, description :
     return(err);
   });
   note := `in ${description}, instantiated here`;
-  noted := YoError(diagnostics : ye.diagnostics.clone());
-  noted.diagnostics.push(note_diagnostic_of_token(call_tok, note.clone()));
+  (mut(noted_ds) : ArrayList(Diagnostic)) = ye.diagnostics.clone();
+  noted_ds.push(note_diagnostic_of_token(call_tok, note.clone()));
+  noted := YoError(diagnostics : noted_ds);
   match(
     flow_violation_error(),
     .Some(fv) => if(_same_primary_span(&fv, &ye), {
-      fv_noted := YoError(diagnostics : fv.diagnostics.clone());
-      fv_noted.diagnostics.push(note_diagnostic_of_token(call_tok, &note));
+      (mut(fv_ds) : ArrayList(Diagnostic)) = fv.diagnostics.clone();
+      fv_ds.push(note_diagnostic_of_token(call_tok, &note));
+      fv_noted := YoError(diagnostics : fv_ds);
       flag_flow_violation(&fv_noted);
     }),
     .None => ()
@@ -7295,7 +7288,7 @@ reject_runtime_comptime_arguments :: (
       while(rci < args.len(), {
         if(match(rc_flags.get(rci), .Some(f) => f, .None => false), {
           match(
-            args.get(rci),
+            args.get_cloned(rci),
             .Some(rc_ae) => if(runtime_value_for_comptime_param(&rc_ae.arg_type, &rc_ae.value), {
               rc_pname := match(rc_params.get_cloned(rci), .Some(l) => l, .None => String.from("?"));
               exn.throw(
@@ -7438,7 +7431,7 @@ _restore_argentries_by_index :: (fn(list : &ArrayList(ArgEntry), idx : &ArrayLis
     (q : usize) = usize(0);
     while(q < idx.len(), {
       if(match(idx.get_cloned(q), .Some(ix) => (ix == t), .None => false), {
-        match(list.get(q), .Some(v) => out.push(v), .None => ());
+        match(list.get_cloned(q), .Some(v) => out.push(v), .None => ());
       });
       q = (q + usize(1));
     });
@@ -9295,8 +9288,8 @@ try_to_call_function_with_arguments :: (
       // Non-struct/unresolved sides skip — def-time generic bodies re-check
       // at each concrete call.
       if((is_io_await_call(expr) || is_io_spawn_call(expr)) && (arg_vals.len() >= usize(2)), {
-        ebc_fut_ty := match(arg_vals.get(usize(0)), .Some(ebc_f) => Rc.clone(ebc_f.arg_type), .None => t_unit());
-        ebc_eff_ty := match(arg_vals.get(usize(1)), .Some(ebc_e) => Rc.clone(ebc_e.arg_type), .None => t_unit());
+        ebc_fut_ty := match(arg_vals.get_cloned(usize(0)), .Some(ebc_f) => Rc.clone(ebc_f.arg_type), .None => t_unit());
+        ebc_eff_ty := match(arg_vals.get_cloned(usize(1)), .Some(ebc_e) => Rc.clone(ebc_e.arg_type), .None => t_unit());
         match(
           extract_future_trait_from_type(&ebc_fut_ty),
           .Some(ebc_ft) => match(
@@ -9559,7 +9552,7 @@ try_to_call_function_with_arguments :: (
                 s9_pt,
                 Rc(.SomeT(_, s9_pnm, _, _, _, _, _)) => {
                   match(
-                    arg_vals.get(s9_pi),
+                    arg_vals.get_cloned(s9_pi),
                     .Some(s9_ae) => {
                       (s9_ri : usize) = usize(0);
                       while(s9_ri < s9_ret_somes.len(), {
@@ -9578,7 +9571,7 @@ try_to_call_function_with_arguments :: (
                             // Wrappers resolve through their own resolutions / the
                             // rte re-eval below, never through a sibling's arg.
                             Rc(.SomeT(_, s9_rnm, s9_rlvl, _, _, _, _)) => if((s9_rnm == s9_pnm) && (s9_rnm != "Impl") && (s9_rnm.len() > usize(0)), {
-                              subst_add(&s9, s9_rnm.clone(), s9_rlvl, &s9_ae.arg_type);
+                              subst_add(&mut s9, s9_rnm.clone(), s9_rlvl, &s9_ae.arg_type);
                               s9_added.push(s9_rnm.clone());
                               s9_any = true;
                             }),
@@ -9630,7 +9623,7 @@ try_to_call_function_with_arguments :: (
                     if(!s9_seen2 && ((s9_rnm2.* != "Impl") && (s9_rnm2.len() > usize(0))), {
                       s9_env_res := get_value_of_some_type_from_env(&callee_env_m, &s9_rst2);
                       if(!is_some_type(&s9_env_res), {
-                        subst_add(&s9, s9_rnm2.clone(), s9_rlvl2.*, &s9_env_res);
+                        subst_add(&mut s9, s9_rnm2.clone(), s9_rlvl2.*, &s9_env_res);
                         s9_any = true;
                       });
                     });
@@ -9643,7 +9636,7 @@ try_to_call_function_with_arguments :: (
             });
           };
           if(s9_any, {
-            s9_cand := substitute(&s9, &return_type);
+            s9_cand := substitute(&mut s9, &return_type);
             if((get_all_some_types(&s9_cand).len() == usize(0)) || type_somes_all_resolve_concrete(&s9_cand), {
               return_type = s9_cand;
               if(s9_dbg, {
@@ -9695,7 +9688,7 @@ try_to_call_function_with_arguments :: (
                   rte9_p0_is_self := match(rte9_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false);
                   if(rte9_p0_is_self, {
                     match(
-                      arg_vals.get(usize(0)),
+                      arg_vals.get_cloned(usize(0)),
                       .Some(rte9_rcv) => {
                         ctx.self_type = Option(TypeValue).Some(Rc.clone(rte9_rcv.arg_type));
                       },
@@ -9856,7 +9849,7 @@ try_to_call_function_with_arguments :: (
         s10b_vals := ArrayList(ArgEntry).new();
         (s10b_i : usize) = usize(0);
         while(s10b_i < forall_arg_vals.len(), {
-          s10b_e := match(forall_arg_vals.get(s10b_i), .Some(e) => e, .None => ArgEntry(value : Option(EvalValue).None, parameter_type : t_unit(), arg_type : t_unit()));
+          s10b_e := match(forall_arg_vals.get_cloned(s10b_i), .Some(e) => e, .None => ArgEntry(value : Option(EvalValue).None, parameter_type : t_unit(), arg_type : t_unit()));
           s10b_abstract := match(s10b_e.value.clone(), .Some(ev) => match(ev, Rc(.TypeVal(ev_t)) => (get_all_some_types(&ev_t).len() > usize(0)), _ => false), .None => false);
           s10b_now := cond(
             s10b_abstract => _forall_binding_now(&callee_env_m, match(forall_arg_labels.get_cloned(s10b_i), .Some(l) => l, .None => String.new())),

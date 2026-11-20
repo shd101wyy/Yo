@@ -116,7 +116,8 @@
 { replace } :: import("std/mem");
 /// One injectable effect-field mapping: the effect label (possibly dotted for
 /// nested bundle fields) and the C access path into the future's capture/bundle.
-EffectFieldMapping :: ref(struct(effect_label : String, access_path : String));
+EffectFieldMapping :: struct(effect_label : String, access_path : String);
+derive(EffectFieldMapping, Clone);
 /// True if the extern name is defined in the async runtime (poll / fs_event /
 /// async / waker / join prefixes). The `__yo_waker_*` family lives in
 /// runtime_core: a program that only stores a `Waker` (its Drop calls
@@ -167,7 +168,7 @@ _add_mapping :: (fn(mappings : &mut ArrayList(EffectFieldMapping), label : &Stri
   (mut(i) : usize) = usize(0);
   while((i < mappings.len()) && !exists, {
     match(
-      mappings.get(i),
+      mappings.get_cloned(i),
       .Some(m) => if((m.effect_label == label.*) && (m.access_path == path.*), {
         exists = true;
       }),
@@ -370,7 +371,8 @@ get_injectable_future_effect_field_mappings :: (
 /// The synthetic closure-param slot for a SYNC future: io.await/io.spawn passes
 /// the effect bundle via `__yo_future_set_bundle(fut, &value)`, copied into this
 /// dedicated `__yo_param_<i>` field.
-SyncParamSlot :: ref(struct(field_name : String, c_type : String));
+SyncParamSlot :: struct(field_name : String, c_type : String);
+derive(SyncParamSlot, Clone);
 /// The first struct-typed effect type on a `FutureTraitT` (the bundle effect), or
 /// `.None`.
 _first_struct_effect_type :: (fn(future_trait_type : &TypeValue) -> Option(TypeValue))({
@@ -452,7 +454,7 @@ generate_future_effect_setter :: (
     (mut(mi) : usize) = usize(0);
     while(mi < mappings.len(), {
       match(
-        mappings.get(mi),
+        mappings.get_cloned(mi),
         .Some(m) => {
           keyword := if(first_case, String.from("if"), String.from("else if"));
           first_case = false;
@@ -485,21 +487,19 @@ generate_future_effect_setter :: (
 /// The full description of one async-block state machine, passed to the struct /
 /// dispose / constructor emitters. `Set<string>` → `HashSet(String)`,
 /// `Map<string,string>` → `HashMap(String, String)`.
-AsyncBlockStructInfo :: ref(
-  struct(
-    async_block_id : String,
-    struct_name : String,
-    result_type : TypeValue,
-    result_type_c_name : String,
-    capture_type : Option(TypeValue),
-    analysis : AwaitAnalysisResult,
-    cross_boundary_ids : Option(HashSet(String)),
-    await_future_temp_var_aliases : Option(HashMap(String, String)),
-    overlapping_slot_aliases : Option(HashMap(String, String)),
-    overlapping_slots : Option(ArrayList(OverlappingSlot)),
-    closure_param_slots : Option(ArrayList(ClosureParamSlot)),
-    operand_holds : ArrayList(OperandHold)
-  )
+AsyncBlockStructInfo :: struct(
+  async_block_id : String,
+  struct_name : String,
+  result_type : TypeValue,
+  result_type_c_name : String,
+  capture_type : Option(TypeValue),
+  analysis : AwaitAnalysisResult,
+  cross_boundary_ids : Option(HashSet(String)),
+  await_future_temp_var_aliases : Option(HashMap(String, String)),
+  overlapping_slot_aliases : Option(HashMap(String, String)),
+  overlapping_slots : Option(ArrayList(OverlappingSlot)),
+  closure_param_slots : Option(ArrayList(ClosureParamSlot)),
+  operand_holds : ArrayList(OperandHold)
 );
 /// The result type (`T` of `Future(T)`) each async block's emission resolved,
 /// keyed by `<output SomeT id>@@<async block id>`, so the block and its await
@@ -763,7 +763,7 @@ emit_async_block_struct_definition :: (
   (mut(ci) : usize) = usize(0);
   while(ci < cvs.len(), {
     match(
-      cvs.get(ci),
+      cvs.get_cloned(ci),
       .Some(v) => {
         is_outer := match(v.kind, .Outer => true, _ => false);
         if(!is_outer, {
@@ -791,7 +791,7 @@ emit_async_block_struct_definition :: (
     (mut(li) : usize) = usize(0);
     while(li < local_variables.len(), {
       match(
-        local_variables.get(li),
+        local_variables.get_cloned(li),
         .Some(variable) => {
           var_type_c_name := get_type_string(&variable.base.ty, &mut context.base);
           field_name := get_state_machine_field_name(variable.base.id.to_string(), Option(HashMap(String, String)).None);
@@ -819,7 +819,7 @@ emit_async_block_struct_definition :: (
       (mut(oi) : usize) = usize(0);
       while(oi < slots.len(), {
         match(
-          slots.get(oi),
+          slots.get_cloned(oi),
           .Some(slot) => context.base.emitter.emit_declaration_string_line(`  ${slot.c_type.clone()} ${slot.field_name.clone()};  // shared: ${_join_names(&slot.variable_names)}`),
           .None => ()
         );
@@ -935,7 +935,7 @@ _build_deferred_deps :: (
   (mut(i) : usize) = usize(0);
   while(i < cvs.len(), {
     match(
-      cvs.get(i),
+      cvs.get_cloned(i),
       .Some(v) => match(
         _dep_type_string(&v.base.ty, context),
         .Some(t) => match(
@@ -956,7 +956,7 @@ _build_deferred_deps :: (
   (mut(j) : usize) = usize(0);
   while(j < aps.len(), {
     match(
-      aps.get(j),
+      aps.get_cloned(j),
       .Some(ap) => match(
         &ap.future_variable_id,
         .Some(_) => (),
@@ -1107,7 +1107,7 @@ emit_deferred_async_block_struct_definitions :: (fn(context : &mut FunctionGener
             result_type : Rc.clone(b.result_type),
             result_type_c_name : b.result_type_c_name.clone(),
             capture_type : b.capture_type.clone(),
-            analysis : b.analysis,
+            analysis : b.analysis.clone(),
             cross_boundary_ids : Option(HashSet(String)).Some(replace(&mut cbr.cross_boundary_ids, HashSet(String).new())),
             await_future_temp_var_aliases : Option(HashMap(String, String)).Some(cbr.await_future_temp_var_aliases.clone()),
             overlapping_slot_aliases : Option(HashMap(String, String)).Some(osr.slot_aliases.clone()),
@@ -1494,10 +1494,10 @@ generate_async_block_state_dispose_function :: (
   (mut(i) : usize) = usize(0);
   while(i < cvs.len(), {
     match(
-      cvs.get(i),
+      cvs.get_cloned(i),
       .Some(v) => {
         is_local := match(v.kind, .Local => true, _ => false);
-        is_owning := match(v.is_owning_the_same_rc_value_as, .Some(_) => true, .None => false);
+        is_owning := v.is_owning_the_same_rc_value_as.is_some();
         // A borrowing pattern binding's slot reads the scrutinee's payload:
         // the scrutinee's own drop releases it. A consuming match's binding
         // owns its part and is dropped here like a named local
@@ -1529,7 +1529,7 @@ generate_async_block_state_dispose_function :: (
   (mut(osi) : usize) = usize(0);
   while(osi < overlapping_slots.len(), osi = (osi + usize(1)), {
     match(
-      overlapping_slots.get(osi),
+      overlapping_slots.get_cloned(osi),
       .Some(os) => if(type_contains_rc_cell_or_move_only(&os.ty), {
         match(
           _rc_field_drop_line(`sm->${os.field_name.clone()}`, &os.ty, String.from("    "), context),
@@ -1981,7 +1981,7 @@ fused_await_site :: (fn(await_expr : &AstExpr, report : bool, context : &Functio
     return(Option(FusedAwaitSite).None);
   });
   wrapper_body := match(
-    context.base.functions.get(cand.func_id.clone()),
+    context.base.functions.get_cloned(cand.func_id.clone()),
     .Some(fe) => match(Rc.clone(fe.value), Rc(.FuncVal(wfvd, _)) => Rc.clone(wfvd.*.body), _ => return(_fusion_not_lowered(await_expr, String.from("the wrapper has no body"), report))),
     .None => return(_fusion_not_lowered(await_expr, String.from("the wrapper is not emitted"), report))
   );
@@ -2112,7 +2112,7 @@ _collect_fused_sites :: (
   (mut(i) : usize) = usize(0);
   while(i < analysis.await_points.len(), i = (i + usize(1)), {
     match(
-      analysis.await_points.get(i),
+      analysis.await_points.get_cloned(i),
       .Some(ap) => {
         exprs := match(
           &ap.base.cond_branch_suspension_exprs,
@@ -2134,7 +2134,7 @@ _collect_fused_sites :: (
                 // The site joins `out` before the sites nested in its block
                 // (emission order); its prefix and analysis are read first.
                 s_prefix := s.prefix.clone();
-                s_analysis := s.block.analysis;
+                s_analysis := s.block.analysis.clone();
                 out.push(s);
                 saved_prefix := replace(&mut context.fusion_field_prefix, s_prefix);
                 _collect_fused_sites(&s_analysis, seen, out, context);
@@ -2166,7 +2166,7 @@ _fused_local_fields :: (fn(site : &FusedAwaitSite) -> ArrayList(FusedLocalField)
   (mut(i) : usize) = usize(0);
   while(i < cvs.len(), i = (i + usize(1)), {
     match(
-      cvs.get(i),
+      cvs.get_cloned(i),
       .Some(v) => if(match(v.kind, .Local => true, _ => false) && site.cross_ids.contains(v.base.id.to_string()), {
         out.push(FusedLocalField(id : v.base.id.to_string(), name : v.base.name.clone(), field_name : sm_local_field_name(v.base.id.to_string()), ty : Rc.clone(v.base.ty)));
       }),
@@ -2374,7 +2374,7 @@ _fused_sm_variables :: (fn(site : &FusedAwaitSite) -> HashMap(String, CapturedVa
   (mut(i) : usize) = usize(0);
   while(i < cvs.len(), i = (i + usize(1)), {
     match(
-      cvs.get(i),
+      cvs.get_cloned(i),
       .Some(v) => if(match(v.kind, .Local => true, _ => false) && site.cross_ids.contains(v.base.id.to_string()), {
         vars.insert(v.base.id.to_string(), v);
       }),
@@ -2700,7 +2700,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut 
   saved_smv2 := replace(&mut context.state_machine_variables, Option(HashMap(String, CapturedVariable)).Some(_fused_sm_variables(&site)));
   context.state_machine_field_aliases = Option(HashMap(String, String)).Some(_fused_sm_aliases(&site));
   context.variable_id_remapping = Option(HashMap(String, String)).Some(site.block.analysis.variable_id_remapping.clone());
-  saved_scope := sm_lowering_enter_scope(context, site.block.analysis);
+  saved_scope := sm_lowering_enter_scope(context, site.block.analysis.clone());
   // The block's own drops, and no caller's: what its own state machine has.
   mut(pdd) := ArrayList(AstExpr).new();
   match(context.base.get_expr_info(&site.block.body_expr), .Some(bei) => match(&bei.deferred_drop_expressions(), .Some(d) => _append_expr_list(&mut pdd, &d.*), .None => ()), .None => ());
@@ -2977,7 +2977,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
   // would find the value consumed and spuriously panic.
   analysis := match(
     analysis_in,
-    .Some(a) => a.*,
+    .Some(a) => a.clone(),
     .None => match(io_async_await_analysis(expr, context), .Some(a2) => a2, .None => __yo_panic("Missing await analysis for async block. This should have been computed during evaluation."))
   );
   // io.async: the capture struct + its deferred dups live on the CLOSURE ARG's
@@ -3053,10 +3053,10 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
       (mut(oi) : usize) = usize(0);
       while(oi < src_kcvs.len(), oi = (oi + usize(1)), {
         match(
-          src_kcvs.get(oi),
+          src_kcvs.get_cloned(oi),
           .Some(v) => match(
-            v.is_owning_the_same_rc_value_as,
-            .Some(ob) => if(is_capture(&v, cap_id.clone()) && !is_capture(&ob, cap_id.clone()), {
+            v.is_owning_the_same_rc_value_as.clone(),
+            .Some(ob) => if(is_capture(&v, cap_id.clone()) && !is_capture(&ob.*, cap_id.clone()), {
               outside_owner_ids.insert(ob.base.id.clone());
             }),
             .None => ()
@@ -3067,10 +3067,10 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
       (mut(ki) : usize) = usize(0);
       while(ki < src_kcvs.len(), {
         match(
-          src_kcvs.get(ki),
+          src_kcvs.get_cloned(ki),
           .Some(v) => cond(
             is_capture(&v, cap_id.clone()) => {
-              remapped_cvs.push(CapturedVariable(base : v.base, kind : CapturedVariableKind.Outer, is_owning_the_same_rc_value_as : v.is_owning_the_same_rc_value_as));
+              remapped_cvs.push(CapturedVariable(base : v.base.clone(), kind : CapturedVariableKind.Outer, is_owning_the_same_rc_value_as : v.is_owning_the_same_rc_value_as.clone()));
             },
             outside_owner_ids.contains(v.base.id.clone()) => (),
             true => {
@@ -3267,20 +3267,20 @@ _make_sm_captured_variable :: (fn(id : &String, name : &String, ty : &TypeValue,
       id : id.clone(),
       name : name.clone(),
       ty : Rc.clone(ty),
-      is_owning_the_same_rc_value_as : Option(SuspensionCapturedVariable).None,
+      is_owning_the_same_rc_value_as : Option(Rc(SuspensionCapturedVariable)).None,
       decl_site : String.from("")
     ),
     kind : kind,
-    is_owning_the_same_rc_value_as : Option(CapturedVariable).None
+    is_owning_the_same_rc_value_as : Option(Rc(CapturedVariable)).None
   )
 );
-/// A new list holding the same await points: `AwaitPoint` is a `ref` handle,
-/// so a rebuilt analysis shares each point with the original, which stays
-/// intact for its other readers.
+/// A copy of the await points: `AwaitPoint` is a value, so a rebuilt
+/// analysis holds its own copy of each point and the original stays intact
+/// for its other readers.
 _share_await_points :: (fn(src : &ArrayList(AwaitPoint)) -> ArrayList(AwaitPoint))({
   mut(out) := ArrayList(AwaitPoint).with_capacity(src.len());
   for(&src, ap => {
-    out.push(ap.*);
+    out.push(ap.clone());
   });
   out
 });
@@ -3350,7 +3350,7 @@ _block_cross_boundary :: (fn(block : &DeferredAsyncBlock, context : &FunctionGen
     pcvs := &block.analysis.captured_variables;
     while(pci < pcvs.len(), {
       match(
-        pcvs.get(pci),
+        pcvs.get_cloned(pci),
         .Some(pv) => if(match(pv.kind, .Local => true, .Outer => false) && param_sites.contains(pv.base.decl_site.clone()), {
           _removed := cbr.cross_boundary_ids.remove(pv.base.id.to_string());
         }),
@@ -3365,7 +3365,7 @@ _block_cross_boundary :: (fn(block : &DeferredAsyncBlock, context : &FunctionGen
   (mut(bli) : usize) = usize(0);
   while(bli < block.analysis.captured_variables.len(), bli = (bli + usize(1)), {
     match(
-      block.analysis.captured_variables.get(bli),
+      block.analysis.captured_variables.get_cloned(bli),
       .Some(bv) => match(
         bv.kind,
         .Local => {
@@ -3379,9 +3379,9 @@ _block_cross_boundary :: (fn(block : &DeferredAsyncBlock, context : &FunctionGen
   (mut(ali) : usize) = usize(0);
   while(ali < block.analysis.captured_variables.len(), ali = (ali + usize(1)), {
     match(
-      block.analysis.captured_variables.get(ali),
+      block.analysis.captured_variables.get_cloned(ali),
       .Some(av) => match(
-        av.is_owning_the_same_rc_value_as,
+        av.is_owning_the_same_rc_value_as.clone(),
         .Some(ob) => if(body_locals.contains(ob.base.id.to_string()), {
           _dropped := cbr.cross_boundary_ids.remove(av.base.id.to_string());
         }),
@@ -3403,7 +3403,7 @@ _block_cross_boundary :: (fn(block : &DeferredAsyncBlock, context : &FunctionGen
     );
     (mut(dci) : usize) = usize(0);
     while(dci < block.analysis.captured_variables.len(), dci = (dci + usize(1)), {
-      match(block.analysis.captured_variables.get(dci), .Some(dcv) => eprintln(`[async-layout] ${block.async_block_id} local ${dcv.base.name} id=${dcv.base.id} site=${dcv.base.decl_site} field=${cbr.cross_boundary_ids.contains(dcv.base.id.to_string()).to_string()}`), .None => ());
+      match(block.analysis.captured_variables.get_cloned(dci), .Some(dcv) => eprintln(`[async-layout] ${block.async_block_id} local ${dcv.base.name} id=${dcv.base.id} site=${dcv.base.decl_site} field=${cbr.cross_boundary_ids.contains(dcv.base.id.to_string()).to_string()}`), .None => ());
     });
   });
   cbr
@@ -3423,7 +3423,7 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &mu
   (mut(ci) : usize) = usize(0);
   while(ci < src_cvs.len(), {
     match(
-      src_cvs.get(ci),
+      src_cvs.get_cloned(ci),
       .Some(v) => {
         is_outer := match(v.kind, .Outer => true, _ => false);
         keep := (is_outer || cbr.cross_boundary_ids.contains(v.base.id.to_string()) || await_future_temp_var_aliases.contains_key(v.base.id.to_string()) || overlapping_slot_aliases.contains_key(v.base.id.to_string()));
@@ -3467,7 +3467,7 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &mu
   fcvs := &filtered_analysis.captured_variables;
   while(fi < fcvs.len(), {
     match(
-      fcvs.get(fi),
+      fcvs.get_cloned(fi),
       .Some(v) => {
         sm_var_map.insert(v.base.id.to_string(), v);
       },
@@ -3623,7 +3623,7 @@ generate_deferred_async_blocks :: (fn(context : &mut FunctionGenerationContext) 
                 result_type : Rc.clone(nb.result_type),
                 result_type_c_name : nb.result_type_c_name.clone(),
                 capture_type : nb.capture_type.clone(),
-                analysis : nb.analysis,
+                analysis : nb.analysis.clone(),
                 cross_boundary_ids : Option(HashSet(String)).Some(replace(&mut ncbr.cross_boundary_ids, HashSet(String).new())),
                 await_future_temp_var_aliases : Option(HashMap(String, String)).Some(ncbr.await_future_temp_var_aliases.clone()),
                 overlapping_slot_aliases : Option(HashMap(String, String)).Some(nosr.slot_aliases.clone()),
@@ -4033,7 +4033,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   match(&eff_capture_type, .Some(slot_cap_ty) => _emit_lent_param_slots(&slot_cap_ty.*, context), .None => ());
   (si : usize) = usize(0);
   while(si < sync_param_slots.len(), {
-    match(sync_param_slots.get(si), .Some(slot) => context.base.emitter.emit_declaration_string_line(`  ${slot.c_type.clone()} ${slot.field_name.clone()};`), .None => ());
+    match(sync_param_slots.get_cloned(si), .Some(slot) => context.base.emitter.emit_declaration_string_line(`  ${slot.c_type.clone()} ${slot.field_name.clone()};`), .None => ());
     si = (si + usize(1));
   });
   context.base.emitter.emit_declaration_line("};");
@@ -4057,7 +4057,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   (si2 : usize) = usize(0);
   while(si2 < sync_param_slots.len(), {
     match(
-      sync_param_slots.get(si2),
+      sync_param_slots.get_cloned(si2),
       .Some(slot) => {
         shim_args.push(`sm->${slot.field_name.clone()}`);
       },
@@ -4080,7 +4080,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   // against the sync future's own capture type only.
   sync_saved_smv := replace(&mut context.state_machine_variables, Option(HashMap(String, CapturedVariable)).None);
   sync_saved_smfa := replace(&mut context.state_machine_field_aliases, Option(HashMap(String, String)).None);
-  sync_vt_bundle := generate_future_effect_setter(struct_name.clone(), sync_set_effect_function_name.clone(), &future_trait_type, &eff_capture_type, context, match(sync_param_slots.get(usize(0)), .Some(s) => Option(SyncParamSlot).Some(s), .None => Option(SyncParamSlot).None));
+  sync_vt_bundle := generate_future_effect_setter(struct_name.clone(), sync_set_effect_function_name.clone(), &future_trait_type, &eff_capture_type, context, match(sync_param_slots.get_cloned(usize(0)), .Some(s) => Option(SyncParamSlot).Some(s), .None => Option(SyncParamSlot).None));
   context.state_machine_variables = sync_saved_smv;
   context.state_machine_field_aliases = sync_saved_smfa;
   context.base.emitter.emit_declaration_line("");

@@ -65,7 +65,7 @@ impl(_Root, _Node());
 // The parent is built on each call: a `Dyn` owns its payload
 // (plans/VALUES_BY_DEFAULT.md decision 7), so a method cannot hand out a copy
 // of a `Dyn` field it only borrows.
-_Child :: ref(struct(tag : String, up_tag : String));
+_Child :: struct(tag : String, up_tag : String);
 impl(_Child, ToString(to_string : (fn(self : &Self) -> String)(`child(${self.tag})`)));
 impl(_Child, _Node(parent : (fn(self : &mut Self) -> Option(_AnyNode))(Option(_AnyNode).Some(dyn(Box.new(_Root(tag : self.up_tag.clone())))))));
 _handle :: (fn(n : &_AnyNode) -> String)(n.to_string());

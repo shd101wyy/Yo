@@ -202,7 +202,7 @@ _prewarm_runtime_field_types :: (fn(fields : &ArrayList(RuntimeStructField), con
   (i : usize) = usize(0);
   while(i < n, {
     match(
-      fields.get(i),
+      fields.get_cloned(i),
       .Some(field) => if(!is_unit_type(&field.ty), {
         get_type_string(&field.ty, context);
       }),
@@ -217,7 +217,7 @@ _emit_runtime_fields :: (fn(fields : &ArrayList(RuntimeStructField), context : &
   (emitted : bool) = false;
   while(i < n, {
     match(
-      fields.get(i),
+      fields.get_cloned(i),
       // A `unit` field is a zero-sized type and emits NO member — C struct
       // members are accessed by name, so erasing one shifts nothing. Every
       // consumer of the layout skips the same fields: the `__yo_new_` ctor's
@@ -1477,7 +1477,8 @@ _walk_by_value_dep :: (fn(deps_set : &mut HashSet(String), ft : &TypeValue, self
   )
 );
 /// A type collected for topological ordering: (typeId, type, cName, kind).
-_TypeWalkEntry :: ref(struct(type_id : String, ty : TypeValue, c_name : String, kind : String));
+_TypeWalkEntry :: struct(type_id : String, ty : TypeValue, c_name : String, kind : String);
+derive(_TypeWalkEntry, Clone);
 /// The type ids in `context.types` not yet in `seen`, in bucket order, each
 /// added to `seen`. A walk whose body can register a type (an on-demand
 /// typedef resolving a member's C type) must not iterate the live map: a
@@ -1515,7 +1516,7 @@ generate_dyn_forward_declarations :: (fn(context : &mut CodeGenContext) -> unit)
   while(i < n, {
     key := match(keys.get_cloned(i), .Some(k) => k, .None => String.from(""));
     match(
-      context.types.get(key.clone()),
+      context.types.get_cloned(key.clone()),
       .Some(entry) => if(is_dyn_type(&entry.ty), {
         if(!has_any, {
           context.emitter.emit_declaration_line("");
@@ -1728,7 +1729,7 @@ generate_dyn_box_types :: (fn(context : &mut CodeGenContext) -> unit)({
   while(i < n, {
     key := match(keys.get_cloned(i), .Some(k) => k, .None => String.from(""));
     match(
-      context.dyn_impls.get(key.clone()),
+      context.dyn_impls.get_cloned(key.clone()),
       .Some(impl_entry) => {
         // A SomeT with a resolved concrete falls through
         // to that concrete (the expr_info resolved-concrete side-table
@@ -1988,7 +1989,7 @@ generate_type_declarations :: (fn(context : &mut CodeGenContext) -> unit)({
   (ei : usize) = usize(0);
   while(ei < ne, {
     match(
-      entries.get(ei),
+      entries.get_cloned(ei),
       .Some(e) => {
         dset := HashSet(String).new();
         cond(
@@ -1998,7 +1999,7 @@ generate_type_declarations :: (fn(context : &mut CodeGenContext) -> unit)({
             (fi : usize) = usize(0);
             while(fi < nf, {
               match(
-                rfs.get(fi),
+                rfs.get_cloned(fi),
                 .Some(field) => {
                   ft := Rc.clone(field.ty);
                   match(_walk_pointee_newtype(&ft), .Some(p) => _walk_add_dep(&mut dset, &p, e.type_id.clone(), &cname_to_typeid, context), .None => ());
@@ -2052,7 +2053,7 @@ generate_type_declarations :: (fn(context : &mut CodeGenContext) -> unit)({
   (di : usize) = usize(0);
   while(di < ne, {
     match(
-      entries.get(di),
+      entries.get_cloned(di),
       // The dependency set is read in place (a value since B9).
       .Some(e) => cond(
         deps.contains_key(&e.type_id) => {
@@ -2070,7 +2071,7 @@ generate_type_declarations :: (fn(context : &mut CodeGenContext) -> unit)({
   (qi : usize) = usize(0);
   while(qi < ne, {
     match(
-      entries.get(qi),
+      entries.get_cloned(qi),
       .Some(e) => match(
         in_degree.get(e.type_id.clone()),
         .Some(d) => if(d == usize(0), {
@@ -2092,7 +2093,7 @@ generate_type_declarations :: (fn(context : &mut CodeGenContext) -> unit)({
     (oi : usize) = usize(0);
     while(oi < ne, {
       match(
-        entries.get(oi),
+        entries.get_cloned(oi),
         // The dependency set is read in place (a value since B9).
         .Some(other) => cond(
           deps.contains_key(&other.type_id) => if(deps(other.type_id.clone()).contains(tid.clone()), {
@@ -2115,7 +2116,7 @@ generate_type_declarations :: (fn(context : &mut CodeGenContext) -> unit)({
     (ci : usize) = usize(0);
     while(ci < ne, {
       match(
-        entries.get(ci),
+        entries.get_cloned(ci),
         .Some(e) => {
           (seen : bool) = false;
           (si : usize) = usize(0);
@@ -2151,7 +2152,7 @@ generate_type_declarations :: (fn(context : &mut CodeGenContext) -> unit)({
     (found : bool) = false;
     while((yi < ne) && !found, {
       match(
-        entries.get(yi),
+        entries.get_cloned(yi),
         .Some(e) => if(e.type_id == sid, {
           found = true;
           if(

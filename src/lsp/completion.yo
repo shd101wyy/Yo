@@ -122,7 +122,6 @@ keyword_names :: (fn() -> ArrayList(String))({
   ks.push(String.from("Fn"));
   ks.push(String.from("FnMut"));
   ks.push(String.from("FnOnce"));
-  ks.push(String.from("atomic"));
   ks.push(String.from("struct"));
   ks.push(String.from("newtype"));
   ks.push(String.from("enum"));
@@ -138,7 +137,6 @@ keyword_names :: (fn() -> ArrayList(String))({
   ks.push(String.from("quote"));
   ks.push(String.from("gensym"));
   ks.push(String.from("comptime_list"));
-  ks.push(String.from("ref"));
   // `mut` follows `&` in a borrow (`x : &mut T`, `&mut x`); decision 42
   // deleted the `imm` word from the completions.
   ks.push(String.from("mut"));
@@ -367,7 +365,7 @@ _push_registry_methods :: (
     (i : usize) = usize(0);
     while(i < entries.len(), {
       match(
-        entries.get(i),
+        entries.get_cloned(i),
         .Some(en) => _push_method(en.label.clone(), &en.ty, out, seen),
         .None => ()
       );

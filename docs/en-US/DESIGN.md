@@ -580,10 +580,10 @@ r := match(
 - a `&mut` lend (`f(&mut x)`, `y := &mut x.f`, `match(&mut x, …)`, a `&mut x` capture);
 - a `&mut self` method call (`s.push_str("!")` on a `String`).
 
-Each is error E0917 on a binding declared without the marker. A `ref` handle
-the binding holds (today's collections, a `ref(struct(...))` object) is a
-pointer: a field write or a `&mut self` call through it writes the object, not
-the binding, and needs no marker; reassigning the binding does. A borrow
+Each is error E0917 on a binding declared without the marker. A door behind a
+shared handle writes through its own method: `RefCell.with_mut` takes `&self`
+and writes the payload, so a `RefCell` binding changes what it holds with no
+marker; reassigning the binding still needs one. A borrow
 (`x : &mut T`, `y := &mut place`) is written through, not written. The first
 assignment of a binding declared without a value (`(x : T);`) initializes it.
 
@@ -772,7 +772,7 @@ second_of :: (fn(s : &mut Pair) -> &mut(i32, s))(&mut s.b);
 
 **Impls over references** (decision 43 N1f-2; [`plans/VALUES_BY_DEFAULT.md`](../../plans/VALUES_BY_DEFAULT.md) decision 43, R-PROBE). An impl's receiver may be a reference: `impl(&C, Tr(...))`, `impl(&mut C, Tr(...))`, `impl(generic(p : Origin), &(C, p), Tr(...))`, or a blanket `impl(generic(T), where(T <: Tr), &T, Tr(...))`. Inside it `Self` is the reference, so `self : Self` takes the receiver as `&C`. `impl(C, Tr)`, `impl(&C, Tr)` and `impl(&mut C, Tr)` are three receivers; the origin is not part of the receiver, so `impl(&(C, p), Tr)` beside `impl(&C, Tr)` is error E0612, and so is a bare-variable blanket `impl(generic(T), T, Tr)` beside either (it covers `&C` too). A method call resolves by **receiver slot types**: a method's slot is its first parameter's type with `Self` substituted (`self : Self` on `impl(&C, …)` and `self : &Self` on `impl(C, …)` both have the slot `&C`). For a receiver of type `R` the probe tries `R`, then `&R` and `&mut R`, then one dereference of `R` and its borrows, and the first step at which a method applies wins; an inherent method beats a trait method at the same step, and two trait methods at the same step are error E0616, whose message names each impl and the slot they share. An owned `c` therefore takes a by-value `self` on `C` first (`xs.into_iter()` consumes) and borrows only when nothing takes it by value; `(&c).m()` and `(&mut c).m()` are the explicit borrows, which start the probe at `&C` (`(&xs).into_iter()` borrows). The explicit borrow never moves out of `c` (a by-value `self` on a type that is not `Copy` is E0901) and `(&c)` never reaches a `&mut Self` method (E0908). A method miss on a reference receiver lists the slot types probed. A receiver slot `&&C` (`self : &Self` on `impl(&C, …)`, which a trait that takes `&Self` forces) is accepted: a receiver that is a reference binding `r : &C` lends its own storage, as `(&r).m()` does; an owned place, a call result or an explicit `(&c)` has no storage to lend and the call is an error that says to bind the reference to a local first. An infix operator selects with the same rule: an operand that is a reference binding takes part with its reference type, so `ra == rb` on `ra, rb : &C` is the impl over `&C` (Rust's `impl PartialEq<&B> for &A`), whose `lhs : &Self` and `rhs : &Rhs` slots the bindings' own storage fills; it is never a dereference. When no impl over `&C` takes the operands (`ra == c` with `c : C`, `ra + 1`, or a `C` with no such impl) the operand is a whole-value read and E0926 asks for `ra.*`. The prelude provides `Eq(&T)` and `Ord(&T)` for every sized `T` with `Eq(T)` / `Ord(T)` (Rust's `impl PartialEq<&B> for &A`): two references compare and order as their referents, so `ra == rb`, `ra < rb` and generic code at `T := &U` (`max`, a bound `where(T <: Ord(T))`) work, and a user `impl(&C, Eq(&C))` beside them is E0612. `Hash` and `ToString` over `&T` are not provided yet.
 
-The older word spelling (`imm(x) : T`, `mut(x) : T`, `inout(x) : T`, `imm(self) : Self`, `mut(self) : Self`, `imm(y) := place`, `for(xs, mut(x) => ...)`) was deleted in Generation B of the [values-by-default plan](../../plans/VALUES_BY_DEFAULT.md) (decision 42): it is error E0009, which names the sigil spelling, and older code is upgraded on the last release that ships the migrations ([ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md), "Retired migrations"). `imm` is an ordinary identifier; `mut` stays reserved and appears only after `&`.
+The older word spelling (`imm(x) : T`, `mut(x) : T`, `inout(x) : T`, `imm(self) : Self`, `mut(self) : Self`, `imm(y) := place`, `for(xs, mut(x) => ...)`) was deleted in Generation B of the [values-by-default plan](../../plans/VALUES_BY_DEFAULT.md) (decision 42), and the reference-type declaration forms `ref(struct(...))`, `ref(enum(...))` and `atomic(...)` with them (V5, v0.2.79): both are error E0009, which names the sigil spelling (the `Rc(S)` / `Arc(S)` sharing for the latter), and older code is upgraded on the last release that ships the migrations ([ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md), "Retired migrations"). `imm` is an ordinary identifier; `mut` stays reserved and appears only after `&`.
 
 Operator traits spell their operands' modes the same way, and every impl writes exactly those modes (decision 34). The comparison traits `Eq` and `Ord` borrow, `(==) : (fn(lhs : &Self, rhs : &Rhs) -> bool)`, so `a == b` keeps both operands. The arithmetic, bitwise and unary traits (`Add` through `BitRightShift`, `Negate`, `LogicalNot`, `BitNot` and their `Comptime*` twins) take their operands by value, as in Rust: `(+) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)`. A by-value operand follows the parameter rules above: a `Copy` operand is copied, a `String` is shared, and a move-only operand moves into the operator. An impl that borrows an operand the trait takes by value, or the reverse, is rejected as written. A `Dyn` has no value to hand a by-value operand, so a trait whose method takes `self` by value (`LogicalNot`, `Negate`, `Add`, ...) cannot be put behind a `Dyn` for any payload (E0614).
 
@@ -1240,9 +1240,9 @@ s3 := Rc.clone(s2); // RC = 3
 
 #### Replacing a `ref` declaration
 
-`ref(struct(...))` and `ref(enum(...))` are being retired
-(plans/VALUES_BY_DEFAULT.md V5), and since v0.2.76 std declares neither. Two
-questions pick the replacement for a `ref` type:
+`ref(struct(...))`, `ref(enum(...))` and `atomic(...)` were deleted in
+v0.2.79 (error E0009; plans/VALUES_BY_DEFAULT.md V5), and since v0.2.76 std
+declares neither. Two questions picked the replacement for a `ref` type:
 
 1. Is it written after construction?
 2. Is it needed by two owners that outlive each other's calls?
@@ -1357,7 +1357,7 @@ Every I/O method's future borrows the resource until it completes, because the d
 
 - Await it where it is made. It cannot be bound to a name, spawned or returned (E0909).
 - Its effect bundle must be a place. Write `b := IoExn(io : io, exn : exn); io.await(f.read_to_string(io), b)`; an inline `IoExn(...)` in the `io.await` is E0910.
-- The borrowed resource cannot live inside a `ref` object or a pointer dereference (E0909): hold it as an `Rc` field.
+- The borrowed resource cannot live inside an `Rc` payload or behind a pointer dereference (E0909): lend the handle instead.
 
 For the same reason there is no `Dyn(Reader)` or `Dyn(Writer)` any more. The traits' defaults (`read_to_end`, `read_to_string`, `write_all`) return futures that borrow the reader or writer, and a vtable's future type carries no borrow, so `dyn(r)` as either trait object is E0909 for every implementor. Take one through a generic `Impl(Reader)` / `Impl(Writer)` parameter instead.
 
@@ -3275,7 +3275,7 @@ count := i32(0);
   capture stays implicit.
 - **What a borrow may name.** A place rooted at a named local binding: not a
   temporary, not a module-level binding, and not through an `Rc`/`Arc` (or any
-  `ref` object or pointer dereference) — capture the handle instead,
+  pointer dereference) — capture the handle instead,
   `{ &r }() => r.*.items.len()`. A `&mut` place must be writable. A `&`
   capture is read-only in the body.
 - **A borrowing closure is second-class**, and so is anything built from it (a

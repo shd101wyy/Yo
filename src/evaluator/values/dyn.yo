@@ -141,7 +141,7 @@ apply_type_ctor_via :: (fn(ctor : &String, types : &ArrayList(TypeValue), env : 
       // a blank instead of 'Q').
       b_callee_tok := synthetic_token(ctor.clone(), &cenv.module_path().*);
       b_callee := Rc.new(AstExprNode.Atom(alloc_global_expr_id(), b_callee_tok));
-      bres := evaluate_comptime_fn_call(Option(AstExpr).Some(b_callee), &box_ft, &bfv, &bav, env, &cenv, ctx, exn);
+      bres := evaluate_comptime_fn_call(Option(AstExpr).Some(b_callee), &box_ft, &bfv, &mut bav, env, &cenv, ctx, exn);
       cenv.pop_frame();
       match(Rc.clone(bres.value), Rc(.TypeVal(bt)) => Option(TypeValue).Some(Rc.clone(bt)), _ => Option(TypeValue).None)
     }
@@ -1068,7 +1068,7 @@ _resolve_dyn_trait_values :: (fn(dyn_type : &TypeValue, value_type : &TypeValue,
                 (k : usize) = usize(0);
                 while((k < ne) && !have_exact, {
                   match(
-                    entries.get(k),
+                    entries.get_cloned(k),
                     .Some(entry) => if(entry.label == fname, {
                       is_exact := (entry.source_trait_id == trait_id.*);
                       ev := entry.value.clone();
