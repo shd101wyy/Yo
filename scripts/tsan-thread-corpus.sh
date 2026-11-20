@@ -18,6 +18,9 @@ mkdir -p "$OUT"
 # Only files that spawn threads: tests/thread_safety and tests/atomic_object
 # check their rules at compile time or on one thread,
 # where TSan has nothing to observe (every run of them was HOLLOW).
+# tests/unsafe_cast_rc_borrow left the corpus in v0.2.79: its one threaded row
+# (two threads reading through an `atomic(ref(...))` object's `Index` impl)
+# went with the atomic-object form, so every later run of it was HOLLOW.
 FILES=(
   tests/thread.test.yo
   tests/thread_pool.test.yo
@@ -27,7 +30,6 @@ FILES=(
   tests/spawn_blocking.test.yo
   tests/parallelism_soundness.test.yo
   tests/encoding/html.test.yo
-  tests/unsafe_cast_rc_borrow.test.yo
 )
 known() { grep -v '^#' "$KNOWN" 2>/dev/null | awk -F'\t' -v f="$1" '$1==f{print "yes"; exit}'; }
 bad=0
