@@ -29,7 +29,7 @@ one-line E0601 in new code that never reached a verdict; r4 is the binary every 
 - `yo check ./std --std-path ./std` = 171/171 (the first wall draft broke `std/log.yo:276`; the
   `variable_is_borrow_parameter` exclusion fixed it).
 - `yo check ./src --std-path ./std` = 273/273.
-- `yo test ./tests/origins/model_corpus.test.yo --std-path ./std --parallel 1` = 155/155.
+- `yo test ./tests/origins/model-corpus.test.yo --std-path ./std --parallel 1` = 155/155.
 - `yo fmt --check` clean on every changed `.yo` file (run with the tree binary; fmt rewrapped three
   files — `src/evaluator/utils.yo`, `src/evaluator/exprs/match.yo`, the row-9 test — after which the
   flip matrix, std, src-status quo below and the corpus were re-run green).
