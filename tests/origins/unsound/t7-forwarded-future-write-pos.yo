@@ -4,12 +4,15 @@
 { println } :: import("std/fmt");
 { yield } :: import("std/async");
 W :: struct(s : String);
-impl(W, show : (fn(self : &Self, io : Io) -> Impl(Future(unit, Io)))(
-  io.async({ self : &self.* }(io : Io) => {
-    io.await(yield(io), io);
-    println(`OUT: ${self.*.s}`);
-  })
-));
+impl(
+  W,
+  show : (fn(self : &Self, io : Io) -> Impl(Future(unit, Io)))(
+    io.async({ self : &self.* }(io : Io) => {
+      io.await(yield(io), io);
+      println(`OUT: ${self.*.s}`);
+    })
+  )
+);
 fwd :: (fn(w : &W, io : Io) -> Impl(Future(unit, Io)))(w.show(io));
 eat :: (fn(w : W) -> unit)(());
 LONG :: "0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz";

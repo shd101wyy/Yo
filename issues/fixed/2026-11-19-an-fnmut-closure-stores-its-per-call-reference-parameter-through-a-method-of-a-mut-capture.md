@@ -4,11 +4,11 @@
 
 - Filed: 2026-11-19 by the test 7 lane, from the rehearsal of test 7 leg (b) (`scripts/test7.sh`; `plans/handover/VBD_V0279_RETIREMENTS_AND_CLAIM.md` §3.6). The program is from the 2026-11-11 audit's frozen probe corpus (`scripts/test7/audit-corpus.tar.gz`, `probes/closures/h16.yo`).
 - Reproduces on develop `939fe7160` (a stage 1 of `d8f0d89fa`) and on the pending cluster branch `v0279/clusters` `76f6aaf03` (a stage 1 built from it). The cluster branch's fixes do not close it.
-- **Status: OPEN.** It blocks claim (S) in v0.2.80 (VERDICTS-58 decision 7(b)) until it is fixed or walled. It does not gate the v0.2.79 cut.
+- **Status: FIXED** on `v0280/s1-origins` (the v0.2.80 s1-origins lane). The reproducer is the G-B row `tests/origins/unsound/t7-fnmut-capture-method-stores-param.yo`.
 
 ## Reproducer
 
-`issues/repros/2026-11-19-an-fnmut-closure-stores-its-per-call-reference-parameter-through-a-method-of-a-mut-capture.yo`:
+`tests/origins/unsound/t7-fnmut-capture-method-stores-param.yo` (the reproducer as filed, with its header comment):
 
 ```yo ignore
 // expect: E0923
@@ -31,8 +31,8 @@ export(main);
 ```
 
 ```bash
-yo check issues/repros/2026-11-19-an-fnmut-closure-stores-its-per-call-reference-parameter-through-a-method-of-a-mut-capture.yo --std-path ./std                       # rc 0: accepted
-yo compile issues/repros/2026-11-19-an-fnmut-closure-stores-its-per-call-reference-parameter-through-a-method-of-a-mut-capture.yo --std-path ./std --optimize 1 --sanitize address --allocator system --cc clang -o t
+yo check tests/origins/unsound/t7-fnmut-capture-method-stores-param.yo --std-path ./std                       # rc 0: accepted
+yo compile tests/origins/unsound/t7-fnmut-capture-method-stores-param.yo --std-path ./std --optimize 1 --sanitize address --allocator system --cc clang -o t
 ASAN_OPTIONS=detect_stack_use_after_return=1 ./t
 ```
 
@@ -61,3 +61,41 @@ This neighbours A35 (`issues/fixed/2026-11-11-an-fnmut-closures-by-value-state-c
 ## Closing it
 
 Fix the rule or wall the position (a rejection with an error code at exactly these positions). Then move the reproducers into `tests/origins/unsound/` so G-B pins the result, and add their attribution rows to `scripts/test7/attribution.tsv` as rejected.
+
+## Root cause
+
+Not the capture: the hole was `lend_through`'s step 3 (`src/evaluator/calls/function.yo`) for a specialized generic
+container's method, and it is wider than the closure. Two gaps, plus one found beside them:
+
+1. **A `T := &X` argument was never selected.** `Option(&Rc(X)).replace(self : &mut Self, value : T)` reaches step 3
+   with slots that spell no origin parameter and no type variable, so the store's candidates are the arguments whose
+   type occurs among the pointee's type arguments (A4's `by_type_argument`). A binder-typed by-value slot specialized
+   to a reference is R3's `ValueSlot(&Rc(X))`, while `Option`'s type argument is the bare `&Rc(X)`:
+   `_type_occurs_in_type_arguments` compared the wrapper and never matched. With `T := H` (A4's own row, a struct) the
+   slot is plain `H` and it matched, which is why A4's fix covered holders and not references. The same `ValueSlot`
+   made `_origin_position_pairs` pair nothing for `value : T` at `T := &(X, p)`, so step 2's exact check never saw
+   such an argument either.
+2. **A write-back into a `&mut` PARAMETER skipped the subset check.** Step 3 joined the solved roots into the holder
+   with `bind_join_roots_for`. For a `&mut` capture that reaches `_capture_store` (E0923 for a per-call parameter);
+   for a parameter of the body it joined silently, while the direct store `s.* = .Some(v)` goes through
+   `place_write_join`'s subset checks (E0923: each elided `&` is its own origin, O2). With spelled origins the
+   difference is a use-after-free: `f(generic(p, q), s : &mut Option(&(Rc(X), p)), v : &(Rc(X), q))` calling
+   `s.replace(v)` or `store(s, v)` was accepted, and the caller fixes `p` from its slot and leaves `q` free.
+
+## Fix
+
+- `_lend_through_solve` (step 3's solve, extracted so the nested-`&mut` form of the generic-wrapper fix can share it)
+  unwraps a `ValueSlot` before the occurs check, and `_origin_position_pairs` reads through a `ValueSlot` on either
+  side.
+- Step 3 writes back through `_lend_write_back_into`: a holder that is a parameter of the body being evaluated (its
+  declared slot, `param_declared_origin_slot`) has each stored argument judged by `place_write_join`, exactly as the
+  store through it would be; any other holder (a flow-inferred local, a `&mut` capture) joins as before.
+
+Rows (`tests/origins/unsound/`, every negative accepted before the fix): `t7-fnmut-capture-method-stores-param` (the
+reproducer), `t7-user-generic-method-capture-stores-param` (a user generic container's `&mut self` method on the
+capture), `t7-generic-method-stores-ref-param` (`s.replace(v)` across two spelled origins),
+`t7-generic-method-stores-holder-param` (the same with a by-value holder `H(q)`) and
+`t7-generic-free-fn-stores-ref-param` (`store(s, v)`), all E0923; positive twins
+`t7-fnmut-capture-method-stores-param-pos` (the closure stores a reference it captured from outside) and
+`t7-generic-method-stores-ref-param-pos` (both parameters over one `p`), both clean under ASan. Found beside it and
+filed: `issues/2026-11-20-a-lend-passed-to-a-methods-by-value-binder-parameter-is-reported-as-e0910-not-e0914.md`.

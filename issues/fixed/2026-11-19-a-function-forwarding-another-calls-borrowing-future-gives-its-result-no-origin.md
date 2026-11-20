@@ -4,11 +4,11 @@
 
 - Filed: 2026-11-19 by the test 7 lane, from the rehearsal of test 7 leg (b) (`scripts/test7.sh`; `plans/handover/VBD_V0279_RETIREMENTS_AND_CLAIM.md` §3.6). The program is from the 2026-11-11 audit's frozen probe corpus (`scripts/test7/audit-corpus.tar.gz`, `probes/async-effects/n02m.yo, a generic `fwd(generic(T), t : &T, where(T <: Show))`; the reproducer is its non-generic reduction`).
 - Reproduces on develop `939fe7160` (a stage 1 of `d8f0d89fa`) and on the pending cluster branch `v0279/clusters` `76f6aaf03` (a stage 1 built from it). The cluster branch's fixes do not close it.
-- **Status: OPEN.** It blocks claim (S) in v0.2.80 (VERDICTS-58 decision 7(b)) until it is fixed or walled. It does not gate the v0.2.79 cut.
+- **Status: FIXED** on `v0280/s1-origins` (the v0.2.80 s1-origins lane). The reproducer is the G-B row `tests/origins/unsound/t7-forwarded-future-move.yo`.
 
 ## Reproducer
 
-`issues/repros/2026-11-19-a-function-forwarding-another-calls-borrowing-future-gives-its-result-no-origin.yo`:
+`tests/origins/unsound/t7-forwarded-future-move.yo` (the reproducer as filed, with its header comment):
 
 ```yo ignore
 // expect: E0911 (`f` borrows `w` through `fwd`, so moving `w` while `f` is live is rejected)
@@ -34,8 +34,8 @@ export(main);
 ```
 
 ```bash
-yo check issues/repros/2026-11-19-a-function-forwarding-another-calls-borrowing-future-gives-its-result-no-origin.yo --std-path ./std                       # rc 0: accepted
-yo compile issues/repros/2026-11-19-a-function-forwarding-another-calls-borrowing-future-gives-its-result-no-origin.yo --std-path ./std --optimize 1 --sanitize address --allocator system --cc clang -o t
+yo check tests/origins/unsound/t7-forwarded-future-move.yo --std-path ./std                       # rc 0: accepted
+yo compile tests/origins/unsound/t7-forwarded-future-move.yo --std-path ./std --optimize 1 --sanitize address --allocator system --cc clang -o t
 ASAN_OPTIONS=detect_stack_use_after_return=1 ./t
 ```
 
@@ -70,3 +70,33 @@ This neighbours A52 and A51 (cluster 7, captures and futures): `issues/fixed/202
 ## Closing it
 
 Fix the rule or wall the position (a rejection with an error code at exactly these positions). Then move the reproducers into `tests/origins/unsound/` so G-B pins the result, and add their attribution rows to `scripts/test7/attribution.tsv` as rejected.
+
+## Root cause
+
+A call's result type reads the callee BODY's type (`_evaluate_funcval_runtime_call`, `src/evaluator/calls/function.yo`:
+"stamp the call result's resolved-concrete from the callee BODY's def-time-evaluated type"), and a borrowing future's
+type names the places it holds by the parameters of whatever MADE it (decision 43 step 4: `Future(T, E, p)` over the
+maker's parameters, mapped to the call's arguments by `_future_call_lends_into`). For `show` the maker is its own
+`io.async`, so the call `w.show(io)` reads `self` and maps it to the receiver. For `fwd` the body's future is
+`show`'s: its origin names `self`, which is no parameter of `fwd`, so `fwd(&w, io)` mapped nothing and the binding
+`f` froze nothing. `fwd`'s return rule did judge the future correctly inside the body (`return_check` found the root
+`w`, a parameter, and accepted the return): the definition knew the result was rooted at `w`, and nothing carried that
+to the call sites.
+
+## Fix
+
+`return_check` (`src/evaluator/utils.yo`) records, for a returned borrowing future, the parameters among its roots
+(`_note_fn_future_result_roots`), keyed by the function's definition site (its body's position, so the definition's
+value, its definition-time trial and every specialization share one record; the function ids differ in their
+occurrence suffix). `_note_future_producing_call` (`src/evaluator/calls/function.yo`) restamps a call's future origin
+with the callee's recorded parameters (`_callee_future_result_origins`) before it collects the future's borrows, so
+the existing mapping (`_future_call_lends_into`) lends the caller's argument places: `f := fwd(&w, io)` freezes `w`
+and `eat(w)` is E0911. This is R-CALL applied to an `Impl(Future)` result: the result's origin is the callee's own
+parameters, substituted by the arguments at the call.
+
+Rows (`tests/origins/unsound/`, every negative accepted before the fix): `t7-forwarded-future-move` (the reproducer),
+`t7-forwarded-future-generic` (the audit probe `n02m`, a generic `fwd` over a trait method), `t7-forwarded-future-trait`
+(a non-generic `fwd` over a trait method), `t7-forwarded-future-two-hop` (`fwd2` returns `fwd(w, io)`) and
+`t7-forwarded-future-write` (a write to `w` while the future is live), all E0911; positive twins
+`t7-forwarded-future-move-pos` (awaited before the move) and `t7-forwarded-future-write-pos` (a shared read while the
+`&` future is live), both clean under ASan.

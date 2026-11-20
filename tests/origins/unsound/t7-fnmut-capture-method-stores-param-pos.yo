@@ -11,9 +11,11 @@ each :: (fn(f : &mut Impl(FnMut(v : &Rc(X)) -> unit)) -> unit)({
 main :: (fn() -> unit)({
   x := Rc.new(X(s : String.from("outer")));
   mut(slot) := Option(&Rc(X)).None;
-  each(&mut ({ s : &mut slot, r : &x }(v : &Rc(X)) => {
-    _old := s.replace(r);
-  }));
+  each(
+    &mut ({ s : &mut slot, r : &x }(v : &Rc(X)) => {
+      _old := s.replace(r);
+    })
+  );
   match(slot, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => println("none"));
 });
 export(main);

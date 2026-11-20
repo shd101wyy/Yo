@@ -4,11 +4,11 @@
 
 - Filed: 2026-11-19 by the test 7 lane, from the rehearsal of test 7 leg (b) (`scripts/test7.sh`; `plans/handover/VBD_V0279_RETIREMENTS_AND_CLAIM.md` §3.6). The program is from the 2026-11-11 audit's frozen probe corpus (`scripts/test7/audit-corpus.tar.gz`, `probes/generics/v06-helper-widen.yo, v06b-helper-widen-direct.yo and v02-generic-wrapper-T.yo`).
 - Reproduces on develop `939fe7160` (a stage 1 of `d8f0d89fa`) and on the pending cluster branch `v0279/clusters` `76f6aaf03` (a stage 1 built from it). The cluster branch's fixes do not close it.
-- **Status: OPEN.** It blocks claim (S) in v0.2.80 (VERDICTS-58 decision 7(b)) until it is fixed or walled. It does not gate the v0.2.79 cut.
+- **Status: FIXED** on `v0280/s1-origins` (the v0.2.80 s1-origins lane). The reproducers are the G-B rows `tests/origins/unsound/t7-widen-invariant-result.yo`, `t7-widen-invariant-result-direct.yo` and `t7-generic-wrapper-mut-store.yo`.
 
 ## Reproducer
 
-`issues/repros/2026-11-19-an-invariant-origin-is-widened-through-a-returned-holder-or-a-generic-wrapper.yo`:
+`tests/origins/unsound/t7-widen-invariant-result.yo` (the reproducer as filed, with its header comment):
 
 ```yo ignore
 // expect: E0923
@@ -35,13 +35,13 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-Also `issues/repros/2026-11-19-an-invariant-origin-is-widened-through-a-returned-holder-or-a-generic-wrapper-direct.yo`: the write through the widened holder's field directly (probe v06b).
+Also `tests/origins/unsound/t7-widen-invariant-result-direct.yo`: the write through the widened holder's field directly (probe v06b).
 
-Also `issues/repros/2026-11-19-an-invariant-origin-is-widened-through-a-returned-holder-or-a-generic-wrapper-generic-wrapper.yo`: the invariance lost through a user generic wrapper `W(&mut Option(T))` at `T := H` (probe v02).
+Also `tests/origins/unsound/t7-generic-wrapper-mut-store.yo`: the invariance lost through a user generic wrapper `W(&mut Option(T))` at `T := H` (probe v02).
 
 ```bash
-yo check issues/repros/2026-11-19-an-invariant-origin-is-widened-through-a-returned-holder-or-a-generic-wrapper.yo --std-path ./std                       # rc 0: accepted
-yo compile issues/repros/2026-11-19-an-invariant-origin-is-widened-through-a-returned-holder-or-a-generic-wrapper.yo --std-path ./std --optimize 1 --sanitize address --allocator system --cc clang -o t
+yo check tests/origins/unsound/t7-widen-invariant-result.yo --std-path ./std                       # rc 0: accepted
+yo compile tests/origins/unsound/t7-widen-invariant-result.yo --std-path ./std --optimize 1 --sanitize address --allocator system --cc clang -o t
 ASAN_OPTIONS=detect_stack_use_after_return=1 ./t
 ```
 
@@ -73,3 +73,34 @@ A24 (`issues/fixed/2026-11-11-a-mut-nested-inside-a-by-value-argument-does-not-m
 ## Closing it
 
 Fix the rule or wall the position (a rejection with an error code at exactly these positions). Then move the reproducers into `tests/origins/unsound/` so G-B pins the result, and add their attribution rows to `scripts/test7/attribution.tsv` as rejected.
+
+## Root cause
+
+1. **The result.** `return_check` (`src/evaluator/utils.yo`) judged a result's ROOTS (a local is E0912, a parameter
+   outside the spelled result origin E0923). `widen`'s `s` is a by-value parameter: it has no root of its own, and its
+   type's origin `p` is inside the spelled `(p, q)`, so the covariant reading passed. Nothing compared the value's type
+   with the declared result at the positions O3 step 3 makes invariant.
+2. **The generic wrapper.** `lend_through`'s step 3 (the flow write-back, `src/evaluator/calls/function.yo`) ran only
+   for a parameter whose own type is a top-level `&mut`. A24's fix taught step 1 to fix the origins under a `&mut`
+   nested in a by-value parameter, but `W(&mut Option(T))` spells no origin parameter at all: `T` is the inference
+   variable, and only step 3 solves it. So `put(W(...)(inner : &mut slot), H(r : &y))` never joined `y` into `slot`.
+
+## Fix
+
+1. `return_check` pairs the declared result with the value's type (`_return_check_invariant_origins`,
+   `_invariant_origin_pairs`): through reference pointees, struct fields and type arguments, enum payloads and tuple
+   components, every origin position below a `&mut` pointee must carry exactly the spelled set, else E0923 at the
+   result. A covariant position (`View(p)`'s `&(T, p)` field) still widens, and a position the value leaves elided is
+   judged by the roots as before.
+2. Step 3 also walks a by-value parameter's nested `&mut` pointees (`_nested_mut_pointees`: struct fields and type
+   arguments, enum payloads, tuple components; a `&` stops the walk). When their origin or type parameters are not
+   fixed by step 1, the call's other arguments over the same parameters are solved (`_lend_through_solve`, shared with
+   the top-level form) and written back into the places the argument's `&mut` borrows (its `origin_of` roots in `&mut`
+   mode), through `_lend_write_back_into`. `slot` then holds `y`'s origin, and the read after `y`'s block is E0911.
+
+Rows (`tests/origins/unsound/`, every negative accepted before the fix): `t7-widen-invariant-result` (the probe v06),
+`t7-widen-invariant-result-direct` (v06b) and `t7-widen-invariant-tuple-result` (the holder inside a tuple result),
+E0923; `t7-generic-wrapper-mut-store` (v02) and `t7-generic-wrapper-tuple-mut-store` (`Tuple(&mut Option(T), i32)`),
+E0911. Positive twins: `t7-widen-invariant-result-pos` (the holder returned at its own origin),
+`t7-widen-invariant-result-direct-pos` (a covariant `View(p)` widened through a result) and
+`t7-generic-wrapper-mut-store-pos` (the wrapper stores a holder over an outer place), all clean under ASan.

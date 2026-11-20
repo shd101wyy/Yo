@@ -147,7 +147,7 @@ pragma(Pragma.AllowUnsafe);
 { generate_new_temp_variable_name, is_temp_variable_name, is_any_temp_variable_name, debug_knob, display_module_path, canonical_module_path }
 :: import("../utils.yo");
 { eprintln } :: import("std/fmt");
-{ EvalValue, EvalValueNode, is_unknown_val, is_type_value, is_var_ref, is_func_val } :: import("../value.yo");
+{ EvalValue, EvalValueNode, is_unknown_val, is_type_value, is_var_ref, is_func_val, lookup_type_ctor_value, lookup_enum_cfid } :: import("../value.yo");
 { TypeValue, TypeValueNode, t_refine_inner, SharedList, no_flags, no_types, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_param_slots, fn_result_is_ref, fn_result_is_mut_ref, fn_result_origin_names, fn_result_composite_origin_names, fn_param_in_result_origin, fn_param_pointee_in_result_origin, fn_result_slot, shared_list, t_slot_is_mut_ref, t_slot_is_borrow, t_slot_pointee, t_reference, t_reference_with_origin, t_origin_named, t_origin_spelled_names, t_origin_elided, origin_names_contain } :: import("../types/definitions.yo");
 { is_never_type, is_unit_type, is_function_type, is_function_type_and_returns_comptime_value, is_box_type, is_unique_box_type, is_dyn_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_primitive_type, is_pointer_type, is_bool_type, is_array_type, is_struct_type, is_tuple_type, is_some_type, cell_handle_view, is_atomic_counted_handle_type, is_counted_cell_type, is_arc_type, is_counted_handle_value_type, unique_box_payload_type, is_fn_trait_type, is_type_0, is_comptime_string_type, is_str_reference_type } :: import("../types/guards.yo");
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function-value.yo");
@@ -323,12 +323,12 @@ derive(BorrowMatchSourceDecl, Clone);
 /// freeze and the return rule (`origin_of`).
 (g_future_roots : RefCell(HashMap(usize, ArrayList(FutureRoot)))) = RefCell(HashMap(usize, ArrayList(FutureRoot))).new(HashMap(usize, ArrayList(FutureRoot)).new());
 /// The parameters each function's returned borrowing future is rooted at,
-/// by the function's definition site (`_fn_future_result_key`, recorded by
-/// `_note_fn_future_result_roots`). A future's type
-/// names the places it holds by its MAKER's parameters (`self` for a method
-/// whose `io.async` captures `self`), so a function that returns another
-/// call's future (`fwd(w) -> Impl(Future(...))` over `w.show(io)`) types
-/// its result with names that are not its own. The return rule judged the
+/// by the identity of the function's declared `Impl(Future(...))` result
+/// (`_fn_future_result_key`, recorded by `_note_fn_future_result_roots`). A
+/// future's type names the places it holds by its MAKER's parameters
+/// (`self` for a method whose `io.async` captures `self`), so a function
+/// that returns another call's future (`fwd(w) -> Impl(Future(...))` over
+/// `w.show(io)`) types its result with names that are not its own. The return rule judged the
 /// future's roots in the body's frame, and those roots are what the result
 /// holds (O3's return rule, O8 forwarding): a call site maps them to its
 /// arguments (`_note_future_producing_call`).
@@ -13635,11 +13635,14 @@ _note_fn_future_result_roots :: (fn(roots : &ArrayList(OriginRootPlace), env : &
     &ctx.is_evaluating_function_body_or_async_block,
     .Some(fb) => match(
       fb.kind,
-      .FunctionBody => match(&fb.func_value, .Some(Rc(.FuncVal(nf_fv, _))) => _fn_future_result_key(&nf_fv.*.*.body), _ => return(())),
+      .FunctionBody => match(&fb.func_type, .Some(nf_ft) => _fn_future_result_key(&t_slot_pointee(&fn_result_slot(nf_ft))), .None => return(())),
       _ => return(())
     ),
     .None => return(())
   );
+  if(fid.len() == usize(0), {
+    return(());
+  });
   names := ArrayList(String).new();
   (ri : usize) = usize(0);
   while(ri < roots.len(), ri = (ri + usize(1)), {
@@ -13669,21 +13672,25 @@ _note_fn_future_result_roots :: (fn(roots : &ArrayList(OriginRootPlace), env : &
     m.insert(fid, cur);
   });
 });
-/// The parameters the function whose body is `body` returns a borrowing
-/// future rooted at (`_note_fn_future_result_roots`); `.None` when it
-/// returns none.
-fn_future_result_origins :: (fn(body : &AstExpr) -> Option(ArrayList(String)))({
-  fid := _fn_future_result_key(body);
+/// The parameters a function whose declared result is `result` (a call's
+/// result type: the declared `Impl(Future(...))` with its resolution)
+/// returns a borrowing future rooted at (`_note_fn_future_result_roots`);
+/// `.None` when it returns none.
+fn_future_result_origins :: (fn(result : &TypeValue) -> Option(ArrayList(String)))({
+  fid := _fn_future_result_key(result);
+  if(fid.len() == usize(0), {
+    return(Option(ArrayList(String)).None);
+  });
   g_fn_future_result_origins.with({ fid : &fid }(m) => m.get_cloned(fid))
 });
-/// A function's definition site, by its body's position: the definition's
-/// function value and every value minted from it (the definition-time
-/// trial, a specialization) share it, while their ids differ in the
-/// occurrence suffix.
-_fn_future_result_key :: (fn(body : &AstExpr) -> String)({
-  tok := ast_expr_token(body);
-  `${canonical_module_path(&tok.module_path.*)}:${tok.row.to_string()}:${tok.column.to_string()}`
-});
+/// A function's declared opaque result by its identity: the body is
+/// evaluated under a function value minted for the evaluation, not the one
+/// a call reaches, while both see the one `Impl(Future(...))` the signature
+/// declared (a call's result keeps its id and adds the body's resolution).
+/// Empty for a result that is no opaque type.
+_fn_future_result_key :: (fn(result : &TypeValue) -> String)(
+  match(result, Rc(.SomeT({ id : fk_id })) => fk_id.clone(), _ => String.new())
+);
 /// `a, b` for a list of origin names.
 _origin_list_text :: (fn(names : &SharedList(String)) -> String)({
   out := String.new();
@@ -13781,14 +13788,15 @@ _invariant_origin_pairs :: (
         _ => ()
       );
     }),
-    // An instance's own type arguments (below a `&mut`, each is invariant),
-    // then its fields once per definition and mode.
+    // An instance's own type arguments, each invariant below a `&mut` or
+    // where its constructor's fields place that parameter below one
+    // (`_ctor_arg_is_invariant`); then its fields once per definition and
+    // mode (a field keeps the constructor's own origin parameter names, so
+    // only a field over a substituted TYPE argument pairs anything there).
     Rc(.Struct({ id : ip_rid, field_types : ip_rfs, type_arguments : ip_rtas })) => match(
       v,
       Rc(.Struct({ field_types : ip_vfs, type_arguments : ip_vtas })) => {
-        if(under_mut, {
-          _invariant_origin_pairs_list(&ip_rtas.*, &ip_vtas.*, under_mut, out_r, out_v, seen, depth);
-        });
+        _invariant_type_argument_pairs(r, &ip_rtas.*, &ip_vtas.*, under_mut, out_r, out_v, seen, depth);
         key := `${ip_rid.*}:${under_mut.to_string()}`;
         if(!seen.contains(&key), {
           seen.push(key);
@@ -13802,9 +13810,7 @@ _invariant_origin_pairs :: (
     Rc(.EnumT({ id : ip_eid, variant_fields : ip_rvf, type_arguments : ip_retas })) => match(
       v,
       Rc(.EnumT({ variant_fields : ip_vvf, type_arguments : ip_vetas })) => {
-        if(under_mut, {
-          _invariant_origin_pairs_list(&ip_retas.*, &ip_vetas.*, under_mut, out_r, out_v, seen, depth);
-        });
+        _invariant_type_argument_pairs(r, &ip_retas.*, &ip_vetas.*, under_mut, out_r, out_v, seen, depth);
         key := `${ip_eid.*}:${under_mut.to_string()}`;
         if(!seen.contains(&key) && (ip_rvf.len() == ip_vvf.len()), {
           seen.push(key);
@@ -13833,6 +13839,135 @@ _invariant_origin_pairs_list :: (
     match(rs.get(i), .Some(rt) => match(vs.get(i), .Some(vt) => _invariant_origin_pairs(&rt, &vt, under_mut, out_r, out_v, seen, (depth + u32(1))), .None => ()), .None => ());
   });
 });
+/// The type arguments of the constructor instance `inst` (declared side
+/// `rs`, value side `vs`), each walked as invariant when `under_mut` or
+/// when the constructor places its parameter below a `&mut` pointee.
+_invariant_type_argument_pairs :: (
+  fn(inst : &TypeValue, rs : &SharedList(TypeValue), vs : &SharedList(TypeValue), under_mut : bool, out_r : &mut ArrayList(TypeValue), out_v : &mut ArrayList(TypeValue), seen : &mut ArrayList(String), depth : u32) -> unit
+)({
+  if(rs.len() != vs.len(), {
+    return(());
+  });
+  (i : usize) = usize(0);
+  while(i < rs.len(), i = (i + usize(1)), {
+    ctor_seen := ArrayList(String).new();
+    inv := (under_mut || _ctor_arg_is_invariant(inst, i, &mut ctor_seen, depth));
+    match(rs.get(i), .Some(rt) => match(vs.get(i), .Some(vt) => _invariant_origin_pairs(&rt, &vt, inv, out_r, out_v, seen, (depth + u32(1))), .None => ()), .None => ());
+  });
+});
+/// The parameter names of the type constructor whose call produced the
+/// instance `ty` (a struct's `constructor_func_id`, an enum's registered
+/// constructor), in order; empty for any other type.
+_ctor_param_names :: (fn(ty : &TypeValue) -> ArrayList(String))({
+  cfid := match(ty, Rc(.Struct({ constructor_func_id : cp_c })) => cp_c.clone(), Rc(.EnumT({ id : cp_e })) => lookup_enum_cfid(&cp_e.*), _ => String.new());
+  if(cfid.len() == usize(0), {
+    return(ArrayList(String).new());
+  });
+  match(lookup_type_ctor_value(&cfid), .Some(Rc(.FuncVal(cp_fv, _))) => cp_fv.*.params.clone(), _ => ArrayList(String).new())
+});
+/// Type argument `i` of the constructor instance `inst` is invariant: the
+/// constructor's parameter there occurs below a `&mut` pointee in its
+/// fields, directly or through a nested constructor's invariant argument
+/// (O3 step 3: "a type constructor's origin parameter takes its variance
+/// from its fields"). An instance's fields keep the constructor's own
+/// parameter names, which is what is searched. `seen` holds the
+/// (constructor, position) pairs in progress: a recursive type reaching its
+/// own position again adds nothing.
+_ctor_arg_is_invariant :: (fn(inst : &TypeValue, i : usize, seen : &mut ArrayList(String), depth : u32) -> bool)({
+  if(depth > u32(16), {
+    return(false);
+  });
+  names := _ctor_param_names(inst);
+  n := match(names.get_cloned(i), .Some(x) => x, .None => return(false));
+  cid := match(inst, Rc(.Struct({ id : ci_s })) => ci_s.clone(), Rc(.EnumT({ id : ci_e })) => ci_e.clone(), _ => String.new());
+  key := `${cid}:${i.to_string()}`;
+  if(seen.contains(&key), {
+    return(false);
+  });
+  seen.push(key);
+  match(
+    inst,
+    Rc(.Struct({ field_types : ci_fts })) => _name_occurs_invariant_list(&ci_fts.*, &n, false, seen, depth),
+    Rc(.EnumT({ variant_fields : ci_vfs })) => {
+      (vi : usize) = usize(0);
+      while(vi < ci_vfs.len(), vi = (vi + usize(1)), {
+        if(match(ci_vfs.get(vi), .Some(vf) => _name_occurs_invariant_list(&vf, &n, false, seen, depth), .None => false), {
+          return(true);
+        });
+      });
+      false
+    },
+    _ => false
+  )
+});
+/// The constructor parameter `n` occurs in `t` at an invariant position:
+/// an origin or a type variable named `n` below a `&mut` pointee, or an
+/// argument of a nested constructor instance at a position that is
+/// invariant there.
+_name_occurs_invariant :: (fn(t : &TypeValue, n : &String, under_mut : bool, seen : &mut ArrayList(String), depth : u32) -> bool)({
+  if(depth > u32(16), {
+    return(false);
+  });
+  match(
+    t,
+    Rc(.Reference(no_p, no_m, no_o)) => ((under_mut && match(t_origin_spelled_names(&no_o.*), .Some(ns) => origin_names_contain(&ns, n), .None => false)) || _name_occurs_invariant(&no_p.*, n, (under_mut || no_m.*), seen, (depth + u32(1)))),
+    Rc(.ValueSlot(no_vs)) => _name_occurs_invariant(&no_vs.*, n, under_mut, seen, (depth + u32(1))),
+    Rc(.OriginSet(_, _)) => (under_mut && match(t_origin_spelled_names(t), .Some(ns) => origin_names_contain(&ns, n), .None => false)),
+    Rc(.SomeT({ name : no_sn })) => (under_mut && (no_sn.* == n.*)),
+    Rc(.Struct({ type_arguments : no_tas })) => _name_occurs_invariant_args(t, &no_tas.*, n, under_mut, seen, depth),
+    Rc(.EnumT({ type_arguments : no_etas })) => _name_occurs_invariant_args(t, &no_etas.*, n, under_mut, seen, depth),
+    Rc(.Tuple({ field_types : no_fts })) => _name_occurs_invariant_list(&no_fts.*, n, under_mut, seen, depth),
+    _ => false
+  )
+});
+_name_occurs_invariant_list :: (fn(ts : &SharedList(TypeValue), n : &String, under_mut : bool, seen : &mut ArrayList(String), depth : u32) -> bool)({
+  (i : usize) = usize(0);
+  while(i < ts.len(), i = (i + usize(1)), {
+    if(match(ts.get(i), .Some(t) => _name_occurs_invariant(&t, n, under_mut, seen, (depth + u32(1))), .None => false), {
+      return(true);
+    });
+  });
+  false
+});
+_name_occurs_invariant_args :: (fn(inst : &TypeValue, tas : &SharedList(TypeValue), n : &String, under_mut : bool, seen : &mut ArrayList(String), depth : u32) -> bool)({
+  (j : usize) = usize(0);
+  while(j < tas.len(), j = (j + usize(1)), {
+    if(match(tas.get(j), .Some(ta) => _name_occurs_invariant(&ta, n, (under_mut || _ctor_arg_is_invariant(inst, j, seen, (depth + u32(1)))), seen, (depth + u32(1))), .None => false), {
+      return(true);
+    });
+  });
+  false
+});
+/// The origin names `ty` spells at its invariant positions (below a `&mut`
+/// pointee, or at a constructor argument its fields place below one; O3
+/// step 3), for the call rule that fixes them (`lend_through` step 1).
+invariant_origin_names :: (fn(ty : &TypeValue) -> ArrayList(String))({
+  out_r := ArrayList(TypeValue).new();
+  out_v := ArrayList(TypeValue).new();
+  seen := ArrayList(String).new();
+  _invariant_origin_pairs(ty, ty, false, &mut out_r, &mut out_v, &mut seen, u32(0));
+  names := ArrayList(String).new();
+  (k : usize) = usize(0);
+  while(k < out_r.len(), k = (k + usize(1)), {
+    match(
+      t_origin_spelled_names(&out_r(k)),
+      .Some(ns) => {
+        (ni : usize) = usize(0);
+        while(ni < ns.len(), ni = (ni + usize(1)), {
+          match(
+            ns.get_cloned(ni),
+            .Some(nm) => if(!names.contains(&nm), {
+              names.push(nm);
+            }),
+            .None => ()
+          );
+        });
+      },
+      .None => ()
+    );
+  });
+  names
+});
 /// `a` and `b` list the same origin names.
 _origin_name_sets_equal :: (fn(a : &SharedList(String), b : &SharedList(String)) -> bool)({
   (i : usize) = usize(0);
@@ -13849,7 +13984,7 @@ _origin_name_sets_equal :: (fn(a : &SharedList(String), b : &SharedList(String))
   });
   true
 });
-export(FutureRoot, note_future_roots, future_roots_of, fn_future_result_origins);
+export(FutureRoot, note_future_roots, future_roots_of, fn_future_result_origins, invariant_origin_names);
 /// Record that the pattern binding `var_id` binds a reference payload of
 /// `scrutinee`'s value.
 note_ref_payload_source :: (fn(var_id : usize, scrutinee : &AstExpr) -> unit)({
