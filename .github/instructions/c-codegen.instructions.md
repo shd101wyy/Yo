@@ -1395,10 +1395,10 @@ thread that runs the body: the main wrapper (`_main_call_args`) and the
 `__yo_io_native_vtable` is BUILT from the prelude's `IoVTable` declaration:
 one `__yo_io_vt_<label>` wrapper per field, typed by the field's own Yo
 signature, passing everything after `ctx` to the entry `native_io_entry_c_name`
-(`src/codegen/async/runtime_core.yo`) maps the label to. The table is filled by
+(`src/codegen/async/runtime-core.yo`) maps the label to. The table is filled by
 field label, so the prelude alone decides the table's fields and order. A label
 the map does not know is an internal compiler error, and every mapped entry must
-exist on every backend (`tests/internal/io_native_runtime.test.yo` pins both).
+exist on every backend (`tests/internal/io-native-runtime.test.yo` pins both).
 Under chunked emission the table is `extern` in the shared header and defined in
 chunk 0. The executor entries (`__yo_io_spawn_task`, `__yo_io_run_until`,
 `__yo_io_now_ns`) and `__yo_io_future_completed` (`IoFuture.completed`) are
@@ -1409,7 +1409,7 @@ comment block sits above `__YO_FUTURE_PREFIX`. Change it only together with
 In the interface shape, `impl(Io, async : __yo_io_async, …)` binds the builtins
 as methods. Such a method reads like the four-field `Io`'s field: the property
 access types the callee as the builtin's own function type
-(`_io_builtin_method_type`, `src/evaluator/exprs/property_access.yo`), and the
+(`_io_builtin_method_type`, `src/evaluator/exprs/property-access.yo`), and the
 call skips method dispatch (`_io_builtin_method_marker`,
 `src/evaluator/calls/function.yo`). So it takes **no receiver**: the externs
 keep their receiver-less signatures, the marker is recorded from the callee's

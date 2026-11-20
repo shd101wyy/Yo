@@ -348,13 +348,13 @@ NO_LIBC's std-only P3 and P7 are unaffected and may run at any time.
   one of these externs reads like the four-field `Io`'s field. It takes no
   receiver, and the receiver only names the `Io` that `io.spawn` and a
   sync-context await lower through
-  (`_io_builtin_method_type`, `src/evaluator/exprs/property_access.yo`;
+  (`_io_builtin_method_type`, `src/evaluator/exprs/property-access.yo`;
   `_io_builtin_method_marker`, `src/evaluator/calls/function.yo`).
 - **The native table is built from IO-1b's `IoVTable` declaration.** It
   is filled field by field, by label, so the prelude alone decides which
   entries exist and in what order.
   - The labels the native Io offers are `native_io_entry_c_name`
-    (`src/codegen/async/runtime_core.yo`):
+    (`src/codegen/async/runtime-core.yo`):
     - `spawn`, `run_until`, `now`, `sleep`, `park` and `yield`;
     - every `__yo_async_<op>_start` as `<op>` (`openat`, `read`, …,
       `getnameinfo`), with `__yo_async_spawn_start_cwd` as `spawn_cwd`;
