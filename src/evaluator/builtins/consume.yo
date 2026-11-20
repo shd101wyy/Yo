@@ -181,7 +181,8 @@ evaluate_consume :: (
   // With no expected type: the caller's belongs to the consume's own `unit`
   // result, and the argument may be any type
   // (issues/fixed/2026-11-20-consume-passes-its-expected-unit-type-to-its-argument.md).
-  saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
+  saved_expected := ctx.expected_type.clone();
+  ctx.expected_type = Option(ExpectedTypeCtx).None;
   eval_arg_gout := ArrayList(AstExpr).new();
   eval_arg_gerr := evaluate_expression_guarded(&arg_expr, env, ctx, &mut eval_arg_gout);
   ctx.expected_type = saved_expected;
