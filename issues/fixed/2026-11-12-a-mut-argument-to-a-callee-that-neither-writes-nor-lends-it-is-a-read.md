@@ -10,8 +10,6 @@ entries. VERDICTS-57 §3.4's census turned up no sweep: nothing in std, src or t
 non-writing callee under a live `&` loan of the same place, so the flip needed no source changes. G-B rows:
 `tests/origins/unsound/a6-mut-arg-nonwriting-callee-live-loan.yo` (E0911, the `peek`/`grow` repro) and the
 flipped pin `v57-mut-self-nonwriting-live-loan-pos.yo` (E0911, was `accept`).
-Still open after G: a `&mut` argument to a LOCAL `Impl(Fn)` closure value (G-D's `args:named/*/closure/*`),
-`issues/2026-11-20-a-mut-argument-to-a-local-impl-fn-closure-is-never-a-write-against-a-live-loan.md`.
 
 **Severity:** S1 — `f(&mut xs)` beside a live `&` loan of `xs` is accepted when the callee's body neither writes the parameter nor makes a `&mut` reference value of it, and always when the callee had no body to read (a `Dyn(Fn)` value, a function pointer); that second form was a heap-use-after-free and is fixed (#1932, item 2 below). The first is open until rule G (v0.2.79).
 
