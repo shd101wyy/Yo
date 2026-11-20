@@ -9016,7 +9016,7 @@ match_scrutinee_is_capture :: (fn(v : &Variable, env : &Environment, ctx : &Eval
 /// body has none).
 local_borrow_register_match_place :: (fn(name : &String, decl : &Token, place : &LocalBorrowPlace, body : &AstExpr, (is_mut : bool) ?= true, (guard : Option(AstExpr)) ?= .None) -> unit)({
   arm_range := _lb_arm_range(name, decl, body, &guard);
-  _info := local_borrow_register(name, decl, is_mut, place, LocalBorrowRange(last_use : arm_range.last_use, end : arm_range.end, has_repoint : false), Option(Variable).None);
+  _info := local_borrow_register(name, decl, is_mut, place, &arm_range, Option(Variable).None);
 });
 /// The live range of the arm binding `name` (declared at `decl`): its last
 /// mention in the arm's `body`, else in its `guard`, else the binding
@@ -9049,8 +9049,8 @@ local_borrow_note_match_place :: (fn(borrow : &LocalBorrowInfo, name : &String, 
     return(());
   });
   arm_range := _lb_arm_range(name, decl, body, &guard);
-  last := arm_range.last_use;
-  end := arm_range.end;
+  last := Rc.clone(arm_range.last_use);
+  end := Rc.clone(arm_range.end);
   name_owned := name.clone();
   // Owned captures (`with_mut`'s callback is a sink parameter).
   lbmp_decl := decl.clone();
