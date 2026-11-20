@@ -86,13 +86,17 @@ to the call sites.
 ## Fix
 
 `return_check` (`src/evaluator/utils.yo`) records, for a returned borrowing future, the parameters among its roots
-(`_note_fn_future_result_roots`), keyed by the function's definition site (its body's position, so the definition's
-value, its definition-time trial and every specialization share one record; the function ids differ in their
-occurrence suffix). `_note_future_producing_call` (`src/evaluator/calls/function.yo`) restamps a call's future origin
-with the callee's recorded parameters (`_callee_future_result_origins`) before it collects the future's borrows, so
-the existing mapping (`_future_call_lends_into`) lends the caller's argument places: `f := fwd(&w, io)` freezes `w`
-and `eat(w)` is E0911. This is R-CALL applied to an `Impl(Future)` result: the result's origin is the callee's own
-parameters, substituted by the arguments at the call.
+(`_note_fn_future_result_roots`). The record is keyed by the identity of the function's declared `Impl(Future(...))`
+result, which the definition, its definition-time trial (evaluated under a function value minted for the trial) and
+every call's result type share. A specialization of a generic function re-evaluates its result type, so its record is
+also kept under the specialization's function id, which is what its call sites reach. `_note_future_producing_call`
+(`src/evaluator/calls/function.yo`) restamps a call's future origin with the callee's recorded parameters
+(`_callee_future_result_origins`) before it collects the future's borrows. The existing mapping
+(`_future_call_lends_into`) then lends the caller's argument places: `f := fwd(&w, io)` freezes `w` and `eat(w)` is
+E0911. This is R-CALL applied to an `Impl(Future)` result: the result's origin is the callee's own parameters,
+substituted by the arguments at the call. For the two-hop form (`fwd2(w : &W, io)` returning `fwd(w, io)`), a
+reference binding passed bare to such a parameter now lends its own place, so `fwd2`'s return rule finds the root `w`
+too.
 
 Rows (`tests/origins/unsound/`, every negative accepted before the fix): `t7-forwarded-future-move` (the reproducer),
 `t7-forwarded-future-generic` (the audit probe `n02m`, a generic `fwd` over a trait method), `t7-forwarded-future-trait`
