@@ -201,6 +201,74 @@ test("(vii) a user blanket impl(generic(T), where(T <: Show), &T, Show(…))", {
   assert(c.show() == i32(7), "c.show(): impl(_ShC, _ShShow)");
   assert((&c).show() == i32(1007), "(&c).show(): the blanket over &T");
 });
+// (vii-c) A blanket over `&T` answers only where its `where` holds: the
+// lookup on `&Rc(_WhC)` matches the pattern at `T := Rc(_WhC)`, which does
+// not meet `_WhShow`, so `r.wh()` on an `Rc(_WhC)` auto-derefs to the
+// payload's method instead of finding a "method of the Rc" that clashes with
+// it (decision 32's E0616). The shape is std's `ToString(&T)`
+// (issues/fixed/2026-11-13-a-blanket-tostring-impl-over-a-reference-answers-an-rc-receiver-whose-payload-has-the-method.md).
+_WhShow :: trait(wh : (fn(self : &Self) -> i32));
+_WhC :: struct(n : i32);
+impl(_WhC, _WhShow(wh : (fn(self : &Self) -> i32)(self.n)));
+impl(generic(T : Type), where(T <: _WhShow), &T, _WhShow(wh : (fn(self : &Self) -> i32)(T.wh(self.*) + i32(100))));
+_wh_mk :: (fn(n : i32) -> Rc(_WhC))(Rc.new(_WhC(n : n)));
+test("(vii-c) a blanket over &T whose where fails at T := Rc(C) leaves r.m() to the payload", {
+  comptime_assert(!Type.impls(Rc(_WhC), _WhShow), "Rc(_WhC) does not meet the bound");
+  r := _wh_mk(i32(7));
+  assert(r.wh() == i32(7), "r.wh(): the payload's method through auto-deref");
+  c := _WhC(n : i32(3));
+  assert(c.wh() == i32(3), "c.wh(): impl(_WhC, _WhShow)");
+  rc := &c;
+  assert((&_WhC).wh(&rc) == i32(103), "(&_WhC).wh(&rc): the blanket at T := _WhC");
+});
+// (vii-d) VERDICTS-69's probe order for a receiver of reference type `&U`,
+// whatever its expression: the slot `&U` first (`impl(U)`'s `self : &Self`
+// methods, `impl(&U)`'s `self : Self` ones, the reference the argument), then
+// `&&U` (only a binding can lend its storage, else E0610), then deref. An impl
+// over references never shadows the referent's own method
+// (issues/fixed/2026-11-19-a-str-call-result-in-a-template-is-e0610-once-a-blanket-over-a-reference-provides-the-method.md).
+_PoA :: trait(po_a : (fn(self : &Self) -> usize));
+impl(str, _PoA(po_a : (fn(self : &Self) -> usize)(self.len())));
+impl(generic(T : Type), where(T <: _PoA), &T, _PoA(po_a : (fn(self : &Self) -> usize)(T.po_a(self.*) + usize(100))));
+_PoB :: trait(po_b : (fn(self : &Self) -> usize));
+impl(str, _PoB(po_b : (fn(self : &Self) -> usize)(self.len())));
+impl(&str, _PoB(po_b : (fn(self : &Self) -> usize)(usize(200))));
+_PoM :: trait(po_m : (fn(self : &Self) -> usize));
+impl(&str, _PoM(po_m : (fn(self : &Self) -> usize)(usize(5))));
+_PoE1 :: trait(po_e : (fn(self : &Self) -> usize));
+_PoE2 :: trait(po_e : (fn(self : Self) -> usize));
+impl(str, _PoE1(po_e : (fn(self : &Self) -> usize)(usize(1))));
+impl(generic(T : Type), where(T <: _PoE1), &T, _PoE2(po_e : (fn(self : Self) -> usize)(usize(2))));
+_PoC :: struct(v : usize);
+impl(_PoC, _PoA(po_a : (fn(self : &Self) -> usize)(self.v)));
+_po_verb :: (fn(k : i32) -> str)(cond((k == i32(0)) => "read", true => "write"));
+test("(vii-d) a str call result: str's own method at the slot &str beats a blanket over &T", {
+  assert(_po_verb(i32(0)).po_a() == usize(4), "verb().po_a(): impl(str, _PoA)");
+});
+test("(vii-d) a str call result: str's own method beats impl(&str, …) taking self : &Self", {
+  assert(_po_verb(i32(0)).po_b() == usize(4), "verb().po_b(): impl(str, _PoB)");
+});
+test("(vii-d) a str binding: str's own method; the blanket by its qualified name", {
+  v := _po_verb(i32(0));
+  assert(v.po_a() == usize(4), "v.po_a(): impl(str, _PoA)");
+  assert((&str).po_a(&v) == usize(104), "(&str).po_a(&v): the blanket at T := str");
+});
+// A `str` binding lends its storage to the slot `&&str` (`v.po_m()`); its
+// emitted C passes the wrong indirection
+// (issues/2026-11-19-a-concrete-impl-over-str-reference-passes-the-wrong-indirection-in-the-emitted-c.md),
+// so only the call result's E0610 is asserted here.
+test("(vii-d) only impl(&str, M) at the slot &&str: a call result is E0610", {
+  comptime_expect_error(_po_verb(i32(0)).po_m(), "bind the reference to a local first");
+});
+test("(vii-d) two methods at the slot &str (impl(str, A) by &Self, a blanket B by Self) are E0616", {
+  comptime_expect_error(_po_verb(i32(0)).po_e(), "both take the receiver as &str");
+});
+test("(vii-d) rr.*.m() on rr : &&C takes C's method at the slot &C, not the blanket", {
+  c := _PoC(v : usize(7));
+  r := &c;
+  rr := &r;
+  assert(rr.*.po_a() == usize(7), "rr.*.po_a(): impl(_PoC, _PoA)");
+});
 // (viii) Coherence: the origin is not part of a reference receiver's key, and
 // a bare-variable blanket covers `&C` too.
 _CoC :: struct(n : i32);
@@ -400,7 +468,7 @@ test("(P3b gap 1) an operand no impl over `&C` takes stays E0926", {
   re2 := &e;
   // The blanket `Eq(&T)` is selected for `&_PgNoEq` without its
   // `where(T <: Eq(T))` being judged, so the error is raised in its body
-  // (issues/2026-11-13-a-blanket-tostring-impl-over-a-reference-answers-an-rc-receiver-whose-payload-has-the-method.md).
+  // (issues/2026-11-19-a-blanket-over-a-reference-whose-where-mentions-its-binder-is-never-judged-at-dispatch.md).
   comptime_expect_error(re == re2, "No method \"==\" on _PgNoEq");
   comptime_expect_error(
     impl(&_PgC, Eq(&_PgC)((==) : (fn(lhs : &Self, rhs : &Self) -> bool)(lhs.*.*.n == rhs.*.*.n))),
@@ -413,8 +481,8 @@ test("(P3b gap 1) an operand no impl over `&C` takes stays E0926", {
 // compares and orders as its referent, so generic code at `T := &U` has the
 // bounds. A move-only referent (`String`) shows nothing is copied. `Hash(&T)`
 // and `ToString(&T)` are not in std yet
-// (issues/fixed/2026-11-13-a-blanket-hash-impl-over-a-reference-rebinds-a-generic-impls-key-to-a-reference-of-itself.md,
-// issues/2026-11-13-a-blanket-tostring-impl-over-a-reference-answers-an-rc-receiver-whose-payload-has-the-method.md).
+// (issues/fixed/2026-11-13-a-blanket-hash-impl-over-a-reference-rebinds-a-generic-impls-key-to-a-reference-of-itself.md;
+// ToString's blocker was issues/fixed/2026-11-13-a-blanket-tostring-impl-over-a-reference-answers-an-rc-receiver-whose-payload-has-the-method.md).
 _g3_same :: (fn(generic(T : Type), a : T, b : T, where(T <: Eq(T))) -> bool)(a == b);
 _g3_less :: (fn(generic(T : Type), a : T, b : T, where(T <: Ord(T))) -> bool)(a < b);
 _g3_max :: (fn(generic(T : Type), a : T, b : T, where(T <: Ord(T))) -> T)(cond((a < b) => b, true => a));

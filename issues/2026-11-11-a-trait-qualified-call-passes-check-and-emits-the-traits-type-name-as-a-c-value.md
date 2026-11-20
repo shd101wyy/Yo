@@ -81,3 +81,11 @@ The checker never accepts a call codegen cannot lower. Two consistent outcomes; 
 With the fix: the two programs and the positive control as cases in `tests/impl.test.yo` (beside the
 `(T <: Trait).method` cases), each compiled and run, or, for the second outcome, an `expect_error` case with the
 diagnostic's code.
+
+## E0610 suggests this spelling (2026-11-19)
+
+E0610 ("`m` is implemented for the reference type `&C` with a receiver slot `&&C`, and `…` is not a reference binding
+whose own storage the call could lend") ends with "or call it qualified (`Trait.m(&r, ...)`)", which is exactly this
+defect: Fable's VERDICTS-69 probe `Wh.wh(&r)` (`r : &C`, `Wh` provided by a blanket `impl(generic(T), where(T <: Wh),
+&T, Wh(...))`) passes `check` and the C compiler reports `use of undeclared identifier '__yo_t_N'` (confirmed on develop
+`d8f0d89fa`). `(&C).wh(&r)` is the spelling that compiles. Confirmed by the ToString lane, 2026-11-19.
