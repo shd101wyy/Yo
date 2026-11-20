@@ -42,23 +42,17 @@ arm. A sibling binding inside an arm is pinned too, through self-recursion via a
 (`Pair(T) = enum(Two(l : Option(Box(T)), tag : i32))`, `PNode :: struct(v, kids : Pair(Self))`): sib1 is
 "Cannot re-point `cur` here: `tag` borrows from `cur`'s current target", and sib2 (no later use of `tag`) is accepted.
 
-Known conservative rejections, both sound and both accepted by Rust:
-
-- a7, `cur = &mut n.next; cur.* = .None; n.value = i32(7);`, is E0911 at the write through `cur`, because `n`'s loan
-  runs to its last mention.
-- a2, `cur = &mut n.next; n.value = i32(7);` with `cur` unused afterwards, is E0911 "Cannot read `n.*.value` here:
-  `cur` borrows `n`". `n`'s registration extends `cur`'s live range to `n`'s last mention (the extension that
-  rejects b2), so `cur`'s freeze of `n` covers the write. Accepting a2 would need the freeze judged on `cur`'s own
-  later mentions. VERDICTS-71's ruling on that is pending, and a2 is not pinned yet.
-
-In a nested walk, a later mention of the direct binding `m` extends its ancestor `n`, so b3
-(`cur = &mut m.next; seen = m.value;`) is rejected at the re-point naming `n`, not as "Cannot read `m`".
+Known conservative rejections, all sound and all accepted by Rust (a2, a7, c2, the sibling case, and b3's message)
+are tracked as one S3 family in
+`issues/2026-11-21-a-re-point-through-a-match-binding-keeps-the-binding-and-the-cursor-exclusive-longer-than-needed.md`
+(VERDICTS-71 addendum 2: a loan per definition of `cur` is the fix, not a separate freeze range).
 
 G-B rows for the addendum: `a3-repoint-in-loop-binding-write.yo` (a3), `a3-nested-repoint-ancestor-write.yo` (a5),
 `a3-conditional-repoint-binding-write.yo` (a6), `a3-repoint-write-through-cur-then-binding.yo` (a7),
 `a3-repoint-derived-shared-then-drop.yo` (b1), `a3-repoint-root-write-then-binding.yo` (b2),
 `a3-nested-repoint-binding-read.yo` (b3), `a3-repoint-live-sibling-binding.yo` (sib1, all E0911) and
-`a3-repoint-live-sibling-binding-pos.yo` (sib2, accepted).
+`a3-repoint-live-sibling-binding-pos.yo` (sib2, accepted), `a3-repoint-then-binding-write.yo` (a2, E0911) with its
+`-pos` twin (c4), and `a3-repoint-on-one-branch-binding-write-on-another.yo` (c2, E0911) with its `-pos` twin (c2b).
 
 **Severity:** S1. `b := idr(&x); match(b, .Some(p) => { x = .None; p.*.s.len() }, …)` passes `yo check`: the arm
 overwrites the root while the payload binding `p` still points into it, and the read is a use-after-free (ASan:
