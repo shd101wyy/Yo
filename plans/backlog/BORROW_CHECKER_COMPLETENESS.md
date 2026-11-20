@@ -365,7 +365,9 @@ Filed 2026-11-07 from VERDICTS-30/31; each names its repro under `issues/repros/
   `c(&mut xs, e)` is E0911 as `plain(&mut xs, e)` is (`call_origin_operands`; the two `args:named/*/closure|fnptr/*`
   rows leave `gen-known.tsv`). Second, a projection call passed on (`id(c.borrow_mut().get())`, the receiver
   `c.borrow_mut().me()`) is a computed reference, not a place: its origin is R-CALL's, so the temporary guard is a
-  root (R-TEMP) and binding the result past the statement is E0911, where the place walk read the call as `c`;
+  root (R-TEMP) and binding the result past the statement is E0911, where the place walk read the call as `c` and
+  `origin_of`'s entries, deduplicated by their written text, dropped the temporary's entry for the place `c` rendered
+  as the same call (they are deduplicated by place identity now);
   `r := id(id(&x))`, falsely rejected as a temporary, is accepted. Third, a `match` arm binding is live in the arm's
   guard: its range reads the guard when the body does not mention it, and a guarded `&mut` arm registers its places'
   loans before the guard runs, so a guard writing the scrutinee under them is E0911 (Rust's E0510). 16 G-B files

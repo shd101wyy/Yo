@@ -89,6 +89,14 @@ and so walks `c.borrow_mut().get()` to `c`, skipping the guard:
   reference no longer takes the place shortcut and falls through to R-CALL, as A5 and A56 made a free function's
   and a closure value's call results do.
 
+Both sites then compute the temporary's R-TEMP entry, but a third defect dropped it. `_origin_push` deduplicated
+an origin's entries by their written TEXT. The shallow recorded-lend walk had already pushed the place `c` for the
+receiver, and the place walk renders a call's place as the call, so that entry's text was `(c.borrow_mut)()`. That is
+also the text of R-TEMP's entry for the temporary, so the temporary was dropped as a duplicate:
+`origin_of(id(c.borrow_mut().get()))` was `[c(imm), c(mut)]`. Entries are now the same place when their root (name
+and declaration) and steps are (`_origin_same_place`), and the origin is
+`[#temporary((c.borrow_mut)()), c(imm), c(mut)]`.
+
 The same change fixes a false rejection. `r := id(id(&x))` was E0911 "a place inside `id(&(x))`, which is a
 temporary", because the place walk found no place in the inner call. Its roots are now R-CALL's, here `x`.
 

@@ -82,5 +82,12 @@ The function-pointer callee (`(g : fn(...) -> unit) = f`) already read its slots
 reproduced on neither the cluster branch nor this one. Both `args:named/*/closure/*` and `args:named/*/fnptr/*` leave
 `tests/origins/gen-known.tsv`.
 
+G-D evidence: the generator signatures `args:named/mutlend/closure/first` and `args:named/mutlend/closure/second`
+(`YO_GEN_SEED=168296 python3 -I scripts/origins-gen.py --sig <sig> --known /dev/null --no-rustc`) are
+`r := &x; g(r, &mut x)` and `g(&mut x, r)`, where `g` is a local `Impl(Fn)` closure that does `o.push_str` and then
+reads `v`. Both are accepted and an ASan heap-use-after-free on `v0280/clusters`. On this branch both are rejected,
+and `--verify-known` over the two former rows reports `args:named/*/closure/*: FIXED (0/4 rustc-rejected programs
+accepted, 0 under ASan UAF)` and the same for `args:named/*/fnptr/*`.
+
 Tests (G-B, `tests/origins/unsound/`): `c2-local-closure-mut-arg-beside-ref-arg.yo` (the probe),
 `-second.yo` (the loan as the first argument), and the positive twin `-pos.yo`.
