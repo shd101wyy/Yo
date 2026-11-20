@@ -1,0 +1,23 @@
+// expect: accept
+// Positive control: the earlier closure lends a different list.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
+W :: struct(s : String);
+poke :: (fn(act : &mut Impl(FnMut() -> unit), w : &W) -> unit)({
+  act();
+  println(`OUT: ${w.s.clone()}`);
+});
+main :: (fn() -> unit)({
+  mut(ws) := ArrayList(W).new();
+  ws.push(W(s : String.from("hello, a string long enough to live on the heap")));
+  mut(vs) := ArrayList(W).new();
+  vs.push(W(s : String.from("hello, a string long enough to live on the heap")));
+  poke(
+    &mut ({ &mut vs }() => {
+      vs.clear();
+    }),
+    &ws(usize(0))
+  );
+});
+export(main);
