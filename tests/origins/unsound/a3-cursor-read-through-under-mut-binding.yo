@@ -1,0 +1,19 @@
+// expect: E0911
+// Audit A3 (VERDICTS-71 rule (c)), bare `match(cur, …)`: a read through `cur` while the `&mut` arm binding `n` is live aliases it.
+{ println } :: import("std/fmt");
+BNode :: struct(value : i32, next : Option(Box(Self)));
+BList :: struct(head : Option(Box(BNode)));
+main :: (fn() -> unit)({
+  mut(l1) := BList(head : .Some(Box.new(BNode(value : i32(1), next : .None))));
+  cur := &mut l1.head;
+  match(
+    cur,
+    .Some(n) => {
+      b := cur.is_some();
+      n.value = i32(3);
+      println(&b);
+    },
+    .None => ()
+  );
+});
+export(main);

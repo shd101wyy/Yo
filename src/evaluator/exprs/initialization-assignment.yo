@@ -138,6 +138,8 @@
   local_borrow_pattern_source,
   local_borrow_require_no_live_derived,
   _last_token_of,
+  local_borrow_mark_receiver,
+  local_borrow_clear_receiver,
   local_borrow_place_of_variable,
   local_borrow_info_placeholder,
   projection_call_mode_of,
@@ -1210,9 +1212,15 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
   });
   // The re-point uses the borrow: evaluate its name (codegen reads the
   // pointer from it).
-  // Not a whole-value read of the reference (E0926, N1e-1).
+  // Not a whole-value read of the reference (E0926, N1e-1), and no access
+  // of `cur`'s place either: the re-point writes the binding, not what it
+  // points at, and every borrow of that place is derived from `cur`, which
+  // `local_borrow_require_no_live_derived` judges below (a `&mut` match
+  // binding the re-point goes through is skipped there; VERDICTS-71).
   deref_exempt_mark(&name_expr);
+  local_borrow_mark_receiver(&name_expr);
   _evaluated_name := evaluate_expression_raw(&name_expr, &env, ctx, exn);
+  local_borrow_clear_receiver();
   deref_exempt_clear();
   // The new target: a field chain rooted at a variable.
   not_reached := `A re-point names a field path rooted at a variable: a field of \`${name}\`'s target (\`${name} = ${sig}${name}.next\`), a field of a binding of a bare \`match\` over \`${name}\` (\`match(${name}, .Some(n) => { ${name} = ${sig}n.next; }, .None => ())\`), or another variable's place (\`${name} = ${sig}other.field\`).`;

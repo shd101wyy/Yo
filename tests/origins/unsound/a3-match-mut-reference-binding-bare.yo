@@ -1,11 +1,18 @@
-// expect: E0910
-// A `&mut` reference binding matched bare (audit A3's open half, m20): `r := &mut o`, the arm binds inside the
-// referent, then `r.* = .None` drops it under the binding and `e` reads freed memory (heap-use-after-free).
-// WALLED in v0.2.79: the bare form is rejected; `match(&mut r.*, …)` registers the arm bindings' loans.
+// expect: E0911
+// A `&mut` reference binding matched bare (audit A3, m20): `r := &mut o`, the arm binds inside the referent, then
+// `r.* = .None` drops it under the binding and `e` would read freed memory. The arm binding `x` is an exclusive
+// borrow of `r`'s place while it lives (VERDICTS-71 rule (c)), so the write through `r` is E0911.
 { ArrayList } :: import("std/collections/array-list");
 { println } :: import("std/fmt");
 main :: (fn() -> unit)({
   mut(o) := Option(ArrayList(i32)).Some(ArrayList(i32).new());
+  match(
+    &mut o,
+    .Some(xs) => {
+      xs.push(i32(7));
+    },
+    .None => ()
+  );
   r := &mut o;
   match(
     r,
@@ -16,7 +23,8 @@ main :: (fn() -> unit)({
         (v : i32) = e.*;
         println(&v);
       }
-    )
+    ),
+    .None => ()
   );
   ()
 });
