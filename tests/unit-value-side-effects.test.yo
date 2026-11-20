@@ -103,8 +103,8 @@ test("A consume releasing a handle in a valued block still releases it", {
 
 test("An initializing assignment in a tuple element still stores", {
   mut(n) := i32(0);
-  (a : i32);
-  t := ((a = bump(addr_of(n))), i32(2));
+  a : i32;
+  t := (a = bump(addr_of(n)), i32(2));
   assert(n == i32(1), "the right side ran");
   assert(a == i32(1), "the store ran");
   assert(t.1 == i32(2), "the other element");
@@ -112,17 +112,17 @@ test("An initializing assignment in a tuple element still stores", {
 
 test("An initializing assignment bound, in a valued block or consumed still stores", {
   mut(n) := i32(0);
-  (b : i32);
+  b : i32;
   _u := (b = bump(addr_of(n)));
   assert(b == i32(1), "the bound store ran");
-  (c : i32);
+  c : i32;
   x := {
-    (c = bump(addr_of(n)));
+    c = bump(addr_of(n));
     i32(5)
   };
   assert(x == i32(5), "the block's value");
   assert(c == i32(2), "the block's store ran");
-  (e : i32);
+  e : i32;
   _v := consume(e = bump(addr_of(n)));
   assert(e == i32(3), "the consumed store ran");
 });
