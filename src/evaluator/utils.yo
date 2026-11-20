@@ -10658,7 +10658,7 @@ _origin_push :: (fn(entry : OriginRootPlace, out : &mut ArrayList(OriginRootPlac
   while(i < out.len(), {
     match(
       out.get_cloned(i),
-      .Some(kept) => if((kept.is_mut == entry.is_mut) && (kept.place.text.clone() == entry.place.text.clone()), {
+      .Some(kept) => if((kept.is_mut == entry.is_mut) && _origin_same_place(&kept.place, &entry.place), {
         return(());
       }),
       .None => ()
@@ -10666,6 +10666,24 @@ _origin_push :: (fn(entry : OriginRootPlace, out : &mut ArrayList(OriginRootPlac
     i = (i + usize(1));
   });
   out.push(entry);
+});
+/// Two origin entries name the same place: the same root (name and
+/// declaration) and the same steps. The written text is no identity: the
+/// place walk renders a call's place as the call (`(c.borrow_mut)()` for the
+/// place `c`), which is also the text of R-TEMP's entry for that temporary,
+/// and a text match dropped the temporary from the origin
+/// (issues/fixed/2026-11-19-a-reference-read-through-a-temporary-guard-outlives-the-guards-drop.md).
+_origin_same_place :: (fn(a : &LocalBorrowPlace, b : &LocalBorrowPlace) -> bool)({
+  if(!_lb_same_decl(a.root_name.clone(), &a.root_decl, b.root_name.clone(), &b.root_decl) || ((a.through_cell != b.through_cell) || (a.steps.len() != b.steps.len())), {
+    return(false);
+  });
+  (si : usize) = usize(0);
+  while(si < a.steps.len(), si = (si + usize(1)), {
+    if(a.steps(si) != b.steps(si), {
+      return(false);
+    });
+  });
+  true
 });
 /// The `value` of a `label : value` argument, or the argument itself.
 _unlabeled_value :: (fn(arg : &AstExpr) -> AstExpr)(
