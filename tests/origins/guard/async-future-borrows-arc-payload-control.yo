@@ -1,0 +1,22 @@
+// expect: accept
+// guard-off: same
+// Control: a future borrows a place behind an `Arc` and the caller drops a
+// SECOND handle before the await; the borrowed handle keeps the cell alive.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+W :: struct(s : String);
+mk :: (fn(w : &W, io : Io) -> Impl(Future(usize, Io)))(
+  io.async({ w }(io : Io) => {
+    io.await(yield(io), io);
+    w.s.len()
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  a := Arc.new(W(s : String.from("hello, a string long enough to live on the heap")));
+  a2 := Arc.clone(a);
+  fut := mk(&a.*, io);
+  drop(a2);
+  println(`OUT: ${io.await(fut, io)}`);
+});
+export(main);

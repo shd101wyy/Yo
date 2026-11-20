@@ -1,0 +1,18 @@
+// expect: E0910
+// guard-off: same
+// `with_mut` on a `RefCell` reached through an `Rc` element, whose body
+// clears the list it is reached through.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ RefCell } :: import("std/sync/refcell");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(hs) := ArrayList(Rc(RefCell(String))).new();
+  hs.push(Rc.new(RefCell(String).new(String.from("hello, a string long enough to live on the heap"))));
+  n := hs(usize(0)).with_mut(v => {
+    hs.clear();
+    v.len()
+  });
+  println(`OUT: ${n}`);
+});
+export(main);

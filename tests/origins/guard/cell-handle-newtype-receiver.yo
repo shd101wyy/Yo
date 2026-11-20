@@ -1,0 +1,55 @@
+// expect: accept
+// guard-off: DIRTY heap-use-after-free
+// A user newtype over a cell (`TRc`, tests/fixtures/cell-handles.yo) as a list
+// element: a receiver reached through it, and a `&` argument through it,
+// outlive a closure that empties the list through the fixture's unchecked
+// second name (`talias`/`tclear`, unsafe-capable code). The guard's +1 on the
+// handle is what keeps the cell alive (tests/cell-handles.test.yo).
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
+{ TRc, trc, talias, tclear } :: import("../../fixtures/cell-handles.yo");
+(mut(drops) : i32) = i32(0);
+C :: struct(n : i32);
+impl(
+  C,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      drops = (drops + i32(1));
+    })
+  )
+);
+impl(
+  C,
+  peek : (fn(self : &Self, act : &Impl(Fn() -> unit)) -> i32)({
+    act();
+    drops + self.n
+  })
+);
+peek :: (fn(c : &C, act : &Impl(Fn() -> unit)) -> i32)({
+  act();
+  drops + c.n
+});
+main :: (fn() -> unit)({
+  mut(hs) := ArrayList(TRc(C)).new();
+  hs.push(trc(C(n : i32(10))));
+  hs2 := talias(&mut hs);
+  a := hs(usize(0)).peek(
+    &(
+      () => {
+        tclear(&hs2);
+      }
+    )
+  );
+  hs.push(trc(C(n : i32(20))));
+  b := peek(
+    &hs(usize(0)).*,
+    &(
+      () => {
+        tclear(&hs2);
+      }
+    )
+  );
+  d := drops;
+  println(`OUT: ${a} ${b} ${d}`);
+});
+export(main);

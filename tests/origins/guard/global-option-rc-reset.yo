@@ -1,0 +1,32 @@
+// expect: E0913
+// guard-off: same
+// A module-level `Option(Rc(S))` whose payload's field is lent to a receiver
+// while a closure argument resets the global: decision 18 makes the capture
+// an error before the +1 is needed.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+W :: struct(s : String);
+S :: struct(h : Rc(W));
+impl(
+  W,
+  peek : (fn(self : &Self, act : &Impl(Fn() -> unit)) -> unit)({
+    act();
+    println(`OUT: ${self.s.clone()}`);
+  })
+);
+(mut(G) : Option(Rc(S))) = .None;
+main :: (fn() -> unit)({
+  G = .Some(Rc.new(S(h : Rc.new(W(s : String.from("hello, a string long enough to live on the heap"))))));
+  match(
+    &G,
+    .Some(g) => g.h.peek(
+      &(
+        () => {
+          G = .None;
+        }
+      )
+    ),
+    .None => ()
+  );
+});
+export(main);
