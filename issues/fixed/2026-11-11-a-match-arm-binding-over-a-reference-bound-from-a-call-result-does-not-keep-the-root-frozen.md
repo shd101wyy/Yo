@@ -9,9 +9,14 @@ the local borrow it is reached from, in either spelling (`src/evaluator/exprs/ma
 Parameters were already registered this way. Two refinements keep decision 25's re-point walk legal:
 
 - the re-point's name is no access of `cur`'s place (`evaluate_local_borrow_repoint`);
-- `local_borrow_require_no_live_derived` skips the binding the re-point goes through, which the re-point freezes
-  whole for `cur`'s live range. It also skips a binding that one is derived from (a nested walk's outer `n`) when
-  its last mention is inside the right-hand side.
+- `local_borrow_require_no_live_derived` skips the binding the re-point goes through, unconditionally: the re-point
+  freezes it whole for `cur`'s live range, so a later mention is E0911 while `cur` lives (VERDICTS-71 addendum B).
+  A binding that one is derived from (a nested walk's outer `n`) is skipped only when its last mention is inside the
+  right-hand side, because nothing freezes it.
+
+The binding's own loan of `cur`'s place is not ended at the re-point. It runs to the binding's last mention, extended
+by borrows derived from it, and it is what rejects b1 (`d := &n.next; cur = &mut n.next; cur.* = .None; use(d)`)
+and b2 (`cur = &mut n.next; l1.head = .None; n.value = i32(7);`, a memory error before the fix).
 
 `local_borrow_scrutinee_source` reads a binding's pattern source first, so a nested walk's re-point still names
 `cur`.
@@ -32,10 +37,28 @@ binding, which was accepted and a heap-use-after-free. G-B rows, each bare and s
 VERDICTS-71's p5 probe ("same text" for the pinned walk diagnostics) was measured before rule (c). On the rule-(c)
 tree, two pinned cases in `tests/local-borrows.test.yo` fire one statement earlier: `d := &cur.*` under a live arm
 binding is now the read-through E0911 ("Cannot read `cur.*` here: `n` borrows `cur`"), for the plain list and its
-`Box` twin. Decision 38 A's "Cannot re-point `cur` here" is pinned by new twins that take the derived borrow outside
-an arm. The verdict's sibling-binding example (`.Pair(a, b) => { cur = &mut a.next; b.v = 1 }`) has no expressible
-shape today: the types it needs are mutually recursive (rejected as a cyclic definition), and bindings below a `Box`
-sub-pattern are copies.
+`Box` twin. Decision 38 A's "Cannot re-point `cur` here" is pinned twice. New twins take the derived borrow outside an
+arm. A sibling binding inside an arm is pinned too, through self-recursion via a generic constructor
+(`Pair(T) = enum(Two(l : Option(Box(T)), tag : i32))`, `PNode :: struct(v, kids : Pair(Self))`): sib1 is
+"Cannot re-point `cur` here: `tag` borrows from `cur`'s current target", and sib2 (no later use of `tag`) is accepted.
+
+Known conservative rejections, both sound and both accepted by Rust:
+
+- a7, `cur = &mut n.next; cur.* = .None; n.value = i32(7);`, is E0911 at the write through `cur`, because `n`'s loan
+  runs to its last mention.
+- a2, `cur = &mut n.next; n.value = i32(7);` with `cur` unused afterwards, is E0911 "Cannot read `n.*.value` here:
+  `cur` borrows `n`". `n`'s registration extends `cur`'s live range to `n`'s last mention (the extension that
+  rejects b2), so `cur`'s freeze of `n` covers the write. Accepting a2 would need the freeze judged on `cur`'s own
+  later mentions. VERDICTS-71's ruling on that is pending, and a2 is not pinned yet.
+
+In a nested walk, a later mention of the direct binding `m` extends its ancestor `n`, so b3
+(`cur = &mut m.next; seen = m.value;`) is rejected at the re-point naming `n`, not as "Cannot read `m`".
+
+G-B rows for the addendum: `a3-repoint-in-loop-binding-write.yo` (a3), `a3-nested-repoint-ancestor-write.yo` (a5),
+`a3-conditional-repoint-binding-write.yo` (a6), `a3-repoint-write-through-cur-then-binding.yo` (a7),
+`a3-repoint-derived-shared-then-drop.yo` (b1), `a3-repoint-root-write-then-binding.yo` (b2),
+`a3-nested-repoint-binding-read.yo` (b3), `a3-repoint-live-sibling-binding.yo` (sib1, all E0911) and
+`a3-repoint-live-sibling-binding-pos.yo` (sib2, accepted).
 
 **Severity:** S1. `b := idr(&x); match(b, .Some(p) => { x = .None; p.*.s.len() }, …)` passes `yo check`: the arm
 overwrites the root while the payload binding `p` still points into it, and the read is a use-after-free (ASan:

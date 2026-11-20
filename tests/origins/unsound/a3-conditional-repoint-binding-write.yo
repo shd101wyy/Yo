@@ -1,0 +1,23 @@
+// expect: E0911
+// Audit A3 (VERDICTS-71 rule (c)): a re-point inside `if` still freezes `n` on the path that took it, so `n.next = .None` after it is E0911 (VERDICTS-71 addendum B, a6).
+{ println } :: import("std/fmt");
+BNode :: struct(value : i32, next : Option(Box(Self)));
+BList :: struct(head : Option(Box(BNode)));
+
+main :: (fn() -> unit)({
+  mut(l1) := BList(head : .Some(Box.new(BNode(value : i32(1), next : .Some(Box.new(BNode(value : i32(2), next : .None)))))));
+  cur := &mut l1.head;
+  match(
+    cur,
+    .Some(n) => {
+      if(n.value > i32(0), {
+        cur = &mut n.next;
+      });
+      n.next = .None;
+    },
+    .None => ()
+  );
+  cur.* = .None;
+  println(&l1.head.is_some());
+});
+export(main);
