@@ -1,0 +1,1539 @@
+//! Drop / dup code generation.
+//!
+//! `get_drop_function_for_type` / `get_dup_function_for_type` resolve a type's
+//! `___drop` / `___dup` C function through the type-trait-method REGISTRY
+//! (`evaluator/values/type-trait-methods.yo`).
+//!
+//! `generate_drop_code_for_value` / `generate_dup_code_for_value` recurse through
+//! arrays/tuples and emit RC decr/incr (or the type's drop/dup fn) for
+//! object/dyn/struct/enum values. `generate_deferred_{drop,dup}_expressions`
+//! emit the evaluator-deferred RC ops (closure-capture + short-circuit-handled
+//! skips).
+//!
+//! KNOWN LIMITATION: `SomeType.resolvedConcreteType` (Gap 6) — SomeT carries no
+//! resolved concrete type, so `concrete_type := value_type`.
+//! For the monomorphized corpus the value type is already concrete, so this is
+//! a no-op; unresolved-SomeT params (Phase-3 generics) need Gap-6 resolution.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ AstExpr, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_text, ast_expr_id, ast_expr_to_string, BF_DROP, BF_DUP, BF_DOT } :: import("../../expr.yo");
+{ EvalValue } :: import("../../value.yo");
+{ TypeValue, no_types, no_labels, slot_pointee_at } :: import("../../types/definitions.yo");
+{ is_array_type, is_tuple_type, is_dyn_type, is_atomic_reference_struct_type, is_reference_struct_type, is_atomic_reference_enum_type, is_reference_enum_type, is_struct_type, is_enum_type, is_some_type, is_newtype_type, is_unique_box_type, is_dyn_cell_type } :: import("../../types/guards.yo");
+{ type_contains_rc_cell_or_move_only, is_bound_closure_identity, resolve_cell_chain, is_closure_capture_struct, is_value_nominal_type, fn_abi_param_is_ptr } :: import("../../types/utils.yo");
+{ type_implements_future } :: import("../../evaluator/trait-checking.yo");
+{ debug_knob } :: import("../../utils.yo");
+{ eprintln } :: import("std/fmt");
+{ ExprInfo, expr_info_converted_runtime_type, expr_info_closure_function_value, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_early_return_only_deferred_drop_expressions, expr_info_is_anonymous_function_definition, scope_variables, is_fnonce_capture_drop, is_fnonce_post_call_release } :: import("../../expr-info.yo");
+{ is_temp_variable_name } :: import("../../utils.yo");
+{ MethodEntry, get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type-trait-methods.yo");
+{ take_short_circuit_handled, FunctionGenerationContext, sm_owns_fnonce_captures } :: import("../functions/context.yo");
+{ _call_generate_expr } :: import("./dispatch.yo");
+{ Emitter } :: import("../../emitter.yo");
+{ declare_c_var_name, get_type_string, is_self_named_atom, get_variable_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, get_deferred_drop_target_atom, get_deferred_dup_target_atom_name, is_deferred_drop_for_closure_capture, get_enum_variant_c_name, sanitize_for_c_identifier, c_variant_member_name, can_optimize_as_nullable_pointer, get_runtime_struct_fields, type_key, fresh_local_name, get_variable_name_for_codegen_at, scope_stack_contains, element_wise_dup_target } :: import("../utils/index.yo");
+{ resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
+{ Environment, get_variables_from_env } :: import("../../env.yo");
+{ sm_slot_of } :: import("../async/state-machine-naming.yo");
+{ replace } :: import("std/mem");
+/// The registered C name of the first `method_name` entry for `type`, if it is
+/// a function value registered in the codegen function table.
+_method_c_name :: (fn(type : &TypeValue, method_name : str, context : &FunctionGenerationContext) -> Option(String))({
+  if(!(is_struct_type(type) || is_enum_type(type) || is_dyn_type(type) || is_some_type(type)), {
+    return(Option(String).None);
+  });
+  methods := get_type_trait_methods_by_name(type_id_or_empty(type), String.from(method_name));
+  match(methods.get_cloned(usize(0)), .Some(entry) => match(entry.value.clone(), .Some(v) => match(v, Rc(.FuncVal(__fvd1, _)) => match(context.base.get_function_entry(&__fvd1.*.func_id), .Some(e) => Option(String).Some(e.c_name.clone()), .None => Option(String).None), _ => Option(String).None), .None => Option(String).None), .None => Option(String).None)
+});
+/// The C name of `type`'s `___drop` function, if any.
+get_drop_function_for_type :: (fn(type : &TypeValue, context : &FunctionGenerationContext) -> Option(String))(
+  _method_c_name(type, BF_DROP, context)
+);
+/// The C name of `type`'s `___dup` function, if any.
+get_dup_function_for_type :: (fn(type : &TypeValue, context : &FunctionGenerationContext) -> Option(String))(
+  _method_c_name(type, BF_DUP, context)
+);
+/// The C name of `type`'s `___dispose` function, if any. Used by the
+/// object-constructor emitter to stamp the dispose function onto the RC header.
+/// Keyed by `type_key(type)` (instantiation-precise), NOT the raw struct id: a
+/// generic struct shares one eval struct id across instantiations, so a struct-id
+/// lookup would return ONE ___dispose (built for whichever V was synthesized first)
+/// for EVERY instantiation — e.g. HashMap(usize, bool) resolving the
+/// HashMap(usize, EvalValue) dispose and dropping its `bool` slot as a reference-
+/// counted value (`__yo_decr_rc(0x1)` crash). `_synthesize_and_register_dispose`
+/// registers under type_key to match.
+get_dispose_function_for_type :: (fn(type : &TypeValue, context : &FunctionGenerationContext) -> Option(String))({
+  if(!(is_struct_type(type) || is_enum_type(type) || is_dyn_type(type) || is_some_type(type)), {
+    return(Option(String).None);
+  });
+  methods := get_type_trait_methods_by_name(type_key(type), String.from("___dispose"));
+  match(
+    methods.get_cloned(usize(0)),
+    .Some(entry) => match(
+      entry.value.clone(),
+      .Some(v) => match(
+        v,
+        Rc(.FuncVal(__dfvd3, _)) => match(
+          context.base.get_function_entry(&__dfvd3.*.func_id),
+          .Some(e) => Option(String).Some(e.c_name.clone()),
+          .None => Option(String).None
+        ),
+        _ => Option(String).None
+      ),
+      .None => Option(String).None
+    ),
+    .None => Option(String).None
+  )
+});
+/// Does `type`'s `___dispose` take its receiver through a pointer
+/// (`self : &mut Self`, the C ABI `fn_abi_param_is_ptr` reports)? True for the
+/// one synthesized over a `Drop` impl, whose `drop` takes `self : &mut Self`
+/// (plans/VALUES_BY_DEFAULT.md decision 45); false for one with no user
+/// destructor (`self : &Self`, by value in C). Every C-level caller passes the address of
+/// the dropped value's storage when it is true, so what the destructor writes
+/// (a field taken out, set to `.None`) is what the field drops then read.
+dispose_function_takes_pointer :: (fn(type : &TypeValue) -> bool)(
+  match(
+    get_type_trait_methods_by_name(type_key(type), String.from("___dispose")).get_cloned(usize(0)),
+    .Some(entry) => match(fn_abi_param_is_ptr(&entry.ty).get(usize(0)), .Some(b) => b, .None => false),
+    .None => false
+  )
+);
+/// The C statement that runs a value's `___dispose` (`dispose_c_name`) on the
+/// value stored at `value_code`: the address of that storage for a pointer
+/// receiver (`dispose_function_takes_pointer`), the value itself otherwise.
+dispose_call_on_value :: (fn(dispose_c_name : &String, value_code : &String, type : &TypeValue) -> String)(
+  cond(
+    dispose_function_takes_pointer(type) => `${dispose_c_name}(&(${value_code}));`,
+    true => `${dispose_c_name}(${value_code});`
+  )
+);
+/// If `value_arg` is a generic-typed (SomeType) parameter atom, recover its
+/// concrete parameter type from the enclosing function signature (the
+/// SomeType.resolvedConcreteType branches are
+/// Gap-6-deferred — no such field exists).
+resolve_some_type_param_type :: (fn(value_arg : &AstExpr, value_type : &TypeValue, context : &FunctionGenerationContext) -> TypeValue)({
+  if(!is_some_type(value_type), {
+    return(Rc.clone(value_type));
+  });
+  if(!ast_expr_is_atom(value_arg), {
+    return(Rc.clone(value_type));
+  });
+  ft := match(&context.current_function_type, .Some(t) => Rc.clone(t), .None => return(Rc.clone(value_type)));
+  var_name := ast_expr_text(value_arg).*.clone();
+  match(
+    ft,
+    Rc(.Func({ param_types : pts, meta : __fm1 })) => {
+      pls := Rc.clone(__fm1.*.param_labels);
+      n := pls.len();
+      (mut(i) : usize) = usize(0);
+      while(i < n, {
+        match(
+          pls.get_cloned(i),
+          .Some(lbl) => if(lbl == var_name, {
+            match(
+              slot_pointee_at(&pts, i),
+              .Some(pt) => if(!is_some_type(&pt), {
+                return(pt);
+              }),
+              .None => ()
+            );
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    _ => ()
+  );
+  Rc.clone(value_type)
+});
+/// A closure value's static type is its `Impl(Fn(...))` SomeT, but the C value
+/// IS the capture struct (`get_type_string` renders it, the call site casts
+/// through it). Drop and dup see the struct, so a closure releases and
+/// retains its captures field by field like any value struct. Both walks
+/// must resolve it: a drop without the matching dup on a copy
+/// (`closure2 := closure`) is a double release
+/// (issues/fixed/a-closure-typed-slot-never-releases-its-captures.md).
+///
+/// A type variable bound to a closure (`generic(F : Type)` under
+/// `where(F <: Fn(...))`) is the same value: its resolution chain ends at the
+/// closure's capture struct, which is also what `get_type_string` renders. An
+/// `io.async` body capturing such a parameter owns a +1 on each of its RC
+/// captures, and its dispose drops the field through this walk, which saw an
+/// unresolved SomeT and emitted nothing (Stream.for_each leaked the closure's
+/// captured list).
+_closure_value_type :: (fn(t : &TypeValue) -> TypeValue)({
+  if(is_bound_closure_identity(t), return(resolve_cell_chain(t)));
+  cvt_r := resolve_cell_chain(t);
+  if(is_closure_capture_struct(&cvt_r), cvt_r, Rc.clone(t))
+});
+/// The C name of the per-type drop (`is_drop`) or dup function of a TAGGED
+/// value enum, generating it on first use.
+///
+/// The function switches on the discriminant and releases (drop) or retains
+/// in place (dup) each reference-counted field of the active variant — the
+/// walk every drop/dup site used to emit inline. A large enum (the compiler's
+/// own `TypeValue` as a value enum: 40 variants, ~60 counted fields) made each
+/// site ~120 lines across ~51 000 sites, 726 MB of C instead of 147 MB
+/// (issues/fixed/value-enum-drops-are-emitted-inline-at-every-drop-site.md).
+///
+/// It takes the value BY ADDRESS through `void*`, so its prototype names no
+/// type and can sit in the headers section, ahead of every caller — including
+/// the async dispose and spawn-wrapper bodies written into the declarations
+/// section mid-codegen. The definition needs the complete enum type, so it is
+/// appended to the END of the declarations section (`compile_module`). Both go
+/// to side buffers on the base context, never through `context.base.emitter`:
+/// callers swap that emitter for a scratch one and splice its text into a
+/// function body. The body is generated under a scratch emitter too, so the
+/// nested field walks (array loops, tuple temps) land in the function.
+_value_enum_rc_fn :: (fn(concrete_type : &TypeValue, is_drop : bool, context : &mut FunctionGenerationContext) -> String)({
+  c_type := get_type_string(concrete_type, &mut context.base);
+  mut(fn_name) := String.from(if(is_drop, "__yo_venum_drop_", "__yo_venum_dup_"));
+  fn_name.push_string(sanitize_for_c_identifier(&c_type, false));
+  if(context.base.value_enum_rc_fns.contains(fn_name.clone()), {
+    return(fn_name);
+  });
+  // Registered before the body is generated: a field walk that reaches this
+  // type again only needs the name.
+  context.base.value_enum_rc_fns.insert(fn_name.clone());
+  saved := replace(&mut context.base.emitter, Emitter.new());
+  value_code := String.from("(*__yo_v)");
+  match(
+    concrete_type,
+    Rc(.EnumT({ variant_names, variant_fields, variant_field_labels })) => {
+      context.base.emitter.emit_string_line(`switch (${value_code.clone()}.tag) {`);
+      nv := variant_names.len();
+      (mut(vi) : usize) = usize(0);
+      while(vi < nv, {
+        vname := match(variant_names.get_cloned(vi), .Some(v) => v, .None => String.from(""));
+        fields := match(variant_fields.get(vi), .Some(f) => f, .None => no_types());
+        labels := match(variant_field_labels.get(vi), .Some(l) => l, .None => no_labels());
+        nf := fields.len();
+        (mut(has_rc) : bool) = false;
+        (mut(ci) : usize) = usize(0);
+        while(ci < nf, {
+          match(
+            fields.get(ci),
+            .Some(ft) => if(type_contains_rc_cell_or_move_only(&ft), {
+              has_rc = true;
+            }),
+            .None => ()
+          );
+          ci = (ci + usize(1));
+        });
+        if(has_rc, {
+          tag_c := get_enum_variant_c_name(concrete_type, vname.clone(), &context.base);
+          context.base.emitter.emit_string_line(`  case ${tag_c}: {`);
+          (mut(fi) : usize) = usize(0);
+          while(fi < nf, {
+            match(
+              fields.get(fi),
+              .Some(ft) => if(type_contains_rc_cell_or_move_only(&ft), {
+                flabel := match(labels.get_cloned(fi), .Some(l) => l, .None => String.from(""));
+                fname := sanitize_for_c_identifier(&flabel, false);
+                access := `${value_code.clone()}.data.${c_variant_member_name(vname.clone())}.${fname}`;
+                if(is_drop, {
+                  fd := generate_drop_code_for_value(&access, &ft, context);
+                  if(fd.len() > usize(0), {
+                    context.base.emitter.emit_string_line(`    ${fd};`);
+                  });
+                }, {
+                  fu := generate_dup_code_for_value(&access, &ft, context);
+                  if((fu.len() > usize(0)) && !(fu == access), {
+                    context.base.emitter.emit_string_line(`    ${access} = ${fu};`);
+                  });
+                });
+              }),
+              .None => ()
+            );
+            fi = (fi + usize(1));
+          });
+          context.base.emitter.emit_string_line(String.from("    break;"));
+          context.base.emitter.emit_string_line(String.from("  }"));
+        });
+        vi = (vi + usize(1));
+      });
+      context.base.emitter.emit_string_line(String.from("  default: break;"));
+      context.base.emitter.emit_string_line(String.from("}"));
+    },
+    _ => ()
+  );
+  scratch := replace(&mut context.base.emitter, saved);
+  // Anything the walk declared or included goes where it went before the
+  // walk was outlined: the emitter that was current.
+  if(scratch.headers.len() > usize(0), {
+    context.base.emitter.emit_header_string(&scratch.headers);
+  });
+  if(scratch.declarations.len() > usize(0), {
+    context.base.emitter.emit_declaration_string(&scratch.declarations);
+  });
+  context.base.value_enum_rc_protos.push_string(`static inline void ${fn_name.clone()}(void* __yo_p);\n`);
+  mut(def) := `static inline void ${fn_name.clone()}(void* __yo_p) {\n  ${c_type}* __yo_v = (${c_type}*)__yo_p;\n`;
+  // Indent the body one level: emitted C closes a file-scope body with `}`
+  // at column 0 and indents everything inside it (chunk assembly relies on it).
+  body_lines := scratch.code.split("\n");
+  (mut(bi) : usize) = usize(0);
+  while(bi < body_lines.len(), {
+    match(
+      body_lines.get_cloned(bi),
+      .Some(bl) => if(bl.len() > usize(0), {
+        def.push_str("  ");
+        def.push_string(&bl);
+        def.push_str("\n");
+      }),
+      .None => ()
+    );
+    bi = (bi + usize(1));
+  });
+  def.push_str("}\n");
+  context.base.value_enum_rc_defs.push_string(&def);
+  fn_name
+});
+/// Generate drop code for a value of any type (recursive for arrays/tuples).
+/// Note: emits at column 0 (no indent).
+generate_drop_code_for_value :: (fn(value_code : &String, value_type : &TypeValue, context : &mut FunctionGenerationContext) -> String)({
+  // Resolve recursive-type SHELLS to their registered finals first (same
+  // convention as type_key / get_size_of_type): a shell enum has EMPTY
+  // variant lists, so the per-variant RC walk below emits a switch with NO
+  // arms — a silent no-op drop/dup for any recursive enum value (the json
+  // element-loss family).
+  concrete_type := resolve_enum_shell(resolve_struct_shell(_closure_value_type(value_type)));
+  if(!type_contains_rc_cell_or_move_only(&concrete_type), {
+    return(String.from(""));
+  });
+  // A move-only value type with a user `Drop` (plans/VALUES_BY_DEFAULT.md
+  // §3.4) runs it first, then its fields are dropped below. Its one owner
+  // drops it once, so this is the only call. The `___dispose` is registered
+  // by `collect_dispose_methods` (`_synthesize_and_register_value_dispose`).
+  if(is_value_nominal_type(&concrete_type), {
+    match(
+      get_dispose_function_for_type(&concrete_type, context),
+      .Some(vd_fn) => {
+        context.base.emitter.emit_string_line(dispose_call_on_value(&vd_fn, value_code, &concrete_type));
+      },
+      .None => ()
+    );
+  });
+  cond(
+    // Impl(Future(…)) SomeT — a heap-backed, ref-counted state machine handle:
+    // decrement its refcount (NULL-checked; the SM frees itself at 0).
+    // evaluate_drop keeps the
+    // generic `___drop(x)` (no synthesized SomeType methods), so the Future arm
+    // must live here — without it a sync-await's future temp fell through to the
+    // `true => ""` no-op and its deferred drop was silently skipped everywhere
+    // (the 96-byte sync_fut_t leak per io.await outside a state machine).
+    (is_some_type(&concrete_type) && type_implements_future(&concrete_type)) => {
+      mut(out) := String.from("if (");
+      out.push_string(value_code.clone());
+      out.push_str(" != NULL) { __yo_decr_rc((void*)");
+      out.push_string(value_code.clone());
+      out.push_str("); }");
+      out
+    },
+    is_array_type(&concrete_type) => match(
+      concrete_type,
+      Rc(.Array(element, length, length_var)) => {
+        if(length_var.len() > usize(0), {
+          return(String.from("/* Error: array has non-constant length */"));
+        });
+        mut(hdr) := String.from("for (size_t i = 0; i < ");
+        hdr.push_string(length.to_string());
+        hdr.push_str("; i++) {");
+        context.base.emitter.emit_string_line(&hdr);
+        mut(ec) := String.from("(");
+        ec.push_string(value_code.clone());
+        ec.push_str(").data[i]");
+        elem_drop := recur(&ec, &element, context);
+        if(elem_drop.len() > usize(0), {
+          mut(line) := String.from("  ");
+          line.push_string(&elem_drop);
+          line.push_str(";");
+          context.base.emitter.emit_string_line(&line);
+        });
+        context.base.emitter.emit_string_line(String.from("}"));
+        String.from("")
+      },
+      _ => String.from("")
+    ),
+    is_tuple_type(&concrete_type) => match(
+      concrete_type,
+      Rc(.Tuple({ field_types : fts })) => {
+        n := fts.len();
+        (mut(i) : usize) = usize(0);
+        while(i < n, {
+          match(
+            fts.get(i),
+            .Some(ft) => if(type_contains_rc_cell_or_move_only(&ft), {
+              mut(fc) := String.from("(");
+              fc.push_string(value_code.clone());
+              fc.push_str(")._");
+              fc.push_string(i.to_string());
+              fd := recur(&fc, &ft, context);
+              if(fd.len() > usize(0), {
+                mut(line) := fd;
+                line.push_str(";");
+                context.base.emitter.emit_string_line(&line);
+              });
+            }),
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+        String.from("")
+      },
+      _ => String.from("")
+    ),
+    // Through the vtable: the payload's own RC functions
+    // (`__yo_dyn_release`, functions/gc-runtime.yo). The cell of an
+    // `Rc(Dyn(T))` is such a fat pointer (decision 49 S2).
+    (is_dyn_type(&concrete_type) || is_dyn_cell_type(&concrete_type)) => {
+      mut(out) := String.from("__yo_dyn_release((void*)(");
+      out.push_string(value_code.clone());
+      out.push_str(").data, (const void*)(");
+      out.push_string(value_code.clone());
+      out.push_str(").vtable)");
+      out
+    },
+    is_atomic_reference_struct_type(&concrete_type) => {
+      mut(out) := String.from("__yo_decr_rc_atomic((void*)(");
+      out.push_string(value_code.clone());
+      out.push_str("))");
+      out
+    },
+    is_reference_struct_type(&concrete_type) => {
+      mut(out) := String.from("__yo_decr_rc((void*)(");
+      out.push_string(value_code.clone());
+      out.push_str("))");
+      out
+    },
+    // Reference-semantics enums (`ref(enum(…))`) are RC handles — decrement the
+    // ref-count directly, exactly like reference-semantics structs above (trait
+    // methods live in a side-registry, not on the type, so RC lowers the
+    // same direct way it already does for ref-structs — identical effect.)
+    is_atomic_reference_enum_type(&concrete_type) => {
+      mut(out) := String.from("__yo_decr_rc_atomic((void*)(");
+      out.push_string(value_code.clone());
+      out.push_str("))");
+      out
+    },
+    is_reference_enum_type(&concrete_type) => {
+      mut(out) := String.from("__yo_decr_rc((void*)(");
+      out.push_string(value_code.clone());
+      out.push_str("))");
+      out
+    },
+    // Value enum carrying RC fields: drop the active variant's RC fields. RC
+    // operations lower directly rather than via a side-registry method (same
+    // rationale as the reference-enum branch above; registering a ___drop method
+    // instead makes
+    // `(___drop)(x)` resolve via method dispatch, which mis-lowers). The tagged
+    // representation's per-variant walk is a codegen-synthesized C function per
+    // enum type (`_value_enum_rc_fn`), called at each site.
+    is_enum_type(&concrete_type) => match(
+      can_optimize_as_nullable_pointer(&concrete_type),
+      // Nullable-pointer enum: the value IS the inner pointer (NULL = the empty variant).
+      .Some(inner) => if(is_unique_box_type(&inner), {
+        // `Option(Box(T))`: the box's drop is emitted as statements (its
+        // dispose), so the NULL test brackets them.
+        context.base.emitter.emit_string_line(`if ((${value_code.clone()}) != NULL) {`);
+        box_drop := recur(value_code.clone(), &inner, context);
+        if(box_drop.len() > usize(0), {
+          context.base.emitter.emit_string_line(`${box_drop};`);
+        });
+        context.base.emitter.emit_string_line(String.from("}"));
+        String.from("")
+      }, {
+        inner_drop := recur(value_code.clone(), &inner, context);
+        if(inner_drop.len() > usize(0), {
+          mut(line) := String.from("if ((");
+          line.push_string(value_code.clone());
+          line.push_str(") != NULL) { ");
+          line.push_string(&inner_drop);
+          line.push_str("; }");
+          context.base.emitter.emit_string_line(&line);
+        });
+        String.from("")
+      }),
+      // Tagged representation: one per-type drop function switches on the
+      // discriminant and drops each RC field of the active arm; every site
+      // calls it (issues/fixed/value-enum-drops-are-emitted-inline-at-every-drop-site.md).
+      .None => {
+        vd_name := _value_enum_rc_fn(&concrete_type, true, context);
+        `${vd_name}((void*)&(${value_code.clone()}))`
+      }
+    ),
+    // Newtype (`newtype(_f : Inner)`): a TRANSPARENT typedef to `Inner` at
+    // the C ABI (no struct wrapper, no `._f` member) — drop the inner value
+    // by recursing on the inner field's type with the SAME value_code.
+    // Same as the newtype arm of generate_dup_code_for_value below.
+    is_newtype_type(&concrete_type) => {
+      nt_rfs := get_runtime_struct_fields(&concrete_type);
+      match(
+        nt_rfs.get_cloned(usize(0)),
+        .Some(nt_f) => cond(
+          type_contains_rc_cell_or_move_only(&nt_f.ty) => recur(value_code.clone(), &nt_f.ty, context),
+          true => String.from("")
+        ),
+        .None => String.from("")
+      )
+    },
+    // Value struct carrying RC fields: drop via its registered ___drop method
+    // when one exists (specialized generic impls), else drop each RC field
+    // INLINE — the same rationale as the value-enum arm above (RC ops lower
+    // directly; no per-type ___drop methods are synthesized).
+    // Previously the missing-method
+    // case silently emitted NOTHING, so value-struct locals (e.g. MapEntry(K, V)
+    // in HashMap.set) never released their RC fields at scope end.
+    is_struct_type(&concrete_type) => match(
+      get_drop_function_for_type(&concrete_type, context),
+      .Some(fn) => {
+        mut(out) := fn;
+        out.push_str("(");
+        out.push_string(value_code.clone());
+        out.push_str(")");
+        out
+      },
+      .None => {
+        vs_rfs := get_runtime_struct_fields(&concrete_type);
+        (mut(vs_fi) : usize) = usize(0);
+        while(vs_fi < vs_rfs.len(), {
+          match(
+            vs_rfs.get_cloned(vs_fi),
+            .Some(vs_f) => if(type_contains_rc_cell_or_move_only(&vs_f.ty), {
+              mut(fref) := String.from("(");
+              fref.push_string(value_code.clone());
+              fref.push_str(").");
+              fref.push_string(sanitize_for_c_identifier(vs_f.label.clone(), false));
+              fd := recur(&fref, &vs_f.ty, context);
+              if(fd.len() > usize(0), {
+                mut(line) := fd;
+                line.push_str(";");
+                context.base.emitter.emit_string_line(&line);
+              });
+            }),
+            .None => ()
+          );
+          vs_fi = (vs_fi + usize(1));
+        });
+        String.from("")
+      }
+    ),
+    true => String.from("")
+  )
+});
+/// Generate dup code for a value of any type (recursive for arrays/tuples).
+generate_dup_code_for_value :: (fn(value_code : &String, value_type : &TypeValue, context : &mut FunctionGenerationContext) -> String)({
+  // Resolve recursive-type SHELLS first — see generate_drop_code_for_value.
+  concrete_type := resolve_enum_shell(resolve_struct_shell(_closure_value_type(value_type)));
+  cond(
+    // Impl(Future(…)) SomeT — increment the state machine handle's refcount.
+    // The dup twin of the Future drop arm in generate_drop_code_for_value
+    // above; required for
+    // balance now that the drop arm fires — a future copied into a second
+    // owner gets TWO scope-end drops, so the copy must carry its +1.
+    (is_some_type(&concrete_type) && type_implements_future(&concrete_type)) => {
+      mut(out) := String.from("__yo_incr_rc((void*)");
+      out.push_string(value_code.clone());
+      out.push_str(")");
+      out
+    },
+    is_array_type(&concrete_type) => match(
+      &concrete_type,
+      Rc(.Array(element, length, length_var)) => {
+        if(length_var.len() > usize(0), {
+          return(String.from("/* Error: array has non-constant length */"));
+        });
+        temp_var := fresh_local_name(String.from("temp_dup_"), &context.base.current_function_name);
+        loop_var := fresh_local_name(String.from("i_"), &context.base.current_function_name);
+        array_c_name := get_type_string(&concrete_type, &mut context.base);
+        mut(decl) := array_c_name;
+        decl.push_str(" ");
+        decl.push_string(temp_var.clone());
+        decl.push_str(" = ");
+        decl.push_string(value_code.clone());
+        decl.push_str(";");
+        context.base.emitter.emit_string_line(&decl);
+        mut(hdr) := String.from("for (size_t ");
+        hdr.push_string(loop_var.clone());
+        hdr.push_str(" = 0; ");
+        hdr.push_string(loop_var.clone());
+        hdr.push_str(" < ");
+        hdr.push_string(length.to_string());
+        hdr.push_str("; ");
+        hdr.push_string(loop_var.clone());
+        hdr.push_str("++) {");
+        context.base.emitter.emit_string_line(&hdr);
+        mut(elem_ref) := temp_var.clone();
+        elem_ref.push_str(".data[");
+        elem_ref.push_string(loop_var.clone());
+        elem_ref.push_str("]");
+        elem_dup := recur(elem_ref.clone(), &element.*, context);
+        mut(asn) := String.from("  ");
+        asn.push_string(&elem_ref);
+        asn.push_str(" = ");
+        asn.push_string(&elem_dup);
+        asn.push_str(";");
+        context.base.emitter.emit_string_line(&asn);
+        context.base.emitter.emit_string_line(String.from("}"));
+        temp_var
+      },
+      _ => value_code.clone()
+    ),
+    is_tuple_type(&concrete_type) => match(
+      &concrete_type,
+      Rc(.Tuple({ field_types : fts })) => {
+        temp_var := fresh_local_name(String.from("temp_dup_tuple_"), &context.base.current_function_name);
+        tuple_c_name := get_type_string(&concrete_type, &mut context.base);
+        mut(decl) := tuple_c_name;
+        decl.push_str(" ");
+        decl.push_string(temp_var.clone());
+        decl.push_str(" = ");
+        decl.push_string(value_code.clone());
+        decl.push_str(";");
+        context.base.emitter.emit_string_line(&decl);
+        n := fts.len();
+        (mut(i) : usize) = usize(0);
+        while(i < n, {
+          match(
+            fts.get(i),
+            .Some(ft) => if(type_contains_rc_cell_or_move_only(&ft), {
+              mut(fref) := temp_var.clone();
+              fref.push_str("._");
+              fref.push_string(i.to_string());
+              fdup := recur(fref.clone(), &ft, context);
+              mut(asn) := fref;
+              asn.push_str(" = ");
+              asn.push_string(&fdup);
+              asn.push_str(";");
+              context.base.emitter.emit_string_line(&asn);
+            }),
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+        temp_var
+      },
+      _ => value_code.clone()
+    ),
+    (is_dyn_type(&concrete_type) || is_dyn_cell_type(&concrete_type)) => {
+      dyn_c_name := get_type_string(&concrete_type, &mut context.base);
+      mut(out) := String.from("((");
+      out.push_string(&dyn_c_name);
+      out.push_str("){ .data = __yo_dyn_retain((void*)(");
+      out.push_string(value_code.clone());
+      out.push_str(").data, (const void*)(");
+      out.push_string(value_code.clone());
+      out.push_str(").vtable), .vtable = (");
+      out.push_string(value_code.clone());
+      out.push_str(").vtable })");
+      out
+    },
+    is_atomic_reference_struct_type(&concrete_type) => {
+      obj_c_name := get_type_string(&concrete_type, &mut context.base);
+      mut(out) := String.from("((");
+      out.push_string(&obj_c_name);
+      out.push_str(")__yo_incr_rc_atomic((void*)(");
+      out.push_string(value_code.clone());
+      out.push_str(")))");
+      out
+    },
+    is_reference_struct_type(&concrete_type) => {
+      obj_c_name := get_type_string(&concrete_type, &mut context.base);
+      mut(out) := String.from("((");
+      out.push_string(&obj_c_name);
+      out.push_str(")__yo_incr_rc((void*)(");
+      out.push_string(value_code.clone());
+      out.push_str(")))");
+      out
+    },
+    // Reference-semantics enums (`ref(enum(…))`): increment the ref-count and
+    // return the same handle pointer, exactly like reference-semantics structs.
+    is_atomic_reference_enum_type(&concrete_type) => {
+      en_c_name := get_type_string(&concrete_type, &mut context.base);
+      mut(out) := String.from("((");
+      out.push_string(&en_c_name);
+      out.push_str(")__yo_incr_rc_atomic((void*)(");
+      out.push_string(value_code.clone());
+      out.push_str(")))");
+      out
+    },
+    is_reference_enum_type(&concrete_type) => {
+      en_c_name := get_type_string(&concrete_type, &mut context.base);
+      mut(out) := String.from("((");
+      out.push_string(&en_c_name);
+      out.push_str(")__yo_incr_rc((void*)(");
+      out.push_string(value_code.clone());
+      out.push_str(")))");
+      out
+    },
+    // Newtype (`newtype(_f : Inner)`): a TRANSPARENT typedef to `Inner` at the
+    // C ABI (no struct wrapper, no `._f` member — see codegen/types/generation
+    // "newtype - zero-cost abstraction"). So its value IS the inner value: dup
+    // it by recursing on the inner field's type with the SAME value_code (NOT
+    // the per-field `temp._f = …` path below, which emits an invalid member
+    // access — e.g. `String._bytes` on the typedef'd `Option(ArrayList(u8))`).
+    // The inline equivalent of calling the newtype's auto-derived ___dup,
+    // which dups the underlying value.
+    is_newtype_type(&concrete_type) => {
+      rfs := get_runtime_struct_fields(&concrete_type);
+      match(
+        rfs.get_cloned(usize(0)),
+        .Some(f) => cond(
+          type_contains_rc_cell_or_move_only(&f.ty) => recur(value_code.clone(), &f.ty, context),
+          true => value_code.clone()
+        ),
+        .None => value_code.clone()
+      )
+    },
+    // Value struct (reference structs handled above): dup is a per-field dup —
+    // materialize a copy temp, dup each RC runtime field IN PLACE, return the temp.
+    // Lowered inline (no ___dup method), like the tuple-dup case above and
+    // exactly as the value-enum drop lowers inline. Without this, copying a value struct that holds an RC field
+    // (e.g. `bucket := (data_ptr &+ i).*` in HashMap.get) did not dup the field, so the
+    // RC was unbalanced (the auto-derived field walk could not see the buffer copy). A
+    // value struct with no RC field falls through to a bare value copy.
+    is_struct_type(&concrete_type) => {
+      rfs := get_runtime_struct_fields(&concrete_type);
+      (mut(has_rc) : bool) = false;
+      (mut(ci) : usize) = usize(0);
+      while(ci < rfs.len(), {
+        match(
+          rfs.get_cloned(ci),
+          .Some(f) => if(type_contains_rc_cell_or_move_only(&f.ty), {
+            has_rc = true;
+          }),
+          .None => ()
+        );
+        ci = (ci + usize(1));
+      });
+      cond(
+        !has_rc => value_code.clone(),
+        true => {
+          temp_var := fresh_local_name(String.from("temp_dup_struct_"), &context.base.current_function_name);
+          struct_c_name := get_type_string(&concrete_type, &mut context.base);
+          mut(decl) := struct_c_name;
+          decl.push_str(" ");
+          decl.push_string(temp_var.clone());
+          decl.push_str(" = ");
+          decl.push_string(value_code.clone());
+          decl.push_str(";");
+          context.base.emitter.emit_string_line(&decl);
+          (mut(fi) : usize) = usize(0);
+          while(fi < rfs.len(), {
+            match(
+              rfs.get_cloned(fi),
+              .Some(f) => if(type_contains_rc_cell_or_move_only(&f.ty), {
+                mut(fref) := temp_var.clone();
+                fref.push_str(".");
+                fref.push_string(sanitize_for_c_identifier(f.label.clone(), false));
+                fdup := recur(fref.clone(), &f.ty, context);
+                mut(asn) := fref;
+                asn.push_str(" = ");
+                asn.push_string(&fdup);
+                asn.push_str(";");
+                context.base.emitter.emit_string_line(&asn);
+              }),
+              .None => ()
+            );
+            fi = (fi + usize(1));
+          });
+          temp_var
+        }
+      )
+    },
+    is_enum_type(&concrete_type) => match(
+      get_dup_function_for_type(&concrete_type, context),
+      .Some(fn) => {
+        mut(out) := fn;
+        out.push_str("(");
+        out.push_string(value_code.clone());
+        out.push_str(")");
+        out
+      },
+      // No registered ___dup method (none are synthesized): dup the value
+      // enum INLINE — the dup mirror of the inline value-enum DROP arm above.
+      // Previously this fell through to a NO-OP, so every dup of a value enum
+      // carrying RC fields (e.g. String's underlying Option(ArrayList(u8)) via
+      // the newtype arm) silently lost its +1 — the widened scope-end drops
+      // then freed buffers still held elsewhere (the stage-2 binary's argv
+      // strings corrupted: args() pushed each String, the loop-end drop freed
+      // the buffer the list slot held).
+      .None => match(
+        can_optimize_as_nullable_pointer(&concrete_type),
+        // Nullable-pointer enum: the value IS the inner pointer; dup = incr
+        // when non-NULL. Statement + pass-through value, like the struct arm.
+        // A `Box` is move-only, so the evaluator never asks to copy an
+        // `Option(Box(T))`; an incr on its cell would write its owner prefix.
+        .Some(_np_inner) => if(is_unique_box_type(&_np_inner), String.from("/* ERROR: an Option(Box(T)) is never duplicated */"), {
+          mut(np_line) := String.from("if ((");
+          np_line.push_string(value_code.clone());
+          np_line.push_str(") != NULL) { __yo_incr_rc((void*)(");
+          np_line.push_string(value_code.clone());
+          np_line.push_str(")); }");
+          context.base.emitter.emit_string_line(&np_line);
+          value_code.clone()
+        }),
+        // Tagged representation: copy to a temp and dup each RC field of the
+        // active variant IN PLACE through the per-type dup function, return
+        // the temp (the enum mirror of the value-struct dup temp pattern below).
+        .None => {
+          ed_temp := fresh_local_name(String.from("temp_dup_enum_"), &context.base.current_function_name);
+          mut(ed_decl) := get_type_string(&concrete_type, &mut context.base);
+          ed_decl.push_str(" ");
+          ed_decl.push_string(ed_temp.clone());
+          ed_decl.push_str(" = ");
+          ed_decl.push_string(value_code.clone());
+          ed_decl.push_str(";");
+          context.base.emitter.emit_string_line(&ed_decl);
+          vu_name := _value_enum_rc_fn(&concrete_type, false, context);
+          context.base.emitter.emit_string_line(`${vu_name}((void*)&(${ed_temp.clone()}));`);
+          ed_temp
+        }
+      )
+    ),
+    true => value_code.clone()
+  )
+});
+/// The `___drop(name)` / `(name.___drop)()` target ATOM node (mirror of
+/// return.yo's private `_drop_target_atom`; duplicated to avoid a
+/// drop_dup -> return import cycle).
+_dd_drop_target_atom :: (fn(drop_expr : &AstExpr) -> Option(AstExpr))(
+  match(
+    drop_expr,
+    Rc(.FnCall(_, func, Rc(args), _, _)) => if(
+      args.len() == usize(0),
+      match(
+        func,
+        Rc(.FnCall(_, _, Rc(fargs), _, _)) => if(ast_expr_is_fn_call_of(&func.*, BF_DOT, Option(usize).Some(usize(2))), {
+          a1_is_drop := match(fargs.get_cloned(usize(1)), .Some(a1) => if(ast_expr_is_atom(&a1), ast_expr_token(&a1).value.* == BF_DROP, false), .None => false);
+          if(a1_is_drop, match(fargs.get_cloned(usize(0)), .Some(a0) => if(ast_expr_is_atom(&a0), Option(AstExpr).Some(a0), Option(AstExpr).None), .None => Option(AstExpr).None), Option(AstExpr).None)
+        }, Option(AstExpr).None),
+        Rc(.Atom(_, _)) => Option(AstExpr).None
+      ),
+      if(ast_expr_is_fn_call_of(drop_expr, BF_DROP, Option(usize).None), match(args.get_cloned(usize(0)), .Some(a0) => if(ast_expr_is_atom(&a0), Option(AstExpr).Some(a0), Option(AstExpr).None), .None => Option(AstExpr).None), Option(AstExpr).None)
+    ),
+    Rc(.Atom(_, _)) => Option(AstExpr).None
+  )
+);
+/// True when a deferred `___drop` targets a function PARAMETER (the target
+/// atom's innermost env binding carries `is_parameter`). Param drops are
+/// FUNCTION-scope drops (the own-param scope-end release the evaluator merges
+/// onto the fn-body node, begin.yo's params-frame pass) — only function-level
+/// emission points may emit them. Expression-level flushes (a call/match
+/// statement's post-emit flush) pass `skip_param_drops = true`: on a
+/// SINGLE-EXPRESSION body the fn-body node IS the tail expression node
+/// (the id is shared; no begin wrapper is cloned), so an unfiltered
+/// expression-level flush emitted the own-param drop a SECOND time next to the
+/// function-level one — the use_and_sink double-free glibc caught in CI
+/// (tcache "unaligned chunk", tests/ref-field-borrow.test.yo). An `FnOnce`
+/// closure's capture drop (`is_fnonce_capture_drop`) is the same kind of
+/// function-scope drop: the body owns the capture as it owns a `sink`
+/// parameter, so it is emitted only at the function-level points too
+/// (plans/VALUES_BY_DEFAULT.md decision 37).
+_drop_target_is_parameter :: (fn(drop_expr : &AstExpr, context : &FunctionGenerationContext) -> bool)(
+  !is_fnonce_post_call_release(ast_expr_id(drop_expr)) && (
+    is_fnonce_capture_drop(ast_expr_id(drop_expr)) || match(
+      _dd_drop_target_atom(drop_expr),
+      .Some(atom) => match(
+        context.base.get_expr_info(&atom),
+        .Some(aei) => {
+          vars := scope_variables(ast_expr_id(&atom), &aei.env(), ast_expr_token(&atom).value.*);
+          if(vars.len() == usize(0), false, match(vars.last_cloned(), .Some(v) => v.is_parameter(), .None => false))
+        },
+        .None => false
+      ),
+      .None => false
+    )
+  )
+);
+/// Emit the evaluator-deferred drop expressions for `expr` (closure-capture and
+/// short-circuit-handled drops are skipped).
+/// `skip_param_drops` / `only_param_drops` split ownership of PARAM-targeted
+/// drops between expression-level and function-level emission points — see
+/// `_drop_target_is_parameter`.
+/// True iff `cn` looks like an eval-minted temp C name: contains `_temp_`
+/// followed by ONLY digits (at least one) to the end — e.g.
+/// `_file____User_temp_188653`. Module-blind fallback for the undeclared-temp
+/// drop gates: `is_temp_variable_name` recomputes the module prefix from the
+/// DROP SITE's `ei.env.module_path`, which can differ in FORM from the temp's
+/// minting module path (URL `file:///...` vs relative `./...`), so the scoped
+/// check alone misses cross-form temps. The digits-only suffix keeps user
+/// variables like `await_future_temp_var_aliases` out.
+_looks_like_minted_temp :: (fn(cn : &String) -> bool)({
+  marker := String.from("_temp_");
+  idx_opt := cn.index_of(&marker);
+  match(
+    idx_opt,
+    .None => false,
+    .Some(idx) => {
+      start := (idx + marker.len());
+      n := cn.len();
+      if(start >= n, {
+        return(false);
+      });
+      (mut(i) : usize) = start;
+      (mut(ok) : bool) = true;
+      while(i < n, {
+        b := cn.byte_at(i);
+        if(!((b >= u8(48)) && (b <= u8(57))), {
+          ok = false;
+          i = n;
+        }, {
+          i = (i + usize(1));
+        });
+      });
+      ok
+    }
+  )
+});
+/// Whether `expr` still carries a not-yet-emitted drop that the node flush
+/// would EMIT now: a param-targeted one (the own-param scope-end release), or
+/// one whose target is declared (a temp minted while rendering the tail, e.g.
+/// the argument temp of a call inside a struct-literal field). Mirrors
+/// `generate_deferred_drop_expressions`'s closure-capture and undeclared-temp
+/// gates. The bare-expression tail return uses it to decide whether the tail
+/// must be materialized before those drops run.
+has_pending_emittable_drop :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> bool)(
+  match(
+    context.base.get_expr_info(expr),
+    .Some(ei) => match(
+      &ei.deferred_drop_expressions(),
+      .Some(drops) => {
+        (found : bool) = false;
+        (i : usize) = usize(0);
+        while((i < drops.len()) && !found, {
+          match(
+            drops.get_cloned(i),
+            .Some(d) => if(!context.emitted_deferred_drop_ids.contains(ast_expr_id(&d)) && !is_deferred_drop_for_closure_capture(&d, &context.current_closure_captures, sm_owns_fnonce_captures(context)), {
+              emittable := if(
+                _drop_target_is_parameter(&d, context),
+                true,
+                match(
+                  get_deferred_drop_target_atom_name(&d),
+                  .Some(nm) => {
+                    cn := sanitize_for_c_identifier(&nm, false);
+                    is_tmp := (is_temp_variable_name(&ei.env().module_path().*, cn.clone()) || _looks_like_minted_temp(cn.clone()));
+                    declared := context.base.declared_c_var_names.with({ &cn }(dn_s) => dn_s.contains(&cn.*));
+                    !is_tmp || declared
+                  },
+                  .None => true
+                )
+              );
+              if(emittable, {
+                found = true;
+              });
+            }),
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+        found
+      },
+      .None => false
+    ),
+    .None => false
+  )
+);
+(g_debug_scope_drops : bool) = debug_knob(`YO_DEBUG_SCOPE_DROPS`).is_some();
+
+generate_deferred_drop_expressions :: (
+  fn(
+    expr : &AstExpr,
+    indent : &String,
+    context : &mut FunctionGenerationContext,
+    (skip_param_drops : bool) ?= false,
+    (only_param_drops : bool) ?= false,
+    (split_fnonce_post_call : bool) ?= false
+  ) -> unit
+)(
+  match(
+    context.base.get_expr_info(expr),
+    .Some(ei) => match(
+      &ei.deferred_drop_expressions(),
+      .Some(drops) => {
+        n := drops.len();
+        (i : usize) = usize(0);
+        while(i < n, {
+          match(
+            drops.get_cloned(i),
+            .Some(drop_expr) => {
+              if(g_debug_scope_drops, {
+                eprintln(`[sd-fl] carrier=${ast_expr_to_string(expr)} target=${match(get_deferred_drop_target_atom_name(&drop_expr), .Some(n) => n, .None => String.from("-"))}`);
+              });
+              // Emitted-once guard: a SHARED single-expression begin node
+              // carries the begin's scope-end drops AND the tail call's
+              // Stage-0 balancing drops, and is flushed from several points
+              // (the call emitter's post-call flush, the enclosing arm/body
+              // flush). This set — not list removal — is the idempotence
+              // signal: membership in the node list is the pending path's
+              // "the node's own flush handles it" contract
+              // (generate_pending_deferred_drops's `already`), which
+              // removal-on-emit would break. Checked BEFORE the gates below
+              // so an already-emitted drop also leaves their state (the
+              // short-circuit set) untouched.
+              if(!context.emitted_deferred_drop_ids.contains(ast_expr_id(&drop_expr)), {
+                param_target := if(skip_param_drops || only_param_drops, _drop_target_is_parameter(&drop_expr, context), false);
+                // On the function-level passes of a single-expression body
+                // (`split_fnonce_post_call`), an `FnOnce` callee's post-call
+                // release splits like a parameter drop: the flush-first
+                // (`skip_param_drops`) leaves it out, since on the shared-id
+                // body node it would run before the call reads the captures,
+                // and the pass after a unit tail (`only_param_drops`) emits it,
+                // after the call. A call's own post-call flush also passes
+                // `skip_param_drops` and must still emit it, so the split is
+                // opt-in
+                // (issues/fixed/2026-10-31-a-single-expression-body-releases-an-fnonce-parameters-captures-before-calling-it.md).
+                post_call := (split_fnonce_post_call && is_fnonce_post_call_release(ast_expr_id(&drop_expr)));
+                param_filtered := ((skip_param_drops && (param_target || post_call)) || (only_param_drops && !(param_target || post_call)));
+                skip_capture := (param_filtered || is_deferred_drop_for_closure_capture(&drop_expr, &context.current_closure_captures, sm_owns_fnonce_captures(context)));
+                // Skip a drop whose target TEMP was never emitted as a C declaration
+                // (declaration elided while its deferred-drop survived) — emitting
+                // `__yo_decr_rc(undeclared_temp)` is an undeclared-identifier error.
+                // Gated to temp names (is_temp_variable_name) so function params /
+                // user vars (declared in the C signature, not via get_variable_type_string)
+                // are never skipped. Safe: a never-declared C variable cannot be
+                // double-freed and holds no value to leak.
+                undeclared_temp := match(
+                  get_deferred_drop_target_atom_name(&drop_expr),
+                  .Some(nm) => {
+                    cn := sanitize_for_c_identifier(&nm, false);
+                    (is_temp_variable_name(&ei.env().module_path().*, cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.with({ &cn }(dn_s) => dn_s.contains(&cn.*))
+                  },
+                  .None => false
+                );
+                if(!skip_capture && !undeclared_temp, {
+                  sc_skip := match(get_deferred_drop_target_atom_name(&drop_expr), .Some(t) => take_short_circuit_handled(context, &t), .None => false);
+                  if(!sc_skip, {
+                    code := _call_generate_expr(&drop_expr, indent.clone(), context);
+                    // Record unconditionally, emit conditionally: an
+                    // enum/Option-typed target lowers to a multi-line `switch`
+                    // the drop generator writes to the emitter itself and
+                    // hands back "" — the drop is on the page either way, and
+                    // bookkeeping hung off `len() > 0` left exactly those
+                    // drops unrecorded, so the early-exit path
+                    // (return.yo's generate_pending_deferred_drops) released
+                    // a bare arm's String temps a second time (the
+                    // "unwind argument built by a may-unwind call" test).
+                    // Same contract as and-or.yo's two emission points.
+                    context.emitted_deferred_drop_ids.insert(ast_expr_id(&drop_expr));
+                    if(code.len() > usize(0), {
+                      line := indent.clone();
+                      line.push_string(&code);
+                      line.push_str(";");
+                      context.base.emitter.emit_string_line(&line);
+                    });
+                  });
+                });
+              });
+            },
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+      },
+      .None => ()
+    ),
+    .None => ()
+  )
+);
+/// Is `expr` a closure construction? Its deferred dups are its captures' own
+/// references, which the closure emitter writes into the capture struct's
+/// initializer (`closures.yo`); a site that emits them again retains every
+/// capture a second time
+/// (issues/fixed/2026-10-16-a-closure-returned-from-a-function-retains-its-captures-twice.md).
+is_closure_construction :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> bool)(
+  match(
+    context.base.get_expr_info(expr),
+    .Some(ei) => (
+      expr_info_closure_function_value(&ei).is_some() ||
+        (match(expr_info_is_anonymous_function_definition(&ei), .Some(b) => b, .None => false) && expr_info_capture_type(&ei).is_some())
+    ),
+    .None => false
+  )
+);
+/// Emit the evaluator-deferred dup expressions for `expr`. A closure
+/// construction's are its captures' references, emitted by the closure
+/// emitter alone (`is_closure_construction`).
+generate_deferred_dup_expressions :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> unit)(
+  match(
+    if(is_closure_construction(expr, context), Option(ExprInfo).None, context.base.get_expr_info(expr)),
+    .Some(ei) => match(
+      expr_info_deferred_dup_expressions(&ei),
+      .Some(dups) => {
+        n := dups.len();
+        (i : usize) = usize(0);
+        while(i < n, {
+          match(
+            dups.get_cloned(i),
+            .Some(dup_expr) => if(ast_expr_is_fn_call(&dup_expr), {
+              // Skip a dup whose target TEMP was never emitted as a C
+              // declaration (the ___dup names the eval-time temp of e.g. an
+              // inlined property read; re-evaluation also drifts temp ids) —
+              // emitting `__yo_incr_rc(undeclared_temp)` is an
+              // undeclared-identifier error. Same gate as the drop path
+              // above. Callers that still need the +1 apply it to the
+              // GENERATED value instead (match.yo generate_case_body).
+              dup_undeclared_temp := match(
+                get_deferred_dup_target_atom_name(&dup_expr),
+                .Some(dnm) => {
+                  dcn := sanitize_for_c_identifier(&dnm, false);
+                  (is_temp_variable_name(&ei.env().module_path().*, dcn.clone()) || _looks_like_minted_temp(dcn.clone())) && !context.base.declared_c_var_names.with({ &dcn }(dn_s) => dn_s.contains(&dcn.*))
+                },
+                .None => false
+              );
+              if(!dup_undeclared_temp, {
+                code := _call_generate_expr(&dup_expr, indent.clone(), context);
+                if(code.len() > usize(0), {
+                  // A SYNTHESIZED dup (aliasing Stage 0's borrow marker —
+                  // no nested evaluation, so no other_fn_call temp
+                  // materialization) renders as a bare inline-incr
+                  // expression while its RESULT temp name is what call
+                  // sites pass. Declare-assign the result temp via the
+                  // get_variable_type_string choke-point; evaluated dups
+                  // already render AS their temp name and skip this.
+                  // "Already declared" is the open block-scope stack, not
+                  // the function's monotonic `declared_c_var_names`: a
+                  // fused await site emits its wrapper's block once per
+                  // site, so a second site of one wrapper in a task
+                  // re-emits the same dup after the first site's C block
+                  // closed, and a set-only gate passed an undeclared temp
+                  // (issues/fixed/2026-10-22-a-dup-temp-in-a-wrapper-awaited-twice-is-undeclared-at-the-second-site.md).
+                  dup_result_decl := match(
+                    context.base.get_expr_info(&dup_expr),
+                    .Some(ddei) => match(
+                      &ddei.variable_name(),
+                      .Some(ddvn) => {
+                        ddtn := get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), ddvn.clone(), Option(Environment).Some(ddei.env()));
+                        if(!(ddtn == code) && !context.base.declared_scopes.with({ &ddtn }(ds_s) => scope_stack_contains(ds_s, &ddtn.*)), Option(String).Some(get_variable_type_string(&ddei.ty(), &ddvn.*, &mut context.base)), Option(String).None)
+                      },
+                      .None => Option(String).None
+                    ),
+                    .None => Option(String).None
+                  );
+                  line := indent.clone();
+                  match(
+                    &dup_result_decl,
+                    .Some(dr_decl) => {
+                      line.push_string(&dr_decl.*);
+                      line.push_str(" = ");
+                    },
+                    .None => ()
+                  );
+                  line.push_string(&code);
+                  line.push_str(";");
+                  context.base.emitter.emit_string_line(&line);
+                  // Rule 1: a dup result temp with a task slot is read and
+                  // dropped through the slot, so the value goes there too
+                  // (issues/fixed/an-argument-dup-temp-in-an-io-async-body-is-dropped-through-an-unassigned-slot.md).
+                  if(dup_result_decl.is_some() && context.in_async_state_machine.is_some(), {
+                    match(
+                      context.base.get_expr_info(&dup_expr),
+                      .Some(sei) => match(
+                        &sei.variable_name(),
+                        .Some(svn) => match(
+                          &context.state_machine_variables,
+                          .Some(smv) => match(
+                            sm_slot_of(ast_expr_id(&dup_expr), &sei.env(), svn.clone(), &smv.*, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),
+                            .Some(slot) => context.base.emitter.emit_string_line(`${indent.clone()}${slot} = ${get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), &svn.*, Option(Environment).Some(sei.env()))};`),
+                            .None => ()
+                          ),
+                          .None => ()
+                        ),
+                        .None => ()
+                      ),
+                      .None => ()
+                    );
+                  });
+                });
+              });
+            }),
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+      },
+      .None => ()
+    ),
+    .None => ()
+  )
+);
+/// Emit `expr`'s deferred `___dup` expression(s), if any, then return the
+/// dup-result temp's C name (so the dup'd copy is what gets stored/passed);
+/// otherwise return `fallback_code` unchanged. Shared by the codegen
+/// dup-on-store sites (init-assignment RHS, ref-struct ctor args, ...).
+emit_deferred_dup_or_code :: (fn(expr : &AstExpr, fallback_code : &String, indent : &String, context : &mut FunctionGenerationContext) -> String)(
+  match(
+    context.base.get_expr_info(expr),
+    .Some(ei) => match(
+      expr_info_deferred_dup_expressions(&ei),
+      .Some(dups) => if(dups.len() > usize(0), {
+        // Declare-first rule: when the SOURCE expr carries its own temp
+        // variable name that the
+        // fallback code did not already declare (e.g. an index-trait element
+        // `xs(i)` whose C form is the raw `(*index(...))` call), declare
+        // `T <temp> = <fallback>;` first — via get_variable_type_string, the
+        // declared_c_var_names choke-point — so the deferred dup references a
+        // real local instead of being suppressed by the undeclared-temp gate
+        // (`.Some(values(i))` returned an element with NO +1 — the json
+        // object-parse UAF). Closure constructions are excluded (their
+        // deferred dups are capture dups emitted by the closure emitters).
+        src_is_closure_ctor := is_closure_construction(expr, context);
+        (fallback_code_2 : String) = fallback_code.clone();
+        if(!src_is_closure_ctor, {
+          match(
+            &ei.variable_name(),
+            .Some(src_vn) => {
+              // A self-named atom (its `variable_name` is the variable itself)
+              // is no temp: its value is its own rendering, which can be a
+              // state-machine slot under the single-pass async lowering.
+              src_self := is_self_named_atom(expr, src_vn.clone());
+              src_c_name := get_variable_name_for_codegen_at(ast_expr_id(expr), src_vn.clone(), Option(Environment).Some(ei.env()));
+              src_deref_read := `(*${src_c_name})`;
+              // A by-`ref` binding (`name : &mut T`) READS as `(*name)` while
+              // its recorded `variable_name` is the bare `name`. The
+              // spellings-differ test below then declared `T name = (*name);`,
+              // which shadows the C PARAMETER in its own scope — clang rejects
+              // it ("redefinition of 'name' with a different type"). The value
+              // is already reachable through the deref, so use that read
+              // directly and declare nothing.
+              cond(
+                src_self => {
+                  fallback_code_2 = fallback_code.clone();
+                },
+                (src_c_name == fallback_code.trim()) => {
+                  fallback_code_2 = src_c_name;
+                },
+                (fallback_code.trim() == src_deref_read) => {
+                  fallback_code_2 = fallback_code.clone();
+                },
+                true => {
+                  eff_ty := match(expr_info_converted_runtime_type(&ei), .Some(crt) => crt, .None => Rc.clone(ei.ty()));
+                  decl0 := indent.clone();
+                  decl0.push_string(get_variable_type_string(&eff_ty, src_c_name.clone(), &mut context.base));
+                  decl0.push_str(" = ");
+                  decl0.push_string(fallback_code.clone());
+                  decl0.push_str(";");
+                  context.base.emitter.emit_string_line(&decl0);
+                  fallback_code_2 = src_c_name;
+                }
+              );
+            },
+            .None => ()
+          );
+        });
+        // The dup result's C variable name: Some for value-type dups (their inline form
+        // materializes a result temp), None for ref-handle dups (which lower to
+        // `incr_rc(arg)` with no result temp — the caller keeps using the raw value).
+        //
+        // A result temp only STANDS IN for the source when it holds the same
+        // type. An ELEMENT-WISE dup does not: `___dup` of an `Array(T, N)` (and
+        // of a tuple) lowers to `begin(__yo_dup_array_element(v, 0), …)`, which
+        // bumps the elements of `v` IN PLACE and whose begin-tail temp is the
+        // last ELEMENT — adopting it assigned a `String` to an
+        // `Array_String_2` local ("initializing 'Array___yo_t0_2' with an
+        // expression of incompatible type '__yo_t0'"). Require the recorded
+        // types to agree; otherwise the caller keeps using the source value,
+        // which the in-place dup has already retained.
+        dup_result_name := match(
+          dups.get_cloned(usize(0)),
+          .Some(dup_expr) => if(
+            ast_expr_is_fn_call(&dup_expr),
+            match(
+              context.base.get_expr_info(&dup_expr),
+              .Some(dei) => match(
+                &dei.variable_name(),
+                .Some(dvn) => if(
+                  type_key(&dei.ty()) == type_key(&ei.ty()),
+                  Option(String).Some(get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), &dvn.*, Option(Environment).Some(dei.env()))),
+                  Option(String).None
+                ),
+                .None => Option(String).None
+              ),
+              .None => Option(String).None
+            ),
+            Option(String).None
+          ),
+          .None => Option(String).None
+        );
+        // A ref-handle dup (`incr_rc(arg)`, no result temp) whose SOURCE is an inlined
+        // field access (`x.f`): the dup's argument is the source's temp variableName,
+        // which codegen never declares (the field read is inlined at the use site), so
+        // `incr_rc(<temp>)` references an undeclared identifier — e.g. HashMap.get's
+        // `Some(bucket.value)`. Materialize the field value once into that temp
+        // (materialize-then-dup), so the dup references a real local and the temp is
+        // the dup'd value the caller uses. Safe: the field access is evaluated once.
+        dup_target := match(dups.get_cloned(usize(0)), .Some(de) => get_deferred_dup_target_atom_name(&de), .None => Option(String).None);
+        t_name := sanitize_for_c_identifier(match(&dup_target, .Some(s) => s.clone(), .None => String.from("")), false);
+        // Only materialize when the source is NOT already materialized into the dup
+        // target temp: if the caller's fallback code already IS that temp (some paths
+        // declare it before this call — e.g. `set`'s old-value extraction), declaring it
+        // again would redefine it. When the fallback is the raw field access (`get`'s
+        // `Some(bucket.value)`), the temp is a never-declared phantom → materialize.
+        needs_materialize := match(
+          &dup_result_name,
+          .None => (ast_expr_is_fn_call_of(expr, BF_DOT, Option(usize).Some(usize(2))) && dup_target.is_some() && (fallback_code_2 != t_name)),
+          .Some(_) => false
+        );
+        cond(
+          needs_materialize => {
+            // Declare via get_variable_type_string — the choke-point that records
+            // the C name in declared_c_var_names. Building the decl by hand left
+            // the temp unregistered, so generate_deferred_dup_expressions'
+            // undeclared-temp gate suppressed the very dup this materialization
+            // exists to enable (ArrayList(ref-struct).get() lost its element +1).
+            decl := get_variable_type_string(&ei.ty(), t_name.clone(), &mut context.base);
+            decl.push_str(" = ");
+            decl.push_string(fallback_code_2.clone());
+            decl.push_str(";");
+            context.base.emitter.emit_string_line(&decl);
+            generate_deferred_dup_expressions(expr, indent.clone(), context);
+            t_name
+          },
+          // A closure construction's dups are its captures' own references,
+          // which the closure emitter already wrote into the capture struct's
+          // initializer; emitting them again here retained every capture
+          // twice.
+          src_is_closure_ctor => fallback_code_2,
+          true => {
+            generate_deferred_dup_expressions(expr, indent.clone(), context);
+            match(dup_result_name, .Some(n) => n, .None => fallback_code_2)
+          }
+        )
+      }, fallback_code.clone()),
+      .None => fallback_code.clone()
+    ),
+    .None => fallback_code.clone()
+  )
+);
+/// Arm-value deferred-dup rewrite: when `e`
+/// carries deferred `___dup`s (a borrowed value leaving the arm), declare the
+/// eval temp, emit the balancing dup, and return `.Some(<result C name>)`.
+/// `.None` when `e` has no dups (caller emits it plainly). Used for BOTH the
+/// non-begin arm value and a begin arm's FINAL expression — the begin path
+/// originally emitted the final expr bare, dropping the borrowed +1
+/// (`_resolve_effect_arg`'s `.Some(info) => { ...; info.env }` /
+/// `.None => { throw; env }` arms returned the Environment at net -1 — the
+/// round-5 stage-2 `s2 compile parser.yo` ExprInfo-env UAF).
+///
+/// Shared by the sync match emitter (`exprs/match.yo`) and the async
+/// state-machine lowering of a cond/match whose OTHER arm awaits
+/// (`async/state-code-gen.yo`): that lowering assigned the non-awaiting
+/// arm's value bare — `sm->var_got = sm->var_h;` for `.Some(h) => h` on an
+/// awaited `Option(String)` local — so the payload was owned twice and
+/// released twice at completion; the string came back empty (or freed) to
+/// the caller (issues/fixed/async-match-arm-borrowed-payload-released-twice.md).
+arm_value_with_dups :: (fn(body_expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> Option(String))({
+  bei := match(context.base.get_expr_info(body_expr), .Some(b) => b, .None => return(Option(String).None));
+  bdups := match(expr_info_deferred_dup_expressions(&bei), .Some(d) => d, .None => return(Option(String).None));
+  if(bdups.len() == usize(0), {
+    return(Option(String).None);
+  });
+  // Clear `variable_name` around the RAW generation:
+  // with it set, the atom generator returns the info's temp alias — a
+  // NOT-YET-DECLARED name — and the `btv != raw_code` declaration below is
+  // skipped. Same phantom-temp class as the stage-2 fixpoint blocker in
+  // cond.yo; see issues/fixed/stage2-match-if-else-value-phantom-temp.md.
+  saved_arm_vn := bei.variable_name();
+  bei.set_variable_name(Option(String).None);
+  raw_code := _call_generate_expr(body_expr, indent.clone(), context);
+  bei.set_variable_name(saved_arm_vn);
+  (final_code : String) = raw_code.clone();
+  match(
+    &bei.variable_name(),
+    .Some(bvn) => {
+      btv := get_variable_name_for_codegen_at(ast_expr_id(body_expr), bvn.clone(), Option(Environment).Some(bei.env()));
+      // Self-named atom: its value is its own rendering (see
+      // handle_atom_deferred_dup in return.yo).
+      b_self := is_self_named_atom(body_expr, bvn.clone());
+      if(!b_self && !(btv == raw_code), {
+        bline := indent.clone();
+        bline.push_string(get_type_string(&bei.ty(), &mut context.base));
+        bline.push_str(" ");
+        bline.push_string(btv.clone());
+        bline.push_str(" = ");
+        bline.push_string(raw_code.clone());
+        bline.push_str(";");
+        context.base.emitter.emit_string_line(&bline);
+        declare_c_var_name(&context.base, btv.clone());
+      });
+      final_code = if(b_self, raw_code.clone(), btv);
+    },
+    .None => ()
+  );
+  // Emit the dup ONCE: named dup temp when available,
+  // else the drift-safe escape hatch (dup the generated value directly).
+  (dup_named : bool) = false;
+  match(
+    bdups.get_cloned(usize(0)),
+    .Some(bdup0) => match(
+      context.base.get_expr_info(&bdup0),
+      .Some(bdup_info) => match(
+        &bdup_info.variable_name(),
+        .Some(dvn) => {
+          dtv := get_variable_name_for_codegen_at(ast_expr_id(&bdup0), dvn.clone(), Option(Environment).Some(bdup_info.env()));
+          dline := indent.clone();
+          dline.push_string(get_type_string(&bei.ty(), &mut context.base));
+          dline.push_str(" ");
+          dline.push_string(dtv.clone());
+          dline.push_str(" = ");
+          dline.push_string(generate_dup_code_for_value(final_code.clone(), &bei.ty(), context));
+          dline.push_str(";");
+          context.base.emitter.emit_string_line(&dline);
+          declare_c_var_name(&context.base, dtv.clone());
+          final_code = dtv;
+          dup_named = true;
+        },
+        .None => ()
+      ),
+      .None => ()
+    ),
+    .None => ()
+  );
+  if(!dup_named, {
+    match(
+      &bei.variable_name(),
+      .Some(_) => {
+        fdline := indent.clone();
+        fdline.push_string(generate_dup_code_for_value(final_code.clone(), &bei.ty(), context));
+        fdline.push_str(";");
+        context.base.emitter.emit_string_line(&fdline);
+      },
+      .None => {
+        generate_deferred_dup_expressions(body_expr, indent.clone(), context);
+      }
+    );
+  });
+  Option(String).Some(final_code)
+});
+/// An argument's C code with its DEFERRED DUP applied: when the evaluator
+/// attached a by-value share to the argument
+/// (`consume_argument_for_parameter` — a by-value parameter the callee drops
+/// at its exit), emit the dup and pass the DUP RESULT as the argument, so
+/// the caller-side +1 balances the callee's drop. The same rewrite
+/// `_generate_inline_call` applies per argument; extracted for the
+/// Index-trait dispatch sites (generation.yo, ptr-fns.yo), whose synthesized
+/// calls bypass the normal argument marshaling — the Index trait takes its
+/// index by value (decision 34 as amended 2026-10-11). An argument with no
+/// deferred dup (a `Copy` index, a borrowed one) passes through unchanged.
+generate_arg_code_with_deferred_dups :: (
+  fn(arg : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String
+)({
+  base_code := _call_generate_expr(arg, indent.clone(), context);
+  match(
+    context.base.get_expr_info(arg),
+    .Some(ix_ei) => match(
+      expr_info_deferred_dup_expressions(&ix_ei),
+      .Some(ix_dups) => if(ix_dups.len() > usize(0), {
+        generate_deferred_dup_expressions(arg, indent.clone(), context);
+        // An element-wise dup's temp is one element of the argument
+        // (`element_wise_dup_target`): pass the argument, retained in place.
+        match(
+          ix_dups.get_cloned(usize(0)),
+          .Some(ix_dup) => if(
+            ast_expr_is_fn_call(&ix_dup) && element_wise_dup_target(&ix_dup).is_none(),
+            match(
+              context.base.get_expr_info(&ix_dup),
+              .Some(ix_dei) => match(
+                &ix_dei.variable_name(),
+                .Some(ix_dvn) => get_variable_name_for_codegen_at(ast_expr_id(&ix_dup), &ix_dvn.*, Option(Environment).Some(ix_dei.env())),
+                .None => base_code
+              ),
+              .None => base_code
+            ),
+            base_code
+          ),
+          .None => base_code
+        )
+      }, base_code),
+      .None => base_code
+    ),
+    .None => base_code
+  )
+});
+
+/// Emit the early-exit-only deferred drops attached to `expr` (a
+/// `return`/`unwind` node, or a `break`/`continue` atom) — M3: the drops of
+/// the consumed locals the exit leaves before their move. Closure-capture
+/// drops are skipped, the rest emitted.
+generate_early_return_only_deferred_drop_expressions :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> unit)(
+  match(
+    context.base.get_expr_info(expr),
+    .Some(ei) => match(
+      expr_info_early_return_only_deferred_drop_expressions(&ei),
+      .Some(early_drops) => {
+        (i : usize) = usize(0);
+        while(i < early_drops.len(), {
+          match(
+            early_drops.get_cloned(i),
+            .Some(drop_expr) => if(!is_deferred_drop_for_closure_capture(&drop_expr, &context.current_closure_captures, sm_owns_fnonce_captures(context)), {
+              // Gate: the drop target's C declaration must have been emitted AND
+              // its enclosing C block must still be open at this exact point
+              // (block-scope stack — same authoritative C-emission-order signal
+              // as _keep_pending_drop; params are seeded at function entry).
+              // Source-token gates at attach time cannot see C decl-emission
+              // order: a `x := match(...)` binding emits its C declaration
+              // AFTER the switch, so a `return` inside an arm precedes it in C
+              // while FOLLOWING x's init token in source — with the dup/drop
+              // pair optimizer consuming such bindings, the M3-attached drop
+              // referenced an undeclared identifier (stage-2 `result` /
+              // `temp_var_name`). A target absent from the stack holds no C
+              // value here, so skipping cannot double-free or leak. Subsumes
+              // the former minted-TEMP declared_c_var_names check.
+              // A local with a task slot is never declared as a C variable,
+              // so the stack cannot vouch for it; the slot always exists and
+              // is zero while it owns nothing
+              // (issues/fixed/an-early-return-from-an-io-async-body-never-releases-a-slot-local-its-tail-moves.md).
+              skip_undeclared := match(
+                get_deferred_drop_target_atom_name(&drop_expr),
+                .Some(vn) => {
+                  cn := sanitize_for_c_identifier(vn.clone(), false);
+                  in_slot := match(
+                    &context.state_machine_variables,
+                    .Some(smv) => (context.in_async_state_machine.is_some() && sm_slot_of(match(get_deferred_drop_target_atom(&drop_expr), .Some(ta) => ast_expr_id(&ta), .None => ast_expr_id(expr)), &ei.env(), &vn, &smv.*, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot).is_some()),
+                    .None => false
+                  );
+                  // Likewise an `FnOnce` closure's owned capture lives in the
+                  // closure context, never a C local (decision 37).
+                  !in_slot && !is_fnonce_capture_drop(ast_expr_id(&drop_expr)) && !context.base.declared_scopes.with({ &cn }(ds_s) => scope_stack_contains(ds_s, cn))
+                },
+                .None => false
+              );
+              if(!skip_undeclared, {
+                code := _call_generate_expr(&drop_expr, indent.clone(), context);
+                if(code.len() > usize(0), {
+                  line := indent.clone();
+                  line.push_string(&code);
+                  line.push_str(";");
+                  context.base.emitter.emit_string_line(&line);
+                });
+              });
+            }),
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+      },
+      .None => ()
+    ),
+    .None => ()
+  )
+);
+export(
+  _looks_like_minted_temp,
+  get_drop_function_for_type,
+  get_dup_function_for_type,
+  get_dispose_function_for_type,
+  dispose_function_takes_pointer,
+  dispose_call_on_value,
+  resolve_some_type_param_type,
+  generate_drop_code_for_value,
+  generate_dup_code_for_value,
+  generate_deferred_drop_expressions,
+  generate_deferred_dup_expressions,
+  is_closure_construction,
+  generate_arg_code_with_deferred_dups,
+  has_pending_emittable_drop,
+  emit_deferred_dup_or_code,
+  arm_value_with_dups,
+  generate_early_return_only_deferred_drop_expressions
+);

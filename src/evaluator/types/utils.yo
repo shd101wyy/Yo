@@ -7,7 +7,7 @@
 //!   * `auto_derive_traits_for_union_type`
 //!
 //! Traits auto-derived here (stored in `g_type_trait_registry` in
-//! `evaluator/trait_checking.yo`):
+//! `evaluator/trait-checking.yo`):
 //!   - Send:     struct (value) if all fields Send; atomic object if all
 //!               fields Sync; a non-atomic object never
 //!   - Sync:     struct (value) if all fields Sync; atomic object if all
@@ -18,9 +18,9 @@
 //!   - Runtime:  object always; struct if all fields Runtime
 //!
 //! RC functions (___drop / ___dup / ___dispose) are NOT derived here:
-//! reference-semantics drop/dup is lowered directly in codegen (drop_dup.yo).
+//! reference-semantics drop/dup is lowered directly in codegen (drop-dup.yo).
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 { TypeValue, TypeValueNode, no_types, SharedList } :: import("../../types/definitions.yo");
 { Environment } :: import("../../env.yo");
 {
@@ -31,14 +31,14 @@
   type_implements_comptime,
   type_implements_runtime_full,
   register_type_trait
-} :: import("../trait_checking.yo");
+} :: import("../trait-checking.yo");
 { get_all_some_types } :: import("../../types/utils.yo");
 { is_some_type } :: import("../../types/guards.yo");
 { Exception } :: import("std/error");
 { Token } :: import("../../token.yo");
 { format_error_message } :: import("../../error.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
+{ is_implicitly_unsafe_capable_file } :: import("../memory-safety.yo");
 // ---------------------------------------------------------------------------
 // Helpers: check all field types for a trait
 // ---------------------------------------------------------------------------
@@ -101,7 +101,7 @@ _all_fields_implement_runtime :: (fn(field_types : &ArrayList(TypeValue), env : 
 /// `auto_derive_traits_for_enum_type`, for an enum over its variant fields).
 ///
 /// `begin_send_derivation` / `end_send_derivation` are called here so
-/// struct.yo does not need to import trait_checking.yo directly.
+/// struct.yo does not need to import trait-checking.yo directly.
 auto_derive_traits_for_struct_type :: (
   fn(
     struct_id : &String,
@@ -242,7 +242,7 @@ auto_derive_traits_for_union_type :: (
 /// via Option(Self)).
 ///
 /// Lives HERE (not struct.yo) to keep struct.yo free of a direct
-/// trait_checking.yo import, the same routing choice as the
+/// trait-checking.yo import, the same routing choice as the
 /// begin/end_send_derivation bracket.
 enforce_atomic_object_send :: (
   fn(

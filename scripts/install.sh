@@ -558,7 +558,7 @@ is_musl() {
 
 # The published asset name for this host, in canonical target-triple form
 # (plans/reference/RELEASE_ASSET_TRIPLES.md). Kept in step with
-# scripts/release_asset_triple.sh and src/version_cache.yo — this file is
+# scripts/release_asset_triple.sh and src/version-cache.yo — this file is
 # fetched standalone over HTTP, so it cannot source either of them.
 host_triple() {
   case "$OSNAME-$arch" in

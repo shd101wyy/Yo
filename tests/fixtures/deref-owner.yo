@@ -1,0 +1,70 @@
+//! An owner whose view is built from raw parts (VERDICTS-63 §7): `_RawBuf`
+//! holds four slots and a length, and its `[i32]` view is the first `n`
+//! slots, so the view's `len` and the owner's `len` (the capacity) differ.
+//! Building a view from a pointer and a length needs an unsafe-capable file;
+//! the tests (tests/deref-owner.test.yo) name the owner from a safe one.
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+RawBuf :: struct(items : Array(i32, 4), n : usize);
+impl(
+  RawBuf,
+  /// The owner's own `len`: its capacity, which the view does not have.
+  len : (fn(self : &Self) -> usize)(usize(4)),
+  push : (fn(self : &mut Self, v : i32) -> unit)({
+    self.items(self.n) = v;
+    self.n = (self.n + usize(1));
+  })
+);
+impl(
+  RawBuf,
+  Deref(
+    Target : [i32],
+    // SAFETY: the first `n` slots of `items` are initialized, and the view
+    // borrows `self`.
+    deref : (fn(self : &Self) -> &Self.Target)({
+      p := unsafe(__yo_slice_ptr(unsize(&self.items)));
+      part := unsafe(__yo_slice_from_raw_parts(p, self.n));
+      &part.*
+    })
+  )
+);
+impl(
+  RawBuf,
+  DerefMut(
+    Target : [i32],
+    // SAFETY: as `deref`, lent exclusively.
+    deref_mut : (fn(self : &mut Self) -> &mut Self.Target)({
+      p := unsafe(__yo_slice_ptr(unsize(&mut self.items)));
+      part := unsafe(__yo_slice_from_raw_parts(p, self.n));
+      &mut part.*
+    })
+  )
+);
+raw_buf :: (fn(n : usize) -> RawBuf)(RawBuf(items : Array(i32, 4)(1, 2, 3, 4), n : n));
+/// The sum of a view's elements.
+view_sum :: (fn(xs : &[i32]) -> i32)({
+  p := unsafe(__yo_slice_ptr(xs));
+  mut(t) := i32(0);
+  mut(i) := usize(0);
+  while(i < xs.len(), i = (i + usize(1)), {
+    // SAFETY: `i < xs.len()`.
+    t = (t + unsafe(p.add(i).*));
+  });
+  t
+});
+/// Writes `v` at `i` of a view.
+view_set :: (fn(xs : &mut [i32], i : usize, v : i32) -> unit)({
+  assert(i < xs.len(), "in bounds");
+  p := unsafe(__yo_slice_ptr(xs));
+  // SAFETY: `i < xs.len()`, and the view is lent exclusively.
+  unsafe(p.add(i).* = v);
+});
+/// A view method that writes: reached through `DerefMut`.
+ZeroFirst :: trait(zero_first : (fn(self : &mut Self) -> unit));
+impl(
+  [i32],
+  ZeroFirst(
+    zero_first : (fn(self : &mut Self) -> unit)(view_set(self, usize(0), i32(0)))
+  )
+);
+export(RawBuf, raw_buf, view_sum, view_set, ZeroFirst);

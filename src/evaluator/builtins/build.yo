@@ -19,9 +19,9 @@
 //! `take_build_registry` hands out.
 { String } :: import("std/string");
 { env : proc_env } :: import("std/env");
-{ record_env_read } :: import("../../input_record.yo");
-{ ArrayList } :: import("std/collections/array_list");
-{ HashMap } :: import("std/collections/hash_map");
+{ record_env_read } :: import("../../input-record.yo");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashMap } :: import("std/collections/hash-map");
 { RefCell } :: import("std/sync/refcell");
 { replace } :: import("std/mem");
 { AnyError, Exception } :: import("std/error");
@@ -55,7 +55,7 @@
   BF_YO_BUILD_VERIFY,
   BF_YO_BUILD_MANIFEST_FIELD
 } :: import("../../expr.yo");
-{ new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
+{ new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr-info.yo");
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, EvalValueNode } :: import("../../value.yo");
@@ -81,7 +81,7 @@ BuildArtifact :: struct(
   /// REQUIRED, not defaulted: `?=` needs a compile-time-known value and
   /// `String.new()` is a runtime call ("Expected compile-time known value
   /// for default value"). So every BuildArtifact literal must pass it —
-  /// including the one in tests/internal/build_runner.test.yo.
+  /// including the one in tests/internal/build-runner.test.yo.
   emit_c_to : String,
   /// Split the emitted C into this many translation units (0 = off). See
   /// plans/reference/CHUNKED_C_EMISSION.md. Same "must be passed explicitly" caveat
@@ -707,7 +707,7 @@ restore_build_registry :: (fn(sink(saved) : SavedBuildRegistry) -> BuildRegistry
 // evaluate_yo_build_functions
 // ---------------------------------------------------------------------------
 /// Read arg `idx`'s resolved comptime value from the expr-info table.
-/// Args are pre-evaluated by the `_expr.yo` dispatch before this runs.
+/// Args are pre-evaluated by the `dispatch.yo` dispatch before this runs.
 _build_arg_value :: (
   fn(args : &ArrayList(AstExpr), idx : usize, ctx : &EvalContext) -> Option(EvalValue)
 )(

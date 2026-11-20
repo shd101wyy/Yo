@@ -6,13 +6,13 @@
 //! NOTE: this evaluator does NOT itself check that we are in a `given`
 //! handler — that constraint is enforced at the FunctionValue-creation sites
 //! (the §4 rule-1 post-eval gate keyed on `is_control`, in
-//! values/anonymous_function.yo and calls/function_type.yo). It must not
+//! values/anonymous-function.yo and calls/function-type.yo). It must not
 //! gate on `ctx.is_inside_given_handler` either: a former compensating
 //! control there wrongly threw during definition-time body eval of
 //! plain-`:=` handlers.
 { replace } :: import("std/mem");
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 import("std/fmt");
 {
   AstExpr,
@@ -30,7 +30,7 @@ import("std/fmt");
   expr_info_table_set,
   ControlFlowKind,
   control_flow_of
-} :: import("../../expr_info.yo");
+} :: import("../../expr-info.yo");
 { Environment } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -129,7 +129,7 @@ evaluate_unwind :: (
   // (No `is_inside_given_handler` gate: only the enclosing-function check
   // happens here. "unwind is valid only in a `ctl(...)` body" is enforced at
   // the FunctionValue CREATION site — the §4 rule-1 post-eval gate keyed on
-  // `is_control` (values/anonymous_function.yo / calls/function_type.yo). A
+  // `is_control` (values/anonymous-function.yo / calls/function-type.yo). A
   // former compensating gate here threw during DEFINITION-TIME body eval of a
   // plain `exn := Exception(throw : (err) -> unwind(...))` handler — where
   // `is_inside_given_handler` is false (only set for `given(exn) :=`) — aborting before the

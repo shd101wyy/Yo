@@ -231,7 +231,7 @@ std 导入行、在 `}` 前插入 `;`；见 `ERROR_DIAGNOSTICS.md`）。该操�
 | `src/lsp/references.yo`       | `textDocument/references`、`documentHighlight` 与出现位置遍历 |
 | `src/lsp/rename.yo`           | `textDocument/rename` 与 `prepareRename`          |
 | `src/lsp/symbols.yo`          | `textDocument/documentSymbol`、`workspace/symbol` 与 `implementation` |
-| `src/lsp/signature_help.yo`   | `textDocument/signatureHelp`                     |
+| `src/lsp/signature-help.yo`   | `textDocument/signatureHelp`                     |
 | `src/lsp/folding.yo`          | `textDocument/foldingRange` 与 `semanticTokens`  |
 
 ## 测试
@@ -243,5 +243,5 @@ stdin 向 `yo lsp` 输入带帧的 JSON-RPC，并把带帧的回复与记录的 
 `framing=strict`），正是曾让所有 Windows 客户端失效的那一类问题。
 `scripts/lsp-strict-handshake.py` 对任意 `yo` 二进制驱动同样的严格会话，并在发布
 工作流的 Windows bundle 冒烟环节运行。纯函数辅助（URI 转换、位置编码）和分析状态
-保证由 `tests/internal/lsp_protocol.test.yo` 覆盖；模块失效由
-`tests/internal/module_invalidation.test.yo` 覆盖。
+保证由 `tests/internal/lsp-protocol.test.yo` 覆盖；模块失效由
+`tests/internal/module-invalidation.test.yo` 覆盖。

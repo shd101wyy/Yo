@@ -14,8 +14,8 @@
 //! Split of the former monolithic `type.yo` (Phase A.3.3): `definitions.yo`
 //! holds the TypeValue enum, this file the constructors.
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
-{ HashMap } :: import("std/collections/hash_map");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashMap } :: import("std/collections/hash-map");
 { some_t_bounds, trait_t_body, TypeValue, TypeValueNode, FuncMeta, SharedList, shared_list, no_types, no_labels, no_levels, t_refine_inner, t_reference, t_slot_pointee, t_slot_with_pointee, t_origin_elided } :: import("./definitions.yo");
 { TypeTag } :: import("./tags.yo");
 { type_to_string, bump_type_key_epoch } :: import("./string.yo");
@@ -324,7 +324,7 @@ t_type_app :: (fn(constructor : &TypeValue, sink(args) : ArrayList(TypeValue)) -
 /// which is fixed when the trait is built. NOT its printed name: a trait is
 /// named by its binding AFTER construction, so a `Dyn(SelfTrait)` captured
 /// while the trait is being defined sees it nameless, and a name key sorted
-/// the one `Dyn` two ways (two C types; tests/error_source_chain.test.yo).
+/// the one `Dyn` two ways (two C types; tests/error-source-chain.test.yo).
 /// The printed form breaks ties between instances of one generic trait and
 /// orders the id-less `Fn` traits.
 _dyn_trait_sort_key :: (fn(t : &TypeValue) -> String)({
@@ -914,8 +914,8 @@ resolve_enum_shell :: (fn(t : &TypeValue) -> TypeValue)(
 // names `K` without depending on it: `B(n : _Discard(K))`, `_k :: K`, a
 // variant labelled `K`). The trial runs before any call can (a call needs the
 // definition's value), so every instantiation reads the same record. Written
-// once per constructor (calls/function_type.yo), read at the stamp
-// (calls/comptime_fn.yo); a constructor with no record, or a position past
+// once per constructor (calls/function-type.yo), read at the stamp
+// (calls/comptime-fn.yo); a constructor with no record, or a position past
 // it (a variadic argument), counts as phantom
 // (issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md).
 (g_ctor_phantom_positions : RefCell(HashMap(String, ArrayList(bool)))) = RefCell(HashMap(String, ArrayList(bool))).new(HashMap(String, ArrayList(bool)).new());
@@ -1070,7 +1070,7 @@ clear_type_binding_names :: (fn() -> unit)({
 /// Impl-level generic VALUE-binder kinds (`N : usize` in
 /// `impl(generic(T : Type, N : usize), ...)`), registered SYNTACTICALLY at
 /// impl evaluation (evaluator/values/impl.yo) and consumed by
-/// `_build_def_time_body_env`'s capture copy (calls/function_type.yo).
+/// `_build_def_time_body_env`'s capture copy (calls/function-type.yo).
 /// The binder must stay `TypeVal(SomeT)` in the impl's forall env — that
 /// binding is load-bearing for receiver-pattern evaluation (`Array(T, N)`)
 /// — but a def-time BODY env must see an unknown VALUE of the declared

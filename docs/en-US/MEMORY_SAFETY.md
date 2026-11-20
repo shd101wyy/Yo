@@ -30,7 +30,7 @@ Everything you'd expect from a modern general-purpose language:
 This is the default user experience. No pragma needed, no `addr_of(...)` calls, no `*(T)` types, no `unsafe(...)` wraps:
 
 ```yo
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 
 main :: (fn() -> unit)({
   mut(list) := ArrayList(i32).new();
@@ -136,7 +136,7 @@ The walkthrough of these rules is in [FLOWABILITY.md](./FLOWABILITY.md); you don
 An explicit allocator decides **where** a block lives. Reference counting still decides **when** it dies. An object placed by an explicit allocator is released the moment its last reference goes away, exactly like any other object, and the release is routed back to the allocator that made it: every block carries its owner in a 16-byte prefix, so there is no way to free it into the wrong allocator.
 
 ```yo
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 
 Point :: struct(x : i32, y : i32);
 
@@ -317,7 +317,7 @@ Top extern callees (by unsafe-wrapped call-site count):
      ...
 
 Findings (file:line:col):
-  std/collections/array_list.yo:521:24: unsafe(arith) — .Some(_ptr) => unsafe(_ptr.add(pos)),
+  std/collections/array-list.yo:521:24: unsafe(arith) — .Some(_ptr) => unsafe(_ptr.add(pos)),
     SAFETY: assert above bounds `pos < self._length` and the
   ...
 ```

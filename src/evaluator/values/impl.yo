@@ -20,8 +20,8 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
 { panic } :: import("std/assert");
-{ ArrayList } :: import("std/collections/array_list");
-{ HashMap } :: import("std/collections/hash_map");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashMap } :: import("std/collections/hash-map");
 { replace } :: import("std/mem");
 {
   AstExpr,
@@ -41,7 +41,7 @@ pragma(Pragma.AllowUnsafe);
   BK_TUPLE,
   is_maybe_sized_kind_spelling
 } :: import("../../expr.yo");
-{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, lookup_trait_ctor_fid, lookup_trait_type_args, struct_effective_ctor_fid, take_active_where_trait_ids, restore_active_where_trait_ids, expr_info_adopt_env, some_resolution } :: import("../../expr_info.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, lookup_trait_ctor_fid, lookup_trait_type_args, struct_effective_ctor_fid, take_active_where_trait_ids, restore_active_where_trait_ids, expr_info_adopt_env, some_resolution } :: import("../../expr-info.yo");
 {
   Environment,
   Variable,
@@ -90,19 +90,19 @@ pragma(Pragma.AllowUnsafe);
   registration_owner,
   owner_visible_from_current,
   visibility_report_enabled
-} :: import("./type_trait_methods.yo");
+} :: import("./type-trait-methods.yo");
 { register_impl_inheritance_task, register_impl_variance_task } :: import("../builtins/contracts.yo");
 { some_t_bounds, FuncMeta, TypeValue, TypeValueNode, t_refine_inner, no_types, no_flags, shared_list, SharedList, fn_param_mut_ref_at, fn_param_by_value_at, slot_pointee_at, t_slot_pointee, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_result_is_ref, fn_result_origin_names, fn_param_slots, fn_param_in_result_origin, t_slot_is_borrow, t_origin_kind, t_origin_named, t_maybe_sized_kind, is_maybe_sized_kind, fn_result_slot, fn_result_composite_origin_names, fn_param_pointee_in_result_origin, t_slot_is_by_value } :: import("../../types/definitions.yo");
 { type_to_string, type_key_epoch } :: import("../../types/string.yo");
 { t_unit, t_type, t_some_t, t_some_t_of_kind, t_usize, register_some_binder_kind, clear_some_binder_kind, generate_some_type_id, enum_phantom_positions } :: import("../../types/creators.yo");
 { is_some_type, is_function_type, is_expr_type, is_type_hierarchy_type, is_future_trait_type, is_fn_trait_type, cell_handle_view, is_type_0 } :: import("../../types/guards.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
-{ is_implicitly_unsafe_capable_file, is_prelude_or_generated_file, is_std_module_path } :: import("../memory_safety.yo");
+{ is_implicitly_unsafe_capable_file, is_prelude_or_generated_file, is_std_module_path } :: import("../memory-safety.yo");
 { Substitution, subst_new, subst_add, subst_add_len_var, subst_set_self, substitute, _subst_clone } :: import("../../types/substitution.yo");
 { get_all_some_types, fn_param_origins_narrower, type_mentions_some_type, is_bound_closure_identity, resolve_cell_chain, is_value_nominal_type, note_move_only_possible, bump_trait_impl_epoch, trait_impl_epoch, fn_param_is_ptr_borrow, type_is_sized, type_carries_origin, is_legacy_value_str, legacy_value_str } :: import("../../types/utils.yo");
-{ type_key, _tk_resolve_arg_slot, TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_identity_cacheable, type_key_memo_check_enabled } :: import("../../types/type_key.yo");
+{ type_key, _tk_resolve_arg_slot, TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_identity_cacheable, type_key_memo_check_enabled } :: import("../../types/type-key.yo");
 { stable_func_id, debug_knob, display_module_path, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take, parse_raw_int } :: import("../../utils.yo");
-{ register_func_type } :: import("../../function_value.yo");
+{ register_func_type } :: import("../../function-value.yo");
 { EvalValue, EvalValueNode, FuncValData, create_type_value, create_unknown_val, lookup_enum_cfid, no_values, shared_values } :: import("../../value.yo");
 {
   EvalContext,
@@ -149,12 +149,12 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../context.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { note_legacy_str_spelling } :: import("../utils.yo");
-{ evaluate_anonymous_module_begin_exprs } :: import("./anonymous_module.yo");
+{ evaluate_anonymous_module_begin_exprs } :: import("./anonymous-module.yo");
 { format_error_message, render_any_error, reanchor_primary_at, YoError, with_code, format_error_message_with_help } :: import("../../error.yo");
 { E_WRITE_THROUGH_BORROW, E_ORIGIN_MISMATCH, E_DEREF_IMPL_SIZED_TARGET } :: import("../../diagnostics.yo");
 { propagate_def_time_errors } :: import("../../types/flowability.yo");
 { Token } :: import("../../token.yo");
-{ get_value_of_some_type_from_env, get_trait_type_from_env } :: import("../../types/env_lookup.yo");
+{ get_value_of_some_type_from_env, get_trait_type_from_env } :: import("../../types/env-lookup.yo");
 { synthesize_types, SynthesizeOptions, TypePair }
 :: import("../types/synthesizer.yo");
 { Exception, AnyError } :: import("std/error");
@@ -268,11 +268,11 @@ _stamp_impl_forall_on_method :: (fn(v : &EvalValue, names : &ArrayList(String)) 
 // resolution.
 //
 // A function-pointer slot (`g_type_implements_trait_full_fn`) is provided as
-// an indirection back to `trait_checking.yo:type_implements_trait` to
-// break the natural circular dependency — trait_checking.yo imports the
+// an indirection back to `trait-checking.yo:type_implements_trait` to
+// break the natural circular dependency — trait-checking.yo imports the
 // registry to check matches, but the registry needs the trait checker to
 // validate where-clause constraints (and to BIND where-clause-only generic
-// params). trait_checking.yo installs the pointer in its init block via
+// params). trait-checking.yo installs the pointer in its init block via
 // `set_type_implements_trait_full_fn`.
 // ---------------------------------------------------------------------------
 /// One registered generic impl.
@@ -323,7 +323,7 @@ ConcreteTraitImpl :: struct(base_key : String, receiver_ty : TypeValue, trait_ty
 (g_impl_registry_entry_lists : RefCell(ArrayList(ArrayList(GenericImplEntry)))) = RefCell(ArrayList(ArrayList(GenericImplEntry))).new(ArrayList(ArrayList(GenericImplEntry)).new());
 // Owner tags, bucket-parallel to `g_impl_registry_entry_lists` (same outer
 // AND inner index): the `file://` module path whose evaluation registered
-// each entry, from `registration_owner()` (type_trait_methods.yo). `""` =
+// each entry, from `registration_owner()` (type-trait-methods.yo). `""` =
 // registered outside any module load, never purged. Enables
 // `purge_generic_impls_owned_by` — LSP re-analysis must not leak a registry
 // generation per edit (plans/reference/INCREMENTAL_COMPILATION.md Phase B2), and
@@ -336,7 +336,7 @@ ConcreteTraitImpl :: struct(base_key : String, receiver_ty : TypeValue, trait_ty
 (g_ctor_concrete_methods : RefCell(ArrayList(_CtorConcreteMethod))) = RefCell(ArrayList(_CtorConcreteMethod)).new(ArrayList(_CtorConcreteMethod).new());
 (g_ctor_method_cache : RefCell(HashMap(String, _CtorMethodCacheEntry))) = RefCell(HashMap(String, _CtorMethodCacheEntry)).new(HashMap(String, _CtorMethodCacheEntry).new());
 /// ENV-THREADING variant of the hook. `TraitCheckResult` lives in
-/// trait_checking.yo (importing it here would be circular), so the adapter
+/// trait-checking.yo (importing it here would be circular), so the adapter
 /// writes the post-constraint bindings into the caller's env IN PLACE and
 /// returns the implemented flag. `try_match_generic_impl`'s where-constraint pass needs
 /// the env: trait satisfaction is what BINDS a generic param that appears
@@ -355,14 +355,14 @@ derive(ConcreteTraitImpl, Clone);
 set_type_implements_trait_full_fn :: (fn(f : TypeImplementsTraitFullFn) -> unit)({
   g_type_implements_trait_full_fn = Option(TypeImplementsTraitFullFn).Some(f);
 });
-/// Type of `register_type_trait_value` from trait_checking.yo. Records that a
+/// Type of `register_type_trait_value` from trait-checking.yo. Records that a
 /// type implements a trait VALUE (by its base id) so `Type.impls(T, Trait)`
 /// resolves at trait-checking step 4. Routed via a function pointer to break the
-/// impl.yo ↔ trait_checking.yo import cycle (same pattern as above).
+/// impl.yo ↔ trait-checking.yo import cycle (same pattern as above).
 RegisterTraitValueFn :: (fn(type_id : &String, trait_ty : &TypeValue) -> unit);
 (mut(g_register_trait_value_fn) : Option(RegisterTraitValueFn)) =
   Option(RegisterTraitValueFn).None;
-/// Install the function pointer (called from trait_checking.yo init block).
+/// Install the function pointer (called from trait-checking.yo init block).
 set_register_trait_value_fn :: (fn(f : RegisterTraitValueFn) -> unit)({
   g_register_trait_value_fn = Option(RegisterTraitValueFn).Some(f);
 });
@@ -376,7 +376,7 @@ set_register_trait_value_fn :: (fn(f : RegisterTraitValueFn) -> unit)({
 (g_hand_written_clone_sites : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 /// The hand-written `Clone` impls outside std, by the same site keys: the
 /// impls whose `clone()` runs user code. E0916's structural-clone exemption
-/// (`type_clone_runs_no_user_code`, trait_checking.yo) refuses a `mut(G)`
+/// (`type_clone_runs_no_user_code`, trait-checking.yo) refuses a `mut(G)`
 /// global's `G.clone()` that reaches one of them.
 (g_user_clone_sites : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 /// Does `ty` have a hand-written `Clone` impl outside std: its concrete impl,
@@ -409,20 +409,20 @@ type_has_user_clone_impl :: (fn(ty : &TypeValue, clone_tt : &TypeValue) -> bool)
   });
   false
 });
-/// Type of `check_self_constraints_violation_msg` from trait_checking.yo:
+/// Type of `check_self_constraints_violation_msg` from trait-checking.yo:
 /// `.Some(error message)` when `target_type` may not implement `trait_ty` (a
 /// `Drop` on a primitive) or violates a positive or negative
 /// selfConstraint on it, `.None` when satisfied. Routed via a function pointer to
-/// break the impl.yo ↔ trait_checking.yo import cycle (same pattern as above);
+/// break the impl.yo ↔ trait-checking.yo import cycle (same pattern as above);
 /// the caller throws with its own token/exn, invoking it per trait entry.
 CheckSelfConstraintsFn :: (fn(target_type : &TypeValue, trait_ty : &TypeValue, env : &Environment) -> Option(String));
 (mut(g_check_self_constraints_fn) : Option(CheckSelfConstraintsFn)) =
   Option(CheckSelfConstraintsFn).None;
-/// Install the function pointer (called from trait_checking.yo init block).
+/// Install the function pointer (called from trait-checking.yo init block).
 set_check_self_constraints_fn :: (fn(f : CheckSelfConstraintsFn) -> unit)({
   g_check_self_constraints_fn = Option(CheckSelfConstraintsFn).Some(f);
 });
-/// `receiver_kind_trait_violation_msg` from trait_checking.yo: `.Some(error
+/// `receiver_kind_trait_violation_msg` from trait-checking.yo: `.Some(error
 /// message)` when `trait_ty` is `Drop` and
 /// `target_type` is not a receiver that trait accepts. The GENERIC impl path
 /// calls it on the receiver pattern (it does not run the full selfConstraint
@@ -431,10 +431,10 @@ set_check_self_constraints_fn :: (fn(f : CheckSelfConstraintsFn) -> unit)({
 /// type arguments (a `cond` over a type parameter in a type constructor is
 /// rejected when the pattern is evaluated), so the pattern check covers every
 /// instantiation. Same function-pointer routing as above: impl.yo cannot
-/// import trait_checking.yo.
+/// import trait-checking.yo.
 (mut(g_receiver_kind_trait_fn) : Option(CheckSelfConstraintsFn)) =
   Option(CheckSelfConstraintsFn).None;
-/// Install the function pointer (called from trait_checking.yo init block).
+/// Install the function pointer (called from trait-checking.yo init block).
 set_receiver_kind_trait_fn :: (fn(f : CheckSelfConstraintsFn) -> unit)({
   g_receiver_kind_trait_fn = Option(CheckSelfConstraintsFn).Some(f);
 });
@@ -443,8 +443,8 @@ set_receiver_kind_trait_fn :: (fn(f : CheckSelfConstraintsFn) -> unit)({
 // ---------------------------------------------------------------------------
 /// Set of `${typeId}:${traitId}` keys currently being registered.
 /// Lives in impl.yo (not
-/// trait_checking.yo) so the impl evaluator can mark/unmark without
-/// a circular import; trait_checking.yo re-exports thin wrappers.
+/// trait-checking.yo) so the impl evaluator can mark/unmark without
+/// a circular import; trait-checking.yo re-exports thin wrappers.
 ///
 /// Used to handle recursive types — e.g. `derive(TreeNode, Clone)`
 /// where `Rc(TreeNode)` Clone-impl validation needs to see
@@ -673,7 +673,7 @@ derive(MoveOnlyDecl, Clone);
 /// `type_key` → answer; cleared whenever a declaration is added or purged.
 (g_move_only_memo : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 /// The identity front cache of `g_move_only_memo` (see `type_identity_slot`,
-/// types/type_key.yo): handles sorted by address, their answers, and the
+/// types/type-key.yo): handles sorted by address, their answers, and the
 /// type-key epoch they were keyed in. Cleared with the memo.
 (g_move_only_fast : RefCell(ArrayList(TypeValue))) = RefCell(ArrayList(TypeValue)).new(ArrayList(TypeValue).new());
 (g_move_only_fast_answers : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
@@ -784,7 +784,7 @@ generic_impl_entry_count :: (fn() -> usize)({
 /// binder named `binder_name` carries (one entry per such binder). A
 /// where-bound restated on several methods must be recorded once
 /// (`_wcc_has_trait`, src/evaluator/types/function.yo); read by
-/// tests/internal/type_trait_methods.test.yo.
+/// tests/internal/type-trait-methods.test.yo.
 generic_impl_binder_bound_counts :: (fn(binder_name : &String) -> ArrayList(usize))({
   out := ArrayList(usize).new();
   (ki : usize) = usize(0);
@@ -985,7 +985,7 @@ _resolve_one_forall_binding :: (
   // concrete-only rule stays — derive validation and specialization body
   // evals produce stamps codegen consumes directly, and an abstract match
   // there minted an abstract-keyed spec the emitter skips while the call
-  // site still emits it (tests/derive_clone_complex.test.yo 'call to
+  // site still emits it (tests/derive-clone-complex.test.yo 'call to
   // undeclared function', measured; std/string module eval broke under the
   // unscoped name channel too).
   bt_id := match(&bound_type, Rc(.SomeT({ id : __bti })) => __bti.clone(), _ => String.from(""));
@@ -1273,7 +1273,7 @@ _bind_forall_from_type_args :: (
   // parameter that a payload mentions is bound, or deliberately left open,
   // by field synthesis. Binding `Option(T)`'s `T` from an `Impl(Future(...))`
   // argument made `Option(typeof(fut)).Some(fut)` comptime-only and failed a
-  // 61-test batch of tests/async_await.test.yo
+  // 61-test batch of tests/async-await.test.yo
   // (issues/fixed/an-option-of-an-io-async-future-is-judged-comptime-only.md).
   enum_phantom := match(
     pattern,
@@ -1306,7 +1306,7 @@ _bind_forall_from_type_args :: (
       match(
         con_ta.get(j),
         // `Unit` in a type_arguments slot is the NON-TYPE-ARG placeholder
-        // (comptime_fn.yo inst_type_args pads value args with Unit so
+        // (comptime-fn.yo inst_type_args pads value args with Unit so
         // positions line up) — never a real binding. Binding a forall to it
         // specialized `_find_bucket` with `key : unit` under the HashMap
         // Clone-impl trial and the sibling `set` re-eval swallowed
@@ -2042,7 +2042,7 @@ try_match_generic_impl :: (
   // DEF-time trials must not make DURABLE registrations: a trial-time
   // abstract match (the trial-scoped acceptance above) registering assoc
   // types under the trial receiver's id redirected BATCH-time resolution —
-  // tests/collections/btree_map.test.yo's main lost the `for(m.iter())`
+  // tests/collections/btree-map.test.yo's main lost the `for(m.iter())`
   // closure arg's ExprInfo (repair 1 of
   // issues/fixed/def-eval-swallow-remaining-roots.md).
   if(all_bound && !_abstract_bindings_ok(), {
@@ -3017,7 +3017,7 @@ _find_methods_from_generic_impls_scan :: (
         if(mb_opt.is_some() && !owner_visible_from_current(fmg_owner.clone()), {
           if(visibility_report_enabled(), {
             // YO_VISIBILITY_REPORT=1: enumerate instead of rejecting (see
-            // type_trait_methods.yo).
+            // type-trait-methods.yo).
             eprintln(`[visibility] ${registration_owner()} cannot see generic .${method_name} registered by ${fmg_owner}`);
           }, {
             fmg_hidden = true;
@@ -3218,7 +3218,7 @@ _find_methods_from_generic_impls_scan :: (
 // results across envs with weaker keys.
 //
 // A hit returns the STORED list: read-only by contract. Every caller was
-// audited when this landed (property_access.yo ×4, collection.yo ×2, and the
+// audited when this landed (property-access.yo ×4, collection.yo ×2, and the
 // env.yo adapter, which projects into a fresh `MethodEntry` list) — none
 // mutates it.
 (g_fmg_method_cache : RefCell(HashMap(String, ArrayList(MethodCandidate)))) = RefCell(HashMap(String, ArrayList(MethodCandidate))).new(HashMap(String, ArrayList(MethodCandidate)).new());
@@ -4220,7 +4220,7 @@ _substitute_self_in_method_ty :: (
 /// The body is a FUNCTION BODY and must be evaluated as one: `fn_ty` (the
 /// Self-substituted method type) and `fn_id` build the same
 /// `create_function_body_evaluation_context` every other def-time body eval
-/// uses (`_trial_eval_fn_body`, closure_type.yo, anonymous_function.yo).
+/// uses (`_trial_eval_fn_body`, closure-type.yo, anonymous-function.yo).
 /// Evaluating it under the IMPL's ambient context instead — which is what this
 /// helper did before — left two things unset, and both were silently swallowed
 /// here:
@@ -4262,7 +4262,7 @@ _materialize_default_body :: (
   );
   // A separate preliminary FuncVal for the body-eval context (EvalValue is not
   // Clone and the caller still needs the registered one). Same pattern as
-  // anonymous_function.yo's `body_ctx_func_val`.
+  // anonymous-function.yo's `body_ctx_func_val`.
   body_ctx_fv := Rc.new(
     EvalValueNode.FuncVal(
       Rc.new(
@@ -4285,12 +4285,12 @@ _materialize_default_body :: (
   // in_def_time_trial flag is set/restored AT THE CALL SITES (a swallowed
   // error unwinds out of this helper, skipping any in-fn restore).
   // As a FUNCTION BODY, through the begin machinery like every other
-  // def-time body eval (`_trial_eval_fn_body`, calls/function_type.yo): a
+  // def-time body eval (`_trial_eval_fn_body`, calls/function-type.yo): a
   // non-begin body is treated as a one-statement begin, so a bare
   // `(self -> return(...))` default finds `return`, which only a begin
   // recognises. Evaluated raw, it threw `Variable "return" not found` — once
   // swallowed (the shared default took over), a compile error since the
-  // Phase 6 re-raise (tests/async_trait_default_await.test.yo).
+  // Phase 6 re-raise (tests/async-trait-default-await.test.yo).
   evaluated := call_evaluate_fn_body(body, env, &mut body_ctx, inner_exn);
   out.push(evaluated);
 });
@@ -4815,7 +4815,7 @@ _c3_eval_colon_pair :: (
           // impl method as hard-generic and skip its emission —
           // while the call site still emitted the direct
           // `fn_<fid>` call ('call to undeclared function',
-          // prelude arm 1 / assigned_param_overload_select.yo).
+          // prelude arm 1 / assigned-param-overload-select.yo).
           // The default-method path already does this
           // (register_func_type at the d_fresh mint above); this
           // is the colon-pair-method twin.
@@ -6513,7 +6513,7 @@ evaluate_module_value :: (
         // signature while the real FuncVal is still being evaluated. Without
         // it the lookup misses, the call degrades to the non-Func unit
         // fallback, and codegen emits an argument-less void call
-        // (tests/derive_clone_complex.test.yo). Entries carry `value : None`
+        // (tests/derive-clone-complex.test.yo). Entries carry `value : None`
         // (the real value is still being evaluated during the window) and are
         // cleared right after the member loop.
         match(
@@ -7018,7 +7018,7 @@ _find_methods_from_generic_impls_as_method_entries :: (
 });
 // Install the adapter as env.yo's generic-impl-fallback callback.
 // Runs once at module-init time (same pattern as
-// `_trait_checking_init` in `evaluator/trait_checking.yo:1079`).
+// `_trait_checking_init` in `evaluator/trait-checking.yo:1079`).
 _impl_generic_impl_fallback_init := (fn() -> bool)({
   set_find_methods_from_generic_impls_fn(
     _find_methods_from_generic_impls_as_method_entries
@@ -7411,7 +7411,7 @@ note_generic_move_only_impl :: (fn(entry : &GenericImplEntry) -> unit)({
 // ---------------------------------------------------------------------------
 // Copy and Clone (plans/VALUES_BY_DEFAULT.md decision 36)
 // ---------------------------------------------------------------------------
-/// Does the trait-implementation predicate (trait_checking.yo, installed at
+/// Does the trait-implementation predicate (trait-checking.yo, installed at
 /// init) say `ty <: trait_ty`? Asked on a private env snapshot: the adapter
 /// writes the bindings a match produced back into the env it is given.
 _implements_via_hook :: (fn(ty : &TypeValue, trait_ty : &TypeValue, env : &Environment) -> bool)(
@@ -7574,7 +7574,7 @@ _try_generic_copy_clone_exclusion :: (fn(entry : &GenericImplEntry, trait_tok : 
 /// Is an impl of `trait_ty` written for `ty`'s shape: a concrete impl of
 /// `ty` itself, or a generic impl whose receiver pattern matches `ty` with
 /// its where-clause not enforced (the prelude's `Option(T)` `Copy` impl, for
-/// `Option(Point)`)? `YO_AUDIT_COPY_TRAIT` (trait_checking.yo,
+/// `Option(Point)`)? `YO_AUDIT_COPY_TRAIT` (trait-checking.yo,
 /// `copy_trait_blockers`) tells a type that lacks `Copy` from one whose
 /// conditional `Copy` fails at a type argument.
 type_has_impl_shape_for :: (fn(ty : &TypeValue, trait_ty : &TypeValue) -> bool)({

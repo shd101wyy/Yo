@@ -1,7 +1,7 @@
 //! evaluate_extern — handles `extern("Yo", ...)` and `extern("c", ...)`.
 //!
 //! An `extern(...)` call evaluates to a MODULE VALUE, exactly like
-//! `c_include(...)` (see c_include.yo's header): bind it, destructure it, or
+//! `c_include(...)` (see c-include.yo's header): bind it, destructure it, or
 //! write it as a bare statement, which the parser desugars to the glob
 //! `{ ... } :: extern(...)`. plans/reference/C_INCLUDE_EXTERN_MODULE_VALUE.md.
 //!
@@ -22,7 +22,7 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_is_fn_call_of,
   BK_EXTERN
 } :: import("../../expr.yo");
-{ new_expr_info, expr_info_table_set, expr_info_table_get } :: import("../../expr_info.yo");
+{ new_expr_info, expr_info_table_set, expr_info_table_get } :: import("../../expr-info.yo");
 { stable_module_id, fnv1a64 } :: import("../../utils.yo");
 { Environment, Frame, new_frame, add_variable_to_env, frame_truncate_variables, env_adopt } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
@@ -33,10 +33,10 @@ pragma(Pragma.AllowUnsafe);
 { is_type_hierarchy_type } :: import("../../types/guards.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
-{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
+{ is_implicitly_unsafe_capable_file } :: import("../memory-safety.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
 { EvalModuleFieldResult, evaluate_module_field } :: import("../types/record.yo");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 /// The no-origin rule at an `extern` member (plans/backlog/REFERENCES_AND_ORIGINS.md
 /// O4, O10): a parameter's or the result's type, or a non-function member's
 /// type, that carries an origin is E0909. A `&T` / `&mut T` parameter slot
@@ -210,7 +210,7 @@ User code should normally call stdlib wrappers (e.g. functions in
   // Iterate over the field declarations, binding each in the CURRENT frame
   // so a later field can name an earlier one; the bindings are removed again
   // afterwards and the collected labels / types / values become the module
-  // value. (Not a pushed scratch frame — see c_include.yo: a generic
+  // value. (Not a pushed scratch frame — see c-include.yo: a generic
   // parameter's SomeT is keyed on its frame level.)
   field_labels := ArrayList(String).new();
   field_types := ArrayList(TypeValue).new();
@@ -334,7 +334,7 @@ User code should normally call stdlib wrappers (e.g. functions in
     field_idx = (field_idx + usize(1));
   });
   frame_truncate_variables(&scratch_frame, scratch_base);
-  // The module value — see c_include.yo for the id scheme. An `extern`
+  // The module value — see c-include.yo for the id scheme. An `extern`
   // module is not recorded as a c_include module: its globals are not
   // extern-C globals (no header, no reserved-name exemption).
   sns_id := stable_module_id(`source_namespace_extern_${fnv1a64(&env.module_path().*).to_string()}_`, &env.module_path().*);

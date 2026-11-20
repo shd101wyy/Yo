@@ -23,8 +23,8 @@
 //! Variant-shape predicates (`is_int_type`, …) live in `guards.yo`.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
-{ ArrayList, ArrayListIter } :: import("std/collections/array_list");
-{ HashMap } :: import("std/collections/hash_map");
+{ ArrayList, ArrayListIter } :: import("std/collections/array-list");
+{ HashMap } :: import("std/collections/hash-map");
 { RefCell } :: import("std/sync/refcell");
 /// The payload of a `SharedList`: one list, never written after it is built.
 /// It implements no `Clone` of its own, so the only copy of a `SharedList` is
@@ -319,7 +319,7 @@ FuncMeta :: struct(
   /// per-parameter type exprs and the return-type expr live in func-id-keyed SIDE
   /// TABLES registered under that expression's id
   /// (evaluator/types/function.yo). The `::` path re-keys them onto the FuncVal
-  /// id (evaluator/calls/function_type.yo); an ANONYMOUS function checked
+  /// id (evaluator/calls/function-type.yo); an ANONYMOUS function checked
   /// against an expected function type mints its own id and had no way to reach
   /// them, so a `comptime(T) : Type` parameter/return was lost. This
   /// field fixes that: it travels with the type through the same
@@ -441,7 +441,7 @@ TypeValueNode :: enum(
   /// `is_newtype` = true for `newtype(...)`.
   /// `constructor_func_id` is the func id of the comptime
   /// type-constructor that produced this type (set at the comptime-fn call
-  /// site, `evaluator/calls/comptime_fn.yo`). The synthesizer uses
+  /// site, `evaluator/calls/comptime-fn.yo`). The synthesizer uses
   /// it to unify two instantiations of the SAME generic constructor
   /// (`evaluator/types/synthesizer.yo` compares constructor ids).
   /// `""` = unknown origin.
@@ -497,7 +497,7 @@ TypeValueNode :: enum(
     /// instantiation, in constructor-parameter order (`P(i32)` -> `[i32]`;
     /// a non-type argument records `Unit`). The enum twin of
     /// `Struct.type_arguments`, stamped at the comptime-fn call site
-    /// (`evaluator/calls/comptime_fn.yo`). `substitute` rewrites an argument
+    /// (`evaluator/calls/comptime-fn.yo`). `substitute` rewrites an argument
     /// that is a type variable, so a phantom `Tag(K)` at `K := i32` reports
     /// `[i32]`; a compound argument (`*(T)`) keeps its definition-era
     /// spelling, and the payloads are what say `*(u8)`. Empty for a

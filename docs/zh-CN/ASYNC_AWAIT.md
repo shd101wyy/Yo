@@ -655,7 +655,7 @@ export(main);
 ```yo
 { println } :: import("std/fmt");
 { yield } :: import("std/async");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 
 // 把 `n` 不断对半拆分，直到每块都是 1；每处理一块 await 一次。
 count_leaves :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
@@ -713,7 +713,7 @@ spawned or awaited task. That nests the event loop and can deadlock. ...
 ```yo
 { println } :: import("std/fmt");
 { join_all, yield } :: import("std/async");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 
 work :: (fn(id : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
@@ -939,10 +939,10 @@ int main(int argc, char** argv) {
 
 | 平台    | 后端                                            | 文件                    |
 | ------- | ----------------------------------------------- | ----------------------- |
-| Linux   | `io_uring`（内嵌环形层），epoll 回退              | `src/codegen/async/runtime_io_linux.yo`   |
-| macOS   | `kqueue`（kevent 就绪通知 + 同步 pread/pwrite） | `src/codegen/async/runtime_io_macos.yo`   |
-| Windows | I/O 完成端口（IOCP）                            | `src/codegen/async/runtime_io_windows.yo` |
-| WASM    | POSIX I/O（NODERAWFS）+ 定时器队列              | `src/codegen/async/runtime_io_wasm.yo`    |
+| Linux   | `io_uring`（内嵌环形层），epoll 回退              | `src/codegen/async/runtime-io-linux.yo`   |
+| macOS   | `kqueue`（kevent 就绪通知 + 同步 pread/pwrite） | `src/codegen/async/runtime-io-macos.yo`   |
+| Windows | I/O 完成端口（IOCP）                            | `src/codegen/async/runtime-io-windows.yo` |
+| WASM    | POSIX I/O（NODERAWFS）+ 定时器队列              | `src/codegen/async/runtime-io-wasm.yo`    |
 
 #### WASM 异步支持
 

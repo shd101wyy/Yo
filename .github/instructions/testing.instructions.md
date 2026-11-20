@@ -97,7 +97,7 @@ that module's same-directory siblings (E0405 elsewhere —
 exercise the PUBLIC surface. Two shapes reach the private one, both run by
 `yo test <dir>` (CI runs `yo test ./std`):
 
-- **Sibling file** — `std/collections/hash_set.test.yo` beside `hash_set.yo`.
+- **Sibling file** — `std/collections/hash-set.test.yo` beside `hash-set.yo`.
   The runner writes the batch into the test file's own directory, so the
   batch's tokens carry that directory and `set._map` is legal. Import the
   module the way its neighbours do (`import("./hash_set")`).
@@ -137,7 +137,7 @@ in-file tests ship with their module and cost a no-op.
 - `--json` — one JSON object per line: a `test` event per test (`file`, `name`, `status`, `duration_ms`; `message` + `output` on failure) then a `summary` event, no human lines. Read this instead of scraping `✓`/`✗`.
 - `yo test --help` lists every flag; `yo test` takes ONE positional path (a second path is silently ignored)
 - Tests automatically use AddressSanitizer for leak detection.
-- **The test binaries are compiled by whichever `yo` runs `yo test`.** Run by the installed seed, a test gets the SEED's codegen, and LeakSanitizer then reports leaks the tree has already fixed. 2026-09-29: `entry.or_insert_with` in `tests/collections/hash_map.test.yo` leaked a closure's captures under the v0.2.45 seed, which predates #967, and passed under the tree's stage-1. To judge a leak or a codegen change, run the file with the tree's compiler: `YO_STD=$PWD/std <stage-1> test <file> --parallel 1`.
+- **The test binaries are compiled by whichever `yo` runs `yo test`.** Run by the installed seed, a test gets the SEED's codegen, and LeakSanitizer then reports leaks the tree has already fixed. 2026-09-29: `entry.or_insert_with` in `tests/collections/hash-map.test.yo` leaked a closure's captures under the v0.2.45 seed, which predates #967, and passed under the tree's stage-1. To judge a leak or a codegen change, run the file with the tree's compiler: `YO_STD=$PWD/std <stage-1> test <file> --parallel 1`.
 - **A drop-on-escape regression test can be hidden by DEFINITION ORDER.** The escape-drop lists decide whether a drop is still due by comparing source tokens (`_variable_initialized_after_cleanup_point`), so a callee (an awaited wrapper, a fused site) defined ABOVE its caller in the same file can make an escape look earlier than a consumption and hide the drop. Define the callee in another file or BELOW the caller, or the test stays green on the broken compiler (`issues/fixed/2026-11-07-a-fused-block-that-throws-drops-its-by-value-capture-twice.md`: five probes stayed clean until their wrappers moved below the caller).
 
 ## A use-after-free check on macOS: put Apple clang first on `PATH`
@@ -372,7 +372,7 @@ What a round does, so you can predict the row you will land in:
   `scripts/bootstrap/watch_verify.sh` (a live session vs a cold check over a
   scripted edit sequence). If a watch round accepts something a cold
   `yo check` rejects, or the reverse, file it under `issues/` with the edit
-  sequence and add the shape to `tests/internal/check_watch.test.yo`.
+  sequence and add the shape to `tests/internal/check-watch.test.yo`.
 - `--watch-once` is the harness form: paths on stdin (one per line), one
   round, exit code = failures.
 - **An owner purge in `mm_invalidate_document` must cover every cache that
@@ -497,7 +497,7 @@ hardcodes a bit position, a shift amount, or a `1 << k` boundary is a regression
 the whole native suite will pass. Measured 2026-08-27: adding a `>> usize(32)`
 step to `HashMap`/`HashSet`'s power-of-two capacity rounding — correct on the
 hosts — made `with_capacity` round wrong on wasm32, where a shift equal to the
-operand width is undefined. `tests/collections/hash_map.test.yo`'s "rounds up to
+operand width is undefined. `tests/collections/hash-map.test.yo`'s "rounds up to
 power of 2" failed under `--target wasm32-wasip1` while `yo test ./tests` stayed
 green at 3240/3240.
 
@@ -542,7 +542,7 @@ declarations anywhere in `std/` shifts every counter ordered after the insertion
 point by a constant and permutes the `__yo_tN` numbering**, so the `.c` changes
 `sha256` even when the program is provably identical. Measured 2026-08-26 while
 adding six unused methods to `std/string/string.yo`: the shift was a uniform
-+1004, and the numbers appear in `std/collections/array_list.yo` and
++1004, and the numbers appear in `std/collections/array-list.yo` and
 `std/allocator.yo` identifiers too, not just the edited file's.
 
 Compare like this instead — it is strictly stronger than a `sha256` match:
@@ -618,7 +618,7 @@ PHASES=N1 YO=... bash scripts/origins-corpus.sh target                          
   today (the first error's code and a text it contains). `today` mode fails
   when a row's first error changes. A change can be progress or a
   regression: decide which, then re-record the row's `today` column.
-- `tests/origins/model_corpus.test.yo` IS in the fast suite. It runs every
+- `tests/origins/model-corpus.test.yo` IS in the fast suite. It runs every
   row through the reference checker `tests/origins/model.yo` and asserts the
   manifest's `expect` column. A new row needs the fixture, the manifest row
   and a `verdict("<id>", …, "<expect>");` call; the script cross-checks all
@@ -666,9 +666,9 @@ PHASES=N1 YO=... bash scripts/origins-corpus.sh target                          
 
 ## Build system tests
 
-- The build system is covered by `.yo` tests in `tests/internal/`: `build_runner.test.yo`, `lock_file.test.yo`, `resolver.test.yo`, `manifest.test.yo`, `toml_edit.test.yo`, `target.test.yo`, `fetch.test.yo`, `install_command.test.yo`, `cache.test.yo`, `init.test.yo`, `version.test.yo`.
+- The build system is covered by `.yo` tests in `tests/internal/`: `build-runner.test.yo`, `lock-file.test.yo`, `resolver.test.yo`, `manifest.test.yo`, `toml-edit.test.yo`, `target.test.yo`, `fetch.test.yo`, `install-command.test.yo`, `cache.test.yo`, `init.test.yo`, `version.test.yo`.
 - Tests cover: build registry, artifacts, steps, DAG, dependencies, lock file, target parsing, path deps, transitive deps.
-- Run them like any other internal test: `yo test ./tests/internal/build_runner.test.yo --parallel 1`.
+- Run them like any other internal test: `yo test ./tests/internal/build-runner.test.yo --parallel 1`.
 - End-to-end CLI subcommand behaviour is covered separately by the `tests/cli-cases/` corpus.
 
 ## Adding a cli-case: `yo fmt` the fixture BEFORE recording the golden
@@ -772,7 +772,7 @@ those, including around an `impl(...)` inside a `test(...)` body.
 
 The `lsp-member-definition` cli-case asks the LSP to jump to `ArrayList.push`,
 `ArrayList.new` and `ArrayList` itself, and its golden records the answers as
-`{"line": 244}` and friends in `std/collections/array_list.yo`. **Any edit to
+`{"line": 244}` and friends in `std/collections/array-list.yo`. **Any edit to
 that file that adds or removes lines above those definitions moves all three**
 — a doc sweep adding `///` comments did exactly that, and the case went
 GOLDEN-DIFF roughly 25 minutes into the tier-1 job.
@@ -786,7 +786,7 @@ YO_SELF_BIN=<your stage-1> bash scripts/cli-diff-test.sh --record lsp-member-def
 Check the diff says only that the line numbers moved. A changed URI, a changed
 character column, or a missing result is a real regression.
 
-## Editing diagnostic prose in `src/diagnostics_registry.yo` changes a cli-case golden
+## Editing diagnostic prose in `src/diagnostics-registry.yo` changes a cli-case golden
 
 `tests/cli-cases/explain-list` runs `yo explain --list`, and its
 `expected_stdout` embeds every registered diagnostic's English summary verbatim.
@@ -831,7 +831,7 @@ asserts. It runs as GATE 8 of `gates_fast.sh`, so it is covered on every PR.
 **A tree-wide language sweep must include these files** — grep the scripts and
 workflows, not just `std/`, `src/` and `tests/`.
 
-`scripts/build_site.yo` is the same class of file (Yo source outside the three
+`scripts/build-site.yo` is the same class of file (Yo source outside the three
 checked directories). `test.yml`'s `docs-site` job compiles it per-PR, but with
 the **SEED** compiler, which by construction still accepts every form it
 shipped with — that job catches std API drift, not language removals. Sweep it
@@ -1106,7 +1106,7 @@ yo test ./tests/internal/parser.test.yo --parallel 1
 - Run them whenever modifying `src/` source or these tests.
 - **Two settings separate a real verdict from noise, and CI sets the first** (`YO_TEST_LEAK_VERDICT: "0"`
   in `test.yml`). Measured 2026-10-01 on a loaded 32-core WSL box (load average around 20):
-  - Run with `YO_TEST_LEAK_VERDICT=0`. Without it, every test in `check_watch.test.yo` (12 of 12) fails
+  - Run with `YO_TEST_LEAK_VERDICT=0`. Without it, every test in `check-watch.test.yo` (12 of 12) fails
     as `Memory leak detected:` with no assertion message. The harness evaluates modules in-process,
     so the process-lifetime evaluator registries leak (`issues/self-hosted-emit-leaks-remaining-classes.md`).
     ASan crash detection stays armed either way.
@@ -1116,7 +1116,7 @@ yo test ./tests/internal/parser.test.yo --parallel 1
 - No WASM directives needed (pure logic, no I/O syscalls) — but they are
   host-toolchain-only in CI, excluded from the emcc and wasm32-wasip1 jobs.
 - Large `.test.yo` files are batch-compiled in chunks of 100 tests by default. Use `--test-batch-size N` to tune this when a generated C batch is too large or when you need tighter failure isolation. Smaller batches reduce C size but repeat Yo compilation, so avoid lowering this unless needed.
-- Concurrent `yo test` runs over one directory are isolated: every batch artifact name carries the runner's pid (`.yo_selftest_batch_<pid>_<fi>_<bi>` — before 2026-10-03 the name had no per-process component, and one run deleted another's compiled batch mid-run, surfacing as `yo: error: file or directory not found` / `permission denied` with tests failing; `issues/fixed/concurrent-yo-test-runs-in-one-directory-overwrite-each-others-batches.md`, regression test `tests/internal/concurrent_test_runs.test.yo`). The old shared `/tmp/yo_self_out.c` scratch this bullet used to cite no longer exists.
+- Concurrent `yo test` runs over one directory are isolated: every batch artifact name carries the runner's pid (`.yo_selftest_batch_<pid>_<fi>_<bi>` — before 2026-10-03 the name had no per-process component, and one run deleted another's compiled batch mid-run, surfacing as `yo: error: file or directory not found` / `permission denied` with tests failing; `issues/fixed/concurrent-yo-test-runs-in-one-directory-overwrite-each-others-batches.md`, regression test `tests/internal/concurrent-test-runs.test.yo`). The old shared `/tmp/yo_self_out.c` scratch this bullet used to cite no longer exists.
 
 #### A hollow batch voids EVERY test in it, not one
 
@@ -1126,7 +1126,7 @@ The self-hosted runner inlines **all test bodies of a batch into a single
 function into a `// Failed to transpile` **C comment** — the C compiler skips
 it, the binary runs nothing, and the runner reports **every test in the batch as
 passing**. Measured 2026-08-12: 23 vacuous tests in
-`tests/internal/expr_info.test.yo`, with the CI job green the whole time
+`tests/internal/expr-info.test.yo`, with the CI job green the whole time
 (`issues/fixed/yo-self-option-eq-ref-enum-not-specialized.md`).
 
 The `__yo_user_main` marker gate in `src/codegen/functions/generation.yo`
@@ -1436,14 +1436,14 @@ For large generated test binaries, use `--test-batch-size N` to split one `.test
   Pin it with `YO_IO_BACKEND=uring|epoll|auto` — a PINNED backend that fails to
   initialize is a hard error, which is exactly what tests want.
 - Run async/io/net tests under BOTH backends when touching
-  `src/codegen/async/runtime_io_linux.yo` or the timer section of
-  `runtime_io_common.yo`:
-  `YO_IO_BACKEND=epoll yo test ./tests/async_await.test.yo --parallel 1`
+  `src/codegen/async/runtime-io-linux.yo` or the timer section of
+  `runtime-io-common.yo`:
+  `YO_IO_BACKEND=epoll yo test ./tests/async-await.test.yo --parallel 1`
   and the same without the env (the io_uring path).
-- `tests/internal/uring_runtime.test.yo` pins the emitted runtime text (vendored
+- `tests/internal/uring-runtime.test.yo` pins the emitted runtime text (vendored
   ring layer, no liburing surface, backend ladder, per-op dispatch, the timer
   heap, the inline paths, the watch set). It follows
-  the `gc_runtime_atomics.test.yo` pattern — call the emitters, assert on the C.
+  the `gc-runtime-atomics.test.yo` pattern — call the emitters, assert on the C.
 - **Emit-diffs must pin `YO_STD`.** Minted type/function ids in the emitted C
   (`__yo_t_*`, `yo_id_*`) incorporate the std tree's absolute path, so comparing
   emissions from two checkouts (or two `YO_STD` values) shows a sea of id churn
@@ -1470,7 +1470,7 @@ For large generated test binaries, use `--test-batch-size N` to split one `.test
 
 ## macOS async-runtime testing and prototyping
 
-- `tests/internal/uring_runtime.test.yo` also pins the macOS runtime (slot table,
+- `tests/internal/uring-runtime.test.yo` also pins the macOS runtime (slot table,
   cancellable dispatch registrations, timer heap, select probe, dup2 hook, watch
   kqueue) — call the emitters, assert on the C.
 - **Prototype runtime changes without a self-build.** The emitted runtime is C
@@ -1484,7 +1484,7 @@ For large generated test binaries, use `--test-batch-size N` to split one `.test
   prototype (`yo test <file> --cc clang`). Port to the `.yo` emitters only
   once it is measured and green — in the Yo template string every C backslash
   is doubled (`\\n`), and there must be no backtick or `${`.
-- **Benchmarks** (informational, like Linux's): `scripts/bench/io_bench.yo` and
+- **Benchmarks** (informational, like Linux's): `scripts/bench/io-bench.yo` and
   `scripts/bench/async-vs-libuv/io_bench_uv.c` (runtime level), `bench.yo` and
   `bench_uv.c` (std level); `brew install libuv`, then build the C twin with
   `-I$(brew --prefix libuv)/include -L$(brew --prefix libuv)/lib -luv` (no

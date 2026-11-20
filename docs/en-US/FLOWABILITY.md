@@ -340,8 +340,8 @@ hot loops that measurably need it. See
 
 ## Tests
 
-`tests/ref_binding.test.yo`, `tests/ref_local_binding.test.yo`,
-`tests/ref_params.test.yo`, `tests/ref_field_borrow.test.yo` (incl. the
-owner pin and the ref/own call gate), `tests/ref_borrow_invalidation.test.yo`
-(the gate matrix + the get-handle model), `tests/ref_return_ban.test.yo`,
-and `tests/flowability_comprehensive.test.yo`.
+`tests/ref-binding.test.yo`, `tests/ref-local-binding.test.yo`,
+`tests/ref-params.test.yo`, `tests/ref-field-borrow.test.yo` (incl. the
+owner pin and the ref/own call gate), `tests/ref-borrow-invalidation.test.yo`
+(the gate matrix + the get-handle model), `tests/ref-return-ban.test.yo`,
+and `tests/flowability-comprehensive.test.yo`.

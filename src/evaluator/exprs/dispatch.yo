@@ -1,0 +1,1608 @@
+//! _evaluate_expression — main expression dispatch function.
+//!
+//! Dispatches every AstExpr node kind to the appropriate sub-evaluator.
+pragma(Pragma.AllowUnsafe);
+{ String } :: import("std/string");
+{ note_def_time_swallow } :: import("../../types/flowability.yo");
+import("std/fmt");
+{ ArrayList } :: import("std/collections/array-list");
+{ Exception } :: import("std/error");
+{ CLOCK_MONOTONIC, clock_gettime } :: import("std/sys/clock");
+{
+  AstExpr,
+  ast_expr_is_atom,
+  ast_expr_is_fn_call,
+  ast_expr_is_fn_call_of,
+  ast_expr_token,
+  ast_expr_id,
+  make_err_expr,
+  ast_expr_to_string,
+  ast_expr_strip_borrow_marker,
+  ast_place_text,
+  ast_expr_is_old_mode_spelling,
+  deleted_mode_spelling_error,
+  BK_FN,
+  BK_UNSAFE_FN,
+  BK_CTL,
+  BK_FN_TRAIT,
+  BK_FN_ONCE_TRAIT,
+  BK_FN_MUT_TRAIT,
+  BK_ATOMIC,
+  BK_STRUCT,
+  BK_REF,
+  BK_YO_CELL,
+  BK_YO_ATOMIC_CELL,
+  BK_NEWTYPE,
+  BK_ENUM,
+  BK_UNION,
+  BK_TRAIT,
+  BK_IMPL_UPPER,
+  BK_IMPL_LOWER,
+  BK_PTR,
+  BK_COMPTIME_LIST_TYPE,
+  BK_FUTURE,
+  BK_CONCRETE,
+  BK_DYN_UPPER,
+  BK_DYN_LOWER,
+  BK_OP_AND,
+  BK_OP_OR,
+  BK_QUOTE,
+  BK_GENSYM,
+  BK_COMPTIME_LIST_VAL,
+  BK_TUPLE,
+  BK_TUPLE_TYPE,
+  BK_ARRAY,
+  BK_SLICE,
+  BK_ARRAY_VAL,
+  BK_ANON_STRUCT,
+  BK_BEGIN,
+  BK_IMPORT,
+  BK_COND,
+  BK_MATCH,
+  BK_WHILE,
+  BK_TEST,
+  BK_EXTERN,
+  BK_C_INCLUDE,
+  BK_SUBTYPE_OF,
+  BK_COLON,
+  BK_ASSIGN,
+  BK_INIT_ASSIGN,
+  BK_CONST,
+  BF_TYPE_OF,
+  BF_SIZE_OF,
+  BF_ALIGN_OF,
+  BF_SIZE_OF_VAL,
+  BF_ALIGN_OF_VAL,
+  BF_UNSIZE,
+  BF_SLICE_LEN,
+  BF_SLICE_PTR,
+  BF_SLICE_FROM_RAW_PARTS,
+  BF_TYPE_ID,
+  BF_ADDR_OF,
+  BK_BORROW_MUT,
+  BF_UNSAFE,
+  BF_PRAGMA,
+  BF_REQUIRES,
+  BF_ENSURES,
+  BF_INVARIANT,
+  BF_DECREASES,
+  BF_ASSUMED,
+  BF_LAW,
+  BF_REFINE,
+  BF_GHOST,
+  BF_GHOST_FN,
+  BF_OLD,
+  BF_FORALL,
+  BF_EXISTS,
+  BF_IMPLIES,
+  BF_SEQ_UNIT,
+  BF_SEQ_OF,
+  BF_PRODUCED,
+  BF_DISTINCT,
+  BF_SEQ_APPEND,
+  BF_SEQ_LEN,
+  BF_SEQ_NTH,
+  BF_STR_BYTES,
+  BF_MS_SINGLE,
+  BF_MS_ADD,
+  BF_MS_COUNT,
+  BF_MS_OF,
+  BF_SET_SINGLE,
+  BF_SET_ADD,
+  BF_SET_CONTAINS,
+  BF_RUNTIME,
+  BF_UNWIND,
+  BF_RECUR,
+  BF_DOT,
+  BF_COMPTIME_ASSERT,
+  BF_COMPTIME_FN,
+  BF_COMPTIME_PRINT,
+  BF_COMPTIME_READ_FILE,
+  BF_COMPTIME_JSON_PARSE,
+  BF_COMPTIME_TOML_PARSE,
+  BF_COMPTIME_EXPECT_ERROR,
+  BF_COMPTIME_EVAL,
+  BF_PANIC,
+  BF_ASM,
+  BF_GLOBAL_ASM,
+  BF_MACRO_EXPAND,
+  BF_CONSUME,
+  BF_DROP,
+  BF_DUP,
+  BF_VA_START,
+  BF_ADDRESS_OF,
+  BF_ARRAY_FILL,
+  BF_DERIVE,
+  BF_DERIVE_RULE,
+  BF_REF_COUNT,
+  BF_THE,
+  BF_DOWNCAST,
+  BF_UPCAST,
+  BF_YO_DECR_RC,
+  BF_YO_INCR_RC,
+  BF_YO_DECR_RC_ATOMIC,
+  BF_YO_INCR_RC_ATOMIC,
+  BF_YO_DROP_ARRAY_ELEMENT,
+  BF_YO_DUP_ARRAY_ELEMENT,
+  BF_YO_DROP_TUPLE_ELEMENT,
+  BF_YO_DUP_TUPLE_ELEMENT,
+  BF_YO_CAPTURE_FIELD,
+  BF_YO_RC_OWN,
+  BF_YO_DYN_DROP,
+  BF_YO_DYN_DUP,
+  BF_YO_SOMETYPE_DROP,
+  BF_YO_SOMETYPE_DUP,
+  BF_YO_EXPR_IS_ATOM,
+  BF_YO_EXPR_IS_FN_CALL,
+  BF_YO_EXPR_GET_CALLEE,
+  BF_YO_EXPR_GET_ARGS,
+  BF_YO_EXPR_TO_STRING,
+  BF_YO_EXPR_EQ,
+  BF_YO_COMPTIME_LIST_CAR,
+  BF_YO_COMPTIME_LIST_CDR,
+  BF_YO_COMPTIME_LIST_CONS,
+  BF_YO_COMPTIME_LIST_APPEND,
+  BF_YO_COMPTIME_LIST_LENGTH,
+  BF_YO_COMPTIME_LIST_ELEMENT_TYPE,
+  BF_YO_COMPTIME_LIST_GET,
+  BF_YO_COMPTIME_LIST_INDEX,
+  BF_YO_COMPTIME_LIST_INDEX_RANGE,
+  BF_YO_COMPTIME_LIST_INDEX_RANGE_INCLUSIVE,
+  BF_YO_TYPE_TO_COMPTIME_STRING,
+  BF_YO_ARE_TYPES_COMPATIBLE,
+  BF_YO_ARE_TYPES_EQUAL,
+  BF_YO_TYPE_CONTAINS_RC_TYPE,
+  BF_YO_TYPE_IMPLS,
+  BF_YO_TYPE_GET_INFO,
+  BF_YO_TYPE_JOIN_FIELDS,
+  BF_YO_TYPE_MAP_VARIANTS,
+  BF_YO_COMPTIME_STRING_TO_EXPR,
+  BF_YO_PROCESS_PLATFORM,
+  BF_YO_PROCESS_ARCH,
+  BF_YO_POINTER_SIZE_BITS,
+  BF_YO_BUILD_EXECUTABLE,
+  BF_YO_BUILD_STATIC_LIBRARY,
+  BF_YO_BUILD_SHARED_LIBRARY,
+  BF_YO_BUILD_TEST,
+  BF_YO_BUILD_RUN,
+  BF_YO_BUILD_STEP,
+  BF_YO_BUILD_STEP_DEPEND_ON,
+  BF_YO_BUILD_TARGET_HOST,
+  BF_YO_BUILD_TARGET_PARSE,
+  BF_YO_BUILD_DEPENDENCY,
+  BF_YO_BUILD_SYSTEM_LIBRARY,
+  BF_YO_BUILD_LINK,
+  BF_YO_BUILD_LINK_SYSTEM_LIBRARY,
+  BF_YO_BUILD_OPTION,
+  BF_YO_BUILD_DEP_ARTIFACT,
+  BF_YO_BUILD_MODULE,
+  BF_YO_BUILD_MODULE_LINK,
+  BF_YO_BUILD_ADD_CFLAGS,
+  BF_YO_BUILD_DEP_MODULE,
+  BF_YO_BUILD_DOC,
+  BF_YO_BUILD_VERIFY,
+  BF_YO_BUILD_ENV,
+  BF_YO_BUILD_ENV_IS_SET,
+  BF_YO_BUILD_MANIFEST_FIELD,
+  BF_COMPTIME_BOOL_AND,
+  BF_COMPTIME_BOOL_OR,
+  BF_COMPTIME_BOOL_EQ,
+  BF_COMPTIME_BOOL_NEQ,
+  BF_COMPTIME_BOOL_NOT,
+  BF_COMPTIME_BOOL_TO_COMPTIME_STRING,
+  BF_COMPTIME_STRING_CONCAT,
+  BF_COMPTIME_STRING_EQ,
+  BF_COMPTIME_STRING_NEQ,
+  BF_COMPTIME_STRING_LT,
+  BF_COMPTIME_STRING_LTE,
+  BF_COMPTIME_STRING_GT,
+  BF_COMPTIME_STRING_GTE,
+  BF_COMPTIME_STRING_LENGTH,
+  BF_COMPTIME_STRING_TO_UPPER,
+  BF_COMPTIME_STRING_TO_LOWER,
+  BF_COMPTIME_STRING_SLICE,
+  BF_COMPTIME_STRING_INDEX,
+  BF_COMPTIME_STRING_INDEX_RANGE,
+  BF_COMPTIME_STRING_INDEX_RANGE_INCLUSIVE,
+  BF_COMPTIME_ARRAY_INDEX,
+  ast_expr_is_local_borrow_mode_call
+} :: import("../../expr.yo");
+{ projection_tail_mode, ast_expr_is_infix_op_fn_call } :: import("../../expr.yo");
+{ is_never_type } :: import("../../types/guards.yo");
+{ TokenKind } :: import("../../token.yo");
+{ Environment, Variable } :: import("../../env.yo");
+{ EvalContext, is_dot_callee } :: import("../context.yo");
+{ format_error_message, format_error_message_with_help, format_error_message_with_repair, with_code, note_eval_attempt, note_swallowed_error, format_eval_failure } :: import("../../error.yo");
+{ E_DELETED_SPELLING } :: import("../../diagnostics.yo");
+{ TypeValue, t_reference, t_slot_is_borrow } :: import("../../types/definitions.yo");
+{ projection_call_mode_of, binder_read_take, reference_read_wanted, reference_field_read_type, note_reference_read, chain_ref_leaf_is } :: import("../utils.yo");
+{ t_unit } :: import("../../types/creators.yo");
+{ type_of_type } :: import("../../types/hierarchy.yo");
+{ is_some_type } :: import("../../types/guards.yo");
+{ EvalValue, EvalValueNode } :: import("../../value.yo");
+{ expr_info_table_get, expr_info_table_set, record_node_eval, node_is_preevaluated } :: import("../../expr-info.yo");
+{ set_evaluate_expression_fn, set_evaluate_expression_raw_fn } :: import("./expr.yo");
+{ BindingResult, evaluate_binding } :: import("./binding.yo");
+{ register_rerun_pending_def_evals } :: import("../calls/function-type.yo");
+{ evaluate_initialization_assignment, evaluate_local_borrow_repoint } :: import("./initialization-assignment.yo");
+{ evaluate_assignment } :: import("./assignment.yo");
+{ evaluate_recur } :: import("./recur.yo");
+{ evaluate_runtime } :: import("./runtime.yo");
+{ is_pointer_type } :: import("../../types/guards.yo");
+{ is_pointer_value_capable_file } :: import("../memory-safety.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ is_unknown_val, is_type_value } :: import("../../value.yo");
+_deleted_word :: (fn(e : &AstExpr) -> String)(match(ast_expr_is_old_mode_spelling(e), .Some(w) => w, .None => String.new()));
+/// `e` is a one-argument `mut(…)` / `inout(…)` (and, with `with_imm`,
+/// `imm(…)`): a deleted borrow mode word (decision 42 Generation B).
+_is_deleted_borrow_word :: (fn(e : &AstExpr, with_imm : bool) -> bool)(
+  match(
+    ast_expr_is_old_mode_spelling(e),
+    .Some(w) => ((w == "mut") || (w == "inout") || (with_imm && (w == "imm"))),
+    .None => false
+  )
+);
+{ evaluate_extern } :: import("./extern.yo");
+{ evaluate_c_include } :: import("./c-include.yo");
+{ evaluate_test } :: import("./test.yo");
+{ evaluate_cond } :: import("./cond.yo");
+{ evaluate_match } :: import("./match.yo");
+{ evaluate_property_access } :: import("./property-access.yo");
+{ evaluate_begin_expression } :: import("./begin.yo");
+{ evaluate_unwind } :: import("./unwind.yo");
+{ evaluate_import } :: import("./import.yo");
+{ evaluate_subtype_of } :: import("./subtype-of.yo");
+{ evaluate_typeof } :: import("./typeof.yo");
+{ evaluate_while } :: import("./while.yo");
+{ evaluate_identifier_and_operator } :: import("./identifer-and-operator.yo");
+{ evaluate_anonymous_function_implementation } :: import("../values/anonymous-function.yo");
+{ evaluate_array_value } :: import("../values/array.yo");
+{ evaluate_boolean_literal } :: import("../values/boolean.yo");
+{ evaluate_char_literal } :: import("../values/char.yo");
+{ evaluate_comptime_list_value } :: import("../values/comptime-list.yo");
+{ evaluate_dyn_value } :: import("../values/dyn.yo");
+{ evaluate_float_literal } :: import("../values/float.yo");
+{ evaluate_module_value } :: import("../values/impl.yo");
+{ register_pending_definition_forcer } :: import("../values/anonymous-module.yo");
+{ register_function_value_marker, evaluate_yo_capture_field } :: import("../utils/closure.yo");
+{ evaluate_integer_literal } :: import("../values/integer.yo");
+{ evaluate_string_literal } :: import("../values/string.yo");
+{ evaluate_tuple_value } :: import("../values/tuple.yo");
+{ evaluate_anonymous_struct_value } :: import("../values/anonymous-struct.yo");
+{ evaluate_array_type, evaluate_slice_type } :: import("../types/array.yo");
+{ evaluate_closure_type } :: import("../types/closure.yo");
+{ evaluate_comptime_list_type } :: import("../types/comptime-list.yo");
+{ evaluate_concrete_type } :: import("../types/concrete-trait.yo");
+{ evaluate_dyn_type } :: import("../types/dyn.yo");
+{ evaluate_enum_type } :: import("../types/enum.yo");
+{ evaluate_fn_trait_type } :: import("../types/fn-trait.yo");
+{ evaluate_function_type, evaluate_reference_type } :: import("../types/function.yo");
+{ evaluate_future_type } :: import("../types/future-trait.yo");
+{ evaluate_newtype_type } :: import("../types/newtype.yo");
+{ evaluate_struct_type, evaluate_cell_type } :: import("../types/struct.yo");
+{ evaluate_trait_type } :: import("../types/trait.yo");
+{ evaluate_tuple_type } :: import("../types/tuple.yo");
+{ evaluate_union_type } :: import("../types/union.yo");
+{ evaluate_align_of } :: import("../builtins/alignof.yo");
+{ evaluate_and_or } :: import("../builtins/and-or.yo");
+{ evaluate_yo_array_fill } :: import("../builtins/array-fns.yo");
+{ evaluate_asm, evaluate_global_asm } :: import("../builtins/asm.yo");
+{ evaluate_yo_build_functions } :: import("../builtins/build.yo");
+{ evaluate_comptime_assert } :: import("../builtins/comptime-assert.yo");
+{ evaluate_yo_comptime_boolean_functions } :: import("../builtins/comptime-bool-fns.yo");
+{ evaluate_comptime_expect_error } :: import("../builtins/comptime-expect-error.yo");
+{ evaluate_comptime_fn } :: import("../builtins/comptime-fn.yo");
+{ evaluate_yo_comptime_index_functions } :: import("../builtins/comptime-index-fns.yo");
+{
+  evaluate_yo_comptime_list_append,
+  evaluate_yo_comptime_list_car,
+  evaluate_yo_comptime_list_cdr,
+  evaluate_yo_comptime_list_cons,
+  evaluate_yo_comptime_list_element_type,
+  evaluate_yo_comptime_list_get,
+  evaluate_yo_comptime_list_length
+} :: import("../builtins/comptime-list-fns.yo");
+{ evaluate_yo_comptime_numeric_functions } :: import("../builtins/comptime-numeric-fns.yo");
+{ evaluate_comptime_print } :: import("../builtins/comptime-print.yo");
+{ evaluate_comptime_read_file } :: import("../builtins/comptime-read-file.yo");
+{ evaluate_comptime_json_parse, evaluate_comptime_toml_parse } :: import("../builtins/comptime-data.yo");
+{ evaluate_yo_comptime_string_functions } :: import("../builtins/comptime-string-fns.yo");
+{ evaluate_consume } :: import("../builtins/consume.yo");
+{ evaluate_derive } :: import("../builtins/derive.yo");
+{ evaluate_derive_rule } :: import("../builtins/derive-rule.yo");
+{ evaluate_downcast, evaluate_upcast } :: import("../builtins/downcast.yo");
+{ evaluate_drop } :: import("../builtins/drop.yo");
+{ evaluate_dup } :: import("../builtins/dup.yo");
+{
+  evaluate_yo_expr_eq,
+  evaluate_yo_expr_get_args,
+  evaluate_yo_expr_get_callee,
+  evaluate_yo_expr_is_atom,
+  evaluate_yo_expr_is_fn_call,
+  evaluate_yo_expr_to_string
+} :: import("../builtins/expr-fns.yo");
+{ evaluate_gensym } :: import("../builtins/gensym.yo");
+{ evaluate_impl_constraint } :: import("../builtins/impl-constraint.yo");
+{ evaluate_macro_expand } :: import("../builtins/macro-expand.yo");
+{ evaluate_panic } :: import("../builtins/panic.yo");
+{ evaluate_yo_process_functions } :: import("../builtins/process.yo");
+{ evaluate_address_call, evaluate_chain_lend } :: import("../builtins/ptr-fns.yo");
+{ evaluate_quote } :: import("../builtins/quote.yo");
+{ evaluate_ref_count } :: import("../builtins/rc.yo");
+{
+  evaluate_yo_decr_rc,
+  evaluate_yo_decr_rc_atomic,
+  evaluate_yo_drop_array_element,
+  evaluate_yo_drop_tuple_element,
+  evaluate_yo_dup_array_element,
+  evaluate_yo_dup_tuple_element,
+  evaluate_yo_dyn_vtable_drop,
+  evaluate_yo_dyn_vtable_dup,
+  evaluate_yo_incr_rc,
+  evaluate_yo_incr_rc_atomic,
+  evaluate_yo_rc_own,
+  evaluate_yo_some_type_drop,
+  evaluate_yo_some_type_dup
+} :: import("../builtins/rc-fns.yo");
+{ evaluate_size_of, evaluate_size_of_val, evaluate_unsize, evaluate_slice_primitive } :: import("../builtins/sizeof.yo");
+{ evaluate_unsafe } :: import("../builtins/unsafe.yo");
+{ evaluate_pragma } :: import("../builtins/pragma.yo");
+{
+  evaluate_requires,
+  evaluate_ensures,
+  evaluate_invariant,
+  evaluate_decreases,
+  evaluate_assumed,
+  evaluate_refine,
+  evaluate_ghost,
+  evaluate_ghost_fn,
+  evaluate_law,
+  evaluate_old,
+  evaluate_forall,
+  evaluate_exists,
+  evaluate_implies,
+  evaluate_seq_unit,
+  evaluate_seq_of,
+  evaluate_produced,
+  evaluate_distinct,
+  evaluate_seq_append,
+  evaluate_seq_len,
+  evaluate_seq_nth,
+  evaluate_str_bytes,
+  evaluate_ms_single,
+  evaluate_ms_add,
+  evaluate_ms_count,
+  evaluate_ms_of,
+  evaluate_set_single,
+  evaluate_set_add,
+  evaluate_set_contains,
+  _is_verify_target
+} :: import("../builtins/contracts.yo");
+{ evaluate_the } :: import("../builtins/the.yo");
+{
+  evaluate_yo_are_types_compatible,
+  evaluate_yo_are_types_equal,
+  evaluate_yo_type_contains_rc_type,
+  evaluate_yo_type_impls,
+  evaluate_yo_type_to_string,
+  evaluate_yo_type_get_info,
+  evaluate_comptime_eval,
+  evaluate_comptime_string_to_expr,
+  evaluate_type_join_fields,
+  evaluate_type_map_variants
+} :: import("../builtins/type-fns.yo");
+{ evaluate_type_id } :: import("../builtins/typeid.yo");
+{ evaluate_va_start } :: import("../builtins/va-start.yo");
+{ evaluate_function_call, reject_destructor_member_read } :: import("../calls/function.yo");
+{ register_promote_index_places } :: import("../calls/index-trait.yo");
+{ evaluate_raw_pointer_call } :: import("../calls/pointer.yo");
+{ panic, assert } :: import("std/assert");
+/// Get the first argument of a FnCall expression. Returns make_err_expr() if not available.
+ast_expr_get_arg0 :: (fn(e : &AstExpr) -> AstExpr)(
+  match(
+    e,
+    Rc(.Atom(_, _)) => make_err_expr(),
+    Rc(.FnCall(_, _, Rc(args), _, _)) => match(args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr())
+  )
+);
+/// True if `e` is a FnCall whose function name starts with a comptime numeric prefix.
+is_comptime_numeric_fn_call :: (fn(e : &AstExpr) -> bool)(
+  match(
+    e,
+    Rc(.Atom(_, _)) => false,
+    Rc(.FnCall(_, func_box, _, _, _)) => match(
+      func_box,
+      Rc(.Atom(_, ftok)) => {
+        v := ftok.value.*.clone();
+        v.starts_with(`__yo_comptime_u8_`) ||
+          v.starts_with(`__yo_comptime_i8_`) ||
+            v.starts_with(`__yo_comptime_u16_`) ||
+              v.starts_with(`__yo_comptime_i16_`) ||
+                v.starts_with(`__yo_comptime_u32_`) ||
+                  v.starts_with(`__yo_comptime_i32_`) ||
+                    v.starts_with(`__yo_comptime_u64_`) ||
+                      v.starts_with(`__yo_comptime_i64_`) ||
+                        v.starts_with(`__yo_comptime_usize_`) ||
+                          v.starts_with(`__yo_comptime_isize_`) ||
+                            v.starts_with(`__yo_comptime_f32_`) ||
+                              v.starts_with(`__yo_comptime_f64_`) ||
+                                v.starts_with(`__yo_comptime_int_`) ||
+                                  v.starts_with(`__yo_comptime_float_`)
+                                },
+      Rc(.FnCall(_, _, _, _, _)) => false
+    )
+  )
+);
+// ---------------------------------------------------------------------------
+// Cooperative evaluation deadline — test-RUNNER infrastructure, not language
+// semantics.
+//
+// A comptime hang (runaway recursion, a non-converging fixpoint) cannot be
+// interrupted from outside the thread. The runner arms a wall-clock budget
+// before compiling; the dispatch hot path checks it every 16384 calls and
+// throws past it. The throw is NOT one-shot: swallowing layers (trial-eval)
+// may catch it, but every subsequent evaluation re-throws within another
+// 16384 dispatches, so the compile unwinds to completion (as a compile error)
+// instead of hanging forever.
+//
+// The compile runs as a CHILD PROCESS (`main.yo` spawns `self compile` per
+// batch), so the budget has to travel to the child on the command line —
+// `--compile-timeout-ms`, the same adaptation `--emcc-environment` needed.
+// The clock is MONOTONIC; a wall-clock jump must not fail a compile.
+//
+// SCOPE: this bounds EVALUATION only. A hang in codegen or a
+// stuck C compiler is not covered by it (see plans/archive/P2_5_RETIRE_EXECUTION.md).
+(mut(_g_eval_deadline_ns) : i64) = i64(0);
+(mut(_g_eval_deadline_counter) : u64) = u64(0);
+// Latched on the first trip. The evaluator has many deliberate SWALLOWING
+// exception handlers (trial evaluation, receiver probing, Call-overload
+// trials); if one of them eats the deadline throw and the next check is
+// another 16384 dispatches away, the intervening code finishes with a
+// half-evaluated value and reports ITS error instead — e.g. `derive` masking
+// the timeout as "derive rule must return(comptime(Expr)); got Comptime"
+// (issues/fixed/evaluator-deadline-error-swallowed-by-trial-eval.md). Once
+// tripped, throw on EVERY dispatch so a swallow can never outrun the
+// deadline: the first dispatch back in a propagating context rethrows.
+(mut(_g_eval_deadline_tripped) : bool) = false;
+_monotonic_ns :: (fn() -> i64)({
+  out_s := i64(0);
+  out_ns := i64(0);
+  clock_gettime(CLOCK_MONOTONIC, addr_of(out_s), addr_of(out_ns));
+  (out_s * i64(1000000000)) + out_ns
+});
+/// Arm the cooperative deadline `budget_ms` from now. `usize(0)` disarms it.
+set_evaluator_deadline :: (fn(budget_ms : usize) -> unit)({
+  _g_eval_deadline_ns = cond(
+    (budget_ms == usize(0)) => i64(0),
+    true => (_monotonic_ns() + (i64(budget_ms) * i64(1000000)))
+  );
+  _g_eval_deadline_counter = u64(0);
+  _g_eval_deadline_tripped = false;
+});
+/// The deadline message, and the fact that it has tripped, readable from the
+/// REPORTING edges.
+///
+/// Once the deadline trips the evaluator's state is unreliable, so whatever
+/// error surfaces next is not the real fault: a half-evaluated expression
+/// reports its own type mismatch and WINS the race against the latch, because
+/// a diagnostic can be formatted without going through another dispatch. That
+/// is how a 1 ms budget produced
+///
+///     error: Array element at index 1 has incompatible type:
+///     - Expected: u8
+///     - Given   : Type(1)
+///          --> std/prelude.yo:5584:7
+///
+/// on a prelude that compiles cleanly with no deadline at all — a nonsense
+/// error pointing at innocent code, and the timeout message never printed
+/// (issues/fixed/a-tripped-deadline-is-masked-by-the-next-type-error.md; the
+/// same family as issues/fixed/evaluator-deadline-error-swallowed-by-trial-eval.md).
+///
+/// The reporting edges therefore PREFER this message over whatever they were
+/// about to print.
+evaluator_deadline_tripped :: (fn() -> bool)(_g_eval_deadline_tripped);
+evaluator_deadline_message :: (fn() -> String)(
+  `Yo compilation exceeded the configured time limit (possible evaluator hang). See issues/fixed/test-runner-no-compile-timeout.md.`
+);
+_throw_deadline_error :: (fn(exn : Exception) -> unit)(
+  exn.throw(
+    dyn(
+      Box.new(evaluator_deadline_message())
+    )
+  )
+);
+_check_evaluator_deadline :: (fn(exn : Exception) -> unit)(
+  if(_g_eval_deadline_ns != i64(0), {
+    if(_g_eval_deadline_tripped, {
+      _throw_deadline_error(exn);
+    });
+    _g_eval_deadline_counter = (_g_eval_deadline_counter + u64(1));
+    if(((_g_eval_deadline_counter & u64(16383)) == u64(0)) && (_monotonic_ns() > _g_eval_deadline_ns), {
+      _g_eval_deadline_tripped = true;
+      _throw_deadline_error(exn);
+    });
+  })
+);
+/// An `assert(P, ...)` call's PREDICATE is specification (V5): ghost
+/// bindings and the ghost-only quantifier builtins are legal inside it.
+/// Bracket the arguments with the ghost flag, then run the ORDINARY call
+/// path (std/assert's assert is an ordinary function).
+_evaluate_assert_ghost_args :: (
+  fn(
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &mut EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)({
+  // The ghost bracket applies ONLY in verification targets: there the
+  // assert is a PROOF site (its runtime emission is suppressed). In a
+  // runtime-mode file the assert EXECUTES, so ghost bindings must stay
+  // unreadable there — the escape error fires instead (otherwise codegen
+  // would emit a runtime assert reading a name no C declaration carries).
+  tok0 := ast_expr_token(expr);
+  if(!_is_verify_target(&tok0.module_path.*), {
+    return(evaluate_function_call(expr, env, t_unit(), Option(EvalValue).None, ctx, exn));
+  });
+  prev_ghost := ctx.is_ghost_context;
+  ctx.is_ghost_context = true;
+  out := evaluate_function_call(expr, env, t_unit(), Option(EvalValue).None, ctx, exn);
+  ctx.is_ghost_context = prev_ghost;
+  out
+});
+/// `exists` is BOTH the ghost-only verification quantifier (V5,
+/// plans/backlog/FORMAL_VERIFICATION.md §6) and — historically — the name
+/// std/fs's path-existence check is exported under
+/// (`export(exists : _exists)` in std/fs/file.yo; imported bare across the
+/// corpus). In ghost context the quantifier wins; everywhere else a bare
+/// `exists(...)` call goes through the ORDINARY call path, so every existing
+/// import keeps resolving and calling exactly as before. (Inside a contract,
+/// name a path check differently — `try_exists` is the propagating twin.)
+_evaluate_exists_or_call :: (
+  fn(
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &mut EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)(
+  cond(
+    ctx.is_ghost_context => evaluate_exists(expr, env, ctx, exn),
+    true => evaluate_function_call(expr, env, t_unit(), Option(EvalValue).None, ctx, exn)
+  )
+);
+/// `&mut(a, b)` whose first operand is not a type: the two-argument form is
+/// decision 43's origin-qualified reference TYPE, `&mut(T, o)`.
+_origin_reference_position_message :: (fn(e : &AstExpr) -> String)(
+  `\`${ast_expr_to_string(e)}\` is not a reference type: the two-argument form \`&mut(T, o)\` takes a type and an origin (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O1). \`&mut x\` alone lends one place.`
+);
+/// The first argument of a two-argument `&(A, B)` is a type (a soft trial).
+_origin_reference_operand_is_type :: (fn(e : &AstExpr, env : &Environment, ctx : &mut EvalContext) -> bool)(
+  match(
+    e,
+    Rc(.FnCall(_, _, Rc(oa_args), _, _)) => match(oa_args.get_cloned(usize(0)), .Some(a0) => _borrow_operand_is_type(&a0, env, ctx), .None => false),
+    Rc(.Atom(_, _)) => false
+  )
+);
+/// `&T` / `&mut T` whose operand is a TYPE: decision 42's "a borrow mode,
+/// not a type" (Generation A). The operand is trial-evaluated; the caller
+/// throws either way.
+_borrow_operand_is_type :: (fn(operand : &AstExpr, env : &Environment, ctx : &mut EvalContext) -> bool)({
+  trial_exn := Exception(throw : (_err -> unwind(false)));
+  ev := _evaluate_expression(operand, env, ctx, trial_exn);
+  match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev)), .Some(ti) => is_type_value(&ti.value()), .None => false)
+});
+_evaluate_expression :: (
+  fn(
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &mut EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)({
+  _check_evaluator_deadline(exn);
+  cond(
+    ast_expr_is_atom(expr) => {
+      tok := ast_expr_token(expr);
+      cond(
+        ((tok.kind == TokenKind.Identifier) || (tok.kind == TokenKind.Operator)) =>
+          evaluate_identifier_and_operator(expr, env, ctx, true, exn),
+        (tok.kind == TokenKind.Integer) =>
+          evaluate_integer_literal(expr, env, ctx, exn),
+        (tok.kind == TokenKind.Float) =>
+          evaluate_float_literal(expr, env, ctx, exn),
+        (tok.kind == TokenKind.StringLit) =>
+          evaluate_string_literal(expr, env, ctx, exn),
+        (tok.kind == TokenKind.CharLit) =>
+          evaluate_char_literal(expr, env, ctx, exn),
+        (tok.kind == TokenKind.Bool) =>
+          evaluate_boolean_literal(expr, env, ctx, exn),
+        true => {
+          exn.throw(
+            dyn(
+              Box.new(
+                format_error_message(
+                  &tok,
+                  `(1) Evaluating the expression (token: ${tok.value.*}) is not implemented:\n${ast_expr_to_string(expr)}`
+                )
+              )
+            )
+          );
+          make_err_expr()
+        }
+      )
+    },
+    true => {
+      // PERF: hoist the callee token length ONCE — every keyword check
+      // below is gated by an integer length compare before paying the
+      // `ast_expr_is_fn_call_of` call + String == (the dispatch was the
+      // top `==` caller of the whole stage2-emit profile: a generic
+      // user-fn call node missed ~100 keyword checks). Non-atom callees
+      // get a sentinel that misses every gate (is_fn_call_of would
+      // return false for them anyway).
+      (__dk_len : usize) = usize(9999);
+      match(
+        expr,
+        Rc(.FnCall(_, __dk_callee, _, _, _)) => match(
+          __dk_callee,
+          Rc(.Atom(_, __dk_tok)) => {
+            __dk_len = __dk_tok.value.*.len();
+          },
+          _ => ()
+        ),
+        _ => ()
+      );
+      cond(
+        ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BK_COLON, .Some(usize(2)))) => {
+          result := evaluate_binding(expr, env, ctx, exn);
+          Rc.clone(result.expr)
+        },
+        (
+          ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, BK_INIT_ASSIGN, .Some(usize(2)))) ||
+            ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, BK_CONST, .Some(usize(2))))
+        ) =>
+          evaluate_initialization_assignment(expr, env, ctx, exn),
+        ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BK_ASSIGN, .Some(usize(2)))) => cond(
+          // `imm(cur) = place` / `mut(cur) = place` / `inout(cur) = place`:
+          // the deleted spellings of `cur = &place` / `cur = &mut place`, E0009.
+          _is_deleted_borrow_word(ast_expr_get_arg0(expr), true) => {
+            exn.throw(dyn(Box.new(deleted_mode_spelling_error(ast_expr_token(ast_expr_get_arg0(expr)), _deleted_word(ast_expr_get_arg0(expr))))));
+            Rc.clone(expr.*)
+          },
+          // `cur = &place` / `cur = &mut place`: a re-point (decision 25).
+          ast_expr_is_local_borrow_mode_call(ast_expr_get_arg0(expr), .Some(usize(1))) => evaluate_local_borrow_repoint(expr, env, ctx, exn),
+          true => evaluate_assignment(expr, env, ctx, exn)
+        ),
+        ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, "->", .Some(usize(2)))) => {
+          arg0 := ast_expr_get_arg0(expr);
+          cond(
+            (
+              ast_expr_is_fn_call(&arg0) &&
+                (
+                  ast_expr_is_fn_call_of(&arg0, BK_FN, .None) ||
+                    ast_expr_is_fn_call_of(&arg0, BK_UNSAFE_FN, .None) ||
+                      ast_expr_is_fn_call_of(&arg0, BK_CTL, .None)
+                )
+            ) => {
+              is_unsafe := ast_expr_is_fn_call_of(&arg0, BK_UNSAFE_FN, .None);
+              is_control := ast_expr_is_fn_call_of(&arg0, BK_CTL, .None);
+              old_is_unsafe := ctx.is_unsafe_function_type;
+              old_is_control := ctx.is_control_function_type;
+              ctx.is_unsafe_function_type = is_unsafe;
+              ctx.is_control_function_type = is_control;
+              result := evaluate_function_type(expr, env, ctx, exn);
+              ctx.is_unsafe_function_type = old_is_unsafe;
+              ctx.is_control_function_type = old_is_control;
+              result
+            },
+            (
+              ast_expr_is_fn_call(&arg0) &&
+                (ast_expr_is_fn_call_of(&arg0, BK_FN_TRAIT, .None) || ast_expr_is_fn_call_of(&arg0, BK_FN_ONCE_TRAIT, .None) || ast_expr_is_fn_call_of(&arg0, BK_FN_MUT_TRAIT, .None))
+            ) =>
+              evaluate_fn_trait_type(expr, env, ctx, exn),
+            true =>
+              evaluate_anonymous_function_implementation(expr, env, ctx, exn)
+          )
+        },
+        ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, "=>", .Some(usize(2)))) => {
+          arg0 := ast_expr_get_arg0(expr);
+          cond(
+            (
+              ast_expr_is_fn_call(&arg0) &&
+                ast_expr_is_fn_call_of(&arg0, BK_FN, .None)
+            ) =>
+              evaluate_closure_type(expr, env, ctx, exn),
+            true =>
+              evaluate_anonymous_function_implementation(expr, env, ctx, exn)
+          )
+        },
+        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BF_RECUR, .None)) =>
+          evaluate_recur(expr, env, ctx, exn),
+        ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_RUNTIME, .None)) =>
+          evaluate_runtime(expr, env, ctx, exn),
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BK_EXTERN, .None)) =>
+          evaluate_extern(expr, env, ctx, exn),
+        ((__dk_len == usize(9)) && ast_expr_is_fn_call_of(expr, BK_C_INCLUDE, .None)) =>
+          evaluate_c_include(expr, env, ctx, exn),
+        ((__dk_len == usize(4)) && ast_expr_is_fn_call_of(expr, BK_TEST, .None)) =>
+          evaluate_test(expr, env, ctx, exn),
+        ((__dk_len == usize(4)) && ast_expr_is_fn_call_of(expr, BK_COND, .None)) =>
+          evaluate_cond(expr, env, ctx, exn),
+        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_MATCH, .None)) =>
+          evaluate_match(expr, env, ctx, exn),
+        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_TUPLE, .None)) =>
+          evaluate_tuple_value(expr, env, ctx, exn),
+        // `_(...)` literal with an expected ANONYMOUS struct type is a
+        // constructor call OF THAT TYPE — no fresh anonymous struct id is
+        // minted, so the value unifies (and C-types) as the expected struct.
+        // The TypeVal callee is passed via
+        // `given_value` (the same shortcut evaluate_recur uses). Without this,
+        // `list.push({ ... })` against `ArrayList(struct(...))` minted a fresh
+        // struct id and the struct-struct unify threw — swallowed into
+        // "0 entries" under io.async closures (std/fs/walker) and a C-level
+        // undeclared-identifier bail in plain fns.
+        ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BK_ANON_STRUCT, .None)) => match(
+          ctx.expected_type.clone(),
+          .Some(et) => {
+            et_ty := Rc.clone(et.ty);
+            // Scope: reroute for EVERY
+            // concrete expected STRUCT — named or anonymous — not just
+            // unnamed ones. The named-struct narrowing existed for two
+            // downstream gaps that are both fixed now: `Self(x : 0)`
+            // named-arg union construction emits (measured green), and the
+            // dup/drop optimizer is implemented (the s2 SIGSEGV of
+            // issues/fixed/yo-self-anon-struct-literal-expected-type-ctor.md).
+            // Re-measured against the full battery + stage-2 gate on
+            // re-application. Source-namespace structs (modules) keep the
+            // fallback.
+            expected_is_anon_struct := match(
+              &et_ty,
+              Rc(.Struct({ is_source_namespace : et_sns })) => !et_sns.*,
+              // Patch D: an expected FUNC type reroutes too — `is_even =
+              // _(cond(...))` under `comptime(is_even) : (fn(n : i32) ->
+              // bool)` is a function DEFINITION call (fn arm 14).
+              Rc(.Func(_, _, _, _, _, _, _)) => true,
+              _ => false
+            );
+            // NOTE (fn.test.yo arm 14, measured 2026-08-03): widening this
+            // gate to expected FUNC types (patch D) FIXES the eval layer —
+            // `is_even = _(cond(...))` under `comptime(is_even) : (fn(n :
+            // i32) -> bool)` becomes a function-definition call — but the
+            // file then goes RED on the DOCUMENTED codegen pair: is_even's
+            // def-time body eval runs while `is_odd` is still valueless
+            // (forward ref), the call records no FuncVal, and codegen's
+            // fn-pointer fallback emits the raw identifier
+            // (`use of undeclared identifier 'is_odd'`). Shared mutable
+            // Variable objects would fix it — the later
+            // `is_odd = _(...)` would fill the value the recorded env already
+            // points at — but the def-time body env is a fresh COPY
+            // (_build_def_time_body_env), so the recorded env stays stale.
+            // Land patch D together with either shared-Variable def-env
+            // threading or a deferred re-eval of comptime fn bodies at
+            // assignment.
+            if(
+              expected_is_anon_struct && !is_some_type(&et_ty),
+              evaluate_function_call(expr, env, type_of_type(&et_ty), Option(EvalValue).Some(Rc.new(EvalValueNode.TypeVal(et_ty))), ctx, exn),
+              evaluate_anonymous_struct_value(expr, env, ctx, exn)
+            )
+          },
+          .None => evaluate_anonymous_struct_value(expr, env, ctx, exn)
+        ),
+        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_ARRAY_VAL, .None)) =>
+          evaluate_array_value(expr, env, ctx, exn),
+        ((__dk_len == usize(13)) && ast_expr_is_fn_call_of(expr, BK_COMPTIME_LIST_VAL, .None)) =>
+          evaluate_comptime_list_value(expr, env, ctx, exn),
+        ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BK_DYN_LOWER, .None)) =>
+          evaluate_dyn_value(expr, env, ctx, exn),
+        // `atomic(...)` and `ref(...)` were deleted with the v0.2.79 parser
+        // drop: shared ownership is `Rc(S)` (`Rc(RefCell(S))`
+        // when handles mutate the payload), atomic shared ownership `Arc(S)`,
+        // a single-owner record a plain `struct(...)`. The cell layout they
+        // produced is reached only through std's reserved `__yo_cell` /
+        // `__yo_atomic_cell` primitives below. `ref` carries a mechanical
+        // repair (`ref` -> `Rc`); `atomic(ref(S))` does not, because a
+        // one-span edit cannot drop both its head words and the surplus `)`.
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BK_ATOMIC, .None)) => {
+          exn.throw(
+            dyn(
+              Box.new(
+                with_code(
+                  &format_error_message_with_help(
+                    &ast_expr_token(expr),
+                    &String.from("`atomic(...)` was deleted: atomic shared ownership is spelled `Arc(S)` (plans/VALUES_BY_DEFAULT.md decision 46; removed in v0.2.79)"),
+                    &Option(String).Some(String.from("rewrite `atomic(ref(S))` as `Arc(S)`; share a value across threads as `Arc(T)` (an `Arc(Mutex(T))` when it is mutated), or compose the `std/sync` types over plain values"))
+                  ),
+                  E_DELETED_SPELLING
+                )
+              )
+            )
+          );
+          make_err_expr()
+        },
+        ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BK_REF, .None)) => {
+          exn.throw(
+            dyn(
+              Box.new(
+                with_code(
+                  &format_error_message_with_repair(
+                    &ast_expr_token(expr),
+                    &String.from("`ref(...)` was deleted: shared ownership is spelled `Rc(S)`, with a `RefCell` payload when handles mutate it (plans/VALUES_BY_DEFAULT.md decision 46; removed in v0.2.79)"),
+                    &Option(String).Some(String.from("a single-owner record is a plain `struct(...)` with `self : &mut Self` mutators; data shared on purpose is held as `Rc(T)` at the sharing site, `Arc(T)` across threads")),
+                    &String.from("Rc"),
+                    &String.from("rewrite `ref` as `Rc`; when handles mutate the payload, make it `Rc(RefCell(S))`")
+                  ),
+                  E_DELETED_SPELLING
+                )
+              )
+            )
+          );
+          make_err_expr()
+        },
+        // The private cell primitives (plans/VALUES_BY_DEFAULT.md §3.5).
+        ((__dk_len == usize(9)) && ast_expr_is_fn_call_of(expr, BK_YO_CELL, .None)) =>
+          evaluate_cell_type(expr, env, ctx, false, exn),
+        ((__dk_len == usize(16)) && ast_expr_is_fn_call_of(expr, BK_YO_ATOMIC_CELL, .None)) =>
+          evaluate_cell_type(expr, env, ctx, true, exn),
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BK_STRUCT, .None)) =>
+          evaluate_struct_type(expr, env, ctx, false, false, exn),
+        ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BK_NEWTYPE, .None)) =>
+          evaluate_newtype_type(expr, env, ctx, exn),
+        ((__dk_len == usize(4)) && ast_expr_is_fn_call_of(expr, BK_ENUM, .None)) =>
+          evaluate_enum_type(expr, env, ctx, false, false, exn),
+        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_UNION, .None)) =>
+          evaluate_union_type(expr, env, ctx, exn),
+        // A destructor member read as a value, not called, is E0915 too
+        // (`f := Fd.drop`); a call's callee is checked with its arguments.
+        ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BF_DOT, .None)) => {
+          pa_res := evaluate_property_access(expr, env, ctx, exn);
+          if(!is_dot_callee(ast_expr_id(expr)), {
+            reject_destructor_member_read(&pa_res, env, ctx, exn);
+          });
+          pa_res
+        },
+        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_BEGIN, .None)) =>
+          evaluate_begin_expression(expr, env, ctx, ArrayList(Variable).new(), false, exn),
+        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_TRAIT, .None)) =>
+          evaluate_trait_type(expr, env, ctx, exn),
+        ((__dk_len == usize(4)) && ast_expr_is_fn_call_of(expr, BK_IMPL_UPPER, .None)) =>
+          evaluate_impl_constraint(expr, env, ctx, exn),
+        ((__dk_len == usize(4)) && ast_expr_is_fn_call_of(expr, BK_IMPL_LOWER, .None)) =>
+          evaluate_module_value(expr, env, ctx, exn),
+        // `type_of`, `size_of` and `type_id` are seven bytes, `align_of`
+        // eight (the C-style spellings were deleted in V3b Generation B); a wrong length
+        // gate makes the arm dead.
+        ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_TYPE_OF, .None)) =>
+          evaluate_typeof(expr, env, ctx, exn),
+        ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_SIZE_OF, .None)) =>
+          evaluate_size_of(expr, env, ctx, exn),
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_UNSAFE, .None)) =>
+          evaluate_unsafe(expr, env, ctx, exn),
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_PRAGMA, .None)) =>
+          evaluate_pragma(expr, env, ctx, exn),
+        ((__dk_len == usize(8)) && ast_expr_is_fn_call_of(expr, BF_REQUIRES, .None)) =>
+          evaluate_requires(expr, env, ctx, exn),
+        ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_ENSURES, .None)) =>
+          evaluate_ensures(expr, env, ctx, exn),
+        ((__dk_len == usize(9)) && ast_expr_is_fn_call_of(expr, BF_INVARIANT, .None)) =>
+          evaluate_invariant(expr, env, ctx, exn),
+        ((__dk_len == usize(9)) && ast_expr_is_fn_call_of(expr, BF_DECREASES, .None)) =>
+          evaluate_decreases(expr, env, ctx, exn),
+        ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_ASSUMED, .None)) =>
+          evaluate_assumed(expr, env, ctx, exn),
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_REFINE, .None)) =>
+          evaluate_refine(expr, env, ctx, exn),
+        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BF_GHOST, .None)) =>
+          evaluate_ghost(expr, env, ctx, exn),
+        ((__dk_len == usize(8)) && ast_expr_is_fn_call_of(expr, BF_GHOST_FN, .None)) =>
+          evaluate_ghost_fn(expr, env, ctx, exn),
+        ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BF_OLD, .None)) =>
+          evaluate_old(expr, env, ctx, exn),
+        // `law` is three bytes, like `old` and `==>`; only the string compare
+        // separates them, and a wrong length silently makes the arm DEAD —
+        // the call falls through to evaluate_function_call and dies as E0401.
+        ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BF_LAW, .None)) =>
+          evaluate_law(expr, env, ctx, exn),
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, "assert", Option(usize).None)) =>
+          _evaluate_assert_ghost_args(expr, env, ctx, exn),
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_FORALL, .None)) =>
+          evaluate_forall(expr, env, ctx, exn),
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_EXISTS, .None)) =>
+          _evaluate_exists_or_call(expr, env, ctx, exn),
+        ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BF_IMPLIES, .None)) =>
+          evaluate_implies(expr, env, ctx, exn),
+        ((__dk_len == usize(8)) && ast_expr_is_fn_call_of(expr, BF_SEQ_UNIT, .None)) =>
+          evaluate_seq_unit(expr, env, ctx, exn),
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_SEQ_OF, .None)) =>
+          evaluate_seq_of(expr, env, ctx, exn),
+        ((__dk_len == usize(8)) && ast_expr_is_fn_call_of(expr, BF_PRODUCED, .None)) =>
+          evaluate_produced(expr, env, ctx, exn),
+        ((__dk_len == usize(8)) && ast_expr_is_fn_call_of(expr, BF_DISTINCT, .None)) =>
+          evaluate_distinct(expr, env, ctx, exn),
+        ((__dk_len == usize(10)) && ast_expr_is_fn_call_of(expr, BF_SEQ_APPEND, .None)) =>
+          evaluate_seq_append(expr, env, ctx, exn),
+        ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_SEQ_LEN, .None)) =>
+          evaluate_seq_len(expr, env, ctx, exn),
+        ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_SEQ_NTH, .None)) =>
+          evaluate_seq_nth(expr, env, ctx, exn),
+        ((__dk_len == usize(9)) && ast_expr_is_fn_call_of(expr, BF_STR_BYTES, .None)) =>
+          evaluate_str_bytes(expr, env, ctx, exn),
+        ((__dk_len == usize(9)) && ast_expr_is_fn_call_of(expr, BF_MS_SINGLE, .None)) =>
+          evaluate_ms_single(expr, env, ctx, exn),
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_MS_ADD, .None)) =>
+          evaluate_ms_add(expr, env, ctx, exn),
+        ((__dk_len == usize(8)) && ast_expr_is_fn_call_of(expr, BF_MS_COUNT, .None)) =>
+          evaluate_ms_count(expr, env, ctx, exn),
+        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BF_MS_OF, .None)) =>
+          evaluate_ms_of(expr, env, ctx, exn),
+        ((__dk_len == usize(10)) && ast_expr_is_fn_call_of(expr, BF_SET_SINGLE, .None)) =>
+          evaluate_set_single(expr, env, ctx, exn),
+        ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_SET_ADD, .None)) =>
+          evaluate_set_add(expr, env, ctx, exn),
+        ((__dk_len == usize(12)) && ast_expr_is_fn_call_of(expr, BF_SET_CONTAINS, .None)) =>
+          evaluate_set_contains(expr, env, ctx, exn),
+        ((__dk_len == usize(8)) && ast_expr_is_fn_call_of(expr, BF_ALIGN_OF, .None)) =>
+          evaluate_align_of(expr, env, ctx, exn),
+        (((__dk_len == usize(11)) && ast_expr_is_fn_call_of(expr, BF_SIZE_OF_VAL, .None)) || ((__dk_len == usize(12)) && ast_expr_is_fn_call_of(expr, BF_ALIGN_OF_VAL, .None))) =>
+          evaluate_size_of_val(expr, env, ctx, exn),
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_UNSIZE, .None)) =>
+          evaluate_unsize(expr, env, ctx, exn),
+        ((((__dk_len == usize(14)) && (ast_expr_is_fn_call_of(expr, BF_SLICE_LEN, .None) || ast_expr_is_fn_call_of(expr, BF_SLICE_PTR, .None))) || ((__dk_len == usize(25)) && ast_expr_is_fn_call_of(expr, BF_SLICE_FROM_RAW_PARTS, .None)))) =>
+          evaluate_slice_primitive(expr, env, ctx, exn),
+        ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_TYPE_ID, .None)) =>
+          evaluate_type_id(expr, env, ctx, exn),
+        ((__dk_len == usize(8)) && ast_expr_is_fn_call_of(expr, BF_DOWNCAST, .None)) =>
+          evaluate_downcast(expr, env, ctx, exn),
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_UPCAST, .None)) =>
+          evaluate_upcast(expr, env, ctx, exn),
+        // `ref_count` is nine bytes; a wrong length gate makes the arm dead.
+        ((__dk_len == usize(9)) && ast_expr_is_fn_call_of(expr, BF_REF_COUNT, .None)) =>
+          evaluate_ref_count(expr, env, ctx, exn),
+        ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, BK_SUBTYPE_OF, .None)) =>
+          evaluate_subtype_of(expr, env, ctx, exn),
+        ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BF_THE, .None)) =>
+          evaluate_the(expr, env, ctx, exn),
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BK_IMPORT, .None)) =>
+          evaluate_import(expr, env, ctx, exn),
+        ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BK_PTR, .Some(usize(1)))) =>
+          evaluate_raw_pointer_call(expr, env, ctx, exn),
+        // `&(T, o)` (the operator-call form, not infix `a & b`) whose first
+        // argument is a type: decision 43's origin-qualified reference type
+        // in a type position (a field, a type argument, an alias; decision 43
+        // step 3, N2a). A parameter's or a result's type is read by
+        // `evaluate_function_parameter` / the result slot before evaluating
+        // anything.
+        (
+          (__dk_len == usize(1)) &&
+            ast_expr_is_fn_call_of(expr, BF_ADDRESS_OF, .Some(usize(2))) &&
+              !ast_expr_is_infix_op_fn_call(expr) &&
+                _origin_reference_operand_is_type(expr, env, ctx)
+        ) => evaluate_reference_type(expr, env, ctx, false, exn),
+        // `&x` is only a borrow marker (decision 33, V3b Generation B step
+        // 3): a call argument lending to an `imm` parameter is peeled before
+        // evaluation, so one that reaches here is not lending.
+        ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BF_ADDRESS_OF, .Some(usize(1)))) => {
+          amp_place := ast_place_text(ast_expr_strip_borrow_marker(expr));
+          // `&T` whose operand is a type: a reference type (decision 43
+          // step 3, N2a).
+          if(_borrow_operand_is_type(ast_expr_strip_borrow_marker(expr), env, ctx), {
+            return(evaluate_reference_type(expr, env, ctx, false, exn));
+          });
+          // A lend at a leaf of a `:=` initializer's result chain is a
+          // reference value (R-TAIL, VERDICTS-41 Q1).
+          if(chain_ref_leaf_is(ast_expr_token(expr)), {
+            return(evaluate_chain_lend(expr, false, env, ctx, exn));
+          });
+          exn.throw(
+            dyn(
+              Box.new(
+                format_error_message(
+                  ast_expr_token(expr),
+                  `\`&${amp_place}\` lends a borrow: it is written as a call argument to a \`&T\` parameter, as a \`match\` scrutinee, as a tuple element, or as a local borrow (\`y := &${amp_place}\`), and is not an expression of its own. Take a raw pointer with \`addr_of(${amp_place})\`; a method receiver is written bare (\`${amp_place}.m()\`).`
+                )
+              )
+            )
+          );
+          Rc.clone(expr.*)
+        },
+        // `addr_of(x)` is today's address-of `&x` (decision 33).
+        ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_ADDR_OF, .Some(usize(1)))) =>
+          evaluate_address_call(expr, env, ctx, exn),
+        // `mut(x)` / `inout(x)` anywhere it is evaluated (a result type, a
+        // type argument): the deleted spellings of `&mut` (decision 42
+        // Generation B), E0009. `mut` is reserved, so it never names a
+        // function; an `asm(...)` operand `inout(reg, v)` has two arguments.
+        (((__dk_len == usize(3)) || (__dk_len == usize(5))) && _is_deleted_borrow_word(expr, false)) => {
+          exn.throw(dyn(Box.new(deleted_mode_spelling_error(ast_expr_token(expr), _deleted_word(expr)))));
+          Rc.clone(expr.*)
+        },
+        // `&mut x` is a call-site marker, consumed where it is legal (a call
+        // argument bound to a `mut`/`inout` parameter, a `match` scrutinee).
+        // Anywhere else it is not an expression.
+        ((__dk_len == usize(4)) && ast_expr_is_fn_call_of(expr, BK_BORROW_MUT, .None)) => {
+          // `&mut(T, p)` is decision 43's origin-qualified reference
+          // (plans/backlog/REFERENCES_AND_ORIGINS.md O1). The marker strip
+          // below sees through one argument only, so probing a two-argument
+          // form re-evaluated this very call until the stack overflowed
+          // (issues/fixed/2026-10-21-an-origin-qualified-mut-reference-overflows-the-checker-stack.md).
+          // With a type as its first operand it is a reference type in a
+          // type position (decision 43 step 3, N2a).
+          if(!ast_expr_is_fn_call_of(expr, BK_BORROW_MUT, .Some(usize(1))), {
+            if(ast_expr_is_fn_call_of(expr, BK_BORROW_MUT, .Some(usize(2))) && _origin_reference_operand_is_type(expr, env, ctx), {
+              return(evaluate_reference_type(expr, env, ctx, true, exn));
+            });
+            exn.throw(dyn(Box.new(format_error_message(ast_expr_token(expr), _origin_reference_position_message(expr)))));
+          });
+          if(_borrow_operand_is_type(ast_expr_strip_borrow_marker(expr), env, ctx), {
+            return(evaluate_reference_type(expr, env, ctx, true, exn));
+          });
+          if(chain_ref_leaf_is(ast_expr_token(expr)), {
+            return(evaluate_chain_lend(expr, true, env, ctx, exn));
+          });
+          exn.throw(
+            dyn(
+              Box.new(
+                format_error_message(
+                  ast_expr_token(expr),
+                  `\`&mut x\` lends a place to a \`&mut T\` parameter: it is written as a call argument, a \`match\` scrutinee, a tuple element or a local borrow (\`y := &mut x\`), and is not an expression of its own. Pass the place itself, or take a raw pointer with \`addr_of(x)\`.`
+                )
+              )
+            )
+          );
+          Rc.clone(expr.*)
+        },
+        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_TUPLE_TYPE, .None)) =>
+          evaluate_tuple_type(expr, env, ctx, exn),
+        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_ARRAY, .None)) =>
+          evaluate_array_type(expr, env, ctx, exn),
+        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_SLICE, .None)) =>
+          evaluate_slice_type(expr, env, ctx, exn),
+        ((__dk_len == usize(15)) && ast_expr_is_fn_call_of(expr, BF_ARRAY_FILL, .Some(usize(2)))) =>
+          evaluate_yo_array_fill(expr, env, ctx, exn),
+        ((__dk_len == usize(12)) && ast_expr_is_fn_call_of(expr, BK_COMPTIME_LIST_TYPE, .None)) =>
+          evaluate_comptime_list_type(expr, env, ctx, exn),
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BK_FUTURE, .None)) =>
+          evaluate_future_type(expr, env, ctx, exn),
+        ((__dk_len == usize(8)) && ast_expr_is_fn_call_of(expr, BK_CONCRETE, .None)) =>
+          evaluate_concrete_type(expr, env, ctx, exn),
+        ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BK_DYN_UPPER, .None)) =>
+          evaluate_dyn_type(expr, env, ctx, exn),
+        ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_EXPECT_ERROR, .None)) =>
+          evaluate_comptime_expect_error(expr, env, ctx, exn),
+        ((__dk_len == usize(15)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_ASSERT, .None)) =>
+          evaluate_comptime_assert(expr, env, ctx, exn),
+        ((__dk_len == usize(11)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_FN, .None)) =>
+          evaluate_comptime_fn(expr, env, ctx, exn),
+        ((__dk_len == usize(14)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_PRINT, .None)) =>
+          evaluate_comptime_print(expr, env, ctx, exn),
+        ((__dk_len == usize(18)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_READ_FILE, .None)) =>
+          evaluate_comptime_read_file(expr, env, ctx, exn),
+        ((__dk_len == usize(19)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_JSON_PARSE, .None)) =>
+          evaluate_comptime_json_parse(expr, env, ctx, exn),
+        ((__dk_len == usize(19)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_TOML_PARSE, .None)) =>
+          evaluate_comptime_toml_parse(expr, env, ctx, exn),
+        ((__dk_len == usize(10)) && ast_expr_is_fn_call_of(expr, BF_PANIC, .None)) =>
+          evaluate_panic(expr, env, ctx, exn),
+        ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BF_ASM, .None)) =>
+          evaluate_asm(expr, env, ctx, exn),
+        ((__dk_len == usize(10)) && ast_expr_is_fn_call_of(expr, BF_GLOBAL_ASM, .None)) =>
+          evaluate_global_asm(expr, env, ctx, exn),
+        ((__dk_len == usize(12)) && ast_expr_is_fn_call_of(expr, BF_MACRO_EXPAND, .None)) =>
+          evaluate_macro_expand(expr, env, ctx, exn),
+        (
+          ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, BK_OP_AND, .None)) ||
+            ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, BK_OP_OR, .None))
+        ) =>
+          evaluate_and_or(expr, env, ctx, exn),
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_UNWIND, .None)) =>
+          evaluate_unwind(expr, env, ctx, exn),
+        ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_CONSUME, .None)) =>
+          evaluate_consume(expr, env, ctx, exn),
+        ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_DROP, .None)) =>
+          evaluate_drop(expr, env, ctx, exn),
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_DUP, .None)) =>
+          evaluate_dup(expr, env, ctx, exn),
+        ((__dk_len == usize(12)) && ast_expr_is_fn_call_of(expr, BF_YO_DECR_RC, .None)) =>
+          evaluate_yo_decr_rc(expr, env, ctx, exn),
+        ((__dk_len == usize(12)) && ast_expr_is_fn_call_of(expr, BF_YO_INCR_RC, .None)) =>
+          evaluate_yo_incr_rc(expr, env, ctx, exn),
+        ((__dk_len == usize(19)) && ast_expr_is_fn_call_of(expr, BF_YO_DECR_RC_ATOMIC, .None)) =>
+          evaluate_yo_decr_rc_atomic(expr, env, ctx, exn),
+        ((__dk_len == usize(19)) && ast_expr_is_fn_call_of(expr, BF_YO_INCR_RC_ATOMIC, .None)) =>
+          evaluate_yo_incr_rc_atomic(expr, env, ctx, exn),
+        ((__dk_len == usize(23)) && ast_expr_is_fn_call_of(expr, BF_YO_DROP_ARRAY_ELEMENT, .None)) =>
+          evaluate_yo_drop_array_element(expr, env, ctx, exn),
+        ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_DUP_ARRAY_ELEMENT, .None)) =>
+          evaluate_yo_dup_array_element(expr, env, ctx, exn),
+        ((__dk_len == usize(23)) && ast_expr_is_fn_call_of(expr, BF_YO_DROP_TUPLE_ELEMENT, .None)) =>
+          evaluate_yo_drop_tuple_element(expr, env, ctx, exn),
+        ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_DUP_TUPLE_ELEMENT, .None)) =>
+          evaluate_yo_dup_tuple_element(expr, env, ctx, exn),
+        ((__dk_len == usize(18)) && ast_expr_is_fn_call_of(expr, BF_YO_CAPTURE_FIELD, .None)) =>
+          evaluate_yo_capture_field(expr, env, ctx, exn),
+        ((__dk_len == usize(11)) && ast_expr_is_fn_call_of(expr, BF_YO_RC_OWN, .None)) =>
+          evaluate_yo_rc_own(expr, env, ctx, exn),
+        ((__dk_len == usize(13)) && ast_expr_is_fn_call_of(expr, BF_YO_DYN_DROP, .None)) =>
+          evaluate_yo_dyn_vtable_drop(expr, env, ctx, exn),
+        ((__dk_len == usize(12)) && ast_expr_is_fn_call_of(expr, BF_YO_DYN_DUP, .None)) =>
+          evaluate_yo_dyn_vtable_dup(expr, env, ctx, exn),
+        ((__dk_len == usize(18)) && ast_expr_is_fn_call_of(expr, BF_YO_SOMETYPE_DROP, .None)) =>
+          evaluate_yo_some_type_drop(expr, env, ctx, exn),
+        ((__dk_len == usize(17)) && ast_expr_is_fn_call_of(expr, BF_YO_SOMETYPE_DUP, .None)) =>
+          evaluate_yo_some_type_dup(expr, env, ctx, exn),
+        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_QUOTE, .None)) =>
+          evaluate_quote(expr, env, ctx, exn),
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BK_GENSYM, .None)) =>
+          evaluate_gensym(expr, env, ctx, exn),
+        ((__dk_len == usize(17)) && ast_expr_is_fn_call_of(expr, BF_YO_EXPR_IS_ATOM, .None)) =>
+          evaluate_yo_expr_is_atom(expr, env, ctx, exn),
+        ((__dk_len == usize(20)) && ast_expr_is_fn_call_of(expr, BF_YO_EXPR_IS_FN_CALL, .None)) =>
+          evaluate_yo_expr_is_fn_call(expr, env, ctx, exn),
+        ((__dk_len == usize(20)) && ast_expr_is_fn_call_of(expr, BF_YO_EXPR_GET_CALLEE, .None)) =>
+          evaluate_yo_expr_get_callee(expr, env, ctx, exn),
+        ((__dk_len == usize(18)) && ast_expr_is_fn_call_of(expr, BF_YO_EXPR_GET_ARGS, .None)) =>
+          evaluate_yo_expr_get_args(expr, env, ctx, exn),
+        ((__dk_len == usize(19)) && ast_expr_is_fn_call_of(expr, BF_YO_EXPR_TO_STRING, .None)) =>
+          evaluate_yo_expr_to_string(expr, env, ctx, exn),
+        ((__dk_len == usize(12)) && ast_expr_is_fn_call_of(expr, BF_YO_EXPR_EQ, .None)) =>
+          evaluate_yo_expr_eq(expr, env, ctx, exn),
+        ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_CAR, .None)) =>
+          evaluate_yo_comptime_list_car(expr, env, ctx, exn),
+        ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_CDR, .None)) =>
+          evaluate_yo_comptime_list_cdr(expr, env, ctx, exn),
+        ((__dk_len == usize(23)) && ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_CONS, .None)) =>
+          evaluate_yo_comptime_list_cons(expr, env, ctx, exn),
+        ((__dk_len == usize(25)) && ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_APPEND, .None)) =>
+          evaluate_yo_comptime_list_append(expr, env, ctx, exn),
+        ((__dk_len == usize(25)) && ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_LENGTH, .None)) =>
+          evaluate_yo_comptime_list_length(expr, env, ctx, exn),
+        ((__dk_len == usize(31)) && ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_ELEMENT_TYPE, .None)) =>
+          evaluate_yo_comptime_list_element_type(expr, env, ctx, exn),
+        ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_GET, .None)) =>
+          evaluate_yo_comptime_list_get(expr, env, ctx, exn),
+        is_comptime_numeric_fn_call(expr) =>
+          evaluate_yo_comptime_numeric_functions(expr, env, ctx, exn),
+        (
+          ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_AND, .Some(usize(2)))) ||
+            ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_OR, .Some(usize(2)))) ||
+              ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_EQ, .Some(usize(2)))) ||
+                ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_NEQ, .Some(usize(2)))) ||
+                  ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_NOT, .Some(usize(1)))) ||
+                    ((__dk_len == usize(37)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_TO_COMPTIME_STRING, .Some(usize(1))))
+        ) =>
+          evaluate_yo_comptime_boolean_functions(expr, env, ctx, exn),
+        (
+          ((__dk_len == usize(27)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_CONCAT, .Some(usize(2)))) ||
+            ((__dk_len == usize(23)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_EQ, .Some(usize(2)))) ||
+              ((__dk_len == usize(24)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_NEQ, .Some(usize(2)))) ||
+                ((__dk_len == usize(23)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_LT, .Some(usize(2)))) ||
+                  ((__dk_len == usize(24)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_LTE, .Some(usize(2)))) ||
+                    ((__dk_len == usize(23)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_GT, .Some(usize(2)))) ||
+                      ((__dk_len == usize(24)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_GTE, .Some(usize(2)))) ||
+                        ((__dk_len == usize(27)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_LENGTH, .Some(usize(1)))) ||
+                          ((__dk_len == usize(29)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_TO_UPPER, .Some(usize(1)))) ||
+                            ((__dk_len == usize(29)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_TO_LOWER, .Some(usize(1)))) ||
+                              ((__dk_len == usize(26)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_SLICE, .None))
+        ) =>
+          evaluate_yo_comptime_string_functions(expr, env, ctx, exn),
+        (
+          ((__dk_len == usize(25)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_ARRAY_INDEX, .None)) ||
+            ((__dk_len == usize(26)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_INDEX, .None)) ||
+              ((__dk_len == usize(32)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_INDEX_RANGE, .None)) ||
+                ((__dk_len == usize(42)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_INDEX_RANGE_INCLUSIVE, .None)) ||
+                  ((__dk_len == usize(24)) && ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_INDEX, .None)) ||
+                    ((__dk_len == usize(30)) && ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_INDEX_RANGE, .None)) ||
+                      ((__dk_len == usize(40)) && ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_INDEX_RANGE_INCLUSIVE, .None))
+        ) =>
+          evaluate_yo_comptime_index_functions(expr, env, ctx, exn),
+        ((__dk_len == usize(28)) && ast_expr_is_fn_call_of(expr, BF_YO_TYPE_TO_COMPTIME_STRING, .Some(usize(1)))) =>
+          evaluate_yo_type_to_string(expr, env, ctx, exn),
+        ((__dk_len == usize(25)) && ast_expr_is_fn_call_of(expr, BF_YO_ARE_TYPES_COMPATIBLE, .Some(usize(2)))) =>
+          evaluate_yo_are_types_compatible(expr, env, ctx, exn),
+        ((__dk_len == usize(20)) && ast_expr_is_fn_call_of(expr, BF_YO_ARE_TYPES_EQUAL, .Some(usize(2)))) =>
+          evaluate_yo_are_types_equal(expr, env, ctx, exn),
+        ((__dk_len == usize(26)) && ast_expr_is_fn_call_of(expr, BF_YO_TYPE_CONTAINS_RC_TYPE, .Some(usize(1)))) =>
+          evaluate_yo_type_contains_rc_type(expr, env, ctx, exn),
+        ((__dk_len == usize(15)) && ast_expr_is_fn_call_of(expr, BF_YO_TYPE_IMPLS, .Some(usize(2)))) =>
+          evaluate_yo_type_impls(expr, env, ctx, exn),
+        ((__dk_len == usize(18)) && ast_expr_is_fn_call_of(expr, BF_YO_TYPE_GET_INFO, .Some(usize(1)))) =>
+          evaluate_yo_type_get_info(expr, env, ctx, exn),
+        ((__dk_len == usize(13)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_EVAL, .Some(usize(1)))) =>
+          evaluate_comptime_eval(expr, env, ctx, exn),
+        ((__dk_len == usize(28)) && ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_STRING_TO_EXPR, .Some(usize(1)))) =>
+          evaluate_comptime_string_to_expr(expr, env, ctx, exn),
+        ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_YO_TYPE_JOIN_FIELDS, .Some(usize(3)))) =>
+          evaluate_type_join_fields(expr, env, ctx, exn),
+        ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_TYPE_MAP_VARIANTS, .Some(usize(2)))) =>
+          evaluate_type_map_variants(expr, env, ctx, exn),
+        ((__dk_len == usize(11)) && ast_expr_is_fn_call_of(expr, BF_DERIVE_RULE, .Some(usize(2)))) =>
+          evaluate_derive_rule(expr, env, ctx, exn),
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_DERIVE, .None)) =>
+          evaluate_derive(expr, env, ctx, exn),
+        (
+          ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_YO_PROCESS_PLATFORM, .None)) ||
+            ((__dk_len == usize(17)) && ast_expr_is_fn_call_of(expr, BF_YO_PROCESS_ARCH, .None)) ||
+              ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_POINTER_SIZE_BITS, .None))
+        ) =>
+          evaluate_yo_process_functions(expr, env, ctx, exn),
+        (
+          ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_EXECUTABLE, .None)) ||
+            ((__dk_len == usize(25)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_STATIC_LIBRARY, .None)) ||
+              ((__dk_len == usize(25)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_SHARED_LIBRARY, .None)) ||
+                ((__dk_len == usize(15)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_TEST, .None)) ||
+                  ((__dk_len == usize(14)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_RUN, .None)) ||
+                    ((__dk_len == usize(15)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_STEP, .None)) ||
+                      ((__dk_len == usize(25)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_STEP_DEPEND_ON, .None)) ||
+                        ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_TARGET_HOST, .None)) ||
+                          ((__dk_len == usize(23)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_TARGET_PARSE, .None)) ||
+                            ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DEPENDENCY, .None)) ||
+                              ((__dk_len == usize(25)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_SYSTEM_LIBRARY, .None)) ||
+                                ((__dk_len == usize(15)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_LINK, .None)) ||
+                                  ((__dk_len == usize(30)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_LINK_SYSTEM_LIBRARY, .None)) ||
+                                    ((__dk_len == usize(17)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_OPTION, .None)) ||
+                                      ((__dk_len == usize(23)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DEP_ARTIFACT, .None)) ||
+                                        ((__dk_len == usize(17)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_MODULE, .None)) ||
+                                          ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_MODULE_LINK, .None)) ||
+                                            ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_ADD_CFLAGS, .None)) ||
+                                              ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DEP_MODULE, .None)) ||
+                                                ((__dk_len == usize(14)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DOC, .None)) ||
+                                                  ((__dk_len == usize(17)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_VERIFY, .None)) ||
+                                                    ((__dk_len == usize(25)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_MANIFEST_FIELD, .None)) ||
+                                                      ((__dk_len == usize(14)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_ENV, .None)) ||
+                                                        ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_ENV_IS_SET, .None))
+        ) => {
+          // Pre-evaluate args before dispatching — the build builtins read
+          // each arg's resolved comptime value from the expr-info table.
+          // Mutating the args ArrayList in place updates
+          // `expr.args` (FnCall holds it by reference).
+          build_call_args := match(
+            expr,
+            Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(),
+            Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
+          );
+          (bca_i : usize) = usize(0);
+          while(bca_i < build_call_args.len(), {
+            match(
+              build_call_args.get_cloned(bca_i),
+              .Some(ba) => {
+                build_call_args(bca_i) = recur(&ba, env, ctx, exn);
+              },
+              .None => ()
+            );
+            bca_i = (bca_i + usize(1));
+          });
+          evaluate_yo_build_functions(expr, env, ctx, exn)
+        },
+        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_WHILE, .None)) =>
+          evaluate_while(expr, env, ctx, usize(0), exn),
+        ((__dk_len == usize(8)) && ast_expr_is_fn_call_of(expr, BF_VA_START, .None)) =>
+          evaluate_va_start(expr, env, ctx, exn),
+        true =>
+          evaluate_function_call(expr, env, t_unit(), Option(EvalValue).None, ctx, exn)
+      )
+    }
+  )
+});
+/// Non-capturing wrapper that creates a local exception handler.
+///
+/// When the underlying `_evaluate_expression` throws, the previous
+/// implementation called `panic("evaluate_expression: unexpected
+/// error")` — that aborted the process with `SIGABRT` and discarded
+/// the actual error message, making evaluator coverage gaps look
+/// like opaque crashes (especially through `yo-self-bin check`).
+/// We now print the caught error's `to_string()` output to stderr
+/// before aborting, so the user sees the real diagnostic without
+/// extra tooling.
+///
+/// (Callers that want graceful recovery instead of an abort can
+/// use `_evaluate_expression_raw_wrapper`, which propagates the
+/// exception through to the caller's `exn`. `try_populate_expr_info_table`
+/// in `src/main.yo` and the new `run_check` subcommand both
+/// go through that path so they can surface or swallow errors as
+/// appropriate.)
+/// Codegen-metadata bridge: the evaluator records ExprInfo PIECEMEAL (each
+/// sub-evaluator sets it for the node IT handles, often the evaluated/result node,
+/// not the original sub-expression). Codegen, however, walks the ORIGINAL function
+/// body AST (stored on the FuncVal) and looks up ExprInfo by the original node's
+/// id — so a call/operator child of a recorded binding (`_y := double(1)`) had no
+/// entry → "Failed to transpile". This central bridge fills a MISSING original-id
+/// entry from the (correct) result-node entry produced by evaluating it.
+///
+/// GUARDED for safety (prior unguarded ExprInfo changes regressed std/tests):
+/// only acts when the ids DIFFER, only FILLS a missing original entry, and NEVER
+/// overwrites an existing one — so worst case it is a no-op.
+_bridge_expr_info :: (fn(orig : &AstExpr, result : &AstExpr, ctx : &EvalContext) -> unit)({
+  oid := ast_expr_id(orig);
+  rid := ast_expr_id(result);
+  if(!(oid == rid), {
+    match(
+      expr_info_table_get(&ctx.expr_info_table, oid),
+      .Some(_) => (),
+      .None => match(
+        expr_info_table_get(&ctx.expr_info_table, rid),
+        .Some(rinfo) => {
+          expr_info_table_set(&ctx.expr_info_table, oid, &rinfo);
+        },
+        .None => ()
+      )
+    );
+  });
+});
+_evaluate_expression_wrapper :: (
+  fn(
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &mut EvalContext
+  ) -> AstExpr
+)({
+  exn := Exception(
+    throw : (
+      err -> {
+        // cee observation: in propagate mode (a comptime_expect_error
+        // clone eval) a swallowed throw must still be OBSERVABLE — see
+        // flowability.yo's cee_observed_error channel. The propagate-mode
+        // check lives in note_def_time_swallow (flowability.yo), which keeps this
+        // handler a straight-line call. NOTE the old reason given here — "a BRANCH
+        // in a capture-free handler miscompiles" — is STALE; see the corrected note
+        // on note_def_time_swallow. The real defect was the unwind emitter raising
+        // __yo_effect_escaped before evaluating the argument, fixed 2026-08-07.
+        note_def_time_swallow(&err);
+        // Record the cause for `format_eval_failure`: without this the
+        // caller sees only a missing ExprInfo and reports a generic
+        // "Failed to evaluate X", losing the real diagnostic — 59 of the 105
+        // such messages in src/evaluator sit right after this swallow
+        // (plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §3).
+        note_swallowed_error(&err);
+        unwind(make_err_expr());
+      }
+    )
+  );
+  // Bumped per attempt so a stashed cause cannot be inherited by a LATER
+  // generic message: `format_eval_failure` only attaches a cause recorded on
+  // the current attempt.
+  note_eval_attempt();
+  result := _evaluate_expression(expr, env, ctx, exn);
+  // Inline _bridge_expr_info to avoid the codegen emitting an
+  // `if(__yo_effect_escaped) return NULL` after the call. HashMap ops
+  // (ExprInfo table get/set) can leak the escaped flag through GC,
+  // causing the outer wrapper to return NULL → SIGSEGV in callers
+  // that don't check for NULL (try_to_convert_to_pointer_type).
+  (oid : usize) = ast_expr_id(expr);
+  (rid : usize) = ast_expr_id(&result);
+  if(!(oid == rid), {
+    match(
+      expr_info_table_get(&ctx.expr_info_table, oid),
+      .Some(_) => (),
+      .None => match(
+        expr_info_table_get(&ctx.expr_info_table, rid),
+        .Some(rinfo) => {
+          expr_info_table_set(&ctx.expr_info_table, oid, &rinfo);
+        },
+        .None => ()
+      )
+    );
+  });
+  result
+});
+/// Concrete-signature wrapper for set_evaluate_expression_raw_fn.
+///
+/// Forwards the caller's exception handler directly to the underlying
+/// `_evaluate_expression`. This is what lets `try_populate_expr_info_table`
+/// in `src/main.yo` install a `.None`-escape handler and gracefully
+/// fall back when the proper evaluator hits coverage gaps (Stream A in
+/// `plans/archive/BOOTSTRAPPING.md`).
+///
+/// The previous bootstrap stub delegated to `_evaluate_expression_wrapper`
+/// (which installs its own panic handler), with a comment claiming the
+/// codegen could not handle a runtime `void*` throw function pointer.
+/// Phase 3 verified that the codegen does in fact handle this — the
+/// previous panic was masking real evaluator coverage gaps as crashes
+/// instead of recoverable errors.
+/// Does a value of this type carry a raw pointer at its surface — a pointer,
+/// or an enum with a pointer directly among a variant's fields
+/// (`Option(*(T))`, what a pointer iterator's `next` yields)? Structs are
+/// deliberately NOT inspected: std hands safe code value structs that wrap a
+/// pointer (`JoinHandle`, iterators) and only privileged code can read the
+/// field out — that read is itself a pointer-typed expression and is gated.
+_surfaces_raw_pointer :: (fn(ty : &TypeValue) -> bool)({
+  if(is_pointer_type(ty), {
+    return(true);
+  });
+  match(
+    ty,
+    Rc(.EnumT({ variant_fields : all_fields })) => {
+      (found : bool) = false;
+      (vi : usize) = usize(0);
+      while((vi < all_fields.len()) && !found, {
+        match(
+          all_fields.get(vi),
+          .Some(v_fields) => {
+            (fi : usize) = usize(0);
+            while((fi < v_fields.len()) && !found, {
+              match(
+                v_fields.get(fi),
+                .Some(ft) => if(is_pointer_type(&ft), {
+                  found = true;
+                }),
+                .None => ()
+              );
+              fi = (fi + usize(1));
+            });
+          },
+          .None => ()
+        );
+        vi = (vi + usize(1));
+      });
+      found
+    },
+    _ => false
+  )
+});
+/// A projection's result spine (decision 24): the marked `addr_of(place)` of
+/// a sigil result (`rewrite_projection_tails`), or a block, `cond` or `match`
+/// whose every result position is one (or never returns). Its `*(T)` is the
+/// projection's `T*` return, never a raw pointer the program holds, so the
+/// safe-code raw-pointer gate passes it.
+_is_projection_result_value :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
+  cond(
+    projection_tail_mode(e).is_some() => true,
+    ast_expr_is_fn_call_of(e, BK_BEGIN, Option(usize).None) => match(
+      e,
+      Rc(.FnCall(_, _, Rc(pr_args), _, _)) => match(pr_args.last_cloned(), .Some(t) => _is_projection_result_value(&t, ctx), .None => false),
+      Rc(.Atom(_, _)) => false
+    ),
+    (ast_expr_is_fn_call_of(e, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None)) => match(
+      e,
+      Rc(.FnCall(_, _, Rc(pr_args), _, _)) => {
+        (all_arms : bool) = true;
+        (any_arm : bool) = false;
+        (k : usize) = usize(0);
+        while(k < pr_args.len(), {
+          a := Rc.clone(pr_args(k));
+          if(ast_expr_is_fn_call_of(&a, "=>", Option(usize).Some(usize(2))), {
+            any_arm = true;
+            arm_body := match(Rc.clone(a), Rc(.FnCall(_, _, Rc(ab_args), _, _)) => match(ab_args.get_cloned(usize(1)), .Some(b) => b, .None => Rc.clone(a)), Rc(.Atom(_, _)) => Rc.clone(a));
+            arm_never := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&arm_body)), .Some(ai) => is_never_type(&ai.ty()), .None => false);
+            if(!arm_never && !_is_projection_result_value(&arm_body, ctx), {
+              all_arms = false;
+            });
+          });
+          k = (k + usize(1));
+        });
+        any_arm && all_arms
+      },
+      Rc(.Atom(_, _)) => false
+    ),
+    true => false
+  )
+);
+/// The read rule for a projection's result (decision 43 step 2 N1e-2b,
+/// VERDICTS-23 R1): where the call's position expects a reference
+/// (`reference_read_wanted`: a `&T` slot, payload, field or element, or a
+/// type binder), the call is the reference VALUE it returns, typed
+/// `&U`/`&mut U`, not the place it names (`xs.index(i)` into
+/// `Option(&(T, p))`); a reference field's read (`self.r`) is likewise the
+/// reference the field holds. Codegen still emits the place: the consumer
+/// (a reference field, payload or parameter) takes its address.
+_projection_result_as_reference :: (fn(expr : &AstExpr, result : &AstExpr, ctx : &EvalContext) -> unit)({
+  if(ast_expr_is_atom(result), {
+    return(());
+  });
+  at_binder := binder_read_take(expr);
+  note_reference_read(ast_expr_id(result), false);
+  if(!reference_read_wanted(ast_expr_token(result), at_binder, ctx), {
+    return(());
+  });
+  // A reference field's read (`self.r`, N1e-2) is its field's reference
+  // type; a projection's, the reference its callee returns.
+  (pr_ref_ty : Option(TypeValue)) = match(
+    reference_field_read_type(ast_expr_id(result)),
+    .Some(rf_ty) => Option(TypeValue).Some(rf_ty),
+    .None => Option(TypeValue).None
+  );
+  match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(result)),
+    .Some(pr_info) => if(!t_slot_is_borrow(&pr_info.ty()), {
+      (pr_new_ty : Option(TypeValue)) = match(
+        pr_ref_ty,
+        .Some(rf_ty) => Option(TypeValue).Some(Rc.clone(rf_ty)),
+        .None => match(projection_call_mode_of(result, ctx), .Some(pr_mut) => Option(TypeValue).Some(t_reference(&pr_info.ty(), pr_mut)), .None => Option(TypeValue).None)
+      );
+      match(
+        pr_new_ty,
+        .Some(pr_ty) => {
+          note_reference_read(ast_expr_id(result), true);
+          pr_info.set_ty(Rc.clone(pr_ty));
+          pr_info.set_value(Option(EvalValue).None);
+          expr_info_table_set(&ctx.expr_info_table, ast_expr_id(result), &pr_info);
+        },
+        .None => ()
+      );
+    }),
+    .None => ()
+  );
+});
+_evaluate_expression_raw_wrapper :: (
+  fn(
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &mut EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)({
+  // A method receiver / operator operand already evaluated for the call whose
+  // arguments are being matched: its recorded ExprInfo is authoritative (see
+  // `mark_node_preevaluated`). Re-evaluating it here doubled the work of
+  // every level of a call chain below.
+  if(node_is_preevaluated(ast_expr_id(expr)) && expr_info_table_get(&ctx.expr_info_table, ast_expr_id(expr)).is_some(), {
+    return(Rc.clone(expr.*));
+  });
+  record_node_eval(ast_expr_id(expr), ast_expr_token(expr));
+  result := _evaluate_expression(expr, env, ctx, exn);
+  _bridge_expr_info(expr, &result, ctx);
+  _projection_result_as_reference(expr, &result, ctx);
+  // Memory-safety gate (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md Phase D): a raw
+  // pointer VALUE — not only its dereference — exists only in unsafe-capable
+  // code. Safe code that could hold `it.next()`'s `Option(*(T))` could pass
+  // or store a pointer into a collection's buffer past the point the buffer
+  // is reallocated; the borrowed `for` (whose expansion carries the prelude's
+  // privilege) is the one way safe code borrows an element.
+  if(!ctx.unsafe_context, {
+    match(
+      expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&result)),
+      .Some(ri) => {
+        is_runtime := match(ri.value(), .Some(v) => is_unknown_val(&v), .None => true);
+        if(is_runtime && _surfaces_raw_pointer(&ri.ty()) && !_is_projection_result_value(&result, ctx), {
+          tok := ast_expr_token(&result);
+          if(!is_pointer_value_capable_file(Option(String).Some(tok.module_path.*.clone()), ctx.std_path.clone()), {
+            exn.throw(
+              dyn(
+                Box.new(
+                  format_error_message(
+                    &tok,
+                    `Raw pointer values are not available in safe code: '${ast_expr_to_string(&result)}' has type '${type_to_string(&ri.ty())}'.
+
+To borrow the elements of a collection, iterate it with 'for(&coll, x => ...)' (read-only) or 'for(&mut coll, x => ...)' (in place). If this file genuinely needs raw pointers, declare 'pragma(Pragma.AllowUnsafe);'.`
+                  )
+                )
+              )
+            );
+          });
+        });
+      },
+      .None => ()
+    );
+  });
+  result
+});
+/// Register the expression evaluator. Call once during evaluator initialization.
+register_evaluate_expression :: (fn() -> unit)({
+  set_evaluate_expression_fn(_evaluate_expression_wrapper);
+  set_evaluate_expression_raw_fn(_evaluate_expression_raw_wrapper);
+  register_rerun_pending_def_evals();
+  register_promote_index_places();
+  register_pending_definition_forcer();
+  register_function_value_marker();
+  ()
+});
+export(_evaluate_expression, _evaluate_expression_wrapper, _evaluate_expression_raw_wrapper, register_evaluate_expression, set_evaluator_deadline);
+export(evaluator_deadline_tripped, evaluator_deadline_message);

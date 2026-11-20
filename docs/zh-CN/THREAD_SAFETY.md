@@ -262,7 +262,7 @@ impl(MyHandle, !Sync()); // 也不是 Sync
 - **死锁预防**：与 Rust 相同，锁的顺序由使用者负责。
 - **`AtomicPtr(T)`**：用于无锁数据结构的泛型原子指针，暂缓。安全代码不能构造或解引用裸指针，这个原语只有带 pragma 的代码才能用；等 `std/` 中出现具体的使用者时再加入。
 - **`Sender(T)` / `Receiver(T)` 拆分**：目前 `Channel(T)` 在同一个句柄上同时暴露发送端和接收端，Rust 式的拆分是之后的易用性改进。
-- **TSan 覆盖线程语料，而不是所有程序**：Linux/Clang 的 CI 作业（必需的状态检查）在 `--sanitize thread` 下运行 `tests/sync`，并通过 `scripts/tsan-thread-corpus.sh` 运行线程语料：`tests/thread.test.yo`、`thread_pool`、`arc`、`send_sync`、`cross_thread_wake`、`spawn_blocking`、`parallelism_soundness`、`encoding/html`。每个文件至少要派生一个线程（一个线程都不派生的文件报告为 HOLLOW）。一个双向棘轮（`scripts/bootstrap/tsan-known-failing.tsv`）在未列出的文件报告竞争、或已列出的文件不再报告竞争时让作业失败。编译期规则由 `tests/thread_safety.test.yo` 和 `tests/parallelism_soundness.test.yo` 固定，后者为每条规则各带一个拒绝用例和一个过度拒绝的金丝雀用例。
+- **TSan 覆盖线程语料，而不是所有程序**：Linux/Clang 的 CI 作业（必需的状态检查）在 `--sanitize thread` 下运行 `tests/sync`，并通过 `scripts/tsan-thread-corpus.sh` 运行线程语料：`tests/thread.test.yo`、`thread_pool`、`arc`、`send_sync`、`cross_thread_wake`、`spawn_blocking`、`parallelism_soundness`、`encoding/html`。每个文件至少要派生一个线程（一个线程都不派生的文件报告为 HOLLOW）。一个双向棘轮（`scripts/bootstrap/tsan-known-failing.tsv`）在未列出的文件报告竞争、或已列出的文件不再报告竞争时让作业失败。编译期规则由 `tests/thread-safety.test.yo` 和 `tests/parallelism-soundness.test.yo` 固定，后者为每条规则各带一个拒绝用例和一个过度拒绝的金丝雀用例。
 
 ## 已知缺口
 

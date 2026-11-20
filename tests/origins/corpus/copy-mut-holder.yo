@@ -2,7 +2,7 @@
 // manifest tests/origins/corpus.tsv): a copy of a `&mut`-holding value (§5 route 3: it is move-only).
 // Expected once decision 43's rules land: rejected: E0901 at the later use of the moved cursor.
 pragma(Pragma.AllowUnsafe);
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 _Cursor :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(xs : &mut(ArrayList(i32), p), i : usize));
 _iter_mut :: (fn(xs : &mut ArrayList(i32)) -> _Cursor(xs))(_Cursor(xs)(xs : xs, i : usize(0)));
 _next :: (fn(generic(p : Origin), self : &mut _Cursor(p)) -> Option(&mut(i32, p)))(

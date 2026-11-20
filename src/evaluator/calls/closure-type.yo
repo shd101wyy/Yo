@@ -1,0 +1,391 @@
+//! evaluator/calls/closure-type — closure value creation.
+//!
+//! Phase 3 implementation of `try_to_implement_closure_by_fn_module_type`.
+//!
+//! Given `WrapperType(closureBody)` where `WrapperType` is `SomeT` or `DynT`
+//! containing a `FnTraitT`, this function:
+//!   1. Validates the argument count.
+//!   2. Pushes a new env frame and adds the FnTrait parameters to it.
+//!   3. Creates a `FuncVal` for the closure.
+//!   4. Evaluates the closure body.
+//!   5. Checks that the body's return type matches the declared return type.
+//!   6. Pops the env frame.
+//!   7. Enriches captured variables.
+//!   8. Creates the capture struct type.
+//!   9. Sets ExprInfo on the expression and returns it.
+//!
+//! Phase 3 simplifications:
+//!   - Where-clause re-application skipped (deferred to Phase 4).
+//!   - No `wrapperType.resolvedConcreteType` mutation (no such field).
+//!   - No `deferredDupExpressions` / ARC dup (deferred to Phase 4).
+//!   - No `attachTempVariableToExpr` for DynType (deferred to Phase 4).
+pragma(Pragma.AllowUnsafe);
+{ String } :: import("std/string");
+{ eprintln } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashMap } :: import("std/collections/hash-map");
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr }
+:: import("../../expr.yo");
+{
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_set,
+  expr_info_table_get,
+  expr_info_set_closure_function_value,
+  expr_info_capture_type,
+  expr_info_set_capture_type,
+  expr_info_set_deferred_dup_expressions
+} :: import("../../expr-info.yo");
+{ Token } :: import("../../token.yo");
+{
+  Environment,
+  add_variable_to_env,
+  synthetic_token,
+  variable_set_is_ref
+} :: import("../../env.yo");
+{ TypeValue, TypeValueNode, FuncMeta, no_types, no_labels, no_flags, shared_list, t_slot, slot_pointee_at, fn_param_mut_ref_flags } :: import("../../types/definitions.yo");
+{ t_unit, t_with_resolution } :: import("../../types/creators.yo");
+{ are_types_compatible }
+:: import("../../types/compatibility.yo");
+{
+  EvalValue,
+  EvalValueNode,
+  FuncValData,
+  no_values
+} :: import("../../value.yo");
+{
+  EvalContext,
+  CapturedVarInfo
+} :: import("../context.yo");
+{ Variable, env_adopt } :: import("../../env.yo");
+{ format_error_message }
+:: import("../../error.yo");
+{ Exception } :: import("std/error");
+{ stable_func_id, debug_knob } :: import("../../utils.yo");
+{ set_closure_writes_captures } :: import("../utils.yo");
+{ closure_literal_is_borrowed } :: import("../context.yo");
+{ mark_as_closure_fn, register_func_type, register_closure_capture_info, ClosureCaptureInfo } :: import("../../function-value.yo");
+{
+  create_function_body_evaluation_context
+} :: import("../context.yo");
+{
+  evaluate_begin_expression
+} :: import("../exprs/begin.yo");
+{
+  enrich_captured_variables,
+  propagate_captures_to_enclosing,
+  create_capture_type_and_value,
+  closure_signature_key,
+  validate_capture_trait_requirements,
+  validate_send_closure_global_reach,
+  FuncCapturedVarInfo,
+  record_closure_capture_verdicts,
+  generate_captured_variable_dup_expressions
+} :: import("../utils/closure.yo");
+/// Convert a closure body expression into a typed closure value against
+/// `fn_module_type` (an FnTrait type) wrapped in `wrapper_type` (Some or Dyn).
+///
+///
+try_to_implement_closure_by_fn_module_type :: (
+  fn(
+    expr : &AstExpr,
+    fn_module_type : &TypeValue,
+    wrapper_type : &TypeValue,
+    caller_env : &Environment,
+    ctx : &mut EvalContext,
+    exn : Exception
+  ) -> Option(AstExpr)
+)({
+  tok := ast_expr_token(expr);
+  // D6: the argument list is read where it is bound (inside each arm) — the
+  // ArrayList handle never escapes the match as a copy.
+  arg_len := match(
+    expr,
+    Rc(.FnCall(_, _, Rc(args), _, _)) => args.len(),
+    Rc(.Atom(_, _)) => usize(0)
+  );
+  // Validate: FnTrait types expect exactly 1 argument (the closure body).
+  if(arg_len != usize(1), {
+    exn.throw(
+      dyn(
+        Box.new(
+          format_error_message(
+            &tok,
+            `Fn module type expects exactly 1 argument (the closure body), got ${arg_len.to_string()}`
+          )
+        )
+      )
+    );
+  });
+  closure_body_expr := match(
+    expr,
+    Rc(.FnCall(_, _, Rc(args), _, _)) => match(args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()),
+    Rc(.Atom(_, _)) => make_err_expr()
+  );
+  // Clone the body so we can use it twice (once in FuncVal box, once for evaluation).
+  closure_body_for_eval := closure_body_expr.clone();
+  // Extract param names and types from the FnTraitT.
+  param_labels := match(
+    fn_module_type,
+    Rc(.FnTraitT(_, pls, _, _, _, _)) => Rc.clone(pls),
+    _ => no_labels()
+  );
+  param_types := match(
+    fn_module_type,
+    Rc(.FnTraitT(_, _, pts, _, _, _)) => Rc.clone(pts),
+    _ => no_types()
+  );
+  result_type := match(
+    fn_module_type,
+    Rc(.FnTraitT(_, _, _, rt_box, _, _)) => Rc.clone(rt_box),
+    _ => t_unit()
+  );
+  // The Fn trait's `&mut` call params (their slots).
+  param_is_ref_flags := match(
+    fn_module_type,
+    Rc(.FnTraitT(base_name : _)) => fn_param_mut_ref_flags(fn_module_type),
+    _ => no_flags()
+  );
+  // Push a new env frame for the closure parameters.
+  (env : Environment) = Rc.clone(caller_env);
+  // Outer frame count BEFORE the param frame is pushed — the closure's defining
+  // frame level, used by codegen (generate_function) to rewrite captured vars to
+  // `closure_context->field`. Mirrors anonymous-function.yo:637 `n_cap_fr`.
+  n_cap_fr := env.frames_len();
+  _fr := env.push_frame(false);
+  // Add each FnTrait parameter as a runtime variable to the new frame.
+  n_params := param_labels.len();
+  (pi : usize) = usize(0);
+  while(pi < n_params, {
+    p_label := match(param_labels.get_cloned(pi), .Some(l) => l, .None => String.from("_p"));
+    p_type := match(slot_pointee_at(&param_types, pi), .Some(t) => t, .None => t_unit());
+    p_tok := synthetic_token(p_label.clone(), &env.module_path().*);
+    p_var_opt := add_variable_to_env(
+      &env,
+      p_label.clone(),
+      &p_type,
+      Option(EvalValue).None,
+      // runtime value — unknown at definition time
+      false,
+      // not compile-time-only
+      false,
+      // not reassignable
+      false,
+      // not owning RC
+      false,
+      // not implicit
+      &p_tok
+    );
+    // Stamp is_ref from the Fn trait's `inout(...)` call params so the body's
+    // reads/writes go through the C pointer — same stamping as
+    // anonymous-function.yo's expected-type param loop (add_variable_to_env
+    // cannot set is_ref).
+    if(match(param_is_ref_flags.get(pi), .Some(b) => b, .None => false), {
+      match(
+        p_var_opt,
+        .Some(p_var) => {
+          variable_set_is_ref(&p_var, true);
+          // is_reassignable mirrors is_ref — see the
+          // anonymous-function.yo stamping.
+          p_var.set_is_reassignable(true);
+        },
+        .None => ()
+      );
+    });
+    pi = (pi + usize(1));
+  });
+  // Build a synthetic Func type for create_function_body_evaluation_context.
+  // This is needed because create_function_body_evaluation_context expects a Func type
+  // to extract the return type for the expected-type context.
+  result_type_copy := result_type.clone();
+  // The synthetic call type keeps only the `&mut` modes: every other
+  // parameter is a `&T` slot (no `own` params in a synthesized closure call
+  // type).
+  synthetic_slots := ArrayList(TypeValue).new();
+  (ssi : usize) = usize(0);
+  while(ssi < param_types.len(), {
+    match(slot_pointee_at(&param_types, ssi), .Some(sp) => synthetic_slots.push(t_slot(&sp, match(param_is_ref_flags.get(ssi), .Some(b) => b, .None => false), false)), .None => ());
+    ssi = (ssi + usize(1));
+  });
+  synthetic_func_ty := Rc.new(
+    TypeValueNode.Func(
+      no_types(),
+      // forall_types
+      shared_list(synthetic_slots),
+      no_types(),
+      // implicit_types
+      no_types(),
+      // where_types
+      result_type_copy,
+      Rc.new(
+        FuncMeta(
+          forall_labels : no_labels(),
+          param_labels : param_labels.clone(),
+          implicit_labels : no_labels(),
+          result_is_comptime_only : false,
+          // a runtime closure call type
+          has_variadic : false,
+          is_extern : Option(String).None,
+          // synthetic closure call type is not FFI
+          extern_name : Option(String).None,
+          is_control : false // synthetic closure call type is `fn`, not `ctl`
+          ,
+          variadic_label : Option(String).None,
+          variadic_comptime : false
+        )
+      ),
+      no_types()
+    )
+  );
+  // Build a preliminary FuncVal for the evaluation context.
+  closure_id := stable_func_id(String.from("closure_"), &tok.module_path.*, usize(tok.row), usize(tok.column));
+  func_val_pre := Rc.new(
+    EvalValueNode.FuncVal(
+      Rc.new(
+        FuncValData(
+          forall_names : ArrayList(String).new(),
+          params : param_labels.items.clone(),
+          param_type_names : ArrayList(String).new(),
+          // filled below
+          evidence_params : ArrayList(String).new(),
+          body : closure_body_expr,
+          cap_names : ArrayList(String).new(),
+          // filled after body evaluation
+          cap_tys : ArrayList(TypeValue).new(),
+          func_id : closure_id.clone()
+        )
+      ),
+      no_values()
+    )
+  );
+  // Mark this function as a closure so codegen prepends the `void* closure_context`
+  // capture parameter to its C prototype/definition.
+  mark_as_closure_fn(closure_id.clone());
+  // Audit A46: a closure built from its type (`ClosureType({ ... })`) owns
+  // its record, so its body may write an implicit capture when the type is
+  // `FnMut`/`FnOnce` (not when it is lent to a borrowing parameter), as an
+  // `=>` literal's may (`evaluate_anonymous_function_implementation`).
+  set_closure_writes_captures(
+    &closure_id,
+    match(fn_module_type, Rc(.FnTraitT(base_name : ct_bn)) => ((ct_bn.* == "FnMut") || (ct_bn.* == "FnOnce")), _ => false) && !closure_literal_is_borrowed(expr)
+  );
+  // Record the closure's own resolved Func type by func_id so codegen's
+  // prototype emitter (get_func_type) can build the signature. FuncVal carries
+  // only param-name strings, so the structured type is side-tabled here at
+  // creation time (mirrors anonymous-function.yo:806 `register_func_type(func_id, ...)`).
+  register_func_type(closure_id.clone(), synthetic_func_ty.clone());
+  // Create the function body evaluation context.
+  if(debug_knob(`YO_DEBUG_CAPTURE`).is_some(), {
+    eprintln(`[fbctx-closure-call]`);
+  });
+  eval_ctx := create_function_body_evaluation_context(
+    &synthetic_func_ty,
+    &func_val_pre,
+    &env,
+    ctx
+  );
+  // Evaluate the closure body.
+  evaluated_body := evaluate_begin_expression(
+    &closure_body_for_eval,
+    &env,
+    &mut eval_ctx,
+    ArrayList(Variable).new(),
+    true,
+    exn
+  );
+  // Update env from the evaluated body.
+  body_info_opt := expr_info_table_get(&eval_ctx.expr_info_table, ast_expr_id(&evaluated_body));
+  match(
+    &body_info_opt,
+    .Some(bi) => {
+      env_adopt(&env, &bi.env());
+    },
+    .None => ()
+  );
+  // Check return type compatibility.
+  body_ty := match(
+    body_info_opt,
+    .Some(bi) => Rc.clone(bi.ty()),
+    .None => t_unit()
+  );
+  if(!are_types_compatible(&body_ty, &result_type), {
+    exn.throw(
+      dyn(
+        Box.new(
+          format_error_message(
+            &tok,
+            `Incompatible closure return type`
+          )
+        )
+      )
+    );
+  });
+  // Pop the env frame.
+  env.pop_frame();
+  // Capture variable enrichment. The snapshot is read in place through a
+  // borrow of the dying `eval_ctx` — no Option copy out of the context.
+  match(&eval_ctx.captured_variables, .Some(nested_caps) => propagate_captures_to_enclosing(&nested_caps.*, ctx), .None => ());
+  captured_vars_with_values_opt := match(
+    &eval_ctx.captured_variables,
+    .None => Option(HashMap(String, FuncCapturedVarInfo)).None,
+    .Some(cv) =>
+      if(cv.len() > usize(0), {
+        enriched := enrich_captured_variables(&cv.*, caller_env);
+        Option(HashMap(String, FuncCapturedVarInfo)).Some(enriched)
+      }, Option(HashMap(String, FuncCapturedVarInfo)).None)
+  );
+  // The capture struct holds its OWN reference to each RC-typed capture: the
+  // evaluated `___dup(name)` exprs are the capture-field initializers codegen
+  // emits (the same as an `=>` closure, anonymous-function.yo). The closure
+  // value types as its capture struct, so its copies are dup'd and its scope
+  // end drops each capture; without the dup at construction that drop is one
+  // too many (a heap use-after-free of the captured `MyBox`, caught by ASan on
+  // Linux in tests/closure.test.yo).
+  capture_dups := generate_captured_variable_dup_expressions(&captured_vars_with_values_opt, caller_env, ctx, exn, &tok);
+  // Create the capture struct type.
+  cap_result := create_capture_type_and_value(
+    Option(TypeValue).None,
+    &captured_vars_with_values_opt,
+    &env,
+    &tok,
+    closure_signature_key(&synthetic_func_ty)
+  );
+  capture_ty := cap_result.capture_type.clone();
+  // Rules D4 + D9: the captured state's marker verdicts (anonymous-function.yo).
+  record_closure_capture_verdicts(closure_id.clone(), &captured_vars_with_values_opt, &capture_ty, caller_env, ctx);
+  // Validate that the capture struct implements every required non-Fn trait
+  // of the wrapper (e.g. `Send` on a spawn closure).
+  match(
+    capture_ty.clone(),
+    .Some(vct) => validate_capture_trait_requirements(wrapper_type.clone(), &vct, &captured_vars_with_values_opt, caller_env, ctx, &tok, exn),
+    .None => ()
+  );
+  validate_send_closure_global_reach(wrapper_type.clone(), closure_id.clone(), &evaluated_body, caller_env, ctx, &tok, exn);
+  // Record the capture struct type + defining frame level by func_id so codegen's
+  // generate_function can set the closure-capture context (rewriting captured vars
+  // like `k` to `((<cap>*)closure_context)->k`). Mirrors anonymous-function.yo:1068.
+  match(
+    capture_ty.clone(),
+    .Some(ct) => {
+      register_closure_capture_info(closure_id.clone(), ClosureCaptureInfo(capture_type : ct.clone(), frame_level : n_cap_fr));
+    },
+    .None => ()
+  );
+  // The closure VALUE types as its `Impl(Fn)` wrapper resolved to THIS
+  // closure's capture struct (a closure identity, `is_bound_closure_identity`):
+  // get_type_string lowers it to the capture struct, and a direct value-call
+  // `add(x)` dispatches through impl_closure_call_map (`closure_fn(&add, x)`)
+  // instead of a bad fn-ptr cast. The resolution is this value's own: the
+  // wrapper's id is shared by every closure checked against the same
+  // annotation, so an entry keyed by it named the last closure's struct for
+  // all of them (Phase 3 step 7 part 2).
+  final_ty := match(capture_ty.clone(), .Some(fct) => t_with_resolution(wrapper_type.clone(), &fct), .None => Rc.clone(wrapper_type));
+  // Build the ExprInfo for this closure expression.
+  info := new_expr_info(&env, &final_ty);
+  expr_info_set_capture_type(&info, &capture_ty);
+  expr_info_set_deferred_dup_expressions(&info, &capture_dups.dup_exprs);
+  expr_info_set_closure_function_value(&info, Option(EvalValue).Some(func_val_pre));
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
+  Option(AstExpr).Some(Rc.clone(expr.*))
+});
+export(try_to_implement_closure_by_fn_module_type);

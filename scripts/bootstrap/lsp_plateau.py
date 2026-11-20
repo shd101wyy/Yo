@@ -27,9 +27,9 @@ import json, os, subprocess, sys, time
 
 yo, rounds = sys.argv[1], int(sys.argv[2])
 files = [os.path.abspath(f) for f in sys.argv[3:]] or [os.path.abspath(p) for p in [
-    "std/collections/array_list.yo", "std/collections/hash_map.yo", "std/string/string.yo",
+    "std/collections/array-list.yo", "std/collections/hash-map.yo", "std/string/string.yo",
     "std/fmt/to_string.yo", "std/path.yo", "std/fs/file.yo", "std/error.yo",
-    "std/collections/hash_set.yo", "std/encoding/json.yo", "std/async/channel.yo"]]
+    "std/collections/hash-set.yo", "std/encoding/json.yo", "std/async/channel.yo"]]
 proc = subprocess.Popen([yo, "lsp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
 _next_id = [0]
 

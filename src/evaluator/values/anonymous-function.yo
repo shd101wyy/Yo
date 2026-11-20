@@ -1,0 +1,3723 @@
+//! evaluate_anonymous_function_implementation — evaluates anonymous function literals.
+//!
+//! Handles:
+//!   `(params) -> body`   — regular anonymous function (expected type must be Func)
+//!   `(params) => body`   — closure (expected type must be SomeT or FnTraitT with Fn trait)
+//!
+//! Definition-time body evaluation (the closure-body def-eval wall):
+//! non-generic bodies evaluate at definition time under a function-body
+//! context (captured_variables populated via track_variable_usage),
+//! guarded by the capture-free trial swallow. Post-eval gates:
+//! regular-fn-no-capture, §4 rule 1 unwind-needs-ctl, ref-capture +
+//! control-bound-capture rejection.
+//!
+//! Deliberately not done (the swallow philosophy admits only
+//! deliberately-gated rejections):
+//!   - await analysis at this layer (the io.async path runs its own)
+pragma(Pragma.AllowUnsafe);
+{ replace } :: import("std/mem");
+{ String } :: import("std/string");
+{ eprintln } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashMap } :: import("std/collections/hash-map");
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_is_fn_call_of,
+  ast_expr_is_atom,
+  make_err_expr,
+  ast_expr_to_string,
+  BK_TUPLE,
+  BK_BEGIN,
+  BK_RETURN,
+  BK_COND,
+  BK_MATCH,
+  is_function_boundary_arrow,
+  clone_expr_fresh_ids,
+  ast_expr_is_capture_mode_entry,
+  reject_old_mode_spelling,
+  ast_expr_is_capture_list_params,
+  BK_MUT,
+  BK_BORROW_MUT,
+  BF_ADDRESS_OF,
+  BF_DOT,
+  rewrite_projection_tails,
+  owner_deref_object,
+  ast_place_text
+} :: import("../../expr.yo");
+{
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_set,
+  expr_info_table_get,
+  has_control_flow,
+  has_any_control_flow,
+  expr_info_capture_type,
+  expr_info_set_capture_type,
+  expr_info_deferred_dup_expressions,
+  mark_call_once_capture_dup,
+  expr_info_set_deferred_dup_expressions,
+  CaptureFieldInit,
+  expr_info_set_capture_field_inits,
+  expr_info_set_is_anonymous_function_definition,
+  record_hollow_body_error,
+  clear_hollow_body_error,
+  trial_body_site,
+  record_generic_trial_error,
+  clear_generic_trial_error,
+  record_deref_edit_site
+} :: import("../../expr-info.yo");
+{ are_types_compatible, are_types_compatible_invariant } :: import("../../types/compatibility.yo");
+{
+  copy_func_param_defaults,
+  copy_func_param_default_exprs,
+  copy_func_param_type_exprs,
+  copy_func_param_comptime,
+  get_func_param_comptime,
+  copy_func_param_assigned_values,
+  copy_func_return_type_expr,
+  copy_func_variadic_param,
+  copy_macro_registration,
+  copy_func_where_constraints,
+  copy_func_contract_exprs
+} :: import("../types/function.yo");
+{ analyze_await_points_in_table, register_closure_await_analysis } :: import("../async/await-analysis.yo");
+{ AwaitAnalysisResult } :: import("../async/await-analysis-types.yo");
+{
+  Environment,
+  Variable,
+  add_variable_to_env,
+  mark_fnonce_capture_frame,
+  mark_closure_param_frame,
+  mark_fn_capture_value_binding,
+  mark_capture_list_value_binding,
+  mark_fnmut_capture_value_binding,
+  synthetic_token,
+  snapshot_env,
+  get_variables_from_env,
+  mint_funcval_env_key,
+  register_funcval_cap_slices,
+  CaptureSlice,
+  variable_value_type,
+  variable_set_is_ref,
+  variable_set_reference_mut,
+  variable_set_is_imm_borrow
+} :: import("../../env.yo");
+{ Token } :: import("../../token.yo");
+{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot_with_pointee, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_result_is_ref, fn_result_is_mut_ref, t_slot_is_borrow, fn_result_origin_names, fn_result_composite_origin_names, fn_param_in_result_origin, fn_param_pointee_in_result_origin, fn_result_slot } :: import("../../types/definitions.yo");
+{ t_unit, t_some_t, t_func_simple, t_ptr, generate_some_type_id } :: import("../../types/creators.yo");
+{
+  EvalValue,
+  EvalValueNode,
+  FuncValData,
+  create_unknown_val,
+  no_values,
+  shared_values
+} :: import("../../value.yo");
+{
+  EvalContext,
+  CapturedVarInfo,
+  CaptureUsage,
+  ExpectedTypeCtx
+} :: import("../context.yo");
+{ stable_func_id, debug_knob } :: import("../../utils.yo");
+{ format_error_message, format_error_message_with_help, primary_diagnostic_code, with_code_carried, yo_error_from_diagnostics, YoError } :: import("../../error.yo");
+{ Diagnostic } :: import("../../diagnostics.yo");
+{ Exception, AnyError } :: import("std/error");
+{
+  register_definition_site_return,
+  register_closure_body_type,
+  register_func_type,
+  mark_as_closure_fn,
+  mark_as_fnonce_closure_fn,
+  mark_fnonce_capture_struct,
+  ClosureCaptureInfo,
+  register_closure_capture_info,
+  get_closure_capture_info,
+  register_closure_fid_source,
+  mark_fn_unemittable
+} :: import("../../function-value.yo");
+{
+  enrich_captured_variables,
+  propagate_captures_to_enclosing,
+  generate_captured_variable_dup_expressions,
+  create_capture_type_and_value,
+  closure_signature_key,
+  validate_capture_trait_requirements,
+  validate_send_closure_global_reach,
+  FuncCapturedVarInfo,
+  record_closure_capture_verdicts
+} :: import("../utils/closure.yo");
+{ extract_fn_trait_from_type, type_implements_fn, type_contains_some_type_for_codegen_param } :: import("../trait-checking.yo");
+{ generate_expr_from_code } :: import("../../parser.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
+{ evaluate_begin_expression, audit_judge_arm_copies } :: import("../exprs/begin.yo");
+{ create_function_body_evaluation_context, hard_swallow_diagnostic, hard_swallow_diagnostic_in_generic_trial, forcing_depths, truncate_forcing_depths, publish_pending_member_phase_a, closure_literal_is_borrowed } :: import("../context.yo");
+{ evaluated_body_contains_unwind } :: import("../../expr-traversal.yo");
+{ get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep, type_requires_explicit_copy, type_is_bitwise_copy, mark_fnmut_capture_struct } :: import("../../types/utils.yo");
+{ attach_temp_variable_to_expr, local_borrow_place_of, access_expr, LocalBorrowAccess, set_closure_writes_captures, BorrowCaptureOuter, note_borrow_capture_outer, apply_capture_store_joins, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording, deref_text_is_new_spelling, deref_reads_through_pointee, reject_reference_without_deref, is_reference_deref_site, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, projection_body_mismatch_message, reject_closure_literal_into_dyn_fn, place_require_mut, audit_copy_trait_enabled } :: import("../utils.yo");
+{ CaptureBorrow, register_capture_borrows, type_is_second_class, fn_param_is_ptr_borrow, reject_origin_carrying_signature } :: import("../../types/utils.yo");
+{ OriginRootPlace, origin_of, variable_holder_roots, reference_binding_referents, binder_read_mark, binder_read_clear, reference_binding_read_type, variable_is_mut_borrow, note_reference_read } :: import("../utils.yo");
+{ type_carries_origin, is_dyn_fn_slot } :: import("../../types/utils.yo");
+{ with_code } :: import("../../error.yo");
+{ E_USE_OF_MOVED_VALUE, E_ORIGIN_MISMATCH } :: import("../../diagnostics.yo");
+{ is_some_type, is_unit_type, is_void_type, is_never_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ synthesize_types, SynthesizeOptions, TypePair } :: import("../types/synthesizer.yo");
+{ RefCell } :: import("std/sync/refcell");
+/// (seed window) Concrete variants of refcell.yo's fillers: a fn value
+/// generic over its element keeps the variable abstract through the slot, so
+/// uses of the result needing methods fail (see refcell.yo's filler block).
+_c_first_cloned_str :: (fn(xs : &ArrayList(String)) -> Option(String))(xs.get_cloned(usize(0)));
+_c_first_cloned_diag :: (fn(xs : &ArrayList(Diagnostic)) -> Option(Diagnostic))(xs.get_cloned(usize(0)));
+_c_clone_diags :: (fn(xs : &ArrayList(Diagnostic)) -> ArrayList(Diagnostic))(xs.clone());
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `ArrayList(String)` (1 use)
+_c_len_1 :: (fn(xs : &ArrayList(String)) -> usize)(xs.len());
+{
+  clear_flow_violation,
+  flow_violation_pending,
+  flow_violation_error,
+  raise_flow_violation,
+  reraise_flow_violation,
+  propagate_def_time_errors,
+  in_derive_impl
+} :: import("../../types/flowability.yo");
+/// Walk a parameter-declaration AST (`(a, b)` tuple or single atom)
+/// and append each param-name token-value to `out`. Used to
+/// synthesize a default Func type when no `expected_type` is in
+/// context (e.g. impl field whose surrounding trait is a parametric
+/// trait the bootstrap can't yet evaluate).
+_collect_anon_param_names :: (
+  fn(param_decl : &AstExpr, out : &mut ArrayList(String)) -> unit
+)(
+  match(
+    param_decl,
+    Rc(.Atom(_, t)) => {
+      out.push(t.value.*.clone());
+    },
+    Rc(.FnCall(_, fb, Rc(args), _, _)) => match(
+      fb,
+      Rc(.Atom(_, ptok)) => cond(
+        (ptok.value.* == BK_TUPLE) => {
+          (i : usize) = usize(0);
+          n := args.len();
+          while(i < n, {
+            match(
+              args.get_cloned(i),
+              .Some(a) => match(
+                Rc.clone(a),
+                Rc(.Atom(_, at)) => {
+                  out.push(at.value.*.clone());
+                },
+                Rc(.FnCall(_, _, _, _, _)) => {
+                  // Best-effort: use the first atom of the call (e.g.
+                  // `name : Type` → token "name") if present.
+                  match(
+                    Rc.clone(a),
+                    Rc(.FnCall(_, _, Rc(ca), _, _)) => match(
+                      ca.get_cloned(usize(0)),
+                      .Some(Rc(.Atom(_, nt))) => {
+                        out.push(nt.value.*.clone());
+                      },
+                      .Some(Rc(.FnCall(_, _, _, _, _))) => (),
+                      .None => ()
+                    ),
+                    Rc(.Atom(_, _)) => ()
+                  );
+                }
+              ),
+              .None => ()
+            );
+            i = (i + usize(1));
+          });
+        },
+        true => {
+          // Single non-tuple FnCall — treat as one param with the
+          // function head's atom value if available.
+          out.push(ptok.value.*.clone());
+        }
+      ),
+      Rc(.FnCall(_, _, _, _, _)) => ()
+    )
+  )
+);
+/// Synthesize a default `Func` TypeValue whose params and return
+/// type are fresh `SomeT`s. Used as the fallback for anonymous
+/// functions evaluated without an `expected_type` in context. Lets
+/// downstream code path through without throwing; the resulting
+/// closure is effectively polymorphic.
+_synthesize_default_func_type :: (
+  fn(param_decl : &AstExpr, env : &Environment) -> TypeValue
+)({
+  names := ArrayList(String).new();
+  _collect_anon_param_names(param_decl, &mut names);
+  frame_level := env.frames_len();
+  param_types := ArrayList(TypeValue).new();
+  (i : usize) = usize(0);
+  n := names.len();
+  while(i < n, {
+    name := match(names.get_cloned(i), .Some(s) => s, .None => String.from("_p"));
+    param_types.push(t_some_t(&name, frame_level));
+    i = (i + usize(1));
+  });
+  ret_ty := t_some_t(String.from("_ret"), frame_level);
+  t_func_simple(names, param_types, &ret_ty)
+});
+/// True when `ty` is an UNRESOLVED `Impl(Fn(...))` — a SomeT requiring the Fn
+/// trait with no resolved concrete. A function literal has ONE lowered body,
+/// so such a PARAMETER cannot be monomorphized per call site the way a named
+/// function's can (every call's argument closure is its own capture struct):
+/// the parameter lowers to `void*` and each call site passes the struct by
+/// value — invalid C
+/// (issues/fixed/a-closure-value-with-an-impl-fn-parameter-emits-invalid-c.md).
+_is_unresolved_impl_fn_type :: (fn(ty : &TypeValue) -> bool)(
+  match(
+    ty,
+    Rc(.SomeT(_, _, _, _, _, _, res)) => match(
+      res,
+      .Some(_) => false,
+      .None => type_implements_fn(ty)
+    ),
+    _ => false
+  )
+);
+/// Helper: get the operator string from an anonymous function expression.
+/// For `(x) -> body`, returns "->"; for `(x) => body`, returns "=>"; etc.
+_get_anon_op :: (fn(expr : &AstExpr) -> String)(
+  match(
+    expr,
+    Rc(.Atom(_, t)) => t.value.*.clone(),
+    Rc(.FnCall(_, fb, _, _, _)) => match(
+      fb,
+      Rc(.Atom(_, t)) => t.value.*.clone(),
+      Rc(.FnCall(_, _, _, _, _)) => String.from("<unknown>")
+    )
+  )
+);
+/// Helper: get the argument at index `i` from a FnCall, or `make_err_expr()` if missing.
+_get_arg :: (fn(expr : &AstExpr, i : usize) -> AstExpr)(
+  match(
+    expr,
+    Rc(.FnCall(_, _, Rc(args), _, _)) => match(
+      args.get_cloned(i),
+      .Some(a) => a,
+      .None => make_err_expr()
+    ),
+    Rc(.Atom(_, _)) => make_err_expr()
+  )
+);
+/// Helper: get the actual parameter name from a parameter expression.
+/// Handles bare atoms (`x`) and colon-annotated (`x : T`).
+/// Falls back to `fallback` if neither pattern matches.
+/// E0009 for a closure parameter written with a deleted mode word: the
+/// parameter itself (`mut(n)`) or the label of `name : T` (`imm(v) : T`), in
+/// one parameter or a tuple of them.
+_reject_old_closure_param :: (fn(p : &AstExpr, exn : Exception) -> unit)({
+  reject_old_mode_spelling(p, exn);
+  if(ast_expr_is_fn_call_of(p, ":", Option(usize).Some(usize(2))), {
+    reject_old_mode_spelling(match(p, Rc(.FnCall(_, _, Rc(pa), _, _)) => match(pa.get_cloned(usize(0)), .Some(l) => l, .None => Rc.clone(p.*)), Rc(.Atom(_, _)) => Rc.clone(p.*)), exn);
+  });
+});
+_reject_old_closure_param_list :: (fn(ps : &ArrayList(AstExpr), exn : Exception) -> unit)({
+  (i : usize) = usize(0);
+  while(i < ps.len(), i = (i + usize(1)), {
+    match(ps.get_cloned(i), .Some(p) => _reject_old_closure_param(&p, exn), .None => ());
+  });
+});
+_reject_old_closure_params :: (fn(decl : &AstExpr, exn : Exception) -> unit)(
+  cond(
+    ast_expr_is_fn_call_of(decl, BK_TUPLE, Option(usize).None) => match(
+      decl,
+      Rc(.FnCall(_, _, Rc(ps), _, _)) => _reject_old_closure_param_list(&ps.*, exn),
+      Rc(.Atom(_, _)) => ()
+    ),
+    true => _reject_old_closure_param(decl, exn)
+  )
+);
+_get_param_name_from_expr :: (fn(param_expr : &AstExpr, fallback : &String) -> String)(
+  match(
+    param_expr,
+    Rc(.Atom(_, ptok)) => ptok.value.*.clone(),
+    Rc(.FnCall(_, fb, Rc(args), _, _)) => match(
+      fb,
+      Rc(.Atom(_, fbtok)) => cond(
+        (fbtok.value.* == ":") => match(
+          args.get_cloned(usize(0)),
+          .Some(Rc(.Atom(_, ntok))) => ntok.value.*.clone(),
+          // `x : &T` / `x : &mut T` is `__yo_imm(x) : T` / `__yo_mut(x) : T`
+          // by now (`desugar_if_calls`): the written name is the head's argument.
+          .Some(pm) => if(ast_expr_is_capture_mode_entry(&pm), ast_expr_token(&_only_arg(&pm)).value.*.clone(), fallback.clone()),
+          .None => fallback.clone()
+        ),
+        true => fallback.clone()
+      ),
+      Rc(.FnCall(_, _, _, _, _)) => fallback.clone()
+    )
+  )
+);
+/// Helper: build a Func TypeValue from a FnTraitT TypeValue.
+/// Extracts `call_param_labels`, `call_param_types`, `call_result` from FnTraitT
+/// and wraps them in a no-generic, no-implicit Func.
+/// The body of a closure returning `&T` / `&mut T`: each result position
+/// rewritten to the marked `addr_of(place)` (`rewrite_projection_tails`,
+/// decision 24), a sigil of the other mode rejected.
+_closure_projection_body :: (fn(body : &AstExpr, is_mut : bool, exn : Exception) -> AstExpr)({
+  mismatches := ArrayList(Token).new();
+  out := rewrite_projection_tails(body, is_mut, &mut mismatches);
+  match(
+    mismatches.get_cloned(usize(0)),
+    .Some(mt) => {
+      exn.throw(
+        dyn(
+          Box.new(
+            format_error_message(
+              &mt,
+              if(
+                is_mut,
+                String.from("This closure returns `&mut T`, so its result is a mutable place: write `&mut place`. A `&place` is a shared borrow and cannot be handed out as `&mut`."),
+                String.from("This closure returns `&T`, so its result is a shared place: write `&place`, not `&mut place`.")
+              )
+            )
+          )
+        )
+      );
+    },
+    .None => ()
+  );
+  out
+});
+_func_from_fn_trait :: (fn(ftt : &TypeValue) -> TypeValue)(
+  match(
+    ftt,
+    Rc(.FnTraitT(_, cpl, cpt, cr_box, _, _)) => Rc.new(
+      TypeValueNode.Func(
+        no_types(),
+        // no generic types; the call params' slots carry their modes (`&mut`
+        // ones through: the with_lock write-through closure; a plain
+        // `Fn(x : T)` parameter by value, V3b's flip)
+        Rc.clone(cpt),
+        no_types(),
+        // no implicit types
+        no_types(),
+        // no where types
+        Rc.clone(cr_box),
+        Rc.new(
+          FuncMeta(
+            forall_labels : no_labels(),
+            param_labels : Rc.clone(cpl),
+            implicit_labels : no_labels(),
+            result_is_comptime_only : false,
+            // Fn-trait-derived closure type (runtime)
+            has_variadic : false,
+            is_extern : Option(String).None,
+            // Fn-trait-derived closure type is not FFI
+            extern_name : Option(String).None,
+            is_control : false // Fn-trait-derived closure type is `fn`, not `ctl`
+            ,
+            variadic_label : Option(String).None,
+            variadic_comptime : false
+          )
+        ),
+        no_types()
+      )
+    ),
+    _ => Rc.new(TypeValueNode.Unit)
+  )
+);
+/// Substitute generic SomeTypes (by name, from `env2` bindings) throughout a
+/// type: a SomeT becomes the env's non-SomeT TypeVal
+/// binding (innermost frame wins); Pointer/Array recurse into the child;
+/// Func substitutes param + result types only (generic/implicit/where lists
+/// and meta are preserved); every other node is returned unchanged (same
+/// convention as the per-param substitution loop in
+/// evaluate_anonymous_function_implementation).
+///
+/// Only ENV BINDINGS (the per-lambda annotation frame + the callee env)
+/// drive this substitution — deliberately NOT the SomeT's own
+/// `resolution`. Until Phase 3.7 that was a per-LINEAGE shared cell (the
+/// declaration's clones shared the handle), so by the time a later io.async
+/// call site's lambda evaluated, the shared `T` could hold a SIBLING
+/// call's resolution — substituting through it concretized the expected type
+/// with the WRONG type (e.g. unit for an i32-bodied task), the body's
+/// return-type check threw, the def-time trial swallowed, and the closure
+/// never reached the result refinement (the async_await 8× void-closure
+/// class).
+_subst_some_types_from_env :: (fn(ty : &TypeValue, env2 : &Environment, allow : &ArrayList(String)) -> TypeValue)(
+  match(
+    ty,
+    Rc(.SomeT({ name : ssn })) => {
+      // ALLOW-LIST gate: only substitute generic names THIS pass itself bound
+      // (the per-lambda annotation frame). A bare name-based env walk is
+      // collision-prone for trait-associated type names — the Future trait's
+      // `Output` matched std/process/command.yo's `Output` STRUCT through the
+      // import chain, concretizing the closure's expected result with a
+      // process struct ("Expected type \"Output\"" def-eval swallows, ekey
+      // probe in issues/retired/yo-self-async-emission-cluster.md item 7).
+      if(!allow.contains(ssn.clone()), {
+        return(Rc.clone(ty));
+      });
+      ss_found := get_variables_from_env(env2, ssn.clone());
+      (ss_bound : Option(TypeValue)) = Option(TypeValue).None;
+      (ss_bi : usize) = ss_found.len();
+      while(ss_bi > usize(0), {
+        ss_bi = (ss_bi - usize(1));
+        match(
+          ss_found.get_cloned(ss_bi),
+          .Some(sv) => match(
+            sv.value().get(usize(0)),
+            .Some(Rc(.TypeVal(stv))) => if(!is_some_type(&stv), {
+              ss_bound = Option(TypeValue).Some(Rc.clone(stv));
+              ss_bi = usize(0);
+            }),
+            .Some(_) => (),
+            .None => ()
+          ),
+          .None => ()
+        );
+      });
+      match(ss_bound, .Some(bt) => recur(&bt, env2, allow.clone()), .None => Rc.clone(ty))
+    },
+    Rc(.Pointer(ss_in)) => Rc.new(TypeValueNode.Pointer(recur(&ss_in.*, env2, allow.clone()))),
+    Rc(.Array(ss_ain, ss_alen, ss_alv)) => Rc.new(TypeValueNode.Array(recur(&ss_ain.*, env2, allow.clone()), ss_alen.*, ss_alv.clone())),
+    Rc(.Func({ forall_types : ss_fts, param_types : ss_pts, implicit_types : ss_its, where_types : ss_wts, result : ss_ret, meta : ss_fm })) => {
+      ss_new_pts := ArrayList(TypeValue).new();
+      (ss_pi : usize) = usize(0);
+      while(ss_pi < ss_pts.len(), {
+        ss_elem := match(ss_pts.get(ss_pi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+        ss_new_pts.push(t_slot_with_pointee(&ss_elem, recur(t_slot_pointee(&ss_elem), env2, allow.clone())));
+        ss_pi = (ss_pi + usize(1));
+      });
+      Rc.new(TypeValueNode.Func(ss_fts.clone(), shared_list(ss_new_pts), ss_its.clone(), ss_wts.clone(), t_slot_with_pointee(&ss_ret.*, recur(t_slot_pointee(&ss_ret.*), env2, allow.clone())), Rc.new(ss_fm.as_ref().clone()), no_types()))
+    },
+    _ => Rc.clone(ty)
+  )
+);
+/// Cached `YO_DEBUG_SWALLOW` gate for the closure-body trial channel below.
+(_g_anon_dbg_swallow : bool) = debug_knob(`YO_DEBUG_SWALLOW`).is_some();
+// Anon-closure trial-swallow cell — the twin of calls/function-type.yo's
+// `g_trial_swallow_msg`. The handler below is a capture-free `->` and cannot
+// propagate, so the P0 forward-reference check at the CALLER reads the
+// message from here (flag/clear/pending/message, same shape).
+(g_anon_swallow_msg : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
+/// The swallowed error's code (a re-raise built from its text carries it).
+(g_anon_swallow_code : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
+_flag_anon_swallow :: (fn(msg : &String, code : &Option(String)) -> unit)({
+  g_anon_swallow_msg.with_mut(xs => xs.clear());
+  g_anon_swallow_msg.with_mut({ msg : msg.clone() }(xs) => xs.push(msg));
+  g_anon_swallow_code.with_mut(xs => xs.clear());
+  match(code, .Some(c) => g_anon_swallow_code.with_mut({ c : c.clone() }(xs) => xs.push(c)), .None => ());
+});
+/// The swallowed error's STRUCTURED diagnostics, written and cleared in
+/// lockstep with the text, as calls/function-type.yo's
+/// `g_trial_swallow_diags` is: a re-raise then carries the code, span and
+/// repair to the typed stash instead of a flattened string.
+(g_anon_swallow_diags : RefCell(ArrayList(Diagnostic))) = RefCell(ArrayList(Diagnostic)).new(ArrayList(Diagnostic).new());
+_flag_anon_swallow_diags :: (fn(err : &AnyError) -> unit)({
+  g_anon_swallow_diags.with_mut(xs => xs.clear());
+  match(
+    downcast(err, YoError),
+    .Some(ye) => {
+      (dgi : usize) = usize(0);
+      while(dgi < ye.diagnostics.len(), {
+        match(ye.diagnostics.get_cloned(dgi), .Some(d) => g_anon_swallow_diags.with_mut(xs => xs.push(d.clone())), .None => ());
+        dgi = (dgi + usize(1));
+      });
+    },
+    .None => ()
+  );
+});
+_clear_anon_swallow :: (fn() -> unit)({
+  g_anon_swallow_msg.with_mut(xs => xs.clear());
+  g_anon_swallow_code.with_mut(xs => xs.clear());
+  g_anon_swallow_diags.with_mut(xs => xs.clear());
+});
+_anon_swallow_pending :: (fn() -> bool)(g_anon_swallow_msg.with(_c_len_1) > usize(0));
+_anon_swallow_code :: (fn() -> Option(String))(g_anon_swallow_code.with(_c_first_cloned_str));
+_anon_swallow_message :: (fn() -> String)(
+  match(g_anon_swallow_msg.with(_c_first_cloned_str), .Some(m) => m.clone(), .None => String.from(""))
+);
+/// Trial-evaluate an anonymous-function body at definition time, swallowing
+/// any eval error. Replicates `_trial_eval_fn_body` (calls/function-type.yo)
+/// — the swallow handler must be a capture-free `->` effect handler, so the
+/// helper cannot be shared by closing over locals; see the def-eval-wall
+/// notes there. On success the evaluated body is pushed to `out`; on error
+/// the swallowing exception unwinds THIS helper (returning unit, `out` stays
+/// empty). A deliberate gate rejection inside the body flags
+/// `flow_violation_pending()` before throwing; the caller re-raises it.
+/// The `return(v)` arguments of a body, outside any nested function or
+/// closure: the values a `ctl` handler resumes with. A cond/match arm's `=>`
+/// is a branch, not a boundary.
+_collect_resume_args :: (fn(e : &AstExpr, out : &mut ArrayList(AstExpr)) -> unit)(
+  match(
+    e,
+    Rc(.Atom(_, _)) => (),
+    Rc(.FnCall(_, func_box, Rc(args), _, _)) => {
+      if(ast_expr_is_fn_call_of(e, BK_RETURN, Option(usize).Some(usize(1))), {
+        match(args.get_cloned(usize(0)), .Some(ra) => out.push(ra), .None => ());
+        return(());
+      });
+      is_branchy := (ast_expr_is_fn_call_of(e, BK_COND, .None) || ast_expr_is_fn_call_of(e, BK_MATCH, .None));
+      if(!is_branchy && is_function_boundary_arrow(e), {
+        return(());
+      });
+      recur(&func_box.*, out);
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        arg := match(args.get_cloned(i), .Some(a) => a, .None => make_err_expr());
+        if(is_branchy && ast_expr_is_fn_call_of(&arg, "=>", .None), {
+          match(
+            arg,
+            Rc(.FnCall(_, _, Rc(arm_parts), _, _)) => {
+              (j : usize) = usize(0);
+              while(j < arm_parts.len(), {
+                match(arm_parts.get_cloned(j), .Some(ap) => recur(&ap, out), .None => ());
+                j = (j + usize(1));
+              });
+            },
+            Rc(.Atom(_, _)) => ()
+          );
+        }, recur(&arg, out));
+        i = (i + usize(1));
+      });
+    }
+  )
+);
+/// A resume value no throw site can receive from a plain `ctl` handler: a
+/// concrete type, neither `()` nor a diverging one, with no type variable.
+_is_concrete_resume_type :: (fn(t : &TypeValue) -> bool)(
+  !is_unit_type(t) && !is_never_type(t) && !is_void_type(t) && (get_all_some_types(t).len() == usize(0))
+);
+/// A closure literal's body value against the result origin of the slot type
+/// it adopted (`ft`, whose labels are the slot's; `labels` are the literal's
+/// own, by position): each root of the value at one of the literal's
+/// parameters must be a parameter that origin names. An elided result origin
+/// (the union of every reference parameter) admits them all.
+_closure_result_origin_check :: (fn(ft : &TypeValue, labels : &ArrayList(String), body : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+  names := match(
+    if(fn_result_is_ref(ft), fn_result_origin_names(ft), fn_result_composite_origin_names(ft)),
+    .Some(n) => n,
+    .None => return(())
+  );
+  roots := origin_of(body, env, ctx);
+  (ri : usize) = usize(0);
+  while(ri < roots.len(), ri = (ri + usize(1)), {
+    rn := roots(ri).place.root_name.clone();
+    (li : usize) = usize(0);
+    while(li < labels.len(), li = (li + usize(1)), {
+      if((labels(li) == rn) && !fn_param_in_result_origin(ft, li, &names) && !fn_param_pointee_in_result_origin(ft, li, &names), {
+        exn.throw(
+          dyn(
+            Box.new(
+              with_code(
+                format_error_message_with_help(
+                  ast_expr_token(body),
+                  `The closure's result points into its parameter \`${rn}\`, but the slot it is typed against declares its result \`${type_to_string(&fn_result_slot(ft))}\`, whose origin does not name that parameter. The slot's type is what its callers free their arguments by, so the result may point only into the places its origin lists (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O2, O7).`,
+                  Option(String).Some(String.from("return a value built over a parameter the slot's result origin names, or an owned value"))
+                ),
+                E_ORIGIN_MISMATCH
+              )
+            )
+          )
+        );
+      });
+    });
+  });
+});
+_trial_eval_anon_body :: (
+  fn(body : &AstExpr, env : &Environment, ctx : &mut EvalContext, out : &mut ArrayList(AstExpr)) -> unit
+)({
+  clear_flow_violation();
+  _clear_anon_swallow();
+  // YO_DEBUG_SWALLOW=1 prints every closure-body trial and the error it ate,
+  // as `[anon-trial] <pos>` / `[anon-swallow] <err>`. Twin of the fn-body
+  // channel in calls/function-type.yo (`[trial]` / `[swallow]`); an
+  // `[anon-swallow]` belongs to the most recent `[anon-trial]` above it. This
+  // swallow used to be entirely silent, which is why a trait `?=` default
+  // whose `io.async` closure body failed to evaluate shipped as an
+  // all-`// Failed to transpile` C body with no diagnostic anywhere
+  // (issues/fixed/trait-default-awaiting-self-async-method-emits-hollow-fn.md).
+  // The `[anon-trial]` gate is a module-level bool, not a per-trial
+  // `env.get()`: it runs once per closure definition (a self-compile hits it
+  // ~10^5 times) and `get` allocates an `Option(String)` every call. The
+  // handler re-reads the env directly — it is a capture-free `->` (it cannot
+  // close over a module-level RUNTIME binding either) and only runs on the
+  // error path.
+  if(_g_anon_dbg_swallow, {
+    dbg_tok0 := ast_expr_token(body);
+    eprintln(`[anon-trial] ${dbg_tok0.module_path.*}:${dbg_tok0.row.to_string()}:${dbg_tok0.column.to_string()}`);
+  });
+  inner_exn := Exception(
+    throw : (
+      _err -> {
+        if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
+          eprintln(`[anon-swallow] ${_err.to_string()}`);
+        });
+        _flag_anon_swallow(_err.to_string(), primary_diagnostic_code(&_err));
+        _flag_anon_swallow_diags(&_err);
+        unwind(())
+      }
+    )
+  );
+  // Route the body through evaluate_begin_expression DIRECTLY, for EVERY
+  // body shape (a non-begin body is treated as a one-statement begin in
+  // place). Twin of the fn-body trial
+  // (calls/function-type.yo:230) and the closure-call body eval
+  // (calls/closure-type.yo:258), which already do this.
+  //
+  // The previous `evaluate_expression_raw(wrap_body_in_begin(body))` only
+  // begin-wrapped bare-ATOM/field-access bodies, so a body that is a bare
+  // CONTROL-FLOW call never reached the begin machinery at all — and `return`
+  // is recognised ONLY as a begin statement (there is no `return` entry in the
+  // expression dispatcher, unlike `unwind`). A bare `err -> return(v)` handler
+  // therefore evaluated `return` as an ordinary identifier, threw
+  // `Variable "return" not found`, got swallowed here, and shipped as an
+  // `abort()` stub with no diagnostic
+  // (issues/fixed/resumable-exception-bare-return-handler-body-aborts.md).
+  evaluated := evaluate_begin_expression(body, env, ctx, ArrayList(Variable).new(), true, inner_exn);
+  out.push(evaluated);
+});
+/// Unify a declared return type that CONTAINS type variables (`Option(B)`)
+/// against the concrete body type, binding each nested type variable in
+/// `expected_env`.
+///
+/// The binding is routed through the env in one step: `expected_env` IS the
+/// caller-side `ctx.expected_type.env` — the call's own callee env — so the
+/// binding lands exactly where `evaluate_function_return_type_again` reads it.
+///
+/// Going through the env rather than the SomeT's resolution / id registry is
+/// what makes this PER CALL. Those channels belong to the SomeT's identity, and a
+/// prelude signature's `B` is ONE instance shared by every call of the method,
+/// so recording there made
+/// `opt.and_then(x => Option(String).Some(…))` inherit the previous call's
+/// `B := i32` — measured as a specialized `and_then` declared `-> Option(i32)`
+/// whose closure returned `Option(String)` (a C type error in
+/// tests/option_result_combinators arm 6).
+///
+/// A genuine mismatch must not fail the definition-time evaluation, so the
+/// throw is swallowed by unwinding THIS helper.
+_synth_nested_return_somes :: (
+  fn(ret_ty : &TypeValue, body_ty : &TypeValue, expected_env : &Environment, given_env : &Environment) -> unit
+)({
+  inner_exn := Exception(throw : (_err -> unwind(())));
+  nrs_checked := ArrayList(TypePair).new();
+  (nrs_opts : Option(SynthesizeOptions)) = Option(SynthesizeOptions).None;
+  synthesize_types(ret_ty, expected_env, body_ty, given_env, &mut nrs_checked, &nrs_opts, inner_exn);
+  ()
+});
+/// Evaluate a closure-parameter type annotation, swallowing eval errors.
+/// On success — the annotation evaluated to a CONCRETE (non-SomeT) TypeVal —
+/// pushes the type to `out`; on error or a non-type result `out` stays empty.
+/// The caller saves/restores `ctx.is_evaluating_function_type` (an unwind here
+/// would skip an in-helper restore).
+_trial_eval_annotation_type :: (
+  fn(type_expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, out : &mut ArrayList(TypeValue)) -> unit
+)({
+  inner_exn := Exception(throw : (_err -> unwind(())));
+  ctx.is_evaluating_function_type = true;
+  evaluated := evaluate_expression_raw(type_expr, env, ctx, inner_exn);
+  match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
+    .Some(ann_ei) => match(
+      ann_ei.value(),
+      .Some(Rc(.TypeVal(ann_tv))) => if(!is_some_type(&ann_tv), {
+        out.push(Rc.clone(ann_tv));
+      }),
+      .Some(_) => (),
+      .None => ()
+    ),
+    .None => ()
+  );
+});
+/// Post-body-eval capture checks:
+///   - a regular function (`->`) cannot capture outer runtime
+///     variables (codegen would emit a standalone C function with no capture
+///     params → undeclared identifiers). Only TRUE outer captures count:
+///     `frame_level < outer_frames_len` (params live AT outer_frames_len).
+///   - non-escape: a closure cannot capture a `ref`
+///     binding (second-class reference; the closure could outlive the frame).
+///   - §4 rule 4: a closure cannot capture a value of
+///     control-bound type (the captured ctl handler would escape its install
+///     frame with the closure).
+/// `env` still carries the parameter frame; `outer_frames_len` is the frame
+/// count from BEFORE it was pushed.
+/// A closure-capture rejection (rule D8, `plans/reference/PARALLELISM_RULES.md`)
+/// is a deliberate user-facing error, but it fires while the ENCLOSING body is
+/// trial-evaluated, whose wall swallows it — the closure then hollows and
+/// `check` stays green (a `with_lock` body's `inout(v)` captured and escaped
+/// past the unlock, `issues/fixed/a-closure-capturing-an-inout-lock-body-parameter-passes-check.md`).
+/// Flag it on the flow-violation channel first so the def-time caller
+/// re-raises it, at the capture site.
+_raise_capture_rejection :: (
+  fn(ctx : &EvalContext, exn : Exception, capture_tok : &Token, msg : &String) -> unit
+)(raise_flow_violation(format_error_message(capture_tok, msg), ctx, exn));
+_check_anon_fn_captures :: (
+  fn(
+    caps : &HashMap(String, CapturedVarInfo),
+    env : &Environment,
+    is_closure : bool,
+    outer_frames_len : usize,
+    func_id : &String,
+    tok : &Token,
+    ctx : &EvalContext,
+    exn : Exception,
+    /// The capture-list frame (decision 35): its borrow entries are `is_ref`
+    /// by construction and second-class, so the `inout` rule skips them.
+    (cap_frame_idx : Option(usize)) ?= Option(usize).None
+  ) -> unit
+)({
+  if(!is_closure, {
+    (names : String) = String.new();
+    key_iter := caps.keys_cloned().into_iter();
+    (more : bool) = true;
+    while(more, {
+      match(
+        key_iter.next(),
+        .None => {
+          more = false;
+        },
+        .Some(k) => {
+          match(
+            caps.get_cloned(k.clone()),
+            .Some(ci) => if(ci.frame_level < outer_frames_len, {
+              if(names.len() > usize(0), {
+                names = `${names}, `;
+              });
+              names = `${names}${k}`;
+            }),
+            .None => ()
+          );
+        }
+      );
+    });
+    if(names.len() > usize(0), {
+      // The definition is already registered at this point — mark it
+      // unemittable so codegen skips the body
+      // (else it emits `return outer_val;` referencing an undeclared
+      // outer variable; the algebraic_effects cee block).
+      mark_fn_unemittable(func_id.clone());
+      exn.throw(
+        dyn(
+          Box.new(
+            format_error_message(
+              tok,
+              `A regular function (using ->) cannot capture outer runtime variables: ${names}.
+Use a closure (=> syntax) instead, or refactor the handler to not reference outer variables.
+If this is an effect handler (e.g. Exception.throw), the handler type only accepts -> functions:
+handlers are capture-free by design (docs/en-US/ALGEBRAIC_EFFECTS.md), so a handler body may use
+its own parameters and locals, comptime constants, and builtins (panic, unwind) — record the
+outcome after the guarded call instead (e.g. a result the handler unwinds past).`
+            )
+          )
+        )
+      );
+    });
+    return(());
+  });
+  key_iter2 := caps.keys_cloned().into_iter();
+  (more2 : bool) = true;
+  while(more2, {
+    match(
+      key_iter2.next(),
+      .None => {
+        more2 = false;
+      },
+      .Some(k) => {
+        match(
+          caps.get_cloned(k.clone()),
+          .Some(ci) => {
+            // Only true outer captures are checked:
+            // `frame_level < outer_frames_len`.
+            in_cap_frame := match(cap_frame_idx, .Some(cfi) => (ci.frame_level == cfi), .None => false);
+            if(ci.frame_level < outer_frames_len, {
+              match(
+                env.frame_at(ci.frame_level),
+                .Some(frame) => {
+                  (vi : usize) = usize(0);
+                  n_v := frame.variables_len();
+                  while(vi < n_v, {
+                    match(
+                      frame.variable_at(vi),
+                      .Some(v) => if(v.name == k, {
+                        // A binding of a `&` match is a pointer into the
+                        // scrutinee, but an implicit capture copies its part
+                        // (the field holds the value), as it did when the
+                        // binding was a copy.
+                        if(v.is_ref() && !in_cap_frame && !v.is_borrow_match_binding(), {
+                          // A judged tree names the reference itself (VERDICTS-44
+                          // R-CAP-1): `{ y }` copies a `&T`, `{ m : &mut m.* }`
+                          // reborrows a `&mut T`. Compiler-synthesized code, which
+                          // keeps the old reading, names a borrow of the place.
+                          how := cond(
+                            deref_rule_applies(&ci.token, ctx) => `Name it in the capture list: \`{ ${k} }(...) => ...\` copies a \`&T\` reference (the closure then refers to what \`${k}\` refers to), and \`{ ${k} : &mut ${k}.* }(...) => ...\` reborrows a \`&mut T\`.`,
+                            true => `Name it in a capture list (\`{ &${k} }(...) => ...\` or \`{ &mut ${k} }(...) => ...\`), which keeps the closure second-class, or read the value into a local first.`
+                          );
+                          _raise_capture_rejection(
+                            ctx,
+                            exn,
+                            &ci.token,
+                            `Cannot capture the borrow '${k}' in a closure implicitly: '${k}' is a local borrow (\`${k} := &place\`, \`${k} := &mut place\`), a second-class borrow of another place, and an implicit capture would copy the borrow into a closure that may outlive it. ${how}`
+                          );
+                        });
+                        if(!v.is_compile_time_only() && type_is_control_bound(&variable_value_type(&v)), {
+                          _raise_capture_rejection(
+                            ctx,
+                            exn,
+                            &ci.token,
+                            `Closures cannot capture a value of control-bound type. The captured value \`${k}\` has type \`${type_to_string(&variable_value_type(&v))}\` which transitively contains a \`ctl(...) -> ret\` function. Closures can escape their enclosing frame, taking the captured control function with them — which would unwind to a dead install frame.
+
+Pass \`${k}\` as a regular function parameter instead of capturing it in a closure.`
+                          );
+                        });
+                      }),
+                      .None => ()
+                    );
+                    vi = (vi + usize(1));
+                  });
+                },
+                .None => ()
+              );
+            });
+          },
+          .None => ()
+        );
+      }
+    );
+  });
+});
+// ---------------------------------------------------------------------------
+// Capture lists (plans/VALUES_BY_DEFAULT.md decisions 35 and 38)
+// ---------------------------------------------------------------------------
+/// One entry of a closure's capture list, evaluated at the literal: a
+/// by-value field (`x`, `x : e`) or a borrow of a place (`y : &p`,
+/// `z : &mut p`).
+_CapListEntry :: struct(
+  label : String,
+  label_tok : Token,
+  is_borrow : bool,
+  is_mut : bool,
+  /// The field's value type: the initializer's type, or the borrowed
+  /// place's type (the capture struct stores `*(T)` for a borrow).
+  value_ty : TypeValue,
+  /// The evaluated initializer: the value, or the borrowed place.
+  init : AstExpr,
+  root_id : usize,
+  root_name : String,
+  path : ArrayList(String),
+  /// The borrowed place's root is a `&T` parameter (a by-value C local).
+  root_is_value_param : bool,
+  /// A borrow's root binding and place in the enclosing scope (O-3,
+  /// VERDICTS-37 Q3: a store through a `&mut` capture joins it).
+  outer : Option(BorrowCaptureOuter),
+  /// R-CLOSURE-LIT's by-value clause (plans/backlog/BORROW_CHECKER_COMPLETENESS.md
+  /// §3, VERDICTS-44 R-CAP-2): one capture borrow per place the captured
+  /// VALUE's origin names, each with its mode, when its type carries an origin
+  /// (a `&T` copied from a reference binding, a holder, a borrowing closure).
+  /// They become the closure's capture borrows, so the escape, freeze and
+  /// exclusivity checks read them. Resolved where the entry is evaluated, in
+  /// the scope that writes the literal: once the capture frame binds the
+  /// labels, a label naming its own root (`{ p }` of a `&T` parameter, whose
+  /// origin is `p`; `{ s : y }` with `y := &s`) shadows that root.
+  origin_borrows : ArrayList(CaptureBorrow),
+  /// `root_*` and `path` are the entry's capture place, not its borrows: the
+  /// closure's capture borrows are `origin_borrows` (a reference copy `{ y }`,
+  /// whose pointer field points at what `y` refers to).
+  uses_origin_borrows : bool
+);
+derive(_CapListEntry, Clone);
+_cap_list_error :: (fn(ctx : &EvalContext, exn : Exception, tok : &Token, msg : &String) -> unit)(
+  _raise_capture_rejection(ctx, exn, tok, msg)
+);
+/// The one argument of a prefix call `f(a)`.
+_only_arg :: (fn(e : &AstExpr) -> AstExpr)(
+  match(e, Rc(.FnCall(_, _, Rc(oa), _, _)) => match(oa.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()), Rc(.Atom(_, _)) => make_err_expr())
+);
+/// `e` is the borrow marker `&p` (`imm` entries) or `&mut p` (`mut`
+/// entries), a one-operand prefix call.
+_is_borrow_sigil :: (fn(e : &AstExpr, want_mut : bool) -> bool)(
+  if(want_mut, ast_expr_is_fn_call_of(e, BK_BORROW_MUT, Option(usize).Some(usize(1))), ast_expr_is_fn_call_of(e, BF_ADDRESS_OF, Option(usize).Some(usize(1))))
+);
+/// The field hops of a place `a.b.c` from the root outward (`["b", "c"]`),
+/// and its root atom; `.None` unless the place is a `.` chain of identifier
+/// fields rooted at an identifier (a call, an index, a literal or a
+/// temporary is not a place a borrow can name).
+/// The evaluated place `e` steps through an owner's `.*` (`owner_deref_object`).
+_cap_place_has_owner_deref :: (fn(e : &AstExpr) -> bool)({
+  (cur : AstExpr) = Rc.clone(e.*);
+  while(true, {
+    if(owner_deref_object(&cur).is_some(), {
+      return(true);
+    });
+    if(!ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
+      return(false);
+    });
+    cur = match(Rc.clone(cur), Rc(.FnCall(_, _, Rc(oa), _, _)) => match(oa.get_cloned(usize(0)), .Some(b) => b, .None => return(false)), Rc(.Atom(_, _)) => return(false));
+  });
+  false
+});
+_cap_place_root :: (fn(place : &AstExpr, fields : &mut ArrayList(String)) -> Option(AstExpr))({
+  rev := ArrayList(String).new();
+  (cur : AstExpr) = Rc.clone(place.*);
+  (walking : bool) = true;
+  while(walking, {
+    if(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
+      recv := match(Rc.clone(cur), Rc(.FnCall(_, _, Rc(dargs), _, _)) => match(dargs.get_cloned(usize(0)), .Some(b) => b, .None => make_err_expr()), Rc(.Atom(_, _)) => make_err_expr());
+      fld := match(Rc.clone(cur), Rc(.FnCall(_, _, Rc(dargs), _, _)) => match(dargs.get_cloned(usize(1)), .Some(b) => b, .None => make_err_expr()), Rc(.Atom(_, _)) => make_err_expr());
+      if(!ast_expr_is_atom(&fld), {
+        return(Option(AstExpr).None);
+      });
+      rev.push(ast_expr_token(&fld).value.*.clone());
+      cur = recv;
+    }, {
+      walking = false;
+    });
+  });
+  if(!ast_expr_is_atom(&cur), {
+    return(Option(AstExpr).None);
+  });
+  (ri : usize) = rev.len();
+  while(ri > usize(0), {
+    ri = (ri - usize(1));
+    fields.push(match(rev.get_cloned(ri), .Some(f) => f, .None => String.new()));
+  });
+  Option(AstExpr).Some(cur)
+});
+/// Evaluate a closure's capture list `{ … }` (decision 35) in the scope that
+/// writes the literal. Each entry becomes one field of the capture struct:
+/// - `x` (or `x : e`) is by value: plain data copies, and a value that is
+///   not implicitly copyable moves, exactly as a record field does;
+/// - `y : &p` and `z : &mut p` (puns `&y`, `&mut z`) borrow
+///   the place `p`, which must be rooted at a named local binding (decision
+///   38 D: not across a cell, not module-level; a `mut` place is writable).
+_evaluate_capture_list :: (
+  fn(
+    raw_entries : &ArrayList(AstExpr),
+    env : &Environment,
+    ctx : &mut EvalContext,
+    exn : Exception,
+    /// The closure is typed `FnOnce(...)`: its capture struct dies at the
+    /// call, so every by-value entry's dup is marked uncancellable
+    /// (`mark_call_once_capture_dup`).
+    call_once : bool
+  ) -> ArrayList(_CapListEntry)
+)({
+  out := ArrayList(_CapListEntry).new();
+  (ei : usize) = usize(0);
+  while(ei < raw_entries.len(), {
+    raw := match(raw_entries.get_cloned(ei), .Some(r) => r, .None => make_err_expr());
+    raw_tok := ast_expr_token(&raw);
+    // Normalize to (label expression, initializer expression).
+    (label_e : AstExpr) = Rc.clone(raw);
+    (init_e : AstExpr) = Rc.clone(raw);
+    (is_pun : bool) = false;
+    cond(
+      ast_expr_is_capture_mode_entry(&raw) => {
+        // Pun: `&y` reaches here as `__yo_imm(y)`, `&mut z` as `__yo_mut(z)`.
+        label_e = Rc.clone(raw);
+        init_e = _only_arg(&raw);
+        is_pun = true;
+      },
+      ast_expr_is_fn_call_of(&raw, ":", Option(usize).Some(usize(2))) => {
+        label_e = match(Rc.clone(raw), Rc(.FnCall(_, _, Rc(la), _, _)) => match(la.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr()), Rc(.Atom(_, _)) => Rc.clone(raw));
+        init_e = match(Rc.clone(raw), Rc(.FnCall(_, _, Rc(la), _, _)) => match(la.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr()), Rc(.Atom(_, _)) => Rc.clone(raw));
+      },
+      true => {
+        _cap_list_error(ctx, exn, &raw_tok, `A closure's capture list holds entries \`x\`, \`x : e\`, \`y : &p\` or \`z : &mut p\` (and the puns \`&y\`, \`&mut z\`); got \`${ast_expr_to_string(&raw)}\`.`);
+      }
+    );
+    is_mode := ast_expr_is_capture_mode_entry(&label_e);
+    is_borrow := is_mode;
+    is_mut := (is_mode && ast_expr_is_fn_call_of(&label_e, BK_MUT, .None));
+    name_e := if(is_mode, _only_arg(&label_e), Rc.clone(label_e));
+    if(!ast_expr_is_atom(&name_e) || !is_valid_variable_name(&name_e), {
+      _cap_list_error(ctx, exn, ast_expr_token(&label_e), `A capture-list entry is named by an identifier (\`x\`, \`y : &p\`, \`&mut z\`); got \`${ast_expr_to_string(&label_e)}\`.`);
+    });
+    name_tok := ast_expr_token(&name_e);
+    label := name_tok.value.*.clone();
+    (di : usize) = usize(0);
+    while(di < out.len(), {
+      if(match(out.get_cloned(di), .Some(pe) => (pe.label == label), .None => false), {
+        _cap_list_error(ctx, exn, &name_tok, `The capture list names \`${label}\` twice.`);
+      });
+      di = (di + usize(1));
+    });
+    // A borrow spells its mode on the left (the field) and its sigil on the
+    // right (the initializer), as decision 33 splits a parameter from its
+    // argument.
+    // `y : &p` / `z : &mut p` reach here as `__yo_imm(y) : &p` /
+    // `__yo_mut(z) : &mut p` (the parse-time rewrite of decision 42), so the
+    // sigil decides the mode.
+    if(is_borrow && !is_pun && !_is_borrow_sigil(&init_e, is_mut), {
+      want := if(is_mut, String.from("&mut "), String.from("&"));
+      _cap_list_error(ctx, exn, ast_expr_token(&init_e), `A borrow capture's initializer is a place under its sigil (\`${label} : ${want}place\`, or the pun \`${want}${label}\`); got \`${ast_expr_to_string(&init_e)}\`.`);
+    });
+    // The entry `y` / `r : y` whose initializer is a reference binding of a
+    // judged file reads the reference (R-CAP-1); compiler-synthesized code,
+    // which keeps the old reading (`deref_rule_applies`), copies the referent.
+    (ref_copy_var : Option(Variable)) = Option(Variable).None;
+    if(!is_borrow && ast_expr_is_atom(&init_e) && is_valid_variable_name(&init_e) && deref_rule_applies(ast_expr_token(&init_e), ctx) && !is_reference_deref_site(ast_expr_token(&init_e)), {
+      match(
+        get_variables_from_env(env, ast_expr_token(&init_e).value.*.clone()).last_cloned(),
+        .Some(rcv) => if(variable_is_reference_binding(&rcv), {
+          ref_copy_var = Option(Variable).Some(rcv);
+        }),
+        .None => ()
+      );
+    });
+    if(is_borrow, {
+      place_e := if(is_pun, init_e, _only_arg(&init_e));
+      fields := ArrayList(String).new();
+      root_atom := match(
+        _cap_place_root(&place_e, &mut fields),
+        .Some(r) => r,
+        .None => {
+          _cap_list_error(ctx, exn, ast_expr_token(&place_e), `A borrow capture names a place rooted at a named binding (\`y\`, \`s.items\`); \`${ast_expr_to_string(&place_e)}\` is not one. A temporary dies before the closure does: bind it first (\`t := ...;\`) and borrow \`t\`, or capture the value with \`${label} : ...\`.`);
+          make_err_expr()
+        }
+      );
+      root_tok := ast_expr_token(&root_atom);
+      root_vars := get_variables_from_env(env, root_tok.value.*.clone());
+      root_var := match(
+        root_vars.last_cloned(),
+        .Some(v) => v,
+        .None => {
+          _cap_list_error(ctx, exn, &root_tok, `Variable "${root_tok.value.*}" is not defined.`);
+          return(out);
+        }
+      );
+      if(root_var.is_module_level(), {
+        _cap_list_error(ctx, exn, &root_tok, `A borrow capture cannot name the module-level binding \`${root_tok.value.*}\`: a module-level place has no owner the closure's borrow could be checked against (decision 18, rule 3). Read it inside the body, or capture a copy: \`${label} : ${ast_expr_to_string(&place_e)}\`.`);
+      });
+      if(root_var.is_compile_time_only(), {
+        _cap_list_error(ctx, exn, &root_tok, `A borrow capture cannot name \`${root_tok.value.*}\`: it is a compile-time value with no runtime storage.`);
+      });
+      // A borrow capture of a reference binding `r` (decision 43 step 2
+      // N1e-1, VERDICTS-13 §11): `{ y : &r }` borrows the referent, spelled
+      // `{ y : &r.* }`, and the pun `{ &r }` gains its label,
+      // `{ r : &r.* }` (E0926). In `{ y : &r.*… }` the reference's own deref
+      // names the place `r` already borrows, so it is not a field hop. A
+      // re-evaluated body (a trait default's per-impl materialization) reads
+      // its `r.*` already rewritten to the name at the `*`
+      // (`note_reference_deref_site`): that name is the written deref, not a
+      // bare `&r`
+      // (issues/fixed/2026-11-05-a-capture-list-in-an-untyped-trait-default-lambda-cannot-borrow-self.md).
+      cap_root_is_ref_binding := (variable_is_reference_binding(&root_var) && !is_reference_deref_site(&root_tok));
+      cap_root_is_reference := (cap_root_is_ref_binding && deref_rule_applies(&root_tok, ctx));
+      if(cap_root_is_reference && (fields.len() == usize(0)), {
+        if(is_pun && deref_rule_recording(), {
+          record_deref_edit_site(&raw_tok, &label, u8(1));
+        });
+        reject_reference_without_deref(&root_var, &root_tok, u8(2), ctx, exn);
+      });
+      // The written `.*` is the reference's own deref: `{ p : &p.* }` names
+      // the referent of `p` whole, so an `io.async` body borrows the `&`
+      // parameter whole (§3.13 A2) and the future keeps its own copy of it
+      // (`__yo_lent_<label>`). `yo fix --migrate deref` reads such a `.*` the
+      // old way (the payload) only where old source could have written it:
+      // through a `Box`, a handle or a pointer, in a file that shows no new
+      // spelling, as `property-access.yo` does; there the hop stays.
+      cap_star_is_new := (!deref_rule_recording() || (deref_text_is_new_spelling(&root_tok, ctx) || !deref_reads_through_pointee(&variable_value_type(&root_var))));
+      if(cap_root_is_reference && cap_star_is_new && (fields.len() > usize(0)) && (fields(usize(0)) == "*"), {
+        _dropped_star := fields.remove(usize(0));
+      });
+      saved_bexp := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
+      deref_exempt_mark(&place_e);
+      ev_place := evaluate_expression_raw(&place_e, env, ctx, exn);
+      deref_exempt_clear();
+      ctx.expected_type = saved_bexp;
+      require_expr_not_consumed(&ev_place, env, ctx, exn);
+      // An owner's `.*` is its `deref` projection's place (VERDICTS-63
+      // decision 9): a call's result, which a capture entry does not name.
+      if(_cap_place_has_owner_deref(&ev_place), {
+        _cap_list_error(ctx, exn, ast_expr_token(&place_e), `A borrow capture names a place rooted at a named binding (\`y\`, \`s.items\`); \`${ast_place_text(&place_e)}\` is not one: an owner's \`.*\` is the place its \`deref\` projection yields. Bind the view first (\`t := &${ast_place_text(&place_e)};\`) and capture \`{ t }\`.`);
+      });
+      place_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev_place)), .Some(pi) => Rc.clone(pi.ty()), .None => t_unit());
+      if(is_unit_type(&place_ty), {
+        _cap_list_error(ctx, exn, ast_expr_token(&place_e), `A borrow capture cannot name a unit-typed place: it has no runtime storage.`);
+      });
+      // Decision 38 D, narrowed by O9 (decision 43,
+      // REFERENCES_AND_ORIGINS.md): a `&` capture through the deref of a
+      // handle whose payload is read-only (`{ x : &h.*.x }`) has the handle's
+      // place as its origin, so `h` is frozen while the closure lives and no
+      // run-time mark is needed. Any other cell, and a `&mut` capture through
+      // a handle, stays rejected.
+      if(capture_place_crosses_cell(&ev_place, ctx, is_mut), {
+        _cap_list_error(
+          ctx,
+          exn,
+          ast_expr_token(&place_e),
+          `A borrow capture cannot reach through an \`Rc\`/\`Arc\` (or any \`ref\` object or pointer dereference): \`${ast_expr_to_string(&place_e)}\` lives in a shared cell, and a closure, which may be copied, cannot hold the cell's run-time borrow mark (decision 38 D). Capture the handle and re-derive the place on each call: \`{ &${root_tok.value.*} }(...) => ${ast_expr_to_string(&place_e)}...\`.`
+        );
+      });
+      // §3.13 A2: a future keeps its own copy of a `&T` parameter it borrows
+      // (C receives the parameter by value, in the frame the future may
+      // outlive), so it borrows the parameter whole, not a place inside it.
+      if(ctx.is_inside_io_async_call && root_var.is_imm_borrow() && (fields.len() > usize(0)), {
+        _cap_list_error(ctx, exn, ast_expr_token(&place_e), `An \`io.async\` body borrows a \`&\` parameter whole: \`${ast_expr_to_string(&place_e)}\` is a place inside the parameter \`${root_tok.value.*}\`, which the future copies when it is made (plans/VALUES_BY_DEFAULT.md §3.13 A2). Borrow what the parameter refers to whole, \`{ ${root_tok.value.*} : &${root_tok.value.*}.* }\`, and read \`${ast_expr_to_string(&place_e)}\` in the body.`);
+      });
+      if(is_mut, {
+        // Decision 38 D: a `mut` capture's place must be writable.
+        // A place is writable through its root binding: a `:=` local, a
+        // `mut`/`inout` parameter or local, or a `mut` capture are
+        // reassignable; a by-value parameter, a `match`/`for` binding and an
+        // `imm` capture are not. (A cell is never crossed, checked above.)
+        // Decision 47 step 2: and its root binding is declared `mut(name)`.
+        place_require_mut(&ev_place, ast_expr_token(&place_e), &String.from("lend `&mut` (a `&mut` capture)"), true, env, ctx, exn);
+        if(!root_var.is_reassignable(), {
+          _cap_list_error(ctx, exn, ast_expr_token(&place_e), `A \`&mut\` capture needs a writable place, and \`${ast_expr_to_string(&place_e)}\` is not: \`${root_tok.value.*}\` is a read-only binding (a by-value parameter, a \`match\`/\`for\` binding or a \`&\` borrow). Borrow it read-only with \`${label} : &${ast_expr_to_string(&place_e)}\`, or take the parameter \`${root_tok.value.*} : &mut T\`.`);
+        });
+      });
+      // The entry is R-LEND of its place, taken when the literal is
+      // evaluated: an access in the entry's mode against every live loan
+      // (audit A33: a `&mut` entry beside a live `&` loan is E0911, beside a
+      // live closure's capture borrow E0910).
+      access_expr(&ev_place, if(is_mut, LocalBorrowAccess.Exclusive, LocalBorrowAccess.Read), ast_expr_token(&place_e), env, ctx, exn);
+      // A reborrow through a reference binding (`{ y : &s.* }`, R-DEREF):
+      // the closure borrows the places `s` refers to, `origin_of(s)`, beside
+      // `s` itself, so a write of what `s` borrows while the closure lives
+      // conflicts with it as `{ y : &x }` does (audit A20).
+      (reborrow_borrows : ArrayList(CaptureBorrow)) = ArrayList(CaptureBorrow).new();
+      (is_reborrow : bool) = (cap_root_is_reference && !deref_rule_recording());
+      if(is_reborrow, {
+        reborrow_borrows.push(
+          CaptureBorrow(
+            label : label.clone(),
+            is_mut : is_mut,
+            root_id : root_var.id(),
+            root_name : root_tok.value.*.clone(),
+            path : fields.clone(),
+            root_is_value_param : root_var.is_imm_borrow(),
+            through_value : false,
+            assumed : false,
+            site : `${name_tok.module_path.*}:${(name_tok.row + u32(1)).to_string()}:${(name_tok.column + u32(1)).to_string()}`
+          )
+        );
+        {
+          through := ArrayList(CaptureBorrow).new();
+          _capture_origin_borrows(&label, &reference_binding_referents(&root_var, env, ctx), &name_tok, env, &mut through);
+          (ti : usize) = usize(0);
+          while(ti < through.len(), ti = (ti + usize(1)), {
+            tb := through(ti).clone();
+            // The reborrow's mode bounds the entry's: `&s.*` of a `&mut`
+            // binding borrows the referent shared.
+            reborrow_borrows.push(
+              CaptureBorrow(
+                label : tb.label.clone(),
+                is_mut : (tb.is_mut && is_mut),
+                root_id : tb.root_id,
+                root_name : tb.root_name.clone(),
+                path : tb.path.clone(),
+                root_is_value_param : tb.root_is_value_param,
+                through_value : tb.through_value,
+                assumed : tb.assumed,
+                site : tb.site.clone()
+              )
+            );
+          });
+        };
+      });
+      cap_label_text := label.clone();
+      out.push(
+        _CapListEntry(
+          label : label,
+          label_tok : name_tok,
+          is_borrow : true,
+          is_mut : is_mut,
+          value_ty : place_ty,
+          init : Rc.clone(ev_place),
+          root_id : root_var.id(),
+          root_name : root_tok.value.*.clone(),
+          path : fields,
+          root_is_value_param : root_var.is_imm_borrow(),
+          outer : match(
+            local_borrow_place_of(&ev_place, env, ctx),
+            .Some(op) => Option(BorrowCaptureOuter).Some(BorrowCaptureOuter(outer : root_var.clone(), text : `${cap_label_text} : ${if(is_mut, String.from("&mut "), String.from("&"))}${op.text}`, place : op, is_mut : is_mut)),
+            .None => Option(BorrowCaptureOuter).None
+          ),
+          origin_borrows : reborrow_borrows,
+          uses_origin_borrows : is_reborrow
+        )
+      );
+    }, if(ref_copy_var.is_some(), {
+      // VERDICTS-44 R-CAP-1: the entry `y` / `r : y` of a reference binding
+      // copies the REFERENCE (a `&T` is `Copy`, decision 43), not the value it
+      // refers to. The field is a pointer to what `y` refers to, as a borrow
+      // entry's is, and the closure's capture borrows are the places `y`'s
+      // origin names (R-CAP-2), so the closure outlives `y` the binding but
+      // not what `y` refers to.
+      rv := match(&ref_copy_var, .Some(v) => Rc.clone(v), .None => return(out));
+      if(match(&reference_binding_read_type(&rv), Rc(.Reference(_, rc_m, _)) => rc_m.*, _ => false), {
+        _cap_list_error(
+          ctx,
+          exn,
+          ast_expr_token(&init_e),
+          `\`${rv.name}\` is a \`&mut\` reference, and the by-value entry \`${label}\` would move it into the closure. A \`&mut T\` moves at its last use (decision 35); this closure cannot take it. Reborrow it for the closure's life with \`{ ${label} : &mut ${rv.name}.* }\`.`
+        );
+      });
+      saved_rexp := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
+      binder_read_mark(&init_e);
+      ev_ref := evaluate_expression_raw(&init_e, env, ctx, exn);
+      binder_read_clear();
+      ctx.expected_type = saved_rexp;
+      require_expr_not_consumed(&ev_ref, env, ctx, exn);
+      ref_borrows := ArrayList(CaptureBorrow).new();
+      _capture_origin_borrows(&label, &origin_of(&ev_ref, env, ctx), &name_tok, env, &mut ref_borrows);
+      out.push(
+        _CapListEntry(
+          label : label,
+          label_tok : name_tok,
+          is_borrow : true,
+          is_mut : false,
+          value_ty : variable_value_type(&rv),
+          init : ev_ref.clone(),
+          root_id : rv.id(),
+          root_name : rv.name.clone(),
+          path : ArrayList(String).new(),
+          root_is_value_param : rv.is_imm_borrow(),
+          outer : Option(BorrowCaptureOuter).None,
+          origin_borrows : ref_borrows,
+          uses_origin_borrows : true
+        )
+      );
+    }, {
+      // By value: the initializer is stored in the field, the move point of
+      // a record field.
+      saved_vexp := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
+      ev_val := evaluate_expression_raw(&init_e, env, ctx, exn);
+      ctx.expected_type = saved_vexp;
+      set_expr_as_needs_to_call_dup(&ev_val, ctx, exn, "field-store");
+      val_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev_val)), .Some(vi) => Rc.clone(vi.ty()), .None => t_unit());
+      // R-CLOSURE-LIT's by-value clause: a captured value whose type carries
+      // an origin (a holder, a borrowing closure) puts that origin in the
+      // closure (VERDICTS-44 R-CAP-2).
+      val_borrows := ArrayList(CaptureBorrow).new();
+      if(type_carries_origin(&val_ty), {
+        _capture_origin_borrows(&label, &origin_of(&ev_val, env, ctx), &name_tok, env, &mut val_borrows);
+      });
+      // The field must OWN its reference. An owning temp is consumed by the
+      // call above (the store moves it) and a move-only atom read moves at
+      // the read; but an ATOM read of an RC-typed binding has no temp, so
+      // `set_expr_as_needs_to_call_dup` no-ops, and a NON-owning temp
+      // records its dup on the initializer's own ExprInfo. That recorded dup
+      // MUST stay attached to the initializer: the capture field's codegen
+      // (`expr_info_capture_field_inits` in src/codegen/exprs/closures.yo)
+      // runs it through `emit_deferred_dup_or_code`, the shared dup-on-store
+      // choke point, which MATERIALIZES the initializer call first — reusing
+      // the dup expression as the field initializer instead emitted
+      // `__yo_incr_rc(<eval-time temp>)` for a temp no generated code ever
+      // declared ("use of undeclared identifier", the round-2 defect; the
+      // initializer call itself vanished with it). An atom's dup targets a
+      // declared local, so it renders inline: build it here, exactly as
+      // `generate_captured_variable_dup_expressions` does for the ordinary
+      // implicit-capture path.
+      (field_init : AstExpr) = Rc.clone(ev_val);
+      if(type_contains_rc_type(&val_ty) && !type_requires_explicit_copy(&val_ty), {
+        recorded_dup := match(
+          expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev_val)),
+          .Some(fi_ei) => match(
+            expr_info_deferred_dup_expressions(&fi_ei),
+            .Some(fi_ds) => (fi_ds.len() > usize(0)),
+            .None => false
+          ),
+          .None => false
+        );
+        if(!recorded_dup && ast_expr_is_atom(&init_e), {
+          saved_fdexp := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
+          fd_dup := generate_expr_from_code(`___dup(${ast_expr_token(&init_e).value.*.clone()})`, exn);
+          field_init = evaluate_expression_raw(&fd_dup, env, ctx, exn);
+          ctx.expected_type = saved_fdexp;
+        });
+        if(call_once, {
+          mark_call_once_capture_dup(ast_expr_id(&field_init));
+          match(
+            expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev_val)),
+            .Some(co_ei) => match(
+              expr_info_deferred_dup_expressions(&co_ei),
+              .Some(co_ds) => {
+                (co_i : usize) = usize(0);
+                while(co_i < co_ds.len(), {
+                  match(co_ds.get_cloned(co_i), .Some(co_d) => mark_call_once_capture_dup(ast_expr_id(&co_d)), .None => ());
+                  co_i = (co_i + usize(1));
+                });
+              },
+              .None => ()
+            ),
+            .None => ()
+          );
+        });
+      });
+      out.push(
+        _CapListEntry(
+          label : label,
+          label_tok : name_tok,
+          is_borrow : false,
+          is_mut : false,
+          value_ty : val_ty,
+          init : field_init,
+          root_id : usize(0),
+          root_name : String.new(),
+          path : ArrayList(String).new(),
+          root_is_value_param : false,
+          outer : Option(BorrowCaptureOuter).None,
+          origin_borrows : val_borrows,
+          uses_origin_borrows : false
+        )
+      );
+    }));
+    ei = (ei + usize(1));
+  });
+  out
+});
+/// The capture borrows of a by-value capture `label` whose type carries an
+/// origin: one per place `roots` names, in the mode of the reference that put
+/// it there (R-CLOSURE-LIT's by-value clause, VERDICTS-44 R-CAP-2). `env` is
+/// the scope that writes the literal, before the capture frame binds the
+/// entries' labels (a label may name its own root: a `&T` parameter's origin
+/// is the parameter, R-CAP-2's parameter-rooted case). A root that names no
+/// binding of this scope (a temporary, an origin parameter) is skipped:
+/// `bind` already judged it where the holder was made.
+_capture_origin_borrows :: (
+  fn(label : &String, roots : &ArrayList(OriginRootPlace), tok : &Token, env : &Environment, out : &mut ArrayList(CaptureBorrow)) -> unit
+)({
+  (ri : usize) = usize(0);
+  while(ri < roots.len(), {
+    r := roots(ri).clone();
+    match(
+      get_variables_from_env(env, r.place.root_name.clone()).last_cloned(),
+      .Some(rv) => if(!rv.is_compile_time_only() && (rv.token.module_path == r.place.root_decl.module_path) && (rv.token.byte_offset == r.place.root_decl.byte_offset), {
+        out.push(
+          CaptureBorrow(
+            label : label.clone(),
+            is_mut : r.is_mut,
+            root_id : rv.id(),
+            root_name : r.place.root_name.clone(),
+            path : r.place.steps.clone(),
+            root_is_value_param : rv.is_imm_borrow(),
+            through_value : false,
+            assumed : false,
+            site : `${tok.module_path.*}:${(tok.row + u32(1)).to_string()}:${(tok.column + u32(1)).to_string()}`
+          )
+        );
+      }),
+      .None => ()
+    );
+    ri = (ri + usize(1));
+  });
+});
+evaluate_anonymous_function_implementation :: (
+  fn(
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &mut EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)({
+  tok := ast_expr_token(expr);
+  op_str := _get_anon_op(expr);
+  // Require exactly 2 args: param declaration + body.
+  n_expr_args := match(
+    expr,
+    Rc(.FnCall(_, _, Rc(a), _, _)) => a.len(),
+    Rc(.Atom(_, _)) => usize(0)
+  );
+  if(n_expr_args != usize(2), {
+    exn.throw(
+      dyn(
+        Box.new(
+          format_error_message(
+            &tok,
+            `Anonymous function: expected 2 args, got ${n_expr_args}`
+          )
+        )
+      )
+    );
+  });
+  param_decl := _get_arg(expr, usize(0));
+  body_expr := _get_arg(expr, usize(1));
+  // A capture list `{ … }(params) => body` (decision 35): the parser's
+  // `{…}` → `_(…)` desugar makes the left side a call of the record literal.
+  (cap_list_raw : Option(ArrayList(AstExpr))) = Option(ArrayList(AstExpr)).None;
+  (cap_list_params : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
+  if(ast_expr_is_capture_list_params(&param_decl), {
+    match(
+      Rc.clone(param_decl),
+      Rc(.FnCall(_, cl_callee, Rc(cl_params), _, _)) => {
+        cap_list_raw = Option(ArrayList(AstExpr)).Some(match(cl_callee, Rc(.FnCall(_, _, Rc(cl_entries), _, _)) => cl_entries.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new()));
+        cap_list_params = cl_params.clone();
+      },
+      Rc(.Atom(_, _)) => ()
+    );
+  });
+  // `mut(n) => …`, `(imm(v) : String) => …`, `{ imm(y) }() => …`: the
+  // deleted mode-word spelling of a closure parameter or capture entry
+  // (decision 42 Generation B), E0009, named before anything else is asked
+  // of the literal.
+  match(&cap_list_raw, .Some(entries) => _reject_old_closure_param_list(&entries.*, exn), .None => ());
+  if(ast_expr_is_capture_list_params(&param_decl), _reject_old_closure_param_list(&cap_list_params, exn), _reject_old_closure_params(&param_decl, exn));
+  // -------------------------------------------------------------------------
+  // Resolve the expected type from context.
+  // -------------------------------------------------------------------------
+  // No expected type in context is a HARD ERROR: an anonymous-function
+  // literal has no type of its own, so there is nothing to check its
+  // parameters and body against. The gate is operator-agnostic (`->` and `=>`
+  // alike).
+  //
+  // The former leniency (`_synthesize_default_func_type`, which built an
+  // all-`SomeT` Func and DISCARDED the user's parameter annotations) is what
+  // produced the `use of undeclared identifier fn_yo_id_NNNN` clang error in
+  // tests/algebraic-effects.test.yo: the synthesized FuncVal gets registered, so
+  // codegen/exprs/comptime-value.yo emits its c_name, while
+  // should_skip_function_codegen (codegen/functions/declarations.yo:462, via
+  // is_function_type_hard_generic / has_generic_return) suppresses BOTH its
+  // prototype and its body. It also made that file's `comptime_expect_error`
+  // for "lambda with unwind needs an explicit ctl annotation" pass vacuously.
+  (expected_ty : TypeValue) = match(
+    &ctx.expected_type,
+    .Some(etc) => Rc.clone(etc.ty),
+    .None => {
+      exn.throw(
+        dyn(
+          Box.new(
+            format_error_message(
+              &tok,
+              `Expected a function type, got:\n${ast_expr_to_string(expr)}`
+            )
+          )
+        )
+      );
+      Rc.new(TypeValueNode.Unit)
+    }
+  );
+  // For closures passed to generic functions (e.g. io.async), the callee's
+  // env carries generic bindings (E=Io, T=i32). Extract it so the closure's
+  // parameter types can be resolved against those bindings before body
+  // evaluation.
+  expected_type_env := match(
+    &ctx.expected_type,
+    .Some(etc) => snapshot_env(&etc.env),
+    .None => Rc.clone(env)
+  );
+  // -------------------------------------------------------------------------
+  // Determine whether this is a closure (`=>`) or regular function
+  // (`->`).  For closures the expected type is normally SomeT or FnTraitT
+  // (the Fn-trait wrapper); for regular functions it is Func.
+  // -------------------------------------------------------------------------
+  op_is_arrow := (op_str == "->");
+  is_creating_closure := !op_is_arrow;
+  if(op_is_arrow && cap_list_raw.is_some(), {
+    exn.throw(dyn(Box.new(format_error_message(&tok, String.from("A `->` function literal captures nothing, so it takes no capture list. Write the closure with `=>`: `{ x }(params) => body`.")))));
+  });
+  // Decision 44: a closure or function literal in a `Dyn(Fn(...))` slot, or
+  // in its owning handle's (`Box(Dyn(Fn(...)))`, decision 49), is
+  // `dyn(<literal>)` (E0618).
+  if(is_dyn_fn_slot(&expected_ty), {
+    reject_closure_literal_into_dyn_fn(&expected_ty, expr, is_creating_closure, ctx, exn);
+  });
+  // Resolve the concrete Func type to use for parameter/return information.
+  // For Func expected types: use directly.
+  // For FnTraitT: convert to Func.
+  // For SomeT: extract FnTraitT via trait_checking, then convert to Func.
+  function_type_opt := match(
+    &expected_ty,
+    Rc(.Func({ result : _ })) => Option(TypeValue).Some(Rc.clone(expected_ty)),
+    Rc(.FnTraitT(_, _, _, _, _, _)) => Option(TypeValue).Some(_func_from_fn_trait(&expected_ty)),
+    Rc(.SomeT(_, _, _, _, _, _, _)) => {
+      fn_trait_opt := extract_fn_trait_from_type(&expected_ty);
+      match(
+        fn_trait_opt,
+        // NOTE: no substitution happens here from expected_type_env — it
+        // proved both unnecessary (the annotation-driven pass below is what
+        // resolves io.async's `E := Io`) and collision-prone (name-based
+        // lookup), so only the allow-listed annotation-driven substitution
+        // remains.
+        .Some(ftt) => Option(TypeValue).Some(_func_from_fn_trait(&ftt)),
+        .None => Option(TypeValue).None
+      )
+    },
+    _ => Option(TypeValue).None
+  );
+  // Decision 37: a closure typed against `FnOnce(...)` is called once and its
+  // call consumes it, so a capture-list body OWNS its by-value captures and
+  // may move one out. Against `Fn(...)` the call borrows them.
+  expected_fn_base := match(
+    &expected_ty,
+    Rc(.FnTraitT(base_name : efb)) => efb.clone(),
+    Rc(.SomeT(_, _, _, _, _, _, _)) => match(
+      extract_fn_trait_from_type(&expected_ty),
+      .Some(eft) => match(eft, Rc(.FnTraitT(base_name : efb2)) => efb2.clone(), _ => String.from("")),
+      .None => String.from("")
+    ),
+    _ => String.from("")
+  );
+  closure_owns_captures := (is_creating_closure && cap_list_raw.is_some() && (expected_fn_base == "FnOnce"));
+  // Decision 37 (N1f): a closure typed against `FnMut(...)` is called through
+  // an exclusive borrow (`self : &mut Self`), so its body may write the
+  // record its call borrows: a capture list's by-value entries are writable
+  // (VERDICTS-15 Q1), and the closure is move-only.
+  closure_is_fnmut := (is_creating_closure && (expected_fn_base == "FnMut"));
+  (function_type : TypeValue) = match(
+    function_type_opt,
+    .Some(ft) => Rc.clone(ft),
+    .None => {
+      exn.throw(
+        dyn(
+          Box.new(
+            format_error_message(
+              &tok,
+              String.from("Anonymous function: expected a Func or Impl(Fn(...)) type")
+            )
+          )
+        )
+      );
+      Rc.new(TypeValueNode.Unit)
+    }
+  );
+  // A closure is not a function pointer. A bare `fn(...)` type (not a `ctl`
+  // handler type) is a C code pointer; a `=>` closure is a capture struct, so
+  // checking one against the other emitted C that calls a struct
+  // (issues/fixed/bare-fn-type-param-accepts-a-closure-then-emits-invalid-c.md).
+  // The closure-carrying slot types are `Impl(Fn(...))` and `Dyn(Fn(...))`.
+  if(is_creating_closure && match(&expected_ty, Rc(.Func({ meta : bf_m })) => !(bf_m.is_control), _ => false), {
+    exn.throw(
+      dyn(
+        Box.new(
+          format_error_message_with_help(
+            &tok,
+            `Type mismatch: a closure (\`${op_str}\`) cannot be used where the function-pointer type \`${type_to_string(&expected_ty)}\` is expected — a closure carries its captures, a \`fn(...)\` value is a bare code pointer`,
+            Option(String).Some(String.from("declare the slot `Impl(Fn(...))` (monomorphized) or `Dyn(Fn(...))` (boxed), or write a `->` function literal, which captures nothing"))
+          )
+        )
+      )
+    );
+  });
+  // Decision 43 step 3, N2a: a run-time function whose parameter or result
+  // holds a reference outside a `&T` slot would hold a value no build makes
+  // yet (`reject_origin_carrying_signature`).
+  reject_origin_carrying_signature(&function_type, &tok, exn);
+  // -------------------------------------------------------------------------
+  // Extract Func fields.
+  // -------------------------------------------------------------------------
+  forall_labels := match(
+    &function_type,
+    Rc(.Func({ meta : __fm1 })) => Rc.clone(__fm1.forall_labels),
+    _ => no_labels()
+  );
+  param_labels := match(
+    &function_type,
+    Rc(.Func({ meta : __fm2 })) => Rc.clone(__fm2.param_labels),
+    _ => no_labels()
+  );
+  (param_types : SharedList(TypeValue)) = match(
+    &function_type,
+    Rc(.Func({ param_types : pt })) => Rc.clone(pt),
+    _ => no_types()
+  );
+  // The expected type's per-param ref-ness. A `self : &mut Self` trait-method
+  // param (e.g. Iterator's `next : fn(self : &mut Self) -> Option(Self.Item)`) makes `self` a
+  // C pointer; the body's `self.field` read must dereference it (`(*self).field`,
+  // emitted by generate_atom on an is_ref binding). add_variable_to_env can't set
+  // is_ref, so we stamp it onto the bound variable below — matching the
+  // def-time (_build_def_time_body_env) and specialized
+  // (create_specialized_function_inline) body-eval paths.
+  param_is_ref := match(
+    &function_type,
+    Rc(.Func({ result : _ })) => fn_param_mut_ref_flags(&function_type),
+    _ => no_flags()
+  );
+  // The expected type's by-value flags (V3b's flip, decision 30): a closure
+  // parameter typed by value owns its argument, exactly as a `fn`
+  // parameter does (`bind_parameter`), so the closure drops it.
+  param_is_owning := match(
+    &function_type,
+    Rc(.Func({ result : _ })) => fn_param_by_value_flags(&function_type),
+    _ => no_flags()
+  );
+  implicit_labels := match(
+    &function_type,
+    Rc(.Func({ meta : __fm4 })) => Rc.clone(__fm4.implicit_labels),
+    _ => no_labels()
+  );
+  implicit_types := match(
+    &function_type,
+    Rc(.Func({ implicit_types : it })) => Rc.clone(it),
+    _ => no_types()
+  );
+  result_box := match(
+    &function_type,
+    Rc(.Func({ result : rb })) => t_slot_pointee(&rb.*),
+    _ => Rc.new(TypeValueNode.Unit)
+  );
+  // -------------------------------------------------------------------------
+  // Parse the parameter declaration into a flat list.
+  // `param_decl` is either a tuple(...) with multiple params or a single expr.
+  // -------------------------------------------------------------------------
+  raw_param_exprs := if(
+    cap_list_raw.is_some(),
+    cap_list_params.clone(),
+    match(
+      Rc.clone(param_decl),
+      Rc(.FnCall(_, fb2, Rc(decl_args), _, _)) => match(
+        fb2,
+        Rc(.Atom(_, ptok)) => cond(
+          (ptok.value.* == BK_TUPLE) => decl_args.clone(),
+          true => {
+            single_list := ArrayList(AstExpr).new();
+            single_list.push(Rc.clone(param_decl));
+            single_list
+          }
+        ),
+        Rc(.FnCall(_, _, _, _, _)) => {
+          single_list2 := ArrayList(AstExpr).new();
+          single_list2.push(Rc.clone(param_decl));
+          single_list2
+        }
+      ),
+      Rc(.Atom(_, _)) => {
+        single_list3 := ArrayList(AstExpr).new();
+        single_list3.push(Rc.clone(param_decl));
+        single_list3
+      }
+    )
+  );
+  // -------------------------------------------------------------------------
+  // Separate generic / using / regular parameter expressions.
+  // -------------------------------------------------------------------------
+  forall_param_exprs := ArrayList(AstExpr).new();
+  using_param_exprs := ArrayList(AstExpr).new();
+  regular_param_exprs := ArrayList(AstExpr).new();
+  (sep_i : usize) = usize(0);
+  n_raw := raw_param_exprs.len();
+  while(sep_i < n_raw, {
+    pe := match(raw_param_exprs.get_cloned(sep_i), .Some(a) => a, .None => make_err_expr());
+    is_forall_call := ast_expr_is_fn_call_of(&pe, "generic", .None);
+    is_using_call := ast_expr_is_fn_call_of(&pe, "using", .None);
+    cond(
+      is_forall_call => {
+        fa := match(pe, Rc(.FnCall(_, _, Rc(fa_args), _, _)) => fa_args.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+        (fi : usize) = usize(0);
+        while(fi < fa.len(), {
+          fpe := match(fa.get_cloned(fi), .Some(a) => a, .None => make_err_expr());
+          forall_param_exprs.push(fpe);
+          fi = (fi + usize(1));
+        });
+      },
+      is_using_call => {
+        ua := match(pe, Rc(.FnCall(_, _, Rc(ua_args), _, _)) => ua_args.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+        (ui : usize) = usize(0);
+        while(ui < ua.len(), {
+          upe := match(ua.get_cloned(ui), .Some(a) => a, .None => make_err_expr());
+          using_param_exprs.push(upe);
+          ui = (ui + usize(1));
+        });
+      },
+      true => {
+        regular_param_exprs.push(pe);
+      }
+    );
+    sep_i = (sep_i + usize(1));
+  });
+  // -------------------------------------------------------------------------
+  // Validate regular parameter count.
+  // -------------------------------------------------------------------------
+  n_regular := regular_param_exprs.len();
+  n_expected := param_labels.len();
+  if(n_regular != n_expected, {
+    exn.throw(
+      dyn(
+        Box.new(
+          format_error_message(
+            &tok,
+            `Anonymous function: expected ${n_expected} regular parameters, got ${n_regular}`
+          )
+        )
+      )
+    );
+  });
+  // -------------------------------------------------------------------------
+  // Lambda-annotation-driven generic resolution (closure params): when a
+  // closure parameter carries an
+  // explicit `(name : Type)` annotation and the expected Fn-trait parameter
+  // type is an UNRESOLVED SomeType (io.async's `Impl(Fn(E) -> T)` exposes
+  // `e : E`), evaluate the user's annotation and substitute that SomeType
+  // throughout `function_type` via a per-lambda binding frame that never
+  // escapes (pushed here, popped before the capture snapshot below). Without
+  // this the registered closure type keeps the live shared `E`; a LATER call
+  // site's resolution of the same declaration-cloned SomeT (E := IoExn in
+  // std/process/command.yo) then poisons this closure's prototype render —
+  // the never-collected IoExn is the rc=-6 `get_type_string` panic family.
+  // -------------------------------------------------------------------------
+  if(is_creating_closure, {
+    (ann_subst_needed : bool) = false;
+    (ann_frame_pushed : bool) = false;
+    ann_bound_names := ArrayList(String).new();
+    (ann_i : usize) = usize(0);
+    while(ann_i < n_regular, {
+      ann_pe := match(regular_param_exprs.get_cloned(ann_i), .Some(a) => a, .None => make_err_expr());
+      ann_exp_ty := match(slot_pointee_at(&param_types, ann_i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+      ann_is_colon := ast_expr_is_fn_call_of(&ann_pe, ":", Option(usize).Some(usize(2)));
+      // The expected param must be a SomeT with no resolution yet
+      // (`resolved_concrete` empty).
+      ann_some_name := match(
+        ann_exp_ty,
+        Rc(.SomeT({ name : ann_sn, resolution : ann_rc })) => if(
+          ann_rc.is_none() && ann_is_colon,
+          Option(String).Some(ann_sn.clone()),
+          Option(String).None
+        ),
+        _ => Option(String).None
+      );
+      match(
+        ann_some_name,
+        .Some(ann_nm) => {
+          ann_targs := match(Rc.clone(ann_pe), Rc(.FnCall(_, _, Rc(ata), _, _)) => ata.clone(), Rc(.Atom(_, _)) => ArrayList(AstExpr).new());
+          ann_tex := match(ann_targs.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr());
+          ann_out := ArrayList(TypeValue).new();
+          ann_prev_flag := ctx.is_evaluating_function_type;
+          _trial_eval_annotation_type(&ann_tex, env, ctx, &mut ann_out);
+          ctx.is_evaluating_function_type = ann_prev_flag;
+          match(
+            ann_out.get_cloned(usize(0)),
+            .Some(ann_user_ty) => {
+              if(!ann_frame_pushed, {
+                _ann_fr := env.push_frame(false);
+                ann_frame_pushed = true;
+              });
+              // Skip if this generic name was already bound by an earlier
+              // annotated param (top-frame duplicate-name check —
+              // multi-param closures reusing one generic name).
+              ann_already := match(
+                env.last_frame(),
+                .Some(ann_top) => {
+                  (ann_found : bool) = false;
+                  (ann_vi : usize) = usize(0);
+                  while(ann_vi < ann_top.variables_len(), {
+                    match(
+                      ann_top.variable_at(ann_vi),
+                      .Some(av) => if(av.name == ann_nm, {
+                        ann_found = true;
+                      }),
+                      .None => ()
+                    );
+                    ann_vi = (ann_vi + usize(1));
+                  });
+                  ann_found
+                },
+                .None => false
+              );
+              if(!ann_already, {
+                ann_tok := ast_expr_token(&ann_pe);
+                _ann_v := add_variable_to_env(
+                  env,
+                  ann_nm.clone(),
+                  Rc.new(TypeValueNode.TypeUni(usize(0))),
+                  Option(EvalValue).Some(Rc.new(EvalValueNode.TypeVal(ann_user_ty))),
+                  true,
+                  false,
+                  false,
+                  false,
+                  &ann_tok
+                );
+                ann_bound_names.push(ann_nm.clone());
+                ann_subst_needed = true;
+              });
+            },
+            .None => ()
+          );
+        },
+        .None => ()
+      );
+      ann_i = (ann_i + usize(1));
+    });
+    if(ann_subst_needed, {
+      function_type = _subst_some_types_from_env(&function_type, env, &ann_bound_names);
+      param_types = match(
+        &function_type,
+        Rc(.Func({ param_types : ann_pt })) => Rc.clone(ann_pt),
+        _ => param_types.clone()
+      );
+    });
+    if(ann_frame_pushed, {
+      env.pop_frame();
+    });
+  });
+  // -------------------------------------------------------------------------
+  // A function literal has ONE lowered body, so an `Impl(Fn(...))` PARAMETER
+  // — which a named function monomorphizes per call site into the argument
+  // closure's capture struct — would lower to `void*` while every call site
+  // passes the struct by value: invalid C. Reject the shape at definition,
+  // AFTER the annotation-driven substitution above has produced the final
+  // parameter types
+  // (issues/fixed/a-closure-value-with-an-impl-fn-parameter-emits-invalid-c.md).
+  // -------------------------------------------------------------------------
+  (ifp_i : usize) = usize(0);
+  while(ifp_i < param_types.len(), {
+    ifp_ty := match(slot_pointee_at(&param_types, ifp_i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+    if(_is_unresolved_impl_fn_type(&ifp_ty), {
+      ifp_label := match(param_labels.get(ifp_i), .Some(l) => l.clone(), .None => String.from("_"));
+      exn.throw(
+        dyn(
+          Box.new(
+            format_error_message_with_help(
+              &tok,
+              `A \`${op_str}\` function literal has one body, so its "${ifp_label}" parameter of type ${type_to_string(&ifp_ty)} cannot be specialized per call: the parameter would lower to void* while each call passes the argument closure's own capture struct`,
+              Option(String).Some(String.from("take the parameter as Dyn(Fn(...)) (one boxed calling convention), or write a named fn: a named function specializes its Impl(Fn(...)) parameters per call site"))
+            )
+          )
+        )
+      );
+    });
+    ifp_i = (ifp_i + usize(1));
+  });
+  // -------------------------------------------------------------------------
+  // Capture list (decision 35): evaluate the entries in the enclosing scope,
+  // then bind each one in a frame of its own between that scope and the
+  // parameters. The body sees exactly these names (plus module-level items),
+  // and the capture struct is built from them, not from what the body reads.
+  // -------------------------------------------------------------------------
+  cap_entries := match(
+    &cap_list_raw,
+    .Some(cl_raw) => {
+      // An `io.async` body owns its by-value entries, so it may move one out
+      // (an awaited future, §3.13 A1). A borrow entry makes the future
+      // second-class (§3.13 A2): the io.async call registers the body's
+      // borrows on the future's type.
+      entries := _evaluate_capture_list(&cl_raw.*, env, ctx, exn, closure_owns_captures);
+      entries
+    },
+    .None => ArrayList(_CapListEntry).new()
+  );
+  (cap_frame_idx : Option(usize)) = Option(usize).None;
+  cap_borrow_ids := ArrayList(usize).new();
+  if(cap_list_raw.is_some(), {
+    _cap_fr := env.push_frame(false);
+    cap_frame_idx = Option(usize).Some(env.frames_len() - usize(1));
+    if(closure_owns_captures, {
+      match(env.frame_at(_cap_fr), .Some(cfr) => mark_fnonce_capture_frame(cfr.id()), .None => ());
+    });
+    (cfe_i : usize) = usize(0);
+    while(cfe_i < cap_entries.len(), {
+      match(
+        cap_entries.get_cloned(cfe_i),
+        .Some(ce) => {
+          // A by-value capture is read-only in the body (decision 38: a body
+          // never writes its captures). A borrow is a pointer field read and
+          // written through (`is_ref`); an `imm` borrow is the one `is_ref`
+          // binding that is not reassignable, which the write checks read as
+          // "read-only borrow". An `FnOnce` body OWNS its by-value captures
+          // (decision 37): they bind as owning, so a move consumes one and
+          // the body drops the rest when the call ends.
+          // An `FnMut` body's by-value entries are writable: its call borrows
+          // the record exclusively, so a write persists (VERDICTS-15 Q1).
+          ce_owned := (closure_owns_captures && !ce.is_borrow);
+          ce_fnmut_state := (closure_is_fnmut && !ce.is_borrow);
+          ce_v := add_variable_to_env(env, ce.label.clone(), ce.value_ty.clone(), Option(EvalValue).None, false, (ce.is_borrow && ce.is_mut) || ce_fnmut_state, ce_owned, false, ce.label_tok.clone());
+          match(
+            ce_v,
+            .Some(cv) => {
+              if(ce.is_borrow, {
+                variable_set_is_ref(&cv, true);
+                // The capture's mode is the one written: `rx : &x` reads as
+                // `&i32` in the body, `s : &mut slot` as `&mut` (the flags
+                // alone make every `is_ref` binding `&mut`).
+                variable_set_reference_mut(&cv, ce.is_mut);
+                match(
+                  &ce.outer,
+                  .Some(bco) => {
+                    note_borrow_capture_outer(cv.id(), bco.clone());
+                    cap_borrow_ids.push(cv.id());
+                  },
+                  .None => ()
+                );
+              }, if(!ce_owned, {
+                mark_fn_capture_value_binding(cv.id());
+              }));
+              if(!ce.is_borrow, {
+                mark_capture_list_value_binding(cv.id());
+              });
+              if(ce_fnmut_state, {
+                mark_fnmut_capture_value_binding(cv.id());
+              });
+            },
+            .None => ()
+          );
+        },
+        .None => ()
+      );
+      cfe_i = (cfe_i + usize(1));
+    });
+  });
+  // -------------------------------------------------------------------------
+  // Snapshot outer env for closure/function capture.
+  // Same walk as eval.yo lines 1696-1730: iterate all outer frames and collect
+  // all visible variable bindings, as slices of the frames' own lists. This
+  // must happen BEFORE pushing the parameter frame so we only capture the
+  // outer lexical scope (params are bound fresh at each call site).
+  // -------------------------------------------------------------------------
+  // Names, types and values are all read through the registered handles
+  // (`fv_capture_source`, `fv_capture_val`, memory plan §0.7/§0.16); a
+  // valueless binding reads as `VarRef(name)`. No value snapshot is kept.
+  cap_vals := ArrayList(EvalValue).new();
+  // Campaign 2 (plans/archive/FUNCVAL_ENV_SHARING.md): the same walk also snapshots
+  // the ORIGINAL Variable handles, so `capture_env_for` can build the call
+  // env by sharing them instead of re-minting one Variable per binding. They
+  // are recorded as slices of the frames' own lists (`CaptureSlice`, memory
+  // plan §0.14), not copied.
+  cap_slices := ArrayList(CaptureSlice).new();
+  n_cap_fr := env.frames_len();
+  (cap_fi : usize) = usize(0);
+  while(cap_fi < n_cap_fr, {
+    match(
+      env.frame_at(cap_fi),
+      .Some(cap_frame) => {
+        n_cap_v := cap_frame.variables_len();
+        (cap_vi : usize) = usize(0);
+        (cap_run_start : usize) = usize(0);
+        while(cap_vi < n_cap_v, {
+          match(
+            cap_frame.variable_at(cap_vi),
+            .Some(cv) => {
+              cond(
+                !(cv.name == "__recur_fn") => (),
+                true => {
+                  if(cap_vi > cap_run_start, {
+                    cap_slices.push(CaptureSlice(vars : cap_frame.variables(), start : cap_run_start, end : cap_vi));
+                  });
+                  cap_run_start = (cap_vi + usize(1));
+                }
+              );
+            },
+            .None => ()
+          );
+          cap_vi = (cap_vi + usize(1));
+        });
+        if(n_cap_v > cap_run_start, {
+          cap_slices.push(CaptureSlice(vars : cap_frame.variables(), start : cap_run_start, end : n_cap_v));
+        });
+      },
+      .None => ()
+    );
+    cap_fi = (cap_fi + usize(1));
+  });
+  fv_env_key := mint_funcval_env_key();
+  register_funcval_cap_slices(fv_env_key, &cap_slices);
+  // -------------------------------------------------------------------------
+  // Push a new environment frame for the function parameters.
+  // -------------------------------------------------------------------------
+  _frame_idx := env.push_frame(false);
+  match(env.frame_at(_frame_idx), .Some(pfr) => mark_closure_param_frame(pfr.id()), .None => ());
+  // -------------------------------------------------------------------------
+  // Add generic parameters to the environment.
+  // Each generic type variable is bound as a compile-time unknown SomeT.
+  // -------------------------------------------------------------------------
+  (fa_env_i : usize) = usize(0);
+  while(fa_env_i < forall_labels.len(), {
+    fl_name := match(forall_labels.get_cloned(fa_env_i), .Some(n) => n, .None => String.from(""));
+    fl_ty := Rc.new(
+      TypeValueNode.SomeT(
+        fl_name.clone(),
+        fl_name.clone(),
+        env.frame_count(),
+        Rc.new(TypeValueNode.TypeUni(usize(0))),
+        some_t_bounds(ArrayList(TypeValue).new(), ArrayList(usize).new(), ArrayList(TypeValue).new(), ArrayList(usize).new()),
+        Option(TypeValue).None,
+        Option(TypeValue).None
+      )
+    );
+    fl_tok := synthetic_token(fl_name.clone(), &env.module_path().*);
+    _fa_v := add_variable_to_env(
+      env,
+      fl_name.clone(),
+      Rc.new(TypeValueNode.TypeUni(usize(0))),
+      Option(EvalValue).Some(Rc.new(EvalValueNode.TypeVal(fl_ty))),
+      true,
+      false,
+      false,
+      false,
+      &fl_tok
+    );
+    fa_env_i = (fa_env_i + usize(1));
+  });
+  // -------------------------------------------------------------------------
+  // Add implicit (using) parameters to the environment.
+  // -------------------------------------------------------------------------
+  (il_env_i : usize) = usize(0);
+  while(il_env_i < implicit_labels.len(), {
+    il_name := match(implicit_labels.get_cloned(il_env_i), .Some(n) => n, .None => String.from(""));
+    il_ty := match(implicit_types.get(il_env_i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+    il_tok := synthetic_token(il_name.clone(), &env.module_path().*);
+    il_val := create_unknown_val(il_ty.clone());
+    _il_v := add_variable_to_env(
+      env,
+      il_name.clone(),
+      &il_ty,
+      Option(EvalValue).Some(il_val),
+      true,
+      false,
+      false,
+      true,
+      &il_tok
+    );
+    il_env_i = (il_env_i + usize(1));
+  });
+  // -------------------------------------------------------------------------
+  // Build param_type_names and add regular parameters to the environment.
+  // Use the user-supplied name from the parameter expression where available;
+  // fall back to the expected label.
+  // -------------------------------------------------------------------------
+  param_type_names := ArrayList(String).new();
+  actual_param_labels := ArrayList(String).new();
+  // The type each regular parameter is BOUND to in the body env (`rp_ty`
+  // below): Channel 3's abstract test judges these, not the raw `param_types`.
+  bound_param_types := ArrayList(TypeValue).new();
+  (rp_i : usize) = usize(0);
+  while(rp_i < n_regular, {
+    rpe := match(regular_param_exprs.get_cloned(rp_i), .Some(a) => a, .None => make_err_expr());
+    exp_label := match(param_labels.get_cloned(rp_i), .Some(n) => n, .None => String.from(""));
+    rp_ty_raw := match(slot_pointee_at(&param_types, rp_i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+    // Substitute generic SomeTypes (e.g. `E`) in the param type with their
+    // concrete bindings from the callee env.
+    rp_ty := match(
+      &rp_ty_raw,
+      Rc(.SomeT(_, srp_name, _, _, _, _, _)) => {
+        _st_bind_vars := get_variables_from_env(&expected_type_env, srp_name.clone());
+        (_st_bound : Option(TypeValue)) = Option(TypeValue).None;
+        (_st_bi : usize) = _st_bind_vars.len();
+        while(_st_bi > usize(0), {
+          _st_bi = (_st_bi - usize(1));
+          match(
+            _st_bind_vars.get_cloned(_st_bi),
+            .Some(sv) => match(
+              sv.value().get(usize(0)),
+              .Some(Rc(.TypeVal(stv))) => if(!is_some_type(&stv), {
+                _st_bound = Option(TypeValue).Some(Rc.clone(stv));
+                _st_bi = usize(0);
+              }),
+              .Some(_) => (),
+              .None => ()
+            ),
+            .None => ()
+          );
+        });
+        match(_st_bound, .Some(t) => Rc.clone(t), .None => Rc.clone(rp_ty_raw))
+      },
+      _ => Rc.clone(rp_ty_raw)
+    );
+    // Derive the actual parameter name from the user's expression.
+    param_name := _get_param_name_from_expr(&rpe, exp_label.clone());
+    // param_type_name for generic param binding at call time
+    ptn := match(
+      rp_ty_raw,
+      Rc(.SomeT(_, name, _, _, _, _, _)) => name.clone(),
+      _ => String.from("")
+    );
+    param_type_names.push(ptn.clone());
+    actual_param_labels.push(param_name.clone());
+    bound_param_types.push(rp_ty.clone());
+    rp_tok := ast_expr_token(&rpe);
+    rp_v_opt := add_variable_to_env(
+      env,
+      &param_name,
+      &rp_ty,
+      Option(EvalValue).None,
+      false,
+      false,
+      false,
+      false,
+      &rp_tok
+    );
+    if(match(param_is_owning.get(rp_i), .Some(b) => b, .None => false) && !match(param_is_ref.get(rp_i), .Some(b) => b, .None => false) && !type_is_bitwise_copy(rp_ty), {
+      match(
+        &rp_v_opt,
+        .Some(rp_v_own) => {
+          rp_v_own.set_is_owning_the_rc_value(true);
+          // A parameter, so the function-body pass over the parameters
+          // frame (`_schedule_scope_end_drops`, params_only) drops it at
+          // the end of the body, as it drops a `fn`'s by-value parameter.
+          rp_v_own.set_is_parameter(true);
+        },
+        .None => ()
+      );
+    });
+    // A parameter that neither owns nor is `&mut T` borrows read-only (`&T`):
+    // decision 33's call-site markers pass it bare (`is_imm_borrow`).
+    if(!match(param_is_owning.get(rp_i), .Some(b) => b, .None => false) && !match(param_is_ref.get(rp_i), .Some(b) => b, .None => false), {
+      match(
+        &rp_v_opt,
+        .Some(rp_v_imm) => {
+          variable_set_is_imm_borrow(&rp_v_imm.*, true);
+        },
+        .None => ()
+      );
+    });
+    // Stamp is_ref from the expected type so a `inout(...)` param's body reads
+    // dereference the C pointer (see param_is_ref note above).
+    if(match(param_is_ref.get(rp_i), .Some(b) => b, .None => false), {
+      match(
+        &rp_v_opt,
+        .Some(rp_v) => {
+          variable_set_is_ref(&rp_v.*, true);
+          // Reassignable goes with ref:
+          // assignment TO an `inout` param is
+          // the write-through (`v = i32(99)` in with_lock's closure).
+          rp_v.set_is_reassignable(true);
+        },
+        .None => ()
+      );
+    });
+    // A closure or handler returning a reference is a projection (decision
+    // 24, N1c): its parameters are the roots its place may be reached from
+    // (`is_parameter`), and a `&T` one is passed by pointer
+    // (`fn_param_is_ptr_borrow`), so it binds as a non-reassignable
+    // reference, as `bind_parameter` binds a named projection's. So is a
+    // `&T` parameter of one whose result carries an origin (decision 43
+    // step 3): the result may point into it.
+    if(fn_result_is_ref(&function_type) || fn_param_is_ptr_borrow(&function_type, rp_i), {
+      match(
+        rp_v_opt,
+        .Some(rp_vp) => {
+          rp_vp.set_is_parameter(true);
+          if(fn_param_is_ptr_borrow(&function_type, rp_i), {
+            variable_set_is_ref(&rp_vp, true);
+          });
+        },
+        .None => ()
+      );
+    });
+    rp_i = (rp_i + usize(1));
+  });
+  // UNANNOTATED closure params whose expected SomeT resolved concretely
+  // through the env (a where-bound forall — `fold`'s `item : A` with
+  // `A := i32` bound by the `Self <: Iterator(Item := A)` application):
+  // substitute those names through `function_type` so the REGISTERED type
+  // (corrected_func_type → register_func_type → the emitted C prototype)
+  // carries the concrete type. The rp loop above already binds the param
+  // VARIABLE concretely (rp_ty), but the registered type kept the raw SomeT,
+  // whose resolution the env binding never sets — the C emitter then
+  // falls back to `void*` and every call site mismatches (`acc + x` with
+  // `void* x`; iterator_combinators arm 18's last layer).
+  if(is_creating_closure, {
+    rp_resolved_names := ArrayList(String).new();
+    (rpr_i : usize) = usize(0);
+    while(rpr_i < n_regular, {
+      rpr_raw := match(slot_pointee_at(&param_types, rpr_i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+      match(
+        rpr_raw,
+        Rc(.SomeT({ name : rpr_nm })) => if((rpr_nm.len() > usize(0)) && !(rpr_nm == "Impl"), {
+          rpr_vars := get_variables_from_env(&expected_type_env, rpr_nm.clone());
+          (rpr_conc : bool) = false;
+          (rpr_vi : usize) = rpr_vars.len();
+          while(rpr_vi > usize(0), {
+            rpr_vi = (rpr_vi - usize(1));
+            match(
+              rpr_vars.get_cloned(rpr_vi),
+              .Some(rv) => match(
+                rv.value().get(usize(0)),
+                .Some(Rc(.TypeVal(rvt))) => if(!is_some_type(&rvt), {
+                  rpr_conc = true;
+                  rpr_vi = usize(0);
+                }),
+                .Some(_) => (),
+                .None => ()
+              ),
+              .None => ()
+            );
+          });
+          if(rpr_conc && !rp_resolved_names.contains(rpr_nm.clone()), {
+            rp_resolved_names.push(rpr_nm.clone());
+          });
+        }),
+        _ => ()
+      );
+      rpr_i = (rpr_i + usize(1));
+    });
+    if(rp_resolved_names.len() > usize(0), {
+      function_type = _subst_some_types_from_env(&function_type, &expected_type_env, &rp_resolved_names);
+    });
+  });
+  // -------------------------------------------------------------------------
+  // Build the FuncVal.
+  // Phase 3ad: captures are populated from the outer env snapshot above.
+  // -------------------------------------------------------------------------
+  // Phase 2 (plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §5): the id is a
+  // function of WHAT the function is — its defining module and source
+  // position — not of how many ids were minted before it. UNIQUE PER MINT
+  // (occurrence-indexed, not merged): each EVALUATION of this literal mints a
+  // distinct FuncVal (generic instantiation, inlining trials and call-time
+  // re-evaluation give the same source site different captures and parameter
+  // types — merging their ids corrupts the fid-keyed registries: two
+  // derive(Eq) expansions from one macro site once shared a fid and emitted
+  // Os's body under VcOp's signature). The occurrence counter is per-position,
+  // so ids still do not shift on unrelated edits.
+  func_id := cond(
+    is_creating_closure => stable_func_id(String.from("closure_"), &tok.module_path.*, usize(tok.row), usize(tok.column)),
+    true => stable_func_id(String.from("fn_"), &tok.module_path.*, usize(tok.row), usize(tok.column))
+  );
+  // Source-position identity: every re-eval generation of this source
+  // closure registers under the same key so capture info can merge across
+  // generations (see function-value.yo g_closure_fid_source).
+  if(is_creating_closure, {
+    register_closure_fid_source(func_id.clone(), `${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`);
+    // Audit A46: the body may write an implicit capture only when the
+    // closure owns its record (not a literal lent to a borrowing parameter)
+    // and its call takes the record exclusively or consumes it.
+    set_closure_writes_captures(&func_id, ((expected_fn_base == "FnMut") || (expected_fn_base == "FnOnce")) && !closure_literal_is_borrowed(expr));
+  });
+  // Clone taken BEFORE `body_expr` below moves the body into the
+  // FuncVal; the definition-time body evaluation further down needs it.
+  // A closure or handler returning a reference (`Fn(...) -> &T`, a `ctl`
+  // operation `-> &T`; decision 43 step 2, N1c) is a projection (decision
+  // 24): its body yields a place written with the result's sigil, rewritten
+  // to the marked `addr_of(place)` as a named projection's is.
+  proj_body := if(fn_result_is_ref(&function_type), _closure_projection_body(&body_expr, fn_result_is_mut_ref(&function_type), exn), body_expr.clone());
+  body_for_def_eval := proj_body.clone();
+  func_val := Rc.new(
+    EvalValueNode.FuncVal(
+      Rc.new(
+        FuncValData(
+          forall_names : forall_labels.items.clone(),
+          params : actual_param_labels.clone(),
+          param_type_names : param_type_names,
+          evidence_params : implicit_labels.items.clone(),
+          body : proj_body,
+          cap_names : ArrayList(String).new(),
+          cap_tys : ArrayList(TypeValue).new(),
+          func_id : func_id.clone(),
+          env_key : fv_env_key
+        )
+      ),
+      shared_values(cap_vals)
+    )
+  );
+  // Phase A of an impl member written as a literal (context.yo
+  // `publish_pending_member_phase_a`), before the body trial below.
+  publish_pending_member_phase_a(ast_expr_id(expr), &func_val, &function_type);
+  // Record this function's own resolved Func type by func_id so codegen can
+  // emit its C prototype (Gap 10 — FuncVal carries only param-name strings).
+  //
+  // L3: register with the SOURCE param labels (`actual_param_labels`), NOT the expected
+  // type's `meta.param_labels`. The body binds + the atom emitter emits the SOURCE param
+  // name (e.g. `err` from `(err) -> ...`), but a bare handler's `function_type` inherits
+  // the EXPECTED label (e.g. `error` from `Exception.throw : ctl(…, error : AnyError) →
+  // …`). The C prototype is generated from this registered type's `meta.param_labels`, so
+  // registering the expected label yields "undeclared identifier 'err'" (proto declares
+  // `error`, body references `err`). Rebuild a fresh Func with the source labels; leave
+  // `function_type` (used below for body-eval + the expr's ExprInfo) untouched.
+  corrected_func_type := match(
+    function_type.clone(),
+    Rc(.Func(_l3ft, _l3pt, _l3it, _l3wt, _l3r, _l3m, _)) => {
+      _l3nm := _l3m.*.clone();
+      _l3nm.param_labels = shared_list(actual_param_labels.clone());
+      Rc.new(TypeValueNode.Func(_l3ft.clone(), _l3pt.clone(), _l3it.clone(), _l3wt.clone(), _l3r.clone(), Rc.new(_l3nm), no_types()))
+    },
+    _ => function_type.clone()
+  );
+  // Re-key the func-id SIDE TABLES from the `fn(...)` type expression this
+  // anonymous function was checked against, onto THIS FuncVal's id — the same
+  // nine copies `try_to_implement_function_by_function_type` does for the `::`
+  // form (evaluator/calls/function-type.yo). The evaluator keeps
+  // `is_compile_time_only`, the per-parameter type exprs and the return-type
+  // expr in tables keyed by that expression's id; the anonymous-function path
+  // mints a fresh `fn_<random>` id, and without these copies a
+  // `comptime(T) : Type` parameter/return was simply lost: the call's return
+  // stayed an unbound SomeT (`x := id(i32, 12)` then had no `==` impl and typed
+  // `unit` — tests/fn.test.yo arm 9), and a `comptime(y) : i32` parameter was
+  // emitted as a RUNTIME C parameter. `origin_id` is the channel for the same
+  // thing and travels with the meta through the `.clone()` just above.
+  match(
+    match(&corrected_func_type, Rc(.Func({ meta : _oid_m })) => _oid_m.origin_id.clone(), _ => Option(String).None),
+    .Some(_oid) => {
+      copy_func_param_defaults(_oid.clone(), func_id.clone());
+      copy_func_param_default_exprs(_oid.clone(), func_id.clone());
+      copy_func_param_type_exprs(_oid.clone(), func_id.clone());
+      copy_func_param_comptime(_oid.clone(), func_id.clone());
+      copy_func_param_assigned_values(_oid.clone(), func_id.clone());
+      copy_func_return_type_expr(_oid.clone(), func_id.clone());
+      copy_func_variadic_param(_oid.clone(), func_id.clone());
+      copy_macro_registration(_oid.clone(), func_id.clone());
+      copy_func_where_constraints(_oid.clone(), func_id.clone());
+      copy_func_contract_exprs(_oid.clone(), func_id.clone());
+    },
+    .None => ()
+  );
+  register_func_type(func_id.clone(), &corrected_func_type);
+  // Closure codegen (io.async): an io.async `=>` closure must carry the
+  // capture-struct type + closure marker the codegen needs (closure functions take
+  // a `void* closure_context` capture parameter; the sync-future path reads
+  // `capture_type` for the SM's `__capture` field). closure-type.yo sets these on
+  // the FnTraitT-callee path, which the lambda-arg path does not take.
+  //
+  // STICKY + SCOPED: the closure expr is evaluated more than once (def-time body
+  // eval + codegen-prep) — only the FIRST eval sees `is_inside_io_async_call`, and
+  // each eval mints a FRESH func_id, so the codegen-read (later) eval would be
+  // unmarked. We therefore also treat THIS eval as an io.async closure when a PRIOR
+  // eval already recorded a `capture_type` on this expr's ExprInfo. This keeps the
+  // marking SCOPED to io.async closures (general `=>` closures are never flagged
+  // and never get a prior capture_type — so building a capture struct for EVERY
+  // closure, which regressed the full `check ./std`, is avoided) while surviving
+  // re-eval. See issues/fixed/yo-self-closure-codegen-gate.md.
+  // UNSCOPED (mark every `=>` closure): the codegen-read closure is a CLONE with
+  // fresh expr-ids, evaluated WITHOUT is_inside_io_async_call, so neither the flag
+  // nor an ExprInfo-keyed sticky bit transfers to it — only marking on every
+  // closure eval reaches the clone codegen consumes. This is safe: general
+  // closure codegen had no capture-param convention when this was introduced,
+  // so marking all closures regressed nothing that worked; the
+  // capture-struct creation below is the only added evaluator load, and the
+  // pre-existing `check ./std` crash (std/imm/map.yo, bisected) is unrelated.
+  mark_closure_for_codegen := is_creating_closure;
+  if(mark_closure_for_codegen, {
+    mark_as_closure_fn(func_id.clone());
+    if(closure_owns_captures, {
+      mark_as_fnonce_closure_fn(func_id.clone());
+    });
+  });
+  (closure_capture_type : Option(TypeValue)) = Option(TypeValue).None;
+  (closure_capture_dups : Option(ArrayList(AstExpr))) = Option(ArrayList(AstExpr)).None;
+  (closure_borrows_captures : bool) = false;
+  (closure_body_caps : Option(HashMap(String, CapturedVarInfo))) = Option(HashMap(String, CapturedVarInfo)).None;
+  // Register the definition-site enclosing function's return type: when the
+  // anonymous function is evaluated inside a function-body context, record
+  // the enclosing function's result type for it.
+  match(
+    &ctx.is_evaluating_function_body_or_async_block,
+    .Some(fb_ctx) => match(
+      fb_ctx.kind,
+      .FunctionBody => match(
+        &fb_ctx.func_type,
+        .Some(enclosing_func_ty) => {
+          enclosing_return_ty := match(
+            enclosing_func_ty,
+            Rc(.Func({ result : rb })) => t_slot_pointee(&rb.*),
+            _ => Rc.new(TypeValueNode.Unit)
+          );
+          register_definition_site_return(func_id.clone(), &enclosing_return_ty);
+        },
+        .None => ()
+      ),
+      _ => ()
+    ),
+    .None => ()
+  );
+  // -------------------------------------------------------------------------
+  // Definition-time body evaluation (closure-body def-eval wall).
+  //
+  // A NON-GENERIC anonymous function evaluates its body NOW, under a
+  // function-body evaluation context whose
+  // `captured_variables` map records every outer-variable reference
+  // (identifier lookup calls `track_variable_usage`). Generic bodies stay
+  // deferred (generic params, or a param type carrying SomeTs).
+  //
+  // Eval errors are SWALLOWED by the capture-free trial wrapper (the
+  // def-eval-wall pattern — evaluation gaps must not reject valid
+  // bodies). Deliberate rejections surface through three channels:
+  //   1. a flow violation flagged inside the body (binding-site checks) is
+  //      re-raised here via the real `exn`;
+  //   2. under `propagate_def_time_errors()` (a `comptime_expect_error`
+  //      argument eval) a swallowed body error is re-raised so the expected
+  //      error is observed;
+  //   3. the post-eval gates below (unwind-needs-ctl, capture checks) throw
+  //      via the real `exn` directly.
+  // -------------------------------------------------------------------------
+  // Defer body eval on the SOURCE generic count (`forall_param_exprs`), NOT the
+  // synthesized type's `forall_labels`. A bare handler `Exception(throw : (err) ->
+  // unwind(...))` checked against the expected `ctl(generic(ResumeType), error :
+  // AnyError) -> ResumeType` INHERITS `forall_labels = [ResumeType]` even though its
+  // source declares no generic — keying the defer on `forall_labels` would wrongly skip
+  // evaluating the body, leaving its `unwind` sub-expr UNSTAMPED (→ codegen "// Failed
+  // to transpile unwind(...)"). The env still binds the inherited `forall_labels` below (~line 688)
+  // for bodies that DO reference ResumeType.
+  (should_defer_body : bool) = (forall_param_exprs.len() > usize(0));
+  if(!should_defer_body, {
+    (sd_i : usize) = usize(0);
+    while((sd_i < param_types.len()) && !should_defer_body, {
+      sd_pt := match(slot_pointee_at(&param_types, sd_i), .Some(t) => t, .None => t_unit());
+      if(get_all_some_types(&sd_pt).len() > usize(0), {
+        should_defer_body = true;
+      });
+      sd_i = (sd_i + usize(1));
+    });
+  });
+  // Whether the body types on its own: no forall binder, no SomeT in any
+  // parameter, and no `comptime(x)` value parameter — a comptime parameter's
+  // VALUE comes from the call (`to_comptime_string : (self ->
+  // __yo_expr_to_string(self))` checks against `fn(comptime(self) : Self)`),
+  // so a body that needs it cannot be tried before one. The named-fn path
+  // defers on the same flags (`ft_has_ct_param`, calls/function-type.yo); a
+  // `comptime(T) : Type` parameter is a type binder, not a value, and does
+  // not count there either. Read BEFORE the io.async / ctl forcing below,
+  // which evaluates SomeT-param bodies too; only for this one is a swallowed
+  // error a real type error (Channel 3 below).
+  (body_has_ct_param : bool) = false;
+  {
+    bcp_flags := get_func_param_comptime(func_id.clone());
+    (bcp_i : usize) = usize(0);
+    while((bcp_i < bcp_flags.len()) && !body_has_ct_param, {
+      bcp_is_typeuni := match(
+        slot_pointee_at(&param_types, bcp_i),
+        .Some(bcp_pt) => match(bcp_pt, Rc(.TypeUni(_)) => true, _ => false),
+        .None => false
+      );
+      match(
+        bcp_flags.get(bcp_i),
+        .Some(bcp_f) => if(bcp_f && !bcp_is_typeuni, {
+          body_has_ct_param = true;
+        }),
+        .None => ()
+      );
+      bcp_i = (bcp_i + usize(1));
+    });
+  };
+  // A parameter is abstract when its type is a type variable or holds one
+  // as data. A concrete struct whose only `SomeT`s sit in generic `fn`-typed
+  // fields — the prelude's `Io`, four generic fn pointers — is concrete, as
+  // the named-fn path judges it (`type_contains_some_type_for_codegen_param`
+  // skips fn-typed fields, calls/function-type.yo). `get_all_some_types`
+  // walks into those fields' binders, so `should_defer_body` counts `Io` as
+  // abstract, and every `(io : Io) =>` body (a `Thread.spawn` body, an
+  // annotated `io.async` block) kept its trial's error out of Channel 3:
+  // `yo check` passed a D3 write through an `Arc` that `compile` rejected
+  // only as a hollow body
+  // (issues/fixed/2026-10-15-yo-check-swallows-a-d3-error-inside-a-thread-spawn-or-io-async-body.md).
+  // A parameter typed by an unresolved `SomeT` (an `Impl(...)`) stays
+  // abstract; one the call resolved is judged by the type the body binds.
+  // On the expected-type path that is the SomeT's resolution, which the
+  // predicate follows. On io.async's no-expected-type path (Step 6b-nested,
+  // calls/helper.yo) the call binds `E := Io` in the callee env without
+  // resolving the SomeT, and the parameter loop above binds `e : Io` from
+  // that env (`rp_ty`): judge that bound type, or the trial's error on a
+  // concretely-checked body never reached Channel 3 and `yo check` passed
+  // an unannotated `io.async((e) => …)` body that `compile` rejected
+  // (issues/fixed/ftt-stub-in-live-closure-falls-off-non-void-function.md).
+  (body_params_abstract : bool) = (forall_param_exprs.len() > usize(0));
+  {
+    (bpa_i : usize) = usize(0);
+    while((bpa_i < param_types.len()) && !body_params_abstract, {
+      bpa_pt := match(
+        bound_param_types.get_cloned(bpa_i),
+        .Some(t) => t,
+        .None => match(slot_pointee_at(&param_types, bpa_i), .Some(t) => t, .None => t_unit())
+      );
+      bpa_unresolved := match(&bpa_pt, Rc(.SomeT({ resolution : bpa_r })) => bpa_r.is_none(), _ => false);
+      if(bpa_unresolved || type_contains_some_type_for_codegen_param(&bpa_pt, ArrayList(String).new()), {
+        body_params_abstract = true;
+      });
+      bpa_i = (bpa_i + usize(1));
+    });
+  };
+  body_params_concrete := (!body_params_abstract && !body_has_ct_param);
+  // Closure codegen: an io.async closure has its synthesized type's
+  // params as SomeT (→ would defer), but codegen MUST emit its body, which needs
+  // the body's ExprInfo (types) from def-time eval — otherwise the body emits
+  // "Failed to transpile". Force evaluation; the def-eval-wall swallow below makes
+  // this safe even if the body touches the (SomeT) bundle param.
+  if(mark_closure_for_codegen, {
+    should_defer_body = false;
+  });
+  // CTL handlers (`throw : (ctl(generic(ResumeType), ...) -> ResumeType)`)
+  // must also FORCE body evaluation: nothing else ever evaluates the body
+  // (the def-eval is deferred by the SomeT param; the ctl inline eval only
+  // runs when the handler VALUE reaches a call, which a def-eval'd callee
+  // taking the record as a PARAM never does), so codegen had no ExprInfos
+  // and emitted `// Failed to transpile return(resume_val);` — the handler
+  // then returned garbage at runtime (algebraic_effects generic
+  // struct-record family, issues/fixed/yo-self-algebraic-effects-two-roots.md).
+  // Params bind at their (erased) declared types — exactly the void*
+  // convention the emitted C uses; the def-eval-wall swallow keeps a
+  // failing body harmless.
+  ctl_force := match(
+    &function_type,
+    Rc(.Func({ meta : __fmc9 })) => __fmc9.is_control,
+    _ => false
+  );
+  // §4 escape boundary 1 (rule 8): a fn's RESULT type must not be
+  // control-bound. `unwind` exits the frame the handler record is installed
+  // in at the THROW site; a handler that leaves its defining fn as (part of)
+  // the return value outlives that frame, and invoking it later would unwind
+  // to a dead frame. Passing handler records DOWNWARD (parameters — every
+  // `{ io, exn }` bundle) stays legal; only the upward direction dangles.
+  // Checked on the DECLARED result type, OUTSIDE the def-eval trial swallow:
+  // the trial's own failure on these shapes (its `unwind` types against the
+  // defining fn's return) was swallowed, which shipped handlers whose emitted
+  // bodies were silently missing their `unwind`
+  // (issues/fixed/ctl-handler-escaping-its-defining-fn-is-untypeable.md).
+  // A ctl handler itself is exempt: its result is the resume type, delivered
+  // DOWN into the still-live throw frame. SomeT results are conservatively
+  // not control-bound, so generic/async (`Impl(Future(...))`) results pass.
+  if(!ctl_force, {
+    decl_result_ty := match(&function_type, Rc(.Func({ result : __rr })) => t_slot_pointee(&__rr.*), _ => t_unit());
+    if(!in_derive_impl() && type_is_control_bound(&decl_result_ty), {
+      exn.throw(
+        dyn(
+          Box.new(
+            format_error_message(
+              &tok,
+              `A function's result type cannot be control-bound (transitively contain a \`ctl(...) -> ret\` function type). A \`ctl\` handler unwinds the frame it is installed in at the throw site; returning one out of its defining function would let it be invoked after that frame is gone. Pass the handler (or the record holding it) downward as a parameter instead.
+
+Result type: ${type_to_string(&decl_result_ty)}`
+            )
+          )
+        )
+      );
+    });
+  });
+  // NOT inside a comptime_expect_error clone eval (propagate mode): the
+  // force exists to stamp body ExprInfos for EMISSION, which rejected
+  // cee code never reaches — and forcing there made the capture-check
+  // throw propagate past the cee catch and abandon the enclosing begin
+  // (the cee_regular_fn_capture_reject corpus DIFF: trailing println
+  // dropped).
+  if(ctl_force && !propagate_def_time_errors(), {
+    should_defer_body = false;
+  });
+  // The def-time evaluated body, kept for rule D1's reachability walk below.
+  (anon_d1_body : Option(AstExpr)) = Option(AstExpr).None;
+  if(!should_defer_body, {
+    // A separate preliminary FuncVal for the body-eval context (EvalValue is
+    // not Clone; `func_val` above is consumed by the ExprInfo below). Same
+    // pattern as closure-type.yo's `func_val_pre`.
+    body_ctx_func_val := Rc.new(
+      EvalValueNode.FuncVal(
+        Rc.new(
+          FuncValData(
+            forall_names : ArrayList(String).new(),
+            // The parameter names as written: the body's own (the closure-capture
+            // rule, `_enclosing_param_names`), not the expected slot's labels.
+            params : actual_param_labels.clone(),
+            param_type_names : ArrayList(String).new(),
+            evidence_params : ArrayList(String).new(),
+            body : body_for_def_eval.clone(),
+            cap_names : ArrayList(String).new(),
+            cap_tys : ArrayList(TypeValue).new(),
+            func_id : func_id.clone()
+          )
+        ),
+        no_values()
+      )
+    );
+    // The body evaluates against a SNAPSHOT of the live env (the param frame
+    // is in scope; frame-list mutations during body eval cannot corrupt the
+    // outer env's frame list — see snapshot_env / the recorded-env-aliasing
+    // issue).
+    body_eval_env := snapshot_env(env);
+    // NOTE: io.async's generic `E` (the effect bundle) is bound at the CALL site
+    // (`try_to_call_function_with_arguments` Step 6b, helper.yo), which resolves
+    // the closure's `e : E` param type to the concrete bundle BEFORE this body
+    // eval runs. So `e.io` / `e.exn` field
+    // accesses see a concrete receiver here without any body-env type binding.
+    body_eval_ctx := create_function_body_evaluation_context(
+      &function_type,
+      &body_ctx_func_val,
+      &body_eval_env,
+      ctx
+    );
+    // An `FnOnce(...)` capture-list body owns its by-value captures
+    // (decision 37): a copy of one inside the body is held pending and judged
+    // by liveness where the body ends (below), not recorded at once.
+    body_eval_ctx.captures_owned_by_body = closure_owns_captures;
+    // Closure codegen: for a marked io.async closure, the synthesized
+    // closure return type is a fresh `SomeT _ret` — using it as the body's expected
+    // type coerces an operator-bodied result (e.g. `i32+i32`) to that SomeT, so the
+    // body types as SomeT and the concrete result-refine is skipped (closure return
+    // + future result then lower to void*). Clear the expected type so the body
+    // types naturally (the closure's result is inferred from the body anyway).
+    ret_ty_for_body := match(&function_type, Rc(.Func({ result : brt })) => t_slot_pointee(&brt.*), _ => t_unit());
+    // (`mark_closure_for_codegen` is every `=>` closure — this clear is what
+    // makes the def-time body type CONCRETELY instead of being coerced to
+    // the SomeT, which feeds the closure-body-type registration below.)
+    if(mark_closure_for_codegen && is_some_type(&ret_ty_for_body), {
+      body_eval_ctx.expected_type = Option(ExpectedTypeCtx).None;
+    });
+    anon_body_out := ArrayList(AstExpr).new();
+    // A swallowed throw strands whatever the body pushed on the forcing stacks
+    // (an impl abandoned inside the closure body) — truncate back.
+    anon_depths := forcing_depths();
+    _trial_eval_anon_body(&body_for_def_eval, &body_eval_env, &mut body_eval_ctx, &mut anon_body_out);
+    truncate_forcing_depths(anon_depths);
+    anon_d1_body = anon_body_out.get_cloned(usize(0));
+    // A closure body nothing evaluates again (a forced `io.async` block):
+    // keep what its trial swallowed, for codegen to report if the body turns
+    // out hollow (`lookup_hollow_body_error`).
+    hb_tok := ast_expr_token(&body_for_def_eval);
+    hb_site := `${hb_tok.module_path.*}:${hb_tok.row.to_string()}:${hb_tok.column.to_string()}`;
+    if(_anon_swallow_pending() && (anon_body_out.len() == usize(0)), {
+      record_hollow_body_error(&hb_site, _anon_swallow_message(), g_anon_swallow_diags.with(_c_clone_diags));
+    }, {
+      clear_hollow_body_error(&hb_site);
+    });
+    // An `FnOnce` capture-list body owns its by-value captures (decision 37),
+    // so `YO_AUDIT_COPY_TRAIT` held its copies of one pending on the
+    // capture. Judge them here, against the body's evaluated statements: a
+    // capture read again after the copy is a copy, the last use a move —
+    // the same judgment a match arm's bindings get (`_judge_arm_copies`,
+    // exprs/match.yo). The capture frame is popped only far below.
+    if(closure_owns_captures && audit_copy_trait_enabled(), {
+      match(
+        cap_frame_idx,
+        .Some(jcfi) => match(
+          env.frame_at(jcfi),
+          .Some(jfr) => audit_judge_arm_copies(&jfr, &anon_body_out, &body_eval_ctx),
+          .None => ()
+        ),
+        .None => ()
+      );
+    });
+    // Channel 0 (P0, plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.6): a swallowed
+    // unbound-name that is bound LATER in this module is a forward
+    // reference — error now instead of hollowing the closure body silently
+    // (the io.async shape that shipped broken version_cache code).
+    if(_anon_swallow_pending(), {
+      match(
+        hard_swallow_diagnostic(_anon_swallow_message()),
+        .Some(anon_fwd_msg) => {
+          // Read the code BEFORE the clear, which empties it.
+          anon_fwd_code := _anon_swallow_code();
+          _clear_anon_swallow();
+          exn.throw(dyn(Box.new(with_code_carried(format_error_message(&tok, &anon_fwd_msg), &anon_fwd_code))));
+        },
+        .None => ()
+      );
+    });
+    // Channel 1: re-raise a flow violation the trial swallow ate (a
+    // deliberate binding-site rejection inside the body), flagged again so
+    // a trial enclosing THIS definition (an `io.async` closure body around a
+    // handler) re-raises it in turn. Same pattern as the def-time caller in
+    // calls/function-type.yo.
+    match(
+      flow_violation_error(),
+      .Some(anon_viol_err) => {
+        reraise_flow_violation(&anon_viol_err, ctx, exn);
+      },
+      .None => ()
+    );
+    // Channel 3 (Phase 6 step 2, plans/backlog/TYPE_SYSTEM_SOUNDNESS.md): a body
+    // whose parameters are all concrete runtime values has nothing a call
+    // could resolve, so an error its trial swallowed is a type error in the
+    // source. Re-raise it. Before this the body shipped as an `abort()` stub
+    // with no diagnostic
+    // (issues/fixed/closure-body-type-errors-are-swallowed-into-a-runtime-abort.md).
+    // Gated on an EMPTY out, like the named-fn path: a body that succeeded
+    // leaves only a nested trial's leftover flag. Bodies forced for
+    // emission with SomeT parameters (io.async, ctl handlers) keep the
+    // swallow: they are typed again where their parameters resolve.
+    if(body_params_concrete && !propagate_def_time_errors() && (_anon_swallow_pending() && (anon_body_out.len() == usize(0))), {
+      c3_msg := _anon_swallow_message();
+      c3_diags := g_anon_swallow_diags.with(_c_clone_diags);
+      _clear_anon_swallow();
+      if(c3_diags.len() > usize(0), {
+        exn.throw(dyn(Box.new(yo_error_from_diagnostics(&c3_diags))));
+      });
+      exn.throw(dyn(Box.new(c3_msg)));
+    });
+    // Census (Phase 6): a closure whose parameters are not all concrete
+    // runtime values keeps its trial's error (a forced body with SomeT
+    // parameters, or a `comptime(x)` value parameter).
+    if(_g_anon_dbg_swallow && _anon_swallow_pending() && (anon_body_out.len() == usize(0)), {
+      eprintln(`[kept] site=${if(body_has_ct_param, String.from("anon-ct"), String.from("anon-abstract"))} code=${match(_anon_swallow_code(), .Some(c) => c, .None => String.from("-"))} owner=${hb_site}`);
+    });
+    // Channel 2: comptime_expect_error observation — when the body eval
+    // THREW (empty `out`) and propagate mode is on, re-raise so the
+    // expected error reaches the comptime_expect_error catch.
+    if(propagate_def_time_errors() && (anon_body_out.len() == usize(0)), {
+      // The body's own error, when the trial kept it, so the observer can
+      // match its text (a capture-list rule raised inside the body).
+      if(_anon_swallow_pending(), {
+        c2_msg := _anon_swallow_message();
+        c2_diags := g_anon_swallow_diags.with(_c_clone_diags);
+        _clear_anon_swallow();
+        if(c2_diags.len() > usize(0), {
+          exn.throw(dyn(Box.new(yo_error_from_diagnostics(&c2_diags))));
+        });
+        exn.throw(dyn(Box.new(c2_msg)));
+      });
+      exn.throw(
+        dyn(
+          Box.new(
+            format_error_message(
+              &tok,
+              String.from("Anonymous function body raised a compile-time error during definition-time evaluation.")
+            )
+          )
+        )
+      );
+    });
+    // §4 typing rule 1: `unwind` is only
+    // valid in a `ctl(...) -> ret` body. A `fn(...) -> ret` body containing
+    // `unwind` is a type error. Closures are exempt.
+    fn_type_is_control := match(
+      &function_type,
+      Rc(.Func({ meta : __fm5 })) => __fm5.is_control,
+      _ => false
+    );
+    match(
+      anon_body_out.get_cloned(usize(0)),
+      .Some(anon_eb) => {
+        if(evaluated_body_contains_unwind(&anon_eb) && (!fn_type_is_control && !is_creating_closure), {
+          exn.throw(
+            dyn(
+              Box.new(
+                format_error_message(
+                  &tok,
+                  String.from("`unwind` is only valid inside a control-function body. This function is declared with `fn(...) -> ret`; change the declared type to `ctl(...) -> ret` if the body needs to unwind.")
+                )
+              )
+            )
+          );
+        });
+        // The closure's result type against its body (E0604), the check the
+        // named-fn path makes in calls/function-type.yo. A closure checked
+        // against an expected `Fn(...) -> R` ADOPTS that signature as its
+        // own, so without this nothing compared the body with `R`:
+        // `apply(x => true, i32(3))` where `Fn(x : i32) -> i32` is expected
+        // typed the closure `-> i32`, emitted it `-> bool`, and C's implicit
+        // conversion printed `1`
+        // (issues/fixed/closure-result-type-is-not-checked-against-the-expected-fn-type.md).
+        // Same guards as the named path: a control-flow tail (`return`,
+        // `unwind`) never falls through; a SomeT on either side is resolved
+        // at the call (a generic callee's `Fn(x : T) -> T`, an io.async
+        // `_ret`); `void` and `Type`-kinded results are judged elsewhere. A
+        // ctl handler's result is its resume type, delivered by `return(...)`
+        // (a control-flow tail).
+        match(
+          expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&anon_eb)),
+          .Some(cr_info) => {
+            cr_body_ty := Rc.clone(cr_info.ty());
+            // Decision 38 A: a second-class value is never returned, except
+            // a borrowing future rooted at the closure's own borrow
+            // parameters (§3.13 A2).
+            // A projection closure's body is its place's address (the marked
+            // `addr_of(place)`, `_closure_projection_body`), a `*(T)`.
+            cr_ret_ty := match(&function_type, Rc(.Func({ result : cr_r })) => if(t_slot_is_borrow(&cr_r.*), t_ptr(&t_slot_pointee(&cr_r.*)), t_slot_pointee(&cr_r.*)), _ => t_unit());
+            if(!has_any_control_flow(cr_info.control_flow()), {
+              // Decision 44: a callable result into `Dyn(Fn(...))` is `dyn(f)`.
+              if(!fn_result_is_ref(&function_type), {
+                reject_bare_callable_result(&cr_ret_ty, &cr_body_ty, &body_expr, ctx, exn);
+              });
+              reject_second_class_return(&cr_body_ty, ast_expr_token(&anon_eb), env, ctx, exn);
+            });
+            cr_skip := (has_any_control_flow(cr_info.control_flow()) || is_void_type(&cr_ret_ty) || is_type_hierarchy_type(&cr_ret_ty) || (get_all_some_types(&cr_ret_ty).len() > usize(0)) || (get_all_some_types(&cr_body_ty).len() > usize(0)));
+            if(!cr_skip && !are_types_compatible(&cr_body_ty, &cr_ret_ty), {
+              cr_hint := cond(
+                is_unit_type(&cr_body_ty) => String.from(" A `{ ... }` block whose last statement ends with `;` has the value `()` — remove the semicolon after the tail expression, or return the value explicitly."),
+                true => String.new()
+              );
+              // A closure returning `&T` / `&mut T` is a projection (decision
+              // 24): the mismatch is the decision-24 one, which names the
+              // `&place` spelling, not the internal `*(T)` result form
+              // (issues/fixed/2026-11-07-a-closure-literal-returning-its-reference-parameter-fails-to-evaluate.md).
+              cr_msg := match(
+                &function_type,
+                Rc(.Func({ result : cr_rs })) => cond(
+                  t_slot_is_borrow(&cr_rs.*) => projection_body_mismatch_message(&t_slot_pointee(&cr_rs.*), fn_result_is_mut_ref(&function_type), &cr_body_ty, &body_expr, ctx),
+                  true => `Function body has type \`${type_to_string(&cr_body_ty)}\`, but the declared result type is \`${type_to_string(&cr_ret_ty)}\`.${cr_hint}`
+                ),
+                _ => `Function body has type \`${type_to_string(&cr_body_ty)}\`, but the declared result type is \`${type_to_string(&cr_ret_ty)}\`.${cr_hint}`
+              );
+              exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&body_expr), &cr_msg))));
+            });
+            // O2 / O7 (audit A48): a literal typed against a slot whose
+            // result SPELLS its origin (`Fn(a : &T, b : &T) -> Option(&(T, a))`)
+            // is checked with that origin: its callers free the arguments the
+            // origin leaves out, so the body's value may point into no other
+            // parameter. The adopted type keeps the slot's labels; the body
+            // binds the literal's own, position by position.
+            if(!cr_skip && !has_any_control_flow(cr_info.control_flow()) && type_carries_origin(&cr_ret_ty), {
+              _closure_result_origin_check(&function_type, &actual_param_labels, &anon_eb, &body_eval_env, &body_eval_ctx, exn);
+            });
+          },
+          .None => ()
+        );
+        // A `ctl` handler bound to a `ctl(generic(ResumeType), …) ->
+        // ResumeType` (`Exception.throw`) inherits that type variable as its
+        // result: each throw site picks it. Only a body that diverges, falls
+        // through with `()`, or resumes with a value typed by the variable
+        // itself works for every choice; a concrete resume value has nowhere
+        // to go (the lowering erases the result, and the throw site read 0).
+        // That is parametricity, as the deferred trial checks for a closure
+        // against its own forall
+        // (issues/fixed/a-plain-exception-handler-that-returns-a-value-resumes-with-zero.md).
+        rv_ret := match(&function_type, Rc(.Func({ result : rv_r })) => t_slot_pointee(&rv_r.*), _ => t_unit());
+        rv_generic := match(
+          &rv_ret,
+          Rc(.SomeT({ name : rv_name })) => {
+            (rv_found : bool) = false;
+            (rv_i : usize) = usize(0);
+            while(rv_i < forall_labels.len(), {
+              if(match(forall_labels.get_cloned(rv_i), .Some(l) => (l == rv_name.*), .None => false), {
+                rv_found = true;
+              });
+              rv_i = (rv_i + usize(1));
+            });
+            rv_found
+          },
+          _ => false
+        );
+        if(ctl_force && !is_creating_closure && rv_generic, {
+          rv_values := ArrayList(AstExpr).new();
+          _collect_resume_args(&anon_eb, &mut rv_values);
+          // The tail resumes too, unless it unwinds.
+          rv_tail := match(
+            Rc.clone(anon_eb),
+            Rc(.FnCall(_, _, Rc(rv_targs), _, _)) => if(ast_expr_is_fn_call_of(&anon_eb, BK_BEGIN, .None), match(rv_targs.last_cloned(), .Some(t) => t, .None => Rc.clone(anon_eb)), Rc.clone(anon_eb)),
+            Rc(.Atom(_, _)) => Rc.clone(anon_eb)
+          );
+          if(!evaluated_body_contains_unwind(&rv_tail) && !ast_expr_is_fn_call_of(&rv_tail, BK_RETURN, .None), {
+            rv_values.push(rv_tail);
+          });
+          (rv_k : usize) = usize(0);
+          while(rv_k < rv_values.len(), {
+            rv_e := match(rv_values.get_cloned(rv_k), .Some(x) => x, .None => make_err_expr());
+            match(
+              expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&rv_e)),
+              .Some(rv_info) => if(_is_concrete_resume_type(&rv_info.ty()), {
+                exn.throw(
+                  dyn(
+                    Box.new(
+                      format_error_message_with_help(
+                        ast_expr_token(&rv_e),
+                        `This handler resumes the throw with a value of type \`${type_to_string(&rv_info.ty())}\`, but its resume type \`${type_to_string(&rv_ret)}\` is chosen by each throw site, so no value of one fixed type can satisfy it.`,
+                        Option(String).Some(String.from("a handler of a generic-resume `ctl` (such as `Exception.throw`) must unwind, diverge, or fall through with `()`. To resume with a value, install a `ResumableException(T)`, whose resume type `T` is fixed when the handler is built."))
+                      )
+                    )
+                  )
+                );
+              }),
+              .None => ()
+            );
+            rv_k = (rv_k + usize(1));
+          });
+        });
+        // When the declared return type CONTAINS SomeTypes but is not itself
+        // one (`Option(B)`) and the body evaluated to a fully concrete type,
+        // synthesize the declared return against the body type so every
+        // NESTED type variable carries its resolution; the bindings are
+        // routed through the call's own callee env — see
+        // _synth_nested_return_somes for why the identity channels (the
+        // SomeT's own `resolution` / id registry) are wrong here.
+        //
+        // Without this the whole Option/Result-combinator family hollowed: the
+        // closure TAKES ON the expected `Impl(Fn(a : T) -> Option(B))` wrapper,
+        // so the call's Step-6 synthesis sees a SomeT — not a
+        // Func — on the given side and skips the Fn-trait recursion that would
+        // otherwise bind `B` (synthesizer.yo's `is_function_type(given_ty)`
+        // guard).
+        match(
+          expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&anon_eb)),
+          .Some(nrs_info) => {
+            // A projection closure's body is its place's address (`*(T)`);
+            // the result it binds is the place's type `T`.
+            nrs_body_ty := if(fn_result_is_ref(&function_type), match(&nrs_info.ty(), Rc(.Pointer(nrs_pp)) => Rc.clone(nrs_pp), _ => Rc.clone(nrs_info.ty())), Rc.clone(nrs_info.ty()));
+            nrs_ret_ty := match(&function_type, Rc(.Func({ result : nrs_r })) => t_slot_pointee(&nrs_r.*), _ => t_unit());
+            nrs_ret_nested := (!is_some_type(&nrs_ret_ty) && (get_all_some_types(&nrs_ret_ty).len() > usize(0)));
+            // BARE-SomeT declared return (`-> B`, map's output forall): the
+            // env-channel binding must handle it here or `B` never binds
+            // anywhere — the caller's
+            // return record keeps a raw `B` slot and method dispatch on it
+            // leaves the blanket impl's `B` forall abstract
+            // (iterator_combinators arm 0 / repro9). io.async closures are
+            // excluded: their declared `T` result must stay unresolved for
+            // the sync-future registration (the wrapper-adoption hazard).
+            // `->` EFFECT HANDLERS (ctl types) are excluded too: their declared
+            // result is the per-call-site `ResumeType` SomeT, which other
+            // machinery freshens — eagerly binding it here broke the
+            // effect-handler corpus (dyn_error_throw_ioerror /
+            // effect_handler_unwind_emit: handler `err` params emitted as
+            // undeclared identifiers). A plain `fn` `->` literal is NOT a
+            // handler and binds like a `=>` closure: excluding every `->`
+            // literal left `o.map((x) -> ...)`'s `R` unresolved
+            // (issues/fixed/arrow-fn-literal-result-type-not-inferred.md, C55).
+            nrs_ret_bare := (is_some_type(&nrs_ret_ty) && (is_creating_closure || !ctl_force) && !ctx.is_inside_io_async_call);
+            // "Concrete" the way codegen means it: a type variable carrying a
+            // closure's `Fn` or an `io.async` body's `Future` lowers to its
+            // capture struct / state machine, so a closure RETURNING one binds
+            // the caller's result binder too. With the strict "no SomeT at
+            // all" test, `call_it(() => io.async(...))` left `T` unbound (E0613,
+            // issues/fixed/a-generic-t-bound-by-a-closure-returning-a-future-is-not-inferred.md).
+            nrs_body_concrete := !type_contains_some_type_deep(&nrs_body_ty);
+            if((nrs_ret_nested || nrs_ret_bare) && nrs_body_concrete, {
+              _synth_nested_return_somes(&nrs_ret_ty, &nrs_body_ty, &expected_type_env, &body_eval_env);
+              // REPLACING the declared return with the body type on the
+              // function type is load-bearing for codegen, not just tidiness:
+              // resolving `B` by SUBSTITUTION keeps the def-era enum id, so a
+              // left-in-place `Option(B)` reaches lowering as an instance that
+              // was never collected ("get_type_string: no C type name found for
+              // <enum:…>"). The body type is the CANONICAL memoized instance.
+              // Re-register with the SOURCE param labels (`actual_param_labels`),
+              // like L3/L4: `function_type` carries the EXPECTED type's labels
+              // (`a` from `Fn(a : T)`), and a `->` literal has no later L4
+              // rebuild — the emitted C prototype then declared `a` while the
+              // body referenced `x` ("use of undeclared identifier 'x'").
+              function_type = match(
+                &function_type,
+                Rc(.Func(nrs_fl, nrs_pt, nrs_it, nrs_wt, nrs_old_r, nrs_m, nrs_vt)) => {
+                  nrs_nm := nrs_m.as_ref().clone();
+                  nrs_nm.param_labels = shared_list(actual_param_labels.clone());
+                  Rc.new(TypeValueNode.Func(Rc.clone(nrs_fl), Rc.clone(nrs_pt), Rc.clone(nrs_it), Rc.clone(nrs_wt), t_slot_with_pointee(&nrs_old_r.*, &nrs_body_ty), Rc.new(nrs_nm), Rc.clone(nrs_vt)))
+                },
+                _ => Rc.clone(function_type)
+              );
+              register_func_type(func_id.clone(), &function_type);
+            });
+          },
+          .None => ()
+        );
+        // For an `io.async(closure)`, run the await-point analysis on the
+        // body and record it on the body's ExprInfo when it has awaits — the
+        // async-FSM codegen reads `await_analysis` to choose the state-machine path
+        // (vs the sync-future path) and drive the transformation. Gated on
+        // mark_closure_for_codegen (not just
+        // is_inside_io_async_call) so the codegen-read CLONE — re-evaluated without
+        // the flag — also gets it (else an await-bearing closure is mis-dispatched
+        // to the sync path). See issues/fixed/yo-self-closure-codegen-gate.md.
+        if(mark_closure_for_codegen, {
+          info_tbl := ctx.expr_info_table.clone();
+          await_res := analyze_await_points_in_table(&anon_eb, &info_tbl);
+          if(await_res.has_awaits, {
+            // Side-table by func_id (codegen reads it there — the analysis lands on
+            // an inaccessible body clone, but func_id is stable for the codegen-read
+            // closure). See register_closure_await_analysis.
+            register_closure_await_analysis(func_id.clone(), &await_res);
+          });
+        });
+        // Closure codegen: refine the io.async closure's registered Func
+        // type so its RESULT is the def-evaluated body type (concrete), not the
+        // synthesized `_ret` SomeT. Codegen reads get_func_type(func_id) for the
+        // prototype + the future result type; without this the closure's return
+        // lowers to void* (`int32_t = void*` at the await result), and the closure
+        // is dropped as hard-generic. Gated on mark_closure_for_codegen (so it also
+        // runs on the re-eval the codegen reads, via the sticky prior-capture flag)
+        // and only when the body type is concrete. Params stay as-is (the io.async
+        // bundle param is supplied via the SM __yo_param slot).
+        if(mark_closure_for_codegen, {
+          match(
+            expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&anon_eb)),
+            .Some(body_info2) => {
+              (body_ty : TypeValue) = Rc.clone(body_info2.ty());
+              // The body type might be a
+              // SomeT whose resolved_concrete was set during evaluation
+              // (e.g. when the last expression is a binary op whose result
+              // inherits the expected SomeType but has been resolved to a
+              // concrete type). A `return(x + y)` body types exactly so (the
+              // return arg is evaluated against the fn's `_ret` SomeT).
+              // Unwrap it BEFORE the concreteness gate,
+              // or the refinement is skipped and the closure's return / the
+              // io.async future result lower to void*.
+              match(
+                Rc.clone(body_ty),
+                Rc(.SomeT({ resolution : bt_cell })) => match(
+                  bt_cell,
+                  .Some(bt_rc) => {
+                    body_ty = Rc.clone(bt_rc);
+                  },
+                  .None => ()
+                ),
+                _ => ()
+              );
+              // A projection closure's body is its place's address (the
+              // marked `addr_of(place)`, a `*(T)`): its result is the place's
+              // type `T`, returned by address (decision 24).
+              if(fn_result_is_ref(&function_type), {
+                match(
+                  Rc.clone(body_ty),
+                  Rc(.Pointer(rr_pp)) => {
+                    body_ty = Rc.clone(rr_pp);
+                  },
+                  _ => ()
+                );
+              });
+              has_some := get_all_some_types(body_ty.clone()).len();
+              if(has_some == usize(0), {
+                // SOURCE labels (actual_param_labels), NOT the expected type's
+                // labels — same L3 rule as corrected_func_type above. This
+                // re-registration previously clobbered L3 with the EXPECTED
+                // label (`e` from io.async's `Fn(e : E)`) for every closure it
+                // touched: the C prototype then declared `e` while the body
+                // referenced the source name (`io`) — "use of undeclared
+                // identifier 'io'" (issues/retired/yo-self-async-emission-cluster.md
+                // item 2).
+                //
+                // REBUILD from `corrected_func_type`'s meta, do NOT use
+                // t_func_simple — it makes every slot a plain `&T`, and a
+                // closure typed against `Impl(Fn(v : &mut T) -> R)` then
+                // re-registered with the flags erased binds `v` BY VALUE in
+                // the specialized body eval (the sync/mutex with_lock
+                // write-through arm: `v = i32(99)` FTT'd and `return v`
+                // skipped the deref).
+                rereg_ty := match(
+                  corrected_func_type.clone(),
+                  Rc(.Func(_l4ft, _l4pt, _l4it, _l4wt, _l4r, _l4m, _)) => {
+                    _l4nm := _l4m.*.clone();
+                    _l4nm.param_labels = shared_list(actual_param_labels.clone());
+                    // The parameter types are the SUBSTITUTED ones (`_l4pt`, from
+                    // `corrected_func_type`): the local `param_types` predate the
+                    // expected-env substitution above, and re-registering them
+                    // put an io.async bundle param back to its unresolved `E`,
+                    // which codegen then lowered to `void*` once the id-keyed
+                    // registry stopped carrying binder resolutions
+                    // (issues/fixed/a-caller-binder-named-t-collides-with-io-async-t.md).
+                    Rc.new(TypeValueNode.Func(_l4ft.clone(), _l4pt.clone(), _l4it.clone(), _l4wt.clone(), t_slot_with_pointee(&_l4r, &body_ty), Rc.new(_l4nm), no_types()))
+                  },
+                  _ => t_func_simple(actual_param_labels.clone(), param_types.items.clone(), &body_ty)
+                );
+                register_func_type(func_id.clone(), &rereg_ty);
+                // Record the CONCRETE def-evaluated body type by FuncVal id.
+                // Consumed by check_and_add_argument's Step-6 synthesis
+                // (calls/helper.yo): a closure passed as a call ARGUMENT whose
+                // declared return never resolved (`-> U`) otherwise binds the
+                // callee's generic to ITSELF, and the callee's specialization
+                // body eval then throws and unwinds the CALLER's statement
+                // chain (the hollow-batch blast radius —
+                // issues/retired/yo-self-hollow-test-batch-main.md, fourth round).
+                // NOT for io.async closures: substituting the body type as
+                // the given return perturbs io.async's own `_ret`/E-bundle
+                // synthesis and FTTs the io.async statement (measured:
+                // corpus io_async_str SELF-FAIL).
+                // COMPTIME body types are excluded: a comptime_str/int/float
+                // body (e.g. io.async's `(io : Io) => "hello async"`, whose
+                // def-eval types comptime_str) must not bind a RUNTIME generic
+                // slot — substituting it as the given return perturbed
+                // io.async's own `_ret` synthesis (corpus io_async_str
+                // SELF-FAIL; measured: label=action body=comptime_str, and
+                // ctx.is_inside_io_async_call is FALSE at this point, so the
+                // flag cannot be the gate).
+                body_is_comptime := (
+                  is_comptime_string_type(&body_ty) || is_comptime_int_type(&body_ty)
+                  || is_comptime_float_type(&body_ty)
+                );
+                if(!body_is_comptime, {
+                  register_closure_body_type(func_id.clone(), &body_ty);
+                });
+              });
+            },
+            .None => ()
+          );
+        });
+      },
+      .None => ()
+    );
+    // Capture checks (regular-fn-no-capture; ref-capture +
+    // control-bound-capture for closures). `n_cap_fr` is the outer frame
+    // count from before the parameter frame was pushed.
+    match(
+      &body_eval_ctx.captured_variables,
+      .Some(anon_caps) => if(anon_caps.len() > usize(0), {
+        _check_anon_fn_captures(&anon_caps.*, env, is_creating_closure, n_cap_fr, func_id.clone(), &tok, ctx, exn, cap_frame_idx);
+      }),
+      .None => ()
+    );
+    // Stash the body-eval captured variables so the capture struct can be built
+    // after the parameter frame is popped (below) — same pop-then-create
+    // order as closure-type.yo. (Only the non-deferred path evaluates the body and
+    // thus populates captures; a deferred generic closure has none → empty struct.)
+    closure_body_caps = body_eval_ctx.captured_variables.take();
+    match(
+      cap_frame_idx,
+      .Some(cfi) => match(
+        &closure_body_caps,
+        // The list is exhaustive (decision 35): a read of any local outside
+        // it is an error. Module-level items are never tracked as captures.
+        .Some(ex_caps) => {
+          ex_it := ex_caps.keys_cloned().into_iter();
+          (ex_more : bool) = true;
+          while(ex_more, {
+            match(
+              ex_it.next(),
+              .Some(ex_name) => match(
+                ex_caps.get_cloned(ex_name.clone()),
+                .Some(ex_ci) => if(ex_ci.frame_level < cfi, {
+                  _cap_list_error(
+                    ctx,
+                    exn,
+                    &ex_ci.token,
+                    `The closure's capture list does not name \`${ex_name}\`, and the list is exhaustive: the body may read only the listed captures and module-level items. Add \`${ex_name}\` to the list (\`{ ${ex_name} }\` copies or moves it, \`{ &${ex_name} }\` borrows it).`
+                  );
+                }),
+                .None => ()
+              ),
+              .None => {
+                ex_more = false;
+              }
+            );
+          });
+        },
+        .None => ()
+      ),
+      .None => if(is_creating_closure, {
+        match(&closure_body_caps, .Some(nested_caps) => propagate_captures_to_enclosing(&nested_caps.*, ctx), .None => ());
+      })
+    );
+  });
+  // Deferred generic body: trial-evaluate a CLONE to catch a concrete
+  // return against the declared generic return type (`(value -> i32(0))`
+  // checked against `fn(generic(T), value : T) -> T` must be rejected).
+  // Twin of the
+  // direct-definition check in calls/function-type.yo — same skips: a trial
+  // that throws is silently skipped, a trial type carrying SomeTs or
+  // degenerating to unit cannot convict, and an expected bare SomeT that is
+  // not this fn's own forall is bound by the call site.
+  if(should_defer_body, {
+    dgc_ret := match(&function_type, Rc(.Func({ result : dgc_r })) => t_slot_pointee(&dgc_r.*), _ => t_unit());
+    // Every deferred generic closure body is trialled (Phase 6 step 2, the
+    // twin of the named-fn deferred trial); the result comparison below
+    // stays limited to a result that mentions a type variable.
+    dgc_check_result := (get_all_some_types(&dgc_ret).len() > usize(0));
+    {
+      dgc_fv := Rc.new(
+        EvalValueNode.FuncVal(
+          Rc.new(
+            FuncValData(
+              forall_names : ArrayList(String).new(),
+              params : actual_param_labels.clone(),
+              param_type_names : ArrayList(String).new(),
+              evidence_params : ArrayList(String).new(),
+              body : body_for_def_eval.clone(),
+              cap_names : ArrayList(String).new(),
+              cap_tys : ArrayList(TypeValue).new(),
+              // THROWAWAY id: reusing the real func_id let trial registrations
+              // shadow the real definition's (codegen emitted the trial clone).
+              // Positional-occurrence like every fid — the throwaway
+              // takes this position's next ordinal, distinct from the real one.
+              func_id : stable_func_id(String.from("fn_"), &tok.module_path.*, usize(tok.row), usize(tok.column))
+            )
+          ),
+          no_values()
+        )
+      );
+      dgc_env := snapshot_env(env);
+      dgc_ctx := create_function_body_evaluation_context(&function_type, &dgc_fv, &dgc_env, ctx);
+      dgc_out := ArrayList(AstExpr).new();
+      dgc_fv_was := flow_violation_pending();
+      dgc_depths := forcing_depths();
+      // Diagnostic-only (no result comparison): a fresh-id clone, so the
+      // trial never stamps the real body's nodes (the named-fn twin).
+      _trial_eval_anon_body(if(dgc_check_result, body_for_def_eval.clone(), clone_expr_fresh_ids(&body_for_def_eval)), &dgc_env, &mut dgc_ctx, &mut dgc_out);
+      truncate_forcing_depths(dgc_depths);
+      // P0 (§4.6): forward reference — re-raise instead of discarding (the
+      // dgc trial is the SILENT swallow otherwise; every other error class
+      // stays discarded).
+      if(_anon_swallow_pending(), {
+        match(
+          hard_swallow_diagnostic_in_generic_trial(_anon_swallow_message()),
+          .Some(dgc_fwd_msg) => {
+            dgc_fwd_code := _anon_swallow_code();
+            _clear_anon_swallow();
+            exn.throw(dyn(Box.new(with_code_carried(format_error_message(&tok, &dgc_fwd_msg), &dgc_fwd_code))));
+          },
+          .None => ()
+        );
+      });
+      // Phase 6 step 2: an error no instantiation can fix (a mismatch
+      // between two types with no type variable) is re-raised — the twin
+      // of the named-fn deferred trial (`generic_trial_independent_error`,
+      // calls/function-type.yo).
+      // A `comptime(x)` value parameter defers the judgment to the calls,
+      // as for concrete-parameter closures above (`body_has_ct_param`).
+      if(!propagate_def_time_errors() && !body_has_ct_param, {
+        (dgc_indep : Option(YoError)) = Option(YoError).None;
+        if(match(g_anon_swallow_diags.with(_c_first_cloned_diag), .Some(d) => d.generic_independent, .None => false), {
+          dgc_indep = Option(YoError).Some(yo_error_from_diagnostics(g_anon_swallow_diags.with(_c_clone_diags)));
+        });
+        if(dgc_indep.is_none() && !dgc_fv_was, {
+          match(
+            flow_violation_error(),
+            .Some(dgc_fv_err) => if(match(dgc_fv_err.diagnostics.get_cloned(usize(0)), .Some(d) => d.generic_independent, .None => false), {
+              dgc_indep = Option(YoError).Some(dgc_fv_err);
+            }),
+            .None => ()
+          );
+        });
+        match(
+          dgc_indep,
+          .Some(dgc_err) => {
+            _clear_anon_swallow();
+            if(!dgc_fv_was, {
+              clear_flow_violation();
+            });
+            exn.throw(dyn(Box.new(dgc_err)));
+          },
+          .None => ()
+        );
+      });
+      // Phase 6 step 3, the twin of the named-fn deferred trial: keep what
+      // the trial still swallowed against the body, for a specialization
+      // that reaches codegen hollow.
+      dgc_site := trial_body_site(&body_for_def_eval);
+      if(_anon_swallow_pending() && (dgc_out.len() == usize(0)), {
+        record_generic_trial_error(&dgc_site, _anon_swallow_message(), g_anon_swallow_diags.with(_c_clone_diags));
+        if(_g_anon_dbg_swallow, {
+          eprintln(`[kept] site=dgc code=${match(_anon_swallow_code(), .Some(c) => c, .None => String.from("-"))} owner=${dgc_site}`);
+        });
+      }, {
+        clear_generic_trial_error(&dgc_site);
+      });
+      if(!dgc_fv_was && flow_violation_pending(), {
+        clear_flow_violation();
+      });
+      if(dgc_check_result, {
+        match(
+          dgc_out.get_cloned(usize(0)),
+          .Some(dgc_body) => match(
+            expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&dgc_body)),
+            .Some(dgc_info) => {
+              dgc_skip_cf := (has_control_flow(dgc_info.control_flow(), .Unwind) && !has_control_flow(dgc_info.control_flow(), .Return));
+              dgc_is_ref := fn_result_is_ref(&function_type);
+
+              dgc_expected := cond(
+                dgc_is_ref => t_ptr(&dgc_ret),
+                true => dgc_ret
+              );
+              dgc_own_forall_skip := match(
+                &dgc_expected,
+                Rc(.SomeT({ name : dgc_sname })) => {
+                  (dgc_found : bool) = false;
+                  (dgc_fi : usize) = usize(0);
+                  while(dgc_fi < forall_labels.len(), {
+                    if(match(forall_labels.get_cloned(dgc_fi), .Some(l) => (l == dgc_sname.*), .None => false), {
+                      dgc_found = true;
+                    });
+                    dgc_fi = (dgc_fi + usize(1));
+                  });
+                  !dgc_found
+                },
+                _ => false
+              );
+              dgc_trial_ty := Rc.clone(dgc_info.ty());
+              dgc_trial_abstract := (get_all_some_types(&dgc_trial_ty).len() > usize(0));
+              dgc_trial_degenerate := (is_unit_type(&dgc_trial_ty) && !is_unit_type(&dgc_expected));
+              // Parametricity: when the expected return is the fn's OWN forall
+              // SomeT (own_forall_skip false) a CONCRETE trial type can never
+              // satisfy it — only an expression typed T itself can. The exact
+              // compatibility check cannot convict here because an unresolved
+              // SomeT unifies with anything even in exact mode, which is why
+              // `(value -> return(i32(0)))` against `fn(generic(T), value : T)
+              // -> T` used to slip through.
+              dgc_expected_is_some := is_some_type(&dgc_expected);
+              if(!dgc_skip_cf && !dgc_own_forall_skip && !dgc_trial_abstract && !dgc_trial_degenerate && (dgc_expected_is_some || !are_types_compatible_invariant(&dgc_trial_ty, &dgc_expected)), {
+                dgc_exp_str := type_to_string(&dgc_expected);
+                dgc_got_str := type_to_string(&dgc_trial_ty);
+                // A deliberate user-facing rejection: outside a dry-run, flag
+                // it on the flow-violation channel so the def-time caller
+                // re-raises it via the real exn (the wall otherwise swallows
+                // the throw and the enclosing body silently hollows — same
+                // pattern as helper.yo Step 5b's no-matching-overload flag).
+                raise_flow_violation(
+                  format_error_message(
+                    &tok,
+                    `Incompatible function return type for:\n- Expected: ${dgc_exp_str}\n- Given  : ${dgc_got_str}`
+                  ),
+                  ctx,
+                  exn
+                );
+              });
+            },
+            .None => ()
+          ),
+          .None => ()
+        );
+      });
+    };
+  });
+  // -------------------------------------------------------------------------
+  // Restore the parameter frame.
+  // -------------------------------------------------------------------------
+  env.pop_frame();
+  // Build the capture struct for an io.async closure (empty for no-capture; works
+  // for deferred-generic closures too, which simply have no recorded captures).
+  // Same pop-then-create order as closure-type.yo. Set on the ExprInfo below so
+  // generate_io_async_sync_call can resolve the SM's __capture field type.
+  (cap_field_inits : Option(ArrayList(CaptureFieldInit))) = Option(ArrayList(CaptureFieldInit)).None;
+  if(mark_closure_for_codegen, {
+    cvwv := cond(
+      // A capture list's struct has one field per entry, used or not: a
+      // by-value entry's value lives in the closure, and a borrow entry's
+      // field is a pointer to its place.
+      cap_list_raw.is_some() => {
+        cl_map := HashMap(String, FuncCapturedVarInfo).new();
+        cl_inits := ArrayList(CaptureFieldInit).new();
+        (cm_i : usize) = usize(0);
+        while(cm_i < cap_entries.len(), {
+          match(
+            cap_entries.get_cloned(cm_i),
+            .Some(ce) => {
+              cl_map.insert(
+                ce.label.clone(),
+                FuncCapturedVarInfo(
+                  frame_level : match(cap_frame_idx, .Some(cfi) => cfi, .None => usize(0)),
+                  usage : CaptureUsage.Read,
+                  token : ce.label_tok.clone(),
+                  ty : if(ce.is_borrow, t_ptr(ce.value_ty.clone()), ce.value_ty.clone()),
+                  value : Option(EvalValue).None,
+                  is_effect_param : false,
+                  decl_site : `${ce.label_tok.module_path.*}:${ce.label_tok.row.to_string()}:${ce.label_tok.column.to_string()}`
+                )
+              );
+              cl_inits.push(CaptureFieldInit(label : ce.label.clone(), init : Rc.clone(ce.init), is_borrow : ce.is_borrow));
+            },
+            .None => ()
+          );
+          cm_i = (cm_i + usize(1));
+        });
+        cap_field_inits = Option(ArrayList(CaptureFieldInit)).Some(cl_inits);
+        if(cl_map.len() > usize(0), Option(HashMap(String, FuncCapturedVarInfo)).Some(cl_map), Option(HashMap(String, FuncCapturedVarInfo)).None)
+      },
+      true => match(
+        &closure_body_caps,
+        .None => Option(HashMap(String, FuncCapturedVarInfo)).None,
+        .Some(cv) => if(cv.len() > usize(0), Option(HashMap(String, FuncCapturedVarInfo)).Some(enrich_captured_variables(&cv.*, env)), Option(HashMap(String, FuncCapturedVarInfo)).None)
+      )
+    );
+    // Generate evaluated `___dup(name)` exprs for RC-typed captures BEFORE
+    // building the capture struct — codegen emits them as the capture-field
+    // initializers so the capture owns its own reference (missing this freed
+    // the captured Command.status spawn storage under the running closure).
+    // A capture list's by-value initializers already copy or move (they are
+    // field stores), so it has no dups.
+    if(cap_list_raw.is_none(), {
+      dup_res := generate_captured_variable_dup_expressions(&cvwv, env, ctx, exn, &tok, closure_literal_is_borrowed(expr));
+      closure_borrows_captures = dup_res.borrowed;
+      closure_capture_dups = dup_res.dup_exprs.clone();
+    });
+    cap_res := create_capture_type_and_value(Option(TypeValue).None, &cvwv, env, &tok, closure_signature_key(&function_type));
+    closure_capture_type = cap_res.capture_type.clone();
+    _mark_fnonce_capture_struct_of(closure_owns_captures, &closure_capture_type);
+    _mark_fnmut_capture_struct_of(closure_is_fnmut, &closure_capture_type);
+    // An `io.async` body may capture a second-class value: its future is then
+    // a borrowing future, second-class too (§3.13 A2; the io.async call
+    // registers the capture struct's borrows on the future).
+    // The borrow entries make the capture struct second-class (and, for a
+    // `mut` entry, move-only): decision 38 A.
+    match(
+      &closure_capture_type,
+      .Some(cbt) => match(
+        cbt,
+        Rc(.Struct({ id : cb_sid })) => {
+          cbs := ArrayList(CaptureBorrow).new();
+          (cb_i : usize) = usize(0);
+          while(cb_i < cap_entries.len(), {
+            match(
+              cap_entries.get_cloned(cb_i),
+              .Some(ce) => if(ce.uses_origin_borrows || (ce.origin_borrows.len() > usize(0)), {
+                // The value's origin is the closure's (R-CLOSURE-LIT's
+                // by-value clause): one capture borrow per place, in the
+                // mode the reference holding it has, resolved where the
+                // entry was evaluated.
+                (ob_i : usize) = usize(0);
+                while(ob_i < ce.origin_borrows.len(), {
+                  cbs.push(ce.origin_borrows(ob_i).clone());
+                  ob_i = (ob_i + usize(1));
+                });
+              }, if(ce.is_borrow, {
+                cbs.push(
+                  CaptureBorrow(
+                    label : ce.label.clone(),
+                    is_mut : ce.is_mut,
+                    root_id : ce.root_id,
+                    root_name : ce.root_name.clone(),
+                    path : ce.path.clone(),
+                    root_is_value_param : ce.root_is_value_param,
+                    through_value : false,
+                    assumed : false,
+                    site : `${ce.label_tok.module_path.*}:${(ce.label_tok.row + u32(1)).to_string()}:${(ce.label_tok.column + u32(1)).to_string()}`
+                  )
+                );
+              })),
+              .None => ()
+            );
+            cb_i = (cb_i + usize(1));
+          });
+          // An implicit capture of a value whose type carries an origin
+          // (a holder `h` read in the body) puts it in the closure too.
+          if(cap_list_raw.is_none(), {
+            match(
+              &cvwv,
+              .Some(icv) => {
+                ic_iter := icv.keys_cloned().into_iter();
+                (ic_more : bool) = true;
+                while(ic_more, {
+                  match(
+                    ic_iter.next(),
+                    .None => {
+                      ic_more = false;
+                    },
+                    .Some(ic_name) => match(
+                      icv.get_cloned(ic_name.clone()),
+                      .Some(ic_info) => if(type_carries_origin(&ic_info.ty), {
+                        match(
+                          get_variables_from_env(env, ic_name.clone()).last_cloned(),
+                          .Some(ic_var) => _capture_origin_borrows(&ic_name, &variable_holder_roots(&ic_var), &ic_info.token, env, &mut cbs),
+                          .None => ()
+                        );
+                      }),
+                      .None => ()
+                    )
+                  );
+                });
+              },
+              .None => ()
+            );
+          });
+          register_capture_borrows(cb_sid.clone(), &cbs);
+        },
+        _ => ()
+      ),
+      .None => ()
+    );
+    // Decision 43 N1f/N3: a closure holding a `&mut` capture is `FnMut`;
+    // typed against an `Fn(...)` slot it is E0913 (VERDICTS-15 Q4/Q4′).
+    if(expected_fn_base == "Fn", {
+      match(
+        &closure_capture_type,
+        .Some(fm_ct) => judge_capture_fnmut_at_fn_slot(&tok, &expected_ty, &fm_ct.*, ctx, exn),
+        .None => ()
+      );
+    });
+    // Rules D4 + D9: the captured state's marker verdicts, per captured
+    // variable with its value as the witness, for a later judgement of this
+    // closure's TYPE (`Arc.new(k)`, `where(T <: Send)`).
+    record_closure_capture_verdicts(func_id.clone(), &cvwv, &closure_capture_type, env, ctx, borrows_captures : closure_borrows_captures);
+    // The wrapper's non-Fn trait requirements (`Send`, `Sync`) hold for each
+    // capture and for the capture struct.
+    match(
+      &closure_capture_type,
+      .Some(vct) => validate_capture_trait_requirements(expected_ty.clone(), &vct.*, &cvwv, env, ctx, &tok, exn, borrows_captures : closure_borrows_captures),
+      .None => ()
+    );
+    // Rule D1: the def-time evaluated body (a deferred generic body has none
+    // yet; its call-time specialization goes through closure-type.yo).
+    match(
+      anon_d1_body,
+      .Some(d1_body) => validate_send_closure_global_reach(&expected_ty, func_id.clone(), &d1_body, env, ctx, &tok, exn),
+      .None => ()
+    );
+    // Prefer an already-REGISTERED (larger) capture struct for this fid — see
+    // register_closure_capture_info's keep-larger note: a re-eval that tracked
+    // fewer captures must not shrink the struct the emitted body was (or will
+    // be) rewritten against.
+    match(
+      get_closure_capture_info(func_id.clone()),
+      .Some(prev_cci2) => {
+        prev_nf2 := match(&prev_cci2.capture_type, Rc(.Struct({ field_labels : pfl2 })) => pfl2.len(), _ => usize(0));
+        cur_nf2 := match(
+          &closure_capture_type,
+          .Some(cur_ct2) => match(cur_ct2, Rc(.Struct({ field_labels : cfl2 })) => cfl2.len(), _ => usize(0)),
+          .None => usize(0)
+        );
+        if(prev_nf2 > cur_nf2, {
+          closure_capture_type = Option(TypeValue).Some(Rc.clone(prev_cci2.capture_type));
+          _mark_fnonce_capture_struct_of(closure_owns_captures, &closure_capture_type);
+          _mark_fnmut_capture_struct_of(closure_is_fnmut, &closure_capture_type);
+        });
+      },
+      .None => ()
+    );
+    // Record the capture struct type + defining frame level (n_cap_fr, the outer
+    // frame count before the param frame was pushed) by func_id, so generate_function
+    // can set the closure-capture codegen context (capture-access rewriting).
+    match(
+      &closure_capture_type,
+      .Some(ct) => register_closure_capture_info(func_id.clone(), ClosureCaptureInfo(capture_type : Rc.clone(ct), frame_level : n_cap_fr)),
+      .None => ()
+    );
+  });
+  // -------------------------------------------------------------------------
+  // Build and store the ExprInfo for this expression.
+  // -------------------------------------------------------------------------
+  // A CLOSURE whose expected type is a
+  // SomeT wrapper TAKES ON that wrapper as its recorded type, with the
+  // capture struct as its resolved concrete — so an Impl(Fn(...))-ANNOTATED
+  // BINDING's compat check sees the SomeT, not the plain Func (the c01/c06
+  // closure-battery hollow). Recorded as the resolution of the VALUE COPY
+  // (a new SomeT built here) — value-scoped: stamping the SHARED declared
+  // id's registry entry (the retired channel) measured hollow regressions in
+  // fs/file + fs/temp.
+  // GATED to closures whose expected Fn-trait RESULT is CONCRETE: the
+  // async pipeline registers the sync-future struct and io.await
+  // refinement against the UNRESOLVED wrapper SomeT, and its closures'
+  // declared result is the unresolved `T` — taking on the wrapper for
+  // them broke all 12 io_async corpus files (SELF-FAIL: the FSM resume
+  // call lost the closure-context argument; measured 2026-07-27, and
+  // `ctx.is_inside_io_async_call` used to be FALSE here because only the
+  // function.yo route set it — helper.yo's Step 7 now sets it too, so the
+  // flag gates io.async closures whose `T`
+  // was pre-bound concrete by Step-6b — the four fsm/bundle corpus files
+  // the concrete-result check alone admitted). A concrete result means a
+  // fully-annotated binding shape (`(c : Impl(Fn(y : i32) -> i32)) = ...`),
+  // which is exactly the c01/c06 case.
+  (final_lambda_ty : TypeValue) = function_type;
+  if(is_creating_closure && !ctx.is_inside_io_async_call, {
+    match(
+      expected_ty,
+      Rc(.SomeT(w_id, w_nm, w_fl, w_pt, w_rtt_bnd, w_kft, _)) => {
+        w_rtt := w_rtt_bnd.required();
+        w_rtl := w_rtt_bnd.required_levels();
+        w_ntt := w_rtt_bnd.negative();
+        w_ntl := w_rtt_bnd.negative_levels();
+        match(
+          &closure_capture_type,
+          .Some(cap_t) => {
+            (w_has_concrete_fn : bool) = false;
+            (w_fn_trait : Option(TypeValue)) = Option(TypeValue).None;
+            (wf_i : usize) = usize(0);
+            while(wf_i < w_rtt.len(), {
+              match(
+                w_rtt.get_cloned(wf_i),
+                .Some(w_rt) => if(is_fn_trait_type(&w_rt), {
+                  if(w_fn_trait.is_none(), {
+                    w_fn_trait = Option(TypeValue).Some(Rc.clone(w_rt));
+                  });
+                  // An `Impl(Fn(...))` RESULT (`Impl(Fn(x : i32) ->
+                  // Impl(Fn() -> i32))`) counts as concrete: the closure's
+                  // body fixed it (its registered type carries the body's
+                  // result, above), so the binding is this closure's own
+                  // type. Without it the binding lowered to `void*` and
+                  // received the capture struct by value — invalid C
+                  // (issues/fixed/a-function-returning-impl-passed-to-a-function-typed-parameter-is-called-through-void-pointer.md).
+                  match(
+                    w_rt,
+                    Rc(.FnTraitT({ call_result : w_cr })) => if(!is_some_type(&w_cr) || (
+                      match(w_cr, Rc(.SomeT({ name : w_cr_nm })) => (w_cr_nm == "Impl"), _ => false) && _is_unresolved_impl_fn_type(&w_cr)
+                    ), {
+                      w_has_concrete_fn = true;
+                    }),
+                    _ => ()
+                  );
+                }),
+                .None => ()
+              );
+              wf_i = (wf_i + usize(1));
+            });
+            // When the
+            // wrapper's Fn bound comes from a WHERE CLAUSE, setting
+            // resolved = the bare capture
+            // struct would strip the Fn trait info and subsequent where-clause
+            // checks would fail. Mint a synthetic `Impl(Fn(...))` SomeT
+            // (`__impl_fn`, requiredTraits=[expectedFnTraitType],
+            // resolvedConcreteType=captureType) and stamp it as F's resolved
+            // concrete — one stable F identity at the return-type
+            // mint, the body construction and the arg check.
+            // The where-bound has already been MERGED into
+            // `w_rtt` (the where-clause binding arc), so a
+            // requiredTraits-membership test cannot discriminate. Annotation
+            // wrappers are minted with the RESERVED name "Impl"
+            // (builtins/impl-constraint.yo:171; synthesizer.yo:501 documents
+            // the reservation) — any other name means a generic type variable
+            // whose Fn bound arrived via a where clause.
+            // Exclude the reserved annotation name "Impl" AND the NAMELESS
+            // dyn-coercion wrappers (values/dyn.yo:336): the dyn/box pipeline
+            // reads the wrapper's resolution expecting the CAPTURE STRUCT directly
+            // (ne_box_inner_ty), so an interposed `__impl_fn` level broke the
+            // whole dyn corpus ("no member named 'call'").
+            w_fn_from_where := ((w_nm != "Impl") && (w_nm.len() > usize(0)) && w_fn_trait.is_some());
+            cond(
+              w_fn_from_where => match(
+                w_fn_trait,
+                .Some(eft) => {
+                  impl_rtt := ArrayList(TypeValue).new();
+                  impl_rtt.push(eft.clone());
+                  impl_rtl := ArrayList(usize).new();
+                  impl_rtl.push(usize(0));
+                  impl_fn_wrapper := Rc.new(
+                    TypeValueNode.SomeT(
+                      generate_some_type_id(),
+                      String.from("__impl_fn"),
+                      usize(0),
+                      Rc.new(TypeValueNode.TypeUni(usize(0))),
+                      some_t_bounds(impl_rtt, impl_rtl, ArrayList(TypeValue).new(), ArrayList(usize).new()),
+                      Option(TypeValue).None,
+                      Option(TypeValue).Some(Rc.clone(cap_t))
+                    )
+                  );
+                  // PER-CALL identity: the `F` here is ONE SomeT across
+                  // every call of the generic fn, so recording the capture on
+                  // it (once an in-place stamp of a shared resolution cell)
+                  // makes the LAST closure win for every caller
+                  // (measured: iter_filter_closure's three arms all rendered
+                  // the third arm's capture struct). The recorded COPY carries
+                  // its own resolution instead — the arg's recorded type feeds
+                  // `fa_bound`, so the caller's return-type substitution and
+                  // the body specialization both see THIS call's `__impl_fn`.
+                  final_lambda_ty = Rc.new(
+                    TypeValueNode.SomeT(
+                      w_id.clone(),
+                      w_nm.clone(),
+                      w_fl,
+                      Rc.clone(w_pt),
+                      some_t_bounds(w_rtt, w_rtl, w_ntt, w_ntl),
+                      w_kft.clone(),
+                      Option(TypeValue).Some(impl_fn_wrapper)
+                    )
+                  );
+                },
+                .None => ()
+              ),
+              w_has_concrete_fn => {
+                final_lambda_ty = Rc.new(
+                  TypeValueNode.SomeT(
+                    w_id.clone(),
+                    w_nm.clone(),
+                    w_fl,
+                    Rc.clone(w_pt),
+                    some_t_bounds(w_rtt, w_rtl, w_ntt, w_ntl),
+                    w_kft.clone(),
+                    Option(TypeValue).Some(Rc.clone(cap_t))
+                  )
+                );
+              },
+              true => ()
+            );
+          },
+          .None => ()
+        );
+      },
+      _ => ()
+    );
+  });
+  if(cap_frame_idx.is_some(), {
+    env.pop_frame();
+  });
+  // VERDICTS-37 Q3: the body's stores through its `&mut` captures join the
+  // outer holders here, at the literal.
+  apply_capture_store_joins(&cap_borrow_ids, env, ctx, exn);
+  info := new_expr_info(env, &final_lambda_ty);
+  info.set_value(Option(EvalValue).Some(func_val));
+  expr_info_set_is_anonymous_function_definition(&info, Option(bool).Some(true));
+  expr_info_set_capture_field_inits(&info, &cap_field_inits);
+  // Phase 3: closure_function_value is not set (EvalValue is not Clone).
+  // Downstream code falls back to reading info.value when closure_function_value is None.
+  // io.async closures carry the capture-struct type for codegen (see above).
+  expr_info_set_capture_type(&info, &closure_capture_type);
+  expr_info_set_deferred_dup_expressions(&info, &closure_capture_dups);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
+  // A sync closure value OWNS its capture struct: the capture dups above are
+  // its fields' own references. Give it an owning temp typed as that struct,
+  // like any RC-carrying temp, so the value is released where it dies (a
+  // borrowed argument at the scope end) or moved where it is consumed (a
+  // binding, an owning parameter, a return). Without it a closure literal
+  // passed as an argument leaked every capture
+  // (issues/fixed/a-closure-typed-slot-never-releases-its-captures.md). The
+  // io.async state machine owns its captures through its own lowering.
+  if(is_creating_closure && (!ctx.is_inside_io_async_call && !closure_borrows_captures) && match(closure_capture_type, .Some(cct) => type_contains_rc_type(&cct), .None => false), {
+    attach_temp_variable_to_expr(expr, true, ctx);
+  });
+  Rc.clone(expr.*)
+});
+/// Register a closure's capture struct as owning its captures (decision 37):
+/// an `FnOnce(...)` capture-list closure. Its consuming call then needs no
+/// release after it (`_fnonce_callee_releases_itself`, calls/function.yo).
+_mark_fnonce_capture_struct_of :: (fn(owns : bool, cap_ty : &Option(TypeValue)) -> unit)({
+  if(owns, {
+    match(cap_ty, .Some(Rc(.Struct({ id : cs_id }))) => mark_fnonce_capture_struct(&cs_id.*), _ => ());
+  });
+});
+/// Register a closure's capture struct as a `FnMut(...)` closure's (decision
+/// 37, N1f): its call borrows the closure exclusively, so it derives neither
+/// `Copy` nor `Clone` and is lent exclusively (`capture_struct_is_fnmut`).
+_mark_fnmut_capture_struct_of :: (fn(is_fnmut : bool, cap_ty : &Option(TypeValue)) -> unit)({
+  if(is_fnmut, {
+    match(cap_ty, .Some(Rc(.Struct({ id : cs_id }))) => mark_fnmut_capture_struct(&cs_id.*), _ => ());
+  });
+});
+export(evaluate_anonymous_function_implementation);

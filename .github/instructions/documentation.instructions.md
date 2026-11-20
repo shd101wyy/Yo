@@ -133,24 +133,24 @@ Source .yo files
   → Extractor (src/doc/extractor.yo) — extracts /// and //! comments
   → Builder (src/doc/builder.yo) — combines comments + evaluator type info → DocModel
   → Renderer — converts DocModel to output:
-      render_html.yo     → static HTML site
-      render_markdown.yo → Markdown files
-      render_json.yo     → JSON export
+      render-html.yo     → static HTML site
+      render-markdown.yo → Markdown files
+      render-json.yo     → JSON export
 ```
 
 ### Key files
 
 | File                              | Role                                             |
 | --------------------------------- | ------------------------------------------------ |
-| `src/doc_command.yo`          | `yo doc` CLI entry point                         |
+| `src/doc-command.yo`          | `yo doc` CLI entry point                         |
 | `src/doc/extractor.yo`        | Extracts doc comments from source tokens         |
 | `src/doc/builder.yo`          | Builds DocModel from comments + evaluator output |
 | `src/doc/model.yo`            | DocModel type definitions                        |
 | `src/doc/sections.yo`         | Parses ## Returns, ## Examples, etc.             |
-| `src/doc/render_html.yo`      | Renders DocModel to static HTML site — Markdown→HTML goes through `import("markdown-yo")`, a `yo.toml` DEPENDENCY of this repo (it was the `vendor/markdown_yo` submodule until 2026-09-13), so a fresh clone needs `yo install` before `yo doc --format html` compiles |
-| `src/doc/render_html_assets.yo` | Inlined CSS/JS assets for the HTML site        |
-| `src/doc/render_markdown.yo`  | Renders DocModel to Markdown                     |
-| `src/doc/render_json.yo`      | Exports DocModel as JSON                         |
+| `src/doc/render-html.yo`      | Renders DocModel to static HTML site — Markdown→HTML goes through `import("markdown-yo")`, a `yo.toml` DEPENDENCY of this repo (it was the `vendor/markdown_yo` submodule until 2026-09-13), so a fresh clone needs `yo install` before `yo doc --format html` compiles |
+| `src/doc/render-html-assets.yo` | Inlined CSS/JS assets for the HTML site        |
+| `src/doc/render-markdown.yo`  | Renders DocModel to Markdown                     |
+| `src/doc/render-json.yo`      | Exports DocModel as JSON                         |
 
 ### Internal symbol filtering
 

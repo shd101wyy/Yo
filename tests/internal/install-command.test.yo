@@ -1,0 +1,221 @@
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ assert, panic } :: import("std/assert");
+{
+  is_local_path,
+  _url_to_dep_name,
+  parse_package_specifier,
+  dependency_value_text,
+  load_project_manifest,
+  ParsedPackage
+} :: import("../../src/install-command.yo");
+{ DependencySource, GitRequirement } :: import("../../src/manifest.yo");
+{ YoError } :: import("../../src/error.yo");
+{ Path } :: import("std/path");
+{ create_dir_all } :: import("std/fs/dir");
+{ env, temp_dir } :: import("std/env");
+{ AnyError, Exception, IoExn } :: import("std/error");
+// ---------------------------------------------------------------------------
+// is_local_path
+// ---------------------------------------------------------------------------
+test("is_local_path: dot is local", {
+  assert(is_local_path(String.from(".")), "dot");
+});
+test("is_local_path: dotdot is local", {
+  assert(is_local_path(String.from("..")), "dotdot");
+});
+test("is_local_path: ./foo is local", {
+  assert(is_local_path(String.from("./foo")), "./foo");
+});
+test("is_local_path: ../bar is local", {
+  assert(is_local_path(String.from("../bar")), "../bar");
+});
+test("is_local_path: /abs/path is local", {
+  assert(is_local_path(String.from("/abs/path")), "abs");
+});
+test("is_local_path: user/repo is not local", {
+  assert(!is_local_path(String.from("user/repo")), "user/repo");
+});
+test("is_local_path: https:// is not local", {
+  assert(!is_local_path(String.from("https://github.com/user/repo")), "https");
+});
+// ---------------------------------------------------------------------------
+// _url_to_dep_name
+// ---------------------------------------------------------------------------
+test("_url_to_dep_name: strips .git and last path segment", {
+  assert(_url_to_dep_name(String.from("https://github.com/user/my-lib.git")) == "my-lib", "https .git");
+});
+test("_url_to_dep_name: no .git suffix", {
+  assert(_url_to_dep_name(String.from("https://github.com/user/my-lib")) == "my-lib", "https");
+});
+test("_url_to_dep_name: ssh scp-like remote", {
+  assert(_url_to_dep_name(String.from("git@github.com:user/my-lib.git")) == "my-lib", "ssh");
+});
+test("_url_to_dep_name: a trailing slash is ignored", {
+  assert(_url_to_dep_name(String.from("./libs/mylib/")) == "mylib", "trailing slash");
+});
+test("_url_to_dep_name: plain name with no slash and no .git", {
+  assert(_url_to_dep_name(String.from("plain")) == "plain", "plain");
+});
+// ---------------------------------------------------------------------------
+// parse_package_specifier
+// ---------------------------------------------------------------------------
+_git :: (fn(spec : str) -> ParsedPackage)(
+  match(
+    parse_package_specifier(String.from(spec)),
+    .Ok(p) => p,
+    .Err(msg) => {
+      panic(`"${spec}" should parse: ${msg}`);
+      ParsedPackage.Path(String.new(), String.new())
+    }
+  )
+);
+test("parse_package_specifier: user/repo shorthand", {
+  match(
+    _git("user/repo"),
+    .Git(name, url, req) => {
+      assert(name == "repo", "name");
+      assert(url == "https://github.com/user/repo", "url");
+      assert(req.is_none(), "no requirement → latest");
+    },
+    .Path(_, _) => panic("expected git")
+  );
+});
+test("parse_package_specifier: user/repo@v1.2.3 is an exact tag", {
+  match(
+    _git("user/repo@v1.2.3"),
+    .Git(_, url, req) => {
+      assert(url == "https://github.com/user/repo", "url without the suffix");
+      match(req.unwrap(), .Tag(t) => assert(t == "v1.2.3", "tag"), _ => panic("expected a tag"));
+    },
+    .Path(_, _) => panic("expected git")
+  );
+});
+test("parse_package_specifier: user/repo@^1.2 is a version requirement", {
+  match(
+    _git("user/repo@^1.2"),
+    .Git(_, _, req) => match(req.unwrap(), .Version(v) => assert(v == "^1.2", "range"), _ => panic("expected a version")),
+    .Path(_, _) => panic("expected git")
+  );
+  match(
+    _git("user/repo@1.2.3"),
+    .Git(_, _, req) => match(req.unwrap(), .Version(v) => assert(v == "1.2.3", "bare version is a range"), _ => panic("expected a version")),
+    .Path(_, _) => panic("expected git")
+  );
+});
+test("parse_package_specifier: full https URL, github.com/ form, ssh remotes", {
+  match(
+    _git("https://gitlab.com/group/thing.git"),
+    .Git(name, url, _) => {
+      assert(name == "thing", "name strips .git");
+      assert(url == "https://gitlab.com/group/thing.git", "url as written");
+    },
+    .Path(_, _) => panic("expected git")
+  );
+  match(
+    _git("github.com/user/repo"),
+    .Git(_, url, _) => assert(url == "https://github.com/user/repo", "github.com/ prefix"),
+    .Path(_, _) => panic("expected git")
+  );
+  match(
+    _git("git@github.com:user/repo.git"),
+    .Git(name, url, req) => {
+      assert(name == "repo", "ssh name");
+      assert(url == "git@github.com:user/repo.git", "the @ in the remote is not a version");
+      assert(req.is_none(), "no requirement");
+    },
+    .Path(_, _) => panic("expected git")
+  );
+  match(
+    _git("git@github.com:user/repo.git@~2"),
+    .Git(_, url, req) => {
+      assert(url == "git@github.com:user/repo.git", "remote kept");
+      match(req.unwrap(), .Version(v) => assert(v == "~2", "suffix"), _ => panic("expected a version"));
+    },
+    .Path(_, _) => panic("expected git")
+  );
+});
+test("parse_package_specifier: local path", {
+  match(
+    _git("./libs/mylib"),
+    .Path(name, rel) => {
+      assert(name == "mylib", "name");
+      assert(rel == "./libs/mylib", "path as written");
+    },
+    .Git(_, _, _) => panic("expected path")
+  );
+});
+test("parse_package_specifier: invalid specifiers are errors", {
+  assert(parse_package_specifier(String.from("not-a-spec")).is_err(), "single word");
+  assert(parse_package_specifier(String.from("a/b/c")).is_err(), "three parts");
+  assert(parse_package_specifier(String.from("user/repo@latest")).is_err(), "@latest is neither a tag nor a range");
+});
+// ---------------------------------------------------------------------------
+// dependency_value_text
+// ---------------------------------------------------------------------------
+test("dependency_value_text: every source shape", {
+  assert(dependency_value_text(DependencySource.Path(String.from("../mylib"))) == "{ path = \"../mylib\" }", "path");
+  assert(
+    dependency_value_text(DependencySource.Git(String.from("https://x/y"), GitRequirement.Version(String.from("^1.2")), String.new())) == "{ git = \"https://x/y\", version = \"^1.2\" }",
+    "git version"
+  );
+  assert(
+    dependency_value_text(DependencySource.Git(String.from("https://x/y"), GitRequirement.Tag(String.from("v1.0.0")), String.from("packages/y"))) == "{ git = \"https://x/y\", tag = \"v1.0.0\", path = \"packages/y\" }",
+    "git tag with subdir"
+  );
+  assert(
+    dependency_value_text(DependencySource.Git(String.from("https://x/y"), GitRequirement.DefaultBranch, String.new())) == "{ git = \"https://x/y\" }",
+    "default branch"
+  );
+  assert(
+    dependency_value_text(DependencySource.Git(String.from("https://x/y"), GitRequirement.Branch(String.from("main")), String.new())) == "{ git = \"https://x/y\", branch = \"main\" }",
+    "branch"
+  );
+  assert(
+    dependency_value_text(DependencySource.Git(String.from("https://x/y"), GitRequirement.Rev(String.from("abc123")), String.new())) == "{ git = \"https://x/y\", rev = \"abc123\" }",
+    "rev"
+  );
+});
+// ---------------------------------------------------------------------------
+// The dependency toolchain's failures carry codes (E15xx)
+// (issues/fixed/explain-registry-e13xx-e15xx-bands-unallocated.md): the install
+// family's front door — no yo.toml at or above the cwd — is E1502, a coded
+// YoError, not bare prose. The handler asserts with literals only: an effect
+// handler is capture-free by design, and YO_ORIGINAL_CWD is left pointing at
+// the fixture — nothing else in this batch process reads it.
+// ---------------------------------------------------------------------------
+test("load_project_manifest outside a project fails as error[E1502]", {
+  root := Path.new(temp_dir()).join(Path.new(String.from("yo_e1502_nomanifest")));
+  mk := Exception(
+    throw : (
+      err -> {
+        assert(false, `fixture io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : mk);
+  io.await(create_dir_all(root.clone(), io), ioexn);
+  _ := env.set(String.from("YO_ORIGINAL_CWD"), root.to_string());
+  exn := Exception(
+    throw : (
+      err -> {
+        match(
+          downcast(&err.*, YoError),
+          .Some(ye) => match(
+            ye.diagnostics.get_cloned(usize(0)),
+            .Some(d) => match(
+              &d.code,
+              .Some(c) => assert(c.* == "E1502", `no manifest is E1502, got ${c}`),
+              .None => assert(false, "the primary diagnostic carries no code")
+            ),
+            .None => assert(false, "a diagnostic group must have an entry")
+          ),
+          .None => assert(false, `the no-manifest failure must be a coded YoError, got: ${err}`)
+        );
+        unwind(());
+      }
+    )
+  );
+  load_project_manifest(exn);
+  assert(false, "load_project_manifest must throw outside a project");
+});

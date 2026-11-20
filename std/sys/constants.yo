@@ -49,7 +49,7 @@
 /// renamed or unlinked. This is the LINUX value and there is no macOS
 /// equivalent (the macOS runtime stats by fd another way), so it stays a
 /// literal: nothing in Yo reads it. The generated Linux runtime
-/// uses the C macro directly (`src/codegen/async/runtime_io_linux.yo`).
+/// uses the C macro directly (`src/codegen/async/runtime-io-linux.yo`).
 AT_EMPTY_PATH :: i32(0x1000);
 /// `statx()` synchronisation mode: "whatever a plain `stat()` would do" —
 /// zero, so OR-ing it into a flag word is a no-op that documents the intent at
@@ -166,7 +166,7 @@ COPYFILE_EXCL :: i32(1);
 /// `sys/copy.copyfile` flag: prefer a copy-on-write clone, fall back to a
 /// byte copy. **macOS only** — it becomes `copyfile(3)`'s `COPYFILE_CLONE`,
 /// while the Linux and wasm arms of the runtime ignore the bit entirely
-/// (`src/codegen/async/runtime_io_common.yo`); Linux tries
+/// (`src/codegen/async/runtime-io-common.yo`); Linux tries
 /// `copy_file_range` regardless of it. The name and the 1/2/4 numbering follow
 /// libuv's `UV_FS_COPYFILE_*`, not any one platform's header. No Yo caller
 /// passes it today.

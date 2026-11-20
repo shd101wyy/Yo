@@ -10,14 +10,14 @@
 //!     original "one process per function with push/pop" (no solver state
 //!     bleeds between obligations at all) at a few ms of spawn cost.
 //!
-//! SYNCHRONOUS ON PURPOSE (the `module_manager.yo` comptime-file-IO
+//! SYNCHRONOUS ON PURPOSE (the `module-manager.yo` comptime-file-IO
 //! idiom): the verifier runs inside compile-time evaluation and inside
 //! async CLI tasks, where async `std/fs` compiles to a blocking poll loop
 //! that drives the event loop from inside a task (C37/C42 — the runtime
 //! guard aborts under YO_ASYNC_STRICT=1). Script I/O and the solver spawn
 //! use libc directly (`system(3)` + open/read/fopen); the ONLY async path
 //! is the one-time download install (`_install_z3` — std/http has no sync
-//! form), which mirrors `src/version_cache.yo`'s release-fetch shape.
+//! form), which mirrors `src/version-cache.yo`'s release-fetch shape.
 //!
 //! The query protocol (plan §"The query protocol"): each obligation runs as
 //! a complete SMT-LIB script passed as a FILE argument (`z3 -smt2 <file>`)
@@ -31,7 +31,7 @@
 //!              wall-clock backstop stopped it
 pragma(Pragma.AllowUnsafe);
 { String, StringBuilder } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 { env, temp_dir, home_dir } :: import("std/env");
 { Exception, IoExn } :: import("std/error");
 { FetchOptions, fetch_with } :: import("std/http/client");
@@ -110,7 +110,7 @@ z3_download_url :: (fn() -> String)(
   `https://github.com/Z3Prover/z3/releases/download/z3-${Z3_VERSION}/z3-${Z3_VERSION}-${z3_host_asset_stem()}.zip`
 );
 // ============================================================================
-// Sync file shims (the module_manager.yo comptime-file-IO idiom)
+// Sync file shims (the module-manager.yo comptime-file-IO idiom)
 // ============================================================================
 /// Whether `path` exists (libc `stat`; 512-byte statx buffer like
 /// module_manager's `_path_exists_sync`).
@@ -135,7 +135,7 @@ _z3_read_file_sync :: (fn(path : &String) -> Option(String))({
   buf := (*u8)(malloc(usize(4096)).unwrap());
   while(true, {
     // i64 immediately: `ssize_t` has no nameable constructor, but casting
-    // its RESULT is fine (module_manager.yo's note).
+    // its RESULT is fine (module-manager.yo's note).
     n := i64(unsafe(unistd.read(fd, (*void)(buf), usize(4096))));
     cond(
       (n < i64(0)) => {
@@ -264,7 +264,7 @@ discover_z3 :: (fn() -> Option(String))({
 });
 /// Download the pinned Z3 release asset into the solver cache and return
 /// the binary path. The ONLY async function in the harness: std/http has
-/// no sync form. Shape mirrors `src/version_cache.yo`'s release fetch —
+/// no sync form. Shape mirrors `src/version-cache.yo`'s release fetch —
 /// straight-line `e.io.await` calls, String-only values (the async backend
 /// mis-lowers captures of richer shapes; see
 /// issues/fixed/async-closure-value-struct-param-emits-invalid-c-cast.md).

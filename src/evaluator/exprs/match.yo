@@ -2,7 +2,7 @@
 //! (plans/reference/MATCH_PATTERN_MATCHING.md P1/P2).
 //!
 //! One arm loop for every scrutinee type: each arm's pattern is compiled by
-//! `pattern_compile.yo` into a `Pattern` (variants at any depth, literals and
+//! `pattern-compile.yo` into a `Pattern` (variants at any depth, literals and
 //! constants, or-patterns, `(name := p)` bindings, ranges, string constants,
 //! identifier catch-alls) and an optional guard `(p && (g))`; the compiled
 //! arms are registered for codegen; exhaustiveness and unreachability come
@@ -15,7 +15,7 @@
 pragma(Pragma.AllowUnsafe);
 { replace } :: import("std/mem");
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 {
   AstExpr,
   AstExprNode,
@@ -57,8 +57,8 @@ pragma(Pragma.AllowUnsafe);
   scope_release_note_binding,
   ExprInfo,
   note_lent_temporary
-} :: import("../../expr_info.yo");
-{ expr_info_set_origin, OriginRootPlace } :: import("../../expr_info.yo");
+} :: import("../../expr-info.yo");
+{ expr_info_set_origin, OriginRootPlace } :: import("../../expr-info.yo");
 { Environment, Variable, pop_env_frame, snapshot_env, env_adopt, variable_set_is_ref, variable_set_is_imm_borrow, variable_set_is_borrow_match_binding, variable_set_reference_mut } :: import("../../env.yo");
 { Token, TokenKind, intern_token_str, TokenData } :: import("../../token.yo");
 { add_variable_to_env, get_variables_from_env, find_variable_in_env, variable_set_inout_borrow_root_id, variable_mark_inout_borrow_root, mark_macro_pattern_binding } :: import("../../env.yo");
@@ -95,9 +95,9 @@ pragma(Pragma.AllowUnsafe);
 { generate_new_temp_variable_name, is_temp_variable_name, canonical_module_path } :: import("../../utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { is_mut_binding, for_desugar_site_of, ast_rewritten_node } :: import("../../expr.yo");
-{ convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
+{ convert_comptime_type_to_runtime_type } :: import("../../types/env-lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
-{ get_gadt_variant_args, get_gadt_type_constructor_args } :: import("../types/gadt_registry.yo");
+{ get_gadt_variant_args, get_gadt_type_constructor_args } :: import("../types/gadt-registry.yo");
 { check_comptime_int_value_fits } :: import("../values/integer.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_error_message_with_help, warning_diagnostic_of_token } :: import("../../error.yo");
@@ -138,7 +138,7 @@ pragma(Pragma.AllowUnsafe);
   match_value,
   arm_is_classic,
   pattern_const_values
-} :: import("./pattern_compile.yo");
+} :: import("./pattern-compile.yo");
 { Exception, AnyError } :: import("std/error");
 { RefCell } :: import("std/sync/refcell");
 /// (seed window) Concrete per-payload variants of refcell.yo's generic
@@ -1203,7 +1203,7 @@ evaluate_match :: (
   // here. Without this, the variant lookup throws "variant not found in
   // <enum:..._self_shell>" (the def-time body-eval of `is_function_boundary_arrow`
   // swallowed exactly that). Mirrors the resolve_enum_shell use sites in
-  // synthesizer.yo / property_access.yo.
+  // synthesizer.yo / property-access.yo.
   matched_type = resolve_enum_shell(&matched_type);
   scrutinee_is_enum := is_enum_type(&matched_type);
   scrutinee_is_primitive := is_matchable_primitive_type(&matched_type);

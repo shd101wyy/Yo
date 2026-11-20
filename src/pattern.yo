@@ -1,6 +1,6 @@
 //! pattern — the Pattern IR behind `match(...)` (plans/reference/MATCH_PATTERN_MATCHING.md
 //! §4.11). One compiled `Pattern` per arm, produced by
-//! `evaluator/exprs/pattern_compile.yo` and read by the evaluator's arm loop,
+//! `evaluator/exprs/pattern-compile.yo` and read by the evaluator's arm loop,
 //! the sync C emitter (`codegen/exprs/match.yo` — the general lowering is a
 //! section of it) and the
 //! async state-machine emitter. This module holds only what every consumer
@@ -15,8 +15,8 @@
 //! gadt_resolve_tca_entry, norm_position_type, is_pattern_cell_type,
 //! variant_field_types
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
-{ HashMap } :: import("std/collections/hash_map");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashMap } :: import("std/collections/hash-map");
 { AstExpr, ast_expr_to_string } :: import("./expr.yo");
 { Token } :: import("./token.yo");
 { TypeValue, TypeValueNode, no_types, no_labels, SharedList } :: import("./types/definitions.yo");
@@ -24,9 +24,9 @@
 { is_bool_type, is_enum_type, is_pointer_type, is_some_type, is_box_type, is_unique_box_type, unique_box_payload_type, is_struct_type, is_tuple_type, is_reference_enum_type, is_reference_struct_type, is_atomic_reference_struct_type, cell_handle_view } :: import("./types/guards.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("./types/creators.yo");
 { are_types_compatible } :: import("./types/compatibility.yo");
-{ get_gadt_variant_args, get_gadt_type_constructor_args } :: import("./evaluator/types/gadt_registry.yo");
-{ some_resolution } :: import("./expr_info.yo");
-{ record_owned_expr_id } :: import("./evaluator/values/type_trait_methods.yo");
+{ get_gadt_variant_args, get_gadt_type_constructor_args } :: import("./evaluator/types/gadt-registry.yo");
+{ some_resolution } :: import("./expr-info.yo");
+{ record_owned_expr_id } :: import("./evaluator/values/type-trait-methods.yo");
 { parse_raw_int, codegen_tables_enabled, match_arms_table_enabled } :: import("./utils.yo");
 { get_integer_type_range } :: import("./types/utils.yo");
 { RefCell } :: import("std/sync/refcell");
@@ -172,9 +172,9 @@ impl(
 // Registry — arms per match node, keyed by the match expression's id.
 //
 // Codegen reads it (`lookup_match_arms` in exprs/match.yo and
-// async/state_code_gen.yo), and so does the verifier's match walk
+// async/state-code-gen.yo), and so does the verifier's match walk
 // (verifier/vc.yo). An entry is an ExprId-keyed side table like the ones in
-// expr_info.yo: `record_owned_expr_id` logs the id under the module being
+// expr-info.yo: `record_owned_expr_id` logs the id under the module being
 // evaluated, and `mm_invalidate_document` hands the removed module's ids to
 // `purge_match_arms` beside `purge_expr_side_tables`. The log is off in
 // one-shot commands (§0.15), where nothing invalidates. A command that

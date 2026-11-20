@@ -1,0 +1,558 @@
+//! Hash set — a thin set-shaped view over `HashMap(T, unit)` (D16).
+//!
+//! Before D16 this file carried its OWN copy of the SwissTable: the control
+//! bytes, the linear probe, the tombstone accounting, the resize. 525 of
+//! its lines were byte-identical to `hash-map.yo`, which meant every fix had
+//! to be made twice — the tombstone-reclamation fix genuinely was
+//! (`issues/fixed/hash-tombstones-are-never-reclaimed.md`).
+//!
+//! `unit` is a true ZST as of v0.2.26, so `MapEntry(T, unit)` costs exactly
+//! what a bare `T` costs and the map's value slot is free.
+//!
+//! ## Example
+//!
+//! ```yo
+//! { HashSet } :: import("std/collections/hash-set");
+//!
+//! s := HashSet(i32).new();
+//! s.insert(i32(1));
+//! s.contains(i32(1)); // true
+//! ```
+//!
+//! ## Stability
+//!
+//! unstable — D16 has only just re-based this module on `HashMap(T, unit)`,
+//! and it inherits that map's open item: the backing table's `ctrl`, `data`,
+//! `capacity` and `size` are still public fields there
+//! (`plans/archive/STD_API_STABILIZATION.md` §4). Two shapes of this file's own are
+//! also unsettled: the four set operations return
+//! `Result(Self, HashSetError)` while `insert` panics on the same allocation
+//! failure — D9 draws that line the other way round — and Rust returns lazy
+//! ITERATORS from `union`/`intersection`/`difference` rather than owned sets.
+//! Freezing follows those two decisions.
+pragma(Pragma.AllowUnsafe);
+{ MapEntry } :: import("./entry.yo");
+{ AllocError } :: import("../allocator.yo");
+{ HashMap, HashMapError, HashMapIter, HashMapIterPtr } :: import("./hash-map");
+mem :: import("../mem.yo");
+{ ArrayList } :: import("./array-list.yo");
+/// Error variants for HashSet operations.
+///
+/// Kept as its own type rather than aliased to `HashMapError` so a caller
+/// matching on it does not silently start seeing map-shaped errors.
+HashSetError :: enum(
+  /// Memory allocation failed.
+  AllocError(error : AllocError),
+  /// Capacity calculation overflowed.
+  CapacityOverflow
+);
+derive(HashSetError, Copy, Clone);
+/// Translate the backing map's error into the set's own vocabulary.
+_from_map_err :: (fn(e : HashMapError) -> HashSetError)(
+  match(
+    e,
+    .AllocError(inner) => HashSetError.AllocError(error : inner),
+    .CapacityOverflow => HashSetError.CapacityOverflow
+  )
+);
+/// High-performance hash set, backed by `HashMap(T, unit)` (D16).
+/// Elements must implement `Eq` and `Hash`. O(1) average lookup and insert.
+HashSet :: (
+  fn(
+    comptime(T) : Type,
+    where(T <: (Eq(T), Hash))
+  ) -> comptime(Type)
+)(
+  struct(
+    _map : HashMap(T, unit)
+  )
+);
+// A value wrapper of `HashMap(T, unit)` (B9): cloning clones every element,
+// which needs `T <: Clone` (`HashMap`'s `Clone` requires it of both sides).
+derive(generic(T : Type), where(T <: (Eq(T), Hash, Clone)), HashSet(T), Clone);
+// SAFETY: a value `HashSet(T)` is the only owner of its wrapped map's buffers
+// (B9, as `HashMap`'s SAFETY note in hash-map.yo): it is `Send`/`Sync` exactly
+// when `T` is, through `HashMap(T, unit)`'s impls.
+impl(generic(T : Type), where(T <: Send), HashSet(T), Send());
+impl(generic(T : Type), where(T <: Sync), HashSet(T), Sync());
+impl(
+  generic(T : Type),
+  where(T <: (Eq(T), Hash)),
+  HashSet(T),
+  /// Create an empty set. `alloc : .Some(a)` places its table in `a` (see
+  /// `HashMap.new`); the default is the global allocator.
+  new : (fn((alloc : Option(Allocator)) ?= .None) -> Self)(
+    Self(_map : HashMap(T, unit).new(alloc : alloc))
+  ),
+  /// Create an empty set with per-set SipHash keys.
+  with_keys : (fn(k0 : u64, k1 : u64) -> Self)(
+    Self(_map : HashMap(T, unit).with_keys(k0, k1))
+  ),
+  /// Create an empty set sized for at least `requested_capacity` elements.
+  /// `alloc : .Some(a)` places its table in `a`, as for `new`.
+  with_capacity : (fn(requested_capacity : usize, (alloc : Option(Allocator)) ?= .None) -> Self)(
+    Self(_map : HashMap(T, unit).with_capacity(requested_capacity, alloc : alloc))
+  ),
+  /// Consuming constructor from a fixed-size array — Rust's
+  /// `HashSet::from([T; N])`: `HashSet(i32).from([i32(1), i32(2), i32(3)])`.
+  ///
+  /// The array is taken by `sink`, so the caller's binding ends at the call,
+  /// and every element moves into the set: nothing is copied. Equal elements
+  /// collapse, as with `insert`.
+  from : (fn(generic(N : usize), sink(elems) : Array(T, N)) -> Self)({
+    mut(out) := Self.with_capacity(N);
+    // `ArrayList.from` moves the elements into a buffer and `pop` moves each
+    // one out of its slot; reversing first inserts them in array order.
+    mut(rest) := ArrayList(T).from(elems);
+    rest.reverse();
+    while(true, {
+      match(
+        rest.pop(),
+        .Some(x) => {
+          out.insert(x);
+        },
+        .None => {
+          break;
+        }
+      );
+    });
+    out
+  }),
+  /// The allocator the set's table lives in, or `.None` for the global one.
+  allocator : (fn(self : &Self) -> Option(Allocator))(self._map.allocator()),
+  /// Insert an element, reporting allocation failure.
+  ///
+  /// The allocator-aware form (D9); `insert` is the one to reach for.
+  /// `.Ok(true)` when the element was NOT already present.
+  try_insert : (fn(self : &mut Self, element : T) -> Result(bool, HashSetError))(
+    match(
+      self._map.try_insert(element, ()),
+      .Ok(prev) => .Ok(prev.is_none()),
+      .Err(e) => .Err(_from_map_err(e))
+    )
+  ),
+  /// Insert an element, returning true when it was NOT already present.
+  ///
+  /// PANICS on allocation failure (D9); `try_insert` is the allocator-aware
+  /// form.
+  insert : (fn(self : &mut Self, element : T) -> bool)(
+    self._map.insert(element, ()).is_none()
+  ),
+  /// True when `element` is in the set.
+  contains : (fn(self : &Self, element : &T) -> bool)(
+    self._map.contains_key(element)
+  ),
+  /// Remove `element`. Returns true when it WAS present.
+  remove : (fn(self : &mut Self, element : &T) -> bool)(
+    self._map.remove(element).is_some()
+  ),
+  /// Number of elements.
+  len : (fn(self : &Self) -> usize)(
+    self._map.len()
+  ),
+  /// Slots currently allocated in the backing table.
+  ///
+  /// A METHOD, not a public field: before D16 `capacity` was a bare struct
+  /// field, which D2 flags as a naming violation.
+  capacity : (fn(self : &Self) -> usize)(
+    self._map.capacity
+  ),
+  /// The backing table's SipHash keys — the set's twin of `HashMap`'s public
+  /// `k0` / `k1` fields (the key-survival tests assert the delegation is real).
+  k0 : (fn(self : &Self) -> u64)(
+    self._map.k0
+  ),
+  k1 : (fn(self : &Self) -> u64)(
+    self._map.k1
+  ),
+  /// Tombstoned slots in the backing table — a read-only diagnostic, the
+  /// set's twin of `HashMap`'s public `tombstones` field (the reclamation
+  /// tests assert the load invariant through it).
+  tombstones : (fn(self : &Self) -> usize)(
+    self._map.tombstones()
+  ),
+  /// True when the set holds no elements.
+  is_empty : (fn(self : &Self) -> bool)(
+    self._map.is_empty()
+  ),
+  /// Remove every element, keeping the allocation.
+  clear : (fn(self : &mut Self) -> unit)(
+    self._map.clear()
+  ),
+  /// True when every element of `self` is also in `other` — Rust's
+  /// `is_subset`. O(len(self)) lookups, and a set larger than `other` is
+  /// rejected without probing anything.
+  is_subset : (fn(self : &Self, other : &Self) -> bool)(
+    cond(
+      (self.len() > other.len()) => false,
+      true => {
+        mut(is_sub) := true;
+        mut(it) := self.iter();
+        while(true, {
+          match(
+            it.next(),
+            .Some(p) => cond(
+              !other.contains(&p.*) => {
+                is_sub = false;
+              },
+              true => ()
+            ),
+            .None => {
+              break;
+            }
+          );
+        });
+        is_sub
+      }
+    )
+  ),
+  /// True when `self` contains every element of `other` — Rust's
+  /// `is_superset`. Exactly `other.is_subset(self)`, so the cost is
+  /// O(len(other)).
+  is_superset : (fn(self : &Self, other : &Self) -> bool)(
+    other.is_subset(self)
+  ),
+  /// True when the two sets share no element — Rust's `is_disjoint`.
+  ///
+  /// Walks the SMALLER set and probes the larger, so the cost is
+  /// O(min(len(self), len(other))) whichever way round it is called.
+  is_disjoint : (fn(self : &Self, other : &Self) -> bool)({
+    // A cond of two borrows is not a place (decision 42: a local borrow needs
+    // `&place`), so the smaller/larger choice is made twice, at each use: the
+    // iterator comes from the smaller side, the membership test from the
+    // larger. Neither set is copied (a value set is move-only, B9).
+    mut(result) := true;
+    mut(it) := cond((self.len() <= other.len()) => self.iter(), true => other.iter());
+    while(true, {
+      match(
+        it.next(),
+        .Some(p) => cond(
+          cond((self.len() <= other.len()) => other.contains(&p.*), true => self.contains(&p.*)) => {
+            result = false;
+          },
+          true => ()
+        ),
+        .None => {
+          break;
+        }
+      );
+    });
+    result
+  }),
+  /// Every element of either set.
+  union : (fn(self : &Self, other : &Self) -> Result(Self, HashSetError))({
+    mut(out) := Self.new();
+    mut(it) := self.iter();
+    while(true, {
+      match(
+        it.next(),
+        .Some(p) => {
+          match(
+            out.try_insert(p.*),
+            .Ok(_) => (),
+            .Err(e) => {
+              return(.Err(e));
+            }
+          );
+        },
+        .None => {
+          break;
+        }
+      );
+    });
+    mut(it2) := other.iter();
+    while(true, {
+      match(
+        it2.next(),
+        .Some(p) => {
+          match(
+            out.try_insert(p.*),
+            .Ok(_) => (),
+            .Err(e) => {
+              return(.Err(e));
+            }
+          );
+        },
+        .None => {
+          break;
+        }
+      );
+    });
+    .Ok(out)
+  }),
+  /// Elements present in BOTH sets.
+  intersection : (fn(self : &Self, other : &Self) -> Result(Self, HashSetError))({
+    mut(out) := Self.new();
+    mut(it) := self.iter();
+    while(true, {
+      match(
+        it.next(),
+        .Some(p) => {
+          cond(
+            other.contains(&p.*) => {
+              match(
+                out.try_insert(p.*),
+                .Ok(_) => (),
+                .Err(e) => {
+                  return(.Err(e));
+                }
+              );
+            },
+            true => ()
+          );
+        },
+        .None => {
+          break;
+        }
+      );
+    });
+    .Ok(out)
+  }),
+  /// Elements in `self` that are NOT in `other`.
+  difference : (fn(self : &Self, other : &Self) -> Result(Self, HashSetError))({
+    mut(out) := Self.new();
+    mut(it) := self.iter();
+    while(true, {
+      match(
+        it.next(),
+        .Some(p) => {
+          cond(
+            !other.contains(&p.*) => {
+              match(
+                out.try_insert(p.*),
+                .Ok(_) => (),
+                .Err(e) => {
+                  return(.Err(e));
+                }
+              );
+            },
+            true => ()
+          );
+        },
+        .None => {
+          break;
+        }
+      );
+    });
+    .Ok(out)
+  }),
+  /// Elements in exactly one of the two sets.
+  symmetric_difference : (fn(self : &Self, other : &Self) -> Result(Self, HashSetError))({
+    mut(out) := Self.new();
+    mut(it) := self.iter();
+    while(true, {
+      match(
+        it.next(),
+        .Some(p) => {
+          cond(
+            !other.contains(&p.*) => {
+              match(
+                out.try_insert(p.*),
+                .Ok(_) => (),
+                .Err(e) => {
+                  return(.Err(e));
+                }
+              );
+            },
+            true => ()
+          );
+        },
+        .None => {
+          break;
+        }
+      );
+    });
+    mut(it2) := other.iter();
+    while(true, {
+      match(
+        it2.next(),
+        .Some(p) => {
+          cond(
+            !self.contains(&p.*) => {
+              match(
+                out.try_insert(p.*),
+                .Ok(_) => (),
+                .Err(e) => {
+                  return(.Err(e));
+                }
+              );
+            },
+            true => ()
+          );
+        },
+        .None => {
+          break;
+        }
+      );
+    });
+    .Ok(out)
+  })
+);
+/// Value iterator over a HashSet — yields elements BY VALUE (dup'ing a
+/// refcounted `T`), in the backing map's bucket order. This is what
+/// `into_iter()`, and therefore `for(set, ...)`, returns; `iter()` yields
+/// pointers.
+///
+/// The order is arbitrary but reproducible for a set built with `new()`'s
+/// fixed SipHash keys.
+HashSetIter :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    _inner : HashMapIter(T, unit)
+  )
+);
+impl(
+  generic(T : Type),
+  where(T <: (Eq(T), Hash)),
+  HashSetIter(T),
+  Iterator(
+    Item : T,
+    next : (fn(self : &mut Self) -> Option(T))(
+      match(self._inner.next(), .Some(entry) => .Some(entry.key), .None => .None)
+    )
+  )
+);
+impl(
+  generic(T : Type),
+  where(T <: (Eq(T), Hash)),
+  HashSet(T),
+  IntoIterator(
+    Item : T,
+    IntoIter : HashSetIter(T),
+    into_iter : (fn(sink(self) : Self) -> HashSetIter(T))({
+      // Move the backing map out (B9: a field cannot move out of an owned
+      // struct, and a value pattern on this wrapper needs `==`): `replace`
+      // leaves an empty map behind, which drops with the spent wrapper.
+      mut(me) := self;
+      mut(fresh) := HashMap(T, unit).new();
+      HashSetIter(T)(_inner : mem.replace(&mut me._map, fresh).into_iter())
+    })
+  )
+);
+/// Pointer iterator over a HashSet — yields `*(T)` INTO the backing map's
+/// bucket array, so elements are borrowed rather than dup'd. This is what
+/// `iter()` returns (D14).
+///
+/// The pointers alias the map's storage: any insert that rehashes, any
+/// `remove`, or `clear` invalidates pointers already yielded. The element is
+/// the entry's KEY, addressed rather than assumed to sit at offset 0. Like
+/// `HashMapIterPtr`, it holds the bucket arrays, not the set (decision 39,
+/// B7b): the set must outlive the walk.
+HashSetIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    _inner : HashMapIterPtr(T, unit)
+  )
+);
+impl(
+  generic(T : Type),
+  where(T <: (Eq(T), Hash)),
+  HashSetIterPtr(T),
+  Iterator(
+    Item : *T,
+    next : (fn(self : &mut Self) -> Option(*T))(
+      // The entry's KEY is the set's element; take its address rather than
+      // assuming `MapEntry`'s field order puts it at offset 0.
+      match(self._inner.next(), .Some(p) => .Some(addr_of(p.*.key)), .None => .None)
+    )
+  )
+);
+impl(
+  generic(T : Type),
+  where(T <: (Eq(T), Hash)),
+  HashSet(T),
+  /// Non-consuming raw iteration, yielding a `*(T)` into the backing
+  /// storage — the `pragma(Pragma.AllowUnsafe)` form; safe code reads
+  /// elements with `for(&set, x => ...)`.
+  iter : (fn(self : &Self) -> HashSetIterPtr(T))(
+    HashSetIterPtr(T)(_inner : self._map.iter())
+  )
+);
+impl(
+  generic(T : Type),
+  where(T <: (Eq(T), Hash, Clone)),
+  HashSet(T),
+  /// A clone of every element, in bucket order (the order `into_iter()`
+  /// yields) — the `get_cloned` family's walk of a borrowed set, so a loop
+  /// can walk the elements while it reads and writes the set.
+  ///
+  /// ```yo
+  /// { HashSet } :: import("std/collections/hash-set");
+  /// (mut(s) : HashSet(i32)) = HashSet(i32).new();
+  /// s.insert(i32(7));
+  /// assert(s.items_cloned().len() == usize(1), "one element");
+  /// ```
+  items_cloned : (fn(self : &Self) -> ArrayList(T))(self._map.keys_cloned())
+);
+/// `Default` — the empty set.
+impl(
+  generic(T : Type),
+  where(T <: (Eq(T), Hash)),
+  HashSet(T),
+  Default(
+    default : (fn() -> Self)(
+      Self.new()
+    )
+  )
+);
+/// The shared walk over a `HashSet` (Rust's `Iter<'a, T>`): a `&(HashSet(T), p)` lend and a
+/// position, yielding each element as a `&(T, p)`. Binding the cursor freezes the
+/// collection for its life (E0911 on a write), which is what makes the borrowed
+/// `for(&xs, x => body)` lower to the value form over `(&xs).into_iter()`.
+HashSetCursor :: (fn(comptime(T) : Type, comptime(p) : Origin) -> comptime(Type))(
+  struct(
+    _coll : &(HashSet(T), p),
+    _index : usize
+  )
+);
+impl(
+  generic(T : Type, p : Origin),
+  where(T <: (Eq(T), Hash)),
+  HashSetCursor(T, p),
+  Iterator(
+    Item : &(T, p),
+    next : (fn(self : &mut Self) -> Option(&(T, p)))({
+      at := self._coll._map._walk_from(self._index);
+      cond(
+        (at >= self._coll._map.capacity) => .None,
+        true => {
+          self._index = (at + usize(1));
+          .Some(&self._coll._map._data_ptr().add(at).*.key)
+        }
+      )
+    })
+  )
+);
+impl(
+  generic(T : Type, p : Origin),
+  where(T <: (Eq(T), Hash)),
+  &(HashSet(T), p),
+  IntoIterator(
+    Item : &(T, p),
+    IntoIter : HashSetCursor(T, p),
+    into_iter : (fn(self : Self) -> HashSetCursor(T, p))(HashSetCursor(T, p)(_coll : self, _index : usize(0)))
+  )
+);
+export(
+  HashSet,
+  HashSetError,
+  HashSetIter,
+  HashSetIterPtr,
+  HashSetCursor
+);
+/// Build a `HashSet(T)` from any iterator of `T` — the target of
+/// `it.collect(HashSet(T))`. Duplicates collapse, as with `insert`.
+impl(
+  generic(T : Type),
+  where(T <: (Eq(T), Hash)),
+  HashSet(T),
+  FromIterator(
+    Elem : T,
+    from_iter_new : (fn() -> Self)(
+      HashSet(T).new()
+    ),
+    from_iter_add : (fn(sink(acc) : Self, item : &T) -> Self)({
+      mut(out) := acc;
+      out.insert(item.*);
+      out
+    })
+  )
+);

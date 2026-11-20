@@ -1,0 +1,821 @@
+//! Inline builtin-operator emission.
+//!
+//! Maps a builtin function name + already-generated argument codes to inline C:
+//! arithmetic / comparison / bitwise operators, pointer arithmetic, `str`
+//! intrinsics, casts (`__yo_as`), `MaybeUninit`, array indexing, the RNG syscall
+//! wrappers, and the borrow-flag backstop. `__yo_noop` / the borrow assert emit
+//! a statement (or nothing) and return "". Fresh temp names via random_id.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ guard_site_is_proved, guard_site_pair_is_proved } :: import("../../evaluator/builtins/contracts.yo");
+{
+  AstExpr,
+  ast_expr_token,
+  BF_YO_OP_ADD,
+  BF_YO_OP_SUB,
+  BF_YO_OP_MUL,
+  BF_YO_OP_DIV,
+  BF_YO_OP_MOD,
+  BF_YO_OP_NEG,
+  BF_YO_OP_ADD_WRAP,
+  BF_YO_OP_SUB_WRAP,
+  BF_YO_OP_MUL_WRAP,
+  BF_YO_OP_EQ,
+  BF_YO_OP_NEQ,
+  BF_YO_OP_LT,
+  BF_YO_OP_LTE,
+  BF_YO_OP_GT,
+  BF_YO_OP_GTE,
+  BF_YO_OP_NOT,
+  BF_YO_OP_BIT_AND,
+  BF_YO_OP_BIT_OR,
+  BF_YO_OP_BIT_XOR,
+  BF_YO_OP_BIT_COMPLEMENT,
+  BF_YO_OP_BIT_LEFT_SHIFT,
+  BF_YO_OP_BIT_RIGHT_SHIFT,
+  BF_YO_NOOP,
+  BF_YO_RETURN_SELF,
+  BF_YO_MS_SLEEP,
+  BF_YO_DECR_RC,
+  BF_YO_BORROW_ASSERT_UNBORROWED,
+  BF_YO_BORROW_ACQUIRE,
+  BF_YO_BORROW_RELEASE,
+  BF_YO_PTR_ADD,
+  BF_YO_PTR_SUB,
+  BF_YO_PTR_DIFF,
+  BF_YO_PTR_EQ,
+  BF_YO_PTR_NEQ,
+  BF_YO_PTR_LT,
+  BF_YO_PTR_LTE,
+  BF_YO_PTR_GT,
+  BF_YO_PTR_GTE,
+  BF_YO_PTR_READ,
+  BF_YO_PTR_WRITE,
+  BF_YO_STR_LEN,
+  BF_YO_STR_PTR,
+  BF_YO_STR_BYTE,
+  BF_YO_STR_FROM_RAW_PARTS,
+  BF_YO_GETRANDOM,
+  BF_YO_ERRNO,
+  BF_YO_ARC4RANDOM_BUF,
+  BF_YO_BCRYPT_GEN_RANDOM,
+  BF_YO_GETENTROPY,
+  BF_YO_AS,
+  BF_YO_MAYBE_UNINIT_NEW,
+  BF_YO_MAYBE_UNINIT_AS_PTR,
+  BF_YO_MAYBE_UNINIT_ASSUME_INIT,
+  BF_YO_ARRAY_INDEX,
+  ast_call_args_unmarked
+} :: import("../../expr.yo");
+{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ is_enum_type, is_reference_struct_type, is_reference_enum_type, carries_no_borrow_marks, is_primitive_type, is_unit_type, is_f32_type, is_f64_type, is_i8_type, is_i16_type, is_i32_type, is_i64_type, is_isize_type, is_u8_type, is_u16_type, is_u32_type, is_u64_type, is_usize_type } :: import("../../types/guards.yo");
+{ is_target_windows, is_target_wasm } :: import("../../target.yo");
+{ stable_label_id } :: import("../../utils.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ get_type_string, can_optimize_as_simple_enum, _checked_index_expr, _checked_fixed_array_subscript, _idx_c_string_literal, _is_decimal_literal, _parse_decimal, fat_address_member } :: import("../utils/index.yo");
+/// Argument code at index `i` (empty if absent).
+_a :: (fn(args : &ArrayList(String), i : usize) -> String)(
+  match(args.get_cloned(i), .Some(s) => s, .None => String.from(""))
+);
+/// `((a) <op> (b))`.
+_binop :: (fn(args : &ArrayList(String), op : str) -> String)({
+  // DEGRADED render when an operand failed to transpile (empty or an FTT
+  // comment — its ExprInfo was dropped by an eval throw inside a discarded
+  // definition, e.g. a dyn'd closure body over an unresolved capture).
+  // `(() + ())` is invalid C and breaks the whole batch ("expected
+  // expression", the fn Dyn-closure test).
+  lhs := _a(args, usize(0));
+  rhs := _a(args, usize(1));
+  if((lhs.len() == usize(0)) || (rhs.len() == usize(0)) || lhs.starts_with("// Failed to transpile") || rhs.starts_with("// Failed to transpile"), {
+    return(`// Failed to transpile (${lhs}) ${op} (${rhs})`);
+  });
+  out := String.from("((");
+  out.push_string(&lhs);
+  out.push_str(") ");
+  out.push_str(op);
+  out.push_str(" (");
+  out.push_string(&rhs);
+  out.push_str("))");
+  out
+});
+/// `<fn>((a), (b))` — a two-argument C call, with `_binop`'s degraded render.
+_callop2 :: (fn(args : &ArrayList(String), fname : str) -> String)({
+  lhs := _a(args, usize(0));
+  rhs := _a(args, usize(1));
+  if((lhs.len() == usize(0)) || (rhs.len() == usize(0)) || lhs.starts_with("// Failed to transpile") || rhs.starts_with("// Failed to transpile"), {
+    return(`// Failed to transpile ${fname}((${lhs}), (${rhs}))`);
+  });
+  out := String.from(fname);
+  out.push_str("((");
+  out.push_string(&lhs);
+  out.push_str("), (");
+  out.push_string(&rhs);
+  out.push_str("))");
+  out
+});
+/// Safe mode Phase 2 (plans/backlog/SAFE_MODE.md §5): guarded integer
+/// division / remainder. The comma expression keeps `_binop`'s parenthesized
+/// shape so every consumer position stays legal; the guard runs first, so the
+/// division is only reached when defined. Signed guards divisor-zero AND
+/// MIN/-1 (both C UB, both SIGFPE on x86); unsigned guards divisor-zero.
+/// The MIN constant is spelled per width — `(-2147483647 - 1)`-style, never
+/// `1 << 63` — and isize follows the target (32-bit on wasm32).
+_div_checked_expr :: (fn(args : &ArrayList(String), expr : &AstExpr, context : &FunctionGenerationContext, op : str) -> String)({
+  ty := ei_ty(expr, context);
+  a := _a(args, usize(0));
+  b := _a(args, usize(1));
+  if((a.len() == usize(0)) || (b.len() == usize(0)) || a.starts_with("// Failed to transpile") || b.starts_with("// Failed to transpile"), {
+    return(`// Failed to transpile (${a}) ${op} (${b})`);
+  });
+  tok := ast_expr_token(expr);
+  file_lit := _idx_c_string_literal(&tok.module_path.*);
+  loc := `, ${file_lit}, ${(usize(tok.row) + usize(1)).to_string()}, ${(usize(tok.column) + usize(1)).to_string()}`;
+  signed_wide := cond(
+    (is_i8_type(&ty) || is_i16_type(&ty) || is_i32_type(&ty)) => String.from("(-2147483647 - 1)"),
+    is_i64_type(&ty) => String.from("(-9223372036854775807LL - 1)"),
+    is_isize_type(&ty) => if(is_target_wasm(&context.base.target_info), String.from("(-2147483647 - 1)"), String.from("(-9223372036854775807LL - 1)")),
+    true => String.new()
+  );
+  if(signed_wide.len() > usize(0), {
+    // 5b: the signed guard covers two traps, so it elides only when both
+    // `divisor-nonzero` and `div-no-overflow` (`MIN / -1`) are proved.
+    if(guard_site_pair_is_proved(expr, "divisor-nonzero", "div-no-overflow"), {
+      return(_binop(args, op));
+    });
+    return(`(__yo_div_guard((long long)(${a}), (long long)(${b}), ${signed_wide}${loc}), ((${a}) ${op} (${b})))`);
+  });
+  if(is_u8_type(&ty) || is_u16_type(&ty) || is_u32_type(&ty) || is_u64_type(&ty) || is_usize_type(&ty), {
+    // 5b: a proved non-zero divisor needs no guard.
+    if(guard_site_is_proved(expr, "divisor-nonzero"), {
+      return(_binop(args, op));
+    });
+    return(`(__yo_div_guard_u((unsigned long long)(${b})${loc}), ((${a}) ${op} (${b})))`);
+  });
+  // Non-integer (float) — IEEE total, no guard.
+  _binop(args, op)
+});
+/// Safe mode Phase 3a (plans/backlog/SAFE_MODE.md §6, ruling D1): + - * and
+/// negation abort on overflow (signed AND unsigned) at every -O level — the
+/// runtime match of comptime's check_int_overflow. Narrow widths widen to
+/// long long / unsigned long long math with per-width bounds; 64-bit widths
+/// use the overflow identities in the __yo_*_chk_*64 helpers. isize/usize
+/// follow the target (32-bit on wasm32). Floats keep the plain op.
+/// `wrapping_add` / `wrapping_sub` / `wrapping_mul`: two's-complement wrap
+/// at the RESULT's width. Computed in `unsigned long long` — modular for every
+/// width, so defined without relying on `-fwrapv` — and cast back: the low bits
+/// of a sum, difference or product are the same for signed and unsigned
+/// operands. The bare `(a + b)` this replaced was never narrowed, so under C's
+/// integer promotion `u8(250).wrapping_add(u8(10))` compared as 260
+/// (issues/fixed/wrapping-methods-shadowed-by-a-loop-based-duplicate.md).
+_wrap_binop :: (fn(args : &ArrayList(String), expr : &AstExpr, context : &mut FunctionGenerationContext, op : str) -> String)({
+  raw := _binop(args, op);
+  if(raw.starts_with("// Failed to transpile"), {
+    return(raw);
+  });
+  ty := ei_ty(expr, context);
+  if(!is_primitive_type(&ty) || is_unit_type(&ty), {
+    return(raw);
+  });
+  ct := get_type_string(&ty, &mut context.base);
+  `((${ct})((unsigned long long)(${_a(args, usize(0))}) ${op} (unsigned long long)(${_a(args, usize(1))})))`
+});
+_arith_checked_expr :: (fn(args : &ArrayList(String), expr : &AstExpr, context : &mut FunctionGenerationContext, op : str) -> String)({
+  ty := ei_ty(expr, context);
+  a := _a(args, usize(0));
+  b := _a(args, usize(1));
+  if((a.len() == usize(0)) || (b.len() == usize(0)) || a.starts_with("// Failed to transpile") || b.starts_with("// Failed to transpile"), {
+    return(`// Failed to transpile (${a}) ${op} (${b})`);
+  });
+  tok := ast_expr_token(expr);
+  file_lit := _idx_c_string_literal(&tok.module_path.*);
+  loc := `, ${file_lit}, ${(usize(tok.row) + usize(1)).to_string()}, ${(usize(tok.column) + usize(1)).to_string()}`;
+  ct := get_type_string(&ty, &mut context.base);
+  wasm := is_target_wasm(&context.base.target_info);
+  fnbase := cond((op == "*") => String.from("mul"), (op == "-") => String.from("sub"), true => String.from("add"));
+  // 5b Phase 2: where a guard is emitted, a proof that the exact result fits
+  // the type licenses the plain operation, narrowed back to it (same value).
+  // Asked inside each guarded branch only, so an unguarded operation is never
+  // counted as elided.
+  plain := `((${ct})((${a}) ${op} (${b})))`;
+  if(is_i8_type(&ty) || is_i16_type(&ty) || is_i32_type(&ty) || (is_isize_type(&ty) && wasm), {
+    bounds := cond(
+      is_i16_type(&ty) => String.from("(-32768), 32767"),
+      (is_i32_type(&ty) || is_isize_type(&ty)) => String.from("(-2147483647 - 1), 2147483647"),
+      true => String.from("(-128), 127")
+    );
+    if(guard_site_is_proved(expr, "no-overflow"), {
+      return(plain);
+    });
+    return(`((${ct})__yo_${fnbase}_chk_s((long long)(${a}), (long long)(${b}), ${bounds}${loc}))`);
+  });
+  if(is_i64_type(&ty) || is_isize_type(&ty), {
+    if(guard_site_is_proved(expr, "no-overflow"), {
+      return(plain);
+    });
+    return(`(__yo_${fnbase}_chk_s64((${a}), (${b})${loc}))`);
+  });
+  if(is_u8_type(&ty) || is_u16_type(&ty) || is_u32_type(&ty) || (is_usize_type(&ty) && wasm), {
+    hi := cond(
+      is_u16_type(&ty) => String.from("65535"),
+      (is_u32_type(&ty) || is_usize_type(&ty)) => String.from("4294967295ULL"),
+      true => String.from("255")
+    );
+    if(guard_site_is_proved(expr, "no-overflow"), {
+      return(plain);
+    });
+    return(`((${ct})__yo_${fnbase}_chk_u((unsigned long long)(${a}), (unsigned long long)(${b}), ${hi}${loc}))`);
+  });
+  // A 64-bit `usize` is a u64: it traps too
+  // (issues/fixed/usize-arithmetic-is-unguarded-on-64-bit-targets.md).
+  if(is_u64_type(&ty) || is_usize_type(&ty), {
+    if(guard_site_is_proved(expr, "no-overflow"), {
+      return(plain);
+    });
+    return(`(__yo_${fnbase}_chk_u64((${a}), (${b})${loc}))`);
+  });
+  // Non-integer (float): plain op.
+  _binop(args, op)
+});
+/// Safe mode Phase 3a: negation traps on MIN (signed); unsigned and float
+/// keep the plain narrowing neg.
+_neg_checked_expr :: (fn(args : &ArrayList(String), expr : &AstExpr, context : &mut FunctionGenerationContext) -> String)({
+  ty := ei_ty(expr, context);
+  a := _a(args, usize(0));
+  if((a.len() == usize(0)) || a.starts_with("// Failed to transpile"), {
+    return(`// Failed to transpile (-(${a}))`);
+  });
+  tok := ast_expr_token(expr);
+  file_lit := _idx_c_string_literal(&tok.module_path.*);
+  loc := `, ${file_lit}, ${(usize(tok.row) + usize(1)).to_string()}, ${(usize(tok.column) + usize(1)).to_string()}`;
+  ct := get_type_string(&ty, &mut context.base);
+  wasm := is_target_wasm(&context.base.target_info);
+  // 5b Phase 2: the verifier proved the operand is not the type's MIN.
+  if(guard_site_is_proved(expr, "neg-no-overflow"), {
+    return(_unop_narrowed(args, "-", expr, context));
+  });
+  if(is_i8_type(&ty), {
+    return(`((${ct})__yo_neg_chk_s((long long)(${a}), (-128)${loc}))`);
+  });
+  if(is_i16_type(&ty), {
+    return(`((${ct})__yo_neg_chk_s((long long)(${a}), (-32768)${loc}))`);
+  });
+  if(is_i32_type(&ty) || (is_isize_type(&ty) && wasm), {
+    return(`((${ct})__yo_neg_chk_s((long long)(${a}), (-2147483647 - 1)${loc}))`);
+  });
+  if(is_i64_type(&ty) || is_isize_type(&ty), {
+    return(`(__yo_neg_chk_s64((${a})${loc}))`);
+  });
+  _unop_narrowed(args, "-", expr, context)
+});
+/// Safe mode Phase 3b (§6): a shift count >= the operand's bit width is C UB.
+/// The count is guarded per the type's width (target-aware for isize/usize);
+/// a bare-decimal count in range folds to the plain shift.
+_shift_checked_expr :: (fn(args : &ArrayList(String), expr : &AstExpr, context : &FunctionGenerationContext, op : str) -> String)({
+  ty := ei_ty(expr, context);
+  a := _a(args, usize(0));
+  b := _a(args, usize(1));
+  if((a.len() == usize(0)) || (b.len() == usize(0)) || a.starts_with("// Failed to transpile") || b.starts_with("// Failed to transpile"), {
+    return(`// Failed to transpile (${a}) ${op} (${b})`);
+  });
+  bits := cond(
+    (is_i8_type(&ty) || is_u8_type(&ty)) => String.from("8"),
+    (is_i16_type(&ty) || is_u16_type(&ty)) => String.from("16"),
+    (is_i32_type(&ty) || is_u32_type(&ty) || (is_isize_type(&ty) && is_target_wasm(&context.base.target_info)) || (is_usize_type(&ty) && is_target_wasm(&context.base.target_info))) => String.from("32"),
+    true => String.from("64")
+  );
+  if(_is_decimal_literal(&b), {
+    if(_parse_decimal(&b) < _parse_decimal(bits.clone()), {
+      return(_binop(args, op));
+    });
+  });
+  // 5b: the verifier proved the count below the width.
+  if(guard_site_is_proved(expr, "shift-in-width"), {
+    return(_binop(args, op));
+  });
+  tok := ast_expr_token(expr);
+  file_lit := _idx_c_string_literal(&tok.module_path.*);
+  `((__yo_sh_chk((long long)(${b}), ${bits}, ${file_lit}, ${(usize(tok.row) + usize(1)).to_string()}, ${(usize(tok.column) + usize(1)).to_string()})), ((${a}) ${op} (${b})))`
+});
+/// Safe mode Phase 3c (§6, ruling D2): float→int casts SATURATE (out-of-range
+/// → the target's MIN/MAX, NaN → 0) instead of C UB. Returns `.None` for any
+/// non float→int cast, which keeps the existing `((T)(a))` emission.
+_as_saturating_expr :: (fn(args : &ArrayList(String), expr : &AstExpr, context : &mut FunctionGenerationContext) -> Option(String))({
+  sty := match(
+    expr,
+    Rc(.FnCall(_, _, Rc(ua), _, _)) => match(
+      ua.get_cloned(usize(0)),
+      .Some(a0) => match(context.base.get_expr_info(&a0), .Some(aei) => Option(TypeValue).Some(Rc.clone(aei.ty())), .None => Option(TypeValue).None),
+      .None => Option(TypeValue).None
+    ),
+    Rc(.Atom(_, _)) => Option(TypeValue).None
+  );
+  src_is_float := match(
+    sty,
+    .Some(s) => (is_f32_type(&s) || is_f64_type(&s)),
+    .None => false
+  );
+  if(!src_is_float, {
+    return(Option(String).None);
+  });
+  ty := ei_ty(expr, context);
+  a := _a(args, usize(0));
+  if((a.len() == usize(0)) || a.starts_with("// Failed to transpile"), {
+    return(Option(String).None);
+  });
+  ct := get_type_string(&ty, &mut context.base);
+  wasm := is_target_wasm(&context.base.target_info);
+  if(is_i8_type(&ty), {
+    return(Option(String).Some(`((${ct})__yo_sat_i64((double)(${a}), (-128), 127))`));
+  });
+  if(is_i16_type(&ty), {
+    return(Option(String).Some(`((${ct})__yo_sat_i64((double)(${a}), (-32768), 32767))`));
+  });
+  if(is_i32_type(&ty) || (is_isize_type(&ty) && wasm), {
+    return(Option(String).Some(`((${ct})__yo_sat_i64((double)(${a}), (-2147483647 - 1), 2147483647))`));
+  });
+  if(is_i64_type(&ty) || is_isize_type(&ty), {
+    return(Option(String).Some(`((__yo_sat_i64((double)(${a}), (-9223372036854775807LL - 1), 9223372036854775807LL)))`));
+  });
+  if(is_u8_type(&ty), {
+    return(Option(String).Some(`((${ct})__yo_sat_u64((double)(${a}), 255))`));
+  });
+  if(is_u16_type(&ty), {
+    return(Option(String).Some(`((${ct})__yo_sat_u64((double)(${a}), 65535))`));
+  });
+  if(is_u32_type(&ty) || (is_usize_type(&ty) && wasm), {
+    return(Option(String).Some(`((${ct})__yo_sat_u64((double)(${a}), 4294967295ULL))`));
+  });
+  if(is_u64_type(&ty) || is_usize_type(&ty), {
+    return(Option(String).Some(`((__yo_sat_u64((double)(${a}), 18446744073709551615ULL)))`));
+  });
+  Option(String).None
+});
+/// `%` — C's `%` for integers, `fmod`/`fmodf` for floats.
+///
+/// C's `%` is defined for INTEGER operands only, so a float pair emitted as
+/// `(a) % (b)` is a hard C error ("invalid operands to binary expression")
+/// that surfaces long after `yo check` reported the file fine, naming a
+/// generated temporary rather than the user's source
+/// (issues/fixed/stddoc-coll-float-modulo-emits-invalid-c.md).
+///
+/// Rust implements `Rem` for `f64`/`f32` as `fmod`, which is the house
+/// precedent, and it is what `std/math.yo`'s `rem_euclid` doc comment already
+/// claimed `%` meant for floats. `<math.h>` is added unconditionally by
+/// `codegen-c.yo`, so the declaration is always in scope — no `add_c_include`
+/// from here, which would be a silent no-op this late in emission anyway.
+_mod_op :: (fn(args : &ArrayList(String), expr : &AstExpr, context : &FunctionGenerationContext) -> String)({
+  ty := ei_ty(expr, context);
+  cond(
+    is_f32_type(&ty) => _callop2(args, "fmodf"),
+    is_f64_type(&ty) => _callop2(args, "fmod"),
+    true => _div_checked_expr(args, expr, context, "%")
+  )
+});
+/// `(<op>(a))` — prefix unary.
+_unop :: (fn(args : &ArrayList(String), op : str) -> String)({
+  out := String.from("(");
+  out.push_str(op);
+  out.push_str("(");
+  out.push_string(_a(args, usize(0)));
+  out.push_str("))");
+  out
+});
+/// The C type of a one-argument call's OPERAND, when it is a nameable
+/// primitive. Used to narrow a prefix arithmetic operator's result — see
+/// `_unop_narrowed`.
+_unary_operand_c_type :: (fn(expr : &AstExpr, context : &mut FunctionGenerationContext) -> Option(String))(
+  match(
+    expr,
+    Rc(.FnCall(_, _, Rc(ua), _, _)) => match(
+      ua.get_cloned(usize(0)),
+      .Some(u0) => match(
+        context.base.get_expr_info(&u0),
+        .Some(uei) => if(
+          is_primitive_type(&uei.ty()) && !is_unit_type(&uei.ty()),
+          Option(String).Some(get_type_string(&uei.ty(), &mut context.base)),
+          Option(String).None
+        ),
+        .None => Option(String).None
+      ),
+      .None => Option(String).None
+    ),
+    Rc(.Atom(_, _)) => Option(String).None
+  )
+);
+/// `((<operand C type>)(<op>(a)))` — a prefix ARITHMETIC unary, narrowed back
+/// to its operand's width.
+///
+/// C integer promotion is why the cast is not optional: `~(uint8_t)255` is an
+/// `int` `0xFFFFFF00`, not `0`, and `-(int8_t)(-128)` is an `int` `128`, which
+/// is not representable in `int8_t` at all. The trait-method path never had
+/// this problem because a primitive's `bit_not`/`neg` impl is a real function
+/// whose RETURN TYPE performs the conversion; an inline lowering has no such
+/// conversion and must spell it out.
+///
+/// Measured before the cast existed: `u64((~self))` on a `u8` receiver
+/// produced `0xFFFFFFFFFFFFFF00`, and `u8.MAX.trailing_ones()` answered `64`
+/// instead of `8` — the `(~self) == T(0)` guard compared `int -256` against
+/// `0` and took the wrong arm. Storing the complement in a local first hid it,
+/// because the local's own declared type did the narrowing.
+///
+/// `!` does NOT come through here: its result is `bool`, which has no narrower
+/// representation to be promoted out of.
+_unop_narrowed :: (fn(args : &ArrayList(String), op : str, expr : &AstExpr, context : &mut FunctionGenerationContext) -> String)({
+  inner := _a(args, usize(0));
+  // Same degraded-render guard as `_binop`: `(~())` is invalid C and would
+  // break the whole batch rather than this one expression.
+  if((inner.len() == usize(0)) || inner.starts_with("// Failed to transpile"), {
+    return(`// Failed to transpile ${op}(${inner})`);
+  });
+  match(
+    _unary_operand_c_type(expr, context),
+    .Some(cty) => `((${cty})(${op}(${inner})))`,
+    // No nameable operand type — emit the un-narrowed form, which is what
+    // this lowering did before. Narrowing only matters for a sub-`int`-width
+    // operand, and a node whose ExprInfo we cannot read is not one we can
+    // name a type for either.
+    .None => `(${op}(${inner}))`
+  )
+});
+/// `(a <op> b)` — pointer-style binary (no inner parens).
+_ptr_binop :: (fn(args : &ArrayList(String), op : str) -> String)({
+  out := String.from("(");
+  out.push_string(_a(args, usize(0)));
+  out.push_str(" ");
+  out.push_str(op);
+  out.push_str(" ");
+  out.push_string(_a(args, usize(1)));
+  out.push_str(")");
+  out
+});
+/// The expr's result type (Unit if it has no ExprInfo — the metadata-aware
+/// builtins need the guard).
+ei_ty :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> TypeValue)(
+  match(context.base.get_expr_info(expr), .Some(ei) => Rc.clone(ei.ty()), .None => Rc.new(TypeValueNode.Unit))
+);
+/// Whether the call's argument `i` is `unit`-typed (false when it has no
+/// ExprInfo). Reads through a call-site `&x` marker, as the evaluator
+/// annotates the place under it.
+_arg_is_unit :: (fn(expr : &AstExpr, i : usize, context : &FunctionGenerationContext) -> bool)(
+  match(
+    ast_call_args_unmarked(expr).get_cloned(i),
+    .Some(a) => match(context.base.get_expr_info(&a), .Some(aei) => is_unit_type(&aei.ty()), .None => false),
+    .None => false
+  )
+);
+/// The operands of a builtin whose `unit` result touches no memory, kept
+/// for their effects: `((void)(a), (void)(b))`. An operand that emits no C
+/// (a unit value) is skipped; with none left, the call emits no C either,
+/// like every other unit expression.
+_void_effects :: (fn(args : &ArrayList(String)) -> String)({
+  parts := ArrayList(String).new();
+  i := usize(0);
+  while(i < args.len(), i = (i + usize(1)), {
+    a := _a(args, i);
+    if(a.len() > usize(0), {
+      parts.push(`(void)(${a})`);
+    });
+  });
+  cond(
+    (parts.len() == usize(0)) => String.from(""),
+    true => {
+      out := String.from("(");
+      j := usize(0);
+      while(j < parts.len(), j = (j + usize(1)), {
+        if(j > usize(0), {
+          out.push_str(", ");
+        });
+        out.push_string(_a(&parts, j));
+      });
+      out.push_str(")");
+      out
+    }
+  )
+});
+/// Whether `__yo_as`'s source operand is a tagged (non-simple) enum.
+_as_source_is_tagged_enum :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> bool)(
+  match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => match(a.get_cloned(usize(0)), .Some(a0) => match(context.base.get_expr_info(&a0), .Some(aei) => (is_enum_type(&aei.ty()) && !can_optimize_as_simple_enum(&aei.ty())), .None => false), .None => false), Rc(.Atom(_, _)) => false)
+);
+/// Does the borrow-flag builtin's operand (`__yo_borrow_acquire(&c)` and its
+/// two siblings) have a flag to set? Only a reference type's cell header
+/// carries one. A value-rooted place has none: unique ownership checks it
+/// statically (plans/VALUES_BY_DEFAULT.md §3.10, "the borrowed-`for` guard
+/// splits by path"), so the builtin lowers to nothing. Casting the value to
+/// `void*` was invalid C. An `Rc` or `Arc` cell has none either: its payload
+/// is read-only through the handle, and those header bits are its weak count
+/// (`carries_no_borrow_marks`).
+_borrow_operand_has_flag :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> bool)(
+  // Read through a call-site `&x` marker: the evaluator annotates the place
+  // under it, not the marker node (`ast_call_args_unmarked`), so the raw
+  // operand of `__yo_borrow_release(&self._c)` had no type and was flagged.
+  match(
+    ast_call_args_unmarked(expr).get_cloned(usize(0)),
+    .Some(a0) => match(
+      context.base.get_expr_info(&a0),
+      .Some(aei) => ((is_reference_struct_type(&aei.ty()) || is_reference_enum_type(&aei.ty())) && !carries_no_borrow_marks(&aei.ty())),
+      .None => true
+    ),
+    .None => true
+  )
+);
+/// Generate a Yo operator / inline-builtin function call.
+generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayList(String), expr : &AstExpr, context : &mut FunctionGenerationContext, indent : &String) -> String)(
+  cond(
+    (function_name.* == BF_YO_OP_ADD) => _arith_checked_expr(args, expr, context, "+"),
+    (function_name.* == BF_YO_OP_SUB) => _arith_checked_expr(args, expr, context, "-"),
+    (function_name.* == BF_YO_OP_MUL) => _arith_checked_expr(args, expr, context, "*"),
+    (function_name.* == BF_YO_OP_DIV) => _div_checked_expr(args, expr, context, "/"),
+    (function_name.* == BF_YO_OP_MOD) => _mod_op(args, expr, context),
+    (function_name.* == BF_YO_OP_NEG) => _neg_checked_expr(args, expr, context),
+    // Wrapping arithmetic (safe mode Phase 3a-i): modular at the result's
+    // width (see `_wrap_binop`). Never trapped.
+    (function_name.* == BF_YO_OP_ADD_WRAP) => _wrap_binop(args, expr, context, "+"),
+    (function_name.* == BF_YO_OP_SUB_WRAP) => _wrap_binop(args, expr, context, "-"),
+    (function_name.* == BF_YO_OP_MUL_WRAP) => _wrap_binop(args, expr, context, "*"),
+    (function_name.* == BF_YO_OP_EQ) => _binop(args, "=="),
+    (function_name.* == BF_YO_OP_NEQ) => _binop(args, "!="),
+    (function_name.* == BF_YO_OP_LT) => _binop(args, "<"),
+    (function_name.* == BF_YO_OP_LTE) => _binop(args, "<="),
+    (function_name.* == BF_YO_OP_GT) => _binop(args, ">"),
+    (function_name.* == BF_YO_OP_GTE) => _binop(args, ">="),
+    (function_name.* == BF_YO_OP_NOT) => _unop(args, "!"),
+    (function_name.* == BF_YO_OP_BIT_AND) => _binop(args, "&"),
+    (function_name.* == BF_YO_OP_BIT_OR) => _binop(args, "|"),
+    (function_name.* == BF_YO_OP_BIT_XOR) => _binop(args, "^"),
+    (function_name.* == BF_YO_OP_BIT_COMPLEMENT) => _unop_narrowed(args, "~", expr, context),
+    (function_name.* == BF_YO_OP_BIT_LEFT_SHIFT) => _shift_checked_expr(args, expr, context, "<<"),
+    (function_name.* == BF_YO_OP_BIT_RIGHT_SHIFT) => _shift_checked_expr(args, expr, context, ">>"),
+    (function_name.* == BF_YO_NOOP) => String.from(""),
+    (function_name.* == BF_YO_RETURN_SELF) => {
+      out := String.from("(*");
+      out.push_string(_a(args, usize(0)));
+      out.push_str(")");
+      out
+    },
+    ((function_name.* == BF_YO_BORROW_ASSERT_UNBORROWED) && !_borrow_operand_has_flag(expr, context)) => String.from(""),
+    (function_name.* == BF_YO_BORROW_ASSERT_UNBORROWED) => {
+      line := indent.clone();
+      line.push_str("__yo_borrow_assert_unborrowed((void*)(");
+      line.push_string(_a(args, usize(0)));
+      line.push_str("));");
+      context.base.emitter.emit_string_line(&line);
+      String.from("")
+    },
+    ((function_name.* == BF_YO_BORROW_ACQUIRE) && !_borrow_operand_has_flag(expr, context)) => String.from(""),
+    (function_name.* == BF_YO_BORROW_ACQUIRE) => {
+      line := indent.clone();
+      line.push_str("__yo_borrow_acquire((void*)(");
+      line.push_string(_a(args, usize(0)));
+      line.push_str("));");
+      context.base.emitter.emit_string_line(&line);
+      String.from("")
+    },
+    ((function_name.* == BF_YO_BORROW_RELEASE) && !_borrow_operand_has_flag(expr, context)) => String.from(""),
+    (function_name.* == BF_YO_BORROW_RELEASE) => {
+      line := indent.clone();
+      line.push_str("__yo_borrow_release((void*)(");
+      line.push_string(_a(args, usize(0)));
+      line.push_str("));");
+      context.base.emitter.emit_string_line(&line);
+      String.from("")
+    },
+    (function_name.* == BF_YO_MS_SLEEP) => if(is_target_windows(&context.base.target_info), {
+      out := String.from("Sleep(");
+      out.push_string(_a(args, usize(0)));
+      out.push_str(")");
+      out
+    }, {
+      out := String.from("usleep((");
+      out.push_string(_a(args, usize(0)));
+      out.push_str(") * 1000)");
+      out
+    }),
+    (function_name.* == BF_YO_DECR_RC) => {
+      out := String.from("__yo_decr_rc((void*)(");
+      out.push_string(_a(args, usize(0)));
+      out.push_str("))");
+      out
+    },
+    (function_name.* == BF_YO_AS) => match(
+      _as_saturating_expr(args, expr, context),
+      .Some(sat) => sat,
+      .None => {
+        target_c_type := get_type_string(ei_ty(expr, context), &mut context.base);
+        // A fat pointer source (decision 49): to the same fat type it is
+        // itself, and to a thin type it is its address word.
+        src_ty := match(expr, Rc(.FnCall(_, _, Rc(sa), _, _)) => match(sa.get_cloned(usize(0)), .Some(sa0) => match(context.base.get_expr_info(&sa0), .Some(sei) => Option(TypeValue).Some(Rc.clone(sei.ty())), .None => Option(TypeValue).None), .None => Option(TypeValue).None), Rc(.Atom(_, _)) => Option(TypeValue).None);
+        src_fat := match(&src_ty, .Some(st) => fat_address_member(st), .None => Option(String).None);
+        if(src_fat.is_some() && match(&src_ty, .Some(st) => (get_type_string(st, &mut context.base) == target_c_type), .None => false), {
+          return(`(${_a(args, usize(0))})`);
+        });
+        match(
+          src_fat,
+          .Some(fm) => if(fat_address_member(ei_ty(expr, context)).is_none(), {
+            return(`((${target_c_type})(${_a(args, usize(0))}).${fm})`);
+          }),
+          .None => ()
+        );
+        if(_as_source_is_tagged_enum(expr, context), {
+          out := String.from("((");
+          out.push_string(&target_c_type);
+          out.push_str(")((");
+          out.push_string(_a(args, usize(0)));
+          out.push_str(").tag))");
+          out
+        }, {
+          out := String.from("((");
+          out.push_string(&target_c_type);
+          out.push_str(")(");
+          out.push_string(_a(args, usize(0)));
+          out.push_str("))");
+          out
+        })
+      }
+    ),
+    (function_name.* == BF_YO_PTR_ADD) => _ptr_binop(args, "+"),
+    (function_name.* == BF_YO_PTR_SUB) => _ptr_binop(args, "-"),
+    (function_name.* == BF_YO_PTR_DIFF) => _ptr_binop(args, "-"),
+    (function_name.* == BF_YO_PTR_EQ) => _ptr_binop(args, "=="),
+    (function_name.* == BF_YO_PTR_NEQ) => _ptr_binop(args, "!="),
+    (function_name.* == BF_YO_PTR_LT) => _ptr_binop(args, "<"),
+    (function_name.* == BF_YO_PTR_LTE) => _ptr_binop(args, "<="),
+    (function_name.* == BF_YO_PTR_GT) => _ptr_binop(args, ">"),
+    (function_name.* == BF_YO_PTR_GTE) => _ptr_binop(args, ">="),
+    // A bitwise move out of the pointee (Rust's `ptr::read`): no dup, so the
+    // pointee no longer owns the value — its storage must not drop it again.
+    // A `unit` pointee has no storage (`*unit` is a `void*`, and a unit
+    // value emits no C), so the move reads nothing: only the pointer operand
+    // is evaluated.
+    (function_name.* == BF_YO_PTR_READ) => cond(
+      match(context.base.get_expr_info(expr), .Some(rei) => is_unit_type(&rei.ty()), .None => false) => _void_effects(args),
+      true => {
+        out := String.from("(*(");
+        out.push_string(_a(args, usize(0)));
+        out.push_str("))");
+        out
+      }
+    ),
+    // A bitwise move into the pointee (Rust's `ptr::write`): the old value is
+    // not dropped, so it must have been moved out (or never initialized). A
+    // `unit` value writes nothing; both operands are still evaluated.
+    (function_name.* == BF_YO_PTR_WRITE) => cond(
+      _arg_is_unit(expr, usize(1), context) => _void_effects(args),
+      true => {
+        out := String.from("(*(");
+        out.push_string(_a(args, usize(0)));
+        out.push_str(") = (");
+        out.push_string(_a(args, usize(1)));
+        out.push_str("))");
+        out
+      }
+    ),
+    (function_name.* == BF_YO_STR_LEN) => {
+      out := String.from("(");
+      out.push_string(_a(args, usize(0)));
+      out.push_str(".len)");
+      out
+    },
+    (function_name.* == BF_YO_STR_PTR) => {
+      out := String.from("((uint8_t*)");
+      out.push_string(_a(args, usize(0)));
+      out.push_str(".ptr)");
+      out
+    },
+    (function_name.* == BF_YO_STR_BYTE) => {
+      // Safe mode Phase 1: `s.bytes(i)` is bounds-checked against the str's
+      // runtime length (plans/backlog/SAFE_MODE.md §4, closes H2).
+      str_idx := _checked_index_expr(_a(args, usize(1)), `(${_a(args, usize(0))}).len`, expr);
+      out := String.from("(");
+      out.push_string(_a(args, usize(0)));
+      out.push_str(".ptr[");
+      out.push_string(&str_idx);
+      out.push_str("])");
+      out
+    },
+    (function_name.* == BF_YO_STR_FROM_RAW_PARTS) => {
+      out := String.from("(__yo_str){ .ptr = (const uint8_t*)");
+      out.push_string(_a(args, usize(0)));
+      out.push_str(", .len = ");
+      out.push_string(_a(args, usize(1)));
+      out.push_str(" }");
+      out
+    },
+    (function_name.* == BF_YO_GETRANDOM) => {
+      out := String.from("getrandom(");
+      out.push_string(_a(args, usize(0)));
+      out.push_str(", ");
+      out.push_string(_a(args, usize(1)));
+      out.push_str(", ");
+      out.push_string(_a(args, usize(2)));
+      out.push_str(")");
+      out
+    },
+    // BF_YO_ERRNO emits the bare macro: on glibc `errno` is
+    // `(*__errno_location())` — an int LVALUE, not a pointer; `(*errno)`
+    // fails to compile (the PR #122 Linux legs).
+    (function_name.* == BF_YO_ERRNO) => String.from("errno"),
+    (function_name.* == BF_YO_ARC4RANDOM_BUF) => {
+      out := String.from("(arc4random_buf(");
+      out.push_string(_a(args, usize(0)));
+      out.push_str(", ");
+      out.push_string(_a(args, usize(1)));
+      out.push_str("), (void)0)");
+      out
+    },
+    (function_name.* == BF_YO_BCRYPT_GEN_RANDOM) => {
+      out := String.from("(int32_t)BCryptGenRandom(NULL, ");
+      out.push_string(_a(args, usize(0)));
+      out.push_str(", ");
+      out.push_string(_a(args, usize(1)));
+      out.push_str(", BCRYPT_USE_SYSTEM_PREFERRED_RNG)");
+      out
+    },
+    (function_name.* == BF_YO_GETENTROPY) => {
+      out := String.from("getentropy(");
+      out.push_string(_a(args, usize(0)));
+      out.push_str(", ");
+      out.push_string(_a(args, usize(1)));
+      out.push_str(")");
+      out
+    },
+    (function_name.* == BF_YO_MAYBE_UNINIT_NEW) => {
+      self_c_type := get_type_string(ei_ty(expr, context), &mut context.base);
+      uninit_tok := ast_expr_token(expr);
+      uninit_var := stable_label_id(String.from("__yo_uninit_"), &uninit_tok.module_path.*, usize(uninit_tok.row), usize(uninit_tok.column));
+      // Zeroed, not a bare declaration: the value is copied into temporaries
+      // by value right away (`T t = __yo_uninit_…;`), and reading an
+      // indeterminate automatic object is undefined behavior (C11 6.3.2.1p2).
+      // UBSan caught it as `load of value 3 … for type 'bool'` in
+      // `Array(bool, N).default()` (issues/fixed/maybe-uninit-new-copies-an-indeterminate-value.md).
+      // The zeroing is dead whenever every byte is written before a read, and
+      // clang removes it then.
+      //
+      // A `memset`, not a `= {0}` initializer: `{0}` initializes a first
+      // scalar, and a type with none (`Array(T, 0)`, whose one member is
+      // `data[0]`) makes it a C error, "initializer for aggregate with no
+      // elements requires explicit braces"
+      // (issues/fixed/2026-10-16-maybe-uninit-of-a-zero-length-array-emits-an-invalid-initializer.md).
+      line := indent.clone();
+      line.push_string(&self_c_type);
+      line.push_str(" ");
+      line.push_string(uninit_var.clone());
+      line.push_str("; memset(&");
+      line.push_string(uninit_var.clone());
+      line.push_str(", 0, sizeof(");
+      line.push_string(uninit_var.clone());
+      line.push_str("));");
+      context.base.emitter.emit_string_line(&line);
+      uninit_var
+    },
+    (function_name.* == BF_YO_MAYBE_UNINIT_AS_PTR) => {
+      return_c_type := get_type_string(ei_ty(expr, context), &mut context.base);
+      // The pointer is the LAST operand: an alias call site
+      // (`m.as_ptr()`, `is_function_value_with_only_builtin_yo_inline_function_call`)
+      // hands only the caller's receiver, while the builtin called directly
+      // (a wrapper that is not a pass-through alias) hands all three, the
+      // first two being the type arguments `Self` and `BaseType`. Operand 0
+      // printed `Self`'s typedef name there, invalid C
+      // (issues/fixed/2026-11-14-an-inline-builtin-alias-that-derefs-its-reference-parameter-emits-a-type-as-the-operand.md).
+      out := String.from("((");
+      out.push_string(&return_c_type);
+      out.push_str(")(");
+      out.push_string(_a(args, if(args.len() > usize(0), args.len() - usize(1), usize(0))));
+      out.push_str("))");
+      out
+    },
+    (function_name.* == BF_YO_MAYBE_UNINIT_ASSUME_INIT) => {
+      out := String.from("(");
+      out.push_string(_a(args, usize(0)));
+      out.push_str(")");
+      out
+    },
+    (function_name.* == BF_YO_ARRAY_INDEX) => {
+      // Safe mode Phase 1: the fixed-array subscript is bounds-checked; the
+      // first argument's ExprInfo names the concrete Array(T, N) whose N is
+      // the bound (plans/backlog/SAFE_MODE.md §4, closes H1).
+      arr_expr_opt := match(expr, Rc(.FnCall(_, _, Rc(ua), _, _)) => ua.get_cloned(usize(0)), Rc(.Atom(_, _)) => Option(AstExpr).None);
+      arr_idx := match(
+        arr_expr_opt,
+        .Some(ae) => match(
+          context.base.get_expr_info(&ae),
+          .Some(aei) => _checked_fixed_array_subscript(_a(args, usize(1)), &aei.ty(), expr),
+          .None => _a(args, usize(1))
+        ),
+        .None => _a(args, usize(1))
+      );
+      out := String.from("(&((");
+      out.push_string(_a(args, usize(0)));
+      out.push_str(")->data[");
+      out.push_string(&arr_idx);
+      out.push_str("]))");
+      out
+    },
+    true => {
+      out := String.from("/* Unhandled operator ");
+      out.push_string(function_name);
+      out.push_str(" */");
+      out
+    }
+  )
+);
+export(generate_yo_inline_function_call);

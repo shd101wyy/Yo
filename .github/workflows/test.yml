@@ -416,7 +416,7 @@ jobs:
 
   # The release's documentation-website step, rehearsed on every PR.
   #
-  # scripts/build_site.yo is 24.7 KB of Yo that, until this job existed, was
+  # scripts/build-site.yo is 24.7 KB of Yo that, until this job existed, was
   # referenced by exactly ONE place in the repo — release.yml. So it ran for
   # the first time each release, AFTER the version bump had been pushed to
   # develop and the tag created. That is precisely how the first v0.2.10
@@ -427,7 +427,7 @@ jobs:
   # Marketplace publish.
   #
   # The doc-html / doc-json / doc-markdown cli-cases cover the `yo doc`
-  # SUBCOMMAND. They do not cover build_site.yo, which shells out to `yo doc`
+  # SUBCOMMAND. They do not cover build-site.yo, which shells out to `yo doc`
   # and then does its own git metadata, HTML templating and index assembly —
   # all of it release-only until now.
   #
@@ -497,13 +497,13 @@ jobs:
           fi
           # YO_STD: the SEED's BUNDLED std predates the tree's API (the D2/S2
           # renames — `insert`, `read_to_string` — landed 2026-08-25); the
-          # markdown-yo and build_site.yo speak the TREE std, so both
+          # markdown-yo and build-site.yo speak the TREE std, so both
           # the site-builder compile and the `yo doc` runs the site binary
           # spawns must resolve std from the checkout, exactly like the
           # `yo build` bootstrap does.
           VERSION=$(perl -ne 'print $1 if /^CURRENT_YO_VERSION :: "([^"]+)";/' src/version.yo)
           [ -n "$VERSION" ] || { echo "::error::could not read CURRENT_YO_VERSION from src/version.yo"; exit 1; }
-          "$YO_BIN" compile scripts/build_site.yo --optimize 2 -o /tmp/build-site
+          "$YO_BIN" compile scripts/build-site.yo --optimize 2 -o /tmp/build-site
           /tmp/build-site --output yo-out/site --version "v$VERSION" --yo "$YO_BIN"
 
       # A site build that emits nothing exits 0 exactly as happily as one that
@@ -651,7 +651,7 @@ jobs:
         if: matrix.part == 'harness'
         env:
           YO_TEST_LEAK_VERDICT: "0"
-        run: /tmp/yo-stage1 test ./tests/internal/verifier_negative.test.yo --bail -v
+        run: /tmp/yo-stage1 test ./tests/internal/verifier-negative.test.yo --bail -v
 
       # V6 task 5 (plans/backlog/FORMAL_VERIFICATION.md): the `assumed()`
       # marker — contracts gate callers, subset-external bodies are not
@@ -660,7 +660,7 @@ jobs:
         if: matrix.part == 'harness'
         env:
           YO_TEST_LEAK_VERDICT: "0"
-        run: /tmp/yo-stage1 test ./tests/internal/verifier_assumed.test.yo --bail -v
+        run: /tmp/yo-stage1 test ./tests/internal/verifier-assumed.test.yo --bail -v
 
       # V6 task 3 slice 1 (plans/backlog/FORMAL_VERIFICATION.md §7): the
       # refine(T, p) refinement annotations — modular VCs (callee assumes,
@@ -669,7 +669,7 @@ jobs:
         if: matrix.part == 'harness'
         env:
           YO_TEST_LEAK_VERDICT: "0"
-        run: /tmp/yo-stage1 test ./tests/internal/verifier_refine.test.yo --bail -v
+        run: /tmp/yo-stage1 test ./tests/internal/verifier-refine.test.yo --bail -v
 
       # The ArrayList list model (R1 slice 1 of ATS_STYLE_INDEXED_TYPES.md):
       # len/is_empty/index reads over a runtime collection, modular length
@@ -678,7 +678,7 @@ jobs:
         if: matrix.part == 'list-model'
         env:
           YO_TEST_LEAK_VERDICT: "0"
-        run: /tmp/yo-stage1 test ./tests/internal/verifier_list_len.test.yo --bail -v
+        run: /tmp/yo-stage1 test ./tests/internal/verifier-list-len.test.yo --bail -v
 
       - name: yo verify harness report (JSON)
         if: matrix.part == 'harness'
@@ -710,7 +710,7 @@ jobs:
           # pipefail: without it the step's status is tee's, and a failing
           # verify goes green (the default `bash -e` has no pipefail).
           set -o pipefail
-          yo verify ./tests/spec/verify_straight_line.test.yo --format json | tee verify-battery.json
+          yo verify ./tests/spec/verify-straight-line.test.yo --format json | tee verify-battery.json
 
       # B0 (plans/backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md §A1): `--strict`
       # makes `assumed`, `outside-subset` and `unproven` hard failures, so a
@@ -723,7 +723,7 @@ jobs:
       # purpose: dogfooding uses `assumed()`.
       - name: yo verify --strict (the laws gate)
         if: matrix.part == 'harness'
-        run: yo verify ./tests/spec/verify_straight_line.test.yo --strict
+        run: yo verify ./tests/spec/verify-straight-line.test.yo --strict
 
       - name: Upload the verify report
         if: always() && matrix.part == 'harness'
@@ -982,7 +982,7 @@ jobs:
       # builds to different output paths (the emitted .c is named after -o), so
       # it is path noise, not a route difference.
       # `--std-path ./std` stays load-bearing and IS forwarded to the child
-      # compile (build_runner.yo:426-432).
+      # compile (build-runner.yo:426-432).
       # WHY THE SELF-BUILD IS LINUX-ONLY (settled 2026-08-15, run 31856743929).
       # The self-build peaks above 15 GB: on ubuntu-latest it climbed to
       # 15,541 MB of 15,988 and sat at ~300 MB free for four minutes before its
@@ -1234,7 +1234,7 @@ jobs:
       # contains REGRESSION TESTS for compiler bugs, so the seed fails it by
       # construction on every test newer than the seed (run 31861036285 died
       # on "standalone await as the async body's own result",
-      # tests/async_await.test.yo:3974 — a fix the seed does not have). Any
+      # tests/async-await.test.yo:3974 — a fix the seed does not have). Any
       # allowlist would need editing on every compiler fix and would invert
       # the meaning of the suite. The four macOS/Windows targets run this
       # same invocation in `test-native` below, under the cross-emitted
@@ -1457,7 +1457,7 @@ jobs:
         run: chmod +x yo-candidate
 
       # chunked_gate.sh runs `compile src/main.yo` four times, and
-      # src/doc/render_html.yo — in that closure — imports the `markdown-yo`
+      # src/doc/render-html.yo — in that closure — imports the `markdown-yo`
       # DEPENDENCY. `compile` resolves import roots but never fetches, so the
       # store has to be populated first. See install-deps' own comment.
       - name: Fetch the project's Yo dependencies
@@ -1776,7 +1776,7 @@ jobs:
             # under the default allocator, where its fault checks are inert.
             # Its children judge their own leaks whatever
             # YO_TEST_LEAK_VERDICT says (plans/backlog/ZIG_ADOPTION_CANDIDATES.md Z11).
-            "$YO" test ./tests/debug_allocator.test.yo --allocator debug --bail --verbose --c-compiler clang $TEST_SAN_FLAG
+            "$YO" test ./tests/debug-allocator.test.yo --allocator debug --bail --verbose --c-compiler clang $TEST_SAN_FLAG
           fi
 
       # The suite compiler above is a system-allocator build, like the shipped
@@ -1799,7 +1799,7 @@ jobs:
           # builds and runs on the vendored mimalloc. ASan coverage is "Run
           # tests"' job, and ASan + static mimalloc on windows-x64 has never
           # been exercised (a second malloc interposer under ASan's).
-          ./yo-suite.exe test ./tests/collections/hash_map.test.yo --allocator mimalloc --bail --verbose --c-compiler clang --disable-sanitize
+          ./yo-suite.exe test ./tests/collections/hash-map.test.yo --allocator mimalloc --bail --verbose --c-compiler clang --disable-sanitize
 
   # Stage 1 built ONCE per battery and shared. Before this job, five Linux jobs
   # (bootstrap-fixpoint, bootstrap-self-test, compiler-internal-tests-selfhosted,
@@ -1940,7 +1940,7 @@ jobs:
         run: |
           chmod +x yo-stage1
           mv yo-stage1 /tmp/yo-stage1
-      # G-E's totality audit checks ./src, and src/doc/render_html.yo imports
+      # G-E's totality audit checks ./src, and src/doc/render-html.yo imports
       # the `markdown-yo` DEPENDENCY: `check` resolves import roots but never
       # fetches, so without the store every file in that closure failed
       # (`./src: rc=1`, battery 43142204182) and went unaudited.
@@ -1994,8 +1994,8 @@ jobs:
           YO_TEST_LEAK_VERDICT: "0"
         run: |
           set -e
-          for p in tests/async_await.test.yo tests/async tests/io tests/net tests/sys \
-                   tests/thread.test.yo tests/cross_thread_wake.test.yo tests/spawn_blocking.test.yo; do
+          for p in tests/async-await.test.yo tests/async tests/io tests/net tests/sys \
+                   tests/thread.test.yo tests/cross-thread-wake.test.yo tests/spawn-blocking.test.yo; do
             echo "::group::$p"
             /tmp/yo-stage1 test "$p" --parallel 1 --bail
             echo "::endgroup::"
@@ -2437,7 +2437,7 @@ jobs:
   # RECORDED GOLDENS — the TS reference arm it used to diff against is gone with
   # src/), `<bin> check ./std`, `<bin> check ./src` (GATE 4
   # — the compiler type-checking ITSELF; ~137 s, and the only gate that covers
-  # build_runner.yo / version_cache.yo, which sit outside main.yo's import
+  # build-runner.yo / version-cache.yo, which sit outside main.yo's import
   # closure and were type-checked by NOTHING). The script exits non-zero if any
   # of those fail.
   #
@@ -3055,7 +3055,7 @@ jobs:
       # P2.5 step 22: this leg now drives the SELF-HOSTED compiler. Until now it
       # ran `node out/cjs/yo-cli.cjs`, so its green measured src/, not src/
       # — it could not have caught a fault in the wasm backend, which is exactly
-      # what the runtime_io_wasm.yo port needed proving.
+      # what the runtime-io-wasm.yo port needed proving.
       #
       # Node stays: `emcc` is itself a node program, so this leg can never be
       # node-free. What changes is only WHICH Yo compiler drives it. Bun and the
@@ -3193,7 +3193,7 @@ jobs:
       # P2.5 step 22: this leg now drives the SELF-HOSTED compiler. Until now it
       # ran `node out/cjs/yo-cli.cjs`, so its green measured src/, not src/
       # — it could not have caught a fault in the wasm backend, which is exactly
-      # what the runtime_io_wasm.yo port needed proving.
+      # what the runtime-io-wasm.yo port needed proving.
       #
       # Node stays: `emcc` is itself a node program, so this leg can never be
       # node-free. What changes is only WHICH Yo compiler drives it. Bun and the

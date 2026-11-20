@@ -1241,7 +1241,7 @@ std 原先的 `ref` 类型展示了方法的形态，每个方法只有一种形
 引用计数决定对象何时释放，显式分配器决定它放在哪里。不带分配器参数的创建使用全局分配器；放置是创建处的一个参数：`Box.new`、`Rc.new`、`Arc.new` 以及容器的 `new` / `with_capacity` 都用 `alloc : .Some(a)`：
 
 ```yo
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 Point :: struct(x : i32, y : i32);
 
 // `a` 是任意 `Allocator` 值，例如 `Allocator.global()`。
@@ -2728,7 +2728,7 @@ s3 := (s + s2); // 创建一个新字符串。
 ```yo
 { String } :: import("std/string");
 { println } :: import("std/fmt");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 
 // `&mut T` 参数传入的是调用方的变量本身。
 append_mut :: (fn(out : &mut String) -> unit)({
@@ -2864,7 +2864,7 @@ Yo 在标准库中提供了高效的、唯一所有的集合类型。
 支持自动扩容的动态数组。
 
 ```yo
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 
 // 创建新的 ArrayList
 mut(list) := ArrayList(i32).new();
@@ -2909,7 +2909,7 @@ list.shrink_to_fit();
 键值对哈希映射。
 
 ```yo
-{ HashMap } :: import("std/collections/hash_map");
+{ HashMap } :: import("std/collections/hash-map");
 
 // 创建新的 HashMap
 mut(map) := HashMap(i32, i32).new();
@@ -2964,7 +2964,7 @@ map.clear();
 用于唯一值的哈希集合。
 
 ```yo
-{ HashSet } :: import("std/collections/hash_set");
+{ HashSet } :: import("std/collections/hash-set");
 
 // 创建新的 HashSet
 mut(set) := HashSet(i32).new();
@@ -4142,9 +4142,9 @@ test_module :: import("./test.yo"); // 从 test.yo 导入所有内容并放入 T
 每个导入的名字都是一个绑定，所以"禁止变量遮蔽"的规则同样适用于导入：同一个名字绑定两次是错误（`Failed to define variable "ArrayList"` … `variable shadowing is not allowed`），无论是两行都写了这个名字，还是 `{ ... }` 通配导入已经引入了它。同一路径写多行导入没有问题，只要每行绑定的名字不同；同一个名字也可以换个新名字再导入一次：
 
 ```yo
-{ ArrayList } :: import("std/collections/array_list");
-{ ArrayListIter } :: import("std/collections/array_list"); // 可以：名字不同
-{ ArrayList : List } :: import("std/collections/array_list"); // 可以：绑定为新名字
+{ ArrayList } :: import("std/collections/array-list");
+{ ArrayListIter } :: import("std/collections/array-list"); // 可以：名字不同
+{ ArrayList : List } :: import("std/collections/array-list"); // 可以：绑定为新名字
 xs := List(i32).new();
 ```
 
@@ -4399,7 +4399,7 @@ Yo 测试文件通常使用 `.test.yo` 扩展名：
 - `basic.test.yo` — 基本语言特性
 - `array.test.yo` — 数组操作
 - `closure.test.yo` — 闭包功能
-- `async_await.test.yo` — 异步/等待特性
+- `async-await.test.yo` — 异步/等待特性
 - `collections/*.test.yo` — 集合类型
 
 完整的测试示例请参阅 [tests/](../tests/) 目录。

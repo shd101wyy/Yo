@@ -1,0 +1,58 @@
+//! Regression: `sizeof(T)` inside a specialized generic body (ArrayList.push's
+//! grow) must not fold to 0 when T is a RECURSIVE enum — the recursive `Self`
+//! reference is a value-copied SHELL (empty variant fields) under yo-self's
+//! value semantics, and the unresolved shell walked to size 0, so push
+//! allocated `0 * new_capacity` bytes and corrupted the heap (SIGTRAP/SIGSEGV
+//! in a later malloc). Shells must resolve to their registered finals in
+//! get_size_of_type/get_alignment_of_type.
+//! See issues/fixed/yo-self-recursive-enum-sizeof-zero.md.
+pragma(Pragma.AllowUnsafe);
+import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
+
+MyExpr :: enum(
+  Lit(value : i32),
+  Add(lhs : Rc(Self), rhs : Rc(Self)),
+  List(items : ArrayList(Self))
+);
+derive(MyExpr, Clone);
+
+eval :: (fn(e : *MyExpr) -> i32)({
+  return(
+    match(
+      &e.*,
+      .Lit(v) => v.*,
+      .Add(l, r) => {
+        lv := recur(addr_of(l.*.*));
+        rv := recur(addr_of(r.*.*));
+        lv + rv
+      },
+      .List(items) => {
+        mut(sum) := i32(0);
+        mut(i) := usize(0);
+        while(i < items.len(), i = (i + usize(1)), {
+          match(
+            items.get_cloned(i),
+            .Some(it) => {
+              sum = (sum + recur(addr_of(it)));
+            },
+            .None => ()
+          );
+        });
+        sum
+      }
+    )
+  );
+});
+
+main :: (fn() -> unit)({
+  mut(items) := ArrayList(MyExpr).new();
+  items.push(MyExpr.Lit(i32(10)));
+  items.push(MyExpr.Lit(i32(20)));
+  items.push(MyExpr.Add(Rc.new(MyExpr.Lit(i32(3))), Rc.new(MyExpr.Lit(i32(4)))));
+  e := MyExpr.List(items);
+  v := eval(addr_of(e));
+  println(`v=${v.to_string()}`);
+});
+export(main);

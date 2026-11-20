@@ -1,0 +1,431 @@
+//! Pins the vendored io_uring ring layer in the emitted Linux async runtime
+//! (plans/reference/DROP_LIBURING.md Phase 1).
+//!
+//! The Linux runtime stopped depending on liburing: the ring layer
+//! (setup/mmap, get_sqe, submit/enter, CQ peek/wait — the ~10 symbols that
+//! used to be linked from liburing.so) is emitted inline under the
+//! `__yo_uring_*` namespace, and the `#if __has_include(<liburing.h>)` /
+//! `#else`-stubs split is gone entirely — async I/O is always compiled on
+//! Linux. These pins hold that state: the vendored layer is present, the
+//! liburing surface is absent, and the common runtime's Linux timer arms
+//! through the vendored ring instead of the old `__YO_HAS_LIBURING` guard.
+//! The port of `tests/internal/gc-runtime-atomics.test.yo`'s technique: call
+//! the emitter functions directly and pin the emitted C text.
+{ String } :: import("std/string");
+{ Emitter } :: import("../../src/emitter.yo");
+{ generate_async_runtime_io_linux, generate_platform_sys_runtime_linux } :: import("../../src/codegen/async/runtime-io-linux.yo");
+{ generate_async_runtime_io_macos, generate_platform_sys_runtime_macos } :: import("../../src/codegen/async/runtime-io-macos.yo");
+{ generate_async_runtime_io_windows, generate_platform_sys_runtime_windows } :: import("../../src/codegen/async/runtime-io-windows.yo");
+{ generate_async_runtime_io_common, generate_sys_runtime } :: import("../../src/codegen/async/runtime-io-common.yo");
+{ generate_async_runtime_io_wasm, generate_platform_sys_runtime_wasm } :: import("../../src/codegen/async/runtime-io-wasm.yo");
+{ parse_target, host_target, is_target_linux, is_target_macos, is_target_wasm, is_target_windows } :: import("../../src/target.yo");
+{ assert, panic } :: import("std/assert");
+/// The emitted Linux platform runtime (sync helpers + the async section that
+/// carries the vendored ring layer).
+emit_linux_runtime :: (fn() -> String)({
+  mut(em) := Emitter.new();
+  generate_platform_sys_runtime_linux(&mut em);
+  generate_async_runtime_io_linux(&mut em);
+  em.print()
+});
+/// The shared common runtime as emitted for a Linux target (the section the
+/// Linux timer lives in).
+emit_linux_common :: (fn() -> String)({
+  mut(em) := Emitter.new();
+  t := match(
+    parse_target(String.from("x86_64-unknown-linux-gnu")),
+    .Ok(t) => t,
+    .Err(_) => host_target()
+  );
+  assert(is_target_linux(&t), String.from("linux triple failed to parse as linux"));
+  generate_async_runtime_io_common(&mut em, &t);
+  em.print()
+});
+/// The macOS runtime, for the negative pin: the vendored layer must stay a
+/// Linux-only emission.
+emit_macos_runtime :: (fn() -> String)({
+  mut(em) := Emitter.new();
+  generate_async_runtime_io_macos(&mut em);
+  em.print()
+});
+/// The macOS platform sync helpers (dup2 and the close hook live there).
+emit_macos_sys_runtime :: (fn() -> String)({
+  mut(em) := Emitter.new();
+  generate_platform_sys_runtime_macos(&mut em);
+  em.print()
+});
+/// The shared common runtime as emitted for a macOS target (its sleep,
+/// fs-event and poll-handle sections).
+emit_macos_common :: (fn() -> String)({
+  mut(em) := Emitter.new();
+  t := match(
+    parse_target(String.from("aarch64-apple-darwin")),
+    .Ok(t) => t,
+    .Err(_) => host_target()
+  );
+  assert(is_target_macos(&t), String.from("darwin triple failed to parse as macos"));
+  generate_async_runtime_io_common(&mut em, &t);
+  em.print()
+});
+test("linux runtime: the vendored ring layer is emitted", {
+  c := emit_linux_runtime();
+  assert(c.contains(String.from("__yo_uring_queue_init(&__yo_io_ring, __YO_IO_RING_ENTRIES, &params)")), String.from("ring init call missing"));
+  assert(c.contains(String.from("__yo_uring_get_sqe(&__yo_io_ring)")), String.from("get_sqe missing"));
+  assert(c.contains(String.from("__YO_IORING_ENTER_GETEVENTS")), String.from("GETEVENTS enter missing"));
+  assert(c.contains(String.from("_Static_assert(sizeof(struct __yo_uring_sqe) == 64")), String.from("SQE layout assert missing"));
+  assert(c.contains(String.from("syscall(__NR_io_uring_setup, entries, p)")), String.from("setup syscall missing"));
+  assert(c.contains(String.from("__yo_uring_prep_cancel")), String.from("cancel prep missing"));
+});
+test("linux runtime: no liburing surface remains", {
+  c := emit_linux_runtime();
+  assert(!c.contains(String.from("#include <liburing.h>")), String.from("liburing.h include leaked back"));
+  assert(!c.contains(String.from("__has_include")), String.from("__has_include guard leaked back"));
+  assert(!c.contains(String.from("__YO_HAS_LIBURING")), String.from("__YO_HAS_LIBURING leaked back"));
+  assert(!c.contains(String.from("io_uring_queue_init_params")), String.from("unprefixed io_uring_queue_init_params"));
+  assert(!c.contains(String.from("io_uring_get_sqe(")), String.from("unprefixed io_uring_get_sqe call"));
+  assert(!c.contains(String.from("io_uring_submit(")), String.from("unprefixed io_uring_submit call"));
+  assert(!c.contains(String.from("not supported without liburing")), String.from("stub-arm abort text leaked back"));
+  assert(!c.contains(String.from("io_uring_queue_exit")), String.from("unprefixed io_uring_queue_exit"));
+});
+test("linux runtime: the DEFER_TASKRUN probe is the plain GETEVENTS enter", {
+  c := emit_linux_runtime();
+  assert(c.contains(String.from("(void)__yo_uring_getevents(&__yo_io_ring);")), String.from("zero-timeout probe not replaced by getevents"));
+  assert(!c.contains(String.from("__kernel_timespec")), String.from("timeout probe leftover"));
+  // Queued SQEs ride the probe's enter (issues/fixed/io-uring-poll-submits-and-reaps-in-two-enters.md).
+  assert(c.contains(String.from("ret = __yo_uring_submit_and_wait(&__yo_io_ring, 0);")), String.from("poll no longer submits and reaps in one enter"));
+});
+test("common runtime: the Linux timer is a heap node on either backend, unguarded", {
+  c := emit_linux_common();
+  assert(c.contains(String.from("__yo_async_sleep_start")), String.from("sleep symbol missing"));
+  // A sleep arms the runtime's timer heap on both backends: no IORING_OP_TIMEOUT
+  // per sleep, no timerfd (plans/reference/LINUX_ASYNC_IO_PERFORMANCE.md).
+  assert(c.contains(String.from("__yo_timer_arm(future, milliseconds);")), String.from("sleep does not arm the timer heap"));
+  assert(!c.contains(String.from("timerfd_create")), String.from("the timerfd sleep is back"));
+  assert(!c.contains(String.from("__yo_uring_prep_timeout(sqe, &timer_future->ts);")), String.from("a per-sleep ring timeout is back"));
+  assert(!c.contains(String.from("__yo_uring_prep_read(sqe, tfd")), String.from("timerfd read prep is back"));
+  assert(!c.contains(String.from("__YO_HAS_LIBURING")), String.from("timer feature guard leaked back"));
+  assert(!c.contains(String.from("No liburing: same symbol")), String.from("timer -ENOSYS stub arm leaked back"));
+});
+test("linux runtime: the ring's blocking wait carries the earliest timer deadline", {
+  c := emit_linux_runtime();
+  assert(c.contains(String.from("__YO_IORING_ENTER_EXT_ARG")), String.from("EXT_ARG wait missing"));
+  assert(c.contains(String.from("__yo_ring_arm_wait_timeout(timeout_ns);")), String.from("pre-5.11 timeout fallback missing"));
+  // One enter per wakeup: the wait's completions are reaped from the ring, not
+  // by a second polling enter.
+  assert(c.contains(String.from("return __yo_ring_reap();")), String.from("wait no longer reaps directly"));
+  assert(!c.contains(String.from("return 1 + __yo_io_poll();")), String.from("the second enter after a wait is back"));
+});
+test("linux runtime: a full SQ is flushed, not reported as EAGAIN", {
+  c := emit_linux_runtime();
+  assert(c.contains(String.from("static struct __yo_uring_sqe* __yo_io_get_sqe(void) {")), String.from("SQE reservation helper missing"));
+  assert(c.contains(String.from("  __yo_io_flush_sq();\n  return __yo_uring_get_sqe(&__yo_io_ring);")), String.from("full-SQ flush and retry missing"));
+});
+test("linux runtime: what the kernel always punts to io-wq runs inline", {
+  c := emit_linux_runtime();
+  assert(c.contains(String.from("return __yo_inline_statx_start(dirfd, path, flags, mask, statxbuf);")), String.from("statx is not inline"));
+  assert(!c.contains(String.from("__YO_IORING_OP_STATX")), String.from("a ring statx is back"));
+  assert(c.contains(String.from("__yo_pwrite_nowait(fd, buffer, size, offset)")), String.from("nowait write attempt missing"));
+  assert(c.contains(String.from("recv(sockfd, buf, len, flags | MSG_DONTWAIT)")), String.from("inline recv attempt missing"));
+  assert(c.contains(String.from("SOCK_NONBLOCK);\n  __yo_uring_sqe_set_data(sqe, future);")), String.from("accept does not ask for a nonblocking socket"));
+});
+test("linux runtime: watched descriptors can end a blocked wait", {
+  c := emit_linux_runtime();
+  assert(c.contains(String.from("__yo_uring_prep_poll_add(sqe, __yo_watch_epfd, POLLIN);")), String.from("watch-set POLL_ADD missing"));
+  assert(c.contains(String.from("static int32_t __yo_io_watch_set(int32_t fd, uint32_t events) {")), String.from("watch-set API missing"));
+});
+test("macos runtime: the vendored ring layer is not emitted", {
+  c := emit_macos_runtime();
+  assert(!c.contains(String.from("__yo_uring_queue_init")), String.from("ring layer leaked into the macOS runtime"));
+});
+test("linux runtime: the epoll fallback backend and the selection ladder are emitted", {
+  c := emit_linux_runtime();
+  assert(c.contains(String.from("epoll_create1(EPOLL_CLOEXEC)")), String.from("epoll init missing"));
+  assert(c.contains(String.from("__YO_BACKEND_EPOLL")), String.from("backend enum missing"));
+  assert(c.contains(String.from("__yo_epoll_park")), String.from("pending-op machine missing"));
+  // One kernel interest per fd, shared by its read and write registrations
+  // (issues/fixed/epoll-fallback-hangs-when-one-fd-has-a-parked-reader-and-writer.md),
+  // one-shot and re-armed with one MOD per park
+  // (plans/reference/LINUX_ASYNC_IO_PERFORMANCE.md).
+  assert(c.contains(String.from("uint32_t mask = (slot->dir[0] ? EPOLLIN : 0u) | (slot->dir[1] ? EPOLLOUT : 0u);")), String.from("per-fd interest union missing"));
+  assert(c.contains(String.from("ev.events = mask | EPOLLONESHOT;")), String.from("one-shot interest missing"));
+  assert(c.contains(String.from("YO_IO_BACKEND")), String.from("env override missing"));
+  assert(c.contains(String.from("async I/O running on the epoll fallback")), String.from("fallback log line missing"));
+  assert(c.contains(String.from("__YO_BACKEND_DEGRADED")), String.from("degraded rung missing"));
+});
+test("linux runtime: every ring op start carries the backend dispatch", {
+  c := emit_linux_runtime();
+  assert(c.contains(String.from("return __yo_epoll_read_start(fd, buffer, size, offset);")), String.from("read dispatch missing"));
+  assert(c.contains(String.from("return __yo_epoll_accept_start(sockfd, addr, addrlen);")), String.from("accept dispatch missing"));
+  assert(c.contains(String.from("return __yo_epoll_sendto_park(sockfd, buf, len, flags, dest_addr, addrlen, future);")), String.from("sendto dispatch missing"));
+  assert(c.contains(String.from("return __yo_io_done_future(-__yo_backend_errno);")), String.from("degraded dispatch missing"));
+});
+test("macos runtime: the epoll backend is not emitted", {
+  c := emit_macos_runtime();
+  assert(!c.contains(String.from("__yo_epoll")), String.from("epoll backend leaked into the macOS runtime"));
+});
+// The Windows sys runtime is emitted for EVERY program, the async section only
+// for async ones. A direct call from the former into the latter links only when
+// both are present: #974's __yo_file_close called __yo_win_unassociate_handle
+// directly, and every non-async Windows program (hello-world) failed to link
+// (issues/fixed/windows-non-async-programs-fail-to-link-on-an-async-only-symbol.md).
+// The close path goes through a hook the async init installs.
+test("windows sys runtime: the close path reaches the async section only through its hook", {
+  mut(em) := Emitter.new();
+  generate_platform_sys_runtime_windows(&mut em);
+  c := em.print();
+  assert(!c.contains(String.from("__yo_win_unassociate_handle(fd);")), String.from("sys runtime calls an async-section function directly"));
+  assert(c.contains(String.from("if (__yo_win_close_hook) __yo_win_close_hook(fd);")), String.from("close hook call missing"));
+});
+// An AF_UNIX listener (or one AcceptEx cannot serve) used to call a blocking
+// accept() on the event-loop thread, which deadlocked a spawned server whose
+// client was on the same loop
+// (issues/fixed/2026-10-14-windows-af-unix-accept-blocks-the-event-loop.md).
+// The accept start must hand that case to a pool worker, the op must be
+// cancellable, and the backend teardown must abort a task parked on one.
+test("windows runtime: an accept AcceptEx cannot serve runs on a pool worker, never on the loop", {
+  mut(wem) := Emitter.new();
+  generate_async_runtime_io_windows(&mut wem);
+  c := wem.print();
+  start := c.index_of(String.from("static __yo_io_future_t* __yo_async_accept_start(")).unwrap_or(usize(0));
+  end := c.index_of(String.from("static __yo_io_future_t* __yo_async_connect_start(")).unwrap_or(usize(0));
+  assert((start != usize(0)) && (start < end), String.from("the accept start is not emitted before the connect start"));
+  body := c.substring(start, end);
+  assert(!body.contains(String.from("= accept(")), String.from("the accept start still calls a blocking accept() on the loop thread"));
+  assert(body.contains(String.from("return __yo_win_blocking_accept_start(future, ls, addr, addrlen);")), String.from("the non-AcceptEx accept is not handed to the worker path"));
+  assert(c.contains(String.from("TrySubmitThreadpoolCallback(__yo_win_blocking_accept_work, ov, NULL)")), String.from("the blocking accept is not submitted to a pool worker"));
+  assert(c.contains(String.from("future->cancel_fn = __yo_win_blocking_accept_cancel;")), String.from("a worker accept has no cancel path"));
+  assert(c.contains(String.from("__yo_win_pipe_writes_inflight == 0 && __yo_win_blocking_accepts_inflight == 0")), String.from("the cleanup closes the port under a worker that will still post to it"));
+});
+test("macos runtime: a parked op is cancellable, FIFO-safe and found by (ident, filter)", {
+  // issues/fixed/macos-an-aborted-tasks-parked-recv-keeps-its-place-and-takes-the-next-bytes.md,
+  // issues/fixed/macos-an-inline-recv-overtakes-a-parked-recv.md
+  c := emit_macos_runtime();
+  assert(c.contains(String.from("future->cancel_fn = __yo_kq_cancel;")), String.from("parked ops have no cancel path"));
+  assert(c.contains(String.from("static _Thread_local __yo_kq_slot_t* __yo_kq_slots")), String.from("per-fd slot table missing"));
+  assert(c.contains(String.from("if (!__yo_kq_dir_busy(sockfd, 1)) {")), String.from("inline send does not queue behind a parked send"));
+  assert(c.contains(String.from("EV_ADD | EV_ENABLE | EV_DISPATCH")), String.from("registrations are not dispatch knotes re-enabled per park"));
+  assert(!c.contains(String.from("EV_ONESHOT, 0, 0")), String.from("a one-shot knote came back"));
+});
+test("macos runtime: sleeps are a heap, the wait carries the next deadline, an empty poll skips the kernel", {
+  c := emit_macos_runtime();
+  assert(c.contains(String.from("static void __yo_timer_arm(__yo_io_future_t* future, uint64_t milliseconds)")), String.from("timer heap missing"));
+  assert(c.contains(String.from("uint64_t due = __yo_watch_next_due_ns();")), String.from("the wait is not bounded by the next deadline"));
+  assert(!c.contains(String.from("100 * 1000 * 1000")), String.from("the fixed 100 ms wait came back"));
+  assert(!c.contains(String.from("nanosleep(&")), String.from("the watch-only 10 ms sleep came back"));
+  assert(c.contains(String.from("int r = select(__yo_io_kq + 1, &rs, NULL, NULL, &tv);")), String.from("the non-blocking poll does not probe before scanning"));
+  assert(c.contains(String.from("bool next_step_waits = ")), String.from("a poll before a blocking step still enters the kernel"));
+  assert(c.contains(String.from("if (__yo_kq_hot && span > __YO_KQ_HOT_WAIT_NS) span = __YO_KQ_HOT_WAIT_NS;")), String.from("the hot-wait bound is gone"));
+  assert(c.contains(String.from("uint64_t now = (due != UINT64_MAX || !__yo_kq_hot) ? __yo_mono_ns() : 0;")), String.from("a hot wait with no deadline reads the clock again"));
+});
+test("macos sys runtime: dup2 closes through the backend's per-thread hook", {
+  // issues/fixed/macos-dup2-over-a-descriptor-with-a-parked-op-hangs-the-op.md
+  c := emit_macos_sys_runtime();
+  assert(c.contains(String.from("static _Thread_local void (*__yo_kq_close_hook)(int32_t) = NULL;")), String.from("close hook is not per-thread"));
+  assert(c.contains(String.from("if (oldfd != newfd && __yo_kq_close_hook) __yo_kq_close_hook(newfd);")), String.from("dup2 bypasses the close hook"));
+});
+test("common runtime (macos): sleep arms the heap; watches use the watch kqueue", {
+  // issues/fixed/macos-fs-watch-rescans-its-directory-on-every-loop-pass.md
+  c := emit_macos_common();
+  assert(c.contains(String.from("__yo_timer_arm(future, milliseconds);")), String.from("the macOS sleep does not arm the heap"));
+  assert(!c.contains(String.from("EVFILT_TIMER, EV_ADD")), String.from("a per-sleep EVFILT_TIMER came back"));
+  assert(c.contains(String.from("int32_t rc = __yo_io_watch_vnode(handle->fd, __yo_fs_vnode_fflags);")), String.from("fs events are not in the watch kqueue"));
+  assert(!c.contains(String.from("handle->watch_fd = kqueue();")), String.from("a private kqueue per watch came back"));
+  assert(c.contains(String.from("if (ph->active && (ph->ready || ph->unpollable)) {")), String.from("the tick polls every poll handle again"));
+});
+test("every backend arms the thread-exit hook at init; the macOS cleanup frees its tables", {
+  // issues/fixed/a-loop-driven-only-by-synchronous-awaits-never-releases-its-io-backend.md
+  arm := String.from("if (__yo_io_initialized) return;\n  // This thread now has backend state to release when it exits.\n  __yo_async_arm_thread_exit();");
+  assert(emit_macos_runtime().contains(arm.clone()), String.from("the macOS init does not arm the thread-exit hook"));
+  assert(emit_linux_runtime().contains(arm.clone()), String.from("the Linux init does not arm the thread-exit hook"));
+  mut(wem) := Emitter.new();
+  generate_async_runtime_io_windows(&mut wem);
+  assert(wem.print().contains(&arm), String.from("the Windows init does not arm the thread-exit hook"));
+  m := emit_macos_runtime();
+  assert(m.contains(String.from("__yo_free(__yo_kq_slots);")), String.from("the macOS cleanup keeps its slot table"));
+  assert(m.contains(String.from("__yo_io_registration_free_list = r->next_free;\n    __yo_free(r);")), String.from("the macOS cleanup keeps its registration pool"));
+  assert(m.contains(String.from("__yo_kq_close_hook = NULL;")), String.from("the macOS cleanup leaves its close hook installed"));
+});
+test("the stream-write op: write(2) on macOS, send(MSG_NOSIGNAL) on Linux", {
+  // std/net's own sockets (non-blocking, SO_NOSIGPIPE on Apple) take the
+  // cheaper write(2) entry point; plans/reference/MACOS_ASYNC_IO_PERFORMANCE.md.
+  m := emit_macos_runtime();
+  assert(m.contains(String.from("static __yo_io_future_t* __yo_async_stream_write_start(int32_t sockfd, const void* buf, size_t len) {")), String.from("the macOS stream-write op is missing"));
+  assert(m.contains(String.from("    ssize_t r = write(sockfd, buf, (size_t)size);")), String.from("the macOS stream write does not use write(2)"));
+  assert(m.contains(String.from("__yo_kq_park_or_fail(__YO_IO_OP_WRITE, future, sockfd, EVFILT_WRITE);")), String.from("a would-block stream write does not park as a WRITE"));
+  l := emit_linux_runtime();
+  assert(l.contains(String.from("  return __yo_async_send_start(sockfd, buf, len, MSG_NOSIGNAL);")), String.from("the Linux stream write lost its MSG_NOSIGNAL"));
+});
+test("the read_dir stream list is per-thread on wasm and on macOS", {
+  // issues/fixed/emscripten-concurrent-directory-iteration-intermittently-faults.md
+  decl := String.from("static _Thread_local __yo_getdents_stream_t* __yo_getdents_streams = NULL;");
+  mut(wem) := Emitter.new();
+  wt := match(parse_target(String.from("wasm32-unknown-emscripten")), .Ok(t) => t, .Err(_) => host_target());
+  generate_async_runtime_io_wasm(&mut wem, &wt);
+  assert(wem.print().contains(decl.clone()), String.from("the wasm read_dir stream list is shared by every thread"));
+  mut(mem) := Emitter.new();
+  mt := match(parse_target(String.from("aarch64-apple-darwin")), .Ok(t) => t, .Err(_) => host_target());
+  assert(is_target_macos(&mt), String.from("macos triple failed to parse as macos"));
+  generate_async_runtime_io_common(&mut mem, &mt);
+  assert(mem.print().contains(&decl), String.from("the macOS read_dir stream list is shared by every thread"));
+});
+/// The sys runtime as dispatched for a Linux target: the shared POSIX helper
+/// block plus the Linux platform sys-runtime.
+emit_sys_runtime_linux :: (fn() -> String)({
+  mut(em) := Emitter.new();
+  t := match(
+    parse_target(String.from("x86_64-unknown-linux-gnu")),
+    .Ok(t) => t,
+    .Err(_) => host_target()
+  );
+  assert(is_target_linux(&t), String.from("linux triple failed to parse as linux"));
+  generate_sys_runtime(&mut em, &t);
+  em.print()
+});
+/// The sys runtime as dispatched for a macOS target.
+emit_sys_runtime_macos :: (fn() -> String)({
+  mut(em) := Emitter.new();
+  t := match(
+    parse_target(String.from("aarch64-apple-darwin")),
+    .Ok(t) => t,
+    .Err(_) => host_target()
+  );
+  assert(is_target_macos(&t), String.from("darwin triple failed to parse as macos"));
+  generate_sys_runtime(&mut em, &t);
+  em.print()
+});
+/// The sys runtime as dispatched for a WASM target (which shares the POSIX
+/// helper block instead of early-returning the way Windows does).
+emit_sys_runtime_wasm :: (fn() -> String)({
+  mut(em) := Emitter.new();
+  t := match(
+    parse_target(String.from("wasm32-wasip1")),
+    .Ok(t) => t,
+    .Err(_) => host_target()
+  );
+  assert(is_target_wasm(&t), String.from("wasi triple failed to parse as wasm"));
+  generate_sys_runtime(&mut em, &t);
+  em.print()
+});
+/// The sys runtime as dispatched for a Windows target: only the Windows
+/// platform sys-runtime, none of the POSIX helper block.
+emit_sys_runtime_windows :: (fn() -> String)({
+  mut(em) := Emitter.new();
+  t := match(
+    parse_target(String.from("x86_64-pc-windows-msvc")),
+    .Ok(t) => t,
+    .Err(_) => host_target()
+  );
+  assert(is_target_windows(&t), String.from("msvc triple failed to parse as windows"));
+  generate_sys_runtime(&mut em, &t);
+  em.print()
+});
+test("sys runtime: the dead __yo_stat_* accessor family is gone from every POSIX target", {
+  // issues/fixed/dead-yo-stat-accessor-family-emitted-into-every-program.md
+  // The eleven struct-stat accessors predate the __yo_statx_* family and were
+  // never declared on the Yo side, so no program could call them — yet they
+  // were emitted into every Linux/macOS/WASM-target program. `__yo_stat_`
+  // (trailing underscore) names exactly that family: the live __yo_statfs_*
+  // and __yo_statx_* spellings do not contain it.
+  l := emit_sys_runtime_linux();
+  assert(!l.contains(String.from("__yo_stat_")), String.from("the dead __yo_stat_* family is back in the Linux sys runtime"));
+  m := emit_sys_runtime_macos();
+  assert(!m.contains(String.from("__yo_stat_")), String.from("the dead __yo_stat_* family is back in the macOS sys runtime"));
+  w := emit_sys_runtime_wasm();
+  assert(!w.contains(String.from("__yo_stat_")), String.from("the dead __yo_stat_* family is back in the WASM sys runtime"));
+  // The neighbours must survive the deletion: the dirent pair is read_dir's
+  // live interface (std/sys/dir.yo), and <sys/stat.h> feeds the copyfile
+  // paths that use `struct stat` directly.
+  assert(l.contains(String.from("__yo_dirent_name")) && l.contains(String.from("__yo_dirent_type")), String.from("the live __yo_dirent_* pair was over-deleted"));
+  assert(l.contains(String.from("#include <sys/stat.h>")), String.from("the <sys/stat.h> include was over-deleted"));
+});
+test("sys runtime: Windows never emits the POSIX stat accessors", {
+  c := emit_sys_runtime_windows();
+  assert(!c.contains(String.from("__yo_stat_")), String.from("a __yo_stat_* accessor leaked into the Windows sys runtime"));
+  // The emission must be the Windows platform sys-runtime, not an empty one.
+  assert(c.contains(String.from("__yo_win_close_hook")), String.from("the Windows platform sys-runtime is missing"));
+});
+test("runtime: the *at() dirfd sentinel is the AT_FDCWD macro on every platform", {
+  // issues/fixed/emitted-c-hardcodes-linux-at-fdcwd.md
+  // The sync helpers and the async *at() dispatchers compared `dirfd` against
+  // the literal -100 — Linux's AT_FDCWD — in C emitted for macOS and wasm too,
+  // where the Yo half passes the platform's own value (macOS -2). The fast
+  // path was dead code on macOS, and correctness rested on the *at() fallback
+  // accepting the foreign sentinel. Both halves spell the macro now; the C
+  // compiler supplies the per-platform value.
+  m := emit_sys_runtime_macos();
+  assert(!m.contains(String.from("dirfd == -100")), String.from("a hardcoded Linux AT_FDCWD survives in the macOS sys runtime"));
+  assert(m.contains(String.from("dirfd == AT_FDCWD")), String.from("the macOS sys runtime does not test the AT_FDCWD macro"));
+  ma := emit_macos_runtime();
+  assert(!ma.contains(String.from("dirfd == -100")), String.from("a hardcoded Linux AT_FDCWD survives in the macOS async runtime"));
+  assert(ma.contains(String.from("dirfd == AT_FDCWD")), String.from("the macOS async runtime does not test the AT_FDCWD macro"));
+  mc := emit_macos_common();
+  assert(!mc.contains(String.from("dirfd == -100")), String.from("a hardcoded Linux AT_FDCWD survives in the common async runtime"));
+  assert(mc.contains(String.from("dirfd == AT_FDCWD")), String.from("the common async runtime does not test the AT_FDCWD macro"));
+  w := emit_sys_runtime_wasm();
+  assert(!w.contains(String.from("dirfd == -100")), String.from("a hardcoded Linux AT_FDCWD survives in the WASM sys runtime"));
+  assert(w.contains(String.from("dirfd == AT_FDCWD")), String.from("the WASM sys runtime does not test the AT_FDCWD macro"));
+  mut(wa_em) := Emitter.new();
+  wa_t := match(parse_target(String.from("wasm32-wasip1")), .Ok(t) => t, .Err(_) => host_target());
+  generate_async_runtime_io_wasm(&mut wa_em, &wa_t);
+  wa := wa_em.print();
+  assert(!wa.contains(String.from("dirfd == -100")), String.from("a hardcoded Linux AT_FDCWD survives in the WASM async runtime"));
+  assert(wa.contains(String.from("dirfd == AT_FDCWD")), String.from("the WASM async runtime does not test the AT_FDCWD macro"));
+  l := emit_sys_runtime_linux();
+  assert(!l.contains(String.from("dirfd == -100")), String.from("a hardcoded Linux AT_FDCWD survives in the Linux sys runtime"));
+  assert(l.contains(String.from("dirfd == AT_FDCWD")), String.from("the Linux sys runtime does not test the AT_FDCWD macro"));
+  // The shared POSIX helper block must include <fcntl.h> itself: a program
+  // that never touches std/fs registers no c_include header, so the runtime
+  // cannot lean on the user code's includes for the macro.
+  assert(l.contains(String.from("#include <fcntl.h>")), String.from("the shared POSIX helpers no longer include <fcntl.h>"));
+  win := emit_sys_runtime_windows();
+  assert(!win.contains(String.from("dirfd == -100")), String.from("a hardcoded Linux AT_FDCWD survives in the Windows sys runtime"));
+  assert(win.contains(String.from("dirfd == AT_FDCWD")), String.from("the Windows sys runtime does not test the AT_FDCWD macro"));
+  // The guarded fallback stays: the Windows CRT has no AT_FDCWD, and it is
+  // what lets BOTH the runtime's comparison and the Yo call site's macro
+  // reference resolve in the same translation unit.
+  assert(win.contains(String.from("#ifndef AT_FDCWD")), String.from("the Windows CRT fallback for AT_FDCWD was dropped"));
+});
+test("runtime: AT_REMOVEDIR and AT_SYMLINK_NOFOLLOW are macros, not per-platform literals", {
+  // The other two members of the shadow constant table
+  // (issues/fixed/emitted-c-hardcodes-linux-at-fdcwd.md): the emitters tested
+  // the flag word against one platform's literal — macOS's 0x80 for
+  // AT_REMOVEDIR, Linux's 0x100/0x200 on wasm — while the Yo half folded the
+  // platform's own value at the call site. Both spell the macro now.
+  m := emit_macos_runtime();
+  assert(!m.contains(String.from("flags & 0x80")), String.from("the macOS AT_REMOVEDIR literal is back"));
+  assert(m.contains(String.from("flags & AT_REMOVEDIR")), String.from("the macOS unlinkat does not test the AT_REMOVEDIR macro"));
+  w := emit_sys_runtime_wasm();
+  assert(!w.contains(String.from("flags & 0x100")), String.from("the wasm AT_SYMLINK_NOFOLLOW literal is back"));
+  assert(!w.contains(String.from("flags & 0x200")), String.from("the wasm AT_REMOVEDIR literal is back"));
+  assert(w.contains(String.from("flags & AT_SYMLINK_NOFOLLOW")), String.from("the wasm fchownat does not test the AT_SYMLINK_NOFOLLOW macro"));
+  mut(wa_em) := Emitter.new();
+  wa_t := match(parse_target(String.from("wasm32-wasip1")), .Ok(t) => t, .Err(_) => host_target());
+  generate_async_runtime_io_wasm(&mut wa_em, &wa_t);
+  wa := wa_em.print();
+  assert(!wa.contains(String.from("flags & 0x100")), String.from("the wasm async AT_SYMLINK_NOFOLLOW literal is back"));
+  assert(!wa.contains(String.from("flags & 0x200")), String.from("the wasm async AT_REMOVEDIR literal is back"));
+  assert(wa.contains(String.from("flags & AT_SYMLINK_NOFOLLOW")), String.from("the wasm async statx does not test the AT_SYMLINK_NOFOLLOW macro"));
+  assert(wa.contains(String.from("flags & AT_REMOVEDIR")), String.from("the wasm async unlinkat does not test the AT_REMOVEDIR macro"));
+  mut(win_em) := Emitter.new();
+  generate_async_runtime_io_windows(&mut win_em);
+  win := win_em.print();
+  assert(win.contains(String.from("flags & AT_REMOVEDIR")), String.from("the Windows unlinkat no longer tests the AT_REMOVEDIR macro"));
+  assert(win.contains(String.from("flags & AT_SYMLINK_NOFOLLOW")), String.from("the Windows stat path no longer tests the AT_SYMLINK_NOFOLLOW macro"));
+});
+
+test("wasm sys runtime: the statx nanosecond accessors are uint32_t, matching std's u32 declarations", {
+  // std/sys/externs.yo declares the three *time_nsec accessors `-> u32` and
+  // linux/macos/windows all define them uint32_t; an int64_t definition makes
+  // every Yo call site a silent int64_t->uint32_t narrowing on wasm alone
+  // (issues/fixed/wasm-statx-nsec-accessors-return-int64-but-are-declared-u32.md).
+  mut(em) := Emitter.new();
+  generate_platform_sys_runtime_wasm(&mut em);
+  c := em.print();
+  assert(c.contains(String.from("static uint32_t __yo_statx_mtime_nsec(void* buf)")), String.from("mtime_nsec is not uint32_t"));
+  assert(c.contains(String.from("static uint32_t __yo_statx_atime_nsec(void* buf)")), String.from("atime_nsec is not uint32_t"));
+  assert(c.contains(String.from("static uint32_t __yo_statx_ctime_nsec(void* buf)")), String.from("ctime_nsec is not uint32_t"));
+  // The *_sec accessors are declared `-> i64` and stay int64_t.
+  assert(c.contains(String.from("static int64_t __yo_statx_mtime_sec(void* buf)")), String.from("mtime_sec lost its int64_t"));
+  assert(c.contains(String.from("static int64_t __yo_statx_atime_sec(void* buf)")), String.from("atime_sec lost its int64_t"));
+  assert(c.contains(String.from("static int64_t __yo_statx_ctime_sec(void* buf)")), String.from("ctime_sec lost its int64_t"));
+});

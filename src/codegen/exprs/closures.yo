@@ -1,18 +1,18 @@
 //! Closure construction + capture emission.
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 { AstExpr, ExprId, ast_expr_id, ast_expr_token } :: import("../../expr.yo");
 { TypeValue, TypeValueNode, no_labels, t_slot_is_borrow, t_slot_pointee } :: import("../../types/definitions.yo");
 { is_some_type, is_dyn_type, is_function_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ type_implements_fn, extract_fn_trait_from_type } :: import("../../evaluator/trait_checking.yo");
-{ ExprInfo, expr_info_closure_function_value, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_capture_field_inits, some_resolution, scope_variables } :: import("../../expr_info.yo");
+{ type_implements_fn, extract_fn_trait_from_type } :: import("../../evaluator/trait-checking.yo");
+{ ExprInfo, expr_info_closure_function_value, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_capture_field_inits, some_resolution, scope_variables } :: import("../../expr-info.yo");
 { type_is_sized } :: import("../../types/utils.yo");
 { declare_c_var_name, type_key, get_variable_name_for_codegen_at, ImplClosureCallInfo, get_type_string, get_deferred_dup_target_atom_name, element_wise_dup_target, element_wise_dup_elements, sanitize_for_c_identifier, scope_stack_contains, c_field_name, fresh_local_name, unsized_place_fat_code } :: import("../utils/index.yo");
-{ _call_generate_expr } :: import("./_expr.yo");
-{ sm_slot_of, sm_move_flag_of } :: import("../async/state_machine_naming.yo");
+{ _call_generate_expr } :: import("./dispatch.yo");
+{ sm_slot_of, sm_move_flag_of } :: import("../async/state-machine-naming.yo");
 { FunctionGenerationContext, sm_owns_fnonce_captures, shadow_binding_c_name } :: import("../functions/context.yo");
-{ is_closure_fn, get_closure_capture_info } :: import("../../function_value.yo");
+{ is_closure_fn, get_closure_capture_info } :: import("../../function-value.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
 { Environment, variable_undone_moves } :: import("../../env.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
@@ -27,7 +27,7 @@ closure_capture_counter_reset :: (fn() -> unit)({
 /// Hook to atom.yo's `_generate_sm_atom` (the `sm->` alias/capture resolution
 /// for variables inside a state machine). atom.yo imports THIS module
 /// (check_variable_is_closure_captured), so a direct import back would be a
-/// cycle — codegen_c.yo installs the fn at codegen init instead (the same
+/// cycle — codegen-c.yo installs the fn at codegen init instead (the same
 /// pattern as register_collect_type / register_on_demand_declare).
 SmAtomResolverFn :: (fn(expr : &AstExpr, var_name : &String, context : &mut FunctionGenerationContext) -> Option(String));
 (mut(g_sm_atom_resolver) : Option(SmAtomResolverFn)) = Option(SmAtomResolverFn).None;
@@ -48,12 +48,12 @@ _resolve_sm_atom :: (fn(expr : &AstExpr, var_name : &String, context : &mut Func
 _deref_place_binding :: (fn(label : &String, code : String, context : &FunctionGenerationContext) -> String)(
   if(match(&context.place_bindings, .Some(ps) => ps.contains(shadow_binding_c_name(context, &sanitize_for_c_identifier(label.clone(), false))), .None => false), `(*${code})`, code)
 );
-/// Hook to drop_dup.yo's `emit_deferred_dup_or_code` (the shared dup-on-store
+/// Hook to drop-dup.yo's `emit_deferred_dup_or_code` (the shared dup-on-store
 /// choke point: emit `expr`'s deferred `___dup`s and return the dup-result
 /// temp's C name, else `fallback_code`). THIS module cannot import drop_dup
 /// directly — types/generation.yo imports resolve_some_type_to_concrete from
 /// here, and drop_dup pulls functions/declarations.yo, so the import closes a
-/// cycle — so codegen_c.yo installs the fn at codegen init, right beside the
+/// cycle — so codegen-c.yo installs the fn at codegen init, right beside the
 /// SM resolver above. A capture-list field's by-value initializer carries its
 /// RC +1 that way: materialize the initializer, then the dup.
 DeferredDupOrCodeFn :: (fn(expr : &AstExpr, fallback_code : &String, indent : &String, context : &mut FunctionGenerationContext) -> String);
@@ -89,7 +89,7 @@ check_variable_is_closure_captured :: (
 });
 /// Walk a SomeType's resolved-concrete chain until a non-SomeType is reached
 /// (or no resolution / a self-cycle). The resolved concrete is the value's
-/// own `SomeT.resolution` (`some_resolution`, expr_info.yo).
+/// own `SomeT.resolution` (`some_resolution`, expr-info.yo).
 resolve_some_type_to_concrete :: (fn(t : &TypeValue) -> TypeValue)({
   (cur : TypeValue) = Rc.clone(t);
   (go : bool) = true;
@@ -139,7 +139,7 @@ is_closure_construction :: (fn(expr : &AstExpr, context : &FunctionGenerationCon
   match(
     context.base.get_expr_info(expr),
     // closure_function_value OR (the documented fallback) info.value being a
-    // FuncVal — anonymous_function.yo records the closure FuncVal on info.value,
+    // FuncVal — anonymous-function.yo records the closure FuncVal on info.value,
     // not closure_function_value.
     // The closure type is recorded as a bare `Func`/`FnTraitT` (not the
     // Impl(Fn) SomeT that `type_implements_fn` looks for), so accept is_function_type too.
@@ -271,7 +271,7 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
   closure_fv := match(
     expr_info_closure_function_value(&ei),
     .Some(v) => Option(EvalValue).Some(v),
-    // Fallback: anonymous_function.yo records the closure FuncVal on info.value.
+    // Fallback: anonymous-function.yo records the closure FuncVal on info.value.
     .None => match(ei.value(), .Some(v) => Option(EvalValue).Some(v), .None => if(is_rebuild, Option(EvalValue).None, return(codegen_fatal_expr(String.from("Missing closure_function_value")))))
   );
   // The Fn call signature (for evidence params) — the closure type is recorded

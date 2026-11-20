@@ -82,7 +82,7 @@ parent edge. A write reaches the payload through `RefCell(T)`
 
 ```yo
 { RefCell } :: import("std/sync/refcell");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array-list");
 
 Node :: struct(
   value : i32,

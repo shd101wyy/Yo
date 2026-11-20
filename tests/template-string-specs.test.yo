@@ -1,0 +1,144 @@
+{ assert } :: import("std/assert");
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+// D3.10 Stage 2 — the `${expr:spec}` template-string sugar
+// (plans/archive/STD_API_AUDIT.md). A spec'd interpolation lowers to
+// `expr.format("<spec>")` instead of `expr.to_string()`; the spec is peeled off
+// the right end of the interpolation text by a backward walk over a closed
+// character set that excludes `)`, `]`, `}`, quotes, comma and whitespace.
+//
+// NOTE this file deliberately does NOT import std/fmt — the parser's auto-import
+// is what has to supply `format`, and that is half of what is under test.
+test("width, alignment and fill through the sugar", {
+  name := String.from("ada");
+  assert(`[${name:>8}]` == `[     ada]`, "right align");
+  assert(`[${name:<6}]` == `[ada   ]`, "left align");
+  assert(`[${name:^7}]` == `[  ada  ]`, "center");
+  assert(`[${name:*>6}]` == `[***ada]`, "custom fill");
+});
+test("numeric specs through the sugar", {
+  n := i32(255);
+  assert(`${n:x}` == `ff`, "lowercase hex");
+  assert(`${n:#06x}` == `0x00ff`, "alt hex, zero padded");
+  neg := i32(-42);
+  assert(`${neg:08}` == `-0000042`, "zero fill lands after the sign");
+});
+test("float precision through the sugar", {
+  pi := f64(3.14159);
+  assert(`${pi:.2}` == `3.14`, "two decimals");
+  assert(`${pi:>8.3}` == `   3.142`, "width applies after precision");
+});
+test("spec'd and unspec'd interpolations coexist in one template", {
+  // The auto-import is gated on whether ANY spec appeared, so a file with a
+  // spec imports std/fmt/format rather than std/fmt/to_string. Plain
+  // `.to_string()` interpolations must keep working in that file: the import is
+  // evaluated for its impl registrations, and format.yo imports to_string.
+  who := String.from("ada");
+  n := i32(7);
+  big := i32(255);
+  assert(`${who} scored ${n:>4}` == `ada scored    7`, "mixed in one template");
+  assert(`${big} and ${big:x}` == `255 and ff`, "same value, both channels");
+});
+test("a spec applies to a whole expression, not just a name", {
+  a := i32(20);
+  b := i32(22);
+  assert(`${(a + b):>6}` == `    42`, "parenthesized arithmetic");
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  assert(`${xs.len():>4}` == `   2`, "method call result");
+});
+test("a colon inside the expression is NOT a spec separator", {
+  // The backward walk stops on `)`, so it can never reach a colon that lives
+  // inside a call's arguments or inside a string literal. These are the shapes
+  // that actually occur in the tree.
+  assert(`${String.from(":")}` == `:`, "colon inside a string literal");
+  sep := String.from("a:b").replace(String.from(":"), String.from("-"));
+  assert(`${sep}` == `a-b`, "colon inside a nested call argument");
+});
+test("a template nested inside an interpolation", {
+  // The interpolation is parsed by a FRESH sub-parser, and `get_program`
+  // prepends the template auto-import — so the sub-parse's first expression
+  // was that import, and the interpolation lowered to
+  // `import("std/fmt/to_string").to_string()`:
+  //   error[E0403]: Module field "to_string" not found in module type
+  // (issues/fixed/nested-template-in-an-interpolation-takes-the-auto-import.md).
+  assert(`x${`y`}z` == `xyz`, "nested template literal");
+  mut(names) := ArrayList(String).new();
+  names.push(String.from("a"));
+  names.push(String.from("b"));
+  // The shape that found it: a separator written inline as a template.
+  assert(` <- ${`, `.join(&names)}` == ` <- a, b`, "join with an inline separator");
+  // A spec inside the nested template still selects the format import.
+  n := i32(7);
+  assert(`[${`${n:>3}`}]` == `[  7]`, "spec inside a nested template");
+});
+test("a long template and long chains evaluate the receiver once and still format correctly", {
+  // The evaluator used to evaluate a method receiver twice per chain level
+  // (2^depth): a twelve-interpolation template took minutes to check. The
+  // fix reuses the receiver's recorded info while the call's arguments are
+  // matched; this pins the VALUES it must still produce
+  // (issues/fixed/debug-probe-line-costs-gigabytes-at-compile-time.md).
+  a := String.from("a");
+  n := i32(7);
+  b := true;
+  long := `${a}${n}${b}${a}${n}${b}${a}${n}${b}${a}${n}${b}`;
+  assert(long == `a7truea7truea7truea7true`, "twelve interpolations");
+  chain := a.clone().clone().clone().clone().clone().clone().clone().clone().clone().clone().clone().clone();
+  assert(chain == `a`, "twelve-deep method chain");
+  sum := (a.clone() + a.clone() + a.clone() + a.clone() + a.clone() + a.clone() + a.clone() + a.clone() + a.clone() + a.clone() + a.clone() + a.clone());
+  assert(sum == `aaaaaaaaaaaa`, "twelve-operand operator chain");
+  nested := `${`${`${a}${n}`}${b}`}${a}`;
+  assert(nested == `a7truea`, "nested templates");
+});
+_interp_id :: (fn(s : str) -> str)(s);
+// An interpolation body is CODE: a string literal in it keeps its own
+// escapes, and a brace or backtick inside that literal is not a delimiter
+// (issues/fixed/template-interpolation-body-is-not-scanned-as-code.md). Each
+// of these failed to lex (E0004) or cut the body short before the fix.
+test("an interpolation body is scanned as code, not template text", {
+  a := `x`;
+  nl := `${a.concat(String.from("\n"))}`;
+  assert(nl.len() == usize(2));
+  assert(nl.byte_at(usize(1)) == u8(10));
+  q := `[${_interp_id("q\"q")}]`;
+  assert(q == `[q"q]`);
+  close := `[${_interp_id("}")}]`;
+  assert(close == `[}]`);
+  open_brace := `[${_interp_id("{")}]`;
+  assert(open_brace == `[{]`);
+  tick := `[${_interp_id("`")}]`;
+  assert(tick.len() == usize(3));
+  nested := `<${`in${i32(1)}`}>`;
+  assert(nested == `<in1>`);
+  // The literal text around a body still decodes its escapes.
+  tab := `a\t${i32(2)}\n`;
+  assert(tab.len() == usize(4));
+  assert(tab.byte_at(usize(1)) == u8(9));
+});
+test("a comment inside an interpolation body does not close it", {
+  // The shared body scanner had no comment mode: a `}` inside a comment
+  // ended the body early (the re-lex died on an "unterminated block
+  // comment"), and an apostrophe inside a line comment opened a phantom
+  // char literal that swallowed the real closing brace
+  // (issues/fixed/a-brace-or-quote-inside-a-comment-inside-an-interpolation-miscuts-the-body.md).
+  x := 1;
+  s := `a ${x /* } */} b`;
+  assert(s == `a 1 b`, "the commented brace is not the body's closing brace");
+  t := `c ${x // don't}
+} d`;
+  assert(t == `c 1 d`, "a line comment inside the body ends at the newline");
+});
+// A literal backslash before `${` is a backslash, and the interpolation still
+// runs; only `\$` escapes the dollar
+// (issues/fixed/template-string-backslash-before-interpolation-eats-both.md).
+test("a backslash before an interpolation keeps both", {
+  n := i32(7);
+  assert(`\\${n}` == "\\7", "an escaped backslash, then the interpolation");
+  assert(`\u{5C}${n}` == "\\7", "a unicode-escaped backslash, then the interpolation");
+  assert(`\${n}` == "${n}", "an escaped dollar is still literal");
+  assert(`\\\${n}` == "\\${n}", "an escaped backslash, then an escaped dollar");
+  assert(`\\ ${n}` == "\\ 7", "a backslash, a space, the interpolation");
+  assert(`\q${n}` == "\\q7", "an unknown escape keeps its backslash");
+  assert(`a\\b` == "a\\b", "a backslash with no interpolation");
+});

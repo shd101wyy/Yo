@@ -1,0 +1,227 @@
+//! Tests for src/evaluator/shared/suspension-analysis.yo
+//! Mirrors src/evaluator/shared/suspension-analysis.ts
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ RefCell } :: import("std/sync/refcell");
+{ SuspensionPoint, SuspensionAnalysisResult } :: import("../../src/evaluator/shared/suspension-analysis-types.yo");
+{ AstExpr, AstExprNode, ast_expr_is_fn_call_of } :: import("../../src/expr.yo");
+{ TokenKind, Token, TokenData } :: import("../../src/token.yo");
+{ ExprInfo, new_expr_info } :: import("../../src/expr-info.yo");
+{ Environment } :: import("../../src/env.yo");
+{ TypeValue } :: import("../../src/types/definitions.yo");
+{ t_unit } :: import("../../src/types/creators.yo");
+{ assert, panic } :: import("std/assert");
+{
+  SuspensionPointDetector,
+  extract_target_variable_id,
+  analyze_suspension_points
+} :: import("../../src/evaluator/shared/suspension-analysis.yo");
+// ---------------------------------------------------------------------------
+// Test helpers
+// ---------------------------------------------------------------------------
+make_token :: (fn(kind : TokenKind, v : str) -> Token)(
+  Rc.new(
+    TokenData(
+      kind : kind,
+      value : Rc.new(String.from(v)),
+      row : u32(0),
+      column : u32(0),
+      character : u32(0),
+      module_path : Rc.new(String.from("")),
+      input : Rc.new(String.from(""))
+    )
+  )
+);
+make_ident_expr :: (fn(v : str) -> AstExpr)(
+  Rc.new(AstExprNode.Atom(usize(0), make_token(TokenKind.Identifier, v)))
+);
+make_fncall_expr :: (fn(func_name : str) -> AstExpr)(
+  Rc.new(
+    AstExprNode.FnCall(
+      usize(0),
+      make_ident_expr(func_name),
+      Rc.new(ArrayList(AstExpr).new()),
+      false,
+      make_token(TokenKind.Identifier, func_name)
+    )
+  )
+);
+// Creates a `:= x rhs` FnCall to simulate an assignment parent expression.
+make_assign_expr :: (fn(var_name : str, rhs : &AstExpr) -> AstExpr)({
+  mut(args) := ArrayList(AstExpr).new();
+  args.push(make_ident_expr(var_name));
+  args.push(Rc.clone(rhs.*));
+  Rc.new(
+    AstExprNode.FnCall(
+      usize(0),
+      make_ident_expr(":="),
+      Rc.new(args),
+      false,
+      make_token(TokenKind.Identifier, ":=")
+    )
+  )
+});
+// A get_info that always returns None (no type info available).
+get_info_none :: (fn(e : &AstExpr) -> Option(ExprInfo))(
+  Option(ExprInfo).None
+);
+// A detector that never detects anything.
+make_noop_detector :: (fn() -> SuspensionPointDetector)(
+  SuspensionPointDetector(
+    detect : dyn(Box.new((expr, parent_expr) => ArrayList(SuspensionPoint).new())),
+    should_skip_body : dyn(Box.new(expr => false)),
+    follow_macro_expansions : false
+  )
+);
+// A detector that returns a SuspensionPoint for every FnCall it is shown.
+// The walker appends what `detect` returns (#1204 changed the callback from
+// pushing into a handed-in list), so the running index lives in a shared
+// counter cell (an `Rc(RefCell(usize))`: an `Rc`'s payload is read-only,
+// decision 46), as `await_analysis`'s detector keeps its own state.
+make_detect_all_detector :: (fn() -> SuspensionPointDetector)({
+  next_index := Rc.new(RefCell(usize).new(usize(0)));
+  SuspensionPointDetector(
+    detect : dyn(
+      Box.new((expr, parent_expr) => {
+        idx := next_index.with_mut(n => {
+          cur := n.*;
+          n.* = (cur + usize(1));
+          cur
+        });
+        mut(points) := ArrayList(SuspensionPoint).new();
+        sp := SuspensionPoint(
+          index : idx,
+          expr : expr.clone(),
+          target_variable_id : Option(String).None,
+          is_inside_cond : Option(bool).None,
+          is_body_result : Option(bool).None,
+          is_inside_while : Option(bool).None,
+          while_nesting_depth : Option(usize).None,
+          cond_branch_source_index : Option(usize).None,
+          needs_own_cond_branch_field : Option(bool).None,
+          enclosing_while_expr : Option(AstExpr).None,
+          cond_branch_suspension_exprs : Option(ArrayList(AstExpr)).None,
+          cond_branch_suspension_in_while : Option(ArrayList(bool)).None
+        );
+        points.push(sp);
+        points
+      })
+    ),
+    should_skip_body : dyn(Box.new(expr => false)),
+    follow_macro_expansions : false
+  )
+});
+// ---------------------------------------------------------------------------
+// extract_target_variable_id
+// ---------------------------------------------------------------------------
+test("extract_target_variable_id: None parent => None", {
+  result := extract_target_variable_id(Option(AstExpr).None, get_info_none);
+  is_none := match(result, .None => true, .Some(_) => false);
+  assert(is_none, "should return(None for None parent)");
+});
+test("extract_target_variable_id: non-assign parent => None", {
+  parent := make_fncall_expr("io.await");
+  result := extract_target_variable_id(Option(AstExpr).Some(parent), get_info_none);
+  is_none := match(result, .None => true, .Some(_) => false);
+  assert(is_none, "non-:= parent should return(None)");
+});
+test("extract_target_variable_id: := parent but get_info returns None => None", {
+  // x := io.await(task, io)
+  rhs := make_fncall_expr("io.await");
+  parent := make_assign_expr("x", &rhs);
+  result := extract_target_variable_id(Option(AstExpr).Some(parent), get_info_none);
+  // get_info_none returns None, so no variable info → result is None
+  is_none := match(result, .None => true, .Some(_) => false);
+  assert(is_none, "no env info means no variable ID found");
+});
+// ---------------------------------------------------------------------------
+// analyze_suspension_points — no suspensions
+// ---------------------------------------------------------------------------
+test("analyze_suspension_points: atom body — no suspensions", {
+  body := make_ident_expr("x");
+  detector := make_noop_detector();
+  result := analyze_suspension_points(&body, get_info_none, &detector);
+  assert(!result.has_suspensions, "no suspensions");
+  assert(result.suspension_points.len() == usize(0), "no suspension points");
+  assert(result.captured_variables.len() == usize(0), "no captured vars");
+});
+test("analyze_suspension_points: fncall body — noop detector → 0 points", {
+  body := make_fncall_expr("some_call");
+  detector := make_noop_detector();
+  result := analyze_suspension_points(&body, get_info_none, &detector);
+  assert(!result.has_suspensions, "no suspensions");
+  assert(result.suspension_points.len() == usize(0), "noop detector adds nothing");
+});
+// ---------------------------------------------------------------------------
+// analyze_suspension_points — with suspension detection
+// ---------------------------------------------------------------------------
+test("analyze_suspension_points: fncall body — detect_all detector → 1 point", {
+  // Body is a single FnCall: `io.await(task, io)`.
+  body := make_fncall_expr("io.await");
+  detector := make_detect_all_detector();
+  result := analyze_suspension_points(&body, get_info_none, &detector);
+  // detect is called for the FnCall itself AND for the func atom (because walk_expr_
+  // recurses into args after detect). But the func is an Atom, so detect is only
+  // triggered once (for the FnCall). The func Atom goes to the Atom branch.
+  assert(result.has_suspensions, "has suspensions");
+  assert(result.suspension_points.len() == usize(1), "one suspension point");
+});
+test("analyze_suspension_points: nested fncall — detect_all detects outer + inner", {
+  // Body: outer_call(inner_call())
+  inner := make_fncall_expr("inner_call");
+  mut(args) := ArrayList(AstExpr).new();
+  args.push(inner);
+  outer := Rc.new(
+    AstExprNode.FnCall(
+      usize(0),
+      make_ident_expr("outer_call"),
+      Rc.new(args),
+      false,
+      make_token(TokenKind.Identifier, "outer_call")
+    )
+  );
+  detector := make_detect_all_detector();
+  result := analyze_suspension_points(&outer, get_info_none, &detector);
+  // detect fires for both outer_call FnCall and inner_call FnCall → 2 points
+  assert(result.suspension_points.len() == usize(2), "two suspension points");
+});
+test("analyze_suspension_points: suspension point index is sequential", {
+  inner := make_fncall_expr("a");
+  mut(args) := ArrayList(AstExpr).new();
+  args.push(inner);
+  outer := Rc.new(
+    AstExprNode.FnCall(
+      usize(0),
+      make_ident_expr("b"),
+      Rc.new(args),
+      false,
+      make_token(TokenKind.Identifier, "b")
+    )
+  );
+  detector := make_detect_all_detector();
+  result := analyze_suspension_points(&outer, get_info_none, &detector);
+  sp0 := match(
+    result.suspension_points.get_cloned(usize(0)),
+    .None => {
+      assert(false, "sp0 missing");
+      SuspensionPoint(index : usize(99), expr : make_ident_expr("?"), target_variable_id : Option(String).None, is_inside_cond : Option(bool).None, is_body_result : Option(bool).None, is_inside_while : Option(bool).None, while_nesting_depth : Option(usize).None, cond_branch_source_index : Option(usize).None, needs_own_cond_branch_field : Option(bool).None, enclosing_while_expr : Option(AstExpr).None, cond_branch_suspension_exprs : Option(ArrayList(AstExpr)).None, cond_branch_suspension_in_while : Option(ArrayList(bool)).None)
+    },
+    .Some(p) => p
+  );
+  sp1 := match(
+    result.suspension_points.get_cloned(usize(1)),
+    .None => {
+      assert(false, "sp1 missing");
+      SuspensionPoint(index : usize(99), expr : make_ident_expr("?"), target_variable_id : Option(String).None, is_inside_cond : Option(bool).None, is_body_result : Option(bool).None, is_inside_while : Option(bool).None, while_nesting_depth : Option(usize).None, cond_branch_source_index : Option(usize).None, needs_own_cond_branch_field : Option(bool).None, enclosing_while_expr : Option(AstExpr).None, cond_branch_suspension_exprs : Option(ArrayList(AstExpr)).None, cond_branch_suspension_in_while : Option(ArrayList(bool)).None)
+    },
+    .Some(p) => p
+  );
+  assert(sp0.index == usize(0), "first point index 0");
+  assert(sp1.index == usize(1), "second point index 1");
+});
+test("analyze_suspension_points: variable_id_remapping starts empty", {
+  body := make_ident_expr("x");
+  detector := make_noop_detector();
+  result := analyze_suspension_points(&body, get_info_none, &detector);
+  assert(result.variable_id_remapping.len() == usize(0), "no remappings");
+});

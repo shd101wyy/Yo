@@ -1,0 +1,737 @@
+{ assert } :: import("std/assert");
+// Comprehensive verification of iterator combinators (blanket Iterator impls
+// in std/prelude.yo). Bootstrap §2.1 / §1.2.
+pragma(Pragma.AllowUnsafe);
+{ String } :: import("std/string");
+import("std/fmt");
+{ ArrayList } :: import("std/collections/array-list");
+// --- Helper: my_range iterator [start, end) -----------------------------------
+MyRange :: struct(_cur : i32, _end : i32);
+derive(MyRange, Copy, Clone);
+impl(
+  MyRange,
+  Iterator(
+    Item : i32,
+    next : (fn(self : &mut Self) -> Option(i32))(
+      cond(
+        (self._cur >= self._end) => .None,
+        true => {
+          v := self._cur;
+          self._cur = (self._cur + i32(1));
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+my_range :: (fn(start : i32, end_ : i32) -> MyRange)(MyRange(start, end_));
+// --- map -------------------------------------------------------------------
+test("iter.map doubles every element", {
+  mut(it) := my_range(i32(1), i32(4)).map(x => (x.* * i32(2)));
+  mut(out) := ArrayList(i32).new();
+  while(true, {
+    match(
+      it.next(),
+      .Some(v) => {
+        out.push(v);
+      },
+      .None => {
+        break;
+      }
+    );
+  });
+  assert(out.len() == usize(3), "3 elements");
+  assert(out(usize(0)) == i32(2), "1*2");
+  assert(out(usize(1)) == i32(4), "2*2");
+  assert(out(usize(2)) == i32(6), "3*2");
+});
+// --- filter ----------------------------------------------------------------
+test("iter.filter keeps only even values", {
+  mut(it) := my_range(i32(0), i32(6)).filter(x => ((x.* % i32(2)) == i32(0)));
+  mut(out) := ArrayList(i32).new();
+  while(true, {
+    match(
+      it.next(),
+      .Some(v) => {
+        out.push(v);
+      },
+      .None => {
+        break;
+      }
+    );
+  });
+  assert(out.len() == usize(3), "3 evens");
+  assert(out(usize(0)) == i32(0), "0");
+  assert(out(usize(1)) == i32(2), "2");
+  assert(out(usize(2)) == i32(4), "4");
+});
+// --- take / skip -----------------------------------------------------------
+test("iter.take limits the iterator", {
+  mut(it) := my_range(i32(0), i32(100)).take(usize(3));
+  mut(out) := ArrayList(i32).new();
+  while(true, {
+    match(
+      it.next(),
+      .Some(v) => {
+        out.push(v);
+      },
+      .None => {
+        break;
+      }
+    );
+  });
+  assert(out.len() == usize(3), "took 3");
+  assert(out(usize(2)) == i32(2), "third = 2");
+});
+test("iter.skip drops leading elements", {
+  mut(it) := my_range(i32(0), i32(5)).skip(usize(3));
+  mut(out) := ArrayList(i32).new();
+  while(true, {
+    match(
+      it.next(),
+      .Some(v) => {
+        out.push(v);
+      },
+      .None => {
+        break;
+      }
+    );
+  });
+  assert(out.len() == usize(2), "2 left");
+  assert(out(usize(0)) == i32(3), "first = 3");
+  assert(out(usize(1)) == i32(4), "second = 4");
+});
+// --- enumerate -------------------------------------------------------------
+test("iter.enumerate pairs index with value", {
+  mut(it) := my_range(i32(10), i32(13)).enumerate();
+  // (0, 10), (1, 11), (2, 12)
+  match(
+    it.next(),
+    .Some(p) => {
+      assert(p._0 == usize(0), "index 0");
+      assert(p._1 == i32(10), "value 10");
+    },
+    .None => assert(false, "expected first")
+  );
+  match(
+    it.next(),
+    .Some(p) => {
+      assert(p._0 == usize(1), "index 1");
+      assert(p._1 == i32(11), "value 11");
+    },
+    .None => assert(false, "expected second")
+  );
+});
+// --- zip -------------------------------------------------------------------
+test("iter.zip pairs two iterators", {
+  mut(it) := my_range(i32(0), i32(3)).zip(my_range(i32(100), i32(103)));
+  match(
+    it.next(),
+    .Some(p) => {
+      assert(p._0 == i32(0), "first left is 0");
+      assert(p._1 == i32(100), "first right is 100");
+    },
+    .None => assert(false, "expected first pair")
+  );
+  match(
+    it.next(),
+    .Some(p) => {
+      assert(p._0 == i32(1), "second left is 1");
+      assert(p._1 == i32(101), "second right is 101");
+    },
+    .None => assert(false, "expected second pair")
+  );
+});
+test("iter.zip stops at shorter iterator", {
+  mut(it) := my_range(i32(0), i32(5)).zip(my_range(i32(10), i32(12)));
+  mut(count) := i32(0);
+  while(true, {
+    match(
+      it.next(),
+      .Some(_) => {
+        count = (count + i32(1));
+      },
+      .None => {
+        break;
+      }
+    );
+  });
+  assert(count == i32(2), "should have 2 pairs (limited by shorter)");
+});
+// --- fold ------------------------------------------------------------------
+test("iter.fold sums values", {
+  add :: (fn(acc : &i32, x : &i32) -> i32)(acc.* + x.*);
+  total := my_range(i32(1), i32(6)).fold(i32(0), add);
+  assert(total == i32(15), "1+2+3+4+5=15");
+});
+test("iter.fold with single accumulation", {
+  mul :: (fn(acc : &i32, x : &i32) -> i32)(acc.* * x.*);
+  prod := my_range(i32(1), i32(5)).fold(i32(1), mul);
+  assert(prod == i32(24), "1*2*3*4=24");
+});
+test("iter.fold with multi-arg => lambda", {
+  total := my_range(i32(1), i32(6)).fold(i32(0), (acc, x) => (acc.* + x.*));
+  assert(total == i32(15), "1+2+3+4+5=15 via => lambda");
+});
+test("iter.fold over ArrayList iter with multi-arg => lambda", {
+  list := ArrayList(i32).from([i32(10), i32(20), i32(30), i32(40)]);
+  total := list.into_iter().fold(i32(0), (acc, x) => (acc.* + x.*));
+  assert(total == i32(100), "10+20+30+40=100 via fold over value iter");
+});
+// --- for_each --------------------------------------------------------------
+test("iter.for_each with closure that captures ArrayList", {
+  mut(out) := ArrayList(i32).new();
+  src := ArrayList(i32).from([i32(1), i32(2), i32(3), i32(4)]);
+  src.into_iter().for_each({ &mut out }(x) => {
+    out.push(x.*);
+  });
+  assert(out.len() == usize(4), "out has 4 elements");
+  assert(out(usize(0)) == i32(1), "first element is 1");
+  assert(out(usize(3)) == i32(4), "last element is 4");
+});
+test("iter.for_each accumulates side effects", {
+  mut(total) := ArrayList(i32).new();
+  total.push(i32(0));
+  my_range(i32(1), i32(5)).for_each({ &mut total }(x) => {
+    cur := total(usize(0));
+    total(usize(0)) = (cur + x.*);
+  });
+  assert(total(usize(0)) == i32(10), "1+2+3+4=10");
+});
+// --- count -----------------------------------------------------------------
+test("iter.count returns total elements", {
+  n := my_range(i32(0), i32(42)).count();
+  assert(n == usize(42), "count 42");
+});
+// --- any / all -------------------------------------------------------------
+test("iter.any returns true on first match", {
+  found := my_range(i32(0), i32(10)).any(x => (x.* == i32(7)));
+  assert(found, "found 7");
+  none := my_range(i32(0), i32(5)).any(x => (x.* > i32(100)));
+  assert(!none, "no value > 100");
+});
+test("iter.all returns true only if every element matches", {
+  ok := my_range(i32(0), i32(5)).all(x => (x.* < i32(10)));
+  assert(ok, "all < 10");
+  bad := my_range(i32(0), i32(5)).all(x => (x.* < i32(3)));
+  assert(!bad, "not all < 3");
+});
+// --- chained combinators (excluding fold) ---------------------------------
+test("iter.skip then take then count", {
+  n := my_range(i32(0), i32(100)).skip(usize(20)).take(usize(15)).count();
+  assert(n == usize(15), "15");
+});
+test("iter.filter then map then count", {
+  square :: (fn(x : &i32) -> i32)(x.* * x.*);
+  is_even :: (fn(x : &i32) -> bool)((x.* % i32(2)) == i32(0));
+  n := my_range(i32(0), i32(10)).filter(is_even).map(square).count();
+  assert(n == usize(5), "5 evens");
+});
+// --- combinators on ArrayList iter ----------------------------------------
+test("ArrayList.into_iter combinators", {
+  make_list :: (fn() -> ArrayList(i32))({
+    mut(list) := ArrayList(i32).new();
+    list.push(i32(1));
+    list.push(i32(2));
+    list.push(i32(3));
+    list.push(i32(4));
+    list.push(i32(5));
+    list
+  });
+  even_sum := make_list().into_iter().filter(p => ((p.* % i32(2)) == i32(0))).fold(i32(0), (acc, x) => (acc.* + x.*));
+  assert(even_sum == i32(6), "2+4=6");
+  even_count := make_list().into_iter().filter(p => ((p.* % i32(2)) == i32(0))).count();
+  assert(even_count == usize(2), "2 evens");
+  double :: (fn(x : &i32) -> i32)(x.* * i32(2));
+  doubled_count := make_list().into_iter().map(double).count();
+  assert(doubled_count == usize(5), "5 mapped");
+});
+// --- chunk 3: consuming methods (plans/archive/STD_API_AUDIT.md D3.4) ---------------
+test("iter.find and iter.position short-circuit on the first match", {
+  assert(my_range(i32(0), i32(10)).find(x => (x.* > i32(3))).unwrap() == i32(4), "find first > 3");
+  assert(my_range(i32(0), i32(10)).find(x => (x.* > i32(99))).is_none(), "find none");
+  assert(my_range(i32(5), i32(10)).position(x => (x.* == i32(7))).unwrap() == usize(2), "position of 7");
+  assert(my_range(i32(5), i32(10)).position(x => false).is_none(), "position none");
+});
+test("iter.last and iter.nth", {
+  assert(my_range(i32(1), i32(6)).last().unwrap() == i32(5), "last of [1,6)");
+  assert(my_range(i32(1), i32(1)).last().is_none(), "last of empty");
+  assert(my_range(i32(10), i32(20)).nth(usize(0)).unwrap() == i32(10), "nth 0");
+  assert(my_range(i32(10), i32(20)).nth(usize(3)).unwrap() == i32(13), "nth 3");
+  assert(my_range(i32(10), i32(12)).nth(usize(5)).is_none(), "nth past end");
+});
+test("iter.sum, iter.min, iter.max", {
+  assert(my_range(i32(1), i32(5)).sum() == i32(10), "1+2+3+4");
+  assert(my_range(i32(3), i32(3)).sum() == i32(0), "empty sum is Default");
+  assert(my_range(i32(4), i32(9)).min().unwrap() == i32(4), "min");
+  assert(my_range(i32(4), i32(9)).max().unwrap() == i32(8), "max");
+  assert(my_range(i32(0), i32(0)).min().is_none(), "empty min");
+  assert(my_range(i32(0), i32(0)).max().is_none(), "empty max");
+});
+// --- chunk 3: new combinators ------------------------------------------------
+test("iter.chain yields first then second", {
+  it := my_range(i32(1), i32(3)).chain(my_range(i32(10), i32(12)));
+  mut(out) := ArrayList(i32).new();
+  it.for_each({ &mut out }(x) => {
+    out.push(x.*);
+  });
+  assert(out.len() == usize(4), "4 chained");
+  assert((out(usize(0)) == i32(1)) && (out(usize(1)) == i32(2)), "first half");
+  assert((out(usize(2)) == i32(10)) && (out(usize(3)) == i32(11)), "second half");
+});
+test("iter.take_while and iter.skip_while split at the boundary", {
+  taken := my_range(i32(0), i32(10)).take_while(x => (x.* < i32(3))).count();
+  assert(taken == usize(3), "take_while 0,1,2");
+  after_false := my_range(i32(0), i32(10)).take_while(x => (x.* < i32(0))).count();
+  assert(after_false == usize(0), "take_while immediately false");
+  skipped := my_range(i32(0), i32(10)).skip_while(x => (x.* < i32(7))).sum();
+  assert(skipped == i32(24), "7+8+9 after skip_while");
+  none_skipped := my_range(i32(5), i32(8)).skip_while(x => false).count();
+  assert(none_skipped == usize(3), "skip_while never true keeps all");
+});
+test("iter.filter_map maps and filters in one pass", {
+  halved := my_range(i32(0), i32(7)).filter_map(
+    x => cond(
+      ((x.* % i32(2)) == i32(0)) => Option(i32).Some(x.* / i32(2)),
+      true => Option(i32).None
+    )
+  );
+  mut(out) := ArrayList(i32).new();
+  halved.for_each({ &mut out }(x) => {
+    out.push(x.*);
+  });
+  assert(out.len() == usize(4), "0,2,4,6 kept");
+  assert((out(usize(2)) == i32(2)) && (out(usize(3)) == i32(3)), "halved values");
+});
+test("iter.peekable peeks without consuming", {
+  mut(it) := my_range(i32(1), i32(4)).peekable();
+  assert(it.peek().unwrap() == i32(1), "peek sees 1");
+  assert(it.peek().unwrap() == i32(1), "peek again still 1");
+  assert(it.next().unwrap() == i32(1), "next consumes the peeked 1");
+  assert(it.next().unwrap() == i32(2), "next continues");
+  assert(it.peek().unwrap() == i32(3), "peek after next");
+  assert(it.next().unwrap() == i32(3), "consume 3");
+  assert(it.peek().is_none(), "peek at end");
+  assert(it.next().is_none(), "next at end");
+});
+// --- peekable Clone ----------------------------------------------------------
+// A Clone-but-not-Copy element type (the String field is Clone, never Copy):
+// IterPeekable's derived Clone must reach `Option(A)`'s conditional impl.
+PeekElem :: struct(v : i32, tag : String);
+derive(PeekElem, Clone);
+ElemIter :: struct(_cur : i32, _end : i32);
+derive(ElemIter, Copy, Clone);
+impl(
+  ElemIter,
+  Iterator(
+    Item : PeekElem,
+    next : (fn(self : &mut Self) -> Option(PeekElem))(
+      cond(
+        (self._cur >= self._end) => .None,
+        true => {
+          v := self._cur;
+          self._cur = (self._cur + i32(1));
+          .Some(PeekElem(v, `elem`))
+        }
+      )
+    )
+  )
+);
+// A Clone-but-not-Copy inner iterator (the same String field shape on `I`).
+TaggedRange :: struct(_cur : i32, _end : i32, _tag : String);
+derive(TaggedRange, Clone);
+impl(
+  TaggedRange,
+  Iterator(
+    Item : i32,
+    next : (fn(self : &mut Self) -> Option(i32))(
+      cond(
+        (self._cur >= self._end) => .None,
+        true => {
+          v := self._cur;
+          self._cur = (self._cur + i32(1));
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+tagged_range :: (fn(start : i32, end_ : i32) -> TaggedRange)(TaggedRange(start, end_, `tag`));
+test("iter.peekable clones a Copy element and inner iterator", {
+  mut(p) := my_range(i32(1), i32(4)).peekable();
+  assert(p.peek().unwrap() == i32(1), "peek fills the slot");
+  mut(q) := p.clone();
+  assert(q.next().unwrap() == i32(1), "clone sees the peeked 1");
+  assert(p.next().unwrap() == i32(1), "original keeps its own 1");
+  assert((p.next().unwrap() == i32(2)) && (q.next().unwrap() == i32(2)), "both continue");
+  assert((p.count() == usize(1)) && (q.count() == usize(1)), "one element left each");
+});
+test("iter.peekable clones a Clone-but-not-Copy element (Option(A) field)", {
+  mut(p) := ElemIter(i32(1), i32(3)).peekable();
+  first := p.peek_cloned().unwrap();
+  assert(first.v == i32(1), "peeked the first element");
+  mut(q) := p.clone();
+  a := q.next().unwrap();
+  b := p.next().unwrap();
+  assert((a.v == i32(1)) && (b.v == i32(1)), "clone and original both yield it");
+  c := q.next().unwrap();
+  assert((c.v == i32(2)) && (p.next().unwrap().v == i32(2)), "second element each");
+  assert(p.next().is_none() && q.next().is_none(), "both exhausted");
+});
+test("iter.peekable clones a Clone-but-not-Copy inner iterator", {
+  mut(p) := tagged_range(i32(1), i32(4)).peekable();
+  assert(p.peek().unwrap() == i32(1), "peek fills the slot");
+  mut(q) := p.clone();
+  assert(q.next().unwrap() == i32(1), "clone sees the peeked 1");
+  assert(p.next().unwrap() == i32(1), "original keeps its own 1");
+  assert((p.next().unwrap() == i32(2)) && (q.next().unwrap() == i32(2)), "both continue");
+  assert((p.count() == usize(1)) && (q.count() == usize(1)), "one element left each");
+});
+// --- peekable Copy -----------------------------------------------------------
+// IterPeekable is Copy exactly when its inner iterator and its element are
+// (the conditional derive beside the Clone one; its `Option(A)` field is a
+// conditional-Copy container of the parameter, issues/fixed/2026-10-17-a-generic-copy-impl-rejects-a-field-that-is-a-conditional-copy-container-of-its-parameter.md).
+test("iter.peekable is Copy exactly when its inner iterator and element are", {
+  comptime_assert(Type.impls(IterPeekable(MyRange, i32), Copy), "Copy inner, Copy element");
+  comptime_assert(!Type.impls(IterPeekable(ElemIter, PeekElem), Copy), "a Clone-but-not-Copy element");
+  comptime_assert(!Type.impls(IterPeekable(TaggedRange, i32), Copy), "a Clone-but-not-Copy inner iterator");
+  mut(p) := my_range(i32(1), i32(4)).peekable();
+  assert(p.peek().unwrap() == i32(1), "peek fills the slot");
+  mut(q) := p;
+  assert(q.next().unwrap() == i32(1), "the copy sees the peeked 1");
+  assert(p.next().unwrap() == i32(1), "the original keeps its own 1");
+  assert((p.count() == usize(2)) && (q.count() == usize(2)), "two elements left each");
+});
+test("filter predicate now takes the element by value (D3.4 symmetry)", {
+  odd_sum := my_range(i32(0), i32(7)).filter(x => ((x.* % i32(2)) == i32(1))).sum();
+  assert(odd_sum == i32(9), "1+3+5");
+});
+test("map then for_each — self-marker must not clobber the concrete F binding", {
+  // Pre-existing bug surfaced by chunk 3: matching IterMap's Iterator impl
+  // inside for_each's where-check wrote the impl's F self-marker over
+  // for_each's already-resolved concrete closure binding
+  // (issues/fixed/varbound-combinator-receiver-impl-match.md).
+  mut(out) := ArrayList(i32).new();
+  my_range(i32(1), i32(4)).map(x => (x.* * i32(2))).for_each({ &mut out }(x) => {
+    out.push(x.*);
+  });
+  assert(out.len() == usize(3), "3 mapped elements");
+  assert((out(usize(0)) == i32(2)) && (out(usize(2)) == i32(6)), "doubled values");
+});
+// --- chunk 4: Range iteration (plans/archive/STD_API_AUDIT.md D3.5) -----------------
+test("for over an integer range literal", {
+  mut(total) := ArrayList(i32).new();
+  total.push(i32(0));
+  for(i32(0) .. i32(5), i => {
+    cur := total(usize(0));
+    total(usize(0)) = (cur + i);
+  });
+  assert(total(usize(0)) == i32(10), "0+1+2+3+4");
+});
+test("ranges feed the iterator combinators directly", {
+  s := (i32(1) .. i32(5)).sum();
+  assert(s == i32(10), "1+2+3+4 via Range sum");
+  n := (u64(0) .. u64(100)).filter(x => ((x.* % u64(7)) == u64(0))).count();
+  assert(n == usize(15), "15 multiples of 7 below 100");
+  // min taken on the RANGE receiver directly, and the mapped chain checked
+  // via count (binds no Item) — an Item-binding combinator on a chain
+  // receiver at a second Item type hits the pre-existing shared-stamp
+  // pollution (issues/fixed/iterator-chain-shared-stamp-cross-item-pollution.md).
+  m := (i64(-3) .. i64(4)).min();
+  assert(m.unwrap() == i64(-3), "min of signed range");
+  c := (i64(-3) .. i64(4)).map(x => (x.* * i64(2))).count();
+  assert(c == usize(7), "count of mapped signed range");
+});
+test("inclusive ranges include the end and terminate at type MAX", {
+  s := (i8(1) ..= i8(4)).sum();
+  assert(s == i8(10), "1+2+3+4 inclusive");
+  top := (u8(250) ..= u8(255)).count();
+  assert(top == usize(6), "250..=255 has 6 values and terminates at u8 MAX");
+  empty := (i16(5) ..= i16(4)).count();
+  assert(empty == usize(0), "start > end is empty");
+});
+test("every integer type forms and iterates a range", {
+  assert((i16(0) .. i16(3)).count() == usize(3), "i16");
+  assert((u16(0) .. u16(3)).count() == usize(3), "u16");
+  assert((u32(0) .. u32(3)).count() == usize(3), "u32");
+  assert((isize(0) .. isize(3)).count() == usize(3), "isize");
+  assert((usize(0) .. usize(3)).count() == usize(3), "usize still works");
+  assert((u8(0) ..= u8(2)).count() == usize(3), "u8 inclusive");
+  assert((i64(0) ..= i64(2)).count() == usize(3), "i64 inclusive");
+});
+// --- D3.6: IntoIterator trait impls on collections (plans/archive/STD_API_AUDIT.md) --
+// Generic code over `where(C <: IntoIterator)` — impossible before the trait
+// impls existed (collections only had inherent into_iter methods).
+// NOTE: kept to single instantiations + a small combo — piling many
+// instantiations of ONE where-bound generic trips the pre-existing
+// under-resolution bug (std's since-removed linked list, then BTreeMap, was
+// the minimal trigger):
+// issues/fixed/where-bound-intoiterator-gc-trace-abstract-key.md.
+__ii_sum :: (
+  fn(generic(C : Type), c : C, where(C <: IntoIterator(Item := i32))) -> i32
+)(
+  c.into_iter().fold(i32(0), (acc, x) => (acc.* + x.*))
+);
+test("IntoIterator bound accepts ArrayList and Array", {
+  xs := ArrayList(i32).from([i32(1), i32(2), i32(3)]);
+  assert(__ii_sum(xs) == i32(6), "ArrayList through the Item-bound generic");
+  assert(__ii_sum([i32(4), i32(5)]) == i32(9), "Array through the Item-bound generic");
+});
+// --- B7b: consuming iteration (plans/VALUES_BY_DEFAULT.md decision 39) -------
+// `IntoIterator.into_iter` takes its receiver by value, so the iterator OWNS
+// what it walks and the value form `for(src, x => …)` consumes `src`. A
+// move-only source is therefore iterable by value: it moves into the
+// iterator, which drops it once, when the loop ends; a later use of it is a
+// use of a moved value. (An `into_iter(self : &Self)` could only copy a
+// move-only source into its iterator, which is E0901.)
+mut(g_b7b_dropped) := i32(0);
+_B7bTokens :: struct(n : usize);
+impl(
+  _B7bTokens,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_b7b_dropped = (g_b7b_dropped + i32(1));
+    })
+  )
+);
+_B7bTokensIter :: struct(src : _B7bTokens, i : usize);
+impl(
+  _B7bTokensIter,
+  Iterator(
+    Item : usize,
+    next : (fn(self : &mut Self) -> Option(usize))(
+      cond(
+        (self.i < self.src.n) => {
+          r := self.i;
+          self.i = (self.i + usize(1));
+          .Some(r)
+        },
+        true => .None
+      )
+    )
+  )
+);
+impl(
+  _B7bTokens,
+  IntoIterator(
+    Item : usize,
+    IntoIter : _B7bTokensIter,
+    into_iter : (fn(self : Self) -> _B7bTokensIter)(_B7bTokensIter(src : self, i : usize(0)))
+  )
+);
+test("B7b: the value form moves a move-only source into its iterator, which drops it once", {
+  before := g_b7b_dropped;
+  {
+    toks := _B7bTokens(n : usize(4));
+    mut(total) := usize(0);
+    for(toks, i => {
+      total = (total + i);
+    });
+    assert(total == usize(6), "0 + 1 + 2 + 3");
+    assert(g_b7b_dropped == (before + i32(1)), "the iterator dropped the source when the loop ended");
+    comptime_expect_error(toks.n, "use of moved value");
+  };
+  assert(g_b7b_dropped == (before + i32(1)), "dropped exactly once: the moved-from binding drops nothing");
+});
+test("B7b: a combinator chain owns its move-only source", {
+  before := g_b7b_dropped;
+  {
+    toks := _B7bTokens(n : usize(3));
+    n := toks.into_iter().map(i => (i.* * usize(10))).fold(usize(0), (acc, x) => (acc.* + x.*));
+    assert(n == usize(30), "0 + 10 + 20");
+    comptime_expect_error(toks.into_iter(), "use of moved value");
+  };
+  assert(g_b7b_dropped == (before + i32(1)), "the chain dropped the source once");
+});
+// --- D3.4: rev / DoubleEndedIterator (plans/archive/STD_API_AUDIT.md) ---------------
+test("rev on integer ranges", {
+  mut(out) := ArrayList(i32).from([i32(0),]);
+  (i32(0) .. i32(5)).rev().for_each({ &mut out }(x) => {
+    out.push(x.*);
+  });
+  assert(out.to_string() == `[0, 4, 3, 2, 1, 0]`, "half-open range backwards");
+  mut(inc) := ArrayList(i32).from([i32(0),]);
+  (i32(1) ..= i32(4)).rev().for_each({ &mut inc }(x) => {
+    inc.push(x.*);
+  });
+  assert(inc.to_string() == `[0, 4, 3, 2, 1]`, "inclusive range backwards");
+});
+test("rev on a range terminates at the type's MIN", {
+  // The canonical-empty sentinel is end-agnostic, so an inclusive range that
+  // reaches MIN from the back stops instead of underflowing `end`.
+  n := (u8(0) ..= u8(2)).rev().count();
+  assert(n == usize(3), "u8(0)..=u8(2) yields exactly 3 from the back");
+});
+test("rev on an ArrayList and on an Array", {
+  xs := ArrayList(i32).from([i32(1), i32(2), i32(3)]);
+  mut(got) := ArrayList(i32).from([i32(0),]);
+  xs.into_iter().rev().for_each({ &mut got }(x) => {
+    got.push(x.*);
+  });
+  assert(got.to_string() == `[0, 3, 2, 1]`, "ArrayList backwards");
+  mut(arr_out) := ArrayList(i32).from([i32(0),]);
+  [i32(7), i32(8)].into_iter().rev().for_each({ &mut arr_out }(x) => {
+    arr_out.push(x.*);
+  });
+  assert(arr_out.to_string() == `[0, 8, 7]`, "Array backwards");
+});
+// Self-nesting adaptors — a generic struct instantiated over ITSELF. These used
+// to mint two C type identities for one logical type and fail at the C compiler;
+// issues/fixed/nested-same-adaptor-instantiation-identity-split.md.
+test("rev of rev is the identity", {
+  mut(out) := ArrayList(i32).from([i32(0),]);
+  (i32(0) .. i32(4)).rev().rev().for_each({ &mut out }(x) => {
+    out.push(x.*);
+  });
+  assert(out.to_string() == `[0, 0, 1, 2, 3]`, "double rev restores source order");
+});
+test("three levels of rev", {
+  mut(out) := ArrayList(i32).from([i32(0),]);
+  (i32(0) .. i32(4)).rev().rev().rev().for_each({ &mut out }(x) => {
+    out.push(x.*);
+  });
+  assert(out.to_string() == `[0, 3, 2, 1, 0]`, "triple rev reverses again");
+});
+test("self-nesting through a VARIABLE-BOUND receiver", {
+  // The chained form re-specializes on demand; the variable-bound form keeps
+  // the stamp, and only the stamp was repaired — so both are covered.
+  it := (i32(0) .. i32(4)).rev().rev();
+  mut(out) := ArrayList(i32).from([i32(0),]);
+  it.for_each({ &mut out }(x) => {
+    out.push(x.*);
+  });
+  assert(out.to_string() == `[0, 0, 1, 2, 3]`, "variable-bound double rev");
+});
+test("self-nesting on adaptors other than rev", {
+  assert((i32(0) .. i32(9)).take(usize(5)).take(usize(2)).count() == usize(2), "take of take");
+  assert((i32(0) .. i32(9)).skip(usize(1)).skip(usize(1)).count() == usize(7), "skip of skip");
+});
+test("a self-nested chain still composes with collect and map", {
+  got := (i32(0) .. i32(4)).rev().rev().collect(ArrayList(i32));
+  assert(got.to_string() == `[0, 1, 2, 3]`, "collect after a self-nested chain");
+  // `.map` puts a closure type in the adaptor's type arguments, which the
+  // canonicalizer deliberately declines to touch — keep that path exercised.
+  doubled := (i32(0) .. i32(3)).rev().rev().map(x => (x.* * i32(2))).collect(ArrayList(i32));
+  assert(doubled.to_string() == `[0, 2, 4]`, "map after a self-nested chain");
+});
+test("next and next_back meet in the middle", {
+  mut(it) := (i32(0) .. i32(4)).into_iter();
+  a := it.next();
+  b := it.next_back();
+  c := it.next();
+  d := it.next_back();
+  e := it.next();
+  assert(a.unwrap() == i32(0), "front 0");
+  assert(b.unwrap() == i32(3), "back 3");
+  assert(c.unwrap() == i32(1), "front 1");
+  assert(d.unwrap() == i32(2), "back 2");
+  assert(e.is_none(), "the ends have met");
+});
+// --- D3.4: collect / FromIterator (plans/archive/STD_API_AUDIT.md) ------------------
+// NOTE: every `.map(...).collect(...)` here stays at ONE Item type (i32). A
+// second Item type through the same combinator stamp trips the pre-existing
+// shared-stamp pollution — issues/fixed/iterator-chain-shared-stamp-cross-item-pollution.md.
+test("collect into an ArrayList", {
+  got := (i32(0) .. i32(4)).collect(ArrayList(i32));
+  assert(got.to_string() == `[0, 1, 2, 3]`, "range collects in order");
+});
+test("collect after map", {
+  squares := (i32(1) ..= i32(4)).map(x => (x.* * x.*)).collect(ArrayList(i32));
+  assert(squares.to_string() == `[1, 4, 9, 16]`, "mapped chain collects");
+});
+test("collect after filter", {
+  evens := (i32(0) .. i32(8)).filter(x => ((x.* % i32(2)) == i32(0))).collect(ArrayList(i32));
+  assert(evens.to_string() == `[0, 2, 4, 6]`, "filtered chain collects");
+});
+test("collect into a Deque", {
+  { Deque } :: import("std/collections/deque");
+  mut(d) := (i32(1) .. i32(4)).collect(Deque(i32));
+  assert(d.len() == usize(3), "deque length");
+  assert(d.pop_front().unwrap() == i32(1), "front is the first element");
+});
+test("collect into a HashSet collapses duplicates", {
+  { HashSet } :: import("std/collections/hash-set");
+  xs := ArrayList(i32).from([i32(1), i32(2), i32(2), i32(3)]);
+  set := xs.into_iter().collect(HashSet(i32));
+  assert(set.len() == usize(3), "duplicates collapse");
+});
+test("collect and rev on an EMPTY sequence", {
+  empty := (i32(0) .. i32(0)).collect(ArrayList(i32));
+  assert(empty.len() == usize(0), "collecting nothing yields an empty collection");
+  assert((i32(0) .. i32(0)).rev().count() == usize(0), "rev of an empty range yields nothing");
+  assert((i32(5) ..= i32(4)).rev().count() == usize(0), "rev of an empty inclusive range too");
+});
+test("collect into a String concatenates", {
+  parts := ArrayList(String).from([`a`, `b`, `c`]);
+  joined := parts.into_iter().collect(String);
+  assert(joined == `abc`, "strings concatenate in order");
+});
+// issues/fixed/varbound-combinator-receiver-impl-match.md, the flat_map
+// residual: a user-written combinator whose Item is DOUBLY derived (B from the
+// inner iterator J that F returns), bound to a variable before a closure-taking
+// consumer. std never shipped a flat_map, so the shape is pinned here.
+_UserFlatMap :: (fn(comptime(I) : Type, comptime(J) : Type, comptime(F) : Type) -> comptime(Type))(
+  struct(_outer : I, _f : F, _cur : Option(J))
+);
+impl(
+  generic(I : Type, A : Type, J : Type, B : Type, F : Type),
+  where(I <: Iterator(Item := A), J <: Iterator(Item := B), F <: (Fn(item : &A) -> J)),
+  _UserFlatMap(I, J, F),
+  Iterator(
+    Item : B,
+    next : (fn(self : &mut Self) -> Option(B))({
+      (mut(res) : Option(B)) = .None;
+      (mut(going) : bool) = true;
+      while(going, {
+        got := match(
+          self._cur,
+          .Some(inner) => {
+            mut(it) := inner;
+            r := it.next();
+            self._cur = .Some(it);
+            r
+          },
+          .None => Option(B).None
+        );
+        match(
+          got,
+          .Some(v) => {
+            res = .Some(v);
+            going = false;
+          },
+          .None => match(
+            self._outer.next(),
+            .Some(a) => {
+              self._cur = .Some((self._f)(&a));
+            },
+            .None => {
+              going = false;
+            }
+          )
+        );
+      });
+      res
+    })
+  )
+);
+impl(
+  generic(I : Type),
+  where(I <: Iterator),
+  I,
+  _user_flat_map : (
+    fn(
+      generic(A : Type, J : Type, F : Type),
+      self : &Self,
+      f : &F,
+      where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> J))
+    ) -> _UserFlatMap(Self, J, F)
+  )(_UserFlatMap(Self, J, F)(_outer : self.*, _f : f.*, _cur : .None))
+);
+test("a variable-bound doubly-derived combinator (user flat_map) is still an Iterator", {
+  mut(out) := ArrayList(i32).new();
+  it := my_range(i32(1), i32(4))._user_flat_map(x => my_range(i32(0), x.*));
+  it.for_each({ &mut out }(x) => {
+    out.push(x.*);
+  });
+  assert(out.len() == usize(6), "0 | 0 1 | 0 1 2");
+});

@@ -4,9 +4,9 @@
 //! Note: Named `AstExpr` (not `Expr`) to avoid conflict with the prelude's builtin `Expr` type.
 pragma(Pragma.AllowUnsafe);
 { String, StringBuilder } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
-{ HashMap } :: import("std/collections/hash_map");
-{ HashSet } :: import("std/collections/hash_set");
+{ ArrayList } :: import("std/collections/array-list");
+{ HashMap } :: import("std/collections/hash-map");
+{ HashSet } :: import("std/collections/hash-set");
 { TokenKind, Token, intern_token_str, empty_token_text, TokenData } :: import("./token.yo");
 { format_error_message, with_code, YoError } :: import("./error.yo");
 { E_DELETED_SPELLING } :: import("./diagnostics.yo");
@@ -550,7 +550,7 @@ next_global_expr_id :: (fn() -> ExprId)(g_next_global_expr_id);
 /// as rewritten, under the node's own id, instead of writing its argument
 /// list. Three rewrites replace a node's argument 0 once the types are known:
 /// - a field read on a `Deref` wrapper (`Box`, `Rc`, `Arc`) whose own fields
-///   lack the label, `w.f` → `w.*.f` (`evaluator/exprs/property_access.yo`);
+///   lack the label, `w.f` → `w.*.f` (`evaluator/exprs/property-access.yo`);
 /// - a method only the wrapper's payload has, the callee `w.m` → `w.*.m`
 ///   (`_try_find_receiver_method`, `evaluator/calls/function.yo`);
 /// - a `dyn(v)` of a value that is not a box, `dyn(v)` → `dyn(Rc.new(v))`
@@ -1293,7 +1293,7 @@ is_function_boundary_arrow :: (fn(e : &AstExpr) -> bool)(
 /// function boundaries.
 ///
 // `evaluated_body_contains_unwind` and `expr_tree_contains_return` were
-// relocated to `./expr_traversal.yo`.
+// relocated to `./expr-traversal.yo`.
 export(BK_FN, BK_UNSAFE_FN, BK_CTL, BK_FN_TRAIT, BK_FN_ONCE_TRAIT, BK_FN_MUT_TRAIT, BK_ATOMIC, BK_STRUCT, BK_NEWTYPE, BK_ENUM, BK_UNION);
 export(BK_TRAIT, BK_IMPL_UPPER, BK_IMPL_LOWER, BK_PTR);
 export(BK_COMPTIME_LIST_TYPE, BK_FUTURE, BK_CONCRETE, BK_DYN_UPPER, BK_DYN_LOWER);
