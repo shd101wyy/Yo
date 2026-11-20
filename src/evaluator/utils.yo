@@ -5164,6 +5164,63 @@ drop_moves_of_skippable_operand :: (
     clear_skipped_operand_drops(ast_expr_id(operand_expr));
   });
 });
+/// One value a `cond` condition moved: the variable, and its state right
+/// before the condition (`cond_condition_moves`).
+CondConditionMove :: struct(var_id : usize, before_init : Option(Token), before_consumed : Option(Token));
+/// The values a `cond` condition moved: `env` is the environment it was
+/// evaluated in and `log_start` the flow log's length right before it. The
+/// criterion is `drop_moves_of_skippable_operand`'s: a variable of `env`
+/// whose first record in the condition's window starts initialized and
+/// unmoved, and that ends the condition moved.
+cond_condition_moves :: (fn(env : &Environment, log_start : usize) -> ArrayList(CondConditionMove))({
+  moves := ArrayList(CondConditionMove).new();
+  if(branch_init_log_len() > log_start, {
+    recs := first_flow_records_in(log_start, branch_init_log_len());
+    for(&recs, r => {
+      match(
+        find_variable_by_id(env, r.var_id),
+        .Some(v) => if(r.before_init.is_some() && r.before_consumed.is_none() && v.consumed_at_token().is_some(), {
+          moves.push(CondConditionMove(var_id : r.var_id, before_init : r.before_init.clone(), before_consumed : r.before_consumed.clone()));
+        }),
+        .None => ()
+      );
+    });
+  });
+  moves
+});
+/// A `cond` condition after the first runs only when every earlier one is
+/// false, as an operand of `||` after the first does: an earlier arm that is
+/// taken never runs it, so a value the condition moves is still owned on
+/// that arm's path. Every earlier arm that reaches the join drops it, as a
+/// branch arm that keeps a value its sibling moved does
+/// (`_drop_in_arms_that_keep`); a returning arm is the early-return pass's,
+/// whose cleanup point lies before the move. `bodies` are those earlier arms
+/// (evaluated, joined) and `cond_expr` the whole `cond`. Where the `cond`
+/// ends the value is moved or dropped on every path, so it stays marked
+/// moved; the join records that net effect for an enclosing arm or loop
+/// (issues/fixed/2026-11-19-a-move-in-a-later-cond-condition-leaks-when-an-earlier-arm-is-taken.md).
+drop_cond_condition_moves_in_earlier_arms :: (
+  fn(moves : &ArrayList(CondConditionMove), bodies : &ArrayList(AstExpr), env : &Environment, cond_expr : &AstExpr, ctx : &mut EvalContext, exn : Exception) -> unit
+)({
+  if((moves.len() == usize(0)) || (bodies.len() == usize(0)), {
+    return(());
+  });
+  keeps := ArrayList(Option(Token)).new();
+  (ki : usize) = usize(0);
+  while(ki < bodies.len(), ki = (ki + usize(1)), {
+    keeps.push(Option(Token).None);
+  });
+  for(moves, m => {
+    match(
+      find_variable_by_id(env, m.var_id),
+      .Some(v) => if(v.consumed_at_token().is_some(), {
+        _drop_in_arms_that_keep(&v, bodies, &keeps, env, ctx, exn, &Option(AstExpr).Some(Rc.clone(cond_expr.*)));
+        record_flow_event(v.id(), Rc.new(TypeValueNode.Unit), Option(TypeValue).None, FlowEventKind.Join, &v.token, &m.before_init, &m.before_consumed, &v.initialized_at_token(), match(v.consumed_at_token(), .Some(jc) => Option(Token).Some(jc), .None => Option(Token).None));
+      }),
+      .None => ()
+    );
+  });
+});
 /// Whether a value a skipped short-circuit operand would have moved has a
 /// drop of its own: the eligibility `_drop_in_arms_that_keep` checks. A
 /// module-level value lives for the whole program, a borrow or a binding that
@@ -6404,7 +6461,7 @@ export(set_closure_writes_captures, reject_implicit_capture_write, reject_write_
 export(CaptureFreezeConflict, local_borrow_root_variable, capture_freeze_conflict, raise_capture_freeze_conflict, capture_freeze_access_at, capture_freeze_access, capture_freezes_active, loans_active, access_place, access_variable, access_move, access_expr);
 export(doc_comment_lookup_key_from_token);
 export(_last_token_of);
-export(consume_case_body_temp_var, merge_and_check_envs, reject_mixed_closure_arms, reset_sibling_flow_state, keep_last_arm_moves, snapshot_loop_flow, check_loop_flow, reject_guard_moves, drop_moves_of_skippable_operand);
+export(consume_case_body_temp_var, merge_and_check_envs, reject_mixed_closure_arms, reset_sibling_flow_state, keep_last_arm_moves, snapshot_loop_flow, check_loop_flow, reject_guard_moves, drop_moves_of_skippable_operand, CondConditionMove, cond_condition_moves, drop_cond_condition_moves_in_earlier_arms);
 export(are_values_equal);
 /// Render an f64 with ROUND-TRIP precision (`%.17g`) for a FloatLit raw.
 /// The naive `v.to_string()` is C `%g` — SIX significant digits — and
