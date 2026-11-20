@@ -1,6 +1,6 @@
 // expect: accept
-// The positive twins: the read through the temporary guard ends within its statement, and a NAMED guard lives to
-// its scope end, after the last read of `r`.
+// The positive twins: the read through the temporary guard ends within its statement, and a NAMED guard (over a
+// second cell: the first guard's drop emptied `c.xs`) lives to its scope end, after the last read of `r`.
 { ArrayList } :: import("std/collections/array-list");
 { String } :: import("std/string");
 { println } :: import("std/fmt");
@@ -22,7 +22,8 @@ mkc :: (fn() -> Cell)({
 main :: (fn() -> unit)({
   mut(c) := mkc();
   println(`OUT: ${id(c.borrow_mut().get())}`);
-  g := c.borrow_mut();
+  mut(c2) := mkc();
+  g := c2.borrow_mut();
   r := id(g.get());
   println(`OUT: ${r.*}`);
 });
