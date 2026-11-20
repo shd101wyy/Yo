@@ -1,0 +1,15 @@
+# `yo fix <path> --module-names` (plans/backlog/KEBAB_CASE_NAMES.md Part C,
+# VERDICTS-67): `check` first warns once per project-local module file or
+# directory whose name is not kebab-case. `--dry-run` prints the rename map and
+# touches nothing; the run renames the files and directories (a file, a
+# directory, a directory module with an `index.yo` and an upper-case name) and
+# rewrites what resolves to them: a relative import with and without `.yo`,
+# `../`, a `[modules]` key and value (`demo/string_util`), a path under the
+# package root (`demo/deep_dir/thing`) and the `build.yo` root. A std import
+# outside the paths stays as written. The second run renames nothing, and the
+# renamed project checks without a warning.
+check src/main_app.yo
+fix . --module-names --dry-run
+fix . --module-names
+fix . --module-names
+check src/main-app.yo

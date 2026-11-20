@@ -4470,18 +4470,29 @@ inc :: (fn() -> unit)({
 2 spaces for indentation.
 
 - `snake_case`
-  - `file name`
-  - `directory name`
   - `function`
   - `variable`
-  - `module`
-- `PascaleCase`
+  - a binding that holds a whole module (`array_list :: import("std/collections/array-list");`)
+- `PascalCase`
   - `trait`
   - `type` and its variants
 - `UPPER_SNAKE_CASE`
   - `constant`
-- `kebab-case`
-  - `package name` (`yo.toml`'s `[package] name` and dependency keys, e.g. `markdown-yo`; `-` and `_` are different names)
+- `kebab-case`: every name that is only ever a string, never an identifier
+  - `package name` (`yo.toml`'s `[package] name` and dependency keys, e.g. `markdown-yo`)
+  - `.yo` file name (`array-list.yo`, `hash-map.test.yo`)
+  - `directory name`
+  - `[modules]` key
+
+A module path is only an `import(...)` string: nothing derives an identifier
+from it, so one separator serves the whole path
+(`import("markdown-yo/block-parser")`). `-` and `_` are different names, and
+nothing normalizes one into the other; a name may contain `[A-Za-z0-9_-]` and
+must not start or end with `-` (`yo check -foo.yo` would read a flag).
+`check` and `compile` warn on a project-local module file or directory whose
+name holds `_` or an upper-case letter, and `yo fix <path> --module-names`
+renames them and rewrites every import, `[modules]` entry and `build.yo` root
+that reaches them (`ERROR_DIAGNOSTICS.md`).
 
 ## Testing
 

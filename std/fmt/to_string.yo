@@ -32,6 +32,12 @@
 //! the module freezes, not after.
 //!
 //! The eighteen integer/bool/`str`/`String` impls are settled.
+//!
+//! This module holds no template literal. A module that holds one gets an
+//! `import("std/fmt")` from the parser, and `std/fmt` imports this module, so
+//! a template here would be an import cycle that leaves `ToString` unbound
+//! while `std/fmt` destructures it. The impls below build their text with
+//! `push_str` and `append_to`, which is what a template lowers to.
 pragma(Pragma.AllowUnsafe);
 { String, rune, ParseIntError, ParseFloatError, ParseBoolError } :: import("../string");
 { snprintf } :: import("../libc/stdio");
@@ -388,7 +394,7 @@ impl(
 impl(
   unit,
   ToString(
-    to_string : (fn(self : &Self) -> String)(`()`)
+    to_string : (fn(self : &Self) -> String)(String.from("()"))
   )
 );
 // === rune Implementation ===
@@ -418,8 +424,13 @@ impl(
     to_string : (fn(self : &Self) -> String)(
       match(
         self,
-        .Some(value) => `Some(${value})`,
-        .None => `None`
+        .Some(value) => {
+          mut(out) := String.from("Some(");
+          value.append_to(&mut out);
+          out.push_str(")");
+          out
+        },
+        .None => String.from("None")
       )
     )
   )
@@ -433,8 +444,18 @@ impl(
     to_string : (fn(self : &Self) -> String)(
       match(
         self,
-        .Ok(value) => `Ok(${value})`,
-        .Err(error) => `Err(${error})`
+        .Ok(value) => {
+          mut(out) := String.from("Ok(");
+          value.append_to(&mut out);
+          out.push_str(")");
+          out
+        },
+        .Err(error) => {
+          mut(out) := String.from("Err(");
+          error.append_to(&mut out);
+          out.push_str(")");
+          out
+        }
       )
     )
   )
@@ -447,20 +468,21 @@ impl(
   ArrayList(T),
   ToString(
     to_string : (fn(self : &Self) -> String)({
-      (mut(out) : String) = `[`;
+      mut(out) := String.from("[");
       (mut(i) : usize) = usize(0);
       n := self.len();
       while(i < n, {
         cond(
           (i > usize(0)) => {
-            out = `${out}, `;
+            out.push_str(", ");
           },
           true => ()
         );
-        out = `${out}${self(i)}`;
+        self(i).append_to(&mut out);
         i = (i + usize(1));
       });
-      `${out}]`
+      out.push_str("]");
+      out
     })
   )
 );
@@ -471,19 +493,20 @@ impl(
   Array(T, N),
   ToString(
     to_string : (fn(self : &Self) -> String)({
-      (mut(out) : String) = `[`;
+      mut(out) := String.from("[");
       (mut(i) : usize) = usize(0);
       while(i < N, {
         cond(
           (i > usize(0)) => {
-            out = `${out}, `;
+            out.push_str(", ");
           },
           true => ()
         );
-        out = `${out}${self(i)}`;
+        self(i).append_to(&mut out);
         i = (i + usize(1));
       });
-      `${out}]`
+      out.push_str("]");
+      out
     })
   )
 );
@@ -497,11 +520,11 @@ impl(
       self ->
         match(
           self,
-          .Empty => `cannot parse integer from empty string`,
-          .InvalidDigit => `invalid digit found in string`,
-          .PosOverflow => `number too large to fit in target type`,
-          .NegOverflow => `number too small to fit in target type`,
-          .InvalidRadix => `radix must be between 2 and 36`
+          .Empty => String.from("cannot parse integer from empty string"),
+          .InvalidDigit => String.from("invalid digit found in string"),
+          .PosOverflow => String.from("number too large to fit in target type"),
+          .NegOverflow => String.from("number too small to fit in target type"),
+          .InvalidRadix => String.from("radix must be between 2 and 36")
         )
     )
   )
@@ -513,13 +536,13 @@ impl(
       self ->
         match(
           self,
-          .Empty => `cannot parse float from empty string`,
-          .Invalid => `invalid float literal`
+          .Empty => String.from("cannot parse float from empty string"),
+          .Invalid => String.from("invalid float literal")
         )
     )
   )
 );
-impl(ParseBoolError, ToString(to_string : (self -> `provided string was not \`true\` or \`false\``)));
+impl(ParseBoolError, ToString(to_string : (self -> String.from("provided string was not `true` or `false`"))));
 // ============================================================================
 // Debug for the primitives (D15) — structural and display coincide here.
 // ============================================================================

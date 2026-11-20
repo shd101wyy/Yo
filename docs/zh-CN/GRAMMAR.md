@@ -111,7 +111,7 @@ TemplateString ::= '`' TemplateChar* '`'
 ;; FormatSpec    ::= 一个或多个 [0-9A-Za-z] 或 . < > ^ + - # * _ = ~
 ;; （不含空格、括号或引号 —— 这样 spec 回溯永远不会越出插值）。
 ;; `${expr:spec}` 调用 `.format("<spec>")` 而不是 `.to_string()`；含 spec
-;; 的模板自动导入 `std/fmt/format` 而不是 `std/fmt/to_string`。
+;; 的模板自动导入 `std/fmt/format` 而不是 `std/fmt`。
 
 CharLiteral ::= "'" (CharChar | EscapeSequence) "'"
 ;; 内容必须恰好是一个字符（或反斜杠加一个字符）：'ab' 是词法错误。

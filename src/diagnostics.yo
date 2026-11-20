@@ -102,6 +102,16 @@ emit_warning :: (fn(d : &Diagnostic) -> unit)({
     });
   });
 });
+/// Warnings whose raise site already scoped them to the user's project, a
+/// checkout's own `std` included: the module-name warning
+/// (`warn_module_names`, src/main.yo). `take_user_warnings` keeps them past
+/// its std filter, which exists for warnings raised inside an installed std.
+(g_pending_scoped_warnings : RefCell(ArrayList(Diagnostic))) = RefCell(ArrayList(Diagnostic)).new(ArrayList(Diagnostic).new());
+emit_scoped_warning :: (fn(d : &Diagnostic) -> unit)({
+  if(g_warnings_enabled, {
+    g_pending_scoped_warnings.with_mut({ d : &d.* }(xs) => xs.push(d.clone()));
+  });
+});
 /// Take (and clear) the pending warnings — the CLI edge renders whatever
 /// accumulated during the command, in the process's current format.
 take_warnings :: (fn() -> ArrayList(Diagnostic))({
@@ -544,6 +554,11 @@ take_user_warnings :: (fn(std_root : &String, cache_root : &String) -> ArrayList
       .None => ()
     );
     kwi = (kwi + usize(1));
+  });
+  scoped := g_pending_scoped_warnings.with_mut(xs => xs.split_off(usize(0)));
+  (mut(si) : usize) = usize(0);
+  while(si < scoped.len(), si = (si + usize(1)), {
+    kept.push(scoped(si).clone());
   });
   kept
 });
@@ -1190,7 +1205,7 @@ export(render_diagnostics_human, render_diagnostics_short, render_diagnostics_js
 export(render_diagnostics_sarif);
 export(render_diagnostics_for_mode, set_error_format, error_format, emit_rendered_text, emit_chatter);
 export(set_color_enabled, color_enabled);
-export(set_warnings_enabled, warnings_enabled, emit_warning, take_warnings);
+export(set_warnings_enabled, warnings_enabled, emit_warning, emit_scoped_warning, take_warnings);
 export(take_user_warnings, flush_user_warnings);
 export(edit_distance, suggest_name);
 export(register_std_export, lookup_std_exporters, std_export_index_size);

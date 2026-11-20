@@ -2505,10 +2505,14 @@ impl(
           input : Rc.clone(self.input_string)
         )
       );
+      // The injected path names the `std/fmt` package, not the file that
+      // defines `ToString` (`std/fmt/to_string.yo`), so a std file rename never
+      // reaches this string or a seed's copy of it (kebab-case Part C,
+      // issues/questions/2026-11-19-std-fmt-to-string-keeps-its-name-for-the-seed.md).
       str_tok := Rc.new(
         TokenData(
           kind : TokenKind.StringLit,
-          value : Rc.new(if(self.has_template_spec, String.from("\"std/fmt/format\""), String.from("\"std/fmt/to_string\""))),
+          value : Rc.new(if(self.has_template_spec, String.from("\"std/fmt/format\""), String.from("\"std/fmt\""))),
           row : u32(0),
           column : u32(0),
           character : u32(0),
@@ -2570,7 +2574,7 @@ parse :: (
 ///
 /// "One expression" is what the CALLER gets; the parse may legitimately yield
 /// more than one node. A TEMPLATE LITERAL desugars to the value plus an
-/// `import("std/fmt/to_string")` the parser injects so `.to_string()` resolves,
+/// `import("std/fmt")` the parser injects so `.to_string()` resolves,
 /// so `` `x` `` parses as TWO expressions and every template literal was
 /// rejected here — which is why `.to_expr()` could not build one, surfacing in
 /// `derive` as the unrelated-looking "derive rule must return(comptime(Expr));

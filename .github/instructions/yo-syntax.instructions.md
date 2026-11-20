@@ -523,6 +523,8 @@ node_module :: import("./node.yo");
 
 For files within the same directory, always use relative paths (`./file.yo`). For std library modules, use the standard `"std/module"` path.
 
+**Module file, directory and `[modules]` key names are kebab-case** (`plans/backlog/KEBAB_CASE_NAMES.md` Part C): `array-list.yo`, `std/collections/hash-map`, `import("markdown-yo/block-parser")` — one separator per import string. A module path is only ever a string, never an identifier, so nothing derives a name from it; a whole-module binding is still an identifier (`array_list :: import("std/collections/array-list");`). `-` and `_` are different names (a wrong guess is a hard resolve failure), and a name must not start or end with `-`. `check`/`compile` warn on a project-local module file or directory with `_` or an upper-case letter in its name (a warning, never an error; `yo fmt` never renames), and `yo fix <path> --module-names` renames them and rewrites every `import(...)`, `[modules]` entry and `build.yo` `root :` path that resolves to them (`--dry-run` prints the rename map). It does not see paths in comments, shell scripts or strings that are not `import(...)` arguments.
+
 **Do NOT import `std/prelude`** — the prelude is automatically loaded for every file. Explicitly importing it (`import "std/prelude"` or `import "std/prelude.yo"`) will produce a compile error. Third-party modules named `prelude.yo` are fine — only the std prelude is blocked.
 
 ## GADT enum syntax

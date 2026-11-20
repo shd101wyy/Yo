@@ -70,6 +70,7 @@ YO_COLOR=always yo build         # 通过环境变量设置
 | E0007 `.{ a; b }`——带点的块 | 删掉 `.` |
 | E0618 具名可调用值被裸传入 `Dyn(Fn(...))` 位置 | 按该位置所接受的指针擦除名字：`run(f)` → `run(dyn(Box.new(f)))`（`Rc` 为 `dyn(Rc.new(f))`，引用为 `dyn(&f)`；更长的值只给帮助） |
 | E0620 具名普通值上的 `dyn(v)` | 装箱：`dyn(v)` → `dyn(Box.new(v))`（更长的值只给帮助） |
+| import 的 kebab-case 写法恰好指向一个模块时的 `Module not found`（模块已重命名为 kebab-case） | 把 import 字符串改写为该写法（`./string_util.yo` → `./string-util.yo`）；只做逐段的 `_` → `-` 与小写化，不做其他猜测。多个匹配，或违反命名规则的路径没有匹配时只给帮助；旧名字永远不会被解析 |
 
 `yo fix <path> --migrate deref` 执行的是迁移而非修复，服务于决策 43 第 2 步（N1e-1）：引用绑定用 `.*` 读写它所引用的值。它在 E0926 记录而不拒绝的模式下对每个文件求值：整体读写引用的地方追加 `.*`（`n + 1` → `n.* + 1`，`r = v` → `r.* = v`，`&r` → `&r.*`）；经由引用表示 `Box`/`Rc`/指针解引用的 `v.*` 改为 `v.*.*`；给捕获列表中的简写加上标签（`{ r }` → `{ r : r.* }`）；删掉 `match(&r, …)` 中多余的标记。源文本在一行内已不再打印为求值得到的表达式的位置，以及被引用值不能隐式复制的拷贝（那里的 `r.*` 会是 E0901），会连同位置列出并保持原样。第二次运行不会记录任何内容。
 
@@ -80,6 +81,8 @@ YO_COLOR=always yo build         # 通过环境变量设置
 以上是 v0.2.77 所附带的模式，v0.2.77 也是迁移 v0.2.77 代码的版本。从 v0.2.78 起 `Dyn(...)` 是非定长类型，按值的裸 `Dyn(...)` 是 E0619；为 v0.2.77 编写的代码分两步升级，E0619 的提示给出这两步：先在 v0.2.77 上运行 `yo version install 0.2.77 && yo fix <path> --migrate unsized` 改写类型写法，再在 v0.2.78 上运行 `yo fix <path> --migrate unsized` 改写借出。v0.2.78 的模式按 v0.2.78 的写法读取输入：`*Dyn(...)`、类型别名的定义体、`impl(Dyn(...), ...)` 以及 `size_of`/`Type.eq` 的实参都指非定长对象，因此它不改写任何类型写法。它把在接受 `&Dyn(T)` 的位置借出 `Box(Dyn(T))` 的 `&b` 改写为 `&b.*`（`&Box(Dyn(T))` 借出的是 box，没有任何隐式转换把它变成指向 box 所拥有对象的引用：E0601，其提示给出 `&b.*`），并把普通值上的旧别名 `dyn(v)` 改写为 `dyn(Box.new(v))`：按位置定位，因此模板字面量、字符串中的括号以及跨多行的实参也会被改写；`comptime_expect_error` 实参中的 `dyn` 位置正是被测试的错误，保持原样。它列出在接受 `&Dyn(T)` 的位置给出的 `Box(Dyn(T))` 临时值、原始指针上的 `dyn(p)`、具名句柄上的 `dyn(h)`、无法在一行内打印回来的借出，以及含有未求值平台分支的文件。
 
 以上是 v0.2.78 所附带的模式，v0.2.78 也是迁移 `dyn(v)` 别名的版本。从 v0.2.79 起裸 `dyn(v)` 是 E0620（`dyn` 对指针做非定长化，而值没有指针），其提示给出这一步：`yo version install 0.2.78 && yo fix <path> --migrate unsized`，之后再升级到下一个版本。v0.2.79 的模式保留借出改写（`&b` → `&b.*`）以及对具名句柄上的 `dyn(h)` 和拥有型 `downcast` 的列出。
+
+`yo fix <path>... --module-names` 不是迁移，也永不退役：它应用模块文件与目录的命名规则（`.yo` 文件、目录与 `[modules]` 键都使用 kebab-case，见 `DESIGN.md` 的命名规范）。路径下每个名字含 `_` 或大写字母的 `.yo` 文件或目录都会被重命名为其 kebab-case 写法（`_` 写作 `-`，大写转小写，去掉开头或结尾的 `-`：`array_list.yo` → `array-list.yo`，`_fsm.yo` → `fsm.yo`），所有解析到它的位置都会被改写：每个 `import("…")` 字符串按编译器的解析方式解析（因此 `./foo_bar.yo`、`../foo_bar`、`pkg/foo_bar`、std 也在路径中时的 `std/…/foo_bar`，以及目录模块 `foo_bar/index.yo` 都会随之改写），路径之上 `yo.toml` 的 `[modules]` 键与值，以及 `build.yo` 文件中 `root : "…"` 的路径。重命名映射会被打印出来（`fix: rename old -> new`；键则为 `[modules] old -> new`，它会改变下游包使用的导入名），下游包可以据此应用。不再能解析的 import（上游已重命名的 std 或依赖模块）会改为指向其 kebab-case 写法所解析到的唯一模块，也就是该错误的修复所给出的候选；若有多个候选，则列出并保持原样。因此升级跨过一次重命名的包只需运行一次 `yo fix . --module-names`。`--dry-run` 只打印映射，不写入任何内容。若某个名字的新写法已经存在（`foo_bar.yo` 与 `foo-bar.yo` 并存：`-` 与 `_` 是不同的名字），或两个名字变成同一个，整次运行会在写入任何内容之前被拒绝。只改大小写的重命名会经过一个临时名字，因此大小写不敏感的文件系统也能看到它。cli-case 夹具、`tests/origins/corpus` 与 `issues/repros` 保持不变；第二次运行不会重命名任何东西。编译器无法识别为模块路径的字符串（注释、shell 脚本或测试字符串字面量中的路径）不会被改写。
 
 模块级或 `thread_local` 运行期绑定是不可变的（Rust 的 `static`），除非它的名字被包在 `mut(...)` 里（`static mut`，决策 47）。写入不可变的全局变量是 E0917：重新赋值、写入它所持有的值的字段或元素、把该值的位置以 `&mut` 借出，或在它上面调用 `&mut self` 方法。经由全局变量持有的“门”写入（`RefCell` 上的 `r.with_mut(...)`、`std/sync` 的各种门类型）不是对绑定的写入，不需要标记；只有对绑定本身重新赋值才需要。标记写在声明名上：`mut(G) := v`、`(mut(G) : T) = v`、`thread_local(mut(G))`。
 
@@ -133,6 +136,16 @@ help: prefix the name with `_` to silence this warning
 ```
 
 读取变量即视为使用；仅赋值不算（`x := 1; x = 2;` 仍会警告 —— 该值从未影响任何东西）。名称加 `_` 前缀可消除警告；参数与模块级绑定从不警告；警告绝不改变退出码。在 `json` 渲染中它们以 `"severity":"warning"` 的 JSON Lines 出现，`short` 中则是 `warning:` 行。
+
+第二个家族是**模块名**。`check` 与 `compile` 对其求值过的、名字含 `_` 或大写字母的每个 `.yo` 文件或目录警告一次，前提是它属于项目本地：其所在位置或上方有 `yo.toml`，且它不是内容存储中的依赖（检出仓库自身的 `std` 属于项目本地，已安装的 std 不是；cli-case 夹具、`tests/origins/corpus` 与 `issues/repros` 豁免）——
+
+```text
+warning: module file name `string_util.yo` is not kebab-case
+ --> src/string_util.yo:1:1
+help: rename it `string-util.yo`: `yo fix . --module-names` renames every such file and directory under the project and rewrites the imports, `[modules]` entries and `build.yo` roots that reach them
+```
+
+它是警告而绝不是错误，`yo fmt` 也不会重命名文件：文件名是仓库层面的事实，因此编译器只指出它，由 `yo fix <root> --module-names`（见上文）完成重命名。
 
 ## 错误码与 `yo explain`
 

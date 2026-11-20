@@ -351,6 +351,14 @@ reach for it to parallelize I/O; that's the event loop's job.
 
 ## Naming and sharp edges (rapid fire)
 
+- Names that are only strings are kebab-case: `.yo` files, directories,
+  `[modules]` keys and packages (`std/collections/array-list`,
+  `import("markdown-yo/block-parser")`); identifiers keep `snake_case` /
+  `PascalCase` / `UPPER_SNAKE_CASE`, so a whole-module binding is
+  `array_list :: import("std/collections/array-list");`. `-` and `_` are
+  different names. `yo fix <path> --module-names` renames offending files
+  and rewrites the imports that reach them; `check` warns on them.
+
 - Grammar words are NOT reserved as binding names (`type` works as a field
   or local); what rejects is the builtin-dispatch set (`unwind`, `recur`,
   `consume`, ...) and `for`. Avoid Windows macro names (`near`, `far`,
