@@ -84,7 +84,7 @@ pragma(Pragma.AllowUnsafe);
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
 { type_key } :: import("../../types/type-key.yo");
 { record_await_fusion_candidate } :: import("../../expr-traversal.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_place_of, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, variable_is_reference_binding, variable_is_mut_borrow, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, local_borrow_write_expr, origin_of, bind_join_roots_for, origin_param_names_of, param_declared_origin_slot, is_rigid_origin_name, origin_name_phrase, OriginRootPlace, check_capture_freeze_access, reference_field_read_mode, deref_operand_is_raw_pointer, local_borrow_place_text, FutureRoot, note_future_roots, future_roots_of, fn_future_result_origins, holder_future_roots, is_reference_read, n2b_roots_text, deref_rule_applies, deref_rule_recording, is_reference_deref_site, note_binder_value_read, forget_binder_value_read, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, fn_value_definition, type_var_ids_of, deref_chain_atom, reference_reborrow_chain, call_activation_token, projection_call_root_args, ProjectionRootArg, flow_write_back_through, local_mut_borrow_of_holder, expr_is_mut_reference_value, variable_holder_roots, legacy_box_dyn_lend, legacy_str_type_arg } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_place_of, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, variable_is_reference_binding, variable_is_mut_borrow, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, local_borrow_write_expr, origin_of, bind_join_roots_for, place_write_join, origin_param_names_of, param_declared_origin_slot, is_rigid_origin_name, origin_name_phrase, OriginRootPlace, check_capture_freeze_access, reference_field_read_mode, deref_operand_is_raw_pointer, local_borrow_place_text, FutureRoot, note_future_roots, future_roots_of, fn_future_result_origins, holder_future_roots, is_reference_read, n2b_roots_text, deref_rule_applies, deref_rule_recording, is_reference_deref_site, note_binder_value_read, forget_binder_value_read, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, fn_value_definition, type_var_ids_of, deref_chain_atom, reference_reborrow_chain, call_activation_token, projection_call_root_args, ProjectionRootArg, flow_write_back_through, local_mut_borrow_of_holder, expr_is_mut_reference_value, variable_holder_roots, legacy_box_dyn_lend, legacy_str_type_arg } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -10211,9 +10211,20 @@ _lend_through_slots :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalConte
 /// parameters `w_names`, their type variables `w_tvars`, or, for a
 /// specialized generic container's method (`by_type_argument`), a type
 /// occurring among their type arguments. The callee may store any of them
-/// through that `&mut`.
+/// through that `&mut`; `stored` receives those arguments.
 _lend_through_solve :: (
-  fn(op_args : &ArrayList(AstExpr), slots : &SharedList(TypeValue), wi : usize, w_names : &ArrayList(String), w_tvars : &ArrayList(String), by_type_argument : bool, w_pointees : &ArrayList(TypeValue), env : &Environment, ctx : &EvalContext) -> ArrayList(OriginRootPlace)
+  fn(
+    op_args : &ArrayList(AstExpr),
+    slots : &SharedList(TypeValue),
+    wi : usize,
+    w_names : &ArrayList(String),
+    w_tvars : &ArrayList(String),
+    by_type_argument : bool,
+    w_pointees : &ArrayList(TypeValue),
+    stored : &mut ArrayList(AstExpr),
+    env : &Environment,
+    ctx : &EvalContext
+  ) -> ArrayList(OriginRootPlace)
 )({
   solved := ArrayList(OriginRootPlace).new();
   (xj : usize) = usize(0);
@@ -10263,12 +10274,16 @@ _lend_through_solve :: (
             });
           });
           if(!names_it && (by_type_argument && type_carries_origin(&x_slot)), {
+            // A binder-typed by-value slot specialized to a reference is
+            // `ValueSlot(&X)` (R3), while the pointee's type argument is the
+            // bare `&X`: the value the slot takes is what occurs there.
+            x_needle := match(&x_slot, Rc(.ValueSlot(xn_inner)) => Rc.clone(xn_inner), _ => Rc.clone(&x_slot));
             (pti : usize) = usize(0);
-      while(pti < w_pointees.len(), pti = (pti + usize(1)), {
-        if(_type_occurs_in_type_arguments(&x_slot, &w_pointees(pti), u32(0)), {
-          names_it = true;
-        });
-      });
+            while(pti < w_pointees.len(), pti = (pti + usize(1)), {
+              if(_type_occurs_in_type_arguments(&x_needle, &w_pointees(pti), u32(0)), {
+                names_it = true;
+              });
+            });
           });
           if(!names_it && (w_tvars.len() > usize(0)), {
             x_tvars := ArrayList(String).new();
@@ -10285,6 +10300,7 @@ _lend_through_solve :: (
             eprintln(`[n2b] lend-through step3 x=${ast_expr_to_string(&x_arg)} slot=${type_to_string(&x_slot)} carries=${type_carries_origin(&x_slot).to_string()} names_it=${names_it.to_string()}`);
           });
           if(names_it, {
+            stored.push(x_arg.clone());
             x_roots := origin_of(&x_arg, env, ctx);
             // A projection call's result passed inline
             // (`put(&mut h, pick(&x.*.s))`) is a place inside its
@@ -10331,6 +10347,25 @@ _lend_through_solve :: (
     xj = (xj + usize(1));
   });
   solved
+});
+/// `lend_through` step 3's write-back into one holder: a flow-inferred
+/// holder joins the solved set (`bind_join_roots_for`, KILL when the store
+/// replaced its value); a parameter of the body being evaluated has its
+/// origins declared, rigid where elided (O-3), so each stored argument is
+/// judged as the store `holder.* = arg` through it would be
+/// (`place_write_join`'s subset checks: E0923 for another parameter's
+/// origin, E0912 for a body local), then joined.
+_lend_write_back_into :: (
+  fn(holder : &Variable, solved : &ArrayList(OriginRootPlace), stored : &ArrayList(AstExpr), kill : bool, at : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit
+)({
+  if(param_declared_origin_slot(holder, env, ctx).is_some(), {
+    (si : usize) = usize(0);
+    while(si < stored.len(), si = (si + usize(1)), {
+      place_write_join(holder, &ast_expr_strip_borrow_marker(&stored(si)), env, ctx, exn);
+    });
+    return(());
+  });
+  bind_join_roots_for(holder, solved, at, env, ctx, exn, kill : kill);
 });
 /// O-2's `lend_through` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3):
 /// the one place O3 step 1's substitution and step 3's exact unification are
@@ -10586,7 +10621,8 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
             if(unfixed, {
               w_pointees := ArrayList(TypeValue).new();
               w_pointees.push(t_slot_pointee(&w_slot));
-              solved := _lend_through_solve(&op_args, &slots, wi, &w_names, &w_tvars, by_type_argument, &w_pointees, env, ctx);
+              stored := ArrayList(AstExpr).new();
+              solved := _lend_through_solve(&op_args, &slots, wi, &w_names, &w_tvars, by_type_argument, &w_pointees, &mut stored, env, ctx);
               // A reference binding's value type is its pointee, which carries no
               // origin: the binding itself is the holder, and its slot type spells
               // (or infers) the origin the solved set widens (`dst : &mut &(T, p)`).
@@ -10624,7 +10660,7 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
                             if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
                               eprintln(`[n2b] write-back ${hh.name} (chain depth ${link.depth.to_string()}): roots=[${n2b_roots_text(&solved)}] at ${ast_expr_token(&w_arg).module_path.*.clone()}:${(ast_expr_token(&w_arg).row + u32(1)).to_string()}`);
                             });
-                            bind_join_roots_for(&hh, &solved, ast_expr_token(&w_arg), env, ctx, exn, kill : (link.is_end && (n_ends == usize(1))));
+                            _lend_write_back_into(&hh, &solved, &stored, (link.is_end && (n_ends == usize(1))), ast_expr_token(&w_arg), env, ctx, exn);
                             // A local `&mut` borrow of a holder (`sp := &mut
                             // slot`): the store lands in the holder (A25).
                             if(local_mut_borrow_of_holder(&hh), {
@@ -10680,12 +10716,25 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
               });
             });
             if(n_unfixed, {
-              n_solved := _lend_through_solve(&op_args, &slots, wi, &n_names, &n_tvars, n_by_type_argument, &n_pts, env, ctx);
+              n_stored := ArrayList(AstExpr).new();
+              n_solved := _lend_through_solve(&op_args, &slots, wi, &n_names, &n_tvars, n_by_type_argument, &n_pts, &mut n_stored, env, ctx);
               if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
                 eprintln(`[n2b] lend-through nested &mut in ${ast_expr_to_string(&n_arg)}: solved=[${n2b_roots_text(&n_solved)}] targets=[${n2b_roots_text(&origin_of(&n_arg, env, ctx))}]`);
               });
               if(n_solved.len() > usize(0), {
-                flow_write_back_through(&origin_of(&n_arg, env, ctx), &String.new(), &n_solved, ast_expr_token(&n_arg), env, ctx, exn);
+                n_targets := origin_of(&n_arg, env, ctx);
+                (nt : usize) = usize(0);
+                while(nt < n_targets.len(), nt = (nt + usize(1)), {
+                  if(n_targets(nt).is_mut && !n_targets(nt).place.module_root, {
+                    match(
+                      get_variables_from_env(env, n_targets(nt).place.root_name.clone()).last_cloned(),
+                      .Some(ntv) => if(!ntv.is_module_level() && !ntv.is_compile_time_only(), {
+                        _lend_write_back_into(&ntv, &n_solved, &n_stored, false, ast_expr_token(&n_arg), env, ctx, exn);
+                      }),
+                      .None => ()
+                    );
+                  });
+                });
               });
             });
           });
