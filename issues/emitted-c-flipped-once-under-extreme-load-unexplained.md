@@ -83,3 +83,16 @@ compiler builds with subsets of a `match(.None => ())`-guarded allocation
 converted to panics, or add a debug counter of interned types printed at
 exit and diff the counter across modes to find WHICH registration moves. CI
 is unaffected today (the fixpoint legs run on idle, isolated runners).
+
+## 2026-11-19 — reproduced repeatedly under load (derive-fix lane)
+
+Two `--emit-c --optimize 2 --skip-c-compiler` runs of `src/main.yo` with the SAME develop stage-1 (`d8f0d89fa`), on the
+same tree and std, differed from a third binary's output by 281,506 and 155,324 diff lines respectively. The byte sizes
+were identical, and the differences are numeric id suffixes only (0 diff lines once digits are normalized). So run to
+run, the develop binary's id allocation order was not stable. The box was at load average ~80 (a dozen concurrent
+compiles; WSL2, 32 threads). In the same window the fixpoint's stage-2 vs stage-3 comparison stayed byte-identical
+(`FIXPOINT_HOLDS` on four rider branches), so the instability shows only across separate processes under load. That
+fits a timing-dependent ordering source (a deadline/timeout path, or anything keyed on wall clock or scheduling) more
+than a hash-seed one. Logs: the derive-fix lane's `~/Workspace/Yo-wt/v0279-derivefix/tmp/log/emit_diff.txt` (raw diff
+head) and the PR body of `v0279/derive-later-clone`. Still S3: no behavioral difference was observed, but it makes
+"zero emit-diff" gates unusable as stated under load. Normalize digits before comparing until the source is found.
