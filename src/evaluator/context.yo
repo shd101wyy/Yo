@@ -3751,6 +3751,14 @@ impl_in_flight_field_clone_at :: (fn(index : usize, field_idx : usize) -> Option
     )
   )
 );
+/// Whether the pending field `field_idx` of the entry at `index` has a
+/// phase-A entry in the method registry, read LIVE: `force_in_flight_field`
+/// sets the flag in the stack while the field's own evaluation (running on a
+/// copy) is still in progress, so the completing registration must ask the
+/// stack, not its copy.
+impl_in_flight_field_phase_a_at :: (fn(index : usize, field_idx : usize) -> bool)(
+  g_impls_in_flight.with(xs => ((index < xs.len()) && (field_idx < xs(index).fields.len()) && xs(index).fields(field_idx).phase_a_registered))
+);
 /// The entry's live env.
 impl_in_flight_env_at :: (fn(index : usize) -> Environment)(
   g_impls_in_flight.with(xs => Rc.clone(xs(index).env))
@@ -4274,6 +4282,7 @@ export(
   impl_in_flight_clone_at,
   impl_in_flight_header_at,
   impl_in_flight_field_clone_at,
+  impl_in_flight_field_phase_a_at,
   impl_in_flight_ctx_copy_at,
   impl_in_flight_len,
   sync_in_flight_ctx_at,

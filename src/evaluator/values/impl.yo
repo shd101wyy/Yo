@@ -120,6 +120,7 @@ pragma(Pragma.AllowUnsafe);
   impl_in_flight_clone_at,
   impl_in_flight_header_at,
   impl_in_flight_field_clone_at,
+  impl_in_flight_field_phase_a_at,
   impl_in_flight_ctx_copy_at,
   impl_in_flight_len,
   _mutate_impl_in_flight_at,
@@ -4264,8 +4265,9 @@ _materialize_default_body :: (
 /// Evaluate ONE colon-pair member of a concrete (Case 3) impl — the body the
 /// field loop ran inline before P3 (plans/reference/LAZY_TOPLEVEL_BINDINGS.md), pulled out
 /// so `force_in_flight_field` can run it OUT OF ORDER when a sibling references
-/// the member before its position. `field_opt` is the member's pending entry
-/// (a direct field, or an inner field of the trait entry being evaluated).
+/// the member before its position. `field_at` is the (stack, field) index of
+/// the member's pending entry (a direct field, or an inner field of the trait
+/// entry being evaluated); its phase-A flag is read live from the stack.
 /// Reads and advances the impl env through `st.env`.
 /// `actual` with its receiver's mode taken from `expected`. An impl may spell
 /// a trait method's receiver in any of the forms `docs/en-US/DYN_DESIGN.md`
@@ -4492,7 +4494,7 @@ _c3_eval_colon_pair :: (
     meth_expr : &AstExpr,
     current_trait_ty : &Option(TypeValue),
     st : &mut ImplInFlight,
-    field_opt : &Option(ImplPendingField),
+    field_at : Option(Tuple(usize, usize)),
     ctx : &mut EvalContext,
     exn : Exception
   ) -> unit
@@ -4759,8 +4761,8 @@ _c3_eval_colon_pair :: (
         // and value instead of registering a second entry.
         (updated_phase_a : bool) = false;
         match(
-          field_opt,
-          .Some(pa_pf) => if(pa_pf.phase_a_registered, {
+          field_at,
+          .Some(pa_at) => if(impl_in_flight_field_phase_a_at(pa_at.0, pa_at.1), {
             pa_real_fid := match(Rc.clone(method_val), Rc(.FuncVal(__pa_fvd, _)) => __pa_fvd.*.func_id.clone(), _ => String.new());
             (pa_stid : String) = String.new();
             updated_phase_a = update_type_trait_method_entry(false, &st.recv_id, &pa_real_fid, &fi.ty(), &method_val, &pa_stid);
@@ -4869,10 +4871,10 @@ _c3_eval_colon_pair :: (
 /// early reference already registered this member's phase-A entry (same
 /// func_id), update that entry in place (plans/reference/LAZY_TOPLEVEL_BINDINGS.md P3).
 _c2_register_member :: (
-  fn(st : &ImplInFlight, pf : &ImplPendingField, label : &String, ty : &TypeValue, value : &EvalValue, src_tid : &String) -> unit
+  fn(st : &ImplInFlight, phase_a_registered : bool, label : &String, ty : &TypeValue, value : &EvalValue, src_tid : &String) -> unit
 )({
   (updated : bool) = false;
-  if(pf.phase_a_registered, {
+  if(phase_a_registered, {
     real_fid := match(value, Rc(.FuncVal(__c2r_fvd, _)) => __c2r_fvd.func_id.clone(), _ => String.new());
     updated = update_type_trait_method_entry(true, &st.recv_id, &real_fid, ty, value, src_tid);
   });
@@ -4902,7 +4904,7 @@ _c2_register_member :: (
 /// source order, binds the bare label in the impl env, registers the member
 /// provisionally.
 _c2_eval_direct_field :: (
-  fn(pf : &mut ImplPendingField, st : &mut ImplInFlight, ctx : &mut EvalContext, exn : Exception) -> unit
+  fn(pf : &mut ImplPendingField, st : &mut ImplInFlight, field_at : Tuple(usize, usize), ctx : &mut EvalContext, exn : Exception) -> unit
 )({
   mf_colon_args := match(
     Rc.clone(pf.colon_expr),
@@ -4951,7 +4953,7 @@ _c2_eval_direct_field :: (
         &mname_tok
       );
       if(st.recv_id != "", {
-        _c2_register_member(&st.*, &pf.*, &mname, &mfi.ty(), &m_to_push, String.from(""));
+        _c2_register_member(&st.*, impl_in_flight_field_phase_a_at(field_at.0, field_at.1), &mname, &mfi.ty(), &m_to_push, String.from(""));
       });
     }
   );
@@ -4960,7 +4962,7 @@ _c2_eval_direct_field :: (
 /// (`Trait(name : fn_def, ...)`), with the trait's expected field type (Self
 /// substituted to the receiver pattern) and the entry's working bindings.
 _c2_eval_inner_field :: (
-  fn(pf : &mut ImplPendingField, st : &mut ImplInFlight, ctx : &mut EvalContext, exn : Exception) -> unit
+  fn(pf : &mut ImplPendingField, st : &mut ImplInFlight, field_at : Tuple(usize, usize), ctx : &mut EvalContext, exn : Exception) -> unit
 )({
   g_colon_args := match(
     Rc.clone(pf.colon_expr),
@@ -5033,7 +5035,7 @@ _c2_eval_inner_field :: (
           .Some(c2g_tt) => type_id_or_empty(&c2g_tt.*),
           .None => String.from("")
         );
-        _c2_register_member(st, pf, &g_mname, &gfi.ty(), &g_to_push, &c2g_src_tid);
+        _c2_register_member(st, impl_in_flight_field_phase_a_at(field_at.0, field_at.1), &g_mname, &gfi.ty(), &g_to_push, &c2g_src_tid);
       });
     }
   );
@@ -5073,14 +5075,14 @@ _run_impl_field_in_place :: (
   push_forcing_def(&pf.def);
   cond(
     st.is_generic => cond(
-      pf.is_inner => _c2_eval_inner_field(&mut pf, &mut st, ctx, exn),
-      true => _c2_eval_direct_field(&mut pf, &mut st, ctx, exn)
+      pf.is_inner => _c2_eval_inner_field(&mut pf, &mut st, (stack_idx, field_idx), ctx, exn),
+      true => _c2_eval_direct_field(&mut pf, &mut st, (stack_idx, field_idx), ctx, exn)
     ),
     true => _c3_eval_colon_pair(
       &pf.colon_expr,
       cond(pf.is_inner => st.current_trait_ty.clone(), true => Option(TypeValue).None),
       &mut st,
-      Option(ImplPendingField).Some(pf.clone()),
+      Option(Tuple(usize, usize)).Some((stack_idx, field_idx)),
       ctx,
       exn
     )
@@ -5091,16 +5093,14 @@ _run_impl_field_in_place :: (
   pf_failure := pf.failure.clone();
   pf_result_ty := pf.result_ty.clone();
   pf_result_value := pf.result_value.clone();
-  pf_pa := pf.phase_a_registered;
   st_env := Rc.clone(st.env);
-  _mutate_impl_in_flight_at(stack_idx, { pf_state, pf_failure, pf_result_ty, pf_result_value, pf_pa, st_env, field_idx }(rec) => {
+  _mutate_impl_in_flight_at(stack_idx, { pf_state, pf_failure, pf_result_ty, pf_result_value, st_env, field_idx }(rec) => {
     rec.env = st_env;
     mut(f) := rec.fields(field_idx).clone();
     f.state = pf_state;
     f.failure = pf_failure;
     f.result_ty = pf_result_ty;
     f.result_value = pf_result_value;
-    f.phase_a_registered = pf_pa;
     rec.fields(field_idx) = f;
   });
 });
@@ -6583,7 +6583,7 @@ evaluate_module_value :: (
                       return(Rc.clone(expr.*));
                     }
                   );
-                  _c3_eval_colon_pair(&meth_expr, &current_trait_ty, &mut c3_direct, Option(ImplPendingField).None, ctx, exn);
+                  _c3_eval_colon_pair(&meth_expr, &current_trait_ty, &mut c3_direct, Option(Tuple(usize, usize)).None, ctx, exn);
                   _mutate_impl_in_flight_at(c3_stack_i, r => {
                     r.env = Rc.clone(c3_direct.env);
                   });
