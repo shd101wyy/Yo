@@ -503,9 +503,8 @@ _generate_index_trait_call :: (fn(expr : &AstExpr, ei : &ExprInfo, indent : &Str
   // like a normal call's argument site, that dup must be EMITTED here and the
   // dup result passed to the call: the specialized index method's C drops its
   // by-value parameter on every exit, so passing the plain value with no
-  // balancing +1 under-counts an RC-typed index (the dup/drop pair optimizer
-  // never cancels these — `_mark_by_value_param_shares`). A `Copy` index
-  // carries no deferred dup and passes through unchanged.
+  // balancing +1 under-counts an RC-typed index (`_mark_by_value_param_shares`).
+  // A `Copy` index carries no deferred dup and passes through unchanged.
   index_arg_opt := match(
     expr,
     Rc(.FnCall(_, _, Rc(a), _, _)) => a.get_cloned(usize(0)),

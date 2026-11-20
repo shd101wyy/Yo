@@ -1,8 +1,7 @@
 //! evaluate_begin_expression — evaluates `begin(...)` blocks.
 //!
 //! Exported symbols:
-//!   DupCallsResult, is_unit_value_expression,
-//!   collect_dup_calls_conservatively, evaluate_begin_expression
+//!   is_unit_value_expression, evaluate_begin_expression
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { is_fnonce_closure_fn } :: import("../../function-value.yo");
@@ -26,7 +25,6 @@ pragma(Pragma.AllowUnsafe);
   BK_RETURN,
   BK_BREAK,
   BK_WHILE,
-  BF_DUP,
   BF_DROP,
   BF_UNWIND,
   BK_ASSIGN,
@@ -66,7 +64,6 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_consumed_variable_drop_expressions,
   expr_info_set_capture_type,
   expr_info_set_comptime_ref,
-  expr_info_set_deferred_dup_expressions,
   expr_info_set_early_return_only_deferred_drop_expressions,
   expr_info_set_index_method_type,
   expr_info_set_index_method_value,
@@ -76,8 +73,8 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_origin,
   OriginRootPlace
 } :: import("../../expr-info.yo");
-{ scope_release_active, scope_release_depth, scope_release_set_depth, scope_release_mark, scope_release_body, is_call_once_capture_dup, is_moved_container_dup, mark_fnonce_capture_drop, record_immediate_old_value_drop, is_by_value_param_share_dup, is_call_scoped_share_dup, note_arg_move_region, ast_comparable_token_bounds } :: import("../../expr-info.yo");
-{ Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_is_inout_borrow_root, variable_keep_alias_dups, variable_mark_keep_alias_dups, variable_moved_at_cleanup_point, variable_undone_moves, snapshot_env, is_fnonce_capture_frame, env_adopt, variable_value_type } :: import("../../env.yo");
+{ scope_release_active, scope_release_depth, scope_release_set_depth, scope_release_mark, scope_release_body, mark_fnonce_capture_drop, record_immediate_old_value_drop, is_call_scoped_share_dup, note_arg_move_region, ast_comparable_token_bounds } :: import("../../expr-info.yo");
+{ Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_moved_at_cleanup_point, variable_undone_moves, snapshot_env, is_fnonce_capture_frame, env_adopt, variable_value_type } :: import("../../env.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -86,10 +83,8 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, EvalValueNode, is_type_value, value_contains_unknown } :: import("../../value.yo");
 { TypeValue, TypeValueNode, t_refine_inner, t_slot_is_mut_ref, fn_param_by_value_flags, t_slot_pointee, t_slot_is_borrow } :: import("../../types/definitions.yo");
 { t_unit, t_ptr } :: import("../../types/creators.yo");
-{ is_some_type, is_reference_struct_type, cell_handle_view, is_struct_type } :: import("../../types/guards.yo");
-{ HashSet } :: import("std/collections/hash-set");
-{ is_io_async_call, is_io_await_call } :: import("../async/await-analysis.yo");
-{ expr_tree_contains_return } :: import("../../expr-traversal.yo");
+{ is_some_type, is_struct_type } :: import("../../types/guards.yo");
+{ is_io_async_call } :: import("../async/await-analysis.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { synthesize_types, TypePair, SynthesizeOptions } :: import("../types/synthesizer.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -110,7 +105,6 @@ pragma(Pragma.AllowUnsafe);
   throw_expr_is_implicit_variable_error,
   consume_case_body_temp_var,
   set_expr_as_needs_to_call_dup,
-  get_dup_use_site_token,
   snapshot_loop_flow,
   ImplicitCopyPending,
   audit_take_implicit_copy_pending,
@@ -147,25 +141,6 @@ pragma(Pragma.AllowUnsafe);
 { Token } :: import("../../token.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
-// DupCallsResult — result type for collect_dup_calls_conservatively.
-// ---------------------------------------------------------------------------
-DupCallsResult :: struct(
-  /// Maps variable id → list of `___dup(...)` call expressions.
-  dup_calls : HashMap(String, ArrayList(AstExpr)),
-  /// Variable ids that have dups in some branches but not all (conservative).
-  vars_with_partial_branch_dups : ArrayList(String),
-  /// Insertion-ordered key list for `dup_calls`: avoids HashMap key
-  /// iteration at the branch-merge and application sites.
-  dup_call_var_ids : ArrayList(String)
-);
-_new_dup_calls_result :: (fn() -> DupCallsResult)(
-  DupCallsResult(
-    dup_calls : HashMap(String, ArrayList(AstExpr)).new(),
-    vars_with_partial_branch_dups : ArrayList(String).new(),
-    dup_call_var_ids : ArrayList(String).new()
-  )
-);
-// ---------------------------------------------------------------------------
 // is_unit_value_expression
 // ---------------------------------------------------------------------------
 /// Returns `true` if `expr` is the empty-tuple literal `()`, i.e. a
@@ -175,375 +150,6 @@ _new_dup_calls_result :: (fn() -> DupCallsResult)(
 is_unit_value_expression :: (fn(expr : &AstExpr) -> bool)(
   ast_expr_is_fn_call_of(expr, BK_TUPLE, .Some(usize(0)))
 );
-_ids_list_contains :: (fn(lst : &ArrayList(String), s : &String) -> bool)({
-  (i : usize) = usize(0);
-  (found : bool) = false;
-  while((i < lst.len()) && !found, {
-    match(
-      lst.get_cloned(i),
-      .Some(x) => if(x == s.*, {
-        found = true;
-      }),
-      .None => ()
-    );
-    i = (i + usize(1));
-  });
-  found
-});
-/// If `e` is an evaluated `___dup` call, return the duped variable's NAME.
-/// Matches BOTH shapes: the method-resolved `(x.___dup)()` and the bare
-/// `___dup(x)` builtin call (the shape
-/// set_expr_as_needs_to_call_dup mints via generate_expr_from_code).
-_dup_call_target_name :: (fn(e : &AstExpr) -> Option(String))(
-  match(
-    e,
-    Rc(.FnCall(_, f, Rc(eargs), _, _)) => {
-      if((eargs.len() == usize(0)) && ast_expr_is_fn_call_of(&f.*, ".", Option(usize).Some(usize(2))), {
-        match(
-          f,
-          Rc(.FnCall(_, _, Rc(fargs), _, _)) => {
-            a0 := match(
-              fargs.get_cloned(usize(0)),
-              .Some(x) => x,
-              .None => return(Option(String).None)
-            );
-            a1 := match(
-              fargs.get_cloned(usize(1)),
-              .Some(x) => x,
-              .None => return(Option(String).None)
-            );
-            if(ast_expr_is_atom(&a0) && ast_expr_is_atom(&a1) && ast_expr_is_atom_of(&a1, BF_DUP), {
-              return(Option(String).Some(ast_expr_text(&a0).*.clone()));
-            });
-          },
-          Rc(.Atom(_, _)) => ()
-        );
-      });
-      if(ast_expr_is_fn_call_of(e, BF_DUP, Option(usize).Some(usize(1))), {
-        match(
-          eargs.get_cloned(usize(0)),
-          .Some(arg0) => if(ast_expr_is_atom(&arg0), {
-            return(Option(String).Some(ast_expr_text(&arg0).*.clone()));
-          }),
-          .None => ()
-        );
-      });
-      Option(String).None
-    },
-    Rc(.Atom(_, _)) => Option(String).None
-  )
-);
-/// Record a dup call for `var_id`, deduplicating by expr id.
-_push_dup_call :: (fn(res : &mut DupCallsResult, var_id : &String, e : &AstExpr) -> unit)({
-  match(
-    res.dup_calls.get_cloned(var_id.clone()),
-    .Some(found_lst) => {
-      (i : usize) = usize(0);
-      (found : bool) = false;
-      while((i < found_lst.len()) && !found, {
-        match(
-          found_lst.get_cloned(i),
-          .Some(x) => if(ast_expr_id(&x) == ast_expr_id(e), {
-            found = true;
-          }),
-          .None => ()
-        );
-        i = (i + usize(1));
-      });
-      if(!found, {
-        // Stored back: the binding is a copy once collections are values.
-        lst := found_lst;
-        lst.push(Rc.clone(e.*));
-        res.dup_calls.insert(var_id.clone(), lst);
-      });
-    },
-    .None => {
-      nl := ArrayList(AstExpr).new();
-      nl.push(Rc.clone(e.*));
-      res.dup_calls.insert(var_id.clone(), nl);
-      res.dup_call_var_ids.push(var_id.clone());
-    }
-  );
-});
-/// Recursive dup-call search with conservative cross-branch analysis
-/// (the branching arm is inlined; branch bodies recurse via
-/// `recur` into FRESH result containers). Follows a recorded
-/// `macro_expansion` INSTEAD of the raw macro-call args: the expansion is where
-/// branching structure (cond/match) is visible, so a dup inside an `if(...)`
-/// arm routes through the branch-aware handler and is flagged partial instead
-/// of being collected as an unconditional dup and wrongly cancelled — which
-/// leaked one reference on every path that skipped the arm
-/// (issues/fixed/where-constraints-arraylist-96b-leak.md). An earlier experiment
-/// that recursed into expansions WITHOUT the branch-aware routing + early
-/// return broke the stage-2 self-compile; the `undeclared result` class of
-/// that failure was a missed expansion-internal `return` and is owned by
-/// `_contains_return_for_opt` below.
-_search_dup_calls :: (fn(expr : &AstExpr, res : &mut DupCallsResult, ctx : &EvalContext) -> unit)({
-  // Skip io.async captures entirely: the SM path needs BOTH
-  // the dup and the scope-exit drop; cancelling them would leak.
-  if(ast_expr_is_fn_call(expr) && is_io_async_call(expr), {
-    return(());
-  });
-  ei_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(expr));
-  // Skip a CLOSURE DEFINITION's captures for the same reason, and this is the
-  // general case the io.async guard above is one instance of. A closure
-  // definition's `deferred_dup_expressions` are its capture-struct FIELD
-  // INITIALIZERS (evaluator/values/anonymous-function.yo, via
-  // generate_captured_variable_dup_expressions) — not stores into a container
-  // that shares this scope's lifetime. The capture struct is moved into the
-  // closure value and released by whatever owns that value: a spawn wrapper,
-  // an async future, a stored FuncVal. Its release can therefore happen
-  // BEFORE the capturing scope ends, so the local must keep its own count.
-  //
-  // Cancelling the pair made the capture struct hold a borrowed alias, which
-  // read as a leak for as long as nothing released it — and became a
-  // use-after-free the moment something did. Both symptoms were live:
-  // `tests/arc.test.yo`'s "Test Arc shared across thread" read 0 instead of 42
-  // once the spawn wrapper started releasing its captures, while its
-  // three-thread sibling passed for the wrong reason (TWO capture dups means
-  // runtime_count > 1, and the optimizer only cancels a single dup).
-  // See issues/fixed/spawn-closure-captures-never-dropped-leak.md.
-  match(
-    &ei_opt,
-    .Some(ei_cl) => if(
-      match(expr_info_is_anonymous_function_definition(&ei_cl.*), .Some(b) => b, .None => false)
-      && expr_info_deferred_dup_expressions(&ei_cl.*).is_some(),
-      return(()),
-      ()
-    ),
-    .None => ()
-  );
-  // Attached deferred dups first.
-  match(
-    &ei_opt,
-    .Some(ei) => {
-      match(
-        expr_info_deferred_dup_expressions(&ei.*),
-        .Some(dl) => {
-          (ddi : usize) = usize(0);
-          while(ddi < dl.len(), {
-            match(
-              dl.get_cloned(ddi),
-              .Some(d) => recur(&d, res, ctx),
-              .None => ()
-            );
-            ddi = (ddi + usize(1));
-          });
-        },
-        .None => ()
-      );
-    },
-    .None => ()
-  );
-  // A macro call (e.g. `if`, expanding to `cond`) keeps its original head in
-  // the AST; the evaluated expansion — the FRESH-ID clone codegen emits — is
-  // recorded in `macro_expansion`. Walk the EXPANSION instead of the raw args:
-  // the expansion's cond/match head routes arm-internal dups through the
-  // branch-aware handler below, so they are flagged partial (or counted per
-  // arm) instead of cancelled as unconditional dups.
-  match(
-    &ei_opt,
-    .Some(ei_mx) => match(
-      expr_info_macro_expansion(&ei_mx.*),
-      .Some(mx) => {
-        recur(&mx, res, ctx);
-        return(());
-      },
-      .None => ()
-    ),
-    .None => ()
-  );
-  // The node itself is a dup call? A by-value parameter's share is never a
-  // pair candidate: the callee frees it at its return, before the caller's
-  // later reads (`_mark_by_value_param_shares`, calls/helper.yo). Nor is an
-  // aliased argument's caller-owned +1, which its own post-call drop
-  // balances (`mark_call_scoped_share_dup`, expr-info.yo).
-  if(is_by_value_param_share_dup(ast_expr_id(expr)) || is_call_scoped_share_dup(ast_expr_id(expr)), {
-    return(());
-  });
-  match(
-    _dup_call_target_name(expr),
-    .Some(vn) => {
-      match(
-        ei_opt,
-        .Some(ei2) => {
-          dvars := get_variables_from_env(&ei2.env(), &vn);
-          if(dvars.len() > usize(0), {
-            match(
-              dvars.last_cloned(),
-              .Some(dv) => _push_dup_call(res, dv.id().to_string(), expr),
-              .None => ()
-            );
-          });
-        },
-        .None => ()
-      );
-      return(());
-    },
-    .None => ()
-  );
-  // While loops execute multiple times — never optimize across them.
-  if(ast_expr_is_fn_call_of(expr, "while", Option(usize).None), {
-    return(());
-  });
-  is_cond := ast_expr_is_fn_call_of(expr, BK_COND, Option(usize).None);
-  is_match := ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None);
-  if(is_cond || is_match, {
-    cargs := match(
-      expr,
-      Rc(.FnCall(_, _, Rc(xs), _, _)) => xs.clone(),
-      Rc(.Atom(_, _)) => ArrayList(AstExpr).new()
-    );
-    // match: search the scrutinee first.
-    start_idx := if(is_match, {
-      match(
-        cargs.get_cloned(usize(0)),
-        .Some(scrut) => recur(&scrut, res, ctx),
-        .None => ()
-      );
-      usize(1)
-    }, usize(0));
-    // Per-branch collection.
-    branch_results := ArrayList(DupCallsResult).new();
-    (bi : usize) = start_idx;
-    while(bi < cargs.len(), {
-      match(
-        cargs.get_cloned(bi),
-        .Some(stmt) => if(ast_expr_is_fn_call_of(&stmt, "=>", Option(usize).Some(usize(2))), {
-          match(
-            stmt,
-            Rc(.FnCall(_, _, Rc(sargs), _, _)) => match(
-              sargs.get_cloned(usize(1)),
-              .Some(body) => {
-                bres := _new_dup_calls_result();
-                // By name, not `recur`: `recur` lends a local `&mut` by value in C
-                // (issues/2026-10-24-recur-lends-a-local-mut-by-value-in-c.md).
-                _search_dup_calls(&body, &mut bres, ctx);
-                branch_results.push(bres);
-              },
-              .None => ()
-            ),
-            Rc(.Atom(_, _)) => ()
-          );
-        }),
-        .None => ()
-      );
-      bi = (bi + usize(1));
-    });
-    // Union of var ids with dups in ANY branch; merge nested partials.
-    all_vars := ArrayList(String).new();
-    for(&branch_results, br => {
-      (ki : usize) = usize(0);
-      while(ki < br.dup_call_var_ids.len(), {
-        match(
-          br.dup_call_var_ids.get_cloned(ki),
-          .Some(vid) => if(!_ids_list_contains(&all_vars, vid.clone()), {
-            all_vars.push(vid);
-          }),
-          .None => ()
-        );
-        ki = (ki + usize(1));
-      });
-      (pi : usize) = usize(0);
-      while(pi < br.vars_with_partial_branch_dups.len(), {
-        match(
-          br.vars_with_partial_branch_dups.get_cloned(pi),
-          .Some(pv) => if(!_ids_list_contains(&res.vars_with_partial_branch_dups, pv.clone()), {
-            res.vars_with_partial_branch_dups.push(pv);
-          }),
-          .None => ()
-        );
-        pi = (pi + usize(1));
-      });
-    });
-    // Per-variable branch categorization:
-    // a branch-arm dup executes only when that arm is taken, so it may be
-    // exposed to the optimizer ONLY when EVERY arm dups the variable (with
-    // 2+ arms the per-arm count then blocks cancellation anyway). Partial
-    // coverage flags the variable — the pair must be preserved. Return-arms
-    // get NO special treatment: the retired early-return-dup fast path
-    // cancelled a dup that fed the arm's RETURN VALUE, emitting
-    // `drop(x); return x;` — a use-after-free (compute_overlapping_slots).
-    (avi : usize) = usize(0);
-    while(avi < all_vars.len(), {
-      vid_opt := all_vars.get_cloned(avi);
-      match(
-        vid_opt,
-        .Some(vid) => {
-          all_branch_dups := ArrayList(AstExpr).new();
-          (branches_with_dup : usize) = usize(0);
-          for(&branch_results, br2 => {
-            match(
-              br2.dup_calls.get_cloned(vid.clone()),
-              .Some(bdups) => if(bdups.len() > usize(0), {
-                branches_with_dup = (branches_with_dup + usize(1));
-                (bdi : usize) = usize(0);
-                while(bdi < bdups.len(), {
-                  match(
-                    bdups.get_cloned(bdi),
-                    .Some(bd) => {
-                      all_branch_dups.push(bd);
-                    },
-                    .None => ()
-                  );
-                  bdi = (bdi + usize(1));
-                });
-              }),
-              .None => ()
-            );
-          });
-          if(branches_with_dup == branch_results.len(), {
-            // Every arm dups the variable — expose them to the optimizer.
-            (fdi : usize) = usize(0);
-            while(fdi < all_branch_dups.len(), {
-              match(
-                all_branch_dups.get_cloned(fdi),
-                .Some(fd) => _push_dup_call(res, vid.clone(), &fd),
-                .None => ()
-              );
-              fdi = (fdi + usize(1));
-            });
-          }, {
-            // Some arms dup, some don't — the pair must survive.
-            if(!_ids_list_contains(&res.vars_with_partial_branch_dups, vid.clone()), {
-              res.vars_with_partial_branch_dups.push(vid.clone());
-            });
-          });
-        },
-        .None => ()
-      );
-      avi = (avi + usize(1));
-    });
-    return(());
-  });
-  // Generic recursion.
-  match(
-    expr,
-    Rc(.FnCall(_, f2, Rc(fargs2), _, _)) => {
-      recur(&f2.*, res, ctx);
-      (ai : usize) = usize(0);
-      while(ai < fargs2.len(), {
-        match(
-          fargs2.get_cloned(ai),
-          .Some(a) => recur(&a, res, ctx),
-          .None => ()
-        );
-        ai = (ai + usize(1));
-      });
-    },
-    Rc(.Atom(_, _)) => ()
-  );
-});
-// ---------------------------------------------------------------------------
-// collect_dup_calls_conservatively
-// ---------------------------------------------------------------------------
-/// Traverses `expr` recursively to collect all `___dup(...)` calls, keyed by
-/// the variable id they dup, with conservative cross-branch analysis.
-collect_dup_calls_conservatively :: (fn(expr : &AstExpr, ctx : &EvalContext) -> DupCallsResult)({
-  res := _new_dup_calls_result();
-  _search_dup_calls(expr, &mut res, ctx);
-  res
-});
 // ---------------------------------------------------------------------------
 // _try_synthesize_return_type
 // ---------------------------------------------------------------------------
@@ -1016,8 +622,8 @@ _m3_has_token_at :: (fn(node : &AstExpr, t : &Token) -> bool)({
 /// would have been E0901), and the right side was evaluated before the
 /// store. A still implicitly copyable kind (a `String`, a collection, an
 /// `Rc`, a `ref` handle) keeps the end-of-block release until its own phase
-/// makes it explicit-copy: its right side may share the old value through a
-/// dup the pair optimizer elided (plans/VALUES_BY_DEFAULT.md §3.14).
+/// makes it explicit-copy: its right side may share the old value
+/// (plans/VALUES_BY_DEFAULT.md §3.14).
 _drop_unused_old_value_now :: (fn(stmt : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> unit)(
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(stmt)),
@@ -1297,104 +903,10 @@ _m3_attach_to_loop_exits :: (fn(expr : &AstExpr, variable : &Variable, drop_expr
     Rc(.Atom(_, _)) => ()
   )
 });
-/// Macro-aware `expr_tree_contains_return` for the optimizer's earliest-return
-/// detection. The expr-traversal.yo baseline cannot check
-/// `macro_expansion` (no ctx). An `if(cond, { ... return(...) })` statement hides its return in the
-/// recorded expansion — missing it left `earliest_ret` unset, the
-/// return-before-dup guard never fired, and a later child's dup+drop pair was
-/// wrongly cancelled while the if's early return still needed the scope-exit
-/// drop (the stage-2 `undeclared result` C error).
-_contains_return_for_opt :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)({
-  if(expr_tree_contains_return(e), {
-    return(true);
-  });
-  match(
-    e,
-    Rc(.FnCall(_, f, Rc(fargs), _, _)) => {
-      match(
-        expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)),
-        .Some(ei) => match(
-          expr_info_macro_expansion(&ei),
-          .Some(mx) => if(recur(&mx, ctx), {
-            return(true);
-          }),
-          .None => ()
-        ),
-        .None => ()
-      );
-      if(recur(&f.*, ctx), {
-        return(true);
-      });
-      (ai : usize) = usize(0);
-      (found : bool) = false;
-      while((ai < fargs.len()) && !found, {
-        match(
-          fargs.get_cloned(ai),
-          .Some(a) => if(recur(&a, ctx), {
-            found = true;
-          }),
-          .None => ()
-        );
-        ai = (ai + usize(1));
-      });
-      found
-    },
-    Rc(.Atom(_, _)) => false
-  )
-});
-/// Does `e` (following `macro_expansion`, not entering a nested `io.async`
-/// body) contain an `io.await`? The state-machine lowering's own test
-/// (`analyze_await_points`): a block with no await has no local that lives
-/// across a suspension, so none of its locals is a state-machine slot.
-_contains_io_await_for_opt :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
-  match(
-    e,
-    Rc(.FnCall(_, f, Rc(fargs), _, _)) => cond(
-      is_io_await_call(e) => true,
-      is_io_async_call(e) => false,
-      true => {
-        (found : bool) = match(
-          expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)),
-          .Some(ei) => match(expr_info_macro_expansion(&ei), .Some(mx) => _contains_io_await_for_opt(&mx, ctx), .None => false),
-          .None => false
-        );
-        if(!found, {
-          found = _contains_io_await_for_opt(&f.*, ctx);
-        });
-        (ai : usize) = usize(0);
-        while((ai < fargs.len()) && !found, {
-          match(
-            fargs.get_cloned(ai),
-            .Some(a) => {
-              found = _contains_io_await_for_opt(&a, ctx);
-            },
-            .None => ()
-          );
-          ai = (ai + usize(1));
-        });
-        found
-      }
-    ),
-    Rc(.Atom(_, _)) => false
-  )
-);
 /// Does `e` (following `macro_expansion`) contain an assignment `name = …`?
-/// Used by `_optimize_dup_drop_pairs`: the alias-binding dup elision
-/// (`h2 := h` sharing ONE count, the alias marked consumed so the base keeps
-/// it) is sound only while the base's count outlives every use of the alias.
-/// A reassignment of the base schedules its OLD value's drop at the end of
-/// the block the assignment sits in — INSIDE a nested block that is earlier
-/// than the alias's scope end, so the alias read freed memory
-/// (issues/fixed/alias-elision-base-reassigned-in-nested-block-uaf.md). When
-/// the base is reassigned anywhere in the subtree the dup is kept and each
-/// handle owns its own count.
-///
-/// A `&mut name` lend counts as a reassignment: the callee may store a new
-/// handle into the slot (`h = Rc.new(...)`), which releases the shared count under
-/// the other binding, and a uniqueness test (`ref_count`, `Rc.make_mut`,
-/// `Rc.try_unwrap`) must see both handles. So does a method call whose
-/// `self : &mut Self` receiver is `name` itself
-/// (issues/fixed/2026-10-15-an-aliased-rc-handle-lent-mut-to-a-call-is-freed-under-its-alias.md).
+/// A `&mut name` lend counts as one, since the callee may store a new value
+/// into the slot, and so does a method call whose `self : &mut Self` receiver
+/// is `name` itself (`_call_lends_receiver_mut`).
 _subtree_assigns_variable :: (fn(e : &AstExpr, name : &String, ctx : &EvalContext) -> bool)(
   match(
     e,
@@ -1494,477 +1006,6 @@ _call_lends_receiver_mut :: (fn(e : &AstExpr, f : &AstExpr, fargs : &ArrayList(A
   );
   self_arg := if(recv_is_type, match(fargs.get_cloned(usize(0)), .Some(a0) => ast_expr_strip_borrow_marker(&a0), .None => return(false)), recv);
   ast_expr_is_atom(&self_arg) && (ast_expr_token(&self_arg).value.* == name.*)
-});
-/// Strip cancelled dup calls from every `deferred_dup_expressions` list in the
-/// tree. Expansions are fresh-id clones (they do not share the spliced arg
-/// nodes), so the walk must follow `macro_expansion` explicitly — the same
-/// reachability the collector uses, or a cancelled dup would survive in the
-/// emitted tree.
-_remove_dup_calls_from_tree :: (fn(expr : &AstExpr, remove_ids : &HashSet(usize), ctx : &EvalContext) -> unit)({
-  match(
-    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(expr)),
-    .Some(ei) => {
-      match(
-        expr_info_deferred_dup_expressions(&ei),
-        .Some(dl) => {
-          kept := ArrayList(AstExpr).new();
-          (i : usize) = usize(0);
-          while(i < dl.len(), {
-            match(
-              dl.get_cloned(i),
-              .Some(d) => if(!remove_ids.contains(ast_expr_id(&d)), {
-                kept.push(d);
-              }),
-              .None => ()
-            );
-            i = (i + usize(1));
-          });
-          expr_info_set_deferred_dup_expressions(
-            &ei,
-            if(
-              kept.len() == usize(0),
-              Option(ArrayList(AstExpr)).None,
-              Option(ArrayList(AstExpr)).Some(kept)
-            )
-          );
-        },
-        .None => ()
-      );
-      match(
-        expr_info_macro_expansion(&ei),
-        .Some(mx) => recur(&mx, remove_ids, ctx),
-        .None => ()
-      );
-    },
-    .None => ()
-  );
-  match(
-    expr,
-    Rc(.FnCall(_, f, Rc(fargs), _, _)) => {
-      recur(&f.*, remove_ids, ctx);
-      (ai : usize) = usize(0);
-      while(ai < fargs.len(), {
-        match(
-          fargs.get_cloned(ai),
-          .Some(a) => recur(&a, remove_ids, ctx),
-          .None => ()
-        );
-        ai = (ai + usize(1));
-      });
-    },
-    Rc(.Atom(_, _)) => ()
-  );
-});
-/// OPTIMIZE_DUP_AND_DROP_PAIRS: cancel a
-/// candidate local's single runtime dup against its scope-end drop — a MOVE.
-/// Marks each winner CONSUMED (at the dup's use-site token when unambiguous)
-/// and strips its dups from the tree. Runs BEFORE _schedule_scope_end_drops,
-/// whose e5 consumed-gate then skips the winner's drop; the M3 driver in
-/// evaluate_begin_expression attaches early-return-only drops for the
-/// [init, consume) window automatically.
-_optimize_dup_drop_pairs :: (
-  fn(
-    frame : &Frame,
-    begin_args : &ArrayList(AstExpr),
-    result_var_name : &Option(String),
-    last_expr : &AstExpr,
-    block_awaits : bool,
-    ctx : &EvalContext
-  ) -> unit
-)({
-  tail_atom_name := if(
-    ast_expr_is_atom(last_expr),
-    Option(String).Some(ast_expr_text(last_expr).*.clone()),
-    Option(String).None
-  );
-  // 1. Collect dup calls per begin child; record each dup's child index and
-  //    the earliest child containing a return.
-  merged := _new_dup_calls_result();
-  dup_child_idx := HashMap(usize, usize).new();
-  (earliest_ret : Option(usize)) = Option(usize).None;
-  (ci : usize) = usize(0);
-  while(ci < begin_args.len(), {
-    match(
-      begin_args.get_cloned(ci),
-      .Some(child) => {
-        if(earliest_ret.is_none() && _contains_return_for_opt(&child, ctx), {
-          earliest_ret = Option(usize).Some(ci);
-        });
-        cres := collect_dup_calls_conservatively(&child, ctx);
-        (ki : usize) = usize(0);
-        while(ki < cres.dup_call_var_ids.len(), {
-          match(
-            cres.dup_call_var_ids.get_cloned(ki),
-            .Some(vid) => match(
-              cres.dup_calls.get_cloned(vid.clone()),
-              .Some(dups) => {
-                (di : usize) = usize(0);
-                while(di < dups.len(), {
-                  match(
-                    dups.get_cloned(di),
-                    .Some(d) => {
-                      _push_dup_call(&mut merged, vid.clone(), &d);
-                      if(dup_child_idx.get(ast_expr_id(&d)).is_none(), {
-                        dup_child_idx.insert(ast_expr_id(&d), ci);
-                      });
-                    },
-                    .None => ()
-                  );
-                  di = (di + usize(1));
-                });
-              },
-              .None => ()
-            ),
-            .None => ()
-          );
-          ki = (ki + usize(1));
-        });
-        (pi : usize) = usize(0);
-        while(pi < cres.vars_with_partial_branch_dups.len(), {
-          match(
-            cres.vars_with_partial_branch_dups.get_cloned(pi),
-            .Some(pv) => if(!_ids_list_contains(&merged.vars_with_partial_branch_dups, pv.clone()), {
-              merged.vars_with_partial_branch_dups.push(pv);
-            }),
-            .None => ()
-          );
-          pi = (pi + usize(1));
-        });
-      },
-      .None => ()
-    );
-    ci = (ci + usize(1));
-  });
-  if(merged.dup_call_var_ids.len() == usize(0), {
-    return(());
-  });
-  // 2. Consumed DERIVED variable count per base: a
-  //    derived copy consumed by an `own` param means its dup was transferred
-  //    to the callee and cannot pair with the base's scope-end drop.
-  consumed_derived := HashMap(String, usize).new();
-  fvars := frame.variables();
-  (cdi : usize) = usize(0);
-  while(cdi < fvars.len(), {
-    match(
-      fvars.get_cloned(cdi),
-      .Some(cv) => {
-        if(cv.consumed_at_token().is_some() && cv.is_owning_the_same_rc_value_as().is_some() && type_contains_rc_type(&variable_value_type(&cv)), {
-          (cbase : Variable) = cv;
-          (cwalking : bool) = true;
-          while(cwalking, {
-            match(
-              cbase.is_owning_the_same_rc_value_as(),
-              .Some(b) => {
-                cbase = b;
-              },
-              .None => {
-                cwalking = false;
-              }
-            );
-          });
-          cur := match(
-            consumed_derived.get(cbase.id().to_string()),
-            .Some(c) => c,
-            .None => usize(0)
-          );
-          consumed_derived.insert(cbase.id().to_string(), cur + usize(1));
-        });
-      },
-      .None => ()
-    );
-    cdi = (cdi + usize(1));
-  });
-  // 3. Pair each drop-eligible frame local with its collected dups.
-  //    Eligibility matches _schedule_scope_end_drops'
-  //    e1-e7 gates plus the captured filter so only
-  //    variables the scheduler WOULD drop are optimized.
-  remove_ids := HashSet(usize).new();
-  // Bases whose alias dup must be KEPT because the alias or the base is
-  // reassigned in this block (see `_subtree_assigns_variable`). Filled while
-  // visiting the alias (frames are walked backwards, so an alias is visited
-  // before its base) and consulted when the base itself is the candidate:
-  // the base's only dup IS the alias binding, and moving it into the alias
-  // while the alias keeps its own count would over- or under-release.
-  protected_bases := HashSet(String).new();
-  // Walk the frame in REVERSE declaration order —
-  // "Return in reverse
-  // order (end to start) for proper drop order". Order is not cosmetic here:
-  // when several variables share one base — `a := Holder(...); b := a;` — the
-  // single collected dup can cancel the scope-end drop of EITHER of them, and
-  // whichever the loop reaches first wins. Walking forwards picked `a`, leaving
-  // `b`'s drop in place alongside the saved-old-value temp's, so the same rc=1
-  // object was decremented TWICE: a double free, which glibc aborts on and
-  // macOS malloc tolerates (hence "passes locally, fails on Linux CI").
-  // `_schedule_scope_end_drops` already reverses explicitly (see below); the
-  // optimizer was never brought in line.
-  // See issues/fixed/yo-self-hollow-language-test-files.md.
-  (vi : usize) = fvars.len();
-  while(vi > usize(0), {
-    vi = (vi - usize(1));
-    match(
-      fvars.get_cloned(vi),
-      .Some(v) => {
-        e1 := (v.is_owning_the_rc_value() && type_contains_rc_type(&variable_value_type(&v)));
-        e2 := (e1 && !v.is_module_level());
-        // A root of an `inout` local binding is used through the alias, which
-        // is not a syntactic use: cancelling its dup here would MOVE the count
-        // while a binding may still write through the slot (§9 H6).
-        e3 := (e2 && !v.is_ref() && !variable_is_inout_borrow_root(&v));
-        some_undroppable := match(
-          &variable_value_type(&v),
-          Rc(.SomeT({ bounds : s_rtt_bounds, resolution : s_rc })) => {
-            s_rtt := s_rtt_bounds.required();
-            (s_rc.is_none() && (s_rtt.len() == usize(0)))
-          },
-          _ => false
-        );
-        e4 := (e3 && !some_undroppable);
-        e5 := (e4 && v.consumed_at_token().is_none());
-        e6 := (e5 && !_name_matches_opt(v.name.clone(), result_var_name));
-        e7 := (e6 && !_name_matches_opt(v.name.clone(), &tail_atom_name));
-        e8 := (e7 && !_variable_is_captured_by_current_function(&v, ctx));
-        if(e8, {
-          // Follow the ownership-alias chain to the root base variable.
-          (base : Variable) = Rc.clone(v);
-          (walking : bool) = true;
-          while(walking, {
-            match(
-              base.is_owning_the_same_rc_value_as(),
-              .Some(b) => {
-                base = b;
-              },
-              .None => {
-                walking = false;
-              }
-            );
-          });
-          base_id := base.id().to_string();
-          // Alias candidate (`v := base`): the elision shares ONE count that the
-          // BASE keeps and releases. It is sound only while nothing releases
-          // that count before the alias's last use — a reassignment of the
-          // base inside a nested block schedules the old value's drop at that
-          // block's end (UAF through the alias), and a reassignment of the
-          // alias drops a value the alias never owned (leak / over-release).
-          // Keep the dup in both cases and protect the base from the plain
-          // move path below.
-          (alias_reassigned : bool) = false;
-          if(!(base.id() == v.id()), {
-            (ari : usize) = usize(0);
-            while((ari < begin_args.len()) && !alias_reassigned, {
-              match(
-                begin_args.get_cloned(ari),
-                .Some(arc) => if(_subtree_assigns_variable(&arc, v.name.clone(), ctx) || _subtree_assigns_variable(&arc, base.name.clone(), ctx), {
-                  alias_reassigned = true;
-                }),
-                .None => ()
-              );
-              ari = (ari + usize(1));
-            });
-            if(alias_reassigned, {
-              _pb := protected_bases.insert(base_id.clone());
-              // The base may live in an OUTER frame whose epilogue runs later
-              // with its own `protected_bases`; persist the decision on the
-              // variable itself.
-              variable_mark_keep_alias_dups(&base);
-            });
-          });
-          base_is_protected := ((base.id() == v.id()) && (protected_bases.contains(base_id.clone()) || variable_keep_alias_dups(&v)));
-          match(
-            merged.dup_calls.get_cloned(base_id.clone()),
-            .Some(dups) => if((dups.len() > usize(0)) && (!alias_reassigned && !base_is_protected), {
-              // Value types with RC fields: `y = temp` is a C memcpy; both
-              // copies need their own drop — never cancel. A cell handle
-              // (`cell_handle_view`, V5's `Rc`/`Arc`) is one cell pointer in
-              // C, as a `ref` object is, so its pairs cancel like an `Rc`'s.
-              value_type_with_rc := (!(is_reference_struct_type(&variable_value_type(&base)) || cell_handle_view(&variable_value_type(&base)).is_some()) && type_contains_rc_type(&variable_value_type(&base)));
-              partial := _ids_list_contains(&merged.vars_with_partial_branch_dups, base_id.clone());
-              // A dup taken in a DEEPER SCOPE than the candidate's own frame
-              // — the body of a nested `{ … }` block — feeds a container whose
-              // scope end comes FIRST. Cancelling the pair moves this local's
-              // only count into that container, and the inner block's drop
-              // then frees a value the outer scope goes on using:
-              //
-              //   sink := S.new();
-              //   { h := H(sink : sink); };   // h dies here, taking sink's count
-              //   sink.count();               // use after free
-              //
-              // A `ref` holding a `ref` is cycle-capable and therefore
-              // GC-TRACKED, so `__yo_decr_rc` buffers a possible root instead
-              // of freeing on the spot and the fault reads as a correct
-              // answer; an `atomic(ref(…))` is atomically counted, never tracked, and
-              // faults immediately. That asymmetry is why this survived
-              // (issues/fixed/a-local-stored-in-a-struct-field-is-dangling-after-the-container-dies.md).
-              //
-              // Measured by the dup's own `ExprInfo.env` depth rather than by
-              // restructuring the collector: a traversal that treats a nested
-              // `begin` as a unit also takes ALIAS bindings (`env := env_in`)
-              // off the consumed path the early-return drop machinery uses,
-              // which cost 165 `__yo_decr_rc` calls in the compiler's own
-              // emit. Cond/match arms and `while` bodies are deliberately NOT
-              // caught: they are measured correct today (the branch-aware
-              // path and the while early-return above already keep them), and
-              // an arm body's frame is not deeper than this one's.
-              (nested_dup : bool) = false;
-              (ndi : usize) = usize(0);
-              while((ndi < dups.len()) && !nested_dup, {
-                match(
-                  dups.get_cloned(ndi),
-                  // A dup into an `FnOnce` closure's capture struct feeds a
-                  // container that dies at its CALL, before the local's last
-                  // use: the same hazard (decision 37). So does a dup into a
-                  // temporary a by-value parameter takes, which the callee
-                  // drops at its return (`is_moved_container_dup`).
-                  .Some(nd) => if(is_call_once_capture_dup(ast_expr_id(&nd)) || is_moved_container_dup(ast_expr_id(&nd)), {
-                    nested_dup = true;
-                  }, match(
-                    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&nd)),
-                    .Some(ndei) => if(ndei.env().frames_len() > (v.frame_level + usize(1)), {
-                      nested_dup = true;
-                    }),
-                    .None => ()
-                  )),
-                  .None => ()
-                );
-                ndi = (ndi + usize(1));
-              });
-              // A main-path dup in a child AFTER an early-return child: the
-              // early return never executes the dup, so the value is still
-              // live and needs the scope-exit drop.
-              (ret_before_dup : bool) = false;
-              match(
-                earliest_ret,
-                .Some(er) => {
-                  (rdi : usize) = usize(0);
-                  while(rdi < dups.len(), {
-                    match(
-                      dups.get_cloned(rdi),
-                      .Some(d) => match(
-                        dup_child_idx.get(ast_expr_id(&d)),
-                        .Some(dci) => if(dci > er, {
-                          ret_before_dup = true;
-                        }),
-                        .None => ()
-                      ),
-                      .None => ()
-                    );
-                    rdi = (rdi + usize(1));
-                  });
-                },
-                .None => ()
-              );
-              consumed_dups := match(
-                consumed_derived.get(base_id.clone()),
-                .Some(c) => c,
-                .None => usize(0)
-              );
-              // Base variable itself consumed while `v` is a derived copy:
-              // the dup is essential for COW correctness.
-              (base_consumed : bool) = false;
-              if(!(base.id() == v.id()), {
-                (bci2 : usize) = usize(0);
-                while(bci2 < fvars.len(), {
-                  match(
-                    fvars.get_cloned(bci2),
-                    .Some(fv) => if((fv.id().to_string() == base_id) && fv.consumed_at_token().is_some(), {
-                      base_consumed = true;
-                    }),
-                    .None => ()
-                  );
-                  bci2 = (bci2 + usize(1));
-                });
-              });
-              // A local moved into a container in a block that awaits: a
-              // local live across the await is a state-machine slot, and a slot
-              // must own its count — the abort dispose releases every non-null
-              // slot, so a move out of one zeroes it (`_sm_consuming_read`),
-              // and this move is one the local goes on reading
-              // (`Box2(xs : xs, n : xs.len())` read NULL:
-              // issues/fixed/a-cancelled-dup-drop-pair-zeroes-a-state-machine-slot-still-read.md).
-              // An ALIAS candidate (`v := base`) is still elided: the base keeps
-              // the count, and the state machine stores the alias in the base's
-              // slot (`sm_storage_id`), which is sound only while the alias owns
-              // nothing.
-              slot_move := (block_awaits && (base.id() == v.id()));
-              gates_ok := (!value_type_with_rc && (!partial && (!nested_dup && (!ret_before_dup && ((consumed_dups == usize(0)) && (!base_consumed && !slot_move))))));
-              if(gates_ok, {
-                // Count RUNTIME dups — every collected dup counts.
-                (runtime_count : usize) = usize(0);
-                (single_regular : Option(AstExpr)) = Option(AstExpr).None;
-                (rci : usize) = usize(0);
-                while(rci < dups.len(), {
-                  match(
-                    dups.get_cloned(rci),
-                    .Some(d2) => {
-                      runtime_count = (runtime_count + usize(1));
-                      single_regular = Option(AstExpr).Some(d2);
-                    },
-                    .None => ()
-                  );
-                  rci = (rci + usize(1));
-                });
-                if(runtime_count <= usize(1), {
-                  // Cancel: remove the dup and mark the variable consumed.
-                  (rmi : usize) = usize(0);
-                  while(rmi < dups.len(), {
-                    match(
-                      dups.get_cloned(rmi),
-                      .Some(d3) => {
-                        remove_ids.insert(ast_expr_id(&d3));
-                      },
-                      .None => ()
-                    );
-                    rmi = (rmi + usize(1));
-                  });
-                  // Clear the list.
-                  // REQUIRED, not tidying: emptying `merged.dup_calls`' list for
-                  // this base means a LATER variable sharing the same base sees
-                  // no dups and therefore keeps its own scope-end drop instead
-                  // of cancelling a second time against the one dup. Without
-                  // it, reversing the walk above just moves the double-drop
-                  // from `b` to `a`. Written through the map, not the `dups`
-                  // binding: that is a copy once collections are values.
-                  merged.dup_calls.insert(base_id.clone(), ArrayList(AstExpr).new());
-                  // Consume at the dup's USE SITE when there is exactly one
-                  // runtime dup: early returns AFTER the
-                  // transfer must not re-drop the moved value; ones BEFORE it
-                  // stay inside the [init, consume) window and keep theirs.
-                  (consume_tok : Token) = ast_expr_token(last_expr);
-                  if(runtime_count == usize(1), {
-                    match(
-                      single_regular,
-                      .Some(sr) => match(
-                        get_dup_use_site_token(ast_expr_id(&sr)),
-                        .Some(ut) => {
-                          consume_tok = ut;
-                        },
-                        .None => ()
-                      ),
-                      .None => ()
-                    );
-                  });
-                  v.set_consumed_at_token(Option(Token).Some(consume_tok));
-                });
-              });
-            }),
-            .None => ()
-          );
-        });
-      },
-      .None => ()
-    );
-  });
-  // 4. Strip the cancelled dups from the tree.
-  if(remove_ids.len() > usize(0), {
-    (ri : usize) = usize(0);
-    while(ri < begin_args.len(), {
-      match(
-        begin_args.get_cloned(ri),
-        .Some(c) => _remove_dup_calls_from_tree(&c, &remove_ids, ctx),
-        .None => ()
-      );
-      ri = (ri + usize(1));
-    });
-  });
 });
 // ---------------------------------------------------------------------------
 // The implicit-copy recorder: is the copied variable used again?
@@ -3821,24 +2862,12 @@ _evaluate_begin_expression_impl :: (
   );
   throw_expr_is_implicit_variable_error(&check_expr, &env, ctx, exn);
   // -------------------------------------------------------------------------
-  // Ownership / RC optimizations (ported — LIVE, not the Phase 2aa stubs)
+  // Scope-end drops
   // -------------------------------------------------------------------------
   //
   // The frame below is scheduled by `_schedule_scope_end_drops` (deferred
   // drop generation; the function-body params-frame pass calls it with
-  // params_only = true), and its deferred dups are paired against those
-  // drops by `_optimize_dup_drop_pairs` (dup/drop pair elimination). A
-  // variable that is the root of a live `inout` binding is excluded from the
-  // MOVE optimization only (`variable_is_inout_borrow_root`, B2′ in
-  // plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md) — the scheduler must keep
-  // scheduling its own scope-end drop.
-  // The TypeScript-era "Loop traversal borrow-chain optimisation" was never
-  // ported (its stub was deleted in #788). If it ever is, it MUST treat
-  // `variable_is_inout_borrow_root` roots as live through the binding's
-  // scope and carry the TS-era mutation/escape guard
-  // (issues/fixed/loop-traversal-borrow-chain-mutation-uaf.md — the TS
-  // version had a use-after-free when the loop mutated the structure).
-  // -------------------------------------------------------------------------
+  // params_only = true).
   // Save the current frame before popping it
   // -------------------------------------------------------------------------
   n_frames := env.frames_len();
@@ -3993,30 +3022,6 @@ _evaluate_begin_expression_impl :: (
       match(env.frame_at(env.frames_len() - usize(2)), .Some(dyn_pfr) => judge_dyn_copies(&dyn_pfr, &begin_args, ctx, exn), .None => ());
     });
   });
-  // OPTIMIZE_DUP_AND_DROP_PAIRS: cancel each candidate
-  // local's single runtime dup against its scope-end drop — a MOVE. Winners
-  // are marked consumed HERE so the scheduler's e5 gate skips their drop and
-  // the M3 driver below attaches their early-return-only drops.
-  match(
-    &current_frame_opt,
-    // Whether the block awaits decides the local-move case (see `slot_move`).
-    .Some(opt_fr) => {
-      (awaits : bool) = false;
-      (ai : usize) = usize(0);
-      while((ai < begin_args.len()) && !awaits, {
-        match(
-          begin_args.get_cloned(ai),
-          .Some(a) => {
-            awaits = _contains_io_await_for_opt(&a, ctx);
-          },
-          .None => ()
-        );
-        ai = (ai + usize(1));
-      });
-      _optimize_dup_drop_pairs(&opt_fr.*, &begin_args, &last_info.variable_name(), &last_expr, awaits, ctx);
-    },
-    .None => ()
-  );
   // M1: schedule scope-end RC drops for this frame's owning named locals BEFORE the
   // frame is popped (the `___drop(name)` exprs are evaluated against `env` while the
   // names are still in scope). See _schedule_scope_end_drops + plans/archive/YO_SELF_NAMED_LOCAL_DROPS.md.
@@ -4493,8 +3498,7 @@ _evaluate_begin_expression_impl :: (
   attach_temp_variable_to_expr(expr, true, ctx);
   Rc.clone(expr.*)
 });
-export(DupCallsResult, is_unit_value_expression);
-export(collect_dup_calls_conservatively);
+export(is_unit_value_expression);
 export(evaluate_begin_expression);
 /// A binding a consuming `match` arm owns (plans/VALUES_BY_DEFAULT.md
 /// decision 26) that the arm's body moved: a `return`, `unwind`, effect

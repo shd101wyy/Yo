@@ -63,7 +63,6 @@
   get_variables_from_env,
   variable_set_doc_comment,
   variable_set_inout_borrow_root_id,
-  variable_mark_inout_borrow_root,
   make_err_variable,
   env_adopt,
   variable_value_type,
@@ -237,11 +236,9 @@ _inout_place_chain :: (fn(place : &AstExpr, hops : &mut ArrayList(_InoutPlaceHop
 /// The bound variable is `is_ref` (reads emit `(*name)`, writes write
 /// through), `is_reassignable`, NOT owning (no scope-end drop of the
 /// pointee), and records its root's id (`inout_borrow_root_id`) for the
-/// consume gate; the root is marked `is_inout_borrow_root` so the last-use
-/// optimizers never turn its dup into a move (§9 H6). For a whole-variable
-/// place the binding SHARES the root's `Variable.value` cell, so compile-time
-/// reads through the alias observe the root (H27); field places are
-/// runtime-only.
+/// consume gate. For a whole-variable place the binding SHARES the root's
+/// `Variable.value` cell, so compile-time reads through the alias observe
+/// the root (H27); field places are runtime-only.
 ///
 /// Codegen channel (init-assignment.yo `_generate_inout_local_binding`): the
 /// `:=` node's ExprInfo has unit type; the `inout(name)` LHS node's ExprInfo
@@ -690,7 +687,6 @@ _evaluate_inout_local_binding :: (
     },
     .None => ()
   );
-  variable_mark_inout_borrow_root(&root_var);
   // The live range (decision 18: it ends at the last use, Hylo's rule) and,
   // when a later statement re-points the borrow, the hidden owning local
   // that holds the cell a re-point steps into (decision 25). Its type is the
@@ -1078,11 +1074,6 @@ _bind_projection_result :: (
     },
     .None => ()
   );
-  (vi : usize) = usize(0);
-  while(vi < root_vars.len(), {
-    variable_mark_inout_borrow_root(&root_vars(vi));
-    vi = (vi + usize(1));
-  });
   range := local_borrow_range_of(expr, var_name.clone(), &name_tok);
   (step_pin : Option(Variable)) = Option(Variable).None;
   if(range.has_repoint, {
@@ -1432,7 +1423,6 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
     roots.push(OriginRootPlace(place : place.clone(), is_mut : is_mut));
     bind_join_roots_for(&cur_var, &roots, ast_expr_token(&rhs), &env, ctx, exn, kill : true, holder_may_drop : false);
   });
-  variable_mark_inout_borrow_root(&root_var);
   lhs_info := new_expr_info(&env, t_unit());
   lhs_info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
   match(
