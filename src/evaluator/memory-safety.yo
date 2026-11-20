@@ -176,6 +176,22 @@ destroying_builtin_error_message :: (fn(builtin : &String, place : &String) -> S
 
 To end a value early, call 'drop(x)': it moves 'x' in, and a later use is an error. A file that destroys a slot it owns through a raw pointer declares 'pragma(Pragma.AllowUnsafe);' and calls 'unsafe(drop_in_place(p))'.`
 );
+/// The diagnostic the ownership-accounting builtins raise outside an
+/// unsafe-capable file: `__yo_rc_own`, `__yo_capture_field`, `__yo_incr_rc`,
+/// `__yo_incr_rc_atomic`, `__yo_dyn_dup`, `__yo_sometype_dup`,
+/// `__yo_dup_array_element` and `__yo_dup_tuple_element` add an owner (or a
+/// count) the compiler does not record, so the value is freed twice or
+/// leaked: `b := __yo_rc_own(a)` was a heap use-after-free in a safe file.
+/// They share the destroying builtins' gate
+/// (`is_destroying_builtin_call_capable`); the compiler's own uses are
+/// parsed from `auto-generated://` code or written in the prelude, which
+/// declares the pragma. See
+/// issues/fixed/2026-11-21-the-rc-ownership-builtins-are-callable-outside-unsafe.md.
+ownership_builtin_error_message :: (fn(builtin : &String, place : &String) -> String)(
+  `'${builtin}(...)' is not available in safe code: it adds an owner or a reference count to '${place}' that the compiler does not record, so the value is freed twice, used after it is freed, or leaked.
+
+To share a value, call 'Rc.clone(h)' or 'x.clone()'. These builtins are the compiler's own lowering of copies and drops; a file that genuinely needs one declares 'pragma(Pragma.AllowUnsafe);'.`
+);
 /// Is this module path a compiler-synthesized expansion (macro, derive,
 /// prelude desugaring)? Such URIs are tagged `auto-generated://...`.
 is_auto_generated_expansion :: (fn(module_path : &Option(String)) -> bool)(
@@ -475,6 +491,7 @@ export(
   union_member_read_error_message,
   is_destroying_builtin_call_capable,
   destroying_builtin_error_message,
+  ownership_builtin_error_message,
   is_class1_panic_method_name,
   is_class1_panic_receiver_type,
   is_class1_panic_exempt_file,
