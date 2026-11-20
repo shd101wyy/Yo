@@ -4305,7 +4305,7 @@ _note_future_producing_call :: (fn(expr : &AstExpr, out_expr : &AstExpr, env : &
   // (`fn_future_result_origins`); the result's origin names those, so the
   // lends below map them to this call's arguments.
   match(
-    _callee_future_result_origins(expr, &info.ty()),
+    _callee_future_result_origins(expr, &op_callee, &info.ty(), ctx),
     .Some(fr_names) => {
       info.set_ty(_stamp_future_origin(&info.ty(), &fr_names));
       expr_info_table_set(&ctx.expr_info_table, call_id, &info);
@@ -4482,12 +4482,18 @@ _callee_is_opaque_function_value :: (fn(call : &AstExpr, callee : &AstExpr, ctx 
 });
 /// The parameters of the function `call` reaches that its returned
 /// borrowing future is rooted at, as its return rule recorded them under its
-/// declared result (`fn_future_result_origins`; `result` is the call's
-/// result type); `.None` for a function that returns no borrowing future.
-_callee_future_result_origins :: (fn(call : &AstExpr, result : &TypeValue) -> Option(ArrayList(String)))({
-  found := fn_future_result_origins(result);
+/// declared result or, for a generic callee, its id
+/// (`fn_future_result_origins`; `result` is the call's result type);
+/// `.None` for a function that returns no borrowing future.
+_callee_future_result_origins :: (fn(call : &AstExpr, callee : &AstExpr, result : &TypeValue, ctx : &EvalContext) -> Option(ArrayList(String)))({
+  callee_fid := match(
+    match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(callee)), .Some(ci) => ci.value(), .None => Option(EvalValue).None),
+    .Some(Rc(.FuncVal(cf_fv, _))) => cf_fv.*.func_id.clone(),
+    _ => match(lookup_method_callee_value(ast_expr_id(call)), .Some(Rc(.FuncVal(cm_fv, _))) => cm_fv.*.func_id.clone(), _ => String.new())
+  );
+  found := fn_future_result_origins(result, &callee_fid);
   if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
-    eprintln(`[n2b] callee-future-result ${type_to_string(result)}: found=${found.is_some().to_string()} at ${ast_expr_to_string(call)}`);
+    eprintln(`[n2b] callee-future-result ${match(result, Rc(.SomeT({ id : dbg_id })) => dbg_id.clone(), _ => String.new())} fn:${callee_fid}: found=${found.is_some().to_string()} at ${ast_expr_to_string(call)}`);
   });
   found
 });
@@ -4725,6 +4731,16 @@ _future_call_lends_into :: (
           // future (`mk(H(x)(r : &x), io)` for `h : H(p)`): the future's
           // origin names its parameter, so the call lends the argument's
           // origin, `{(x, &)}` (O8, R-CALL; audit A51).
+          // A reference binding passed bare (`fwd(w, io)` with `w : &W` a
+          // parameter of the caller): its read is typed as the pointee, and
+          // the place it lends is the binding's own, as a receiver's is.
+          if((out.len() == before) && labels_known && ast_expr_is_atom(&lent) && match(get_variables_from_env(env, ast_expr_token(&lent).value.*.clone()).last_cloned(), .Some(lrv) => variable_is_reference_binding(&lrv), .None => false), {
+            match(
+              _lent_place_of(&lent, ctx),
+              .Some(rbp) => out.push(_FutureLend(place : rbp, is_mut : _borrows_root_named_mut(leaf_bs, &label), via : via.clone())),
+              .None => ()
+            );
+          });
           if((out.len() == before) && labels_known && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&lent)), .Some(lti) => (type_carries_origin(&lti.ty()) && !is_future_value_type(&lti.ty())), .None => false), {
             tok := ast_expr_token(&lent);
             ors := origin_of(&lent, env, ctx);

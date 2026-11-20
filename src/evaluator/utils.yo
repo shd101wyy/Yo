@@ -13640,7 +13640,22 @@ _note_fn_future_result_roots :: (fn(roots : &ArrayList(OriginRootPlace), env : &
     ),
     .None => return(())
   );
-  if(fid.len() == usize(0), {
+  // A specialization of a generic function evaluates its body under the
+  // specialized function value and a re-evaluated result type, while its
+  // call sites name the generic definition: the record is kept under that
+  // definition's id too.
+  keys := ArrayList(String).new();
+  if(fid.len() > usize(0), {
+    keys.push(fid);
+  });
+  match(
+    &ctx.currently_specializing_function,
+    .Some(sf) => if(match(&ctx.is_evaluating_function_body_or_async_block, .Some(sfb) => match(&sfb.func_value, .Some(Rc(.FuncVal(sf_fv, _))) => (sf_fv.*.*.func_id == sf.specialized_func_id), _ => false), .None => false), {
+      keys.push(`fn:${sf.original_func_id}`);
+    }),
+    .None => ()
+  );
+  if(keys.len() == usize(0), {
     return(());
   });
   names := ArrayList(String).new();
@@ -13656,32 +13671,43 @@ _note_fn_future_result_roots :: (fn(roots : &ArrayList(OriginRootPlace), env : &
     );
   });
   if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
-    eprintln(`[n2b] fn-future-result ${fid}: [${_origin_list_text(&shared_list(names.clone()))}]`);
+    eprintln(`[n2b] fn-future-result [${_origin_list_text(&shared_list(keys.clone()))}]: [${_origin_list_text(&shared_list(names.clone()))}]`);
   });
   if(names.len() == usize(0), {
     return(());
   });
-  g_fn_future_result_origins.with_mut({ fid, names }(m) => {
-    mut(cur) := match(m.remove(&fid), .Some(l) => l, .None => ArrayList(String).new());
-    (ni : usize) = usize(0);
-    while(ni < names.len(), ni = (ni + usize(1)), {
-      if(!cur.contains(&names(ni)), {
-        cur.push(names(ni).clone());
+  (ki : usize) = usize(0);
+  while(ki < keys.len(), ki = (ki + usize(1)), {
+    key := keys(ki).clone();
+    key_names := names.clone();
+    g_fn_future_result_origins.with_mut({ key, key_names }(m) => {
+      mut(cur) := match(m.remove(&key), .Some(l) => l, .None => ArrayList(String).new());
+      (ni : usize) = usize(0);
+      while(ni < key_names.len(), ni = (ni + usize(1)), {
+        if(!cur.contains(&key_names(ni)), {
+          cur.push(key_names(ni).clone());
+        });
       });
+      m.insert(key, cur);
     });
-    m.insert(fid, cur);
   });
 });
 /// The parameters a function whose declared result is `result` (a call's
 /// result type: the declared `Impl(Future(...))` with its resolution)
-/// returns a borrowing future rooted at (`_note_fn_future_result_roots`);
-/// `.None` when it returns none.
-fn_future_result_origins :: (fn(result : &TypeValue) -> Option(ArrayList(String)))({
+/// returns a borrowing future rooted at (`_note_fn_future_result_roots`),
+/// or, for a generic callee whose specialization re-evaluated its result,
+/// what its specializations recorded under `callee_func_id`; `.None` when
+/// it returns none.
+fn_future_result_origins :: (fn(result : &TypeValue, callee_func_id : &String) -> Option(ArrayList(String)))({
   fid := _fn_future_result_key(result);
-  if(fid.len() == usize(0), {
+  if(fid.len() > usize(0), {
+    match(g_fn_future_result_origins.with({ fid : &fid }(m) => m.get_cloned(fid)), .Some(ns) => return(Option(ArrayList(String)).Some(ns)), .None => ());
+  });
+  if(callee_func_id.len() == usize(0), {
     return(Option(ArrayList(String)).None);
   });
-  g_fn_future_result_origins.with({ fid : &fid }(m) => m.get_cloned(fid))
+  ck := `fn:${callee_func_id.*}`;
+  g_fn_future_result_origins.with({ ck : &ck }(m) => m.get_cloned(ck))
 });
 /// A function's declared opaque result by its identity: the body is
 /// evaluated under a function value minted for the evaluation, not the one

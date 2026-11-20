@@ -89,7 +89,10 @@ container's method, and it is wider than the closure. Two gaps, plus one found b
   side.
 - Step 3 writes back through `_lend_write_back_into`: a holder that is a parameter of the body being evaluated (its
   declared slot, `param_declared_origin_slot`) has each stored argument judged by `place_write_join`, exactly as the
-  store through it would be; any other holder (a flow-inferred local, a `&mut` capture) joins as before.
+  store through it would be; any other holder (a flow-inferred local, a `&mut` capture) joins as before. For a
+  parameter holder this runs even when step 1 fixed every origin parameter the pointee names, with the type-occurrence
+  candidates included: a specialized generic container method types `value : T` from the ARGUMENT (its origin is the
+  argument's, not the receiver's `p`), so step 2 cannot relate the two (`s.replace(v)` over two spelled origins).
 
 Rows (`tests/origins/unsound/`, every negative accepted before the fix): `t7-fnmut-capture-method-stores-param` (the
 reproducer), `t7-user-generic-method-capture-stores-param` (a user generic container's `&mut self` method on the

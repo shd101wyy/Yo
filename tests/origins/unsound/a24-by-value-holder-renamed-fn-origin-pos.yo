@@ -1,10 +1,10 @@
 // expect: accept
-// The positive twin of t7-a24-renamed-ctor-origin: the reference stored is over the slot's own origin.
+// The positive twin of a24-by-value-holder-renamed-fn-origin: the reference stored is over the slot's own origin.
 { String } :: import("std/string");
 { println } :: import("std/fmt");
 X :: struct(s : String);
-Slot :: (fn(comptime(z) : Origin) -> comptime(Type))(struct(dst : &mut Option(&(Rc(X), z))));
-put :: (fn(generic(p : Origin), s : Slot(p), v : &(Rc(X), p)) -> unit)({
+Slot :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(dst : &mut Option(&(Rc(X), p))));
+put :: (fn(generic(r : Origin), s : Slot(r), v : &(Rc(X), r)) -> unit)({
   s.dst.* = .Some(v);
 });
 main :: (fn() -> unit)({

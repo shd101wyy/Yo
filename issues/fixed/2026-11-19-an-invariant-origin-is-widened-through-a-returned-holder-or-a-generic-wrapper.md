@@ -80,19 +80,32 @@ Fix the rule or wall the position (a rejection with an error code at exactly the
    outside the spelled result origin E0923). `widen`'s `s` is a by-value parameter: it has no root of its own, and its
    type's origin `p` is inside the spelled `(p, q)`, so the covariant reading passed. Nothing compared the value's type
    with the declared result at the positions O3 step 3 makes invariant.
-2. **The generic wrapper.** `lend_through`'s step 3 (the flow write-back, `src/evaluator/calls/function.yo`) ran only
+2. **A24's own fix held by a coincidence of names.** An instance's field types keep the type constructor's OWN
+   parameter names (`Slot(x)`'s field is `dst : &mut Option(&(Rc(X), p))` with `Slot`'s `p`, not `x`).
+   `_mut_pointee_origin_names` collected those names and step 1 compared them with the signature's: A24's row
+   spells `generic(p : Origin), s : Slot(p)` over `Slot :: (fn(comptime(p) : Origin) ...)`, so it matched. Renaming
+   either side (`generic(r : Origin), s : Slot(r)`, or `comptime(z)` in `Slot`) reopened A24: both are accepted and
+   ASan-dirty on the clusters binary. The return check's first cut had the same blind spot (a field pairs `p` with
+   `p`). Filed and fixed on its own:
+   `issues/fixed/2026-11-20-a24s-invariance-check-matches-the-type-constructors-parameter-names-against-the-signatures.md`.
+3. **The generic wrapper.** `lend_through`'s step 3 (the flow write-back, `src/evaluator/calls/function.yo`) ran only
    for a parameter whose own type is a top-level `&mut`. A24's fix taught step 1 to fix the origins under a `&mut`
    nested in a by-value parameter, but `W(&mut Option(T))` spells no origin parameter at all: `T` is the inference
    variable, and only step 3 solves it. So `put(W(...)(inner : &mut slot), H(r : &y))` never joined `y` into `slot`.
 
 ## Fix
 
-1. `return_check` pairs the declared result with the value's type (`_return_check_invariant_origins`,
-   `_invariant_origin_pairs`): through reference pointees, struct fields and type arguments, enum payloads and tuple
-   components, every origin position below a `&mut` pointee must carry exactly the spelled set, else E0923 at the
-   result. A covariant position (`View(p)`'s `&(T, p)` field) still widens, and a position the value leaves elided is
-   judged by the roots as before.
-2. Step 3 also walks a by-value parameter's nested `&mut` pointees (`_nested_mut_pointees`: struct fields and type
+1. A type constructor's argument takes its variance from its fields by the constructor's own parameter names
+   (`_ctor_arg_is_invariant`, `src/evaluator/utils.yo`): the struct's `constructor_func_id` (an enum's registered
+   constructor) names the type function, whose parameter at that position is searched for below a `&mut` pointee in
+   the fields, recursively through a nested constructor's invariant arguments. `invariant_origin_names(ty)` lists the
+   origins a type spells at its invariant positions, and step 1's nested form uses it instead of the field names.
+2. `return_check` pairs the declared result with the value's type (`_return_check_invariant_origins`,
+   `_invariant_origin_pairs`): through reference pointees, constructor arguments (each invariant by 1 or below a
+   `&mut`), fields over substituted type arguments, enum payloads and tuple components, every invariant origin
+   position must carry exactly the spelled set, else E0923 at the result. A covariant position (`View(p)`'s `&(T, p)`
+   field) still widens, and a position the value leaves elided is judged by the roots as before.
+3. Step 3 also walks a by-value parameter's nested `&mut` pointees (`_nested_mut_pointees`: struct fields and type
    arguments, enum payloads, tuple components; a `&` stops the walk). When their origin or type parameters are not
    fixed by step 1, the call's other arguments over the same parameters are solved (`_lend_through_solve`, shared with
    the top-level form) and written back into the places the argument's `&mut` borrows (its `origin_of` roots in `&mut`
