@@ -1363,7 +1363,7 @@ emit_io_native_definitions :: (fn(context : &mut CodeGenContext) -> unit)({
       (fi : usize) = usize(0);
       while(fi < fields.len(), {
         match(
-          fields.get(fi),
+          fields.get_cloned(fi),
           .Some(f) => {
             callee := match(
               native_io_entry_c_name(&f.label),
@@ -1442,7 +1442,7 @@ _io_field_type :: (fn(io : &TypeValue, label : str) -> Option(TypeValue))({
   (i : usize) = usize(0);
   while(i < fields.len(), {
     match(
-      fields.get(i),
+      fields.get_cloned(i),
       .Some(f) => if(f.label == label, {
         return(Option(TypeValue).Some(f.ty.clone()));
       }),
