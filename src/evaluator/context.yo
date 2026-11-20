@@ -3500,15 +3500,94 @@ force_pending_impls_for_type_name :: (fn(type_name : &String, missed : &Option(S
   match(
     missed,
     .Some(m) => {
-      declaring := _force_pending_impls_pass(type_name.clone(), Option(String).Some(m.clone()), false);
-      match(&declaring, .NoneForced => _force_pending_impls_pass(type_name, Option(String).None, in_own_impl), _ => declaring)
+      declaring := _force_pending_impls_pass(type_name.clone(), Option(String).Some(m.clone()), false, Option(String).None);
+      match(&declaring, .NoneForced => _force_pending_impls_pass(type_name, Option(String).None, in_own_impl, Option(String).None), _ => declaring)
     },
-    .None => _force_pending_impls_pass(type_name, Option(String).None, false)
+    .None => _force_pending_impls_pass(type_name, Option(String).None, false, Option(String).None)
   )
+});
+/// The name an `impl(...)`/`derive(...)` argument spells a trait with: `Clone`
+/// for `Clone`, `Clone(...)`, `Eq(T)`, and the member of a qualified
+/// `IoTraits.Reader(...)`. Empty for any other shape.
+_impl_arg_trait_name :: (fn(arg : &AstExpr) -> String)(
+  cond(
+    ast_expr_is_atom(arg) => ast_expr_token(arg).value.*.clone(),
+    ast_expr_is_fn_call_of(arg, BF_DOT, .Some(usize(2))) => match(
+      arg,
+      Rc(.FnCall(_, _, Rc(dargs), _, _)) => match(dargs.get_cloned(usize(1)), .Some(member) => recur(&member), .None => String.new()),
+      Rc(.Atom(_, _)) => String.new()
+    ),
+    true => match(
+      arg,
+      Rc(.FnCall(_, callee, _, _, _)) => cond(
+        (ast_expr_is_atom(&callee.*) || ast_expr_is_fn_call_of(&callee.*, BF_DOT, .Some(usize(2)))) => recur(&callee.*),
+        true => String.new()
+      ),
+      Rc(.Atom(_, _)) => String.new()
+    )
+  )
+);
+/// Does the `impl(...)`/`derive(...)` statement `expr` name the trait
+/// `trait_name` among its arguments (`impl(B, Clone(...))`,
+/// `derive(B, Clone, Hash)`)? Only such a statement can register that trait
+/// for its type.
+_impl_expr_names_trait :: (fn(expr : &AstExpr, trait_name : &String) -> bool)(
+  match(
+    expr,
+    Rc(.FnCall(_, _, Rc(args), _, _)) => {
+      (found : bool) = false;
+      (i : usize) = usize(1);
+      while((i < args.len()) && !found, {
+        match(
+          args.get_cloned(i),
+          .Some(a) => {
+            found = (_impl_arg_trait_name(&a) == trait_name.*);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      found
+    },
+    Rc(.Atom(_, _)) => false
+  )
+);
+/// Force the Unforced pending impls and derives of `type_name` that name the
+/// trait `trait_name`, across the active walks, as
+/// `force_pending_impls_for_type_name` does for a trait-satisfaction check.
+/// A generic impl's `where` bound asks this when it fails: `Box(B) <: Clone`
+/// needs `B <: Clone` from a `derive(B, Clone)` further down. Only an impl
+/// that names the trait can answer, and the others are left in place: the
+/// bound also fails for a type that legitimately lacks the trait, and for a
+/// recursive type whose check the recursion guard cut, where forcing an
+/// unrelated impl of a type still being defined is a cycle
+/// (issues/fixed/2026-11-19-derive-clone-of-a-deref-field-fails-when-the-payloads-clone-is-derived-later.md).
+force_pending_trait_impls_for_type_name :: (fn(type_name : &String, trait_name : &String) -> PendingImplOutcome)({
+  if((type_name.len() == usize(0)) || (trait_name.len() == usize(0)), {
+    return(PendingImplOutcome.NoneForced);
+  });
+  if(debug_knob(`YO_DEBUG_LAZY`).is_some(), {
+    eprintln(`[force-miss] ${type_name} <: ${trait_name}`);
+  });
+  // An impl of this type in flight owns its own registration, exactly as
+  // for an unnamed trait-satisfaction miss in `force_pending_impls_for_type_name`.
+  (fi : usize) = usize(0);
+  while(fi < g_forcing_stack.with(_c_len_4), {
+    match(
+      g_forcing_stack.with(xs => xs.get_cloned(fi)),
+      .Some(fd) => if((fd.is_impl && !(fd.is_derive())) && (fd.name == type_name.*), {
+        return(PendingImplOutcome.NoneForced);
+      }),
+      .None => ()
+    );
+    fi = (fi + usize(1));
+  });
+  _force_pending_impls_pass(type_name, Option(String).None, false, Option(String).Some(trait_name.clone()))
 });
 /// One forcing pass over the active walks (innermost first): every Unforced
 /// impl whose receiver head is `type_name` (or is un-nameable), restricted to
-/// the impls that declare `declaring` when it is given, and to derives when
+/// the impls that declare `declaring` when it is given, to the impls and
+/// derives that name the trait `naming` when it is given, and to derives when
 /// `derives_only`.
 ///
 /// Walks nest strictly, so every walk below the innermost is parked on the
@@ -3519,7 +3598,7 @@ force_pending_impls_for_type_name :: (fn(type_name : &String, missed : &Option(S
 /// An outer walk is searched only when it declares `type_name` itself, which
 /// is the import-cycle case (the running module reached back into a module
 /// still loading, whose own type's impl is pending).
-_force_pending_impls_pass :: (fn(type_name : &String, declaring : &Option(String), derives_only : bool) -> PendingImplOutcome)({
+_force_pending_impls_pass :: (fn(type_name : &String, declaring : &Option(String), derives_only : bool, naming : &Option(String)) -> PendingImplOutcome)({
   (forced : bool) = false;
   (err : Option(String)) = Option(String).None;
   (wi : usize) = g_module_walks.with(_c_len_1);
@@ -3534,7 +3613,7 @@ _force_pending_impls_pass :: (fn(type_name : &String, declaring : &Option(String
           match(
             walk.defs.get_cloned(di),
             .Some(def) => {
-              is_target := (def.is_impl && (def.is_derive() || !(derives_only)) && match(def.state(), .Unforced => true, _ => false) && ((def.name == type_name.*) || (def.name.len() == usize(0))) && match(declaring, .Some(m) => _impl_expr_declares(&def.expr(), &m.*), .None => true));
+              is_target := (def.is_impl && (def.is_derive() || !(derives_only)) && match(def.state(), .Unforced => true, _ => false) && ((def.name == type_name.*) || (def.name.len() == usize(0))) && match(declaring, .Some(m) => _impl_expr_declares(&def.expr(), &m.*), .None => true) && match(naming, .Some(tn) => _impl_expr_names_trait(&def.expr(), &tn.*), .None => true));
               if(is_target, {
                 match(
                   force_pending_def(&walk, &def),
@@ -4299,6 +4378,7 @@ export(
   flag_pending_impl_force_error,
   take_pending_impl_force_error,
   force_pending_impls_for_type_name,
+  force_pending_trait_impls_for_type_name,
   note_reference_impl_head,
   reference_impl_head_noted,
   note_reference_impl_method,

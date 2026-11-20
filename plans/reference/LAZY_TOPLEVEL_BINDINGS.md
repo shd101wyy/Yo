@@ -518,3 +518,18 @@ time as before the campaign; no latency issue observed, none pinned.
   `tests/derive.test.yo` and `tests/derive_clone_complex.test.yo`.
 - Seed gate, as for P5/P6: `std/` and `src/` keep each derive above its first
   use until `SEED_VERSION` carries the release with this change.
+
+### Generic-impl `where` bounds force by trait (2026-11-19)
+
+- A generic impl's `where` clause judged on a concrete bound type
+  (`try_match_generic_impl`'s where pass: `Box(B) <: Clone` asks `B <: Clone`)
+  forces, when it fails, the bound type's pending impls and derives that NAME
+  the clause's trait (`force_pending_trait_impls_for_type_name`), then
+  re-judges. Before, only the receiver's head was forced, so a derive above
+  `derive(B, Clone)` whose body cast a `Box(B)` field to `Clone` was rejected
+  (`issues/fixed/2026-11-19-derive-clone-of-a-deref-field-fails-when-the-payloads-clone-is-derived-later.md`).
+- Forcing every pending impl of the bound type is wrong here: a `where` bound
+  also fails legitimately, and the recursion guard answers `false` for a
+  recursive type mid-definition, so the forced unrelated impl can name the
+  type being defined (`std/encoding/json.yo`'s `JsonKV` → `impl(JsonValue, …)`
+  → `JsonKV` cycle).
