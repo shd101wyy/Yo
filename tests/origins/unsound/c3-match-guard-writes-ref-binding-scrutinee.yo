@@ -11,10 +11,16 @@ peek :: (fn(p : &Option(Box(String))) -> bool)(p.is_some());
 main :: (fn() -> unit)({
   mut(o) := Option(Box(String)).Some(Box.new(L()));
   r := &o;
-  match(r, (.Some(Box(s)) && {
-    kill(&mut o);
-    s.len() > usize(0)
-  }) => println("OUT: taken"), _ => ());
+  match(
+    r,
+    (
+      .Some(Box(s)) && {
+        kill(&mut o);
+        s.len() > usize(0)
+      }
+    ) => println("OUT: taken"),
+    _ => ()
+  );
   ()
 });
 export(main);

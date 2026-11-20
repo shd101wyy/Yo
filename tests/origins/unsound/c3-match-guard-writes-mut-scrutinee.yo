@@ -11,10 +11,16 @@ kill :: (fn(p : &mut Option(Box(String))) -> unit)({
 peek :: (fn(p : &Option(Box(String))) -> bool)(p.is_some());
 main :: (fn() -> unit)({
   mut(o) := Option(Box(String)).Some(Box.new(L()));
-  match(&mut o, (.Some(Box(s)) && {
-    o = .None;
-    true
-  }) => println(`OUT: ${s}`), _ => ());
+  match(
+    &mut o,
+    (
+      .Some(Box(s)) && {
+        o = .None;
+        true
+      }
+    ) => println(`OUT: ${s}`),
+    _ => ()
+  );
   ()
 });
 export(main);

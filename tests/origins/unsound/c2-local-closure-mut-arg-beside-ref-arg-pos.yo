@@ -10,10 +10,12 @@ main :: (fn() -> unit)({
   mut(xs) := ArrayList(String).new();
   xs.push(long());
   w := long();
-  (c : Impl(Fn(ys : &mut ArrayList(String), r : &String) -> usize)) = ((ys : &mut ArrayList(String), r : &String) => {
-    ys.clear();
-    r.clone().len()
-  });
+  (c : Impl(Fn(ys : &mut ArrayList(String), r : &String) -> usize)) = (
+    (ys : &mut ArrayList(String), r : &String) => {
+      ys.clear();
+      r.clone().len()
+    }
+  );
   e := first(&xs);
   println(`OUT: ${e.*}`);
   v := c(&mut xs, &w);

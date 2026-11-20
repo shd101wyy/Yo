@@ -10412,7 +10412,7 @@ is_computed_reference_operand :: (fn(operand : &AstExpr, ctx : &EvalContext) -> 
   match(&s, Rc(.FnCall(_, _, _, cro_infix, _)) => (!cro_infix.* && projection_call_mode_of(&s, ctx).is_some()), Rc(.Atom(_, _)) => false)
 });
 /// The R-TEMP entry for the temporary `operand`.
-origin_temporary_entry ::(fn(operand : &AstExpr, is_mut : bool) -> OriginRootPlace)({
+origin_temporary_entry :: (fn(operand : &AstExpr, is_mut : bool) -> OriginRootPlace)({
   s := ast_expr_strip_borrow_marker(operand);
   OriginRootPlace(
     place : LocalBorrowPlace(root_name : String.from(ORIGIN_TEMPORARY_ROOT), root_decl : ast_expr_token(&s), steps : ArrayList(String).new(), through_cell : false, module_root : false, text : ast_expr_to_string(&s)),

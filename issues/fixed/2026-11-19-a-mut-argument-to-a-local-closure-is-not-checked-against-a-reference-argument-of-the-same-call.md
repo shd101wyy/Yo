@@ -48,7 +48,7 @@ SUMMARY: AddressSanitizer: heap-use-after-free
 
 The same call to a plain function, `plain(&mut xs, e)`, is E0911 ("`e` borrows `xs` with `&` and is still live"). The cluster lane's rule G (`v0279/clusters`, A6) makes every `&mut` argument a write at the call's activation, but only for the pending entries its recorders see. Both recorders run on `fn_param_mut_ref_flags` slots, and a call through a LOCAL closure value records none. So the `&mut xs` argument of `c(&mut xs, e)` never meets `e`'s loan.
 
-This is the bodyless half that `tests/origins/gen-known.tsv` still lists as `args:named/*/closure/*` and `args:named/*/fnptr/*` (A6). That row cites `issues/2026-11-12-a-mut-argument-to-a-callee-that-neither-writes-nor-lends-it-is-a-read.md`, which `v0279/clusters` moves to `issues/fixed/` with the status "item 1 FIXED". The closure and function-pointer callees are not fixed. This document is the open record for them; the two gen-known rows should cite it once the cluster branch merges.
+This is the bodyless half that `tests/origins/gen-known.tsv` still lists as `args:named/*/closure/*` and `args:named/*/fnptr/*` (A6). That row cited the A6 doc, which `v0279/clusters` moves to `issues/fixed/2026-11-12-a-mut-argument-to-a-callee-that-neither-writes-nor-lends-it-is-a-read.md` with the status "item 1 FIXED". The closure and function-pointer callees are not fixed. This document is the open record for them; the two gen-known rows should cite it once the cluster branch merges.
 
 ## Neighbours
 

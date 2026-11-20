@@ -10,18 +10,30 @@ kill :: (fn(p : &mut Option(Box(String))) -> unit)({
 peek :: (fn(p : &Option(Box(String))) -> bool)(p.is_some());
 main :: (fn() -> unit)({
   mut(o) := Option(Box(String)).Some(Box.new(L()));
-  match(&mut o, (.Some(Box(s)) && {
-    println(`OUT: ${s}`);
-    true
-  }) => {
-    o = .None;
-  }, _ => ());
+  match(
+    &mut o,
+    (
+      .Some(Box(s)) && {
+        println(`OUT: ${s}`);
+        true
+      }
+    ) => {
+      o = .None;
+    },
+    _ => ()
+  );
   mut(o2) := Option(Box(String)).Some(Box.new(L()));
   match(&mut o2, (.Some(Box(s2)) && peek(&o2)) => println("OUT: peeked"), _ => ());
-  match(&mut o2, (.Some(Box(s3)) && {
-    o2 = .None;
-    true
-  }) => println("OUT: cleared"), _ => ());
+  match(
+    &mut o2,
+    (
+      .Some(Box(s3)) && {
+        o2 = .None;
+        true
+      }
+    ) => println("OUT: cleared"),
+    _ => ()
+  );
   ()
 });
 export(main);
