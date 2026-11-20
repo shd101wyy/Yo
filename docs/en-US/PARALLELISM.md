@@ -251,23 +251,29 @@ Channel (`std/sync/channel.yo`) provides bounded, multi-producer multi-consumer 
 // Create a bounded channel (capacity 10)
 ch := Channel(i32).new(usize(10));
 
-// Producer thread
-Thread(unit).spawn(io => {
-  ch.send(i32(42));
+// Producer thread: its own handle on the queue
+tx := ch.clone();
+producer := Thread(unit).spawn({ tx }(io : Io) => {
+  _ := tx.send(i32(42));
 });
 
 // Consumer thread
-Thread(unit).spawn(io => {
-  val := ch.recv();
+rx := ch.clone();
+consumer := Thread(unit).spawn({ rx }(io : Io) => {
+  val := rx.recv();
   cond(
     val.is_some() => printf("Got %d\n", val.unwrap()),
     true => ()
   );
 });
+producer.join();
+consumer.join();
 ```
 
-`Channel(T)` is `Send` and `Sync` when `T` is `Send` (it is built over an atomically counted
-cell), so it is directly shareable across threads. No extra `Arc.new()` wrapper is needed.
+A `Channel(T)` is a value holding an `Arc` of its queue, and it is `Send` and `Sync` when `T`
+is `Send`. `ch.clone()` is another handle on the same queue (no `Arc.new()` wrapper is needed),
+and the queue is freed with the last handle. An implicit copy (`ch2 := ch` with `ch` used
+again) is E0901: clone it once per thread that needs it and capture the clone by value.
 
 Channel uses a `Mutex` + `CondVar` internally for synchronization. Send blocks when the channel is full; recv blocks when the channel is empty.
 
@@ -303,23 +309,30 @@ rx.recv(); // .Err(TryRecvError.Disconnected)
   *not* close the channel. Prefer `receiver()` + `sender()` whenever the end of the stream
   matters.
 
-For producers on other threads, mint each thread's `Sender` inside the thread and keep one
-in the parent until the workers are running:
+A `Sender` is a value holding its own `Channel` handle: `tx.clone()` attaches a counted
+producer, dropping one detaches it, and an implicit copy is E0901 (it would bypass the count).
+The `Receiver` has no `Clone`, and copying it is E0901, so the one consumer stays one. For
+producers on other threads, move a `Sender` of its own into each thread's closure:
 
 ```yo
 rx := Channel(i32).receiver(usize(16));
 {
-  keeper := rx.sender(); // holds the count above zero
-  w := Thread(unit).spawn(io => {
-    tx := rx.sender(); // this thread's producer
-    tx.send(i32(7));
-  }); // tx drops when the body ends
-  w.join();
-}; // keeper drops -> channel closed
+  tx := rx.sender();
+  tx2 := tx.clone(); // a second counted producer
+  w1 := Thread(unit).spawn({ tx }(io : Io) => {
+    _ := tx.send(i32(7));
+  });
+  w2 := Thread(unit).spawn({ tx2 }(io : Io) => {
+    _ := tx2.send(i32(8));
+  });
+  w1.join();
+  w2.join();
+}; // both senders dropped with their threads -> channel closed
 ```
 
-A `Sender` *moved into* a `Thread(T).spawn` closure does close the channel: the spawn wrapper
-releases the thread's capture struct when the body returns, so that sender's drop runs
+A `Sender` *moved into* a `Thread(T).spawn` closure closes the channel when it is the last one:
+the spawn wrapper releases the thread's capture struct when the body returns, so that sender's
+drop runs
 (issues/fixed/spawn-closure-captures-never-dropped-leak.md, and
 issues/fixed/a-closure-typed-slot-never-releases-its-captures.md for a capture that is itself
 a closure). Async tasks (`std/async/channel`, which has the same
@@ -332,8 +345,8 @@ implement `Sync` can be shared between threads (an `Arc` payload, a module-level
 "The Send and Sync Traits" in `THREAD_SAFETY.md`:
 
 - **Sendable**: primitives (`i32`, `bool`, etc.), value structs/enums/tuples composed of Send
-  fields, `String`, `ArrayList(T)` and `HashSet(T)` when `T` is Send, `HashMap(K, V)` when `K` and `V` are (each owns its buffers uniquely), atomic objects whose fields are all Sync (`Arc`, `Mutex`, `Channel`, the `Atomic*`
-  wrappers), `Box(Dyn(Trait, Send))` (the concrete type is checked at `dyn(...)`; in v0.2.77 the
+  fields, `String`, `ArrayList(T)` and `HashSet(T)` when `T` is Send, `HashMap(K, V)` when `K` and `V` are (each owns its buffers uniquely), `Arc(T)` (its payload is `Send` and `Sync`), the `std/sync` types
+  (`Mutex(T)` and `Channel(T)` when `T` is Send, the `Atomic*` wrappers and the other locks), `Box(Dyn(Trait, Send))` (the concrete type is checked at `dyn(...)`; in v0.2.77 the
   owned payload is still atomically counted), and function values (a named function or a closure) whose captures are
   all Send and whose code reaches no non-Send module global — judged from the value where the
   compiler can see it: a spawn body, an `Impl(Fn(...), Send)` or `Impl(FnOnce(...), Send)` argument, a generic

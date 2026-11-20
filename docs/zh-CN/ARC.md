@@ -39,11 +39,14 @@ impl(
 - `Arc(T)` 只接受同时实现了 `Send` 和 `Sync` 的子类型；`Rc(T)` 两者都不满足。是 `Send` 但不是 `Sync` 的类型（用 `impl(T, !(Sync()))` 退出 `Sync` 的类型）应放进 `Mutex(T)`，由它串行化访问。
 - 对函数值（闭包或具名函数）调用 `Arc.new(f)` 时按值判断：它捕获的东西和它的代码触及的东西都必须是 `Send` 且 `Sync` 的（规则 D4 与 D9，见 `THREAD_SAFETY.md`）。
 
-许多标准库类型不需要额外的 `Arc(...)` 包装。例如 `std/sync`
-原语建立在原子计数单元之上，本身就是 `Send` 和 `Sync`，可以直接跨线程共享。
+与 Rust 一样，`std/sync` 原语是值而不是句柄：`Mutex(T)`、`RwLock(T)`、
+`Atomic*` 类型以及其他锁把状态存放在私有的 `Box` 中，因此复制是 E0901，线程通过
+`Arc` 共享它们。用 `Arc.new(...)` 创建，并给每个共享者一个它自己的
+`Arc.clone(...)`。`Channel(T)` 是例外：它本身就持有队列的 `Arc`，`ch.clone()`
+是该队列上的另一个句柄。
 
 如果你需要共享可变状态，应该把它放在这些原语之后再共享：
-`Arc(Mutex(State))`、`RwLock` 或原子类型。
+`Arc(Mutex(State))`、`Arc(RwLock(State))` 或原子类型的 `Arc`。
 
 ## 基本用法
 

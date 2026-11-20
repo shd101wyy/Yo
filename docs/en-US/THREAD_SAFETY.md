@@ -13,7 +13,8 @@ Two marker traits answer two different questions, as in Rust:
 - **`Send`**: a value of the type may be **moved** to another thread. A channel's payload and a
   spawned closure cross threads this way.
 - **`Sync`**: copies of a value of the type may be **read** from several threads at once. An
-  `Arc`'s payload, an atomic object and a module-level global are shared this way.
+  `Arc`'s payload (a `Mutex(T)`, an `AtomicUsize`, read-only data) and a module-level global
+  are shared this way.
 
 ### Auto-Derivation
 
@@ -24,7 +25,7 @@ Both are derived for structs, enums, unions, tuples and arrays:
 | a primitive (`i32`, `bool`, `f64`, `str`, …)                  | yes                       | yes                       |
 | a struct, enum, union, tuple or array                         | iff every field is `Send` | iff every field is `Sync` |
 | a non-atomic cell (`Rc(T)`)                                   | no                        | no                        |
-| an atomic object (`Arc(T)`, `Mutex(T)`, the `Atomic*` types)  | iff every field is `Sync` | iff every field is `Sync` |
+| an atomic object (`Arc(T)`)                                   | iff every field is `Sync` | iff every field is `Sync` |
 | a raw pointer `*(T)`                                          | no                        | no                        |
 | `Dyn(Trait)`                                                  | only as `Dyn(Trait, Send)`| only as `Dyn(Trait, Sync)`|
 | a closure                                                     | see below                 | see below                 |
@@ -40,9 +41,11 @@ Shared :: Rc(String);
 Raw :: struct(p : ?*u8);
 ```
 
-An atomic object's copies share one payload, so it is `Send` only when that payload is `Sync`.
-`Mutex(T)` is the exception that proves the rule: it hands `T` to one thread at a time, so it is
-`Sync` whenever `T` is `Send`.
+An atomic object's handles share one payload, so it is `Send` only when that payload is `Sync`.
+The `std/sync` types are not atomic objects: they are values with explicit impls (see
+[Sharing a `std/sync` value](#sharing-a-stdsync-value)). `Mutex(T)` hands `T` to one thread at a
+time, so it is `Sync` whenever `T` is `Send`, and `Arc(Mutex(T))` can share a `T` that is only
+`Send`.
 
 The std types follow the same split. A type that shares its payload between threads asks for
 `Sync`: `Arc(T)` and `RwLock(T)` (concurrent read guards) need `T <: (Send, Sync)`. A type that hands its payload to one thread at a time asks
@@ -71,18 +74,41 @@ every such claim auditable.
 | ------------------------ | ---------------------------- | --------------------------------------- |
 | **Reference counting**   | Non-atomic RC (thread-local) | Atomic RC (thread-safe)                 |
 | **Cross-thread sharing** | Not allowed (not Send)       | Allowed (Send and Sync when all fields are Sync) |
-| **Example**              | `Rc(T)`                      | `Arc(T)`, `Mutex(T)`, `Channel(T)`      |
+| **Example**              | `Rc(T)`                      | `Arc(T)`                                |
+
+### Sharing a `std/sync` value
+
+`Mutex(T)`, `RawMutex`, `RwLock(T)`, `Cond`, `Barrier`, `Semaphore`, `WaitGroup`, `Once`,
+`OnceCell(T)` and the `Atomic*` types are move-only values, as in Rust. Their state (the OS
+primitive, the C11 atomic, the protected data) lives in a private `Box`, and every method takes
+`self : &Self`: the type mutates its own interior. A copy that would leave two owners is E0901.
+Threads share one through an `Arc` (`Arc(Mutex(T))`, `Arc(AtomicUsize)`): create it with
+`Arc.new(...)`, give each sharer its own `Arc.clone(...)`, and capture that clone by value in
+the thread's closure. A method call reaches the value through the `Arc` by auto-dereference.
 
 ```yo
-// Regular object — thread-local only
-local_data := MyList.new();
+{ AtomicBool, MemoryOrder } :: import("std/sync/atomic");
+{ Thread } :: import("std/thread");
+{ assert } :: import("std/assert");
 
-// Atomic object — can be sent across threads
-shared_counter := AtomicBool.new(false);
-Thread(unit).spawn(io => {
-  shared_counter.store(true, MemoryOrder.Release);
+local_data := MyList.new(); // a value: one owner, on this thread
+
+ready := Arc.new(AtomicBool.new(false));
+mine := Arc.clone(ready); // the spawned thread's handle
+t := Thread(unit).spawn({ mine }(io : Io) => {
+  mine.store(true, MemoryOrder.Release);
 });
+t.join();
+assert(ready.load(MemoryOrder.Acquire), "the thread stored true");
 ```
+
+`Channel(T)` is itself a handle: it holds an `Arc` of its queue, so `ch.clone()` is another
+handle on the same queue, and the queue is freed with the last one. An implicit copy is E0901
+here too. A `Sender(T)` clone attaches a counted producer, and a `Receiver(T)` can be neither
+cloned nor copied ([PARALLELISM.md](PARALLELISM.md)).
+
+Earlier releases made these types handles over an atomically counted cell, so `m2 := m` named
+the same lock; that copy is now E0901.
 
 ## Atomic Field Mutation is Forbidden in Safe Code
 
@@ -134,10 +160,13 @@ Every wrapper exposes `load`, `store`, `swap` and `compare_exchange`. Every
 wrapping on overflow, exactly like C11 `atomic_fetch_*`. `AtomicBool` has none
 of them: it is not an integer atomic.
 
-Every method takes `self : Self`, the same receiver convention the rest of
-`std/sync` uses for its atomic types; only `compare_exchange`'s
-`expected` is `&mut`, because a failing exchange writes the observed value
-back into it. Every operation takes an explicit `MemoryOrder`:
+Every method takes `self : &Self`, the receiver every `std/sync` type uses: the
+C11 operation does the write, not a Yo place-write, so a shared borrow is all it
+needs (Rust's `&self` on `AtomicUsize`). Only `compare_exchange`'s `expected` is
+`&mut`, because a failing exchange writes the observed value back into it. An
+`Atomic*` is a move-only value whose C11 atomic object lives in a private `Box`;
+threads share one as `Arc(AtomicUsize)` ([above](#sharing-a-stdsync-value)).
+Every operation takes an explicit `MemoryOrder`:
 
 ```yo
 { AtomicBool, AtomicI32, AtomicU32, AtomicUsize, MemoryOrder } :: import("std/sync/atomic");
@@ -208,11 +237,28 @@ counter := Mutex(i32).new(i32(0));
 
 // Thread-safe mutation via with_lock
 counter.with_lock(v => {
-  v = (v + i32(1));
+  v.* = (v.* + i32(1));
 });
 
 // Return values propagate through with_lock
-new_value := counter.with_lock(v => (v + i32(1)));
+new_value := counter.with_lock(v => (v.* + i32(1)));
+```
+
+A `Mutex(T)` is a move-only value; to lock it from several threads, share it as
+`Arc(Mutex(T))` and give each thread its own `Arc.clone(...)`:
+
+```yo
+{ Mutex } :: import("std/sync/mutex");
+{ Thread } :: import("std/thread");
+
+total := Arc.new(Mutex(i32).new(i32(0)));
+mine := Arc.clone(total);
+t := Thread(unit).spawn({ mine }(io : Io) => {
+  mine.with_lock(v => {
+    v.* = (v.* + i32(1));
+  });
+});
+t.join();
 ```
 
 The closure receives `v : &mut T` — a **second-class reference** that:
@@ -224,7 +270,7 @@ The closure receives `v : &mut T` — a **second-class reference** that:
 
 This is structurally guaranteed by the compiler, so the lock window cannot escape the closure scope. There is no user-visible guard type or lifetime to manage.
 
-Unlock is automatic — a private unlocker object calls `_raw_unlock()` on both normal return and `unwind(...)`, guaranteeing structured unlock pairing.
+Unlock is automatic — a private unlocker object releases the lock on both normal return and `unwind(...)`, guaranteeing structured unlock pairing.
 
 **Re-entrant locking deadlocks.** Calling `with_lock` from inside another `with_lock` on the same mutex will deadlock (matching Rust's `std::sync::Mutex`). Yo does not provide a reentrant mutex.
 
@@ -255,7 +301,7 @@ local first). The [error reference](ERROR_DIAGNOSTICS.md) has the details. In sa
 
 ```yo
 LIMIT :: i32(5); // a constant: fine from any thread
-hits := AtomicI32.new(i32(0)); // an atomic object: shared state, fine
+hits := AtomicI32.new(i32(0)); // an atomic: Sync shared state, fine
 (thread_local(mut(scratch)) : i32) = i32(0); // per-thread mutable state: fine
 mut(g) := ArrayList(i32).new(); // fine on the main thread only
 fill :: (fn() -> unit)({
@@ -346,11 +392,11 @@ Fields whose names start with `_` are private to the **file and directory** that
 ```yo
 // In std/sync/mutex.yo:
 Mutex :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
-  struct(_cell : __yo_atomic_cell(_MutexState(T)))
+  struct(_state : Box(_MutexState(T)))
 );
 ```
 
-User code **cannot** access `mutex._cell`, and so cannot reach the `_value` and `_handle` inside it — the compiler rejects cross-directory `_`-prefixed field access. This closes the synchronized-interior read hole (reading `mutex._value` without acquiring the lock).
+User code **cannot** access `mutex._state`, and so cannot reach the `_value` and `_core` inside it — the compiler rejects cross-directory `_`-prefixed field access. This closes the synchronized-interior read hole (reading `mutex._value` without acquiring the lock).
 
 Same-directory access is allowed — `std/sync/` files access each other's `_`-prefixed internals.
 
@@ -361,7 +407,7 @@ Non-`_`-prefixed fields (like `arc.*`) are readable but not writable in safe cod
 | Layer                      | What's Trusted                                 | What's Enforced                                                                                                                                      |
 | -------------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **User code** (no pragma)  | Nothing                                        | All cross-thread sharing goes through `std/sync/` primitives. Manual Send and Sync impls rejected. Atomic-object writes rejected (field and index assignment, `&mut` arguments, `&mut self` receivers). Non-Send captures rejected. A function value crossing threads is judged by what it captures and what its code reaches (D4, D9); a bare `fn` field or payload is not Send. |
-| **`std/sync/`** (pragma'd) | Primitive bodies implement contracts correctly | Manual Send and Sync impls require `// SAFETY:` comments. An atomic object holding a raw pointer opts in with them; a safe file's atomic object must have `Sync` fields. |
+| **`std/sync/`** (pragma'd) | Primitive bodies implement contracts correctly | Manual Send and Sync impls require `// SAFETY:` comments. Each `std/sync` type (an OS primitive, a C11 atomic or a raw pointer in a private `Box`) opts in with them; a safe file's atomic object must have `Sync` fields. |
 | **Codegen runtime**        | Atomic RC ops use correct memory ordering      | C11 `atomic_fetch_add_explicit(..., relaxed)` for increment, `atomic_fetch_sub_explicit(..., acq_rel)` for decrement.                                |
 | **`extern("c", ...)`**     | C functions are reentrant-safe                 | Out of scope — same audit boundary as the memory-safety pass.                                                                                        |
 
@@ -369,7 +415,6 @@ Non-`_`-prefixed fields (like `arc.*`) are readable but not writable in safe cod
 
 - **Deadlock prevention** — same as Rust. Lock ordering is the user's responsibility.
 - **`AtomicPtr(T)`** — generic atomic pointer for lock-free data structures. Deferred since safe code cannot construct or deref raw pointers, so the primitive would only be usable from pragma'd code. Will be added when a concrete `std/` consumer surfaces.
-- **`Sender(T)` / `Receiver(T)` split** — currently `Channel(T)` exposes both send and receive ends on the same handle. Rust-style split halves are a future ergonomic refinement.
 - **TSan covers the thread corpus, not every program.** The Linux/Clang CI job (a required status check) runs `tests/sync` and, through `scripts/tsan-thread-corpus.sh`, the thread corpus under `--sanitize thread`: `tests/thread.test.yo`, `thread_pool`, `arc`, `send_sync`, `cross_thread_wake`, `spawn_blocking`, `parallelism_soundness`, `encoding/html`. Each file must spawn at least one thread (a file that spawns none is reported HOLLOW), and a both-ways ratchet (`scripts/bootstrap/tsan-known-failing.tsv`) fails the job when an unlisted file reports a race or a listed one stops reporting one. The compile-time rules are pinned by `tests/thread-safety.test.yo` and `tests/parallelism-soundness.test.yo`, which carries one rejection block and one over-rejection canary per rule.
 
 ## Known Holes

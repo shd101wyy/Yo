@@ -329,6 +329,27 @@ a no-op for `yo check` unless `--test-bodies` is passed.)
 `std/thread` — this is the multi-threaded story, distinct from async. Don't
 reach for it to parallelize I/O; that's the event loop's job.
 
+The `std/sync` types (`Mutex(T)`, `RwLock(T)`, `WaitGroup`, the `Atomic*`
+types, ...) are move-only values, as in Rust: a copy is E0901. Share one
+across threads as `Arc(Mutex(T))`: create it with `Arc.new(...)`, give each
+thread its own `Arc.clone(...)` and capture that clone by value.
+`Channel(T)` already holds an `Arc` of its queue: `ch.clone()` is another
+handle.
+
+```yo
+{ Mutex } :: import("std/sync/mutex");
+{ Thread } :: import("std/thread");
+
+total := Arc.new(Mutex(i32).new(i32(0)));
+mine := Arc.clone(total);
+t := Thread(unit).spawn({ mine }(io : Io) => {
+  mine.with_lock(v => {
+    v.* = (v.* + i32(1));
+  });
+});
+t.join();
+```
+
 ## Verification (optional, gradual)
 
 - `requires(...)`/`ensures(...)` clauses (name the return to use it in

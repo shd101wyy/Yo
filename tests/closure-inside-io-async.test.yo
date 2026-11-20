@@ -66,7 +66,10 @@ nested_in_closure :: (fn(n : i32) -> i32)(
 // (issues/fixed/impl-fn-param-captured-by-an-async-block-is-not-in-the-capture-struct.md):
 // the block reads `cb` only through the inner closure, so it never captured it
 // and the inner capture struct was built from a bare `cb`.
-run_it :: (fn(f : &Impl(Fn() -> unit, Send)) -> unit)(f());
+// The helper takes a plain `Fn`, not a `Send` one: the inner closure borrows
+// its non-copyable `Channel` handle (a literal argument of a borrowing
+// parameter keeps it in the caller's frame), and a borrow capture is never Send.
+run_it :: (fn(f : &Impl(Fn() -> unit)) -> unit)(f());
 relay :: (
   fn(
     generic(T : Type),
@@ -77,7 +80,7 @@ relay :: (
 )(
   io.async((io : Io) => {
     chan := Channel(T).new(usize(1));
-    sink := chan;
+    sink := chan.clone();
     run_it(() => {
       _ := sink.send(cb());
       ()

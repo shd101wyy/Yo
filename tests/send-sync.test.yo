@@ -137,8 +137,8 @@ comptime_expect_error({
 // Over-rejection canary: a Dyn(Trait, Send) does cross it.
 _spawn_send_dyn :: (fn() -> i32)({
   (d : Box(Dyn(SsSpeak, Send))) = dyn(Box.new(SsDog(n : i32(4))));
-  hits := AtomicI32.new(i32(0));
-  t := Thread(unit).spawn(io => {
+  hits := Arc.new(AtomicI32.new(i32(0)));
+  t := Thread(unit).spawn({ d, hits : Arc.clone(hits) }(io) => {
     hits.fetch_add(d.speak(), MemoryOrder.AcqRel);
     ()
   });
@@ -154,8 +154,8 @@ test("a Dyn(Trait, Send) crosses Thread.spawn", {
 // (issues/fixed/2026-11-12-dyn-box-new-into-a-send-dyn-is-rejected.md).
 _spawn_send_dyn_box :: (fn() -> i32)({
   (d : Box(Dyn(SsSpeak, Send))) = dyn(Box.new(SsDog(n : i32(5))));
-  hits := AtomicI32.new(i32(0));
-  t := Thread(unit).spawn(io => {
+  hits := Arc.new(AtomicI32.new(i32(0)));
+  t := Thread(unit).spawn({ d, hits : Arc.clone(hits) }(io) => {
     hits.fetch_add(d.speak(), MemoryOrder.AcqRel);
     ()
   });
@@ -259,7 +259,7 @@ test("a move-only capture crosses spawn(pool, …) and disposes once", {
 // ============================================================================
 _move_points :: (fn() -> i32)({
   ch := Channel(SsPoint).new(usize(4));
-  producer := Thread(unit).spawn(io => {
+  producer := Thread(unit).spawn({ ch : ch.clone() }(io) => {
     (mut(i) : i32) = i32(0);
     while(i < i32(4), {
       _ := ch.send(SsPoint(x : i, y : (i * i32(2))));

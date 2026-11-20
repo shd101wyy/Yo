@@ -186,8 +186,10 @@ Channel :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
   struct(
     _shared : Arc(_ChannelCore),
     /// The ring buffer: `_shared._capacity` slots of `T`, the same address
-    /// in every handle on the queue.
-    _slots : *T
+    /// in every handle on the queue. Always `.Some`; the `?*T` spelling
+    /// makes the handle a buffer owner (its `Drop` frees the ring), so safe
+    /// code may name `Channel(T)`, as it may an `ArrayList(T)`.
+    _slots : ?*T
   )
 );
 // SAFETY: `_slots` is the ring buffer the queue owns. Every slot access
@@ -233,10 +235,10 @@ impl(
           // SAFETY: every slot of the live run `[_head, _head + len)` owns
           // its value and nothing reads it after this; the ring is freed
           // below, and no other handle is left to reach it.
-          drop_in_place(self._slots.add(idx));
+          drop_in_place(self._ring().add(idx));
           i = (i + usize(1));
         });
-        free(.Some((*void)(self._slots)));
+        free(.Some((*void)(self._ring())));
       });
     })
   )
@@ -270,7 +272,7 @@ impl(
             _handles : AtomicUsize.new(usize(1))
           )
         ),
-        _slots : ptr
+        _slots : .Some(ptr)
       )
     );
   }),
@@ -308,7 +310,7 @@ impl(
     // so it holds no value (never written, or moved out by a receive). A
     // bitwise write moves `value` in without dropping those dead bytes and
     // without copying `value`, which a move-only `T` forbids.
-    __yo_ptr_write(self._slots.add(tail), value);
+    __yo_ptr_write(self._ring().add(tail), value);
     self._shared._len.store(current_len + usize(1), MemoryOrder.Release);
     self._shared._not_empty.signal();
     self._shared._mutex._raw_unlock();
@@ -335,7 +337,7 @@ impl(
     // under the mutex). A bitwise read moves it out, and advancing `_head`
     // below makes the slot dead, so neither the queue nor `drop` touches the
     // value again. A copy (`p.*`) would be E0901 for a move-only `T`.
-    (val : T) = __yo_ptr_read(self._slots.add(self._shared._head));
+    (val : T) = __yo_ptr_read(self._ring().add(self._shared._head));
     unsafe(consume(self._st().*._head = ((self._shared._head + usize(1)) % self._shared._capacity)));
     self._shared._len.store(self._shared._len.load(MemoryOrder.Relaxed) - usize(1), MemoryOrder.Release);
     self._shared._not_full.signal();
@@ -365,7 +367,7 @@ impl(
     // so it holds no value (never written, or moved out by a receive). A
     // bitwise write moves `value` in without dropping those dead bytes and
     // without copying `value`, which a move-only `T` forbids.
-    __yo_ptr_write(self._slots.add(tail), value);
+    __yo_ptr_write(self._ring().add(tail), value);
     self._shared._len.store(current_len + usize(1), MemoryOrder.Release);
     self._shared._not_empty.signal();
     self._shared._mutex._raw_unlock();
@@ -395,7 +397,7 @@ impl(
     // under the mutex). A bitwise read moves it out, and advancing `_head`
     // below makes the slot dead, so neither the queue nor `drop` touches the
     // value again. A copy (`p.*`) would be E0901 for a move-only `T`.
-    (val : T) = __yo_ptr_read(self._slots.add(self._shared._head));
+    (val : T) = __yo_ptr_read(self._ring().add(self._shared._head));
     unsafe(consume(self._st().*._head = ((self._shared._head + usize(1)) % self._shared._capacity)));
     self._shared._len.store(self._shared._len.load(MemoryOrder.Relaxed) - usize(1), MemoryOrder.Release);
     self._shared._not_full.signal();
@@ -429,6 +431,14 @@ impl(
   // The queue in the `Arc`: `_head` is written through it, under `_mutex`
   // (an `Arc`'s payload is read-only through the handle).
   _st : (fn(self : &Self) -> *_ChannelCore)(addr_of(self._shared.*)),
+  // The ring buffer.
+  _ring : (fn(self : &Self) -> *T)(
+    match(
+      self._slots,
+      .Some(p) => p,
+      .None => __yo_panic("Channel: the ring buffer is missing")
+    )
+  ),
   /// Check if the channel is closed (lock-free atomic load).
   is_closed : (fn(self : &Self) -> bool)(
     self._shared._closed.load(MemoryOrder.Acquire)
@@ -676,17 +686,16 @@ impl(
   ///
   /// ```yo
   /// pair := Channel(i32).pair(usize(4));
-  /// tx := pair.0;
-  /// rx := pair.1;
+  /// tx := &pair.0;
+  /// rx := &pair.1;
   /// ```
   ///
   /// **The tuple keeps both handles alive for as long as the tuple binding
-  /// lives** (measured 2026-09-10). Yo has no destructuring binding, so `pair`
-  /// stays in scope beside `tx` and `rx` and holds its own reference to each
-  /// half; `tx := pair.0` copies a handle rather than moving it out. The
-  /// consequence is specific: dropping `tx` early does NOT drop the last
-  /// sender, so the auto-close does not fire until the whole scope — the
-  /// `Receiver` included — goes away. Use this form when the producers and
+  /// lives.** A field is part of its holder (there are no partial moves), so
+  /// `tx := pair.0` is E0901 and the halves are lent out of `pair`. The
+  /// consequence is specific: the `Sender` is not dropped before `pair` is,
+  /// so the auto-close does not fire until the whole scope — the `Receiver`
+  /// included — goes away. Use this form when the producers and
   /// the consumer share a scope and the count of values is known, or call
   /// `close()` explicitly; use `receiver()` + `sender()` when the receiver
   /// needs to learn that the producers are finished.

@@ -101,7 +101,9 @@ test("RwLock with_read does not write through to the shared cell", {
 });
 
 // ============================================================================
-// Thread integration (atomic object — shared directly without Arc)
+// Thread integration (an RwLock is a move-only value: threads share it, and
+// every atomic, through `Arc.clone`; a closure that several threads run holds
+// its own clones and lends them to its lock bodies)
 // ============================================================================
 test("RwLock with_read admits several readers at the same time", {
   if(arch == Arch.Wasm32, return(()));
@@ -109,25 +111,23 @@ test("RwLock with_read admits several readers at the same time", {
   // entered. If `with_read` were exclusive the first reader would spin until
   // its bound expires and `all_in` would stay 0 — the test fails, it does not
   // hang.
-  lock := RwLock(i32).new(i32(5));
-  entered := AtomicI32.new(i32(0));
-  all_in := AtomicI32.new(i32(0));
-  (reader : Impl(Fn() -> unit)) = (
-    () => {
-      lock.with_read(v => {
-        entered.fetch_add(i32(1), MemoryOrder.AcqRel);
-        mut(spins) := i32(0);
-        while((entered.load(MemoryOrder.Acquire) < i32(3)) && (spins < i32(2000)), {
-          sleep_blocking(Duration.from_millis(i64(1)));
-          spins = (spins + i32(1));
-        });
-        if(entered.load(MemoryOrder.Acquire) >= i32(3), {
-          all_in.fetch_add(i32(1), MemoryOrder.AcqRel);
-        });
-        v.*
+  lock := Arc.new(RwLock(i32).new(i32(5)));
+  entered := Arc.new(AtomicI32.new(i32(0)));
+  all_in := Arc.new(AtomicI32.new(i32(0)));
+  (reader : Impl(Fn() -> unit)) = ({ lock : Arc.clone(lock), entered : Arc.clone(entered), all_in : Arc.clone(all_in) }() => {
+    lock.with_read({ &entered, &all_in }(v) => {
+      entered.fetch_add(i32(1), MemoryOrder.AcqRel);
+      mut(spins) := i32(0);
+      while((entered.load(MemoryOrder.Acquire) < i32(3)) && (spins < i32(2000)), {
+        sleep_blocking(Duration.from_millis(i64(1)));
+        spins = (spins + i32(1));
       });
-    }
-  );
+      if(entered.load(MemoryOrder.Acquire) >= i32(3), {
+        all_in.fetch_add(i32(1), MemoryOrder.AcqRel);
+      });
+      v.*
+    });
+  });
   // `reader` owns the shared cells, so it is not `Copy` (decision 36): the
   // threads share it through an Arc, as a Rust closure would be shared.
   shared_reader := Arc.new(reader);
@@ -141,8 +141,8 @@ test("RwLock with_read admits several readers at the same time", {
 });
 test("RwLock writer thread modifies the protected value", {
   if(arch == Arch.Wasm32, return(()));
-  lock := RwLock(i32).new(i32(0));
-  t := Thread(unit).spawn(io => {
+  lock := Arc.new(RwLock(i32).new(i32(0)));
+  t := Thread(unit).spawn({ lock : Arc.clone(lock) }(io) => {
     lock.with_write(v => {
       v.* = i32(42);
       v.*
@@ -153,19 +153,17 @@ test("RwLock writer thread modifies the protected value", {
 });
 test("RwLock two writer threads increment the protected counter", {
   if(arch == Arch.Wasm32, return(()));
-  lock := RwLock(i32).new(i32(0));
-  (bump : Impl(Fn() -> unit)) = (
-    () => {
-      mut(i) := i32(0);
-      while(i < i32(100), {
-        lock.with_write(v => {
-          v.* = (v.* + i32(1));
-          v.*
-        });
-        i = (i + i32(1));
+  lock := Arc.new(RwLock(i32).new(i32(0)));
+  (bump : Impl(Fn() -> unit)) = ({ lock : Arc.clone(lock) }() => {
+    mut(i) := i32(0);
+    while(i < i32(100), {
+      lock.with_write(v => {
+        v.* = (v.* + i32(1));
+        v.*
       });
-    }
-  );
+      i = (i + i32(1));
+    });
+  });
   // `bump` owns the shared cells, so it is not `Copy` (decision 36): the
   // threads share it through an Arc, as a Rust closure would be shared.
   shared_bump := Arc.new(bump);
@@ -190,57 +188,65 @@ test("RwLock N readers and M writers: mutual exclusion holds and no thread starv
   ITERATIONS :: i32(150);
   READERS :: i32(3);
   WRITERS :: i32(2);
-  lock := RwLock(i32).new(i32(0));
-  active_readers := AtomicI32.new(i32(0));
-  active_writers := AtomicI32.new(i32(0));
-  violations := AtomicI32.new(i32(0));
-  reads_done := AtomicI32.new(i32(0));
-  writes_done := AtomicI32.new(i32(0));
-  (writer : Impl(Fn() -> unit)) = (
-    () => {
-      mut(i) := i32(0);
-      while(i < ITERATIONS, {
-        lock.with_write(v => {
-          other_writers := active_writers.fetch_add(i32(1), MemoryOrder.AcqRel);
-          readers_inside := active_readers.load(MemoryOrder.Acquire);
-          if((other_writers != i32(0)) || (readers_inside != i32(0)), {
-            violations.fetch_add(i32(1), MemoryOrder.AcqRel);
-          });
-          v.* = (v.* + i32(1));
-          seen := v.*;
-          active_writers.fetch_sub(i32(1), MemoryOrder.AcqRel);
-          seen
+  lock := Arc.new(RwLock(i32).new(i32(0)));
+  active_readers := Arc.new(AtomicI32.new(i32(0)));
+  active_writers := Arc.new(AtomicI32.new(i32(0)));
+  violations := Arc.new(AtomicI32.new(i32(0)));
+  reads_done := Arc.new(AtomicI32.new(i32(0)));
+  writes_done := Arc.new(AtomicI32.new(i32(0)));
+  (writer : Impl(Fn() -> unit)) = ({
+    lock : Arc.clone(lock),
+    active_readers : Arc.clone(active_readers),
+    active_writers : Arc.clone(active_writers),
+    violations : Arc.clone(violations),
+    writes_done : Arc.clone(writes_done)
+  }() => {
+    mut(i) := i32(0);
+    while(i < ITERATIONS, {
+      lock.with_write({ &active_readers, &active_writers, &violations }(v) => {
+        other_writers := active_writers.fetch_add(i32(1), MemoryOrder.AcqRel);
+        readers_inside := active_readers.load(MemoryOrder.Acquire);
+        if((other_writers != i32(0)) || (readers_inside != i32(0)), {
+          violations.fetch_add(i32(1), MemoryOrder.AcqRel);
         });
-        writes_done.fetch_add(i32(1), MemoryOrder.AcqRel);
-        i = (i + i32(1));
+        v.* = (v.* + i32(1));
+        seen := v.*;
+        active_writers.fetch_sub(i32(1), MemoryOrder.AcqRel);
+        seen
       });
-    }
-  );
+      writes_done.fetch_add(i32(1), MemoryOrder.AcqRel);
+      i = (i + i32(1));
+    });
+  });
   // `writer` and `reader` own the shared cells, so they are not `Copy`
   // (decision 36): the threads share each through an Arc.
   shared_writer := Arc.new(writer);
-  (reader : Impl(Fn() -> unit)) = (
-    () => {
-      mut(i) := i32(0);
-      while(i < ITERATIONS, {
-        seen := lock.with_read(v => {
-          active_readers.fetch_add(i32(1), MemoryOrder.AcqRel);
-          writers_inside := active_writers.load(MemoryOrder.Acquire);
-          if(writers_inside != i32(0), {
-            violations.fetch_add(i32(1), MemoryOrder.AcqRel);
-          });
-          val := v.*;
-          active_readers.fetch_sub(i32(1), MemoryOrder.AcqRel);
-          val
-        });
-        if((seen < i32(0)) || (seen > (ITERATIONS * WRITERS)), {
+  (reader : Impl(Fn() -> unit)) = ({
+    lock : Arc.clone(lock),
+    active_readers : Arc.clone(active_readers),
+    active_writers : Arc.clone(active_writers),
+    violations : Arc.clone(violations),
+    reads_done : Arc.clone(reads_done)
+  }() => {
+    mut(i) := i32(0);
+    while(i < ITERATIONS, {
+      seen := lock.with_read({ &active_readers, &active_writers, &violations }(v) => {
+        active_readers.fetch_add(i32(1), MemoryOrder.AcqRel);
+        writers_inside := active_writers.load(MemoryOrder.Acquire);
+        if(writers_inside != i32(0), {
           violations.fetch_add(i32(1), MemoryOrder.AcqRel);
         });
-        reads_done.fetch_add(i32(1), MemoryOrder.AcqRel);
-        i = (i + i32(1));
+        val := v.*;
+        active_readers.fetch_sub(i32(1), MemoryOrder.AcqRel);
+        val
       });
-    }
-  );
+      if((seen < i32(0)) || (seen > (ITERATIONS * WRITERS)), {
+        violations.fetch_add(i32(1), MemoryOrder.AcqRel);
+      });
+      reads_done.fetch_add(i32(1), MemoryOrder.AcqRel);
+      i = (i + i32(1));
+    });
+  });
   shared_reader := Arc.new(reader);
   r1 := Thread(unit).spawn({ shared_reader : Arc.clone(shared_reader) }(io) => shared_reader.*());
   r2 := Thread(unit).spawn({ shared_reader : Arc.clone(shared_reader) }(io) => shared_reader.*());
@@ -268,14 +274,20 @@ test("RwLock N readers and M writers: mutual exclusion holds and no thread starv
 // ============================================================================
 test("RwLock readers blocked behind a held writer are woken on release", {
   if(arch == Arch.Wasm32, return(()));
-  lock := RwLock(i32).new(i32(0));
-  writer_inside := AtomicI32.new(i32(0));
-  arrived := AtomicI32.new(i32(0));
-  done := AtomicI32.new(i32(0));
-  done_while_held := AtomicI32.new(i32(-1));
+  lock := Arc.new(RwLock(i32).new(i32(0)));
+  writer_inside := Arc.new(AtomicI32.new(i32(0)));
+  arrived := Arc.new(AtomicI32.new(i32(0)));
+  done := Arc.new(AtomicI32.new(i32(0)));
+  done_while_held := Arc.new(AtomicI32.new(i32(-1)));
   // The writer holds the lock for the whole window in which the readers
   // arrive, so all three park in `_read_cv.wait`.
-  w := Thread(unit).spawn(io => {
+  w := Thread(unit).spawn({
+    lock : Arc.clone(lock),
+    writer_inside : Arc.clone(writer_inside),
+    arrived : Arc.clone(arrived),
+    done : Arc.clone(done),
+    done_while_held : Arc.clone(done_while_held)
+  }(io) => {
     lock.with_write(v => {
       v.* = i32(99);
       writer_inside.store(i32(1), MemoryOrder.Release);
@@ -293,15 +305,13 @@ test("RwLock readers blocked behind a held writer are woken on release", {
   while(writer_inside.load(MemoryOrder.Acquire) == i32(0), {
     sleep_blocking(Duration.from_millis(i64(1)));
   });
-  (reader : Impl(Fn() -> unit)) = (
-    () => {
-      arrived.fetch_add(i32(1), MemoryOrder.AcqRel);
-      seen := lock.with_read(v => v.*);
-      if(seen == i32(99), {
-        done.fetch_add(i32(1), MemoryOrder.AcqRel);
-      });
-    }
-  );
+  (reader : Impl(Fn() -> unit)) = ({ lock : Arc.clone(lock), arrived : Arc.clone(arrived), done : Arc.clone(done) }() => {
+    arrived.fetch_add(i32(1), MemoryOrder.AcqRel);
+    seen := lock.with_read(v => v.*);
+    if(seen == i32(99), {
+      done.fetch_add(i32(1), MemoryOrder.AcqRel);
+    });
+  });
   // `reader` owns the shared cells, so it is not `Copy` (decision 36): the
   // threads share it through an Arc, as a Rust closure would be shared.
   shared_reader := Arc.new(reader);
@@ -317,24 +327,25 @@ test("RwLock readers blocked behind a held writer are woken on release", {
 });
 
 // ============================================================================
-// ThreadPool integration (atomic object — shared directly without Arc)
+// ThreadPool integration (the same `Arc` sharing; the pool itself is still a
+// shared handle)
 // ============================================================================
 test("RwLock with pool tasks concurrent reads", {
   if(arch == Arch.Wasm32, return(()));
-  lock := RwLock(i32).new(i32(4));
-  wg := WaitGroup.new();
-  seen := AtomicI32.new(i32(0));
+  lock := Arc.new(RwLock(i32).new(i32(4)));
+  wg := Arc.new(WaitGroup.new());
+  seen := Arc.new(AtomicI32.new(i32(0)));
   pool := ThreadPool.new(usize(2));
   wg.add(i32(3));
-  spawn(&pool, io => {
+  spawn(&pool, { lock : Arc.clone(lock), wg : Arc.clone(wg), seen : Arc.clone(seen) }(io) => {
     seen.fetch_add(lock.with_read(v => v.*), MemoryOrder.AcqRel);
     wg.done();
   });
-  spawn(&pool, io => {
+  spawn(&pool, { lock : Arc.clone(lock), wg : Arc.clone(wg), seen : Arc.clone(seen) }(io) => {
     seen.fetch_add(lock.with_read(v => v.*), MemoryOrder.AcqRel);
     wg.done();
   });
-  spawn(&pool, io => {
+  spawn(&pool, { lock : Arc.clone(lock), wg : Arc.clone(wg), seen : Arc.clone(seen) }(io) => {
     seen.fetch_add(lock.with_read(v => v.*), MemoryOrder.AcqRel);
     wg.done();
   });
@@ -343,11 +354,11 @@ test("RwLock with pool tasks concurrent reads", {
 });
 test("RwLock with pool tasks write then read", {
   if(arch == Arch.Wasm32, return(()));
-  lock := RwLock(i32).new(i32(0));
-  wg := WaitGroup.new();
+  lock := Arc.new(RwLock(i32).new(i32(0)));
+  wg := Arc.new(WaitGroup.new());
   pool := ThreadPool.new(usize(2));
   wg.add(i32(1));
-  spawn(&pool, io => {
+  spawn(&pool, { lock : Arc.clone(lock), wg : Arc.clone(wg) }(io) => {
     lock.with_write(v => {
       v.* = i32(77);
       v.*
@@ -373,7 +384,9 @@ test("RwLock with_write body may end in a statement (unit R)", {
 test("RwLock with_read body may end in a statement (unit R)", {
   lock := RwLock(i32).new(i32(5));
   seen := AtomicI32.new(i32(0));
-  lock.with_read(v => {
+  // The body borrows `seen` (`&seen`): an implicit capture would move the
+  // move-only atomic into the closure.
+  lock.with_read({ &seen }(v) => {
     seen.store(v.*, MemoryOrder.Release);
   });
   assert(seen.load(MemoryOrder.Acquire) == i32(5), "the unit-bodied read observed the value");
@@ -411,7 +424,8 @@ test("several try_with_read acquisitions coexist", {
   // The whole point of a read lock: shared acquisitions do not exclude each
   // other. A nested try_with_read must succeed.
   lock := RwLock(i64).new(i64(3));
-  outer := lock.try_with_read(a => {
+  // The outer body borrows `lock` (`&lock`) to take the inner read.
+  outer := lock.try_with_read({ &lock }(a) => {
     inner := lock.try_with_read(b => b.*);
     assert(inner.is_some(), "a second reader gets in while the first holds");
     a.* + inner.unwrap()
@@ -422,10 +436,10 @@ test("several try_with_read acquisitions coexist", {
 test("try_with_write fails while a reader holds the lock", {
   // A SINGLE concurrent reader is enough — an exclusive acquisition excludes
   // readers too, which is the trap the doc calls out.
-  lock := RwLock(i64).new(i64(0));
+  lock := Arc.new(RwLock(i64).new(i64(0)));
   reading := Channel(i32).new(usize(1));
   release := Channel(i32).new(usize(1));
-  reader := Thread(unit).spawn(io => {
+  reader := Thread(unit).spawn({ lock : Arc.clone(lock), reading : reading.clone(), release : release.clone() }(io) => {
     lock.with_read(v => {
       _ := reading.send(i32(1));
       release.recv();
@@ -440,10 +454,10 @@ test("try_with_write fails while a reader holds the lock", {
   assert(lock.try_with_write(v => v.*).is_some(), "and the writer gets in once the reader left");
 });
 test("try_with_read fails while a writer holds the lock", {
-  lock := RwLock(i64).new(i64(0));
+  lock := Arc.new(RwLock(i64).new(i64(0)));
   writing := Channel(i32).new(usize(1));
   release := Channel(i32).new(usize(1));
-  writer := Thread(unit).spawn(io => {
+  writer := Thread(unit).spawn({ lock : Arc.clone(lock), writing : writing.clone(), release : release.clone() }(io) => {
     lock.with_write(v => {
       _ := writing.send(i32(1));
       release.recv();
@@ -460,10 +474,10 @@ test("try_with_read fails while a writer holds the lock", {
 test("a failed try_with_read leaves the reader count untouched", {
   // A try that bails after incrementing _readers would leave the lock
   // permanently unwritable. This is the test that catches that.
-  lock := RwLock(i64).new(i64(0));
+  lock := Arc.new(RwLock(i64).new(i64(0)));
   writing := Channel(i32).new(usize(1));
   release := Channel(i32).new(usize(1));
-  writer := Thread(unit).spawn(io => {
+  writer := Thread(unit).spawn({ lock : Arc.clone(lock), writing : writing.clone(), release : release.clone() }(io) => {
     lock.with_write(v => {
       _ := writing.send(i32(1));
       release.recv();

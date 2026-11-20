@@ -84,29 +84,31 @@ test("Once call with side effects", {
   assert(v == i32(42), "value should be 42 from first call");
 });
 // ============================================================================
-// Thread integration (atomic object — shared directly without Arc)
+// Thread integration (a Once is a move-only value: threads share it, and the
+// counter, through `Arc.clone`, one clone moved into each closure)
 // ============================================================================
 test("Once call from multiple threads executes only once", {
   if(arch == Arch.Wasm32, return(()));
-  o := Once.new();
-  counter := AtomicI32.new(i32(0));
-  t1 := Thread(unit).spawn(io => {
+  o := Arc.new(Once.new());
+  counter := Arc.new(AtomicI32.new(i32(0)));
+  t1 := Thread(unit).spawn({ o : Arc.clone(o), counter : Arc.clone(counter) }(io) => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
-  t2 := Thread(unit).spawn(io => {
+  t2 := Thread(unit).spawn({ o : Arc.clone(o), counter : Arc.clone(counter) }(io) => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
-  t3 := Thread(unit).spawn(io => {
+  t3 := Thread(unit).spawn({ o : Arc.clone(o), counter : Arc.clone(counter) }(io) => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
-  // Main thread also tries
-  o.call(() => {
+  // Main thread also tries; its initializer borrows `counter`, which the
+  // assertion below still reads.
+  o.call({ &counter }() => {
     counter.fetch_add(i32(1), MemoryOrder.Relaxed);
   });
   t1.join();
@@ -117,13 +119,13 @@ test("Once call from multiple threads executes only once", {
 });
 test("Once is_done visible across threads after call", {
   if(arch == Arch.Wasm32, return(()));
-  o := Once.new();
-  counter := AtomicI32.new(i32(0));
+  o := Arc.new(Once.new());
+  counter := Arc.new(AtomicI32.new(i32(0)));
   // Main thread calls first
-  o.call(() => {
+  o.call({ &counter }() => {
     counter.fetch_add(i32(1), MemoryOrder.Relaxed);
   });
-  t := Thread(unit).spawn(io => {
+  t := Thread(unit).spawn({ o : Arc.clone(o), counter : Arc.clone(counter) }(io) => {
     assert(o.is_done(), "should see done from other thread");
     // Second call should be no-op
     o.call(() => {
@@ -135,30 +137,30 @@ test("Once is_done visible across threads after call", {
 });
 test("Once multiple threads race to call", {
   if(arch == Arch.Wasm32, return(()));
-  o := Once.new();
-  counter := AtomicI32.new(i32(0));
+  o := Arc.new(Once.new());
+  counter := Arc.new(AtomicI32.new(i32(0)));
   // All threads start at the same time (no sleep)
-  t1 := Thread(unit).spawn(io => {
+  t1 := Thread(unit).spawn({ o : Arc.clone(o), counter : Arc.clone(counter) }(io) => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
-  t2 := Thread(unit).spawn(io => {
+  t2 := Thread(unit).spawn({ o : Arc.clone(o), counter : Arc.clone(counter) }(io) => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
-  t3 := Thread(unit).spawn(io => {
+  t3 := Thread(unit).spawn({ o : Arc.clone(o), counter : Arc.clone(counter) }(io) => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
-  t4 := Thread(unit).spawn(io => {
+  t4 := Thread(unit).spawn({ o : Arc.clone(o), counter : Arc.clone(counter) }(io) => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
-  t5 := Thread(unit).spawn(io => {
+  t5 := Thread(unit).spawn({ o : Arc.clone(o), counter : Arc.clone(counter) }(io) => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
@@ -172,28 +174,29 @@ test("Once multiple threads race to call", {
   assert(o.is_done(), "should be done");
 });
 // ============================================================================
-// ThreadPool integration (atomic object — shared directly without Arc)
+// ThreadPool integration (the same `Arc` sharing; the pool itself is still a
+// shared handle)
 // ============================================================================
 test("Once with pool tasks executes only once", {
   if(arch == Arch.Wasm32, return(()));
-  o := Once.new();
-  counter := AtomicI32.new(i32(0));
-  wg := WaitGroup.new();
+  o := Arc.new(Once.new());
+  counter := Arc.new(AtomicI32.new(i32(0)));
+  wg := Arc.new(WaitGroup.new());
   pool := ThreadPool.new(usize(2));
   wg.add(i32(3));
-  spawn(&pool, io => {
+  spawn(&pool, { o : Arc.clone(o), counter : Arc.clone(counter), wg : Arc.clone(wg) }(io) => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
     wg.done();
   });
-  spawn(&pool, io => {
+  spawn(&pool, { o : Arc.clone(o), counter : Arc.clone(counter), wg : Arc.clone(wg) }(io) => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
     wg.done();
   });
-  spawn(&pool, io => {
+  spawn(&pool, { o : Arc.clone(o), counter : Arc.clone(counter), wg : Arc.clone(wg) }(io) => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
@@ -230,15 +233,15 @@ test("OnceCell get_or_init stores and returns the value", {
 test("OnceCell get_or_init runs the initializer exactly once", {
   cell := OnceCell(i32).new();
   runs := AtomicI32.new(i32(0));
-  first := cell.get_or_init(() => {
+  first := cell.get_or_init({ &runs }() => {
     runs.fetch_add(i32(1), MemoryOrder.AcqRel);
     i32(1)
   });
-  second := cell.get_or_init(() => {
+  second := cell.get_or_init({ &runs }() => {
     runs.fetch_add(i32(1), MemoryOrder.AcqRel);
     i32(2)
   });
-  third := cell.get_or_init(() => {
+  third := cell.get_or_init({ &runs }() => {
     runs.fetch_add(i32(1), MemoryOrder.AcqRel);
     i32(3)
   });
@@ -258,20 +261,20 @@ test("OnceCell holds a value struct", {
 });
 test("OnceCell get_or_init from multiple threads initializes exactly once", {
   if(arch == Arch.Wasm32, return(()));
-  cell := OnceCell(i32).new();
-  inits := AtomicI32.new(i32(0));
-  mismatches := AtomicI32.new(i32(0));
-  (racer : Impl(Fn() -> unit)) = (
-    () => {
-      got := cell.get_or_init(() => {
-        inits.fetch_add(i32(1), MemoryOrder.AcqRel);
-        i32(7)
-      });
-      if(got.* != i32(7), {
-        mismatches.fetch_add(i32(1), MemoryOrder.AcqRel);
-      });
-    }
-  );
+  // The cell and both counters are move-only values: the racer holds an
+  // `Arc.clone` of each, and the main thread keeps the originals to assert on.
+  cell := Arc.new(OnceCell(i32).new());
+  inits := Arc.new(AtomicI32.new(i32(0)));
+  mismatches := Arc.new(AtomicI32.new(i32(0)));
+  (racer : Impl(Fn() -> unit)) = ({ cell : Arc.clone(cell), inits : Arc.clone(inits), mismatches : Arc.clone(mismatches) }() => {
+    got := cell.get_or_init({ &inits }() => {
+      inits.fetch_add(i32(1), MemoryOrder.AcqRel);
+      i32(7)
+    });
+    if(got.* != i32(7), {
+      mismatches.fetch_add(i32(1), MemoryOrder.AcqRel);
+    });
+  });
   // `racer` owns the shared cells, so it is not `Copy` (decision 36): the
   // threads share it through an Arc, as a Rust closure would be shared.
   shared_racer := Arc.new(racer);
@@ -362,7 +365,8 @@ test("OnceCell get_or_init lends a named borrowing initializer", {
 // What IS observable: an `f` that returns early still leaves the mutex
 // released and the `Once` un-done, so the next call can acquire and re-run.
 _early_return_init :: (fn(o : &Once, counter : &AtomicI32) -> unit)({
-  o.call(() => {
+  // `counter` is already a reference: the closure copies it, `{ counter }`.
+  o.call({ counter }() => {
     counter.fetch_add(i32(1), MemoryOrder.SeqCst);
     // Leave the closure before `call` records completion.
     unwind(());
@@ -376,13 +380,13 @@ test("Once.call leaves the lock released and the Once un-done when f exits early
   assert(!o.is_done(), "an f that did not complete does not mark the Once done");
   // If the mutex had been left held, THIS call would hang instead of running.
   ran_again := AtomicI32.new(i32(0));
-  o.call(() => {
+  o.call({ &ran_again }() => {
     ran_again.fetch_add(i32(1), MemoryOrder.SeqCst);
   });
   assert(ran_again.load(MemoryOrder.SeqCst) == i32(1), "the retry acquired the lock and ran");
   assert(o.is_done(), "and a completed initializer does mark it done");
   // Third call takes the fast path: no lock, no run.
-  o.call(() => {
+  o.call({ &ran_again }() => {
     ran_again.fetch_add(i32(1), MemoryOrder.SeqCst);
   });
   assert(ran_again.load(MemoryOrder.SeqCst) == i32(1), "a done Once never runs f again");
