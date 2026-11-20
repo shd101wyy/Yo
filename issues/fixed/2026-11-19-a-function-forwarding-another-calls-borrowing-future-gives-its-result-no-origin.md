@@ -102,5 +102,6 @@ Rows (`tests/origins/unsound/`, every negative accepted before the fix): `t7-for
 `t7-forwarded-future-generic` (the audit probe `n02m`, a generic `fwd` over a trait method), `t7-forwarded-future-trait`
 (a non-generic `fwd` over a trait method), `t7-forwarded-future-two-hop` (`fwd2` returns `fwd(w, io)`) and
 `t7-forwarded-future-write` (a write to `w` while the future is live), all E0911; positive twins
-`t7-forwarded-future-move-pos` (awaited before the move) and `t7-forwarded-future-write-pos` (a shared read while the
-`&` future is live), both clean under ASan.
+`t7-forwarded-future-move-pos` (awaited before the move), `t7-forwarded-future-generic-pos` (the generic `fwd`'s future
+awaited before the move) and `t7-forwarded-future-write-pos` (a shared read while the `&` future is live), all clean
+under ASan.
