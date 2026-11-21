@@ -138,7 +138,7 @@ _require_destroying_builtin_capable :: (fn(builtin : &(str, static), expr : &Ast
 /// record (`__yo_rc_own`, the `__yo_incr_rc`/`dup` family) outside an
 /// unsafe-capable file: the value is then freed twice or leaked
 /// (`ownership_builtin_error_message`).
-_require_ownership_builtin_capable :: (fn(builtin : str, expr : &AstExpr, exn : Exception) -> unit)({
+_require_ownership_builtin_capable :: (fn(builtin : &(str, static), expr : &AstExpr, exn : Exception) -> unit)({
   tok := ast_expr_token(expr);
   if(!is_destroying_builtin_call_capable(Option(String).Some(tok.module_path.*.clone())), {
     name := String.from(builtin);
