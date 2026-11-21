@@ -151,16 +151,15 @@ ys := ArrayList(i32).new(); // no argument: the global allocator
 - **Sharing across threads goes through the `Allocator` value.** `Allocator` is two words and `Send`, so one allocator may serve several threads as long as its own callbacks are thread-safe.
 - **The allocator must outlive its blocks.** Yo does not check this: a user-written allocator's context and vtable must stay valid until every block it handed out is released.
 
-std ships no arena: `std/arena` was deleted on 2026-10-24, and a `FixedBufferAllocator` and an `ArenaAllocator` are planned (`plans/backlog/ZIG_STYLE_ALLOCATORS.md`).
+std ships no arena or fixed-buffer allocator; one is written against the `Allocator` interface ([EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)).
 
-Calling `Allocator.alloc` / `free` directly hands out raw pointers, so it needs `pragma(Pragma.AllowUnsafe);`. The `alloc` argument and the `_in` constructors do not. The full guide (writing your own allocator, threads, debugging) is [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md); the design record is `plans/archive/EXPLICIT_ALLOCATORS.md`.
+Calling `Allocator.alloc` / `free` directly hands out raw pointers, so it needs `pragma(Pragma.AllowUnsafe);`. The `alloc` argument and `clone_in(a)` do not. The full guide (writing your own allocator, threads, debugging) is [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md).
 
 ## Reference Cycles Leak
 
 Reference counting frees a cell when its last strong handle goes, so it cannot
 free a cycle: each cell of the cycle keeps the next one's count above zero.
-Yo has no cycle collector (it was removed in v0.2.75, decision 48,
-`plans/archive/WEAK_AND_UNCOLLECTED_RC.md` §6). As with Rust's `Rc`, a cycle of
+Yo has no cycle collector. As with Rust's `Rc`, a cycle of
 strong handles leaks: its cells are never freed and their `Drop` never runs.
 `Drop` therefore runs at one deterministic point, the last handle's drop. A leak
 is not unsafe: no pointer dangles.
@@ -433,7 +432,6 @@ The framing: **safe Yo code cannot violate memory safety. The unsafe surface is 
 
 - `plans/reference/MEMORY_SAFETY.md` — the design document for the safety model. Covers the full rationale, phase rollout, alternatives considered.
 - [OWNERSHIP_AND_BORROWING.md](./OWNERSHIP_AND_BORROWING.md) — ownership, moves, copies, `&`/`&mut` references and their origins.
-- `plans/archive/SLICE_REWORK.md` — the design that removed heap-backed slices (builtin `str`, copying ranges).
 - `plans/archive/EXTERN_UNSAFE_WRAP.md` — the per-call-site wrap requirement for extern "c" functions.
 - `plans/archive/ITERATOR_REDESIGN.md` — how iteration works under the safe model.
 - `docs/en-US/DESIGN.md` — the broader language design; the pointer / unsafe sections cross-reference this page.

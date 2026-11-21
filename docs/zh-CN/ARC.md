@@ -85,8 +85,7 @@ assert(copied == i32(42), "inner value is 42");
 
 ### 复制
 
-`Arc.clone(a)` 产生第二个句柄：它递增引用计数，并继续共享同一份底层值。与 Rust 一样，第二个句柄要显式写出
-（[值默认计划](../../plans/VALUES_BY_DEFAULT.md)的决定 17）：源值之后仍被使用的隐式拷贝是 E0901，其提示写出
+`Arc.clone(a)` 产生第二个句柄：它递增引用计数，并继续共享同一份底层值。与 Rust 一样，第二个句柄要显式写出：源值之后仍被使用的隐式拷贝是 E0901，其提示写出
 `Arc.clone(a)`，句柄的最后一次使用会移动它。`Arc(T)` 对任何 `T` 都实现
 `Clone`，它的克隆总是第二个句柄；值的深拷贝写作 `Arc.new(a.*.clone())`。
 
@@ -116,7 +115,7 @@ assert(shared.* == i32(42), "main still sees shared value");
 
 ### 取出载荷与写时复制
 
-`Arc` 的载荷通过句柄只能读取：安全代码中通过它的写入会被拒绝，共享修改需要通过 `Arc(Mutex(T))`、`Arc(RwLock(T))` 或原子类型进行。`Arc(RefCell(T))` 会被拒绝，因为 `RefCell` 永远不是 `Sync`。有两个入口可以证明句柄是唯一的，与 Rust 相同（[值默认计划](../../plans/VALUES_BY_DEFAULT.md)的决策 46）：
+`Arc` 的载荷通过句柄只能读取：安全代码中通过它的写入会被拒绝，共享修改需要通过 `Arc(Mutex(T))`、`Arc(RwLock(T))` 或原子类型进行。`Arc(RefCell(T))` 会被拒绝，因为 `RefCell` 永远不是 `Sync`。有两个入口可以证明句柄是唯一的，与 Rust 相同：
 
 - **`Arc.try_unwrap(h)`** 消耗该句柄：若任何线程上都没有其他句柄，返回 `.Ok(payload)`（单元被释放），否则返回 `.Err(h)`。
 - **`Arc.get_mut(&mut h)`** 在任何线程上都没有其他 `Arc` 或 `ArcWeak` 共享该单元时为 `.Some(&mut T)`，即指向单元内部的引用，否则为 `.None`；它从不克隆。即 Rust 的 `Arc::get_mut`。

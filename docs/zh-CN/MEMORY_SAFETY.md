@@ -151,14 +151,14 @@ ys := ArrayList(i32).new(); // 没有参数：全局分配器
 - **跨线程共享通过 `Allocator` 值。** `Allocator` 是两个字、实现 `Send`，所以只要它自己的回调是线程安全的，一个分配器就可以服务多个线程。
 - **分配器必须比它的块活得更久。** Yo 不检查这一点：用户编写的分配器的上下文和 vtable 必须一直有效，直到它分配出去的每个块都被释放。
 
-std 不提供 arena：`std/arena` 已于 2026-10-24 删除，`FixedBufferAllocator` 和 `ArenaAllocator` 在计划中（`plans/backlog/ZIG_STYLE_ALLOCATORS.md`）。
+std 不提供 arena 或固定缓冲区分配器；可以基于 `Allocator` 接口自行编写（[EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)）。
 
-直接调用 `Allocator.alloc` / `free` 会得到裸指针，因此需要 `pragma(Pragma.AllowUnsafe);`。`alloc` 参数和 `_in` 构造函数不需要。完整指南（编写自己的分配器、线程、调试）见 [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)；设计记录见 `plans/archive/EXPLICIT_ALLOCATORS.md`。
+直接调用 `Allocator.alloc` / `free` 会得到裸指针，因此需要 `pragma(Pragma.AllowUnsafe);`。`alloc` 参数和 `clone_in(a)` 不需要。完整指南（编写自己的分配器、线程、调试）见 [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)。
 
 ## 引用环会泄漏
 
 引用计数在单元的最后一个强句柄消失时释放它，因此无法释放环：环中的每个单元都让下一个单元的计数保持在零以上。
-Yo 没有环回收器（v0.2.75 移除，决策 48，`plans/archive/WEAK_AND_UNCOLLECTED_RC.md` §6）。与 Rust 的 `Rc`
+Yo 没有环回收器。与 Rust 的 `Rc`
 一样，强句柄组成的环会泄漏：它的单元永远不会被释放，其 `Drop` 也永远不会运行。因此 `Drop` 只在一个确定的时刻运行，
 即最后一个句柄被释放时。泄漏并不是不安全：没有指针会悬垂。
 
@@ -424,7 +424,6 @@ d := state.wrapping_sub(inc);
 
 - `plans/reference/MEMORY_SAFETY.md` —— 安全模型的设计文档。覆盖完整的理由、阶段化推进和考虑过的替代方案。
 - [OWNERSHIP_AND_BORROWING.md](./OWNERSHIP_AND_BORROWING.md) —— 所有权、移动、拷贝、`&`/`&mut` 引用及其来源。
-- `plans/archive/SLICE_REWORK.md` —— 移除堆切片的设计（内建 `str`、拷贝式区间）。
 - `plans/archive/EXTERN_UNSAFE_WRAP.md` —— 对 extern "c" 函数调用要求逐调用包装的设计。
 - `plans/archive/ITERATOR_REDESIGN.md` —— 安全模型下迭代如何工作。
 - `docs/zh-CN/DESIGN.md` —— 更广的语言设计；指针 / unsafe 部分与本页交叉引用。

@@ -2742,19 +2742,19 @@ append_mut :: (fn(out : &mut String) -> unit)({
 
 // `&T` 参数是借用的：写一个局部克隆并返回它。
 with_bang :: (fn(s : &String) -> String)({
-  t := s.clone();
+  mut(t) := s.clone();
   t.push_str("!");
   t
 });
 
 main :: (fn() -> unit)({
   a := String.from("hi");
-  b := a.clone(); // b 拥有自己的一份字节
+  mut(b) := a.clone(); // b 拥有自己的一份字节
   b.push_str("?"); // a 不受影响
   println(`"${a}" "${b}"`); // "hi" "hi?"
 
   e := String.new();
-  f := e.clone();
+  mut(f) := e.clone();
   f.push_str("x"); // 无论是否为空，克隆都是独立的
   println(`"${e}" "${f}"`); // "" "x"
 
@@ -3510,6 +3510,7 @@ assert(b.norm1() == 9);
 （`Target : [T]`），持有 `[T]` 的用户类型也是：
 
 ```yo
+{ assert } :: import("std/assert");
 Ring :: struct(items : Array(i32, 3));
 impl(Ring, len : (fn(self : &Self) -> usize)(usize(30)));
 impl(Ring, Deref(Target : [i32], deref : (fn(self : &Self) -> &Self.Target)(&self.items.*)));
@@ -4491,6 +4492,7 @@ Yo 支持类似 Rust `#[derive(...)]` 的自动特征派生，但使用函数调
 五个特征具有内置派生支持：`Eq`、`Hash`、`Clone`、`Ord` 和 `ToString`。它们适用于结构体和枚举：
 
 ```yo
+{ assert } :: import("std/assert");
 { ToString } :: import("std/fmt"); // ToString 的 derive 规则位于 std/fmt
 Point :: struct(x : i32, y : i32);
 derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString);
