@@ -16,16 +16,9 @@ pragma(Pragma.AllowUnsafe);
 { Mutex } :: import("std/async/mutex");
 { __yo_async_socket_start, __yo_async_yield_start, __yo_join_wait_new, __yo_join_wait_add } :: import("std/sys/externs");
 tcp :: import("std/sys/tcp");
-{ IoFuture } :: import("std/sys/future");
 // The native Io's executor entries and IoFuture.completed
 // (plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md §2, §3, IO-1a).
-extern(
-  "Yo",
-  __yo_io_future_completed : (fn(result : i32) -> IoFuture),
-  __yo_io_spawn_task : (fn(fut : *void) -> unit),
-  __yo_io_run_until : (fn(fut : *void) -> unit),
-  __yo_io_now_ns : (fn() -> u64)
-);
+{ IoFuture, __yo_io_future_completed, __yo_io_spawn_task, __yo_io_run_until, __yo_io_now_ns } :: import("std/sys/future");
 
 (mut(g_disposed) : i32) = i32(0);
 // A `Thing` is a shared handle (an `Rc`): copying a list of them clones each
