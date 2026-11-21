@@ -5718,6 +5718,17 @@ evaluate_function_type :: (
     mint_vcomptime = params_result.variadic_param.is_compile_time_only;
     vts_mint.push(Rc.clone(params_result.variadic_param.ty));
   });
+  // VERDICTS-74 rule 2: the result SPELLED `-> &(T, static)` (the by-value
+  // static reference slot below) — the flag `return_check` reads; the legacy
+  // `-> str` alias arm does not set it. Computed before the slot's own
+  // match, which moves `return_origin`.
+  (result_spells_static_flag : bool) = (
+    is_return_type_ref && match(
+      &return_origin,
+      .Some(rss_ro) => (is_static_origin(&rss_ro.*) && !is_return_type_mut_ref),
+      .None => false
+    )
+  );
   func_type := Rc.new(
     TypeValueNode.Func(
       shared_list(forall_types),
@@ -5786,13 +5797,7 @@ evaluate_function_type :: (
           // result_spells_static — the result SPELLED `-> &(T, static)`
           // (VERDICTS-74 rule 2), the by-value static reference slot below;
           // the legacy `-> str` alias does not set it.
-          result_spells_static : (
-            is_return_type_ref && match(
-              &return_origin,
-              .Some(ro) => (is_static_origin(&ro.*) && !is_return_type_mut_ref),
-              .None => false
-            )
-          )
+          result_spells_static : result_spells_static_flag
         )
       ),
       shared_list(vts_mint)
