@@ -43,7 +43,7 @@ pragma(Pragma.AllowUnsafe);
   note_dyn_place,
   note_dyn_clone_into_witness
 } :: import("../../expr-info.yo");
-{ Environment, Variable, get_variables_from_env, get_receiver_methods_by_name_from_env, get_pointer_own_methods_by_name_from_env, env_adopt } :: import("../../env.yo");
+{ Environment, Variable, get_variables_from_env, get_receiver_methods_by_name_from_env, env_adopt } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, record_module_member_read, sns_module_of, is_dot_callee } :: import("../context.yo");
 { get_struct_fields } :: import("../types/field.yo");
 {
@@ -56,21 +56,21 @@ pragma(Pragma.AllowUnsafe);
   is_type_value,
   no_values
 } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, no_types, no_labels, SharedList, t_slot_is_borrow, t_refine_inner } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels, SharedList, t_slot_is_borrow, t_slot_pointee, t_refine_inner } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_some_t_of_kind, resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
 { is_pointer_type, is_enum_type, is_reference_enum_type, is_struct_type, is_union_type, is_module_type, is_trait_type, is_tuple_type, is_some_type, is_type_kind, is_function_type, type_decl_module, unique_box_payload_type, cell_handle_view, is_dyn_type, is_str_reference_type, is_prelude_io_struct } :: import("../../types/guards.yo");
 { private_member_blocked, is_private_member_name, debug_knob } :: import("../../utils.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env-lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
 { unknown_field_message, unknown_field_code, unknown_variant_message, unknown_field_through_deref_message, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message, get_all_some_types } :: import("../../types/utils.yo");
-{ format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
-{ suggest_name, E_AMBIGUOUS_METHOD, E_DEREF_OF_BORROW, E_DEREF_OF_VALUE, E_TRAIT_NOT_IMPLEMENTED } :: import("../../diagnostics.yo");
+{ format_error_message, format_error_message_with_help, format_error_message_with_repair_at, with_code, YoError } :: import("../../error.yo");
+{ suggest_name, E_DEREF_OF_BORROW, E_DEREF_OF_VALUE, E_TRAIT_NOT_IMPLEMENTED, E_MEMBER_BEHIND_DEREF, Span } :: import("../../diagnostics.yo");
 { attach_temp_variable_to_expr, local_borrow_take_receiver, local_borrow_mark_receiver, local_borrow_clear_receiver, local_borrows_active, local_borrow_access_expr, LocalBorrowAccess, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording, deref_text_is_new_spelling, note_reference_deref_site, is_reference_deref_site, note_synthesized_deref_star, is_synthesized_deref_star, is_ctfe_reference_param, deref_reads_through_pointee, deref_payload_type, deref_exempt_take, projection_call_mode_of, note_reference_field_read, reference_field_read_type, reject_reference_field_without_deref, local_borrow_place_text, reference_read_wanted } :: import("../utils.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_union_member_read_capable, union_member_read_error_message, is_std_module_path } :: import("../memory-safety.yo");
 { evaluate_expression, evaluate_expression_raw, evaluate_expression_guarded } :: import("./expr.yo");
 { Token, TokenKind, intern_token_str, TokenData } :: import("../../token.yo");
-{ deref_target_type, deref_owner_target, implements_deref_mut_without_deref } :: import("../trait-checking.yo");
+{ deref_target_type, deref_owner_target, is_deref_handle, implements_deref_mut_without_deref } :: import("../trait-checking.yo");
 { gadt_branch_reachable } :: import("../../pattern.yo");
 { get_gadt_variant_args } :: import("../types/gadt-registry.yo");
 { Exception } :: import("std/error");
@@ -309,12 +309,14 @@ _field_labels_of :: (fn(t : &TypeValue) -> SharedList(String))(
 _type_is_dereferenceable :: (fn(ty : &TypeValue, env : &Environment) -> bool)(
   t_slot_is_borrow(ty) || deref_reads_through_pointee(ty) || deref_target_type(ty, env).is_some()
 );
-/// Where auto-dereference of `w.label` lands, for a `w` of `Deref` type `t`
-/// whose own fields lack `label`: `.Ok(())` when some payload in the chain
-/// (`t`'s `Target`, its `Target`, …) has a field `label`, else `.Err` with
-/// the innermost payload type reached (for the E0406 message).
-_deref_chain_has_field :: (fn(t : &TypeValue, label : &String, env : &Environment) -> Result(unit, TypeValue))({
+/// The place chain below a `Deref` type `t` whose own fields lack `label`
+/// (`t`'s `Target`, its `Target`, …): `.Ok((n, P))` when the `n`-th place
+/// `P` is the first with a field `label` (`w.*` is the first), else `.Err`
+/// with the innermost place reached (for the E0406 message). E0623 spells
+/// the `n` stars.
+_deref_chain_has_field :: (fn(t : &TypeValue, label : &String, env : &Environment) -> Result(Tuple(usize, TypeValue), TypeValue))({
   (cur : TypeValue) = Rc.clone(t);
+  (depth : usize) = usize(0);
   while(true, {
     match(
       deref_target_type(&cur, env),
@@ -323,13 +325,127 @@ _deref_chain_has_field :: (fn(t : &TypeValue, label : &String, env : &Environmen
       },
       .Some(payload) => {
         cur = resolve_struct_shell(&payload);
+        depth = (depth + usize(1));
         if(find_first_field_index(&_field_labels_of(&cur).items, label.clone()).is_some(), {
-          return(.Ok(()));
+          return(.Ok((depth, Rc.clone(cur))));
         });
       }
     );
   });
   .Err(cur)
+});
+/// `e` with the `.*` layers the compiler synthesized around it removed
+/// (`make_deref_expr`: the reference step of a method receiver), and how many
+/// there were. E0623 spells them as written stars.
+strip_synthesized_stars :: (fn(e : &AstExpr) -> Tuple(AstExpr, usize))({
+  (cur : AstExpr) = Rc.clone(e.*);
+  (n : usize) = usize(0);
+  while(true, {
+    next := match(
+      &cur,
+      Rc(.FnCall(_, _, Rc(sa), _, _)) => cond(
+        ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))) => match(
+          sa.get_cloned(usize(1)),
+          .Some(star) => cond(
+            (ast_expr_is_atom(&star) && (ast_expr_token(&star).value.* == "*") && !_is_written_star(&star)) => sa.get_cloned(usize(0)),
+            true => Option(AstExpr).None
+          ),
+          .None => Option(AstExpr).None
+        ),
+        true => Option(AstExpr).None
+      ),
+      _ => Option(AstExpr).None
+    );
+    match(
+      next,
+      .Some(inner) => {
+        cur = inner;
+        n = (n + usize(1));
+      },
+      .None => {
+        return((cur, n));
+      }
+    );
+  });
+  (cur, n)
+});
+/// E0623 (VERDICTS-73): `x.name` where `x`'s own type `obj_ty` has no member
+/// `name`, and the place `stars` dereferences below `x` (a handle's payload, an
+/// owner's view, a raw pointer's pointee, a reference's referent), of type
+/// `landed`, has one. `.` reads a member of `x`'s own type only, through
+/// `&`/`&mut`; `.*` is the only dereference. `obj` is the receiver the
+/// evaluator holds: the stars it synthesized around the written object (the
+/// reference step) count toward `stars`. `is_call` adds `(...)` to the
+/// spelling, and `for_head` words the error as the `for` loop over `x` it is.
+///
+/// The repair replaces the member's name with `*.` per star and the name, so
+/// it holds for any object expression; it is attached only when the source
+/// at the name token reads the name (not inside generated code).
+member_behind_deref_error :: (
+  fn(obj : &AstExpr, obj_ty : &TypeValue, name_tok : &Token, stars : usize, landed : &TypeValue, is_call : bool, for_head : bool) -> YoError
+)({
+  (written, synth) := strip_synthesized_stars(obj);
+  total := (stars + synth);
+  written_s := ast_expr_to_string(&written);
+  written_ty_s := type_to_string(obj_ty);
+  name := name_tok.value.*.clone();
+  (star_s : String) = String.new();
+  (insert_s : String) = String.new();
+  (si : usize) = usize(0);
+  while(si < total, si = (si + usize(1)), {
+    star_s.push_str(".*");
+    insert_s.push_str("*.");
+  });
+  place_s := `${written_s}${star_s}`;
+  // What `.` did not read through: the first layer below the written object
+  // that is not a reference (`.` reads through those).
+  (first_ty : TypeValue) = resolve_struct_shell(obj_ty);
+  while(t_slot_is_borrow(&first_ty), {
+    first_ty = resolve_struct_shell(&t_slot_pointee(&first_ty));
+  });
+  (what, place_name) := cond(
+    is_pointer_type(&first_ty) => (String.from("a raw pointer"), String.from("pointee")),
+    is_deref_handle(&first_ty) => (String.from("a handle"), String.from("payload")),
+    true => (String.from("`.*`"), String.from("view"))
+  );
+  landed_phrase := cond(
+    (total == usize(1)) && (place_name == "view") => `the \`${type_to_string(landed)}\` its \`.*\` names`,
+    (total == usize(1)) => `its ${place_name} \`${type_to_string(landed)}\``,
+    true => `the \`${type_to_string(landed)}\` that \`${place_s}\` names`
+  );
+  call_s := cond(is_call => String.from("(...)"), true => String.new());
+  (msg, help_s) := cond(
+    for_head => (
+      `\`for(&${written_s}, …)\` walks \`${written_s}\`, of type \`${written_ty_s}\`, which has no member "${name}"; ${landed_phrase} has one. \`.\` does not read through ${what}, and neither does a \`for\` head.`,
+      `write \`for(&${place_s}, …)\`: \`${place_s}\` names the ${place_name}`
+    ),
+    true => (
+      `\`${written_s}\` has type \`${written_ty_s}\`, which has no member "${name}"; ${landed_phrase} has one. \`.\` does not read through ${what}.`,
+      `write \`${place_s}.${name}${call_s}\`: \`${place_s}\` names the ${place_name} (\`yo fix\` applies this)`
+    )
+  );
+  // The edit: `name` → `*.name` (one `*.` per star) at the name token, when
+  // the source there reads the name.
+  src := Rc.clone(name_tok.input);
+  n_start := usize(name_tok.byte_offset);
+  n_end := (n_start + name.len());
+  repairable := (
+    !for_head && !name_tok.module_path.*.starts_with(String.from("auto-generated://")) && (n_end <= src.*.len()) && (src.*.substring(n_start, n_end) == name)
+  );
+  with_code(
+    cond(
+      repairable => format_error_message_with_repair_at(
+        name_tok,
+        &msg,
+        Option(String).Some(help_s),
+        &Span(path : name_tok.module_path.*.clone(), row : usize(name_tok.row), col : usize(name_tok.column), len : name.chars().count()),
+        &`${insert_s}${name}`,
+        &`read the member through ${place_s}: ${place_s}.${name}${call_s}`
+      ),
+      true => format_error_message_with_help(name_tok, &msg, &Option(String).Some(help_s))
+    ),
+    E_MEMBER_BEHIND_DEREF
+  )
 });
 /// Build the path_collection for a field-access node.
 ///
@@ -2402,76 +2518,22 @@ Raw pointer operations may dereference invalid memory.`
               );
               return(Rc.clone(expr.*));
             });
-            // Auto-dereference (plans/VALUES_BY_DEFAULT.md §3.3): on a
-            // `Deref` wrapper (`Box`, `Rc`, `Arc`) whose own fields lack the label,
-            // `w.field` means `w.*.field`. The access is rebuilt with the
-            // object `w.*` (same id), recorded as the node's rewrite
-            // (`note_rewritten_node`) and re-evaluated, so every later
-            // reader — codegen, the root-of-place walks (D3, E0908, inout),
-            // the dup/drop passes — reads the ordinary explicit chain through
-            // `ast_rewritten_node`; nested
-            // wrappers recurse through the same arm. `w` itself was already
-            // evaluated: it is marked so the re-evaluation reuses its
-            // ExprInfo. A pointer object is left alone (`p.*` there is the
-            // raw-pointer dereference).
-            // In callee position (`w.items(i)`, `w.f(x)`) the wrapper's own
-            // METHODS come first: the rewrite happens only when the wrapper
-            // has no method of that name; a payload METHOD is reached by the
-            // receiver retry in `_try_find_receiver_method`. So the order is
-            // wrapper field, wrapper method, payload field, payload method.
+            // A member of the place `w.*` names (VERDICTS-73): `.` reads a
+            // member of `w`'s own type only, so a field a `Deref` type lacks
+            // and its place chain (a handle's payload, an owner's view) has
+            // is E0623, whose repair writes the stars. In callee position a
+            // method of `w`'s own type is the call (`w.clone()` on an `Rc`
+            // is the `Rc`'s), and a payload METHOD is E0623 from the method
+            // lookup (`_try_find_receiver_method`). A pointer object is the
+            // raw-pointer arm below.
             pa_is_callee := is_dot_callee(ast_expr_id(expr));
             if(!is_pointer_type(&original_obj_ty) && deref_target_type(&base_ty, &env).is_some(), {
               match(
                 _deref_chain_has_field(&base_ty, label_str.clone(), &env),
-                .Ok(_) => if(!pa_is_callee || (get_receiver_methods_by_name_from_env(&env, label_str.clone(), &base_ty, false).len() == usize(0)), {
-                  // The tree's own object node, unless its evaluation
-                  // returned a different node that carries the ExprInfo.
-                  orig_obj := match(
-                    all_args.get_cloned(usize(0)),
-                    .Some(a) => cond(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&a)).is_some() => a, true => object_expr),
-                    .None => object_expr
-                  );
-                  pa_deref_args := ArrayList(AstExpr).new();
-                  pa_deref_args.push(make_deref_expr(&orig_obj, ast_expr_token(expr), ast_expr_token(&property_expr)));
-                  pa_deref_args.push(property_expr.clone());
-                  pa_rewritten := match(expr, Rc(.FnCall(pa_id, pa_f, _, pa_infix, pa_tok)) => Rc.new(AstExprNode.FnCall(pa_id.*, Rc.clone(pa_f.*), Rc.new(pa_deref_args), pa_infix.*, Rc.clone(pa_tok.*))), Rc(.Atom(_, _)) => expr.clone());
-                  note_rewritten_node(&pa_rewritten);
-                  obj_id := ast_expr_id(&orig_obj);
-                  mark_node_preevaluated(obj_id);
-                  rewritten := recur(&pa_rewritten, env_in, ctx, exn);
-                  unmark_node_preevaluated(obj_id);
-                  return(rewritten);
-                }, if(!(ctx.currently_specializing_function.is_some() || ctx.is_evaluating_generic_impl_specialization) && deref_owner_target(&base_ty, &env).is_none(), {
-                  // Decision 32: a callee `w.m` where the wrapper has a
-                  // METHOD `m` and its payload a FIELD `m` (a function-typed
-                  // field is callable) has two readings. The wrapper's
-                  // method used to win silently. Off inside a specialized
-                  // generic body, as `calls/function.yo`'s
-                  // `_reject_wrapper_payload_clash` is. An owner's own method
-                  // wins over its view's field (VERDICTS-63 decision 7):
-                  // decision 32 is the handles' rule.
-                  obj_shown := ast_expr_to_string(&object_expr);
-                  wrapper_s := type_to_string(&base_ty);
-                  ctor := match(
-                    wrapper_s.index_of(`(`),
-                    .Some(pidx) => wrapper_s.substring(usize(0), pidx),
-                    .None => wrapper_s.clone()
-                  );
-                  exn.throw(
-                    dyn(
-                      Box.new(
-                        with_code(
-                          format_error_message(
-                            ast_expr_token(&property_expr),
-                            `"${label_str}" is a method of ${wrapper_s} and a field of its payload, so ${obj_shown}.${label_str}(...) could mean either (plans/VALUES_BY_DEFAULT.md decision 32).\nWrite ${ctor}.${label_str}(${obj_shown}, ...) for the ${ctor}'s own ${label_str}, or ${obj_shown}.*.${label_str}(...) to call the payload's field.`
-                          ),
-                          E_AMBIGUOUS_METHOD
-                        )
-                      )
-                    )
-                  );
+                .Ok((pa_stars, pa_landed)) => if(!pa_is_callee || (get_receiver_methods_by_name_from_env(&env, label_str.clone(), &base_ty, false).len() == usize(0)), {
+                  exn.throw(dyn(Box.new(member_behind_deref_error(&object_expr, &original_obj_ty, &ast_expr_token(&property_expr), pa_stars, &pa_landed, pa_is_callee, false))));
                   return(Rc.clone(expr.*));
-                })),
+                }),
                 .Err(innermost) => if(!pa_is_callee, {
                   exn.throw(
                     dyn(
@@ -2545,35 +2607,18 @@ Raw pointer operations may dereference invalid memory.`
                 )
               );
             });
-            // A pointer clash (decision 32's rule covers raw pointers,
-            // amended by #1248 under plans/VALUES_BY_DEFAULT.md decision 36):
-            // `p.m(...)` through a raw pointer, where the pointee has a FIELD
-            // `m` (field reads and calls of function-typed fields
-            // auto-dereference) and the pointer has a METHOD `m` (today its
-            // `clone` from the `Clone` impl `Copy` requires, or `add`/`sub`/
-            // `offset_from`). Both readings are valid programs with one
-            // spelling, so the call is an error naming the pointee-side
-            // spelling `p.*.m(...)` and the pointer-side one. The field used
-            // to win silently. In practice the only shared names are
-            // `Clone`/`Copy` members against a function-typed pointee field:
-            // method calls through a pointer do not reach the pointee's own
-            // methods (E0610), so a pointee METHOD named like a pointer
-            // method has no second reading to clash with.
-            if(is_dot_callee(ast_expr_id(expr)) && is_pointer_type(&original_obj_ty), {
-              if(get_pointer_own_methods_by_name_from_env(&env, label_str.clone(), &original_obj_ty).len() > usize(0), {
-                obj_shown := ast_expr_to_string(&object_expr);
-                exn.throw(
-                  dyn(
-                    Box.new(
-                      format_error_message(
-                        ast_expr_token(&property_expr),
-                        `"${label_str}" is both a field of ${type_to_string(&base_ty)} and a method of the raw pointer ${type_to_string(&original_obj_ty)}, so ${obj_shown}.${label_str}(...) could mean either (plans/VALUES_BY_DEFAULT.md decision 32, covering raw pointers per decision 36). Write ${obj_shown}.*.${label_str}(...) to call the pointee's field. For the pointer's own ${label_str} there is no second spelling: a raw pointer is Copy, so for its clone the copy itself, q := ${obj_shown}, is the spelling.`
-                      )
-                    )
-                  )
-                );
-                return(Rc.clone(expr.*));
+            // A field of a raw pointer's pointee (VERDICTS-73): `.` does not
+            // read through a raw pointer, so `q.x` is E0623 naming `q.*.x`
+            // (one star per pointer layer).
+            if(is_pointer_type(&original_obj_ty), {
+              (pp_stars : usize) = usize(0);
+              (pp_cur : TypeValue) = Rc.clone(original_obj_ty);
+              while(is_pointer_type(&pp_cur), {
+                pp_cur = match(Rc.clone(pp_cur), Rc(.Pointer(pt)) => Rc.clone(pt), _ => t_unit());
+                pp_stars = (pp_stars + usize(1));
               });
+              exn.throw(dyn(Box.new(member_behind_deref_error(&object_expr, &original_obj_ty, &ast_expr_token(&property_expr), pp_stars, &base_ty, is_dot_callee(ast_expr_id(expr)), false))));
+              return(Rc.clone(expr.*));
             });
             ft_lbl := _reference_field_read_type(&match(fields_types.get(fi_lbl), .Some(t) => t, .None => t_unit()), expr, &property_expr, pa_deref_exempt, ctx, exn);
             field_origin_lbl := match(
@@ -3056,4 +3101,4 @@ _io_builtin_method_type :: (fn(env : &Environment, label : &String, io_ty : &Typ
   Option(TypeValue).None
 });
 
-export(evaluate_property_access, make_deref_expr, note_projection_call_deref);
+export(evaluate_property_access, make_deref_expr, note_projection_call_deref, member_behind_deref_error, strip_synthesized_stars);

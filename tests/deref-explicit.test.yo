@@ -1,0 +1,368 @@
+// `.` and `.*` (VERDICTS-73): `x.name` is a member of `x`'s own type, read
+// through any number of `&`/`&mut`, and `x.*` is the only dereference. A
+// handle (`Box`, `Rc`, `Arc`) reaches its payload's members as `w.*.name`,
+// one star per layer, and a reference to a handle takes two (`x.*.*.name`).
+// A member the place `.*` names, read with `.` alone, is E0623, whose help
+// spells the whole chain. `Deref`/`DerefMut` define `.*` and nothing else.
+// The file is deliberately NOT pragma'd: rule D3 (no write through an `Arc`
+// root in safe code) must still fire through the explicit chain.
+{ assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array-list");
+{ hash_one } :: import("std/hash");
+{ Mutex } :: import("std/sync/mutex");
+_P :: struct(n : i32, items : ArrayList(i32));
+impl(
+  _P,
+  get : (fn(self : &Self) -> i32)(self.n),
+  bump : (fn(self : &mut Self) -> unit)({
+    self.n = (self.n + i32(1));
+  })
+);
+derive(_P, Clone);
+_Q :: struct(n : i32, arr : Array(i32, 2));
+derive(_Q, Copy, Clone);
+impl(
+  _Q,
+  get : (fn(self : Self) -> i32)(self.n),
+  bump : (fn(self : &mut Self) -> unit)({
+    self.n = (self.n + i32(1));
+  })
+);
+_mk :: (fn(n : i32) -> _P)(_P(n : n, items : ArrayList(i32).new()));
+_take :: (fn(v : i32) -> i32)(v + i32(1));
+// A payload field holding a function, called through the handle.
+_H :: struct(f : (fn(x : i32) -> i32));
+derive(_H, Copy, Clone);
+_Area :: trait(area : (fn(self : &Self) -> i32));
+_Sq :: struct(s : i32);
+impl(_Sq, _Area(area : (fn(self : &Self) -> i32)(self.s * self.s)));
+// A user wrapper over a sized payload may not implement `Deref` (concrete
+// or generic impl): E0622 (VERDICTS-63 decision 10).
+_UserWrap :: struct(v : i32);
+_UserGen :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T));
+test("explicit: field read through Rc", {
+  b := Rc.new(_mk(i32(1)));
+  assert(b.*.n == i32(1), "b.*.n reads the payload's field");
+  assert((b.*.n + i32(1)) == i32(2), "inside an operator");
+  assert(_take(b.*.n) == i32(2), "as a call argument");
+  x := b.*.n;
+  assert(x == i32(1), "bound to a local");
+});
+test("explicit: method call through Rc", {
+  b := Rc.new(_mk(i32(4)));
+  assert(b.*.get() == i32(4), "b.*.get() calls the payload's method");
+  assert(b.*.items.len() == usize(0), "a method on a payload field");
+});
+test("explicit: nested Rc(Rc(T)) takes one star per layer", {
+  bb := Rc.new(Rc.new(_mk(i32(2))));
+  assert(bb.*.*.n == i32(2), "field through two handles");
+  assert(bb.*.*.get() == i32(2), "method through two handles");
+  // An `Rc`'s payload is read-only through the handle (decision 46), through
+  // every handle.
+  comptime_expect_error(bb.*.*.bump(), "read-only through the handle");
+  comptime_expect_error(bb.*.*.n = i32(9), "read-only through the handle");
+});
+// An `Rc`'s payload is read-only through the handle (decision 46).
+test("explicit: a write through Rc is E0919", {
+  b := Rc.new(_mk(i32(1)));
+  comptime_expect_error(b.*.n = i32(5), "read-only through the handle");
+  comptime_expect_error(b.*.bump(), "read-only through the handle");
+  comptime_expect_error(b.*.items.push(i32(3)), "read-only through the handle");
+});
+test("explicit: Arc reads, writes are D3 errors in safe code", {
+  a := Arc.new(_Q(n : i32(4), arr : [i32(1), i32(2)]));
+  assert(a.*.n == i32(4), "a.*.n reads the payload");
+  assert(a.*.get() == i32(4), "a.*.get() calls the payload's method");
+  comptime_expect_error(a.*.bump(), "atomic object");
+  comptime_expect_error(a.*.n = i32(5), "atomic object");
+  assert(a.*.arr(usize(1)) == i32(2), "a.*.arr(i) indexes the payload's field");
+  comptime_expect_error(a.*.arr(usize(0)) = i32(1), "atomic object");
+});
+test("explicit: Arc(Mutex(T)) names the Mutex with a star", {
+  total := Arc.new(Mutex(i32).new(i32(0)));
+  mine := Arc.clone(&total);
+  mine.*.with_lock(v => {
+    v.* = (v.* + i32(1));
+  });
+  assert(total.*.with_lock(v => v.*) == i32(1), "one increment through the Mutex");
+});
+test("explicit: indexing a payload field (callee position)", {
+  mut(p) := _mk(i32(1));
+  p.items.push(i32(5));
+  p.items.push(i32(6));
+  b := Rc.new(p.clone());
+  assert(b.*.items(usize(1)) == i32(6), "b.*.items(i) indexes the payload's list");
+  comptime_expect_error(b.*.items(usize(0)) = i32(7), "read-only through the handle");
+  bb := Rc.new(Rc.new(p));
+  assert(bb.*.*.items(usize(0)) == i32(5), "through two handles");
+  comptime_expect_error(bb.*.*.items(usize(0)) = i32(9), "read-only through the handle");
+  r := Rc.new(ArrayList(i32).new());
+  assert(r.*.len() == usize(0), "a list in an Rc: r.*.len()");
+});
+test("explicit: a function-typed payload field is called through .*", {
+  h := Rc.new(_H(f : (fn(x : i32) -> i32)(x + i32(1))));
+  assert(h.*.f(i32(1)) == i32(2), "h.*.f(x) calls the payload's field");
+});
+test("explicit: a Box(Dyn(T)) calls its methods through .*", {
+  (d : Box(Dyn(_Area))) = dyn(Box.new(_Sq(s : i32(3))));
+  assert(d.*.area() == i32(9), "d.*.area() calls through the vtable");
+});
+// The unique `Box` (V1 step 2): its `.*` needs no `unsafe` (this file is not
+// pragma'd), and unlike an `Rc` a write goes to the box's own payload.
+_box_n :: (fn(b : &Box(_P)) -> i32)(b.*.*.n);
+_box_write :: (fn(b : &mut Box(_P)) -> unit)({
+  b.*.*.n = i32(11);
+});
+test("explicit: field, method and place write through Box", {
+  mut(b) := Box.new(_mk(i32(1)));
+  assert(b.*.n == i32(1), "b.*.n reads the payload");
+  assert(b.*.get() == i32(1), "b.*.get() calls the payload's method");
+  b.*.bump();
+  assert(b.*.n == i32(2), "a &mut self method writes the payload");
+  b.*.n = i32(5);
+  assert(b.*.n == i32(5), "b.*.n = v writes the payload");
+  b.*.items.push(i32(3));
+  assert(b.*.items(usize(0)) == i32(3), "a payload field's method and index");
+  assert(_box_n(&b) == i32(5), "read through a &Box parameter: two stars");
+  _box_write(&mut b);
+  assert(b.*.n == i32(11), "written through a &mut Box parameter: two stars");
+});
+// A whole-payload write through a `&Box` is E0908, and so is a field write
+// (issues/fixed/a-field-write-through-a-shared-borrow-parameter-is-accepted-and-lost.md).
+_box_replace :: (fn(b : &Box(_P)) -> unit)({
+  comptime_expect_error(b.*.* = _mk(i32(1)), "Cannot write");
+  comptime_expect_error(b.*.*.n = i32(2), "is a `&T` parameter, a read-only borrow");
+});
+test("explicit: a &Box parameter's payload cannot be replaced", {
+  b := Box.new(_mk(i32(1)));
+  _box_replace(&b);
+  assert(b.*.n == i32(1), "unchanged");
+});
+test("explicit: nested Box and Rc take one star per layer", {
+  rb := Rc.new(Box.new(_mk(i32(2))));
+  assert(rb.*.*.n == i32(2), "Rc(Box(T)) field");
+  assert(rb.*.*.get() == i32(2), "Rc(Box(T)) method");
+  br := Box.new(Rc.new(_mk(i32(3))));
+  assert(br.*.*.n == i32(3), "Box(Rc(T)) field");
+  comptime_expect_error(br.*.*.n = i32(4), "read-only through the handle");
+  bb := Box.new(Box.new(_mk(i32(5))));
+  assert(bb.*.*.get() == i32(5), "Box(Box(T)) method");
+});
+// A reference to a handle: the first star is the reference's, the second the
+// handle's. A `Box(n)` pattern and `as_ref()` name the payload directly.
+_Node :: struct(value : i32, next : Option(Box(Self)));
+impl(
+  _Node,
+  total_stars : (fn(self : &Self) -> i32)(
+    match(&self.next, .Some(b) => (self.value + b.*.*.total_stars()), .None => self.value)
+  ),
+  total_pattern : (fn(self : &Self) -> i32)(
+    match(&self.next, .Some(Box(n)) => (self.value + n.total_pattern()), .None => self.value)
+  ),
+  total_as_ref : (fn(self : &Self) -> i32)(
+    match(&self.next, .Some(b) => (self.value + b.as_ref().total_as_ref()), .None => self.value)
+  )
+);
+test("explicit: a reference to a handle takes two stars", {
+  n := _Node(value : i32(1), next : .Some(Box.new(_Node(value : i32(2), next : .None))));
+  assert(n.total_stars() == i32(3), "b.*.*.m() with b : &Box(_Node)");
+  assert(n.total_pattern() == i32(3), "the Box(n) pattern");
+  assert(n.total_as_ref() == i32(3), "b.as_ref() lends the payload");
+  mut(xs) := ArrayList(Box(_Node)).new();
+  xs.push(Box.new(_Node(value : i32(5), next : .None)));
+  (mut(t) : i32) = i32(0);
+  for(&xs, x => {
+    t = (t + x.*.*.value);
+  });
+  assert(t == i32(5), "a for element over a list of boxes");
+});
+_P2 :: struct(x : i32, y : i32);
+test("explicit: a raw pointer's pointee is read through .*", {
+  mut(p) := _P2(x : i32(1), y : i32(2));
+  q := addr_of(p);
+  assert(unsafe(q.*.x) == i32(1), "q.*.x reads the pointee's field");
+  qq := addr_of(q);
+  assert(unsafe(qq.*.*.y) == i32(2), "one star per pointer layer");
+});
+// `w.clone()` on a handle is the handle's clone (Rust's reading), in and out
+// of a generic body; the payload's is `w.*.clone()`. The payload's clone
+// counts its calls, so the counts show which ran.
+mut(_payload_clones) := i32(0);
+_C :: struct(n : i32);
+impl(
+  _C,
+  Clone(
+    clone : (fn(self : &Self) -> Self)({
+      _payload_clones = (_payload_clones + i32(1));
+      _C(n : (self.n + i32(100)))
+    })
+  )
+);
+_dupe :: (fn(generic(T : Type), w : &Rc(T), where(T <: Clone)) -> Rc(T))(w.clone());
+_clone_any :: (fn(generic(T : Type), x : &T, where(T <: Clone)) -> T)(x.clone());
+test("explicit: w.clone() on a handle is the handle's clone", {
+  _payload_clones = i32(0);
+  w := Rc.new(_C(n : i32(1)));
+  c := w.clone();
+  assert((ref_count(w) == usize(2)) && (c.*.n == i32(1)), "a second handle to the same cell");
+  d := _dupe(&w);
+  assert((ref_count(w) == usize(3)) && (d.*.n == i32(1)), "the handle's clone in a generic body too");
+  e := _clone_any(&w);
+  assert((ref_count(w) == usize(4)) && (e.*.n == i32(1)), "and at a T := Rc(_C) instantiation");
+  assert(_payload_clones == i32(0), "the payload's clone never ran");
+  f := w.*.clone();
+  assert((f.n == i32(101)) && (_payload_clones == i32(1)), "w.*.clone() is the payload's");
+  b := Box.new(_mk(i32(5)));
+  (mut(bc) : Box(_P)) = b.clone();
+  bc.*.n = i32(6);
+  assert(b.*.n == i32(5), "Box's own clone is a new cell");
+});
+test("explicit: outside the prelude a Deref impl needs an unsized Target (E0622)", {
+  comptime_expect_error(impl(_UserWrap, Deref(Target : i32)), "Cannot implement `Deref` for `_UserWrap`: its `Target` `i32` has a size");
+  comptime_expect_error(impl(generic(T : Type), _UserGen(T), Deref(Target : T)), "is a type variable, which may have a size");
+  comptime_assert(Type.impls(Rc(_P), Deref), "Rc implements Deref");
+  comptime_assert(Type.impls(Arc(_Q), Deref), "Arc implements Deref");
+  comptime_assert(!Type.impls(_P, Deref), "a plain struct does not");
+});
+test("explicit: a miss names the payload (E0406, E0610)", {
+  b := Rc.new(_mk(i32(1)));
+  comptime_expect_error(b.nn, "its payload");
+  comptime_expect_error(b.nn, "has no field \"nn\" either");
+  comptime_expect_error(b.nope(), "has no field or method \"nope\" either");
+  bb := Rc.new(Rc.new(_mk(i32(1))));
+  comptime_expect_error(bb.nn, "has no field \"nn\" either");
+});
+// E0623: a member the place `.*` names, read with `.` alone. The help spells
+// the whole chain.
+_UOwner :: struct(items : Array(i32, 2));
+impl(_UOwner, Deref(Target : [i32], deref : (fn(self : &Self) -> &Self.Target)(&self.items.*)));
+_read_n :: (fn(generic(T : Type), x : &T) -> i32)(x.n);
+test("E0623: a payload member read with . alone", {
+  b := Rc.new(_mk(i32(1)));
+  comptime_expect_error(b.n, "E0623");
+  comptime_expect_error(b.n, "`b` has type `Rc(_P)`, which has no member \"n\"; its payload `_P` has one. `.` does not read through a handle.");
+  comptime_expect_error(b.n, "write `b.*.n`: `b.*` names the payload");
+  comptime_expect_error(b.get(), "write `b.*.get(...)`: `b.*` names the payload");
+  comptime_expect_error(b.items(usize(0)), "write `b.*.items(...)`");
+  mut(bx) := Box.new(_mk(i32(1)));
+  comptime_expect_error(bx.n = i32(2), "write `bx.*.n`");
+  comptime_expect_error(bx.bump(), "write `bx.*.bump(...)`");
+  h := Rc.new(_H(f : (fn(x : i32) -> i32)(x + i32(1))));
+  comptime_expect_error(h.f(i32(1)), "write `h.*.f(...)`");
+  bb := Rc.new(Rc.new(_mk(i32(2))));
+  comptime_expect_error(bb.n, "the `_P` that `bb.*.*` names has one");
+  comptime_expect_error(bb.get(), "write `bb.*.*.get(...)`");
+  a := Arc.new(Mutex(i32).new(i32(0)));
+  comptime_expect_error(a.with_lock(v => v.*), "write `a.*.with_lock(...)`");
+  (d : Box(Dyn(_Area))) = dyn(Box.new(_Sq(s : i32(3))));
+  comptime_expect_error(d.area(), "write `d.*.area(...)`");
+  comptime_expect_error(_read_n(&b), "write `x.*.*.n`");
+});
+test("E0623: a reference to a handle, an owner, a raw pointer", {
+  n := _Node(value : i32(1), next : .Some(Box.new(_Node(value : i32(2), next : .None))));
+  comptime_expect_error(
+    match(&n.next, .Some(b) => b.value, .None => i32(0)),
+    "write `b.*.*.value`"
+  );
+  comptime_expect_error(
+    match(&n.next, .Some(b) => b.total_stars(), .None => i32(0)),
+    "write `b.*.*.total_stars(...)`"
+  );
+  arr := Array(i32, 3)(1, 2, 3);
+  comptime_expect_error(arr.is_empty(), "the `[i32]` its `.*` names has one");
+  comptime_expect_error(arr.is_empty(), "write `arr.*.is_empty(...)`");
+  assert(!arr.*.is_empty(), "arr.*.is_empty() is the view's");
+  u := _UOwner(items : Array(i32, 2)(1, 2));
+  comptime_expect_error(u.is_empty(), "write `u.*.is_empty(...)`");
+  assert(u.*.len() == usize(2), "u.*.len() is the view's");
+  mut(p) := _P2(x : i32(1), y : i32(2));
+  q := addr_of(p);
+  comptime_expect_error(q.x, "`.` does not read through a raw pointer");
+  comptime_expect_error(q.x, "write `q.*.x`: `q.*` names the pointee");
+});
+// Indexing and walking a handle name the handle and `.*`
+// (issues/fixed/2026-11-21-indexing-or-walking-a-handle-names-neither-the-handle-nor-its-star.md).
+test("E0606 and a for head over a handle name its .*", {
+  r := Rc.new(ArrayList(i32).new());
+  comptime_expect_error(r(usize(0)), "E0606");
+  comptime_expect_error(r(usize(0)), "Write `r.*(...)`");
+  comptime_expect_error(
+    for(&r, x => {
+      consume(x);
+    }),
+    "write `for(&r.*, …)`: `r.*` names the payload"
+  );
+  (mut(t) : i32) = i32(0);
+  for(&r.*, x => {
+    t = (t + x.*);
+  });
+  assert(t == i32(0), "the explicit walk");
+});
+// derive(Clone) spells a handle field's clone through its Clone impl, so a
+// struct holding an `Rc` derives Clone.
+_HoldsRc :: struct(r : Rc(i32), k : i32);
+derive(_HoldsRc, Clone);
+_EnumRc :: enum(A(r : Rc(i32)), B);
+derive(_EnumRc, Clone);
+test("explicit: derive(Clone) clones an Rc field through the Rc's Clone", {
+  x := _HoldsRc(r : Rc.new(i32(1)), k : i32(2));
+  y := x.clone();
+  Rc.make_mut(&mut x.r) = i32(5);
+  assert(y.r.* == i32(1), "the derived clone made a new cell, as the Rc's Clone does");
+  e := _EnumRc.A(r : Rc.new(i32(6)));
+  f := e.clone();
+  match(
+    f,
+    .A(r) => assert(r.* == i32(6), "the enum variant's Rc field cloned"),
+    .B => assert(false, "variant kept")
+  );
+});
+// derive(Hash) hashes a handle field through its own Hash impl by name
+// (issues/fixed/derive-hash-on-a-type-with-an-rc-field-is-e0616.md).
+_HashRc :: struct(r : Rc(i32), k : i32);
+derive(_HashRc, Hash);
+_HashPlain :: struct(r : i32, k : i32);
+derive(_HashPlain, Hash);
+_HashEnumRc :: enum(A(r : Rc(i32)), B);
+derive(_HashEnumRc, Hash);
+test("explicit: derive(Hash) hashes an Rc field as its payload", {
+  x := _HashRc(r : Rc.new(i32(1)), k : i32(2));
+  y := _HashPlain(r : i32(1), k : i32(2));
+  assert(hash_one(&x) == hash_one(&y), "an Rc field hashes as its payload");
+  e := _HashEnumRc.A(r : Rc.new(i32(3)));
+  f := _HashEnumRc.A(r : Rc.new(i32(3)));
+  assert(hash_one(&e) == hash_one(&f), "the enum variant's Rc field hashes by payload");
+});
+// derive(Clone) and derive(Hash) over Rc, Box and Arc fields whose payload's
+// impl is derived later.
+_LateHolder :: struct(r : Rc(_Late), b : Box(_Late), a : Arc(_Late));
+derive(_LateHolder, Clone, Hash);
+_Late :: struct(n : i32);
+derive(_Late, Copy, Clone, Hash);
+test("explicit: derive over handle fields whose payload derives later", {
+  h := _LateHolder(r : Rc.new(_Late(n : i32(1))), b : Box.new(_Late(n : i32(2))), a : Arc.new(_Late(n : i32(3))));
+  c := h.clone();
+  assert(((c.r.*.n == i32(1)) && (c.b.*.n == i32(2))) && (c.a.*.n == i32(3)), "every field cloned");
+  assert(hash_one(&h) == hash_one(&c), "and hashes alike");
+});
+// `Deref` carries the projection `deref`, and `Box` the write half
+// `DerefMut` (VERDICTS-63 decisions 1-3): every handle implements the method
+// and keeps its native `.*`.
+_DP :: struct(n : i32);
+impl(_DP, get : (fn(self : &Self) -> i32)(self.n));
+_read_deref :: (fn(generic(D : Type), d : &D, where(D <: Deref(Target := _DP))) -> i32)(d.deref().n);
+test("explicit: the handles implement deref, and Box deref_mut", {
+  mut(b) := Box.new(_DP(n : i32(1)));
+  r := Rc.new(_DP(n : i32(2)));
+  a := Arc.new(_DP(n : i32(3)));
+  assert(Box.deref(&b).n == i32(1), "Box.deref");
+  assert(Rc.deref(&r).get() == i32(2), "Rc.deref");
+  assert(Arc.deref(&a).n == i32(3), "Arc.deref");
+  Box.deref_mut(&mut b).n = i32(7);
+  assert(b.*.n == i32(7), "written through Box.deref_mut");
+  assert(_read_deref(&b) == i32(7), "one generic body at a Box");
+  assert(_read_deref(&r) == i32(2), "and at an Rc");
+  comptime_assert(Type.impls(Box(_DP), DerefMut), "Box implements DerefMut");
+  comptime_assert(!Type.impls(Rc(_DP), DerefMut), "Rc has no DerefMut (decision 46)");
+  comptime_assert(!Type.impls(Arc(_DP), DerefMut), "nor Arc");
+});
