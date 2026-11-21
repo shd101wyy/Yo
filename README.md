@@ -113,16 +113,15 @@ compiler, so it links against your own libc and loader. This is the answer on
 NixOS, where the prebuilt binary's hardcoded ELF interpreter
 (`/lib64/ld-linux-x86-64.so.2`) does not exist.
 
-> **Note:** `--from-source` needs a release that publishes the single-file
-> `yo.c`. Releases up to and including `v0.2.4` predate that artifact, so the
-> option only works on releases made after it. The installer says so explicitly
-> rather than failing obscurely.
+> **Note:** `--from-source` builds from the single-file `yo.c` a release
+> publishes; releases up to and including `v0.2.4` have none, and the installer
+> says so.
 
 > **Memory:** building Yo itself, whether `--from-source` or `yo build` in a
-> checkout, fits on an **8 GB** machine with a v0.2.43 or later compiler. A full
+> checkout, fits on an **8 GB** machine. A full
 > build of the compiler peaks at about 4.3 GiB (measured on Linux, C compiler
 > included), and CI builds it inside an 8 GB no-swap limit on every change.
-> Older releases needed about 10 GB. Compiling your own programs needs far less.
+> Compiling your own programs needs far less.
 
 The installer puts the `yo` command on your `PATH`. Run `yo --help` to see the
 available commands.
@@ -203,7 +202,7 @@ Every Yo file automatically imports **[std/prelude.yo](./std/prelude.yo)**, whic
 - **Core traits**: `Eq`, `Ord`, `Add`, `Sub`, `Mul`, `Div`, `Iterator`, `IntoIterator`, `TryFrom`, `TryInto`, `Drop`, `Send`, `Acyclic`, etc.
 - **Metaprogramming**: `Type`, `Expr`, `ExprList`
 - **Async**: `Io`, `FutureState`, `JoinHandle`
-- **Utilities**: `assert`, `unsafe`, `try`, `for`, `not`, `Rc.new`, `Arc.new`
+- **Utilities**: `unsafe`, `for`, `not`, `Rc.new`, `Arc.new`
 - etc.
 
 ## Standard Library

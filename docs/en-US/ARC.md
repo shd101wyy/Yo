@@ -1,7 +1,7 @@
 # Arc(T) — Shared Ownership with Atomic Reference Counting
 
 `Arc(T)` provides shared ownership of a single value via atomic reference counting.
-It is **not** a compiler built-in anymore. In the current design, `Arc` is defined
+`Arc` is defined
 in `std/prelude.yo` as a newtype over an atomically counted cell, so `Arc` and
 `Arc.new(...)` are available everywhere through the prelude. `Arc(T)` itself requires
 `T <: (Send, Sync)`, which keeps `Arc` from laundering non-thread-safe values into a
@@ -101,8 +101,7 @@ assert(copied == i32(42), "inner value is 42");
 ### Copying
 
 `Arc.clone(a)` makes a second handle: it increments the reference count and keeps sharing the
-same value. A second handle is spelled, as in Rust (decision 17 of
-[the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md)): an implicit copy whose source is
+same value. A second handle is spelled, as in Rust: an implicit copy whose source is
 used again is E0901, whose note names `Arc.clone(a)`, and a handle's last use moves it. `Arc(T)` is `Clone` for every `T`, and its clone is always a second
 handle; a deep copy of the value is spelled `Arc.new(a.*.clone())`.
 
@@ -136,8 +135,7 @@ An `Arc`'s payload is read-only through the handle: a write through it is
 rejected in safe code, and shared mutation goes through an `Arc(Mutex(T))`,
 an `Arc(RwLock(T))` or an atomic. `Arc(RefCell(T))` is rejected, because a
 `RefCell` is never `Sync`. Two doors prove the handle is the only one, as
-Rust's do (decision 46 of
-[the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md)):
+Rust's do:
 
 - **`Arc.try_unwrap(h)`** consumes the handle and returns `.Ok(payload)` when
   no other handle exists on any thread (the cell is freed), else `.Err(h)`.
