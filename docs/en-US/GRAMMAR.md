@@ -330,8 +330,8 @@ Placement rules for `&` and `&mut`:
   reference** (decision 43 step 2): as a parameter's type, `x : &(T, p)` is
   `x : &T` whose origin is `p`, an origin parameter declared with
   `generic(p : Origin)`, or a union `(p, q)` of them. The second argument is
-  read by its kind: a type there is E0922 (a reference to a tuple is
-  `&Tuple(A, B)`). As a projection's result type, `-> &(T, o)` names the
+  read by its kind: a type there is an uncoded error (a reference to a tuple
+  is `&Tuple(A, B)`). As a projection's result type, `-> &(T, o)` names the
   origin the result borrows from: an origin parameter, a reference
   parameter's place (`-> &(T, xs)`), or a union of them; a by-value
   parameter there is E0912. In value position `&(a, b)` stays the
