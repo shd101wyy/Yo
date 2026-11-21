@@ -654,17 +654,17 @@ test("(riders) Hash(&T): the blanket registers, and a reference hashes as its re
 });
 // A user `impl(&C, ToString)` beside the blanket is E0612 naming the covering
 // generic impl, as with the prelude's `Eq(&T)` (develop rejected the same
-// program with E0601 "Bag and &Bag").
-_RbBag :: struct(n : i32);
+// program with E0601 "C and &C"). `_RbBag` gains the trait impl here so the
+// blanket's `where` covers `&_RbBag`.
 impl(
   _RbBag,
-  ToString(to_string : (fn(self : &Self) -> String)(String.from("bag")))
+  ToString(to_string : (fn(self : &Self) -> String)(String.from("rbag")))
 );
 test("(riders) a user impl(&C, ToString) beside the blanket is E0612", {
   comptime_expect_error(
     impl(
       &_RbBag,
-      ToString(to_string : (fn(self : &Self) -> String)(String.from("refbag")))
+      ToString(to_string : (fn(self : &Self) -> String)(String.from("refrbag")))
     ),
     "by the generic impl at std/fmt/to_string.yo"
   );
