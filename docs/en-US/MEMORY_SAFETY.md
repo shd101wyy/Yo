@@ -107,7 +107,7 @@ main :: (fn() -> unit)({
 });
 ```
 
-A reference (`&T`, `&mut T`) is a value whose type carries its **origin**, the set of places it may point into. It can be a parameter, a local binding, a function result, a struct field, a tuple or `Option` component and a closure capture, and the compiler checks every use, as Rust's borrow checker does: while a reference is live, its place is not written or moved (under `&`) or not accessed except through the reference (under `&mut`), E0911; and a reference never outlives what it points into (E0912, E0923). A collection element, a heap-cell payload, a module-level binding and a value sent to another thread accept no reference (E0909). [OWNERSHIP_AND_BORROWING.md](./OWNERSHIP_AND_BORROWING.md) explains moves, copies, references and origins with examples; the built checker's known gaps are under [What This Doesn't Guarantee](#what-this-doesnt-guarantee).
+A reference (`&T`, `&mut T`) is a value whose type carries its **origin**, the set of places it may point into. It can be a parameter, a local binding, a function result, a struct field, a tuple or `Option` component and a closure capture, and the compiler checks every use, as Rust's borrow checker does: while a reference is live, its place is not written or moved (under `&`) or not accessed except through the reference (under `&mut`), E0911; and a reference never outlives what it points into (E0912, E0923). A collection element, a heap-cell payload, a module-level binding and a value sent to another thread accept no reference. [OWNERSHIP_AND_BORROWING.md](./OWNERSHIP_AND_BORROWING.md) explains moves, copies, references and origins with examples; the built checker's known gaps are under [What This Doesn't Guarantee](#what-this-doesnt-guarantee).
 
 Use cases:
 

@@ -65,7 +65,7 @@ export(main);
 | --- | --- | --- |
 | **`Copy`** | integers, floats, `bool`, `char`, `unit`, `str`, `&T`, function pointers; a struct, enum or newtype with `derive(T, Copy, Clone)`; tuples, arrays and records whose parts are all `Copy` | a bitwise copy |
 | **explicit-copy** | implements `Clone` but not `Copy`: `String`, the collections, `Box(T)`, `Rc(T)` and `Arc(T)` handles, and types containing them | E0901; write `x.clone()` |
-| **move-only** | implements neither `Copy` nor `Clone`, or implements `Drop`: `Token` above, a file, a lock, a thread handle, `&mut T`, and any type holding one | E0901; there is no copy |
+| **move-only** | implements neither `Copy` nor `Clone`, or implements `Drop`: `Token` above, a file, a lock, a thread handle, and any type holding one | E0901; there is no copy |
 
 A type that is not `Copy` moves at its last use, whichever of the other two
 kinds it is. The only difference is whether `x.clone()` exists.
@@ -226,11 +226,11 @@ export(main);
 
 ### Three parameter modes
 
-| Parameter | Meaning | The call | C |
-| --- | --- | --- | --- |
-| `x : T` | by value: a copy for a `Copy` type, a move otherwise | `f(x)` | `T x` |
-| `x : &T` | a read-only reference | `f(&x)` | `const T*` (a small `Copy` `T` may be passed as `T`) |
-| `x : &mut T` | an exclusive read-write reference | `f(&mut x)` | `T*` |
+| Parameter | Meaning | The call |
+| --- | --- | --- |
+| `x : T` | by value: a copy for a `Copy` type, a move otherwise | `f(x)` |
+| `x : &T` | a read-only reference | `f(&x)` |
+| `x : &mut T` | an exclusive read-write reference | `f(&mut x)` |
 
 - A by-value parameter is the callee's own value. The callee may write it
   (after rebinding it `mut`), store it or return it, and drops it otherwise.
@@ -356,7 +356,7 @@ export(main);
 ```
 
 `&T` is `Copy`: `a := r; b := r;` gives two references to the same place.
-`&mut T` is move-only, so there is never more than one usable `&mut` to a
+`&mut T` is not `Copy`, so there is never more than one usable `&mut` to a
 place. Passing a `&mut T` binding to a `&mut T` parameter reborrows it for
 the call and leaves the binding usable afterwards.
 
@@ -621,16 +621,14 @@ export(main);
 
 ### Where a reference may not go
 
-Some positions accept no origin, and a value that holds a reference there is
-E0909:
+Some positions accept no reference, and a value that holds one there is
+rejected:
 
-- an element of a collection or the payload of a heap cell: `ArrayList(&T)`,
-  `Box(&T)`, `RefCell(&T)`, and an `Rc`/`Arc` payload;
-- a module-level binding, an `extern` signature;
-- a value moved to another thread or captured by a spawned task.
-
-A reference whose origin is empty (static bytes, a lend of an immutable
-module-level binding) has none of these limits.
+- an element of a collection or the payload of a cell: `ArrayList(&T)` and
+  `RefCell(&T)` are rejected where the type is written, and an `Rc`/`Arc`
+  payload is E0909;
+- a module-level binding and an `extern` signature (E0909);
+- a value moved to another thread: a reference is never `Send`.
 
 ## Element access and iteration
 
@@ -693,7 +691,8 @@ To grow or read a collection while walking it, walk its positions instead:
 `for(xs.indices(), i => …)` with `xs(i)`. Maps take `for(&m, (k, v) => …)`
 and `for(&mut m, (k, v) => …)`; the key is read-only in both. `HashSet` and
 `PriorityQueue` have only the read walk, because writing an element in place
-would break their order.
+would break their order. A collection held in an `Rc` is walked through the
+handle's payload, `for(&h.*, x => …)`.
 
 ## Pattern matching
 
@@ -772,7 +771,9 @@ export(main);
   would be: a `&mut` capture needs a `mut` place, and the places a closure
   borrows are frozen while the closure lives (E0910 for an access that
   conflicts with a capture).
-- Without a list, a closure captures what its body names, by value.
+- Without a list, a closure captures the locals its body names. Spell the
+  list when the closure should borrow (`{ &y }`, `{ &mut z }`) or when a
+  copy should be explicit (`{ s2 : s.clone() }`).
 - A closure that holds a reference is checked like any value that holds one:
   it may be bound, called and lent, and returned only when what it borrows
   outlives the function. Returning it over a local, storing it in a `Dyn`,
@@ -827,15 +828,16 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-- std's call-repeatedly callbacks (`for_each`, `retain`, the `with` and
-  `with_lock` bodies) take `&mut Impl(FnMut(…))`. APIs a closure escapes into
-  (`Thread.spawn`, the `io.async` body) take an `FnOnce` by value.
+- std's non-escaping callbacks (`for_each`, `retain`, `RefCell.with`,
+  `Mutex.with_lock`, the `Option` and `Result` combinators) take
+  `&mut Impl(FnMut(…))`. APIs a closure escapes into (`Thread.spawn`, the
+  `io.async` body) take an `FnOnce` by value.
 
 ## Heap and sharing
 
 | Type | Meaning | A copy | Threads |
 | --- | --- | --- | --- |
-| `Box(T)` | a uniquely owned heap cell; for recursion and stable addresses | `b.clone()`, a deep copy | as `T` |
+| `Box(T)` | a uniquely owned heap cell; for recursion and stable addresses | `Box.clone(&b)`, a deep copy | as `T` |
 | `Rc(T)` | shared on one thread, counted | `Rc.clone(&r)`: a second handle to the same cell | never `Send` |
 | `Arc(T)` | shared across threads, atomically counted | `Arc.clone(&a)` | `Send` and `Sync` when `T` is both |
 | `Weak(T)`, `ArcWeak(T)` | a handle that does not keep the payload alive | `Weak.clone(&w)` | as its strong handle |
@@ -875,7 +877,7 @@ and dropping the owner frees it.
   `r.len()` calls the payload's method. `r.*` names the payload.
 - A member both the handle and its payload have is E0616, which names both
   spellings: `Rc.clone(&r)` copies the handle, `r.*.clone()` the payload.
-- `Rc.strong_count(&r)` reads the count, for debugging.
+  `Box` works the same way: `Box.clone(&b)`.
 - A cycle of `Rc` handles leaks, as in Rust: put a `Weak` on the back edge
   ([WEAK.md](./WEAK.md)). `--allocator debug` reports the leak.
 
