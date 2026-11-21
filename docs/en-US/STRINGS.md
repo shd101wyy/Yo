@@ -166,9 +166,7 @@ value (`{ s }`) as the reference.
 
 **The value spelling.** A `str` written where a value is held (a by-value
 parameter, a result, a typed local, a struct field, an array element, a type
-argument such as `ArrayList(str)`) means `&(str, static)`: a view of static bytes. Write such a slot
-`&(str, static)` (`(name : &(str, static))`, `ArrayList(&(str, static))`) or,
-for a parameter, `&str`. Comparing a `&str` with a `String` or a `str`
+argument such as `ArrayList(str)`) means `&(str, static)`: a view of static bytes. Comparing a `&str` with a `String` or a `str`
 (`name == "lit"`, `"lit" == name`) works in both directions.
 
 ## Copies, clones and the byte list

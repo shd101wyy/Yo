@@ -1,6 +1,6 @@
 # Version Management
 
-Yo supports per-project version pinning through a `.yo-version` file, similar to `.nvmrc` (Node.js) or `.python-version` (Python). This ensures reproducible builds and correct IDE behavior across teams.
+Yo supports per-project version pinning through a `.yo-version` file, similar to `.nvmrc` (Node.js) or `.python-version` (Python). This keeps builds reproducible across machines.
 
 ## Quick Start
 
@@ -137,9 +137,7 @@ yo version pin
 
 ## LSP Integration
 
-The Yo LSP server read `.yo-version` to resolve the correct `std/` library path, so that go-to-definition, hover information and completions all came from the version the project was actually pinned to.
-
-**There is no LSP server right now.** It was a TypeScript program and was retired together with the TypeScript compiler tree; the `.yo-version` lookup returns when a Yo-native server does. See [LSP.md](./LSP.md).
+`yo lsp` is not dispatched: the language server is the `yo` binary your editor starts (on `PATH`, or the extension's `yo.binPath`), with that binary's bundled `std/`. Point the editor at the pinned version's binary to get hover, go-to-definition and completions from it. See [LSP.md](./LSP.md).
 
 ## Version Cache
 
@@ -169,7 +167,7 @@ The cache location can be customized with environment variables:
 ## Notes
 
 - The `latest` keyword is **not** supported in `.yo-version`. Always use a concrete version number.
-- Version dispatch is skipped for the `yo version` subcommand and for `--help` / `--version`.
+- Version dispatch is skipped for the `yo version` and `yo lsp` subcommands and for `--help` / `--version`.
 - Versions are downloaded from [GitHub Releases](https://github.com/shd101wyy/Yo/releases) as the native bundle for the host platform. Set `$YO_REPO` to point at a fork.
 - Releases from `0.2.1` on can be installed; earlier ones have no native bundle.
 - The download needs `tar` on the `PATH`. The HTTP itself is spoken by the compiler through `std/http` and the compiler-emitted TLS backend, so `curl` is not needed. **Windows speaks TLS through Schannel** (SSPI), which ships with the OS — nothing to install. On a unix machine without OpenSSL the remote subcommands report `TLS is unavailable in this build` with install guidance (`brew install openssl@3`, or your distribution's `libssl-dev`). Node.js and Bun are **not** required.
