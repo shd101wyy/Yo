@@ -418,7 +418,7 @@ that borrows:
   (`bump_by(&mut c, take(c), io)` and `bump_by(&mut c, c.touch(), io)` with a
   `&mut self` method are E0910). Compute such an argument before the
   statement. A plain call rejects the same three, with the borrow ending at
-  the call ([FLOWABILITY.md](./FLOWABILITY.md#one-call-site-rule)).
+  the call ([OWNERSHIP_AND_BORROWING.md](./OWNERSHIP_AND_BORROWING.md#two-phase-borrows-and-argument-overlap)).
 
 A call through a function value (a local or parameter of function type)
 cannot show what its Future borrows, so its Future is assumed to borrow every

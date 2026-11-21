@@ -353,7 +353,7 @@ Placement rules for `&` and `&mut`:
   identifier.
 - `own(x)`, the older spelling of `sink(x)`, is error E0009 as well. Older
   code is upgraded on the last release that ships the migrations ([ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md), "Retired migrations").
-- See [FLOWABILITY.md](./FLOWABILITY.md) for the semantics.
+- See [OWNERSHIP_AND_BORROWING.md](./OWNERSHIP_AND_BORROWING.md) for the semantics.
 
 At a call, a borrowed argument carries a marker that matches the parameter:
 

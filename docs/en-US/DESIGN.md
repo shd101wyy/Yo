@@ -801,7 +801,7 @@ show(&s); // s stays usable
 take(s); // moved
 ```
 
-`&x` is only this marker. Passed to a by-value parameter it is an error naming `x` and `x.clone()`; passed to a raw-pointer parameter, or written anywhere else (a field store, a receiver `(&x).m()`, a variadic C argument), it is an error naming `addr_of(x)`, the raw-pointer address-of of unsafe code. The other places a sigil stands are a local borrow binding (`y := &place`, `y := &mut place`, see [FLOWABILITY.md](./FLOWABILITY.md)), a capture-list entry and the borrowed `for` source (`for(&mut xs, x => ...)`). A bare named place passed to a `&T` or `&mut T` parameter is E0914 naming `&x` or `&mut x`, in all code, std included; temporaries, literals, closures and operator operands need no marker. Older code, whose bare places or address-of `&x` predate the markers, is upgraded on the last release that ships the migrations ([ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md), "Retired migrations").
+`&x` is only this marker. Passed to a by-value parameter it is an error naming `x` and `x.clone()`; passed to a raw-pointer parameter, or written anywhere else (a field store, a receiver `(&x).m()`, a variadic C argument), it is an error naming `addr_of(x)`, the raw-pointer address-of of unsafe code. The other places a sigil stands are a local borrow binding (`y := &place`, `y := &mut place`, see [OWNERSHIP_AND_BORROWING.md](./OWNERSHIP_AND_BORROWING.md#local-borrows)), a capture-list entry and the borrowed `for` source (`for(&mut xs, x => ...)`). A bare named place passed to a `&T` or `&mut T` parameter is E0914 naming `&x` or `&mut x`, in all code, std included; temporaries, literals, closures and operator operands need no marker.
 
 ### Named arguments
 
@@ -1528,6 +1528,8 @@ sz_tree :: size_of(Tree); // == size_of(*u8)   — NULL is Empty
 
 For the user-facing guide, see [MEMORY_SAFETY.md](MEMORY_SAFETY.md) — covers the safe-by-default contract, `&mut T` parameters, the `pragma(Pragma.AllowUnsafe);` opt-in, `unsafe(...)` per-op wraps, `// SAFETY:` comment convention, `yo unsafe-report`, the `unwrap` ban, and the integer arithmetic rules (overflow, division by zero and out-of-range shifts abort).
 
+Ownership, moves and copies, `&T`/`&mut T` references and their origins, and the borrow rules the compiler checks are explained in [OWNERSHIP_AND_BORROWING.md](OWNERSHIP_AND_BORROWING.md).
+
 Yo's safety model is layered (the design plan is [plans/reference/MEMORY_SAFETY.md](../../plans/reference/MEMORY_SAFETY.md)):
 
 - **`Rc(T)`** is a reference-counted cell, automatically freed at its last handle (a cycle leaks unless a `Weak` breaks it). Memory-safe by construction.
@@ -1693,7 +1695,7 @@ the underlying buffer is freed are excluded by construction:
 - **Element access hands out values, never interior pointers** —
   `xs.get(i)` returns the element (a copy for `Copy` types, written back with
   `xs(i) = v`; `xs.get_cloned(i)` for the rest, a second handle for an `Rc` element, which
-  survives container growth). See [FLOWABILITY.md](./FLOWABILITY.md).
+  survives container growth). See [OWNERSHIP_AND_BORROWING.md](./OWNERSHIP_AND_BORROWING.md#element-access-and-iteration).
 
 ### Range with `..`
 
@@ -1990,7 +1992,7 @@ while(i < usize(3), {
 
 Combinator chains (`coll.into_iter().map(f)`, `.filter(p)`, `.fold(init, f)`, etc.) keep the value-yielding `Iterator` shape; a blanket `into_iter` impl `generic(I), where(I <: Iterator), I, into_iter : (fn(self) -> Self)` (identity) lets `for(combinator_chain, (x) => body)` work uniformly.
 
-The borrow form `for(&mut coll, x => body)` hands the body each element in place: writing `x.* = …` writes the element. The sigil goes on the source and the element mode follows it. For a map, `for(&mut m, (k, v) => body)` lends each value (the key read-only). The loop is the value form over `(&mut coll).into_iter()`: the cursor `impl(&mut C, IntoIterator)` returns holds the lend of the collection for the whole loop (decision 39 of `plans/VALUES_BY_DEFAULT.md`, R-FOR of `plans/backlog/REFERENCES_AND_ORIGINS.md`), so the body reaches the collection only through `x`: naming it in the body is E0911. The read walk `for(&coll, x => body)` (`for(&m, (k, v) => body)` for a map) is the same over `(&coll).into_iter()` and binds each element as a read-only `&` reference: nothing is copied, a write through `x` is E0908, and the body may read the collection but not write it (E0911). Every std collection has the read walk; `HashSet` and `PriorityQueue` have no in-place walk, and `String` has neither (walk `s.chars()`). To read or grow a list while walking it, walk its positions, `for(xs.indices(), i => …)` with `xs(i)`. A source reached through an `Rc` is walked as `for(&xs.*, …)` (see [FLOWABILITY.md](./FLOWABILITY.md)).
+The borrow form `for(&mut coll, x => body)` hands the body each element in place: writing `x.* = …` writes the element. The sigil goes on the source and the element mode follows it. For a map, `for(&mut m, (k, v) => body)` lends each value (the key read-only). The loop is the value form over `(&mut coll).into_iter()`: the cursor `impl(&mut C, IntoIterator)` returns holds the lend of the collection for the whole loop (decision 39 of `plans/VALUES_BY_DEFAULT.md`, R-FOR of `plans/backlog/REFERENCES_AND_ORIGINS.md`), so the body reaches the collection only through `x`: naming it in the body is E0911. The read walk `for(&coll, x => body)` (`for(&m, (k, v) => body)` for a map) is the same over `(&coll).into_iter()` and binds each element as a read-only `&` reference: nothing is copied, a write through `x` is E0908, and the body may read the collection but not write it (E0911). Every std collection has the read walk; `HashSet` and `PriorityQueue` have no in-place walk, and `String` has neither (walk `s.chars()`). To read or grow a list while walking it, walk its positions, `for(xs.indices(), i => …)` with `xs(i)`. A source reached through an `Rc` is walked as `for(&xs.*, …)` (see [OWNERSHIP_AND_BORROWING.md](./OWNERSHIP_AND_BORROWING.md#iteration)).
 
 ```yo
 mut(xs) := ArrayList(i32).new();

@@ -725,8 +725,9 @@ The builtin `Slice(T)` and the view methods `String.as_str()` /
   raw pointer type — or any type whose representation carries one — in a
   parameter annotation requires `pragma(Pragma.AllowUnsafe);` (a
   representation-based gate, not just the `*(T)` syntax gate).
-- `name : &mut T` flowability (rules R1–R4) is unchanged. See
-  `docs/en-US/FLOWABILITY.md` and `tests/flowability-comprehensive.test.yo`.
+- The `&`/`&mut` rules (freeze, liveness, re-pointing, origins) are in
+  `docs/en-US/OWNERSHIP_AND_BORROWING.md`; `tests/flowability-comprehensive.test.yo`
+  pins them.
 
 ### Return-slot modifiers: a borrow is BANNED; `comptime` goes on the label
 
