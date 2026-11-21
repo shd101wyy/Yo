@@ -23,8 +23,9 @@ yo context --doc MEMORY_SAFETY               # one manual, this version's copy
 The pack is one markdown file, capped at 24 KB so it fits in any model's
 context window. It covers **language facts only**:
 
-- the declaration forms and the brace rule (a `{ ... }` group is a record
-  unless it has a `;`),
+- the declaration forms and the brace rule (`.{ ... }` builds a record,
+  `{ names }` on a binding side picks fields, every other `{ ... }` is a
+  block),
 - the no-precedence rule (parenthesize every infix chain),
 - control flow (`cond`, `match`, `if`), pattern matching, traits, impls,
   derives,

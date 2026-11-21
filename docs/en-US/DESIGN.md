@@ -1,7 +1,9 @@
 # Language Design
 
 **Yo** is a multi-paradigm, general-purpose, compiled programming language.
-Yo aims to be **Simple** and **Fast** (around 0% - 15% slower than C).
+Yo aims to be **Simple** and **Fast**: it compiles to C11, and the goal is
+speed comparable to C. The measured gap is in
+`plans/backlog/CODEGEN_PERFORMANCE.md`.
 
 **Yo** aims to be a simple to learn programming language for C and JavaScript (TypeScript) programmers 😉.
 
@@ -306,15 +308,15 @@ When `yo fmt` would change a file, it first parses the original: a parse failure
 
 The same rule removes two more kinds of group: parentheses around a whole call argument (`f((a + b))` becomes `f(a + b)`, because the call's own parentheses already group it) and around a bare prefix operand (`-(x)` becomes `-x`, `!(done)` becomes `!done`). It keeps a parenthesized right operand (`a + (b + c)`), a prefix operator's compound operand (`-(x + x)`, `!(a > b)`), the parentheses between two different operators (`(a * b) + c`), and the group around a binary right-hand side of `:=` or `=`, which E0003 requires. `yo fmt` never adds parentheses, so write the E0003 ones yourself. Before and after:
 
-```yo
+```yo ignore
 // before
-s1 := (a - b - c - x);
+s1 := (((a - b) - c) - x);
 s2 := (a + (b + c));
-s3 := f(a + b);
-s4 := -x;
+s3 := f((a + b));
+s4 := -(x);
 s5 := -(x + x);
 s6 := ((a * b) + c);
-ok := !done;
+ok := !(done);
 
 // after `yo fmt`
 s1 := (a - b - c - x);
@@ -774,7 +776,7 @@ first_of :: (fn(generic(p : Origin), s : &(Pair, p)) -> &(i32, p))(&s.a);
 second_of :: (fn(s : &mut Pair) -> &mut(i32, s))(&mut s.b);
 ```
 
-**Impls over references**. An impl's receiver may be a reference: `impl(&C, Tr(...))`, `impl(&mut C, Tr(...))`, `impl(generic(p : Origin), &(C, p), Tr(...))`, or a blanket `impl(generic(T), where(T <: Tr), &T, Tr(...))`. Inside it `Self` is the reference, so `self : Self` takes the receiver as `&C`. `impl(C, Tr)`, `impl(&C, Tr)` and `impl(&mut C, Tr)` are three receivers; the origin is not part of the receiver, so `impl(&(C, p), Tr)` beside `impl(&C, Tr)` is error E0612, and so is a bare-variable blanket `impl(generic(T), T, Tr)` beside either (it covers `&C` too). A method call resolves by **receiver slot types**: a method's slot is its first parameter's type with `Self` substituted (`self : Self` on `impl(&C, …)` and `self : &Self` on `impl(C, …)` both have the slot `&C`). For a receiver of type `R` the probe tries `R`, then `&R` and `&mut R`, then one dereference of `R` and its borrows, and the first step at which a method applies wins; an inherent method beats a trait method at the same step, and two trait methods at the same step are error E0616, whose message names each impl and the slot they share. An owned `c` therefore takes a by-value `self` on `C` first (`xs.into_iter()` consumes) and borrows only when nothing takes it by value; `(&c).m()` and `(&mut c).m()` are the explicit borrows, which start the probe at `&C` (`(&xs).into_iter()` borrows). The explicit borrow never moves out of `c` (a by-value `self` on a type that is not `Copy` is E0901) and `(&c)` never reaches a `&mut Self` method (E0908). A method miss on a reference receiver lists the slot types probed. A receiver slot `&&C` (`self : &Self` on `impl(&C, …)`, which a trait that takes `&Self` forces) is accepted: a receiver that is a reference binding `r : &C` lends its own storage, as `(&r).m()` does; an owned place, a call result or an explicit `(&c)` has no storage to lend and the call is an error that says to bind the reference to a local first. A receiver of reference type `&U` (a binding, a field, a call result, `rr.*`) probes the slot `&U` first: `impl(U, …)`'s `self : &Self` methods and `impl(&U, …)`'s `self : Self` methods have it, and the reference is the argument. Only when nothing has that slot does the probe reach `&&U`, which a reference binding fills by lending its own storage and any other receiver cannot (E0610). An impl over references, a blanket over `&T` included, never shadows the referent's own method. An infix operator selects with the same rule: an operand that is a reference binding takes part with its reference type, so `ra == rb` on `ra, rb : &C` is the impl over `&C` (Rust's `impl PartialEq<&B> for &A`), whose `lhs : &Self` and `rhs : &Rhs` slots the bindings' own storage fills; it is never a dereference. When no impl over `&C` takes the operands (`ra == c` with `c : C`, `ra + 1`, or a `C` with no such impl) the operand is a whole-value read and E0926 asks for `ra.*`. The prelude provides `Eq(&T)` and `Ord(&T)` for every sized `T` with `Eq(T)` / `Ord(T)` (Rust's `impl PartialEq<&B> for &A`): two references compare and order as their referents, so `ra == rb`, `ra < rb` and generic code at `T := &U` (`max`, a bound `where(T <: Ord(T))`) work, and a user `impl(&C, Eq(&C))` beside them is E0612. `Hash` and `ToString` over `&T` are not provided.
+**Impls over references**. An impl's receiver may be a reference: `impl(&C, Tr(...))`, `impl(&mut C, Tr(...))`, `impl(generic(p : Origin), &(C, p), Tr(...))`, or a blanket `impl(generic(T), where(T <: Tr), &T, Tr(...))`. Inside it `Self` is the reference, so `self : Self` takes the receiver as `&C`. `impl(C, Tr)`, `impl(&C, Tr)` and `impl(&mut C, Tr)` are three receivers; the origin is not part of the receiver, so `impl(&(C, p), Tr)` beside `impl(&C, Tr)` is error E0612, and so is a bare-variable blanket `impl(generic(T), T, Tr)` beside either (it covers `&C` too). A method call resolves by **receiver slot types**: a method's slot is its first parameter's type with `Self` substituted (`self : Self` on `impl(&C, …)` and `self : &Self` on `impl(C, …)` both have the slot `&C`). For a receiver of type `R` the probe tries `R`, then `&R` and `&mut R`, then one dereference of `R` and its borrows, and the first step at which a method applies wins; an inherent method beats a trait method at the same step, and two trait methods at the same step are error E0616, whose message names each impl and the slot they share. An owned `c` therefore takes a by-value `self` on `C` first (`xs.into_iter()` consumes) and borrows only when nothing takes it by value; `(&c).m()` and `(&mut c).m()` are the explicit borrows, which start the probe at `&C` (`(&xs).into_iter()` borrows). The explicit borrow never moves out of `c` (a by-value `self` on a type that is not `Copy` is E0901) and `(&c)` never reaches a `&mut Self` method (E0908). A method miss on a reference receiver lists the slot types probed. A receiver slot `&&C` (`self : &Self` on `impl(&C, …)`, which a trait that takes `&Self` forces) is accepted: a receiver that is a reference binding `r : &C` lends its own storage, as `(&r).m()` does; an owned place, a call result or an explicit `(&c)` has no storage to lend and the call is an error that says to bind the reference to a local first. A receiver of reference type `&U` (a binding, a field, a call result, `rr.*`) probes the slot `&U` first: `impl(U, …)`'s `self : &Self` methods and `impl(&U, …)`'s `self : Self` methods have it, and the reference is the argument. Only when nothing has that slot does the probe reach `&&U`, which a reference binding fills by lending its own storage and any other receiver cannot (E0610). An impl over references, a blanket over `&T` included, never shadows the referent's own method. An infix operator selects with the same rule: an operand that is a reference binding takes part with its reference type, so `ra == rb` on `ra, rb : &C` is the impl over `&C` (Rust's `impl PartialEq<&B> for &A`), whose `lhs : &Self` and `rhs : &Rhs` slots the bindings' own storage fills; it is never a dereference. When no impl over `&C` takes the operands (`ra == c` with `c : C`, `ra + 1`, or a `C` with no such impl) the operand is a whole-value read and E0926 asks for `ra.*`. The prelude provides `Eq(&T)` and `Ord(&T)` for every sized `T` with `Eq(T)` / `Ord(T)` (Rust's `impl PartialEq<&B> for &A`): two references compare and order as their referents, so `ra == rb`, `ra < rb` and generic code at `T := &U` (`max`, a bound `where(T <: Ord(T))`) work, and a user `impl(&C, Eq(&C))` beside them is E0612. The prelude also provides `Hash(&T)` and `ToString(&T)` blankets over every sized `T` with `Hash(T)` / `ToString(T)`: a reference hashes and renders as its referent, and a user `impl(&C, Hash(&C))` beside them is E0612.
 
 Operator traits spell their operands' modes the same way, and every impl writes exactly those modes. The comparison traits `Eq` and `Ord` borrow, `(==) : (fn(lhs : &Self, rhs : &Rhs) -> bool)`, so `a == b` keeps both operands. The arithmetic, bitwise and unary traits (`Add` through `BitRightShift`, `Negate`, `LogicalNot`, `BitNot` and their `Comptime*` twins) take their operands by value, as in Rust: `(+) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)`. A by-value operand follows the parameter rules above: a `Copy` operand is copied, a `String` is shared, and a move-only operand moves into the operator. An impl that borrows an operand the trait takes by value, or the reverse, is rejected as written. A `Dyn` has no value to hand a by-value operand, so a trait whose method takes `self` by value (`LogicalNot`, `Negate`, `Add`, ...) cannot be put behind a `Dyn` for any payload (E0614).
 
@@ -1435,6 +1437,9 @@ float_ptr := (*f32)(ptr); // Cast pointer to *(f32)
 Pointer arithmetic uses methods — `p.add(n)`, `p.sub(n)`, `p.offset_from(q)` — which require `unsafe(...)`. Pointer comparison uses the ordinary operators (`==`, `!=`, `<`, `<=`, `>`, `>=`) via the `Eq`/`Ord` impls on `*(T)` and stays safe — comparing addresses can't violate memory safety. Note that `*(T) ==` compares ADDRESSES (identity), while a handle such as `Rc(T)` compares VALUES via its own `Eq` impl.
 
 ```yo
+pragma(Pragma.AllowUnsafe); // raw pointers need the unsafe-capable pragma
+{ assert } :: import("std/assert");
+
 test("Pointer arithmetic", {
   x := 12;
   p := addr_of(x);
@@ -1483,7 +1488,7 @@ consume(ptr.* = some_value);
 
 On any other argument, `consume(x)` moves `x` (a later use is "use of moved value") and, since it returns `unit`, it is the value's last owner: an owned value is released at the consume, exactly as `drop(x)` releases it. A binding that does not own its value (a `&T` borrow) is only marked moved.
 
-For more pointer examples, see [ptr.test.yo](../tests/ptr.test.yo).
+For more pointer examples, see `tests/ptr.test.yo`.
 
 ### Nullable Pointers
 
@@ -1560,7 +1565,7 @@ The unsafe surface is greppable: every `unsafe(` token marks a place where raw m
 
 For an at-a-glance audit, run `yo unsafe-report` (or `yo unsafe-report ./std` for stdlib alone). It lists every `unsafe(...)` site, `asm(...)` block, `extern(...)` declaration, and pragma-declaring file, with `file:line:col` jumps for editors. The `--json` flag emits machine-readable output for CI integrations.
 
-```yo
+```yo ignore
 // File without pragma — `unsafe(...)` is rejected:
 main :: (fn() -> unit)({
   x := i32(42);
@@ -1568,7 +1573,9 @@ main :: (fn() -> unit)({
   //        To use raw pointer operations, declare at the top:
   //            pragma(Pragma.AllowUnsafe);
 });
+```
 
+```yo
 // Opt in by adding the pragma at the top of the file:
 pragma(Pragma.AllowUnsafe);
 
@@ -1785,7 +1792,7 @@ assert(arr1(usize(0)) == i32(1), "arr1 unchanged");
 assert(arr2(usize(0)) == i32(10), "arr2 modified");
 ```
 
-For more array examples, see [array.test.yo](../tests/array.test.yo).
+For more array examples, see `tests/array.test.yo`.
 
 ## Arithmetic and Failure Semantics
 
@@ -2955,7 +2962,7 @@ literal — `${parts.join(":")}` — is never mistaken for a separator.
 
 ## Collections
 
-Please check [std/collections](../std/collections) for the full list of collection types and their APIs.
+Please check `std/collections` for the full list of collection types and their APIs.
 
 Yo provides efficient, uniquely owned collection types in the standard library.
 
@@ -3165,7 +3172,7 @@ A closure compiles to a **capture struct** holding the variables it uses. How th
 
 In both cases the *captured values* follow the usual rules: a captured `Rc` handle is owned by the capture and released when the capture is dropped.
 
-Please check [closure.test.yo](../tests/closure.test.yo) for closure examples and usage.
+Please check `tests/closure.test.yo` for closure examples and usage.
 
 ### Basic Closure Syntax
 
@@ -3491,7 +3498,7 @@ test :: (fn() -> unit)({
 });
 ```
 
-For more examples, see [closure.test.yo](../tests/closure.test.yo).
+For more examples, see `tests/closure.test.yo`.
 
 ## Box: the Uniquely Owned Cell
 
@@ -4112,7 +4119,7 @@ use_dyn :: (fn(value : &Dyn(SomeTrait)) -> unit)({
 });
 ```
 
-For more examples, see [impl.test.yo](../tests/impl.test.yo).
+For more examples, see `tests/impl.test.yo`.
 
 ## Algebraic Effects and Handlers
 
@@ -4285,7 +4292,7 @@ result := safe_divide(6, 3, exn); // result = 2
 result2 := safe_divide(10, 0, exn); // handler resumes with 0, result2 = 0
 ```
 
-For more examples, see [error.test.yo](../tests/error.test.yo).
+For more examples, see `tests/error.test.yo`.
 
 ## Async/Await
 
@@ -4669,7 +4676,7 @@ Yo test files typically use the `.test.yo` extension:
 - `async-await.test.yo` - Async/await features
 - `collections/*.test.yo` - Collection types
 
-For comprehensive test examples, see the [tests/](../tests/) directory.
+For comprehensive test examples, see the `tests/` directory.
 
 ## Meta-programming
 
@@ -4986,7 +4993,7 @@ increment :: (fn(x : i32) -> i32)(
 3. **Generic programming**: Type-level abstraction without runtime overhead
 4. **Metaprogramming**: Generate code based on compile-time information
 
-For more examples, see [comptime.test.yo](../tests/comptime.test.yo).
+For more examples, see `tests/comptime.test.yo`.
 
 ## Inline Assembly
 

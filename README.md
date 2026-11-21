@@ -8,168 +8,83 @@
 
 https://shd101wyy.github.io/Yo
 
-**LLM-friendly to write, human-friendly to read.**
+**Written by models. Checked by the compiler. Read by people.**
 
-A multi-paradigm, general-purpose, compiled programming language.
-Yo aims to be **Simple** and **Fast** (around 0% - 15% slower than C).
+Yo is a compiled systems language designed for LLMs to write safe, correct and
+fast programs, and for people to read them. It compiles to C11 and lets your C
+compiler finish the job. The compiler is written in Yo and builds itself.
 
-> The name `Yo` comes from the Chinese word `柚` (yòu), meaning `pomelo`, a large citrus fruit similar to grapefruit. It's my daughter's nickname.
+<img src="./docs/assets/yo-mascot.svg" alt="Youyou, the Yo panda" width=120 align="right" />
 
-<img src="./docs/assets/yo-mascot.svg" alt="Youyou, the Yo panda" width=160 align="right" />
-
-**Meet Youyou (柚柚), the Yo panda.** Rust has Ferris the crab; Yo has Youyou, a panda hugging a halved pomelo. The logo is the same pomelo: the white pith between its three segments draws a **Y**, and the round rind around it is the **o**.
+The name comes from `柚` (yòu), the pomelo, and is my daughter's nickname. The
+mascot is Youyou (柚柚), a panda hugging a halved pomelo.
 
 <br clear="right" />
 
-📖 [My Story with Programming Languages](./docs/en-US/MY_STORY_WITH_PROGRAMMING_LANGUAGES.md) — the journey from Java at 16 to building Yo.
-
-<!-- @import "[TOC]" {cmd="toc" depthFrom=2 depthTo=6 orderedList=false} -->
-
-<!-- code_chunk_output -->
-
-- [Features](#features)
-- [Installation](#installation)
-  - [Install script (recommended)](#install-script-recommended)
-- [Quick Start](#quick-start)
-- [Prelude](#prelude)
-- [Standard Library](#standard-library)
-- [Code examples](#code-examples)
-  - [Hello World](#hello-world)
-  - [Example Projects](#example-projects)
-- [Contributing](#contributing)
-- [Editor Support](#editor-support)
-- [Version Management](#version-management)
-- [AI Agents](#ai-agents)
-  - [Using in your own project](#using-in-your-own-project)
-- [License](#license)
-
-<!-- /code_chunk_output -->
-
 ## Features
 
-For the design of the language, please refer to [DESIGN.md](./docs/en-US/DESIGN.md).
-
-Below is a non-exhaustive list of features that Yo supports:
-
-- First-class types.
-- Compile-time evaluation.
-- Homoiconicity and metaprogramming (**Yo** syntax is inspired by the **Lisp** S expression. Simple syntax rule, Human & AI friendly).
-- Closure.
-- [Algebraic Effects and Handlers](./docs/en-US/ALGEBRAIC_EFFECTS.md) (One-shot delimited continuation. Tail-Resumptive. Effect handlers with `return`/`unwind`, by [Evidence Passing](https://xnning.github.io/papers/multip.pdf)).
-- [Async/await](./docs/en-US/ASYNC_AWAIT.md) (Builtin `Io` effect. Stackless coroutine & Cooperative multi-tasking. Lazy move-only Futures, single-threaded concurrency via state machine transformation).
-- [FFI](./docs/en-US/FFI.md) — `c_include(...)` / `extern(...)` evaluate to module values: bind, select, rename, or glob their members; a bare declaration is the glob; no shadowing.
-- [Memory safety by default](./docs/en-US/MEMORY_SAFETY.md) — user code can't write UB (no raw pointers, no FFI, no inline assembly) without an explicit `pragma(Pragma.AllowUnsafe);` opt-in. `name : &mut T` parameters for in-place mutation; `yo unsafe-report` for auditing the unsafe surface.
 - [Ownership and borrowing](./docs/en-US/OWNERSHIP_AND_BORROWING.md) — values by default: one owner, a move at the last use, an explicit `.clone()`; `&T`/`&mut T` references whose types carry their origin, checked at compile time like Rust's borrow checker; `Rc`/`Arc` for explicit sharing.
-- [Explicit allocators](./docs/en-US/EXPLICIT_ALLOCATORS.md) — Zig-style placement beside reference counting: global by default, and one argument at the creation site (`Rc.new(v, alloc : .Some(a))`, `ArrayList(T).new(alloc : .Some(a))`) puts a block in allocator `a`; RC still decides when each dies, and every release goes back to the allocator that made the block.
-- `Rc(T)` and `Arc(T)` for shared ownership, with [non-atomic and atomic reference counting](./docs/en-US/DESIGN.md#shared-cells-and-memory-management), as Rust's do: a cycle leaks unless a [`Weak(T)`](./docs/en-US/WEAK.md) handle breaks it ([Memory Safety](./docs/en-US/MEMORY_SAFETY.md#reference-cycles-leak)).
-- Thread-per-core parallelism model (see [PARALLELISM.md](./docs/en-US/PARALLELISM.md)).
-- [Formal verification](./docs/en-US/FORMAL_VERIFICATION.md) — contracts (`requires`/`ensures`/`decreases`), refinement types (`refine(T, p)`), and ghost/quantifier specs prove at compile time against a pinned Z3 (`yo verify`): counter-examples at refuted obligations, cache telemetry, `--strict` gating, JSON reports, and LSP contract hover.
-- [Declarative build system](./docs/en-US/BUILD_SYSTEM.md) inspired by Zig and Nix (`yo build`, `yo init`, WASM targets).
-- **C** interop.
-- etc.
+- [Memory safety by default](./docs/en-US/MEMORY_SAFETY.md) — raw pointers, FFI and inline assembly need `pragma(Pragma.AllowUnsafe);`; `yo unsafe-report` lists the unsafe surface.
+- [Explicit allocators](./docs/en-US/EXPLICIT_ALLOCATORS.md) — a global allocator by default, or one argument at the creation site.
+- [Formal verification](./docs/en-US/FORMAL_VERIFICATION.md) — `requires`/`ensures` contracts and refinement types proved at compile time by Z3 (`yo verify`), with a counter-example when one fails.
+- [Compile-time evaluation](./docs/en-US/CTFE.md) — first-class types, and functions with `comptime` parameters run in the compiler.
+- [Algebraic effects](./docs/en-US/ALGEBRAIC_EFFECTS.md) and [async/await](./docs/en-US/ASYNC_AWAIT.md) — one-shot effect handlers; async is the builtin `Io` effect on a single-threaded event loop.
+- [Parallelism](./docs/en-US/PARALLELISM.md) — a thread-per-core runtime, separate from async.
+- [C interop](./docs/en-US/FFI.md) — `c_include(...)` and `extern(...)` bind C headers and symbols.
+- [One way to write each thing](./docs/en-US/GRAMMAR.md) — no operator precedence, no function overloading.
+- [Build system and packages](./docs/en-US/BUILD_SYSTEM.md) — `yo init`, `yo build`, dependencies in `yo.toml`, [WebAssembly](./docs/en-US/WASM.md) targets.
+- [Tooling for agents](./docs/en-US/CONTEXT.md) — `yo context` (the language guide for the installed version), coded [diagnostics](./docs/en-US/ERROR_DIAGNOSTICS.md) with `yo explain` and `yo fix`.
+- [Language server](./docs/en-US/LSP.md) — `yo lsp`, used by the [VS Code extension](https://marketplace.visualstudio.com/items?itemName=shd101wyy.yolang).
 
 <img width="855" alt="A compile-time factorial in Yo; the editor hover on result shows comptime_int = 120" src="./docs/assets/readme-code-example.png" />
 
 ## Installation
 
-### Install script (recommended)
-
-Installs a native prebuilt compiler.
-
 ```bash
 # macOS / Linux
-$ curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh
+curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh
 ```
 
 ```powershell
 # Windows (PowerShell)
-> irm https://shd101wyy.github.io/Yo/install.ps1 | iex
+irm https://shd101wyy.github.io/Yo/install.ps1 | iex
 ```
 
-This installs to `<prefix>/lib/yo/<tag>` and links `<prefix>/bin/yo`, with the
-prefix defaulting to `$HOME/.local`. Useful options:
+The script installs a prebuilt compiler (under `~/.local`, or
+`%LOCALAPPDATA%\Yo` on Windows), plus clang and git if they are missing.
+`curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh -s -- --help` lists
+its options: a specific `--version`, a `--prefix`, or `--from-source` on
+platforms without a prebuilt bundle (NixOS, Alpine). Manual setup:
+[Linux](./docs/en-US/INSTALL_LINUX.md), [macOS](./docs/en-US/INSTALL_MACOS.md),
+[Windows](./docs/en-US/INSTALL_WINDOWS.md),
+[WebAssembly](./docs/en-US/INSTALL_WASM.md).
 
-| Option                   | Meaning                                                      |
-| ------------------------ | ------------------------------------------------------------ |
-| `-v, --version=<tag>`    | install a specific release (default: latest)                 |
-| `-p, --prefix=<dir>`     | install prefix — `/usr/local` for system-wide (uses `sudo`)  |
-| `--from-source`          | build from the published single-file `yo.c`                  |
-| `-cc, --c-compiler=<cc>` | C compiler for the source build (implies `--from-source`)    |
-| `-cflags, --c-flags=<f>` | extra C flags for the source build (implies `--from-source`) |
-| `-u, --uninstall`        | uninstall instead of install                                 |
-| `--dry-run`              | show what would happen, change nothing                       |
+### Install with an agent
+
+Paste this into Claude Code, Codex, Cursor or another coding agent:
+
+```text
+Install the Yo programming language (https://github.com/shd101wyy/Yo) with its official installer:
+  macOS/Linux:          curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh
+  Windows (PowerShell): irm https://shd101wyy.github.io/Yo/install.ps1 | iex
+If it needs sudo to install system packages, ask me. Then make sure `yo` is on my PATH and `yo --version` works.
+Before writing any Yo code, run `yo context` and read all of it: it is the language guide for the installed version.
+```
+
+The agent installs Yo and loads the language guide that matches the installed
+compiler, which it needs because Yo is not in its training data.
+
+## Quick start
 
 ```bash
-# a specific release, system-wide
-$ curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh -s -- --version=v0.2.4 --prefix=/usr/local
-
-# build from source with your own toolchain
-$ curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh -s -- -cc=gcc -cflags='-march=native'
+yo init my-project
+cd my-project
+yo build run          # prints: Hello, world!
 ```
 
-**Platforms without a prebuilt bundle** — pass `--from-source`. The installer
-downloads the release's single-file `yo.c` and compiles it with your own C
-compiler, so it links against your own libc and loader. This is the answer on
-NixOS, where the prebuilt binary's hardcoded ELF interpreter
-(`/lib64/ld-linux-x86-64.so.2`) does not exist.
-
-> **Note:** `--from-source` builds from the single-file `yo.c` a release
-> publishes; releases up to and including `v0.2.4` have none, and the installer
-> says so.
-
-> **Memory:** building Yo itself, whether `--from-source` or `yo build` in a
-> checkout, fits on an **8 GB** machine. A full
-> build of the compiler peaks at about 4.3 GiB (measured on Linux, C compiler
-> included), and CI builds it inside an 8 GB no-swap limit on every change.
-> Compiling your own programs needs far less.
-
-The installer puts the `yo` command on your `PATH`. Run `yo --help` to see the
-available commands.
-
-Yo transpiles to C, so a **C compiler** is required to produce machine code. The
-install script above sets one up for you — these guides are for configuring the
-toolchain by hand, or for diagnosing a failed install.
-
-- **[Linux](./docs/en-US/INSTALL_LINUX.md)**
-- **[macOS](./docs/en-US/INSTALL_MACOS.md)**
-- **[Windows](./docs/en-US/INSTALL_WINDOWS.md)**
-
-Targeting WebAssembly needs Emscripten as well —
-**[WASM setup](./docs/en-US/INSTALL_WASM.md)**.
-
-## Quick Start
-
-```bash
-$ yo init my-project        # Scaffold a new project
-$ cd my-project
-$ yo build run              # Build and run
-Hello, world!
-```
-
-`yo init` generates a project with a manifest, a build file, source, and tests
-— plus an `AGENTS.md` and a one-line `CLAUDE.md` so AI coding agents know to run
-`yo context` for version-matched Yo knowledge:
-
-```
-my-project/
-├── yo.toml               # Package manifest: name, modules, dependencies (edited by yo add)
-├── build.yo              # Build configuration
-├── src/
-│   ├── main.yo           # Entry point
-│   └── lib.yo            # Library module
-├── tests/
-│   ├── main.test.yo      # Unit tests for the executable
-│   └── lib.test.yo       # Unit tests for the library
-├── spec/
-│   ├── README.md         # The claims wall: laws live here, proofs in the code
-│   └── example.yo        # A seed law (`yo verify ./spec --strict` proves it)
-├── AGENTS.md             # Guidance for AI coding agents (starts with `yo context`)
-├── CLAUDE.md             # One line: @AGENTS.md
-├── .gitignore
-└── README.md
-```
-
-`src/main.yo`:
+`yo init` writes a manifest (`yo.toml`), a `build.yo`, sources, tests, and an
+`AGENTS.md`/`CLAUDE.md` that point coding agents at `yo context`. The entry
+point, `src/main.yo`:
 
 ```yo
 { println } :: import("std/fmt");
@@ -181,129 +96,23 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-Common build commands:
+`yo build test` runs the tests, `yo fmt` formats, `yo --help` lists every
+command. `yo --lang zh-CN` (or `YO_LANG=zh-CN`) switches the CLI to Simplified
+Chinese.
 
-```bash
-$ yo build                  # Build all artifacts
-$ yo build run              # Build and run the executable
-$ yo build test             # Run tests
-$ yo build --list-steps     # List available build steps
-$ yo build doc              # Generate HTML documentation
-$ yo fmt                    # Format Yo source files
-$ yo fmt --check            # Check formatting without writing changes
-```
+## Documentation
 
-## Prelude
-
-Every Yo file automatically imports **[std/prelude.yo](./std/prelude.yo)**, which provides the core types, traits, and builtins available without any explicit import:
-
-- **Primitive types**: `bool`, `i8`–`i64`, `u8`–`u64`, `f32`, `f64`, `isize`, `usize`, `str`
-- **C-compatible types**: `int`, `uint`, `short`, `long`, `longlong`, `char`, etc.
-- **Core traits**: `Eq`, `Ord`, `Add`, `Sub`, `Mul`, `Div`, `Iterator`, `IntoIterator`, `TryFrom`, `TryInto`, `Drop`, `Send`, `Acyclic`, etc.
-- **Metaprogramming**: `Type`, `Expr`, `ExprList`
-- **Async**: `Io`, `FutureState`, `JoinHandle`
-- **Utilities**: `unsafe`, `for`, `not`, `Rc.new`, `Arc.new`
-- etc.
-
-## Standard Library
-
-_Still In Design_
-
-Yo ships with a comprehensive standard library covering strings, collections, file I/O, networking, encoding, regex, crypto, and more. For the full module reference, see the **[Standard Library Documentation](https://shd101wyy.github.io/Yo/std)**.
-
-You can generate documentation for your own project with `yo doc`:
-
-```bash
-$ yo doc ./src -o docs --title "My Project"
-```
-
-Or add a documentation step to your `build.yo` — see `yo doc --help` for details.
-
-## Code examples
-
-Check the [./tests](./tests/) and [./std](./std/) folders for more code examples.
-
-### Hello World
-
-```yo
-// main.yo
-{ println } :: import("std/fmt");
-
-main :: (fn() -> unit)({
-  println("Hello, world!");
-});
-
-export(main);
-
-// $ yo compile main.yo --optimize 2 -o main
-// $ ./main
-```
-
-### Example Projects
-
-| Project                                                                                                            | Description                                                                                                                                                                         |
-| ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [raylib-yo](https://github.com/shd101wyy/raylib-yo)                                                                | Comprehensive [raylib](https://www.raylib.com/) bindings — 35 struct types, 535 functions, 227 constants                                                                            |
-| [tetris-yo](https://github.com/shd101wyy/tetris-yo) \| [Online Demo](https://shd101wyy.github.io/tetris-yo/)         | Classic Tetris game built with raylib-yo, demonstrating Yo's build system and C interop                                                                                             |
-| [http-server-demo-yo](https://github.com/shd101wyy/http-server-demo-yo)                                            | Simple HTTP/1.1 server — async I/O, algebraic effects, TCP networking, request parsing & routing                                                                                    |
-| [markdown-it-yo](https://github.com/shd101wyy/markdown-it-yo)                                                      | Direct port of the popular JavaScript markdown parser [markdown-it](https://github.com/markdown-it/markdown-it) to Yo, showcasing string processing and performance                 |
-| [markdown-yo](https://github.com/shd101wyy/markdown-yo) \| [Online Demo](https://shd101wyy.github.io/markdown-yo/) | High-performance markdown-to-HTML converter — 5-7× faster than markdown-it (native), 2-6× faster (WASM at ≥1 MB). [Try it in the browser](https://shd101wyy.github.io/markdown-yo/) |
+- [Language design](./docs/en-US/DESIGN.md)
+- [Standard library reference](https://shd101wyy.github.io/Yo/std)
+- [Version pinning](./docs/en-US/VERSION_MANAGEMENT.md) with `.yo-version`
+- Editors: [LSP setup](./docs/en-US/LSP.md); Vim/Neovim syntax in [vscode-extension/syntaxes](./vscode-extension/syntaxes/README.md)
+- Examples: [raylib-yo](https://github.com/shd101wyy/raylib-yo), [tetris-yo](https://github.com/shd101wyy/tetris-yo) ([play](https://shd101wyy.github.io/tetris-yo/)), [http-server-demo-yo](https://github.com/shd101wyy/http-server-demo-yo), [markdown-it-yo](https://github.com/shd101wyy/markdown-it-yo), [markdown-yo](https://github.com/shd101wyy/markdown-yo) ([try it](https://shd101wyy.github.io/markdown-yo/))
+- [My story with programming languages](./docs/en-US/MY_STORY_WITH_PROGRAMMING_LANGUAGES.md)
 
 ## Contributing
 
-The compiler is written in Yo and builds itself. See
-**[CONTRIBUTING.md](./CONTRIBUTING.md)** for the dev environment, the build loop,
-and how to run the test suites — LLM-assisted contributions included.
-
-## Editor Support
-
-- A VS Code extension is available [here](https://marketplace.visualstudio.com/items?itemName=shd101wyy.yolang), providing syntax highlighting and a language client for `.yo` files.
-
-  The language server is the `yo` binary itself (`yo lsp`, stdio): diagnostics,
-  hover, completion, go-to-definition, document symbols, find references,
-  rename, signature help, folding and formatting, all served by the Yo
-  evaluator. The extension starts it when a `yo` binary is on `PATH` (or at
-  `yo.binPath`); any other LSP-capable editor can spawn `yo lsp` directly.
-  See [docs/en-US/LSP.md](./docs/en-US/LSP.md) for setup and the feature list.
-
-- Vim / Neovim: a minimal syntax file and a usage README are available in `vscode-extension/syntaxes/`.
-  See [vscode-extension/syntaxes/README.md](./vscode-extension/syntaxes/README.md) for installation steps, `ftdetect` examples and `home-manager` snippets.
-
-## Version Management
-
-Yo supports per-project version pinning via a `.yo-version` file (similar to `.nvmrc` or `.python-version`):
-
-```bash
-# Pin your project to a specific Yo version
-yo version pin 0.1.12
-
-# Show current and pinned version
-yo version
-
-# Install, list, and clean cached versions
-yo version install 0.1.13
-yo version list
-yo version clean
-```
-
-When a `.yo-version` file exists, the `yo` CLI automatically dispatches to the pinned version — downloading and caching the matching native release bundle on first use.
-
-See [docs/en-US/VERSION_MANAGEMENT.md](./docs/en-US/VERSION_MANAGEMENT.md) for full documentation.
-
-## AI Agents
-
-Yo is not in any model's training data, so an agent needs the language from the
-toolchain itself. `yo context` prints the version-matched language pack (rules,
-sharp edges, the API index), and `yo context --docs` lists the bundled manuals.
-`yo init` writes an `AGENTS.md` (read natively by Codex, Cursor, Copilot and
-Gemini) and a one-line `CLAUDE.md` (`@AGENTS.md`, for Claude Code) whose command
-block opens with `yo context`, so an agent working in the project knows where to
-start. An existing `AGENTS.md` or `CLAUDE.md` is left alone. See
-[docs/en-US/CONTEXT.md](./docs/en-US/CONTEXT.md).
-
-### CLI output language
-
-CLI help texts and user-facing messages are bilingual (English + 简体中文): `yo --lang zh-CN --help` or `export YO_LANG=zh-CN` switches the CLI to Simplified Chinese. English is the default.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the dev environment, the build
+loop and the test suites. LLM-assisted contributions are welcome.
 
 ## License
 

@@ -1,7 +1,8 @@
 # 语言设计
 
 **Yo** 是一种多范式、通用、编译型编程语言。
-Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）。
+Yo 追求**简洁**与**高效**：它编译为 C11，目标是与 C 相当的速度。实测差距见
+`plans/backlog/CODEGEN_PERFORMANCE.md`。
 
 **Yo** 旨在成为一门对 C 和 JavaScript (TypeScript) 程序员来说**易于学习**的编程语言 😉。
 
@@ -300,15 +301,15 @@ yo fmt --check             # 只检查格式，不写入变更
 
 同一条规则还会去掉另外两类括号：包住整个调用参数的括号（`f((a + b))` 变为 `f(a + b)`，因为调用自身的括号已经完成了分组），以及包住单个前缀运算符操作数的括号（`-(x)` 变为 `-x`，`!(done)` 变为 `!done`）。以下括号会保留：加括号的右操作数（`a + (b + c)`）、前缀运算符的复合操作数（`-(x + x)`、`!(a > b)`）、分隔两个不同运算符的括号（`(a * b) + c`），以及 `:=` 或 `=` 右侧二元表达式外的括号——E0003 要求必须有它。`yo fmt` 从不添加括号，所以 E0003 需要的括号要自己写。格式化前后对比：
 
-```yo
+```yo ignore
 // 格式化前
-s1 := (a - b - c - x);
+s1 := (((a - b) - c) - x);
 s2 := (a + (b + c));
-s3 := f(a + b);
-s4 := -x;
+s3 := f((a + b));
+s4 := -(x);
 s5 := -(x + x);
 s6 := ((a * b) + c);
-ok := !done;
+ok := !(done);
 
 // `yo fmt` 之后
 s1 := (a - b - c - x);
@@ -754,7 +755,7 @@ first_of :: (fn(generic(p : Origin), s : &(Pair, p)) -> &(i32, p))(&s.a);
 second_of :: (fn(s : &mut Pair) -> &mut(i32, s))(&mut s.b);
 ```
 
-**引用上的 impl**。impl 的接收者可以是引用：`impl(&C, Tr(...))`、`impl(&mut C, Tr(...))`、`impl(generic(p : Origin), &(C, p), Tr(...))`，或通用实现 `impl(generic(T), where(T <: Tr), &T, Tr(...))`。其中 `Self` 就是该引用，所以 `self : Self` 以 `&C` 接收接收者。`impl(C, Tr)`、`impl(&C, Tr)` 与 `impl(&mut C, Tr)` 是三个不同的接收者；origin 不属于接收者，因此 `impl(&(C, p), Tr)` 与 `impl(&C, Tr)` 并存是错误 E0612，裸类型变量的通用实现 `impl(generic(T), T, Tr)` 与二者之一并存也是（它同样覆盖 `&C`）。方法调用按**接收者槽位类型**解析：方法的槽位是其第一个参数代入 `Self` 后的类型（`impl(&C, …)` 上的 `self : Self` 与 `impl(C, …)` 上的 `self : &Self` 槽位都是 `&C`）。对类型为 `R` 的接收者，探测依次尝试 `R`，然后 `&R` 与 `&mut R`，再对 `R` 解引用一次并尝试其借用，第一个有方法适用的步骤胜出；同一步骤中固有方法优先于 trait 方法，同一步骤中两个 trait 方法是错误 E0616，其消息列出每个 impl 以及它们共享的槽位。因此拥有所有权的 `c` 优先采用 `C` 上按值的 `self`（`xs.into_iter()` 消耗它），只有没有按值方法时才借用；`(&c).m()` 与 `(&mut c).m()` 是显式借用，探测从 `&C` 开始（`(&xs).into_iter()` 借用）。显式借用绝不会把值从 `c` 中移出（对非 `Copy` 类型按值的 `self` 是 E0901），`(&c)` 也到达不了 `&mut Self` 方法（E0908）。引用接收者上找不到方法时，消息列出探测过的槽位类型。接收者槽位 `&&C`（`impl(&C, …)` 上的 `self : &Self`，接收 `&Self` 的 trait 会强制出现）被接受：引用绑定 `r : &C` 作为接收者时借出自身的存储，与 `(&r).m()` 相同；自有的值、调用结果或显式的 `(&c)` 没有可借出的存储，调用报错并提示先把引用绑定到局部变量。类型为引用 `&U` 的接收者（绑定、字段、调用结果、`rr.*`）首先探测槽位 `&U`：`impl(U, …)` 中 `self : &Self` 的方法与 `impl(&U, …)` 中 `self : Self` 的方法占据这个槽位，引用本身就是实参。只有没有任何方法占据该槽位时，探测才会到达 `&&U`：引用绑定借出自身的存储来填充它，其他接收者则不能（E0610）。引用上的 impl（包括 `&T` 上的通用实现）绝不会遮蔽被指类型自身的方法。中缀运算符按同一规则选择：作为引用绑定的操作数以其引用类型参与选择，所以 `ra, rb : &C` 上的 `ra == rb` 是 `&C` 上的 impl（Rust 的 `impl PartialEq<&B> for &A`），其 `lhs : &Self` 与 `rhs : &Rhs` 槽位由两个绑定自身的存储填充；它绝不是解引用。没有 `&C` 上的 impl 接受这些操作数时（`c : C` 时的 `ra == c`、`ra + 1`，或 `C` 没有这样的 impl），该操作数是整值读取，E0926 要求写 `ra.*`。prelude 为每个具有 `Eq(T)` / `Ord(T)` 的定长 `T` 提供 `Eq(&T)` 与 `Ord(&T)`（Rust 的 `impl PartialEq<&B> for &A`）：两个引用按其所指的值比较与排序，因此 `ra == rb`、`ra < rb` 以及 `T := &U` 处的泛型代码（`max`、约束 `where(T <: Ord(T))`）都可用；与之并存的用户 `impl(&C, Eq(&C))` 是 E0612。`&T` 上的 `Hash` 与 `ToString` 没有提供。
+**引用上的 impl**。impl 的接收者可以是引用：`impl(&C, Tr(...))`、`impl(&mut C, Tr(...))`、`impl(generic(p : Origin), &(C, p), Tr(...))`，或通用实现 `impl(generic(T), where(T <: Tr), &T, Tr(...))`。其中 `Self` 就是该引用，所以 `self : Self` 以 `&C` 接收接收者。`impl(C, Tr)`、`impl(&C, Tr)` 与 `impl(&mut C, Tr)` 是三个不同的接收者；origin 不属于接收者，因此 `impl(&(C, p), Tr)` 与 `impl(&C, Tr)` 并存是错误 E0612，裸类型变量的通用实现 `impl(generic(T), T, Tr)` 与二者之一并存也是（它同样覆盖 `&C`）。方法调用按**接收者槽位类型**解析：方法的槽位是其第一个参数代入 `Self` 后的类型（`impl(&C, …)` 上的 `self : Self` 与 `impl(C, …)` 上的 `self : &Self` 槽位都是 `&C`）。对类型为 `R` 的接收者，探测依次尝试 `R`，然后 `&R` 与 `&mut R`，再对 `R` 解引用一次并尝试其借用，第一个有方法适用的步骤胜出；同一步骤中固有方法优先于 trait 方法，同一步骤中两个 trait 方法是错误 E0616，其消息列出每个 impl 以及它们共享的槽位。因此拥有所有权的 `c` 优先采用 `C` 上按值的 `self`（`xs.into_iter()` 消耗它），只有没有按值方法时才借用；`(&c).m()` 与 `(&mut c).m()` 是显式借用，探测从 `&C` 开始（`(&xs).into_iter()` 借用）。显式借用绝不会把值从 `c` 中移出（对非 `Copy` 类型按值的 `self` 是 E0901），`(&c)` 也到达不了 `&mut Self` 方法（E0908）。引用接收者上找不到方法时，消息列出探测过的槽位类型。接收者槽位 `&&C`（`impl(&C, …)` 上的 `self : &Self`，接收 `&Self` 的 trait 会强制出现）被接受：引用绑定 `r : &C` 作为接收者时借出自身的存储，与 `(&r).m()` 相同；自有的值、调用结果或显式的 `(&c)` 没有可借出的存储，调用报错并提示先把引用绑定到局部变量。类型为引用 `&U` 的接收者（绑定、字段、调用结果、`rr.*`）首先探测槽位 `&U`：`impl(U, …)` 中 `self : &Self` 的方法与 `impl(&U, …)` 中 `self : Self` 的方法占据这个槽位，引用本身就是实参。只有没有任何方法占据该槽位时，探测才会到达 `&&U`：引用绑定借出自身的存储来填充它，其他接收者则不能（E0610）。引用上的 impl（包括 `&T` 上的通用实现）绝不会遮蔽被指类型自身的方法。中缀运算符按同一规则选择：作为引用绑定的操作数以其引用类型参与选择，所以 `ra, rb : &C` 上的 `ra == rb` 是 `&C` 上的 impl（Rust 的 `impl PartialEq<&B> for &A`），其 `lhs : &Self` 与 `rhs : &Rhs` 槽位由两个绑定自身的存储填充；它绝不是解引用。没有 `&C` 上的 impl 接受这些操作数时（`c : C` 时的 `ra == c`、`ra + 1`，或 `C` 没有这样的 impl），该操作数是整值读取，E0926 要求写 `ra.*`。prelude 为每个具有 `Eq(T)` / `Ord(T)` 的定长 `T` 提供 `Eq(&T)` 与 `Ord(&T)`（Rust 的 `impl PartialEq<&B> for &A`）：两个引用按其所指的值比较与排序，因此 `ra == rb`、`ra < rb` 以及 `T := &U` 处的泛型代码（`max`、约束 `where(T <: Ord(T))`）都可用；与之并存的用户 `impl(&C, Eq(&C))` 是 E0612。prelude 还为每个具有 `Hash(T)` / `ToString(T)` 的定长 `T` 提供 `Hash(&T)` 与 `ToString(&T)`：引用的哈希与渲染就是其引用物的哈希与渲染；与之并存的用户 `impl(&C, Hash(&C))` 是 E0612。
 
 运算符 trait 也以同样方式写出操作数的模式，每个 impl 都必须完全照写这些模式。比较 trait `Eq` 与 `Ord` 借用操作数，即 `(==) : (fn(lhs : &Self, rhs : &Rhs) -> bool)`，因此 `a == b` 之后两个操作数都仍可使用。算术、位运算与一元 trait（`Add` 到 `BitRightShift`、`Negate`、`LogicalNot`、`BitNot` 及其 `Comptime*` 对应版本）与 Rust 一样按值接收操作数：`(+) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)`。按值操作数遵循上面的参数规则：`Copy` 操作数被复制，`String` 被共享，仅可移动的操作数被移动进运算符。trait 按值接收而 impl 借用的操作数（反之亦然）会以 "as written" 被拒绝。`Dyn` 没有可交给按值操作数的值，所以方法按值接收 `self` 的 trait（`LogicalNot`、`Negate`、`Add` 等）无论载荷是什么都不能放到 `Dyn` 后面（E0614）。
 
@@ -1398,6 +1399,9 @@ float_ptr := (*f32)(ptr); // 将指针转换为 *(f32)
 指针算术使用方法 — `p.add(n)`、`p.sub(n)`、`p.offset_from(q)` — 需要 `unsafe(...)` 包装；指针比较使用普通运算符（`==`、`!=`、`<`、`<=`、`>`、`>=`，经由 `*(T)` 上的 `Eq`/`Ord` impl）并保持安全 — 比较地址本身不会破坏内存安全。注意 `*(T) ==` 比较的是地址（同一性），而 `Rc(T)` 这样的句柄通过自己的 `Eq` impl 比较值。
 
 ```yo
+pragma(Pragma.AllowUnsafe); // 原始指针需要 unsafe 能力的 pragma
+{ assert } :: import("std/assert");
+
 test("Pointer arithmetic", {
   x := 12;
   p := addr_of(x);
@@ -1444,7 +1448,7 @@ consume(ptr.* = some_value);
 
 对其他任何参数，`consume(x)` 会移动 `x`（之后再使用会报 "use of moved value"）；由于它返回 `unit`，它就是该值的最后一个所有者：被拥有的值在 consume 处释放，与 `drop(x)` 的释放完全相同。不拥有其值的绑定（`&T` 借用）只会被标记为已移动。
 
-更多指针示例请参阅 [ptr.test.yo](../tests/ptr.test.yo)。
+更多指针示例请参阅 `tests/ptr.test.yo`。
 
 ### 可空指针
 
@@ -1520,7 +1524,7 @@ write_and_read :: (fn(p : *i32, v : i32) -> i32)(
 
 如需一目了然地审计，运行 `yo unsafe-report`（或 `yo unsafe-report ./std` 仅扫描标准库）。它列出每一处 `unsafe(...)` 站点、`asm(...)` 块、`extern(...)` 声明以及声明 pragma 的文件，带 `file:line:col` 跳转格式以方便编辑器查看。`--json` 标志输出机器可读格式，便于 CI 集成。
 
-```yo
+```yo ignore
 // 没有 pragma 的文件 — `unsafe(...)` 被拒绝：
 main :: (fn() -> unit)({
   x := i32(42);
@@ -1528,7 +1532,9 @@ main :: (fn() -> unit)({
   //        To use raw pointer operations, declare at the top:
   //            pragma(Pragma.AllowUnsafe);
 });
+```
 
+```yo
 // 在文件顶部添加 pragma 即可启用：
 pragma(Pragma.AllowUnsafe);
 
@@ -1734,7 +1740,7 @@ assert(arr1(usize(0)) == i32(1), "arr1 未改变");
 assert(arr2(usize(0)) == i32(10), "arr2 已修改");
 ```
 
-更多数组示例请参阅 [array.test.yo](../tests/array.test.yo)。
+更多数组示例请参阅 `tests/array.test.yo`。
 
 ## 算术与失败语义
 
@@ -2833,7 +2839,7 @@ impl(Point, Format());
 
 ## 集合
 
-完整的集合类型及其 API 请参阅 [std/collections](../std/collections)。
+完整的集合类型及其 API 请参阅 `std/collections`。
 
 Yo 在标准库中提供了高效的、唯一所有的集合类型。
 
@@ -3042,7 +3048,7 @@ Yo 支持闭包（捕获其所在环境的匿名函数）。
 
 两种形式下，**被捕获的值**都遵循一般规则：被捕获的 `Rc` 句柄由该捕获结构体持有，并在其销毁时释放。
 
-更多闭包示例和用法请参阅 [closure.test.yo](../tests/closure.test.yo)。
+更多闭包示例和用法请参阅 `tests/closure.test.yo`。
 
 ### 基本闭包语法
 
@@ -3323,7 +3329,7 @@ test :: (fn() -> unit)({
 });
 ```
 
-更多示例请参阅 [closure.test.yo](../tests/closure.test.yo)。
+更多示例请参阅 `tests/closure.test.yo`。
 
 ## Box：唯一所有的单元
 
@@ -3876,7 +3882,7 @@ use_dyn :: (fn(value : &Dyn(SomeTrait)) -> unit)({
 });
 ```
 
-更多示例请参阅 [impl.test.yo](../tests/impl.test.yo)。
+更多示例请参阅 `tests/impl.test.yo`。
 
 ## 代数效应与处理器
 
@@ -4040,7 +4046,7 @@ result := safe_divide(6, 3, exn); // result = 2
 result2 := safe_divide(10, 0, exn); // 处理器以 0 恢复续延，result2 = 0
 ```
 
-更多示例请参阅 [error.test.yo](../tests/error.test.yo)。
+更多示例请参阅 `tests/error.test.yo`。
 
 ## 异步/等待
 
@@ -4408,7 +4414,7 @@ Yo 测试文件通常使用 `.test.yo` 扩展名：
 - `async-await.test.yo` — 异步/等待特性
 - `collections/*.test.yo` — 集合类型
 
-完整的测试示例请参阅 [tests/](../tests/) 目录。
+完整的测试示例请参阅 `tests/` 目录。
 
 ## 元编程
 
@@ -4726,7 +4732,7 @@ increment :: (fn(x : i32) -> i32)(
 3. **泛型编程**：无运行时开销的类型级抽象
 4. **元编程**：基于编译时信息生成代码
 
-更多示例请参阅 [comptime.test.yo](../tests/comptime.test.yo)。
+更多示例请参阅 `tests/comptime.test.yo`。
 
 ## 内联汇编
 
