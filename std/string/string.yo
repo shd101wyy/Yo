@@ -145,7 +145,7 @@ impl(
   /// Create a string from a slice of bytes str
   /// The slice is a fat pointer containing data pointer and length
   /// Example: String.from(slice) where slice is str
-  from : (fn(slice : str) -> Self)({
+  from : (fn(slice : &(str, static)) -> Self)({
     slen := slice.len();
     if(slen == usize(0), {
       return(Self(_bytes : ArrayList(u8).new()));
@@ -340,7 +340,7 @@ impl(
     });
   }),
   /// Append a `str` slice to this string in-place (mutates `self`).
-  push_str : (fn(self : &mut Self, s : str) -> unit)({
+  push_str : (fn(self : &mut Self, s : &(str, static)) -> unit)({
     (slen : usize) = s.len();
     if(slen > usize(0), {
       self._bytes.extend_from_ptr(s.ptr(), slen);

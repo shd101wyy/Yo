@@ -51,7 +51,7 @@ assert :: (fn(generic(T : ?Sized), flag : bool, (msg : &T) ?= "Assertion failed.
   ()
 });
 /// The `: <msg>` context suffix for the assert_* family ("" → none).
-_ctx :: (fn(msg : str) -> String)(
+_ctx :: (fn(msg : &(str, static)) -> String)(
   cond(
     (String.from(msg).len() == usize(0)) => String.new(),
     true => ` — ${msg}`
@@ -64,7 +64,7 @@ _ctx :: (fn(msg : str) -> String)(
 ///   assert_eq(got, i32(42));
 ///   assert_eq(name, `yo`, "config name round-trip");
 assert_eq :: (
-  fn(generic(A : ?Sized), left : &A, right : &A, (msg : str) ?= "", where(A <: (Eq(A), ToString))) -> unit
+  fn(generic(A : ?Sized), left : &A, right : &A, (msg : &(str, static)) ?= "", where(A <: (Eq(A), ToString))) -> unit
 )({
   cond(
     (left.* == right.*) => (),
@@ -78,7 +78,7 @@ assert_eq :: (
 });
 /// Assert two values are NOT equal; prints the (shared) value on failure.
 assert_ne :: (
-  fn(generic(A : ?Sized), left : &A, right : &A, (msg : str) ?= "", where(A <: (Eq(A), ToString))) -> unit
+  fn(generic(A : ?Sized), left : &A, right : &A, (msg : &(str, static)) ?= "", where(A <: (Eq(A), ToString))) -> unit
 )({
   cond(
     (left.* != right.*) => (),
@@ -93,7 +93,7 @@ assert_ne :: (
 /// difference). The default epsilon (1e-9) suits values near 1.0; pass an
 /// explicit epsilon for very large or very small magnitudes.
 assert_approx :: (
-  fn(left : f64, right : f64, (epsilon : f64) ?= f64(0.000000001), (msg : str) ?= "") -> unit
+  fn(left : f64, right : f64, (epsilon : f64) ?= f64(0.000000001), (msg : &(str, static)) ?= "") -> unit
 )({
   diff := cond(
     (left > right) => (left - right),

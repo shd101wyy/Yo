@@ -209,18 +209,18 @@ impl(
 /// implements this itself rather than delegating to the C library, for exactly
 /// this reason. Note `inf` / `-inf` already matched on POSIX; `NaN` is the one
 /// that changes there, and Windows is normalised on all three.
-_non_finite_str :: (fn(v : f64) -> Option(str))(
+_non_finite_str :: (fn(v : f64) -> Option(&(str, static)))(
   cond(
     // NaN first: it is the only value that is neither finite nor comparable,
     // and `isinf` is false for it.
-    (unsafe(_c_isnan(v)) != int(0)) => Option(str).Some("NaN"),
+    (unsafe(_c_isnan(v)) != int(0)) => Option(&(str, static)).Some("NaN"),
     (unsafe(_c_isinf(v)) != int(0)) => cond(
       // A negative infinity compares below every finite double, so a plain
       // sign test is enough and needs no `signbit`.
-      (v < f64(0.0)) => Option(str).Some("-inf"),
-      true => Option(str).Some("inf")
+      (v < f64(0.0)) => Option(&(str, static)).Some("-inf"),
+      true => Option(&(str, static)).Some("inf")
     ),
-    true => Option(str).None
+    true => Option(&(str, static)).None
   )
 );
 // Buffer size for float to string conversion

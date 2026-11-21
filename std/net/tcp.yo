@@ -511,7 +511,7 @@ impl(
   ),
   /// Write a `str` to the stream.
   /// Returns the number of bytes written.
-  write_str : (fn(self : &Self, data : str, io : Io) -> Impl(Future(usize, IoExn)))({
+  write_str : (fn(self : &Self, data : &(str, static), io : Io) -> Impl(Future(usize, IoExn)))({
     s := String.from(data);
     io.async({ self : &self.*, s }(e : IoExn) => {
       r := e.io.await(IO_tcp.stream_write(self._cell._fd, s.ptr().unwrap(), s.len()), e.io);
