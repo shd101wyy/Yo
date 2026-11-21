@@ -107,7 +107,7 @@ main :: (fn() -> unit)({
 });
 ```
 
-引用（`&T`、`&mut T`）是**一等值，其类型带有它的来源（origin）**：它可能指向的位置集合（`&(T, p)`，在大多数签名中省略；决策 43，`plans/backlog/REFERENCES_AND_ORIGINS.md`）。它可以出现在参数位置（`name : &mut T`、`name : &T`）、局部绑定（`name := &mut place`）、函数结果（以函数的某个引用参数为根的投影，通过下标 `x(i)` 或直接调用 `t.index_mut(i)` 到达；见 [INDEX_TRAIT.md](./INDEX_TRAIT.md#投影)）、struct 字段、元组分量、`Option`/enum 载荷，以及闭包捕获中。持有引用的值带有该引用的来源，并像引用本身一样被检查。仍有两类限制。暂不支持：引用作为容器元素或 cell 的载荷（`ArrayList(&T)`、`RefCell(&T)` 在相应阶段落地前是 E0909）。永不允许：引用出现在 `Rc`/`Arc` 的载荷、模块级绑定或交给另一个线程的值中（E0909）。`&mut` 实参或绑定命名一个简单的左值位置（变量，或以变量为根的字段路径）；经过 RC 对象的绑定会在其作用域内钉住该对象。引用以及任何持有引用的值存活到它的最后一次使用，并在这段范围内冻结它的位置：`&` 借用下不能写入或移动这些位置，`&mut` 借用下除通过该借用外完全不能访问它们（E0911）—— 因此被借用的存储在整个借用期间存活且没有别名。引用不能比它指向的位置活得更久：以局部变量为根的引用不能被返回（E0912），也不能存入比该局部变量活得更久的位置（E0911、E0923）。元素位置不能用 `&xs(i)` 绑定；元素通过投影调用（`r := xs.index(i)`）或 `for(&mut coll, x => …)`（或只读的 `for(&coll, x => …)`）借用，后者在循环期间持有集合的一个借用（因此循环体不能写入集合，在 `&mut` 下甚至不能提到它，E0911），并且对属于引用对象的集合持有其运行时借用标志以防范其他句柄；值类型集合（`ArrayList`、`String`）没有其他句柄，静态借用就是全部检查。目前的检查器尚未在每个位置执行以上全部规则；见[这个模型不保证什么](#这个模型不保证什么)。见 [FLOWABILITY.md](./FLOWABILITY.md)。
+引用（`&T`、`&mut T`）是**一等值，其类型带有它的来源（origin）**：它可能指向的位置集合（`&(T, p)`，在大多数签名中省略）。它可以出现在参数位置（`name : &mut T`、`name : &T`）、局部绑定（`name := &mut place`）、函数结果（以函数的某个引用参数为根的投影，通过下标 `x(i)` 或直接调用 `t.index_mut(i)` 到达；见 [INDEX_TRAIT.md](./INDEX_TRAIT.md#投影)）、struct 字段、元组分量、`Option`/enum 载荷，以及闭包捕获中。持有引用的值带有该引用的来源，并像引用本身一样被检查。仍有两类限制。引用不能作为容器元素或 cell 的载荷（`ArrayList(&T)`、`RefCell(&T)` 是 E0909）。引用也不能出现在 `Rc`/`Arc` 的载荷、模块级绑定或交给另一个线程的值中（E0909）。`&mut` 实参或绑定命名一个简单的左值位置（变量，或以变量为根的字段路径）；经过 RC 对象的绑定会在其作用域内钉住该对象。引用以及任何持有引用的值存活到它的最后一次使用，并在这段范围内冻结它的位置：`&` 借用下不能写入或移动这些位置，`&mut` 借用下除通过该借用外完全不能访问它们（E0911）—— 因此被借用的存储在整个借用期间存活且没有别名。引用不能比它指向的位置活得更久：以局部变量为根的引用不能被返回（E0912），也不能存入比该局部变量活得更久的位置（E0911、E0923）。元素位置不能用 `&xs(i)` 绑定；元素通过投影调用（`r := xs.index(i)`）或 `for(&mut coll, x => …)`（或只读的 `for(&coll, x => …)`）借用，后者在循环期间持有集合的一个借用（因此循环体不能写入集合，在 `&mut` 下甚至不能提到它，E0911），并且对属于引用对象的集合持有其运行时借用标志以防范其他句柄；值类型集合（`ArrayList`、`String`）没有其他句柄，静态借用就是全部检查。目前的检查器尚未在每个位置执行以上全部规则；见[这个模型不保证什么](#这个模型不保证什么)。见 [FLOWABILITY.md](./FLOWABILITY.md)。
 
 使用场景：
 
@@ -151,14 +151,14 @@ ys := ArrayList(i32).new(); // 没有参数：全局分配器
 - **跨线程共享通过 `Allocator` 值。** `Allocator` 是两个字、实现 `Send`，所以只要它自己的回调是线程安全的，一个分配器就可以服务多个线程。
 - **分配器必须比它的块活得更久。** Yo 不检查这一点：用户编写的分配器的上下文和 vtable 必须一直有效，直到它分配出去的每个块都被释放。
 
-std 不提供 arena：`std/arena` 已于 2026-10-24 删除，`FixedBufferAllocator` 和 `ArenaAllocator` 在计划中（`plans/backlog/ZIG_STYLE_ALLOCATORS.md`）。
+std 不提供 arena 或固定缓冲区分配器；可以基于 `Allocator` 接口自行编写（[EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)）。
 
-直接调用 `Allocator.alloc` / `free` 会得到裸指针，因此需要 `pragma(Pragma.AllowUnsafe);`。`alloc` 参数和 `_in` 构造函数不需要。完整指南（编写自己的分配器、线程、调试）见 [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)；设计记录见 `plans/archive/EXPLICIT_ALLOCATORS.md`。
+直接调用 `Allocator.alloc` / `free` 会得到裸指针，因此需要 `pragma(Pragma.AllowUnsafe);`。`alloc` 参数和 `clone_in(a)` 不需要。完整指南（编写自己的分配器、线程、调试）见 [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)。
 
 ## 引用环会泄漏
 
 引用计数在单元的最后一个强句柄消失时释放它，因此无法释放环：环中的每个单元都让下一个单元的计数保持在零以上。
-Yo 没有环回收器（v0.2.75 移除，决策 48，`plans/archive/WEAK_AND_UNCOLLECTED_RC.md` §6）。与 Rust 的 `Rc`
+Yo 没有环回收器。与 Rust 的 `Rc`
 一样，强句柄组成的环会泄漏：它的单元永远不会被释放，其 `Drop` 也永远不会运行。因此 `Drop` 只在一个确定的时刻运行，
 即最后一个句柄被释放时。泄漏并不是不安全：没有指针会悬垂。
 
@@ -424,7 +424,6 @@ d := state.wrapping_sub(inc);
 
 - `plans/reference/MEMORY_SAFETY.md` —— 安全模型的设计文档。覆盖完整的理由、阶段化推进和考虑过的替代方案。
 - [FLOWABILITY.md](./FLOWABILITY.md) —— 面向用户的 `&`/`&mut` 借用规则（流动性 + 借用失效）。
-- `plans/archive/SLICE_REWORK.md` —— 移除堆切片的设计（内建 `str`、拷贝式区间）。
 - `plans/archive/EXTERN_UNSAFE_WRAP.md` —— 对 extern "c" 函数调用要求逐调用包装的设计。
 - `plans/archive/ITERATOR_REDESIGN.md` —— 安全模型下迭代如何工作。
 - `docs/zh-CN/DESIGN.md` —— 更广的语言设计；指针 / unsafe 部分与本页交叉引用。

@@ -7,6 +7,7 @@
 ## 基本用法
 
 ```yo
+{ assert } :: import("std/assert");
 { ToString } :: import("std/fmt"); // ToString 的 derive 规则位于 std/fmt
 Point :: struct(x : i32, y : i32);
 derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString, Default);
@@ -149,7 +150,7 @@ derive(
 两点需要知道：
 
 - **消息必须按声明顺序排列**，并且每条都会与它落在的变体逐一核对——因此新增、删除、重命名或重排变体都是编译错误，不会静默地把消息串位。
-- 它同时生成两个特征，是因为 `Error` 要求 `Self <: ToString`。这就是一次 `derive` 能替代原先「一个 `ToString` impl 加一行单独的 `impl(T, Error());`」的原因。
+- 它同时生成两个特征，是因为 `Error` 要求 `Self <: ToString`。因此一次 `derive` 就相当于「一个 `ToString` impl 加一行单独的 `impl(T, Error());`」。
 
 ### ToJson / FromJson
 

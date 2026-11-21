@@ -2855,19 +2855,19 @@ append_mut :: (fn(out : &mut String) -> unit)({
 
 // A `&T` parameter is borrowed: write a local clone and return it.
 with_bang :: (fn(s : &String) -> String)({
-  t := s.clone();
+  mut(t) := s.clone();
   t.push_str("!");
   t
 });
 
 main :: (fn() -> unit)({
   a := String.from("hi");
-  b := a.clone(); // b has its own copy of the bytes
+  mut(b) := a.clone(); // b has its own copy of the bytes
   b.push_str("?"); // a is untouched
   println(`"${a}" "${b}"`); // "hi" "hi?"
 
   e := String.new();
-  f := e.clone();
+  mut(f) := e.clone();
   f.push_str("x"); // empty or not, a clone is independent
   println(`"${e}" "${f}"`); // "" "x"
 
@@ -3703,6 +3703,7 @@ assert(b.norm1() == 9);
 prelude, with `Target : [T]`, and so is a user type over a `[T]`:
 
 ```yo
+{ assert } :: import("std/assert");
 Ring :: struct(items : Array(i32, 3));
 impl(Ring, len : (fn(self : &Self) -> usize)(usize(30)));
 impl(Ring, Deref(Target : [i32], deref : (fn(self : &Self) -> &Self.Target)(&self.items.*)));
@@ -4757,6 +4758,8 @@ Yo supports automatic trait derivation similar to Rust's `#[derive(...)]`, but u
 Six traits have built-in derive support: `Eq`, `Hash`, `Clone`, `Ord`, `Default`, and `ToString`. They work for both structs and enums:
 
 ```yo
+{ assert } :: import("std/assert");
+{ ToString } :: import("std/fmt"); // the ToString derive rule lives in std/fmt
 Point :: struct(x : i32, y : i32);
 derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString);
 
