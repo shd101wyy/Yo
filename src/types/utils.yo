@@ -44,7 +44,7 @@ pragma(Pragma.AllowUnsafe);
 (mut(g_future_origins_exist) : bool) = false;
 /// Capture-list borrow entries by capture-struct id (`register_capture_borrows`).
 (g_capture_borrows : RefCell(HashMap(String, ArrayList(CaptureBorrow)))) = RefCell(HashMap(String, ArrayList(CaptureBorrow))).new(HashMap(String, ArrayList(CaptureBorrow)).new());
-{ TypeValue, TypeValueNode, FuncMeta, no_labels, t_refine_inner, no_types, SharedList, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_borrow, fn_result_is_ref, t_origin_spelled_names, is_maybe_sized_kind, is_static_origin, fn_param_slots, is_origin_kind, t_static_str_ref, t_origin_elided } :: import("./definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, no_labels, t_refine_inner, no_types, SharedList, shared_list, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_borrow, fn_result_is_ref, t_origin_spelled_names, is_maybe_sized_kind, is_static_origin, fn_param_slots, is_origin_kind, t_static_str_ref, t_origin_elided } :: import("./definitions.yo");
 { type_intern_key } :: import("./intern.yo");
 { type_to_string, type_to_string_for_message } :: import("./string.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell, enum_phantom_positions } :: import("./creators.yo");
@@ -1458,7 +1458,7 @@ join_static_bit :: (fn(a : &TypeValue, b : &TypeValue, depth : u32) -> TypeValue
         cond(
           (__yo_ptr_eq(&jsb_inner, &jsb_p.*) && __yo_ptr_eq(&jsb_origin, &jsb_o.*)) => a.clone(),
           true => Rc.new(TypeValueNode.Reference(pointee : jsb_inner, mutable : jsb_m.*, origin : jsb_origin))
-        );
+        )
       },
       _ => a.clone()
     ),
@@ -1533,25 +1533,25 @@ join_static_bit :: (fn(a : &TypeValue, b : &TypeValue, depth : u32) -> TypeValue
         cond(
           (__yo_ptr_eq(&jsb_o2, &jsb_fo.*) && __yo_ptr_eq(&jsb_inner, &jsb_out.*)) => a.clone(),
           true => Rc.new(TypeValueNode.FutureTraitT(base_name : jsb_bn.clone(), output : jsb_inner, effect_labels : Rc.clone(jsb_els), effect_types : Rc.clone(jsb_ets), origin : jsb_o2))
-        );
+        )
       },
       _ => a.clone()
     ),
-    Rc(.Struct(jsb_s)) => match(
+    Rc(.Struct({ id : jsb_sid, type_arguments : jsb_tas })) => match(
       b,
-      Rc(.Struct(jsb_bs)) => if((jsb_s.id == jsb_bs.id) && (jsb_s.type_arguments.len() == jsb_bs.type_arguments.len()), {
-        jsb_args := _join_static_bit_list(&jsb_s.type_arguments.*, &jsb_bs.type_arguments.*, depth);
-        cond(__yo_ptr_eq(&jsb_args, &jsb_s.type_arguments.*) => a.clone(), true => _rebuild_struct_args(a, &jsb_args))
+      Rc(.Struct({ id : jsb_bsid, type_arguments : jsb_btas })) => if((jsb_sid == jsb_bsid) && (jsb_tas.len() == jsb_btas.len()), {
+        jsb_args := _join_static_bit_list(&jsb_tas.*, &jsb_btas.*, depth);
+        cond(__yo_ptr_eq(&jsb_args, &jsb_tas.*) => a.clone(), true => _rebuild_struct_args(a, &jsb_args))
       }, {
         a.clone()
       }),
       _ => a.clone()
     ),
-    Rc(.EnumT(jsb_e)) => match(
+    Rc(.EnumT({ id : jsb_eid, type_arguments : jsb_etas })) => match(
       b,
-      Rc(.EnumT(jsb_be)) => if((jsb_e.id == jsb_be.id) && (jsb_e.type_arguments.len() == jsb_be.type_arguments.len()), {
-        jsb_args := _join_static_bit_list(&jsb_e.type_arguments.*, &jsb_be.type_arguments.*, depth);
-        cond(__yo_ptr_eq(&jsb_args, &jsb_e.type_arguments.*) => a.clone(), true => _rebuild_enum_args(a, &jsb_args))
+      Rc(.EnumT({ id : jsb_beid, type_arguments : jsb_betas })) => if((jsb_eid == jsb_beid) && (jsb_etas.len() == jsb_betas.len()), {
+        jsb_args := _join_static_bit_list(&jsb_etas.*, &jsb_betas.*, depth);
+        cond(__yo_ptr_eq(&jsb_args, &jsb_etas.*) => a.clone(), true => _rebuild_enum_args(a, &jsb_args))
       }, {
         a.clone()
       }),

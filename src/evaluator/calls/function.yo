@@ -10570,28 +10570,34 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
         if(sb_pv.len() > usize(0), {
           sb_bad = Option(String).Some(sb_pv(0).clone());
         }, {
-          // A read of a place whose own type spells only `static` is a
-          // static value (rule 3); everything else is judged by what it
-          // holds.
-          sb_holds := match(
+          // A value whose type spells a NAMED origin holds that place; a
+          // read of a place whose own type spells only `static` is a static
+          // value (rule 3); everything else is judged by what it holds.
+          sb_named := match(
             expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&sb_arg)),
             .Some(sb_i2) => {
               sb_names := ArrayList(String).new();
               origin_param_names_of(&sb_i2.ty(), &mut sb_names, u32(0));
-              (sb_names.len() > usize(0))
+              match(sb_names.get_cloned(usize(0)), .Some(sb_n) => Option(String).Some(sb_n), .None => Option(String).None)
             },
-            .None => true
+            .None => Option(String).Some(String.from("?"))
           );
-          if(!sb_holds, {
-            sb_roots := origin_of(&sb_arg, env, ctx);
-            match(
-              _static_offending_root(&sb_roots, &String.new(), env, ctx),
-              .Some(sb_off) => {
-                sb_bad = Option(String).Some(sb_off.place.text.clone());
-              },
-              .None => ()
-            );
-          });
+          match(
+            sb_named,
+            .Some(sb_n) => {
+              sb_bad = Option(String).Some(sb_n);
+            },
+            .None => {
+              sb_roots := origin_of(&sb_arg, env, ctx);
+              match(
+                _static_offending_root(&sb_roots, &String.new(), env, ctx),
+                .Some(sb_off) => {
+                  sb_bad = Option(String).Some(sb_off.place.text.clone());
+                },
+                .None => ()
+              );
+            }
+          );
         });
         match(
           sb_bad,

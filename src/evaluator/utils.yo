@@ -12072,7 +12072,7 @@ _static_module_level :: (fn(v : &Variable) -> bool)(
 _static_slot_param :: (fn(v : &Variable, env : &Environment, ctx : &EvalContext) -> bool)({
   slot := match(param_declared_origin_slot(v, env, ctx), .Some(ds) => ds, .None => variable_slot_type(v));
   match(
-    slot,
+    &slot,
     Rc(.Reference(_, _, ss_o)) => is_static_origin(&ss_o.*),
     Rc(.ValueSlot(ss_vs)) => match(&ss_vs.*, Rc(.Reference(_, _, ss_vo)) => is_static_origin(&ss_vo.*), _ => false),
     _ => false
