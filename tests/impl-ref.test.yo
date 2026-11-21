@@ -614,32 +614,58 @@ test("the prelude's Ord(&T) leaves a generic impl's binder K when `a.cmp(b)` run
 });
 // The prelude's blanket `Hash(&T)` and std/fmt's blanket `ToString(&T)`
 // over a sized `&T` (VERDICTS-66's riders): a reference hashes and renders as
-// its referent, so generic code at `T := &U` has the bounds and agrees with
-// `Eq(&T)`. Their blockers are fixed
+// its referent, so the bounds hold and agree with the prelude's `Eq(&T)` /
+// `Ord(&T)`. Their registration blockers are fixed
 // (issues/fixed/2026-11-13-a-blanket-hash-impl-over-a-reference-rebinds-a-generic-impls-key-to-a-reference-of-itself.md,
 // issues/fixed/2026-11-13-a-blanket-tostring-impl-over-a-reference-answers-an-rc-receiver-whose-payload-has-the-method.md).
-_rb_show :: (fn(generic(T : Type), v : T, where(T <: ToString)) -> String)(v.to_string());
-_rb_hash :: (fn(generic(T : Type), v : &T, where(T <: Hash)) -> u64)({
-  mut(h) := DefaultHasher.new();
-  T.hash(v, &mut h);
-  h.finish()
-});
-test("(riders) ToString(&T): a reference renders as its referent", {
+// A generic body INSTANTIATED at `T := &U` still walks into the open receiver
+// rules, so a `where(T <: ToString)` helper's `v.to_string()` is E0601 there
+// (issues/2026-11-11-a-bound-method-on-a-by-value-reference-parameter-is-rejected.md,
+// issues/2026-11-21-a-reference-binder-whose-type-is-the-methods-own-slot-is-lent-once-too-often.md),
+// and its type-qualified `T.to_string(r.*)` spelling passes check but emits
+// invalid C
+// (issues/2026-11-21-a-qualified-call-through-a-blanket-bound-at-t-ref-u-passes-check-and-emits-invalid-c.md):
+// these rows pin the registration, the coherence and the reference-receiver
+// semantics that hold today.
+test("(riders) ToString(&T): the blanket registers, and a reference renders as its referent", {
   s := String.from("abc");
   rs := &s;
-  assert(_rb_show(rs) == String.from("abc"), "ToString(&String) through a bound");
-  assert(`<${rs}>` == String.from("<abc>"), "a reference part renders its referent");
   x := i32(42);
   rx := &x;
-  assert(_rb_show(rx) == String.from("42"), "ToString(&i32) through a bound");
+  comptime_assert(Type.impls(&String, ToString), "the blanket registers ToString(&String)");
+  comptime_assert(Type.impls(&i32, ToString), "the blanket registers ToString(&i32)");
+  assert(rs.to_string() == String.from("abc"), "a &String receiver renders its referent");
+  assert(rx.to_string() == String.from("42"), "a &i32 receiver renders its referent");
+  assert(`<${rs}>` == String.from("<abc>"), "a reference part renders its referent");
   assert(s == "abc", "nothing was moved out of the referent");
 });
-test("(riders) Hash(&T): a reference hashes as its referent", {
+test("(riders) Hash(&T): the blanket registers, and a reference hashes as its referent", {
   a := String.from("key");
   b := String.from("key");
   ra := &a;
   rb := &b;
-  assert(_rb_hash(&ra) == _rb_hash(&a), "&String hashes as String");
-  assert(_rb_hash(&ra) == _rb_hash(&rb), "equal referents, equal hashes");
-  assert(_rb_hash(&ra) == hash_one(&a), "agrees with hash_one");
+  comptime_assert(Type.impls(&String, Hash), "the blanket registers Hash(&String)");
+  mut(ha) := DefaultHasher.new();
+  ra.hash(&mut ha);
+  mut(hb) := DefaultHasher.new();
+  rb.hash(&mut hb);
+  assert(ha.finish() == hash_one(&a), "&String hashes as String");
+  assert(ha.finish() == hb.finish(), "equal referents, equal hashes");
+});
+// A user `impl(&C, ToString)` beside the blanket is E0612 naming the covering
+// generic impl, as with the prelude's `Eq(&T)` (develop rejected the same
+// program with E0601 "Bag and &Bag").
+_RbBag :: struct(n : i32);
+impl(
+  _RbBag,
+  ToString(to_string : (fn(self : &Self) -> String)(String.from("bag")))
+);
+test("(riders) a user impl(&C, ToString) beside the blanket is E0612", {
+  comptime_expect_error(
+    impl(
+      &_RbBag,
+      ToString(to_string : (fn(self : &Self) -> String)(String.from("refbag")))
+    ),
+    "by the generic impl at std/fmt/to_string.yo"
+  );
 });
