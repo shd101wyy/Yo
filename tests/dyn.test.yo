@@ -1451,21 +1451,20 @@ test("a call through a Box(Dyn(Fn(...) -> &T)) yields a reference", {
   assert(_pj_via(f, &t) == i32(7), "the result reads the caller's place");
 });
 // Decision 49 S3b: `dyn` unsizes a pointer, so a plain value is E0620, whose
-// help names `dyn(Box.new(v))` and v0.2.78's migration (until v0.2.79 a plain
-// `dyn(v)` was the legacy alias of `dyn(Box.new(v))`). Each case has its own
-// value: a rejected site may still have moved it.
+// help names `dyn(Box.new(v))`. Each case has its own value: a rejected site
+// may still have moved it.
 _S3bSpeak :: trait(s3b_speak : (fn(self : &Self) -> i32));
 _S3bCat :: struct(n : i32);
 impl(_S3bCat, _S3bSpeak(s3b_speak : (self -> self.n)));
 _s3b_lent :: (fn(d : &Dyn(_S3bSpeak)) -> i32)(d.s3b_speak());
-test("a plain dyn(v) is E0620 naming dyn(Box.new(v)) and the v0.2.78 migration", {
+test("a plain dyn(v) is E0620 naming dyn(Box.new(v))", {
   c1 := _S3bCat(n : i32(1));
   comptime_expect_error({
     (b : Box(Dyn(_S3bSpeak))) = dyn(c1);
   }, "erases a pointer, and its argument is a");
   comptime_expect_error({
     (b : Box(Dyn(_S3bSpeak))) = dyn(_S3bCat(n : i32(2)));
-  }, "yo version install 0.2.78 && yo fix <path> --migrate unsized");
+  }, "own it, `dyn(Box.new(v))`");
   c3 := _S3bCat(n : i32(3));
   (ok : Box(Dyn(_S3bSpeak))) = dyn(Box.new(_S3bCat(n : i32(4))));
   assert(ok.*.s3b_speak() == i32(4), "the spelled box erases");
