@@ -13962,9 +13962,9 @@ invariant_origin_names :: (fn(ty : &TypeValue) -> ArrayList(String))({
     g_invariant_names_answers.with_mut(xs => xs.clear());
     g_invariant_names_epoch = type_key_epoch();
   });
-  (slot : usize) = g_invariant_names_handles.with({ &ty }(xs => type_identity_slot(xs, ty)));
-  if(g_invariant_names_handles.with({ &ty, slot }(xs => type_identity_slot_holds(xs, slot, ty)), {
-    return(match(g_invariant_names_answers.with({ slot }(xs => xs.get_cloned(slot)), .Some(a) => a, .None => ArrayList(String).new()));
+  (slot : usize) = g_invariant_names_handles.with({ &ty }(xs) => type_identity_slot(xs, ty));
+  if(g_invariant_names_handles.with({ &ty, slot }(xs) => type_identity_slot_holds(xs, slot, ty)), {
+    return(match(g_invariant_names_answers.with({ slot }(xs) => xs.get_cloned(slot))), .Some(a) => a, .None => ArrayList(String).new());
   });
   names := _invariant_origin_names_walk(ty);
   // Record the answer only when the epoch it was computed in still holds:
@@ -13975,8 +13975,8 @@ invariant_origin_names :: (fn(ty : &TypeValue) -> ArrayList(String))({
       g_invariant_names_handles.with_mut(xs => xs.clear());
       g_invariant_names_answers.with_mut(xs => xs.clear());
     });
-    (at : usize) = g_invariant_names_handles.with({ &ty }(xs => type_identity_slot(xs, ty)));
-    if(!g_invariant_names_handles.with({ &ty, at }(xs => type_identity_slot_holds(xs, at, ty)), {
+    (at : usize) = g_invariant_names_handles.with({ &ty }(xs) => type_identity_slot(xs, ty));
+    if(!g_invariant_names_handles.with({ &ty, at }(xs) => type_identity_slot_holds(xs, at, ty)), {
       g_invariant_names_handles.with_mut({ at, ty : Rc.clone(ty) }(xs => xs.insert(at, Rc.clone(ty))));
       g_invariant_names_answers.with_mut({ at, names : names.clone() }(xs => xs.insert(at, names)));
     });
