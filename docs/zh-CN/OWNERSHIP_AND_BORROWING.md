@@ -123,7 +123,7 @@ export(main);
 非 `Copy` 的字段不能从一个值中移出（E0901）：字段是其持有者的一部分。可以改为：
 
 - 拷贝该字段：`p.name.clone()`；
-- 移动整个值并解构它：`{ name, age } := p`；
+- 用 `match` 把整个值拆开：`match(p, { name, age } => …)`；
 - 借用它：`&p.name`、`match(&p.name, …)`。
 
 ### 可变绑定

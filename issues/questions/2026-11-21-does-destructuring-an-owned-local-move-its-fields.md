@@ -2,6 +2,14 @@
 
 **Kind:** design question
 
+**Verdict:** ADOPTED (VERDICTS-76, 2026-11-22) — `{ a, b } := x` on an owned `x` CONSUMES
+`x`, decision 26's match-twin: the bound names own their fields, unbound parts drop at the
+binding, and a later use of `x` is E0901; borrowed sources (a `&T` parameter, a reference
+binding, a `match`/`for` binding) keep today's borrowing destructure; there are no partial
+moves — stricter than Rust. Confidence 0.85. The implementation needs a decision-26-sized
+evaluator + codegen change with a site sweep and is scheduled for v0.2.81; until it lands
+the guide shows the `match` form, which works today.
+
 Found while writing `docs/en-US/OWNERSHIP_AND_BORROWING.md` (2026-11-21). The guide's "No partial
 moves" section says to "move the whole value and destructure it: `{ name, age } := p`". The tree
 does not do that:

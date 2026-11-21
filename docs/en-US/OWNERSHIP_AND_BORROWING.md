@@ -146,7 +146,7 @@ A field that is not `Copy` cannot be moved out of a value (E0901): the field
 is part of its holder. Instead:
 
 - copy the field: `p.name.clone()`;
-- move the whole value and destructure it: `{ name, age } := p`;
+- move the whole value apart with `match`: `match(p, { name, age } => …)`;
 - borrow it: `&p.name`, `match(&p.name, …)`.
 
 ### Mutable bindings

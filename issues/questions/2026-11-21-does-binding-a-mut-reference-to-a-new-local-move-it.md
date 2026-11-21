@@ -2,6 +2,13 @@
 
 **Kind:** design question
 
+**Verdict:** ADOPTED (VERDICTS-76, 2026-11-22) — `a := m` with `m : &mut T` is a MOVE
+(Rust's bare-`let` rule): the loan transfers to `a` until `a`'s last use, a later use of
+`m` is E0901, and a reborrow stays spelled `a := &mut m.*`. Confidence 0.85. The
+implementation is a separate fix PR: today's tree has contradictory arms — a false E0911
+path at `src/evaluator/exprs/initialization-assignment.yo:983-999` and the E0901
+"lend it on with `&mut`" arm at `src/evaluator/utils.yo:1512`.
+
 Found while writing `docs/en-US/OWNERSHIP_AND_BORROWING.md` (2026-11-21).
 
 ```yo ignore
