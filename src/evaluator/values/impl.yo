@@ -150,7 +150,7 @@ pragma(Pragma.AllowUnsafe);
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { note_legacy_str_spelling } :: import("../utils.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./anonymous-module.yo");
-{ format_error_message, render_any_error, reanchor_primary_at, YoError, with_code, format_error_message_with_help } :: import("../../error.yo");
+{ format_error_message, render_any_error, reanchor_primary_at, YoError, with_code, format_error_message_with_help, with_code_carried } :: import("../../error.yo");
 { E_WRITE_THROUGH_BORROW, E_ORIGIN_MISMATCH, E_DEREF_IMPL_SIZED_TARGET } :: import("../../diagnostics.yo");
 { propagate_def_time_errors } :: import("../../types/flowability.yo");
 { Token } :: import("../../token.yo");
@@ -410,12 +410,17 @@ type_has_user_clone_impl :: (fn(ty : &TypeValue, clone_tt : &TypeValue) -> bool)
   false
 });
 /// Type of `check_self_constraints_violation_msg` from trait-checking.yo:
-/// `.Some(error message)` when `target_type` may not implement `trait_ty` (a
+/// `.Some(violation)` when `target_type` may not implement `trait_ty` (a
 /// `Drop` on a primitive) or violates a positive or negative
 /// selfConstraint on it, `.None` when satisfied. Routed via a function pointer to
 /// break the impl.yo ↔ trait-checking.yo import cycle (same pattern as above);
 /// the caller throws with its own token/exn, invoking it per trait entry.
-CheckSelfConstraintsFn :: (fn(target_type : &TypeValue, trait_ty : &TypeValue, env : &Environment) -> Option(String));
+/// A receiver-kind or selfConstraint violation of an impl: the message and,
+/// when the rule has one, its registered code (`Copy` without `Clone` is
+/// E0602).
+ImplRuleViolation :: struct(message : String, code : Option(String));
+derive(ImplRuleViolation, Clone);
+CheckSelfConstraintsFn :: (fn(target_type : &TypeValue, trait_ty : &TypeValue, env : &Environment) -> Option(ImplRuleViolation));
 (mut(g_check_self_constraints_fn) : Option(CheckSelfConstraintsFn)) =
   Option(CheckSelfConstraintsFn).None;
 /// Install the function pointer (called from trait-checking.yo init block).
@@ -5861,8 +5866,8 @@ evaluate_module_value :: (
             g_receiver_kind_trait_fn,
             .Some(cof) => match(
               &cof(&receiver_type_pattern, &gtt.*, &forall_env),
-              .Some(co_msg) => {
-                exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&mf_expr), &co_msg.*))));
+              .Some(co_v) => {
+                exn.throw(dyn(Box.new(with_code_carried(format_error_message(ast_expr_token(&mf_expr), &co_v.message), &co_v.code))));
               },
               .None => ()
             ),
@@ -6445,9 +6450,9 @@ evaluate_module_value :: (
                 g_check_self_constraints_fn,
                 .Some(cf) => match(
                   &cf(&receiver_ty, &ctt.*, &local_env),
-                  .Some(sc_msg) => {
+                  .Some(sc_v) => {
                     exn.throw(
-                      dyn(Box.new(format_error_message(ast_expr_token(expr), &sc_msg.*)))
+                      dyn(Box.new(with_code_carried(format_error_message(ast_expr_token(expr), &sc_v.message), &sc_v.code)))
                     );
                   },
                   .None => ()
@@ -7673,7 +7678,7 @@ export(GenericImplEntry, MethodCandidate);
 ifc_memo_entry_count :: (fn() -> usize)(g_ifc_memo.with(_c_len_10));
 export(purge_ifc_memo_owned_by, ifc_memo_entry_count);
 export(TypeImplementsTraitFullFn);
-export(set_type_implements_trait_full_fn, set_register_trait_value_fn, set_check_self_constraints_fn, set_receiver_kind_trait_fn, get_trait_key, nominal_declares_move_only, generic_instantiation_declares_drop, nominal_drop_uses_roots);
+export(set_type_implements_trait_full_fn, set_register_trait_value_fn, set_check_self_constraints_fn, set_receiver_kind_trait_fn, ImplRuleViolation, get_trait_key, nominal_declares_move_only, generic_instantiation_declares_drop, nominal_drop_uses_roots);
 export(register_generic_impl, purge_concrete_trait_impls_owned_by, fn_result_origin_wider);
 export(register_negative_generic_impl, find_matching_negative_generic_impl);
 export(try_match_generic_impl);

@@ -62,7 +62,7 @@ pragma(Pragma.AllowUnsafe);
 { private_member_blocked, is_private_member_name, debug_knob } :: import("../../utils.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env-lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ unknown_field_message, unknown_field_code, unknown_variant_message, unknown_field_through_deref_message, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message, get_all_some_types } :: import("../../types/utils.yo");
+{ unknown_field_message, unknown_field_code, unknown_variant_message, unknown_field_through_deref_message, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_error, get_all_some_types } :: import("../../types/utils.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
 { suggest_name, E_AMBIGUOUS_METHOD, E_DEREF_OF_BORROW, E_DEREF_OF_VALUE, E_TRAIT_NOT_IMPLEMENTED } :: import("../../diagnostics.yo");
 { attach_temp_variable_to_expr, local_borrow_take_receiver, local_borrow_mark_receiver, local_borrow_clear_receiver, local_borrows_active, local_borrow_access_expr, LocalBorrowAccess, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording, deref_text_is_new_spelling, note_reference_deref_site, is_reference_deref_site, note_synthesized_deref_star, is_synthesized_deref_star, is_ctfe_reference_param, deref_reads_through_pointee, deref_payload_type, deref_exempt_take, projection_call_mode_of, note_reference_field_read, reference_field_read_type, reject_reference_field_without_deref, local_borrow_place_text, reference_read_wanted } :: import("../utils.yo");
@@ -85,12 +85,12 @@ pragma(Pragma.AllowUnsafe);
 /// The value wall at a fieldless variant of an enum whose type holds a
 /// reference (decision 43 step 3): an INLINE composite (O4 row 2) is N2b's
 /// and builds; a container or a cell stays named-only
-/// (`origin_beyond_n2b_message`).
+/// (`origin_beyond_n2b_error`).
 _reject_origin_carrying_unit_variant :: (fn(en_ty : &TypeValue, at : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit)(
   // In a std body (specialized for a type holding a reference) the user's
   // call that reached it is walled instead, naming the user's type.
   if(origin_beyond_n2b(en_ty) && !is_std_module_path(&ast_expr_token(at).module_path.*, ctx.std_path.clone()), {
-    exn.throw(dyn(Box.new(format_error_message(ast_expr_token(at), origin_beyond_n2b_message(en_ty)))));
+    exn.throw(dyn(Box.new(origin_beyond_n2b_error(en_ty, ast_expr_token(at)))));
   })
 );
 /// A read of a reference FIELD (decision 43 step 2, N1e-2): `v.at` with
@@ -1697,7 +1697,7 @@ Raw pointer operations may dereference invalid memory.`
       // composite is N2b's and passes (a variant constructor, a user
       // static).
       if(origin_beyond_n2b(&type_val_inner) && !is_std_module_path(&ast_expr_token(expr).module_path.*, ctx.std_path.clone()), {
-        exn.throw(dyn(Box.new(format_error_message(ast_expr_token(&property_expr), origin_beyond_n2b_message(&type_val_inner)))));
+        exn.throw(dyn(Box.new(origin_beyond_n2b_error(&type_val_inner, ast_expr_token(&property_expr)))));
       });
       su_labels := match(
         &type_val_inner,

@@ -298,7 +298,7 @@ original concrete type. A program with no `upcast` emits no extra pointers.
 A `Dyn` has no ownership of its own; its pointer's applies (decision 7, amended by decision 49):
 
 - **`Box(Dyn(T))`** owns its payload alone. It is move-only unless the trait list has `Clone`, in
-  which case `b.clone()` makes an independent payload in the allocator that placed the source
+  which case `Box.clone(&b)` makes an independent payload in the allocator that placed the source
   (decision 12).
 - **`Rc(Dyn(T))` and `Arc(Dyn(T, Send, Sync))`** share one payload; `Rc.clone(h)` bumps the count,
   and the payload is read-only through the handle (decision 46).
