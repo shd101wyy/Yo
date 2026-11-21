@@ -6,25 +6,11 @@ attached to a diagnostic only when exactly ONE edit fixes it, so 'fix' never
 guesses between alternatives; '--error-format json' carries the same repair
 as a structured field. Evaluation stops at the first error in a file, so fix
 re-runs until a pass changes nothing (at most 10 passes), formatting each
-file it rewrites. '--migrate' runs one of the migrations listed below instead;
-a migration that was retired is no longer a mode, and the last release that
-ships each is listed in docs/en-US/ERROR_DIAGNOSTICS.md.
+file it rewrites.
 
 Options:
   --exclude <path>          Exclude a directory/file (repeatable)
   --dry-run                 Print the repairs without writing
-  --migrate deref           Run the deref migration instead of the
-                            repairs: r -> r.* where a reference is read
-                            or written whole, &r -> &r.*, and
-                            v.* -> v.*.* where v.* was the Box/Rc deref
-                            through a reference
-  --migrate unsized         Run decision 49's migration: a lend &b of a
-                            Box(Dyn(T)) where a &Dyn(T) is taken -> &b.*;
-                            dyn(h) over a named handle is listed. Older
-                            code steps through the release that last
-                            accepts its spelling: v0.2.77 for the bare
-                            Dyn(...) types, v0.2.78 for the plain dyn(v)
-                            (yo version install 0.2.78), then this one
   --module-names            Rename every module file and directory whose
                             name holds _ or upper case to kebab-case
                             (array_list.yo -> array-list.yo) and rewrite
@@ -32,15 +18,14 @@ Options:
                             roots that reach them; an import that no
                             longer resolves is pointed at the one module
                             its kebab-case spelling reaches. Prints the
-                            rename map; not a migration, never retired
+                            rename map
   --target <triple>         Evaluate for this target, as compile --target
                             does, so the target's platform arms are
-                            repaired or migrated (default: the host)
+                            repaired (default: the host)
   --std-path <dir>          Override the std library directory
 
 Examples:
   $ yo fix ./src
   $ yo fix main.yo --dry-run
-  $ yo fix ./std ./tests --migrate deref
   $ yo fix . --module-names --dry-run
 rc=0
