@@ -48,7 +48,8 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [recur](#recur)
   - [Shared Cells and Memory Management](#shared-cells-and-memory-management)
     - [Reference-Counted Cells](#reference-counted-cells)
-    - [Compile-Time Reference Counting Optimization](#compile-time-reference-counting-optimization)
+    - [Choosing a value, a borrow or a shared cell](#choosing-a-value-a-borrow-or-a-shared-cell)
+    - [Reading the count](#reading-the-count)
     - [Explicit Allocators](#explicit-allocators)
     - [Move-only values](#move-only-values)
 - [Pointers](#pointers)
@@ -245,8 +246,7 @@ export(main);
 
 `main` must return `unit`, and the compiler rejects any other result type. A
 program body runs on a worker thread for its large stack, so a value returned
-from `main` would have nowhere to go — it used to be computed and silently
-discarded. Set a process exit status with `exit(code)` from `std/process`:
+from `main` would have nowhere to go. Set a process exit status with `exit(code)` from `std/process`:
 
 ```yo
 { exit } :: import("std/process");
@@ -470,7 +470,7 @@ A type can have the following **Kind**:
 
 #### Unsized types
 
-A type with no size of its own lives only behind a pointer: `&T`, `&mut T`, `*T`, or an owning handle such as `Box(T)` (decision 49 in [`plans/VALUES_BY_DEFAULT.md`](../../plans/VALUES_BY_DEFAULT.md)). There are three:
+A type with no size of its own lives only behind a pointer: `&T`, `&mut T`, `*T`, or an owning handle such as `Box(T)`. There are three:
 
 - `[T]` (`Slice(T)`), a run of `T`s whose length is carried by the pointer. `unsize(&a)` turns a `&Array(T, N)` into a `&[T]` (`&mut a` and `*Array(T, N)` likewise), and `&xs(a..b)` is a view of part of a container whose `Index(Range(usize))` impl has `Output : [T]`, with no copy. `size_of_val(s)` and `align_of_val(s)` measure through the pointer.
 - `Dyn(Trait, ...)`, a trait object, whose pointer carries the vtable ([DYN_DESIGN.md](./DYN_DESIGN.md)).
@@ -483,7 +483,7 @@ Show :: trait(show : (fn(self : &Self) -> i32));
 show :: (fn(generic(T : ?Sized), x : &T, where(T <: Show)) -> i32)(x.show());
 ```
 
-A trait's associated type takes the same kind: with `Target : ?Sized` an impl may bind it to `[T]` or `str` as well as to a sized type, and the trait uses `Self.Target` only behind a pointer (a by-value `Self.Target` is E0619 at the trait). With `Target : Type` it is sized, and a value `str` written for it is the legacy alias of `&(str, static)`.
+A trait's associated type takes the same kind: with `Target : ?Sized` an impl may bind it to `[T]` or `str` as well as to a sized type, and the trait uses `Self.Target` only behind a pointer (a by-value `Self.Target` is E0619 at the trait). With `Target : Type` it is sized, and a value `str` written for it means `&(str, static)`.
 
 ```yo
 Peek :: trait(Target : ?Sized, peek : (fn(self : &Self) -> &Self.Target));
@@ -491,7 +491,7 @@ Row :: struct(a : Array(i32, 3));
 impl(Row, Peek(Target : [i32], peek : (fn(self : &Self) -> &Self.Target)(&self.a.*)));
 ```
 
-The standard library's methods on `[T]` (`len`, indexing, iteration) come with v0.2.78.
+On `[T]` the standard library provides `len`, `is_empty`, `contains`, `==` and hashing; a `[T]` has no subscript and no iterator.
 
 #### Value Types and Shared Cells
 
@@ -560,7 +560,7 @@ z := 16;
 #### Bindings are immutable unless declared `mut(name)`
 
 A binding cannot be written after its definition unless its name is wrapped
-in `mut(...)`, as Rust's `let mut` (plans/VALUES_BY_DEFAULT.md decision 47).
+in `mut(...)`, as Rust's `let mut`.
 The marker wraps the name in every binding position:
 
 ```yo
@@ -595,8 +595,7 @@ marker; reassigning the binding still needs one. A borrow
 (`x : &mut T`, `y := &mut place`) is written through, not written. The first
 assignment of a binding declared without a value (`(x : T);`) initializes it.
 
-Parameters take no `mut`: they stay immutable, and `mut(x) : T` on a
-parameter is the deleted borrow spelling (E0009). A body that changes a
+Parameters take no `mut`: they stay immutable. A body that changes a
 by-value argument rebinds it, `mut(y) := x;`, which moves an owning value; one
 that should change the caller's value takes `x : &mut T`. A module-level
 binding follows the same rule: an unmarked one is Rust's `static`,
@@ -606,12 +605,9 @@ compile-time binding reassigned while compiling is declared `mut(x) :: v` (or
 closure's capture-list entry take no `mut` either; a body that changes one
 rebinds it.
 
-`yo fix <path>` inserts the marker a write needs, one write per pass; older
-code is upgraded on the last release that ships the migrations ([ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md), "Retired migrations"). In
-this release the rule is enforced everywhere except the compiler's own
-sources, which the next release migrates; `std/` is migrated and checked too.
+`yo fix <path>` inserts the marker a write needs, one write per pass.
 
-> `mut` is a reserved word: it wraps a binding's name (`mut(x) := v`) and follows `&` (`&mut T` in a slot, `&mut x` at a call site); a binding or parameter named `mut` is an error. `imm` is no longer a keyword.
+> `mut` is a reserved word: it wraps a binding's name (`mut(x) := v`) and follows `&` (`&mut T` in a slot, `&mut x` at a call site); a binding or parameter named `mut` is an error.
 
 #### No variable shadowing
 
@@ -748,7 +744,7 @@ p2 := BoolPoint(x : true, y : false);
 
 ### Parameter modes are part of the function type
 
-`fn(x : &mut i32) -> unit`, `fn(x : &String) -> usize` and `fn(x : String) -> usize` are three different types: a `&mut T` parameter is an exclusive borrow of the caller's place, a `&T` parameter is a read-only (shared) borrow, and a plain parameter is **by value**. A by-value parameter of a `Copy` type receives a copy, and one of an explicit-copy type (a move-only value, plain data without `Copy`, or an `Rc`/`Arc` handle, decision 17) consumes its argument: the caller's binding ends at the call. A `sink(x)` parameter, and a closure or function argument, always move. The mode is part of the type for every parameter type, `Copy` or not, so `fn(x : &i32)` and `fn(x : i32)` differ too. A function value only fits a slot whose parameters have the same modes (and the same implicit `using(...)` parameters), however it gets there: bound to a typed name, passed as an argument (to a `fn(...)` or an `Impl(Fn(...))` parameter), stored in a field, returned, or wrapped by `dyn(...)` into a `Dyn(Fn(...))`. A closure literal takes the modes of the slot it is written for:
+`fn(x : &mut i32) -> unit`, `fn(x : &String) -> usize` and `fn(x : String) -> usize` are three different types: a `&mut T` parameter is an exclusive borrow of the caller's place, a `&T` parameter is a read-only (shared) borrow, and a plain parameter is **by value**. A by-value parameter of a `Copy` type receives a copy, and one of an explicit-copy type (a move-only value, plain data without `Copy`, or an `Rc`/`Arc` handle) consumes its argument: the caller's binding ends at the call. A `sink(x)` parameter, and a closure or function argument, always move. The mode is part of the type for every parameter type, `Copy` or not, so `fn(x : &i32)` and `fn(x : i32)` differ too. A function value only fits a slot whose parameters have the same modes (and the same implicit `using(...)` parameters), however it gets there: bound to a typed name, passed as an argument (to a `fn(...)` or an `Impl(Fn(...))` parameter), stored in a field, returned, or wrapped by `dyn(...)` into a `Dyn(Fn(...))`. A closure literal takes the modes of the slot it is written for:
 
 ```yo
 bump :: (fn(x : &mut i32) -> unit)({
@@ -760,15 +756,15 @@ bump :: (fn(x : &mut i32) -> unit)({
 
 The one exception is the receiver of an `impl` member: a trait method declared with `self : &mut Self` may be implemented with `self : Self`, because each call site adapts to the impl's own signature.
 
-`&T` and `&mut T` are borrow **modes** a slot spells, not types, in this generation: they prefix the type of a parameter, a receiver (`self : &Self`, `self : &mut Self`), a closure parameter (`(v : &T) => ...`) or a labeled `Fn` slot (`Fn(v : &T) -> R`; an unlabeled `Fn(&T)` is not accepted). Anywhere a type stands on its own (`T :: &i32`, `ArrayList(&T)`, `Option(&T)`, a struct field `f : &T`) the sigil makes a **reference type** (decision 43 step 3, see "Reference types" below); `&&T` is a reference to a reference: `&r` on a reference binding `r` lends `r` itself (a `&&T`; `&mut r` on a `mut(r)` binding is a `&mut &T`), so a parameter `a : &mut &(T, p)` re-points the caller's reference. Nothing coerces a `&&T` to a `&T`: the referent's reborrow is spelled `&r.*`, and a method call reaches the referent's methods through `(&r).m()` and through `rr.*.m()` (R-PROBE's deref step); a bare `rr.m()` on a `&&T` binding is not resolved yet. A borrow result (`-> &T` / `-> &mut T`) is a projection (decision 24): the body yields a place written with the result's sigil, rooted at a borrow parameter, and the subscript (`x(i)`) reaches it ([INDEX_TRAIT.md](./INDEX_TRAIT.md#projections)).
+`&T` and `&mut T` are borrow **modes** a slot spells: they prefix the type of a parameter, a receiver (`self : &Self`, `self : &mut Self`), a closure parameter (`(v : &T) => ...`) or a labeled `Fn` slot (`Fn(v : &T) -> R`; an unlabeled `Fn(&T)` is not accepted). Anywhere a type stands on its own (`T :: &i32`, `ArrayList(&T)`, `Option(&T)`, a struct field `f : &T`) the sigil makes a **reference type** (see "Reference types" below); `&&T` is a reference to a reference: `&r` on a reference binding `r` lends `r` itself (a `&&T`; `&mut r` on a `mut(r)` binding is a `&mut &T`), so a parameter `a : &mut &(T, p)` re-points the caller's reference. Nothing coerces a `&&T` to a `&T`: the referent's reborrow is spelled `&r.*`, and a method call reaches the referent's methods through `(&r).m()` and through `rr.*.m()` (the method probe's deref step); a bare `rr.m()` on a `&&T` binding is not resolved. A borrow result (`-> &T` / `-> &mut T`) is a projection: the body yields a place written with the result's sigil, rooted at a borrow parameter, and the subscript (`x(i)`) reaches it ([INDEX_TRAIT.md](./INDEX_TRAIT.md#projections)).
 
-**Origins** (decision 43 step 2, first piece; [`plans/backlog/REFERENCES_AND_ORIGINS.md`](../../plans/backlog/REFERENCES_AND_ORIGINS.md) O1). A parameter's reference may name its **origin**, the set of places it points into: `x : &(T, p)` and `x : &mut(T, p)`, where `p` is declared in the signature's `generic(...)` clause with the kind `Origin`, as a type parameter is declared with `Type`. A union of declared origins is written as a tuple, `&(T, (p, q))`. The empty origin is spelled `static` (decision 49); in v0.2.77 it is error E0922 outside std and files that declare `pragma(Pragma.AllowUnsafe);`, which may spell it as an unchecked assertion until v0.2.78 checks it. The second argument is read by its kind and must be an origin: a type there is error E0922 (Yo spells a tuple type `Tuple(A, B)`, so a reference to one is `&Tuple(A, B)`), and so is a name no `generic(p : Origin)` declares or another parameter's name. An origin parameter is not a type parameter, so a function abstract only over origins is not generic and is compiled once. A projection's result type (decision 24) may name its origin too: `-> &(T, p)` borrows from an origin parameter, `-> &(T, xs)` from the reference parameter `xs`, and `-> &(T, (p, xs))` from either. A method's result may name its impl's origin parameter, as Rust's `Entry<'a, K, V>::or_insert(self) -> &'a mut V` does: on `impl(generic(p : Origin), H(p), get : (fn(self : &Self) -> &(i32, p))(…))` a call binds `p` by matching the receiver's type, so `h.get()` on `h : H(x)` borrows from `x`, outlives `h`, and freezes `x` while it lives; a name no parameter's type spells (the call could not bind it) is E0922. A by-value parameter's place is the callee's own frame, so `-> &(T, v)` for `v : T` is error E0912. A result origin is checked (N1c). A call freezes only the arguments its result origin names, so after `r := pick(&a, &b)` with `pick` returning `-> &(T, a)`, `b` stays writable while `r` lives; an elided result origin names every reference parameter, so a conflict on an elided call carries a note naming the parameter and the spelling that releases it. The body must reach the place it yields from a parameter the origin names: another parameter is error E0923, a local or a by-value parameter E0912. An impl's result origin must be within its trait method's, for a reference result and for a by-value result that carries an origin such as `-> Option(&(T, self))` (O7: narrower is accepted, wider, or elided against a spelled trait origin, is E0923), and a `Dyn` call maps the result origin from the trait's signature. The origin stays out of the type's identity: `fn(generic(p : Origin), v : &(i32, p)) -> i32` is the same function type as `fn(v : &i32) -> i32`, with the same C, and `-> &(T, xs)` the same as `-> &T`. A closure trait may return a reference, `Fn(s : &T) -> &U` (its origin is per call, the call's reference arguments, and is never spelled): a named projection or a closure literal whose body yields `&place` reached from its own parameters fills the slot, and a closure that yields a place it captured is error E0923. A projection is called through any value of a projection type: a `fn(...) -> &T` parameter or field, an `Impl(Fn(...) -> &T)`, a `Dyn(Fn(...) -> &T)`, and an effect operation `ctl(...) -> &T`, whose handler resumes with a place of its own parameters. A reference's pointee (`&mut &(T, p)`), a local's annotation and an origin parameter on a closure trait's result take an origin in later pieces. `Origin` is a reserved type name, like `Type`.
+**Origins**. A parameter's reference may name its **origin**, the set of places it points into: `x : &(T, p)` and `x : &mut(T, p)`, where `p` is declared in the signature's `generic(...)` clause with the kind `Origin`, as a type parameter is declared with `Type`. A union of declared origins is written as a tuple, `&(T, (p, q))`. The empty origin is spelled `static`. It is not checked, so in safe code it is error E0922; std and files that declare `pragma(Pragma.AllowUnsafe);` may spell it as an unchecked assertion. The second argument is read by its kind and must be an origin: a type there is error E0922 (Yo spells a tuple type `Tuple(A, B)`, so a reference to one is `&Tuple(A, B)`), and so is a name no `generic(p : Origin)` declares or another parameter's name. An origin parameter is not a type parameter, so a function abstract only over origins is not generic and is compiled once. A projection's result type may name its origin too: `-> &(T, p)` borrows from an origin parameter, `-> &(T, xs)` from the reference parameter `xs`, and `-> &(T, (p, xs))` from either. A method's result may name its impl's origin parameter, as Rust's `Entry<'a, K, V>::or_insert(self) -> &'a mut V` does: on `impl(generic(p : Origin), H(p), get : (fn(self : &Self) -> &(i32, p))(…))` a call binds `p` by matching the receiver's type, so `h.get()` on `h : H(x)` borrows from `x`, outlives `h`, and freezes `x` while it lives; a name no parameter's type spells (the call could not bind it) is E0922. A by-value parameter's place is the callee's own frame, so `-> &(T, v)` for `v : T` is error E0912. A result origin is checked. A call freezes only the arguments its result origin names, so after `r := pick(&a, &b)` with `pick` returning `-> &(T, a)`, `b` stays writable while `r` lives; an elided result origin names every reference parameter, so a conflict on an elided call carries a note naming the parameter and the spelling that releases it. The body must reach the place it yields from a parameter the origin names: another parameter is error E0923, a local or a by-value parameter E0912. An impl's result origin must be within its trait method's, for a reference result and for a by-value result that carries an origin such as `-> Option(&(T, self))` (narrower is accepted; wider, or elided against a spelled trait origin, is E0923), and a `Dyn` call maps the result origin from the trait's signature. The origin stays out of the type's identity: `fn(generic(p : Origin), v : &(i32, p)) -> i32` is the same function type as `fn(v : &i32) -> i32`, with the same C, and `-> &(T, xs)` the same as `-> &T`. A closure trait may return a reference, `Fn(s : &T) -> &U` (its origin is per call, the call's reference arguments, and is never spelled): a named projection or a closure literal whose body yields `&place` reached from its own parameters fills the slot, and a closure that yields a place it captured is error E0923. A projection is called through any value of a projection type: a `fn(...) -> &T` parameter or field, an `Impl(Fn(...) -> &T)`, a `Dyn(Fn(...) -> &T)`, and an effect operation `ctl(...) -> &T`, whose handler resumes with a place of its own parameters. A reference's pointee (`&mut &(T, p)`), a local's annotation and a closure trait's result do not name an origin. `Origin` is a reserved type name, like `Type`.
 
-**Reference types** (decision 43 step 3, first piece; [`plans/handover/D43_STEP3_N2_DESIGN.md`](../../plans/handover/D43_STEP3_N2_DESIGN.md)). Outside a slot, `&T`, `&mut T`, `&(T, o)` and `&mut(T, o)` name a reference type: a struct or enum field (`struct(at : &(i32, p), lo : usize)`), a type argument (`Option(&i32)`, `ArrayList(&(i32, (x, y)))`) or an alias (`R :: &i32`). A type constructor declares an origin parameter as `comptime(p) : Origin` and is applied to an origin, `View(x)`, read by name: a binding's place (a local, a parameter, a module-level binding), an origin parameter in scope, or a union `(x, y)`. A field written `&T` without an origin gets a fresh origin of its own. A type may not name its own fields as an origin (`next : &(i32, self.value)` is error E0924): every reference inside a value points outward, so moving the value never dangles it. Origins stay out of the type's identity: `View(x)` and `View(y)`, or `Option(&(i32, x))` and `Option(&(i32, y))`, are one type and one C struct. A position that takes no origin rejects a type carrying one with error E0909: an `extern` signature (FFI takes raw pointers) and a module-level binding. This release gives the first values: an **inline composite** over reference types — a value-semantics struct or enum (a fieldless variant too, `Option(&mut i32).None`), a tuple, an array — constructs and passes by value. A constructor call lends each reference field's place (`at : &x`, `at : &mut x`) and the binding freezes the lent roots (E0911); returning a value whose origin names a local of the same function is E0912. A `&T` field is `Copy` (a copy shares its pointers), a `&mut T` field makes the holder move-only unless its type declares `derive(..., Copy, Clone)`, and C lowers a reference field as `const T*` / `T*`. A `match` arm that binds a reference payload (`.Some(r)` over an `Option(&T)` or an `Option(&Dyn(Trait))`) binds `r` as a reference, as `r := &x` does. `r.f`, `r.m()` and `r.*` read through it, `f(r)` lends it bare to a `&T` parameter, and a write through a `&` payload is E0908. While `r` is live, the places the scrutinee's references name are frozen (E0911). A `&T` parameter of a function whose result carries an origin is passed by pointer, like a projection's, so `.Some(r)` built from that parameter points at the caller's place. A binding of `match(&x, …)` is a reference into `x`'s place in the same way, so `match(&h.v, .Some(s) => .Some(s), .None => .None)` returned as an `Option(&T)` points into `h`. Reading a reference field is not accepted yet (the deref piece, N1e), and a reference inside a container or a cell (`ArrayList(&T)`, `Rc`, `RefCell`) has no values until the container piece.
+**Reference types**. Outside a slot, `&T`, `&mut T`, `&(T, o)` and `&mut(T, o)` name a reference type: a struct or enum field (`struct(at : &(i32, p), lo : usize)`), a type argument (`Option(&i32)`, `ArrayList(&(i32, (x, y)))`) or an alias (`R :: &i32`). A type constructor declares an origin parameter as `comptime(p) : Origin` and is applied to an origin, `View(x)`, read by name: a binding's place (a local, a parameter, a module-level binding), an origin parameter in scope, or a union `(x, y)`. A field written `&T` without an origin gets a fresh origin of its own. A type may not name its own fields as an origin (`next : &(i32, self.value)` is error E0924): every reference inside a value points outward, so moving the value never dangles it. Origins stay out of the type's identity: `View(x)` and `View(y)`, or `Option(&(i32, x))` and `Option(&(i32, y))`, are one type and one C struct. A position that takes no origin rejects a type carrying one with error E0909: an `extern` signature (FFI takes raw pointers) and a module-level binding. An **inline composite** over reference types — a value-semantics struct or enum (a fieldless variant too, `Option(&mut i32).None`), a tuple, an array — constructs and passes by value. A constructor call lends each reference field's place (`at : &x`, `at : &mut x`) and the binding freezes the lent roots (E0911); returning a value whose origin names a local of the same function is E0912. A `&T` field is `Copy` (a copy shares its pointers), a `&mut T` field makes the holder move-only unless its type declares `derive(..., Copy, Clone)`, and C lowers a reference field as `const T*` / `T*`. A `match` arm that binds a reference payload (`.Some(r)` over an `Option(&T)` or an `Option(&Dyn(Trait))`) binds `r` as a reference, as `r := &x` does. `r.f`, `r.m()` and `r.*` read through it, `f(r)` lends it bare to a `&T` parameter, and a write through a `&` payload is E0908. While `r` is live, the places the scrutinee's references name are frozen (E0911). A `&T` parameter of a function whose result carries an origin is passed by pointer, like a projection's, so `.Some(r)` built from that parameter points at the caller's place. A binding of `match(&x, …)` is a reference into `x`'s place in the same way, so `match(&h.v, .Some(s) => .Some(s), .None => .None)` returned as an `Option(&T)` points into `h`. A field of reference type is read with `.*` (`h.f.*`). A reference inside a container or a cell (`ArrayList(&T)`, `Rc`, `RefCell`) is an error.
 
-**`Escapable` and borrows through a handle** (decision 43 step 2, N1d; [`plans/backlog/REFERENCES_AND_ORIGINS.md`](../../plans/backlog/REFERENCES_AND_ORIGINS.md) O9, O10). The prelude marker `Escapable` holds for a type that carries no origin: a reference, any type holding one, a closure with a borrow capture and a borrowing future are not `Escapable`; every other type is. It is derived from the type's structure, like `Send`, and is never implemented by hand (`impl(T, Escapable())` is an error). A generic function states it as `where(T <: Escapable)`, and a call that binds `T` to an origin-carrying type is error E0909 at that call. `Rc(V)` and `Arc(V)` take only an `Escapable` payload, so `Rc.new(v)` with a `v` that holds a reference is E0909 with the same message: a counted cell's payload dies when its last handle goes, at no point a borrow can be checked against. A shared borrow may reach through a handle's deref: `r := &h.*.x` and the capture `{ x : &h.*.x }` borrow the payload with the handle's place as their origin, so `h` is frozen while the borrow lives (dropping, moving or reassigning it is E0911; another handle's drop is fine, since the frozen `h` still holds the payload). The payload is read-only through a handle (decision 46), so `&mut h.*.x` stays error E0919.
+**`Escapable` and borrows through a handle**. The prelude marker `Escapable` holds for a type that carries no origin: a reference, any type holding one, a closure with a borrow capture and a borrowing future are not `Escapable`; every other type is. It is derived from the type's structure, like `Send`, and is never implemented by hand (`impl(T, Escapable())` is an error). A generic function states it as `where(T <: Escapable)`, and a call that binds `T` to an origin-carrying type is error E0909 at that call. `Rc(V)` and `Arc(V)` take only an `Escapable` payload, so `Rc.new(v)` with a `v` that holds a reference is E0909 with the same message: a counted cell's payload dies when its last handle goes, at no point a borrow can be checked against. A shared borrow may reach through a handle's deref: `r := &h.*.x` and the capture `{ x : &h.*.x }` borrow the payload with the handle's place as their origin, so `h` is frozen while the borrow lives (dropping, moving or reassigning it is E0911; another handle's drop is fine, since the frozen `h` still holds the payload). The payload is read-only through a handle, so `&mut h.*.x` stays error E0919.
 
-**Reading a reference with `.*`** (decision 43 step 2, N1e-1; [`plans/backlog/REFERENCES_AND_ORIGINS.md`](../../plans/backlog/REFERENCES_AND_ORIGINS.md)). A reference binding (a `&T` or `&mut T` parameter, a local borrow `y := &place`, a capture-list borrow, a `for(&xs, x => …)` element, a binding of `match(&x, …)` or `match(&mut x, …)`) reads and writes the value it refers to with `.*`: `n.* + 1` with `n : &i32`, `r.* = v` with `r : &mut T`, `x := r.*` (a copy, as `t := s` copies). The bare name used as a whole value is error E0926: an operand (`n + 1`; operators never dereference), a by-value argument, an initializer, a returned value, the write `r = v`, and the borrow `&r` (spelled `&r.*`, the referent). Four uses of the bare name are not whole-value reads and stay as they are: a receiver, which reads through the reference (`r.field`, `r.method()`, `r(i)`); the name passed to a reference parameter (`f(r)` passes what `r` borrows); the re-point `r = &place`; and the scrutinee of `match(r, …)`, which matches through the reference, so its bindings borrow the referent's payload (and write it through a `&mut` reference). `match(&r, …)` on a reference is E0926 because the marker is redundant, and the migration drops it; `match(r.*, …)` matches a copy of the referent. On a reference to a `Box`, an `Rc` or a pointer, `r.*` is the reference's own deref and `r.*.*` the payload. `yo fix <path> --migrate deref` inserts every `.*` and drops the redundant `match` markers (`YO_AUDIT_DEREF=1` lists the sites without editing). It migrates every arm of a platform-gated `cond`, whatever the host: a file with an arm that is dead on the host is evaluated again for every other architecture and OS, and a site that two targets read differently is listed and left as written. The rule holds in every file: the standard library, the compiler's own source and a fetched dependency included (since v0.2.79); only code the compiler synthesizes keeps the bare reading.
+**Reading a reference with `.*`**. A reference binding (a `&T` or `&mut T` parameter, a local borrow `y := &place`, a capture-list borrow, a `for(&xs, x => …)` element, a binding of `match(&x, …)` or `match(&mut x, …)`) reads and writes the value it refers to with `.*`: `n.* + 1` with `n : &i32`, `r.* = v` with `r : &mut T`, `x := r.*` (a copy, as `t := s` copies). The bare name used as a whole value is error E0926: an operand (`n + 1`; operators never dereference), a by-value argument, an initializer, a returned value, the write `r = v`, and the borrow `&r` (spelled `&r.*`, the referent). Four uses of the bare name are not whole-value reads and stay as they are: a receiver, which reads through the reference (`r.field`, `r.method()`, `r(i)`); the name passed to a reference parameter (`f(r)` passes what `r` borrows); the re-point `r = &place`; and the scrutinee of `match(r, …)`, which matches through the reference, so its bindings borrow the referent's payload (and write it through a `&mut` reference). `match(&r, …)` on a reference is E0926 because the marker is redundant; `match(r.*, …)` matches a copy of the referent. On a reference to a `Box`, an `Rc` or a pointer, `r.*` is the reference's own deref and `r.*.*` the payload. The rule holds in every file, the standard library and fetched dependencies included.
 
 ```yo
 first :: (fn(generic(p : Origin), v : &(i32, p)) -> i32)(v.*);
@@ -778,11 +774,9 @@ first_of :: (fn(generic(p : Origin), s : &(Pair, p)) -> &(i32, p))(&s.a);
 second_of :: (fn(s : &mut Pair) -> &mut(i32, s))(&mut s.b);
 ```
 
-**Impls over references** (decision 43 N1f-2; [`plans/VALUES_BY_DEFAULT.md`](../../plans/VALUES_BY_DEFAULT.md) decision 43, R-PROBE). An impl's receiver may be a reference: `impl(&C, Tr(...))`, `impl(&mut C, Tr(...))`, `impl(generic(p : Origin), &(C, p), Tr(...))`, or a blanket `impl(generic(T), where(T <: Tr), &T, Tr(...))`. Inside it `Self` is the reference, so `self : Self` takes the receiver as `&C`. `impl(C, Tr)`, `impl(&C, Tr)` and `impl(&mut C, Tr)` are three receivers; the origin is not part of the receiver, so `impl(&(C, p), Tr)` beside `impl(&C, Tr)` is error E0612, and so is a bare-variable blanket `impl(generic(T), T, Tr)` beside either (it covers `&C` too). A method call resolves by **receiver slot types**: a method's slot is its first parameter's type with `Self` substituted (`self : Self` on `impl(&C, …)` and `self : &Self` on `impl(C, …)` both have the slot `&C`). For a receiver of type `R` the probe tries `R`, then `&R` and `&mut R`, then one dereference of `R` and its borrows, and the first step at which a method applies wins; an inherent method beats a trait method at the same step, and two trait methods at the same step are error E0616, whose message names each impl and the slot they share. An owned `c` therefore takes a by-value `self` on `C` first (`xs.into_iter()` consumes) and borrows only when nothing takes it by value; `(&c).m()` and `(&mut c).m()` are the explicit borrows, which start the probe at `&C` (`(&xs).into_iter()` borrows). The explicit borrow never moves out of `c` (a by-value `self` on a type that is not `Copy` is E0901) and `(&c)` never reaches a `&mut Self` method (E0908). A method miss on a reference receiver lists the slot types probed. A receiver slot `&&C` (`self : &Self` on `impl(&C, …)`, which a trait that takes `&Self` forces) is accepted: a receiver that is a reference binding `r : &C` lends its own storage, as `(&r).m()` does; an owned place, a call result or an explicit `(&c)` has no storage to lend and the call is an error that says to bind the reference to a local first. A receiver of reference type `&U` (a binding, a field, a call result, `rr.*`) probes the slot `&U` first: `impl(U, …)`'s `self : &Self` methods and `impl(&U, …)`'s `self : Self` methods have it, and the reference is the argument. Only when nothing has that slot does the probe reach `&&U`, which a reference binding fills by lending its own storage and any other receiver cannot (E0610). An impl over references, a blanket over `&T` included, never shadows the referent's own method. An infix operator selects with the same rule: an operand that is a reference binding takes part with its reference type, so `ra == rb` on `ra, rb : &C` is the impl over `&C` (Rust's `impl PartialEq<&B> for &A`), whose `lhs : &Self` and `rhs : &Rhs` slots the bindings' own storage fills; it is never a dereference. When no impl over `&C` takes the operands (`ra == c` with `c : C`, `ra + 1`, or a `C` with no such impl) the operand is a whole-value read and E0926 asks for `ra.*`. The prelude provides `Eq(&T)` and `Ord(&T)` for every sized `T` with `Eq(T)` / `Ord(T)` (Rust's `impl PartialEq<&B> for &A`): two references compare and order as their referents, so `ra == rb`, `ra < rb` and generic code at `T := &U` (`max`, a bound `where(T <: Ord(T))`) work, and a user `impl(&C, Eq(&C))` beside them is E0612. `Hash` and `ToString` over `&T` are not provided yet.
+**Impls over references**. An impl's receiver may be a reference: `impl(&C, Tr(...))`, `impl(&mut C, Tr(...))`, `impl(generic(p : Origin), &(C, p), Tr(...))`, or a blanket `impl(generic(T), where(T <: Tr), &T, Tr(...))`. Inside it `Self` is the reference, so `self : Self` takes the receiver as `&C`. `impl(C, Tr)`, `impl(&C, Tr)` and `impl(&mut C, Tr)` are three receivers; the origin is not part of the receiver, so `impl(&(C, p), Tr)` beside `impl(&C, Tr)` is error E0612, and so is a bare-variable blanket `impl(generic(T), T, Tr)` beside either (it covers `&C` too). A method call resolves by **receiver slot types**: a method's slot is its first parameter's type with `Self` substituted (`self : Self` on `impl(&C, …)` and `self : &Self` on `impl(C, …)` both have the slot `&C`). For a receiver of type `R` the probe tries `R`, then `&R` and `&mut R`, then one dereference of `R` and its borrows, and the first step at which a method applies wins; an inherent method beats a trait method at the same step, and two trait methods at the same step are error E0616, whose message names each impl and the slot they share. An owned `c` therefore takes a by-value `self` on `C` first (`xs.into_iter()` consumes) and borrows only when nothing takes it by value; `(&c).m()` and `(&mut c).m()` are the explicit borrows, which start the probe at `&C` (`(&xs).into_iter()` borrows). The explicit borrow never moves out of `c` (a by-value `self` on a type that is not `Copy` is E0901) and `(&c)` never reaches a `&mut Self` method (E0908). A method miss on a reference receiver lists the slot types probed. A receiver slot `&&C` (`self : &Self` on `impl(&C, …)`, which a trait that takes `&Self` forces) is accepted: a receiver that is a reference binding `r : &C` lends its own storage, as `(&r).m()` does; an owned place, a call result or an explicit `(&c)` has no storage to lend and the call is an error that says to bind the reference to a local first. A receiver of reference type `&U` (a binding, a field, a call result, `rr.*`) probes the slot `&U` first: `impl(U, …)`'s `self : &Self` methods and `impl(&U, …)`'s `self : Self` methods have it, and the reference is the argument. Only when nothing has that slot does the probe reach `&&U`, which a reference binding fills by lending its own storage and any other receiver cannot (E0610). An impl over references, a blanket over `&T` included, never shadows the referent's own method. An infix operator selects with the same rule: an operand that is a reference binding takes part with its reference type, so `ra == rb` on `ra, rb : &C` is the impl over `&C` (Rust's `impl PartialEq<&B> for &A`), whose `lhs : &Self` and `rhs : &Rhs` slots the bindings' own storage fills; it is never a dereference. When no impl over `&C` takes the operands (`ra == c` with `c : C`, `ra + 1`, or a `C` with no such impl) the operand is a whole-value read and E0926 asks for `ra.*`. The prelude provides `Eq(&T)` and `Ord(&T)` for every sized `T` with `Eq(T)` / `Ord(T)` (Rust's `impl PartialEq<&B> for &A`): two references compare and order as their referents, so `ra == rb`, `ra < rb` and generic code at `T := &U` (`max`, a bound `where(T <: Ord(T))`) work, and a user `impl(&C, Eq(&C))` beside them is E0612. `Hash` and `ToString` over `&T` are not provided.
 
-The older word spelling (`imm(x) : T`, `mut(x) : T`, `inout(x) : T`, `imm(self) : Self`, `mut(self) : Self`, `imm(y) := place`, `for(xs, mut(x) => ...)`) was deleted in Generation B of the [values-by-default plan](../../plans/VALUES_BY_DEFAULT.md) (decision 42), and the reference-type declaration forms `ref(struct(...))`, `ref(enum(...))` and `atomic(...)` with them (V5, v0.2.79): both are error E0009, which names the sigil spelling (the `Rc(S)` / `Arc(S)` sharing for the latter), and older code is upgraded on the last release that ships the migrations ([ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md), "Retired migrations"). `imm` is an ordinary identifier; `mut` stays reserved and appears only after `&`.
-
-Operator traits spell their operands' modes the same way, and every impl writes exactly those modes (decision 34). The comparison traits `Eq` and `Ord` borrow, `(==) : (fn(lhs : &Self, rhs : &Rhs) -> bool)`, so `a == b` keeps both operands. The arithmetic, bitwise and unary traits (`Add` through `BitRightShift`, `Negate`, `LogicalNot`, `BitNot` and their `Comptime*` twins) take their operands by value, as in Rust: `(+) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)`. A by-value operand follows the parameter rules above: a `Copy` operand is copied, a `String` is shared, and a move-only operand moves into the operator. An impl that borrows an operand the trait takes by value, or the reverse, is rejected as written. A `Dyn` has no value to hand a by-value operand, so a trait whose method takes `self` by value (`LogicalNot`, `Negate`, `Add`, ...) cannot be put behind a `Dyn` for any payload (E0614).
+Operator traits spell their operands' modes the same way, and every impl writes exactly those modes. The comparison traits `Eq` and `Ord` borrow, `(==) : (fn(lhs : &Self, rhs : &Rhs) -> bool)`, so `a == b` keeps both operands. The arithmetic, bitwise and unary traits (`Add` through `BitRightShift`, `Negate`, `LogicalNot`, `BitNot` and their `Comptime*` twins) take their operands by value, as in Rust: `(+) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)`. A by-value operand follows the parameter rules above: a `Copy` operand is copied, a `String` is shared, and a move-only operand moves into the operator. An impl that borrows an operand the trait takes by value, or the reverse, is rejected as written. A `Dyn` has no value to hand a by-value operand, so a trait whose method takes `self` by value (`LogicalNot`, `Negate`, `Add`, ...) cannot be put behind a `Dyn` for any payload (E0614).
 
 ```yo
 Money :: struct(cents : i64);
@@ -1245,11 +1239,9 @@ s3 := Rc.clone(s2); // RC = 3
 // When RC reaches 0, the payload's `drop` runs and the cell is freed
 ```
 
-#### Replacing a `ref` declaration
+#### Choosing a value, a borrow or a shared cell
 
-`ref(struct(...))`, `ref(enum(...))` and `atomic(...)` were deleted in
-v0.2.79 (error E0009; plans/VALUES_BY_DEFAULT.md V5), and since v0.2.76 std
-declares neither. Two questions picked the replacement for a `ref` type:
+Two questions pick the shape of a type that holds state:
 
 1. Is it written after construction?
 2. Is it needed by two owners that outlive each other's calls?
@@ -1258,7 +1250,7 @@ No and no: a plain `struct`, passed by `&` and returned by value. Yes and no: an
 owned value, lent `&mut` where it is written and `&` where it is read. Yes and
 yes: `Rc(RefCell(S))`.
 
-std's former `ref` types show the method shapes. Each method has exactly one:
+std's types show the method shapes. Each method has exactly one:
 
 - A builder consumes and returns: `Command.new(p).arg(a).arg(b)` as a chain, or
   `cmd = cmd.arg(a);` on a `mut(cmd)` binding. `HttpRequest`/`HttpResponse`
@@ -1318,7 +1310,7 @@ export(main);
 
 The impl is checked. A `Clone` impl must cover the same instantiations, and the compiler never writes one: `derive(T, Copy)` alone is an error naming `derive(T, Copy, Clone)`. Every field and variant payload must be `Copy`, and the error names the first one that is not (a `String` field: `holds a move-only value in its field \`name\``). A type that implements `Drop` cannot be `Copy`, in either order, and neither can a reference type. `derive(T, Clone)` is always allowed (a field-wise clone of `Copy` fields is the bitwise copy), and it is how a type that is `Copy` only under a bound gets `clone()` at every instantiation: `derive(generic(T : Type), where(T <: Clone), Pair(T), Clone)` — the derive's clone calls `.clone()` on its fields, so it needs the bound. Together with `derive(generic(T : Type), where(T <: Copy), Pair(T), Copy)`, it makes `Pair(i32)` copy implicitly and `Pair(String)` clone explicitly. A hand-written `Clone` impl is an error only on a type that is `Copy` for every instantiation the impl serves, such as a concrete `Copy` type; a generic one that also serves types that are not `Copy`, like the prelude `Option(T)`'s, is allowed. A tuple, an `Array(T, N)`, an anonymous record, a closure and a `fn` pointer have no declaration to annotate, so each is `Copy`, and `Clone`, exactly when all its parts are. When it is `Copy`, `x.clone()` is the copy, so `f.clone()` on a `fn` pointer works; a record or closure that is `Clone` but not `Copy` clones field-wise, copying each `Copy` part and cloning the rest. A closure's parts are its capture record, as in Rust: a by-value capture counts with its own type (a listed `{ s }`, and an implicit capture too, since a closure bound to a name owns what it captures), a `&` capture is a pointer and so `Copy`, and a `&mut` capture makes the closure neither `Copy` nor `Clone`. So a closure that owns a `String` is `Clone` but not `Copy`: `d := c` moves it, and `c.clone()` gives a second closure with its own `String`. `Rc`, `Arc`, `String`, the collections and `Dyn` never are. A raw pointer's `p.clone()` copies the pointer, never the pointee; when the pointee has a field whose name the pointer also owns as a method (`clone`, `add`, `sub`, `offset_from`), `p.m(...)` is an error that names `p.*.m(...)` for the pointee's field and, for the pointer's clone, the copy `q := p`.
 
-`Copy` is the rule ([the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md), decision 36). A plain-data type that is not `Copy` is copied only explicitly: `q := p` moves a `Point` without `Copy`, and a later use of `p` is E0901, whose note names `derive(Point, Copy, Clone)` and `p.clone()`. A `&T` parameter or a `match` binding of one borrows it, so storing or returning it there is E0901 too; take the parameter by value (`p : Point`, without `&`) to own it. Compile-time-only types, control-bound records such as `Exception`, unions, C opaque types and refinements of a `Copy` type keep copying implicitly.
+`Copy` is the rule. A plain-data type that is not `Copy` is copied only explicitly: `q := p` moves a `Point` without `Copy`, and a later use of `p` is E0901, whose note names `derive(Point, Copy, Clone)` and `p.clone()`. A `&T` parameter or a `match` binding of one borrows it, so storing or returning it there is E0901 too; take the parameter by value (`p : Point`, without `&`) to own it. Compile-time-only types, control-bound records such as `Exception`, unions, C opaque types and refinements of a `Copy` type keep copying implicitly.
 
 #### Move-only values
 
@@ -1351,11 +1343,11 @@ Every copy point moves a move-only value: `:=`, `=`, a `sink` argument, a field 
 
 To move a field out of a holder that stays alive, use `std/mem` (Rust's `std::mem`): `replace(&mut h.f, v)` stores `v` and returns the old value, `take(&mut h.f)` stores `T`'s default (`where(T <: Default)`) and returns the old value, and `swap(&mut a, &mut b)` exchanges two places. Each moves bitwise, so a move-only value is neither copied nor dropped twice. They live in their own module rather than the prelude, so the names stay free for your own definitions: `{ replace, take, swap } :: import("std/mem");`.
 
-A generic function is checked at each instantiation: `ArrayList(Fd).get(i)` copies an element out, so that instantiation is E0901, reported at the call. A collection element is reached by place instead (decision 20 of [the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md)): `xs(i)` reads it in place, `xs.with(i, (v) => …)` runs a body on it borrowed `&mut` and returns the body's result, `xs.take(i)` moves it out and leaves `T`'s default, `xs.swap(i, j)` exchanges two elements, and `replace(&mut xs(i), v)` from `std/mem` moves a new value in and the old one out. Each copying accessor has a cloning sibling for an element that implements `Clone`: `get_cloned`, `first_cloned` and `last_cloned` on `ArrayList`; `get_cloned`, `front_cloned` and `back_cloned` on `Deque`; `get_cloned` on the maps, with `get_key_value_cloned` (`HashMap`), `get_index_cloned` (`OrderedMap`) and `first_entry_cloned`/`last_entry_cloned` (`BTreeMap`); and `peek_cloned` on `PriorityQueue`. `xs.extend(ys)` consumes `ys`; `xs.extend_cloned(&ys)` appends clones and keeps it. `Option` and `Result`'s `unwrap`, `expect`, `unwrap_or`, `unwrap_or_else`, `unwrap_or_default`, `unwrap_err` and `expect_err` consume their receiver, so `make().unwrap()` moves a move-only payload out.
+A generic function is checked at each instantiation: `ArrayList(Fd).get(i)` copies an element out, so that instantiation is E0901, reported at the call. A collection element is reached by place instead: `xs(i)` reads it in place, `xs.with(i, (v) => …)` runs a body on it borrowed `&mut` and returns the body's result, `xs.take(i)` moves it out and leaves `T`'s default, `xs.swap(i, j)` exchanges two elements, and `replace(&mut xs(i), v)` from `std/mem` moves a new value in and the old one out. Each copying accessor has a cloning sibling for an element that implements `Clone`: `get_cloned`, `first_cloned` and `last_cloned` on `ArrayList`; `get_cloned`, `front_cloned` and `back_cloned` on `Deque`; `get_cloned` on the maps, with `get_key_value_cloned` (`HashMap`), `get_index_cloned` (`OrderedMap`) and `first_entry_cloned`/`last_entry_cloned` (`BTreeMap`); and `peek_cloned` on `PriorityQueue`. `xs.extend(ys)` consumes `ys`; `xs.extend_cloned(&ys)` appends clones and keeps it. `Option` and `Result`'s `unwrap`, `expect`, `unwrap_or`, `unwrap_or_else`, `unwrap_or_default`, `unwrap_err` and `expect_err` consume their receiver, so `make().unwrap()` moves a move-only payload out.
 
 #### std's resources are move-only
 
-The resources in `std/` are move-only values: `File`, `TempDir`, `TempFile`, `Watcher`, `TcpStream`, `TcpListener`, `UdpSocket`, `UnixStream`, `UnixListener`, `TlsStream`, `HttpClient`, `Child` and its pipe handles (`ChildStdin`, `ChildStdout`, `ChildStderr`), `Thread`, and a `BufReader`/`BufWriter` that owns one of them ([the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md), V3). Each is a struct whose state lives in a `Box`, so the handle can move while a future or the runtime holds the state's address. Dropping the handle releases the resource: the descriptor is closed, the temporary removed, the watch stopped, the thread detached. The `std/sync` primitives (`Mutex`, `RawMutex`, `RwLock`, `Cond`, `Barrier`, `Semaphore`, `WaitGroup`, `Once`, `OnceCell` and the `Atomic*` types) are move-only values the same way, shared across threads as `Arc(Mutex(T))`; `Channel(T)` is a value holding an `Arc` of its queue, and `ch.clone()` is another handle on it.
+The resources in `std/` are move-only values: `File`, `TempDir`, `TempFile`, `Watcher`, `TcpStream`, `TcpListener`, `UdpSocket`, `UnixStream`, `UnixListener`, `TlsStream`, `HttpClient`, `Child` and its pipe handles (`ChildStdin`, `ChildStdout`, `ChildStderr`), `Thread`, and a `BufReader`/`BufWriter` that owns one of them. Each is a struct whose state lives in a `Box`, so the handle can move while a future or the runtime holds the state's address. Dropping the handle releases the resource: the descriptor is closed, the temporary removed, the watch stopped, the thread detached. The `std/sync` primitives (`Mutex`, `RawMutex`, `RwLock`, `Cond`, `Barrier`, `Semaphore`, `WaitGroup`, `Once`, `OnceCell` and the `Atomic*` types) are move-only values the same way, shared across threads as `Arc(Mutex(T))`; `Channel(T)` is a value holding an `Arc` of its queue, and `ch.clone()` is another handle on it.
 
 - **A copy is E0901.** `g := f` moves the file, and a use of `f` afterwards is E0901 (use of moved value). Storing one handle twice, or capturing it in two closures, is E0901 as well. Before this change a `File` was a reference handle, and a copy shared its descriptor and position.
 - **Lend it.** Every method takes `self : &Self`, so `f.read_to_string(io)` borrows `f`. A function that only uses a resource takes `&File`.
@@ -1370,11 +1362,11 @@ Every I/O method's future borrows the resource until it completes, because the d
 - Its effect bundle must be a place. Write `b := IoExn(io : io, exn : exn); io.await(f.read_to_string(io), b)`; an inline `IoExn(...)` in the `io.await` is E0910.
 - The borrowed resource cannot live inside an `Rc` payload or behind a pointer dereference (E0909): lend the handle instead.
 
-For the same reason there is no `Dyn(Reader)` or `Dyn(Writer)` any more. The traits' defaults (`read_to_end`, `read_to_string`, `write_all`) return futures that borrow the reader or writer, and a vtable's future type carries no borrow, so `dyn(r)` as either trait object is E0909 for every implementor. Take one through a generic `Impl(Reader)` / `Impl(Writer)` parameter instead.
+For the same reason there is no `Dyn(Reader)` or `Dyn(Writer)`. The traits' defaults (`read_to_end`, `read_to_string`, `write_all`) return futures that borrow the reader or writer, and a vtable's future type carries no borrow, so `dyn(r)` as either trait object is E0909 for every implementor. Take one through a generic `Impl(Reader)` / `Impl(Writer)` parameter instead.
 
 #### The destructor: `Drop`
 
-`Drop` is the destructor trait, and its method `drop` has Rust's semantics ([the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md), decision 45): it runs automatically, exactly once, when the owner drops the value or the last `Rc`/`Arc` reference goes away, and a value type that implements it is move-only. Its receiver follows Rust's `drop(&mut self)`: `drop : (fn(self : &mut Self) -> unit)`, so a destructor may take a field out or reset it (`self.f = .None`) before the fields are dropped, and an impl that declares `self : &Self` does not conform. Its old name was `Dispose`, which the compiler no longer recognizes (`Dispose` → `Drop`, `dispose` → `drop`, and `x.dispose()` → `drop(x)`); older code is upgraded on the last release that ships the migrations ([ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md), "Retired migrations").
+`Drop` is the destructor trait, and its method `drop` has Rust's semantics: it runs automatically, exactly once, when the owner drops the value or the last `Rc`/`Arc` reference goes away, and a value type that implements it is move-only. Its receiver follows Rust's `drop(&mut self)`: `drop : (fn(self : &mut Self) -> unit)`, so a destructor may take a field out or reset it (`self.f = .None`) before the fields are dropped, and an impl that declares `self : &Self` does not conform.
 
 Calling the destructor by hand is error E0915, as in Rust: `x.drop()`, `Fd.drop(&x)` and `(Fd <: Drop).drop(&x)` would run it a second time on a live value. Reading it as a value, `f := Fd.drop`, is E0915 too, since a call through `f` would do the same. A method of another trait that happens to be named `drop` is an ordinary method, called directly or through `Dyn`. A destructor does not call its fields' destructors either: they drop after it returns. To end a value early, pass it to the prelude's `drop(x)`, which moves it in and drops it when the call returns; a later use of `x` is E0901.
 
@@ -1592,6 +1584,8 @@ main :: (fn() -> unit)({
 For in-place mutation without raw pointers, use a `name : &mut T` parameter. The `&mut` prefixes the parameter's type, and the parameter behaves like a binding to the caller's variable — reads access the current value, writes update the caller's storage. At codegen time `name : &mut T` lowers to `T*` in C; the caller lends the place with `&mut x` and the compiler passes its address.
 
 ```yo
+{ assert } :: import("std/assert");
+
 swap :: (fn(a : &mut i32, b : &mut i32) -> unit)({
   tmp := a.*;
   a.* = b.*;
@@ -1603,13 +1597,13 @@ increment :: (fn(n : &mut i32) -> unit)({
 });
 
 main :: (fn() -> unit)({
-  x := i32(1);
-  y := i32(2);
+  mut(x) := i32(1);
+  mut(y) := i32(2);
   swap(&mut x, &mut y); // the call site lends each place with `&mut`
   assert(x == i32(2), "swapped");
   assert(y == i32(1), "swapped");
 
-  counter := i32(0);
+  mut(counter) := i32(0);
   increment(&mut counter);
   increment(&mut counter);
   assert(counter == i32(2), "incremented");
@@ -1995,7 +1989,7 @@ while(i < usize(3), {
 
 Combinator chains (`coll.into_iter().map(f)`, `.filter(p)`, `.fold(init, f)`, etc.) keep the value-yielding `Iterator` shape; a blanket `into_iter` impl `generic(I), where(I <: Iterator), I, into_iter : (fn(self) -> Self)` (identity) lets `for(combinator_chain, (x) => body)` work uniformly.
 
-The borrow form `for(&mut coll, x => body)` hands the body each element in place: writing `x.* = …` writes the element. The sigil goes on the source and the element mode follows it. For a map, `for(&mut m, (k, v) => body)` lends each value (the key read-only). The loop is the value form over `(&mut coll).into_iter()`: the cursor `impl(&mut C, IntoIterator)` returns holds the lend of the collection for the whole loop (decision 39 of `plans/VALUES_BY_DEFAULT.md`, R-FOR of `plans/backlog/REFERENCES_AND_ORIGINS.md`), so the body reaches the collection only through `x`: naming it in the body is E0911. The read walk `for(&coll, x => body)` (`for(&m, (k, v) => body)` for a map) is the same over `(&coll).into_iter()` and binds each element as a read-only `&` reference: nothing is copied, a write through `x` is E0908, and the body may read the collection but not write it (E0911). Every std collection has the read walk; `HashSet` and `PriorityQueue` have no in-place walk, and `String` has neither (walk `s.chars()`). To read or grow a list while walking it, walk its positions, `for(xs.indices(), i => …)` with `xs(i)`. A source reached through an `Rc` is walked as `for(&xs.*, …)` (see [OWNERSHIP_AND_BORROWING.md](./OWNERSHIP_AND_BORROWING.md#iteration)).
+The borrow form `for(&mut coll, x => body)` hands the body each element in place: writing `x.* = …` writes the element. The sigil goes on the source and the element mode follows it. For a map, `for(&mut m, (k, v) => body)` lends each value (the key read-only). The loop is the value form over `(&mut coll).into_iter()`: the cursor `impl(&mut C, IntoIterator)` returns holds the lend of the collection for the whole loop, so the body reaches the collection only through `x`: naming it in the body is E0911. The read walk `for(&coll, x => body)` (`for(&m, (k, v) => body)` for a map) is the same over `(&coll).into_iter()` and binds each element as a read-only `&` reference: nothing is copied, a write through `x` is E0908, and the body may read the collection but not write it (E0911). Every std collection has the read walk; `HashSet` and `PriorityQueue` have no in-place walk, and `String` has neither (walk `s.chars()`). To read or grow a list while walking it, walk its positions, `for(xs.indices(), i => …)` with `xs(i)`. A source reached through an `Rc` is walked as `for(&xs.*, …)` (see [OWNERSHIP_AND_BORROWING.md](./OWNERSHIP_AND_BORROWING.md#iteration)).
 
 ```yo
 mut(xs) := ArrayList(i32).new();
@@ -2646,8 +2640,7 @@ borrows the payload, because other handles may share the cell;
 only the wrapper spelling: a structural pattern there without it is E0609,
 whose help names `Rc(p)`. A missing case is printed through the wrapper
 (`.Node(Rc(.Leaf(_)), _)`). At a unique `Box(T)` position a pattern without
-`Box(…)` is still looked through implicitly, until `src/` spells `Box(p)`
-(`plans/VALUES_BY_DEFAULT.md` decision 31):
+`Box(…)` is also looked through implicitly:
 
 ```yo
 axis :: (fn(t : Tuple(i32, i32)) -> i32)(
@@ -2720,7 +2713,7 @@ the ordinary suspension/resume machinery (`plans/reference/MATCH_PATTERN_MATCHIN
 ### How a `match` takes its scrutinee
 
 A `match` takes its scrutinee the way a parameter takes its argument
-(`plans/VALUES_BY_DEFAULT.md` decision 26, Rust's default binding modes):
+(Rust's default binding modes):
 
 | Scrutinee | The arms' bindings |
 | --- | --- |
@@ -2754,11 +2747,11 @@ main :: (fn() -> unit)({
   p := Two.Two(a : Fd(n : 3), b : Fd(n : 4));
   n := match(&p, .Two(a, _) => a.n, .Zero => i32(0)); // borrows; p stays
   r := first(p); // p moves into `first`
-  (o : Option(i32)) = .Some(i32(1));
+  (mut(o) : Option(i32)) = .Some(i32(1));
   match(
     &mut o,
     .Some(v) => {
-      v = (v + i32(1));
+      v.* = (v.* + i32(1));
     },
     .None => ()
   ); // o is .Some(2)
@@ -2772,8 +2765,8 @@ The rules of a consuming `match`:
 - The parts an arm does not bind (`_`, a field it does not list) are dropped
   when the arm is entered. A binding the arm still owns at its end is dropped
   there; one it moves is gone.
-- Below a reference cell (an `Rc`/`Arc` payload the pattern looks through,
-  a `ref` value) the bindings borrow, and the handle lives until the arm ends.
+- Below a reference cell (an `Rc`/`Arc` payload the pattern looks through)
+  the bindings borrow, and the handle lives until the arm ends.
 - A use of the scrutinee after a consuming `match` is E0901, whose help names
   `match(&x, …)`. Matching a module-level binding, a field (`x.f`), an element
   (`xs(i)`) or a dereference (`p.*`) by value is E0901 too (Yo has no partial
@@ -2808,7 +2801,7 @@ NOT immutable: `push_str`, `push_string`, `push_byte`, `push_rune`, `reserve`,
 `self : &mut Self` and mutate in place. Operators like `+` still produce a new string.
 
 For incremental assembly use `StringBuilder`, a value that owns its byte
-buffer (`B11`, decision 24): `b2 := b` moves it, `b.clone()` is the
+buffer: `b2 := b` moves it, `b.clone()` is the
 independent copy, and `into_string()` hands the buffer over as the `String`
 without a fresh allocation. A builder several owners share is
 `Rc(RefCell(StringBuilder))`.
@@ -2860,19 +2853,19 @@ append_mut :: (fn(out : &mut String) -> unit)({
 
 // A `&T` parameter is borrowed: write a local clone and return it.
 with_bang :: (fn(s : &String) -> String)({
-  t := s.clone();
+  mut(t) := s.clone();
   t.push_str("!");
   t
 });
 
 main :: (fn() -> unit)({
   a := String.from("hi");
-  b := a.clone(); // b has its own copy of the bytes
+  mut(b) := a.clone(); // b has its own copy of the bytes
   b.push_str("?"); // a is untouched
   println(`"${a}" "${b}"`); // "hi" "hi?"
 
   e := String.new();
-  f := e.clone();
+  mut(f) := e.clone();
   f.push_str("x"); // empty or not, a clone is independent
   println(`"${e}" "${f}"`); // "" "x"
 
@@ -3168,7 +3161,7 @@ Yo supports closures (anonymous functions that capture their environment).
 A closure compiles to a **capture struct** holding the variables it uses. How that struct is stored and called depends on the type it is given:
 
 - **`Impl(Fn(...))` — static dispatch, not reference counted.** The compiler monomorphizes the closure into its own function, passes the capture struct **by value**, and emits a direct call. No heap allocation, no vtable, no reference count. Each closure has its own distinct type (see [Closure Type Restrictions](#closure-type-restrictions)), so this form cannot hold two different closures in one variable.
-- **`Box(Dyn(Fn(...)))` and `&Dyn(Fn(...))` — dynamic dispatch.** The value is a fat pointer of `{data, vtable}` ([DYN_DESIGN.md](./DYN_DESIGN.md)): `dyn(Box.new(f))` moves the capture struct into a heap box the `Box` owns, and `dyn(&f)` borrows a closure where it is, with no allocation. Use this when closures of different types must share one type — storing them in a collection, returning them from different branches, or accepting any callable. The erasure is always written, at a binding, a field, an argument and a result alike; a plain `dyn(f)` of a closure, a named `fn` or an `Impl(Fn(...))` value, the legacy alias of `dyn(Box.new(f))` in v0.2.77 and v0.2.78, is E0620 since v0.2.79. A callable passed bare into a `Dyn(Fn(...))` slot (`(d : Dyn(Fn() -> i32)) = f`, `run(f)`, `S(cb : f)`, a body ending in `f`) is error E0618, whose note names `dyn(f)`; `yo fix <path>` wraps a named callable. An `Impl(Fn(...))` slot is not an erasure and takes the closure bare.
+- **`Box(Dyn(Fn(...)))` and `&Dyn(Fn(...))` — dynamic dispatch.** The value is a fat pointer of `{data, vtable}` ([DYN_DESIGN.md](./DYN_DESIGN.md)): `dyn(Box.new(f))` moves the capture struct into a heap box the `Box` owns, and `dyn(&f)` borrows a closure where it is, with no allocation. Use this when closures of different types must share one type — storing them in a collection, returning them from different branches, or accepting any callable. The erasure is always written, at a binding, a field, an argument and a result alike; a plain `dyn(f)` of a closure, a named `fn` or an `Impl(Fn(...))` value is E0620. A callable passed bare into a `Dyn(Fn(...))` slot (`(d : Dyn(Fn() -> i32)) = f`, `run(f)`, `S(cb : f)`, a body ending in `f`) is error E0618, whose note names `dyn(f)`; `yo fix <path>` wraps a named callable. An `Impl(Fn(...))` slot is not an erasure and takes the closure bare.
 
 In both cases the *captured values* follow the usual rules: a captured `Rc` handle is owned by the capture and released when the capture is dropped.
 
@@ -3246,8 +3239,7 @@ test_capture :: (fn() -> unit)({
 
 ### Capture lists
 
-A closure may list its captures in a field list before its parameters
-(`plans/VALUES_BY_DEFAULT.md` decisions 35 and 38):
+A closure may list its captures in a field list before its parameters:
 
 ```yo
 k := i32(3);
@@ -3307,8 +3299,8 @@ count := i32(0);
   rest. A `&mut` capture makes the closure neither, and
   `where(T <: Copy)` rejects a closure that is not `Copy` (E0602).
 - **Borrowed places are frozen while the closure lives**: no access to a
-  `&mut`-captured place, no write or move of a `&`-captured one (E0910). In
-  this release a closure lives until the end of its binding's scope, so put
+  `&mut`-captured place, no write or move of a `&`-captured one (E0910). A
+  closure lives until the end of its binding's scope, so put
   the closure and its calls in a block when the place is needed afterwards.
 - **Call arguments are exclusive.** A closure that holds a `&mut` capture is
   lent exclusively, so a call may not also pass anything that reaches the
@@ -3322,8 +3314,8 @@ count := i32(0);
 
 ### Call-once closures: `FnOnce`
 
-`FnOnce(...) -> R` is the closure trait whose call consumes the closure
-(`plans/VALUES_BY_DEFAULT.md` decision 37). A closure with a capture list,
+`FnOnce(...) -> R` is the closure trait whose call consumes the closure.
+A closure with a capture list,
 typed `FnOnce(...)`, owns its by-value captures, so its body may move one out:
 
 ```yo
@@ -3353,14 +3345,14 @@ run_once(add); // an `Fn` serves for one call
   some arms of a `cond`/`match` is dropped, uncalled, at the end of the others.
 - **Moving a capture out needs `FnOnce` and a capture list.** Against
   `Fn(...)`, whose call borrows the captures so the closure can run again, a
-  move out is E0913 at the moving line. In this release an implicit capture
+  move out is E0913 at the moving line. An implicit capture
   cannot be moved out either (E0913 names the capture-list spelling).
 - `Box(Dyn(FnOnce(...) -> R))` holds any call-once closure; its call consumes it too.
 
 ### Call-repeatedly closures: `FnMut`
 
 `FnMut(...) -> R` is the closure trait whose call borrows the closure
-exclusively, `self : &mut Self` (`plans/VALUES_BY_DEFAULT.md` decision 37).
+exclusively, `self : &mut Self`.
 Its body may write its own state — the by-value entries of its capture list —
 and its `&mut` captures, and the write persists from one call to the next:
 
@@ -3413,8 +3405,7 @@ twice({ n : i32(10) }() => {
   from several threads at once, so a closure that writes a `&mut` capture or
   its own state is rejected there, naming `FnMut`.
 - **A `&mut`-capturing literal at an `Fn(...)` slot is E0913.** A literal
-  that holds a `&mut` capture is `FnMut(...)` by its captures alone, and the
-  one-release exemption that admitted it is gone: every std non-escaping
+  that holds a `&mut` capture is `FnMut(...)` by its captures alone: every std non-escaping
   callback — call-repeatedly (`for_each`, `retain`, `sort_by`, the
   `with_lock` bodies) and call-once alike (the `Option`/`Result`
   combinators, `RefCell.with`, `Once.call`, the `*_lazy` loggers) — takes
@@ -3547,7 +3538,7 @@ assert(sum(&t) == 3);
   A cell an `alloc` argument placed has a 16-byte owner prefix recording the
   allocator in front of the payload, and the handle says so in bit 0 of its
   pointer (every cell is at least 16-byte aligned, so the bit is free).
-  `Box`'s payload may be unsized (`comptime(V) : ?Sized`, decision 49): the
+  `Box`'s payload may be unsized (`comptime(V) : ?Sized`): the
   handle of a `Box([T])` or `Box(Dyn(T))` is two words.
 - **Allocators.** `Box.new(v, alloc : .Some(a))` places the cell in `a`;
   without `alloc`, the cell is on the global allocator. The cell is freed through its owner, and `Box.clone(b)`
@@ -3574,7 +3565,7 @@ Yo provides `Rc` (built with `Rc.new`) for heap-allocating value types with auto
 > assert(ref_count(a) == usize(2), "a and b name the SAME value");
 > ```
 >
-> **A second handle is spelled** (`plans/VALUES_BY_DEFAULT.md` decision 17):
+> **A second handle is spelled**:
 > a handle is a new owner, so sharing is visible where it is created. A
 > handle's last use moves it (`b := a` with no later `a`); an implicit copy
 > whose source is used again is E0901, whose note names `Rc.clone(a)`. A
@@ -3582,8 +3573,7 @@ Yo provides `Rc` (built with `Rc.new`) for heap-allocating value types with auto
 > handle (a struct field, an `Option(Rc(T))`) is copied with `.clone()`,
 > which clones each handle; a closure takes a second handle in its capture
 > list, `{ a : Rc.clone(a) }() => a.*`. The clone is spelled through the type,
-> `Rc.clone(a)`, because `a.clone()` could name the payload's own `clone`
-> (decision 32). `Rc(T)` and `Arc(T)` are `Clone` for every `T`, and the
+> `Rc.clone(a)`, because `a.clone()` could name the payload's own `clone`. `Rc(T)` and `Arc(T)` are `Clone` for every `T`, and the
 > clone is always a second handle; a deep copy is `Rc.new(h.*.clone())`. A generic body is judged at each instantiation, so a copy
 > of a `T` that is a handle needs `.clone()` there too (`where(T <: Clone)`).
 > std's generic readers are judged the same way: `ArrayList(Rc(T)).get(i)`
@@ -3710,6 +3700,7 @@ prelude and `ArrayList(T)` one in std, both with `Target : [T]` and
 over a `[T]` is one too:
 
 ```yo
+{ assert } :: import("std/assert");
 Ring :: struct(items : Array(i32, 3));
 impl(Ring, len : (fn(self : &Self) -> usize)(usize(30)));
 impl(Ring, Deref(Target : [i32], deref : (fn(self : &Self) -> &Self.Target)(&self.items.*)));
@@ -3733,8 +3724,7 @@ export(main);
   live the owner cannot be written, moved or lent `&mut` (E0911).
 - **The owner's own member wins.** A member only the view has is reached
   through `.*`; a member the owner has is the owner's, so `r.len()` above is
-  `Ring`'s and `r.*.len()` the view's. Decision 32's E0616 is the handles'
-  rule. Adding a member to an owner therefore re-resolves calls that reached
+  `Ring`'s and `r.*.len()` the view's. Adding a member to an owner therefore re-resolves calls that reached
   the view's member of that name.
 - **Nothing else dereferences.** A `&Ring` does not fill a `&[i32]`
   parameter: `count(&r)` is E0601, whose help names `count(&r.*)`. An
@@ -3742,10 +3732,12 @@ export(main);
 
 ### Rc with Assignments
 
-A reassignment needs a `mut` binding (decision 47), and the assignment
+A reassignment needs a `mut` binding, and the assignment
 expression is the OLD value of the handle:
 
 ```yo
+{ assert } :: import("std/assert");
+
 test("Rc assignment behavior", {
   mut(x) := Rc.new(1);
   y := (x = Rc.new(2)); // y gets the old value
@@ -3759,6 +3751,8 @@ test("Rc assignment behavior", {
 `Rc(T)` uses automatic reference counting; a second handle is `Rc.clone`:
 
 ```yo
+{ assert } :: import("std/assert");
+
 test("Rc reference counting", {
   original := Rc.new(42);
   copy := Rc.clone(original); // RC increment
@@ -3775,7 +3769,7 @@ test("Rc reference counting", {
 ### Mutating a Shared Payload: `RefCell`, `Rc.get_mut`, `Rc.make_mut`, `Rc.try_unwrap`
 
 An `Rc`'s payload is shared, so it is **read-only through the handle**, as
-in Rust ([decision 46 of the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md)).
+in Rust.
 A write through an `Rc` (`h.n = v`, `h.* = v`, `bump(&mut h.n)`,
 `h.items.push(v)`) is error E0919, which names the doors below
 (`yo explain E0919`):
@@ -3986,7 +3980,7 @@ The position of the `dyn(...)` call must say which `Dyn(...)` to build — a par
 - `downcast` and `upcast` keep the pointer kind
 - Several traits in one `Dyn`: `Dyn(Speak, Run)`
 
-The older spellings are errors now: a bare `Dyn(Trait)` value type, which meant `Box(Dyn(Trait))` in v0.2.77, is E0619 since v0.2.78, and `dyn(v)` of a plain value, which meant `dyn(Box.new(v))` in v0.2.77 and v0.2.78, is E0620 since v0.2.79. `yo fix <path> --migrate unsized` migrates each on the last release that accepts it (`yo version install 0.2.77` for the types, `0.2.78` for `dyn(v)`). See [DYN_DESIGN.md](./DYN_DESIGN.md) for what else changes in v0.2.78.
+A `Dyn` lives behind a pointer: a bare `Dyn(Trait)` value type is E0619, and `dyn(v)` of a plain value is E0620 (`dyn(Box.new(v))` boxes it). See [DYN_DESIGN.md](./DYN_DESIGN.md).
 
 ### Examples
 
@@ -4333,8 +4327,7 @@ Please check [PARALLELISM.md](./PARALLELISM.md) for details on parallel programm
 
 ## Arc Types
 
-`Arc(T)` provides **shared ownership** with atomic reference counting. It is no longer
-a compiler built-in; it is defined in `std/prelude.yo` as a newtype over an atomically
+`Arc(T)` provides **shared ownership** with atomic reference counting. It is defined in `std/prelude.yo` as a newtype over an atomically
 counted cell. `Arc(T)` requires `T <: (Send, Sync)`: `Sync` because every handle reads the payload
 from its own thread, and `Send` because the last handle may be dropped (and the payload disposed) on
 any thread. So it only wraps thread-shareable values, and `Arc(T)` is itself `Send` and `Sync`
@@ -4550,6 +4543,8 @@ $ yo test ./tests --json
 #### Runtime Assertions
 
 ```yo
+{ assert } :: import("std/assert");
+
 test("Runtime assertions", {
   x := 42;
 
@@ -4749,11 +4744,8 @@ if(true, {
 });
 ```
 
-> The std `try` macro was removed (it hid a caller-frame `return` and
-> collided conceptually with algebraic effects). Match on the `Result`
-> instead. User-defined macros are being removed as well
-> (`plans/backlog/MACRO_AND_ISO_REMOVAL.md`), so do not re-create it as a
-> local macro.
+> std has no `try` macro: one would hide a caller-frame `return`, which
+> collides with algebraic effects. Match on the `Result` instead.
 
 ## Derive Traits
 
@@ -4764,6 +4756,8 @@ Yo supports automatic trait derivation similar to Rust's `#[derive(...)]`, but u
 Six traits have built-in derive support: `Eq`, `Hash`, `Clone`, `Ord`, `Default`, and `ToString`. They work for both structs and enums:
 
 ```yo
+{ assert } :: import("std/assert");
+{ ToString } :: import("std/fmt"); // the ToString derive rule lives in std/fmt
 Point :: struct(x : i32, y : i32);
 derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString);
 

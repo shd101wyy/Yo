@@ -401,50 +401,6 @@ Compare to 10,000 blocking threads × 1 MB stack = **10 GB** ❌
 
 ---
 
-## Known Issues Fixed
-
-- **errno naming conflict**: Enum variant destructuring (`.Other(errno)`) now sanitizes variable names in C codegen to avoid conflicts with C's `errno` macro.
-- **Timer resources (Linux)**: a sleep owns no descriptor or buffer on either backend — it is a node in the loop thread's timer heap, released when it fires or is cancelled.
-- **Bitwise OR on c_include constants**: `c_include` constants (O_WRONLY, O_CREAT, etc.) had `UnknownValue`, causing `ComptimeBitOr` to be selected. Fixed in `identifer-and-operator.ts` to treat extern "c" unknowns as runtime values.
-- **Imported namespace constant access in C codegen**: Expressions like `fcntl_io.O_NONBLOCK` emitted invalid C (`/* skip generating: namespace */.FIELD`) because imported comptime namespace values are not emitted as runtime expressions. Fixed in `src/codegen/exprs/property-access.ts`.
-- **Barrel re-export removed**: `std/sys/index.yo` removed to avoid naming conflicts. Users import submodules directly.
-- **SSA variable mutation in async loops**: Variable reassignment inside loops created new SSA variable IDs (e.g., `offset` → `offset_1`) but the loop condition always read the original ID, causing infinite loops. Fixed by adding `variableIdRemapping` in the await analysis. Also fixed `break` inside async while loops breaking the C `switch` instead of the loop.
-- **macOS async continuation threading**: Migrated from GCD to kqueue. All I/O completions are now processed on the event loop thread — no cross-thread continuation queue needed.
-- **macOS getdents linker fix**: Replaced unavailable `getdirentries` with a `readdir`-based emulation using `dup(fd)` + `fdopendir` to avoid 64-bit inode stub symbols on arm64.
-- **Windows test runner missing ws2_32**: The test runner did not link `-lws2_32` on Windows. Fixed in `src/test-runner.ts`.
-- **Windows tty test unistd header**: `tests/io/tty.test.yo` imported `std/libc/unistd` unconditionally, including `<unistd.h>` on Windows. Fixed by moving the import into the non-Windows branch.
-- **Windows temp directory open requires `O_DIRECTORY`**: `openat` enables `FILE_FLAG_BACKUP_SEMANTICS` (required for directories) only when `O_DIRECTORY` is set. Fixed `tests/io/temp.test.yo` to open mkdtemp results with `(O_RDONLY | O_DIRECTORY)`.
-- **Windows signal support**: Replaced stubs with handler registration and local signal delivery. `kill(pid=0, signum)` delivers to current process; `kill(pid, 0)` probes process existence; `kill(pid, SIGKILL)` uses `OpenProcess(PROCESS_TERMINATE)`.
-- **Windows AT_FDCWD**: Added `#ifndef AT_FDCWD / #define AT_FDCWD -100 / #endif` to the Windows IOCP runtime.
-- **Windows IOCP double handle association**: `__yo_win_associate_handle` now tolerates already-associated handles (`ERROR_INVALID_PARAMETER` → return true).
-- **Windows winsock header conflict**: `WIN32_LEAN_AND_MEAN` and `_WINSOCKAPI_` are emitted at the top of every generated C file on Windows.
-- **Windows file test path**: Replaced hardcoded `/tmp/` with cross-platform `temp_dir()` + `path_join()`.
-- **Comptime constant C macro name collision**: Compile-time-only constants (e.g., `AF_INET`) passed as function arguments created local C variables conflicting with header macros. Fixed in `src/codegen/exprs/other-fn-call.ts` by inlining the literal directly.
-- **Pointer-to-nullable-pointer codegen bug**: `*(?*(T))` generated `uint8_t*` instead of `uint8_t**`. Fixed in `src/codegen/utils/index.ts` `getTypeString()`.
-- **Async state machine dangling reassignment temps**: Reassignment inside begin blocks emitted undeclared temp variable references. Fixed in `src/codegen/exprs/assignment.ts` to return `""` when `skippedTempVar` is true.
-- **macOS socket ops async**: `accept`, `connect`, `send`, `recv`, `sendto`, `recvfrom` use kqueue `EVFILT_READ`/`EVFILT_WRITE` with `EV_ONESHOT` for readiness notifications.
-- **macOS getnameinfo NI_NUMERICHOST wrong value**: Added platform-aware `NI__*` constants to `std/sys/socket.yo`.
-- **Compile-time constants not inlined in async state machines**: Two bugs: (1) atom.ts state machine variable lookup fallback did not check `isCompileTimeOnly`; (2) inlined literals were erroneously sanitized via `sanitizeForCIdentifier`. Both fixed.
-- **Windows socket close used `_close()` instead of `closesocket()`**: Fixed in `__yo_async_close_start`.
-- **Windows socket constants used Linux values**: Added `Platform.Win32` branches to all platform-aware socket constant conditions.
-- **Windows double `htonl` in `__yo_sockaddr_in_set_addr`**: Removed the extra `htonl` call (Yo code already byte-swaps before passing to the extern).
-- **Windows TCP send/recv now truly async**: Use `WSASend`/`WSARecv` with OVERLAPPED I/O through IOCP.
-- **Windows DNS `WSANOTINITIALISED`**: `__yo_async_getaddrinfo_start` and `__yo_async_getnameinfo_start` now call `__yo_io_init()` early.
-- **Windows `_waccess` does not support `X_OK`**: X_OK is stripped before calling `_waccess` (Windows has no executable bit).
-- **Windows `fchown(-1,-1)` returned `-ENOSYS`**: Now returns 0 for no-change sentinels.
-- **Windows `futime` failed on read-only fd**: Now reopens the file path with `FILE_WRITE_ATTRIBUTES` via `GetFinalPathNameByHandleW`.
-- **Windows statx nanosecond timestamps always 0**: Introduced `__yo_win_stat_t` with nsec fields from `GetFileAttributesExW` (100 ns FILETIME precision, including birth time).
-- **Windows Win32 error codes not mapped to POSIX errno**: Added proper mapping in `__yo_win_last_error_to_errno` (e.g., `ERROR_FILE_NOT_FOUND` → `ENOENT`).
-- **Path test canonicalization on macOS (`/tmp` vs `/private/tmp`)**: `tests/io/path.test.yo` now compares `realpath(input)` with `realpath(expected_target)`.
-- **macOS FS event directory modification/delete detection**: Added snapshot-based diffing for directory watches alongside kqueue flags, reporting `FS_EVENT_CHANGE` for content updates and `FS_EVENT_RENAME` for create/delete.
-- **`flock` EWOULDBLOCK errno on macOS**: `EWOULDBLOCK` is 35 on macOS vs 11 on Linux. Updated `tests/io/lock.test.yo` to use a platform-aware expected errno.
-- **Windows directory scanning**: Replaced `-ENOSYS` stubs with `FindFirstFileW`/`FindNextFileW` in `opendir`/`readdir`/`closedir`/`scandir`.
-- **Windows TTY operations**: Replaced `-ENOSYS` stubs with Console API (`SetConsoleMode`, `GetConsoleScreenBufferInfo`, `ENABLE_VIRTUAL_TERMINAL_INPUT`).
-- **Windows FS event operations**: Replaced `-ENOSYS` stubs with `ReadDirectoryChangesW` (directory) and `FindFirstChangeNotificationW` (file), polled in `__yo_io_poll`/`__yo_io_wait`.
-- **Windows poll operations**: Replaced `-ENOSYS` stubs with `select()` for sockets and `PeekNamedPipe`/`WaitForSingleObject` for pipes. `__yo_poll_and_fs_event_tick` is called from both `__yo_io_poll` (non-blocking) and `__yo_io_wait` (50 ms cap when watches are active).
-
----
-
 ## References
 
 ### Linux (io_uring)

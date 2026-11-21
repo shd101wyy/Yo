@@ -11,9 +11,7 @@ ordinary code and at compile time:
 | `StringBuilder` (`std/string`) | bytes | — | — |
 | `comptime_str` (compile time) | bytes | `slice(a, b)` / `s(a..b)` — bytes | `s(i)` → 1-rune `comptime_str` |
 
-`str` and `StringBuilder` were always byte-based; `String` joined them in the
-D4 migration (2026-08-26, `plans/archive/STD_API_AUDIT_D4_PLAN.md`), and the comptime
-string operations were aligned in the same campaign. There is one
+All of them are byte-based, compile-time strings included. There is one
 string-indexing story.
 
 ## The one rule
@@ -83,7 +81,7 @@ methods return is a rune boundary.
 
 - `index_of("", i)` returns `.Some(i)` **verbatim, unvalidated** — including
   an `i` inside a rune and an `i` past `len()`. (JavaScript's `indexOf("")`
-  clamps to the length; this does not, and neither did the pre-D4 version.)
+  clamps to the length; this does not.)
 - `last_index_of("", i)` returns `len()` regardless of `i` (Rust's
   `rfind("")` shape), so it is the one case where the result can exceed the
   cap the caller asked for.
@@ -123,10 +121,6 @@ first := s.chars().next(); // Option(rune)
 malformed-input behaviour: they stop at the first sequence that will not
 decode.
 
-(The one-shot methods this replaced — `bytes_len()`, `char_len()`,
-`char_substring()` and `truncate_chars()` — were removed on 2026-08-26;
-`len()` and the idioms above are the whole vocabulary.)
-
 ## Element access: `s(i)` and `byte_at(i)`
 
 `byte_at(i)` returns the **byte** at offset `i` as a `u8` — byte-level access
@@ -150,7 +144,7 @@ s(usize(1) .. usize(3)); // "é" — a new String
 
 ## `str` and `&str`
 
-Since v0.2.79 (decision 49) `str` is the **unsized** run of UTF-8 bytes, like
+`str` is the **unsized** run of UTF-8 bytes, like
 `[u8]`, and it lives behind a pointer: `&str` is the fat reference (the bytes'
 address and their length, two words, copied by value). A string literal is
 `&(str, static)`, a reference to static bytes, so it fills every `&str` slot.
@@ -172,12 +166,8 @@ value (`{ s }`) as the reference.
 
 **The value spelling.** A `str` written where a value is held (a by-value
 parameter, a result, a typed local, a struct field, an array element, a type
-argument such as `ArrayList(str)`) means `&(str, static)` for now, which is
-what it meant before: a view of static bytes. `yo fix --migrate unsized`
-writes that spelling (`(name : &(str, static))`, `ArrayList(&(str, static))`)
-and lists a `sink(s) : str` parameter for a hand rewrite. The value spelling
-is removed in v0.2.80. Comparing a `&str` with a `String` or a `str`
-(`name == "lit"`, `"lit" == name`) keeps working through the same legacy rule.
+argument such as `ArrayList(str)`) means `&(str, static)`: a view of static bytes. Comparing a `&str` with a `String` or a `str`
+(`name == "lit"`, `"lit" == name`) works in both directions.
 
 ## Copies, clones and the byte list
 
@@ -231,7 +221,7 @@ prefix.
 
 ## Compile-time strings share the basis
 
-Since D4 PR 7 the `comptime_str` operations are byte-based too:
+The `comptime_str` operations are byte-based too:
 
 ```yo
 s :: "aé中𝄞";
@@ -246,12 +236,12 @@ Two comptime-specific points:
 - **A mid-rune offset is a compile error**, not a panic — the compiler
   rejects `s(2)` on the string above ("not on a UTF-8 character boundary")
   instead of aborting. Out-of-range indexing is a compile error too;
-  `slice` clamps out-of-range, as it always has.
+  `slice` clamps out-of-range.
 - **`s(i)` yields a 1-rune `comptime_str`, not a byte.** A comptime string is
   text, not a byte buffer, so comptime `s(i)` mirrors the runtime `at(i)`
   (the rune starting at byte `i`) rather than the runtime `byte_at(i)` (the
   `u8`); a runtime `String` has no `s(i)` at all. This result-type split
-  predates the byte migration and is deliberate.
+  is deliberate.
 
 ## Practical rules
 
