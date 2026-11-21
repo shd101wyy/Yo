@@ -1,1309 +1,127 @@
 ---
-description: "Use when running tests, setting up test files, or debugging test failures in the Yo compiler. Covers yo test, sanitizers, and test file constraints."
+description: "Use when running tests, setting up test files, choosing a gate, or debugging test failures in the Yo compiler. Covers yo test, sanitizers and leak tests, cli-cases, the fixpoint, Tier 1 gates, the heavy lock and test file constraints."
 ---
 
 # Testing Workflows
 
-> Every command here is the self-hosted compiler `yo`, a native binary from a
-> release bundle on your `PATH`. The `./yo-cli` bash shim, the TypeScript
-> compiler that USED TO live at `src/`, and the `bun test` suites that exercised
-> it are all deleted (`src/` is now the Yo compiler — see AGENTS.md's note) — there is no bun, npm, or node in this repo outside
-> `vscode-extension/`.
-
-## Testing changes to the repo's `std/`
-
-The installed `yo` resolves `std` from its OWN release bundle (exe-walk-up
-beats the `./std` fallback), so running `yo test` from the repo root after
-editing `std/` silently tests the INSTALLED std, not your edit. Point it at
-the tree explicitly:
-
-```bash
-YO_STD=$PWD/std yo test ./tests/sync/channel.test.yo --parallel 1
-```
-
-Since the entry-side fix
-(`issues/fixed/check-std-in-a-checkout-evaluates-two-copies-of-std.md`),
-entries that live INSIDE a std tree (`yo test ./std`, `yo check ./std`,
-`yo compile std/...`) resolve THAT tree automatically — the command prints a
-`yo: every entry lives inside the std tree at ...` note on stderr — even
-under an installed binary. Files under `./tests/**` are NOT inside a std
-tree, so the explicit `YO_STD` above still applies to them.
-
-A tree-built stage-1 (`yo build` → `yo-out/<target>/bin/yo`) walks up to the
-repo root and finds `./std` naturally, so it needs no override — and it is
-what CI's suite legs run. Changes to `src/` codegen are only observable
-under such a stage-1; the installed seed emits the old code no matter which
-std it reads.
-
-**Build that stage-1 the way CI does: `YO_MAIN_STACK_MB=4096 yo build --std-path ./std`.**
-Plain `yo build` gives the seed its OWN bundled std, so the seed never
-compiles the tree's `std/`. A std change the seed cannot lower then passes the
-fixpoint and every local gate, and turns every CI job red at "Build stage 1
-once". That happened with #991's owning `JoinHandle` (a `ref` struct plus a
-runtime extern the seed never emits) and #989's `read_dir` rewrite (a shape
-only the tree's codegen compiles correctly); #996 is the record. A std feature
-that needs new codegen or runtime lands in two steps across a `SEED_VERSION`
-bump.
-
-**`--std-path` now works for `yo test` too — but check which binary you are
-running.** `yo test` compiles its generated batch in a SPAWNED child
-(`src/main.yo`), and that child used to be given `--c-compiler`, `--target`,
-`--sanitize` and friends but NOT `--std-path`, so it re-resolved std on its own
-and landed back on the installed bundle. The runner evaluated against one std
-and compiled the batch against another, silently — green for code that was
-never compiled, whenever the edit was behaviour-only rather than shape-changing.
-Fixed 2026-08-26 (`issues/fixed/yo-test-does-not-forward-std-path-to-batch-compile.md`,
-gated by `tests/cli-cases/test-std-path-forwarded`). **A released `yo` on PATH
-predating that fix still has the old behaviour**, so when the binary is not one
-you built from this tree, prefer `YO_STD` — it rides the inherited environment
-and has always reached the child.
-
-`YO_KEEP_BATCH=1` keeps the generated `.yo`/`.c`/binary next to the test file,
-which is how you confirm a batch really transpiled:
-
-```bash
-YO_KEEP_BATCH=1 YO_STD=$PWD/std yo test ./tests/sync/atomic.test.yo --parallel 1
-bash scripts/count-transpile-failures.sh tests/sync/.yo_selftest_batch_*_1_0.bin.c
-```
-
-### A loopback HTTP framing test only goes RED if the body cannot arrive in ONE read
-
-`std/http`'s `read_http_message` reads 8 KiB at a time and nothing truncates
-its buffer to `Content-Length`, so for a small single-shot request the CORRECT
-and the BROKEN framing produce byte-identical bodies — a framing test built on
-`fetch` + a short body passes either way. Two shapes that actually discriminate
-(both used by `issues/fixed/http-content-length-ows-and-invalid-values.md`):
-
-- **Server side** — send a body larger than 8 KiB (12 000 bytes there) on a raw
-  `TcpStream`. A mis-read length stops the read after the first chunk, so the
-  handler sees a SHORT body. Assert the length and the last bytes, not just
-  "the body is non-empty".
-- **Client side** — hold the connection OPEN after writing the response
-  (HTTP/1.1's default; every older test in `tests/http/` sends
-  `Connection: close`, and close-delimiting supplies the body that broken
-  framing could not) and give `fetch_with` a `with_timeout`, so a mis-parse
-  surfaces as `HttpError.Timeout` instead of a hang.
-
-Run the throwing `fetch` as its OWN `io.spawn`ed task and inspect the
-`JoinHandle` result: a handler that `unwind`s the test body leaves the server
-task parked on a listener that is never closed, which keeps the Linux event
-loop alive and the process never exits (rc=124).
-
-## Testing private members: sibling files and in-file tests
-
-A `_`-prefixed field or method is visible only from its declaring module and
-that module's same-directory siblings (E0405 elsewhere —
-`plans/reference/MEMBER_VISIBILITY.md`), so a test under `tests/` can only
-exercise the PUBLIC surface. Two shapes reach the private one, both run by
-`yo test <dir>` (CI runs `yo test ./std`):
-
-- **Sibling file** — `std/collections/hash-set.test.yo` beside `hash-set.yo`.
-  The runner writes the batch into the test file's own directory, so the
-  batch's tokens carry that directory and `set._map` is legal. Import the
-  module the way its neighbours do (`import("./hash_set")`).
-- **In-file** — a top-level `test("…", { … })` inside the module itself,
-  Rust's `#[cfg(test)] mod tests`. Recognised by a line starting with `test(`;
-  a normal build (and `yo check`) treats it as a no-op. The batch inlines the
-  module's other top-level statements, so the tests also see private
-  module-level helpers. Limitation: the batch is a COPY of the module, so a
-  module whose types the prelude already re-exports (`String`, `ArrayList`,
-  `Option`, …) gets a second, distinct copy of those types inside the batch —
-  test such modules with a sibling file instead. A module that is also a
-  PROGRAM may carry in-file tests: the batch drops the module's own `main`
-  and `export(main)` and supplies its own.
-
-**Never point `yo test` at `issues/`.** Four `issues/repros/*.yo` are
-programs written in `test(...)` shape because the bug shows in a test body;
-in-file collection makes them runnable, and a repro for an OPEN bug is
-supposed to fail — that red is the bug, not a regression.
-
-Release bundles drop `std/**/*.test.yo` (`release.yml`, `scripts/install.sh`);
-in-file tests ship with their module and cost a no-op.
-
-## Scratch experiments
-
-- `tmp/fixme.yo` is the scratch file for one-off experiments (`tmp*` is gitignored). It replaces the old `src/tests/fixme.yo`.
-- Type-check it with `yo check tmp/fixme.yo`; compile and run it with `yo compile tmp/fixme.yo --optimize 2 -o a.out && ./a.out`.
-- Its contents are disposable — there is no need to restore them after modifying it.
-
-## C codegen tests
-
-- Run specific test: `yo test ./tests/XXX.test.yo` (add `-v` for verbose)
-- The **full test suite** (`yo test --bail`) takes ~30 minutes on a Mac Mini M4 and is safe to run locally. Use it for broad regression checks after significant changes.
-- `--bail` or `-b` — stop after first failure
-- `-v` or `--verbose` — show detailed errors
-- `--test-name-pattern "Test XXX"` — run specific test by name (a REGEX, not a substring)
-- `--list` — print `<file>\t<name>` for every test the path + pattern selects, compiling nothing; preview a pattern before paying for the batch compile
-- `--json` — one JSON object per line: a `test` event per test (`file`, `name`, `status`, `duration_ms`; `message` + `output` on failure) then a `summary` event, no human lines. Read this instead of scraping `✓`/`✗`.
-- `yo test --help` lists every flag; `yo test` takes ONE positional path (a second path is silently ignored)
-- Tests automatically use AddressSanitizer for leak detection.
-- **The test binaries are compiled by whichever `yo` runs `yo test`.** Run by the installed seed, a test gets the SEED's codegen, and LeakSanitizer then reports leaks the tree has already fixed. 2026-09-29: `entry.or_insert_with` in `tests/collections/hash-map.test.yo` leaked a closure's captures under the v0.2.45 seed, which predates #967, and passed under the tree's stage-1. To judge a leak or a codegen change, run the file with the tree's compiler: `YO_STD=$PWD/std <stage-1> test <file> --parallel 1`.
-- **A drop-on-escape regression test can be hidden by DEFINITION ORDER.** The escape-drop lists decide whether a drop is still due by comparing source tokens (`_variable_initialized_after_cleanup_point`), so a callee (an awaited wrapper, a fused site) defined ABOVE its caller in the same file can make an escape look earlier than a consumption and hide the drop. Define the callee in another file or BELOW the caller, or the test stays green on the broken compiler (`issues/fixed/2026-11-07-a-fused-block-that-throws-drops-its-by-value-capture-twice.md`: five probes stayed clean until their wrappers moved below the caller).
-
-## A use-after-free check on macOS: put Apple clang first on `PATH`
-
-The nix clang on the dev Macs ships an ASan runtime that does not match it.
-`yo compile --sanitize address` prints "AddressSanitizer is not functional with
-this compiler setup … Skipping sanitizer", and `yo test` then runs every test
-UNSANITIZED, without saying so. A freed slot usually still reads back intact,
-so a use-after-free passes locally. #1365's over-release canary passed on a Mac
-and failed in 7 Linux, Windows and wasm jobs (fixed by #1386).
-
-Apple's command-line-tools clang arms ASan (heap-use-after-free, double free;
-not leaks). Put it first for the sanitized step:
-
-```bash
-PATH=/Library/Developer/CommandLineTools/usr/bin:/usr/bin:/bin:$PATH \
-  yo test tests/rc.test.yo --parallel 1
-PATH=/Library/Developer/CommandLineTools/usr/bin:/usr/bin:/bin:$PATH MallocScribble=1 \
-  ./repro   # built with --sanitize address --allocator system
-```
-
-That `PATH` also puts macOS's `/bin/bash` 3.2 and BSD `sed` first. Run
-`scripts/*.sh` with the nix `bash` by its full path: under 3.2,
-`cli-diff-test.sh` used to run nothing and exit 0 (it now refuses with rc 2,
-`issues/fixed/2026-10-15-cli-diff-test-exits-0-under-bash-3-2.md`).
-
-## Writing a test that observes a LEAK (macOS: ASan does not arm)
-
-On this macOS box AddressSanitizer refuses to arm (see the AMFI section below),
-so an RC leak is invisible to `yo test` locally and only Linux CI's
-LeakSanitizer sees it. Two mechanisms make a leak observable **inside the
-language**, so the regression test works everywhere:
-
-- **A `Drop` counter.** A module-level MUTABLE binding — `(g_freed : i32) =
-  i32(0);` at the top level of the `.test.yo` file — plus a `ref` struct with a
-  `Drop` impl that increments it. Assert the counter with a RUNTIME `assert`
-  after the scope that owned the value closes. A value that leaks is never
-  disposed, so the counter stays put. Examples: `tests/rc.test.yo`
-  (`g_alias_disposed`), `tests/dyn.test.yo` (`g_dyn_payload_disposed`),
-  `tests/error.test.yo` (`g_thrown_payload_disposed`).
-- **`ref_count(x)`** reads a reference count directly (`tests/rc.test.yo`),
-  including through a field or an `Rc` deref: `assert(ref_count(b.*) == 1, ...)`.
-  `Rc.new(x)` is NOT the count: it builds a new `Rc(T)` cell instead of reading one
-  (`Box.new(x)` builds the unique, uncounted `Box(T)`, and `ref_count` rejects a `Box`). The old
-  spelling `rc(x)` was deleted by static-argument inference B3 and is E0401, whose `yo fix` repair
-  writes `Rc.new`; `rc` is an ordinary name now.
-
-Do **not** use `comptime_assert` for this — it is inert inside a function body,
-so a `comptime_assert` in a `test(...)` body verifies nothing
-(`issues/fixed/comptime-assert-never-fires-inside-a-function-body.md`).
-
-If neither in-language oracle fits and the test's ONLY failure mode is the
-leak verdict, declare it: `pragma(Pragma.NeedsLeakVerdict);` at the top of the
-file makes the runner SKIP the file — printing `Skipping N test file(s) with
-pragma(Pragma.NeedsLeakVerdict): …` — whenever the run cannot apply a verdict
-(`YO_TEST_LEAK_VERDICT=0`, a wasm target, `--disable-sanitize`, a non-address
-`YO_TEST_SANITIZE`), instead of counting its tests as passed
-(`issues/fixed/leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md`).
-Try the `Drop` counter FIRST: a skipped test verifies nothing, a counter-based
-one verifies everywhere. The one CI leg that runs leak-sensitive files with the
-verdict ON is the weekly `leak-verdict.yml` (Linux/clang, an allowlist that
-must stay leak-clean, and a vacuity probe that must FAIL a deliberately
-leaking test before the allowlist runs); dispatch it on a branch with
-`gh workflow run leak-verdict.yml --ref <branch>` when touching leak plumbing.
-
-For the out-of-language measurement on macOS, `leaks` works even though ASan
-does not — extract the case to a standalone `.yo` with `main` + `export(main);`
-and run:
-
-```bash
-yo compile tmp/repro.yo --std-path ./std --optimize 2 --allocator system -o /tmp/repro.out
-leaks -atExit -- /tmp/repro.out        # "N leaks for M total leaked bytes"
-MallocStackLogging=1 leaks -atExit -- /tmp/repro.out   # + allocation stacks
-```
-
-Put the leaking operation in a LOOP first: a per-iteration leak scales the byte
-count linearly, which separates a real leak from a one-off allocation, and
-`/usr/bin/time -l` then shows the RSS difference too. Always run the
-payload-free variant as an over-drop canary, and re-run the fixed binary under
-`MallocScribble=1 MallocPreScribble=1` — recycled values in the output mean the
-fix over-dropped and introduced a use-after-free.
-
-**On a box with no LeakSanitizer and no `leaks` (Windows), `--allocator debug`
-replaces both**: the exit report lists every leaked block (live and not
-reachable from a module global) by allocation number, a run whose `main`
-returns with one exits 23, `yo test --allocator debug`
-fails a leaking test (unless `YO_TEST_LEAK_VERDICT=0`, which the runner passes
-on as `YO_DEBUG_ALLOC_VERDICT=0`), and `YO_DEBUG_ALLOC_TRAP=<n>` aborts at
-allocation `n` for a debugger stack. A thread still running 1 s after `main`
-returned leaves the report unjudged (it says so). **The fixed-region allocator's `--debug-heap` oracle
-counts the same way**: build with
-`--allocator fixed --heap-size 1g --debug-heap` and every run prints
-`heap: peak …, N allocations, live at exit: B blocks / T bytes` at exit.
-An N×-loop experiment (run the SAME binary with N = 1/2/4/8 read from argv —
-a per-iteration leak shows linear B/T growth, a one-off stays flat; the
-success-path variant is the control) measured the ~550 B/call effect-unwind
-leak behind
-`issues/fixed/parser-internal-tests-report-a-40-byte-lsan-leak-locally.md`
-on MSVC CRT + TLSF, i.e. allocator- and platform-independently. Note that an
-`unwind(...)` handler exits the function that INSTALLED it, so each loop
-iteration must install its handler in its own fn (a handler installed in
-`main` exits `main` on the first unwind and the run silently ends rc=0).
-
-## A network test whose oracle depends on TCP segmentation is probabilistic
-
-A test that has the peer `write` twice and then asserts on what one `read`
-produced is **not** deterministic: whether two writes arrive as one read is the
-platform's coalescing decision. Such a test passes on five CI legs and fails on
-the sixth, which reads as a flake and is not one — 2026-09-06 that shape hid a
-real body-framing over-read in `std/http/wire.yo` for as long as the tests
-existed (`issues/fixed/http-body-is-not-truncated-to-content-length.md`).
-
-**Write the whole payload — the framed message AND the bytes after it — in ONE
-`write_string`.** The coalesced case is the harder one, so the assertion gets
-stronger as well as deterministic, and it goes red on every platform without the
-fix.
-
-Corollary for reading CI: **one leg failing out of six on the same commit is a
-diagnosis, not a retry button.** Check the other legs before blaming the PR, and
-check whether that leg has failed before:
-
-```bash
-for r in $(gh run list --workflow "<name>" --limit 15 --json databaseId -q '.[].databaseId'); do
-  gh api repos/<owner>/<repo>/actions/runs/$r/jobs --paginate \
-    -q '.jobs[]|select(.name=="test (macos-26-intel)")|.conclusion'
-done | sort | uniq -c
-```
-
-## A platform-gated test arm is never type-checked on the other platforms
-
-`if(platform == Platform.Linux, { ... })` is folded at compile time, so on macOS
-the Linux arm is pruned **before evaluation**. A type error in it is invisible
-locally, and on Linux it fails the WHOLE batch ("0 of N tests in this batch
-ran"). Measured 2026-09-27: an epoll twin in `tests/sys/socketpair.test.yo`
-passed an `i32` fd to `std/libc/unistd`'s `write`, whose parameter is C `int`.
-Every local gate was green and the Linux legs were red.
-
-Before pushing a test with such an arm, force the arm on in a scratch copy and
-run it with the tree-built compiler:
-
-```bash
-perl -pe 's/if\(platform == Platform\.Linux, \{/if(true, {/' tests/x.test.yo > tests/zz_forced.test.yo
-./yo-out/<target>/bin/yo test ./tests/zz_forced.test.yo --parallel 1; rm tests/zz_forced.test.yo
-```
-
-Where the arm uses Linux-only runtime behaviour, a forced run on macOS proves
-only that it type-checks.
-
-## A failing test's own `println` output needs `--verbose`
-
-Without `-v` the runner captures the child's stdout and shows it only for a
-PASSING test; a failing test loses both its `println` lines and its assert
-message, leaving just `Test failed with exit code 6`. With `-v` both appear
-under the `✗` line.
-
-CI already passes `--verbose` (`.github/workflows/test.yml`), which makes the
-**absence** of an expected diagnostic line into evidence: if a test's error
-handler prints before it unwinds and that line is not in the log, the handler
-never ran — so the test failed on a value, not on a throw. Locally, always add
-`-v` before theorizing about a failure.
-
-## Windows: failing tests report a SIGNAL status, and a runtime-template edit needs TWO builds
-
-`yo test` on Windows used to die with `yo: error: unknown I/O error` at the
-first failing test (the waitpid NTSTATUS bug — fixed 2026-08-29,
-`issues/fixed/yo-test-failing-child-windows-unknown-io-error.md`). A failing
-test now prints `✗` with `Test failed with exit code 22`-style raw statuses
-(SIGABRT), the summary, and exits 1 — same shape as Linux.
-
-Two Windows-specific facts remain:
-
-- An abnormal child termination (assert/abort) is a SIGNAL status:
-  `code() == None`, `signal() != 0`. Clean nonzero exits still give
-  `code() == Some(n)` for n in 0–255.
-- **A `src/codegen/async/runtime_io_*.yo` template edit takes effect in the
-  compiler's OWN runtime only after a SECOND build** — the stage-1 rule
-  again: one `yo build` gives a binary that emits the new runtime but still
-  runs the old one. And `yo build` invoked as `yo-out/<target>/bin/yo.exe`
-  cannot relink itself (LNK1104: Windows will not overwrite a running
-  executable) — compile to a different `-o` path instead.
-
-## Evaluator-only check (no codegen)
-
-- `yo check <file-or-dir>` — runs the evaluator on a single `.yo` file or every `.yo` under a directory and prints any type / evaluator errors. No C generation, no C compile.
-- Much faster than `compile` for "does this still type-check?" iteration during refactors or migrations.
-- Useful as a bulk sanity pass after touching many files: `yo check ./src` or `yo check std/` before running any test.
-- **`check` is evaluator-only.** The async state-machine restrictions are enforced in CODEGEN, so `check` passes straight over them. Use `yo compile src/main.yo --skip-c-compiler` (~3 min) to catch that class.
-- **`test(...)` bodies are a NO-OP for `check` unless `--test-bodies` is passed.** `yo check file.test.yo` green with a broken test body is the default (that is exactly how #717's four private-member reaches escaped `check`; `src/evaluator/exprs/test.yo`). When you edit a `*.test.yo` file, gate the edit with `yo check <file> --test-bodies`.
-
-### The incremental loop: `check --watch`, `build --watch`, chunks, in-process tests
-
-All numbers measured 2026-09-22 with v0.2.39 on the Mac Mini M4 (277 `src/`
-files); the plan is `plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md`.
-
-**`yo check <dir> --watch` is the default way to iterate on a tree.** One
-resident process does the cold pass once (~105 s for `./src`), then polls
-(`--poll-ms`, default 200) and prints one line per round:
-
-```
-watch: revalidated 2 definition(s), rechecked 142 file(s), 0 failed (47158ms)
-```
-
-| edit | round |
-| --- | --- |
-| comment-only or whitespace-only | 6 ms, 0 definitions (a parse-level diff) |
-| body of one fn-literal definition that nobody destructures (`src/token.yo`'s `is_valid_identifier`) | 77 ms, 1 definition |
-| body of a leaf definition (`src/lsp/folding.yo`'s `_push_fold`) | 80 ms, 1 definition |
-| body of a hub definition that an importer destructures (`src/token.yo`'s `is_identifier_continue`, read by `src/lexer.yo`'s `tokenize`) | 47 s: 2 definitions re-forced, then 142 files re-checked |
-| cold `yo check ./src` for comparison | ~105 s |
-
-What a round does, so you can predict the row you will land in:
-
-- A **fn-literal body or signature edit** (`name :: (fn(...) -> T)(body)`)
-  re-forces that definition and the definitions with a recorded edge to it,
-  patches the exported slot in place, and re-points importers that
-  destructured the name (`{ f } :: import("./m.yo")`) at the new value.
-- **Everything else is a file-level fallback**: adding or removing a
-  definition, changing a struct/enum/trait, a constant or a type producer, or
-  an ordered statement — the changed file's reverse IMPORT closure is dropped
-  and re-checked. That is the pre-Phase-3 behaviour and it is correct, just slow.
-- The hub row above is the second-order case: `tokenize` is re-forced because
-  its body calls the edited function, and the nine modules that destructure
-  `tokenize` take the file-level path with their closures (the re-bind runs
-  ONE pass, deliberately). A hub edit therefore still costs about half a cold
-  pass, not milliseconds.
-- `YO_DEBUG_P3DIFF=1` prints the planner's reasoning on stderr:
-  `[p3diff] <file>: fallback=<bool> changed=<n>`, `[p3rebind] readers=<n>
-  extra_closure=<n> fallbacks=<n>`, `[p3round] <file>: per-def
-  revalidated=<n> …` or `file-level dropped=<n>`. Read it before calling a
-  slow round a bug.
-- **A stale verdict IS a bug.** The oracle is
-  `scripts/bootstrap/watch_verify.sh` (a live session vs a cold check over a
-  scripted edit sequence). If a watch round accepts something a cold
-  `yo check` rejects, or the reverse, file it under `issues/` with the edit
-  sequence and add the shape to `tests/internal/check-watch.test.yo`.
-- `--watch-once` is the harness form: paths on stdin (one per line), one
-  round, exit code = failures.
-- **An owner purge in `mm_invalidate_document` must cover every cache that
-  can hand back what it drops.** `check`, `check --watch` and `yo lsp` never
-  run codegen after an invalidation, so a purge that leaves a cache pointing
-  at deleted state passes all of them; only a `build --watch` round after an
-  edit catches it (#883's per-fid purge vs the specialization cache,
-  `issues/fixed/build-watch-reuses-a-stale-imported-module.md`). Smoke a new
-  purge with a two-module `yo build --watch` project: edit the import, break
-  it, revert it, and run the binary after each round.
-- The process accumulates every round's evaluator universe; expect its RSS to
-  grow across a long session and restart it when the machine gets tight.
-
-**`yo build --watch`** does the same for a project: each round first
-invalidates the changed files (`invalidate_changed_files`), then artifacts
-recompile in-process against the warm module cache, the `cc` leg stays a child process,
-and the artifact stamp (`<output>.inputs-sha256`, "Incremental builds" in
-`docs/en-US/BUILD_SYSTEM.md`) still decides whether an artifact needs
-compiling at all. `--profile` prints `profile: watch round N <ms> rss=…MB`
-(round 1 is the cold baseline); `--max-rss-mb N` re-execs the process at a
-round boundary once it exceeds N MB (default off).
-
-**Chunked C emission** (`yo compile … --emit-chunks <n|auto> [--chunk-by
-module] [--jobs n] [--no-chunk-lto]`) splits the emitted C into n translation
-units compiled in parallel behind a per-unit `.o` cache (`<obj>.inputs-sha256`
-beside each object; `YO_BUILD_NO_CACHE=1` disables it). The driver reports
-`chunks: 10 unit(s), 7 cached, 3 to compile (jobs=8)`. Two things to know:
-
-- The C leg is the SMALL part of a self-build loop: ~13 s of ~188 s at `-O0`
-  even cold; a leaf edit recompiles 2–3 units in 3–4 s. The rest is the
-  evaluator, which is why `check --watch` is where the iteration time goes.
-- Fids embed the definition's source position, so an INSERTION above a
-  definition (an import, a comment line) re-mints every definition below it
-  and dirties every caller's unit. A body-only edit dirties one unit.
-  `--chunk-by module` keeps one module's functions in one unit (2 units dirty
-  instead of 3 on the leaf probe).
-
-**`YO_TEST_IN_PROCESS=1`** compiles every batch of a `yo test` run in one
-resident evaluator: `tests/internal` 77:34 → 37:33 wall, verdict-identical
-(1189/1190; the one delta is a WSL2 LeakSanitizer artifact). It is OPT-IN
-because the win is bought with resident memory: one `tests/internal` file's
-universe already exceeds 4 GB, so the default valve (`YO_TEST_MAX_RSS_MB=4096`,
-an execve restart at the next file boundary) degenerates into "restart every
-file" — child mode plus a re-warm. On a 16 GB machine run it with
-`YO_TEST_MAX_RSS_MB=12000` and nothing else heavy; never in CI. The
-hollow-batch check (`__yo_user_main` is a real body, not a "Failed to
-transpile" comment) stays mandatory: an in-process regression presents exactly
-as hollow batches.
-
-**`YO_TEST_FORK=N`** (Linux, macOS) runs the in-process mode's first file in
-the runner, then forks one worker per later file, at most N at a time. Each
-worker compiles in process on a copy-on-write image of the warm runner and
-exits when its file is done, so memory does not pile up the way the
-in-process mode's does, and no RSS valve is involved. Output is replayed in
-file order: the stream, the totals and the exit code are the sequential
-runner's. `tests/internal` with N = 4 matched the default runner verdict for
-verdict (1419/1419, 2026-10-16). The workers share the runner's pages until
-they write them, so the summed PSS of the run reached 14.2 GB at N = 4. Take
-one heavy slot for it only when the box has that memory free.
-
-**Time any of this with a tree-built binary, never the seed**: the seed lacks
-every fix merged since its release, and the v0.2.38 seed made a
-ten-interpolation template check 66× slower than the tree
-(`issues/retired/block-body-on-a-hot-constructor-makes-check-8x-slower.md`).
-
-### Gate on the EXIT CODE — three tools here print a last line that is not the verdict
-
-Measured 2026-09-13, all three on v0.2.32:
+Every command here is the self-hosted compiler `yo` (a release bundle on `PATH`, or a tree-built
+`yo-out/<target>/bin/yo`). There is no bun, npm or node outside `vscode-extension/`.
+
+## Running tests
+
+- `yo test` takes ONE positional path (`test: one path per run`); loop over files and gate on each
+  exit code. `yo test --help` lists every flag.
+- `--bail`/`-b` stops at the first failure; `-v`/`--verbose` shows details;
+  `--test-name-pattern "<regex>"` selects by name (a regex, not a substring); `--list` prints
+  `<file>\t<name>` for the selection without compiling; `--json` emits one `test` event per test
+  (`file`, `name`, `status`, `duration_ms`, plus `message`/`output` on failure) and a `summary`
+  event: read it instead of scraping `✓`/`✗`.
+- **Always save verbose output to a file**: `yo test ./tests/x.test.yo --bail -v --parallel 1 &> out.txt`.
+  Without `-v` a FAILING test loses its own `println` lines and its assert message (only
+  `Test failed with exit code 6` remains). CI passes `--verbose`, so a missing expected
+  diagnostic line in a CI log is evidence that the code printing it never ran.
+- **The fast language suite needs both excludes**:
+  `yo test ./tests --exclude tests/internal --exclude tests/cli-cases --bail` (~30 min).
+  `tests/internal` compiles the compiler once per file; `tests/cli-cases` fixtures hold `.test.yo`
+  harness inputs, one of which MUST fail. std's own tests: `yo test ./std --bail`.
+- Large files are batch-compiled 100 tests per batch (`--test-batch-size N`); a slow file
+  (`tests/string/string.test.yo`, ~300 tests) is faster to iterate with `--test-name-pattern`.
+- Tests run under AddressSanitizer by default (leak detection on Linux).
+- **The test binaries are compiled by whichever `yo` runs `yo test`.** Under the installed seed a test
+  gets the SEED's codegen, and LeakSanitizer reports leaks the tree already fixed. Judge a leak or a
+  codegen change with the tree's stage-1: `YO_STD=$PWD/std <stage-1> test <file> --parallel 1`.
+- **`yo compile` on a `*.test.yo` file has no `main`**: the Yo side compiles (`--skip-c-compiler`
+  succeeds) but the C link fails with `undefined reference to 'main'`. To iterate, extract the case
+  into a standalone `.yo` with a `main` function and `export(main);` at the end.
+- **A project with a `.yo-version` pin** (`markdown-yo`) re-dispatches EVERY `yo` command run inside it
+  to the cached binary of that version (`--version` is answered before the dispatch, so it lies). Set
+  `YO_VERSION_DISPATCHED=1` to run a tree or branch binary there.
+- **Never point `yo test` at `issues/`.** Several `issues/repros/*.yo` are written in `test(...)` shape;
+  a repro for an OPEN bug is supposed to fail.
+- Concurrent `yo test` runs over one directory are isolated: batch artifacts are named
+  `.yo_selftest_batch_<pid>_<fi>_<bi>` (`tests/internal/concurrent-test-runs.test.yo`).
+
+### Gate on the EXIT CODE, not the last line
 
 | tool | why the tail lies |
 | --- | --- |
-| `yo check` | on failure the summary (`yo: error: check: 1 file(s) failed evaluator coverage`) prints FIRST and the per-file trace AFTER, so `\| tail -4` shows `check: invoking evaluate_anonymous_module_begin_exprs` — indistinguishable from success |
-| `yo fmt --check` | a clean run is SILENT, so empty output cannot be told from a crash that produced none |
-| the fixpoint gate | its verdict line is computed from `/tmp/<P>_stage*.c`, which a previous run may have left behind — see the fixpoint notes below |
-
-**And "just grep for `evaluator OK`" does not fix `check`.** A failing run's
-output CONTAINS an `— evaluator OK` line, because the prelude checked fine
-before your file did not:
-
-```
-error: Cannot unify incompatible types: "String" and "str"   <- the real verdict, FIRST
-  --> badcheck.yo:4:14
-yo: error: check: 1 file(s) failed evaluator coverage
-check: …/std/prelude.yo — evaluator OK                       <- greps GREEN
-check: parsing badcheck.yo
-check: invoking evaluate_anonymous_module_begin_exprs        <- last line
-```
-
-So the grep must carry the failure side too — `grep -E "evaluator OK|error|failed"` —
-and `rc` is better than either. The directory form (`check: 275/275 file(s) passed`)
-is meaningful only when the summary is PRESENT AND the two numbers are EQUAL; absent
-is not the same as clean, and on failure that summary is above the trace as well.
-
-In a gate script, capture `rc=$?` for every command and print it. The failure this
-prevents is not exotic: a bad `push_str` read as green through a `| tail -4` and cost
-a full ~20-minute self-build to discover. The general form — **an output shape chosen
-from where you expect the answer to be is not a measurement** — is the same mistake as
-picking test files from where you think the bug lives.
-
-### `check` + `build` both green is NOT proof for a tree-wide rename
-
-Renaming an existing std method (`HashSet.add` -> `insert`, 2026-08-25) had
-`yo check ./std` 152/152, `yo check ./src` 262/262 AND `yo build` rc=0 all green
-while the tree was broken. Four classes of call site are structurally invisible:
-
-| invisible in | why |
-| --- | --- |
-| macro `quote(...)` bodies | not evaluated until expansion, so nothing type-checks them at definition time |
-| generic trait-impl bodies | `check` never instantiates them (e.g. `FromIterator.from_iter_add`) |
-| generic helpers in the defining module | same — the six `result_set.add` sites inside hash_set's own set-ops |
-| **async closure bodies** (`io.async((e) => {...})`) | was: the evaluator's deferred trial SWALLOWED the error and codegen emitted `// Failed to transpile` — **no error anywhere**. Now `compile` and `check` both report it; only a body inside a GENERIC fn whose `io` is itself a type variable is still checked only at specialization |
-
-The last row was the dangerous one. A missed call in `std/fs/walker.yo`'s
-symlink loop made `walk_with` return an EMPTY list, so `yo fetch`, `yo version`
-and both report lints kept building and traversed nothing. See
-`issues/fixed/ftt-stub-in-live-closure-falls-off-non-void-function.md`.
-
-### `usize` is 32 bits on wasm32 — the native suite cannot see width bugs
-
-The wasm targets are the only place `usize` is not 64 bits, so any code that
-hardcodes a bit position, a shift amount, or a `1 << k` boundary is a regression
-the whole native suite will pass. Measured 2026-08-27: adding a `>> usize(32)`
-step to `HashMap`/`HashSet`'s power-of-two capacity rounding — correct on the
-hosts — made `with_capacity` round wrong on wasm32, where a shift equal to the
-operand width is undefined. `tests/collections/hash-map.test.yo`'s "rounds up to
-power of 2" failed under `--target wasm32-wasip1` while `yo test ./tests` stayed
-green at 3240/3240.
-
-Derive widths instead of writing them:
-
-```yo
-sh := usize(1);
-while(sh < (size_of(usize) * usize(8)), {
-  c = (c | (c >> sh));
-  sh = (sh * usize(2));
-});
-```
-
-and in tests, derive the boundary the same way (`bits :: (size_of(usize) * usize(8))`,
-then `usize(1) << (bits - usize(3))`) rather than writing `usize(1) << usize(61)`,
-which is meaningless on a 32-bit target.
-
-**So run the wasm legs locally for anything touching sizes, capacities or bit
-math**, one file at a time with a timeout so a hang is a verdict rather than a
-wait:
-
-```bash
-for f in $(find tests -name '*.test.yo' -not -path 'tests/internal/*' -not -path 'tests/cli-cases/*' | sort); do
-  YO_STD=$PWD/std timeout 240 "$BIN" test "./$f" --parallel 1 --target wasm32-wasip1 &> "logs/$(echo $f | tr / _).log"
-  echo -e "$?\t$f"
-done
-```
-
-~4 s a file, ~15 min for the corpus, and it reports HANGS (rc=124) that the
-`--bail` suite hides behind whichever file fails first. This is how both the
-3.4-hour `ThreadPool` deadlock (`issues/fixed/wasi-thread-pool-submit-deadlock.md`)
-and the width bug above were found.
-
-### "Byte-identity of the emitted C" does NOT survive a `std/` source edit
-
-The standing acceptance test for an *additive codegen* change — record `sha256`
-of the emitted-C corpus before editing, require `same=N diff=0` — is only valid
-when the `.yo` SOURCE is unchanged. Generated C identifiers embed two families
-of number: anonymous type ids (`__yo_tN`) and a global declaration/expression
-counter (`yo_id_N`, `struct_decl_N`, `enum_decl_N`, `loop_yo_id_N`). **Adding
-declarations anywhere in `std/` shifts every counter ordered after the insertion
-point by a constant and permutes the `__yo_tN` numbering**, so the `.c` changes
-`sha256` even when the program is provably identical. Measured 2026-08-26 while
-adding six unused methods to `std/string/string.yo`: the shift was a uniform
-+1004, and the numbers appear in `std/collections/array-list.yo` and
-`std/allocator.yo` identifiers too, not just the edited file's.
-
-Compare like this instead — it is strictly stronger than a `sha256` match:
-
-```bash
-norm() { sed -E 's/__yo_t[0-9]+/__yo_tT/g; s/__YO_T[0-9]+/__YO_TT/g;
-                 s/yo_id_[0-9]+/yo_id_N/g; s/(struct_decl|enum_decl|decl)_[0-9]+/\1_N/g;
-                 s/_temp_[0-9]+/_temp_N/g' "$1"; }
-diff <(norm before.c | sort) <(norm after.c | sort)          # must be EMPTY
-diff <(grep -oE '__yo_[A-Za-z0-9_]+\(' before.c | sort -u) \
-     <(grep -oE '__yo_[A-Za-z0-9_]+\(' after.c  | sort -u)  # must be EMPTY
-grep -c '<the new API you added>' after.c                    # must be 0 if unused
-```
-
-An empty sorted-normalized diff with equal line counts says the emitted program
-is the same multiset of statements; the symbol-set diff says no function was
-added, removed or renamed. In-order differences that remain are pure
-declaration reordering.
-
-**And for a "no behaviour change" REWRITE, drop the emitted C entirely —
-compare the program's OUTPUT.** The recipe above still assumes the source is
-additive. A refactor that claims to preserve behaviour while changing function
-BODIES (a loop rewritten onto a different iterator, a method renamed and
-delegated) makes the emitted C differ on purpose, so no C-level comparison
-— normalized or not — can pass without weakening it into meaninglessness.
-Measured 2026-08-26 on the D4 PR 2 migration: 13567 → 14139 lines and a
-different symbol set, from a change whose whole contract was "no behaviour
-change". The gate that has teeth:
-
-```bash
-# 1. BEFORE editing: a standalone driver over the touched surface, with a
-#    corpus that includes the inputs the refactor is ABOUT (multibyte, empty,
-#    boundary). Print every result AND its length, so a silent truncation
-#    shows up.
-yo compile tmp/probe.yo --std-path "$PWD/std" --optimize 2 -o tmp/probe.bin
-./tmp/probe.bin > before.txt; shasum -a 256 before.txt
-# 2. AFTER: same binary rebuilt, same corpus.
-./tmp/probe.bin > after.txt; diff before.txt after.txt     # must be EMPTY
-```
-
-Two companions make it airtight. **Body-identity** where the refactor claims a
-pure rename: extract the old body with `git show HEAD:<file>` and compare it
-character-for-character to the new one — that covers call sites no runtime test
-can reach (compiler-internal code, which does not take effect until the tree is
-rebuilt). And a **simulated future state**: if the refactor exists to survive a
-change that has not landed yet, apply that change in a throwaway edit and run
-the new tests against it, then run them again with the pre-refactor file. The
-new tests must fail in the second run. If they pass both ways they are not
-testing the refactor.
-
-So for a rename sweep the gate is the FULL suite plus READING the cli-case
-golden diff — never check/build. A golden that gets SMALLER or reports FEWER
-findings (`Scanned 1 .yo file(s)` -> `Scanned 0`) is a regression signal, not
-drift. Grep separately inside `quote(`, `impl(` and `io.async(` bodies; the
-compiler will not name those sites for you.
-
-## Decision 43's origins corpus: `tests/origins/` is not run by `yo test`
-
-`tests/origins/corpus/<id>.yo` holds decision 43's N0 corpus
-(`plans/backlog/REFERENCES_AND_ORIGINS.md` §8): programs spelled in the
-origin syntax N1–N3 will land. Most cannot pass before those phases, so they
-are plain `.yo` files, never `.test.yo`, and the language suite never runs
-them. Their gate is `scripts/origins-corpus.sh`, run from the repository
-root with the binary to test:
-
-```bash
-YO=yo-out/x86_64-unknown-linux-gnu/bin/yo bash scripts/origins-corpus.sh today   # the N0 gate, about 6 minutes
-PHASES=N1 YO=... bash scripts/origins-corpus.sh target                           # a later phase's gate
-```
-
-- `tests/origins/corpus.tsv` is the manifest: each row's anchor, kind,
-  phase, the verdict expected once the rules land, and what `yo check` does
-  today (the first error's code and a text it contains). `today` mode fails
-  when a row's first error changes. A change can be progress or a
-  regression: decide which, then re-record the row's `today` column.
-- `tests/origins/model-corpus.test.yo` IS in the fast suite. It runs every
-  row through the reference checker `tests/origins/model.yo` and asserts the
-  manifest's `expect` column. A new row needs the fixture, the manifest row
-  and a `verdict("<id>", …, "<expect>");` call; the script cross-checks all
-  three.
-- CI runs `today` mode in the `origins-corpus` job of `test.yml` (on
-  `merge-gate`'s list), with the `target` count printed for the record.
-- `tests/origins/unsound/` is the G-B must-reject directory
-  (`plans/backlog/BORROW_CHECKER_COMPLETENESS.md` §6): each program carries a
-  `// expect: E09xx` (or `// expect: accept`) header, and a negative's
-  positive twin sits beside it as `<id>-pos.yo`. Its gate is
-  `YO=<binary> bash scripts/origins-unsound.sh`, run inside the nix shell
-  (clang on PATH). A negative that passes `yo check` is compiled under ASan
-  and run, so the use-after-free a missing rejection ships is printed. Every
-  positive twin must compile and run clean under ASan. CI runs it in the same
-  `origins-corpus` job.
-- G-D, the borrow-program generator: `YO=<binary> python3 -I scripts/origins-gen.py` renders enumerated borrow
-  programs (families `slot`, `args`, `valpos`, `join`) as a Yo program and a rustc twin, takes the `yo check` verdict,
-  rustc's verdict and, when Yo accepts, an ASan run, and minimizes each use-after-free or accept-versus-rustc
-  disagreement into `tests/origins/gen-findings/`. `YO_GEN_SEED=<n>` replays a run, `--sig <signature>` one program,
-  `--verify-known` reports which patterns of `tests/origins/gen-known.tsv` still reproduce (delete a row in the PR that
-  fixes it). Needs `clang` on PATH (inside the nix shell) and optionally `rustc`.
-  `.github/workflows/origins-generator.yml` runs it nightly on develop (artifact plus an issue per new signature); it is
-  not a `merge-gate` need.
-- G-C, the rustc differential corpus: `bash scripts/origins-diff-rustc.sh` compares `rustc --edition 2021
-  --emit=metadata` on every twin in `tests/origins/rust/` (`corpus-<id>.rs`, `unsound-<id>.rs`) with the Yo program's
-  recorded verdict (`LIVE=1 YO=<binary>` runs `yo check` instead). Every divergence is a row of
-  `tests/origins/rust/DIVERGENCES.tsv` (kind `design`, `parity`, `polonius` or `hole`); an unexplained one, or a listed
-  one that no longer diverges, fails. A new corpus row with a Rust analogue gets its twin in the same PR. CI:
-  `origins-rustc-diff.yml` (rustc pinned, weekly and on PRs that edit `tests/origins/`).
-- G-E, the totality and sink audit, is `scripts/check-origin-sinks.sh`. With
-  no argument it is a grep gate (no binary): `local_borrow_register` is
-  called only from the binding sites it lists, the conflict check only from
-  `local_borrow_access`, and every lowering of the plan's §5 table calls its
-  sink in the file that lowers it. A new lowering adds a line to its
-  `LOWERINGS` table. `YO=<binary> bash scripts/check-origin-sinks.sh
-  --totality` runs `YO_AUDIT_ORIGIN_TOTALITY=1 yo check` over `./src`,
-  `./std`, the corpus and the reference language tests; every
-  `[origin-totality]` line is a value a sink stored without its origin
-  computed (`sink`), an `origin_of` recursion into an untyped node
-  (`untyped`) or a cut at its depth bound (`depth`). The count must be 0, and
-  every target except the corpus (rejected programs by design) must check
-  cleanly: an unchecked file is an unaudited one. `./src` imports the
-  `markdown-yo` dependency, so a fresh clone needs `yo install` first (CI
-  runs `install-deps`). CI runs both halves in `origins-corpus`.
-
-## Build system tests
-
-- The build system is covered by `.yo` tests in `tests/internal/`: `build-runner.test.yo`, `lock-file.test.yo`, `resolver.test.yo`, `manifest.test.yo`, `toml-edit.test.yo`, `target.test.yo`, `fetch.test.yo`, `install-command.test.yo`, `cache.test.yo`, `init.test.yo`, `version.test.yo`.
-- Tests cover: build registry, artifacts, steps, DAG, dependencies, lock file, target parsing, path deps, transitive deps.
-- Run them like any other internal test: `yo test ./tests/internal/build-runner.test.yo --parallel 1`.
-- End-to-end CLI subcommand behaviour is covered separately by the `tests/cli-cases/` corpus.
-
-## Adding a cli-case: `yo fmt` the fixture BEFORE recording the golden
-
-A cli-case fixture (`tests/cli-cases/<case>/fixture/*.yo`) is a real `.yo` file
-and CI's "Check the formatted code" step scans the whole tree, so an
-unformatted fixture reds the PR even when every other gate is green. Fixtures
-sit outside the `src/ std/ tests/internal/` paths people usually pass to
-`yo fmt`, which is exactly why this is easy to miss.
-
-Order matters: formatting changes the fixture's content hash, and that hash is
-part of the case's `expected_tree` golden. So `yo fmt` the fixture FIRST, then
-`scripts/cli-diff-test.sh --record <case>`, then re-score without `--record`.
-Doing it the other way round means recording twice.
-
-Verify with all three roots, using the INSTALLED release binary rather than a
-locally built one, since that is what CI runs:
-
-```bash
-yo fmt --check ./src ./std ./tests
-```
-
-## A bare-repository fixture needs a tracked file under `refs/`
-
-Several `install`/`update`/`lock` cases ship a bare git repository inside the
-fixture (`fixture/remote.git`, `fixture/util.git`) and point `yo.toml` at it
-(`git = "./remote.git"`). After `git gc`/`pack-refs` the repository's `refs/`
-directory is EMPTY (every ref lives in `packed-refs`), and git does not track
-empty directories — so a fresh checkout (CI, a new worktree) has no `refs/`
-and git refuses the repository outright:
-
-```
-fatal: './remote.git' does not appear to be a git repository
-```
-
-Locally the case keeps passing, because the directory exists where the
-fixture was generated. Put a `refs/.keep` file in every fixture bare
-repository (loose-ref iteration skips dotfiles, so it is inert), then
-re-record: the file is part of the project tree the `expected_tree` golden
-hashes. Verify from a clean worktree, never only from the tree you generated
-the fixture in.
-
-## A cli-case `cmd` needs a trailing newline, or NOTHING runs
-
-`scripts/cli-diff-test.sh` reads the command list with
-
-```bash
-while IFS= read -r line; do … done < "$cdir/cmd"
-```
-
-and `read` returns non-zero on a final line with **no trailing newline**, so
-the loop body never runs. The sandbox's `stdout.raw` is then 0 bytes and
-`--record` reports
-
-```
-NO-GOLDEN  <case>  (stdout_keep_match matched nothing — vacuous)
-```
-
-which reads like a wrong `stdout_keep_match` regex, so the natural response is
-to loosen the pattern or blame a timeout. Write the file with
-`printf 'build run\n'`, never `printf 'build run'`; the same goes for
-`expected_rc`.
-
-**How to tell which it is:** run with `--keep`, take the `kept sandbox:` path
-it prints, and `ls -la $W/run/stdout.raw`. Zero bytes means the command never
-ran; non-empty means the pattern really is wrong.
-
-## A LEXER-level error cannot live in a cli-case fixture
-
-The fixture tree is scanned by CI's `fmt --check` (above), and `yo fmt` has to
-LEX a file before it can print it back. So a fixture whose whole point is that
-it does not lex — a malformed `"\uZZZZ"` escape, a reserved quantifier — fails
-the formatting gate no matter how correct the case is.
-
-Lexer errors go in `tests/internal/lexer.test.yo` instead, which calls
-`tokenize` directly with an `Exception` whose handler asserts on the message
-and then `unwind`s, followed by `assert(false, "expected a lexer error")`.
-That is also where the reserved-`forall`/`∀` diagnostics live. Write the
-offending source as a Yo string with the backslash DOUBLED
-(`String.from("s :: \"\\uZZZZ\";")`) — writing it in a backtick template
-would make the test file's own lexing the thing under test.
-
-A PARSE-level error may live in a fixture only if the fixture is already
-fmt-CANONICAL. `yo fmt` refuses to rewrite source the parser rejects
-(`issues/fixed/fmt-reformats-parse-invalid-files.md`): when the formatted
-output would differ from the input, the original must parse, else the bare
-diagnostic prints and fmt exits 1 — so a parse-error fixture that also needs
-formatting reds the tree-wide `fmt --check`. Byte-for-byte canonical
-parse-invalid source is left untouched (the gate only fires on a changed
-rendering), which is exactly the shape
-`tests/cli-cases/fix-says-what-it-cannot-repair/fixture/main.yo` keeps: its
-E0003 (`x := 1 && 2 && 3;`) is the case's whole point and it is
-canonical. A parse-refusal unit test lives in
-`tests/internal/formatter.test.yo` (the `format_yo_source` throw), not a
-cli-case.
-
-Evaluator-level rejections are different: `comptime_expect_error` handles
-those, including around an `impl(...)` inside a `test(...)` body.
-
-## `lsp-member-definition` pins absolute LINE NUMBERS inside `std/`
-
-The `lsp-member-definition` cli-case asks the LSP to jump to `ArrayList.push`,
-`ArrayList.new` and `ArrayList` itself, and its golden records the answers as
-`{"line": 244}` and friends in `std/collections/array-list.yo`. **Any edit to
-that file that adds or removes lines above those definitions moves all three**
-— a doc sweep adding `///` comments did exactly that, and the case went
-GOLDEN-DIFF roughly 25 minutes into the tier-1 job.
-
-The fix is a re-record:
-
-```bash
-YO_SELF_BIN=<your stage-1> bash scripts/cli-diff-test.sh --record lsp-member-definition
-```
-
-Check the diff says only that the line numbers moved. A changed URI, a changed
-character column, or a missing result is a real regression.
-
-## Editing diagnostic prose in `src/diagnostics-registry.yo` changes a cli-case golden
-
-`tests/cli-cases/explain-list` runs `yo explain --list`, and its
-`expected_stdout` embeds every registered diagnostic's English summary verbatim.
-Rewording one therefore turns the self-hosted tier-1 gate (GATE 7) red with a
-one-line GOLDEN-DIFF. In 2026-09 this was E0904 gaining `return(...)`. After
-the reword, re-record that case with a binary built from the SAME tree
-(`scripts/cli-diff-test.sh --record explain-list`). A binary built before a
-merge from `develop` silently drops the other side's new codes.
-
-## `yo init` goldens hash only generated files
-
-`yo init` writes `AGENTS.md` and a one-line `CLAUDE.md` and copies no skill
-tree (`yo skills install` and `.github/skills/` were deleted by K4,
-`plans/backlog/AGENT_KNOWLEDGE_CONSOLIDATION.md`), so the `expected_tree` of
-`init`, `init-build-test`, `init-cwd`, `init-existing`, `init-kebab-name`,
-`build-stamp-dotted-dir` and `build-depfile-scoped-stamp` hash the files
-`src/init.yo` generates and nothing a documentation edit touches. Those
-goldens move only when `src/init.yo`'s templates do. A stage-1 binary staged
-outside the checkout needs no pin for them (`YO_SKILLS` is gone).
-
-## Yo source also lives INSIDE scripts and workflows — GATE 8 checks it
-
-Seven Yo programs are embedded in non-`.yo` files, and `yo check ./std`,
-`yo check ./src` and the language suite can see none of them:
-
-- the verification hello world in `scripts/install.sh` and
-  `scripts/install.ps1` (compiled on a user's machine, with the release the
-  script just downloaded);
-- the post-install smoke in `.github/workflows/install-scripts.yml` (POSIX and
-  Windows legs);
-- the three bundle smokes in `.github/workflows/release.yml`.
-
-`install-scripts.yml` is `paths`-filtered to the two installer files, and
-`release.yml` runs at release time only, so **a language change that removes a
-form one of those snippets used to land green and still break the installer
-for real users.** That happened when the `open(...)` builtin was removed
-(`issues/fixed/installer-verification-snippet-is-outside-every-per-pr-gate.md`).
-
-`scripts/check-embedded-yo.sh <path-to-yo>` extracts each snippet from its host
-file, compiles it, runs it and compares stdout against the line that host file
-asserts. It runs as GATE 8 of `gates_fast.sh`, so it is covered on every PR.
-**A tree-wide language sweep must include these files** — grep the scripts and
-workflows, not just `std/`, `src/` and `tests/`.
-
-`scripts/build-site.yo` is the same class of file (Yo source outside the three
-checked directories). `test.yml`'s `docs-site` job compiles it per-PR, but with
-the **SEED** compiler, which by construction still accepts every form it
-shipped with — that job catches std API drift, not language removals. Sweep it
-by hand.
-
-## A fixpoint run's stage-1 must live OUTSIDE the repo (`/tmp/yo-s1`)
-
-Type keys embed each declaring module's PATH SPELLING, and std resolution is
-`--std-path > YO_STD > exe-walk-up > ./std`. A stage-1 sitting INSIDE the
-repo (e.g. `yo-out/<target>/bin/yo`) exe-walks-up to the repo std and renders
-ABSOLUTE module paths; the script's stage-2 binary is built in `/tmp` and
-falls back to relative `./std`. Different path spellings → different type-key
-strings → different hash-bucket emission order → a FIXPOINT_BROKEN verdict
-with same-content, reordered/renumbered C (measured 2026-08-23: first
-divergence was `struct_decl_31673__Users/...` vs `struct_decl_31673___std/...`).
-Copy the binary first, exactly as AGENTS.md shows:
-
-```bash
-cp yo-out/aarch64-apple-darwin/bin/yo /tmp/yo-s1
-S1=/tmp/yo-s1 P=local bash scripts/bootstrap/fixpoint_only.sh
-```
-
-## `yo build` with a self-built compiler: the stamp names the binary
-
-The artifact stamp covers the sources, `yo.toml`/`yo.lock`, argv,
-`CURRENT_YO_VERSION`, and the running compiler binary (`yo-binary
-<path>:<size>:<mtime>` from `current_exe()`). The binary line was added
-2026-09-28 (`issues/fixed/yo-build-cache-ignores-which-compiler-built-the-artifact.md`).
-Before it, a stage-1 built from this tree, which reports the seed's version
-string, got `(cached: inputs unchanged, skipping compile)` and copied itself
-back, so an A/B of "stage-2" against stage-1 compared a binary with itself
-(plan §0.19). Now `<stage-1> build` recompiles, and the result is the real,
-shipped-configuration stage-2 (mimalloc on Linux, build.yo's flags):
-
-```bash
-YO_MAIN_STACK_MB=4096 <stage-1> build
-sha256sum <stage-1> yo-out/<target>/bin/yo   # must differ
-```
-
-A binary older than that fix still serves the stale artifact; with one,
-force the rebuild with `YO_BUILD_NO_CACHE=1`.
-
-`fixpoint_only.sh`'s `/tmp/<P>_s2` is a stage-2 too, but it is built with the
-SYSTEM allocator and plain `clang -O2`. Its wall time is not the shipped
-compiler's: glibc's malloc charges for reusing freed chunks, which mimalloc
-does not.
-
-**Memory verdicts need stage-2 too.** A leak census, an RSS A/B or the LSP
-plateau (`scripts/bootstrap/lsp_plateau.py`) run on the seed-built stage-1
-measures the SEED's codegen, not the tree's. On 2026-09-28 every seed-built
-binary grew ~100 MB per LSP round while stage-2 of the same tree stayed flat.
-The leak was already fixed in the tree's codegen, and allocator and `-O` level
-made no difference
-(`issues/lsp-memory-grows-per-open-edit-close-round.md`). Compare stage-2
-against stage-2.
-
-## A fixpoint run's stage-1 must come from the SAME tree it compiles
-
-`scripts/bootstrap/fixpoint_only.sh` takes a prebuilt stage-1 via `S1=` and has
-it compile the tree as it exists **when the script runs**. So editing anything
-between building that stage-1 and starting the gate invalidates the result:
-stage-2 then carries the edit while stage-1 does not, the two binaries are
-different generations, and their emissions legitimately differ.
-
-Measured 2026-08-13: adding one import to `std/process/command.yo` four seconds
-before the gate started produced `FIXPOINT_BROKEN` with **1.1 M differing
-lines** — while every individual step passed (`STAGE2_RC=0`, `hollow=0`,
-`CLANG_RC=0`, `STAGE3_RC=0`). Rebuilding stage-1 from the final tree gave
-`FIXPOINT_HOLDS` with no code change at all.
-
-**Read the diff before believing the verdict.** Pure type-id renumbering
-(`__yo_t796` → `__yo_t614` with everything shifted) is the signature of a
-different COUNT of type instantiations — i.e. generation skew — not a semantic
-regression. A real break shows localized, structural differences instead.
-
-This is the same two-generation rule as the seed pin, in a different costume:
-anything that changes `std/` shifts every program that links it.
-
-## Choosing a Tier 1 gate: select by what the diff touches
-
-Tier 1 (AGENTS.md, "Gating is three-tier") is a *targeted* gate, and the
-target is the diff. Develop's battery runs everything, so a gate that runs
-everything only duplicates it while blocking the heavy-lock queue for hours.
-Measured 2026-10-14: a prelude rename (decision 45 Gen B, Dispose → Drop)
-picked all 33 `tests/internal` files. Each file re-evaluates the compiler
-before its first test (4–7 min each, even with 2 tests), and the serial run
-took ~2 h 20 min of a 3 h gate. The same gate's feature step passed 60
-files to one `yo test` call, which accepts one path, so it failed in 0 s and
-verified nothing.
-
-- **Always:** `yo build --std-path ./std` (when `src/` changed),
-  `check ./src` and `check ./std` (each with `--std-path ./std`), `yo fmt --check` on the
-  changed `.yo` files, `bash scripts/check-issue-refs.sh`. About 15 min.
-- **A tree-binary `check ./src` when the `src/` diff touches rules the tree
-  enforces more strictly than the seed.** That means capture lists, borrow and
-  reference spellings (`&x`, `&mut x`, `.*`), or any rule a recent PR
-  tightened. The seed's `check ./src` and `yo build` only prove the SEED
-  accepts the tree. The bootstrap fixpoint compiles `src/` with the tree
-  binary, and every `tests/internal` file does the same.
-  - Run it as
-    `YO_MAIN_STACK_MB=4096 yo-out/<target>/bin/yo check ./src --std-path ./std`.
-  - Measured 2026-11-19 on the R7 parser drop: nine capture lists of the form
-    `{ &env }` over a `&T` parameter passed the v0.2.78 seed. The tree binary
-    rejected them with E0926 (`` `env` is a reference … spelled `&env.*` ``),
-    so every `tests/internal` file importing `src/evaluator/context.yo` failed
-    to compile.
-  - The fix is `{ env : &env.* }`.
-- **`yo check` does not evaluate `test(...)` bodies**, so a `src/` change that
-  alters a type the `tests/internal` files construct or copy (a record turned
-  from a shared handle into a value, a field retyped) is invisible to
-  `check ./tests/internal`; only the ~20-40 min `yo test` compile of each file
-  finds it. A cheaper sweep is to check each file in the shape `yo test`
-  compiles: the file's non-test lines, then a `main` whose `cond` arms hold
-  the test bodies (the batch `src/main.yo` synthesizes). Name each generated
-  file `*.yo_selftest_batch_*.yo` so the test-file exemptions (E0611 `unwrap`)
-  apply, put them in a sibling directory at the same depth as `tests/internal`
-  so `../../src` imports resolve, and run one `check` over that directory.
-  - Measured 2026-11-20 on the R7 parser drop: one `check` over 109 generated
-    files took about 40 min. Beyond the 4 files a `.get(` grep had found, it
-    named 5 more broken `tests/internal` files (`Option(Self)` alias fields that
-    became `Option(Rc(Self))`, written results needing `mut(r)`, a `YoError`
-    moved into a `Dyn`). The seed and tree `check ./src` had both passed.
-- **Feature tests: grep for what changed.** Take the `tests/**/*.test.yo` files
-  (minus `tests/internal` and `tests/cli-cases`) that name a renamed or
-  changed identifier, plus the feature's own new tests. **`yo test` takes ONE
-  path per run** (`test: one path per run, got …`). Loop over the files and
-  gate on each exit code:
+| `yo check` | on failure the summary (`yo: error: check: 1 file(s) failed evaluator coverage`) prints FIRST and the per-file trace AFTER, so `\| tail` shows `check: invoking evaluate_anonymous_module_begin_exprs`, which looks like success |
+| `yo fmt --check` | a clean run is SILENT: empty output cannot be told from a crash |
+| the fixpoint gate | its verdict is computed from `/tmp/<P>_stage*.c`, which a previous run may have left behind |
+
+Grepping `evaluator OK` does not fix `check`: a failing run still prints
+`check: …/std/prelude.yo — evaluator OK` for the prelude. Grep both sides
+(`grep -E "evaluator OK|error|failed"`), or better capture `rc=$?` for every command in a gate script
+and print it. The directory form (`check: 275/275 file(s) passed`) means clean only when present AND
+both numbers are equal.
+
+## Testing changes to the repo's `std/`
+
+- The installed `yo` resolves `std` from its OWN bundle (resolution order:
+  `--std-path > YO_STD > exe-walk-up > ./std`), so `yo test ./tests/...` after a `std/` edit silently
+  tests the INSTALLED std. Point it at the tree:
+  `YO_STD=$PWD/std yo test ./tests/sync/channel.test.yo --parallel 1`.
+- Entries INSIDE a std tree (`yo test ./std`, `yo check ./std`, `yo compile std/...`) resolve that tree
+  automatically (stderr note `yo: every entry lives inside the std tree at ...`); `./tests/**` does not.
+- `yo test --std-path` reaches the batch-compile child only on a binary carrying that fix
+  (`tests/cli-cases/test-std-path-forwarded`); with an older released `yo`, use `YO_STD`, which always
+  reaches the child through the environment.
+- A tree-built stage-1 walks up to the repo's `./std` and needs no override. Codegen changes in `src/`
+  are only observable under it: the seed emits the old code whatever std it reads.
+- `YO_KEEP_BATCH=1` keeps the generated `.yo`/`.c`/binary beside the test file, to confirm a batch really
+  transpiled:
 
   ```bash
-  for f in $(cat feature-tests.txt); do yo test "$f" --parallel 1 > "log/$(basename $f).log" 2>&1; echo "$f rc=$?" >> log/feature.log; done
+  YO_KEEP_BATCH=1 YO_STD=$PWD/std yo test ./tests/sync/atomic.test.yo --parallel 1
+  bash scripts/count-transpile-failures.sh tests/sync/.yo_selftest_batch_*_1_0.bin.c
   ```
 
-- **`tests/internal`: select by direct import or by a name the file uses, not
-  by "the prelude changed".**
-  - Include a file when it imports (`../../src/...`) a `src/` module the diff
-    changes, or when its source names a changed identifier (`grep -lw`).
-  - A `std/`- or prelude-only change selects no file by import:
-    `check ./src --std-path ./std` and the build already prove the compiler
-    accepts the new std. Add `compile.test.yo` as the self-compile smoke, plus
-    any file the grep finds.
-  - When more than ~8 files qualify, run the ~8 most relevant ones, one file per
-    call, and leave the rest to develop's battery (say so under Deferred).
-    **Never run the whole `tests/internal` directory as a gate** (maintainer,
-    2026-10-23). That covers branch gates, reviews and regenerations alike,
-    in-process or serial. Measured on 2026-10-23 (Linux, 32 cores, 64 GB): four
-    concurrent in-process runs took 4–5 h each with the CPU two-thirds idle. They
-    collided on shared `/tmp` fixtures and reported false watch and
-    module_invalidation failures. The full directory is develop's battery's job.
-    Watch that battery and fix forward.
-- **cli-diff** only when the diff can move CLI output: std (line-pinned LSP
-  goldens), diagnostics prose, a CLI command, `yo init`'s templates, a `yo fix`
-  migration. Read each GOLDEN-DIFF before `--record`.
-- **Split weights:** the gate is one weight-1 `heavy_take`; anything timed or
-  above ~5 GB is a separate `exclusive` job queued after it, never a reason to
-  take the whole gate exclusive.
+## Building a stage-1, and the C compiler
 
-A typical gate is 30–45 min. What it leaves out is develop's battery's job;
-a red develop job is fixed forward.
+- **Build stage-1 the way CI does: `YO_MAIN_STACK_MB=4096 yo build --std-path ./std`.** Plain
+  `yo build` gives the seed its own bundled std, so a std change the seed cannot lower passes every
+  local gate and turns every CI job red at "Build stage 1 once" (#996). A std feature that needs new
+  codegen or runtime lands in two steps across a `SEED_VERSION` bump.
+- **gcc and clang disagree on emitted-C warnings.** The driver's optimized arm passes clang-only
+  `-Wno-everything`, while `-Werror=return-type` stays load-bearing under gcc, so C that is clean under
+  clang can fail a gcc build. CI builds with clang. For a matching local clang use the nix shell, and run
+  the built binaries inside the same wrapper (outside it the nix-glibc/system-lib mix dies on a pthread
+  `allocate_stack: size != 0` assertion):
 
-## The heavy lock: one machine, several sessions
+  ```bash
+  nix develop . --command bash -c 'yo build --std-path ./std --cc clang'
+  ```
 
-Several sessions and agents often share one development machine, and two
-compiler-sized jobs that start at the same moment can swap each other into
-the test runner's 600 s deadline. Every heavy step therefore goes through
-`scripts/heavy-lock.sh`, a FIFO lock under `~/Workspace/Yo-wt` (the worktree
-root; override with `HEAVY_ROOT`, which every session on the machine must share):
+  `--cc` takes only `cc|gcc|clang|zig|emcc` (no path), so clang must resolve on `PATH`.
+- **The artifact stamp names the compiler binary** (`yo-binary <path>:<size>:<mtime>`, beside sources,
+  `yo.toml`/`yo.lock`, argv and `CURRENT_YO_VERSION`), so `<stage-1> build` really recompiles and yields
+  the shipped-configuration stage-2 (mimalloc on Linux, `build.yo`'s flags). Check
+  `sha256sum <stage-1> yo-out/<target>/bin/yo` differ. An older binary serves the cached artifact; force
+  it with `YO_BUILD_NO_CACHE=1`.
+- **Memory and timing verdicts need stage-2 vs stage-2.** A leak census, RSS A/B or
+  `scripts/bootstrap/lsp_plateau.py` run on seed-built stage-1 measures the SEED's codegen. The
+  fixpoint's `/tmp/<P>_s2` is built with the system allocator and plain `clang -O2`, so its wall time is
+  not the shipped compiler's either.
+- **Time anything with a tree-built binary, never the seed**: the seed lacks every fix merged since its
+  release.
+- **Windows:** a `src/codegen/async/runtime-io-*.yo` template edit reaches the compiler's OWN runtime
+  only after a SECOND build (one build emits the new runtime but runs the old one), and
+  `yo-out/<target>/bin/yo.exe build` cannot relink itself (LNK1104): compile to another `-o`. A failing
+  test's abnormal termination is a SIGNAL status (`code() == None`, `signal() != 0`); clean nonzero
+  exits give `code() == Some(n)`.
 
-```bash
-source scripts/heavy-lock.sh
-trap heavy_drop EXIT
-heavy_take "<who>: build + check src"        # shares the machine (default 3 slots)
-yo build --std-path ./std && yo check ./src --std-path ./std
-heavy_drop
-heavy_take "<who>: check-time A/B" exclusive  # runs alone
-```
+## Scratch files
 
-- **Heavy:** `yo build`, `check ./src`, `compile src/main.yo`, the language
-  suite, any `tests/internal` file, fixpoint. **Light, no lock:** single small
-  test files, `fmt`, `check` of one small module.
-- **Take `exclusive`** for anything timed (a timing or A/B comparison) and,
-  on a machine with little headroom, for steps that grow past ~5 GB, such as
-  a compiler-sized `tests/internal` file (up to ~6.5 GB). Only the `exclusive`
-  argument makes a job exclusive: the label is free text, and words like
-  `A/B` or `measure` in it no longer serialize the machine (2026-10-21). On a
-  64 GB box, memory-heavy test runs (`YO_TEST_IN_PROCESS=1` with
-  `YO_TEST_MAX_RSS_MB=12000`, a compiler-sized file) take an ordinary slot: the
-  admission check (`HEAVY_MIN_AVAIL_MB`) covers them, and exclusive tickets
-  behind single-core jobs left 32 cores idle for hours. The free-memory check (`HEAVY_MIN_AVAIL_MB`, 6 GB) only runs when a
-  job is admitted beside another, so it cannot catch a job that grows later.
-- **Size the slots per machine in `~/Workspace/Yo-wt/heavy-lock.conf`**, never
-  per session: `HEAVY_SLOTS=N` (1–26, default 3) and `HEAVY_MIN_AVAIL_MB=M`.
-  Every waiter re-reads the file each poll, and it wins over environment
-  variables, so one session cannot run with a different slot count than the
-  rest. Budget ~4 GB per Tier 1 gate on top of the OS and the sessions
-  themselves: 3 slots on 16 GB, about 6 on 48 GB. `bash scripts/heavy-lock-test.sh`
-  (~1 min, throwaway lock root) checks a change to the script.
-- **Never hold a slot while idle.** A gate is one script with no waits inside;
-  `trap heavy_drop EXIT` releases the slot when the script fails.
-- **Take the slot in the process that outlives the job.** The owner line
-  records `$$`, and in a `( … ) &` subshell `$$` is the PARENT shell's pid. A
-  background job started as `(heavy_take …; job; heavy_drop) &` from a command
-  that returns at once leaves a slot whose owner is already dead, so the next
-  waiter reclaims it while the job still runs. Put the gate in a script and
-  start that (`nohup bash gate.sh &`): its `$$` is its own (2026-11-07,
-  `issues/2026-11-07-two-waiters-that-reclaim-the-same-orphaned-heavy-lock-slot-can-both-hold-it.md`).
-- **Never backdate a ticket** (overriding `_heavy_now_ns` to keep an older queue
-  position). An `exclusive` waiter claims slots only while it is the oldest
-  ticket, so a backdated weight-1 ticket that cannot start beside held
-  exclusive slots deadlocks the queue (2026-10-14). A restarted job queues at
-  the tail.
-- **`priority` is the one sanctioned way to jump the queue**, for release
-  blockers only: `heavy_take "<who>: <job>" priority`, or `HEAVY_PRIORITY=1` in a
-  gate script's environment. It combines with `exclusive`. The ticket sorts
-  ahead of every ordinary one, FIFO among priority tickets, so it takes the next
-  slot that frees; a running job is never preempted.
-  - It never overtakes a queued `exclusive` ticket. That ticket may already hold
-    some slots while it drains the rest, so overtaking it would deadlock the
-    queue as backdating does. The priority ticket queues right behind it instead.
-  - The order is carried by the ticket NAME, so waiters running an older copy of
-    the script honour it too.
-  - The priority code itself lives only in the copy that takes the ticket. A
-    worktree branched before the option existed should source a current copy:
-    `git -C ~/Workspace/Yo show origin/develop:scripts/heavy-lock.sh`.
-  - A priority holder's owner line ends in `[PRIORITY]`.
-- `cat ~/Workspace/Yo-wt/.heavy-lock*/owner` shows the holders and
-  `~/Workspace/Yo-wt/.heavy-queue/` the waiters, oldest first. A holder whose
-  process is stopped (`ps -o stat=` shows `T`) blocks everyone; `kill -CONT` it.
-- Killing a waiter or a holder is safe: a dead waiter's ticket is pruned, and a
-  slot whose owner pid is gone, or that was taken before the machine last
-  booted, is reclaimed by the next waiter's scan (a reboot used to leave every
-  slot held and deadlock the queue,
-  `issues/fixed/2026-10-16-the-heavy-lock-never-reclaims-a-slot-whose-owner-died.md`).
-- **Stop a `yo build` by its process group, not its pid.** `kill <yo build pid>`
-  ends the build runner but not its `yo compile` child. The child runs to the
-  end, outside the slot your script just dropped, and writes the same output as
-  a build you restart in that worktree
-  (`issues/2026-10-23-killing-yo-build-leaves-its-compile-children-running.md`).
-  A wrapper started with `setsid` is its own group: `kill -- -<pgid>`. Before
-  restarting a build, check `pgrep -af "yo compile"` for a compile still
-  writing the same `yo-out`.
-- The whole-directory in-process `tests/internal` run is not a gate (see "Choosing
-  a Tier 1 gate"). A single in-process file on a large machine takes a normal slot.
+- `tmp/fixme.yo` is the scratch file (`tmp*` is gitignored; contents are disposable):
+  `yo check tmp/fixme.yo`, `yo compile tmp/fixme.yo --optimize 2 -o a.out && ./a.out`.
+- Put new experimental `.yo` files in the worktree's `./tmp`, not `/tmp`. Create no `.js`/`.ts` files.
 
-## Compiler internal tests — `tests/internal/`
+## Writing tests
 
-These are the self-hosted compiler's own tests. **They lived at `yo-self/tests/`
-until 2026-08-05**; translate that path when reading older `issues/` and `plans/`
-documents. They moved because the TypeScript `src/` was going to be retired and
-`yo-self/` renamed to `src/`, so the tests belong under `tests/` rather than
-being shuffled again later. BOTH have since happened.
-
-```bash
-yo test ./tests/internal --parallel 1        # the whole directory
-yo test ./tests/internal/lexer.test.yo --parallel 1
-yo test ./tests/internal/parser.test.yo --parallel 1
-```
-
-- They import `src/` internals via `../../src/...`, so every file
-  that reaches `evaluator/index.yo` pays a full compiler-sized Yo compile.
-- **MEASURED 2026-09-21, M4, `--parallel 1`, whole directory:** ~78 min,
-  peaking at 8.8 GB resident. (An older 2026-08-05 figure of 22.2 min was
-  over 58 files and predates most of the current corpus; the 40.5 min /
-  63 min TS-era numbers are historical, no longer runnable.)
-- **Use `--parallel 1`, and run one at a time.** One compiler-sized file
-  can peak at ~6.5 GB, so two concurrent children on a 16 GB machine swap — and the
-  swapping trips the runner's own 600 s evaluator deadline, MANUFACTURING failures
-  that do not reproduce in isolation. (The runner ignores `--parallel`
-  regardless: "Accepted for CLI compatibility; v1 runs sequentially".)
-- The fast language suite excludes them: `yo test ./tests --exclude tests/internal`.
-  CI does the same, and runs `tests/internal` as its own informational job
-  (`compiler-internal-tests` in `.github/workflows/test.yml`).
-- Run them whenever modifying `src/` source or these tests.
-- **Two settings separate a real verdict from noise, and CI sets the first** (`YO_TEST_LEAK_VERDICT: "0"`
-  in `test.yml`). Measured 2026-10-01 on a loaded 32-core WSL box (load average around 20):
-  - Run with `YO_TEST_LEAK_VERDICT=0`. Without it, every test in `check-watch.test.yo` (12 of 12) fails
-    as `Memory leak detected:` with no assertion message. The harness evaluates modules in-process,
-    so the process-lifetime evaluator registries leak (`issues/self-hosted-emit-leaks-remaining-classes.md`).
-    ASan crash detection stays armed either way.
-  - Pass `--compile-timeout-ms 2400000` on a busy machine. The batch compile of `check_watch` /
-    `module_invalidation` took about 25 min there and tripped the default 600 s deadline (`Yo compilation
-    exceeded the configured time limit`, `0 of 12 tests in this batch ran`).
-- No WASM directives needed (pure logic, no I/O syscalls) — but they are
-  host-toolchain-only in CI, excluded from the emcc and wasm32-wasip1 jobs.
-- Large `.test.yo` files are batch-compiled in chunks of 100 tests by default. Use `--test-batch-size N` to tune this when a generated C batch is too large or when you need tighter failure isolation. Smaller batches reduce C size but repeat Yo compilation, so avoid lowering this unless needed.
-- Concurrent `yo test` runs over one directory are isolated: every batch artifact name carries the runner's pid (`.yo_selftest_batch_<pid>_<fi>_<bi>` — before 2026-10-03 the name had no per-process component, and one run deleted another's compiled batch mid-run, surfacing as `yo: error: file or directory not found` / `permission denied` with tests failing; `issues/fixed/concurrent-yo-test-runs-in-one-directory-overwrite-each-others-batches.md`, regression test `tests/internal/concurrent-test-runs.test.yo`). The old shared `/tmp/yo_self_out.c` scratch this bullet used to cite no longer exists.
-
-#### A hollow batch voids EVERY test in it, not one
-
-The self-hosted runner inlines **all test bodies of a batch into a single
-`__yo_user_main`** (`src/main.yo:1328-1349`, `cond` arms keyed on
-`YO_TEST_INDEX`). So one expression codegen cannot transpile turns that whole
-function into a `// Failed to transpile` **C comment** — the C compiler skips
-it, the binary runs nothing, and the runner reports **every test in the batch as
-passing**. Measured 2026-08-12: 23 vacuous tests in
-`tests/internal/expr-info.test.yo`, with the CI job green the whole time
-(`issues/fixed/yo-self-option-eq-ref-enum-not-specialized.md`).
-
-The `__yo_user_main` marker gate in `src/codegen/functions/generation.yo`
-turns this into a hard error. **Never weaken that gate to get a job green.**
-
-Debugging one:
-
-- `YO_KEEP_BATCH=1` keeps `.yo_selftest_batch_<pid>_<fi>_<bi>.yo` next to the
-  test file (the `<pid>` component isolates concurrent runs over one
-  directory); compile that directly to iterate instead of re-running the suite.
-- To read the marker's text you need a **pre-gate** binary (an older stage-1) —
-  with the gate the compile aborts before the `.c` is written.
-- Batch bodies are `ast_expr_to_string()` **re-prints**, not source slices, so a
-  round-trip defect is a candidate. Rule it out by testing the natural source
-  form as well.
-- Prefer `opt.is_none()` over `opt == Option(T).None` in tests: the latter needs
-  `Eq` on the payload type specialized, which is a much heavier requirement than
-  the assertion actually needs.
-
-#### Counting untranspiled bodies: never anchor to start-of-line
-
-Use `scripts/count-transpile-failures.sh <emitted.c>` — do not hand-roll a
-`grep`. Two things make a hand-rolled one wrong in opposite directions:
-
-- **Overcount.** Codegen spells its own marker strings (`String.from("// Failed
-  to transpile ")`), so the compiler compiling itself bakes them into stage-2 as
-  C string literals. That floor is 15 as of 2026-08-25 and moves whenever
-  codegen gains or loses a fallback branch — it is not the "fixed floor of 2"
-  older docs assert.
-- **Undercount.** `grep -cE '^\s*// Failed to transpile'` scores only the
-  standalone-comment form. Codegen also emits markers **mid-line**, as
-  `return // Failed to transpile <expr>;` and
-  `__yo_tN tmp = // Failed to transpile <expr>;`, and anchoring calls those
-  clean. That is the mistake that let a hollow `io.async` closure body ship
-  green (`issues/fixed/ftt-stub-in-live-closure-falls-off-non-void-function.md`).
-- **Invisible since PR #275.** When the untranspilable body sits in a
-  **value-returning** function, codegen no longer emits markers at all — the
-  whole body becomes
-  `abort(); /* untranspilable body in a value-returning fn: ... */`, because
-  falling off the end is UB and `-Werror=return-type` rejects it. Such a file
-  scores **`0 real`** and the program dies rc=134 at runtime. The script prints
-  an `N abort-stub` field for exactly this; **`0 real` alone is not proof a
-  file is clean — read the stub count too**, and for an async change also run
-  the binary. MEASURED 2026-08-26 on a closure nested inside an `io.async`
-  closure body: `0 real (0 string-literal floor, 1 abort-stub)`, rc=134.
-- **A missing file used to score clean.** `grep` on a path that does not exist
-  printed nothing and the script answered `0 real`, exit 0. It now exits 2 with
-  `MISSING FILE`. Check that first when a gate reports a suspiciously clean
-  number (`fixpoint_only.sh` scores `/tmp/$P_stage2.c` through this script).
-
-The rule that separates them: a **string-literal** occurrence is immediately
-preceded by a double quote; an **emitted marker** never is. Match anywhere on
-the line, then reject matches whose preceding byte is `"`. This is the same
-discriminator the codegen abort-stub detector uses
-(`src/codegen/functions/generation.yo`, PR #275).
-
-`fixpoint_only.sh` and `chunked_gate.sh` both call the script, and
-`fixpoint_only.sh` **gates** on it: a stage-2 carrying an untranspiled body is a
-broken compiler even when stage2 == stage3 byte-for-byte, because both stages
-emit the same hole.
-
-### macOS 26 AMFI / ASAN dylib workaround
-
-On macOS 26+ (current release), locally-compiled C binaries linked against the
-Nix-store ASAN dylib (`libclang_rt.asan_osx_dynamic.dylib`) are rejected by
-AMFI/XProtect with "Unrecoverable CT signature issue". The process starts but
-never executes; the test runner's 60s watchdog eventually kills it. This
-affects ALL branches and ALL test files, including a trivial `assert(true)`.
-
-**Workaround**: pass `--disable-sanitize` to skip AddressSanitizer linkage:
-
-```bash
-yo test ./tests/basic.test.yo --disable-sanitize --parallel 1
-yo test ./tests/internal --disable-sanitize --parallel 1
-```
-
-This disables leak detection on macOS, but tests still validate logic.
-See `issues/retired/macos-26-asan-blocked-by-amfi.md` for the kernel-log evidence.
-
-**Alternative** (slower, but keeps ASAN coverage on Linux/WASI): use
-`--target wasm32-wasip1` to run via `wasmtime`:
-
-```bash
-yo test ./tests/internal --target wasm32-wasip1 --parallel 1
-```
-
-> Note: no file in `tests/internal` carries a `SkipWasm32*` pragma (verified
-> 2026-08-05) — the split evaluator files that used to need them are gone. They are
-> kept out of the cross-target CI jobs by `--exclude tests/internal` instead, since
-> compiling the compiler for a WASM target costs far more than it proves.
-
-The WASM test runner uses Emscripten (`emcc`) with `-sSTANDALONE_WASM` and
-`-sINITIAL_MEMORY=67108864` / `-sSTACK_SIZE=8388608` so large test binaries
-have sufficient memory.
-
-Tests that spawn sub-processes (e.g., `integration.test.yo`) are automatically
-skipped via `pragma(Pragma.SkipWasm32Wasi);` and are not required for CI on affected systems.
-
-### Stack depth limit for yo-self evaluator tests
-
-> **HISTORICAL (2026-08-05).** The specific function measured below,
-> `evaluate()` in `src/evaluator/eval.yo`, was RETIRED along with that whole
-> legacy proto-evaluator file, and the linker-level stack reserves quoted below
-> lived in the since-deleted TypeScript test runner. The **mechanism and the
-> platform numbers still apply** to the other large evaluator frames
-> (`evaluate_match` ~9 MB, `evaluate_function_call` ~8 MB at `-O0`) — this
-> section is kept as the explanation for why deep comptime recursion needs a big
-> stack.
->
-> **What provides that stack today:** every emitted binary runs its program body
-> on a worker thread with a **1 GiB stack by default**, overridable at runtime
-> via the `YO_MAIN_STACK_MB` env var (`__yo_main_stack`, emitted by
-> `src/codegen/functions/generation.yo`, on both the POSIX and Windows arms).
-> WASM keeps a direct call and has no worker stack, so `YO_MAIN_STACK_MB` is a
-> no-op there. Nothing sets a linker `-stack_size` / `/STACK:` reserve any more.
-
-The `evaluate()` function in `src/evaluator/eval.yo` had ~2482 local variables
-(grown from ~693 in early phases) and occupied **~1.5 MB of stack space per frame**
-at `-O0` without ASAN, due to the large `EvalValue`/`TypeValue` enum types stored
-directly on the stack. ASAN inflates this further by disabling stack frame reuse
-and adding redzones around every variable.
-
-**Per-frame overhead by platform:**
-
-- macOS ARM64 native (no ASAN): ~1.5MB per `evaluate()` frame
-- macOS ARM64 with ASAN: ~566KB per `evaluate()` frame (ASAN "fake stack" uses
-  separate heap allocation, reducing the real C-stack portion)
-- Windows x86_64: ~1.1MB per `evaluate()` frame with ASAN
-
-**macOS ARM64 native (measured against a 256MB reserve, `-Wl,-stack_size,0x10000000`):**
-
-- Safe: countdown(1) needs ~5 frames × 1.5MB ≈ 7.5MB (was SIGSEGV at 8MB default)
-- Safe: countdown(10) needs ~50 frames × 1.5MB ≈ 75MB → ✓ with 256MB reserve
-- Safe: ack(2,3) needs ~100 frames × 1.5MB ≈ 150MB → ✓ with 256MB reserve
-- Unsafe: ack(3,2) needs ~2700+ frames → **STACK OVERFLOW** (too deep for any reasonable stack)
-
-**macOS ARM64 with ASAN (8MB default; --disable-sanitize recommended):**
-
-- Safe: countdown(1) needs ~5 frames × 566KB ≈ 2.8MB → ✓
-- Safe: fib(1) needs ~4 frames × 566KB ≈ 2.3MB → ✓
-- Unsafe: countdown(2) needs ~7 frames × 566KB ≈ 4MB → **STACK OVERFLOW** (after Phase 3a ExprId growth)
-- Unsafe: fact(2) needs ~8 frames × 566KB ≈ 4.5MB → **STACK OVERFLOW**
-- Unsafe: fib(5) needs ~22 frames × 566KB > 8MB → **STACK OVERFLOW**
-
-Note: Frame sizes grew significantly after Phase 3a (ExprId added to AstExpr) and Phase 2az
-(TraitT extended with new fields). See `issues/fixed/asan-eval-frame-size-after-expr-id.md`.
-
-**Windows x86_64 (measured against a 16MB reserve, `-Wl,/STACK:16777216`):**
-
-- Safe: countdown(2) needs ~7 frames × 1.1MB ≈ 7.7MB → ✓
-- Safe: fact(2) needs ~8 frames × 1.1MB ≈ 8.8MB → ✓
-- Unsafe: countdown(3) / fact(3) would exceed 16MB → **STACK OVERFLOW**
-
-When writing recursive evaluator tests, use small inputs (e.g. fib(1), countdown(1)).
-Do NOT use `ASAN_OPTIONS=stack_size=N` — that sets the fake stack, not the real C stack.
-
-## Important constraints
-
-- `yo compile` on a `*.test.yo` file runs the Yo side fine (and
-  `--skip-c-compiler` succeeds outright), but the runner's batch shape
-  synthesizes no `main`, so a full compile stops at the C link with
-  `undefined reference to 'main'`. To iterate on a failing test with the
-  compiler, extract the case into a separate `.yo` file with a `main`
-  function and `export(main);` at the end.
-- Always save test log output: `yo test ./tests/XXX.test.yo --bail --verbose &> test_output.txt`
-- If a `main` linker error appears (`undefined reference to 'main'`), add `export(main);` at the end of the `.yo` file.
-- A project with a `.yo-version` pin (`markdown-yo`, for one) makes EVERY `yo` command run inside it re-dispatch to the cached binary of that version, whatever binary you invoked. `<tree-binary> --version` still reports the tree version, because `--version` is answered before the dispatch. To run a tree or branch binary there, set `YO_VERSION_DISPATCHED=1`. Without it, B2's markdown-yo sweep silently ran v0.2.64, and that version failed the tree's prelude (2026-10-21).
-
-## File creation rules
-
-- Do not create new `.js`, or `.ts` files unless told to do so — the repo has no JS/TS toolchain outside `vscode-extension/`.
-- You can comment out existing code in `tmp/fixme.yo` and create new test code there.
-- If you want to create new `.yo` files, create them in `./tmp` directory under this workspace, not `/tmp`.
-
-## Test syntax
-
-Tests use the `test` keyword with exactly 2 arguments: a name string and a body block.
+`test` takes exactly two arguments, a name string and a body block. `assert`/`panic` are not
+prelude-ambient: import them at the top (after any `pragma(...)` line). `io : Io` is bound inside every
+test body. Each test file has its own import set: check that it imports `println` from `std/fmt` before
+using it, and match the file's existing style.
 
 ```yo
 { assert } :: import("std/assert");
@@ -1311,12 +129,6 @@ test("my test", {
   assert(true, "ok");
 });
 ```
-
-`assert`/`panic` are NOT prelude-ambient — every test file that uses them
-needs `{ assert, panic } :: import("std/assert");` at the top (after any
-`pragma(...)` line).
-
-**`io : Io` is automatically bound** inside every test body — no parameter is needed. All tests can use `io.async(...)`, `io.await(...)`, `io.spawn(...)`, etc. directly:
 
 ```yo
 test("Async test", {
@@ -1327,31 +139,23 @@ test("Async test", {
 });
 ```
 
-> **Note:** The old `test "name", using(io : Io), { body }` 3-argument form is no longer supported.
+### Assertion builtins
 
-## Assertion builtins for Yo tests
+- `assert(condition, msg)`: runtime; `msg` is any `ToString` (`str`, template string, integer);
+  `assert(condition)` uses a default message.
+- `comptime_assert(condition, "message")`: fires wherever the condition folds to a CONCRETE `false`,
+  at module level and inside a function or `test(...)` body. On a condition that is not comptime-known (a
+  runtime value, an unbound generic) it only type-checks, so it is no gate there: pin the value in a
+  module-level `::` binding and `assert` on that. Vacuity guard:
+  `tests/cli-cases/compile-comptime-assert-in-fn-body`.
+- `comptime_expect_error(expr, "text")`: expects a compile-time error whose message or help contains
+  `text`. Always pass `text`: the one-argument form goes green on any unrelated error. It handles
+  evaluator-level rejections, including an `impl(...)` inside a `test(...)` body.
+- A diverging panic in a VALUE-position `match`/`cond` arm uses `__yo_panic("...")`: `std/assert`'s
+  `panic` returns `unit` and cannot adopt the sibling arm's type.
+- Prefer `opt.is_none()` over `opt == Option(T).None`: the latter needs `Eq` specialized on the payload.
 
-- `assert(condition, "message")` — runtime assertion (evaluates at runtime in the compiled C code); requires `{ assert } :: import("std/assert");`. The message accepts any `ToString` type; `assert(condition)` uses the default message.
-- `comptime_assert(condition, "message")` — compile-time assertion (evaluates during compilation). Use this for testing comptime behavior. **It fires wherever the condition folds to a CONCRETE `false`** — module level and inside a function body alike, so it works inside a `test("…", { … })` block. When the condition is NOT comptime-decidable (a runtime value, or a generic body whose type parameters are not bound yet) it only type-checks the argument, so a `comptime_assert` over an unresolved generic is still no gate. Until 2026-09-05 it was inert in EVERY function body, which made all 1559 `comptime_assert`s under `tests/` verify nothing (`issues/fixed/comptime-assert-never-fires-inside-a-function-body.md`); the vacuity guard against a regression is `tests/cli-cases/compile-comptime-assert-in-fn-body`.
-- `comptime_expect_error(expr)` — expects the expression to produce a compile-time error. Use this to test that invalid code is properly rejected.
-- `comptime_expect_error(expr, "text")` — also requires `text` to appear in the raised error's message or help (not its source excerpt). Prefer this form: without it a case goes green on whatever unrelated error the snippet happens to hit. Until 2026-09-25 the text was never checked, and 14 cases across 6 files turned out to be matching a different error than the one they named.
-
-`assert(condition, msg)` accepts any `msg` implementing `ToString` — plain
-`str` literals, template strings, integers, etc. all work:
-
-```yo
-assert(false, `unexpected: ${value}`);
-assert(false, "unexpected");
-```
-
-For a diverging panic in a VALUE-position match/cond arm (the arm must yield
-`T`), use the builtin `__yo_panic("...")` — `std/assert`'s `panic` returns
-`unit` and cannot adopt the sibling arm's type.
-
-## Exception effect in yo-self tests
-
-When testing a function that takes an `exn : Exception` parameter, build the handler
-locally and pass it in:
+### An `Exception` handler for a function under test
 
 ```yo
 test("my test", {
@@ -1368,137 +172,624 @@ test("my test", {
 });
 ```
 
-This is the standard pattern from `tests/internal/parser.test.yo`. The struct
-constructor `Exception(...)` pins the binding's type, so no annotation is needed
-on the LHS.
+The constructor pins the binding's type (pattern from `tests/internal/parser.test.yo`).
 
-Prefer `comptime_assert` over `assert` when the value being tested is compile-time known — it works inside a `test(...)` body as well as at module level (see the assertion-builtins section above). The one case it still cannot decide is a condition that is not comptime-known at the point it is written — a runtime value, or a generic body whose type parameters are unbound; there, pin the value in a module-level `::` binding and `assert` on that binding instead.
+### Testing private members: sibling files and in-file tests
 
-## Partial application (`_`) tests
+A `_`-prefixed member is visible only from its module and same-directory siblings (E0405 elsewhere,
+`plans/reference/MEMBER_VISIBILITY.md`). Two shapes reach it, both run by `yo test <dir>`:
 
-Partial application tests live in `tests/fn.test.yo`. Key facts:
+- **Sibling file**: `std/collections/hash-set.test.yo` beside `hash-set.yo`, importing it as its
+  neighbours do (`import("./hash-set")`). The batch is written into that directory, so `set._map` is
+  legal.
+- **In-file**: a top-level `test("…", { … })` inside the module (recognised by a line starting with
+  `test(`; a no-op for builds and `check`). The batch inlines the module's other top-level statements, so
+  private helpers are visible. The batch is a COPY of the module: a module whose types the prelude
+  re-exports (`String`, `ArrayList`, `Option`, …) gets a second, distinct copy of them, so test those
+  with a sibling file. A module that is also a program may carry in-file tests (the batch drops its own
+  `main`/`export(main)`).
 
-- Partial application with `_` only works on **comptime functions** (return type must be `comptime(...)`)
-- It does NOT work on runtime functions or `generic` parameters — use `comptime` parameters instead
-- Type constructors like `Result`, `Option` use comptime params and work with `_`
-- `fn(generic(A, B, C)) -> comptime(Type)` does NOT support `_` — the partial application counts the original function type's `parameters`, which excludes generic params
-- Use `fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type)` for custom type constructors that need `_`
+Release bundles drop `std/**/*.test.yo`; in-file tests ship with their module as no-ops.
 
-## Formatting
+### Test shapes that silently pass
 
-`yo fmt` is the only formatter in the repo — the JS/TS lint and format scripts
-(`bun run lint`, `bun run format`, eslint, prettier) went with the TypeScript
-tree. The one exception is `vscode-extension/`, which keeps its own npm
-toolchain.
+- **A drop-on-escape regression test can be hidden by DEFINITION ORDER.** The escape-drop lists compare
+  source tokens (`_variable_initialized_after_cleanup_point`), so a callee (awaited wrapper, fused site)
+  defined ABOVE its caller can hide the drop. Define it BELOW the caller or in another file
+  (`issues/fixed/2026-11-07-a-fused-block-that-throws-drops-its-by-value-capture-twice.md`).
+- **A platform-gated arm is never type-checked on other platforms.**
+  `if(platform == Platform.Linux, { ... })` is folded before evaluation, so a type error in it passes
+  locally and fails the WHOLE batch on Linux ("0 of N tests in this batch ran"). Force the arm on in a
+  scratch copy and run it with the tree-built compiler (on macOS this proves only that it type-checks):
 
-- **Always run `yo fmt <files>` on any `.yo` files you create or modify before committing.**
-  - To check: `yo fmt --check path/to/file.yo`
-  - To fix: `yo fmt path/to/file.yo`
-  - Example: `yo fmt tests/internal/formatter.test.yo`
+  ```bash
+  perl -pe 's/if\(platform == Platform\.Linux, \{/if(true, {/' tests/x.test.yo > tests/zz_forced.test.yo
+  ./yo-out/<target>/bin/yo test ./tests/zz_forced.test.yo --parallel 1; rm tests/zz_forced.test.yo
+  ```
 
-## Slow test files
+- **A network oracle that depends on TCP segmentation is probabilistic.** Whether two `write`s arrive as
+  one `read` is the platform's choice; such a test fails on one CI leg of six and is not a flake
+  (`issues/fixed/http-body-is-not-truncated-to-content-length.md`). Write the framed message AND the
+  bytes after it in ONE `write_string`. One leg failing out of six is a diagnosis: check that leg's
+  history before retrying:
 
-Some test files contain hundreds of tests and take a long time on their own:
+  ```bash
+  for r in $(gh run list --workflow "<name>" --limit 15 --json databaseId -q '.[].databaseId'); do
+    gh api repos/<owner>/<repo>/actions/runs/$r/jobs --paginate \
+      -q '.jobs[]|select(.name=="test (macos-26-intel)")|.conclusion'
+  done | sort | uniq -c
+  ```
 
-- `tests/string/string.test.yo` — 246 tests, ~8 minutes
-- Other large test files may take several minutes
+- **A loopback HTTP framing test goes red only if the body cannot arrive in ONE read.**
+  `std/http/wire.yo`'s `read_http_message` reads 8 KiB at a time, so for a small single-shot request the
+  correct and broken framing give identical bodies
+  (`issues/fixed/http-content-length-ows-and-invalid-values.md`):
+  - server side: send a body larger than 8 KiB on a raw `TcpStream`; assert its length and last bytes;
+  - client side: hold the connection OPEN after the response (no `Connection: close`) and give
+    `fetch_with` a `with_timeout`, so a mis-parse is `HttpError.Timeout`, not a hang;
+  - run the throwing `fetch` as its own `io.spawn`ed task and inspect the `JoinHandle` result: an
+    `unwind` of the test body leaves the server task parked and the process never exits (rc=124).
 
-When running a single large file, use `--test-name-pattern` to target individual tests for faster iteration. The full suite (`yo test --bail`) finishes in ~30 minutes total on a Mac Mini M4.
+### Partial application (`_`)
 
-For large generated test binaries, use `--test-batch-size N` to split one `.test.yo` file into smaller generated C binaries. The default is 100 tests per batch.
+Syntax lives in `yo-syntax.instructions.md`; tests in `tests/fn.test.yo`. `_` works only on comptime
+functions (return type `comptime(...)`). `generic(...)` parameters are inferred, not positional, so `_`
+cannot stand for one (`F(_, a, b)` on `fn(generic(T : Type), comptime(a) : usize, comptime(b) : usize)` is
+"expected 2 argument(s), got 3"); a type constructor whose type argument should stay open takes
+`comptime(A) : Type`. A `_` slot typed by a generic binder currently loses the compile-time result
+(`issues/2026-11-21-partial-application-through-a-generic-binder-loses-the-comptime-value.md`).
+
+## Writing a test that observes a LEAK (macOS: ASan does not arm)
+
+Local macOS ASan does not arm (next section), so an RC leak is invisible to `yo test` there and only
+Linux LeakSanitizer sees it. Make the leak observable inside the language:
+
+- **A `Drop` counter**: a module-level mutable binding (`(g_freed : i32) = i32(0);` at the top level of
+  the `.test.yo`) and a `ref` struct whose `Drop` increments it. Assert the counter with a RUNTIME
+  `assert` after the owning scope closes (`tests/rc.test.yo` `g_alias_disposed`, `tests/dyn.test.yo`
+  `g_dyn_payload_disposed`, `tests/error.test.yo` `g_thrown_payload_disposed`). `comptime_assert`
+  cannot read a runtime counter.
+- **`ref_count(x)`** reads a count, also through a field or an `Rc` deref
+  (`assert(ref_count(b.*) == 1, ...)`). `Rc.new(x)` builds a new cell; `ref_count` rejects a `Box`.
+
+If neither fits and the file's ONLY failure mode is the leak verdict, put
+`pragma(Pragma.NeedsLeakVerdict);` at the top: the runner then SKIPS the file, saying so, whenever no
+verdict applies (`YO_TEST_LEAK_VERDICT=0`, a wasm target, `--disable-sanitize`, a non-address
+`YO_TEST_SANITIZE`). Prefer the counter: a skipped test verifies nothing. The only CI leg running leak
+verdicts ON is the weekly `leak-verdict.yml` (an allowlist plus a vacuity probe); dispatch it with
+`gh workflow run leak-verdict.yml --ref <branch>` when touching leak plumbing.
+
+Out-of-language measurement (extract the case to a standalone `.yo` with `main` + `export(main);`):
+
+- **macOS `leaks`**:
+
+  ```bash
+  yo compile tmp/repro.yo --std-path ./std --optimize 2 --allocator system -o /tmp/repro.out
+  leaks -atExit -- /tmp/repro.out        # "N leaks for M total leaked bytes"
+  MallocStackLogging=1 leaks -atExit -- /tmp/repro.out   # + allocation stacks
+  ```
+
+- **`--allocator debug`** (no LSan and no `leaks`, e.g. Windows): the exit report lists every leaked
+  block by allocation number, a run whose `main` returns with one exits 23, `yo test --allocator debug`
+  fails a leaking test (unless `YO_TEST_LEAK_VERDICT=0`, passed on as `YO_DEBUG_ALLOC_VERDICT=0`), and
+  `YO_DEBUG_ALLOC_TRAP=<n>` aborts at allocation `n`. A thread still running 1 s after `main` leaves the
+  report unjudged.
+- **`--allocator fixed --heap-size 1g --debug-heap`** prints
+  `heap: peak …, N allocations, live at exit: B blocks / T bytes`.
+- Put the leaking operation in a LOOP of N = 1/2/4/8 iterations (read from argv, same binary): a
+  per-iteration leak grows linearly, a one-off stays flat. Run the payload-free variant as an over-drop
+  canary, and re-run the fixed binary under `MallocScribble=1 MallocPreScribble=1`: recycled values in
+  the output mean the fix introduced a use-after-free.
+- An `unwind(...)` handler exits the function that INSTALLED it, so each loop iteration must install its
+  handler in its own fn (one installed in `main` ends the run, rc=0, on the first unwind).
+
+## Sanitizers on macOS
+
+- The nix clang ships a mismatched ASan runtime: `yo compile --sanitize address` prints
+  "AddressSanitizer is not functional with this compiler setup … Skipping sanitizer", and `yo test` runs
+  every test UNSANITIZED without saying so. A use-after-free then usually passes locally.
+- Apple's command-line-tools clang arms ASan (use-after-free, double free; not leaks). Put it first:
+
+  ```bash
+  PATH=/Library/Developer/CommandLineTools/usr/bin:/usr/bin:/bin:$PATH \
+    yo test tests/rc.test.yo --parallel 1
+  PATH=/Library/Developer/CommandLineTools/usr/bin:/usr/bin:/bin:$PATH MallocScribble=1 \
+    ./repro   # built with --sanitize address --allocator system
+  ```
+
+  That `PATH` also puts bash 3.2 and BSD `sed` first: run `scripts/*.sh` with the nix `bash` by full path
+  (`cli-diff-test.sh` refuses bash 3.2 with rc 2).
+- A box where ASan binaries hang at startup (AMFI, `issues/retired/macos-26-asan-blocked-by-amfi.md`):
+  `--disable-sanitize` skips ASan linkage; tests still check logic.
+
+## Evaluator-only check (no codegen)
+
+- `yo check <file-or-dir>` runs the evaluator only: much faster than `compile` for "does this still
+  type-check?" and a bulk sanity pass (`yo check ./src`, `yo check ./std`) before any test.
+- **`check` misses codegen-enforced rules** (the hollow-`io.async`-body rule E0905): gate those with
+  `yo compile src/main.yo --skip-c-compiler`.
+- **Errors in `test(...)` bodies are swallowed unless `--test-bodies` is passed**
+  (`src/evaluator/exprs/test.yo`). Gate an edited `*.test.yo` with `yo check <file> --test-bodies`
+  (its trial has known false positives: it takes a different generic-inference path than the real batch).
+
+### The incremental loop: `check --watch`, `build --watch`, chunks, in-process tests
+
+Plan: `plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md`.
+
+**`yo check <dir> --watch`** keeps one resident checker: one cold pass (~100 s for `./src`), then it polls
+(`--poll-ms`, default 200) and prints one line per round
+(`watch: revalidated 2 definition(s), rechecked 142 file(s), 0 failed (47158ms)`).
+
+- A **fn-literal body or signature edit** (`name :: (fn(...) -> T)(body)`) re-forces that definition
+  and its dependents and re-points importers that destructured it: a comment-only round takes ms, one
+  leaf body ~80 ms.
+- **Everything else falls back to file level** (a new or removed definition, a struct/enum/trait, a
+  constant, an ordered statement): the file's reverse-import closure is re-checked.
+- A body whose readers destructure a re-forced name (a hub like `src/token.yo`'s
+  `is_identifier_continue`, read by `src/lexer.yo`'s `tokenize`) still re-checks those readers'
+  closures: about half a cold pass.
+- `YO_DEBUG_P3DIFF=1` explains a round on stderr (`[p3diff]`, `[p3rebind]`, `[p3round]` lines); read it
+  before calling a slow round a bug.
+- **A stale verdict IS a bug**: the oracle is `scripts/bootstrap/watch_verify.sh` (live session vs cold
+  check). File it with the edit sequence and add the shape to `tests/internal/check-watch.test.yo`.
+- `--watch-once` reads changed paths from stdin: one round, exit code = failures.
+- **An owner purge in `mm_invalidate_document` must cover every cache that can hand back what it drops.**
+  `check`, `check --watch` and `yo lsp` never run codegen after an invalidation, so only a
+  `build --watch` round catches a stale cache: smoke a new purge with a two-module `yo build --watch`
+  project (edit the import, break it, revert it, run the binary each round;
+  `issues/fixed/build-watch-reuses-a-stale-imported-module.md`).
+- RSS grows across a long session; restart it when the machine gets tight.
+
+**`yo build --watch`** invalidates the changed files (`invalidate_changed_files`) and recompiles
+artifacts in-process against the warm module cache (the `cc` leg stays a child; the artifact stamp still
+decides what compiles). `--profile` prints `profile: watch round N <ms> rss=…MB` (round 1 is the cold
+baseline); `--max-rss-mb N` re-execs at a round boundary above N MB.
+
+**Chunked C emission** (`yo compile src/main.yo --emit-chunks auto --jobs 8 --profile`; also
+`--chunk-by module`, `--no-chunk-lto`) splits the C into translation units behind a per-unit `.o` cache
+(`<obj>.inputs-sha256`; `YO_BUILD_NO_CACHE=1` disables it) and reports
+`chunks: 10 unit(s), 7 cached, 3 to compile (jobs=8)`. The C leg is the small part of a self-build;
+the evaluator dominates. Fids embed source positions, so an INSERTION above a definition dirties every
+caller's unit below it; a body-only edit dirties one unit. `--chunk-by module` keeps a module in one unit.
+
+**`YO_TEST_IN_PROCESS=1`** compiles every batch of a `yo test` run in one resident evaluator (about half
+the wall time). Opt-in and never CI: one `tests/internal` file already exceeds 4 GB, so the default
+valve (`YO_TEST_MAX_RSS_MB=4096`, an execve restart at the next file boundary) degenerates into a
+restart per file. Use it one file at a time:
+
+```bash
+YO_TEST_IN_PROCESS=1 YO_TEST_MAX_RSS_MB=12000 yo test ./tests/internal/<file>.test.yo --parallel 1
+```
+
+The hollow-batch check stays mandatory: an in-process regression presents as hollow batches.
+
+**`YO_TEST_FORK=N`** (Linux, macOS) runs the first file in process, then forks one copy-on-write worker
+per later file, at most N at a time; output, totals and exit code are the sequential runner's. Shared
+pages are charged as they are written (summed PSS reached ~14 GB at N = 4 on `tests/internal`): take a
+heavy slot only with that memory free.
+
+### `check` + `build` both green is NOT proof for a tree-wide rename
+
+Call sites structurally invisible to `check` and `build`:
+
+| invisible in | why |
+| --- | --- |
+| macro `quote(...)` bodies | not evaluated until expansion |
+| generic trait-impl bodies | `check` never instantiates them (`FromIterator.from_iter_add`) |
+| generic helpers in the defining module | same |
+| an `io.async` body inside a GENERIC fn whose `io` is a type variable | checked only at specialization |
+
+The gate for a rename sweep is the full suite plus READING the cli-case golden diff. A golden that gets
+SMALLER or reports FEWER findings (`Scanned 1 .yo file(s)` → `Scanned 0`) is a regression signal. Grep
+`quote(`, `impl(` and `io.async(` bodies yourself
+(`issues/fixed/ftt-stub-in-live-closure-falls-off-non-void-function.md`).
+
+### Comparing emitted C, and "no behaviour change" refactors
+
+- **Byte-identity of emitted C does not survive a `std/` source edit.** Generated identifiers embed
+  anonymous type ids (`__yo_tN`) and a global counter (`yo_id_N`, `struct_decl_N`, `enum_decl_N`,
+  `loop_yo_id_N`): adding declarations anywhere in `std/` shifts every later counter and permutes the
+  `__yo_tN` numbering. For an additive codegen change compare normalized, sorted C instead:
+
+  ```bash
+  norm() { sed -E 's/__yo_t[0-9]+/__yo_tT/g; s/__YO_T[0-9]+/__YO_TT/g;
+                   s/yo_id_[0-9]+/yo_id_N/g; s/(struct_decl|enum_decl|decl)_[0-9]+/\1_N/g;
+                   s/_temp_[0-9]+/_temp_N/g' "$1"; }
+  diff <(norm before.c | sort) <(norm after.c | sort)          # must be EMPTY
+  diff <(grep -oE '__yo_[A-Za-z0-9_]+\(' before.c | sort -u) \
+       <(grep -oE '__yo_[A-Za-z0-9_]+\(' after.c  | sort -u)  # must be EMPTY
+  grep -c '<the new API you added>' after.c                    # must be 0 if unused
+  ```
+
+- **Emit-diffs must pin `YO_STD`**: minted ids incorporate the std tree's absolute path, so compile both
+  sides with the same `YO_STD=<abs>/std`.
+- **A refactor of the compiler's own data is gated by a compiler swap, not an emit-diff of two trees.**
+  Build stage-1 of the merge base and of the branch, compile the BRANCH tree's `src/main.yo` with both in
+  one directory (the fixpoint's stage-2 command line) and `cmp` the C: two compilers on one tree differ
+  only when behaviour did.
+- **A "no behaviour change" REWRITE of function bodies is gated on program OUTPUT**, not on C:
+
+  ```bash
+  # 1. BEFORE editing: a standalone driver over the touched surface, with a
+  #    corpus that includes the inputs the refactor is ABOUT (multibyte, empty,
+  #    boundary). Print every result AND its length, so a silent truncation
+  #    shows up.
+  yo compile tmp/probe.yo --std-path "$PWD/std" --optimize 2 -o tmp/probe.bin
+  ./tmp/probe.bin > before.txt; shasum -a 256 before.txt
+  # 2. AFTER: same binary rebuilt, same corpus.
+  ./tmp/probe.bin > after.txt; diff before.txt after.txt     # must be EMPTY
+  ```
+
+  For a pure rename, also compare the old body (`git show HEAD:<file>`) with the new one character for
+  character. If the refactor exists to survive a future change, apply that change in a throwaway edit:
+  the new tests must pass with the refactor and FAIL with the pre-refactor file.
 
 ## WASM testing
 
-- Run a test on Emscripten: `yo test ./tests/XXX.test.yo --cc emcc` (auto-targets `wasm32-unknown-emscripten`).
-  The runner selects each test with the `YO_TEST_INDEX` environment variable, and emcc 4.0.12's
-  node glue does not forward the environment: there every test fails with "YO_TEST_INDEX is not
-  set". Use CI's emsdk (6.0.6) for an emcc verdict. To check a runtime behavior with an older
-  emcc, compile the case as a program (`yo compile x.yo --c-compiler emcc -o x.js && node x.js`)
-  (`issues/fixed/an-emcc-test-batch-passes-without-running-a-test.md`).
-- A threaded program links with `-sPROXY_TO_PTHREAD` on Emscripten: `main` runs on a pthread
-  (`plans/reference/WASM_SUPPORT.md`).
-- Run a test on standalone WASI: `yo test ./tests/XXX.test.yo --target wasm32-wasip1` (runs via `wasmtime`)
-- Use `pragma(Pragma.SkipWasm32Emscripten);` to skip a test file on the Emscripten target.
-- Use `pragma(Pragma.SkipWasm32Wasi);` to skip a test file on the standalone WASI target.
-- Use `pragma(Pragma.SkipWasm);` to skip a test file on ALL WASM targets (generic catch-all).
-- Use `pragma(Pragma.NeedsLeakVerdict);` to declare that a test file's only failure mode is the leak verdict — the runner then SKIPS it (with a line that says why, never a silent pass) when `YO_TEST_LEAK_VERDICT=0` or the run builds no ASan test binary. See "Writing a test that observes a LEAK" above.
-- Place skip pragmas at the top of the file (within the first 50 lines). A file can have both target-specific pragmas, or the generic one. Pragmas are validated by the evaluator against the `Pragma` enum in `std/prelude.yo`, so typos surface as compile errors.
-- For per-test skips, add `{ arch, Arch } :: import("std/process");` and use `if((arch == Arch.Wasm32), return())` at the top of the test body.
-- See `plans/reference/WASM_SUPPORT.md` for the full list of WASM-skipped tests and limitations.
-- **Errno values differ on WASM** (WASI numbering). Always use constants from `std/libc/errno`, never hardcode errno numbers.
-- When adding new tests, verify they pass on native (`yo test ...`), Emscripten (`yo test ... --cc emcc`), and WASI (`yo test ... --target wasm32-wasip1`), or add appropriate `pragma(Pragma.SkipWasm*);` calls.
-- `process.platform` returns `"emscripten"` or `"wasi"` depending on target.
+- Emscripten: `yo test ./tests/x.test.yo --cc emcc` (auto-targets `wasm32-unknown-emscripten`). The runner
+  selects tests by the `YO_TEST_INDEX` environment variable, which emcc 4.0.12's node glue does not
+  forward ("YO_TEST_INDEX is not set"): use CI's emsdk for an emcc verdict, or compile the case as a
+  program (`yo compile x.yo --c-compiler emcc -o x.js && node x.js`). A threaded program links with
+  `-sPROXY_TO_PTHREAD` (`main` runs on a pthread).
+- Standalone WASI: `yo test ./tests/x.test.yo --target wasm32-wasip1` (runs via `wasmtime`).
+- Skip a file with `pragma(Pragma.SkipWasm32Emscripten);`, `pragma(Pragma.SkipWasm32Wasi);` (e.g. files
+  that spawn subprocesses) or `pragma(Pragma.SkipWasm);` (all WASM), within the first 50 lines. Pragmas
+  are checked against the `Pragma` enum in `std/prelude.yo`. Per test:
+  `{ arch, Arch } :: import("std/process");` and `if((arch == Arch.Wasm32), return())` at the top of the
+  body.
+- Errno values differ on WASI: use `std/libc/errno` constants, never numbers. `process.platform` is
+  `"emscripten"` or `"wasi"`.
+- New tests must pass on native, `--cc emcc` and `--target wasm32-wasip1`, or carry a skip pragma.
+  Limitations and skipped tests: `plans/reference/WASM_SUPPORT.md`.
+- **`usize` is 32 bits on wasm32**, the only such target, so a hardcoded bit position, shift amount or
+  `1 << k` boundary passes the whole native suite (a shift equal to the operand width is UB). Derive
+  widths:
+
+  ```yo
+  sh := usize(1);
+  while(sh < (size_of(usize) * usize(8)), {
+    c = (c | (c >> sh));
+    sh = (sh * usize(2));
+  });
+  ```
+
+  and in tests derive the boundary the same way (`bits :: (size_of(usize) * usize(8))`, then
+  `usize(1) << (bits - usize(3))`), never `usize(1) << usize(61)`.
+- **For anything touching sizes, capacities or bit math, run the wasm leg locally**, one file at a time
+  with a timeout so a hang (rc=124) is a verdict (~15 min for the corpus):
+
+  ```bash
+  for f in $(find tests -name '*.test.yo' -not -path 'tests/internal/*' -not -path 'tests/cli-cases/*' | sort); do
+    YO_STD=$PWD/std timeout 240 "$BIN" test "./$f" --parallel 1 --target wasm32-wasip1 &> "logs/$(echo $f | tr / _).log"
+    echo -e "$?\t$f"
+  done
+  ```
+
+## Verifier tests
+
+Verify `tests/spec` PER PATH: `yo verify ./tests/spec` as one directory exits 1 with no JSON, because
+`fixtures/negative` and `fixtures/invalid` hold inputs that fail evaluation by design.
+
+```bash
+for p in tests/spec/*.test.yo tests/spec/fixtures/valid tests/spec/fixtures/elision; do yo verify ./$p --format json; done
+```
+
+## Decision 43's origins corpus: `tests/origins/` is not run by `yo test`
+
+`tests/origins/corpus/<id>.yo` is decision 43's corpus (`plans/backlog/REFERENCES_AND_ORIGINS.md` §8):
+plain `.yo` programs in origin syntax, never `.test.yo`. CI runs all of the gates below in `test.yml`'s
+`origins-corpus` job unless noted.
+
+```bash
+YO=yo-out/x86_64-unknown-linux-gnu/bin/yo bash scripts/origins-corpus.sh today   # the N0 gate, minutes
+PHASES=N1 YO=... bash scripts/origins-corpus.sh target                           # a later phase's gate
+```
+
+- `tests/origins/corpus.tsv` is the manifest (anchor, kind, phase, expected verdict, and what `yo check`
+  does `today`: first error code and text). `today` fails when a row's first error changes: decide
+  progress or regression, then re-record the row.
+- `tests/origins/model-corpus.test.yo` IS in the fast suite: it runs every row through the reference
+  checker `tests/origins/model.yo`. A new row needs the fixture, the manifest row and a
+  `verdict("<id>", …, "<expect>");` call; the script cross-checks all three.
+- `tests/origins/unsound/` (G-B, `plans/backlog/BORROW_CHECKER_COMPLETENESS.md` §6): each program has a
+  `// expect: E09xx` or `// expect: accept` header, and a negative's positive twin is `<id>-pos.yo`. Gate:
+  `YO=<binary> bash scripts/origins-unsound.sh` inside the nix shell (clang on `PATH`). A negative that
+  passes `check` is compiled under ASan and run; every positive twin must run ASan-clean.
+- G-D, the generator: `YO=<binary> python3 -I scripts/origins-gen.py` renders borrow programs (families
+  `slot`, `args`, `valpos`, `join`) plus rustc twins and minimizes each use-after-free or rustc
+  disagreement into `tests/origins/gen-findings/`. `YO_GEN_SEED=<n>` replays, `--sig <signature>` runs
+  one program, `--verify-known` reports which `tests/origins/gen-known.tsv` rows still reproduce (delete
+  the row in the PR that fixes it). Needs clang (nix shell), optionally `rustc`. Nightly in
+  `origins-generator.yml`; not a `merge-gate` need.
+- G-C, the rustc differential: `bash scripts/origins-diff-rustc.sh` compares rustc's verdict on every
+  twin in `tests/origins/rust/` with the recorded Yo verdict (`LIVE=1 YO=<binary>` runs `yo check`
+  instead). Every divergence is a `tests/origins/rust/DIVERGENCES.tsv` row (`design`, `parity`,
+  `polonius` or `hole`); an unexplained one, or a listed one that no longer diverges, fails. A new corpus
+  row with a Rust analogue gets its twin in the same PR. CI: `origins-rustc-diff.yml`.
+- G-E, `scripts/check-origin-sinks.sh`: without arguments a grep gate (`local_borrow_register` only from
+  its listed binding sites, the conflict check only from `local_borrow_access`, every lowering of the
+  plan's §5 table calls its sink; a new lowering adds a `LOWERINGS` line). `--totality` with
+  `YO=<binary>` runs `YO_AUDIT_ORIGIN_TOTALITY=1 yo check` over `./src`, `./std`, the corpus and the
+  reference tests: the `[origin-totality]` count (`sink`, `untyped`, `depth`) must be 0, and every target
+  but the corpus must check cleanly. `./src` needs `yo install` first on a fresh clone.
+
+## CLI cases (`tests/cli-cases/`)
+
+`scripts/cli-diff-test.sh` runs each case in a sandbox and compares rc, stdout and trees; `--record`
+writes goldens. Always read each GOLDEN-DIFF before `--record`, and record with a binary built from the
+SAME tree (one built before a merge silently drops the other side's changes).
+
+- **`yo fmt` a fixture BEFORE recording.** CI's fmt check scans every fixture `.yo`, and the fixture's
+  hash is part of `expected_tree`. Order: `yo fmt` the fixture, `--record <case>`, re-score without
+  `--record`. Check with the tree-built binary (GATE 6), not the installed seed:
+  `yo-out/<target>/bin/yo fmt --check ./src ./std ./tests`.
+- **A `cmd` (and `expected_rc`) file needs a trailing newline**, or `read` drops the last line and
+  NOTHING runs; `--record` then reports
+  `NO-GOLDEN <case> (stdout_keep_match matched nothing — vacuous)`. Write it with
+  `printf 'build run\n'`. To tell this from a wrong pattern: `--keep`, then
+  `ls -la <kept sandbox>/run/stdout.raw` (0 bytes = never ran).
+- **A bare-repository fixture needs a tracked `refs/.keep`.** After `git gc`/`pack-refs` its `refs/` is
+  empty, git does not track empty directories, and a fresh checkout fails with
+  `fatal: './remote.git' does not appear to be a git repository`. Re-record afterwards and verify from a
+  clean worktree.
+- **A LEXER-level error cannot live in a fixture** (`yo fmt` must lex it). Put it in
+  `tests/internal/lexer.test.yo`, which calls `tokenize` with an `Exception` handler that asserts the
+  message and `unwind`s, then `assert(false, "expected a lexer error")`. Write the source as a Yo string
+  with the backslash DOUBLED (`String.from("s :: \"\\uZZZZ\";")`), not a backtick template.
+- **A PARSE-level error may live in a fixture only if the fixture is already fmt-canonical**: `yo fmt`
+  refuses to rewrite unparseable source and exits 1 when its output would differ
+  (`tests/cli-cases/fix-says-what-it-cannot-repair/fixture/main.yo` is canonical). A parse-refusal unit
+  test belongs in `tests/internal/formatter.test.yo` (`format_yo_source`).
+- **Goldens that move with unrelated edits:**
+  - `lsp-member-definition` records absolute line numbers in `std/collections/array-list.yo`: adding or
+    removing lines above `ArrayList`, `ArrayList.new` or `ArrayList.push` moves them. Re-record
+    (`YO_SELF_BIN=<stage-1> bash scripts/cli-diff-test.sh --record lsp-member-definition`) and check that
+    only line numbers changed.
+  - `explain-list` embeds every diagnostic summary from `src/diagnostics-registry.yo`: rewording one
+    needs `--record explain-list`.
+  - The `init*`, `build-stamp-dotted-dir` and `build-depfile-scoped-stamp` trees hash only the files
+    `src/init.yo` generates; they move only with its templates.
+
+## Yo source also lives INSIDE scripts and workflows — GATE 8 checks it
+
+`yo check`, the language suite and a tree-wide migration see none of these:
+
+- the verification hello world in `scripts/install.sh` and `scripts/install.ps1`;
+- the post-install smokes in `.github/workflows/install-scripts.yml` (POSIX and Windows);
+- the bundle smokes in `.github/workflows/release.yml`;
+- the recursion probe in `scripts/bootstrap/probe-stack-sizing.sh`.
+
+Their own workflows are path-filtered or release-only, so a removed language form would break the
+installer for users (`issues/fixed/installer-verification-snippet-is-outside-every-per-pr-gate.md`).
+`scripts/check-embedded-yo.sh <path-to-yo>` extracts, compiles and runs each and compares its stdout; it
+is GATE 8 of `gates_fast.sh`. **A language sweep must grep scripts and workflows too.**
+`scripts/build-site.yo` is Yo outside the checked directories as well: `test.yml`'s `docs-site` job
+compiles it (with stage-1, or the seed on a docs-only change). Sweep it by hand.
+
+## Bootstrap fixpoint
+
+```bash
+cp yo-out/<target>/bin/yo /tmp/yo-s1
+S1=/tmp/yo-s1 P=local bash scripts/bootstrap/fixpoint_only.sh
+```
+
+- **Stage-1 must live OUTSIDE the repo.** Type keys embed each module's path spelling; a stage-1 inside
+  the repo exe-walks-up to absolute std paths while the script's stage-2 uses relative `./std`, so the
+  hash-bucket order differs and the verdict is a spurious `FIXPOINT_BROKEN`.
+- **Stage-1 must come from the SAME tree it compiles.** The script compiles the tree as it is when it
+  runs: an edit after building stage-1 makes the two stages different generations (a one-line std import
+  gave 1.1 M differing lines with every step green). Do not edit the worktree during the run.
+- **Read the diff before believing the verdict.** Uniform type-id renumbering (`__yo_t796` →
+  `__yo_t614`) is generation skew, a different count of instantiations; a real break shows localized,
+  structural differences.
+- `fixpoint_only.sh` and `chunked_gate.sh` score stage-2 with `scripts/count-transpile-failures.sh` and
+  the fixpoint GATES on it (see "Counting untranspiled bodies" below).
+
+## Choosing a Tier 1 gate: select by what the diff touches
+
+Tier 1 (AGENTS.md, "Gating is three-tier") is targeted at the diff; develop's battery runs everything.
+Picking every `tests/internal` file costs hours (each re-evaluates the compiler, 4–7 min, even for two
+tests), and passing many files to one `yo test` call fails in 0 s.
+
+- **Always:** `yo build --std-path ./std` (when `src/` changed), `check ./src` and `check ./std` (each with
+  `--std-path ./std`), `yo fmt --check` on the changed `.yo` files with the tree binary,
+  `bash scripts/check-issue-refs.sh`. About 15 min.
+- **A tree-binary `check ./src` when the `src/` diff touches rules the tree enforces more strictly than
+  the seed** (capture lists, borrow and reference spellings `&x`/`&mut x`/`.*`, a recently tightened
+  rule): the seed's `check ./src` and `yo build` only prove the SEED accepts the tree, while the
+  fixpoint and every `tests/internal` file compile `src/` with the tree binary. Run
+  `YO_MAIN_STACK_MB=4096 yo-out/<target>/bin/yo check ./src --std-path ./std`. (Example: `{ &env }` over a
+  `&T` parameter passed the seed; the tree rejects it with E0926, fix `{ env : &env.* }`.)
+- **`check` swallows `test(...)` body errors**, so a `src/` change to a type the `tests/internal` files
+  construct or copy (a record turned from a shared handle into a value, a retyped field) shows only when
+  `yo test` compiles each file. Cheaper sweep: generate each file in the shape `yo test` compiles (its
+  non-test lines, then a `main` whose arms hold the test bodies), named `*.yo_selftest_batch_*.yo` so the
+  test-file exemptions (E0611 `unwrap`) apply, in a sibling directory at the same depth as
+  `tests/internal` so `../../src` imports resolve, and run one `check` over that directory (~40 min for
+  all files).
+- **Feature tests: grep for what changed.** The `tests/**/*.test.yo` files (minus `tests/internal` and
+  `tests/cli-cases`) naming a changed identifier, plus the feature's own tests, one file per call:
+
+  ```bash
+  for f in $(cat feature-tests.txt); do yo test "$f" --parallel 1 > "log/$(basename $f).log" 2>&1; echo "$f rc=$?" >> log/feature.log; done
+  ```
+
+- **`tests/internal`: select by direct import or by a name the file uses**, not by "the prelude
+  changed":
+  - include a file that imports (`../../src/...`) a changed `src/` module, or whose source names a changed
+    identifier (`grep -lw`);
+  - a `std/`- or prelude-only change selects no file by import: add `compile.test.yo` as the
+    self-compile smoke, plus any grep hit;
+  - cap the selection at ~8 files, one per call; leave the rest to develop's battery and say so under
+    Deferred. **Never run the whole `tests/internal` directory locally** (branch gates, reviews and
+    regenerations alike, in-process or serial): it takes hours and concurrent runs collide on shared
+    `/tmp` fixtures, producing false watch and module_invalidation failures.
+- **cli-diff** only when the diff can move CLI output: std (line-pinned LSP goldens), diagnostics prose, a
+  CLI command, `yo init` templates, a `yo fix` migration.
+- **A change that alters what parses or type-checks outside `src/`/`std/` (a Generation A sweeping
+  `tests/`) escapes the migration and a tree-binary Tier 1 in three places**
+  (`issues/fixed/2026-10-18-the-fv-job-runs-generation-a-test-files-with-the-seed.md`):
+  1. `yo test` steps a SEED runs: grep `.github/workflows/` and run those files with the seed;
+  2. Yo inside workflow `run:` blocks and shell here-documents: run `scripts/check-embedded-yo.sh` and
+     check each probe with the tree binary;
+  3. programs in test string literals, compiled by a `yo` subprocess: put the tree binary first on `PATH`
+     as `yo` (locally `yo` is the seed).
+- **Split weights:** the gate is one weight-1 `heavy_take`; anything timed or above ~5 GB is a separate
+  `exclusive` job queued after it.
+
+A typical gate is 30–45 min. What it leaves out is develop's battery's job; a red develop job is fixed
+forward.
+
+## The heavy lock: one machine, several sessions
+
+Two compiler-sized jobs starting together can swap each other into the runner's 600 s deadline, so every
+heavy step goes through `scripts/heavy-lock.sh`, a FIFO lock under `~/Workspace/Yo-wt` (override with
+`HEAVY_ROOT`, shared by every session on the machine):
+
+```bash
+source scripts/heavy-lock.sh
+trap heavy_drop EXIT
+heavy_take "<who>: build + check src"        # shares the machine (default 3 slots)
+yo build --std-path ./std && yo check ./src --std-path ./std
+heavy_drop
+heavy_take "<who>: check-time A/B" exclusive  # runs alone
+```
+
+- **Heavy:** `yo build`, `check ./src`, `compile src/main.yo`, the language suite, any `tests/internal`
+  file, the fixpoint. **Light, no lock:** small single test files, `fmt`, `check` of one small module.
+- **Take `exclusive`** for anything timed (a timing or A/B) and, on a machine with little headroom, for
+  steps past ~5 GB (a compiler-sized `tests/internal` file reaches ~6.5 GB). Only the `exclusive` argument
+  makes a job exclusive; the label is free text. On a large box, memory-heavy runs
+  (`YO_TEST_IN_PROCESS=1`, a compiler-sized file) take an ordinary slot: the admission check covers them.
+- **Size the slots per machine in `~/Workspace/Yo-wt/heavy-lock.conf`**, never per session:
+  `HEAVY_SLOTS=N` (1–26, default 3) and `HEAVY_MIN_AVAIL_MB=M` (default 6144, checked only when a job is
+  admitted beside another, so it cannot catch a job that grows later). Waiters re-read it every poll and
+  it wins over the environment. Budget ~4 GB per Tier 1 gate on top of the OS and sessions.
+  `bash scripts/heavy-lock-test.sh` (~1 min) checks a change to the script.
+- **Never hold a slot while idle.** A gate is one script with no waits inside; `trap heavy_drop EXIT`
+  releases the slot on failure.
+- **Take the slot in the process that outlives the job.** The owner line records `$$`, which in a
+  `( … ) &` subshell is the PARENT's pid: if that returns at once, the next waiter reclaims the slot while
+  the job runs. Put the gate in a script and start that (`nohup bash gate.sh &`).
+- **Never backdate a ticket** (overriding `_heavy_now_ns`): an `exclusive` waiter claims slots only while
+  oldest, so a backdated ticket deadlocks the queue. A restarted job queues at the tail.
+- **`priority` is the one sanctioned queue jump, for release blockers only**:
+  `heavy_take "<who>: <job>" priority` or `HEAVY_PRIORITY=1`; combines with `exclusive`. It sorts ahead
+  of every ordinary ticket (FIFO among priority tickets), never preempts a running job, and never
+  overtakes a queued `exclusive` ticket. The order is carried by the ticket NAME, but the code lives
+  only in the copy that takes the ticket: from an older worktree source
+  `git -C ~/Workspace/Yo show origin/develop:scripts/heavy-lock.sh`. Its owner line ends in `[PRIORITY]`.
+- `cat ~/Workspace/Yo-wt/.heavy-lock*/owner` shows holders, `~/Workspace/Yo-wt/.heavy-queue/` the
+  waiters (oldest first). A stopped holder (`ps -o stat=` shows `T`) blocks everyone: `kill -CONT` it.
+- Killing a waiter or holder is safe: a dead waiter's ticket is pruned, and a slot whose owner pid is
+  gone, or taken before the last boot, is reclaimed by the next waiter's scan.
+- **Stop a `yo build` by its process group, not its pid**: killing the runner leaves its `yo compile`
+  child writing the same `yo-out` outside any slot. Start the wrapper with `setsid` and
+  `kill -- -<pgid>`; before restarting, check `pgrep -af "yo compile"`.
+
+## Compiler internal tests — `tests/internal/`
+
+The compiler's own tests (older docs: `yo-self/tests/`). They import `src/` via `../../src/...`, so every
+file reaching `evaluator/index.yo` pays a compiler-sized compile.
+
+```bash
+yo test ./tests/internal/parser.test.yo --parallel 1
+```
+
+- **One file at a time, never the whole directory locally** (see "Choosing a Tier 1 gate"): one file
+  peaks at ~6.5 GB, and two concurrent children swap into the runner's 600 s deadline, manufacturing
+  failures. The runner ignores `--parallel` (it runs sequentially). CI runs the directory in the sharded
+  `compiler-internal-tests-selfhosted` job; the fast suite and the wasm/emcc jobs exclude it.
+- Run the relevant files whenever you modify `src/` or these tests.
+- **Two settings separate a verdict from noise:** `YO_TEST_LEAK_VERDICT=0` (CI sets it; the in-process
+  module evaluation leaks process-lifetime registries, `issues/self-hosted-emit-leaks-remaining-classes.md`,
+  so e.g. every `check-watch.test.yo` test otherwise fails as `Memory leak detected:`; ASan crash
+  detection stays armed), and `--compile-timeout-ms 2400000` on a busy machine (the default 600 s
+  deadline fails the batch with `Yo compilation exceeded the configured time limit`).
+- Build-system and CLI subsystems are tested here too (`build-runner`, `lock-file`, `resolver`,
+  `manifest`, `toml-edit`, `target`, `fetch`, `install-command`, `cache`, `init`, `version`
+  `.test.yo`); end-to-end CLI behaviour is in `tests/cli-cases/`.
+- **Stack:** every emitted binary runs `main` on a worker thread with a 1 GiB stack (`__yo_main_stack`;
+  `YO_MAIN_STACK_MB` overrides; a no-op on WASM). Big evaluator frames (`evaluate_match`,
+  `evaluate_function_call`) are several MB at `-O0` and larger under ASan, so keep recursive comptime
+  test inputs small (`fib(1)`, `countdown(1)`). `ASAN_OPTIONS=stack_size=N` sets the fake stack, not the
+  real one.
+
+### A hollow batch voids EVERY test in it, not one
+
+The runner inlines all test bodies of a batch into one `__yo_user_main` (a `match` on `YO_TEST_INDEX`,
+synthesized in `src/main.yo`). One expression codegen cannot transpile turns the whole function into a
+`// Failed to transpile` comment: the binary runs nothing and every test in the batch "passes". The
+`__yo_user_main` marker gate in `src/codegen/functions/generation.yo` makes this a hard error. **Never
+weaken that gate to get a job green.** Debugging one:
+
+- `YO_KEEP_BATCH=1` keeps `.yo_selftest_batch_<pid>_<fi>_<bi>.yo`; compile it directly to iterate.
+- To read the marker text you need a pre-gate binary (with the gate, the compile aborts before writing C).
+- Batch bodies are `ast_expr_to_string()` re-prints, not source slices: rule out a round-trip defect by
+  testing the natural source form too.
+
+### Counting untranspiled bodies: never anchor to start-of-line
+
+Use `scripts/count-transpile-failures.sh <emitted.c>`; a hand-rolled `grep` is wrong both ways:
+
+- **Overcount:** codegen spells its own markers as string literals, so stage-2 carries a nonzero
+  string-literal floor that moves with codegen.
+- **Undercount:** markers also appear mid-line (`return // Failed to transpile <expr>;`,
+  `__yo_tN tmp = // Failed to transpile <expr>;`); `^\s*//` misses them.
+- **Abort stubs:** an untranspilable body in a value-returning function becomes
+  `abort(); /* untranspilable body in a value-returning fn: ... */` with no marker, and dies rc=134 at
+  runtime. The script prints `N real (F string-literal floor, S abort-stub)`: **`0 real` alone is not
+  clean; read the stub count**, and for an async change run the binary.
+- A missing file exits 2 with `MISSING FILE`: check that first when a gate reports a suspiciously clean
+  number.
+
+The discriminator (shared with codegen's abort-stub detector): a string-literal occurrence is preceded by
+`"`, an emitted marker never is. A stage-2 carrying an untranspiled body is broken even when
+stage2 == stage3 byte-for-byte.
+
+## Formatting
+
+`yo fmt` is the only formatter (`vscode-extension/` keeps its own npm toolchain). Run `yo fmt <file>` on
+every `.yo` file you create or modify; `yo fmt --check <file>` verifies. Gate with the tree-built binary
+(GATE 6), not the seed: the formatter changes between releases.
 
 ## Linux async-backend testing (`YO_IO_BACKEND`)
 
-- The Linux async runtime picks its backend once per thread: io_uring, else the
-  epoll fallback (one stderr line), else degraded (`plans/reference/DROP_LIBURING.md`).
-  Pin it with `YO_IO_BACKEND=uring|epoll|auto` — a PINNED backend that fails to
-  initialize is a hard error, which is exactly what tests want.
-- Run async/io/net tests under BOTH backends when touching
-  `src/codegen/async/runtime-io-linux.yo` or the timer section of
-  `runtime-io-common.yo`:
-  `YO_IO_BACKEND=epoll yo test ./tests/async-await.test.yo --parallel 1`
-  and the same without the env (the io_uring path).
-- `tests/internal/uring-runtime.test.yo` pins the emitted runtime text (vendored
-  ring layer, no liburing surface, backend ladder, per-op dispatch, the timer
-  heap, the inline paths, the watch set). It follows
-  the `gc-runtime-atomics.test.yo` pattern — call the emitters, assert on the C.
-- **Emit-diffs must pin `YO_STD`.** Minted type/function ids in the emitted C
-  (`__yo_t_*`, `yo_id_*`) incorporate the std tree's absolute path, so comparing
-  emissions from two checkouts (or two `YO_STD` values) shows a sea of id churn
-  that is NOT a codegen change. Compile both sides with the same
-  `YO_STD=<abs>/std` before diffing; then all diff hunks must sit inside the
-  runtime region (`Platform-specific sync helpers (Linux)` .. `__yo_main_thread_entry`).
-- **A refactor of the compiler's own data is gated by a compiler swap, not by
-  an emit-diff of two trees.** Build stage 1 of the merge base and of the
-  branch, compile the BRANCH tree's `src/main.yo` with both in one directory
-  (the fixpoint's stage-2 command line), and `cmp` the C. Two trees under one
-  compiler differ whenever a type changed; two compilers on one tree differ
-  only when behaviour did (VERDICTS-64, schedule §5i decision 54).
+- The Linux runtime picks io_uring, else epoll (one stderr line), else degraded
+  (`plans/reference/DROP_LIBURING.md`). `YO_IO_BACKEND=uring|epoll|auto` pins it; a pinned backend that
+  fails to initialize is a hard error.
+- When touching `src/codegen/async/runtime-io-linux.yo` or the timer section of `runtime-io-common.yo`,
+  run the async/io/net tests under BOTH backends:
+  `YO_IO_BACKEND=epoll yo test ./tests/async-await.test.yo --parallel 1`, and again without the variable.
+- `tests/internal/uring-runtime.test.yo` pins the emitted Linux and macOS runtime text (call the emitters,
+  assert on the C, like `gc-runtime-atomics.test.yo`). An emit-diff of the runtime must pin `YO_STD` (see
+  "Comparing emitted C"); all hunks must then sit between `Platform-specific sync helpers (Linux)` and
+  `__yo_main_thread_entry`.
 - Performance: `scripts/io-budget-check.sh` is the hard gate (syscall counts);
-  `scripts/bench-io-backends.sh` (ring vs epoll) and `scripts/bench-vs-libuv.sh`
-  (both vs libuv 1.x; needs libuv headers, `LIBUV_CFLAGS`/`LIBUV_LIBS` without
-  pkg-config) are informational. On a shared box take medians (`REPS=7`) —
-  single runs vary ±30%. On WSL2, loopback-TCP round trips are ~300 µs for every
-  runtime: the socketpair rows measure the runtime, the TCP rows the kernel.
-- Nothing in the Linux pipeline needs liburing: user programs, the `yo`
-  binary, stage-1 and the published bundles (seed v0.2.45 on) all carry the
-  vendored ring layer. Only a `yo` built by a PRE-v0.2.45 seed links liburing
-  (the seed-lag table in `plans/reference/DROP_LIBURING.md` §5) — rebuild with a current
-  seed rather than installing the library.
+  `scripts/bench-io-backends.sh` and `scripts/bench-vs-libuv.sh` (needs libuv headers;
+  `LIBUV_CFLAGS`/`LIBUV_LIBS` without pkg-config) are informational. Take medians (`REPS=7`) on a shared
+  box. On WSL2 loopback TCP costs ~300 µs per round trip for every runtime: socketpair rows measure the
+  runtime, TCP rows the kernel.
+- Nothing in the Linux pipeline links liburing (the ring layer is vendored).
 
 ## macOS async-runtime testing and prototyping
 
-- `tests/internal/uring-runtime.test.yo` also pins the macOS runtime (slot table,
-  cancellable dispatch registrations, timer heap, select probe, dup2 hook, watch
-  kqueue) — call the emitters, assert on the C.
-- **Prototype runtime changes without a self-build.** The emitted runtime is C
-  text, so iterate on it directly: emit a program's C with any current `yo`
-  (`yo compile x.yo --emit-c --skip-c-compiler -o out`), replace the macOS
-  runtime regions (the backend from `Async I/O Runtime (macOS - kqueue)`, the
-  macOS timer section, and `FS Event Operations` .. the end of
-  `__yo_poll_and_fs_event_tick`) with your edited C, and compile it with the
-  flags `yo compile` uses. A `clang` wrapper first on `PATH` that performs the
-  same splice on any `.c` it is handed runs whole test files through the
-  prototype (`yo test <file> --cc clang`). Port to the `.yo` emitters only
-  once it is measured and green — in the Yo template string every C backslash
-  is doubled (`\\n`), and there must be no backtick or `${`.
-- **Benchmarks** (informational, like Linux's): `scripts/bench/io-bench.yo` and
-  `scripts/bench/async-vs-libuv/io_bench_uv.c` (runtime level), `bench.yo` and
-  `bench_uv.c` (std level); `brew install libuv`, then build the C twin with
-  `-I$(brew --prefix libuv)/include -L$(brew --prefix libuv)/lib -luv` (no
-  pkg-config file). Alternate the binaries per round and take medians: other
-  sessions' gate batteries on the same box move single runs by 10–20%.
-- **macOS measurement pitfalls, measured on 26.6 (M4):** `sample <pid>` is
-  wall-clock, not CPU — a thread blocked in `kevent` shows as `kevent`; split
-  user from system time with `/usr/bin/time -l`. A `DYLD_INSERT_LIBRARIES`
-  interposer counts libc syscall wrappers (libSystem's `send`/`recv` go
-  through `sendto`/`recvfrom`, so both count). A kqueue is locked to the first
-  API family used on it: mixing `kevent` and `kevent64` on one kqueue fails
-  with `EINVAL` and "measures" as 0.1 µs. Timer wakeups are coalesced by the
-  OS: a 1 ms `kevent()` timeout wakes after ~1.25 ms, an `EVFILT_TIMER` with
-  default leeway after ~1.5 ms; thread QoS does not change it, only
-  `NOTE_CRITICAL` does. A level-triggered knote left enabled with no waiter
-  makes a loop busy-spin, which "halves" a ping-pong's latency at 100% CPU —
-  check CPU time before believing a latency win.
+- **Prototype runtime changes without a self-build.** Emit a program's C with any current `yo`
+  (`yo compile x.yo --emit-c --skip-c-compiler -o out`), replace the macOS runtime regions (from
+  `Async I/O Runtime (macOS - kqueue)`, the macOS timer section, and `FS Event Operations` to the end of
+  `__yo_poll_and_fs_event_tick`) with your edited C, and compile with the flags `yo compile` uses. A
+  `clang` wrapper first on `PATH` that performs the same splice runs whole test files through the
+  prototype (`yo test <file> --cc clang`). Port to the `.yo` emitters once measured and green: in the Yo
+  template string every C backslash is doubled (`\\n`), and there is no backtick or `${`.
+- **Benchmarks** (informational): `scripts/bench/io-bench.yo` and
+  `scripts/bench/async-vs-libuv/io_bench_uv.c` (runtime level), `bench.yo` and `bench_uv.c` (std level).
+  `brew install libuv`, then build the C twin with
+  `-I$(brew --prefix libuv)/include -L$(brew --prefix libuv)/lib -luv`. Alternate binaries per round and
+  take medians.
+- **Measurement pitfalls:** `sample <pid>` is wall-clock (a thread blocked in `kevent` shows as `kevent`);
+  split user and system time with `/usr/bin/time -l`. A `DYLD_INSERT_LIBRARIES` interposer counts libc
+  wrappers (`send`/`recv` go through `sendto`/`recvfrom`). A kqueue is locked to the first API family:
+  mixing `kevent` and `kevent64` fails with `EINVAL` and "measures" as 0.1 µs. Timer wakeups are coalesced
+  (a 1 ms `kevent()` timeout wakes after ~1.25 ms, a default-leeway `EVFILT_TIMER` after ~1.5 ms; only
+  `NOTE_CRITICAL` changes it). A level-triggered knote left enabled with no waiter busy-spins, "halving"
+  ping-pong latency at 100% CPU: check CPU time before believing a latency win.
