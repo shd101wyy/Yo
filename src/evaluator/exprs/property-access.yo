@@ -470,13 +470,15 @@ member_behind_deref_error :: (
     for_head => `write \`for(${for_help_mark_s}${place_s}, …)\`: \`${place_s}\` names the ${place_name}`,
     true => `write \`${place_s}.${name}${call_s}\`: \`${place_s}\` names the ${place_name} (\`yo fix\` applies this)`
   );
-  // The edit: `name` → `*.name` (one `*.` per star) at the name token, when
-  // the source there reads the name.
-  src := Rc.clone(name_tok.input);
-  n_start := usize(name_tok.byte_offset);
-  n_end := (n_start + name.len());
+  // The edit: `name` → `*.name` (one `*.` per star) at the name token, in
+  // written (not compiler-synthesized) source. The applier re-verifies that
+  // the span still reads the name before editing, so the error itself does
+  // not read the source: a `substring` here is a CTFE of a std function at
+  // the raise site, and while any body on its force path still forwards (the
+  // F1 sweep not yet applied), that CTFE re-enters this error and recurses
+  // without bound.
   repairable := (
-    !for_head && !name_tok.module_path.*.starts_with(String.from("auto-generated://")) && (n_end <= src.*.len()) && (src.*.substring(n_start, n_end) == name)
+    !for_head && !name_tok.module_path.*.starts_with(String.from("auto-generated://"))
   );
   with_code(
     cond(
@@ -484,7 +486,7 @@ member_behind_deref_error :: (
         name_tok,
         &msg,
         Option(String).Some(help_s),
-        &Span(path : name_tok.module_path.*.clone(), row : usize(name_tok.row), col : usize(name_tok.column), len : name.clone().chars().count()),
+        &Span(path : name_tok.module_path.*.clone(), row : usize(name_tok.row), col : usize(name_tok.column), len : name.len()),
         &`${insert_s}${name}`,
         &`read the member through ${place_s}: ${place_s}.${name}${call_s}`
       ),

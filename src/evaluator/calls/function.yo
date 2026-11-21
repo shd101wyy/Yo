@@ -715,15 +715,14 @@ _not_callable_error :: (fn(func_expr : &AstExpr, callee_ty : &TypeValue, env : &
     deref_target_type(resolve_struct_shell(callee_ty), env),
     .Some(payload) => {
       help_s := `\`${shown}\` has type \`${type_to_string(callee_ty)}\`, and \`${shown}(...)\` does not read through it: \`${shown}.*\` is its \`${type_to_string(&payload)}\`. Write \`${shown}.*(...)\``;
-      src := Rc.clone(tok.input);
-      t_start := usize(tok.byte_offset);
-      t_end := (t_start + tok.value.*.len());
+      // The applier re-verifies the span (see member_behind_deref_error):
+      // no source read here.
       cond(
-        (ast_expr_is_atom(func_expr) && (tok.kind == TokenKind.Identifier) && !tok.module_path.*.starts_with(String.from("auto-generated://")) && (t_end <= src.*.len()) && (src.*.substring(t_start, t_end) == tok.value.*)) => format_error_message_with_repair_at(
+        (ast_expr_is_atom(func_expr) && (tok.kind == TokenKind.Identifier) && !tok.module_path.*.starts_with(String.from("auto-generated://"))) => format_error_message_with_repair_at(
           &tok,
           &msg,
           Option(String).Some(help_s),
-          &Span(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), len : tok.value.*.clone().chars().count()),
+          &Span(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), len : tok.value.*.len()),
           &`${tok.value.*}.*`,
           &`call the place \`${shown}.*\` names: ${shown}.*(...)`
         ),

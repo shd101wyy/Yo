@@ -355,11 +355,11 @@ _anchored_position :: (fn(module_path : &String, row : usize, column : usize) ->
     g_top_level_anchors.with(m => m.get_cloned(&owner.*)),
     .Some(list) => {
       (lo : usize) = usize(0);
-      (hi : usize) = list.len();
+      (hi : usize) = list.*.len();
       while(lo < hi, {
         mid := ((lo + hi) / usize(2));
         at_or_before := match(
-          list.get_cloned(mid),
+          list.*.get_cloned(mid),
           .Some(a) => ((a.row < row) || ((a.row == row) && (a.column <= column))),
           .None => false
         );
@@ -370,7 +370,7 @@ _anchored_position :: (fn(module_path : &String, row : usize, column : usize) ->
         });
       });
       match(
-        if(lo > usize(0), list.get_cloned(lo - usize(1)), Option(TopLevelAnchor).None),
+        if(lo > usize(0), list.*.get_cloned(lo - usize(1)), Option(TopLevelAnchor).None),
         .Some(a) => {
           drow := (row - a.row);
           (`@${a.label}:${drow.to_string()}:${column.to_string()}`, `_${a.label}_r${drow.to_string()}c${column.to_string()}`)

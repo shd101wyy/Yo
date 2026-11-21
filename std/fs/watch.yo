@@ -201,9 +201,9 @@ watch :: (fn(path : &Path, opts : WatchOptions, exn : Exception) -> Watcher)({
   st := addr_of(w._cell.*);
   cstr := cstr_bytes.ptr().unwrap();
   flags := cond(opts.recursive => events.FS_EVENT_RECURSIVE, true => u32(0));
-  status := events.fs_event_start(w._cell._handle, cstr, flags, _on_fs_event, (*u8)((*void)(st)));
+  status := events.fs_event_start(w._cell.*._handle, cstr, flags, _on_fs_event, (*u8)((*void)(st)));
   if(status < i32(0), {
-    events.fs_event_close(w._cell._handle);
+    events.fs_event_close(w._cell.*._handle);
     exn.throw(dyn(Box.new(IoError.from_errno(i32(0) - status))));
   });
   unsafe(consume(st.*._active = true));
@@ -212,20 +212,20 @@ watch :: (fn(path : &Path, opts : WatchOptions, exn : Exception) -> Watcher)({
 impl(
   Watcher,
   /// The watched path.
-  path : (fn(self : &Self) -> Path)(self._cell._root.clone()),
+  path : (fn(self : &Self) -> Path)(self._cell.*._root.clone()),
   /// Whether the watch is still running.
-  is_active : (fn(self : &Self) -> bool)(self._cell._active),
+  is_active : (fn(self : &Self) -> bool)(self._cell.*._active),
   /// Events queued and not yet read.
-  pending : (fn(self : &Self) -> usize)(self._cell._queue.len() - self._cell._head),
+  pending : (fn(self : &Self) -> usize)(self._cell.*._queue.len() - self._cell.*._head),
   /// Take the next queued event without waiting; `.None` when the queue is
   /// empty.
   poll : (fn(self : &Self) -> Option(FsEvent))({
     st := addr_of(self._cell.*);
     cond(
-      (self._cell._head < self._cell._queue.len()) => {
-        ev := self._cell._queue(self._cell._head).clone();
+      (self._cell.*._head < self._cell.*._queue.len()) => {
+        ev := self._cell.*._queue(self._cell.*._head).clone();
         unsafe(consume(st.*._head = (st.*._head + usize(1))));
-        if(self._cell._head == self._cell._queue.len(), {
+        if(self._cell.*._head == self._cell.*._queue.len(), {
           unsafe(st.*._queue.clear());
           unsafe(consume(st.*._head = usize(0)));
         });
@@ -264,7 +264,7 @@ impl(
     next : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(FsEvent), Io)))(
       io.async({ self : &mut self.* }(io : Io) => {
         st := addr_of(self._cell.*);
-        while((self._cell._head >= self._cell._queue.len()) && self._cell._active, {
+        while((self._cell.*._head >= self._cell.*._queue.len()) && self._cell.*._active, {
           p := Park.new();
           unsafe(st.*._waiters.push(p.waker()));
           io.await(p.wait(io), io);
