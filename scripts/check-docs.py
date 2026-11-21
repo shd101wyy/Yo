@@ -9,8 +9,10 @@ Three checks over the user manuals (`docs/en-US`, `docs/zh-CN`) and the READMEs
             and its text contains `export(` or `test(` (the docs audit's
             classification), or when its fence declares `expect=E0xxx`.
             Oracle: a block with a top-level `test(` runs through `yo test`
-            (`yo check` does NOT evaluate test bodies: a type error inside
-            `test("..", { ... })` passes it, measured 2026-11-21 with v0.2.79);
+            (`yo check` swallows test-body errors by design: a type error
+            inside `test("..", { ... })` passes it, and `--test-bodies` has
+            known false positives — `assert` is "not found" there; measured
+            2026-11-21 with v0.2.79);
             every other block through `yo check`. A block passes when the
             oracle succeeds, or, for ```yo expect=E0917[,E0901], when it fails
             AND reports every listed code. Fragments (no `export(`/`test(`) are
