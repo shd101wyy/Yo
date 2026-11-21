@@ -1,18 +1,22 @@
 // expect: E0923
-// A type constructor's origin parameter given static: H(static).
+// A type constructor's origin parameter given static: H(static), its payload
+// lent from a parameter.
 // VERDICTS-74 rule 2: the empty origin is checked — only values that borrow no
-// place flow into it. Found by the borrow/ownership audit (yo-6c).
+// place flow into it. Found by the borrow/ownership audit (yo-6c); the
+// audit's block-local payload now trips the scope rule (E0911) first, so the
+// row borrows from a parameter, which outlives the holder and leaves the
+// static subset check as the only rejection.
 { String } :: import("std/string");
 { println } :: import("std/fmt");
 X :: struct(s : String);
 H :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(Rc(X), p)));
+use :: (fn(r : &Rc(X)) -> unit)({
+  (h : H(static)) = H(static)(r : r);
+  println(`OUT: ${h.r.*.s.len().to_string()}`)
+});
 main :: (fn() -> unit)({
-  mut(o) := Option(H(static)).None;
-  {
-    b := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
-    o = .Some(H(static)(r : &b));
-  };
-  match(o, .Some(h) => println(`OUT: ${h.r.*.s.len().to_string()}`), .None => println("none"));
+  b := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+  use(&b);
   ()
 });
 export(main);

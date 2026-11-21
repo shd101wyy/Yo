@@ -176,6 +176,8 @@ pragma(Pragma.AllowUnsafe);
   variable_is_reference_binding,
   byvalue_param_origin_names,
   _static_join_subset_check,
+  _static_value_roots,
+  OriginRootPlace,
   deref_rule_applies,
   deref_rule_recording,
   reject_reference_without_deref,
@@ -2779,7 +2781,8 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // initialization-assignment.yo): the empty origin accepts only values
   // that borrow no place.
   if(is_typed_binding_lhs && !variable.is_module_level() && !variable.is_compile_time_only() && type_spells_checked_static(&variable_slot_type(&variable)), {
-    td_roots := origin_of(&rhs_evaled, &env, ctx);
+    (mut(td_roots) : ArrayList(OriginRootPlace)) = ArrayList(OriginRootPlace).new();
+    _static_value_roots(&rhs_evaled, &env, ctx, &mut td_roots, u32(0));
     td_pv := byvalue_param_origin_names(&rhs_evaled, &env, ctx);
     _static_join_subset_check(&variable, &variable_slot_type(&variable), &td_roots, &td_pv, &rhs_evaled, &env, ctx, exn);
   });

@@ -2067,6 +2067,12 @@ note_second_class_binding :: (
     if(bound_by_init, {
       return(());
     });
+    // VERDICTS-74 rule 2: a slot whose type spells the empty origin
+    // `static` (`Impl(Future(..., static))`) holding a borrowing future is
+    // the static subset violation — the more precise verdict of the two.
+    if(type_spells_checked_static(ty), {
+      _static_origin_reject(&holder.name, ty, &capture_borrow_place_string(&b0), tok, ctx, exn);
+    });
     raise_flow_violation(
       with_code(
         format_error_message_with_help(
@@ -12159,7 +12165,11 @@ _static_value_roots :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext,
             svr_args.get_cloned(svr_ai),
             .Some(svr_a) => match(
               expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&svr_a)),
-              .Some(svr_ari) => if(type_carries_origin(&svr_ari.ty()), {
+              // An argument whose type carries an origin holds that place;
+              // one whose type SPELLS the empty origin at a checked
+              // position is itself a constructed static holder whose
+              // payload must be walked too (a `H(r : &b)` field).
+              .Some(svr_ari) => if(type_carries_origin(&svr_ari.ty()) || type_spells_checked_static(&svr_ari.ty()), {
                 _static_value_roots(&svr_a, env, ctx, out, (depth + u32(1)));
               }),
               .None => ()
@@ -12230,13 +12240,6 @@ bind_join :: (fn(variable : &Variable, value : &AstExpr, env : &Environment, ctx
   });
   roots := origin_of(value, env, ctx);
   pv_names := byvalue_param_origin_names(value, env, ctx);
-  if((roots.len() == usize(0)) && (pv_names.len() == usize(0)), {
-    local_borrow_joins_clear(variable.name.clone(), &variable.token);
-    return(());
-  });
-  if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
-    eprintln(`[n2b] join ${variable.name}: roots=[${n2b_roots_text(&roots)}] value=${ast_expr_to_string(value)}`);
-  });
   // A holder whose type SPELLS origins (`dst : &mut Option(&(i32, p))`'s
   // pointee, `s : Option(&(i32, x))`) checks the subset (O3's place
   // writes): every origin the VALUE's roots carry — a reference parameter's
@@ -12252,16 +12255,33 @@ bind_join :: (fn(variable : &Variable, value : &AstExpr, env : &Environment, ctx
   );
   holder_names := ArrayList(String).new();
   origin_param_names_of(&holder_ty, &mut holder_names, u32(0));
+  // VERDICTS-74 rule 2: a holder whose type spells the empty origin at a
+  // checked position (`type_spells_checked_static`) runs the subset
+  // against the empty set — only `static` values may flow into it — with
+  // the value's DEEP roots (a constructed value's payload is not in
+  // `origin_of`'s runtime-scope map), and BEFORE the empty-roots exit: a
+  // constructor call shows roots=0 to `origin_of`, which is a vacuous
+  // pass, not a static value.
+  if((holder_names.len() == usize(0)) && type_spells_checked_static(&holder_ty), {
+    (mut(sj_roots) : ArrayList(OriginRootPlace)) = ArrayList(OriginRootPlace).new();
+    (sj_i : usize) = usize(0);
+    while(sj_i < roots.len(), {
+      _origin_push(roots(sj_i).clone(), &mut sj_roots);
+      sj_i = (sj_i + usize(1));
+    });
+    _static_value_roots(value, env, ctx, &mut sj_roots, u32(0));
+    _static_join_subset_check(variable, &holder_ty, &sj_roots, &pv_names, value, env, ctx, exn);
+  });
+  if((roots.len() == usize(0)) && (pv_names.len() == usize(0)), {
+    local_borrow_joins_clear(variable.name.clone(), &variable.token);
+    return(());
+  });
+  if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
+    eprintln(`[n2b] join ${variable.name}: roots=[${n2b_roots_text(&roots)}] value=${ast_expr_to_string(value)}`);
+  });
   if(holder_names.len() > usize(0), {
     _bind_join_subset_check(variable, &holder_ty, &holder_names, &roots, value, env, ctx, exn);
     _byvalue_param_subset_check(variable, &holder_ty, &holder_names, &pv_names, value, env, ctx, exn);
-  }, {
-    // VERDICTS-74 rule 2: a holder whose type spells the empty origin at a
-    // checked position (`type_spells_checked_static`) runs the subset
-    // against the empty set: only `static` values may flow into it.
-    if(type_spells_checked_static(&holder_ty), {
-      _static_join_subset_check(variable, &holder_ty, &roots, &pv_names, value, env, ctx, exn);
-    });
   });
   if(roots.len() == usize(0), {
     local_borrow_joins_clear(variable.name.clone(), &variable.token);
@@ -14325,7 +14345,7 @@ _origin_through_match_bindings :: (fn(roots : &ArrayList(OriginRootPlace), env :
   });
   out
 });
-export(projection_call_mode_of, unsize_root_args, projection_body_mismatch_message, ProjectionRootArg, is_temporary_operand, deref_is_owning_handle_step, origin_temporary_entry, origin_temporary_root, ORIGIN_TEMPORARY_ROOT, ORIGIN_SCOPED_ROOT, ORIGIN_LOST_ROOT, origin_scope_close, ORIGIN_SCRUTINEE_ROOT, origin_scrutinee_temporary_place, origin_close_scrutinee_temporary, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, variable_holder_roots, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, _origin_through_match_bindings, note_ref_payload_source, ref_payload_source, note_ref_payload_held, note_borrow_match_source, borrow_match_source, n2b_roots_text, audit_origin_totality, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, note_fn_value_definition, fn_value_definition, type_var_ids_of, deref_chain_atom, deref_chain_depth, ReborrowLink, reference_reborrow_chain, store_through_mut_join, store_via_mut_reference, store_via_targets, flow_write_back_through, local_mut_borrow_of_holder, expr_is_mut_reference_value, _static_module_level, _static_slot_param, _static_offending_root, _static_origin_reject, _static_join_subset_check, _static_offending_root_of, byvalue_param_origin_names);
+export(projection_call_mode_of, unsize_root_args, projection_body_mismatch_message, ProjectionRootArg, is_temporary_operand, deref_is_owning_handle_step, origin_temporary_entry, origin_temporary_root, ORIGIN_TEMPORARY_ROOT, ORIGIN_SCOPED_ROOT, ORIGIN_LOST_ROOT, origin_scope_close, ORIGIN_SCRUTINEE_ROOT, origin_scrutinee_temporary_place, origin_close_scrutinee_temporary, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, variable_holder_roots, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, _origin_through_match_bindings, note_ref_payload_source, ref_payload_source, note_ref_payload_held, note_borrow_match_source, borrow_match_source, n2b_roots_text, audit_origin_totality, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, note_fn_value_definition, fn_value_definition, type_var_ids_of, deref_chain_atom, deref_chain_depth, ReborrowLink, reference_reborrow_chain, store_through_mut_join, store_via_mut_reference, store_via_targets, flow_write_back_through, local_mut_borrow_of_holder, expr_is_mut_reference_value, _static_module_level, _static_slot_param, _static_offending_root, _static_origin_reject, _static_join_subset_check, _static_offending_root_of, _static_value_roots, byvalue_param_origin_names);
 export(drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions);
 export(
   LocalBorrowPlace,
