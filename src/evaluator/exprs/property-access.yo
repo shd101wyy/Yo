@@ -461,7 +461,7 @@ member_behind_deref_error :: (
   call_s := cond(is_call => String.from("(...)"), true => String.new());
   // The help's marker: the source's own, or `&` when the loop consumed the
   // handle by value (the payload cannot move out of it).
-  for_help_mark_s := cond((for_head && (for_mark_s.len() == usize(0))) => String.from("&"), true => for_mark_s);
+  for_help_mark_s := cond((for_head && (for_mark_s.len() == usize(0))) => String.from("&"), true => for_mark_s.clone());
   (msg, help_s) := cond(
     for_head => (
       `\`for(${for_mark_s}${written_s}, …)\` walks \`${written_s}\`, of type \`${written_ty_s}\`, which has no member "${name}"; ${landed_phrase} has one. \`.\` does not read through ${what}, and neither does a \`for\` head.`,
