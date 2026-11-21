@@ -80,6 +80,7 @@ Point :: struct(x : i32, y : i32);
 derive(Point, Copy, Clone);
 ```
 
+- 只写 `derive(T, Copy)` 而没有 `Clone` 是 E0602：编译器从不替你写出 `Clone` 的 impl。
 - 每个字段都必须是 `Copy`，且该类型不能实现 `Drop`。
 - 元组、数组和记录恰好在所有部分都是 `Copy` 时才是 `Copy`。
 - `String`、各种集合、`Box`、`Rc`、`Arc` 以及所有 `Drop` 类型永远不是 `Copy`。
@@ -537,9 +538,9 @@ export(main);
 
 有些位置不接受引用，持有引用的值出现在那里会被拒绝：
 
-- 集合的元素或单元的载荷：`ArrayList(&T)` 与 `RefCell(&T)` 在写出类型的地方就被拒绝，`Rc`/`Arc` 的载荷是 E0909；
+- 集合的元素或单元的载荷：`ArrayList(&T)`、`RefCell(&T)`、`Box(&T)` 以及 `Rc`/`Arc` 的载荷都是 E0909；
 - 模块级绑定与 `extern` 签名（E0909）；
-- 移动到另一个线程的值：引用永远不是 `Send`。
+- 移动到另一个线程的值：引用永远不是 `Send`，因此捕获了引用的 `Thread.spawn` 闭包是 E0909。
 
 ## 元素访问与迭代
 
@@ -562,7 +563,7 @@ export(main);
 
 - `Copy` 元素由 `xs(i)` 和 `xs.get(i)` 拷贝出来，后者越界时返回 `.None`。非 `Copy` 元素用
   `xs.get_cloned(i)` 拷贝，用 `r := xs.index(i)` 借用，或用 `xs.with(i, e => …)` 原地写入。
-- `&xs(i)` 不是可以绑定的位置；用 `xs.index(i)` 或下面的借用式 `for` 借用元素。
+- `&xs(i)` 不是可以绑定的位置（E0927）；用 `xs.index(i)` 或下面的借用式 `for` 借用元素。
 
 ### 迭代
 
@@ -913,6 +914,7 @@ export(main);
 | E0923 | 引用超出其声明的来源 |
 | E0924 | 类型或绑定把自身作为来源 |
 | E0926 | 不写 `.*` 就把引用当作整个值读取或写入 |
+| E0927 | 对不是位置的东西做局部借用，例如 `&xs(i)` |
 
 ## 从 Rust 过来
 

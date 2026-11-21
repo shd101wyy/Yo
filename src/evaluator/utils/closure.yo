@@ -929,7 +929,7 @@ validate_capture_trait_requirements :: (
                                 format_error_message_with_help(
                                   &info.token,
                                   `Captured variable \`${var_name}\` (type \`${shown}\`) borrows \`${place}\`, and a borrow cannot cross threads: the closure runs on another thread, which may outlive \`${place}\`.`,
-                                  Option(String).Some(`capture an owned value instead (\`{ v : ${var_name}.* }\` copies a \`Copy\` value, \`.clone()\` copies one that is not), or share the value through an \`Arc\``)
+                                  Option(String).Some(String.from("capture the value instead of a borrow: a by-value entry (`{ x }`, `{ v : x.clone() }`) moves or copies it into the closure, and `{ v : r.* }` copies what a reference `r` refers to; or share the value through an `Arc`"))
                                 ),
                                 E_BORROW_ESCAPES
                               ),

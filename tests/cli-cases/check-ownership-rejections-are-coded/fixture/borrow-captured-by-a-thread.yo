@@ -1,0 +1,8 @@
+// A borrow entry `{ &x }` in a `Thread.spawn` closure: E0909, shown as `&i32`.
+{ Thread } :: import("std/thread");
+main :: (fn() -> unit)({
+  x := i32(1);
+  t := Thread(i32).spawn({ &x }(io : Io) => x.*);
+  _n := t.join();
+});
+export(main);
