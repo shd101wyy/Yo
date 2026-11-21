@@ -1704,10 +1704,10 @@ test("extend_cloned of a list field with itself is E0910; a copy appends", {
   assert(o.xs.len() == usize(4), "four elements");
   assert((o.xs(usize(2)) == o.xs(usize(0))) && (o.xs(usize(3)) == o.xs(usize(1))), "the appended half copies the first");
 });
-// ===== Deref: the list's `[T]` view (VERDICTS-63 Generation B) =====
+// ===== Deref: the list's `[T]` view =====
 // `list.*` is the elements as a `[T]`: `&list.*` is `ArrayList.deref(&list)`,
-// `&mut list.*` is `deref_mut`. The list's own members (`len`, `contains`,
-// `sort`) win; a member only `[T]` has forwards through `.*`.
+// `&mut list.*` is `deref_mut`. `list.m()` is the list's own member;
+// `list.*.m()` is the view's.
 _al_view_sum :: (fn(xs : &[i32]) -> i32)({
   p := unsafe(__yo_slice_ptr(xs));
   mut(t) := i32(0);
@@ -1760,12 +1760,12 @@ test("a list with no buffer yet has an empty view", {
   units := ArrayList(unit).new();
   assert(units.*.len() == usize(0), "a zero-sized element type");
 });
-test("a member only [T] has forwards through list.*", {
+test("list.*.m() reaches a member only [T] has", {
   mut(list) := ArrayList(i32).new();
   list.push(i32(7));
   list.push(i32(8));
-  assert(list.view_first() == i32(7), "a view-only read");
-  list.view_zero_first();
+  assert(list.*.view_first() == i32(7), "a view-only read");
+  list.*.view_zero_first();
   assert(list(usize(0)) == i32(0), "a view-only write through DerefMut");
   assert(list.len() == usize(2), "nothing else changed");
 });

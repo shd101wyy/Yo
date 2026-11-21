@@ -987,11 +987,9 @@ impl(
     )
   )
 );
-/// `list.*` is the list's elements as a `[T]` (VERDICTS-63): `&list.*` lends
-/// them as a `&[T]`, and a method only `[T]` has (`list.contains(&x)`) reads
-/// through it. A member the list has itself (`len`, `is_empty`) is the list's.
-/// The view borrows the list, so `push` and `clear` are rejected while it is
-/// live (E0911).
+/// Defines `list.*`, the list's elements as a `[T]`: `&list.*` lends them as
+/// a `&[T]`, and `list.*.m()` calls a `[T]` method on them. The view borrows
+/// the list, so `push` and `clear` are rejected while it is live (E0911).
 impl(
   generic(T : Type),
   ArrayList(T),
