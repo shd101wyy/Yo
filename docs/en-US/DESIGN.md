@@ -3654,9 +3654,31 @@ the two impls share one `Target`.
 
 `x.*` is the only dereference: a reference's referent, a raw pointer's
 pointee, a handle's payload, an owner's `deref` view. `Deref` and `DerefMut`
-define `.*` and nothing else. `x.name` is a member of `x`'s own type, read
-through any number of `&` and `&mut`: a reference has no members of its own,
-so `r.x`, `r.m()` and `r(i)` on `r : &T` reach `T`'s.
+define `.*` and nothing else. Three rules name the implicit steps that stay:
+
+- **Reference transparency.** `.` reaches what the receiver's own type names.
+  `&T` and `&mut T` are transparent for it — they name no members, and no
+  impl can give them any — so a field read, a method call and an index call
+  read through any number of them without `.*`, in every receiver form: a
+  binding, a field, a call result, a temporary. Every user-defined
+  indirection — a `Deref`/`DerefMut` type, a raw pointer, an owner —
+  requires the written `.*` (E0623 below). A whole-value read, borrow or
+  write of a reference still spells `.*` (E0926) for a named binding, and no
+  coercion turns `&&T` into `&T`.
+- **Receiver auto-borrow.** A method receiver follows its slot's declared
+  mode: `x.m(...)` passes `x` to `self` as the impl declares it — a by-value
+  receiver consumes (or copies, `Copy`), a `&Self` slot lends `x` read-only
+  for the call, and a `&mut Self` slot lends it exclusively until the call
+  returns. A receiver that is itself a reference value needs no borrow: the
+  reference is the slot's value. The written form `(&x).m(...)` /
+  `(&mut x).m(...)` means the same call. The declared mode is the contract;
+  `yo context <type> <method>` prints it.
+- **Twin selection by written context.** `x.*` and `x(i)` in a read position
+  dispatch `deref` / `index`; the mut twin is selected exactly when the
+  written syntax sends a write or an exclusive lend through the place — an
+  assignment target, a `&mut` argument or receiver, `addr_of` — and by
+  nothing else. The twins share one `Target` / `Output`, and a type with
+  only the read twin is read-only (E0908).
 
 `Box`, `Rc` and `Arc` are **handles**: `w.*` is the payload their pointer
 names, read natively, and their `deref` is `&self.*.*`. `Rc` and `Arc` have
