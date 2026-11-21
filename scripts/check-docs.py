@@ -6,13 +6,16 @@ Three checks over the user manuals (`docs/en-US`, `docs/zh-CN`) and the READMEs
 
   examples  Every complete-program ```yo block is run through the compiler.
             A block is a complete program when its fence is not `yo ignore`
-            and its text contains `export(` or `test(` (the docs audit's
-            classification), or when its fence declares `expect=E0xxx`.
+            and its code (comments aside) contains `export(`, `test(` or
+            `main ::` (the docs audit's `export(`/`test(` classification, plus
+            the blocks that define `main` but leave out its export), or when
+            its fence declares `expect=E0xxx`.
             Oracle: a block with a top-level `test(` runs through `yo test`
             (`yo check` swallows test-body errors by design: a type error
-            inside `test("..", { ... })` passes it, and `--test-bodies` has
-            known false positives — `assert` is "not found" there; measured
-            2026-11-21 with v0.2.79);
+            inside `test("..", { ... })` passes it, measured 2026-11-21 with
+            v0.2.79; `--test-bodies` stops the swallowing but takes another
+            inference path with known false positives, src/main.yo), and
+            `yo test` also runs the body;
             every other block through `yo check`. A block passes when the
             oracle succeeds, or, for ```yo expect=E0917[,E0901], when it fails
             AND reports every listed code. Fragments (no `export(`/`test(`) are
@@ -64,7 +67,7 @@ EXAMPLE_FILES_EXTRA = ['README.md', 'pack/context.md']
 LINK_FILES_EXTRA = ['README.md', 'CONTRIBUTING.md']
 
 FENCE_OPEN = re.compile(r'^(\s*)(`{3,}|~{3,})(.*)$')
-PROGRAM = re.compile(r'export\(|test\(')
+PROGRAM = re.compile(r'export\(|test\(|\bmain ::')
 TOP_TEST = re.compile(r'^\s*test\(', re.M)
 EXPECT = re.compile(r'^expect=((?:E\d{4})(?:,E\d{4})*)$')
 ERROR_CODE = re.compile(r'error\[(E\d{4})\]')
