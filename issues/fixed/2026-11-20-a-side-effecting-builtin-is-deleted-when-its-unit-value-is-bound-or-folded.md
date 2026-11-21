@@ -96,7 +96,7 @@ No special case names `__yo_incr_rc`.
 
 A user `extern("Yo", __yo_incr_rc : …)` declaration being silently shadowed
 by the builtin is a separate design decision:
-`issues/questions/2026-11-21-a-user-extern-member-named-like-a-compiler-builtin-is-silently-shadowed.md`.
+`issues/fixed/2026-11-21-a-user-extern-member-named-like-a-compiler-builtin-is-silently-shadowed.md`.
 
 The consultation's `clone_no_dup.yo` (`_p := __yo_incr_rc(…)` in a hand-written
 clone) is a heap-use-after-free under `--sanitize address` before the fix and

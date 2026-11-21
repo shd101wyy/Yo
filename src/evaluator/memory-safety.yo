@@ -176,6 +176,22 @@ destroying_builtin_error_message :: (fn(builtin : &String, place : &String) -> S
 
 To end a value early, call 'drop(x)': it moves 'x' in, and a later use is an error. A file that destroys a slot it owns through a raw pointer declares 'pragma(Pragma.AllowUnsafe);' and calls 'unsafe(drop_in_place(p))'.`
 );
+/// The diagnostic the ownership-accounting builtins raise outside an
+/// unsafe-capable file: `__yo_rc_own`, `__yo_capture_field`, `__yo_incr_rc`,
+/// `__yo_incr_rc_atomic`, `__yo_dyn_dup`, `__yo_sometype_dup`,
+/// `__yo_dup_array_element` and `__yo_dup_tuple_element` add an owner (or a
+/// count) the compiler does not record, so the value is freed twice or
+/// leaked: `b := __yo_rc_own(a)` was a heap use-after-free in a safe file.
+/// They share the destroying builtins' gate
+/// (`is_destroying_builtin_call_capable`); the compiler's own uses are
+/// parsed from `auto-generated://` code or written in the prelude, which
+/// declares the pragma. See
+/// issues/fixed/2026-11-21-the-rc-ownership-builtins-are-callable-outside-unsafe.md.
+ownership_builtin_error_message :: (fn(builtin : &String, place : &String) -> String)(
+  `'${builtin}(...)' is not available in safe code: it adds an owner or a reference count to '${place}' that the compiler does not record, so the value is freed twice, used after it is freed, or leaked.
+
+To share a value, call 'Rc.clone(h)' or 'x.clone()'. These builtins are the compiler's own lowering of copies and drops; a file that genuinely needs one declares 'pragma(Pragma.AllowUnsafe);'.`
+);
 /// Is this module path a compiler-synthesized expansion (macro, derive,
 /// prelude desugaring)? Such URIs are tagged `auto-generated://...`.
 is_auto_generated_expansion :: (fn(module_path : &Option(String)) -> bool)(
@@ -255,6 +271,28 @@ is_std_module_path :: (fn(mp : &String, std_path : &String) -> bool)({
     }
   )
 });
+/// Does `name` start with `__yo_`, the compiler's namespace (VERDICTS-72)?
+/// A name there is a builtin the evaluator or codegen dispatches by spelling,
+/// or a runtime symbol whose signature the compiler owns.
+is_yo_namespace_name :: (fn(name : &String) -> bool)(
+  name.starts_with(String.from("__yo_"))
+);
+/// May source at `module_path` bind a `__yo_` name (E0407)? Only the std tree
+/// (`is_std_module_path`, which absolutizes the as-typed entry spelling and the
+/// `file://<abs>` demand-loaded one alike) and compiler-synthesized
+/// `auto-generated://` code. `pragma(Pragma.AllowUnsafe)` does not unlock it,
+/// and `src/`, `tests/` and fetched dependencies are user code.
+may_bind_yo_namespace_name :: (fn(module_path : &String, std_path : &String) -> bool)(
+  module_path.starts_with(String.from("auto-generated://")) || is_std_module_path(module_path, std_path)
+);
+/// The E0407 message for a binder named `name` in the `__yo_` namespace.
+reserved_yo_name_message :: (fn(name : &String) -> String)(
+  `"${name}" starts with \`__yo_\`, the compiler's namespace: a name there is a compiler builtin or a runtime symbol the compiler owns, so this declaration could never be what a call reaches.`
+);
+/// The E0407 help line.
+reserved_yo_name_help :: (fn() -> String)(
+  String.from("delete it and call the std API for the facility, or give your own symbol its own name.")
+);
 /// Decision 47 step 2 (locals), Generation A (plans/VALUES_BY_DEFAULT.md):
 /// the mutability rule for a binding below module level (a write to an
 /// unmarked local, pattern or compile-time binding, E0917) is enforced
@@ -475,9 +513,14 @@ export(
   union_member_read_error_message,
   is_destroying_builtin_call_capable,
   destroying_builtin_error_message,
+  ownership_builtin_error_message,
   is_class1_panic_method_name,
   is_class1_panic_receiver_type,
   is_class1_panic_exempt_file,
   is_std_module_path,
+  is_yo_namespace_name,
+  may_bind_yo_namespace_name,
+  reserved_yo_name_message,
+  reserved_yo_name_help,
   _lex_abs_path
 );

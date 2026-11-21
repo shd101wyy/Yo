@@ -1,0 +1,10 @@
+pragma(Pragma.AllowUnsafe);
+extern("Yo", __yo_incr_rc : (fn(cell : *void) -> *void));
+f :: (fn(c : *void) -> *void)({
+  p := unsafe(__yo_incr_rc(c));
+  p
+});
+main :: (fn() -> unit)({
+  consume(f);
+});
+export(main);

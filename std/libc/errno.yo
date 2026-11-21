@@ -180,10 +180,22 @@ c_include(
   // Operation would block
   EXDEV : int // Cross-device link
 );
+extern(
+  "Yo",
+  // errno as a CALL: the C macro is an int LVALUE, not a pointer.
+  __yo_errno : (fn() -> i32)
+);
+/// The calling thread's `errno`, read as a value. Meaningful only right after
+/// a call that reported failure; `std/sys/errors`' `IoError.from_errno` turns
+/// it into an error.
+last_errno :: (fn() -> i32)(
+  __yo_errno()
+);
 // Export all errno functionality
 export(
   // The errno variable
   errno,
+  last_errno,
   // Standard C11 errors
   EDOM,
   EILSEQ,

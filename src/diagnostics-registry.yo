@@ -32,6 +32,7 @@ json :: import("std/encoding/json");
   E_FIELD_NOT_FOUND,
   E_NOT_DEFINED,
   E_PRIVATE_MEMBER,
+  E_RESERVED_NAME,
   E_INCOMPATIBLE_TYPES,
   E_TRAIT_NOT_IMPLEMENTED,
   E_ARGUMENT_COUNT_MISMATCH,
@@ -365,6 +366,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "{ ArrayList } :: import(\"std/collections/array-list\");\nmain :: (fn() -> unit)({\n  mut(xs) := ArrayList(i32).new();\n  xs.push(i32(1));\n});\nexport(main);\n",
       "`_free_elements` is underscore-private to `array-list.yo`; only that module (and its sibling tests) may call it.",
       "`_free_elements` 是 `array-list.yo` 的下划线私有成员；只有该模块（及其同级测试）可以调用。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_RESERVED_NAME,
+      "reserved name",
+      "保留名称",
+      "A binding, parameter or FFI member is named by a word the compiler reserves: a builtin it dispatches by spelling, or a name in its `__yo_` namespace.",
+      "绑定、参数或 FFI 成员使用了编译器保留的名字：按拼写分派的内建，或其 `__yo_` 命名空间中的名字。",
+      "The evaluator dispatches some calls by the callee's spelling before it looks at any binding: `consume`, `clone`, `the`, `dyn`, `begin` and the other builtins, and every `__yo_` name it knows. A user binding of such a name could never run. Names that start with `__yo_` are the compiler's namespace as a whole: a builtin, or a runtime symbol whose signature the compiler owns and may change in any release. Only the standard library may declare one, as an `extern(...)` or `c_include(...)` member of either ABI; `pragma(Pragma.AllowUnsafe)` does not change that, and neither does living in `src/` or `tests/`. Calling a builtin by name without declaring it is not this error. Delete the declaration and call the std API for the facility, or give your own symbol its own name. `mut` (it follows `&` in a borrow) and `Origin` (the kind of an origin) are reserved the same way.",
+      "求值器在查看任何绑定之前，会按被调用者的拼写分派某些调用：`consume`、`clone`、`the`、`dyn`、`begin` 等内建，以及它认识的每个 `__yo_` 名字。用这种名字定义的用户绑定永远不会被执行。以 `__yo_` 开头的名字整体属于编译器的命名空间：要么是内建，要么是签名由编译器掌握、在任何版本中都可能改变的运行时符号。只有标准库可以把它声明为任一 ABI 的 `extern(...)` 或 `c_include(...)` 成员；`pragma(Pragma.AllowUnsafe)` 不改变这一点，位于 `src/` 或 `tests/` 中也不改变。不声明而直接按名字调用内建不属于此错误。请删除该声明并调用 std 中对应功能的 API，或给你自己的符号起一个自己的名字。`mut`（它跟在借用的 `&` 之后）和 `Origin`（origin 的种类）也以同样方式保留。",
+      "pragma(Pragma.AllowUnsafe);\nextern(\"Yo\", __yo_incr_rc : (fn(cell : *void) -> *void));\nmain :: (fn() -> unit)(());\nexport(main);\n",
+      "pragma(Pragma.AllowUnsafe);\nextern(\"Yo\", mylib_retain : (fn(cell : *void) -> *void));\nmain :: (fn() -> unit)(());\nexport(main);\n",
+      "`__yo_incr_rc` is the compiler's reference-count builtin: a call reaches the builtin, never this declaration. A symbol of your own library takes its own name.",
+      "`__yo_incr_rc` 是编译器的引用计数内建：调用到达的是内建，而不是这条声明。你自己库中的符号应使用自己的名字。"
     )
   );
   out.push(
