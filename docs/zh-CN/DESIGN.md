@@ -1306,7 +1306,7 @@ export(main);
 
 #### std 的资源是只能移动的
 
-`std/` 中的资源是只能移动的值：`File`、`TempDir`、`TempFile`、`Watcher`、`TcpStream`、`TcpListener`、`UdpSocket`、`UnixStream`、`UnixListener`、`TlsStream`、`HttpClient`、`Child` 及其管道句柄（`ChildStdin`、`ChildStdout`、`ChildStderr`）、`Thread`，以及拥有其中之一的 `BufReader`/`BufWriter`（[值语义计划](../../plans/VALUES_BY_DEFAULT.md) V3）。每个都是状态存放在 `Box` 里的结构体，因此句柄可以移动，而 future 或运行时仍持有状态的地址。丢弃句柄即释放资源：描述符被关闭、临时文件被删除、监视被停止、线程被分离。原子原语（`Mutex`、`RwLock`、`Channel`、`Atomic*` 类型以及 `std/sync` 的其余部分）是共享的句柄类型。
+`std/` 中的资源是只能移动的值：`File`、`TempDir`、`TempFile`、`Watcher`、`TcpStream`、`TcpListener`、`UdpSocket`、`UnixStream`、`UnixListener`、`TlsStream`、`HttpClient`、`Child` 及其管道句柄（`ChildStdin`、`ChildStdout`、`ChildStderr`）、`Thread`，以及拥有其中之一的 `BufReader`/`BufWriter`。每个都是状态存放在 `Box` 里的结构体，因此句柄可以移动，而 future 或运行时仍持有状态的地址。丢弃句柄即释放资源：描述符被关闭、临时文件被删除、监视被停止、线程被分离。原子原语（`Mutex`、`RwLock`、`Channel`、`Atomic*` 类型以及 `std/sync` 的其余部分）是共享的句柄类型。
 
 - **复制是 E0901。** `g := f` 移动文件，之后再使用 `f` 是 E0901（使用已移动的值）。把一个句柄存两次、或在两个闭包中捕获它，同样是 E0901。在这次改动之前，`File` 是引用句柄，副本共享它的描述符和位置。
 - **借出它。** 每个方法都取 `self : &Self`，所以 `f.read_to_string(io)` 借用 `f`。只使用资源的函数取 `&File`。
