@@ -1305,23 +1305,20 @@ _dyn_payload_is_plain_value :: (fn(t : &TypeValue) -> bool)(
 /// `dyn(v)` of a plain value is E0620 (decision 49 S3b): `dyn` unsizes the
 /// pointer that owns or lends the object, so the owner is spelled,
 /// `dyn(Box.new(v))` (or `dyn(Rc.new(v))`), and a lent place is `dyn(&v)`.
-/// Until v0.2.79 a plain `dyn(v)` was the legacy alias of `dyn(Box.new(v))`;
-/// `yo fix --migrate unsized` on v0.2.78 rewrites it. A named argument
-/// carries the repair `Box.new(v)`.
+/// A named argument carries the repair `Box.new(v)`.
 _reject_dyn_of_plain_value :: (fn(value_ty : &TypeValue, written : &AstExpr, tok : &Token, exn : Exception) -> unit)({
   if(!_dyn_payload_is_plain_value(value_ty) || _written_cell_new(written), {
     return(());
   });
   ty_text := type_to_string(value_ty);
-  migration := String.from("code written for v0.2.78 is migrated with `yo version install 0.2.78 && yo fix <path> --migrate unsized`");
   (msg, help) := cond(
     (is_pointer_type(value_ty) || match(can_optimize_as_nullable_pointer(value_ty), .Some(p) => is_pointer_type(&p), .None => false)) => (
       `\`dyn(p)\` over a raw pointer (\`${ty_text}\`) is not available: a raw pointer is not unsized to a \`*Dyn(...)\`.`,
-      `own the pointer in a box, \`dyn(Box.new(p))\`; ${migration}`
+      String.from("own the pointer in a box, `dyn(Box.new(p))`")
     ),
     true => (
       `\`dyn(v)\` erases a pointer, and its argument is a \`${ty_text}\` value: the value is moved behind the pointer that owns it, and that pointer is spelled.`,
-      `own it, \`dyn(Box.new(v))\`; share it, \`dyn(Rc.new(v))\`; or lend a place, \`dyn(&v)\`; ${migration}`
+      String.from("own it, `dyn(Box.new(v))`; share it, `dyn(Rc.new(v))`; or lend a place, `dyn(&v)`")
     )
   );
   exn.throw(

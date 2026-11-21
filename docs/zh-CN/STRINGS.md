@@ -11,9 +11,7 @@ Go 的模型相同。这条规则贯穿日常代码里会遇到的所有字符�
 | `StringBuilder`（`std/string`） | 字节数 | — | — |
 | `comptime_str`（编译期） | 字节数 | `slice(a, b)` / `s(a..b)` —— 字节 | `s(i)` → 单 rune 的 `comptime_str` |
 
-`str` 和 `StringBuilder` 一直是字节基准；`String` 在 D4 迁移中与它们对齐
-（2026-08-26，`plans/archive/STD_API_AUDIT_D4_PLAN.md`），编译期字符串操作也在同一
-役中完成对齐。字符串索引只有一个故事。
+它们都以字节为基准，编译期字符串也是如此。字符串索引只有一个故事。
 
 ## 唯一的规则
 
@@ -78,7 +76,7 @@ rune 边界。
 
 - `index_of("", i)` **原样返回 `.Some(i)`，不做任何校验** —— 包括落在 rune
   内部的 `i` 和超过 `len()` 的 `i`。（JavaScript 的 `indexOf("")` 会钳制到
-  长度；这里不钳制，D4 之前的版本同样不钳制。）
+  长度；这里不钳制。）
 - `last_index_of("", i)` 无视 `i`，一律返回 `len()`（Rust `rfind("")` 的
   形状），因此这是结果可能超过调用者所给上限的唯一情形。
 
@@ -115,10 +113,6 @@ first := s.chars().next(); // Option(rune)
 `chars()` 与 `char_indices()` 建立在 `std/encoding/utf8` 之上，继承其对畸形
 输入的行为：在第一个无法解码的序列处停止。
 
-（被取代的一次性方法 —— `bytes_len()`、`char_len()`、`char_substring()`
-和 `truncate_chars()` —— 已于 2026-08-26 移除；`len()` 加上面的惯用法就是
-全部词汇。）
-
 ## 元素访问：`s(i)` 与 `byte_at(i)`
 
 `byte_at(i)` 返回偏移 `i` 处的**字节**（`u8`）—— 对 UTF-8 缓冲区的字节级访问，
@@ -139,7 +133,7 @@ s(usize(1) .. usize(3)); // "é" —— 一个新的 String
 
 ## `str` 与 `&str`
 
-自 v0.2.79 起（决定 49），`str` 是**非定长**（unsized）的 UTF-8 字节序列，与 `[u8]`
+`str` 是**非定长**（unsized）的 UTF-8 字节序列，与 `[u8]`
 一样只能放在指针之后：`&str` 是胖引用（字节的地址与长度，两个字，按值复制）。字符串字面量的类型是
 `&(str, static)`，即指向静态字节的引用，因此它能填入任何 `&str` 位置。
 
@@ -157,10 +151,8 @@ export(main);
 绑定或字段、`impl(str, ...)` 方法的接收者都可以直接传入。闭包按值捕获 `&str` 绑定（`{ s }`）时捕获的是该引用。
 
 **值写法。** 在持有值的位置（按值参数、返回值、带类型的局部变量、结构体字段、数组元素、类型实参如
-`ArrayList(str)`）写出的 `str` 暂时表示 `&(str, static)`，与以前的含义相同：静态字节的视图。
-`yo fix --migrate unsized` 会改写成这种写法（`(name : &(str, static))`、`ArrayList(&(str, static))`），
-并列出需要手工改写的 `sink(s) : str` 参数。值写法将在 v0.2.80 移除。`&str` 与 `String` 或 `str`
-的比较（`name == "lit"`、`"lit" == name`）通过同一条旧规则继续可用。
+`ArrayList(str)`）写出的 `str` 表示 `&(str, static)`：静态字节的视图。
+`&str` 与 `String` 或 `str` 的比较（`name == "lit"`、`"lit" == name`）两个方向都可用。
 
 ## 副本、克隆与字节列表
 
@@ -207,7 +199,7 @@ std 中暴露值内部所存字符串的 getter 返回它的借用（投影，`-
 
 ## 编译期字符串共享同一基准
 
-自 D4 PR 7 起，`comptime_str` 的操作同样以字节为基准：
+`comptime_str` 的操作同样以字节为基准：
 
 ```yo
 s :: "aé中𝄞";
@@ -221,11 +213,11 @@ comptime_assert(s(3 .. 6) == "中"); // 字节区间
 
 - **rune 中间的偏移是编译错误**，不是 panic —— 对上面的字符串，编译器会拒绝
   `s(2)`（"not on a UTF-8 character boundary"）而不是中止进程。越界索引同样
-  是编译错误；`slice` 对越界仍然钳制，一如既往。
+  是编译错误；`slice` 对越界钳制。
 - **`s(i)` 产出的是单 rune 的 `comptime_str`，不是字节。** 编译期字符串是
   文本，不是字节缓冲区，所以编译期 `s(i)` 对应运行期的 `at(i)`（从字节 `i`
   开始的 rune），而不是运行期的 `byte_at(i)`（`u8`）；运行期的 `String` 根本没有
-  `s(i)`。这个结果类型上的差异早于字节迁移，是有意保留的。
+  `s(i)`。这个结果类型上的差异是有意的。
 
 ## 实用规则
 

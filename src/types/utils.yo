@@ -1481,10 +1481,7 @@ no_origin_position_error :: (fn(ty : &TypeValue, position : &String, why : &Stri
 /// E0619 (decision 49): the unsized `ty` is used at `position` (a phrase
 /// such as "a local", "the argument of `Option`'s `T : Type`"), which needs a
 /// size. `binder` names the `generic(T : Type)` binder to relax when the
-/// position is one, so the help can name `?Sized`. A by-value `Dyn(...)` is
-/// how v0.2.77 and earlier spelled the owning box: the help names the
-/// migration that rewrites it and the release that ships it (as E0009 names
-/// v0.2.76's `--migrate borrow-spelling`).
+/// position is one, so the help can name `?Sized`.
 unsized_by_value_error :: (fn(ty : &TypeValue, position : &String, binder : &Option(String), tok : &Token) -> YoError)({
   (help : String) = match(
     binder,
@@ -1492,7 +1489,7 @@ unsized_by_value_error :: (fn(ty : &TypeValue, position : &String, binder : &Opt
     .None => String.from("take the value behind a reference (`&T`), or use a sized type such as `Array(T, N)`")
   );
   if(is_dyn_type(ty), {
-    help = `${help}; code written for v0.2.77 or earlier, where a bare \`Dyn(...)\` was the owning box, is upgraded in two steps: on v0.2.77, \`yo version install 0.2.77 && yo fix <path> --migrate unsized\` writes it \`Box(Dyn(...))\`; then on v0.2.78, \`yo fix <path> --migrate unsized\` writes the lends (\`&b\` to \`&b.*\`)`;
+    help = `${help}; a trait object is held through the pointer that owns or lends it: \`Box(Dyn(...))\`, \`Rc(Dyn(...))\` or \`&Dyn(...)\``;
   });
   with_code(
     format_error_message_with_help(

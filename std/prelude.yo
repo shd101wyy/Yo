@@ -989,6 +989,18 @@ Hash :: trait(
   hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)
 );
 export(Hash);
+/// `Hash` over a shared reference: a reference hashes as its referent, so
+/// `HashMap(&K, V)` and generic code at `T := &U` agree with `Eq(&T)`. The
+/// body is the type-qualified call, never `self.*.hash(…)`, whose probe
+/// would select this impl again (VERDICTS-49).
+impl(
+  generic(T : Type),
+  where(T <: Hash),
+  &T,
+  Hash(
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(T.hash(self.*, hasher))
+  )
+);
 /// Clone trait — deep-copy a value.
 Clone :: trait(
   /// Create an independent clone of `self`.
