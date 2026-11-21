@@ -523,6 +523,68 @@ jobs:
           path: yo-out/site
           retention-days: 7
 
+  # The docs gates (scripts/check-docs.py; the docs plan's step 1, K5 of
+  # plans/backlog/AGENT_KNOWLEDGE_CONSOLIDATION.md): every complete-program
+  # ```yo block in docs/ and the README goes through `yo check` (or `yo test`
+  # for a block with a top-level `test(`), every relative link and `#anchor`
+  # resolves, nothing in docs/en-US links outside it (only docs/en-US ships in
+  # a release bundle), and docs/en-US and docs/zh-CN agree on pages, ```yo
+  # block counts and H2 counts. A PR checks the examples of the Markdown files
+  # it changed (~10-20 s per block); a develop push checks all of them. Links
+  # and parity take seconds and always cover the whole tree.
+  #
+  # REPORT-ONLY for now: the script runs with --report-only (exit 0 whatever
+  # it finds; the findings are in the log and the run summary), and this job
+  # is deliberately NOT on merge-gate's needs list — the one exception to
+  # "every job is on merge-gate". Its findings are the work list of the docs
+  # rewrite, and a gate that is red on day one blocks every PR. The docs plan's
+  # last step makes it blocking: drop --report-only and add `docs-checks` to
+  # merge-gate's needs.
+  #
+  # The checker is the tree's stage 1 when one was built (the docs describe
+  # the tree's language), else the seed: a docs-only PR skips `stage1`, and
+  # then nothing under src/ differs from develop.
+  docs-checks:
+    name: Docs checks (examples, links, en/zh parity; report-only)
+    needs: [changes, stage1]
+    if: ${{ !cancelled() && (needs.stage1.result == 'success' || needs.stage1.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # HEAD^1 of a pull_request checkout (the merge commit) is the base
+          # tip, which is what --changed diffs against.
+          fetch-depth: 2
+
+      - name: Install the seed compiler
+        uses: ./.github/actions/install-seed
+        with:
+          version: ${{ env.SEED_VERSION }}
+
+      - name: Download stage 1 (the tree's compiler)
+        if: needs.stage1.result == 'success'
+        uses: actions/download-artifact@v8
+        with:
+          name: yo-stage1
+
+      - name: Run the docs checks (report-only)
+        run: |
+          set -euo pipefail
+          if [ -f yo-stage1 ]; then
+            chmod +x yo-stage1
+            YO_BIN="$PWD/yo-stage1"
+          else
+            YO_BIN="$(command -v yo)"
+          fi
+          SCOPE=()
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            SCOPE=(--changed HEAD^1)
+          fi
+          python3 scripts/check-docs.py --report-only --yo "$YO_BIN" --jobs 4 "${SCOPE[@]}" | tee docs-checks.txt
+          { echo '### Docs checks (report-only)'; echo; echo '```text'; cat docs-checks.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
   # Formal verification (V2 of plans/backlog/FORMAL_VERIFICATION.md): the
   # verifier harness against the REAL pinned Z3 — the hermetic layers of
   # tests/internal/verifier.test.yo run in the ordinary `test` job; this job

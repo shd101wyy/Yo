@@ -289,6 +289,11 @@ K5 upgrades that parse check to a **type-check**.
   form fails.
 - **The opt-out risk (§6) stands:** K5 reports the `ignore` count, and a
   rising count gets questioned in review.
+- **Status (2026-11-21):** landed REPORT-ONLY as `scripts/check-docs.py`
+  (CI job `docs-checks`), together with a link check and an en/zh parity
+  check. It type-checks the complete-program blocks (`export(`/`test(`, or a
+  ` ```yo expect=E0xxx ` fence) rather than every block. Usage and the fence
+  conventions: `.github/instructions/documentation.instructions.md`.
 
 ### K6 — Rules that point at the old layout
 

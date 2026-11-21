@@ -143,6 +143,33 @@ def changed_files(base: str):
     sys.exit(f'check-docs: cannot diff against {base!r}: {r.stderr.strip()}')
 
 
+def strip_comments(src: str) -> str:
+    """The block without `//` comments and blank lines: the en/zh copies of a
+    block differ only in their comments, so they share one compiler run."""
+    out = []
+    for line in src.splitlines():
+        in_str, i, cut = False, 0, len(line)
+        while i < len(line):
+            c = line[i]
+            if in_str and c == '\\':
+                i += 2
+                continue
+            if c == '"':
+                in_str = not in_str
+            elif not in_str and line.startswith('//', i):
+                cut = i
+                break
+            i += 1
+        s = line[:cut].rstrip()
+        if s:
+            out.append(s)
+    return '\n'.join(out)
+
+
+def block_key(src: str, is_test: bool) -> str:
+    return hashlib.sha256(((is_test and 'T' or 'C') + strip_comments(src)).encode()).hexdigest()
+
+
 def run_block(yo: str, std: str, src: str, is_test: bool, timeout: int):
     """Run one block through its oracle in a fresh directory: (rc, output, secs)."""
     with tempfile.TemporaryDirectory(prefix='yo-doc-block-') as td:
@@ -185,14 +212,14 @@ def check_examples(args, report):
             total += 1
             if ignore:
                 ignored += 1
-            elif expect or PROGRAM.search(b['src']):
+            elif expect or PROGRAM.search(strip_comments(b['src'])):
                 programs.append((f, b['line'], b['src'], bool(TOP_TEST.search(b['src'])), expect))
             else:
                 fragments += 1
 
     unique = {}
     for p in programs:
-        key = hashlib.sha256(((p[3] and 'T' or 'C') + p[2]).encode()).hexdigest()
+        key = block_key(p[2], p[3])
         unique.setdefault(key, (p[2], p[3]))
     std = str(ROOT / 'std')
     results = {}
@@ -208,7 +235,7 @@ def check_examples(args, report):
 
     fails = []
     for f, line, src, is_test, expect in programs:
-        key = hashlib.sha256(((is_test and 'T' or 'C') + src).encode()).hexdigest()
+        key = block_key(src, is_test)
         rc, out, _ = results[key]
         codes = sorted(set(ERROR_CODE.findall(out)))
         oracle = 'yo test' if is_test else 'yo check'
