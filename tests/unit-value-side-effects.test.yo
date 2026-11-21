@@ -1,0 +1,146 @@
+//! A unit-typed expression that runs something keeps running it when its
+//! `()` is bound, stored or folded. The RC builtins and `consume` recorded a
+//! known `()`, which codegen reads as "no runtime effect": a block or tuple
+//! holding one was folded to its value, and a unit binding or assignment
+//! discarded the call's rendered text
+//! (issues/fixed/2026-11-20-a-side-effecting-builtin-is-deleted-when-its-unit-value-is-bound-or-folded.md).
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+extern(
+  "C",
+  memset :
+    (fn(dst : *void, c : i32, n : usize) -> *void)
+);
+
+bump :: (fn(p : *i32) -> i32)({
+  unsafe(consume(p.* = (p.* + i32(1))));
+  p.*
+});
+
+test("A bound __yo_incr_rc still increments", {
+  a := Rc.new(i32(5));
+  cell := unsafe(unsafe.cast(&a, *void));
+  _p := __yo_incr_rc(cell);
+  assert(ref_count(a) == usize(2), "the binding's increment ran");
+  __yo_decr_rc(cell);
+  assert(ref_count(a) == usize(1), "balanced");
+});
+
+test("A __yo_incr_rc assigned to a unit local still increments", {
+  a := Rc.new(i32(5));
+  cell := unsafe(unsafe.cast(&a, *void));
+  mut(m) := ();
+  m = __yo_incr_rc(cell);
+  assert(ref_count(a) == usize(2), "the assignment's increment ran");
+  __yo_decr_rc(cell);
+});
+
+test("A __yo_incr_rc tuple element still increments", {
+  a := Rc.new(i32(5));
+  cell := unsafe(unsafe.cast(&a, *void));
+  t := (__yo_incr_rc(cell), i32(2));
+  assert(ref_count(a) == usize(2), "the element's increment ran");
+  assert(t.1 == i32(2), "the other element");
+  __yo_decr_rc(cell);
+});
+
+test("A __yo_incr_rc statement in a valued block still increments", {
+  a := Rc.new(i32(5));
+  cell := unsafe(unsafe.cast(&a, *void));
+  x := {
+    __yo_incr_rc(cell);
+    i32(5)
+  };
+  assert(x == i32(5), "the block's value");
+  assert(ref_count(a) == usize(2), "the block's increment ran");
+  __yo_decr_rc(cell);
+});
+
+test("A consumed pointer write in a valued block still stores", {
+  mut(n) := i32(0);
+  p := addr_of(n);
+  x := {
+    unsafe(consume(p.* = i32(7)));
+    i32(5)
+  };
+  assert(x == i32(5), "the block's value");
+  assert(n == i32(7), "the store ran");
+});
+
+test("A consumed call in a valued block still runs", {
+  mut(n) := i32(0);
+  x := {
+    consume(bump(addr_of(n)));
+    i32(5)
+  };
+  assert(x == i32(5), "the block's value");
+  assert(n == i32(1), "the call ran");
+});
+
+test("A bound consume of an extern call still runs the call", {
+  mut(n) := i32(5);
+  _a := consume(unsafe(memset((*void)(addr_of(n)), i32(0), size_of(i32))));
+  assert(n == i32(0), "the extern call ran");
+});
+
+test("A bound consume of a call still runs the call", {
+  mut(n) := i32(0);
+  _a := consume(bump(addr_of(n)));
+  assert(n == i32(1), "the call ran");
+});
+
+test("A consume releasing a handle in a valued block still releases it", {
+  a := Rc.new(i32(5));
+  b := Rc.clone(&a);
+  assert(ref_count(a) == usize(2), "two handles");
+  x := {
+    consume(b);
+    i32(6)
+  };
+  assert(x == i32(6), "the block's value");
+  assert(ref_count(a) == usize(1), "the consume released its handle");
+});
+
+test("An initializing assignment in a tuple element still stores", {
+  mut(n) := i32(0);
+  a : i32;
+  t := (a = bump(addr_of(n)), i32(2));
+  assert(n == i32(1), "the right side ran");
+  assert(a == i32(1), "the store ran");
+  assert(t.1 == i32(2), "the other element");
+});
+
+test("An initializing assignment bound, in a valued block or consumed still stores", {
+  mut(n) := i32(0);
+  b : i32;
+  _u := (b = bump(addr_of(n)));
+  assert(b == i32(1), "the bound store ran");
+  c : i32;
+  x := {
+    c = bump(addr_of(n));
+    i32(5)
+  };
+  assert(x == i32(5), "the block's value");
+  assert(c == i32(2), "the block's store ran");
+  e : i32;
+  _v := consume(e = bump(addr_of(n)));
+  assert(e == i32(3), "the consumed store ran");
+});
+
+// `consume(e)` accepts any `e`: a unit expected type on the consume (an
+// argument to a `unit` parameter, the tail of a `-> unit` body) is not `e`'s
+// (issues/fixed/2026-11-20-consume-passes-its-expected-unit-type-to-its-argument.md).
+take_unit :: (fn(u : unit) -> i32)(i32(1));
+clear_tail :: (fn(p : *i32) -> unit)({
+  consume(unsafe(memset((*void)(p), i32(0), size_of(i32))))
+});
+
+test("consume under a unit expected type accepts a non-unit argument", {
+  mut(n) := i32(5);
+  r := take_unit(consume(unsafe(memset((*void)(addr_of(n)), i32(0), size_of(i32)))));
+  assert(r == i32(1), "the callee's result");
+  assert(n == i32(0), "the argument's call ran");
+  n = i32(5);
+  clear_tail(addr_of(n));
+  assert(n == i32(0), "the tail's call ran");
+});

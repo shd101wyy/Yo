@@ -287,7 +287,20 @@ extern(
   __yo_iovec_size : (fn() -> usize),
   __yo_iovec_set : (fn(iov : *u8, index : usize, base : *u8, len : usize) -> unit),
   __yo_sync_fadvise : (fn(fd : i32, offset : i64, len : i64, advice : i32) -> i32),
-  __yo_sync_madvise : (fn(addr : *u8, length : usize, advice : i32) -> i32)
+  __yo_sync_madvise : (fn(addr : *u8, length : usize, advice : i32) -> i32),
+  // ========================================================================
+  // Event loop backend
+  // ========================================================================
+  /// This thread's I/O backend teardown (the call the async runtime's
+  /// thread-exit hook makes); idempotent, and the next submission creates
+  /// the backend again. `std/sys/process`'s `reset_io_backend` wraps it.
+  __yo_io_cleanup : (fn() -> unit),
+  /// The Linux backend's syscall counters, for the deterministic I/O budgets
+  /// (`scripts/bench/io-budget.yo`, plans/reference/DROP_LIBURING.md Phase 6).
+  __yo_io_stats_kernel_enters : (fn() -> u64),
+  __yo_io_stats_zero_timeout_enters : (fn() -> u64),
+  __yo_io_stats_io_syscalls : (fn() -> u64),
+  __yo_io_stats_recv_would_block : (fn() -> u64)
 );
 export(
   // File operations
@@ -490,5 +503,10 @@ export(
   __yo_iovec_size,
   __yo_iovec_set,
   __yo_sync_fadvise,
-  __yo_sync_madvise
+  __yo_sync_madvise,
+  __yo_io_cleanup,
+  __yo_io_stats_kernel_enters,
+  __yo_io_stats_zero_timeout_enters,
+  __yo_io_stats_io_syscalls,
+  __yo_io_stats_recv_would_block
 );

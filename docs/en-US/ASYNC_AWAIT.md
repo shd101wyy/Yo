@@ -418,7 +418,7 @@ that borrows:
   (`bump_by(&mut c, take(c), io)` and `bump_by(&mut c, c.touch(), io)` with a
   `&mut self` method are E0910). Compute such an argument before the
   statement. A plain call rejects the same three, with the borrow ending at
-  the call ([FLOWABILITY.md](./FLOWABILITY.md#one-call-site-rule)).
+  the call ([OWNERSHIP_AND_BORROWING.md](./OWNERSHIP_AND_BORROWING.md#two-phase-borrows-and-argument-overlap)).
 
 A call through a function value (a local or parameter of function type)
 cannot show what its Future borrows, so its Future is assumed to borrow every
@@ -1055,7 +1055,7 @@ int main(int argc, char** argv) {
 
 **I/O initialization is lazy**: `__yo_io_init()` is called on the first actual I/O operation (file open, socket connect, etc.), not at program start. This means programs using only `yield()` and pure computation pay zero I/O setup cost.
 
-Similarly, the **parallelism runtime** (thread pool, worker spawn, hardware detection) is only emitted when the program uses `Thread(T).spawn` or `std/thread`'s `spawn(pool, cb)`. Non-parallel programs save ~450 lines of generated C code.
+Similarly, the **parallelism runtime** (thread pool, worker spawn, hardware detection) is only emitted when the program uses `Thread(T).spawn` or `std/thread`'s `spawn(&pool, cb)`. Non-parallel programs save ~450 lines of generated C code.
 
 **Synchronous system helpers** (stat/dirent accessors, sendfile/copyfile, sync file operations, mmap/madvise, fcntl, flock, socket address helpers, signal handlers, TTY) are always emitted via `generate_sys_runtime()` which includes both cross-platform helpers and platform-specific sync helpers (`generate_platform_sys_runtime_{macos,linux,windows,wasm}`). These have **no IoFuture dependency**. All functions are `static`, so unused ones are stripped by the C compiler's dead-code elimination. This ensures non-async programs that use signals, stat, mmap, TTY, etc. compile without pulling in the full async runtime.
 

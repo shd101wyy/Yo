@@ -360,7 +360,7 @@ export(main);
 - 它可以用 `:=` 绑定。与局部借用一样，绑定从声明处到 Future 的最后一次使用冻结 Future 借用的每个位置，每个位置按其被借出时的方式冻结：`f := bump(&mut c, io);` 之后、`io.await(f, io)` 之前写 `c` 是 E0911，先 await 则没有问题（决策 43，`Future(T, E, p)`）。函数也可以返回另一个调用在其自身参数上创建的 Future（`f(c : &mut C, io)` 返回 `bump(&mut c.*, io)`）；
 - 它不能通过 `match` 分支的模式绑定、用 `=` 重新赋值、用 `_ := ...` 丢弃、存储、被逃逸的闭包捕获或被 spawn（E0909），借用了函数局部变量的 Future 不能被返回（E0912）；
 - 它所在 `io.await` 的效应包必须是一个位置（`io`、`self.io`），而不是会运行代码的表达式：效应包在 Future 创建之后求值，否则可能移动或覆盖 Future 借用的位置（E0910）；
-- 调用的接收者和各个参数一经求值，它们借出的位置就由 Future 持有，因此同一调用中靠后的参数不能移动被借出的位置、给它赋值或再次以 `&mut` 借出它（`bump_by(&mut c, take(c), io)`，以及 `touch` 为 `&mut self` 方法时的 `bump_by(&mut c, c.touch(), io)`，都是 E0910）。请在语句之前算好这样的参数。普通调用同样拒绝这三种写法，只是它的借用随调用结束（[FLOWABILITY.md](./FLOWABILITY.md#一条调用点规则)）。
+- 调用的接收者和各个参数一经求值，它们借出的位置就由 Future 持有，因此同一调用中靠后的参数不能移动被借出的位置、给它赋值或再次以 `&mut` 借出它（`bump_by(&mut c, take(c), io)`，以及 `touch` 为 `&mut self` 方法时的 `bump_by(&mut c, c.touch(), io)`，都是 E0910）。请在语句之前算好这样的参数。普通调用同样拒绝这三种写法，只是它的借用随调用结束（[OWNERSHIP_AND_BORROWING.md](./OWNERSHIP_AND_BORROWING.md#两阶段借用与参数重叠)）。
 
 通过函数值（函数类型的局部变量或参数）进行的调用无法显示其 Future 借用了什么，因此假定它的 Future 借用了该调用用 `&`/`&mut` 借出的每个位置：`fp := bump; f := fp(&mut c, io);` 与直接调用一样，在 `f` 最后一次使用之前冻结 `c`。
 
@@ -931,7 +931,7 @@ int main(int argc, char** argv) {
 
 **I/O 初始化是惰性的**：`__yo_io_init()` 在首次实际 I/O 操作（文件打开、socket 连接等）时才被调用，而非程序启动时。这意味着仅使用 `yield()` 和纯计算的程序不会产生任何 I/O 初始化开销。
 
-类似地，**并行运行时**（线程池、Worker 创建、硬件检测）仅在程序使用 `Thread(T).spawn` 或 `std/thread` 的 `spawn(pool, cb)` 时才生成。非并行程序可节省约 450 行生成的 C 代码。
+类似地，**并行运行时**（线程池、Worker 创建、硬件检测）仅在程序使用 `Thread(T).spawn` 或 `std/thread` 的 `spawn(&pool, cb)` 时才生成。非并行程序可节省约 450 行生成的 C 代码。
 
 **同步系统辅助函数**（stat/dirent 访问器、sendfile/copyfile、同步文件操作、mmap/madvise、fcntl、flock、socket 地址辅助函数、信号处理器、TTY）始终通过 `generateSysRuntime()` 生成，其中包括跨平台辅助函数和平台特定的同步辅助函数（`generatePlatformSysRuntime{MacOS,Linux,Windows}`）。这些**不依赖 IoFuture**。所有函数均为 `static`，因此未使用的函数会被 C 编译器的死代码消除机制剥离。这确保了使用信号、stat、mmap、TTY 等功能的非异步程序在编译时不会引入完整的异步运行时。
 

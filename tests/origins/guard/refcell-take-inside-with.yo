@@ -1,0 +1,29 @@
+// expect: panic
+// guard-off: same
+// A place inside a `RefCell` payload lent to a call whose closure takes the
+// payload out through a second `Rc` handle: `take` panics on the mark.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ RefCell } :: import("std/sync/refcell");
+{ println } :: import("std/fmt");
+W :: struct(s : String);
+peek :: (fn(w : &W, act : &Impl(Fn() -> unit)) -> unit)({
+  act();
+  println(`OUT: ${w.s.clone()}`);
+});
+main :: (fn() -> unit)({
+  cell := Rc.new(RefCell(ArrayList(Rc(W))).new(ArrayList(Rc(W)).new()));
+  cell.with_mut(v => v.push(Rc.new(W(s : String.from("hello, a string long enough to live on the heap")))));
+  other := Rc.clone(cell);
+  cell.with(
+    v => peek(
+      &v(usize(0)).*,
+      &(
+        () => {
+          _gone := other.take();
+        }
+      )
+    )
+  );
+});
+export(main);

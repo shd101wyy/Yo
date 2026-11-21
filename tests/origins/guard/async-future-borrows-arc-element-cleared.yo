@@ -1,0 +1,23 @@
+// expect: E0909
+// guard-off: same
+// A future borrows a place behind an `Arc` element of a list; the caller
+// clears the list before awaiting it.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+W :: struct(s : String);
+mk :: (fn(w : &W, io : Io) -> Impl(Future(usize, Io)))(
+  io.async({ w }(io : Io) => {
+    io.await(yield(io), io);
+    w.s.len()
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  mut(xs) := ArrayList(Arc(W)).new();
+  xs.push(Arc.new(W(s : String.from("hello, a string long enough to live on the heap"))));
+  fut := mk(&xs(usize(0)).*, io);
+  xs.clear();
+  println(`OUT: ${io.await(fut, io)}`);
+});
+export(main);

@@ -36,12 +36,17 @@ extern(
 // (pthread_cond_t or equivalent). It carries its own internal
 // synchronization and is designed to be shared across threads.
 impl(__YO_COND_TYPE, Send());
-/// Reference-counted condition variable with automatic cleanup via `Drop`.
-/// A value struct over one atomically counted cell (`__yo_atomic_cell`,
-/// plans/VALUES_BY_DEFAULT.md §3.5 D3), so copying the handle is safe across
-/// threads and the last copy destroys the condvar.
+/// A condition variable — Rust's `Condvar`. A move-only value: the OS
+/// condvar lives in a private `Box` (a `&Self` receiver is the caller's copy,
+/// so the primitive cannot live inline), and threads share one as
+/// `Arc(Cond)`, or inside the state an `Arc` already shares. Dropping it
+/// destroys the condvar.
 _CondState :: struct(cv : __YO_COND_TYPE);
-Cond :: struct(_cell : __yo_atomic_cell(_CondState));
+Cond :: struct(_state : Box(_CondState));
+// SAFETY: the condvar is an OS primitive designed to be signalled and waited
+// on from several threads at once.
+impl(Cond, Send());
+impl(Cond, Sync());
 impl(
   _CondState,
   Drop(
@@ -60,7 +65,7 @@ impl(
   /// property of the condvar and not of an individual wait; that is what
   /// makes `wait_timeout` immune to a wall-clock step.
   new : (fn() -> Self)({
-    return(Self(_cell : __yo_atomic_cell(_CondState)(_CondState(__yo_cond_create()), .None)));
+    return(Self(_state : Box.new(_CondState(__yo_cond_create()))));
   }),
   /// Block until another thread calls `signal` or `broadcast` — Rust's
   /// `Condvar::wait`, with the mutex passed as its raw handle.
@@ -91,7 +96,7 @@ impl(
   /// mutated under the same mutex before signalling. Use `wait_timeout`
   /// when the wait needs a deadline.
   _wait_raw : (fn(self : &Self, handle : *__YO_THREAD_SYNC_TYPE) -> unit)({
-    return(__yo_cond_wait(addr_of(self._cell.*.cv), handle));
+    return(__yo_cond_wait(addr_of(self._state.*.cv), handle));
   }),
   /// `wait` spelled against the `Mutex` itself — the PUBLIC form. Call it
   /// from inside `m.with_lock(...)`, whose closure runs holding `m`; the
@@ -151,7 +156,7 @@ impl(
   /// step cannot lengthen or cut short the wait. A negative or zero `timeout`
   /// does not block.
   _wait_timeout_raw : (fn(self : &Self, handle : *__YO_THREAD_SYNC_TYPE, timeout : Duration) -> bool)(
-    __yo_cond_timedwait(addr_of(self._cell.*.cv), handle, timeout.as_nanos())
+    __yo_cond_timedwait(addr_of(self._state.*.cv), handle, timeout.as_nanos())
   ),
   /// `wait_timeout` spelled against the `Mutex` itself — the PUBLIC form of
   /// the raw-handle method above, with the same `true` = woken (possibly
@@ -176,7 +181,7 @@ impl(
   /// different predicates on the same condvar — waking the wrong one there
   /// loses the notification for good.
   signal : (fn(self : &Self) -> unit)({
-    return(__yo_cond_signal(addr_of(self._cell.*.cv)));
+    return(__yo_cond_signal(addr_of(self._state.*.cv)));
   }),
   /// Wake EVERY waiting thread — Rust's `Condvar::notify_all`.
   ///
@@ -186,7 +191,7 @@ impl(
   /// from empty to non-empty for many consumers). The cost is a thundering
   /// herd: N wakes and N re-checks where `signal` would have done one.
   broadcast : (fn(self : &Self) -> unit)({
-    return(__yo_cond_broadcast(addr_of(self._cell.*.cv)));
+    return(__yo_cond_broadcast(addr_of(self._state.*.cv)));
   })
 );
 export(Cond);

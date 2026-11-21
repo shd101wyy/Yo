@@ -1,0 +1,31 @@
+// expect: panic
+// guard-off: same
+// A second `Rc` handle to a `RefCell`-held list clears it while `with` lends
+// an element's payload to a receiver: the cell's borrow flag panics first.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ RefCell } :: import("std/sync/refcell");
+{ println } :: import("std/fmt");
+W :: struct(s : String);
+impl(
+  W,
+  peek : (fn(self : &Self, act : &Impl(Fn() -> unit)) -> unit)({
+    act();
+    println(`OUT: ${self.s.clone()}`);
+  })
+);
+main :: (fn() -> unit)({
+  shared := Rc.new(RefCell(ArrayList(Rc(W))).new(ArrayList(Rc(W)).new()));
+  shared.with_mut(v => v.push(Rc.new(W(s : String.from("hello, a string long enough to live on the heap")))));
+  other := Rc.clone(shared);
+  shared.with(
+    v => v(usize(0)).peek(
+      &(
+        () => {
+          other.with_mut(v2 => v2.clear());
+        }
+      )
+    )
+  );
+});
+export(main);

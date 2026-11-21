@@ -4,7 +4,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array-list");
 { Token } :: import("../../token.yo");
-{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_is_fn_call_of, BK_ASSIGN, BF_UNSAFE } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_is_fn_call_of, make_err_expr, BK_ASSIGN, BF_UNSAFE } :: import("../../expr.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -22,8 +22,8 @@
   snapshot_env,
   variable_value_type
 } :: import("../../env.yo");
-{ EvalContext } :: import("../context.yo");
-{ EvalValue, EvalValueNode } :: import("../../value.yo");
+{ EvalContext, ExpectedTypeCtx } :: import("../context.yo");
+{ EvalValue, EvalValueNode, is_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
@@ -32,7 +32,7 @@
   format_error_messages,
   format_error_message
 } :: import("../../error.yo");
-{ evaluate_expression_raw } :: import("../exprs/expr.yo");
+{ evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { is_own_fnonce_capture, access_move } :: import("../utils.yo");
 { Exception } :: import("std/error");
 /// Mark the variable identified by `variable_name` in `env` as consumed at `token`.
@@ -178,7 +178,16 @@ evaluate_consume :: (
   // any throw and hands back an error node whose env is not the caller's, so
   // an error in the argument vanished and the enclosing block went on in the
   // wrong environment (issues/fixed/consume-swallows-its-arguments-error-and-its-env.md).
-  eval_arg := evaluate_expression_raw(&arg_expr, env, ctx, exn);
+  // With no expected type: the caller's belongs to the consume's own `unit`
+  // result, and the argument may be any type
+  // (issues/fixed/2026-11-20-consume-passes-its-expected-unit-type-to-its-argument.md).
+  saved_expected := ctx.expected_type.clone();
+  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  eval_arg_gout := ArrayList(AstExpr).new();
+  eval_arg_gerr := evaluate_expression_guarded(&arg_expr, env, ctx, &mut eval_arg_gout);
+  ctx.expected_type = saved_expected;
+  match(eval_arg_gerr, .Some(eval_arg_ge) => exn.throw(eval_arg_ge), .None => ());
+  eval_arg := match(eval_arg_gout.get_cloned(usize(0)), .Some(eval_arg_g) => eval_arg_g, .None => make_err_expr());
   arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_arg));
   (cur_env : Environment) = match(&arg_info_opt, .Some(i) => expr_info_adopt_env(&i.*), .None => Rc.clone(env));
   match(
@@ -207,6 +216,13 @@ evaluate_consume :: (
     ),
     .None => false
   );
+  // The argument's value is concretely known: evaluating it runs nothing.
+  arg_is_known := match(
+    &arg_info_opt,
+    .Some(info) => match(info.value(), .Some(v) => !is_unknown_val(&v), .None => false),
+    .None => false
+  );
+  (mut(releases) : bool) = false;
   // Get variable name from ExprInfo.
   variable_name_opt := match(arg_info_opt, .Some(i) => i.variable_name(), .None => Option(String).None);
   match(
@@ -216,6 +232,7 @@ evaluate_consume :: (
       // scope-end drop the mark suppresses would have released it.
       if(!is_tv && !_is_init_assignment(&arg_expr) && _consume_releases_variable(&vname, &cur_env, ctx), {
         record_consume_release(ast_expr_id(expr));
+        releases = true;
       });
       // `consume(x)` moves `x` and releases it: a move access of its place,
       // judged against every live loan exactly as passing `x` to a by-value
@@ -228,8 +245,17 @@ evaluate_consume :: (
     },
     .None => ()
   );
+  // The value is a known `()` only when the consume runs nothing at runtime:
+  // a type value, or a known value that is neither an assignment (a store,
+  // `consume(p.* = v)`) nor released here. Otherwise it is a runtime value
+  // (`.None`): a known value tells codegen the expression has no runtime
+  // effect, and `x := { consume(f()); 5 }` was folded to `5` with the call
+  // deleted
+  // (issues/fixed/2026-11-20-a-side-effecting-builtin-is-deleted-when-its-unit-value-is-bound-or-folded.md).
   out_info := new_expr_info(&cur_env, t_unit());
-  out_info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
+  if(is_tv || (arg_is_known && !releases && !_is_init_assignment(&arg_expr)), {
+    out_info.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.UnitVal)));
+  });
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   Rc.clone(expr.*)
 });

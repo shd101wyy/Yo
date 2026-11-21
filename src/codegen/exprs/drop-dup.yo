@@ -1473,9 +1473,9 @@ generate_early_return_only_deferred_drop_expressions :: (fn(expr : &AstExpr, ind
               // Source-token gates at attach time cannot see C decl-emission
               // order: a `x := match(...)` binding emits its C declaration
               // AFTER the switch, so a `return` inside an arm precedes it in C
-              // while FOLLOWING x's init token in source — with the dup/drop
-              // pair optimizer consuming such bindings, the M3-attached drop
-              // referenced an undeclared identifier (stage-2 `result` /
+              // while FOLLOWING x's init token in source — for such a binding
+              // consumed later, the M3-attached drop would reference an
+              // undeclared identifier (stage-2 `result` /
               // `temp_var_name`). A target absent from the stack holds no C
               // value here, so skipping cannot double-free or leak. Subsumes
               // the former minted-TEMP declared_c_var_names check.

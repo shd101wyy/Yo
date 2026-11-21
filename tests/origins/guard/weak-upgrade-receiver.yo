@@ -1,0 +1,38 @@
+// expect: accept
+// guard-off: same
+// `Weak.upgrade`'s result as a match binding (over the call's temporary, and
+// over a local), with a closure that drops the only other strong handle: the
+// upgraded handle owns its own +1.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+W :: struct(s : String);
+impl(
+  W,
+  peek : (fn(self : &Self, act : Impl(FnOnce() -> unit)) -> unit)({
+    act();
+    println(`OUT: ${self.s.clone()}`);
+  })
+);
+main :: (fn() -> unit)({
+  s := Rc.new(W(s : String.from("hello, a string long enough to live on the heap")));
+  wk := Rc.downgrade(&s);
+  match(
+    wk.upgrade(),
+    .Some(r) => r.peek({ s }() => {
+      drop(s);
+    }),
+    .None => println("OUT: gone")
+  );
+  t := Rc.new(W(s : String.from("second string, also long enough for the heap")));
+  wk2 := Rc.downgrade(&t);
+  up := wk2.upgrade();
+  match(
+    &up,
+    .Some(r) => r.peek({ t }() => {
+      drop(t);
+    }),
+    .None => println("OUT: gone")
+  );
+  println(`OUT: ${wk2.upgrade().is_none()}`);
+});
+export(main);

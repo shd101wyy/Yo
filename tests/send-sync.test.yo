@@ -137,8 +137,8 @@ comptime_expect_error({
 // Over-rejection canary: a Dyn(Trait, Send) does cross it.
 _spawn_send_dyn :: (fn() -> i32)({
   (d : Box(Dyn(SsSpeak, Send))) = dyn(Box.new(SsDog(n : i32(4))));
-  hits := AtomicI32.new(i32(0));
-  t := Thread(unit).spawn(io => {
+  hits := Arc.new(AtomicI32.new(i32(0)));
+  t := Thread(unit).spawn({ d, hits : Arc.clone(hits) }(io) => {
     hits.fetch_add(d.speak(), MemoryOrder.AcqRel);
     ()
   });
@@ -154,8 +154,8 @@ test("a Dyn(Trait, Send) crosses Thread.spawn", {
 // (issues/fixed/2026-11-12-dyn-box-new-into-a-send-dyn-is-rejected.md).
 _spawn_send_dyn_box :: (fn() -> i32)({
   (d : Box(Dyn(SsSpeak, Send))) = dyn(Box.new(SsDog(n : i32(5))));
-  hits := AtomicI32.new(i32(0));
-  t := Thread(unit).spawn(io => {
+  hits := Arc.new(AtomicI32.new(i32(0)));
+  t := Thread(unit).spawn({ d, hits : Arc.clone(hits) }(io) => {
     hits.fetch_add(d.speak(), MemoryOrder.AcqRel);
     ()
   });
@@ -259,7 +259,7 @@ test("a move-only capture crosses spawn(pool, …) and disposes once", {
 // ============================================================================
 _move_points :: (fn() -> i32)({
   ch := Channel(SsPoint).new(usize(4));
-  producer := Thread(unit).spawn(io => {
+  producer := Thread(unit).spawn({ ch : ch.clone() }(io) => {
     (mut(i) : i32) = i32(0);
     while(i < i32(4), {
       _ := ch.send(SsPoint(x : i, y : (i * i32(2))));
@@ -449,4 +449,17 @@ test("an object holding a cyclic cell behind an Option or a pointer is not Acycl
   comptime_assert(!Type.impls(OnceCell(SsCyclic), Acyclic), "OnceCell(Cyclic)");
   comptime_assert(!Type.impls(Channel(SsCyclic), Acyclic), "Channel(Cyclic)");
   comptime_assert(Type.impls(OnceCell(i32), Acyclic) && Type.impls(Channel(i32), Acyclic), "plain data keeps them Acyclic");
+});
+// issues/fixed/2026-11-21-an-arc-of-a-generic-type-with-an-explicit-marker-impl-is-rejected-inside-a-type-function.md:
+// a type function's body names `Arc(Mutex(T))` with `T` abstract; the marker
+// bound is judged at the instantiation, not against the abstract `T`.
+SsShared :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(struct(_m : Arc(Mutex(T))));
+test("a generic type holding an Arc(Mutex(T)) is accepted and judged at its instantiation", {
+  s := SsShared(i32)(_m : Arc.new(Mutex(i32).new(i32(1))));
+  t := SsShared(i32)(_m : Arc.clone(s._m));
+  t._m.with_lock(v => {
+    v.* = (v.* + i32(1));
+  });
+  assert(s._m.with_lock(v => v.*) == i32(2), "both handles name one mutex");
+  comptime_assert(Type.impls(SsShared(i32), Send) && Type.impls(SsShared(i32), Sync), "the instantiation is Send and Sync");
 });

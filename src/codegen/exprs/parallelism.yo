@@ -29,7 +29,7 @@
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
 { get_func_type, is_fnonce_closure_fn } :: import("../../function-value.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
-{ get_type_string, get_variable_name_for_codegen_at, type_key, fresh_local_name, get_runtime_struct_fields, sanitize_for_c_identifier, get_enum_variant_c_name, c_variant_member_name, can_optimize_as_nullable_pointer } :: import("../utils/index.yo");
+{ get_type_string, get_variable_name_for_codegen_at, type_key, fresh_local_name, get_runtime_struct_fields, sanitize_for_c_identifier, get_enum_variant_c_name, c_variant_member_name, can_optimize_as_nullable_pointer, entry_param_c_value } :: import("../utils/index.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { expr_info_closure_function_value, expr_info_capture_type } :: import("../../expr-info.yo");
 {
@@ -87,8 +87,10 @@ _closure_fid :: (fn(cb_ei_value : &Option(EvalValue), cb_closure_fn_val : &Optio
   );
   match(fv_opt, .Some(fv) => match(fv, Rc(.FuncVal(__fvd2, _)) => __fvd2.*.func_id.clone(), _ => String.new()), .None => String.new())
 });
-/// `, (<cType>){0}, …` — zero-inits for the closure's runtime params (e.g. the
-/// `io : Io` of a `Thread.spawn` callback), as the spawn wrapper builds them.
+/// `, <value>, …` — the closure's runtime params as the spawn wrapper builds
+/// them, ON the new thread (`entry_param_c_value`): the `io : Io` of a
+/// `Thread.spawn` or pool callback is that thread's native Io
+/// (`__yo_io_native()`), anything else `(<cType>){0}`.
 /// Func param_types already exclude comptime
 /// params, so every entry is a runtime param.
 _closure_runtime_arg_zeroinits :: (fn(closure_fid : &String, context : &mut FunctionGenerationContext) -> String)({
@@ -102,9 +104,8 @@ _closure_runtime_arg_zeroinits :: (fn(closure_fid : &String, context : &mut Func
         match(
           slot_pointee_at(&pts, i),
           .Some(pt) => {
-            out.push_str(", (");
-            out.push_string(get_type_string(&pt, &mut context.base));
-            out.push_str("){0}");
+            out.push_str(", ");
+            out.push_string(entry_param_c_value(&pt, &mut context.base));
           },
           .None => ()
         );

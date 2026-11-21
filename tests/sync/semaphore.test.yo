@@ -77,15 +77,18 @@ test("Semaphore of one permit acquires and releases repeatedly", {
 // a waiter that stops re-checking the predicate after a wakeup) is caught by
 // `violations`, and `saw_full` proves the test was not vacuous — that the
 // region really did run K threads deep.
+//
+// A Semaphore (like every atomic) is a move-only value: the threads share it
+// through `Arc.clone`, one clone of each moved into each closure.
 // ============================================================================
 test("Semaphore never admits more holders than it has permits", {
   if(arch == Arch.Wasm32, return(()));
-  sem := Semaphore.new(i32(2));
-  inside := AtomicI32.new(i32(0));
-  violations := AtomicI32.new(i32(0));
-  saw_full := AtomicI32.new(i32(0));
-  completed := AtomicI32.new(i32(0));
-  t1 := Thread(unit).spawn(io => {
+  sem := Arc.new(Semaphore.new(i32(2)));
+  inside := Arc.new(AtomicI32.new(i32(0)));
+  violations := Arc.new(AtomicI32.new(i32(0)));
+  saw_full := Arc.new(AtomicI32.new(i32(0)));
+  completed := Arc.new(AtomicI32.new(i32(0)));
+  t1 := Thread(unit).spawn({ sem : Arc.clone(sem), inside : Arc.clone(inside), violations : Arc.clone(violations), saw_full : Arc.clone(saw_full), completed : Arc.clone(completed) }(io) => {
     mut(i) := i32(0);
     while(i < i32(25), {
       sem.acquire();
@@ -106,7 +109,7 @@ test("Semaphore never admits more holders than it has permits", {
       i = (i + i32(1));
     });
   });
-  t2 := Thread(unit).spawn(io => {
+  t2 := Thread(unit).spawn({ sem : Arc.clone(sem), inside : Arc.clone(inside), violations : Arc.clone(violations), saw_full : Arc.clone(saw_full), completed : Arc.clone(completed) }(io) => {
     mut(i) := i32(0);
     while(i < i32(25), {
       sem.acquire();
@@ -127,7 +130,7 @@ test("Semaphore never admits more holders than it has permits", {
       i = (i + i32(1));
     });
   });
-  t3 := Thread(unit).spawn(io => {
+  t3 := Thread(unit).spawn({ sem : Arc.clone(sem), inside : Arc.clone(inside), violations : Arc.clone(violations), saw_full : Arc.clone(saw_full), completed : Arc.clone(completed) }(io) => {
     mut(i) := i32(0);
     while(i < i32(25), {
       sem.acquire();
@@ -148,7 +151,7 @@ test("Semaphore never admits more holders than it has permits", {
       i = (i + i32(1));
     });
   });
-  t4 := Thread(unit).spawn(io => {
+  t4 := Thread(unit).spawn({ sem : Arc.clone(sem), inside : Arc.clone(inside), violations : Arc.clone(violations), saw_full : Arc.clone(saw_full), completed : Arc.clone(completed) }(io) => {
     mut(i) := i32(0);
     while(i < i32(25), {
       sem.acquire();
@@ -191,24 +194,24 @@ test("Semaphore never admits more holders than it has permits", {
 // ============================================================================
 test("Semaphore blocked acquirers are woken one per released permit", {
   if(arch == Arch.Wasm32, return(()));
-  sem := Semaphore.new(i32(2));
-  arrived := AtomicI32.new(i32(0));
-  passed := AtomicI32.new(i32(0));
+  sem := Arc.new(Semaphore.new(i32(2)));
+  arrived := Arc.new(AtomicI32.new(i32(0)));
+  passed := Arc.new(AtomicI32.new(i32(0)));
   // The main thread drains both permits and keeps them for the whole window.
   sem.acquire();
   sem.acquire();
   assert(sem.available_permits() == i32(0), "the semaphore is exhausted");
-  t1 := Thread(unit).spawn(io => {
+  t1 := Thread(unit).spawn({ sem : Arc.clone(sem), arrived : Arc.clone(arrived), passed : Arc.clone(passed) }(io) => {
     arrived.fetch_add(i32(1), MemoryOrder.AcqRel);
     sem.acquire();
     passed.fetch_add(i32(1), MemoryOrder.AcqRel);
   });
-  t2 := Thread(unit).spawn(io => {
+  t2 := Thread(unit).spawn({ sem : Arc.clone(sem), arrived : Arc.clone(arrived), passed : Arc.clone(passed) }(io) => {
     arrived.fetch_add(i32(1), MemoryOrder.AcqRel);
     sem.acquire();
     passed.fetch_add(i32(1), MemoryOrder.AcqRel);
   });
-  t3 := Thread(unit).spawn(io => {
+  t3 := Thread(unit).spawn({ sem : Arc.clone(sem), arrived : Arc.clone(arrived), passed : Arc.clone(passed) }(io) => {
     arrived.fetch_add(i32(1), MemoryOrder.AcqRel);
     sem.acquire();
     passed.fetch_add(i32(1), MemoryOrder.AcqRel);
@@ -244,9 +247,9 @@ test("Semaphore permit may be released by a thread that never acquired it", {
   if(arch == Arch.Wasm32, return(()));
   // Unlike a Mutex, a Semaphore is not owned by the acquirer: this is the
   // "wait for a signal from elsewhere" use.
-  sem := Semaphore.new(i32(0));
-  signalled := AtomicI32.new(i32(0));
-  t := Thread(unit).spawn(io => {
+  sem := Arc.new(Semaphore.new(i32(0)));
+  signalled := Arc.new(AtomicI32.new(i32(0)));
+  t := Thread(unit).spawn({ sem : Arc.clone(sem), signalled : Arc.clone(signalled) }(io) => {
     sleep_blocking(Duration.from_millis(i64(20)));
     signalled.store(i32(1), MemoryOrder.Release);
     sem.release();
@@ -260,9 +263,9 @@ test("Semaphore of one permit serializes a read-modify-write", {
   if(arch == Arch.Wasm32, return(()));
   // The counter is updated in two separate relaxed steps with a real gap in
   // between, so any lost mutual exclusion shows up as lost updates.
-  sem := Semaphore.new(i32(1));
-  counter := AtomicI32.new(i32(0));
-  t1 := Thread(unit).spawn(io => {
+  sem := Arc.new(Semaphore.new(i32(1)));
+  counter := Arc.new(AtomicI32.new(i32(0)));
+  t1 := Thread(unit).spawn({ sem : Arc.clone(sem), counter : Arc.clone(counter) }(io) => {
     mut(i) := i32(0);
     while(i < i32(25), {
       sem.acquire();
@@ -273,7 +276,7 @@ test("Semaphore of one permit serializes a read-modify-write", {
       i = (i + i32(1));
     });
   });
-  t2 := Thread(unit).spawn(io => {
+  t2 := Thread(unit).spawn({ sem : Arc.clone(sem), counter : Arc.clone(counter) }(io) => {
     mut(i) := i32(0);
     while(i < i32(25), {
       sem.acquire();
@@ -284,7 +287,7 @@ test("Semaphore of one permit serializes a read-modify-write", {
       i = (i + i32(1));
     });
   });
-  t3 := Thread(unit).spawn(io => {
+  t3 := Thread(unit).spawn({ sem : Arc.clone(sem), counter : Arc.clone(counter) }(io) => {
     mut(i) := i32(0);
     while(i < i32(25), {
       sem.acquire();
@@ -295,7 +298,7 @@ test("Semaphore of one permit serializes a read-modify-write", {
       i = (i + i32(1));
     });
   });
-  t4 := Thread(unit).spawn(io => {
+  t4 := Thread(unit).spawn({ sem : Arc.clone(sem), counter : Arc.clone(counter) }(io) => {
     mut(i) := i32(0);
     while(i < i32(25), {
       sem.acquire();
@@ -317,7 +320,9 @@ test("Semaphore of one permit serializes a read-modify-write", {
 // ============================================================================
 test("with_permit takes a permit for the body and gives it back", {
   sem := Semaphore.new(i32(2));
-  inside := sem.with_permit(() => sem.available_permits());
+  // The body borrows `sem` (`&sem`): an implicit capture would move the
+  // semaphore out from under the `with_permit` call that is lending it.
+  inside := sem.with_permit({ &sem }() => sem.available_permits());
   assert(inside == i32(1), "one permit was held while the body ran");
   assert(sem.available_permits() == i32(2), "and released on the way out");
 });
@@ -335,7 +340,8 @@ test("with_permit returns the body's value", {
 // cannot demonstrate. See issues/questions/with-lock-and-with-permit-cannot-see-an-unwind.md.
 test("with_permit nests down to zero and back", {
   sem := Semaphore.new(i32(2));
-  deepest := sem.with_permit(() => sem.with_permit(() => sem.available_permits()));
+  // The outer body borrows `sem`; the inner one copies that borrow.
+  deepest := sem.with_permit({ &sem }() => sem.with_permit({ sem }() => sem.available_permits()));
   assert(deepest == i32(0), "both permits were held at the innermost point");
   assert(sem.available_permits() == i32(2), "and both came back");
 });

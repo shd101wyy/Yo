@@ -1,0 +1,34 @@
+// expect: accept
+// guard-off: same
+// A `Mutex` shared as `Arc(Mutex(...))`: a receiver reached through an element
+// under `with_lock`, whose closure tries to clear the list through a second
+// handle. The second acquisition fails (`try_with_lock` is `.None`).
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ Mutex } :: import("std/sync/mutex");
+{ println } :: import("std/fmt");
+W :: struct(s : String);
+impl(
+  W,
+  peek : (fn(self : &Self, act : &mut Impl(FnMut() -> unit)) -> unit)({
+    act();
+    println(`OUT: ${self.s.clone()}`);
+  })
+);
+main :: (fn() -> unit)({
+  mut(init) := ArrayList(Arc(W)).new();
+  init.push(Arc.new(W(s : String.from("hello, a string long enough to live on the heap"))));
+  m := Arc.new(Mutex(ArrayList(Arc(W))).new(init));
+  m2 := Arc.clone(m);
+  m.with_lock(
+    &mut (
+      v => v(usize(0)).peek(
+        &mut ({ &m2 }() => {
+          r := m2.try_with_lock(&mut (v2 => v2.clear()));
+          println(`OUT: excluded ${r.is_none()}`);
+        })
+      )
+    )
+  );
+});
+export(main);

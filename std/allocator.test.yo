@@ -7,8 +7,10 @@
 //! the faulty thing, and the parent reads the child's status and stderr. The
 //! faults are undefined behavior under the other allocators, so those checks
 //! run only when the program reads its allocator as `debug` through the
-//! runtime's `__yo_debug_alloc_on` hook. The language suite runs this file
-//! under its default allocator, where only the clean round trip runs; the
+//! runtime's `__yo_debug_alloc_on` hook, which this file declares: it sits in
+//! the std tree because a `__yo_` name is the compiler's namespace and only
+//! std declares one (E0407). `yo test ./std` runs this file under its default
+//! allocator, where only the clean round trip runs; the
 //! cli-case `test-allocator-debug-suite` (Linux) and the `test-native` CI
 //! legs (macOS, Windows) run it under `--allocator debug`, where every test
 //! runs. A child always runs with the verdict on (`YO_DEBUG_ALLOC_VERDICT=1`),

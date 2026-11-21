@@ -7,13 +7,14 @@ pragma(Pragma.AllowUnsafe);
 //! { WaitGroup } :: import("std/sync/waitgroup");
 //! { Thread } :: import("std/thread");
 //!
-//! wg := WaitGroup.new();
+//! wg := Arc.new(WaitGroup.new());
 //! wg.add(i32(3));
-//! i := i32(0);
+//! mut(i) := i32(0);
 //! while(i < i32(3), {
-//!   t := Thread(unit).spawn(io => {
+//!   mine := Arc.clone(wg);
+//!   _t := Thread(unit).spawn({ mine }(io : Io) => {
 //!     // ... do work ...
-//!     wg.done();
+//!     mine.done();
 //!   });
 //!   i = (i + i32(1));
 //! });
@@ -30,42 +31,55 @@ pragma(Pragma.AllowUnsafe);
 //! place Go reliably catches a miscounted group.
 //! `plans/archive/STD_API_STABILIZATION_FINDINGS.md` item 10 records it as a gap.
 //! Freezing needs that call made (clamp, panic, or a `Result`), because
-//! whichever way it goes is observable to every caller. Note also that
-//! this is not Go's value type: a `WaitGroup` here is an atomically
-//! reference-counted handle, so copying one is correct and shares the
-//! counter, where copying Go's is a bug.
+//! whichever way it goes is observable to every caller. Copying a
+//! `WaitGroup` is E0901, the compile-time form of Go's "do not copy" vet
+//! check: it is a move-only value, shared as `Arc(WaitGroup)`.
 { Mutex } :: import("./mutex");
 { Cond } :: import("./cond");
-{ AtomicI32, MemoryOrder } :: import("./atomic");
-/// Synchronization primitive that blocks until a counter reaches zero.
-/// Uses atomic reference counting for safe cross-thread sharing.
+{
+  atomic_int,
+  __yo_atomic_load_int,
+  __yo_atomic_store_int,
+  memory_order_relaxed,
+  memory_order_acquire,
+  memory_order_release
+} :: import("std/libc/stdatomic");
+/// Synchronization primitive that blocks until a counter reaches zero. A
+/// move-only value with its state in a private `Box`; the tasks share one as
+/// `Arc(WaitGroup)`.
 ///
-/// The internal counter is an atomic so `count()` can read without
-/// acquiring the mutex (matches Rust's mpsc query-method idiom). Writes
-/// to the counter still happen under the mutex so the `_count == 0`
-/// observation that triggers `broadcast()` is serialized with `wait()`.
+/// The internal counter is a C11 atomic (held inline: std is unsafe-capable)
+/// so `count()` can read without acquiring the mutex (matches Rust's mpsc
+/// query-method idiom). Writes to the counter still happen under the mutex
+/// so the `_count == 0` observation that triggers `broadcast()` is
+/// serialized with `wait()`.
 _WaitGroupState :: struct(
-  _count : AtomicI32,
+  _count : atomic_int,
   _mutex : Mutex(bool),
   _cv : Cond
 );
-WaitGroup :: struct(_cell : __yo_atomic_cell(_WaitGroupState));
+WaitGroup :: struct(_state : Box(_WaitGroupState));
+// SAFETY: the counter is written only under `_mutex` and read through C11
+// atomic loads, so tasks on any thread may share the group.
+impl(WaitGroup, Send());
+impl(WaitGroup, Sync());
 impl(
   WaitGroup,
   /// Create an empty group — counter zero, no waiters. A `wait()` on it
   /// returns immediately until something is added.
   new : (fn() -> Self)(
     Self(
-      _cell : __yo_atomic_cell(_WaitGroupState)(
+      _state : Box.new(
         _WaitGroupState(
-          _count : AtomicI32.new(i32(0)),
+          _count : atomic_int(i32(0)),
           _mutex : Mutex(bool).new(false),
           _cv : Cond.new()
-        ),
-        .None
+        )
       )
     )
   ),
+  // The counter in the box, read and written with C11 atomic operations.
+  _count_ptr : (fn(self : &Self) -> *atomic_int)(addr_of(self._state.*._count)),
   /// Add `delta` to the counter, waking every waiter if it reaches zero —
   /// Go's `WaitGroup.Add`.
   ///
@@ -83,18 +97,19 @@ impl(
   /// against another `add` or the bookkeeping of `wait`, never for the
   /// length of the tasks themselves.
   add : (fn(self : &Self, delta : i32) -> unit)({
-    self._cell.*._mutex._raw_lock();
-    new_count := (self._cell.*._count.load(MemoryOrder.Relaxed) + delta);
+    p := self._count_ptr();
+    self._state.*._mutex._raw_lock();
+    new_count := (unsafe(i32(__yo_atomic_load_int(p, memory_order_relaxed))) + delta);
     cond(
       (new_count <= i32(0)) => {
-        self._cell.*._count.store(i32(0), MemoryOrder.Release);
-        self._cell.*._cv.broadcast();
+        unsafe(__yo_atomic_store_int(p, i32(0), memory_order_release));
+        self._state.*._cv.broadcast();
       },
       true => {
-        self._cell.*._count.store(new_count, MemoryOrder.Release);
+        unsafe(__yo_atomic_store_int(p, new_count, memory_order_release));
       }
     );
-    self._cell.*._mutex._raw_unlock();
+    self._state.*._mutex._raw_unlock();
   }),
   /// Mark one counted task finished — Go's `WaitGroup.Done`, and exactly
   /// `add(-1)`, including the clamp at zero.
@@ -114,11 +129,12 @@ impl(
   /// async task in the program. Use it from a thread that owns its own
   /// work.
   wait : (fn(self : &Self) -> unit)({
-    self._cell.*._mutex._raw_lock();
-    while(self._cell.*._count.load(MemoryOrder.Acquire) > i32(0), {
-      self._cell.*._cv.wait_with(&self._cell.*._mutex);
+    p := self._count_ptr();
+    self._state.*._mutex._raw_lock();
+    while(unsafe(i32(__yo_atomic_load_int(p, memory_order_acquire))) > i32(0), {
+      self._state.*._cv.wait_with(&self._state.*._mutex);
     });
-    self._cell.*._mutex._raw_unlock();
+    self._state.*._mutex._raw_unlock();
   }),
   /// How many counted tasks are still outstanding, as a lock-free Acquire
   /// load — no mutex is taken.
@@ -127,7 +143,7 @@ impl(
   /// next line, so branching on `count() == 0` instead of calling `wait()`
   /// is a race. It exists for diagnostics and progress reporting.
   count : (fn(self : &Self) -> i32)(
-    self._cell.*._count.load(MemoryOrder.Acquire)
+    unsafe(i32(__yo_atomic_load_int(self._count_ptr(), memory_order_acquire)))
   )
 );
 export(WaitGroup);

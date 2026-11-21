@@ -58,8 +58,9 @@ Yo 的目标是 **简单** 和 **快速**（比 C 语言慢约 0% - 15%）。
 - [代数效应与处理器](./ALGEBRAIC_EFFECTS.md)（一次性 delimited continuation、尾调用恢复式、通过 `return`/`unwind` 的效应处理器，基于 [证据传递/Evidence Passing](https://xnning.github.io/papers/multip.pdf)）。
 - [Async/Await](./ASYNC_AWAIT.md)（内置 `Io` 效应。无栈协程与合作式多任务。惰性 Future、多 await、通过状态机转换实现的单线程并发）。
 - [默认内存安全](./MEMORY_SAFETY.md) —— 用户代码无法在不显式声明 `pragma(Pragma.AllowUnsafe);` opt-in 的情况下写出 UB（无原始指针、无 FFI、无内联汇编）。原地修改使用 `name : &mut T` 参数；`yo unsafe-report` 用于审计 unsafe 表面。
+- [所有权与借用](./OWNERSHIP_AND_BORROWING.md) —— 默认是值：一个所有者，最后一次使用时移动，拷贝要显式写 `.clone()`；`&T`/`&mut T` 引用的类型带有它的来源，像 Rust 的借用检查器一样在编译期检查；共享用 `Rc`/`Arc` 显式表达。
 - [显式分配器](./EXPLICIT_ALLOCATORS.md) —— 与引用计数并存的 Zig 风格放置：默认使用全局分配器，在创建处传一个参数（`Rc.new(v, alloc : .Some(a))`、`ArrayList(T).new(alloc : .Some(a))`）就把内存块放进分配器 `a`；何时释放仍由 RC 决定，释放总是回到分配它的分配器。
-- 用 `Rc(T)` 与 `Arc(T)` 提供共享所有权，分别采用非原子与原子引用计数，与 Rust 相同：环会泄漏，除非用 [`Weak(T)`](./WEAK.md) 句柄打破它（[内存安全](./MEMORY_SAFETY.md#引用环会泄漏)）。
+- 用 `Rc(T)` 与 `Arc(T)` 提供共享所有权，分别采用[非原子与原子引用计数](./DESIGN.md#共享单元与内存管理)，与 Rust 相同：环会泄漏，除非用 [`Weak(T)`](./WEAK.md) 句柄打破它（[内存安全](./MEMORY_SAFETY.md#引用环会泄漏)）。
 - 每核并行模型（详见 [PARALLELISM.md](./PARALLELISM.md)）。
 - [形式化验证](./FORMAL_VERIFICATION.md) —— 契约（`requires`/`ensures`/`decreases`）、精化类型（`refine(T, p)`）与 ghost/量词规格在编译期经固定版本的 Z3 证明（`yo verify`）：被驳倒的义务给出反例，附带缓存遥测、`--strict` 门禁、JSON 报告与 LSP 契约悬停。
 - 受 Zig 和 Nix 启发的[声明式构建系统](./BUILD_SYSTEM.md)（`yo build`、`yo init`、WASM 目标）。
