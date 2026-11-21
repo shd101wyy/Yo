@@ -773,7 +773,7 @@ comptime_expect_error({
   _pass_ref_by_value :: (fn(r : &String) -> usize)(_take_owned_string(r));
   s := String.from("a");
   _pass_ref_by_value(&s);
-}, "Where it would be copied — a by-value parameter, a `:=` binding, a return — `String` is move-only, so pass `r` itself to a `&String` parameter, read through it (`r.field`, `r.method()`), or copy it explicitly with `r.*.clone()`. `yo fix --migrate deref` inserts the `.*` at the reads and lists the copies.");
+}, "Where it would be copied — a by-value parameter, a `:=` binding, a return — `String` is move-only, so pass `r` itself to a `&String` parameter, read through it (`r.field`, `r.method()`), or copy it explicitly with `r.*.clone()`.");
 _bind_ref_whole :: (fn(r : &String) -> usize)({
   x := r;
   x.len()
