@@ -4,7 +4,7 @@
 
 **Severity:** S3 (listing text only; nothing is rewritten wrongly)
 
-**Status:** OPEN. Found 2026-11-15 by the S2 sweep rehearsal (`vbd/d49-flip-swept`).
+**Status:** RETIRED 2026-11-21 (see above). Found 2026-11-15 by the S2 sweep rehearsal (`vbd/d49-flip-swept`).
 
 ## What happens
 
