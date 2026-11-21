@@ -68,15 +68,32 @@ obligations fails".
 
 ## Recommendation
 
-Add an outcome `owed`: a function that states at least one `ensures` and
-whose body owes it on no path. Callers still verify against its contract (as
-with `assumed`); `--strict` fails it, as a fourth class. The JSON entry
-carries the contract's source text, so the `owed` list is an agent's work
-queue. This is detection from data the driver already has (the clause list
-and the obligation count) and adds no keyword.
+Amended 2026-11-22, assuming
+[`plans/backlog/DEFAULT_ON_VERIFICATION.md`](../../plans/backlog/DEFAULT_ON_VERIFICATION.md)
+is carried out.
 
-Open sub-question for the verdict: whether the state should also have an
-explicit spelling, an `owed()` clause beside `assumed()`, with "an `ensures`
-that no path owes" becoming an error wherever the clause is absent. The
-"explicit over implicit" principle favors the clause; detection alone is the
-smaller change.
+Add a contract clause `owed()`, beside `assumed()`, for a body that is not
+written yet:
+
+- The verifier does not walk the body. Callers assume the contract, as with
+  `assumed()`. The outcome is `owed`, and its JSON entry carries the
+  contract's source text, so the `owed` list is an agent's work queue.
+- `--strict` and the strict pragma fail on it, as a fourth class. The default
+  mode reports it in the build's summary and passes (D2: the default stops a
+  build only for a refuted claim).
+- It never erases a guard, and gate G1 and S6a's coverage line count it
+  outside "proved".
+- `owed()` needs at least one `ensures`; `owed()` with `assumed()` is an
+  error.
+- A function that states an `ensures`, has zero obligations and has no
+  `owed()` gets a hint in the report, not a failure.
+
+Why a clause and not detection alone: `ensures(false)` on a function that
+always panics is a meaningful claim ("this does not return") with the same
+shape as a stub, so detection would either miss stubs or reject that claim.
+A clause states the author's intent, which is the "explicit over implicit"
+rule, and gives the report an exact count.
+
+It should land before S6a: after it, every module is proved by default and
+the summary states how much is proved, and a `panic` stub must not count as
+proved there.
