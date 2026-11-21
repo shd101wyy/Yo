@@ -1,0 +1,25 @@
+// expect: E0910
+// A receiver reached through an `Rc` element of a list, with a closure argument whose
+// capture list lends the same list `&mut` and clears it
+// (issues/fixed/2026-11-21-a-closures-mut-capture-list-entry-is-not-checked-against-the-loans-of-the-calls-other-arguments.md)
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array-list");
+{ println } :: import("std/fmt");
+W :: struct(s : String);
+impl(
+  W,
+  peek : (fn(self : &Self, act : &mut Impl(FnMut() -> unit)) -> unit)({
+    act();
+    println(`OUT: ${self.s.clone()}`);
+  })
+);
+main :: (fn() -> unit)({
+  mut(hs) := ArrayList(Rc(W)).new();
+  hs.push(Rc.new(W(s : String.from("hello, a string long enough to live on the heap"))));
+  hs(usize(0)).peek(
+    &mut ({ &mut hs }() => {
+      hs.clear();
+    })
+  );
+});
+export(main);

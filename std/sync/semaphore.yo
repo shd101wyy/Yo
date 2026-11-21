@@ -22,11 +22,12 @@
 //! { Semaphore } :: import("std/sync/semaphore");
 //! { Thread } :: import("std/thread");
 //!
-//! sem := Semaphore.new(i32(2)); // at most 2 workers in the region
-//! t := Thread(unit).spawn(io => {
-//!   sem.acquire();
+//! sem := Arc.new(Semaphore.new(i32(2))); // at most 2 workers in the region
+//! mine := Arc.clone(sem);
+//! t := Thread(unit).spawn({ mine }(io : Io) => {
+//!   mine.acquire();
 //!   // ... at most 2 threads are ever here ...
-//!   sem.release();
+//!   mine.release();
 //! });
 //! t.join();
 //! ```
@@ -42,8 +43,8 @@
 pragma(Pragma.AllowUnsafe);
 { Mutex } :: import("./mutex");
 { Cond } :: import("./cond");
-/// Counting semaphore built on `Mutex` and `Cond`.
-/// Uses atomic reference counting for safe cross-thread sharing.
+/// Counting semaphore built on `Mutex` and `Cond`. A move-only value with its
+/// state in a private `Box`; threads share one as `Arc(Semaphore)`.
 ///
 /// The permit count lives under `_mutex` rather than in an atomic: every
 /// mutation has to be serialized with the `_permits <= 0` observation made by
@@ -54,19 +55,34 @@ _SemaphoreState :: struct(
   _mutex : Mutex(bool),
   _cv : Cond
 );
-Semaphore :: struct(_cell : __yo_atomic_cell(_SemaphoreState));
+Semaphore :: struct(_state : Box(_SemaphoreState));
+// SAFETY: every read and write of `_permits` happens under `_mutex`, so
+// threads may share the semaphore.
+impl(Semaphore, Send());
+impl(Semaphore, Sync());
+// Return one permit to the state `st` points at: `Semaphore.release` and the
+// releaser below.
+_semaphore_release :: (fn(st : *_SemaphoreState) -> unit)(
+  unsafe({
+    st.*._mutex._raw_lock();
+    consume(st.*._permits = (st.*._permits + i32(1)));
+    st.*._cv.signal();
+    st.*._mutex._raw_unlock();
+  })
+);
 // __SemaphoreReleaser — private object that releases one permit on Drop.
 // Allocated locally inside with_permit; Yo's drop-on-scope-exit and
 // drop-on-unwind machinery guarantees the release under both a normal return
-// and `unwind(...)`. Mirrors __MutexUnlocker in ./mutex.yo.
+// and `unwind(...)`. Mirrors __MutexUnlocker in ./mutex.yo. It points at the
+// state in the semaphore's box, which the `with_permit` call borrows.
 __SemaphoreReleaser :: struct(
-  _sem : Semaphore
+  _st : *_SemaphoreState
 );
 impl(
   __SemaphoreReleaser,
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
-      self._sem.release();
+      _semaphore_release(self._st);
     })
   )
 );
@@ -79,38 +95,39 @@ impl(
   /// batch of work.
   new : (fn(permits : i32) -> Self)(
     Self(
-      _cell : __yo_atomic_cell(_SemaphoreState)(
+      _state : Box.new(
         _SemaphoreState(
           _permits : permits,
           _mutex : Mutex(bool).new(false),
           _cv : Cond.new()
-        ),
-        .None
+        )
       )
     )
   ),
+  // The state in the box: writes go through it, under `_mutex`.
+  _st : (fn(self : &Self) -> *_SemaphoreState)(addr_of(self._state.*)),
   /// Take one permit, blocking until one is available.
   acquire : (fn(self : &Self) -> unit)({
-    self._cell.*._mutex._raw_lock();
-    while(self._cell.*._permits <= i32(0), {
-      self._cell.*._cv.wait_with(&self._cell.*._mutex);
+    self._state.*._mutex._raw_lock();
+    while(self._state.*._permits <= i32(0), {
+      self._state.*._cv.wait_with(&self._state.*._mutex);
     });
-    self._cell.*._permits = (self._cell.*._permits - i32(1));
-    self._cell.*._mutex._raw_unlock();
+    unsafe(consume(self._st().*._permits = (self._state.*._permits - i32(1))));
+    self._state.*._mutex._raw_unlock();
   }),
   /// Take one permit if one is available right now. Never blocks.
   /// Returns `true` when a permit was taken.
   try_acquire : (fn(self : &Self) -> bool)({
-    self._cell.*._mutex._raw_lock();
+    self._state.*._mutex._raw_lock();
     mut(taken) := false;
     cond(
-      (self._cell.*._permits > i32(0)) => {
-        self._cell.*._permits = (self._cell.*._permits - i32(1));
+      (self._state.*._permits > i32(0)) => {
+        unsafe(consume(self._st().*._permits = (self._state.*._permits - i32(1))));
         taken = true;
       },
       true => ()
     );
-    self._cell.*._mutex._raw_unlock();
+    self._state.*._mutex._raw_unlock();
     taken
   }),
   /// Return one permit, waking one waiter if any is blocked in `acquire`.
@@ -120,12 +137,7 @@ impl(
   /// the race to a thread that never blocked is harmless — the loser re-tests
   /// `_permits` in its `while` loop and parks again, and the permit it lost
   /// was consumed by the winner, so no release goes unmatched.
-  release : (fn(self : &Self) -> unit)({
-    self._cell.*._mutex._raw_lock();
-    self._cell.*._permits = (self._cell.*._permits + i32(1));
-    self._cell.*._cv.signal();
-    self._cell.*._mutex._raw_unlock();
-  }),
+  release : (fn(self : &Self) -> unit)(_semaphore_release(self._st())),
   /// Hold one permit for the duration of `body`, releasing it on the way out.
   ///
   /// The manual `acquire()` / `release()` pair is the one that leaks a permit
@@ -153,15 +165,15 @@ impl(
     ) -> R
   )({
     self.acquire();
-    _guard := __SemaphoreReleaser(self.*);
+    _guard := __SemaphoreReleaser(_st : self._st());
     body()
   }),
   /// The permits available at the instant of the call. Informational only —
   /// by the time the caller looks at it another thread may have taken one.
   available_permits : (fn(self : &Self) -> i32)({
-    self._cell.*._mutex._raw_lock();
-    n := self._cell.*._permits;
-    self._cell.*._mutex._raw_unlock();
+    self._state.*._mutex._raw_lock();
+    n := self._state.*._permits;
+    self._state.*._mutex._raw_unlock();
     n
   })
 );

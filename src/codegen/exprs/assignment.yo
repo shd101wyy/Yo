@@ -22,6 +22,7 @@
 { EvalValue, is_func_val } :: import("../../value.yo");
 { is_array_type, is_unit_type } :: import("../../types/guards.yo");
 { type_contains_rc_cell_or_move_only, type_is_sized } :: import("../../types/utils.yo");
+{ is_temp_variable_name } :: import("../../utils.yo");
 { FunctionGenerationContext, sm_owns_fnonce_captures } :: import("../functions/context.yo");
 { CapturedVariable } :: import("../../evaluator/async/await-analysis-types.yo");
 { _call_generate_expr } :: import("./dispatch.yo");
@@ -464,6 +465,19 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
       context.base.emitter.emit_string_line(&line);
       // The slot owns its new value: clear a move out of the old one.
       if(is_sm_var, match(sm_move_flag_of(lhs_code.clone(), sm_owns_fnonce_captures(context) && type_contains_rc_cell_or_move_only(&lhs_type)), .Some(flag) => context.base.emitter.emit_string_line(`${indent.clone()}${flag} = 0;`), .None => ()));
+    }, {
+      // A unit place stores nothing, but its right side still RUNS: a
+      // generator that returns its statement (`m = __yo_incr_rc(c)` renders
+      // `__yo_incr_rc(c)`) was discarded with the store
+      // (issues/fixed/2026-11-20-a-side-effecting-builtin-is-deleted-when-its-unit-value-is-bound-or-folded.md).
+      // A temp name is a value the right side's own statements computed.
+      rhs_is_stmt := match(context.base.get_expr_info(&rhs), .Some(rsi) => !is_temp_variable_name(&rsi.env().module_path().*, rhs_code.clone()), .None => true);
+      if((rhs_code.len() > usize(0)) && rhs_is_stmt, {
+        mut(ustmt) := indent.clone();
+        ustmt.push_string(&rhs_code);
+        ustmt.push_str(";");
+        context.base.emitter.emit_string_line(&ustmt);
+      });
     });
   });
   context.current_assignment_save_temp = prev_save_temp;

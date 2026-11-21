@@ -13,7 +13,7 @@
 { String } :: import("std/string");
 { RefCell } :: import("std/sync/refcell");
 { function_reaches_non_send_global, d1_reach_memo, d1_note_thread_reach } :: import("../effects/mutation-summary.yo");
-{ is_implicitly_unsafe_capable_file } :: import("../memory-safety.yo");
+{ is_implicitly_unsafe_capable_file, is_destroying_builtin_call_capable, ownership_builtin_error_message } :: import("../memory-safety.yo");
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array-list");
 { HashMap } :: import("std/collections/hash-map");
@@ -520,7 +520,7 @@ _function_value_offense :: (
   });
   // The captures: the verdict taken at the closure's creation, per captured
   // variable; without one, the capture struct as a type.
-  cap_hint := "a closure has a marker trait only when every value it captures does; capture an atomic object (Arc(T), Mutex(T), Atomic*) instead";
+  cap_hint := "a closure has a marker trait only when every value it captures does; capture a thread-safe value instead: an `Arc.clone(...)` of an `Arc(T)` — `Arc(Mutex(T))` for state it writes, `Arc(AtomicUsize)` for a counter";
   match(
     g_closure_capture_offense.with({ fid : &fid.*, &mname }(m) => m.get_cloned(`${fid}|${mname}`)),
     .Some(.Some(co)) => {
@@ -1828,6 +1828,13 @@ structural_clone_expansion :: (
 evaluate_yo_capture_field :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
   cf_args := match(expr, Rc(.FnCall(_, _, Rc(a), _, _)) => a.clone(), _ => ArrayList(AstExpr).new());
   recv := match(cf_args.get_cloned(usize(0)), .Some(a) => a, .None => make_err_expr());
+  // A read in place that a caller binds is a second owner of the field: the
+  // clone template that writes it is `auto-generated://` code
+  // (issues/fixed/2026-11-21-the-rc-ownership-builtins-are-callable-outside-unsafe.md).
+  cf_tok := ast_expr_token(expr);
+  if(!is_destroying_builtin_call_capable(Option(String).Some(cf_tok.module_path.*.clone())), {
+    exn.throw(dyn(Box.new(format_error_message(&cf_tok, ownership_builtin_error_message(&String.from(BF_YO_CAPTURE_FIELD), &ast_expr_to_string(&recv))))));
+  });
   idx_e := match(cf_args.get_cloned(usize(1)), .Some(a) => a, .None => make_err_expr());
   ev_recv := evaluate_expression_raw(&recv, env, ctx, exn);
   _ := evaluate_expression_raw(&idx_e, env, ctx, exn);

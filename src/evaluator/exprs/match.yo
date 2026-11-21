@@ -61,7 +61,7 @@ pragma(Pragma.AllowUnsafe);
 { expr_info_set_origin, OriginRootPlace } :: import("../../expr-info.yo");
 { Environment, Variable, pop_env_frame, snapshot_env, env_adopt, variable_set_is_ref, variable_set_is_imm_borrow, variable_set_is_borrow_match_binding, variable_set_reference_mut } :: import("../../env.yo");
 { Token, TokenKind, intern_token_str, TokenData } :: import("../../token.yo");
-{ add_variable_to_env, get_variables_from_env, find_variable_in_env, variable_set_inout_borrow_root_id, variable_mark_inout_borrow_root, mark_macro_pattern_binding } :: import("../../env.yo");
+{ add_variable_to_env, get_variables_from_env, find_variable_in_env, variable_set_inout_borrow_root_id, mark_macro_pattern_binding } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, fn_ctx_returns_comptime, call_is_index_place } :: import("../context.yo");
 {
   EvalValue,
@@ -1950,7 +1950,6 @@ evaluate_match :: (
                 &mut_root,
                 .Some(rv) => {
                   variable_set_inout_borrow_root_id(&pv, rv.id());
-                  variable_mark_inout_borrow_root(&rv.*);
                 },
                 .None => ()
               );

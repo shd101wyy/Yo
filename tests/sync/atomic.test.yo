@@ -1,4 +1,8 @@
 /// Phase C (THREAD_SAFETY): Atomic* wrappers runtime tests.
+///
+/// Every `Atomic*` is a move-only value. The cross-thread tests share one
+/// through `Arc` (Rust's shape): each thread's closure moves in its own
+/// `Arc.clone`, and a helper taking `c : &AtomicI64` is lent `&counter.*`.
 { assert } :: import("std/assert");
 {
   AtomicBool,
@@ -93,9 +97,9 @@ test("AtomicI32 compare_exchange failure", {
 // ============================================================================
 test("AtomicI32 cross-thread counter", {
   if(arch == Arch.Wasm32, return(()));
-  counter := AtomicI32.new(i32(0));
+  counter := Arc.new(AtomicI32.new(i32(0)));
   iterations := i32(1000);
-  t := Thread(unit).spawn(io => {
+  t := Thread(unit).spawn({ counter : Arc.clone(counter), iterations }(io) => {
     (mut(i) : i32) = i32(0);
     while(i < iterations, {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
@@ -624,7 +628,7 @@ test("AtomicIsize wraps like the runtime operator", {
 // ============================================================================
 test("AtomicI64 fetch_add under four-thread contention", {
   if(arch == Arch.Wasm32, return(()));
-  counter := AtomicI64.new(i64(0));
+  counter := Arc.new(AtomicI64.new(i64(0)));
   iterations := i64(5000);
   spin :: (fn(c : &AtomicI64, n : i64) -> unit)({
     (mut(i) : i64) = i64(0);
@@ -633,10 +637,10 @@ test("AtomicI64 fetch_add under four-thread contention", {
       i = (i + i64(1));
     });
   });
-  t1 := Thread(unit).spawn(io => spin(&counter, iterations));
-  t2 := Thread(unit).spawn(io => spin(&counter, iterations));
-  t3 := Thread(unit).spawn(io => spin(&counter, iterations));
-  spin(&counter, iterations);
+  t1 := Thread(unit).spawn({ counter : Arc.clone(counter), iterations }(io) => spin(&counter.*, iterations));
+  t2 := Thread(unit).spawn({ counter : Arc.clone(counter), iterations }(io) => spin(&counter.*, iterations));
+  t3 := Thread(unit).spawn({ counter : Arc.clone(counter), iterations }(io) => spin(&counter.*, iterations));
+  spin(&counter.*, iterations);
   t1.join();
   t2.join();
   t3.join();
@@ -645,7 +649,7 @@ test("AtomicI64 fetch_add under four-thread contention", {
 test("AtomicU64 fetch_sub under four-thread contention", {
   if(arch == Arch.Wasm32, return(()));
   iterations := u64(5000);
-  counter := AtomicU64.new(iterations * u64(4));
+  counter := Arc.new(AtomicU64.new(iterations * u64(4)));
   drain :: (fn(c : &AtomicU64, n : u64) -> unit)({
     (mut(i) : u64) = u64(0);
     while(i < n, {
@@ -653,10 +657,10 @@ test("AtomicU64 fetch_sub under four-thread contention", {
       i = (i + u64(1));
     });
   });
-  t1 := Thread(unit).spawn(io => drain(&counter, iterations));
-  t2 := Thread(unit).spawn(io => drain(&counter, iterations));
-  t3 := Thread(unit).spawn(io => drain(&counter, iterations));
-  drain(&counter, iterations);
+  t1 := Thread(unit).spawn({ counter : Arc.clone(counter), iterations }(io) => drain(&counter.*, iterations));
+  t2 := Thread(unit).spawn({ counter : Arc.clone(counter), iterations }(io) => drain(&counter.*, iterations));
+  t3 := Thread(unit).spawn({ counter : Arc.clone(counter), iterations }(io) => drain(&counter.*, iterations));
+  drain(&counter.*, iterations);
   t1.join();
   t2.join();
   t3.join();
@@ -664,7 +668,7 @@ test("AtomicU64 fetch_sub under four-thread contention", {
 });
 test("AtomicUsize fetch_add under four-thread contention", {
   if(arch == Arch.Wasm32, return(()));
-  counter := AtomicUsize.new(usize(0));
+  counter := Arc.new(AtomicUsize.new(usize(0)));
   iterations := usize(5000);
   spin :: (fn(c : &AtomicUsize, n : usize) -> unit)({
     (mut(i) : usize) = usize(0);
@@ -673,10 +677,10 @@ test("AtomicUsize fetch_add under four-thread contention", {
       i = (i + usize(1));
     });
   });
-  t1 := Thread(unit).spawn(io => spin(&counter, iterations));
-  t2 := Thread(unit).spawn(io => spin(&counter, iterations));
-  t3 := Thread(unit).spawn(io => spin(&counter, iterations));
-  spin(&counter, iterations);
+  t1 := Thread(unit).spawn({ counter : Arc.clone(counter), iterations }(io) => spin(&counter.*, iterations));
+  t2 := Thread(unit).spawn({ counter : Arc.clone(counter), iterations }(io) => spin(&counter.*, iterations));
+  t3 := Thread(unit).spawn({ counter : Arc.clone(counter), iterations }(io) => spin(&counter.*, iterations));
+  spin(&counter.*, iterations);
   t1.join();
   t2.join();
   t3.join();
@@ -696,12 +700,13 @@ test("AtomicU32 fetch_or / fetch_and under four-thread contention", {
   // A dropped `fetch_and` leaves the bit standing and the next `fetch_or`
   // sees it. Each thread reports into its OWN atomic (single writer, so the
   // report cannot itself be lost to contention).
-  bits := AtomicU32.new(u32(0));
+  bits := Arc.new(AtomicU32.new(u32(0)));
   iterations := u32(4000);
+  // v0 is the main thread's own report, so it is never shared.
   v0 := AtomicU32.new(u32(0));
-  v1 := AtomicU32.new(u32(0));
-  v2 := AtomicU32.new(u32(0));
-  v3 := AtomicU32.new(u32(0));
+  v1 := Arc.new(AtomicU32.new(u32(0)));
+  v2 := Arc.new(AtomicU32.new(u32(0)));
+  v3 := Arc.new(AtomicU32.new(u32(0)));
   toggle :: (
     fn(c : &AtomicU32, report : &AtomicU32, bit : u32, keep : u32, n : u32) -> unit
   )({
@@ -715,10 +720,10 @@ test("AtomicU32 fetch_or / fetch_and under four-thread contention", {
       i = (i + u32(1));
     });
   });
-  t1 := Thread(unit).spawn(io => toggle(&bits, &v1, u32(2), u32(4294967293), iterations));
-  t2 := Thread(unit).spawn(io => toggle(&bits, &v2, u32(4), u32(4294967291), iterations));
-  t3 := Thread(unit).spawn(io => toggle(&bits, &v3, u32(8), u32(4294967287), iterations));
-  toggle(&bits, &v0, u32(1), u32(4294967294), iterations);
+  t1 := Thread(unit).spawn({ bits : Arc.clone(bits), v : Arc.clone(v1), iterations }(io) => toggle(&bits.*, &v.*, u32(2), u32(4294967293), iterations));
+  t2 := Thread(unit).spawn({ bits : Arc.clone(bits), v : Arc.clone(v2), iterations }(io) => toggle(&bits.*, &v.*, u32(4), u32(4294967291), iterations));
+  t3 := Thread(unit).spawn({ bits : Arc.clone(bits), v : Arc.clone(v3), iterations }(io) => toggle(&bits.*, &v.*, u32(8), u32(4294967287), iterations));
+  toggle(&bits.*, &v0, u32(1), u32(4294967294), iterations);
   t1.join();
   t2.join();
   t3.join();
@@ -733,7 +738,7 @@ test("AtomicU16 fetch_xor under four-thread contention", {
   // Each thread flips the same mask an EVEN number of times, so a
   // sequentially-consistent run returns to the initial value. Any lost
   // read-modify-write leaves the flip unpaired and the result non-zero.
-  flags := AtomicU16.new(u16(0));
+  flags := Arc.new(AtomicU16.new(u16(0)));
   iterations := u16(5000);
   flip :: (fn(c : &AtomicU16, mask : u16, n : u16) -> unit)({
     (mut(i) : u16) = u16(0);
@@ -742,10 +747,10 @@ test("AtomicU16 fetch_xor under four-thread contention", {
       i = (i + u16(1));
     });
   });
-  t1 := Thread(unit).spawn(io => flip(&flags, u16(43981), iterations));
-  t2 := Thread(unit).spawn(io => flip(&flags, u16(43981), iterations));
-  t3 := Thread(unit).spawn(io => flip(&flags, u16(4660), iterations));
-  flip(&flags, u16(4660), iterations);
+  t1 := Thread(unit).spawn({ flags : Arc.clone(flags), iterations }(io) => flip(&flags.*, u16(43981), iterations));
+  t2 := Thread(unit).spawn({ flags : Arc.clone(flags), iterations }(io) => flip(&flags.*, u16(43981), iterations));
+  t3 := Thread(unit).spawn({ flags : Arc.clone(flags), iterations }(io) => flip(&flags.*, u16(4660), iterations));
+  flip(&flags.*, u16(4660), iterations);
   t1.join();
   t2.join();
   t3.join();
@@ -762,12 +767,13 @@ test("AtomicI32 fetch_min / fetch_max under four-thread contention", {
   // thread has run `hi.fetch_max(v)`, `hi` is >= v forever, and likewise
   // `lo` is <= v after `lo.fetch_min(v)`. A dropped read-modify-write breaks
   // exactly that. Each thread reports into its OWN atomic (single writer).
-  lowest := AtomicI32.new(i32(1000000));
-  highest := AtomicI32.new(i32(-1000000));
+  lowest := Arc.new(AtomicI32.new(i32(1000000)));
+  highest := Arc.new(AtomicI32.new(i32(-1000000)));
+  // v0 is the main thread's own report, so it is never shared.
   v0 := AtomicI32.new(i32(0));
-  v1 := AtomicI32.new(i32(0));
-  v2 := AtomicI32.new(i32(0));
-  v3 := AtomicI32.new(i32(0));
+  v1 := Arc.new(AtomicI32.new(i32(0)));
+  v2 := Arc.new(AtomicI32.new(i32(0)));
+  v3 := Arc.new(AtomicI32.new(i32(0)));
   push :: (
     fn(lo : &AtomicI32, hi : &AtomicI32, report : &AtomicI32, base : i32, n : i32) -> unit
   )({
@@ -785,10 +791,10 @@ test("AtomicI32 fetch_min / fetch_max under four-thread contention", {
       i = (i + i32(1));
     });
   });
-  t1 := Thread(unit).spawn(io => push(&lowest, &highest, &v1, i32(1000), i32(1000)));
-  t2 := Thread(unit).spawn(io => push(&lowest, &highest, &v2, i32(2000), i32(1000)));
-  t3 := Thread(unit).spawn(io => push(&lowest, &highest, &v3, i32(3000), i32(1000)));
-  push(&lowest, &highest, &v0, i32(0), i32(1000));
+  t1 := Thread(unit).spawn({ lowest : Arc.clone(lowest), highest : Arc.clone(highest), v : Arc.clone(v1) }(io) => push(&lowest.*, &highest.*, &v.*, i32(1000), i32(1000)));
+  t2 := Thread(unit).spawn({ lowest : Arc.clone(lowest), highest : Arc.clone(highest), v : Arc.clone(v2) }(io) => push(&lowest.*, &highest.*, &v.*, i32(2000), i32(1000)));
+  t3 := Thread(unit).spawn({ lowest : Arc.clone(lowest), highest : Arc.clone(highest), v : Arc.clone(v3) }(io) => push(&lowest.*, &highest.*, &v.*, i32(3000), i32(1000)));
+  push(&lowest.*, &highest.*, &v0, i32(0), i32(1000));
   t1.join();
   t2.join();
   t3.join();
@@ -817,10 +823,10 @@ test("fence publishes a relaxed store across threads", {
   // ordering comes only from the fences. `data` is written before the
   // release fence and the flag; the reader's acquire fence after seeing the
   // flag must therefore observe the payload.
-  data := AtomicI64.new(i64(0));
-  ready := AtomicBool.new(false);
+  data := Arc.new(AtomicI64.new(i64(0)));
+  ready := Arc.new(AtomicBool.new(false));
   observed := AtomicI64.new(i64(-1));
-  writer := Thread(unit).spawn(io => {
+  writer := Thread(unit).spawn({ data : Arc.clone(data), ready : Arc.clone(ready) }(io) => {
     data.store(i64(424242), MemoryOrder.Relaxed);
     fence(MemoryOrder.Release);
     ready.store(true, MemoryOrder.Relaxed);

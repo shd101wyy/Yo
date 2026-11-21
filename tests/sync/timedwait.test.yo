@@ -8,6 +8,10 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 /// and friends are private to `std/sync/` (member visibility —
 /// plans/reference/MEMBER_VISIBILITY.md), and the public methods are exactly
 /// the callers whose behaviour these primitives must carry.
+///
+/// `Mutex` and `Cond` are move-only values: a `with_lock` body borrows the
+/// ones it waits on through its capture list (`{ &m, &cv }`), and a second
+/// thread shares them through `Arc.clone` (Rust's shape).
 { assert } :: import("std/assert");
 { Mutex } :: import("std/sync/mutex");
 { Cond } :: import("std/sync/cond");
@@ -27,11 +31,11 @@ test("__yo_mutex_trylock fails while ANOTHER thread holds the mutex", {
   // Cross-thread on purpose: a same-thread re-lock diverges by platform
   // (a Windows CRITICAL_SECTION is recursive and would answer true, a POSIX
   // NORMAL mutex answers false), so it would not be a portable assertion.
-  m := Mutex(i64).new(i64(0));
+  m := Arc.new(Mutex(i64).new(i64(0)));
   held := Channel(i32).new(usize(1));
   release := Channel(i32).new(usize(1));
-  holder := Thread(unit).spawn(io => {
-    m.with_lock(_v => {
+  holder := Thread(unit).spawn({ m : Arc.clone(m), held : held.clone(), release : release.clone() }(io) => {
+    m.with_lock({ &held, &release }(_v) => {
       _ := held.send(i32(1));
       release.recv();
     });
@@ -52,7 +56,7 @@ test("__yo_cond_timedwait times out, and actually waits that long", {
   m := Mutex(i64).new(i64(0));
   cv := Cond.new();
   start := Instant.now();
-  signalled := m.with_lock(_v => cv.wait_timeout_with(&m, Duration.from_nanos(i64(50000000))));
+  signalled := m.with_lock({ &m, &cv }(_v) => cv.wait_timeout_with(m, Duration.from_nanos(i64(50000000))));
   waited := start.elapsed();
   assert(!signalled, "nobody signalled, so it must report a timeout");
   eprintln(`  waited ${waited.as_millis()}ms for a 50ms timeout`);
@@ -61,21 +65,21 @@ test("__yo_cond_timedwait times out, and actually waits that long", {
   assert(waited.as_millis() >= i64(40), `waited ${waited.as_millis()}ms, expected at least 40`);
 });
 test("__yo_cond_timedwait returns early when signalled", {
-  m := Mutex(i64).new(i64(0));
-  cv := Cond.new();
+  m := Arc.new(Mutex(i64).new(i64(0)));
+  cv := Arc.new(Cond.new());
   ready := Channel(i32).new(usize(1));
-  signaller := Thread(unit).spawn(io => {
+  signaller := Thread(unit).spawn({ m : Arc.clone(m), cv : Arc.clone(cv), ready : ready.clone() }(io) => {
     // Wait until the main thread is inside the wait, then signal. Taking the
     // mutex is what guarantees that: the waiter releases it atomically on
     // entering the wait, so acquiring it here means the wait has begun.
     ready.recv();
-    m.with_lock(_v => cv.signal());
+    m.with_lock({ &cv }(_v) => cv.signal());
   });
   start := Instant.now();
-  signalled := m.with_lock(_v => {
+  signalled := m.with_lock({ &m, &cv, &ready }(_v) => {
     _ := ready.send(i32(1));
     // A 10s budget that must not be consumed.
-    cv.wait_timeout_with(&m, Duration.from_secs(i64(10)))
+    cv.wait_timeout_with(&m.*.*, Duration.from_secs(i64(10)))
   });
   waited := start.elapsed();
   signaller.join();
@@ -89,18 +93,18 @@ test("__yo_cond_timedwait honours a SUB-millisecond timeout", {
   // instant false that happens to look the same.
   m := Mutex(i64).new(i64(0));
   cv := Cond.new();
-  signalled := m.with_lock(_v => cv.wait_timeout_with(&m, Duration.from_micros(i64(100))));
+  signalled := m.with_lock({ &m, &cv }(_v) => cv.wait_timeout_with(m, Duration.from_micros(i64(100))));
   assert(!signalled, "an unsignalled sub-millisecond wait still times out");
 });
 test("__yo_cond_timedwait treats a zero and a negative timeout as 'do not block'", {
   m := Mutex(i64).new(i64(0));
   cv := Cond.new();
   start := Instant.now();
-  m.with_lock(_v => {
-    assert(!cv.wait_timeout_with(&m, Duration.zero()), "zero times out");
+  m.with_lock({ &m, &cv }(_v) => {
+    assert(!cv.wait_timeout_with(m, Duration.zero()), "zero times out");
     // A negative timeout is clamped to zero rather than becoming a very long
     // wait through an unsigned conversion.
-    assert(!cv.wait_timeout_with(&m, Duration.from_nanos(i64(-1))), "negative times out");
+    assert(!cv.wait_timeout_with(m, Duration.from_nanos(i64(-1))), "negative times out");
   });
   waited := start.elapsed();
   assert(waited.as_secs() < i64(2), `both returned promptly, in ${waited.as_millis()}ms`);

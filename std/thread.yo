@@ -131,7 +131,7 @@ impl(
   /// consumes it there and the spawn wrapper frees only the relay's struct.
   spawn : (fn(sink(cb) : Impl(FnOnce(io : Io) -> T, Send)) -> Self)({
     chan := Channel(T).new(usize(1));
-    tx := chan;
+    tx := chan.clone();
     (relay : Impl(FnOnce(io : Io) -> unit, Send)) = ({ cb, tx }(io : Io) => {
       _ := tx.send(cb(io));
       ()
@@ -202,7 +202,8 @@ impl(
 /// pool.shutdown(); // refuse new work, then drain
 /// ```
 _ThreadPoolState :: struct(
-  _tasks : WaitGroup,
+  /// Shared with every task's relay, which counts the task done.
+  _tasks : Arc(WaitGroup),
   _closed : AtomicBool
 );
 ThreadPool :: struct(_cell : __yo_atomic_cell(_ThreadPoolState));
@@ -227,7 +228,7 @@ impl(
     Self(
       _cell : __yo_atomic_cell(_ThreadPoolState)(
         _ThreadPoolState(
-          _tasks : WaitGroup.new(),
+          _tasks : Arc.new(WaitGroup.new()),
           _closed : AtomicBool.new(false)
         ),
         .None
@@ -344,7 +345,7 @@ spawn :: (fn(pool : &ThreadPool, sink(cb) : Impl(FnOnce(io : Io) -> unit, Send))
     },
     true => ()
   );
-  tasks := pool._cell.*._tasks;
+  tasks := Arc.clone(pool._cell.*._tasks);
   tasks.add(i32(1));
   (relay : Impl(FnOnce(io : Io) -> unit, Send)) = ({ cb, tasks }(io : Io) => {
     cb(io);
@@ -429,7 +430,7 @@ spawn_blocking :: (
   p := Park.new();
   w := p.waker();
   chan := Channel(T).new(usize(1));
-  sink := chan;
+  sink := chan.clone();
   // The loop to un-bracket. `blocking_end` runs on the WORKER thread, where
   // "this loop" is a different loop entirely. The pointer travels inside
   // `_BlockingOwner` — a raw pointer is never `Send` on its own (decision

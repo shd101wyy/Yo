@@ -54,9 +54,9 @@ test("the glob destructure binds every declared name", {
   assert(unsafe(abs(int(-3))) == int(3), "abs came in through the glob");
 });
 // ── `extern(...)` is a module value too.
-rt :: extern("Yo", __yo_thread_self : (fn() -> usize));
+rt :: extern("c", toupper : (fn(c : i32) -> i32));
 test("an extern module value is called through its name", {
-  assert(rt.__yo_thread_self() == rt.__yo_thread_self(), "the same symbol both times");
+  assert(unsafe(rt.toupper(i32(97))) == i32(65), "rt.toupper is the C toupper");
 });
 // ── Definition order: a `c_include` member — here under a renamed binding —
 //    is forward-referenceable like an `extern` member: the statement is a
@@ -70,6 +70,6 @@ test("a c_include member declared below its caller is forward-referenceable", {
 //    in the block, and only there (`rt` above bound no bare name, so this
 //    does not shadow anything).
 test("a bare extern statement inside a block binds into that block", {
-  extern("Yo", __yo_thread_self : (fn() -> usize));
-  assert(__yo_thread_self() == rt.__yo_thread_self(), "the block-scoped binding is the same symbol");
+  extern("c", toupper : (fn(c : i32) -> i32));
+  assert(unsafe(toupper(i32(98))) == unsafe(rt.toupper(i32(98))), "the block-scoped binding is the same symbol");
 });

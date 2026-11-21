@@ -1,0 +1,40 @@
+// Each line should print the count after its form runs: 2 3 4 5 and then
+// n = 7. Before the fix every form below was deleted from the C
+// (prints 1 1 1 1 and n = 0).
+pragma(Pragma.AllowUnsafe);
+{ println } :: import("std/fmt");
+
+main :: (fn() -> unit)({
+  a := Rc.new(i32(5));
+  cell := unsafe(unsafe.cast(&a, *void));
+  // A unit binding of the builtin's `()`.
+  _p := __yo_incr_rc(cell);
+  println(ref_count(a));
+  // A unit assignment.
+  mut(m) := ();
+  m = __yo_incr_rc(cell);
+  println(ref_count(a));
+  // A tuple element: the tuple folds to its known value.
+  _t := (__yo_incr_rc(cell), i32(2));
+  println(ref_count(a));
+  // A valued block: the block folds to its tail.
+  _x := {
+    __yo_incr_rc(cell);
+    i32(5)
+  };
+  println(ref_count(a));
+  // The std idiom `consume(p.* = v)` in a valued block: the store is deleted.
+  mut(n) := i32(0);
+  p := addr_of(n);
+  _y := {
+    unsafe(consume(p.* = i32(7)));
+    i32(5)
+  };
+  println(&n);
+  // Release the extra references the forms took (none before the fix).
+  while(ref_count(a) > usize(1), {
+    __yo_decr_rc(cell);
+  });
+  ()
+});
+export(main);

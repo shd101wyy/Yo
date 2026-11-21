@@ -106,9 +106,10 @@ test "Thread spawn and join with multiple boxed captures", {
 // issues/fixed/thread-join-was-re-callable-and-handles-leaked.md
 // A handle that goes out of scope un-joined must DETACH its thread (Rust's
 // JoinHandle::drop): the thread still runs to completion and the OS reclaims
-// it. The helper exists so the handle drops at a known point.
+// it. The helper exists so the handle drops at a known point. The thread gets
+// its own handle on the caller's channel (`out.clone()`, the same queue).
 _spawn_and_drop_handle :: (fn(out : &Channel(i32)) -> unit)({
-  t := Thread(unit).spawn(io => {
+  t := Thread(unit).spawn({ out : out.clone() }(io) => {
     _ := out.send(i32(7));
     ()
   });
@@ -177,11 +178,11 @@ test("std/log configuration and filtering are safe from several threads at once"
 // never disposes.
 //
 // The counter is a MODULE-LEVEL atomic rather than a field of the tracked
-// object, deliberately: putting it in a field makes the tracked object hold a
-// reference to it, and a local stored into a struct field is dangling once the
-// container dies
-// (issues/fixed/a-local-stored-in-a-struct-field-is-dangling-after-the-container-dies.md),
-// which is a different bug and would be the thing this test measured.
+// object, deliberately: an atomic is a move-only value, so a field would be
+// the object's own counter, gone with the object whose disposal it counts.
+// (When atomics were shared handles, the field held a reference to a local,
+// dangling once the container died:
+// issues/fixed/a-local-stored-in-a-struct-field-is-dangling-after-the-container-dies.md.)
 // ---------------------------------------------------------------------------
 _spawn_dispose_count := AtomicUsize.new(usize(0));
 // The tracked payload is shared across the thread boundary through an `Arc`;
@@ -285,7 +286,7 @@ _spawn_zst_relay :: (
   fn(generic(T : Type), cb : &Impl(Fn(io : Io) -> T), where(T <: Send)) -> Channel(T)
 )({
   chan := Channel(T).new(usize(1));
-  sink := chan;
+  sink := chan.clone();
   t := Thread(unit).spawn((io : Io) => {
     _ := sink.send(cb(io));
     ()
@@ -386,12 +387,12 @@ test("Test rand draws from a PER-THREAD generator, not a shared locked one", {
   // from OS entropy, so the sequences are not reproducible and a value test
   // would be flaky by construction.
   c := Channel(u64).new(usize(4));
-  t1 := Thread(unit).spawn(io => {
+  t1 := Thread(unit).spawn({ c : c.clone() }(io) => {
     _ := c.send(rand_u64());
     _ := c.send(rand_u64());
   });
   t1.join();
-  t2 := Thread(unit).spawn(io => {
+  t2 := Thread(unit).spawn({ c : c.clone() }(io) => {
     _ := c.send(rand_u64());
     _ := c.send(rand_u64());
   });
@@ -419,10 +420,10 @@ test("Test rand draws from a PER-THREAD generator, not a shared locked one", {
 // the heap ran out, Aborted(OOM)
 // (issues/fixed/emscripten-threads-created-off-the-main-thread-are-never-reclaimed.md).
 test("Test a spawned thread joins a thread of its own, 5000 times", {
-  done := AtomicUsize.new(usize(0));
+  done := Arc.new(AtomicUsize.new(usize(0)));
   (mut(i) : i32) = i32(0);
   while(i < i32(5000), {
-    t := Thread(unit).spawn((io : Io) => {
+    t := Thread(unit).spawn({ done : Arc.clone(done) }(io : Io) => {
       inner := Thread(unit).spawn((iio : Io) => {
         _n := done.fetch_add(usize(1), MemoryOrder.AcqRel);
         ()
