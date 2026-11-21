@@ -158,8 +158,7 @@ export(main);
 
 **值写法。** 在持有值的位置（按值参数、返回值、带类型的局部变量、结构体字段、数组元素、类型实参如
 `ArrayList(str)`）写出的 `str` 暂时表示 `&(str, static)`，与以前的含义相同：静态字节的视图。
-`yo fix --migrate unsized` 会改写成这种写法（`(name : &(str, static))`、`ArrayList(&(str, static))`），
-并列出需要手工改写的 `sink(s) : str` 参数。值写法将在 v0.2.80 移除。`&str` 与 `String` 或 `str`
+值写法将在 v0.2.80 移除。`&str` 与 `String` 或 `str`
 的比较（`name == "lit"`、`"lit" == name`）通过同一条旧规则继续可用。
 
 ## 副本、克隆与字节列表

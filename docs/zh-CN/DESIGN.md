@@ -586,7 +586,7 @@ r := match(
 编译期绑定声明为 `mut(x) :: v`（或 `comptime(mut(x)) := v`），在块中和模块级都一样。`for` 的元素
 绑定和闭包捕获列表中的条目同样不接受 `mut`；需要修改它们的函数体应重新绑定。
 
-`yo fix <path>` 会为一次写入插入它需要的标记，每轮一处；旧代码请在最后携带这些迁移的版本（[ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md)“已退役的迁移”）上升级。本版本中，该规则在除编译器自身
+`yo fix <path>` 会为一次写入插入它需要的标记，每轮一处。本版本中，该规则在除编译器自身
 源码之外的所有地方生效（编译器源码在下一个版本中迁移）；`std/` 已完成迁移，同样受此检查。
 
 > `mut` 是保留字：它包住绑定的名字（`mut(x) := v`），或出现在 `&` 之后（位置中的 `&mut T`，调用点的 `&mut x`）；名为 `mut` 的绑定或参数是错误。`imm` 已不再是关键字。
@@ -744,7 +744,7 @@ bump :: (fn(x : &mut i32) -> unit)({
 
 **`Escapable` 与经由句柄的借用**（决策 43 第 2 步，N1d；[`plans/backlog/REFERENCES_AND_ORIGINS.md`](../../plans/backlog/REFERENCES_AND_ORIGINS.md) O9、O10）。prelude 的标记 trait `Escapable` 对不携带 origin 的类型成立：引用、任何持有引用的类型、带借用捕获的闭包以及借用的 future 都不是 `Escapable`；其他所有类型都是。它像 `Send` 一样由类型的结构推导，从不手写实现（`impl(T, Escapable())` 是错误）。泛型函数用 `where(T <: Escapable)` 声明它，把 `T` 绑定为带 origin 的类型的调用在该调用处报错误 E0909。`Rc(V)` 与 `Arc(V)` 只接受 `Escapable` 的载荷，因此对持有引用的 `v` 调用 `Rc.new(v)` 以同样的消息报 E0909：计数单元的载荷在最后一个句柄消失时才释放，那个时刻无法与任何借用对照检查。共享借用可以穿过句柄的解引用：`r := &h.*.x` 与捕获 `{ x : &h.*.x }` 借用载荷，以句柄的位置为 origin，因此借用存活期间 `h` 被冻结（丢弃、移动或重新赋值它是 E0911；另一个句柄的丢弃没有问题，因为被冻结的 `h` 仍持有载荷）。经由句柄的载荷是只读的（决策 46），所以 `&mut h.*.x` 仍是错误 E0919。
 
-**用 `.*` 读引用**（决策 43 第 2 步，N1e-1；[`plans/backlog/REFERENCES_AND_ORIGINS.md`](../../plans/backlog/REFERENCES_AND_ORIGINS.md)）。引用绑定（`&T` 或 `&mut T` 参数、局部借用 `y := &place`、捕获列表中的借用、`for(&xs, x => …)` 的元素、`match(&x, …)` 或 `match(&mut x, …)` 的绑定）用 `.*` 读写它所引用的值：`n : &i32` 时写 `n.* + 1`，`r : &mut T` 时写 `r.* = v`，`x := r.*`（复制，与 `t := s` 的复制相同）。把裸名字当作整个值使用是错误 E0926：运算数（`n + 1`；运算符从不自动解引用）、按值传递的实参、初始化式、返回值、写入 `r = v`，以及借用 `&r`（应写作 `&r.*`，即被引用的值）。裸名字的四种用法不是整值读取，保持原样：接收者经由引用读取（`r.field`、`r.method()`、`r(i)`）；把名字传给引用参数（`f(r)` 传递 `r` 所借用的）；重新指向 `r = &place`；以及 `match(r, …)` 的被匹配值，它经由引用匹配，因此其绑定借用被引用值的载荷（经由 `&mut` 引用时还能写入）。对引用写 `match(&r, …)` 是 E0926，因为这个标记是多余的，迁移会删掉它；`match(r.*, …)` 匹配被引用值的一份副本。对指向 `Box`、`Rc` 或指针的引用，`r.*` 是引用自身的解引用，`r.*.*` 才是载荷。`yo fix <path> --migrate deref` 插入所有 `.*` 并删掉 `match` 中多余的标记（`YO_AUDIT_DEREF=1` 只列出位置，不修改文件）。无论在哪台主机上运行，它都会迁移按平台分支的 `cond` 的每个分支：若文件中有在主机上不会求值的分支，就针对其他每种架构和操作系统再求值一次；两个目标读法不同的位置会被列出并保持原样。该规则适用于所有文件，包括标准库、编译器自身源码和获取的依赖（自 v0.2.79 起）；只有编译器合成的代码保留裸名读取。
+**用 `.*` 读引用**（决策 43 第 2 步，N1e-1；[`plans/backlog/REFERENCES_AND_ORIGINS.md`](../../plans/backlog/REFERENCES_AND_ORIGINS.md)）。引用绑定（`&T` 或 `&mut T` 参数、局部借用 `y := &place`、捕获列表中的借用、`for(&xs, x => …)` 的元素、`match(&x, …)` 或 `match(&mut x, …)` 的绑定）用 `.*` 读写它所引用的值：`n : &i32` 时写 `n.* + 1`，`r : &mut T` 时写 `r.* = v`，`x := r.*`（复制，与 `t := s` 的复制相同）。把裸名字当作整个值使用是错误 E0926：运算数（`n + 1`；运算符从不自动解引用）、按值传递的实参、初始化式、返回值、写入 `r = v`，以及借用 `&r`（应写作 `&r.*`，即被引用的值）。裸名字的四种用法不是整值读取，保持原样：接收者经由引用读取（`r.field`、`r.method()`、`r(i)`）；把名字传给引用参数（`f(r)` 传递 `r` 所借用的）；重新指向 `r = &place`；以及 `match(r, …)` 的被匹配值，它经由引用匹配，因此其绑定借用被引用值的载荷（经由 `&mut` 引用时还能写入）。对引用写 `match(&r, …)` 是 E0926，因为这个标记是多余的；`match(r.*, …)` 匹配被引用值的一份副本。对指向 `Box`、`Rc` 或指针的引用，`r.*` 是引用自身的解引用，`r.*.*` 才是载荷。该规则适用于所有文件，包括标准库、编译器自身源码和获取的依赖（自 v0.2.79 起）；只有编译器合成的代码保留裸名读取。
 
 ```yo
 first :: (fn(generic(p : Origin), v : &(i32, p)) -> i32)(v.*);
@@ -756,7 +756,7 @@ second_of :: (fn(s : &mut Pair) -> &mut(i32, s))(&mut s.b);
 
 **引用上的 impl**（决策 43 N1f-2；[`plans/VALUES_BY_DEFAULT.md`](../../plans/VALUES_BY_DEFAULT.md) 决策 43，R-PROBE）。impl 的接收者可以是引用：`impl(&C, Tr(...))`、`impl(&mut C, Tr(...))`、`impl(generic(p : Origin), &(C, p), Tr(...))`，或通用实现 `impl(generic(T), where(T <: Tr), &T, Tr(...))`。其中 `Self` 就是该引用，所以 `self : Self` 以 `&C` 接收接收者。`impl(C, Tr)`、`impl(&C, Tr)` 与 `impl(&mut C, Tr)` 是三个不同的接收者；origin 不属于接收者，因此 `impl(&(C, p), Tr)` 与 `impl(&C, Tr)` 并存是错误 E0612，裸类型变量的通用实现 `impl(generic(T), T, Tr)` 与二者之一并存也是（它同样覆盖 `&C`）。方法调用按**接收者槽位类型**解析：方法的槽位是其第一个参数代入 `Self` 后的类型（`impl(&C, …)` 上的 `self : Self` 与 `impl(C, …)` 上的 `self : &Self` 槽位都是 `&C`）。对类型为 `R` 的接收者，探测依次尝试 `R`，然后 `&R` 与 `&mut R`，再对 `R` 解引用一次并尝试其借用，第一个有方法适用的步骤胜出；同一步骤中固有方法优先于 trait 方法，同一步骤中两个 trait 方法是错误 E0616，其消息列出每个 impl 以及它们共享的槽位。因此拥有所有权的 `c` 优先采用 `C` 上按值的 `self`（`xs.into_iter()` 消耗它），只有没有按值方法时才借用；`(&c).m()` 与 `(&mut c).m()` 是显式借用，探测从 `&C` 开始（`(&xs).into_iter()` 借用）。显式借用绝不会把值从 `c` 中移出（对非 `Copy` 类型按值的 `self` 是 E0901），`(&c)` 也到达不了 `&mut Self` 方法（E0908）。引用接收者上找不到方法时，消息列出探测过的槽位类型。接收者槽位 `&&C`（`impl(&C, …)` 上的 `self : &Self`，接收 `&Self` 的 trait 会强制出现）被接受：引用绑定 `r : &C` 作为接收者时借出自身的存储，与 `(&r).m()` 相同；自有的值、调用结果或显式的 `(&c)` 没有可借出的存储，调用报错并提示先把引用绑定到局部变量。类型为引用 `&U` 的接收者（绑定、字段、调用结果、`rr.*`）首先探测槽位 `&U`：`impl(U, …)` 中 `self : &Self` 的方法与 `impl(&U, …)` 中 `self : Self` 的方法占据这个槽位，引用本身就是实参。只有没有任何方法占据该槽位时，探测才会到达 `&&U`：引用绑定借出自身的存储来填充它，其他接收者则不能（E0610）。引用上的 impl（包括 `&T` 上的通用实现）绝不会遮蔽被指类型自身的方法。中缀运算符按同一规则选择：作为引用绑定的操作数以其引用类型参与选择，所以 `ra, rb : &C` 上的 `ra == rb` 是 `&C` 上的 impl（Rust 的 `impl PartialEq<&B> for &A`），其 `lhs : &Self` 与 `rhs : &Rhs` 槽位由两个绑定自身的存储填充；它绝不是解引用。没有 `&C` 上的 impl 接受这些操作数时（`c : C` 时的 `ra == c`、`ra + 1`，或 `C` 没有这样的 impl），该操作数是整值读取，E0926 要求写 `ra.*`。prelude 为每个具有 `Eq(T)` / `Ord(T)` 的定长 `T` 提供 `Eq(&T)` 与 `Ord(&T)`（Rust 的 `impl PartialEq<&B> for &A`）：两个引用按其所指的值比较与排序，因此 `ra == rb`、`ra < rb` 以及 `T := &U` 处的泛型代码（`max`、约束 `where(T <: Ord(T))`）都可用；与之并存的用户 `impl(&C, Eq(&C))` 是 E0612。`&T` 上的 `Hash` 与 `ToString` 尚未提供。
 
-旧的关键字写法（`imm(x) : T`、`mut(x) : T`、`inout(x) : T`、`imm(self) : Self`、`mut(self) : Self`、`imm(y) := place`、`for(xs, mut(x) => ...)`）已在[值默认计划](../../plans/VALUES_BY_DEFAULT.md)的 Generation B 中删除（决定 42），引用类型声明形式 `ref(struct(...))`、`ref(enum(...))` 与 `atomic(...)` 也随之删除（V5，v0.2.79）：两者都是错误 E0009，错误信息给出符号写法（后者给出 `Rc(S)` / `Arc(S)` 的共享形式）；旧代码请在最后携带这些迁移的版本（[ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md)“已退役的迁移”）上升级。`imm` 是普通标识符；`mut` 仍是保留字，只出现在 `&` 之后。
+旧的关键字写法（`imm(x) : T`、`mut(x) : T`、`inout(x) : T`、`imm(self) : Self`、`mut(self) : Self`、`imm(y) := place`、`for(xs, mut(x) => ...)`）已在[值默认计划](../../plans/VALUES_BY_DEFAULT.md)的 Generation B 中删除（决定 42），引用类型声明形式 `ref(struct(...))`、`ref(enum(...))` 与 `atomic(...)` 也随之删除（V5，v0.2.79）：两者都是错误 E0009，错误信息给出符号写法（后者给出 `Rc(S)` / `Arc(S)` 的共享形式）。`imm` 是普通标识符；`mut` 仍是保留字，只出现在 `&` 之后。
 
 运算符 trait 也以同样方式写出操作数的模式，每个 impl 都必须完全照写这些模式（决定 34）。比较 trait `Eq` 与 `Ord` 借用操作数，即 `(==) : (fn(lhs : &Self, rhs : &Rhs) -> bool)`，因此 `a == b` 之后两个操作数都仍可使用。算术、位运算与一元 trait（`Add` 到 `BitRightShift`、`Negate`、`LogicalNot`、`BitNot` 及其 `Comptime*` 对应版本）与 Rust 一样按值接收操作数：`(+) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)`。按值操作数遵循上面的参数规则：`Copy` 操作数被复制，`String` 被共享，仅可移动的操作数被移动进运算符。trait 按值接收而 impl 借用的操作数（反之亦然）会以 "as written" 被拒绝。`Dyn` 没有可交给按值操作数的值，所以方法按值接收 `self` 的 trait（`LogicalNot`、`Negate`、`Add` 等）无论载荷是什么都不能放到 `Dyn` 后面（E0614）。
 
@@ -1333,7 +1333,7 @@ export(main);
 
 #### 析构函数：`Drop`
 
-`Drop` 是析构 trait，其方法 `drop` 采用 Rust 的语义（[值语义计划](../../plans/VALUES_BY_DEFAULT.md)，决策 45）：析构函数会自动运行且恰好运行一次——在所有者 drop 该值时，或在最后一个 `Rc`/`Arc` 引用消失时；实现它的值类型是只能移动的。它的接收者与 Rust 的 `drop(&mut self)` 一致：`drop : (fn(self : &mut Self) -> unit)`，因此析构函数可以在字段被 drop 之前把某个字段取出或重置（`self.f = .None`），而声明为 `self : &Self` 的 impl 不符合该 trait。它以前名为 `Dispose`，编译器已不再识别这个名字（`Dispose` → `Drop`、`dispose` → `drop`，以及 `x.dispose()` → `drop(x)`）；旧代码请在最后携带这些迁移的版本（[ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md)“已退役的迁移”）上升级。
+`Drop` 是析构 trait，其方法 `drop` 采用 Rust 的语义（[值语义计划](../../plans/VALUES_BY_DEFAULT.md)，决策 45）：析构函数会自动运行且恰好运行一次——在所有者 drop 该值时，或在最后一个 `Rc`/`Arc` 引用消失时；实现它的值类型是只能移动的。它的接收者与 Rust 的 `drop(&mut self)` 一致：`drop : (fn(self : &mut Self) -> unit)`，因此析构函数可以在字段被 drop 之前把某个字段取出或重置（`self.f = .None`），而声明为 `self : &Self` 的 impl 不符合该 trait。它以前名为 `Dispose`，编译器已不再识别这个名字（`Dispose` → `Drop`、`dispose` → `drop`，以及 `x.dispose()` → `drop(x)`）。
 
 手动调用析构函数是错误 E0915，与 Rust 相同：`x.drop()`、`Fd.drop(&x)` 和 `(Fd <: Drop).drop(&x)` 会在值仍然存活时再运行一次析构函数。把它当作值读取（`f := Fd.drop`）也是 E0915，因为通过 `f` 调用会造成同样的结果。其他 trait 中恰好名为 `drop` 的方法是普通方法，可以直接调用，也可以通过 `Dyn` 调用。析构函数也不调用其字段的析构函数：字段会在它返回后自行 drop。要提前结束一个值，请把它传给 prelude 的 `drop(x)`：它把值移入，并在调用返回时 drop 它；之后再使用 `x` 是 E0901。
 
@@ -3750,7 +3750,7 @@ perform :: (
 - `downcast` 和 `upcast` 保持指针的种类
 - 一个 `Dyn` 中可以有多个 trait：`Dyn(Speak, Run)`
 
-较早的写法现在都是错误：裸的 `Dyn(Trait)` 值类型（在 v0.2.77 中表示 `Box(Dyn(Trait))`）自 v0.2.78 起是 E0619，对普通值写的 `dyn(v)`（在 v0.2.77 和 v0.2.78 中表示 `dyn(Box.new(v))`）自 v0.2.79 起是 E0620。`yo fix <path> --migrate unsized` 在最后一个接受该写法的版本上迁移它（类型用 `yo version install 0.2.77`，`dyn(v)` 用 `0.2.78`）。v0.2.78 中还有哪些变化，见 [DYN_DESIGN.md](./DYN_DESIGN.md)。
+较早的写法现在都是错误：裸的 `Dyn(Trait)` 值类型（在 v0.2.77 中表示 `Box(Dyn(Trait))`）自 v0.2.78 起是 E0619，对普通值写的 `dyn(v)`（在 v0.2.77 和 v0.2.78 中表示 `dyn(Box.new(v))`）自 v0.2.79 起是 E0620。v0.2.78 中还有哪些变化，见 [DYN_DESIGN.md](./DYN_DESIGN.md)。
 
 ### 示例
 

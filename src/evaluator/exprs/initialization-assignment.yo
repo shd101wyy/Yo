@@ -124,8 +124,6 @@
   deref_exempt_clear,
   variable_is_reference_binding,
   deref_rule_applies,
-  deref_rule_recording,
-  reject_reference_without_deref,
   access_place,
   local_borrow_require_writable,
   local_borrow_root_is_shared_reference,
@@ -426,13 +424,8 @@ _evaluate_inout_local_binding :: (
   // plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P3). The identifier
   // evaluator types the operand as the reference itself. The referent is
   // spelled `y := &r.*`, the reference's own deref, a transparent hop below.
-  // `yo fix --migrate deref` reads code written before the rule, where `&r`
-  // lent the referent, and records its `.*` (E0926's edit).
   root_is_reference := (variable_is_reference_binding(&root_var) && deref_rule_applies(&root_tok, ctx));
   if(hops.len() == usize(0), {
-    if(root_is_reference && deref_rule_recording(), {
-      reject_reference_without_deref(&root_var, &root_tok, u8(2), ctx, exn);
-    });
     note_self_lend_operand(ast_expr_id(&root_atom), is_mut);
   });
   // Evaluate the place as an expression (types for every hop), WITHOUT the
@@ -480,9 +473,7 @@ _evaluate_inout_local_binding :: (
           d_recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&d_recv)), .Some(dri) => Rc.clone(dri.ty()), .None => t_unit());
           // `&r.*…` through the reference binding `r` itself (N1e-1) names
           // the referent: the place `r` already borrows, not a pointer.
-          // The recorder reads such a `*` the old way only through a `Box`, a
-          // handle or a pointer (`deref_reads_through_pointee`).
-          d_is_reference_deref := (root_is_reference && (!deref_rule_recording() || !deref_reads_through_pointee(&d_recv_ty)) && ((dk + usize(1)) == hops.len()));
+          d_is_reference_deref := (root_is_reference && ((dk + usize(1)) == hops.len()));
           if(!d_is_reference_deref && !handle_payload_is_read_only(&d_recv_ty), {
             exn.throw(
               dyn(

@@ -40,7 +40,7 @@ Two holes in the migration's guards:
    destination (`dst_decl` is empty), so the written-after guard cannot see
    `keys.push`.
 2. The `return` split (the recommendation of
-   `issues/questions/2026-10-14-explicit-copy-migration-cannot-see-writes-through-an-escaped-copy.md`)
+   `issues/retired/2026-10-14-explicit-copy-migration-cannot-see-writes-through-an-escaped-copy.md`)
    listed only copies rooted in a `&`/`&mut` parameter. Here `k` is a `match`
    binding through `&mut self` (`is_ref`, not a parameter).
 

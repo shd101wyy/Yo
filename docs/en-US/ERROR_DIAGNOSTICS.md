@@ -102,83 +102,7 @@ The repairs the compiler computes today:
 | E0620 `dyn(v)` of a named plain value | box it: `dyn(v)` → `dyn(Box.new(v))` (a longer value gives help only) |
 | `Module not found` for an import whose kebab-case spelling reaches exactly one module (a module renamed to kebab-case) | rewrite the import string to that spelling (`./string_util.yo` → `./string-util.yo`); segment-wise `_` → `-` and lower case, no other guess. Several matches, or none for a path that breaks the naming rule, give help only, and the old name never resolves |
 
-`yo fix <path> --migrate deref` runs a migration rather than a repair, for
-decision 43 step 2 (N1e-1): a reference binding reads and writes the value it refers to with `.*`. It
-evaluates every file with E0926 recording instead of rejecting, and appends
-`.*` where a reference is read or written as a whole value (`n + 1` →
-`n.* + 1`, `r = v` → `r.* = v`, `&r` → `&r.*`), turns `v.*` into `v.*.*`
-where `v.*` meant the `Box`/`Rc`/pointer deref through a reference, labels a
-capture-list pun (`{ r }` → `{ r : r.* }`), and drops the redundant marker of
-`match(&r, …)`. A site whose source text no longer prints as the evaluated
-expression on one line, or a copy whose referent is not implicitly copyable
-(`r.*` would be E0901 there), is listed with its position and left as
-written. A second run records nothing.
-
-The migration reaches only what evaluation reaches, so two options widen
-it. `yo fix ./std ./tests --migrate deref` evaluates several paths in one
-session: a generic `std` body is evaluated when a test instantiates it.
-Without `--target`, a file whose platform-gated `cond` leaves an arm the host
-does not evaluate is evaluated again for every other supported architecture
-and OS, and a position two targets read differently is listed and left as
-written; `--target <triple>` evaluates for that one target, as
-`compile --target` does. A file that does not evaluate keeps what evaluation
-never reached, and `fix` exits non-zero naming it.
-
-`yo fix <path> --migrate unsized` is the migration for decision 49
-(`plans/VALUES_BY_DEFAULT.md`): `Dyn(...)` is unsized and lives behind a
-pointer, so the owning trait object that a bare `Dyn(...)` value type names
-in v0.2.77 is written `Box(Dyn(...))`. The migration rewrites every bare
-`Dyn(...)` type spelling to `Box(Dyn(...))`: a binding, parameter, field,
-element or result type, a type alias body, a `Type.impls`/`Type.eq`/`size_of`
-argument, and `*Dyn(...)`/`?*Dyn(...)`, which point at an owned box. A
-`Dyn(...)` that is the immediate argument of `Box`, `Rc`, `Arc`, `Weak`,
-`ArcWeak`, `&` or `&mut` (with or without an origin) already names the
-unsized object and is left alone, and so is `upcast`'s target, so a second
-run changes nothing. Under v0.2.77 the two spellings are one type, so a
-`yo check` verdict does not change. The type spellings are read from the
-parse, so every platform arm is reached. The migration also evaluates every
-file, as `yo check` does, with a recorder on: `dyn(v)` of a plain value
-becomes `dyn(Box.new(v))`, and `dyn(Rc.new(e))`/`dyn(Arc.new(e))` evaluated
-against an owning `Dyn` becomes `dyn(Box.new(e))` (`alloc` kept as written).
-It lists, with their positions and without rewriting them, a spelling that
-does not print back on one line, `Rc(Dyn(T)).new(...)` (write
-`dyn(Rc.new(v))` for one shared object, or keep the box with
-`Rc(Box(Dyn(T))).new(...)`), `impl(Dyn(...), ...)` (the owning value today,
-the unsized object in v0.2.78), `dyn(p)` over a raw pointer (it boxes the
-pointer today and unsizes it in v0.2.78), `dyn(h)` over a named `Rc`/`Arc`
-handle, a `downcast` of an owned `Dyn` (its owning form arrives in v0.2.78),
-and a file with a platform-gated `cond` arm the target does not evaluate
-(run it again with `--target`). A file that does not evaluate is named and
-`fix` exits non-zero.
-
-That is the mode as v0.2.77 ships it, and v0.2.77 is the release that
-migrates v0.2.77 code. From v0.2.78 `Dyn(...)` is unsized, a bare by-value
-`Dyn(...)` is E0619, and code written for v0.2.77 is upgraded in two steps,
-which E0619's help names: on v0.2.77,
-`yo version install 0.2.77 && yo fix <path> --migrate unsized` writes the
-type spellings; then on v0.2.78, `yo fix <path> --migrate unsized` writes the
-lends. v0.2.78's mode reads its input in the v0.2.78 spelling, where
-`*Dyn(...)`, a type alias body, `impl(Dyn(...), ...)` and a
-`size_of`/`Type.eq` argument name the unsized object. It therefore rewrites
-no type spelling. It writes a lend `&b` of a `Box(Dyn(T))` where a `&Dyn(T)`
-is taken as `&b.*` (a `&Box(Dyn(T))` lends the box, and nothing coerces it to
-a reference to the object the box owns: E0601, whose help names `&b.*`), and
-the legacy `dyn(v)` alias of a plain value as `dyn(Box.new(v))`, found by
-its position, so a template literal, a bracket inside a string and an
-argument over several lines are rewritten too; a `dyn` site inside a
-`comptime_expect_error` argument is the error under test and is left as
-written. It lists a `Box(Dyn(T))` temporary where a `&Dyn(T)` is taken,
-`dyn(p)` over a raw pointer, `dyn(h)` over a named handle, a lend that does
-not print back on one line and a file with an unevaluated platform arm.
-
-That is the mode as v0.2.78 ships it, and v0.2.78 is the release that
-migrates the `dyn(v)` alias. From v0.2.79 a plain `dyn(v)` is E0620 (`dyn`
-unsizes a pointer, and a value has none), whose help names the step:
-`yo version install 0.2.78 && yo fix <path> --migrate unsized`, then the next
-release. v0.2.79's mode keeps the lends (`&b` → `&b.*`) and the listings of
-`dyn(h)` over a named handle and of an owned `downcast`.
-
-`yo fix <path>... --module-names` is not a migration and never retires: it
+`yo fix <path>... --module-names`
 applies the naming rule for module files and directories (a `.yo` file, a
 directory and a `[modules]` key are kebab-case, see the Naming Convention in
 `DESIGN.md`). Every `.yo` file or directory under the paths whose name holds
@@ -257,46 +181,6 @@ first when the cell is shared (`T <: Clone`); `Rc.try_unwrap(h)`, the payload
 out of the only handle; a uniquely owned value or `Box(T)`; and
 `Arc(Mutex(T))` or atomics across threads. Which door fits depends on why the
 state is shared, so there is no repair.
-
-#### Retired migrations
-
-Each `yo fix --migrate <name>` existed to carry code across one change of the
-language, and is retired once the code we own is across. The errors stay hard
-errors, with help that names the fix, and the per-diagnostic repairs above
-stay. To upgrade code written before a change, install the release that last
-shipped its migration, run it there, and step to the next release:
-
-```sh
-yo version install 0.2.76
-yo fix <path> --migrate borrow-spelling
-```
-
-| Migration | What it rewrote | Error it stood for | Last shipped |
-| --- | --- | --- | --- |
-| `explicit-copy` (with the `YO_AUDIT_IMPLICIT_COPY` listing) | a copy of a `String`, a collection or a value holding one whose source is used again, to `.clone()` | E0901 | v0.2.73 |
-| `cloned-accessors` (with the `YO_AUDIT_COPYING_ACCESSOR` listing and `--hot-path`) | a copying accessor call whose result holds a `String` or a collection, `r.get(i)` to `r.get_cloned(i)` | E0901 | v0.2.73 |
-| `handle-ctors` | the prelude's `rc(x)`/`box(x)`/`arc(x)` to `Rc.new(x)`/`Box.new(x)`/`Arc.new(x)`, with the type argument a closure or `.None` argument needs | E0401 (its repair rewrites the name) | v0.2.73 (later releases carry the mode, but v0.2.74 deleted the builtins, so only v0.2.73 can type an old call) |
-| `modes` | the deleted `own(x)` parameter to `sink(x)` | E0009 | v0.2.76 |
-| `params` | a plain parameter whose type is not `Copy` to `x : &T`, what it meant before the by-value flip | E0901 | v0.2.76 |
-| `addr-of` | a `&x` that was the raw-pointer address-of to `addr_of(x)` | E0914 | v0.2.76 |
-| `markers` | a bare named place passed to a `&T`/`&mut T` parameter to `&x`/`&mut x` | E0914 | v0.2.76 |
-| `match-scrutinee` | `match(x, …)` to `match(&x, …)` where moving the scrutinee is an error (decision 26) | E0901 | v0.2.76 |
-| `borrow-spelling` | the mode words to the sigils: `imm(x) : T` to `x : &T`, `mut(x) : T` to `x : &mut T`, `mut(y) := p` to `y := &mut p`, `for(xs, mut(x) => …)` to `for(&mut xs, x => …)` (decision 42) | E0009 | v0.2.76 |
-| `drop-trait` | `Dispose`/`dispose` to `Drop`/`drop`, and `x.dispose()` to `drop(x)` (decision 45) | E0915 | v0.2.76 |
-| `rc-pattern` | a pattern `p` at an `Rc(T)` position to `Rc(p)` (decision 31) | E0609 | v0.2.76 |
-| `dyn-spelling` | a callable passed bare into a `Dyn(Fn(...))` slot to `dyn(f)` (decision 44) | E0618 | v0.2.76 |
-| `mutable-globals` | `mut(G)` on every module-level binding the program writes (decision 47) | E0917 | v0.2.76 |
-| `mut-bindings` | `mut(x)` on every local, pattern and compile-time binding the program writes (decision 47 step 2) | E0917 | v0.2.76 |
-| `rc-clone` | `Rc.clone(h)`/`Arc.clone(h)`/`e.clone()` on an implicit copy of a counted handle whose source is used again, and a capture list on a closure that captures one (decision 17) | E0901 | v0.2.76 |
-| `record-literal` | a bare brace group of fields in expression position to the record `.{ … }` (the brace-group rule, `plans/reference/BRACE_BLOCKS.md`), the punned one-field group and the empty group included | E0007 | v0.2.78 |
-
-Run them in phase order. Code older than decision 42 runs
-`borrow-spelling` before `mut-bindings`: there `mut(z) := x` is the deleted
-local-borrow spelling, and `mut-bindings` would read it as a mutable local.
-Never run `borrow-spelling` on code that already spells decision 47's
-`mut(x) := v`. The copy migrations run on v0.2.73 in their own order,
-`explicit-copy`, `cloned-accessors`, then `rc-clone`, before pinning v0.2.74.
-`yo fix --migrate deref` and `yo fix --migrate unsized` are the two modes this release ships.
 
 ## Warnings
 

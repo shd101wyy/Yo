@@ -1,5 +1,7 @@
 # `--migrate unsized` writes `&(str, static)`, which safe code cannot spell while P12 is blocked
 
+**Retired 2026-11-21:** `yo fix --migrate` was deleted in v0.2.80 (maintainer decision: no external users, so no migration tooling); no mode writes the `str` spelling any more, so the question is moot.
+
 **Kind:** design question
 
 **Status:** OPEN. Filed 2026-11-16 by the d49-str lane. The branch implements option 3 (below) so that it is mergeable

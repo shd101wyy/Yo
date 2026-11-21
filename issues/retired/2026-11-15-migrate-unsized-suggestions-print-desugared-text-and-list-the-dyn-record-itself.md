@@ -1,5 +1,7 @@
 # `yo fix --migrate unsized` suggestions print desugared text, and it lists the prelude's `Dyn` record itself
 
+**Retired 2026-11-21:** `yo fix --migrate` was deleted in v0.2.80 (maintainer decision: no external users, so no migration tooling); the listing this doc describes no longer exists.
+
 **Severity:** S3 (listing text only; nothing is rewritten wrongly)
 
 **Status:** OPEN. Found 2026-11-15 by the S2 sweep rehearsal (`vbd/d49-flip-swept`).

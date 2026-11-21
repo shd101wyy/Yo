@@ -78,10 +78,10 @@ test("an unsized type by value is E0619", {
 });
 
 _SzSpeak :: trait(sz_speak : (fn(self : &Self) -> i32));
-test("a bare Dyn by value is E0619 and names the v0.2.77 migration", {
+test("a bare Dyn by value is E0619 and names Box(Dyn(...))", {
   comptime_expect_error(Option(Dyn(_SzSpeak)), "is not `Sized`");
-  comptime_expect_error(Option(Dyn(_SzSpeak)), "yo version install 0.2.77 && yo fix <path> --migrate unsized");
-  comptime_expect_error(struct(a : Dyn(_SzSpeak), b : i32), "--migrate unsized");
+  comptime_expect_error(Option(Dyn(_SzSpeak)), "an owned trait object is `Box(Dyn(...))`");
+  comptime_expect_error(struct(a : Dyn(_SzSpeak), b : i32), "an owned trait object is `Box(Dyn(...))`");
   comptime_assert(Type.impls(Option(Box(Dyn(_SzSpeak))), Sized), "the owning box is sized");
 });
 

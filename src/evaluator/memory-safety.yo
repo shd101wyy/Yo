@@ -332,25 +332,6 @@ is_global_mut_rule_exempt :: (fn(mp : &String, std_path : &String) -> bool)(
     }
   )
 );
-/// Whether `mp` lies in one of the repository's own trees whose text the
-/// v0.2.78 deref sweep wrote in the new spelling: std
-/// (`is_std_module_path`), the compiler source beside it (`<std>/../src/`),
-/// its scripts and its build file. Every written `r.*` there is the
-/// reference's own deref (N3 deref Generation A' has read it so since
-/// v0.2.77), so `yo fix --migrate deref` never reads one as old source
-/// (`deref_text_is_new_spelling`).
-is_deref_swept_tree :: (fn(mp : &String, std_path : &String) -> bool)({
-  if(is_std_module_path(mp, std_path), {
-    return(true);
-  });
-  (sp : String) = std_path.clone();
-  while(sp.ends_with(`/`), {
-    sp = sp.slice_copy(usize(0) .. (sp.len() - usize(1)));
-  });
-  abs := _lex_abs_path(mp.clone());
-  repo_root := match(Path.new(_lex_abs_path(&sp)).parent(), .Some(pp) => pp.to_string(), .None => String.new());
-  abs.starts_with(`${repo_root}/src/`) || (abs.starts_with(`${repo_root}/scripts/`) || (abs == `${repo_root}/build.yo`))
-});
 is_macro_def_capable_file :: (fn(module_path : &Option(String)) -> bool)(
   match(
     module_path,
@@ -505,7 +486,6 @@ export(
   is_auto_generated_expansion,
   is_macro_def_capable_file,
   is_global_mut_rule_exempt,
-  is_deref_swept_tree,
   is_pointer_value_capable_file,
   is_overload_set_capable_file,
   is_prelude_or_generated_file,

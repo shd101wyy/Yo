@@ -173,9 +173,7 @@ value (`{ s }`) as the reference.
 **The value spelling.** A `str` written where a value is held (a by-value
 parameter, a result, a typed local, a struct field, an array element, a type
 argument such as `ArrayList(str)`) means `&(str, static)` for now, which is
-what it meant before: a view of static bytes. `yo fix --migrate unsized`
-writes that spelling (`(name : &(str, static))`, `ArrayList(&(str, static))`)
-and lists a `sink(s) : str` parameter for a hand rewrite. The value spelling
+what it meant before: a view of static bytes. The value spelling
 is removed in v0.2.80. Comparing a `&str` with a `String` or a `str`
 (`name == "lit"`, `"lit" == name`) keeps working through the same legacy rule.
 

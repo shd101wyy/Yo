@@ -148,7 +148,6 @@ pragma(Pragma.AllowUnsafe);
   sync_in_flight_ctx_at,
 } :: import("../context.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ note_legacy_str_spelling } :: import("../utils.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./anonymous-module.yo");
 { format_error_message, render_any_error, reanchor_primary_at, YoError, with_code, format_error_message_with_help } :: import("../../error.yo");
 { E_WRITE_THROUGH_BORROW, E_ORIGIN_MISMATCH, E_DEREF_IMPL_SIZED_TARGET } :: import("../../diagnostics.yo");
@@ -4728,7 +4727,6 @@ _c3_eval_colon_pair :: (
       method_val := match(
         ls_aliased,
         .Some(ls_ty) => {
-          note_legacy_str_spelling(&val_expr, false, &ctx.std_path);
           fi.set_value(Option(EvalValue).Some(Rc.new(EvalValueNode.TypeVal(ls_ty.clone()))));
           Rc.new(EvalValueNode.TypeVal(Rc.clone(ls_ty)))
         },
