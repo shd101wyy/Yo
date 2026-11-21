@@ -12136,6 +12136,19 @@ _static_offending_root :: (fn(roots : &ArrayList(OriginRootPlace), skip : &Strin
 /// function call is NOT walked: its result's origin is R-CALL's (the
 /// callee's declared result origin substituted), and an argument a real
 /// callee only reads does not make its result non-static.
+/// An argument without its readability label (`x : e` → `e`), the local
+/// spelling of `calls/helper.yo`'s `_unlabeled_argument` (utils.yo cannot
+/// import a calls/ module: helper imports this one).
+_svr_unlabeled :: (fn(arg : &AstExpr) -> AstExpr)(
+  cond(
+    ast_expr_is_fn_call_of(arg, ":", .Some(usize(2))) => match(
+      arg,
+      Rc(.FnCall(_, _, Rc(su_args), _, _)) => match(su_args.get_cloned(usize(1)), .Some(a) => a, .None => Rc.clone(arg.*)),
+      _ => Rc.clone(arg.*)
+    ),
+    true => Rc.clone(arg.*)
+  )
+);
 _static_value_roots :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(OriginRootPlace), depth : u32) -> unit)({
   if(depth > u32(12), {
     return(());
@@ -12158,46 +12171,32 @@ _static_value_roots :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext,
         ),
         .None => true
       );
-      if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
-        svr_vk := match(
-          expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&svr_callee.*)),
-          .Some(svr_di) => match(
-            svr_di.value(),
-            .Some(Rc(.TypeVal(_))) => String.from("TypeVal"),
-            .Some(Rc(.FuncVal(_, _))) => String.from("FuncVal"),
-            .Some(_) => String.from("other"),
-            .None => String.from("novalue")
-          ),
-          .None => String.from("noinfo")
-        );
-        svr_ft := match(
-          expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&svr_callee.*)),
-          .Some(svr_ti) => if(is_function_type(&svr_ti.ty()), String.from("fn"), String.from("nonfn")),
-          .None => String.from("-")
-        );
-        eprintln(`[svr] ctor=${svr_is_ctor.to_string()} val=${svr_vk} ty=${svr_ft} callee=${ast_expr_to_string(&svr_callee.*)} nargs=${svr_args.len().to_string()}`)
-      });
       if(svr_is_ctor, {
         (svr_ai : usize) = usize(0);
         while(svr_ai < svr_args.len(), {
           match(
             svr_args.get_cloned(svr_ai),
-            .Some(svr_a) => match(
-              expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&svr_a)),
-              // An argument whose type carries an origin holds that place;
-              // one whose type SPELLS the empty origin at a checked
-              // position is itself a constructed static holder whose
-              // payload must be walked too (a `H(r : &b)` field).
-              .Some(svr_ari) => {
-                if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
-                  eprintln(`[svr-arg] carries=${type_carries_origin(&svr_ari.ty()).to_string()} spells=${type_spells_checked_static(&svr_ari.ty()).to_string()} arg=${ast_expr_to_string(&svr_a)}`)
-                });
-                if(type_carries_origin(&svr_ari.ty()) || type_spells_checked_static(&svr_ari.ty()), {
+            .Some(svr_a0) => {
+              // A struct-literal argument is labeled (`r : &b`): the value
+              // is the label's right side.
+              svr_a := _svr_unlabeled(&svr_a0);
+              match(
+                expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&svr_a)),
+                // An argument whose type carries an origin holds that
+                // place; one whose type SPELLS the empty origin at a
+                // checked position is itself a constructed static holder
+                // whose payload must be walked too (a `H(r : &b)` field).
+                .Some(svr_ari) => if(type_carries_origin(&svr_ari.ty()) || type_spells_checked_static(&svr_ari.ty()), {
                   _static_value_roots(&svr_a, env, ctx, out, (depth + u32(1)));
-                });
-              },
-              .None => ()
-            ),
+                }),
+                // A lend argument carries no ExprInfo of its own (the
+                // comptime trial evaluates the call, not the arg nodes);
+                // a syntactic lend borrows a place, so walk it.
+                .None => if(ast_expr_is_fn_call_of(&svr_a, BF_ADDRESS_OF, .Some(usize(1))) || ast_expr_is_fn_call_of(&svr_a, BK_BORROW_MUT, .Some(usize(1))), {
+                  _static_value_roots(&svr_a, env, ctx, out, (depth + u32(1)));
+                })
+              );
+            },
             .None => ()
           );
           svr_ai = (svr_ai + usize(1));
